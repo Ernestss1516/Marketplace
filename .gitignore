@@ -1,0 +1,39 @@
+# Dependencias
+node_modules/
+
+# Builds y salidas
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+
+# Secretos y entorno (NUNCA al repo)
+.env
+.env*.local
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*
+
+# Caché de herramientas y cobertura
+.turbo/
+.cache/
+coverage/
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# Editores / IDE
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Claude Code (settings locales; el CLAUDE.md SÍ se versiona)
+.claude/settings.local.json
+
+# Temporales
+*.tmp
