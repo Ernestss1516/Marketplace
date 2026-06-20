@@ -1,14 +1,28 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
-import { CurrentUser } from '../../common/decorators';
+import { Body, Controller, Get, Param, Patch, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards';
+import { CurrentUser } from '../../common/decorators';
 import { JwtUser } from '../auth/auth.types';
+import { UsersService } from './users.service';
+import { UpdateMeDto } from './dto/update-me.dto';
 
 @Controller('users')
-@UseGuards(JwtAuthGuard)
 export class UsersController {
+  constructor(private readonly usersService: UsersService) {}
+
   @Get('me')
+  @UseGuards(JwtAuthGuard)
   getMe(@CurrentUser() user: JwtUser) {
-    // TODO: return full user profile from UsersService
-    return { id: user.userId, email: user.email, role: user.role };
+    return this.usersService.findById(user.userId);
+  }
+
+  @Patch('me')
+  @UseGuards(JwtAuthGuard)
+  updateMe(@CurrentUser() user: JwtUser, @Body() dto: UpdateMeDto) {
+    return this.usersService.updateMe(user.userId, dto);
+  }
+
+  @Get(':slug')
+  getPublicProfile(@Param('slug') slug: string) {
+    return this.usersService.findBySlug(slug);
   }
 }
