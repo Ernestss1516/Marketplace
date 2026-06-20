@@ -1,9 +1,6 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, UseGuards } from '@nestjs/common';
+import { JwtAuthGuard } from '../../common/guards';
 
 @Controller('listings')
-export class ListingsController {
-  @Get('health')
-  health() {
-    return { module: 'listings', status: 'ok' };
-  }
-}
+@UseGuards(JwtAuthGuard)
+export class ListingsController {}

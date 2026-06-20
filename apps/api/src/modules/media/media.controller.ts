@@ -1,9 +1,6 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, UseGuards } from '@nestjs/common';
+import { JwtAuthGuard } from '../../common/guards';
 
 @Controller('media')
-export class MediaController {
-  @Get('health')
-  health() {
-    return { module: 'media', status: 'ok' };
-  }
-}
+@UseGuards(JwtAuthGuard)
+export class MediaController {}

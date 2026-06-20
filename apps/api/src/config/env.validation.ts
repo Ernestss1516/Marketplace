@@ -10,4 +10,7 @@ export const envValidationSchema = Joi.object({
   MEILI_HOST: Joi.string().required(),
   MEILI_MASTER_KEY: Joi.string().required(),
   JWT_SECRET: Joi.string().required(),
+  RESEND_API_KEY: Joi.string().required(),
+  RESEND_FROM: Joi.string().email().optional(),
+  APP_URL: Joi.string().uri().optional(),
 });

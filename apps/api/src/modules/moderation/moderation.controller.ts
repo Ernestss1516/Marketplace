@@ -1,9 +1,9 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, UseGuards } from '@nestjs/common';
+import { JwtAuthGuard, RolesGuard } from '../../common/guards';
+import { Roles } from '../../common/decorators';
+import { Role } from '@prisma/client';
 
 @Controller('moderation')
-export class ModerationController {
-  @Get('health')
-  health() {
-    return { module: 'moderation', status: 'ok' };
-  }
-}
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.MODERATOR, Role.ADMIN)
+export class ModerationController {}

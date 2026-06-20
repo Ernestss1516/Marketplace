@@ -13,4 +13,9 @@ export default () => ({
   jwt: {
     secret: process.env.JWT_SECRET,
   },
+  resend: {
+    apiKey: process.env.RESEND_API_KEY,
+    from: process.env.RESEND_FROM ?? 'noreply@tudominio.es',
+  },
+  appUrl: process.env.APP_URL ?? 'http://localhost:3000',
 });

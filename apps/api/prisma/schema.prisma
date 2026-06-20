@@ -105,16 +105,18 @@ model User {
   updatedAt     DateTime   @updatedAt
 
   // --- Relaciones ---
-  listings         Listing[]
-  favorites        Favorite[]
-  buyerConvos      Conversation[] @relation("BuyerConversations")
-  sellerConvos     Conversation[] @relation("SellerConversations")
-  messages         Message[]
-  reviewsAuthored  Review[]       @relation("ReviewAuthor")
-  reviewsReceived  Review[]       @relation("ReviewTarget")
-  reportsMade      Report[]       @relation("Reporter")
-  reportsReceived  Report[]       @relation("ReportedUser")
-  reportsResolved  Report[]       @relation("ReportResolver")
+  listings            Listing[]
+  favorites           Favorite[]
+  buyerConvos         Conversation[]      @relation("BuyerConversations")
+  sellerConvos        Conversation[]      @relation("SellerConversations")
+  messages            Message[]
+  reviewsAuthored     Review[]            @relation("ReviewAuthor")
+  reviewsReceived     Review[]            @relation("ReviewTarget")
+  reportsMade         Report[]            @relation("Reporter")
+  reportsReceived     Report[]            @relation("ReportedUser")
+  reportsResolved     Report[]            @relation("ReportResolver")
+  verificationTokens  VerificationToken[]
+  passwordResetTokens PasswordResetToken[]
 
   @@index([status])
 }
@@ -327,4 +329,31 @@ model Report {
 
   @@index([status])
   @@index([listingId])
+}
+
+// ============================================================================
+//  AUTH TOKENS (verificación de email y recuperación de contraseña)
+// ============================================================================
+
+model VerificationToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
 }
