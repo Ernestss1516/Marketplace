@@ -1,0 +1,9 @@
+{
+  "private": true,
+  "packageManager": "pnpm@11.8.0",
+  "scripts": {
+    "api:dev": "pnpm --filter @marketplace/api dev",
+    "api:build": "pnpm --filter @marketplace/api build",
+    "api:test": "pnpm --filter @marketplace/api test"
+  }
+}

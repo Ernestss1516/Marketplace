@@ -1,0 +1,330 @@
+// ============================================================================
+//  schema.prisma — Modelo de datos del marketplace (PostgreSQL)
+//  Fuente única de verdad de la persistencia. Lo consume NestJS vía PrismaClient.
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+  // postgresqlExtensions habilita extensiones de Postgres (p. ej. PostGIS) desde el schema.
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  // PostGIS para búsquedas geográficas por radio (ver nota en el modelo Listing).
+  extensions = [postgis]
+}
+
+// ============================================================================
+//  ENUMS
+// ============================================================================
+
+/// Rol del usuario. Gobierna el acceso al backoffice (RolesGuard en NestJS).
+enum Role {
+  USER
+  MODERATOR
+  ADMIN
+}
+
+/// Estado de la cuenta de usuario.
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  BANNED
+}
+
+/// Ciclo de vida de un anuncio. Modela el flujo de publicación y moderación.
+enum ListingStatus {
+  DRAFT           // Borrador, aún no enviado
+  PENDING_REVIEW  // En espera de moderación
+  ACTIVE          // Publicado y visible
+  RESERVED        // Reservado a un comprador
+  SOLD            // Vendido
+  EXPIRED         // Caducado
+  REJECTED        // Rechazado por moderación
+}
+
+/// Un anuncio puede ofrecer un producto o un servicio.
+enum ListingType {
+  PRODUCT
+  SERVICE
+}
+
+/// Estado del artículo (aplica sobre todo a productos).
+enum Condition {
+  NEW
+  LIKE_NEW
+  GOOD
+  FAIR
+  FOR_PARTS
+}
+
+/// Motivo de una denuncia, para la cola de moderación.
+enum ReportReason {
+  SPAM
+  FRAUD
+  INAPPROPRIATE
+  PROHIBITED_ITEM
+  WRONG_CATEGORY
+  OTHER
+}
+
+/// Estado de gestión de una denuncia.
+enum ReportStatus {
+  PENDING
+  REVIEWING
+  RESOLVED
+  DISMISSED
+}
+
+// ============================================================================
+//  USUARIOS
+// ============================================================================
+
+model User {
+  id            String     @id @default(cuid())
+  email         String     @unique
+  passwordHash  String
+  name          String
+  /// Slug único para la URL del perfil público (SEO): /vendedor/{slug}
+  slug          String     @unique
+  phone         String?
+  avatarUrl     String?
+  bio           String?    @db.Text
+  role          Role       @default(USER)
+  status        UserStatus @default(ACTIVE)
+  emailVerified Boolean    @default(false)
+
+  // Ubicación para mostrar y prefiltrar
+  city          String?
+  province      String?
+  postalCode    String?
+
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  // --- Relaciones ---
+  listings         Listing[]
+  favorites        Favorite[]
+  buyerConvos      Conversation[] @relation("BuyerConversations")
+  sellerConvos     Conversation[] @relation("SellerConversations")
+  messages         Message[]
+  reviewsAuthored  Review[]       @relation("ReviewAuthor")
+  reviewsReceived  Review[]       @relation("ReviewTarget")
+  reportsMade      Report[]       @relation("Reporter")
+  reportsReceived  Report[]       @relation("ReportedUser")
+  reportsResolved  Report[]       @relation("ReportResolver")
+
+  @@index([status])
+}
+
+// ============================================================================
+//  CATEGORÍAS (árbol jerárquico autorreferenciado)
+// ============================================================================
+
+model Category {
+  id        String  @id @default(cuid())
+  name      String
+  /// Slug único para la URL de listado (SEO): /{slug}
+  slug      String  @unique
+  iconUrl   String?
+  order     Int     @default(0)
+
+  // Auto-relación: una categoría puede tener una categoría padre y subcategorías.
+  parentId  String?
+  parent    Category?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children  Category[] @relation("CategoryTree")
+
+  /// Definición de los atributos esperados para esta categoría (nombre, tipo,
+  /// opciones, si es filtrable…). El frontend la usa para pintar el formulario
+  /// de publicación y los filtros; los valores concretos viven en Listing.attributes.
+  attributeSchema Json @default("[]")
+
+  listings  Listing[]
+
+  @@index([parentId])
+}
+
+// ============================================================================
+//  ANUNCIOS (núcleo del dominio)
+// ============================================================================
+
+model Listing {
+  id          String        @id @default(cuid())
+  title       String
+  /// Slug único para la ficha (SEO): /anuncio/{slug}
+  slug        String        @unique
+  description String        @db.Text
+
+  // Decimal (no Float) para evitar errores de redondeo en importes monetarios.
+  price       Decimal       @db.Decimal(12, 2)
+  currency    String        @default("EUR")
+
+  type        ListingType
+  condition   Condition?    // Nulo en servicios
+  status      ListingStatus @default(DRAFT)
+
+  /// jsonb con los atributos variables según la categoría.
+  /// Coche → { km, año, combustible, cambio }; Inmueble → { m2, habitaciones, planta }…
+  /// Evita una tabla de columnas distintas por categoría. La búsqueda y el filtrado
+  /// fino de estos campos se delegan en Meilisearch.
+  attributes  Json          @default("{}")
+
+  // --- Ubicación ---
+  city        String?
+  province    String?
+  postalCode  String?
+  latitude    Float?
+  longitude   Float?
+  // NOTA PostGIS: para búsquedas por radio eficientes ("anuncios a 10 km") se
+  // añade en una migración SQL una columna geography(Point, 4326) con índice GiST,
+  // poblada desde latitude/longitude. Prisma la trata como campo no gestionado.
+
+  viewCount   Int           @default(0)
+
+  publishedAt DateTime?
+  expiresAt   DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  // --- Relaciones ---
+  sellerId    String
+  seller      User          @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  categoryId  String
+  category    Category      @relation(fields: [categoryId], references: [id])
+
+  images        ListingImage[]
+  favorites     Favorite[]
+  conversations Conversation[]
+  reports       Report[]
+  reviews       Review[]
+
+  // Índices para los filtros y ordenaciones más frecuentes (rendimiento de listados).
+  @@index([categoryId, status])
+  @@index([status, publishedAt])
+  @@index([sellerId])
+  @@index([price])
+  @@index([province, city])
+}
+
+model ListingImage {
+  id        String  @id @default(cuid())
+  url       String
+  alt       String?
+  width     Int?
+  height    Int?
+  order     Int     @default(0)
+
+  listingId String
+  listing   Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
+}
+
+// ============================================================================
+//  FAVORITOS
+// ============================================================================
+
+model Favorite {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listingId String
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  // Un usuario no puede marcar el mismo anuncio dos veces.
+  @@unique([userId, listingId])
+  @@index([userId])
+}
+
+// ============================================================================
+//  MENSAJERÍA (conversación por anuncio entre comprador y vendedor)
+// ============================================================================
+
+model Conversation {
+  id            String    @id @default(cuid())
+  listingId     String
+  listing       Listing   @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  buyerId       String
+  buyer         User      @relation("BuyerConversations", fields: [buyerId], references: [id])
+  sellerId      String
+  seller        User      @relation("SellerConversations", fields: [sellerId], references: [id])
+
+  lastMessageAt DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+
+  messages      Message[]
+
+  // Una sola conversación por (anuncio, comprador).
+  @@unique([listingId, buyerId])
+  @@index([buyerId])
+  @@index([sellerId])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User         @relation(fields: [senderId], references: [id])
+  body           String       @db.Text
+  readAt         DateTime?
+  createdAt      DateTime     @default(now())
+
+  @@index([conversationId, createdAt])
+}
+
+// ============================================================================
+//  VALORACIONES (reputación)
+// ============================================================================
+
+model Review {
+  id        String   @id @default(cuid())
+  rating    Int      // 1..5 (validado en el DTO de NestJS)
+  comment   String?  @db.Text
+
+  authorId  String
+  author    User     @relation("ReviewAuthor", fields: [authorId], references: [id])
+  targetId  String
+  target    User     @relation("ReviewTarget", fields: [targetId], references: [id])
+  listingId String?
+  listing   Listing? @relation(fields: [listingId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  // Una valoración por autor y anuncio (evita valoraciones repetidas).
+  @@unique([authorId, listingId])
+  @@index([targetId])
+}
+
+// ============================================================================
+//  MODERACIÓN (denuncias)
+// ============================================================================
+
+model Report {
+  id             String       @id @default(cuid())
+  reason         ReportReason
+  description    String?      @db.Text
+  status         ReportStatus @default(PENDING)
+
+  reporterId     String
+  reporter       User         @relation("Reporter", fields: [reporterId], references: [id])
+
+  // Una denuncia apunta a un anuncio o a un usuario (al menos uno).
+  listingId      String?
+  listing        Listing?     @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  reportedUserId String?
+  reportedUser   User?        @relation("ReportedUser", fields: [reportedUserId], references: [id])
+
+  // Auditoría de la resolución por parte de un moderador.
+  resolvedById   String?
+  resolvedBy     User?        @relation("ReportResolver", fields: [resolvedById], references: [id])
+  resolvedAt     DateTime?
+
+  createdAt      DateTime     @default(now())
+
+  @@index([status])
+  @@index([listingId])
+}
