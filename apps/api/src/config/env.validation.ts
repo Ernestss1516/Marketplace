@@ -13,4 +13,9 @@ export const envValidationSchema = Joi.object({
   RESEND_API_KEY: Joi.string().required(),
   RESEND_FROM: Joi.string().email().optional(),
   APP_URL: Joi.string().uri().optional(),
+  S3_ENDPOINT: Joi.string().uri().required(),
+  S3_BUCKET: Joi.string().required(),
+  S3_ACCESS_KEY_ID: Joi.string().required(),
+  S3_SECRET_ACCESS_KEY: Joi.string().required(),
+  S3_PUBLIC_URL: Joi.string().uri().required(),
 });

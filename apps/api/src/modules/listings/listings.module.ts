@@ -1,8 +1,11 @@
 import { Module } from '@nestjs/common';
+import { BullModule } from '@nestjs/bullmq';
+import { QUEUE_INDEXING } from '../../infra/queue/queue.constants';
 import { ListingsController } from './listings.controller';
 import { ListingsService } from './listings.service';
 
 @Module({
+  imports: [BullModule.registerQueue({ name: QUEUE_INDEXING })],
   controllers: [ListingsController],
   providers: [ListingsService],
   exports: [ListingsService],

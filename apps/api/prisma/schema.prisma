@@ -117,6 +117,7 @@ model User {
   reportsResolved     Report[]            @relation("ReportResolver")
   verificationTokens  VerificationToken[]
   passwordResetTokens PasswordResetToken[]
+  uploadedImages      ListingImage[]       @relation("UploadedImages")
 
   @@index([status])
 }
@@ -211,17 +212,21 @@ model Listing {
 }
 
 model ListingImage {
-  id        String  @id @default(cuid())
+  id        String   @id @default(cuid())
   url       String
   alt       String?
   width     Int?
   height    Int?
-  order     Int     @default(0)
+  order     Int      @default(0)
 
-  listingId String
-  listing   Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  listingId    String?
+  listing      Listing? @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  uploadedById String?
+  uploadedBy   User?    @relation("UploadedImages", fields: [uploadedById], references: [id], onDelete: SetNull)
 
   @@index([listingId])
+  @@index([uploadedById])
 }
 
 // ============================================================================

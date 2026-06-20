@@ -6,6 +6,7 @@ import { PrismaModule } from './infra/prisma/prisma.module';
 import { RedisModule } from './infra/redis/redis.module';
 import { MeilisearchModule } from './infra/meilisearch/meilisearch.module';
 import { QueueModule } from './infra/queue/queue.module';
+import { R2Module } from './infra/r2/r2.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { ListingsModule } from './modules/listings/listings.module';
@@ -29,6 +30,7 @@ import { AdminModule } from './modules/admin/admin.module';
     RedisModule,
     MeilisearchModule,
     QueueModule,
+    R2Module,
     // Domain modules
     AuthModule,
     UsersModule,
