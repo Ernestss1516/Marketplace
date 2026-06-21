@@ -154,7 +154,7 @@ export default async function AnuncioPage({
 
           {/* ── Right column (desktop sidebar) ── */}
           <div className="space-y-4">
-            <ContactButton listingSlug={slug} />
+            <ContactButton listingSlug={slug} listingId={listing.id} />
             <SellerCard seller={listing.seller} publishedAt={listing.publishedAt} />
           </div>
         </div>

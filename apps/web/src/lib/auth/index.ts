@@ -5,7 +5,7 @@ import { authConfig } from './auth.config';
 
 interface LoginResponse {
   accessToken: string;
-  user: { id: string; name: string; email: string; slug: string; role: string };
+  user: { id: string; name: string; email: string; slug: string; role: string; emailVerified: boolean };
 }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
@@ -29,6 +29,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             slug: res.user.slug,
             role: res.user.role,
             accessToken: res.accessToken,
+            emailVerified: res.user.emailVerified,
           };
         } catch (error) {
           if (error instanceof ApiError && error.statusCode === 401) return null;

@@ -83,7 +83,7 @@ export class AuthService {
     const accessToken = this.signToken(user);
     return {
       accessToken,
-      user: { id: user.id, name: user.name, email: user.email, slug: user.slug, role: user.role },
+      user: { id: user.id, name: user.name, email: user.email, slug: user.slug, role: user.role, emailVerified: user.emailVerified },
     };
   }
 

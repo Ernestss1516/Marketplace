@@ -1,9 +1,16 @@
 import { apiFetch } from './client';
 
+export interface OtherUser {
+  id: string;
+  name: string;
+  slug: string;
+  avatarUrl?: string | null;
+}
+
 export interface ConversationSummary {
   id: string;
-  listing: { id: string; title: string; slug: string; thumbnailUrl?: string };
-  otherUser: { name: string; slug: string };
+  listing: { id: string; title: string; slug: string; thumbnailUrl?: string | null };
+  otherUser: OtherUser;
   lastMessageAt: string;
   unreadCount: number;
 }
@@ -12,15 +19,16 @@ export interface ChatMessage {
   id: string;
   senderId: string;
   body: string;
-  readAt?: string;
+  readAt?: string | null;
   createdAt: string;
 }
 
 export interface ConversationDetail {
   id: string;
   listing: ConversationSummary['listing'];
-  otherUser: ConversationSummary['otherUser'];
+  otherUser: OtherUser;
   messages: ChatMessage[];
+  nextCursor: string | null;
 }
 
 export function getConversations(token: string): Promise<{ items: ConversationSummary[] }> {
@@ -30,9 +38,13 @@ export function getConversations(token: string): Promise<{ items: ConversationSu
 export function getConversation(
   id: string,
   token: string,
-  page = 1,
+  opts?: { before?: string; limit?: number },
 ): Promise<ConversationDetail> {
-  return apiFetch<ConversationDetail>(`/conversations/${id}?page=${page}`, { token });
+  const params = new URLSearchParams();
+  if (opts?.before) params.set('before', opts.before);
+  if (opts?.limit) params.set('limit', String(opts.limit));
+  const qs = params.size > 0 ? `?${params.toString()}` : '';
+  return apiFetch<ConversationDetail>(`/conversations/${id}${qs}`, { token });
 }
 
 export function sendMessage(
@@ -51,7 +63,7 @@ export function startConversation(
   listingId: string,
   message: string,
   token: string,
-): Promise<{ id: string; listingId: string }> {
+): Promise<{ id: string; listingId: string; createdAt: string }> {
   return apiFetch('/conversations', {
     method: 'POST',
     body: JSON.stringify({ listingId, message }),

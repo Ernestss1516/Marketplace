@@ -1,6 +1,6 @@
 # Estado técnico del proyecto — Marketplace
 
-> Fecha: 2026-06-21 · Rama: `main` · Último commit: `c444695`
+> Fecha: 2026-06-22 · Rama: `main` · Último commit: `5a98489` (Fase 5 sin commitear aún)
 
 Documento de referencia para retomar el proyecto. Recoge qué hay implementado,
 qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
@@ -18,14 +18,14 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **Infra: BullMQ** | ✅ Colas activas | 3 colas registradas con processors reales (ver §2 para el fix de ioredis) |
 | **Infra: Meilisearch** | ✅ Completo | `SearchService.onModuleInit()` crea el índice `listings` y aplica searchable/filterable/sortable attrs, ranking rules y typo tolerance al arrancar |
 | **Infra: MinIO/R2** | ✅ Completo | Dev: MinIO vía docker-compose (bucket `marketplace` con lectura pública, creado por el contenedor `createbuckets`). Prod: Cloudflare R2 vía `R2Service` |
-| **Auth** | ✅ Completo | register, login, verify-email, forgot-password, reset-password; `JwtAuthGuard`, `RolesGuard`, `@CurrentUser` |
+| **Auth** | ✅ Completo | register, login, verify-email, forgot-password, reset-password; `JwtAuthGuard`, `RolesGuard`, `@CurrentUser`; login devuelve `emailVerified` (fix fase 5) |
 | **Users** | ✅ Completo | `GET /users/me`, `PATCH /users/me`, `GET /users/:slug` (perfil público) |
 | **Categories** | ✅ Completo | `GET /categories` (árbol), `GET /categories/:slug` (con `attributeSchema`) |
 | **Listings** | ✅ Completo | CRUD completo + ciclo de vida (publish, reserve, sold, delete) + caché por slug + encolado de reindexado; `GET /listings/mine/:id` para edición; `thumbnailUrl` resuelto en `findMine` y `findBySellerSlug` |
 | **Media** | ✅ Upload | `POST /media/upload` → R2/MinIO → crea `ListingImage` huérfana → encola procesado con sharp; **sin DELETE** |
 | **Search** | ✅ Completo | `GET /search` con texto libre, filtros core y atributos variables (brand, fuel, rooms, gender, size…), facetas, paginación y ordenación; `IndexingProcessor` real con jobs `index`/`remove` |
 | **Script reindex** | ✅ Completo | `pnpm reindex` — reconstruye el índice en batches de 100; `ReindexModule` mínimo (sin BullMQ) para cierre limpio |
-| **Messaging** | ❌ Stub vacío | Módulo y controller existen, sin lógica |
+| **Messaging** | ✅ Completo | REST: `GET /conversations`, `POST /conversations`, `GET /conversations/:id` (cursor), `POST /conversations/:id/messages`. WebSocket gateway `/ws`: auth en handshake, rooms de conversación y de usuario, emit tras el POST REST |
 | **Favorites** | ❌ Stub vacío | Ídem |
 | **Reviews** | ❌ Stub vacío | Ídem |
 | **Moderation** | ❌ Stub vacío | Ídem |
@@ -36,7 +36,7 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | Página / Componente | Estado | Notas |
 |---|---|---|
 | **Home** `/` | ✅ Completo | Hero, buscador, grid de categorías, últimos anuncios (8); Server Component con fetch paralelo |
-| **Ficha anuncio** `/anuncio/[slug]` | ✅ Completo | Galería, precio con `priceType`, atributos de categoría, ubicación, anuncios relacionados, metadata OG |
+| **Ficha anuncio** `/anuncio/[slug]` | ✅ Completo | Galería, precio con `priceType`, atributos de categoría, ubicación, anuncios relacionados, metadata OG; `ContactButton` integrado |
 | **Categoría** `/[categoria]` | ✅ Completo | Listado paginado con ordenación (fecha/precio) |
 | **Publicar** `/publicar` | ✅ Completo | Wizard 5–6 pasos (categoría, fotos, datos, atributos opcionales, ubicación, preview); subida a R2/MinIO vía `POST /media/upload`; crea borrador + publica |
 | **Login / Registro** | ✅ Completo | Formularios con next-auth v5 CredentialsProvider |
@@ -46,7 +46,9 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **Editar anuncio** `/mis-anuncios/[id]/editar` | ✅ Completo | Wizard de edición (`EditarWizard`) precargado con datos del backend vía `GET /listings/mine/:id`; categoría bloqueada |
 | **Vendedor** `/vendedor/[slug]` | ✅ Completo | Perfil del vendedor (avatar, bio, ubicación, fecha de registro) + grid paginado de anuncios activos |
 | **Búsqueda** `/busqueda` | ✅ Completo | Server Component con fetch paralelo a Meilisearch; sidebar `FilterPanel` con categorías, tipo, estado, rango de precio, ordenación y facetas dinámicas; paginación; estados de error y vacío |
-| **Mensajes, Favoritos, Perfil** | ❌ Sin implementar | Rutas protegidas por middleware; páginas vacías |
+| **Bandeja mensajes** `/mensajes` | ✅ Completo | `BandejaMensajesClient`: lista de conversaciones con thumbnail, contador de no leídos y tiempo relativo; actualización en vivo vía WebSocket (lastMessageAt + unreadCount) |
+| **Chat** `/mensajes/[id]` | ✅ Completo | `ChatClient`: mensajes en orden cronológico, auto-scroll al fondo, carga de mensajes anteriores (cursor-based), envío vía POST REST, recepción en tiempo real vía WebSocket con deduplicación idempotente |
+| **Perfil propio** `/perfil` | ❌ Sin implementar | Ruta protegida por middleware; página vacía |
 | **Admin** `/admin/*` | ❌ Sin implementar | Protegido por rol ADMIN en middleware; páginas vacías |
 
 ---
@@ -145,9 +147,98 @@ En su lugar se llama a `prisma.$disconnect()` y se deja drenar el event loop.
 El tsconfig dedicado (`tsconfig.scripts.json`) fuerza `"module": "CommonJS"` e
 `"incremental": false` para que `ts-node` compile el script de forma portátil.
 
+### Gateway WebSocket y modelo de rooms (Fase 5)
+
+El gateway (`MessagingGateway`) vive en el namespace `/ws` y usa socket.io vía
+`@nestjs/websockets` + `@nestjs/platform-socket.io`. La autenticación se hace en
+`handleConnection`: se extrae `socket.handshake.auth.token`, se verifica con
+`JwtService.verify()` directamente (Passport no aplica en WebSocket), y si falla se
+desconecta el socket. Si es válido, el socket se une automáticamente a la room
+`user:${userId}`, que es el canal de la bandeja (`/mensajes`).
+
+Para el chat (`/mensajes/[id]`), el cliente emite `conversation:join` con
+`{ conversationId }` y el gateway verifica en Prisma que el usuario es participante
+(buyerId o sellerId) antes de unirlo a la room `conv:${conversationId}`. La comprobación
+de participante vive en el gateway (no en el controller) para mantener la autorización
+cerca del recurso WebSocket. `socket.join` es idempotente, así que re-emitir
+`conversation:join` en cada reconexión (el evento `connect` de socket.io se dispara
+tanto en la conexión inicial como tras cada reconexión) no genera efectos secundarios.
+
+El POST REST sigue siendo la única vía de persistencia y validación. Tras persistir,
+el controller llama a `gateway.emitNewMessage(conversationId, message, buyerId, sellerId)`,
+que emite `message:new` a tres rooms: `conv:${conversationId}` (para los ChatClients de
+ambos participantes) y `user:${buyerId}` + `user:${sellerId}` (para las bandejas de
+cada uno). El canal de usuario evita que la bandeja tenga que unirse a todas las rooms
+de conversación del usuario.
+
+### Deduplicación idempotente por id en el cliente (Fase 5)
+
+Existe una condición de carrera entre la respuesta del POST REST y el evento
+`message:new` del socket: el WebSocket es una conexión persistente sin el overhead
+HTTP, por lo que el evento del servidor puede llegar al cliente antes de que el
+navegador reciba la respuesta HTTP. Si el socket llega primero, añade el mensaje al
+estado de React; si luego llega el REST también lo añade, el mensaje aparece duplicado.
+
+La solución aplica la guarda `prev.some(m => m.id === incoming.id)` **dentro del
+actualizador funcional** de `setMessages` en ambas rutas de inserción:
+
+```ts
+// En el handler del socket (onMessage en useMessagingSocket):
+setMessages(prev => prev.some(m => m.id === incoming.id) ? prev : [...prev, incoming]);
+
+// En handleSend tras la respuesta del POST REST:
+setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
+```
+
+Usar el actualizador funcional es imprescindible: garantiza que la comparación se
+hace contra el estado real en el momento en que React aplica la actualización, no
+contra un snapshot capturado por el closure cuando se definió la función. Sin el
+actualizador funcional la dedup siempre falla porque evalúa contra el estado stale
+del cierre.
+
+La misma propiedad hace que la dedup sea segura con la estabilización del callback
+mediante `onMessageRef` en el hook: aunque el callback no se recrea en cada render,
+`setMessages(updater)` siempre recibe el `prev` más reciente de React.
+
+### Fix de propagación de `emailVerified` desde login (Fase 5)
+
+`POST /auth/login` no incluía `emailVerified` en el objeto `user` de la respuesta.
+El `ContactButton` en la ficha de anuncio necesita este valor para decidir si mostrar
+el formulario de contacto o el aviso de verificación pendiente (ya que `session.user.emailVerified`
+se rellena desde la respuesta del login, no solo desde el token JWT).
+
+Fix: se añadió `emailVerified: user.emailVerified` al objeto devuelto por
+`AuthService.login`, y se actualizó la interfaz `LoginResponse` en `apps/web/src/lib/auth/index.ts`
+para incluir el campo. El flow de next-auth ya lo propagaba hasta `session.user`
+(vía `auth.config.ts`), solo faltaba que el backend lo enviara.
+
 ---
 
 ## 3. Limitaciones conocidas y deuda técnica
+
+### CORS del gateway WebSocket: `origin: '*'` a restringir en producción
+
+El gateway está decorado con `cors: { origin: '*' }`. En producción debe restringirse
+al origen del frontend (valor de `APP_URL`). El TODO está anotado en `messaging.gateway.ts`.
+
+### `allowedDevOrigins` en Next.js si se accede por IP en desarrollo
+
+En Next.js 15, si el frontend se sirve por IP en lugar de `localhost` (p. ej. desde
+otro dispositivo en la red local), el App Router genera advertencias de CORS para los
+preloads de scripts. Se puede suprimir añadiendo la IP a `allowedDevOrigins` en
+`next.config.ts`:
+```ts
+allowedDevOrigins: ['192.168.x.x']
+```
+
+### `conversation:read` (mark-as-read) no implementado vía WebSocket
+
+El contrato en `contratos-api.md` define el evento `conversation:markRead` (cliente →
+servidor) y `conversation:read` (servidor → cliente) para señalizar la lectura en
+tiempo real. Por ahora, los mensajes se marcan como leídos de forma síncrona en
+`GET /conversations/:id` (al abrir el chat), pero la contraparte en la bandeja del
+otro participante no se actualiza en vivo: su contador de no leídos solo baja al
+recargar. Pendiente: añadir el evento en el gateway y actualizar la bandeja.
 
 ### Búsqueda geográfica pendiente de geocoding
 
@@ -193,7 +284,7 @@ pruebas `onboarding@resend.dev` sin necesidad de verificar ningún dominio. En
 producción hay que verificar el dominio remitente en el panel de Resend y
 actualizar `RESEND_FROM` en el `.env` de producción.
 
-### Módulos stub: mensajería, favoritos, valoraciones, moderación, admin
+### Módulos stub: favoritos, valoraciones, moderación, admin
 
 Los controllers y services existen con cuerpos vacíos. Ninguno tiene lógica real.
 La estructura de base de datos para todos ellos está completa en el schema.
