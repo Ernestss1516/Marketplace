@@ -19,7 +19,8 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
-    "prisma:seed": "prisma db seed"
+    "prisma:seed": "prisma db seed",
+    "reindex": "ts-node -P tsconfig.scripts.json src/commands/reindex.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1072.0",

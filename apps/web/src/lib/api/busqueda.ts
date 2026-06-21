@@ -5,6 +5,8 @@ export interface SearchParams {
   q?: string;
   category?: string;
   type?: 'PRODUCT' | 'SERVICE';
+  condition?: 'NEW' | 'LIKE_NEW' | 'GOOD' | 'FAIR' | 'FOR_PARTS';
+  priceType?: 'FIXED' | 'FREE' | 'NEGOTIABLE';
   minPrice?: number;
   maxPrice?: number;
   province?: string;

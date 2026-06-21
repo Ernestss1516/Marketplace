@@ -5,13 +5,17 @@ import { QUEUE_IMAGE, QUEUE_INDEXING, QUEUE_NOTIFICATIONS } from './queue.consta
 import { ImageProcessor } from './processors/image.processor';
 import { IndexingProcessor } from './processors/indexing.processor';
 import { NotificationProcessor } from './processors/notification.processor';
+import { SearchModule } from '../../modules/search/search.module';
+
+// PrismaModule is @Global(), so PrismaService is available without importing PrismaModule here.
+// SearchModule is imported explicitly to provide SearchService to IndexingProcessor.
 
 @Module({
   imports: [
     BullModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: (config: ConfigService) => {
-        // Parse the REDIS_URL into host/port to avoid ioredis version type conflicts
+        // Parse REDIS_URL into host/port to avoid ioredis version type conflicts.
         const url = new URL(config.getOrThrow<string>('redis.url'));
         return {
           connection: {
@@ -26,9 +30,18 @@ import { NotificationProcessor } from './processors/notification.processor';
     }),
     BullModule.registerQueue(
       { name: QUEUE_IMAGE },
-      { name: QUEUE_INDEXING },
+      {
+        name: QUEUE_INDEXING,
+        defaultJobOptions: {
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 2_000 },
+          removeOnComplete: true,
+          removeOnFail: 100,
+        },
+      },
       { name: QUEUE_NOTIFICATIONS },
     ),
+    SearchModule,
   ],
   providers: [ImageProcessor, IndexingProcessor, NotificationProcessor],
   exports: [BullModule],
