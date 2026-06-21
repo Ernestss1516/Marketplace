@@ -11,7 +11,7 @@ import {
   Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { Condition, ListingType } from '@prisma/client';
+import { Condition, ListingType, PriceType } from '@prisma/client';
 
 export class UpdateListingDto {
   @IsOptional()
@@ -43,6 +43,10 @@ export class UpdateListingDto {
   @IsOptional()
   @IsEnum(Condition)
   condition?: Condition;
+
+  @IsOptional()
+  @IsEnum(PriceType)
+  priceType?: PriceType;
 
   @IsOptional()
   @IsString()

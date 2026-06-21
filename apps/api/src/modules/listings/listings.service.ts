@@ -11,11 +11,11 @@ import { randomBytes } from 'node:crypto';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { RedisService } from '../../infra/redis/redis.service';
 import { Prisma } from '@prisma/client';
+import type { Listing, ListingStatus, PriceType } from '@prisma/client';
 import { QUEUE_INDEXING } from '../../infra/queue/queue.constants';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { UpdateListingDto } from './dto/update-listing.dto';
 import { MyListingsQueryDto } from './dto/my-listings-query.dto';
-import type { Listing } from '@prisma/client';
 
 const CACHE_TTL = 60 * 5;
 const cacheKey = (slug: string) => `listing:${slug}`;
@@ -24,6 +24,34 @@ const LISTING_INCLUDE = {
   category: { select: { id: true, slug: true, name: true } },
   images: { orderBy: { order: 'asc' as const } },
   seller: { select: { id: true, name: true, slug: true, avatarUrl: true } },
+};
+
+const SELECT_SUMMARY = {
+  id: true,
+  title: true,
+  slug: true,
+  price: true,
+  currency: true,
+  priceType: true,
+  city: true,
+  province: true,
+  status: true,
+  publishedAt: true,
+  images: { orderBy: { order: 'asc' as const }, take: 1, select: { url: true } },
+} as const;
+
+type SummaryDbRow = {
+  id: string;
+  title: string;
+  slug: string;
+  price: Prisma.Decimal;
+  currency: string;
+  priceType: PriceType;
+  city: string | null;
+  province: string | null;
+  status: ListingStatus;
+  publishedAt: Date | null;
+  images: { url: string }[];
 };
 
 interface AttributeSchemaEntry {
@@ -58,6 +86,7 @@ export class ListingsService {
         currency: dto.currency ?? 'EUR',
         type: dto.type,
         condition: dto.condition,
+        priceType: dto.priceType,
         attributes: (dto.attributes ?? {}) as Prisma.InputJsonValue,
         city: dto.city,
         province: dto.province,
@@ -104,6 +133,7 @@ export class ListingsService {
         ...(fields.currency !== undefined && { currency: fields.currency }),
         ...(fields.type !== undefined && { type: fields.type }),
         ...(fields.condition !== undefined && { condition: fields.condition }),
+        ...(fields.priceType !== undefined && { priceType: fields.priceType }),
         ...(fields.categoryId !== undefined && { categoryId: fields.categoryId }),
         ...(fields.attributes !== undefined && { attributes: fields.attributes as object }),
         ...(fields.city !== undefined && { city: fields.city }),
@@ -168,6 +198,18 @@ export class ListingsService {
     return listing;
   }
 
+  async findMineById(id: string, userId: string) {
+    const listing = await this.prisma.listing.findUnique({
+      where: { id },
+      include: LISTING_INCLUDE,
+    });
+    if (!listing) throw new NotFoundException('Anuncio no encontrado');
+    if (listing.sellerId !== userId) {
+      throw new ForbiddenException('No tienes permiso sobre este anuncio');
+    }
+    return listing;
+  }
+
   async remove(id: string, userId: string): Promise<void> {
     const existing = await this.assertOwnership(id, userId);
     await this.prisma.listing.delete({ where: { id } });
@@ -210,17 +252,47 @@ export class ListingsService {
       status: 'ACTIVE' as const,
       category: { slug: categorySlug },
     };
-    const [items, total] = await this.prisma.$transaction([
+    const [rows, total] = await this.prisma.$transaction([
       this.prisma.listing.findMany({
         where,
-        include: LISTING_INCLUDE,
+        select: SELECT_SUMMARY,
         orderBy,
         skip: (page - 1) * perPage,
         take: perPage,
       }),
       this.prisma.listing.count({ where }),
     ]);
-    return { items, total, page, perPage };
+    return { items: rows.map((r) => this.toSummary(r)), total, page, perPage };
+  }
+
+  async findBySellerSlug(sellerSlug: string, page = 1, perPage = 24) {
+    const where = { status: 'ACTIVE' as const, seller: { slug: sellerSlug } };
+    const [rows, total] = await this.prisma.$transaction([
+      this.prisma.listing.findMany({
+        where,
+        select: SELECT_SUMMARY,
+        orderBy: { publishedAt: 'desc' },
+        skip: (page - 1) * perPage,
+        take: perPage,
+      }),
+      this.prisma.listing.count({ where }),
+    ]);
+    return { items: rows.map((r) => this.toSummary(r)), total, page, perPage };
+  }
+
+  async findRecent(page = 1, perPage = 8) {
+    const where = { status: 'ACTIVE' as const };
+    const [rows, total] = await this.prisma.$transaction([
+      this.prisma.listing.findMany({
+        where,
+        select: SELECT_SUMMARY,
+        orderBy: { publishedAt: 'desc' },
+        skip: (page - 1) * perPage,
+        take: perPage,
+      }),
+      this.prisma.listing.count({ where }),
+    ]);
+    return { items: rows.map((r) => this.toSummary(r)), total, page, perPage };
   }
 
   async findMine(userId: string, query: MyListingsQueryDto) {
@@ -229,25 +301,26 @@ export class ListingsService {
       sellerId: userId,
       ...(status !== undefined ? { status } : {}),
     };
-    const [items, total] = await this.prisma.$transaction([
+    const [rows, total] = await this.prisma.$transaction([
       this.prisma.listing.findMany({
         where,
-        include: {
-          images: { orderBy: { order: 'asc' as const }, take: 1 },
-          category: { select: { name: true, slug: true } },
-        },
+        select: SELECT_SUMMARY,
         orderBy: { updatedAt: 'desc' },
         skip: (page - 1) * perPage,
         take: perPage,
       }),
       this.prisma.listing.count({ where }),
     ]);
-    return { items, total, page, perPage };
+    return { items: rows.map((r) => this.toSummary(r)), total, page, perPage };
   }
 
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
+
+  private toSummary({ images, ...rest }: SummaryDbRow) {
+    return { ...rest, thumbnailUrl: images[0]?.url ?? undefined };
+  }
 
   private async assertOwnership(id: string, userId: string): Promise<Listing> {
     const listing = await this.prisma.listing.findUnique({ where: { id } });

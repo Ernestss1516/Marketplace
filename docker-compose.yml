@@ -1,5 +1,5 @@
 # Infraestructura local de desarrollo — Marketplace
-# Levanta PostgreSQL, Redis, Meilisearch y MinIO.
+# Levanta PostgreSQL, Redis, Meilisearch y MinIO, y crea el bucket público.
 # Uso:  docker compose up -d
 
 services:
@@ -60,6 +60,21 @@ services:
       - "9001:9001"
     volumes:
       - minio_data:/data
+
+  # Crea el bucket "marketplace" y le da lectura pública al arrancar.
+  # Es un contenedor de inicialización: se ejecuta una vez y termina (saldrá
+  # como "exited" en docker compose ps, que es lo normal).
+  createbuckets:
+    image: minio/mc
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until (mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin}) do echo 'esperando a minio...'; sleep 2; done;
+      mc mb --ignore-existing local/marketplace;
+      mc anonymous set download local/marketplace;
+      exit 0;
+      "
 
 volumes:
   postgres_data:

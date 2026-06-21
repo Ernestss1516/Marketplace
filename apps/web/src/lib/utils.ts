@@ -13,6 +13,13 @@ export function formatDate(date: string | Date): string {
   return new Intl.DateTimeFormat('es-ES', { dateStyle: 'medium' }).format(new Date(date));
 }
 
+export function generateId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
 export function slugify(text: string): string {
   return text
     .toLowerCase()

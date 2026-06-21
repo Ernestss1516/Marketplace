@@ -7,6 +7,7 @@ import { UsersService } from './users.service';
 import { UpdateMeDto } from './dto/update-me.dto';
 import { ListingsService } from '../listings/listings.service';
 import { MyListingsQueryDto } from '../listings/dto/my-listings-query.dto';
+import { SellerListingsQueryDto } from '../listings/dto/seller-listings-query.dto';
 
 @ApiTags('Users')
 @ApiBearerAuth('access-token')
@@ -33,6 +34,14 @@ export class UsersController {
   @UseGuards(JwtAuthGuard)
   getMyListings(@CurrentUser() user: JwtUser, @Query() query: MyListingsQueryDto) {
     return this.listingsService.findMine(user.userId, query);
+  }
+
+  @Get(':slug/listings')
+  getSellerListings(
+    @Param('slug') slug: string,
+    @Query() query: SellerListingsQueryDto,
+  ) {
+    return this.listingsService.findBySellerSlug(slug, query.page, query.perPage);
   }
 
   @Get(':slug')

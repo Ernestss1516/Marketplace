@@ -1,23 +1,181 @@
+import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
+import Link from 'next/link';
+import { Badge } from '@/components/ui/badge';
+import { ListingGallery } from '@/components/anuncios/ListingGallery';
+import { ContactButton } from '@/components/anuncios/ContactButton';
+import { SellerCard } from '@/components/anuncios/SellerCard';
+import { AttributeList } from '@/components/anuncios/AttributeList';
+import { ListingCard } from '@/components/anuncios/ListingCard';
+import { getListing, getListingsByCategory } from '@/lib/api/anuncios';
+import { getCategoryBySlug } from '@/lib/api/categorias';
+import { ApiError } from '@/lib/api/client';
+import { SITE_NAME } from '@/config';
+
+type Params = { slug: string };
 
 export async function generateMetadata({
   params,
 }: {
-  params: Promise<{ slug: string }>;
+  params: Promise<Params>;
 }): Promise<Metadata> {
   const { slug } = await params;
-  return { title: slug };
+  try {
+    const listing = await getListing(slug);
+    const description = listing.description.slice(0, 160);
+    return {
+      title: listing.title,
+      description,
+      openGraph: {
+        title: `${listing.title} | ${SITE_NAME}`,
+        description,
+        images: listing.images[0] ? [{ url: listing.images[0].url }] : [],
+      },
+    };
+  } catch {
+    return { title: 'Anuncio' };
+  }
+}
+
+const STATUS_LABELS: Partial<Record<string, string>> = {
+  RESERVED: 'Reservado',
+};
+
+const CONDITION_LABELS: Record<string, string> = {
+  NEW: 'Nuevo',
+  LIKE_NEW: 'Como nuevo',
+  GOOD: 'Buen estado',
+  FAIR: 'Aceptable',
+  FOR_PARTS: 'Para piezas',
+};
+
+function formatPrice(price: number, currency: string, priceType: string) {
+  if (priceType === 'FREE') return 'Gratis';
+  if (priceType === 'NEGOTIABLE') return 'A convenir';
+  return new Intl.NumberFormat('es-ES', { style: 'currency', currency }).format(price);
 }
 
 export default async function AnuncioPage({
   params,
 }: {
-  params: Promise<{ slug: string }>;
+  params: Promise<Params>;
 }) {
   const { slug } = await params;
+
+  let listing;
+  try {
+    listing = await getListing(slug);
+  } catch (err) {
+    if (err instanceof ApiError && err.statusCode === 404) notFound();
+    throw err;
+  }
+
+  // Category schema and related listings — fail gracefully, non-blocking
+  const [categoryResult, relatedResult] = await Promise.allSettled([
+    getCategoryBySlug(listing.category.slug),
+    getListingsByCategory(listing.category.slug, { perPage: 5 }),
+  ]);
+
+  const schema =
+    categoryResult.status === 'fulfilled' ? categoryResult.value.attributeSchema : [];
+  const relatedItems =
+    relatedResult.status === 'fulfilled'
+      ? relatedResult.value.items.filter((l) => l.slug !== slug).slice(0, 4)
+      : [];
+
+  const statusLabel = STATUS_LABELS[listing.status];
+  const location = [listing.city, listing.province].filter(Boolean).join(', ');
+
   return (
-    <div className="container mx-auto px-4 py-8">
-      <h1 className="text-2xl font-bold">TODO: Ficha de anuncio — {slug}</h1>
+    // pb-24 reserves space on mobile so the fixed contact bar doesn't overlap content
+    <div className="pb-24 md:pb-0">
+      <div className="container mx-auto px-4 py-6">
+        {/* Breadcrumb */}
+        <nav className="mb-4 text-xs text-muted-foreground" aria-label="Breadcrumb">
+          <Link href="/" className="hover:underline">Inicio</Link>
+          {' / '}
+          <Link href={`/${listing.category.slug}`} className="hover:underline">
+            {listing.category.name}
+          </Link>
+          {' / '}
+          <span className="line-clamp-1">{listing.title}</span>
+        </nav>
+
+        <div className="grid gap-8 md:grid-cols-[1fr_320px]">
+          {/* ── Left column ── */}
+          <div className="space-y-6">
+            <ListingGallery images={listing.images} title={listing.title} />
+
+            {/* Title + status + price */}
+            <div>
+              <div className="mb-1 flex flex-wrap items-start gap-2">
+                <h1 className="flex-1 text-2xl font-bold leading-tight">{listing.title}</h1>
+                {statusLabel && <Badge variant="secondary">{statusLabel}</Badge>}
+              </div>
+              <p className="text-3xl font-extrabold text-primary">
+                {formatPrice(listing.price, listing.currency, listing.priceType)}
+              </p>
+            </div>
+
+            {/* Category attributes */}
+            {schema.length > 0 && (
+              <AttributeList
+                schema={schema}
+                values={listing.attributes as Record<string, unknown>}
+              />
+            )}
+
+            {/* Condition */}
+            {listing.condition && (
+              <p className="text-sm">
+                <span className="text-muted-foreground">Estado: </span>
+                <span className="font-medium">
+                  {CONDITION_LABELS[listing.condition] ?? listing.condition}
+                </span>
+              </p>
+            )}
+
+            {/* Description */}
+            <div>
+              <h2 className="mb-2 text-base font-semibold">Descripción</h2>
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
+                {listing.description}
+              </p>
+            </div>
+
+            {/* Location */}
+            {location && (
+              <div>
+                <h2 className="mb-1 text-base font-semibold">Ubicación</h2>
+                <p className="text-sm text-muted-foreground">{location}</p>
+              </div>
+            )}
+          </div>
+
+          {/* ── Right column (desktop sidebar) ── */}
+          <div className="space-y-4">
+            <ContactButton listingSlug={slug} />
+            <SellerCard seller={listing.seller} publishedAt={listing.publishedAt} />
+          </div>
+        </div>
+
+        {/* Related listings */}
+        {relatedItems.length > 0 && (
+          <section className="mt-12">
+            <h2 className="mb-4 text-lg font-semibold">
+              Más anuncios en{' '}
+              <Link href={`/${listing.category.slug}`} className="hover:underline">
+                {listing.category.name}
+              </Link>
+            </h2>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {relatedItems.map((item) => (
+                <ListingCard key={item.id} listing={item} />
+              ))}
+            </div>
+          </section>
+        )}
+      </div>
     </div>
   );
 }

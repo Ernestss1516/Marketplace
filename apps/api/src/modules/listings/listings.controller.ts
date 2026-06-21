@@ -18,6 +18,7 @@ import { JwtUser } from '../auth/auth.types';
 import { ListingsService } from './listings.service';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { UpdateListingDto } from './dto/update-listing.dto';
+import { RecentListingsQueryDto } from './dto/recent-listings-query.dto';
 
 @ApiTags('Listings')
 @ApiBearerAuth('access-token')
@@ -67,8 +68,20 @@ export class ListingsController {
     return this.listingsService.remove(id, user.userId);
   }
 
-  // Public — no auth guard. Must be declared after parameterized routes to
-  // avoid conflicts, but since HTTP methods differ there is no ambiguity.
+  // Public — no auth required. Exact route registered before the parameterized
+  // one so NestJS resolves GET /listings before GET /listings/:slug.
+  @Get()
+  findRecent(@Query() query: RecentListingsQueryDto) {
+    return this.listingsService.findRecent(query.page, query.perPage);
+  }
+
+  // Authenticated owner-only access — registered before :slug to take priority.
+  @Get('mine/:id')
+  @UseGuards(JwtAuthGuard)
+  getMine(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+    return this.listingsService.findMineById(id, user.userId);
+  }
+
   @Get(':slug')
   findBySlug(@Param('slug') slug: string) {
     return this.listingsService.findBySlug(slug);

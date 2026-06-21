@@ -60,6 +60,13 @@ enum Condition {
   FOR_PARTS
 }
 
+/// Tipo de precio de un anuncio.
+enum PriceType {
+  FIXED       // Precio fijo
+  FREE        // Gratis (price = 0)
+  NEGOTIABLE  // A convenir
+}
+
 /// Motivo de una denuncia, para la cola de moderación.
 enum ReportReason {
   SPAM
@@ -166,6 +173,7 @@ model Listing {
 
   type        ListingType
   condition   Condition?    // Nulo en servicios
+  priceType   PriceType     @default(FIXED)
   status      ListingStatus @default(DRAFT)
 
   /// jsonb con los atributos variables según la categoría.

@@ -1,4 +1,6 @@
 // Enums — mirror the Prisma schema
+export type PriceType = 'FIXED' | 'FREE' | 'NEGOTIABLE';
+
 export type ListingStatus =
   | 'DRAFT'
   | 'PENDING_REVIEW'
@@ -73,6 +75,7 @@ export interface ListingSummary {
   slug: string;
   price: number;
   currency: string;
+  priceType: PriceType;
   thumbnailUrl?: string;
   city?: string;
   province?: string;
@@ -94,6 +97,7 @@ export interface Listing {
   description: string;
   price: number;
   currency: string;
+  priceType: PriceType;
   type: ListingType;
   condition?: Condition;
   status: ListingStatus;
@@ -123,4 +127,81 @@ export interface ApiErrorBody {
   statusCode: number;
   message: string;
   error?: string;
+}
+
+// ── Publicar anuncio ──────────────────────────────────────────────────────────
+
+export interface CreateListingPayload {
+  title: string;
+  description: string;
+  price: number;
+  currency?: string;
+  priceType: PriceType;
+  type: ListingType;
+  condition?: Condition;
+  categoryId: string;
+  attributes?: Record<string, unknown>;
+  city: string;
+  province: string;
+  postalCode?: string;
+  imageIds?: string[];
+}
+
+export interface CreatedListing {
+  id: string;
+  slug: string;
+  status: 'DRAFT';
+}
+
+export interface MediaUploadResponse {
+  id: string;
+  url: string;
+  width?: number;
+  height?: number;
+}
+
+// ── Edición de anuncio ────────────────────────────────────────────────────────
+
+export interface UpdateListingPayload {
+  title?: string;
+  description?: string;
+  price?: number;
+  currency?: string;
+  priceType?: PriceType;
+  type?: ListingType;
+  condition?: Condition;
+  categoryId?: string;
+  attributes?: Record<string, unknown>;
+  city?: string;
+  province?: string;
+  postalCode?: string;
+  imageIds?: string[];
+}
+
+export interface MyListingImage {
+  id: string;
+  url: string;
+  alt?: string;
+  width?: number;
+  height?: number;
+}
+
+export interface MyListing {
+  id: string;
+  title: string;
+  slug: string;
+  description: string;
+  price: number;
+  currency: string;
+  priceType: PriceType;
+  type: ListingType;
+  condition?: Condition;
+  status: ListingStatus;
+  attributes: Record<string, unknown>;
+  city?: string;
+  province?: string;
+  postalCode?: string;
+  images: MyListingImage[];
+  category: { id: string; name: string; slug: string };
+  publishedAt?: string;
 }
