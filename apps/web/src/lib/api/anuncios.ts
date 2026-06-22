@@ -104,3 +104,10 @@ export function markListingSold(id: string, token: string): Promise<{ id: string
 export function deleteListing(id: string, token: string): Promise<void> {
   return apiFetch(`/listings/${id}`, { method: 'DELETE', token });
 }
+
+export function renewListing(
+  id: string,
+  token: string,
+): Promise<{ id: string; status: 'ACTIVE'; expiresAt: string }> {
+  return apiFetch(`/listings/${id}/renew`, { method: 'POST', token });
+}

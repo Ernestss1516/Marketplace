@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
-import { ChevronDown, SlidersHorizontal, X } from 'lucide-react';
+import { ChevronDown, MapPin, SlidersHorizontal, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import type { Category } from '@/types';
@@ -22,10 +22,19 @@ const CONDITION_OPTIONS = [
   { value: 'FOR_PARTS', label: 'Para piezas' },
 ] as const;
 
-const SORT_OPTIONS = [
+const BASE_SORT_OPTIONS = [
   { value: 'publishedAt:desc', label: 'Más recientes' },
   { value: 'price:asc', label: 'Precio: menor a mayor' },
   { value: 'price:desc', label: 'Precio: mayor a menor' },
+] as const;
+
+const PROXIMITY_SORT_OPTION = { value: 'distance', label: 'Más cercanos' } as const;
+
+const RADIUS_OPTIONS = [
+  { value: '5', label: '5 km' },
+  { value: '10', label: '10 km' },
+  { value: '25', label: '25 km' },
+  { value: '50', label: '50 km' },
 ] as const;
 
 const CONDITION_LABELS: Record<string, string> = {
@@ -52,6 +61,9 @@ interface CurrentFilters {
   province?: string;
   city?: string;
   sort?: string;
+  lat?: string;
+  lng?: string;
+  radius?: string;
   attributes?: Record<string, string>;
 }
 
@@ -70,6 +82,8 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
+type GeoStatus = 'idle' | 'requesting' | 'denied' | 'unavailable';
+
 export function FilterPanel({
   categories,
   facets,
@@ -87,13 +101,28 @@ export function FilterPanel({
   const [localProvince, setLocalProvince] = useState(currentFilters.province ?? '');
   const [localCity, setLocalCity] = useState(currentFilters.city ?? '');
 
+  // Geolocation state: tracks the async permission/position request lifecycle.
+  // The "active" state is derived from URL props, not this local state.
+  const [geoStatus, setGeoStatus] = useState<GeoStatus>('idle');
+
+  const proximityActive =
+    !!currentFilters.lat && !!currentFilters.lng && !!currentFilters.radius;
+
   // Sync local inputs when the server re-renders with new URL-derived props
   useEffect(() => {
     setLocalMin(currentFilters.minPrice ?? '');
     setLocalMax(currentFilters.maxPrice ?? '');
     setLocalProvince(currentFilters.province ?? '');
     setLocalCity(currentFilters.city ?? '');
-  }, [currentFilters.minPrice, currentFilters.maxPrice, currentFilters.province, currentFilters.city]);
+    // Reset transient geo error when proximity is deactivated from outside
+    if (!proximityActive) setGeoStatus('idle');
+  }, [
+    currentFilters.minPrice,
+    currentFilters.maxPrice,
+    currentFilters.province,
+    currentFilters.city,
+    proximityActive,
+  ]);
 
   function update(updates: Record<string, string | undefined>) {
     const params = new URLSearchParams(searchParams.toString());
@@ -125,6 +154,42 @@ export function FilterPanel({
     const params = new URLSearchParams();
     if (currentFilters.q) params.set('q', currentFilters.q);
     router.push(`${pathname}?${params.toString()}`);
+    setGeoStatus('idle');
+  }
+
+  function requestLocation() {
+    if (!navigator.geolocation) {
+      setGeoStatus('unavailable');
+      return;
+    }
+    setGeoStatus('requesting');
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        // Activate proximity: clear sort so the backend applies _geoPoint distance ordering.
+        update({
+          lat: String(pos.coords.latitude),
+          lng: String(pos.coords.longitude),
+          radius: '10',
+          sort: undefined,
+        });
+        setGeoStatus('idle');
+      },
+      (err) => {
+        setGeoStatus(
+          err.code === err.PERMISSION_DENIED ? 'denied' : 'unavailable',
+        );
+      },
+      { timeout: 10_000, maximumAge: 60_000 },
+    );
+  }
+
+  function deactivateProximity() {
+    update({ lat: undefined, lng: undefined, radius: undefined, sort: undefined });
+    setGeoStatus('idle');
+  }
+
+  function changeRadius(r: string) {
+    update({ radius: r });
   }
 
   const panelContent = (
@@ -143,14 +208,98 @@ export function FilterPanel({
       <div>
         <SectionLabel>Ordenar por</SectionLabel>
         <select
-          value={currentFilters.sort ?? 'publishedAt:desc'}
-          onChange={(e) => update({ sort: e.target.value })}
+          value={
+            currentFilters.sort ??
+            (proximityActive ? PROXIMITY_SORT_OPTION.value : 'publishedAt:desc')
+          }
+          onChange={(e) => {
+            // 'distance' is synthetic: clears the sort param so the backend uses _geoPoint
+            update({ sort: e.target.value === 'distance' ? undefined : e.target.value });
+          }}
           className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
         >
-          {SORT_OPTIONS.map((o) => (
+          {proximityActive && (
+            <option value={PROXIMITY_SORT_OPTION.value}>{PROXIMITY_SORT_OPTION.label}</option>
+          )}
+          {BASE_SORT_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </select>
+      </div>
+
+      {/* Proximity */}
+      <div>
+        <SectionLabel>Cerca de mí</SectionLabel>
+
+        {proximityActive ? (
+          /* Active state — show radius selector and deactivate button */
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5 text-sm text-primary">
+              <MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              <span>Mi ubicación activa</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <select
+                value={currentFilters.radius ?? '10'}
+                onChange={(e) => changeRadius(e.target.value)}
+                className="flex-1 rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                aria-label="Radio de búsqueda"
+              >
+                {RADIUS_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+              <button
+                onClick={deactivateProximity}
+                className="flex items-center gap-1 rounded-md border px-2.5 py-2 text-sm text-muted-foreground hover:border-destructive hover:text-destructive"
+                aria-label="Desactivar búsqueda por proximidad"
+              >
+                <X className="h-3.5 w-3.5" />
+                Desactivar
+              </button>
+            </div>
+          </div>
+        ) : geoStatus === 'requesting' ? (
+          /* Requesting state */
+          <p className="text-sm text-muted-foreground">Obteniendo tu ubicación…</p>
+        ) : geoStatus === 'denied' ? (
+          /* Permission denied — give actionable guidance */
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              Tu navegador bloqueó el acceso a la ubicación. Para activarlo, permite
+              la geolocalización en los ajustes del sitio y vuelve a intentarlo.
+            </p>
+            <button
+              onClick={() => setGeoStatus('idle')}
+              className="text-sm text-primary underline-offset-4 hover:underline"
+            >
+              Reintentar
+            </button>
+          </div>
+        ) : geoStatus === 'unavailable' ? (
+          /* Position unavailable or API not available */
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              No se pudo obtener tu ubicación. Asegúrate de que la geolocalización
+              está activada en tu dispositivo o accede desde localhost / HTTPS.
+            </p>
+            <button
+              onClick={() => setGeoStatus('idle')}
+              className="text-sm text-primary underline-offset-4 hover:underline"
+            >
+              Reintentar
+            </button>
+          </div>
+        ) : (
+          /* Idle state — call to action */
+          <button
+            onClick={requestLocation}
+            className="flex w-full items-center justify-center gap-2 rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+          >
+            <MapPin className="h-4 w-4" aria-hidden />
+            Usar mi ubicación
+          </button>
+        )}
       </div>
 
       {/* Category */}

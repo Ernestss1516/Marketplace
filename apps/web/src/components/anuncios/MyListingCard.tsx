@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Loader2, Pencil, Trash2, CheckCircle, Lock, Send } from 'lucide-react';
+import { Loader2, Pencil, Trash2, CheckCircle, Lock, Send, RotateCcw } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -23,6 +23,7 @@ import {
   reserveListing,
   markListingSold,
   deleteListing,
+  renewListing,
 } from '@/lib/api/anuncios';
 import { ApiError } from '@/lib/api/client';
 import type { ListingSummary, PriceType } from '@/types';
@@ -127,6 +128,14 @@ export function MyListingCard({ listing, token, onAction }: Props) {
               )}
             </p>
           )}
+          {listing.expiresAt && listing.status === 'ACTIVE' && (
+            <p className="text-xs text-muted-foreground">
+              Caduca{' '}
+              {new Intl.DateTimeFormat('es-ES', { dateStyle: 'medium' }).format(
+                new Date(listing.expiresAt),
+              )}
+            </p>
+          )}
         </div>
       </div>
 
@@ -192,6 +201,23 @@ export function MyListingCard({ listing, token, onAction }: Props) {
                 <CheckCircle className="mr-1.5 h-3.5 w-3.5" />
               )}
               Marcar vendido
+            </Button>
+          )}
+
+          {/* Renovar — EXPIRED and ACTIVE */}
+          {['EXPIRED', 'ACTIVE'].includes(listing.status) && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy !== null}
+              onClick={() => runAction('renew', () => renewListing(listing.id, token))}
+            >
+              {busy === 'renew' ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              Renovar
             </Button>
           )}
 

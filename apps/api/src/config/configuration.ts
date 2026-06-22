@@ -18,6 +18,10 @@ export default () => ({
     from: process.env.RESEND_FROM ?? 'noreply@tudominio.es',
   },
   appUrl: process.env.APP_URL ?? 'http://localhost:3000',
+  geocoding: {
+    provider: process.env.GEOCODING_PROVIDER ?? 'nominatim',
+    maptilerKey: process.env.MAPTILER_API_KEY,
+  },
   s3: {
     endpoint: process.env.S3_ENDPOINT,
     bucket: process.env.S3_BUCKET,

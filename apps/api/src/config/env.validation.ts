@@ -18,4 +18,6 @@ export const envValidationSchema = Joi.object({
   S3_ACCESS_KEY_ID: Joi.string().required(),
   S3_SECRET_ACCESS_KEY: Joi.string().required(),
   S3_PUBLIC_URL: Joi.string().uri().required(),
+  GEOCODING_PROVIDER: Joi.string().valid('nominatim', 'maptiler').default('nominatim'),
+  MAPTILER_API_KEY: Joi.string().optional(),
 });

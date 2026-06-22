@@ -13,6 +13,8 @@ import { RedisService } from '../../infra/redis/redis.service';
 import { Prisma } from '@prisma/client';
 import type { Listing, ListingStatus, PriceType } from '@prisma/client';
 import { QUEUE_INDEXING } from '../../infra/queue/queue.constants';
+import { ExpirationService } from '../expiration/expiration.service';
+import { GeocodingService } from '../geocoding/geocoding.service';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { UpdateListingDto } from './dto/update-listing.dto';
 import { MyListingsQueryDto } from './dto/my-listings-query.dto';
@@ -37,6 +39,7 @@ const SELECT_SUMMARY = {
   province: true,
   status: true,
   publishedAt: true,
+  expiresAt: true,
   images: { orderBy: { order: 'asc' as const }, take: 1, select: { url: true } },
 } as const;
 
@@ -51,6 +54,7 @@ type SummaryDbRow = {
   province: string | null;
   status: ListingStatus;
   publishedAt: Date | null;
+  expiresAt: Date | null;
   images: { url: string }[];
 };
 
@@ -65,6 +69,7 @@ export class ListingsService {
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     @InjectQueue(QUEUE_INDEXING) private readonly indexingQueue: Queue,
+    private readonly geocodingService: GeocodingService,
   ) {}
 
   async create(sellerId: string, dto: CreateListingDto): Promise<Listing> {
@@ -76,6 +81,23 @@ export class ListingsService {
     this.validateAttributes(dto.attributes ?? {}, category.attributeSchema);
 
     const slug = this.buildSlug(dto.title);
+
+    // Geocode from text location if the caller did not provide explicit coords.
+    // The call has a built-in 1.5 s timeout and returns null on any failure,
+    // so a slow or unavailable geocoding service never blocks publication.
+    let latitude = dto.latitude;
+    let longitude = dto.longitude;
+    if (latitude == null || longitude == null) {
+      const coords = await this.geocodingService.geocode(
+        dto.city,
+        dto.province,
+        dto.postalCode,
+      );
+      if (coords) {
+        latitude = coords.lat;
+        longitude = coords.lng;
+      }
+    }
 
     const listing = await this.prisma.listing.create({
       data: {
@@ -91,8 +113,8 @@ export class ListingsService {
         city: dto.city,
         province: dto.province,
         postalCode: dto.postalCode,
-        latitude: dto.latitude,
-        longitude: dto.longitude,
+        latitude,
+        longitude,
         sellerId,
         categoryId: dto.categoryId,
       },
@@ -124,6 +146,29 @@ export class ListingsService {
 
     const { imageIds, ...fields } = dto;
 
+    // Re-geocode when location text changed and no explicit coords were provided.
+    // Explicit lat/lng in the DTO always take priority over geocoding.
+    const locationChanged =
+      fields.city !== undefined ||
+      fields.province !== undefined ||
+      fields.postalCode !== undefined;
+    const coordsExplicit =
+      fields.latitude !== undefined && fields.longitude !== undefined;
+
+    let coordUpdate: { latitude?: number; longitude?: number } = {};
+    if (coordsExplicit) {
+      coordUpdate = { latitude: fields.latitude, longitude: fields.longitude };
+    } else if (locationChanged) {
+      const city = fields.city ?? existing.city ?? '';
+      const province = fields.province ?? existing.province ?? '';
+      const postalCode =
+        fields.postalCode !== undefined
+          ? fields.postalCode
+          : (existing.postalCode ?? undefined);
+      const coords = await this.geocodingService.geocode(city, province, postalCode);
+      if (coords) coordUpdate = { latitude: coords.lat, longitude: coords.lng };
+    }
+
     const listing = await this.prisma.listing.update({
       where: { id },
       data: {
@@ -139,8 +184,7 @@ export class ListingsService {
         ...(fields.city !== undefined && { city: fields.city }),
         ...(fields.province !== undefined && { province: fields.province }),
         ...(fields.postalCode !== undefined && { postalCode: fields.postalCode }),
-        ...(fields.latitude !== undefined && { latitude: fields.latitude }),
-        ...(fields.longitude !== undefined && { longitude: fields.longitude }),
+        ...coordUpdate,
       },
     });
 
@@ -164,9 +208,36 @@ export class ListingsService {
       throw new BadRequestException('Solo se pueden publicar anuncios en estado DRAFT');
     }
 
+    const publishedAt = existing.publishedAt ?? new Date();
     const listing = await this.prisma.listing.update({
       where: { id },
-      data: { status: 'ACTIVE', publishedAt: existing.publishedAt ?? new Date() },
+      data: {
+        status: 'ACTIVE',
+        publishedAt,
+        expiresAt: ExpirationService.expiresAt(publishedAt),
+      },
+    });
+
+    await this.invalidateAndReindex(listing.slug, id);
+    return listing;
+  }
+
+  async renew(id: string, userId: string): Promise<Listing> {
+    const existing = await this.assertOwnership(id, userId);
+    if (existing.status !== 'ACTIVE' && existing.status !== 'EXPIRED') {
+      throw new BadRequestException(
+        'Solo se pueden renovar anuncios en estado ACTIVE o EXPIRED',
+      );
+    }
+
+    const now = new Date();
+    const listing = await this.prisma.listing.update({
+      where: { id },
+      data: {
+        status: 'ACTIVE',
+        publishedAt: now,
+        expiresAt: ExpirationService.expiresAt(now),
+      },
     });
 
     await this.invalidateAndReindex(listing.slug, id);

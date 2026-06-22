@@ -81,6 +81,7 @@ export interface ListingSummary {
   province?: string;
   status: ListingStatus;
   publishedAt?: string;
+  expiresAt?: string;
 }
 
 export interface ListingImage {

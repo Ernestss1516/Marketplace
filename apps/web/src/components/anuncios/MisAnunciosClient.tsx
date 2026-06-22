@@ -14,6 +14,7 @@ const FILTERS: { label: string; value: string | null }[] = [
   { label: 'Borradores', value: 'DRAFT' },
   { label: 'Reservados', value: 'RESERVED' },
   { label: 'Vendidos', value: 'SOLD' },
+  { label: 'Caducados', value: 'EXPIRED' },
 ];
 
 interface Props {

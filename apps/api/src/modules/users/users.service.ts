@@ -12,6 +12,8 @@ const PRIVATE_PROFILE_SELECT = {
   bio: true,
   city: true,
   province: true,
+  postalCode: true,
+  emailVerified: true,
   role: true,
 } as const;
 

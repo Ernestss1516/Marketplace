@@ -9,6 +9,7 @@ import {
   IsString,
   Max,
   Min,
+  ValidateIf,
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 import { Condition, ListingType, PriceType } from '@prisma/client';
@@ -233,10 +234,54 @@ export class SearchQueryDto {
   @IsString()
   modality?: string;
 
-  // TODO: Geo search — lat, lng, radius excluidos hasta que los anuncios lleven
-  // coordenadas. SearchService.search() ya tiene el filtro _geoRadius y el sort
-  // _geoPoint cableados; solo hay que añadir los campos aquí y mapearlos al DTO
-  // cuando StepUbicacion capture latitud/longitud.
+  // ---------- Proximidad ----------
+  // Los tres parámetros van juntos: lat + lng + radius (km).
+  // Cuando se envían, search() aplica _geoRadius como FILTRO (no como sort) y
+  // ordena por _geoPoint si no hay sort explícito.
+  // AVISO: los anuncios sin coordenadas (_geo ausente) quedan excluidos del
+  // resultado porque Meilisearch solo incluye documentos posicionados en _geoRadius.
+  // Esto es correcto: un anuncio sin posición no puede aparecer en "a X km de ti".
+
+  @ApiPropertyOptional({
+    description:
+      'Latitud del punto de referencia para búsqueda por proximidad. ' +
+      'Requiere lng y radius.',
+    minimum: -90,
+    maximum: 90,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  lat?: number;
+
+  @ApiPropertyOptional({
+    description: 'Longitud del punto de referencia. Requiere lat y radius.',
+    minimum: -180,
+    maximum: 180,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  lng?: number;
+
+  @ApiPropertyOptional({
+    description:
+      'Radio de búsqueda en kilómetros. Requiere lat y lng. ' +
+      'Solo se incluyen anuncios con coordenadas dentro del radio.',
+    minimum: 1,
+    maximum: 500,
+  })
+  @ValidateIf((o: SearchQueryDto) => o.lat != null || o.lng != null)
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  @Max(500)
+  radius?: number;
 
   // TODO: "type" como atributo de categoría (ordenadores, electrodomésticos,
   // accesorios, muebles) colisiona en nombre con el ListingType (PRODUCT/SERVICE).

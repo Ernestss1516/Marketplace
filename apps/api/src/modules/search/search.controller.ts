@@ -48,6 +48,12 @@ export class SearchController {
       page: dto.page,
       hitsPerPage: dto.hitsPerPage,
       ...(Object.keys(attributes).length > 0 ? { attributes } : {}),
+      // Geo proximity: all three params required. radius converts km → metres.
+      // When geo is set and sort is absent the service orders by _geoPoint distance.
+      // Documents without _geo are excluded by Meilisearch's _geoRadius filter.
+      ...(dto.lat != null && dto.lng != null && dto.radius != null
+        ? { geo: { lat: dto.lat, lng: dto.lng, radiusMeters: dto.radius * 1000 } }
+        : {}),
     });
 
     return {

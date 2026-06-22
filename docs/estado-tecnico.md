@@ -1,6 +1,6 @@
 # Estado técnico del proyecto — Marketplace
 
-> Fecha: 2026-06-22 · Rama: `main` · Último commit: `5a98489` (Fase 5 sin commitear aún)
+> Fecha: 2026-06-22 · Rama: `main` · Último commit: `08d2ff9` (Fase 5) + cambios sin commitear (expiration, geocoding, perfil, búsqueda por proximidad)
 
 Documento de referencia para retomar el proyecto. Recoge qué hay implementado,
 qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
@@ -13,7 +13,7 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 
 | Módulo | Estado | Notas |
 |---|---|---|
-| **Infra: Prisma** | ✅ Completo | Schema con todos los modelos; PostGIS habilitado; 4 migraciones aplicadas: `init`, `add_auth_tokens`, `media_listing_image_nullable`, `add_price_type` |
+| **Infra: Prisma** | ✅ Completo | Schema con todos los modelos; PostGIS habilitado; 5 migraciones aplicadas: `init`, `add_auth_tokens`, `media_listing_image_nullable`, `add_price_type`, `backfill_expires_at` |
 | **Infra: Redis** | ✅ Completo | `RedisService` global; caché de fichas de anuncio (TTL 5 min) |
 | **Infra: BullMQ** | ✅ Colas activas | 3 colas registradas con processors reales (ver §2 para el fix de ioredis) |
 | **Infra: Meilisearch** | ✅ Completo | `SearchService.onModuleInit()` crea el índice `listings` y aplica searchable/filterable/sortable attrs, ranking rules y typo tolerance al arrancar |
@@ -21,9 +21,11 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **Auth** | ✅ Completo | register, login, verify-email, forgot-password, reset-password; `JwtAuthGuard`, `RolesGuard`, `@CurrentUser`; login devuelve `emailVerified` (fix fase 5) |
 | **Users** | ✅ Completo | `GET /users/me`, `PATCH /users/me`, `GET /users/:slug` (perfil público) |
 | **Categories** | ✅ Completo | `GET /categories` (árbol), `GET /categories/:slug` (con `attributeSchema`) |
-| **Listings** | ✅ Completo | CRUD completo + ciclo de vida (publish, reserve, sold, delete) + caché por slug + encolado de reindexado; `GET /listings/mine/:id` para edición; `thumbnailUrl` resuelto en `findMine` y `findBySellerSlug` |
+| **Listings** | ✅ Completo | CRUD completo + ciclo de vida (publish, reserve, sold, delete, **renew**) + `expiresAt` fijado al publicar (publishedAt + 60 días) + caché por slug + encolado de reindexado; `GET /listings/mine/:id` para edición; `thumbnailUrl` resuelto en `findMine` y `findBySellerSlug`; geocoding automático al crear y al editar cuando cambia la ubicación |
+| **Expiration** | ✅ Completo | `ExpirationService` con cron diario a las 02:00 (`@nestjs/schedule`): marca EXPIRED los anuncios ACTIVE con `expiresAt ≤ now`, invalida caché Redis y encola reindexado. Los RESERVED quedan excluidos intencionalmente |
+| **Geocoding** | ✅ Completo | `GeocodingService` con proveedor configurable (`nominatim` por defecto, `maptiler`). Timeout de 1 500 ms con `AbortSignal.timeout()`; retorna `null` en cualquier fallo sin bloquear la publicación. Script `geocode-backfill` para anuncios sin coordenadas existentes (cursor-based, 1 req/s para respetar la política de Nominatim) |
 | **Media** | ✅ Upload | `POST /media/upload` → R2/MinIO → crea `ListingImage` huérfana → encola procesado con sharp; **sin DELETE** |
-| **Search** | ✅ Completo | `GET /search` con texto libre, filtros core y atributos variables (brand, fuel, rooms, gender, size…), facetas, paginación y ordenación; `IndexingProcessor` real con jobs `index`/`remove` |
+| **Search** | ✅ Completo | `GET /search` con texto libre, filtros core, atributos variables (brand, fuel, rooms, gender, size…), **filtro por proximidad** (`lat` + `lng` + `radius` en km → `_geoRadius` en Meilisearch) y **orden por distancia** cuando no hay sort explícito, facetas, paginación y ordenación; `IndexingProcessor` real con jobs `index`/`remove` |
 | **Script reindex** | ✅ Completo | `pnpm reindex` — reconstruye el índice en batches de 100; `ReindexModule` mínimo (sin BullMQ) para cierre limpio |
 | **Messaging** | ✅ Completo | REST: `GET /conversations`, `POST /conversations`, `GET /conversations/:id` (cursor), `POST /conversations/:id/messages`. WebSocket gateway `/ws`: auth en handshake, rooms de conversación y de usuario, emit tras el POST REST |
 | **Favorites** | ❌ Stub vacío | Ídem |
@@ -42,13 +44,13 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **Login / Registro** | ✅ Completo | Formularios con next-auth v5 CredentialsProvider |
 | **Verificar email** `/verificar-email` | ✅ Completo | Llama a `POST /auth/verify-email`; emite nuevo JWT con `emailVerified: true` |
 | **Recuperar contraseña** | ✅ Completo | forgot-password + reset-password enlazado por email |
-| **Mis anuncios** `/mis-anuncios` | ✅ Completo | Listado de anuncios propios + acciones de estado (publicar, reservar, vender, eliminar) vía `MisAnunciosClient` |
+| **Mis anuncios** `/mis-anuncios` | ✅ Completo | Listado de anuncios propios + acciones de estado (publicar, reservar, vender, eliminar, **renovar**) vía `MisAnunciosClient`; muestra `expiresAt` en la tarjeta |
 | **Editar anuncio** `/mis-anuncios/[id]/editar` | ✅ Completo | Wizard de edición (`EditarWizard`) precargado con datos del backend vía `GET /listings/mine/:id`; categoría bloqueada |
 | **Vendedor** `/vendedor/[slug]` | ✅ Completo | Perfil del vendedor (avatar, bio, ubicación, fecha de registro) + grid paginado de anuncios activos |
-| **Búsqueda** `/busqueda` | ✅ Completo | Server Component con fetch paralelo a Meilisearch; sidebar `FilterPanel` con categorías, tipo, estado, rango de precio, ordenación y facetas dinámicas; paginación; estados de error y vacío |
+| **Búsqueda** `/busqueda` | ✅ Completo | Server Component con fetch paralelo a Meilisearch; sidebar `FilterPanel` con categorías, tipo, estado, rango de precio, ordenación, facetas dinámicas, **control "cerca de mí"** (solicita `navigator.geolocation`, fija `lat`/`lng`/`radius` en la URL, selector de radio 5–50 km, orden por distancia automático); paginación; estados de error y vacío |
+| **Perfil propio** `/perfil` | ✅ Completo | Ruta protegida por middleware; muestra avatar, nombre, email, ubicación y aviso de email no verificado; `PerfilForm` con campos nombre, teléfono, bio, ciudad, provincia, código postal; accesos rápidos a mis-anuncios y mensajes; botón de cerrar sesión |
 | **Bandeja mensajes** `/mensajes` | ✅ Completo | `BandejaMensajesClient`: lista de conversaciones con thumbnail, contador de no leídos y tiempo relativo; actualización en vivo vía WebSocket (lastMessageAt + unreadCount) |
 | **Chat** `/mensajes/[id]` | ✅ Completo | `ChatClient`: mensajes en orden cronológico, auto-scroll al fondo, carga de mensajes anteriores (cursor-based), envío vía POST REST, recepción en tiempo real vía WebSocket con deduplicación idempotente |
-| **Perfil propio** `/perfil` | ❌ Sin implementar | Ruta protegida por middleware; página vacía |
 | **Admin** `/admin/*` | ❌ Sin implementar | Protegido por rol ADMIN en middleware; páginas vacías |
 
 ---
@@ -146,6 +148,7 @@ produciendo un volcado de memoria aunque el trabajo haya terminado correctamente
 En su lugar se llama a `prisma.$disconnect()` y se deja drenar el event loop.
 El tsconfig dedicado (`tsconfig.scripts.json`) fuerza `"module": "CommonJS"` e
 `"incremental": false` para que `ts-node` compile el script de forma portátil.
+El script `geocode-backfill` sigue el mismo patrón (ver §Geocoding backfill).
 
 ### Gateway WebSocket y modelo de rooms (Fase 5)
 
@@ -212,6 +215,73 @@ Fix: se añadió `emailVerified: user.emailVerified` al objeto devuelto por
 para incluir el campo. El flow de next-auth ya lo propagaba hasta `session.user`
 (vía `auth.config.ts`), solo faltaba que el backend lo enviara.
 
+### Caducidad automática y renovación de anuncios
+
+Los anuncios caducan 60 días tras su publicación (`EXPIRY_DAYS = 60` en
+`ExpirationService`). El campo `expiresAt` se calcula en el momento de la
+publicación con `ExpirationService.expiresAt(publishedAt)` y se persiste junto con
+el cambio de estado a ACTIVE.
+
+El cron `@Cron(CronExpression.EVERY_DAY_AT_2AM)` busca todos los anuncios ACTIVE
+con `expiresAt ≤ now`, los marca EXPIRED en una sola llamada `updateMany`, y por
+cada uno invalida la caché Redis y encola un job `index` para que Meilisearch los
+retire del índice. Los anuncios RESERVED quedan excluidos del cron: están en
+negociación activa y no deben caducar automáticamente.
+
+El endpoint `POST /listings/:id/renew` acepta anuncios en estado ACTIVE o EXPIRED,
+reinicia `publishedAt` a la fecha actual y extiende `expiresAt` otros 60 días, con
+reindexado inmediato. Desde el frontend, `MisAnunciosClient` expone la acción de
+renovación y la tarjeta `MyListingCard` muestra la fecha de caducidad.
+
+### Geocoding configurable con fallback silencioso
+
+`GeocodingService` resuelve coordenadas a partir de ciudad + provincia + código
+postal. El proveedor se selecciona con la variable `GEOCODING_PROVIDER`:
+
+- **`nominatim`** (por defecto): Nominatim de OpenStreetMap, sin API key. Requiere
+  el header `User-Agent` con información de contacto del aplicativo (política de uso).
+  Limitado a 1 req/s, adecuado para dev y backfill, insuficiente bajo carga de
+  producción.
+- **`maptiler`**: API comercial (requiere `MAPTILER_API_KEY`). Sin límite de tasa
+  significativo en los planes de pago.
+
+Ambas rutas comparten un timeout de 1 500 ms vía `AbortSignal.timeout()`. Cualquier
+error o timeout devuelve `null` sin lanzar excepción, de modo que un proveedor lento
+o caído nunca bloquea la publicación ni la edición de un anuncio.
+
+La geocodificación se ejecuta en dos momentos:
+- Al **crear** un anuncio: si el wizard no envía coordenadas explícitas.
+- Al **editar**: si cambia algún campo de ubicación (ciudad, provincia o código
+  postal) y no se proporcionan coordenadas explícitas en el DTO.
+
+### Script `geocode-backfill` para anuncios sin coordenadas
+
+Los anuncios publicados antes de integrar el geocoding tienen `latitude = null`. El
+script `apps/api/src/commands/geocode-backfill.ts` los procesa en lotes de 50 con
+cursor-based pagination (condición `WHERE latitude IS NULL AND city IS NOT NULL`),
+geocodifica cada uno y actualiza Postgres + Meilisearch. Entre peticiones espera
+1 000 ms para respetar la política de 1 req/s de Nominatim. Al igual que `reindex`,
+el script arranca un contexto NestJS mínimo (`GeocodingBackfillModule`: solo Prisma +
+Search + Geocoding, sin BullMQ) y llama a `prisma.$disconnect()` sin `process.exit()`.
+
+### Búsqueda por proximidad: `_geoRadius` + `_geoPoint`
+
+`SearchQueryDto` expone tres parámetros opcionales: `lat`, `lng` y `radius` (km).
+Cuando los tres están presentes, `SearchController` los pasa al service como
+`geo: { lat, lng, radiusMeters: radius * 1_000 }`. El servicio aplica el filtro
+`_geoRadius(lat, lng, radiusMeters)` de Meilisearch, que excluye automáticamente
+documentos sin campo `_geo`. Cuando se activa la proximidad y no hay `sort` explícito,
+el sort se reemplaza por `_geoPoint(lat, lng):asc` para ordenar por distancia
+ascendente.
+
+En `/busqueda`, `FilterPanel` implementa el control "cerca de mí":
+- Botón que invoca `navigator.geolocation.getCurrentPosition()` con timeout de 10 s.
+- Al obtener posición, escribe `lat`, `lng` y `radius=10` en la URL y elimina el
+  parámetro `sort` para activar el orden por distancia.
+- Selector de radio (5, 10, 25, 50 km) mientras la proximidad está activa.
+- Botón de desactivar que limpia `lat`, `lng`, `radius` y `sort` de la URL.
+- Opción de ordenación "Más cercanos" visible solo cuando la proximidad está activa.
+
 ---
 
 ## 3. Limitaciones conocidas y deuda técnica
@@ -240,15 +310,21 @@ tiempo real. Por ahora, los mensajes se marcan como leídos de forma síncrona e
 otro participante no se actualiza en vivo: su contador de no leídos solo baja al
 recargar. Pendiente: añadir el evento en el gateway y actualizar la bandeja.
 
-### Búsqueda geográfica pendiente de geocoding
+### Nominatim en producción: límite de 1 req/s
 
-El campo `_geo` está modelado en `ListingDocument` y `SearchService.search()`
-tiene cableados el filtro `_geoRadius` y el sort por `_geoPoint`. Sin embargo,
-`StepUbicacion` en el wizard de publicación captura solo ciudad, provincia y
-código postal; no captura latitud ni longitud. En consecuencia, **todos los
-documentos indexados tienen `_geo` ausente** y la búsqueda por proximidad no
-devolverá resultados hasta que se integre un servicio de geocoding (p. ej.
-Nominatim u otro proveedor) en el paso de ubicación.
+Nominatim (OSM) impone un máximo de 1 petición por segundo y prohíbe el uso
+intensivo. En producción, bajo cualquier carga real, es necesario cambiar a un
+proveedor comercial (`GEOCODING_PROVIDER=maptiler` + `MAPTILER_API_KEY`) o a una
+instancia propia de Nominatim. El timeout de 1 500 ms protege frente a lentitud,
+pero no frente a bloqueos por rate-limit del proveedor público.
+
+### Geolocalización del navegador solo en contexto seguro (HTTPS)
+
+`navigator.geolocation` solo está disponible en orígenes seguros (HTTPS o
+`localhost`). El botón "cerca de mí" de `FilterPanel` quedará inoperativo si el
+frontend se sirve por HTTP en una IP de red local (p. ej. en un dispositivo móvil
+conectado a la misma red de desarrollo). En producción esto no es problema porque
+el sitio irá sobre HTTPS.
 
 ### Renombrar atributo `type` → `itemType` en el seed
 
@@ -331,7 +407,18 @@ pnpm --filter @marketplace/web dev      # http://localhost:3000
 
 # Reconstruir el índice de búsqueda (primera vez o tras reset de Meilisearch)
 pnpm --filter @marketplace/api reindex
+
+# Rellenar coordenadas en anuncios sin geocodificar (ejecutar una sola vez o tras importar datos)
+# Aviso: usa Nominatim por defecto → tarda ~1 s por anuncio. Cambiar a maptiler para lotes grandes.
+pnpm --filter @marketplace/api geocode-backfill
 ```
 
 Variables de entorno necesarias: `apps/api/.env` y `apps/web/.env.local`.
 Ver los respectivos `.env.example` como plantilla.
+
+Variables de entorno nuevas (`apps/api/.env`) respecto a fases anteriores:
+
+| Variable | Valor por defecto | Descripción |
+|---|---|---|
+| `GEOCODING_PROVIDER` | `nominatim` | Proveedor de geocoding. `nominatim` (sin key) o `maptiler` |
+| `MAPTILER_API_KEY` | — | Solo necesario si `GEOCODING_PROVIDER=maptiler` |

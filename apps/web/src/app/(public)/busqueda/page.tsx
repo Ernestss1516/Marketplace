@@ -11,6 +11,7 @@ import { getCategories } from '@/lib/api/categorias';
 const KNOWN_PARAMS = new Set([
   'q', 'category', 'type', 'condition', 'priceType',
   'minPrice', 'maxPrice', 'province', 'city', 'sort', 'page', 'hitsPerPage',
+  'lat', 'lng', 'radius',
 ]);
 
 const VALID_SORTS = ['price:asc', 'price:desc', 'publishedAt:desc'] as const;
@@ -65,10 +66,21 @@ export default async function BusquedaPage({
       ? priceTypeRaw
       : undefined;
 
+  // Proximity params
+  const latStr = str(raw.lat);
+  const lngStr = str(raw.lng);
+  const radiusStr = str(raw.radius);
+  const lat = latStr && !isNaN(Number(latStr)) ? Number(latStr) : undefined;
+  const lng = lngStr && !isNaN(Number(lngStr)) ? Number(lngStr) : undefined;
+  const radius = radiusStr && !isNaN(Number(radiusStr)) ? Number(radiusStr) : undefined;
+  const proximityActive = lat != null && lng != null && radius != null;
+
+  // Sort: when proximity is active and no explicit sort is in the URL, do NOT send
+  // sort to the API so SearchService applies _geoPoint distance ordering instead.
   const sortRaw = str(raw.sort);
-  const sort: Sort = (VALID_SORTS as readonly string[]).includes(sortRaw ?? '')
+  const sortForApi: Sort | undefined = (VALID_SORTS as readonly string[]).includes(sortRaw ?? '')
     ? (sortRaw as Sort)
-    : 'publishedAt:desc';
+    : undefined;
 
   const page = Math.max(1, parseInt(str(raw.page) ?? '1', 10));
 
@@ -97,7 +109,8 @@ export default async function BusquedaPage({
       ...(maxPrice !== undefined && !isNaN(maxPrice) && { maxPrice }),
       ...(province && { province }),
       ...(city && { city }),
-      sort,
+      ...(sortForApi && { sort: sortForApi }),
+      ...(proximityActive && { lat, lng, radius }),
       page,
       hitsPerPage: 24,
       ...attributes,
@@ -137,7 +150,10 @@ export default async function BusquedaPage({
     maxPrice: maxPriceStr,
     province,
     city,
-    sort,
+    sort: sortRaw,
+    lat: latStr,
+    lng: lngStr,
+    radius: radiusStr,
     attributes,
   };
 
@@ -145,6 +161,7 @@ export default async function BusquedaPage({
     category, typeRaw, conditionRaw, priceTypeRaw,
     province, city, minPriceStr, maxPriceStr,
     ...Object.values(attributes),
+    proximityActive ? 'geo' : undefined,
   ].filter(Boolean).length;
 
   return (

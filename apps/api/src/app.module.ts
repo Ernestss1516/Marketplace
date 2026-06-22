@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import configuration from './config/configuration';
 import { envValidationSchema } from './config/env.validation';
 import { PrismaModule } from './infra/prisma/prisma.module';
@@ -18,6 +19,7 @@ import { ReviewsModule } from './modules/reviews/reviews.module';
 import { MediaModule } from './modules/media/media.module';
 import { ModerationModule } from './modules/moderation/moderation.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { ExpirationModule } from './modules/expiration/expiration.module';
 
 @Module({
   imports: [
@@ -26,6 +28,7 @@ import { AdminModule } from './modules/admin/admin.module';
       load: [configuration],
       validationSchema: envValidationSchema,
     }),
+    ScheduleModule.forRoot(),
     PrismaModule,
     RedisModule,
     MeilisearchModule,
@@ -43,6 +46,7 @@ import { AdminModule } from './modules/admin/admin.module';
     MediaModule,
     ModerationModule,
     AdminModule,
+    ExpirationModule,
   ],
 })
 export class AppModule {}
