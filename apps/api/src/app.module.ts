@@ -27,6 +27,11 @@ import { ExpirationModule } from './modules/expiration/expiration.module';
       isGlobal: true,
       load: [configuration],
       validationSchema: envValidationSchema,
+      // Load env-specific file first (.env.test, .env.production…), then .env as
+      // fallback for any vars not defined in the specific file.
+      // dotenv never overrides vars already in process.env, so CI-injected vars
+      // (DATABASE_URL=marketplace_test etc.) always win over file values.
+      envFilePath: [`.env.${process.env.NODE_ENV ?? 'development'}`, '.env'],
     }),
     ScheduleModule.forRoot(),
     PrismaModule,

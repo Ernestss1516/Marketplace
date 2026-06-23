@@ -37,18 +37,23 @@ export default defineConfig({
 
   webServer: [
     {
-      // Backend: start with test env vars so it uses marketplace_test DB and
-      // listings_test Meilisearch index. In CI these vars come from the workflow.
+      // Backend: NODE_ENV=test triggers .env.test loading (via ConfigModule envFilePath).
+      // In CI, the workflow injects DATABASE_URL=marketplace_test etc. directly and
+      // those take precedence over .env.test (dotenv never overrides existing env vars).
+      // In local, reuseExistingServer:true reuses the manually-started server.
       command: 'pnpm --filter @marketplace/api dev',
-      url: 'http://localhost:3001/api',
+      // /api/categories is a public endpoint guaranteed to return 200 once NestJS
+      // and Prisma are fully ready. /api root has no handler → 404.
+      url: 'http://localhost:3001/api/categories',
       reuseExistingServer: !process.env.CI,
-      timeout: 60_000,
+      timeout: 120_000,
+      env: { NODE_ENV: 'test' },
     },
     {
       command: 'pnpm --filter @marketplace/web dev',
       url: 'http://localhost:3000',
       reuseExistingServer: !process.env.CI,
-      timeout: 60_000,
+      timeout: 120_000,
     },
   ],
 });
