@@ -88,11 +88,8 @@ jobs:
           MEILI_ENV: development
         ports:
           - 7700:7700
-        options: >-
-          --health-cmd "wget -q --spider http://localhost:7700/health"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+        # No health-cmd: the container binds port 7700 after a short init window that
+        # exhausted the retry budget in CI. A polling step below waits instead.
 
     env:
       # ── PostgreSQL ─────────────────────────────────────────────────────────────
@@ -150,6 +147,11 @@ jobs:
 
       - name: Generate Prisma Client
         run: pnpm --filter @marketplace/api prisma:generate
+
+      # /health is public even with MEILI_MASTER_KEY set (confirmed). Polling from
+      # the host via the mapped port; no auth header needed.
+      - name: Wait for Meilisearch
+        run: timeout 30 bash -c 'until curl -sf http://localhost:7700/health; do sleep 1; done'
 
       # Tag pinned to a confirmed-live release (verified on Docker Hub 2025-06-23).
       # MINIO_ROOT_USER / MINIO_ROOT_PASSWORD must match S3_ACCESS_KEY_ID /
