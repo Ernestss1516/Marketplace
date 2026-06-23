@@ -61,9 +61,9 @@ services:
     volumes:
       - minio_data:/data
 
-  # Crea el bucket "marketplace" y le da lectura pública al arrancar.
-  # Es un contenedor de inicialización: se ejecuta una vez y termina (saldrá
-  # como "exited" en docker compose ps, que es lo normal).
+  # Crea los buckets al arrancar (contenedor de inicialización, terminará como "exited").
+  # - "marketplace"      → bucket de desarrollo
+  # - "marketplace-test" → bucket de tests (Playwright + backend e2e con S3_BUCKET=marketplace-test)
   createbuckets:
     image: minio/mc
     depends_on:
@@ -73,6 +73,8 @@ services:
       until (mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin}) do echo 'esperando a minio...'; sleep 2; done;
       mc mb --ignore-existing local/marketplace;
       mc anonymous set download local/marketplace;
+      mc mb --ignore-existing local/marketplace-test;
+      mc anonymous set download local/marketplace-test;
       exit 0;
       "
 

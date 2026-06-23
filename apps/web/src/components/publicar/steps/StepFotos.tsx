@@ -154,6 +154,7 @@ export function StepFotos({ images, token, onChange, errors }: StepFotosProps) {
             accept="image/*"
             multiple
             className="sr-only"
+            data-testid="foto-input"
             onChange={handleInputChange}
           />
           <button

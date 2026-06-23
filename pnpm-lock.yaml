@@ -131,6 +131,9 @@ importers:
       prisma:
         specifier: ^6.2.1
         version: 6.19.3(typescript@5.9.3)
+      socket.io-client:
+        specifier: ^4.8.3
+        version: 4.8.3
       supertest:
         specifier: ^7.0.0
         version: 7.2.2
@@ -222,6 +225,9 @@ importers:
       autoprefixer:
         specifier: ^10.4.20
         version: 10.5.0(postcss@8.5.15)
+      dotenv:
+        specifier: ^16.6.1
+        version: 16.6.1
       eslint:
         specifier: ^9.0.0
         version: 9.39.4(jiti@1.21.7)

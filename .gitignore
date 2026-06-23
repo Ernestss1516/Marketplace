@@ -11,6 +11,13 @@ out/
 # Secretos y entorno (NUNCA al repo)
 .env
 .env*.local
+.env.test
+
+# Playwright — sesiones autenticadas (generadas por global-setup, contienen cookies)
+apps/web/e2e/fixtures/*.storageState.json
+# Playwright — report y resultados de test
+apps/web/playwright-report/
+apps/web/test-results/
 
 # Logs
 *.log
