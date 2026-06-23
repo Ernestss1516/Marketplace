@@ -72,7 +72,22 @@ export default async function globalSetup(playwrightConfig: FullConfig) {
     await page.getByLabel('Email').fill(user.email);
     await page.getByLabel('Contraseña').fill('Test1234!');
     await page.getByRole('button', { name: 'Iniciar sesión' }).click();
-    await page.waitForURL('**/mis-anuncios', { timeout: 15_000 });
+
+    // Wait for the redirect away from /login without assuming the destination.
+    // next-auth v5 may resolve the session before Next.js Router fires the
+    // callbackUrl push, so the landing route is not guaranteed.
+    await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 15_000 });
+
+    // Navigate explicitly to a protected route to confirm the session cookie is
+    // live and middleware does not bounce us back to login.
+    await page.goto(`${baseURL}/mis-anuncios`);
+    const finalUrl = page.url();
+    if (finalUrl.includes('/login')) {
+      throw new Error(
+        `[globalSetup] Session not established for ${user.email} — ` +
+        `/mis-anuncios redirected to: ${finalUrl}`,
+      );
+    }
 
     await context.storageState({ path: path.join(FIXTURES_DIR, user.file) });
     await context.close();
