@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/nestjs';
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -25,13 +26,18 @@ export class NotificationProcessor extends WorkerHost {
   }
 
   async process(job: Job): Promise<void> {
-    switch (job.name) {
-      case NOTIFICATION_JOB.SEND_VERIFICATION_EMAIL:
-        return this.sendVerificationEmail(job.data as SendVerificationEmailData);
-      case NOTIFICATION_JOB.SEND_RESET_EMAIL:
-        return this.sendResetEmail(job.data as SendResetEmailData);
-      default:
-        this.logger.warn(`Unknown notification job: ${job.name}`);
+    try {
+      switch (job.name) {
+        case NOTIFICATION_JOB.SEND_VERIFICATION_EMAIL:
+          return this.sendVerificationEmail(job.data as SendVerificationEmailData);
+        case NOTIFICATION_JOB.SEND_RESET_EMAIL:
+          return this.sendResetEmail(job.data as SendResetEmailData);
+        default:
+          this.logger.warn(`Unknown notification job: ${job.name}`);
+      }
+    } catch (err) {
+      Sentry.captureException(err);
+      throw err;
     }
   }
 

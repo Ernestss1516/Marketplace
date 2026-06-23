@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/nestjs';
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import sharp from 'sharp';
@@ -20,22 +21,27 @@ export class ImageProcessor extends WorkerHost {
   }
 
   async process(job: Job<ImageJobData>): Promise<void> {
-    const { mediaId, r2Key } = job.data;
+    try {
+      const { mediaId, r2Key } = job.data;
 
-    const original = await this.r2.download(r2Key);
-    const metadata = await sharp(original).metadata();
+      const original = await this.r2.download(r2Key);
+      const metadata = await sharp(original).metadata();
 
-    const thumb = await sharp(original)
-      .resize({ width: 800, withoutEnlargement: true })
-      .webp({ quality: 82 })
-      .toBuffer();
+      const thumb = await sharp(original)
+        .resize({ width: 800, withoutEnlargement: true })
+        .webp({ quality: 82 })
+        .toBuffer();
 
-    const thumbKey = r2Key.replace(/\.[^.]+$/, '-thumb.webp');
-    await this.r2.upload(thumbKey, thumb, 'image/webp');
+      const thumbKey = r2Key.replace(/\.[^.]+$/, '-thumb.webp');
+      await this.r2.upload(thumbKey, thumb, 'image/webp');
 
-    await this.prisma.listingImage.update({
-      where: { id: mediaId },
-      data: { width: metadata.width ?? null, height: metadata.height ?? null },
-    });
+      await this.prisma.listingImage.update({
+        where: { id: mediaId },
+        data: { width: metadata.width ?? null, height: metadata.height ?? null },
+      });
+    } catch (err) {
+      Sentry.captureException(err);
+      throw err;
+    }
   }
 }

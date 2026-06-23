@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/nestjs';
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
@@ -17,14 +18,19 @@ export class IndexingProcessor extends WorkerHost {
   }
 
   async process(job: Job<{ listingId: string }>): Promise<void> {
-    const { listingId } = job.data;
-    switch (job.name) {
-      case 'index':
-        return this.handleIndex(listingId);
-      case 'remove':
-        return this.handleRemove(listingId);
-      default:
-        this.logger.warn(`Unknown indexing job: ${job.name}`);
+    try {
+      const { listingId } = job.data;
+      switch (job.name) {
+        case 'index':
+          return this.handleIndex(listingId);
+        case 'remove':
+          return this.handleRemove(listingId);
+        default:
+          this.logger.warn(`Unknown indexing job: ${job.name}`);
+      }
+    } catch (err) {
+      Sentry.captureException(err);
+      throw err;
     }
   }
 
