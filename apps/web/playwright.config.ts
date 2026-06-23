@@ -58,7 +58,10 @@ export default defineConfig({
       url: 'http://localhost:3001/api/categories',
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
-      env: { ...process.env, ...testEnv, PORT: '3001' },
+      // testEnv spread first so CI job-level vars (injected into process.env)
+      // always win over .env.test values. Locally process.env lacks these vars
+      // so testEnv provides the defaults (masterKey_dev_change_me, etc.).
+      env: { ...testEnv, ...process.env, PORT: '3001' },
     },
     {
       command: 'pnpm --filter @marketplace/web dev',
