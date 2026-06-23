@@ -45,24 +45,28 @@ export class ListingsController {
 
   @Post(':id/publish')
   @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
   publish(@Param('id') id: string, @CurrentUser() user: JwtUser) {
     return this.listingsService.publish(id, user.userId);
   }
 
   @Post(':id/reserve')
   @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
   reserve(@Param('id') id: string, @CurrentUser() user: JwtUser) {
     return this.listingsService.reserve(id, user.userId);
   }
 
   @Post(':id/sold')
   @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
   sold(@Param('id') id: string, @CurrentUser() user: JwtUser) {
     return this.listingsService.markAsSold(id, user.userId);
   }
 
   @Post(':id/renew')
   @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
   renew(@Param('id') id: string, @CurrentUser() user: JwtUser) {
     return this.listingsService.renew(id, user.userId);
   }

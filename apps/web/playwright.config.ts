@@ -58,7 +58,7 @@ export default defineConfig({
       url: 'http://localhost:3001/api/categories',
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
-      env: { ...testEnv, PORT: '3001' },
+      env: { ...process.env, ...testEnv, PORT: '3001' },
     },
     {
       command: 'pnpm --filter @marketplace/web dev',

@@ -1,0 +1,182 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────────────
+  # Job 1: Static checks — no service containers needed
+  # ──────────────────────────────────────────────────────────────────────────────
+  lint:
+    name: Lint & Typecheck
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.8.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck API
+        run: npx tsc --noEmit
+        working-directory: apps/api
+
+      - name: Lint web
+        run: pnpm --filter @marketplace/web lint
+
+      - name: Typecheck web
+        run: pnpm --filter @marketplace/web type-check
+
+  # ──────────────────────────────────────────────────────────────────────────────
+  # Job 2: E2E tests — backend Jest suites, then Playwright critical path
+  # Both share marketplace_test so they run sequentially as steps.
+  # ──────────────────────────────────────────────────────────────────────────────
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    needs: lint
+
+    services:
+      postgres:
+        image: postgis/postgis:16-3.5
+        env:
+          POSTGRES_USER: marketplace
+          POSTGRES_PASSWORD: marketplace_dev
+          POSTGRES_DB: marketplace_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U marketplace -d marketplace_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      meilisearch:
+        image: getmeili/meilisearch:v1.10
+        env:
+          MEILI_MASTER_KEY: masterKey_ci
+          MEILI_ENV: development
+        ports:
+          - 7700:7700
+        options: >-
+          --health-cmd "wget -q --spider http://localhost:7700/health"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      # bitnami/minio is used instead of the official minio/minio because GH Actions
+      # service containers cannot override the Docker CMD (needed for `server /data`).
+      # bitnami/minio starts automatically and creates MINIO_DEFAULT_BUCKETS on boot.
+      minio:
+        image: bitnami/minio:latest
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+          MINIO_DEFAULT_BUCKETS: marketplace-test
+        ports:
+          - 9000:9000
+        options: >-
+          --health-cmd "curl -sf http://localhost:9000/minio/health/live"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # ── PostgreSQL ─────────────────────────────────────────────────────────────
+      DATABASE_URL: postgresql://marketplace:marketplace_dev@localhost:5432/marketplace_test
+
+      # ── Redis (DB 1 for test isolation; dev uses DB 0) ─────────────────────────
+      REDIS_URL: redis://localhost:6379/1
+
+      # ── Meilisearch ────────────────────────────────────────────────────────────
+      MEILI_HOST: http://localhost:7700
+      MEILI_MASTER_KEY: masterKey_ci
+      MEILI_INDEX_NAME: listings_test
+
+      # ── NestJS auth ────────────────────────────────────────────────────────────
+      JWT_SECRET: ci_jwt_secret
+
+      # ── Email — Resend not called in tests; value satisfies Joi validation ─────
+      RESEND_API_KEY: ci_dummy_resend
+      RESEND_FROM: noreply@test.local
+      APP_URL: http://localhost:3001
+
+      # ── S3 / MinIO ─────────────────────────────────────────────────────────────
+      S3_ENDPOINT: http://localhost:9000
+      S3_BUCKET: marketplace-test
+      S3_ACCESS_KEY_ID: minioadmin
+      S3_SECRET_ACCESS_KEY: minioadmin
+      S3_PUBLIC_URL: http://localhost:9000/marketplace-test
+
+      # ── Next.js / next-auth v5 (AUTH_* not NEXTAUTH_*) ────────────────────────
+      # next.config.ts already allows { hostname: 'localhost' } for Next Image,
+      # so MinIO URLs (http://localhost:9000/...) render without domain errors.
+      NEXT_PUBLIC_API_URL: http://localhost:3001/api
+      NEXT_PUBLIC_WS_URL: http://localhost:3001
+      AUTH_SECRET: ci_auth_secret
+      AUTH_URL: http://localhost:3000
+
+      # ── Process ────────────────────────────────────────────────────────────────
+      NODE_ENV: test
+      PORT: "3001"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.8.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: pnpm --filter @marketplace/web exec playwright install --with-deps chromium
+
+      # globalSetup (setup-e2e.js) runs prisma migrate deploy + seed-test.ts.
+      # dotenv.config() inside globalSetup is a no-op in CI (vars already in env).
+      - name: Backend e2e — Jest
+        run: pnpm --filter @marketplace/api test:e2e
+
+      # Playwright spawns the backend (port 3001) and frontend (port 3000) via
+      # webServer because reuseExistingServer = !process.env.CI = false.
+      # global-setup.ts migrates (idempotent after Jest), seeds Playwright users,
+      # and saves storageState. The backend webServer now receives { ...process.env,
+      # ...testEnv, PORT: '3001' } — the fix in playwright.config.ts ensures all
+      # job env vars reach the NestJS process even when .env.test is absent.
+      - name: Frontend e2e — Playwright
+        run: pnpm --filter @marketplace/web test:e2e
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report/
+          retention-days: 7
