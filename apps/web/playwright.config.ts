@@ -2,17 +2,14 @@ import { defineConfig, devices } from '@playwright/test';
 import { config as dotenvParse } from 'dotenv';
 import * as path from 'path';
 
-// Load .env.test vars from the API package to inject into the backend webServer.
-// We do NOT call dotenvParse() (which would modify process.env); instead we parse
-// the file into a plain object and pass only what we need to the webServer env.
-// This bypasses the nest-cli NODE_ENV override issue: nest start --watch sets
-// NODE_ENV=development internally, so ConfigModule.forRoot envFilePath would load
-// .env.development (nonexistent) → .env (dev DB). Injecting all vars explicitly
-// avoids that problem entirely.
+// Parse .env.test into a plain object to inject into the backend webServer env.
+// processEnv: {} → parse-only, never touches process.env.
+// Injecting vars explicitly guarantees the backend uses the test DB regardless of
+// how the Nest CLI handles NODE_ENV in its child process.
 const apiDir = path.join(__dirname, '..', 'api');
 const testEnv = dotenvParse({
   path: path.join(apiDir, '.env.test'),
-  processEnv: {},   // parse-only — don't touch process.env
+  processEnv: {},
 }).parsed ?? {};
 
 // Playwright e2e config for the Marketplace frontend.
@@ -54,7 +51,7 @@ export default defineConfig({
     {
       // Backend: all test env vars injected explicitly so they are available
       // regardless of how nest-cli manages NODE_ENV in its child process.
-      // PORT is overridden to 3001 because .env.test uses 3099 (for Jest API tests).
+      // .env.test uses PORT=3001 (Jest API tests use supertest in-process, no port binding).
       command: 'pnpm --filter @marketplace/api dev',
       // /api/categories is a public endpoint guaranteed to return 200 once NestJS
       // and Prisma are fully ready. /api root has no handler → 404.
