@@ -1,5 +1,10 @@
 # Estructura del proyecto backend — NestJS
 
+> **HISTÓRICO — MVP completado (fases 0-5)**
+> Este documento recoge el árbol de diseño previo a la implementación. El estado
+> real del código (módulos, decisiones, deuda técnica) está en `docs/estado-tecnico.md`.
+> Plan vigente: `docs/Hoja_de_ruta_rafagas_Hito2.docx`.
+
 > **Alcance:** este árbol cubre **únicamente el backend** (NestJS).
 > Es la **única fuente de verdad de la lógica de negocio** y expone la API que
 > consume el frontend Next.js. Aquí viven las reglas, la persistencia (PostgreSQL

@@ -1,5 +1,10 @@
 # Estructura del proyecto frontend — Next.js (App Router)
 
+> **HISTÓRICO — MVP completado (fases 0-5)**
+> Este documento recoge el árbol de diseño previo a la implementación. El estado
+> real del código (páginas, decisiones, deuda técnica) está en `docs/estado-tecnico.md`.
+> Plan vigente: `docs/Hoja_de_ruta_rafagas_Hito2.docx`.
+
 > **Alcance:** este árbol cubre **únicamente el frontend** (Next.js).
 > El backend (NestJS) es un proyecto y repositorio separado: contiene toda la
 > lógica de negocio y expone la API que este frontend consume. Next.js aquí es

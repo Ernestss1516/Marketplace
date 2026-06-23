@@ -1,5 +1,11 @@
 # Marketplace — Plataforma de compraventa de segunda mano
 
+## Estado del proyecto
+
+El MVP (fases 0-5) está **completado**. El estado detallado de lo implementado vive
+en `docs/estado-tecnico.md`. El plan de trabajo vigente es
+`docs/Hoja_de_ruta_rafagas_Hito2.docx`.
+
 ## Propósito
 Marketplace C2C (entre particulares) tipo Milanuncios: publicar, buscar y
 contactar para comprar/vender productos y servicios. Es una plataforma
@@ -36,9 +42,11 @@ contactar para comprar/vender productos y servicios. Es una plataforma
 - Validación de entrada siempre vía DTOs en el backend.
 
 ## Comandos
-- Infraestructura local: `docker-compose up -d` (Postgres, Redis, Meilisearch)
+- Infraestructura local: `docker-compose up -d` (Postgres, Redis, Meilisearch, MinIO)
 - Frontend: trabajar dentro de `apps/web` (ver su CLAUDE.md)
 - Backend: trabajar dentro de `apps/api` (ver su CLAUDE.md)
+- Reconstruir índice de búsqueda: `pnpm --filter @marketplace/api reindex`
+- Geocodificar anuncios sin coordenadas: `pnpm --filter @marketplace/api geocode-backfill`
 - (Ajustar según el gestor de paquetes del workspace.)
 
 ## Flujo de Git
@@ -53,5 +61,7 @@ contactar para comprar/vender productos y servicios. Es una plataforma
   plantilla y cada máquina tiene su `.env` local.
 
 ## Documentación de referencia
-Para el detalle de arquitectura, modelo de datos y hoja de ruta, consultar la
-carpeta `docs/` (no se carga automáticamente; ábrela cuando necesites el detalle).
+- `docs/estado-tecnico.md` — estado real implementado: módulos, decisiones técnicas, deuda pendiente.
+- `docs/Hoja_de_ruta_rafagas_Hito2.docx` — plan vigente de trabajo.
+- `docs/contratos-api.md` — resumen de alto nivel de la API; detalle en Swagger (`/api/docs`).
+- El resto de `docs/` contiene documentos de diseño y planificación del MVP (históricos).

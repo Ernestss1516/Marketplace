@@ -1,5 +1,10 @@
 # Mapa de pantallas y flujos de usuario — MVP
 
+> **HISTÓRICO — MVP completado (fases 0-5)**
+> Este documento recoge el diseño de pantallas y flujos previo a la implementación.
+> El estado real implementado está en `docs/estado-tecnico.md`.
+> Plan vigente: `docs/Hoja_de_ruta_rafagas_Hito2.docx`.
+
 > **Alcance:** pantallas y flujos del MVP (fases 0-5). Las rutas coinciden con los
 > route groups de Next.js definidos en la estructura del frontend. Este documento
 > es el punto de partida estructural; el siguiente nivel de detalle serían los

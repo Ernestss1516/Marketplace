@@ -33,3 +33,7 @@ lógica se consume desde la API de NestJS a través de `lib/api/`.
 - `build` / `start` — build y arranque de producción
 - `lint` / `typecheck` — calidad de código
 - (Ajustar a los scripts reales del `package.json`.)
+
+## Estado y plan vigente
+El MVP está completado. Estado implementado: `docs/estado-tecnico.md`.
+Plan de trabajo activo: `docs/Hoja_de_ruta_rafagas_Hito2.docx`.

@@ -1,6 +1,7 @@
 # Estado técnico del proyecto — Marketplace
 
 > Fecha: 2026-06-22 · Rama: `main` · Último commit: `08d2ff9` (Fase 5) + cambios sin commitear (expiration, geocoding, perfil, búsqueda por proximidad)
+> Plan vigente para la siguiente fase: `docs/Hoja_de_ruta_rafagas_Hito2.docx`.
 
 Documento de referencia para retomar el proyecto. Recoge qué hay implementado,
 qué decisiones se tomaron respecto al diseño original y qué queda pendiente.

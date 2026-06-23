@@ -1,5 +1,10 @@
 # Personas y wireframes — MVP
 
+> **HISTÓRICO — MVP completado (fases 0-5)**
+> Este documento recoge los arquetipos de usuario y wireframes de bloques del diseño
+> previo a la implementación. Referencia útil para el Hito 2 al diseñar nuevas
+> pantallas. Plan vigente: `docs/Hoja_de_ruta_rafagas_Hito2.docx`.
+
 > **Propósito:** guiar las decisiones de diseño del frontend con arquetipos de
 > usuario y el esqueleto de contenido de las pantallas clave. Las personas son
 > propuestas de arquetipo; conviene validarlas con investigación real cuando se

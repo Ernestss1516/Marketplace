@@ -1,190 +1,151 @@
-# Contratos de la API — MVP
+# Contratos de la API — Marketplace
 
-> **Alcance:** endpoints del MVP (fases 0-5). Quedan fuera favoritos, valoraciones,
-> backoffice y moderación (fases 6-7).
->
-> **Nota:** este documento es la guía de diseño de la API. Una vez construida, la
-> fuente de verdad navegable será la documentación **OpenAPI/Swagger** que NestJS
-> genera automáticamente a partir de los controladores y DTOs (`/api/docs`).
+> **Fuente de verdad navegable:** Swagger en `http://localhost:3001/api/docs`
+> (auto-generado desde controladores y DTOs de NestJS). Este documento es el
+> **resumen de diseño de alto nivel**: qué recursos y operaciones existen y para qué
+> sirven, más las decisiones que no son obvias leyendo solo las rutas. Para el detalle
+> de campos, validaciones y tipos de respuesta exactos, consultar Swagger.
 
 ## Convenciones generales
 
-- **Base URL:** `/api` (p. ej. `https://api.tudominio.es/api`). Versionado opcional con `/api/v1`.
-- **Formato:** JSON en peticiones y respuestas (`Content-Type: application/json`), salvo subida de archivos (multipart).
-- **Autenticación:** JWT en cabecera `Authorization: Bearer <token>`. Los endpoints marcados *(auth)* la requieren; *(propietario)* exige además ser el dueño del recurso.
-- **Paginación:** parámetros `?page=1&perPage=24`. Respuesta: `{ items: [...], total, page, perPage }`.
+- **Base URL:** `/api` (p. ej. `https://api.tudominio.es/api`).
+- **Formato:** JSON en peticiones y respuestas, salvo subida de archivos (multipart).
+- **Autenticación:** JWT en cabecera `Authorization: Bearer <token>`. Los endpoints
+  marcados *(auth)* la requieren; *(propietario)* exige además ser el dueño del recurso.
+- **Paginación:** `?page=1&perPage=24`. Respuesta: `{ items, total, page, perPage }`
+  (búsqueda: `{ hits, totalHits, page, hitsPerPage }`).
 - **Errores:** formato estándar de NestJS — `{ statusCode, message, error }`.
-- **Códigos:** `200` OK · `201` Creado · `400` Petición inválida · `401` No autenticado · `403` Sin permiso · `404` No encontrado · `409` Conflicto (p. ej. email ya registrado) · `422` Error de validación.
 
 ---
 
 ## Auth
 
-**`POST /auth/register`** — Registro
-Crea un usuario en estado no verificado y envía el email de verificación.
-- Body: `{ name, email, password }`
-- Response `201`: `{ id, name, email, slug, emailVerified: false }`
-- Errores: `409` email ya registrado · `422` validación (email/contraseña)
+Cinco operaciones. Flujo principal: `register → verify-email → login`.
 
-**`POST /auth/login`** — Inicio de sesión
-- Body: `{ email, password }`
-- Response `200`: `{ accessToken, user: { id, name, email, slug, role } }`
-- Errores: `401` credenciales incorrectas
-
-**`POST /auth/verify-email`** — Verificar email
-- Body: `{ token }`
-- Response `200`: `{ verified: true }`
-- Errores: `400` token inválido o caducado
-
-**`POST /auth/forgot-password`** — Solicitar recuperación
-Envía un email con el enlace de restablecimiento. Responde `200` aunque el email no exista (para no revelar cuentas).
-- Body: `{ email }`
-- Response `200`: `{ ok: true }`
-
-**`POST /auth/reset-password`** — Restablecer contraseña
-- Body: `{ token, newPassword }`
-- Response `200`: `{ ok: true }`
-- Errores: `400` token inválido o caducado
+- **`POST /auth/register`** — Crea la cuenta (no verificada) y envía el email de
+  verificación.
+- **`POST /auth/login`** — Devuelve `{ accessToken, user }`. El objeto `user` incluye
+  `emailVerified` (añadido tras el diseño inicial para que el frontend pueda mostrar el
+  aviso de verificación sin llamadas adicionales).
+- **`POST /auth/verify-email`** — Marca el email como verificado y devuelve
+  `{ verified: true, accessToken }` con un nuevo token ya firmado con
+  `emailVerified: true`, evitando que el usuario tenga que volver a hacer login.
+- **`POST /auth/forgot-password`** — Siempre responde `{ ok: true }` aunque el email
+  no exista (nunca revela si una cuenta existe).
+- **`POST /auth/reset-password`** — Invalida el token tras su uso (`usedAt`).
 
 ---
 
 ## Users
 
-**`GET /users/me`** — Perfil propio *(auth)*
-- Response `200`: `{ id, name, email, slug, phone?, avatarUrl?, bio?, city?, province?, role }`
-
-**`PATCH /users/me`** — Actualizar perfil propio *(auth)*
-- Body (campos opcionales): `{ name?, phone?, avatarUrl?, bio?, city?, province?, postalCode? }`
-- Response `200`: usuario actualizado
-
-**`GET /users/:slug`** — Perfil público de un vendedor
-- Response `200`: `{ name, slug, avatarUrl?, bio?, city?, province?, memberSince }`
-- Errores: `404` no encontrado
+- **`GET /users/me`** *(auth)* — Perfil completo del usuario autenticado.
+- **`PATCH /users/me`** *(auth)* — Actualiza nombre, teléfono, bio, ubicación y avatar.
+- **`GET /users/:slug`** — Perfil público del vendedor (nombre, bio, ubicación, fecha de
+  registro). Sin datos privados.
+- **`GET /users/:slug/listings`** — Anuncios activos del vendedor, paginados.
+- **`GET /users/me/listings`** *(auth)* — Mis anuncios (todos los estados), paginados.
+  Acepta `?status=` para filtrar.
 
 ---
 
 ## Categories
 
-**`GET /categories`** — Árbol de categorías
-- Response `200`: lista jerárquica `[{ id, name, slug, iconUrl?, children: [...] }]`
-
-**`GET /categories/:slug`** — Detalle de una categoría
-Incluye el `attributeSchema`, que el frontend usa para pintar el formulario de publicación y los filtros.
-- Response `200`: `{ id, name, slug, attributeSchema: [{ name, label, type, unit?, options?, filterable, required }] }`
-- Errores: `404` no encontrada
+- **`GET /categories`** — Árbol jerárquico completo (una sola llamada; sin paginación).
+- **`GET /categories/:slug`** — Detalle con `attributeSchema`, que el frontend usa para
+  renderizar el formulario de publicación y los filtros dinámicos por categoría.
+- **`GET /categories/:slug/listings`** — Listado paginado de anuncios activos de esa
+  categoría. Acepta `?sort=publishedAt:desc|price:asc|price:desc`.
 
 ---
 
 ## Listings (anuncios)
 
-**`POST /listings`** — Crear anuncio *(auth)*
-Nace en estado `DRAFT`.
-- Body: `{ title, description, price, currency?, type, condition?, categoryId, attributes, city, province, postalCode?, latitude?, longitude?, imageIds? }`
-- Response `201`: `{ id, slug, status: "DRAFT", ... }`
-- Errores: `422` validación (incl. atributos requeridos de la categoría)
+Ciclo de vida: `DRAFT → ACTIVE → RESERVED → SOLD` (y `EXPIRED` por caducidad automática
+a los 60 días). Los anuncios `RESERVED` no caducan automáticamente.
 
-**`PATCH /listings/:id`** — Editar anuncio *(auth, propietario)*
-- Body: campos parciales del anuncio
-- Response `200`: anuncio actualizado
-- Errores: `403` no es el propietario · `404` no existe
-
-**`POST /listings/:id/publish`** — Publicar *(auth, propietario)*
-Pasa el anuncio a `ACTIVE`, fija `publishedAt` y encola el indexado en Meilisearch.
-- Response `200`: `{ id, slug, status: "ACTIVE", publishedAt }`
-
-**`POST /listings/:id/reserve`** — Marcar reservado *(auth, propietario)*
-- Response `200`: `{ id, status: "RESERVED" }`
-
-**`POST /listings/:id/sold`** — Marcar vendido *(auth, propietario)*
-Pasa a `SOLD` y se retira del índice de búsqueda.
-- Response `200`: `{ id, status: "SOLD" }`
-
-**`DELETE /listings/:id`** — Eliminar *(auth, propietario)*
-- Response `204`: sin contenido
-
-**`GET /listings/:slug`** — Ficha pública de anuncio
-Solo anuncios `ACTIVE`. Incrementa el contador de visitas.
-- Response `200`: `{ id, title, slug, description, price, currency, type, condition?, attributes, city, province, latitude?, longitude?, images: [{ url, alt? }], category: { name, slug }, seller: { name, slug, avatarUrl? }, publishedAt }`
-- Errores: `404` no encontrado o no activo
-
-**`GET /categories/:slug/listings`** — Listado por categoría
-Paginado. Para navegación directa por categoría (la búsqueda con filtros va por `/search`).
-- Query: `?page=1&perPage=24&sort=publishedAt:desc`
-- Response `200`: `{ items: [ResumenAnuncio], total, page, perPage }`
-
-**`GET /users/me/listings`** — Mis anuncios *(auth)*
-- Query: `?status=ACTIVE&page=1`
-- Response `200`: `{ items: [ResumenAnuncio], total, page, perPage }`
-
-*`ResumenAnuncio`*: `{ id, title, slug, price, currency, thumbnailUrl?, city, province, status, publishedAt }`
+- **`POST /listings`** *(auth)* — Crea en `DRAFT`. Acepta `imageIds` (IDs de imágenes ya
+  subidas) y coordenadas opcionales. Si no se proporcionan coordenadas, el servicio las
+  geocodifica desde ciudad/provincia con timeout de 1,5 s; un fallo de geocoding nunca
+  bloquea la creación.
+- **`PATCH /listings/:id`** *(auth, propietario)* — Edición parcial. Re-geocodifica si
+  cambia algún campo de ubicación sin coordenadas explícitas.
+- **`POST /listings/:id/publish`** *(auth, propietario)* — Pasa a `ACTIVE`, fija
+  `publishedAt` y `expiresAt` (publishedAt + 60 días) e indexa en Meilisearch.
+- **`POST /listings/:id/renew`** *(auth, propietario)* — Disponible en estado `ACTIVE` o
+  `EXPIRED`. Reinicia `publishedAt` y `expiresAt` desde el momento actual.
+- **`POST /listings/:id/reserve`** *(auth, propietario)* — Pasa a `RESERVED`.
+- **`POST /listings/:id/sold`** *(auth, propietario)* — Pasa a `SOLD` y retira del índice.
+- **`DELETE /listings/:id`** *(auth, propietario)* — Elimina y retira del índice. `204`.
+- **`GET /listings`** — Anuncios recientes (solo `ACTIVE`), paginados. Usado en el home.
+- **`GET /listings/:slug`** — Ficha pública (solo `ACTIVE`). Incrementa el contador de
+  visitas; servida con caché Redis de 5 min.
+- **`GET /listings/mine/:id`** *(auth, propietario)* — Ficha completa con todas las
+  imágenes, para precargar el wizard de edición.
 
 ---
 
 ## Search (búsqueda)
 
-**`GET /search`** — Búsqueda de anuncios
-Resuelta por Meilisearch. Devuelve resumen de anuncio para pintar la tarjeta sin volver a la base de datos.
-- Query:
-  - `q` — texto de búsqueda
-  - `category` — slug de categoría
-  - `type` — `PRODUCT` | `SERVICE`
-  - `minPrice`, `maxPrice`
-  - `province`, `city`
-  - atributos variables (p. ej. `fuel=Diésel`, `year=2018`)
-  - `lat`, `lng`, `radius` — búsqueda por proximidad (metros)
-  - `sort` — `price:asc` | `price:desc` | `publishedAt:desc`
-  - `page`, `hitsPerPage`
-- Response `200`: `{ hits: [ResumenAnuncio], totalHits, page, hitsPerPage, facets? }`
+- **`GET /search`** — Búsqueda de texto completo resuelta por Meilisearch. Devuelve datos
+  suficientes para pintar la tarjeta sin ir a Postgres.
+  - Filtros core: `q`, `category` (slug), `type`, `condition`, `priceType`, `minPrice`,
+    `maxPrice`, `province`, `city`.
+  - Atributos de categoría variables: `brand`, `fuel`, `gearbox`, `year`, `km`,
+    `displacement`, `sqm`, `rooms`, `bathrooms`, `elevator`, `garage`, `pool`, `storage`,
+    `ram`, `gender`, `size`, `specialty`, `subject`, `modality`.
+  - **Proximidad:** `lat` + `lng` + `radius` (en **kilómetros**). Cuando los tres están
+    presentes aplica `_geoRadius` en Meilisearch; los anuncios sin coordenadas quedan
+    excluidos del resultado. Sin `sort` explícito, ordena por distancia ascendente.
+  - `sort`: `price:asc | price:desc | publishedAt:desc`.
+  - Devuelve facetas (`facets`) para alimentar el panel de filtros.
 
 ---
 
 ## Media (imágenes)
 
-**`POST /media/upload`** — Subir imagen *(auth)*
-Sube la imagen a Cloudflare R2 (vía API S3) y encola el procesado de miniaturas. Petición `multipart/form-data`.
-- Body: campo `file` (imagen)
-- Response `201`: `{ id, url, width?, height? }`
-- Errores: `422` tipo o tamaño no válidos
+- **`POST /media/upload`** *(auth)* — Sube la imagen a R2/MinIO (`multipart/form-data`),
+  crea un `ListingImage` huérfano y encola el procesado con sharp. Devuelve `{ id, url }`
+  para incluir en el wizard antes de crear el anuncio.
 
-> *Alternativa recomendada a escala:* `POST /media/presign` devuelve una URL firmada para subir el archivo directamente a R2 desde el cliente, descargando al backend del tráfico de subida. Para el MVP, la subida directa al backend es suficiente.
+> *Deuda: no existe `DELETE /media/:id`. Las imágenes de wizards abandonados permanecen
+> huérfanas en almacenamiento y en la tabla `ListingImage` (ver `docs/estado-tecnico.md`).*
 
 ---
 
 ## Messaging (mensajería)
 
-**`GET /conversations`** — Mis conversaciones *(auth)*
-- Response `200`: `{ items: [{ id, listing: { id, title, slug, thumbnailUrl? }, otherUser: { name, slug }, lastMessageAt, unreadCount }] }`
+REST:
 
-**`POST /conversations`** — Iniciar conversación *(auth)*
-Crea (o recupera, si ya existe) la conversación entre el comprador y el vendedor de un anuncio, con el primer mensaje.
-- Body: `{ listingId, message }`
-- Response `201`: `{ id, listingId, messages: [...] }`
-- Errores: `404` anuncio no existe
+- **`GET /conversations`** *(auth)* — Lista de conversaciones con resumen (último mensaje,
+  no leídos, thumbnail del anuncio).
+- **`POST /conversations`** *(auth)* — Abre (o recupera) la conversación entre comprador y
+  vendedor de un anuncio y envía el primer mensaje.
+- **`GET /conversations/:id`** *(auth, participante)* — Mensajes en orden cronológico con
+  cursor. Marca la conversación como leída al abrirla.
+- **`POST /conversations/:id/messages`** *(auth, participante)* — Persiste el mensaje y
+  emite el evento WebSocket correspondiente.
 
-**`GET /conversations/:id`** — Mensajes de una conversación *(auth, participante)*
-- Query: `?page=1&perPage=50`
-- Response `200`: `{ id, listing, otherUser, messages: [{ id, senderId, body, readAt?, createdAt }] }`
-- Errores: `403` no participa en la conversación
+WebSocket en `/ws` *(autenticación JWT en el handshake)*:
 
-**`POST /conversations/:id/messages`** — Enviar mensaje *(auth, participante)*
-- Body: `{ body }`
-- Response `201`: `{ id, senderId, body, createdAt }`
+- **`message:new`** (servidor → cliente) — Nuevo mensaje en cualquier conversación del
+  usuario, tanto en el chat abierto como en la bandeja.
+- *`conversation:read` (servidor → cliente) está definido en el diseño original pero
+  **no está implementado** todavía; el contador de no leídos solo se actualiza al
+  reabrir la conversación.*
 
-**WebSocket `/ws`** *(auth)* — Tiempo real
-Canal de eventos para la mensajería instantánea.
-- Eventos servidor → cliente: `message:new` `{ conversationId, message }`, `conversation:read` `{ conversationId }`
-- Eventos cliente → servidor: `message:send` `{ conversationId, body }`, `conversation:markRead` `{ conversationId }`
+> Los mensajes se envían únicamente por REST (`POST /conversations/:id/messages`).
+> No existe un evento `message:send` de cliente a servidor por WebSocket.
 
 ---
 
-## Resumen de endpoints (MVP)
+## Resumen de recursos
 
-| Recurso | Endpoints |
+| Recurso | Operaciones principales |
 |---|---|
 | Auth | register · login · verify-email · forgot-password · reset-password |
-| Users | GET/PATCH /users/me · GET /users/:slug |
-| Categories | GET /categories · GET /categories/:slug |
-| Listings | POST · PATCH · publish · reserve · sold · DELETE · GET /:slug · listados |
-| Search | GET /search |
-| Media | POST /media/upload |
-| Messaging | conversations (CRUD) · WebSocket /ws |
+| Users | GET/PATCH me · me/listings · GET /:slug (perfil) · /:slug/listings |
+| Categories | árbol · detalle+attributeSchema · listings por categoría |
+| Listings | create · edit · publish · renew · reserve · sold · delete · recent · /:slug · mine/:id |
+| Search | texto+filtros+facetas+proximidad (lat/lng/radius en km) |
+| Media | upload |
+| Messaging | conversations REST (CRUD + cursor) · WebSocket /ws (message:new) |
