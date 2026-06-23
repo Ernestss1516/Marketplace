@@ -14,13 +14,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: pnpm/action-setup@v4
         with:
           version: 11.8.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: '22'
           cache: 'pnpm'
@@ -42,8 +42,14 @@ jobs:
         run: pnpm --filter @marketplace/web type-check
 
   # ──────────────────────────────────────────────────────────────────────────────
-  # Job 2: E2E tests — backend Jest suites, then Playwright critical path
+  # Job 2: E2E tests — backend Jest suites, then Playwright critical path.
   # Both share marketplace_test so they run sequentially as steps.
+  #
+  # MinIO is NOT a service container: minio/minio requires `server /data` as the
+  # Docker CMD, which service containers cannot specify. It is started as a step
+  # with `docker run -d` instead (see "Start MinIO" below).
+  # bitnami/minio was the previous workaround but its Docker Hub repo now has
+  # zero tags (confirmed 2025-06-23).
   # ──────────────────────────────────────────────────────────────────────────────
   e2e:
     name: E2E Tests
@@ -88,23 +94,6 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
-      # bitnami/minio is used instead of the official minio/minio because GH Actions
-      # service containers cannot override the Docker CMD (needed for `server /data`).
-      # bitnami/minio starts automatically and creates MINIO_DEFAULT_BUCKETS on boot.
-      minio:
-        image: bitnami/minio:latest
-        env:
-          MINIO_ROOT_USER: minioadmin
-          MINIO_ROOT_PASSWORD: minioadmin
-          MINIO_DEFAULT_BUCKETS: marketplace-test
-        ports:
-          - 9000:9000
-        options: >-
-          --health-cmd "curl -sf http://localhost:9000/minio/health/live"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-
     env:
       # ── PostgreSQL ─────────────────────────────────────────────────────────────
       DATABASE_URL: postgresql://marketplace:marketplace_dev@localhost:5432/marketplace_test
@@ -125,7 +114,7 @@ jobs:
       RESEND_FROM: noreply@test.local
       APP_URL: http://localhost:3001
 
-      # ── S3 / MinIO ─────────────────────────────────────────────────────────────
+      # ── S3 / MinIO — must match the credentials used in the "Start MinIO" step ─
       S3_ENDPOINT: http://localhost:9000
       S3_BUCKET: marketplace-test
       S3_ACCESS_KEY_ID: minioadmin
@@ -145,13 +134,13 @@ jobs:
       PORT: "3001"
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: pnpm/action-setup@v4
         with:
           version: 11.8.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: '22'
           cache: 'pnpm'
@@ -161,6 +150,32 @@ jobs:
 
       - name: Generate Prisma Client
         run: pnpm --filter @marketplace/api prisma:generate
+
+      # Tag pinned to a confirmed-live release (verified on Docker Hub 2025-06-23).
+      # MINIO_ROOT_USER / MINIO_ROOT_PASSWORD must match S3_ACCESS_KEY_ID /
+      # S3_SECRET_ACCESS_KEY in the job env and the AWS CLI call below.
+      - name: Start MinIO
+        run: |
+          docker run -d \
+            --name minio \
+            -p 9000:9000 \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio:RELEASE.2025-06-13T11-33-47Z \
+            server /data
+
+          # Poll /minio/health/live — proceed only when MinIO is ready.
+          # timeout 30 exits with code 1 if the loop never succeeds.
+          timeout 30 bash -c \
+            'until curl -sf http://localhost:9000/minio/health/live; do sleep 1; done'
+
+          # Create the test bucket. AWS CLI is pre-installed on ubuntu-latest.
+          # Credentials must match MINIO_ROOT_USER / MINIO_ROOT_PASSWORD above.
+          AWS_ACCESS_KEY_ID=minioadmin \
+          AWS_SECRET_ACCESS_KEY=minioadmin \
+          aws s3 mb s3://marketplace-test \
+            --endpoint-url http://localhost:9000 \
+            --region us-east-1
 
       - name: Install Playwright browsers
         run: pnpm --filter @marketplace/web exec playwright install --with-deps chromium
@@ -173,15 +188,15 @@ jobs:
       # Playwright spawns the backend (port 3001) and frontend (port 3000) via
       # webServer because reuseExistingServer = !process.env.CI = false.
       # global-setup.ts migrates (idempotent after Jest), seeds Playwright users,
-      # and saves storageState. The backend webServer now receives { ...process.env,
+      # and saves storageState. The backend webServer receives { ...process.env,
       # ...testEnv, PORT: '3001' } — the fix in playwright.config.ts ensures all
-      # job env vars reach the NestJS process even when .env.test is absent.
+      # job env vars reach the NestJS process when .env.test is absent in CI.
       - name: Frontend e2e — Playwright
         run: pnpm --filter @marketplace/web test:e2e
 
       - name: Upload Playwright report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report
           path: apps/web/playwright-report/
