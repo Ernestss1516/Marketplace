@@ -46,8 +46,10 @@ test('publicar → buscar → ver ficha → contactar', async ({ sellerContext, 
     .locator('[data-testid="foto-input"]')
     .setInputFiles(path.join(__dirname, 'fixtures', 'test-image.png'));
 
-  // Wait for upload to complete: the "Portada" badge appears on the first photo
-  await expect(sellerPage.getByText('Portada')).toBeVisible({ timeout: 15_000 });
+  // Wait for upload to complete: the "Portada" badge appears on the first photo.
+  // { exact: true } + .first() avoids strict-mode failure when "Portada" also
+  // appears in help text elsewhere on the page.
+  await expect(sellerPage.getByText('Portada', { exact: true }).first()).toBeVisible({ timeout: 15_000 });
 
   await sellerPage.getByRole('button', { name: 'Siguiente' }).click();
   await expect(
