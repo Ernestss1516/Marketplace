@@ -15,7 +15,9 @@ out/
 
 # Playwright — sesiones autenticadas (generadas por global-setup, contienen cookies)
 apps/web/e2e/fixtures/*.storageState.json
-# Playwright — capturas de diagnóstico (nunca al repo)
+
+# Playwright — capturas de debug generadas en global-setup (no deben ir al repo)
+
 apps/web/e2e/fixtures/debug-*.png
 # Playwright — report y resultados de test
 apps/web/playwright-report/
