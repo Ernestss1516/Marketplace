@@ -108,7 +108,7 @@ jobs:
 
       # ── Email — Resend not called in tests; value satisfies Joi validation ─────
       RESEND_API_KEY: ci_dummy_resend
-      RESEND_FROM: noreply@test.local
+      RESEND_FROM: noreply@example.com
       APP_URL: http://localhost:3001
 
       # ── S3 / MinIO — must match the credentials used in the "Start MinIO" step ─
