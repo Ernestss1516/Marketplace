@@ -1,4 +1,19 @@
 import { defineConfig, devices } from '@playwright/test';
+import { config as dotenvParse } from 'dotenv';
+import * as path from 'path';
+
+// Load .env.test vars from the API package to inject into the backend webServer.
+// We do NOT call dotenvParse() (which would modify process.env); instead we parse
+// the file into a plain object and pass only what we need to the webServer env.
+// This bypasses the nest-cli NODE_ENV override issue: nest start --watch sets
+// NODE_ENV=development internally, so ConfigModule.forRoot envFilePath would load
+// .env.development (nonexistent) → .env (dev DB). Injecting all vars explicitly
+// avoids that problem entirely.
+const apiDir = path.join(__dirname, '..', 'api');
+const testEnv = dotenvParse({
+  path: path.join(apiDir, '.env.test'),
+  processEnv: {},   // parse-only — don't touch process.env
+}).parsed ?? {};
 
 // Playwright e2e config for the Marketplace frontend.
 // Tests live in apps/web/e2e/ (created in RT.5).
@@ -6,7 +21,7 @@ import { defineConfig, devices } from '@playwright/test';
 // Local workflow:
 //   - reuseExistingServer: true  → start both servers manually with test env vars
 //     before running `pnpm test:e2e`; Playwright reuses them.
-//   - Backend must use apps/api/.env.test (marketplace_test DB, listings_test index).
+//   - Backend must expose port 3001 and use marketplace_test DB.
 //
 // CI workflow (RT.5):
 //   - reuseExistingServer: false → Playwright starts both servers automatically.
@@ -37,17 +52,16 @@ export default defineConfig({
 
   webServer: [
     {
-      // Backend: NODE_ENV=test triggers .env.test loading (via ConfigModule envFilePath).
-      // In CI, the workflow injects DATABASE_URL=marketplace_test etc. directly and
-      // those take precedence over .env.test (dotenv never overrides existing env vars).
-      // In local, reuseExistingServer:true reuses the manually-started server.
+      // Backend: all test env vars injected explicitly so they are available
+      // regardless of how nest-cli manages NODE_ENV in its child process.
+      // PORT is overridden to 3001 because .env.test uses 3099 (for Jest API tests).
       command: 'pnpm --filter @marketplace/api dev',
       // /api/categories is a public endpoint guaranteed to return 200 once NestJS
       // and Prisma are fully ready. /api root has no handler → 404.
       url: 'http://localhost:3001/api/categories',
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
-      env: { NODE_ENV: 'test' },
+      env: { ...testEnv, PORT: '3001' },
     },
     {
       command: 'pnpm --filter @marketplace/web dev',

@@ -142,12 +142,16 @@ test('publicar → buscar → ver ficha → contactar', async ({ sellerContext, 
   // ── Paso 5: Contactar ──────────────────────────────────────────────────────
   await buyerPage.getByRole('button', { name: 'Contactar con el vendedor' }).first().click();
 
-  // Contact form appears (buyer has emailVerified: true)
-  const messageInput = buyerPage.getByPlaceholder('Escribe tu mensaje al vendedor…');
+  // Contact form appears (buyer has emailVerified: true).
+  // The form is rendered twice in the DOM (mobile bar + desktop sidebar).
+  // getByPlaceholder includes display:none elements (unlike getByRole).
+  // The mobile bar renders the form FIRST in DOM (md:hidden at desktop viewport),
+  // the desktop sidebar renders it LAST. .last() targets the visible desktop form.
+  const messageInput = buyerPage.getByPlaceholder('Escribe tu mensaje al vendedor…').last();
   await expect(messageInput).toBeVisible();
   await messageInput.fill('Hola, ¿sigue disponible el móvil?');
 
-  await buyerPage.getByRole('button', { name: 'Enviar mensaje' }).click();
+  await buyerPage.getByRole('button', { name: 'Enviar mensaje' }).first().click();
 
   // A new conversation is created and the buyer is redirected to the chat
   await buyerPage.waitForURL('**/mensajes/**', { timeout: 10_000 });

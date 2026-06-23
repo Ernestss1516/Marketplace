@@ -74,7 +74,7 @@ export default async function globalSetup(playwrightConfig: FullConfig) {
     await page.getByRole('button', { name: 'Iniciar sesión' }).click();
 
     // Wait for the redirect away from /login without assuming the destination.
-    // next-auth v5 may resolve the session before Next.js Router fires the
+    // next-auth may resolve the session before Next.js Router fires the
     // callbackUrl push, so the landing route is not guaranteed.
     await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 15_000 });
 
