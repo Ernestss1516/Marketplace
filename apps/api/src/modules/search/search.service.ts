@@ -3,7 +3,7 @@ import type { Index } from 'meilisearch';
 import type { Listing, ListingImage } from '@prisma/client';
 import { MeilisearchService } from '../../infra/meilisearch/meilisearch.service';
 
-export const LISTINGS_INDEX = 'listings';
+export const LISTINGS_INDEX = process.env.MEILI_INDEX_NAME ?? 'listings';
 
 export interface ListingDocument {
   id: string;
