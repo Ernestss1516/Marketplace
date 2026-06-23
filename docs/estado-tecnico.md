@@ -1,6 +1,6 @@
 # Estado técnico del proyecto — Marketplace
 
-> Fecha: 2026-06-22 · Rama: `main` · Último commit: `08d2ff9` (Fase 5) + cambios sin commitear (expiration, geocoding, perfil, búsqueda por proximidad)
+> Fecha: 2026-06-24 · Rama: `main` · Último commit: `6cfd6ea` (RT.6 — cierra Fase T)
 > Plan vigente para la siguiente fase: `docs/Hoja_de_ruta_rafagas_Hito2.docx`.
 
 Documento de referencia para retomar el proyecto. Recoge qué hay implementado,
@@ -196,25 +196,17 @@ setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
 
 Usar el actualizador funcional es imprescindible: garantiza que la comparación se
 hace contra el estado real en el momento en que React aplica la actualización, no
-contra un snapshot capturado por el closure cuando se definió la función. Sin el
-actualizador funcional la dedup siempre falla porque evalúa contra el estado stale
-del cierre.
-
-La misma propiedad hace que la dedup sea segura con la estabilización del callback
-mediante `onMessageRef` en el hook: aunque el callback no se recrea en cada render,
-`setMessages(updater)` siempre recibe el `prev` más reciente de React.
+contra un snapshot capturado por el closure cuando se definió la función.
 
 ### Fix de propagación de `emailVerified` desde login (Fase 5)
 
 `POST /auth/login` no incluía `emailVerified` en el objeto `user` de la respuesta.
 El `ContactButton` en la ficha de anuncio necesita este valor para decidir si mostrar
-el formulario de contacto o el aviso de verificación pendiente (ya que `session.user.emailVerified`
-se rellena desde la respuesta del login, no solo desde el token JWT).
+el formulario de contacto o el aviso de verificación pendiente.
 
 Fix: se añadió `emailVerified: user.emailVerified` al objeto devuelto por
 `AuthService.login`, y se actualizó la interfaz `LoginResponse` en `apps/web/src/lib/auth/index.ts`
-para incluir el campo. El flow de next-auth ya lo propagaba hasta `session.user`
-(vía `auth.config.ts`), solo faltaba que el backend lo enviara.
+para incluir el campo.
 
 ### Caducidad automática y renovación de anuncios
 
@@ -226,62 +218,145 @@ el cambio de estado a ACTIVE.
 El cron `@Cron(CronExpression.EVERY_DAY_AT_2AM)` busca todos los anuncios ACTIVE
 con `expiresAt ≤ now`, los marca EXPIRED en una sola llamada `updateMany`, y por
 cada uno invalida la caché Redis y encola un job `index` para que Meilisearch los
-retire del índice. Los anuncios RESERVED quedan excluidos del cron: están en
-negociación activa y no deben caducar automáticamente.
+retire del índice. Los anuncios RESERVED quedan excluidos del cron.
 
 El endpoint `POST /listings/:id/renew` acepta anuncios en estado ACTIVE o EXPIRED,
 reinicia `publishedAt` a la fecha actual y extiende `expiresAt` otros 60 días, con
-reindexado inmediato. Desde el frontend, `MisAnunciosClient` expone la acción de
-renovación y la tarjeta `MyListingCard` muestra la fecha de caducidad.
+reindexado inmediato.
 
 ### Geocoding configurable con fallback silencioso
 
 `GeocodingService` resuelve coordenadas a partir de ciudad + provincia + código
 postal. El proveedor se selecciona con la variable `GEOCODING_PROVIDER`:
 
-- **`nominatim`** (por defecto): Nominatim de OpenStreetMap, sin API key. Requiere
-  el header `User-Agent` con información de contacto del aplicativo (política de uso).
-  Limitado a 1 req/s, adecuado para dev y backfill, insuficiente bajo carga de
-  producción.
-- **`maptiler`**: API comercial (requiere `MAPTILER_API_KEY`). Sin límite de tasa
-  significativo en los planes de pago.
+- **`nominatim`** (por defecto): sin API key. 1 req/s; adecuado para dev y backfill.
+- **`maptiler`**: requiere `MAPTILER_API_KEY`. Sin límite de tasa relevante en planes de pago.
 
 Ambas rutas comparten un timeout de 1 500 ms vía `AbortSignal.timeout()`. Cualquier
-error o timeout devuelve `null` sin lanzar excepción, de modo que un proveedor lento
-o caído nunca bloquea la publicación ni la edición de un anuncio.
-
-La geocodificación se ejecuta en dos momentos:
-- Al **crear** un anuncio: si el wizard no envía coordenadas explícitas.
-- Al **editar**: si cambia algún campo de ubicación (ciudad, provincia o código
-  postal) y no se proporcionan coordenadas explícitas en el DTO.
-
-### Script `geocode-backfill` para anuncios sin coordenadas
-
-Los anuncios publicados antes de integrar el geocoding tienen `latitude = null`. El
-script `apps/api/src/commands/geocode-backfill.ts` los procesa en lotes de 50 con
-cursor-based pagination (condición `WHERE latitude IS NULL AND city IS NOT NULL`),
-geocodifica cada uno y actualiza Postgres + Meilisearch. Entre peticiones espera
-1 000 ms para respetar la política de 1 req/s de Nominatim. Al igual que `reindex`,
-el script arranca un contexto NestJS mínimo (`GeocodingBackfillModule`: solo Prisma +
-Search + Geocoding, sin BullMQ) y llama a `prisma.$disconnect()` sin `process.exit()`.
+error devuelve `null` sin lanzar excepción.
 
 ### Búsqueda por proximidad: `_geoRadius` + `_geoPoint`
 
-`SearchQueryDto` expone tres parámetros opcionales: `lat`, `lng` y `radius` (km).
-Cuando los tres están presentes, `SearchController` los pasa al service como
-`geo: { lat, lng, radiusMeters: radius * 1_000 }`. El servicio aplica el filtro
-`_geoRadius(lat, lng, radiusMeters)` de Meilisearch, que excluye automáticamente
-documentos sin campo `_geo`. Cuando se activa la proximidad y no hay `sort` explícito,
-el sort se reemplaza por `_geoPoint(lat, lng):asc` para ordenar por distancia
-ascendente.
+`SearchQueryDto` expone `lat`, `lng` y `radius` (km). Cuando los tres están presentes,
+el service aplica el filtro `_geoRadius(lat, lng, radiusMeters)` de Meilisearch y,
+si no hay `sort` explícito, ordena por `_geoPoint(lat, lng):asc`. El frontend
+implementa el control "cerca de mí" en `FilterPanel` con `navigator.geolocation`.
 
-En `/busqueda`, `FilterPanel` implementa el control "cerca de mí":
-- Botón que invoca `navigator.geolocation.getCurrentPosition()` con timeout de 10 s.
-- Al obtener posición, escribe `lat`, `lng` y `radius=10` en la URL y elimina el
-  parámetro `sort` para activar el orden por distancia.
-- Selector de radio (5, 10, 25, 50 km) mientras la proximidad está activa.
-- Botón de desactivar que limpia `lat`, `lng`, `radius` y `sort` de la URL.
-- Opción de ordenación "Más cercanos" visible solo cuando la proximidad está activa.
+### Testing e2e: aislamiento por identificadores (Fase T)
+
+La estrategia de testing (fuente de verdad: `docs/estrategia-testing.md`) usa
+servicios reales sin mocks para detectar incompatibilidades de contrato. El
+aislamiento entre entornos se consigue por convención de nombres, sin instancias
+separadas:
+
+| Recurso | Dev | Test |
+|---|---|---|
+| Postgres DB | `marketplace` | `marketplace_test` |
+| Redis DB | `0` | `1` |
+| Meilisearch índice | `listings` | `listings_test` (`MEILI_INDEX_NAME`) |
+| MinIO/S3 bucket | `marketplace` | `marketplace-test` |
+
+El índice de test se controla con `MEILI_INDEX_NAME` leído en tiempo de módulo:
+`const LISTINGS_INDEX = process.env.MEILI_INDEX_NAME ?? 'listings'` en
+`search.service.ts`. Esto garantiza que los tests de búsqueda nunca tocan el índice
+de producción/desarrollo.
+
+Los tests de Jest usan `setupFiles: ['test/load-env.ts']` (carga `.env.test` con
+`dotenv.config()` sin sobreescribir `process.env`) y `globalSetup: 'test/setup-e2e.js'`
+(ejecuta `prisma migrate deploy` + `seed-test.ts` una vez antes de todas las suites).
+
+### Helpers y fixtures de test compartidos (Fase T)
+
+Todos los helpers viven en `apps/api/test/helpers/`:
+
+- `create-app.ts` — `createTestApp()`: arranca el `AppModule` completo con NestJS
+  Testing (incluyendo los workers BullMQ), configurado igual que `main.ts`. Permite
+  que los tests e2e ejerzan el ciclo completo publish → BullMQ → Meilisearch.
+- `db.ts` — `cleanDb()`: trunca las tablas de dominio en el orden correcto (respetando
+  FK) antes de cada suite.
+- `meili.ts` — `waitForIndex(client, indexName, docId, timeoutMs)`: polling hasta que
+  el documento aparece en Meilisearch. Necesario porque la indexación es asíncrona
+  (BullMQ worker); sin él el test de búsqueda falla intermitentemente.
+
+Para Playwright, `apps/web/e2e/fixtures/auth.ts` define los fixtures `sellerContext` y
+`buyerContext` que cargan los `storageState` generados por `global-setup.ts`.
+
+### `global-setup.ts` de Playwright y seed de usuarios e2e (Fase T)
+
+El `global-setup.ts` de Playwright (`apps/web/e2e/global-setup.ts`) corre después de
+que los webServers estén listos y hace:
+1. Carga `.env.test` (no-op en CI donde las vars ya están en el entorno).
+2. Guarda con un safety-check que `DATABASE_URL` apunte a `marketplace_test`.
+3. `prisma migrate deploy` (idempotente tras las suites Jest).
+4. `seed-test.ts` (categorías mínimas para el wizard: Electrónica → Móviles).
+5. `seed-playwright.ts` (crea `seller-e2e@example.com` y `buyer-e2e@example.com`).
+6. Abre Chromium, hace login con cada usuario y guarda el `storageState` en
+   `e2e/fixtures/` (gitignoreado). Los tests del recorrido crítico reaprovechan
+   estas sesiones sin volver a pasar por el UI de login.
+
+### webServer de Playwright y propagación de env vars en CI (Fase T)
+
+`playwright.config.ts` declara dos `webServer`: backend (`pnpm dev` en puerto 3001)
+y frontend (`pnpm dev` en puerto 3000). `reuseExistingServer: !process.env.CI`
+garantiza que en CI siempre se arranquen servidores frescos.
+
+El backend webServer recibe `env: { ...testEnv, PORT: '3001' }`. `testEnv` se
+parsea de `apps/api/.env.test` (fichero comprometido en git con valores para el
+entorno de test, incluida `MEILI_MASTER_KEY`). Playwright mezcla internamente
+`webServer.env` con `process.env` del proceso padre; dado que `testEnv` va en el
+objeto explícito, sus valores sobreescriben cualquier variable homónima del entorno
+del job CI. Esto asegura que el backend use la misma clave de Meilisearch que el
+contenedor CI (`masterKey_dev_change_me`), que coincide con el valor de `.env.test`.
+
+### CI: workflow de GitHub Actions (Fase T — RT.5)
+
+`.github/workflows/ci.yml` define dos jobs:
+
+**Job `lint`** (sin contenedores de servicio):
+- `actions/checkout@v7`, `pnpm/action-setup@v6` (pnpm 11.8.0), `actions/setup-node@v6` (Node 22, caché pnpm).
+- `pnpm install --frozen-lockfile`
+- `pnpm --filter @marketplace/api prisma:generate` (necesario antes de cualquier typecheck — sin el cliente generado, los tipos de Prisma no existen).
+- `npx tsc --noEmit` en `apps/api`, `next lint` y `tsc --noEmit` en `apps/web`.
+
+**Job `e2e`** (necesita `lint`):
+- Service containers: `postgis/postgis:16-3.5` (con health-cmd `pg_isready`), `redis:7-alpine` (con health-cmd `redis-cli ping`), `getmeili/meilisearch:v1.10` (sin health-cmd — se usa polling en su lugar; ver más abajo).
+- MinIO **no** puede ser service container porque `minio/minio` requiere el CMD `server /data`, que los service containers de GitHub Actions no soportan. Se arranca con `docker run -d` en un step, se espera con polling a `/minio/health/live` y se crea el bucket + política de lectura pública con AWS CLI.
+- El step **"Wait for Meilisearch"** hace polling a `GET /keys` con `Authorization: Bearer <masterKey>` en lugar de `GET /health`. `/health` devuelve 200 en cuanto el servidor HTTP levanta, pero el subsistema de gestión de claves puede tardar unos milisegundos más; si el backend arrancaba en esa ventana obtenía 401.
+- `pnpm install`, `prisma:generate`, Playwright browsers, suites Jest (`pnpm test:e2e`), Playwright (`pnpm test:e2e`), upload del report como artifact.
+
+Las variables de entorno del job CI coinciden con los valores de `apps/api/.env.test`
+para que las suites Jest (que cargan ese fichero) y el backend de Playwright (que lo
+recibe vía `testEnv`) usen exactamente las mismas claves.
+
+### Observabilidad: Sentry (Fase T — RT.6)
+
+**Backend**: `Sentry.init()` en `main.ts` antes de `NestFactory.create()` con
+`@sentry/nestjs`. Cuando `SENTRY_DSN` es vacío (desarrollo, test) el SDK se
+desactiva silenciosamente sin errores ni warnings. Los tres processors BullMQ
+(`IndexingProcessor`, `ImageProcessor`, `NotificationProcessor`) envuelven su
+`process()` en try/catch con `Sentry.captureException(err)` + re-throw, de modo
+que BullMQ sigue gestionando reintentos igual que antes.
+
+**Frontend**: `apps/web/src/instrumentation.ts` exporta `register()` que inicia
+Sentry solo cuando `process.env.NEXT_RUNTIME === 'nodejs'`. Cubre errores de Server
+Components, Route Handlers, Server Actions y Middleware. **Los errores de componentes
+cliente (navegador) están fuera de alcance de RT.6**: requieren un init separado con
+`NEXT_PUBLIC_SENTRY_DSN` y un fichero de configuración de cliente, que no se ha
+implementado todavía.
+
+### Observabilidad: logging estructurado con pino (Fase T — RT.6)
+
+`nestjs-pino` reemplaza el logger por defecto de NestJS. `LoggerModule.forRoot()` en
+`AppModule` con:
+- `level: 'error'` en `NODE_ENV=test` → la salida de Jest solo muestra errores reales.
+- `transport: { target: 'pino-pretty' }` únicamente en `NODE_ENV=development` → el
+  worker thread de pino-pretty no existe en test ni en producción, eliminando una
+  fuente conocida de fallos de arranque en entornos e2e.
+- En producción: salida JSON cruda (sin transport), nivel `info`.
+
+`main.ts` llama a `app.useLogger(app.get(Logger))` con `bufferLogs: true` para que
+todos los `new Logger()` existentes en los services queden enrutados por pino y los
+mensajes del bootstrap no se pierdan antes de que el logger esté listo.
 
 ---
 
@@ -294,101 +369,84 @@ al origen del frontend (valor de `APP_URL`). El TODO está anotado en `messaging
 
 ### `allowedDevOrigins` en Next.js si se accede por IP en desarrollo
 
-En Next.js 15, si el frontend se sirve por IP en lugar de `localhost` (p. ej. desde
-otro dispositivo en la red local), el App Router genera advertencias de CORS para los
-preloads de scripts. Se puede suprimir añadiendo la IP a `allowedDevOrigins` en
-`next.config.ts`:
-```ts
-allowedDevOrigins: ['192.168.x.x']
-```
+En Next.js 15, si el frontend se sirve por IP en lugar de `localhost`, el App Router
+genera advertencias de CORS para los preloads de scripts. Se puede suprimir añadiendo
+la IP a `allowedDevOrigins` en `next.config.ts`.
 
 ### `conversation:read` (mark-as-read) no implementado vía WebSocket
 
-El contrato en `contratos-api.md` define el evento `conversation:markRead` (cliente →
-servidor) y `conversation:read` (servidor → cliente) para señalizar la lectura en
-tiempo real. Por ahora, los mensajes se marcan como leídos de forma síncrona en
-`GET /conversations/:id` (al abrir el chat), pero la contraparte en la bandeja del
-otro participante no se actualiza en vivo: su contador de no leídos solo baja al
-recargar. Pendiente: añadir el evento en el gateway y actualizar la bandeja.
+El contrato define el evento `conversation:markRead` (cliente → servidor) y
+`conversation:read` (servidor → cliente) para señalizar la lectura en tiempo real.
+Por ahora los mensajes se marcan como leídos en `GET /conversations/:id` (al abrir
+el chat), pero el contador de no leídos de la bandeja del otro participante solo
+baja al recargar. Pendiente: añadir el evento en el gateway.
 
 ### Nominatim en producción: límite de 1 req/s
 
-Nominatim (OSM) impone un máximo de 1 petición por segundo y prohíbe el uso
-intensivo. En producción, bajo cualquier carga real, es necesario cambiar a un
-proveedor comercial (`GEOCODING_PROVIDER=maptiler` + `MAPTILER_API_KEY`) o a una
-instancia propia de Nominatim. El timeout de 1 500 ms protege frente a lentitud,
-pero no frente a bloqueos por rate-limit del proveedor público.
+En producción, bajo cualquier carga real, es necesario cambiar a `GEOCODING_PROVIDER=maptiler`
++ `MAPTILER_API_KEY` o a una instancia propia de Nominatim.
 
 ### Geolocalización del navegador solo en contexto seguro (HTTPS)
 
-`navigator.geolocation` solo está disponible en orígenes seguros (HTTPS o
-`localhost`). El botón "cerca de mí" de `FilterPanel` quedará inoperativo si el
-frontend se sirve por HTTP en una IP de red local (p. ej. en un dispositivo móvil
-conectado a la misma red de desarrollo). En producción esto no es problema porque
-el sitio irá sobre HTTPS.
+`navigator.geolocation` solo está disponible en orígenes seguros. El botón "cerca de
+mí" de `FilterPanel` quedará inoperativo si el frontend se sirve por HTTP en una IP
+de red local.
 
 ### Renombrar atributo `type` → `itemType` en el seed
 
-Varias categorías del seed (`ordenadores`, `electrodomésticos`, `accesorios`,
-`muebles`) usan un atributo llamado `type` en su `attributeSchema`. Este nombre
-colisiona con el campo `type` de nivel de anuncio (`ListingType: PRODUCT | SERVICE`).
-El orden del spread en `toDocument` previene la sobreescritura, pero el atributo
-de categoría no se indexa bajo ese nombre. Renombrarlo a `itemType` en el seed
-(y en `VARIABLE_ATTRIBUTE_KEYS` + `SearchQueryDto`) lo hará filtrable de forma
-segura.
+Varias categorías del seed usan un atributo `type` que colisiona con el campo `type`
+de nivel de anuncio (`ListingType`). El orden del spread en `toDocument` previene la
+sobreescritura, pero el atributo no se indexa. Pendiente renombrarlo a `itemType`.
 
 ### `size`: inconsistencia de tipo string/number entre categorías
 
-En las categorías de ropa el atributo `size` se almacena como cadena (`"M"`,
-`"XL"`); en calzado como número (`38`, `42`). Enviar `size=38` como cadena desde
-el filtro no coincidirá con documentos donde `size` está guardado como número.
-Necesita normalización de tipo en el seed antes de que el filtro funcione de forma
-fiable en todas las categorías de moda.
+En ropa `size` se almacena como cadena; en calzado como número. Necesita normalización
+en el seed antes de que el filtro funcione de forma fiable en todas las categorías.
 
 ### Sin `DELETE /media`
 
-No existe endpoint para eliminar imágenes de R2/MinIO ni su registro en base de
-datos. Las imágenes subidas en un wizard abandonado permanecen en almacenamiento
-y en la tabla `ListingImage` con `listingId: null` indefinidamente. Pendiente:
-endpoint `DELETE /media/:id` que verifique propiedad (`uploadedById`), borre del
-almacenamiento y elimine el registro.
+No existe endpoint para eliminar imágenes. Las imágenes subidas en wizards abandonados
+permanecen en almacenamiento con `listingId: null`. Pendiente: `DELETE /media/:id`.
 
 ### Notificaciones de email: Resend configurado para desarrollo
 
-`NotificationProcessor` usa la SDK de Resend y está completamente implementado.
-En desarrollo es posible usar `RESEND_API_KEY=re_test_…` con el remitente de
-pruebas `onboarding@resend.dev` sin necesidad de verificar ningún dominio. En
-producción hay que verificar el dominio remitente en el panel de Resend y
-actualizar `RESEND_FROM` en el `.env` de producción.
+En producción hay que verificar el dominio remitente en el panel de Resend y
+actualizar `RESEND_FROM`.
 
 ### Módulos stub: favoritos, valoraciones, moderación, admin
 
-Los controllers y services existen con cuerpos vacíos. Ninguno tiene lógica real.
-La estructura de base de datos para todos ellos está completa en el schema.
+Los controllers y services existen con cuerpos vacíos. La estructura de BD está completa.
 
 ### Sin paginación en categorías ni en el home
 
-`GET /categories` devuelve el árbol completo en una sola llamada. Mientras el
-número de categorías sea reducido (< 200) esto es aceptable; a escala habría que
-añadir paginación o cachear la respuesta en Redis.
+`GET /categories` devuelve el árbol completo. Aceptable con < 200 categorías.
 
-### Slug de anuncio con sufijo aleatorio, sin reintento ante colisión
+### Slug de anuncio sin reintento ante colisión
 
-`buildSlug` en `ListingsService` genera `{base}-{6-char-hex}`. El campo
-`slug` tiene `@unique` en el schema, por lo que una colisión lanzaría
-`PrismaClientKnownRequestError P2002`. No hay lógica de reintento. En la práctica
-la probabilidad es despreciable, pero en un volumen alto convendría añadir un
-bucle de reintento similar al de `generateUniqueSlug` en auth.
+`buildSlug` genera `{base}-{6-char-hex}`. Una colisión lanzaría `P2002`. No hay
+lógica de reintento.
+
+### Captura de errores de cliente (navegador) pendiente en Sentry
+
+`instrumentation.ts` cubre únicamente el runtime Node.js del servidor de Next.js.
+Los errores de componentes cliente (React hydration, clics, fetch fallidos en el
+navegador) no se capturan todavía. Requiere un init separado con
+`NEXT_PUBLIC_SENTRY_DSN` y un fichero `sentry.client.config.ts`. Pendiente para
+una iteración futura de observabilidad.
+
+### Sentry activo solo en staging/producción
+
+Con `SENTRY_DSN=` vacío en dev y test, Sentry no envía eventos en esos entornos.
+Para verificar que la integración funciona correctamente antes de producción, se
+recomienda configurarlo en un entorno de staging con un DSN real de Sentry.
 
 ---
 
 ## 4. Documentación de la API
 
 Swagger está disponible en **`http://localhost:3001/api/docs`** cuando el backend
-está corriendo. Es la fuente de verdad del contrato de endpoints: recoge todos los
-DTOs con sus validaciones, los tipos de respuesta y los endpoints protegidos por
-`@ApiBearerAuth`. Para el detalle de la arquitectura prevista y la hoja de ruta del
-MVP, ver la carpeta `docs/` (`.docx` + `.md`).
+está corriendo. Es la fuente de verdad del contrato de endpoints. Para el detalle
+de la estrategia de testing, ver `docs/estrategia-testing.md`.
 
 ---
 
@@ -397,8 +455,6 @@ MVP, ver la carpeta `docs/` (`.docx` + `.md`).
 ```bash
 # Infraestructura (Postgres, Redis, Meilisearch, MinIO)
 docker compose up -d
-# El contenedor "createbuckets" crea el bucket "marketplace" con lectura pública
-# y termina solo — es normal que aparezca como "Exited" en docker compose ps.
 
 # Backend
 pnpm --filter @marketplace/api dev      # http://localhost:3001/api
@@ -406,20 +462,42 @@ pnpm --filter @marketplace/api dev      # http://localhost:3001/api
 # Frontend
 pnpm --filter @marketplace/web dev      # http://localhost:3000
 
-# Reconstruir el índice de búsqueda (primera vez o tras reset de Meilisearch)
+# Reconstruir el índice de búsqueda
 pnpm --filter @marketplace/api reindex
 
-# Rellenar coordenadas en anuncios sin geocodificar (ejecutar una sola vez o tras importar datos)
-# Aviso: usa Nominatim por defecto → tarda ~1 s por anuncio. Cambiar a maptiler para lotes grandes.
+# Geocodificar anuncios sin coordenadas
 pnpm --filter @marketplace/api geocode-backfill
 ```
 
-Variables de entorno necesarias: `apps/api/.env` y `apps/web/.env.local`.
-Ver los respectivos `.env.example` como plantilla.
+### Correr los tests
 
-Variables de entorno nuevas (`apps/api/.env`) respecto a fases anteriores:
+```bash
+# ── Backend e2e (Jest + Supertest) ──────────────────────────────────────────
+# Prerrequisito único (local): crear la base de datos de test
+docker exec marketplace-postgres psql -U marketplace -c "CREATE DATABASE marketplace_test"
 
-| Variable | Valor por defecto | Descripción |
-|---|---|---|
-| `GEOCODING_PROVIDER` | `nominatim` | Proveedor de geocoding. `nominatim` (sin key) o `maptiler` |
-| `MAPTILER_API_KEY` | — | Solo necesario si `GEOCODING_PROVIDER=maptiler` |
+# Ejecutar todas las suites
+pnpm --filter @marketplace/api test:e2e
+
+# Ejecutar una suite específica
+pnpm --filter @marketplace/api test:e2e -- --testPathPattern=auth
+
+# ── Frontend e2e (Playwright) ────────────────────────────────────────────────
+# El backend debe estar corriendo en modo test (puerto 3001) antes de lanzar:
+#   $env:NODE_ENV="test"; pnpm --filter @marketplace/api dev
+# O dejar que playwright.config.ts lo arranque automáticamente (reuseExistingServer=false en CI)
+pnpm --filter @marketplace/web test:e2e
+```
+
+### Variables de entorno
+
+Ficheros de referencia: `apps/api/.env.example` y `apps/web/.env.example`.
+
+Variables relevantes para testing y observabilidad (respecto a fases anteriores):
+
+| Variable | App | Valor en test | Descripción |
+|---|---|---|---|
+| `MEILI_INDEX_NAME` | api | `listings_test` | Índice Meilisearch de test; `listings` en dev/prod |
+| `SENTRY_DSN` | api + web | `""` (vacío) | DSN de Sentry; vacío desactiva el SDK sin errores |
+| `GEOCODING_PROVIDER` | api | `nominatim` | Proveedor de geocoding; `maptiler` para producción |
+| `MAPTILER_API_KEY` | api | — | Solo si `GEOCODING_PROVIDER=maptiler` |
