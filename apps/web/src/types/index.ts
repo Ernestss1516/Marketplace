@@ -228,6 +228,31 @@ export interface FavoritesResponse {
   pages: number;
 }
 
+// ── Reviews ───────────────────────────────────────────────────────────────────
+
+export interface ReviewAuthor {
+  name: string;
+  slug: string;
+  avatarUrl?: string;
+}
+
+export interface Review {
+  id: string;
+  rating: number;
+  comment?: string | null;
+  createdAt: string;
+  editedAt: string | null;
+  author: ReviewAuthor;
+}
+
+export interface ReviewsPageResponse {
+  average: number | null;
+  count: number;
+  distribution: Record<string, number>;
+  items: Review[];
+  nextCursor: string | null;
+}
+
 // ── Blog ─────────────────────────────────────────────────────────────────────
 
 export interface PostSummary {

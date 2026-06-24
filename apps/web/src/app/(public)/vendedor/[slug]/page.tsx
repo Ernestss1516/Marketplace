@@ -8,7 +8,9 @@ import { ListingCard } from '@/components/anuncios/ListingCard';
 import { FavoritesGridProvider } from '@/components/anuncios/FavoritesGridContext';
 import { getSellerProfile } from '@/lib/api/usuarios';
 import { getListingsBySellerSlug } from '@/lib/api/anuncios';
+import { getUserReviews } from '@/lib/api/valoraciones';
 import { ApiError } from '@/lib/api/client';
+import { ReviewsSection } from '@/components/valoraciones/ReviewsSection';
 import { SITE_NAME } from '@/config';
 
 type Params = { slug: string };
@@ -50,9 +52,10 @@ export default async function VendedorPage({
     throw err;
   }
 
-  const { items, total, perPage } = await getListingsBySellerSlug(slug, { page }).catch(
-    () => ({ items: [], total: 0, page, perPage: 24 }),
-  );
+  const [{ items, total, perPage }, reviewsData] = await Promise.all([
+    getListingsBySellerSlug(slug, { page }).catch(() => ({ items: [], total: 0, page, perPage: 24 })),
+    getUserReviews(slug).catch(() => ({ average: null, count: 0, distribution: {}, items: [], nextCursor: null })),
+  ]);
 
   const totalPages = Math.ceil(total / perPage) || 0;
 
@@ -146,6 +149,11 @@ export default async function VendedorPage({
           </Button>
         </div>
       )}
+
+      {/* Valoraciones recibidas */}
+      <div className="mt-12">
+        <ReviewsSection data={reviewsData} sellerName={seller.name} />
+      </div>
     </div>
   );
 }
