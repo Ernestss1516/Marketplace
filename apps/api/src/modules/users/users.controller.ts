@@ -8,6 +8,8 @@ import { UpdateMeDto } from './dto/update-me.dto';
 import { ListingsService } from '../listings/listings.service';
 import { MyListingsQueryDto } from '../listings/dto/my-listings-query.dto';
 import { SellerListingsQueryDto } from '../listings/dto/seller-listings-query.dto';
+import { ReviewsService } from '../reviews/reviews.service';
+import { ReviewsQueryDto } from '../reviews/dto/reviews-query.dto';
 
 @ApiTags('Users')
 @ApiBearerAuth('access-token')
@@ -16,6 +18,7 @@ export class UsersController {
   constructor(
     private readonly usersService: UsersService,
     private readonly listingsService: ListingsService,
+    private readonly reviewsService: ReviewsService,
   ) {}
 
   @Get('me')
@@ -42,6 +45,11 @@ export class UsersController {
     @Query() query: SellerListingsQueryDto,
   ) {
     return this.listingsService.findBySellerSlug(slug, query.page, query.perPage);
+  }
+
+  @Get(':slug/reviews')
+  getUserReviews(@Param('slug') slug: string, @Query() query: ReviewsQueryDto) {
+    return this.reviewsService.listForUser(slug, query.cursor, query.limit);
   }
 
   @Get(':slug')

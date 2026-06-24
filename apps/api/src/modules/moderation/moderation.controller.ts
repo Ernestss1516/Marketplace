@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -120,5 +121,17 @@ export class ModerationController {
     @Ip() ip: string,
   ) {
     return this.moderationService.restoreListing(id, user.userId, ip);
+  }
+
+  // ─── Review moderation actions ─────────────────────────────────────────────
+
+  @Delete('reviews/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  deleteReview(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtUser,
+    @Ip() ip: string,
+  ) {
+    return this.moderationService.deleteReview(id, user.userId, ip);
   }
 }

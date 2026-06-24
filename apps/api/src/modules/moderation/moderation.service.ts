@@ -31,9 +31,9 @@ export class ModerationService {
   // ---------------------------------------------------------------------------
 
   async createReport(reporterId: string, dto: CreateReportDto) {
-    if (!dto.listingId && !dto.reportedUserId) {
+    if (!dto.listingId && !dto.reportedUserId && !dto.reviewId) {
       throw new UnprocessableEntityException(
-        'Se requiere listingId o reportedUserId',
+        'Se requiere listingId, reportedUserId o reviewId',
       );
     }
 
@@ -53,6 +53,14 @@ export class ModerationService {
       if (!user) throw new NotFoundException('Usuario no encontrado');
     }
 
+    if (dto.reviewId) {
+      const review = await this.prisma.review.findUnique({
+        where: { id: dto.reviewId },
+        select: { id: true },
+      });
+      if (!review) throw new NotFoundException('Valoración no encontrada');
+    }
+
     return this.prisma.report.create({
       data: {
         reason: dto.reason,
@@ -60,6 +68,7 @@ export class ModerationService {
         reporterId,
         listingId: dto.listingId,
         reportedUserId: dto.reportedUserId,
+        reviewId: dto.reviewId,
       },
     });
   }
@@ -332,6 +341,28 @@ export class ModerationService {
     });
 
     return updated;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Review moderation actions
+  // ---------------------------------------------------------------------------
+
+  async deleteReview(reviewId: string, actorId: string, ip?: string) {
+    const review = await this.prisma.review.findUnique({ where: { id: reviewId } });
+    if (!review) throw new NotFoundException('Valoración no encontrada');
+
+    const before = { rating: review.rating, comment: review.comment };
+
+    await this.prisma.review.delete({ where: { id: reviewId } });
+
+    await this.auditLog.log({
+      action: 'REVIEW_DELETE',
+      actorId,
+      resourceType: 'Review',
+      resourceId: reviewId,
+      before,
+      ip,
+    });
   }
 
   // ---------------------------------------------------------------------------

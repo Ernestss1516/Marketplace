@@ -21,5 +21,10 @@ export class CreateReportDto {
   @IsString()
   @IsOptional()
   reportedUserId?: string;
-  // Service validates that at least one of listingId or reportedUserId is present.
+
+  @ApiPropertyOptional({ description: 'ID de la valoración reportada' })
+  @IsString()
+  @IsOptional()
+  reviewId?: string;
+  // Service validates that at least one of listingId, reportedUserId, or reviewId is present.
 }

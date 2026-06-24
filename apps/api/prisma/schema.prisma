@@ -80,6 +80,7 @@ enum ReportReason {
   INAPPROPRIATE
   PROHIBITED_ITEM
   WRONG_CATEGORY
+  FAKE_REVIEW
   OTHER
 }
 
@@ -304,22 +305,30 @@ model Message {
 // ============================================================================
 
 model Review {
-  id        String   @id @default(cuid())
-  rating    Int      // 1..5 (validado en el DTO de NestJS)
-  comment   String?  @db.Text
+  id        String    @id @default(cuid())
+  rating    Int       // 1..5 (validado en el DTO)
+  comment   String?   @db.Text
 
   authorId  String
-  author    User     @relation("ReviewAuthor", fields: [authorId], references: [id])
+  author    User      @relation("ReviewAuthor", fields: [authorId], references: [id], onDelete: Cascade)
   targetId  String
-  target    User     @relation("ReviewTarget", fields: [targetId], references: [id])
-  listingId String?
-  listing   Listing? @relation(fields: [listingId], references: [id])
+  target    User      @relation("ReviewTarget", fields: [targetId], references: [id], onDelete: Cascade)
+  // Non-nullable: elegibilidad siempre requiere un anuncio concreto
+  listingId String
+  listing   Listing   @relation(fields: [listingId], references: [id], onDelete: Cascade)
 
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  // null hasta la primera edición; frontend muestra indicador "Editada" cuando no es null
+  editedAt  DateTime?
 
-  // Una valoración por autor y anuncio (evita valoraciones repetidas).
-  @@unique([authorId, listingId])
+  reports   Report[]
+
+  // [authorId, targetId, listingId] permite bidireccionalidad:
+  // buyer→seller y seller→buyer son filas distintas sobre el mismo anuncio.
+  @@unique([authorId, targetId, listingId])
   @@index([targetId])
+  @@index([listingId])
 }
 
 // ============================================================================
@@ -346,10 +355,15 @@ model Report {
   resolvedBy     User?        @relation("ReportResolver", fields: [resolvedById], references: [id])
   resolvedAt     DateTime?
 
+  // Una denuncia puede apuntar a una valoración (además de a listing o user)
+  reviewId       String?
+  review         Review?      @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
   createdAt      DateTime     @default(now())
 
   @@index([status])
   @@index([listingId])
+  @@index([reviewId])
 }
 
 // ============================================================================
