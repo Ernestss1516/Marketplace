@@ -31,6 +31,7 @@ export class ModerationService {
   // ---------------------------------------------------------------------------
 
   async createReport(reporterId: string, dto: CreateReportDto) {
+    console.log('[createReport] dto recibido:', JSON.stringify(dto));
     if (!dto.listingId && !dto.reportedUserId && !dto.reviewId) {
       throw new UnprocessableEntityException(
         'Se requiere listingId, reportedUserId o reviewId',
@@ -61,16 +62,16 @@ export class ModerationService {
       if (!review) throw new NotFoundException('Valoración no encontrada');
     }
 
-    return this.prisma.report.create({
-      data: {
-        reason: dto.reason,
-        description: dto.description,
-        reporterId,
-        listingId: dto.listingId,
-        reportedUserId: dto.reportedUserId,
-        reviewId: dto.reviewId,
-      },
-    });
+    const data = {
+      reason: dto.reason,
+      description: dto.description,
+      reporterId,
+      listingId: dto.listingId,
+      reportedUserId: dto.reportedUserId,
+      reviewId: dto.reviewId,
+    };
+    console.log('[createReport] data al create:', JSON.stringify(data));
+    return this.prisma.report.create({ data });
   }
 
   async listReports(query: ListReportsQueryDto) {
