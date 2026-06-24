@@ -1,6 +1,6 @@
 # Estado técnico del proyecto — Marketplace
 
-> Fecha: 2026-06-24 · Rama: `main` · Último commit: `6cfd6ea` (RT.6 — cierra Fase T)
+> Fecha: 2026-06-24 · Rama: `main` · Último commit: Fase 7 completa (backoffice y moderación)
 > Plan vigente para la siguiente fase: `docs/Hoja_de_ruta_rafagas_Hito2.docx`.
 
 Documento de referencia para retomar el proyecto. Recoge qué hay implementado,
@@ -14,14 +14,14 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 
 | Módulo | Estado | Notas |
 |---|---|---|
-| **Infra: Prisma** | ✅ Completo | Schema con todos los modelos; PostGIS habilitado; 5 migraciones aplicadas: `init`, `add_auth_tokens`, `media_listing_image_nullable`, `add_price_type`, `backfill_expires_at` |
+| **Infra: Prisma** | ✅ Completo | Schema con todos los modelos; PostGIS habilitado; **6 migraciones aplicadas**: `init`, `add_auth_tokens`, `media_listing_image_nullable`, `add_price_type`, `backfill_expires_at`, **`add_audit_log_and_settings`** |
 | **Infra: Redis** | ✅ Completo | `RedisService` global; caché de fichas de anuncio (TTL 5 min) |
 | **Infra: BullMQ** | ✅ Colas activas | 3 colas registradas con processors reales (ver §2 para el fix de ioredis) |
 | **Infra: Meilisearch** | ✅ Completo | `SearchService.onModuleInit()` crea el índice `listings` y aplica searchable/filterable/sortable attrs, ranking rules y typo tolerance al arrancar |
 | **Infra: MinIO/R2** | ✅ Completo | Dev: MinIO vía docker-compose (bucket `marketplace` con lectura pública, creado por el contenedor `createbuckets`). Prod: Cloudflare R2 vía `R2Service` |
 | **Auth** | ✅ Completo | register, login, verify-email, forgot-password, reset-password; `JwtAuthGuard`, `RolesGuard`, `@CurrentUser`; login devuelve `emailVerified` (fix fase 5) |
 | **Users** | ✅ Completo | `GET /users/me`, `PATCH /users/me`, `GET /users/:slug` (perfil público) |
-| **Categories** | ✅ Completo | `GET /categories` (árbol), `GET /categories/:slug` (con `attributeSchema`) |
+| **Categories** | ✅ Completo | `GET /categories` (árbol público), `GET /categories/:slug` (con `attributeSchema`) |
 | **Listings** | ✅ Completo | CRUD completo + ciclo de vida (publish, reserve, sold, delete, **renew**) + `expiresAt` fijado al publicar (publishedAt + 60 días) + caché por slug + encolado de reindexado; `GET /listings/mine/:id` para edición; `thumbnailUrl` resuelto en `findMine` y `findBySellerSlug`; geocoding automático al crear y al editar cuando cambia la ubicación |
 | **Expiration** | ✅ Completo | `ExpirationService` con cron diario a las 02:00 (`@nestjs/schedule`): marca EXPIRED los anuncios ACTIVE con `expiresAt ≤ now`, invalida caché Redis y encola reindexado. Los RESERVED quedan excluidos intencionalmente |
 | **Geocoding** | ✅ Completo | `GeocodingService` con proveedor configurable (`nominatim` por defecto, `maptiler`). Timeout de 1 500 ms con `AbortSignal.timeout()`; retorna `null` en cualquier fallo sin bloquear la publicación. Script `geocode-backfill` para anuncios sin coordenadas existentes (cursor-based, 1 req/s para respetar la política de Nominatim) |
@@ -29,30 +29,37 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **Search** | ✅ Completo | `GET /search` con texto libre, filtros core, atributos variables (brand, fuel, rooms, gender, size…), **filtro por proximidad** (`lat` + `lng` + `radius` en km → `_geoRadius` en Meilisearch) y **orden por distancia** cuando no hay sort explícito, facetas, paginación y ordenación; `IndexingProcessor` real con jobs `index`/`remove` |
 | **Script reindex** | ✅ Completo | `pnpm reindex` — reconstruye el índice en batches de 100; `ReindexModule` mínimo (sin BullMQ) para cierre limpio |
 | **Messaging** | ✅ Completo | REST: `GET /conversations`, `POST /conversations`, `GET /conversations/:id` (cursor), `POST /conversations/:id/messages`. WebSocket gateway `/ws`: auth en handshake, rooms de conversación y de usuario, emit tras el POST REST |
+| **AuditLog** | ✅ Completo | `AuditLogService.log()` inyectable; captura explícita `before`/`after` dentro del método de service que muta el recurso, antes de llamar a Prisma; nunca vía interceptor (ver §2) |
+| **Moderation** | ✅ Completo | Reportes CRUD + cola (GET con filtros status/reason/page); acciones sobre listings (approve, reject, deactivate, restore); `BadWordService` con fallback silencioso al publicar; AuditLog en todas las mutaciones; roles MODERATOR + ADMIN |
+| **Admin** | ✅ Completo | Listings (list, detail, PATCH status); Users (list, detail, suspend, ban, reinstate, role); Categories CRUD + batch reorder; Settings GET + PATCH con whitelist; `GET /admin/stats` con 7 métricas + Meilisearch null-fallback; todos los endpoints con `@Roles(ADMIN)` y AuditLog |
 | **Favorites** | ❌ Stub vacío | Ídem |
 | **Reviews** | ❌ Stub vacío | Ídem |
-| **Moderation** | ❌ Stub vacío | Ídem |
-| **Admin** | ❌ Stub vacío | Ídem |
 
 ### Frontend (`apps/web` — puerto 3000)
 
 | Página / Componente | Estado | Notas |
 |---|---|---|
 | **Home** `/` | ✅ Completo | Hero, buscador, grid de categorías, últimos anuncios (8); Server Component con fetch paralelo |
-| **Ficha anuncio** `/anuncio/[slug]` | ✅ Completo | Galería, precio con `priceType`, atributos de categoría, ubicación, anuncios relacionados, metadata OG; `ContactButton` integrado |
+| **Ficha anuncio** `/anuncio/[slug]` | ✅ Completo | Galería, precio con `priceType`, atributos de categoría, ubicación, anuncios relacionados, metadata OG; `ContactButton` integrado; **`ReportButton`** (solo autenticados) para reportar el anuncio |
 | **Categoría** `/[categoria]` | ✅ Completo | Listado paginado con ordenación (fecha/precio) |
-| **Publicar** `/publicar` | ✅ Completo | Wizard 5–6 pasos (categoría, fotos, datos, atributos opcionales, ubicación, preview); subida a R2/MinIO vía `POST /media/upload`; crea borrador + publica |
+| **Publicar** `/publicar` | ✅ Completo | Wizard 5–6 pasos; crea borrador + publica; tras publicar **ramifica por status**: ACTIVE → navega a la ficha, PENDING_REVIEW → panel informativo con enlace a mis-anuncios (no navega a la ficha, que daría 404) |
 | **Login / Registro** | ✅ Completo | Formularios con next-auth v5 CredentialsProvider |
 | **Verificar email** `/verificar-email` | ✅ Completo | Llama a `POST /auth/verify-email`; emite nuevo JWT con `emailVerified: true` |
 | **Recuperar contraseña** | ✅ Completo | forgot-password + reset-password enlazado por email |
-| **Mis anuncios** `/mis-anuncios` | ✅ Completo | Listado de anuncios propios + acciones de estado (publicar, reservar, vender, eliminar, **renovar**) vía `MisAnunciosClient`; muestra `expiresAt` en la tarjeta |
+| **Mis anuncios** `/mis-anuncios` | ✅ Completo | Listado de anuncios propios + acciones de estado (publicar, reservar, vender, eliminar, **renovar**); filtro "En revisión" para `PENDING_REVIEW`; muestra `expiresAt` en la tarjeta |
 | **Editar anuncio** `/mis-anuncios/[id]/editar` | ✅ Completo | Wizard de edición (`EditarWizard`) precargado con datos del backend vía `GET /listings/mine/:id`; categoría bloqueada |
 | **Vendedor** `/vendedor/[slug]` | ✅ Completo | Perfil del vendedor (avatar, bio, ubicación, fecha de registro) + grid paginado de anuncios activos |
 | **Búsqueda** `/busqueda` | ✅ Completo | Server Component con fetch paralelo a Meilisearch; sidebar `FilterPanel` con categorías, tipo, estado, rango de precio, ordenación, facetas dinámicas, **control "cerca de mí"** (solicita `navigator.geolocation`, fija `lat`/`lng`/`radius` en la URL, selector de radio 5–50 km, orden por distancia automático); paginación; estados de error y vacío |
 | **Perfil propio** `/perfil` | ✅ Completo | Ruta protegida por middleware; muestra avatar, nombre, email, ubicación y aviso de email no verificado; `PerfilForm` con campos nombre, teléfono, bio, ciudad, provincia, código postal; accesos rápidos a mis-anuncios y mensajes; botón de cerrar sesión |
-| **Bandeja mensajes** `/mensajes` | ✅ Completo | `BandejaMensajesClient`: lista de conversaciones con thumbnail, contador de no leídos y tiempo relativo; actualización en vivo vía WebSocket (lastMessageAt + unreadCount) |
-| **Chat** `/mensajes/[id]` | ✅ Completo | `ChatClient`: mensajes en orden cronológico, auto-scroll al fondo, carga de mensajes anteriores (cursor-based), envío vía POST REST, recepción en tiempo real vía WebSocket con deduplicación idempotente |
-| **Admin** `/admin/*` | ❌ Sin implementar | Protegido por rol ADMIN en middleware; páginas vacías |
+| **Bandeja mensajes** `/mensajes` | ✅ Completo | `BandejaMensajesClient`: lista de conversaciones con thumbnail, contador de no leídos y tiempo relativo; actualización en vivo vía WebSocket |
+| **Chat** `/mensajes/[id]` | ✅ Completo | `ChatClient`: mensajes en orden cronológico, auto-scroll, carga de mensajes anteriores (cursor-based), envío vía POST REST, recepción en tiempo real vía WebSocket con deduplicación idempotente |
+| **Admin shell** | ✅ Completo | Layout Server Component + `<AdminNav>` (active state vía `usePathname`) + `<AdminUserBar>` (nombre del admin + `signOut`); toda la carpeta `(admin)/` es client-side sin SSR |
+| **Admin dashboard** `/admin` | ✅ Completo | Fetch a `GET /admin/stats`; KPIs en 3 secciones (anuncios, usuarios/moderación, índice de búsqueda); skeleton de carga y estado de error |
+| **Admin anuncios** `/admin/anuncios` | ✅ Completo | Tabla paginada con chips de filtro por estado; cambio de estado inline (select + razón + confirmar) vía `PATCH /admin/listings/:id/status`; reportes recibidos visibles en la fila |
+| **Admin usuarios** `/admin/usuarios` | ✅ Completo | Tabla con buscador (nombre/email), chips status y rol; acciones suspend/ban/reinstate contextuales al estado; panel de detalle expandible (últimos anuncios + reportes recibidos + auditlog); no muestra botones de acción para usuarios ADMIN |
+| **Admin reportes** `/admin/reportes` | ✅ Completo | Cola de reportes paginada con filtro de estado; acciones resolve/dismiss/retirar anuncio |
+| **Admin categorías** `/admin/categorias` | ✅ Completo | Árbol de categorías con CRUD inline (crear raíz/subcategoría, editar, borrar); reordenación por ↑↓ con `PATCH /admin/categories/reorder`; editor de `attributeSchema` como textarea JSON con validación previa al envío; errores 400 del backend (anuncios activos o subcategorías existentes) propagados con mensaje literal bajo la fila |
+| **Admin ajustes** `/admin/ajustes` | ✅ Completo | 3 settings con controles tipo-específicos: `badWordList` (textarea una palabra por línea), `listingExpiryDays` (number input), `contactRequiresVerification` (checkbox); save por setting con estado de carga / ✓ éxito / error inline; timestamp de última actualización |
 
 ---
 
@@ -165,8 +172,7 @@ Para el chat (`/mensajes/[id]`), el cliente emite `conversation:join` con
 (buyerId o sellerId) antes de unirlo a la room `conv:${conversationId}`. La comprobación
 de participante vive en el gateway (no en el controller) para mantener la autorización
 cerca del recurso WebSocket. `socket.join` es idempotente, así que re-emitir
-`conversation:join` en cada reconexión (el evento `connect` de socket.io se dispara
-tanto en la conexión inicial como tras cada reconexión) no genera efectos secundarios.
+`conversation:join` en cada reconexión no genera efectos secundarios.
 
 El POST REST sigue siendo la única vía de persistencia y validación. Tras persistir,
 el controller llama a `gateway.emitNewMessage(conversationId, message, buyerId, sellerId)`,
@@ -358,6 +364,105 @@ implementado todavía.
 todos los `new Logger()` existentes en los services queden enrutados por pino y los
 mensajes del bootstrap no se pierdan antes de que el logger esté listo.
 
+### AuditLog: captura explícita en el service, nunca vía interceptor (Fase 7)
+
+**Decisión innegociable** (diseño: `docs/diseno-backoffice.md` §2): el AuditLog se
+captura llamando a `AuditLogService.log()` explícitamente dentro del método del service
+de dominio que va a mutar el recurso, después de leer el estado `before` y antes de
+devolver la respuesta.
+
+Un interceptor de NestJS tiene acceso al `ExecutionContext` (petición y respuesta HTTP)
+pero **no al estado de Prisma antes de la mutación**. Para que `AuditLog.before` sea
+útil (y es el motivo principal del modelo) hay que capturarlo en el momento exacto en
+que el service ya sabe qué va a cambiar. Un interceptor que lea la respuesta solo conoce
+el estado posterior; el anterior requeriría una query adicional desacoplada del contexto
+de negocio, frágil de mantener y fuera del control del service.
+
+Patrón aplicado uniformemente en `AdminService` y `ModerationService`:
+```ts
+const before = { status: resource.status };
+await this.prisma.resource.update({ ... });
+await this.auditLog.log({ action, actorId, resourceType, resourceId, before, after, ip });
+```
+
+### BadWordService: filtro con fallback silencioso al publicar (Fase 7)
+
+`BadWordService.check(title, description)` lee `Setting.badWordList` de BD (con caché
+Redis de TTL corto). Si la lista está vacía o el servicio falla, el flujo de publicación
+continúa hacia `ACTIVE` sin excepción. Si hay match → el estado destino pasa a
+`PENDING_REVIEW` en lugar de `ACTIVE`.
+
+El principio es el mismo que el geocoding: la moderación automática es una capa de
+ayuda, no un bloqueante. Un error en `BadWordService` no puede impedir que un usuario
+publique su anuncio.
+
+El wizard del frontend refleja el resultado real: si el backend devuelve
+`status: 'PENDING_REVIEW'`, muestra un panel informativo en lugar de navegar a la
+ficha del anuncio (que daría 404 porque los anuncios en PENDING_REVIEW no son públicos).
+
+### Protección anti-degradación de ADMIN en cambio de rol (Fase 7)
+
+`PATCH /admin/users/:id/role` acepta solo `USER` y `MODERATOR` como valor destino
+(validado en `ChangeUserRoleDto` vía `@IsIn`). Además, `AdminService.changeUserRole()`
+aplica una segunda comprobación: si el usuario objetivo tiene `role === ADMIN`, lanza
+`403 Forbidden`. La doble validación (DTO + service) garantiza que la regla no sea
+bypasseable llamando directamente al service.
+
+El frontend no muestra botones de acción (suspend/ban/role) para usuarios con `role ===
+ADMIN`, lo que evita llegar al 403 en el caso normal. Pero el guard del service es la
+línea de defensa real.
+
+### Settings: whitelist explícita en el service (Fase 7)
+
+`PATCH /admin/settings/:key` lleva una whitelist en el service:
+`['badWordList', 'listingExpiryDays', 'contactRequiresVerification']`. Cualquier otra
+clave recibe un `400 Bad Request` con el listado de claves válidas. Esto previene la
+creación accidental de settings arbitrarios desde la API. La whitelist vive en el
+service (no en el DTO) porque la clave llega como path param, no como body.
+
+El tipo del `value` es `unknown` en el DTO (con `@Allow()` de class-validator para
+sobrevivir al `whitelist: true` del `ValidationPipe`) y se castea a
+`Prisma.InputJsonValue` al persistir. La validación del shape concreto (array de
+strings, número, booleano) la hace el frontend con controles tipo-específicos.
+
+### Migración `add_audit_log_and_settings` (Fase 7)
+
+Una sola migración añade los modelos `AuditLog` y `Setting`. Detalles relevantes:
+- `AuditLog.before` y `.after` son `Json?` — permiten capturar cualquier shape sin
+  un schema rígido.
+- `AuditLog` indexado por `actorId`, por `(resourceType, resourceId)` y por `createdAt`
+  para consultas eficientes en el backoffice.
+- `Setting.key` es la clave primaria (`@id String`). No existe un endpoint para crear
+  keys arbitrarias; el seed crea las tres keys conocidas.
+- `Setting.updatedById` registra el admin que actualizó el ajuste; puede ser `null`
+  en el seed inicial.
+
+### UserStatus aplicado en login y en el guard JWT (Fase 7 — deuda cerrada)
+
+Tanto SUSPENDED como BANNED bloquean el acceso con el mismo comportamiento técnico
+(403 Forbidden), diferenciado únicamente en el mensaje al usuario. No se distingue
+semánticamente en la API porque añadiría edge cases (p.ej. "SUSPENDED puede leer pero
+no escribir") sin un requisito de negocio concreto para el MVP.
+
+**Bloqueo en login** (`AuthService.login()`): tras verificar la contraseña, se
+comprueba `User.status`. Si es SUSPENDED o BANNED se lanza `ForbiddenException` con
+mensaje específico antes de emitir el token. Se usa 403 y no 401 porque las
+credenciales son correctas — el problema es el estado de la cuenta.
+
+**Bloqueo en el guard** (`JwtStrategy.validate()`): convertida a `async`; hace un
+`findUnique` por `userId` (clave primaria indexada) en cada petición autenticada.
+Si el usuario no existe → 401; si SUSPENDED o BANNED → 403. Esto garantiza que un
+token emitido antes del baneo queda inoperativo en la siguiente petición, sin
+necesidad de invalidar el JWT.
+
+Se eligió la query a Postgres sobre las alternativas:
+- **Status en el JWT payload**: inútil con TTL de 7 días; el usuario baneado opera
+  durante todo ese período.
+- **Blacklist en Redis**: bloqueo inmediato sin query por request, pero requiere
+  mantener el blacklist al suspender/banear/reinstaurar y aumenta la complejidad
+  operativa. Es la evolución natural si el tráfico crece y la query de Postgres
+  se convierte en un cuello de botella.
+
 ---
 
 ## 3. Limitaciones conocidas y deuda técnica
@@ -413,9 +518,10 @@ permanecen en almacenamiento con `listingId: null`. Pendiente: `DELETE /media/:i
 En producción hay que verificar el dominio remitente en el panel de Resend y
 actualizar `RESEND_FROM`.
 
-### Módulos stub: favoritos, valoraciones, moderación, admin
+### Módulos stub pendientes: favoritos y valoraciones
 
-Los controllers y services existen con cuerpos vacíos. La estructura de BD está completa.
+Los controllers y services de `favorites` y `reviews` existen con cuerpos vacíos.
+La estructura de BD está completa. No planificados en el Hito 2.
 
 ### Sin paginación en categorías ni en el home
 
@@ -442,11 +548,14 @@ recomienda configurarlo en un entorno de staging con un DSN real de Sentry.
 
 ---
 
-## 4. Documentación de la API
+## 4. Documentación de la API y el diseño
 
-Swagger está disponible en **`http://localhost:3001/api/docs`** cuando el backend
-está corriendo. Es la fuente de verdad del contrato de endpoints. Para el detalle
-de la estrategia de testing, ver `docs/estrategia-testing.md`.
+- **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.
+  Fuente de verdad del contrato de endpoints.
+- **Estrategia de testing**: `docs/estrategia-testing.md`.
+- **Diseño del backoffice (Fase 7)**: `docs/diseno-backoffice.md` — decisiones de
+  arquitectura, modelos AuditLog y Setting, flujo de moderación, endpoints admin,
+  estructura de páginas del backoffice, orden de ráfagas.
 
 ---
 

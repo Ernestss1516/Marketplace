@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -9,6 +10,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'crypto';
+import { UserStatus } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { QUEUE_NOTIFICATIONS } from '../../infra/queue/queue.constants';
 import {
@@ -70,6 +72,7 @@ export class AuthService {
         email: true,
         slug: true,
         role: true,
+        status: true,
         emailVerified: true,
         passwordHash: true,
       },
@@ -79,6 +82,11 @@ export class AuthService {
 
     const passwordMatch = await bcrypt.compare(dto.password, user.passwordHash);
     if (!passwordMatch) throw new UnauthorizedException('Invalid credentials');
+
+    if (user.status === UserStatus.SUSPENDED)
+      throw new ForbiddenException('Tu cuenta está suspendida. Contacta con soporte si crees que es un error.');
+    if (user.status === UserStatus.BANNED)
+      throw new ForbiddenException('Tu cuenta ha sido inhabilitada permanentemente.');
 
     const accessToken = this.signToken(user);
     return {

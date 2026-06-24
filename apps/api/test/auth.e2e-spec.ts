@@ -244,4 +244,74 @@ describe('Auth (e2e)', () => {
 
     expect(res.body).toMatchObject({ email: 'verified@example.com' });
   });
+
+  // ── UserStatus enforcement ─────────────────────────────────────────────────
+
+  it('POST /api/auth/login (usuario suspendido) → 403', async () => {
+    await prisma.user.create({
+      data: {
+        email: 'suspended@example.com',
+        name: 'Suspended User',
+        slug: 'suspended-user',
+        passwordHash: await bcrypt.hash('Test1234!', 4),
+        emailVerified: true,
+        status: 'SUSPENDED',
+      },
+    });
+
+    await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .send({ email: 'suspended@example.com', password: 'Test1234!' })
+      .expect(403);
+  });
+
+  it('POST /api/auth/login (usuario baneado) → 403', async () => {
+    await prisma.user.create({
+      data: {
+        email: 'banned@example.com',
+        name: 'Banned User',
+        slug: 'banned-user',
+        passwordHash: await bcrypt.hash('Test1234!', 4),
+        emailVerified: true,
+        status: 'BANNED',
+      },
+    });
+
+    await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .send({ email: 'banned@example.com', password: 'Test1234!' })
+      .expect(403);
+  });
+
+  it('GET /api/users/me con token emitido antes del baneo → 403 (guard comprueba estado en vivo)', async () => {
+    // 1. Create ACTIVE user and get a valid token
+    const activeUser = await prisma.user.create({
+      data: {
+        email: 'tobebanned@example.com',
+        name: 'To Be Banned',
+        slug: 'to-be-banned',
+        passwordHash: await bcrypt.hash('Test1234!', 4),
+        emailVerified: true,
+      },
+    });
+
+    const loginRes = await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .send({ email: 'tobebanned@example.com', password: 'Test1234!' })
+      .expect(200);
+
+    const tokenBeforeBan = loginRes.body.accessToken as string;
+
+    // 2. Ban the user directly in DB (simulates admin action after token was issued)
+    await prisma.user.update({
+      where: { id: activeUser.id },
+      data: { status: 'BANNED' },
+    });
+
+    // 3. Previously valid token must now be rejected by the guard
+    await request(app.getHttpServer())
+      .get('/api/users/me')
+      .set('Authorization', `Bearer ${tokenBeforeBan}`)
+      .expect(403);
+  });
 });
