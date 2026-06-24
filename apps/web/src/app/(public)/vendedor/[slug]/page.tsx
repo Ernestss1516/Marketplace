@@ -5,6 +5,7 @@ import { Package, MapPin, CalendarDays } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { ListingCard } from '@/components/anuncios/ListingCard';
+import { FavoritesGridProvider } from '@/components/anuncios/FavoritesGridContext';
 import { getSellerProfile } from '@/lib/api/usuarios';
 import { getListingsBySellerSlug } from '@/lib/api/anuncios';
 import { ApiError } from '@/lib/api/client';
@@ -105,11 +106,13 @@ export default async function VendedorPage({
 
       {items.length > 0 ? (
         <>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-            {items.map((listing) => (
-              <ListingCard key={listing.id} listing={listing} />
-            ))}
-          </div>
+          <FavoritesGridProvider listingIds={items.map((l) => l.id)}>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+              {items.map((listing) => (
+                <ListingCard key={listing.id} listing={listing} />
+              ))}
+            </div>
+          </FavoritesGridProvider>
 
           {totalPages > 1 && (
             <div className="mt-8 flex items-center justify-center gap-3">

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Package } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ListingCard } from '@/components/anuncios/ListingCard';
+import { FavoritesGridProvider } from '@/components/anuncios/FavoritesGridContext';
 import { SortSelect } from '@/components/categorias/SortSelect';
 import { getCategoryBySlug } from '@/lib/api/categorias';
 import { getListingsByCategory } from '@/lib/api/anuncios';
@@ -80,11 +81,13 @@ export default async function CategoriaPage({
 
       {items.length > 0 ? (
         <>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-            {items.map((listing) => (
-              <ListingCard key={listing.id} listing={listing} />
-            ))}
-          </div>
+          <FavoritesGridProvider listingIds={items.map((l) => l.id)}>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+              {items.map((listing) => (
+                <ListingCard key={listing.id} listing={listing} />
+              ))}
+            </div>
+          </FavoritesGridProvider>
 
           {totalPages > 1 && (
             <div className="mt-8 flex items-center justify-center gap-3">

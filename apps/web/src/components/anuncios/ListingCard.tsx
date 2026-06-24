@@ -2,6 +2,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { FavoriteCardButton } from './FavoriteCardButton';
 import type { ListingSummary, PriceType } from '@/types';
 
 const STATUS_LABELS: Partial<Record<string, string>> = {
@@ -42,6 +43,7 @@ export function ListingCard({ listing }: { listing: ListingSummary }) {
               Sin foto
             </div>
           )}
+          <FavoriteCardButton listingId={listing.id} />
         </div>
         <CardContent className="p-3">
           <p className="mb-1 line-clamp-2 text-sm font-medium leading-snug">{listing.title}</p>

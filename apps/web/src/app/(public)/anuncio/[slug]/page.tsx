@@ -9,6 +9,7 @@ import { AttributeList } from '@/components/anuncios/AttributeList';
 import { ListingCard } from '@/components/anuncios/ListingCard';
 import { ReportButton } from '@/components/anuncios/ReportButton';
 import { FavoriteButton } from '@/components/anuncios/FavoriteButton';
+import { FavoritesGridProvider } from '@/components/anuncios/FavoritesGridContext';
 import { getListing, getListingsByCategory } from '@/lib/api/anuncios';
 import { getCategoryBySlug } from '@/lib/api/categorias';
 import { ApiError } from '@/lib/api/client';
@@ -172,11 +173,13 @@ export default async function AnuncioPage({
                 {listing.category.name}
               </Link>
             </h2>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              {relatedItems.map((item) => (
-                <ListingCard key={item.id} listing={item} />
-              ))}
-            </div>
+            <FavoritesGridProvider listingIds={relatedItems.map((i) => i.id)}>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {relatedItems.map((item) => (
+                  <ListingCard key={item.id} listing={item} />
+                ))}
+              </div>
+            </FavoritesGridProvider>
           </section>
         )}
       </div>

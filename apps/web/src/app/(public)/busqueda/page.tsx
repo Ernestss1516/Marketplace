@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { AlertCircle, Package } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ListingCard } from '@/components/anuncios/ListingCard';
+import { FavoritesGridProvider } from '@/components/anuncios/FavoritesGridContext';
 import { FilterPanel } from '@/components/busqueda/FilterPanel';
 import { search, type SearchResponse } from '@/lib/api/busqueda';
 import { getCategories } from '@/lib/api/categorias';
@@ -234,11 +235,13 @@ export default async function BusquedaPage({
           {/* Results grid */}
           {!searchError && hits.length > 0 && (
             <>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-                {hits.map((listing) => (
-                  <ListingCard key={listing.id} listing={listing} />
-                ))}
-              </div>
+              <FavoritesGridProvider listingIds={hits.map((l) => l.id)}>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+                  {hits.map((listing) => (
+                    <ListingCard key={listing.id} listing={listing} />
+                  ))}
+                </div>
+              </FavoritesGridProvider>
 
               {totalPages > 1 && (
                 <div className="mt-8 flex items-center justify-center gap-3">

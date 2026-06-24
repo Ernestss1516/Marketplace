@@ -53,6 +53,14 @@ export class FavoritesService {
     }
   }
 
+  async batchCheck(userId: string, listingIds: string[]): Promise<string[]> {
+    const rows = await this.prisma.favorite.findMany({
+      where: { userId, listingId: { in: listingIds } },
+      select: { listingId: true },
+    });
+    return rows.map((r) => r.listingId);
+  }
+
   async isFavorited(userId: string, listingId: string): Promise<boolean> {
     const fav = await this.prisma.favorite.findUnique({
       where: { userId_listingId: { userId, listingId } },

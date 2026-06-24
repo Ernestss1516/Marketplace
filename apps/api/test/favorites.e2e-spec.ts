@@ -139,4 +139,40 @@ describe('Favorites (e2e)', () => {
       .set('Authorization', `Bearer ${userToken}`)
       .expect(204);
   });
+
+  // ── batch-check ─────────────────────────────────────────────────────────────
+
+  it('POST /api/favorites/batch-check → 200, devuelve solo los marcados', async () => {
+    // Mark the listing first
+    await request(app.getHttpServer())
+      .post(`/api/favorites/${listingId}`)
+      .set('Authorization', `Bearer ${userToken}`)
+      .expect(200);
+
+    const fakeId = 'non-existent-id-00000';
+    const res = await request(app.getHttpServer())
+      .post('/api/favorites/batch-check')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ listingIds: [listingId, fakeId] })
+      .expect(201);
+
+    expect(res.body.favoritedIds).toContain(listingId);
+    expect(res.body.favoritedIds).not.toContain(fakeId);
+  });
+
+  it('POST /api/favorites/batch-check sin auth → 401', async () => {
+    await request(app.getHttpServer())
+      .post('/api/favorites/batch-check')
+      .send({ listingIds: [listingId] })
+      .expect(401);
+  });
+
+  it('POST /api/favorites/batch-check con más de 100 ids → 400', async () => {
+    const ids = Array.from({ length: 101 }, (_, i) => `fake-id-${i}`);
+    await request(app.getHttpServer())
+      .post('/api/favorites/batch-check')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ listingIds: ids })
+      .expect(400);
+  });
 });

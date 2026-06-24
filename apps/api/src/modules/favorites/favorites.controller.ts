@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Delete,
   Get,
@@ -15,6 +16,7 @@ import { CurrentUser } from '../../common/decorators';
 import { JwtUser } from '../auth/auth.types';
 import { FavoritesService } from './favorites.service';
 import { FavoriteQueryDto } from './dto/favorite-query.dto';
+import { BatchCheckDto } from './dto/batch-check.dto';
 
 @ApiTags('Favorites')
 @ApiBearerAuth('access-token')
@@ -22,6 +24,16 @@ import { FavoriteQueryDto } from './dto/favorite-query.dto';
 @UseGuards(JwtAuthGuard)
 export class FavoritesController {
   constructor(private readonly favorites: FavoritesService) {}
+
+  // ── Batch check (must be declared before POST :listingId) ─────────────────
+
+  @Post('batch-check')
+  async batchCheck(@CurrentUser() user: JwtUser, @Body() dto: BatchCheckDto) {
+    const favoritedIds = await this.favorites.batchCheck(user.userId, dto.listingIds);
+    return { favoritedIds };
+  }
+
+  // ── Per-listing operations ────────────────────────────────────────────────
 
   @Post(':listingId')
   @HttpCode(HttpStatus.OK)
@@ -34,6 +46,8 @@ export class FavoritesController {
   remove(@CurrentUser() user: JwtUser, @Param('listingId') listingId: string) {
     return this.favorites.remove(user.userId, listingId);
   }
+
+  // ── List ──────────────────────────────────────────────────────────────────
 
   @Get()
   list(@CurrentUser() user: JwtUser, @Query() query: FavoriteQueryDto) {

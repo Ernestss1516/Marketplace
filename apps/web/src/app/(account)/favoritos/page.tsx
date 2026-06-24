@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { Heart } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { ListingCard } from '@/components/anuncios/ListingCard';
+import { FavoritosClient } from './FavoritosClient';
 import { auth } from '@/lib/auth';
 import { getMyFavorites } from '@/lib/api/favoritos';
 
@@ -36,35 +36,12 @@ export default async function FavoritosPage({
           </Button>
         </div>
       ) : (
-        <>
-          <p className="text-sm text-muted-foreground">
-            {data.total} {data.total === 1 ? 'anuncio guardado' : 'anuncios guardados'}
-          </p>
-
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-            {data.items.map((listing) => (
-              <ListingCard key={listing.id} listing={listing} />
-            ))}
-          </div>
-
-          {data.pages > 1 && (
-            <div className="flex items-center justify-center gap-2 pt-4">
-              {page > 1 && (
-                <Button variant="outline" size="sm" asChild>
-                  <Link href={`/favoritos?page=${page - 1}`}>Anterior</Link>
-                </Button>
-              )}
-              <span className="text-sm text-muted-foreground">
-                Página {page} de {data.pages}
-              </span>
-              {page < data.pages && (
-                <Button variant="outline" size="sm" asChild>
-                  <Link href={`/favoritos?page=${page + 1}`}>Siguiente</Link>
-                </Button>
-              )}
-            </div>
-          )}
-        </>
+        <FavoritosClient
+          initialListings={data.items}
+          totalInitial={data.total}
+          page={page}
+          pages={data.pages}
+        />
       )}
     </div>
   );

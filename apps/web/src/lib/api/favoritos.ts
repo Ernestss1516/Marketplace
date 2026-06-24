@@ -1,6 +1,17 @@
 import type { FavoritesResponse, ListingSummary } from '@/types';
 import { apiFetch } from './client';
 
+export function batchCheckFavorites(
+  listingIds: string[],
+  token: string,
+): Promise<{ favoritedIds: string[] }> {
+  return apiFetch<{ favoritedIds: string[] }>('/favorites/batch-check', {
+    method: 'POST',
+    body: JSON.stringify({ listingIds }),
+    token,
+  });
+}
+
 export function checkFavorite(listingId: string, token: string): Promise<{ favorited: boolean }> {
   return apiFetch<{ favorited: boolean }>(`/favorites/${listingId}`, { token });
 }
