@@ -1,0 +1,132 @@
+'use client';
+
+import { useState } from 'react';
+import { useSession } from 'next-auth/react';
+import { Flag, Loader2, X } from 'lucide-react';
+import { createReport, type ReportReason } from '@/lib/api/moderacion';
+import { ApiError } from '@/lib/api/client';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+
+const REASON_OPTIONS: { value: ReportReason; label: string }[] = [
+  { value: 'SPAM', label: 'Spam o contenido repetido' },
+  { value: 'FRAUD', label: 'Fraude o estafa' },
+  { value: 'INAPPROPRIATE', label: 'Contenido inapropiado' },
+  { value: 'PROHIBITED_ITEM', label: 'Artículo prohibido' },
+  { value: 'WRONG_CATEGORY', label: 'Categoría incorrecta' },
+  { value: 'OTHER', label: 'Otro motivo' },
+];
+
+interface Props {
+  listingId: string;
+}
+
+export function ReportButton({ listingId }: Props) {
+  const { data: session } = useSession();
+  const token = (session?.user as { accessToken?: string } | undefined)?.accessToken;
+
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState<ReportReason>('SPAM');
+  const [description, setDescription] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Only authenticated users can report.
+  if (!token) return null;
+
+  if (submitted) {
+    return (
+      <div className="rounded-md bg-green-50 px-4 py-3 text-sm text-green-800">
+        Denuncia enviada. Gracias por ayudarnos a mantener la comunidad segura.
+      </div>
+    );
+  }
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <Flag className="h-3 w-3" />
+        Denunciar este anuncio
+      </button>
+    );
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!token || submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      await createReport(token, { reason, description: description.trim() || undefined, listingId });
+      setSubmitted(true);
+    } catch (err) {
+      if (err instanceof ApiError && err.statusCode === 409) {
+        setError('Ya has denunciado este anuncio anteriormente.');
+      } else {
+        setError(err instanceof Error ? err.message : 'Error al enviar la denuncia.');
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="rounded-md border bg-background p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <Flag className="h-4 w-4" />
+          Denunciar anuncio
+        </div>
+        <button
+          onClick={() => setOpen(false)}
+          className="text-muted-foreground hover:text-foreground"
+          aria-label="Cerrar"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-medium text-muted-foreground">Motivo</label>
+          <select
+            value={reason}
+            onChange={(e) => setReason(e.target.value as ReportReason)}
+            className="rounded-md border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            {REASON_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-medium text-muted-foreground">
+            Descripción <span className="font-normal">(opcional)</span>
+          </label>
+          <Textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Describe brevemente el problema..."
+            rows={3}
+            className="resize-none text-sm"
+            disabled={submitting}
+          />
+        </div>
+
+        {error && <p className="text-xs text-destructive">{error}</p>}
+
+        <Button type="submit" size="sm" className="w-full" disabled={submitting}>
+          {submitting ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : null}
+          Enviar denuncia
+        </Button>
+      </form>
+    </div>
+  );
+}

@@ -33,6 +33,13 @@ export interface PaginatedReports {
   perPage: number;
 }
 
+export interface CreateReportDto {
+  reason: ReportReason;
+  description?: string;
+  listingId?: string;
+  reportedUserId?: string;
+}
+
 export function getReports(
   token: string,
   params?: { status?: ReportStatus; page?: number },
@@ -64,6 +71,14 @@ export function deactivateListing(
   return apiFetch(`/moderation/listings/${listingId}/deactivate`, {
     method: 'POST',
     body: JSON.stringify({ reason: reason ?? 'Retirado por moderación' }),
+    token,
+  });
+}
+
+export function createReport(token: string, dto: CreateReportDto): Promise<Report> {
+  return apiFetch<Report>('/moderation/reports', {
+    method: 'POST',
+    body: JSON.stringify(dto),
     token,
   });
 }
