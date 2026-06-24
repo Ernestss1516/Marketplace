@@ -39,4 +39,9 @@ export class FavoritesController {
   list(@CurrentUser() user: JwtUser, @Query() query: FavoriteQueryDto) {
     return this.favorites.findByUser(user.userId, query.page ?? 1, query.perPage ?? 20);
   }
+
+  @Get(':listingId')
+  check(@CurrentUser() user: JwtUser, @Param('listingId') listingId: string) {
+    return this.favorites.isFavorited(user.userId, listingId).then((favorited) => ({ favorited }));
+  }
 }

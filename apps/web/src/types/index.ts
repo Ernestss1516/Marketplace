@@ -207,6 +207,27 @@ export interface MyListing {
   publishedAt?: string;
 }
 
+// ── Favorites ────────────────────────────────────────────────────────────────
+
+export interface FavoriteListingData extends ListingSummary {
+  images: { url: string }[];
+}
+
+export interface FavoriteItem {
+  id: string;
+  listingId: string;
+  createdAt: string;
+  listing: FavoriteListingData;
+}
+
+export interface FavoritesResponse {
+  items: FavoriteItem[];
+  total: number;
+  page: number;
+  perPage: number;
+  pages: number;
+}
+
 // ── Blog ─────────────────────────────────────────────────────────────────────
 
 export interface PostSummary {

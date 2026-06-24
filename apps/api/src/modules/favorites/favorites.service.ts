@@ -53,6 +53,14 @@ export class FavoritesService {
     }
   }
 
+  async isFavorited(userId: string, listingId: string): Promise<boolean> {
+    const fav = await this.prisma.favorite.findUnique({
+      where: { userId_listingId: { userId, listingId } },
+      select: { id: true },
+    });
+    return fav !== null;
+  }
+
   async findByUser(userId: string, page: number, perPage: number) {
     const [items, total] = await Promise.all([
       this.prisma.favorite.findMany({

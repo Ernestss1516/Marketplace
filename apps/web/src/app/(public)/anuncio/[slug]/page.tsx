@@ -8,6 +8,7 @@ import { SellerCard } from '@/components/anuncios/SellerCard';
 import { AttributeList } from '@/components/anuncios/AttributeList';
 import { ListingCard } from '@/components/anuncios/ListingCard';
 import { ReportButton } from '@/components/anuncios/ReportButton';
+import { FavoriteButton } from '@/components/anuncios/FavoriteButton';
 import { getListing, getListingsByCategory } from '@/lib/api/anuncios';
 import { getCategoryBySlug } from '@/lib/api/categorias';
 import { ApiError } from '@/lib/api/client';
@@ -156,6 +157,7 @@ export default async function AnuncioPage({
           {/* ── Right column (desktop sidebar) ── */}
           <div className="space-y-4">
             <ContactButton listingSlug={slug} listingId={listing.id} />
+            <FavoriteButton listingId={listing.id} />
             <SellerCard seller={listing.seller} publishedAt={listing.publishedAt} />
             <ReportButton listingId={listing.id} />
           </div>
