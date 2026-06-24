@@ -161,3 +161,93 @@ export function banUser(token: string, id: string): Promise<unknown> {
 export function reinstateUser(token: string, id: string): Promise<unknown> {
   return apiFetch(`/admin/users/${id}/reinstate`, { method: 'PATCH', token });
 }
+
+// ─── Categories ───────────────────────────────────────────────────────────────
+
+export interface AdminCategoryChild {
+  id: string;
+  name: string;
+  slug: string;
+  iconUrl: string | null;
+  order: number;
+  attributeSchema: unknown[];
+}
+
+export interface AdminCategory extends AdminCategoryChild {
+  children: AdminCategoryChild[];
+}
+
+export interface CategoryMutationDto {
+  name?: string;
+  slug?: string;
+  parentId?: string;
+  iconUrl?: string;
+  order?: number;
+  attributeSchema?: unknown[];
+}
+
+export function getAdminCategories(token: string): Promise<AdminCategory[]> {
+  return apiFetch<AdminCategory[]>('/admin/categories', { token });
+}
+
+export function createAdminCategory(
+  token: string,
+  dto: Required<Pick<CategoryMutationDto, 'name' | 'slug'>> & Omit<CategoryMutationDto, 'name' | 'slug'>,
+): Promise<AdminCategoryChild> {
+  return apiFetch<AdminCategoryChild>('/admin/categories', {
+    method: 'POST',
+    body: JSON.stringify(dto),
+    token,
+  });
+}
+
+export function updateAdminCategory(
+  token: string,
+  id: string,
+  dto: CategoryMutationDto,
+): Promise<AdminCategoryChild> {
+  return apiFetch<AdminCategoryChild>(`/admin/categories/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(dto),
+    token,
+  });
+}
+
+export function reorderAdminCategories(
+  token: string,
+  items: { id: string; order: number }[],
+): Promise<void> {
+  return apiFetch('/admin/categories/reorder', {
+    method: 'PATCH',
+    body: JSON.stringify({ items }),
+    token,
+  });
+}
+
+export function deleteAdminCategory(token: string, id: string): Promise<void> {
+  return apiFetch(`/admin/categories/${id}`, { method: 'DELETE', token });
+}
+
+// ─── Settings ─────────────────────────────────────────────────────────────────
+
+export interface AdminSetting {
+  key: string;
+  value: unknown;
+  updatedAt: string;
+}
+
+export function getAdminSettings(token: string): Promise<AdminSetting[]> {
+  return apiFetch<AdminSetting[]>('/admin/settings', { token });
+}
+
+export function updateAdminSetting(
+  token: string,
+  key: string,
+  value: unknown,
+): Promise<AdminSetting> {
+  return apiFetch<AdminSetting>(`/admin/settings/${key}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ value }),
+    token,
+  });
+}
