@@ -73,7 +73,7 @@ export function createListing(
 export function publishListing(
   id: string,
   token: string,
-): Promise<{ id: string; slug: string; status: 'ACTIVE'; publishedAt: string }> {
+): Promise<{ id: string; slug: string; status: 'ACTIVE' | 'PENDING_REVIEW'; publishedAt: string }> {
   return apiFetch(`/listings/${id}/publish`, { method: 'POST', token });
 }
 

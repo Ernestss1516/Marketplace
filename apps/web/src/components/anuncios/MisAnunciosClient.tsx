@@ -11,6 +11,7 @@ import type { ListingSummary } from '@/types';
 const FILTERS: { label: string; value: string | null }[] = [
   { label: 'Todos', value: null },
   { label: 'Activos', value: 'ACTIVE' },
+  { label: 'En revisión', value: 'PENDING_REVIEW' },
   { label: 'Borradores', value: 'DRAFT' },
   { label: 'Reservados', value: 'RESERVED' },
   { label: 'Vendidos', value: 'SOLD' },

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronLeft } from 'lucide-react';
+import { ChevronLeft, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { StepIndicator } from './StepIndicator';
 import { StepCategoria } from './steps/StepCategoria';
@@ -151,6 +151,7 @@ export function PublicarWizard({ token, categories }: PublicarWizardProps) {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitState, setSubmitState] = useState<'idle' | 'saving' | 'publishing'>('idle');
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [pendingReview, setPendingReview] = useState(false);
 
   // Active step list — skip 'atributos' when the chosen category has no schema
   const activeSteps = data.attributeSchema.length > 0
@@ -244,7 +245,12 @@ export function PublicarWizard({ token, categories }: PublicarWizardProps) {
       );
 
       if (action === 'publish') {
-        await publishListing(draft.id, token);
+        const published = await publishListing(draft.id, token);
+        if (published.status === 'PENDING_REVIEW') {
+          setPendingReview(true);
+          setSubmitState('idle');
+          return;
+        }
         router.push(`/anuncio/${draft.slug}`);
       } else {
         router.push('/mis-anuncios');
@@ -325,7 +331,7 @@ export function PublicarWizard({ token, categories }: PublicarWizardProps) {
           />
         )}
 
-        {currentStepId === 'previsualizacion' && (
+        {currentStepId === 'previsualizacion' && !pendingReview && (
           <StepPrevisualizacion
             data={data}
             submitState={submitState}
@@ -333,6 +339,24 @@ export function PublicarWizard({ token, categories }: PublicarWizardProps) {
             onSaveDraft={() => handleSubmit('draft')}
             onPublish={() => handleSubmit('publish')}
           />
+        )}
+
+        {currentStepId === 'previsualizacion' && pendingReview && (
+          <div className="flex flex-col items-center gap-4 py-8 text-center">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-amber-100">
+              <Clock className="h-8 w-8 text-amber-600" />
+            </div>
+            <div className="space-y-1">
+              <h2 className="text-lg font-semibold">Anuncio enviado a revisión</h2>
+              <p className="max-w-sm text-sm text-muted-foreground">
+                Tu anuncio contiene términos que requieren revisión. El equipo de moderación
+                lo revisará y se publicará una vez aprobado.
+              </p>
+            </div>
+            <Button onClick={() => router.push('/mis-anuncios')}>
+              Ver mis anuncios
+            </Button>
+          </div>
         )}
       </div>
 
