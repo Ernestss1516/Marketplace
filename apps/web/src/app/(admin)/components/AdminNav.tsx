@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { href: '/admin/usuarios', label: 'Usuarios' },
   { href: '/admin/reportes', label: 'Reportes' },
   { href: '/admin/categorias', label: 'Categorías' },
+  { href: '/admin/blog', label: 'Blog' },
   { href: '/admin/ajustes', label: 'Ajustes' },
 ];
 

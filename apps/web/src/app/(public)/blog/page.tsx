@@ -5,6 +5,19 @@ import { getPostList } from '@/lib/api/blog';
 import type { PostSummary } from '@/types';
 import { SITE_NAME } from '@/config';
 
+// Must mirror next.config.ts remotePatterns so we never pass an unconfigured
+// hostname to next/image (which would throw and crash the page).
+function isSafeSrc(url: string): boolean {
+  try {
+    const { protocol, hostname } = new URL(url);
+    if (protocol === 'http:' && hostname === 'localhost') return true;
+    if (protocol === 'https:' && hostname.endsWith('.r2.cloudflarestorage.com')) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 export const revalidate = 3600;
 
 export const metadata: Metadata = {
@@ -121,7 +134,7 @@ function PostCard({ post }: { post: PostSummary }) {
 
   return (
     <article className="group flex flex-col overflow-hidden rounded-xl border bg-card shadow-sm transition-shadow hover:shadow-md">
-      {post.coverUrl ? (
+      {post.coverUrl && isSafeSrc(post.coverUrl) ? (
         <div className="relative h-48 overflow-hidden bg-muted">
           <Image
             src={post.coverUrl}

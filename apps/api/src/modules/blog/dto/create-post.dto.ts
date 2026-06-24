@@ -28,7 +28,7 @@ export class CreatePostDto {
   body?: string;
 
   @IsOptional()
-  @IsUrl()
+  @IsUrl({ require_tld: false })
   coverUrl?: string;
 
   @IsOptional()

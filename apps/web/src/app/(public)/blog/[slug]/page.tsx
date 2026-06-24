@@ -2,6 +2,17 @@ import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 import Image from 'next/image';
 import Link from 'next/link';
+
+function isSafeSrc(url: string): boolean {
+  try {
+    const { protocol, hostname } = new URL(url);
+    if (protocol === 'http:' && hostname === 'localhost') return true;
+    if (protocol === 'https:' && hostname.endsWith('.r2.cloudflarestorage.com')) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeSanitize from 'rehype-sanitize';
@@ -117,8 +128,8 @@ export default async function BlogPostPage({
             <time dateTime={post.publishedAt}>{dateStr}</time>
           </div>
 
-          {/* Cover image */}
-          {post.coverUrl && (
+          {/* Cover image — only rendered when URL is from our storage */}
+          {post.coverUrl && isSafeSrc(post.coverUrl) && (
             <div className="relative mb-8 h-64 w-full overflow-hidden rounded-xl bg-muted md:h-80">
               <Image
                 src={post.coverUrl}
