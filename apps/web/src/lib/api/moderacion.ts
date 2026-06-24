@@ -7,6 +7,7 @@ export type ReportReason =
   | 'INAPPROPRIATE'
   | 'PROHIBITED_ITEM'
   | 'WRONG_CATEGORY'
+  | 'FAKE_REVIEW'
   | 'OTHER';
 
 export interface Report {
@@ -23,6 +24,13 @@ export interface Report {
     slug: string;
     status: string;
   } | null;
+  review: {
+    id: string;
+    rating: number;
+    comment: string | null;
+    author: { name: string; slug: string };
+    target: { name: string; slug: string };
+  } | null;
   resolvedBy: { id: string; name: string } | null;
 }
 
@@ -38,6 +46,7 @@ export interface CreateReportDto {
   description?: string;
   listingId?: string;
   reportedUserId?: string;
+  reviewId?: string;
 }
 
 export function getReports(
@@ -71,6 +80,13 @@ export function deactivateListing(
   return apiFetch(`/moderation/listings/${listingId}/deactivate`, {
     method: 'POST',
     body: JSON.stringify({ reason: reason ?? 'Retirado por moderación' }),
+    token,
+  });
+}
+
+export function deleteReview(reviewId: string, token: string): Promise<void> {
+  return apiFetch<void>(`/moderation/reviews/${reviewId}`, {
+    method: 'DELETE',
     token,
   });
 }

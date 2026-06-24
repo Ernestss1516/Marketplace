@@ -1,6 +1,7 @@
 import { Star, MessageSquare } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import type { ReviewsPageResponse, Review } from '@/types';
+import { ReviewReportButton } from './ReviewReportButton';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -69,6 +70,8 @@ function ReviewCard({ review }: { review: Review }) {
       {review.comment && (
         <p className="text-sm text-muted-foreground leading-relaxed">{review.comment}</p>
       )}
+
+      <ReviewReportButton reviewId={review.id} />
     </div>
   );
 }

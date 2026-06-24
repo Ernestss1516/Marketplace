@@ -90,6 +90,7 @@ export class ModerationService {
           reporter: { select: { id: true, name: true, slug: true } },
           reportedUser: { select: { id: true, name: true, slug: true } },
           listing: { select: { id: true, title: true, slug: true, status: true } },
+          review: { select: { id: true, rating: true, comment: true, author: { select: { name: true, slug: true } }, target: { select: { name: true, slug: true } } } },
           resolvedBy: { select: { id: true, name: true } },
         },
       }),

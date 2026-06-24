@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
+import { Star } from 'lucide-react';
 import {
   getReports,
   resolveReport,
   dismissReport,
   deactivateListing,
+  deleteReview,
   type Report,
   type ReportStatus,
 } from '@/lib/api/moderacion';
@@ -18,6 +20,7 @@ const REASON_LABEL: Record<string, string> = {
   INAPPROPRIATE: 'Inapropiado',
   PROHIBITED_ITEM: 'Artículo prohibido',
   WRONG_CATEGORY: 'Categoría incorrecta',
+  FAKE_REVIEW: 'Valoración falsa',
   OTHER: 'Otro',
 };
 
@@ -35,6 +38,31 @@ const STATUS_FILTERS: { label: string; value: ReportStatus | undefined }[] = [
   { label: 'Resueltos', value: 'RESOLVED' },
   { label: 'Desestimados', value: 'DISMISSED' },
 ];
+
+function ReviewSnippet({ review }: { review: NonNullable<Report['review']> }) {
+  return (
+    <div className="mt-1 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs">
+      <div className="mb-0.5 flex items-center gap-1 font-medium text-amber-900">
+        {Array.from({ length: 5 }, (_, i) => (
+          <Star
+            key={i}
+            className={[
+              'h-3 w-3',
+              i < review.rating ? 'fill-amber-500 text-amber-500' : 'fill-transparent text-amber-300',
+            ].join(' ')}
+            aria-hidden
+          />
+        ))}
+        <span className="ml-1 text-amber-800">
+          de {review.author.name} → {review.target.name}
+        </span>
+      </div>
+      {review.comment && (
+        <p className="line-clamp-2 text-amber-800">{review.comment}</p>
+      )}
+    </div>
+  );
+}
 
 export default function AdminReportesPage() {
   const { data: session } = useSession();
@@ -73,10 +101,7 @@ export default function AdminReportesPage() {
     fetchReports(statusFilter);
   }, [fetchReports, statusFilter]);
 
-  async function handleAction(
-    action: () => Promise<unknown>,
-    reportId: string,
-  ) {
+  async function handleAction(action: () => Promise<unknown>, reportId: string) {
     setPendingId(reportId);
     try {
       await action();
@@ -125,26 +150,22 @@ export default function AdminReportesPage() {
         ))}
       </div>
 
-      {/* Error state — visible on purpose */}
       {error && (
         <div className="mb-4 rounded border border-red-300 bg-red-50 p-4 font-mono text-sm text-red-800">
           {error}
         </div>
       )}
 
-      {/* Loading state */}
       {loading && (
         <div className="py-12 text-center text-muted-foreground">Cargando reportes…</div>
       )}
 
-      {/* Empty state */}
       {!loading && !error && reports.length === 0 && (
         <div className="py-12 text-center text-muted-foreground">
           No hay reportes{statusFilter ? ` en estado "${STATUS_LABEL[statusFilter]}"` : ''}.
         </div>
       )}
 
-      {/* Table */}
       {!loading && reports.length > 0 && (
         <div className="overflow-x-auto rounded border">
           <table className="w-full text-sm">
@@ -171,32 +192,43 @@ export default function AdminReportesPage() {
                         <p className="mt-0.5 text-xs text-muted-foreground">{r.description}</p>
                       )}
                     </td>
+
                     <td className="p-3">
                       {r.listing ? (
-                        <a
-                          href={`/anuncio/${r.listing.slug}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-blue-600 hover:underline"
-                        >
-                          {r.listing.title}
-                        </a>
+                        <>
+                          <a
+                            href={`/anuncio/${r.listing.slug}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-blue-600 hover:underline"
+                          >
+                            {r.listing.title}
+                          </a>
+                          <p className="text-xs text-muted-foreground">Anuncio</p>
+                        </>
                       ) : r.reportedUser ? (
-                        <a
-                          href={`/vendedor/${r.reportedUser.slug}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-blue-600 hover:underline"
-                        >
-                          {r.reportedUser.name}
-                        </a>
+                        <>
+                          <a
+                            href={`/vendedor/${r.reportedUser.slug}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-blue-600 hover:underline"
+                          >
+                            {r.reportedUser.name}
+                          </a>
+                          <p className="text-xs text-muted-foreground">Usuario</p>
+                        </>
+                      ) : r.review ? (
+                        <ReviewSnippet review={r.review} />
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}
                     </td>
+
                     <td className="p-3 text-muted-foreground">
                       {r.reporter?.name ?? '—'}
                     </td>
+
                     <td className="p-3">
                       <span
                         className={[
@@ -212,6 +244,7 @@ export default function AdminReportesPage() {
                         {STATUS_LABEL[r.status] ?? r.status}
                       </span>
                     </td>
+
                     <td className="p-3 text-muted-foreground">
                       {new Date(r.createdAt).toLocaleDateString('es-ES', {
                         day: '2-digit',
@@ -219,6 +252,7 @@ export default function AdminReportesPage() {
                         year: 'numeric',
                       })}
                     </td>
+
                     <td className="p-3">
                       <div className="flex flex-wrap gap-1">
                         {isOpen && (
@@ -260,6 +294,23 @@ export default function AdminReportesPage() {
                             className="rounded bg-red-600 px-2 py-1 text-xs text-white hover:bg-red-700 disabled:opacity-50"
                           >
                             {isPending ? '…' : 'Retirar anuncio'}
+                          </button>
+                        )}
+                        {r.review && isOpen && (
+                          <button
+                            disabled={isPending}
+                            onClick={() =>
+                              handleAction(
+                                async () => {
+                                  await deleteReview(r.review!.id, token);
+                                  await resolveReport(r.id, token);
+                                },
+                                r.id,
+                              )
+                            }
+                            className="rounded bg-red-600 px-2 py-1 text-xs text-white hover:bg-red-700 disabled:opacity-50"
+                          >
+                            {isPending ? '…' : 'Eliminar reseña'}
                           </button>
                         )}
                       </div>
