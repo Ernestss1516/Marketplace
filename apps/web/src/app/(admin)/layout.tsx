@@ -1,34 +1,26 @@
-import Link from 'next/link';
-
-const adminNav = [
-  { href: '/admin', label: 'Dashboard' },
-  { href: '/admin/anuncios', label: 'Anuncios' },
-  { href: '/admin/usuarios', label: 'Usuarios' },
-  { href: '/admin/reportes', label: 'Reportes' },
-  { href: '/admin/categorias', label: 'Categorías' },
-  { href: '/admin/ajustes', label: 'Ajustes' },
-];
+import { AdminNav } from './components/AdminNav';
+import { AdminUserBar } from './components/AdminUserBar';
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-screen">
-      <aside className="w-56 shrink-0 border-r bg-muted/30 p-4">
-        <div className="mb-6 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Admin
-        </div>
-        <nav className="flex flex-col gap-1">
-          {adminNav.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="rounded-md px-3 py-2 text-sm hover:bg-muted"
-            >
-              {item.label}
-            </Link>
-          ))}
-        </nav>
-      </aside>
-      <main className="flex-1 p-8">{children}</main>
+    <div className="flex min-h-screen flex-col">
+      {/* Top header */}
+      <header className="flex h-14 items-center justify-between border-b bg-background px-6">
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Backoffice
+        </span>
+        <AdminUserBar />
+      </header>
+
+      <div className="flex flex-1">
+        {/* Sidebar */}
+        <aside className="w-56 shrink-0 border-r bg-muted/30 p-4">
+          <AdminNav />
+        </aside>
+
+        {/* Page content */}
+        <main className="flex-1 p-8">{children}</main>
+      </div>
     </div>
   );
 }
