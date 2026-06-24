@@ -15,6 +15,7 @@ import type { Listing, ListingStatus, PriceType } from '@prisma/client';
 import { QUEUE_INDEXING } from '../../infra/queue/queue.constants';
 import { ExpirationService } from '../expiration/expiration.service';
 import { GeocodingService } from '../geocoding/geocoding.service';
+import { BadWordService } from '../moderation/bad-word.service';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { UpdateListingDto } from './dto/update-listing.dto';
 import { MyListingsQueryDto } from './dto/my-listings-query.dto';
@@ -70,6 +71,7 @@ export class ListingsService {
     private readonly redis: RedisService,
     @InjectQueue(QUEUE_INDEXING) private readonly indexingQueue: Queue,
     private readonly geocodingService: GeocodingService,
+    private readonly badWordService: BadWordService,
   ) {}
 
   async create(sellerId: string, dto: CreateListingDto): Promise<Listing> {
@@ -208,17 +210,36 @@ export class ListingsService {
       throw new BadRequestException('Solo se pueden publicar anuncios en estado DRAFT');
     }
 
+    // Content filter — if the list is empty or service fails, targetStatus stays
+    // ACTIVE. Moderation is a helper layer and must never block publication.
+    let targetStatus: 'ACTIVE' | 'PENDING_REVIEW' = 'ACTIVE';
+    try {
+      const flagged = await this.badWordService.hasBadWords(
+        existing.title,
+        existing.description,
+      );
+      if (flagged) targetStatus = 'PENDING_REVIEW';
+    } catch (_err) {
+      // Silent fallback — publication continues normally.
+    }
+
     const publishedAt = existing.publishedAt ?? new Date();
     const listing = await this.prisma.listing.update({
       where: { id },
       data: {
-        status: 'ACTIVE',
+        status: targetStatus,
         publishedAt,
-        expiresAt: ExpirationService.expiresAt(publishedAt),
+        // Only ACTIVE listings get an expiry. PENDING_REVIEW gets it on approval.
+        ...(targetStatus === 'ACTIVE' && {
+          expiresAt: ExpirationService.expiresAt(publishedAt),
+        }),
       },
     });
 
-    await this.invalidateAndReindex(listing.slug, id);
+    if (targetStatus === 'ACTIVE') {
+      await this.invalidateAndReindex(listing.slug, id);
+    }
+
     return listing;
   }
 

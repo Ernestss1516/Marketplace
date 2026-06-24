@@ -125,6 +125,7 @@ model User {
   verificationTokens  VerificationToken[]
   passwordResetTokens PasswordResetToken[]
   uploadedImages      ListingImage[]       @relation("UploadedImages")
+  auditLogsActed      AuditLog[]           @relation("AuditLogActor")
 
   @@index([status])
 }
@@ -342,6 +343,72 @@ model Report {
 
   @@index([status])
   @@index([listingId])
+}
+
+// ============================================================================
+//  AUDITORÍA (backoffice)
+// ============================================================================
+
+/// Registro inmutable de cada acción administrativa sensible.
+/// DECISIÓN DE DISEÑO: capturado mediante AuditLogService inyectado en el
+/// service de dominio, NUNCA con un interceptor de NestJS. El interceptor no
+/// tiene acceso al estado de Prisma antes de la mutación (el campo `before`
+/// requiere leer el recurso justo antes de modificarlo, dentro del service).
+model AuditLog {
+  id           String   @id @default(cuid())
+
+  /// Convención SCREAMING_SNAKE_CASE:
+  /// LISTING_DEACTIVATE | LISTING_RESTORE | LISTING_APPROVE | LISTING_REJECT
+  /// USER_SUSPEND | USER_BAN | USER_REINSTATE | USER_ROLE_CHANGE
+  /// REPORT_RESOLVE | REPORT_DISMISS
+  /// CATEGORY_CREATE | CATEGORY_EDIT | CATEGORY_DELETE | CATEGORY_REORDER
+  /// SETTING_UPDATE
+  action       String
+
+  actorId      String
+  actor        User     @relation("AuditLogActor", fields: [actorId], references: [id])
+
+  /// "Listing" | "User" | "Report" | "Category" | "Setting"
+  resourceType String
+  resourceId   String
+
+  /// Snapshot del estado ANTES de la mutación. Null si no aplica (p.ej. primera
+  /// escritura de un Setting).
+  before       Json?
+
+  /// Snapshot del estado DESPUÉS de la mutación.
+  after        Json?
+
+  /// IP del actor para auditoría de seguridad (extraída del request).
+  ip           String?
+
+  createdAt    DateTime @default(now())
+
+  @@index([actorId])
+  @@index([resourceType, resourceId])
+  @@index([createdAt])
+}
+
+// ============================================================================
+//  AJUSTES DEL SISTEMA (backoffice)
+// ============================================================================
+
+/// Configuración del sistema editable desde el backoffice sin despliegue.
+/// Keys conocidas: badWordList (string[]), listingExpiryDays (number),
+/// contactRequiresVerification (boolean).
+/// Sembradas en seed.ts con createMany + skipDuplicates para no pisar valores
+/// que el admin haya cambiado manualmente.
+model Setting {
+  /// Clave única del ajuste (ej. "badWordList").
+  key          String   @id
+
+  /// Valor serializado como JSON. El tipo concreto depende de la key.
+  value        Json
+
+  updatedAt    DateTime @updatedAt
+
+  /// ID del admin que actualizó el ajuste por última vez (null en seed inicial).
+  updatedById  String?
 }
 
 // ============================================================================

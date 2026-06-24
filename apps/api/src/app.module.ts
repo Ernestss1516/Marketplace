@@ -20,6 +20,7 @@ import { ReviewsModule } from './modules/reviews/reviews.module';
 import { MediaModule } from './modules/media/media.module';
 import { ModerationModule } from './modules/moderation/moderation.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { AuditLogModule } from './modules/audit-log/audit-log.module';
 import { ExpirationModule } from './modules/expiration/expiration.module';
 
 @Module({
@@ -62,6 +63,7 @@ import { ExpirationModule } from './modules/expiration/expiration.module';
     MediaModule,
     ModerationModule,
     AdminModule,
+    AuditLogModule,
     ExpirationModule,
   ],
 })

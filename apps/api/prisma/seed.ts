@@ -384,9 +384,29 @@ async function seedAdmin() {
   console.log('  ✓ admin@marketplace.es (role: ADMIN)');
 }
 
+async function seedSettings() {
+  console.log('Seeding settings...');
+  // createMany + skipDuplicates: only inserts keys that don't exist yet.
+  // Values that an admin has already changed via the backoffice are NEVER overwritten.
+  const { count } = await prisma.setting.createMany({
+    data: [
+      { key: 'badWordList', value: [] },
+      { key: 'listingExpiryDays', value: 60 },
+      { key: 'contactRequiresVerification', value: true },
+    ],
+    skipDuplicates: true,
+  });
+  if (count > 0) {
+    console.log(`  ✓ ${count} setting(s) created`);
+  } else {
+    console.log('  ✓ settings already present, skipped');
+  }
+}
+
 async function main() {
   await seedCategories();
   await seedAdmin();
+  await seedSettings();
   console.log('Seed completed.');
 }
 
