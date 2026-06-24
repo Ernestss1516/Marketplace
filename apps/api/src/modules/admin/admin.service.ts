@@ -1,13 +1,22 @@
 import {
+  BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import { ListingStatus, Prisma, Role, UserStatus } from '@prisma/client';
+import {
+  ListingStatus,
+  Prisma,
+  ReportStatus,
+  Role,
+  UserStatus,
+} from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { RedisService } from '../../infra/redis/redis.service';
+import { MeilisearchService } from '../../infra/meilisearch/meilisearch.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { ExpirationService } from '../expiration/expiration.service';
 import { QUEUE_INDEXING } from '../../infra/queue/queue.constants';
@@ -15,21 +24,37 @@ import { ListAdminListingsDto } from './dto/list-admin-listings.dto';
 import { ChangeListingStatusDto } from './dto/change-listing-status.dto';
 import { ListAdminUsersDto } from './dto/list-admin-users.dto';
 import { ChangeUserRoleDto } from './dto/change-user-role.dto';
+import { CreateCategoryDto } from './dto/create-category.dto';
+import { UpdateCategoryDto } from './dto/update-category.dto';
+import { ReorderCategoriesDto } from './dto/reorder-categories.dto';
+import { UpdateSettingDto } from './dto/update-setting.dto';
 
 const cacheKey = (slug: string) => `listing:${slug}`;
+
+// Mirrors the constant in SearchService — must stay in sync with MEILI_INDEX_NAME env.
+const LISTINGS_INDEX = process.env.MEILI_INDEX_NAME ?? 'listings';
+
+// Keys the admin is allowed to update via PATCH /admin/settings/:key.
+const SETTING_KEYS = [
+  'badWordList',
+  'listingExpiryDays',
+  'contactRequiresVerification',
+] as const;
+type SettingKey = (typeof SETTING_KEYS)[number];
 
 @Injectable()
 export class AdminService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    private readonly meili: MeilisearchService,
     private readonly auditLog: AuditLogService,
     @InjectQueue(QUEUE_INDEXING) private readonly indexingQueue: Queue,
   ) {}
 
-  // ---------------------------------------------------------------------------
-  // Listings
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
+  // Listings (R7.4)
+  // ===========================================================================
 
   async listListings(query: ListAdminListingsDto) {
     const { status, categoryId, sellerId, page = 1, perPage = 24 } = query;
@@ -114,7 +139,7 @@ export class AdminService {
 
     const before = { status: listing.status };
 
-    // When transitioning to ACTIVE, ensure publishedAt and expiresAt are set.
+    // Ensure timestamps are set when transitioning to ACTIVE.
     const updateData: Prisma.ListingUpdateInput = { status: dto.status };
     if (dto.status === ListingStatus.ACTIVE) {
       const publishedAt = listing.publishedAt ?? new Date();
@@ -127,12 +152,11 @@ export class AdminService {
       data: updateData,
     });
 
-    // Meilisearch + Redis side effects based on state transition.
+    // Meilisearch + Redis side effects.
     if (dto.status === ListingStatus.ACTIVE) {
       await this.redis.client.del(cacheKey(listing.slug));
       await this.indexingQueue.add('index', { listingId });
     } else if (listing.status === ListingStatus.ACTIVE) {
-      // Moving away from ACTIVE: remove from search index + invalidate cache.
       await this.redis.client.del(cacheKey(listing.slug));
       await this.indexingQueue.add('remove', { listingId });
     }
@@ -150,9 +174,9 @@ export class AdminService {
     return updated;
   }
 
-  // ---------------------------------------------------------------------------
-  // Users
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
+  // Users (R7.4)
+  // ===========================================================================
 
   async listUsers(query: ListAdminUsersDto) {
     const { status, role, q, page = 1, perPage = 24 } = query;
@@ -274,8 +298,6 @@ export class AdminService {
     if (user.role === Role.ADMIN) {
       throw new ForbiddenException('No se puede cambiar el rol de un administrador');
     }
-
-    // Second guard in case the DTO validation is bypassed.
     if ((dto.role as Role) === Role.ADMIN) {
       throw new ForbiddenException('No se puede asignar el rol de administrador desde aquí');
     }
@@ -285,14 +307,7 @@ export class AdminService {
     const updated = await this.prisma.user.update({
       where: { id: targetId },
       data: { role: dto.role },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        slug: true,
-        role: true,
-        status: true,
-      },
+      select: { id: true, name: true, email: true, slug: true, role: true, status: true },
     });
 
     await this.auditLog.log({
@@ -308,9 +323,279 @@ export class AdminService {
     return updated;
   }
 
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
+  // Categories (R7.5)
+  // ===========================================================================
+
+  getCategories() {
+    return this.prisma.category.findMany({
+      where: { parentId: null },
+      orderBy: { order: 'asc' },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        iconUrl: true,
+        order: true,
+        attributeSchema: true,
+        children: {
+          orderBy: { order: 'asc' },
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            iconUrl: true,
+            order: true,
+            attributeSchema: true,
+          },
+        },
+      },
+    });
+  }
+
+  async createCategory(actorId: string, dto: CreateCategoryDto, ip?: string) {
+    try {
+      const created = await this.prisma.category.create({
+        data: {
+          name: dto.name,
+          slug: dto.slug,
+          parentId: dto.parentId,
+          iconUrl: dto.iconUrl,
+          order: dto.order ?? 0,
+          ...(dto.attributeSchema !== undefined && {
+            attributeSchema: dto.attributeSchema as Prisma.InputJsonValue,
+          }),
+        },
+      });
+
+      await this.auditLog.log({
+        action: 'CATEGORY_CREATE',
+        actorId,
+        resourceType: 'Category',
+        resourceId: created.id,
+        after: { name: created.name, slug: created.slug },
+        ip,
+      });
+
+      return created;
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new ConflictException('Ya existe una categoría con ese slug');
+      }
+      throw e;
+    }
+  }
+
+  async updateCategory(
+    id: string,
+    actorId: string,
+    dto: UpdateCategoryDto,
+    ip?: string,
+  ) {
+    const category = await this.prisma.category.findUnique({ where: { id } });
+    if (!category) throw new NotFoundException('Categoría no encontrada');
+
+    const before = { name: category.name, slug: category.slug, order: category.order };
+
+    try {
+      const updated = await this.prisma.category.update({
+        where: { id },
+        data: {
+          ...(dto.name !== undefined && { name: dto.name }),
+          ...(dto.slug !== undefined && { slug: dto.slug }),
+          ...(dto.iconUrl !== undefined && { iconUrl: dto.iconUrl }),
+          ...(dto.order !== undefined && { order: dto.order }),
+          ...(dto.attributeSchema !== undefined && {
+            attributeSchema: dto.attributeSchema as Prisma.InputJsonValue,
+          }),
+        },
+      });
+
+      await this.auditLog.log({
+        action: 'CATEGORY_EDIT',
+        actorId,
+        resourceType: 'Category',
+        resourceId: id,
+        before,
+        after: { name: updated.name, slug: updated.slug, order: updated.order },
+        ip,
+      });
+
+      return updated;
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new ConflictException('Ya existe una categoría con ese slug');
+      }
+      throw e;
+    }
+  }
+
+  async reorderCategories(
+    actorId: string,
+    dto: ReorderCategoriesDto,
+    ip?: string,
+  ) {
+    await this.prisma.$transaction(
+      dto.items.map(({ id, order }) =>
+        this.prisma.category.update({ where: { id }, data: { order } }),
+      ),
+    );
+
+    await this.auditLog.log({
+      action: 'CATEGORY_REORDER',
+      actorId,
+      resourceType: 'Category',
+      resourceId: 'batch',
+      after: { items: dto.items as unknown as Prisma.InputJsonValue },
+      ip,
+    });
+  }
+
+  async deleteCategory(id: string, actorId: string, ip?: string) {
+    const category = await this.prisma.category.findUnique({ where: { id } });
+    if (!category) throw new NotFoundException('Categoría no encontrada');
+
+    const [activeListings, children] = await this.prisma.$transaction([
+      this.prisma.listing.count({
+        where: { categoryId: id, status: ListingStatus.ACTIVE },
+      }),
+      this.prisma.category.count({ where: { parentId: id } }),
+    ]);
+
+    if (activeListings > 0) {
+      throw new BadRequestException(
+        `No se puede eliminar: la categoría tiene ${activeListings} anuncio(s) activo(s)`,
+      );
+    }
+    if (children > 0) {
+      throw new BadRequestException(
+        `No se puede eliminar: la categoría tiene ${children} subcategoría(s)`,
+      );
+    }
+
+    await this.prisma.category.delete({ where: { id } });
+
+    await this.auditLog.log({
+      action: 'CATEGORY_DELETE',
+      actorId,
+      resourceType: 'Category',
+      resourceId: id,
+      before: { name: category.name, slug: category.slug },
+      ip,
+    });
+  }
+
+  // ===========================================================================
+  // Settings (R7.5)
+  // ===========================================================================
+
+  getSettings() {
+    return this.prisma.setting.findMany({ orderBy: { key: 'asc' } });
+  }
+
+  async updateSetting(
+    key: string,
+    actorId: string,
+    dto: UpdateSettingDto,
+    ip?: string,
+  ) {
+    if (!(SETTING_KEYS as readonly string[]).includes(key)) {
+      throw new BadRequestException(
+        `Clave '${key}' no permitida. Claves válidas: ${SETTING_KEYS.join(', ')}`,
+      );
+    }
+
+    const setting = await this.prisma.setting.findUnique({ where: { key } });
+    if (!setting) throw new NotFoundException(`Setting '${key}' no encontrado`);
+
+    const before = { value: setting.value } as unknown as Prisma.InputJsonValue;
+    const after = { value: dto.value } as unknown as Prisma.InputJsonValue;
+
+    const updated = await this.prisma.setting.update({
+      where: { key },
+      data: {
+        value: dto.value as Prisma.InputJsonValue,
+        updatedById: actorId,
+      },
+    });
+
+    await this.auditLog.log({
+      action: 'SETTING_UPDATE',
+      actorId,
+      resourceType: 'Setting',
+      resourceId: key,
+      before,
+      after,
+      ip,
+    });
+
+    return updated;
+  }
+
+  // ===========================================================================
+  // Stats dashboard (R7.5)
+  // ===========================================================================
+
+  async getStats() {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const [
+      listingsActive,
+      listingsPendingReview,
+      listingsPublishedToday,
+      usersTotal,
+      usersNewToday,
+      reportsPending,
+      conversationsTotal,
+    ] = await this.prisma.$transaction([
+      this.prisma.listing.count({ where: { status: ListingStatus.ACTIVE } }),
+      this.prisma.listing.count({ where: { status: ListingStatus.PENDING_REVIEW } }),
+      this.prisma.listing.count({
+        where: { status: ListingStatus.ACTIVE, publishedAt: { gte: today } },
+      }),
+      this.prisma.user.count(),
+      this.prisma.user.count({ where: { createdAt: { gte: today } } }),
+      this.prisma.report.count({ where: { status: ReportStatus.PENDING } }),
+      this.prisma.conversation.count(),
+    ]);
+
+    let search: { totalDocuments: number; isIndexing: boolean } | null = null;
+    try {
+      const meiliStats = await this.meili.client
+        .index(LISTINGS_INDEX)
+        .getStats();
+      search = {
+        totalDocuments: meiliStats.numberOfDocuments,
+        isIndexing: meiliStats.isIndexing,
+      };
+    } catch {
+      // Meilisearch unavailable — dashboard still functional without search stats.
+    }
+
+    return {
+      listings: {
+        active: listingsActive,
+        pendingReview: listingsPendingReview,
+        publishedToday: listingsPublishedToday,
+      },
+      users: {
+        total: usersTotal,
+        newToday: usersNewToday,
+      },
+      moderation: {
+        reportsPending,
+      },
+      conversations: {
+        total: conversationsTotal,
+      },
+      search,
+    };
+  }
+
+  // ===========================================================================
   // Private helpers
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
 
   private async changeUserStatus(
     targetId: string,
@@ -327,14 +612,7 @@ export class AdminService {
     const updated = await this.prisma.user.update({
       where: { id: targetId },
       data: { status: newStatus },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        slug: true,
-        role: true,
-        status: true,
-      },
+      select: { id: true, name: true, email: true, slug: true, role: true, status: true },
     });
 
     await this.auditLog.log({

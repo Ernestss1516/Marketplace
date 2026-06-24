@@ -1,12 +1,14 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
   Ip,
   Param,
   Patch,
+  Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -20,6 +22,10 @@ import { ListAdminListingsDto } from './dto/list-admin-listings.dto';
 import { ChangeListingStatusDto } from './dto/change-listing-status.dto';
 import { ListAdminUsersDto } from './dto/list-admin-users.dto';
 import { ChangeUserRoleDto } from './dto/change-user-role.dto';
+import { CreateCategoryDto } from './dto/create-category.dto';
+import { UpdateCategoryDto } from './dto/update-category.dto';
+import { ReorderCategoriesDto } from './dto/reorder-categories.dto';
+import { UpdateSettingDto } from './dto/update-setting.dto';
 
 @ApiTags('Admin')
 @ApiBearerAuth('access-token')
@@ -28,6 +34,13 @@ import { ChangeUserRoleDto } from './dto/change-user-role.dto';
 @Roles(Role.ADMIN)
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
+
+  // ─── Stats dashboard ──────────────────────────────────────────────────────
+
+  @Get('stats')
+  getStats() {
+    return this.adminService.getStats();
+  }
 
   // ─── Listings ─────────────────────────────────────────────────────────────
 
@@ -103,5 +116,73 @@ export class AdminController {
     @Ip() ip: string,
   ) {
     return this.adminService.changeUserRole(id, user.userId, dto, ip);
+  }
+
+  // ─── Categories ───────────────────────────────────────────────────────────
+  // IMPORTANT: @Patch('categories/reorder') must be declared BEFORE
+  // @Patch('categories/:id') so 'reorder' is not matched as a :id param.
+
+  @Get('categories')
+  getCategories() {
+    return this.adminService.getCategories();
+  }
+
+  @Post('categories')
+  @HttpCode(HttpStatus.CREATED)
+  createCategory(
+    @Body() dto: CreateCategoryDto,
+    @CurrentUser() user: JwtUser,
+    @Ip() ip: string,
+  ) {
+    return this.adminService.createCategory(user.userId, dto, ip);
+  }
+
+  @Patch('categories/reorder')
+  @HttpCode(HttpStatus.OK)
+  reorderCategories(
+    @Body() dto: ReorderCategoriesDto,
+    @CurrentUser() user: JwtUser,
+    @Ip() ip: string,
+  ) {
+    return this.adminService.reorderCategories(user.userId, dto, ip);
+  }
+
+  @Patch('categories/:id')
+  @HttpCode(HttpStatus.OK)
+  updateCategory(
+    @Param('id') id: string,
+    @Body() dto: UpdateCategoryDto,
+    @CurrentUser() user: JwtUser,
+    @Ip() ip: string,
+  ) {
+    return this.adminService.updateCategory(id, user.userId, dto, ip);
+  }
+
+  @Delete('categories/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  deleteCategory(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtUser,
+    @Ip() ip: string,
+  ) {
+    return this.adminService.deleteCategory(id, user.userId, ip);
+  }
+
+  // ─── Settings ─────────────────────────────────────────────────────────────
+
+  @Get('settings')
+  getSettings() {
+    return this.adminService.getSettings();
+  }
+
+  @Patch('settings/:key')
+  @HttpCode(HttpStatus.OK)
+  updateSetting(
+    @Param('key') key: string,
+    @Body() dto: UpdateSettingDto,
+    @CurrentUser() user: JwtUser,
+    @Ip() ip: string,
+  ) {
+    return this.adminService.updateSetting(key, user.userId, dto, ip);
   }
 }
