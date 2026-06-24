@@ -206,3 +206,23 @@ export interface MyListing {
   category: { id: string; name: string; slug: string };
   publishedAt?: string;
 }
+
+// ── Blog ─────────────────────────────────────────────────────────────────────
+
+export interface PostSummary {
+  id: string;
+  title: string;
+  slug: string;
+  excerpt: string | null;
+  coverUrl: string | null;
+  publishedAt: string;
+  updatedAt: string;
+  tags: string[];
+  author: { name: string };
+}
+
+export interface Post extends PostSummary {
+  body: string;
+  metaTitle: string | null;
+  metaDescription: string | null;
+}
