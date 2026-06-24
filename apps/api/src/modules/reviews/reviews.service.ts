@@ -85,13 +85,14 @@ export class ReviewsService {
       }),
       this.prisma.review.findUnique({
         where: { authorId_targetId_listingId: { authorId, targetId, listingId } },
-        select: { id: true },
+        select: { id: true, createdAt: true },
       }),
     ]);
 
     return {
       canReview: !!conversation && !existing,
       alreadyReviewed: !!existing,
+      existingReview: existing ?? null,
     };
   }
 

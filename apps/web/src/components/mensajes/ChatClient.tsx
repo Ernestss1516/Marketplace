@@ -1,14 +1,20 @@
 'use client';
 
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import Link from 'next/link';
-import { ChevronUp, Loader2, Send } from 'lucide-react';
+import { ChevronUp, Loader2, Send, Star, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { getConversation, sendMessage } from '@/lib/api/mensajes';
 import type { ChatMessage, ConversationDetail } from '@/lib/api/mensajes';
+import { getEligibility } from '@/lib/api/valoraciones';
+import type { EligibilityResult } from '@/lib/api/valoraciones';
+import { ReviewModal } from '@/components/valoraciones/ReviewModal';
 import { useMessagingSocket } from '@/hooks/useMessagingSocket';
+
+const EDIT_WINDOW_MS = 72 * 60 * 60 * 1000;
 
 interface Props {
   initialData: ConversationDetail;
@@ -34,7 +40,35 @@ export function ChatClient({ initialData, token, userId }: Props) {
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
 
+  // ── Review state ─────────────────────────────────────────────────────────────
+  const [eligibility, setEligibility] = useState<EligibilityResult | null>(null);
+  const [reviewModalOpen, setReviewModalOpen] = useState(false);
+
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  const listingId = initialData.listing.id;
+  const targetId = initialData.otherUser.id;
+  const targetName = initialData.otherUser.name;
+
+  async function fetchEligibility() {
+    try {
+      const result = await getEligibility(listingId, targetId, token);
+      setEligibility(result);
+    } catch {
+      // Non-critical — silently ignore if eligibility check fails
+    }
+  }
+
+  useEffect(() => {
+    void fetchEligibility();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Compute whether the existing review is still within the 72h edit window
+  const canEdit =
+    eligibility?.alreadyReviewed &&
+    eligibility.existingReview !== null &&
+    Date.now() < new Date(eligibility.existingReview.createdAt).getTime() + EDIT_WINDOW_MS;
 
   // Real-time: receive messages pushed by the server via WebSocket.
   // Deduplication by id is idempotent — the sender already added the message
@@ -95,108 +129,156 @@ export function ChatClient({ initialData, token, userId }: Props) {
   }
 
   return (
-    <div className="flex h-[calc(100vh-12rem)] flex-col overflow-hidden rounded-lg border">
-      {/* Header */}
-      <div className="border-b bg-background px-4 py-3">
-        <p className="font-semibold leading-tight">{initialData.otherUser.name}</p>
-        <Link
-          href={`/anuncio/${initialData.listing.slug}`}
-          className="text-xs text-muted-foreground hover:underline"
-        >
-          {initialData.listing.title}
-        </Link>
-      </div>
-
-      {/* Messages area */}
-      <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
-        {/* Load older messages */}
-        {nextCursor && (
-          <div className="flex justify-center pb-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleLoadOlder}
-              disabled={loadingOlder}
-            >
-              {loadingOlder ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <ChevronUp className="mr-2 h-4 w-4" />
-              )}
-              Cargar mensajes anteriores
-            </Button>
-          </div>
-        )}
-
-        {messages.length === 0 && (
-          <p className="py-8 text-center text-sm text-muted-foreground">
-            Sé el primero en escribir.
-          </p>
-        )}
-
-        {messages.map((msg) => {
-          const isOwn = msg.senderId === userId;
-          return (
-            <div key={msg.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
-              <div
-                className={[
-                  'max-w-[75%] rounded-2xl px-4 py-2',
-                  isOwn
-                    ? 'rounded-br-sm bg-primary text-primary-foreground'
-                    : 'rounded-bl-sm bg-muted text-foreground',
-                ].join(' ')}
+    <>
+      <div className="flex h-[calc(100vh-12rem)] flex-col overflow-hidden rounded-lg border">
+        {/* Header */}
+        <div className="border-b bg-background px-4 py-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="truncate font-semibold leading-tight">{targetName}</p>
+              <Link
+                href={`/anuncio/${initialData.listing.slug}`}
+                className="text-xs text-muted-foreground hover:underline"
               >
-                <p className="whitespace-pre-wrap text-sm leading-relaxed">{msg.body}</p>
-                <p
+                {initialData.listing.title}
+              </Link>
+            </div>
+
+            {/* Review action */}
+            {eligibility?.canReview && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0 gap-1.5"
+                onClick={() => setReviewModalOpen(true)}
+              >
+                <Star className="h-3.5 w-3.5" aria-hidden />
+                Valorar
+              </Button>
+            )}
+            {eligibility?.alreadyReviewed && canEdit && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0 gap-1.5"
+                onClick={() => setReviewModalOpen(true)}
+              >
+                <Star className="h-3.5 w-3.5" aria-hidden />
+                Editar valoración
+              </Button>
+            )}
+            {eligibility?.alreadyReviewed && !canEdit && (
+              <Badge variant="secondary" className="shrink-0 gap-1 text-xs">
+                <CheckCircle2 className="h-3 w-3" aria-hidden />
+                Ya valoraste
+              </Badge>
+            )}
+          </div>
+        </div>
+
+        {/* Messages area */}
+        <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
+          {/* Load older messages */}
+          {nextCursor && (
+            <div className="flex justify-center pb-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleLoadOlder}
+                disabled={loadingOlder}
+              >
+                {loadingOlder ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <ChevronUp className="mr-2 h-4 w-4" />
+                )}
+                Cargar mensajes anteriores
+              </Button>
+            </div>
+          )}
+
+          {messages.length === 0 && (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              Sé el primero en escribir.
+            </p>
+          )}
+
+          {messages.map((msg) => {
+            const isOwn = msg.senderId === userId;
+            return (
+              <div key={msg.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
+                <div
                   className={[
-                    'mt-1 text-right text-[10px]',
-                    isOwn ? 'text-primary-foreground/70' : 'text-muted-foreground',
+                    'max-w-[75%] rounded-2xl px-4 py-2',
+                    isOwn
+                      ? 'rounded-br-sm bg-primary text-primary-foreground'
+                      : 'rounded-bl-sm bg-muted text-foreground',
                   ].join(' ')}
                 >
-                  {formatTime(msg.createdAt)}
-                </p>
+                  <p className="whitespace-pre-wrap text-sm leading-relaxed">{msg.body}</p>
+                  <p
+                    className={[
+                      'mt-1 text-right text-[10px]',
+                      isOwn ? 'text-primary-foreground/70' : 'text-muted-foreground',
+                    ].join(' ')}
+                  >
+                    {formatTime(msg.createdAt)}
+                  </p>
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
 
-        {/* Scroll anchor — always at the bottom of the message list */}
-        <div ref={bottomRef} />
+          {/* Scroll anchor — always at the bottom of the message list */}
+          <div ref={bottomRef} />
+        </div>
+
+        {/* Send form */}
+        <form onSubmit={handleSend} className="border-t bg-background p-4">
+          {sendError && <p className="mb-2 text-xs text-destructive">{sendError}</p>}
+          <div className="flex gap-2">
+            <Textarea
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  void handleSend(e as unknown as React.FormEvent);
+                }
+              }}
+              placeholder="Escribe un mensaje… (Enter para enviar, Shift+Enter para saltar de línea)"
+              rows={2}
+              className="resize-none"
+              disabled={sending}
+            />
+            <Button
+              type="submit"
+              size="icon"
+              className="shrink-0 self-end"
+              disabled={sending || !body.trim()}
+              aria-label="Enviar mensaje"
+            >
+              {sending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
+        </form>
       </div>
 
-      {/* Send form */}
-      <form onSubmit={handleSend} className="border-t bg-background p-4">
-        {sendError && <p className="mb-2 text-xs text-destructive">{sendError}</p>}
-        <div className="flex gap-2">
-          <Textarea
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                void handleSend(e as unknown as React.FormEvent);
-              }
-            }}
-            placeholder="Escribe un mensaje… (Enter para enviar, Shift+Enter para saltar de línea)"
-            rows={2}
-            className="resize-none"
-            disabled={sending}
-          />
-          <Button
-            type="submit"
-            size="icon"
-            className="shrink-0 self-end"
-            disabled={sending || !body.trim()}
-            aria-label="Enviar mensaje"
-          >
-            {sending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Send className="h-4 w-4" />
-            )}
-          </Button>
-        </div>
-      </form>
-    </div>
+      {/* Review modal — rendered outside the chat box to avoid z-index issues */}
+      <ReviewModal
+        open={reviewModalOpen}
+        onOpenChange={setReviewModalOpen}
+        existingReviewId={canEdit ? (eligibility?.existingReview?.id ?? null) : null}
+        targetName={targetName}
+        listingId={listingId}
+        targetId={targetId}
+        token={token}
+        onSuccess={() => void fetchEligibility()}
+      />
+    </>
   );
 }
