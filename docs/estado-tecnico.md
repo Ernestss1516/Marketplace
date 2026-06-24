@@ -1,6 +1,6 @@
 # Estado técnico del proyecto — Marketplace
 
-> Fecha: 2026-06-24 · Rama: `main` · Último commit: Fase 7 completa (backoffice y moderación)
+> Fecha: 2026-06-24 · Rama: `main` · Último commit: Fase B completa (blog)
 > Plan vigente para la siguiente fase: `docs/Hoja_de_ruta_rafagas_Hito2.docx`.
 
 Documento de referencia para retomar el proyecto. Recoge qué hay implementado,
@@ -14,7 +14,7 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 
 | Módulo | Estado | Notas |
 |---|---|---|
-| **Infra: Prisma** | ✅ Completo | Schema con todos los modelos; PostGIS habilitado; **6 migraciones aplicadas**: `init`, `add_auth_tokens`, `media_listing_image_nullable`, `add_price_type`, `backfill_expires_at`, **`add_audit_log_and_settings`** |
+| **Infra: Prisma** | ✅ Completo | Schema con todos los modelos; PostGIS habilitado; **7 migraciones aplicadas**: `init`, `add_auth_tokens`, `media_listing_image_nullable`, `add_price_type`, `backfill_expires_at`, `add_audit_log_and_settings`, **`add_blog_post`** |
 | **Infra: Redis** | ✅ Completo | `RedisService` global; caché de fichas de anuncio (TTL 5 min) |
 | **Infra: BullMQ** | ✅ Colas activas | 3 colas registradas con processors reales (ver §2 para el fix de ioredis) |
 | **Infra: Meilisearch** | ✅ Completo | `SearchService.onModuleInit()` crea el índice `listings` y aplica searchable/filterable/sortable attrs, ranking rules y typo tolerance al arrancar |
@@ -32,7 +32,8 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **AuditLog** | ✅ Completo | `AuditLogService.log()` inyectable; captura explícita `before`/`after` dentro del método de service que muta el recurso, antes de llamar a Prisma; nunca vía interceptor (ver §2) |
 | **Moderation** | ✅ Completo | Reportes CRUD + cola (GET con filtros status/reason/page); acciones sobre listings (approve, reject, deactivate, restore); `BadWordService` con fallback silencioso al publicar; AuditLog en todas las mutaciones; roles MODERATOR + ADMIN |
 | **Admin** | ✅ Completo | Listings (list, detail, PATCH status); Users (list, detail, suspend, ban, reinstate, role); Categories CRUD + batch reorder; Settings GET + PATCH con whitelist; `GET /admin/stats` con 7 métricas + Meilisearch null-fallback; todos los endpoints con `@Roles(ADMIN)` y AuditLog |
-| **Favorites** | ❌ Stub vacío | Ídem |
+| **Blog** | ✅ Completo | Modelo `Post` (enum `PostStatus { DRAFT, PUBLISHED }`, body Markdown raw, `tags String[]`, `coverUrl`, campos SEO opcionales `metaTitle`/`metaDescription`). `BlogController`: `GET /blog` (solo PUBLISHED, paginado, filtro `?tag=`) y `GET /blog/:slug` (404 si no existe o es DRAFT). `BlogAdminController` (`@Roles(ADMIN)`): CRUD completo + `POST /admin/blog/:id/publish` + `POST /admin/blog/:id/unpublish`. AuditLog en todas las mutaciones (`POST_CREATE`, `POST_UPDATE`, `POST_PUBLISH`, `POST_UNPUBLISH`, `POST_DELETE`). Revalidación ISR on-demand fire-and-forget al publicar/despublicar/editar/borrar posts publicados (el blog es el **primer productor del webhook** desde el backend; el webhook en sí existía desde Fase 5). `BlogModule` importa `PrismaModule` + `AuditLogModule`; autónomo, no modifica `AdminModule` |
+| **Favorites** | ✅ Completo | `POST /favorites/:listingId` (marcar, idempotente), `DELETE /favorites/:listingId` (desmarcar, idempotente), `GET /favorites` (paginado). Todos con `JwtAuthGuard`. Suite `favorites.e2e-spec.ts` (9 tests) |
 | **Reviews** | ❌ Stub vacío | Ídem |
 
 ### Frontend (`apps/web` — puerto 3000)
@@ -60,6 +61,12 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **Admin reportes** `/admin/reportes` | ✅ Completo | Cola de reportes paginada con filtro de estado; acciones resolve/dismiss/retirar anuncio |
 | **Admin categorías** `/admin/categorias` | ✅ Completo | Árbol de categorías con CRUD inline (crear raíz/subcategoría, editar, borrar); reordenación por ↑↓ con `PATCH /admin/categories/reorder`; editor de `attributeSchema` como textarea JSON con validación previa al envío; errores 400 del backend (anuncios activos o subcategorías existentes) propagados con mensaje literal bajo la fila |
 | **Admin ajustes** `/admin/ajustes` | ✅ Completo | 3 settings con controles tipo-específicos: `badWordList` (textarea una palabra por línea), `listingExpiryDays` (number input), `contactRequiresVerification` (checkbox); save por setting con estado de carga / ✓ éxito / error inline; timestamp de última actualización |
+| **Blog público** `/blog` | ✅ Completo | `export const revalidate = 3600`; Server Component ISR; listado paginado de posts PUBLISHED con tarjetas (portada, título, excerpt, fecha, autor, tags); filtro `?tag=`; estados de vacío; paginación; breadcrumb. Portada: solo se renderiza con `<Image>` si `isSafeSrc()` pasa (ver §2 y §3) |
+| **Blog detalle** `/blog/[slug]` | ✅ Completo | `export const revalidate = 3600`; Server Component ISR; `notFound()` si slug no existe o es DRAFT; body Markdown renderizado con `react-markdown` + `remark-gfm` + `rehype-sanitize` (sin `rehype-raw` — **regla invariante de seguridad**, ver §2); clase `prose` de `@tailwindcss/typography`; `generateMetadata()` con `og:type: 'article'`, `publishedTime`, `authors`, imagen OG; JSON-LD `BlogPosting` embebido; breadcrumb |
+| **Sitemap** `/sitemap.xml` | ✅ Actualizado | Convertido a `async`; incluye `/blog` + un slug por cada post PUBLISHED (`getPostList({ perPage: 500 })`). Los posts DRAFT nunca aparecen porque el endpoint público `GET /blog` filtra por `status = PUBLISHED` en Prisma |
+| **Admin blog** `/admin/blog` | ✅ Completo | Tabla paginada (todos los estados) con chips Todos / Borrador / Publicado; acciones Editar / Publicar / Despublicar / Eliminar (con confirmación) inline por fila; client-side |
+| **Admin nuevo post** `/admin/blog/nuevo` | ✅ Completo | Formulario `PostForm` compartido: title, slug (editable; si se deja vacío el backend lo genera del título), excerpt, body (textarea Markdown + toggle preview), tags (coma-separadas), portada (solo upload a `/media/upload`, sin campo de URL libre), campos SEO colapsables (metaTitle, metaDescription); al guardar redirige a la página de edición |
+| **Admin editar post** `/admin/blog/[id]/editar` | ✅ Completo | Mismo `PostForm` precargado desde `GET /admin/blog/:id`; cabecera con badge de estado + botones Publicar/Despublicar/Eliminar + enlace "Ver en blog ↗" cuando está publicado; banner de éxito al guardar |
 
 ---
 
@@ -364,6 +371,58 @@ implementado todavía.
 todos los `new Logger()` existentes en los services queden enrutados por pino y los
 mensajes del bootstrap no se pierdan antes de que el logger esté listo.
 
+### Markdown del blog: `rehype-sanitize` sin `rehype-raw` (Fase B — regla invariante)
+
+El body de los posts se almacena en Markdown raw y se renderiza con
+`react-markdown` + `remark-gfm` + `rehype-sanitize`. **`rehype-raw` no se
+incluye y no debe añadirse nunca.**
+
+Sin `rehype-raw`, cualquier HTML literal en el cuerpo (p.ej. `<script>`) se
+renderiza como texto escapado, no se ejecuta. Con `rehype-sanitize` como segunda
+capa se eliminan además atributos peligrosos (`onclick`, `href=javascript:`, etc.)
+de los elementos que `react-markdown` sí genera legítimamente (links, imágenes…).
+
+La doble capa importa aunque la autoría sea solo-admin: si una cuenta admin fuera
+comprometida, un payload XSS en `body` afectaría a todos los lectores del blog
+(el contenido se sirve públicamente vía SSR). La regla es invariante: si en el
+futuro se necesita soporte de HTML embebido, `rehype-sanitize` sigue siendo
+obligatorio y `rehype-raw` requiere una revisión de seguridad explícita.
+
+Los tres paquetes (`react-markdown` v10, `remark-gfm` v4, `rehype-sanitize` v6)
+son ESM-only. Se añadieron a `transpilePackages` en `next.config.ts` para que
+Webpack los empaquete sin errores de tipo de módulo.
+
+### `@tailwindcss/typography`: import ESM, no `require()` (Fase B)
+
+El plugin se importa en `tailwind.config.ts` con `import typography from '@tailwindcss/typography'`
+y se referencia como `plugins: [typography]`. El proyecto usa `"type": "module"`,
+por lo que `tailwind.config.ts` se evalúa como ES Module y `require()` no existe
+en ese contexto. El error de runtime es `ReferenceError: require is not defined`
+en la línea del plugin. La regla general: cualquier plugin de Tailwind en este
+proyecto debe importarse con `import`, no con `require()`.
+
+### Portadas del blog: solo upload a nuestro almacenamiento (Fase B)
+
+`Post.coverUrl` almacena la URL resultante de `POST /media/upload`, que devuelve
+`${S3_PUBLIC_URL}/${key}` — siempre una URL de nuestro almacenamiento
+(`http://localhost:9000/...` en dev, `https://*.r2.cloudflarestorage.com/...` en
+prod). El formulario de backoffice solo expone un botón de upload; no hay campo de
+texto libre para pegar URLs externas.
+
+Las páginas públicas del blog usan el helper `isSafeSrc(url)` para decidir si
+renderizar `<Image>` de Next.js o el placeholder muted (ver §3 para la deuda de
+sincronización con `remotePatterns`). Una `coverUrl` de dominio externo en BD
+degrada silenciosamente a placeholder, sin crashear la página.
+
+### `@IsUrl({ require_tld: false })` en el DTO del blog (Fase B)
+
+`CreatePostDto` y `UpdatePostDto` validan `coverUrl` con
+`@IsUrl({ require_tld: false })`. Sin la opción, `validator.js` rechaza
+`http://localhost:9000/...` con 400 porque `localhost` no tiene TLD
+(`require_tld: true` por defecto). El mismo patrón aplica a cualquier campo de URL
+que pueda contener hostnames sin TLD en desarrollo. Es el mismo problema que
+afectó a `RESEND_FROM` con dominios `.local` en la Fase T.
+
 ### AuditLog: captura explícita en el service, nunca vía interceptor (Fase 7)
 
 **Decisión innegociable** (diseño: `docs/diseno-backoffice.md` §2): el AuditLog se
@@ -518,10 +577,34 @@ permanecen en almacenamiento con `listingId: null`. Pendiente: `DELETE /media/:i
 En producción hay que verificar el dominio remitente en el panel de Resend y
 actualizar `RESEND_FROM`.
 
-### Módulos stub pendientes: favoritos y valoraciones
+### `isSafeSrc` duplica los `remotePatterns` de `next.config.ts` (Fase B)
 
-Los controllers y services de `favorites` y `reviews` existen con cuerpos vacíos.
-La estructura de BD está completa. No planificados en el Hito 2.
+Las páginas públicas del blog (`/blog` y `/blog/[slug]`) contienen la función
+`isSafeSrc(url)` que valida el hostname de la `coverUrl` antes de pasarla a
+`<Image>` de Next.js. La lógica replica manualmente los `remotePatterns` definidos
+en `next.config.ts`:
+
+```ts
+// isSafeSrc — debe mantenerse en sync con next.config.ts remotePatterns
+if (protocol === 'http:' && hostname === 'localhost') return true;
+if (protocol === 'https:' && hostname.endsWith('.r2.cloudflarestorage.com')) return true;
+```
+
+Si en producción se migra a otro proveedor de almacenamiento (p.ej. un dominio
+personalizado en R2 o un CDN propio), hay que actualizar **ambos** sitios:
+`next.config.ts` (para que Next.js sirva la imagen) y `isSafeSrc` en los dos
+ficheros de página del blog (para que no la degrade a placeholder). Si solo se
+actualiza uno, la imagen no carga pero sin error visible, lo que dificulta el
+diagnóstico.
+
+Evolución natural: extraer `isSafeSrc` a un helper compartido en `src/lib/`
+que importe las `remotePatterns` desde la configuración de Next.js, eliminando
+la duplicación.
+
+### Módulo stub pendiente: valoraciones
+
+El controller y service de `reviews` existe con cuerpo vacío.
+La estructura de BD está completa. No planificado en el Hito 2.
 
 ### Sin paginación en categorías ni en el home
 
@@ -556,6 +639,9 @@ recomienda configurarlo en un entorno de staging con un DSN real de Sentry.
 - **Diseño del backoffice (Fase 7)**: `docs/diseno-backoffice.md` — decisiones de
   arquitectura, modelos AuditLog y Setting, flujo de moderación, endpoints admin,
   estructura de páginas del backoffice, orden de ráfagas.
+- **Diseño del blog (Fase B)**: `docs/diseno-blog.md` — modelo Post, migración,
+  decisión de renderizado Markdown (rehype-sanitize sin rehype-raw), estrategia SEO
+  (OG, JSON-LD, sitemap, ISR), endpoints públicos y admin, orden de ráfagas RB.2–RB.4.
 
 ---
 

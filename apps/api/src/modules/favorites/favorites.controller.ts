@@ -1,9 +1,42 @@
-import { Controller, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards';
+import { CurrentUser } from '../../common/decorators';
+import { JwtUser } from '../auth/auth.types';
+import { FavoritesService } from './favorites.service';
+import { FavoriteQueryDto } from './dto/favorite-query.dto';
 
 @ApiTags('Favorites')
 @ApiBearerAuth('access-token')
 @Controller('favorites')
 @UseGuards(JwtAuthGuard)
-export class FavoritesController {}
+export class FavoritesController {
+  constructor(private readonly favorites: FavoritesService) {}
+
+  @Post(':listingId')
+  @HttpCode(HttpStatus.OK)
+  add(@CurrentUser() user: JwtUser, @Param('listingId') listingId: string) {
+    return this.favorites.add(user.userId, listingId);
+  }
+
+  @Delete(':listingId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  remove(@CurrentUser() user: JwtUser, @Param('listingId') listingId: string) {
+    return this.favorites.remove(user.userId, listingId);
+  }
+
+  @Get()
+  list(@CurrentUser() user: JwtUser, @Query() query: FavoriteQueryDto) {
+    return this.favorites.findByUser(user.userId, query.page ?? 1, query.perPage ?? 20);
+  }
+}
