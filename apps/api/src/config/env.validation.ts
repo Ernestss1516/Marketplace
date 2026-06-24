@@ -20,6 +20,8 @@ export const envValidationSchema = Joi.object({
   S3_PUBLIC_URL: Joi.string().uri().required(),
   GEOCODING_PROVIDER: Joi.string().valid('nominatim', 'maptiler').default('nominatim'),
   MAPTILER_API_KEY: Joi.string().optional(),
+  // Shared with apps/web REVALIDATE_SECRET. Optional: revalidation is skipped if absent.
+  REVALIDATE_SECRET: Joi.string().optional(),
   // Empty string is valid — Sentry disables itself silently when DSN is absent.
   SENTRY_DSN: Joi.string().allow('').optional(),
 });

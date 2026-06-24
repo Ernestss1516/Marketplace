@@ -20,6 +20,12 @@ datasource db {
 //  ENUMS
 // ============================================================================
 
+/// Estado de un post de blog.
+enum PostStatus {
+  DRAFT       // Borrador, no visible públicamente
+  PUBLISHED   // Publicado, indexado en sitemap
+}
+
 /// Rol del usuario. Gobierna el acceso al backoffice (RolesGuard en NestJS).
 enum Role {
   USER
@@ -126,6 +132,7 @@ model User {
   passwordResetTokens PasswordResetToken[]
   uploadedImages      ListingImage[]       @relation("UploadedImages")
   auditLogsActed      AuditLog[]           @relation("AuditLogActor")
+  posts               Post[]               @relation("PostAuthor")
 
   @@index([status])
 }
@@ -436,4 +443,37 @@ model PasswordResetToken {
   createdAt DateTime  @default(now())
 
   @@index([userId])
+}
+
+// ============================================================================
+//  BLOG
+// ============================================================================
+
+/// Post editorial del blog, gestionado exclusivamente desde el backoffice admin.
+/// El cuerpo se almacena como Markdown raw; la conversión a HTML ocurre en el
+/// frontend (react-markdown + rehype-sanitize) para evitar XSS almacenado.
+model Post {
+  id              String     @id @default(cuid())
+  title           String
+  /// Slug único para la URL pública: /blog/{slug}
+  slug            String     @unique
+  /// Resumen corto: aparece en tarjetas de listado y como meta description fallback.
+  excerpt         String?    @db.Text
+  /// Cuerpo en Markdown raw.
+  body            String     @db.Text @default("")
+  status          PostStatus @default(DRAFT)
+  /// URL de la imagen de portada (obtenida vía POST /media/upload).
+  coverUrl        String?
+  /// Overrides SEO opcionales; si son null se usan title/excerpt como fallback.
+  metaTitle       String?
+  metaDescription String?    @db.Text
+  /// Etiquetas planas como slugs (p.ej. ["consejos", "segunda-mano"]).
+  tags            String[]   @default([])
+  authorId        String
+  author          User       @relation("PostAuthor", fields: [authorId], references: [id])
+  publishedAt     DateTime?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@index([status, publishedAt])
 }
