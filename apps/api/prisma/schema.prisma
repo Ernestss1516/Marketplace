@@ -73,6 +73,40 @@ enum PriceType {
   NEGOTIABLE  // A convenir
 }
 
+// ============================================================================
+//  ENUMS DE FACTURACIÓN
+// ============================================================================
+
+enum ProductType {
+  ONE_TIME   // Pago único (destacado de anuncio)
+  RECURRING  // Suscripción recurrente (Plan Pro)
+}
+
+enum PriceInterval {
+  MONTH
+  YEAR
+}
+
+enum SubscriptionStatus {
+  ACTIVE     // Activa y se renovará automáticamente
+  CANCELING  // Cancelada por el usuario; sigue activa hasta currentPeriodEnd
+  CANCELED   // Expirada definitivamente
+  PAST_DUE   // Pago fallido; en período de reintento por la pasarela
+}
+
+enum TransactionStatus {
+  PENDING            // Esperando confirmación de la pasarela
+  SUCCEEDED          // Cobro confirmado
+  FAILED             // Cobro fallido definitivamente
+  REFUNDED           // Devuelto íntegramente
+  PARTIALLY_REFUNDED
+}
+
+enum EntitlementType {
+  PRO_SUBSCRIPTION  // Acceso al Plan Pro (nivel de usuario)
+  FEATURED_LISTING  // Anuncio destacado (nivel de anuncio)
+}
+
 /// Motivo de una denuncia, para la cola de moderación.
 enum ReportReason {
   SPAM
@@ -115,6 +149,9 @@ model User {
   province      String?
   postalCode    String?
 
+  /// Referencia al Customer de Stripe; null hasta el primer pago
+  stripeCustomerId String? @unique
+
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 
@@ -134,6 +171,9 @@ model User {
   uploadedImages      ListingImage[]       @relation("UploadedImages")
   auditLogsActed      AuditLog[]           @relation("AuditLogActor")
   posts               Post[]               @relation("PostAuthor")
+  entitlements        Entitlement[]
+  subscriptions       Subscription[]
+  transactions        Transaction[]
 
   @@index([status])
 }
@@ -219,6 +259,8 @@ model Listing {
   conversations Conversation[]
   reports       Report[]
   reviews       Review[]
+  entitlements  Entitlement[]
+  transactions  Transaction[]
 
   // Índices para los filtros y ordenaciones más frecuentes (rendimiento de listados).
   @@index([categoryId, status])
@@ -457,6 +499,183 @@ model PasswordResetToken {
   createdAt DateTime  @default(now())
 
   @@index([userId])
+}
+
+// ============================================================================
+//  FACTURACIÓN
+// ============================================================================
+
+/// Producto comercial. Los precios concretos viven en Price.
+/// Los productos no se eliminan físicamente; se desactivan (active = false).
+model Product {
+  id          String      @id @default(cuid())
+  name        String
+  description String?     @db.Text
+  type        ProductType
+
+  /// Cuando active=false, el producto no se ofrece en nuevas compras
+  /// pero sus Prices y Entitlements existentes siguen vigentes.
+  active      Boolean     @default(true)
+
+  prices      Price[]
+
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}
+
+/// Variante de precio de un producto. Una variante = una opción de compra.
+model Price {
+  id            String         @id @default(cuid())
+  productId     String
+  product       Product        @relation(fields: [productId], references: [id])
+
+  amount        Decimal        @db.Decimal(10, 2)
+  currency      String         @default("EUR")
+
+  // Solo para RECURRING
+  interval      PriceInterval?
+  intervalCount Int?           @default(1)
+
+  // Solo para ONE_TIME (destacado)
+  durationDays  Int?
+
+  /// ID del objeto equivalente en la pasarela (Stripe Price ID).
+  gatewayPriceId String?       @unique
+
+  active        Boolean        @default(true)
+
+  transactions  Transaction[]
+  subscriptions Subscription[]
+  entitlements  Entitlement[]
+
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([productId])
+}
+
+/// Registro de un derecho activo. Es la única tabla que lee la lógica de negocio
+/// para decidir si un usuario puede hacer algo. No conoce la pasarela.
+///
+/// Un entitlement es válido cuando:
+///   expiresAt IS NULL OR expiresAt > now()
+model Entitlement {
+  id             String          @id @default(cuid())
+  userId         String
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type           EntitlementType
+
+  /// Solo para FEATURED_LISTING: anuncio al que aplica el boost.
+  listingId      String?
+  listing        Listing?        @relation(fields: [listingId], references: [id], onDelete: SetNull)
+
+  startsAt       DateTime        @default(now())
+  /// Null = sin caducidad (reservado para créditos manuales de soporte).
+  expiresAt      DateTime?
+
+  // Trazabilidad del origen
+  priceId        String?
+  price          Price?          @relation(fields: [priceId], references: [id])
+  transactionId  String?
+  transaction    Transaction?    @relation(fields: [transactionId], references: [id])
+  subscriptionId String?
+  subscription   Subscription?   @relation(fields: [subscriptionId], references: [id])
+
+  createdAt      DateTime        @default(now())
+
+  @@index([userId, type])
+  @@index([listingId])
+  @@index([expiresAt])
+}
+
+/// Estado de una suscripción recurrente. Una sola suscripción activa por usuario.
+model Subscription {
+  id                    String             @id @default(cuid())
+  userId                String
+  user                  User               @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  priceId               String
+  price                 Price              @relation(fields: [priceId], references: [id])
+
+  status                SubscriptionStatus @default(ACTIVE)
+
+  currentPeriodStart    DateTime
+  currentPeriodEnd      DateTime
+
+  cancelAtPeriodEnd     Boolean            @default(false)
+  canceledAt            DateTime?
+
+  /// ID de la suscripción en Stripe. Inmutable tras la creación.
+  gatewaySubscriptionId String             @unique
+
+  entitlements          Entitlement[]
+  transactions          Transaction[]
+
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([currentPeriodEnd])
+}
+
+/// Registro permanente de cada cobro. NUNCA se borra ni se modifica el importe.
+model Transaction {
+  id           String            @id @default(cuid())
+  userId       String
+  user         User              @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  priceId      String
+  price        Price             @relation(fields: [priceId], references: [id])
+
+  amountGross  Decimal           @db.Decimal(10, 2)
+  amountNet    Decimal           @db.Decimal(10, 2)
+  taxAmount    Decimal           @db.Decimal(10, 2)
+  taxRate      Decimal           @db.Decimal(5, 4)
+  currency     String            @default("EUR")
+
+  status       TransactionStatus @default(PENDING)
+
+  /// Referencias de la pasarela. NUNCA se almacenan PANs, CVVs ni datos de tarjeta.
+  gatewayPaymentIntentId String?  @unique
+  gatewayInvoiceId       String?  @unique
+  gatewayChargeId        String?
+
+  invoiceNumber  String?
+  invoiceUrl     String?
+
+  subscriptionId String?
+  subscription   Subscription? @relation(fields: [subscriptionId], references: [id])
+
+  /// Solo en destacados: anuncio al que corresponde el cobro.
+  listingId      String?
+  listing        Listing?      @relation(fields: [listingId], references: [id], onDelete: SetNull)
+
+  entitlements   Entitlement[]
+
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+/// Tabla de registro de eventos ya procesados de la pasarela.
+/// Garantiza que un webhook duplicado no tenga efectos secundarios.
+/// Solo se escribe; nunca se actualiza ni se borra.
+model GatewayEvent {
+  id             String   @id @default(cuid())
+
+  /// ID único del evento en la pasarela (p.ej. "evt_1ABC..." en Stripe).
+  gatewayEventId String   @unique
+
+  eventType      String
+
+  processedAt    DateTime @default(now())
+
+  @@index([processedAt])
 }
 
 // ============================================================================

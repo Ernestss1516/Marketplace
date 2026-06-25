@@ -1,4 +1,4 @@
-import { PrismaClient, Prisma, Role } from '@prisma/client';
+import { PrismaClient, Prisma, Role, ProductType, PriceInterval } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
@@ -403,10 +403,53 @@ async function seedSettings() {
   }
 }
 
+async function seedBillingCatalog() {
+  console.log('Seeding billing catalog...');
+  const existing = await prisma.product.count();
+  if (existing > 0) {
+    console.log('  ✓ billing catalog already present, skipped');
+    return;
+  }
+
+  const featured = await prisma.product.create({
+    data: {
+      name: 'Destacado de anuncio',
+      description: 'Destaca tu anuncio en los resultados de búsqueda durante un período fijo.',
+      type: ProductType.ONE_TIME,
+    },
+  });
+
+  await prisma.price.createMany({
+    data: [
+      { productId: featured.id, amount: new Prisma.Decimal('2.99'), durationDays: 7 },
+      { productId: featured.id, amount: new Prisma.Decimal('4.99'), durationDays: 14 },
+      { productId: featured.id, amount: new Prisma.Decimal('7.99'), durationDays: 30 },
+    ],
+  });
+  console.log('  ✓ Product: Destacado de anuncio (7/14/30 días)');
+
+  const pro = await prisma.product.create({
+    data: {
+      name: 'Plan Pro',
+      description: 'Accede a funciones avanzadas: más anuncios activos, más fotos y badge Pro.',
+      type: ProductType.RECURRING,
+    },
+  });
+
+  await prisma.price.createMany({
+    data: [
+      { productId: pro.id, amount: new Prisma.Decimal('9.99'), interval: PriceInterval.MONTH, intervalCount: 1 },
+      { productId: pro.id, amount: new Prisma.Decimal('89.99'), interval: PriceInterval.YEAR, intervalCount: 1 },
+    ],
+  });
+  console.log('  ✓ Product: Plan Pro (mensual/anual)');
+}
+
 async function main() {
   await seedCategories();
   await seedAdmin();
   await seedSettings();
+  await seedBillingCatalog();
   console.log('Seed completed.');
 }
 
