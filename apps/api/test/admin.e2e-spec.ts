@@ -52,18 +52,44 @@ describe('Admin (e2e)', () => {
     await cleanDb(prisma);
     await resetMeili(meili);
 
+    // cleanDb only truncates User CASCADE; Category and Setting survive between runs.
+    // Delete test-specific categories (created inline in tests with fixed slugs).
+    await prisma.category.deleteMany({
+      where: {
+        slug: {
+          in: [
+            'deportes-admin-test',
+            'borrable-admin-test',
+            'con-anuncios-admin-test',
+            'padre-admin-test',
+            'hijo-admin-test',
+          ],
+        },
+      },
+    });
+
+    // Upsert settings to always start at known defaults regardless of what a previous
+    // run left behind (e.g. badWordList modified to ["spam","fraude"]).
+    await prisma.$transaction([
+      prisma.setting.upsert({
+        where: { key: 'badWordList' },
+        create: { key: 'badWordList', value: [] },
+        update: { value: [] },
+      }),
+      prisma.setting.upsert({
+        where: { key: 'listingExpiryDays' },
+        create: { key: 'listingExpiryDays', value: 60 },
+        update: { value: 60 },
+      }),
+      prisma.setting.upsert({
+        where: { key: 'contactRequiresVerification' },
+        create: { key: 'contactRequiresVerification', value: true },
+        update: { value: true },
+      }),
+    ]);
+
     const category = await prisma.category.findUniqueOrThrow({ where: { slug: 'moviles' } });
     categoryId = category.id;
-
-    // Seed Settings — seed-test.ts only seeds categories, not settings.
-    await prisma.setting.createMany({
-      data: [
-        { key: 'badWordList', value: [] },
-        { key: 'listingExpiryDays', value: 60 },
-        { key: 'contactRequiresVerification', value: true },
-      ],
-      skipDuplicates: true,
-    });
 
     const hash = (pw: string) => bcrypt.hash(pw, 4);
 

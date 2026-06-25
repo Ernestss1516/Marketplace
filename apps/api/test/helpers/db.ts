@@ -4,8 +4,10 @@ import { MeiliSearch } from 'meilisearch';
 /**
  * Truncates all user-generated data tables in dependency order.
  * TRUNCATE "User" CASCADE removes all FK-dependent rows (Listing, Conversation,
- * Message, Favorite, Review, Report, ListingImage, tokens, …).
- * Category is intentionally excluded — it is seeded once in globalSetup.
+ * Message, Favorite, Review, Report, ListingImage, tokens, Post, AuditLog, …).
+ * Category and Setting are intentionally excluded — they are static system data
+ * seeded once in globalSetup and must not be touched by individual suite cleanup,
+ * since multiple Jest workers run suites in parallel and share the same DB.
  */
 export async function cleanDb(prisma: PrismaClient): Promise<void> {
   await prisma.$executeRaw`TRUNCATE "User" CASCADE`;

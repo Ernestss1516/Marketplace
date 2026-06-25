@@ -27,7 +27,7 @@ export class UpdatePostDto {
   body?: string;
 
   @IsOptional()
-  @IsUrl({ require_tld: false })
+  @IsUrl({ require_tld: false, require_protocol: true })
   coverUrl?: string;
 
   @IsOptional()
