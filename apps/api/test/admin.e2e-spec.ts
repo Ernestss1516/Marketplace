@@ -5,26 +5,7 @@ import * as bcrypt from 'bcrypt';
 import * as request from 'supertest';
 import { createTestApp } from './helpers/create-app';
 import { buildMeiliClient, cleanDb, resetMeili } from './helpers/db';
-import { waitForIndex } from './helpers/meili';
-
-async function waitForRemoval(
-  client: MeiliSearch,
-  indexName: string,
-  docId: string,
-  timeoutMs = 5_000,
-  intervalMs = 200,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      await client.index(indexName).getDocument(docId);
-    } catch {
-      return;
-    }
-    await new Promise<void>((r) => setTimeout(r, intervalMs));
-  }
-  throw new Error(`Listing "${docId}" still in Meilisearch after ${timeoutMs} ms.`);
-}
+import { waitForIndex, waitForRemoval } from './helpers/meili';
 
 describe('Admin (e2e)', () => {
   let app: INestApplication;
