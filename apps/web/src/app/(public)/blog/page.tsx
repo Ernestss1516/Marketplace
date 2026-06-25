@@ -4,19 +4,7 @@ import Link from 'next/link';
 import { getPostList } from '@/lib/api/blog';
 import type { PostSummary } from '@/types';
 import { SITE_NAME } from '@/config';
-
-// Must mirror next.config.ts remotePatterns so we never pass an unconfigured
-// hostname to next/image (which would throw and crash the page).
-function isSafeSrc(url: string): boolean {
-  try {
-    const { protocol, hostname } = new URL(url);
-    if (protocol === 'http:' && hostname === 'localhost') return true;
-    if (protocol === 'https:' && hostname.endsWith('.r2.cloudflarestorage.com')) return true;
-    return false;
-  } catch {
-    return false;
-  }
-}
+import { isSafeSrc } from '@/lib/image-domains';
 
 export const revalidate = 3600;
 

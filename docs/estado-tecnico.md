@@ -578,29 +578,11 @@ permanecen en almacenamiento con `listingId: null`. Pendiente: `DELETE /media/:i
 En producción hay que verificar el dominio remitente en el panel de Resend y
 actualizar `RESEND_FROM`.
 
-### `isSafeSrc` duplica los `remotePatterns` de `next.config.ts` (Fase B)
+### ~~`isSafeSrc` duplica los `remotePatterns` de `next.config.ts`~~ — cerrado en RD.3
 
-Las páginas públicas del blog (`/blog` y `/blog/[slug]`) contienen la función
-`isSafeSrc(url)` que valida el hostname de la `coverUrl` antes de pasarla a
-`<Image>` de Next.js. La lógica replica manualmente los `remotePatterns` definidos
-en `next.config.ts`:
-
-```ts
-// isSafeSrc — debe mantenerse en sync con next.config.ts remotePatterns
-if (protocol === 'http:' && hostname === 'localhost') return true;
-if (protocol === 'https:' && hostname.endsWith('.r2.cloudflarestorage.com')) return true;
-```
-
-Si en producción se migra a otro proveedor de almacenamiento (p.ej. un dominio
-personalizado en R2 o un CDN propio), hay que actualizar **ambos** sitios:
-`next.config.ts` (para que Next.js sirva la imagen) y `isSafeSrc` en los dos
-ficheros de página del blog (para que no la degrade a placeholder). Si solo se
-actualiza uno, la imagen no carga pero sin error visible, lo que dificulta el
-diagnóstico.
-
-Evolución natural: extraer `isSafeSrc` a un helper compartido en `src/lib/`
-que importe las `remotePatterns` desde la configuración de Next.js, eliminando
-la duplicación.
+`isSafeSrc` y `remotePatterns` están deduplicados en `src/lib/image-domains.ts`.
+`next.config.ts` importa `remotePatterns` desde ahí; las páginas del blog importan
+`isSafeSrc` desde ahí. Añadir un dominio nuevo solo requiere editar ese fichero.
 
 ### Módulo stub pendiente: valoraciones
 

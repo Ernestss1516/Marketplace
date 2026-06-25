@@ -2,23 +2,13 @@ import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 import Image from 'next/image';
 import Link from 'next/link';
-
-function isSafeSrc(url: string): boolean {
-  try {
-    const { protocol, hostname } = new URL(url);
-    if (protocol === 'http:' && hostname === 'localhost') return true;
-    if (protocol === 'https:' && hostname.endsWith('.r2.cloudflarestorage.com')) return true;
-    return false;
-  } catch {
-    return false;
-  }
-}
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeSanitize from 'rehype-sanitize';
 import { getPost } from '@/lib/api/blog';
 import { ApiError } from '@/lib/api/client';
 import { SITE_NAME, SITE_URL } from '@/config';
+import { isSafeSrc } from '@/lib/image-domains';
 
 export const revalidate = 3600;
 
