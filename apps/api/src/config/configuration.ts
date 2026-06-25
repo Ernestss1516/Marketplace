@@ -22,6 +22,10 @@ export default () => ({
     provider: process.env.GEOCODING_PROVIDER ?? 'nominatim',
     maptilerKey: process.env.MAPTILER_API_KEY,
   },
+  stripe: {
+    secretKey: process.env.STRIPE_SECRET_KEY ?? '',
+    webhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? '',
+  },
   s3: {
     endpoint: process.env.S3_ENDPOINT,
     bucket: process.env.S3_BUCKET,

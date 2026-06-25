@@ -1,7 +1,7 @@
 import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { QUEUE_IMAGE, QUEUE_INDEXING, QUEUE_NOTIFICATIONS } from './queue.constants';
+import { QUEUE_BILLING, QUEUE_IMAGE, QUEUE_INDEXING, QUEUE_NOTIFICATIONS } from './queue.constants';
 import { ImageProcessor } from './processors/image.processor';
 import { IndexingProcessor } from './processors/indexing.processor';
 import { NotificationProcessor } from './processors/notification.processor';
@@ -40,6 +40,15 @@ import { SearchModule } from '../../modules/search/search.module';
         },
       },
       { name: QUEUE_NOTIFICATIONS },
+      {
+        name: QUEUE_BILLING,
+        defaultJobOptions: {
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 2_000 },
+          removeOnComplete: true,
+          removeOnFail: 100,
+        },
+      },
     ),
     SearchModule,
   ],

@@ -14,7 +14,7 @@ Sentry.init({
 });
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
 
   // Route all NestJS Logger calls (including existing `new Logger()` instances)
   // through pino. bufferLogs: true above holds early bootstrap messages until

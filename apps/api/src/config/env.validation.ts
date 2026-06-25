@@ -24,4 +24,7 @@ export const envValidationSchema = Joi.object({
   REVALIDATE_SECRET: Joi.string().optional(),
   // Empty string is valid — Sentry disables itself silently when DSN is absent.
   SENTRY_DSN: Joi.string().allow('').optional(),
+  // Stripe — optional so tests run without real keys; required in production.
+  STRIPE_SECRET_KEY: Joi.string().allow('').optional(),
+  STRIPE_WEBHOOK_SECRET: Joi.string().allow('').optional(),
 });

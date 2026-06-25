@@ -23,6 +23,7 @@ import { AdminModule } from './modules/admin/admin.module';
 import { AuditLogModule } from './modules/audit-log/audit-log.module';
 import { ExpirationModule } from './modules/expiration/expiration.module';
 import { BlogModule } from './modules/blog/blog.module';
+import { BillingModule } from './modules/billing/billing.module';
 
 @Module({
   imports: [
@@ -67,6 +68,7 @@ import { BlogModule } from './modules/blog/blog.module';
     AuditLogModule,
     ExpirationModule,
     BlogModule,
+    BillingModule,
   ],
 })
 export class AppModule {}
