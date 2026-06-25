@@ -31,7 +31,6 @@ export class ModerationService {
   // ---------------------------------------------------------------------------
 
   async createReport(reporterId: string, dto: CreateReportDto) {
-    console.log('[createReport] dto recibido:', JSON.stringify(dto));
     if (!dto.listingId && !dto.reportedUserId && !dto.reviewId) {
       throw new UnprocessableEntityException(
         'Se requiere listingId, reportedUserId o reviewId',
@@ -70,7 +69,6 @@ export class ModerationService {
       reportedUserId: dto.reportedUserId,
       reviewId: dto.reviewId,
     };
-    console.log('[createReport] data al create:', JSON.stringify(data));
     return this.prisma.report.create({ data });
   }
 
