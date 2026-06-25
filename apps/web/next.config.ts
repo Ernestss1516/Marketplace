@@ -1,4 +1,5 @@
 import type { NextConfig } from 'next';
+import { withSentryConfig } from '@sentry/nextjs';
 import { remotePatterns } from './src/lib/image-domains';
 
 const nextConfig: NextConfig = {
@@ -8,4 +9,10 @@ const nextConfig: NextConfig = {
   images: { remotePatterns },
 };
 
-export default nextConfig;
+export default withSentryConfig(nextConfig, {
+  // Suppress Sentry build output; source maps are not uploaded (no auth token
+  // needed). Client-side init is injected automatically from
+  // sentry.client.config.ts; server-side init stays in instrumentation.ts.
+  silent: true,
+  telemetry: false,
+});

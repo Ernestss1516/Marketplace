@@ -351,12 +351,14 @@ desactiva silenciosamente sin errores ni warnings. Los tres processors BullMQ
 `process()` en try/catch con `Sentry.captureException(err)` + re-throw, de modo
 que BullMQ sigue gestionando reintentos igual que antes.
 
-**Frontend**: `apps/web/src/instrumentation.ts` exporta `register()` que inicia
-Sentry solo cuando `process.env.NEXT_RUNTIME === 'nodejs'`. Cubre errores de Server
-Components, Route Handlers, Server Actions y Middleware. **Los errores de componentes
-cliente (navegador) están fuera de alcance de RT.6**: requieren un init separado con
-`NEXT_PUBLIC_SENTRY_DSN` y un fichero de configuración de cliente, que no se ha
-implementado todavía.
+**Frontend (servidor)**: `apps/web/src/instrumentation.ts` — `register()` inicia
+Sentry en runtime `nodejs`; `onRequestError` captura errores de RSC anidados
+(Next.js 15+). Cubre Server Components, Route Handlers, Server Actions y Middleware.
+
+**Frontend (cliente/navegador)**: `instrumentation-client.ts` (RD.1) — init con
+`NEXT_PUBLIC_SENTRY_DSN`; captura hydration failures, unhandled rejections, errores
+de clic y navegaciones. `global-error.tsx` reporta React render errors que escapan
+todos los `error.tsx` anidados. DSN vacío → SDK desactivado sin errores.
 
 ### Observabilidad: logging estructurado con pino (Fase T — RT.6)
 
@@ -598,19 +600,32 @@ La estructura de BD está completa. No planificado en el Hito 2.
 `buildSlug` genera `{base}-{6-char-hex}`. Una colisión lanzaría `P2002`. No hay
 lógica de reintento.
 
-### Captura de errores de cliente (navegador) pendiente en Sentry
+### ~~Captura de errores de cliente (navegador) pendiente en Sentry~~ — cerrado en RD.1
 
-`instrumentation.ts` cubre únicamente el runtime Node.js del servidor de Next.js.
-Los errores de componentes cliente (React hydration, clics, fetch fallidos en el
-navegador) no se capturan todavía. Requiere un init separado con
-`NEXT_PUBLIC_SENTRY_DSN` y un fichero `sentry.client.config.ts`. Pendiente para
-una iteración futura de observabilidad.
+Observabilidad cliente completada. Ficheros añadidos / modificados:
+
+- **`instrumentation-client.ts`** (nuevo) — `Sentry.init()` con `NEXT_PUBLIC_SENTRY_DSN`;
+  captura hydration failures, unhandled rejections, fetch fallidos y navegaciones
+  de cliente. Sigue el patrón Next.js 15 (`instrumentation-client.ts` sustituye al
+  antiguo `sentry.client.config.ts`). DSN vacío → SDK desactivado sin errores.
+- **`instrumentation.ts`** (actualizado) — migrado a `import * as Sentry` en lugar
+  de `await import()` en register; añadido `onRequestError = Sentry.captureRequestError`
+  para errores de RSC anidados (Next.js 15+).
+- **`src/app/global-error.tsx`** (nuevo) — error boundary raíz para React render
+  errors que escapan todos los `error.tsx` anidados; reporta a Sentry vía
+  `captureException`.
+- **`next.config.ts`** (actualizado) — envuelto con `withSentryConfig` (sin
+  `authToken`, sin upload de source maps) para activar la inyección del SDK de
+  cliente y eliminar los avisos de build de `@sentry/nextjs`.
+
+Para verificar la integración antes de producción: configurar `NEXT_PUBLIC_SENTRY_DSN`
+(y `SENTRY_DSN`) en el entorno de staging. DSN de Sentry es seguro de exponer en el
+bundle público: solo permite enviar eventos, no da acceso de lectura ni admin.
 
 ### Sentry activo solo en staging/producción
 
-Con `SENTRY_DSN=` vacío en dev y test, Sentry no envía eventos en esos entornos.
-Para verificar que la integración funciona correctamente antes de producción, se
-recomienda configurarlo en un entorno de staging con un DSN real de Sentry.
+Con `SENTRY_DSN=` y `NEXT_PUBLIC_SENTRY_DSN=` vacíos en dev y test, Sentry no envía
+eventos en esos entornos. Ambas variables documentadas en `.env.example`.
 
 ---
 
