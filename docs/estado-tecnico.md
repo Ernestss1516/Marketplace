@@ -1,6 +1,6 @@
 # Estado técnico del proyecto — Marketplace
 
-> Fecha: 2026-06-24 · Rama: `main` · Último commit: Fase B completa (blog)
+> Fecha: 2026-06-25 · Rama: `main` · Último commit: Hito 3 completo (Favoritos, Valoraciones, Tests, Deuda)
 > Plan vigente para la siguiente fase: `docs/Hoja_de_ruta_rafagas_Hito2.docx`.
 
 Documento de referencia para retomar el proyecto. Recoge qué hay implementado,
@@ -14,7 +14,7 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 
 | Módulo | Estado | Notas |
 |---|---|---|
-| **Infra: Prisma** | ✅ Completo | Schema con todos los modelos; PostGIS habilitado; **7 migraciones aplicadas**: `init`, `add_auth_tokens`, `media_listing_image_nullable`, `add_price_type`, `backfill_expires_at`, `add_audit_log_and_settings`, **`add_blog_post`** |
+| **Infra: Prisma** | ✅ Completo | Schema con todos los modelos; PostGIS habilitado; **8 migraciones aplicadas**: `init`, `add_auth_tokens`, `media_listing_image_nullable`, `add_price_type`, `backfill_expires_at`, `add_audit_log_and_settings`, `add_blog_post`, **`add_review_fields`** |
 | **Infra: Redis** | ✅ Completo | `RedisService` global; caché de fichas de anuncio (TTL 5 min) |
 | **Infra: BullMQ** | ✅ Colas activas | 3 colas registradas con processors reales (ver §2 para el fix de ioredis) |
 | **Infra: Meilisearch** | ✅ Completo | `SearchService.onModuleInit()` crea el índice `listings` y aplica searchable/filterable/sortable attrs, ranking rules y typo tolerance al arrancar |
@@ -34,7 +34,7 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **Admin** | ✅ Completo | Listings (list, detail, PATCH status); Users (list, detail, suspend, ban, reinstate, role); Categories CRUD + batch reorder; Settings GET + PATCH con whitelist; `GET /admin/stats` con 7 métricas + Meilisearch null-fallback; todos los endpoints con `@Roles(ADMIN)` y AuditLog |
 | **Blog** | ✅ Completo | Modelo `Post` (enum `PostStatus { DRAFT, PUBLISHED }`, body Markdown raw, `tags String[]`, `coverUrl`, campos SEO opcionales `metaTitle`/`metaDescription`). `BlogController`: `GET /blog` (solo PUBLISHED, paginado, filtro `?tag=`) y `GET /blog/:slug` (404 si no existe o es DRAFT). `BlogAdminController` (`@Roles(ADMIN)`): CRUD completo + `POST /admin/blog/:id/publish` + `POST /admin/blog/:id/unpublish`. AuditLog en todas las mutaciones (`POST_CREATE`, `POST_UPDATE`, `POST_PUBLISH`, `POST_UNPUBLISH`, `POST_DELETE`). Revalidación ISR on-demand fire-and-forget al publicar/despublicar/editar/borrar posts publicados (el blog es el **primer productor del webhook** desde el backend; el webhook en sí existía desde Fase 5). `BlogModule` importa `PrismaModule` + `AuditLogModule`; autónomo, no modifica `AdminModule` |
 | **Favorites** | ✅ Completo | `POST /favorites/:listingId` (marcar), `DELETE /favorites/:listingId` (desmarcar), `GET /favorites` (paginado), `GET /favorites/:listingId` (check), `POST /favorites/batch-check` (máx. 100 ids → `{ favoritedIds }`). Todos idempotentes y con `JwtAuthGuard`. Suite `favorites.e2e-spec.ts` (12 tests) |
-| **Reviews** | ❌ Stub vacío | Ídem |
+| **Reviews** | ✅ Completo | `POST /reviews` (crear; guard de elegibilidad vía `Conversation`), `GET /reviews/eligibility?listingId=&targetId=` (check antes de mostrar el formulario), `PATCH /reviews/:id` (editar en ventana 72 h; persiste `editedAt`), `DELETE /reviews/:id` (borrar en ventana 72 h). Listado público via `GET /users/:slug/reviews` (cursor paginado + aggregate on-the-fly: average, count, distribución 1–5). Unicidad `(authorId, targetId, listingId)` — una reseña por par de usuarios por anuncio. `FAKE_REVIEW` añadido a `ReportReason`; `Report.reviewId` FK con CASCADE para moderar reseñas. Suite `reviews.e2e-spec.ts` (20 tests) |
 
 ### Frontend (`apps/web` — puerto 3000)
 
@@ -279,6 +279,12 @@ Los tests de Jest usan `setupFiles: ['test/load-env.ts']` (carga `.env.test` con
 `dotenv.config()` sin sobreescribir `process.env`) y `globalSetup: 'test/setup-e2e.js'`
 (ejecuta `prisma migrate deploy` + `seed-test.ts` una vez antes de todas las suites).
 
+Las **10 suites e2e de Jest** suman **154 casos**: smoke (1), auth (15), listings (10),
+messaging (7), search (8), favorites (12), reviews (20), moderation (23), admin (34),
+blog (24). Las suites se ejecutan en paralelo (sin `--runInBand`); el diseño de
+`cleanDb` — que solo trunca `User` CASCADE y nunca toca `Category` ni `Setting` —
+garantiza que no haya contención entre los workers de Jest.
+
 ### Helpers y fixtures de test compartidos (Fase T)
 
 Todos los helpers viven en `apps/api/test/helpers/`:
@@ -286,11 +292,18 @@ Todos los helpers viven en `apps/api/test/helpers/`:
 - `create-app.ts` — `createTestApp()`: arranca el `AppModule` completo con NestJS
   Testing (incluyendo los workers BullMQ), configurado igual que `main.ts`. Permite
   que los tests e2e ejerzan el ciclo completo publish → BullMQ → Meilisearch.
-- `db.ts` — `cleanDb()`: trunca las tablas de dominio en el orden correcto (respetando
-  FK) antes de cada suite.
-- `meili.ts` — `waitForIndex(client, indexName, docId, timeoutMs)`: polling hasta que
-  el documento aparece en Meilisearch. Necesario porque la indexación es asíncrona
-  (BullMQ worker); sin él el test de búsqueda falla intermitentemente.
+- `db.ts` — `cleanDb()`: emite `TRUNCATE "User" CASCADE`, que elimina en cascada todas
+  las filas FK-dependientes (Listing, Conversation, Message, Favorite, Review, Report,
+  ListingImage, tokens, Post, AuditLog…). `Category` y `Setting` quedan **excluidos** —
+  son datos estáticos sembrados una sola vez en `globalSetup` vía upsert idempotente.
+  Truncarlos en `cleanDb` provocaría race conditions cuando Jest ejecuta suites en
+  paralelo sobre la misma BD.
+- `meili.ts` — `waitForIndex(client, indexName, docId, timeoutMs = 15 000 ms)` y
+  `waitForRemoval(client, indexName, docId, timeoutMs = 15 000 ms)`: polling hasta que
+  el documento aparece / desaparece en Meilisearch. Necesarios porque la indexación es
+  asíncrona (BullMQ worker); sin ellos los tests de búsqueda y de eliminación fallan
+  intermitentemente. El timeout de 15 s cubre los service containers de CI, que tardan
+  más que el entorno local.
 
 Para Playwright, `apps/web/e2e/fixtures/auth.ts` define los fixtures `sellerContext` y
 `buyerContext` que cargan los `storageState` generados por `global-setup.ts`.
@@ -355,10 +368,16 @@ que BullMQ sigue gestionando reintentos igual que antes.
 Sentry en runtime `nodejs`; `onRequestError` captura errores de RSC anidados
 (Next.js 15+). Cubre Server Components, Route Handlers, Server Actions y Middleware.
 
-**Frontend (cliente/navegador)**: `instrumentation-client.ts` (RD.1) — init con
+**Frontend (cliente/navegador)**: `instrumentation-client.ts` — init con
 `NEXT_PUBLIC_SENTRY_DSN`; captura hydration failures, unhandled rejections, errores
 de clic y navegaciones. `global-error.tsx` reporta React render errors que escapan
-todos los `error.tsx` anidados. DSN vacío → SDK desactivado sin errores.
+todos los `error.tsx` anidados. `next.config.ts` envuelto con `withSentryConfig` (sin
+`authToken`, sin upload de source maps) para activar la inyección del SDK y eliminar
+los avisos de build de `@sentry/nextjs`. DSN vacío → SDK desactivado sin errores.
+
+La captura de cliente se ha verificado en desarrollo (silenciosa). La integración real
+queda por confirmar en staging con DSN activo. El DSN es seguro de exponer en el bundle
+público: solo permite enviar eventos, no da acceso de lectura ni admin.
 
 ### Observabilidad: logging estructurado con pino (Fase T — RT.6)
 
@@ -395,6 +414,38 @@ Los tres paquetes (`react-markdown` v10, `remark-gfm` v4, `rehype-sanitize` v6)
 son ESM-only. Se añadieron a `transpilePackages` en `next.config.ts` para que
 Webpack los empaquete sin errores de tipo de módulo.
 
+### Valoraciones (Reviews): elegibilidad, unicidad, edición y agregado (Hito 3)
+
+**Elegibilidad anti-fraude por Conversation:** Solo puede crear una reseña quien haya
+tenido una `Conversation` activa sobre ese anuncio con el usuario destinatario.
+`ReviewsService.create()` hace un `findFirst` buscando la conversación y lanza `403` si
+no existe. El mismo check en `getEligibility` permite que el frontend muestre u oculte
+el formulario sin enviar una petición condenada a fallar.
+
+**Bidireccionalidad:** La condición `OR [{ buyerId: authorId, sellerId: targetId },
+{ sellerId: authorId, buyerId: targetId }]` permite que tanto el comprador como el
+vendedor valoren al otro a partir de una sola `Conversation`.
+
+**Unicidad `(authorId, targetId, listingId)`:** Constraint UNIQUE en Postgres
+(migración 8.ª `add_review_fields`). Una reseña por par de usuarios por anuncio.
+La colisión se captura como `P2002` y se relanza como `409 Conflict`.
+
+**Ventana de edición de 72 h:** `PATCH /reviews/:id` y `DELETE /reviews/:id`
+comprueban `Date.now() > review.createdAt + 72 h`. Fuera del plazo → `403`. Al
+editar se persiste `editedAt: new Date()`. La constante `EDIT_WINDOW_MS` vive en el
+service para no repetirla en ambas rutas.
+
+**Aggregate on-the-fly:** `ReviewsService.listForUser()` (expuesto como
+`GET /users/:slug/reviews`) ejecuta en paralelo `review.findMany` (cursor paginado) +
+`review.aggregate({ _avg, _count })` + `review.groupBy(['rating'])`. El resultado
+incluye `average` (redondeado a 1 decimal), `count`, `distribution` (mapa 1–5 con 0
+por defecto) e `items`. El promedio no se almacena; se recalcula en cada petición
+(volúmenes bajos en el MVP; cacheable en Redis cuando crezca).
+
+**Moderación de reseñas:** `ReportReason` extendido con `FAKE_REVIEW` y
+`Report.reviewId` (FK nullable con CASCADE). El flujo de moderación existente
+(`ModerationService`) cubre también las valoraciones sin ningún cambio en ese módulo.
+
 ### `@tailwindcss/typography`: import ESM, no `require()` (Fase B)
 
 El plugin se importa en `tailwind.config.ts` con `import typography from '@tailwindcss/typography'`
@@ -417,14 +468,20 @@ renderizar `<Image>` de Next.js o el placeholder muted (ver §3 para la deuda de
 sincronización con `remotePatterns`). Una `coverUrl` de dominio externo en BD
 degrada silenciosamente a placeholder, sin crashear la página.
 
-### `@IsUrl({ require_tld: false })` en el DTO del blog (Fase B)
+### `@IsUrl` en DTOs: `require_tld: false, require_protocol: true` (Fase B / Hito 3)
 
 `CreatePostDto` y `UpdatePostDto` validan `coverUrl` con
-`@IsUrl({ require_tld: false })`. Sin la opción, `validator.js` rechaza
-`http://localhost:9000/...` con 400 porque `localhost` no tiene TLD
-(`require_tld: true` por defecto). El mismo patrón aplica a cualquier campo de URL
-que pueda contener hostnames sin TLD en desarrollo. Es el mismo problema que
-afectó a `RESEND_FROM` con dominios `.local` en la Fase T.
+`@IsUrl({ require_tld: false, require_protocol: true })`.
+
+- **`require_tld: false`** (Fase B): sin esta opción, `validator.js` rechaza
+  `http://localhost:9000/...` con 400 porque `localhost` no tiene TLD
+  (`require_tld: true` por defecto). El mismo problema afectó a `RESEND_FROM` con
+  dominios `.local` en la Fase T.
+- **`require_protocol: true`** (Hito 3 — bug corregido): sin esta opción, el validador
+  aceptaba como URL válida cualquier cadena sin protocolo (p.ej. `"texto libre"`).
+  El campo admitía valores arbitrarios que luego causaban errores al renderizar
+  `<Image>`. **Regla general:** cualquier campo de URL en un DTO debe declarar
+  explícitamente `require_protocol: true`; omitirlo es una fuente silenciosa de bugs.
 
 ### AuditLog: captura explícita en el service, nunca vía interceptor (Fase 7)
 
@@ -580,17 +637,6 @@ permanecen en almacenamiento con `listingId: null`. Pendiente: `DELETE /media/:i
 En producción hay que verificar el dominio remitente en el panel de Resend y
 actualizar `RESEND_FROM`.
 
-### ~~`isSafeSrc` duplica los `remotePatterns` de `next.config.ts`~~ — cerrado en RD.3
-
-`isSafeSrc` y `remotePatterns` están deduplicados en `src/lib/image-domains.ts`.
-`next.config.ts` importa `remotePatterns` desde ahí; las páginas del blog importan
-`isSafeSrc` desde ahí. Añadir un dominio nuevo solo requiere editar ese fichero.
-
-### Módulo stub pendiente: valoraciones
-
-El controller y service de `reviews` existe con cuerpo vacío.
-La estructura de BD está completa. No planificado en el Hito 2.
-
 ### Sin paginación en categorías ni en el home
 
 `GET /categories` devuelve el árbol completo. Aceptable con < 200 categorías.
@@ -600,32 +646,12 @@ La estructura de BD está completa. No planificado en el Hito 2.
 `buildSlug` genera `{base}-{6-char-hex}`. Una colisión lanzaría `P2002`. No hay
 lógica de reintento.
 
-### ~~Captura de errores de cliente (navegador) pendiente en Sentry~~ — cerrado en RD.1
+### Sentry cliente: validación pendiente en staging
 
-Observabilidad cliente completada. Ficheros añadidos / modificados:
-
-- **`instrumentation-client.ts`** (nuevo) — `Sentry.init()` con `NEXT_PUBLIC_SENTRY_DSN`;
-  captura hydration failures, unhandled rejections, fetch fallidos y navegaciones
-  de cliente. Sigue el patrón Next.js 15 (`instrumentation-client.ts` sustituye al
-  antiguo `sentry.client.config.ts`). DSN vacío → SDK desactivado sin errores.
-- **`instrumentation.ts`** (actualizado) — migrado a `import * as Sentry` en lugar
-  de `await import()` en register; añadido `onRequestError = Sentry.captureRequestError`
-  para errores de RSC anidados (Next.js 15+).
-- **`src/app/global-error.tsx`** (nuevo) — error boundary raíz para React render
-  errors que escapan todos los `error.tsx` anidados; reporta a Sentry vía
-  `captureException`.
-- **`next.config.ts`** (actualizado) — envuelto con `withSentryConfig` (sin
-  `authToken`, sin upload de source maps) para activar la inyección del SDK de
-  cliente y eliminar los avisos de build de `@sentry/nextjs`.
-
-Para verificar la integración antes de producción: configurar `NEXT_PUBLIC_SENTRY_DSN`
-(y `SENTRY_DSN`) en el entorno de staging. DSN de Sentry es seguro de exponer en el
-bundle público: solo permite enviar eventos, no da acceso de lectura ni admin.
-
-### Sentry activo solo en staging/producción
-
-Con `SENTRY_DSN=` y `NEXT_PUBLIC_SENTRY_DSN=` vacíos en dev y test, Sentry no envía
-eventos en esos entornos. Ambas variables documentadas en `.env.example`.
+La captura de errores de cliente está implementada (`instrumentation-client.ts`,
+`global-error.tsx`) y verificada en desarrollo (silenciosa con DSN vacío). La
+integración real queda por confirmar en staging con `NEXT_PUBLIC_SENTRY_DSN` activo
+(ver §2 — Observabilidad: Sentry). Ambas variables documentadas en `.env.example`.
 
 ---
 
@@ -691,6 +717,7 @@ Variables relevantes para testing y observabilidad (respecto a fases anteriores)
 | Variable | App | Valor en test | Descripción |
 |---|---|---|---|
 | `MEILI_INDEX_NAME` | api | `listings_test` | Índice Meilisearch de test; `listings` en dev/prod |
-| `SENTRY_DSN` | api + web | `""` (vacío) | DSN de Sentry; vacío desactiva el SDK sin errores |
+| `SENTRY_DSN` | api + web (server) | `""` (vacío) | DSN de Sentry servidor; vacío desactiva el SDK sin errores |
+| `NEXT_PUBLIC_SENTRY_DSN` | web (cliente) | `""` (vacío) | DSN de Sentry cliente (bundle público); vacío desactiva el SDK |
 | `GEOCODING_PROVIDER` | api | `nominatim` | Proveedor de geocoding; `maptiler` para producción |
 | `MAPTILER_API_KEY` | api | — | Solo si `GEOCODING_PROVIDER=maptiler` |
