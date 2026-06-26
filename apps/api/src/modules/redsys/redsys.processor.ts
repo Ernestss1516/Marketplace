@@ -83,16 +83,14 @@ export class RedsysProcessor extends WorkerHost {
     if (creditPack) {
       await this.handlePackPurchase(transaction.userId, transactionId, creditPack.creditAmount);
     } else {
-      // Featured pay via Redsys — completed in RF.6 (grantFeaturedListing).
-      // TODO RF.6: call grantFeaturedListing({ userId, listingId, durationDays, priceId, transactionId })
-      this.logger.warn(
-        `RedsysProcessor: featured-pay Transaction ${transactionId} reached processor — ` +
-          `grantFeaturedListing is pending RF.6. Marking SUCCEEDED without granting entitlement.`,
+      // Featured pay via Redsys — NOT implemented until RF.6 (grantFeaturedListing).
+      // Throwing here causes BullMQ to retry (and eventually move to the dead-letter queue)
+      // rather than silently marking SUCCEEDED without having granted the entitlement.
+      // TODO RF.6: replace this throw with grantFeaturedListing({ userId, listingId, durationDays, priceId, transactionId })
+      throw new Error(
+        `RF.6 NOT IMPLEMENTED: featured-pay Transaction ${transactionId} cannot be processed ` +
+          `until grantFeaturedListing exists. Job will be retried / dead-lettered by BullMQ.`,
       );
-      await this.prisma.transaction.update({
-        where: { id: transactionId },
-        data: { status: TransactionStatus.SUCCEEDED },
-      });
     }
   }
 
