@@ -332,9 +332,15 @@ describe('RF.6 — Featured listing, bump, and wallet (e2e)', () => {
         .send({ priceId: featuredPrice7dId, listingId })
         .expect(400);
 
-      // Balance must be unchanged (rollback restored credits)
+      // Balance must be unchanged (debit rolled back)
       const balanceAfter = await getBalance();
       expect(balanceAfter).toBe(balanceBefore);
+
+      // No orphan FEATURED_DEBIT ledger entry must exist for this listing
+      const orphanLedger = await prisma.creditLedger.findFirst({
+        where: { type: CreditLedgerType.FEATURED_DEBIT, referenceId: listingId },
+      });
+      expect(orphanLedger).toBeNull();
     });
   });
 
