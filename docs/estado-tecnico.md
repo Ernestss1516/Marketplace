@@ -239,8 +239,9 @@ cada uno invalida la caché Redis y encola un job `index` para que Meilisearch l
 retire del índice. Los anuncios RESERVED quedan excluidos del cron.
 
 El endpoint `POST /listings/:id/renew` acepta anuncios en estado ACTIVE o EXPIRED,
-reinicia `publishedAt` a la fecha actual y extiende `expiresAt` otros 60 días, con
-reindexado inmediato.
+**preserva el `publishedAt` original** (no lo resetea — resetear sería un bump gratuito
+que vaciaría de sentido el bump de pago de RF.6), extiende `expiresAt` 60 días desde
+`now`, no toca `bumpedAt`, y encola reindexado inmediato.
 
 ### Geocoding configurable con fallback silencioso
 
