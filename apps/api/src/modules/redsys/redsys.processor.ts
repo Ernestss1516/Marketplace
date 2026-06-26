@@ -6,13 +6,17 @@ import { CreditLedgerType, TransactionStatus } from '@prisma/client';
 import { Prisma } from '@prisma/client';
 import { QUEUE_REDSYS } from '../../infra/queue/queue.constants';
 import { PrismaService } from '../../infra/prisma/prisma.service';
+import { BillingService } from '../billing/billing.service';
 import { REDSYS_JOB, type RedsysJobData } from './redsys.types';
 
 @Processor(QUEUE_REDSYS)
 export class RedsysProcessor extends WorkerHost {
   private readonly logger = new Logger(RedsysProcessor.name);
 
-  constructor(private readonly prisma: PrismaService) {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly billingService: BillingService,
+  ) {
     super();
   }
 
@@ -60,8 +64,6 @@ export class RedsysProcessor extends WorkerHost {
     }
 
     // ── Amount validation ─────────────────────────────────────────────────────
-    // Verify that Redsys actually charged the amount we requested.
-    // Redsys sends Ds_Amount in cents (integer string); Transaction.amountGross is in EUR.
     const expectedCents = Math.round(transaction.amountGross.mul(100).toNumber());
     const actualCents = parseInt(dsAmount, 10);
 
@@ -83,13 +85,23 @@ export class RedsysProcessor extends WorkerHost {
     if (creditPack) {
       await this.handlePackPurchase(transaction.userId, transactionId, creditPack.creditAmount);
     } else {
-      // Featured pay via Redsys — NOT implemented until RF.6 (grantFeaturedListing).
-      // Throwing here causes BullMQ to retry (and eventually move to the dead-letter queue)
-      // rather than silently marking SUCCEEDED without having granted the entitlement.
-      // TODO RF.6: replace this throw with grantFeaturedListing({ userId, listingId, durationDays, priceId, transactionId })
-      throw new Error(
-        `RF.6 NOT IMPLEMENTED: featured-pay Transaction ${transactionId} cannot be processed ` +
-          `until grantFeaturedListing exists. Job will be retried / dead-lettered by BullMQ.`,
+      // Featured pay via Redsys (RF.6)
+      if (!transaction.listingId || !transaction.price?.durationDays) {
+        this.logger.error(
+          `RedsysProcessor: Transaction ${transactionId} has no listingId or durationDays — marking FAILED`,
+        );
+        await this.prisma.transaction.update({
+          where: { id: transactionId },
+          data: { status: TransactionStatus.FAILED },
+        });
+        return;
+      }
+      await this.handleFeaturedPay(
+        transaction.userId,
+        transactionId,
+        transaction.listingId,
+        transaction.priceId,
+        transaction.price.durationDays,
       );
     }
   }
@@ -105,7 +117,7 @@ export class RedsysProcessor extends WorkerHost {
   ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       // Upsert Wallet — creates with creditAmount if it doesn't exist yet,
-      // or increments the existing balance. Both paths return the wallet id.
+      // or increments the existing balance.
       const wallet = await tx.wallet.upsert({
         where: { userId },
         create: { userId, balance: creditAmount },
@@ -134,6 +146,45 @@ export class RedsysProcessor extends WorkerHost {
     this.logger.log(
       `Pack purchase processed: user=${userId}, transactionId=${transactionId}, ` +
         `creditAmount=+${creditAmount}`,
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Featured pay via Redsys: grant entitlement (RF.6, §3.4)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Grants a FEATURED_LISTING entitlement for a confirmed Redsys featured-pay.
+   *
+   * Design (§3.4): call grantFeaturedListing FIRST (in its own Postgres TX);
+   * only mark Transaction SUCCEEDED after the entitlement is persisted.
+   * This keeps Transaction PENDING on failure so BullMQ can retry.
+   */
+  private async handleFeaturedPay(
+    userId: string,
+    transactionId: string,
+    listingId: string,
+    priceId: string,
+    durationDays: number,
+  ): Promise<void> {
+    // Grant entitlement (validates listing ACTIVE + ownership + no duplicate) + enqueues indexing.
+    // If this throws, Transaction stays PENDING and BullMQ retries.
+    await this.billingService.grantFeaturedListing({
+      userId,
+      listingId,
+      durationDays,
+      priceId,
+      transactionId,
+    });
+
+    // Mark Transaction SUCCEEDED only after entitlement is confirmed created.
+    await this.prisma.transaction.update({
+      where: { id: transactionId },
+      data: { status: TransactionStatus.SUCCEEDED },
+    });
+
+    this.logger.log(
+      `Featured pay processed: user=${userId}, listing=${listingId}, tx=${transactionId}`,
     );
   }
 }

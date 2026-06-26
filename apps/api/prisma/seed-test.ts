@@ -92,10 +92,47 @@ async function seedCreditPacks() {
   console.log('Test seed: credit packs OK (Básico/Estándar/Max)');
 }
 
+async function seedFeaturedPrices() {
+  // Check if featured listing prices already exist (no creditPackId, durationDays set)
+  const existing = await prisma.price.count({
+    where: { creditPackId: null, durationDays: { not: null } },
+  });
+  if (existing > 0) {
+    console.log('Test seed: featured listing prices already present, skipped');
+    return;
+  }
+
+  const featuredProduct = await prisma.product.create({
+    data: {
+      name: 'Destacado de anuncio',
+      description: 'Destaca tu anuncio en los resultados de búsqueda.',
+      type: ProductType.ONE_TIME,
+    },
+  });
+
+  const variants: { durationDays: number; amount: string }[] = [
+    { durationDays: 7,  amount: '2.99' },
+    { durationDays: 14, amount: '4.99' },
+    { durationDays: 30, amount: '7.99' },
+  ];
+
+  for (const v of variants) {
+    await prisma.price.create({
+      data: {
+        productId: featuredProduct.id,
+        amount: new Prisma.Decimal(v.amount),
+        durationDays: v.durationDays,
+      },
+    });
+  }
+  console.log('Test seed: featured prices OK (7d/14d/30d)');
+}
+
 async function main() {
   await seedCategories();
   await seedSettings();
   await seedCreditPacks();
+  await seedFeaturedPrices();
 }
 
 main()

@@ -16,6 +16,7 @@ import { JwtAuthGuard } from '../../common/guards';
 import { CurrentUser } from '../../common/decorators';
 import { JwtUser } from '../auth/auth.types';
 import { ListingsService } from './listings.service';
+import { BillingService } from '../billing/billing.service';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { UpdateListingDto } from './dto/update-listing.dto';
 import { RecentListingsQueryDto } from './dto/recent-listings-query.dto';
@@ -24,7 +25,10 @@ import { RecentListingsQueryDto } from './dto/recent-listings-query.dto';
 @ApiBearerAuth('access-token')
 @Controller('listings')
 export class ListingsController {
-  constructor(private readonly listingsService: ListingsService) {}
+  constructor(
+    private readonly listingsService: ListingsService,
+    private readonly billingService: BillingService,
+  ) {}
 
   @Post()
   @UseGuards(JwtAuthGuard)
@@ -78,8 +82,23 @@ export class ListingsController {
     return this.listingsService.remove(id, user.userId);
   }
 
-  // Public — no auth required. Exact route registered before the parameterized
-  // one so NestJS resolves GET /listings before GET /listings/:slug.
+  // ---------------------------------------------------------------------------
+  // RF.6: Bump (§4)
+  // ---------------------------------------------------------------------------
+
+  @Post(':id/bump')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  bump(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+    return this.billingService.bump(id, user.userId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Public — no auth required
+  // ---------------------------------------------------------------------------
+
+  // Exact route registered before the parameterized one so NestJS resolves
+  // GET /listings before GET /listings/:slug.
   @Get()
   findRecent(@Query() query: RecentListingsQueryDto) {
     return this.listingsService.findRecent(query.page, query.perPage);

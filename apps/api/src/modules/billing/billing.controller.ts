@@ -15,7 +15,9 @@ import { CurrentUser } from '../../common/decorators';
 import { JwtUser } from '../auth/auth.types';
 import { BillingService } from './billing.service';
 import { CheckoutDto } from './dto/checkout.dto';
+import { FeaturedByCreditsDto } from './dto/featured-by-credits.dto';
 import { TransactionsQueryDto } from './dto/transactions-query.dto';
+import { WalletQueryDto } from './dto/wallet-query.dto';
 
 @ApiTags('Billing')
 @ApiBearerAuth('access-token')
@@ -49,5 +51,24 @@ export class BillingController {
   @Get('my-transactions')
   getMyTransactions(@CurrentUser() user: JwtUser, @Query() query: TransactionsQueryDto) {
     return this.billing.getMyTransactions(user.userId, query);
+  }
+
+  // ---------------------------------------------------------------------------
+  // RF.6: Featured by credits
+  // ---------------------------------------------------------------------------
+
+  @Post('featured-by-credits')
+  @HttpCode(HttpStatus.CREATED)
+  featuredByCredits(@CurrentUser() user: JwtUser, @Body() dto: FeaturedByCreditsDto) {
+    return this.billing.featuredByCredits(user.userId, dto);
+  }
+
+  // ---------------------------------------------------------------------------
+  // RF.6: Wallet
+  // ---------------------------------------------------------------------------
+
+  @Get('wallet')
+  getWallet(@CurrentUser() user: JwtUser, @Query() query: WalletQueryDto) {
+    return this.billing.getWallet(user.userId, query);
   }
 }
