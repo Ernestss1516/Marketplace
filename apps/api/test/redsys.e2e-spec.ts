@@ -10,7 +10,9 @@
  *   - Idempotency layer 2: processor guards on Transaction.status !== PENDING
  *   - Amount validation: mismatched Ds_Amount marks Transaction FAILED, wallet untouched
  *   - IVA breakdown: net + tax = gross for all pack prices (4.99 / 9.99 / 19.99)
- *   - Ds_Order uniqueness: 1 000 generated orders are all distinct
+ *   - Ds_Order format: each generated order is 12 chars, YYYYMMDD + 4 uppercase alphanum
+ *   - Ds_Order collision retry: P2002 on first attempt triggers retry; second attempt succeeds
+ *   - Ds_Order retry exhaustion: 3 consecutive collisions propagate the error
  *
  * What is NOT verified here:
  *   - Real HMAC signature generation / verification against Redsys
@@ -126,23 +128,98 @@ describe('Redsys — wallet accreditation (e2e)', () => {
     }
   });
 
-  // ── Ds_Order uniqueness ────────────────────────────────────────────────────
+  // ── Ds_Order format ────────────────────────────────────────────────────────
 
   describe('generateDsOrder', () => {
-    it('generates 1 000 unique orders with the correct format', () => {
-      const orders = new Set<string>();
-      for (let i = 0; i < 1000; i++) {
-        orders.add(redsysService.generateDsOrder());
-      }
-
-      expect(orders.size).toBe(1000);
-
-      for (const order of orders) {
-        // Must be 12 chars
+    it('produces correctly formatted orders (YYYYMMDD + 4 uppercase alphanum)', () => {
+      for (let i = 0; i < 20; i++) {
+        const order = redsysService.generateDsOrder();
         expect(order).toHaveLength(12);
-        // Must start with 8 digits (YYYYMMDD)
         expect(order).toMatch(/^\d{8}[A-Z0-9]{4}$/);
       }
+    });
+  });
+
+  // ── Ds_Order collision retry ────────────────────────────────────────────────
+
+  describe('createCreditPackCheckout — Ds_Order collision retry', () => {
+    const COLLIDING_ORDER = '20260627COLL';
+    const UNIQUE_ORDER    = '20260627UNIQ';
+
+    beforeEach(async () => {
+      await prisma.transaction.deleteMany({
+        where: { gatewayPaymentIntentId: { in: [COLLIDING_ORDER, UNIQUE_ORDER] } },
+      });
+    });
+
+    afterEach(async () => {
+      jest.restoreAllMocks();
+      await prisma.transaction.deleteMany({
+        where: { gatewayPaymentIntentId: { in: [COLLIDING_ORDER, UNIQUE_ORDER] } },
+      });
+    });
+
+    async function seedCollidingTransaction(): Promise<void> {
+      const tax = redsysTaxBreakdown(packBasicoAmountEur);
+      await prisma.transaction.create({
+        data: {
+          userId,
+          priceId: packBasicoPriceId,
+          ...tax,
+          status: TransactionStatus.PENDING,
+          gateway: 'REDSYS',
+          gatewayPaymentIntentId: COLLIDING_ORDER,
+        },
+      });
+    }
+
+    it('retries on Ds_Order collision, succeeds on second attempt, logs warning', async () => {
+      await seedCollidingTransaction();
+
+      jest
+        .spyOn(redsysService, 'generateDsOrder')
+        .mockReturnValueOnce(COLLIDING_ORDER)
+        .mockReturnValueOnce(UNIQUE_ORDER);
+
+      // Bypass Redsys credentials — only the Transaction creation path matters here
+      jest.spyOn(redsysService as any, 'buildForm').mockReturnValue({
+        Ds_MerchantParameters: 'mock',
+        Ds_SignatureVersion: 'HMAC_SHA256_V1',
+        Ds_Signature: 'mock',
+        tpvUrl: 'https://mock.tpv.redsys.com/',
+      });
+
+      const warnSpy = jest.spyOn((redsysService as any).logger, 'warn');
+
+      const result = await redsysService.createCreditPackCheckout(userId, { packId: packBasicoId });
+      expect(result.redsysFormData).toBeDefined();
+
+      // Transaction must have been persisted under the second (unique) Ds_Order
+      const tx = await prisma.transaction.findUnique({
+        where: { gatewayPaymentIntentId: UNIQUE_ORDER },
+      });
+      expect(tx).not.toBeNull();
+      expect(tx!.status).toBe(TransactionStatus.PENDING);
+
+      // The collision warning proves the retry path was actually exercised
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('collision on attempt 1'));
+    });
+
+    it('propagates P2002 after exhausting all 3 attempts when every Ds_Order collides', async () => {
+      await seedCollidingTransaction();
+
+      jest.spyOn(redsysService, 'generateDsOrder').mockReturnValue(COLLIDING_ORDER);
+
+      await expect(
+        redsysService.createCreditPackCheckout(userId, { packId: packBasicoId }),
+      ).rejects.toMatchObject({ code: 'P2002' });
+
+      // No new Transaction was created — only the pre-seeded one exists
+      const count = await prisma.transaction.count({
+        where: { gatewayPaymentIntentId: COLLIDING_ORDER },
+      });
+      expect(count).toBe(1);
     });
   });
 
