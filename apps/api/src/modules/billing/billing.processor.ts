@@ -92,6 +92,18 @@ function periodFromSubscription(sub: Stripe.Subscription): { start: Date; end: D
 }
 
 // ---------------------------------------------------------------------------
+// Stripe v22 — invoice.parent structure (not yet in SDK typedefs)
+// ---------------------------------------------------------------------------
+
+interface InvoiceParentV22 {
+  type?: string;
+  subscription_details?: {
+    subscription?: string | null;
+    metadata?: Record<string, string> | null;
+  } | null;
+}
+
+// ---------------------------------------------------------------------------
 // Processor
 // ---------------------------------------------------------------------------
 
@@ -252,12 +264,20 @@ export class BillingProcessor extends WorkerHost {
   // ---------------------------------------------------------------------------
 
   private async handleInvoiceSucceeded(invoice: Stripe.Invoice): Promise<void> {
-    // In v22 the subscription reference lives on the first line item.
+    // Stripe v22: subscription ID moved to invoice.parent.subscription_details.subscription
+    // for the first invoice of a new subscription. Renewal invoices still populate
+    // InvoiceLineItem.subscription. Read both and take whichever is present.
+    const parent = (invoice as unknown as { parent?: InvoiceParentV22 }).parent;
+    const parentSubscriptionId = parent?.subscription_details?.subscription ?? undefined;
+
     const firstLine = invoice.lines?.data[0];
-    const gatewaySubscriptionId = firstLine ? subscriptionIdFromLine(firstLine) : undefined;
+    const lineSubscriptionId = firstLine ? subscriptionIdFromLine(firstLine) : undefined;
+
+    const gatewaySubscriptionId = parentSubscriptionId ?? lineSubscriptionId;
 
     if (!gatewaySubscriptionId) {
-      // One-time invoice (no subscription); skip — Transaction was created in checkout.completed.
+      // One-time invoice (no subscription link in either source); skip.
+      // The Transaction was already created in handleOneTimePayment.
       return;
     }
 
