@@ -558,6 +558,47 @@ Una sola migración añade los modelos `AuditLog` y `Setting`. Detalles relevant
 
 ### UserStatus aplicado en login y en el guard JWT (Fase 7 — deuda cerrada)
 
+### Stripe v22: subscription de la primera factura en `invoice.parent` (RF.3)
+
+En Stripe API versión `2026-06-24.dahlia` (v22), para la **primera factura** de una
+suscripción nueva, el subscription ID **no** está en `invoice.lines.data[0].subscription`
+(sale `undefined`), sino en `invoice.parent.subscription_details.subscription`.
+
+El handler `handleInvoiceSucceeded` de `BillingProcessor` tenía un bug por esto: al no
+encontrar el subscription ID en los line items hacía un early return sin crear la
+`Transaction`. El resultado era que el acceso Pro se concedía (Subscription + Entitlement)
+pero faltaba la traza contable con desglose de IVA. Corregido en RF.3:
+
+```typescript
+// Interfaz local — invoice.parent no está en el tipo Invoice del SDK v22.
+interface InvoiceParentV22 {
+  type?: string;
+  subscription_details?: { subscription?: string | null; metadata?: Record<string, string> | null } | null;
+}
+
+const parent = (invoice as unknown as { parent?: InvoiceParentV22 }).parent;
+const parentSubscriptionId = parent?.subscription_details?.subscription ?? undefined;
+const lineSubscriptionId   = firstLine ? subscriptionIdFromLine(firstLine) : undefined;
+// Primera factura → parentSubscriptionId. Renovaciones → lineSubscriptionId.
+const gatewaySubscriptionId = parentSubscriptionId ?? lineSubscriptionId;
+```
+
+El metadata `{ userId, priceId }` también vive en
+`invoice.parent.subscription_details.metadata` (propagado de `subscription_data.metadata`
+al crear la sesión de checkout). `invoice.parent` requiere cast doble
+(`as unknown as { parent?: InvoiceParentV22 }`) porque el SDK no lo expone todavía.
+
+**Patrón a recordar en v22:** los datos de suscripción de la primera factura están en
+`invoice.parent`, no en los line items. Las facturas de renovación siguen usando
+`line.subscription`.
+
+**Estado de RF.3:** implementada y **verificada con Stripe CLI** (checkout real →
+webhooks → Subscription + Entitlement + Transaction con IVA 21 % correcto:
+`9,99 = 8,26 base + 1,73 IVA` + idempotencia confirmada con evento reenviado).
+**Pendiente de verificar:** la renovación de suscripción (segunda factura, fallback a
+`line0.subscription`) — no ejercida aún; requiere test clock de Stripe o esperar al
+segundo ciclo de facturación.
+
 Tanto SUSPENDED como BANNED bloquean el acceso con el mismo comportamiento técnico
 (403 Forbidden), diferenciado únicamente en el mensaje al usuario. No se distingue
 semánticamente en la API porque añadiría edge cases (p.ej. "SUSPENDED puede leer pero
@@ -652,6 +693,28 @@ La captura de errores de cliente está implementada (`instrumentation-client.ts`
 `global-error.tsx`) y verificada en desarrollo (silenciosa con DSN vacío). La
 integración real queda por confirmar en staging con `NEXT_PUBLIC_SENTRY_DSN` activo
 (ver §2 — Observabilidad: Sentry). Ambas variables documentadas en `.env.example`.
+
+### SINCRONIZACIÓN CATÁLOGO ↔ STRIPE: falta comando de bootstrap (prioridad media-alta)
+
+Los `Price` sembrados por el seed de RF.2 tienen `gatewayPriceId = null`. El checkout
+de Stripe falla con `"must provide one of price"` hasta que el campo se rellena con el
+Price ID real de Stripe (`price_...`, creado en el dashboard). Para verificar RF.3 se
+hizo a mano.
+
+No es sostenible: cada entorno (dev local, otro portátil, staging, producción) tiene el
+mismo problema desde cero. Falta un comando/script idempotente (`sync-stripe-catalog` o
+equivalente) que:
+
+1. Lee los `Product` y `Price` de BD (sembrados por el seed).
+2. Los crea en Stripe vía API (`stripe.products.create`, `stripe.prices.create`) si no
+   existen aún para ese entorno.
+3. Escribe el `gatewayPriceId` resultante de vuelta en BD. Idempotente: si `gatewayPriceId`
+   ya está relleno, no crea un duplicado en Stripe.
+
+Candidato a ráfaga corta antes de RF.9 (frontend Pro) o como parte del pulido de billing.
+Los `Price` de Redsys (RF.4/RF.5) no necesitan `gatewayPriceId` del mismo modo (Redsys
+no tiene catálogo de productos en su API), pero sí requieren que `CreditPack` y sus
+`Price` estén sembrados correctamente en cada entorno antes de lanzar cualquier pago.
 
 ---
 
