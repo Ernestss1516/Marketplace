@@ -1,72 +1,98 @@
-# Diseño del sistema de facturación — RF.1
+# Diseño del sistema de facturación — revisión 2
 
-> **Fase:** Hito 2 · Ráfaga RF.1 (diseño)
-> **Fecha:** 2026-06-24
-> **Estado:** Aprobado — pendiente de implementación (RF.2+)
+> **Fase:** Hito 4 · Revisión 2 del diseño de monetización
+> **Fecha:** 2026-06-26
+> **Estado:** Aprobado — pendiente de implementación RF.4+
 >
-> Este documento es diseño, no implementación. La implementación de cada ráfaga
-> (schema, módulos, frontend) se abordará en sesiones sucesivas.
+> Este documento reemplaza la revisión 1 (2026-06-24). Las ráfagas RF.2 y RF.3
+> ya están implementadas y commitadas; lo nuevo empieza en RF.4.
 
 ---
 
-## 0. Auditoría del estado actual
+## 0. Estado al inicio de esta revisión
 
-El MVP (Hito 1) no implementa ningún componente de facturación. Verificado:
+### 0.1 Qué hay implementado
 
-| Recurso | Estado |
-|---|---|
-| Schema Prisma | Sin modelos de pago, suscripción, entitlement o producto |
-| Módulos NestJS | Sin `billing`, `payments`, `subscriptions`, ni `entitlements` |
-| Meilisearch | Sin campo `boostScore` en documentos; sin ranking rule de boost |
-| Variables de entorno | Sin `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` ni similares |
-| Frontend | Sin páginas de planes, checkout ni gestión de facturación |
-
-El sistema parte de cero. Todo lo que sigue requiere nueva implementación.
-
----
-
-## 1. Productos y catálogo de precios
-
-### 1.1 Destacado de anuncio (pago único)
-
-Un usuario paga para destacar un anuncio concreto durante un período fijo. El anuncio
-aparece con mayor visibilidad en los resultados de búsqueda y listados (ver §5).
-
-| Variante | Precio | Duración |
+| Ráfaga | Contenido | Estado |
 |---|---|---|
-| Destacado 7 días | 2,99 € | 7 días desde el pago |
-| Destacado 14 días | 4,99 € | 14 días desde el pago |
-| Destacado 30 días | 7,99 € | 30 días desde el pago |
+| **RF.2** | Schema `add_billing`: 6 modelos (`Product`, `Price`, `Entitlement`, `Subscription`, `Transaction`, `GatewayEvent`) + `User.stripeCustomerId` | ✅ Implementada |
+| **RF.3** | `BillingModule` NestJS: checkout Pro (Stripe Checkout), `StripeWebhookGuard`, `BillingProcessor` (5 eventos Stripe), `EntitlementService` | ✅ Implementada |
 
-Todos los importes son IVA incluido (base imponible + 21 % IVA). Los precios son
-orientativos y se almacenan en base de datos (`Price.amount`), no en el código.
+### 0.2 Qué cambia en esta revisión
 
-**Restricciones de negocio:**
-- Solo se puede destacar un anuncio en estado `ACTIVE`.
-- Un anuncio puede tener como máximo un destacado activo en todo momento.
-- Al vencer el destacado, el anuncio sigue publicado y activo; solo deja de tener boost.
+| Aspecto | Diseño v1 | Diseño v2 |
+|---|---|---|
+| Pasarelas | Solo Stripe | Stripe (Pro) + Redsys (créditos + destacado directo) |
+| Productos | Destacado (ONE_TIME) + Pro (RECURRING) | + Packs de créditos; + Bump |
+| Wallet | No existía | Nuevo: `Wallet` + `CreditLedger` + `CreditPack` |
+| Bump | No existía | Nuevo: `bumpedAt` en `Listing`; límite 1/hora; créditos |
+| Destacado | Solo pago Stripe | Dos vías: créditos O pago directo Redsys |
+| Meilisearch | Solo `boostScore` | `boostScore` (featured) + `sortDate` (bump), ortogonales |
 
-### 1.2 Plan Pro (suscripción recurrente)
+Los 6 modelos de RF.2 son agnósticos de pasarela y se conservan íntegros. Solo se extienden.
 
-Un usuario suscrito a Pro obtiene un conjunto de derechos ampliados sobre su cuenta.
+---
+
+## 1. Catálogo de productos y acciones
+
+### 1.1 Packs de créditos
+
+Los créditos son unidades internas abstractas sin valor € fijo (el valor real lo determina el precio del pack). **No caducan. No son reembolsables.**
+
+La compra del pack es el único hecho imponible asociado a los créditos: se factura IVA en ese momento. Gastar créditos es un movimiento interno sin nueva factura.
+
+| Pack | Créditos | Precio orientativo (IVA incluido) |
+|---|---|---|
+| Pack Básico | 50 | 4,99 € |
+| Pack Estándar | 150 | 9,99 € |
+| Pack Max | 400 | 19,99 € |
+
+Valores en BD (`Price.amount`, `CreditPack.creditAmount`), no en código. Configurables desde backoffice.
+
+### 1.2 Destacado de anuncio
+
+**Dos vías de pago que producen exactamente el mismo efecto**: un `Entitlement FEATURED_LISTING` con la misma duración y el mismo boost. No hay diferencia visible para el usuario ni para el sistema de entitlements.
+
+| Variante | Vía Redsys | Vía créditos |
+|---|---|---|
+| 7 días | 2,99 € | 30 créditos |
+| 14 días | 4,99 € | 50 créditos |
+| 30 días | 7,99 € | 100 créditos |
+
+Los costes en créditos viven en `Setting` (`featuredCreditCost7d`, `featuredCreditCost14d`, `featuredCreditCost30d`), inicializados por el seed.
+
+**Restricciones (idénticas en ambas vías):**
+- Solo anuncios en estado `ACTIVE` del propio usuario.
+- Un anuncio solo puede tener un destacado activo en todo momento.
+- Al vencer el destacado el anuncio permanece publicado; solo deja de tener boost.
+
+### 1.3 Bump (refrescar anuncio)
+
+Empujón puntual de recencia: sube el anuncio al top de los listados sin boost sostenido. Solo vía créditos. Independiente del destacado (ambos pueden estar activos simultáneamente).
+
+| Coste | Límite | Efecto |
+|---|---|---|
+| 5 créditos (configurable en `Setting.bumpCreditCost`) | 1 bump/hora por anuncio (límite duro) | `Listing.bumpedAt = now()` |
+
+El límite se aplica únicamente a los bumps realizados con éxito. Los intentos fallidos (saldo insuficiente, anuncio no activo) **no** consumen el cooldown.
+
+### 1.4 Plan Pro (solo Stripe)
+
+Suscripción recurrente gestionada íntegramente por Stripe. Completamente independiente del sistema de créditos: no regala créditos ni otorga descuentos en packs.
 
 | Variante | Precio | Ciclo |
 |---|---|---|
-| Pro Mensual | 9,99 € / mes | Mensual, renovación automática |
-| Pro Anual | 89,99 € / año (~7,50 €/mes) | Anual, renovación automática |
+| Pro Mensual | 9,99 €/mes | Mensual, renovación automática |
+| Pro Anual | 89,99 €/año (~7,50 €/mes) | Anual, renovación automática |
 
-**Derechos del Plan Pro (`PRO_SUBSCRIPTION`):**
+**Derechos `PRO_SUBSCRIPTION`:**
 
-| Derecho | Plan Free | Plan Pro |
+| Derecho | Free | Pro |
 |---|---|---|
 | Anuncios activos simultáneos | 5 | 20 |
 | Fotos por anuncio | 4 | 10 |
-| Badge "Pro" en el perfil público | — | ✓ |
-| Estadísticas de visitas del anuncio | — | ✓ (usa `viewCount` ya existente) |
-
-Los límites del plan Free se aplican en el service de listings (`ListingsService`):
-al publicar un anuncio, se comprueba el número de anuncios ACTIVE del usuario
-y si tiene el entitlement `PRO_SUBSCRIPTION` activo; si excede el límite → 403.
+| Badge "Pro" en perfil público | — | ✓ |
+| Estadísticas de visitas | — | ✓ |
 
 ---
 
@@ -75,712 +101,685 @@ y si tiene el entitlement `PRO_SUBSCRIPTION` activo; si excede el límite → 40
 ### 2.1 Diagrama de relaciones
 
 ```
-User ──── Subscription ──── Price ──── Product
-  │              │
-  │         Entitlement
-  │              │
-  ├── Transaction ┘
-  │        │
-  │    (listingId)
-  │        │
-  └── Listing
+User ──── Wallet ──── CreditLedger  (libro contable inmutable)
+  │
+  ├── Subscription ──── Price ──── Product
+  │         │                └──── CreditPack  (si Price es de un pack)
+  │    Entitlement
+  │         │
+  ├── Transaction  (solo cobros reales con dinero; Stripe o Redsys)
+  │         │
+  └── Listing ──── (bumpedAt)
 
-GatewayEvent  (tabla de idempotencia, independiente)
+GatewayEvent  (idempotencia; sirve para Stripe y Redsys con campo gateway)
 ```
 
-### 2.2 Modelos Prisma
-
-> **Nota de implementación (RF.2):** El schema completo se añade en una sola
-> migración `add_billing` que no altera modelos existentes, salvo agregar
-> `stripeCustomerId` a `User` y las relaciones opcionales en `Listing`.
+### 2.2 Modelos y enums nuevos (migración RF.4)
 
 ```prisma
 // ============================================================================
-//  ENUMS DE FACTURACIÓN
+//  ENUM NUEVO
 // ============================================================================
 
-enum ProductType {
-  ONE_TIME    // Pago único (destacado de anuncio)
-  RECURRING   // Suscripción recurrente (Plan Pro)
-}
-
-enum PriceInterval {
-  MONTH
-  YEAR
-}
-
-enum SubscriptionStatus {
-  ACTIVE      // Activa y se renovará automáticamente
-  CANCELING   // Cancelada por el usuario; sigue activa hasta currentPeriodEnd
-  CANCELED    // Expirada definitivamente
-  PAST_DUE    // Pago fallido; en período de reintento por la pasarela
-}
-
-enum TransactionStatus {
-  PENDING           // Esperando confirmación de la pasarela
-  SUCCEEDED         // Cobro confirmado
-  FAILED            // Cobro fallido definitivamente
-  REFUNDED          // Devuelto íntegramente
-  PARTIALLY_REFUNDED
-}
-
-enum EntitlementType {
-  PRO_SUBSCRIPTION  // Acceso al Plan Pro (nivel de usuario)
-  FEATURED_LISTING  // Anuncio destacado (nivel de anuncio)
+enum CreditLedgerType {
+  PACK_PURCHASE   // Compra de pack de créditos → entrada (positivo)
+  FEATURED_DEBIT  // Destacado pagado con créditos → salida (negativo)
+  BUMP_DEBIT      // Bump pagado con créditos → salida (negativo)
+  ADMIN_CREDIT    // Acreditación manual de soporte → entrada
+  ADMIN_DEBIT     // Débito manual de soporte → salida
 }
 
 // ============================================================================
-//  CATÁLOGO
+//  MODELOS NUEVOS
 // ============================================================================
 
-/// Producto comercial. Los precios concretos viven en Price.
-/// Los productos no se eliminan físicamente; se desactivan (active = false).
-model Product {
-  id          String      @id @default(cuid())
-  name        String      // "Destacado 7 días", "Plan Pro Mensual"…
-  description String?     @db.Text
-  type        ProductType
+/// Pack de créditos comprable. El precio en EUR vive en el Price asociado.
+/// Los costes de gastar créditos (featured, bump) viven en Setting.
+model CreditPack {
+  id           String   @id @default(cuid())
+  name         String   // "Pack Básico", "Pack Estándar", "Pack Max"
+  description  String?  @db.Text
+  /// Créditos que el usuario recibe al comprar este pack.
+  creditAmount Int
+  active       Boolean  @default(true)
 
-  /// Cuando active=false, el producto no se ofrece en nuevas compras
-  /// pero sus Prices y Entitlements existentes siguen vigentes.
-  active      Boolean     @default(true)
+  /// El Price asociado apunta a este pack vía creditPackId.
+  price        Price?
 
-  prices      Price[]
-
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }
 
-/// Variante de precio de un producto. Una variante = una opción de compra.
-model Price {
-  id            String         @id @default(cuid())
-  productId     String
-  product       Product        @relation(fields: [productId], references: [id])
-
-  amount        Decimal        @db.Decimal(10, 2)  // Importe bruto (IVA incluido) en EUR
-  currency      String         @default("EUR")
-
-  // Solo para RECURRING
-  interval      PriceInterval?
-  intervalCount Int?           @default(1)   // 1 mes, 1 año, …
-
-  // Solo para ONE_TIME (destacado)
-  durationDays  Int?           // 7, 14 o 30
-
-  /// IDs del objeto equivalente en la pasarela (Stripe Price ID).
-  /// Nunca se borran aunque el Price se desactive, para mantener trazabilidad.
-  gatewayPriceId String?       @unique
-
-  active        Boolean        @default(true)
-
-  transactions  Transaction[]
-  subscriptions Subscription[]
-  entitlements  Entitlement[]
-
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-
-  @@index([productId])
-}
-
-// ============================================================================
-//  ENTITLEMENTS (derechos efectivos del usuario)
-// ============================================================================
-
-/// Registro de un derecho activo. Es la única tabla que lee la lógica de negocio
-/// para decidir si un usuario puede hacer algo. No conoce la pasarela.
+/// Saldo de créditos de un usuario. Una fila por usuario.
 ///
-/// Un entitlement es válido cuando:
-///   expiresAt IS NULL OR expiresAt > now()
-///
-/// La lógica de negocio NO lee Subscription ni Transaction para decidir si
-/// un usuario tiene Pro; solo lee Entitlement. Esto desacopla la pasarela
-/// del dominio.
-model Entitlement {
-  id             String          @id @default(cuid())
-  userId         String
-  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+/// INVARIANTE: balance >= 0. Nunca se vuelve negativo.
+/// El débito atómico via UPDATE ... WHERE balance >= N garantiza este invariante
+/// sin serializable isolation. Ver §3.2 para el patrón.
+model Wallet {
+  id        String         @id @default(cuid())
+  userId    String         @unique
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  type           EntitlementType
+  /// Saldo en créditos enteros. Fuente de verdad del saldo actual.
+  /// Debe ser siempre consistente con la suma de todos sus CreditLedger.entries.
+  balance   Int            @default(0)
 
-  /// Solo para FEATURED_LISTING: anuncio al que aplica el boost.
-  listingId      String?
-  listing        Listing?        @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  entries   CreditLedger[]
 
-  startsAt       DateTime        @default(now())
-  /// Null = sin caducidad (reservado para créditos manuales de soporte).
-  /// Para cobros normales siempre se fija.
-  expiresAt      DateTime?
-
-  // Trazabilidad del origen
-  priceId        String?
-  price          Price?          @relation(fields: [priceId], references: [id])
-  transactionId  String?
-  transaction    Transaction?    @relation(fields: [transactionId], references: [id])
-  subscriptionId String?
-  subscription   Subscription?   @relation(fields: [subscriptionId], references: [id])
-
-  createdAt      DateTime        @default(now())
-
-  @@index([userId, type])
-  @@index([listingId])
-  @@index([expiresAt])   // para el cron de expiración
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
 }
 
-// ============================================================================
-//  SUSCRIPCIONES
-// ============================================================================
+/// Registro inmutable de cada movimiento de créditos.
+/// NUNCA se modifica ni se borra una fila de esta tabla.
+/// amount > 0 = crédito (suma); amount < 0 = débito (resta).
+model CreditLedger {
+  id            String           @id @default(cuid())
+  walletId      String
+  wallet        Wallet           @relation(fields: [walletId], references: [id])
 
-/// Estado de una suscripción recurrente. Una sola suscripción activa por usuario.
-model Subscription {
-  id                    String             @id @default(cuid())
-  userId                String
-  user                  User               @relation(fields: [userId], references: [id], onDelete: Restrict)
+  type          CreditLedgerType
 
-  priceId               String
-  price                 Price              @relation(fields: [priceId], references: [id])
+  /// Positivo = crédito (suma al saldo); negativo = débito (resta al saldo).
+  amount        Int
 
-  status                SubscriptionStatus @default(ACTIVE)
+  /// Referencia polimórfica al recurso que originó el movimiento.
+  /// Transaction.id para compras; Entitlement.id para destacados; Listing.id para bumps.
+  referenceId   String?
+  referenceType String?          // "Transaction" | "Entitlement" | "Listing"
 
-  currentPeriodStart    DateTime
-  currentPeriodEnd      DateTime
+  note          String?
 
-  /// true cuando el usuario ha cancelado pero el período sigue activo.
-  cancelAtPeriodEnd     Boolean            @default(false)
-  canceledAt            DateTime?
+  createdAt     DateTime         @default(now())
 
-  /// ID de la suscripción en Stripe. Inmutable tras la creación.
-  gatewaySubscriptionId String             @unique
-
-  entitlements          Entitlement[]
-
-  createdAt             DateTime           @default(now())
-  updatedAt             DateTime           @updatedAt
-
-  @@index([userId])
-  @@index([status])
-  @@index([currentPeriodEnd])
-}
-
-// ============================================================================
-//  TRANSACCIONES (registro contable inmutable)
-// ============================================================================
-
-/// Registro permanente de cada cobro. NUNCA se borra ni se modifica el importe.
-/// En caso de reembolso se añade una transacción con status REFUNDED.
-model Transaction {
-  id           String            @id @default(cuid())
-  userId       String
-  user         User              @relation(fields: [userId], references: [id], onDelete: Restrict)
-
-  priceId      String
-  price        Price             @relation(fields: [priceId], references: [id])
-
-  // Desglose económico en el momento del cobro
-  amountGross  Decimal           @db.Decimal(10, 2)  // Total cobrado (IVA incluido)
-  amountNet    Decimal           @db.Decimal(10, 2)  // Base imponible
-  taxAmount    Decimal           @db.Decimal(10, 2)  // Cuota IVA
-  taxRate      Decimal           @db.Decimal(5, 4)   // 0.2100 = 21 %
-  currency     String            @default("EUR")
-
-  status       TransactionStatus @default(PENDING)
-
-  /// Referencias de la pasarela. NUNCA se almacenan PANs, CVVs ni datos de tarjeta.
-  gatewayPaymentIntentId String?  @unique
-  gatewayInvoiceId       String?  @unique
-  gatewayChargeId        String?
-
-  /// Hueco para el sistema de facturación fiscal externo (ver §7).
-  /// El número de factura lo asigna el sistema externo (Holded, etc.), no Stripe.
-  invoiceNumber  String?   // Número correlativo de factura fiscal española
-  invoiceUrl     String?   // URL del PDF generado por el sistema externo
-
-  // Contexto del cobro
-  subscriptionId String?
-  subscription   Subscription? @relation(fields: [subscriptionId], references: [id])
-
-  /// Solo en destacados: anuncio al que corresponde el cobro.
-  listingId      String?
-  listing        Listing?      @relation(fields: [listingId], references: [id], onDelete: SetNull)
-
-  entitlements   Entitlement[]
-
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-
-  @@index([userId])
-  @@index([status])
+  @@index([walletId])
   @@index([createdAt])
 }
-
-// ============================================================================
-//  IDEMPOTENCIA DE WEBHOOKS
-// ============================================================================
-
-/// Tabla de registro de eventos ya procesados de la pasarela.
-/// Garantiza que un webhook duplicado no tenga efectos secundarios.
-/// Solo se escribe; nunca se actualiza ni se borra.
-model GatewayEvent {
-  id             String   @id @default(cuid())
-
-  /// ID único del evento en la pasarela (p.ej. "evt_1ABC..." en Stripe).
-  /// El constraint UNIQUE es el mecanismo de idempotencia.
-  gatewayEventId String   @unique
-
-  eventType      String   // "checkout.session.completed", "invoice.payment_succeeded"…
-
-  processedAt    DateTime @default(now())
-
-  @@index([processedAt])
-}
 ```
 
-### 2.3 Cambios en modelos existentes
+### 2.3 Cambios en modelos existentes (misma migración)
 
 ```prisma
-// En model User — añadir:
-stripeCustomerId  String?  @unique   // Referencia al Customer de Stripe; null hasta el primer pago
+// ── Price ───────────────────────────────────────────────────────────────────
+// Añadir FK opcional a CreditPack.
+// Solo los Price de packs de créditos tienen este campo no nulo.
+creditPackId  String?    @unique
+creditPack    CreditPack? @relation(fields: [creditPackId], references: [id])
 
-// Relaciones nuevas en User:
-entitlements   Entitlement[]
-subscriptions  Subscription[]
-transactions   Transaction[]
+// ── Listing ──────────────────────────────────────────────────────────────────
+// Un solo campo cumple dos funciones:
+//   1. Límite de 1 bump/hora: (now() - bumpedAt) < 3600 s → rechazar.
+//   2. Orden por recencia artificial: GREATEST(publishedAt, bumpedAt).
+bumpedAt  DateTime?
 
-// Relaciones nuevas en Listing:
-entitlements   Entitlement[]
-transactions   Transaction[]
+// ── Transaction ──────────────────────────────────────────────────────────────
+// Pasarela que procesó el cobro.
+// Solo las compras con dinero real generan Transaction; los gastos de créditos
+// generan únicamente un CreditLedger (no son hechos imponibles).
+gateway  String  @default("STRIPE")   // "STRIPE" | "REDSYS"
+
+// ── GatewayEvent ─────────────────────────────────────────────────────────────
+// Distingue el origen del evento para trazabilidad.
+// "STRIPE" → gatewayEventId es el event.id de Stripe (p.ej. "evt_1ABC...")
+// "REDSYS" → gatewayEventId es el Ds_Order generado por nosotros
+gateway  String  @default("STRIPE")   // "STRIPE" | "REDSYS"
+
+// ── User ─────────────────────────────────────────────────────────────────────
+// Relación con el nuevo Wallet.
+wallet  Wallet?
 ```
 
-### 2.4 Migración Prisma
+### 2.4 Migración Prisma (RF.4)
 
-Una sola migración: `add_billing`
+Una sola migración nueva: `add_wallet_and_bump`
 
 ```
 apps/api/prisma/migrations/
-  YYYYMMDDHHMMSS_add_billing/
+  YYYYMMDDHHMMSS_add_wallet_and_bump/
     migration.sql
 ```
 
-La migración añade los 6 modelos nuevos y los campos nuevos en `User` y `Listing`.
-No altera datos existentes ni rompe compatibilidad con el código actual.
+Añade el enum `CreditLedgerType`, los modelos `CreditPack` / `Wallet` / `CreditLedger`, y los campos nuevos en `Price`, `Listing`, `Transaction`, `GatewayEvent` y `User`. No altera filas existentes.
+
+**Seed de RF.4:** crea los packs de créditos en `CreditPack` + sus `Price`; añade en `Setting` los costes de créditos (`featuredCreditCost7d/14d/30d`, `bumpCreditCost`). Todos idempotentes (`upsert` o `skipDuplicates`).
 
 ---
 
-## 3. Endpoints previstos
+## 3. Operación unificada "conceder destacado"
 
-### 3.1 Módulo `billing` (nuevo)
+### 3.1 El principio
+
+Existe **una sola operación de dominio** que concede el destacado, y **dos authorization paths** que la invocan. El efecto es idéntico por construcción: no hay dos caminos paralelos que casualmente hacen lo mismo.
 
 ```
-GET  /billing/products                → Lista de productos activos con precios
-POST /billing/checkout                → Crea Checkout Session de Stripe
-GET  /billing/my-subscriptions        → Suscripciones del usuario autenticado
-POST /billing/cancel-subscription/:id → Cancela al final del período
-GET  /billing/my-entitlements         → Entitlements activos del usuario
-GET  /billing/my-transactions         → Historial de transacciones (paginado)
+vía créditos   ──┐
+                  ├──► grantFeaturedListing(params)  ──► Entitlement FEATURED_LISTING
+vía Redsys     ──┘                                        (mismo expiresAt, mismo boost)
 ```
 
-**`POST /billing/checkout`** — Body:
+### 3.2 `grantFeaturedListing` — la operación central
+
+```typescript
+interface GrantFeaturedParams {
+  userId: string;
+  listingId: string;
+  durationDays: number;
+  priceId: string;          // Price de la variante elegida
+  transactionId?: string;   // Solo cuando la vía es Redsys (cobro real)
+}
+```
+
+Esta función en `BillingService`:
+
+1. Verifica que el anuncio está `ACTIVE` y pertenece a `userId`. → 403 si no.
+2. Verifica que no hay un `Entitlement FEATURED_LISTING` activo para ese listing. → 400 si ya existe.
+3. Crea `Entitlement { type: FEATURED_LISTING, userId, listingId, expiresAt: now + durationDays, priceId, transactionId? }`.
+4. Encola job `index` en BullMQ (el `IndexingProcessor` recalculará `boostScore = 1`).
+
+`grantFeaturedListing` **no sabe cómo se pagó**. Solo recibe el resultado validado.
+
+### 3.3 Vía créditos — `featuredByCredits`
+
+```
+1. Leer durationDays del Price elegido.
+2. Leer coste de Setting (featuredCreditCost{N}d).
+3. Débito atómico en Wallet (dentro de una transacción Postgres):
+
+     result = await prisma.$executeRaw`
+       UPDATE "Wallet" SET balance = balance - ${cost}
+       WHERE "userId" = ${userId} AND balance >= ${cost}
+     `;
+     if (result === 0) throw new InsufficientCreditsException(); // 402
+
+4. Crear CreditLedger { type: FEATURED_DEBIT, amount: -cost,
+                        referenceType: "Listing", referenceId: listingId }.
+5. Llamar a grantFeaturedListing({ userId, listingId, durationDays, priceId }).
+   (sin transactionId: no hay cobro en dinero)
+```
+
+El `UPDATE`, el `CreditLedger` y el `Entitlement` se escriben en la misma transacción Postgres. Si `grantFeaturedListing` falla (p.ej., ya había un destacado activo), el rollback devuelve los créditos. El usuario nunca pierde créditos por un destacado que no se concedió.
+
+### 3.4 Vía Redsys — `featuredByRedsys`
+
+```
+[Dentro de RedsysProcessor, tras confirmar Ds_Response = "0000"]
+
+1. Recuperar Transaction PENDING donde gatewayPaymentIntentId = Ds_Order.
+2. Actualizar Transaction.status = SUCCEEDED, Transaction.gateway = "REDSYS".
+3. Extraer { userId, listingId, priceId, durationDays } de Transaction.metadata
+   (guardado antes del redirect).
+4. Llamar a grantFeaturedListing({ userId, listingId, durationDays, priceId,
+                                    transactionId: transaction.id }).
+```
+
+No hay débito de créditos. La `Transaction` deja la traza del cobro en EUR con desglose de IVA.
+
+---
+
+## 4. Bump (refrescar anuncio)
+
+### 4.1 Flujo completo
+
+```
+POST /listings/:id/bump  (JwtAuthGuard; usuario propietario del anuncio)
+│
+├── 1. Leer Listing. Si no existe → 404. Si sellerId ≠ userId → 403.
+│       Si status ≠ ACTIVE → 400 ("Solo se pueden bumpar anuncios publicados").
+│
+├── 2. Comprobar cooldown:
+│       Si Listing.bumpedAt != null Y (now() - bumpedAt) < 3600 s:
+│         → 429 Too Many Requests
+│             Retry-After: ceil((bumpedAt + 3600s - now()) en segundos)
+│
+├── 3. Leer coste de Setting: bumpCreditCost (por defecto 5).
+│
+├── 4. Débito atómico en Wallet (misma técnica que §3.3):
+│       UPDATE "Wallet" SET balance = balance - :cost WHERE "userId" = :userId AND balance >= :cost
+│       → 0 filas → 402 Insufficient Credits
+│
+├── 5. En la misma transacción Postgres:
+│       - Crear CreditLedger { type: BUMP_DEBIT, amount: -cost,
+│                              referenceType: "Listing", referenceId: listingId }.
+│       - UPDATE Listing SET bumpedAt = now() WHERE id = :listingId.
+│
+├── 6. Encolar job index en BullMQ (IndexingProcessor recalcula sortDate).
+│
+└── 7. Responder 200 { bumpedAt: <nueva fecha> }.
+```
+
+### 4.2 El campo `bumpedAt` cumple dos funciones con un solo campo
+
+| Función | Lectura |
+|---|---|
+| Límite de 1 bump/hora | `(now() - bumpedAt) < 3600 s` → rechazar |
+| Orden por recencia artificial | `GREATEST(publishedAt, COALESCE(bumpedAt, '1970-01-01'))` en Postgres; `sortDate` en Meilisearch |
+
+Un único campo es suficiente. **Los intentos fallidos no actualizan `bumpedAt`**: si el usuario no tiene saldo o el anuncio no está en estado válido, el campo no cambia y el cooldown no se consume.
+
+---
+
+## 5. Plan Pro (Stripe — diseño conservado de RF.3)
+
+El Plan Pro se gestiona íntegramente por Stripe. Es el único producto de la plataforma que pasa por Stripe.
+
+Los cinco webhooks de Stripe ya implementados en `BillingProcessor` (RF.3):
+
+| Evento Stripe | Acción |
+|---|---|
+| `checkout.session.completed` | Inicio de suscripción: crear `Subscription` + `Entitlement PRO_SUBSCRIPTION` |
+| `invoice.payment_succeeded` | Renovación: crear `Transaction` (gateway="STRIPE") + actualizar `Subscription.currentPeriodEnd` + extender `Entitlement.expiresAt` |
+| `invoice.payment_failed` | `Subscription.status = PAST_DUE` |
+| `customer.subscription.updated` | Actualizar estado de la `Subscription` |
+| `customer.subscription.deleted` | `Subscription.status = CANCELED` |
+
+Solo se añade `gateway: "STRIPE"` a las `Transaction` que el processor ya crea.
+
+---
+
+## 6. Enrutado de pasarelas
+
+Determinista por tipo de acción. No hace falta una interfaz `PaymentGateway` genérica; el endpoint ya determina la pasarela.
+
+| Acción | Pasarela | Módulo responsable |
+|---|---|---|
+| Compra de pack de créditos | Redsys | `RedsysModule` (nuevo, RF.5) |
+| Destacado por pago directo | Redsys | `RedsysModule` |
+| Destacado por créditos | Wallet interno | `BillingService` |
+| Bump | Wallet interno | `BillingService` |
+| Plan Pro (mensual/anual) | Stripe | `BillingModule` (RF.3, ya implementado) |
+
+Endpoints diferenciados por pasarela:
+
+```
+POST /billing/checkout/credits-pack   → genera form Redsys para pack
+POST /billing/checkout/featured-pay   → genera form Redsys para destacado directo
+POST /billing/featured-by-credits     → débito Wallet, llama grantFeaturedListing
+POST /listings/:id/bump               → débito Wallet, actualiza bumpedAt
+POST /billing/checkout/pro            → Stripe Checkout (ya implementado)
+```
+
+---
+
+## 7. Integración Redsys
+
+### 7.1 PCI — Redirección (base) vs InSite (variante futura)
+
+El diseño base asume **Redsys Redirección**:
+
+| Modo | Descripción | Nivel PCI | UX |
+|---|---|---|---|
+| **Redirección** ← base | El usuario es enviado a una página de Redsys para introducir su tarjeta | SAQ A — sin auditoría de código propio; equivalente a Stripe Checkout | Sale de la web al pagar |
+| InSite (variante futura) | Los campos de tarjeta se renderizan en nuestro dominio dentro de un iframe de Redsys | SAQ A-EP — pentest anual, ASV scan, revisión del código de pago | No sale de la web |
+
+> **Nota:** si el banco adquirente exige InSite explícitamente, la firma HMAC y el flujo de notificación son idénticos a Redirección; solo cambia la integración de frontend. Confirmar con el banco antes de elegir modo definitivo.
+
+### 7.2 Firma HMAC-SHA256 (Redsys "HMAC_SHA256_V1")
+
+Redsys diversifica la clave por pedido para evitar reutilización de firmas:
+
+```
+Clave base (b64) = REDSYS_SECRET_KEY  ← variable de entorno, nunca expuesta al cliente
+
+Al enviar (redirect):
+  1. key3DES  = 3DES-decrypt(REDSYS_SECRET_KEY_b64, Ds_Order)
+  2. params   = base64(JSON con todos los parámetros de la petición)
+  3. signature = base64url(HMAC-SHA256(params, key3DES))
+  Enviar: Ds_MerchantParameters=params, Ds_SignatureVersion="HMAC_SHA256_V1", Ds_Signature=signature
+
+Al recibir notificación (verificar):
+  1. Decodificar Ds_MerchantParameters → extraer Ds_Order
+  2. key3DES  = 3DES-decrypt(REDSYS_SECRET_KEY_b64, Ds_Order)
+  3. expected = base64url(HMAC-SHA256(Ds_MerchantParameters, key3DES))
+  4. Si expected ≠ Ds_Signature → 400, descartar inmediatamente
+```
+
+Librería recomendada: `redsys-easy` (npm). Los parámetros obligatorios de la petición incluyen `DS_MERCHANT_AMOUNT` (en céntimos, sin decimales), `DS_MERCHANT_ORDER`, `DS_MERCHANT_MERCHANTCODE`, `DS_MERCHANT_TERMINAL`, `DS_MERCHANT_TRANSACTIONTYPE = "0"` (cobro), `DS_MERCHANT_CURRENCY = "978"` (EUR), `DS_MERCHANT_URLOK`, `DS_MERCHANT_URLKO`, `DS_MERCHANT_MERCHANTURL` (nuestra URL de notificación, pública, sin JWT).
+
+### 7.3 Generación de `Ds_Order`
+
+Redsys exige: 4-12 caracteres alfanuméricos, debe empezar con al menos 4 dígitos.
+
+Formato usado: `YYYYMMDDNNNNN` truncado a 12 chars, con `NNNNN` = últimos 5 dígitos del timestamp de milisegundos. Garantiza unicidad práctica dentro del mismo día. Ejemplos: `202606261234`, `202606261589`.
+
+El `Ds_Order` es la **clave de idempotencia** del sistema Redsys (análogo al `event.id` de Stripe, pero lo generamos nosotros).
+
+### 7.4 Flujo completo — Redirección
+
+```
+Usuario              Frontend                Backend (NestJS)            Redsys
+   │                     │                         │                        │
+   ├─ "Comprar pack" ───►│                         │                        │
+   │                     ├─ POST /billing/ ────────►│                       │
+   │                     │   checkout/credits-pack  │                       │
+   │                     │                         ├─ Generar Ds_Order      │
+   │                     │                         ├─ CREATE Transaction    │
+   │                     │                         │  { status: PENDING,    │
+   │                     │                         │    gatewayPaymentIntentId: Ds_Order,
+   │                     │                         │    gateway: "REDSYS",  │
+   │                     │                         │    metadata: { userId, │
+   │                     │                         │      packId, priceId } }
+   │                     │                         ├─ Firmar parámetros     │
+   │                     │◄── { redsysFormData } ──┤                        │
+   │                     │                         │                        │
+   │◄─ Render form ──────┤                         │                        │
+   │   (auto-submit) ────────────────────────────────────────────────────►  │
+   │                     │                         │                        ├─ Procesa pago
+   │                     │                         │                        │
+   │   ◄──────────────── Notificación online ──────────────────────────────┤
+   │                     │  POST /webhooks/redsys   │◄── Ds_MerchantParameters + Ds_Signature
+   │                     │                         ├─ Verificar firma HMAC
+   │                     │                         ├─ INSERT GatewayEvent (P2002 → ya procesado → 200)
+   │                     │                         ├─ Ds_Response == "0000"?
+   │                     │                         │   Sí → encolar BullMQ job
+   │                     │                         │   No → Transaction.status = FAILED
+   │                     │                         ├──────────────────────────────────► 200
+   │                     │                         │                        │
+   │◄───────────────────────────────────── Redirect a URLOK ───────────────┤
+   │                     │                         │                        │
+   ├─ GET /planes/ ─────►│                         │                        │
+   │    exito-redsys     │                         │                        │
+   │◄─ Pantalla visual ──┤  (sin lógica de negocio)│                        │
+```
+
+### 7.5 ⚠️ INVARIANTE DE SEGURIDAD — la notificación online es la única fuente de verdad
+
+> **La `success_url` (URLOK) NUNCA concede entitlements, acredita créditos ni ejecuta ninguna lógica de negocio. Solo muestra una confirmación visual al usuario.**
+
+Todo el procesamiento ocurre exclusivamente en el handler de la notificación online firmada (`POST /webhooks/redsys`).
+
+**Por qué este invariante es no negociable:**
+
+| Escenario | Con lógica en `success_url` | Con lógica en notificación |
+|---|---|---|
+| Usuario cierra el browser tras pagar | El GET de success_url nunca se ejecuta → el usuario pagó pero no recibe su compra | La notificación ya llegó antes del redirect → compra procesada correctamente |
+| Usuario manipula la URL | Puede visitar success_url sin haber pagado → acceso no autorizado | La URL de éxito no tiene efecto; sin notificación firmada, no pasa nada |
+| Red lenta / timeout en el redirect | El usuario ve un error pero el pago está hecho | Ídem: notificación llegó; se muestra "en proceso" al reconectar |
+
+```
+success_url / URLOK → SOLO UI: "Tu pago está siendo procesado."
+notificación online → TODA la lógica: Transaction, CreditLedger, Entitlement, BullMQ.
+```
+
+Este invariante aplica por igual al flujo de packs de créditos y al de destacado directo por Redsys.
+
+### 7.6 Idempotencia por `Ds_Order` — `GatewayEvent` reutilizado
+
+Para Redsys no existe un event ID emitido por la pasarela. El `Ds_Order` lo generamos nosotros, por lo que es nuestra clave de idempotencia. El mismo modelo `GatewayEvent` de RF.2 sirve para ambas pasarelas, añadiendo el campo `gateway`:
+
+```
+POST /webhooks/redsys
+│
+├── 1. Verificar firma HMAC (§7.2). Si falla → 400 inmediato.
+│
+├── 2. Extraer Ds_Order de Ds_MerchantParameters.
+│
+├── 3. INSERT INTO GatewayEvent {
+│         gatewayEventId: Ds_Order,
+│         eventType: "redsys.notification",
+│         gateway: "REDSYS"
+│       }
+│       → P2002 (UNIQUE violation) → ya procesado → responder 200 y terminar.
+│       → OK → continuar.
+│
+├── 4. Leer Transaction { gatewayPaymentIntentId: Ds_Order }
+│       (creada antes del redirect; si no existe = Ds_Order desconocido → 400)
+│
+├── 5. Si Ds_Response == "0000":
+│         encolar BullMQ job { type: "redsys.success", transactionId }
+│       Si Ds_Response != "0000":
+│         Transaction.status = FAILED
+│
+└── 6. Responder 200 (siempre que la firma sea válida)
+```
+
+`RedsysProcessor` (BullMQ, RF.5) lee la `Transaction`, ejecuta la acción de negocio (acreditar créditos o llamar a `grantFeaturedListing`), marca `Transaction.status = SUCCEEDED`.
+
+### 7.7 Variables de entorno Redsys
+
+```bash
+# apps/api/.env.example — sección Redsys (añadir en RF.4)
+REDSYS_MERCHANT_CODE=...        # Código de comercio (Ds_MerchantCode)
+REDSYS_TERMINAL=001             # Terminal
+REDSYS_SECRET_KEY=...           # Clave del comercio en base64 (para firma HMAC)
+REDSYS_ENVIRONMENT=test         # "test" | "production" (URL del TPV)
+REDSYS_NOTIFICATION_URL=...     # URL pública de POST /webhooks/redsys (sin JWT)
+```
+
+Todas opcionales en Joi (`Joi.string().allow('').optional()`) para que los tests corran sin credenciales reales, igual que las variables de Stripe.
+
+---
+
+## 8. IVA por flujo
+
+Redsys no calcula ni desglosa impuestos: devuelve solo el importe total cobrado. El desglose `amountNet / taxAmount / taxRate` lo calculamos siempre nosotros antes de crear la `Transaction`.
+
+| Flujo | Hecho imponible | Cálculo IVA |
+|---|---|---|
+| Compra pack créditos (Redsys) | ✅ Sí | Nuestro: `amountNet = gross / 1.21` (redondeado a 2 dec.) ; `taxAmount = gross − net` ; `taxRate = 0.2100` |
+| Destacado pago directo (Redsys) | ✅ Sí | Ídem |
+| Destacado por créditos | ❌ No | Sin `Transaction`. El IVA ya tributó al comprar el pack. Solo `CreditLedger`. |
+| Bump | ❌ No | Sin `Transaction`. Ídem. |
+| Plan Pro (Stripe) | ✅ Sí | Preferencia: `invoice.total_taxes` de Stripe Tax. Fallback: cálculo propio al 21 %. |
+
+```typescript
+// Helper compartido para flujos Redsys:
+function redsysTaxBreakdown(grossEuros: number) {
+  const amountGross = new Prisma.Decimal(grossEuros);
+  const taxRate     = new Prisma.Decimal('0.2100');
+  const amountNet   = amountGross.div(new Prisma.Decimal('1.21')).toDecimalPlaces(2);
+  const taxAmount   = amountGross.sub(amountNet).toDecimalPlaces(2);
+  return { amountGross, amountNet, taxAmount, taxRate };
+}
+```
+
+Los campos `invoiceNumber` e `invoiceUrl` en `Transaction` quedan reservados para la integración futura con el sistema de facturación fiscal (RF.13).
+
+Ahora hay **tres tipos de hecho imponible** (en v1 solo había Pro):
+1. Plan Pro — `invoice.payment_succeeded` de Stripe.
+2. Pack de créditos — notificación Redsys confirmada.
+3. Destacado directo — notificación Redsys confirmada.
+
+---
+
+## 9. Efecto en Meilisearch
+
+### 9.1 `boostScore` — señal del destacado (sostenida)
+
+Sin cambios respecto al diseño de RF.1. Campo binario `0 | 1` en el documento indexado:
+
+```typescript
+// En IndexingProcessor / toDocument():
+boostScore: listing.entitlements?.some(e =>
+  e.type === 'FEATURED_LISTING' && e.expiresAt > new Date()
+) ? 1 : 0
+```
+
+En `rankingRules`:
+```
+["words", "typo", "proximity", "attribute", "boostScore:desc", "sort", "exactness"]
+```
+
+`boostScore:desc` en la posición 5 significa que actúa **después de la relevancia textual** (no se compran posiciones en búsqueda orgánica) pero **antes del sort** del usuario (los destacados son visibles en cualquier ordenación).
+
+### 9.2 `sortDate` — señal de recencia con bump (puntual)
+
+Campo numérico nuevo (epoch ms) en el documento indexado:
+
+```typescript
+sortDate: Math.max(
+  listing.publishedAt?.getTime() ?? 0,
+  listing.bumpedAt?.getTime()    ?? 0
+)
+```
+
+`sortDate` debe declararse como atributo **sortable** en Meilisearch. El sort por recencia usa `sortDate:desc` en lugar de `publishedAt:desc`.
+
+Para las páginas de listado que usan **Postgres** (categoría, home), la query de orden usa:
+```sql
+ORDER BY GREATEST(publishedAt, COALESCE(bumpedAt, '1970-01-01'::timestamptz)) DESC
+```
+
+### 9.3 Ortogonalidad de `boostScore` y `sortDate`
+
+Las dos señales actúan en dimensiones distintas y no interfieren:
+
+| Señal | Tipo | Duración | Efecto |
+|---|---|---|---|
+| `boostScore` | Ranking rule | Sostenida (hasta `expiresAt`) | Prioridad antes del sort; afecta a toda búsqueda y browse |
+| `sortDate` | Sort dimension | Puntual (decae por tiempo natural) | Solo afecta al sort por recencia; `boostScore` lo precede en rankingRules |
+
+Un anuncio puede tener `boostScore=1` Y `sortDate=now` simultáneamente (destacado activo + bump reciente). Otro solo con `boostScore=1` (destacado, sin bump). En un sort por recencia, ambos aparecen en la zona "destacados", pero el del bump aparece antes dentro de esa zona.
+
+El bump **no cambia** `boostScore`. El destacado **no cambia** `sortDate` directamente (solo lo recalcula el `IndexingProcessor` al reindexar, junto con todos los demás campos).
+
+### 9.4 Triggers de reindexado en BullMQ
+
+| Evento | Acción en Meilisearch |
+|---|---|
+| Se activa un destacado (`grantFeaturedListing`) | Reindexar → `boostScore: 1` |
+| Expira un destacado (cron de expiración) | Reindexar → `boostScore: 0` |
+| Se hace un bump exitoso | Reindexar → `sortDate: max(publishedAt, bumpedAt)` |
+| Se publica / edita / renueva un anuncio | Reindexar todo (comportamiento ya existente) |
+
+---
+
+## 10. Endpoints previstos (actualización completa)
+
+```
+─── Billing (usuario autenticado, JWT) ────────────────────────────────────────
+POST /billing/checkout/credits-pack      → Inicia pago Redsys para un pack de créditos
+POST /billing/checkout/featured-pay      → Inicia pago Redsys para destacado directo
+POST /billing/featured-by-credits        → Destaca con créditos (inmediato)
+GET  /billing/wallet                     → Saldo + últimos movimientos del wallet
+GET  /billing/my-subscriptions           → Suscripciones activas (ya impl.)
+POST /billing/cancel-subscription/:id    → Cancela suscripción Pro (ya impl.)
+GET  /billing/my-entitlements            → Entitlements activos (ya impl.)
+GET  /billing/my-transactions            → Historial de cobros reales, paginado (ya impl.)
+POST /billing/checkout/pro               → Stripe Checkout para Plan Pro (ya impl.)
+
+─── Listings (usuario autenticado, propietario del anuncio) ───────────────────
+POST /listings/:id/bump                  → Bump por créditos
+
+─── Webhooks (sin JWT; autenticación por firma) ────────────────────────────────
+POST /webhooks/stripe                    → Guard HMAC Stripe-Signature (ya impl.)
+POST /webhooks/redsys                    → Guard HMAC Redsys (nuevo, RF.5)
+
+─── Admin (ADMIN) ──────────────────────────────────────────────────────────────
+GET  /admin/billing/transactions         → Lista global (filtros: gateway, status, fecha, userId)
+GET  /admin/billing/subscriptions        → Suscripciones activas (filtros: status, userId)
+GET  /admin/billing/wallets              → Saldos de wallets (filtros: userId)
+POST /admin/billing/wallets/:id/credit   → Acreditación manual (ADMIN_CREDIT)
+GET  /admin/billing/entitlements         → Lista de entitlements activos (filtros: type, userId)
+```
+
+### Flujo Redsys — `POST /billing/checkout/credits-pack` o `featured-pay`
+
+**Body:**
 ```json
-{ "priceId": "cuid...", "listingId": "cuid..." }
-```
-`listingId` es obligatorio solo para destacados (priceId de tipo `ONE_TIME`).
-Devuelve `{ checkoutUrl }` para redirigir al usuario a Stripe Checkout.
-Al finalizar Stripe, redirige a `/planes/exito?session_id=...` o `/planes/cancelar`.
-
-### 3.2 Webhook receptor (nuevo)
-
-```
-POST /webhooks/stripe   → Solo verifica Stripe-Signature; NO requiere Bearer JWT
+{ "packId": "cuid...", "priceId": "cuid..." }           // pack de créditos
+{ "priceId": "cuid...", "listingId": "cuid..." }        // destacado directo
 ```
 
-No pertenece al módulo `billing` en cuanto a autenticación: usa un guard propio
-(`StripeWebhookGuard`) que valida la firma HMAC del header `Stripe-Signature`.
-
-### 3.3 Módulo `admin` (extensión)
-
-```
-GET  /admin/billing/transactions       → Lista global (filtros: status, userId, dateRange)
-GET  /admin/billing/subscriptions      → Lista global (filtros: status, userId)
-POST /admin/billing/subscriptions/:id/cancel → Cancelar desde backoffice
-GET  /admin/billing/entitlements       → Lista de entitlements activos (filtros: type, userId)
+**Respuesta:**
+```json
+{ "redsysFormData": { "Ds_MerchantParameters": "...", "Ds_SignatureVersion": "...", "Ds_Signature": "...", "tpvUrl": "https://sis-t.redsys.es:25443/sis/realizarPago" } }
 ```
 
-### 3.4 Módulo `listings` (modificación menor)
-
-`POST /listings/:id/publish` — Añadir comprobación:
-```
-Si User.entitlements[PRO_SUBSCRIPTION].activo → límite 20 anuncios ACTIVE
-Si no → límite 5 anuncios ACTIVE
-Si excede → 403 con mensaje específico
-```
+El frontend construye un `<form>` con estos campos y lo auto-submite hacia `tpvUrl`.
 
 ---
 
-## 4. Seguridad de datos de pago (PCI-DSS)
+## 11. Cancelación, reembolso y degradación de plan
 
-**Los datos de tarjeta nunca llegan a nuestro backend. Sin excepciones.**
+### 11.1 Cancelación Pro (Stripe)
 
-El flujo de pago usa **Stripe Checkout** (redirect) o **Stripe Payment Element**
-(hosted iframe en dominio de Stripe). El usuario introduce sus datos de tarjeta
-directamente en los formularios de Stripe, cifrados en tránsito hacia los servidores
-de Stripe. Nuestro servidor nunca recibe el PAN, el CVV ni la fecha de expiración.
+Sin cambios respecto a RF.1. El usuario cancela con `POST /billing/cancel-subscription/:id`; Stripe recibe `cancel_at_period_end: true`; el `Entitlement PRO_SUBSCRIPTION` permanece activo hasta `currentPeriodEnd`.
 
-Lo que sí guardamos (solo referencias):
+### 11.2 Créditos — sin reembolso automático
+
+Los créditos no son reembolsables por defecto. Si el banco tramita un chargeback sobre la compra de un pack, el equipo de soporte puede aplicar un `ADMIN_DEBIT` manual en `CreditLedger` para retirar los créditos acreditados. El sistema técnico soporta esta operación; la política de cuándo aplicarla la define el equipo.
+
+**Los créditos no caducan.** No hay `expiresAt` en `Wallet` ni en `CreditLedger`.
+
+### 11.3 Reembolso de cobros Redsys
+
+Los reembolsos se tramitan vía Redsys (operación de devolución, tipo `"3"`) desde el backoffice o directamente desde el panel del banco. En nuestro sistema: se crea una `Transaction` con `status = REFUNDED` (la original queda intacta). Si el reembolso implica revocar el acceso: ajuste manual de `Entitlement.expiresAt = now()` y `ADMIN_DEBIT` en el wallet si aplica.
+
+### 11.4 Degradación Pro → Free
+
+Sin cambios respecto a RF.1. Período de gracia de 7 días; cron a las 03:00; los anuncios [6..N] pasan a `DRAFT`; `AuditLog` con `LISTING_DRAFT_BY_PLAN_DOWNGRADE`.
+
+---
+
+## 12. Seguridad de datos de pago (PCI-DSS)
+
+| Modo | Nivel PCI | Implicación |
+|---|---|---|
+| Redsys Redirección | SAQ A | Los datos de tarjeta nunca llegan a nuestro dominio. Sin pentest de código propio. |
+| Stripe Checkout | SAQ A | Ídem. Los datos de tarjeta se introducen en el dominio de Stripe. |
+
+Lo que guardamos (solo referencias, nunca PANs ni CVVs):
 
 | Campo | Modelo | Descripción |
 |---|---|---|
 | `stripeCustomerId` | `User` | ID del Customer de Stripe |
 | `gatewaySubscriptionId` | `Subscription` | ID de la Subscription de Stripe |
-| `gatewayPaymentIntentId` | `Transaction` | ID del PaymentIntent de Stripe |
-| `gatewayInvoiceId` | `Transaction` | ID de la Invoice de Stripe |
-| `gatewayChargeId` | `Transaction` | ID del Charge de Stripe (para reembolsos) |
-
-Estas referencias permiten consultar el estado en Stripe, iniciar reembolsos desde
-el backoffice y correlacionar eventos de webhook con nuestros registros.
-
-Con esta arquitectura, nuestro sistema opera en el nivel más bajo de PCI-DSS
-(SAQ A), que no requiere auditoría formal de seguridad de datos de tarjeta.
+| `gatewayPaymentIntentId` | `Transaction` | PaymentIntent de Stripe o Ds_Order de Redsys |
+| `gatewayInvoiceId` | `Transaction` | Invoice de Stripe |
+| `gateway` | `Transaction` | "STRIPE" o "REDSYS" |
 
 ---
 
-## 5. Efecto del destacado en Meilisearch
+## 13. Nota fiscal — IVA y VeriFactu
 
-### 5.1 Campo `boostScore` (binario)
+### 13.1 Lo que hacen (y lo que no) las pasarelas
 
-Se añade el campo `boostScore: 0 | 1` al documento indexado en Meilisearch:
+**Redsys:** no calcula impuestos. Solo devuelve el importe cobrado. El desglose lo calculamos nosotros (§8).
 
-```ts
-// En toDocument() del SearchService / IndexingProcessor:
-boostScore: listing.entitlements?.some(e =>
-  e.type === 'FEATURED_LISTING' &&
-  e.expiresAt > new Date()
-) ? 1 : 0
-```
+**Stripe Tax:** puede calcular el IVA para Pro. Las invoices de Stripe **no son facturas fiscalmente válidas en España** (no cumplen R.D. 1619/2012).
 
-El campo es **binario**: `0` = sin destacar, `1` = destacado activo. No hay niveles
-premium (p.ej. "súper-destacado"). Agregar un segundo nivel en el futuro solo
-requiere cambiar el rango a `0 | 1 | 2` y ajustar la regla de ranking; el campo
-numérico ya lo soporta sin cambio de schema.
+### 13.2 VeriFactu
 
-Meilisearch requiere que `boostScore` sea un atributo **sortable** (además de
-estar en el documento) para poder usarse en `rankingRules`.
+El R.D. 1007/2023 exige registros de facturación verificables desde 2025-2026. Esto afecta a los tres tipos de hecho imponible (Pro, pack de créditos, destacado directo). La integración VeriFactu queda para RF.13.
 
-### 5.2 Reglas de ranking
-
-Las `rankingRules` actuales de Meilisearch (por defecto o similares) se amplían:
-
-```
-Antes: ["words", "typo", "proximity", "attribute", "sort", "exactness"]
-Después: ["words", "typo", "proximity", "attribute", "boostScore:desc", "sort", "exactness"]
-```
-
-`boostScore:desc` se inserta entre `attribute` y `sort`.
-
-**Comportamiento resultante:**
-
-| Contexto | Efecto |
-|---|---|
-| Búsqueda de texto libre (`q="iPhone"`) | Las 4 reglas de relevancia textual van ANTES del boost. El boost solo rompe empates entre resultados igualmente relevantes. No se compran posiciones en búsqueda orgánica. |
-| Browsing sin texto (`q=""`, sin sort) | Después de `attribute`, `boostScore:desc` ordena los destacados al frente. |
-| Browsing con sort explícito (`sort=publishedAt:desc`) | El boost actúa ANTES que el sort del usuario. Resultado: primero los destacados (entre sí ordenados por fecha), luego el resto ordenado por fecha. Este es el comportamiento estándar en marketplaces: el boost no desaparece cuando el usuario ordena. |
-| Búsqueda por proximidad (`lat`+`lng`+`radius`) | Los anuncios dentro del radio con boost aparecen antes que los anuncios sin boost a la misma distancia aproximada. El radio sigue filtrando correctamente; solo el orden interno cambia. |
-
-La clave es: el boost **nunca supera la relevancia textual** (posición 5 vs. posiciones
-1-4), pero sí supera el sort explícito del usuario (posición 5 vs. posición 6). Esto
-es una decisión de diseño deliberada: el usuario que paga para destacar su anuncio
-tiene visibilidad preferente en todas las vistas, incluyendo las ordenadas.
-
-### 5.3 Actualización del campo `boostScore`
-
-El campo se actualiza mediante el `IndexingProcessor` ya existente (BullMQ). Los
-dos triggers nuevos que encolan un job `index` para el anuncio:
-
-1. **Al activar el destacado** — cuando `BillingProcessor` crea el `Entitlement`
-   de tipo `FEATURED_LISTING`.
-2. **Al desactivar el destacado** — cuando el cron de expiración de entitlements
-   detecta que `expiresAt ≤ now()` para un `FEATURED_LISTING`.
-
-No se cambia la estructura del job; el `IndexingProcessor` al reindexar lee los
-entitlements activos del anuncio y calcula `boostScore` en el momento de la indexación.
+El modelo `Transaction` incluye `invoiceNumber` e `invoiceUrl` como punto de unión entre el sistema de pagos y el sistema de facturación externo (Holded, Factusol u otro).
 
 ---
 
-## 6. Flujo de webhooks → BullMQ (idempotente)
+## 14. Orden de ráfagas de implementación
 
-### 6.1 Eventos de Stripe procesados
-
-| Evento Stripe | Acción en nuestro sistema |
-|---|---|
-| `checkout.session.completed` | Pago único o inicio de suscripción: crear `Transaction` (SUCCEEDED) + `Entitlement` |
-| `invoice.payment_succeeded` | Renovación de suscripción: crear `Transaction` + actualizar `Subscription.currentPeriodEnd` + extender `Entitlement.expiresAt` |
-| `invoice.payment_failed` | Pago fallido: `Subscription.status = PAST_DUE` + notificación al usuario |
-| `customer.subscription.updated` | Cambios de suscripción (ej: `cancel_at_period_end = true`): actualizar `Subscription` |
-| `customer.subscription.deleted` | Fin definitivo: `Subscription.status = CANCELED`; el `Entitlement` ya caducó en `currentPeriodEnd` |
-
-### 6.2 Flujo de procesamiento
-
-```
-POST /webhooks/stripe
-│
-├─ 1. Verificar firma HMAC (header Stripe-Signature + STRIPE_WEBHOOK_SECRET)
-│      → 400 Bad Request si la firma no es válida (posible ataque o error de config)
-│
-├─ 2. INSERT INTO GatewayEvent { gatewayEventId: event.id, eventType: event.type }
-│      → P2002 (UNIQUE violation) → Responder 200 "already processed" y terminar
-│      → Éxito → Continuar
-│
-├─ 3. Encolar job en BullMQ (queue "billing"):
-│      { eventType: event.type, payload: event.data.object }
-│
-└─ 4. Responder 200 inmediatamente (sin esperar al procesamiento del job)
-
-BillingProcessor.process(job)
-│
-├─ Switch on eventType
-│    checkout.session.completed  → crear Transaction + Entitlement
-│    invoice.payment_succeeded   → crear Transaction + actualizar Subscription/Entitlement
-│    invoice.payment_failed      → actualizar Subscription + notificación
-│    customer.subscription.*     → actualizar Subscription
-│
-└─ On error: Sentry.captureException(err) + rethrow (BullMQ gestiona reintentos)
-```
-
-**Por qué funciona la idempotencia:** El `GatewayEvent.gatewayEventId` tiene un
-constraint `@unique` en Postgres. Si Stripe reenvía el mismo evento (lo hace
-automáticamente si recibe un 5xx o no recibe respuesta en tiempo), la segunda
-inserción lanza una excepción `P2002` de Prisma. El webhook handler la captura,
-devuelve `200` (para que Stripe no siga reintentando) y no encola ningún job.
-El procesamiento del primer evento ya creó los registros correctos.
-
-**La clave es**: el webhook siempre devuelve `200` si la firma es válida, incluso
-si descarta el evento por duplicado. Solo devuelve errores (4xx/5xx) cuando hay
-problemas reales (firma inválida, error de infraestructura). Esto evita bucles de
-reintento innecesarios.
-
-### 6.3 Cola `billing` (nueva)
-
-Reutiliza la infraestructura BullMQ existente (`infra/queue`). Se registra una nueva
-cola `billing` junto a las tres existentes (`indexing`, `image`, `notification`).
-El processor `BillingProcessor` sigue el mismo patrón que `IndexingProcessor`.
-
----
-
-## 7. Cancelación, reembolso y degradación de plan
-
-### 7.1 Cancelación de suscripción Pro
-
-**Flujo cuando el usuario cancela:**
-
-1. El usuario pulsa "Cancelar plan" en el frontend.
-2. `POST /billing/cancel-subscription/:id` → Service llama a
-   `stripe.subscriptions.update(gatewaySubscriptionId, { cancel_at_period_end: true })`.
-3. Se actualiza `Subscription.cancelAtPeriodEnd = true`, `Subscription.status = CANCELING`.
-4. El `Entitlement PRO_SUBSCRIPTION` **permanece activo** con su `expiresAt` existente
-   (= `currentPeriodEnd`). El usuario conserva todos sus derechos hasta que pague el
-   último día del período ya abonado.
-5. Stripe envía `customer.subscription.deleted` al llegar `currentPeriodEnd`.
-6. `BillingProcessor` actualiza `Subscription.status = CANCELED`.
-   El `Entitlement.expiresAt` ya pasó → el entitlement está expirado de forma natural.
-
-**El usuario NO pierde el acceso el día que cancela. Solo lo pierde al final del
-período que ya pagó.**
-
-### 7.2 Reembolsos
-
-Los reembolsos se tramitan manualmente desde el backoffice admin (endpoint
-`POST /admin/billing/transactions/:id/refund`) o directamente desde el dashboard
-de Stripe. En ambos casos:
-
-- Se crea una nueva `Transaction` con `status = REFUNDED` (el registro original
-  queda intacto e inmutable).
-- Si el reembolso implica revocar el acceso anticipadamente (decisión del equipo
-  de soporte), se actualiza `Entitlement.expiresAt = now()` manualmente.
-- El diseño no automatiza reembolsos de destacados: son pagos únicos de bajo importe
-  y la política de reembolso la define el equipo (ej: no se reembolsa el destacado
-  si el anuncio ya estuvo destacado más de 48 h).
-
-### 7.3 Degradación Pro → Free (exceso de anuncios)
-
-**Definición del problema:** un usuario con Plan Pro puede tener hasta 20 anuncios
-ACTIVE. Al expirar el plan, el límite cae a 5. Los anuncios 6-20 quedan en limbo.
-
-**Período de gracia: 7 días** contados desde `Entitlement.expiresAt`.
-
-**Nuevo cron diario** (`EntitlementExpirationService`, similar a `ExpirationService`):
-
-```
-Ejecuta diariamente a las 03:00 (un hora después del cron de caducidad de anuncios)
-
-Paso 1 — Notificación al inicio del período de gracia:
-  Busca usuarios con Entitlement PRO_SUBSCRIPTION donde
-    expiresAt BETWEEN (now()-1day) AND now()
-  → Envía email: "Tu Plan Pro ha expirado. Tienes 7 días para
-    reducir tus anuncios activos a 5 o reactivar el plan."
-
-Paso 2 — Ejecución del downgrade al final del período:
-  Busca usuarios con Entitlement PRO_SUBSCRIPTION donde
-    expiresAt < (now()-7days)
-    AND no tienen otro Entitlement PRO_SUBSCRIPTION activo
-    AND tienen más de 5 anuncios en estado ACTIVE
-  → Cuenta los anuncios ACTIVE del usuario
-  → Ordena por publishedAt ASC (los más antiguos primero)
-  → Los anuncios [6..N] pasan a estado DRAFT
-  → Por cada anuncio movido a DRAFT:
-      - Invalida caché Redis
-      - Encola job de reindexado (retira de Meilisearch)
-      - Crea AuditLog con action = "LISTING_DRAFT_BY_PLAN_DOWNGRADE"
-  → Envía email al usuario listando los anuncios afectados
-```
-
-**Por qué DRAFT y no otro estado:**
-- `DRAFT` preserva el contenido (el usuario no pierde los datos).
-- El usuario puede re-publicar manualmente cualquiera de esos anuncios cuando
-  tenga capacidad libre (ya sea subiendo a Pro o eliminando otros activos).
-- `DRAFT` no se indexa en Meilisearch (coherente con el comportamiento actual).
-- Evita crear un nuevo estado (`SUSPENDED_BY_PLAN`) que requeriría cambios
-  en más partes del código.
-
-**Si el usuario reactiva Pro antes de que termine el período de gracia:** el cron
-del Paso 2 no encuentra ningún anuncio excedente porque el nuevo `Entitlement` ya
-está activo, y no toma acción.
-
----
-
-## 8. Comparativa de pasarelas de pago
-
-### 8.1 Criterios relevantes para el caso español/europeo
-
-- Soporte de pago con tarjeta de crédito/débito en España
-- Suscripciones recurrentes (billing automático)
-- Checkout hosted (no tocamos datos de tarjeta)
-- Strong Customer Authentication (SCA / PSD2) — obligatorio en la UE desde 2021
-- Soporte de IVA/Tax europeo
-- Calidad de la documentación y DX
-- Coste por transacción en el mercado español
-
-### 8.2 Tabla comparativa
-
-| Pasarela | Cobro por transacción (EU) | Suscripciones | Checkout hosted | Tax/IVA | DX | Notas España |
-|---|---|---|---|---|---|---|
-| **Stripe** | 1,5 % + 0,25 € (tarjetas EU) | ✓ Nativo | ✓ Checkout + Elements | ✓ Stripe Tax | Excelente | Disponible; SCA nativo; Radar antifraude |
-| **Mollie** | 1,8 % + 0,25 € aprox. | ✓ | ✓ | Básico | Bueno | Europeo (NL); bien valorado en ES; sin Tax equivalente |
-| **Adyen** | Variable (negociado) | ✓ | ✓ | ✓ | Bueno | Ideal para alto volumen; mínimo mensual; no apto para MVP |
-| **Redsys** | Negociado con banco | Limitado | Limitado | Manual | Pobre | Estándar bancario español; API anticuada; sin ecosistema |
-| **Braintree** | 1,9 % + 0,30 € | ✓ | ✓ | Manual | Regular | Integrado con PayPal; soporte más lento |
-
-### 8.3 Recomendación: Stripe
-
-**Para el MVP, Stripe es la elección recomendada** por las siguientes razones:
-
-1. **DX superior**: SDK de Node.js/TypeScript bien mantenido, tipos incluidos,
-   webhooks fiables con firma HMAC, dashboard claro.
-2. **Suscripciones y cobros únicos nativos**: el modelo de datos de Stripe (Products,
-   Prices, Subscriptions, PaymentIntents) se alinea directamente con nuestro diseño.
-3. **SCA/PSD2**: cumplimiento automático sin código adicional (Stripe 3D Secure 2).
-4. **Stripe Tax**: puede calcular y recaudar el IVA del 21 % automáticamente
-   (aunque no genera la factura fiscal española válida, ver §9).
-5. **Stripe Checkout hosted**: el usuario nunca introduce datos de tarjeta en
-   nuestro dominio → PCI-DSS nivel mínimo (SAQ A).
-
-**Redsys como adición futura**: si el segmento de usuarios corporativos o
-administraciones públicas lo demanda, Redsys puede añadirse como método de pago
-secundario. El modelo de entitlements desacoplado hace que añadir una segunda
-pasarela no afecte a la lógica de negocio: solo añade un nuevo handler en
-`BillingProcessor` y un nuevo receptor de webhooks.
-
----
-
-## 9. Nota fiscal: IVA y facturación en España/UE
-
-### 9.1 Lo que Stripe hace (y lo que no)
-
-**Stripe Tax** puede configurarse para:
-- Calcular automáticamente el IVA del 21 % en cobros a consumidores en España.
-- Incluir el desglose de impuestos en las "invoices" de Stripe.
-- Gestionar el esquema OSS (One Stop Shop) para cobros a consumidores de la UE.
-
-**Stripe Tax / Stripe Invoices NO son facturas fiscalmente válidas en España.**
-Los documentos que genera Stripe son recibos de pasarela ("receipts") con
-información de IVA, pero no cumplen los requisitos formales de una factura
-ordinaria española (R.D. 1619/2012).
-
-### 9.2 Requisitos de la factura ordinaria española
-
-Una factura válida en España debe incluir:
-- Número de factura con serie y numeración **correlativa sin saltos**
-- Fecha de expedición y fecha de operación (si difieren)
-- NIF/CIF del emisor y NIF/CIF del receptor (si el receptor es empresa)
-- Datos completos del emisor (nombre/razón social, domicilio)
-- Descripción de los bienes o servicios prestados
-- Base imponible, tipo de IVA aplicado (21 %), cuota de IVA
-- Importe total
-
-### 9.3 VeriFactu (obligación en curso)
-
-El **Real Decreto 1007/2023** (sistemas de facturación informática) exige que,
-a partir de 2025-2026, los sistemas que emitan facturas generen **registros de
-facturación verificables** con hash encadenado y los remitan a la AEAT (o los
-mantengan disponibles para inspección). Esta obligación recae sobre el **sistema
-que emite la factura**, no sobre la pasarela de pago.
-
-**Esto significa que Stripe no puede asumir el cumplimiento VeriFactu por nosotros.**
-
-### 9.4 Diseño que contempla este hueco (sin prescribir la solución)
-
-El modelo `Transaction` incluye:
-- `invoiceNumber String?` — número asignado por el sistema de facturación externo
-- `invoiceUrl String?` — URL del PDF de factura fiscal generado por el sistema externo
-
-El flujo previsto (a implementar en una ráfaga futura, ej. RF.9):
-
-```
-Stripe confirma el cobro (webhook invoice.payment_succeeded)
-  → BillingProcessor crea Transaction con los importes
-  → Se encola un job en BullMQ (queue "invoicing")
-  → InvoicingProcessor llama a la API del sistema externo
-    (Holded, Factusol, Odoo, o un microservicio propio)
-    con los datos de la Transaction
-  → El sistema externo genera la factura fiscal (número correlativo,
-    requisitos AEAT, VeriFactu si aplica) y devuelve
-    { invoiceNumber, invoicePdfUrl }
-  → Se actualiza Transaction.invoiceNumber + Transaction.invoiceUrl
-  → El usuario puede descargar su factura desde /perfil/facturas
-```
-
-**El diseño NO asume "Stripe ya factura"**. Stripe confirma el cobro y nos da los
-importes bruto/neto/IVA. El cumplimiento fiscal es un sistema separado. El campo
-`invoiceNumber` en `Transaction` es el punto de unión entre ambos sistemas.
-
-La elección del sistema de facturación externo (Holded, Factusol, sistema propio)
-queda fuera del alcance de esta ráfaga de diseño y se decide en RF.9.
-
----
-
-## 10. Orden de ráfagas de implementación
-
-| Ráfaga | Contenido | Dependencias |
+| Ráfaga | Contenido | Dep. |
 |---|---|---|
-| **RF.2** | Schema Prisma: 6 modelos nuevos + campos en User/Listing. Variables de entorno (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_PRO_MONTHLY`, …). Seed de productos y precios. | — |
-| **RF.3** | Backend `BillingModule`: `BillingService` (checkout, cancel), `WebhookController` + `StripeWebhookGuard`, `BillingProcessor` (maneja los 5 eventos de Stripe, idempotente vía `GatewayEvent`). `EntitlementService` (verificar si un usuario tiene Pro o un anuncio está destacado). | RF.2 |
-| **RF.4** | Integración entitlements en dominio: `ListingsService.publish()` comprueba límite de anuncios activos; `EntitlementExpirationService` (cron 03:00, gracia 7 días, downgrade a DRAFT). | RF.3 |
-| **RF.5** | Integración Meilisearch: campo `boostScore` en `toDocument()`, atributo `sortable`, actualización de `rankingRules`. El `IndexingProcessor` calcula `boostScore` al reindexar. | RF.3 |
-| **RF.6** | Frontend — Planes: página `/planes` (comparativa Free vs Pro, precios), redirección a Stripe Checkout, página de éxito `/planes/exito`, badge Pro en perfiles y fichas de vendedor. | RF.3 |
-| **RF.7** | Frontend — Destacado: botón "Destacar anuncio" en `/mis-anuncios` (solo en anuncios ACTIVE), selector de variante (7/14/30 días), redirección a Stripe Checkout, badge "Destacado" en la tarjeta del anuncio con días restantes. | RF.5, RF.6 |
-| **RF.8** | Backoffice admin: tabla de transacciones (filtros estado/fecha/usuario), tabla de suscripciones activas (acción cancelar), vista de entitlements por usuario. | RF.3 |
-| **RF.9** | Facturación fiscal: integración con sistema externo (Holded u otro), `InvoicingProcessor`, descarga de facturas en `/perfil/facturas`. | RF.8 |
+| **RF.2** ✅ | Schema `add_billing` (6 modelos, `stripeCustomerId`) | — |
+| **RF.3** ✅ | BillingModule Stripe: checkout Pro, webhooks, BillingProcessor, EntitlementService | RF.2 |
+| **RF.4** | Schema `add_wallet_and_bump`: `CreditPack`, `Wallet`, `CreditLedger`, campo `gateway` en `Transaction`/`GatewayEvent`, `bumpedAt` en `Listing`. Variables de entorno Redsys. Seed de packs y costes en Setting. | RF.3 |
+| **RF.5** | Backend Redsys: `RedsysModule` (generación de params y firma, `RedsysWebhookGuard` con verificación HMAC, `RedsysProcessor` para acreditar créditos al wallet). Flujo completo compra pack → `Wallet`. | RF.4 |
+| **RF.6** | Operación unificada de destacado: `grantFeaturedListing` + `featuredByCredits` + `featuredByRedsys` (en `BillingService` / `RedsysProcessor`). `BumpService` (`POST /listings/:id/bump`, débito atómico, `bumpedAt`). `EntitlementService` actualizado. | RF.5 |
+| **RF.7** | Entitlements en dominio: `ListingsService.publish()` comprueba límites (5 free / 20 Pro); `EntitlementExpirationService` (cron 03:00, gracia 7 días, downgrade DRAFT). | RF.6 |
+| **RF.8** | Meilisearch: `boostScore` (featured) + `sortDate` (bump) en `IndexingProcessor`; `rankingRules` y atributos sortable actualizados. Orden Postgres con `GREATEST(publishedAt, bumpedAt)`. | RF.6 |
+| **RF.9** | Frontend Pro: `/planes` (tabla comparativa Free/Pro), Stripe Checkout redirect, `/planes/exito`, badge Pro en perfiles y fichas. | RF.3 |
+| **RF.10** | Frontend wallet y Redsys: `/mis-creditos` (saldo, historial de movimientos), compra de pack (redirect Redsys), `/planes/exito-redsys` (solo visual, sin lógica de negocio). | RF.5 |
+| **RF.11** | Frontend destacado y bump: selector "Destacar anuncio" en `/mis-anuncios` (vía créditos / vía pago directo Redsys), botón "Bumpar" con visualización de cooldown, badge "Destacado" con días restantes en tarjeta del anuncio. | RF.8, RF.10 |
+| **RF.12** | Backoffice admin: tabla de transacciones (filtros gateway/status/fecha), saldos de wallets, acreditación manual de créditos, entitlements por usuario. | RF.6 |
+| **RF.13** | Facturación fiscal: `InvoicingProcessor`, integración con sistema externo (Holded u otro), VeriFactu, descarga de facturas en `/perfil/facturas`. | RF.12 |
 
 ---
 
-## 11. Resumen de decisiones de diseño
+## 15. Resumen de decisiones de diseño
 
 | Decisión | Justificación |
 |---|---|
-| Modelo de entitlements desacoplado de la pasarela | La lógica de negocio no depende de Stripe; si cambia la pasarela, solo cambia el webhook handler, no los guards ni los services de dominio |
-| `boostScore` binario (0/1) | Principio YAGNI. Un nivel premium puede añadirse cambiando el rango del campo numérico sin cambios de schema ni de rankingRules |
-| `boostScore` después de relevancia textual | No se compran posiciones en búsqueda orgánica; el boost solo actúa cuando la relevancia textual no diferencia entre resultados |
-| Idempotencia en `GatewayEvent` | El constraint `@unique` en Postgres es atómico: no hay race condition. Si dos procesos reciben el mismo webhook simultáneamente, uno gana y el otro obtiene P2002 |
-| Entitlement Pro activo hasta fin de período en cancelación | Estándar de la industria; el usuario ya pagó ese período. Cortar el acceso inmediatamente sería agravio y aumenta el riesgo de chargebacks |
-| Período de gracia de 7 días + downgrade a DRAFT | 7 días da tiempo al usuario a gestionar sus anuncios sin perder el contenido. DRAFT es el estado menos disruptivo (no elimina ni expira; el usuario puede re-publicar) |
-| Datos de tarjeta nunca en nuestro backend (Stripe Checkout hosted) | PCI-DSS SAQ A (nivel mínimo). Reducción drástica del riesgo y de la auditoría de seguridad requerida |
-| Stripe como pasarela principal | Mejor DX, SCA nativo, Stripe Tax, webhooks fiables, bien documentado. Redsys se puede añadir como segundo método sin tocar la lógica de entitlements |
-| `invoiceNumber` / `invoiceUrl` en Transaction pero sin implementar | Deja el hueco para cumplimiento VeriFactu / factura fiscal española sin acoplar el sistema de facturación externo al MVP de pagos |
+| Créditos como enteros (`Int`) | Evita errores de redondeo. Los créditos son unidades discretas; no hay fracciones de crédito. |
+| `Wallet` como modelo separado (no campo en `User`) | El débito atómico requiere un `UPDATE` sobre la fila del wallet. Acoplarlo a la fila de `User` bloquearía operaciones no relacionadas en la misma transacción. |
+| Débito atómico con SQL bruto en transacción Prisma | `UPDATE Wallet SET balance = balance - N WHERE userId = X AND balance >= N` es el mecanismo más simple y correcto para garantizar que `balance >= 0` sin serializable isolation ni optimistic locking. Cero filas = saldo insuficiente. |
+| Un solo campo `bumpedAt` (sin `lastBumpRequestAt`) | Los intentos fallidos (sin saldo, cooldown, anuncio inactivo) **no** actualizan `bumpedAt`. Un campo único cumple las dos funciones: límite de 1/hora y orden por recencia. |
+| `grantFeaturedListing` como punto único de concesión | Las dos vías de pago (créditos y Redsys) desembocan en la misma función. Cualquier cambio en las reglas del destacado se hace en un solo lugar. |
+| Notificación online = fuente de verdad (invariante de seguridad) | La `success_url` puede ser manipulada o no ejecutarse (browser cerrado tras el pago). La notificación HMAC firmada es infalsificable. Este invariante evita el bug más común en integraciones Redsys: conceder el acceso en el retorno del usuario. |
+| Redsys Redirección como modo base | SAQ A (nivel mínimo PCI), equivalente a Stripe Checkout. Si el banco exige InSite, la lógica de notificación y firma es idéntica; solo cambia el frontend. |
+| `Ds_Order` generado por nosotros como clave de idempotencia | Redsys no emite un event ID propio. El `Ds_Order` lo generamos antes del redirect y lo usamos como `GatewayEvent.gatewayEventId`. Pre-crear la `Transaction` con `status=PENDING` garantiza que cualquier notificación se pueda vincular a un pedido legítimo. |
+| `GatewayEvent` reutilizado para Redsys (campo `gateway`) | Un modelo de idempotencia para ambas pasarelas. El constraint `@unique` en `gatewayEventId` es el mecanismo; el campo `gateway` añade trazabilidad. |
+| `boostScore` y `sortDate` ortogonales en Meilisearch | Featured = ranking rule (posición 5, antes del sort). Bump = dimensión de sort (recencia artificial). Sin interferencias: un anuncio puede tener ambos activos simultáneamente. |
+| Costes en créditos en `Setting` (no en código) | `featuredCreditCost{N}d` y `bumpCreditCost` son configurables desde el backoffice sin despliegue. El seed los inicializa. |
+| Gastos de créditos sin `Transaction` (solo `CreditLedger`) | El gasto de créditos no es un hecho imponible (el IVA ya tributó al comprar el pack). Solo las compras con dinero real generan `Transaction` y factura. |
+| Créditos no caducan | Simplicidad y UX. Si en el futuro se quiere caducidad (p.ej. créditos de campaña), basta con añadir `expiresAt` al `CreditLedger` y un cron que expire entradas. |
+| Modelos existentes conservados íntegros | Los 6 modelos de RF.2 son agnósticos de pasarela. Solo se extienden con campos opcionales y nuevas relaciones. No se rompe ninguna migración ni test existente. |
