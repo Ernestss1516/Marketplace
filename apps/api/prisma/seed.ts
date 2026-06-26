@@ -393,6 +393,11 @@ async function seedSettings() {
       { key: 'badWordList', value: [] },
       { key: 'listingExpiryDays', value: 60 },
       { key: 'contactRequiresVerification', value: true },
+      // RF.4: costes de créditos — configurables desde el backoffice sin despliegue.
+      { key: 'featuredCreditCost7d', value: 30 },
+      { key: 'featuredCreditCost14d', value: 50 },
+      { key: 'featuredCreditCost30d', value: 100 },
+      { key: 'bumpCreditCost', value: 5 },
     ],
     skipDuplicates: true,
   });
@@ -445,11 +450,50 @@ async function seedBillingCatalog() {
   console.log('  ✓ Product: Plan Pro (mensual/anual)');
 }
 
+async function seedCreditPacks() {
+  console.log('Seeding credit packs...');
+  const existing = await prisma.creditPack.count();
+  if (existing > 0) {
+    console.log('  ✓ credit packs already present, skipped');
+    return;
+  }
+
+  // Credit pack Prices need a Product to satisfy the non-nullable productId FK.
+  const packsProduct = await prisma.product.create({
+    data: {
+      name: 'Packs de créditos',
+      description: 'Paquetes de créditos internos para destacar anuncios y bumps.',
+      type: ProductType.ONE_TIME,
+    },
+  });
+
+  const packs: { name: string; description: string; creditAmount: number; amount: string }[] = [
+    { name: 'Pack Básico', description: '50 créditos para empezar.', creditAmount: 50, amount: '4.99' },
+    { name: 'Pack Estándar', description: '150 créditos con mejor relación calidad-precio.', creditAmount: 150, amount: '9.99' },
+    { name: 'Pack Max', description: '400 créditos para usuarios frecuentes.', creditAmount: 400, amount: '19.99' },
+  ];
+
+  for (const p of packs) {
+    const pack = await prisma.creditPack.create({
+      data: { name: p.name, description: p.description, creditAmount: p.creditAmount },
+    });
+    await prisma.price.create({
+      data: {
+        productId: packsProduct.id,
+        amount: new Prisma.Decimal(p.amount),
+        creditPackId: pack.id,
+      },
+    });
+    console.log(`  ✓ ${p.name} (${p.creditAmount} cr / ${p.amount} €)`);
+  }
+}
+
 async function main() {
   await seedCategories();
   await seedAdmin();
   await seedSettings();
   await seedBillingCatalog();
+  await seedCreditPacks();
   console.log('Seed completed.');
 }
 

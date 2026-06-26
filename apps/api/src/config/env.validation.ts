@@ -27,4 +27,10 @@ export const envValidationSchema = Joi.object({
   // Stripe — optional so tests run without real keys; required in production.
   STRIPE_SECRET_KEY: Joi.string().allow('').optional(),
   STRIPE_WEBHOOK_SECRET: Joi.string().allow('').optional(),
+  // Redsys — optional so tests run without real credentials; required in production.
+  REDSYS_MERCHANT_CODE: Joi.string().allow('').optional(),
+  REDSYS_TERMINAL: Joi.string().allow('').optional(),
+  REDSYS_SECRET_KEY: Joi.string().allow('').optional(),
+  REDSYS_ENVIRONMENT: Joi.string().allow('').optional(),
+  REDSYS_NOTIFICATION_URL: Joi.string().allow('').optional(),
 });

@@ -107,6 +107,14 @@ enum EntitlementType {
   FEATURED_LISTING  // Anuncio destacado (nivel de anuncio)
 }
 
+enum CreditLedgerType {
+  PACK_PURCHASE   // Compra de pack de créditos → entrada (positivo)
+  FEATURED_DEBIT  // Destacado pagado con créditos → salida (negativo)
+  BUMP_DEBIT      // Bump pagado con créditos → salida (negativo)
+  ADMIN_CREDIT    // Acreditación manual de soporte → entrada
+  ADMIN_DEBIT     // Débito manual de soporte → salida
+}
+
 /// Motivo de una denuncia, para la cola de moderación.
 enum ReportReason {
   SPAM
@@ -174,6 +182,7 @@ model User {
   entitlements        Entitlement[]
   subscriptions       Subscription[]
   transactions        Transaction[]
+  wallet              Wallet?
 
   @@index([status])
 }
@@ -245,6 +254,7 @@ model Listing {
 
   publishedAt DateTime?
   expiresAt   DateTime?
+  bumpedAt    DateTime?
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
@@ -542,6 +552,10 @@ model Price {
   /// ID del objeto equivalente en la pasarela (Stripe Price ID).
   gatewayPriceId String?       @unique
 
+  /// FK al CreditPack asociado; solo presente en Prices de packs de créditos.
+  creditPackId  String?        @unique
+  creditPack    CreditPack?    @relation(fields: [creditPackId], references: [id])
+
   active        Boolean        @default(true)
 
   transactions  Transaction[]
@@ -637,6 +651,9 @@ model Transaction {
 
   status       TransactionStatus @default(PENDING)
 
+  /// Pasarela que procesó el cobro. "STRIPE" | "REDSYS"
+  gateway      String            @default("STRIPE")
+
   /// Referencias de la pasarela. NUNCA se almacenan PANs, CVVs ni datos de tarjeta.
   gatewayPaymentIntentId String?  @unique
   gatewayInvoiceId       String?  @unique
@@ -668,14 +685,83 @@ model Transaction {
 model GatewayEvent {
   id             String   @id @default(cuid())
 
-  /// ID único del evento en la pasarela (p.ej. "evt_1ABC..." en Stripe).
+  /// ID único del evento en la pasarela (p.ej. "evt_1ABC..." en Stripe; Ds_Order en Redsys).
   gatewayEventId String   @unique
 
   eventType      String
 
+  /// "STRIPE" | "REDSYS" — distingue el origen del evento para trazabilidad.
+  gateway        String   @default("STRIPE")
+
   processedAt    DateTime @default(now())
 
   @@index([processedAt])
+}
+
+// ============================================================================
+//  WALLET Y CRÉDITOS
+// ============================================================================
+
+/// Pack de créditos comprable. El precio en EUR vive en el Price asociado (creditPackId).
+/// Los costes de gastar créditos (featured, bump) viven en Setting.
+model CreditPack {
+  id           String   @id @default(cuid())
+  name         String
+  description  String?  @db.Text
+  /// Créditos que el usuario recibe al comprar este pack.
+  creditAmount Int
+  active       Boolean  @default(true)
+
+  /// Relación inversa: el Price asociado apunta a este pack vía creditPackId.
+  price        Price?
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+/// Saldo de créditos de un usuario. Una fila por usuario.
+///
+/// INVARIANTE: balance >= 0. Nunca se vuelve negativo.
+/// El débito atómico via UPDATE ... WHERE balance >= N garantiza este invariante
+/// sin serializable isolation. Ver diseno-facturacion.md §3.2 para el patrón.
+model Wallet {
+  id        String         @id @default(cuid())
+  userId    String         @unique
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Saldo en créditos enteros. Fuente de verdad del saldo actual.
+  balance   Int            @default(0)
+
+  entries   CreditLedger[]
+
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+}
+
+/// Registro inmutable de cada movimiento de créditos.
+/// NUNCA se modifica ni se borra una fila de esta tabla.
+/// amount > 0 = crédito (suma); amount < 0 = débito (resta).
+model CreditLedger {
+  id            String           @id @default(cuid())
+  walletId      String
+  wallet        Wallet           @relation(fields: [walletId], references: [id])
+
+  type          CreditLedgerType
+
+  /// Positivo = crédito (suma al saldo); negativo = débito (resta al saldo).
+  amount        Int
+
+  /// Referencia polimórfica al recurso que originó el movimiento.
+  /// Transaction.id para compras; Entitlement.id para destacados; Listing.id para bumps.
+  referenceId   String?
+  referenceType String?          // "Transaction" | "Entitlement" | "Listing"
+
+  note          String?
+
+  createdAt     DateTime         @default(now())
+
+  @@index([walletId])
+  @@index([createdAt])
 }
 
 // ============================================================================
