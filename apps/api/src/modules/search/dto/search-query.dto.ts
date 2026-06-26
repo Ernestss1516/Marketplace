@@ -80,12 +80,12 @@ export class SearchQueryDto {
   // ---------- Sort & pagination ----------
 
   @ApiPropertyOptional({
-    enum: ['price:asc', 'price:desc', 'publishedAt:desc'],
+    enum: ['price:asc', 'price:desc', 'publishedAt:desc', 'sortDate:desc'],
     description: 'Orden de resultados',
   })
   @IsOptional()
-  @IsIn(['price:asc', 'price:desc', 'publishedAt:desc'])
-  sort?: 'price:asc' | 'price:desc' | 'publishedAt:desc';
+  @IsIn(['price:asc', 'price:desc', 'publishedAt:desc', 'sortDate:desc'])
+  sort?: 'price:asc' | 'price:desc' | 'publishedAt:desc' | 'sortDate:desc';
 
   @ApiPropertyOptional({ minimum: 1, default: 1 })
   @IsOptional()

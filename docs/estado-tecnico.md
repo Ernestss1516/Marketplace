@@ -1,6 +1,6 @@
 # Estado técnico del proyecto — Marketplace
 
-> Fecha: 2026-06-27 · Rama: `main` · Último commit: RF.7 completo (límites por plan + cron de expiración de entitlements)
+> Fecha: 2026-06-27 · Rama: `main` · Último commit: RF.8 completo (Meilisearch: boostScore + sortDate)
 > Plan vigente para la siguiente fase: `docs/Hoja_de_ruta_rafagas_Hito2.docx`.
 
 Documento de referencia para retomar el proyecto. Recoge qué hay implementado,
@@ -26,7 +26,7 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **Expiration** | ✅ Completo | `ExpirationService`: cron 02:00 — marca EXPIRED los anuncios ACTIVE con `expiresAt ≤ now`, invalida caché Redis y encola reindexado (RESERVED excluidos intencionalmente). **RF.7-B**: `EntitlementExpirationService`: cron 03:00 con **dos expiraciones en paralelo** — **B.1** `expireFeaturedListings`: selecciona entitlements `FEATURED_LISTING` caducados sin `revokedAt`, los marca en batch (`updateMany → revokedAt = now`, crash-safe), encola reindex con `boostScore:0`; deduplicación BullMQ por `jobId = feat-exp-${id}-${fecha}`. **B.2** `downgradeExpiredPro`: usuarios con `PRO_SUBSCRIPTION` expirado hace > 7 días (periodo de gracia), sin suscripción activa renovada; mueve los listings en exceso a DRAFT ordenado por `publishedAt asc` (más antiguos primero); **purga caché Redis + encola reindex** para cada listing drafteado → Meilisearch los elimina del índice. `runExpirationSweep()` público para tests sin necesidad de reloj real |
 | **Geocoding** | ✅ Completo | `GeocodingService` con proveedor configurable (`nominatim` por defecto, `maptiler`). Timeout de 1 500 ms con `AbortSignal.timeout()`; retorna `null` en cualquier fallo sin bloquear la publicación. Script `geocode-backfill` para anuncios sin coordenadas existentes (cursor-based, 1 req/s para respetar la política de Nominatim) |
 | **Media** | ✅ Upload | `POST /media/upload` → R2/MinIO → crea `ListingImage` huérfana → encola procesado con sharp; **sin DELETE** |
-| **Search** | ✅ Completo | `GET /search` con texto libre, filtros core, atributos variables (brand, fuel, rooms, gender, size…), **filtro por proximidad** (`lat` + `lng` + `radius` en km → `_geoRadius` en Meilisearch) y **orden por distancia** cuando no hay sort explícito, facetas, paginación y ordenación; `IndexingProcessor` real con jobs `index`/`remove` |
+| **Search** | ✅ Completo | `GET /search` con texto libre, filtros core, atributos variables (brand, fuel, rooms, gender, size…), **filtro por proximidad** (`lat` + `lng` + `radius` en km → `_geoRadius` en Meilisearch) y **orden por distancia** cuando no hay sort explícito, facetas, paginación y ordenación; `IndexingProcessor` real con jobs `index`/`remove`. **RF.8**: `boostScore` (0/1) en el documento — 1 si el listing tiene un `FEATURED_LISTING` vigente (`revokedAt IS NULL AND (expiresAt IS NULL OR expiresAt > now)`) al reindexar. `sortDate = max(publishedAt, bumpedAt)` en el documento — bump sube sortDate, renew no (cierra el republish-gratis a nivel de búsqueda). `rankingRules`: `[words, typo, proximity, attribute, boostScore:desc, sort, exactness, sortDate:desc]` — boostScore tras relevancia textual (no contamina queries irrelevantes), antes de sort (destacados suben en cualquier ordenación), sortDate:desc tiebreaker final. `sortDate:desc` disponible en `?sort=sortDate:desc`. **VERIFICADO (204/204, 6 tests nuevos)**: boost en búsquedas relevantes, no contaminación de búsquedas irrelevantes, expirado→boostScore 0, bump sube sortDate · renew no |
 | **Script reindex** | ✅ Completo | `pnpm reindex` — reconstruye el índice en batches de 100; `ReindexModule` mínimo (sin BullMQ) para cierre limpio |
 | **Messaging** | ✅ Completo | REST: `GET /conversations`, `POST /conversations`, `GET /conversations/:id` (cursor), `POST /conversations/:id/messages`. WebSocket gateway `/ws`: auth en handshake, rooms de conversación y de usuario, emit tras el POST REST |
 | **AuditLog** | ✅ Completo | `AuditLogService.log()` inyectable; captura explícita `before`/`after` dentro del método de service que muta el recurso, antes de llamar a Prisma; nunca vía interceptor (ver §2) |
@@ -573,6 +573,39 @@ dentro del mismo try/catch del enqueue — más granular pero introduce race con
 Dentro del día, BullMQ deuplica por `jobId = feat-exp-${entitlementId}-${YYYY-MM-DD}`, de modo
 que si `runExpirationSweep()` se llama dos veces en el mismo día por restart del scheduler, no
 se encolan jobs duplicados.
+
+### boostScore y sortDate en Meilisearch (RF.8)
+
+`toDocument()` en `SearchService` calcula dos campos nuevos al reindexar:
+
+**`boostScore` (0 | 1):** `INDEX_INCLUDE` carga los entitlements `FEATURED_LISTING` con
+`revokedAt IS NULL` (excluye revocados). En `toDocument()`, `boostScore = 1` si alguno tiene
+`expiresAt IS NULL OR expiresAt > now`; 0 en caso contrario. `expiresAt IS NULL` = destacado
+permanente (nunca caduca). La comprobación temporal se hace al indexar, no en Meilisearch.
+
+**`sortDate` (epoch ms):** `max(publishedAt, bumpedAt)`. Un bump (RF.6) setea `bumpedAt = now`
+y encola reindex → `sortDate` sube al momento del bump. La renovación (`renew`) preserva ambos
+timestamps → `sortDate` no cambia. Cierra el "republish-gratis" a nivel de búsqueda (complementa
+el fix de `publishedAt` de RF.7-A que lo cerraba a nivel de Postgres).
+
+**`rankingRules`:**
+```
+[words, typo, proximity, attribute, boostScore:desc, sort, exactness, sortDate:desc]
+```
+- `boostScore:desc` en posición 5: tras relevancia textual (no eleva resultados irrelevantes),
+  antes de `sort` (los destacados suben en cualquier ordenación del usuario).
+- `sortDate:desc` al final: tiebreaker determinista para búsquedas sin sort explícito;
+  reemplaza el antiguo `publishedAt:desc`.
+
+**`sortDate` como dimensión de sort explícito:** `?sort=sortDate:desc` disponible en la API y
+en el DTO (`SearchQueryDto`). El feed/categoría del frontend debe migrar a este sort en RF.10.
+
+**DECISIÓN — expiración best-effort diaria:** `boostScore` es un valor congelado en el documento
+Meilisearch al reindexar; Meilisearch no reevalúa `expiresAt > now` por su cuenta. El cron B.1
+(03:00) revoca el entitlement y encola el reindex → `boostScore` baja a 0 con hasta ~23 h de
+retraso. Aceptado: a la escala actual del proyecto la granularidad diaria es suficiente. Si en
+el futuro se requiere expiración horaria, la solución sería un cron más frecuente o un job
+BullMQ con delay calculado (`expiresAt - now`).
 
 ### Pro downgrade con des-indexado de Meilisearch (RF.7-B.2 — bug detectado y corregido)
 

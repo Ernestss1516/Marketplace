@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import type { Index } from 'meilisearch';
-import type { Listing, ListingImage } from '@prisma/client';
+import type { Listing, ListingImage, Entitlement } from '@prisma/client';
 import { MeilisearchService } from '../../infra/meilisearch/meilisearch.service';
 
 export const LISTINGS_INDEX = process.env.MEILI_INDEX_NAME ?? 'listings';
@@ -32,8 +32,12 @@ export interface ListingDocument {
   slug: string;
   thumbnailUrl: string | null;
   sellerId: string;
+  /** UNIX timestamp (ms). max(publishedAt, bumpedAt) so a bump resurfaces the listing. */
+  sortDate: number;
   /** UNIX timestamp (seconds). Meilisearch sorts/ranks numbers more efficiently than ISO strings. */
   publishedAt: number;
+  /** 1 if listing has an active (non-revoked, non-expired) FEATURED_LISTING entitlement; 0 otherwise. */
+  boostScore: 0 | 1;
   /** Flattened category-specific attributes (brand, km, sqm, rooms, gearbox, gender, …). */
   [attribute: string]: unknown;
 }
@@ -108,6 +112,7 @@ const FILTERABLE_ATTRIBUTES = [
 const SORTABLE_ATTRIBUTES = [
   'price',
   'publishedAt',
+  'sortDate',
   '_geo', // enables _geoPoint(...):asc sorting; only useful when listings carry coordinates
 ];
 
@@ -131,9 +136,14 @@ const RANKING_RULES = [
   'typo',
   'proximity',
   'attribute',
+  // Featured listings rise after textual relevance; before user-applied sort so they
+  // remain visible in every ordering. Does NOT boost irrelevant results.
+  'boostScore:desc',
   'sort',
   'exactness',
-  'publishedAt:desc', // tiebreak: most-recent listing wins at equal relevance
+  // Final tiebreaker: most recently published/bumped listing wins.
+  // Replaces the old publishedAt:desc now that sortDate = max(publishedAt, bumpedAt).
+  'sortDate:desc',
 ];
 
 // ---------------------------------------------------------------------------
@@ -161,11 +171,18 @@ export const INDEX_INCLUDE = {
     },
   },
   images: { orderBy: { order: 'asc' as const } },
+  // Only non-revoked FEATURED_LISTING entitlements; expiresAt is checked in toDocument()
+  // because new Date() must be evaluated at index time, not at module-load time.
+  entitlements: {
+    where: { type: 'FEATURED_LISTING' as const, revokedAt: null },
+    select: { expiresAt: true },
+  },
 } as const;
 
 type ListingWithRelations = Listing & {
   category: { id: string; slug: string; name: string; parent: { slug: string } | null };
   images: ListingImage[];
+  entitlements: Pick<Entitlement, 'expiresAt'>[];
 };
 
 export interface SearchParams {
@@ -180,7 +197,7 @@ export interface SearchParams {
   city?: string;
   attributes?: Record<string, string | number | boolean>;
   geo?: { lat: number; lng: number; radiusMeters: number };
-  sort?: 'price:asc' | 'price:desc' | 'publishedAt:desc';
+  sort?: 'price:asc' | 'price:desc' | 'publishedAt:desc' | 'sortDate:desc';
   page?: number;
   hitsPerPage?: number;
 }
@@ -347,6 +364,20 @@ export class SearchService implements OnModuleInit {
       sellerId: listing.sellerId,
       publishedAt: listing.publishedAt
         ? Math.floor(listing.publishedAt.getTime() / 1000)
+        : 0,
+      // max(publishedAt, bumpedAt) in ms — bump resurfaces the listing; renew does not
+      // (renew preserves publishedAt and never sets bumpedAt).
+      sortDate: Math.max(
+        listing.publishedAt?.getTime() ?? 0,
+        listing.bumpedAt?.getTime() ?? 0,
+      ),
+      // 1 if a non-revoked, non-expired FEATURED_LISTING entitlement exists; 0 otherwise.
+      // expiresAt=null means the entitlement never expires (permanent featured).
+      // Evaluated at index time; decays to 0 when the B.1 expiration cron re-indexes (~daily).
+      boostScore: listing.entitlements.some(
+        (e) => e.expiresAt == null || e.expiresAt > new Date(),
+      )
+        ? 1
         : 0,
     };
   }
