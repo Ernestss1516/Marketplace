@@ -24,6 +24,7 @@ import { AuditLogModule } from './modules/audit-log/audit-log.module';
 import { ExpirationModule } from './modules/expiration/expiration.module';
 import { BlogModule } from './modules/blog/blog.module';
 import { BillingModule } from './modules/billing/billing.module';
+import { RedsysModule } from './modules/redsys/redsys.module';
 
 @Module({
   imports: [
@@ -69,6 +70,7 @@ import { BillingModule } from './modules/billing/billing.module';
     ExpirationModule,
     BlogModule,
     BillingModule,
+    RedsysModule,
   ],
 })
 export class AppModule {}

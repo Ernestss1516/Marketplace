@@ -26,6 +26,13 @@ export default () => ({
     secretKey: process.env.STRIPE_SECRET_KEY ?? '',
     webhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? '',
   },
+  redsys: {
+    merchantCode: process.env.REDSYS_MERCHANT_CODE ?? '',
+    terminal: process.env.REDSYS_TERMINAL ?? '001',
+    secretKey: process.env.REDSYS_SECRET_KEY ?? '',
+    environment: process.env.REDSYS_ENVIRONMENT ?? 'test',
+    notificationUrl: process.env.REDSYS_NOTIFICATION_URL ?? '',
+  },
   s3: {
     endpoint: process.env.S3_ENDPOINT,
     bucket: process.env.S3_BUCKET,

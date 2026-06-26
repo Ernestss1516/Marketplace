@@ -1,0 +1,337 @@
+/**
+ * RF.5 — Redsys wallet accreditation (e2e)
+ *
+ * These tests exercise the RedsysProcessor business logic directly, bypassing
+ * HMAC signature verification (which requires real Redsys tooling / credentials).
+ *
+ * What IS verified:
+ *   - Pack purchase wallet accreditation (create Wallet, increment balance, CreditLedger)
+ *   - Idempotency layer 1: GatewayEvent @unique prevents enqueuing the same Ds_Order twice
+ *   - Idempotency layer 2: processor guards on Transaction.status !== PENDING
+ *   - Amount validation: mismatched Ds_Amount marks Transaction FAILED, wallet untouched
+ *   - IVA breakdown: net + tax = gross for all pack prices (4.99 / 9.99 / 19.99)
+ *   - Ds_Order uniqueness: 1 000 generated orders are all distinct
+ *
+ * What is NOT verified here:
+ *   - Real HMAC signature generation / verification against Redsys
+ *   - Live notification from the Redsys sandbox
+ *   (both require Redsys tooling / tunnel — pending RF.5 integration verification)
+ */
+
+import { INestApplication } from '@nestjs/common';
+import { PrismaClient, TransactionStatus, CreditLedgerType } from '@prisma/client';
+import * as bcrypt from 'bcrypt';
+import { Prisma } from '@prisma/client';
+import { createTestApp } from './helpers/create-app';
+import { cleanDb } from './helpers/db';
+import { RedsysProcessor } from 'src/modules/redsys/redsys.processor';
+import { RedsysService } from 'src/modules/redsys/redsys.service';
+import { redsysTaxBreakdown } from 'src/modules/redsys/redsys.types';
+
+describe('Redsys — wallet accreditation (e2e)', () => {
+  let app: INestApplication;
+  let prisma: PrismaClient;
+  let processor: RedsysProcessor;
+  let redsysService: RedsysService;
+
+  // IDs reused across tests in this describe block
+  let userId: string;
+  let packBasicoId: string;
+  let packBasicoPriceId: string;
+  let packBasicoCreditAmount: number; // 50
+  let packBasicoAmountEur: Prisma.Decimal; // 4.99
+
+  beforeAll(async () => {
+    prisma = new PrismaClient();
+    app = await createTestApp();
+    await app.init();
+    await cleanDb(prisma);
+
+    processor = app.get(RedsysProcessor);
+    redsysService = app.get(RedsysService);
+
+    // Create a test user
+    const user = await prisma.user.create({
+      data: {
+        email: 'redsys-test@example.com',
+        name: 'Redsys Test',
+        slug: 'redsys-test',
+        passwordHash: await bcrypt.hash('Test1234!', 4),
+        emailVerified: true,
+      },
+    });
+    userId = user.id;
+
+    // Look up Pack Básico (seeded in seed-test.ts)
+    const pack = await prisma.creditPack.findFirst({
+      where: { name: 'Pack Básico' },
+      include: { price: true },
+    });
+    if (!pack?.price) throw new Error('Pack Básico not found in test seed — run seed-test.ts');
+    packBasicoId = pack.id;
+    packBasicoPriceId = pack.price.id;
+    packBasicoCreditAmount = pack.creditAmount; // 50
+    packBasicoAmountEur = pack.price.amount;    // 4.99
+  });
+
+  afterAll(async () => {
+    await app.close();
+    await prisma.$disconnect();
+  });
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+
+  /** Creates a PENDING Transaction that looks like it came from a Redsys checkout. */
+  async function createPendingTransaction(dsOrder: string, overrides?: { userId?: string }) {
+    const tax = redsysTaxBreakdown(packBasicoAmountEur);
+    return prisma.transaction.create({
+      data: {
+        userId: overrides?.userId ?? userId,
+        priceId: packBasicoPriceId,
+        ...tax,
+        status: TransactionStatus.PENDING,
+        gateway: 'REDSYS',
+        gatewayPaymentIntentId: dsOrder,
+      },
+      select: { id: true, amountGross: true, gatewayPaymentIntentId: true },
+    });
+  }
+
+  /** Amount in cents (string) that matches Transaction.amountGross. */
+  function correctCents(amountEur: Prisma.Decimal): string {
+    return amountEur.mul(100).toFixed(0);
+  }
+
+  // ── IVA breakdown ──────────────────────────────────────────────────────────
+
+  describe('redsysTaxBreakdown', () => {
+    const cases = [
+      { label: 'Pack Básico 4.99 €',    gross: '4.99',  expectedNet: '4.12', expectedTax: '0.87' },
+      { label: 'Pack Estándar 9.99 €',  gross: '9.99',  expectedNet: '8.26', expectedTax: '1.73' },
+      { label: 'Pack Max 19.99 €',      gross: '19.99', expectedNet: '16.52', expectedTax: '3.47' },
+    ];
+
+    for (const { label, gross, expectedNet, expectedTax } of cases) {
+      it(`${label}: net + tax = gross, correct 2-decimal split`, () => {
+        const { amountGross, amountNet, taxAmount, taxRate } = redsysTaxBreakdown(gross);
+
+        expect(amountGross.toFixed(2)).toBe(gross);
+        expect(amountNet.toFixed(2)).toBe(expectedNet);
+        expect(taxAmount.toFixed(2)).toBe(expectedTax);
+        expect(taxRate.toFixed(4)).toBe('0.2100');
+
+        // Core invariant: net + tax must equal gross (no rounding discrepancy)
+        expect(amountNet.add(taxAmount).toFixed(2)).toBe(gross);
+      });
+    }
+  });
+
+  // ── Ds_Order uniqueness ────────────────────────────────────────────────────
+
+  describe('generateDsOrder', () => {
+    it('generates 1 000 unique orders with the correct format', () => {
+      const orders = new Set<string>();
+      for (let i = 0; i < 1000; i++) {
+        orders.add(redsysService.generateDsOrder());
+      }
+
+      expect(orders.size).toBe(1000);
+
+      for (const order of orders) {
+        // Must be 12 chars
+        expect(order).toHaveLength(12);
+        // Must start with 8 digits (YYYYMMDD)
+        expect(order).toMatch(/^\d{8}[A-Z0-9]{4}$/);
+      }
+    });
+  });
+
+  // ── Wallet accreditation ───────────────────────────────────────────────────
+
+  describe('processSuccess — pack purchase', () => {
+    const DS_ORDER = '20260626ACCR';
+
+    beforeEach(async () => {
+      // Clean wallet + related data before each accreditation test so tests are independent
+      await prisma.creditLedger.deleteMany({ where: { wallet: { userId } } });
+      await prisma.wallet.deleteMany({ where: { userId } });
+      await prisma.transaction.deleteMany({ where: { gatewayPaymentIntentId: DS_ORDER } });
+      await prisma.gatewayEvent.deleteMany({ where: { gatewayEventId: DS_ORDER } });
+    });
+
+    it('creates Wallet, increments balance, writes CreditLedger, marks Transaction SUCCEEDED', async () => {
+      const tx = await createPendingTransaction(DS_ORDER);
+      const cents = correctCents(packBasicoAmountEur);
+
+      await processor.processSuccess({ transactionId: tx.id, dsAmount: cents, dsOrder: DS_ORDER });
+
+      // Transaction is SUCCEEDED
+      const txAfter = await prisma.transaction.findUnique({ where: { id: tx.id } });
+      expect(txAfter?.status).toBe(TransactionStatus.SUCCEEDED);
+
+      // Wallet was created with correct balance
+      const wallet = await prisma.wallet.findUnique({
+        where: { userId },
+        include: { entries: true },
+      });
+      expect(wallet).not.toBeNull();
+      expect(wallet!.balance).toBe(packBasicoCreditAmount); // 50
+
+      // Exactly one CreditLedger entry
+      expect(wallet!.entries).toHaveLength(1);
+      const entry = wallet!.entries[0]!;
+      expect(entry.type).toBe(CreditLedgerType.PACK_PURCHASE);
+      expect(entry.amount).toBe(packBasicoCreditAmount); // +50
+      expect(entry.referenceType).toBe('Transaction');
+      expect(entry.referenceId).toBe(tx.id);
+    });
+
+    it('accumulates balance on repeated purchases (wallet already exists)', async () => {
+      // First pack purchase
+      const tx1 = await createPendingTransaction(DS_ORDER);
+      await processor.processSuccess({
+        transactionId: tx1.id,
+        dsAmount: correctCents(packBasicoAmountEur),
+        dsOrder: DS_ORDER,
+      });
+
+      const secondOrder = DS_ORDER + '2';
+      await prisma.transaction.deleteMany({ where: { gatewayPaymentIntentId: secondOrder } });
+      const tx2 = await createPendingTransaction(secondOrder);
+      await processor.processSuccess({
+        transactionId: tx2.id,
+        dsAmount: correctCents(packBasicoAmountEur),
+        dsOrder: secondOrder,
+      });
+
+      const wallet = await prisma.wallet.findUnique({
+        where: { userId },
+        include: { entries: true },
+      });
+      expect(wallet!.balance).toBe(packBasicoCreditAmount * 2); // 100
+      expect(wallet!.entries).toHaveLength(2);
+    });
+  });
+
+  // ── Idempotency layer 1 (GatewayEvent) ─────────────────────────────────────
+
+  describe('Idempotency layer 1 — GatewayEvent @unique', () => {
+    const DS_ORDER = '20260626IDEM';
+
+    afterEach(async () => {
+      await prisma.gatewayEvent.deleteMany({ where: { gatewayEventId: DS_ORDER } });
+    });
+
+    it('first GatewayEvent insert succeeds', async () => {
+      const created = await prisma.gatewayEvent.create({
+        data: { gatewayEventId: DS_ORDER, eventType: 'redsys.notification', gateway: 'REDSYS' },
+      });
+      expect(created.gatewayEventId).toBe(DS_ORDER);
+    });
+
+    it('second insert with the same Ds_Order throws P2002 (unique violation)', async () => {
+      await prisma.gatewayEvent.create({
+        data: { gatewayEventId: DS_ORDER, eventType: 'redsys.notification', gateway: 'REDSYS' },
+      });
+
+      // The guard catches P2002 and returns 200 without enqueuing — verified here at DB level
+      await expect(
+        prisma.gatewayEvent.create({
+          data: { gatewayEventId: DS_ORDER, eventType: 'redsys.notification', gateway: 'REDSYS' },
+        }),
+      ).rejects.toMatchObject({ code: 'P2002' });
+    });
+  });
+
+  // ── Idempotency layer 2 (processor) ────────────────────────────────────────
+
+  describe('Idempotency layer 2 — processor guards on Transaction.status', () => {
+    const DS_ORDER = '20260626IDMX';
+
+    beforeAll(async () => {
+      await prisma.creditLedger.deleteMany({ where: { wallet: { userId } } });
+      await prisma.wallet.deleteMany({ where: { userId } });
+      await prisma.transaction.deleteMany({ where: { gatewayPaymentIntentId: DS_ORDER } });
+    });
+
+    it('processing the same job twice does not duplicate credits', async () => {
+      const tx = await createPendingTransaction(DS_ORDER);
+      const cents = correctCents(packBasicoAmountEur);
+
+      // First call — normal processing
+      await processor.processSuccess({ transactionId: tx.id, dsAmount: cents, dsOrder: DS_ORDER });
+
+      const walletAfterFirst = await prisma.wallet.findUnique({
+        where: { userId },
+        include: { entries: true },
+      });
+      expect(walletAfterFirst!.balance).toBe(packBasicoCreditAmount);
+      expect(walletAfterFirst!.entries).toHaveLength(1);
+
+      // Second call — processor sees status = SUCCEEDED and returns early
+      await processor.processSuccess({ transactionId: tx.id, dsAmount: cents, dsOrder: DS_ORDER });
+
+      const walletAfterSecond = await prisma.wallet.findUnique({
+        where: { userId },
+        include: { entries: true },
+      });
+      // Balance and ledger entries must be identical after the second call
+      expect(walletAfterSecond!.balance).toBe(packBasicoCreditAmount); // still 50, not 100
+      expect(walletAfterSecond!.entries).toHaveLength(1);              // still 1 entry
+    });
+  });
+
+  // ── Amount validation ──────────────────────────────────────────────────────
+
+  describe('Amount validation', () => {
+    const DS_ORDER = '20260626AMNT';
+
+    beforeEach(async () => {
+      await prisma.creditLedger.deleteMany({ where: { wallet: { userId } } });
+      await prisma.wallet.deleteMany({ where: { userId } });
+      await prisma.transaction.deleteMany({ where: { gatewayPaymentIntentId: DS_ORDER } });
+    });
+
+    it('marks Transaction FAILED and leaves Wallet untouched when Ds_Amount does not match', async () => {
+      const tx = await createPendingTransaction(DS_ORDER);
+      const correctCentsValue = correctCents(packBasicoAmountEur); // "499"
+      const wrongCents = String(parseInt(correctCentsValue, 10) + 1); // "500"
+
+      await processor.processSuccess({ transactionId: tx.id, dsAmount: wrongCents, dsOrder: DS_ORDER });
+
+      const txAfter = await prisma.transaction.findUnique({ where: { id: tx.id } });
+      expect(txAfter?.status).toBe(TransactionStatus.FAILED);
+
+      const wallet = await prisma.wallet.findUnique({ where: { userId } });
+      expect(wallet).toBeNull(); // No wallet was created
+    });
+
+    it('processes correctly when amount matches exactly', async () => {
+      const tx = await createPendingTransaction(DS_ORDER);
+      const cents = correctCents(packBasicoAmountEur);
+
+      await processor.processSuccess({ transactionId: tx.id, dsAmount: cents, dsOrder: DS_ORDER });
+
+      const txAfter = await prisma.transaction.findUnique({ where: { id: tx.id } });
+      expect(txAfter?.status).toBe(TransactionStatus.SUCCEEDED);
+
+      const wallet = await prisma.wallet.findUnique({ where: { userId } });
+      expect(wallet?.balance).toBe(packBasicoCreditAmount);
+    });
+  });
+
+  // ── Non-existent transaction ───────────────────────────────────────────────
+
+  describe('Edge cases', () => {
+    it('logs error and returns without throwing when transactionId is unknown', async () => {
+      // Should not throw — processor logs the error and exits cleanly
+      await expect(
+        processor.processSuccess({
+          transactionId: 'nonexistent-id-xyz',
+          dsAmount: '499',
+          dsOrder: '20260626EDGX',
+        }),
+      ).resolves.toBeUndefined();
+    });
+  });
+});
