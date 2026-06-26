@@ -76,15 +76,15 @@ describe('Search (e2e)', () => {
       .send({ email: 'search-seller@example.com', password: 'Test1234!' });
     sellerToken = loginRes.body.accessToken as string;
 
-    // Six ACTIVE listings in 'moviles', all with explicit coordinates.
-    // Prices are intentionally spread so the price-range test filters correctly.
+    // Five ACTIVE listings in 'moviles', all with explicit coordinates.
+    // Prices are spread so the price-range test can verify both inclusion and
+    // exclusion. Five listings fit within the free-plan limit (5 active).
     const listingSpecs = [
-      { title: 'iPhone 15 Pro Max Titanio', price: 1_200 },  // above [100, 500]
+      { title: 'iPhone 15 Pro Max Titanio', price: 1_200 },  // above [100, 500] — excluded
       { title: 'Samsung Galaxy S24 Ultra', price: 300 },     // within [100, 500]
       { title: 'Xiaomi 14 Pro Nuevo', price: 150 },          // within [100, 500]
-      { title: 'iPhone 14 Seminuevo', price: 400 },           // within [100, 500]
+      { title: 'iPhone 14 Seminuevo', price: 400 },          // within [100, 500]
       { title: 'Google Pixel 9 Flamingo', price: 450 },      // within [100, 500]
-      { title: 'OnePlus 12 Black', price: 800 },              // above [100, 500]
     ];
 
     for (const { title, price } of listingSpecs) {
@@ -110,7 +110,7 @@ describe('Search (e2e)', () => {
       .send(listingPayload('Borrador Oculto No Deberia Aparecer', 99, categoryId))
       .expect(201);
 
-    // Wait until all 6 published listings are visible in Meilisearch.
+    // Wait until all 5 published listings are visible in Meilisearch.
     // The worker processes jobs asynchronously; waitForIndex polls every 200 ms.
     for (const id of publishedIds) {
       await waitForIndex(meili, process.env.MEILI_INDEX_NAME!, id);
@@ -161,10 +161,9 @@ describe('Search (e2e)', () => {
       expect(hit.price as number).toBeGreaterThanOrEqual(100);
       expect(hit.price as number).toBeLessThanOrEqual(500);
     }
-    // Sanity: our listings with prices 1200 and 800 should not appear.
+    // Sanity: the listing at 1200 must not appear (filtered out by maxPrice=500).
     const prices: number[] = res.body.hits.map((h: { price: number }) => h.price);
     expect(prices).not.toContain(1_200);
-    expect(prices).not.toContain(800);
   });
 
   // ── geo-proximity filter ────────────────────────────────────────────────────
@@ -212,17 +211,17 @@ describe('Search (e2e)', () => {
 
   // ── pagination ──────────────────────────────────────────────────────────────
 
-  it('Paginación: page=2&hitsPerPage=5 → page 2 con hits reales y ≤ 5 resultados', async () => {
-    // 6 published listings total; page 1 returns 5, page 2 returns the remaining 1.
+  it('Paginación: page=2&hitsPerPage=4 → page 2 con hits reales y ≤ 4 resultados', async () => {
+    // 5 published listings total; page 1 returns 4, page 2 returns the remaining 1.
     const res = await request(app.getHttpServer())
-      .get('/api/search?page=2&hitsPerPage=5')
+      .get('/api/search?page=2&hitsPerPage=4')
       .expect(200);
 
     expect(res.body.page).toBe(2);
-    expect(res.body.hitsPerPage).toBe(5);
+    expect(res.body.hitsPerPage).toBe(4);
     expect(res.body.hits.length).toBeGreaterThan(0);
-    expect(res.body.hits.length).toBeLessThanOrEqual(5);
-    expect(res.body.totalHits).toBeGreaterThanOrEqual(6);
+    expect(res.body.hits.length).toBeLessThanOrEqual(4);
+    expect(res.body.totalHits).toBeGreaterThanOrEqual(5);
   });
 
   // ── facets ──────────────────────────────────────────────────────────────────

@@ -571,8 +571,14 @@ model Price {
 /// Registro de un derecho activo. Es la única tabla que lee la lógica de negocio
 /// para decidir si un usuario puede hacer algo. No conoce la pasarela.
 ///
-/// Un entitlement es válido cuando:
-///   expiresAt IS NULL OR expiresAt > now()
+/// Un entitlement es VIGENTE cuando:
+///   revokedAt IS NULL AND (expiresAt IS NULL OR expiresAt > now())
+///
+/// revokedAt se setea en dos casos:
+///   1. El cron de expiración procesa un FEATURED_LISTING caducado (B.1) — garantiza
+///      que cada destacado expirado se reindexe exactamente una vez.
+///   2. Un administrador revoca manualmente un entitlement aún no caducado (futuro).
+/// Nunca se borra una fila de esta tabla; la revocación es el mecanismo de cierre.
 model Entitlement {
   id             String          @id @default(cuid())
   userId         String
@@ -588,6 +594,11 @@ model Entitlement {
   /// Null = sin caducidad (reservado para créditos manuales de soporte).
   expiresAt      DateTime?
 
+  /// Seteado cuando el entitlement se revoca explícitamente (cron de expiración de
+  /// FEATURED_LISTING, o revocación manual de admin). Un entitlement con revokedAt
+  /// seteado NO cuenta como vigente aunque expiresAt sea futuro.
+  revokedAt      DateTime?
+
   // Trazabilidad del origen
   priceId        String?
   price          Price?          @relation(fields: [priceId], references: [id])
@@ -601,6 +612,7 @@ model Entitlement {
   @@index([userId, type])
   @@index([listingId])
   @@index([expiresAt])
+  @@index([revokedAt])
 }
 
 /// Estado de una suscripción recurrente. Una sola suscripción activa por usuario.

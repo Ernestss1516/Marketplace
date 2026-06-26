@@ -2,9 +2,11 @@ import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { QUEUE_INDEXING } from '../../infra/queue/queue.constants';
 import { ExpirationService } from './expiration.service';
+import { EntitlementExpirationService } from './entitlement-expiration.service';
 
 @Module({
   imports: [BullModule.registerQueue({ name: QUEUE_INDEXING })],
-  providers: [ExpirationService],
+  providers: [ExpirationService, EntitlementExpirationService],
+  exports: [ExpirationService, EntitlementExpirationService],
 })
 export class ExpirationModule {}

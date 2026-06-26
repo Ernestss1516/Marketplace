@@ -14,6 +14,7 @@ import { Prisma } from '@prisma/client';
 import type { Listing, ListingStatus, PriceType } from '@prisma/client';
 import { QUEUE_INDEXING } from '../../infra/queue/queue.constants';
 import { ExpirationService } from '../expiration/expiration.service';
+import { EntitlementService } from '../billing/entitlement.service';
 import { GeocodingService } from '../geocoding/geocoding.service';
 import { BadWordService } from '../moderation/bad-word.service';
 import { CreateListingDto } from './dto/create-listing.dto';
@@ -72,6 +73,7 @@ export class ListingsService {
     @InjectQueue(QUEUE_INDEXING) private readonly indexingQueue: Queue,
     private readonly geocodingService: GeocodingService,
     private readonly badWordService: BadWordService,
+    private readonly entitlementService: EntitlementService,
   ) {}
 
   async create(sellerId: string, dto: CreateListingDto): Promise<Listing> {
@@ -223,6 +225,11 @@ export class ListingsService {
       // Silent fallback — publication continues normally.
     }
 
+    // RF.7: enforce active listing limit before activating.
+    if (targetStatus === 'ACTIVE') {
+      await this.checkActiveListingLimit(userId);
+    }
+
     const publishedAt = existing.publishedAt ?? new Date();
     const listing = await this.prisma.listing.update({
       where: { id },
@@ -251,12 +258,18 @@ export class ListingsService {
       );
     }
 
+    // RF.7: renewing brings the listing back to ACTIVE — counts against the limit
+    // the same as publishing (Opción A). A slot is a slot regardless of origin.
+    await this.checkActiveListingLimit(userId);
+
     const now = new Date();
     const listing = await this.prisma.listing.update({
       where: { id },
       data: {
         status: 'ACTIVE',
-        publishedAt: now,
+        // Preserve the original publishedAt: resetting it would be a free bump that
+        // defeats the paid bump mechanic (RF.6) and gives wrong datePublished for SEO.
+        // Only extend the expiry window from now.
         expiresAt: ExpirationService.expiresAt(now),
       },
     });
@@ -457,6 +470,25 @@ export class ListingsService {
     if (missing.length) {
       throw new UnprocessableEntityException(
         `Atributos requeridos faltantes: ${missing.join(', ')}`,
+      );
+    }
+  }
+
+  private async checkActiveListingLimit(userId: string): Promise<void> {
+    const isPro = await this.entitlementService.isProActive(userId);
+    const settingKey = isPro ? 'proActiveListingLimit' : 'freeActiveListingLimit';
+    const defaultLimit = isPro ? 20 : 5;
+
+    const setting = await this.prisma.setting.findUnique({ where: { key: settingKey } });
+    const limit = setting ? Number(setting.value) : defaultLimit;
+
+    const activeCount = await this.prisma.listing.count({
+      where: { sellerId: userId, status: 'ACTIVE' },
+    });
+
+    if (activeCount >= limit) {
+      throw new ForbiddenException(
+        `Has alcanzado el límite de ${limit} anuncios activos de tu plan`,
       );
     }
   }

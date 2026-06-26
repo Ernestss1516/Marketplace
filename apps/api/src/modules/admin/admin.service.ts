@@ -39,6 +39,9 @@ const SETTING_KEYS = [
   'badWordList',
   'listingExpiryDays',
   'contactRequiresVerification',
+  // RF.7: active listing limits per plan
+  'freeActiveListingLimit',
+  'proActiveListingLimit',
 ] as const;
 type SettingKey = (typeof SETTING_KEYS)[number];
 

@@ -1,6 +1,6 @@
 # Estado técnico del proyecto — Marketplace
 
-> Fecha: 2026-06-25 · Rama: `main` · Último commit: Hito 3 completo (Favoritos, Valoraciones, Tests, Deuda)
+> Fecha: 2026-06-27 · Rama: `main` · Último commit: RF.7 completo (límites por plan + cron de expiración de entitlements)
 > Plan vigente para la siguiente fase: `docs/Hoja_de_ruta_rafagas_Hito2.docx`.
 
 Documento de referencia para retomar el proyecto. Recoge qué hay implementado,
@@ -14,7 +14,7 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 
 | Módulo | Estado | Notas |
 |---|---|---|
-| **Infra: Prisma** | ✅ Completo | Schema con todos los modelos; PostGIS habilitado; **8 migraciones aplicadas**: `init`, `add_auth_tokens`, `media_listing_image_nullable`, `add_price_type`, `backfill_expires_at`, `add_audit_log_and_settings`, `add_blog_post`, **`add_review_fields`** |
+| **Infra: Prisma** | ✅ Completo | Schema con todos los modelos; PostGIS habilitado; **11 migraciones aplicadas** hasta RF.7 (las de billing RF.2–RF.6 añaden Subscription, Transaction, Wallet, Entitlement, CreditLedger, GatewayEvent, Price…; **RF.7** añade **`add_entitlement_revoked_at`**: columna nullable `Entitlement.revokedAt DateTime?` + índice) |
 | **Infra: Redis** | ✅ Completo | `RedisService` global; caché de fichas de anuncio (TTL 5 min) |
 | **Infra: BullMQ** | ✅ Colas activas | 4 colas registradas con processors reales: `image-processing`, `indexing`, `notifications`, `billing`, `redsys` |
 | **Infra: Meilisearch** | ✅ Completo | `SearchService.onModuleInit()` crea el índice `listings` y aplica searchable/filterable/sortable attrs, ranking rules y typo tolerance al arrancar |
@@ -22,8 +22,8 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **Auth** | ✅ Completo | register, login, verify-email, forgot-password, reset-password; `JwtAuthGuard`, `RolesGuard`, `@CurrentUser`; login devuelve `emailVerified` (fix fase 5) |
 | **Users** | ✅ Completo | `GET /users/me`, `PATCH /users/me`, `GET /users/:slug` (perfil público) |
 | **Categories** | ✅ Completo | `GET /categories` (árbol público), `GET /categories/:slug` (con `attributeSchema`) |
-| **Listings** | ✅ Completo | CRUD completo + ciclo de vida (publish, reserve, sold, delete, **renew**) + `expiresAt` fijado al publicar (publishedAt + 60 días) + caché por slug + encolado de reindexado; `GET /listings/mine/:id` para edición; `thumbnailUrl` resuelto en `findMine` y `findBySellerSlug`; geocoding automático al crear y al editar cuando cambia la ubicación |
-| **Expiration** | ✅ Completo | `ExpirationService` con cron diario a las 02:00 (`@nestjs/schedule`): marca EXPIRED los anuncios ACTIVE con `expiresAt ≤ now`, invalida caché Redis y encola reindexado. Los RESERVED quedan excluidos intencionalmente |
+| **Listings** | ✅ Completo | CRUD completo + ciclo de vida (publish, reserve, sold, delete, **renew**) + `expiresAt` fijado al publicar (publishedAt + 60 días) + caché por slug + encolado de reindexado; `GET /listings/mine/:id` para edición; `thumbnailUrl` resuelto en `findMine` y `findBySellerSlug`; geocoding automático al crear y al editar cuando cambia la ubicación. **RF.7-A**: `publish()` y `renew()` verifican el límite de activos del plan (free: 5, pro: 20, leídos de `Setting`; 403 si superado). **Fix RF.7**: `renew()` preserva `publishedAt` original y no lo resetea (resetear era un bump gratuito que vaciaba de sentido el bump de pago de RF.6) |
+| **Expiration** | ✅ Completo | `ExpirationService`: cron 02:00 — marca EXPIRED los anuncios ACTIVE con `expiresAt ≤ now`, invalida caché Redis y encola reindexado (RESERVED excluidos intencionalmente). **RF.7-B**: `EntitlementExpirationService`: cron 03:00 con **dos expiraciones en paralelo** — **B.1** `expireFeaturedListings`: selecciona entitlements `FEATURED_LISTING` caducados sin `revokedAt`, los marca en batch (`updateMany → revokedAt = now`, crash-safe), encola reindex con `boostScore:0`; deduplicación BullMQ por `jobId = feat-exp-${id}-${fecha}`. **B.2** `downgradeExpiredPro`: usuarios con `PRO_SUBSCRIPTION` expirado hace > 7 días (periodo de gracia), sin suscripción activa renovada; mueve los listings en exceso a DRAFT ordenado por `publishedAt asc` (más antiguos primero); **purga caché Redis + encola reindex** para cada listing drafteado → Meilisearch los elimina del índice. `runExpirationSweep()` público para tests sin necesidad de reloj real |
 | **Geocoding** | ✅ Completo | `GeocodingService` con proveedor configurable (`nominatim` por defecto, `maptiler`). Timeout de 1 500 ms con `AbortSignal.timeout()`; retorna `null` en cualquier fallo sin bloquear la publicación. Script `geocode-backfill` para anuncios sin coordenadas existentes (cursor-based, 1 req/s para respetar la política de Nominatim) |
 | **Media** | ✅ Upload | `POST /media/upload` → R2/MinIO → crea `ListingImage` huérfana → encola procesado con sharp; **sin DELETE** |
 | **Search** | ✅ Completo | `GET /search` con texto libre, filtros core, atributos variables (brand, fuel, rooms, gender, size…), **filtro por proximidad** (`lat` + `lng` + `radius` en km → `_geoRadius` en Meilisearch) y **orden por distancia** cuando no hay sort explícito, facetas, paginación y ordenación; `IndexingProcessor` real con jobs `index`/`remove` |
@@ -31,12 +31,13 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **Messaging** | ✅ Completo | REST: `GET /conversations`, `POST /conversations`, `GET /conversations/:id` (cursor), `POST /conversations/:id/messages`. WebSocket gateway `/ws`: auth en handshake, rooms de conversación y de usuario, emit tras el POST REST |
 | **AuditLog** | ✅ Completo | `AuditLogService.log()` inyectable; captura explícita `before`/`after` dentro del método de service que muta el recurso, antes de llamar a Prisma; nunca vía interceptor (ver §2) |
 | **Moderation** | ✅ Completo | Reportes CRUD + cola (GET con filtros status/reason/page); acciones sobre listings (approve, reject, deactivate, restore); `BadWordService` con fallback silencioso al publicar; AuditLog en todas las mutaciones; roles MODERATOR + ADMIN |
-| **Admin** | ✅ Completo | Listings (list, detail, PATCH status); Users (list, detail, suspend, ban, reinstate, role); Categories CRUD + batch reorder; Settings GET + PATCH con whitelist; `GET /admin/stats` con 7 métricas + Meilisearch null-fallback; todos los endpoints con `@Roles(ADMIN)` y AuditLog |
+| **Admin** | ✅ Completo | Listings (list, detail, PATCH status); Users (list, detail, suspend, ban, reinstate, role); Categories CRUD + batch reorder; Settings GET + PATCH con whitelist; `GET /admin/stats` con 7 métricas + Meilisearch null-fallback; todos los endpoints con `@Roles(ADMIN)` y AuditLog. **RF.7**: whitelist de settings ampliada con `freeActiveListingLimit` y `proActiveListingLimit`; ambos configurables desde el backoffice sin redeploy |
 | **Blog** | ✅ Completo | Modelo `Post` (enum `PostStatus { DRAFT, PUBLISHED }`, body Markdown raw, `tags String[]`, `coverUrl`, campos SEO opcionales `metaTitle`/`metaDescription`). `BlogController`: `GET /blog` (solo PUBLISHED, paginado, filtro `?tag=`) y `GET /blog/:slug` (404 si no existe o es DRAFT). `BlogAdminController` (`@Roles(ADMIN)`): CRUD completo + `POST /admin/blog/:id/publish` + `POST /admin/blog/:id/unpublish`. AuditLog en todas las mutaciones (`POST_CREATE`, `POST_UPDATE`, `POST_PUBLISH`, `POST_UNPUBLISH`, `POST_DELETE`). Revalidación ISR on-demand fire-and-forget al publicar/despublicar/editar/borrar posts publicados (el blog es el **primer productor del webhook** desde el backend; el webhook en sí existía desde Fase 5). `BlogModule` importa `PrismaModule` + `AuditLogModule`; autónomo, no modifica `AdminModule` |
 | **Favorites** | ✅ Completo | `POST /favorites/:listingId` (marcar), `DELETE /favorites/:listingId` (desmarcar), `GET /favorites` (paginado), `GET /favorites/:listingId` (check), `POST /favorites/batch-check` (máx. 100 ids → `{ favoritedIds }`). Todos idempotentes y con `JwtAuthGuard`. Suite `favorites.e2e-spec.ts` (12 tests) |
 | **Reviews** | ✅ Completo | `POST /reviews` (crear; guard de elegibilidad vía `Conversation`), `GET /reviews/eligibility?listingId=&targetId=` (check antes de mostrar el formulario), `PATCH /reviews/:id` (editar en ventana 72 h; persiste `editedAt`), `DELETE /reviews/:id` (borrar en ventana 72 h). Listado público via `GET /users/:slug/reviews` (cursor paginado + aggregate on-the-fly: average, count, distribución 1–5). Unicidad `(authorId, targetId, listingId)` — una reseña por par de usuarios por anuncio. `FAKE_REVIEW` añadido a `ReportReason`; `Report.reviewId` FK con CASCADE para moderar reseñas. Suite `reviews.e2e-spec.ts` (20 tests) |
 | **BillingModule (Stripe)** | ✅ RF.3 Completo | Checkout Pro (Stripe Checkout), `StripeWebhookGuard`, `BillingProcessor` (5 eventos), `EntitlementService`. Verificado con Stripe CLI. Pendiente: renovación (segunda factura) |
 | **RedsysModule** | ⚠️ RF.5 — verificación PARCIAL | `RedsysService` (checkout credits-pack / featured-pay, Ds_Order YYYYMMDD+4random con retry), `RedsysWebhookGuard` (HMAC vía `redsys-easy`, idempotencia doble capa, enqueue / FAILED), `RedsysProcessor` (acreditación wallet atómica: Wallet + CreditLedger + Transaction en `$transaction`, validación importe `Ds_Amount` vs `amountGross×100`, idempotencia capa 2 por `status≠PENDING`). Endpoints: `POST /billing/checkout/credits-pack`, `POST /billing/checkout/featured-pay`, `POST /webhooks/redsys`. **VERIFICADO (e2e, 12 tests)**: acreditación wallet, acumulación de balance, idempotencia ×2 (GatewayEvent P2002 + status≠PENDING), cálculo IVA sin descuadre (4,99 / 9,99 / 19,99 €), validación importe (mismatch → FAILED sin tocar wallet), unicidad de 1.000 Ds_Order generados. **NO VERIFICADO — pendiente de tooling Redsys**: (1) firma HMAC real contra Redsys, (2) generación correcta del form de pago y que Redsys lo acepte, (3) recepción de notificación online real. Requiere: túnel público (ngrok/cloudflared) + credenciales sandbox Redsys + tarjetas de prueba Redsys. RF.5 **no está verificada de punta a punta** hasta eso — análogamente a RF.3 antes del CLI de Stripe. **PENDIENTE InSite vs Redirección**: el diseño asume Redirección (SAQ A); confirmar con quien impone el requisito antes de arrancar el frontend RF.10. `featuredByRedsys`: TODO completado en RF.6 — `RedsysProcessor.handleFeaturedPay` ya llama a `grantFeaturedListing`; camino end-to-end sin firma/notificación Redsys real pendiente de tooling (deuda heredada). |
+| **EntitlementService (RF.7)** | ✅ Actualizado | Validez de un entitlement: `revokedAt IS NULL AND (expiresAt IS NULL OR expiresAt > now)`. Un entitlement con `revokedAt` seteado **no** cuenta como vigente aunque `expiresAt` sea futuro (permite revocación manual desde backoffice en el futuro). Helper `activeFilter()` centraliza el predicado en `isProActive`, `isFeaturedActive` y `findActiveForUser` |
 | **BillingModule RF.6** | ✅ Completo | **`grantFeaturedListing(params)`** — punto único de concesión de `FEATURED_LISTING`; valida ACTIVE + propietario (→403) + sin entitlement activo (→400); crea `Entitlement` con `expiresAt = now + durationDays`; encola reindexado. No conoce la vía de pago. **`featuredByCredits`** — `POST /billing/featured-by-credits { priceId, listingId }`: debit atómico (`UPDATE Wallet WHERE balance >= cost`, affected=0 → 402) + `CreditLedger FEATURED_DEBIT` + entitlement, todo en una `$transaction`; rollback automático si la concesión falla. **`bump`** — `POST /listings/:id/bump`: cooldown 1h (→429 Retry-After); debit atómico + `CreditLedger BUMP_DEBIT` + `Listing.bumpedAt`, todo en una `$transaction`; fallos 402/403/400 no consumen cooldown. **`GET /billing/wallet`** — saldo + ledger paginado. **Dependencia `ListingsModule → BillingModule`**: unidireccional, sin circular, NestJS arranca limpio. **VERIFICADO (batería e2e completa, 181/181, 15 casos nuevos)**: grantFeaturedListing como punto único; débito atómico con rollback (saldo restaurado + sin `CreditLedger` huérfano); cooldown no consumido en fallos; convergencia de vías (featuredByCredits y featuredByRedsys producen mismo entitlement: tipo, priceId, `|expiresAt_A − expiresAt_B| < 60s`). **DEUDA HEREDADA de RF.5**: camino featuredByRedsys implementado pero sin ejercicio E2E contra Redsys real (firma/notificación pendientes de tooling). |
 
 ### Frontend (`apps/web` — puerto 3000)
@@ -282,11 +283,12 @@ Los tests de Jest usan `setupFiles: ['test/load-env.ts']` (carga `.env.test` con
 `dotenv.config()` sin sobreescribir `process.env`) y `globalSetup: 'test/setup-e2e.js'`
 (ejecuta `prisma migrate deploy` + `seed-test.ts` una vez antes de todas las suites).
 
-Las **10 suites e2e de Jest** suman **154 casos**: smoke (1), auth (15), listings (10),
+Las **14 suites e2e de Jest** suman **198 casos**: smoke (1), auth (15), listings (10),
 messaging (7), search (8), favorites (12), reviews (20), moderation (23), admin (34),
-blog (24). Las suites se ejecutan en paralelo (sin `--runInBand`); el diseño de
-`cleanDb` — que solo trunca `User` CASCADE y nunca toca `Category` ni `Setting` —
-garantiza que no haya contención entre los workers de Jest.
+blog (24), redsys (12), billing-rf6 (15), rf7-limits (8), rf7-expiration (9).
+Las suites se ejecutan en paralelo (sin `--runInBand`); el diseño de `cleanDb` — que
+solo trunca `User` CASCADE y nunca toca `Category` ni `Setting` — garantiza que no
+haya contención entre los workers de Jest.
 
 ### Helpers y fixtures de test compartidos (Fase T)
 
@@ -534,6 +536,58 @@ El frontend no muestra botones de acción (suspend/ban/role) para usuarios con `
 ADMIN`, lo que evita llegar al 403 en el caso normal. Pero el guard del service es la
 línea de defensa real.
 
+### Límites de anuncios activos por plan y configuración en caliente (RF.7-A)
+
+`ListingsService.checkActiveListingLimit()` consulta `EntitlementService.isProActive()` para
+determinar el plan del usuario, lee la clave `freeActiveListingLimit` o `proActiveListingLimit`
+de la tabla `Setting` (con valor por defecto como fallback si la key no existe aún) y cuenta
+los anuncios ACTIVE del vendedor con `prisma.listing.count`. Si el conteo ≥ límite, lanza
+`403 ForbiddenException` con el número de límite en el mensaje (para que el frontend pueda
+mostrarlo sin hardcodear el valor).
+
+La comprobación se aplica en `publish()` (solo cuando el estado destino es ACTIVE, es decir,
+sin BadWord) **y** en `renew()`. Un usuario free con 5 activos no puede renovar un EXPIRED
+hasta liberar una plaza — comportamiento correcto: la renovación convierte un EXPIRED en ACTIVE
+y cuenta contra el límite igual que una publicación nueva.
+
+Ambos settings son editables desde `PATCH /admin/settings/:key` sin redeploy; el efecto es
+inmediato en la siguiente request de publish/renew.
+
+### `revokedAt` en Entitlement: patrón de expiración idempotente (RF.7-B.1)
+
+El campo `Entitlement.revokedAt DateTime?` se añade para marcar entitlements procesados por
+el cron, de forma que cada expiry de destacado se procese **exactamente una vez** aunque el
+sweep corra varias veces.
+
+Semántica: un entitlement está **vigente** cuando `revokedAt IS NULL AND (expiresAt IS NULL OR
+expiresAt > now)`. Un `revokedAt` seteado invalida el entitlement aunque `expiresAt` sea futuro
+(útil para revocación manual desde backoffice en el futuro sin borrar la fila).
+
+El cron B.1 hace un `updateMany` en batch que marca `revokedAt = now` para **todos** los
+entitlements encontrados **antes** de entrar al loop de encolado. Así, si el proceso crashea
+a mitad del loop, los entitlements ya están marcados y no se reprocesarán en la siguiente
+ejecución (crash-safe con idempotencia garantizada). Alternativa descartada: marcar uno a uno
+dentro del mismo try/catch del enqueue — más granular pero introduce race con crash mid-update.
+
+Dentro del día, BullMQ deuplica por `jobId = feat-exp-${entitlementId}-${YYYY-MM-DD}`, de modo
+que si `runExpirationSweep()` se llama dos veces en el mismo día por restart del scheduler, no
+se encolan jobs duplicados.
+
+### Pro downgrade con des-indexado de Meilisearch (RF.7-B.2 — bug detectado y corregido)
+
+`processProDowngrade()` mueve a DRAFT los listings en exceso del límite free, ordenados por
+`publishedAt asc` (más antiguos primero, para conservar los más recientes con mayor tasa de
+conversión). La primera versión llamaba `updateMany` y retornaba — los listings quedaban DRAFT
+en Postgres pero seguían indexados en Meilisearch como ACTIVE.
+
+**Fix**: el método fetcha los slugs antes de `updateMany`; después itera los listings
+drafteados y para cada uno: `redis.client.del(cacheKey(slug))` (invalida caché) +
+`indexingQueue.add('index', { listingId })`. El `IndexingProcessor` llama a
+`searchService.indexListing(listing)`, que al ver `status !== 'ACTIVE'` llama a
+`removeListing()` → el listing desaparece del índice. Test de regresión añadido en
+`rf7-expiration.e2e-spec.ts`: verifica que tras el sweep se encolan ≥ N jobs para los
+listings drafteados.
+
 ### Settings: whitelist explícita en el service (Fase 7)
 
 `PATCH /admin/settings/:key` lleva una whitelist en el service:
@@ -696,6 +750,13 @@ La captura de errores de cliente está implementada (`instrumentation-client.ts`
 `global-error.tsx`) y verificada en desarrollo (silenciosa con DSN vacío). La
 integración real queda por confirmar en staging con `NEXT_PUBLIC_SENTRY_DSN` activo
 (ver §2 — Observabilidad: Sentry). Ambas variables documentadas en `.env.example`.
+
+### `Definicion_MVP`: regla "sin límite de anuncios activos" obsoleta (RF.7)
+
+El documento `docs/Definicion_MVP` (o equivalente histórico) establecía que no había límite
+en el número de anuncios que un usuario podía tener activos. **Esto ya no es cierto desde
+RF.7**: free: 5, pro: 20, ambos configurables. Si se genera documentación de producto a partir
+de ese documento, revisar y actualizar esa sección.
 
 ### SINCRONIZACIÓN CATÁLOGO ↔ STRIPE: falta comando de bootstrap (prioridad media-alta)
 
