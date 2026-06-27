@@ -50,12 +50,12 @@ export function FavoritesGridProvider({
   );
 
   // Batch-check on mount when token is available and no pre-seeded state.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!token || initialFavoritedIds !== undefined || listingIds.length === 0) return;
     batchCheckFavorites(listingIds, token)
       .then(({ favoritedIds }) => setFavoritedSet(new Set(favoritedIds)))
       .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, initialFavoritedIds]); // intentionally excludes listingIds — fetch once per session
 
   const toggleFavorite = useCallback(
@@ -66,7 +66,7 @@ export function FavoritesGridProvider({
       // Optimistic update
       setFavoritedSet((prev) => {
         const s = new Set(prev);
-        wasFavorited ? s.delete(id) : s.add(id);
+        if (wasFavorited) s.delete(id); else s.add(id);
         return s;
       });
       if (wasFavorited) onUnfavorite?.(id);
@@ -78,7 +78,7 @@ export function FavoritesGridProvider({
             // Rollback on non-auth error; auth error (401) → signOut via hook
             setFavoritedSet((prev) => {
               const s = new Set(prev);
-              wasFavorited ? s.add(id) : s.delete(id);
+              if (wasFavorited) s.add(id); else s.delete(id);
               return s;
             });
             if (wasFavorited) onUnfavoriteRollback?.(id);

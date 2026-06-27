@@ -2,7 +2,6 @@
 
 import { useRef } from 'react';
 import { X, ArrowUp, ArrowDown, ImagePlus, AlertCircle, Loader2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { uploadMedia } from '@/lib/api/media';
 import { generateId } from '@/lib/utils';
 

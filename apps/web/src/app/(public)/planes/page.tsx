@@ -46,7 +46,7 @@ function monthlyEquivalent(price: CatalogPrice): string {
 }
 
 export default async function PlanesPage() {
-  let catalog = await getCatalog().catch(() => []);
+  const catalog = await getCatalog().catch(() => []);
 
   const proProduct = catalog.find((p) => p.type === 'RECURRING');
   const monthlyPrice = proProduct?.prices.find((p) => p.interval === 'MONTH');

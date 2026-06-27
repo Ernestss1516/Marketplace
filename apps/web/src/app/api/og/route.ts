@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 
 // TODO: generate Open Graph images using @vercel/og
-export async function GET(_request: NextRequest) {
+export async function GET() {
   return NextResponse.json(
     { message: 'OG image generation not yet implemented' },
     { status: 501 },
