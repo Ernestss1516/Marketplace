@@ -5,10 +5,33 @@ export const envValidationSchema = Joi.object({
     .valid('development', 'production', 'test')
     .default('development'),
   PORT: Joi.number().default(3000),
-  DATABASE_URL: Joi.string().required(),
+  DATABASE_URL: Joi.when('NODE_ENV', {
+    is: 'test',
+    then: Joi.string()
+      .pattern(/_test/)
+      .required()
+      .messages({
+        'string.pattern.base':
+          'DATABASE_URL must contain "_test" in test env — prevents accidental writes to dev/prod DB',
+      }),
+    otherwise: Joi.string().required(),
+  }),
   REDIS_URL: Joi.string().required(),
   MEILI_HOST: Joi.string().required(),
   MEILI_MASTER_KEY: Joi.string().required(),
+  MEILI_INDEX_NAME: Joi.when('NODE_ENV', {
+    is: 'test',
+    then: Joi.string()
+      .pattern(/_test/)
+      .required()
+      .messages({
+        'string.pattern.base':
+          'MEILI_INDEX_NAME must contain "_test" in test env — prevents polluting the dev index',
+        'any.required':
+          'MEILI_INDEX_NAME is required in test env — add it to .env.test',
+      }),
+    otherwise: Joi.string().optional(),
+  }),
   JWT_SECRET: Joi.string().required(),
   RESEND_API_KEY: Joi.string().required(),
   RESEND_FROM: Joi.string().email().optional(),
@@ -27,10 +50,22 @@ export const envValidationSchema = Joi.object({
   // Stripe — optional so tests run without real keys; required in production.
   STRIPE_SECRET_KEY: Joi.string().allow('').optional(),
   STRIPE_WEBHOOK_SECRET: Joi.string().allow('').optional(),
-  // Redsys — optional so tests run without real credentials; required in production.
+  // Redsys — optional in dev/prod; REDSYS_SECRET_KEY must be set in test (silent empty caused incident).
   REDSYS_MERCHANT_CODE: Joi.string().allow('').optional(),
   REDSYS_TERMINAL: Joi.string().allow('').optional(),
-  REDSYS_SECRET_KEY: Joi.string().allow('').optional(),
+  REDSYS_SECRET_KEY: Joi.when('NODE_ENV', {
+    is: 'test',
+    then: Joi.string()
+      .min(1)
+      .required()
+      .messages({
+        'string.min':
+          'REDSYS_SECRET_KEY must not be empty in test env — set the Redsys test key in .env.test',
+        'any.required':
+          'REDSYS_SECRET_KEY is required in test env — set the Redsys test key in .env.test',
+      }),
+    otherwise: Joi.string().allow('').optional(),
+  }),
   REDSYS_ENVIRONMENT: Joi.string().allow('').optional(),
   REDSYS_NOTIFICATION_URL: Joi.string().allow('').optional(),
 });
