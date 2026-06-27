@@ -54,6 +54,7 @@ export interface CatalogPrice {
   interval?: 'MONTH' | 'YEAR';
   intervalCount?: number;
   durationDays?: number;
+  creditCost?: number;
   creditAmount?: number;
   creditPackId?: string;
   packName?: string;
@@ -92,8 +93,47 @@ export interface MyEntitlement {
   listingId: string | null;
 }
 
-export function getCatalog(): Promise<CatalogProduct[]> {
-  return apiFetch<CatalogProduct[]>('/billing/catalog');
+export interface CatalogResponse {
+  products: CatalogProduct[];
+  bumpCreditCost: number;
+}
+
+export function getCatalog(): Promise<CatalogResponse> {
+  return apiFetch<CatalogResponse>('/billing/catalog');
+}
+
+export function featuredByCredits(
+  token: string,
+  priceId: string,
+  listingId: string,
+): Promise<void> {
+  return apiFetch<void>('/billing/featured-by-credits', {
+    method: 'POST',
+    body: JSON.stringify({ priceId, listingId }),
+    token,
+  });
+}
+
+export function createFeaturedCheckout(
+  token: string,
+  priceId: string,
+  listingId: string,
+): Promise<{ redsysFormData: RedsysFormData }> {
+  return apiFetch<{ redsysFormData: RedsysFormData }>('/billing/checkout/featured-pay', {
+    method: 'POST',
+    body: JSON.stringify({ priceId, listingId }),
+    token,
+  });
+}
+
+export function bumpListing(
+  token: string,
+  listingId: string,
+): Promise<{ bumpedAt: string }> {
+  return apiFetch<{ bumpedAt: string }>(`/listings/${listingId}/bump`, {
+    method: 'POST',
+    token,
+  });
 }
 
 export function createCheckout(

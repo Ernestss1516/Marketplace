@@ -110,6 +110,34 @@ async function main() {
     );
   }
 
+  // ── ACTIVE listing for seller-e2e (needed by RF.11 spec) ──────────────────
+  const sellerUser = await prisma.user.findUnique({
+    where: { email: 'seller-e2e@example.com' },
+    select: { id: true },
+  });
+  const category = await prisma.category.findFirst({ select: { id: true } });
+
+  if (sellerUser && category) {
+    await prisma.listing.upsert({
+      where: { slug: 'listing-rf11-e2e' },
+      create: {
+        title: 'Anuncio RF.11 E2E',
+        slug: 'listing-rf11-e2e',
+        description: 'Anuncio para pruebas de destacado y bump.',
+        price: 50,
+        currency: 'EUR',
+        priceType: 'FIXED',
+        type: 'PRODUCT',
+        status: 'ACTIVE',
+        sellerId: sellerUser.id,
+        categoryId: category.id,
+        publishedAt: new Date(),
+      },
+      update: { status: 'ACTIVE' },
+    });
+    console.log('Playwright seed: listing-rf11-e2e OK');
+  }
+
   console.log('Playwright seed: seller-e2e + buyer-e2e + pro-e2e OK');
 }
 

@@ -66,10 +66,10 @@ export default async function MisCreditosPage() {
       perPage: 20,
       totalPages: 0,
     })),
-    getCatalog().catch(() => []),
+    getCatalog().catch(() => ({ products: [], bumpCreditCost: 5 })),
   ]);
 
-  const packProducts = catalog.filter(
+  const packProducts = catalog.products.filter(
     (p) => p.type === 'ONE_TIME' && p.prices.some((pr) => pr.creditAmount != null),
   );
 

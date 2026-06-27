@@ -42,6 +42,7 @@ const SELECT_SUMMARY = {
   status: true,
   publishedAt: true,
   expiresAt: true,
+  bumpedAt: true,
   images: { orderBy: { order: 'asc' as const }, take: 1, select: { url: true } },
 } as const;
 
@@ -57,6 +58,7 @@ type SummaryDbRow = {
   status: ListingStatus;
   publishedAt: Date | null;
   expiresAt: Date | null;
+  bumpedAt: Date | null;
   images: { url: string }[];
 };
 
@@ -416,15 +418,48 @@ export class ListingsService {
       }),
       this.prisma.listing.count({ where }),
     ]);
-    return { items: rows.map((r) => this.toSummary(r)), total, page, perPage };
+
+    // Batch query for active FEATURED_LISTING entitlements — one query for all listings, no N+1.
+    const featuredMap = new Map<string, string>();
+    if (rows.length > 0) {
+      const now = new Date();
+      const entitlements = await this.prisma.entitlement.findMany({
+        where: {
+          listingId: { in: rows.map((r) => r.id) },
+          type: 'FEATURED_LISTING',
+          revokedAt: null,
+          expiresAt: { gt: now },
+        },
+        select: { listingId: true, expiresAt: true },
+      });
+      for (const e of entitlements) {
+        if (e.listingId && e.expiresAt) {
+          featuredMap.set(e.listingId, e.expiresAt.toISOString());
+        }
+      }
+    }
+
+    return {
+      items: rows.map((r) => ({
+        ...this.toSummary(r),
+        featuredUntil: featuredMap.get(r.id) ?? null,
+      })),
+      total,
+      page,
+      perPage,
+    };
   }
 
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
 
-  private toSummary({ images, ...rest }: SummaryDbRow) {
-    return { ...rest, thumbnailUrl: images[0]?.url ?? undefined };
+  private toSummary({ images, bumpedAt, ...rest }: SummaryDbRow) {
+    return {
+      ...rest,
+      thumbnailUrl: images[0]?.url ?? undefined,
+      bumpedAt: bumpedAt?.toISOString() ?? undefined,
+    };
   }
 
   private async assertOwnership(id: string, userId: string): Promise<Listing> {

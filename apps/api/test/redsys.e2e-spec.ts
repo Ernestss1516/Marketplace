@@ -693,4 +693,78 @@ describe('Redsys — wallet accreditation (e2e)', () => {
       });
     });
   });
+
+  // ── RF.11 — POST /billing/checkout/featured-pay (HTTP layer) ──────────────
+  //
+  // Verifies that the checkout for a direct Redsys payment of a featured listing
+  // uses /mis-anuncios/destacado-exito|error as URLOK/URLKO (not /mis-creditos/*).
+
+  describe('RF.11 — POST /billing/checkout/featured-pay (HTTP layer)', () => {
+    let featuredPriceId: string;
+    let featuredListingId: string;
+
+    beforeAll(async () => {
+      // Find the seeded featured listing price (7d) — must exist in seed-test.ts
+      const featuredPrice = await prisma.price.findFirst({
+        where: { active: true, durationDays: { not: null } },
+        select: { id: true },
+      });
+      if (!featuredPrice) throw new Error('No featured price found in seed — run seed-test.ts');
+      featuredPriceId = featuredPrice.id;
+
+      // Create an ACTIVE listing owned by the http test user
+      const category = await prisma.category.findFirst({ select: { id: true } });
+      const listing = await prisma.listing.create({
+        data: {
+          title: 'Test featured listing RF.11',
+          slug: 'test-featured-listing-rf11',
+          description: 'RF.11 e2e test listing',
+          price: new Prisma.Decimal('50.00'),
+          currency: 'EUR',
+          priceType: 'FIXED',
+          type: 'PRODUCT',
+          status: 'ACTIVE',
+          sellerId: userId,
+          categoryId: category!.id,
+        },
+      });
+      featuredListingId = listing.id;
+    });
+
+    afterAll(async () => {
+      await prisma.transaction.deleteMany({ where: { listingId: featuredListingId } });
+      await prisma.listing.delete({ where: { id: featuredListingId } });
+    });
+
+    it('returns 201 and URLOK/URLKO point to /mis-anuncios/destacado-*', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/api/billing/checkout/featured-pay')
+        .set('Authorization', `Bearer ${httpToken}`)
+        .send({ priceId: featuredPriceId, listingId: featuredListingId })
+        .expect(201);
+
+      expect(res.body).toHaveProperty('redsysFormData');
+      const { redsysFormData } = res.body as { redsysFormData: Record<string, string> };
+
+      const decoded = Buffer.from(redsysFormData.Ds_MerchantParameters, 'base64').toString('utf8');
+      const params = JSON.parse(decoded) as Record<string, string>;
+      expect(params.DS_MERCHANT_URLOK).toContain('/mis-anuncios/destacado-exito');
+      expect(params.DS_MERCHANT_URLKO).toContain('/mis-anuncios/destacado-error');
+    });
+
+    it('returns 401 without a token', async () => {
+      await request(app.getHttpServer())
+        .post('/api/billing/checkout/featured-pay')
+        .send({ priceId: featuredPriceId, listingId: featuredListingId })
+        .expect(401);
+    });
+
+    it('returns 400 when priceId is missing', async () => {
+      await request(app.getHttpServer())
+        .post('/api/billing/checkout/featured-pay')
+        .set('Authorization', `Bearer ${httpToken}`)
+        .send({ listingId: featuredListingId })
+        .expect(400);
+    });
+  });
 });

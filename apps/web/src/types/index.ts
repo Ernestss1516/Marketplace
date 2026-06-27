@@ -82,6 +82,8 @@ export interface ListingSummary {
   status: ListingStatus;
   publishedAt?: string;
   expiresAt?: string;
+  bumpedAt?: string;
+  featuredUntil?: string | null;
 }
 
 export interface ListingImage {

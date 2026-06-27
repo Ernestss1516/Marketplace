@@ -1,0 +1,383 @@
+// RF.11 — Playwright E2E: destacado + bump (créditos y Redsys).
+//
+// Arquitectura:
+//   /mis-anuncios es Server Component. Los datos de listing (bumpedAt, featuredUntil)
+//   llegan via SSR y NO se pueden interceptar con page.route.
+//
+//   Los datos de sesión (slug del vendedor) llegan via el JWT almacenado en
+//   storageState (sin interceptor necesario).
+//
+//   Las llamadas client-side (DestacadoDialog: getCatalog, getWallet,
+//   featuredByCredits, createFeaturedCheckout; bumpListing) SÍ se pueden
+//   interceptar con page.route.
+//
+// Prerequisito: global-setup.ts debe haber creado el listing "listing-rf11-e2e"
+// (ACTIVE, sellerId = seller-e2e@example.com) via seed-playwright.ts.
+//
+// Lo NO verificable sin Redsys real:
+//   - El submit real al TPV de Redsys
+//   - La notificación online POST /webhooks/redsys
+//   - La concesión del entitlement FEATURED_LISTING
+
+import { test, expect } from './fixtures/auth';
+
+// ── Mock data ──────────────────────────────────────────────────────────────────
+
+const MOCK_FEATURED_PRICE_7D_ID = 'price-featured-7d-mock';
+
+const MOCK_CATALOG = {
+  products: [
+    {
+      id: 'prod-featured',
+      name: 'Destacado',
+      description: null,
+      type: 'ONE_TIME',
+      prices: [
+        {
+          priceId: MOCK_FEATURED_PRICE_7D_ID,
+          amount: 2.99,
+          currency: 'EUR',
+          durationDays: 7,
+          creditCost: 30,
+        },
+        {
+          priceId: 'price-featured-14d-mock',
+          amount: 4.99,
+          currency: 'EUR',
+          durationDays: 14,
+          creditCost: 50,
+        },
+      ],
+    },
+  ],
+  bumpCreditCost: 5,
+};
+
+const MOCK_WALLET_ENOUGH = {
+  balance: 60,
+  items: [],
+  total: 0,
+  page: 1,
+  perPage: 20,
+  totalPages: 0,
+};
+
+const MOCK_WALLET_EMPTY = {
+  balance: 5,
+  items: [],
+  total: 0,
+  page: 1,
+  perPage: 20,
+  totalPages: 0,
+};
+
+const MOCK_REDSYS_FORM = {
+  redsysFormData: {
+    Ds_MerchantParameters: 'bW9jaw==',
+    Ds_SignatureVersion: 'HMAC_SHA256_V1',
+    Ds_Signature: 'mocksignature123456789012345678901234567=',
+    tpvUrl: 'https://sis-t.redsys.es:25443/sis/realizarPago',
+  },
+};
+
+const LISTING_SLUG = 'listing-rf11-e2e';
+const SELLER_SLUG = 'vendedor-e2e';
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+async function mockCatalogAndWallet(
+  page: import('@playwright/test').Page,
+  wallet: object,
+) {
+  await page.route('**/billing/catalog', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(MOCK_CATALOG),
+    });
+  });
+  await page.route('**/billing/wallet**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(wallet),
+    });
+  });
+}
+
+// ── DestacadoDialog — desde /mis-anuncios ──────────────────────────────────────
+
+test.describe('DestacadoDialog — desde /mis-anuncios', () => {
+  test('abre el dialog al clicar "Destacar" y muestra opciones de duración y pago', async ({
+    sellerContext,
+  }) => {
+    const page = await sellerContext.newPage();
+    await mockCatalogAndWallet(page, MOCK_WALLET_ENOUGH);
+
+    await page.goto('/mis-anuncios');
+    const btnDestacate = page.getByTestId('btn-destacar').first();
+    await expect(btnDestacate).toBeVisible({ timeout: 10_000 });
+
+    await btnDestacate.click();
+
+    // Dialog title
+    await expect(page.getByRole('dialog').getByText('Destacar anuncio')).toBeVisible();
+
+    // Duration options (mocked catalog has 7d and 14d)
+    await expect(page.getByText('7 días')).toBeVisible();
+    await expect(page.getByText('14 días')).toBeVisible();
+
+    // Payment method options
+    await expect(page.getByLabel('Créditos')).toBeVisible();
+    await expect(page.getByLabel('Tarjeta bancaria')).toBeVisible();
+
+    // Credit cost shown (30 cr for 7d)
+    await expect(page.getByText('30 cr.', { exact: false })).toBeVisible();
+  });
+
+  test('destacar con créditos suficientes → llama featuredByCredits → éxito', async ({
+    sellerContext,
+  }) => {
+    const page = await sellerContext.newPage();
+    await mockCatalogAndWallet(page, MOCK_WALLET_ENOUGH); // 60 >= 30 (7d creditCost)
+
+    let featuredCalled = false;
+    await page.route('**/billing/featured-by-credits', async (route) => {
+      featuredCalled = true;
+      await route.fulfill({ status: 201, contentType: 'application/json', body: '{}' });
+    });
+
+    await page.goto('/mis-anuncios');
+    await page.getByTestId('btn-destacar').first().click();
+    await expect(page.getByRole('dialog')).toBeVisible({ timeout: 5_000 });
+
+    // Credits method is pre-selected — click submit
+    const submitBtn = page.getByRole('button', { name: /destacar con créditos/i });
+    await expect(submitBtn).toBeEnabled({ timeout: 5_000 });
+    await submitBtn.click();
+
+    await expect.poll(() => featuredCalled, { timeout: 5_000 }).toBe(true);
+
+    // Dialog closes on success
+    await expect(page.getByRole('dialog')).not.toBeVisible({ timeout: 5_000 });
+  });
+
+  test('saldo insuficiente → botón deshabilitado, mensaje de "Comprar créditos"', async ({
+    sellerContext,
+  }) => {
+    const page = await sellerContext.newPage();
+    // MOCK_WALLET_EMPTY has balance=5, creditCost for 7d is 30 → insufficient
+    await mockCatalogAndWallet(page, MOCK_WALLET_EMPTY);
+
+    await page.goto('/mis-anuncios');
+    await page.getByTestId('btn-destacar').first().click();
+    await expect(page.getByRole('dialog')).toBeVisible({ timeout: 5_000 });
+
+    // Submit button disabled for credits path
+    const submitBtn = page.getByRole('button', { name: /destacar con créditos/i });
+    await expect(submitBtn).toBeDisabled({ timeout: 5_000 });
+
+    // "Comprar créditos" link shown
+    await expect(page.getByRole('link', { name: /comprar créditos/i })).toBeVisible();
+  });
+
+  test('destacar con tarjeta → llama checkout → monta RedsysRedirectForm', async ({
+    sellerContext,
+  }) => {
+    const page = await sellerContext.newPage();
+    await mockCatalogAndWallet(page, MOCK_WALLET_EMPTY);
+
+    // Override form.submit() so we can assert on the DOM
+    await page.addInitScript(() => {
+      HTMLFormElement.prototype.submit = function () { /* noop */ };
+    });
+
+    let checkoutCalled = false;
+    await page.route('**/billing/checkout/featured-pay', async (route) => {
+      checkoutCalled = true;
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify(MOCK_REDSYS_FORM),
+      });
+    });
+
+    await page.goto('/mis-anuncios');
+    await page.getByTestId('btn-destacar').first().click();
+    await expect(page.getByRole('dialog')).toBeVisible({ timeout: 5_000 });
+
+    // Select "Tarjeta bancaria" payment method
+    await page.getByLabel('Tarjeta bancaria').click();
+
+    const payBtn = page.getByRole('button', { name: /pagar con tarjeta/i });
+    await expect(payBtn).toBeEnabled({ timeout: 3_000 });
+    await payBtn.click();
+
+    await expect.poll(() => checkoutCalled, { timeout: 5_000 }).toBe(true);
+
+    // RedsysRedirectForm mounts with correct TPV url
+    const form = page.locator('[data-testid="redsys-redirect-form"]');
+    await expect(form).toBeAttached({ timeout: 5_000 });
+    await expect(form).toHaveAttribute('method', 'POST');
+    await expect(form).toHaveAttribute('action', MOCK_REDSYS_FORM.redsysFormData.tpvUrl);
+  });
+});
+
+// ── Bump — desde /mis-anuncios ─────────────────────────────────────────────────
+
+test.describe('Bump — desde /mis-anuncios', () => {
+  test('clicar "Bump" llama POST /listings/:id/bump', async ({ sellerContext }) => {
+    const page = await sellerContext.newPage();
+
+    let bumpCalled = false;
+    await page.route('**/listings/*/bump', async (route) => {
+      bumpCalled = true;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ bumpedAt: new Date().toISOString() }),
+      });
+    });
+
+    await page.goto('/mis-anuncios');
+    const bumpBtn = page.getByTestId('btn-bump').first();
+    await expect(bumpBtn).toBeVisible({ timeout: 10_000 });
+
+    // Bump button should NOT be in cooldown state (listing was just seeded)
+    await expect(bumpBtn).toBeEnabled();
+    await bumpBtn.click();
+
+    await expect.poll(() => bumpCalled, { timeout: 5_000 }).toBe(true);
+  });
+
+  test('bump con 429 (cooldown) → muestra error genérico, no expone mensaje interno', async ({
+    sellerContext,
+  }) => {
+    const page = await sellerContext.newPage();
+
+    await page.route('**/listings/*/bump', async (route) => {
+      await route.fulfill({
+        status: 429,
+        contentType: 'application/json',
+        body: JSON.stringify({ message: 'Too soon', retryAfter: 86400 }),
+      });
+    });
+
+    await page.goto('/mis-anuncios');
+    await page.getByTestId('btn-bump').first().click();
+
+    // Error shown — must not leak internal message
+    await expect(page.getByText('Too soon')).not.toBeVisible({ timeout: 3_000 });
+
+    // Some error message is shown (toUserMessage output)
+    await expect(
+      page.getByText(/error|problema|inténtalo/i).first(),
+    ).toBeVisible({ timeout: 5_000 });
+  });
+});
+
+// ── Páginas de retorno /mis-anuncios/destacado-* ───────────────────────────────
+
+test.describe('Páginas de retorno /mis-anuncios/destacado-*', () => {
+  test('destacado-exito muestra "Pago recibido" y enlace a mis-anuncios', async ({
+    sellerContext,
+  }) => {
+    const page = await sellerContext.newPage();
+
+    await page.goto('/mis-anuncios/destacado-exito');
+
+    await expect(
+      page.getByRole('heading', { name: /pago recibido/i }),
+    ).toBeVisible({ timeout: 10_000 });
+
+    await expect(
+      page.getByRole('link', { name: /ver mis anuncios/i }),
+    ).toBeVisible();
+  });
+
+  test('destacado-error muestra "pago no se completó" y enlace de regreso', async ({
+    sellerContext,
+  }) => {
+    const page = await sellerContext.newPage();
+
+    await page.goto('/mis-anuncios/destacado-error');
+
+    await expect(
+      page.getByRole('heading', { name: /pago no se completó/i }),
+    ).toBeVisible({ timeout: 10_000 });
+
+    const backLink = page.getByRole('link', { name: /volver a mis anuncios/i });
+    await expect(backLink).toBeVisible();
+    await expect(backLink).toHaveAttribute('href', '/mis-anuncios');
+  });
+});
+
+// ── ListingOwnerActions — desde /anuncio/[slug] ────────────────────────────────
+
+test.describe('ListingOwnerActions — ficha del anuncio', () => {
+  test('el propietario ve los botones "Destacar anuncio" y "Subir al inicio"', async ({
+    sellerContext,
+  }) => {
+    const page = await sellerContext.newPage();
+
+    await page.goto(`/anuncio/${LISTING_SLUG}`);
+
+    await expect(
+      page.getByTestId('owner-btn-destacar'),
+    ).toBeVisible({ timeout: 10_000 });
+
+    await expect(
+      page.getByTestId('owner-btn-bump'),
+    ).toBeVisible();
+  });
+
+  test('el comprador NO ve los botones de owner (slug diferente)', async ({
+    buyerContext,
+  }) => {
+    const page = await buyerContext.newPage();
+
+    await page.goto(`/anuncio/${LISTING_SLUG}`);
+
+    // ContactButton should be visible (public users see this)
+    await expect(
+      page.getByRole('button', { name: /contactar/i }),
+    ).toBeVisible({ timeout: 10_000 });
+
+    // Owner actions must not be visible
+    await expect(page.getByTestId('owner-btn-destacar')).not.toBeVisible();
+    await expect(page.getByTestId('owner-btn-bump')).not.toBeVisible();
+  });
+
+  test('usuario no autenticado NO ve los botones de owner', async ({ browser }) => {
+    const ctx = await browser.newContext(); // no storageState → unauthenticated
+    const page = await ctx.newPage();
+
+    await page.goto(`/anuncio/${LISTING_SLUG}`);
+
+    await expect(
+      page.getByRole('button', { name: /contactar/i }),
+    ).toBeVisible({ timeout: 10_000 });
+
+    await expect(page.getByTestId('owner-btn-destacar')).not.toBeVisible();
+
+    await ctx.close();
+  });
+
+  test('el propietario puede abrir DestacadoDialog desde la ficha', async ({
+    sellerContext,
+  }) => {
+    const page = await sellerContext.newPage();
+    await mockCatalogAndWallet(page, MOCK_WALLET_ENOUGH);
+
+    await page.goto(`/anuncio/${LISTING_SLUG}`);
+
+    await expect(page.getByTestId('owner-btn-destacar')).toBeVisible({ timeout: 10_000 });
+    await page.getByTestId('owner-btn-destacar').click();
+
+    await expect(
+      page.getByRole('dialog').getByText('Destacar anuncio'),
+    ).toBeVisible({ timeout: 5_000 });
+
+    await expect(page.getByText('7 días')).toBeVisible();
+  });
+});

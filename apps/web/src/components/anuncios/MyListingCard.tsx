@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Loader2, Pencil, Trash2, CheckCircle, Lock, Send, RotateCcw } from 'lucide-react';
+import { Loader2, Pencil, Trash2, CheckCircle, Lock, Send, RotateCcw, Star, TrendingUp } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -25,8 +25,10 @@ import {
   deleteListing,
   renewListing,
 } from '@/lib/api/anuncios';
+import { bumpListing } from '@/lib/api/billing';
 import { toUserMessage } from '@/lib/api/client';
 import { useApiAction } from '@/lib/api/use-api-action';
+import { DestacadoDialog } from './DestacadoDialog';
 import type { ListingSummary, PriceType } from '@/types';
 
 const STATUS_LABELS: Record<string, string> = {
@@ -68,9 +70,16 @@ export function MyListingCard({ listing, token, onAction }: Props) {
   const { run } = useApiAction();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [destacadoOpen, setDestacadoOpen] = useState(false);
 
   const location = [listing.city, listing.province].filter(Boolean).join(', ');
   const editHref = `/mis-anuncios/${listing.id}/editar`;
+
+  // Bump cooldown: 24 hours since last bump
+  const bumpCooldownUntil = listing.bumpedAt
+    ? new Date(new Date(listing.bumpedAt).getTime() + 24 * 60 * 60 * 1000)
+    : null;
+  const bumpOnCooldown = bumpCooldownUntil != null && bumpCooldownUntil > new Date();
 
   async function runAction(key: string, fn: () => Promise<unknown>) {
     setBusy(key);
@@ -136,8 +145,27 @@ export function MyListingCard({ listing, token, onAction }: Props) {
               )}
             </p>
           )}
+          {listing.featuredUntil && (
+            <p className="flex items-center gap-1 text-xs font-medium text-amber-600">
+              <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
+              Destacado hasta{' '}
+              {new Intl.DateTimeFormat('es-ES', { dateStyle: 'medium' }).format(
+                new Date(listing.featuredUntil),
+              )}
+            </p>
+          )}
         </div>
       </div>
+
+      {destacadoOpen && (
+        <DestacadoDialog
+          listing={listing}
+          token={token}
+          open={destacadoOpen}
+          onOpenChange={setDestacadoOpen}
+          onSuccess={onAction}
+        />
+      )}
 
       {/* Actions */}
       <CardContent className="border-t px-4 pb-4 pt-3">
@@ -218,6 +246,53 @@ export function MyListingCard({ listing, token, onAction }: Props) {
                 <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
               )}
               Renovar
+            </Button>
+          )}
+
+          {/* Destacar — only ACTIVE, not already featured */}
+          {listing.status === 'ACTIVE' && !listing.featuredUntil && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy !== null}
+              onClick={() => setDestacadoOpen(true)}
+              data-testid="btn-destacar"
+            >
+              <Star className="mr-1.5 h-3.5 w-3.5" />
+              Destacar
+            </Button>
+          )}
+
+          {/* Bump — only ACTIVE, respects 24h cooldown */}
+          {listing.status === 'ACTIVE' && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy !== null || bumpOnCooldown}
+              onClick={() =>
+                runAction('bump', () =>
+                  bumpListing(token, listing.id).then((r) => {
+                    onAction();
+                    return r;
+                  }),
+                )
+              }
+              title={
+                bumpOnCooldown && bumpCooldownUntil
+                  ? `Disponible el ${new Intl.DateTimeFormat('es-ES', {
+                      dateStyle: 'medium',
+                      timeStyle: 'short',
+                    }).format(bumpCooldownUntil)}`
+                  : undefined
+              }
+              data-testid="btn-bump"
+            >
+              {busy === 'bump' ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <TrendingUp className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              {bumpOnCooldown ? 'Bump (espera)' : 'Bump'}
             </Button>
           )}
 

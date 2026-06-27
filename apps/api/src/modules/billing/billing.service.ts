@@ -468,40 +468,70 @@ export class BillingService {
   // ---------------------------------------------------------------------------
 
   async getCatalog() {
-    const products = await this.prisma.product.findMany({
-      where: { active: true },
-      include: {
-        prices: {
-          where: { active: true },
-          include: { creditPack: true },
-          orderBy: { amount: 'asc' },
+    const [products, settings] = await Promise.all([
+      this.prisma.product.findMany({
+        where: { active: true },
+        include: {
+          prices: {
+            where: { active: true },
+            include: { creditPack: true },
+            orderBy: { amount: 'asc' },
+          },
         },
-      },
-      orderBy: { createdAt: 'asc' },
-    });
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.prisma.setting.findMany({
+        where: {
+          key: {
+            in: [
+              'featuredCreditCost7d',
+              'featuredCreditCost14d',
+              'featuredCreditCost30d',
+              'bumpCreditCost',
+            ],
+          },
+        },
+      }),
+    ]);
 
-    return products.map((p) => ({
-      id: p.id,
-      name: p.name,
-      description: p.description,
-      type: p.type as string,
-      prices: p.prices.map((price) => ({
-        priceId: price.id,
-        amount: Number(price.amount),
-        currency: price.currency,
-        ...(price.interval != null
-          ? { interval: price.interval as string, intervalCount: price.intervalCount ?? 1 }
-          : {}),
-        ...(price.durationDays != null ? { durationDays: price.durationDays } : {}),
-        ...(price.creditPack != null
-          ? {
-              creditAmount: price.creditPack.creditAmount,
-              creditPackId: price.creditPack.id,
-              packName: price.creditPack.name,
-            }
-          : {}),
+    const settingMap = Object.fromEntries(settings.map((s) => [s.key, Number(s.value)]));
+    const featuredCreditCostByDays: Record<number, number> = {
+      7: settingMap['featuredCreditCost7d'] ?? 30,
+      14: settingMap['featuredCreditCost14d'] ?? 50,
+      30: settingMap['featuredCreditCost30d'] ?? 100,
+    };
+    const bumpCreditCost = settingMap['bumpCreditCost'] ?? 5;
+
+    return {
+      products: products.map((p) => ({
+        id: p.id,
+        name: p.name,
+        description: p.description,
+        type: p.type as string,
+        prices: p.prices.map((price) => ({
+          priceId: price.id,
+          amount: Number(price.amount),
+          currency: price.currency,
+          ...(price.interval != null
+            ? { interval: price.interval as string, intervalCount: price.intervalCount ?? 1 }
+            : {}),
+          ...(price.durationDays != null
+            ? {
+                durationDays: price.durationDays,
+                creditCost: featuredCreditCostByDays[price.durationDays] ?? 0,
+              }
+            : {}),
+          ...(price.creditPack != null
+            ? {
+                creditAmount: price.creditPack.creditAmount,
+                creditPackId: price.creditPack.id,
+                packName: price.creditPack.name,
+              }
+            : {}),
+        })),
       })),
-    }));
+      bumpCreditCost,
+    };
   }
 
   // ---------------------------------------------------------------------------

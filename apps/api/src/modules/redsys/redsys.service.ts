@@ -220,14 +220,26 @@ export class RedsysService {
       `Created PENDING Transaction ${transactionId!} for featured listing ${dto.listingId}, Ds_Order=${dsOrder}`,
     );
 
-    return { redsysFormData: this.buildForm(dsOrder, amountCents) };
+    return {
+      redsysFormData: this.buildForm(
+        dsOrder,
+        amountCents,
+        `${this.appUrl}/mis-anuncios/destacado-exito`,
+        `${this.appUrl}/mis-anuncios/destacado-error`,
+      ),
+    };
   }
 
   // ---------------------------------------------------------------------------
   // Shared form builder
   // ---------------------------------------------------------------------------
 
-  private buildForm(dsOrder: string, amountCents: string): RedsysFormData {
+  private buildForm(
+    dsOrder: string,
+    amountCents: string,
+    urlOk?: string,
+    urlKo?: string,
+  ): RedsysFormData {
     const merchantCode = this.config.get<string>('redsys.merchantCode', '');
     const terminal = this.config.get<string>('redsys.terminal', '001');
     const notificationUrl = this.config.get<string>('redsys.notificationUrl', '');
@@ -239,8 +251,8 @@ export class RedsysService {
       DS_MERCHANT_AMOUNT: amountCents,
       DS_MERCHANT_CURRENCY: '978',
       DS_MERCHANT_ORDER: dsOrder,
-      DS_MERCHANT_URLOK: `${this.appUrl}/mis-creditos/exito`,
-      DS_MERCHANT_URLKO: `${this.appUrl}/mis-creditos/error`,
+      DS_MERCHANT_URLOK: urlOk ?? `${this.appUrl}/mis-creditos/exito`,
+      DS_MERCHANT_URLKO: urlKo ?? `${this.appUrl}/mis-creditos/error`,
       DS_MERCHANT_MERCHANTURL: notificationUrl,
     });
 
