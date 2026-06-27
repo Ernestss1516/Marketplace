@@ -1,6 +1,6 @@
 # Estado técnico del proyecto — Marketplace
 
-> Fecha: 2026-06-27 · Rama: `main` · Último commit: RF.8 completo (Meilisearch: boostScore + sortDate)
+> Fecha: 2026-06-27 · Rama: `main` · Último commit: RF.9 completo (frontend Plan Pro + fixes sesión stale, reindex y .env.test)
 > Plan vigente para la siguiente fase: `docs/Hoja_de_ruta_rafagas_Hito2.docx`.
 
 Documento de referencia para retomar el proyecto. Recoge qué hay implementado,
@@ -27,7 +27,7 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **Geocoding** | ✅ Completo | `GeocodingService` con proveedor configurable (`nominatim` por defecto, `maptiler`). Timeout de 1 500 ms con `AbortSignal.timeout()`; retorna `null` en cualquier fallo sin bloquear la publicación. Script `geocode-backfill` para anuncios sin coordenadas existentes (cursor-based, 1 req/s para respetar la política de Nominatim) |
 | **Media** | ✅ Upload | `POST /media/upload` → R2/MinIO → crea `ListingImage` huérfana → encola procesado con sharp; **sin DELETE** |
 | **Search** | ✅ Completo | `GET /search` con texto libre, filtros core, atributos variables (brand, fuel, rooms, gender, size…), **filtro por proximidad** (`lat` + `lng` + `radius` en km → `_geoRadius` en Meilisearch) y **orden por distancia** cuando no hay sort explícito, facetas, paginación y ordenación; `IndexingProcessor` real con jobs `index`/`remove`. **RF.8**: `boostScore` (0/1) en el documento — 1 si el listing tiene un `FEATURED_LISTING` vigente (`revokedAt IS NULL AND (expiresAt IS NULL OR expiresAt > now)`) al reindexar. `sortDate = max(publishedAt, bumpedAt)` en el documento — bump sube sortDate, renew no (cierra el republish-gratis a nivel de búsqueda). `rankingRules`: `[words, typo, proximity, attribute, boostScore:desc, sort, exactness, sortDate:desc]` — boostScore tras relevancia textual (no contamina queries irrelevantes), antes de sort (destacados suben en cualquier ordenación), sortDate:desc tiebreaker final. `sortDate:desc` disponible en `?sort=sortDate:desc`. **VERIFICADO (204/204, 6 tests nuevos)**: boost en búsquedas relevantes, no contaminación de búsquedas irrelevantes, expirado→boostScore 0, bump sube sortDate · renew no |
-| **Script reindex** | ✅ Completo | `pnpm reindex` — reconstruye el índice en batches de 100; `ReindexModule` mínimo (sin BullMQ) para cierre limpio |
+| **Script reindex** | ✅ Completo (RF.9 fix) | `pnpm reindex` — reconstruye el índice en batches de 100; `ReindexModule` mínimo (sin BullMQ) para cierre limpio. **RF.9 fix**: antes hacía `addDocuments` sin vaciar (documentos huérfanos de listings borrados sobrevivían al reindexado); ahora llama `clearAll()` + `waitForTask` antes de repoblar → idempotente respecto a borrados |
 | **Messaging** | ✅ Completo | REST: `GET /conversations`, `POST /conversations`, `GET /conversations/:id` (cursor), `POST /conversations/:id/messages`. WebSocket gateway `/ws`: auth en handshake, rooms de conversación y de usuario, emit tras el POST REST |
 | **AuditLog** | ✅ Completo | `AuditLogService.log()` inyectable; captura explícita `before`/`after` dentro del método de service que muta el recurso, antes de llamar a Prisma; nunca vía interceptor (ver §2) |
 | **Moderation** | ✅ Completo | Reportes CRUD + cola (GET con filtros status/reason/page); acciones sobre listings (approve, reject, deactivate, restore); `BadWordService` con fallback silencioso al publicar; AuditLog en todas las mutaciones; roles MODERATOR + ADMIN |
@@ -39,6 +39,7 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **RedsysModule** | ⚠️ RF.5 — verificación PARCIAL | `RedsysService` (checkout credits-pack / featured-pay, Ds_Order YYYYMMDD+4random con retry), `RedsysWebhookGuard` (HMAC vía `redsys-easy`, idempotencia doble capa, enqueue / FAILED), `RedsysProcessor` (acreditación wallet atómica: Wallet + CreditLedger + Transaction en `$transaction`, validación importe `Ds_Amount` vs `amountGross×100`, idempotencia capa 2 por `status≠PENDING`). Endpoints: `POST /billing/checkout/credits-pack`, `POST /billing/checkout/featured-pay`, `POST /webhooks/redsys`. **VERIFICADO (e2e, 12 tests)**: acreditación wallet, acumulación de balance, idempotencia ×2 (GatewayEvent P2002 + status≠PENDING), cálculo IVA sin descuadre (4,99 / 9,99 / 19,99 €), validación importe (mismatch → FAILED sin tocar wallet), unicidad de 1.000 Ds_Order generados. **NO VERIFICADO — pendiente de tooling Redsys**: (1) firma HMAC real contra Redsys, (2) generación correcta del form de pago y que Redsys lo acepte, (3) recepción de notificación online real. Requiere: túnel público (ngrok/cloudflared) + credenciales sandbox Redsys + tarjetas de prueba Redsys. RF.5 **no está verificada de punta a punta** hasta eso — análogamente a RF.3 antes del CLI de Stripe. **PENDIENTE InSite vs Redirección**: el diseño asume Redirección (SAQ A); confirmar con quien impone el requisito antes de arrancar el frontend RF.10. `featuredByRedsys`: TODO completado en RF.6 — `RedsysProcessor.handleFeaturedPay` ya llama a `grantFeaturedListing`; camino end-to-end sin firma/notificación Redsys real pendiente de tooling (deuda heredada). |
 | **EntitlementService (RF.7)** | ✅ Actualizado | Validez de un entitlement: `revokedAt IS NULL AND (expiresAt IS NULL OR expiresAt > now)`. Un entitlement con `revokedAt` seteado **no** cuenta como vigente aunque `expiresAt` sea futuro (permite revocación manual desde backoffice en el futuro). Helper `activeFilter()` centraliza el predicado en `isProActive`, `isFeaturedActive` y `findActiveForUser` |
 | **BillingModule RF.6** | ✅ Completo | **`grantFeaturedListing(params)`** — punto único de concesión de `FEATURED_LISTING`; valida ACTIVE + propietario (→403) + sin entitlement activo (→400); crea `Entitlement` con `expiresAt = now + durationDays`; encola reindexado. No conoce la vía de pago. **`featuredByCredits`** — `POST /billing/featured-by-credits { priceId, listingId }`: debit atómico (`UPDATE Wallet WHERE balance >= cost`, affected=0 → 402) + `CreditLedger FEATURED_DEBIT` + entitlement, todo en una `$transaction`; rollback automático si la concesión falla. **`bump`** — `POST /listings/:id/bump`: cooldown 1h (→429 Retry-After); debit atómico + `CreditLedger BUMP_DEBIT` + `Listing.bumpedAt`, todo en una `$transaction`; fallos 402/403/400 no consumen cooldown. **`GET /billing/wallet`** — saldo + ledger paginado. **Dependencia `ListingsModule → BillingModule`**: unidireccional, sin circular, NestJS arranca limpio. **VERIFICADO (batería e2e completa, 181/181, 15 casos nuevos)**: grantFeaturedListing como punto único; débito atómico con rollback (saldo restaurado + sin `CreditLedger` huérfano); cooldown no consumido en fallos; convergencia de vías (featuredByCredits y featuredByRedsys producen mismo entitlement: tipo, priceId, `|expiresAt_A − expiresAt_B| < 60s`). **DEUDA HEREDADA de RF.5**: camino featuredByRedsys implementado pero sin ejercicio E2E contra Redsys real (firma/notificación pendientes de tooling). |
+| **BillingModule — catalog (RF.9)** | ✅ Completo | `GET /billing/catalog` — endpoint público (sin auth); DTO sin `gatewayPriceId`; devuelve los planes del catálogo de BD; reutilizable por RF.10/RF.11 |
 
 ### Frontend (`apps/web` — puerto 3000)
 
@@ -72,6 +73,10 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **Admin blog** `/admin/blog` | ✅ Completo | Tabla paginada (todos los estados) con chips Todos / Borrador / Publicado; acciones Editar / Publicar / Despublicar / Eliminar (con confirmación) inline por fila; client-side |
 | **Admin nuevo post** `/admin/blog/nuevo` | ✅ Completo | Formulario `PostForm` compartido: title, slug (editable; si se deja vacío el backend lo genera del título), excerpt, body (textarea Markdown + toggle preview), tags (coma-separadas), portada (solo upload a `/media/upload`, sin campo de URL libre), campos SEO colapsables (metaTitle, metaDescription); al guardar redirige a la página de edición |
 | **Admin editar post** `/admin/blog/[id]/editar` | ✅ Completo | Mismo `PostForm` precargado desde `GET /admin/blog/:id`; cabecera con badge de estado + botones Publicar/Despublicar/Eliminar + enlace "Ver en blog ↗" cuando está publicado; banner de éxito al guardar |
+| **Plan Pro — Catálogo** `/planes` | ✅ RF.9 | Server Component; consume `GET /billing/catalog` (endpoint público); muestra planes free/pro con precios y CTAs de upgrade. Reutiliza `apiFetch` y shadcn/ui |
+| **Plan Pro — Éxito** `/planes/exito` | ✅ RF.9 | Solo UI; maneja el estado asíncrono del webhook — no concede acceso, informa al usuario de que el pago está en proceso |
+| **Plan Pro — Cancelado** `/planes/cancelado` | ✅ RF.9 | Solo UI; página de retorno tras cancelar el flujo de checkout de Stripe |
+| **Suscripción** `/perfil/suscripcion` | ✅ RF.9 | Ruta protegida; muestra estado de suscripción activa + botón de cancelación (`cancel_at_period_end`). Reutiliza Next-Auth v5 y shadcn/ui |
 
 ---
 
@@ -714,6 +719,46 @@ Se eligió la query a Postgres sobre las alternativas:
   operativa. Es la evolución natural si el tráfico crece y la query de Postgres
   se convierte en un cuello de botella.
 
+### Manejo centralizado de sesión stale: hook `useApiAction` (RF.9)
+
+`lib/api/use-api-action.ts` (`'use client'`): hook que envuelve cualquier llamada a
+`apiFetch` en un componente de cliente. Centraliza el manejo de sesión expirada:
+
+- **401 → sesión stale**: `isAuthError` detecta exclusivamente 401 (JWT inválido o
+  usuario inexistente en BD). Respuesta: `signOut()` + redirect a login. El mensaje
+  crudo de `ApiError` nunca llega al usuario final.
+- **403 → regla de negocio**: no interceptado por el hook. 403 es una decisión de
+  dominio (límite de plan, sin permiso sobre el recurso, etc.); lo gestiona cada
+  componente con su propio mensaje contextual.
+- **Otros errores**: se llama al callback `onError` con un mensaje legible
+  (`toUserMessage`), nunca con `ApiError.message` crudo.
+
+Aplicado a 12 componentes que antes repetían el patrón try/catch + redirect manualmente.
+Usar el hook ES tener el manejo correcto: los futuros componentes no pueden olvidarse
+del caso sin esfuerzo extra.
+
+> **Lección:** La verificación manual en navegador destapó el "User not found" de
+> sesión stale — JWT válido pero usuario borrado de BD → el backend devolvía 401 y el
+> frontend mostraba un error genérico sin redirigir al login. Los tests e2e existentes
+> no cubrían ese caso (crean el usuario en el fixture y nunca lo borran con sesión
+> activa). Tests verdes ≠ flujo real verificado.
+
+### `FavoritesGridContext`: omisión deliberada de `listingIds` en el `useEffect` (RF.9)
+
+`FavoritesGridProvider` sincroniza el set de favoritos con el servidor al montarse.
+El `useEffect` que inicializa el set **omite `listingIds` en sus dependencias**
+(marcado con `// eslint-disable-next-line`). La omisión es correcta por dos razones:
+
+1. El efecto reemplaza el set completo. Incluir `listingIds` como dep haría que cada
+   toggle optimista (que modifica `listingIds`) disparara una re-sincronización desde
+   servidor, machacando el cambio optimista del usuario.
+2. El provider se remonta en cada navegación RSC, así que el efecto de inicialización
+   ya corre una vez por navegación — equivalente a `componentDidMount`.
+
+**Invariante:** este diseño solo es válido mientras la paginación sea por navegación
+completa (cada página monta un `FavoritesGridProvider` nuevo). Con scroll infinito o
+load-more sin desmontaje del provider habría que replantear el diseño.
+
 ---
 
 ## 3. Limitaciones conocidas y deuda técnica
@@ -810,6 +855,35 @@ Flujo recomendado en cada entorno nuevo:
 1. `pnpm prisma:seed` — siembra el catálogo en BD.
 2. `pnpm sync-stripe-catalog` — crea los Price en Stripe y escribe los IDs de vuelta.
 3. Checkout Pro funciona sin intervención manual en el dashboard.
+
+### Variables de entorno de TEST: ausencia de `MEILI_INDEX_NAME` no grita (pendiente de validación Joi)
+
+El `.env.test` perdió `MEILI_INDEX_NAME` en el commit de RF.8; la variable quedó sin
+valor y el backend usó `'listings'` por defecto (el índice de dev). Los tests de
+búsqueda fallaban con timeouts de 15 s confusos: `waitForIndex` esperaba el documento
+en `listings_test`, pero el documento estaba en `listings`. El error real era
+"falta la variable", no "el worker BullMQ tarda demasiado".
+
+**Pendiente:** añadir validación Joi del esquema de env vars del backend que incluya
+`MEILI_INDEX_NAME` como requerida (o con valor explícito obligatorio). La ausencia
+debe lanzar un error de startup descriptivo en vez de degradarse silenciosamente al
+valor por defecto.
+
+### `reindex`: ventana breve de índice vacío durante la repoblación
+
+El fix de RF.9 (`clearAll` + `waitForTask` + repoblación en batches) introduce una
+ventana en la que el índice está vacío. En desarrollo es irrelevante. En producción
+con tráfico real los usuarios verían resultados de búsqueda vacíos durante esos segundos.
+
+**No urgente** a la escala actual. La solución production-grade sería un swap atómico:
+repoblar en un índice temporal y renombrarlo con la API de Meilisearch
+(`/indexes/{uid}/swap`) de forma instantánea sin downtime de búsqueda. Aparcado para
+cuando el volumen lo justifique.
+
+> **Nota:** el bug original (sin `clearAll`) habría afectado silenciosamente a producción:
+> ejecutar `pnpm reindex` para "arreglar" la búsqueda habría dejado los documentos
+> huérfanos intactos. Fue detectado al investigar "anuncios fantasma en /busqueda" en
+> vez de aceptar "es la caché".
 
 ---
 

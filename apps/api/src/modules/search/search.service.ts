@@ -259,6 +259,16 @@ export class SearchService implements OnModuleInit {
   }
 
   /**
+   * Deletes every document from the index and waits for Meilisearch to finish.
+   * Called by the reindex command before repopulating so that orphaned documents
+   * (e.g. from a Postgres reset in dev) do not survive.
+   */
+  async clearAll(): Promise<void> {
+    const task = await this.index.deleteAllDocuments();
+    await this.meili.client.waitForTask(task.taskUid);
+  }
+
+  /**
    * Bulk-indexes an array of listings, ignoring any that are not ACTIVE.
    * Used by the reindex command and, in the future, by admin-triggered reindexing.
    */

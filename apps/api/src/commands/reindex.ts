@@ -58,7 +58,9 @@ async function bootstrap(): Promise<void> {
   const prisma = app.get(PrismaService);
   const search = app.get(SearchService);
 
-  logger.log('Starting full reindex of ACTIVE listings…');
+  logger.log('Clearing existing index (removes orphaned documents)…');
+  await search.clearAll();
+  logger.log('Index cleared. Starting full reindex of ACTIVE listings…');
 
   let total = 0;
   let skip = 0;
