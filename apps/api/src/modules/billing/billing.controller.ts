@@ -75,7 +75,7 @@ export class BillingController {
   // ---------------------------------------------------------------------------
 
   @Post('featured-by-credits')
-  @HttpCode(HttpStatus.NO_CONTENT)
+  @HttpCode(HttpStatus.CREATED)
   @UseGuards(JwtAuthGuard)
   featuredByCredits(@CurrentUser() user: JwtUser, @Body() dto: FeaturedByCreditsDto) {
     return this.billing.featuredByCredits(user.userId, dto);

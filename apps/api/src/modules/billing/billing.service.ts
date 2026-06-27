@@ -261,7 +261,7 @@ export class BillingService {
    * Atomic: wallet debit + CreditLedger + Entitlement in a single Postgres TX.
    * Rollback restores credits if the grant fails (e.g. already featured).
    */
-  async featuredByCredits(userId: string, dto: FeaturedByCreditsDto): Promise<void> {
+  async featuredByCredits(userId: string, dto: FeaturedByCreditsDto): Promise<{ featuredUntil: Date }> {
     const price = await this.prisma.price.findUnique({
       where: { id: dto.priceId },
       select: { id: true, active: true, durationDays: true, creditPackId: true },
@@ -349,6 +349,8 @@ export class BillingService {
       `Featured by credits: listingId=${listingId}, userId=${userId}, ` +
         `durationDays=${durationDays}, cost=${cost}`,
     );
+
+    return { featuredUntil: expiresAt };
   }
 
   // ---------------------------------------------------------------------------

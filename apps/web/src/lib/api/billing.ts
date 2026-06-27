@@ -106,8 +106,8 @@ export function featuredByCredits(
   token: string,
   priceId: string,
   listingId: string,
-): Promise<void> {
-  return apiFetch<void>('/billing/featured-by-credits', {
+): Promise<{ featuredUntil: string }> {
+  return apiFetch<{ featuredUntil: string }>('/billing/featured-by-credits', {
     method: 'POST',
     body: JSON.stringify({ priceId, listingId }),
     token,
