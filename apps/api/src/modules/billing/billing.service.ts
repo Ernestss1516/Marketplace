@@ -493,7 +493,13 @@ export class BillingService {
           ? { interval: price.interval as string, intervalCount: price.intervalCount ?? 1 }
           : {}),
         ...(price.durationDays != null ? { durationDays: price.durationDays } : {}),
-        ...(price.creditPack != null ? { creditAmount: price.creditPack.creditAmount } : {}),
+        ...(price.creditPack != null
+          ? {
+              creditAmount: price.creditPack.creditAmount,
+              creditPackId: price.creditPack.id,
+              packName: price.creditPack.name,
+            }
+          : {}),
       })),
     }));
   }

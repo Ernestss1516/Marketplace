@@ -223,8 +223,8 @@ export class RedsysService {
       DS_MERCHANT_AMOUNT: amountCents,
       DS_MERCHANT_CURRENCY: '978',
       DS_MERCHANT_ORDER: dsOrder,
-      DS_MERCHANT_URLOK: `${this.appUrl}/planes/exito-redsys`,
-      DS_MERCHANT_URLKO: `${this.appUrl}/planes/error-redsys`,
+      DS_MERCHANT_URLOK: `${this.appUrl}/mis-creditos/exito`,
+      DS_MERCHANT_URLKO: `${this.appUrl}/mis-creditos/error`,
       DS_MERCHANT_MERCHANTURL: notificationUrl,
     });
 

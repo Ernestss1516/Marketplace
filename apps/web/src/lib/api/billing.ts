@@ -1,5 +1,52 @@
 import { apiFetch } from './client';
 
+// ---------------------------------------------------------------------------
+// Wallet
+// ---------------------------------------------------------------------------
+
+export type CreditLedgerType =
+  | 'PACK_PURCHASE'
+  | 'FEATURED_DEBIT'
+  | 'BUMP_DEBIT'
+  | 'ADMIN_CREDIT'
+  | 'ADMIN_DEBIT'
+  | 'PRO_BONUS';
+
+export interface WalletItem {
+  id: string;
+  walletId: string;
+  type: CreditLedgerType;
+  amount: number;
+  referenceId: string | null;
+  referenceType: string | null;
+  note: string | null;
+  createdAt: string;
+}
+
+export interface WalletResponse {
+  balance: number;
+  items: WalletItem[];
+  total: number;
+  page: number;
+  perPage: number;
+  totalPages: number;
+}
+
+// ---------------------------------------------------------------------------
+// Redsys form data
+// ---------------------------------------------------------------------------
+
+export interface RedsysFormData {
+  Ds_MerchantParameters: string;
+  Ds_SignatureVersion: string;
+  Ds_Signature: string;
+  tpvUrl: string;
+}
+
+// ---------------------------------------------------------------------------
+// Catalog
+// ---------------------------------------------------------------------------
+
 export interface CatalogPrice {
   priceId: string;
   amount: number;
@@ -8,6 +55,8 @@ export interface CatalogPrice {
   intervalCount?: number;
   durationDays?: number;
   creditAmount?: number;
+  creditPackId?: string;
+  packName?: string;
 }
 
 export interface CatalogProduct {
@@ -71,4 +120,19 @@ export function cancelSubscription(token: string, id: string): Promise<void> {
 
 export function getMyEntitlements(token: string): Promise<MyEntitlement[]> {
   return apiFetch<MyEntitlement[]>('/billing/my-entitlements', { token });
+}
+
+export function getWallet(token: string, page = 1): Promise<WalletResponse> {
+  return apiFetch<WalletResponse>(`/billing/wallet?page=${page}&perPage=20`, { token });
+}
+
+export function createPackCheckout(
+  token: string,
+  packId: string,
+): Promise<{ redsysFormData: RedsysFormData }> {
+  return apiFetch<{ redsysFormData: RedsysFormData }>('/billing/checkout/credits-pack', {
+    method: 'POST',
+    body: JSON.stringify({ packId }),
+    token,
+  });
 }

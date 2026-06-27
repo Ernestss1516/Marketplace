@@ -7,6 +7,7 @@ const navItems = [
   { href: '/favoritos', label: 'Favoritos' },
   { href: '/perfil', label: 'Mi perfil' },
   { href: '/perfil/suscripcion', label: 'Mi suscripción' },
+  { href: '/mis-creditos', label: 'Mis créditos' },
 ];
 
 export default function AccountLayout({ children }: { children: React.ReactNode }) {

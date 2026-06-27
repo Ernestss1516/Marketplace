@@ -13,6 +13,7 @@
  *   - Ds_Order format: each generated order is 12 chars, YYYYMMDD + 4 uppercase alphanum
  *   - Ds_Order collision retry: P2002 on first attempt triggers retry; second attempt succeeds
  *   - Ds_Order retry exhaustion: 3 consecutive collisions propagate the error
+ *   - RF.10: POST /billing/checkout/credits-pack returns 201 + redsysFormData with 4 fields
  *
  * What is NOT verified here:
  *   - Real HMAC signature generation / verification against Redsys
@@ -24,6 +25,7 @@ import { INestApplication } from '@nestjs/common';
 import { PrismaClient, TransactionStatus, CreditLedgerType } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { Prisma } from '@prisma/client';
+import * as request from 'supertest';
 import { createTestApp } from './helpers/create-app';
 import { cleanDb } from './helpers/db';
 import { RedsysProcessor } from 'src/modules/redsys/redsys.processor';
@@ -42,6 +44,7 @@ describe('Redsys — wallet accreditation (e2e)', () => {
   let packBasicoPriceId: string;
   let packBasicoCreditAmount: number; // 50
   let packBasicoAmountEur: Prisma.Decimal; // 4.99
+  let httpToken: string; // JWT for the HTTP endpoint tests (RF.10)
 
   beforeAll(async () => {
     prisma = new PrismaClient();
@@ -74,6 +77,12 @@ describe('Redsys — wallet accreditation (e2e)', () => {
     packBasicoPriceId = pack.price.id;
     packBasicoCreditAmount = pack.creditAmount; // 50
     packBasicoAmountEur = pack.price.amount;    // 4.99
+
+    // Obtain a JWT for the HTTP-layer tests (RF.10) — reuses the user created above
+    const loginRes = await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .send({ email: 'redsys-test@example.com', password: 'Test1234!' });
+    httpToken = loginRes.body.accessToken as string;
   });
 
   afterAll(async () => {
@@ -409,6 +418,65 @@ describe('Redsys — wallet accreditation (e2e)', () => {
           dsOrder: '20260626EDGX',
         }),
       ).resolves.toBeUndefined();
+    });
+  });
+
+  // ── RF.10 — HTTP endpoint shape ────────────────────────────────────────────
+  // Verifies the full HTTP response from POST /billing/checkout/credits-pack.
+  // REDSYS_SECRET_KEY is available in .env.test (dummy key), so buildForm runs
+  // for real — no mocks. This validates the actual HMAC-SHA256 signing mechanics.
+
+  describe('RF.10 — POST /billing/checkout/credits-pack (HTTP layer)', () => {
+    it('returns 201 and buildForm produces a real signed redsysFormData', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/api/billing/checkout/credits-pack')
+        .set('Authorization', `Bearer ${httpToken}`)
+        .send({ packId: packBasicoId })
+        .expect(201);
+
+      expect(res.body).toHaveProperty('redsysFormData');
+      const { redsysFormData } = res.body as { redsysFormData: Record<string, string> };
+
+      // Protocol fixed value
+      expect(redsysFormData.Ds_SignatureVersion).toBe('HMAC_SHA256_V1');
+
+      // Real HMAC-SHA256 signature with dummy key: base64 of 32 raw bytes = 44 chars
+      expect(redsysFormData.Ds_Signature).toHaveLength(44);
+
+      // Sandbox TPV redirect URL (from SANDBOX_URLS.redirect in redsys-easy)
+      expect(redsysFormData.tpvUrl).toBe('https://sis-t.redsys.es:25443/sis/realizarPago');
+
+      // Ds_MerchantParameters is base64-encoded JSON — decode and verify merchant params
+      const decoded = Buffer.from(redsysFormData.Ds_MerchantParameters, 'base64').toString('utf8');
+      const params = JSON.parse(decoded) as Record<string, string>;
+      expect(params.DS_MERCHANT_AMOUNT).toBe('499');           // Pack Básico = 4.99 € = 499 cents
+      expect(params.DS_MERCHANT_CURRENCY).toBe('978');         // EUR
+      expect(params.DS_MERCHANT_MERCHANTCODE).toBe('999008881');
+      expect(params.DS_MERCHANT_URLOK).toContain('/mis-creditos/exito');
+      expect(params.DS_MERCHANT_URLKO).toContain('/mis-creditos/error');
+      expect(params.DS_MERCHANT_ORDER).toMatch(/^\d{8}[A-Z0-9]{4}$/); // YYYYMMDD + 4 alphanum
+
+      // A PENDING Transaction must have been created
+      const tx = await prisma.transaction.findFirst({
+        where: { userId, gateway: 'REDSYS', status: 'PENDING' },
+        orderBy: { createdAt: 'desc' },
+      });
+      expect(tx).not.toBeNull();
+    });
+
+    it('returns 401 without a token', async () => {
+      await request(app.getHttpServer())
+        .post('/api/billing/checkout/credits-pack')
+        .send({ packId: packBasicoId })
+        .expect(401);
+    });
+
+    it('returns 400 when packId is missing (DTO validation fires before buildForm)', async () => {
+      await request(app.getHttpServer())
+        .post('/api/billing/checkout/credits-pack')
+        .set('Authorization', `Bearer ${httpToken}`)
+        .send({})
+        .expect(400);
     });
   });
 });

@@ -9,6 +9,7 @@ const accountPrefixes = [
   '/mensajes',
   '/favoritos',
   '/perfil',
+  '/mis-creditos',
 ];
 
 const adminPrefixes = ['/admin'];
