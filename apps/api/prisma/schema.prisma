@@ -113,6 +113,7 @@ enum CreditLedgerType {
   BUMP_DEBIT      // Bump pagado con créditos → salida (negativo)
   ADMIN_CREDIT    // Acreditación manual de soporte → entrada
   ADMIN_DEBIT     // Débito manual de soporte → salida
+  PRO_BONUS       // Créditos extra concedidos a usuarios Pro al comprar un pack → entrada
 }
 
 /// Motivo de una denuncia, para la cola de moderación.
@@ -682,6 +683,10 @@ model Transaction {
   listing        Listing?      @relation(fields: [listingId], references: [id], onDelete: SetNull)
 
   entitlements   Entitlement[]
+
+  /// Créditos extra congelados en el checkout para usuarios Pro. Null = sin bonus.
+  /// Calculado en createCreditPackCheckout; el RedsysProcessor lo lee sin recalcular.
+  bonusCreditAmount Int?
 
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt

@@ -22,7 +22,7 @@
  */
 
 import { INestApplication } from '@nestjs/common';
-import { PrismaClient, TransactionStatus, CreditLedgerType } from '@prisma/client';
+import { PrismaClient, TransactionStatus, CreditLedgerType, EntitlementType } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { Prisma } from '@prisma/client';
 import * as request from 'supertest';
@@ -93,7 +93,10 @@ describe('Redsys — wallet accreditation (e2e)', () => {
   // ── Helpers ────────────────────────────────────────────────────────────────
 
   /** Creates a PENDING Transaction that looks like it came from a Redsys checkout. */
-  async function createPendingTransaction(dsOrder: string, overrides?: { userId?: string }) {
+  async function createPendingTransaction(
+    dsOrder: string,
+    overrides?: { userId?: string; bonusCreditAmount?: number | null },
+  ) {
     const tax = redsysTaxBreakdown(packBasicoAmountEur);
     return prisma.transaction.create({
       data: {
@@ -103,6 +106,7 @@ describe('Redsys — wallet accreditation (e2e)', () => {
         status: TransactionStatus.PENDING,
         gateway: 'REDSYS',
         gatewayPaymentIntentId: dsOrder,
+        bonusCreditAmount: overrides?.bonusCreditAmount ?? null,
       },
       select: { id: true, amountGross: true, gatewayPaymentIntentId: true },
     });
@@ -477,6 +481,216 @@ describe('Redsys — wallet accreditation (e2e)', () => {
         .set('Authorization', `Bearer ${httpToken}`)
         .send({})
         .expect(400);
+    });
+  });
+
+  // ── Bonus Pro (RF.10 §2.5) ────────────────────────────────────────────────
+  //
+  // Pack Básico has creditAmount=50. With proExtraCreditsPercent=20 (seeded):
+  //   bonus = ceil(50 * 20 / 100) = ceil(10) = 10 → total = 60
+  //
+  // The "rounding" test uses a synthetic pack with creditAmount=51:
+  //   bonus = ceil(51 * 20 / 100) = ceil(10.2) = 11 → exercises the ceil branch.
+  // With current real packs (50/150/400) × 20% the result is always integer,
+  // so the ceil guard is not exercised in production — it is here for safety.
+
+  describe('Bonus Pro — checkout freezes bonus and processor applies it', () => {
+    let proUserId: string;
+    let roundingPackId: string;
+    let roundingPriceId: string;
+
+    const PRO_BONUS_PCT = 20; // must match seed-test.ts proExtraCreditsPercent
+
+    beforeAll(async () => {
+      // Create a Pro user (separate from the base user to avoid state contamination).
+      const proUser = await prisma.user.create({
+        data: {
+          email: 'redsys-pro@example.com',
+          name: 'Redsys Pro',
+          slug: 'redsys-pro',
+          passwordHash: await bcrypt.hash('Test1234!', 4),
+          emailVerified: true,
+        },
+      });
+      proUserId = proUser.id;
+
+      // Grant active PRO_SUBSCRIPTION (30 days from now).
+      await prisma.entitlement.create({
+        data: {
+          userId: proUserId,
+          type: EntitlementType.PRO_SUBSCRIPTION,
+          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        },
+      });
+
+      // Synthetic pack for the ceil rounding test: creditAmount=51.
+      // 51 * 20 / 100 = 10.2 → ceil → 11. Requires an existing Product.
+      const packsProduct = await prisma.product.findFirst({
+        where: { name: 'Packs de créditos' },
+      });
+      if (!packsProduct) throw new Error('Packs de créditos product not found in test seed');
+
+      const roundPack = await prisma.creditPack.create({
+        data: { name: 'Pack Rounding Test', creditAmount: 51, active: true },
+      });
+      const roundPrice = await prisma.price.create({
+        data: {
+          productId: packsProduct.id,
+          amount: new Prisma.Decimal('4.99'),
+          creditPackId: roundPack.id,
+        },
+      });
+      roundingPackId = roundPack.id;
+      roundingPriceId = roundPrice.id;
+    });
+
+    afterAll(async () => {
+      await prisma.creditLedger.deleteMany({ where: { wallet: { userId: proUserId } } });
+      await prisma.wallet.deleteMany({ where: { userId: proUserId } });
+      await prisma.transaction.deleteMany({ where: { userId: proUserId } });
+      await prisma.entitlement.deleteMany({ where: { userId: proUserId } });
+      await prisma.user.delete({ where: { id: proUserId } });
+      await prisma.price.deleteMany({ where: { creditPackId: roundingPackId } });
+      await prisma.creditPack.delete({ where: { id: roundingPackId } });
+    });
+
+    // ── Checkout: freeze tests ─────────────────────────────────────────────
+
+    describe('createCreditPackCheckout — bonus freeze', () => {
+      const MOCK_FORM = {
+        Ds_MerchantParameters: 'mock',
+        Ds_SignatureVersion: 'HMAC_SHA256_V1',
+        Ds_Signature: 'mock',
+        tpvUrl: 'https://mock.tpv/',
+      };
+
+      afterEach(async () => {
+        jest.restoreAllMocks();
+        await prisma.transaction.deleteMany({ where: { userId: proUserId } });
+      });
+
+      it('Pro user: Transaction is created with bonusCreditAmount = ceil(base × pct/100)', async () => {
+        jest.spyOn(redsysService as any, 'buildForm').mockReturnValue(MOCK_FORM);
+
+        await redsysService.createCreditPackCheckout(proUserId, { packId: packBasicoId });
+
+        const tx = await prisma.transaction.findFirst({
+          where: { userId: proUserId, gateway: 'REDSYS', status: TransactionStatus.PENDING },
+          orderBy: { createdAt: 'desc' },
+        });
+        expect(tx).not.toBeNull();
+        const expectedBonus = Math.ceil(packBasicoCreditAmount * PRO_BONUS_PCT / 100); // ceil(50*20/100)=10
+        expect(tx!.bonusCreditAmount).toBe(expectedBonus);
+      });
+
+      it('Non-Pro user: Transaction is created with bonusCreditAmount = null', async () => {
+        jest.spyOn(redsysService as any, 'buildForm').mockReturnValue(MOCK_FORM);
+
+        // userId (not proUserId) has no PRO_SUBSCRIPTION
+        await redsysService.createCreditPackCheckout(userId, { packId: packBasicoId });
+
+        const tx = await prisma.transaction.findFirst({
+          where: { userId, gateway: 'REDSYS', status: TransactionStatus.PENDING },
+          orderBy: { createdAt: 'desc' },
+        });
+        expect(tx).not.toBeNull();
+        expect(tx!.bonusCreditAmount).toBeNull();
+      });
+
+      it('Ceil rounding: creditAmount=51 with 20% → bonusCreditAmount=11 (ceil of 10.2)', async () => {
+        jest.spyOn(redsysService as any, 'buildForm').mockReturnValue(MOCK_FORM);
+
+        await redsysService.createCreditPackCheckout(proUserId, { packId: roundingPackId });
+
+        const tx = await prisma.transaction.findFirst({
+          where: { userId: proUserId, gateway: 'REDSYS', status: TransactionStatus.PENDING },
+          orderBy: { createdAt: 'desc' },
+        });
+        expect(tx).not.toBeNull();
+        // 51 * 20 / 100 = 10.2 → ceil → 11
+        expect(tx!.bonusCreditAmount).toBe(11);
+      });
+    });
+
+    // ── Processor: accreditation tests ────────────────────────────────────
+
+    describe('processSuccess — Pro bonus accreditation', () => {
+      const DS_ORDER_PRO     = '20260627PROB';
+      const DS_ORDER_NONPRO  = '20260627NOPR';
+
+      beforeEach(async () => {
+        await prisma.creditLedger.deleteMany({ where: { wallet: { userId: proUserId } } });
+        await prisma.wallet.deleteMany({ where: { userId: proUserId } });
+        await prisma.transaction.deleteMany({
+          where: { gatewayPaymentIntentId: { in: [DS_ORDER_PRO, DS_ORDER_NONPRO] } },
+        });
+      });
+
+      it('Pro user: wallet = base + bonus, two CreditLedger entries (PACK_PURCHASE + PRO_BONUS)', async () => {
+        const expectedBonus = Math.ceil(packBasicoCreditAmount * PRO_BONUS_PCT / 100); // 10
+        const expectedTotal = packBasicoCreditAmount + expectedBonus; // 60
+
+        // Transaction with bonus pre-frozen (simulating what checkout would store).
+        const tx = await createPendingTransaction(DS_ORDER_PRO, {
+          userId: proUserId,
+          bonusCreditAmount: expectedBonus,
+        });
+
+        await processor.processSuccess({
+          transactionId: tx.id,
+          dsAmount: correctCents(packBasicoAmountEur),
+          dsOrder: DS_ORDER_PRO,
+        });
+
+        const txAfter = await prisma.transaction.findUnique({ where: { id: tx.id } });
+        expect(txAfter?.status).toBe(TransactionStatus.SUCCEEDED);
+
+        const wallet = await prisma.wallet.findUnique({
+          where: { userId: proUserId },
+          include: { entries: { orderBy: { createdAt: 'asc' } } },
+        });
+        expect(wallet).not.toBeNull();
+        expect(wallet!.balance).toBe(expectedTotal); // 60
+
+        expect(wallet!.entries).toHaveLength(2);
+
+        const packEntry = wallet!.entries.find((e) => e.type === CreditLedgerType.PACK_PURCHASE);
+        expect(packEntry).toBeDefined();
+        expect(packEntry!.amount).toBe(packBasicoCreditAmount); // +50
+        expect(packEntry!.referenceType).toBe('Transaction');
+        expect(packEntry!.referenceId).toBe(tx.id);
+
+        const bonusEntry = wallet!.entries.find((e) => e.type === CreditLedgerType.PRO_BONUS);
+        expect(bonusEntry).toBeDefined();
+        expect(bonusEntry!.amount).toBe(expectedBonus); // +10
+        expect(bonusEntry!.referenceType).toBe('Transaction');
+        expect(bonusEntry!.referenceId).toBe(tx.id); // same Transaction as base
+      });
+
+      it('Non-Pro user: wallet = base only, one CreditLedger entry (no PRO_BONUS)', async () => {
+        // Reuse base userId (no Pro entitlement). Clean its wallet state too.
+        await prisma.creditLedger.deleteMany({ where: { wallet: { userId } } });
+        await prisma.wallet.deleteMany({ where: { userId } });
+
+        const tx = await createPendingTransaction(DS_ORDER_NONPRO, { bonusCreditAmount: null });
+
+        await processor.processSuccess({
+          transactionId: tx.id,
+          dsAmount: correctCents(packBasicoAmountEur),
+          dsOrder: DS_ORDER_NONPRO,
+        });
+
+        const wallet = await prisma.wallet.findUnique({
+          where: { userId },
+          include: { entries: true },
+        });
+        expect(wallet).not.toBeNull();
+        expect(wallet!.balance).toBe(packBasicoCreditAmount); // 50
+
+        expect(wallet!.entries).toHaveLength(1);
+        expect(wallet!.entries[0]!.type).toBe(CreditLedgerType.PACK_PURCHASE);
+        expect(wallet!.entries.find((e) => e.type === CreditLedgerType.PRO_BONUS)).toBeUndefined();
+      });
     });
   });
 });

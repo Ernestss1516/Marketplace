@@ -401,6 +401,8 @@ async function seedSettings() {
       // RF.7: límites de anuncios activos por plan — configurables sin despliegue.
       { key: 'freeActiveListingLimit', value: 5 },
       { key: 'proActiveListingLimit', value: 20 },
+      // RF.10 Bonus Pro: porcentaje de créditos extra para usuarios Pro al comprar un pack.
+      { key: 'proExtraCreditsPercent', value: 20 },
     ],
     skipDuplicates: true,
   });

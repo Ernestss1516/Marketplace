@@ -108,6 +108,18 @@ export class RedsysService {
     // Redsys expects amount in cents (integer string, no decimals).
     const amountCents = price.amount.mul(100).toFixed(0);
 
+    // Freeze Pro bonus at checkout time (design §2.5).
+    // The processor will read this value as-is; it never re-checks Pro status.
+    const isPro = await this.entitlements.isProActive(userId);
+    let bonusCreditAmount: number | null = null;
+    if (isPro) {
+      const pctSetting = await this.prisma.setting.findUnique({
+        where: { key: 'proExtraCreditsPercent' },
+      });
+      const pct = pctSetting ? Number(pctSetting.value) : 20;
+      bonusCreditAmount = Math.ceil(pack.creditAmount * pct / 100);
+    }
+
     // Create Transaction PENDING, retrying up to 3 times on Ds_Order collision.
     let transactionId: string;
     let dsOrder: string = '';
@@ -122,6 +134,7 @@ export class RedsysService {
             status: TransactionStatus.PENDING,
             gateway: 'REDSYS',
             gatewayPaymentIntentId: dsOrder,
+            bonusCreditAmount,
           },
           select: { id: true },
         });
@@ -136,7 +149,10 @@ export class RedsysService {
       }
     }
     // transactionId is always set here (loop throws on failure)
-    this.logger.log(`Created PENDING Transaction ${transactionId!} for pack ${dto.packId}, Ds_Order=${dsOrder}`);
+    this.logger.log(
+      `Created PENDING Transaction ${transactionId!} for pack ${dto.packId}, ` +
+        `Ds_Order=${dsOrder}, proBonus=${bonusCreditAmount ?? 'none'}`,
+    );
 
     return { redsysFormData: this.buildForm(dsOrder, amountCents) };
   }

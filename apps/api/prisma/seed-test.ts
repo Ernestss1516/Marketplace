@@ -50,6 +50,7 @@ async function seedSettings() {
       { key: 'featuredCreditCost14d', value: 50 },
       { key: 'featuredCreditCost30d', value: 100 },
       { key: 'bumpCreditCost', value: 5 },
+      { key: 'proExtraCreditsPercent', value: 20 },
     ],
     skipDuplicates: true,
   });

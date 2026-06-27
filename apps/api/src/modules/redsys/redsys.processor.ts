@@ -83,7 +83,12 @@ export class RedsysProcessor extends WorkerHost {
     const creditPack = transaction.price?.creditPack;
 
     if (creditPack) {
-      await this.handlePackPurchase(transaction.userId, transactionId, creditPack.creditAmount);
+      await this.handlePackPurchase(
+        transaction.userId,
+        transactionId,
+        creditPack.creditAmount,
+        transaction.bonusCreditAmount,
+      );
     } else {
       // Featured pay via Redsys (RF.6)
       if (!transaction.listingId || !transaction.price?.durationDays) {
@@ -114,18 +119,20 @@ export class RedsysProcessor extends WorkerHost {
     userId: string,
     transactionId: string,
     creditAmount: number,
+    bonusCreditAmount: number | null,
   ): Promise<void> {
+    const totalCredit = creditAmount + (bonusCreditAmount ?? 0);
+
     await this.prisma.$transaction(async (tx) => {
-      // Upsert Wallet — creates with creditAmount if it doesn't exist yet,
-      // or increments the existing balance.
+      // Upsert Wallet with total credits (base + bonus) atomically.
       const wallet = await tx.wallet.upsert({
         where: { userId },
-        create: { userId, balance: creditAmount },
-        update: { balance: { increment: creditAmount } },
+        create: { userId, balance: totalCredit },
+        update: { balance: { increment: totalCredit } },
         select: { id: true },
       });
 
-      // Immutable ledger entry for this purchase.
+      // Base ledger entry (always present).
       await tx.creditLedger.create({
         data: {
           walletId: wallet.id,
@@ -136,6 +143,19 @@ export class RedsysProcessor extends WorkerHost {
         },
       });
 
+      // Pro bonus ledger entry (only when bonus was frozen at checkout).
+      if (bonusCreditAmount != null) {
+        await tx.creditLedger.create({
+          data: {
+            walletId: wallet.id,
+            type: CreditLedgerType.PRO_BONUS,
+            amount: bonusCreditAmount,
+            referenceType: 'Transaction',
+            referenceId: transactionId,
+          },
+        });
+      }
+
       // Mark the Transaction as SUCCEEDED.
       await tx.transaction.update({
         where: { id: transactionId },
@@ -145,7 +165,8 @@ export class RedsysProcessor extends WorkerHost {
 
     this.logger.log(
       `Pack purchase processed: user=${userId}, transactionId=${transactionId}, ` +
-        `creditAmount=+${creditAmount}`,
+        `creditAmount=+${creditAmount}` +
+        (bonusCreditAmount != null ? `, proBonus=+${bonusCreditAmount}` : ''),
     );
   }
 
