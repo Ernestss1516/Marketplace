@@ -5,6 +5,8 @@ import { MeilisearchModule } from '../../infra/meilisearch/meilisearch.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
+import { AdminBillingController } from './admin-billing.controller';
+import { AdminBillingService } from './admin-billing.service';
 
 @Module({
   imports: [
@@ -12,8 +14,8 @@ import { AdminService } from './admin.service';
     MeilisearchModule,
     AuditLogModule,
   ],
-  controllers: [AdminController],
-  providers: [AdminService],
+  controllers: [AdminController, AdminBillingController],
+  providers: [AdminService, AdminBillingService],
   exports: [AdminService],
 })
 export class AdminModule {}
