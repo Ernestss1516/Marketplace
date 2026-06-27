@@ -1,6 +1,6 @@
 # Estado técnico del proyecto — Marketplace
 
-> Fecha: 2026-06-27 · Rama: `main` · Último commit: RF.10 completo (frontend wallet + compra de packs Redsys, firma HMAC verificada con clave de pruebas pública)
+> Fecha: 2026-06-27 · Rama: `main` · Último commit: Bonus Pro — créditos extra para usuarios Pro al comprar packs (bonus congelado en checkout, aplicado en processor; 220/220 e2e)
 > Plan vigente para la siguiente fase: `docs/Hoja_de_ruta_rafagas_Hito2.docx`.
 
 Documento de referencia para retomar el proyecto. Recoge qué hay implementado,
@@ -14,7 +14,7 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 
 | Módulo | Estado | Notas |
 |---|---|---|
-| **Infra: Prisma** | ✅ Completo | Schema con todos los modelos; PostGIS habilitado; **11 migraciones aplicadas** hasta RF.7 (las de billing RF.2–RF.6 añaden Subscription, Transaction, Wallet, Entitlement, CreditLedger, GatewayEvent, Price…; **RF.7** añade **`add_entitlement_revoked_at`**: columna nullable `Entitlement.revokedAt DateTime?` + índice) |
+| **Infra: Prisma** | ✅ Completo | Schema con todos los modelos; PostGIS habilitado; **12 migraciones aplicadas** (las de billing RF.2–RF.6 añaden Subscription, Transaction, Wallet, Entitlement, CreditLedger, GatewayEvent, Price…; **RF.7** añade **`add_entitlement_revoked_at`**: columna nullable `Entitlement.revokedAt DateTime?` + índice; **Bonus Pro** añade **`add_pro_bonus`**: valor `PRO_BONUS` al enum `CreditLedgerType` + columna nullable `Transaction.bonusCreditAmount Int?`) |
 | **Infra: Redis** | ✅ Completo | `RedisService` global; caché de fichas de anuncio (TTL 5 min) |
 | **Infra: BullMQ** | ✅ Colas activas | 4 colas registradas con processors reales: `image-processing`, `indexing`, `notifications`, `billing`, `redsys` |
 | **Infra: Meilisearch** | ✅ Completo | `SearchService.onModuleInit()` crea el índice `listings` y aplica searchable/filterable/sortable attrs, ranking rules y typo tolerance al arrancar |
@@ -36,7 +36,7 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **Favorites** | ✅ Completo | `POST /favorites/:listingId` (marcar), `DELETE /favorites/:listingId` (desmarcar), `GET /favorites` (paginado), `GET /favorites/:listingId` (check), `POST /favorites/batch-check` (máx. 100 ids → `{ favoritedIds }`). Todos idempotentes y con `JwtAuthGuard`. Suite `favorites.e2e-spec.ts` (12 tests) |
 | **Reviews** | ✅ Completo | `POST /reviews` (crear; guard de elegibilidad vía `Conversation`), `GET /reviews/eligibility?listingId=&targetId=` (check antes de mostrar el formulario), `PATCH /reviews/:id` (editar en ventana 72 h; persiste `editedAt`), `DELETE /reviews/:id` (borrar en ventana 72 h). Listado público via `GET /users/:slug/reviews` (cursor paginado + aggregate on-the-fly: average, count, distribución 1–5). Unicidad `(authorId, targetId, listingId)` — una reseña por par de usuarios por anuncio. `FAKE_REVIEW` añadido a `ReportReason`; `Report.reviewId` FK con CASCADE para moderar reseñas. Suite `reviews.e2e-spec.ts` (20 tests) |
 | **BillingModule (Stripe)** | ✅ RF.3 Completo | Checkout Pro (Stripe Checkout), `StripeWebhookGuard`, `BillingProcessor` (5 eventos), `EntitlementService`. Verificado con Stripe CLI. Pendiente: renovación (segunda factura) |
-| **RedsysModule** | ⚠️ RF.5/RF.10 — firma ✅ · ciclo notificación ❌ | `RedsysService` (checkout credits-pack / featured-pay, Ds_Order YYYYMMDD+4random con retry), `RedsysWebhookGuard` (HMAC vía `redsys-easy`, idempotencia doble capa, enqueue / FAILED), `RedsysProcessor` (acreditación wallet atómica: Wallet + CreditLedger + Transaction en `$transaction`, validación importe `Ds_Amount` vs `amountGross×100`, idempotencia capa 2 por `status≠PENDING`). Endpoints: `POST /billing/checkout/credits-pack`, `POST /billing/checkout/featured-pay`, `POST /webhooks/redsys`. **RF.10**: URLs de retorno cambiadas de `/planes/exito-redsys` y `/planes/error-redsys` a `/mis-creditos/exito` y `/mis-creditos/error` (en `buildForm` del service), para separar el flujo de packs del de la suscripción Pro. Modo elegido: REDIRECCIÓN (ver §2). **VERIFICADO (e2e, 17 tests — 215/215, 18/18 Playwright)**: acreditación wallet, acumulación de balance, idempotencia ×2 (GatewayEvent P2002 + status≠PENDING), cálculo IVA sin descuadre (4,99 / 9,99 / 19,99 €), validación importe (mismatch → FAILED sin tocar wallet), unicidad de 1.000 Ds_Order generados. **RF.10 — verificado con clave/comercio de pruebas públicos de Redsys** (sq7HjrUO…, 999008881): test HTTP con `buildForm` REAL sin mock — `Ds_Signature` de 44 chars (HMAC-SHA256 genuino), `Ds_MerchantParameters` decodifica a importe/order/URLs correctas, `tpvUrl` sandbox correcto; form POST montado en el TPV real del sandbox de Redsys y aceptado. **NO VERIFICADO — deuda Redsys pendiente de tooling**: (1) completar el pago con tarjeta de prueba Redsys en el sandbox, (2) recepción de la notificación online (`POST /webhooks/redsys`) vía túnel público, (3) acreditación E2E del wallet (webhook → BullMQ → `processSuccess`). La firma y aceptación por el TPV sandbox ya NO son deuda. `featuredByRedsys`: completado en RF.6 — `RedsysProcessor.handleFeaturedPay` ya llama a `grantFeaturedListing`; camino end-to-end sin ciclo de notificación real (deuda heredada, misma pendiente que credits-pack). |
+| **RedsysModule** | ⚠️ RF.5/RF.10 — firma ✅ · ciclo notificación ❌ | `RedsysService` (checkout credits-pack / featured-pay, Ds_Order YYYYMMDD+4random con retry). **Bonus Pro en `createCreditPackCheckout`**: llama a `EntitlementService.isProActive(userId)`, lee `proExtraCreditsPercent` de `Setting` (fallback 20), calcula `Math.ceil(creditAmount × pct / 100)` y lo persiste en `Transaction.bonusCreditAmount`; el importe, el IVA y el `amountGross` NO se tocan. `RedsysWebhookGuard` (HMAC vía `redsys-easy`, idempotencia doble capa, enqueue / FAILED). `RedsysProcessor` — `handlePackPurchase`: acreditación wallet atómica en `$transaction`: wallet upsert con `balance += base + bonus` (una sola escritura); entrada `CreditLedger PACK_PURCHASE` (+base); si `transaction.bonusCreditAmount != null`, segunda entrada `CreditLedger PRO_BONUS` (+bonus, misma `referenceId = transactionId`); `Transaction.status = SUCCEEDED`. Validación importe `Ds_Amount` vs `amountGross×100`; idempotencia capa 2 por `status≠PENDING`. El processor **no inyecta `EntitlementService` ni lee `Setting`** — solo lee el entero ya congelado en la Transaction. Endpoints: `POST /billing/checkout/credits-pack`, `POST /billing/checkout/featured-pay`, `POST /webhooks/redsys`. **RF.10**: URLs de retorno cambiadas a `/mis-creditos/exito|error` (en `buildForm`), separadas del flujo Pro. Modo: REDIRECCIÓN (ver §2). **VERIFICADO (e2e, 22 tests — 220/220, 18/18 Playwright)**: acreditación wallet (no-Pro), acumulación de balance, idempotencia ×2 (GatewayEvent P2002 + status≠PENDING), cálculo IVA sin descuadre (4,99 / 9,99 / 19,99 €), validación importe (mismatch → FAILED sin tocar wallet), unicidad de 1.000 Ds_Order. **Bonus Pro (5 tests nuevos)**: checkout congela bonusCreditAmount (Pro=10, non-Pro=null), ceil con creditAmount=51→bonus=11 (10.2 redondeado), processor Pro→wallet=60 con dos entradas ledger, processor non-Pro→solo base. **RF.10 — verificado con clave pública Redsys** (sq7HjrUO…, 999008881): `Ds_Signature` 44 chars genuinos, `Ds_MerchantParameters` correcto, aceptado por TPV sandbox. **NO VERIFICADO — deuda pendiente**: (1) pago con tarjeta de prueba, (2) notificación online vía túnel público, (3) acreditación E2E wallet (webhook → BullMQ → processSuccess). `featuredByRedsys`: completado en RF.6; sin ciclo notificación real (misma deuda). |
 | **EntitlementService (RF.7)** | ✅ Actualizado | Validez de un entitlement: `revokedAt IS NULL AND (expiresAt IS NULL OR expiresAt > now)`. Un entitlement con `revokedAt` seteado **no** cuenta como vigente aunque `expiresAt` sea futuro (permite revocación manual desde backoffice en el futuro). Helper `activeFilter()` centraliza el predicado en `isProActive`, `isFeaturedActive` y `findActiveForUser` |
 | **BillingModule RF.6** | ✅ Completo | **`grantFeaturedListing(params)`** — punto único de concesión de `FEATURED_LISTING`; valida ACTIVE + propietario (→403) + sin entitlement activo (→400); crea `Entitlement` con `expiresAt = now + durationDays`; encola reindexado. No conoce la vía de pago. **`featuredByCredits`** — `POST /billing/featured-by-credits { priceId, listingId }`: debit atómico (`UPDATE Wallet WHERE balance >= cost`, affected=0 → 402) + `CreditLedger FEATURED_DEBIT` + entitlement, todo en una `$transaction`; rollback automático si la concesión falla. **`bump`** — `POST /listings/:id/bump`: cooldown 1h (→429 Retry-After); debit atómico + `CreditLedger BUMP_DEBIT` + `Listing.bumpedAt`, todo en una `$transaction`; fallos 402/403/400 no consumen cooldown. **`GET /billing/wallet`** — saldo + ledger paginado. **Dependencia `ListingsModule → BillingModule`**: unidireccional, sin circular, NestJS arranca limpio. **VERIFICADO (batería e2e completa, 181/181, 15 casos nuevos)**: grantFeaturedListing como punto único; débito atómico con rollback (saldo restaurado + sin `CreditLedger` huérfano); cooldown no consumido en fallos; convergencia de vías (featuredByCredits y featuredByRedsys producen mismo entitlement: tipo, priceId, `|expiresAt_A − expiresAt_B| < 60s`). **DEUDA HEREDADA de RF.5**: camino featuredByRedsys implementado pero sin ejercicio E2E contra Redsys real (firma/notificación pendientes de tooling). |
 | **BillingModule — catalog (RF.9/RF.10)** | ✅ Completo | `GET /billing/catalog` — endpoint público (sin auth); DTO sin `gatewayPriceId`; devuelve los planes del catálogo de BD. **RF.10**: cada precio de pack incluye ahora `creditPackId` (`CreditPack.id`, lo que necesita `POST /billing/checkout/credits-pack`) y `packName` (`CreditPack.name`, p. ej. "Pack Básico") para que el frontend pueda renderizar una tarjeta por pack individual sin una llamada adicional |
@@ -292,11 +292,14 @@ Los tests de Jest usan `setupFiles: ['test/load-env.ts']` (carga `.env.test` con
 `dotenv.config()` sin sobreescribir `process.env`) y `globalSetup: 'test/setup-e2e.js'`
 (ejecuta `prisma migrate deploy` + `seed-test.ts` una vez antes de todas las suites).
 
-Las **16 suites e2e de Jest** suman **215 casos**: smoke (1), auth (15), listings (10),
+Las **16 suites e2e de Jest** suman **220 casos**: smoke (1), auth (15), listings (10),
 messaging (7), search (8), favorites (12), reviews (20), moderation (23), admin (34),
-blog (24), redsys (17), billing-rf6 (15), rf7-limits (8), rf7-expiration (9),
+blog (24), redsys (22), billing-rf6 (15), rf7-limits (8), rf7-expiration (9),
 billing-catalog (6), rf8-meilisearch (6). **RF.10** añadió 3 casos al suite de redsys
-(HTTP layer: 201 con buildForm real, 401 sin token, 400 sin packId).
+(HTTP layer: 201 con buildForm real, 401 sin token, 400 sin packId). **Bonus Pro** añadió
+5 casos más al suite de redsys: checkout Pro congela `bonusCreditAmount` calculado,
+checkout non-Pro guarda `null`, `ceil` ejercido con `creditAmount=51` (10.2→11), processor
+Pro acredita base+bonus con dos entradas ledger, processor non-Pro solo base sin PRO_BONUS.
 **18/18 Playwright** (flujo-critico: 1, planes+suscripción: 8, mis-creditos: 9).
 Las suites se ejecutan en paralelo (sin `--runInBand`); el diseño de `cleanDb` — que
 solo trunca `User` CASCADE y nunca toca `Category` ni `Setting` — garantiza que no
@@ -745,6 +748,43 @@ Razones de la elección frente a InSite (iframe):
 **Separación de rutas de retorno respecto a `/planes`:** las URLs de retorno de packs
 apuntan a `/mis-creditos/exito|error` (no a `/planes/exito-redsys|error-redsys`) para
 mantener separados los flujos de suscripción Pro (Stripe) y compra de créditos (Redsys).
+
+### Bonus Pro: congelar el bonus calculado, no la condición Pro (RF.10)
+
+El diseño original (§2.5 de `diseno-facturacion.md`) describía congelar "la condición Pro" en la
+`Transaction`. La implementación congela directamente el **número entero de créditos bonus ya
+calculado** (`bonusCreditAmount Int?` en `Transaction`), no un booleano `isPro`.
+
+**Por qué el número, no la condición:**
+- Elimina una condición de carrera con cambios del `Setting proExtraCreditsPercent`: si un admin
+  modifica el porcentaje entre que el usuario inicia el checkout y Redsys notifica el pago, el
+  usuario recibe el bonus que correspondía **en el momento de pagar**, no el vigente al confirmar.
+- El processor queda trivial: lee un `Int?` y lo suma; no inyecta `EntitlementService` ni accede
+  a `Setting`. La decisión ya está tomada y persistida.
+- `Int?` es directamente queryable para analytics ("cuántos créditos bonus se han concedido este
+  mes") sin parsear JSON.
+
+**Implementación:**
+- `createCreditPackCheckout` llama a `EntitlementService.isProActive(userId)`, lee
+  `proExtraCreditsPercent` del `Setting` (fallback a 20 si la key no existe), calcula
+  `Math.ceil(creditAmount × pct / 100)` (redondeo hacia arriba, a favor del usuario) y guarda el
+  resultado en `Transaction.bonusCreditAmount`. Si el usuario no es Pro: `null`.
+- `handlePackPurchase` en `RedsysProcessor`: dentro del mismo `$transaction` que ya existía,
+  incrementa el wallet en `base + bonus` (una sola escritura de wallet) y crea DOS entradas
+  `CreditLedger` separadas — `PACK_PURCHASE` (+base) y `PRO_BONUS` (+bonus) — ambas con
+  `referenceType = "Transaction"` y `referenceId = transactionId`. Si `bonusCreditAmount` es
+  `null`, solo se crea la entrada base (comportamiento idéntico a antes del bonus).
+
+**Invariante fiscal:** el Pro paga el **mismo importe** que un free por el mismo pack. El
+`amountGross`, el `taxAmount` y el `taxRate` de la `Transaction` no se tocan en ningún caso.
+El bonus son créditos internos del wallet — no son un hecho imponible separado y no generan IVA
+adicional. `createCreditPackCheckout` tiene una restricción explícita: no tocar el bloque de IVA.
+
+**Configuración:** `Setting.proExtraCreditsPercent = 20` sembrado en `seed.ts` y en `seed-test.ts`.
+El fallback a `20` en código protege contra el caso en que el Setting sea borrado accidentalmente
+del backoffice. Con los packs actuales (50 / 150 / 400 créditos) y 20 %, el resultado siempre es
+entero; el `Math.ceil` está para cuando el porcentaje sea fraccionario (`ceil` verificado en e2e
+con `creditAmount = 51 × 20 % = 10.2 → 11`).
 
 ### Manejo centralizado de sesión stale: hook `useApiAction` (RF.9)
 
