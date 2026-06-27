@@ -1,6 +1,6 @@
 # Estado técnico del proyecto — Marketplace
 
-> Fecha: 2026-06-27 · Rama: `main` · Último commit: RF.9 completo (frontend Plan Pro + fixes sesión stale, reindex y .env.test)
+> Fecha: 2026-06-27 · Rama: `main` · Último commit: RF.10 completo (frontend wallet + compra de packs Redsys, firma HMAC verificada con clave de pruebas pública)
 > Plan vigente para la siguiente fase: `docs/Hoja_de_ruta_rafagas_Hito2.docx`.
 
 Documento de referencia para retomar el proyecto. Recoge qué hay implementado,
@@ -36,10 +36,10 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **Favorites** | ✅ Completo | `POST /favorites/:listingId` (marcar), `DELETE /favorites/:listingId` (desmarcar), `GET /favorites` (paginado), `GET /favorites/:listingId` (check), `POST /favorites/batch-check` (máx. 100 ids → `{ favoritedIds }`). Todos idempotentes y con `JwtAuthGuard`. Suite `favorites.e2e-spec.ts` (12 tests) |
 | **Reviews** | ✅ Completo | `POST /reviews` (crear; guard de elegibilidad vía `Conversation`), `GET /reviews/eligibility?listingId=&targetId=` (check antes de mostrar el formulario), `PATCH /reviews/:id` (editar en ventana 72 h; persiste `editedAt`), `DELETE /reviews/:id` (borrar en ventana 72 h). Listado público via `GET /users/:slug/reviews` (cursor paginado + aggregate on-the-fly: average, count, distribución 1–5). Unicidad `(authorId, targetId, listingId)` — una reseña por par de usuarios por anuncio. `FAKE_REVIEW` añadido a `ReportReason`; `Report.reviewId` FK con CASCADE para moderar reseñas. Suite `reviews.e2e-spec.ts` (20 tests) |
 | **BillingModule (Stripe)** | ✅ RF.3 Completo | Checkout Pro (Stripe Checkout), `StripeWebhookGuard`, `BillingProcessor` (5 eventos), `EntitlementService`. Verificado con Stripe CLI. Pendiente: renovación (segunda factura) |
-| **RedsysModule** | ⚠️ RF.5 — verificación PARCIAL | `RedsysService` (checkout credits-pack / featured-pay, Ds_Order YYYYMMDD+4random con retry), `RedsysWebhookGuard` (HMAC vía `redsys-easy`, idempotencia doble capa, enqueue / FAILED), `RedsysProcessor` (acreditación wallet atómica: Wallet + CreditLedger + Transaction en `$transaction`, validación importe `Ds_Amount` vs `amountGross×100`, idempotencia capa 2 por `status≠PENDING`). Endpoints: `POST /billing/checkout/credits-pack`, `POST /billing/checkout/featured-pay`, `POST /webhooks/redsys`. **VERIFICADO (e2e, 12 tests)**: acreditación wallet, acumulación de balance, idempotencia ×2 (GatewayEvent P2002 + status≠PENDING), cálculo IVA sin descuadre (4,99 / 9,99 / 19,99 €), validación importe (mismatch → FAILED sin tocar wallet), unicidad de 1.000 Ds_Order generados. **NO VERIFICADO — pendiente de tooling Redsys**: (1) firma HMAC real contra Redsys, (2) generación correcta del form de pago y que Redsys lo acepte, (3) recepción de notificación online real. Requiere: túnel público (ngrok/cloudflared) + credenciales sandbox Redsys + tarjetas de prueba Redsys. RF.5 **no está verificada de punta a punta** hasta eso — análogamente a RF.3 antes del CLI de Stripe. **PENDIENTE InSite vs Redirección**: el diseño asume Redirección (SAQ A); confirmar con quien impone el requisito antes de arrancar el frontend RF.10. `featuredByRedsys`: TODO completado en RF.6 — `RedsysProcessor.handleFeaturedPay` ya llama a `grantFeaturedListing`; camino end-to-end sin firma/notificación Redsys real pendiente de tooling (deuda heredada). |
+| **RedsysModule** | ⚠️ RF.5/RF.10 — firma ✅ · ciclo notificación ❌ | `RedsysService` (checkout credits-pack / featured-pay, Ds_Order YYYYMMDD+4random con retry), `RedsysWebhookGuard` (HMAC vía `redsys-easy`, idempotencia doble capa, enqueue / FAILED), `RedsysProcessor` (acreditación wallet atómica: Wallet + CreditLedger + Transaction en `$transaction`, validación importe `Ds_Amount` vs `amountGross×100`, idempotencia capa 2 por `status≠PENDING`). Endpoints: `POST /billing/checkout/credits-pack`, `POST /billing/checkout/featured-pay`, `POST /webhooks/redsys`. **RF.10**: URLs de retorno cambiadas de `/planes/exito-redsys` y `/planes/error-redsys` a `/mis-creditos/exito` y `/mis-creditos/error` (en `buildForm` del service), para separar el flujo de packs del de la suscripción Pro. Modo elegido: REDIRECCIÓN (ver §2). **VERIFICADO (e2e, 17 tests — 215/215, 18/18 Playwright)**: acreditación wallet, acumulación de balance, idempotencia ×2 (GatewayEvent P2002 + status≠PENDING), cálculo IVA sin descuadre (4,99 / 9,99 / 19,99 €), validación importe (mismatch → FAILED sin tocar wallet), unicidad de 1.000 Ds_Order generados. **RF.10 — verificado con clave/comercio de pruebas públicos de Redsys** (sq7HjrUO…, 999008881): test HTTP con `buildForm` REAL sin mock — `Ds_Signature` de 44 chars (HMAC-SHA256 genuino), `Ds_MerchantParameters` decodifica a importe/order/URLs correctas, `tpvUrl` sandbox correcto; form POST montado en el TPV real del sandbox de Redsys y aceptado. **NO VERIFICADO — deuda Redsys pendiente de tooling**: (1) completar el pago con tarjeta de prueba Redsys en el sandbox, (2) recepción de la notificación online (`POST /webhooks/redsys`) vía túnel público, (3) acreditación E2E del wallet (webhook → BullMQ → `processSuccess`). La firma y aceptación por el TPV sandbox ya NO son deuda. `featuredByRedsys`: completado en RF.6 — `RedsysProcessor.handleFeaturedPay` ya llama a `grantFeaturedListing`; camino end-to-end sin ciclo de notificación real (deuda heredada, misma pendiente que credits-pack). |
 | **EntitlementService (RF.7)** | ✅ Actualizado | Validez de un entitlement: `revokedAt IS NULL AND (expiresAt IS NULL OR expiresAt > now)`. Un entitlement con `revokedAt` seteado **no** cuenta como vigente aunque `expiresAt` sea futuro (permite revocación manual desde backoffice en el futuro). Helper `activeFilter()` centraliza el predicado en `isProActive`, `isFeaturedActive` y `findActiveForUser` |
 | **BillingModule RF.6** | ✅ Completo | **`grantFeaturedListing(params)`** — punto único de concesión de `FEATURED_LISTING`; valida ACTIVE + propietario (→403) + sin entitlement activo (→400); crea `Entitlement` con `expiresAt = now + durationDays`; encola reindexado. No conoce la vía de pago. **`featuredByCredits`** — `POST /billing/featured-by-credits { priceId, listingId }`: debit atómico (`UPDATE Wallet WHERE balance >= cost`, affected=0 → 402) + `CreditLedger FEATURED_DEBIT` + entitlement, todo en una `$transaction`; rollback automático si la concesión falla. **`bump`** — `POST /listings/:id/bump`: cooldown 1h (→429 Retry-After); debit atómico + `CreditLedger BUMP_DEBIT` + `Listing.bumpedAt`, todo en una `$transaction`; fallos 402/403/400 no consumen cooldown. **`GET /billing/wallet`** — saldo + ledger paginado. **Dependencia `ListingsModule → BillingModule`**: unidireccional, sin circular, NestJS arranca limpio. **VERIFICADO (batería e2e completa, 181/181, 15 casos nuevos)**: grantFeaturedListing como punto único; débito atómico con rollback (saldo restaurado + sin `CreditLedger` huérfano); cooldown no consumido en fallos; convergencia de vías (featuredByCredits y featuredByRedsys producen mismo entitlement: tipo, priceId, `|expiresAt_A − expiresAt_B| < 60s`). **DEUDA HEREDADA de RF.5**: camino featuredByRedsys implementado pero sin ejercicio E2E contra Redsys real (firma/notificación pendientes de tooling). |
-| **BillingModule — catalog (RF.9)** | ✅ Completo | `GET /billing/catalog` — endpoint público (sin auth); DTO sin `gatewayPriceId`; devuelve los planes del catálogo de BD; reutilizable por RF.10/RF.11 |
+| **BillingModule — catalog (RF.9/RF.10)** | ✅ Completo | `GET /billing/catalog` — endpoint público (sin auth); DTO sin `gatewayPriceId`; devuelve los planes del catálogo de BD. **RF.10**: cada precio de pack incluye ahora `creditPackId` (`CreditPack.id`, lo que necesita `POST /billing/checkout/credits-pack`) y `packName` (`CreditPack.name`, p. ej. "Pack Básico") para que el frontend pueda renderizar una tarjeta por pack individual sin una llamada adicional |
 
 ### Frontend (`apps/web` — puerto 3000)
 
@@ -77,6 +77,9 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **Plan Pro — Éxito** `/planes/exito` | ✅ RF.9 | Solo UI; maneja el estado asíncrono del webhook — no concede acceso, informa al usuario de que el pago está en proceso |
 | **Plan Pro — Cancelado** `/planes/cancelado` | ✅ RF.9 | Solo UI; página de retorno tras cancelar el flujo de checkout de Stripe |
 | **Suscripción** `/perfil/suscripcion` | ✅ RF.9 | Ruta protegida; muestra estado de suscripción activa + botón de cancelación (`cancel_at_period_end`). Reutiliza Next-Auth v5 y shadcn/ui |
+| **Wallet y packs** `/mis-creditos` | ✅ RF.10 | Server Component; ruta protegida (añadida a `accountPrefixes` en middleware y al sidebar de cuenta). Fetcha en paralelo `GET /billing/wallet` (saldo + historial paginado con etiquetas legibles por tipo de movimiento: "Compra de pack", "Destacado", "Bump", "Crédito manual", "Ajuste", "Bonus Pro") y `GET /billing/catalog` (packs ONE_TIME con `creditAmount`). `PackList` (client component): renderiza una tarjeta por pack individual — itera `product.prices` en vez de `products`, usa `price.packName` y `price.creditPackId`. `handleBuy(creditPackId)` llama `createPackCheckout`, monta `RedsysRedirectForm` al recibir el form firmado. `RedsysRedirectForm`: form `method="POST"` con `Ds_MerchantParameters`, `Ds_SignatureVersion`, `Ds_Signature` como hidden inputs + `data-testid="redsys-redirect-form"` (Playwright), auto-submit via `useEffect`. Gestión de sesión stale vía `useApiAction` (igual que RF.9). |
+| **Retorno pago de packs (éxito)** `/mis-creditos/exito` | ✅ RF.10 | Client Component (`'use client'`). **INVARIANTE DE SEGURIDAD**: no concede créditos ni ejecuta lógica de negocio; el wallet lo acredita exclusivamente la notificación online de Redsys (`POST /webhooks/redsys`), no esta página (ver `diseno-facturacion.md §7.5`). Muestra mensaje "procesando", consulta `GET /billing/wallet` para mostrar el saldo actual si está disponible, y ofrece un botón "Actualizar saldo" que re-consulta el wallet manualmente. |
+| **Retorno pago de packs (error)** `/mis-creditos/error` | ✅ RF.10 | Server Component estático. Solo UI: "El pago no se completó", "No se te ha cobrado ningún importe", enlace de vuelta a `/mis-creditos`. |
 
 ---
 
@@ -289,9 +292,12 @@ Los tests de Jest usan `setupFiles: ['test/load-env.ts']` (carga `.env.test` con
 `dotenv.config()` sin sobreescribir `process.env`) y `globalSetup: 'test/setup-e2e.js'`
 (ejecuta `prisma migrate deploy` + `seed-test.ts` una vez antes de todas las suites).
 
-Las **14 suites e2e de Jest** suman **198 casos**: smoke (1), auth (15), listings (10),
+Las **16 suites e2e de Jest** suman **215 casos**: smoke (1), auth (15), listings (10),
 messaging (7), search (8), favorites (12), reviews (20), moderation (23), admin (34),
-blog (24), redsys (12), billing-rf6 (15), rf7-limits (8), rf7-expiration (9).
+blog (24), redsys (17), billing-rf6 (15), rf7-limits (8), rf7-expiration (9),
+billing-catalog (6), rf8-meilisearch (6). **RF.10** añadió 3 casos al suite de redsys
+(HTTP layer: 201 con buildForm real, 401 sin token, 400 sin packId).
+**18/18 Playwright** (flujo-critico: 1, planes+suscripción: 8, mis-creditos: 9).
 Las suites se ejecutan en paralelo (sin `--runInBand`); el diseño de `cleanDb` — que
 solo trunca `User` CASCADE y nunca toca `Category` ni `Setting` — garantiza que no
 haya contención entre los workers de Jest.
@@ -719,6 +725,27 @@ Se eligió la query a Postgres sobre las alternativas:
   operativa. Es la evolución natural si el tráfico crece y la query de Postgres
   se convierte en un cuello de botella.
 
+### Modo de pago Redsys: REDIRECCIÓN (no InSite) (RF.10)
+
+El frontend de compra de packs usa el modo **Redirección** de Redsys: el backend firma
+los parámetros con HMAC-SHA256 y devuelve `{ redsysFormData: { Ds_MerchantParameters,
+Ds_SignatureVersion, Ds_Signature, tpvUrl } }`; el frontend monta un `<form method="POST">`
+con esos campos como `hidden inputs` y lo auto-submite vía `useEffect`. El browser navega
+al TPV de Redsys, que renderiza la página de pago, y devuelve al usuario a
+`/mis-creditos/exito` (OK) o `/mis-creditos/error` (KO).
+
+Razones de la elección frente a InSite (iframe):
+- **PCI SAQ A**: el navegador del usuario nunca maneja datos de tarjeta — los introduce
+  directamente en el dominio de Redsys. SAQ A es el nivel PCI más simple.
+- **Coherencia con Stripe Checkout**: mismo patrón de redirección que la suscripción Pro.
+- **Facilidad de verificación**: el form firmado se puede probar sin disponer de credenciales
+  sandbox propias (clave pública de pruebas de Redsys: `sq7HjrUO…`, comercio `999008881`).
+- InSite requiere un dominio HTTPS válido registrado en Redsys y es más complejo de depurar.
+
+**Separación de rutas de retorno respecto a `/planes`:** las URLs de retorno de packs
+apuntan a `/mis-creditos/exito|error` (no a `/planes/exito-redsys|error-redsys`) para
+mantener separados los flujos de suscripción Pro (Stripe) y compra de créditos (Redsys).
+
 ### Manejo centralizado de sesión stale: hook `useApiAction` (RF.9)
 
 `lib/api/use-api-action.ts` (`'use client'`): hook que envuelve cualquier llamada a
@@ -856,18 +883,54 @@ Flujo recomendado en cada entorno nuevo:
 2. `pnpm sync-stripe-catalog` — crea los Price en Stripe y escribe los IDs de vuelta.
 3. Checkout Pro funciona sin intervención manual en el dashboard.
 
-### Variables de entorno de TEST: ausencia de `MEILI_INDEX_NAME` no grita (pendiente de validación Joi)
+### ⚠️ Variables de entorno de TEST: validación Joi PENDIENTE — PRIORIDAD ALTA
 
-El `.env.test` perdió `MEILI_INDEX_NAME` en el commit de RF.8; la variable quedó sin
-valor y el backend usó `'listings'` por defecto (el índice de dev). Los tests de
-búsqueda fallaban con timeouts de 15 s confusos: `waitForIndex` esperaba el documento
-en `listings_test`, pero el documento estaba en `listings`. El error real era
-"falta la variable", no "el worker BullMQ tarda demasiado".
+El `.env.test` sin validación Joi ha causado **tres incidentes** que degradaron de forma
+indirecta y no obvia:
 
-**Pendiente:** añadir validación Joi del esquema de env vars del backend que incluya
-`MEILI_INDEX_NAME` como requerida (o con valor explícito obligatorio). La ausencia
-debe lanzar un error de startup descriptivo en vez de degradarse silenciosamente al
-valor por defecto.
+1. **RF.8** — `.env.test` perdió `MEILI_INDEX_NAME`. El backend usó `'listings'` por
+   defecto (el índice de dev). Los tests de búsqueda fallaban con timeouts de 15 s
+   confusos: `waitForIndex` esperaba el documento en `listings_test`, pero estaba en
+   `listings`. El error real ("falta la variable") se presentó como "el worker BullMQ
+   tarda demasiado".
+
+2. **Pre-RF.9** — `.env.test` apuntaba a la BD de dev (`marketplace` en vez de
+   `marketplace_test`). Tests que pasaban limpiaban datos de desarrollo sin previo aviso.
+
+3. **RF.10** — `REDSYS_SECRET_KEY` **FALTABA** en `.env.test` (la línea existía pero vacía:
+   `REDSYS_SECRET_KEY=`). Al escribir el test de checkout se mockeó `buildForm` porque sin
+   la clave la firma fallaba. Al detectar la carencia se rellenó la clave (commit `f4e71bb`)
+   y se quitó el mock, verificando entonces la firma HMAC real. El patrón es el mismo:
+   variable ausente → degradación indirecta (aquí, un mock que ocultaba la verificación
+   real, en vez de un error de startup explícito).
+
+**Causa raíz común:** una variable ausente o incorrecta no hace fallar el arranque —
+degrada de formas indirectas. La validación Joi haría que la ausencia falle ruidosamente
+al arrancar el NestJS testing module, antes de ejecutar cualquier test.
+
+**Pendiente:** añadir al `envValidationSchema` de `src/config/env.validation.ts` las
+variables de test críticas (`MEILI_INDEX_NAME`, `DATABASE_URL` con check de que contiene
+`_test`, `REDSYS_SECRET_KEY`) como `Joi.string().required()`. La ausencia debe lanzar un
+error de startup descriptivo en vez de degradarse silenciosamente.
+
+### Deuda Redsys: ciclo notificación + acreditación E2E (RF.10)
+
+La firma HMAC y la aceptación del form por el TPV sandbox de Redsys están verificadas
+desde RF.10 (test con clave pública de pruebas). Lo que queda sin ejercer es el ciclo
+completo de notificación y acreditación:
+
+1. **Completar el pago** con una tarjeta de prueba Redsys en el TPV sandbox.
+2. **Recibir la notificación online** (`POST /webhooks/redsys` desde el servidor de Redsys)
+   — requiere un túnel público (`ngrok` o `cloudflared`) y configurar `REDSYS_NOTIFICATION_URL`.
+3. **Acreditación E2E**: verificar que el webhook pasa la validación HMAC del
+   `RedsysWebhookGuard`, encola el job en BullMQ, y `RedsysProcessor.processSuccess`
+   crea `Wallet` + `CreditLedger` + marca `Transaction` como `SUCCEEDED`.
+
+La lógica de `processSuccess` está cubierta por tests unitarios del suite de redsys
+(acreditación, idempotencia, validación de importe). Lo que falta es el detonador real
+(la notificación del servidor de Redsys). Esta deuda aplica por igual a credits-pack y
+a featured-pay (mismo ciclo, misma pendiente). Analogía con RF.3 (Stripe): allí se
+cerró con el Stripe CLI; aquí se cerrará con el sandbox de Redsys + túnel.
 
 ### `reindex`: ventana breve de índice vacío durante la repoblación
 
