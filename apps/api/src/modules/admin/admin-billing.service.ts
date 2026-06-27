@@ -1,12 +1,17 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { CreditLedgerType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import { ListAdminTransactionsDto } from './dto/list-admin-transactions.dto';
 import { ListAdminWalletsDto } from './dto/list-admin-wallets.dto';
+import { CreditGrantDto } from './dto/credit-grant.dto';
 
 @Injectable()
 export class AdminBillingService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditLog: AuditLogService,
+  ) {}
 
   async listTransactions(dto: ListAdminTransactionsDto) {
     const { gateway, status, userId, dateFrom, dateTo, page = 1, perPage = 25 } = dto;
@@ -142,5 +147,66 @@ export class AdminBillingService {
     ]);
 
     return { user, wallet, entitlements, transactions };
+  }
+
+  async grantCredits(
+    userId: string,
+    actorId: string,
+    dto: CreditGrantDto,
+    ip?: string,
+  ): Promise<{ balance: number; creditedAmount: number }> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+    if (!user) throw new NotFoundException('Usuario no encontrado');
+
+    const { newBalance } = await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.wallet.findUnique({
+        where: { userId },
+        select: { balance: true },
+      });
+      const oldBalance = existing?.balance ?? 0;
+
+      const wallet = await tx.wallet.upsert({
+        where: { userId },
+        create: { userId, balance: dto.amount },
+        update: { balance: { increment: dto.amount } },
+        select: { id: true, balance: true },
+      });
+
+      await tx.creditLedger.create({
+        data: {
+          walletId: wallet.id,
+          type: CreditLedgerType.ADMIN_CREDIT,
+          amount: dto.amount,
+          note: 'Créditos añadidos por el equipo',
+          referenceType: 'User',
+          referenceId: userId,
+        },
+      });
+
+      // Audit log inside the transaction — all three writes are atomic.
+      await this.auditLog.log(
+        {
+          action: 'ADMIN_CREDIT_GRANT',
+          actorId,
+          resourceType: 'Wallet',
+          resourceId: userId,
+          before: { balance: oldBalance } as Prisma.InputJsonValue,
+          after: {
+            balance: wallet.balance,
+            amount: dto.amount,
+            reason: dto.reason,
+          } as Prisma.InputJsonValue,
+          ip,
+        },
+        tx,
+      );
+
+      return { newBalance: wallet.balance };
+    });
+
+    return { balance: newBalance, creditedAmount: dto.amount };
   }
 }

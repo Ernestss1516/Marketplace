@@ -129,3 +129,22 @@ export function getAdminUserBillingDetail(
     cache: 'no-store',
   });
 }
+
+// ─── Credit grant ─────────────────────────────────────────────────────────────
+
+export interface CreditGrantResult {
+  balance: number;
+  creditedAmount: number;
+}
+
+export function grantAdminCredits(
+  token: string,
+  userId: string,
+  dto: { amount: number; reason: string },
+): Promise<CreditGrantResult> {
+  return apiFetch<CreditGrantResult>(`/admin/billing/users/${userId}/credits`, {
+    method: 'POST',
+    body: JSON.stringify(dto),
+    token,
+  });
+}
