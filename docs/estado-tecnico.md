@@ -792,27 +792,24 @@ en el número de anuncios que un usuario podía tener activos. **Esto ya no es c
 RF.7**: free: 5, pro: 20, ambos configurables. Si se genera documentación de producto a partir
 de ese documento, revisar y actualizar esa sección.
 
-### SINCRONIZACIÓN CATÁLOGO ↔ STRIPE: falta comando de bootstrap (prioridad media-alta)
+### SINCRONIZACIÓN CATÁLOGO ↔ STRIPE: ✅ resuelta (ráfaga previa a RF.9)
 
-Los `Price` sembrados por el seed de RF.2 tienen `gatewayPriceId = null`. El checkout
-de Stripe falla con `"must provide one of price"` hasta que el campo se rellena con el
-Price ID real de Stripe (`price_...`, creado en el dashboard). Para verificar RF.3 se
-hizo a mano.
+Comando `pnpm sync-stripe-catalog` implementado en
+`apps/api/src/commands/sync-stripe-catalog.ts`.
 
-No es sostenible: cada entorno (dev local, otro portátil, staging, producción) tiene el
-mismo problema desde cero. Falta un comando/script idempotente (`sync-stripe-catalog` o
-equivalente) que:
+- Solo sincroniza los `Price` con `interval IS NOT NULL` (Plan Pro mensual/anual).
+  Los precios de Redsys (Destacado, Packs de créditos) no necesitan `gatewayPriceId`.
+- Idempotente: si `gatewayPriceId` ya está relleno, salta ese Price.
+- Si un hermano del mismo `Product` ya tiene `gatewayPriceId`, recupera el Stripe
+  Product desde ese Price (no crea duplicado). Si no hay ninguno, busca por nombre en
+  Stripe y crea solo si no existe.
+- Falla inmediatamente si `STRIPE_SECRET_KEY` no está definida.
+- Tests unitarios en `sync-stripe-catalog.spec.ts` (helpers `toCents`/`toStripeInterval`).
 
-1. Lee los `Product` y `Price` de BD (sembrados por el seed).
-2. Los crea en Stripe vía API (`stripe.products.create`, `stripe.prices.create`) si no
-   existen aún para ese entorno.
-3. Escribe el `gatewayPriceId` resultante de vuelta en BD. Idempotente: si `gatewayPriceId`
-   ya está relleno, no crea un duplicado en Stripe.
-
-Candidato a ráfaga corta antes de RF.9 (frontend Pro) o como parte del pulido de billing.
-Los `Price` de Redsys (RF.4/RF.5) no necesitan `gatewayPriceId` del mismo modo (Redsys
-no tiene catálogo de productos en su API), pero sí requieren que `CreditPack` y sus
-`Price` estén sembrados correctamente en cada entorno antes de lanzar cualquier pago.
+Flujo recomendado en cada entorno nuevo:
+1. `pnpm prisma:seed` — siembra el catálogo en BD.
+2. `pnpm sync-stripe-catalog` — crea los Price en Stripe y escribe los IDs de vuelta.
+3. Checkout Pro funciona sin intervención manual en el dashboard.
 
 ---
 

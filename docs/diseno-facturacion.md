@@ -127,6 +127,7 @@ enum CreditLedgerType {
   BUMP_DEBIT      // Bump pagado con créditos → salida (negativo)
   ADMIN_CREDIT    // Acreditación manual de soporte → entrada
   ADMIN_DEBIT     // Débito manual de soporte → salida
+  PRO_BONUS       // Créditos extra concedidos a usuarios Pro al comprar un pack → entrada
 }
 
 // ============================================================================
@@ -242,6 +243,55 @@ apps/api/prisma/migrations/
 Añade el enum `CreditLedgerType`, los modelos `CreditPack` / `Wallet` / `CreditLedger`, y los campos nuevos en `Price`, `Listing`, `Transaction`, `GatewayEvent` y `User`. No altera filas existentes.
 
 **Seed de RF.4:** crea los packs de créditos en `CreditPack` + sus `Price`; añade en `Setting` los costes de créditos (`featuredCreditCost7d/14d/30d`, `bumpCreditCost`). Todos idempotentes (`upsert` o `skipDuplicates`).
+
+### 2.5 Beneficio Pro: créditos extra en la compra de packs
+
+**Modelo**
+
+El beneficio de ser Pro al comprar packs de créditos NO es un descuento sobre el precio, sino créditos extra por el mismo importe. Un usuario Pro paga el mismo precio que cualquier otro por un pack, pero recibe un porcentaje adicional de créditos en su wallet.
+
+Ejemplo (con `proExtraCreditsPercent = 20`):
+
+| Pack | Precio | Créditos (normal) | Créditos (Pro) |
+|---|---|---|---|
+| Básico | 4,99 € | 50 | 60 |
+| Estándar | 9,99 € | 150 | 180 |
+| Max | 19,99 € | 400 | 480 |
+
+Razón del modelo (créditos extra vs. descuento en precio): mantener el importe cobrado constante hace que el hecho imponible (la compra del pack) sea idéntico para Pro y no-Pro. La factura, el `amountGross` y el desglose de IVA son los mismos para todos. El beneficio Pro se materializa íntegramente dentro del wallet —un sistema interno sin IVA—, por lo que es invisible para la fiscalidad. Esto evita justificar bases imponibles variables y mantiene un único precio por pack.
+
+**Alcance**
+
+- Aplica: solo a la compra de packs de créditos (vía Redsys).
+- No aplica directamente a destacado por pago directo ni a bump. Estos se benefician indirectamente: al recibir más créditos por el mismo dinero, el coste efectivo en euros de destacar/bumpear con créditos baja para el Pro.
+
+**Configuración**
+
+- `proExtraCreditsPercent` en `Setting` (entero, p. ej. `20`). Configurable desde el backoffice sin despliegue, coherente con los demás parámetros de monetización.
+- Cálculo: `créditosConcedidos = ceil(creditPack.creditAmount × (1 + proExtraCreditsPercent / 100))`. Redondeo hacia arriba (a favor del usuario) si el porcentaje produjera fracción. Con los packs y el 20 % actuales el resultado es entero, pero el código debe contemplar el redondeo.
+
+**Momento de la comprobación (congelado en el checkout)**
+
+La condición de Pro se evalúa con `EntitlementService.isProActive(userId)` en el momento de generar el checkout (`createCreditPackCheckout`), NO al confirmar el pago. El número de créditos a conceder (base + bonus) se congela en la `Transaction PENDING` (en su `metadata`) junto con el IVA. El `RedsysProcessor`, al recibir la notificación de pago, solo lee y acredita lo ya decidido; no recalcula la condición de Pro.
+
+Justificación: entre el inicio de la compra y la confirmación del pago pueden pasar minutos. La regla justa es "eras Pro cuando iniciaste la compra → recibes el bonus", determinada una sola vez. Es coherente con cómo se congela el desglose de IVA en el checkout.
+
+Caso borde (Pro caduca entre ver el precio y pagar): como el importe cobrado es el mismo sea Pro o no, no hay sorpresa de precio. Si era Pro al generar el checkout, recibe el bonus aunque su Pro caduque antes de confirmarse el pago. Si ya no era Pro al generar el checkout, recibe los créditos base. En ambos casos paga el mismo importe.
+
+Seguridad: el cálculo (precio e importe de créditos) ocurre íntegramente en el backend. El frontend solo muestra de forma informativa "como Pro recibes N créditos"; el valor vinculante es el que el backend fija en la `Transaction PENDING`.
+
+**Trazabilidad (`CreditLedger`)**
+
+La acreditación de un pack comprado por un Pro genera dos entradas en el `CreditLedger`, no una:
+
+1. `PACK_PURCHASE` — los créditos base del pack (p. ej. +150).
+2. `PRO_BONUS` — los créditos extra por ser Pro (p. ej. +30).
+
+Ambas referencian la misma `Transaction` (`referenceType = "Transaction"`, `referenceId = transactionId`). Separarlas permite auditar cuántos créditos provienen de la compra y cuántos del beneficio Pro. Requiere añadir `PRO_BONUS` al enum `CreditLedgerType` (ver §2.2).
+
+**Implementación**
+
+Esta regla se implementa junto al flujo de compra de packs por Redsys (RF.10/RF.11), no en RF.9. Vive en `createCreditPackCheckout` (cálculo y congelado en la `Transaction PENDING`) y en el `RedsysProcessor` (acreditación de las dos entradas del ledger). El IVA y el importe cobrado **no** se ven afectados.
 
 ---
 
