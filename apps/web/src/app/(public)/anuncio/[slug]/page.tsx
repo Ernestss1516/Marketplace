@@ -165,6 +165,7 @@ export default async function AnuncioPage({
               listingSlug={slug}
               sellerSlug={listing.seller.slug}
               listingStatus={listing.status}
+              featuredUntil={listing.featuredUntil}
             />
             <SellerCard seller={listing.seller} publishedAt={listing.publishedAt} />
             <ReportButton listingId={listing.id} />

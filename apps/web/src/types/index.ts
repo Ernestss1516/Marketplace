@@ -115,6 +115,7 @@ export interface Listing {
   seller: Pick<UserPublic, 'name' | 'slug' | 'avatarUrl'>;
   publishedAt?: string;
   viewCount: number;
+  featuredUntil?: string | null;
 }
 
 // ── Shared ───────────────────────────────────────────────────────────────────

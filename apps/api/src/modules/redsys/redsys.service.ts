@@ -184,7 +184,12 @@ export class RedsysService {
     }
 
     const alreadyFeatured = await this.entitlements.isFeaturedActive(dto.listingId);
-    if (alreadyFeatured) throw new BadRequestException('Listing already has an active featured period');
+    if (alreadyFeatured) {
+      throw new BadRequestException({
+        message: 'Listing already has an active featured period',
+        code: 'ALREADY_FEATURED',
+      });
+    }
 
     const tax = redsysTaxBreakdown(price.amount);
     const amountCents = price.amount.mul(100).toFixed(0);

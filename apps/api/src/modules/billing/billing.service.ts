@@ -300,7 +300,10 @@ export class BillingService {
         select: { id: true },
       });
       if (existing) {
-        throw new BadRequestException('Listing already has an active featured period');
+        throw new BadRequestException({
+          message: 'Listing already has an active featured period',
+          code: 'ALREADY_FEATURED',
+        });
       }
 
       // Atomic debit: UPDATE ... WHERE balance >= cost

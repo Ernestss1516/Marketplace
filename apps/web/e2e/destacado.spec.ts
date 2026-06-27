@@ -250,29 +250,66 @@ test.describe('Bump — desde /mis-anuncios', () => {
     await expect.poll(() => bumpCalled, { timeout: 5_000 }).toBe(true);
   });
 
-  test('bump con 429 (cooldown) → muestra error genérico, no expone mensaje interno', async ({
+  test('bump con 402 (saldo insuficiente) → mensaje "No tienes créditos" + link a mis-creditos', async ({
     sellerContext,
   }) => {
     const page = await sellerContext.newPage();
 
     await page.route('**/listings/*/bump', async (route) => {
       await route.fulfill({
-        status: 429,
+        status: 402,
         contentType: 'application/json',
-        body: JSON.stringify({ message: 'Too soon', retryAfter: 86400 }),
+        body: JSON.stringify({ statusCode: 402, message: 'Insufficient credits' }),
       });
     });
 
     await page.goto('/mis-anuncios');
     await page.getByTestId('btn-bump').first().click();
 
-    // Error shown — must not leak internal message
-    await expect(page.getByText('Too soon')).not.toBeVisible({ timeout: 3_000 });
+    // Must NOT show generic error
+    await expect(page.getByText('Ha ocurrido un error')).not.toBeVisible({ timeout: 3_000 });
 
-    // Some error message is shown (toUserMessage output)
+    // Must show domain-specific credit error
     await expect(
-      page.getByText(/error|problema|inténtalo/i).first(),
+      page.getByText(/no tienes créditos suficientes/i),
     ).toBeVisible({ timeout: 5_000 });
+
+    // Must include a link to /mis-creditos
+    await expect(
+      page.getByRole('link', { name: /comprar créditos/i }),
+    ).toBeVisible();
+  });
+
+  test('bump con 429 (cooldown) → muestra mensaje de cooldown con retryAfter, no el genérico', async ({
+    sellerContext,
+  }) => {
+    const page = await sellerContext.newPage();
+
+    // retryAfter: 3300 s = 55 minutos (valor realista dentro del cooldown de 1h)
+    await page.route('**/listings/*/bump', async (route) => {
+      await route.fulfill({
+        status: 429,
+        contentType: 'application/json',
+        body: JSON.stringify({ message: 'Too soon', retryAfter: 3300 }),
+      });
+    });
+
+    await page.goto('/mis-anuncios');
+    await page.getByTestId('btn-bump').first().click();
+
+    // Must NOT show generic error
+    await expect(page.getByText(/ha ocurrido un error/i)).not.toBeVisible({ timeout: 3_000 });
+
+    // Must NOT leak internal backend message
+    await expect(page.getByText('Too soon')).not.toBeVisible();
+
+    // Must show domain-specific cooldown message
+    await expect(
+      page.getByText(/ya has subido este anuncio/i),
+    ).toBeVisible({ timeout: 5_000 });
+
+    // Must show the computed wait time (3300 s → 55 minutos)
+    await expect(page.getByText(/55 minutos/i)).toBeVisible();
   });
 });
 

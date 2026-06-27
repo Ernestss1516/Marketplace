@@ -10,7 +10,7 @@ import { Queue } from 'bullmq';
 import { randomBytes } from 'node:crypto';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { RedisService } from '../../infra/redis/redis.service';
-import { Prisma } from '@prisma/client';
+import { EntitlementType, Prisma } from '@prisma/client';
 import type { Listing, ListingStatus, PriceType } from '@prisma/client';
 import { QUEUE_INDEXING } from '../../infra/queue/queue.constants';
 import { ExpirationService } from '../expiration/expiration.service';
@@ -326,22 +326,38 @@ export class ListingsService {
 
   async findBySlug(slug: string) {
     const raw = await this.redis.client.get(cacheKey(slug));
+    let listingData: object & { id: string };
+
     if (raw) {
       this.incrementViews(slug);
-      return JSON.parse(raw) as object;
+      listingData = JSON.parse(raw) as object & { id: string };
+    } else {
+      const listing = await this.prisma.listing.findUnique({
+        where: { slug },
+        include: LISTING_INCLUDE,
+      });
+      if (!listing || listing.status !== 'ACTIVE') {
+        throw new NotFoundException('Anuncio no encontrado');
+      }
+      await this.redis.client.setex(cacheKey(slug), CACHE_TTL, JSON.stringify(listing));
+      this.incrementViews(slug);
+      listingData = listing;
     }
 
-    const listing = await this.prisma.listing.findUnique({
-      where: { slug },
-      include: LISTING_INCLUDE,
+    // Always computed fresh — not cached — so router.refresh() reflects featuring instantly.
+    const now = new Date();
+    const featuredEntitlement = await this.prisma.entitlement.findFirst({
+      where: {
+        listingId: listingData.id,
+        type: EntitlementType.FEATURED_LISTING,
+        revokedAt: null,
+        expiresAt: { gt: now },
+      },
+      select: { expiresAt: true },
+      orderBy: { expiresAt: 'desc' },
     });
-    if (!listing || listing.status !== 'ACTIVE') {
-      throw new NotFoundException('Anuncio no encontrado');
-    }
 
-    await this.redis.client.setex(cacheKey(slug), CACHE_TTL, JSON.stringify(listing));
-    this.incrementViews(slug);
-    return listing;
+    return { ...listingData, featuredUntil: featuredEntitlement?.expiresAt ?? null };
   }
 
   async findByCategory(

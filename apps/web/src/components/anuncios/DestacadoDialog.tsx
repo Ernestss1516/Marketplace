@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import React from 'react';
 import Link from 'next/link';
 import { Loader2, Star, CreditCard, Coins } from 'lucide-react';
 import {
@@ -15,7 +16,7 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Separator } from '@/components/ui/separator';
 import { useApiAction } from '@/lib/api/use-api-action';
-import { toUserMessage } from '@/lib/api/client';
+import { toUserMessage, isCreditError, toFeaturedByCreditsMessage } from '@/lib/api/client';
 import {
   getCatalog,
   getWallet,
@@ -41,7 +42,7 @@ export function DestacadoDialog({ listing, token, open, onOpenChange, onSuccess 
   const [featuredPrices, setFeaturedPrices] = useState<CatalogPrice[]>([]);
   const [walletBalance, setWalletBalance] = useState<number>(0);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<React.ReactNode | null>(null);
   const [busy, setBusy] = useState(false);
 
   const [selectedPriceId, setSelectedPriceId] = useState<string>('');
@@ -87,7 +88,20 @@ export function DestacadoDialog({ listing, token, open, onOpenChange, onSuccess 
             onOpenChange(false);
             onSuccess();
           },
-          onError: (err) => setError(toUserMessage(err)),
+          onError: (err) => {
+            if (isCreditError(err)) {
+              setError(
+                <>
+                  No tienes créditos suficientes.{' '}
+                  <Link href="/mis-creditos" className="underline hover:text-foreground">
+                    Comprar créditos
+                  </Link>
+                </>,
+              );
+            } else {
+              setError(toFeaturedByCreditsMessage(err));
+            }
+          },
           callbackUrl: '/login',
         },
       );
@@ -99,7 +113,7 @@ export function DestacadoDialog({ listing, token, open, onOpenChange, onSuccess 
             const { redsysFormData: data } = result as { redsysFormData: RedsysFormData };
             setRedsysFormData(data);
           },
-          onError: (err) => setError(toUserMessage(err)),
+          onError: (err) => setError(toFeaturedByCreditsMessage(err)),
           callbackUrl: '/login',
         },
       );

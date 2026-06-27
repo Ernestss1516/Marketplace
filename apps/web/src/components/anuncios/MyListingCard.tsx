@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { Loader2, Pencil, Trash2, CheckCircle, Lock, Send, RotateCcw, Star, TrendingUp } from 'lucide-react';
@@ -26,7 +26,7 @@ import {
   renewListing,
 } from '@/lib/api/anuncios';
 import { bumpListing } from '@/lib/api/billing';
-import { toUserMessage } from '@/lib/api/client';
+import { toUserMessage, isCreditError, isCooldownError, formatRetryAfter, toBumpMessage } from '@/lib/api/client';
 import { useApiAction } from '@/lib/api/use-api-action';
 import { DestacadoDialog } from './DestacadoDialog';
 import type { ListingSummary, PriceType } from '@/types';
@@ -70,6 +70,7 @@ export function MyListingCard({ listing, token, onAction }: Props) {
   const { run } = useApiAction();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [bumpError, setBumpError] = useState<React.ReactNode | null>(null);
   const [destacadoOpen, setDestacadoOpen] = useState(false);
 
   const location = [listing.city, listing.province].filter(Boolean).join(', ');
@@ -170,6 +171,7 @@ export function MyListingCard({ listing, token, onAction }: Props) {
       {/* Actions */}
       <CardContent className="border-t px-4 pb-4 pt-3">
         {error && <p className="mb-2 text-xs text-destructive">{error}</p>}
+        {bumpError && <p className="mb-2 text-xs text-destructive">{bumpError}</p>}
 
         <div className="flex flex-wrap gap-2">
           {/* Editar — available for DRAFT, ACTIVE, RESERVED */}
@@ -269,14 +271,36 @@ export function MyListingCard({ listing, token, onAction }: Props) {
               variant="outline"
               size="sm"
               disabled={busy !== null || bumpOnCooldown}
-              onClick={() =>
-                runAction('bump', () =>
-                  bumpListing(token, listing.id).then((r) => {
-                    onAction();
-                    return r;
-                  }),
-                )
-              }
+              onClick={async () => {
+                setBusy('bump');
+                setBumpError(null);
+                await run(
+                  () => bumpListing(token, listing.id),
+                  {
+                    onSuccess: () => { setBusy(null); onAction(); },
+                    onError: (err) => {
+                      if (isCreditError(err)) {
+                        setBumpError(
+                          <>
+                            No tienes créditos suficientes para hacer bump.{' '}
+                            <Link href="/mis-creditos" className="underline hover:text-foreground">
+                              Comprar créditos
+                            </Link>
+                          </>,
+                        );
+                      } else if (isCooldownError(err)) {
+                        setBumpError(
+                          `Ya has subido este anuncio, espera ${formatRetryAfter(err.retryAfter)}.`,
+                        );
+                      } else {
+                        setBumpError(toBumpMessage(err));
+                      }
+                      setBusy(null);
+                    },
+                    callbackUrl: '/login',
+                  },
+                );
+              }}
               title={
                 bumpOnCooldown && bumpCooldownUntil
                   ? `Disponible el ${new Intl.DateTimeFormat('es-ES', {
