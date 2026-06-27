@@ -12,7 +12,8 @@ import { StepAtributos } from './steps/StepAtributos';
 import { StepUbicacion, type UbicacionData } from './steps/StepUbicacion';
 import { StepPrevisualizacion } from './steps/StepPrevisualizacion';
 import { createListing, publishListing } from '@/lib/api/anuncios';
-import { ApiError } from '@/lib/api/client';
+import { toUserMessage } from '@/lib/api/client';
+import { useApiAction } from '@/lib/api/use-api-action';
 import type { Category, AttributeSchema, ListingType, Condition } from '@/types';
 
 // ── Shared state shape ────────────────────────────────────────────────────────
@@ -146,6 +147,7 @@ const INITIAL_DATA: WizardData = {
 
 export function PublicarWizard({ token, categories }: PublicarWizardProps) {
   const router = useRouter();
+  const { run } = useApiAction();
   const [data, setData] = useState<WizardData>(INITIAL_DATA);
   const [currentStepId, setCurrentStepId] = useState<StepId>('categoria');
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -219,48 +221,49 @@ export function PublicarWizard({ token, categories }: PublicarWizardProps) {
     setSubmitState(action === 'draft' ? 'saving' : 'publishing');
     setSubmitError(null);
 
-    try {
-      const imageIds = data.images
-        .filter((img) => img.id && !img.error && !img.uploading)
-        .map((img) => img.id!);
+    await run(
+      async () => {
+        const imageIds = data.images
+          .filter((img) => img.id && !img.error && !img.uploading)
+          .map((img) => img.id!);
 
-      const price = data.priceMode === 'fixed' ? parseFloat(data.price) : 0;
+        const price = data.priceMode === 'fixed' ? parseFloat(data.price) : 0;
 
-      const draft = await createListing(
-        {
-          title: data.title,
-          description: data.description,
-          price,
-          priceType: priceTypeFromMode(data.priceMode),
-          type: data.type as ListingType,
-          condition: data.condition ? (data.condition as Condition) : undefined,
-          categoryId: data.categoryId,
-          attributes: buildAttributes(data.attributes, data.attributeSchema),
-          city: data.city,
-          province: data.province,
-          postalCode: data.postalCode || undefined,
-          imageIds: imageIds.length ? imageIds : undefined,
-        },
-        token,
-      );
+        const draft = await createListing(
+          {
+            title: data.title,
+            description: data.description,
+            price,
+            priceType: priceTypeFromMode(data.priceMode),
+            type: data.type as ListingType,
+            condition: data.condition ? (data.condition as Condition) : undefined,
+            categoryId: data.categoryId,
+            attributes: buildAttributes(data.attributes, data.attributeSchema),
+            city: data.city,
+            province: data.province,
+            postalCode: data.postalCode || undefined,
+            imageIds: imageIds.length ? imageIds : undefined,
+          },
+          token,
+        );
 
-      if (action === 'publish') {
-        const published = await publishListing(draft.id, token);
-        if (published.status === 'PENDING_REVIEW') {
-          setPendingReview(true);
-          setSubmitState('idle');
-          return;
+        if (action === 'publish') {
+          const published = await publishListing(draft.id, token);
+          if (published.status === 'PENDING_REVIEW') {
+            setPendingReview(true);
+            setSubmitState('idle');
+            return;
+          }
+          router.push(`/anuncio/${draft.slug}`);
+        } else {
+          router.push('/mis-anuncios');
         }
-        router.push(`/anuncio/${draft.slug}`);
-      } else {
-        router.push('/mis-anuncios');
-      }
-    } catch (err) {
-      setSubmitError(
-        err instanceof ApiError ? err.message : 'Error al procesar el anuncio. Inténtalo de nuevo.',
-      );
-      setSubmitState('idle');
-    }
+      },
+      {
+        onError: (err) => { setSubmitError(toUserMessage(err)); setSubmitState('idle'); },
+        callbackUrl: '/login?callbackUrl=%2Fpublicar',
+      },
+    );
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────

@@ -6,6 +6,7 @@ const navItems = [
   { href: '/mensajes', label: 'Mensajes' },
   { href: '/favoritos', label: 'Favoritos' },
   { href: '/perfil', label: 'Mi perfil' },
+  { href: '/perfil/suscripcion', label: 'Mi suscripción' },
 ];
 
 export default function AccountLayout({ children }: { children: React.ReactNode }) {

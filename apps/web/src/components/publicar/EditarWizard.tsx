@@ -10,7 +10,8 @@ import { StepDatos, type DatosData, priceTypeFromMode } from './steps/StepDatos'
 import { StepAtributos } from './steps/StepAtributos';
 import { StepUbicacion, type UbicacionData } from './steps/StepUbicacion';
 import { updateListing } from '@/lib/api/anuncios';
-import { ApiError } from '@/lib/api/client';
+import { toUserMessage } from '@/lib/api/client';
+import { useApiAction } from '@/lib/api/use-api-action';
 import type { AttributeSchema, ListingType, Condition } from '@/types';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -107,6 +108,7 @@ interface EditarWizardProps {
 
 export function EditarWizard({ listingId, token, initialData }: EditarWizardProps) {
   const router = useRouter();
+  const { run } = useApiAction();
   const [data, setData] = useState<EditarWizardData>(initialData);
   const [currentStepId, setCurrentStepId] = useState<StepId>('fotos');
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -167,36 +169,37 @@ export function EditarWizard({ listingId, token, initialData }: EditarWizardProp
     setSaving(true);
     setSaveError(null);
 
-    try {
-      const validImageIds = data.images
-        .filter((img) => img.id && !img.error && !img.uploading)
-        .map((img) => img.id!);
+    await run(
+      async () => {
+        const validImageIds = data.images
+          .filter((img) => img.id && !img.error && !img.uploading)
+          .map((img) => img.id!);
 
-      await updateListing(
-        listingId,
-        {
-          title: data.title,
-          description: data.description,
-          type: data.type as ListingType,
-          condition: data.condition ? (data.condition as Condition) : undefined,
-          price: data.priceMode === 'fixed' ? parseFloat(data.price) : 0,
-          priceType: priceTypeFromMode(data.priceMode),
-          attributes: buildAttributes(data.attributes, data.attributeSchema),
-          city: data.city,
-          province: data.province,
-          postalCode: data.postalCode || undefined,
-          imageIds: validImageIds,
-        },
-        token,
-      );
+        await updateListing(
+          listingId,
+          {
+            title: data.title,
+            description: data.description,
+            type: data.type as ListingType,
+            condition: data.condition ? (data.condition as Condition) : undefined,
+            price: data.priceMode === 'fixed' ? parseFloat(data.price) : 0,
+            priceType: priceTypeFromMode(data.priceMode),
+            attributes: buildAttributes(data.attributes, data.attributeSchema),
+            city: data.city,
+            province: data.province,
+            postalCode: data.postalCode || undefined,
+            imageIds: validImageIds,
+          },
+          token,
+        );
 
-      router.push('/mis-anuncios');
-    } catch (err) {
-      setSaveError(
-        err instanceof ApiError ? err.message : 'Error al guardar. Inténtalo de nuevo.',
-      );
-      setSaving(false);
-    }
+        router.push('/mis-anuncios');
+      },
+      {
+        onError: (err) => { setSaveError(toUserMessage(err)); setSaving(false); },
+        callbackUrl: '/login?callbackUrl=%2Fmis-anuncios',
+      },
+    );
   }
 
   // ── Render ───────────────────────────────────────────────────────────────

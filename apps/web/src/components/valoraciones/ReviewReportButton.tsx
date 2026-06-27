@@ -4,7 +4,8 @@ import { useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { Flag, Loader2, X } from 'lucide-react';
 import { createReport, type ReportReason } from '@/lib/api/moderacion';
-import { ApiError } from '@/lib/api/client';
+import { ApiError, toUserMessage } from '@/lib/api/client';
+import { useApiAction } from '@/lib/api/use-api-action';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 
@@ -21,6 +22,7 @@ interface Props {
 
 export function ReviewReportButton({ reviewId }: Props) {
   const { data: session } = useSession();
+  const { run } = useApiAction();
   const token = (session?.user as { accessToken?: string } | undefined)?.accessToken;
 
   const [open, setOpen] = useState(false);
@@ -58,22 +60,21 @@ export function ReviewReportButton({ reviewId }: Props) {
     if (!token || submitting) return;
     setSubmitting(true);
     setError(null);
-    try {
-      await createReport(token, {
-        reason,
-        description: description.trim() || undefined,
-        reviewId,
-      });
-      setSubmitted(true);
-    } catch (err) {
-      if (err instanceof ApiError && err.statusCode === 409) {
-        setError('Ya has denunciado esta valoración anteriormente.');
-      } else {
-        setError(err instanceof Error ? err.message : 'Error al enviar la denuncia.');
-      }
-    } finally {
-      setSubmitting(false);
-    }
+    await run(
+      () => createReport(token, { reason, description: description.trim() || undefined, reviewId }),
+      {
+        onSuccess: () => setSubmitted(true),
+        onError: (err) => {
+          if (err instanceof ApiError && err.statusCode === 409) {
+            setError('Ya has denunciado esta valoración anteriormente.');
+          } else {
+            setError(toUserMessage(err));
+          }
+        },
+        callbackUrl: '/login',
+      },
+    );
+    setSubmitting(false);
   }
 
   return (

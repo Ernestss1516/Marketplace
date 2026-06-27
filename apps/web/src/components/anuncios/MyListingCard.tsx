@@ -25,7 +25,8 @@ import {
   deleteListing,
   renewListing,
 } from '@/lib/api/anuncios';
-import { ApiError } from '@/lib/api/client';
+import { toUserMessage } from '@/lib/api/client';
+import { useApiAction } from '@/lib/api/use-api-action';
 import type { ListingSummary, PriceType } from '@/types';
 
 const STATUS_LABELS: Record<string, string> = {
@@ -64,6 +65,7 @@ interface Props {
 }
 
 export function MyListingCard({ listing, token, onAction }: Props) {
+  const { run } = useApiAction();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -73,14 +75,12 @@ export function MyListingCard({ listing, token, onAction }: Props) {
   async function runAction(key: string, fn: () => Promise<unknown>) {
     setBusy(key);
     setError(null);
-    try {
-      await fn();
-      onAction();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Error inesperado');
-    } finally {
-      setBusy(null);
-    }
+    await run(fn, {
+      onSuccess: () => onAction(),
+      onError: (err) => setError(toUserMessage(err)),
+      callbackUrl: '/login',
+    });
+    setBusy(null);
   }
 
   return (

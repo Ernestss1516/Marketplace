@@ -8,6 +8,7 @@ import { Loader2, MessageCircle, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { startConversation } from '@/lib/api/mensajes';
+import { useApiAction } from '@/lib/api/use-api-action';
 
 interface Props {
   listingId: string;
@@ -16,6 +17,7 @@ interface Props {
 
 export function ContactButton({ listingId, listingSlug }: Props) {
   const { data: session } = useSession();
+  const { run } = useApiAction();
   const router = useRouter();
 
   const [showForm, setShowForm] = useState(false);
@@ -42,13 +44,14 @@ export function ContactButton({ listingId, listingSlug }: Props) {
     if (!session?.user.accessToken || !message.trim() || sending) return;
     setSending(true);
     setError(null);
-    try {
-      const conv = await startConversation(listingId, message.trim(), session.user.accessToken);
-      router.push(`/mensajes/${conv.id}`);
-    } catch {
-      setError('No se pudo enviar el mensaje. Inténtalo de nuevo.');
-      setSending(false);
-    }
+    await run(
+      () => startConversation(listingId, message.trim(), session!.user.accessToken!),
+      {
+        onSuccess: (conv) => router.push(`/mensajes/${conv.id}`),
+        onError: () => { setError('No se pudo enviar el mensaje. Inténtalo de nuevo.'); setSending(false); },
+        callbackUrl: `/login?redirect=/anuncio/${listingSlug}`,
+      },
+    );
   }
 
   // Shown when email is not verified

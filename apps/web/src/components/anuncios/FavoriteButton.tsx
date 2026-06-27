@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { Heart } from 'lucide-react';
 import { checkFavorite, addFavorite, removeFavorite } from '@/lib/api/favoritos';
+import { useApiAction } from '@/lib/api/use-api-action';
 
 interface Props {
   listingId: string;
@@ -11,6 +12,7 @@ interface Props {
 
 export function FavoriteButton({ listingId }: Props) {
   const { data: session } = useSession();
+  const { run } = useApiAction();
   const token = session?.user.accessToken;
 
   const [favorited, setFavorited] = useState(false);
@@ -31,18 +33,15 @@ export function FavoriteButton({ listingId }: Props) {
     if (!token || loading) return;
     setLoading(true);
     const next = !favorited;
-    setFavorited(next);
-    try {
-      if (next) {
-        await addFavorite(listingId, token);
-      } else {
-        await removeFavorite(listingId, token);
-      }
-    } catch {
-      setFavorited(!next);
-    } finally {
-      setLoading(false);
-    }
+    setFavorited(next); // optimistic
+    await run(
+      () => next ? addFavorite(listingId, token!) : removeFavorite(listingId, token!),
+      {
+        // On non-auth error: rollback the optimistic update; auth error: signOut + redirect
+        onError: () => setFavorited(!next),
+      },
+    );
+    setLoading(false);
   }
 
   return (

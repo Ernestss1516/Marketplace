@@ -62,6 +62,7 @@ export default async function globalSetup(playwrightConfig: FullConfig) {
   const users = [
     { email: 'seller-e2e@example.com', file: 'seller.storageState.json' },
     { email: 'buyer-e2e@example.com',  file: 'buyer.storageState.json'  },
+    { email: 'pro-e2e@example.com',    file: 'pro.storageState.json'    },
   ];
 
   for (const user of users) {

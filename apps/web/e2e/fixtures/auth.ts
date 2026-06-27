@@ -10,6 +10,7 @@ const FIXTURES_DIR = path.join(__dirname);
 export const test = base.extend<{
   sellerContext: BrowserContext;
   buyerContext: BrowserContext;
+  proContext: BrowserContext;
 }>({
   sellerContext: async ({ browser }, use) => {
     const ctx = await browser.newContext({
@@ -22,6 +23,14 @@ export const test = base.extend<{
   buyerContext: async ({ browser }, use) => {
     const ctx = await browser.newContext({
       storageState: path.join(FIXTURES_DIR, 'buyer.storageState.json'),
+    });
+    await use(ctx);
+    await ctx.close();
+  },
+
+  proContext: async ({ browser }, use) => {
+    const ctx = await browser.newContext({
+      storageState: path.join(FIXTURES_DIR, 'pro.storageState.json'),
     });
     await use(ctx);
     await ctx.close();

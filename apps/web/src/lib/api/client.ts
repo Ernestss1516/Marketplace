@@ -11,6 +11,24 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Returns a safe, user-facing error message.
+ * Never exposes raw backend text — internal error details must never reach the UI.
+ */
+export function toUserMessage(_err: unknown): string {
+  return 'Ha ocurrido un error. Inténtalo de nuevo.';
+}
+
+/**
+ * True when the error signals a stale/missing JWT (HTTP 401).
+ * Client components should call signOut() and redirect to /login when this is true.
+ * 403 is intentionally excluded — it means "authenticated but not allowed" (business rule)
+ * and must be handled by the component with a domain-specific message.
+ */
+export function isAuthError(err: unknown): err is ApiError {
+  return err instanceof ApiError && err.statusCode === 401;
+}
+
 interface FetchOptions extends RequestInit {
   token?: string;
 }

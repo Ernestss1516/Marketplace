@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { createReview, editReview } from '@/lib/api/valoraciones';
 import { ApiError } from '@/lib/api/client';
+import { useApiAction } from '@/lib/api/use-api-action';
 
 const MAX_COMMENT = 1000;
 
@@ -80,6 +81,7 @@ export function ReviewModal({
   initialComment = '',
 }: ReviewModalProps) {
   const isEdit = !!existingReviewId;
+  const { run } = useApiAction();
 
   const [rating, setRating] = useState(initialRating);
   const [comment, setComment] = useState(initialComment);
@@ -106,34 +108,34 @@ export function ReviewModal({
     }
     setSubmitting(true);
     setError(null);
-    try {
-      if (isEdit) {
-        await editReview(existingReviewId, { rating, comment: comment || undefined }, token);
-      } else {
-        await createReview({ rating, comment: comment || undefined, listingId, targetId }, token);
-      }
-      setDone(true);
-      setTimeout(() => {
-        handleOpenChange(false);
-        onSuccess();
-      }, 1400);
-    } catch (err) {
-      if (err instanceof ApiError) {
-        if (err.statusCode === 409) {
-          setError('Ya has valorado a este usuario para este anuncio.');
-        } else if (err.statusCode === 403) {
-          setError(isEdit
-            ? 'El plazo de edición de 72 horas ha expirado.'
-            : 'No tienes permiso para valorar en esta conversación.');
-        } else {
-          setError('No se pudo guardar la valoración. Inténtalo de nuevo.');
-        }
-      } else {
-        setError('Error inesperado. Inténtalo de nuevo.');
-      }
-    } finally {
-      setSubmitting(false);
-    }
+    await run(
+      () => isEdit
+        ? editReview(existingReviewId, { rating, comment: comment || undefined }, token)
+        : createReview({ rating, comment: comment || undefined, listingId, targetId }, token),
+      {
+        onSuccess: () => {
+          setDone(true);
+          setTimeout(() => { handleOpenChange(false); onSuccess(); }, 1400);
+        },
+        onError: (err) => {
+          if (err instanceof ApiError) {
+            if (err.statusCode === 409) {
+              setError('Ya has valorado a este usuario para este anuncio.');
+            } else if (err.statusCode === 403) {
+              setError(isEdit
+                ? 'El plazo de edición de 72 horas ha expirado.'
+                : 'No tienes permiso para valorar en esta conversación.');
+            } else {
+              setError('No se pudo guardar la valoración. Inténtalo de nuevo.');
+            }
+          } else {
+            setError('Error inesperado. Inténtalo de nuevo.');
+          }
+        },
+        callbackUrl: '/login',
+      },
+    );
+    setSubmitting(false);
   }
 
   return (

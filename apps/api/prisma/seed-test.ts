@@ -128,11 +128,66 @@ async function seedFeaturedPrices() {
   console.log('Test seed: featured prices OK (7d/14d/30d)');
 }
 
+async function seedProPlans() {
+  const existing = await prisma.product.count({ where: { type: ProductType.RECURRING } });
+
+  if (existing === 0) {
+    const proProduct = await prisma.product.create({
+      data: {
+        name: 'Plan Pro',
+        description: 'Acceso completo a las funciones Pro: más anuncios activos, estadísticas y prioridad en soporte.',
+        type: ProductType.RECURRING,
+      },
+    });
+
+    await prisma.price.create({
+      data: {
+        productId: proProduct.id,
+        amount: new Prisma.Decimal('9.99'),
+        interval: 'MONTH',
+        intervalCount: 1,
+      },
+    });
+
+    await prisma.price.create({
+      data: {
+        productId: proProduct.id,
+        amount: new Prisma.Decimal('89.99'),
+        interval: 'YEAR',
+        intervalCount: 1,
+      },
+    });
+
+    console.log('Test seed: pro plans OK (Plan Pro 9,99 €/mes · 89,99 €/año)');
+    return;
+  }
+
+  // Plans already present — fix YEAR price if it was seeded with the wrong value (79.99 → 89.99).
+  const wrongYearPrice = await prisma.price.findFirst({
+    where: {
+      interval: 'YEAR',
+      amount: new Prisma.Decimal('79.99'),
+      product: { type: ProductType.RECURRING },
+    },
+    select: { id: true },
+  });
+  if (wrongYearPrice) {
+    await prisma.price.update({
+      where: { id: wrongYearPrice.id },
+      data: { amount: new Prisma.Decimal('89.99') },
+    });
+    console.log('Test seed: pro annual price corrected 79,99 → 89,99 €');
+  } else {
+    console.log('Test seed: pro plans already present, skipped');
+  }
+}
+
 async function main() {
   await seedCategories();
   await seedSettings();
   await seedCreditPacks();
   await seedFeaturedPrices();
+  await seedProPlans();
 }
 
 main()

@@ -10,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { getConversation, sendMessage } from '@/lib/api/mensajes';
 import type { ChatMessage, ConversationDetail } from '@/lib/api/mensajes';
 import { getEligibility } from '@/lib/api/valoraciones';
+import { useApiAction } from '@/lib/api/use-api-action';
 import type { EligibilityResult } from '@/lib/api/valoraciones';
 import { ReviewModal } from '@/components/valoraciones/ReviewModal';
 import { useMessagingSocket } from '@/hooks/useMessagingSocket';
@@ -30,6 +31,7 @@ function formatTime(dateStr: string): string {
 }
 
 export function ChatClient({ initialData, token, userId }: Props) {
+  const { run } = useApiAction();
   // Backend returns DESC (newest first); reverse for ASC display in chat
   const [messages, setMessages] = useState<ChatMessage[]>(() =>
     [...initialData.messages].reverse(),
@@ -51,12 +53,11 @@ export function ChatClient({ initialData, token, userId }: Props) {
   const targetName = initialData.otherUser.name;
 
   async function fetchEligibility() {
-    try {
-      const result = await getEligibility(listingId, targetId, token);
-      setEligibility(result);
-    } catch {
-      // Non-critical — silently ignore if eligibility check fails
-    }
+    // Non-critical check — auth errors sign out; other errors silently ignored
+    await run(
+      () => getEligibility(listingId, targetId, token),
+      { onSuccess: (result) => setEligibility(result) },
+    );
   }
 
   useEffect(() => {
@@ -95,14 +96,17 @@ export function ChatClient({ initialData, token, userId }: Props) {
   async function handleLoadOlder() {
     if (!nextCursor || loadingOlder) return;
     setLoadingOlder(true);
-    try {
-      const older = await getConversation(initialData.id, token, { before: nextCursor });
-      // Prepend older messages (also in DESC from API, reverse to ASC before prepending)
-      setMessages((prev) => [...older.messages.reverse(), ...prev]);
-      setNextCursor(older.nextCursor);
-    } finally {
-      setLoadingOlder(false);
-    }
+    await run(
+      () => getConversation(initialData.id, token, { before: nextCursor! }),
+      {
+        onSuccess: (older) => {
+          setMessages((prev) => [...older.messages.reverse(), ...prev]);
+          setNextCursor(older.nextCursor);
+        },
+        // Other errors: silently ignored (user can retry by clicking the button again)
+      },
+    );
+    setLoadingOlder(false);
   }
 
   async function handleSend(e: React.FormEvent) {
@@ -111,21 +115,23 @@ export function ChatClient({ initialData, token, userId }: Props) {
     if (!trimmed || sending) return;
     setSending(true);
     setSendError(null);
-    try {
-      const msg = await sendMessage(initialData.id, trimmed, token);
-      // flushSync ensures the DOM contains the new message before we scroll.
-      // Dedup against prev: if the socket event arrived before this response
-      // (race condition), the message is already in state and must not be added again.
-      flushSync(() => {
-        setMessages((prev) => prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]);
-        setBody('');
-      });
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-    } catch {
-      setSendError('No se pudo enviar el mensaje. Inténtalo de nuevo.');
-    } finally {
-      setSending(false);
-    }
+    await run(
+      () => sendMessage(initialData.id, trimmed, token),
+      {
+        onSuccess: (msg) => {
+          // flushSync ensures the DOM contains the new message before we scroll.
+          // Dedup against prev: if the socket event arrived before this response
+          // (race condition), the message is already in state and must not be added again.
+          flushSync(() => {
+            setMessages((prev) => prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]);
+            setBody('');
+          });
+          bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+        },
+        onError: () => setSendError('No se pudo enviar el mensaje. Inténtalo de nuevo.'),
+      },
+    );
+    setSending(false);
   }
 
   return (

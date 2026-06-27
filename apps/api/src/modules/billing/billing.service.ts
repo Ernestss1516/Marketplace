@@ -105,7 +105,7 @@ export class BillingService {
     }
 
     const successUrl = `${this.appUrl}/planes/exito?session_id={CHECKOUT_SESSION_ID}`;
-    const cancelUrl = `${this.appUrl}/planes/cancelar`;
+    const cancelUrl = `${this.appUrl}/planes/cancelado`;
 
     const sessionParams: Stripe.Checkout.SessionCreateParams = {
       customer: customerId,
@@ -461,6 +461,41 @@ export class BillingService {
       perPage,
       totalPages: Math.ceil(total / perPage),
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Catalog (public — no auth required)
+  // ---------------------------------------------------------------------------
+
+  async getCatalog() {
+    const products = await this.prisma.product.findMany({
+      where: { active: true },
+      include: {
+        prices: {
+          where: { active: true },
+          include: { creditPack: true },
+          orderBy: { amount: 'asc' },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return products.map((p) => ({
+      id: p.id,
+      name: p.name,
+      description: p.description,
+      type: p.type as string,
+      prices: p.prices.map((price) => ({
+        priceId: price.id,
+        amount: Number(price.amount),
+        currency: price.currency,
+        ...(price.interval != null
+          ? { interval: price.interval as string, intervalCount: price.intervalCount ?? 1 }
+          : {}),
+        ...(price.durationDays != null ? { durationDays: price.durationDays } : {}),
+        ...(price.creditPack != null ? { creditAmount: price.creditPack.creditAmount } : {}),
+      })),
+    }));
   }
 
   // ---------------------------------------------------------------------------

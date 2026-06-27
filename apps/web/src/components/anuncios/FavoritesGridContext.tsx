@@ -10,6 +10,7 @@ import {
 } from 'react';
 import { useSession } from 'next-auth/react';
 import { addFavorite, batchCheckFavorites, removeFavorite } from '@/lib/api/favoritos';
+import { useApiAction } from '@/lib/api/use-api-action';
 
 interface FavoritesGridContextValue {
   isFavorited: (id: string) => boolean;
@@ -41,6 +42,7 @@ export function FavoritesGridProvider({
   children,
 }: ProviderProps) {
   const { data: session } = useSession();
+  const { run } = useApiAction();
   const token = session?.user.accessToken;
 
   const [favoritedSet, setFavoritedSet] = useState<Set<string>>(
@@ -69,19 +71,22 @@ export function FavoritesGridProvider({
       });
       if (wasFavorited) onUnfavorite?.(id);
 
-      try {
-        await (wasFavorited ? removeFavorite(id, token) : addFavorite(id, token));
-      } catch {
-        // Rollback
-        setFavoritedSet((prev) => {
-          const s = new Set(prev);
-          wasFavorited ? s.add(id) : s.delete(id);
-          return s;
-        });
-        if (wasFavorited) onUnfavoriteRollback?.(id);
-      }
+      await run(
+        () => wasFavorited ? removeFavorite(id, token) : addFavorite(id, token),
+        {
+          onError: () => {
+            // Rollback on non-auth error; auth error (401) → signOut via hook
+            setFavoritedSet((prev) => {
+              const s = new Set(prev);
+              wasFavorited ? s.add(id) : s.delete(id);
+              return s;
+            });
+            if (wasFavorited) onUnfavoriteRollback?.(id);
+          },
+        },
+      );
     },
-    [token, favoritedSet, onUnfavorite, onUnfavoriteRollback],
+    [token, favoritedSet, onUnfavorite, onUnfavoriteRollback, run],
   );
 
   const value = useMemo<FavoritesGridContextValue>(
