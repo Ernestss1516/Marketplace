@@ -60,9 +60,11 @@ export default async function globalSetup(playwrightConfig: FullConfig) {
   const browser = await chromium.launch();
 
   const users = [
-    { email: 'seller-e2e@example.com', file: 'seller.storageState.json' },
-    { email: 'buyer-e2e@example.com',  file: 'buyer.storageState.json'  },
-    { email: 'pro-e2e@example.com',    file: 'pro.storageState.json'    },
+    { email: 'seller-e2e@example.com',    file: 'seller.storageState.json'    },
+    { email: 'buyer-e2e@example.com',     file: 'buyer.storageState.json'     },
+    { email: 'pro-e2e@example.com',       file: 'pro.storageState.json'       },
+    { email: 'admin-e2e@example.com',     file: 'admin.storageState.json'     },
+    { email: 'moderator-e2e@example.com', file: 'moderator.storageState.json' },
   ];
 
   for (const user of users) {

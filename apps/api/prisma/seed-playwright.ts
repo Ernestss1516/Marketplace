@@ -3,9 +3,11 @@
 // Uses upsert so it is safe to run multiple times (idempotent).
 //
 // Users created:
-//   seller-e2e@example.com   (emailVerified: true) — publishes the listing in the test
-//   buyer-e2e@example.com    (emailVerified: true) — searches and contacts the seller
-//   pro-e2e@example.com      (emailVerified: true) — has an active PRO_SUBSCRIPTION
+//   seller-e2e@example.com      (emailVerified: true) — publishes the listing in the test
+//   buyer-e2e@example.com       (emailVerified: true) — searches and contacts the seller
+//   pro-e2e@example.com         (emailVerified: true) — has an active PRO_SUBSCRIPTION
+//   admin-e2e@example.com       (role: ADMIN)          — backoffice admin E2E tests
+//   moderator-e2e@example.com   (role: MODERATOR)      — backoffice moderator E2E tests
 //
 // Password for all: Test1234! (bcrypt cost 4)
 
@@ -136,6 +138,62 @@ async function main() {
       update: { status: 'ACTIVE' },
     });
     console.log('Playwright seed: listing-rf11-e2e OK');
+  }
+
+  // ── Admin and moderator users for role-separation E2E tests ──────────────────
+  await prisma.user.upsert({
+    where: { email: 'admin-e2e@example.com' },
+    create: {
+      email: 'admin-e2e@example.com',
+      passwordHash,
+      name: 'Admin E2E',
+      slug: 'admin-e2e',
+      emailVerified: true,
+      role: 'ADMIN',
+    },
+    update: { passwordHash, emailVerified: true, role: 'ADMIN' },
+  });
+
+  await prisma.user.upsert({
+    where: { email: 'moderator-e2e@example.com' },
+    create: {
+      email: 'moderator-e2e@example.com',
+      passwordHash,
+      name: 'Moderador E2E',
+      slug: 'moderador-e2e',
+      emailVerified: true,
+      role: 'MODERATOR',
+    },
+    update: { passwordHash, emailVerified: true, role: 'MODERATOR' },
+  });
+
+  console.log('Playwright seed: admin-e2e + moderator-e2e OK');
+
+  // ── Test report for moderator E2E tests ───────────────────────────────────────
+  // The report is always reset to PENDING so the moderator action test is repeatable.
+  const buyerUser = await prisma.user.findUnique({
+    where: { email: 'buyer-e2e@example.com' },
+    select: { id: true },
+  });
+  const testListing = await prisma.listing.findUnique({
+    where: { slug: 'listing-rf11-e2e' },
+    select: { id: true },
+  });
+
+  if (buyerUser && testListing) {
+    await prisma.report.deleteMany({
+      where: { reporterId: buyerUser.id, listingId: testListing.id, reason: 'SPAM' },
+    });
+    await prisma.report.create({
+      data: {
+        reporterId: buyerUser.id,
+        listingId: testListing.id,
+        reason: 'SPAM',
+        description: 'Reporte de prueba para tests Playwright de moderación',
+        status: 'PENDING',
+      },
+    });
+    console.log('Playwright seed: test SPAM report OK');
   }
 
   console.log('Playwright seed: seller-e2e + buyer-e2e + pro-e2e OK');

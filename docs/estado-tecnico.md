@@ -1,7 +1,7 @@
 # Estado técnico del proyecto — Marketplace
 
 > Fecha: 2026-06-28 · Rama: `main` · Último commit: RF.12b — acreditación manual de créditos (admin) + validación Joi condicional de env de test resuelta + RF.11 — frontend destacado+bump con cobertura completa de errores
-> Plan vigente para la siguiente fase: `docs/Hoja_de_ruta_rafagas_Hito2.docx`.
+> Plan vigente: `docs/Hoja_de_ruta_rafagas_Hito5-9.docx` (Hitos 5–9). Hitos 5–6 firmes; 7–9 boceto a re-detallar al llegar.
 
 Documento de referencia para retomar el proyecto. Recoge qué hay implementado,
 qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
@@ -61,7 +61,7 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **Favoritos** `/favoritos` | ✅ Completo | Ruta protegida. SSR paginado; `FavoritosClient` gestiona lista visible con eliminación/rollback optimista. Botón corazón en `ListingCard` (`FavoriteCardButton` leaf client) visible en **todas las vistas con grid**: home, búsqueda, categoría, vendedor, anuncios relacionados en ficha y la propia `/favoritos`. Resolución en lote: `POST /favorites/batch-check` → 1 request por grid. `FavoritesGridProvider` context en cada página SSR, sin romper SSR. En `/favoritos` la tarjeta desaparece al desmarcar y reaparece si el DELETE falla |
 | **Bandeja mensajes** `/mensajes` | ✅ Completo | `BandejaMensajesClient`: lista de conversaciones con thumbnail, contador de no leídos y tiempo relativo; actualización en vivo vía WebSocket |
 | **Chat** `/mensajes/[id]` | ✅ Completo | `ChatClient`: mensajes en orden cronológico, auto-scroll, carga de mensajes anteriores (cursor-based), envío vía POST REST, recepción en tiempo real vía WebSocket con deduplicación idempotente |
-| **Admin shell** | ✅ Completo | Layout Server Component + `<AdminNav>` (active state vía `usePathname`) + `<AdminUserBar>` (nombre del admin + `signOut`); toda la carpeta `(admin)/` es client-side sin SSR |
+| **Admin shell** | ✅ Completo | Layout Server Component + `<AdminNav>` (active state vía `usePathname`; ítems filtrados por `session.user.role` — MODERATOR ve solo "Reportes") + `<AdminUserBar>` (nombre del admin + `signOut`); middleware con `MODERATOR_ALLOWED_PATHS` — ADMIN acceso total, MODERATOR solo `/admin/reportes`, resto → redirect `/`; toda la carpeta `(admin)/` es client-side sin SSR |
 | **Admin dashboard** `/admin` | ✅ Completo | Fetch a `GET /admin/stats`; KPIs en 3 secciones (anuncios, usuarios/moderación, índice de búsqueda); skeleton de carga y estado de error |
 | **Admin anuncios** `/admin/anuncios` | ✅ Completo | Tabla paginada con chips de filtro por estado; cambio de estado inline (select + razón + confirmar) vía `PATCH /admin/listings/:id/status`; reportes recibidos visibles en la fila |
 | **Admin usuarios** `/admin/usuarios` | ✅ Completo | Tabla con buscador (nombre/email), chips status y rol; acciones suspend/ban/reinstate contextuales al estado; panel de detalle expandible (últimos anuncios + reportes recibidos + auditlog); no muestra botones de acción para usuarios ADMIN |
@@ -540,6 +540,61 @@ publique su anuncio.
 El wizard del frontend refleja el resultado real: si el backend devuelve
 `status: 'PENDING_REVIEW'`, muestra un panel informativo en lugar de navegar a la
 ficha del anuncio (que daría 404 porque los anuncios en PENDING_REVIEW no son públicos).
+
+### Separación de roles ADMIN / MODERATOR en el backoffice (RR5.1)
+
+**Backend:** la separación ya estaba correctamente implementada desde Fase 7. Todos los
+endpoints `/admin/*` llevan `@Roles(ADMIN)`; los endpoints `/moderation/*` llevan
+`@Roles(MODERATOR, ADMIN)`. No hay cambios de backend en esta ráfaga.
+
+**Frontend — middleware.ts:** el check binario `role !== 'ADMIN'` se reemplazó por
+lógica fina de dos capas:
+
+```typescript
+const MODERATOR_ALLOWED_PATHS = ['/admin/reportes'];
+
+if (isAdminRoute) {
+  const role = session?.user.role;
+  if (role === 'ADMIN')       { /* acceso total */ }
+  else if (role === 'MODERATOR') {
+    const allowed = MODERATOR_ALLOWED_PATHS.some((p) => pathname.startsWith(p));
+    if (!allowed) return Response.redirect(new URL('/', req.url));
+  } else { return Response.redirect(new URL('/', req.url)); }
+}
+```
+
+`MODERATOR_ALLOWED_PATHS` es la única fuente de verdad de qué páginas del backoffice
+puede acceder un MODERATOR. Al añadir una nueva sección al moderador, basta con añadir
+la ruta a ese array.
+
+**Frontend — AdminNav:** el array `NAV_ITEMS` tiene ahora un campo `roles: string[]`
+por ítem y el componente filtra con `session.user.role` via `useSession()`. El MODERATOR
+ve solo "Reportes"; el ADMIN ve los 8 ítems.
+
+**Tabla rol × sección (implementada):**
+
+| Sección del backoffice | Endpoint backend | MODERATOR | ADMIN |
+|---|---|---|---|
+| Dashboard / Stats | `/admin/stats` | ❌ | ✅ |
+| Reportes + acciones de moderación | `/moderation/*` | ✅ | ✅ |
+| Gestión de anuncios (admin) | `/admin/listings/*` | ❌ | ✅ |
+| Gestión de usuarios | `/admin/users/*` | ❌ | ✅ |
+| Categorías | `/admin/categories/*` | ❌ | ✅ |
+| Settings del sistema | `/admin/settings/*` | ❌ | ✅ |
+| Facturación / Créditos | `/admin/billing/*` | ❌ | ✅ |
+| Blog | `/admin/blog/*` | ❌ | ✅ |
+
+**Tests añadidos:**
+- `moderation.e2e-spec.ts`: 8 nuevos casos de frontera — `MODERATOR → 403` en los 7
+  endpoints ADMIN-only más confirmación de `MODERATOR → 200` en `/moderation/reports`.
+  Suite: 31 casos (23 originales + 8 nuevos).
+- `admin-roles.spec.ts` (Playwright): 7 tests — ADMIN carga el dashboard con 8 ítems
+  en el nav; MODERATOR es redirigido desde rutas ADMIN-only; MODERATOR carga
+  `/admin/reportes` y ve solo "Reportes" en el nav; MODERATOR ejecuta una acción de
+  moderación (desestimar reporte) sin 403.
+- `seed-playwright.ts` / `global-setup.ts` / `fixtures/auth.ts`: añadidos usuarios
+  `admin-e2e@example.com` (ADMIN) y `moderator-e2e@example.com` (MODERATOR) con sus
+  `storageState`; seed crea un reporte PENDING reutilizable por los tests.
 
 ### Protección anti-degradación de ADMIN en cambio de rol (Fase 7)
 
@@ -1128,6 +1183,7 @@ de firma.
 - **Diseño del blog (Fase B)**: `docs/diseno-blog.md` — modelo Post, migración,
   decisión de renderizado Markdown (rehype-sanitize sin rehype-raw), estrategia SEO
   (OG, JSON-LD, sitemap, ISR), endpoints públicos y admin, orden de ráfagas RB.2–RB.4.
+- **Hoja de ruta (Hitos 5–9)**: `docs/Hoja_de_ruta_rafagas_Hito5-9.docx` — programa por ráfagas hacia un producto completo: Hito 5 (separación de roles admin/moderador, categorías/atributos con herencia, localización estructurada), Hito 6 (descubrimiento: búsqueda, mapa, portada, patrocinados), Hito 7 (mensajería, blog enriquecido, registro social), Hito 8 (Pro/facturación, barra promocional), Hito 9 (navegación, interfaz, deuda transversal y testing). Reglas de ejecución y reparto de deuda técnica por hito incluidos. Redsys E2E y RF.13 quedan "en el aire", desbloqueables al obtener credenciales.
 
 ---
 

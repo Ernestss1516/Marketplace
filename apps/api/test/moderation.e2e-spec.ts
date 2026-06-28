@@ -561,4 +561,63 @@ describe('Moderation (e2e)', () => {
       .set('Authorization', `Bearer ${moderatorToken}`)
       .expect(404);
   });
+
+  // ── Role boundaries: MODERATOR must not access ADMIN-only endpoints ─────────
+
+  it('MODERATOR → GET /admin/stats → 403', async () => {
+    await request(app.getHttpServer())
+      .get('/api/admin/stats')
+      .set('Authorization', `Bearer ${moderatorToken}`)
+      .expect(403);
+  });
+
+  it('MODERATOR → GET /admin/listings → 403', async () => {
+    await request(app.getHttpServer())
+      .get('/api/admin/listings')
+      .set('Authorization', `Bearer ${moderatorToken}`)
+      .expect(403);
+  });
+
+  it('MODERATOR → GET /admin/users → 403', async () => {
+    await request(app.getHttpServer())
+      .get('/api/admin/users')
+      .set('Authorization', `Bearer ${moderatorToken}`)
+      .expect(403);
+  });
+
+  it('MODERATOR → GET /admin/categories → 403', async () => {
+    await request(app.getHttpServer())
+      .get('/api/admin/categories')
+      .set('Authorization', `Bearer ${moderatorToken}`)
+      .expect(403);
+  });
+
+  it('MODERATOR → GET /admin/settings → 403', async () => {
+    await request(app.getHttpServer())
+      .get('/api/admin/settings')
+      .set('Authorization', `Bearer ${moderatorToken}`)
+      .expect(403);
+  });
+
+  it('MODERATOR → GET /admin/billing/transactions → 403', async () => {
+    await request(app.getHttpServer())
+      .get('/api/admin/billing/transactions')
+      .set('Authorization', `Bearer ${moderatorToken}`)
+      .expect(403);
+  });
+
+  it('MODERATOR → GET /admin/blog → 403', async () => {
+    await request(app.getHttpServer())
+      .get('/api/admin/blog')
+      .set('Authorization', `Bearer ${moderatorToken}`)
+      .expect(403);
+  });
+
+  // Confirm MODERATOR retains access to all /moderation/* endpoints
+  it('MODERATOR → GET /moderation/reports → 200', async () => {
+    await request(app.getHttpServer())
+      .get('/api/moderation/reports')
+      .set('Authorization', `Bearer ${moderatorToken}`)
+      .expect(200);
+  });
 });

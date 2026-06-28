@@ -1,5 +1,5 @@
 // Auth fixtures for Playwright e2e tests.
-// Both contexts are pre-authenticated via storageState saved by global-setup.ts.
+// All contexts are pre-authenticated via storageState saved by global-setup.ts.
 // They are passed as fixtures so individual tests don't repeat the login UI flow.
 
 import { test as base, type BrowserContext } from '@playwright/test';
@@ -11,6 +11,8 @@ export const test = base.extend<{
   sellerContext: BrowserContext;
   buyerContext: BrowserContext;
   proContext: BrowserContext;
+  adminContext: BrowserContext;
+  moderatorContext: BrowserContext;
 }>({
   sellerContext: async ({ browser }, use) => {
     const ctx = await browser.newContext({
@@ -31,6 +33,22 @@ export const test = base.extend<{
   proContext: async ({ browser }, use) => {
     const ctx = await browser.newContext({
       storageState: path.join(FIXTURES_DIR, 'pro.storageState.json'),
+    });
+    await use(ctx);
+    await ctx.close();
+  },
+
+  adminContext: async ({ browser }, use) => {
+    const ctx = await browser.newContext({
+      storageState: path.join(FIXTURES_DIR, 'admin.storageState.json'),
+    });
+    await use(ctx);
+    await ctx.close();
+  },
+
+  moderatorContext: async ({ browser }, use) => {
+    const ctx = await browser.newContext({
+      storageState: path.join(FIXTURES_DIR, 'moderator.storageState.json'),
     });
     await use(ctx);
     await ctx.close();
