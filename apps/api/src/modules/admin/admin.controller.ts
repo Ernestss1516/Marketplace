@@ -45,17 +45,20 @@ export class AdminController {
   // ─── Listings ─────────────────────────────────────────────────────────────
 
   @Get('listings')
+  @Roles(Role.MODERATOR, Role.ADMIN)
   listListings(@Query() query: ListAdminListingsDto) {
     return this.adminService.listListings(query);
   }
 
   @Get('listings/:id')
+  @Roles(Role.MODERATOR, Role.ADMIN)
   getListingById(@Param('id') id: string) {
     return this.adminService.getListingById(id);
   }
 
   @Patch('listings/:id/status')
   @HttpCode(HttpStatus.OK)
+  @Roles(Role.MODERATOR, Role.ADMIN)
   changeListingStatus(
     @Param('id') id: string,
     @Body() dto: ChangeListingStatusDto,
@@ -68,17 +71,20 @@ export class AdminController {
   // ─── Users ────────────────────────────────────────────────────────────────
 
   @Get('users')
+  @Roles(Role.MODERATOR, Role.ADMIN)
   listUsers(@Query() query: ListAdminUsersDto) {
     return this.adminService.listUsers(query);
   }
 
   @Get('users/:id')
+  @Roles(Role.MODERATOR, Role.ADMIN)
   getUserById(@Param('id') id: string) {
     return this.adminService.getUserById(id);
   }
 
   @Patch('users/:id/suspend')
   @HttpCode(HttpStatus.OK)
+  @Roles(Role.MODERATOR, Role.ADMIN)
   suspendUser(
     @Param('id') id: string,
     @CurrentUser() user: JwtUser,
@@ -87,6 +93,20 @@ export class AdminController {
     return this.adminService.suspendUser(id, user.userId, ip);
   }
 
+  // Reverses a SUSPENSION (SUSPENDED → ACTIVE). MODERATOR+ADMIN.
+  // Does not apply to BANNED users — use reinstateUser (ADMIN-only) for that.
+  @Patch('users/:id/unsuspend')
+  @HttpCode(HttpStatus.OK)
+  @Roles(Role.MODERATOR, Role.ADMIN)
+  unsuspendUser(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtUser,
+    @Ip() ip: string,
+  ) {
+    return this.adminService.unsuspendUser(id, user.userId, ip);
+  }
+
+  // Permanent ban — ADMIN-only (inherits class-level @Roles(ADMIN)).
   @Patch('users/:id/ban')
   @HttpCode(HttpStatus.OK)
   banUser(
@@ -97,6 +117,7 @@ export class AdminController {
     return this.adminService.banUser(id, user.userId, ip);
   }
 
+  // Reverses a BAN (BANNED → ACTIVE) — ADMIN-only (inherits class-level @Roles(ADMIN)).
   @Patch('users/:id/reinstate')
   @HttpCode(HttpStatus.OK)
   reinstateUser(
@@ -107,6 +128,7 @@ export class AdminController {
     return this.adminService.reinstateUser(id, user.userId, ip);
   }
 
+  // Role change — ADMIN-only (inherits class-level @Roles(ADMIN)). INNEGOCIABLE.
   @Patch('users/:id/role')
   @HttpCode(HttpStatus.OK)
   changeUserRole(

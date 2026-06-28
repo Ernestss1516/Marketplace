@@ -541,60 +541,87 @@ El wizard del frontend refleja el resultado real: si el backend devuelve
 `status: 'PENDING_REVIEW'`, muestra un panel informativo en lugar de navegar a la
 ficha del anuncio (que daría 404 porque los anuncios en PENDING_REVIEW no son públicos).
 
-### Separación de roles ADMIN / MODERATOR en el backoffice (RR5.1)
+### Separación de roles ADMIN / MODERATOR en el backoffice (RR5.1 + RR5.1-ext)
 
-**Backend:** la separación ya estaba correctamente implementada desde Fase 7. Todos los
-endpoints `/admin/*` llevan `@Roles(ADMIN)`; los endpoints `/moderation/*` llevan
-`@Roles(MODERATOR, ADMIN)`. No hay cambios de backend en esta ráfaga.
+**Regla de oro (innegociable):** `PATCH /admin/users/:id/role` es y permanecerá
+ADMIN-only siempre. Un MODERATOR con acceso a ese endpoint podría auto-promoverse
+a ADMIN (escalada de privilegios). La protección es triple: `RolesGuard` bloquea
+en el controlador; el DTO `ChangeUserRoleDto` solo permite `USER|MODERATOR` como
+valor destino (rechaza `ADMIN`); el servicio lanza 403 si el objetivo es ADMIN.
 
-**Frontend — middleware.ts:** el check binario `role !== 'ADMIN'` se reemplazó por
-lógica fina de dos capas:
+**Backend (RR5.1):** la separación base ya estaba correctamente implementada desde
+Fase 7. Todos los endpoints `/admin/*` llevan `@Roles(ADMIN)` en la clase; los
+endpoints `/moderation/*` llevan `@Roles(MODERATOR, ADMIN)`.
+
+**Backend (RR5.1-ext):** se añadieron decoradores `@Roles(MODERATOR, ADMIN)` a
+nivel de método en `AdminController` y `BlogAdminController` para abrir al MODERATOR
+acceso a listings, usuarios y blog (a excepción de las acciones destructivas/permanentes
+que siguen heredando `@Roles(ADMIN)` de la clase). Además se creó el endpoint
+`PATCH /admin/users/:id/unsuspend` (MODERATOR+ADMIN) para revertir una suspensión
+sin otorgar al MODERATOR la capacidad de desbanear usuarios baneados (que requiere
+`/reinstate`, ADMIN-only).
+
+**Frontend — middleware.ts:** `MODERATOR_ALLOWED_PATHS` controla qué rutas `/admin/*`
+puede visitar un MODERATOR. El ADMIN tiene acceso total. Cualquier otro rol es
+redirigido a `/`.
 
 ```typescript
-const MODERATOR_ALLOWED_PATHS = ['/admin/reportes'];
-
-if (isAdminRoute) {
-  const role = session?.user.role;
-  if (role === 'ADMIN')       { /* acceso total */ }
-  else if (role === 'MODERATOR') {
-    const allowed = MODERATOR_ALLOWED_PATHS.some((p) => pathname.startsWith(p));
-    if (!allowed) return Response.redirect(new URL('/', req.url));
-  } else { return Response.redirect(new URL('/', req.url)); }
-}
+const MODERATOR_ALLOWED_PATHS = [
+  '/admin/reportes',
+  '/admin/anuncios',
+  '/admin/usuarios',
+  '/admin/blog',
+];
 ```
 
-`MODERATOR_ALLOWED_PATHS` es la única fuente de verdad de qué páginas del backoffice
-puede acceder un MODERATOR. Al añadir una nueva sección al moderador, basta con añadir
-la ruta a ese array.
+**Frontend — AdminNav:** el array `NAV_ITEMS` tiene un campo `roles: string[]` por
+ítem. El MODERATOR ve 4 ítems (Anuncios, Usuarios, Reportes, Blog); el ADMIN ve los 8.
 
-**Frontend — AdminNav:** el array `NAV_ITEMS` tiene ahora un campo `roles: string[]`
-por ítem y el componente filtra con `session.user.role` via `useSession()`. El MODERATOR
-ve solo "Reportes"; el ADMIN ve los 8 ítems.
+**Frontend — Botones ADMIN-only ocultos al MODERATOR:**
+- `/admin/usuarios`: "Banear" y "Desbanear" solo visibles con `role === 'ADMIN'`.
+  El MODERATOR ve "Suspender" y "Reactivar" (suspend/unsuspend). Nunca ve "Banear".
+- `/admin/blog`: "Eliminar" solo visible con `role === 'ADMIN'`.
 
-**Tabla rol × sección (implementada):**
+**Tabla rol × acción (implementada tras RR5.1-ext):**
 
-| Sección del backoffice | Endpoint backend | MODERATOR | ADMIN |
-|---|---|---|---|
-| Dashboard / Stats | `/admin/stats` | ❌ | ✅ |
-| Reportes + acciones de moderación | `/moderation/*` | ✅ | ✅ |
-| Gestión de anuncios (admin) | `/admin/listings/*` | ❌ | ✅ |
-| Gestión de usuarios | `/admin/users/*` | ❌ | ✅ |
-| Categorías | `/admin/categories/*` | ❌ | ✅ |
-| Settings del sistema | `/admin/settings/*` | ❌ | ✅ |
-| Facturación / Créditos | `/admin/billing/*` | ❌ | ✅ |
-| Blog | `/admin/blog/*` | ❌ | ✅ |
+| Sección / Acción | MODERATOR | ADMIN |
+|---|---|---|
+| Dashboard / Stats | ❌ | ✅ |
+| Reportes (listar, start-review, resolve, dismiss) | ✅ | ✅ |
+| Moderación de anuncios (approve, reject, deactivate, restore) | ✅ | ✅ |
+| Gestión anuncios: listar, ver, cambiar estado | ✅ | ✅ |
+| Gestión usuarios: listar, ver | ✅ | ✅ |
+| Gestión usuarios: **suspender** (`/suspend`) | ✅ | ✅ |
+| Gestión usuarios: **reactivar suspensión** (`/unsuspend`) | ✅ | ✅ |
+| Gestión usuarios: **banear** (`/ban`) | ❌ | ✅ |
+| Gestión usuarios: **desbanear** (`/reinstate`) | ❌ | ✅ |
+| Gestión usuarios: **cambiar rol** (`/role`) | ❌ **innegociable** | ✅ |
+| Categorías | ❌ | ✅ |
+| Settings | ❌ | ✅ |
+| Facturación / Créditos | ❌ | ✅ |
+| Blog: listar, ver, crear, editar, publicar, despublicar | ✅ | ✅ |
+| Blog: **eliminar** (`DELETE`) | ❌ | ✅ |
 
-**Tests añadidos:**
-- `moderation.e2e-spec.ts`: 8 nuevos casos de frontera — `MODERATOR → 403` en los 7
-  endpoints ADMIN-only más confirmación de `MODERATOR → 200` en `/moderation/reports`.
-  Suite: 31 casos (23 originales + 8 nuevos).
-- `admin-roles.spec.ts` (Playwright): 7 tests — ADMIN carga el dashboard con 8 ítems
-  en el nav; MODERATOR es redirigido desde rutas ADMIN-only; MODERATOR carga
-  `/admin/reportes` y ve solo "Reportes" en el nav; MODERATOR ejecuta una acción de
-  moderación (desestimar reporte) sin 403.
-- `seed-playwright.ts` / `global-setup.ts` / `fixtures/auth.ts`: añadidos usuarios
-  `admin-e2e@example.com` (ADMIN) y `moderator-e2e@example.com` (MODERATOR) con sus
-  `storageState`; seed crea un reporte PENDING reutilizable por los tests.
+**Deuda técnica — sesión stale tras cambio de rol:** si un ADMIN degrada a MODERATOR
+a otro usuario, el JWT de ese usuario permanece válido hasta su expiración (7 días).
+Durante ese período, el middleware Next.js lee el rol del JWT (stale), no de la DB.
+Mitigación pendiente: forzar logout tras cambio de rol o reducir TTL del JWT para roles
+privilegiados.
+
+**Tests (RR5.1 + RR5.1-ext):**
+- `moderation.e2e-spec.ts`: 45 casos. Los 8 tests de frontera añadidos en RR5.1 se
+  actualizaron en RR5.1-ext (3 cambian de 403→200 como cambio de producto deliberado).
+  Añadidos 19 nuevos tests: acceso abierto al MODERATOR (listings, users, blog), acciones
+  ADMIN-only bloqueadas (ban, reinstate, blog delete) y dos tests críticos de no-escalada
+  (MODERATOR → 403 al intentar cambiar su propio rol o el de otro usuario).
+- `admin-roles.spec.ts` (Playwright): 12 tests — ADMIN ve 8 ítems en el nav; MODERATOR
+  es redirigido desde /admin, /admin/ajustes y /admin/facturacion; MODERATOR carga
+  /admin/anuncios, /admin/usuarios, /admin/blog y /admin/reportes sin redirect; el nav
+  muestra exactamente 4 ítems; "Banear" y "Eliminar" no son visibles para el MODERATOR;
+  desestimar reporte funciona sin 403.
+- `seed-playwright.ts` / `global-setup.ts` / `fixtures/auth.ts`: usuarios
+  `admin-e2e@example.com` (ADMIN) y `moderator-e2e@example.com` (MODERATOR) con
+  `storageState`; seed crea un reporte PENDING por cada ejecución.
 
 ### Protección anti-degradación de ADMIN en cambio de rol (Fase 7)
 

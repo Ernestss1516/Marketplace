@@ -7,6 +7,7 @@ import {
   getAdminUsers,
   getAdminUser,
   suspendUser,
+  unsuspendUser,
   banUser,
   reinstateUser,
   type AdminUser,
@@ -206,6 +207,7 @@ function UserDetailPanel({
 export default function AdminUsuariosPage() {
   const { data: session } = useSession();
   const token = (session?.user as { accessToken?: string } | undefined)?.accessToken;
+  const currentUserIsAdmin = session?.user.role === 'ADMIN';
 
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [total, setTotal] = useState(0);
@@ -458,6 +460,7 @@ export default function AdminUsuariosPage() {
                           {/* Status actions — not shown for ADMINs */}
                           {!isAdmin && (
                             <>
+                              {/* Suspender: MODERATOR+ADMIN */}
                               {user.status === 'ACTIVE' && (
                                 <Button
                                   variant="outline"
@@ -475,7 +478,8 @@ export default function AdminUsuariosPage() {
                                   )}
                                 </Button>
                               )}
-                              {(user.status === 'ACTIVE' || user.status === 'SUSPENDED') && (
+                              {/* Banear (permanente): ADMIN-only */}
+                              {(user.status === 'ACTIVE' || user.status === 'SUSPENDED') && currentUserIsAdmin && (
                                 <Button
                                   variant="outline"
                                   size="sm"
@@ -492,7 +496,26 @@ export default function AdminUsuariosPage() {
                                   )}
                                 </Button>
                               )}
-                              {(user.status === 'SUSPENDED' || user.status === 'BANNED') && (
+                              {/* Reactivar desde suspensión: MODERATOR+ADMIN */}
+                              {user.status === 'SUSPENDED' && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 px-2 text-xs"
+                                  disabled={isPending}
+                                  onClick={() =>
+                                    handleAction(() => unsuspendUser(token, user.id), user.id)
+                                  }
+                                >
+                                  {isPending ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    'Reactivar'
+                                  )}
+                                </Button>
+                              )}
+                              {/* Desbanear (BANNED → ACTIVE): ADMIN-only */}
+                              {user.status === 'BANNED' && currentUserIsAdmin && (
                                 <Button
                                   variant="outline"
                                   size="sm"
@@ -505,7 +528,7 @@ export default function AdminUsuariosPage() {
                                   {isPending ? (
                                     <Loader2 className="h-3 w-3 animate-spin" />
                                   ) : (
-                                    'Reinstaurar'
+                                    'Desbanear'
                                   )}
                                 </Button>
                               )}

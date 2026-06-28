@@ -154,10 +154,17 @@ export function suspendUser(token: string, id: string): Promise<unknown> {
   return apiFetch(`/admin/users/${id}/suspend`, { method: 'PATCH', token });
 }
 
+// Reverses a SUSPENSION (MODERATOR+ADMIN). Only valid if user is SUSPENDED.
+export function unsuspendUser(token: string, id: string): Promise<unknown> {
+  return apiFetch(`/admin/users/${id}/unsuspend`, { method: 'PATCH', token });
+}
+
+// Permanent ban — ADMIN-only.
 export function banUser(token: string, id: string): Promise<unknown> {
   return apiFetch(`/admin/users/${id}/ban`, { method: 'PATCH', token });
 }
 
+// Reverses a BAN (ADMIN-only).
 export function reinstateUser(token: string, id: string): Promise<unknown> {
   return apiFetch(`/admin/users/${id}/reinstate`, { method: 'PATCH', token });
 }

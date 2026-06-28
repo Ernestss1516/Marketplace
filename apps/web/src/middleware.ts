@@ -17,7 +17,12 @@ const adminPrefixes = ['/admin'];
 // Paths within /admin/ that a MODERATOR may access.
 // ADMIN always has full access. Any other role is always blocked.
 // Add new paths here when a section is opened to moderators.
-const MODERATOR_ALLOWED_PATHS = ['/admin/reportes'];
+const MODERATOR_ALLOWED_PATHS = [
+  '/admin/reportes',
+  '/admin/anuncios',
+  '/admin/usuarios',
+  '/admin/blog',
+];
 
 export default auth((req) => {
   const session = req.auth;

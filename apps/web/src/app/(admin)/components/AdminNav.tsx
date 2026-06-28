@@ -6,14 +6,14 @@ import { useSession } from 'next-auth/react';
 import { cn } from '@/lib/utils';
 
 const NAV_ITEMS: { href: string; label: string; roles: string[] }[] = [
-  { href: '/admin',            label: 'Dashboard',    roles: ['ADMIN'] },
-  { href: '/admin/anuncios',   label: 'Anuncios',     roles: ['ADMIN'] },
-  { href: '/admin/usuarios',   label: 'Usuarios',     roles: ['ADMIN'] },
-  { href: '/admin/reportes',   label: 'Reportes',     roles: ['ADMIN', 'MODERATOR'] },
-  { href: '/admin/facturacion',label: 'Facturación',  roles: ['ADMIN'] },
-  { href: '/admin/categorias', label: 'Categorías',   roles: ['ADMIN'] },
-  { href: '/admin/blog',       label: 'Blog',         roles: ['ADMIN'] },
-  { href: '/admin/ajustes',    label: 'Ajustes',      roles: ['ADMIN'] },
+  { href: '/admin',             label: 'Dashboard',    roles: ['ADMIN'] },
+  { href: '/admin/anuncios',    label: 'Anuncios',     roles: ['ADMIN', 'MODERATOR'] },
+  { href: '/admin/usuarios',    label: 'Usuarios',     roles: ['ADMIN', 'MODERATOR'] },
+  { href: '/admin/reportes',    label: 'Reportes',     roles: ['ADMIN', 'MODERATOR'] },
+  { href: '/admin/facturacion', label: 'Facturación',  roles: ['ADMIN'] },
+  { href: '/admin/categorias',  label: 'Categorías',   roles: ['ADMIN'] },
+  { href: '/admin/blog',        label: 'Blog',         roles: ['ADMIN', 'MODERATOR'] },
+  { href: '/admin/ajustes',     label: 'Ajustes',      roles: ['ADMIN'] },
 ];
 
 export function AdminNav() {

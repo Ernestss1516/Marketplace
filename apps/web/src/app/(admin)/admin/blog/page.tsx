@@ -45,6 +45,7 @@ function formatDate(iso: string | null) {
 export default function AdminBlogPage() {
   const { data: session } = useSession();
   const token = (session?.user as { accessToken?: string } | undefined)?.accessToken;
+  const currentUserIsAdmin = session?.user.role === 'ADMIN';
 
   const [posts, setPosts] = useState<AdminPostSummary[]>([]);
   const [total, setTotal] = useState(0);
@@ -270,19 +271,22 @@ export default function AdminBlogPage() {
                           )}
                         </Button>
                       )}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 px-2 text-xs text-destructive hover:text-destructive"
-                        onClick={() => handleDelete(post)}
-                        disabled={!!actionLoading}
-                      >
-                        {actionLoading === `del-${post.id}` ? (
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                        ) : (
-                          'Eliminar'
-                        )}
-                      </Button>
+                      {/* Eliminar: ADMIN-only */}
+                      {currentUserIsAdmin && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2 text-xs text-destructive hover:text-destructive"
+                          onClick={() => handleDelete(post)}
+                          disabled={!!actionLoading}
+                        >
+                          {actionLoading === `del-${post.id}` ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            'Eliminar'
+                          )}
+                        </Button>
+                      )}
                     </div>
                   </td>
                 </tr>

@@ -562,25 +562,11 @@ describe('Moderation (e2e)', () => {
       .expect(404);
   });
 
-  // ── Role boundaries: MODERATOR must not access ADMIN-only endpoints ─────────
+  // ── Role boundaries: ADMIN-only endpoints — unchanged, MODERATOR blocked ─────
 
   it('MODERATOR → GET /admin/stats → 403', async () => {
     await request(app.getHttpServer())
       .get('/api/admin/stats')
-      .set('Authorization', `Bearer ${moderatorToken}`)
-      .expect(403);
-  });
-
-  it('MODERATOR → GET /admin/listings → 403', async () => {
-    await request(app.getHttpServer())
-      .get('/api/admin/listings')
-      .set('Authorization', `Bearer ${moderatorToken}`)
-      .expect(403);
-  });
-
-  it('MODERATOR → GET /admin/users → 403', async () => {
-    await request(app.getHttpServer())
-      .get('/api/admin/users')
       .set('Authorization', `Bearer ${moderatorToken}`)
       .expect(403);
   });
@@ -606,14 +592,153 @@ describe('Moderation (e2e)', () => {
       .expect(403);
   });
 
-  it('MODERATOR → GET /admin/blog → 403', async () => {
+  // ── Role boundaries: opened endpoints (cambio de producto deliberado RR5.1-ext) ──
+  // These were 403 in RR5.1 and are now 200 because MODERATOR access was extended.
+
+  it('MODERATOR → GET /admin/listings → 200 [cambio de producto RR5.1-ext]', async () => {
+    await request(app.getHttpServer())
+      .get('/api/admin/listings')
+      .set('Authorization', `Bearer ${moderatorToken}`)
+      .expect(200);
+  });
+
+  it('MODERATOR → GET /admin/listings/:id → 200', async () => {
+    await request(app.getHttpServer())
+      .get(`/api/admin/listings/${sharedListingId}`)
+      .set('Authorization', `Bearer ${moderatorToken}`)
+      .expect(200);
+  });
+
+  it('MODERATOR → PATCH /admin/listings/:id/status → 200', async () => {
+    await request(app.getHttpServer())
+      .patch(`/api/admin/listings/${sharedListingId}/status`)
+      .set('Authorization', `Bearer ${moderatorToken}`)
+      .send({ status: 'REJECTED', reason: 'Test RR5.1-ext role boundary' })
+      .expect(200);
+  });
+
+  it('MODERATOR → GET /admin/users → 200 [cambio de producto RR5.1-ext]', async () => {
+    await request(app.getHttpServer())
+      .get('/api/admin/users')
+      .set('Authorization', `Bearer ${moderatorToken}`)
+      .expect(200);
+  });
+
+  it('MODERATOR → GET /admin/users/:id → 200', async () => {
+    await request(app.getHttpServer())
+      .get(`/api/admin/users/${sellerId}`)
+      .set('Authorization', `Bearer ${moderatorToken}`)
+      .expect(200);
+  });
+
+  it('MODERATOR → PATCH /admin/users/:id/suspend → 200', async () => {
+    const res = await request(app.getHttpServer())
+      .patch(`/api/admin/users/${sellerId}/suspend`)
+      .set('Authorization', `Bearer ${moderatorToken}`)
+      .expect(200);
+    expect(res.body.status).toBe('SUSPENDED');
+  });
+
+  it('MODERATOR → PATCH /admin/users/:id/unsuspend → 200 (SUSPENDED → ACTIVE)', async () => {
+    const res = await request(app.getHttpServer())
+      .patch(`/api/admin/users/${sellerId}/unsuspend`)
+      .set('Authorization', `Bearer ${moderatorToken}`)
+      .expect(200);
+    expect(res.body.status).toBe('ACTIVE');
+  });
+
+  it('MODERATOR → GET /admin/blog → 200 [cambio de producto RR5.1-ext]', async () => {
     await request(app.getHttpServer())
       .get('/api/admin/blog')
+      .set('Authorization', `Bearer ${moderatorToken}`)
+      .expect(200);
+  });
+
+  // Track blog post created by MODERATOR for publish/unpublish/delete tests
+  let roleBoundaryBlogPostId: string;
+
+  it('MODERATOR → POST /admin/blog → 201 (crear DRAFT)', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/api/admin/blog')
+      .set('Authorization', `Bearer ${moderatorToken}`)
+      .send({
+        title: 'Post RR5.1-ext Role Boundary',
+        slug: 'post-rr51-role-boundary',
+        body: 'Contenido de prueba para verificar acceso del moderador al blog.',
+      })
+      .expect(201);
+    roleBoundaryBlogPostId = res.body.id as string;
+    expect(res.body.status).toBe('DRAFT');
+  });
+
+  it('MODERATOR → GET /admin/blog/:id → 200', async () => {
+    await request(app.getHttpServer())
+      .get(`/api/admin/blog/${roleBoundaryBlogPostId}`)
+      .set('Authorization', `Bearer ${moderatorToken}`)
+      .expect(200);
+  });
+
+  it('MODERATOR → POST /admin/blog/:id/publish → 200 (DRAFT → PUBLISHED)', async () => {
+    const res = await request(app.getHttpServer())
+      .post(`/api/admin/blog/${roleBoundaryBlogPostId}/publish`)
+      .set('Authorization', `Bearer ${moderatorToken}`)
+      .expect(200);
+    expect(res.body.status).toBe('PUBLISHED');
+  });
+
+  it('MODERATOR → POST /admin/blog/:id/unpublish → 200 (PUBLISHED → DRAFT)', async () => {
+    const res = await request(app.getHttpServer())
+      .post(`/api/admin/blog/${roleBoundaryBlogPostId}/unpublish`)
+      .set('Authorization', `Bearer ${moderatorToken}`)
+      .expect(200);
+    expect(res.body.status).toBe('DRAFT');
+  });
+
+  // ── Role boundaries: ADMIN-only actions — MODERATOR must be blocked ───────────
+
+  it('MODERATOR → PATCH /admin/users/:id/ban → 403 (ban permanente: ADMIN-only)', async () => {
+    await request(app.getHttpServer())
+      .patch(`/api/admin/users/${sellerId}/ban`)
       .set('Authorization', `Bearer ${moderatorToken}`)
       .expect(403);
   });
 
-  // Confirm MODERATOR retains access to all /moderation/* endpoints
+  it('MODERATOR → PATCH /admin/users/:id/reinstate → 403 (desbanear BANNED: ADMIN-only)', async () => {
+    await request(app.getHttpServer())
+      .patch(`/api/admin/users/${sellerId}/reinstate`)
+      .set('Authorization', `Bearer ${moderatorToken}`)
+      .expect(403);
+  });
+
+  it('MODERATOR → DELETE /admin/blog/:id → 403 (borrado permanente: ADMIN-only)', async () => {
+    await request(app.getHttpServer())
+      .delete(`/api/admin/blog/${roleBoundaryBlogPostId}`)
+      .set('Authorization', `Bearer ${moderatorToken}`)
+      .expect(403);
+  });
+
+  // ── CRÍTICOS: no-escalada de privilegios (deben quedar VERDES siempre) ────────
+
+  it('CRÍTICO: MODERATOR intenta auto-escalada → PATCH /admin/users/:ownId/role {role:ADMIN} → 403', async () => {
+    // RolesGuard blocks MODERATOR before the endpoint is reached.
+    // Even if the guard were bypassed, the DTO and service have independent layers.
+    await request(app.getHttpServer())
+      .patch(`/api/admin/users/${moderatorId}/role`)
+      .set('Authorization', `Bearer ${moderatorToken}`)
+      .send({ role: 'ADMIN' })
+      .expect(403);
+  });
+
+  it('CRÍTICO: MODERATOR intenta cambiar el rol de otro usuario → 403', async () => {
+    await request(app.getHttpServer())
+      .patch(`/api/admin/users/${sellerId}/role`)
+      .set('Authorization', `Bearer ${moderatorToken}`)
+      .send({ role: 'MODERATOR' })
+      .expect(403);
+  });
+
+  // ── MODERATOR retains full access to /moderation/* ────────────────────────────
+
   it('MODERATOR → GET /moderation/reports → 200', async () => {
     await request(app.getHttpServer())
       .get('/api/moderation/reports')

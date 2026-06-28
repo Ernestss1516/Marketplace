@@ -280,10 +280,24 @@ export class AdminService {
     return this.changeUserStatus(targetId, actorId, UserStatus.SUSPENDED, 'USER_SUSPEND', ip);
   }
 
+  // Reverses a suspension (SUSPENDED → ACTIVE). Accessible to MODERATOR+ADMIN.
+  // Throws 400 if the user is not currently SUSPENDED (use reinstateUser for BANNED).
+  async unsuspendUser(targetId: string, actorId: string, ip?: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: targetId } });
+    if (!user) throw new NotFoundException('Usuario no encontrado');
+    if (user.status !== UserStatus.SUSPENDED) {
+      throw new BadRequestException(
+        'Solo se pueden reactivar usuarios en estado SUSPENDED. Para BANNED, usa desbanear.',
+      );
+    }
+    return this.changeUserStatus(targetId, actorId, UserStatus.ACTIVE, 'USER_UNSUSPEND', ip);
+  }
+
   async banUser(targetId: string, actorId: string, ip?: string) {
     return this.changeUserStatus(targetId, actorId, UserStatus.BANNED, 'USER_BAN', ip);
   }
 
+  // Reverses a ban (BANNED → ACTIVE). ADMIN-only.
   async reinstateUser(targetId: string, actorId: string, ip?: string) {
     return this.changeUserStatus(targetId, actorId, UserStatus.ACTIVE, 'USER_REINSTATE', ip);
   }
