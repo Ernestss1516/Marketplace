@@ -84,19 +84,6 @@ async function seedSettings() {
     skipDuplicates: true,
   });
 
-  // Upsert (not skipDuplicates) so limits are always overwritten — the prod seed or
-  // a previous CI run may have set a lower value that would block test publishes.
-  await prisma.setting.upsert({
-    where: { key: 'freeActiveListingLimit' },
-    create: { key: 'freeActiveListingLimit', value: 50 },
-    update: { value: 50 },
-  });
-  await prisma.setting.upsert({
-    where: { key: 'proActiveListingLimit' },
-    create: { key: 'proActiveListingLimit', value: 200 },
-    update: { value: 200 },
-  });
-
   console.log('Test seed: settings OK');
 }
 

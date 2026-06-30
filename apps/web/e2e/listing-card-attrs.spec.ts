@@ -62,8 +62,8 @@ async function publishCoche(
 
 test.describe('RC5.5 — ListingCard: cardAttributes por categoría', () => {
 
-  test('Categoría Coches (Postgres): card muestra Marca y Año del coche', async ({ sellerContext }) => {
-    const page = await sellerContext.newPage();
+  test('Categoría Coches (Postgres): card muestra Marca y Año del coche', async ({ proContext }) => {
+    const page = await proContext.newPage();
     const TITLE = `Card Coche RC5.5 ${Date.now()}`;
 
     await publishCoche(page, TITLE);
@@ -86,8 +86,8 @@ test.describe('RC5.5 — ListingCard: cardAttributes por categoría', () => {
     await expect(card).not.toContainText('Kilómetros:');
   });
 
-  test('Categoría Coches (Postgres): coche sin valor de brand omite ese atributo (sin "undefined")', async ({ sellerContext }) => {
-    const page = await sellerContext.newPage();
+  test('Categoría Coches (Postgres): coche sin valor de brand omite ese atributo (sin "undefined")', async ({ proContext }) => {
+    const page = await proContext.newPage();
     const TITLE = `Card Coche sin brand ${Date.now()}`;
 
     // Publish without filling brand (optional field)
@@ -136,8 +136,8 @@ test.describe('RC5.5 — ListingCard: cardAttributes por categoría', () => {
     await expect(card).not.toContainText('undefined');
   });
 
-  test('Búsqueda (Meilisearch): card muestra los mismos cardAttributes', async ({ sellerContext }) => {
-    const page = await sellerContext.newPage();
+  test('Búsqueda (Meilisearch): card muestra los mismos cardAttributes', async ({ proContext }) => {
+    const page = await proContext.newPage();
     const TITLE = `Card Meili RC5.5 ${Date.now()}`;
 
     await publishCoche(page, TITLE);
@@ -153,8 +153,8 @@ test.describe('RC5.5 — ListingCard: cardAttributes por categoría', () => {
     await expect(card).toContainText('Año: 2022');
   });
 
-  test('Categoría sin cardAttributes (Electrónica → Móviles): cards no rompen', async ({ sellerContext }) => {
-    const page = await sellerContext.newPage();
+  test('Categoría sin cardAttributes (Electrónica → Móviles): cards no rompen', async ({ proContext }) => {
+    const page = await proContext.newPage();
 
     // Publish a móvil listing (Electrónica → Móviles — neither brand nor ram is cardAttribute in seed)
     const TITLE = `Móvil sin card attrs ${Date.now()}`;
