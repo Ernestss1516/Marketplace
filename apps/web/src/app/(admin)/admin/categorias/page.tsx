@@ -5,6 +5,7 @@ import { useSession } from 'next-auth/react';
 import { AlertCircle, ChevronDown, ChevronUp, Loader2, Plus, Trash2 } from 'lucide-react';
 import {
   getAdminCategories,
+  getSearchableKeys,
   createAdminCategory,
   updateAdminCategory,
   reorderAdminCategories,
@@ -12,27 +13,28 @@ import {
   type AdminCategory,
   type AdminCategoryChild,
 } from '@/lib/api/admin';
+import { getCategoryBySlug } from '@/lib/api/categorias';
 import { ApiError } from '@/lib/api/client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import {
+  AttributeSchemaEditor,
+  parseAttributeSchema,
+  serializeAttributeSchema,
+  type AttributeSchemaWithExtras,
+} from '@/components/admin/AttributeSchemaEditor';
+import type { AttributeSchema } from '@/types';
 
-// ─── Form values ──────────────────────────────────────────────────────────────
+// ─── Form values (name/slug/iconUrl/order only — schema is managed separately) ──
 
 interface CategoryFormValues {
   name: string;
   slug: string;
   iconUrl: string;
   order: string;
-  schemaRaw: string;
 }
 
-const EMPTY_FORM: CategoryFormValues = {
-  name: '',
-  slug: '',
-  iconUrl: '',
-  order: '0',
-  schemaRaw: '[]',
-};
+const EMPTY_FORM: CategoryFormValues = { name: '', slug: '', iconUrl: '', order: '0' };
 
 function toForm(cat: AdminCategoryChild): CategoryFormValues {
   return {
@@ -40,23 +42,10 @@ function toForm(cat: AdminCategoryChild): CategoryFormValues {
     slug: cat.slug,
     iconUrl: cat.iconUrl ?? '',
     order: String(cat.order),
-    schemaRaw: JSON.stringify(cat.attributeSchema ?? [], null, 2),
   };
 }
 
-function parseSchema(raw: string): { value: unknown[]; error: string | null } {
-  const trimmed = raw.trim();
-  if (!trimmed || trimmed === '[]') return { value: [], error: null };
-  try {
-    const parsed = JSON.parse(trimmed);
-    if (!Array.isArray(parsed)) return { value: [], error: 'El schema debe ser un array JSON.' };
-    return { value: parsed, error: null };
-  } catch {
-    return { value: [], error: 'JSON inválido. Revisa la sintaxis.' };
-  }
-}
-
-// ─── Inline category form ─────────────────────────────────────────────────────
+// ─── Inline category form (name / slug / iconUrl / order only) ────────────────
 
 function CategoryForm({
   title,
@@ -122,20 +111,6 @@ function CategoryForm({
           />
         </div>
       </div>
-      <div className="mt-3 flex flex-col gap-1">
-        <label className="text-xs font-medium text-muted-foreground">
-          Attribute Schema{' '}
-          <span className="font-normal">(JSON array, opcional)</span>
-        </label>
-        <textarea
-          value={values.schemaRaw}
-          onChange={(e) => onChange({ schemaRaw: e.target.value })}
-          rows={5}
-          spellCheck={false}
-          className="resize-y rounded-md border bg-background px-3 py-2 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-ring"
-          disabled={saving}
-        />
-      </div>
       {error && (
         <div className="mt-2 flex items-center gap-2 text-xs text-destructive">
           <AlertCircle className="h-3 w-3 shrink-0" />
@@ -149,6 +124,96 @@ function CategoryForm({
         <Button size="sm" variant="outline" onClick={onCancel} disabled={saving}>
           Cancelar
         </Button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Schema editor sub-panel (name/iconUrl form + attribute editor) ───────────
+
+interface SchemaEditorPanelProps {
+  catId: string;
+  ownSchema: AttributeSchemaWithExtras[];
+  inherited: AttributeSchema[];
+  parentName?: string;
+  searchableKeys: string[];
+  loadingInherited: boolean;
+  modified: boolean;
+  saving: boolean;
+  error: string | null;
+  hasActiveEdit: boolean;
+  onFieldsChange: (fields: AttributeSchemaWithExtras[]) => void;
+  onSave: () => void;
+  onHasActiveEdit: (v: boolean) => void;
+}
+
+function SchemaEditorPanel({
+  catId,
+  ownSchema,
+  inherited,
+  parentName,
+  searchableKeys,
+  loadingInherited,
+  modified,
+  saving,
+  error,
+  hasActiveEdit,
+  onFieldsChange,
+  onSave,
+  onHasActiveEdit,
+}: SchemaEditorPanelProps) {
+  return (
+    <div className="mt-4 rounded-md border bg-muted/10 p-4">
+      <div className="mb-3 flex items-center gap-2">
+        <p className="text-sm font-medium">Atributos</p>
+        {modified && (
+          <span className="flex items-center gap-1 text-[11px] font-medium text-amber-600">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500" />
+            Sin guardar
+          </span>
+        )}
+      </div>
+
+      {loadingInherited ? (
+        <div className="flex items-center gap-1.5 py-2 text-xs text-muted-foreground">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          Cargando schema heredado…
+        </div>
+      ) : (
+        <AttributeSchemaEditor
+          key={catId}
+          ownSchema={ownSchema}
+          inheritedFields={inherited}
+          parentName={parentName}
+          searchableKeys={searchableKeys}
+          onChange={onFieldsChange}
+          onHasActiveEdit={onHasActiveEdit}
+          disabled={saving}
+        />
+      )}
+
+      {error && (
+        <div className="mt-2 flex items-center gap-1.5 text-xs text-destructive">
+          <AlertCircle className="h-3 w-3 shrink-0" />
+          {error}
+        </div>
+      )}
+
+      <div className="mt-3 flex items-center gap-3">
+        <Button
+          size="sm"
+          variant={modified ? 'default' : 'outline'}
+          onClick={onSave}
+          disabled={saving || !modified || hasActiveEdit}
+          data-testid="save-schema-btn"
+        >
+          {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Guardar atributos'}
+        </Button>
+        {hasActiveEdit && (
+          <span className="text-xs text-muted-foreground">
+            Confirma o cancela el campo en edición primero
+          </span>
+        )}
       </div>
     </div>
   );
@@ -173,6 +238,7 @@ function CategoryRow({
   onEditCancel,
   editSaving,
   editError,
+  schemaPanel,
   indent,
 }: {
   cat: AdminCategoryChild;
@@ -191,6 +257,7 @@ function CategoryRow({
   onEditCancel: () => void;
   editSaving: boolean;
   editError: string | null;
+  schemaPanel: SchemaEditorPanelProps | null;
   indent: boolean;
 }) {
   return (
@@ -239,11 +306,7 @@ function CategoryRow({
             onClick={onDelete}
             disabled={isDeleting}
           >
-            {isDeleting ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              <Trash2 className="h-3 w-3" />
-            )}
+            {isDeleting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
           </Button>
         </div>
       </div>
@@ -256,9 +319,9 @@ function CategoryRow({
         </div>
       )}
 
-      {/* Edit form */}
+      {/* Edit panel */}
       {isEditing && (
-        <div className="mb-2">
+        <div className="mb-2 space-y-0">
           <CategoryForm
             title={`Editando: ${cat.name}`}
             values={editForm}
@@ -268,6 +331,7 @@ function CategoryRow({
             saving={editSaving}
             error={editError}
           />
+          {schemaPanel && <SchemaEditorPanel {...schemaPanel} />}
         </div>
       )}
     </div>
@@ -284,17 +348,34 @@ export default function AdminCategoriasPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Searchable keys — loaded once on mount
+  const [searchableKeys, setSearchableKeys] = useState<string[]>([]);
+
   // Edit state
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<CategoryFormValues>(EMPTY_FORM);
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
+  // Schema editor state for edit mode
+  const [editOwnSchema, setEditOwnSchema] = useState<AttributeSchemaWithExtras[]>([]);
+  const [editInherited, setEditInherited] = useState<AttributeSchema[]>([]);
+  const [editParentName, setEditParentName] = useState<string | undefined>();
+  const [loadingInherited, setLoadingInherited] = useState(false);
+  const [schemaModified, setSchemaModified] = useState(false);
+  const [schemaSaving, setSchemaSaving] = useState(false);
+  const [schemaError, setSchemaError] = useState<string | null>(null);
+  const [schemaHasActiveEdit, setSchemaHasActiveEdit] = useState(false);
+
   // Create state: undefined = hidden, null = root, string = parentId
   const [createParentId, setCreateParentId] = useState<string | null | undefined>(undefined);
   const [createForm, setCreateForm] = useState<CategoryFormValues>(EMPTY_FORM);
   const [createSaving, setCreateSaving] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [createOwnSchema, setCreateOwnSchema] = useState<AttributeSchemaWithExtras[]>([]);
+  const [createInherited, setCreateInherited] = useState<AttributeSchema[]>([]);
+  const [createParentName, setCreateParentName] = useState<string | undefined>();
+  const [createSchemaHasActiveEdit, setCreateSchemaHasActiveEdit] = useState(false);
 
   // Delete state
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -325,9 +406,17 @@ export default function AdminCategoriasPage() {
     fetchCategories();
   }, [fetchCategories]);
 
-  // ── Edit ──────────────────────────────────────────────────────────────────
+  // Load searchable keys once the token is available
+  useEffect(() => {
+    if (!token) return;
+    getSearchableKeys(token)
+      .then(({ keys }) => setSearchableKeys(keys))
+      .catch(() => { /* silent — filterable checkboxes will all appear disabled */ });
+  }, [token]);
 
-  function startEdit(cat: AdminCategoryChild) {
+  // ── Edit ────────────────────────────────────────────────────────────────────
+
+  function startEdit(cat: AdminCategoryChild, parent?: { slug: string; name: string }) {
     if (editingId === cat.id) {
       setEditingId(null);
       return;
@@ -335,13 +424,37 @@ export default function AdminCategoriasPage() {
     setEditingId(cat.id);
     setEditForm(toForm(cat));
     setEditError(null);
+    setEditOwnSchema(parseAttributeSchema(cat.attributeSchema as unknown[]));
+    setEditInherited([]);
+    setEditParentName(undefined);
+    setSchemaModified(false);
+    setSchemaError(null);
+    setSchemaHasActiveEdit(false);
     setCreateParentId(undefined);
+
+    // Lazy fetch effective schema to extract inherited fields
+    if (parent) {
+      setLoadingInherited(true);
+      setEditParentName(parent.name);
+      getCategoryBySlug(parent.slug)
+        .then((effective) => {
+          const ownNames = new Set((cat.attributeSchema ?? []).map((f) => (f as AttributeSchema).name));
+          setEditInherited(effective.attributeSchema.filter((f) => !ownNames.has(f.name)));
+        })
+        .catch(() => { /* non-fatal — inherited section stays empty */ })
+        .finally(() => setLoadingInherited(false));
+    }
   }
 
   async function handleEditSave() {
     if (!token || !editingId || editSaving) return;
-    const { value: schema, error: schemaErr } = parseSchema(editForm.schemaRaw);
-    if (schemaErr) { setEditError(schemaErr); return; }
+
+    if (schemaModified) {
+      setEditError(
+        'Tienes atributos sin guardar. Guarda los cambios de atributos primero, o guárdalos por separado con "Guardar atributos".',
+      );
+      return;
+    }
 
     setEditSaving(true);
     setEditError(null);
@@ -351,32 +464,56 @@ export default function AdminCategoriasPage() {
         slug: editForm.slug,
         iconUrl: editForm.iconUrl || undefined,
         order: parseInt(editForm.order) || 0,
-        attributeSchema: schema,
       });
       setEditingId(null);
       await fetchCategories();
     } catch (err) {
-      setEditError(
-        err instanceof ApiError ? err.message : 'Error al guardar',
-      );
+      setEditError(err instanceof ApiError ? err.message : 'Error al guardar');
     } finally {
       setEditSaving(false);
     }
   }
 
-  // ── Create ────────────────────────────────────────────────────────────────
+  async function handleSaveSchema() {
+    if (!token || !editingId || schemaSaving) return;
+    setSchemaSaving(true);
+    setSchemaError(null);
+    try {
+      const serialized = serializeAttributeSchema(editOwnSchema, searchableKeys);
+      await updateAdminCategory(token, editingId, { attributeSchema: serialized });
+      setSchemaModified(false);
+      await fetchCategories();
+    } catch (err) {
+      setSchemaError(err instanceof ApiError ? err.message : 'Error al guardar atributos');
+    } finally {
+      setSchemaSaving(false);
+    }
+  }
+
+  // ── Create ──────────────────────────────────────────────────────────────────
 
   function openCreate(parentId: string | null) {
     setCreateParentId(parentId);
     setCreateForm(EMPTY_FORM);
     setCreateError(null);
+    setCreateOwnSchema([]);
+    setCreateInherited([]);
+    setCreateParentName(undefined);
+    setCreateSchemaHasActiveEdit(false);
     setEditingId(null);
+
+    if (parentId) {
+      const parent = categories.find((c) => c.id === parentId);
+      if (parent) {
+        setCreateParentName(parent.name);
+        // Parent is a root category → its effective schema = its own schema
+        setCreateInherited(parseAttributeSchema(parent.attributeSchema as unknown[]) as AttributeSchema[]);
+      }
+    }
   }
 
   async function handleCreateSave() {
     if (!token || createSaving || createParentId === undefined) return;
-    const { value: schema, error: schemaErr } = parseSchema(createForm.schemaRaw);
-    if (schemaErr) { setCreateError(schemaErr); return; }
 
     setCreateSaving(true);
     setCreateError(null);
@@ -387,20 +524,19 @@ export default function AdminCategoriasPage() {
         parentId: createParentId ?? undefined,
         iconUrl: createForm.iconUrl || undefined,
         order: parseInt(createForm.order) || 0,
-        attributeSchema: schema,
+        attributeSchema: serializeAttributeSchema(createOwnSchema, searchableKeys),
       });
       setCreateParentId(undefined);
+      setCreateOwnSchema([]);
       await fetchCategories();
     } catch (err) {
-      setCreateError(
-        err instanceof ApiError ? err.message : 'Error al crear',
-      );
+      setCreateError(err instanceof ApiError ? err.message : 'Error al crear');
     } finally {
       setCreateSaving(false);
     }
   }
 
-  // ── Delete ────────────────────────────────────────────────────────────────
+  // ── Delete ──────────────────────────────────────────────────────────────────
 
   async function handleDelete(id: string, name: string) {
     if (!token || !window.confirm(`¿Eliminar la categoría "${name}"?`)) return;
@@ -410,15 +546,14 @@ export default function AdminCategoriasPage() {
       await deleteAdminCategory(token, id);
       await fetchCategories();
     } catch (err) {
-      const msg =
-        err instanceof ApiError ? err.message : 'Error al eliminar la categoría';
+      const msg = err instanceof ApiError ? err.message : 'Error al eliminar la categoría';
       setDeleteErrors((prev) => ({ ...prev, [id]: msg }));
     } finally {
       setDeletingId(null);
     }
   }
 
-  // ── Reorder ───────────────────────────────────────────────────────────────
+  // ── Reorder ─────────────────────────────────────────────────────────────────
 
   async function moveRoot(catId: string, dir: 'up' | 'down') {
     const sorted = [...categories].sort((a, b) => a.order - b.order);
@@ -486,7 +621,7 @@ export default function AdminCategoriasPage() {
     }
   }
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // ── Render ──────────────────────────────────────────────────────────────────
 
   if (!token) {
     return (
@@ -494,6 +629,25 @@ export default function AdminCategoriasPage() {
         Sesión no disponible. Recarga la página o inicia sesión de nuevo.
       </div>
     );
+  }
+
+  // Schema panel props for the currently-editing category (shared between root and child rows)
+  function buildSchemaPanel(cat: AdminCategoryChild): SchemaEditorPanelProps {
+    return {
+      catId: cat.id,
+      ownSchema: editOwnSchema,
+      inherited: editInherited,
+      parentName: editParentName,
+      searchableKeys,
+      loadingInherited,
+      modified: schemaModified,
+      saving: schemaSaving,
+      error: schemaError,
+      hasActiveEdit: schemaHasActiveEdit,
+      onFieldsChange: (fields) => { setEditOwnSchema(fields); setSchemaModified(true); },
+      onSave: handleSaveSchema,
+      onHasActiveEdit: setSchemaHasActiveEdit,
+    };
   }
 
   return (
@@ -521,7 +675,7 @@ export default function AdminCategoriasPage() {
 
       {/* Root create form */}
       {createParentId === null && (
-        <div className="mb-4">
+        <div className="mb-4 space-y-0">
           <CategoryForm
             title="Nueva categoría raíz"
             values={createForm}
@@ -531,6 +685,18 @@ export default function AdminCategoriasPage() {
             saving={createSaving}
             error={createError}
           />
+          <div className="mt-2 rounded-md border bg-muted/10 p-4">
+            <p className="mb-3 text-sm font-medium">Atributos</p>
+            <AttributeSchemaEditor
+              key="create-root"
+              ownSchema={createOwnSchema}
+              inheritedFields={[]}
+              searchableKeys={searchableKeys}
+              onChange={setCreateOwnSchema}
+              onHasActiveEdit={setCreateSchemaHasActiveEdit}
+              disabled={createSaving}
+            />
+          </div>
         </div>
       )}
 
@@ -570,6 +736,7 @@ export default function AdminCategoriasPage() {
               onEditCancel={() => setEditingId(null)}
               editSaving={editSaving}
               editError={editError}
+              schemaPanel={editingId === cat.id ? buildSchemaPanel(cat) : null}
               indent={false}
             />
 
@@ -587,7 +754,7 @@ export default function AdminCategoriasPage() {
                       isLast={childIdx === cat.children.length - 1}
                       onMoveUp={() => moveChild(cat.id, child.id, 'up')}
                       onMoveDown={() => moveChild(cat.id, child.id, 'down')}
-                      onEdit={() => startEdit(child)}
+                      onEdit={() => startEdit(child, { slug: cat.slug, name: cat.name })}
                       onDelete={() => handleDelete(child.id, child.name)}
                       isEditing={editingId === child.id}
                       isDeleting={deletingId === child.id}
@@ -598,6 +765,7 @@ export default function AdminCategoriasPage() {
                       onEditCancel={() => setEditingId(null)}
                       editSaving={editSaving}
                       editError={editError}
+                      schemaPanel={editingId === child.id ? buildSchemaPanel(child) : null}
                       indent
                     />
                   ))}
@@ -616,6 +784,25 @@ export default function AdminCategoriasPage() {
                   saving={createSaving}
                   error={createError}
                 />
+                <div className="mt-2 rounded-md border bg-muted/10 p-4">
+                  <p className="mb-3 text-sm font-medium">Atributos</p>
+                  {createInherited.length > 0 && (
+                    <p className="mb-2 text-xs text-muted-foreground">
+                      La subcategoría heredará los atributos de <strong>{createParentName}</strong>.
+                      Aquí defines solo los suyos propios.
+                    </p>
+                  )}
+                  <AttributeSchemaEditor
+                    key={`create-${cat.id}`}
+                    ownSchema={createOwnSchema}
+                    inheritedFields={createInherited}
+                    parentName={createParentName}
+                    searchableKeys={searchableKeys}
+                    onChange={setCreateOwnSchema}
+                    onHasActiveEdit={setCreateSchemaHasActiveEdit}
+                    disabled={createSaving}
+                  />
+                </div>
               </div>
             )}
 

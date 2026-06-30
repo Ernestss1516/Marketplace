@@ -1,6 +1,6 @@
 # Estado técnico del proyecto — Marketplace
 
-> Fecha: 2026-06-30 · Rama: `main` · Último commit: RC5.2b — seed Vehículos reorganizado (year+km al padre), validación de atributos usa schema efectivo
+> Fecha: 2026-06-30 · Rama: `main` · Último commit: RC5.3 — editor visual de atributos (reemplaza textarea JSON en /admin/categorias)
 > Plan vigente: `docs/Hoja_de_ruta_rafagas_Hito5-9.docx` (Hitos 5–9). Hitos 5–6 firmes; 7–9 boceto a re-detallar al llegar.
 
 Documento de referencia para retomar el proyecto. Recoge qué hay implementado,
@@ -66,7 +66,7 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **Admin anuncios** `/admin/anuncios` | ✅ Completo | Tabla paginada con chips de filtro por estado; cambio de estado inline (select + razón + confirmar) vía `PATCH /admin/listings/:id/status`; reportes recibidos visibles en la fila |
 | **Admin usuarios** `/admin/usuarios` | ✅ Completo | Tabla con buscador (nombre/email), chips status y rol; acciones suspend/ban/reinstate contextuales al estado; panel de detalle expandible (últimos anuncios + reportes recibidos + auditlog); no muestra botones de acción para usuarios ADMIN |
 | **Admin reportes** `/admin/reportes` | ✅ Completo | Cola de reportes paginada con filtro de estado; acciones resolve/dismiss/retirar anuncio |
-| **Admin categorías** `/admin/categorias` | ✅ Completo | Árbol de categorías con CRUD inline (crear raíz/subcategoría, editar, borrar); reordenación por ↑↓ con `PATCH /admin/categories/reorder`; editor de `attributeSchema` como textarea JSON con validación previa al envío; errores 400 del backend (anuncios activos o subcategorías existentes) propagados con mensaje literal bajo la fila |
+| **Admin categorías** `/admin/categorias` | ✅ Completo (RC5.3) | Árbol con CRUD inline (crear raíz/subcategoría, editar, borrar); reordenación ↑↓ (`PATCH /admin/categories/reorder`); errores 400 propagados. **RC5.3**: el textarea JSON se reemplaza por `AttributeSchemaEditor` (editor visual por filas); atributos heredados read-only con badge «heredado de X»; checkbox `filterable` deshabilitado si el name no está en `searchableKeys` (del endpoint `/admin/categories/searchable-keys`, cargado una vez al montar); intención de `filterable` se preserva durante el renombrado transitorio (Ajuste 1 — solo se reconcilia a false en el PATCH final); checkbox `cardAttribute` deshabilitado cuando el schema efectivo ya tiene 2; «• Sin guardar» cuando los atributos tienen cambios no persistidos; «Guardar atributos» (PATCH con solo los propios) separado de «Guardar» (PATCH de nombre/slug/orden). Campos desconocidos de ediciones JSON antiguas se round-tripean sin pérdida (Ajuste 3). |
 | **Admin ajustes** `/admin/ajustes` | ✅ Completo | 3 settings con controles tipo-específicos: `badWordList` (textarea una palabra por línea), `listingExpiryDays` (number input), `contactRequiresVerification` (checkbox); save por setting con estado de carga / ✓ éxito / error inline; timestamp de última actualización |
 | **Blog público** `/blog` | ✅ Completo | `export const revalidate = 3600`; Server Component ISR; listado paginado de posts PUBLISHED con tarjetas (portada, título, excerpt, fecha, autor, tags); filtro `?tag=`; estados de vacío; paginación; breadcrumb. Portada: solo se renderiza con `<Image>` si `isSafeSrc()` pasa (ver §2 y §3) |
 | **Blog detalle** `/blog/[slug]` | ✅ Completo | `export const revalidate = 3600`; Server Component ISR; `notFound()` si slug no existe o es DRAFT; body Markdown renderizado con `react-markdown` + `remark-gfm` + `rehype-sanitize` (sin `rehype-raw` — **regla invariante de seguridad**, ver §2); clase `prose` de `@tailwindcss/typography`; `generateMetadata()` con `og:type: 'article'`, `publishedTime`, `authors`, imagen OG; JSON-LD `BlogPosting` embebido; breadcrumb |
@@ -344,7 +344,8 @@ rc5-attributes (12), rc5b-vehiculos (11). **RF.10** añadió 3 casos al suite de
 schema efectivo por las tres hijas de Vehículos, year/km en schema propio del hijo ausentes,
 camino peligroso (listing existente conserva attributes), validación 422 sin year/km,
 búsqueda Meili por year/km, summary con `categorySlug` + `attributes`.
-**18/18 Playwright** (flujo-critico: 1, planes+suscripción: 8, mis-creditos: 9).
+**RC5.3** añadió `admin-categorias.spec.ts` (7 casos Playwright): carga de página ADMIN, redirección MODERATOR, añadir atributo text, filterable disabled para name no-buscable, filterable enabled para name buscable, Ajuste 1 (renombrado brand→colour→brand recupera la intención), cardAttribute disabled al 2º marcado, options editor para type=select.
+**25/25 Playwright** (flujo-critico: 1, planes+suscripción: 8, mis-creditos: 9, admin-categorias: 7).
 Las suites se ejecutan en paralelo (sin `--runInBand`); el diseño de `cleanDb` — que
 solo trunca `User` CASCADE y nunca toca `Category` ni `Setting` — garantiza que no
 haya contención entre los workers de Jest.

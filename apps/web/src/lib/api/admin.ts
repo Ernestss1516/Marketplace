@@ -1,4 +1,5 @@
 import { apiFetch } from './client';
+import type { AttributeSchema } from '@/types';
 
 // ─── Stats ────────────────────────────────────────────────────────────────────
 
@@ -171,13 +172,15 @@ export function reinstateUser(token: string, id: string): Promise<unknown> {
 
 // ─── Categories ───────────────────────────────────────────────────────────────
 
+export type { AttributeSchema as AttributeField };
+
 export interface AdminCategoryChild {
   id: string;
   name: string;
   slug: string;
   iconUrl: string | null;
   order: number;
-  attributeSchema: unknown[];
+  attributeSchema: AttributeSchema[];
 }
 
 export interface AdminCategory extends AdminCategoryChild {
@@ -191,6 +194,10 @@ export interface CategoryMutationDto {
   iconUrl?: string;
   order?: number;
   attributeSchema?: unknown[];
+}
+
+export function getSearchableKeys(token: string): Promise<{ keys: string[] }> {
+  return apiFetch<{ keys: string[] }>('/admin/categories/searchable-keys', { token });
 }
 
 export function getAdminCategories(token: string): Promise<AdminCategory[]> {
