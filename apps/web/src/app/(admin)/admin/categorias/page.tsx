@@ -121,7 +121,7 @@ function CategoryForm({
         <Button size="sm" onClick={onSave} disabled={saving || !values.name || !values.slug}>
           {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Guardar'}
         </Button>
-        <Button size="sm" variant="outline" onClick={onCancel} disabled={saving}>
+        <Button size="sm" variant="outline" onClick={onCancel} disabled={saving} data-testid="cancel-category-form">
           Cancelar
         </Button>
       </div>

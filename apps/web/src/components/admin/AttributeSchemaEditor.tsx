@@ -665,7 +665,7 @@ function FieldForm({
         <Button size="sm" onClick={onCommit} disabled={disabled} data-testid="attr-confirm-btn">
           Confirmar
         </Button>
-        <Button size="sm" variant="outline" onClick={onCancel} disabled={disabled}>
+        <Button size="sm" variant="outline" onClick={onCancel} disabled={disabled} data-testid="cancel-attr-edit">
           Cancelar
         </Button>
       </div>

@@ -77,7 +77,7 @@ test.describe('Admin — /admin/categorias (ADMIN)', () => {
     await expect(filterCb).toBeDisabled();
 
     // Cancel without saving
-    await page.getByRole('button', { name: 'Cancelar' }).click();
+    await page.getByTestId('cancel-attr-edit').click();
   });
 
   test('filterable habilitado para name buscable ("brand")', async ({ adminContext }) => {
@@ -97,7 +97,7 @@ test.describe('Admin — /admin/categorias (ADMIN)', () => {
     const filterCb = page.getByTestId('filterable-checkbox');
     await expect(filterCb).toBeEnabled();
 
-    await page.getByRole('button', { name: 'Cancelar' }).click();
+    await page.getByTestId('cancel-attr-edit').click();
   });
 
   test('AJUSTE 1: renombrar brand→colour→brand recupera la intención de filterable', async ({ adminContext }) => {
@@ -129,7 +129,7 @@ test.describe('Admin — /admin/categorias (ADMIN)', () => {
     await expect(filterCb).toBeEnabled();
     expect(await filterCb.isChecked()).toBe(true);
 
-    await page.getByRole('button', { name: 'Cancelar' }).click();
+    await page.getByTestId('cancel-attr-edit').click();
   });
 
   test('cardAttribute se deshabilita en el 3er campo tras marcar 2', async ({ adminContext }) => {
@@ -166,7 +166,7 @@ test.describe('Admin — /admin/categorias (ADMIN)', () => {
     const cardCb = page.getByTestId('card-attribute-checkbox');
     await expect(cardCb).toBeDisabled();
 
-    await page.getByRole('button', { name: 'Cancelar' }).click();
+    await page.getByTestId('cancel-attr-edit').click();
   });
 
   test('type=select muestra el editor de opciones', async ({ adminContext }) => {
@@ -192,7 +192,7 @@ test.describe('Admin — /admin/categorias (ADMIN)', () => {
     await page.getByRole('button', { name: 'Añadir' }).click();
     await expect(page.locator('span').filter({ hasText: 'Rojo' })).toBeVisible();
 
-    await page.getByRole('button', { name: 'Cancelar' }).click();
+    await page.getByTestId('cancel-attr-edit').click();
   });
 });
 
