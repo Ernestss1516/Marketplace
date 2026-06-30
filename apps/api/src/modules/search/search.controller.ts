@@ -65,18 +65,14 @@ export class SearchController {
         const v = (hit as Record<string, unknown>)[key];
         if (v !== undefined) attrs[key] = v;
       }
+      // Spread the raw Meilisearch document first so every stored field
+      // (categoryPath, _geo, boostScore, …) is preserved, then override
+      // the fields that need normalisation and inject the nested attributes
+      // object that the frontend ListingCard expects.
       return {
-        id: hit.id as string,
-        title: hit.title as string,
-        slug: hit.slug as string,
-        price: hit.price as number,
-        currency: hit.currency as string,
-        priceType: hit.priceType as string,
+        ...(hit as Record<string, unknown>),
         status: 'ACTIVE' as const,
         thumbnailUrl: (hit.thumbnailUrl as string | null) ?? undefined,
-        city: (hit.city as string | null) ?? undefined,
-        province: (hit.province as string | null) ?? undefined,
-        categorySlug: hit.categorySlug as string | undefined,
         attributes: attrs,
       };
     });
