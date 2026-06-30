@@ -30,7 +30,8 @@ export function CardAttributesProvider({ cardAttributeMap, children }: ProviderP
 // ── CardAttrsDisplay ─────────────────────────────────────────────────────────
 //
 // Tiny client island that reads cardAttributes from context and renders the
-// "Marca: Toyota · Año: 2022" line inside ListingCard.
+// attribute line inside ListingCard.
+// Format: unit present → "valor unit" (e.g. "45000 km"); no unit → "Label: valor".
 //
 // Keeping this as a separate client sub-component lets ListingCard itself stay
 // as a Server Component (RSC): its Link/Image/Card structure ships zero client
@@ -56,6 +57,7 @@ export function CardAttrsDisplay({ categorySlug, attributes }: CardAttrsProps) {
     .map((def) => ({
       label: def.label,
       value: formatAttrValue(attributes?.[def.key], def.unit),
+      hasUnit: !!def.unit,
     }))
     .filter((e) => e.value !== '');
 
@@ -63,7 +65,7 @@ export function CardAttrsDisplay({ categorySlug, attributes }: CardAttrsProps) {
 
   return (
     <p className="mt-1 truncate text-xs text-muted-foreground">
-      {entries.map((e) => `${e.label}: ${e.value}`).join(' · ')}
+      {entries.map((e) => (e.hasUnit ? e.value : `${e.label}: ${e.value}`)).join(' · ')}
     </p>
   );
 }
