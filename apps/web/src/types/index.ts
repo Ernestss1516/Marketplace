@@ -56,12 +56,18 @@ export interface AttributeSchema {
   cardAttribute?: boolean;
 }
 
+export interface CardAttributeDef {
+  key: string;
+  label: string;
+  unit?: string;
+}
+
 export interface Category {
   id: string;
   name: string;
   slug: string;
   iconUrl?: string;
-  cardAttributeKeys?: string[];
+  cardAttributes?: CardAttributeDef[];
   children?: Category[];
 }
 
@@ -218,6 +224,8 @@ export interface MyListing {
 
 export interface FavoriteListingData extends ListingSummary {
   images: { url: string }[];
+  /** Raw nested relation returned by the favorites API (used in normalize() to extract categorySlug). */
+  category?: { slug: string };
 }
 
 export interface FavoriteItem {

@@ -5,9 +5,11 @@ import { AlertCircle, Package } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ListingCard } from '@/components/anuncios/ListingCard';
 import { FavoritesGridProvider } from '@/components/anuncios/FavoritesGridContext';
+import { CardAttributesProvider } from '@/components/anuncios/CardAttributesContext';
 import { FilterPanel } from '@/components/busqueda/FilterPanel';
 import { search, type SearchResponse } from '@/lib/api/busqueda';
 import { getCategories } from '@/lib/api/categorias';
+import { buildCardAttributeMap } from '@/lib/card-attributes';
 
 const KNOWN_PARAMS = new Set([
   'q', 'category', 'type', 'condition', 'priceType',
@@ -235,13 +237,15 @@ export default async function BusquedaPage({
           {/* Results grid */}
           {!searchError && hits.length > 0 && (
             <>
-              <FavoritesGridProvider listingIds={hits.map((l) => l.id)}>
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-                  {hits.map((listing) => (
-                    <ListingCard key={listing.id} listing={listing} />
-                  ))}
-                </div>
-              </FavoritesGridProvider>
+              <CardAttributesProvider cardAttributeMap={buildCardAttributeMap(categories)}>
+                <FavoritesGridProvider listingIds={hits.map((l) => l.id)}>
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+                    {hits.map((listing) => (
+                      <ListingCard key={listing.id} listing={listing} />
+                    ))}
+                  </div>
+                </FavoritesGridProvider>
+              </CardAttributesProvider>
 
               {totalPages > 1 && (
                 <div className="mt-8 flex items-center justify-center gap-3">

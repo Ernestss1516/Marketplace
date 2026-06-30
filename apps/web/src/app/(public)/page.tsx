@@ -4,8 +4,10 @@ import { SearchBar } from '@/components/busqueda/SearchBar';
 import { CategoryGrid } from '@/components/categorias/CategoryGrid';
 import { ListingCard } from '@/components/anuncios/ListingCard';
 import { FavoritesGridProvider } from '@/components/anuncios/FavoritesGridContext';
+import { CardAttributesProvider } from '@/components/anuncios/CardAttributesContext';
 import { getCategories } from '@/lib/api/categorias';
 import { getRecentListings } from '@/lib/api/anuncios';
+import { buildCardAttributeMap } from '@/lib/card-attributes';
 
 export default async function HomePage() {
   const [categories, recent] = await Promise.all([
@@ -43,13 +45,15 @@ export default async function HomePage() {
       <section>
         <h2 className="mb-4 text-xl font-semibold">Últimos anuncios</h2>
         {recent.items.length > 0 ? (
-          <FavoritesGridProvider listingIds={recent.items.map((l) => l.id)}>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-              {recent.items.map((listing) => (
-                <ListingCard key={listing.id} listing={listing} />
-              ))}
-            </div>
-          </FavoritesGridProvider>
+          <CardAttributesProvider cardAttributeMap={buildCardAttributeMap(categories)}>
+            <FavoritesGridProvider listingIds={recent.items.map((l) => l.id)}>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+                {recent.items.map((listing) => (
+                  <ListingCard key={listing.id} listing={listing} />
+                ))}
+              </div>
+            </FavoritesGridProvider>
+          </CardAttributesProvider>
         ) : (
           <p className="py-8 text-center text-muted-foreground">
             Aún no hay anuncios publicados.

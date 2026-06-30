@@ -291,12 +291,13 @@ describe('RC5 — Categorías y atributos (e2e)', () => {
     expect(names).toEqual(['brand', 'year']);
   });
 
-  // ── GET /api/categories (tree) incluye cardAttributeKeys ─────────────────
+  // ── GET /api/categories (tree) incluye cardAttributes ───────────────────
 
-  it('GET /api/categories tree incluye cardAttributeKeys en hijos', async () => {
+  it('GET /api/categories tree incluye cardAttributes en hijos', async () => {
     const res = await request(app.getHttpServer()).get('/api/categories').expect(200);
 
-    const parentNode = (res.body as Array<{ slug: string; children?: Array<{ slug: string; cardAttributeKeys: string[] }> }>)
+    type CardAttr = { key: string; label: string; unit?: string };
+    const parentNode = (res.body as Array<{ slug: string; children?: Array<{ slug: string; cardAttributes: CardAttr[] }> }>)
       .find((c) => c.slug === 'rc5-tech-parent');
     expect(parentNode).toBeDefined();
 
@@ -305,10 +306,16 @@ describe('RC5 — Categorías y atributos (e2e)', () => {
 
     // Effective schema has itemType (cardAttribute:true) and brand (cardAttribute:true)
     // year is inherited but NOT cardAttribute
-    expect(childNode?.cardAttributeKeys).toContain('itemType');
-    expect(childNode?.cardAttributeKeys).toContain('brand');
-    expect(childNode?.cardAttributeKeys).not.toContain('year');
-    expect(childNode?.cardAttributeKeys).toHaveLength(2);
+    const keys = childNode?.cardAttributes.map((a) => a.key) ?? [];
+    expect(keys).toContain('itemType');
+    expect(keys).toContain('brand');
+    expect(keys).not.toContain('year');
+    expect(childNode?.cardAttributes).toHaveLength(2);
+    // Each entry has key + label (unit is optional)
+    for (const attr of childNode?.cardAttributes ?? []) {
+      expect(typeof attr.key).toBe('string');
+      expect(typeof attr.label).toBe('string');
+    }
   });
 
   // ── Validación max 2 cardAttribute ───────────────────────────────────────

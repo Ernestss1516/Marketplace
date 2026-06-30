@@ -38,32 +38,25 @@ async function seedCategories() {
   });
 
   // Vehículos hierarchy: parent holds year+km (required, inherited by children).
+  // year has cardAttribute:true so "Año: 2022" appears in the listing card (RC5.5).
+  const vehiculosSchema = [
+    { name: 'year', label: 'Año', type: 'number', filterable: true, required: true, cardAttribute: true },
+    { name: 'km', label: 'Kilómetros', type: 'number', unit: 'km', filterable: true, required: true },
+  ];
+  const cochesSchema = [
+    { name: 'brand', label: 'Marca', type: 'text', filterable: true, required: false, cardAttribute: true },
+  ];
+
   const vehiculos = await prisma.category.upsert({
     where: { slug: 'vehiculos' },
-    create: {
-      name: 'Vehículos',
-      slug: 'vehiculos',
-      order: 2,
-      attributeSchema: [
-        { name: 'year', label: 'Año', type: 'number', filterable: true, required: true },
-        { name: 'km', label: 'Kilómetros', type: 'number', unit: 'km', filterable: true, required: true },
-      ],
-    },
-    update: {},
+    create: { name: 'Vehículos', slug: 'vehiculos', order: 2, attributeSchema: vehiculosSchema },
+    update: { attributeSchema: vehiculosSchema },
   });
 
   await prisma.category.upsert({
     where: { slug: 'coches' },
-    create: {
-      name: 'Coches',
-      slug: 'coches',
-      order: 1,
-      parentId: vehiculos.id,
-      attributeSchema: [
-        { name: 'brand', label: 'Marca', type: 'text', filterable: true, required: false },
-      ],
-    },
-    update: {},
+    create: { name: 'Coches', slug: 'coches', order: 1, parentId: vehiculos.id, attributeSchema: cochesSchema },
+    update: { attributeSchema: cochesSchema },
   });
 
   console.log('Test seed: categories OK (electronica → moviles, vehiculos → coches)');

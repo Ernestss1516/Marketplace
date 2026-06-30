@@ -30,7 +30,9 @@ export class CategoriesService {
         name: root.name,
         slug: root.slug,
         iconUrl: root.iconUrl,
-        cardAttributeKeys: rootSchema.filter((f) => f.cardAttribute).map((f) => f.name),
+        cardAttributes: rootSchema
+          .filter((f) => f.cardAttribute)
+          .map((f) => ({ key: f.name, label: f.label, ...(f.unit !== undefined ? { unit: f.unit } : {}) })),
         children: root.children.map((child) => {
           const childSchema = (child.attributeSchema as unknown as AttributeField[]) ?? [];
           const effective = resolveEffectiveSchema(childSchema, rootSchema);
@@ -39,7 +41,9 @@ export class CategoriesService {
             name: child.name,
             slug: child.slug,
             iconUrl: child.iconUrl,
-            cardAttributeKeys: effective.filter((f) => f.cardAttribute).map((f) => f.name),
+            cardAttributes: effective
+              .filter((f) => f.cardAttribute)
+              .map((f) => ({ key: f.name, label: f.label, ...(f.unit !== undefined ? { unit: f.unit } : {}) })),
           };
         }),
       };

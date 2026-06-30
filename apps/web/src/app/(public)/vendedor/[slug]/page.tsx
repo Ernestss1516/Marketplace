@@ -6,9 +6,12 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { ListingCard } from '@/components/anuncios/ListingCard';
 import { FavoritesGridProvider } from '@/components/anuncios/FavoritesGridContext';
+import { CardAttributesProvider } from '@/components/anuncios/CardAttributesContext';
 import { getSellerProfile } from '@/lib/api/usuarios';
 import { getListingsBySellerSlug } from '@/lib/api/anuncios';
 import { getUserReviews } from '@/lib/api/valoraciones';
+import { getCategories } from '@/lib/api/categorias';
+import { buildCardAttributeMap } from '@/lib/card-attributes';
 import { ApiError } from '@/lib/api/client';
 import { ReviewsSection } from '@/components/valoraciones/ReviewsSection';
 import { SITE_NAME } from '@/config';
@@ -52,9 +55,10 @@ export default async function VendedorPage({
     throw err;
   }
 
-  const [{ items, total, perPage }, reviewsData] = await Promise.all([
+  const [{ items, total, perPage }, reviewsData, categories] = await Promise.all([
     getListingsBySellerSlug(slug, { page }).catch(() => ({ items: [], total: 0, page, perPage: 24 })),
     getUserReviews(slug).catch(() => ({ average: null, count: 0, distribution: {}, items: [], nextCursor: null })),
+    getCategories().catch(() => [] as Awaited<ReturnType<typeof getCategories>>),
   ]);
 
   const totalPages = Math.ceil(total / perPage) || 0;
@@ -109,13 +113,15 @@ export default async function VendedorPage({
 
       {items.length > 0 ? (
         <>
-          <FavoritesGridProvider listingIds={items.map((l) => l.id)}>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-              {items.map((listing) => (
-                <ListingCard key={listing.id} listing={listing} />
-              ))}
-            </div>
-          </FavoritesGridProvider>
+          <CardAttributesProvider cardAttributeMap={buildCardAttributeMap(categories)}>
+            <FavoritesGridProvider listingIds={items.map((l) => l.id)}>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+                {items.map((listing) => (
+                  <ListingCard key={listing.id} listing={listing} />
+                ))}
+              </div>
+            </FavoritesGridProvider>
+          </CardAttributesProvider>
 
           {totalPages > 1 && (
             <div className="mt-8 flex items-center justify-center gap-3">

@@ -24,13 +24,14 @@ export function removeFavorite(listingId: string, token: string): Promise<void> 
   return apiFetch<void>(`/favorites/${listingId}`, { method: 'DELETE', token });
 }
 
-/** Maps a raw favorites response to a frontend-consumable shape, resolving thumbnailUrl. */
+/** Maps a raw favorites response to a frontend-consumable shape, resolving thumbnailUrl and categorySlug. */
 function normalize(data: FavoritesResponse): { items: ListingSummary[]; total: number; page: number; pages: number } {
   return {
     ...data,
     items: data.items.map((fav) => ({
       ...fav.listing,
       thumbnailUrl: fav.listing.images[0]?.url,
+      categorySlug: fav.listing.category?.slug,
     })),
   };
 }

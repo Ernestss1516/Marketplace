@@ -11,8 +11,10 @@ import { ReportButton } from '@/components/anuncios/ReportButton';
 import { FavoriteButton } from '@/components/anuncios/FavoriteButton';
 import { ListingOwnerActions } from '@/components/anuncios/ListingOwnerActions';
 import { FavoritesGridProvider } from '@/components/anuncios/FavoritesGridContext';
+import { CardAttributesProvider } from '@/components/anuncios/CardAttributesContext';
 import { getListing, getListingsByCategory } from '@/lib/api/anuncios';
 import { getCategoryBySlug } from '@/lib/api/categorias';
+import { buildCardAttributeMapFromSchema } from '@/lib/card-attributes';
 import { ApiError } from '@/lib/api/client';
 import { SITE_NAME } from '@/config';
 
@@ -181,13 +183,15 @@ export default async function AnuncioPage({
                 {listing.category.name}
               </Link>
             </h2>
-            <FavoritesGridProvider listingIds={relatedItems.map((i) => i.id)}>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                {relatedItems.map((item) => (
-                  <ListingCard key={item.id} listing={item} />
-                ))}
-              </div>
-            </FavoritesGridProvider>
+            <CardAttributesProvider cardAttributeMap={buildCardAttributeMapFromSchema(listing.category.slug, schema)}>
+              <FavoritesGridProvider listingIds={relatedItems.map((i) => i.id)}>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {relatedItems.map((item) => (
+                    <ListingCard key={item.id} listing={item} />
+                  ))}
+                </div>
+              </FavoritesGridProvider>
+            </CardAttributesProvider>
           </section>
         )}
       </div>

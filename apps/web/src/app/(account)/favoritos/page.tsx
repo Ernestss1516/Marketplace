@@ -3,8 +3,11 @@ import Link from 'next/link';
 import { Heart } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { FavoritosClient } from './FavoritosClient';
+import { CardAttributesProvider } from '@/components/anuncios/CardAttributesContext';
 import { auth } from '@/lib/auth';
 import { getMyFavorites } from '@/lib/api/favoritos';
+import { getCategories } from '@/lib/api/categorias';
+import { buildCardAttributeMap } from '@/lib/card-attributes';
 
 export const metadata = { title: 'Favoritos' };
 
@@ -21,7 +24,12 @@ export default async function FavoritosPage({
   const { page: pageParam } = await searchParams;
   const page = Math.max(1, Number(pageParam) || 1);
 
-  const data = await getMyFavorites(session.user.accessToken, page, PER_PAGE);
+  const [data, categories] = await Promise.all([
+    getMyFavorites(session.user.accessToken, page, PER_PAGE),
+    getCategories().catch(() => [] as Awaited<ReturnType<typeof getCategories>>),
+  ]);
+
+  const cardAttributeMap = buildCardAttributeMap(categories);
 
   return (
     <div className="space-y-6">
@@ -36,12 +44,14 @@ export default async function FavoritosPage({
           </Button>
         </div>
       ) : (
-        <FavoritosClient
-          initialListings={data.items}
-          totalInitial={data.total}
-          page={page}
-          pages={data.pages}
-        />
+        <CardAttributesProvider cardAttributeMap={cardAttributeMap}>
+          <FavoritosClient
+            initialListings={data.items}
+            totalInitial={data.total}
+            page={page}
+            pages={data.pages}
+          />
+        </CardAttributesProvider>
       )}
     </div>
   );

@@ -56,8 +56,33 @@ export class SearchController {
         : {}),
     });
 
+    // Normalize flat Meilisearch documents to the ListingSummary contract expected by the
+    // frontend. Variable attributes are spread at the top level in the index document but
+    // the frontend card reads them from `listing.attributes` (same as the Postgres path).
+    const hits = result.hits.map((hit) => {
+      const attrs: Record<string, unknown> = {};
+      for (const key of VARIABLE_ATTRIBUTE_KEYS) {
+        const v = (hit as Record<string, unknown>)[key];
+        if (v !== undefined) attrs[key] = v;
+      }
+      return {
+        id: hit.id as string,
+        title: hit.title as string,
+        slug: hit.slug as string,
+        price: hit.price as number,
+        currency: hit.currency as string,
+        priceType: hit.priceType as string,
+        status: 'ACTIVE' as const,
+        thumbnailUrl: (hit.thumbnailUrl as string | null) ?? undefined,
+        city: (hit.city as string | null) ?? undefined,
+        province: (hit.province as string | null) ?? undefined,
+        categorySlug: hit.categorySlug as string | undefined,
+        attributes: attrs,
+      };
+    });
+
     return {
-      hits: result.hits,
+      hits,
       totalHits: result.totalHits ?? 0,
       page: result.page ?? dto.page ?? 1,
       hitsPerPage: result.hitsPerPage ?? dto.hitsPerPage ?? 24,
