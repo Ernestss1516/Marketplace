@@ -1,6 +1,6 @@
 # Estado técnico del proyecto — Marketplace
 
-> Fecha: 2026-06-28 · Rama: `main` · Último commit: RF.12b — acreditación manual de créditos (admin) + validación Joi condicional de env de test resuelta + RF.11 — frontend destacado+bump con cobertura completa de errores
+> Fecha: 2026-06-30 · Rama: `main` · Último commit: RC5.2 — deuda técnica atributos + extensión schema (herencia, cardAttribute, searchable-keys, itemType, calzado.size)
 > Plan vigente: `docs/Hoja_de_ruta_rafagas_Hito5-9.docx` (Hitos 5–9). Hitos 5–6 firmes; 7–9 boceto a re-detallar al llegar.
 
 Documento de referencia para retomar el proyecto. Recoge qué hay implementado,
@@ -14,24 +14,24 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 
 | Módulo | Estado | Notas |
 |---|---|---|
-| **Infra: Prisma** | ✅ Completo | Schema con todos los modelos; PostGIS habilitado; **12 migraciones aplicadas** (las de billing RF.2–RF.6 añaden Subscription, Transaction, Wallet, Entitlement, CreditLedger, GatewayEvent, Price…; **RF.7** añade **`add_entitlement_revoked_at`**: columna nullable `Entitlement.revokedAt DateTime?` + índice; **Bonus Pro** añade **`add_pro_bonus`**: valor `PRO_BONUS` al enum `CreditLedgerType` + columna nullable `Transaction.bonusCreditAmount Int?`) |
+| **Infra: Prisma** | ✅ Completo | Schema con todos los modelos; PostGIS habilitado; **13 migraciones aplicadas** (las de billing RF.2–RF.6 añaden Subscription, Transaction, Wallet, Entitlement, CreditLedger, GatewayEvent, Price…; **RF.7** añade **`add_entitlement_revoked_at`**: columna nullable `Entitlement.revokedAt DateTime?` + índice; **Bonus Pro** añade **`add_pro_bonus`**: valor `PRO_BONUS` al enum `CreditLedgerType` + columna nullable `Transaction.bonusCreditAmount Int?`; **RC5.2** añade **`rename_itemtype_normalize_size`**: renombra `type→itemType` en `Listing.attributes` JSONB + normaliza `calzado.size` de número a string) |
 | **Infra: Redis** | ✅ Completo | `RedisService` global; caché de fichas de anuncio (TTL 5 min) |
 | **Infra: BullMQ** | ✅ Colas activas | 4 colas registradas con processors reales: `image-processing`, `indexing`, `notifications`, `billing`, `redsys` |
 | **Infra: Meilisearch** | ✅ Completo | `SearchService.onModuleInit()` crea el índice `listings` y aplica searchable/filterable/sortable attrs, ranking rules y typo tolerance al arrancar |
 | **Infra: MinIO/R2** | ✅ Completo | Dev: MinIO vía docker-compose (bucket `marketplace` con lectura pública, creado por el contenedor `createbuckets`). Prod: Cloudflare R2 vía `R2Service` |
 | **Auth** | ✅ Completo | register, login, verify-email, forgot-password, reset-password; `JwtAuthGuard`, `RolesGuard`, `@CurrentUser`; login devuelve `emailVerified` (fix fase 5) |
 | **Users** | ✅ Completo | `GET /users/me`, `PATCH /users/me`, `GET /users/:slug` (perfil público) |
-| **Categories** | ✅ Completo | `GET /categories` (árbol público), `GET /categories/:slug` (con `attributeSchema`) |
-| **Listings** | ✅ Completo | CRUD completo + ciclo de vida (publish, reserve, sold, delete, **renew**) + `expiresAt` fijado al publicar (publishedAt + 60 días) + caché por slug + encolado de reindexado; `GET /listings/mine/:id` para edición; `thumbnailUrl` resuelto en `findMine` y `findBySellerSlug`; geocoding automático al crear y al editar cuando cambia la ubicación. **RF.7-A**: `publish()` y `renew()` verifican el límite de activos del plan (free: 5, pro: 20, leídos de `Setting`; 403 si superado). **Fix RF.7**: `renew()` preserva `publishedAt` original y no lo resetea (resetear era un bump gratuito que vaciaba de sentido el bump de pago de RF.6). **RF.11**: `findMine` y `findBySlug` devuelven `featuredUntil` y `bumpedAt` para el propietario autenticado (necesario para ocultar el botón "Destacar" reactivamente y mostrar estado del bump) |
+| **Categories** | ✅ Completo (RC5.2) | `GET /categories` (árbol público, incluye `cardAttributeKeys[]` por categoría calculado desde el schema efectivo), `GET /categories/:slug` (devuelve schema efectivo: herencia padre→hijo, hijo sobreescribe campo con mismo `name`). Helper `resolveEffectiveSchema` en `category.types.ts` (compartido con AdminService). Profundidad máxima 2 niveles (hoja → padre), congruente con `categoryPath` e `INDEX_INCLUDE`. |
+| **Listings** | ✅ Completo | CRUD completo + ciclo de vida (publish, reserve, sold, delete, **renew**) + `expiresAt` fijado al publicar (publishedAt + 60 días) + caché por slug + encolado de reindexado; `GET /listings/mine/:id` para edición; `thumbnailUrl` resuelto en `findMine` y `findBySellerSlug`; geocoding automático al crear y al editar cuando cambia la ubicación. **RF.7-A**: `publish()` y `renew()` verifican el límite de activos del plan (free: 5, pro: 20, leídos de `Setting`; 403 si superado). **Fix RF.7**: `renew()` preserva `publishedAt` original y no lo resetea (resetear era un bump gratuito que vaciaba de sentido el bump de pago de RF.6). **RF.11**: `findMine` y `findBySlug` devuelven `featuredUntil` y `bumpedAt` para el propietario autenticado (necesario para ocultar el botón "Destacar" reactivamente y mostrar estado del bump). **RC5.2**: `SELECT_SUMMARY` incluye `attributes` y `category.slug`; `toSummary()` los expone como `attributes` y `categorySlug` (preparatorio para RC5.5 ListingCard con cardAttributes) |
 | **Expiration** | ✅ Completo | `ExpirationService`: cron 02:00 — marca EXPIRED los anuncios ACTIVE con `expiresAt ≤ now`, invalida caché Redis y encola reindexado (RESERVED excluidos intencionalmente). **RF.7-B**: `EntitlementExpirationService`: cron 03:00 con **dos expiraciones en paralelo** — **B.1** `expireFeaturedListings`: selecciona entitlements `FEATURED_LISTING` caducados sin `revokedAt`, los marca en batch (`updateMany → revokedAt = now`, crash-safe), encola reindex con `boostScore:0`; deduplicación BullMQ por `jobId = feat-exp-${id}-${fecha}`. **B.2** `downgradeExpiredPro`: usuarios con `PRO_SUBSCRIPTION` expirado hace > 7 días (periodo de gracia), sin suscripción activa renovada; mueve los listings en exceso a DRAFT ordenado por `publishedAt asc` (más antiguos primero); **purga caché Redis + encola reindex** para cada listing drafteado → Meilisearch los elimina del índice. `runExpirationSweep()` público para tests sin necesidad de reloj real |
 | **Geocoding** | ✅ Completo | `GeocodingService` con proveedor configurable (`nominatim` por defecto, `maptiler`). Timeout de 1 500 ms con `AbortSignal.timeout()`; retorna `null` en cualquier fallo sin bloquear la publicación. Script `geocode-backfill` para anuncios sin coordenadas existentes (cursor-based, 1 req/s para respetar la política de Nominatim) |
 | **Media** | ✅ Upload | `POST /media/upload` → R2/MinIO → crea `ListingImage` huérfana → encola procesado con sharp; **sin DELETE** |
-| **Search** | ✅ Completo | `GET /search` con texto libre, filtros core, atributos variables (brand, fuel, rooms, gender, size…), **filtro por proximidad** (`lat` + `lng` + `radius` en km → `_geoRadius` en Meilisearch) y **orden por distancia** cuando no hay sort explícito, facetas, paginación y ordenación; `IndexingProcessor` real con jobs `index`/`remove`. **RF.8**: `boostScore` (0/1) en el documento — 1 si el listing tiene un `FEATURED_LISTING` vigente (`revokedAt IS NULL AND (expiresAt IS NULL OR expiresAt > now)`) al reindexar. `sortDate = max(publishedAt, bumpedAt)` en el documento — bump sube sortDate, renew no (cierra el republish-gratis a nivel de búsqueda). `rankingRules`: `[words, typo, proximity, attribute, boostScore:desc, sort, exactness, sortDate:desc]` — boostScore tras relevancia textual (no contamina queries irrelevantes), antes de sort (destacados suben en cualquier ordenación), sortDate:desc tiebreaker final. `sortDate:desc` disponible en `?sort=sortDate:desc`. **VERIFICADO (204/204, 6 tests nuevos)**: boost en búsquedas relevantes, no contaminación de búsquedas irrelevantes, expirado→boostScore 0, bump sube sortDate · renew no |
+| **Search** | ✅ Completo (RC5.2) | `GET /search` con texto libre, filtros core, atributos variables (brand, fuel, rooms, gender, size, **itemType**…), **filtro por proximidad** (`lat` + `lng` + `radius` en km → `_geoRadius` en Meilisearch) y **orden por distancia** cuando no hay sort explícito, facetas, paginación y ordenación; `IndexingProcessor` real con jobs `index`/`remove`. **RF.8**: `boostScore` (0/1) en el documento — 1 si el listing tiene un `FEATURED_LISTING` vigente (`revokedAt IS NULL AND (expiresAt IS NULL OR expiresAt > now)`) al reindexar. `sortDate = max(publishedAt, bumpedAt)` en el documento — bump sube sortDate, renew no (cierra el republish-gratis a nivel de búsqueda). `rankingRules`: `[words, typo, proximity, attribute, boostScore:desc, sort, exactness, sortDate:desc]` — boostScore tras relevancia textual (no contamina queries irrelevantes), antes de sort (destacados suben en cualquier ordenación), sortDate:desc tiebreaker final. `sortDate:desc` disponible en `?sort=sortDate:desc`. **VERIFICADO (204/204, 6 tests nuevos)**: boost en búsquedas relevantes, no contaminación de búsquedas irrelevantes, expirado→boostScore 0, bump sube sortDate · renew no. **RC5.2**: `VARIABLE_ATTRIBUTE_KEYS` ampliado con `itemType`; `FACET_ATTRIBUTES` ampliado con `itemType`; `SearchQueryDto` declara `itemType?: string`; deuda `type` (colisión con ListingType) resuelta. |
 | **Script reindex** | ✅ Completo (RF.9 fix) | `pnpm reindex` — reconstruye el índice en batches de 100; `ReindexModule` mínimo (sin BullMQ) para cierre limpio. **RF.9 fix**: antes hacía `addDocuments` sin vaciar (documentos huérfanos de listings borrados sobrevivían al reindexado); ahora llama `clearAll()` + `waitForTask` antes de repoblar → idempotente respecto a borrados |
 | **Messaging** | ✅ Completo | REST: `GET /conversations`, `POST /conversations`, `GET /conversations/:id` (cursor), `POST /conversations/:id/messages`. WebSocket gateway `/ws`: auth en handshake, rooms de conversación y de usuario, emit tras el POST REST |
 | **AuditLog** | ✅ Completo | `AuditLogService.log()` inyectable; captura explícita `before`/`after` dentro del método de service que muta el recurso, antes de llamar a Prisma; nunca vía interceptor (ver §2). **RF.12b**: `log(dto, tx?)` admite segundo parámetro `tx: Prisma.TransactionClient` opcional; si se pasa, el `prisma.auditLog.create` corre dentro de la transacción del llamador; backward-compat con todos los callers existentes (Fase 7) |
 | **Moderation** | ✅ Completo | Reportes CRUD + cola (GET con filtros status/reason/page); acciones sobre listings (approve, reject, deactivate, restore); `BadWordService` con fallback silencioso al publicar; AuditLog en todas las mutaciones; roles MODERATOR + ADMIN |
-| **Admin** | ✅ Completo | Listings (list, detail, PATCH status); Users (list, detail, suspend, ban, reinstate, role); Categories CRUD + batch reorder; Settings GET + PATCH con whitelist; `GET /admin/stats` con 7 métricas + Meilisearch null-fallback; todos los endpoints con `@Roles(ADMIN)` y AuditLog. **RF.7**: whitelist de settings ampliada con `freeActiveListingLimit` y `proActiveListingLimit`; ambos configurables desde el backoffice sin redeploy |
+| **Admin** | ✅ Completo (RC5.2) | Listings (list, detail, PATCH status); Users (list, detail, suspend, ban, reinstate, role); Categories CRUD + batch reorder; Settings GET + PATCH con whitelist; `GET /admin/stats` con 7 métricas + Meilisearch null-fallback; todos los endpoints con `@Roles(ADMIN)` y AuditLog. **RF.7**: whitelist de settings ampliada con `freeActiveListingLimit` y `proActiveListingLimit`; ambos configurables desde el backoffice sin redeploy. **RC5.2**: `createCategory` y `updateCategory` validan que el schema efectivo (propio + heredado del padre) tenga ≤ 2 atributos con `cardAttribute: true` (→ 400 si supera). `GET /admin/categories/searchable-keys` (ADMIN-only) → `{ keys: VARIABLE_ATTRIBUTE_KEYS }` para que RC5.3 pueda deshabilitar el checkbox `filterable` en atributos no listados. |
 | **Blog** | ✅ Completo | Modelo `Post` (enum `PostStatus { DRAFT, PUBLISHED }`, body Markdown raw, `tags String[]`, `coverUrl`, campos SEO opcionales `metaTitle`/`metaDescription`). `BlogController`: `GET /blog` (solo PUBLISHED, paginado, filtro `?tag=`) y `GET /blog/:slug` (404 si no existe o es DRAFT). `BlogAdminController` (`@Roles(ADMIN)`): CRUD completo + `POST /admin/blog/:id/publish` + `POST /admin/blog/:id/unpublish`. AuditLog en todas las mutaciones (`POST_CREATE`, `POST_UPDATE`, `POST_PUBLISH`, `POST_UNPUBLISH`, `POST_DELETE`). Revalidación ISR on-demand fire-and-forget al publicar/despublicar/editar/borrar posts publicados (el blog es el **primer productor del webhook** desde el backend; el webhook en sí existía desde Fase 5). `BlogModule` importa `PrismaModule` + `AuditLogModule`; autónomo, no modifica `AdminModule` |
 | **Favorites** | ✅ Completo | `POST /favorites/:listingId` (marcar), `DELETE /favorites/:listingId` (desmarcar), `GET /favorites` (paginado), `GET /favorites/:listingId` (check), `POST /favorites/batch-check` (máx. 100 ids → `{ favoritedIds }`). Todos idempotentes y con `JwtAuthGuard`. Suite `favorites.e2e-spec.ts` (12 tests) |
 | **Reviews** | ✅ Completo | `POST /reviews` (crear; guard de elegibilidad vía `Conversation`), `GET /reviews/eligibility?listingId=&targetId=` (check antes de mostrar el formulario), `PATCH /reviews/:id` (editar en ventana 72 h; persiste `editedAt`), `DELETE /reviews/:id` (borrar en ventana 72 h). Listado público via `GET /users/:slug/reviews` (cursor paginado + aggregate on-the-fly: average, count, distribución 1–5). Unicidad `(authorId, targetId, listingId)` — una reseña por par de usuarios por anuncio. `FAKE_REVIEW` añadido a `ReportReason`; `Report.reviewId` FK con CASCADE para moderar reseñas. Suite `reviews.e2e-spec.ts` (20 tests) |
@@ -136,10 +136,42 @@ de definición inferior porque los campos core van después.
 
 El backend arranca con `ValidationPipe({ whitelist: true, forbidNonWhitelisted: true })`.
 Cualquier query parameter que no esté declarado en `SearchQueryDto` es rechazado con
-400. Por eso los atributos variables de categoría (brand, fuel, rooms, gender, size…)
-están **declarados explícitamente** como campos del DTO en lugar de leerse como mapa
-genérico. `VARIABLE_ATTRIBUTE_KEYS` en `search.service.ts` es la fuente de verdad
-compartida; el DTO y el service deben mantenerse en sync al añadir atributos nuevos.
+400. Por eso los atributos variables de categoría (brand, fuel, rooms, gender, size,
+**itemType**…) están **declarados explícitamente** como campos del DTO en lugar de
+leerse como mapa genérico. `VARIABLE_ATTRIBUTE_KEYS` en `search.service.ts` es la
+fuente de verdad compartida; el DTO y el service deben mantenerse en sync al añadir
+atributos nuevos. El atributo `itemType` fue añadido en RC5.2 para reemplazar `type`
+(colisión con el enum `ListingType`).
+
+### Herencia de schema de atributos (RC5.2)
+
+`CategoriesService.findBySlug()` resuelve el schema efectivo fusionando el schema del
+padre con el del hijo (`resolveEffectiveSchema` en `category.types.ts`). El hijo
+sobreescribe campos del padre con el mismo `name`; los campos exclusivos del padre se
+heredan. La profundidad está limitada a 2 niveles (hoja → padre), congruente con
+`categoryPath` e `INDEX_INCLUDE` en `search.service.ts`.
+
+El admin backoffice (create/update category) valida que el schema **efectivo** (propio +
+heredado) no supere 2 atributos con `cardAttribute: true`. Este flag marca los atributos
+que se mostrarán en la tarjeta de anuncio (RC5.5). El endpoint
+`GET /admin/categories/searchable-keys` expone `VARIABLE_ATTRIBUTE_KEYS` para que el
+editor de atributos (RC5.3) desactive el checkbox `filterable` para atributos cuyo
+nombre no esté en la lista hardcodeada.
+
+### Deuda `type` → `itemType` (RC5.2)
+
+Cuatro categorías del seed (ordenadores, electrodomésticos, accesorios, muebles) usaban
+`name: 'type'` en su `attributeSchema`. Ese nombre colisionaba con el campo `type`
+(`ListingType` enum) de los documentos de Meilisearch: el spread `{ ...attributes,
+...coreFields }` enmascaraba silenciosamente el atributo de categoría. La migración
+`20260630000001_rename_itemtype_normalize_size` renombra la clave en `Listing.attributes`
+JSONB con un `UPDATE … || jsonb_build_object('itemType', …)`. El seed fue actualizado
+para usar `itemType` en el nuevo campo. `VARIABLE_ATTRIBUTE_KEYS`, `SearchQueryDto` y
+`FACET_ATTRIBUTES` incluyen ahora `itemType`.
+
+La misma migración normaliza `calzado.size` de número JSON a string JSON para que el
+filtro `?size=38` (string) coincida con el valor almacenado. El seed cambia el campo a
+`type: 'select'` con opciones `['35', …, '45']`.
 
 ### Fix ioredis en BullMQ
 
@@ -294,14 +326,14 @@ Los tests de Jest usan `setupFiles: ['test/load-env.ts']` (carga `.env.test` con
 `dotenv.config()` sin sobreescribir `process.env`) y `globalSetup: 'test/setup-e2e.js'`
 (ejecuta `prisma migrate deploy` + `seed-test.ts` una vez antes de todas las suites).
 
-Las **16 suites e2e de Jest** suman **220 casos**: smoke (1), auth (15), listings (10),
+Las **19 suites e2e de Jest** suman **305 casos**: smoke (1), auth (15), listings (10),
 messaging (7), search (8), favorites (12), reviews (20), moderation (23), admin (34),
 blog (24), redsys (22), billing-rf6 (15), rf7-limits (8), rf7-expiration (9),
-billing-catalog (6), rf8-meilisearch (6). **RF.10** añadió 3 casos al suite de redsys
-(HTTP layer: 201 con buildForm real, 401 sin token, 400 sin packId). **Bonus Pro** añadió
-5 casos más al suite de redsys: checkout Pro congela `bonusCreditAmount` calculado,
-checkout non-Pro guarda `null`, `ceil` ejercido con `creditAmount=51` (10.2→11), processor
-Pro acredita base+bonus con dos entradas ledger, processor non-Pro solo base sin PRO_BONUS.
+billing-catalog (6), rf8-meilisearch (6), admin-billing (≈20), admin-billing-rf12b (≈8),
+rc5-attributes (12). **RF.10** añadió 3 casos al suite de redsys. **Bonus Pro** añadió
+5 casos más al suite de redsys. **RC5.2** añadió `rc5-attributes.e2e-spec.ts` (12 casos):
+búsqueda por `itemType`, búsqueda por `size` string en calzado, herencia de schema (parent→child),
+`cardAttributeKeys[]` en árbol, max-2 `cardAttribute` en create/update, `searchable-keys` ADMIN/MODERATOR.
 **18/18 Playwright** (flujo-critico: 1, planes+suscripción: 8, mis-creditos: 9).
 Las suites se ejecutan en paralelo (sin `--runInBand`); el diseño de `cleanDb` — que
 solo trunca `User` CASCADE y nunca toca `Category` ni `Setting` — garantiza que no

@@ -200,6 +200,11 @@ export class SearchQueryDto {
   @IsString()
   ram?: string;
 
+  @ApiPropertyOptional({ description: 'Tipo de producto — ordenadores (Portátil, Sobremesa…), electrodomésticos, accesorios, muebles' })
+  @IsOptional()
+  @IsString()
+  itemType?: string;
+
   // ---------- Variable attributes: moda ----------
 
   @ApiPropertyOptional({ description: 'Género (Hombre, Mujer, Unisex, Niño, Niña) — ropa, calzado' })
@@ -283,7 +288,4 @@ export class SearchQueryDto {
   @Max(500)
   radius?: number;
 
-  // TODO: "type" como atributo de categoría (ordenadores, electrodomésticos,
-  // accesorios, muebles) colisiona en nombre con el ListingType (PRODUCT/SERVICE).
-  // Renombrar a "itemType" en el seed y luego añadirlo aquí y en VARIABLE_ATTRIBUTE_KEYS.
 }

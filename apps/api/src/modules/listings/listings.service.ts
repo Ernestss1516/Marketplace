@@ -43,6 +43,8 @@ const SELECT_SUMMARY = {
   publishedAt: true,
   expiresAt: true,
   bumpedAt: true,
+  attributes: true,
+  category: { select: { slug: true } },
   images: { orderBy: { order: 'asc' as const }, take: 1, select: { url: true } },
 } as const;
 
@@ -59,6 +61,8 @@ type SummaryDbRow = {
   publishedAt: Date | null;
   expiresAt: Date | null;
   bumpedAt: Date | null;
+  attributes: Prisma.JsonValue;
+  category: { slug: string };
   images: { url: string }[];
 };
 
@@ -470,11 +474,13 @@ export class ListingsService {
   // Private helpers
   // ---------------------------------------------------------------------------
 
-  private toSummary({ images, bumpedAt, ...rest }: SummaryDbRow) {
+  private toSummary({ images, bumpedAt, attributes, category, ...rest }: SummaryDbRow) {
     return {
       ...rest,
       thumbnailUrl: images[0]?.url ?? undefined,
       bumpedAt: bumpedAt?.toISOString() ?? undefined,
+      categorySlug: category.slug,
+      attributes: (attributes as Record<string, unknown>) ?? {},
     };
   }
 

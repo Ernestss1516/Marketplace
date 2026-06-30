@@ -13,6 +13,7 @@ interface AttributeField {
   options?: string[];
   filterable: boolean;
   required: boolean;
+  cardAttribute?: boolean;
 }
 
 interface CategorySeed {
@@ -168,7 +169,7 @@ const CATEGORIES: CategorySeed[] = [
         order: 2,
         attributeSchema: [
           {
-            name: 'type',
+            name: 'itemType',
             label: 'Tipo',
             type: 'select',
             options: ['Portátil', 'Sobremesa', 'Todo en uno', 'Mini PC'],
@@ -192,7 +193,7 @@ const CATEGORIES: CategorySeed[] = [
         slug: 'electrodomesticos',
         order: 3,
         attributeSchema: [
-          { name: 'type', label: 'Tipo', type: 'text', filterable: true, required: true },
+          { name: 'itemType', label: 'Tipo', type: 'text', filterable: true, required: true },
           { name: 'brand', label: 'Marca', type: 'text', filterable: true, required: false },
         ],
       },
@@ -242,7 +243,14 @@ const CATEGORIES: CategorySeed[] = [
             filterable: true,
             required: false,
           },
-          { name: 'size', label: 'Talla', type: 'number', filterable: true, required: false },
+          {
+            name: 'size',
+            label: 'Talla',
+            type: 'select',
+            options: ['35', '36', '37', '38', '39', '40', '41', '42', '43', '44', '45'],
+            filterable: true,
+            required: false,
+          },
           { name: 'brand', label: 'Marca', type: 'text', filterable: true, required: false },
           { name: 'color', label: 'Color', type: 'text', filterable: false, required: false },
         ],
@@ -252,7 +260,7 @@ const CATEGORIES: CategorySeed[] = [
         slug: 'accesorios',
         order: 3,
         attributeSchema: [
-          { name: 'type', label: 'Tipo', type: 'text', filterable: true, required: false },
+          { name: 'itemType', label: 'Tipo', type: 'text', filterable: true, required: false },
           { name: 'brand', label: 'Marca', type: 'text', filterable: false, required: false },
         ],
       },
@@ -269,7 +277,7 @@ const CATEGORIES: CategorySeed[] = [
         slug: 'muebles',
         order: 1,
         attributeSchema: [
-          { name: 'type', label: 'Tipo', type: 'text', filterable: true, required: false },
+          { name: 'itemType', label: 'Tipo', type: 'text', filterable: true, required: false },
           { name: 'material', label: 'Material', type: 'text', filterable: false, required: false },
           { name: 'color', label: 'Color', type: 'text', filterable: false, required: false },
         ],

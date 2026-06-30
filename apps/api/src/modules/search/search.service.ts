@@ -74,13 +74,9 @@ export const VARIABLE_ATTRIBUTE_KEYS = [
   'brand', 'year', 'km', 'fuel', 'gearbox', 'displacement',
   // Inmuebles
   'sqm', 'rooms', 'bathrooms', 'elevator', 'garage', 'pool',
-  // Tecnología
-  'storage', 'ram',
-  // Moda
-  // NOTE: size type is inconsistent across categories (string for ropa, number
-  // for calzado). Exposed as string; numeric shoe sizes sent as "38" will NOT
-  // match Meilisearch documents where size is stored as the number 38. Needs
-  // type normalisation in the seed before it can filter reliably.
+  // Tecnología — 'itemType' renamed from 'type' (RC5.2) to avoid collision with ListingType enum
+  'storage', 'ram', 'itemType',
+  // Moda — calzado.size normalised to string in RC5.2 migration; both ropa and calzado now comparable
   'gender', 'size',
   // Servicios
   'specialty', 'subject', 'modality',
@@ -129,6 +125,7 @@ const FACET_ATTRIBUTES = [
   'rooms',
   'gender',
   'modality',
+  'itemType',
 ];
 
 const RANKING_RULES = [

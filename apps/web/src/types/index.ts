@@ -53,6 +53,7 @@ export interface AttributeSchema {
   options?: string[];
   filterable: boolean;
   required: boolean;
+  cardAttribute?: boolean;
 }
 
 export interface Category {
@@ -60,6 +61,7 @@ export interface Category {
   name: string;
   slug: string;
   iconUrl?: string;
+  cardAttributeKeys?: string[];
   children?: Category[];
 }
 
@@ -84,6 +86,8 @@ export interface ListingSummary {
   expiresAt?: string;
   bumpedAt?: string;
   featuredUntil?: string | null;
+  categorySlug?: string;
+  attributes?: Record<string, unknown>;
 }
 
 export interface ListingImage {

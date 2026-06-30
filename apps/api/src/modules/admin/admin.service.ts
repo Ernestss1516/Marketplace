@@ -28,6 +28,8 @@ import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { ReorderCategoriesDto } from './dto/reorder-categories.dto';
 import { UpdateSettingDto } from './dto/update-setting.dto';
+import { AttributeField, resolveEffectiveSchema } from '../categories/category.types';
+import { VARIABLE_ATTRIBUTE_KEYS } from '../search/search.service';
 
 const cacheKey = (slug: string) => `listing:${slug}`;
 
@@ -370,7 +372,31 @@ export class AdminService {
     });
   }
 
+  private async validateCardAttributeLimit(
+    ownSchema: AttributeField[],
+    parentId: string | null | undefined,
+  ): Promise<void> {
+    let parentSchema: AttributeField[] = [];
+    if (parentId) {
+      const parent = await this.prisma.category.findUnique({
+        where: { id: parentId },
+        select: { attributeSchema: true },
+      });
+      if (parent) parentSchema = (parent.attributeSchema as unknown as AttributeField[]) ?? [];
+    }
+    const effective = resolveEffectiveSchema(ownSchema, parentSchema);
+    const cardCount = effective.filter((f) => f.cardAttribute).length;
+    if (cardCount > 2) {
+      throw new BadRequestException(
+        `El schema efectivo tiene ${cardCount} atributos con cardAttribute:true pero el máximo permitido es 2.`,
+      );
+    }
+  }
+
   async createCategory(actorId: string, dto: CreateCategoryDto, ip?: string) {
+    if (dto.attributeSchema) {
+      await this.validateCardAttributeLimit(dto.attributeSchema as AttributeField[], dto.parentId);
+    }
     try {
       const created = await this.prisma.category.create({
         data: {
@@ -411,6 +437,13 @@ export class AdminService {
   ) {
     const category = await this.prisma.category.findUnique({ where: { id } });
     if (!category) throw new NotFoundException('Categoría no encontrada');
+
+    if (dto.attributeSchema) {
+      await this.validateCardAttributeLimit(
+        dto.attributeSchema as AttributeField[],
+        category.parentId,
+      );
+    }
 
     const before = { name: category.name, slug: category.slug, order: category.order };
 
@@ -466,6 +499,10 @@ export class AdminService {
       after: { items: dto.items as unknown as Prisma.InputJsonValue },
       ip,
     });
+  }
+
+  getSearchableAttributeKeys(): { keys: readonly string[] } {
+    return { keys: VARIABLE_ATTRIBUTE_KEYS };
   }
 
   async deleteCategory(id: string, actorId: string, ip?: string) {

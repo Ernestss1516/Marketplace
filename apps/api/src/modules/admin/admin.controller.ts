@@ -141,8 +141,14 @@ export class AdminController {
   }
 
   // ─── Categories ───────────────────────────────────────────────────────────
-  // IMPORTANT: @Patch('categories/reorder') must be declared BEFORE
-  // @Patch('categories/:id') so 'reorder' is not matched as a :id param.
+  // IMPORTANT: static routes (@Get('categories/searchable-keys'),
+  // @Patch('categories/reorder')) must be declared BEFORE param routes
+  // (@Patch('categories/:id')) so the literal segment is not captured as :id.
+
+  @Get('categories/searchable-keys')
+  getSearchableAttributeKeys() {
+    return this.adminService.getSearchableAttributeKeys();
+  }
 
   @Get('categories')
   getCategories() {
