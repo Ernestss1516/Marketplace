@@ -17,6 +17,7 @@ import { ExpirationService } from '../expiration/expiration.service';
 import { EntitlementService } from '../billing/entitlement.service';
 import { GeocodingService } from '../geocoding/geocoding.service';
 import { BadWordService } from '../moderation/bad-word.service';
+import { AttributeField, resolveEffectiveSchema } from '../categories/category.types';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { UpdateListingDto } from './dto/update-listing.dto';
 import { MyListingsQueryDto } from './dto/my-listings-query.dto';
@@ -85,10 +86,14 @@ export class ListingsService {
   async create(sellerId: string, dto: CreateListingDto): Promise<Listing> {
     const category = await this.prisma.category.findUnique({
       where: { id: dto.categoryId },
-      select: { attributeSchema: true },
+      select: { attributeSchema: true, parent: { select: { attributeSchema: true } } },
     });
     if (!category) throw new NotFoundException('Category not found');
-    this.validateAttributes(dto.attributes ?? {}, category.attributeSchema);
+    const effectiveSchema = resolveEffectiveSchema(
+      (category.attributeSchema as unknown as AttributeField[]) ?? [],
+      (category.parent?.attributeSchema as unknown as AttributeField[]) ?? [],
+    );
+    this.validateAttributes(dto.attributes ?? {}, effectiveSchema);
 
     const slug = this.buildSlug(dto.title);
 
@@ -144,14 +149,18 @@ export class ListingsService {
       const catId = dto.categoryId ?? existing.categoryId;
       const category = await this.prisma.category.findUnique({
         where: { id: catId },
-        select: { attributeSchema: true },
+        select: { attributeSchema: true, parent: { select: { attributeSchema: true } } },
       });
       if (!category) throw new NotFoundException('Category not found');
+      const effectiveSchema = resolveEffectiveSchema(
+        (category.attributeSchema as unknown as AttributeField[]) ?? [],
+        (category.parent?.attributeSchema as unknown as AttributeField[]) ?? [],
+      );
       const mergedAttrs = {
         ...(existing.attributes as Record<string, unknown>),
         ...(dto.attributes ?? {}),
       };
-      this.validateAttributes(mergedAttrs, category.attributeSchema);
+      this.validateAttributes(mergedAttrs, effectiveSchema);
     }
 
     const { imageIds, ...fields } = dto;

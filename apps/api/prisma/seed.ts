@@ -29,17 +29,22 @@ const CATEGORIES: CategorySeed[] = [
     name: 'Vehículos',
     slug: 'vehiculos',
     order: 1,
-    attributeSchema: [],
+    // RC5.2b: year+km moved here from the three children (common to all).
+    // Effective schema for each child = [year, km] (inherited) + own fields.
+    // listing.attributes is unchanged; only where the schema is DEFINED moves.
+    attributeSchema: [
+      { name: 'year', label: 'Año', type: 'number', filterable: true, required: true },
+      { name: 'km', label: 'Kilómetros', type: 'number', unit: 'km', filterable: true, required: true },
+    ],
     children: [
       {
         name: 'Coches',
         slug: 'coches',
         order: 1,
+        // year + km inherited from Vehículos. Effective = [year, km, brand, model, fuel, gearbox, power].
         attributeSchema: [
           { name: 'brand', label: 'Marca', type: 'text', filterable: true, required: true },
           { name: 'model', label: 'Modelo', type: 'text', filterable: false, required: true },
-          { name: 'year', label: 'Año', type: 'number', filterable: true, required: true },
-          { name: 'km', label: 'Kilómetros', type: 'number', unit: 'km', filterable: true, required: true },
           {
             name: 'fuel',
             label: 'Combustible',
@@ -63,10 +68,9 @@ const CATEGORIES: CategorySeed[] = [
         name: 'Motos',
         slug: 'motos',
         order: 2,
+        // year + km inherited from Vehículos. Effective = [year, km, brand, displacement].
         attributeSchema: [
           { name: 'brand', label: 'Marca', type: 'text', filterable: true, required: true },
-          { name: 'year', label: 'Año', type: 'number', filterable: true, required: true },
-          { name: 'km', label: 'Kilómetros', type: 'number', unit: 'km', filterable: true, required: true },
           { name: 'displacement', label: 'Cilindrada', type: 'number', unit: 'cc', filterable: true, required: false },
         ],
       },
@@ -74,9 +78,8 @@ const CATEGORIES: CategorySeed[] = [
         name: 'Furgonetas y camiones',
         slug: 'furgonetas',
         order: 3,
+        // year + km inherited from Vehículos. Effective = [year, km, fuel].
         attributeSchema: [
-          { name: 'year', label: 'Año', type: 'number', filterable: true, required: true },
-          { name: 'km', label: 'Kilómetros', type: 'number', unit: 'km', filterable: true, required: true },
           {
             name: 'fuel',
             label: 'Combustible',

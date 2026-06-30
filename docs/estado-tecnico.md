@@ -1,6 +1,6 @@
 # Estado técnico del proyecto — Marketplace
 
-> Fecha: 2026-06-30 · Rama: `main` · Último commit: RC5.2 — deuda técnica atributos + extensión schema (herencia, cardAttribute, searchable-keys, itemType, calzado.size)
+> Fecha: 2026-06-30 · Rama: `main` · Último commit: RC5.2b — seed Vehículos reorganizado (year+km al padre), validación de atributos usa schema efectivo
 > Plan vigente: `docs/Hoja_de_ruta_rafagas_Hito5-9.docx` (Hitos 5–9). Hitos 5–6 firmes; 7–9 boceto a re-detallar al llegar.
 
 Documento de referencia para retomar el proyecto. Recoge qué hay implementado,
@@ -143,13 +143,19 @@ fuente de verdad compartida; el DTO y el service deben mantenerse en sync al añ
 atributos nuevos. El atributo `itemType` fue añadido en RC5.2 para reemplazar `type`
 (colisión con el enum `ListingType`).
 
-### Herencia de schema de atributos (RC5.2)
+### Herencia de schema de atributos (RC5.2 + RC5.2b)
 
 `CategoriesService.findBySlug()` resuelve el schema efectivo fusionando el schema del
 padre con el del hijo (`resolveEffectiveSchema` en `category.types.ts`). El hijo
 sobreescribe campos del padre con el mismo `name`; los campos exclusivos del padre se
 heredan. La profundidad está limitada a 2 niveles (hoja → padre), congruente con
 `categoryPath` e `INDEX_INCLUDE` en `search.service.ts`.
+
+**RC5.2b** da a la herencia su primer caso real en el seed: los atributos `year` y `km`
+(comunes a Coches, Motos y Furgonetas) se han subido al padre `Vehículos`. `listing.attributes`
+(datos) no cambia; solo se mueve la *definición* del schema. `ListingsService.create()` y
+`update()` usan `resolveEffectiveSchema` (parent incluido) al validar atributos requeridos,
+por lo que `required: true` en el padre se sigue enforcing en los hijos.
 
 El admin backoffice (create/update category) valida que el schema **efectivo** (propio +
 heredado) no supere 2 atributos con `cardAttribute: true`. Este flag marca los atributos
@@ -326,14 +332,18 @@ Los tests de Jest usan `setupFiles: ['test/load-env.ts']` (carga `.env.test` con
 `dotenv.config()` sin sobreescribir `process.env`) y `globalSetup: 'test/setup-e2e.js'`
 (ejecuta `prisma migrate deploy` + `seed-test.ts` una vez antes de todas las suites).
 
-Las **19 suites e2e de Jest** suman **305 casos**: smoke (1), auth (15), listings (10),
+Las **20 suites e2e de Jest** suman **316 casos**: smoke (1), auth (15), listings (10),
 messaging (7), search (8), favorites (12), reviews (20), moderation (23), admin (34),
 blog (24), redsys (22), billing-rf6 (15), rf7-limits (8), rf7-expiration (9),
 billing-catalog (6), rf8-meilisearch (6), admin-billing (≈20), admin-billing-rf12b (≈8),
-rc5-attributes (12). **RF.10** añadió 3 casos al suite de redsys. **Bonus Pro** añadió
-5 casos más al suite de redsys. **RC5.2** añadió `rc5-attributes.e2e-spec.ts` (12 casos):
-búsqueda por `itemType`, búsqueda por `size` string en calzado, herencia de schema (parent→child),
-`cardAttributeKeys[]` en árbol, max-2 `cardAttribute` en create/update, `searchable-keys` ADMIN/MODERATOR.
+rc5-attributes (12), rc5b-vehiculos (11). **RF.10** añadió 3 casos al suite de redsys.
+**Bonus Pro** añadió 5 casos más al suite de redsys. **RC5.2** añadió `rc5-attributes.e2e-spec.ts`
+(12 casos): búsqueda por `itemType`, búsqueda por `size` string en calzado, herencia de schema
+(parent→child), `cardAttributeKeys[]` en árbol, max-2 `cardAttribute` en create/update,
+`searchable-keys` ADMIN/MODERATOR. **RC5.2b** añadió `rc5b-vehiculos.e2e-spec.ts` (11 casos):
+schema efectivo por las tres hijas de Vehículos, year/km en schema propio del hijo ausentes,
+camino peligroso (listing existente conserva attributes), validación 422 sin year/km,
+búsqueda Meili por year/km, summary con `categorySlug` + `attributes`.
 **18/18 Playwright** (flujo-critico: 1, planes+suscripción: 8, mis-creditos: 9).
 Las suites se ejecutan en paralelo (sin `--runInBand`); el diseño de `cleanDb` — que
 solo trunca `User` CASCADE y nunca toca `Category` ni `Setting` — garantiza que no
