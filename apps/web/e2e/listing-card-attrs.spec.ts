@@ -21,8 +21,9 @@ async function publishCoche(
   await page.goto('/publicar');
   await expect(page.getByRole('heading', { name: 'Elige una categoría' })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Vehículos' }).click();
-  await page.getByRole('button', { name: 'Coches' }).click();
+  // exact:true: avoids matching "Vehículos RC5B" from the rc5b backend spec's beforeAll.
+  await page.getByRole('button', { name: 'Vehículos', exact: true }).click();
+  await page.getByRole('button', { name: 'Coches', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Fotos' })).toBeVisible({ timeout: 8_000 });
 
   await page.getByRole('button', { name: 'Siguiente' }).click();
@@ -87,8 +88,8 @@ test.describe('RC5.5 — ListingCard: cardAttributes por categoría', () => {
     // Publish without filling brand (optional field)
     await page.goto('/publicar');
     await expect(page.getByRole('heading', { name: 'Elige una categoría' })).toBeVisible();
-    await page.getByRole('button', { name: 'Vehículos' }).click();
-    await page.getByRole('button', { name: 'Coches' }).click();
+    await page.getByRole('button', { name: 'Vehículos', exact: true }).click();
+    await page.getByRole('button', { name: 'Coches', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Fotos' })).toBeVisible({ timeout: 8_000 });
     await page.getByRole('button', { name: 'Siguiente' }).click();
 

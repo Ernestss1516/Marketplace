@@ -29,9 +29,10 @@ async function goToAtributosStep(
   await page.goto('/publicar');
   await expect(page.getByRole('heading', { name: 'Elige una categoría' })).toBeVisible();
 
-  // Navigate into parent, then select leaf (auto-advances after leaf selection)
-  await page.getByRole('button', { name: parentName }).click();
-  await page.getByRole('button', { name: leafName }).click();
+  // exact:true prevents partial matches against sibling categories that share a prefix
+  // (e.g. "Vehículos RC5B" created by the rc5b backend spec's beforeAll).
+  await page.getByRole('button', { name: parentName, exact: true }).click();
+  await page.getByRole('button', { name: leafName, exact: true }).click();
 
   // Wizard auto-advances to Fotos after getCategoryBySlug resolves
   await expect(page.getByRole('heading', { name: 'Fotos' })).toBeVisible({ timeout: 8_000 });

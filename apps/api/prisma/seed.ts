@@ -33,7 +33,7 @@ const CATEGORIES: CategorySeed[] = [
     // Effective schema for each child = [year, km] (inherited) + own fields.
     // listing.attributes is unchanged; only where the schema is DEFINED moves.
     attributeSchema: [
-      { name: 'year', label: 'Año', type: 'number', filterable: true, required: true },
+      { name: 'year', label: 'Año', type: 'number', filterable: true, required: true, cardAttribute: true },
       { name: 'km', label: 'Kilómetros', type: 'number', unit: 'km', filterable: true, required: true },
     ],
     children: [
@@ -42,8 +42,9 @@ const CATEGORIES: CategorySeed[] = [
         slug: 'coches',
         order: 1,
         // year + km inherited from Vehículos. Effective = [year, km, brand, model, fuel, gearbox, power].
+        // Card shows: "Año: 2022 · Marca: Toyota"
         attributeSchema: [
-          { name: 'brand', label: 'Marca', type: 'text', filterable: true, required: true },
+          { name: 'brand', label: 'Marca', type: 'text', filterable: true, required: true, cardAttribute: true },
           { name: 'model', label: 'Modelo', type: 'text', filterable: false, required: true },
           {
             name: 'fuel',
@@ -69,8 +70,9 @@ const CATEGORIES: CategorySeed[] = [
         slug: 'motos',
         order: 2,
         // year + km inherited from Vehículos. Effective = [year, km, brand, displacement].
+        // Card shows: "Año: X · Marca: Y"
         attributeSchema: [
-          { name: 'brand', label: 'Marca', type: 'text', filterable: true, required: true },
+          { name: 'brand', label: 'Marca', type: 'text', filterable: true, required: true, cardAttribute: true },
           { name: 'displacement', label: 'Cilindrada', type: 'number', unit: 'cc', filterable: true, required: false },
         ],
       },
@@ -102,9 +104,10 @@ const CATEGORIES: CategorySeed[] = [
         name: 'Pisos y apartamentos',
         slug: 'pisos',
         order: 1,
+        // Card shows: "80 m² · 3 hab"
         attributeSchema: [
-          { name: 'sqm', label: 'Superficie', type: 'number', unit: 'm²', filterable: true, required: true },
-          { name: 'rooms', label: 'Habitaciones', type: 'number', filterable: true, required: true },
+          { name: 'sqm', label: 'Superficie', type: 'number', unit: 'm²', filterable: true, required: true, cardAttribute: true },
+          { name: 'rooms', label: 'Habitaciones', type: 'number', filterable: true, required: true, cardAttribute: true },
           { name: 'bathrooms', label: 'Baños', type: 'number', filterable: true, required: false },
           { name: 'floor', label: 'Planta', type: 'number', filterable: false, required: false },
           { name: 'elevator', label: 'Ascensor', type: 'boolean', filterable: true, required: false },
@@ -115,9 +118,10 @@ const CATEGORIES: CategorySeed[] = [
         name: 'Casas y chalets',
         slug: 'casas',
         order: 2,
+        // Card shows: "120 m² · 4 hab"
         attributeSchema: [
-          { name: 'sqm', label: 'Superficie', type: 'number', unit: 'm²', filterable: true, required: true },
-          { name: 'rooms', label: 'Habitaciones', type: 'number', filterable: true, required: true },
+          { name: 'sqm', label: 'Superficie', type: 'number', unit: 'm²', filterable: true, required: true, cardAttribute: true },
+          { name: 'rooms', label: 'Habitaciones', type: 'number', filterable: true, required: true, cardAttribute: true },
           { name: 'bathrooms', label: 'Baños', type: 'number', filterable: false, required: false },
           { name: 'garage', label: 'Garaje', type: 'boolean', filterable: true, required: false },
           { name: 'pool', label: 'Piscina', type: 'boolean', filterable: true, required: false },
@@ -145,6 +149,7 @@ const CATEGORIES: CategorySeed[] = [
         name: 'Móviles y smartphones',
         slug: 'moviles',
         order: 1,
+        // Card shows: "Apple · 128 GB"
         attributeSchema: [
           {
             name: 'brand',
@@ -153,6 +158,7 @@ const CATEGORIES: CategorySeed[] = [
             options: ['Apple', 'Samsung', 'Xiaomi', 'Huawei', 'Google', 'OnePlus', 'Otro'],
             filterable: true,
             required: true,
+            cardAttribute: true,
           },
           { name: 'model', label: 'Modelo', type: 'text', filterable: false, required: false },
           {
@@ -162,6 +168,7 @@ const CATEGORIES: CategorySeed[] = [
             options: ['16 GB', '32 GB', '64 GB', '128 GB', '256 GB', '512 GB', '1 TB'],
             filterable: true,
             required: false,
+            cardAttribute: true,
           },
           { name: 'color', label: 'Color', type: 'text', filterable: false, required: false },
         ],
@@ -170,6 +177,7 @@ const CATEGORIES: CategorySeed[] = [
         name: 'Ordenadores',
         slug: 'ordenadores',
         order: 2,
+        // Card shows: "Portátil · 16 GB"
         attributeSchema: [
           {
             name: 'itemType',
@@ -178,6 +186,7 @@ const CATEGORIES: CategorySeed[] = [
             options: ['Portátil', 'Sobremesa', 'Todo en uno', 'Mini PC'],
             filterable: true,
             required: true,
+            cardAttribute: true,
           },
           { name: 'brand', label: 'Marca', type: 'text', filterable: true, required: false },
           {
@@ -187,6 +196,7 @@ const CATEGORIES: CategorySeed[] = [
             options: ['4 GB', '8 GB', '16 GB', '32 GB', '64 GB'],
             filterable: true,
             required: false,
+            cardAttribute: true,
           },
           { name: 'storage', label: 'Almacenamiento', type: 'text', filterable: false, required: false },
         ],
@@ -195,8 +205,9 @@ const CATEGORIES: CategorySeed[] = [
         name: 'Electrodomésticos',
         slug: 'electrodomesticos',
         order: 3,
+        // Card shows: "Tipo de electrodoméstico"
         attributeSchema: [
-          { name: 'itemType', label: 'Tipo', type: 'text', filterable: true, required: true },
+          { name: 'itemType', label: 'Tipo', type: 'text', filterable: true, required: true, cardAttribute: true },
           { name: 'brand', label: 'Marca', type: 'text', filterable: true, required: false },
         ],
       },
@@ -212,6 +223,7 @@ const CATEGORIES: CategorySeed[] = [
         name: 'Ropa',
         slug: 'ropa',
         order: 1,
+        // Card shows: "Mujer · M"
         attributeSchema: [
           {
             name: 'gender',
@@ -220,6 +232,7 @@ const CATEGORIES: CategorySeed[] = [
             options: ['Hombre', 'Mujer', 'Unisex', 'Niño', 'Niña'],
             filterable: true,
             required: false,
+            cardAttribute: true,
           },
           {
             name: 'size',
@@ -228,6 +241,7 @@ const CATEGORIES: CategorySeed[] = [
             options: ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'Otra'],
             filterable: true,
             required: false,
+            cardAttribute: true,
           },
           { name: 'brand', label: 'Marca', type: 'text', filterable: true, required: false },
           { name: 'color', label: 'Color', type: 'text', filterable: false, required: false },
@@ -237,6 +251,7 @@ const CATEGORIES: CategorySeed[] = [
         name: 'Calzado',
         slug: 'calzado',
         order: 2,
+        // Card shows: "Mujer · 38"
         attributeSchema: [
           {
             name: 'gender',
@@ -245,6 +260,7 @@ const CATEGORIES: CategorySeed[] = [
             options: ['Hombre', 'Mujer', 'Unisex', 'Niño', 'Niña'],
             filterable: true,
             required: false,
+            cardAttribute: true,
           },
           {
             name: 'size',
@@ -253,6 +269,7 @@ const CATEGORIES: CategorySeed[] = [
             options: ['35', '36', '37', '38', '39', '40', '41', '42', '43', '44', '45'],
             filterable: true,
             required: false,
+            cardAttribute: true,
           },
           { name: 'brand', label: 'Marca', type: 'text', filterable: true, required: false },
           { name: 'color', label: 'Color', type: 'text', filterable: false, required: false },
