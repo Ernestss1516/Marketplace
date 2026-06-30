@@ -12,6 +12,7 @@
 //
 // Prerequisito en seed-test.ts: vehiculos (year, km required) → coches (brand optional).
 
+import path from 'path';
 import { test, expect } from './fixtures/auth';
 
 // ── Helper: navigate through wizard to the "Atributos" step ───────────────────
@@ -37,7 +38,13 @@ async function goToAtributosStep(
   // Wizard auto-advances to Fotos after getCategoryBySlug resolves
   await expect(page.getByRole('heading', { name: 'Fotos' })).toBeVisible({ timeout: 8_000 });
 
-  // Skip Fotos (0 photos — wizard only blocks if a photo is still uploading)
+  // Upload one photo: StepPrevisualizacion requires validImages.length >= 1 to
+  // enable "Publicar ahora". The "Portada" badge appears once the upload succeeds.
+  await page.locator('[data-testid="foto-input"]').setInputFiles(
+    path.join(__dirname, 'fixtures', 'test-image.png'),
+  );
+  await expect(page.locator('span').filter({ hasText: 'Portada' })).toBeVisible({ timeout: 15_000 });
+
   await page.getByRole('button', { name: 'Siguiente' }).click();
 
   // Datos step — fill minimum required fields

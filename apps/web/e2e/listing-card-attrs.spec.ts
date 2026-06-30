@@ -10,6 +10,7 @@
 //   coches:    brand (cardAttribute:true) — hereda year de vehiculos
 //   → cardAttributes efectivos de coches = [{key:'year', label:'Año'}, {key:'brand', label:'Marca'}]
 
+import path from 'path';
 import { test, expect } from './fixtures/auth';
 
 // ── Helper: publish a coche via the wizard and return its URL ────────────────
@@ -25,6 +26,10 @@ async function publishCoche(
   await page.getByRole('button', { name: 'Vehículos', exact: true }).click();
   await page.getByRole('button', { name: 'Coches', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Fotos' })).toBeVisible({ timeout: 8_000 });
+  await page.locator('[data-testid="foto-input"]').setInputFiles(
+    path.join(__dirname, 'fixtures', 'test-image.png'),
+  );
+  await expect(page.locator('span').filter({ hasText: 'Portada' })).toBeVisible({ timeout: 15_000 });
 
   await page.getByRole('button', { name: 'Siguiente' }).click();
   await expect(page.getByRole('heading', { name: 'Datos del anuncio' })).toBeVisible();
@@ -91,6 +96,10 @@ test.describe('RC5.5 — ListingCard: cardAttributes por categoría', () => {
     await page.getByRole('button', { name: 'Vehículos', exact: true }).click();
     await page.getByRole('button', { name: 'Coches', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Fotos' })).toBeVisible({ timeout: 8_000 });
+    await page.locator('[data-testid="foto-input"]').setInputFiles(
+      path.join(__dirname, 'fixtures', 'test-image.png'),
+    );
+    await expect(page.locator('span').filter({ hasText: 'Portada' })).toBeVisible({ timeout: 15_000 });
     await page.getByRole('button', { name: 'Siguiente' }).click();
 
     await expect(page.getByRole('heading', { name: 'Datos del anuncio' })).toBeVisible();
@@ -155,6 +164,10 @@ test.describe('RC5.5 — ListingCard: cardAttributes por categoría', () => {
     await page.getByRole('button', { name: 'Electrónica' }).click();
     await page.getByRole('button', { name: 'Móviles' }).click();
     await expect(page.getByRole('heading', { name: 'Fotos' })).toBeVisible({ timeout: 8_000 });
+    await page.locator('[data-testid="foto-input"]').setInputFiles(
+      path.join(__dirname, 'fixtures', 'test-image.png'),
+    );
+    await expect(page.locator('span').filter({ hasText: 'Portada' })).toBeVisible({ timeout: 15_000 });
     await page.getByRole('button', { name: 'Siguiente' }).click();
 
     await expect(page.getByRole('heading', { name: 'Datos del anuncio' })).toBeVisible();

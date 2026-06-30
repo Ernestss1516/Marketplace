@@ -19,7 +19,11 @@ async function seedCategories() {
       order: 1,
       attributeSchema: [],
     },
-    update: {},
+    // Reset schema so admin tests always start from a clean slate (prevents
+    // accumulation across CI runs when test 2 saves "brand" each time).
+    // Reset order:1 in case the prod seed (which has Vehículos at order:1) ran
+    // on the test DB and reordered things, making `.first()` non-deterministic.
+    update: { attributeSchema: [], order: 1 },
   });
 
   await prisma.category.upsert({
@@ -50,7 +54,10 @@ async function seedCategories() {
   const vehiculos = await prisma.category.upsert({
     where: { slug: 'vehiculos' },
     create: { name: 'Vehículos', slug: 'vehiculos', order: 2, attributeSchema: vehiculosSchema },
-    update: { attributeSchema: vehiculosSchema },
+    // Also reset order:2 — the prod seed sets Vehículos to order:1, so if it ran
+    // on the test DB, Electrónica and Vehículos would both have order:1 and the
+    // admin test's `.first()` selector would be non-deterministic.
+    update: { attributeSchema: vehiculosSchema, order: 2 },
   });
 
   await prisma.category.upsert({
