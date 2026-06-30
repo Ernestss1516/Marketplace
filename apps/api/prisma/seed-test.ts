@@ -37,7 +37,36 @@ async function seedCategories() {
     update: {},
   });
 
-  console.log('Test seed: categories OK (electronica → moviles)');
+  // Vehículos hierarchy: parent holds year+km (required, inherited by children).
+  const vehiculos = await prisma.category.upsert({
+    where: { slug: 'vehiculos' },
+    create: {
+      name: 'Vehículos',
+      slug: 'vehiculos',
+      order: 2,
+      attributeSchema: [
+        { name: 'year', label: 'Año', type: 'number', filterable: true, required: true },
+        { name: 'km', label: 'Kilómetros', type: 'number', unit: 'km', filterable: true, required: true },
+      ],
+    },
+    update: {},
+  });
+
+  await prisma.category.upsert({
+    where: { slug: 'coches' },
+    create: {
+      name: 'Coches',
+      slug: 'coches',
+      order: 1,
+      parentId: vehiculos.id,
+      attributeSchema: [
+        { name: 'brand', label: 'Marca', type: 'text', filterable: true, required: false },
+      ],
+    },
+    update: {},
+  });
+
+  console.log('Test seed: categories OK (electronica → moviles, vehiculos → coches)');
 }
 
 async function seedSettings() {

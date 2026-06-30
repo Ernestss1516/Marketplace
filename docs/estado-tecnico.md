@@ -66,7 +66,7 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **Admin anuncios** `/admin/anuncios` | ✅ Completo | Tabla paginada con chips de filtro por estado; cambio de estado inline (select + razón + confirmar) vía `PATCH /admin/listings/:id/status`; reportes recibidos visibles en la fila |
 | **Admin usuarios** `/admin/usuarios` | ✅ Completo | Tabla con buscador (nombre/email), chips status y rol; acciones suspend/ban/reinstate contextuales al estado; panel de detalle expandible (últimos anuncios + reportes recibidos + auditlog); no muestra botones de acción para usuarios ADMIN |
 | **Admin reportes** `/admin/reportes` | ✅ Completo | Cola de reportes paginada con filtro de estado; acciones resolve/dismiss/retirar anuncio |
-| **Admin categorías** `/admin/categorias` | ✅ Completo (RC5.3) | Árbol con CRUD inline (crear raíz/subcategoría, editar, borrar); reordenación ↑↓ (`PATCH /admin/categories/reorder`); errores 400 propagados. **RC5.3**: el textarea JSON se reemplaza por `AttributeSchemaEditor` (editor visual por filas); atributos heredados read-only con badge «heredado de X»; checkbox `filterable` deshabilitado si el name no está en `searchableKeys` (del endpoint `/admin/categories/searchable-keys`, cargado una vez al montar); intención de `filterable` se preserva durante el renombrado transitorio (Ajuste 1 — solo se reconcilia a false en el PATCH final); checkbox `cardAttribute` deshabilitado cuando el schema efectivo ya tiene 2; «• Sin guardar» cuando los atributos tienen cambios no persistidos; «Guardar atributos» (PATCH con solo los propios) separado de «Guardar» (PATCH de nombre/slug/orden). Campos desconocidos de ediciones JSON antiguas se round-tripean sin pérdida (Ajuste 3). |
+| **Admin categorías** `/admin/categorias` | ✅ Completo (RC5.3) | Árbol de categorías con CRUD inline (crear raíz/subcategoría, editar, borrar); reordenación ↑↓ con `PATCH /admin/categories/reorder`; editor VISUAL de atributos (reemplaza el textarea JSON): filas por atributo, heredados read-only separados de los propios, miniform por atributo (type→options condicional, required/filterable/cardAttribute), guardado de solo los atributos propios; errores 400 propagados bajo la fila. |
 | **Admin ajustes** `/admin/ajustes` | ✅ Completo | 3 settings con controles tipo-específicos: `badWordList` (textarea una palabra por línea), `listingExpiryDays` (number input), `contactRequiresVerification` (checkbox); save por setting con estado de carga / ✓ éxito / error inline; timestamp de última actualización |
 | **Blog público** `/blog` | ✅ Completo | `export const revalidate = 3600`; Server Component ISR; listado paginado de posts PUBLISHED con tarjetas (portada, título, excerpt, fecha, autor, tags); filtro `?tag=`; estados de vacío; paginación; breadcrumb. Portada: solo se renderiza con `<Image>` si `isSafeSrc()` pasa (ver §2 y §3) |
 | **Blog detalle** `/blog/[slug]` | ✅ Completo | `export const revalidate = 3600`; Server Component ISR; `notFound()` si slug no existe o es DRAFT; body Markdown renderizado con `react-markdown` + `remark-gfm` + `rehype-sanitize` (sin `rehype-raw` — **regla invariante de seguridad**, ver §2); clase `prose` de `@tailwindcss/typography`; `generateMetadata()` con `og:type: 'article'`, `publishedTime`, `authors`, imagen OG; JSON-LD `BlogPosting` embebido; breadcrumb |
@@ -143,6 +143,8 @@ fuente de verdad compartida; el DTO y el service deben mantenerse en sync al añ
 atributos nuevos. El atributo `itemType` fue añadido en RC5.2 para reemplazar `type`
 (colisión con el enum `ListingType`).
 
+**Tensión dinámico-vs-estático en atributos filtrables:** los atributos filtrables en búsqueda siguen hardcodeados (`VARIABLE_ATTRIBUTE_KEYS` + `SearchQueryDto`); los demás usos (wizard, ficha de anuncio, tarjeta RC5.5) son dinámicos desde BD. Un atributo guardado con `filterable: true` cuyo `name` no esté en `VARIABLE_ATTRIBUTE_KEYS` se almacena y se muestra en el wizard y la ficha, pero el parámetro `?name=valor` en `GET /search` es rechazado con 400 (campo no declarado en `SearchQueryDto`). El endpoint `GET /admin/categories/searchable-keys` expone esa lista para que el editor visual (RC5.3) deshabilite el checkbox `filterable` para esos nombres, haciendo inalcanzable desde la UI el estado incoherente `{ filterable: true, name no buscable }`. Un PATCH directo a la API sí puede crear ese estado; el backend no lo valida (es metadato del wizard, no un campo de Meilisearch).
+
 ### Herencia de schema de atributos (RC5.2 + RC5.2b)
 
 `CategoriesService.findBySlug()` resuelve el schema efectivo fusionando el schema del
@@ -163,6 +165,33 @@ que se mostrarán en la tarjeta de anuncio (RC5.5). El endpoint
 `GET /admin/categories/searchable-keys` expone `VARIABLE_ATTRIBUTE_KEYS` para que el
 editor de atributos (RC5.3) desactive el checkbox `filterable` para atributos cuyo
 nombre no esté en la lista hardcodeada.
+
+### Editor visual de atributos: decisiones de diseño (RC5.3)
+
+**Ajuste 1 — preservar la intención de `filterable` durante renombrados transitorios:**
+Renombrar un campo a un nombre no buscable deshabilita visualmente el checkbox `filterable`
+pero no muta el valor interno. Si el admin corrige el nombre de vuelta a uno buscable, el
+checkbox recupera el valor previo sin pérdida. La reconciliación (`filterable → false` para
+nombres no buscables) ocurre únicamente en `serializeAttributeSchema()`, llamado justo antes
+del PATCH. Evita descartar la intención del admin por un renombrado transitorio.
+
+**Ajuste 2 — indicador de cambios sin guardar + bloqueo de guardado cruzado:**
+«• Sin guardar» aparece en el panel de atributos cuando hay cambios no persistidos. Si el
+admin intenta guardar nombre/slug con atributos pendientes, el botón «Guardar» se bloquea con
+un aviso: los dos PATCH (nombre y atributos) son independientes al mismo endpoint — enviarlos
+sin sincronizar sobreescribiría uno al otro.
+
+**Ajuste 3 — round-trip de campos desconocidos:**
+`parseAttributeSchema()` captura en `_extra` los campos no reconocidos en un `attributeSchema`
+existente (editado manualmente como JSON en el pasado). `serializeAttributeSchema()` los
+restaura en el payload del PATCH, con los campos conocidos ganando en caso de colisión. Los
+datos JSON manuales no se descartan silenciosamente.
+
+**Guardado de solo los atributos propios (invariante de herencia):**
+«Guardar atributos» envía únicamente los campos `ownSchema` de la categoría en edición. Los
+heredados del padre no se reenvían: materializarlos en la hija duplicaría la definición y
+rompería la herencia — si el padre cambia, la copia en la hija quedaría desactualizada e
+invisible desde el editor.
 
 ### Deuda `type` → `itemType` (RC5.2)
 
@@ -345,7 +374,9 @@ schema efectivo por las tres hijas de Vehículos, year/km en schema propio del h
 camino peligroso (listing existente conserva attributes), validación 422 sin year/km,
 búsqueda Meili por year/km, summary con `categorySlug` + `attributes`.
 **RC5.3** añadió `admin-categorias.spec.ts` (7 casos Playwright): carga de página ADMIN, redirección MODERATOR, añadir atributo text, filterable disabled para name no-buscable, filterable enabled para name buscable, Ajuste 1 (renombrado brand→colour→brand recupera la intención), cardAttribute disabled al 2º marcado, options editor para type=select.
-**25/25 Playwright** (flujo-critico: 1, planes+suscripción: 8, mis-creditos: 9, admin-categorias: 7).
+**RC5.4** añadió `wizard-herencia.spec.ts` (5 casos Playwright): campos heredados (year *, km *) y propios (brand) visibles en el paso Atributos; required heredado bloquea el wizard cliente; flujo completo guardar+publicar+ficha muestra Características con unidades (30000 km); EditarWizard precarga valores de los atributos heredados; regresión sin herencia (Móviles). Seed de test extendido: jerarquía `vehiculos (year/km required) → coches (brand optional)`. **No se requirió ningún cambio de código:** la herencia en el wizard funcionaba desde RC5.2 vía `GET /categories/:slug` que devuelve el schema efectivo mergeado padre→hijo.
+**30/30 Playwright** (flujo-critico: 1, planes+suscripción: 8, mis-creditos: 9, admin-categorias: 7, wizard-herencia: 5).
+**Fase 5.2 — Categorías con atributos y herencia:** RC5.1 (diseño y contratos de API), RC5.2 (backend completo: herencia, cardAttributeKeys, validación max-2, deuda itemType/size), RC5.2b (seed Vehículos reorganizado: year/km al padre; validación efectiva con padre en create/update), RC5.3 (editor visual de atributos), RC5.4 (verificación herencia wizard — sin cambios de código; tests e2e añadidos) — completadas y verificadas. **Pendiente:** RC5.5 (ListingCard — mostrar hasta 2 cardAttributes en la tarjeta de anuncio).
 Las suites se ejecutan en paralelo (sin `--runInBand`); el diseño de `cleanDb` — que
 solo trunca `User` CASCADE y nunca toca `Category` ni `Setting` — garantiza que no
 haya contención entre los workers de Jest.
@@ -1239,6 +1270,18 @@ estado financiero; los tres writes (wallet, CreditLedger, AuditLog) son atómico
 en los callers de Fase 7. El parámetro `tx?` opcional ya está disponible en
 `AuditLogService.log()` tras el refactor de RF.12b — ningún caller existente requiere cambio
 de firma.
+
+### Editor de atributos: `searchableKeys` no cargado → todos los `filterable` deshabilitados sin distinguir causa
+
+Si `GET /admin/categories/searchable-keys` falla (API caída, error de red), la llamada es
+silenciada y `searchableKeys` permanece como array vacío. El editor deshabilita entonces
+**todos** los checkboxes `filterable` — incluyendo los de nombres genuinamente buscables
+como `brand` o `fuel`. El resultado es correcto desde el punto de vista de integridad de
+datos (evita marcar como filterable algo que no filtrará), pero confuso para el admin que
+no entiende por qué `brand` aparece como no filterable.
+
+Mejora futura: mostrar un banner «No se pudo cargar la lista de atributos buscables» en
+lugar de deshabilitar silenciosamente todos los checkboxes.
 
 ---
 
