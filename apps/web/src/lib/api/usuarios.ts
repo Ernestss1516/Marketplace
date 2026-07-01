@@ -10,7 +10,7 @@ export function getSellerProfile(slug: string): Promise<UserPublic> {
 }
 
 export function updateMe(
-  data: Partial<Pick<User, 'name' | 'phone' | 'bio' | 'city' | 'province' | 'postalCode'>>,
+  data: Partial<Pick<User, 'name' | 'phone' | 'avatarUrl' | 'bio' | 'city' | 'province' | 'postalCode'>>,
   token: string,
 ): Promise<User> {
   return apiFetch<User>('/users/me', {

@@ -42,4 +42,16 @@ export class MediaService {
 
     return image;
   }
+
+  async uploadAvatar(file: Express.Multer.File): Promise<{ url: string }> {
+    if (!file) throw new BadRequestException('No file provided');
+
+    const ext = MIME_TO_EXT[file.mimetype];
+    if (!ext) throw new UnprocessableEntityException('File type not allowed. Use JPEG, PNG or WebP.');
+
+    const key = `avatars/${randomBytes(16).toString('hex')}${ext}`;
+    await this.r2.upload(key, file.buffer, file.mimetype);
+
+    return { url: this.r2.getPublicUrl(key) };
+  }
 }

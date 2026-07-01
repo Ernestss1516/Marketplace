@@ -45,4 +45,28 @@ export class MediaController {
     if (!file) throw new BadRequestException('No file provided');
     return this.mediaService.upload(user.userId, file);
   }
+
+  @Post('upload-avatar')
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } }, required: ['file'] } })
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: MAX_FILE_SIZE },
+      fileFilter: (_req, file, cb) => {
+        if (ALLOWED_MIME_TYPES.includes(file.mimetype)) {
+          cb(null, true);
+        } else {
+          cb(new UnprocessableEntityException('File type not allowed. Use JPEG, PNG or WebP.'), false);
+        }
+      },
+    }),
+  )
+  uploadAvatar(
+    @CurrentUser() _user: JwtUser,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) throw new BadRequestException('No file provided');
+    return this.mediaService.uploadAvatar(file);
+  }
 }

@@ -1,16 +1,19 @@
 'use client';
 
-import { useState, useTransition } from 'react';
-import { Loader2 } from 'lucide-react';
+import { useRef, useState, useTransition } from 'react';
+import { Camera, Loader2 } from 'lucide-react';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { MunicipioAutocomplete } from '@/components/municipio/MunicipioAutocomplete';
+import { uploadAvatar } from '@/lib/api/media';
 import { updateMe } from '@/lib/api/usuarios';
 import type { User } from '@/types';
 
 type Status = 'idle' | 'saving' | 'success' | 'error';
+type AvatarStatus = 'idle' | 'uploading' | 'error';
 
 interface Props {
   initialUser: User;
@@ -25,16 +28,41 @@ export function PerfilForm({ initialUser, token }: Props) {
     city: initialUser.city ?? '',
     province: initialUser.province ?? '',
     postalCode: initialUser.postalCode ?? '',
+    avatarUrl: initialUser.avatarUrl ?? '',
   });
   const [status, setStatus] = useState<Status>('idle');
+  const [avatarStatus, setAvatarStatus] = useState<AvatarStatus>('idle');
   const [isPending, startTransition] = useTransition();
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
-  const isSaving = isPending || status === 'saving';
+  const isSaving = isPending || status === 'saving' || avatarStatus === 'uploading';
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) {
     const { name, value } = e.target;
     setFields((prev) => ({ ...prev, [name]: value }));
     if (status !== 'idle') setStatus('idle');
+  }
+
+  async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+
+    const previewUrl = URL.createObjectURL(file);
+    const previousUrl = fields.avatarUrl;
+    setFields((prev) => ({ ...prev, avatarUrl: previewUrl }));
+    setAvatarStatus('uploading');
+
+    try {
+      const { url } = await uploadAvatar(file, token);
+      URL.revokeObjectURL(previewUrl);
+      setFields((prev) => ({ ...prev, avatarUrl: url }));
+      setAvatarStatus('idle');
+    } catch {
+      URL.revokeObjectURL(previewUrl);
+      setFields((prev) => ({ ...prev, avatarUrl: previousUrl }));
+      setAvatarStatus('error');
+    }
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -50,6 +78,7 @@ export function PerfilForm({ initialUser, token }: Props) {
             city: fields.city.trim() || undefined,
             province: fields.province.trim() || undefined,
             postalCode: fields.postalCode.trim() || undefined,
+            avatarUrl: fields.avatarUrl || undefined,
           },
           token,
         );
@@ -62,6 +91,44 @@ export function PerfilForm({ initialUser, token }: Props) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
+      {/* Avatar */}
+      <div className="flex items-center gap-4">
+        <div className="relative">
+          <Avatar className="h-20 w-20 text-2xl" data-testid="perfil-avatar">
+            <AvatarImage src={fields.avatarUrl || undefined} alt={fields.name} />
+            <AvatarFallback>{fields.name[0]?.toUpperCase()}</AvatarFallback>
+          </Avatar>
+          {avatarStatus === 'uploading' && (
+            <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40">
+              <Loader2 className="h-5 w-5 animate-spin text-white" />
+            </div>
+          )}
+        </div>
+        <div className="space-y-1">
+          <input
+            ref={avatarInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            className="sr-only"
+            data-testid="avatar-input"
+            onChange={handleAvatarChange}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => avatarInputRef.current?.click()}
+            disabled={avatarStatus === 'uploading'}
+          >
+            <Camera className="mr-2 h-4 w-4" />
+            Cambiar foto
+          </Button>
+          {avatarStatus === 'error' && (
+            <p className="text-xs text-destructive">Error al subir la imagen. Inténtalo de nuevo.</p>
+          )}
+        </div>
+      </div>
+
       <div className="grid gap-5 sm:grid-cols-2">
         <div className="space-y-1.5">
           <Label htmlFor="name">Nombre</Label>
