@@ -48,7 +48,7 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 |---|---|---|
 | **Home** `/` | ✅ Completo | Hero, buscador, grid de categorías, últimos anuncios (8); Server Component con fetch paralelo |
 | **Ficha anuncio** `/anuncio/[slug]` | ✅ Completo | Galería, precio con `priceType`, atributos de categoría, ubicación, anuncios relacionados, metadata OG; `ContactButton` integrado; **`ReportButton`** (solo autenticados) para reportar el anuncio. **RF.11**: `ListingOwnerActions` en la ficha — mismos botones Destacar/Bump que en mis-anuncios; `featuredUntil` consultado **sin caché** (bypass del Redis de 5 min) porque es estado del propietario, no contenido público; tras Destacar exitoso se oculta el botón reactivamente vía `router.refresh()` |
-| **Categoría** `/[categoria]` | ✅ Completo | Listado paginado con ordenación (fecha/precio) |
+| **Categoría** `/[categoria]` | ✅ Completo (H6.2) | **Migrada a Meilisearch** (antes Postgres directo sin facetas). Ahora: `GET /search?category=slug` con facetas, filtros de atributos variables (fuel, rooms, gender…), proximidad geográfica y sort. FilterPanel reutilizado de `/busqueda` (con `categories={[]}` para que la categoría quede fija en el path URL). Fallback a Postgres (`getListingsByCategory`) si Meili no responde — se muestra banner y resultados básicos sin filtros. Categorías padre muestran anuncios de sus hijas via `categoryPath` de Meilisearch. Tests: `categoria-meili.spec.ts` (4 casos Playwright). `FilterPanel.SKIP_FACETS` ampliado con `categorySlug`. Tests `listing-card-attrs.spec.ts` actualizados: timeout 8 s → 25 s para las páginas de categoría (ahora async Meili). |
 | **Publicar** `/publicar` | ✅ Completo | Wizard 5–6 pasos; crea borrador + publica; tras publicar **ramifica por status**: ACTIVE → navega a la ficha, PENDING_REVIEW → panel informativo con enlace a mis-anuncios (no navega a la ficha, que daría 404) |
 | **Login / Registro** | ✅ Completo | Formularios con next-auth v5 CredentialsProvider |
 | **Verificar email** `/verificar-email` | ✅ Completo | Llama a `POST /auth/verify-email`; emite nuevo JWT con `emailVerified: true` |
@@ -102,14 +102,17 @@ El diseño original modelaba solo un campo `price: Decimal`. Se añadió el enum
 `20260620211233_add_price_type`. El frontend expone esto como tres radio buttons
 (`priceMode`) y la función `priceTypeFromMode` en `StepDatos` traduce al enum.
 
-### Anuncios recientes y por categoría vía Postgres (no Meilisearch)
+### Anuncios recientes vía Postgres; categorías vía Meilisearch (H6.2)
 
-`GET /listings` (recientes) y los listados por categoría (`/[categoria]`) se
-resuelven directamente contra Postgres con `prisma.listing.findMany`. Meilisearch
-está operativo pero se usa exclusivamente para búsqueda de texto libre (`GET /search`).
-Con los índices de `(status, publishedAt)` y `(categoryId, status)` el rendimiento
-es suficiente para el volumen del MVP; si el catálogo crece y se necesitan filtros
-facetados en los listados por categoría, habría que migrar esas rutas a Meilisearch.
+`GET /listings` (recientes) se resuelve directamente contra Postgres (`prisma.listing.findMany`).
+
+**H6.2**: los listados por categoría (`/[categoria]`) se migraron a Meilisearch (`GET /search?category=slug`).
+El cambio unifica el motor de búsqueda y añade facetas, filtros de atributos variables y proximidad
+geográfica a las páginas de categoría, que antes no los tenían. El filtro funciona por `categoryPath`
+(array en el documento Meili), permitiendo que una categoría padre devuelva anuncios de sus hijas.
+Si Meilisearch no responde, la página degrada automáticamente a Postgres sin facetas (fallback
+silencioso con banner informativo). El endpoint `GET /categories/:slug/listings` (backend) y la
+función `getListingsByCategory` (frontend) se conservan como fallback.
 
 ### `categoryPath` jerárquico y sintaxis de filtro de array en Meilisearch
 

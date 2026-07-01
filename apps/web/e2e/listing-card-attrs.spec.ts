@@ -1,9 +1,13 @@
 // RC5.5 — Playwright E2E: ListingCard muestra cardAttributes por categoría.
 //
-// Verifica en las dos fuentes de datos:
-//   - Postgres (página de categoría): un coche muestra "Marca: Toyota · Año: 2022"
-//   - Meilisearch (página de búsqueda): los mismos valores aparecen tras la indexación
+// Verifica en las dos fuentes de datos (ambas ahora sobre Meilisearch tras H6.2):
+//   - Página de categoría (/coches): un coche muestra "Marca: Toyota · Año: 2022"
+//   - Página de búsqueda (/busqueda?category=coches): los mismos valores aparecen
 // Y que una categoría SIN cardAttributes definidos no rompe la card (sin texto extra).
+//
+// Nota H6.2: /[categoria] ahora usa Meilisearch en lugar de Postgres.
+// Los timeouts de visibilidad de tarjeta aumentaron de 8 s a 25 s para dar tiempo
+// a la indexación asíncrona via BullMQ.
 //
 // Prerequisito en seed-test.ts:
 //   vehiculos: year (cardAttribute:true), km (no cardAttribute)
@@ -62,19 +66,20 @@ async function publishCoche(
 
 test.describe('RC5.5 — ListingCard: cardAttributes por categoría', () => {
 
-  test('Categoría Coches (Postgres): card muestra Marca y Año del coche', async ({ proContext }) => {
+  test('Categoría Coches (Meilisearch): card muestra Marca y Año del coche', async ({ proContext }) => {
     const page = await proContext.newPage();
     const TITLE = `Card Coche RC5.5 ${Date.now()}`;
 
     await publishCoche(page, TITLE);
 
-    // Navigate to the Coches category page (Postgres path)
+    // Navigate to the Coches category page (now resolved via Meilisearch).
+    // Use a longer timeout to account for async BullMQ indexing.
     await page.goto('/coches');
     await page.waitForLoadState('networkidle');
 
     // Find the card link by title
     const card = page.locator('a[href*="/anuncio/"]').filter({ hasText: TITLE }).first();
-    await expect(card).toBeVisible({ timeout: 8_000 });
+    await expect(card).toBeVisible({ timeout: 25_000 });
 
     // Verify cardAttribute values are shown in the card
     // Expected format: "Marca: Toyota · Año: 2022"
@@ -86,7 +91,7 @@ test.describe('RC5.5 — ListingCard: cardAttributes por categoría', () => {
     await expect(card).not.toContainText('Kilómetros:');
   });
 
-  test('Categoría Coches (Postgres): coche sin valor de brand omite ese atributo (sin "undefined")', async ({ proContext }) => {
+  test('Categoría Coches (Meilisearch): coche sin valor de brand omite ese atributo (sin "undefined")', async ({ proContext }) => {
     const page = await proContext.newPage();
     const TITLE = `Card Coche sin brand ${Date.now()}`;
 
@@ -127,7 +132,7 @@ test.describe('RC5.5 — ListingCard: cardAttributes por categoría', () => {
     await page.waitForLoadState('networkidle');
 
     const card = page.locator('a[href*="/anuncio/"]').filter({ hasText: TITLE }).first();
-    await expect(card).toBeVisible({ timeout: 8_000 });
+    await expect(card).toBeVisible({ timeout: 25_000 });
 
     // year shows (has value), brand absent (not filled)
     await expect(card).toContainText('Año: 2018');
@@ -194,7 +199,7 @@ test.describe('RC5.5 — ListingCard: cardAttributes por categoría', () => {
     await page.waitForLoadState('networkidle');
 
     const card = page.locator('a[href*="/anuncio/"]').filter({ hasText: TITLE }).first();
-    await expect(card).toBeVisible({ timeout: 8_000 });
+    await expect(card).toBeVisible({ timeout: 25_000 });
 
     // Card renders without errors (title and price visible)
     await expect(card.locator('p').first()).toContainText(TITLE.slice(0, 15));

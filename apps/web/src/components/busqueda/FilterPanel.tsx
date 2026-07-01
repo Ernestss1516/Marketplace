@@ -47,8 +47,10 @@ const CONDITION_LABELS: Record<string, string> = {
   SERVICE: 'Servicios',
 };
 
-// Facets already covered by explicit filter controls — skip rendering them separately
-const SKIP_FACETS = new Set(['type', 'condition', 'category']);
+// Facets already covered by explicit filter controls, or raw slugs with no useful display.
+// 'categorySlug' is the Meilisearch field name; skip it because the category is already
+// either selected via the dropdown or locked in the URL path on category pages.
+const SKIP_FACETS = new Set(['type', 'condition', 'category', 'categorySlug']);
 
 interface CurrentFilters {
   q?: string;
