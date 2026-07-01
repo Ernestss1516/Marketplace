@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { MunicipioAutocomplete } from '@/components/municipio/MunicipioAutocomplete';
 import { updateMe } from '@/lib/api/usuarios';
 import type { User } from '@/types';
 
@@ -88,12 +89,19 @@ export function PerfilForm({ initialUser, token }: Props) {
 
         <div className="space-y-1.5">
           <Label htmlFor="city">Ciudad</Label>
-          <Input
+          <MunicipioAutocomplete
             id="city"
-            name="city"
             value={fields.city}
-            onChange={handleChange}
-            maxLength={100}
+            placeholder="Buscar municipio…"
+            data-testid="perfil-city-autocomplete"
+            onChange={(city, province) => {
+              setFields((prev) => ({
+                ...prev,
+                city,
+                ...(province !== undefined && { province }),
+              }));
+              if (status !== 'idle') setStatus('idle');
+            }}
           />
         </div>
 
@@ -105,6 +113,7 @@ export function PerfilForm({ initialUser, token }: Props) {
             value={fields.province}
             onChange={handleChange}
             maxLength={100}
+            placeholder="Se rellena al seleccionar municipio"
           />
         </div>
 

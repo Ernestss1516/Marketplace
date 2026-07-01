@@ -82,8 +82,10 @@ test('publicar → buscar → ver ficha → contactar', async ({ sellerContext, 
   await expect(
     sellerPage.getByRole('heading', { name: 'Ubicación' })
   ).toBeVisible();
+  // City uses MunicipioAutocomplete: type → dropdown appears → select → province auto-fills.
   await sellerPage.locator('#city').fill('Madrid');
-  await sellerPage.locator('#province').fill('Madrid');
+  await sellerPage.locator('[role="option"]').filter({ hasText: 'Madrid' }).first().click();
+  // Province was auto-filled by the autocomplete selection; no manual fill needed.
 
   // "Revisar" (last step before preview)
   await sellerPage.getByRole('button', { name: 'Revisar' }).click();

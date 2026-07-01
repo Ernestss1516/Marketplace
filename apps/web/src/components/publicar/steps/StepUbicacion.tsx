@@ -3,6 +3,7 @@
 import { AlertCircle } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { MunicipioAutocomplete } from '@/components/municipio/MunicipioAutocomplete';
 
 export interface UbicacionData {
   city: string;
@@ -38,12 +39,15 @@ export function StepUbicacion({ data, onChange, errors }: StepUbicacionProps) {
 
       <div className="space-y-1.5">
         <Label htmlFor="city">Ciudad *</Label>
-        <Input
+        <MunicipioAutocomplete
           id="city"
           value={data.city}
           placeholder="p. ej. Madrid"
-          onChange={(e) => onChange({ city: e.target.value })}
           aria-invalid={Boolean(errors.city)}
+          data-testid="city-autocomplete"
+          onChange={(city, province) => {
+            onChange({ city, ...(province !== undefined && { province }) });
+          }}
         />
         <FieldError message={errors.city} />
       </div>
@@ -53,7 +57,7 @@ export function StepUbicacion({ data, onChange, errors }: StepUbicacionProps) {
         <Input
           id="province"
           value={data.province}
-          placeholder="p. ej. Madrid"
+          placeholder="Se rellena al seleccionar municipio"
           onChange={(e) => onChange({ province: e.target.value })}
           aria-invalid={Boolean(errors.province)}
         />
