@@ -285,8 +285,8 @@ export default async function BusquedaPage({
             </div>
           )}
 
-          {/* Empty state */}
-          {!searchError && totalHits === 0 && (
+          {/* Empty state: list mode only — map handles zero hits by centering on Spain */}
+          {!searchError && totalHits === 0 && !isMapView && (
             <div className="flex flex-col items-center py-24 text-center">
               <Package className="mb-4 h-12 w-12 text-muted-foreground/40" aria-hidden />
               <h2 className="mb-1 text-lg font-semibold">
@@ -301,8 +301,8 @@ export default async function BusquedaPage({
             </div>
           )}
 
-          {/* Map view */}
-          {!searchError && hits.length > 0 && isMapView && (
+          {/* Map view: always rendered in map mode, even with zero hits (→ Spain overview) */}
+          {!searchError && isMapView && (
             <MapViewClient key={mapKey} hits={hits} />
           )}
 

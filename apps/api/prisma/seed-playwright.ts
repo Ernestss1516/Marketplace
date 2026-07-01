@@ -141,6 +141,18 @@ async function main() {
       update: { status: 'ACTIVE', city: 'Madrid', province: 'Madrid' },
     });
     console.log('Playwright seed: listing-rf11-e2e OK');
+
+    // Reset accumulated active listings (except RF.11) to EXPIRED so they do not
+    // count against the free-tier active-listing limit during the current test run.
+    // Without this, each CI run adds listings and eventually hits the limit of 5,
+    // causing ForbiddenException in publishListing → wizard shows submitError → no redirect.
+    const { count: deactivated } = await prisma.listing.updateMany({
+      where: { sellerId: sellerUser.id, slug: { not: 'listing-rf11-e2e' }, status: 'ACTIVE' },
+      data: { status: 'EXPIRED' },
+    });
+    if (deactivated > 0) {
+      console.log(`Playwright seed: reset ${deactivated} accumulated active listings to EXPIRED`);
+    }
   }
 
   // ── Admin and moderator users for role-separation E2E tests ──────────────────
