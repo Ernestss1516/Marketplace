@@ -61,7 +61,19 @@ export function MunicipioAutocomplete({
   const q = normalize(inputVal);
   const suggestions =
     q.length >= MIN_QUERY_LENGTH && municipios !== null
-      ? municipios.filter((m) => normalize(m.name).includes(q)).slice(0, MAX_RESULTS)
+      ? municipios
+          .filter((m) => normalize(m.name).includes(q))
+          .sort((a, b) => {
+            const na = normalize(a.name);
+            const nb = normalize(b.name);
+            const aStarts = na.startsWith(q);
+            const bStarts = nb.startsWith(q);
+            // 1st: startsWith before includes-only.
+            if (aStarts !== bStarts) return aStarts ? -1 : 1;
+            // 2nd (tie-break within same group): shorter name = tighter match first.
+            return na.length - nb.length;
+          })
+          .slice(0, MAX_RESULTS)
       : [];
 
   async function loadDataset() {
