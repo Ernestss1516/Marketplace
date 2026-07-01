@@ -94,6 +94,8 @@ export interface ListingSummary {
   featuredUntil?: string | null;
   categorySlug?: string;
   attributes?: Record<string, unknown>;
+  /** 1 when the listing has an active boost (paid feature). Only present on Meilisearch hits. */
+  boostScore?: 0 | 1;
 }
 
 export interface ListingImage {

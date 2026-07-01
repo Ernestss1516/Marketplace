@@ -44,6 +44,11 @@ export function ListingCard({ listing }: { listing: ListingSummary }) {
               Sin foto
             </div>
           )}
+          {listing.boostScore === 1 && (
+            <Badge className="absolute left-2 top-2 bg-amber-500 text-white hover:bg-amber-500">
+              Destacado
+            </Badge>
+          )}
           <FavoriteCardButton listingId={listing.id} />
         </div>
         <CardContent className="p-3">
