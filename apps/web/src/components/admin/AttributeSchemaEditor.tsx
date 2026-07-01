@@ -28,10 +28,18 @@
  *   editing) are captured in the `_extra` field and round-tripped transparently.
  *   serializeAttributeSchema() puts them back in the payload, with known fields
  *   winning on any key collision.
+ *
+ * Rename-with-data warning (Fase 5.2 cierre):
+ *   Renaming the `name` of an EXISTING row (not adding a new one) triggers an
+ *   optional `checkAttributeUsage(oldKey)` lookup. If it resolves to a count > 0,
+ *   the admin is warned that listings still hold data under the old key before
+ *   the rename is committed — see PROBLEMA 3c in the integrity audit: renaming
+ *   never migrates Listing.attributes, so the old key becomes orphaned data. This
+ *   only warns; it never migrates anything.
  */
 
 import { useState } from 'react';
-import { Plus, Trash2, Edit2, X, Info } from 'lucide-react';
+import { Plus, Trash2, Edit2, X, Info, Loader2 } from 'lucide-react';
 import type { AttributeSchema } from '@/types';
 import { Button } from '@/components/ui/button';
 
@@ -173,6 +181,12 @@ interface AttributeSchemaEditorProps {
   onChange: (fields: AttributeSchemaWithExtras[]) => void;
   onHasActiveEdit?: (v: boolean) => void;
   disabled?: boolean;
+  /**
+   * Resolves how many listings have data under `oldKey`. Only supplied when
+   * editing an EXISTING category (a category must exist to have listings).
+   * Omit for the create-category flow, where no rename can ever have data.
+   */
+  checkAttributeUsage?: (oldKey: string) => Promise<number>;
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -185,6 +199,7 @@ export function AttributeSchemaEditor({
   onChange,
   onHasActiveEdit,
   disabled = false,
+  checkAttributeUsage,
 }: AttributeSchemaEditorProps) {
   const [rows, setRows] = useState<AttributeSchemaWithExtras[]>(() => [...ownSchema]);
   const [editingIdx, setEditingIdx] = useState<number | null>(null); // -1 = adding new
@@ -192,6 +207,7 @@ export function AttributeSchemaEditor({
   const [draftErrors, setDraftErrors] = useState<string[]>([]);
   const [deletingIdx, setDeletingIdx] = useState<number | null>(null);
   const [optionInput, setOptionInput] = useState('');
+  const [checkingUsage, setCheckingUsage] = useState(false);
 
   const inheritedCardCount = inheritedFields.filter(f => f.cardAttribute).length;
 
@@ -225,11 +241,35 @@ export function AttributeSchemaEditor({
     notify(false);
   }
 
-  function commitDraft() {
+  async function commitDraft() {
     if (!draft) return;
     const errors = validateDraft(draft, rows, editingIdx);
     if (errors.length) { setDraftErrors(errors); return; }
     const updated = fromDraft(draft);
+
+    // Renaming (not creating) an existing key that already has listing data:
+    // warn before committing. Never migrates — only informs the admin.
+    const isRename = editingIdx !== null && editingIdx !== -1 && rows[editingIdx].name !== updated.name;
+    if (isRename && checkAttributeUsage) {
+      setCheckingUsage(true);
+      let count = 0;
+      try {
+        count = await checkAttributeUsage(rows[editingIdx as number].name);
+      } catch {
+        count = 0; // fail-open: a failed check must never block saving
+      } finally {
+        setCheckingUsage(false);
+      }
+      if (count > 0) {
+        const oldName = rows[editingIdx as number].name;
+        const proceed = window.confirm(
+          `${count} anuncio(s) tienen datos bajo la clave '${oldName}'. Al renombrarla a ` +
+          `'${updated.name}', esos datos quedarán huérfanos (no se muestran ni se migran). ¿Continuar?`,
+        );
+        if (!proceed) return;
+      }
+    }
+
     const newRows = editingIdx === -1
       ? [...rows, updated]
       : rows.map((r, i) => (i === editingIdx ? updated : r));
@@ -369,6 +409,7 @@ export function AttributeSchemaEditor({
                     onCommit={commitDraft}
                     onCancel={cancelEdit}
                     disabled={disabled}
+                    checkingUsage={checkingUsage}
                   />
                 </div>
               );
@@ -458,6 +499,7 @@ interface FieldFormProps {
   onCommit: () => void;
   onCancel: () => void;
   disabled: boolean;
+  checkingUsage?: boolean;
 }
 
 function FieldForm({
@@ -473,6 +515,7 @@ function FieldForm({
   onCommit,
   onCancel,
   disabled,
+  checkingUsage = false,
 }: FieldFormProps) {
   function set(partial: Partial<DraftState>) {
     onChange({ ...draft, ...partial });
@@ -661,13 +704,16 @@ function FieldForm({
       )}
 
       {/* Confirm / Cancel */}
-      <div className="flex gap-2">
-        <Button size="sm" onClick={onCommit} disabled={disabled} data-testid="attr-confirm-btn">
-          Confirmar
+      <div className="flex items-center gap-2">
+        <Button size="sm" onClick={onCommit} disabled={disabled || checkingUsage} data-testid="attr-confirm-btn">
+          {checkingUsage ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Confirmar'}
         </Button>
-        <Button size="sm" variant="outline" onClick={onCancel} disabled={disabled} data-testid="cancel-attr-edit">
+        <Button size="sm" variant="outline" onClick={onCancel} disabled={disabled || checkingUsage} data-testid="cancel-attr-edit">
           Cancelar
         </Button>
+        {checkingUsage && (
+          <span className="text-xs text-muted-foreground">Comprobando uso…</span>
+        )}
       </div>
     </div>
   );

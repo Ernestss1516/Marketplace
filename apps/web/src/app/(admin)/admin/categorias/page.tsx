@@ -10,6 +10,7 @@ import {
   updateAdminCategory,
   reorderAdminCategories,
   deleteAdminCategory,
+  getCategoryAttributeUsage,
   type AdminCategory,
   type AdminCategoryChild,
 } from '@/lib/api/admin';
@@ -145,6 +146,7 @@ interface SchemaEditorPanelProps {
   onFieldsChange: (fields: AttributeSchemaWithExtras[]) => void;
   onSave: () => void;
   onHasActiveEdit: (v: boolean) => void;
+  checkAttributeUsage?: (oldKey: string) => Promise<number>;
 }
 
 function SchemaEditorPanel({
@@ -161,6 +163,7 @@ function SchemaEditorPanel({
   onFieldsChange,
   onSave,
   onHasActiveEdit,
+  checkAttributeUsage,
 }: SchemaEditorPanelProps) {
   return (
     <div className="mt-4 rounded-md border bg-muted/10 p-4">
@@ -189,6 +192,7 @@ function SchemaEditorPanel({
           onChange={onFieldsChange}
           onHasActiveEdit={onHasActiveEdit}
           disabled={saving}
+          checkAttributeUsage={checkAttributeUsage}
         />
       )}
 
@@ -647,6 +651,8 @@ export default function AdminCategoriasPage() {
       onFieldsChange: (fields) => { setEditOwnSchema(fields); setSchemaModified(true); },
       onSave: handleSaveSchema,
       onHasActiveEdit: setSchemaHasActiveEdit,
+      checkAttributeUsage: (key) =>
+        getCategoryAttributeUsage(token!, cat.id, key).then((r) => r.count),
     };
   }
 

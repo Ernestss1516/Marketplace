@@ -242,6 +242,19 @@ export function deleteAdminCategory(token: string, id: string): Promise<void> {
   return apiFetch(`/admin/categories/${id}`, { method: 'DELETE', token });
 }
 
+// Cuenta cuántos anuncios de la categoría tienen datos bajo `key` en su
+// attributes JSON. Usado para avisar antes de renombrar una key con datos.
+export function getCategoryAttributeUsage(
+  token: string,
+  categoryId: string,
+  key: string,
+): Promise<{ count: number }> {
+  const qs = new URLSearchParams({ key });
+  return apiFetch<{ count: number }>(`/admin/categories/${categoryId}/attribute-usage?${qs}`, {
+    token,
+  });
+}
+
 // ─── Settings ─────────────────────────────────────────────────────────────────
 
 export interface AdminSetting {

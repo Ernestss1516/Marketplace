@@ -25,6 +25,7 @@ import { ChangeUserRoleDto } from './dto/change-user-role.dto';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { ReorderCategoriesDto } from './dto/reorder-categories.dto';
+import { AttributeUsageDto } from './dto/attribute-usage.dto';
 import { UpdateSettingDto } from './dto/update-setting.dto';
 
 @ApiTags('Admin')
@@ -173,6 +174,11 @@ export class AdminController {
     @Ip() ip: string,
   ) {
     return this.adminService.reorderCategories(user.userId, dto, ip);
+  }
+
+  @Get('categories/:id/attribute-usage')
+  getAttributeUsage(@Param('id') id: string, @Query() query: AttributeUsageDto) {
+    return this.adminService.getAttributeUsage(id, query.key);
   }
 
   @Patch('categories/:id')

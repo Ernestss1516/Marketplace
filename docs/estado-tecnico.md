@@ -1,6 +1,6 @@
 # Estado técnico del proyecto — Marketplace
 
-> Fecha: 2026-06-30 · Rama: `main` · Último commit: RC5.5 post-fixes — seed.ts cardAttribute, search controller spread, exact:true en Playwright
+> Fecha: 2026-07-01 · Rama: `main` · Último commit: Cierre Fase 5.2 (ráfaga de integridad) — FIX 1 deleteCategory cuenta todos los status, FIX 2 aviso al renombrar atributo con datos, mapa de integridad ante borrados/ediciones
 > Plan vigente: `docs/Hoja_de_ruta_rafagas_Hito5-9.docx` (Hitos 5–9). Hitos 5–6 firmes; 7–9 boceto a re-detallar al llegar.
 
 Documento de referencia para retomar el proyecto. Recoge qué hay implementado,
@@ -31,7 +31,7 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **Messaging** | ✅ Completo | REST: `GET /conversations`, `POST /conversations`, `GET /conversations/:id` (cursor), `POST /conversations/:id/messages`. WebSocket gateway `/ws`: auth en handshake, rooms de conversación y de usuario, emit tras el POST REST |
 | **AuditLog** | ✅ Completo | `AuditLogService.log()` inyectable; captura explícita `before`/`after` dentro del método de service que muta el recurso, antes de llamar a Prisma; nunca vía interceptor (ver §2). **RF.12b**: `log(dto, tx?)` admite segundo parámetro `tx: Prisma.TransactionClient` opcional; si se pasa, el `prisma.auditLog.create` corre dentro de la transacción del llamador; backward-compat con todos los callers existentes (Fase 7) |
 | **Moderation** | ✅ Completo | Reportes CRUD + cola (GET con filtros status/reason/page); acciones sobre listings (approve, reject, deactivate, restore); `BadWordService` con fallback silencioso al publicar; AuditLog en todas las mutaciones; roles MODERATOR + ADMIN |
-| **Admin** | ✅ Completo (RC5.2) | Listings (list, detail, PATCH status); Users (list, detail, suspend, ban, reinstate, role); Categories CRUD + batch reorder; Settings GET + PATCH con whitelist; `GET /admin/stats` con 7 métricas + Meilisearch null-fallback; todos los endpoints con `@Roles(ADMIN)` y AuditLog. **RF.7**: whitelist de settings ampliada con `freeActiveListingLimit` y `proActiveListingLimit`; ambos configurables desde el backoffice sin redeploy. **RC5.2**: `createCategory` y `updateCategory` validan que el schema efectivo (propio + heredado del padre) tenga ≤ 2 atributos con `cardAttribute: true` (→ 400 si supera). `GET /admin/categories/searchable-keys` (ADMIN-only) → `{ keys: VARIABLE_ATTRIBUTE_KEYS }` para que RC5.3 pueda deshabilitar el checkbox `filterable` en atributos no listados. |
+| **Admin** | ✅ Completo (RC5.2) | Listings (list, detail, PATCH status); Users (list, detail, suspend, ban, reinstate, role); Categories CRUD + batch reorder; Settings GET + PATCH con whitelist; `GET /admin/stats` con 7 métricas + Meilisearch null-fallback; todos los endpoints con `@Roles(ADMIN)` y AuditLog. **RF.7**: whitelist de settings ampliada con `freeActiveListingLimit` y `proActiveListingLimit`; ambos configurables desde el backoffice sin redeploy. **RC5.2**: `createCategory` y `updateCategory` validan que el schema efectivo (propio + heredado del padre) tenga ≤ 2 atributos con `cardAttribute: true` (→ 400 si supera). `GET /admin/categories/searchable-keys` (ADMIN-only) → `{ keys: VARIABLE_ATTRIBUTE_KEYS }` para que RC5.3 pueda deshabilitar el checkbox `filterable` en atributos no listados. **Cierre Fase 5.2 (ráfaga de integridad)**: `deleteCategory` cuenta anuncios de **cualquier** `status` (antes solo `ACTIVE`), eliminando un 500 no controlado — ver «Mapa de integridad» más abajo; `GET /admin/categories/:id/attribute-usage?key=X` (ADMIN-only) cuenta anuncios con datos bajo una key concreta, usado por el editor para avisar antes de renombrar un atributo con datos. |
 | **Blog** | ✅ Completo | Modelo `Post` (enum `PostStatus { DRAFT, PUBLISHED }`, body Markdown raw, `tags String[]`, `coverUrl`, campos SEO opcionales `metaTitle`/`metaDescription`). `BlogController`: `GET /blog` (solo PUBLISHED, paginado, filtro `?tag=`) y `GET /blog/:slug` (404 si no existe o es DRAFT). `BlogAdminController` (`@Roles(ADMIN)`): CRUD completo + `POST /admin/blog/:id/publish` + `POST /admin/blog/:id/unpublish`. AuditLog en todas las mutaciones (`POST_CREATE`, `POST_UPDATE`, `POST_PUBLISH`, `POST_UNPUBLISH`, `POST_DELETE`). Revalidación ISR on-demand fire-and-forget al publicar/despublicar/editar/borrar posts publicados (el blog es el **primer productor del webhook** desde el backend; el webhook en sí existía desde Fase 5). `BlogModule` importa `PrismaModule` + `AuditLogModule`; autónomo, no modifica `AdminModule` |
 | **Favorites** | ✅ Completo | `POST /favorites/:listingId` (marcar), `DELETE /favorites/:listingId` (desmarcar), `GET /favorites` (paginado), `GET /favorites/:listingId` (check), `POST /favorites/batch-check` (máx. 100 ids → `{ favoritedIds }`). Todos idempotentes y con `JwtAuthGuard`. Suite `favorites.e2e-spec.ts` (12 tests) |
 | **Reviews** | ✅ Completo | `POST /reviews` (crear; guard de elegibilidad vía `Conversation`), `GET /reviews/eligibility?listingId=&targetId=` (check antes de mostrar el formulario), `PATCH /reviews/:id` (editar en ventana 72 h; persiste `editedAt`), `DELETE /reviews/:id` (borrar en ventana 72 h). Listado público via `GET /users/:slug/reviews` (cursor paginado + aggregate on-the-fly: average, count, distribución 1–5). Unicidad `(authorId, targetId, listingId)` — una reseña por par de usuarios por anuncio. `FAKE_REVIEW` añadido a `ReportReason`; `Report.reviewId` FK con CASCADE para moderar reseñas. Suite `reviews.e2e-spec.ts` (20 tests) |
@@ -192,6 +192,70 @@ datos JSON manuales no se descartan silenciosamente.
 heredados del padre no se reenvían: materializarlos en la hija duplicaría la definición y
 rompería la herencia — si el padre cambia, la copia en la hija quedaría desactualizada e
 invisible desde el editor.
+
+### Mapa de integridad ante borrados/ediciones (cierre Fase 5.2)
+
+Auditoría exhaustiva de qué pasa con los datos dependientes cuando se borra o edita
+una categoría, un anuncio, un atributo de schema o un usuario. Dos fixes salieron de
+esta auditoría (ver más abajo); el resto queda documentado tal cual está, con la
+deuda anotada donde aplica.
+
+| Acción | Protección | Dato dependiente | Resultado |
+|---|---|---|---|
+| Borrar categoría con **cualquier** anuncio (no solo ACTIVE) | Chequeo explícito en servicio → 400 | `Listing.categoryId` | **Bloqueado** — `No se puede eliminar: la categoría tiene N anuncio(s)` |
+| Borrar categoría con subcategorías | Chequeo explícito en servicio → 400 | `Category.parentId` (hijas) | **Bloqueado** — `No se puede eliminar: la categoría tiene N subcategoría(s)` |
+| Borrar anuncio | Solo `assertOwnership` | `ListingImage`, `Favorite`, `Conversation`→`Message`, `Report`, `Review` | **HARD delete en cascada** (`onDelete: Cascade` en las cinco relaciones) |
+| Borrar anuncio | — | `Entitlement`, `Transaction` | Sobreviven con `listingId → NULL` (`onDelete: SetNull`) — correcto: son registros de facturación que no deben desaparecer |
+| Admin borra un atributo del `attributeSchema` de una categoría | Ninguna sobre datos existentes | `Listing.attributes[key]` | **Se conserva** en el JSONB del anuncio; solo deja de listarse/mostrarse (sin FK entre `attributes` y `attributeSchema`) |
+| Admin renombra la `name` de un atributo existente | Aviso en el editor (ráfaga actual) | `Listing.attributes[oldKey]` | **No se migra.** El anuncio viejo conserva `oldKey` (huérfano, invisible) y el campo `newKey` sale vacío. El editor avisa con el recuento real antes de guardar; la decisión final es del admin |
+| Publicar/editar anuncio tras cambiar el schema | `validateAttributes` contra el schema **actual** | — | Anuncios nuevos solo ven el schema vigente; no piden atributos ya borrados |
+| Borrar usuario (físico) | No existe endpoint | `Listing` del usuario (`onDelete: Cascade` en el schema) | **No aplicable en la API** — la cascada es teórica; solo existe BAN (`PATCH /admin/users/:id/ban` → `status: BANNED`) |
+
+**Constraints físicas en Postgres** (relevantes para el FIX 1, ver abajo):
+`Listing_categoryId_fkey` es `ON DELETE RESTRICT` (bloquea el DELETE si existe
+*cualquier* Listing en la categoría, sea cual sea su `status`);
+`Category_parentId_fkey` es `ON DELETE SET NULL` (a nivel de BD, borrar un padre
+con hijos los convertiría en categorías raíz — es el chequeo explícito del
+servicio, no la constraint física, lo que realmente bloquea este caso).
+
+**FIX 1 — 500 no controlado al borrar categoría con anuncios no-ACTIVE (resuelto):**
+`deleteCategory` contaba únicamente `status: ACTIVE` para decidir el 400, pero la
+constraint física es `RESTRICT` sobre cualquier `Listing`. Una categoría con solo
+anuncios `DRAFT`/`SOLD`/`EXPIRED`/etc. pasaba el chequeo del servicio y el `DELETE`
+físico posterior chocaba con `RESTRICT`, devolviendo un 500 sin controlar. Fix
+(Opción A pura): el `count` ya no filtra por `status` — cuenta todos los anuncios
+de la categoría, cualquiera que sea su estado, así el 400 legible cubre exactamente
+los mismos casos que bloquearía la constraint física y nunca se llega al `RESTRICT`.
+Tests: `admin.e2e-spec.ts` — categoría vacía → 204, con anuncio `ACTIVE` → 400, con
+anuncio `DRAFT` → 400 (antes daba 500), con subcategoría → 400.
+
+**FIX 2 — aviso al renombrar una key de atributo con datos (resuelto, nivel medio: avisar, no migrar):**
+Como el renombrado de una `name` en el `attributeSchema` nunca migra
+`Listing.attributes` (ver fila de la tabla de arriba), se añadió
+`GET /admin/categories/:id/attribute-usage?key=X` (`AdminService.getAttributeUsage`,
+ADMIN-only) que cuenta anuncios de esa categoría con datos bajo `key` en su JSON
+`attributes`, vía el operador jsonb `?` de Postgres
+(`SELECT COUNT(*) FROM "Listing" WHERE "categoryId" = $1 AND "attributes" ? $2`,
+con `$queryRaw` parametrizado — mismo patrón que los `$executeRaw` de
+`billing.service.ts`). En `AttributeSchemaEditor.tsx`, `commitDraft()` detecta que
+se está **renombrando una fila existente** (no creando una nueva) comparando el
+`name` viejo con el nuevo; si hay `checkAttributeUsage` (solo se pasa en modo
+edición — una categoría en creación no puede tener anuncios) y el count es > 0,
+muestra un `window.confirm()` con el número real de anuncios afectados antes de
+aplicar el cambio. Cancelar el diálogo aborta el renombrado sin tocar `rows`. Si
+la llamada al endpoint falla, el check se abre en fallo (`fail-open`): nunca
+bloquea el guardado por un problema de red. **No migra nada** — es puramente
+informativo, coherente con la deuda anotada en la fila de arriba (migración real
+queda pendiente, ver §3). Tests: `admin.e2e-spec.ts` (count correcto por key, 404
+si la categoría no existe) + `AttributeSchemaEditor.test.tsx` (primer test unitario
+de componente del proyecto, Jest + Testing Library sobre jsdom — `fireEvent`/`act`
+en vez de `@testing-library/user-event`, que no está en las devDependencies):
+renombrar con datos → `confirm()` con el count real; cancelar → no llama a
+`onChange`; renombrar sin datos (count 0) → sin `confirm()`; crear atributo nuevo →
+nunca llama a `checkAttributeUsage`; editar solo el label (sin cambiar `name`) →
+tampoco la llama. Wired en CI como paso `Frontend unit — Jest` (`pnpm --filter
+@marketplace/web test:unit`), independiente del `Frontend e2e — Playwright` que sí
+necesita el stack completo.
 
 ### ListingCard con cardAttributes: decisiones de diseño (RC5.5)
 
@@ -365,8 +429,8 @@ Los tests de Jest usan `setupFiles: ['test/load-env.ts']` (carga `.env.test` con
 `dotenv.config()` sin sobreescribir `process.env`) y `globalSetup: 'test/setup-e2e.js'`
 (ejecuta `prisma migrate deploy` + `seed-test.ts` una vez antes de todas las suites).
 
-Las **20 suites e2e de Jest** suman **316 casos**: smoke (1), auth (15), listings (10),
-messaging (7), search (8), favorites (12), reviews (20), moderation (23), admin (34),
+Las **20 suites e2e de Jest** suman **319 casos**: smoke (1), auth (15), listings (10),
+messaging (7), search (8), favorites (12), reviews (20), moderation (23), admin (37),
 blog (24), redsys (22), billing-rf6 (15), rf7-limits (8), rf7-expiration (9),
 billing-catalog (6), rf8-meilisearch (6), admin-billing (≈20), admin-billing-rf12b (≈8),
 rc5-attributes (12), rc5b-vehiculos (11). **RF.10** añadió 3 casos al suite de redsys.
@@ -380,8 +444,10 @@ búsqueda Meili por year/km, summary con `categorySlug` + `attributes`.
 **RC5.3** añadió `admin-categorias.spec.ts` (7 casos Playwright): carga de página ADMIN, redirección MODERATOR, añadir atributo text, filterable disabled para name no-buscable, filterable enabled para name buscable, Ajuste 1 (renombrado brand→colour→brand recupera la intención), cardAttribute disabled al 2º marcado, options editor para type=select.
 **RC5.4** añadió `wizard-herencia.spec.ts` (5 casos Playwright): campos heredados (year *, km *) y propios (brand) visibles en el paso Atributos; required heredado bloquea el wizard cliente; flujo completo guardar+publicar+ficha muestra Características con unidades (30000 km); EditarWizard precarga valores de los atributos heredados; regresión sin herencia (Móviles). Seed de test extendido: jerarquía `vehiculos (year/km required) → coches (brand optional)`. **No se requirió ningún cambio de código:** la herencia en el wizard funcionaba desde RC5.2 vía `GET /categories/:slug` que devuelve el schema efectivo mergeado padre→hijo.
 **RC5.5** añadió `listing-card-attrs.spec.ts` (4 casos Playwright): card de coche en categoría muestra "Marca: Toyota · Año: 2022" (Postgres); atributo opcional sin valor se omite sin "undefined"; búsqueda Meilisearch muestra mismos valores (con timeout 25 s para indexación async); categoría sin cardAttributes no rompe la card. Cambios: `findTree()` devuelve `cardAttributes:[{key,label,unit?}]` en lugar de `cardAttributeKeys:string[]`; `search.controller.ts` normaliza los hits planos de Meili a `{..., attributes:{brand,year,...}}` para unificar las dos fuentes; `CardAttributesContext` (nuevo) + `ListingCard` permanece RSC con `CardAttrsDisplay` como client island; helper `buildCardAttributeMap`/`buildCardAttributeMapFromSchema`; las 6 vistas (home, búsqueda, categoría, vendedor, relacionados, favoritos) envuelven sus grids con `CardAttributesProvider`; `favoritos.ts` extrae `categorySlug` en `normalize()`; seed-test actualiza vehiculos/coches con `update` para que los flags cardAttribute sean idempotentes. **Bugs corregidos post-RC5.5:** (a) `search.controller.ts` normalization stripeaba `categoryPath` y `_geo` del response (2 tests fallando); fix: spread de `hit` primero (`...hit`) para preservar todos los campos y sobreescribir solo `status`, `thumbnailUrl` y `attributes`; (b) `seed.ts` (dev) no tenía `cardAttribute: true` en ningún campo → `findTree()` devolvía `cardAttributes:[]` para todas las categorías → cards nunca mostraban atributos; fix: añadidos flags en Vehículos (`year`), Coches (`brand`), Motos (`brand`), Pisos/Casas (`sqm`+`rooms`), Móviles (`brand`+`storage`), Ordenadores (`itemType`+`ram`), Electrodomésticos (`itemType`), Ropa/Calzado (`gender`+`size`); requiere ejecutar `pnpm --filter @marketplace/api prisma:seed` para actualizar la DB de desarrollo; (c) tests Playwright `wizard-herencia.spec.ts` y `listing-card-attrs.spec.ts` usaban `getByRole('button',{name:'Vehículos'})` que coincidía con "Vehículos RC5B" (categoría creada en beforeAll de `rc5b-vehiculos.e2e-spec.ts` y persistente en la DB durante la ejecución de Playwright); fix: `exact:true` en todos los selectores afectados.
+**Cierre Fase 5.2 (ráfaga de integridad)** añadió 3 casos a `admin.e2e-spec.ts` (34→37: categoría con anuncio DRAFT no-ACTIVE → 400 en vez de 500, `attribute-usage` count correcto por key, `attribute-usage` 404 si la categoría no existe) y el primer suite de **tests unitarios de componente** del proyecto —
+`AttributeSchemaEditor.test.tsx` (Jest + Testing Library sobre jsdom, 5 casos) — que no cuenta dentro de las 20 suites e2e de Jest (corre con `pnpm --filter @marketplace/web test:unit`, wired en CI como paso propio, separado de Playwright).
 **34/34 Playwright** (flujo-critico: 1, planes+suscripción: 8, mis-creditos: 9, admin-categorias: 7, wizard-herencia: 5, listing-card-attrs: 4).
-**Fase 5.2 — Categorías con atributos y herencia: COMPLETA.** RC5.1 (diseño y contratos de API), RC5.2 (backend: herencia, cardAttributeKeys, validación max-2, deuda itemType/size), RC5.2b (seed Vehículos reorganizado), RC5.3 (editor visual de atributos), RC5.4 (herencia en wizard verificada), RC5.5 (ListingCard con cardAttributes en las 6 vistas) — todas completadas y verificadas.
+**Fase 5.2 — Categorías con atributos y herencia: COMPLETA.** RC5.1 (diseño y contratos de API), RC5.2 (backend: herencia, cardAttributeKeys, validación max-2, deuda itemType/size), RC5.2b (seed Vehículos reorganizado), RC5.3 (editor visual de atributos), RC5.4 (herencia en wizard verificada), RC5.5 (ListingCard con cardAttributes en las 6 vistas), **cierre (ráfaga de integridad): FIX 1 (500→400 legible al borrar categoría con anuncios no-ACTIVE), FIX 2 (aviso al renombrar atributo con datos), mapa de integridad completo documentado** — todas completadas y verificadas.
 Las suites se ejecutan en paralelo (sin `--runInBand`); el diseño de `cleanDb` — que
 solo trunca `User` CASCADE y nunca toca `Category` ni `Setting` — garantiza que no
 haya contención entre los workers de Jest.
@@ -1094,6 +1160,29 @@ contexto de por qué Fase 7 no lo hace y es aceptable).
 ---
 
 ## 3. Limitaciones conocidas y deuda técnica
+
+### Borrado de anuncio hace cascada a `Review` — reputación borrable (revisar en Fase 7)
+
+`ListingsService.remove()` hace `DELETE` físico del anuncio; `Review.listing` tiene
+`onDelete: Cascade`, así que borrar un anuncio borra también las valoraciones ligadas
+a él (ver «Mapa de integridad ante borrados/ediciones», Fase 5.2). Esto permite a un
+usuario borrar un anuncio para eliminar reseñas negativas asociadas — la reputación
+no es inmutable frente a esta vía. Pendiente para **Fase 7 (valoraciones)**: decidir
+si las reseñas deben sobrevivir al borrado del anuncio (p. ej. `onDelete: SetNull` en
+`Review.listingId`, análogo a `Entitlement`/`Transaction`) o si el borrado de anuncio
+debería ser soft-delete (`status` en vez de fila física) cuando tiene reseñas.
+
+### Renombrar la key de un atributo no migra `Listing.attributes` (aviso, no migración)
+
+`Listing.attributes` no tiene FK con `Category.attributeSchema`; renombrar la `name`
+de un atributo existente en el editor deja huérfana la key vieja en los anuncios ya
+publicados (el dato se conserva en el JSONB pero deja de mostrarse). El cierre de
+Fase 5.2 añadió un aviso en el editor (`GET /admin/categories/:id/attribute-usage`)
+que informa al admin del número de anuncios afectados antes de guardar, pero **no
+migra los datos**. Pendiente (nivel superior, no abordado en esta ráfaga): migración
+real del JSONB (`UPDATE ... attributes - 'oldKey' || jsonb_build_object('newKey', ...)`,
+mismo patrón que la migración `rename_itemtype_normalize_size` de RC5.2) al confirmar
+un renombrado con datos, en vez de solo avisar.
 
 ### CORS del gateway WebSocket: `origin: '*'` a restringir en producción
 

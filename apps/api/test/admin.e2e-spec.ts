@@ -42,6 +42,8 @@ describe('Admin (e2e)', () => {
             'deportes-admin-test',
             'borrable-admin-test',
             'con-anuncios-admin-test',
+            'con-borrador-admin-test',
+            'attr-usage-admin-test',
             'padre-admin-test',
             'hijo-admin-test',
           ],
@@ -651,10 +653,48 @@ describe('Admin (e2e)', () => {
       },
     });
 
-    await request(app.getHttpServer())
+    const res = await request(app.getHttpServer())
       .delete(`/api/admin/categories/${catWithListings.id}`)
       .set('Authorization', `Bearer ${adminToken}`)
       .expect(400);
+
+    expect(res.body.message).toBe('No se puede eliminar: la categoría tiene 1 anuncio(s)');
+  });
+
+  // FIX 1 (cierre Fase 5.2): antes, deleteCategory solo contaba anuncios status:ACTIVE.
+  // Una categoría con anuncios en otros estados (DRAFT/SOLD/EXPIRED/…) pasaba ese
+  // chequeo y el DELETE físico posterior chocaba con la constraint RESTRICT de
+  // Listing_categoryId_fkey (cualquier Listing, no solo ACTIVE), produciendo un 500
+  // sin controlar. Ahora el count no filtra por status, así que este caso da 400.
+  it('DELETE /api/admin/categories/:id con anuncio DRAFT (no ACTIVE) → 400 legible, no 500', async () => {
+    const catWithDraftListing = await prisma.category.create({
+      data: { name: 'Con Borrador', slug: 'con-borrador-admin-test', order: 996 },
+    });
+    await prisma.listing.create({
+      data: {
+        title: 'Anuncio Borrador En Categoría',
+        slug: 'anuncio-borrador-categoria-admin-test',
+        description: 'Anuncio en DRAFT en categoría sin anuncios activos',
+        price: 50,
+        type: 'PRODUCT',
+        priceType: 'FIXED',
+        condition: 'GOOD',
+        status: 'DRAFT',
+        categoryId: catWithDraftListing.id,
+        sellerId,
+      },
+    });
+
+    const res = await request(app.getHttpServer())
+      .delete(`/api/admin/categories/${catWithDraftListing.id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(400);
+
+    expect(res.body.message).toBe('No se puede eliminar: la categoría tiene 1 anuncio(s)');
+
+    // La categoría y el anuncio deben seguir existiendo: el 400 bloqueó el DELETE.
+    const stillExists = await prisma.category.findUnique({ where: { id: catWithDraftListing.id } });
+    expect(stillExists).not.toBeNull();
   });
 
   it('DELETE /api/admin/categories/:id con subcategorías → 400', async () => {
@@ -669,6 +709,87 @@ describe('Admin (e2e)', () => {
       .delete(`/api/admin/categories/${parent.id}`)
       .set('Authorization', `Bearer ${adminToken}`)
       .expect(400);
+  });
+
+  // FIX 2 (cierre Fase 5.2): endpoint de aviso — cuenta anuncios con datos bajo
+  // una key concreta en su JSON attributes, para que el editor pueda avisar antes
+  // de renombrar un atributo con datos existentes. No migra nada, solo cuenta.
+  it('GET /api/admin/categories/:id/attribute-usage?key=X → cuenta anuncios con esa key en attributes', async () => {
+    const cat = await prisma.category.create({
+      data: { name: 'Attr Usage Admin Test', slug: 'attr-usage-admin-test', order: 995 },
+    });
+    await prisma.listing.createMany({
+      data: [
+        {
+          title: 'Anuncio con fuel 1',
+          slug: 'anuncio-attr-usage-1-admin-test',
+          description: 'Tiene fuel',
+          price: 10,
+          type: 'PRODUCT',
+          priceType: 'FIXED',
+          condition: 'GOOD',
+          status: 'DRAFT',
+          categoryId: cat.id,
+          sellerId,
+          attributes: { fuel: 'diesel' },
+        },
+        {
+          title: 'Anuncio con fuel 2',
+          slug: 'anuncio-attr-usage-2-admin-test',
+          description: 'También tiene fuel',
+          price: 20,
+          type: 'PRODUCT',
+          priceType: 'FIXED',
+          condition: 'GOOD',
+          status: 'ACTIVE',
+          categoryId: cat.id,
+          sellerId,
+          attributes: { fuel: 'gasolina', extra: true },
+        },
+        {
+          title: 'Anuncio sin fuel',
+          slug: 'anuncio-attr-usage-3-admin-test',
+          description: 'No tiene fuel, tiene combustible',
+          price: 30,
+          type: 'PRODUCT',
+          priceType: 'FIXED',
+          condition: 'GOOD',
+          status: 'DRAFT',
+          categoryId: cat.id,
+          sellerId,
+          attributes: { combustible: 'diesel' },
+        },
+      ],
+    });
+
+    const fuel = await request(app.getHttpServer())
+      .get(`/api/admin/categories/${cat.id}/attribute-usage`)
+      .query({ key: 'fuel' })
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+    expect(fuel.body).toEqual({ count: 2 });
+
+    const combustible = await request(app.getHttpServer())
+      .get(`/api/admin/categories/${cat.id}/attribute-usage`)
+      .query({ key: 'combustible' })
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+    expect(combustible.body).toEqual({ count: 1 });
+
+    const nope = await request(app.getHttpServer())
+      .get(`/api/admin/categories/${cat.id}/attribute-usage`)
+      .query({ key: 'no-existe' })
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+    expect(nope.body).toEqual({ count: 0 });
+  });
+
+  it('GET /api/admin/categories/:id/attribute-usage → 404 si la categoría no existe', async () => {
+    await request(app.getHttpServer())
+      .get('/api/admin/categories/cat-inexistente-admin-test/attribute-usage')
+      .query({ key: 'fuel' })
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(404);
   });
 
   it('GET /api/categories (público) sigue funcionando sin auth', async () => {

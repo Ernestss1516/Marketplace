@@ -505,20 +505,41 @@ export class AdminService {
     return { keys: VARIABLE_ATTRIBUTE_KEYS };
   }
 
+  // Cuenta cuántos anuncios de una categoría tienen datos bajo `key` en su
+  // JSON `attributes` (operador jsonb `?` = existencia de clave de nivel
+  // superior). Usado por el editor de atributos para avisar antes de
+  // renombrar una key con datos existentes (no migra nada, solo informa).
+  async getAttributeUsage(categoryId: string, key: string): Promise<{ count: number }> {
+    const category = await this.prisma.category.findUnique({ where: { id: categoryId } });
+    if (!category) throw new NotFoundException('Categoría no encontrada');
+
+    const rows = await this.prisma.$queryRaw<{ count: bigint }[]>`
+      SELECT COUNT(*)::bigint AS count
+      FROM "Listing"
+      WHERE "categoryId" = ${categoryId}
+        AND "attributes" ? ${key}
+    `;
+    return { count: Number(rows[0]?.count ?? 0) };
+  }
+
   async deleteCategory(id: string, actorId: string, ip?: string) {
     const category = await this.prisma.category.findUnique({ where: { id } });
     if (!category) throw new NotFoundException('Categoría no encontrada');
 
-    const [activeListings, children] = await this.prisma.$transaction([
-      this.prisma.listing.count({
-        where: { categoryId: id, status: ListingStatus.ACTIVE },
-      }),
+    // Cuenta TODOS los anuncios de la categoría, sin filtrar por status. La
+    // constraint física Listing_categoryId_fkey es RESTRICT sobre cualquier
+    // Listing (no solo ACTIVE); si aquí solo se contaran los ACTIVE, una
+    // categoría con anuncios DRAFT/SOLD/EXPIRED/etc. pasaría este chequeo y el
+    // DELETE físico posterior fallaría con un 500 sin controlar (RESTRICT de
+    // Postgres) en vez de este 400 legible.
+    const [totalListings, children] = await this.prisma.$transaction([
+      this.prisma.listing.count({ where: { categoryId: id } }),
       this.prisma.category.count({ where: { parentId: id } }),
     ]);
 
-    if (activeListings > 0) {
+    if (totalListings > 0) {
       throw new BadRequestException(
-        `No se puede eliminar: la categoría tiene ${activeListings} anuncio(s) activo(s)`,
+        `No se puede eliminar: la categoría tiene ${totalListings} anuncio(s)`,
       );
     }
     if (children > 0) {

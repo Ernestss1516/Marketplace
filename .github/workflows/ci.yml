@@ -204,6 +204,11 @@ jobs:
       - name: Backend e2e — Jest
         run: pnpm --filter @marketplace/api test:e2e
 
+      # Pure component tests (jsdom, no services required) — separate from the
+      # Playwright e2e suite below, which needs the full stack running.
+      - name: Frontend unit — Jest
+        run: pnpm --filter @marketplace/web test:unit
+
       # Playwright spawns the backend (port 3001) and frontend (port 3000) via
       # webServer because reuseExistingServer = !process.env.CI = false.
       # global-setup.ts migrates (idempotent after Jest), seeds Playwright users,
