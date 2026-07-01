@@ -94,12 +94,12 @@ export class SearchQueryDto {
   @Min(1)
   page?: number = 1;
 
-  @ApiPropertyOptional({ minimum: 1, maximum: 100, default: 24 })
+  @ApiPropertyOptional({ minimum: 1, maximum: 200, default: 24 })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(100)
+  @Max(200)
   hitsPerPage?: number = 24;
 
   // ---------- Variable attributes: vehículos ----------

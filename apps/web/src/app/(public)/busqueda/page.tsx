@@ -1,7 +1,8 @@
 import { Suspense } from 'react';
+import dynamic from 'next/dynamic';
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { AlertCircle, Package } from 'lucide-react';
+import { AlertCircle, LayoutGrid, Map, Package } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ListingCard } from '@/components/anuncios/ListingCard';
 import { FavoritesGridProvider } from '@/components/anuncios/FavoritesGridContext';
@@ -11,10 +12,17 @@ import { search, type SearchResponse } from '@/lib/api/busqueda';
 import { getCategories } from '@/lib/api/categorias';
 import { buildCardAttributeMap } from '@/lib/card-attributes';
 
+// MapView requires DOM (MapLibre GL JS) — loaded client-only, never on the server.
+const MapView = dynamic(() => import('@/components/busqueda/MapView'), {
+  ssr: false,
+  loading: () => <div className="h-[520px] animate-pulse rounded-lg bg-muted" />,
+});
+
 const KNOWN_PARAMS = new Set([
   'q', 'category', 'type', 'condition', 'priceType',
   'minPrice', 'maxPrice', 'province', 'city', 'sort', 'page', 'hitsPerPage',
   'lat', 'lng', 'radius',
+  'view', // lista | mapa — view toggle, must NOT be forwarded as an attribute filter
 ]);
 
 const VALID_SORTS = ['price:asc', 'price:desc', 'publishedAt:desc'] as const;
@@ -53,6 +61,9 @@ export default async function BusquedaPage({
   const province = str(raw.province);
   const city = str(raw.city);
 
+  const viewRaw = str(raw.view);
+  const isMapView = viewRaw === 'mapa';
+
   const typeRaw = str(raw.type);
   const type = typeRaw === 'PRODUCT' || typeRaw === 'SERVICE' ? typeRaw : undefined;
 
@@ -85,7 +96,11 @@ export default async function BusquedaPage({
     ? (sortRaw as Sort)
     : undefined;
 
-  const page = Math.max(1, parseInt(str(raw.page) ?? '1', 10));
+  // Map mode fetches up to 200 hits (no pagination) so all markers are shown.
+  // List mode uses 24 hits per page with normal pagination.
+  const hitsPerFetch = isMapView ? 200 : 24;
+
+  const page = isMapView ? 1 : Math.max(1, parseInt(str(raw.page) ?? '1', 10));
 
   const minPriceStr = str(raw.minPrice);
   const maxPriceStr = str(raw.maxPrice);
@@ -115,7 +130,7 @@ export default async function BusquedaPage({
       ...(sortForApi && { sort: sortForApi }),
       ...(proximityActive && { lat, lng, radius }),
       page,
-      hitsPerPage: 24,
+      hitsPerPage: hitsPerFetch,
       ...attributes,
     }),
   ]);
@@ -128,8 +143,20 @@ export default async function BusquedaPage({
   const totalHits = data?.totalHits ?? 0;
   const hits = data?.hits ?? [];
   const facets = data?.facets;
-  const hitsPerPage = data?.hitsPerPage ?? 24;
-  const totalPages = Math.ceil(totalHits / hitsPerPage);
+  const hitsPerPage = data?.hitsPerPage ?? hitsPerFetch;
+  const totalPages = isMapView ? 0 : Math.ceil(totalHits / hitsPerPage);
+
+  // Build URL for the view toggle: preserves all filters, resets page, sets/clears view.
+  function viewUrl(target: 'lista' | 'mapa'): string {
+    const params = new URLSearchParams();
+    for (const [key, val] of Object.entries(raw)) {
+      if (key === 'page' || key === 'view') continue;
+      const v = str(val);
+      if (v) params.set(key, v);
+    }
+    if (target === 'mapa') params.set('view', 'mapa');
+    return `/busqueda?${params.toString()}`;
+  }
 
   function pageUrl(p: number): string {
     const params = new URLSearchParams();
@@ -167,6 +194,14 @@ export default async function BusquedaPage({
     proximityActive ? 'geo' : undefined,
   ].filter(Boolean).length;
 
+  // Stable key for MapView: remounts when search params change (except view/page).
+  // This ensures the map refreshes when filters are applied.
+  const mapKey = Object.entries(raw)
+    .filter(([k]) => k !== 'view' && k !== 'page')
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${k}=${Array.isArray(v) ? (v[0] ?? '') : (v ?? '')}`)
+    .join('&');
+
   return (
     <div className="container mx-auto px-4 pb-16 pt-8">
       <nav className="mb-6 text-xs text-muted-foreground" aria-label="Breadcrumb">
@@ -177,7 +212,10 @@ export default async function BusquedaPage({
 
       <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
         {/* Sidebar */}
-        <aside className="w-full lg:sticky lg:top-4 lg:w-64 lg:shrink-0 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">
+        <aside
+          className="w-full lg:sticky lg:top-4 lg:w-64 lg:shrink-0 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto"
+          aria-label="Filtros"
+        >
           <Suspense fallback={null}>
             <FilterPanel
               categories={categories}
@@ -190,16 +228,51 @@ export default async function BusquedaPage({
 
         {/* Main content */}
         <main className="min-w-0 flex-1">
+          {/* Header: title + count + view toggle */}
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-            <h1 className="text-lg font-semibold">
-              {q ? `Resultados para "${q}"` : 'Todos los anuncios'}
-            </h1>
-            {!searchError && totalHits > 0 && (
-              <span className="text-sm text-muted-foreground">
-                {totalHits.toLocaleString('es-ES')}{' '}
-                {totalHits === 1 ? 'anuncio' : 'anuncios'}
-              </span>
-            )}
+            <div className="flex items-center gap-3">
+              <h1 className="text-lg font-semibold">
+                {q ? `Resultados para "${q}"` : 'Todos los anuncios'}
+              </h1>
+              {!searchError && totalHits > 0 && (
+                <span className="text-sm text-muted-foreground">
+                  {totalHits.toLocaleString('es-ES')}{' '}
+                  {totalHits === 1 ? 'anuncio' : 'anuncios'}
+                </span>
+              )}
+            </div>
+
+            {/* Lista / Mapa toggle */}
+            <div className="flex overflow-hidden rounded-md border" role="group" aria-label="Cambiar vista">
+              <Button
+                variant={!isMapView ? 'secondary' : 'ghost'}
+                size="sm"
+                className="rounded-none border-r"
+                asChild
+              >
+                <Link
+                  href={viewUrl('lista')}
+                  aria-current={!isMapView ? 'page' : undefined}
+                >
+                  <LayoutGrid className="mr-1.5 h-4 w-4" />
+                  Lista
+                </Link>
+              </Button>
+              <Button
+                variant={isMapView ? 'secondary' : 'ghost'}
+                size="sm"
+                className="rounded-none"
+                asChild
+              >
+                <Link
+                  href={viewUrl('mapa')}
+                  aria-current={isMapView ? 'page' : undefined}
+                >
+                  <Map className="mr-1.5 h-4 w-4" />
+                  Mapa
+                </Link>
+              </Button>
+            </div>
           </div>
 
           {/* Error state */}
@@ -234,8 +307,13 @@ export default async function BusquedaPage({
             </div>
           )}
 
-          {/* Results grid */}
-          {!searchError && hits.length > 0 && (
+          {/* Map view */}
+          {!searchError && hits.length > 0 && isMapView && (
+            <MapView key={mapKey} hits={hits} />
+          )}
+
+          {/* List view: grid + pagination */}
+          {!searchError && hits.length > 0 && !isMapView && (
             <>
               <CardAttributesProvider cardAttributeMap={buildCardAttributeMap(categories)}>
                 <FavoritesGridProvider listingIds={hits.map((l) => l.id)}>

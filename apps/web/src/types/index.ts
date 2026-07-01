@@ -96,6 +96,8 @@ export interface ListingSummary {
   attributes?: Record<string, unknown>;
   /** 1 when the listing has an active boost (paid feature). Only present on Meilisearch hits. */
   boostScore?: 0 | 1;
+  /** Geo-coordinates from Meilisearch. Only present on hits with latitude/longitude set. */
+  _geo?: { lat: number; lng: number };
 }
 
 export interface ListingImage {
