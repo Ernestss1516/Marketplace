@@ -13,5 +13,11 @@ const MapViewDynamic = dynamic(() => import('./MapView'), {
 });
 
 export default function MapViewClient(props: ComponentProps<typeof MapView>) {
-  return <MapViewDynamic {...props} />;
+  // The outer div carries data-testid so Playwright can find it as soon as the
+  // Client Component mounts — without waiting for the maplibre-gl bundle to load.
+  return (
+    <div data-testid="map-view">
+      <MapViewDynamic {...props} />
+    </div>
+  );
 }

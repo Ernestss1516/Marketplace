@@ -36,8 +36,12 @@ async function publishCocheMinimal(
   await expect(page.getByRole('heading', { name: 'Datos del anuncio' })).toBeVisible();
   await page.locator('#title').fill(title);
   await page.locator('#description').fill('Coche de prueba para test H6.2.');
-  // Use PRODUCT type so we can test type filtering
+  // Use PRODUCT type so we can test type filtering (test 3 relies on this).
   await page.getByLabel('Producto').click();
+  // Condition is required for PRODUCT type — without it the validator blocks Next.
+  // #condition is the shadcn SelectTrigger; clicking opens the listbox portal.
+  await page.locator('#condition').click();
+  await page.getByRole('option', { name: 'Buen estado' }).click();
   await page.locator('#price').fill('8000');
   await page.getByRole('button', { name: 'Siguiente' }).click();
 

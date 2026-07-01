@@ -67,7 +67,6 @@ export default function MapView({ hits }: Props) {
   return (
     <div
       ref={containerRef}
-      data-testid="map-view"
       className="h-[520px] w-full overflow-hidden rounded-lg"
     />
   );
