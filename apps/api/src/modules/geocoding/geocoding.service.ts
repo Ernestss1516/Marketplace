@@ -77,7 +77,23 @@ export class GeocodingService {
     postalCode?: string,
   ): Promise<GeoPoint | null> {
     const normalizedProvince = this.normalizeProvinceForGeocoder(province);
-    const parts = [postalCode, city, normalizedProvince, 'España'].filter(Boolean);
+    const result = await this.nominatimQuery(city, normalizedProvince, postalCode);
+    if (result) return result;
+    // Postal codes in user input are often wrong or from the wrong district.
+    // Retry without it — city + province is sufficient for Nominatim.
+    if (postalCode) {
+      this.logger.log(`Nominatim: retrying "${city}, ${normalizedProvince}" without postalCode`);
+      return this.nominatimQuery(city, normalizedProvince, undefined);
+    }
+    return null;
+  }
+
+  private async nominatimQuery(
+    city: string,
+    province: string,
+    postalCode?: string,
+  ): Promise<GeoPoint | null> {
+    const parts = [postalCode, city, province, 'España'].filter(Boolean);
     const q = encodeURIComponent(parts.join(', '));
     const url = `https://nominatim.openstreetmap.org/search?q=${q}&countrycodes=es&format=json&limit=1&addressdetails=0`;
 
@@ -87,7 +103,7 @@ export class GeocodingService {
     });
 
     if (!res.ok) {
-      this.logger.warn(`Nominatim HTTP ${res.status} for "${city}, ${normalizedProvince}"`);
+      this.logger.warn(`Nominatim HTTP ${res.status} for "${city}, ${province}"`);
       return null;
     }
 
