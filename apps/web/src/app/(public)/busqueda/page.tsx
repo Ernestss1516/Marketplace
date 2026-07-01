@@ -1,5 +1,4 @@
 import { Suspense } from 'react';
-import dynamic from 'next/dynamic';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { AlertCircle, LayoutGrid, Map, Package } from 'lucide-react';
@@ -8,15 +7,10 @@ import { ListingCard } from '@/components/anuncios/ListingCard';
 import { FavoritesGridProvider } from '@/components/anuncios/FavoritesGridContext';
 import { CardAttributesProvider } from '@/components/anuncios/CardAttributesContext';
 import { FilterPanel } from '@/components/busqueda/FilterPanel';
+import MapViewClient from '@/components/busqueda/MapViewClient';
 import { search, type SearchResponse } from '@/lib/api/busqueda';
 import { getCategories } from '@/lib/api/categorias';
 import { buildCardAttributeMap } from '@/lib/card-attributes';
-
-// MapView requires DOM (MapLibre GL JS) — loaded client-only, never on the server.
-const MapView = dynamic(() => import('@/components/busqueda/MapView'), {
-  ssr: false,
-  loading: () => <div className="h-[520px] animate-pulse rounded-lg bg-muted" />,
-});
 
 const KNOWN_PARAMS = new Set([
   'q', 'category', 'type', 'condition', 'priceType',
@@ -309,7 +303,7 @@ export default async function BusquedaPage({
 
           {/* Map view */}
           {!searchError && hits.length > 0 && isMapView && (
-            <MapView key={mapKey} hits={hits} />
+            <MapViewClient key={mapKey} hits={hits} />
           )}
 
           {/* List view: grid + pagination */}
