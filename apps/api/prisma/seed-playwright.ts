@@ -33,7 +33,8 @@ async function main() {
       slug: 'vendedor-e2e',
       emailVerified: true,
     },
-    update: { passwordHash, emailVerified: true },
+    // Reset location so prefill tests always start from a known-empty state.
+    update: { passwordHash, emailVerified: true, city: null, province: null, postalCode: null },
   });
 
   await prisma.user.upsert({
@@ -134,8 +135,10 @@ async function main() {
         sellerId: sellerUser.id,
         categoryId: category.id,
         publishedAt: new Date(),
+        city: 'Madrid',
+        province: 'Madrid',
       },
-      update: { status: 'ACTIVE' },
+      update: { status: 'ACTIVE', city: 'Madrid', province: 'Madrid' },
     });
     console.log('Playwright seed: listing-rf11-e2e OK');
   }

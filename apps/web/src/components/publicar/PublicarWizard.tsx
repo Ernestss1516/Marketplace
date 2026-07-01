@@ -120,6 +120,7 @@ function buildAttributes(
 interface PublicarWizardProps {
   token: string;
   categories: Category[];
+  initialLocation?: { city?: string; province?: string; postalCode?: string };
 }
 
 const INITIAL_DATA: WizardData = {
@@ -145,10 +146,15 @@ const INITIAL_DATA: WizardData = {
   postalCode: '',
 };
 
-export function PublicarWizard({ token, categories }: PublicarWizardProps) {
+export function PublicarWizard({ token, categories, initialLocation }: PublicarWizardProps) {
   const router = useRouter();
   const { run } = useApiAction();
-  const [data, setData] = useState<WizardData>(INITIAL_DATA);
+  const [data, setData] = useState<WizardData>({
+    ...INITIAL_DATA,
+    city: initialLocation?.city || '',
+    province: initialLocation?.province || '',
+    postalCode: initialLocation?.postalCode || '',
+  });
   const [currentStepId, setCurrentStepId] = useState<StepId>('categoria');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitState, setSubmitState] = useState<'idle' | 'saving' | 'publishing'>('idle');
