@@ -6,8 +6,8 @@ export interface GeoPoint {
   lng: number;
 }
 
-/** Timeout for each geocoding HTTP call (ms). Slow providers must not block publication. */
-const GEOCODING_TIMEOUT_MS = 1500;
+/** Timeout for each geocoding HTTP call (ms). Nominatim can take 1-2 s; 3 s is a safe ceiling. */
+const GEOCODING_TIMEOUT_MS = 3000;
 
 @Injectable()
 export class GeocodingService {
@@ -35,17 +35,40 @@ export class GeocodingService {
     province: string,
     postalCode?: string,
   ): Promise<GeoPoint | null> {
+    if (!city || !province) {
+      this.logger.warn(`Geocoding skipped: city="${city}" province="${province}" are required`);
+      return null;
+    }
+    this.logger.log(
+      `Geocoding [${this.provider}]: city="${city}" province="${province}" postalCode="${postalCode ?? ''}"`,
+    );
     try {
-      if (this.provider === 'maptiler') {
-        return await this.geocodeMaptiler(city, province, postalCode);
+      const result = this.provider === 'maptiler'
+        ? await this.geocodeMaptiler(city, province, postalCode)
+        : await this.geocodeNominatim(city, province, postalCode);
+      if (!result) {
+        this.logger.warn(`Geocoding [${this.provider}]: no result for "${city}, ${province}"`);
+      } else {
+        this.logger.log(`Geocoding [${this.provider}]: resolved "${city}, ${province}" → ${result.lat},${result.lng}`);
       }
-      return await this.geocodeNominatim(city, province, postalCode);
+      return result;
     } catch (err) {
+      const isTimeout = err instanceof Error && err.name === 'AbortError';
       this.logger.warn(
-        `Geocoding failed for "${city}, ${province}": ${String(err)}`,
+        `Geocoding [${this.provider}] ${isTimeout ? 'TIMEOUT' : 'ERROR'} for "${city}, ${province}": ${String(err)}`,
       );
       return null;
     }
+  }
+
+  /**
+   * Some INE province names are bilingual ("Alicante/Alacant", "Araba/Álava").
+   * Nominatim handles them correctly but the Spanish-only form is more reliable.
+   * Also handles "A Coruña" (no slash) correctly — only strips at the slash boundary.
+   */
+  private normalizeProvinceForGeocoder(province: string): string {
+    const slashIdx = province.indexOf('/');
+    return slashIdx === -1 ? province : province.slice(0, slashIdx).trim();
   }
 
   private async geocodeNominatim(
@@ -53,7 +76,8 @@ export class GeocodingService {
     province: string,
     postalCode?: string,
   ): Promise<GeoPoint | null> {
-    const parts = [postalCode, city, province, 'España'].filter(Boolean);
+    const normalizedProvince = this.normalizeProvinceForGeocoder(province);
+    const parts = [postalCode, city, normalizedProvince, 'España'].filter(Boolean);
     const q = encodeURIComponent(parts.join(', '));
     const url = `https://nominatim.openstreetmap.org/search?q=${q}&countrycodes=es&format=json&limit=1&addressdetails=0`;
 
@@ -62,7 +86,10 @@ export class GeocodingService {
       headers: { 'User-Agent': this.userAgent },
     });
 
-    if (!res.ok) return null;
+    if (!res.ok) {
+      this.logger.warn(`Nominatim HTTP ${res.status} for "${city}, ${normalizedProvince}"`);
+      return null;
+    }
 
     const data = (await res.json()) as Array<{ lat: string; lon: string }>;
     if (!data.length) return null;
