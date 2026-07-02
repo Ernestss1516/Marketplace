@@ -87,8 +87,10 @@ export class IndexingProcessor extends WorkerHost {
       data: { latitude: coords.lat, longitude: coords.lng },
     });
 
-    // Re-index so Meilisearch _geo reflects the new coordinates.
-    await this.handleIndex(listingId);
+    // Do NOT call handleIndex here. The 'index' job already in the queue
+    // (enqueued by publishListing or update) will run next (FIFO) and will
+    // re-fetch the listing with the updated coordinates — one single Meilisearch
+    // write per publication instead of two.
     this.logger.debug(`Geocode job: listing ${listingId} → ${coords.lat},${coords.lng}`);
   }
 }

@@ -195,11 +195,14 @@ export class ListingsService {
       }
     }
 
-    await this.invalidateAndReindex(existing.slug, id);
-    // Re-geocode in background when text location changed without explicit coords.
+    // Clear cache immediately, then enqueue geocode (if needed) BEFORE index so
+    // the FIFO worker updates lat/lng before the 'index' job re-fetches the listing.
+    // This guarantees a single Meilisearch write with the new coordinates.
+    await this.redis.client.del(cacheKey(existing.slug));
     if (locationChanged && !coordsExplicit) {
       await this.indexingQueue.add('geocode', { listingId: id });
     }
+    await this.indexingQueue.add('index', { listingId: id });
     return listing;
   }
 
