@@ -17,6 +17,25 @@ export function buildCardAttributeMap(categories: Category[]): CardAttributeMap 
 }
 
 /**
+ * Builds a slug→allAttributes map from the full category tree.
+ * Unlike buildCardAttributeMap, this includes ALL attribute definitions (not just
+ * the 1-2 card-highlighted ones). Used in the map detail panel to show the complete
+ * attribute set of a listing without an extra API fetch.
+ */
+export function buildFullAttributeMap(categories: Category[]): CardAttributeMap {
+  const map: CardAttributeMap = {};
+  for (const cat of categories) {
+    const attrs = cat.allAttributes ?? cat.cardAttributes;
+    if (attrs?.length) map[cat.slug] = attrs;
+    for (const child of cat.children ?? []) {
+      const childAttrs = child.allAttributes ?? child.cardAttributes;
+      if (childAttrs?.length) map[child.slug] = childAttrs;
+    }
+  }
+  return map;
+}
+
+/**
  * Builds a single-entry map from a category's effective attributeSchema
  * (as returned by GET /categories/:slug). Used on single-category pages
  * (categoría, ficha) that already have the schema without fetching the full tree.

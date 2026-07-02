@@ -68,6 +68,8 @@ export interface Category {
   slug: string;
   iconUrl?: string;
   cardAttributes?: CardAttributeDef[];
+  /** Full attribute list (all fields, not just card-highlighted ones). Populated by GET /categories tree. */
+  allAttributes?: CardAttributeDef[];
   children?: Category[];
 }
 

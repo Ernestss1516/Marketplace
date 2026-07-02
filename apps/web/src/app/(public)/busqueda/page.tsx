@@ -10,7 +10,7 @@ import { FilterPanel } from '@/components/busqueda/FilterPanel';
 import MapViewClient from '@/components/busqueda/MapViewClient';
 import { search, type SearchResponse } from '@/lib/api/busqueda';
 import { getCategories } from '@/lib/api/categorias';
-import { buildCardAttributeMap } from '@/lib/card-attributes';
+import { buildCardAttributeMap, buildFullAttributeMap } from '@/lib/card-attributes';
 
 const KNOWN_PARAMS = new Set([
   'q', 'category', 'type', 'condition', 'priceType',
@@ -308,7 +308,7 @@ export default async function BusquedaPage({
               hits={hits}
               totalHits={totalHits}
               listUrl={viewUrl('lista')}
-              cardAttributeMap={buildCardAttributeMap(categories)}
+              attributeMap={buildFullAttributeMap(categories)}
             />
           )}
 

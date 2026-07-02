@@ -16,6 +16,9 @@ const LAYER_CLUSTERS = 'clusters';
 const LAYER_COUNT = 'cluster-count';
 const LAYER_POINTS = 'unclustered-point';
 
+const FLOAT_CARD_W = 224; // w-56 = 14rem * 16px
+const FLOAT_CARD_OFFSET_Y = 12; // gap between marker and card edge
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatPrice(price: number, currency = 'EUR'): string {
@@ -26,35 +29,60 @@ function formatPrice(price: number, currency = 'EUR'): string {
   }).format(price);
 }
 
-/** Returns "Label: valor" / "valor unit" pairs for card attributes. */
-function getCardAttrs(
-  listing: ListingSummary,
-  cardAttributeMap: CardAttributeMap,
-): { label: string; value: string; hasUnit: boolean }[] {
-  const defs = (listing.categorySlug ? cardAttributeMap[listing.categorySlug] : undefined) ?? [];
+interface AttrEntry {
+  label: string;
+  value: string;
+}
+
+/** Returns all non-null attribute entries for the listing, with their display labels. */
+function getAllAttrs(listing: ListingSummary, attributeMap: CardAttributeMap): AttrEntry[] {
+  const defs = (listing.categorySlug ? attributeMap[listing.categorySlug] : undefined) ?? [];
   return defs
     .map((def) => {
       const raw = listing.attributes?.[def.key];
       if (raw == null || String(raw) === '') return null;
       const str = String(raw);
-      return { label: def.label, value: def.unit ? `${str} ${def.unit}` : str, hasUnit: !!def.unit };
+      return { label: def.label, value: def.unit ? `${str} ${def.unit}` : str };
     })
-    .filter((e): e is { label: string; value: string; hasUnit: boolean } => e !== null);
+    .filter((e): e is AttrEntry => e !== null);
 }
 
-// ─── Floating compact card (absolute, over the map) ───────────────────────────
+// ─── Floating compact card (positioned above/below the selected marker) ───────
 
-function FloatingCard({
-  listing,
-  onClose,
-}: {
+interface FloatingCardProps {
   listing: ListingSummary;
+  pos: { x: number; y: number };
+  containerW: number;
   onClose: () => void;
-}) {
+}
+
+function FloatingCard({ listing, pos, containerW, onClose }: FloatingCardProps) {
   const priceStr = formatPrice(listing.price, listing.currency);
 
+  // Keep card within horizontal bounds of the map container
+  const clampedX = Math.min(
+    Math.max(pos.x, FLOAT_CARD_W / 2 + 4),
+    containerW - FLOAT_CARD_W / 2 - 4,
+  );
+  // Flip below the marker when too close to the top edge
+  const showBelow = pos.y < 110;
+  const translateY = showBelow
+    ? `${FLOAT_CARD_OFFSET_Y}px`
+    : `calc(-100% - ${FLOAT_CARD_OFFSET_Y}px)`;
+
   return (
-    <div className="absolute bottom-4 right-4 z-10 w-56 overflow-hidden rounded-xl border bg-white/95 shadow-lg backdrop-blur-sm">
+    <div
+      style={{
+        position: 'absolute',
+        left: clampedX,
+        top: pos.y,
+        transform: `translate(-50%, ${translateY})`,
+        zIndex: 10,
+        width: FLOAT_CARD_W,
+        pointerEvents: 'auto',
+      }}
+      className="overflow-hidden rounded-xl border bg-white/95 shadow-lg backdrop-blur-sm"
+    >
       <Link
         href={`/anuncio/${listing.slug}`}
         className="flex items-center gap-3 p-2.5 hover:bg-gray-50"
@@ -92,19 +120,16 @@ function FloatingCard({
 
 function SelectedListingPanel({
   listing,
-  cardAttributeMap,
+  attributeMap,
   onClose,
 }: {
   listing: ListingSummary;
-  cardAttributeMap: CardAttributeMap;
+  attributeMap: CardAttributeMap;
   onClose: () => void;
 }) {
   const priceStr = formatPrice(listing.price, listing.currency);
   const location = [listing.city, listing.province].filter(Boolean).join(', ');
-  const cardAttrs = getCardAttrs(listing, cardAttributeMap);
-  const attrsLine = cardAttrs
-    .map((e) => (e.hasUnit ? e.value : `${e.label}: ${e.value}`))
-    .join(' · ');
+  const allAttrs = getAllAttrs(listing, attributeMap);
 
   return (
     <div
@@ -112,7 +137,7 @@ function SelectedListingPanel({
       data-testid="map-detail-panel"
     >
       <div className="flex items-start gap-4 p-4">
-        {/* Thumbnail — wider than before */}
+        {/* Thumbnail */}
         {listing.thumbnailUrl && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -124,22 +149,13 @@ function SelectedListingPanel({
         )}
 
         <div className="min-w-0 flex-1">
-          {/* Title + price */}
           <p className="font-semibold leading-tight">{listing.title}</p>
           <p className="mt-0.5 text-base font-bold text-primary">{priceStr}</p>
-
-          {/* Location */}
           {location && (
             <p className="mt-0.5 text-xs text-muted-foreground">{location}</p>
           )}
-
-          {/* Card attributes (Marca: Toyota · Año: 2022 …) */}
-          {attrsLine && (
-            <p className="mt-1 truncate text-xs text-muted-foreground">{attrsLine}</p>
-          )}
         </div>
 
-        {/* Close button */}
         <button
           onClick={onClose}
           className="shrink-0 rounded-sm p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -150,7 +166,19 @@ function SelectedListingPanel({
         </button>
       </div>
 
-      {/* Description (truncated, only if present in the Meilisearch hit) */}
+      {/* All category attributes — 2-column grid so they're readable */}
+      {allAttrs.length > 0 && (
+        <dl className="grid grid-cols-2 gap-x-6 gap-y-1 border-t px-4 py-2.5 text-xs">
+          {allAttrs.map((attr) => (
+            <div key={attr.label} className="flex gap-1.5 overflow-hidden">
+              <dt className="shrink-0 text-muted-foreground">{attr.label}:</dt>
+              <dd className="truncate font-medium">{attr.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+
+      {/* Truncated description (only present in Meilisearch hits) */}
       {listing.description && (
         <p className="line-clamp-3 border-t px-4 py-2.5 text-sm text-muted-foreground">
           {listing.description}
@@ -159,7 +187,6 @@ function SelectedListingPanel({
 
       {/* Seller + CTA */}
       <div className="flex items-center justify-between gap-4 border-t px-4 py-3">
-        {/* Public seller info */}
         {listing.sellerName && (
           <div className="flex min-w-0 items-center gap-2">
             {listing.sellerAvatarUrl ? (
@@ -177,7 +204,6 @@ function SelectedListingPanel({
           </div>
         )}
 
-        {/* Primary CTA */}
         <Link
           href={`/anuncio/${listing.slug}`}
           className="shrink-0 rounded-lg bg-primary px-4 py-1.5 text-sm font-semibold text-primary-foreground hover:opacity-90"
@@ -198,14 +224,25 @@ interface Props {
   totalHits: number;
   /** URL for the list-view toggle. Used by the "missing geo" warning link. */
   listUrl: string;
-  /** Category attribute map for rendering card attributes in the detail panel. */
-  cardAttributeMap: CardAttributeMap;
+  /**
+   * Full attribute map (all attributes, not just card-highlighted ones) built from the
+   * categories tree via buildFullAttributeMap(). Used to display labelled attribute rows
+   * in the detail panel without an extra API fetch.
+   */
+  attributeMap: CardAttributeMap;
 }
 
-export default function MapView({ hits, totalHits, listUrl, cardAttributeMap }: Props) {
+export default function MapView({ hits, totalHits, listUrl, attributeMap }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
+
+  // Geo coordinates of the selected marker (ref — used by the 'move' listener without
+  // needing to be in the closure's capture list, since refs are always current).
+  const selectedGeoRef = useRef<{ lng: number; lat: number } | null>(null);
+
   const [selected, setSelected] = useState<ListingSummary | null>(null);
+  // Pixel position of the selected marker relative to the map container.
+  const [cardPos, setCardPos] = useState<{ x: number; y: number } | null>(null);
 
   const geoHits = hits.filter(
     (h): h is ListingSummary & { _geo: { lat: number; lng: number } } =>
@@ -236,6 +273,15 @@ export default function MapView({ hits, totalHits, listUrl, cardAttributeMap }: 
     });
 
     mapRef.current = map;
+
+    // Update floating card position on every camera move (pan or zoom).
+    // Registered immediately (not inside 'load') so it works during fitBounds animations.
+    map.on('move', () => {
+      if (selectedGeoRef.current) {
+        const px = map.project(selectedGeoRef.current);
+        setCardPos({ x: px.x, y: px.y });
+      }
+    });
 
     map.on('load', () => {
       // ── GeoJSON source with native MapLibre clustering ─────────────────────
@@ -298,7 +344,7 @@ export default function MapView({ hits, totalHits, listUrl, cardAttributeMap }: 
         map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
       }
 
-      // ── Cluster click → zoom in ────────────────────────────────────────────
+      // ── Cluster click → zoom in (no panel) ────────────────────────────────
       map.on('click', LAYER_CLUSTERS, async (e) => {
         const features = map.queryRenderedFeatures(e.point, { layers: [LAYER_CLUSTERS] });
         if (!features.length) return;
@@ -312,13 +358,21 @@ export default function MapView({ hits, totalHits, listUrl, cardAttributeMap }: 
         }
       });
 
-      // ── Individual point click → select listing ────────────────────────────
+      // ── Individual point click → select listing + anchor floating card ─────
       map.on('click', LAYER_POINTS, (e) => {
         const f = e.features?.[0];
         if (!f?.properties) return;
         const { id } = f.properties as { id: string };
         const hit = geoHits.find((h) => h.id === id);
-        if (hit) setSelected(hit);
+        if (!hit) return;
+
+        // Use the listing's precise geo coordinates (not the click point) so the
+        // card anchors to the exact centre of the marker circle.
+        const geo = { lng: hit._geo.lng, lat: hit._geo.lat };
+        selectedGeoRef.current = geo;
+        const px = map.project(geo);
+        setSelected(hit);
+        setCardPos({ x: px.x, y: px.y });
       });
 
       // ── Fit to all geoHits on mount ────────────────────────────────────────
@@ -337,7 +391,16 @@ export default function MapView({ hits, totalHits, listUrl, cardAttributeMap }: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleClose = () => setSelected(null);
+  const handleClose = () => {
+    setSelected(null);
+    selectedGeoRef.current = null;
+    setCardPos(null);
+  };
+
+  // Container width is used by FloatingCard for horizontal clamping.
+  // Safe to read here because FloatingCard only renders after a marker click,
+  // by which point the map container is definitely mounted.
+  const containerW = containerRef.current?.offsetWidth ?? 600;
 
   return (
     <div>
@@ -347,7 +410,14 @@ export default function MapView({ hits, totalHits, listUrl, cardAttributeMap }: 
           ref={containerRef}
           className="h-[520px] w-full overflow-hidden rounded-lg"
         />
-        {selected && <FloatingCard listing={selected} onClose={handleClose} />}
+        {selected && cardPos && (
+          <FloatingCard
+            listing={selected}
+            pos={cardPos}
+            containerW={containerW}
+            onClose={handleClose}
+          />
+        )}
       </div>
 
       {/* Cap warning: map shows at most 200 hits but there are more */}
@@ -385,7 +455,7 @@ export default function MapView({ hits, totalHits, listUrl, cardAttributeMap }: 
       {selected && (
         <SelectedListingPanel
           listing={selected}
-          cardAttributeMap={cardAttributeMap}
+          attributeMap={attributeMap}
           onClose={handleClose}
         />
       )}
