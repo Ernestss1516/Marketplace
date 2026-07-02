@@ -155,6 +155,18 @@ async function main() {
     }
   }
 
+  // ── Raise free-tier listing limit for E2E tests ─────────────────────────────
+  // The default limit (5) is hit within a single CI run: RF.11 seed (1) +
+  // categoria-meili (3) + flujo-critico (1) = 5 → wizard-herencia throws
+  // ForbiddenException in publishListing → no redirect → waitForURL times out.
+  // In tests we don't test the limit feature itself, so set it high enough to
+  // never be a concern.
+  await prisma.setting.upsert({
+    where: { key: 'freeActiveListingLimit' },
+    create: { key: 'freeActiveListingLimit', value: 100 },
+    update: { value: 100 },
+  });
+
   // ── Admin and moderator users for role-separation E2E tests ──────────────────
   await prisma.user.upsert({
     where: { email: 'admin-e2e@example.com' },
