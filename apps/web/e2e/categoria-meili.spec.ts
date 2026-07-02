@@ -13,8 +13,8 @@
 
 import path from 'path';
 import { test, expect } from './fixtures/auth';
+import { waitForCard } from './helpers/wait-for-card';
 
-const MEILI_TIMEOUT = 25_000;
 
 async function publishCocheMinimal(
   page: import('@playwright/test').Page,
@@ -68,15 +68,10 @@ test.describe('H6.2 — Categoría vía Meilisearch', () => {
 
     await publishCocheMinimal(page, TITLE);
 
-    await page.goto('/coches');
-    await page.waitForLoadState('networkidle');
+    await waitForCard(page, '/coches', TITLE);
 
-    // FilterPanel must be visible (new: only present after migration)
+    // FilterPanel must be visible (only present after H6.2 migration)
     await expect(page.getByRole('complementary', { name: 'Filtros' })).toBeVisible({ timeout: 5_000 });
-
-    // The published car must appear in the grid
-    const card = page.locator('a[href*="/anuncio/"]').filter({ hasText: TITLE }).first();
-    await expect(card).toBeVisible({ timeout: MEILI_TIMEOUT });
   });
 
   test('Categoría padre /vehiculos: incluye anuncios de la hija /coches', async ({ sellerContext }) => {
@@ -85,14 +80,9 @@ test.describe('H6.2 — Categoría vía Meilisearch', () => {
 
     await publishCocheMinimal(page, TITLE);
 
-    // Navigate to the parent category — must show the coche via categoryPath matching
-    await page.goto('/vehiculos');
-    await page.waitForLoadState('networkidle');
+    await waitForCard(page, '/vehiculos', TITLE);
 
     await expect(page.getByRole('heading', { name: 'Vehículos' })).toBeVisible();
-
-    const card = page.locator('a[href*="/anuncio/"]').filter({ hasText: TITLE }).first();
-    await expect(card).toBeVisible({ timeout: MEILI_TIMEOUT });
   });
 
   test('Filtro de tipo: type=PRODUCT muestra el coche; type=SERVICE no lo muestra', async ({ sellerContext }) => {
@@ -103,11 +93,7 @@ test.describe('H6.2 — Categoría vía Meilisearch', () => {
     await publishCocheMinimal(page, TITLE);
 
     // Filter by PRODUCT — listing must appear
-    await page.goto(`/coches?type=PRODUCT`);
-    await page.waitForLoadState('networkidle');
-
-    const cardProduct = page.locator('a[href*="/anuncio/"]').filter({ hasText: TITLE }).first();
-    await expect(cardProduct).toBeVisible({ timeout: MEILI_TIMEOUT });
+    await waitForCard(page, `/coches?type=PRODUCT`, TITLE);
 
     // Filter by SERVICE — same listing must NOT appear
     await page.goto(`/coches?type=SERVICE`);

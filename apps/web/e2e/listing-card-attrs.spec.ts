@@ -16,6 +16,7 @@
 
 import path from 'path';
 import { test, expect } from './fixtures/auth';
+import { waitForCard } from './helpers/wait-for-card';
 
 // ── Helper: publish a coche via the wizard and return its URL ────────────────
 
@@ -72,14 +73,11 @@ test.describe('RC5.5 — ListingCard: cardAttributes por categoría', () => {
 
     await publishCoche(page, TITLE);
 
-    // Navigate to the Coches category page (now resolved via Meilisearch).
-    // Use a longer timeout to account for async BullMQ indexing.
-    await page.goto('/coches');
-    await page.waitForLoadState('networkidle');
+    // Active polling: reload /coches until the card appears in the SSR snapshot.
+    await waitForCard(page, '/coches', TITLE);
 
-    // Find the card link by title
+    // Card is now in the DOM — re-locate for further assertions.
     const card = page.locator('a[href*="/anuncio/"]').filter({ hasText: TITLE }).first();
-    await expect(card).toBeVisible({ timeout: 25_000 });
 
     // Verify cardAttribute values are shown in the card
     // Expected format: "Marca: Toyota · Año: 2022"
@@ -128,11 +126,9 @@ test.describe('RC5.5 — ListingCard: cardAttributes por categoría', () => {
     await page.getByRole('button', { name: 'Publicar ahora' }).click();
     await page.waitForURL('**/anuncio/**', { timeout: 20_000 });
 
-    await page.goto('/coches');
-    await page.waitForLoadState('networkidle');
+    await waitForCard(page, '/coches', TITLE);
 
     const card = page.locator('a[href*="/anuncio/"]').filter({ hasText: TITLE }).first();
-    await expect(card).toBeVisible({ timeout: 25_000 });
 
     // year shows (has value), brand absent (not filled)
     await expect(card).toContainText('Año: 2018');
@@ -147,12 +143,9 @@ test.describe('RC5.5 — ListingCard: cardAttributes por categoría', () => {
 
     await publishCoche(page, TITLE);
 
-    // Búsqueda page uses Meilisearch. Wait up to 20s for async indexing.
-    await page.goto('/busqueda?category=coches');
-    await page.waitForLoadState('networkidle');
+    await waitForCard(page, '/busqueda?category=coches', TITLE);
 
     const card = page.locator('a[href*="/anuncio/"]').filter({ hasText: TITLE });
-    await expect(card).toBeVisible({ timeout: 25_000 });
 
     await expect(card).toContainText('Marca: Toyota');
     await expect(card).toContainText('Año: 2022');
@@ -194,12 +187,9 @@ test.describe('RC5.5 — ListingCard: cardAttributes por categoría', () => {
     await page.getByRole('button', { name: 'Publicar ahora' }).click();
     await page.waitForURL('**/anuncio/**', { timeout: 20_000 });
 
-    // Navigate to Moviles category
-    await page.goto('/moviles');
-    await page.waitForLoadState('networkidle');
+    await waitForCard(page, '/moviles', TITLE);
 
     const card = page.locator('a[href*="/anuncio/"]').filter({ hasText: TITLE }).first();
-    await expect(card).toBeVisible({ timeout: 25_000 });
 
     // Card renders without errors (title and price visible)
     await expect(card.locator('p').first()).toContainText(TITLE.slice(0, 15));

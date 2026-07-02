@@ -247,7 +247,12 @@ export class SearchService implements OnModuleInit {
       await this.removeListing(listing.id);
       return;
     }
-    await this.index.addDocuments([this.toDocument(listing)]);
+    // waitForTask ensures the document is queryable before this method returns.
+    // Without it, addDocuments() is fire-and-forget: the BullMQ job completes but
+    // Meilisearch may not have processed the task yet, causing tests (and real
+    // users) to see a stale index for a brief but unpredictable window.
+    const task = await this.index.addDocuments([this.toDocument(listing)]);
+    await this.meili.client.waitForTask(task.taskUid);
   }
 
   /** Removes a listing from the index. Safe to call even when the document is absent. */

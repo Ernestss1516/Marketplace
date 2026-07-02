@@ -23,12 +23,24 @@ export class IndexingProcessor extends WorkerHost {
     try {
       const { listingId } = job.data;
       switch (job.name) {
-        case 'index':
-          return this.handleIndex(listingId);
+        case 'index': {
+          const queueWaitMs = Date.now() - job.timestamp;
+          this.logger.log(`[TIMING] index start listingId=${listingId} queueWait=${queueWaitMs}ms`);
+          const t0 = Date.now();
+          await this.handleIndex(listingId);
+          this.logger.log(`[TIMING] index done listingId=${listingId} indexTime=${Date.now() - t0}ms totalFromEnqueue=${Date.now() - job.timestamp}ms`);
+          return;
+        }
         case 'remove':
           return this.handleRemove(listingId);
-        case 'geocode':
-          return this.handleGeocode(listingId);
+        case 'geocode': {
+          const queueWaitMs = Date.now() - job.timestamp;
+          this.logger.log(`[TIMING] geocode start listingId=${listingId} queueWait=${queueWaitMs}ms`);
+          const t0 = Date.now();
+          await this.handleGeocode(listingId);
+          this.logger.log(`[TIMING] geocode done listingId=${listingId} geocodeTime=${Date.now() - t0}ms`);
+          return;
+        }
         default:
           this.logger.warn(`Unknown indexing job: ${job.name}`);
       }
