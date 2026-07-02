@@ -308,6 +308,7 @@ export default async function BusquedaPage({
               hits={hits}
               totalHits={totalHits}
               listUrl={viewUrl('lista')}
+              cardAttributeMap={buildCardAttributeMap(categories)}
             />
           )}
 

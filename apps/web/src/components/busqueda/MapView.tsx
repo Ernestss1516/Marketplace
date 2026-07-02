@@ -6,6 +6,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import Link from 'next/link';
 import { X } from 'lucide-react';
 import type { ListingSummary } from '@/types';
+import type { CardAttributeMap } from '@/components/anuncios/CardAttributesContext';
 
 const SPAIN_CENTER: [number, number] = [-3.7038, 40.4168];
 const SPAIN_ZOOM = 5;
@@ -15,58 +16,176 @@ const LAYER_CLUSTERS = 'clusters';
 const LAYER_COUNT = 'cluster-count';
 const LAYER_POINTS = 'unclustered-point';
 
-// ─── Selected listing panel ────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function SelectedListingPanel({
+function formatPrice(price: number, currency = 'EUR'): string {
+  return new Intl.NumberFormat('es-ES', {
+    style: 'currency',
+    currency,
+    maximumFractionDigits: 0,
+  }).format(price);
+}
+
+/** Returns "Label: valor" / "valor unit" pairs for card attributes. */
+function getCardAttrs(
+  listing: ListingSummary,
+  cardAttributeMap: CardAttributeMap,
+): { label: string; value: string; hasUnit: boolean }[] {
+  const defs = (listing.categorySlug ? cardAttributeMap[listing.categorySlug] : undefined) ?? [];
+  return defs
+    .map((def) => {
+      const raw = listing.attributes?.[def.key];
+      if (raw == null || String(raw) === '') return null;
+      const str = String(raw);
+      return { label: def.label, value: def.unit ? `${str} ${def.unit}` : str, hasUnit: !!def.unit };
+    })
+    .filter((e): e is { label: string; value: string; hasUnit: boolean } => e !== null);
+}
+
+// ─── Floating compact card (absolute, over the map) ───────────────────────────
+
+function FloatingCard({
   listing,
   onClose,
 }: {
   listing: ListingSummary;
   onClose: () => void;
 }) {
-  const priceStr = new Intl.NumberFormat('es-ES', {
-    style: 'currency',
-    currency: listing.currency ?? 'EUR',
-    maximumFractionDigits: 0,
-  }).format(listing.price);
+  const priceStr = formatPrice(listing.price, listing.currency);
+
+  return (
+    <div className="absolute bottom-4 right-4 z-10 w-56 overflow-hidden rounded-xl border bg-white/95 shadow-lg backdrop-blur-sm">
+      <Link
+        href={`/anuncio/${listing.slug}`}
+        className="flex items-center gap-3 p-2.5 hover:bg-gray-50"
+        data-testid="map-float-link"
+      >
+        {listing.thumbnailUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={listing.thumbnailUrl}
+            alt=""
+            className="h-14 w-14 shrink-0 rounded-lg object-cover"
+            loading="lazy"
+          />
+        )}
+        <div className="min-w-0">
+          <p className="line-clamp-2 text-xs font-semibold leading-snug text-foreground">
+            {listing.title}
+          </p>
+          <p className="mt-0.5 text-xs font-medium text-primary">{priceStr}</p>
+        </div>
+      </Link>
+      <button
+        onClick={onClose}
+        className="absolute right-1.5 top-1.5 rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+        aria-label="Cerrar tarjeta"
+        data-testid="map-float-close"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+}
+
+// ─── Detail panel (below the map) ─────────────────────────────────────────────
+
+function SelectedListingPanel({
+  listing,
+  cardAttributeMap,
+  onClose,
+}: {
+  listing: ListingSummary;
+  cardAttributeMap: CardAttributeMap;
+  onClose: () => void;
+}) {
+  const priceStr = formatPrice(listing.price, listing.currency);
   const location = [listing.city, listing.province].filter(Boolean).join(', ');
+  const cardAttrs = getCardAttrs(listing, cardAttributeMap);
+  const attrsLine = cardAttrs
+    .map((e) => (e.hasUnit ? e.value : `${e.label}: ${e.value}`))
+    .join(' · ');
 
   return (
     <div
-      className="mt-3 flex items-start gap-4 rounded-lg border bg-card p-4 shadow-sm"
+      className="mt-3 rounded-xl border bg-card shadow-sm"
       data-testid="map-detail-panel"
     >
-      {listing.thumbnailUrl && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={listing.thumbnailUrl}
-          alt={listing.title}
-          className="h-[72px] w-24 shrink-0 rounded-md object-cover"
-          loading="lazy"
-        />
-      )}
-      <div className="min-w-0 flex-1">
-        <p className="truncate font-semibold leading-tight">{listing.title}</p>
-        <p className="mt-0.5 text-sm font-medium text-primary">{priceStr}</p>
-        {location && (
-          <p className="mt-0.5 text-xs text-muted-foreground">{location}</p>
+      <div className="flex items-start gap-4 p-4">
+        {/* Thumbnail — wider than before */}
+        {listing.thumbnailUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={listing.thumbnailUrl}
+            alt={listing.title}
+            className="h-[100px] w-[130px] shrink-0 rounded-lg object-cover"
+            loading="lazy"
+          />
         )}
+
+        <div className="min-w-0 flex-1">
+          {/* Title + price */}
+          <p className="font-semibold leading-tight">{listing.title}</p>
+          <p className="mt-0.5 text-base font-bold text-primary">{priceStr}</p>
+
+          {/* Location */}
+          {location && (
+            <p className="mt-0.5 text-xs text-muted-foreground">{location}</p>
+          )}
+
+          {/* Card attributes (Marca: Toyota · Año: 2022 …) */}
+          {attrsLine && (
+            <p className="mt-1 truncate text-xs text-muted-foreground">{attrsLine}</p>
+          )}
+        </div>
+
+        {/* Close button */}
+        <button
+          onClick={onClose}
+          className="shrink-0 rounded-sm p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+          aria-label="Cerrar panel"
+          data-testid="map-detail-close"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* Description (truncated, only if present in the Meilisearch hit) */}
+      {listing.description && (
+        <p className="line-clamp-3 border-t px-4 py-2.5 text-sm text-muted-foreground">
+          {listing.description}
+        </p>
+      )}
+
+      {/* Seller + CTA */}
+      <div className="flex items-center justify-between gap-4 border-t px-4 py-3">
+        {/* Public seller info */}
+        {listing.sellerName && (
+          <div className="flex min-w-0 items-center gap-2">
+            {listing.sellerAvatarUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={listing.sellerAvatarUrl}
+                alt=""
+                className="h-7 w-7 shrink-0 rounded-full object-cover"
+                loading="lazy"
+              />
+            ) : (
+              <div className="h-7 w-7 shrink-0 rounded-full bg-muted" />
+            )}
+            <span className="truncate text-xs text-muted-foreground">{listing.sellerName}</span>
+          </div>
+        )}
+
+        {/* Primary CTA */}
         <Link
           href={`/anuncio/${listing.slug}`}
-          className="mt-2 inline-block text-sm font-medium text-primary hover:underline"
+          className="shrink-0 rounded-lg bg-primary px-4 py-1.5 text-sm font-semibold text-primary-foreground hover:opacity-90"
           data-testid="map-detail-link"
         >
-          Ver anuncio →
+          Ver anuncio completo →
         </Link>
       </div>
-      <button
-        onClick={onClose}
-        className="shrink-0 rounded-sm p-1 hover:bg-muted"
-        aria-label="Cerrar panel"
-        data-testid="map-detail-close"
-      >
-        <X className="h-4 w-4" />
-      </button>
     </div>
   );
 }
@@ -79,9 +198,11 @@ interface Props {
   totalHits: number;
   /** URL for the list-view toggle. Used by the "missing geo" warning link. */
   listUrl: string;
+  /** Category attribute map for rendering card attributes in the detail panel. */
+  cardAttributeMap: CardAttributeMap;
 }
 
-export default function MapView({ hits, totalHits, listUrl }: Props) {
+export default function MapView({ hits, totalHits, listUrl, cardAttributeMap }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [selected, setSelected] = useState<ListingSummary | null>(null);
@@ -98,9 +219,6 @@ export default function MapView({ hits, totalHits, listUrl }: Props) {
 
     const key = process.env.NEXT_PUBLIC_MAPTILER_KEY ?? '';
 
-    // Build a GeoJSON FeatureCollection from the hits that have coordinates.
-    // Properties are serialized to strings by MapLibre, so the click handler
-    // looks up the full hit object from geoHits by id.
     const geojsonData = {
       type: 'FeatureCollection',
       features: geoHits.map((h) => ({
@@ -130,7 +248,7 @@ export default function MapView({ hits, totalHits, listUrl }: Props) {
         clusterRadius: 50,
       });
 
-      // ── Cluster circles (size and colour scale with count) ─────────────────
+      // ── Cluster circles ────────────────────────────────────────────────────
       map.addLayer({
         id: LAYER_CLUSTERS,
         type: 'circle',
@@ -139,15 +257,11 @@ export default function MapView({ hits, totalHits, listUrl }: Props) {
         paint: {
           'circle-color': [
             'step', ['get', 'point_count'],
-            '#60a5fa', 10,   // <10  → blue-400
-            '#3b82f6', 50,   // <50  → blue-500
-            '#2563eb',       // ≥50  → blue-600
+            '#60a5fa', 10, '#3b82f6', 50, '#2563eb',
           ],
           'circle-radius': [
             'step', ['get', 'point_count'],
-            20, 10,
-            26, 50,
-            34,
+            20, 10, 26, 50, 34,
           ],
           'circle-stroke-width': 2,
           'circle-stroke-color': '#ffffff',
@@ -160,10 +274,7 @@ export default function MapView({ hits, totalHits, listUrl }: Props) {
         type: 'symbol',
         source: SOURCE,
         filter: ['has', 'point_count'],
-        layout: {
-          'text-field': '{point_count_abbreviated}',
-          'text-size': 12,
-        },
+        layout: { 'text-field': '{point_count_abbreviated}', 'text-size': 12 },
         paint: { 'text-color': '#ffffff' },
       });
 
@@ -181,13 +292,13 @@ export default function MapView({ hits, totalHits, listUrl }: Props) {
         },
       });
 
-      // ── Pointer cursor on hover ────────────────────────────────────────────
+      // ── Cursor styles ──────────────────────────────────────────────────────
       for (const layer of [LAYER_CLUSTERS, LAYER_POINTS]) {
         map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
         map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
       }
 
-      // ── Cluster click → zoom in to disaggregate ────────────────────────────
+      // ── Cluster click → zoom in ────────────────────────────────────────────
       map.on('click', LAYER_CLUSTERS, async (e) => {
         const features = map.queryRenderedFeatures(e.point, { layers: [LAYER_CLUSTERS] });
         if (!features.length) return;
@@ -197,11 +308,11 @@ export default function MapView({ hits, totalHits, listUrl }: Props) {
           const zoom = await source.getClusterExpansionZoom(clusterId);
           map.easeTo({ center: e.lngLat, zoom });
         } catch {
-          // ignore transient errors (map removed mid-animation, etc.)
+          // ignore transient errors
         }
       });
 
-      // ── Individual point click → open detail panel ─────────────────────────
+      // ── Individual point click → select listing ────────────────────────────
       map.on('click', LAYER_POINTS, (e) => {
         const f = e.features?.[0];
         if (!f?.properties) return;
@@ -210,7 +321,7 @@ export default function MapView({ hits, totalHits, listUrl }: Props) {
         if (hit) setSelected(hit);
       });
 
-      // ── Fit map to all geoHits on mount ───────────────────────────────────
+      // ── Fit to all geoHits on mount ────────────────────────────────────────
       if (geoHits.length > 0) {
         const bounds = new maplibregl.LngLatBounds();
         for (const h of geoHits) bounds.extend([h._geo.lng, h._geo.lat]);
@@ -222,16 +333,22 @@ export default function MapView({ hits, totalHits, listUrl }: Props) {
       mapRef.current?.remove();
       mapRef.current = null;
     };
-    // Component is remounted via key prop when hits change — empty deps is intentional.
+    // Component remounts via key prop when hits change — empty deps is intentional.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const handleClose = () => setSelected(null);
+
   return (
     <div>
-      <div
-        ref={containerRef}
-        className="h-[520px] w-full overflow-hidden rounded-lg"
-      />
+      {/* Map canvas + floating card overlay */}
+      <div className="relative">
+        <div
+          ref={containerRef}
+          className="h-[520px] w-full overflow-hidden rounded-lg"
+        />
+        {selected && <FloatingCard listing={selected} onClose={handleClose} />}
+      </div>
 
       {/* Cap warning: map shows at most 200 hits but there are more */}
       {showCapWarning && (
@@ -245,7 +362,7 @@ export default function MapView({ hits, totalHits, listUrl }: Props) {
         </div>
       )}
 
-      {/* Missing-geo warning: some hits have no coordinates */}
+      {/* Missing-geo warning */}
       {missingGeo > 0 && (
         <div
           role="status"
@@ -266,7 +383,11 @@ export default function MapView({ hits, totalHits, listUrl }: Props) {
 
       {/* Selected listing detail panel */}
       {selected && (
-        <SelectedListingPanel listing={selected} onClose={() => setSelected(null)} />
+        <SelectedListingPanel
+          listing={selected}
+          cardAttributeMap={cardAttributeMap}
+          onClose={handleClose}
+        />
       )}
     </div>
   );

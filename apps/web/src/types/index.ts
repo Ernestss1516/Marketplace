@@ -94,6 +94,12 @@ export interface ListingSummary {
   featuredUntil?: string | null;
   categorySlug?: string;
   attributes?: Record<string, unknown>;
+  /** Present on Meilisearch hits. Enables map panel to show a description preview. */
+  description?: string;
+  /** Public seller fields. Present on Meilisearch hits after H6.5c re-index. */
+  sellerName?: string;
+  sellerSlug?: string;
+  sellerAvatarUrl?: string | null;
   /** 1 when the listing has an active boost (paid feature). Only present on Meilisearch hits. */
   boostScore?: 0 | 1;
   /** Geo-coordinates from Meilisearch. Only present on hits with latitude/longitude set. */

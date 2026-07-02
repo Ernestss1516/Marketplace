@@ -24,14 +24,15 @@ export interface ListingDocument {
   /**
    * Geo-coordinates for proximity search/sort.
    * Only populated when the listing has latitude + longitude set.
-   * WARNING: StepUbicacion currently captures only city/province/postalCode,
-   * so _geo will be absent for all listings until geocoding is added to the
-   * publication wizard. Geo search is wired up but will not return results until then.
    */
   _geo?: { lat: number; lng: number };
   slug: string;
   thumbnailUrl: string | null;
   sellerId: string;
+  /** Public seller fields — stored in the index so the map panel avoids a per-selection fetch. */
+  sellerName: string;
+  sellerSlug: string;
+  sellerAvatarUrl: string | null;
   /** UNIX timestamp (ms). max(publishedAt, bumpedAt) so a bump resurfaces the listing. */
   sortDate: number;
   /** UNIX timestamp (seconds). Meilisearch sorts/ranks numbers more efficiently than ISO strings. */
@@ -174,12 +175,16 @@ export const INDEX_INCLUDE = {
     where: { type: 'FEATURED_LISTING' as const, revokedAt: null },
     select: { expiresAt: true },
   },
+  // Public seller fields stored in the index so the map panel can display them
+  // without a per-selection API fetch.
+  seller: { select: { name: true, slug: true, avatarUrl: true } },
 } as const;
 
 type ListingWithRelations = Listing & {
   category: { id: string; slug: string; name: string; parent: { slug: string } | null };
   images: ListingImage[];
   entitlements: Pick<Entitlement, 'expiresAt'>[];
+  seller: { name: string; slug: string; avatarUrl: string | null };
 };
 
 export interface SearchParams {
@@ -374,6 +379,9 @@ export class SearchService implements OnModuleInit {
       slug: listing.slug,
       thumbnailUrl: thumbnail?.url ?? null,
       sellerId: listing.sellerId,
+      sellerName: listing.seller.name,
+      sellerSlug: listing.seller.slug,
+      sellerAvatarUrl: listing.seller.avatarUrl,
       publishedAt: listing.publishedAt
         ? Math.floor(listing.publishedAt.getTime() / 1000)
         : 0,
