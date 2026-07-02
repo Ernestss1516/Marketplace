@@ -5,10 +5,11 @@ import { QUEUE_BILLING, QUEUE_IMAGE, QUEUE_INDEXING, QUEUE_NOTIFICATIONS } from 
 import { ImageProcessor } from './processors/image.processor';
 import { IndexingProcessor } from './processors/indexing.processor';
 import { NotificationProcessor } from './processors/notification.processor';
+import { GeocodingModule } from '../../modules/geocoding/geocoding.module';
 import { SearchModule } from '../../modules/search/search.module';
 
 // PrismaModule is @Global(), so PrismaService is available without importing PrismaModule here.
-// SearchModule is imported explicitly to provide SearchService to IndexingProcessor.
+// SearchModule and GeocodingModule are imported to provide their services to IndexingProcessor.
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { SearchModule } from '../../modules/search/search.module';
         },
       },
     ),
+    GeocodingModule,
     SearchModule,
   ],
   providers: [ImageProcessor, IndexingProcessor, NotificationProcessor],

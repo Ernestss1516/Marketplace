@@ -15,7 +15,6 @@ import type { Listing, ListingStatus, PriceType } from '@prisma/client';
 import { QUEUE_INDEXING } from '../../infra/queue/queue.constants';
 import { ExpirationService } from '../expiration/expiration.service';
 import { EntitlementService } from '../billing/entitlement.service';
-import { GeocodingService } from '../geocoding/geocoding.service';
 import { BadWordService } from '../moderation/bad-word.service';
 import { AttributeField, resolveEffectiveSchema } from '../categories/category.types';
 import { CreateListingDto } from './dto/create-listing.dto';
@@ -78,7 +77,6 @@ export class ListingsService {
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     @InjectQueue(QUEUE_INDEXING) private readonly indexingQueue: Queue,
-    private readonly geocodingService: GeocodingService,
     private readonly badWordService: BadWordService,
     private readonly entitlementService: EntitlementService,
   ) {}
@@ -97,23 +95,6 @@ export class ListingsService {
 
     const slug = this.buildSlug(dto.title);
 
-    // Geocode from text location if the caller did not provide explicit coords.
-    // The call has a built-in 1.5 s timeout and returns null on any failure,
-    // so a slow or unavailable geocoding service never blocks publication.
-    let latitude = dto.latitude;
-    let longitude = dto.longitude;
-    if (latitude == null || longitude == null) {
-      const coords = await this.geocodingService.geocode(
-        dto.city,
-        dto.province,
-        dto.postalCode,
-      );
-      if (coords) {
-        latitude = coords.lat;
-        longitude = coords.lng;
-      }
-    }
-
     const listing = await this.prisma.listing.create({
       data: {
         title: dto.title,
@@ -128,8 +109,8 @@ export class ListingsService {
         city: dto.city,
         province: dto.province,
         postalCode: dto.postalCode,
-        latitude,
-        longitude,
+        latitude: dto.latitude ?? null,
+        longitude: dto.longitude ?? null,
         sellerId,
         categoryId: dto.categoryId,
       },
@@ -137,6 +118,12 @@ export class ListingsService {
 
     if (dto.imageIds?.length) {
       await this.linkImages(listing.id, sellerId, dto.imageIds);
+    }
+
+    // Geocode in background via BullMQ — coordinates are not needed to publish.
+    // This avoids blocking the HTTP response on an external service (Nominatim).
+    if (dto.latitude == null && dto.longitude == null) {
+      await this.indexingQueue.add('geocode', { listingId: listing.id });
     }
 
     return listing;
@@ -177,15 +164,6 @@ export class ListingsService {
     let coordUpdate: { latitude?: number; longitude?: number } = {};
     if (coordsExplicit) {
       coordUpdate = { latitude: fields.latitude, longitude: fields.longitude };
-    } else if (locationChanged) {
-      const city = fields.city ?? existing.city ?? '';
-      const province = fields.province ?? existing.province ?? '';
-      const postalCode =
-        fields.postalCode !== undefined
-          ? fields.postalCode
-          : (existing.postalCode ?? undefined);
-      const coords = await this.geocodingService.geocode(city, province, postalCode);
-      if (coords) coordUpdate = { latitude: coords.lat, longitude: coords.lng };
     }
 
     const listing = await this.prisma.listing.update({
@@ -218,6 +196,10 @@ export class ListingsService {
     }
 
     await this.invalidateAndReindex(existing.slug, id);
+    // Re-geocode in background when text location changed without explicit coords.
+    if (locationChanged && !coordsExplicit) {
+      await this.indexingQueue.add('geocode', { listingId: id });
+    }
     return listing;
   }
 

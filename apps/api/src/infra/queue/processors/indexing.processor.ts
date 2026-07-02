@@ -5,6 +5,7 @@ import { Job } from 'bullmq';
 import { QUEUE_INDEXING } from '../queue.constants';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SearchService, INDEX_INCLUDE } from '../../../modules/search/search.service';
+import { GeocodingService } from '../../../modules/geocoding/geocoding.service';
 
 @Processor(QUEUE_INDEXING)
 export class IndexingProcessor extends WorkerHost {
@@ -13,6 +14,7 @@ export class IndexingProcessor extends WorkerHost {
   constructor(
     private readonly prisma: PrismaService,
     private readonly search: SearchService,
+    private readonly geocoding: GeocodingService,
   ) {
     super();
   }
@@ -25,6 +27,8 @@ export class IndexingProcessor extends WorkerHost {
           return this.handleIndex(listingId);
         case 'remove':
           return this.handleRemove(listingId);
+        case 'geocode':
+          return this.handleGeocode(listingId);
         default:
           this.logger.warn(`Unknown indexing job: ${job.name}`);
       }
@@ -59,5 +63,32 @@ export class IndexingProcessor extends WorkerHost {
   private async handleRemove(listingId: string): Promise<void> {
     await this.search.removeListing(listingId);
     this.logger.debug(`Listing ${listingId} removed from index.`);
+  }
+
+  private async handleGeocode(listingId: string): Promise<void> {
+    const listing = await this.prisma.listing.findUnique({
+      where: { id: listingId },
+      select: { id: true, city: true, province: true, postalCode: true },
+    });
+    if (!listing?.city || !listing?.province) return;
+
+    const coords = await this.geocoding.geocode(
+      listing.city,
+      listing.province,
+      listing.postalCode ?? undefined,
+    );
+    if (!coords) {
+      this.logger.debug(`Geocode job: no result for listing ${listingId}`);
+      return;
+    }
+
+    await this.prisma.listing.update({
+      where: { id: listingId },
+      data: { latitude: coords.lat, longitude: coords.lng },
+    });
+
+    // Re-index so Meilisearch _geo reflects the new coordinates.
+    await this.handleIndex(listingId);
+    this.logger.debug(`Geocode job: listing ${listingId} → ${coords.lat},${coords.lng}`);
   }
 }
