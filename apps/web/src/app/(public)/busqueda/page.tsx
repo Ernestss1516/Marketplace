@@ -303,7 +303,12 @@ export default async function BusquedaPage({
 
           {/* Map view: always rendered in map mode, even with zero hits (→ Spain overview) */}
           {!searchError && isMapView && (
-            <MapViewClient key={mapKey} hits={hits} />
+            <MapViewClient
+              key={mapKey}
+              hits={hits}
+              totalHits={totalHits}
+              listUrl={viewUrl('lista')}
+            />
           )}
 
           {/* List view: grid + pagination */}
