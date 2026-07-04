@@ -1,7 +1,7 @@
 # Estado técnico del proyecto — Marketplace
 
-> Fecha: 2026-07-02 · Rama: `main` · Último commit: 94522d4 — fix(H6.5c): tarjeta flotante anclada al marcador + todos los atributos en panel del mapa
-> Plan vigente: `docs/Hoja_de_ruta_rafagas_Hito5-9.docx` (Hitos 5–9). Hitos 5–6 firmes; 7–9 boceto a re-detallar al llegar.
+> Fecha: 2026-07-04 · Rama: `main` · Último commit: b5eb9c9 — R7. Frontend entregado; CI test
+> Plan vigente: `docs/Hoja_de_ruta_rafagas_Hito5-9.docx` (Hitos 5–9). Hitos 5–7 firmes; 8–9 boceto a re-detallar al llegar.
 
 Documento de referencia para retomar el proyecto. Recoge qué hay implementado,
 qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
@@ -14,7 +14,7 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 
 | Módulo | Estado | Notas |
 |---|---|---|
-| **Infra: Prisma** | ✅ Completo | Schema con todos los modelos; PostGIS habilitado; **14 migraciones aplicadas** (las de billing RF.2–RF.6 añaden Subscription, Transaction, Wallet, Entitlement, CreditLedger, GatewayEvent, Price…; **RF.7** añade **`add_entitlement_revoked_at`**: columna nullable `Entitlement.revokedAt DateTime?` + índice; **Bonus Pro** añade **`add_pro_bonus`**: valor `PRO_BONUS` al enum `CreditLedgerType` + columna nullable `Transaction.bonusCreditAmount Int?`; **RC5.2** añade **`rename_itemtype_normalize_size`**: renombra `type→itemType` en `Listing.attributes` JSONB + normaliza `calzado.size` de número a string; **H7** añade **`review_survives_listing_delete`**: `Review.listingId` pasa de `Cascade` a `SetNull` (nullable) + columna `Review.listingTitle String?` + backfill de reseñas existentes cuyo anuncio todavía vive) |
+| **Infra: Prisma** | ✅ Completo | Schema con todos los modelos; PostGIS habilitado; **15 migraciones aplicadas** (las de billing RF.2–RF.6 añaden Subscription, Transaction, Wallet, Entitlement, CreditLedger, GatewayEvent, Price…; **RF.7** añade **`add_entitlement_revoked_at`**: columna nullable `Entitlement.revokedAt DateTime?` + índice; **Bonus Pro** añade **`add_pro_bonus`**: valor `PRO_BONUS` al enum `CreditLedgerType` + columna nullable `Transaction.bonusCreditAmount Int?`; **RC5.2** añade **`rename_itemtype_normalize_size`**: renombra `type→itemType` en `Listing.attributes` JSONB + normaliza `calzado.size` de número a string; **Hito 7** añade **`review_survives_listing_delete`**: `Review.listingId` pasa de `Cascade` a `SetNull` (nullable) + columna `Review.listingTitle String?` + backfill de reseñas existentes cuyo anuncio todavía vive; y **`social_login_google`**: tabla `Account` (`provider`+`providerAccountId`) + `User.passwordHash` pasa a nullable) |
 | **Infra: Redis** | ✅ Completo | `RedisService` global; caché de fichas de anuncio (TTL 5 min) |
 | **Infra: BullMQ** | ✅ Colas activas | 4 colas registradas con processors reales: `image-processing`, `indexing`, `notifications`, `billing`, `redsys` |
 | **Infra: Meilisearch** | ✅ Completo | `SearchService.onModuleInit()` crea el índice `listings` y aplica searchable/filterable/sortable attrs, ranking rules y typo tolerance al arrancar |
@@ -1228,9 +1228,9 @@ El flaky de `listing-card-attrs.spec.ts` estuvo presente desde RC5.5, se "resolv
 
 ### Login social con Google — backend (Hito 7, parte 1)
 
-> Nota de nomenclatura: la etiqueta «H7» usada más abajo («H7 — La reseña sobrevive al
-> borrado del anuncio») es un ítem de deuda cerrado durante Hito 6 y **no** tiene relación
-> con el Hito 7 (login social) descrito aquí — coincidencia de numeración, no error.
+> Nota de nomenclatura: la etiqueta «H7» usada en «H7 — La reseña sobrevive al borrado del
+> anuncio» (más abajo, en el mapa de deuda) es la **otra pieza de este mismo Hito 7 enfocado**,
+> entregada primero — no un ítem de Hito 6 ni una coincidencia de numeración.
 
 **Diseño (aprobado antes de implementar):** Next-Auth (frontend, parte 2 pendiente) hace el
 intercambio OAuth con Google y reenvía al backend el **`id_token` crudo** (no el `profile`
@@ -1393,6 +1393,37 @@ crear reseña copia `listingTitle`; borrar el anuncio deja `listingId` `NULL` y
 conserva `listingTitle` sin borrar la fila; el aggregate del vendedor no cambia;
 el listado público expone la reseña huérfana con su snapshot; la unicidad sigue
 bloqueando duplicados sobre anuncios vivos.
+
+### ✅ Hito 7 enfocado — CERRADO
+
+Con el fix de reseñas de arriba y el login social con Google (backend §2 «Login social con Google
+— backend», frontend §2 «Login social con Google — frontend»), el Hito 7 enfocado queda **cerrado**.
+
+**Diferido conscientemente del Hito 7 original** (`Hoja_de_ruta_rafagas_Hito5-9.docx` preveía
+mensajería enriquecida + blog enriquecido + registro social para este hito): al llegar, se evaluó
+el estado real de mensajería (bandeja unificada + chat WebSocket ya completos desde Fase 5) y blog
+(público + admin ya completos desde Fase B) — ambas bases ya cubren el caso de uso completo;
+"enriquecerlas" (indicadores de escritura, reacciones, categorías/relacionados del blog…) es
+backlog de pulido de UI, no una brecha funcional. Se difiere a **Hito 9** o backlog general — medir
+antes de asumir: el roadmap sobreestimaba el alcance real de Hito 7.
+
+**Deuda nueva abierta por este hito:**
+
+- **Usuarios solo-Google no pueden fijar una contraseña.** Hoy no hay flujo de "añadir contraseña"
+  para una cuenta creada vía Google (`passwordHash: null`); `forgotPassword()` es un no-op silencioso
+  para ellos (ver «Login social con Google — backend»). Si un usuario social quiere entrar también
+  con contraseña, no hay camino. Mejora futura, fuera de alcance de H7.
+- **Colisión Redis dev/test en local.** `REDIS_URL` no lleva namespace/prefijo por entorno; si un
+  proceso `pnpm dev` (BullMQ apuntando al Redis local) queda corriendo mientras se ejecuta la suite
+  de test (mismo Redis, sin DB ni prefijo distintos para las colas), los workers de dev pueden robar
+  jobs encolados por los tests. Solo afecta a desarrollo local con ambos procesos vivos a la vez; CI
+  usa un Redis de servicio dedicado y no lo sufre. Aislar por namespace/prefijo de cola en Hito 9.
+- **Patrón `waitForCard` pendiente de aplicar a specs anteriores a su introducción.** La regla
+  vigente («cualquier test futuro que espere indexación Meili debe usar `waitForCard`», ver
+  §Lecciones de método del CI) no se ha auditado retroactivamente contra todos los specs previos a
+  H6 — puede quedar algún `toBeVisible(Ns)` pasivo sin migrar. Revisar en Hito 9.
+- **Job `geocode` sin reintentos**: deuda ya documentada más arriba («Reintentos del job `geocode`»)
+  — sigue abierta, sin cambios en este hito. `geocode-backfill` es la red de seguridad.
 
 ### Renombrar la key de un atributo no migra `Listing.attributes` (aviso, no migración)
 
