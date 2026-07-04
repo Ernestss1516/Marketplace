@@ -1,5 +1,6 @@
 import NextAuth from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
+import Google from 'next-auth/providers/google';
 import { apiFetch, ApiError } from '../api/client';
 import { authConfig } from './auth.config';
 
@@ -11,6 +12,11 @@ interface LoginResponse {
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
   providers: [
+    // Auth.js picks up AUTH_GOOGLE_ID / AUTH_GOOGLE_SECRET by convention.
+    // No adapter is configured, so Auth.js's own account-linking-by-email never
+    // runs; all linking happens in our signIn callback (auth.config.ts) against
+    // our backend, which only links after verifying Google's email_verified claim.
+    Google({}),
     Credentials({
       credentials: {
         email: { type: 'email' },

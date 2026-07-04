@@ -1,12 +1,19 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { apiFetch, ApiError } from '@/lib/api/client';
+import { GoogleSignInButton } from '@/components/auth/GoogleSignInButton';
+import { Separator } from '@/components/ui/separator';
 
 export default function RegistroPage() {
   const router = useRouter();
+  const params = useSearchParams();
+  // A failed Google sign-in always redirects to /login (see auth.config.ts's signIn
+  // callback and authConfig.pages.error) — /registro only needs callbackUrl for the button.
+  const callbackUrl = params.get('callbackUrl') ?? '/mis-anuncios';
+
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -95,6 +102,12 @@ export default function RegistroPage() {
           {loading ? 'Creando cuenta…' : 'Crear cuenta'}
         </button>
       </form>
+      <div className="my-6 flex items-center gap-3">
+        <Separator className="flex-1" />
+        <span className="text-xs text-muted-foreground">o</span>
+        <Separator className="flex-1" />
+      </div>
+      <GoogleSignInButton callbackUrl={callbackUrl} />
       <p className="mt-4 text-center text-sm text-muted-foreground">
         ¿Ya tienes cuenta?{' '}
         <Link href="/login" className="hover:underline">

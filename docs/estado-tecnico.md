@@ -52,7 +52,7 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **ListingCard — badge Destacado** | ✅ Completo (H6.3) | Badge ámbar superpuesto top-left en la foto cuando `boostScore === 1`. `boostScore?: 0 \| 1` añadido a `ListingSummary` (viaja en hits de Meilisearch via spread del documento). Sin efecto en la ruta Postgres (campo ausente → badge no renderiza). |
 | **Búsqueda — vista de mapa** `/busqueda` | ✅ Completo (H6.5a+b+c) | **H6.5a** — Toggle `?view=mapa`; botones Lista/Mapa en cabecera. `MapView` client-only (`dynamic({ ssr: false })`) con MapLibre GL JS + tiles vectoriales MapTiler `streets-v2`. Markers individuales; `fitBounds`; modo mapa: `hitsPerPage=200`. Skeleton `animate-pulse`. **H6.5b** — Clustering nativo MapLibre: fuente GeoJSON `cluster:true/maxZoom:14/radius:50`; clusters = círculos azules escalados + count, clic → `easeTo` zoom-in. `SelectedListingPanel` debajo del mapa: thumbnail, título, precio `es-ES`, ciudad, link "Ver anuncio →", X. Aviso cap ámbar si `totalHits > hits.length` (`data-testid="map-cap-warning"`). Aviso "sin ubicación" si hay hits sin `_geo`, link "Ver lista" (`data-testid="map-missing-geo"`). **H6.5c** — Tarjeta flotante compacta (`FloatingCard`) **anclada al marcador**: posicionada con `map.project(geo)` y actualizada en cada evento `move` del mapa (sigue al pin al arrastrar/zoomear); clamping horizontal + flip vertical en borde superior. Panel enriquecido: grid 2 columnas con **todos los atributos** del anuncio (labels de `allAttributes` de la categories tree, no solo 1-2 cardAttributes); descripción `line-clamp-3`; vendedor: avatar 28 px + nombre públicos (`sellerName`/`sellerAvatarUrl` en el índice Meili tras `pnpm reindex`). Panel es PREVIEW, no reconstruye la ficha (fotos completas y contacto viven en `/anuncio/[slug]`). `busqueda/page.tsx` pasa `attributeMap={buildFullAttributeMap(categories)}`. **Tests**: `busqueda-mapa.spec.ts` (13 casos — 5 H6.5a + 4 H6.5b + 4 H6.5c; WebGL no inspectable → todos negativos/estructurales). **Verificación manual requerida**: tarjeta flotante sigue al pin al arrastrar/zoomear, panel muestra todos los atributos con labels, avatar+nombre vendedor visibles. |
 | **Publicar** `/publicar` | ✅ Completo | Wizard 5–6 pasos; crea borrador + publica; tras publicar **ramifica por status**: ACTIVE → navega a la ficha, PENDING_REVIEW → panel informativo con enlace a mis-anuncios (no navega a la ficha, que daría 404) |
-| **Login / Registro** | ✅ Completo | Formularios con next-auth v5 CredentialsProvider |
+| **Login / Registro** | ✅ Completo (Hito 7 — login social) | Formularios con next-auth v5 CredentialsProvider + **GoogleProvider** (botón "Continuar con Google" en ambas páginas). Ver «Login social con Google — frontend» en §2 |
 | **Verificar email** `/verificar-email` | ✅ Completo | Llama a `POST /auth/verify-email`; emite nuevo JWT con `emailVerified: true` |
 | **Recuperar contraseña** | ✅ Completo | forgot-password + reset-password enlazado por email |
 | **Mis anuncios** `/mis-anuncios` | ✅ Completo | Listado de anuncios propios + acciones de estado (publicar, reservar, vender, eliminar, **renovar**); filtro "En revisión" para `PENDING_REVIEW`; muestra `expiresAt` en la tarjeta. **RF.11**: `ListingOwnerActions` integrado — botones Destacar (vía créditos o tarjeta Redsys) y Bump (vía créditos); la cobertura de errores es completa: 400 `ALREADY_FEATURED` (mapeado por `err.code`, no por texto), 402 saldo insuficiente, 429 cooldown con cuenta atrás formateada (`formatRetryAfter`); `featuredUntil`/`bumpedAt` leídos de `findMine` y actualizados vía `router.refresh()` |
@@ -1281,9 +1281,48 @@ falsear — verifica la firma del `id_token` él mismo.
   duplicar; `login()` con contraseña sobre cuenta solo-Google → 401; `forgotPassword` sobre
   cuenta solo-Google → `{ ok: true }` sin enviar email; usuario BANNED → 403; nunca dos `User`
   con el mismo email. Suite completa (336 e2e) verificada en verde tras el cambio.
-- **Pendiente — parte 2 (frontend)**: `GoogleProvider` en Next-Auth, callback `jwt` que llama a
-  `/auth/social/google` con `account.id_token`, botón "Continuar con Google" en `/login` y
-  `/registro`, variables `AUTH_GOOGLE_ID`/`AUTH_GOOGLE_SECRET` en `apps/web`.
+### Login social con Google — frontend (Hito 7, parte 2 — cierra el Hito 7)
+
+- **Provider**: `Google()` de `next-auth/providers/google` añadido junto a `Credentials` en
+  `lib/auth/index.ts` (`apps/web/src/lib/auth/index.ts`). Recoge `AUTH_GOOGLE_ID`/`AUTH_GOOGLE_SECRET`
+  por convención de Auth.js (ya presentes en `.env.local`; placeholders en `.env.example`). Scopes
+  por defecto (`openid email profile`), sin `allowDangerousEmailAccountLinking`: no hay `adapter`
+  configurado, así que la vinculación-por-email nativa de Auth.js nunca se ejecuta — toda la
+  vinculación pasa por nuestro backend (`/auth/social/google`), que ya exige email verificado.
+- **Punto clave — el exchange vive en el callback `signIn`, no en `jwt`** (`auth.config.ts`):
+  se detectó, leyendo el propio código de `@auth/core` (`lib/actions/callback/index.js` /
+  `handleAuthorized`), que cualquier error lanzado dentro del callback `jwt` se colapsa siempre en
+  el mismo código genérico `CallbackRouteError` al redirigir — no hay forma de distinguir "email no
+  verificado por Google" de cualquier otro fallo. El callback `signIn`, en cambio, puede **devolver
+  un string** que Auth.js usa tal cual como URL de redirección, lo que permite mandar al usuario a
+  `/login?error=google_unverified_email` o `/login?error=google_error` según el caso. Como no hay
+  adapter, el objeto `user` que recibe `signIn` es la misma referencia que luego recibe `jwt`
+  (confirmado en `handleLoginOrRegister`: `if (!adapter) return { user: _profile, account: _account }`),
+  así que mutar `user` dentro de `signIn` (rellenando `id`, `slug`, `role`, `accessToken`,
+  `emailVerified` con la respuesta de `/auth/social/google`) es exactamente lo que el `jwt`
+  callback ya esperaba de la rama de Credentials — mismo shape, sin tocar `jwt`.
+- **Manejo de errores**: `signIn` callback llama a `POST /auth/social/google { idToken: account.id_token }`;
+  éxito → rellena `user` y devuelve `true`. 403 (email no verificado) → devuelve
+  `'/login?error=google_unverified_email'`. Cualquier otro fallo → `'/login?error=google_error'`. Ambas
+  páginas (`/login`, `/registro`) leen `?error=` y muestran el mensaje correspondiente
+  (`GOOGLE_ERROR_MESSAGES`); como el error de Google siempre resuelve en `/login` (tanto por nuestro
+  string explícito como por `authConfig.pages.error`), `/registro` no necesita leer ese parámetro.
+- **Botón**: `GoogleSignInButton` (`components/auth/GoogleSignInButton.tsx`) — shadcn `Button`
+  `variant="outline"` + logo SVG oficial + `signIn('google', { callbackUrl })`; usado en `/login` y
+  `/registro` con un separador ("o") entre el formulario y el botón. `callbackUrl` viene del query
+  param (`?callbackUrl=`) con fallback a `/mis-anuncios`, igual que el flujo de Credentials.
+- **Perfil vacío tras alta social**: deliberado, sin paso de completar-perfil forzado — el wizard de
+  publicar no depende de datos de ubicación precargados (fuera de alcance, ver mini-diseño aprobado).
+- **Tests**: `e2e/login-social-google.spec.ts` (Playwright, 3 casos) — el botón existe en ambas
+  páginas y, al pulsarlo, `signIn('google')` efectivamente arranca el intercambio OAuth (se
+  intercepta y aborta la navegación real a `accounts.google.com` con `page.route()`, para no
+  depender de la red ni de una cuenta Google real en CI); y que el formulario de email/contraseña
+  sigue intacto. El flujo OAuth completo (crear cuenta nueva / vincular a una existente) **no es
+  testeable con Playwright sin una cuenta Google real** — pendiente de verificación manual antes de
+  dar el Hito 7 por cerrado del todo.
+- Suite Playwright completa verificada en verde (88/89; el único fallo — aviso de geo faltante en
+  `busqueda-mapa.spec.ts` — es una flakiness preexistente de datos de Meilisearch, no relacionada
+  con este cambio, reproducible en aislamiento sin tocar código de auth).
 
 ---
 

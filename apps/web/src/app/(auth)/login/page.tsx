@@ -4,14 +4,30 @@ import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { signIn } from 'next-auth/react';
+import { GoogleSignInButton } from '@/components/auth/GoogleSignInButton';
+import { Separator } from '@/components/ui/separator';
+
+// Codes set by our signIn callback (auth.config.ts) when it redirects back here after a
+// failed Google sign-in — see the comment there for why the exchange returns a redirect
+// string instead of throwing.
+const GOOGLE_ERROR_MESSAGES: Record<string, string> = {
+  google_unverified_email:
+    'No pudimos verificar tu email con Google. Inicia sesión con tu contraseña.',
+  google_error: 'No se pudo iniciar sesión con Google. Inténtalo de nuevo.',
+};
 
 export default function LoginPage() {
   const router = useRouter();
   const params = useSearchParams();
   const verified = params.get('verified') === '1';
   const callbackUrl = params.get('callbackUrl') ?? '/mis-anuncios';
+  const googleErrorCode = params.get('error');
 
-  const [error, setError] = useState('');
+  const [error, setError] = useState(
+    googleErrorCode
+      ? (GOOGLE_ERROR_MESSAGES[googleErrorCode] ?? 'No se pudo iniciar sesión. Inténtalo de nuevo.')
+      : '',
+  );
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -81,6 +97,12 @@ export default function LoginPage() {
           {loading ? 'Entrando…' : 'Iniciar sesión'}
         </button>
       </form>
+      <div className="my-6 flex items-center gap-3">
+        <Separator className="flex-1" />
+        <span className="text-xs text-muted-foreground">o</span>
+        <Separator className="flex-1" />
+      </div>
+      <GoogleSignInButton callbackUrl={callbackUrl} />
       <div className="mt-4 flex justify-between text-sm">
         <Link href="/recuperar" className="text-muted-foreground hover:underline">
           ¿Olvidaste tu contraseña?
