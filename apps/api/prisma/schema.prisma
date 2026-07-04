@@ -142,7 +142,8 @@ enum ReportStatus {
 model User {
   id            String     @id @default(cuid())
   email         String     @unique
-  passwordHash  String
+  /// Null para usuarios que solo entran vía login social (Google, etc.)
+  passwordHash  String?
   name          String
   /// Slug único para la URL del perfil público (SEO): /vendedor/{slug}
   slug          String     @unique
@@ -177,6 +178,7 @@ model User {
   reportsResolved     Report[]            @relation("ReportResolver")
   verificationTokens  VerificationToken[]
   passwordResetTokens PasswordResetToken[]
+  accounts            Account[]
   uploadedImages      ListingImage[]       @relation("UploadedImages")
   auditLogsActed      AuditLog[]           @relation("AuditLogActor")
   posts               Post[]               @relation("PostAuthor")
@@ -186,6 +188,22 @@ model User {
   wallet              Wallet?
 
   @@index([status])
+}
+
+/// Vincula un User con una identidad de proveedor externo (login social).
+/// Un User puede tener varias (Google, y en el futuro Facebook/Apple).
+model Account {
+  id                String   @id @default(cuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// 'google'; futuro: 'facebook', 'apple'
+  provider          String
+  /// Identificador estable del usuario en el proveedor (p. ej. el `sub` de Google)
+  providerAccountId String
+  createdAt         DateTime @default(now())
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
 }
 
 // ============================================================================
@@ -366,9 +384,14 @@ model Review {
   author    User      @relation("ReviewAuthor", fields: [authorId], references: [id], onDelete: Cascade)
   targetId  String
   target    User      @relation("ReviewTarget", fields: [targetId], references: [id], onDelete: Cascade)
-  // Non-nullable: elegibilidad siempre requiere un anuncio concreto
-  listingId String
-  listing   Listing   @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  // Nullable: la reseña sobrevive al borrado del anuncio (la reputación no es
+  // borrable por el vendedor); listingId pasa a NULL, análogo a
+  // Entitlement/Transaction. listingTitle conserva el contexto.
+  listingId String?
+  listing   Listing?  @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  // Snapshot del título del anuncio en el momento de crear la reseña, para que
+  // el listado público pueda mostrar contexto aunque el anuncio se borre después.
+  listingTitle String?
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt

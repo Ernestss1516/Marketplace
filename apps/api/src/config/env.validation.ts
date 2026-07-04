@@ -33,6 +33,10 @@ export const envValidationSchema = Joi.object({
     otherwise: Joi.string().optional(),
   }),
   JWT_SECRET: Joi.string().required(),
+  // Login social Google — solo el client ID: el backend únicamente verifica firmas
+  // de id_token, nunca intercambia código con Google. Vacío en dev/test es válido;
+  // requerido en producción para que /auth/social/google funcione.
+  GOOGLE_CLIENT_ID: Joi.string().allow('').optional(),
   RESEND_API_KEY: Joi.string().required(),
   RESEND_FROM: Joi.string().email().optional(),
   APP_URL: Joi.string().uri().optional(),

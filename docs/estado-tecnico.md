@@ -14,12 +14,12 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 
 | Módulo | Estado | Notas |
 |---|---|---|
-| **Infra: Prisma** | ✅ Completo | Schema con todos los modelos; PostGIS habilitado; **13 migraciones aplicadas** (las de billing RF.2–RF.6 añaden Subscription, Transaction, Wallet, Entitlement, CreditLedger, GatewayEvent, Price…; **RF.7** añade **`add_entitlement_revoked_at`**: columna nullable `Entitlement.revokedAt DateTime?` + índice; **Bonus Pro** añade **`add_pro_bonus`**: valor `PRO_BONUS` al enum `CreditLedgerType` + columna nullable `Transaction.bonusCreditAmount Int?`; **RC5.2** añade **`rename_itemtype_normalize_size`**: renombra `type→itemType` en `Listing.attributes` JSONB + normaliza `calzado.size` de número a string) |
+| **Infra: Prisma** | ✅ Completo | Schema con todos los modelos; PostGIS habilitado; **14 migraciones aplicadas** (las de billing RF.2–RF.6 añaden Subscription, Transaction, Wallet, Entitlement, CreditLedger, GatewayEvent, Price…; **RF.7** añade **`add_entitlement_revoked_at`**: columna nullable `Entitlement.revokedAt DateTime?` + índice; **Bonus Pro** añade **`add_pro_bonus`**: valor `PRO_BONUS` al enum `CreditLedgerType` + columna nullable `Transaction.bonusCreditAmount Int?`; **RC5.2** añade **`rename_itemtype_normalize_size`**: renombra `type→itemType` en `Listing.attributes` JSONB + normaliza `calzado.size` de número a string; **H7** añade **`review_survives_listing_delete`**: `Review.listingId` pasa de `Cascade` a `SetNull` (nullable) + columna `Review.listingTitle String?` + backfill de reseñas existentes cuyo anuncio todavía vive) |
 | **Infra: Redis** | ✅ Completo | `RedisService` global; caché de fichas de anuncio (TTL 5 min) |
 | **Infra: BullMQ** | ✅ Colas activas | 4 colas registradas con processors reales: `image-processing`, `indexing`, `notifications`, `billing`, `redsys` |
 | **Infra: Meilisearch** | ✅ Completo | `SearchService.onModuleInit()` crea el índice `listings` y aplica searchable/filterable/sortable attrs, ranking rules y typo tolerance al arrancar |
 | **Infra: MinIO/R2** | ✅ Completo | Dev: MinIO vía docker-compose (bucket `marketplace` con lectura pública, creado por el contenedor `createbuckets`). Prod: Cloudflare R2 vía `R2Service` |
-| **Auth** | ✅ Completo | register, login, verify-email, forgot-password, reset-password; `JwtAuthGuard`, `RolesGuard`, `@CurrentUser`; login devuelve `emailVerified` (fix fase 5) |
+| **Auth** | ✅ Completo | register, login, verify-email, forgot-password, reset-password; `JwtAuthGuard`, `RolesGuard`, `@CurrentUser`; login devuelve `emailVerified` (fix fase 5). **Hito 7 (backend)**: `POST /auth/social/google` — login social Google; ver «Login social con Google» en §2 |
 | **Users** | ✅ Completo | `GET /users/me`, `PATCH /users/me`, `GET /users/:slug` (perfil público) |
 | **Categories** | ✅ Completo (RC5.2 + H6.5c) | `GET /categories` (árbol público, incluye `cardAttributes: [{key,label,unit?}]` y **`allAttributes: [{key,label,unit?}]`** por categoría — `cardAttributes` son 1-2 atributos destacados; `allAttributes` es el schema completo y se usa en el panel de mapa para mostrar todos los atributos sin fetch adicional), `GET /categories/:slug` (devuelve schema efectivo: herencia padre→hijo, hijo sobreescribe campo con mismo `name`). Helper `resolveEffectiveSchema` en `category.types.ts` (compartido con AdminService). Profundidad máxima 2 niveles (hoja → padre), congruente con `categoryPath` e `INDEX_INCLUDE`. |
 | **Listings** | ✅ Completo | CRUD completo + ciclo de vida (publish, reserve, sold, delete, **renew**) + `expiresAt` fijado al publicar (publishedAt + 60 días) + caché por slug + encolado de reindexado; `GET /listings/mine/:id` para edición; `thumbnailUrl` resuelto en `findMine` y `findBySellerSlug`; **H6 (cambio arquitectura)**: geocoding **asíncrono** — `createListing` ya no espera a Nominatim; guarda `lat/lng = null`, responde inmediato y encola dos jobs BullMQ en FIFO: `geocode` (escribe lat/lng en Postgres, sin tocar Meili) seguido de `index` (una sola escritura a Meili con `_geo` ya presente). Un anuncio recién publicado puede tardar unos segundos en aparecer en el mapa. Al editar con cambio de ubicación: mismo orden FIFO `[geocode, index]`. **RF.7-A**: `publish()` y `renew()` verifican el límite de activos del plan (free: 5, pro: 20, leídos de `Setting`; 403 si superado). **Fix RF.7**: `renew()` preserva `publishedAt` original y no lo resetea (resetear era un bump gratuito que vaciaba de sentido el bump de pago de RF.6). **RF.11**: `findMine` y `findBySlug` devuelven `featuredUntil` y `bumpedAt` para el propietario autenticado (necesario para ocultar el botón "Destacar" reactivamente y mostrar estado del bump). **RC5.2**: `SELECT_SUMMARY` incluye `attributes` y `category.slug`; `toSummary()` los expone como `attributes` y `categorySlug` (preparatorio para RC5.5 ListingCard con cardAttributes) |
@@ -34,7 +34,7 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **Admin** | ✅ Completo (RC5.2) | Listings (list, detail, PATCH status); Users (list, detail, suspend, ban, reinstate, role); Categories CRUD + batch reorder; Settings GET + PATCH con whitelist; `GET /admin/stats` con 7 métricas + Meilisearch null-fallback; todos los endpoints con `@Roles(ADMIN)` y AuditLog. **RF.7**: whitelist de settings ampliada con `freeActiveListingLimit` y `proActiveListingLimit`; ambos configurables desde el backoffice sin redeploy. **RC5.2**: `createCategory` y `updateCategory` validan que el schema efectivo (propio + heredado del padre) tenga ≤ 2 atributos con `cardAttribute: true` (→ 400 si supera). `GET /admin/categories/searchable-keys` (ADMIN-only) → `{ keys: VARIABLE_ATTRIBUTE_KEYS }` para que RC5.3 pueda deshabilitar el checkbox `filterable` en atributos no listados. **Cierre Fase 5.2 (ráfaga de integridad)**: `deleteCategory` cuenta anuncios de **cualquier** `status` (antes solo `ACTIVE`), eliminando un 500 no controlado — ver «Mapa de integridad» más abajo; `GET /admin/categories/:id/attribute-usage?key=X` (ADMIN-only) cuenta anuncios con datos bajo una key concreta, usado por el editor para avisar antes de renombrar un atributo con datos. |
 | **Blog** | ✅ Completo | Modelo `Post` (enum `PostStatus { DRAFT, PUBLISHED }`, body Markdown raw, `tags String[]`, `coverUrl`, campos SEO opcionales `metaTitle`/`metaDescription`). `BlogController`: `GET /blog` (solo PUBLISHED, paginado, filtro `?tag=`) y `GET /blog/:slug` (404 si no existe o es DRAFT). `BlogAdminController` (`@Roles(ADMIN)`): CRUD completo + `POST /admin/blog/:id/publish` + `POST /admin/blog/:id/unpublish`. AuditLog en todas las mutaciones (`POST_CREATE`, `POST_UPDATE`, `POST_PUBLISH`, `POST_UNPUBLISH`, `POST_DELETE`). Revalidación ISR on-demand fire-and-forget al publicar/despublicar/editar/borrar posts publicados (el blog es el **primer productor del webhook** desde el backend; el webhook en sí existía desde Fase 5). `BlogModule` importa `PrismaModule` + `AuditLogModule`; autónomo, no modifica `AdminModule` |
 | **Favorites** | ✅ Completo | `POST /favorites/:listingId` (marcar), `DELETE /favorites/:listingId` (desmarcar), `GET /favorites` (paginado), `GET /favorites/:listingId` (check), `POST /favorites/batch-check` (máx. 100 ids → `{ favoritedIds }`). Todos idempotentes y con `JwtAuthGuard`. Suite `favorites.e2e-spec.ts` (12 tests) |
-| **Reviews** | ✅ Completo | `POST /reviews` (crear; guard de elegibilidad vía `Conversation`), `GET /reviews/eligibility?listingId=&targetId=` (check antes de mostrar el formulario), `PATCH /reviews/:id` (editar en ventana 72 h; persiste `editedAt`), `DELETE /reviews/:id` (borrar en ventana 72 h). Listado público via `GET /users/:slug/reviews` (cursor paginado + aggregate on-the-fly: average, count, distribución 1–5). Unicidad `(authorId, targetId, listingId)` — una reseña por par de usuarios por anuncio. `FAKE_REVIEW` añadido a `ReportReason`; `Report.reviewId` FK con CASCADE para moderar reseñas. Suite `reviews.e2e-spec.ts` (20 tests) |
+| **Reviews** | ✅ Completo (H7) | `POST /reviews` (crear; guard de elegibilidad vía `Conversation`; snapshot de `listingTitle`), `GET /reviews/eligibility?listingId=&targetId=` (check antes de mostrar el formulario), `PATCH /reviews/:id` (editar en ventana 72 h; persiste `editedAt`), `DELETE /reviews/:id` (borrar en ventana 72 h). Listado público via `GET /users/:slug/reviews` (cursor paginado + aggregate on-the-fly: average, count, distribución 1–5). Unicidad `(authorId, targetId, listingId)` — una reseña por par de usuarios por anuncio. `FAKE_REVIEW` añadido a `ReportReason`; `Report.reviewId` FK con CASCADE para moderar reseñas. **H7**: `Review.listingId` es `onDelete: SetNull` (nullable) — la reseña sobrevive al borrado del anuncio con snapshot `listingTitle`; ver «H7 — La reseña sobrevive al borrado del anuncio» más abajo. Suite `reviews.e2e-spec.ts` (24 tests) |
 | **BillingModule (Stripe)** | ✅ RF.3 Completo | Checkout Pro (Stripe Checkout), `StripeWebhookGuard`, `BillingProcessor` (5 eventos), `EntitlementService`. Verificado con Stripe CLI. Pendiente: renovación (segunda factura) |
 | **RedsysModule** | ⚠️ RF.5/RF.10 — firma ✅ · ciclo notificación ❌ | `RedsysService` (checkout credits-pack / featured-pay, Ds_Order YYYYMMDD+4random con retry). **Bonus Pro en `createCreditPackCheckout`**: llama a `EntitlementService.isProActive(userId)`, lee `proExtraCreditsPercent` de `Setting` (fallback 20), calcula `Math.ceil(creditAmount × pct / 100)` y lo persiste en `Transaction.bonusCreditAmount`; el importe, el IVA y el `amountGross` NO se tocan. `RedsysWebhookGuard` (HMAC vía `redsys-easy`, idempotencia doble capa, enqueue / FAILED). `RedsysProcessor` — `handlePackPurchase`: acreditación wallet atómica en `$transaction`: wallet upsert con `balance += base + bonus` (una sola escritura); entrada `CreditLedger PACK_PURCHASE` (+base); si `transaction.bonusCreditAmount != null`, segunda entrada `CreditLedger PRO_BONUS` (+bonus, misma `referenceId = transactionId`); `Transaction.status = SUCCEEDED`. Validación importe `Ds_Amount` vs `amountGross×100`; idempotencia capa 2 por `status≠PENDING`. El processor **no inyecta `EntitlementService` ni lee `Setting`** — solo lee el entero ya congelado en la Transaction. Endpoints: `POST /billing/checkout/credits-pack`, `POST /billing/checkout/featured-pay`, `POST /webhooks/redsys`. **RF.10**: URLs de retorno cambiadas a `/mis-creditos/exito|error` (en `buildForm`), separadas del flujo Pro. Modo: REDIRECCIÓN (ver §2). **VERIFICADO (e2e, 22 tests — 220/220, 18/18 Playwright)**: acreditación wallet (no-Pro), acumulación de balance, idempotencia ×2 (GatewayEvent P2002 + status≠PENDING), cálculo IVA sin descuadre (4,99 / 9,99 / 19,99 €), validación importe (mismatch → FAILED sin tocar wallet), unicidad de 1.000 Ds_Order. **Bonus Pro (5 tests nuevos)**: checkout congela bonusCreditAmount (Pro=10, non-Pro=null), ceil con creditAmount=51→bonus=11 (10.2 redondeado), processor Pro→wallet=60 con dos entradas ledger, processor non-Pro→solo base. **RF.10 — verificado con clave pública Redsys** (sq7HjrUO…, 999008881): `Ds_Signature` 44 chars genuinos, `Ds_MerchantParameters` correcto, aceptado por TPV sandbox. **NO VERIFICADO — deuda pendiente**: (1) pago con tarjeta de prueba, (2) notificación online vía túnel público, (3) acreditación E2E wallet (webhook → BullMQ → processSuccess). `featuredByRedsys`: completado en RF.6; sin ciclo notificación real (misma deuda). |
 | **EntitlementService (RF.7)** | ✅ Actualizado | Validez de un entitlement: `revokedAt IS NULL AND (expiresAt IS NULL OR expiresAt > now)`. Un entitlement con `revokedAt` seteado **no** cuenta como vigente aunque `expiresAt` sea futuro (permite revocación manual desde backoffice en el futuro). Helper `activeFilter()` centraliza el predicado en `isProActive`, `isFeaturedActive` y `findActiveForUser` |
@@ -209,8 +209,8 @@ deuda anotada donde aplica.
 |---|---|---|---|
 | Borrar categoría con **cualquier** anuncio (no solo ACTIVE) | Chequeo explícito en servicio → 400 | `Listing.categoryId` | **Bloqueado** — `No se puede eliminar: la categoría tiene N anuncio(s)` |
 | Borrar categoría con subcategorías | Chequeo explícito en servicio → 400 | `Category.parentId` (hijas) | **Bloqueado** — `No se puede eliminar: la categoría tiene N subcategoría(s)` |
-| Borrar anuncio | Solo `assertOwnership` | `ListingImage`, `Favorite`, `Conversation`→`Message`, `Report`, `Review` | **HARD delete en cascada** (`onDelete: Cascade` en las cinco relaciones) |
-| Borrar anuncio | — | `Entitlement`, `Transaction` | Sobreviven con `listingId → NULL` (`onDelete: SetNull`) — correcto: son registros de facturación que no deben desaparecer |
+| Borrar anuncio | Solo `assertOwnership` | `ListingImage`, `Favorite`, `Conversation`→`Message`, `Report` | **HARD delete en cascada** (`onDelete: Cascade` en las cuatro relaciones) |
+| Borrar anuncio | — | `Entitlement`, `Transaction`, `Review` | Sobreviven con `listingId → NULL` (`onDelete: SetNull`) — registros que no deben desaparecer: `Entitlement`/`Transaction` son de facturación, `Review` es reputación (H7: no debe ser borrable por el vendedor borrando el anuncio; snapshot en `Review.listingTitle`) |
 | Admin borra un atributo del `attributeSchema` de una categoría | Ninguna sobre datos existentes | `Listing.attributes[key]` | **Se conserva** en el JSONB del anuncio; solo deja de listarse/mostrarse (sin FK entre `attributes` y `attributeSchema`) |
 | Admin renombra la `name` de un atributo existente | Aviso en el editor (ráfaga actual) | `Listing.attributes[oldKey]` | **No se migra.** El anuncio viejo conserva `oldKey` (huérfano, invisible) y el campo `newKey` sale vacío. El editor avisa con el recuento real antes de guardar; la decisión final es del admin |
 | Publicar/editar anuncio tras cambiar el schema | `validateAttributes` contra el schema **actual** | — | Anuncios nuevos solo ven el schema vigente; no piden atributos ya borrados |
@@ -1226,6 +1226,65 @@ El flaky de `listing-card-attrs.spec.ts` estuvo presente desde RC5.5, se "resolv
 
 **"Tests que publican por el wizard son frágiles."** El wizard completo depende del flujo entero: datos, ubicación (geocoding), atributos, límite de plan, indexación. Un fallo en cualquier capa hace fallar el test sin indicar cuál. Para tests de setup (publicar un anuncio para luego verificarlo), preferir `POST /listings` + `POST /listings/:id/publish` directamente por API. El wizard solo debe ejercerse en tests que prueben **el wizard** explícitamente. Pendiente de aplicar en Hito 9.
 
+### Login social con Google — backend (Hito 7, parte 1)
+
+> Nota de nomenclatura: la etiqueta «H7» usada más abajo («H7 — La reseña sobrevive al
+> borrado del anuncio») es un ítem de deuda cerrado durante Hito 6 y **no** tiene relación
+> con el Hito 7 (login social) descrito aquí — coincidencia de numeración, no error.
+
+**Diseño (aprobado antes de implementar):** Next-Auth (frontend, parte 2 pendiente) hace el
+intercambio OAuth con Google y reenvía al backend el **`id_token` crudo** (no el `profile`
+JSON) recibido de Google. El backend nunca confía en campos JSON que el cliente pudiera
+falsear — verifica la firma del `id_token` él mismo.
+
+- **Endpoint**: `POST /auth/social/google { idToken }` → misma forma de respuesta que
+  `/auth/login` (`{ accessToken, user }`). `AuthController.socialGoogle` → `AuthService.loginWithGoogle`.
+- **Verificación criptográfica**: `google-auth-library` (`OAuth2Client.verifyIdToken({ idToken, audience: GOOGLE_CLIENT_ID })`).
+  Solo se usan `sub`, `email`, `email_verified`, `name`, `picture` del payload **ya verificado**
+  por la librería — nunca de un campo recibido tal cual. Fallo de verificación → 401.
+- **Modelo de datos**: nueva tabla `Account` (`provider`, `providerAccountId`, `userId` FK
+  `onDelete: Cascade`, `@@unique([provider, providerAccountId])`) — no un `googleId` suelto en
+  `User`, precisamente para poder añadir Facebook/Apple más adelante sin migración nueva.
+  `User.passwordHash` pasa a `String?` (nullable): un usuario solo-Google no tiene contraseña.
+  Migración `20260704163552_social_login_google`.
+- **Política de vinculación** (`AuthService.linkOrCreateSocialUser`, método privado compartido):
+  1. `Account` ya existe (mismo `provider` + `providerAccountId`) → re-login, mismo `User`.
+  2. No existe `Account` pero sí un `User` con ese email:
+     - `email_verified === true` (según Google) → se **vincula**: crea `Account`, y si el
+       `User` no tenía `emailVerified`, lo pone a `true` (Google certifica el email; salta el
+       flujo `/verify-email`). El `passwordHash` existente no se toca — sigue pudiendo
+       entrar con contraseña.
+     - `email_verified === false` → **403**, no vincula. Cierra el hueco de seguridad: nunca
+       se vincula una cuenta por igualdad de string de email, solo bajo prueba de Google.
+  3. Ningún `User` con ese email → se **crea** (`passwordHash: null`, `emailVerified: true`,
+     `avatarUrl` del `picture` de Google, `slug` vía `generateUniqueSlug`) + su `Account`, en
+     una `$transaction`. También exige `email_verified === true` (mismo criterio que en 2).
+  Nunca se crean dos `User` con el mismo email — constraint única + esta lógica.
+- **Gate de estado**: SUSPENDED/BANNED se comprueba igual que en `login()`, después de
+  identificar/crear el usuario y antes de emitir el JWT.
+- **JWT**: `signToken()` sin cambios — reutilizado tal cual; un usuario social y uno de
+  contraseña son indistinguibles para el resto de la API tras autenticar.
+- **Ajustes en métodos existentes por `passwordHash` nullable**: `login()` rechaza con 401
+  (sin llamar a `bcrypt.compare` contra `null`) si el usuario no tiene `passwordHash`.
+  `forgotPassword()` no envía email ni crea token si `passwordHash` es `null`, pero sigue
+  devolviendo `{ ok: true }` — no revela si un email es de cuenta social o inexistente.
+- **`generateUniqueSlug`**: acepta ahora un `fallbackSeed` (el email) — si el `name` de Google
+  viene vacío, solo emojis, o sin caracteres latinos, cae al local-part del email, y si tampoco
+  sirve, a `'usuario'`. La lógica de sufijo ante colisión (`-1`, `-2`…) no cambia.
+- **Config**: `GOOGLE_CLIENT_ID` (`configuration.ts` → `google.clientId`, `env.validation.ts`
+  opcional). El backend **solo** verifica firmas — nunca intercambia código con Google, así que
+  no necesita el client secret (ese vive en Next-Auth, parte 2). Vacío en dev/test es válido.
+- **Tests**: `test/social-auth.e2e-spec.ts` (9 tests) — `google-auth-library` mockeado
+  (`jest.mock`, nunca llama a Google real): id_token inválido → 401 sin crear usuario; usuario
+  nuevo (passwordHash null, emailVerified true, avatarUrl, Account creada); vinculación de
+  usuario existente sin duplicar; `email_verified=false` → 403 sin vincular; re-login sin
+  duplicar; `login()` con contraseña sobre cuenta solo-Google → 401; `forgotPassword` sobre
+  cuenta solo-Google → `{ ok: true }` sin enviar email; usuario BANNED → 403; nunca dos `User`
+  con el mismo email. Suite completa (336 e2e) verificada en verde tras el cambio.
+- **Pendiente — parte 2 (frontend)**: `GoogleProvider` en Next-Auth, callback `jwt` que llama a
+  `/auth/social/google` con `account.id_token`, botón "Continuar con Google" en `/login` y
+  `/registro`, variables `AUTH_GOOGLE_ID`/`AUTH_GOOGLE_SECRET` en `apps/web`.
+
 ---
 
 ## 3. Limitaciones conocidas y deuda técnica
@@ -1257,16 +1316,44 @@ H6.6 fue diferido: requiere decisión sobre si los patrocinados son de pago (Hit
 - **Posicionamiento**: se insertan en posiciones fijas de los listados de categoría (p. ej. posición 3 y 7 de cada página), no intercalados entre resultados de búsqueda (distorsionaría la relevancia).
 - **Decisión pendiente**: cobro por impresión / por clic / plano mensual, o sin cobro (solo visibilidad admin). Esto determina si va en Hito 8 o en Hito 9.
 
-### Borrado de anuncio hace cascada a `Review` — reputación borrable (revisar en Fase 7)
+### H7 — La reseña sobrevive al borrado del anuncio (resuelto; cierra deuda de Fase 5.2)
 
-`ListingsService.remove()` hace `DELETE` físico del anuncio; `Review.listing` tiene
-`onDelete: Cascade`, así que borrar un anuncio borra también las valoraciones ligadas
-a él (ver «Mapa de integridad ante borrados/ediciones», Fase 5.2). Esto permite a un
-usuario borrar un anuncio para eliminar reseñas negativas asociadas — la reputación
-no es inmutable frente a esta vía. Pendiente para **Fase 7 (valoraciones)**: decidir
-si las reseñas deben sobrevivir al borrado del anuncio (p. ej. `onDelete: SetNull` en
-`Review.listingId`, análogo a `Entitlement`/`Transaction`) o si el borrado de anuncio
-debería ser soft-delete (`status` en vez de fila física) cuando tiene reseñas.
+Decisión de producto: la reputación **no** debe ser borrable por el vendedor borrando
+el anuncio. Hasta H7, `Review.listing` tenía `onDelete: Cascade`, así que borrar un
+anuncio borraba también las valoraciones ligadas a él (ver «Mapa de integridad ante
+borrados/ediciones», Fase 5.2) — un vendedor podía borrar un anuncio para eliminar
+reseñas negativas asociadas.
+
+**Fix:** `Review.listingId` pasa a `onDelete: SetNull` (nullable), el mismo patrón que
+ya usan `Entitlement`/`Transaction` — el registro sobrevive con `listingId → NULL` en
+vez de desaparecer. Se añade `Review.listingTitle` (snapshot del título del anuncio en
+el momento de crear la reseña, en `ReviewsService.create`) para que el listado público
+siga dando contexto aunque el anuncio desaparezca después. Migración
+`20260702201453_review_survives_listing_delete` incluye un backfill que rellena
+`listingTitle` para reseñas existentes cuyo anuncio todavía vive; las reseñas cuyo
+anuncio ya se había borrado en cascada antes de este fix no se pueden recuperar (no
+hay forma) y quedan con `listingTitle` `NULL`.
+
+- **Unicidad**: la constraint `@@unique([authorId, targetId, listingId])` sigue
+  intacta para anuncios vivos — Postgres no compara `NULL` como igual a `NULL`, así
+  que varias reseñas huérfanas (`listingId` `NULL`) nunca chocan entre sí ni bloquean
+  nada. En la práctica tampoco se pueden crear reseñas nuevas sobre un anuncio ya
+  borrado: `Conversation.listing` sigue en `onDelete: Cascade`, así que la
+  conversación (requisito de elegibilidad) desaparece junto con el anuncio.
+- **Listado público** (`GET /users/:slug/reviews`): el `aggregate` (media, count,
+  distribución) sigue contando las reseñas huérfanas sin cambios — la reputación se
+  conserva íntegra. El frontend (`ReviewCard` en `ReviewsSection.tsx`) muestra
+  "Sobre: {listingTitle} (anuncio ya no disponible)" cuando `listingId` es `NULL`, o
+  "Anuncio ya no disponible" si tampoco hay `listingTitle`; nunca intenta enlazar a
+  `/anuncio/[slug]` de un anuncio borrado.
+- **Moderación**: `Report.reviewId` sigue en `onDelete: Cascade` sin cambios — borrar
+  una reseña (vía moderación) sigue borrando sus denuncias asociadas.
+
+Tests: `reviews.e2e-spec.ts`, bloque «borrado de anuncio: la reseña sobrevive (H7)» —
+crear reseña copia `listingTitle`; borrar el anuncio deja `listingId` `NULL` y
+conserva `listingTitle` sin borrar la fila; el aggregate del vendedor no cambia;
+el listado público expone la reseña huérfana con su snapshot; la unicidad sigue
+bloqueando duplicados sobre anuncios vivos.
 
 ### Renombrar la key de un atributo no migra `Listing.attributes` (aviso, no migración)
 

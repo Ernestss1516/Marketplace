@@ -71,6 +71,14 @@ function ReviewCard({ review }: { review: Review }) {
         <p className="text-sm text-muted-foreground leading-relaxed">{review.comment}</p>
       )}
 
+      {!review.listingId && (
+        <p className="text-xs italic text-muted-foreground">
+          {review.listingTitle
+            ? `Sobre: ${review.listingTitle} (anuncio ya no disponible)`
+            : 'Anuncio ya no disponible'}
+        </p>
+      )}
+
       <ReviewReportButton reviewId={review.id} />
     </div>
   );

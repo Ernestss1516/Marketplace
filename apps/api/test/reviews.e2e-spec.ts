@@ -354,4 +354,136 @@ describe('Reviews (e2e)', () => {
       .set('Authorization', `Bearer ${buyerToken}`)
       .expect(403);
   });
+
+  // ── H7: la reseña sobrevive al borrado del anuncio ───────────────────────────
+  // Decisión de producto: la reputación no debe ser borrable por el vendedor
+  // borrando el anuncio. Review.listingId pasa a SetNull (como Entitlement y
+  // Transaction) y se conserva un snapshot de listingTitle.
+
+  describe('borrado de anuncio: la reseña sobrevive (H7)', () => {
+    const listingTitle = 'iPhone para borrar (H7)';
+    let deletableListingId: string;
+    let survivorReviewId: string;
+
+    beforeAll(async () => {
+      const category = await prisma.category.findUniqueOrThrow({ where: { slug: 'moviles' } });
+      const listing = await prisma.listing.create({
+        data: {
+          title: listingTitle,
+          slug: 'iphone-para-borrar-h7',
+          description: 'Anuncio que se borrará para probar integridad de reseñas',
+          price: 250,
+          type: 'PRODUCT',
+          priceType: 'FIXED',
+          condition: 'GOOD',
+          status: 'ACTIVE',
+          categoryId: category.id,
+          sellerId,
+        },
+      });
+      deletableListingId = listing.id;
+
+      await prisma.conversation.create({
+        data: {
+          listingId: listing.id,
+          buyerId,
+          sellerId,
+          lastMessageAt: new Date(),
+          messages: { create: { senderId: buyerId, body: '¿Sigue disponible?' } },
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .post('/api/reviews')
+        .set('Authorization', `Bearer ${buyerToken}`)
+        .send({ rating: 5, comment: 'Todo perfecto', listingId: deletableListingId, targetId: sellerId })
+        .expect(201);
+
+      survivorReviewId = res.body.id as string;
+    });
+
+    it('crear reseña copia el título del anuncio en listingTitle', async () => {
+      const review = await prisma.review.findUniqueOrThrow({ where: { id: survivorReviewId } });
+      expect(review.listingId).toBe(deletableListingId);
+      expect(review.listingTitle).toBe(listingTitle);
+    });
+
+    it('borrar el anuncio NO borra la reseña: listingId → NULL, listingTitle conservado', async () => {
+      const before = await request(app.getHttpServer())
+        .get(`/api/users/${sellerSlug}/reviews`)
+        .expect(200);
+      const countBefore = before.body.count as number;
+      const averageBefore = before.body.average as number;
+
+      await request(app.getHttpServer())
+        .delete(`/api/listings/${deletableListingId}`)
+        .set('Authorization', `Bearer ${sellerToken}`)
+        .expect(204);
+
+      const review = await prisma.review.findUnique({ where: { id: survivorReviewId } });
+      expect(review).not.toBeNull();
+      expect(review!.listingId).toBeNull();
+      expect(review!.listingTitle).toBe(listingTitle);
+
+      // El aggregate del vendedor (media, count) no cambia: la reputación se conserva.
+      const after = await request(app.getHttpServer())
+        .get(`/api/users/${sellerSlug}/reviews`)
+        .expect(200);
+      expect(after.body.count).toBe(countBefore);
+      expect(after.body.average).toBe(averageBefore);
+    });
+
+    it('el listado público muestra la reseña huérfana con el snapshot y sin listingId', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/users/${sellerSlug}/reviews`)
+        .expect(200);
+
+      const orphan = res.body.items.find((r: { id: string }) => r.id === survivorReviewId);
+      expect(orphan).toBeDefined();
+      expect(orphan.listingId).toBeNull();
+      expect(orphan.listingTitle).toBe(listingTitle);
+    });
+
+    it('la unicidad (authorId, targetId, listingId) sigue funcionando para anuncios vivos', async () => {
+      const category = await prisma.category.findUniqueOrThrow({ where: { slug: 'moviles' } });
+      const liveListing = await prisma.listing.create({
+        data: {
+          title: 'iPhone vivo para unicidad (H7)',
+          slug: 'iphone-vivo-unicidad-h7',
+          description: 'Anuncio vivo para probar la constraint de unicidad tras el cambio a SetNull',
+          price: 200,
+          type: 'PRODUCT',
+          priceType: 'FIXED',
+          condition: 'GOOD',
+          status: 'ACTIVE',
+          categoryId: category.id,
+          sellerId,
+        },
+      });
+
+      await prisma.conversation.create({
+        data: {
+          listingId: liveListing.id,
+          buyerId,
+          sellerId,
+          lastMessageAt: new Date(),
+          messages: { create: { senderId: buyerId, body: '¿Disponible?' } },
+        },
+      });
+
+      await request(app.getHttpServer())
+        .post('/api/reviews')
+        .set('Authorization', `Bearer ${buyerToken}`)
+        .send({ rating: 4, listingId: liveListing.id, targetId: sellerId })
+        .expect(201);
+
+      // Duplicado sobre el mismo anuncio vivo → sigue bloqueado por la constraint,
+      // sin interferencia de las filas huérfanas (listingId NULL) creadas arriba.
+      await request(app.getHttpServer())
+        .post('/api/reviews')
+        .set('Authorization', `Bearer ${buyerToken}`)
+        .send({ rating: 2, listingId: liveListing.id, targetId: sellerId })
+        .expect(409);
+    });
+  });
 });

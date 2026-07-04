@@ -13,6 +13,9 @@ export default () => ({
   jwt: {
     secret: process.env.JWT_SECRET,
   },
+  google: {
+    clientId: process.env.GOOGLE_CLIENT_ID ?? '',
+  },
   resend: {
     apiKey: process.env.RESEND_API_KEY,
     from: process.env.RESEND_FROM ?? 'noreply@tudominio.es',

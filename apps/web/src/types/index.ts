@@ -270,6 +270,10 @@ export interface Review {
   createdAt: string;
   editedAt: string | null;
   author: ReviewAuthor;
+  // listingId es null cuando el anuncio original fue borrado; listingTitle
+  // conserva el título como snapshot para dar contexto igualmente.
+  listingId: string | null;
+  listingTitle: string | null;
 }
 
 export interface ReviewsPageResponse {

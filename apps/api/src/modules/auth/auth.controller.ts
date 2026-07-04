@@ -5,6 +5,7 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { SocialLoginDto } from './dto/social-login.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 
 @ApiTags('Auth')
@@ -39,5 +40,11 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async resetPassword(@Body() dto: ResetPasswordDto) {
     return this.authService.resetPassword(dto);
+  }
+
+  @Post('social/google')
+  @HttpCode(HttpStatus.OK)
+  async socialGoogle(@Body() dto: SocialLoginDto) {
+    return this.authService.loginWithGoogle(dto);
   }
 }

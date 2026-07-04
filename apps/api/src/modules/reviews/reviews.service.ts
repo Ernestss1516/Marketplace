@@ -37,7 +37,7 @@ export class ReviewsService {
           { sellerId: authorId, buyerId: dto.targetId },
         ],
       },
-      select: { id: true },
+      select: { id: true, listing: { select: { title: true } } },
     });
     if (!conversation) {
       throw new ForbiddenException(
@@ -53,6 +53,8 @@ export class ReviewsService {
           authorId,
           targetId: dto.targetId,
           listingId: dto.listingId,
+          // Snapshot: sobrevive aunque el anuncio se borre más adelante (listingId → NULL)
+          listingTitle: conversation.listing.title,
         },
         include: { author: { select: SELECT_AUTHOR } },
       });
