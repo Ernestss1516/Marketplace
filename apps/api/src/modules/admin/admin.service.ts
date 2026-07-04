@@ -44,6 +44,8 @@ const SETTING_KEYS = [
   // RF.7: active listing limits per plan
   'freeActiveListingLimit',
   'proActiveListingLimit',
+  // H8.1: monthly free-featured quota granted to Pro subscribers
+  'proMonthlyFeaturedQuota',
 ] as const;
 type SettingKey = (typeof SETTING_KEYS)[number];
 

@@ -107,6 +107,17 @@ enum EntitlementType {
   FEATURED_LISTING  // Anuncio destacado (nivel de anuncio)
 }
 
+/// Origen de un Entitlement FEATURED_LISTING (H8.1). Distingue las dos bolsas
+/// de destacados: la cuota mensual gratis de Pro (PRO_QUOTA, caduca con el
+/// periodo de facturación — ver EntitlementService en H8.2) de los destacados
+/// adquiridos por créditos o pago directo (no caducan). Irrelevante para
+/// PRO_SUBSCRIPTION.
+enum FeaturedOrigin {
+  CREDITS    // featuredByCredits — débito de Wallet
+  REDSYS     // pago directo vía Redsys
+  PRO_QUOTA  // cuota mensual gratis de Pro
+}
+
 enum CreditLedgerType {
   PACK_PURCHASE   // Compra de pack de créditos → entrada (positivo)
   FEATURED_DEBIT  // Destacado pagado con créditos → salida (negativo)
@@ -610,6 +621,11 @@ model Entitlement {
 
   type           EntitlementType
 
+  /// Solo para FEATURED_LISTING: de qué bolsa salió (cuota Pro vs. adquirido).
+  /// Null para PRO_SUBSCRIPTION. Backfill H8.1: transactionId presente → REDSYS,
+  /// ausente → CREDITS (así se distinguían ya antes de existir este campo).
+  origin         FeaturedOrigin?
+
   /// Solo para FEATURED_LISTING: anuncio al que aplica el boost.
   listingId      String?
   listing        Listing?        @relation(fields: [listingId], references: [id], onDelete: SetNull)
@@ -634,6 +650,7 @@ model Entitlement {
   createdAt      DateTime        @default(now())
 
   @@index([userId, type])
+  @@index([userId, type, origin, createdAt])
   @@index([listingId])
   @@index([expiresAt])
   @@index([revokedAt])

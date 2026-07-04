@@ -431,6 +431,8 @@ async function seedSettings() {
       { key: 'proActiveListingLimit', value: 20 },
       // RF.10 Bonus Pro: porcentaje de créditos extra para usuarios Pro al comprar un pack.
       { key: 'proExtraCreditsPercent', value: 20 },
+      // H8.1: destacados gratis/mes que otorga la cuota de Pro (reseteo derivado, sin cron).
+      { key: 'proMonthlyFeaturedQuota', value: 4 },
     ],
     skipDuplicates: true,
   });

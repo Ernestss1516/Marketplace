@@ -1425,6 +1425,44 @@ antes de asumir: el roadmap sobreestimaba el alcance real de Hito 7.
 - **Job `geocode` sin reintentos**: deuda ya documentada más arriba («Reintentos del job `geocode`»)
   — sigue abierta, sin cambios en este hito. `geocode-backfill` es la red de seguridad.
 
+### Hito 8 — en curso: cuota mensual de destacados Pro
+
+Mini-diseño aprobado: consolidar las ventajas de Pro y añadir "N destacados gratis/mes" como
+beneficio nuevo, distinguiendo dos bolsas (cuota Pro, caduca por periodo de facturación; adquiridos
+por créditos/Redsys, no caducan). Documentación completa en `diseno-facturacion.md` al cerrar el
+hito (H8.6); mientras tanto, el detalle de las decisiones vive en el hilo de diseño.
+
+**H8.1 (cimiento, sin lógica de negocio todavía) — hecho:**
+
+- Migración `add_featured_origin`: enum `FeaturedOrigin { CREDITS, REDSYS, PRO_QUOTA }` +
+  `Entitlement.origin` (nullable, solo relevante para `FEATURED_LISTING`) + backfill de filas
+  existentes (`transactionId` presente → `REDSYS`, ausente → `CREDITS`) + índice
+  `[userId, type, origin, createdAt]` (soporta la query derivada de cuota que llegará en H8.2).
+  Verificada sobre BD fresca (`migrate deploy`, 16 migraciones) y sobre BD con datos.
+- Setting `proMonthlyFeaturedQuota` (por defecto 4), sembrado en `seed.ts` y `seed-test.ts`,
+  añadido a la whitelist de `SETTING_KEYS` (`admin.service.ts`).
+- Fix de deuda hallado al diseñar H8: `freeActiveListingLimit` y `proActiveListingLimit` estaban
+  en la whitelist del backend desde RF.7 pero no se exponían en `/admin/ajustes` (faltaban en
+  `ORDER`/`SETTING_TITLES`/`SETTING_DESCRIPTIONS`, y en el seed de test). Corregido junto con
+  `proMonthlyFeaturedQuota`: los tres son ahora editables desde el backoffice. El editor numérico
+  de la página se generalizó (`ExpiryDaysEditor` → `NumberSettingEditor` parametrizable) en vez de
+  triplicar el componente.
+- **Aún no implementado (H8.2+):** la query derivada de cuota (`getFeaturedQuotaStatus`), la
+  bifurcación de `featuredByCredits` para tirar de la cuota antes que de créditos, el badge "Pro"
+  en el perfil público (no existe hoy en el frontend), y la UX de destacar mostrando "te quedan N
+  este mes". `origin` existe en el schema pero todavía no lo escribe ningún flujo nuevo.
+
+**Nota de proceso (full suite local vs. CI):** al ejecutar `jest --config test/jest-e2e.json` en
+paralelo (workers por defecto) contra una base de datos de test local compartida, varias suites
+fallan por deadlocks de Postgres y violaciones de FK — cada spec hace `cleanDb` (trunca `User`
+CASCADE) en su `beforeAll`, y si dos suites corren a la vez sobre la misma BD, una puede borrar los
+usuarios que la otra está usando a mitad de test. Con `--runInBand` (serie) sobre BD fresca, las 337
+pruebas pasan limpias. No es un problema introducido por H8.1 — es una característica preexistente
+de la suite (solo es segura en serie, o en paralelo si cada worker tuviera su propia BD); documentado
+aquí porque solo se hizo visible al ejecutar la suite completa en local con varios núcleos libres.
+Revisar en Hito 9 si conviene aislar por base de datos por worker (`jest --maxWorkers` + BD por
+worker) en vez de depender de la serialización.
+
 ### Renombrar la key de un atributo no migra `Listing.attributes` (aviso, no migración)
 
 `Listing.attributes` no tiene FK con `Category.attributeSchema`; renombrar la `name`

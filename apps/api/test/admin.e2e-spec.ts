@@ -69,6 +69,11 @@ describe('Admin (e2e)', () => {
         create: { key: 'contactRequiresVerification', value: true },
         update: { value: true },
       }),
+      prisma.setting.upsert({
+        where: { key: 'proMonthlyFeaturedQuota' },
+        create: { key: 'proMonthlyFeaturedQuota', value: 4 },
+        update: { value: 4 },
+      }),
     ]);
 
     const category = await prisma.category.findUniqueOrThrow({ where: { slug: 'moviles' } });
@@ -817,6 +822,7 @@ describe('Admin (e2e)', () => {
     expect(keys).toContain('badWordList');
     expect(keys).toContain('listingExpiryDays');
     expect(keys).toContain('contactRequiresVerification');
+    expect(keys).toContain('proMonthlyFeaturedQuota');
   });
 
   it('PATCH /api/admin/settings/badWordList → actualiza + AuditLog SETTING_UPDATE', async () => {
@@ -850,6 +856,16 @@ describe('Admin (e2e)', () => {
       .expect(200);
 
     expect(res.body.value).toBe(90);
+  });
+
+  it('PATCH /api/admin/settings/proMonthlyFeaturedQuota → actualiza cuota mensual de destacados Pro', async () => {
+    const res = await request(app.getHttpServer())
+      .patch('/api/admin/settings/proMonthlyFeaturedQuota')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ value: 6 })
+      .expect(200);
+
+    expect(res.body.value).toBe(6);
   });
 
   it('PATCH /api/admin/settings/clave-no-permitida → 400', async () => {

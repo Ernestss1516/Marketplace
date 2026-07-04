@@ -79,31 +79,41 @@ function BadWordListEditor({
   );
 }
 
-function ExpiryDaysEditor({
+function NumberSettingEditor({
   setting,
   token,
   onSaved,
+  settingKey,
+  label,
+  helpText,
+  min = 1,
+  max,
 }: {
   setting: AdminSetting;
   token: string;
   onSaved: () => void;
+  settingKey: string;
+  label: string;
+  helpText: string;
+  min?: number;
+  max?: number;
 }) {
-  const [value, setValue] = useState(() => String(setting.value ?? 60));
+  const [value, setValue] = useState(() => String(setting.value ?? min));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
   async function handleSave() {
     const num = parseInt(value, 10);
-    if (isNaN(num) || num < 1) {
-      setError('Debe ser un número entero positivo.');
+    if (isNaN(num) || num < min) {
+      setError(`Debe ser un número entero ${min > 0 ? 'positivo' : `mayor o igual a ${min}`}.`);
       return;
     }
     setSaving(true);
     setError(null);
     setSuccess(false);
     try {
-      await updateAdminSetting(token, 'listingExpiryDays', num);
+      await updateAdminSetting(token, settingKey, num);
       setSuccess(true);
       onSaved();
     } catch (err) {
@@ -117,23 +127,19 @@ function ExpiryDaysEditor({
     <div className="space-y-3">
       <div className="flex items-center gap-3">
         <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium text-muted-foreground">
-            Días hasta que caduca un anuncio
-          </label>
+          <label className="text-xs font-medium text-muted-foreground">{label}</label>
           <input
             type="number"
             value={value}
             onChange={(e) => { setValue(e.target.value); setSuccess(false); }}
-            min={1}
-            max={365}
+            min={min}
+            max={max}
             className="w-32 rounded-md border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
             disabled={saving}
           />
         </div>
       </div>
-      <p className="text-xs text-muted-foreground">
-        Los anuncios en estado ACTIVE que superen este período sin renovarse pasarán a EXPIRED.
-      </p>
+      <p className="text-xs text-muted-foreground">{helpText}</p>
       <SaveRow saving={saving} success={success} error={error} onSave={handleSave} />
     </div>
   );
@@ -241,6 +247,9 @@ const SETTING_TITLES: Record<string, string> = {
   badWordList: 'Lista de palabras prohibidas',
   listingExpiryDays: 'Caducidad de anuncios',
   contactRequiresVerification: 'Verificación para contacto',
+  freeActiveListingLimit: 'Límite de anuncios activos (Free)',
+  proActiveListingLimit: 'Límite de anuncios activos (Pro)',
+  proMonthlyFeaturedQuota: 'Cuota mensual de destacados (Pro)',
 };
 
 const SETTING_DESCRIPTIONS: Record<string, string> = {
@@ -250,6 +259,12 @@ const SETTING_DESCRIPTIONS: Record<string, string> = {
     'Número de días desde la publicación hasta que un anuncio activo caduca automáticamente.',
   contactRequiresVerification:
     'Controla si los usuarios necesitan tener el email verificado para poder contactar con vendedores.',
+  freeActiveListingLimit:
+    'Número máximo de anuncios en estado ACTIVE que puede tener simultáneamente un usuario con plan Free.',
+  proActiveListingLimit:
+    'Número máximo de anuncios en estado ACTIVE que puede tener simultáneamente un usuario con plan Pro.',
+  proMonthlyFeaturedQuota:
+    'Destacados gratuitos que un usuario Pro puede usar cada mes. Se renuevan en el aniversario del ciclo de su suscripción; los no usados no se acumulan al mes siguiente.',
 };
 
 export default function AdminAjustesPage() {
@@ -325,7 +340,14 @@ export default function AdminAjustesPage() {
   const settingsByKey = Object.fromEntries(settings.map((s) => [s.key, s]));
 
   // Canonical display order
-  const ORDER = ['badWordList', 'listingExpiryDays', 'contactRequiresVerification'] as const;
+  const ORDER = [
+    'badWordList',
+    'listingExpiryDays',
+    'contactRequiresVerification',
+    'freeActiveListingLimit',
+    'proActiveListingLimit',
+    'proMonthlyFeaturedQuota',
+  ] as const;
 
   return (
     <div>
@@ -356,10 +378,15 @@ export default function AdminAjustesPage() {
                 />
               )}
               {key === 'listingExpiryDays' && (
-                <ExpiryDaysEditor
+                <NumberSettingEditor
                   setting={setting}
                   token={token}
                   onSaved={() => handleSaved(key)}
+                  settingKey="listingExpiryDays"
+                  label="Días hasta que caduca un anuncio"
+                  helpText="Los anuncios en estado ACTIVE que superen este período sin renovarse pasarán a EXPIRED."
+                  min={1}
+                  max={365}
                 />
               )}
               {key === 'contactRequiresVerification' && (
@@ -367,6 +394,39 @@ export default function AdminAjustesPage() {
                   setting={setting}
                   token={token}
                   onSaved={() => handleSaved(key)}
+                />
+              )}
+              {key === 'freeActiveListingLimit' && (
+                <NumberSettingEditor
+                  setting={setting}
+                  token={token}
+                  onSaved={() => handleSaved(key)}
+                  settingKey="freeActiveListingLimit"
+                  label="Anuncios activos simultáneos (Free)"
+                  helpText="Al superar este límite, los anuncios más antiguos pasan a borrador al publicar uno nuevo."
+                  min={1}
+                />
+              )}
+              {key === 'proActiveListingLimit' && (
+                <NumberSettingEditor
+                  setting={setting}
+                  token={token}
+                  onSaved={() => handleSaved(key)}
+                  settingKey="proActiveListingLimit"
+                  label="Anuncios activos simultáneos (Pro)"
+                  helpText="Al superar este límite, los anuncios más antiguos pasan a borrador al publicar uno nuevo."
+                  min={1}
+                />
+              )}
+              {key === 'proMonthlyFeaturedQuota' && (
+                <NumberSettingEditor
+                  setting={setting}
+                  token={token}
+                  onSaved={() => handleSaved(key)}
+                  settingKey="proMonthlyFeaturedQuota"
+                  label="Destacados gratis por mes"
+                  helpText="Cantidad de destacados que la cuota mensual de Pro concede gratis. No se acumulan de un mes a otro."
+                  min={0}
                 />
               )}
             </div>
