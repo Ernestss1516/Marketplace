@@ -9,6 +9,7 @@ import { AttributeList } from '@/components/anuncios/AttributeList';
 import { ListingCard } from '@/components/anuncios/ListingCard';
 import { ReportButton } from '@/components/anuncios/ReportButton';
 import { FavoriteButton } from '@/components/anuncios/FavoriteButton';
+import { ListingViewTracker } from '@/components/anuncios/ListingViewTracker';
 import { ListingOwnerActions } from '@/components/anuncios/ListingOwnerActions';
 import { FavoritesGridProvider } from '@/components/anuncios/FavoritesGridContext';
 import { CardAttributesProvider } from '@/components/anuncios/CardAttributesContext';
@@ -95,6 +96,7 @@ export default async function AnuncioPage({
   return (
     // pb-24 reserves space on mobile so the fixed contact bar doesn't overlap content
     <div className="pb-24 md:pb-0">
+      <ListingViewTracker slug={slug} />
       <div className="container mx-auto px-4 py-6">
         {/* Breadcrumb */}
         <nav className="mb-4 text-xs text-muted-foreground" aria-label="Breadcrumb">

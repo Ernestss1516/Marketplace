@@ -110,6 +110,9 @@ export interface ListingSummary {
   boostScore?: 0 | 1;
   /** Geo-coordinates from Meilisearch. Only present on hits with latitude/longitude set. */
   _geo?: { lat: number; lng: number };
+  /** H8 Bloque C2 — cifras básicas. Solo presentes en /users/me/listings (mis anuncios). */
+  viewCount?: number;
+  favoritesCount?: number;
 }
 
 export interface ListingImage {
@@ -142,6 +145,23 @@ export interface Listing {
   publishedAt?: string;
   viewCount: number;
   featuredUntil?: string | null;
+}
+
+// ── H8 Bloque C — estadísticas de anuncios ──────────────────────────────────
+
+/** GET /listings/mine/:id/stats — enriquecido con dailyViews/likeRatio solo si el dueño es Pro. */
+export interface ListingStats {
+  viewCount: number;
+  favoritesCount: number;
+  dailyViews?: { date: string; count: number }[];
+  likeRatio?: number;
+}
+
+/** GET /listings/mine/stats/summary — solo Pro (403 si no). */
+export interface ListingStatsSummary {
+  totalViews: number;
+  totalFavorites: number;
+  mostViewedListingId: string | null;
 }
 
 // ── Shared ───────────────────────────────────────────────────────────────────

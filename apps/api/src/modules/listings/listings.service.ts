@@ -45,6 +45,7 @@ const SELECT_SUMMARY = {
   expiresAt: true,
   bumpedAt: true,
   attributes: true,
+  viewCount: true,
   category: { select: { slug: true } },
   images: { orderBy: { order: 'asc' as const }, take: 1, select: { url: true } },
 } as const;
@@ -63,6 +64,7 @@ type SummaryDbRow = {
   expiresAt: Date | null;
   bumpedAt: Date | null;
   attributes: Prisma.JsonValue;
+  viewCount: number;
   category: { slug: string };
   images: { url: string }[];
 };
@@ -434,21 +436,35 @@ export class ListingsService {
 
     // Batch query for active FEATURED_LISTING entitlements — one query for all listings, no N+1.
     const featuredMap = new Map<string, string>();
+    // H8 Bloque C2 — cifras básicas de estadísticas (vistas + me gusta) por anuncio,
+    // igual patrón: una sola query batch, no N+1 por card.
+    const favoritesCountMap = new Map<string, number>();
     if (rows.length > 0) {
       const now = new Date();
-      const entitlements = await this.prisma.entitlement.findMany({
-        where: {
-          listingId: { in: rows.map((r) => r.id) },
-          type: 'FEATURED_LISTING',
-          revokedAt: null,
-          expiresAt: { gt: now },
-        },
-        select: { listingId: true, expiresAt: true },
-      });
+      const ids = rows.map((r) => r.id);
+      const [entitlements, favoriteGroups] = await Promise.all([
+        this.prisma.entitlement.findMany({
+          where: {
+            listingId: { in: ids },
+            type: 'FEATURED_LISTING',
+            revokedAt: null,
+            expiresAt: { gt: now },
+          },
+          select: { listingId: true, expiresAt: true },
+        }),
+        this.prisma.favorite.groupBy({
+          by: ['listingId'],
+          where: { listingId: { in: ids } },
+          _count: { _all: true },
+        }),
+      ]);
       for (const e of entitlements) {
         if (e.listingId && e.expiresAt) {
           featuredMap.set(e.listingId, e.expiresAt.toISOString());
         }
+      }
+      for (const g of favoriteGroups) {
+        favoritesCountMap.set(g.listingId, g._count._all);
       }
     }
 
@@ -456,6 +472,7 @@ export class ListingsService {
       items: rows.map((r) => ({
         ...this.toSummary(r),
         featuredUntil: featuredMap.get(r.id) ?? null,
+        favoritesCount: favoritesCountMap.get(r.id) ?? 0,
       })),
       total,
       page,

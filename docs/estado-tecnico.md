@@ -1679,6 +1679,55 @@ tuviera su propia BD); documentado aquí porque solo se hizo visible al ejecutar
 local con varios núcleos libres. Revisar en Hito 9 si conviene aislar por base de datos por worker
 (`jest --maxWorkers` + BD por worker) en vez de depender de la serialización.
 
+**H8 Bloque C (estadísticas de anuncios: vistas + me gusta, free vs Pro) — hecho.** Diferido en H8.6
+a "Hito 8b"; se retoma y cierra en esta ráfaga (C1 backend + C2 frontend).
+
+- **C1 (backend) — tracking + modelo + lectura:**
+  - `Listing.viewCount` ya existía y ya se incrementaba en `findBySlug` (ambos ramales cache
+    hit/miss de la caché Redis de 5 min) — pero "ingenuo": contaba al dueño, sin protección
+    anti-recarga, sin granularidad temporal. **Sustituido** (no complementado) por un mecanismo
+    dedicado: `POST /listings/:slug/view`, público con auth opcional (`OptionalJwtAuthGuard`, nuevo
+    en `common/guards/` — nunca rechaza, `req.user` queda `null` sin token). El cliente lo llama al
+    montar la ficha, desacoplado del render cacheado.
+  - Exclusión del dueño: si el `userId` del token coincide con `sellerId`, no cuenta nada (ni marca
+    dedup). Anti-recarga: `SET view:dedup:{listingId}:{visitorKey} 1 NX EX 1800` en Redis (30 min);
+    `visitorKey` es `user:{userId}` si hay sesión o `anon:sha256(ip+userAgent)` si es anónimo (sin
+    cookies nuevas, sin IP en claro, expira sola).
+  - Modelo `ListingViewDaily` (agregado diario, no evento por vista: `{listingId, date, count}` con
+    `@@unique([listingId, date])`) para la serie temporal Pro; `Listing.viewCount` se mantiene como
+    total O(1) para el free.
+  - `GET /listings/mine/:id/stats`: básico (`viewCount`, `favoritesCount` — `COUNT` en vivo sobre
+    `Favorite`, sin denormalizar) para todos los dueños; si `isProActive`, además `dailyViews`
+    (últimos 30 días) y `likeRatio`. Mismo endpoint, respuesta enriquecida — no un 403 en la parte
+    Pro. `GET /listings/mine/stats/summary`: agregado del vendedor, 403 si no es Pro (sin
+    equivalente free).
+  - Tests: `h8-c1-listing-stats.e2e-spec.ts` (14 casos — anónimo cuenta, dueño excluido, dedup,
+    visitantes distintos cuentan por separado, `findBySlug` ya no incrementa, gating free/Pro/403).
+- **C2 (frontend) — UI:**
+  - `ListingViewTracker` (client, en la ficha `/anuncio/[slug]`): dispara el POST en un `useEffect`
+    que espera a que `useSession()` resuelva (`status !== 'loading'`) antes de disparar — si se
+    envía mientras la sesión aún no se sabe, el backend no podría excluir al dueño (llegaría sin
+    token aunque esté logueado). Fire-and-forget, errores ignorados.
+  - Cifras básicas en `/mis-anuncios`: en vez de N+1 (una llamada de stats por card), se
+    incluyeron `viewCount` y `favoritesCount` directamente en `GET /users/me/listings`
+    (`ListingsService.findMine`) con el mismo patrón ya usado para `featuredUntil` — una query
+    batch (`favorite.groupBy`) para todas las cards de la página, no una por anuncio.
+  - Página nueva `/mis-anuncios/estadisticas` (`EstadisticasClient`): selector de anuncio, cifras
+    básicas siempre, y si Pro: gráfica de vistas por día (recharts — instalado en esta ráfaga, no
+    estaba en el proyecto), ratio me-gusta/vistas y tarjeta de agregado. Si no es Pro: mismas cifras
+    básicas + CTA "Hazte Pro" (sin llamar al endpoint de summary, que es 403 para no-Pro — se evita
+    la llamada en vez de manejar el error).
+  - Tests estructurales: `h8-c2-listing-stats.spec.ts` (Playwright) — el tracking dispara el POST
+    real, cifras visibles en cards, gating Pro/free en la página de estadísticas.
+  - Verificación manual con capturas reales (usuario Pro y no-Pro, `pro-e2e`/`seller-e2e`): cifras
+    en cards, gráfica (o estado vacío "aún no hay datos" cuando no hay vistas todavía), CTA de
+    upgrade para free, y confirmación de que el dueño visitando su propio anuncio no altera sus
+    propias estadísticas (antes/después idéntico).
+  - Batería completa verde: 381/381 backend (serie), 111/111 frontend Playwright salvo 2 fallos
+    preexistentes no relacionados (`busqueda-mapa.spec.ts` aviso de geo, `prefill-ubicacion.spec.ts`
+    wizard de edición) — reproducidos también en `HEAD` sin estos cambios (`git stash`), confirmando
+    que no los introdujo esta ráfaga.
+
 ### Renombrar la key de un atributo no migra `Listing.attributes` (aviso, no migración)
 
 `Listing.attributes` no tiene FK con `Category.attributeSchema`; renombrar la `name`

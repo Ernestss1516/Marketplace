@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Loader2, Pencil, Trash2, CheckCircle, Lock, Send, RotateCcw, Star, TrendingUp } from 'lucide-react';
+import { Loader2, Pencil, Trash2, CheckCircle, Lock, Send, RotateCcw, Star, TrendingUp, Eye, Heart } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -155,6 +155,21 @@ export function MyListingCard({ listing, token, onAction }: Props) {
               )}
             </p>
           )}
+
+          {/* H8 Bloque C2 — cifras básicas: vistas + me gusta */}
+          <div
+            className="flex items-center gap-3 text-xs text-muted-foreground"
+            data-testid="listing-stats-basic"
+          >
+            <span className="flex items-center gap-1">
+              <Eye className="h-3.5 w-3.5" />
+              {listing.viewCount ?? 0} vista{(listing.viewCount ?? 0) === 1 ? '' : 's'}
+            </span>
+            <span className="flex items-center gap-1">
+              <Heart className="h-3.5 w-3.5" />
+              {listing.favoritesCount ?? 0} me gusta
+            </span>
+          </div>
         </div>
       </div>
 

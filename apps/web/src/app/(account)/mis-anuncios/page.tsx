@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
-import { PlusCircle } from 'lucide-react';
+import { PlusCircle, BarChart3 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { auth } from '@/lib/auth';
 import { getMyListings } from '@/lib/api/anuncios';
@@ -26,12 +26,20 @@ export default async function MisAnunciosPage() {
     <div>
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-bold">Mis anuncios</h1>
-        <Button asChild>
-          <Link href="/publicar">
-            <PlusCircle className="mr-2 h-4 w-4" />
-            Publicar anuncio
-          </Link>
-        </Button>
+        <div className="flex gap-2">
+          <Button asChild variant="outline">
+            <Link href="/mis-anuncios/estadisticas">
+              <BarChart3 className="mr-2 h-4 w-4" />
+              Ver estadísticas
+            </Link>
+          </Button>
+          <Button asChild>
+            <Link href="/publicar">
+              <PlusCircle className="mr-2 h-4 w-4" />
+              Publicar anuncio
+            </Link>
+          </Button>
+        </div>
       </div>
 
       <MisAnunciosClient initialListings={items} initialProStatus={proStatus} token={token} />

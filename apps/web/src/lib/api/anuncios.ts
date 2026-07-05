@@ -1,6 +1,8 @@
 import type {
   Listing,
   ListingSummary,
+  ListingStats,
+  ListingStatsSummary,
   MyListing,
   PaginatedResponse,
   CreateListingPayload,
@@ -11,6 +13,26 @@ import { apiFetch } from './client';
 
 export function getListing(slug: string): Promise<Listing> {
   return apiFetch<Listing>(`/listings/${slug}`);
+}
+
+/**
+ * H8 Bloque C2 — dispara el tracking de una vista. Silencioso a propósito: el
+ * llamador (ListingViewTracker) ignora el resultado y los errores, el tracking
+ * nunca debe afectar la experiencia de ver la ficha. token es opcional — un
+ * visitante anónimo también cuenta (ver diseño en el backend).
+ */
+export function trackListingView(slug: string, token?: string): Promise<void> {
+  return apiFetch<void>(`/listings/${slug}/view`, { method: 'POST', token });
+}
+
+/** Básico para todos los dueños; enriquecido (dailyViews, likeRatio) si el dueño es Pro. */
+export function getMineStats(id: string, token: string): Promise<ListingStats> {
+  return apiFetch<ListingStats>(`/listings/mine/${id}/stats`, { token });
+}
+
+/** Agregado de todos los anuncios del vendedor — solo Pro (403 si no). */
+export function getMineStatsSummary(token: string): Promise<ListingStatsSummary> {
+  return apiFetch<ListingStatsSummary>('/listings/mine/stats/summary', { token });
 }
 
 export function getListingsByCategory(
