@@ -98,18 +98,42 @@ export interface CatalogResponse {
   bumpCreditCost: number;
 }
 
+// ---------------------------------------------------------------------------
+// H8.5b — Pro featured quota status
+// ---------------------------------------------------------------------------
+
+export interface ProStatus {
+  isPro: boolean;
+  limit: number;
+  used: number;
+  remaining: number;
+  periodStart?: string;
+  periodEnd?: string;
+  /** Fixed duration (days) a quota-paid featured grant lasts. */
+  quotaDurationDays?: number;
+}
+
+/** Single point the frontend consults for "how many free featured grants are left this month?" */
+export function getProStatus(token: string): Promise<ProStatus> {
+  return apiFetch<ProStatus>('/billing/pro-status', { token });
+}
+
 export function getCatalog(): Promise<CatalogResponse> {
   return apiFetch<CatalogResponse>('/billing/catalog');
 }
 
+/**
+ * H8.5a/b — the caller chooses the path:
+ *   - useQuota: true  → free grant from the Pro monthly quota, fixed duration; priceId ignored.
+ *   - useQuota: false/omitted → pays with credits, duration chosen via priceId (required then).
+ */
 export function featuredByCredits(
   token: string,
-  priceId: string,
-  listingId: string,
-): Promise<{ featuredUntil: string }> {
-  return apiFetch<{ featuredUntil: string }>('/billing/featured-by-credits', {
+  params: { listingId: string; useQuota?: boolean; priceId?: string },
+): Promise<{ featuredUntil: string; viaQuota: boolean }> {
+  return apiFetch<{ featuredUntil: string; viaQuota: boolean }>('/billing/featured-by-credits', {
     method: 'POST',
-    body: JSON.stringify({ priceId, listingId }),
+    body: JSON.stringify(params),
     token,
   });
 }

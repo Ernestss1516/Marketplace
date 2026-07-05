@@ -155,6 +155,30 @@ async function main() {
     }
   }
 
+  // ── ACTIVE listing for pro-e2e (needed by H8.5b spec: destacar por cuota) ────
+  if (category) {
+    await prisma.listing.upsert({
+      where: { slug: 'listing-pro-e2e' },
+      create: {
+        title: 'Anuncio Pro E2E',
+        slug: 'listing-pro-e2e',
+        description: 'Anuncio del usuario Pro para pruebas de destacado por cuota.',
+        price: 75,
+        currency: 'EUR',
+        priceType: 'FIXED',
+        type: 'PRODUCT',
+        status: 'ACTIVE',
+        sellerId: proUser.id,
+        categoryId: category.id,
+        publishedAt: new Date(),
+        city: 'Madrid',
+        province: 'Madrid',
+      },
+      update: { status: 'ACTIVE', city: 'Madrid', province: 'Madrid' },
+    });
+    console.log('Playwright seed: listing-pro-e2e OK');
+  }
+
   // ── Raise free-tier listing limit for E2E tests ─────────────────────────────
   // The default limit (5) is hit within a single CI run: RF.11 seed (1) +
   // categoria-meili (3) + flujo-critico (1) = 5 → wizard-herencia throws

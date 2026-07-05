@@ -1529,19 +1529,68 @@ hito (H8.6); mientras tanto, el detalle de las decisiones vive en el hilo de dis
   sin efectos secundarios), créditos con cuota disponible (cuota intacta), créditos sin cuota (igual
   que siempre), el Setting de duración cambia el resultado, y los dos tests de concurrencia
   (best-effort + determinista) adaptados a la elección explícita.
-- **Aún no implementado (H8.4, H8.5b):** el badge "Pro" en el perfil público, y la UX de destacar
-  (selector de vía en `/mis-anuncios`, mostrar "te quedan N este mes") — el backend ya expone
-  `viaQuota` y `GET /billing/pro-status` para que la consuma.
 - **Deuda de diseño sin resolver (heredada, anotada, no se toca aquí):** `featuredByCredits` sigue
   sin llamar a `grantFeaturedListing` — mantiene su propia copia de la lógica de concesión dentro de
   su `$transaction` por la atomicidad con el wallet/la cuota. Dos puntos de concesión en vez de uno.
+
+**H8.5b (UX: selector de vía al destacar + visibilidad de cuota Pro) — hecho:**
+
+- **Pequeño añadido de backend** (contradice ligeramente "frontend puro" del encargo, pero es
+  imprescindible): `GET /billing/pro-status` ahora incluye `quotaDurationDays` (leído del mismo
+  `Setting proQuotaFeaturedDurationDays` que ya usaba `featuredByCredits`). Sin esto, el frontend no
+  tenía forma de saber qué número mostrar en "Destacar gratis — N días" sin duplicar el valor por
+  defecto (7) y arriesgarse a que quedara desincronizado si un admin cambia el ajuste. Campo
+  opcional, no rompe la forma de la respuesta para no-Pro (queda `undefined`, `toEqual` en los tests
+  existentes lo ignora).
+- **`DestacadoDialog`** (usado tanto desde `/mis-anuncios` como desde `/anuncio/[slug]` vía
+  `ListingOwnerActions`): añade una tercera dimensión de elección, "Cómo destacar", SOLO visible
+  cuando `isPro && remaining > 0` (fetch propio de `getProStatus`, igual patrón que `getCatalog`/
+  `getWallet` ya existente — `.catch(() => null)` si falla):
+  - "Destacar gratis — N días" (cuota Pro, muestra `remaining`) — preseleccionada por defecto para
+    quien es elegible. Al enviar: `useQuota: true`, sin `priceId`.
+  - "Destacar con créditos o tarjeta" — revela el flujo de Duración + Método de pago **sin ningún
+    cambio** respecto al existente (Redsys incluido, intacto).
+  - `remaining === 1` → aviso ámbar "Este es tu último destacado gratis de este mes" antes de
+    confirmar.
+  - Error `QUOTA_UNAVAILABLE` (nueva `isQuotaUnavailableError` en `client.ts`, mismo patrón que
+    `isCreditError`/`isCooldownError`): no es un error genérico — cambia automáticamente el selector
+    a "paid" (revela duración/pago in-place, sin cerrar el diálogo) y muestra "Ya no tienes cuota
+    disponible este mes. Puedes destacar con créditos o tarjeta:". Cubre el caso raro de carrera o
+    estado stale sin dejar al usuario atascado.
+  - No-Pro: cero cambios visuales — nunca se muestra el selector "Cómo destacar" (verificado con
+    Playwright, ver abajo).
+- **Recordatorio en `/mis-anuncios`**: banner ámbar (mismo patrón visual ya usado en
+  `ContactButton`/`MapView`/páginas de categoría) "Te quedan N destacados gratis este mes", visible
+  sin abrir el diálogo. Dato inicial vía SSR (`getProStatus` en `page.tsx`, en paralelo con
+  `getMyListings`); `MisAnunciosClient` lo guarda en estado y lo **refresca tras cualquier acción**
+  (`handleAction` ahora también llama `getProStatus`) para que el contador baje sin recargar la
+  página tras destacar por cuota.
+- **`/perfil/suscripcion`**: nueva sección dentro de la card de Plan Pro — "Destacados gratis: N de
+  LIMIT restantes este mes" + "Se renueva: fecha" (de `periodEnd`), gated en `proStatus.isPro`
+  (fetch propio, en paralelo con `getMySubscriptions`/`getMyEntitlements` que ya estaban).
+- **Fixture E2E nuevo**: `seed-playwright.ts` gana un listing ACTIVE para `pro-e2e@example.com`
+  (`listing-pro-e2e`) — no existía ningún anuncio de ese usuario, así que no había forma de abrir
+  `DestacadoDialog` como Pro en un test real sin él.
+- **Tests nuevos** (`destacado-cuota-pro.spec.ts`, 11 casos, `proContext`/`sellerContext`): Pro ve
+  las dos opciones y sus textos exactos; elegir la vía de pago revela duración/método sin romper
+  nada; el POST real lleva `useQuota:true` sin `priceId`; aviso de "último gratis"; manejo de
+  `QUOTA_UNAVAILABLE` con fallback in-place; cuota agotada oculta la opción gratis; no-Pro no ve el
+  selector; `/perfil/suscripcion` muestra/oculta la sección según `isPro`; el banner de
+  `/mis-anuncios` aparece/no aparece según corresponda. Todos los tests que abren/envían el diálogo
+  mockean `pro-status`/`featured-by-credits` — nunca consumen la cuota real de `pro-e2e` (los tests
+  de `/perfil/suscripcion` y el banner, que son Server Components no interceptables, leen el estado
+  real pero solo lo verifican con regex, sin consumirlo). `destacado.spec.ts` (RF.11, no-Pro)
+  verificado sin cambios: 13/13 siguen en verde.
+- Verificación manual real (capturas de pantalla en un navegador contra los servidores dev):
+  confirmado visualmente el selector con las dos opciones, el cambio a la vía de pago, el banner en
+  `/mis-anuncios` y la sección de cuota en `/perfil/suscripcion`.
 
 **Nota de proceso (full suite local vs. CI):** al ejecutar `jest --config test/jest-e2e.json` en
 paralelo (workers por defecto) contra una base de datos de test local compartida, varias suites
 fallan por deadlocks de Postgres y violaciones de FK — cada spec hace `cleanDb` (trunca `User`
 CASCADE) en su `beforeAll`, y si dos suites corren a la vez sobre la misma BD, una puede borrar los
 usuarios que la otra está usando a mitad de test. Con `--runInBand` (serie) sobre BD fresca, las 350
-pruebas pasan limpias (confirmado de nuevo en H8.5a). No es un problema introducido por H8 — es una
+pruebas pasan limpias (confirmado de nuevo en H8.5b). No es un problema introducido por H8 — es una
 característica preexistente de la suite (solo es segura en serie, o en paralelo si cada worker
 tuviera su propia BD); documentado aquí porque solo se hizo visible al ejecutar la suite completa en
 local con varios núcleos libres. Revisar en Hito 9 si conviene aislar por base de datos por worker

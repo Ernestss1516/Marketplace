@@ -1,13 +1,13 @@
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import type { Metadata } from 'next';
-import { Crown, Package } from 'lucide-react';
+import { Crown, Package, Star } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { auth } from '@/lib/auth';
-import { getMySubscriptions, getMyEntitlements } from '@/lib/api/billing';
+import { getMySubscriptions, getMyEntitlements, getProStatus, type ProStatus } from '@/lib/api/billing';
 import { SuscripcionActions } from './_components/SuscripcionActions';
 
 export const metadata: Metadata = { title: 'Mi suscripción' };
@@ -32,9 +32,12 @@ export default async function SuscripcionPage() {
 
   const token = session.user.accessToken;
 
-  const [subscriptions, entitlements] = await Promise.all([
+  const [subscriptions, entitlements, proStatus] = await Promise.all([
     getMySubscriptions(token).catch(() => []),
     getMyEntitlements(token).catch(() => []),
+    getProStatus(token).catch(
+      (): ProStatus => ({ isPro: false, limit: 0, used: 0, remaining: 0 }),
+    ),
   ]);
 
   const isPro = entitlements.some(
@@ -99,6 +102,29 @@ export default async function SuscripcionPage() {
                 </span>
               </div>
             </div>
+
+            {proStatus.isPro && (
+              <>
+                <Separator />
+                <div className="flex flex-wrap items-center gap-4 text-sm">
+                  <div className="flex items-center gap-2">
+                    <Star className="h-4 w-4 text-amber-500" />
+                    <span className="text-muted-foreground">Destacados gratis: </span>
+                    <span className="font-medium">
+                      {proStatus.remaining} de {proStatus.limit} restantes este mes
+                    </span>
+                  </div>
+                  {proStatus.periodEnd && (
+                    <div>
+                      <span className="text-muted-foreground">Se renueva: </span>
+                      <span className="font-medium">
+                        {new Date(proStatus.periodEnd).toLocaleDateString('es-ES')}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
 
             {activeSubscription.status === 'ACTIVE' ||
             activeSubscription.status === 'CANCELING' ? (

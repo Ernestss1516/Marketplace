@@ -2,10 +2,11 @@
 
 import { useState, useCallback, useTransition } from 'react';
 import Link from 'next/link';
-import { Loader2, PlusCircle } from 'lucide-react';
+import { Loader2, PlusCircle, Star } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MyListingCard } from './MyListingCard';
 import { getMyListings } from '@/lib/api/anuncios';
+import { getProStatus, type ProStatus } from '@/lib/api/billing';
 import type { ListingSummary } from '@/types';
 
 const FILTERS: { label: string; value: string | null }[] = [
@@ -20,11 +21,13 @@ const FILTERS: { label: string; value: string | null }[] = [
 
 interface Props {
   initialListings: ListingSummary[];
+  initialProStatus: ProStatus;
   token: string;
 }
 
-export function MisAnunciosClient({ initialListings, token }: Props) {
+export function MisAnunciosClient({ initialListings, initialProStatus, token }: Props) {
   const [listings, setListings] = useState<ListingSummary[]>(initialListings);
+  const [proStatus, setProStatus] = useState<ProStatus>(initialProStatus);
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -45,12 +48,28 @@ export function MisAnunciosClient({ initialListings, token }: Props) {
 
   function handleAction() {
     refetch(activeFilter);
+    // H8.5b: any action (destacar por cuota included) can change the remaining
+    // count — refresh it here so the reminder below stays accurate without a
+    // full page reload.
+    getProStatus(token).then(setProStatus).catch(() => {});
   }
 
   const visibleListings = listings;
 
   return (
     <div className="space-y-6">
+      {/* H8.5b — Pro quota reminder, visible without opening the destacar dialog */}
+      {proStatus.isPro && proStatus.remaining > 0 && (
+        <div
+          className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800"
+          data-testid="quota-reminder"
+        >
+          <Star className="h-4 w-4 shrink-0" />
+          Te quedan {proStatus.remaining} destacado{proStatus.remaining === 1 ? '' : 's'} gratis
+          este mes.
+        </div>
+      )}
+
       {/* Filter tabs */}
       <div className="flex flex-wrap gap-2 border-b pb-4">
         {FILTERS.map((f) => (

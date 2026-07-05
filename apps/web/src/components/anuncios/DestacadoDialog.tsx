@@ -16,13 +16,20 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Separator } from '@/components/ui/separator';
 import { useApiAction } from '@/lib/api/use-api-action';
-import { toUserMessage, isCreditError, toFeaturedByCreditsMessage } from '@/lib/api/client';
+import {
+  toUserMessage,
+  isCreditError,
+  isQuotaUnavailableError,
+  toFeaturedByCreditsMessage,
+} from '@/lib/api/client';
 import {
   getCatalog,
   getWallet,
+  getProStatus,
   featuredByCredits,
   createFeaturedCheckout,
   type CatalogPrice,
+  type ProStatus,
   type RedsysFormData,
 } from '@/lib/api/billing';
 import { RedsysRedirectForm } from '@/app/(account)/mis-creditos/_components/RedsysRedirectForm';
@@ -35,18 +42,22 @@ interface Props {
 }
 
 type PayMethod = 'credits' | 'card';
+/** H8.5b — which product the user is choosing: free quota grant vs. paid (credits/card). */
+type FeatureMethod = 'quota' | 'paid';
 
 export function DestacadoDialog({ listing, token, open, onOpenChange, onSuccess }: Props) {
   const { run } = useApiAction();
 
   const [featuredPrices, setFeaturedPrices] = useState<CatalogPrice[]>([]);
   const [walletBalance, setWalletBalance] = useState<number>(0);
+  const [proStatus, setProStatus] = useState<ProStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<React.ReactNode | null>(null);
   const [busy, setBusy] = useState(false);
 
   const [selectedPriceId, setSelectedPriceId] = useState<string>('');
   const [payMethod, setPayMethod] = useState<PayMethod>('credits');
+  const [featureMethod, setFeatureMethod] = useState<FeatureMethod>('paid');
   const [redsysFormData, setRedsysFormData] = useState<RedsysFormData | null>(null);
 
   useEffect(() => {
@@ -58,7 +69,8 @@ export function DestacadoDialog({ listing, token, open, onOpenChange, onSuccess 
     Promise.all([
       getCatalog().catch(() => ({ products: [], bumpCreditCost: 5 })),
       getWallet(token).catch(() => null),
-    ]).then(([catalog, wallet]) => {
+      getProStatus(token).catch(() => null),
+    ]).then(([catalog, wallet, status]) => {
       const prices = catalog.products
         .flatMap((p) => p.prices)
         .filter((pr): pr is CatalogPrice => pr.durationDays != null && pr.creditAmount == null)
@@ -67,22 +79,65 @@ export function DestacadoDialog({ listing, token, open, onOpenChange, onSuccess 
       setFeaturedPrices(prices);
       setWalletBalance(wallet?.balance ?? 0);
       if (prices.length > 0) setSelectedPriceId(prices[0].priceId);
+      setProStatus(status);
+      // Default to the free quota when eligible — never overrides a later manual choice,
+      // this only runs once when the dialog's data finishes loading.
+      setFeatureMethod(status?.isPro && status.remaining > 0 ? 'quota' : 'paid');
       setLoading(false);
     });
   }, [open, token]);
 
+  const canUseQuota = Boolean(proStatus?.isPro && (proStatus?.remaining ?? 0) > 0);
   const selectedPrice = featuredPrices.find((p) => p.priceId === selectedPriceId);
   const creditCost = selectedPrice?.creditCost ?? 0;
   const canPayByCredits = walletBalance >= creditCost;
+  const showPaidOptions = !canUseQuota || featureMethod === 'paid';
 
   async function handleSubmit() {
-    if (!selectedPrice) return;
     setBusy(true);
     setError(null);
 
+    if (featureMethod === 'quota') {
+      await run(
+        () => featuredByCredits(token, { listingId: listing.id, useQuota: true }),
+        {
+          onSuccess: () => {
+            onOpenChange(false);
+            onSuccess();
+          },
+          onError: (err) => {
+            if (isQuotaUnavailableError(err)) {
+              // Rare (concurrency or stale state): don't dead-end the user — offer
+              // the credits/card path right away instead of a generic error.
+              setProStatus((prev) => (prev ? { ...prev, remaining: 0 } : prev));
+              setFeatureMethod('paid');
+              setError(
+                'Ya no tienes cuota disponible este mes. Puedes destacar con créditos o tarjeta:',
+              );
+            } else {
+              setError(toFeaturedByCreditsMessage(err));
+            }
+          },
+          callbackUrl: '/login',
+        },
+      );
+      setBusy(false);
+      return;
+    }
+
+    if (!selectedPrice) {
+      setBusy(false);
+      return;
+    }
+
     if (payMethod === 'credits') {
       await run(
-        () => featuredByCredits(token, selectedPrice.priceId, listing.id),
+        () =>
+          featuredByCredits(token, {
+            listingId: listing.id,
+            useQuota: false,
+            priceId: selectedPrice.priceId,
+          }),
         {
           onSuccess: () => {
             onOpenChange(false);
@@ -153,107 +208,152 @@ export function DestacadoDialog({ listing, token, open, onOpenChange, onSuccess 
           </p>
         ) : (
           <div className="space-y-6">
-            <div>
-              <p className="mb-3 text-sm font-medium">Duración</p>
-              <RadioGroup
-                value={selectedPriceId}
-                onValueChange={setSelectedPriceId}
-                className="space-y-2"
-              >
-                {featuredPrices.map((pr) => {
-                  const eurFormatted = new Intl.NumberFormat('es-ES', {
-                    style: 'currency',
-                    currency: pr.currency,
-                  }).format(pr.amount);
-                  return (
-                    <div
-                      key={pr.priceId}
-                      className="flex items-center space-x-3 rounded-md border p-3 has-[button[data-state=checked]]:border-primary"
-                    >
-                      <RadioGroupItem value={pr.priceId} id={`dur-${pr.priceId}`} />
+            {canUseQuota && (
+              <div>
+                <p className="mb-3 text-sm font-medium">Cómo destacar</p>
+                <RadioGroup
+                  value={featureMethod}
+                  onValueChange={(v) => setFeatureMethod(v as FeatureMethod)}
+                  className="space-y-2"
+                >
+                  <div className="flex items-start space-x-3 rounded-md border p-3 has-[button[data-state=checked]]:border-primary">
+                    <RadioGroupItem value="quota" id="method-quota" className="mt-1" />
+                    <Label htmlFor="method-quota" className="flex-1 cursor-pointer">
+                      <span className="block font-medium">
+                        Destacar gratis — {proStatus?.quotaDurationDays ?? 7} días
+                      </span>
+                      <span className="block text-xs text-muted-foreground">
+                        Cuota Pro · te quedan {proStatus?.remaining} este mes
+                      </span>
+                    </Label>
+                  </div>
+
+                  <div className="flex items-start space-x-3 rounded-md border p-3 has-[button[data-state=checked]]:border-primary">
+                    <RadioGroupItem value="paid" id="method-paid" className="mt-1" />
+                    <Label htmlFor="method-paid" className="flex-1 cursor-pointer">
+                      <span className="block font-medium">Destacar con créditos o tarjeta</span>
+                      <span className="block text-xs text-muted-foreground">
+                        Elige la duración: 7, 14 o 30 días
+                      </span>
+                    </Label>
+                  </div>
+                </RadioGroup>
+
+                {featureMethod === 'quota' && proStatus?.remaining === 1 && (
+                  <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                    Este es tu último destacado gratis de este mes.
+                  </p>
+                )}
+
+                <Separator className="mt-6" />
+              </div>
+            )}
+
+            {showPaidOptions && (
+              <>
+                <div>
+                  <p className="mb-3 text-sm font-medium">Duración</p>
+                  <RadioGroup
+                    value={selectedPriceId}
+                    onValueChange={setSelectedPriceId}
+                    className="space-y-2"
+                  >
+                    {featuredPrices.map((pr) => {
+                      const eurFormatted = new Intl.NumberFormat('es-ES', {
+                        style: 'currency',
+                        currency: pr.currency,
+                      }).format(pr.amount);
+                      return (
+                        <div
+                          key={pr.priceId}
+                          className="flex items-center space-x-3 rounded-md border p-3 has-[button[data-state=checked]]:border-primary"
+                        >
+                          <RadioGroupItem value={pr.priceId} id={`dur-${pr.priceId}`} />
+                          <Label
+                            htmlFor={`dur-${pr.priceId}`}
+                            className="flex flex-1 cursor-pointer items-center justify-between"
+                          >
+                            <span>{pr.durationDays} días</span>
+                            <span className="flex items-center gap-3 text-sm text-muted-foreground">
+                              <span className="flex items-center gap-1">
+                                <Coins className="h-3.5 w-3.5" />
+                                {pr.creditCost ?? '—'} cr.
+                              </span>
+                              <span className="text-xs">o</span>
+                              <span className="flex items-center gap-1">
+                                <CreditCard className="h-3.5 w-3.5" />
+                                {eurFormatted}
+                              </span>
+                            </span>
+                          </Label>
+                        </div>
+                      );
+                    })}
+                  </RadioGroup>
+                </div>
+
+                <Separator />
+
+                <div>
+                  <p className="mb-3 text-sm font-medium">Método de pago</p>
+                  <RadioGroup
+                    value={payMethod}
+                    onValueChange={(v) => setPayMethod(v as PayMethod)}
+                    className="space-y-2"
+                  >
+                    <div className="flex items-center space-x-3 rounded-md border p-3 has-[button[data-state=checked]]:border-primary">
+                      <RadioGroupItem value="credits" id="pay-credits" />
                       <Label
-                        htmlFor={`dur-${pr.priceId}`}
+                        htmlFor="pay-credits"
                         className="flex flex-1 cursor-pointer items-center justify-between"
                       >
-                        <span>{pr.durationDays} días</span>
-                        <span className="flex items-center gap-3 text-sm text-muted-foreground">
-                          <span className="flex items-center gap-1">
-                            <Coins className="h-3.5 w-3.5" />
-                            {pr.creditCost ?? '—'} cr.
-                          </span>
-                          <span className="text-xs">o</span>
-                          <span className="flex items-center gap-1">
-                            <CreditCard className="h-3.5 w-3.5" />
-                            {eurFormatted}
-                          </span>
+                        <span className="flex items-center gap-2">
+                          <Coins className="h-4 w-4 text-muted-foreground" />
+                          Créditos
+                        </span>
+                        <span
+                          className={`text-sm ${
+                            canPayByCredits ? 'text-muted-foreground' : 'text-destructive'
+                          }`}
+                        >
+                          Saldo: {walletBalance} cr.
                         </span>
                       </Label>
                     </div>
-                  );
-                })}
-              </RadioGroup>
-            </div>
 
-            <Separator />
+                    <div className="flex items-center space-x-3 rounded-md border p-3 has-[button[data-state=checked]]:border-primary">
+                      <RadioGroupItem value="card" id="pay-card" />
+                      <Label
+                        htmlFor="pay-card"
+                        className="flex flex-1 cursor-pointer items-center justify-between"
+                      >
+                        <span className="flex items-center gap-2">
+                          <CreditCard className="h-4 w-4 text-muted-foreground" />
+                          Tarjeta bancaria
+                        </span>
+                        {selectedPrice && (
+                          <span className="text-sm text-muted-foreground">
+                            {new Intl.NumberFormat('es-ES', {
+                              style: 'currency',
+                              currency: selectedPrice.currency,
+                            }).format(selectedPrice.amount)}
+                          </span>
+                        )}
+                      </Label>
+                    </div>
+                  </RadioGroup>
 
-            <div>
-              <p className="mb-3 text-sm font-medium">Método de pago</p>
-              <RadioGroup
-                value={payMethod}
-                onValueChange={(v) => setPayMethod(v as PayMethod)}
-                className="space-y-2"
-              >
-                <div className="flex items-center space-x-3 rounded-md border p-3 has-[button[data-state=checked]]:border-primary">
-                  <RadioGroupItem value="credits" id="pay-credits" />
-                  <Label
-                    htmlFor="pay-credits"
-                    className="flex flex-1 cursor-pointer items-center justify-between"
-                  >
-                    <span className="flex items-center gap-2">
-                      <Coins className="h-4 w-4 text-muted-foreground" />
-                      Créditos
-                    </span>
-                    <span
-                      className={`text-sm ${
-                        canPayByCredits ? 'text-muted-foreground' : 'text-destructive'
-                      }`}
-                    >
-                      Saldo: {walletBalance} cr.
-                    </span>
-                  </Label>
+                  {payMethod === 'credits' && !canPayByCredits && creditCost > 0 && (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Necesitas {creditCost - walletBalance} créditos más.{' '}
+                      <Link href="/mis-creditos" className="underline hover:text-foreground">
+                        Comprar créditos
+                      </Link>
+                    </p>
+                  )}
                 </div>
-
-                <div className="flex items-center space-x-3 rounded-md border p-3 has-[button[data-state=checked]]:border-primary">
-                  <RadioGroupItem value="card" id="pay-card" />
-                  <Label
-                    htmlFor="pay-card"
-                    className="flex flex-1 cursor-pointer items-center justify-between"
-                  >
-                    <span className="flex items-center gap-2">
-                      <CreditCard className="h-4 w-4 text-muted-foreground" />
-                      Tarjeta bancaria
-                    </span>
-                    {selectedPrice && (
-                      <span className="text-sm text-muted-foreground">
-                        {new Intl.NumberFormat('es-ES', {
-                          style: 'currency',
-                          currency: selectedPrice.currency,
-                        }).format(selectedPrice.amount)}
-                      </span>
-                    )}
-                  </Label>
-                </div>
-              </RadioGroup>
-
-              {payMethod === 'credits' && !canPayByCredits && creditCost > 0 && (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Necesitas {creditCost - walletBalance} créditos más.{' '}
-                  <Link href="/mis-creditos" className="underline hover:text-foreground">
-                    Comprar créditos
-                  </Link>
-                </p>
-              )}
-            </div>
+              </>
+            )}
 
             {error && <p className="text-sm text-destructive">{error}</p>}
           </div>
@@ -268,8 +368,8 @@ export function DestacadoDialog({ listing, token, open, onOpenChange, onSuccess 
             disabled={
               busy ||
               loading ||
-              !selectedPriceId ||
-              (payMethod === 'credits' && !canPayByCredits)
+              (showPaidOptions &&
+                (!selectedPriceId || (payMethod === 'credits' && !canPayByCredits)))
             }
           >
             {busy ? (
@@ -277,7 +377,11 @@ export function DestacadoDialog({ listing, token, open, onOpenChange, onSuccess 
             ) : (
               <Star className="mr-2 h-4 w-4" />
             )}
-            {payMethod === 'credits' ? 'Destacar con créditos' : 'Pagar con tarjeta'}
+            {featureMethod === 'quota'
+              ? 'Destacar gratis'
+              : payMethod === 'credits'
+                ? 'Destacar con créditos'
+                : 'Pagar con tarjeta'}
           </Button>
         </DialogFooter>
       </DialogContent>

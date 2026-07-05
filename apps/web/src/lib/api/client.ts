@@ -47,6 +47,16 @@ export function isCooldownError(err: unknown): err is ApiError & { retryAfter: n
   return err instanceof ApiError && err.statusCode === 429 && err.retryAfter != null;
 }
 
+/**
+ * True when the user chose the Pro quota (useQuota:true) but it's no longer available
+ * (HTTP 400, code QUOTA_UNAVAILABLE) — e.g. a concurrent request used the last slot, or
+ * the frontend's cached remaining count went stale. Components should offer the credits
+ * path instead of showing a generic error, since the user explicitly asked for quota.
+ */
+export function isQuotaUnavailableError(err: unknown): err is ApiError {
+  return err instanceof ApiError && err.statusCode === 400 && err.code === 'QUOTA_UNAVAILABLE';
+}
+
 /** Converts a retryAfter value (seconds) to a human-readable Spanish duration string. */
 export function formatRetryAfter(seconds: number): string {
   const minutes = Math.ceil(seconds / 60);
@@ -74,16 +84,18 @@ export function toBumpMessage(err: unknown): string {
 
 /**
  * Maps featured-by-credits errors to user-facing strings.
- * Callers must check isCreditError (402) BEFORE calling this.
- * Distinguishes "already featured" vs "not ACTIVE" by inspecting the backend message.
+ * Callers must check isCreditError (402) and isQuotaUnavailableError (400/QUOTA_UNAVAILABLE)
+ * BEFORE calling this — both need a domain-specific reaction (buy credits / offer the
+ * credits path), not a plain string. Distinguishes "already featured" vs "not ACTIVE" by
+ * inspecting the backend's error code.
  */
 export function toFeaturedByCreditsMessage(err: unknown): string {
   if (err instanceof ApiError) {
     switch (err.statusCode) {
       case 400:
-        return err.code === 'ALREADY_FEATURED'
-          ? 'Este anuncio ya está destacado.'
-          : 'Solo se pueden destacar anuncios activos.';
+        if (err.code === 'ALREADY_FEATURED') return 'Este anuncio ya está destacado.';
+        if (err.code === 'QUOTA_UNAVAILABLE') return 'Ya no tienes cuota disponible este mes.';
+        return 'Solo se pueden destacar anuncios activos.';
       case 403: return 'Este anuncio no te pertenece.';
       case 404: return 'El precio ya no está disponible. Actualiza la página.';
     }

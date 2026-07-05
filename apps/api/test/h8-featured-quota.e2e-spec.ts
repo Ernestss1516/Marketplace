@@ -171,6 +171,7 @@ describe('H8.2 — GET /billing/pro-status (cuota mensual de destacados Pro)', (
       remaining: number;
       periodStart?: string;
       periodEnd?: string;
+      quotaDurationDays?: number;
     };
   }
 
@@ -202,6 +203,7 @@ describe('H8.2 — GET /billing/pro-status (cuota mensual de destacados Pro)', (
     expect(status.remaining).toBe(4);
     expect(new Date(status.periodStart!).getTime()).toBe(periodStart.getTime());
     expect(new Date(status.periodEnd!).getTime()).toBe(periodEnd.getTime());
+    expect(status.quotaDurationDays).toBe(7); // H8.5b: default proQuotaFeaturedDurationDays
   });
 
   it('Pro con algunos PRO_QUOTA usados en el periodo vigente → used correcto', async () => {

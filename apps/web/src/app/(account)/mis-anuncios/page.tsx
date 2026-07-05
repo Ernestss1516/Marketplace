@@ -4,6 +4,7 @@ import { PlusCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { auth } from '@/lib/auth';
 import { getMyListings } from '@/lib/api/anuncios';
+import { getProStatus, type ProStatus } from '@/lib/api/billing';
 import { MisAnunciosClient } from '@/components/anuncios/MisAnunciosClient';
 
 export const metadata = { title: 'Mis anuncios' };
@@ -12,7 +13,14 @@ export default async function MisAnunciosPage() {
   const session = await auth();
   if (!session?.user.accessToken) redirect('/login');
 
-  const { items } = await getMyListings(session.user.accessToken);
+  const token = session.user.accessToken;
+
+  const [{ items }, proStatus] = await Promise.all([
+    getMyListings(token),
+    getProStatus(token).catch(
+      (): ProStatus => ({ isPro: false, limit: 0, used: 0, remaining: 0 }),
+    ),
+  ]);
 
   return (
     <div>
@@ -26,7 +34,7 @@ export default async function MisAnunciosPage() {
         </Button>
       </div>
 
-      <MisAnunciosClient initialListings={items} token={session.user.accessToken} />
+      <MisAnunciosClient initialListings={items} initialProStatus={proStatus} token={token} />
     </div>
   );
 }

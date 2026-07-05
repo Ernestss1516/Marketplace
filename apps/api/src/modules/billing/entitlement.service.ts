@@ -11,12 +11,13 @@ function activeFilter() {
 }
 
 const DEFAULT_PRO_MONTHLY_FEATURED_QUOTA = 4;
+const DEFAULT_PRO_QUOTA_FEATURED_DURATION_DAYS = 7;
 
 /**
  * H8.2 — estado de la cuota mensual de destacados gratis de Pro.
- * isPro=false para no-Pro (no aplica cuota). periodStart/periodEnd solo
- * presentes cuando isPro=true (el ciclo de facturación de la Subscription
- * vinculada al PRO_SUBSCRIPTION vigente).
+ * isPro=false para no-Pro (no aplica cuota). periodStart/periodEnd/
+ * quotaDurationDays solo presentes cuando isPro=true (el ciclo de facturación
+ * de la Subscription vinculada al PRO_SUBSCRIPTION vigente).
  */
 export interface FeaturedQuotaStatus {
   isPro: boolean;
@@ -25,6 +26,8 @@ export interface FeaturedQuotaStatus {
   remaining: number;
   periodStart?: Date;
   periodEnd?: Date;
+  /** H8.5b — duración fija (días) que otorga un destacado pagado con la cuota. */
+  quotaDurationDays?: number;
 }
 
 @Injectable()
@@ -101,11 +104,14 @@ export class EntitlementService {
 
     const { currentPeriodStart, currentPeriodEnd } = proEntitlement.subscription;
 
-    const setting = await this.prisma.setting.findUnique({
-      where: { key: 'proMonthlyFeaturedQuota' },
-      select: { value: true },
+    const settings = await this.prisma.setting.findMany({
+      where: { key: { in: ['proMonthlyFeaturedQuota', 'proQuotaFeaturedDurationDays'] } },
+      select: { key: true, value: true },
     });
-    const limit = setting ? Number(setting.value) : DEFAULT_PRO_MONTHLY_FEATURED_QUOTA;
+    const settingMap = Object.fromEntries(settings.map((s) => [s.key, Number(s.value)]));
+    const limit = settingMap['proMonthlyFeaturedQuota'] ?? DEFAULT_PRO_MONTHLY_FEATURED_QUOTA;
+    const quotaDurationDays =
+      settingMap['proQuotaFeaturedDurationDays'] ?? DEFAULT_PRO_QUOTA_FEATURED_DURATION_DAYS;
 
     const used = await this.prisma.entitlement.count({
       where: {
@@ -123,6 +129,7 @@ export class EntitlementService {
       remaining: Math.max(0, limit - used),
       periodStart: currentPeriodStart,
       periodEnd: currentPeriodEnd,
+      quotaDurationDays,
     };
   }
 
