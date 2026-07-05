@@ -209,6 +209,15 @@ jobs:
       - name: Frontend unit — Jest
         run: pnpm --filter @marketplace/web test:unit
 
+      # Playwright's webServer runs `next start` (production) in CI instead of `next
+      # dev`, which requires an existing build — `next dev`'s built-in dev-only memory
+      # watchdog was self-restarting the process mid-suite on this memory-constrained
+      # runner (~9min/111 tests), killing whatever test was mid-navigation at the time.
+      # See playwright.config.ts for the full explanation. NEXT_PUBLIC_* vars are baked
+      # in at build time, so this step must run with the same job-level env as below.
+      - name: Build frontend for e2e (production build — see playwright.config.ts)
+        run: pnpm --filter @marketplace/web build
+
       # Playwright spawns the backend (port 3001) and frontend (port 3000) via
       # webServer because reuseExistingServer = !process.env.CI = false.
       # global-setup.ts migrates (idempotent after Jest), seeds Playwright users,

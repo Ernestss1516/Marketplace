@@ -121,19 +121,37 @@ test('publicar → buscar → ver ficha → contactar', async ({ sellerContext, 
 
   // ── Paso 3: Buscar ─────────────────────────────────────────────────────────
   // BullMQ indexes asynchronously → poll until Meilisearch returns the listing.
-  // Reload the search page on each attempt instead of fixed sleeps.
-  await buyerPage.goto(`/busqueda?q=${encodeURIComponent(LISTING_TITLE)}`);
+  // Re-navigate to the search URL on each attempt instead of fixed sleeps.
+  // goto() (not reload()) — a repeated reload() here is one confirmed way to
+  // leave the page in the state described below, though not the only one.
+  const searchUrl = `/busqueda?q=${encodeURIComponent(LISTING_TITLE)}`;
+  await buyerPage.goto(searchUrl);
 
   await expect(async () => {
-    await buyerPage.reload();
+    await buyerPage.goto(searchUrl);
     await expect(
       buyerPage.locator('a').filter({ hasText: LISTING_TITLE }).first()
     ).toBeVisible();
   }).toPass({ timeout: 20_000, intervals: [1000, 2000, 3000, 3000, 3000, 3000, 3000] });
 
   // ── Paso 4: Ver ficha ──────────────────────────────────────────────────────
-  await buyerPage.locator('a').filter({ hasText: LISTING_TITLE }).first().click();
-  await buyerPage.waitForURL('**/anuncio/**');
+  // Under `next start` (production) only — never reproduced under `next dev` —
+  // a click on this <Link> can intermittently no-op: Playwright confirms the
+  // click lands on the right element (correct href, focused/active state), the
+  // RSC payload + JS chunk + image all fetch with 200s, but the App Router never
+  // commits the client-side transition — no history update, no DOM change, no
+  // console/page error. Root-caused to a Next.js App Router client-navigation
+  // race under production timing; not reliably eliminated by waiting longer or
+  // by any single change to how the search page got reached (isolated across
+  // several rounds of instrumentation: no fixture/data bug, no auth issue, no
+  // destination-page issue — direct goto() to the same href always works
+  // instantly). Mitigated the only way that's actually reliable for a race
+  // outside the test's control: retry the click itself inside toPass, instead
+  // of clicking once and only retrying the wait.
+  await expect(async () => {
+    await buyerPage.locator('a').filter({ hasText: LISTING_TITLE }).first().click();
+    await expect(buyerPage).toHaveURL(/\/anuncio\//, { timeout: 5_000 });
+  }).toPass({ timeout: 30_000 });
   await expect(buyerPage.locator('h1')).toContainText(LISTING_TITLE);
 
   // "Contactar" button appears in both mobile bar and desktop sidebar (same DOM).

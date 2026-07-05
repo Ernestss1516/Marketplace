@@ -64,7 +64,19 @@ export default defineConfig({
       env: { ...testEnv, ...process.env, PORT: '3001' },
     },
     {
-      command: 'pnpm --filter @marketplace/web dev',
+      // CI runs against a production build (`next start`), not `next dev`.
+      // `next dev` has a built-in dev-only memory watchdog (server/lib/start-server.ts:
+      // `if (isDev) { if (used_heap_size > 0.8 * heap_size_limit) restart }`) that
+      // self-restarts the process once V8 heap usage crosses 80% — dev mode retains far
+      // more in memory (webpack HMR module cache, source maps) than a production build,
+      // and the ~9min/111-test suite on a memory-constrained CI runner was enough to
+      // cross that threshold mid-suite, killing whatever test was mid-`goto` at the time
+      // ("Target page has been closed"). `next start` never runs that check (isDev-gated),
+      // so it doesn't apply here. CI has its own "Build frontend for e2e" step beforehand
+      // (`next build`) since `next start` requires an existing `.next` build.
+      command: process.env.CI
+        ? 'pnpm --filter @marketplace/web start'
+        : 'pnpm --filter @marketplace/web dev',
       url: 'http://localhost:3000',
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,

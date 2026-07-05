@@ -1823,6 +1823,83 @@ aprobado previamente; una sola ráfaga (schema + admin CRUD + aplicación en che
   de Meilisearch ya investigada y documentada en la nota de proceso de H8 Bloque C — reproducido de
   nuevo aquí, no relacionado con campañas, no un problema de código.
 
+**Nota de proceso — CI rojo tras H8 Bloque D: dos causas distintas, ninguna era el fixture de C2
+(verificado primero, sin asumir).** El mismo test que se arregló en C2 (`prefill-ubicacion.spec.ts`)
+volvió a aparecer en el CI, pero con un síntoma totalmente distinto — señal explícita de investigar
+la causa real en vez de re-aplicar el fix anterior a ciegas.
+
+1. **Verificación previa: el fixture de C2 (`condition: 'GOOD'` en `seed-playwright.ts`) SÍ estaba
+   pusheado.** `git log -p` confirmó el commit `9b7811b` en `origin/main`, y `git rev-parse HEAD` /
+   `origin/main` coincidían exactamente — nada pendiente de subir. Esto descartó de raíz la hipótesis
+   más barata ("el fix nunca llegó al CI") antes de investigar nada más.
+
+2. **Causa real #1 — `next dev` se reinicia solo por memoria a mitad de la suite Playwright (9,6
+   min), matando el test que estuviera navegando en ese instante.** El log de CI mostraba "⚠ Server is
+   approaching the used memory threshold, restarting..." justo antes del fallo. Leyendo el propio
+   código fuente de Next.js (`server/lib/start-server.ts`, `next@15.5.19`):
+   ```
+   if (isDev) {
+     if (v8.getHeapStatistics().used_heap_size > 0.8 * heap_size_limit) {
+       Log.warn('Server is approaching the used memory threshold, restarting...');
+       process.exit(RESTART_EXIT_CODE);
+     }
+   }
+   ```
+   Ese watchdog está gateado por `isDev` — **solo existe en `next dev`, nunca en `next start`**. El
+   dev server retiene mucho más en memoria (caché de módulos de webpack HMR, source maps) que un build
+   de producción, y los ~9 minutos / 111 tests de la suite en un runner con memoria limitada bastaban
+   para cruzar el umbral del 80% del heap de V8 a mitad de ejecución. **Arreglo**: Playwright's
+   `webServer` para el frontend ahora ejecuta `next start` (producción) en CI en vez de `next dev`
+   (`playwright.config.ts`, condicional por `process.env.CI`; local sigue en `next dev` para iteración
+   rápida). Requiere un build previo — nuevo step "Build frontend for e2e" en `ci.yml` antes de lanzar
+   Playwright. Verificado que `next build` no depende del backend levantado: no hay
+   `generateStaticParams` en el proyecto, y el único fetch en build-time (`sitemap.ts` vía
+   `getPostList`) ya tenía un `.catch(() => ({items: []}))` defensivo.
+
+3. **Causa real #2 — carrera intermitente de navegación del App Router de Next.js, específica de
+   `next start`, en `flujo-critico.spec.ts`.** Tras cambiar a producción, este test empezó a fallar con
+   un síntoma nuevo: `page.waitForURL` nunca resolvía tras un click en un resultado de búsqueda
+   (`"Target page, context or browser has been closed"` al agotar el timeout de 90s). Investigación
+   sistemática (instrumentación temporal con `page.on('console'|'pageerror'|'framenavigated'|'request'|
+   'response')`, capturas de pantalla, comparación aislada dev vs. producción):
+   - Descartado dato/fixture: reproducido de forma idéntica con la BD y el índice de Meilisearch
+     completamente limpios (drop+create de la BD, borrado del índice).
+   - Descartado la página de destino: `page.goto(href)` directo al mismo slug funciona instantáneamente,
+     siempre — la ficha, el backend y los datos están bien.
+   - Descartado un error real: cero eventos `console`/`pageerror`/`crash` en todas las repeticiones. El
+     click SÍ registra en el elemento correcto (estado `[active]`, `href` correcto vía
+     `getAttribute`), y la RSC payload + el chunk JS de la página destino + la imagen del anuncio se
+     piden y responden con 200 (confirmado con logging de `request`/`response`) — pero el router de
+     App Router nunca confirma la transición: sin `history.pushState`, sin cambio de DOM, sin error.
+   - Descartado que fuera solo cuestión de esperar más: `waitForLoadState('networkidle')`, +5s extra, e
+     incluso un `reload()` limpio justo antes del click NO deshacen el problema una vez que ocurre —
+     no es una carrera de "aún no ha terminado de asentarse", es un estado que ya quedó mal.
+   - Aislado el disparador aproximado: un `click()` fresco (sin bucle de recarga previo) siempre
+     funciona; el fallo solo aparece tras el bucle de `toPass` que recarga la página de búsqueda
+     repetidamente mientras espera a que Meilisearch indexe el anuncio recién publicado. Cambiar ese
+     bucle de `page.reload()` a `page.goto(url)` reduce la incidencia pero **no la elimina al 100%**
+     (confirmado con `--repeat-each`, con el matiz de que `repeat-each` comparte un único
+     `globalSetup`/BD entre repeticiones, así que repeticiones tardías acumulan anuncios de
+     repeticiones anteriores — se verificó explícitamente que el anuncio correcto seguía
+     encontrándose y clicándose pese al ruido, así que esa acumulación no era la causa del fallo).
+   - **Conclusión honesta**: es una carrera intermitente del lado del cliente en la navegación del App
+     Router bajo `next start`, no reproducible bajo `next dev`, sin una causa determinista única
+     identificada pese a varias rondas de aislamiento. **Mitigación aplicada** (la respuesta correcta
+     para una carrera fuera del control directo del test): además de cambiar el bucle de sondeo a
+     `goto()`, el propio click se reintenta dentro de un `toPass` (click + `expect(url).toHaveURL(...)`
+     con timeout corto; si no navega, vuelve a clicar) en vez de clicar una vez y solo reintentar la
+     espera. Verificado con 5 ejecuciones limpias independientes (BD y Meilisearch reseteados entre
+     medias) — 5/5 en verde.
+   - Pendiente si reaparece con más incidencia: reportar upstream a Next.js con un caso mínimo
+     reproducible (no se abrió aquí — no se logró una reproducción 100% determinista fuera del propio
+     test, requisito habitual para un issue accionable).
+
+**Suite completa verde de verdad tras ambos arreglos** (verificado sobre BD y Meilisearch limpios,
+no solo repitiendo con datos ya calientes): 27/27 suites backend (406/406 tests), 2/2 suites unitarias
+de frontend (12/12 tests), 111/111 Playwright — incluido `busqueda-mapa.spec.ts`, que pasa limpio con
+el índice sin contaminar, confirmando de nuevo que su fallo intermitente es puramente de datos locales
+acumulados, no de código.
+
 ### Renombrar la key de un atributo no migra `Listing.attributes` (aviso, no migración)
 
 `Listing.attributes` no tiene FK con `Category.attributeSchema`; renombrar la `name`
