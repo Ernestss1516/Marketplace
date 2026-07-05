@@ -328,7 +328,6 @@ export class ListingsService {
     let listingData: object & { id: string };
 
     if (raw) {
-      this.incrementViews(slug);
       listingData = JSON.parse(raw) as object & { id: string };
     } else {
       const listing = await this.prisma.listing.findUnique({
@@ -339,7 +338,6 @@ export class ListingsService {
         throw new NotFoundException('Anuncio no encontrado');
       }
       await this.redis.client.setex(cacheKey(slug), CACHE_TTL, JSON.stringify(listing));
-      this.incrementViews(slug);
       listingData = listing;
     }
 
@@ -493,10 +491,111 @@ export class ListingsService {
     await this.indexingQueue.add('index', { listingId: id });
   }
 
-  private incrementViews(slug: string): void {
-    this.prisma.listing
-      .update({ where: { slug }, data: { viewCount: { increment: 1 } } })
-      .catch(() => undefined);
+  // ---------------------------------------------------------------------------
+  // H8 Bloque C1 — tracking de vistas (fuera de findBySlug, sortea la caché de
+  // 5 min de la ficha porque el cliente llama a este endpoint en cada montaje,
+  // venga el HTML de caché o no) + lectura de estadísticas.
+  // ---------------------------------------------------------------------------
+
+  private static readonly VIEW_DEDUP_TTL_SECONDS = 60 * 30;
+
+  async trackView(slug: string, viewerId: string | null, visitorHash: string): Promise<void> {
+    const listing = await this.prisma.listing.findUnique({
+      where: { slug },
+      select: { id: true, sellerId: true },
+    });
+    if (!listing) throw new NotFoundException('Anuncio no encontrado');
+
+    // El dueño viendo su propio anuncio nunca cuenta — ni siquiera marca dedup.
+    if (viewerId && viewerId === listing.sellerId) return;
+
+    const visitorKey = viewerId ? `user:${viewerId}` : `anon:${visitorHash}`;
+    const dedupKey = `view:dedup:${listing.id}:${visitorKey}`;
+    const accepted = await this.redis.client.set(
+      dedupKey,
+      '1',
+      'EX',
+      ListingsService.VIEW_DEDUP_TTL_SECONDS,
+      'NX',
+    );
+    if (accepted !== 'OK') return; // recarga duplicada dentro de la ventana
+
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+
+    await Promise.all([
+      this.prisma.listing.update({
+        where: { id: listing.id },
+        data: { viewCount: { increment: 1 } },
+      }),
+      this.prisma.listingViewDaily.upsert({
+        where: { listingId_date: { listingId: listing.id, date: today } },
+        create: { listingId: listing.id, date: today, count: 1 },
+        update: { count: { increment: 1 } },
+      }),
+    ]);
+  }
+
+  /** Estadísticas de un anuncio propio. Básicas para todos; enriquecidas si el dueño es Pro. */
+  async getMineStats(id: string, userId: string) {
+    const listing = await this.prisma.listing.findUnique({
+      where: { id },
+      select: { id: true, sellerId: true, viewCount: true },
+    });
+    if (!listing) throw new NotFoundException('Anuncio no encontrado');
+    if (listing.sellerId !== userId) {
+      throw new ForbiddenException('No tienes permiso sobre este anuncio');
+    }
+
+    const favoritesCount = await this.prisma.favorite.count({ where: { listingId: id } });
+    const isPro = await this.entitlementService.isProActive(userId);
+    if (!isPro) {
+      return { viewCount: listing.viewCount, favoritesCount };
+    }
+
+    const since = new Date();
+    since.setUTCDate(since.getUTCDate() - 30);
+    since.setUTCHours(0, 0, 0, 0);
+
+    const dailyRows = await this.prisma.listingViewDaily.findMany({
+      where: { listingId: id, date: { gte: since } },
+      orderBy: { date: 'asc' },
+      select: { date: true, count: true },
+    });
+
+    return {
+      viewCount: listing.viewCount,
+      favoritesCount,
+      dailyViews: dailyRows,
+      likeRatio: listing.viewCount > 0 ? favoritesCount / listing.viewCount : 0,
+    };
+  }
+
+  /** Agregado del vendedor (todos sus anuncios) — solo Pro. */
+  async getMineStatsSummary(userId: string) {
+    const isPro = await this.entitlementService.isProActive(userId);
+    if (!isPro) {
+      throw new ForbiddenException('Estadísticas agregadas disponibles solo para Pro');
+    }
+
+    const listings = await this.prisma.listing.findMany({
+      where: { sellerId: userId },
+      select: { id: true, viewCount: true },
+    });
+    const totalViews = listings.reduce((sum, l) => sum + l.viewCount, 0);
+    const totalFavorites = await this.prisma.favorite.count({
+      where: { listing: { sellerId: userId } },
+    });
+    const mostViewed = listings.reduce<{ id: string; viewCount: number } | null>(
+      (max, l) => (max === null || l.viewCount > max.viewCount ? l : max),
+      null,
+    );
+
+    return {
+      totalViews,
+      totalFavorites,
+      mostViewedListingId: mostViewed?.id ?? null,
+    };
   }
 
   private buildSlug(title: string): string {

@@ -3,16 +3,19 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
+  Ip,
   Param,
   Patch,
   Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../common/guards';
+import { JwtAuthGuard, OptionalJwtAuthGuard } from '../../common/guards';
 import { CurrentUser } from '../../common/decorators';
 import { JwtUser } from '../auth/auth.types';
 import { ListingsService } from './listings.service';
@@ -109,6 +112,38 @@ export class ListingsController {
   @UseGuards(JwtAuthGuard)
   getMine(@Param('id') id: string, @CurrentUser() user: JwtUser) {
     return this.listingsService.findMineById(id, user.userId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // H8 Bloque C1 — estadísticas (registradas antes de mine/:id/stats y de :slug)
+  // ---------------------------------------------------------------------------
+
+  @Get('mine/stats/summary')
+  @UseGuards(JwtAuthGuard)
+  getMineStatsSummary(@CurrentUser() user: JwtUser) {
+    return this.listingsService.getMineStatsSummary(user.userId);
+  }
+
+  @Get('mine/:id/stats')
+  @UseGuards(JwtAuthGuard)
+  getMineStats(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+    return this.listingsService.getMineStats(id, user.userId);
+  }
+
+  // Público con auth opcional: cuenta anónimos, pero necesita saber si hay
+  // sesión para excluir al dueño. El cliente lo llama al montar la ficha —
+  // desacoplado del render cacheado en Redis (findBySlug).
+  @Post(':slug/view')
+  @UseGuards(OptionalJwtAuthGuard)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  trackView(
+    @Param('slug') slug: string,
+    @CurrentUser() user: JwtUser | null,
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent: string | undefined,
+  ) {
+    const visitorHash = createHash('sha256').update(`${ip}:${userAgent ?? ''}`).digest('hex');
+    return this.listingsService.trackView(slug, user?.userId ?? null, visitorHash);
   }
 
   @Get(':slug')

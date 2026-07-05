@@ -304,6 +304,7 @@ model Listing {
   reviews       Review[]
   entitlements  Entitlement[]
   transactions  Transaction[]
+  viewsDaily    ListingViewDaily[]
 
   // Índices para los filtros y ordenaciones más frecuentes (rendimiento de listados).
   @@index([categoryId, status])
@@ -346,6 +347,20 @@ model Favorite {
   // Un usuario no puede marcar el mismo anuncio dos veces.
   @@unique([userId, listingId])
   @@index([userId])
+}
+
+/// H8 Bloque C1 — agregado diario de vistas de un anuncio (no un evento por
+/// vista). El total (free) sigue viviendo en Listing.viewCount; esta tabla
+/// solo aporta la granularidad temporal para la gráfica Pro (GROUP BY date).
+model ListingViewDaily {
+  id        String   @id @default(cuid())
+  listingId String
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  date      DateTime @db.Date
+  count     Int      @default(0)
+
+  @@unique([listingId, date])
+  @@index([listingId])
 }
 
 // ============================================================================
