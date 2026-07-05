@@ -1656,6 +1656,18 @@ cerrar el Hito 8 enfocado.**
   correctamente, y el perfil de `pro-e2e` muestra ambos badges (Pro + confianza) lado a lado sin
   chocar visualmente.
 
+**H8.6 (documentación) — hecho. Hito 8 enfocado CERRADO.** Ráfaga solo de documentación, sin cambios
+de código. `docs/diseno-facturacion.md` (revisión 3) consolida todo el hito: resuelve la
+contradicción §1.4 vs §2.5 (la frase "Pro no regala créditos" era falsa desde H8's §2.5; el
+principio real es "Pro nunca altera el precio ni el hecho imponible"), añade la tabla canónica de
+las 4 ventajas Pro con su estado real, la mecánica completa de la cuota (§1.4.1), el badge Pro
+(§1.4.2) y Vendedor de confianza (§1.5) como nuevas secciones, corrige §3 para reflejar que
+`grantFeaturedListing` ya NO es el punto único de concesión (deuda, no como se diseñó
+originalmente), actualiza la tabla de ráfagas (§14) y decisiones (§15), y cierra con un §16 nuevo
+que separa explícitamente deuda (duplicación de concesión, caché Redis 5 min, sin badges en cards
+de listados, aislamiento dev/test) de lo diferido a propósito (Bloque C/D → Hito 8b, Redsys E2E
+bloqueado por falta de túnel). Con esto el Hito 8 enfocado queda cerrado.
+
 **Nota de proceso (full suite local vs. CI):** al ejecutar `jest --config test/jest-e2e.json` en
 paralelo (workers por defecto) contra una base de datos de test local compartida, varias suites
 fallan por deadlocks de Postgres y violaciones de FK — cada spec hace `cleanDb` (trunca `User`

@@ -1,11 +1,16 @@
-# Diseño del sistema de facturación — revisión 2
+# Diseño del sistema de facturación — revisión 3
 
-> **Fase:** Hito 4 · Revisión 2 del diseño de monetización
-> **Fecha:** 2026-06-26
-> **Estado:** Aprobado — pendiente de implementación RF.4+
+> **Fase:** Hito 8 (H8) · Revisión 3 del diseño de monetización — cierre del Hito 8 enfocado
+> **Fecha:** 2026-07-05
+> **Estado:** Hito 8 enfocado CERRADO. Este documento refleja lo REALMENTE construido
+> (H8.1–H8.5b, Bloque E), no lo planeado originalmente — donde el plan y la implementación
+> divergieron, gana la implementación.
 >
-> Este documento reemplaza la revisión 1 (2026-06-24). Las ráfagas RF.2 y RF.3
-> ya están implementadas y commitadas; lo nuevo empieza en RF.4.
+> Este documento reemplaza la revisión 2 (2026-06-26), que a su vez reemplazó la revisión 1
+> (2026-06-24). Las ráfagas RF.2–RF.13 (Hito 4) y el Plan Pro (Hito 4/5) ya estaban
+> implementadas antes de esta revisión. Lo nuevo en esta revisión es todo el Hito 8: la
+> consolidación de las ventajas Pro, la cuota mensual de destacados, y el Bloque E
+> (Vendedor de confianza, independiente de Pro). Ver §1.4, §1.4.1, §1.5 y §16.
 
 ---
 
@@ -78,21 +83,150 @@ El límite se aplica únicamente a los bumps realizados con éxito. Los intentos
 
 ### 1.4 Plan Pro (solo Stripe)
 
-Suscripción recurrente gestionada íntegramente por Stripe. Completamente independiente del sistema de créditos: no regala créditos ni otorga descuentos en packs.
+Suscripción recurrente gestionada íntegramente por Stripe.
+
+> **Principio real (H8, corrige la revisión 2):** la revisión 2 de este documento decía "Pro no
+> regala créditos ni otorga descuentos en packs". Esa frase era **falsa** desde que se implementó
+> §2.5 (bonus de créditos Pro) y lo sigue siendo con la cuota de destacados de H8 — Pro sí concede
+> beneficios reales, materializados en el wallet y en los entitlements del usuario. El principio
+> que de verdad se preserva, y que nunca se ha roto, es otro: **Pro nunca altera el precio cobrado
+> ni el hecho imponible.** El importe que paga un Pro por un pack de créditos es el mismo que paga
+> cualquiera (§2.5); el IVA se calcula igual para todos. Los beneficios Pro viven enteramente
+> dentro de sistemas internos sin IVA (wallet, entitlements) — nunca en el precio ni en la factura.
+> Esa es la regla a preservar en cualquier beneficio Pro futuro, no "cero beneficios".
 
 | Variante | Precio | Ciclo |
 |---|---|---|
 | Pro Mensual | 9,99 €/mes | Mensual, renovación automática |
 | Pro Anual | 89,99 €/año (~7,50 €/mes) | Anual, renovación automática |
 
-**Derechos `PRO_SUBSCRIPTION`:**
+**Tabla canónica de derechos `PRO_SUBSCRIPTION` (H8 — reemplaza la tabla de la revisión 2, que
+había quedado desactualizada e incompleta):**
 
-| Derecho | Free | Pro |
-|---|---|---|
-| Anuncios activos simultáneos | 5 | 20 |
-| Fotos por anuncio | 4 | 10 |
-| Badge "Pro" en perfil público | — | ✓ |
-| Estadísticas de visitas | — | ✓ |
+| Derecho | Free | Pro | Estado |
+|---|---|---|---|
+| Anuncios activos simultáneos | `freeActiveListingLimit` (5) | `proActiveListingLimit` (20) | ✅ Implementado (RF.7). Configurable en `Setting`, editable en `/admin/ajustes`. |
+| Bonus de créditos al comprar packs | — | `proExtraCreditsPercent` (20%) | ✅ Implementado (§2.5, RF.10). Congelado en el checkout, no en la confirmación (§2.5). |
+| Badge "Pro" en perfil público | — | ✓ | ✅ Implementado (H8.4). Icono `Crown`, `/vendedor/[slug]`. Ver §1.4.2. |
+| Destacados gratis al mes | — | `proMonthlyFeaturedQuota` (4), duración fija `proQuotaFeaturedDurationDays` (7d) | ✅ Implementado (H8.1–H8.5a). Ver §1.4.1 — es el núcleo de este hito. |
+
+**Deuda previa, fuera de alcance del Hito 8 (declarada aquí desde la revisión 2, nunca
+implementada — no confundir con lo de arriba, que sí está construido):**
+
+| Derecho declarado | Estado real |
+|---|---|
+| Fotos por anuncio (4 free / 10 Pro) | ❌ No implementado. No hay código que límite fotos por plan. |
+| Estadísticas de visitas | ❌ No implementado. No hay ninguna superficie de estadísticas para el vendedor. |
+
+Si se retoman, son candidatas para Hito 8b o Hito 9 — no se tocaron en H8 porque el hito se centró
+en la cuota de destacados (la pieza que sí formaba parte del encargo).
+
+### 1.4.1 Mecánica de la cuota mensual de destacados Pro (H8.1–H8.5a) — el núcleo del hito
+
+**Las dos bolsas.** Un destacado puede venir de dos sitios que nunca se mezclan:
+
+| Bolsa | Origen | Caducidad | Cómo se identifica |
+|---|---|---|---|
+| Cuota mensual Pro | Gratis, parte del plan Pro | Caduca al fin del periodo de facturación — no se acumula | `Entitlement.origin = PRO_QUOTA` |
+| Adquirido | Créditos (`featuredByCredits`) o pago directo (Redsys) | No caduca nunca | `Entitlement.origin = CREDITS \| REDSYS` |
+
+El campo que las distingue es `Entitlement.origin` (enum `FeaturedOrigin { CREDITS, REDSYS,
+PRO_QUOTA }`), añadido en la migración `add_featured_origin` (H8.1) con backfill de las filas
+`FEATURED_LISTING` preexistentes (`transactionId` presente → `REDSYS`; ausente → `CREDITS`). Es un
+campo en el `Entitlement` ya existente (RF.2), no un modelo nuevo — evaluado y descartado un modelo
+`FeaturedAllowance` separado porque hubiera introducido un segundo lugar donde el estado del
+destacado pudiera desincronizarse.
+
+**Reseteo DERIVADO — sin cron, sin contador que resetear.** "Usado este periodo" se calcula
+contando cuántos `Entitlement` con `origin = PRO_QUOTA` tiene el usuario con `createdAt >=
+subscription.currentPeriodStart`. `currentPeriodStart` es el mismo campo que Stripe avanza en cada
+renovación de la suscripción (`invoice.payment_succeeded`, §5) — en cuanto avanza, los `PRO_QUOTA`
+del periodo anterior dejan de contar automáticamente, sin que nada los "resetee" explícitamente. El
+periodo se obtiene de la `Subscription` vinculada al `Entitlement PRO_SUBSCRIPTION` vigente
+(`Entitlement.subscriptionId`), no de un `findFirst` genérico sobre `Subscription`, para no
+confundirse con suscripciones canceladas residuales del mismo usuario.
+
+```
+limit     = Setting['proMonthlyFeaturedQuota']       (default 4)
+used      = COUNT(Entitlement WHERE userId=X AND type=FEATURED_LISTING
+                   AND origin='PRO_QUOTA' AND createdAt >= subscription.currentPeriodStart)
+remaining = max(0, limit - used)
+```
+
+Expuesto en `GET /billing/pro-status` (`EntitlementService.getFeaturedQuotaStatus`), que devuelve
+además `isPro`, `periodStart`/`periodEnd` y `quotaDurationDays` — el punto único que consulta el
+frontend para saber "¿cuántos destacados gratis le quedan a este usuario?".
+
+**El usuario elige la vía (H8.5a) — decisión de producto que sustituyó a la automática de H8.3.**
+La primera versión (H8.3) hacía "cuota-primero" automáticamente: si había cuota, se usaba sin
+preguntar. H8.5a cambió esto: el usuario elige explícitamente en `POST /billing/featured-by-credits`
+vía el campo `useQuota: boolean` del DTO:
+
+| `useQuota` | Efecto | Duración | Coste |
+|---|---|---|---|
+| `true` | Gratis, `origin = PRO_QUOTA` | FIJA: `Setting['proQuotaFeaturedDurationDays']` (7d). Ignora cualquier `priceId` recibido — no hay variante que elegir. | Ninguno. Sin débito de wallet, sin `CreditLedger`. |
+| `false` / omitido | De pago, `origin = CREDITS` | A elegir por el usuario vía `priceId` (7/14/30d, como siempre) | Créditos, según `featuredCreditCost{N}d` |
+
+Si el usuario pide cuota y no le queda (`remaining = 0`), el backend responde **`400
+{ code: 'QUOTA_UNAVAILABLE' }`** — nunca cae a créditos en silencio, porque el usuario pidió cuota
+a propósito; el frontend ofrece entonces la vía de créditos en el mismo diálogo, sin dejar al
+usuario atascado. Si el usuario elige créditos teniendo cuota disponible, la cuota **queda intacta**
+— puede reservarla deliberadamente para otro anuncio.
+
+**Concurrencia — el punto que más cuidado exigió.** La cuota es derivada (un `COUNT`, no un saldo
+decrementable como el `Wallet`), así que dos peticiones de cuota simultáneas del mismo usuario
+podrían leer "remaining=1" antes de que ninguna cree su `Entitlement`, y ambas concederían un
+destacado gratis para una cuota de uno. Se resuelve con
+`EntitlementService.hasAvailableFeaturedQuota(tx, userId)`: bloquea la fila de la `Subscription`
+vinculada (`SELECT ... FOR UPDATE`) dentro de la misma transacción que crea el `Entitlement
+PRO_QUOTA` — la segunda petición concurrente espera ese lock hasta que la primera confirma (o
+revierte), y su propio `COUNT`, ejecutado tras adquirir el lock, ya ve el grant recién creado. El
+mismo lock protege también contra una renovación de Stripe concurrente que intentara avanzar
+`currentPeriodStart` a mitad de la operación. **Verificado con un test que falla de forma
+reproducible sin el lock** (dos peticiones de cuota concurrentes con `remaining=1` devuelven
+`[201, 201]` sin lock — el bug exacto que preocupaba — y siempre `[201, 400]` con lock puesto).
+
+**Settings nuevos**, ambos editables en `/admin/ajustes` (patrón `NumberSettingEditor`):
+
+- `proMonthlyFeaturedQuota` (default 4) — cuántos destacados gratis al mes.
+- `proQuotaFeaturedDurationDays` (default 7) — duración fija de un destacado pagado con cuota.
+
+### 1.4.2 Badge "Pro" en el perfil público (H8.4)
+
+`EntitlementService.isProActive(userId)` existía desde antes (gating de límites y precios) pero
+nunca se usaba para mostrar nada. H8.4 lo expone en `UsersService.findBySlug` (el endpoint tras
+`/vendedor/[slug]`) como `isPro: boolean` — un único cálculo por perfil, sin N+1 (es un vendedor,
+no un listado). El frontend pinta un `<Badge>` con icono `Crown` (fondo primary sólido) junto al
+nombre, solo cuando `isPro`. **Deliberadamente NO se toca la card de anuncio en listados/
+búsqueda/categoría/home** — requeriría denormalizar `isPro` del vendedor en el documento de
+Meilisearch (mismo mecanismo que `boostScore`) para evitar N+1 al pintar una lista con vendedores
+distintos; queda anotado como mejora futura opcional en §16, no implementada.
+
+### 1.5 Vendedor de confianza (H8 Bloque E) — INDEPENDIENTE de Pro
+
+Bloque autocontenido, sin relación de dependencia con Pro en ningún sentido: un usuario puede ser
+Pro, de confianza, ambos o ninguno. Mientras Pro es un beneficio que el usuario **compra**, "de
+confianza" es una **decisión de la plataforma**, otorgada manualmente por un `ADMIN`.
+
+- **Schema:** `User.trusted Boolean @default(false)`. Campo propio del usuario, no derivado de
+  ningún cálculo (a diferencia de `isPro`, que sí requiere `isProActive`).
+- **Backend admin:** `PATCH /admin/users/:id/trusted { trusted: boolean }` — **ADMIN-only**
+  (hereda `@Roles(Role.ADMIN)` de la clase, sin override a `MODERATOR`). Decisión deliberada:
+  otorgar confianza es decisión de plataforma, no moderación, a diferencia de suspender (que sí
+  pueden hacer moderadores). `AuditLogService.log` con acción `USER_TRUST` / `USER_UNTRUST`
+  (before/after `{trusted}`), mismo patrón que `changeUserStatus`/`changeUserRole`.
+- **Exposición pública, sin Meili, con Postgres directo (no hay N+1 en ninguno de los dos casos):**
+  - `UsersService.findBySlug` (`/vendedor/[slug]`): `trusted` es un campo directo del `select`.
+  - `ListingsService` — `LISTING_INCLUDE.seller` (ficha del anuncio, `/anuncio/[slug]`, vía
+    `SellerCard`): `trusted: true` añadido al `select` del vendedor.
+- **Frontend:** badge `BadgeCheck` verde (`outline`, `border-green-300 bg-green-50 text-green-700`)
+  — deliberadamente un tercer estilo visual distinto del Pro (`Crown`, primary sólido) y del
+  "Destacado" (ámbar), para que los tres conceptos nunca se confundan. En `/vendedor/[slug]` ambos
+  badges (Pro + confianza) conviven en la misma fila `flex flex-wrap`, sin amontonarse.
+- **Admin UI:** columna "Confianza" en `/admin/usuarios` con badge de estado + botón
+  Marcar/Quitar, visible solo para `ADMIN` (oculto para `MODERATOR`, igual que Banear/Desbanear).
+- **Deuda conocida, no resuelta aquí:** ver §16 — la ficha del anuncio cachea al vendedor en Redis
+  5 minutos; desmarcar a alguien no invalida esa caché.
 
 ---
 
@@ -297,17 +431,29 @@ Esta regla se implementa junto al flujo de compra de packs por Redsys (RF.10/RF.
 
 ## 3. Operación unificada "conceder destacado"
 
-### 3.1 El principio
+### 3.1 El principio (y dónde la realidad se apartó de él — ver deuda en §16)
 
-Existe **una sola operación de dominio** que concede el destacado, y **dos authorization paths** que la invocan. El efecto es idéntico por construcción: no hay dos caminos paralelos que casualmente hacen lo mismo.
+El diseño original preveía **una sola operación de dominio** que concede el destacado, con
+**varios authorization paths** que la invocan, para que el efecto sea idéntico por construcción.
+Con H8 son tres vías, no dos:
 
 ```
 vía créditos   ──┐
-                  ├──► grantFeaturedListing(params)  ──► Entitlement FEATURED_LISTING
-vía Redsys     ──┘                                        (mismo expiresAt, mismo boost)
+vía cuota Pro  ──┼──► grantFeaturedListing(params)  ──► Entitlement FEATURED_LISTING
+vía Redsys     ──┘                                        (mismo expiresAt, boostScore=1)
 ```
 
-### 3.2 `grantFeaturedListing` — la operación central
+**Esto es el diagrama ideal, no exactamente lo que hay.** En la implementación real, solo la vía
+Redsys llama a `grantFeaturedListing`. Las vías créditos y cuota Pro viven **ambas dentro de
+`featuredByCredits`**, que mantiene su propia copia de las validaciones (ownership, `ACTIVE`, sin
+destacado activo) en su propio `$transaction`, porque necesita atomicidad con el débito del wallet
+(vía créditos) o con el lock de concurrencia (vía cuota, §1.4.1) — algo que `grantFeaturedListing`
+no puede dar al usar `this.prisma` en vez de la `tx` del caller. Es decir: hay **dos puntos de
+concesión**, no uno, pese a que el principio de diseño pedía uno solo. Documentado como deuda
+consciente en §16 — cualquier regla nueva sobre "cómo se concede un destacado" tiene que aplicarse
+en ambos sitios, y ya ha pasado dos veces (H8.1 origin, H8.3/H8.5a cuota).
+
+### 3.2 `grantFeaturedListing` — la operación central (vía Redsys)
 
 ```typescript
 interface GrantFeaturedParams {
@@ -316,6 +462,7 @@ interface GrantFeaturedParams {
   durationDays: number;
   priceId: string;          // Price de la variante elegida
   transactionId?: string;   // Solo cuando la vía es Redsys (cobro real)
+  origin: FeaturedOrigin;   // H8.1 — CREDITS | REDSYS | PRO_QUOTA (ver §1.4.1)
 }
 ```
 
@@ -323,15 +470,16 @@ Esta función en `BillingService`:
 
 1. Verifica que el anuncio está `ACTIVE` y pertenece a `userId`. → 403 si no.
 2. Verifica que no hay un `Entitlement FEATURED_LISTING` activo para ese listing. → 400 si ya existe.
-3. Crea `Entitlement { type: FEATURED_LISTING, userId, listingId, expiresAt: now + durationDays, priceId, transactionId? }`.
+3. Crea `Entitlement { type: FEATURED_LISTING, userId, listingId, expiresAt: now + durationDays, priceId, transactionId?, origin }`.
 4. Encola job `index` en BullMQ (el `IndexingProcessor` recalculará `boostScore = 1`).
 
-`grantFeaturedListing` **no sabe cómo se pagó**. Solo recibe el resultado validado.
+`grantFeaturedListing` **no sabe cómo se pagó**. Solo recibe el resultado validado, incluido el
+`origin` que le corresponde a la fila resultante.
 
-### 3.3 Vía créditos — `featuredByCredits`
+### 3.3 Vía créditos — `featuredByCredits` con `useQuota: false` (u omitido)
 
 ```
-1. Leer durationDays del Price elegido.
+1. Leer durationDays del Price elegido (dto.priceId es obligatorio en esta vía).
 2. Leer coste de Setting (featuredCreditCost{N}d).
 3. Débito atómico en Wallet (dentro de una transacción Postgres):
 
@@ -343,11 +491,15 @@ Esta función en `BillingService`:
 
 4. Crear CreditLedger { type: FEATURED_DEBIT, amount: -cost,
                         referenceType: "Listing", referenceId: listingId }.
-5. Llamar a grantFeaturedListing({ userId, listingId, durationDays, priceId }).
-   (sin transactionId: no hay cobro en dinero)
+5. Crear Entitlement { origin: CREDITS, priceId, ... } directamente en la misma tx
+   (no llama a grantFeaturedListing — ver §3.1).
 ```
 
-El `UPDATE`, el `CreditLedger` y el `Entitlement` se escriben en la misma transacción Postgres. Si `grantFeaturedListing` falla (p.ej., ya había un destacado activo), el rollback devuelve los créditos. El usuario nunca pierde créditos por un destacado que no se concedió.
+El `UPDATE`, el `CreditLedger` y el `Entitlement` se escriben en la misma transacción Postgres. Si
+la creación del `Entitlement` falla (p.ej., ya había un destacado activo), el rollback devuelve los
+créditos. El usuario nunca pierde créditos por un destacado que no se concedió. La cuota Pro,
+aunque el usuario la tuviera disponible, **no se toca** en esta vía — queda intacta para que el
+usuario la reserve deliberadamente si lo prefiere (decisión de H8.5a, ver §1.4.1).
 
 ### 3.4 Vía Redsys — `featuredByRedsys`
 
@@ -359,10 +511,29 @@ El `UPDATE`, el `CreditLedger` y el `Entitlement` se escriben en la misma transa
 3. Extraer { userId, listingId, priceId, durationDays } de Transaction.metadata
    (guardado antes del redirect).
 4. Llamar a grantFeaturedListing({ userId, listingId, durationDays, priceId,
-                                    transactionId: transaction.id }).
+                                    transactionId: transaction.id, origin: 'REDSYS' }).
 ```
 
 No hay débito de créditos. La `Transaction` deja la traza del cobro en EUR con desglose de IVA.
+
+### 3.5 Vía cuota Pro — `featuredByCredits` con `useQuota: true`
+
+Tercera vía, añadida en H8.3 (automática) y convertida en elección explícita del usuario en H8.5a.
+Vive en el mismo `featuredByCredits` que §3.3, bifurcando antes de tocar el wallet. La mecánica
+completa (las dos bolsas, el reseteo derivado, la elección de vía, la concurrencia) está en
+**§1.4.1** para no duplicarla — aquí solo el resumen de la vía como tercer camino de concesión:
+
+```
+1. Ignora dto.priceId si viene (la duración es fija: Setting proQuotaFeaturedDurationDays).
+2. EntitlementService.hasAvailableFeaturedQuota(tx, userId):
+   - Bloquea la Subscription vinculada (SELECT ... FOR UPDATE) — ver concurrencia en §1.4.1.
+   - Si no hay cuota disponible → 400 { code: 'QUOTA_UNAVAILABLE' }. NO cae a créditos.
+3. Si hay cuota: crea Entitlement { origin: PRO_QUOTA, priceId: null, ... } directamente
+   en la tx (igual que §3.3, no llama a grantFeaturedListing).
+```
+
+Sin débito de wallet, sin `CreditLedger` — es la única de las tres vías que no genera ningún
+movimiento económico en absoluto (el "coste" ya está pagado en la cuota mensual de Pro).
 
 ---
 
@@ -417,7 +588,7 @@ Los cinco webhooks de Stripe ya implementados en `BillingProcessor` (RF.3):
 | Evento Stripe | Acción |
 |---|---|
 | `checkout.session.completed` | Inicio de suscripción: crear `Subscription` + `Entitlement PRO_SUBSCRIPTION` |
-| `invoice.payment_succeeded` | Renovación: crear `Transaction` (gateway="STRIPE") + actualizar `Subscription.currentPeriodEnd` + extender `Entitlement.expiresAt` |
+| `invoice.payment_succeeded` | Renovación: crear `Transaction` (gateway="STRIPE") + actualizar `Subscription.currentPeriodStart` **y** `currentPeriodEnd` + extender `Entitlement.expiresAt`. El avance de `currentPeriodStart` en cada renovación es lo que hace posible el reseteo derivado de la cuota de destacados (§1.4.1) — sin cron. |
 | `invoice.payment_failed` | `Subscription.status = PAST_DUE` |
 | `customer.subscription.updated` | Actualizar estado de la `Subscription` |
 | `customer.subscription.deleted` | `Subscription.status = CANCELED` |
@@ -699,7 +870,10 @@ El bump **no cambia** `boostScore`. El destacado **no cambia** `sortDate` direct
 ─── Billing (usuario autenticado, JWT) ────────────────────────────────────────
 POST /billing/checkout/credits-pack      → Inicia pago Redsys para un pack de créditos
 POST /billing/checkout/featured-pay      → Inicia pago Redsys para destacado directo
-POST /billing/featured-by-credits        → Destaca con créditos (inmediato)
+POST /billing/featured-by-credits        → Destaca — { listingId, useQuota?, priceId? } (H8.5a: el
+                                            usuario elige la vía, ver §1.4.1)
+GET  /billing/pro-status                 → { isPro, limit, used, remaining, periodStart, periodEnd,
+                                            quotaDurationDays } — cuota de destacados (H8.2)
 GET  /billing/wallet                     → Saldo + últimos movimientos del wallet
 GET  /billing/my-subscriptions           → Suscripciones activas (ya impl.)
 POST /billing/cancel-subscription/:id    → Cancela suscripción Pro (ya impl.)
@@ -709,6 +883,11 @@ POST /billing/checkout/pro               → Stripe Checkout para Plan Pro (ya i
 
 ─── Listings (usuario autenticado, propietario del anuncio) ───────────────────
 POST /listings/:id/bump                  → Bump por créditos
+
+─── Users (público) ────────────────────────────────────────────────────────────
+GET  /users/:slug                        → Perfil del vendedor — incluye isPro (H8.4) y
+                                            trusted (H8 Bloque E)
+GET  /listings/:slug                     → Ficha del anuncio — seller incluye trusted (H8 Bloque E)
 
 ─── Webhooks (sin JWT; autenticación por firma) ────────────────────────────────
 POST /webhooks/stripe                    → Guard HMAC Stripe-Signature (ya impl.)
@@ -720,6 +899,8 @@ GET  /admin/billing/subscriptions        → Suscripciones activas (filtros: sta
 GET  /admin/billing/wallets              → Saldos de wallets (filtros: userId)
 POST /admin/billing/wallets/:id/credit   → Acreditación manual (ADMIN_CREDIT)
 GET  /admin/billing/entitlements         → Lista de entitlements activos (filtros: type, userId)
+PATCH /admin/users/:id/trusted           → { trusted: boolean } — Vendedor de confianza, ADMIN-only
+                                            + AuditLog USER_TRUST/USER_UNTRUST (H8 Bloque E)
 ```
 
 ### Flujo Redsys — `POST /billing/checkout/credits-pack` o `featured-pay`
@@ -812,6 +993,14 @@ El modelo `Transaction` incluye `invoiceNumber` e `invoiceUrl` como punto de uni
 | **RF.11** | Frontend destacado y bump: selector "Destacar anuncio" en `/mis-anuncios` (vía créditos / vía pago directo Redsys), botón "Bumpar" con visualización de cooldown, badge "Destacado" con días restantes en tarjeta del anuncio. | RF.8, RF.10 |
 | **RF.12** | Backoffice admin: tabla de transacciones (filtros gateway/status/fecha), saldos de wallets, acreditación manual de créditos, entitlements por usuario. | RF.6 |
 | **RF.13** | Facturación fiscal: `InvoicingProcessor`, integración con sistema externo (Holded u otro), VeriFactu, descarga de facturas en `/perfil/facturas`. | RF.12 |
+| **H8.1** ✅ | Cimiento de la cuota: migración `add_featured_origin` (`FeaturedOrigin`, `Entitlement.origin`, backfill, índice), `Setting proMonthlyFeaturedQuota`, fix de `freeActiveListingLimit`/`proActiveListingLimit` no expuestos en `/admin/ajustes`. Sin lógica de negocio todavía. | RF.7 |
+| **H8.2** ✅ | `EntitlementService.getFeaturedQuotaStatus` (query derivada, §1.4.1) + `GET /billing/pro-status`. `origin` propagado en todos los `entitlement.create` de `FEATURED_LISTING` existentes. | H8.1 |
+| **H8.3** ✅ (superada por H8.5a) | Bifurcación cuota-primero AUTOMÁTICA en `featuredByCredits` + lock de concurrencia (`hasAvailableFeaturedQuota`, `SELECT FOR UPDATE`). El mecanismo de lock sigue vigente; el "automático" lo sustituyó H8.5a. | H8.2 |
+| **H8.4** ✅ | Badge "Pro" en `/vendedor/[slug]` (§1.4.2). `isPro` en `UsersService.findBySlug`. | H8.1 (independiente de H8.2/3) |
+| **H8.5a** ✅ | Cambio de producto: el usuario ELIGE la vía (`useQuota` en el DTO) en vez de automática. Duración fija de cuota (`Setting proQuotaFeaturedDurationDays`). Error explícito `QUOTA_UNAVAILABLE`. Reemplaza el comportamiento de H8.3. | H8.3 |
+| **H8.5b** ✅ | UX: selector "Cómo destacar" en `DestacadoDialog` (gratis vs. créditos/tarjeta), aviso de último gratis del mes, banner de cuota en `/mis-anuncios`, sección de cuota en `/perfil/suscripcion`, manejo con gracia de `QUOTA_UNAVAILABLE`. | H8.5a |
+| **H8 Bloque E** ✅ | "Vendedor de confianza" (§1.5): `User.trusted`, `PATCH /admin/users/:id/trusted` (ADMIN-only + AuditLog), badge `BadgeCheck` verde en perfil y ficha, toggle en `/admin/usuarios`. Autocontenido, independiente de todo lo anterior. | — |
+| **H8.6** ✅ | Esta revisión del documento — consolida §1.4 (resuelve la contradicción con §2.5), añade §1.4.1/§1.4.2/§1.5, actualiza §3 y esta tabla, documenta la deuda del hito en §16. Cierra el Hito 8 enfocado. | H8.1–H8.5b, Bloque E |
 
 ---
 
@@ -823,7 +1012,7 @@ El modelo `Transaction` incluye `invoiceNumber` e `invoiceUrl` como punto de uni
 | `Wallet` como modelo separado (no campo en `User`) | El débito atómico requiere un `UPDATE` sobre la fila del wallet. Acoplarlo a la fila de `User` bloquearía operaciones no relacionadas en la misma transacción. |
 | Débito atómico con SQL bruto en transacción Prisma | `UPDATE Wallet SET balance = balance - N WHERE userId = X AND balance >= N` es el mecanismo más simple y correcto para garantizar que `balance >= 0` sin serializable isolation ni optimistic locking. Cero filas = saldo insuficiente. |
 | Un solo campo `bumpedAt` (sin `lastBumpRequestAt`) | Los intentos fallidos (sin saldo, cooldown, anuncio inactivo) **no** actualizan `bumpedAt`. Un campo único cumple las dos funciones: límite de 1/hora y orden por recencia. |
-| `grantFeaturedListing` como punto único de concesión | Las dos vías de pago (créditos y Redsys) desembocan en la misma función. Cualquier cambio en las reglas del destacado se hace en un solo lugar. |
+| `grantFeaturedListing` como punto único de concesión — **corregido en H8, ver §3.1 y §16** | El diseño original preveía que las vías de pago desembocaran en la misma función. En la práctica, solo Redsys la usa; créditos y cuota Pro mantienen su propia copia de las validaciones dentro de `featuredByCredits` por necesidad de atomicidad transaccional (débito de wallet / lock de concurrencia). Deuda consciente, no resuelta en H8 — documentada para que cualquier regla nueva se aplique en ambos sitios. |
 | Notificación online = fuente de verdad (invariante de seguridad) | La `success_url` puede ser manipulada o no ejecutarse (browser cerrado tras el pago). La notificación HMAC firmada es infalsificable. Este invariante evita el bug más común en integraciones Redsys: conceder el acceso en el retorno del usuario. |
 | Redsys Redirección como modo base | SAQ A (nivel mínimo PCI), equivalente a Stripe Checkout. Si el banco exige InSite, la lógica de notificación y firma es idéntica; solo cambia el frontend. |
 | `Ds_Order` generado por nosotros como clave de idempotencia | Redsys no emite un event ID propio. El `Ds_Order` lo generamos antes del redirect y lo usamos como `GatewayEvent.gatewayEventId`. Pre-crear la `Transaction` con `status=PENDING` garantiza que cualquier notificación se pueda vincular a un pedido legítimo. |
@@ -833,3 +1022,47 @@ El modelo `Transaction` incluye `invoiceNumber` e `invoiceUrl` como punto de uni
 | Gastos de créditos sin `Transaction` (solo `CreditLedger`) | El gasto de créditos no es un hecho imponible (el IVA ya tributó al comprar el pack). Solo las compras con dinero real generan `Transaction` y factura. |
 | Créditos no caducan | Simplicidad y UX. Si en el futuro se quiere caducidad (p.ej. créditos de campaña), basta con añadir `expiresAt` al `CreditLedger` y un cron que expire entradas. |
 | Modelos existentes conservados íntegros | Los 6 modelos de RF.2 son agnósticos de pasarela. Solo se extienden con campos opcionales y nuevas relaciones. No se rompe ninguna migración ni test existente. |
+| `origin` como campo en `Entitlement`, no un modelo `FeaturedAllowance` nuevo (H8.1) | La pregunta "¿cuántos destacados de cuota lleva usado este usuario?" ya es una consulta directa sobre `Entitlement`, la tabla que se consulta para todo lo demás. Un modelo nuevo con un contador propio introduciría un segundo lugar donde el estado pudiera desincronizarse del real. |
+| Reseteo de la cuota DERIVADO, no contador+cron (H8.2) | Contar `PRO_QUOTA` con `createdAt >= currentPeriodStart` en vez de mantener un contador que un cron resetea. Cero estado nuevo que pueda desincronizarse, cero cron nuevo, auditable con una query. El único coste es un `COUNT` adicional al destacar — trivial en volumen. |
+| Lock `SELECT ... FOR UPDATE` sobre la `Subscription` para la concurrencia de cuota (H8.3) | La cuota es derivada (sin saldo que decrementar atómicamente como el `Wallet`), así que el lock pesimista sobre la fila de la suscripción es lo que serializa dos peticiones concurrentes del mismo usuario. Verificado con un test que fuerza solapamiento real (`jest.spyOn` + delay) y falla de forma reproducible si se quita el lock — la comprobación "ingenua" con dos `POST` simultáneos no bastaba: en Postgres local ambas transacciones son demasiado rápidas para solaparse de verdad. |
+| Elección explícita del usuario (H8.5a) en vez de "cuota-primero" automático (H8.3) | Decisión de producto: el usuario debe poder reservar su cuota para otro anuncio y pagar con créditos aunque le quede cuota disponible. La cuota nunca se consume sin que el usuario lo pida explícitamente (`useQuota: true`), y pedirla sin tenerla es un error explícito (`QUOTA_UNAVAILABLE`), nunca un fallback silencioso a créditos. |
+| `User.trusted` como campo independiente, no derivado de `isProActive` (Bloque E) | "De confianza" es una decisión de la plataforma (ADMIN-only); Pro es una compra. Mezclarlos en un solo cálculo impediría que un usuario fuera ambos, ninguno, o solo uno — el caso real que el negocio quería permitir. |
+
+---
+
+## 16. Estado del Hito 8 (H8) — CERRADO (enfocado)
+
+El Hito 8 enfocado —consolidar Pro y construir la cuota mensual de destacados, más el Bloque E de
+Vendedor de confianza— está **cerrado**. Ráfagas H8.1 a H8.6 y Bloque E completadas, batería de
+tests verde en cada cierre (backend e2e en serie sobre BD fresca + Playwright + `tsc --noEmit`),
+verificación manual con capturas de pantalla reales en las ráfagas de UX (H8.5b, H8.4, Bloque E).
+
+### 16.1 Deuda dejada conscientemente (no bloquea el cierre, sí hay que revisarla más adelante)
+
+| Deuda | Detalle | Dónde revisar |
+|---|---|---|
+| Duplicación `grantFeaturedListing` / `featuredByCredits` | La lógica de "conceder un destacado" vive en dos sitios (no uno, como pedía el diseño original) por necesidad de atomicidad transaccional. Cualquier regla nueva sobre destacados debe aplicarse en ambos. | §3.1. Posible solución futura: unificar vía un patrón de `tx` opcional pasado a `grantFeaturedListing` (como ya hace `AuditLogService.log(dto, tx?)`), para que pueda participar en la transacción del caller sin duplicar validaciones. No evaluado en profundidad — anotado como pista, no como diseño cerrado. |
+| Caché Redis 5 min del vendedor en la ficha del anuncio | `ListingsService.findBySlug` cachea la ficha completa (incluido `seller.trusted`, `seller.avatarUrl`, `seller.name`) 5 minutos. Cambiar cualquiera de esos campos no invalida la caché — una ficha ya vista puede tardar hasta 5 min en reflejarlo. Preexistente a H8, pero H8 (Bloque E) lo hizo más visible al añadir un campo administrable con efecto inmediato esperado por el admin. | `ListingsService.findBySlug`/`invalidateAndReindex`. Solución futura: invalidar `cacheKey(slug)` de los anuncios de un vendedor cuando cambia `trusted` (o cualquier campo de perfil), igual que ya se hace al editar el propio anuncio. |
+| Badges Pro / confianza no en cards de listados (búsqueda/categoría/home) | Solo se implementaron en `/vendedor/[slug]` y en la ficha del anuncio (`/anuncio/[slug]`), nunca en las cards de listados. Añadirlos ahí requeriría denormalizar `isPro`/`trusted` del vendedor en el documento de Meilisearch (mismo mecanismo que `boostScore`), para evitar N+1 al pintar una lista con vendedores distintos. Decisión deliberada de alcance en H8.4 y Bloque E, no un olvido. | `IndexingProcessor` / documento de Meilisearch, si se retoma. |
+| Aislamiento dev/test de Redis y BD en paralelo local | Ejecutar `jest --config test/jest-e2e.json` en paralelo (workers por defecto) contra una BD de test local compartida produce deadlocks y violaciones de FK entre suites (cada spec hace `cleanDb` en su `beforeAll`). Con `--runInBand` sobre BD fresca no hay fallos — así corre CI. Preexistente a H8, documentado repetidamente durante el hito porque se hizo evidente al añadir tantas suites nuevas. | `jest-e2e.json`, posible aislar por BD/Redis por worker en Hito 9. |
+| Deuda previa sin tocar en H8 (ver §1.4) | Fotos por anuncio (4/10) y estadísticas de visitas siguen declaradas mas no implementadas. No formaban parte del encargo de H8. | Hito 8b o Hito 9 si se retoman. |
+
+### 16.2 Diferido conscientemente (no es deuda — decisión explícita de alcance, fuera del Hito 8 enfocado)
+
+- **Bloque C (estadísticas para el vendedor)** y **Bloque D (campañas/cupones)** — quedan para
+  **Hito 8b** o más adelante. No se empezaron; no hay código parcial que mantener.
+- **Redsys E2E real** (el ciclo completo notificación → acreditación con credenciales reales) sigue
+  bloqueado por tooling: hace falta un túnel público (ngrok o similar) para que Redsys pueda
+  notificar a un backend en desarrollo, y no se ha configurado. Los flujos están probados con
+  Redsys mockeado (firma HMAC, generación de formulario) desde RF.10; el ciclo real queda para
+  cuando se disponga del túnel.
+
+### 16.3 Qué mirar primero si se retoma el sistema de facturación
+
+1. §1.4.1 (mecánica de la cuota) y §3.5 (vía cuota) si se toca cualquier cosa relacionada con
+   destacados — son el código más nuevo y el más sensible a condiciones de carrera.
+2. §16.1 antes de añadir campos nuevos al vendedor cacheado en la ficha del anuncio (evitar
+   sorpresas con la caché de 5 minutos).
+3. Esta tabla de decisiones (§15) tiene ahora entradas corregidas respecto a revisiones anteriores
+   (`grantFeaturedListing` ya no es "punto único") — si algo de código contradice lo escrito aquí,
+   confiar en el código y actualizar el documento, no al revés.
