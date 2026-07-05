@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../infra/prisma/prisma.service';
+import { EntitlementService } from '../billing/entitlement.service';
 import { UpdateMeDto } from './dto/update-me.dto';
 
 const PRIVATE_PROFILE_SELECT = {
@@ -19,7 +20,10 @@ const PRIVATE_PROFILE_SELECT = {
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly entitlements: EntitlementService,
+  ) {}
 
   async findById(id: string) {
     const user = await this.prisma.user.findUnique({
@@ -38,10 +42,12 @@ export class UsersService {
     });
   }
 
+  /** H8.4 — perfil público del vendedor. isPro se calcula una sola vez (no hay N+1: un vendedor, no un listado). */
   async findBySlug(slug: string) {
     const user = await this.prisma.user.findUnique({
       where: { slug },
       select: {
+        id: true,
         name: true,
         slug: true,
         avatarUrl: true,
@@ -52,7 +58,8 @@ export class UsersService {
       },
     });
     if (!user) throw new NotFoundException('User not found');
-    const { createdAt, ...rest } = user;
-    return { ...rest, memberSince: createdAt };
+    const { id, createdAt, ...rest } = user;
+    const isPro = await this.entitlements.isProActive(id);
+    return { ...rest, memberSince: createdAt, isPro };
   }
 }

@@ -1,8 +1,9 @@
 import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { Package, MapPin, CalendarDays } from 'lucide-react';
+import { Package, MapPin, CalendarDays, Crown } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ListingCard } from '@/components/anuncios/ListingCard';
 import { FavoritesGridProvider } from '@/components/anuncios/FavoritesGridContext';
@@ -80,7 +81,15 @@ export default async function VendedorPage({
         </Avatar>
 
         <div className="flex-1 space-y-1">
-          <h1 className="text-2xl font-bold">{seller.name}</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-2xl font-bold">{seller.name}</h1>
+            {seller.isPro && (
+              <Badge className="gap-1" data-testid="seller-pro-badge">
+                <Crown className="h-3 w-3" aria-hidden />
+                Pro
+              </Badge>
+            )}
+          </div>
 
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
             {location && (

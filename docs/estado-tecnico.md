@@ -1585,12 +1585,36 @@ hito (H8.6); mientras tanto, el detalle de las decisiones vive en el hilo de dis
   confirmado visualmente el selector con las dos opciones, el cambio a la vía de pago, el banner en
   `/mis-anuncios` y la sección de cuota en `/perfil/suscripcion`.
 
+**H8.4 (badge "Pro" en el perfil público del vendedor) — hecho. Con esto quedan implementadas las
+cuatro ventajas Pro consolidadas en el mini-diseño de H8 (límite de anuncios, bonus de créditos,
+cuota de destacados, badge).**
+
+- Backend: `UsersService.findBySlug` (sirve `GET /users/:slug`, el endpoint de `/vendedor/[slug]`)
+  ahora calcula `isPro` con `EntitlementService.isProActive(seller.id)` — una sola llamada por
+  perfil, sin N+1 (es un vendedor, no un listado). `UsersModule` importa `BillingModule` para poder
+  inyectar `EntitlementService` (mismo patrón que `ListingsModule`, que ya lo hacía para los límites
+  de anuncios; sin dependencia circular). El `id` interno se usa para el cálculo pero se excluye de
+  la respuesta pública (mismo patrón de desestructuración que ya usaba `createdAt`→`memberSince`).
+- Frontend: `<Badge>` con icono `Crown` junto al nombre en `/vendedor/[slug]/page.tsx`, solo cuando
+  `seller.isPro`. Variant `default` (fondo primary) — deliberadamente un color distinto del ámbar ya
+  usado para "Destacado" en `MyListingCard`, para no confundir "este anuncio está destacado" con
+  "este vendedor es Pro". Reutiliza el lenguaje visual ya establecido en `/perfil/suscripcion`
+  (icono `Crown` = Pro).
+- **Alcance deliberadamente acotado, tal como pedía el encargo:** NO se toca la card de anuncio en
+  listados/búsqueda/categoría/home — requeriría denormalizar `isPro` del vendedor en el documento de
+  Meilisearch (mismo mecanismo que `boostScore`) para evitar N+1 al pintar una lista de anuncios de
+  vendedores distintos. Anotado como mejora futura opcional, no implementada aquí.
+- Tests: `h8-4-seller-pro-badge.e2e-spec.ts` (backend, 5 casos — Pro activo, no-Pro, `PRO_SUBSCRIPTION`
+  caducado, revocado, y que el `id` interno no se filtra) + `vendedor-pro-badge.spec.ts` (Playwright,
+  2 casos — Pro ve badge, no-Pro no ve nada). Verificado con captura de pantalla real. La suite
+  `avatar-upload.spec.ts`, que también visita `/vendedor/vendedor-e2e`, sigue en verde sin cambios.
+
 **Nota de proceso (full suite local vs. CI):** al ejecutar `jest --config test/jest-e2e.json` en
 paralelo (workers por defecto) contra una base de datos de test local compartida, varias suites
 fallan por deadlocks de Postgres y violaciones de FK — cada spec hace `cleanDb` (trunca `User`
 CASCADE) en su `beforeAll`, y si dos suites corren a la vez sobre la misma BD, una puede borrar los
-usuarios que la otra está usando a mitad de test. Con `--runInBand` (serie) sobre BD fresca, las 350
-pruebas pasan limpias (confirmado de nuevo en H8.5b). No es un problema introducido por H8 — es una
+usuarios que la otra está usando a mitad de test. Con `--runInBand` (serie) sobre BD fresca, las 355
+pruebas pasan limpias (confirmado de nuevo en H8.4). No es un problema introducido por H8 — es una
 característica preexistente de la suite (solo es segura en serie, o en paralelo si cada worker
 tuviera su propia BD); documentado aquí porque solo se hizo visible al ejecutar la suite completa en
 local con varios núcleos libres. Revisar en Hito 9 si conviene aislar por base de datos por worker

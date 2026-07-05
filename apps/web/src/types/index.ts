@@ -41,6 +41,8 @@ export interface UserPublic {
   city?: string;
   province?: string;
   memberSince: string;
+  /** H8.4 — true when the seller has an active Pro subscription. */
+  isPro: boolean;
 }
 
 // ── Categories ───────────────────────────────────────────────────────────────
