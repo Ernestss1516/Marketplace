@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { EntitlementType, FeaturedOrigin } from '@prisma/client';
+import { EntitlementType, FeaturedOrigin, Prisma } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 
 function activeFilter() {
@@ -124,5 +124,55 @@ export class EntitlementService {
       periodStart: currentPeriodStart,
       periodEnd: currentPeriodEnd,
     };
+  }
+
+  /**
+   * H8.3 — comprueba si queda cuota Pro disponible Y RESERVA el hueco atómicamente
+   * dentro de la transacción del caller (`tx`), bloqueando la fila de la
+   * Subscription vinculada (`SELECT ... FOR UPDATE`).
+   *
+   * Por qué el lock es imprescindible: la cuota es DERIVADA (un COUNT, no un saldo
+   * decrementable como el Wallet), así que dos peticiones concurrentes del mismo
+   * usuario podrían leer "remaining=1" ANTES de que ninguna cree su Entitlement, y
+   * ambas pasarían por cuota — dos destacados gratis con cupo para uno. El lock
+   * serializa: la segunda petición espera a que la primera confirme (o revierta) su
+   * transacción; al reanudar, su propio COUNT (ejecutado tras adquirir el lock) ya ve
+   * el Entitlement PRO_QUOTA que la primera creó, y devuelve remaining=0 correctamente.
+   * El mismo lock bloquea también una renovación de Stripe concurrente que intentara
+   * avanzar `currentPeriodStart` a mitad de la operación.
+   *
+   * El caller SOLO debe crear el Entitlement PRO_QUOTA dentro de la misma `tx` si este
+   * método devuelve `true` — el lock se mantiene hasta que esa `tx` confirme.
+   */
+  async hasAvailableFeaturedQuota(tx: Prisma.TransactionClient, userId: string): Promise<boolean> {
+    const proEntitlement = await tx.entitlement.findFirst({
+      where: { userId, type: EntitlementType.PRO_SUBSCRIPTION, ...activeFilter() },
+      select: { subscriptionId: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!proEntitlement?.subscriptionId) return false;
+
+    const rows = await tx.$queryRaw<{ currentPeriodStart: Date }[]>`
+      SELECT "currentPeriodStart" FROM "Subscription" WHERE id = ${proEntitlement.subscriptionId} FOR UPDATE
+    `;
+    const currentPeriodStart = rows[0]?.currentPeriodStart;
+    if (!currentPeriodStart) return false; // defensive — subscription row vanished mid-flight
+
+    const setting = await tx.setting.findUnique({
+      where: { key: 'proMonthlyFeaturedQuota' },
+      select: { value: true },
+    });
+    const limit = setting ? Number(setting.value) : DEFAULT_PRO_MONTHLY_FEATURED_QUOTA;
+
+    const used = await tx.entitlement.count({
+      where: {
+        userId,
+        type: EntitlementType.FEATURED_LISTING,
+        origin: FeaturedOrigin.PRO_QUOTA,
+        createdAt: { gte: currentPeriodStart },
+      },
+    });
+
+    return used < limit;
   }
 }

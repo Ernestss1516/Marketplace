@@ -262,10 +262,19 @@ export class BillingService {
 
   /**
    * POST /billing/featured-by-credits
-   * Atomic: wallet debit + CreditLedger + Entitlement in a single Postgres TX.
-   * Rollback restores credits if the grant fails (e.g. already featured).
+   *
+   * H8.3: tries Pro's free monthly quota FIRST, automatically — the user never
+   * chooses. Only when there's no quota left (or the user isn't Pro) does this
+   * fall back to the original credits flow, unchanged.
+   *
+   * Atomic: everything (quota check + grant, OR wallet debit + CreditLedger +
+   * grant) happens in a single Postgres TX. Rollback restores credits if the
+   * grant fails (e.g. already featured).
    */
-  async featuredByCredits(userId: string, dto: FeaturedByCreditsDto): Promise<{ featuredUntil: Date }> {
+  async featuredByCredits(
+    userId: string,
+    dto: FeaturedByCreditsDto,
+  ): Promise<{ featuredUntil: Date; viaQuota: boolean }> {
     const price = await this.prisma.price.findUnique({
       where: { id: dto.priceId },
       select: { id: true, active: true, durationDays: true, creditPackId: true },
@@ -280,6 +289,8 @@ export class BillingService {
     const now = new Date();
     const expiresAt = new Date(now);
     expiresAt.setDate(expiresAt.getDate() + durationDays);
+
+    let viaQuota = false;
 
     await this.prisma.$transaction(async (tx) => {
       // Validate listing ownership and status inside the TX
@@ -310,6 +321,27 @@ export class BillingService {
         });
       }
 
+      // H8.3 — quota-first: hasAvailableFeaturedQuota locks the user's Subscription
+      // row (FOR UPDATE) for the rest of this TX, so two concurrent requests can
+      // never both see quota available for the same last free slot (see its doc).
+      viaQuota = await this.entitlements.hasAvailableFeaturedQuota(tx, userId);
+
+      if (viaQuota) {
+        // Free grant from the quota — no wallet debit, no CreditLedger entry.
+        await tx.entitlement.create({
+          data: {
+            userId,
+            type: EntitlementType.FEATURED_LISTING,
+            listingId,
+            expiresAt,
+            priceId,
+            origin: FeaturedOrigin.PRO_QUOTA,
+          },
+        });
+        return;
+      }
+
+      // Fallback: original credits flow, unchanged.
       // Atomic debit: UPDATE ... WHERE balance >= cost
       const affected = await tx.$executeRaw`
         UPDATE "Wallet" SET balance = balance - ${cost}
@@ -335,8 +367,6 @@ export class BillingService {
       });
 
       // Create entitlement (single source of truth: this is the ONLY place)
-      // H8.2: origin is always CREDITS here — the quota-first branch (draw from
-      // Pro's free monthly quota before debiting the wallet) is H8.3.
       await tx.entitlement.create({
         data: {
           userId,
@@ -354,10 +384,10 @@ export class BillingService {
 
     this.logger.log(
       `Featured by credits: listingId=${listingId}, userId=${userId}, ` +
-        `durationDays=${durationDays}, cost=${cost}`,
+        `durationDays=${durationDays}, viaQuota=${viaQuota}, cost=${viaQuota ? 0 : cost}`,
     );
 
-    return { featuredUntil: expiresAt };
+    return { featuredUntil: expiresAt, viaQuota };
   }
 
   // ---------------------------------------------------------------------------

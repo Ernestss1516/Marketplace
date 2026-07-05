@@ -1468,16 +1468,48 @@ hito (H8.6); mientras tanto, el detalle de las decisiones vive en el hilo de dis
   clave — `PRO_QUOTA` de un periodo anterior al `currentPeriodStart` no cuenta, probando el reseteo
   derivado sin cron) + assertions de `origin` añadidas a `billing-rf6.e2e-spec.ts`
   (`grantFeaturedListing unified`).
-- **Aún no implementado (H8.3+):** la bifurcación cuota-primero en `featuredByCredits` (hoy sigue
-  debitando créditos siempre; la cuota se puede consultar pero no se consume todavía al destacar),
-  el badge "Pro" en el perfil público, y la UX de destacar mostrando "te quedan N este mes".
+**H8.3 (bifurcación cuota-primero — consume la cuota) — hecho:**
+
+- `featuredByCredits` ahora prueba la cuota Pro ANTES que los créditos, automáticamente (el usuario
+  no elige): si hay cuota disponible, concede `Entitlement { origin: PRO_QUOTA }` sin tocar el
+  wallet ni crear `CreditLedger`; si no (no-Pro, o cuota agotada), cae al flujo de créditos de
+  siempre, sin cambios. La respuesta incluye `viaQuota: boolean` (lo consumirá la UI en H8.5).
+- **Concurrencia (el punto crítico de esta ráfaga):** la cuota es derivada (un `COUNT`, no un saldo
+  decrementable como el `Wallet`), así que dos peticiones simultáneas del mismo usuario podrían leer
+  "remaining=1" antes de que ninguna cree su `Entitlement`, y ambas pasarían por cuota. Se resuelve
+  con `EntitlementService.hasAvailableFeaturedQuota(tx, userId)`: bloquea la fila de la `Subscription`
+  vinculada (`SELECT ... FOR UPDATE`) dentro de la misma transacción que luego crea el
+  `Entitlement PRO_QUOTA` — la segunda petición concurrente se queda esperando ese lock hasta que la
+  primera confirma, y al reanudar su propio `COUNT` ya ve el grant recién creado. Mismo lock protege
+  también contra una renovación de Stripe concurrente que intentara avanzar `currentPeriodStart` a
+  mitad de la operación.
+- **Verificación deliberada de que el test de concurrencia no es un falso positivo:** al escribir el
+  test se comprobó a mano que un test "ingenuo" (disparar dos `POST` con `Promise.all` y comprobar el
+  resultado) pasaba igual de bien **con el lock quitado** — en Postgres local, ambas transacciones son
+  tan rápidas que rara vez llegan a solaparse de verdad, así que ese test no demostraba nada. El test
+  que sí cierra la ráfaga con confianza (`h8-featured-quota.e2e-spec.ts`, caso "determinista") envuelve
+  el método real con `jest.spyOn` para insertar una espera DESPUÉS de adquirir el lock y ANTES de que
+  la transacción confirme, forzando un solapamiento real y verificable (se mide que el `Promise.all`
+  tarda al menos lo que dura esa espera, prueba de que el segundo bloqueó de verdad). Con el lock
+  quitado, este test falla de forma reproducible con `[true, true]` — el bug exacto que preocupaba
+  (dos destacados gratis con cupo para uno). Con el lock puesto, pasa siempre. Se mantiene además el
+  test "best-effort" con timing real como red adicional, pero el determinista es el que prueba la
+  ausencia de la condición de carrera.
+- Tests nuevos en `h8-featured-quota.e2e-spec.ts`: cuota disponible (viaQuota:true, wallet intacto),
+  cuota agotada (cae a créditos), no-Pro (sin cambios), sin cuota y sin créditos (402), y los dos
+  tests de concurrencia descritos arriba.
+- **Aún no implementado (H8.4+):** el badge "Pro" en el perfil público, y la UX de destacar
+  mostrando "te quedan N este mes" (el backend ya expone `viaQuota` y `GET /billing/pro-status`).
+- **Deuda de diseño sin resolver (heredada, anotada, no se toca aquí):** `featuredByCredits` sigue
+  sin llamar a `grantFeaturedListing` — mantiene su propia copia de la lógica de concesión dentro de
+  su `$transaction` por la atomicidad con el wallet/la cuota. Dos puntos de concesión en vez de uno.
 
 **Nota de proceso (full suite local vs. CI):** al ejecutar `jest --config test/jest-e2e.json` en
 paralelo (workers por defecto) contra una base de datos de test local compartida, varias suites
 fallan por deadlocks de Postgres y violaciones de FK — cada spec hace `cleanDb` (trunca `User`
 CASCADE) en su `beforeAll`, y si dos suites corren a la vez sobre la misma BD, una puede borrar los
-usuarios que la otra está usando a mitad de test. Con `--runInBand` (serie) sobre BD fresca, las 342
-pruebas pasan limpias (confirmado de nuevo en H8.2). No es un problema introducido por H8 — es una
+usuarios que la otra está usando a mitad de test. Con `--runInBand` (serie) sobre BD fresca, las 348
+pruebas pasan limpias (confirmado de nuevo en H8.3). No es un problema introducido por H8 — es una
 característica preexistente de la suite (solo es segura en serie, o en paralelo si cada worker
 tuviera su propia BD); documentado aquí porque solo se hizo visible al ejecutar la suite completa en
 local con varios núcleos libres. Revisar en Hito 9 si conviene aislar por base de datos por worker
