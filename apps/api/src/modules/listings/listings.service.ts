@@ -27,7 +27,8 @@ const cacheKey = (slug: string) => `listing:${slug}`;
 const LISTING_INCLUDE = {
   category: { select: { id: true, slug: true, name: true } },
   images: { orderBy: { order: 'asc' as const } },
-  seller: { select: { id: true, name: true, slug: true, avatarUrl: true } },
+  // trusted: H8 Bloque E — "Vendedor de confianza" en la ficha del anuncio (SellerCard).
+  seller: { select: { id: true, name: true, slug: true, avatarUrl: true, trusted: true } },
 };
 
 const SELECT_SUMMARY = {

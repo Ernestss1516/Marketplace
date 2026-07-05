@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { Package, MapPin, CalendarDays, Crown } from 'lucide-react';
+import { Package, MapPin, CalendarDays, Crown, BadgeCheck } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -87,6 +87,16 @@ export default async function VendedorPage({
               <Badge className="gap-1" data-testid="seller-pro-badge">
                 <Crown className="h-3 w-3" aria-hidden />
                 Pro
+              </Badge>
+            )}
+            {seller.trusted && (
+              <Badge
+                variant="outline"
+                className="gap-1 border-green-300 bg-green-50 text-green-700 hover:bg-green-50"
+                data-testid="seller-trusted-badge"
+              >
+                <BadgeCheck className="h-3 w-3" aria-hidden />
+                Vendedor de confianza
               </Badge>
             )}
           </div>

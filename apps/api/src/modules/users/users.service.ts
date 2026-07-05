@@ -42,7 +42,11 @@ export class UsersService {
     });
   }
 
-  /** H8.4 — perfil público del vendedor. isPro se calcula una sola vez (no hay N+1: un vendedor, no un listado). */
+  /**
+   * H8.4 — perfil público del vendedor. isPro se calcula una sola vez (no hay N+1: un
+   * vendedor, no un listado). H8 Bloque E — trusted es un campo propio del User, no
+   * requiere cálculo: independiente de isPro (uno no se deriva del otro).
+   */
   async findBySlug(slug: string) {
     const user = await this.prisma.user.findUnique({
       where: { slug },
@@ -55,6 +59,7 @@ export class UsersService {
         city: true,
         province: true,
         createdAt: true,
+        trusted: true,
       },
     });
     if (!user) throw new NotFoundException('User not found');

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSession } from 'next-auth/react';
-import { AlertCircle, ChevronDown, ChevronRight, Loader2, Search } from 'lucide-react';
+import { AlertCircle, BadgeCheck, ChevronDown, ChevronRight, Loader2, Search } from 'lucide-react';
 import {
   getAdminUsers,
   getAdminUser,
@@ -10,6 +10,7 @@ import {
   unsuspendUser,
   banUser,
   reinstateUser,
+  setUserTrusted,
   type AdminUser,
   type AdminUserDetail,
 } from '@/lib/api/admin';
@@ -387,6 +388,7 @@ export default function AdminUsuariosPage() {
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Usuario</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Rol</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Estado</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Confianza</th>
               <th className="px-4 py-3 text-center font-medium text-muted-foreground">Anuncios</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Registro</th>
               <th className="px-4 py-3 text-right font-medium text-muted-foreground">Acciones</th>
@@ -396,7 +398,7 @@ export default function AdminUsuariosPage() {
             {loading ? (
               Array.from({ length: 5 }).map((_, i) => (
                 <tr key={i} className="animate-pulse">
-                  {Array.from({ length: 6 }).map((__, j) => (
+                  {Array.from({ length: 7 }).map((__, j) => (
                     <td key={j} className="px-4 py-3">
                       <div className="h-4 rounded bg-muted" />
                     </td>
@@ -405,7 +407,7 @@ export default function AdminUsuariosPage() {
               ))
             ) : users.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">
+                <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
                   No hay usuarios con los filtros seleccionados.
                 </td>
               </tr>
@@ -433,6 +435,44 @@ export default function AdminUsuariosPage() {
                         <Badge variant={STATUS_VARIANTS[user.status] ?? 'outline'}>
                           {STATUS_LABELS[user.status] ?? user.status}
                         </Badge>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          {user.trusted ? (
+                            <Badge
+                              variant="outline"
+                              className="gap-1 border-green-300 bg-green-50 text-green-700"
+                            >
+                              <BadgeCheck className="h-3 w-3" />
+                              De confianza
+                            </Badge>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                          {/* Otorgar/retirar confianza: decisión de plataforma, ADMIN-only */}
+                          {currentUserIsAdmin && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 px-2 text-xs"
+                              disabled={isPending}
+                              onClick={() =>
+                                handleAction(
+                                  () => setUserTrusted(token, user.id, !user.trusted),
+                                  user.id,
+                                )
+                              }
+                            >
+                              {isPending ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : user.trusted ? (
+                                'Quitar'
+                              ) : (
+                                'Marcar'
+                              )}
+                            </Button>
+                          )}
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-center tabular-nums">
                         {user._count.listings}
@@ -541,7 +581,7 @@ export default function AdminUsuariosPage() {
                     {/* Expanded detail panel */}
                     {isExpanded && (
                       <tr key={`${user.id}-detail`}>
-                        <td colSpan={6} className="bg-muted/20 px-6 py-4">
+                        <td colSpan={7} className="bg-muted/20 px-6 py-4">
                           <UserDetailPanel userId={user.id} token={token} />
                         </td>
                       </tr>

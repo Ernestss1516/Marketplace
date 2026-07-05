@@ -43,6 +43,8 @@ export interface UserPublic {
   memberSince: string;
   /** H8.4 — true when the seller has an active Pro subscription. */
   isPro: boolean;
+  /** H8 Bloque E — "Vendedor de confianza", granted by an admin. Independent of isPro. */
+  trusted: boolean;
 }
 
 // ── Categories ───────────────────────────────────────────────────────────────
@@ -136,7 +138,7 @@ export interface Listing {
   longitude?: number;
   images: ListingImage[];
   category: Pick<Category, 'name' | 'slug'>;
-  seller: Pick<UserPublic, 'name' | 'slug' | 'avatarUrl'>;
+  seller: Pick<UserPublic, 'name' | 'slug' | 'avatarUrl' | 'trusted'>;
   publishedAt?: string;
   viewCount: number;
   featuredUntil?: string | null;

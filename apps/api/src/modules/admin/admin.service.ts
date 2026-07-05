@@ -24,6 +24,7 @@ import { ListAdminListingsDto } from './dto/list-admin-listings.dto';
 import { ChangeListingStatusDto } from './dto/change-listing-status.dto';
 import { ListAdminUsersDto } from './dto/list-admin-users.dto';
 import { ChangeUserRoleDto } from './dto/change-user-role.dto';
+import { SetUserTrustedDto } from './dto/set-user-trusted.dto';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { ReorderCategoriesDto } from './dto/reorder-categories.dto';
@@ -216,6 +217,7 @@ export class AdminService {
           city: true,
           province: true,
           createdAt: true,
+          trusted: true,
           _count: { select: { listings: true } },
         },
       }),
@@ -242,6 +244,7 @@ export class AdminService {
         province: true,
         postalCode: true,
         createdAt: true,
+        trusted: true,
         updatedAt: true,
         listings: {
           orderBy: { createdAt: 'desc' },
@@ -340,6 +343,39 @@ export class AdminService {
       resourceId: targetId,
       before,
       after: { role: dto.role },
+      ip,
+    });
+
+    return updated;
+  }
+
+  // H8 Bloque E — "Vendedor de confianza": decisión de plataforma, ADMIN-only
+  // (ver @Roles en el controller). Independiente de Pro: no se deriva de isProActive
+  // ni al revés.
+  async setUserTrusted(
+    targetId: string,
+    actorId: string,
+    dto: SetUserTrustedDto,
+    ip?: string,
+  ) {
+    const user = await this.prisma.user.findUnique({ where: { id: targetId } });
+    if (!user) throw new NotFoundException('Usuario no encontrado');
+
+    const before = { trusted: user.trusted };
+
+    const updated = await this.prisma.user.update({
+      where: { id: targetId },
+      data: { trusted: dto.trusted },
+      select: { id: true, name: true, email: true, slug: true, role: true, status: true, trusted: true },
+    });
+
+    await this.auditLog.log({
+      action: dto.trusted ? 'USER_TRUST' : 'USER_UNTRUST',
+      actorId,
+      resourceType: 'User',
+      resourceId: targetId,
+      before,
+      after: { trusted: dto.trusted },
       ip,
     });
 

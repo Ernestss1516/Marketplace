@@ -1,8 +1,10 @@
 import Link from 'next/link';
+import { BadgeCheck } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
 
 interface SellerCardProps {
-  seller: { name: string; slug: string; avatarUrl?: string };
+  seller: { name: string; slug: string; avatarUrl?: string; trusted?: boolean };
   publishedAt?: string;
 }
 
@@ -33,6 +35,16 @@ export function SellerCard({ seller, publishedAt }: SellerCardProps) {
           )}
         </div>
       </Link>
+      {seller.trusted && (
+        <Badge
+          variant="outline"
+          className="mt-3 gap-1 border-green-300 bg-green-50 text-green-700 hover:bg-green-50"
+          data-testid="seller-trusted-badge"
+        >
+          <BadgeCheck className="h-3 w-3" aria-hidden />
+          Vendedor de confianza
+        </Badge>
+      )}
     </div>
   );
 }

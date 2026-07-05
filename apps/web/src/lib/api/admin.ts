@@ -91,6 +91,8 @@ export interface AdminUser {
   city: string | null;
   province: string | null;
   createdAt: string;
+  /** H8 Bloque E — "Vendedor de confianza", independiente de Pro. */
+  trusted: boolean;
   _count: { listings: number };
 }
 
@@ -168,6 +170,15 @@ export function banUser(token: string, id: string): Promise<unknown> {
 // Reverses a BAN (ADMIN-only).
 export function reinstateUser(token: string, id: string): Promise<unknown> {
   return apiFetch(`/admin/users/${id}/reinstate`, { method: 'PATCH', token });
+}
+
+// H8 Bloque E — "Vendedor de confianza" (ADMIN-only).
+export function setUserTrusted(token: string, id: string, trusted: boolean): Promise<unknown> {
+  return apiFetch(`/admin/users/${id}/trusted`, {
+    method: 'PATCH',
+    body: JSON.stringify({ trusted }),
+    token,
+  });
 }
 
 // ─── Categories ───────────────────────────────────────────────────────────────

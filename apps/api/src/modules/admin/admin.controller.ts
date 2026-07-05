@@ -22,6 +22,7 @@ import { ListAdminListingsDto } from './dto/list-admin-listings.dto';
 import { ChangeListingStatusDto } from './dto/change-listing-status.dto';
 import { ListAdminUsersDto } from './dto/list-admin-users.dto';
 import { ChangeUserRoleDto } from './dto/change-user-role.dto';
+import { SetUserTrustedDto } from './dto/set-user-trusted.dto';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { ReorderCategoriesDto } from './dto/reorder-categories.dto';
@@ -139,6 +140,20 @@ export class AdminController {
     @Ip() ip: string,
   ) {
     return this.adminService.changeUserRole(id, user.userId, dto, ip);
+  }
+
+  // H8 Bloque E — "Vendedor de confianza": ADMIN-only (inherits class-level @Roles(ADMIN)).
+  // Otorgar confianza es decisión de plataforma, no moderación — a diferencia de
+  // suspender, que MODERATOR también puede hacer.
+  @Patch('users/:id/trusted')
+  @HttpCode(HttpStatus.OK)
+  setUserTrusted(
+    @Param('id') id: string,
+    @Body() dto: SetUserTrustedDto,
+    @CurrentUser() user: JwtUser,
+    @Ip() ip: string,
+  ) {
+    return this.adminService.setUserTrusted(id, user.userId, dto, ip);
   }
 
   // ─── Categories ───────────────────────────────────────────────────────────

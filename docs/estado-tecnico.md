@@ -1609,12 +1609,59 @@ cuota de destacados, badge).**
   2 casos — Pro ve badge, no-Pro no ve nada). Verificado con captura de pantalla real. La suite
   `avatar-upload.spec.ts`, que también visita `/vendedor/vendedor-e2e`, sigue en verde sin cambios.
 
+**H8 Bloque E ("Vendedor de confianza") — hecho. Con esto cierra el Bloque E; queda H8.6 (docs) para
+cerrar el Hito 8 enfocado.**
+
+- **Schema:** `User.trusted Boolean @default(false)` (migración `add_user_trusted`, sin backfill —
+  default seguro). Campo propio del `User`, independiente de `isProActive`: no se deriva de Pro ni
+  al revés — un usuario puede ser Pro, de confianza, ambos o ninguno.
+- **Backend admin:** `PATCH /admin/users/:id/trusted { trusted: boolean }` — ADMIN-only (hereda
+  `@Roles(Role.ADMIN)` de la clase, sin override a `MODERATOR`, a diferencia de
+  `suspend`/`unsuspend` que sí son `MODERATOR`+`ADMIN`). Decisión deliberada: otorgar confianza es
+  decisión de plataforma, no moderación — mismo criterio que baneo/rol, coherente con Fase 5.1.
+  `AuditLogService.log` con acción `USER_TRUST`/`USER_UNTRUST` (before/after `{trusted}`), mismo
+  patrón que `changeUserStatus`/`changeUserRole`. `trusted` añadido a los `select` de `listUsers` y
+  `getUserById`.
+- **Exposición pública en dos sitios, ambos con Postgres (sin Meili, sin denormalización):**
+  - `UsersService.findBySlug` (`/vendedor/[slug]`): `trusted` es un campo directo del `select`, no
+    requiere cálculo (a diferencia de `isPro`, que sí necesita `isProActive`).
+  - `ListingsService.LISTING_INCLUDE.seller`: se añadió `trusted: true` al `select` del vendedor en
+    la ficha del anuncio (`/anuncio/[slug]`, vía `SellerCard`). **Caveat real, no arreglado aquí**:
+    `findBySlug` de `ListingsService` cachea la ficha completa (incluido el sub-objeto `seller`) en
+    Redis 5 minutos (`CACHE_TTL`); desmarcar a un vendedor no invalida esa caché, así que una ficha
+    ya cacheada puede seguir mostrando el badge hasta que expire. Mismo lag que ya tenían
+    `avatarUrl`/`name` ahí — no es una regresión de esta ráfaga, es una característica preexistente
+    que ahora es más visible por tener un campo administrable con efecto inmediato esperado por el
+    admin. Anotado como mejora futura (invalidar la caché del listing al cambiar `trusted` del
+    vendedor), no resuelto en esta ráfaga.
+- **Frontend — tres badges visualmente distintos y coexistentes:** Pro (`Crown`, fondo primary
+  sólido), Destacado (ámbar, ya existente en `MyListingCard`), de confianza (`BadgeCheck`, `outline`
+  verde — `border-green-300 bg-green-50 text-green-700`). En `/vendedor/[slug]` ambos badges (Pro +
+  confianza) conviven en la misma fila `flex flex-wrap gap-2` junto al nombre, sin amontonarse
+  (verificado visualmente). `SellerCard.tsx` (ficha del anuncio) gana un `trusted?: boolean`
+  opcional y renderiza el mismo badge debajo del bloque de nombre/fecha — sin tocar `isPro` ahí (no
+  pedido para la ficha, mantiene el alcance exacto del encargo).
+- **Admin UI:** nueva columna "Confianza" en `/admin/usuarios` — badge de estado + botón
+  Marcar/Quitar, visible únicamente para `currentUserIsAdmin` (oculto para MODERATOR, igual que
+  Banear/Desbanear). Reutiliza `handleAction` existente (refetch tras la acción).
+- **Tests:** `h8-user-trusted.e2e-spec.ts` (backend, 12 casos — marcar/desmarcar + AuditLog, 403 para
+  USER y explícitamente para MODERATOR, 401, 404, visibilidad en perfil y ficha, y el caso clave de
+  independencia Pro+confianza en ambas direcciones) + `vendedor-trusted-badge.spec.ts` (Playwright,
+  3 casos — flujo completo marcar→verificar en perfil y ficha→desmarcar→verificar vía admin real,
+  perfil normal sin badge, ficha normal sin badge). El test de Playwright documenta explícitamente
+  en un comentario por qué NO reintenta comprobar la desaparición del badge en la ficha del anuncio
+  tras desmarcar (el caveat de caché de arriba) en vez de ocultar el problema con un `waitFor` o
+  reintento que enmascararía el comportamiento real.
+- Verificación manual con capturas de pantalla reales: el toggle en `/admin/usuarios` marca/desmarca
+  correctamente, y el perfil de `pro-e2e` muestra ambos badges (Pro + confianza) lado a lado sin
+  chocar visualmente.
+
 **Nota de proceso (full suite local vs. CI):** al ejecutar `jest --config test/jest-e2e.json` en
 paralelo (workers por defecto) contra una base de datos de test local compartida, varias suites
 fallan por deadlocks de Postgres y violaciones de FK — cada spec hace `cleanDb` (trunca `User`
 CASCADE) en su `beforeAll`, y si dos suites corren a la vez sobre la misma BD, una puede borrar los
-usuarios que la otra está usando a mitad de test. Con `--runInBand` (serie) sobre BD fresca, las 355
-pruebas pasan limpias (confirmado de nuevo en H8.4). No es un problema introducido por H8 — es una
+usuarios que la otra está usando a mitad de test. Con `--runInBand` (serie) sobre BD fresca, las 367
+pruebas pasan limpias (confirmado de nuevo en H8 Bloque E). No es un problema introducido por H8 — es una
 característica preexistente de la suite (solo es segura en serie, o en paralelo si cada worker
 tuviera su propia BD); documentado aquí porque solo se hizo visible al ejecutar la suite completa en
 local con varios núcleos libres. Revisar en Hito 9 si conviene aislar por base de datos por worker

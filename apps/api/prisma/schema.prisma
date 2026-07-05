@@ -164,6 +164,9 @@ model User {
   role          Role       @default(USER)
   status        UserStatus @default(ACTIVE)
   emailVerified Boolean    @default(false)
+  /// H8 Bloque E — "Vendedor de confianza": confianza otorgada por la plataforma (ADMIN-only).
+  /// Independiente de Pro (isProActive): un usuario puede ser Pro, de confianza, ambos o ninguno.
+  trusted       Boolean    @default(false)
 
   // Ubicación para mostrar y prefiltrar
   city          String?
