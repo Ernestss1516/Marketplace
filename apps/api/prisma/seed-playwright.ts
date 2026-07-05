@@ -131,6 +131,11 @@ async function main() {
         currency: 'EUR',
         priceType: 'FIXED',
         type: 'PRODUCT',
+        // condition es obligatorio para PRODUCT en EditarWizard.validateStep('datos') —
+        // sin él, el wizard de edición nunca puede avanzar más allá de "Datos" (bug de
+        // fixture hallado en H8 Bloque C2: el test de prefill-ubicacion.spec.ts que edita
+        // este listing quedaba bloqueado ahí, sin llegar nunca a "Ubicación").
+        condition: 'GOOD',
         status: 'ACTIVE',
         sellerId: sellerUser.id,
         categoryId: category.id,
@@ -138,7 +143,7 @@ async function main() {
         city: 'Madrid',
         province: 'Madrid',
       },
-      update: { status: 'ACTIVE', city: 'Madrid', province: 'Madrid' },
+      update: { status: 'ACTIVE', city: 'Madrid', province: 'Madrid', condition: 'GOOD' },
     });
     console.log('Playwright seed: listing-rf11-e2e OK');
 

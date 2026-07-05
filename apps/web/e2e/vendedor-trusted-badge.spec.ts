@@ -16,9 +16,15 @@ test.describe('Badge "Vendedor de confianza"', () => {
     browser,
   }) => {
     const adminPage = await adminContext.newPage();
-    await adminPage.goto('/admin/usuarios');
+    // waitUntil: 'domcontentloaded' (no 'load', el default) — evita que goto() se quede
+    // esperando el evento load completo (recursos lentos/HMR) hasta agotar el timeout del
+    // test entero. La espera determinista real es el expect().toBeVisible() de abajo, sobre
+    // un elemento concreto, con su propio timeout generoso — no confiamos en el goto en sí.
+    await adminPage.goto('/admin/usuarios', { waitUntil: 'domcontentloaded' });
 
-    await adminPage.getByPlaceholder(/buscar por nombre o email/i).fill('Usuario Pro E2E');
+    const searchInput = adminPage.getByPlaceholder(/buscar por nombre o email/i);
+    await expect(searchInput).toBeVisible({ timeout: 15_000 });
+    await searchInput.fill('Usuario Pro E2E');
     await adminPage.getByRole('button', { name: 'Buscar' }).click();
 
     const row = adminPage.locator('tr', { hasText: 'Usuario Pro E2E' });
@@ -37,7 +43,7 @@ test.describe('Badge "Vendedor de confianza"', () => {
     const publicPage = await (await browser.newContext()).newPage();
     try {
       // El perfil público muestra AMBOS badges (Pro + confianza) sin amontonarse.
-      await publicPage.goto(`/vendedor/${PRO_SLUG}`);
+      await publicPage.goto(`/vendedor/${PRO_SLUG}`, { waitUntil: 'domcontentloaded' });
       await expect(publicPage.getByTestId('seller-pro-badge')).toBeVisible({ timeout: 10_000 });
       await expect(publicPage.getByTestId('seller-trusted-badge')).toBeVisible();
       await expect(publicPage.getByTestId('seller-trusted-badge')).toContainText(
@@ -45,7 +51,7 @@ test.describe('Badge "Vendedor de confianza"', () => {
       );
 
       // La ficha del anuncio (SellerCard) también muestra el badge de confianza.
-      await publicPage.goto(`/anuncio/${PRO_LISTING_SLUG}`);
+      await publicPage.goto(`/anuncio/${PRO_LISTING_SLUG}`, { waitUntil: 'domcontentloaded' });
       await expect(publicPage.getByTestId('seller-trusted-badge')).toBeVisible({
         timeout: 10_000,
       });
@@ -55,7 +61,7 @@ test.describe('Badge "Vendedor de confianza"', () => {
       await row.getByRole('button', { name: 'Quitar' }).click();
       await expect(row.getByText('De confianza')).not.toBeVisible({ timeout: 5_000 });
 
-      await publicPage.goto(`/vendedor/${PRO_SLUG}`);
+      await publicPage.goto(`/vendedor/${PRO_SLUG}`, { waitUntil: 'domcontentloaded' });
       // El badge Pro no se ve afectado — son independientes.
       await expect(publicPage.getByTestId('seller-pro-badge')).toBeVisible({ timeout: 10_000 });
       await expect(publicPage.getByTestId('seller-trusted-badge')).not.toBeVisible();
@@ -78,7 +84,7 @@ test.describe('Badge "Vendedor de confianza"', () => {
     browser,
   }) => {
     const page = await (await browser.newContext()).newPage();
-    await page.goto('/vendedor/vendedor-e2e');
+    await page.goto('/vendedor/vendedor-e2e', { waitUntil: 'domcontentloaded' });
 
     await expect(page.getByRole('heading', { name: 'Vendedor E2E' })).toBeVisible({
       timeout: 10_000,
@@ -90,7 +96,7 @@ test.describe('Badge "Vendedor de confianza"', () => {
     browser,
   }) => {
     const page = await (await browser.newContext()).newPage();
-    await page.goto('/anuncio/listing-rf11-e2e');
+    await page.goto('/anuncio/listing-rf11-e2e', { waitUntil: 'domcontentloaded' });
     await page.waitForLoadState('networkidle');
 
     await expect(page.getByTestId('seller-trusted-badge')).not.toBeVisible();

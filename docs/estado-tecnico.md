@@ -1723,10 +1723,48 @@ a "Hito 8b"; se retoma y cierra en esta ráfaga (C1 backend + C2 frontend).
     en cards, gráfica (o estado vacío "aún no hay datos" cuando no hay vistas todavía), CTA de
     upgrade para free, y confirmación de que el dueño visitando su propio anuncio no altera sus
     propias estadísticas (antes/después idéntico).
-  - Batería completa verde: 381/381 backend (serie), 111/111 frontend Playwright salvo 2 fallos
-    preexistentes no relacionados (`busqueda-mapa.spec.ts` aviso de geo, `prefill-ubicacion.spec.ts`
-    wizard de edición) — reproducidos también en `HEAD` sin estos cambios (`git stash`), confirmando
-    que no los introdujo esta ráfaga.
+  - Batería completa verde de verdad: 381/381 backend (serie), 111/111 frontend Playwright, 0 fallos
+    — ver investigación de los 3 problemas encontrados por el camino en la nota de proceso de abajo
+    (dos preexistentes con causa raíz confirmada, uno arreglado en este bloque).
+
+**Nota de proceso — CI rojo tras el primer push de C2: investigación de 3 fallos, no aceptados como
+"preexistentes" sin confirmar (lección explícita del Hito 6 sobre flakys).**
+
+1. **`prefill-ubicacion.spec.ts` ("editar anuncio: usa la ubicación DEL ANUNCIO") — FALLO REAL,
+   determinista, no flaky. Causa raíz confirmada:** el fixture `listing-rf11-e2e`
+   (`seed-playwright.ts`) es `type: PRODUCT` pero **nunca** ha tenido `condition` seteado desde su
+   creación (commit `8cf97c6`, RF.11) — confirmado con `git log -p` sobre todo el historial del
+   archivo. `EditarWizard.validateStep('datos')` exige `condition` para `PRODUCT` desde antes de
+   RF.11. Capturas de pantalla del wizard confirman el mecanismo exacto: al llegar al paso "Datos"
+   aparece "⚠ Indica el estado del artículo." y "Siguiente" nunca avanza — el test nunca llega al
+   paso "Ubicación" que busca. Es decir: **este test concreto lleva roto desde el día en que se
+   escribió** (commit `87d1802`, RL5.1-A, que ya reutilizaba este mismo listing sin fijarle
+   `condition`) — nadie lo detectó porque no se veía forzado a fallar hasta que el CI se miró con
+   lupa en esta ráfaga. Arreglado: `seed-playwright.ts` fija `condition: 'GOOD'` en el `create` y el
+   `update` del listing. Verificado 2 veces limpio tras el fix.
+2. **`vendedor-trusted-badge.spec.ts` ("ADMIN marca/desmarca...") — FLAKY real, introducido en H8
+   Bloque E.** Fallaba con timeout de 90s en `page.goto('/admin/usuarios')` ("Target page has been
+   closed"), pasaba en el retry. Causa: es el único `goto` de este archivo que **no** seguía la
+   convención ya establecida en el resto de specs de `/admin/*` (`admin-roles.spec.ts`): esperar
+   explícitamente tras la navegación en vez de fiarse del evento `load` por defecto de `goto()`
+   (que espera a que asiente TODA la actividad de red, no solo a que el contenido esté listo).
+   Arreglado: `goto(..., { waitUntil: 'domcontentloaded' })` + espera determinista sobre el input de
+   búsqueda concreto (`toBeVisible({ timeout: 15_000 })`) antes de interactuar, en vez de encadenar
+   `.fill()` directamente. Aplicado también a los demás `goto` del archivo por consistencia.
+   Verificado 5 veces seguidas sin fallo (antes fallaba de forma intermitente).
+3. **`busqueda-mapa.spec.ts` ("Aviso de geo faltante") — descartado como fallo real: pura
+   contaminación del Meilisearch local del desarrollador.** El test asume que Meilisearch empieza
+   vacío en ese punto de la suite (comentario explícito en el propio test); en CI el contenedor de
+   Meilisearch es efímero por job (`services:` en `ci.yml`) y arranca vacío siempre, así que el test
+   nunca lo vio fallar en el CI real (el reporte de esta ráfaga no lo mencionaba). Localmente, en
+   cambio, el índice `listings_test` es un Docker persistente que no se limpia entre ejecuciones
+   sueltas de `npx playwright test` — tras las múltiples ejecuciones manuales de esta sesión
+   acumulaba 32 documentos (14 sin `_geo`, el mismo "14 ×" que aparecía en el error). Confirmado
+   vaciando el índice (`DELETE /indexes/listings_test/documents`) y volviendo a correr la suite
+   completa: 111/111 verde. No requiere ningún cambio de código — es un artefacto de repetir
+   Playwright en local sin resetear Meilisearch entre corridas (mismo patrón que la contaminación de
+   `freeActiveListingLimit` en la BD de test compartida, ya documentada arriba en la nota de H8.6
+   sobre suite en paralelo vs. serie).
 
 ### Renombrar la key de un atributo no migra `Listing.attributes` (aviso, no migración)
 
