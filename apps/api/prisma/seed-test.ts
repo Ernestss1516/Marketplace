@@ -83,6 +83,7 @@ async function seedSettings() {
       { key: 'freeActiveListingLimit', value: 5 },
       { key: 'proActiveListingLimit', value: 20 },
       { key: 'proMonthlyFeaturedQuota', value: 4 },
+      { key: 'proQuotaFeaturedDurationDays', value: 7 },
     ],
     skipDuplicates: true,
   });

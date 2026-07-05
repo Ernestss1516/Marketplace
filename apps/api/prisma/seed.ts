@@ -433,6 +433,9 @@ async function seedSettings() {
       { key: 'proExtraCreditsPercent', value: 20 },
       // H8.1: destacados gratis/mes que otorga la cuota de Pro (reseteo derivado, sin cron).
       { key: 'proMonthlyFeaturedQuota', value: 4 },
+      // H8.5a: fixed duration of a featured grant paid from the quota (the user
+      // chooses duration only when paying with credits).
+      { key: 'proQuotaFeaturedDurationDays', value: 7 },
     ],
     skipDuplicates: true,
   });

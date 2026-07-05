@@ -46,6 +46,8 @@ const SETTING_KEYS = [
   'proActiveListingLimit',
   // H8.1: monthly free-featured quota granted to Pro subscribers
   'proMonthlyFeaturedQuota',
+  // H8.5a: fixed duration of a featured grant paid from the quota
+  'proQuotaFeaturedDurationDays',
 ] as const;
 type SettingKey = (typeof SETTING_KEYS)[number];
 

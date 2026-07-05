@@ -250,6 +250,7 @@ const SETTING_TITLES: Record<string, string> = {
   freeActiveListingLimit: 'Límite de anuncios activos (Free)',
   proActiveListingLimit: 'Límite de anuncios activos (Pro)',
   proMonthlyFeaturedQuota: 'Cuota mensual de destacados (Pro)',
+  proQuotaFeaturedDurationDays: 'Duración del destacado por cuota (Pro)',
 };
 
 const SETTING_DESCRIPTIONS: Record<string, string> = {
@@ -265,6 +266,8 @@ const SETTING_DESCRIPTIONS: Record<string, string> = {
     'Número máximo de anuncios en estado ACTIVE que puede tener simultáneamente un usuario con plan Pro.',
   proMonthlyFeaturedQuota:
     'Destacados gratuitos que un usuario Pro puede usar cada mes. Se renuevan en el aniversario del ciclo de su suscripción; los no usados no se acumulan al mes siguiente.',
+  proQuotaFeaturedDurationDays:
+    'Duración fija (en días) de un destacado pagado con la cuota gratuita de Pro. Al pagar con créditos, el usuario elige la duración (7/14/30 días); la cuota siempre usa esta duración fija.',
 };
 
 export default function AdminAjustesPage() {
@@ -347,6 +350,7 @@ export default function AdminAjustesPage() {
     'freeActiveListingLimit',
     'proActiveListingLimit',
     'proMonthlyFeaturedQuota',
+    'proQuotaFeaturedDurationDays',
   ] as const;
 
   return (
@@ -427,6 +431,18 @@ export default function AdminAjustesPage() {
                   label="Destacados gratis por mes"
                   helpText="Cantidad de destacados que la cuota mensual de Pro concede gratis. No se acumulan de un mes a otro."
                   min={0}
+                />
+              )}
+              {key === 'proQuotaFeaturedDurationDays' && (
+                <NumberSettingEditor
+                  setting={setting}
+                  token={token}
+                  onSaved={() => handleSaved(key)}
+                  settingKey="proQuotaFeaturedDurationDays"
+                  label="Duración fija del destacado por cuota (días)"
+                  helpText="Todos los destacados pagados con la cuota gratuita de Pro usan esta duración fija, sin importar qué variante hubiera elegido el usuario."
+                  min={1}
+                  max={365}
                 />
               )}
             </div>

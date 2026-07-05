@@ -16,6 +16,7 @@ import {
   EntitlementType,
   FeaturedOrigin,
   ListingStatus,
+  Prisma,
   ProductType,
   SubscriptionStatus,
 } from '@prisma/client';
@@ -261,11 +262,60 @@ export class BillingService {
   // ---------------------------------------------------------------------------
 
   /**
+   * Shared validation for both featuring paths, run inside the caller's TX:
+   * listing exists, belongs to userId, is ACTIVE, and has no active featured period.
+   */
+  private async assertFeaturable(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    listingId: string,
+    now: Date,
+  ): Promise<void> {
+    const listing = await tx.listing.findUnique({
+      where: { id: listingId },
+      select: { id: true, status: true, sellerId: true },
+    });
+    if (!listing || listing.sellerId !== userId) {
+      throw new ForbiddenException('Listing does not exist or does not belong to you');
+    }
+    if (listing.status !== ListingStatus.ACTIVE) {
+      throw new BadRequestException('Only ACTIVE listings can be featured');
+    }
+
+    const existing = await tx.entitlement.findFirst({
+      where: {
+        listingId,
+        type: EntitlementType.FEATURED_LISTING,
+        expiresAt: { gt: now },
+      },
+      select: { id: true },
+    });
+    if (existing) {
+      throw new BadRequestException({
+        message: 'Listing already has an active featured period',
+        code: 'ALREADY_FEATURED',
+      });
+    }
+  }
+
+  private async getQuotaFeaturedDurationDays(): Promise<number> {
+    const setting = await this.prisma.setting.findUnique({
+      where: { key: 'proQuotaFeaturedDurationDays' },
+    });
+    return setting ? Number(setting.value) : 7;
+  }
+
+  /**
    * POST /billing/featured-by-credits
    *
-   * H8.3: tries Pro's free monthly quota FIRST, automatically — the user never
-   * chooses. Only when there's no quota left (or the user isn't Pro) does this
-   * fall back to the original credits flow, unchanged.
+   * H8.5a: the user CHOOSES the path via `dto.useQuota` — the backend no longer
+   * picks quota automatically (that was H8.3; superseded by this ráfaga):
+   *   - useQuota=true:  free grant from Pro's monthly quota, FIXED duration
+   *     (proQuotaFeaturedDurationDays). Fails explicitly if no quota is left —
+   *     never silently falls back to credits, since the user asked for quota.
+   *   - useQuota=false (default): pays with credits, duration chosen via
+   *     priceId (7/14/30d). Quota is left untouched even if available — the
+   *     user can deliberately save it for later.
    *
    * Atomic: everything (quota check + grant, OR wallet debit + CreditLedger +
    * grant) happens in a single Postgres TX. Rollback restores credits if the
@@ -275,6 +325,52 @@ export class BillingService {
     userId: string,
     dto: FeaturedByCreditsDto,
   ): Promise<{ featuredUntil: Date; viaQuota: boolean }> {
+    const { listingId } = dto;
+    const now = new Date();
+
+    if (dto.useQuota) {
+      const durationDays = await this.getQuotaFeaturedDurationDays();
+      const expiresAt = new Date(now);
+      expiresAt.setDate(expiresAt.getDate() + durationDays);
+
+      await this.prisma.$transaction(async (tx) => {
+        await this.assertFeaturable(tx, userId, listingId, now);
+
+        // Locks the user's Subscription row (FOR UPDATE) for the rest of this TX,
+        // so two concurrent quota requests can never both see the last free slot
+        // available (see EntitlementService.hasAvailableFeaturedQuota's doc).
+        const hasQuota = await this.entitlements.hasAvailableFeaturedQuota(tx, userId);
+        if (!hasQuota) {
+          throw new BadRequestException({
+            message: 'No tienes cuota de destacados disponible este periodo',
+            code: 'QUOTA_UNAVAILABLE',
+          });
+        }
+
+        // Free grant — no wallet debit, no CreditLedger entry, no priceId (no
+        // variant was chosen: the quota always uses the fixed duration above).
+        await tx.entitlement.create({
+          data: {
+            userId,
+            type: EntitlementType.FEATURED_LISTING,
+            listingId,
+            expiresAt,
+            origin: FeaturedOrigin.PRO_QUOTA,
+          },
+        });
+      });
+
+      await this.indexingQueue.add('index', { listingId });
+      this.logger.log(
+        `Featured via quota: listingId=${listingId}, userId=${userId}, durationDays=${durationDays}`,
+      );
+      return { featuredUntil: expiresAt, viaQuota: true };
+    }
+
+    // Credits path — unchanged behavior, quota is never touched here.
+    if (!dto.priceId) {
+      throw new BadRequestException('priceId is required when not using the quota');
+    }
     const price = await this.prisma.price.findUnique({
       where: { id: dto.priceId },
       select: { id: true, active: true, durationDays: true, creditPackId: true },
@@ -284,64 +380,14 @@ export class BillingService {
     if (price.creditPackId) throw new BadRequestException('Not a featured listing price');
 
     const cost = await this.getCreditCostForFeatured(price.durationDays);
-    const { listingId, priceId } = dto;
+    const priceId = dto.priceId;
     const durationDays = price.durationDays;
-    const now = new Date();
     const expiresAt = new Date(now);
     expiresAt.setDate(expiresAt.getDate() + durationDays);
 
-    let viaQuota = false;
-
     await this.prisma.$transaction(async (tx) => {
-      // Validate listing ownership and status inside the TX
-      const listing = await tx.listing.findUnique({
-        where: { id: listingId },
-        select: { id: true, status: true, sellerId: true },
-      });
-      if (!listing || listing.sellerId !== userId) {
-        throw new ForbiddenException('Listing does not exist or does not belong to you');
-      }
-      if (listing.status !== ListingStatus.ACTIVE) {
-        throw new BadRequestException('Only ACTIVE listings can be featured');
-      }
+      await this.assertFeaturable(tx, userId, listingId, now);
 
-      // Check no active entitlement inside the TX
-      const existing = await tx.entitlement.findFirst({
-        where: {
-          listingId,
-          type: EntitlementType.FEATURED_LISTING,
-          expiresAt: { gt: now },
-        },
-        select: { id: true },
-      });
-      if (existing) {
-        throw new BadRequestException({
-          message: 'Listing already has an active featured period',
-          code: 'ALREADY_FEATURED',
-        });
-      }
-
-      // H8.3 — quota-first: hasAvailableFeaturedQuota locks the user's Subscription
-      // row (FOR UPDATE) for the rest of this TX, so two concurrent requests can
-      // never both see quota available for the same last free slot (see its doc).
-      viaQuota = await this.entitlements.hasAvailableFeaturedQuota(tx, userId);
-
-      if (viaQuota) {
-        // Free grant from the quota — no wallet debit, no CreditLedger entry.
-        await tx.entitlement.create({
-          data: {
-            userId,
-            type: EntitlementType.FEATURED_LISTING,
-            listingId,
-            expiresAt,
-            priceId,
-            origin: FeaturedOrigin.PRO_QUOTA,
-          },
-        });
-        return;
-      }
-
-      // Fallback: original credits flow, unchanged.
       // Atomic debit: UPDATE ... WHERE balance >= cost
       const affected = await tx.$executeRaw`
         UPDATE "Wallet" SET balance = balance - ${cost}
@@ -384,10 +430,10 @@ export class BillingService {
 
     this.logger.log(
       `Featured by credits: listingId=${listingId}, userId=${userId}, ` +
-        `durationDays=${durationDays}, viaQuota=${viaQuota}, cost=${viaQuota ? 0 : cost}`,
+        `durationDays=${durationDays}, cost=${cost}`,
     );
 
-    return { featuredUntil: expiresAt, viaQuota };
+    return { featuredUntil: expiresAt, viaQuota: false };
   }
 
   // ---------------------------------------------------------------------------

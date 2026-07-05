@@ -1468,12 +1468,15 @@ hito (H8.6); mientras tanto, el detalle de las decisiones vive en el hilo de dis
   clave — `PRO_QUOTA` de un periodo anterior al `currentPeriodStart` no cuenta, probando el reseteo
   derivado sin cron) + assertions de `origin` añadidas a `billing-rf6.e2e-spec.ts`
   (`grantFeaturedListing unified`).
-**H8.3 (bifurcación cuota-primero — consume la cuota) — hecho:**
+**H8.3 (bifurcación cuota-primero — consume la cuota) — SUPERADO por H8.5a, ver más abajo.**
 
-- `featuredByCredits` ahora prueba la cuota Pro ANTES que los créditos, automáticamente (el usuario
-  no elige): si hay cuota disponible, concede `Entitlement { origin: PRO_QUOTA }` sin tocar el
-  wallet ni crear `CreditLedger`; si no (no-Pro, o cuota agotada), cae al flujo de créditos de
-  siempre, sin cambios. La respuesta incluye `viaQuota: boolean` (lo consumirá la UI en H8.5).
+- `featuredByCredits` probaba la cuota Pro ANTES que los créditos, automáticamente (el usuario
+  no elegía): si había cuota disponible, concedía `Entitlement { origin: PRO_QUOTA }` sin tocar el
+  wallet ni crear `CreditLedger`; si no (no-Pro, o cuota agotada), caía al flujo de créditos de
+  siempre, sin cambios. La respuesta incluye `viaQuota: boolean` (lo consume la UI en H8.5b).
+  **Cambio de producto en H8.5a: ya no es automático — el usuario elige la vía explícitamente.**
+  Se deja constancia de la decisión y el mecanismo de concurrencia (sigue vigente, solo cambia
+  quién decide entrar por cuota) porque el lock y el test que lo prueba no cambiaron de fondo.
 - **Concurrencia (el punto crítico de esta ráfaga):** la cuota es derivada (un `COUNT`, no un saldo
   decrementable como el `Wallet`), así que dos peticiones simultáneas del mismo usuario podrían leer
   "remaining=1" antes de que ninguna cree su `Entitlement`, y ambas pasarían por cuota. Se resuelve
@@ -1495,11 +1498,40 @@ hito (H8.6); mientras tanto, el detalle de las decisiones vive en el hilo de dis
   (dos destacados gratis con cupo para uno). Con el lock puesto, pasa siempre. Se mantiene además el
   test "best-effort" con timing real como red adicional, pero el determinista es el que prueba la
   ausencia de la condición de carrera.
-- Tests nuevos en `h8-featured-quota.e2e-spec.ts`: cuota disponible (viaQuota:true, wallet intacto),
-  cuota agotada (cae a créditos), no-Pro (sin cambios), sin cuota y sin créditos (402), y los dos
-  tests de concurrencia descritos arriba.
-- **Aún no implementado (H8.4+):** el badge "Pro" en el perfil público, y la UX de destacar
-  mostrando "te quedan N este mes" (el backend ya expone `viaQuota` y `GET /billing/pro-status`).
+**H8.5a (vía elegida por el usuario + duración fija de cuota) — hecho:**
+
+- **Cambio de producto:** ya no hay "cuota-primero automático". `featuredByCredits` recibe un nuevo
+  campo `useQuota?: boolean` en el DTO (`FeaturedByCreditsDto`) y el usuario elige explícitamente:
+  - `useQuota: true` → gratis, duración FIJA (`Setting proQuotaFeaturedDurationDays`, default 7),
+    ignora cualquier `priceId` recibido (no hay variante que elegir). Si no hay cuota disponible,
+    **error explícito** (`400 { code: 'QUOTA_UNAVAILABLE' }`) — nunca cae a créditos en silencio,
+    porque el usuario pidió cuota a propósito. `priceId` queda `null` en el `Entitlement` (no hubo
+    variante elegida).
+  - `useQuota: false` / omitido (default) → flujo de créditos de siempre, duración elegida vía
+    `priceId` (7/14/30d). **La cuota queda intacta aunque el usuario la tuviera disponible** — puede
+    reservarla deliberadamente para otro anuncio. `priceId` es obligatorio en este camino
+    (`ValidateIf` en el DTO).
+- Nuevo `Setting proQuotaFeaturedDurationDays` (default 7): sembrado en `seed.ts`/`seed-test.ts`,
+  en la whitelist de `admin.service.ts`, y editable en `/admin/ajustes` (mismo patrón
+  `NumberSettingEditor` de H8.1).
+- La concurrencia de H8.3 (`EntitlementService.hasAvailableFeaturedQuota` + `SELECT ... FOR UPDATE`
+  sobre la `Subscription`) sigue exactamente igual — solo cambia que ahora se invoca cuando el
+  usuario pide `useQuota: true`, no automáticamente. El test determinista (fuerza solapamiento real
+  vía `jest.spyOn` + delay tras adquirir el lock) se reejecutó quitando el `FOR UPDATE` a mano:
+  sin lock, las dos peticiones concurrentes de cuota devuelven `[201, 201]` (dos destacados gratis
+  para una cuota de uno); con lock, siempre `[201, 400]`. Confirma que el cambio de firma no rompió
+  la protección atómica.
+- Refactor pequeño: la validación común (ownership + `ACTIVE` + sin destacado activo) se extrajo a
+  `assertFeaturable(tx, userId, listingId, now)`, reutilizada por ambos caminos (antes solo existía
+  dentro del bloque único de créditos).
+- Tests reescritos en `h8-featured-quota.e2e-spec.ts` (describe `H8.5a`): cuota disponible (gratis,
+  duración fija, `priceId` ignorado incluso si se envía uno de 30d), cuota agotada (error explícito,
+  sin efectos secundarios), créditos con cuota disponible (cuota intacta), créditos sin cuota (igual
+  que siempre), el Setting de duración cambia el resultado, y los dos tests de concurrencia
+  (best-effort + determinista) adaptados a la elección explícita.
+- **Aún no implementado (H8.4, H8.5b):** el badge "Pro" en el perfil público, y la UX de destacar
+  (selector de vía en `/mis-anuncios`, mostrar "te quedan N este mes") — el backend ya expone
+  `viaQuota` y `GET /billing/pro-status` para que la consuma.
 - **Deuda de diseño sin resolver (heredada, anotada, no se toca aquí):** `featuredByCredits` sigue
   sin llamar a `grantFeaturedListing` — mantiene su propia copia de la lógica de concesión dentro de
   su `$transaction` por la atomicidad con el wallet/la cuota. Dos puntos de concesión en vez de uno.
@@ -1508,8 +1540,8 @@ hito (H8.6); mientras tanto, el detalle de las decisiones vive en el hilo de dis
 paralelo (workers por defecto) contra una base de datos de test local compartida, varias suites
 fallan por deadlocks de Postgres y violaciones de FK — cada spec hace `cleanDb` (trunca `User`
 CASCADE) en su `beforeAll`, y si dos suites corren a la vez sobre la misma BD, una puede borrar los
-usuarios que la otra está usando a mitad de test. Con `--runInBand` (serie) sobre BD fresca, las 348
-pruebas pasan limpias (confirmado de nuevo en H8.3). No es un problema introducido por H8 — es una
+usuarios que la otra está usando a mitad de test. Con `--runInBand` (serie) sobre BD fresca, las 350
+pruebas pasan limpias (confirmado de nuevo en H8.5a). No es un problema introducido por H8 — es una
 característica preexistente de la suite (solo es segura en serie, o en paralelo si cada worker
 tuviera su propia BD); documentado aquí porque solo se hizo visible al ejecutar la suite completa en
 local con varios núcleos libres. Revisar en Hito 9 si conviene aislar por base de datos por worker

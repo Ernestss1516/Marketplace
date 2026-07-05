@@ -10,6 +10,13 @@
  *
  * El origin propagado en featuredByCredits (CREDITS) y en el flujo Redsys (REDSYS) se
  * verifica en billing-rf6.e2e-spec.ts, describe('grantFeaturedListing unified (§3.1)').
+ *
+ * H8.5a — bifurcación con vía elegida por el usuario (describe('H8.5a — ...') más abajo):
+ * ya NO es "cuota automática primero" (eso era H8.3, superado por esta ráfaga). El usuario
+ * elige useQuota:true (gratis, duración fija de proQuotaFeaturedDurationDays, falla explícito
+ * si no hay cuota) o useQuota:false/omitido (créditos, duración a elegir vía priceId, cuota
+ * intacta aunque tenga). Incluye los dos tests de concurrencia (best-effort + determinista)
+ * heredados de H8.3, adaptados a la elección explícita.
  */
 
 import { INestApplication } from '@nestjs/common';
@@ -236,13 +243,23 @@ describe('H8.2 — GET /billing/pro-status (cuota mensual de destacados Pro)', (
   });
 
   // ---------------------------------------------------------------------------
-  // H8.3 — POST /billing/featured-by-credits: bifurcación cuota-primero
+  // H8.5a — POST /billing/featured-by-credits: vía ELEGIDA por el usuario
   // ---------------------------------------------------------------------------
 
-  describe('H8.3 — POST /billing/featured-by-credits: cuota-primero (bifurcación)', () => {
-    async function getFeaturedPrice7dId(): Promise<string> {
-      const price = await prisma.price.findFirst({ where: { durationDays: 7, creditPackId: null } });
-      if (!price) throw new Error('Featured listing price 7d not found — run seed-test.ts');
+  describe('H8.5a — POST /billing/featured-by-credits: useQuota elegido por el usuario', () => {
+    const QUOTA_DURATION_DAYS = 7; // matches the default seeded in proQuotaFeaturedDurationDays
+
+    beforeAll(async () => {
+      await prisma.setting.upsert({
+        where: { key: 'proQuotaFeaturedDurationDays' },
+        create: { key: 'proQuotaFeaturedDurationDays', value: QUOTA_DURATION_DAYS },
+        update: { value: QUOTA_DURATION_DAYS },
+      });
+    });
+
+    async function getFeaturedPriceIdByDuration(days: number): Promise<string> {
+      const price = await prisma.price.findFirst({ where: { durationDays: days, creditPackId: null } });
+      if (!price) throw new Error(`Featured listing price ${days}d not found — run seed-test.ts`);
       return price.id;
     }
 
@@ -259,11 +276,15 @@ describe('H8.2 — GET /billing/pro-status (cuota mensual de destacados Pro)', (
       return wallet?.balance ?? 0;
     }
 
-    function destacar(token: string, listingId: string, priceId: string) {
+    function destacar(
+      token: string,
+      listingId: string,
+      opts: { useQuota?: boolean; priceId?: string } = {},
+    ) {
       return request(app.getHttpServer())
         .post('/api/billing/featured-by-credits')
         .set('Authorization', `Bearer ${token}`)
-        .send({ priceId, listingId });
+        .send({ listingId, ...opts });
     }
 
     /** Consume `count` quota slots for userId with grants inside the current period. */
@@ -274,7 +295,7 @@ describe('H8.2 — GET /billing/pro-status (cuota mensual de destacados Pro)', (
       }
     }
 
-    it('Pro con cuota disponible → viaQuota:true, origin=PRO_QUOTA, wallet intacto, remaining baja en 1', async () => {
+    it('elige CUOTA con cuota disponible → gratis, duración fija, origin=PRO_QUOTA, wallet intacto, remaining baja en 1', async () => {
       const { user, token } = await createUser('quota-happy');
       await createProSubscription(
         user.id,
@@ -284,11 +305,10 @@ describe('H8.2 — GET /billing/pro-status (cuota mensual de destacados Pro)', (
       await grantWallet(user.id, 0); // no credits at all — the quota path must not need them
 
       const listing = await createActiveListing(user.id, 'quota-happy');
-      const priceId = await getFeaturedPrice7dId();
 
       expect((await getProStatus(token)).remaining).toBe(4);
 
-      const res = await destacar(token, listing.id, priceId).expect(201);
+      const res = await destacar(token, listing.id, { useQuota: true }).expect(201);
       expect(res.body.viaQuota).toBe(true);
 
       const entitlement = await prisma.entitlement.findFirst({
@@ -297,6 +317,10 @@ describe('H8.2 — GET /billing/pro-status (cuota mensual de destacados Pro)', (
       expect(entitlement).not.toBeNull();
       expect(entitlement!.origin).toBe(FeaturedOrigin.PRO_QUOTA);
       expect(entitlement!.transactionId).toBeNull();
+      expect(entitlement!.priceId).toBeNull(); // no variant chosen — fixed duration, no Price
+
+      const diffDays = (entitlement!.expiresAt!.getTime() - Date.now()) / (1000 * 60 * 60 * 24);
+      expect(diffDays).toBeCloseTo(QUOTA_DURATION_DAYS, 0);
 
       // No wallet movement whatsoever — free grant.
       expect(await getWalletBalance(user.id)).toBe(0);
@@ -308,113 +332,174 @@ describe('H8.2 — GET /billing/pro-status (cuota mensual de destacados Pro)', (
       expect(statusAfter.remaining).toBe(3);
     });
 
-    it('Pro con cuota agotada → cae a créditos, débito wallet, origin=CREDITS', async () => {
-      const { user, token } = await createUser('quota-exhausted');
+    it('elige CUOTA con un priceId de 30d adjunto → lo IGNORA, usa siempre proQuotaFeaturedDurationDays', async () => {
+      const { user, token } = await createUser('quota-ignores-price');
       await createProSubscription(
         user.id,
         new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
         new Date(Date.now() + 25 * 24 * 60 * 60 * 1000),
       );
-      await grantWallet(user.id, 100);
-      await consumeQuota(user.id, 'quota-exhausted-prior', 4); // limit is 4 → remaining 0
+      const listing = await createActiveListing(user.id, 'quota-ignores-price');
+      const price30dId = await getFeaturedPriceIdByDuration(30);
 
-      expect((await getProStatus(token)).remaining).toBe(0);
+      const res = await destacar(token, listing.id, { useQuota: true, priceId: price30dId }).expect(
+        201,
+      );
+      expect(res.body.viaQuota).toBe(true);
 
-      const listing = await createActiveListing(user.id, 'quota-exhausted-target');
-      const priceId = await getFeaturedPrice7dId();
-      const costSetting = await prisma.setting.findUnique({ where: { key: 'featuredCreditCost7d' } });
-      const cost = Number(costSetting!.value);
+      const entitlement = await prisma.entitlement.findFirst({
+        where: { listingId: listing.id, type: EntitlementType.FEATURED_LISTING },
+      });
+      // Duration must reflect the fixed quota setting (7d), NOT the 30d price sent.
+      const diffDays = (entitlement!.expiresAt!.getTime() - Date.now()) / (1000 * 60 * 60 * 24);
+      expect(diffDays).toBeCloseTo(QUOTA_DURATION_DAYS, 0);
+      expect(diffDays).not.toBeCloseTo(30, 0);
+      expect(entitlement!.priceId).toBeNull();
+    });
+
+    it('elige CUOTA sin cuota disponible → error explícito, NO cae a créditos ni crea entitlement', async () => {
+      const { user, token } = await createUser('quota-denied');
+      await createProSubscription(
+        user.id,
+        new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+        new Date(Date.now() + 25 * 24 * 60 * 60 * 1000),
+      );
+      await grantWallet(user.id, 1000); // plenty of credits — must NOT be touched
+      await consumeQuota(user.id, 'quota-denied-prior', 4); // limit 4 → remaining 0
+
+      const listing = await createActiveListing(user.id, 'quota-denied-target');
       const balanceBefore = await getWalletBalance(user.id);
 
-      const res = await destacar(token, listing.id, priceId).expect(201);
-      expect(res.body.viaQuota).toBe(false);
+      const res = await destacar(token, listing.id, { useQuota: true }).expect(400);
+      expect(res.body.code ?? res.body.message?.code).toBe('QUOTA_UNAVAILABLE');
 
-      const entitlement = await prisma.entitlement.findFirst({
-        where: { listingId: listing.id, type: EntitlementType.FEATURED_LISTING },
-      });
-      expect(entitlement!.origin).toBe(FeaturedOrigin.CREDITS);
-      expect(await getWalletBalance(user.id)).toBe(balanceBefore - cost);
-
-      const ledger = await prisma.creditLedger.findFirst({
-        where: { type: CreditLedgerType.FEATURED_DEBIT, referenceId: listing.id },
-      });
-      expect(ledger).not.toBeNull();
-    });
-
-    it('no-Pro → sigue yendo por créditos, sin cambios respecto a antes de H8.3', async () => {
-      const { user, token } = await createUser('quota-nopro');
-      await grantWallet(user.id, 100);
-      const listing = await createActiveListing(user.id, 'quota-nopro');
-      const priceId = await getFeaturedPrice7dId();
-
-      const res = await destacar(token, listing.id, priceId).expect(201);
-      expect(res.body.viaQuota).toBe(false);
-
-      const entitlement = await prisma.entitlement.findFirst({
-        where: { listingId: listing.id, type: EntitlementType.FEATURED_LISTING },
-      });
-      expect(entitlement!.origin).toBe(FeaturedOrigin.CREDITS);
-    });
-
-    it('Pro sin cuota y sin créditos → 402, igual que hoy un no-Pro sin créditos', async () => {
-      const { user, token } = await createUser('quota-402');
-      await createProSubscription(
-        user.id,
-        new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
-        new Date(Date.now() + 25 * 24 * 60 * 60 * 1000),
-      );
-      await consumeQuota(user.id, 'quota-402-prior', 4); // remaining 0, no wallet at all
-
-      const listing = await createActiveListing(user.id, 'quota-402-target');
-      const priceId = await getFeaturedPrice7dId();
-
-      await destacar(token, listing.id, priceId).expect(402);
-
+      // No silent fallback to credits: no entitlement, no wallet movement.
       const entitlement = await prisma.entitlement.findFirst({
         where: { listingId: listing.id, type: EntitlementType.FEATURED_LISTING },
       });
       expect(entitlement).toBeNull();
+      expect(await getWalletBalance(user.id)).toBe(balanceBefore);
     });
 
-    it('CONCURRENCIA (best-effort, timing real) — dos destacados simultáneos con remaining=1: solo UNO consume cuota', async () => {
+    it('elige CRÉDITOS teniendo cuota disponible → se cobran créditos, origin=CREDITS, cuota INTACTA', async () => {
+      const { user, token } = await createUser('credits-with-quota');
+      await createProSubscription(
+        user.id,
+        new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+        new Date(Date.now() + 25 * 24 * 60 * 60 * 1000),
+      );
+      await grantWallet(user.id, 100);
+
+      const remainingBefore = (await getProStatus(token)).remaining;
+      expect(remainingBefore).toBe(4);
+
+      const listing = await createActiveListing(user.id, 'credits-with-quota');
+      const priceId = await getFeaturedPriceIdByDuration(14);
+      const costSetting = await prisma.setting.findUnique({ where: { key: 'featuredCreditCost14d' } });
+      const cost = Number(costSetting!.value);
+      const balanceBefore = await getWalletBalance(user.id);
+
+      const res = await destacar(token, listing.id, { useQuota: false, priceId }).expect(201);
+      expect(res.body.viaQuota).toBe(false);
+
+      const entitlement = await prisma.entitlement.findFirst({
+        where: { listingId: listing.id, type: EntitlementType.FEATURED_LISTING },
+      });
+      expect(entitlement!.origin).toBe(FeaturedOrigin.CREDITS);
+      expect(entitlement!.priceId).toBe(priceId);
+      expect(await getWalletBalance(user.id)).toBe(balanceBefore - cost);
+
+      const diffDays = (entitlement!.expiresAt!.getTime() - Date.now()) / (1000 * 60 * 60 * 24);
+      expect(diffDays).toBeCloseTo(14, 0); // the chosen variant, not the quota's fixed duration
+
+      // The user deliberately paid instead of using quota — quota must be untouched.
+      const statusAfter = await getProStatus(token);
+      expect(statusAfter.remaining).toBe(remainingBefore);
+      expect(statusAfter.used).toBe(0);
+    });
+
+    it('elige CRÉDITOS (sin cuota) — igual que siempre: éxito con saldo, 402 sin saldo', async () => {
+      const { user, token } = await createUser('credits-nopro');
+      await grantWallet(user.id, 100);
+      const listing = await createActiveListing(user.id, 'credits-nopro');
+      const priceId = await getFeaturedPriceIdByDuration(7);
+
+      const res = await destacar(token, listing.id, { useQuota: false, priceId }).expect(201);
+      expect(res.body.viaQuota).toBe(false);
+
+      const entitlement = await prisma.entitlement.findFirst({
+        where: { listingId: listing.id, type: EntitlementType.FEATURED_LISTING },
+      });
+      expect(entitlement!.origin).toBe(FeaturedOrigin.CREDITS);
+
+      // Second listing, same user, wallet now empty → 402.
+      const listing2 = await createActiveListing(user.id, 'credits-nopro-2');
+      await grantWallet(user.id, 0);
+      await destacar(token, listing2.id, { useQuota: false, priceId }).expect(402);
+    });
+
+    it('la duración de la cuota respeta el Setting: cambia proQuotaFeaturedDurationDays → los nuevos gratis usan la nueva duración', async () => {
+      const { user, token } = await createUser('quota-duration-setting');
+      await createProSubscription(
+        user.id,
+        new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+        new Date(Date.now() + 25 * 24 * 60 * 60 * 1000),
+      );
+
+      await prisma.setting.update({
+        where: { key: 'proQuotaFeaturedDurationDays' },
+        data: { value: 15 },
+      });
+
+      try {
+        const listing = await createActiveListing(user.id, 'quota-duration-setting');
+        const res = await destacar(token, listing.id, { useQuota: true }).expect(201);
+        expect(res.body.viaQuota).toBe(true);
+
+        const entitlement = await prisma.entitlement.findFirst({
+          where: { listingId: listing.id, type: EntitlementType.FEATURED_LISTING },
+        });
+        const diffDays = (entitlement!.expiresAt!.getTime() - Date.now()) / (1000 * 60 * 60 * 24);
+        expect(diffDays).toBeCloseTo(15, 0);
+      } finally {
+        // Restore for subsequent tests in this describe block.
+        await prisma.setting.update({
+          where: { key: 'proQuotaFeaturedDurationDays' },
+          data: { value: QUOTA_DURATION_DAYS },
+        });
+      }
+    });
+
+    it('CONCURRENCIA (best-effort, timing real) — dos CUOTA simultáneas con remaining=1: solo UNA consume cuota', async () => {
       const { user, token } = await createUser('quota-race');
       await createProSubscription(
         user.id,
         new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
         new Date(Date.now() + 25 * 24 * 60 * 60 * 1000),
       );
-      // Enough credits so whichever request loses the quota race still succeeds
-      // via the fallback (proves it falls to credits, not just "fails").
-      await grantWallet(user.id, 1000);
       await consumeQuota(user.id, 'quota-race-prior', 3); // limit 4 → remaining = 1
 
       expect((await getProStatus(token)).remaining).toBe(1);
 
       const listingA = await createActiveListing(user.id, 'quota-race-A');
       const listingB = await createActiveListing(user.id, 'quota-race-B');
-      const priceId = await getFeaturedPrice7dId();
 
-      // Fire both "destacar" requests concurrently — this is the race: without the
-      // Subscription row lock (EntitlementService.hasAvailableFeaturedQuota), both
-      // could read remaining=1 before either creates its PRO_QUOTA entitlement, and
-      // BOTH would grant a free destacado for a quota of one.
+      // Fire both "destacar por cuota" requests concurrently — this is the race:
+      // without the Subscription row lock (EntitlementService.hasAvailableFeaturedQuota),
+      // both could read remaining=1 before either creates its PRO_QUOTA entitlement,
+      // and BOTH would grant a free destacado for a quota of one.
       const [resA, resB] = await Promise.all([
-        destacar(token, listingA.id, priceId),
-        destacar(token, listingB.id, priceId),
+        destacar(token, listingA.id, { useQuota: true }),
+        destacar(token, listingB.id, { useQuota: true }),
       ]);
 
-      expect(resA.status).toBe(201);
-      expect(resB.status).toBe(201);
+      const statuses = [resA.status, resB.status];
+      // Exactly one succeeds via quota (201); the other must be explicitly rejected
+      // (400 QUOTA_UNAVAILABLE) — never both succeed (that would be two free grants
+      // for a quota of one), never both fail.
+      expect(statuses.filter((s) => s === 201)).toHaveLength(1);
+      expect(statuses.filter((s) => s === 400)).toHaveLength(1);
 
-      const viaQuotaFlags = [resA.body.viaQuota, resB.body.viaQuota];
-      // Exactly one of the two consumed the free quota slot — never both, never neither
-      // (the loser must fall back to credits, which it can afford here).
-      expect(viaQuotaFlags.filter(Boolean)).toHaveLength(1);
-      expect(viaQuotaFlags.filter((v) => v === false)).toHaveLength(1);
-
-      // Verify at the DB level, not just the HTTP response: exactly one new
-      // PRO_QUOTA grant landed, and used/remaining reflect it — no free destacados
-      // regalados de más.
       const statusAfter = await getProStatus(token);
       expect(statusAfter.used).toBe(4); // 3 prior + exactly 1 new
       expect(statusAfter.remaining).toBe(0);
@@ -428,16 +513,6 @@ describe('H8.2 — GET /billing/pro-status (cuota mensual de destacados Pro)', (
         },
       });
       expect(quotaGrants).toBe(1);
-
-      const creditGrants = await prisma.entitlement.count({
-        where: {
-          userId: user.id,
-          type: EntitlementType.FEATURED_LISTING,
-          origin: FeaturedOrigin.CREDITS,
-          listingId: { in: [listingA.id, listingB.id] },
-        },
-      });
-      expect(creditGrants).toBe(1); // the loser fell back to credits
     });
 
     it('CONCURRENCIA (determinista) — el lock realmente bloquea al segundo hasta que el primero confirma', async () => {
@@ -456,12 +531,10 @@ describe('H8.2 — GET /billing/pro-status (cuota mensual de destacados Pro)', (
         new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
         new Date(Date.now() + 25 * 24 * 60 * 60 * 1000),
       );
-      await grantWallet(user.id, 1000);
       await consumeQuota(user.id, 'quota-race-det-prior', 3); // limit 4 → remaining = 1
 
       const listingA = await createActiveListing(user.id, 'quota-race-det-A');
       const listingB = await createActiveListing(user.id, 'quota-race-det-B');
-      const priceId = await getFeaturedPrice7dId();
 
       const entitlementService = app.get(EntitlementService);
       const original = entitlementService.hasAvailableFeaturedQuota.bind(entitlementService);
@@ -485,8 +558,8 @@ describe('H8.2 — GET /billing/pro-status (cuota mensual de destacados Pro)', (
       try {
         const start = Date.now();
         const [resA, resB] = await Promise.all([
-          destacar(token, listingA.id, priceId),
-          destacar(token, listingB.id, priceId),
+          destacar(token, listingA.id, { useQuota: true }),
+          destacar(token, listingB.id, { useQuota: true }),
         ]);
         const elapsed = Date.now() - start;
 
@@ -496,12 +569,9 @@ describe('H8.2 — GET /billing/pro-status (cuota mensual de destacados Pro)', (
         // final counts happen to look right.
         expect(elapsed).toBeGreaterThanOrEqual(DELAY_MS - 20);
 
-        expect(resA.status).toBe(201);
-        expect(resB.status).toBe(201);
-
-        const viaQuotaFlags = [resA.body.viaQuota, resB.body.viaQuota];
-        expect(viaQuotaFlags.filter(Boolean)).toHaveLength(1);
-        expect(viaQuotaFlags.filter((v) => v === false)).toHaveLength(1);
+        const statuses = [resA.status, resB.status];
+        expect(statuses.filter((s) => s === 201)).toHaveLength(1);
+        expect(statuses.filter((s) => s === 400)).toHaveLength(1);
 
         const statusAfter = await getProStatus(token);
         expect(statusAfter.used).toBe(4);
