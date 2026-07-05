@@ -2,7 +2,7 @@ import * as Sentry from '@sentry/nestjs';
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
-import { CreditLedgerType, TransactionStatus } from '@prisma/client';
+import { CreditLedgerType, FeaturedOrigin, TransactionStatus } from '@prisma/client';
 import { Prisma } from '@prisma/client';
 import { QUEUE_REDSYS } from '../../infra/queue/queue.constants';
 import { PrismaService } from '../../infra/prisma/prisma.service';
@@ -196,6 +196,7 @@ export class RedsysProcessor extends WorkerHost {
       durationDays,
       priceId,
       transactionId,
+      origin: FeaturedOrigin.REDSYS,
     });
 
     // Mark Transaction SUCCEEDED only after entitlement is confirmed created.

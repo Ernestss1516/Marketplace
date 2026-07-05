@@ -14,6 +14,7 @@ import { JwtAuthGuard } from '../../common/guards';
 import { CurrentUser } from '../../common/decorators';
 import { JwtUser } from '../auth/auth.types';
 import { BillingService } from './billing.service';
+import { EntitlementService } from './entitlement.service';
 import { CheckoutDto } from './dto/checkout.dto';
 import { FeaturedByCreditsDto } from './dto/featured-by-credits.dto';
 import { TransactionsQueryDto } from './dto/transactions-query.dto';
@@ -23,7 +24,10 @@ import { WalletQueryDto } from './dto/wallet-query.dto';
 @ApiBearerAuth('access-token')
 @Controller('billing')
 export class BillingController {
-  constructor(private readonly billing: BillingService) {}
+  constructor(
+    private readonly billing: BillingService,
+    private readonly entitlements: EntitlementService,
+  ) {}
 
   // ---------------------------------------------------------------------------
   // Public — no auth required
@@ -68,6 +72,16 @@ export class BillingController {
   @UseGuards(JwtAuthGuard)
   getMyTransactions(@CurrentUser() user: JwtUser, @Query() query: TransactionsQueryDto) {
     return this.billing.getMyTransactions(user.userId, query);
+  }
+
+  /**
+   * H8.2 — punto único donde el frontend consulta la cuota mensual de
+   * destacados gratis de Pro. Un no-Pro recibe { isPro: false, ... }.
+   */
+  @Get('pro-status')
+  @UseGuards(JwtAuthGuard)
+  getProStatus(@CurrentUser() user: JwtUser) {
+    return this.entitlements.getFeaturedQuotaStatus(user.userId);
   }
 
   // ---------------------------------------------------------------------------

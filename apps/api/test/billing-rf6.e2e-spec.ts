@@ -536,6 +536,7 @@ describe('RF.6 — Featured listing, bump, and wallet (e2e)', () => {
       });
       expect(entitlementA).not.toBeNull();
       expect(entitlementA!.transactionId).toBeNull(); // no real payment
+      expect(entitlementA!.origin).toBe('CREDITS'); // H8.2
 
       // ── Path B: via Redsys (simulated) ────────────────────────────────────
       const listingB = await createActiveListing('-unified-B');
@@ -570,6 +571,7 @@ describe('RF.6 — Featured listing, bump, and wallet (e2e)', () => {
       });
       expect(entitlementB).not.toBeNull();
       expect(entitlementB!.transactionId).toBe(tx.id); // has real transaction ref
+      expect(entitlementB!.origin).toBe('REDSYS'); // H8.2
 
       // Both must produce the same type and same approximate expiresAt
       expect(entitlementA!.type).toBe(entitlementB!.type);

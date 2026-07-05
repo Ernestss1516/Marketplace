@@ -1447,21 +1447,41 @@ hito (H8.6); mientras tanto, el detalle de las decisiones vive en el hilo de dis
   `proMonthlyFeaturedQuota`: los tres son ahora editables desde el backoffice. El editor numérico
   de la página se generalizó (`ExpiryDaysEditor` → `NumberSettingEditor` parametrizable) en vez de
   triplicar el componente.
-- **Aún no implementado (H8.2+):** la query derivada de cuota (`getFeaturedQuotaStatus`), la
-  bifurcación de `featuredByCredits` para tirar de la cuota antes que de créditos, el badge "Pro"
-  en el perfil público (no existe hoy en el frontend), y la UX de destacar mostrando "te quedan N
-  este mes". `origin` existe en el schema pero todavía no lo escribe ningún flujo nuevo.
+**H8.2 (query derivada de cuota + `origin` propagado) — hecho:**
+
+- `EntitlementService.getFeaturedQuotaStatus(userId)`: para no-Pro devuelve
+  `{ isPro: false, limit: 0, used: 0, remaining: 0 }`. Para Pro, obtiene el periodo desde la
+  `Subscription` **vinculada al `Entitlement PRO_SUBSCRIPTION` vigente** (`subscriptionId`, no un
+  `findFirst` genérico sobre `Subscription` — evita ambigüedad con suscripciones canceladas
+  residuales), y cuenta (`COUNT`, sin cron) los `Entitlement FEATURED_LISTING` con
+  `origin=PRO_QUOTA` y `createdAt >= currentPeriodStart`. El reseteo es puramente derivado: en
+  cuanto Stripe avanza `currentPeriodStart` en una renovación, los `PRO_QUOTA` del periodo anterior
+  dejan automáticamente de contar, sin tocar ningún estado.
+- `GET /billing/pro-status` (JWT): punto único donde el frontend consultará la cuota (lo usará
+  H8.5). Un no-Pro recibe `isPro:false`.
+- `origin` propagado en **todos** los `entitlement.create` de `FEATURED_LISTING` — ninguno queda
+  `null` desde esta ráfaga: `grantFeaturedListing` (ahora recibe `origin` obligatorio; el caller de
+  Redsys pasa `REDSYS`) y la copia inline de `featuredByCredits` (pasa `CREDITS` — sigue sin llamar
+  a `grantFeaturedListing`, ver deuda de diseño en H8.1/H8 mini-diseño; la bifurcación cuota-primero
+  que unificará esto parcialmente es H8.3).
+- Tests nuevos: `h8-featured-quota.e2e-spec.ts` (no-Pro, Pro sin uso, Pro con uso parcial, y el caso
+  clave — `PRO_QUOTA` de un periodo anterior al `currentPeriodStart` no cuenta, probando el reseteo
+  derivado sin cron) + assertions de `origin` añadidas a `billing-rf6.e2e-spec.ts`
+  (`grantFeaturedListing unified`).
+- **Aún no implementado (H8.3+):** la bifurcación cuota-primero en `featuredByCredits` (hoy sigue
+  debitando créditos siempre; la cuota se puede consultar pero no se consume todavía al destacar),
+  el badge "Pro" en el perfil público, y la UX de destacar mostrando "te quedan N este mes".
 
 **Nota de proceso (full suite local vs. CI):** al ejecutar `jest --config test/jest-e2e.json` en
 paralelo (workers por defecto) contra una base de datos de test local compartida, varias suites
 fallan por deadlocks de Postgres y violaciones de FK — cada spec hace `cleanDb` (trunca `User`
 CASCADE) en su `beforeAll`, y si dos suites corren a la vez sobre la misma BD, una puede borrar los
-usuarios que la otra está usando a mitad de test. Con `--runInBand` (serie) sobre BD fresca, las 337
-pruebas pasan limpias. No es un problema introducido por H8.1 — es una característica preexistente
-de la suite (solo es segura en serie, o en paralelo si cada worker tuviera su propia BD); documentado
-aquí porque solo se hizo visible al ejecutar la suite completa en local con varios núcleos libres.
-Revisar en Hito 9 si conviene aislar por base de datos por worker (`jest --maxWorkers` + BD por
-worker) en vez de depender de la serialización.
+usuarios que la otra está usando a mitad de test. Con `--runInBand` (serie) sobre BD fresca, las 342
+pruebas pasan limpias (confirmado de nuevo en H8.2). No es un problema introducido por H8 — es una
+característica preexistente de la suite (solo es segura en serie, o en paralelo si cada worker
+tuviera su propia BD); documentado aquí porque solo se hizo visible al ejecutar la suite completa en
+local con varios núcleos libres. Revisar en Hito 9 si conviene aislar por base de datos por worker
+(`jest --maxWorkers` + BD por worker) en vez de depender de la serialización.
 
 ### Renombrar la key de un atributo no migra `Listing.attributes` (aviso, no migración)
 

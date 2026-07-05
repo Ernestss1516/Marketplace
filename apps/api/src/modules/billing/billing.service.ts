@@ -14,6 +14,7 @@ import Stripe = require('stripe');
 import {
   CreditLedgerType,
   EntitlementType,
+  FeaturedOrigin,
   ListingStatus,
   ProductType,
   SubscriptionStatus,
@@ -38,6 +39,8 @@ export interface GrantFeaturedParams {
   priceId: string;
   /** Only set when a real payment was made (Redsys path). */
   transactionId?: string;
+  /** Which bag this grant comes from (H8.1/H8.2) — CREDITS, REDSYS or PRO_QUOTA. */
+  origin: FeaturedOrigin;
 }
 
 @Injectable()
@@ -201,7 +204,7 @@ export class BillingService {
    *   - RedsysProcessor.handleFeaturedPay (standalone, after Transaction.status = SUCCEEDED)
    */
   async grantFeaturedListing(params: GrantFeaturedParams): Promise<void> {
-    const { userId, listingId, durationDays, priceId, transactionId } = params;
+    const { userId, listingId, durationDays, priceId, transactionId, origin } = params;
 
     // Validate listing exists, is ACTIVE, and belongs to userId
     const listing = await this.prisma.listing.findUnique({
@@ -239,6 +242,7 @@ export class BillingService {
         listingId,
         expiresAt,
         priceId,
+        origin,
         ...(transactionId && { transactionId }),
       },
     });
@@ -248,7 +252,7 @@ export class BillingService {
 
     this.logger.log(
       `Featured listing granted: listingId=${listingId}, userId=${userId}, ` +
-        `durationDays=${durationDays}, transactionId=${transactionId ?? 'none'}`,
+        `durationDays=${durationDays}, origin=${origin}, transactionId=${transactionId ?? 'none'}`,
     );
   }
 
@@ -331,6 +335,8 @@ export class BillingService {
       });
 
       // Create entitlement (single source of truth: this is the ONLY place)
+      // H8.2: origin is always CREDITS here — the quota-first branch (draw from
+      // Pro's free monthly quota before debiting the wallet) is H8.3.
       await tx.entitlement.create({
         data: {
           userId,
@@ -338,6 +344,7 @@ export class BillingService {
           listingId,
           expiresAt,
           priceId,
+          origin: FeaturedOrigin.CREDITS,
         },
       });
     });
