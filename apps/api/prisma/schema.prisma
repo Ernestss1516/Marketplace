@@ -125,6 +125,15 @@ enum CreditLedgerType {
   ADMIN_CREDIT    // Acreditación manual de soporte → entrada
   ADMIN_DEBIT     // Débito manual de soporte → salida
   PRO_BONUS       // Créditos extra concedidos a usuarios Pro al comprar un pack → entrada
+  CAMPAIGN_BONUS  // Créditos extra concedidos por una campaña promocional al comprar un pack → entrada
+}
+
+/// Tipo de campaña promocional (H8 Bloque D). Extensible sin migración de datos:
+/// los parámetros concretos de cada tipo viven en Campaign.params (jsonb), no en
+/// columnas propias. Futuro: ACTION_DISCOUNT (descuento en bump/destacar, fase 2),
+/// COUPON (cupón canjeable, fase 3), BANNER (difusión, fase 4).
+enum CampaignType {
+  CREDIT_BONUS  // Bonus de créditos al comprar un pack
 }
 
 /// Motivo de una denuncia, para la cola de moderación.
@@ -746,6 +755,16 @@ model Transaction {
   /// Calculado en createCreditPackCheckout; el RedsysProcessor lo lee sin recalcular.
   bonusCreditAmount Int?
 
+  /// Bonus de campaña promocional congelado en el checkout (H8 Bloque D). Null = sin
+  /// campaña activa en ese instante. Se SUMA a bonusCreditAmount (Pro + campaña), no
+  /// lo sustituye. El RedsysProcessor lo lee sin recalcular — el bonus vigente es el
+  /// del instante del checkout, no el de la confirmación del pago.
+  campaignBonusAmount Int?
+  /// Campaña que originó campaignBonusAmount, para trazabilidad/reporting. Las
+  /// campañas no se borran (solo se desactivan), pero SetNull es red de seguridad.
+  campaignId          String?
+  campaign            Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
@@ -837,6 +856,36 @@ model CreditLedger {
 
   @@index([walletId])
   @@index([createdAt])
+}
+
+/// Campaña promocional gestionada desde el backoffice (H8 Bloque D fase 1).
+/// El MOTOR es genérico y extensible a descuentos/cupones/difusión (fases 2-4);
+/// esta fase solo implementa CREDIT_BONUS.
+///
+/// Decisión de producto: no se permiten dos campañas ACTIVE del MISMO type con
+/// fechas solapadas (validado en CampaignsService al crear/editar). Así nunca
+/// hay ambigüedad de "cuál aplicar" — a lo sumo una campaña de un type dado está
+/// vigente en un instante dado. Campañas de types distintos sí pueden convivir.
+model Campaign {
+  id        String       @id @default(cuid())
+  name      String
+  type      CampaignType
+  active    Boolean      @default(true)
+  startsAt  DateTime
+  endsAt    DateTime
+
+  /// Parámetros específicos del type. Para CREDIT_BONUS:
+  /// { "kind": "PERCENT" | "FIXED", "value": number }
+  /// Validado en el DTO según `type`, no a nivel de BD (mismo patrón que
+  /// Setting.value / Listing.attributes) — evita migración por cada type nuevo.
+  params    Json
+
+  transactions Transaction[]
+
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@index([type, active, startsAt, endsAt])
 }
 
 // ============================================================================

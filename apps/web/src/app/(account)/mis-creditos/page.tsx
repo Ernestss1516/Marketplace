@@ -16,6 +16,7 @@ const LEDGER_LABELS: Record<CreditLedgerType, string> = {
   ADMIN_CREDIT: 'Crédito manual',
   ADMIN_DEBIT: 'Ajuste',
   PRO_BONUS: 'Bonus Pro',
+  CAMPAIGN_BONUS: 'Bonus campaña',
 };
 
 function LedgerRow({ item }: { item: WalletItem }) {

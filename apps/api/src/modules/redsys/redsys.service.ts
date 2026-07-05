@@ -15,6 +15,7 @@ import {
 import { ListingStatus, TransactionStatus } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { EntitlementService } from '../billing/entitlement.service';
+import { CampaignsService } from '../campaigns/campaigns.service';
 import { CheckoutCreditsPackDto } from './dto/checkout-credits-pack.dto';
 import { CheckoutFeaturedPayDto } from './dto/checkout-featured-pay.dto';
 import { redsysTaxBreakdown, type RedsysFormData } from './redsys.types';
@@ -38,6 +39,7 @@ export class RedsysService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly entitlements: EntitlementService,
+    private readonly campaigns: CampaignsService,
     private readonly config: ConfigService,
   ) {
     this.appUrl = config.get<string>('appUrl', 'http://localhost:3000');
@@ -120,6 +122,19 @@ export class RedsysService {
       bonusCreditAmount = Math.ceil(pack.creditAmount * pct / 100);
     }
 
+    // Freeze campaign bonus at checkout time (H8 Bloque D). SUMS with the Pro
+    // bonus above (both are "gifted credits in the wallet, no VAT" — a Pro user
+    // buying during a campaign gets both). The processor reads this as-is; the
+    // bonus that applies is the one active at THIS instant, not at confirmation.
+    const activeCampaign = await this.campaigns.getActiveCreditBonusCampaign();
+    let campaignBonusAmount: number | null = null;
+    let campaignId: string | null = null;
+    if (activeCampaign) {
+      const { kind, value } = activeCampaign.params as { kind: 'PERCENT' | 'FIXED'; value: number };
+      campaignBonusAmount = kind === 'PERCENT' ? Math.ceil(pack.creditAmount * value / 100) : value;
+      campaignId = activeCampaign.id;
+    }
+
     // Create Transaction PENDING, retrying up to 3 times on Ds_Order collision.
     let transactionId: string;
     let dsOrder: string = '';
@@ -135,6 +150,8 @@ export class RedsysService {
             gateway: 'REDSYS',
             gatewayPaymentIntentId: dsOrder,
             bonusCreditAmount,
+            campaignBonusAmount,
+            campaignId,
           },
           select: { id: true },
         });
@@ -151,7 +168,8 @@ export class RedsysService {
     // transactionId is always set here (loop throws on failure)
     this.logger.log(
       `Created PENDING Transaction ${transactionId!} for pack ${dto.packId}, ` +
-        `Ds_Order=${dsOrder}, proBonus=${bonusCreditAmount ?? 'none'}`,
+        `Ds_Order=${dsOrder}, proBonus=${bonusCreditAmount ?? 'none'}, ` +
+        `campaignBonus=${campaignBonusAmount ?? 'none'}`,
     );
 
     return { redsysFormData: this.buildForm(dsOrder, amountCents) };

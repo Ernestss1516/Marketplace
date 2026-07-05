@@ -88,6 +88,7 @@ export class RedsysProcessor extends WorkerHost {
         transactionId,
         creditPack.creditAmount,
         transaction.bonusCreditAmount,
+        transaction.campaignBonusAmount,
       );
     } else {
       // Featured pay via Redsys (RF.6)
@@ -120,8 +121,9 @@ export class RedsysProcessor extends WorkerHost {
     transactionId: string,
     creditAmount: number,
     bonusCreditAmount: number | null,
+    campaignBonusAmount: number | null,
   ): Promise<void> {
-    const totalCredit = creditAmount + (bonusCreditAmount ?? 0);
+    const totalCredit = creditAmount + (bonusCreditAmount ?? 0) + (campaignBonusAmount ?? 0);
 
     await this.prisma.$transaction(async (tx) => {
       // Upsert Wallet with total credits (base + bonus) atomically.
@@ -156,6 +158,19 @@ export class RedsysProcessor extends WorkerHost {
         });
       }
 
+      // Campaign bonus ledger entry (only when a campaign was active at checkout).
+      if (campaignBonusAmount != null) {
+        await tx.creditLedger.create({
+          data: {
+            walletId: wallet.id,
+            type: CreditLedgerType.CAMPAIGN_BONUS,
+            amount: campaignBonusAmount,
+            referenceType: 'Transaction',
+            referenceId: transactionId,
+          },
+        });
+      }
+
       // Mark the Transaction as SUCCEEDED.
       await tx.transaction.update({
         where: { id: transactionId },
@@ -166,7 +181,8 @@ export class RedsysProcessor extends WorkerHost {
     this.logger.log(
       `Pack purchase processed: user=${userId}, transactionId=${transactionId}, ` +
         `creditAmount=+${creditAmount}` +
-        (bonusCreditAmount != null ? `, proBonus=+${bonusCreditAmount}` : ''),
+        (bonusCreditAmount != null ? `, proBonus=+${bonusCreditAmount}` : '') +
+        (campaignBonusAmount != null ? `, campaignBonus=+${campaignBonusAmount}` : ''),
     );
   }
 

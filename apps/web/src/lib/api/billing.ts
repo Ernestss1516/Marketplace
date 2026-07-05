@@ -10,7 +10,8 @@ export type CreditLedgerType =
   | 'BUMP_DEBIT'
   | 'ADMIN_CREDIT'
   | 'ADMIN_DEBIT'
-  | 'PRO_BONUS';
+  | 'PRO_BONUS'
+  | 'CAMPAIGN_BONUS';
 
 export interface WalletItem {
   id: string;

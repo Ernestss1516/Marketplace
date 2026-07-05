@@ -1766,6 +1766,63 @@ a "Hito 8b"; se retoma y cierra en esta ráfaga (C1 backend + C2 frontend).
    `freeActiveListingLimit` en la BD de test compartida, ya documentada arriba en la nota de H8.6
    sobre suite en paralelo vs. serie).
 
+**H8 Bloque D fase 1 (motor de campañas + bonus de créditos promocional) — hecho.** Mini-diseño
+aprobado previamente; una sola ráfaga (schema + admin CRUD + aplicación en checkout).
+
+- **Schema:** `enum CampaignType { CREDIT_BONUS }` (extensible sin migración por tipo futuro:
+  `ACTION_DISCOUNT`/`COUPON`/`BANNER` documentados como comentario en el enum). `model Campaign` con
+  `params Json` para los parámetros del bonus (`{kind: 'PERCENT'|'FIXED', value}`) — mismo patrón que
+  `Setting.value`/`Listing.attributes`, evita añadir columnas nuevas por cada tipo de campaña futuro;
+  validado en el DTO (`CampaignParamsDto`), no en BD. `CreditLedgerType` +`CAMPAIGN_BONUS`.
+  `Transaction` +`campaignBonusAmount Int?` +`campaignId String?` (mismo patrón de congelado que
+  `bonusCreditAmount` del Bonus Pro). Índice `[type, active, startsAt, endsAt]` para la query de
+  campaña activa y la validación de solapamiento.
+- **Decisión de producto (simultaneidad):** no se permiten dos campañas `ACTIVE` del mismo `type` con
+  fechas solapadas — validado al crear/editar (`CampaignsService.assertNoOverlap`). Así nunca hay
+  ambigüedad de "cuál aplicar": a lo sumo una `CREDIT_BONUS` está vigente en un instante dado
+  (`getActiveCreditBonusCampaign`, derivado por fechas, sin caché — mismo criterio que
+  `EntitlementService.isProActive`). Se permite crear/mantener campañas `INACTIVE` que solapan (para
+  prepararlas); la validación solo bloquea si el resultado quedaría `active: true`.
+- **Admin CRUD** (`CampaignsModule`, `/admin/campaigns`, ADMIN-only — como `admin-billing`, no
+  `MODERATOR`): crear, editar (`name`/fechas/`params`/`active`; `type` no editable tras crear — sería
+  otra campaña), listado con `status` derivado (`upcoming`|`live`|`ended`, comparado con `now`, no
+  persistido). Sin `DELETE`: las campañas no se borran, solo se desactivan (registro histórico).
+  `AuditLog` con `CAMPAIGN_CREATE`/`CAMPAIGN_EDIT`/`CAMPAIGN_ACTIVATE`/`CAMPAIGN_DEACTIVATE` (acción
+  derivada del cambio real de `active`, no solo del endpoint llamado).
+- **Deuda conocida, documentada y aceptada (no resuelta en esta fase):** la validación de
+  solapamiento es check-then-act (lee, luego escribe fuera de la misma sección crítica) — dos
+  activaciones concurrentes de campañas `INACTIVE` solapadas del mismo `type` podrían ambas superar la
+  validación antes de que ninguna confirme su escritura. Riesgo bajo (acción de admin, un único actor,
+  clics deliberados). Cierre robusto si el negocio lo exige: `EXCLUDE` constraint de Postgres (GiST
+  sobre `type` + `tsrange(startsAt, endsAt)`); no implementado aquí.
+- **Checkout** (`RedsysService.createCreditPackCheckout`): el bonus de campaña se calcula y congela
+  igual que el Bonus Pro, **antes** de crear la `Transaction` — el bonus vigente es el del instante
+  del checkout, no el de la confirmación del pago (documentado explícitamente; mismo criterio que ya
+  regía para el Bonus Pro). **Se suma al Bonus Pro, no lo sustituye**: un Pro comprando durante una
+  campaña recibe ambos (decisión de producto — ambos son "créditos regalados en wallet, sin IVA", el
+  patrón ya soporta múltiples entradas de `CreditLedger` por la misma `Transaction`).
+- **Processor** (`RedsysProcessor.handlePackPurchase`): acredita `creditAmount + bonusCreditAmount +
+  campaignBonusAmount` en una sola escritura de `Wallet`, con una entrada `CreditLedger` por
+  componente (`PACK_PURCHASE`, `PRO_BONUS` si aplica, `CAMPAIGN_BONUS` si aplica) — nunca relee
+  `Campaign` ni recalcula: si la campaña se desactiva entre el checkout y la confirmación del pago, el
+  bonus congelado sigue aplicándose (verificado explícitamente en test).
+- **Frontend:** `CAMPAIGN_BONUS` añadido a los mapas de etiquetas del historial de créditos
+  (`/mis-creditos` y `/admin/facturacion/usuarios/[id]`) como "Bonus campaña", junto a "Bonus Pro".
+  Sin UI pública ni de admin nueva más allá de eso — el CRUD de campañas es API-only en esta fase (no
+  pedido un panel visual, coherente con el alcance del encargo).
+- **No en esta fase** (documentado como extensión futura, motor ya diseñado para soportarlo sin
+  rediseño): descuentos en acciones (bump/destacar), cupones canjeables, difusión/banners, límite de
+  usos por campaña, caducidad de créditos de campaña (si se necesita, la nota ya existente de
+  `CreditLedger` — añadir `expiresAt` + cron — sigue siendo el camino).
+- **Tests:** `h8-d1-campaigns.e2e-spec.ts` (backend, 25 casos — auth ADMIN-only incl. 403 explícito
+  para `MODERATOR`, validación de `params`/fechas, solapamiento en create/activate, no-revalidación en
+  edición simple, `status` derivado, congelado PERCENT/FIXED en checkout, suma con Bonus Pro,
+  acreditación en el processor con y sin campaña, y el caso de la campaña desactivada entre checkout y
+  processor). Batería completa verde: 27/27 suites backend (406 tests) y 111 tests de Playwright, con
+  el único fallo de `busqueda-mapa.spec.ts` (aviso de geo faltante) siendo la misma contaminación local
+  de Meilisearch ya investigada y documentada en la nota de proceso de H8 Bloque C — reproducido de
+  nuevo aquí, no relacionado con campañas, no un problema de código.
+
 ### Renombrar la key de un atributo no migra `Listing.attributes` (aviso, no migración)
 
 `Listing.attributes` no tiene FK con `Category.attributeSchema`; renombrar la `name`

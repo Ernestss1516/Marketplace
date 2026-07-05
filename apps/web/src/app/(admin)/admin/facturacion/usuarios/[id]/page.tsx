@@ -38,6 +38,7 @@ const LEDGER_TYPE_LABELS: Record<string, string> = {
   ADMIN_CREDIT: 'Crédito admin',
   ADMIN_DEBIT: 'Débito admin',
   PRO_BONUS: 'Bonus Pro',
+  CAMPAIGN_BONUS: 'Bonus campaña',
 };
 
 const ENTITLEMENT_TYPE_LABELS: Record<string, string> = {
