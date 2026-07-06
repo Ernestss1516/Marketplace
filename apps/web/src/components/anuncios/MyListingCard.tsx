@@ -94,7 +94,7 @@ export function MyListingCard({ listing, token, onAction }: Props) {
   }
 
   return (
-    <Card className="overflow-hidden">
+    <Card className="overflow-hidden" data-testid={`listing-card-${listing.id}`}>
       <div className="flex gap-4 p-4">
         {/* Thumbnail */}
         <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-lg bg-muted">

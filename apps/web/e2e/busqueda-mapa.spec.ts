@@ -50,22 +50,25 @@ test.describe('H6.5a — Vista de mapa en /busqueda', () => {
     // Start: list view, no map
     await expect(page.getByTestId('map-view')).not.toBeVisible();
 
-    // Click Mapa
-    await page.getByRole('link', { name: /Mapa/ }).click();
-    await page.waitForLoadState('networkidle');
-
-    // Now in map view
-    await expect(page.getByTestId('map-view')).toBeVisible({ timeout: 10_000 });
+    // Click Mapa. Same intermittent App Router client-navigation race isolated
+    // for flujo-critico.spec.ts under `next start` (never under `next dev`):
+    // the click registers but the transition occasionally never commits, with
+    // no console/page error. Retrying the click itself (not just the wait) is
+    // the reliable mitigation — see docs/estado-tecnico.md, "Nota de proceso —
+    // CI flaky Playwright".
+    await expect(async () => {
+      await page.getByRole('link', { name: /Mapa/ }).click();
+      await expect(page.getByTestId('map-view')).toBeVisible({ timeout: 5_000 });
+    }).toPass({ timeout: 20_000 });
     expect(page.url()).toContain('view=mapa');
     // Category filter preserved
     expect(page.url()).toContain('category=coches');
 
     // Click Lista
-    await page.getByRole('link', { name: /Lista/ }).click();
-    await page.waitForLoadState('networkidle');
-
-    // Back to list view
-    await expect(page.getByTestId('map-view')).not.toBeVisible();
+    await expect(async () => {
+      await page.getByRole('link', { name: /Lista/ }).click();
+      await expect(page.getByTestId('map-view')).not.toBeVisible({ timeout: 5_000 });
+    }).toPass({ timeout: 20_000 });
     expect(page.url()).not.toContain('view=mapa');
     // Category filter still preserved
     expect(page.url()).toContain('category=coches');
@@ -115,10 +118,19 @@ test.describe('H6.5b — Panel de detalle y avisos del mapa', () => {
     await expect(page.getByTestId('map-detail-panel')).not.toBeVisible();
   });
 
+  // Both tests below need a query GUARANTEED to return zero Meilisearch hits.
+  // Previously they relied on an implicit, unenforced assumption — "this file
+  // runs before any test that indexes a listing, so the index is still empty"
+  // — which depended on global cross-file test execution order never changing.
+  // That's inherently fragile (order isn't a documented Playwright contract,
+  // and it silently broke depending on which other spec files ran first — see
+  // docs/estado-tecnico.md, "Nota de proceso — CI flaky Playwright"). A query
+  // string no real listing could ever match makes totalHits=0 deterministic
+  // regardless of what else is in the index or which tests ran before this one.
+  const NO_MATCH_QUERY = `zzz-sin-resultados-${Date.now()}`;
+
   test('Aviso de cap (200 de N): no visible cuando totalHits ≤ 200', async ({ page }) => {
-    // busqueda-mapa runs first — Meilisearch has no listings yet.
-    // totalHits will be 0, hits.length will be 0 → no cap warning.
-    await page.goto('/busqueda?view=mapa');
+    await page.goto(`/busqueda?q=${NO_MATCH_QUERY}&view=mapa`);
     await page.waitForLoadState('networkidle');
     await expect(page.getByTestId('map-view')).toBeVisible({ timeout: 10_000 });
 
@@ -126,7 +138,7 @@ test.describe('H6.5b — Panel de detalle y avisos del mapa', () => {
   });
 
   test('Aviso de geo faltante: no visible cuando Meilisearch no tiene resultados', async ({ page }) => {
-    await page.goto('/busqueda?view=mapa');
+    await page.goto(`/busqueda?q=${NO_MATCH_QUERY}&view=mapa`);
     await page.waitForLoadState('networkidle');
     await expect(page.getByTestId('map-view')).toBeVisible({ timeout: 10_000 });
 

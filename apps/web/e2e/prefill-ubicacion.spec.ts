@@ -97,13 +97,20 @@ test.describe('RL5.1-A — Prefill de ubicación del perfil', () => {
     await page.goto('/mis-anuncios');
     await page.waitForLoadState('networkidle');
 
-    // Find the row for listing-rf11-e2e and click its edit link.
-    const listingRow = page
-      .locator('li, article, [data-testid="listing-item"], tr')
-      .filter({ hasText: 'Anuncio RF.11 E2E' })
-      .first();
-    const editLink = listingRow.getByRole('link', { name: /editar/i })
-      .or(page.getByRole('link', { name: /editar/i }).first());
+    // Find the card for listing-rf11-e2e and click its edit link. Scoped to
+    // MyListingCard's own data-testid (listing-card-{id}) — NOT a generic
+    // "first Editar link on the page" fallback. That fallback used to be here
+    // silently matching whichever listing was most recently updated ANYWHERE
+    // in the suite (the intended selector, `li, article, [data-testid=
+    // "listing-item"], tr`, never matches this app's DOM — MyListingCard
+    // renders a plain shadcn <Card>/<div>) — order-dependent and wrong
+    // whenever another test published/updated a different listing more
+    // recently. See docs/estado-tecnico.md, "Nota de proceso — CI flaky
+    // Playwright" for the full diagnosis.
+    const listingCard = page
+      .locator('[data-testid^="listing-card-"]')
+      .filter({ hasText: 'Anuncio RF.11 E2E' });
+    const editLink = listingCard.getByRole('link', { name: /editar/i });
     await editLink.click();
     await page.waitForURL('**/editar**', { timeout: 8_000 });
 

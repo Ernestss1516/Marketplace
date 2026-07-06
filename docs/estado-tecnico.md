@@ -1900,6 +1900,67 @@ de frontend (12/12 tests), 111/111 Playwright — incluido `busqueda-mapa.spec.t
 el índice sin contaminar, confirmando de nuevo que su fallo intermitente es puramente de datos locales
 acumulados, no de código.
 
+**Ráfaga de estabilización — suite Playwright flaky en CI real (~6 re-pushes sin verde estable).
+Causa raíz, no parcheo del test del día.** El objetivo era verde DETERMINISTA y repetido (5+ runs
+limpios), no verde por suerte. Se encontraron y arreglaron tres bugs deterministas distintos — ninguno
+era en realidad "el runner está saturado" (esa hipótesis de partida no se pudo confirmar ni fue
+necesaria para explicar los fallos observados).
+
+1. **`busqueda-mapa.spec.ts` — la asunción "Meilisearch está vacío" es FALSA siempre en CI real, no
+   solo a veces.** El test original decía en un comentario "busqueda-mapa runs first — Meilisearch
+   has no listings yet". Revisando `ci.yml`: el job `e2e` ejecuta el step "Backend e2e — Jest" ANTES
+   que "Frontend e2e — Playwright", **compartiendo el mismo contenedor de servicio de Meilisearch**
+   (no uno efímero por step). El suite de Jest indexa anuncios reales como parte de probar el propio
+   módulo de búsqueda (`rf8-meilisearch.e2e-spec.ts`, `search.e2e-spec.ts`, etc.), así que el índice
+   **nunca** está vacío cuando arranca Playwright — con o sin orden de ejecución de archivos, con o
+   sin acumulación de datos locales. Esto es distinto (y más fundamental) que la contaminación local
+   ya documentada arriba (esa era sobre repetir `npx playwright test` a mano sin resetear Meilisearch
+   entre ejecuciones; esta es sobre la arquitectura del propio job de CI). **Arreglo**: las dos
+   pruebas que verificaban "sin avisos cuando totalHits=0" ahora buscan con una query garantizada sin
+   coincidencias (`zzz-sin-resultados-{Date.now()}`) en vez de depender de que el índice esté vacío.
+   Verificado con `categoria-meili.spec.ts` (que indexa varios anuncios reales) ejecutándose
+   **inmediatamente antes** en el mismo comando — las pruebas arregladas siguen en verde con el índice
+   lleno.
+2. **`prefill-ubicacion.spec.ts` y `wizard-herencia.spec.ts` — el selector para "la fila de ESTE
+   anuncio" nunca matcheaba nada, y el fallback silencioso clicaba el anuncio equivocado según el
+   orden de ejecución.** Ambos tests usaban
+   `page.locator('li, article, [data-testid="listing-item"], tr').filter({ hasText: TITLE })` para
+   localizar la card del anuncio y su enlace "Editar". `MyListingCard.tsx` renderiza un `<Card>` de
+   shadcn — un `<div>` plano, sin `li`/`article`/`tr` ni ningún `data-testid="listing-item"` — así que
+   ese locator **siempre** resolvía a cero elementos. El código tenía un `.or(page.getByRole('link',
+   { name: /editar/i }).first())` como "fallback", que en la práctica era el ÚNICO camino que se
+   ejecutaba nunca: **clicaba el primer enlace "Editar" de TODA la página** — el anuncio actualizado
+   más recientemente por CUALQUIER test anterior en la suite, no necesariamente el anuncio que el test
+   pretendía editar. `prefill-ubicacion.spec.ts` depende de un fixture sembrado una sola vez al
+   principio (`listing-rf11-e2e`, Madrid); si algún test anterior (p. ej. `wizard-herencia.spec.ts`,
+   que publica anuncios en Barcelona) tocaba un anuncio más recientemente, el fallback clicaba ESE
+   anuncio en su lugar y la aserción de ciudad fallaba con un valor distinto según qué test hubiera
+   corrido antes — exactamente el patrón "falla con síntomas distintos según la ejecución" reportado.
+   **Arreglo**: `MyListingCard` gana un `data-testid={`listing-card-${listing.id}`}` estable; ambos
+   tests ahora localizan con `page.locator('[data-testid^="listing-card-"]').filter({ hasText: TITLE
+   })` y el `.or()` de fallback se elimina por completo (ya no hace falta, y mantenerlo dejaría la
+   misma trampa silenciosa para la próxima vez que el selector primario falle por cualquier otro
+   motivo). Verificado ejecutando `wizard-herencia.spec.ts` (publica anuncios en Madrid y Barcelona)
+   **inmediatamente antes** de `prefill-ubicacion.spec.ts` en el mismo comando — el tercer test de
+   prefill sigue encontrando y editando `listing-rf11-e2e` correctamente pese al ruido.
+3. **El toggle Lista↔Mapa de `/busqueda` — misma carrera intermitente de navegación del App Router ya
+   aislada para `flujo-critico.spec.ts` en la ráfaga anterior, otro punto de click distinto.** Tras
+   arreglar los dos bugs de arriba, una ronda de 5 ejecuciones limpias de la suite completa dio 4/5 en
+   verde y 1 fallo nuevo: `toggle Lista→Mapa→Lista cambia la vista y preserva filtros`, con el mismo
+   síntoma de fondo (clic en un `<Link>` que a veces no completa la transición bajo `next start`, sin
+   error de consola/página). Mismo mecanismo, punto de click distinto (el toggle mapa/lista, no una
+   card de resultado de búsqueda) — refuerza que es una carrera genuina del propio App Router bajo
+   producción, no algo específico de un test. **Mitigación**: mismo patrón que en H8 Bloque D —
+   reintentar el click dentro de un `toPass`, en vez de clicar una vez y solo reintentar la espera.
+   Verificado con `--repeat-each=5` sobre el archivo completo (65/65 en verde).
+
+**Cierre verificado con el estándar exigido — 5+ runs consecutivos limpios, no "pasó una vez tras
+varios intentos":** dos rondas separadas de 5 ejecuciones completas de la suite (111/111 tests cada
+una, sin un solo retry) tras aplicar los tres arreglos, además de las verificaciones dirigidas
+anteriores (orden adverso de archivos, índice de Meilisearch no vacío, `--repeat-each` sobre los
+archivos tocados). Los tres arreglos son deterministas — no dependen de la velocidad del runner ni de
+"esperar más" — así que deberían sostenerse igual de bien en el CI real que en local.
+
 ### Renombrar la key de un atributo no migra `Listing.attributes` (aviso, no migración)
 
 `Listing.attributes` no tiene FK con `Category.attributeSchema`; renombrar la `name`

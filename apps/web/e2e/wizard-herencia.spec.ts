@@ -175,14 +175,15 @@ test.describe('RC5.4 — Wizard: herencia de atributos', () => {
     await page.goto('/mis-anuncios');
     await page.waitForLoadState('networkidle');
 
-    // Find the listing row by title and click its edit link
-    const listingRow = page.locator('li, article, [data-testid="listing-item"], tr')
-      .filter({ hasText: TITLE })
-      .first();
-
-    // Fallback: look for any edit link on the page scoped to the title area
-    const editLink = listingRow.getByRole('link', { name: /editar/i })
-      .or(page.getByRole('link', { name: /editar/i }).first());
+    // Find the listing card by title (MyListingCard's own data-testid,
+    // listing-card-{id}) and click its edit link — NOT a "first Editar link on
+    // the page" fallback, which used to be here and silently targeted whichever
+    // listing was most recently updated ANYWHERE in the suite (see
+    // docs/estado-tecnico.md, "Nota de proceso — CI flaky Playwright").
+    const listingCard = page
+      .locator('[data-testid^="listing-card-"]')
+      .filter({ hasText: TITLE });
+    const editLink = listingCard.getByRole('link', { name: /editar/i });
 
     await editLink.click();
     await page.waitForURL('**/editar**', { timeout: 8_000 });
