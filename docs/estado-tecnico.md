@@ -579,6 +579,35 @@ Las variables de entorno del job CI coinciden con los valores de `apps/api/.env.
 para que las suites Jest (que cargan ese fichero) y el backend de Playwright (que lo
 recibe vía `testEnv`) usen exactamente las mismas claves.
 
+**`REVALIDATE_SECRET` (añadido tras BLOG-FOOTER-COLUMNAS):** faltaba por completo del
+`env:` del job `e2e` — no estaba en ningún step, ni como `secrets.*`, ni generado por
+ningún paso. Como `.env`/`.env.test`/`.env.local` están en `.gitignore`, CI nunca lo
+había tenido en ningún lado. Efecto: `BlogService.callRevalidateEndpoint()` corta con
+`if (!secret) return` antes de llamar a `/api/revalidate`, así que
+`revalidateTag('footer-pages')` nunca se disparaba en CI — el footer servía la caché
+`unstable_cache` vieja hasta expirar el TTL (1h), muy por encima de lo que esperan los
+tests. Esto rompía los 6 tests de `footer-paginas.spec.ts` de forma **consistente**
+(no flaky) en los 5 CI corridos tras esa ráfaga, mientras pasaban siempre en local
+(donde `.env.test`/`.env.local` sí tienen el valor, gitignorados). Fix: añadido
+`REVALIDATE_SECRET: change_me_same_as_web` al `env:` de job — valor de test, igual
+tratamiento que `JWT_SECRET`, sin necesidad de GitHub Secrets. Ya estaba documentado
+en ambos `.env.example` desde BLOG-FOOTER-DINAMICO; solo faltaba en `ci.yml`.
+
+**`test:e2e` sin aislamiento de paralelismo — mitigado, no resuelto:** el script
+`apps/api/package.json#test:e2e` corría `jest --config ./test/jest-e2e.json` **sin**
+`--runInBand`, así que en CI Jest lanzaba varios workers en paralelo sobre la misma
+`marketplace_test` compartida. Varias suites hacen `TRUNCATE`/`cleanDb()` en su propio
+`beforeAll` — con workers concurrentes pisándose sobre la misma BD, eso produce FK
+violations, deadlocks y aserciones 401/404 espurias. Este gap llevaba oculto porque
+las pasadas locales de verificación siempre se lanzaban a mano con `--runInBand`
+explícito (nunca se usó el script `test:e2e` tal cual para esas comprobaciones);
+CI sí ejecutaba el script canónico, sin la flag. **Fix aplicado:** `--runInBand`
+añadido al script — determinista, pero el backend e2e ahora corre más lento (serie en
+vez de paralelo). **Esto es una mitigación, no la cura real:** el problema de fondo
+(suites sin aislamiento de base de datos entre sí) sigue existiendo; la solución
+correcta — una BD o schema por worker (p. ej. vía `JEST_WORKER_ID` en el nombre de la
+BD/schema) — queda pendiente para el **Hito 9**.
+
 ### Observabilidad: Sentry (Fase T — RT.6)
 
 **Backend**: `Sentry.init()` en `main.ts` antes de `NestFactory.create()` con
@@ -1806,6 +1835,18 @@ falsear — verifica la firma del `id_token` él mismo.
 ### ✅ Flaky de indexación Meilisearch — RESUELTO (H6, causa raíz: `waitForTask`)
 
 El flaky arrastrado desde RC5.5 (tests de `listing-card-attrs.spec.ts` y `categoria-meili.spec.ts` fallando intermitentemente) ha sido cerrado en su causa raíz: `addDocuments()` completaba el job BullMQ antes de que el documento fuera consultable en Meilisearch. Fix: `waitForTask(task.taskUid)` en `indexListing()`. Había capas adicionales (geocoding síncrono, límite de listings en seed, condition faltante en helper) también resueltas. Ver §Lecciones de método del CI.
+
+### Backend `test:e2e` sin aislamiento de BD entre workers — mitigado con `--runInBand`, pendiente el fix real (Hito 9)
+
+`--runInBand` (añadido tras BLOG-FOOTER-COLUMNAS) fuerza a Jest a correr las suites
+`*.e2e-spec.ts` en serie, evitando que varios workers paralelos truncaran/limpiaran la
+misma `marketplace_test` a la vez (FK violations, deadlocks, 401/404 espurios — visto
+de forma consistente en CI sin la flag). Es una **mitigación**, no la cura: el backend
+e2e ahora es más lento (serie en vez de paralelo) y el problema de fondo — suites sin
+BD/schema propio, todas comparten `marketplace_test` — sigue sin resolverse.
+**Pendiente para el Hito 9**: aislar cada worker de Jest en su propia BD o schema
+(p. ej. derivando el nombre de la BD/schema de `JEST_WORKER_ID`), lo que permitiría
+volver a correr en paralelo sin las condiciones de carrera.
 
 ### Reintentos del job `geocode` (nuevo — H6)
 

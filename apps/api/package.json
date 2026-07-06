@@ -15,7 +15,7 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
-    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "test:e2e": "jest --config ./test/jest-e2e.json --runInBand",
     "test:setup:db": "docker exec marketplace-postgres psql -U marketplace -c \"CREATE DATABASE marketplace_test\" || true",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",

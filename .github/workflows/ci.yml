@@ -126,6 +126,17 @@ jobs:
       AUTH_SECRET: ci_auth_secret
       AUTH_URL: http://localhost:3000
 
+      # ── ISR revalidación on-demand (blog, páginas, footer) ─────────────────────
+      # Debe coincidir en el backend (firma la petición a /api/revalidate) y en
+      # next start (la verifica) — un único env: de job ya garantiza esto. Valor
+      # de test (no un secreto real), igual que JWT_SECRET arriba: directo aquí,
+      # sin necesidad de GitHub Secrets. Sin esta variable, BlogService nunca
+      # llega a llamar a /api/revalidate (corta antes por "if (!secret) return"),
+      # así que el footer/blog/páginas solo se actualizan al expirar el TTL de
+      # cada caché (hasta 1h), no al instante — rompía footer-paginas.spec.ts
+      # de forma consistente en CI.
+      REVALIDATE_SECRET: change_me_same_as_web
+
       # ── Process ────────────────────────────────────────────────────────────────
       NODE_ENV: test
       PORT: "3001"
