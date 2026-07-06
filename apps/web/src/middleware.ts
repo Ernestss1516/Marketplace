@@ -18,8 +18,8 @@ const adminPrefixes = ['/admin'];
 // ADMIN always has full access. Any role not listed here is always blocked.
 // Add/extend entries here when a section is opened to a role.
 const ROLE_ALLOWED_PATHS: Record<string, string[]> = {
-  MODERATOR: ['/admin/reportes', '/admin/anuncios', '/admin/usuarios', '/admin/blog'],
-  EDITOR: ['/admin/blog'],
+  MODERATOR: ['/admin/reportes', '/admin/anuncios', '/admin/usuarios', '/admin/blog', '/admin/paginas'],
+  EDITOR: ['/admin/blog', '/admin/paginas'],
 };
 
 export default auth((req) => {

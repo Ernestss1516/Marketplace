@@ -71,11 +71,13 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **Admin categorías** `/admin/categorias` | ✅ Completo (RC5.3) | Árbol de categorías con CRUD inline (crear raíz/subcategoría, editar, borrar); reordenación ↑↓ con `PATCH /admin/categories/reorder`; editor VISUAL de atributos (reemplaza el textarea JSON): filas por atributo, heredados read-only separados de los propios, miniform por atributo (type→options condicional, required/filterable/cardAttribute), guardado de solo los atributos propios; errores 400 propagados bajo la fila. |
 | **Admin ajustes** `/admin/ajustes` | ✅ Completo | 3 settings con controles tipo-específicos: `badWordList` (textarea una palabra por línea), `listingExpiryDays` (number input), `contactRequiresVerification` (checkbox); save por setting con estado de carga / ✓ éxito / error inline; timestamp de última actualización |
 | **Blog público** `/blog` | ✅ Completo | `export const revalidate = 3600`; Server Component ISR; listado paginado de posts PUBLISHED con tarjetas (portada, título, excerpt, fecha, autor, tags); filtro `?tag=`; estados de vacío; paginación; breadcrumb. Portada: solo se renderiza con `<Image>` si `isSafeSrc()` pasa (ver §2 y §3) |
-| **Blog detalle** `/blog/[slug]` | ✅ Completo | `export const revalidate = 3600`; Server Component ISR; `notFound()` si slug no existe o es DRAFT; body Markdown renderizado con `react-markdown` + `remark-gfm` + `rehype-sanitize` (sin `rehype-raw` — **regla invariante de seguridad**, ver §2); clase `prose` de `@tailwindcss/typography`; `generateMetadata()` con `og:type: 'article'`, `publishedTime`, `authors`, imagen OG; JSON-LD `BlogPosting` embebido; breadcrumb |
-| **Sitemap** `/sitemap.xml` | ✅ Actualizado | Convertido a `async`; incluye `/blog` + un slug por cada post PUBLISHED (`getPostList({ perPage: 500 })`). Los posts DRAFT nunca aparecen porque el endpoint público `GET /blog` filtra por `status = PUBLISHED` en Prisma |
-| **Admin blog** `/admin/blog` | ✅ Completo | Tabla paginada (todos los estados) con chips Todos / Borrador / Publicado; acciones Editar / Publicar / Despublicar / Eliminar (con confirmación) inline por fila; client-side |
+| **Blog detalle** `/blog/[slug]` | ✅ Completo | `export const revalidate = 3600`; Server Component ISR; `notFound()` si slug no existe, es DRAFT o no es `type=POST`; body Markdown renderizado vía `<MarkdownBody>` compartido (`react-markdown` + `remark-gfm` + `rehype-sanitize`, sin `rehype-raw` — **regla invariante de seguridad**, ver §2 y «Páginas informativas» más abajo); clase `prose` de `@tailwindcss/typography`; `generateMetadata()` con `og:type: 'article'`, `publishedTime`, `authors`, imagen OG; JSON-LD `BlogPosting` embebido; breadcrumb |
+| **Página informativa** `/paginas/[slug]` | ✅ Completo (BLOG-PAGINAS) | Análogo a `/blog/[slug]` pero `type=PAGE`: sin fecha/autor/tags/prev-next, solo título + `<MarkdownBody>`; `og:type: 'website'` (no `'article'`), sin `publishedTime`/`authors`; JSON-LD `WebPage` (no `BlogPosting`), URL `/paginas/{slug}`. Ver «Páginas informativas» más abajo |
+| **Sitemap** `/sitemap.xml` | ✅ Actualizado | `getPostList` (type=POST, filtrado backend-side) bajo `/blog/{slug}` + `getPageList` (type=PAGE) bajo `/paginas/{slug}`, en paralelo. Los DRAFT nunca aparecen porque ambos endpoints públicos filtran por `status = PUBLISHED` en Prisma |
+| **Admin blog** `/admin/blog` | ✅ Completo | Tabla paginada (todos los estados, `type=POST` vía `GET /admin/blog?type=POST` — implícito, no se envía `type` para posts) con chips Todos / Borrador / Publicado; acciones Editar / Publicar / Despublicar / Eliminar (con confirmación) inline por fila; client-side |
 | **Admin nuevo post** `/admin/blog/nuevo` | ✅ Completo | Formulario `PostForm` compartido: title, slug (editable; si se deja vacío el backend lo genera del título), excerpt, body (editor de markdown estilo GitHub `@uiw/react-md-editor` + toggle preview — ver «Editor de markdown en PostForm» más abajo), tags (coma-separadas), portada (solo upload a `/media/upload`, sin campo de URL libre), campos SEO colapsables (metaTitle, metaDescription); al guardar redirige a la página de edición |
 | **Admin editar post** `/admin/blog/[id]/editar` | ✅ Completo | Mismo `PostForm` precargado desde `GET /admin/blog/:id`; cabecera con badge de estado + botones Publicar/Despublicar/Eliminar + enlace "Ver en blog ↗" cuando está publicado; banner de éxito al guardar |
+| **Admin páginas** `/admin/paginas` | ✅ Completo (BLOG-PAGINAS) | Mismo patrón que `/admin/blog` (tabla, chips, acciones) pero `GET /admin/blog?type=PAGE`; sin columna de tags. `/admin/paginas/nueva` y `/admin/paginas/[id]/editar` reutilizan `PostForm` con `showTagsField={false}`; crear desde aquí envía `type: 'PAGE'` explícito; enlace "Ver página ↗" en vez de "Ver en blog ↗" |
 | **Admin facturación** `/admin/facturacion` | ✅ RF.12 | Listado de transacciones con filtros (userId, status, gateway); panel de detalle de usuario (saldo, historial de ledger, entitlements activos). **RF.12b**: formulario de acreditación manual — campo `amount` (1–10 000) + `reason` (5–500 chars); llama a `POST /admin/billing/credits/:userId`; muestra saldo actualizado tras la operación. Ningún campo sensible expuesto (DTO backend con `select` explícito) |
 | **Plan Pro — Catálogo** `/planes` | ✅ RF.9 | Server Component; consume `GET /billing/catalog` (endpoint público); muestra planes free/pro con precios y CTAs de upgrade. Reutiliza `apiFetch` y shadcn/ui |
 | **Plan Pro — Éxito** `/planes/exito` | ✅ RF.9 | Solo UI; maneja el estado asíncrono del webhook — no concede acceso, informa al usuario de que el pago está en proceso |
@@ -768,15 +770,16 @@ constante `MODERATOR_ALLOWED_PATHS` original al añadir el rol EDITOR — ver
 «Rol EDITOR — blog» más abajo.)
 
 ```typescript
+// Actualizado en BLOG-PAGINAS: ambos roles ganan /admin/paginas junto a /admin/blog.
 const ROLE_ALLOWED_PATHS: Record<string, string[]> = {
-  MODERATOR: ['/admin/reportes', '/admin/anuncios', '/admin/usuarios', '/admin/blog'],
-  EDITOR: ['/admin/blog'],
+  MODERATOR: ['/admin/reportes', '/admin/anuncios', '/admin/usuarios', '/admin/blog', '/admin/paginas'],
+  EDITOR: ['/admin/blog', '/admin/paginas'],
 };
 ```
 
 **Frontend — AdminNav:** el array `NAV_ITEMS` tiene un campo `roles: string[]` por
-ítem. El MODERATOR ve 4 ítems (Anuncios, Usuarios, Reportes, Blog); el ADMIN ve los 8;
-el EDITOR ve 1 (Blog).
+ítem. El MODERATOR ve 5 ítems (Anuncios, Usuarios, Reportes, Blog, Páginas); el ADMIN
+ve los 11; el EDITOR ve 2 (Blog, Páginas).
 
 **Frontend — Botones ADMIN-only ocultos al MODERATOR:**
 - `/admin/usuarios`: "Banear" y "Desbanear" solo visibles con `role === 'ADMIN'`.
@@ -784,7 +787,8 @@ el EDITOR ve 1 (Blog).
 - `/admin/blog`: "Eliminar" solo visible con `role === 'ADMIN'` (también oculto para EDITOR).
 
 **Tabla rol × acción (MODERATOR/ADMIN de RR5.1-ext; columna EDITOR añadida en la
-ráfaga "Rol EDITOR — blog", ver más abajo):**
+ráfaga "Rol EDITOR — blog"; filas de páginas informativas añadidas en
+"Páginas informativas (BLOG-PAGINAS)", ver más abajo):**
 
 | Sección / Acción | MODERATOR | EDITOR | ADMIN |
 |---|---|---|---|
@@ -804,6 +808,8 @@ ráfaga "Rol EDITOR — blog", ver más abajo):**
 | Campañas / Cupones / Banners | ❌ | ❌ | ✅ |
 | Blog: listar, ver, crear, editar, publicar, despublicar | ✅ | ✅ | ✅ |
 | Blog: **eliminar** (`DELETE`, borrado físico) | ❌ | ❌ | ✅ |
+| Páginas informativas: listar, ver, crear, editar, publicar, despublicar | ✅ | ✅ | ✅ |
+| Páginas informativas: **eliminar** (`DELETE`, borrado físico) | ❌ | ❌ | ✅ |
 | Subir imágenes (`POST /media/upload`) | ✅ (cualquier autenticado) | ✅ (cualquier autenticado) | ✅ |
 
 **Deuda técnica — sesión stale tras cambio de rol:** si un ADMIN degrada a MODERATOR
@@ -994,6 +1000,97 @@ mismo; y un caso dedicado de `<script>` literal que confirma que nunca se
 ejecuta, ni en el preview del admin ni en la página pública. Backend sin
 cambios — `body` sigue siendo un string plano, sin tocar DTOs ni el módulo
 `blog`.
+
+### Páginas informativas (BLOG-PAGINAS) — cierra el bloque de blog
+
+Tercera y última feature del bloque de blog: contenido estático institucional
+(términos, privacidad, manual...) reutilizando el mismo modelo, editor,
+renderizado seguro y rol EDITOR que los posts. El riesgo central era una fuga —
+una PAGE apareciendo en el feed/detalle de blog, o un POST sirviéndose desde
+`/paginas/`.
+
+**Schema:** `Post` gana `type: PostType @default(POST)` (`enum PostType { POST
+PAGE }`, migración `20260706160322_add_post_type`, sin backfill — el default
+cubre todas las filas existentes). `slug` sigue `@unique` global (un post y una
+página no pueden compartir slug). Índice `@@index([status, publishedAt])` →
+`@@index([type, status, publishedAt])`. **`type` es inmutable tras crear** —
+`UpdatePostDto` no tiene ese campo; con `ValidationPipe({ forbidNonWhitelisted:
+true })` global, un intento de `PATCH .../role` con `type` en el body → 400, no
+se ignora silenciosamente.
+
+**Backend — inventario completo de filtros `type` (verificado exhaustivo: todo
+`prisma.post.*` del backend vive en `blog.service.ts`):**
+- `listPublished`/`findBySlug` (`GET /blog`, `GET /blog/:slug`, **incluye** el
+  filtro `?tag=` porque comparte la misma query que el feed) — ahora fuerzan
+  `type: POST`.
+- `listPublishedPages`/`findPageBySlug` (nuevos, usados por `PagesController`)
+  — fuerzan `type: PAGE`. Los cuatro métodos públicos son wrappers finos sobre
+  dos métodos privados (`listPublishedByType`/`findByTypeAndSlug`) — una sola
+  implementación de "cómo consultar Post de forma segura", no dos copias que
+  puedan divergir.
+- `adminFindAll` (`GET /admin/blog`) — filtro `type` opcional en
+  `ListAdminPostsDto` (`?type=PAGE` para `/admin/paginas`, sin `type` o
+  `type=POST` para `/admin/blog`).
+- `adminCreate` — `CreatePostDto.type` opcional, default `PostType.POST` en el
+  service (los callers de "crear post" existentes no cambian).
+- **Acoplamiento de revalidación ISR (encontrado durante la implementación, no
+  parte del schema en sí):** `adminUpdate`/`adminPublish`/`adminUnpublish`/
+  `adminDelete` llamaban a `revalidate()` con `/blog` y `/blog/${slug}`
+  hardcodeados. Ahora ramifican por `post.type` vía el helper
+  `revalidatePostPaths()`: `PAGE` revalida solo `/paginas/${slug}` (sin feed que
+  revalidar); `POST` conserva el comportamiento original.
+
+**Endpoints públicos — `PagesController`** (`@Controller('paginas')`, sin
+guards, mismo patrón que `BlogController`, inyecta el mismo `BlogService`):
+`GET /paginas/:slug` (404 si no existe, no `PUBLISHED`, o no `type=PAGE`);
+`GET /paginas` (fino, solo lo consume el sitemap — no hay listado de páginas en
+la UI, se enlazan manualmente).
+
+**Frontend — `/paginas/[slug]`:** carpeta de ruta separada de `/blog/[slug]`,
+pero ambas usan el mismo componente compartido `<MarkdownBody>`
+(`apps/web/src/components/blog/MarkdownBody.tsx` — `react-markdown` +
+`remark-gfm` + `rehype-sanitize`, sin `rehype-raw`) — un único sitio del
+frontend que renderiza Markdown no confiable, usado también por el preview de
+`PostForm`. Presentación de página, no de artículo: solo título + contenido,
+sin fecha/autor/tags/anterior-siguiente. `generateMetadata`: `og:type:
+'website'` (no `'article'`), sin `publishedTime`/`authors`. JSON-LD `WebPage`
+(no `BlogPosting`), URL `/paginas/{slug}`.
+
+**Frontend — admin `/admin/paginas`:** reutiliza `PostForm` con la nueva prop
+`showTagsField={false}` (tags no aplica a páginas). Listado llama
+`getAdminPosts(token, { type: 'PAGE' })`. Crear desde `/admin/paginas/nueva`
+envía `type: 'PAGE'` explícito; crear desde `/admin/blog/nuevo` no envía `type`
+en absoluto (default `POST`). `AdminNav` gana el ítem "Páginas"
+(`roles: ['ADMIN', 'MODERATOR', 'EDITOR']`, igual que Blog); middleware añade
+`/admin/paginas` a `ROLE_ALLOWED_PATHS` de MODERATOR y EDITOR.
+
+**Footer:** enlaces manuales estáticos a `/paginas/terminos` y
+`/paginas/privacidad` — sin listado dinámico.
+
+**Sitemap:** `getPostList` (ya filtrado a `type=POST` backend-side, sin cambio
+en esa llamada) + nuevo `getPageList` (`GET /paginas`) en paralelo, mapeado a
+`/paginas/{slug}`.
+
+**Tests:**
+- `pages.e2e-spec.ts` (backend, 16 casos): matriz no-fuga completa (PAGE
+  publicada ausente del feed, de `/blog/:slug`, y del filtro `?tag=` — incluso
+  con un tag asignado directamente a la PAGE vía Prisma para probar que ni así
+  se cuela; un POST ausente de `/paginas/:slug`); positivo end-to-end (EDITOR
+  crea/edita/publica una página, se sirve en público); migración (un `Post`
+  creado sin `type` explícito cae en `POST` por el default del schema y sigue
+  en el feed); inmutabilidad (`PATCH` con `type` → 400); permisos (EDITOR
+  gestiona páginas, `DELETE` → 403 para EDITOR, 204 para ADMIN).
+- `paginas.spec.ts` (Playwright, 4 casos): ciclo completo ADMIN
+  crear→publicar→ver en público con presentación de página correcta y ausencia
+  en el feed del blog; `<script>` literal nunca se ejecuta; footer enlaza
+  correctamente; EDITOR ve el nav, puede crear una página, no ve "Eliminar" en
+  el listado.
+- `admin-roles.spec.ts`: contadores de `AdminNav` actualizados (ADMIN 11,
+  MODERATOR 5, EDITOR 2) + nuevas comprobaciones de acceso a `/admin/paginas`
+  para MODERATOR y EDITOR.
+
+Con esto cierra el bloque de blog completo: rol EDITOR (BLOG-EDITOR), editor
+rico de markdown (BLOG-EDITOR-RICO), y páginas informativas (BLOG-PAGINAS).
 
 ### Protección anti-degradación de ADMIN en cambio de rol (Fase 7)
 

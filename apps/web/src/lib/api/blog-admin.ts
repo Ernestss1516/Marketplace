@@ -1,7 +1,10 @@
 import { apiFetch } from './client';
 
+export type PostType = 'POST' | 'PAGE';
+
 export interface AdminPostSummary {
   id: string;
+  type: PostType;
   title: string;
   slug: string;
   status: 'DRAFT' | 'PUBLISHED';
@@ -29,6 +32,9 @@ export interface PaginatedAdminPosts {
 }
 
 export interface CreatePostPayload {
+  // Omitido para crear un POST normal (default en el backend). /admin/paginas
+  // envía 'PAGE' explícitamente. Inmutable tras crear — no existe en UpdatePostPayload.
+  type?: PostType;
   title: string;
   slug?: string;
   excerpt?: string;
@@ -39,14 +45,15 @@ export interface CreatePostPayload {
   metaDescription?: string;
 }
 
-export type UpdatePostPayload = Partial<CreatePostPayload>;
+export type UpdatePostPayload = Partial<Omit<CreatePostPayload, 'type'>>;
 
 export function getAdminPosts(
   token: string,
-  params?: { status?: string; page?: number; perPage?: number },
+  params?: { status?: string; type?: PostType; page?: number; perPage?: number },
 ): Promise<PaginatedAdminPosts> {
   const qs = new URLSearchParams();
   if (params?.status) qs.set('status', params.status);
+  if (params?.type) qs.set('type', params.type);
   if (params?.page && params.page > 1) qs.set('page', String(params.page));
   if (params?.perPage) qs.set('perPage', String(params.perPage));
   const q = qs.toString();

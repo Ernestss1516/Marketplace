@@ -2,7 +2,7 @@
 //
 // Tests:
 //   ADMIN
-//     1. /admin carga (dashboard) → el nav muestra los 10 ítems (+Banners, H8 Bloque D fase 4)
+//     1. /admin carga (dashboard) → el nav muestra los 11 ítems (+Páginas, BLOG-PAGINAS)
 //   MODERATOR — rutas aún bloqueadas (ADMIN-only)
 //     2. /admin → redirige a /
 //     3. /admin/ajustes → redirige a /
@@ -12,16 +12,18 @@
 //     6. /admin/anuncios → carga correctamente (RR5.1-ext)
 //     7. /admin/usuarios → carga correctamente (RR5.1-ext)
 //     8. /admin/blog → carga correctamente (RR5.1-ext)
-//     9. AdminNav muestra exactamente 4 ítems (Anuncios, Usuarios, Reportes, Blog)
+//     8b. /admin/paginas → carga correctamente (BLOG-PAGINAS)
+//     9. AdminNav muestra exactamente 5 ítems (Anuncios, Usuarios, Reportes, Blog, Páginas)
 //    10. MODERATOR no ve el botón "Banear" en /admin/usuarios
 //    11. MODERATOR no ve el botón "Eliminar" en /admin/blog
 //    12. MODERATOR desestima un reporte → funciona (sin 403)
 //   EDITOR — rol nuevo, acotado exclusivamente al blog (contenido reversible)
 //    13. /admin/blog → carga correctamente
 //    14. /admin/blog/nuevo → carga correctamente
+//    14b. /admin/paginas → carga correctamente (BLOG-PAGINAS)
 //    15. /admin → redirige a /
 //    16-22. /admin/{usuarios,facturacion,categorias,reportes,cupones,banners,ajustes,anuncios} → redirige a /
-//    23. AdminNav muestra exactamente 1 ítem (Blog)
+//    23. AdminNav muestra exactamente 2 ítems (Blog, Páginas)
 //    24. EDITOR no ve el botón "Eliminar" en /admin/blog (borrado físico ADMIN-only)
 //   BLOG-ADMIN-ROLE-UI — selector de asignación de rol en /admin/usuarios
 //    25. ADMIN cambia el rol de role-target-e2e USER→EDITOR→MODERATOR→USER; cada cambio
@@ -55,7 +57,7 @@ async function loginAs(browser: Browser, email: string) {
 }
 
 test.describe('Backoffice — ADMIN acceso total', () => {
-  test('ADMIN carga /admin y el nav muestra los 10 ítems', async ({ adminContext }) => {
+  test('ADMIN carga /admin y el nav muestra los 11 ítems', async ({ adminContext }) => {
     const page = await adminContext.newPage();
 
     await page.goto('/admin');
@@ -65,11 +67,11 @@ test.describe('Backoffice — ADMIN acceso total', () => {
     expect(page.url()).toContain('/admin');
     expect(page.url()).not.toContain('/login');
 
-    // AdminNav should show all 10 items (H8 Bloque D fase 4 added "Banners")
+    // AdminNav should show all 11 items (BLOG-PAGINAS added "Páginas")
     const nav = page.getByTestId('admin-nav');
     await expect(nav).toBeVisible();
     const links = nav.getByRole('link');
-    await expect(links).toHaveCount(10);
+    await expect(links).toHaveCount(11);
 
     // Spot-check some labels
     await expect(nav.getByRole('link', { name: 'Dashboard' })).toBeVisible();
@@ -144,9 +146,18 @@ test.describe('Backoffice — MODERATOR acceso restringido', () => {
     expect(page.url()).not.toContain('/login');
   });
 
+  test('MODERATOR → /admin/paginas carga correctamente [BLOG-PAGINAS]', async ({ moderatorContext }) => {
+    const page = await moderatorContext.newPage();
+    await page.goto('/admin/paginas');
+    await page.waitForLoadState('networkidle');
+
+    expect(page.url()).toContain('/admin/paginas');
+    expect(page.url()).not.toContain('/login');
+  });
+
   // ── AdminNav ───────────────────────────────────────────────────────────────
 
-  test('AdminNav muestra 4 ítems para el MODERATOR (Anuncios, Usuarios, Reportes, Blog)', async ({ moderatorContext }) => {
+  test('AdminNav muestra 5 ítems para el MODERATOR (Anuncios, Usuarios, Reportes, Blog, Páginas)', async ({ moderatorContext }) => {
     const page = await moderatorContext.newPage();
     await page.goto('/admin/reportes');
     await page.waitForLoadState('networkidle');
@@ -154,15 +165,16 @@ test.describe('Backoffice — MODERATOR acceso restringido', () => {
     const nav = page.getByTestId('admin-nav');
     await expect(nav).toBeVisible();
 
-    // Exactly 4 nav links visible
+    // Exactly 5 nav links visible
     const links = nav.getByRole('link');
-    await expect(links).toHaveCount(4);
+    await expect(links).toHaveCount(5);
 
-    // All 4 must be present
+    // All 5 must be present
     await expect(nav.getByRole('link', { name: 'Anuncios' })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'Usuarios' })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'Reportes' })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'Blog' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Páginas' })).toBeVisible();
 
     // ADMIN-only sections must NOT be rendered
     await expect(nav.getByRole('link', { name: 'Dashboard' })).not.toBeVisible();
@@ -244,6 +256,15 @@ test.describe('Backoffice — EDITOR acotado exclusivamente al blog', () => {
     expect(page.url()).not.toContain('/login');
   });
 
+  test('EDITOR → /admin/paginas carga correctamente [BLOG-PAGINAS]', async ({ editorContext }) => {
+    const page = await editorContext.newPage();
+    await page.goto('/admin/paginas');
+    await page.waitForLoadState('networkidle');
+
+    expect(page.url()).toContain('/admin/paginas');
+    expect(page.url()).not.toContain('/login');
+  });
+
   // ── Rutas bloqueadas — TODO lo que no es blog ─────────────────────────────────
 
   test('EDITOR → /admin redirige a /', async ({ editorContext }) => {
@@ -275,7 +296,7 @@ test.describe('Backoffice — EDITOR acotado exclusivamente al blog', () => {
 
   // ── AdminNav ───────────────────────────────────────────────────────────────
 
-  test('AdminNav muestra exactamente 1 ítem para EDITOR (Blog)', async ({ editorContext }) => {
+  test('AdminNav muestra exactamente 2 ítems para EDITOR (Blog, Páginas)', async ({ editorContext }) => {
     const page = await editorContext.newPage();
     await page.goto('/admin/blog');
     await page.waitForLoadState('networkidle');
@@ -284,8 +305,9 @@ test.describe('Backoffice — EDITOR acotado exclusivamente al blog', () => {
     await expect(nav).toBeVisible();
 
     const links = nav.getByRole('link');
-    await expect(links).toHaveCount(1);
+    await expect(links).toHaveCount(2);
     await expect(nav.getByRole('link', { name: 'Blog' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Páginas' })).toBeVisible();
 
     // Ningún otro ítem debe renderizarse
     await expect(nav.getByRole('link', { name: 'Dashboard' })).not.toBeVisible();

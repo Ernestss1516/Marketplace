@@ -1,12 +1,15 @@
 import type { MetadataRoute } from 'next';
 import { SITE_URL } from '@/config';
-import { getPostList } from '@/lib/api/blog';
+import { getPostList, getPageList } from '@/lib/api/blog';
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  // Only PUBLISHED posts are returned by getPostList (calls GET /blog, a public endpoint).
-  const { items: posts } = await getPostList({ perPage: 500 }).catch(() => ({
-    items: [],
-  }));
+  // Only PUBLISHED posts are returned by getPostList (calls GET /blog, type=POST
+  // enforced backend-side). getPageList calls GET /paginas (type=PAGE) — separate
+  // endpoint, separate URL namespace.
+  const [{ items: posts }, { items: pages }] = await Promise.all([
+    getPostList({ perPage: 500 }).catch(() => ({ items: [] })),
+    getPageList({ perPage: 500 }).catch(() => ({ items: [] })),
+  ]);
 
   return [
     {
@@ -32,6 +35,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       lastModified: new Date(p.updatedAt),
       changeFrequency: 'monthly' as const,
       priority: 0.7,
+    })),
+    ...pages.map((p) => ({
+      url: `${SITE_URL}/paginas/${p.slug}`,
+      lastModified: new Date(p.updatedAt),
+      changeFrequency: 'yearly' as const,
+      priority: 0.5,
     })),
   ];
 }

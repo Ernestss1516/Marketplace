@@ -1,6 +1,6 @@
 import { IsEnum, IsInt, IsOptional, Max, Min } from 'class-validator';
 import { Type } from 'class-transformer';
-import { PostStatus } from '@prisma/client';
+import { PostStatus, PostType } from '@prisma/client';
 
 export class ListAdminPostsDto {
   @IsOptional()
@@ -19,4 +19,11 @@ export class ListAdminPostsDto {
   @IsOptional()
   @IsEnum(PostStatus)
   status?: PostStatus;
+
+  // /admin/blog?type=PAGE filtra a solo páginas informativas; sin type, incluye
+  // todo (posts y páginas mezclados) — el frontend siempre pasa un type explícito
+  // según qué sección admin está mostrando.
+  @IsOptional()
+  @IsEnum(PostType)
+  type?: PostType;
 }

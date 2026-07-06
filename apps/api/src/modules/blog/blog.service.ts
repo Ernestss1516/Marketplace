@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
-import { PostStatus } from '@prisma/client';
+import { PostStatus, PostType } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { CreatePostDto } from './dto/create-post.dto';
@@ -23,13 +23,34 @@ export class BlogService {
   ) {}
 
   // ── Public endpoints ────────────────────────────────────────────────────────
+  // listPublished/findBySlug (blog, type=POST) and listPublishedPages/
+  // findPageBySlug (páginas, type=PAGE) are thin type-locked wrappers around a
+  // single private implementation — one source of truth for "how do we safely
+  // query Post", so the two content kinds can't drift apart.
 
-  async listPublished(dto: ListPublicPostsDto) {
+  listPublished(dto: ListPublicPostsDto) {
+    return this.listPublishedByType(PostType.POST, dto);
+  }
+
+  findBySlug(slug: string) {
+    return this.findByTypeAndSlug(PostType.POST, slug);
+  }
+
+  listPublishedPages(dto: ListPublicPostsDto) {
+    return this.listPublishedByType(PostType.PAGE, dto);
+  }
+
+  findPageBySlug(slug: string) {
+    return this.findByTypeAndSlug(PostType.PAGE, slug);
+  }
+
+  private async listPublishedByType(type: PostType, dto: ListPublicPostsDto) {
     const page = dto.page ?? 1;
     const perPage = dto.perPage ?? 10;
     const skip = (page - 1) * perPage;
 
     const where = {
+      type,
       status: PostStatus.PUBLISHED,
       ...(dto.tag ? { tags: { has: dto.tag } } : {}),
     };
@@ -58,9 +79,9 @@ export class BlogService {
     return { items, total, page, perPage };
   }
 
-  async findBySlug(slug: string) {
+  private async findByTypeAndSlug(type: PostType, slug: string) {
     const post = await this.prisma.post.findFirst({
-      where: { slug, status: PostStatus.PUBLISHED },
+      where: { slug, type, status: PostStatus.PUBLISHED },
       include: { author: AUTHOR_PUBLIC },
     });
     if (!post) throw new NotFoundException('Post not found');
@@ -74,6 +95,7 @@ export class BlogService {
 
     const post = await this.prisma.post.create({
       data: {
+        type: dto.type ?? PostType.POST,
         title: dto.title,
         slug,
         excerpt: dto.excerpt,
@@ -103,7 +125,10 @@ export class BlogService {
     const page = dto.page ?? 1;
     const perPage = dto.perPage ?? 10;
     const skip = (page - 1) * perPage;
-    const where = dto.status ? { status: dto.status } : {};
+    const where = {
+      ...(dto.status && { status: dto.status }),
+      ...(dto.type && { type: dto.type }),
+    };
 
     const [items, total] = await Promise.all([
       this.prisma.post.findMany({
@@ -162,11 +187,19 @@ export class BlogService {
     });
 
     if (wasPublished) {
-      this.revalidate(`/blog/${slugAfter}`);
-      if (slugAfter !== slugBefore) {
-        // Old slug becomes a 404; bust its cache so Next.js re-checks immediately.
-        this.revalidate(`/blog/${slugBefore}`);
-        this.revalidate('/blog');
+      if (post.type === PostType.PAGE) {
+        // Pages have no feed to revalidate — only their own route.
+        this.revalidate(`/paginas/${slugAfter}`);
+        if (slugAfter !== slugBefore) {
+          this.revalidate(`/paginas/${slugBefore}`);
+        }
+      } else {
+        this.revalidate(`/blog/${slugAfter}`);
+        if (slugAfter !== slugBefore) {
+          // Old slug becomes a 404; bust its cache so Next.js re-checks immediately.
+          this.revalidate(`/blog/${slugBefore}`);
+          this.revalidate('/blog');
+        }
       }
     }
 
@@ -201,8 +234,7 @@ export class BlogService {
       ip,
     });
 
-    this.revalidate('/blog');
-    this.revalidate(`/blog/${updated.slug}`);
+    this.revalidatePostPaths(updated.type, updated.slug);
 
     return updated;
   }
@@ -231,8 +263,7 @@ export class BlogService {
       ip,
     });
 
-    this.revalidate('/blog');
-    this.revalidate(`/blog/${updated.slug}`);
+    this.revalidatePostPaths(updated.type, updated.slug);
 
     return updated;
   }
@@ -240,7 +271,6 @@ export class BlogService {
   async adminDelete(id: string, actorId: string, ip?: string) {
     const post = await this.adminFindById(id);
     const wasPublished = post.status === PostStatus.PUBLISHED;
-    const slug = post.slug;
 
     const before = { title: post.title, slug: post.slug, status: post.status };
 
@@ -256,8 +286,7 @@ export class BlogService {
     });
 
     if (wasPublished) {
-      this.revalidate('/blog');
-      this.revalidate(`/blog/${slug}`);
+      this.revalidatePostPaths(post.type, post.slug);
     }
   }
 
@@ -273,6 +302,17 @@ export class BlogService {
       .slice(0, 60);
     const suffix = randomBytes(3).toString('hex');
     return `${base}-${suffix}`;
+  }
+
+  // Publish/unpublish/delete always revalidate the same set of paths for a given
+  // type — pages have no feed to bust, only their own route.
+  private revalidatePostPaths(type: PostType, slug: string): void {
+    if (type === PostType.PAGE) {
+      this.revalidate(`/paginas/${slug}`);
+    } else {
+      this.revalidate('/blog');
+      this.revalidate(`/blog/${slug}`);
+    }
   }
 
   // Fire-and-forget ISR revalidation. Failure is intentionally swallowed:

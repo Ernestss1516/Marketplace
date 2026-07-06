@@ -2,13 +2,11 @@ import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 import Image from 'next/image';
 import Link from 'next/link';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import rehypeSanitize from 'rehype-sanitize';
 import { getPost } from '@/lib/api/blog';
 import { ApiError } from '@/lib/api/client';
 import { SITE_NAME, SITE_URL } from '@/config';
 import { isSafeSrc } from '@/lib/image-domains';
+import { MarkdownBody } from '@/components/blog/MarkdownBody';
 
 export const revalidate = 3600;
 
@@ -132,18 +130,10 @@ export default async function BlogPostPage({
             </div>
           )}
 
-          {/* Body: Markdown rendered server-side.
-              - rehype-sanitize strips dangerous HTML attributes/elements.
-              - rehype-raw is intentionally NOT included: raw HTML in the body
-                is escaped to text, never executed. */}
-          <div className="prose prose-neutral max-w-none dark:prose-invert">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              rehypePlugins={[rehypeSanitize]}
-            >
-              {post.body}
-            </ReactMarkdown>
-          </div>
+          {/* Body: Markdown rendered server-side via el mismo <MarkdownBody>
+              que usan /paginas/[slug] y el preview de PostForm — ver el
+              comentario de seguridad en ese componente. */}
+          <MarkdownBody body={post.body} />
         </article>
 
         {/* Back link */}

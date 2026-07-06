@@ -1,13 +1,22 @@
 import {
   IsArray,
+  IsEnum,
   IsNotEmpty,
   IsOptional,
   IsString,
   IsUrl,
   Matches,
 } from 'class-validator';
+import { PostType } from '@prisma/client';
 
 export class CreatePostDto {
+  // Omitido para crear un POST (blog) normal — el service usa PostType.POST por
+  // defecto. Solo /admin/paginas envía PAGE explícitamente. Ausente de
+  // UpdatePostDto a propósito: el tipo es inmutable tras crear.
+  @IsOptional()
+  @IsEnum(PostType)
+  type?: PostType;
+
   @IsString()
   @IsNotEmpty()
   title!: string;

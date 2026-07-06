@@ -6,6 +6,11 @@ import {
   Matches,
 } from 'class-validator';
 
+// type (POST|PAGE) deliberately has NO field here — it's immutable after creation.
+// ValidationPipe({ forbidNonWhitelisted: true }) rejects any request that tries to
+// send it (400), rather than silently ignoring it. Reclassifying a post as a page
+// (or vice versa) would move it in/out of the feed and change its URL prefix out
+// from under anyone who linked to it.
 export class UpdatePostDto {
   @IsOptional()
   @IsString()

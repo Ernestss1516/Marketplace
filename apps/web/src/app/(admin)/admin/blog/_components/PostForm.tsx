@@ -1,13 +1,11 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import rehypeSanitize from 'rehype-sanitize';
 import { AlertCircle, Eye, EyeOff, Loader2, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { uploadMedia } from '@/lib/api/media';
 import { ApiError } from '@/lib/api/client';
+import { MarkdownBody } from '@/components/blog/MarkdownBody';
 import MarkdownEditorClient from './MarkdownEditorClient';
 
 export interface PostFormValues {
@@ -41,6 +39,8 @@ interface PostFormProps {
   submitError: string | null;
   token: string;
   showSlugHint?: boolean;
+  // Las páginas informativas (type=PAGE) no tienen tags — /admin/paginas pasa false.
+  showTagsField?: boolean;
 }
 
 export function PostForm({
@@ -52,6 +52,7 @@ export function PostForm({
   submitError,
   token,
   showSlugHint = false,
+  showTagsField = true,
 }: PostFormProps) {
   const [showPreview, setShowPreview] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -157,34 +158,29 @@ export function PostForm({
             <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
               Preview
             </p>
-            <div className="prose prose-neutral max-w-none text-sm dark:prose-invert">
-              {values.body ? (
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  rehypePlugins={[rehypeSanitize]}
-                >
-                  {values.body}
-                </ReactMarkdown>
-              ) : (
-                <p className="italic text-muted-foreground">Sin contenido aún.</p>
-              )}
-            </div>
+            {values.body ? (
+              <MarkdownBody body={values.body} className="prose prose-neutral max-w-none text-sm dark:prose-invert" />
+            ) : (
+              <p className="text-sm italic text-muted-foreground">Sin contenido aún.</p>
+            )}
           </div>
         )}
       </div>
 
-      {/* Tags */}
-      <div className="flex flex-col gap-1">
-        <label className={labelCls}>Etiquetas (separadas por coma)</label>
-        <input
-          type="text"
-          value={values.tags}
-          onChange={(e) => onChange({ tags: e.target.value })}
-          className={inputCls}
-          disabled={isSubmitting}
-          placeholder="consejos, segunda-mano, electrónica"
-        />
-      </div>
+      {/* Tags — no aplica a páginas informativas */}
+      {showTagsField && (
+        <div className="flex flex-col gap-1">
+          <label className={labelCls}>Etiquetas (separadas por coma)</label>
+          <input
+            type="text"
+            value={values.tags}
+            onChange={(e) => onChange({ tags: e.target.value })}
+            className={inputCls}
+            disabled={isSubmitting}
+            placeholder="consejos, segunda-mano, electrónica"
+          />
+        </div>
+      )}
 
       {/* Cover image — upload-only, no external URLs */}
       <div className="flex flex-col gap-1">

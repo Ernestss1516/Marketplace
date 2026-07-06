@@ -10,6 +10,8 @@ export default function Footer() {
           <Link href="/busqueda" className="hover:text-foreground">Buscar</Link>
           <Link href="/publicar" className="hover:text-foreground">Publicar</Link>
           <Link href="/login" className="hover:text-foreground">Acceder</Link>
+          <Link href="/paginas/terminos" className="hover:text-foreground">Términos</Link>
+          <Link href="/paginas/privacidad" className="hover:text-foreground">Privacidad</Link>
         </nav>
       </div>
     </footer>
