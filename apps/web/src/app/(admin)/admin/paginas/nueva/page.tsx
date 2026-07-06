@@ -33,6 +33,7 @@ export default function NuevaPaginaPage() {
         metaDescription: values.metaDescription || undefined,
         showInFooter: values.showInFooter,
         footerOrder: values.footerOrder ? Number(values.footerOrder) : undefined,
+        footerGroup: values.footerGroup || undefined,
       });
       router.push(`/admin/paginas/${page.id}/editar`);
     } catch (err) {

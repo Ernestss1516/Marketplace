@@ -364,32 +364,52 @@ describe('Páginas informativas — Post.type (e2e)', () => {
     expect(res.body.footerOrder).toBe(5);
   });
 
-  // ── GET /paginas/footer — endpoint dedicado, cacheado en el frontend ─────────
+  // ── GET /paginas/footer — endpoint dedicado, agrupado por footerGroup ────────
 
   describe('GET /paginas/footer', () => {
     let footerPageAId: string;
     let footerPageBId: string;
+    let footerHelpId: string;
+    let footerUngroupedId: string;
     let notInFooterPageId: string;
     let draftFooterPageId: string;
 
     beforeAll(async () => {
       const admin = await prisma.user.findUniqueOrThrow({ where: { email: 'pages-admin@example.com' } });
 
-      // Orden deliberadamente invertido en la creación para probar que el ORDER
-      // BY footerOrder asc del endpoint es real, no un accidente de inserción.
-      const [pageB, pageA, notInFooter, draftFooter] = await Promise.all([
+      // Orden deliberadamente invertido/entremezclado en la creación para
+      // probar que el ORDER BY es real, no un accidente de inserción.
+      // - "Legal": footerOrder 1 y 2 → minOrder 1 → primera columna.
+      // - sin grupo (null): footerOrder 3 → columna sin encabezado, entre
+      //   Legal (min 1) y Ayuda (min 5) — no desaparece por no tener grupo.
+      // - "Ayuda": footerOrder 5 → minOrder 5 → última columna.
+      const [pageB, pageA, help, ungrouped, notInFooter, draftFooter] = await Promise.all([
         prisma.post.create({
           data: {
             type: 'PAGE', title: 'Footer Página B', slug: 'footer-pagina-b',
             status: 'PUBLISHED', publishedAt: new Date(),
-            showInFooter: true, footerOrder: 2, authorId: admin.id,
+            showInFooter: true, footerOrder: 2, footerGroup: 'Legal', authorId: admin.id,
           },
         }),
         prisma.post.create({
           data: {
             type: 'PAGE', title: 'Footer Página A', slug: 'footer-pagina-a',
             status: 'PUBLISHED', publishedAt: new Date(),
-            showInFooter: true, footerOrder: 1, authorId: admin.id,
+            showInFooter: true, footerOrder: 1, footerGroup: 'Legal', authorId: admin.id,
+          },
+        }),
+        prisma.post.create({
+          data: {
+            type: 'PAGE', title: 'Footer Página Ayuda', slug: 'footer-pagina-ayuda',
+            status: 'PUBLISHED', publishedAt: new Date(),
+            showInFooter: true, footerOrder: 5, footerGroup: 'Ayuda', authorId: admin.id,
+          },
+        }),
+        prisma.post.create({
+          data: {
+            type: 'PAGE', title: 'Footer Página Sin Grupo', slug: 'footer-pagina-sin-grupo',
+            status: 'PUBLISHED', publishedAt: new Date(),
+            showInFooter: true, footerOrder: 3, footerGroup: null, authorId: admin.id,
           },
         }),
         prisma.post.create({
@@ -402,33 +422,52 @@ describe('Páginas informativas — Post.type (e2e)', () => {
         prisma.post.create({
           data: {
             type: 'PAGE', title: 'Página Footer En Borrador', slug: 'pagina-footer-borrador',
-            status: 'DRAFT', showInFooter: true, footerOrder: 0, authorId: admin.id,
+            status: 'DRAFT', showInFooter: true, footerOrder: 0, footerGroup: 'Legal', authorId: admin.id,
           },
         }),
       ]);
       footerPageAId = pageA.id;
       footerPageBId = pageB.id;
+      footerHelpId = help.id;
+      footerUngroupedId = ungrouped.id;
       notInFooterPageId = notInFooter.id;
       draftFooterPageId = draftFooter.id;
     });
 
-    it('devuelve solo PAGE PUBLISHED con showInFooter=true, ordenadas por footerOrder asc', async () => {
+    it('agrupa en columnas por footerGroup; columnas ordenadas por el footerOrder mínimo del grupo', async () => {
       const res = await request(app.getHttpServer()).get('/api/paginas/footer').expect(200);
-      const slugs = res.body.map((p: { slug: string }) => p.slug);
+      const groups = res.body.map((c: { group: string | null }) => c.group);
 
-      expect(slugs).toContain('footer-pagina-a');
-      expect(slugs).toContain('footer-pagina-b');
-      expect(slugs.indexOf('footer-pagina-a')).toBeLessThan(slugs.indexOf('footer-pagina-b'));
-
-      // Publicada pero showInFooter=false → ausente.
-      expect(slugs).not.toContain('pagina-sin-footer');
-      // showInFooter=true pero DRAFT → ausente (el footer nunca enlaza contenido no publicado).
-      expect(slugs).not.toContain('pagina-footer-borrador');
+      // Legal (min 1) < sin-grupo (3) < Ayuda (min 5).
+      expect(groups.indexOf('Legal')).toBeLessThan(groups.indexOf(null));
+      expect(groups.indexOf(null)).toBeLessThan(groups.indexOf('Ayuda'));
     });
 
-    it('devuelve solo title+slug (select mínimo, no expone body/excerpt/etc.)', async () => {
+    it('dentro de una columna, las páginas se ordenan por footerOrder asc', async () => {
       const res = await request(app.getHttpServer()).get('/api/paginas/footer').expect(200);
-      const entry = res.body.find((p: { slug: string }) => p.slug === 'footer-pagina-a');
+      const legal = res.body.find((c: { group: string | null }) => c.group === 'Legal');
+      const slugs = legal.pages.map((p: { slug: string }) => p.slug);
+      expect(slugs).toEqual(['footer-pagina-a', 'footer-pagina-b']);
+    });
+
+    it('footerGroup=null forma su propia columna SIN encabezado — la página no desaparece', async () => {
+      const res = await request(app.getHttpServer()).get('/api/paginas/footer').expect(200);
+      const ungrouped = res.body.find((c: { group: string | null }) => c.group === null);
+      expect(ungrouped).toBeDefined();
+      expect(ungrouped.pages.map((p: { slug: string }) => p.slug)).toContain('footer-pagina-sin-grupo');
+    });
+
+    it('excluye páginas no publicadas o con showInFooter=false de todas las columnas', async () => {
+      const res = await request(app.getHttpServer()).get('/api/paginas/footer').expect(200);
+      const allSlugs = res.body.flatMap((c: { pages: { slug: string }[] }) => c.pages.map((p) => p.slug));
+      expect(allSlugs).not.toContain('pagina-sin-footer');
+      expect(allSlugs).not.toContain('pagina-footer-borrador');
+    });
+
+    it('cada página devuelve solo title+slug (select mínimo)', async () => {
+      const res = await request(app.getHttpServer()).get('/api/paginas/footer').expect(200);
+      const legal = res.body.find((c: { group: string | null }) => c.group === 'Legal');
+      const entry = legal.pages.find((p: { slug: string }) => p.slug === 'footer-pagina-a');
       expect(entry).toEqual({ title: 'Footer Página A', slug: 'footer-pagina-a' });
     });
 
@@ -443,8 +482,125 @@ describe('Páginas informativas — Post.type (e2e)', () => {
 
     afterAll(async () => {
       await prisma.post.deleteMany({
-        where: { id: { in: [footerPageAId, footerPageBId, notInFooterPageId, draftFooterPageId] } },
+        where: {
+          id: {
+            in: [footerPageAId, footerPageBId, footerHelpId, footerUngroupedId, notInFooterPageId, draftFooterPageId],
+          },
+        },
       });
+    });
+  });
+
+  // ── Desempate de columnas: mismo footerOrder mínimo → alfabético por grupo ───
+
+  describe('GET /paginas/footer — desempate alfabético entre grupos con el mismo minOrder', () => {
+    let zetaId: string;
+    let alfaId: string;
+
+    beforeAll(async () => {
+      const admin = await prisma.user.findUniqueOrThrow({ where: { email: 'pages-admin@example.com' } });
+      const [zeta, alfa] = await Promise.all([
+        prisma.post.create({
+          data: {
+            type: 'PAGE', title: 'Página Zeta', slug: 'pagina-desempate-zeta',
+            status: 'PUBLISHED', publishedAt: new Date(),
+            showInFooter: true, footerOrder: 100, footerGroup: 'Zeta', authorId: admin.id,
+          },
+        }),
+        prisma.post.create({
+          data: {
+            type: 'PAGE', title: 'Página Alfa', slug: 'pagina-desempate-alfa',
+            status: 'PUBLISHED', publishedAt: new Date(),
+            showInFooter: true, footerOrder: 100, footerGroup: 'Alfa', authorId: admin.id,
+          },
+        }),
+      ]);
+      zetaId = zeta.id;
+      alfaId = alfa.id;
+    });
+
+    it('"Alfa" aparece antes que "Zeta" cuando ambos grupos tienen el mismo footerOrder mínimo', async () => {
+      const res = await request(app.getHttpServer()).get('/api/paginas/footer').expect(200);
+      const groups = res.body.map((c: { group: string | null }) => c.group);
+      expect(groups.indexOf('Alfa')).toBeLessThan(groups.indexOf('Zeta'));
+    });
+
+    afterAll(async () => {
+      await prisma.post.deleteMany({ where: { id: { in: [zetaId, alfaId] } } });
+    });
+  });
+
+  // ── footerGroup: validación solo-PAGE, trim, y sugerencias de admin ──────────
+
+  describe('footerGroup — validación, trim y GET /admin/blog/footer-groups', () => {
+    it('POST /api/admin/blog con footerGroup en un POST (type default) → 400', async () => {
+      await request(app.getHttpServer())
+        .post('/api/admin/blog')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ title: 'Post Con Grupo Invalido', footerGroup: 'Legal' })
+        .expect(400);
+    });
+
+    it('PATCH sobre un POST existente con footerGroup → 400', async () => {
+      const created = await request(app.getHttpServer())
+        .post('/api/admin/blog')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ title: 'Post Para Rechazo De Grupo' })
+        .expect(201);
+
+      await request(app.getHttpServer())
+        .patch(`/api/admin/blog/${created.body.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ footerGroup: 'Legal' })
+        .expect(400);
+    });
+
+    it('POST con type=PAGE y footerGroup con espacios → se guarda con trim aplicado', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/api/admin/blog')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ type: 'PAGE', title: 'Página Con Grupo Con Espacios', footerGroup: '  Legal  ' })
+        .expect(201);
+      expect(res.body.footerGroup).toBe('Legal');
+    });
+
+    it('POST con type=PAGE y footerGroup en blanco → se guarda como null (blank → undefined en el DTO)', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/api/admin/blog')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ type: 'PAGE', title: 'Página Con Grupo En Blanco', footerGroup: '   ' })
+        .expect(201);
+      expect(res.body.footerGroup).toBeNull();
+    });
+
+    it('GET /api/admin/blog/footer-groups → devuelve los valores distintos existentes', async () => {
+      await request(app.getHttpServer())
+        .post('/api/admin/blog')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ type: 'PAGE', title: 'Página Grupo Nuevo Sugerencia', footerGroup: 'GrupoNuevoSugerencia' })
+        .expect(201);
+
+      const res = await request(app.getHttpServer())
+        .get('/api/admin/blog/footer-groups')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      expect(res.body).toContain('GrupoNuevoSugerencia');
+      expect(res.body).toContain('Legal');
+      // Sin duplicados: 'Legal' aparece en múltiples páginas de fixtures previos.
+      expect(res.body.filter((g: string) => g === 'Legal')).toHaveLength(1);
+    });
+
+    it('GET /api/admin/blog/footer-groups sin token → 401', async () => {
+      await request(app.getHttpServer()).get('/api/admin/blog/footer-groups').expect(401);
+    });
+
+    it('/admin/blog/footer-groups no se confunde con /admin/blog/:id (route ordering correcto)', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/api/admin/blog/footer-groups')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+      expect(Array.isArray(res.body)).toBe(true);
     });
   });
 });

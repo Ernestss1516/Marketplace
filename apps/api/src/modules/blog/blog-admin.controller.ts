@@ -36,6 +36,16 @@ export class BlogAdminController {
     return this.blogService.adminFindAll(dto);
   }
 
+  // Ruta estática — debe declararse ANTES de @Get(':id') o Nest la trataría
+  // como findById('footer-groups') (mismo gotcha ya documentado en
+  // AdminController para categories/searchable-keys y en PagesController
+  // para paginas/footer).
+  @Get('footer-groups')
+  @Roles(Role.EDITOR, Role.MODERATOR, Role.ADMIN)
+  listFooterGroups() {
+    return this.blogService.listFooterGroups();
+  }
+
   @Get(':id')
   @Roles(Role.EDITOR, Role.MODERATOR, Role.ADMIN)
   findById(@Param('id') id: string) {

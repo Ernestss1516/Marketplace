@@ -50,6 +50,7 @@ function toFormValues(post: AdminPost): PostFormValues {
     // tipo compartido con las páginas informativas.
     showInFooter: false,
     footerOrder: '',
+    footerGroup: '',
   };
 }
 
@@ -72,6 +73,7 @@ export default function EditarBlogPage() {
     metaDescription: '',
     showInFooter: false,
     footerOrder: '',
+    footerGroup: '',
   });
 
   const [saving, setSaving] = useState(false);

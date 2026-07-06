@@ -13,6 +13,7 @@ export interface AdminPostSummary {
   tags: string[];
   showInFooter: boolean;
   footerOrder: number | null;
+  footerGroup: string | null;
   author: { name: string; email: string };
 }
 
@@ -48,6 +49,7 @@ export interface CreatePostPayload {
   // Solo válidos si type resuelve a PAGE — el backend rechaza (400) en otro caso.
   showInFooter?: boolean;
   footerOrder?: number;
+  footerGroup?: string;
 }
 
 export type UpdatePostPayload = Partial<Omit<CreatePostPayload, 'type'>>;
@@ -99,4 +101,10 @@ export function unpublishAdminPost(token: string, id: string): Promise<AdminPost
 
 export function deleteAdminPost(token: string, id: string): Promise<void> {
   return apiFetch<void>(`/admin/blog/${id}`, { method: 'DELETE', token });
+}
+
+// Sugerencias para el <datalist> de footerGroup en PostForm — fresco, sin
+// caché (un grupo recién creado debe sugerirse de inmediato).
+export function getFooterGroups(token: string): Promise<string[]> {
+  return apiFetch<string[]>('/admin/blog/footer-groups', { token });
 }

@@ -1,9 +1,10 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertCircle, Eye, EyeOff, Loader2, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { uploadMedia } from '@/lib/api/media';
+import { getFooterGroups } from '@/lib/api/blog-admin';
 import { ApiError } from '@/lib/api/client';
 import { MarkdownBody } from '@/components/blog/MarkdownBody';
 import MarkdownEditorClient from './MarkdownEditorClient';
@@ -21,6 +22,8 @@ export interface PostFormValues {
   // parsea a number|undefined al enviar (mismo patrón que tags: string → string[]).
   showInFooter: boolean;
   footerOrder: string;
+  // Columna del footer agrupado — texto libre, sugerido vía <datalist>.
+  footerGroup: string;
 }
 
 export const EMPTY_POST_FORM: PostFormValues = {
@@ -34,6 +37,7 @@ export const EMPTY_POST_FORM: PostFormValues = {
   metaDescription: '',
   showInFooter: false,
   footerOrder: '',
+  footerGroup: '',
 };
 
 interface PostFormProps {
@@ -66,7 +70,18 @@ export function PostForm({
   const [showPreview, setShowPreview] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [footerGroups, setFooterGroups] = useState<string[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Sugerencias del datalist — fresco (sin caché), solo cuando el bloque de
+  // footer es relevante. Falla en silencio: el input sigue funcionando sin
+  // sugerencias si el fetch falla.
+  useEffect(() => {
+    if (!showFooterControls) return;
+    getFooterGroups(token)
+      .then(setFooterGroups)
+      .catch(() => {});
+  }, [showFooterControls, token]);
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -205,18 +220,38 @@ export function PostForm({
             Mostrar en el footer
           </label>
           {values.showInFooter && (
-            <div className="flex flex-col gap-1">
-              <label htmlFor="footerOrder" className={labelCls}>Orden en el footer</label>
-              <input
-                id="footerOrder"
-                type="number"
-                value={values.footerOrder}
-                onChange={(e) => onChange({ footerOrder: e.target.value })}
-                className={`${inputCls} max-w-[8rem]`}
-                disabled={isSubmitting}
-                placeholder="0"
-              />
-            </div>
+            <>
+              <div className="flex flex-col gap-1">
+                <label htmlFor="footerOrder" className={labelCls}>Orden en el footer</label>
+                <input
+                  id="footerOrder"
+                  type="number"
+                  value={values.footerOrder}
+                  onChange={(e) => onChange({ footerOrder: e.target.value })}
+                  className={`${inputCls} max-w-[8rem]`}
+                  disabled={isSubmitting}
+                  placeholder="0"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label htmlFor="footerGroup" className={labelCls}>Grupo/columna del footer</label>
+                <input
+                  id="footerGroup"
+                  type="text"
+                  list="footer-group-suggestions"
+                  value={values.footerGroup}
+                  onChange={(e) => onChange({ footerGroup: e.target.value })}
+                  className={`${inputCls} max-w-xs`}
+                  disabled={isSubmitting}
+                  placeholder="p.ej. Legal (vacío = columna sin título)"
+                />
+                <datalist id="footer-group-suggestions">
+                  {footerGroups.map((g) => (
+                    <option key={g} value={g} />
+                  ))}
+                </datalist>
+              </div>
+            </>
           )}
         </div>
       )}

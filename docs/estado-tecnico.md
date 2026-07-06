@@ -1206,6 +1206,97 @@ Con esto, las páginas informativas (y el bloque de blog completo — rol EDITOR
 editor rico de markdown, páginas informativas, footer semi-dinámico) quedan
 robustas de punta a punta.
 
+### Footer estructurado en columnas por grupos (BLOG-FOOTER-COLUMNAS)
+
+Extiende el footer semi-dinámico anterior: en vez de una lista plana de
+enlaces, el footer agrupa las páginas en **columnas** (estilo Milanuncios) —
+"Legal", "Ayuda", etc. **Extiende el mecanismo existente, no lo rehace**:
+mismo `showInFooter`/`footerOrder`, mismo `getCachedFooterPages`
+(`unstable_cache` + tag `footer-pages`), misma invalidación por evento. Solo
+cambia la **forma** de los datos cacheados (agrupada en vez de plana) y el render.
+
+**Schema:** `Post.footerGroup String?` (migración
+`20260706193828_add_post_footer_group`, sin backfill, sin índice — la query
+está cacheada). Texto libre, no enum ni modelo separado (deliberadamente
+simple). Validado en el **servicio** junto a `showInFooter`/`footerOrder`
+(`assertFooterFieldsAllowed`) — solo aplica a `PAGE`. Trim aplicado en el DTO
+vía `@Transform` (higiene de datos, no regla de negocio): `"  Legal  "` →
+`"Legal"`, blank → `undefined`. **Sin normalización de mayúsculas** — el admin
+controla el casing visible del encabezado de columna; la defensa contra
+duplicados tipo "Ayuda"/"ayuda" es el `<datalist>` de sugerencias, no reescribir
+lo que el admin escribió.
+
+**`footerGroup=null` con `showInFooter=true`:** la página NUNCA desaparece —
+forma su propia columna, sin encabezado (`<h3>` omitido si `group` es falsy),
+en vez de caer en un grupo "General" inventado. Mismo principio que ya guiaba
+el resto de este bloque: nada se pierde en silencio por un campo sin rellenar.
+
+**Orden de columnas — un solo campo hace ambos trabajos:** las páginas dentro
+de un grupo se ordenan por `footerOrder` (como antes); los **grupos entre sí**
+se ordenan por el `footerOrder` **mínimo** de sus páginas — sin un segundo
+campo de "orden de grupo", que sería redundante si se repite por cada página
+del mismo grupo. Empate en el mínimo → desempate alfabético por nombre de
+grupo (determinista, no una señal de orden real). `BlogService.listFooterPages()`:
+```typescript
+const byGroup = new Map<string | null, typeof pages>(); // agrupa preservando el orden por footerOrder
+return Array.from(byGroup.entries())
+  .map(([group, groupPages]) => ({ group, minOrder: Math.min(...groupPages.map(p => p.footerOrder ?? 0)), pages: ... }))
+  .sort((a, b) => a.minOrder - b.minOrder || (a.group ?? '').localeCompare(b.group ?? ''))
+```
+
+**Agrupado en el BACKEND, no en el frontend:** `GET /paginas/footer` devuelve
+`Array<{ group: string | null; pages: Array<{title, slug}> }>`, ya agrupado y
+ordenado — el frontend solo mapea columnas→páginas. El backend es la única
+fuente de la semántica `footerOrder`/`footerGroup`, igual que ya es la única
+fuente de "cómo se consulta `Post` de forma segura" en el resto de este
+bloque; evita que un futuro segundo consumidor (p. ej. una vista de preview en
+el admin) tenga que reimplementar el agrupado.
+
+**Nuevo endpoint admin `GET /admin/blog/footer-groups`** (`@Roles(EDITOR,
+MODERATOR, ADMIN)`): valores `footerGroup` distintos ya usados en páginas
+existentes, para el `<datalist>` de sugerencias en `PostForm`. Ruta estática
+declarada ANTES de `@Get(':id')` en `BlogAdminController` (mismo gotcha de
+ordering ya documentado varias veces en este archivo). **Deliberadamente sin
+caché** — a diferencia del footer público, un grupo recién creado debe
+sugerirse de inmediato en el siguiente formulario, no esperar a un TTL.
+
+**Render (`Footer.tsx`):** grid CSS responsive (`grid-cols-1` en móvil →
+`md:grid-cols-4` en desktop), sin acordeón — un acordeón necesitaría estado de
+cliente y convertiría `Footer` en Client Component, perdiendo el diseño
+cache-friendly de Server Component que tenía. Cada columna: `<h3>` con el
+nombre del grupo (omitido si `group` es `null`) + lista de `<Link>` debajo. Los
+enlaces estáticos de navegación (Buscar/Publicar/Acceder + copyright) se
+quedan en su propia barra, separados de la grilla de columnas — son
+navegación de app, no contenido informativo agrupable. Sin columnas → la
+grilla no se renderiza (sin placeholder), igual que el footer plano anterior.
+
+**Admin (`PostForm.tsx`):** input de texto `footerGroup`, mismo gate que
+`footerOrder` (`showFooterControls && values.showInFooter`), con `<datalist>`
+poblado desde `getFooterGroups(token)` (fetch en un `useEffect`, solo cuando el
+bloque de footer es relevante; falla en silencio si el fetch falla).
+
+**Tests:**
+- `pages.e2e-spec.ts` (backend, +19 casos): agrupado por `footerGroup` y orden
+  de columnas por `footerOrder` mínimo; orden dentro de una columna; grupo
+  `null` como columna sin encabezado (la página no desaparece); exclusión de
+  no-publicadas/no-footer de todas las columnas; `select` mínimo; desempate
+  alfabético entre grupos con el mismo mínimo; rechazo cruzado de
+  `footerGroup` en POST (create y update); trim y blank→null; `GET
+  /admin/blog/footer-groups` — valores distintos, sin duplicados, 401 sin
+  token, ordering de rutas correcto.
+- `footer-paginas.spec.ts` (Playwright, +5 casos): columna con encabezado
+  correcto y el enlace dentro de esa columna; página sin grupo en columna sin
+  encabezado; columnas ordenadas por `footerOrder` mínimo del grupo (no por
+  orden de creación); datalist sugiere grupos existentes. El test existente de
+  "dos páginas con `footerOrder` distinto" se corrigió para buscar enlaces en
+  todo `<footer>` en vez de solo `<footer nav>` — los enlaces de página ya no
+  viven en el `<nav>` de navegación estática, sino en la grilla de columnas.
+
+Verificado manualmente contra servidores de desarrollo reales: páginas creadas
+en distintos grupos aparecen en columnas separadas y ordenadas correctamente,
+una página sin grupo aparece en una columna sin título, y el datalist sugiere
+los grupos ya existentes de inmediato.
+
 ### Protección anti-degradación de ADMIN en cambio de rol (Fase 7)
 
 `PATCH /admin/users/:id/role` acepta `USER`, `MODERATOR` y `EDITOR` como valor

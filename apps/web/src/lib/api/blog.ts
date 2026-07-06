@@ -38,8 +38,17 @@ export interface FooterPage {
   slug: string;
 }
 
-function getFooterPages(): Promise<FooterPage[]> {
-  return apiFetch<FooterPage[]>('/paginas/footer');
+// group=null → columna sin encabezado en el render (la página no desaparece
+// por no tener footerGroup asignado). Ya viene agrupado y ordenado desde el
+// backend (columnas por footerOrder mínimo del grupo, páginas por footerOrder)
+// — el frontend solo mapea, no reimplementa la semántica de agrupado.
+export interface FooterColumn {
+  group: string | null;
+  pages: FooterPage[];
+}
+
+function getFooterPages(): Promise<FooterColumn[]> {
+  return apiFetch<FooterColumn[]>('/paginas/footer');
 }
 
 // El footer vive en un layout compartido por páginas con dinamismo dispar

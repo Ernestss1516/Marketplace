@@ -8,8 +8,16 @@ import {
   IsString,
   IsUrl,
   Matches,
+  MaxLength,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { PostType } from '@prisma/client';
+
+// Trim + blank→undefined es higiene de datos, no una regla de negocio — vive en
+// el DTO. La regla "solo aplica a PAGE" sí depende del type resuelto, por eso
+// vive en el servicio (assertFooterFieldsAllowed), igual que showInFooter/footerOrder.
+const trimToUndefined = ({ value }: { value: unknown }) =>
+  typeof value === 'string' ? value.trim() || undefined : value;
 
 export class CreatePostDto {
   // Omitido para crear un POST (blog) normal — el service usa PostType.POST por
@@ -65,4 +73,13 @@ export class CreatePostDto {
   @IsOptional()
   @IsInt()
   footerOrder?: number;
+
+  // Nombre de columna en el footer agrupado — texto libre, NO enum. Trim
+  // aplicado aquí (higiene); blank pasa a undefined. Sin normalización de
+  // mayúsculas: el admin controla el casing visible del encabezado.
+  @IsOptional()
+  @Transform(trimToUndefined)
+  @IsString()
+  @MaxLength(50)
+  footerGroup?: string;
 }

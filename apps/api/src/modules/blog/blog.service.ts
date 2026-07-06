@@ -44,18 +44,58 @@ export class BlogService {
     return this.findByTypeAndSlug(PostType.PAGE, slug);
   }
 
-  // Footer dinámico: solo PAGE + PUBLISHED + showInFooter=true, ordenadas para
-  // renderizar. Endpoint dedicado (no un filtro de listPublishedPages) porque el
-  // orden (footerOrder) y el filtro (showInFooter) no tienen sentido para el
-  // listado público genérico de páginas. select mínimo — un enlace de footer
-  // solo necesita title+slug. Cacheado agresivamente en el frontend
-  // (unstable_cache, tag 'footer-pages') — esta query no corre por request.
-  listFooterPages() {
-    return this.prisma.post.findMany({
+  // Footer dinámico: solo PAGE + PUBLISHED + showInFooter=true, agrupadas por
+  // footerGroup y ordenadas para renderizar en columnas. Endpoint dedicado (no
+  // un filtro de listPublishedPages) porque el orden/agrupado no tienen sentido
+  // para el listado público genérico de páginas. El backend es la única fuente
+  // de la semántica de agrupado/orden — el frontend solo mapea columnas→páginas.
+  // Cacheado agresivamente en el frontend (unstable_cache, tag 'footer-pages')
+  // — esta query no corre por request.
+  //
+  // Orden: las páginas dentro de un grupo se ordenan por footerOrder; los
+  // grupos entre sí se ordenan por el footerOrder MÍNIMO de sus páginas (un
+  // solo campo controla ambos niveles, sin necesidad de un segundo campo de
+  // "orden de grupo"). Empate → alfabético por nombre de grupo (desempate
+  // determinista, no una señal de orden real). footerGroup=null forma su
+  // propio "grupo" (columna sin encabezado en el render) — una página
+  // showInFooter nunca desaparece por no tener grupo asignado.
+  async listFooterPages(): Promise<Array<{ group: string | null; pages: Array<{ title: string; slug: string }> }>> {
+    const pages = await this.prisma.post.findMany({
       where: { type: PostType.PAGE, status: PostStatus.PUBLISHED, showInFooter: true },
       orderBy: { footerOrder: 'asc' },
-      select: { title: true, slug: true },
+      select: { title: true, slug: true, footerGroup: true, footerOrder: true },
     });
+
+    const byGroup = new Map<string | null, typeof pages>();
+    for (const p of pages) {
+      const key = p.footerGroup;
+      const bucket = byGroup.get(key);
+      if (bucket) bucket.push(p);
+      else byGroup.set(key, [p]);
+    }
+
+    return Array.from(byGroup.entries())
+      .map(([group, groupPages]) => ({
+        group,
+        minOrder: Math.min(...groupPages.map((p) => p.footerOrder ?? 0)),
+        pages: groupPages.map(({ title, slug }) => ({ title, slug })),
+      }))
+      .sort((a, b) => a.minOrder - b.minOrder || (a.group ?? '').localeCompare(b.group ?? ''))
+      .map(({ group, pages }) => ({ group, pages }));
+  }
+
+  // Sugerencias para el <datalist> del admin — valores de footerGroup ya
+  // usados en páginas existentes, para reducir duplicados por casing/typos
+  // ("Ayuda" vs "ayuda"). Deliberadamente NO cacheado con el footer público:
+  // un grupo recién creado debe sugerirse de inmediato en el siguiente
+  // formulario, no esperar a la revalidación/TTL del footer.
+  async listFooterGroups(): Promise<string[]> {
+    const rows = await this.prisma.post.findMany({
+      where: { type: PostType.PAGE, footerGroup: { not: null } },
+      select: { footerGroup: true },
+      distinct: ['footerGroup'],
+    });
+    return rows.map((r) => r.footerGroup as string).sort((a, b) => a.localeCompare(b));
   }
 
   private async listPublishedByType(type: PostType, dto: ListPublicPostsDto) {
@@ -123,6 +163,7 @@ export class BlogService {
         metaDescription: dto.metaDescription,
         showInFooter: dto.showInFooter ?? false,
         footerOrder: dto.footerOrder,
+        footerGroup: dto.footerGroup,
         authorId,
       },
       include: { author: AUTHOR_ADMIN },
@@ -210,6 +251,7 @@ export class BlogService {
         ...(dto.metaDescription !== undefined && { metaDescription: dto.metaDescription }),
         ...(dto.showInFooter !== undefined && { showInFooter: dto.showInFooter }),
         ...(dto.footerOrder !== undefined && { footerOrder: dto.footerOrder }),
+        ...(dto.footerGroup !== undefined && { footerGroup: dto.footerGroup }),
       },
       include: { author: AUTHOR_ADMIN },
     });
@@ -360,16 +402,20 @@ export class BlogService {
     }
   }
 
-  // Rejects showInFooter/footerOrder on anything that isn't (or won't become) a
-  // PAGE. Lives in the service, not the DTO — CreatePostDto validates BEFORE the
-  // `type ?? POST` default is resolved, so it can't see the final type; for
-  // updates, the current row's type is only knowable after loading it.
+  // Rejects showInFooter/footerOrder/footerGroup on anything that isn't (or
+  // won't become) a PAGE. Lives in the service, not the DTO — CreatePostDto
+  // validates BEFORE the `type ?? POST` default is resolved, so it can't see
+  // the final type; for updates, the current row's type is only knowable
+  // after loading it.
   private assertFooterFieldsAllowed(
     resolvedType: PostType,
-    dto: { showInFooter?: boolean; footerOrder?: number },
+    dto: { showInFooter?: boolean; footerOrder?: number; footerGroup?: string },
   ): void {
-    if (resolvedType !== PostType.PAGE && (dto.showInFooter !== undefined || dto.footerOrder !== undefined)) {
-      throw new BadRequestException('showInFooter/footerOrder solo aplican a páginas informativas');
+    if (
+      resolvedType !== PostType.PAGE &&
+      (dto.showInFooter !== undefined || dto.footerOrder !== undefined || dto.footerGroup !== undefined)
+    ) {
+      throw new BadRequestException('showInFooter/footerOrder/footerGroup solo aplican a páginas informativas');
     }
   }
 

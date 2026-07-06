@@ -40,6 +40,7 @@ function toFormValues(post: AdminPost): PostFormValues {
     metaDescription: post.metaDescription ?? '',
     showInFooter: post.showInFooter,
     footerOrder: post.footerOrder != null ? String(post.footerOrder) : '',
+    footerGroup: post.footerGroup ?? '',
   };
 }
 
@@ -62,6 +63,7 @@ export default function EditarPaginaPage() {
     metaDescription: '',
     showInFooter: false,
     footerOrder: '',
+    footerGroup: '',
   });
 
   const [saving, setSaving] = useState(false);
@@ -105,6 +107,7 @@ export default function EditarPaginaPage() {
         metaDescription: values.metaDescription || undefined,
         showInFooter: values.showInFooter,
         footerOrder: values.footerOrder ? Number(values.footerOrder) : undefined,
+        footerGroup: values.footerGroup || undefined,
       });
       setPost(updated);
       setValues(toFormValues(updated));

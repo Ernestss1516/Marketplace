@@ -1067,8 +1067,13 @@ model Post {
   /// request — ver revalidateTag() en BlogService.
   showInFooter    Boolean    @default(false)
   /// Orden de aparición en el footer (ascendente). Solo relevante junto a
-  /// showInFooter=true.
+  /// showInFooter=true. También determina el orden de la COLUMNA de su grupo
+  /// (el mínimo footerOrder entre las páginas de un mismo footerGroup).
   footerOrder     Int?
+  /// Nombre de columna del footer agrupado (texto libre, p.ej. "Legal",
+  /// "Ayuda"). null → columna sin encabezado (la página no desaparece).
+  /// Solo PAGE, validado en el servicio como showInFooter/footerOrder.
+  footerGroup     String?
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
 

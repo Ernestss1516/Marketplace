@@ -6,21 +6,44 @@ export default async function Footer() {
   // Fuente única: la BD, vía un cache dedicado (nunca una query por request —
   // ver getCachedFooterPages). Si falla (backend caído, etc.), el footer sigue
   // funcionando con los enlaces estáticos — nunca rompe el sitio por esto.
-  const footerPages = await getCachedFooterPages().catch(() => []);
+  const footerColumns = await getCachedFooterPages().catch(() => []);
 
   return (
     <footer className="border-t py-10">
-      <div className="container mx-auto flex flex-col items-center gap-4 px-4 text-sm text-muted-foreground md:flex-row md:justify-between">
+      {/* Columnas agrupadas (páginas informativas) — sección separada de la
+          navegación de app de abajo. Grid CSS puro, sin acordeón: mantiene
+          Footer como Server Component (sin estado cliente). */}
+      {footerColumns.length > 0 && (
+        <div className="container mx-auto grid grid-cols-1 gap-8 px-4 pb-8 sm:grid-cols-2 md:grid-cols-4">
+          {footerColumns.map((col) => (
+            <div key={col.group ?? '__ungrouped'}>
+              {col.group && (
+                <h3 className="mb-3 text-sm font-semibold text-foreground">{col.group}</h3>
+              )}
+              <ul className="space-y-2">
+                {col.pages.map((p) => (
+                  <li key={p.slug}>
+                    <Link href={`/paginas/${p.slug}`} className="text-sm text-muted-foreground hover:text-foreground">
+                      {p.title}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div
+        className={`container mx-auto flex flex-col items-center gap-4 px-4 text-sm text-muted-foreground md:flex-row md:justify-between ${
+          footerColumns.length > 0 ? 'border-t pt-6' : ''
+        }`}
+      >
         <span>© {new Date().getFullYear()} {SITE_NAME}. Todos los derechos reservados.</span>
         <nav className="flex flex-wrap justify-center gap-4">
           <Link href="/busqueda" className="hover:text-foreground">Buscar</Link>
           <Link href="/publicar" className="hover:text-foreground">Publicar</Link>
           <Link href="/login" className="hover:text-foreground">Acceder</Link>
-          {footerPages.map((p) => (
-            <Link key={p.slug} href={`/paginas/${p.slug}`} className="hover:text-foreground">
-              {p.title}
-            </Link>
-          ))}
         </nav>
       </div>
     </footer>

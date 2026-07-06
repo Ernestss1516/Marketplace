@@ -6,7 +6,12 @@ import {
   IsString,
   IsUrl,
   Matches,
+  MaxLength,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
+
+const trimToUndefined = ({ value }: { value: unknown }) =>
+  typeof value === 'string' ? value.trim() || undefined : value;
 
 // type (POST|PAGE) deliberately has NO field here — it's immutable after creation.
 // ValidationPipe({ forbidNonWhitelisted: true }) rejects any request that tries to
@@ -58,4 +63,10 @@ export class UpdatePostDto {
   @IsOptional()
   @IsInt()
   footerOrder?: number;
+
+  @IsOptional()
+  @Transform(trimToUndefined)
+  @IsString()
+  @MaxLength(50)
+  footerGroup?: string;
 }
