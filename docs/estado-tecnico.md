@@ -74,7 +74,7 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **Blog detalle** `/blog/[slug]` | ✅ Completo | `export const revalidate = 3600`; Server Component ISR; `notFound()` si slug no existe o es DRAFT; body Markdown renderizado con `react-markdown` + `remark-gfm` + `rehype-sanitize` (sin `rehype-raw` — **regla invariante de seguridad**, ver §2); clase `prose` de `@tailwindcss/typography`; `generateMetadata()` con `og:type: 'article'`, `publishedTime`, `authors`, imagen OG; JSON-LD `BlogPosting` embebido; breadcrumb |
 | **Sitemap** `/sitemap.xml` | ✅ Actualizado | Convertido a `async`; incluye `/blog` + un slug por cada post PUBLISHED (`getPostList({ perPage: 500 })`). Los posts DRAFT nunca aparecen porque el endpoint público `GET /blog` filtra por `status = PUBLISHED` en Prisma |
 | **Admin blog** `/admin/blog` | ✅ Completo | Tabla paginada (todos los estados) con chips Todos / Borrador / Publicado; acciones Editar / Publicar / Despublicar / Eliminar (con confirmación) inline por fila; client-side |
-| **Admin nuevo post** `/admin/blog/nuevo` | ✅ Completo | Formulario `PostForm` compartido: title, slug (editable; si se deja vacío el backend lo genera del título), excerpt, body (textarea Markdown + toggle preview), tags (coma-separadas), portada (solo upload a `/media/upload`, sin campo de URL libre), campos SEO colapsables (metaTitle, metaDescription); al guardar redirige a la página de edición |
+| **Admin nuevo post** `/admin/blog/nuevo` | ✅ Completo | Formulario `PostForm` compartido: title, slug (editable; si se deja vacío el backend lo genera del título), excerpt, body (editor de markdown estilo GitHub `@uiw/react-md-editor` + toggle preview — ver «Editor de markdown en PostForm» más abajo), tags (coma-separadas), portada (solo upload a `/media/upload`, sin campo de URL libre), campos SEO colapsables (metaTitle, metaDescription); al guardar redirige a la página de edición |
 | **Admin editar post** `/admin/blog/[id]/editar` | ✅ Completo | Mismo `PostForm` precargado desde `GET /admin/blog/:id`; cabecera con badge de estado + botones Publicar/Despublicar/Eliminar + enlace "Ver en blog ↗" cuando está publicado; banner de éxito al guardar |
 | **Admin facturación** `/admin/facturacion` | ✅ RF.12 | Listado de transacciones con filtros (userId, status, gateway); panel de detalle de usuario (saldo, historial de ledger, entitlements activos). **RF.12b**: formulario de acreditación manual — campo `amount` (1–10 000) + `reason` (5–500 chars); llama a `POST /admin/billing/credits/:userId`; muestra saldo actualizado tras la operación. Ningún campo sensible expuesto (DTO backend con `select` explícito) |
 | **Plan Pro — Catálogo** `/planes` | ✅ RF.9 | Server Component; consume `GET /billing/catalog` (endpoint público); muestra planes free/pro con precios y CTAs de upgrade. Reutiliza `apiFetch` y shadcn/ui |
@@ -936,6 +936,64 @@ no uno nuevo.
 automatizado — un usuario ascendido a EDITOR por la UI, tras re-login, entra a
 `/admin/blog` y a ningún otro `/admin/*`; el mismo patrón se confirmó para
 MODERATOR y la vuelta a USER.
+
+### Editor de markdown en PostForm (`@uiw/react-md-editor`)
+
+El `<textarea>` plano de `body` en `PostForm.tsx` se reemplazó por un editor
+estilo GitHub (toolbar de atajos de sintaxis + preview, NO WYSIWYG con
+contentEditable real) — el buffer sigue siendo el mismo string markdown de
+siempre, sin capa de conversión HTML↔Markdown ni cambio en el almacenamiento ni
+en el payload de `createAdminPost`/`updateAdminPost` (`body` sigue siendo un
+`string` plano). Ningún post existente necesitó migración.
+
+**Librería:** `@uiw/react-md-editor@4.1.1` (`peerDependencies: react/react-dom
+>=16.8.0` — compatible con React 19, verificado en el registro de npm antes de
+instalar, per Paso 0 innegociable de esta ráfaga).
+
+**SECURITY — hallazgo crítico durante la integración:** el modo de preview
+integrado de esta librería (`preview="live"` / `"preview"`, vía
+`@uiw/react-markdown-preview`) incluye **`rehype-raw` de forma incondicional**
+en su pipeline interno (confirmado leyendo el JS compilado del paquete) — no
+hay ninguna prop pública para quitarlo, solo para añadir plugins después de él.
+Si se hubiera habilitado ese modo, un `<script>` escrito en el editor se
+parsearía como HTML real dentro del propio preview del admin, reabriendo
+exactamente el vector que la regla invariante del blog mantiene cerrado (ver
+`/blog/[slug]`: react-markdown + remark-gfm + rehype-sanitize, SIN rehype-raw).
+Por eso `MarkdownEditor.tsx`:
+1. Fija `preview="edit"` **siempre** — en ese modo el componente de preview de
+   `@uiw/react-markdown-preview` no llega a montarse en absoluto (confirmado
+   leyendo `Editor.factory.js`: el pane de preview solo se renderiza cuando
+   `state.preview` matchea `/(live|preview)/`).
+2. Quita del toolbar los 3 comandos que cambian de modo en caliente
+   (`codeEdit`/`codeLive`/`codePreview`, los tres comparten
+   `keyCommand: 'preview'`) vía `commandsFilter` — sin esto, el propio usuario
+   podría reactivar el modo peligroso con un clic o un atajo de teclado
+   (`ctrl+9` para preview), sin pasar por la prop `preview`.
+
+El preview renderizado real sigue siendo el toggle "Ver preview" que ya existía
+en `PostForm.tsx` (sin cambios) — usa su propia instancia de `react-markdown` +
+`remark-gfm` + `rehype-sanitize`, la misma tubería que `/blog/[slug]`, no la de
+esta librería. Se mantiene porque con un editor de sintaxis (no WYSIWYG real)
+el preview renderizado sigue aportando valor.
+
+**Integración:** `MarkdownEditor.tsx` (lógica real) + `MarkdownEditorClient.tsx`
+(wrapper `'use client'` con `dynamic(..., { ssr: false })`) — mismo patrón que
+`MapViewClient.tsx`/`MapView.tsx`. Componente controlado: `value`/`onChange`
+con el mismo contrato que el resto de `PostForm`.
+
+**Imágenes:** el comando "insertar imagen" del toolbar se sobrescribe vía
+`commandsFilter` (mismo icono/atajo, nuevo `execute`) para abrir un selector de
+archivo y subir con `uploadMedia()` (el mismo cliente que ya usa la portada) en
+vez de insertar un placeholder `![]()` vacío; al resolver, inserta
+`![nombre](url)` en el cursor vía `TextAreaTextApi.replaceSelection()`.
+
+**Tests:** `blog-markdown-editor.spec.ts` (Playwright, 2 casos) — ciclo completo
+crear/guardar/publicar con formato variado (títulos, negrita, cursiva, lista,
+cita, enlace) y verificación de que `/blog/[slug]` renderiza exactamente lo
+mismo; y un caso dedicado de `<script>` literal que confirma que nunca se
+ejecuta, ni en el preview del admin ni en la página pública. Backend sin
+cambios — `body` sigue siendo un string plano, sin tocar DTOs ni el módulo
+`blog`.
 
 ### Protección anti-degradación de ADMIN en cambio de rol (Fase 7)
 

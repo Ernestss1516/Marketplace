@@ -8,6 +8,7 @@ import { AlertCircle, Eye, EyeOff, Loader2, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { uploadMedia } from '@/lib/api/media';
 import { ApiError } from '@/lib/api/client';
+import MarkdownEditorClient from './MarkdownEditorClient';
 
 export interface PostFormValues {
   title: string;
@@ -145,14 +146,11 @@ export function PostForm({
             )}
           </button>
         </div>
-        <textarea
+        <MarkdownEditorClient
           value={values.body}
-          onChange={(e) => onChange({ body: e.target.value })}
-          className={`${textareaCls} font-mono`}
-          rows={14}
+          onChange={(body) => onChange({ body })}
+          token={token}
           disabled={isSubmitting}
-          placeholder={'# Título\n\nEscribe en Markdown…'}
-          spellCheck={false}
         />
         {showPreview && (
           <div className="rounded-md border bg-muted/20 p-4">
