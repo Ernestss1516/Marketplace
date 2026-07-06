@@ -6,6 +6,7 @@ import { Separator } from '@/components/ui/separator';
 import { auth } from '@/lib/auth';
 import { getWallet, getCatalog, type WalletItem, type CreditLedgerType } from '@/lib/api/billing';
 import { PackList } from './_components/PackList';
+import { RedeemCouponForm } from './_components/RedeemCouponForm';
 
 export const metadata: Metadata = { title: 'Mis créditos' };
 
@@ -17,6 +18,7 @@ const LEDGER_LABELS: Record<CreditLedgerType, string> = {
   ADMIN_DEBIT: 'Ajuste',
   PRO_BONUS: 'Bonus Pro',
   CAMPAIGN_BONUS: 'Bonus campaña',
+  COUPON_REDEEM: 'Cupón canjeado',
 };
 
 function LedgerRow({ item }: { item: WalletItem }) {
@@ -98,6 +100,9 @@ export default async function MisCreditosPage() {
           </p>
         </CardContent>
       </Card>
+
+      {/* Canjear cupón */}
+      <RedeemCouponForm token={token} />
 
       {/* Compra de packs */}
       {packProducts.length > 0 && (

@@ -13,6 +13,7 @@ const NAV_ITEMS: { href: string; label: string; roles: string[] }[] = [
   { href: '/admin/facturacion', label: 'Facturación',  roles: ['ADMIN'] },
   { href: '/admin/categorias',  label: 'Categorías',   roles: ['ADMIN'] },
   { href: '/admin/blog',        label: 'Blog',         roles: ['ADMIN', 'MODERATOR'] },
+  { href: '/admin/cupones',     label: 'Cupones',      roles: ['ADMIN'] },
   { href: '/admin/ajustes',     label: 'Ajustes',      roles: ['ADMIN'] },
 ];
 

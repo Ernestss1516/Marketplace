@@ -1,11 +1,17 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import { CreditLedgerType, FeaturedOrigin } from '@prisma/client';
+import { Coupon, CouponRewardType, CreditLedgerType, FeaturedOrigin, Prisma } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { QUEUE_INDEXING } from '../../infra/queue/queue.constants';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import { BillingService } from '../billing/billing.service';
 import { RedeemCouponDto } from './dto/redeem-coupon.dto';
+import { CreateCouponDto } from './dto/create-coupon.dto';
+import { UpdateCouponDto } from './dto/update-coupon.dto';
+import { ListCouponsDto } from './dto/list-coupons.dto';
+
+type CouponStatus = 'upcoming' | 'live' | 'ended';
 
 /** Returns true when the error is a Prisma unique constraint violation (P2002). */
 function isP2002(err: unknown): boolean {
@@ -28,6 +34,7 @@ export class CouponsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly billing: BillingService,
+    private readonly auditLog: AuditLogService,
     @InjectQueue(QUEUE_INDEXING) private readonly indexingQueue: Queue,
   ) {}
 
@@ -157,5 +164,179 @@ export class CouponsService {
       creditAmount: coupon.creditAmount,
       featuredDurationDays: coupon.featuredDurationDays,
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Admin CRUD — H8 Bloque D fase 3b. Sin lógica de concurrencia nueva (ya
+  // resuelta en fase 3a); esto es gestión de catálogo, no canje.
+  // ---------------------------------------------------------------------------
+
+  async list(dto: ListCouponsDto) {
+    const { rewardType, active, page = 1, perPage = 25 } = dto;
+
+    const where: Prisma.CouponWhereInput = {
+      ...(rewardType && { rewardType }),
+      ...(active !== undefined && { active }),
+    };
+
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.coupon.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * perPage,
+        take: perPage,
+      }),
+      this.prisma.coupon.count({ where }),
+    ]);
+
+    const now = new Date();
+    const withStatus = items.map((c) => ({ ...c, status: this.deriveStatus(c, now) }));
+
+    return { items: withStatus, total, page, perPage };
+  }
+
+  async create(dto: CreateCouponDto, actorId: string, ip?: string): Promise<Coupon> {
+    const code = dto.code.trim().toUpperCase();
+    const startsAt = new Date(dto.startsAt);
+    const endsAt = new Date(dto.endsAt);
+    if (endsAt <= startsAt) {
+      throw new BadRequestException('endsAt debe ser posterior a startsAt');
+    }
+    this.assertRewardFieldsMatchType(dto.rewardType, dto.creditAmount, dto.featuredDurationDays);
+
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const created = await tx.coupon.create({
+          data: {
+            code,
+            rewardType: dto.rewardType,
+            creditAmount: dto.rewardType === CouponRewardType.CREDITS ? dto.creditAmount : null,
+            featuredDurationDays:
+              dto.rewardType === CouponRewardType.FEATURED ? dto.featuredDurationDays : null,
+            maxRedemptions: dto.maxRedemptions ?? null,
+            active: dto.active ?? true,
+            startsAt,
+            endsAt,
+          },
+        });
+
+        await this.auditLog.log(
+          {
+            action: 'COUPON_CREATE',
+            actorId,
+            resourceType: 'Coupon',
+            resourceId: created.id,
+            after: this.snapshot(created) as unknown as Prisma.InputJsonValue,
+            ip,
+          },
+          tx,
+        );
+
+        return created;
+      });
+    } catch (err) {
+      if (isP2002(err)) {
+        throw new ConflictException({
+          message: 'Ya existe un cupón con ese código',
+          code: 'COUPON_CODE_TAKEN',
+        });
+      }
+      throw err;
+    }
+  }
+
+  async update(id: string, dto: UpdateCouponDto, actorId: string, ip?: string): Promise<Coupon> {
+    const existing = await this.prisma.coupon.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Cupón no encontrado');
+
+    const nextStartsAt = dto.startsAt ? new Date(dto.startsAt) : existing.startsAt;
+    const nextEndsAt = dto.endsAt ? new Date(dto.endsAt) : existing.endsAt;
+    if (nextEndsAt <= nextStartsAt) {
+      throw new BadRequestException('endsAt debe ser posterior a startsAt');
+    }
+
+    // El valor de la recompensa enviado debe corresponder al rewardType YA
+    // fijado del cupón (inmutable) — no se puede, p. ej., mandar
+    // featuredDurationDays a un cupón CREDITS.
+    if (dto.creditAmount !== undefined && existing.rewardType !== CouponRewardType.CREDITS) {
+      throw new BadRequestException('creditAmount solo aplica a cupones CREDITS');
+    }
+    if (
+      dto.featuredDurationDays !== undefined &&
+      existing.rewardType !== CouponRewardType.FEATURED
+    ) {
+      throw new BadRequestException('featuredDurationDays solo aplica a cupones FEATURED');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.coupon.update({
+        where: { id },
+        data: {
+          ...(dto.active !== undefined && { active: dto.active }),
+          ...(dto.startsAt !== undefined && { startsAt: nextStartsAt }),
+          ...(dto.endsAt !== undefined && { endsAt: nextEndsAt }),
+          ...(dto.maxRedemptions !== undefined && { maxRedemptions: dto.maxRedemptions }),
+          ...(dto.creditAmount !== undefined && { creditAmount: dto.creditAmount }),
+          ...(dto.featuredDurationDays !== undefined && {
+            featuredDurationDays: dto.featuredDurationDays,
+          }),
+        },
+      });
+
+      let action = 'COUPON_EDIT';
+      if (dto.active === true && !existing.active) action = 'COUPON_ACTIVATE';
+      else if (dto.active === false && existing.active) action = 'COUPON_DEACTIVATE';
+
+      await this.auditLog.log(
+        {
+          action,
+          actorId,
+          resourceType: 'Coupon',
+          resourceId: id,
+          before: this.snapshot(existing) as unknown as Prisma.InputJsonValue,
+          after: this.snapshot(updated) as unknown as Prisma.InputJsonValue,
+          ip,
+        },
+        tx,
+      );
+
+      return updated;
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Helpers
+  // ---------------------------------------------------------------------------
+
+  private deriveStatus(coupon: Coupon, now: Date): CouponStatus {
+    if (now < coupon.startsAt) return 'upcoming';
+    if (now > coupon.endsAt) return 'ended';
+    return 'live';
+  }
+
+  private snapshot(coupon: Coupon) {
+    return {
+      code: coupon.code,
+      rewardType: coupon.rewardType,
+      creditAmount: coupon.creditAmount,
+      featuredDurationDays: coupon.featuredDurationDays,
+      maxRedemptions: coupon.maxRedemptions,
+      active: coupon.active,
+      startsAt: coupon.startsAt.toISOString(),
+      endsAt: coupon.endsAt.toISOString(),
+    };
+  }
+
+  private assertRewardFieldsMatchType(
+    rewardType: CouponRewardType,
+    creditAmount?: number,
+    featuredDurationDays?: number,
+  ): void {
+    if (rewardType === CouponRewardType.CREDITS && featuredDurationDays != null) {
+      throw new BadRequestException('featuredDurationDays no debe enviarse para cupones CREDITS');
+    }
+    if (rewardType === CouponRewardType.FEATURED && creditAmount != null) {
+      throw new BadRequestException('creditAmount no debe enviarse para cupones FEATURED');
+    }
   }
 }

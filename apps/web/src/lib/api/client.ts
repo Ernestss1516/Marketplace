@@ -103,6 +103,33 @@ export function toFeaturedByCreditsMessage(err: unknown): string {
   return toUserMessage(err);
 }
 
+/**
+ * True when the coupon canjeado needs a listingId to proceed (HTTP 400,
+ * code LISTING_REQUIRED) — the coupon is a FEATURED reward and the caller sent
+ * only `code`. Components should branch here to show a listing picker and
+ * resend `{ code, listingId }`, instead of showing a generic error.
+ */
+export function isListingRequiredError(err: unknown): err is ApiError {
+  return err instanceof ApiError && err.statusCode === 400 && err.code === 'LISTING_REQUIRED';
+}
+
+/**
+ * Maps coupon redemption errors (H8 Bloque D fase 3) to user-facing strings.
+ * Callers must check isListingRequiredError BEFORE calling this — it needs a
+ * domain-specific reaction (show the listing picker), not a plain string.
+ */
+export function toCouponMessage(err: unknown): string {
+  if (err instanceof ApiError) {
+    switch (err.code) {
+      case 'COUPON_NOT_FOUND': return 'Código no válido.';
+      case 'COUPON_INACTIVE': return 'Este cupón ha caducado o no está disponible.';
+      case 'COUPON_EXHAUSTED': return 'Este cupón ya se ha agotado.';
+      case 'COUPON_ALREADY_REDEEMED': return 'Ya has usado este cupón.';
+    }
+  }
+  return toUserMessage(err);
+}
+
 interface FetchOptions extends RequestInit {
   token?: string;
 }

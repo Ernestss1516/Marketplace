@@ -11,7 +11,8 @@ export type CreditLedgerType =
   | 'ADMIN_CREDIT'
   | 'ADMIN_DEBIT'
   | 'PRO_BONUS'
-  | 'CAMPAIGN_BONUS';
+  | 'CAMPAIGN_BONUS'
+  | 'COUPON_REDEEM';
 
 export interface WalletItem {
   id: string;

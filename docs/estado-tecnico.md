@@ -2121,6 +2121,79 @@ usos que se agota) — mismo rigor que la cuota Pro de H8.3.
 - **Cierre:** 5 ejecuciones consecutivas limpias de la suite completa de Playwright (111/111, sin
   retries) tras el arreglo del clic, más 29/29 suites backend (434/434 tests) en entorno limpio.
 
+**H8 Bloque D fase 3b (admin CRUD de cupones + frontend del canje) — hecho.** Cierra la fase 3
+(cupones) del Bloque D; solo queda la fase 4 (difusión) para completar el bloque. Sin lógica de
+concurrencia nueva — eso ya quedó cerrado en fase 3a; esta ráfaga es admin + frontend.
+
+- **`AdminCouponsController`** (`/admin/coupons`, ADMIN-only — como `admin-campaigns`, no
+  `MODERATOR`). `POST` crea con `code` normalizado a MAYÚSCULAS y duplicado → `409
+  COUPON_CODE_TAKEN`; `endsAt` debe ser posterior a `startsAt`. `PATCH` edita fechas, `active`,
+  `maxRedemptions` (`null` explícito quita el límite) y el valor de la recompensa
+  (`creditAmount`/`featuredDurationDays`) — **`code` y `rewardType` inmutables tras crear** (mismo
+  criterio que `type` en `Campaign`: cambiarlos sería otro cupón, no una edición; además un cupón ya
+  distribuido con un código no puede cambiar de identidad sin romper lo que ya se repartió). `GET`
+  lista paginada con `redemptionCount`/`maxRedemptions` visibles y `status` derivado
+  (`upcoming`|`live`|`ended`, comparado con `now`, sin persistir — mismo patrón que `Campaign`). Sin
+  `DELETE`: los cupones no se borran, solo se desactivan (registro histórico, igual que campañas).
+  `AuditLog` con `COUPON_CREATE`/`COUPON_EDIT`/`COUPON_ACTIVATE`/`COUPON_DEACTIVATE` (acción derivada
+  del cambio real de `active`, no del endpoint llamado — mismo mecanismo que `CampaignsService`).
+- **Validación cruzada de la recompensa — mitad declarativa, mitad en servicio.** class-validator
+  expresa bien la dirección "requerido si": `@ValidateIf(o => o.rewardType === CREDITS) @IsInt()
+  @Min(1)` sobre `creditAmount`, simétrico para `featuredDurationDays`/`FEATURED`. La dirección
+  contraria — "prohibido si el otro tipo" — no tiene forma declarativa limpia en class-validator, así
+  que se comprueba en `CouponsService.assertRewardFieldsMatchType` (mismo precedente que
+  `CampaignsService.validateParams` en fase 2, donde ya hizo falta un chequeo manual además del DTO).
+- **`maxRedemptions` opcional-o-null sin `@ValidateIf` extra:** `@IsOptional()` de class-validator ya
+  trata `undefined` (omitido → "no cambiar" en `PATCH`) y `null` (explícito → "quitar el límite") como
+  casos que saltan la validación de tipo/rango — el tipo del DTO (`number | null`) y el spread
+  condicional en Prisma (`...(dto.maxRedemptions !== undefined && {...})`) bastan sin lógica nueva.
+- **Frontend admin** (`/admin/cupones`, solo `ADMIN` en `AdminNav`): listado con código, tipo,
+  usos `N/max` (`∞` si no hay límite), vigencia, badge de estado derivado + badge "Inactivo"
+  independiente, activar/desactivar inline, formulario crear/editar (`CouponFormDialog`) con `code` y
+  tipo de recompensa bloqueados en modo edición. Añadir un 9º ítem a `AdminNav` **rompía
+  `admin-roles.spec.ts`**, que tenía `toHaveCount(8)` cableado — encontrado leyendo el test antes de
+  escribir los nuevos, no en un CI rojo posterior; corregido a 9 con el spot-check de "Cupones"
+  añadido (el conteo de 4 ítems del `MODERATOR` no cambia: "Cupones" es `ADMIN`-only).
+- **Frontend canje** (`/mis-creditos`, `RedeemCouponForm`): flujo de dos pasos aprobado en el
+  mini-diseño — se intenta canjear solo con el código; si el backend responde `400
+  LISTING_REQUIRED` (cupón `FEATURED`), se muestra el selector de anuncios activos del usuario
+  (`getMyListings(status: 'ACTIVE')`) y se reintenta con `{code, listingId}`. Nunca hay una llamada
+  previa de "vista previa" del cupón — evita una superficie nueva de "probar códigos" antes de
+  canjear. Mensaje de éxito específico por tipo de recompensa; errores mapeados a español legible
+  (`toCouponMessage`): `COUPON_NOT_FOUND`/`COUPON_INACTIVE`/`COUPON_EXHAUSTED`/
+  `COUPON_ALREADY_REDEEMED`. Antes de escribir el mapeo se confirmó empíricamente (contrastando con
+  `toFeaturedByCreditsMessage`, ya en producción) que el body de error de NestJS es **plano**
+  (`{message, code}` a nivel raíz, no anidado) — evita un bug silencioso de `err.code` siempre
+  `undefined`.
+- **Tests:** backend `h8-d3b-coupons-admin.e2e-spec.ts` (18 casos — auth ADMIN-only incl. 403
+  explícito para `MODERATOR` y `USER` en `GET`/`POST`, validación cruzada en ambas direcciones,
+  normalización de código y 409 en duplicado, `PATCH` con activar/desactivar y su `AuditLog`,
+  `maxRedemptions` a `null`, 404 en cupón inexistente, listado con `status` derivado y filtros). Sin
+  regresión en `h8-d3a-coupons.e2e-spec.ts` (30/30 verdes juntos). Playwright
+  `h8-d3-coupons.spec.ts` (6 casos — admin crea cupón CREDITS y lo ve en el listado con sus usos,
+  activar/desactivar, canje CREDITS con mensaje de éxito, código inválido, cupón ya canjeado por el
+  mismo usuario, canje FEATURED con selector de anuncio y destacado real).
+- **Cierre:** 452/452 tests backend (30 suites) en BD limpia. Suite completa de Playwright: 3
+  ejecuciones consecutivas sin retries — `h8-d3-coupons.spec.ts` y `admin-roles.spec.ts` en verde
+  100% las 3 veces (117/117, 117/117, 116/117). El único fallo, en las 2 de esas 3 pasadas donde
+  apareció, fue siempre el mismo test preexistente y no relacionado:
+  `busqueda-mapa.spec.ts` → "toggle Lista→Mapa→Lista" (ver nota de proceso siguiente).
+- **Nota de proceso — el toggle de mapa vuelve a ser intermitente, con un matiz nuevo frente a su
+  cierre en fase 3a.** `busqueda-mapa.spec.ts` ya usa el patrón de reintentar el clic dentro de un
+  `toPass` (misma mitigación de la carrera de navegación del App Router documentada arriba), y en el
+  cierre de fase 3a había quedado verde 5/5. Al verificar esta ráfaga volvió a fallar en 2 de 3
+  pasadas completas — siempre el mismo test, a veces en el clic a "Mapa", a veces en el clic a
+  "Lista". Aislado sin tocar nada de `git status` en el área de mapa/búsqueda (cero archivos
+  modificados ahí en esta ráfaga), así que no es una regresión de cupones. Caracterización adicional:
+  ejecutado solo (`-g "toggle Lista"`, sin los otros tests del archivo) pasa de forma consistente;
+  ejecutado junto con sus tests hermanos del mismo archivo, falla de forma consistente (3/3) — indica
+  que algo del estado acumulado por los tests anteriores del archivo (cache de router/RSC del
+  servidor Next.js, no aislamiento de test) incrementa la probabilidad de la carrera ya conocida, más
+  de lo que ocurría en el cierre de fase 3a. **No abordado en esta ráfaga** (fuera del alcance de
+  "admin CRUD de cupones + canje"; decisión explícita del usuario tras reportarlo). Pendiente como
+  seguimiento: investigar por qué el orden/acumulación dentro del archivo afecta la tasa de fallo del
+  reintento ya existente.
+
 ### Renombrar la key de un atributo no migra `Listing.attributes` (aviso, no migración)
 
 `Listing.attributes` no tiene FK con `Category.attributeSchema`; renombrar la `name`
