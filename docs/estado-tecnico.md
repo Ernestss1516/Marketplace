@@ -1326,6 +1326,41 @@ en distintos grupos aparecen en columnas separadas y ordenadas correctamente,
 una página sin grupo aparece en una columna sin título, y el datalist sugiere
 los grupos ya existentes de inmediato.
 
+### CI: `footer-paginas.spec.ts` fallaba consistentemente — causa raíz real (`APP_URL` equivocado, no el secret)
+
+Tras cerrar BLOG-FOOTER-COLUMNAS, los 6 tests de `footer-paginas.spec.ts`
+fallaban de forma **consistente** (no flaky) en CI mientras pasaban siempre en
+local. Primer diagnóstico — `REVALIDATE_SECRET` ausente del `env:` del job
+`e2e` — era **correcto pero incompleto**: se corrigió (commit `97e548a`) y los
+6 tests siguieron fallando idénticos. Investigación más profunda encontró la
+causa real: `APP_URL` en `ci.yml` apuntaba a `http://localhost:3001` — el
+puerto del **propio backend**, no el del frontend.
+
+`BlogService.callRevalidateEndpoint()` usa `APP_URL` para llamar a `POST
+{APP_URL}/api/revalidate` (el Route Handler de Next.js que ejecuta
+`revalidateTag('footer-pages')`). Con `APP_URL=:3001`, la petición se
+golpeaba a sí misma — Nest tiene `setGlobalPrefix('api')` pero ninguna ruta
+`/revalidate`, así que respondía 404 (`"Cannot POST /api/revalidate"`). Como
+`fetch()` no rechaza en un 404 (solo en fallos de red) y la llamada es
+fire-and-forget sin comprobar `response.ok`, el error se tragaba en
+silencio — `revalidateTag` nunca se ejecutaba en CI, así que el footer servía
+la caché `unstable_cache` vieja indefinidamente (hasta el TTL de 1h), muy por
+encima de lo que esperan los tests.
+
+**Confirmado con evidencia real, no teoría:**
+- `curl -X POST http://localhost:3001/api/revalidate?...` → `404 Cannot POST`.
+- `curl -X POST http://localhost:3000/api/revalidate?...` → `200
+  {"revalidated":true,"tag":"footer-pages"}`.
+- Repro end-to-end aislando la variable única: build de producción + `next
+  start` (igual que CI) + backend con `APP_URL=:3001` → los 6 tests fallan
+  idénticos a CI. Mismo `next start`, mismo build, solo `APP_URL=:3000` → 7/7
+  pasan, la revalidación se resuelve en 1-2s sin necesidad de reintentos.
+- Esto también descarta las hipótesis alternativas evaluadas: no es timing
+  (con `APP_URL` correcto no hace falta esperar más), no es `next start` vs
+  `next dev` (el repro usó `next start`, idéntico a CI, y pasó limpio).
+
+**Fix:** `APP_URL: http://localhost:3000` en el `env:` del job `e2e`.
+
 ### Protección anti-degradación de ADMIN en cambio de rol (Fase 7)
 
 `PATCH /admin/users/:id/role` acepta `USER`, `MODERATOR` y `EDITOR` como valor
@@ -1836,17 +1871,57 @@ falsear — verifica la firma del `id_token` él mismo.
 
 El flaky arrastrado desde RC5.5 (tests de `listing-card-attrs.spec.ts` y `categoria-meili.spec.ts` fallando intermitentemente) ha sido cerrado en su causa raíz: `addDocuments()` completaba el job BullMQ antes de que el documento fuera consultable en Meilisearch. Fix: `waitForTask(task.taskUid)` en `indexListing()`. Había capas adicionales (geocoding síncrono, límite de listings en seed, condition faltante en helper) también resueltas. Ver §Lecciones de método del CI.
 
-### Backend `test:e2e` sin aislamiento de BD entre workers — mitigado con `--runInBand`, pendiente el fix real (Hito 9)
+### Deuda de test/CI consolidada tras BLOG-FOOTER-COLUMNAS (pendiente para el Hito 9)
 
-`--runInBand` (añadido tras BLOG-FOOTER-COLUMNAS) fuerza a Jest a correr las suites
-`*.e2e-spec.ts` en serie, evitando que varios workers paralelos truncaran/limpiaran la
-misma `marketplace_test` a la vez (FK violations, deadlocks, 401/404 espurios — visto
-de forma consistente en CI sin la flag). Es una **mitigación**, no la cura: el backend
-e2e ahora es más lento (serie en vez de paralelo) y el problema de fondo — suites sin
-BD/schema propio, todas comparten `marketplace_test` — sigue sin resolverse.
-**Pendiente para el Hito 9**: aislar cada worker de Jest en su propia BD o schema
-(p. ej. derivando el nombre de la BD/schema de `JEST_WORKER_ID`), lo que permitiría
-volver a correr en paralelo sin las condiciones de carrera.
+Investigación de los fallos de CI durante el cierre de BLOG-FOOTER-COLUMNAS dejó
+varios hallazgos de deuda técnica en la suite de tests, deliberadamente NO resueltos
+de raíz ahora (fuera de alcance de esa ráfaga) — consolidados aquí para el Hito 9:
+
+**1. Aislamiento dev/test de BD — mitigado con `--runInBand`, cura real pendiente.**
+`--runInBand` fuerza a Jest a correr las suites `*.e2e-spec.ts` en serie, evitando que
+varios workers paralelos truncaran/limpiaran la misma `marketplace_test` a la vez (FK
+violations, deadlocks, 401/404 espurios — visto de forma consistente en CI sin la
+flag). El script canónico `apps/api/package.json#test:e2e` ya la lleva. Es una
+**mitigación**, no la cura: el backend e2e ahora es más lento (serie en vez de
+paralelo) y el problema de fondo — suites sin BD/schema propio, todas comparten
+`marketplace_test` — sigue sin resolverse. **Cura real**: aislar cada worker de Jest
+en su propia BD o schema (p. ej. derivando el nombre de `JEST_WORKER_ID`), lo que
+permitiría volver a correr en paralelo sin las condiciones de carrera.
+
+**2. Carrera de navegación del App Router bajo `next start` — mitigada con `toPass`, reaparece intermitente.**
+`h8-d4-banners.spec.ts` y otros tests de navegación han sido flaky en CI (falla en
+algunos runs, no en otros) de forma intermitente incluso con mitigaciones tipo
+`toPass`/polling ya aplicadas en el pasado. Causa raíz no cerrada — puede ser un
+problema real de la app bajo carga (el runner de CI es más lento que un dev local),
+no solo un test impaciente. Pendiente investigar si el propio App Router tiene una
+condición de carrera de verdad bajo latencia alta, o si falta ampliar el patrón
+`toPass` a más aserciones de navegación.
+
+**3. Meilisearch lento en CI — mitigado con reintentos en el test, recursos del runner sin investigar.**
+`listing-card-attrs.spec.ts` y similares usan un `waitForCard` con hasta 20-28
+recargas antes de encontrar la card indexada (visible en los logs: `[waitForCard]
+found after N reload(s)`). El contenedor de Meilisearch se comparte entre la suite
+Jest del backend y la suite Playwright dentro del mismo job de CI, lo que puede
+saturarlo. Pendiente: aplicar el patrón `waitForCard` retroactivamente donde falte, e
+investigar si el runner de CI necesita más recursos o si Meilisearch necesita su
+propio contenedor por step.
+
+**4. Observabilidad de `callRevalidateEndpoint` — errores tragados en silencio, ya ocultaron 3 bugs reales.**
+El fire-and-forget (`fetch(...).catch(() => {})`, sin comprobar `response.ok`) ha
+enmascarado, en una sola sesión de trabajo: `REVALIDATE_SECRET` ausente en el
+frontend (footer semi-dinámico), `REVALIDATE_SECRET` ausente en CI, y `APP_URL`
+apuntando al puerto equivocado en CI (ver sección anterior) — los tres silenciosos,
+los tres solo detectados al investigar fallos de test, nunca por un log de error.
+**Mejora pendiente**: sin quitar el fire-and-forget (una revalidación fallida no debe
+romper la acción del admin), añadir un `Logger.warn(...)` cuando la llamada falla
+(secret ausente localmente, `!response.ok`, excepción de red) — que grite en los
+logs en vez de desaparecer.
+
+**5. `REVALIDATE_SECRET`/`APP_URL` deben estar configurados en TODOS los entornos.**
+Añadidos a `.env.example` (backend y frontend) como documentación — evita que una
+máquina nueva o un futuro CI repita este mismo fantasma. **Pendiente**: verificar
+que la otra máquina de desarrollo del equipo también los tiene configurados
+correctamente (no solo esta).
 
 ### Reintentos del job `geocode` (nuevo — H6)
 

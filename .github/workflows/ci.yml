@@ -109,7 +109,15 @@ jobs:
       # ── Email — Resend not called in tests; value satisfies Joi validation ─────
       RESEND_API_KEY: ci_dummy_resend
       RESEND_FROM: noreply@example.com
-      APP_URL: http://localhost:3001
+      # Frontend URL — BlogService.callRevalidateEndpoint() lo usa para llamar a
+      # POST /api/revalidate (Next.js Route Handler, puerto 3000), NUNCA el del
+      # propio backend (3001). El valor equivocado (3001) hacía que la petición
+      # se golpeara a sí misma (Nest 404, "Cannot POST /api/revalidate") y el
+      # fetch().catch(() => {}) fire-and-forget lo tragaba en silencio —
+      # revalidateTag('footer-pages') nunca se ejecutaba en CI. Confirmado con
+      # curl (404 en :3001 vs 200 en :3000) y repro end-to-end aislando esta
+      # única variable. Ver docs/estado-tecnico.md.
+      APP_URL: http://localhost:3000
 
       # ── S3 / MinIO — must match the credentials used in the "Start MinIO" step ─
       S3_ENDPOINT: http://localhost:9000
