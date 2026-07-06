@@ -11,6 +11,7 @@ import {
   banUser,
   reinstateUser,
   setUserTrusted,
+  changeUserRole,
   type AdminUser,
   type AdminUserDetail,
 } from '@/lib/api/admin';
@@ -53,6 +54,10 @@ const ROLE_LABELS: Record<string, string> = {
   EDITOR: 'Editor',
   ADMIN: 'Admin',
 };
+
+// Roles asignables desde el selector — ADMIN excluido (el DTO/service lo rechazan
+// como valor destino; no se ofrece en la UI tampoco).
+const ASSIGNABLE_ROLES = ['USER', 'MODERATOR', 'EDITOR'];
 
 const REPORT_REASON_LABELS: Record<string, string> = {
   SPAM: 'Spam',
@@ -429,9 +434,29 @@ export default function AdminUsuariosPage() {
                         </div>
                       </td>
                       <td className="px-4 py-3">
-                        <Badge variant={isAdmin ? 'destructive' : 'outline'}>
-                          {ROLE_LABELS[user.role] ?? user.role}
-                        </Badge>
+                        {/* Selector de rol: ADMIN-only (no se ofrece para usuarios ADMIN —
+                            el guard de servicio rechaza target=ADMIN, y esto evita además que
+                            un ADMIN se degrade a sí mismo desde su propia fila). */}
+                        {isAdmin || !currentUserIsAdmin ? (
+                          <Badge variant={isAdmin ? 'destructive' : 'outline'}>
+                            {ROLE_LABELS[user.role] ?? user.role}
+                          </Badge>
+                        ) : (
+                          <select
+                            value={user.role}
+                            disabled={isPending}
+                            onChange={(e) =>
+                              handleAction(() => changeUserRole(token, user.id, e.target.value), user.id)
+                            }
+                            className="rounded-md border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+                          >
+                            {ASSIGNABLE_ROLES.map((r) => (
+                              <option key={r} value={r}>
+                                {ROLE_LABELS[r]}
+                              </option>
+                            ))}
+                          </select>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <Badge variant={STATUS_VARIANTS[user.status] ?? 'outline'}>

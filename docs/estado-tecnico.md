@@ -66,7 +66,7 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **Admin shell** | ✅ Completo | Layout Server Component + `<AdminNav>` (active state vía `usePathname`; ítems filtrados por `session.user.role` — MODERATOR ve 4 ítems: Anuncios, Usuarios, Reportes, Blog; EDITOR ve solo Blog) + `<AdminUserBar>` (nombre del admin + `signOut`); middleware con `ROLE_ALLOWED_PATHS` (mapa rol→paths) — ADMIN acceso total, MODERATOR `/admin/{reportes,anuncios,usuarios,blog}`, EDITOR solo `/admin/blog`, resto → redirect `/`; toda la carpeta `(admin)/` es client-side sin SSR |
 | **Admin dashboard** `/admin` | ✅ Completo | Fetch a `GET /admin/stats`; KPIs en 3 secciones (anuncios, usuarios/moderación, índice de búsqueda); skeleton de carga y estado de error |
 | **Admin anuncios** `/admin/anuncios` | ✅ Completo | Tabla paginada con chips de filtro por estado; cambio de estado inline (select + razón + confirmar) vía `PATCH /admin/listings/:id/status`; reportes recibidos visibles en la fila |
-| **Admin usuarios** `/admin/usuarios` | ✅ Completo | Tabla con buscador (nombre/email), chips status y rol; acciones suspend/ban/reinstate contextuales al estado; panel de detalle expandible (últimos anuncios + reportes recibidos + auditlog); no muestra botones de acción para usuarios ADMIN |
+| **Admin usuarios** `/admin/usuarios` | ✅ Completo | Tabla con buscador (nombre/email), chips status y rol; acciones suspend/ban/reinstate contextuales al estado; **selector de rol** (USER/MODERATOR/EDITOR) por fila vía `PATCH /admin/users/:id/role` — ADMIN no ofrecido como valor, y no se muestra selector para filas ADMIN (evita auto-degradación); panel de detalle expandible (últimos anuncios + reportes recibidos + auditlog); no muestra botones de acción para usuarios ADMIN |
 | **Admin reportes** `/admin/reportes` | ✅ Completo | Cola de reportes paginada con filtro de estado; acciones resolve/dismiss/retirar anuncio |
 | **Admin categorías** `/admin/categorias` | ✅ Completo (RC5.3) | Árbol de categorías con CRUD inline (crear raíz/subcategoría, editar, borrar); reordenación ↑↓ con `PATCH /admin/categories/reorder`; editor VISUAL de atributos (reemplaza el textarea JSON): filas por atributo, heredados read-only separados de los propios, miniform por atributo (type→options condicional, required/filterable/cardAttribute), guardado de solo los atributos propios; errores 400 propagados bajo la fila. |
 | **Admin ajustes** `/admin/ajustes` | ✅ Completo | 3 settings con controles tipo-específicos: `badWordList` (textarea una palabra por línea), `listingExpiryDays` (number input), `contactRequiresVerification` (checkbox); save por setting con estado de carga / ✓ éxito / error inline; timestamp de última actualización |
@@ -866,11 +866,9 @@ a `roles: ['ADMIN', 'MODERATOR', 'EDITOR']`. Ningún otro ítem cambia — un ED
 un único ítem en el nav (Blog).
 
 **Frontend — `/admin/usuarios`:** `ROLE_FILTERS` y `ROLE_LABELS` incluyen la opción
-"Editor" para filtrar/mostrar usuarios con ese rol. No existe (ni existía para
-MODERATOR) un control de asignación de rol en la UI — `PATCH /admin/users/:id/role`
-no está conectado a ningún botón; la asignación de rol se hace hoy por API directa
-(Swagger) por un ADMIN, no desde `/admin/usuarios`. Deuda pre-existente, no
-introducida por esta ráfaga.
+"Editor" para filtrar/mostrar usuarios con ese rol. En la ráfaga BLOG-ADMIN-ROLE-UI
+(ver más abajo) se cerró el gap de que no existía un control de asignación de rol
+en la UI — ahora sí lo hay.
 
 **Media:** `POST /media/upload` no tiene `RolesGuard` (solo `JwtAuthGuard`) — ya
 estaba abierto a cualquier usuario autenticado antes de este cambio, así que EDITOR
@@ -890,6 +888,54 @@ puede subir imágenes de portada sin tocar el controller.
   anuncios`); nav muestra exactamente 1 ítem (Blog); botón "Eliminar" no visible.
 - `seed-playwright.ts` / `global-setup.ts` / `fixtures/auth.ts`: usuario
   `editor-e2e@example.com` (EDITOR) con `storageState` y fixture `editorContext`.
+
+### UI de asignación de roles en /admin/usuarios (BLOG-ADMIN-ROLE-UI)
+
+Cierra el gap pre-existente detectado durante la ráfaga EDITOR: `PATCH
+/admin/users/:id/role` existía en el backend (con DTO ya validado para
+USER/MODERATOR/EDITOR) pero no estaba conectado a ningún control en el frontend —
+la asignación de rol solo era posible por API directa. Con esta ráfaga, **EDITOR
+(y cualquier rol no-ADMIN) es asignable desde el backoffice**, no solo por API.
+
+**Frontend — `lib/api/admin.ts`:** nueva función `changeUserRole(token, id, role)`
+→ `PATCH /admin/users/:id/role`.
+
+**Frontend — `/admin/usuarios`:** en la celda de rol de cada fila, un `<select>`
+nativo con las opciones `USER | MODERATOR | EDITOR` (ADMIN nunca se ofrece como
+valor — coherente con que el DTO/service ya lo rechazan). El `<select>` **no se
+muestra** en absoluto para:
+- filas con `user.role === 'ADMIN'` (el service ya bloquea `target === ADMIN`;
+  la UI no ofrece un control que siempre fallaría, y de paso impide que un ADMIN
+  se degrade a sí mismo desde su propia fila — no hace falta lógica extra: su
+  propia fila también tiene `role === 'ADMIN'`).
+- si el usuario que mira la página no es ADMIN — **corrección relevante:**
+  `/admin/usuarios` NO es ADMIN-only (MODERATOR ya tiene acceso a esa ruta desde
+  RR5.1-ext, vía `ROLE_ALLOWED_PATHS`), así que el gate correcto es
+  `currentUserIsAdmin`, no "solo ADMIN llega a esta página". Sin este gate un
+  MODERATOR vería un selector que siempre devuelve 403 al usarlo.
+
+El cambio reutiliza `handleAction()` (mismo patrón que suspend/ban/trusted): marca
+`pendingId` (deshabilita el `<select>` durante la petición), hace refetch de la
+lista al éxito (el `<select>` refleja el nuevo rol porque es un componente
+controlado ligado a `user.role`), y muestra `alert(mensaje)` legible del backend
+en caso de error — mismo patrón de error que el resto de acciones de esta página,
+no uno nuevo.
+
+**Tests:**
+- `admin-roles.spec.ts` (Playwright, +2 tests): ciclo completo USER→EDITOR→
+  MODERATOR→USER sobre un usuario dedicado (`role-target-e2e@example.com`,
+  reseteado a USER en cada seed) — cada cambio se verifica tanto en el `<select>`
+  del backoffice como en el acceso real tras un **re-login** del usuario afectado
+  (nueva sesión con el rol ya reflejado en el JWT); y confirmación de que el
+  `<select>` no existe para la fila de `admin-e2e@example.com` (ADMIN).
+- Backend: sin tests nuevos — ya cubierto por `editor-role.e2e-spec.ts`
+  (`role: EDITOR` → 200) y `admin.e2e-spec.ts` (`role: ADMIN` → 400 por DTO,
+  `target` ADMIN → 403 por service).
+
+**Verificación manual:** ciclo completo confirmado a mano además del test
+automatizado — un usuario ascendido a EDITOR por la UI, tras re-login, entra a
+`/admin/blog` y a ningún otro `/admin/*`; el mismo patrón se confirmó para
+MODERATOR y la vuelta a USER.
 
 ### Protección anti-degradación de ADMIN en cambio de rol (Fase 7)
 

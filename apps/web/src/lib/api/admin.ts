@@ -181,6 +181,16 @@ export function setUserTrusted(token: string, id: string, trusted: boolean): Pro
   });
 }
 
+// Cambio de rol — ADMIN-only. El DTO acepta USER|MODERATOR|EDITOR como destino
+// (ADMIN excluido); el service rechaza además cualquier intento sobre un target ADMIN.
+export function changeUserRole(token: string, id: string, role: string): Promise<AdminUser> {
+  return apiFetch<AdminUser>(`/admin/users/${id}/role`, {
+    method: 'PATCH',
+    body: JSON.stringify({ role }),
+    token,
+  });
+}
+
 // ─── Categories ───────────────────────────────────────────────────────────────
 
 export type { AttributeSchema as AttributeField };

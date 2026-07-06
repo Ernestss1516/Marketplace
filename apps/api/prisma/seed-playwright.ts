@@ -9,6 +9,7 @@
 //   admin-e2e@example.com       (role: ADMIN)          — backoffice admin E2E tests
 //   moderator-e2e@example.com   (role: MODERATOR)      — backoffice moderator E2E tests
 //   editor-e2e@example.com      (role: EDITOR)         — backoffice editor E2E tests
+//   role-target-e2e@example.com (role: USER, reset each seed) — target for role-assignment UI test
 //
 // Password for all: Test1234! (bcrypt cost 4)
 
@@ -237,7 +238,23 @@ async function main() {
     update: { passwordHash, emailVerified: true, role: 'EDITOR' },
   });
 
-  console.log('Playwright seed: admin-e2e + moderator-e2e + editor-e2e OK');
+  // Target user for the /admin/usuarios role-assignment Playwright test — role is
+  // always reset to USER on seed so the repeated-role-change test is idempotent
+  // regardless of what a previous run left it as.
+  await prisma.user.upsert({
+    where: { email: 'role-target-e2e@example.com' },
+    create: {
+      email: 'role-target-e2e@example.com',
+      passwordHash,
+      name: 'Role Target E2E',
+      slug: 'role-target-e2e',
+      emailVerified: true,
+      role: 'USER',
+    },
+    update: { passwordHash, emailVerified: true, role: 'USER' },
+  });
+
+  console.log('Playwright seed: admin-e2e + moderator-e2e + editor-e2e + role-target-e2e OK');
 
   // ── Test report for moderator E2E tests ───────────────────────────────────────
   // The report is always reset to PENDING so the moderator action test is repeatable.

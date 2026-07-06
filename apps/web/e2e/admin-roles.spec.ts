@@ -23,13 +23,36 @@
 //    16-22. /admin/{usuarios,facturacion,categorias,reportes,cupones,banners,ajustes,anuncios} → redirige a /
 //    23. AdminNav muestra exactamente 1 ítem (Blog)
 //    24. EDITOR no ve el botón "Eliminar" en /admin/blog (borrado físico ADMIN-only)
+//   BLOG-ADMIN-ROLE-UI — selector de asignación de rol en /admin/usuarios
+//    25. ADMIN cambia el rol de role-target-e2e USER→EDITOR→MODERATOR→USER; cada cambio
+//        se refleja en el selector Y en el acceso real del usuario tras re-login
+//    26. El selector de rol no existe para usuarios ADMIN (solo el badge)
 //
 // Prerequisites:
 //   global-setup seeds admin-e2e@example.com (ADMIN), moderator-e2e@example.com (MODERATOR)
 //   y editor-e2e@example.com (EDITOR).
-//   seed-playwright.ts creates a PENDING SPAM report on listing-rf11-e2e each run.
+//   seed-playwright.ts creates a PENDING SPAM report on listing-rf11-e2e each run, and
+//   resets role-target-e2e@example.com to role USER each run (target for the role-assignment test).
 
 import { test, expect } from './fixtures/auth';
+import type { Browser } from '@playwright/test';
+
+// Logs in as an arbitrary user via the login UI — used to verify that a role change made
+// through the /admin/usuarios selector actually takes effect for that user (new JWT on login).
+async function loginAs(browser: Browser, email: string) {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  // No waitUntil override here (default 'load'): 'domcontentloaded' can resolve
+  // before React hydrates and attaches the form's submit handler, so clicking
+  // the button falls through to a native HTML GET-form submission instead of the
+  // SPA login flow — matches the proven-reliable pattern in global-setup.ts.
+  await page.goto('/login');
+  await page.getByLabel('Email').fill(email);
+  await page.getByLabel('Contraseña').fill('Test1234!');
+  await page.getByRole('button', { name: 'Iniciar sesión' }).click();
+  await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 15_000 });
+  return page;
+}
 
 test.describe('Backoffice — ADMIN acceso total', () => {
   test('ADMIN carga /admin y el nav muestra los 10 ítems', async ({ adminContext }) => {
@@ -285,5 +308,75 @@ test.describe('Backoffice — EDITOR acotado exclusivamente al blog', () => {
     await page.waitForTimeout(1_000);
 
     await expect(page.getByRole('button', { name: 'Eliminar' })).not.toBeVisible();
+  });
+});
+
+test.describe('Asignación de roles desde /admin/usuarios', () => {
+  test('ADMIN cambia el rol de un usuario (USER → EDITOR → MODERATOR → USER) y el acceso real cambia en consecuencia', async ({
+    adminContext,
+    browser,
+  }) => {
+    const adminPage = await adminContext.newPage();
+    await adminPage.goto('/admin/usuarios', { waitUntil: 'domcontentloaded' });
+
+    const searchInput = adminPage.getByPlaceholder(/buscar por nombre o email/i);
+    await expect(searchInput).toBeVisible({ timeout: 15_000 });
+    await searchInput.fill('Role Target E2E');
+    await adminPage.getByRole('button', { name: 'Buscar' }).click();
+
+    const row = adminPage.locator('tr', { hasText: 'Role Target E2E' });
+    await expect(row).toBeVisible({ timeout: 10_000 });
+    const roleSelect = row.locator('select');
+    await expect(roleSelect).toBeVisible();
+
+    // USER → EDITOR: el usuario gana acceso a /admin/blog y a nada más.
+    await roleSelect.selectOption('EDITOR');
+    await expect(roleSelect).toHaveValue('EDITOR', { timeout: 5_000 });
+
+    const editorPage = await loginAs(browser, 'role-target-e2e@example.com');
+    await editorPage.goto('/admin/blog', { waitUntil: 'domcontentloaded' });
+    expect(editorPage.url()).toContain('/admin/blog');
+    await editorPage.goto('/admin/usuarios', { waitUntil: 'domcontentloaded' });
+    await editorPage.waitForURL((url) => !url.pathname.startsWith('/admin'), { timeout: 8_000 });
+    expect(editorPage.url()).not.toContain('/admin');
+    await editorPage.close();
+
+    // EDITOR → MODERATOR: gana reportes/anuncios/usuarios/blog, sigue sin ajustes.
+    await roleSelect.selectOption('MODERATOR');
+    await expect(roleSelect).toHaveValue('MODERATOR', { timeout: 5_000 });
+
+    const moderatorPage = await loginAs(browser, 'role-target-e2e@example.com');
+    await moderatorPage.goto('/admin/reportes', { waitUntil: 'domcontentloaded' });
+    expect(moderatorPage.url()).toContain('/admin/reportes');
+    await moderatorPage.goto('/admin/ajustes', { waitUntil: 'domcontentloaded' });
+    await moderatorPage.waitForURL((url) => !url.pathname.startsWith('/admin'), { timeout: 8_000 });
+    expect(moderatorPage.url()).not.toContain('/admin');
+    await moderatorPage.close();
+
+    // MODERATOR → USER: pierde todo acceso a /admin/*. Deja el fixture en su estado
+    // inicial para que el siguiente run del test sea repetible sin depender del seed.
+    await roleSelect.selectOption('USER');
+    await expect(roleSelect).toHaveValue('USER', { timeout: 5_000 });
+
+    const userPage = await loginAs(browser, 'role-target-e2e@example.com');
+    await userPage.goto('/admin', { waitUntil: 'domcontentloaded' });
+    await userPage.waitForURL((url) => !url.pathname.startsWith('/admin'), { timeout: 8_000 });
+    expect(userPage.url()).not.toContain('/admin');
+    await userPage.close();
+  });
+
+  test('el selector de rol no existe para usuarios ADMIN (solo el badge)', async ({ adminContext }) => {
+    const page = await adminContext.newPage();
+    await page.goto('/admin/usuarios', { waitUntil: 'domcontentloaded' });
+
+    const searchInput = page.getByPlaceholder(/buscar por nombre o email/i);
+    await expect(searchInput).toBeVisible({ timeout: 15_000 });
+    await searchInput.fill('Admin E2E');
+    await page.getByRole('button', { name: 'Buscar' }).click();
+
+    const row = page.locator('tr', { hasText: 'Admin E2E' });
+    await expect(row).toBeVisible({ timeout: 10_000 });
+    await expect(row.locator('select')).toHaveCount(0);
+    await expect(row.getByText('Admin', { exact: true })).toBeVisible();
   });
 });
