@@ -116,6 +116,7 @@ enum FeaturedOrigin {
   CREDITS    // featuredByCredits — débito de Wallet
   REDSYS     // pago directo vía Redsys
   PRO_QUOTA  // cuota mensual gratis de Pro
+  COUPON     // canje de cupón (H8 Bloque D fase 3)
 }
 
 enum CreditLedgerType {
@@ -126,6 +127,7 @@ enum CreditLedgerType {
   ADMIN_DEBIT     // Débito manual de soporte → salida
   PRO_BONUS       // Créditos extra concedidos a usuarios Pro al comprar un pack → entrada
   CAMPAIGN_BONUS  // Créditos extra concedidos por una campaña promocional al comprar un pack → entrada
+  COUPON_REDEEM   // Créditos otorgados al canjear un cupón → entrada (H8 Bloque D fase 3)
 }
 
 /// Tipo de campaña promocional (H8 Bloque D). Extensible sin migración de datos:
@@ -209,6 +211,7 @@ model User {
   subscriptions       Subscription[]
   transactions        Transaction[]
   wallet              Wallet?
+  couponRedemptions   CouponRedemption[]
 
   @@index([status])
 }
@@ -858,14 +861,18 @@ model CreditLedger {
   @@index([createdAt])
 }
 
-/// Campaña promocional gestionada desde el backoffice (H8 Bloque D fase 1).
-/// El MOTOR es genérico y extensible a descuentos/cupones/difusión (fases 2-4);
-/// esta fase solo implementa CREDIT_BONUS.
+/// Campaña promocional gestionada desde el backoffice (H8 Bloque D). El MOTOR es
+/// genérico: CREDIT_BONUS (fase 1) y ACTION_DISCOUNT (fase 2). Los cupones
+/// canjeables (fase 3) NO son un CampaignType — viven en su propio modelo
+/// (Coupon/CouponRedemption, más abajo): un cupón tiene código/límite/registro
+/// de canjes que no encajan en la aplicación automática de Campaign. Difusión/
+/// banners queda para fase 4.
 ///
-/// Decisión de producto: no se permiten dos campañas ACTIVE del MISMO type con
-/// fechas solapadas (validado en CampaignsService al crear/editar). Así nunca
-/// hay ambigüedad de "cuál aplicar" — a lo sumo una campaña de un type dado está
-/// vigente en un instante dado. Campañas de types distintos sí pueden convivir.
+/// Decisión de producto: no se permiten dos campañas ACTIVE del MISMO type (y,
+/// para ACTION_DISCOUNT, de la MISMA params.action) con fechas solapadas
+/// (validado en CampaignsService al crear/editar). Así nunca hay ambigüedad de
+/// "cuál aplicar" — a lo sumo una campaña de un type(+action) dado está vigente
+/// en un instante dado. Campañas de types (o acciones) distintos sí conviven.
 model Campaign {
   id        String       @id @default(cuid())
   name      String
@@ -875,7 +882,8 @@ model Campaign {
   endsAt    DateTime
 
   /// Parámetros específicos del type. Para CREDIT_BONUS:
-  /// { "kind": "PERCENT" | "FIXED", "value": number }
+  /// { "kind": "PERCENT" | "FIXED", "value": number }. Para ACTION_DISCOUNT:
+  /// { "action": "BUMP" | "FEATURED", "percent": number }.
   /// Validado en el DTO según `type`, no a nivel de BD (mismo patrón que
   /// Setting.value / Listing.attributes) — evita migración por cada type nuevo.
   params    Json
@@ -886,6 +894,72 @@ model Campaign {
   updatedAt DateTime     @updatedAt
 
   @@index([type, active, startsAt, endsAt])
+}
+
+/// Recompensa que otorga un Coupon al canjearse (H8 Bloque D fase 3).
+enum CouponRewardType {
+  CREDITS
+  FEATURED
+}
+
+/// Cupón canjeable por código. A diferencia de Campaign, NO usa `params` Json:
+/// el espacio de recompensas es cerrado (CREDITS | FEATURED, sin más tipos
+/// previstos), así que columnas explícitas son más claras que Json aquí — no
+/// hace falta el switch de validación manual que sí necesita Campaign.
+///
+/// `redemptionCount` es un CONTADOR FÍSICO (no un COUNT derivado como la cuota
+/// Pro) — el límite total se hace cumplir con un incremento atómico condicional
+/// (mismo patrón que el débito de Wallet), sin lock explícito. Ver
+/// CouponsService.redeem.
+///
+/// onePerUser es SIEMPRE true en esta fase (simplificación aprobada en el mini-
+/// diseño): un `@@unique([couponId, userId])` en CouponRedemption lo hace
+/// cumplir a nivel de BD, sin configurabilidad — soportar cupones reutilizables
+/// por el mismo usuario reintroduciría la misma complejidad de "límite por
+/// usuario" que este diseño evita para el límite total.
+model Coupon {
+  id                   String             @id @default(cuid())
+  /// Normalizado a MAYÚSCULAS al crear y al canjear (evita "Verano2026" vs "VERANO2026").
+  code                 String             @unique
+  rewardType           CouponRewardType
+
+  /// Solo si rewardType = CREDITS.
+  creditAmount         Int?
+  /// Solo si rewardType = FEATURED.
+  featuredDurationDays Int?
+
+  /// null = ilimitado.
+  maxRedemptions       Int?
+  redemptionCount      Int                @default(0)
+
+  active               Boolean            @default(true)
+  startsAt             DateTime
+  endsAt               DateTime
+
+  redemptions          CouponRedemption[]
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  @@index([active, startsAt, endsAt])
+}
+
+/// Registro de canje — uno por [couponId, userId] (onePerUser, ver Coupon).
+/// NUNCA se borra ni se modifica: historial permanente de canjes.
+model CouponRedemption {
+  id            String   @id @default(cuid())
+  couponId      String
+  coupon        Coupon   @relation(fields: [couponId], references: [id])
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  redeemedAt    DateTime @default(now())
+
+  /// Trazabilidad polimórfica de qué se otorgó: 'CreditLedger' + id de la
+  /// entrada (CREDITS), o 'Entitlement' + id del FEATURED_LISTING (FEATURED).
+  referenceType String
+  referenceId   String
+
+  @@unique([couponId, userId])
+  @@index([couponId])
 }
 
 // ============================================================================

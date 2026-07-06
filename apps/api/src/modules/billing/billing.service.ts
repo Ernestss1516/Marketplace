@@ -38,10 +38,11 @@ export interface GrantFeaturedParams {
   userId: string;
   listingId: string;
   durationDays: number;
-  priceId: string;
+  /** Null for grants with no real Price behind them (coupons) — column is nullable, same as PRO_QUOTA. */
+  priceId?: string;
   /** Only set when a real payment was made (Redsys path). */
   transactionId?: string;
-  /** Which bag this grant comes from (H8.1/H8.2) — CREDITS, REDSYS or PRO_QUOTA. */
+  /** Which bag this grant comes from (H8.1/H8.2/H8 Bloque D fase 3) — CREDITS, REDSYS, PRO_QUOTA or COUPON. */
   origin: FeaturedOrigin;
 }
 
@@ -205,12 +206,43 @@ export class BillingService {
    * Called from:
    *   - featuredByCredits (via internal $transaction path)
    *   - RedsysProcessor.handleFeaturedPay (standalone, after Transaction.status = SUCCEEDED)
+   *   - CouponsService.redeem (via grantFeaturedListingTx, composed inside its own $transaction)
+   *
+   * Thin wrapper around grantFeaturedListingTx (H8 Bloque D fase 3 — extracted so
+   * callers with their own transaction, like coupon redemption, can compose the
+   * grant atomically with their own bookkeeping). Signature and behavior for this
+   * public method are unchanged — indexing is still enqueued AFTER commit, never
+   * inside the transaction (a BullMQ job for work that might roll back is worse
+   * than not enqueuing at all).
    */
   async grantFeaturedListing(params: GrantFeaturedParams): Promise<void> {
+    await this.prisma.$transaction((tx) => this.grantFeaturedListingTx(tx, params));
+
+    await this.indexingQueue.add('index', { listingId: params.listingId });
+
+    this.logger.log(
+      `Featured listing granted: listingId=${params.listingId}, userId=${params.userId}, ` +
+        `durationDays=${params.durationDays}, origin=${params.origin}, ` +
+        `transactionId=${params.transactionId ?? 'none'}`,
+    );
+  }
+
+  /**
+   * Validation + Entitlement.create only — no indexing enqueue, no logging (the
+   * caller's own transaction may still roll back after this returns). Runs
+   * against the CALLER's `tx`, so it composes inside a larger atomic operation
+   * (e.g. CouponsService.redeem: coupon redemption bookkeeping + this grant,
+   * all-or-nothing). Returns the created entitlement's id for the caller's own
+   * traceability (e.g. CouponRedemption.referenceId) without an extra query.
+   */
+  async grantFeaturedListingTx(
+    tx: Prisma.TransactionClient,
+    params: GrantFeaturedParams,
+  ): Promise<{ entitlementId: string }> {
     const { userId, listingId, durationDays, priceId, transactionId, origin } = params;
 
     // Validate listing exists, is ACTIVE, and belongs to userId
-    const listing = await this.prisma.listing.findUnique({
+    const listing = await tx.listing.findUnique({
       where: { id: listingId },
       select: { id: true, status: true, sellerId: true },
     });
@@ -222,7 +254,7 @@ export class BillingService {
     }
 
     // Check no active FEATURED_LISTING for this listing
-    const existing = await this.prisma.entitlement.findFirst({
+    const existing = await tx.entitlement.findFirst({
       where: {
         listingId,
         type: EntitlementType.FEATURED_LISTING,
@@ -238,7 +270,7 @@ export class BillingService {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + durationDays);
 
-    await this.prisma.entitlement.create({
+    const entitlement = await tx.entitlement.create({
       data: {
         userId,
         type: EntitlementType.FEATURED_LISTING,
@@ -248,15 +280,10 @@ export class BillingService {
         origin,
         ...(transactionId && { transactionId }),
       },
+      select: { id: true },
     });
 
-    // Enqueue reindexing so Meilisearch picks up boostScore = 1
-    await this.indexingQueue.add('index', { listingId });
-
-    this.logger.log(
-      `Featured listing granted: listingId=${listingId}, userId=${userId}, ` +
-        `durationDays=${durationDays}, origin=${origin}, transactionId=${transactionId ?? 'none'}`,
-    );
+    return { entitlementId: entitlement.id };
   }
 
   // ---------------------------------------------------------------------------

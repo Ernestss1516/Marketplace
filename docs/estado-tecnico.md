@@ -2036,6 +2036,91 @@ sobre el motor de campañas de fase 1 (mini-diseño aprobado); una sola ráfaga.
   Meilisearch reseteados entre corridas, sin retries): 3 ejecuciones consecutivas del pipeline
   completo — 28/28 suites backend (422/422 tests) y 111/111 Playwright cada vez.
 
+**H8 Bloque D fase 3a (canje de cupones — backend, con concurrencia) — hecho.** Mini-diseño
+aprobado; el CRUD admin y el frontend quedan para fase 3b. Es dinero + concurrencia real (límite de
+usos que se agota) — mismo rigor que la cuota Pro de H8.3.
+
+- **Schema:** `Coupon` (`code` único normalizado a MAYÚSCULAS, `rewardType: CREDITS|FEATURED`,
+  `creditAmount`/`featuredDurationDays` como **columnas explícitas nullable** — no `params` Json
+  como `Campaign` — porque el espacio de recompensas es cerrado y no se prevén más tipos
+  heterogéneos, así que columnas son más claras y no necesitan el switch de validación manual que sí
+  hace falta en `Campaign`) y `CouponRedemption` (`couponId`, `userId`, `referenceType`/`referenceId`
+  polimórfico hacia lo que se otorgó). `CreditLedgerType` +`COUPON_REDEEM`, `FeaturedOrigin` +`COUPON`.
+- **`onePerUser` simplificado a SIEMPRE true** (recorte de alcance explícito, aprobado en el mini-
+  diseño): un `@@unique([couponId, userId])` en `CouponRedemption` lo hace cumplir a nivel de BD sin
+  configurabilidad. Soportar cupones reutilizables por el mismo usuario habría exigido o bien un
+  índice único parcial vía SQL crudo (denormalizando un flag en cada fila), o bien un check-then-act
+  sin red de BD — reintroduciendo la misma clase de carrera que este diseño evita para el límite
+  total. Documentado como extensión futura si el negocio la pide.
+- **Concurrencia del límite total — incremento atómico condicional, NO el lock de la cuota Pro.**
+  `Coupon.redemptionCount` es un **contador físico** (como `Wallet.balance`), a diferencia del "usado
+  este periodo" de la cuota Pro, que es un **COUNT derivado** sobre filas de `Entitlement` sin una
+  sola fila que decrementar — por eso la cuota Pro necesita `SELECT ... FOR UPDATE` sobre
+  `Subscription` para serializar el check-then-create, y los cupones NO lo necesitan:
+  ```sql
+  UPDATE "Coupon" SET "redemptionCount" = "redemptionCount" + 1
+  WHERE id = ? AND ("maxRedemptions" IS NULL OR "redemptionCount" < "maxRedemptions")
+  ```
+  mismo patrón que el débito de `Wallet`. Postgres serializa el `UPDATE` a nivel de fila: dos
+  transacciones concurrentes nunca pueden ambas leer `redemptionCount = maxRedemptions - 1` y ambas
+  incrementar por encima del límite.
+- **Verificación empírica de que el test de concurrencia realmente detecta el bug** (no solo que
+  "pasa"): se sustituyó temporalmente el `UPDATE` condicional por un check-then-act ingenuo
+  (`findUnique` + `update` sin `WHERE` atómico) y se confirmó que el test de "dos usuarios canjean el
+  último uso a la vez" **falla** (ambos reciben 200, `redemptionCount` se pasa del límite) — luego se
+  revirtió al `UPDATE` atómico y el test vuelve a pasar. Mismo rigor exigido para la cuota Pro en
+  H8.3: un test de concurrencia que nunca se ha visto fallar no demuestra nada.
+- **Un uso por usuario bajo concurrencia:** el chequeo explícito (`findUnique` antes de crear
+  `CouponRedemption`) da un 409 legible en el caso normal; el `@@unique` de BD es la red de seguridad
+  dura si dos peticiones del MISMO usuario compiten — el segundo `create` lanza P2002, capturado y
+  traducido a `409 COUPON_ALREADY_REDEEMED` (mismo patrón que el P2002 de `Ds_Order` en Redsys), en
+  vez de dejarlo burbujear como 500.
+- **Refactor `grantFeaturedListing` → `grantFeaturedListingTx`** (salda parte de la deuda de
+  duplicación de H8.1, anotada desde entonces): se extrajo la validación (ACTIVE + propietario + sin
+  destacado activo) + `entitlement.create` a un método que opera sobre una `tx` recibida en vez de
+  `this.prisma`. El wrapper público `grantFeaturedListing(params)` ahora abre su propia
+  `$transaction` llamando a la versión `Tx` y encola el reindexado DESPUÉS de que la transacción
+  confirma (igual que siempre — un job de BullMQ para un destacado que podría haber hecho rollback es
+  peor que no encolar nada). **Firma y comportamiento sin cambios para su caller actual**
+  (`RedsysProcessor.handleFeaturedPay`) — verificado sin regresión (`billing-rf6.e2e-spec.ts` sigue en
+  verde). `priceId` pasa a opcional en `GrantFeaturedParams` (la columna ya era nullable, como en la
+  rama de cuota Pro, que tampoco pasa `priceId`). Esto permite que `CouponsService.redeem` componga
+  la concesión del destacado DENTRO de su propia transacción de canje.
+- **Rollback limpio en cupón FEATURED sobre anuncio inválido:** si `grantFeaturedListingTx` lanza
+  (anuncio no ACTIVE, ya destacado, o no es del usuario) dentro de la transacción de canje, TODA la
+  transacción revierte — incluido el incremento de `redemptionCount` del paso (a). El cupón no se
+  consume si el usuario eligió mal el anuncio; verificado con un test dedicado que compara
+  `redemptionCount` antes/después y confirma que no se crea `CouponRedemption`.
+- **Tests:** `h8-d3a-coupons.e2e-spec.ts` (12 casos — canje CREDITS y FEATURED válidos, normalización
+  de código a mayúsculas, sin `listingId` para FEATURED, rollback sobre anuncio ya destacado, código
+  inexistente/inactivo/caducado/agotado/ya-canjeado, y los DOS tests de concurrencia obligatorios).
+  Sin regresión en `billing-rf6`/`h8-d1-campaigns`/`h8-d2-action-discount`/`h8-featured-quota`
+  (69/69 verdes).
+- **Hallazgo incidental al verificar esta ráfaga — una instancia más de la carrera de navegación del
+  App Router ya conocida.** Una ronda de verificación encontró `wizard-herencia.spec.ts` fallando en
+  el click al enlace "Editar" (`page.waitForURL('**/editar**')` nunca resolvía) — el mismo mecanismo
+  ya aislado y documentado arriba en la nota de proceso de estabilización (clic que registra pero la
+  transición del App Router a veces no confirma bajo `next start`), esta vez en un punto de clic
+  distinto (el enlace de editar de `wizard-herencia`/`prefill-ubicacion`, no el toggle de mapa ni la
+  card de búsqueda). Mismo arreglo ya establecido: reintentar el clic dentro de un `toPass`, aplicado
+  a ambos archivos. Verificado con `--repeat-each=5`: sin más fallos de este tipo (los 4 fallos que sí
+  aparecieron en esa tanda eran otra cosa — ver nota siguiente). Confirmado limpio con rondas
+  adicionales de la suite completa en pasada única.
+- **Nota de proceso — artefacto de `--repeat-each` distinto de un fallo real:** al verificar el
+  arreglo anterior con `--repeat-each=5`, `prefill-ubicacion.spec.ts` falló 4/5 veces en su PRIMER
+  test ("usuario SIN ubicación → campos vacíos"), esperando que el perfil de `seller-e2e` tuviera
+  `city=null`. Causa: el SEGUNDO test del mismo archivo actualiza el perfil de `seller-e2e` a
+  "Sabadell" vía `/perfil`; con `--repeat-each`, `globalSetup` (y por tanto el estado sembrado) NO se
+  resetea entre repeticiones dentro de una misma invocación — así que a partir de la 2ª repetición el
+  perfil ya no tiene `city=null`. Es el mismo tipo de confusión ya documentado para
+  `flujo-critico.spec.ts` en la nota de estabilización: `--repeat-each` comparte BD entre
+  repeticiones, algo que NUNCA ocurre en un run normal de CI (una sola pasada por job). No es un bug
+  de producto ni de test — es una limitación de la propia herramienta de verificación, y no requiere
+  ningún cambio de código. Confirmado ejecutando la suite en pasada única (sin `--repeat-each`)
+  repetidas veces: siempre en verde.
+- **Cierre:** 5 ejecuciones consecutivas limpias de la suite completa de Playwright (111/111, sin
+  retries) tras el arreglo del clic, más 29/29 suites backend (434/434 tests) en entorno limpio.
+
 ### Renombrar la key de un atributo no migra `Listing.attributes` (aviso, no migración)
 
 `Listing.attributes` no tiene FK con `Category.attributeSchema`; renombrar la `name`

@@ -111,8 +111,17 @@ test.describe('RL5.1-A — Prefill de ubicación del perfil', () => {
       .locator('[data-testid^="listing-card-"]')
       .filter({ hasText: 'Anuncio RF.11 E2E' });
     const editLink = listingCard.getByRole('link', { name: /editar/i });
-    await editLink.click();
-    await page.waitForURL('**/editar**', { timeout: 8_000 });
+
+    // Retry-the-click: same intermittent Next.js App Router click-navigation
+    // race under `next start` mitigated in flujo-critico.spec.ts and
+    // busqueda-mapa.spec.ts (see docs/estado-tecnico.md, "Nota de proceso — CI
+    // flaky Playwright") — the click registers but the transition occasionally
+    // never commits, with no console/page error. Retrying the click itself is
+    // the reliable mitigation, not just retrying the wait.
+    await expect(async () => {
+      await editLink.click();
+      await page.waitForURL('**/editar**', { timeout: 5_000 });
+    }).toPass({ timeout: 20_000 });
 
     // EditarWizard starts at Fotos; advance through steps to Ubicación.
     await expect(page.getByRole('heading', { name: 'Fotos' })).toBeVisible({ timeout: 8_000 });

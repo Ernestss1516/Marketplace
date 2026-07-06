@@ -185,8 +185,16 @@ test.describe('RC5.4 — Wizard: herencia de atributos', () => {
       .filter({ hasText: TITLE });
     const editLink = listingCard.getByRole('link', { name: /editar/i });
 
-    await editLink.click();
-    await page.waitForURL('**/editar**', { timeout: 8_000 });
+    // Retry-the-click: same intermittent Next.js App Router click-navigation
+    // race under `next start` mitigated in flujo-critico.spec.ts and
+    // busqueda-mapa.spec.ts (see docs/estado-tecnico.md, "Nota de proceso — CI
+    // flaky Playwright") — the click registers but the transition occasionally
+    // never commits, with no console/page error. Retrying the click itself is
+    // the reliable mitigation, not just retrying the wait.
+    await expect(async () => {
+      await editLink.click();
+      await page.waitForURL('**/editar**', { timeout: 5_000 });
+    }).toPass({ timeout: 20_000 });
 
     // ── Part 3: navigate to Atributos step in EditarWizard ────────────────────
     // EditarWizard starts at Fotos step
