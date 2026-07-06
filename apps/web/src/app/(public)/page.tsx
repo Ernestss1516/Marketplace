@@ -5,12 +5,14 @@ import { CategoryGrid } from '@/components/categorias/CategoryGrid';
 import { ListingCard } from '@/components/anuncios/ListingCard';
 import { FavoritesGridProvider } from '@/components/anuncios/FavoritesGridContext';
 import { CardAttributesProvider } from '@/components/anuncios/CardAttributesContext';
+import { BannerList } from '@/components/banners/BannerList';
 import { getCategories } from '@/lib/api/categorias';
 import { getRecentListings } from '@/lib/api/anuncios';
+import { getActiveBanners } from '@/lib/api/banners';
 import { buildCardAttributeMap } from '@/lib/card-attributes';
 
 export default async function HomePage() {
-  const [categories, recent] = await Promise.all([
+  const [categories, recent, banners] = await Promise.all([
     getCategories().catch(() => [] as Awaited<ReturnType<typeof getCategories>>),
     getRecentListings({ perPage: 8 }).catch(() => ({
       items: [],
@@ -18,10 +20,18 @@ export default async function HomePage() {
       page: 1,
       perPage: 8,
     })),
+    getActiveBanners('HOME').catch(() => []),
   ]);
 
   return (
     <div className="container mx-auto px-4 pb-16">
+      {/* Banners de difusión */}
+      {banners.length > 0 && (
+        <div className="pt-4">
+          <BannerList banners={banners} />
+        </div>
+      )}
+
       {/* Hero */}
       <section className="py-12 md:py-20">
         <h1 className="mb-3 text-3xl font-bold md:text-4xl">

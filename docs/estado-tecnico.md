@@ -2194,6 +2194,78 @@ concurrencia nueva — eso ya quedó cerrado en fase 3a; esta ráfaga es admin +
   seguimiento: investigar por qué el orden/acumulación dentro del archivo afecta la tasa de fallo del
   reintento ya existente.
 
+**H8 Bloque D fase 4 (banners de difusión + enlaces compartibles) — hecho. Cierra el Bloque D
+completo.** Mini-diseño aprobado; presentación, sin dinero ni concurrencia — la fase tranquila.
+Campañas (fase 1/2) y cupones (fase 3) existían pero eran invisibles para el usuario; esta fase los
+hace visibles con banners configurables desde admin.
+
+- **Schema — `Banner`:** sigue el patrón ya establecido de `Campaign`/`Coupon` (modelo propio,
+  `active` + fechas, `status` derivado, sin `DELETE`). Diferencias deliberadas: `placements
+  BannerPlacement[]` es un **array escalar** (mismo patrón que `Post.tags`), no filas separadas por
+  ubicación — un banner con el mismo contenido en HOME y MIS_ANUNCIOS es una sola entidad. **Sin FK a
+  Campaign/Coupon** (decisión tomada en el mini-diseño): `linkUrl` de texto libre basta, evita una FK
+  opcional que solo ahorraría teclear una ruta. **Ningún campo es inmutable tras crear** — a
+  diferencia de `Coupon.code`, un banner no se distribuye fuera de la app, así que editar
+  título/texto/`placements` no rompe nada externo.
+- **Sin restricción de solapamiento** (a diferencia de `Campaign.assertNoOverlap`): varios banners
+  activos conviven en la misma ubicación sin ambigüedad — son avisos, no dinero.
+  `getActiveBanners(placement)` devuelve el array completo (`active AND now∈[startsAt,endsAt] AND
+  placement ∈ placements`, `ORDER BY createdAt DESC`), no uno solo.
+- **Primera lectura pública en este dominio de "promo management":** `GET /banners?placement=...`
+  sin guard (la home es pública) — ni `Campaign` ni `Coupon` habían necesitado nunca un endpoint de
+  lectura sin autenticación.
+- **Admin CRUD** (`AdminBannersController`, `/admin/banners`, ADMIN-only — como campañas/cupones):
+  `POST` valida `endsAt > startsAt` y `placements` no vacío; `PATCH` permite editar TODO, incluidos
+  `placements` y `linkUrl` (ver justificación arriba); `GET` lista paginada con `status` derivado.
+  `AuditLog` con `BANNER_CREATE`/`BANNER_EDIT`/`BANNER_ACTIVATE`/`BANNER_DEACTIVATE` (acción derivada
+  del cambio real de `active`, mismo mecanismo que `CampaignsService`/`CouponsService`).
+- **Frontend — home y mis-anuncios:** `getActiveBanners('HOME')`/`getActiveBanners('MIS_ANUNCIOS')`
+  añadidos al `Promise.all` ya existente de cada Server Component (cero cambio de arquitectura).
+  `BannerList` (Client Component) recibe los banners ya resueltos por SSR — el contenido está en el
+  HTML inicial para SEO/crawlers independientemente de lo que haga el JS de cliente después.
+- **Descarte permanente por id en `localStorage`** (aprobado en el mini-diseño, con el matiz
+  explícito del usuario de que esto SÍ es la app real, no un artifact): el primer render del cliente
+  coincide con el SSR (ningún id descartado todavía) para no romper la hidratación; el filtro real
+  contra `localStorage` corre en un `useEffect` tras montar. Esto acepta un flash breve para banners
+  YA descartados en visitas anteriores — el propio mini-diseño autorizó este trade-off ("si complica
+  demasiado, aceptar el flash") en vez de un script de bloqueo síncrono pre-hidratación (patrón
+  `next-themes`), que habría añadido complejidad real para un elemento de UI de bajísimo riesgo.
+- **Compartir:** `navigator.share` si existe, con fallback a `navigator.clipboard.writeText`. Enlaces
+  internos (`linkUrl` relativo) se resuelven a absolutos con `new URL(linkUrl, location.origin)` antes
+  de compartir — nunca se comparte una ruta rota fuera del origen. Gate explícito por `shareable`
+  (no "compartir siempre"): un banner `WARNING` de mantenimiento no tiene sentido compartirlo.
+- **Tests:** backend `h8-d4-banners.e2e-spec.ts` (20 casos — auth ADMIN-only incl. 403 `MODERATOR` en
+  `GET`/`POST` admin y 200 público sin auth, validación de `placements` vacío/inválido, `endsAt`,
+  activar/desactivar con `AuditLog`, edición completa sin inmutabilidad, listado con `status`
+  derivado y filtros, y la lógica de `getActiveBanners`: solo activos+vigentes+con el placement
+  pedido, varios banners conviviendo en el mismo placement, un banner con ambos placements
+  apareciendo en los dos). Sin regresión junto a campañas/cupones (91/91 verdes juntos). Playwright
+  `h8-d4-banners.spec.ts` (5 casos — admin crea banner y lo ve en el listado, desactivar lo quita de
+  la web, aislamiento por placement con un banner en ambas ubicaciones, descarte persistente tras
+  recargar, enlace + compartir con fallback a portapapeles forzado de forma determinista
+  sobrescribiendo `navigator.share` vía `addInitScript` — sin depender de si el Chromium de CI expone
+  la Web Share API real).
+- **Añadir "Banners" a `AdminNav` (10º ítem)** rompía de nuevo `admin-roles.spec.ts`
+  (`toHaveCount(9)` cableado desde el cierre de fase 3b) — corregido a 10 antes de que llegara a
+  fallar en CI, mismo patrón de verificación preventiva ya aplicado en fase 3b. El conteo de 4 ítems
+  del `MODERATOR` no cambia (`Banners` es `ADMIN`-only).
+- **Cierre:** 472/472 tests backend (31 suites) en BD limpia. Suite completa de Playwright: 3
+  ejecuciones consecutivas sin retries, cada una sobre BD + índice de Meilisearch reseteados desde
+  cero (para replicar fielmente un job de CI aislado, no una maratón acumulada) — 122/122 las 3
+  veces, incluida la instancia conocida y ya documentada del toggle de mapa. **Con esta fase se
+  cierra la fase 4, el Bloque D completo (campañas, descuentos, cupones, banners) y el Hito 8
+  ampliado entero.**
+- **Nota de proceso — un "fallo" de 4 tests en una pasada intermedia no era un fallo real.** Al
+  encadenar una segunda pasada completa de Playwright inmediatamente después de la primera, sin
+  resetear BD/Meilisearch entre medias, fallaron 4 tests de indexación (`categoria-meili.spec.ts`,
+  `listing-card-attrs.spec.ts`) por timeout esperando una card vía Meilisearch, y esa segunda pasada
+  tardó 7.1 min frente a los 2.7 min de la primera — consistente con acumulación de trabajo en la cola
+  BullMQ de reindexado a través de las pasadas (cada pasada publica más anuncios sobre el mismo índice
+  sin limpiar), no con un bug de producto ni de banners. Un job real de CI siempre arranca con un
+  contenedor de Meilisearch/Postgres recién creado — nunca acumula así entre "pasadas" —, así que
+  repetir localmente sin resetear entre cada una no reproduce fielmente ese entorno. Confirmado
+  reseteando BD + índice antes de cada repetición: 122/122 limpio las 3 veces.
+
 ### Renombrar la key de un atributo no migra `Listing.attributes` (aviso, no migración)
 
 `Listing.attributes` no tiene FK con `Category.attributeSchema`; renombrar la `name`

@@ -27,6 +27,7 @@ import { BillingModule } from './modules/billing/billing.module';
 import { RedsysModule } from './modules/redsys/redsys.module';
 import { CampaignsModule } from './modules/campaigns/campaigns.module';
 import { CouponsModule } from './modules/coupons/coupons.module';
+import { BannersModule } from './modules/banners/banners.module';
 
 @Module({
   imports: [
@@ -75,6 +76,7 @@ import { CouponsModule } from './modules/coupons/coupons.module';
     RedsysModule,
     CampaignsModule,
     CouponsModule,
+    BannersModule,
   ],
 })
 export class AppModule {}

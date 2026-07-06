@@ -2,7 +2,7 @@
 //
 // Tests:
 //   ADMIN
-//     1. /admin carga (dashboard) → el nav muestra los 9 ítems (+Cupones, H8 Bloque D fase 3b)
+//     1. /admin carga (dashboard) → el nav muestra los 10 ítems (+Banners, H8 Bloque D fase 4)
 //   MODERATOR — rutas aún bloqueadas (ADMIN-only)
 //     2. /admin → redirige a /
 //     3. /admin/ajustes → redirige a /
@@ -24,7 +24,7 @@
 import { test, expect } from './fixtures/auth';
 
 test.describe('Backoffice — ADMIN acceso total', () => {
-  test('ADMIN carga /admin y el nav muestra los 9 ítems', async ({ adminContext }) => {
+  test('ADMIN carga /admin y el nav muestra los 10 ítems', async ({ adminContext }) => {
     const page = await adminContext.newPage();
 
     await page.goto('/admin');
@@ -34,11 +34,11 @@ test.describe('Backoffice — ADMIN acceso total', () => {
     expect(page.url()).toContain('/admin');
     expect(page.url()).not.toContain('/login');
 
-    // AdminNav should show all 9 items (H8 Bloque D fase 3b added "Cupones")
+    // AdminNav should show all 10 items (H8 Bloque D fase 4 added "Banners")
     const nav = page.getByTestId('admin-nav');
     await expect(nav).toBeVisible();
     const links = nav.getByRole('link');
-    await expect(links).toHaveCount(9);
+    await expect(links).toHaveCount(10);
 
     // Spot-check some labels
     await expect(nav.getByRole('link', { name: 'Dashboard' })).toBeVisible();
@@ -46,6 +46,7 @@ test.describe('Backoffice — ADMIN acceso total', () => {
     await expect(nav.getByRole('link', { name: 'Ajustes' })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'Facturación' })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'Cupones' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Banners' })).toBeVisible();
   });
 });
 

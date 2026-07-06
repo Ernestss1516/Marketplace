@@ -5,7 +5,9 @@ import { Button } from '@/components/ui/button';
 import { auth } from '@/lib/auth';
 import { getMyListings } from '@/lib/api/anuncios';
 import { getProStatus, getCatalog, type ProStatus, type CatalogResponse } from '@/lib/api/billing';
+import { getActiveBanners } from '@/lib/api/banners';
 import { MisAnunciosClient } from '@/components/anuncios/MisAnunciosClient';
+import { BannerList } from '@/components/banners/BannerList';
 
 export const metadata = { title: 'Mis anuncios' };
 
@@ -15,7 +17,7 @@ export default async function MisAnunciosPage() {
 
   const token = session.user.accessToken;
 
-  const [{ items }, proStatus, catalog] = await Promise.all([
+  const [{ items }, proStatus, catalog, banners] = await Promise.all([
     getMyListings(token),
     getProStatus(token).catch(
       (): ProStatus => ({ isPro: false, limit: 0, used: 0, remaining: 0 }),
@@ -26,6 +28,7 @@ export default async function MisAnunciosPage() {
     getCatalog().catch(
       (): CatalogResponse => ({ products: [], bumpCreditCost: 5 }),
     ),
+    getActiveBanners('MIS_ANUNCIOS').catch(() => []),
   ]);
 
   const bumpPricing = {
@@ -36,6 +39,12 @@ export default async function MisAnunciosPage() {
 
   return (
     <div>
+      {banners.length > 0 && (
+        <div className="mb-6">
+          <BannerList banners={banners} />
+        </div>
+      )}
+
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-bold">Mis anuncios</h1>
         <div className="flex gap-2">

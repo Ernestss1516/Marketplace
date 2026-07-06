@@ -963,6 +963,60 @@ model CouponRedemption {
 }
 
 // ============================================================================
+//  BANNERS DE DIFUSIÓN (H8 Bloque D fase 4)
+// ============================================================================
+
+/// Ubicación donde puede aparecer un Banner. Array escalar en Banner.placements
+/// (un banner puede vivir en varias a la vez) — mismo patrón que Post.tags.
+enum BannerPlacement {
+  HOME
+  MIS_ANUNCIOS
+}
+
+/// Estilo visual del banner (puramente presentacional, sin efecto en la lógica).
+enum BannerVariant {
+  INFO
+  PROMO
+  WARNING
+}
+
+/// Banner de difusión configurable desde admin — hace visibles campañas/cupones
+/// que de otro modo son invisibles para el usuario. Manual, NO derivado
+/// automáticamente de Campaign/Coupon (`linkUrl` de texto libre es suficiente;
+/// ver mini-diseño para la justificación de por qué no hay FK a esas entidades).
+///
+/// A diferencia de Coupon.code, NINGÚN campo es inmutable tras crear: un banner
+/// no se distribuye fuera de la app, así que editar título/texto/placements no
+/// rompe nada externo.
+model Banner {
+  id         String            @id @default(cuid())
+  title      String
+  text       String            @db.Text
+
+  linkUrl    String?
+  linkText   String?
+
+  /// Ubicaciones donde se muestra. No puede quedar vacío (validado en el DTO).
+  placements BannerPlacement[]
+
+  variant    BannerVariant     @default(INFO)
+
+  /// Si true, se ofrece el botón "Compartir" (navigator.share o portapapeles).
+  shareable  Boolean           @default(false)
+  /// Texto a compartir si difiere de `text`. Si es null, se comparte `text`.
+  shareText  String?
+
+  active     Boolean           @default(true)
+  startsAt   DateTime
+  endsAt     DateTime
+
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  @@index([active, startsAt, endsAt])
+}
+
+// ============================================================================
 //  BLOG
 // ============================================================================
 
