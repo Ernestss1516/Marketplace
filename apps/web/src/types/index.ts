@@ -115,6 +115,13 @@ export interface ListingSummary {
   favoritesCount?: number;
 }
 
+/** H8 Bloque D fase 2 — coste de bump ya con descuento de campaña aplicado, si lo hay. */
+export interface BumpPricing {
+  bumpCreditCost: number;
+  bumpOriginalCreditCost?: number;
+  bumpDiscountPercent?: number;
+}
+
 export interface ListingImage {
   url: string;
   alt?: string;

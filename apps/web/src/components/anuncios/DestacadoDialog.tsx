@@ -277,7 +277,17 @@ export function DestacadoDialog({ listing, token, open, onOpenChange, onSuccess 
                             <span className="flex items-center gap-3 text-sm text-muted-foreground">
                               <span className="flex items-center gap-1">
                                 <Coins className="h-3.5 w-3.5" />
+                                {pr.originalCreditCost != null && (
+                                  <span className="line-through opacity-60">
+                                    {pr.originalCreditCost}
+                                  </span>
+                                )}
                                 {pr.creditCost ?? '—'} cr.
+                                {pr.discountPercent != null && (
+                                  <span className="font-medium text-amber-600">
+                                    -{pr.discountPercent}%
+                                  </span>
+                                )}
                               </span>
                               <span className="text-xs">o</span>
                               <span className="flex items-center gap-1">

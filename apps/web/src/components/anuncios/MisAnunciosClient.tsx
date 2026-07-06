@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { MyListingCard } from './MyListingCard';
 import { getMyListings } from '@/lib/api/anuncios';
 import { getProStatus, type ProStatus } from '@/lib/api/billing';
-import type { ListingSummary } from '@/types';
+import type { BumpPricing, ListingSummary } from '@/types';
 
 const FILTERS: { label: string; value: string | null }[] = [
   { label: 'Todos', value: null },
@@ -23,9 +23,10 @@ interface Props {
   initialListings: ListingSummary[];
   initialProStatus: ProStatus;
   token: string;
+  bumpPricing: BumpPricing;
 }
 
-export function MisAnunciosClient({ initialListings, initialProStatus, token }: Props) {
+export function MisAnunciosClient({ initialListings, initialProStatus, token, bumpPricing }: Props) {
   const [listings, setListings] = useState<ListingSummary[]>(initialListings);
   const [proStatus, setProStatus] = useState<ProStatus>(initialProStatus);
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
@@ -112,6 +113,7 @@ export function MisAnunciosClient({ initialListings, initialProStatus, token }: 
               listing={listing}
               token={token}
               onAction={handleAction}
+              bumpPricing={bumpPricing}
             />
           ))}
         </div>

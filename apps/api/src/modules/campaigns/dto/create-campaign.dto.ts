@@ -1,16 +1,14 @@
-import { Type } from 'class-transformer';
 import {
   IsBoolean,
   IsEnum,
   IsISO8601,
   IsNotEmpty,
+  IsObject,
   IsOptional,
   IsString,
   MaxLength,
-  ValidateNested,
 } from 'class-validator';
 import { CampaignType } from '@prisma/client';
-import { CampaignParamsDto } from './campaign-params.dto';
 
 export class CreateCampaignDto {
   @IsString()
@@ -31,7 +29,12 @@ export class CreateCampaignDto {
   @IsISO8601()
   endsAt!: string;
 
-  @ValidateNested()
-  @Type(() => CampaignParamsDto)
-  params!: CampaignParamsDto;
+  /**
+   * Shape validado en CampaignsService.validateParams según `type` (switch),
+   * no aquí — class-validator no soporta bien "elige la clase anidada según
+   * un campo hermano" sin decoradores ad-hoc. Ver CampaignParamsDto
+   * (CREDIT_BONUS) y ActionDiscountParamsDto (ACTION_DISCOUNT).
+   */
+  @IsObject()
+  params!: Record<string, unknown>;
 }

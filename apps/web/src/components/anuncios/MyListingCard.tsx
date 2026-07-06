@@ -29,7 +29,7 @@ import { bumpListing } from '@/lib/api/billing';
 import { toUserMessage, isCreditError, isCooldownError, formatRetryAfter, toBumpMessage } from '@/lib/api/client';
 import { useApiAction } from '@/lib/api/use-api-action';
 import { DestacadoDialog } from './DestacadoDialog';
-import type { ListingSummary, PriceType } from '@/types';
+import type { BumpPricing, ListingSummary, PriceType } from '@/types';
 
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: 'Borrador',
@@ -64,9 +64,10 @@ interface Props {
   listing: ListingSummary;
   token: string;
   onAction: () => void;
+  bumpPricing: BumpPricing;
 }
 
-export function MyListingCard({ listing, token, onAction }: Props) {
+export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) {
   const { run } = useApiAction();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -331,7 +332,22 @@ export function MyListingCard({ listing, token, onAction }: Props) {
               ) : (
                 <TrendingUp className="mr-1.5 h-3.5 w-3.5" />
               )}
-              {bumpOnCooldown ? 'Bump (espera)' : 'Bump'}
+              {bumpOnCooldown ? (
+                'Bump (espera)'
+              ) : bumpPricing.bumpDiscountPercent != null ? (
+                <>
+                  Bump{' '}
+                  <span className="ml-1 line-through opacity-60">
+                    {bumpPricing.bumpOriginalCreditCost} cr.
+                  </span>{' '}
+                  <span className="ml-1">{bumpPricing.bumpCreditCost} cr.</span>
+                  <span className="ml-1 font-medium text-amber-600">
+                    -{bumpPricing.bumpDiscountPercent}%
+                  </span>
+                </>
+              ) : (
+                'Bump'
+              )}
             </Button>
           )}
 

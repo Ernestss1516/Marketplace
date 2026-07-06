@@ -4,7 +4,7 @@ import { PlusCircle, BarChart3 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { auth } from '@/lib/auth';
 import { getMyListings } from '@/lib/api/anuncios';
-import { getProStatus, type ProStatus } from '@/lib/api/billing';
+import { getProStatus, getCatalog, type ProStatus, type CatalogResponse } from '@/lib/api/billing';
 import { MisAnunciosClient } from '@/components/anuncios/MisAnunciosClient';
 
 export const metadata = { title: 'Mis anuncios' };
@@ -15,12 +15,24 @@ export default async function MisAnunciosPage() {
 
   const token = session.user.accessToken;
 
-  const [{ items }, proStatus] = await Promise.all([
+  const [{ items }, proStatus, catalog] = await Promise.all([
     getMyListings(token),
     getProStatus(token).catch(
       (): ProStatus => ({ isPro: false, limit: 0, used: 0, remaining: 0 }),
     ),
+    // H8 Bloque D fase 2 — catálogo público, solo para leer el coste de bump
+    // (con descuento de campaña ya aplicado si lo hay). Fallback silencioso:
+    // sin campaña visible es exactamente el comportamiento de hoy.
+    getCatalog().catch(
+      (): CatalogResponse => ({ products: [], bumpCreditCost: 5 }),
+    ),
   ]);
+
+  const bumpPricing = {
+    bumpCreditCost: catalog.bumpCreditCost,
+    bumpOriginalCreditCost: catalog.bumpOriginalCreditCost,
+    bumpDiscountPercent: catalog.bumpDiscountPercent,
+  };
 
   return (
     <div>
@@ -42,7 +54,12 @@ export default async function MisAnunciosPage() {
         </div>
       </div>
 
-      <MisAnunciosClient initialListings={items} initialProStatus={proStatus} token={token} />
+      <MisAnunciosClient
+        initialListings={items}
+        initialProStatus={proStatus}
+        token={token}
+        bumpPricing={bumpPricing}
+      />
     </div>
   );
 }

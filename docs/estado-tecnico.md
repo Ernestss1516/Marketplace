@@ -1961,6 +1961,81 @@ anteriores (orden adverso de archivos, índice de Meilisearch no vacío, `--repe
 archivos tocados). Los tres arreglos son deterministas — no dependen de la velocidad del runner ni de
 "esperar más" — así que deberían sostenerse igual de bien en el CI real que en local.
 
+**H8 Bloque D fase 2 (descuentos porcentuales en bump/destacar vía campañas) — hecho.** Construye
+sobre el motor de campañas de fase 1 (mini-diseño aprobado); una sola ráfaga.
+
+- **Schema:** `CampaignType` +`ACTION_DISCOUNT` (sin migración de datos). `params` para
+  `ACTION_DISCOUNT`: `{ action: 'BUMP'|'FEATURED', percent: number }`, `percent` topado a 90 en el
+  DTO (`@Max(90)`) — lo gratis del todo es solo vía cuota Pro, nunca vía descuento de campaña.
+- **Validación de `params` — cambio de mecanismo respecto a fase 1.** Fase 1 validaba `params` con
+  `@ValidateNested() @Type(() => CampaignParamsDto)` directamente en `CreateCampaignDto`, asumiendo
+  un único shape posible. Con dos shapes posibles (`CampaignParamsDto` para `CREDIT_BONUS`,
+  `ActionDiscountParamsDto` nuevo para `ACTION_DISCOUNT`) eso deja de funcionar: class-validator no
+  soporta declarativamente "elige la clase anidada según un campo hermano" (el discriminador nativo
+  de class-transformer exige la clave discriminadora *dentro* del objeto anidado, no en el padre).
+  Se sustituyó por un switch manual en `CampaignsService.validateParams(type, params)`: `params` pasa
+  a validarse como `Record<string, unknown>` a nivel de DTO (`@IsObject()` solamente) y el service
+  elige la clase DTO correcta (`plainToInstance` + `validate()` de class-validator, invocados a mano)
+  según `type`. Reutiliza los mismos DTOs de siempre — ninguna regla de validación se duplica, solo
+  cambia dónde se dispara. Cubierto con una prueba de regresión explícita (`CREDIT_BONUS` con params
+  inválidos sigue devolviendo 400 igual que en fase 1).
+- **`CampaignsService.getActiveActionDiscount(action)`:** mismo criterio que `getActiveCreditBonusCampaign`
+  de fase 1 — derivado, sin caché, sin query JSON en Postgres (sin precedente en el proyecto: se
+  hace `findMany` acotado por el índice `[type, active, startsAt, endsAt]` y se filtra `params.action`
+  en JS; a lo sumo dos filas pueden coincidir en el `findMany` — una por acción, BUMP y FEATURED
+  conviven — volumen bajo, filtrar en JS es proporcionado).
+- **Aplicación — solo la rama de créditos, calculado en vivo, floor:** `BillingService.featuredByCredits`
+  (rama `useQuota:false`) y `.bump` consultan `getActiveActionDiscount` antes de leer el coste base de
+  `Setting`, y aplican `Math.floor(base * (100-percent) / 100)` — floor, no ceil, redondeo a favor del
+  usuario en una promoción. Sin checkout que congelar (a diferencia del bonus de créditos de fase 1):
+  destacar-con-créditos y bump ya eran débitos atómicos instantáneos, así que "en vivo" es
+  simplemente parte de la misma llamada. **La rama de cuota Pro (`useQuota:true`) no se toca en
+  absoluto** — devuelve antes de llegar al cálculo de coste; verificado con una prueba dedicada (Pro
+  destacando gratis durante una campaña `FEATURED` activa sigue gratis, sin `CreditLedger`, sin
+  wallet creado).
+- **Redsys directo, verificado sin cambios (principio fiscal):** `createFeaturedPayCheckout` /
+  `RedsysProcessor.handleFeaturedPay` siguen usando `Price.amount` en EUR + `redsysTaxBreakdown`, un
+  camino completamente separado de `getCreditCostForFeatured`/`getActiveActionDiscount` — nunca se
+  descontó nada ahí, y una prueba dedicada lo confirma explícitamente (`Transaction.amountGross`
+  idéntico al precio del `Price`, con y sin campaña activa). Descontar el pago con tarjeta habría
+  alterado la base imponible del IVA — por eso el diseño lo prohibía desde el principio.
+- **Trazabilidad — `note` en el `CreditLedger`:** a diferencia de fase 1 (donde el bonus es una
+  entrada de `CreditLedger` *adicional*), aquí el descuento reduce el importe de la misma entrada de
+  débito (`FEATURED_DEBIT`/`BUMP_DEBIT`) — no hay entrada nueva que crear. Para que soporte pueda ver
+  "por qué este bump costó menos de lo normal", se rellena `note` (campo ya existente, nullable, sin
+  migración) con `Campaña "${nombre}" (-${percent}%)` cuando hay descuento activo; `null` si no —
+  igual que hoy.
+- **Solapamiento refinado por acción:** `assertNoOverlap` de fase 1 pasaba solo `type`; ahora acepta
+  también una `action` opcional. Para `ACTION_DISCOUNT` el conflicto exige `type` **y** la misma
+  `params.action` — dos descuentos de `FEATURED` solapados bloquean (400 `CAMPAIGN_OVERLAP`), uno de
+  `FEATURED` y otro de `BUMP` solapados conviven (201), y un `CREDIT_BONUS` solapado con un
+  `ACTION_DISCOUNT` conviven (types distintos, como ya era). `update()` gana un tercer disparador de
+  re-validación (además de activar y mover fechas): cambiar la `action` de una campaña `ACTION_DISCOUNT`
+  ya activa — verificado con una prueba que cambia `BUMP`→`FEATURED` en una campaña que pasa a
+  solapar con otra `FEATURED` activa y confirma el 400.
+- **Catálogo (`GET /billing/catalog`):** `creditCost`/`bumpCreditCost` siguen siendo el coste
+  *efectivo* (ya con descuento si lo hay, igual que antes de esta fase); se añaden
+  `originalCreditCost`/`discountPercent` (destacar) y `bumpOriginalCreditCost`/`bumpDiscountPercent`
+  (bump) — campos opcionales, **solo presentes cuando hay una campaña activa**, sin romper el shape
+  para clientes que no los conozcan.
+- **Frontend — mínimo, tal como pedía el alcance de la fase:** `DestacadoDialog` muestra el coste
+  tachado + efectivo + badge `-N%` por duración cuando `originalCreditCost` está presente (el precio
+  en EUR de la opción de tarjeta nunca se toca — coherente con que Redsys no se descuenta). El botón
+  "Bump" de `MyListingCard` gana el mismo patrón tachado+efectivo+badge cuando hay descuento; sin
+  campaña, el botón es idéntico al de siempre (sin coste alguno visible, como ya era). El coste de
+  bump se resuelve server-side una vez en `mis-anuncios/page.tsx` (mismo patrón ya usado para
+  `proStatus`) y se pasa por props a través de `MisAnunciosClient` — no una llamada a `/billing/catalog`
+  por card. Tipo compartido `BumpPricing` en `src/types` (no en un componente, para evitar que
+  `MyListingCard` y `MisAnunciosClient` se importen tipos entre sí).
+- **Tests:** `h8-d2-action-discount.e2e-spec.ts` (backend, 16 casos — descuento en destacar con
+  créditos con nota de campaña, sin campaña con nota null, Pro-con-cuota-sigue-gratis, Redsys-sin-
+  descontar, descuento en bump, floor exacto (10 créditos, -33% → 6, no 7), solapamiento por acción en
+  sus tres combinaciones, tope de `percent`, regresión de validación de `CREDIT_BONUS`, catálogo con y
+  sin descuento). Sin regresiones en `h8-d1-campaigns`, `billing-rf6`, `h8-featured-quota` ni
+  `billing-catalog` (61/61 verdes). Batería completa verde y REPETIDA sobre entorno limpio (BD +
+  Meilisearch reseteados entre corridas, sin retries): 3 ejecuciones consecutivas del pipeline
+  completo — 28/28 suites backend (422/422 tests) y 111/111 Playwright cada vez.
+
 ### Renombrar la key de un atributo no migra `Listing.attributes` (aviso, no migración)
 
 `Listing.attributes` no tiene FK con `Category.attributeSchema`; renombrar la `name`

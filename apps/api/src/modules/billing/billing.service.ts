@@ -22,6 +22,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { QUEUE_INDEXING } from '../../infra/queue/queue.constants';
+import { CampaignsService } from '../campaigns/campaigns.service';
 import { EntitlementService } from './entitlement.service';
 import { CheckoutDto } from './dto/checkout.dto';
 import { FeaturedByCreditsDto } from './dto/featured-by-credits.dto';
@@ -53,6 +54,7 @@ export class BillingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly entitlements: EntitlementService,
+    private readonly campaigns: CampaignsService,
     private readonly config: ConfigService,
     @InjectQueue(QUEUE_INDEXING) private readonly indexingQueue: Queue,
   ) {
@@ -379,7 +381,16 @@ export class BillingService {
     if (!price.durationDays) throw new BadRequestException('Not a featured listing price');
     if (price.creditPackId) throw new BadRequestException('Not a featured listing price');
 
-    const cost = await this.getCreditCostForFeatured(price.durationDays);
+    const baseCost = await this.getCreditCostForFeatured(price.durationDays);
+    // H8 Bloque D fase 2 — descuento de campaña, calculado EN VIVO (no hay
+    // checkout que congelar: destacar con créditos es un débito atómico
+    // instantáneo, igual que bump). Solo esta rama (créditos); la rama de
+    // cuota Pro de arriba ya ha devuelto antes de llegar aquí — el descuento
+    // nunca la toca. floor (no ceil): redondeo a favor del usuario en promoción.
+    const discount = await this.campaigns.getActiveActionDiscount('FEATURED');
+    const cost = discount
+      ? Math.floor(baseCost * (100 - (discount.params as { percent: number }).percent) / 100)
+      : baseCost;
     const priceId = dto.priceId;
     const durationDays = price.durationDays;
     const expiresAt = new Date(now);
@@ -397,7 +408,7 @@ export class BillingService {
         throw new HttpException('Insufficient credits', HttpStatus.PAYMENT_REQUIRED);
       }
 
-      // Ledger entry
+      // Ledger entry — amount is the cost ALREADY discounted (the real debit).
       const wallet = await tx.wallet.findUniqueOrThrow({
         where: { userId },
         select: { id: true },
@@ -409,6 +420,7 @@ export class BillingService {
           amount: -cost,
           referenceType: 'Listing',
           referenceId: listingId,
+          ...(discount && { note: `Campaña "${discount.name}" (-${(discount.params as { percent: number }).percent}%)` }),
         },
       });
 
@@ -472,7 +484,14 @@ export class BillingService {
     const bumpCostSetting = await this.prisma.setting.findUnique({
       where: { key: 'bumpCreditCost' },
     });
-    const cost = bumpCostSetting ? Number(bumpCostSetting.value) : 5;
+    const baseCost = bumpCostSetting ? Number(bumpCostSetting.value) : 5;
+
+    // H8 Bloque D fase 2 — mismo criterio que featuredByCredits: calculado en
+    // vivo, floor a favor del usuario.
+    const discount = await this.campaigns.getActiveActionDiscount('BUMP');
+    const cost = discount
+      ? Math.floor(baseCost * (100 - (discount.params as { percent: number }).percent) / 100)
+      : baseCost;
 
     const bumpedAt = new Date();
 
@@ -486,7 +505,7 @@ export class BillingService {
         throw new HttpException('Insufficient credits', HttpStatus.PAYMENT_REQUIRED);
       }
 
-      // Ledger entry
+      // Ledger entry — amount is the cost ALREADY discounted (the real debit).
       const wallet = await tx.wallet.findUniqueOrThrow({
         where: { userId },
         select: { id: true },
@@ -498,6 +517,7 @@ export class BillingService {
           amount: -cost,
           referenceType: 'Listing',
           referenceId: listingId,
+          ...(discount && { note: `Campaña "${discount.name}" (-${(discount.params as { percent: number }).percent}%)` }),
         },
       });
 
@@ -588,7 +608,25 @@ export class BillingService {
       14: settingMap['featuredCreditCost14d'] ?? 50,
       30: settingMap['featuredCreditCost30d'] ?? 100,
     };
-    const bumpCreditCost = settingMap['bumpCreditCost'] ?? 5;
+    const baseBumpCreditCost = settingMap['bumpCreditCost'] ?? 5;
+
+    // H8 Bloque D fase 2 — descuentos de campaña activos ahora mismo (a lo sumo
+    // uno por acción). El catálogo es público y sin caché por request, así que
+    // "en vivo" aquí es simplemente "leído en este momento", igual que el resto
+    // del catálogo (Settings también se leen en vivo, sin congelar nada).
+    const [featuredDiscount, bumpDiscount] = await Promise.all([
+      this.campaigns.getActiveActionDiscount('FEATURED'),
+      this.campaigns.getActiveActionDiscount('BUMP'),
+    ]);
+    const featuredDiscountPercent = featuredDiscount
+      ? (featuredDiscount.params as { percent: number }).percent
+      : null;
+    const bumpDiscountPercent = bumpDiscount
+      ? (bumpDiscount.params as { percent: number }).percent
+      : null;
+    const bumpCreditCost = bumpDiscountPercent != null
+      ? Math.floor(baseBumpCreditCost * (100 - bumpDiscountPercent) / 100)
+      : baseBumpCreditCost;
 
     return {
       products: products.map((p) => ({
@@ -596,29 +634,45 @@ export class BillingService {
         name: p.name,
         description: p.description,
         type: p.type as string,
-        prices: p.prices.map((price) => ({
-          priceId: price.id,
-          amount: Number(price.amount),
-          currency: price.currency,
-          ...(price.interval != null
-            ? { interval: price.interval as string, intervalCount: price.intervalCount ?? 1 }
-            : {}),
-          ...(price.durationDays != null
-            ? {
-                durationDays: price.durationDays,
-                creditCost: featuredCreditCostByDays[price.durationDays] ?? 0,
-              }
-            : {}),
-          ...(price.creditPack != null
-            ? {
-                creditAmount: price.creditPack.creditAmount,
-                creditPackId: price.creditPack.id,
-                packName: price.creditPack.name,
-              }
-            : {}),
-        })),
+        prices: p.prices.map((price) => {
+          const baseFeaturedCost = price.durationDays != null
+            ? featuredCreditCostByDays[price.durationDays] ?? 0
+            : null;
+          const featuredCost = baseFeaturedCost != null && featuredDiscountPercent != null
+            ? Math.floor(baseFeaturedCost * (100 - featuredDiscountPercent) / 100)
+            : baseFeaturedCost;
+          return {
+            priceId: price.id,
+            amount: Number(price.amount),
+            currency: price.currency,
+            ...(price.interval != null
+              ? { interval: price.interval as string, intervalCount: price.intervalCount ?? 1 }
+              : {}),
+            ...(price.durationDays != null
+              ? {
+                  durationDays: price.durationDays,
+                  creditCost: featuredCost,
+                  ...(featuredDiscountPercent != null && {
+                    originalCreditCost: baseFeaturedCost,
+                    discountPercent: featuredDiscountPercent,
+                  }),
+                }
+              : {}),
+            ...(price.creditPack != null
+              ? {
+                  creditAmount: price.creditPack.creditAmount,
+                  creditPackId: price.creditPack.id,
+                  packName: price.creditPack.name,
+                }
+              : {}),
+          };
+        }),
       })),
       bumpCreditCost,
+      ...(bumpDiscountPercent != null && {
+        bumpOriginalCreditCost: baseBumpCreditCost,
+        bumpDiscountPercent,
+      }),
     };
   }
 

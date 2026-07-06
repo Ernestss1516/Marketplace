@@ -130,10 +130,10 @@ enum CreditLedgerType {
 
 /// Tipo de campaña promocional (H8 Bloque D). Extensible sin migración de datos:
 /// los parámetros concretos de cada tipo viven en Campaign.params (jsonb), no en
-/// columnas propias. Futuro: ACTION_DISCOUNT (descuento en bump/destacar, fase 2),
-/// COUPON (cupón canjeable, fase 3), BANNER (difusión, fase 4).
+/// columnas propias. Futuro: COUPON (cupón canjeable, fase 3), BANNER (difusión, fase 4).
 enum CampaignType {
-  CREDIT_BONUS  // Bonus de créditos al comprar un pack
+  CREDIT_BONUS     // Bonus de créditos al comprar un pack
+  ACTION_DISCOUNT  // Descuento % sobre el coste en créditos de bump/destacar (fase 2)
 }
 
 /// Motivo de una denuncia, para la cola de moderación.

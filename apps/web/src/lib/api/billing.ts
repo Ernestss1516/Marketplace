@@ -55,7 +55,11 @@ export interface CatalogPrice {
   interval?: 'MONTH' | 'YEAR';
   intervalCount?: number;
   durationDays?: number;
+  /** Coste efectivo — ya con el descuento de campaña aplicado, si lo hay. */
   creditCost?: number;
+  /** H8 Bloque D fase 2 — solo presente si hay un ACTION_DISCOUNT activo para destacar. */
+  originalCreditCost?: number;
+  discountPercent?: number;
   creditAmount?: number;
   creditPackId?: string;
   packName?: string;
@@ -96,7 +100,11 @@ export interface MyEntitlement {
 
 export interface CatalogResponse {
   products: CatalogProduct[];
+  /** Coste efectivo del bump — ya con el descuento de campaña aplicado, si lo hay. */
   bumpCreditCost: number;
+  /** H8 Bloque D fase 2 — solo presentes si hay un ACTION_DISCOUNT activo para bump. */
+  bumpOriginalCreditCost?: number;
+  bumpDiscountPercent?: number;
 }
 
 // ---------------------------------------------------------------------------

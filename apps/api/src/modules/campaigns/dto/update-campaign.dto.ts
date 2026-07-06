@@ -1,14 +1,12 @@
-import { Type } from 'class-transformer';
 import {
   IsBoolean,
   IsISO8601,
   IsNotEmpty,
+  IsObject,
   IsOptional,
   IsString,
   MaxLength,
-  ValidateNested,
 } from 'class-validator';
-import { CampaignParamsDto } from './campaign-params.dto';
 
 /** `type` no es editable: cambiar de type sería, en la práctica, otra campaña. */
 export class UpdateCampaignDto {
@@ -30,8 +28,8 @@ export class UpdateCampaignDto {
   @IsISO8601()
   endsAt?: string;
 
+  /** Shape validado en CampaignsService.validateParams según el `type` (inmutable) existente. */
   @IsOptional()
-  @ValidateNested()
-  @Type(() => CampaignParamsDto)
-  params?: CampaignParamsDto;
+  @IsObject()
+  params?: Record<string, unknown>;
 }

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { QUEUE_BILLING, QUEUE_INDEXING } from '../../infra/queue/queue.constants';
+import { CampaignsModule } from '../campaigns/campaigns.module';
 import { BillingController } from './billing.controller';
 import { BillingService } from './billing.service';
 import { BillingProcessor } from './billing.processor';
@@ -15,6 +16,8 @@ import { StripeWebhookGuard } from './guards/stripe-webhook.guard';
       // BillingService enqueues indexing jobs to update boostScore and sortDate.
       { name: QUEUE_INDEXING },
     ),
+    // CampaignsService.getActiveActionDiscount() — descuento en bump/destacar (H8 Bloque D fase 2).
+    CampaignsModule,
   ],
   controllers: [BillingController, WebhooksController],
   providers: [BillingService, EntitlementService, BillingProcessor, StripeWebhookGuard],
