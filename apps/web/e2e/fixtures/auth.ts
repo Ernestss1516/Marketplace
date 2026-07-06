@@ -13,6 +13,7 @@ export const test = base.extend<{
   proContext: BrowserContext;
   adminContext: BrowserContext;
   moderatorContext: BrowserContext;
+  editorContext: BrowserContext;
 }>({
   sellerContext: async ({ browser }, use) => {
     const ctx = await browser.newContext({
@@ -49,6 +50,14 @@ export const test = base.extend<{
   moderatorContext: async ({ browser }, use) => {
     const ctx = await browser.newContext({
       storageState: path.join(FIXTURES_DIR, 'moderator.storageState.json'),
+    });
+    await use(ctx);
+    await ctx.close();
+  },
+
+  editorContext: async ({ browser }, use) => {
+    const ctx = await browser.newContext({
+      storageState: path.join(FIXTURES_DIR, 'editor.storageState.json'),
     });
     await use(ctx);
     await ctx.close();

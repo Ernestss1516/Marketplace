@@ -14,15 +14,13 @@ const accountPrefixes = [
 
 const adminPrefixes = ['/admin'];
 
-// Paths within /admin/ that a MODERATOR may access.
-// ADMIN always has full access. Any other role is always blocked.
-// Add new paths here when a section is opened to moderators.
-const MODERATOR_ALLOWED_PATHS = [
-  '/admin/reportes',
-  '/admin/anuncios',
-  '/admin/usuarios',
-  '/admin/blog',
-];
+// Paths within /admin/ that each restricted role may access.
+// ADMIN always has full access. Any role not listed here is always blocked.
+// Add/extend entries here when a section is opened to a role.
+const ROLE_ALLOWED_PATHS: Record<string, string[]> = {
+  MODERATOR: ['/admin/reportes', '/admin/anuncios', '/admin/usuarios', '/admin/blog'],
+  EDITOR: ['/admin/blog'],
+};
 
 export default auth((req) => {
   const session = req.auth;
@@ -39,11 +37,9 @@ export default auth((req) => {
     const role = session?.user.role;
     if (role === 'ADMIN') {
       // Full access — continue
-    } else if (role === 'MODERATOR') {
-      const allowed = MODERATOR_ALLOWED_PATHS.some((p) => pathname.startsWith(p));
-      if (!allowed) return Response.redirect(new URL('/', req.url));
     } else {
-      return Response.redirect(new URL('/', req.url));
+      const allowed = ROLE_ALLOWED_PATHS[role ?? '']?.some((p) => pathname.startsWith(p));
+      if (!allowed) return Response.redirect(new URL('/', req.url));
     }
   }
 });

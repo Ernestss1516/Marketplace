@@ -8,6 +8,7 @@
 //   pro-e2e@example.com         (emailVerified: true) — has an active PRO_SUBSCRIPTION
 //   admin-e2e@example.com       (role: ADMIN)          — backoffice admin E2E tests
 //   moderator-e2e@example.com   (role: MODERATOR)      — backoffice moderator E2E tests
+//   editor-e2e@example.com      (role: EDITOR)         — backoffice editor E2E tests
 //
 // Password for all: Test1234! (bcrypt cost 4)
 
@@ -223,7 +224,20 @@ async function main() {
     update: { passwordHash, emailVerified: true, role: 'MODERATOR' },
   });
 
-  console.log('Playwright seed: admin-e2e + moderator-e2e OK');
+  await prisma.user.upsert({
+    where: { email: 'editor-e2e@example.com' },
+    create: {
+      email: 'editor-e2e@example.com',
+      passwordHash,
+      name: 'Editor E2E',
+      slug: 'editor-e2e',
+      emailVerified: true,
+      role: 'EDITOR',
+    },
+    update: { passwordHash, emailVerified: true, role: 'EDITOR' },
+  });
+
+  console.log('Playwright seed: admin-e2e + moderator-e2e + editor-e2e OK');
 
   // ── Test report for moderator E2E tests ───────────────────────────────────────
   // The report is always reset to PENDING so the moderator action test is repeatable.

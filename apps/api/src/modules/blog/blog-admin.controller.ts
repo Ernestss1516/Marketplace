@@ -31,19 +31,19 @@ export class BlogAdminController {
   constructor(private readonly blogService: BlogService) {}
 
   @Get()
-  @Roles(Role.MODERATOR, Role.ADMIN)
+  @Roles(Role.EDITOR, Role.MODERATOR, Role.ADMIN)
   findAll(@Query() dto: ListAdminPostsDto) {
     return this.blogService.adminFindAll(dto);
   }
 
   @Get(':id')
-  @Roles(Role.MODERATOR, Role.ADMIN)
+  @Roles(Role.EDITOR, Role.MODERATOR, Role.ADMIN)
   findById(@Param('id') id: string) {
     return this.blogService.adminFindById(id);
   }
 
   @Post()
-  @Roles(Role.MODERATOR, Role.ADMIN)
+  @Roles(Role.EDITOR, Role.MODERATOR, Role.ADMIN)
   create(
     @Body() dto: CreatePostDto,
     @CurrentUser() user: JwtUser,
@@ -54,7 +54,7 @@ export class BlogAdminController {
 
   @Patch(':id')
   @HttpCode(HttpStatus.OK)
-  @Roles(Role.MODERATOR, Role.ADMIN)
+  @Roles(Role.EDITOR, Role.MODERATOR, Role.ADMIN)
   update(
     @Param('id') id: string,
     @Body() dto: UpdatePostDto,
@@ -66,7 +66,7 @@ export class BlogAdminController {
 
   @Post(':id/publish')
   @HttpCode(HttpStatus.OK)
-  @Roles(Role.MODERATOR, Role.ADMIN)
+  @Roles(Role.EDITOR, Role.MODERATOR, Role.ADMIN)
   publish(
     @Param('id') id: string,
     @CurrentUser() user: JwtUser,
@@ -77,7 +77,7 @@ export class BlogAdminController {
 
   @Post(':id/unpublish')
   @HttpCode(HttpStatus.OK)
-  @Roles(Role.MODERATOR, Role.ADMIN)
+  @Roles(Role.EDITOR, Role.MODERATOR, Role.ADMIN)
   unpublish(
     @Param('id') id: string,
     @CurrentUser() user: JwtUser,

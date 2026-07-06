@@ -1,4 +1,4 @@
-// RR5.1 / RR5.1-ext — Playwright E2E: separación de roles ADMIN / MODERATOR.
+// RR5.1 / RR5.1-ext / BLOG-EDITOR — Playwright E2E: separación de roles ADMIN / MODERATOR / EDITOR.
 //
 // Tests:
 //   ADMIN
@@ -16,9 +16,17 @@
 //    10. MODERATOR no ve el botón "Banear" en /admin/usuarios
 //    11. MODERATOR no ve el botón "Eliminar" en /admin/blog
 //    12. MODERATOR desestima un reporte → funciona (sin 403)
+//   EDITOR — rol nuevo, acotado exclusivamente al blog (contenido reversible)
+//    13. /admin/blog → carga correctamente
+//    14. /admin/blog/nuevo → carga correctamente
+//    15. /admin → redirige a /
+//    16-22. /admin/{usuarios,facturacion,categorias,reportes,cupones,banners,ajustes,anuncios} → redirige a /
+//    23. AdminNav muestra exactamente 1 ítem (Blog)
+//    24. EDITOR no ve el botón "Eliminar" en /admin/blog (borrado físico ADMIN-only)
 //
 // Prerequisites:
-//   global-setup seeds admin-e2e@example.com (ADMIN) and moderator-e2e@example.com (MODERATOR).
+//   global-setup seeds admin-e2e@example.com (ADMIN), moderator-e2e@example.com (MODERATOR)
+//   y editor-e2e@example.com (EDITOR).
 //   seed-playwright.ts creates a PENDING SPAM report on listing-rf11-e2e each run.
 
 import { test, expect } from './fixtures/auth';
@@ -189,5 +197,93 @@ test.describe('Backoffice — MODERATOR acceso restringido', () => {
     } else {
       test.skip(true, 'No PENDING reports found — seed report already consumed');
     }
+  });
+});
+
+test.describe('Backoffice — EDITOR acotado exclusivamente al blog', () => {
+  // ── Rutas abiertas ───────────────────────────────────────────────────────────
+
+  test('EDITOR → /admin/blog carga correctamente', async ({ editorContext }) => {
+    const page = await editorContext.newPage();
+    await page.goto('/admin/blog');
+    await page.waitForLoadState('networkidle');
+
+    expect(page.url()).toContain('/admin/blog');
+    expect(page.url()).not.toContain('/login');
+  });
+
+  test('EDITOR → /admin/blog/nuevo carga correctamente', async ({ editorContext }) => {
+    const page = await editorContext.newPage();
+    await page.goto('/admin/blog/nuevo');
+    await page.waitForLoadState('networkidle');
+
+    expect(page.url()).toContain('/admin/blog/nuevo');
+    expect(page.url()).not.toContain('/login');
+  });
+
+  // ── Rutas bloqueadas — TODO lo que no es blog ─────────────────────────────────
+
+  test('EDITOR → /admin redirige a /', async ({ editorContext }) => {
+    const page = await editorContext.newPage();
+    await page.goto('/admin');
+    await page.waitForURL((url) => !url.pathname.startsWith('/admin'), { timeout: 8_000 });
+    expect(page.url()).not.toContain('/admin');
+  });
+
+  const BLOCKED_PATHS = [
+    '/admin/usuarios',
+    '/admin/facturacion',
+    '/admin/categorias',
+    '/admin/reportes',
+    '/admin/cupones',
+    '/admin/banners',
+    '/admin/ajustes',
+    '/admin/anuncios',
+  ];
+
+  for (const blockedPath of BLOCKED_PATHS) {
+    test(`EDITOR → ${blockedPath} redirige a /`, async ({ editorContext }) => {
+      const page = await editorContext.newPage();
+      await page.goto(blockedPath);
+      await page.waitForURL((url) => !url.pathname.startsWith('/admin'), { timeout: 8_000 });
+      expect(page.url()).not.toContain('/admin');
+    });
+  }
+
+  // ── AdminNav ───────────────────────────────────────────────────────────────
+
+  test('AdminNav muestra exactamente 1 ítem para EDITOR (Blog)', async ({ editorContext }) => {
+    const page = await editorContext.newPage();
+    await page.goto('/admin/blog');
+    await page.waitForLoadState('networkidle');
+
+    const nav = page.getByTestId('admin-nav');
+    await expect(nav).toBeVisible();
+
+    const links = nav.getByRole('link');
+    await expect(links).toHaveCount(1);
+    await expect(nav.getByRole('link', { name: 'Blog' })).toBeVisible();
+
+    // Ningún otro ítem debe renderizarse
+    await expect(nav.getByRole('link', { name: 'Dashboard' })).not.toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Anuncios' })).not.toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Usuarios' })).not.toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Reportes' })).not.toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Facturación' })).not.toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Categorías' })).not.toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Cupones' })).not.toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Banners' })).not.toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Ajustes' })).not.toBeVisible();
+  });
+
+  // ── Botón ADMIN-only no visible para EDITOR ───────────────────────────────────
+
+  test('EDITOR en /admin/blog — botón "Eliminar" no visible (borrado físico ADMIN-only)', async ({ editorContext }) => {
+    const page = await editorContext.newPage();
+    await page.goto('/admin/blog');
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1_000);
+
+    await expect(page.getByRole('button', { name: 'Eliminar' })).not.toBeVisible();
   });
 });

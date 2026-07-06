@@ -31,6 +31,7 @@ const ROLE_FILTERS: { label: string; value: string | undefined }[] = [
   { label: 'Todos', value: undefined },
   { label: 'Usuario', value: 'USER' },
   { label: 'Moderador', value: 'MODERATOR' },
+  { label: 'Editor', value: 'EDITOR' },
   { label: 'Admin', value: 'ADMIN' },
 ];
 
@@ -49,6 +50,7 @@ const STATUS_VARIANTS: Record<string, 'default' | 'secondary' | 'outline' | 'des
 const ROLE_LABELS: Record<string, string> = {
   USER: 'Usuario',
   MODERATOR: 'Moderador',
+  EDITOR: 'Editor',
   ADMIN: 'Admin',
 };
 

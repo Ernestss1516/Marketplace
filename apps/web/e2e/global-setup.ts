@@ -5,7 +5,8 @@
 //      In CI the runner already injects these vars; dotenv leaves them untouched.
 //   2. Apply pending Prisma migrations to the test DB (safe to re-run).
 //   3. Seed static categories (idempotent, via seed-test.ts).
-//   4. Seed Playwright users: seller-e2e and buyer-e2e (idempotent).
+//   4. Seed Playwright users: seller-e2e, buyer-e2e, admin-e2e, moderator-e2e,
+//      editor-e2e, etc. (idempotent).
 //   5. Log in as each user in a headless browser and save storageState so tests
 //      skip the login UI entirely.
 //
@@ -65,6 +66,7 @@ export default async function globalSetup(playwrightConfig: FullConfig) {
     { email: 'pro-e2e@example.com',       file: 'pro.storageState.json'       },
     { email: 'admin-e2e@example.com',     file: 'admin.storageState.json'     },
     { email: 'moderator-e2e@example.com', file: 'moderator.storageState.json' },
+    { email: 'editor-e2e@example.com',    file: 'editor.storageState.json'    },
   ];
 
   for (const user of users) {

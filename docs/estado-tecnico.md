@@ -63,7 +63,7 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **Favoritos** `/favoritos` | ✅ Completo | Ruta protegida. SSR paginado; `FavoritosClient` gestiona lista visible con eliminación/rollback optimista. Botón corazón en `ListingCard` (`FavoriteCardButton` leaf client) visible en **todas las vistas con grid**: home, búsqueda, categoría, vendedor, anuncios relacionados en ficha y la propia `/favoritos`. Resolución en lote: `POST /favorites/batch-check` → 1 request por grid. `FavoritesGridProvider` context en cada página SSR, sin romper SSR. En `/favoritos` la tarjeta desaparece al desmarcar y reaparece si el DELETE falla |
 | **Bandeja mensajes** `/mensajes` | ✅ Completo | `BandejaMensajesClient`: lista de conversaciones con thumbnail, contador de no leídos y tiempo relativo; actualización en vivo vía WebSocket |
 | **Chat** `/mensajes/[id]` | ✅ Completo | `ChatClient`: mensajes en orden cronológico, auto-scroll, carga de mensajes anteriores (cursor-based), envío vía POST REST, recepción en tiempo real vía WebSocket con deduplicación idempotente |
-| **Admin shell** | ✅ Completo | Layout Server Component + `<AdminNav>` (active state vía `usePathname`; ítems filtrados por `session.user.role` — MODERATOR ve solo "Reportes") + `<AdminUserBar>` (nombre del admin + `signOut`); middleware con `MODERATOR_ALLOWED_PATHS` — ADMIN acceso total, MODERATOR solo `/admin/reportes`, resto → redirect `/`; toda la carpeta `(admin)/` es client-side sin SSR |
+| **Admin shell** | ✅ Completo | Layout Server Component + `<AdminNav>` (active state vía `usePathname`; ítems filtrados por `session.user.role` — MODERATOR ve 4 ítems: Anuncios, Usuarios, Reportes, Blog; EDITOR ve solo Blog) + `<AdminUserBar>` (nombre del admin + `signOut`); middleware con `ROLE_ALLOWED_PATHS` (mapa rol→paths) — ADMIN acceso total, MODERATOR `/admin/{reportes,anuncios,usuarios,blog}`, EDITOR solo `/admin/blog`, resto → redirect `/`; toda la carpeta `(admin)/` es client-side sin SSR |
 | **Admin dashboard** `/admin` | ✅ Completo | Fetch a `GET /admin/stats`; KPIs en 3 secciones (anuncios, usuarios/moderación, índice de búsqueda); skeleton de carga y estado de error |
 | **Admin anuncios** `/admin/anuncios` | ✅ Completo | Tabla paginada con chips de filtro por estado; cambio de estado inline (select + razón + confirmar) vía `PATCH /admin/listings/:id/status`; reportes recibidos visibles en la fila |
 | **Admin usuarios** `/admin/usuarios` | ✅ Completo | Tabla con buscador (nombre/email), chips status y rol; acciones suspend/ban/reinstate contextuales al estado; panel de detalle expandible (últimos anuncios + reportes recibidos + auditlog); no muestra botones de acción para usuarios ADMIN |
@@ -761,46 +761,50 @@ que siguen heredando `@Roles(ADMIN)` de la clase). Además se creó el endpoint
 sin otorgar al MODERATOR la capacidad de desbanear usuarios baneados (que requiere
 `/reinstate`, ADMIN-only).
 
-**Frontend — middleware.ts:** `MODERATOR_ALLOWED_PATHS` controla qué rutas `/admin/*`
-puede visitar un MODERATOR. El ADMIN tiene acceso total. Cualquier otro rol es
-redirigido a `/`.
+**Frontend — middleware.ts:** `ROLE_ALLOWED_PATHS` (mapa `role → path[]`) controla
+qué rutas `/admin/*` puede visitar cada rol acotado. El ADMIN tiene acceso total.
+Cualquier rol no listado en el mapa es redirigido a `/`. (Generalizado desde la
+constante `MODERATOR_ALLOWED_PATHS` original al añadir el rol EDITOR — ver
+«Rol EDITOR — blog» más abajo.)
 
 ```typescript
-const MODERATOR_ALLOWED_PATHS = [
-  '/admin/reportes',
-  '/admin/anuncios',
-  '/admin/usuarios',
-  '/admin/blog',
-];
+const ROLE_ALLOWED_PATHS: Record<string, string[]> = {
+  MODERATOR: ['/admin/reportes', '/admin/anuncios', '/admin/usuarios', '/admin/blog'],
+  EDITOR: ['/admin/blog'],
+};
 ```
 
 **Frontend — AdminNav:** el array `NAV_ITEMS` tiene un campo `roles: string[]` por
-ítem. El MODERATOR ve 4 ítems (Anuncios, Usuarios, Reportes, Blog); el ADMIN ve los 8.
+ítem. El MODERATOR ve 4 ítems (Anuncios, Usuarios, Reportes, Blog); el ADMIN ve los 8;
+el EDITOR ve 1 (Blog).
 
 **Frontend — Botones ADMIN-only ocultos al MODERATOR:**
 - `/admin/usuarios`: "Banear" y "Desbanear" solo visibles con `role === 'ADMIN'`.
   El MODERATOR ve "Suspender" y "Reactivar" (suspend/unsuspend). Nunca ve "Banear".
-- `/admin/blog`: "Eliminar" solo visible con `role === 'ADMIN'`.
+- `/admin/blog`: "Eliminar" solo visible con `role === 'ADMIN'` (también oculto para EDITOR).
 
-**Tabla rol × acción (implementada tras RR5.1-ext):**
+**Tabla rol × acción (MODERATOR/ADMIN de RR5.1-ext; columna EDITOR añadida en la
+ráfaga "Rol EDITOR — blog", ver más abajo):**
 
-| Sección / Acción | MODERATOR | ADMIN |
-|---|---|---|
-| Dashboard / Stats | ❌ | ✅ |
-| Reportes (listar, start-review, resolve, dismiss) | ✅ | ✅ |
-| Moderación de anuncios (approve, reject, deactivate, restore) | ✅ | ✅ |
-| Gestión anuncios: listar, ver, cambiar estado | ✅ | ✅ |
-| Gestión usuarios: listar, ver | ✅ | ✅ |
-| Gestión usuarios: **suspender** (`/suspend`) | ✅ | ✅ |
-| Gestión usuarios: **reactivar suspensión** (`/unsuspend`) | ✅ | ✅ |
-| Gestión usuarios: **banear** (`/ban`) | ❌ | ✅ |
-| Gestión usuarios: **desbanear** (`/reinstate`) | ❌ | ✅ |
-| Gestión usuarios: **cambiar rol** (`/role`) | ❌ **innegociable** | ✅ |
-| Categorías | ❌ | ✅ |
-| Settings | ❌ | ✅ |
-| Facturación / Créditos | ❌ | ✅ |
-| Blog: listar, ver, crear, editar, publicar, despublicar | ✅ | ✅ |
-| Blog: **eliminar** (`DELETE`) | ❌ | ✅ |
+| Sección / Acción | MODERATOR | EDITOR | ADMIN |
+|---|---|---|---|
+| Dashboard / Stats | ❌ | ❌ | ✅ |
+| Reportes (listar, start-review, resolve, dismiss, crear) | ✅ | ❌ | ✅ |
+| Moderación de anuncios (approve, reject, deactivate, restore) | ✅ | ❌ | ✅ |
+| Gestión anuncios: listar, ver, cambiar estado | ✅ | ❌ | ✅ |
+| Gestión usuarios: listar, ver | ✅ | ❌ | ✅ |
+| Gestión usuarios: **suspender** (`/suspend`) | ✅ | ❌ | ✅ |
+| Gestión usuarios: **reactivar suspensión** (`/unsuspend`) | ✅ | ❌ | ✅ |
+| Gestión usuarios: **banear** (`/ban`) | ❌ | ❌ | ✅ |
+| Gestión usuarios: **desbanear** (`/reinstate`) | ❌ | ❌ | ✅ |
+| Gestión usuarios: **cambiar rol** (`/role`) | ❌ **innegociable** | ❌ | ✅ |
+| Categorías | ❌ | ❌ | ✅ |
+| Settings | ❌ | ❌ | ✅ |
+| Facturación / Créditos | ❌ | ❌ | ✅ |
+| Campañas / Cupones / Banners | ❌ | ❌ | ✅ |
+| Blog: listar, ver, crear, editar, publicar, despublicar | ✅ | ✅ | ✅ |
+| Blog: **eliminar** (`DELETE`, borrado físico) | ❌ | ❌ | ✅ |
+| Subir imágenes (`POST /media/upload`) | ✅ (cualquier autenticado) | ✅ (cualquier autenticado) | ✅ |
 
 **Deuda técnica — sesión stale tras cambio de rol:** si un ADMIN degrada a MODERATOR
 a otro usuario, el JWT de ese usuario permanece válido hasta su expiración (7 días).
@@ -823,10 +827,75 @@ privilegiados.
   `admin-e2e@example.com` (ADMIN) y `moderator-e2e@example.com` (MODERATOR) con
   `storageState`; seed crea un reporte PENDING por cada ejecución.
 
+### Rol EDITOR — blog (BLOG-EDITOR)
+
+Nuevo rol acotado exclusivamente a la gestión del blog (contenido reversible:
+crear/editar/publicar/despublicar), pensado para extenderse a "contenido editorial"
+en general cuando existan páginas informativas. **No** tiene acceso a usuarios,
+facturación, categorías, ajustes, moderación/reportes, campañas, cupones ni banners
+— nada de dinero ni de gestión de plataforma. Mismo patrón asimétrico que MODERATOR
+en blog: gestiona todo lo reversible, nunca el borrado físico (`DELETE`), que sigue
+siendo ADMIN-only.
+
+**Schema:** `enum Role { USER MODERATOR ADMIN EDITOR }` — migración
+`20260706124203_add_editor_role` (`ALTER TYPE "Role" ADD VALUE 'EDITOR'`, sin
+backfill de datos).
+
+**Backend — `BlogAdminController`:** se añadió `Role.EDITOR` a los `@Roles()` de
+método en `findAll`, `findById`, `create`, `update`, `publish` y `unpublish` (ahora
+`@Roles(EDITOR, MODERATOR, ADMIN)`). `remove` (`DELETE`, borrado físico) no se tocó
+— sigue heredando `@Roles(ADMIN)` de la clase. Ningún otro controller de `/admin/*`
+ni `/moderation/*` cambia: al ser `RolesGuard` una lista blanca
+(`required.includes(user.role)`), EDITOR queda excluido de todo lo demás por
+defecto, sin necesidad de excluirlo activamente en cada controller.
+
+**Backend — asignación del rol:** `ChangeUserRoleDto` pasa de
+`@IsIn([USER, MODERATOR])` a `@IsIn([USER, MODERATOR, EDITOR])`. El guard de
+servicio (`AdminService.changeUserRole()`, que bloquea target/value `ADMIN`) no
+cambia — EDITOR cae en el mismo "bucket seguro" que MODERATOR. Sigue siendo
+ADMIN-only quién puede cambiar el rol de otro usuario (`@Roles(ADMIN)` de clase en
+`AdminController`, sin override de método).
+
+**Frontend — middleware.ts:** la constante `MODERATOR_ALLOWED_PATHS` se generalizó
+a `ROLE_ALLOWED_PATHS` (mapa `role → path[]`, ver snippet en la sección RR5.1
+anterior) para añadir `EDITOR: ['/admin/blog']` sin duplicar la rama condicional por
+rol. MODERATOR conserva exactamente sus paths previos (ni gana ni pierde acceso).
+
+**Frontend — AdminNav:** el ítem `/admin/blog` pasa de `roles: ['ADMIN', 'MODERATOR']`
+a `roles: ['ADMIN', 'MODERATOR', 'EDITOR']`. Ningún otro ítem cambia — un EDITOR ve
+un único ítem en el nav (Blog).
+
+**Frontend — `/admin/usuarios`:** `ROLE_FILTERS` y `ROLE_LABELS` incluyen la opción
+"Editor" para filtrar/mostrar usuarios con ese rol. No existe (ni existía para
+MODERATOR) un control de asignación de rol en la UI — `PATCH /admin/users/:id/role`
+no está conectado a ningún botón; la asignación de rol se hace hoy por API directa
+(Swagger) por un ADMIN, no desde `/admin/usuarios`. Deuda pre-existente, no
+introducida por esta ráfaga.
+
+**Media:** `POST /media/upload` no tiene `RolesGuard` (solo `JwtAuthGuard`) — ya
+estaba abierto a cualquier usuario autenticado antes de este cambio, así que EDITOR
+puede subir imágenes de portada sin tocar el controller.
+
+**Tests (BLOG-EDITOR):**
+- `editor-role.e2e-spec.ts` (backend, 55 casos): matriz negativa completa (403 en
+  cada endpoint de usuarios, listings, categorías, settings, billing, banners,
+  cupones, campañas y moderación/reportes, incluyendo `POST /moderation/reports`
+  que sí acepta USER/MODERATOR/ADMIN pero no EDITOR, y `DELETE /admin/blog/:id`);
+  matriz positiva (crear/listar/ver/editar/publicar/despublicar post + subir imagen,
+  todo 2xx); asignación de rol EDITOR por ADMIN (200) y bloqueo de auto-asignación
+  por el propio EDITOR (403).
+- `admin-roles.spec.ts` (Playwright, +12 tests): EDITOR carga `/admin/blog` y
+  `/admin/blog/nuevo`; redirigido desde `/admin` y de los 8 paths no-blog
+  (`usuarios, facturacion, categorias, reportes, cupones, banners, ajustes,
+  anuncios`); nav muestra exactamente 1 ítem (Blog); botón "Eliminar" no visible.
+- `seed-playwright.ts` / `global-setup.ts` / `fixtures/auth.ts`: usuario
+  `editor-e2e@example.com` (EDITOR) con `storageState` y fixture `editorContext`.
+
 ### Protección anti-degradación de ADMIN en cambio de rol (Fase 7)
 
-`PATCH /admin/users/:id/role` acepta solo `USER` y `MODERATOR` como valor destino
-(validado en `ChangeUserRoleDto` vía `@IsIn`). Además, `AdminService.changeUserRole()`
+`PATCH /admin/users/:id/role` acepta `USER`, `MODERATOR` y `EDITOR` como valor
+destino (validado en `ChangeUserRoleDto` vía `@IsIn`; `ADMIN` explícitamente excluido
+de la lista). Además, `AdminService.changeUserRole()`
 aplica una segunda comprobación: si el usuario objetivo tiene `role === ADMIN`, lanza
 `403 Forbidden`. La doble validación (DTO + service) garantiza que la regla no sea
 bypasseable llamando directamente al service.
