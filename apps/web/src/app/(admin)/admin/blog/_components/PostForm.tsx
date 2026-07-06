@@ -17,6 +17,10 @@ export interface PostFormValues {
   coverUrl: string;
   metaTitle: string;
   metaDescription: string;
+  // Solo páginas (showFooterControls) — footerOrder como string de input, se
+  // parsea a number|undefined al enviar (mismo patrón que tags: string → string[]).
+  showInFooter: boolean;
+  footerOrder: string;
 }
 
 export const EMPTY_POST_FORM: PostFormValues = {
@@ -28,6 +32,8 @@ export const EMPTY_POST_FORM: PostFormValues = {
   coverUrl: '',
   metaTitle: '',
   metaDescription: '',
+  showInFooter: false,
+  footerOrder: '',
 };
 
 interface PostFormProps {
@@ -41,6 +47,8 @@ interface PostFormProps {
   showSlugHint?: boolean;
   // Las páginas informativas (type=PAGE) no tienen tags — /admin/paginas pasa false.
   showTagsField?: boolean;
+  // Checkbox "Mostrar en el footer" + orden — solo para páginas (type=PAGE).
+  showFooterControls?: boolean;
 }
 
 export function PostForm({
@@ -53,6 +61,7 @@ export function PostForm({
   token,
   showSlugHint = false,
   showTagsField = true,
+  showFooterControls = false,
 }: PostFormProps) {
   const [showPreview, setShowPreview] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -179,6 +188,36 @@ export function PostForm({
             disabled={isSubmitting}
             placeholder="consejos, segunda-mano, electrónica"
           />
+        </div>
+      )}
+
+      {/* Footer — solo páginas informativas. Fuente única: la BD (footer
+          cacheado, ver Footer.tsx); marcar/desmarcar aquí revalida ese cache. */}
+      {showFooterControls && (
+        <div className="flex flex-col gap-2">
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={values.showInFooter}
+              onChange={(e) => onChange({ showInFooter: e.target.checked })}
+              disabled={isSubmitting}
+            />
+            Mostrar en el footer
+          </label>
+          {values.showInFooter && (
+            <div className="flex flex-col gap-1">
+              <label htmlFor="footerOrder" className={labelCls}>Orden en el footer</label>
+              <input
+                id="footerOrder"
+                type="number"
+                value={values.footerOrder}
+                onChange={(e) => onChange({ footerOrder: e.target.value })}
+                className={`${inputCls} max-w-[8rem]`}
+                disabled={isSubmitting}
+                placeholder="0"
+              />
+            </div>
+          )}
         </div>
       )}
 

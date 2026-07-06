@@ -44,6 +44,20 @@ export class BlogService {
     return this.findByTypeAndSlug(PostType.PAGE, slug);
   }
 
+  // Footer dinámico: solo PAGE + PUBLISHED + showInFooter=true, ordenadas para
+  // renderizar. Endpoint dedicado (no un filtro de listPublishedPages) porque el
+  // orden (footerOrder) y el filtro (showInFooter) no tienen sentido para el
+  // listado público genérico de páginas. select mínimo — un enlace de footer
+  // solo necesita title+slug. Cacheado agresivamente en el frontend
+  // (unstable_cache, tag 'footer-pages') — esta query no corre por request.
+  listFooterPages() {
+    return this.prisma.post.findMany({
+      where: { type: PostType.PAGE, status: PostStatus.PUBLISHED, showInFooter: true },
+      orderBy: { footerOrder: 'asc' },
+      select: { title: true, slug: true },
+    });
+  }
+
   private async listPublishedByType(type: PostType, dto: ListPublicPostsDto) {
     const page = dto.page ?? 1;
     const perPage = dto.perPage ?? 10;
@@ -91,11 +105,14 @@ export class BlogService {
   // ── Admin endpoints ─────────────────────────────────────────────────────────
 
   async adminCreate(authorId: string, dto: CreatePostDto, ip?: string) {
+    const resolvedType = dto.type ?? PostType.POST;
+    this.assertFooterFieldsAllowed(resolvedType, dto);
+
     const slug = dto.slug ?? this.buildSlug(dto.title);
 
     const post = await this.prisma.post.create({
       data: {
-        type: dto.type ?? PostType.POST,
+        type: resolvedType,
         title: dto.title,
         slug,
         excerpt: dto.excerpt,
@@ -104,6 +121,8 @@ export class BlogService {
         tags: dto.tags ?? [],
         metaTitle: dto.metaTitle,
         metaDescription: dto.metaDescription,
+        showInFooter: dto.showInFooter ?? false,
+        footerOrder: dto.footerOrder,
         authorId,
       },
       include: { author: AUTHOR_ADMIN },
@@ -155,9 +174,26 @@ export class BlogService {
 
   async adminUpdate(id: string, actorId: string, dto: UpdatePostDto, ip?: string) {
     const post = await this.adminFindById(id);
-    const slugBefore = post.slug;
-    const slugAfter = dto.slug ?? post.slug;
     const wasPublished = post.status === PostStatus.PUBLISHED;
+
+    // Slug inmutable mientras una PAGE está PUBLISHED — la URL está enlazada en
+    // el footer/emails/externamente. En DRAFT sigue editable (nadie la enlaza
+    // aún); un POST siempre puede cambiar de slug (menos crítico). Runtime check
+    // (no regla de DTO) porque depende del estado ACTUAL de la fila, no de la
+    // forma del payload.
+    if (
+      post.type === PostType.PAGE &&
+      wasPublished &&
+      dto.slug !== undefined &&
+      dto.slug !== post.slug
+    ) {
+      throw new BadRequestException({
+        message: 'No se puede cambiar el slug de una página publicada',
+        code: 'SLUG_IMMUTABLE',
+      });
+    }
+
+    this.assertFooterFieldsAllowed(post.type, dto);
 
     const before = { title: post.title, slug: post.slug, status: post.status };
 
@@ -172,6 +208,8 @@ export class BlogService {
         ...(dto.tags !== undefined && { tags: dto.tags }),
         ...(dto.metaTitle !== undefined && { metaTitle: dto.metaTitle }),
         ...(dto.metaDescription !== undefined && { metaDescription: dto.metaDescription }),
+        ...(dto.showInFooter !== undefined && { showInFooter: dto.showInFooter }),
+        ...(dto.footerOrder !== undefined && { footerOrder: dto.footerOrder }),
       },
       include: { author: AUTHOR_ADMIN },
     });
@@ -188,16 +226,17 @@ export class BlogService {
 
     if (wasPublished) {
       if (post.type === PostType.PAGE) {
-        // Pages have no feed to revalidate — only their own route.
-        this.revalidate(`/paginas/${slugAfter}`);
-        if (slugAfter !== slugBefore) {
-          this.revalidate(`/paginas/${slugBefore}`);
-        }
+        // Slug can't have changed here (guarded above), so there's no old-slug
+        // path to bust — only the page's own route, plus the footer cache in
+        // case this update touched title/showInFooter/footerOrder.
+        this.revalidate(`/paginas/${updated.slug}`);
+        this.revalidateTag('footer-pages');
       } else {
-        this.revalidate(`/blog/${slugAfter}`);
-        if (slugAfter !== slugBefore) {
+        const slugChanged = updated.slug !== post.slug;
+        this.revalidate(`/blog/${updated.slug}`);
+        if (slugChanged) {
           // Old slug becomes a 404; bust its cache so Next.js re-checks immediately.
-          this.revalidate(`/blog/${slugBefore}`);
+          this.revalidate(`/blog/${post.slug}`);
           this.revalidate('/blog');
         }
       }
@@ -305,26 +344,58 @@ export class BlogService {
   }
 
   // Publish/unpublish/delete always revalidate the same set of paths for a given
-  // type — pages have no feed to bust, only their own route.
+  // type — pages have no feed to bust, only their own route. For PAGE, ALSO
+  // revalidate the footer cache unconditionally — this fires from the same
+  // wasPublished-gated call sites that already cover every state change that
+  // could affect a footer-listed page (including the showInFooter toggle
+  // itself), so there's no cheaper-but-lossy conditional worth adding: pages
+  // change rarely, and the call is fire-and-forget.
   private revalidatePostPaths(type: PostType, slug: string): void {
     if (type === PostType.PAGE) {
       this.revalidate(`/paginas/${slug}`);
+      this.revalidateTag('footer-pages');
     } else {
       this.revalidate('/blog');
       this.revalidate(`/blog/${slug}`);
     }
   }
 
+  // Rejects showInFooter/footerOrder on anything that isn't (or won't become) a
+  // PAGE. Lives in the service, not the DTO — CreatePostDto validates BEFORE the
+  // `type ?? POST` default is resolved, so it can't see the final type; for
+  // updates, the current row's type is only knowable after loading it.
+  private assertFooterFieldsAllowed(
+    resolvedType: PostType,
+    dto: { showInFooter?: boolean; footerOrder?: number },
+  ): void {
+    if (resolvedType !== PostType.PAGE && (dto.showInFooter !== undefined || dto.footerOrder !== undefined)) {
+      throw new BadRequestException('showInFooter/footerOrder solo aplican a páginas informativas');
+    }
+  }
+
   // Fire-and-forget ISR revalidation. Failure is intentionally swallowed:
   // a slow or unavailable Next.js server must not fail the admin action.
   private revalidate(path: string): void {
+    this.callRevalidateEndpoint({ path });
+  }
+
+  // Same fire-and-forget shape as revalidate(), but busts a tag-based cache
+  // (unstable_cache) instead of an ISR path — used for the footer, which is
+  // cached independently of any single page/route's own revalidation window.
+  private revalidateTag(tag: string): void {
+    this.callRevalidateEndpoint({ tag });
+  }
+
+  private callRevalidateEndpoint(params: { path?: string; tag?: string }): void {
     const secret = process.env.REVALIDATE_SECRET;
     if (!secret) return;
     const appUrl = process.env.APP_URL ?? 'http://localhost:3000';
-    const url =
-      `${appUrl}/api/revalidate` +
-      `?secret=${encodeURIComponent(secret)}` +
-      `&path=${encodeURIComponent(path)}`;
-    fetch(url, { method: 'POST', signal: AbortSignal.timeout(3000) }).catch(() => {});
+    const qs = new URLSearchParams({ secret });
+    if (params.path !== undefined) qs.set('path', params.path);
+    if (params.tag !== undefined) qs.set('tag', params.tag);
+    fetch(`${appUrl}/api/revalidate?${qs}`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(3000),
+    }).catch(() => {});
   }
 }

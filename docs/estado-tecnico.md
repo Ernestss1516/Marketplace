@@ -1064,8 +1064,9 @@ en absoluto (default `POST`). `AdminNav` gana el ítem "Páginas"
 (`roles: ['ADMIN', 'MODERATOR', 'EDITOR']`, igual que Blog); middleware añade
 `/admin/paginas` a `ROLE_ALLOWED_PATHS` de MODERATOR y EDITOR.
 
-**Footer:** enlaces manuales estáticos a `/paginas/terminos` y
-`/paginas/privacidad` — sin listado dinámico.
+**Footer:** en esta ráfaga eran enlaces manuales estáticos a `/paginas/terminos`
+y `/paginas/privacidad`. **Actualizado en BLOG-FOOTER-DINAMICO** (ver más abajo)
+— ya no existen, sustituidos por un bloque dinámico leído de la BD.
 
 **Sitemap:** `getPostList` (ya filtrado a `type=POST` backend-side, sin cambio
 en esa llamada) + nuevo `getPageList` (`GET /paginas`) en paralelo, mapeado a
@@ -1082,15 +1083,128 @@ en esa llamada) + nuevo `getPageList` (`GET /paginas`) en paralelo, mapeado a
   gestiona páginas, `DELETE` → 403 para EDITOR, 204 para ADMIN).
 - `paginas.spec.ts` (Playwright, 4 casos): ciclo completo ADMIN
   crear→publicar→ver en público con presentación de página correcta y ausencia
-  en el feed del blog; `<script>` literal nunca se ejecuta; footer enlaza
-  correctamente; EDITOR ve el nav, puede crear una página, no ve "Eliminar" en
-  el listado.
+  en el feed del blog; `<script>` literal nunca se ejecuta; EDITOR ve el nav,
+  puede crear una página, no ve "Eliminar" en el listado. (El caso de "footer
+  enlaza correctamente" que existía aquí se retiró en BLOG-FOOTER-DINAMICO —
+  probaba los enlaces hardcodeados que esa ráfaga eliminó; su sucesor vive en
+  `footer-paginas.spec.ts`.)
 - `admin-roles.spec.ts`: contadores de `AdminNav` actualizados (ADMIN 11,
   MODERATOR 5, EDITOR 2) + nuevas comprobaciones de acceso a `/admin/paginas`
   para MODERATOR y EDITOR.
 
-Con esto cierra el bloque de blog completo: rol EDITOR (BLOG-EDITOR), editor
-rico de markdown (BLOG-EDITOR-RICO), y páginas informativas (BLOG-PAGINAS).
+### Footer semi-dinámico + slug inmutable para páginas (BLOG-FOOTER-DINAMICO)
+
+Hace robustos los enlaces legales del footer: antes eran `<Link>` hardcodeados
+sin garantía de que la página existiera/estuviera publicada (un enlace roto a
+"Términos" es un problema de cumplimiento, no solo estético), y una página
+nueva quedaba huérfana si no se recordaba añadir su enlace a mano. Ahora el
+footer lee de la BD — fuente única — pero **cacheado agresivamente, nunca una
+query por request** (el footer está en todas las páginas públicas).
+
+**Schema:** `Post.showInFooter Boolean @default(false)`, `Post.footerOrder
+Int?` (migración `20260706182850_add_post_footer_fields`, sin backfill).
+Semánticamente solo aplican a `PAGE` — validado en el **servicio**, no en el
+schema ni el DTO (ver más abajo por qué). Índice
+`@@index([type, status, showInFooter])` — barato, no load-bearing (la query
+está cacheada, casi nunca corre de verdad).
+
+**Slug inmutable mientras una PAGE está `PUBLISHED`:** protege URLs legales ya
+enlazadas externamente (footer, emails). Check en runtime dentro de
+`adminUpdate` (no una regla de DTO — depende del **estado actual de la fila**,
+no de la forma del payload):
+```typescript
+if (post.type === PostType.PAGE && wasPublished && dto.slug !== undefined && dto.slug !== post.slug) {
+  throw new BadRequestException({ message: '...', code: 'SLUG_IMMUTABLE' });
+}
+```
+Un `POST` puede cambiar de slug publicado o no (sin cambio de comportamiento);
+una `PAGE` en `DRAFT` también (nadie la ha enlazado aún) — congelado solo
+mientras `PUBLISHED`. Despublicar → cambiar slug → republicar sigue siendo
+posible (despublicar es una acción deliberada que asume ese riesgo).
+
+**Cacheo del footer — el punto crítico:** `Footer.tsx` (Server Component,
+vive en `(public)/layout.tsx`, compartido por rutas con dinamismo muy distinto:
+`/blog` es ISR a 3600s, `/busqueda` es esencialmente dinámica por
+`searchParams`) **no** reutiliza el `revalidate` de ninguna página — lo haría
+depender del modo de renderizado de rutas ajenas al footer. En su lugar,
+`getCachedFooterPages` (`apps/web/src/lib/api/blog.ts`) usa `unstable_cache`,
+que cachea la *función de datos* en sí, desacoplada por completo de qué tan
+dinámica sea la página que la invoca:
+```typescript
+export const getCachedFooterPages = unstable_cache(
+  () => getFooterPages(), ['footer-pages'], { revalidate: 3600, tags: ['footer-pages'] },
+);
+```
+El TTL de 1h es una **red de seguridad**, no la vía principal — la
+invalidación por evento (`revalidateTag`) es la vía principal, disparada desde
+`BlogService.revalidatePostPaths()` cuando `type === PAGE`, **incondicionalmente**
+(no solo si `showInFooter` es true — un condicional por slug/status se perdería
+el toggle de `showInFooter` en sí; incondicional-pero-scoped-a-PAGE es más
+simple y no pierde casos, y la llamada es fire-and-forget y barata). Se dispara
+desde los mismos call sites ya gated por `wasPublished`
+(`adminUpdate`/`publish`/`unpublish`/`delete`).
+
+**Extensión del mecanismo existente, no uno nuevo:** `/api/revalidate/route.ts`
+gana un parámetro `tag` — si está presente, `revalidateTag(tag)` en vez de
+`revalidatePath(path)`. `BlogService` gana `revalidateTag()` privado, mismo
+patrón fire-and-forget que `revalidate()` (ambos pasan ahora por un
+`callRevalidateEndpoint()` compartido).
+
+**Hallazgo real durante la implementación — no introducido por esta ráfaga,
+pero descubierto al verificarla:** `apps/web/.env.example` y `.env.local`
+**nunca habían tenido `REVALIDATE_SECRET`** configurado en el frontend. Como
+`BlogService.revalidate()`/`revalidateTag()` son fire-and-forget con errores
+silenciados, esto significa que la invalidación on-demand de ISR para
+`/blog`/`/paginas` **nunca ha funcionado** en este entorno — enmascarado porque
+el TTL de cada página (`revalidate = 3600`) igual auto-corregía el contenido
+en como mucho una hora, sin que nadie lo notara. Corregido: `REVALIDATE_SECRET`
+añadido a `.env.example` (documentado) y `.env.local` (valor real, coincide
+con `apps/api/.env`/`.env.test`). Sin este fix, el footer (y el resto del blog)
+seguirían funcionando, pero solo tras el TTL, nunca al instante — verificado
+end-to-end en Playwright tras aplicar el fix.
+
+**Endpoint:** `GET /paginas/footer` (dedicado, no un filtro de `GET /paginas`
+— orden `footerOrder asc` y filtro `showInFooter` no tienen sentido para el
+listado público genérico). `select` mínimo: solo `title`+`slug`. **Gotcha de
+ordering de rutas** (ya conocido en este codebase, ver `categories/reorder` en
+`AdminController`): `@Get('footer')` declarado ANTES de `@Get(':slug')` en
+`PagesController`, o `/paginas/footer` se trataría como `findPageBySlug('footer')`.
+
+**Admin:** `PostForm` gana `showFooterControls?: boolean` (activado junto a
+`showTagsField={false}` desde `/admin/paginas/*`) — checkbox "Mostrar en el
+footer" + input numérico "Orden en el footer" (con `htmlFor`/`id` asociados
+correctamente, a diferencia de algunos labels pre-existentes del formulario).
+Validación cruzada en el **servicio** (`adminCreate`/`adminUpdate`), no en el
+DTO — el DTO valida antes de resolver `type ?? POST`, así que no puede ver el
+tipo final: `resolvedType !== PAGE && (showInFooter || footerOrder != null)` →
+400 con rechazo duro (no se ignora en silencio).
+
+**Footer render:** `Footer.tsx` pasa a `async`, llama
+`getCachedFooterPages().catch(() => [])` (si el backend falla, el footer sigue
+funcionando con los enlaces estáticos — nunca rompe el sitio) y renderiza un
+`<Link href="/paginas/{slug}">{title}</Link>` por página, en el orden devuelto
+por el endpoint. Los enlaces estáticos no-página (Buscar/Publicar/Acceder) no
+cambiaron. Sin páginas marcadas → el footer no muestra esa sección, sin
+placeholder.
+
+**Tests:**
+- `pages.e2e-spec.ts` (backend, +18 casos): slug inmutable en PAGE PUBLISHED
+  (400 `SLUG_IMMUTABLE`) vs. editable en DRAFT vs. siempre editable en POST;
+  rechazo cruzado de `showInFooter`/`footerOrder` en POST (create y update);
+  aceptación en PAGE; `GET /paginas/footer` — solo PUBLISHED+showInFooter,
+  orden correcto, excluye DRAFT y no-footer, `select` mínimo, y verificación
+  explícita de que el ordering de rutas no confunde `/footer` con un slug.
+- `footer-paginas.spec.ts` (Playwright, 3 casos): marcar+publicar → aparece en
+  el footer; despublicar → desaparece; dos páginas con `footerOrder` distinto
+  salen en el orden correcto (creadas deliberadamente en orden inverso, para
+  probar que depende del campo y no del orden de creación); desmarcar
+  `showInFooter` en una página YA PUBLICADA la quita del footer sin
+  despublicarla (la página sigue accesible directamente).
+- `paginas.spec.ts`: test obsoleto de enlaces hardcodeados retirado (ver arriba).
+
+Con esto, las páginas informativas (y el bloque de blog completo — rol EDITOR,
+editor rico de markdown, páginas informativas, footer semi-dinámico) quedan
+robustas de punta a punta.
 
 ### Protección anti-degradación de ADMIN en cambio de rol (Fase 7)
 

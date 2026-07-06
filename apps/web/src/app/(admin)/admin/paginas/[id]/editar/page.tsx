@@ -38,6 +38,8 @@ function toFormValues(post: AdminPost): PostFormValues {
     coverUrl: post.coverUrl ?? '',
     metaTitle: post.metaTitle ?? '',
     metaDescription: post.metaDescription ?? '',
+    showInFooter: post.showInFooter,
+    footerOrder: post.footerOrder != null ? String(post.footerOrder) : '',
   };
 }
 
@@ -58,6 +60,8 @@ export default function EditarPaginaPage() {
     coverUrl: '',
     metaTitle: '',
     metaDescription: '',
+    showInFooter: false,
+    footerOrder: '',
   });
 
   const [saving, setSaving] = useState(false);
@@ -99,6 +103,8 @@ export default function EditarPaginaPage() {
         coverUrl: values.coverUrl || undefined,
         metaTitle: values.metaTitle || undefined,
         metaDescription: values.metaDescription || undefined,
+        showInFooter: values.showInFooter,
+        footerOrder: values.footerOrder ? Number(values.footerOrder) : undefined,
       });
       setPost(updated);
       setValues(toFormValues(updated));
@@ -257,6 +263,7 @@ export default function EditarPaginaPage() {
           submitError={saveError}
           token={token}
           showTagsField={false}
+          showFooterControls
         />
       </div>
     </div>

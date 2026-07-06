@@ -1,8 +1,10 @@
 // BLOG — páginas informativas (Post.type = PAGE). Verifica que /admin/paginas
 // reutiliza el editor y flujo de publicación del blog, que la página se sirve en
 // /paginas/[slug] con presentación de página (sin fecha/autor/tags/prev-next), que
-// NO aparece en el feed del blog, que un <script> literal nunca se ejecuta, y que
-// el footer enlaza a las páginas legales.
+// NO aparece en el feed del blog, y que un <script> literal nunca se ejecuta.
+// El footer semi-dinámico (showInFooter/footerOrder) tiene su propia batería en
+// footer-paginas.spec.ts (BLOG-FOOTER-DINAMICO) — este archivo ya no prueba
+// enlaces de footer hardcodeados, esos se retiraron en esa ráfaga.
 //
 // Prerequisites: global-setup seeds admin-e2e@example.com (ADMIN) y
 // editor-e2e@example.com (EDITOR).
@@ -102,15 +104,6 @@ test.describe('Páginas informativas — /admin/paginas y /paginas/[slug]', () =
     expect(executed).toBe(false);
 
     await popup.close();
-  });
-
-  test('el footer enlaza a /paginas/terminos y /paginas/privacidad', async ({ adminContext }) => {
-    const page = await adminContext.newPage();
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
-
-    await expect(page.getByRole('link', { name: 'Términos' })).toHaveAttribute('href', '/paginas/terminos');
-    await expect(page.getByRole('link', { name: 'Privacidad' })).toHaveAttribute('href', '/paginas/privacidad');
   });
 
   test('EDITOR ve "Páginas" en el nav, puede crear una página, y no ve el botón "Eliminar" en /admin/paginas', async ({

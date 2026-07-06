@@ -17,6 +17,15 @@ export class PagesController {
     return this.blogService.listPublishedPages(dto);
   }
 
+  // IMPORTANTE: esta ruta estática debe declararse ANTES de @Get(':slug') — si
+  // no, Nest la trataría como findBySlug('footer') y este endpoint nunca se
+  // alcanzaría (mismo gotcha ya documentado en AdminController para
+  // categories/searchable-keys y categories/reorder).
+  @Get('footer')
+  listFooter() {
+    return this.blogService.listFooterPages();
+  }
+
   @Get(':slug')
   findBySlug(@Param('slug') slug: string) {
     return this.blogService.findPageBySlug(slug);

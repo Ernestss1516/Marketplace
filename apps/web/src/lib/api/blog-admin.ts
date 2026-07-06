@@ -11,6 +11,8 @@ export interface AdminPostSummary {
   publishedAt: string | null;
   updatedAt: string;
   tags: string[];
+  showInFooter: boolean;
+  footerOrder: number | null;
   author: { name: string; email: string };
 }
 
@@ -43,6 +45,9 @@ export interface CreatePostPayload {
   tags?: string[];
   metaTitle?: string;
   metaDescription?: string;
+  // Solo válidos si type resuelve a PAGE — el backend rechaza (400) en otro caso.
+  showInFooter?: boolean;
+  footerOrder?: number;
 }
 
 export type UpdatePostPayload = Partial<Omit<CreatePostPayload, 'type'>>;

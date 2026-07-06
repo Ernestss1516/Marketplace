@@ -1,6 +1,8 @@
 import {
   IsArray,
+  IsBoolean,
   IsEnum,
+  IsInt,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -52,4 +54,15 @@ export class CreatePostDto {
   @IsOptional()
   @IsString()
   metaDescription?: string;
+
+  // Solo aplican a type=PAGE — el servicio rechaza (400) si se envían junto a un
+  // POST (el DTO no puede validar esto por sí solo: valida antes de resolver el
+  // default type ?? POST). Ver BlogService.assertFooterFieldsAllowed().
+  @IsOptional()
+  @IsBoolean()
+  showInFooter?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  footerOrder?: number;
 }

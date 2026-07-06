@@ -45,6 +45,11 @@ function toFormValues(post: AdminPost): PostFormValues {
     coverUrl: post.coverUrl ?? '',
     metaTitle: post.metaTitle ?? '',
     metaDescription: post.metaDescription ?? '',
+    // Posts nunca muestran los controles de footer (showFooterControls no se
+    // pasa desde esta página) — estos valores no se usan, solo satisfacen el
+    // tipo compartido con las páginas informativas.
+    showInFooter: false,
+    footerOrder: '',
   };
 }
 
@@ -65,6 +70,8 @@ export default function EditarBlogPage() {
     coverUrl: '',
     metaTitle: '',
     metaDescription: '',
+    showInFooter: false,
+    footerOrder: '',
   });
 
   const [saving, setSaving] = useState(false);

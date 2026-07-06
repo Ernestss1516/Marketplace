@@ -261,4 +261,190 @@ describe('Páginas informativas — Post.type (e2e)', () => {
     const deleted = await prisma.post.findUnique({ where: { id: editorPageId } });
     expect(deleted).toBeNull();
   });
+
+  // ── Slug inmutable mientras una PAGE está PUBLISHED ──────────────────────────
+
+  it('cambiar el slug de una PAGE PUBLISHED → 400 SLUG_IMMUTABLE', async () => {
+    const created = await request(app.getHttpServer())
+      .post('/api/admin/blog')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ type: 'PAGE', title: 'Página Slug Inmutable', slug: 'pagina-slug-inmutable' })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post(`/api/admin/blog/${created.body.id}/publish`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+
+    const res = await request(app.getHttpServer())
+      .patch(`/api/admin/blog/${created.body.id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ slug: 'pagina-slug-cambiado' })
+      .expect(400);
+    expect(res.body.code).toBe('SLUG_IMMUTABLE');
+
+    const unchanged = await prisma.post.findUniqueOrThrow({ where: { id: created.body.id } });
+    expect(unchanged.slug).toBe('pagina-slug-inmutable');
+  });
+
+  it('cambiar el slug de una PAGE en DRAFT → permitido', async () => {
+    const created = await request(app.getHttpServer())
+      .post('/api/admin/blog')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ type: 'PAGE', title: 'Página Draft Editable', slug: 'pagina-draft-editable' })
+      .expect(201);
+
+    const res = await request(app.getHttpServer())
+      .patch(`/api/admin/blog/${created.body.id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ slug: 'pagina-draft-editable-v2' })
+      .expect(200);
+    expect(res.body.slug).toBe('pagina-draft-editable-v2');
+  });
+
+  it('cambiar el slug de un POST PUBLISHED → siempre permitido (sin cambio de comportamiento)', async () => {
+    const created = await request(app.getHttpServer())
+      .post('/api/admin/blog')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ title: 'Post Slug Editable', slug: 'post-slug-editable' })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post(`/api/admin/blog/${created.body.id}/publish`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+
+    const res = await request(app.getHttpServer())
+      .patch(`/api/admin/blog/${created.body.id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ slug: 'post-slug-editable-v2' })
+      .expect(200);
+    expect(res.body.slug).toBe('post-slug-editable-v2');
+  });
+
+  // ── showInFooter/footerOrder: rechazo cruzado para POST ──────────────────────
+
+  it('POST /api/admin/blog con showInFooter=true en un POST (sin type, default POST) → 400', async () => {
+    await request(app.getHttpServer())
+      .post('/api/admin/blog')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ title: 'Post Con Footer Invalido', showInFooter: true })
+      .expect(400);
+  });
+
+  it('POST /api/admin/blog con footerOrder en un POST → 400', async () => {
+    await request(app.getHttpServer())
+      .post('/api/admin/blog')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ title: 'Post Con Orden Invalido', footerOrder: 1 })
+      .expect(400);
+  });
+
+  it('PATCH /api/admin/blog/:id con showInFooter=true sobre un POST existente → 400', async () => {
+    const created = await request(app.getHttpServer())
+      .post('/api/admin/blog')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ title: 'Post Para Rechazo Cruzado' })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .patch(`/api/admin/blog/${created.body.id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ showInFooter: true })
+      .expect(400);
+  });
+
+  it('POST /api/admin/blog con showInFooter=true y type=PAGE → 201, aceptado', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/api/admin/blog')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ type: 'PAGE', title: 'Página Con Footer Válido', showInFooter: true, footerOrder: 5 })
+      .expect(201);
+    expect(res.body.showInFooter).toBe(true);
+    expect(res.body.footerOrder).toBe(5);
+  });
+
+  // ── GET /paginas/footer — endpoint dedicado, cacheado en el frontend ─────────
+
+  describe('GET /paginas/footer', () => {
+    let footerPageAId: string;
+    let footerPageBId: string;
+    let notInFooterPageId: string;
+    let draftFooterPageId: string;
+
+    beforeAll(async () => {
+      const admin = await prisma.user.findUniqueOrThrow({ where: { email: 'pages-admin@example.com' } });
+
+      // Orden deliberadamente invertido en la creación para probar que el ORDER
+      // BY footerOrder asc del endpoint es real, no un accidente de inserción.
+      const [pageB, pageA, notInFooter, draftFooter] = await Promise.all([
+        prisma.post.create({
+          data: {
+            type: 'PAGE', title: 'Footer Página B', slug: 'footer-pagina-b',
+            status: 'PUBLISHED', publishedAt: new Date(),
+            showInFooter: true, footerOrder: 2, authorId: admin.id,
+          },
+        }),
+        prisma.post.create({
+          data: {
+            type: 'PAGE', title: 'Footer Página A', slug: 'footer-pagina-a',
+            status: 'PUBLISHED', publishedAt: new Date(),
+            showInFooter: true, footerOrder: 1, authorId: admin.id,
+          },
+        }),
+        prisma.post.create({
+          data: {
+            type: 'PAGE', title: 'Página Publicada Sin Footer', slug: 'pagina-sin-footer',
+            status: 'PUBLISHED', publishedAt: new Date(),
+            showInFooter: false, authorId: admin.id,
+          },
+        }),
+        prisma.post.create({
+          data: {
+            type: 'PAGE', title: 'Página Footer En Borrador', slug: 'pagina-footer-borrador',
+            status: 'DRAFT', showInFooter: true, footerOrder: 0, authorId: admin.id,
+          },
+        }),
+      ]);
+      footerPageAId = pageA.id;
+      footerPageBId = pageB.id;
+      notInFooterPageId = notInFooter.id;
+      draftFooterPageId = draftFooter.id;
+    });
+
+    it('devuelve solo PAGE PUBLISHED con showInFooter=true, ordenadas por footerOrder asc', async () => {
+      const res = await request(app.getHttpServer()).get('/api/paginas/footer').expect(200);
+      const slugs = res.body.map((p: { slug: string }) => p.slug);
+
+      expect(slugs).toContain('footer-pagina-a');
+      expect(slugs).toContain('footer-pagina-b');
+      expect(slugs.indexOf('footer-pagina-a')).toBeLessThan(slugs.indexOf('footer-pagina-b'));
+
+      // Publicada pero showInFooter=false → ausente.
+      expect(slugs).not.toContain('pagina-sin-footer');
+      // showInFooter=true pero DRAFT → ausente (el footer nunca enlaza contenido no publicado).
+      expect(slugs).not.toContain('pagina-footer-borrador');
+    });
+
+    it('devuelve solo title+slug (select mínimo, no expone body/excerpt/etc.)', async () => {
+      const res = await request(app.getHttpServer()).get('/api/paginas/footer').expect(200);
+      const entry = res.body.find((p: { slug: string }) => p.slug === 'footer-pagina-a');
+      expect(entry).toEqual({ title: 'Footer Página A', slug: 'footer-pagina-a' });
+    });
+
+    it('/paginas/footer no se confunde con /paginas/:slug (route ordering correcto)', async () => {
+      // Si @Get(':slug') capturara 'footer' antes que @Get('footer'), esto
+      // devolvería 404 (findPageBySlug('footer') sin resultado) en vez de un
+      // array. Los tests anteriores en este describe ya lo prueban
+      // implícitamente (200 + array), pero esta aserción lo deja explícito.
+      const res = await request(app.getHttpServer()).get('/api/paginas/footer').expect(200);
+      expect(Array.isArray(res.body)).toBe(true);
+    });
+
+    afterAll(async () => {
+      await prisma.post.deleteMany({
+        where: { id: { in: [footerPageAId, footerPageBId, notInFooterPageId, draftFooterPageId] } },
+      });
+    });
+  });
 });

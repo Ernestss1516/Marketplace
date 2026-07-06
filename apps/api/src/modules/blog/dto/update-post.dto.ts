@@ -1,5 +1,7 @@
 import {
   IsArray,
+  IsBoolean,
+  IsInt,
   IsOptional,
   IsString,
   IsUrl,
@@ -47,4 +49,13 @@ export class UpdatePostDto {
   @IsOptional()
   @IsString()
   metaDescription?: string;
+
+  // Solo aplican a PAGE — el servicio rechaza (400) si el post es POST.
+  @IsOptional()
+  @IsBoolean()
+  showInFooter?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  footerOrder?: number;
 }

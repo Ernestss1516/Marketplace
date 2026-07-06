@@ -1061,8 +1061,17 @@ model Post {
   author          User       @relation("PostAuthor", fields: [authorId], references: [id])
   /// Gating de publicación y auditoría. En PAGE no se muestra en la propia página.
   publishedAt     DateTime?
+  /// Solo PAGE — marca si aparece en el bloque dinámico de enlaces legales del
+  /// footer (validado en el servicio, no en el schema). El footer se sirve desde
+  /// un cache (unstable_cache, tag 'footer-pages'), nunca con query directa por
+  /// request — ver revalidateTag() en BlogService.
+  showInFooter    Boolean    @default(false)
+  /// Orden de aparición en el footer (ascendente). Solo relevante junto a
+  /// showInFooter=true.
+  footerOrder     Int?
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
 
   @@index([type, status, publishedAt])
+  @@index([type, status, showInFooter])
 }
