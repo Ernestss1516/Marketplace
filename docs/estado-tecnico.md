@@ -94,7 +94,7 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 
 ## 2. Decisiones técnicas y desviaciones respecto al diseño original
 
-Índice de esta sección (72 decisiones/desviaciones documentadas, orden cronológico por ráfaga;
+Índice de esta sección (73 decisiones/desviaciones documentadas, orden cronológico por ráfaga;
 enlaces ancla — funcionan en GitHub y en la vista previa de Markdown de VS Code):
 
 - [Ruta `/vendedor/[slug]` en lugar de `/[vendedor]`](#ruta-vendedorslug-en-lugar-de-vendedor)
@@ -111,6 +111,7 @@ enlaces ancla — funcionan en GitHub y en la vista previa de Markdown de VS Cod
 - [Deuda `type` → `itemType` (RC5.2)](#deuda-type-itemtype-rc52)
 - [Atributos filtrables dinámicos — RÁFAGA 0](#atributos-filtrables-dinámicos-ráfaga-0)
 - [Modelo producto/servicio — RÁFAGA 1](#modelo-productoservicio-ráfaga-1)
+- [Admin de categorías producto/servicio — RÁFAGA 2](#admin-de-categorías-productoservicio-ráfaga-2)
 - [Fix ioredis en BullMQ](#fix-ioredis-en-bullmq)
 - [Verificación de email: nuevo JWT en lugar de re-login](#verificación-de-email-nuevo-jwt-en-lugar-de-re-login)
 - [Imágenes: upload pre-anuncio (huérfanas temporales)](#imágenes-upload-pre-anuncio-huérfanas-temporales)
@@ -509,6 +510,58 @@ sobre `Category` truncada (BD limpia, no solo antes de la primera pasada). Únic
 `listings.service.spec.ts` (unitario) simulaba a mano una fila de `Category` sin
 `allowedListingType` — hueco de fixture (la BD real siempre devuelve ese campo, `NOT NULL
 DEFAULT 'BOTH'`), no cambio de comportamiento; se completó el mock.
+
+### Admin de categorías producto/servicio — RÁFAGA 2
+
+Cierra el backend del cambio producto/servicio (con R0 y R1 ya cerradas — ver «Cambio en
+curso — Producto/Servicio» más abajo, antes de §4): los admins pueden configurar la
+política de tipo por categoría y etiquetar atributos por tipo, y editar el schema refresca
+la búsqueda sin reiniciar. `CreateCategoryDto`/`UpdateCategoryDto` ganan
+`allowedListingType?: ListingTypePolicy`; selector en el formulario básico de categoría
+(junto a `order`).
+
+**Validación de escritura bidireccional** (el matiz central de esta ráfaga):
+- **Hacia arriba** — `assertPolicyConsistentWithParent(own, parentId)`: guard explícito que
+  **lanza** `BadRequestException` si la política propia contradice la ya persistida del
+  padre. Deliberadamente **no** reutiliza `resolveEffectivePolicy` (R1) — esa función es
+  defensiva y nunca lanza, pensada para la lectura en tiempo de creación de anuncios, no
+  para rechazar una escritura. Árbol de 2 niveles (`parentId` inmutable): la política del
+  padre es directamente su valor propio, sin resolución recursiva.
+- **Hacia abajo** — `assertPolicyChangeDoesNotBreakChildren(categoryId, newPolicy)`: mismo
+  molde que `deleteCategory` (conteos exactos en `$transaction`, 400 con el número/nombre,
+  nunca "avisar y permitir" ni "permitir en silencio" — postura elegida siguiendo ese
+  precedente). Se ejecuta **solo cuando `allowedListingType` cambia de verdad** respecto al
+  valor persistido (editar nombre/schema sin tocar la política no paga el coste de
+  consultar hijos/anuncios). Rechaza si (a) un hijo con política propia contradictoria ya
+  existe, o (b) hay anuncios del tipo prohibido en la categoría o cualquiera de sus hijos.
+  **Caso crítico verificado en test**: el conteo de anuncios incluye a los hijos `BOTH` —
+  heredan la nueva restricción del padre, así que sus anuncios del tipo ahora prohibido
+  quedarían igual de incoherentes. Ensanchar a `BOTH` nunca se rechaza (nunca rompe nada).
+
+**`appliesTo` por atributo en `AttributeSchemaEditor.tsx`**: dos checkboxes
+Producto/Servicio por fila (mismo patrón que `filterable`/`required`/`cardAttribute`).
+`fromDraft()` omite `appliesTo` del payload cuando ambos están marcados — `attributeSchema`
+byte-idéntico para quien no toca estos checkboxes. Regla de validación: "selecciona al
+menos un tipo" (simétrica a la de `select`). **Coherencia con la política de la categoría
+deliberadamente no validada**: un atributo `appliesTo:['SERVICE']` en una categoría
+`PRODUCT_ONLY` es inerte (ningún anuncio de esa categoría es nunca `SERVICE`, así que
+`filterSchemaByType` nunca lo mostrará) — configuración muerta, no dato corrupto; no
+amerita el mismo rigor que la política de tipo, que si protege contra datos incoherentes
+reales.
+
+**Refresco en caliente vía cola** (regla de `apps/api/CLAUDE.md`: trabajo pesado a colas
+BullMQ, nunca inline en la petición HTTP): `FilterableAttributesResolver.invalidate()`
+(`this.cache = null`) + `SearchService.refreshFilterableAttributes()` (invalida, recalcula,
+`index.updateSettings(...)`) — cuerpo de `onModuleInit` extraído a un método privado
+compartido. Nuevo job `refresh-filterable-attributes` en `QUEUE_INDEXING`, encolado desde
+`createCategory`/`updateCategory` **solo cuando el payload toca `attributeSchema`** (no
+cuando solo cambia `allowedListingType`, que no afecta a Meilisearch). Resuelve el diferido
+de RÁFAGA 0 — ver nota actualizada en «Deuda nueva abierta por RÁFAGA 0» en §3, con el
+limitante nuevo de caché-por-proceso inventariado allí.
+
+**Migración indolora — verificación**: 53 tests unitarios + 9 e2e nuevos
+(`admin-category-type-policy.e2e-spec.ts`) + batería completa (36 suites, 593 tests) en
+verde sobre `Category` truncada, sin tocar ningún test existente.
 
 ### Fix ioredis en BullMQ
 
@@ -2421,15 +2474,22 @@ antes de asumir: el roadmap sobreestimaba el alcance real de Hito 7.
 
 ### Deuda nueva abierta por RÁFAGA 0 (producto/servicio — dinamización de búsqueda)
 
-- **Sin refresco en caliente de `filterableAttributes`.** `FilterableAttributesResolver`
-  memoiza el mapa de atributos filtrables una vez por arranque del proceso (decisión
-  explícita, ver «Atributos filtrables dinámicos — RÁFAGA 0» en §2). Cambiar `filterable`
-  en el editor de categorías del admin no se propaga a Meilisearch ni a la validación del
-  query string hasta reiniciar — comportamiento preservado de la lista hardcodeada
-  anterior, no una regresión. Mejora diferida a la ráfaga del admin de categorías de
-  producto/servicio (R2 del plan — ver «Cambio en curso — Producto/Servicio» más abajo,
-  antes de §4), donde ese admin se va a tocar de todas formas para añadir la política de
-  tipo por categoría.
+- **✅ RESUELTO EN RÁFAGA 2.** Refresco en caliente de `filterableAttributes` implementado
+  (`FilterableAttributesResolver.invalidate()` + `SearchService.refreshFilterableAttributes()`
+  + job `refresh-filterable-attributes` en `QUEUE_INDEXING`). Ver «Admin de categorías
+  producto/servicio — RÁFAGA 2» en §2. Texto original conservado por contexto histórico:
+  `FilterableAttributesResolver` memoizaba el mapa de atributos filtrables una vez por
+  arranque del proceso; cambiar `filterable` en el editor de categorías del admin no se
+  propagaba a Meilisearch ni a la validación del query string hasta reiniciar —
+  comportamiento preservado de la lista hardcodeada anterior, no una regresión. Mejora
+  diferida a la ráfaga del admin de categorías de producto/servicio (R2 del plan), donde
+  ese admin se iba a tocar de todas formas para añadir la política de tipo por categoría.
+
+  **Limitante nuevo, inventariado (no resuelto en R2):** la caché es en memoria por
+  proceso — el job de refresco solo invalida el proceso que lo ejecuta. Con una sola
+  instancia de API (el caso actual) esto refresca todo; si el proyecto escala a varias
+  instancias, cada una necesitaría su propio refresco (pub/sub sobre Redis) para que
+  todas queden al día. Fuera de alcance hasta que la infraestructura lo requiera.
 - **Validación débil de atributos (deuda preexistente, no introducida por esta ráfaga).**
   `ListingsService.validateAttributes()` solo comprueba que las keys marcadas `required:
   true` estén presentes (`hasOwnProperty`); no valida que el tipo del valor coincida con el
@@ -3515,8 +3575,9 @@ tipos. `Category.attributeSchema` con herencia de 2 niveles (hoja → padre,
 atributos filtrables dinámicamente del schema (RÁFAGA 0), lo que evita que producto/servicio
 tenga que volver a tocar el mecanismo de búsqueda al multiplicar atributos por tipo.
 
-**Plan de ráfagas** (número/orden a confirmar tras diseñar R2; el terreno puede cambiar
-el reparto):
+**Plan de ráfagas** (número/orden a confirmar tras diseñar R3; el terreno puede cambiar
+el reparto). **El backend del cambio está esencialmente completo (R0+R1+R2, las tres
+cerradas); R3-R5 son la cara de usuario** (wizard, búsqueda/ficha, tests exhaustivos):
 
 - **R0 — Dinamización de búsqueda.** ✅ **CERRADA.** Ver «Atributos filtrables dinámicos —
   RÁFAGA 0» en §2 y «Deuda nueva abierta por RÁFAGA 0» en §3.
@@ -3524,23 +3585,26 @@ el reparto):
   `allowedListingType @default(BOTH)`), conexión tipo↔atributos (`AttributeField.appliesTo`),
   validación e inmutabilidad de `Listing.type`. Migración indolora verificada (584 tests
   e2e en verde). Ver «Modelo producto/servicio — RÁFAGA 1» en §2.
-- **R2 — Admin de categorías.** **Siguiente ráfaga.** Necesita: (a) selector
-  `allowedListingType` en el editor de categoría, **validado en escritura** contra el padre
-  ya resuelto — mismo molde que `validateCardAttributeLimit` (traer padre, resolver
-  efectivo, 400 si la política propia contradice la del padre); (b) checkboxes
-  Producto/Servicio por atributo en `AttributeSchemaEditor.tsx` para `appliesTo` (default
-  ambos marcados); (c) el refresco en caliente de `filterableAttributes` que R0 dejó
-  diferido (ver deuda en §3) — este admin se toca de todas formas, es el momento natural.
-  **Matiz de diseño principal de R2:** R1 dejó `resolveEffectivePolicy` defensivo en
-  *lectura* (contradicción → gana el padre, nunca lanza); R2 es donde esa misma función se
-  ejerce también en *escritura*, para que la contradicción no llegue a persistirse nunca.
-- **R3 — Wizard.** Preguntar el tipo solo cuando la categoría permite «ambos»; aplicar los
-  atributos del tipo elegido (`filterSchemaByType`).
+- **R2 — Admin de categorías.** ✅ **CERRADA.** Selector `allowedListingType` + validación de
+  escritura bidireccional (`assertPolicyConsistentWithParent` hacia arriba,
+  `assertPolicyChangeDoesNotBreakChildren` hacia abajo — molde `deleteCategory`, rechaza en
+  vez de avisar o permitir en silencio); checkboxes `appliesTo` por atributo; refresco en
+  caliente de `filterableAttributes` vía cola (resuelve el diferido de R0). Migración
+  indolora verificada (593 tests e2e en verde). Ver «Admin de categorías producto/servicio
+  — RÁFAGA 2» en §2.
+- **R3 — Wizard.** **Siguiente ráfaga.** Preguntar el tipo **solo** cuando la política
+  efectiva de la categoría elegida es `BOTH`; si `PRODUCT_ONLY`/`SERVICE_ONLY`, el wizard
+  fija el tipo sin preguntar — requiere que el wizard conozca esa política efectiva antes
+  del paso de tipo (`StepDatos`). Aplicar `filterSchemaByType` en el paso de atributos
+  (`StepAtributos`) para mostrar solo los del tipo elegido. **Matiz de diseño principal:**
+  las transiciones de estado — qué pasa con el tipo ya elegido si el usuario cambia de
+  categoría a mitad del wizard (p. ej. de una `BOTH` donde eligió `SERVICE`, a una
+  `PRODUCT_ONLY`).
 - **R4 — Búsqueda y ficha.** Filtrar y mostrar por tipo — más fácil ahora que la búsqueda
   deriva sus atributos filtrables dinámicamente (R0).
 - **R5 — Tests exhaustivos.**
 
-**Siguiente paso:** ráfaga R2 (admin de categorías).
+**Siguiente paso:** ráfaga R3 (wizard).
 
 ---
 
