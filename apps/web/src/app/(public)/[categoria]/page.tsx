@@ -234,6 +234,7 @@ export default async function CategoriaPage({
                 facets={facets}
                 currentFilters={currentFilters}
                 activeFilterCount={activeFilterCount}
+                allowedListingType={category.allowedListingType}
               />
             </Suspense>
           </aside>

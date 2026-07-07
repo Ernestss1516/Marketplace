@@ -16,6 +16,7 @@ import { CardAttributesProvider } from '@/components/anuncios/CardAttributesCont
 import { getListing, getListingsByCategory } from '@/lib/api/anuncios';
 import { getCategoryBySlug } from '@/lib/api/categorias';
 import { buildCardAttributeMapFromSchema } from '@/lib/card-attributes';
+import { filterSchemaByType } from '@/lib/attribute-schema';
 import { ApiError } from '@/lib/api/client';
 import { SITE_NAME } from '@/config';
 
@@ -90,6 +91,11 @@ export default async function AnuncioPage({
       ? relatedResult.value.items.filter((l) => l.slug !== slug).slice(0, 4)
       : [];
 
+  // Filtrado por tipo solo para ESTE anuncio — el `schema` sin filtrar se
+  // sigue usando más abajo para el mapa de atributos de los relacionados,
+  // que pueden ser de un tipo distinto al de este anuncio.
+  const visibleSchema = filterSchemaByType(schema, listing.type);
+
   const statusLabel = STATUS_LABELS[listing.status];
   const location = [listing.city, listing.province].filter(Boolean).join(', ');
 
@@ -125,10 +131,12 @@ export default async function AnuncioPage({
               </p>
             </div>
 
-            {/* Category attributes */}
-            {schema.length > 0 && (
+            {/* Category attributes — filtrados por tipo: un anuncio SERVICE
+                no muestra labels de atributos solo-PRODUCT (mismo helper
+                que el wizard). */}
+            {visibleSchema.length > 0 && (
               <AttributeList
-                schema={schema}
+                schema={visibleSchema}
                 values={listing.attributes as Record<string, unknown>}
               />
             )}

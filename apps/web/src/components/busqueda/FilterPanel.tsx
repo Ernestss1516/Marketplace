@@ -5,7 +5,7 @@ import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { ChevronDown, MapPin, SlidersHorizontal, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import type { Category } from '@/types';
+import type { Category, ListingTypePolicy } from '@/types';
 
 const TYPE_OPTIONS = [
   { value: '', label: 'Todos' },
@@ -74,6 +74,13 @@ interface FilterPanelProps {
   facets?: Record<string, Record<string, number>>;
   currentFilters: CurrentFilters;
   activeFilterCount: number;
+  /**
+   * Política efectiva de la categoría fija de esta página (solo /[categoria]).
+   * Si se pasa y no es 'BOTH', la categoría ya decide el tipo — se oculta el
+   * filtro "Tipo" en vez de ofrecer una opción que siempre daría 0 resultados.
+   * Ausente en /busqueda (sin categoría fija, o mixta): comportamiento actual.
+   */
+  allowedListingType?: ListingTypePolicy;
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
@@ -91,6 +98,7 @@ export function FilterPanel({
   facets,
   currentFilters,
   activeFilterCount,
+  allowedListingType,
 }: FilterPanelProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -330,25 +338,27 @@ export function FilterPanel({
         </div>
       )}
 
-      {/* Type */}
-      <div>
-        <SectionLabel>Tipo</SectionLabel>
-        <div className="flex flex-col gap-1.5">
-          {TYPE_OPTIONS.map((o) => (
-            <label key={o.value} className="flex cursor-pointer items-center gap-2 text-sm">
-              <input
-                type="radio"
-                name="type"
-                value={o.value}
-                checked={(currentFilters.type ?? '') === o.value}
-                onChange={() => update({ type: o.value || undefined })}
-                className="accent-primary"
-              />
-              {o.label}
-            </label>
-          ))}
+      {/* Type — oculto cuando la categoría fija ya no permite ambos tipos */}
+      {(allowedListingType ?? 'BOTH') === 'BOTH' && (
+        <div>
+          <SectionLabel>Tipo</SectionLabel>
+          <div className="flex flex-col gap-1.5">
+            {TYPE_OPTIONS.map((o) => (
+              <label key={o.value} className="flex cursor-pointer items-center gap-2 text-sm">
+                <input
+                  type="radio"
+                  name="type"
+                  value={o.value}
+                  checked={(currentFilters.type ?? '') === o.value}
+                  onChange={() => update({ type: o.value || undefined })}
+                  className="accent-primary"
+                />
+                {o.label}
+              </label>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Condition */}
       <div>
