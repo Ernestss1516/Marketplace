@@ -47,8 +47,10 @@ describe('RC5.2b — Herencia Vehículos year+km (e2e)', () => {
   beforeAll(async () => {
     prisma = new PrismaClient();
     meili = buildMeiliClient();
-    app = await createTestApp();
-    await app.init();
+    // App boot happens AFTER the test categories below are created: search's
+    // FilterableAttributesResolver resolves its filterable-attribute map once
+    // at boot (no hot refresh — see RÁFAGA 0), so a category created after
+    // app.init() would not be filterable within this same test run.
     await cleanDb(prisma);
     await resetMeili(meili);
 
@@ -141,6 +143,11 @@ describe('RC5.2b — Herencia Vehículos year+km (e2e)', () => {
       },
     });
     catFurgonId = catFurgon.id;
+
+    // App boots now that every test category (with its filterable attributes)
+    // already exists in the DB — see the note in the beforeAll preamble above.
+    app = await createTestApp();
+    await app.init();
 
     // ── Login ─────────────────────────────────────────────────────────────
     const sellerRes = await request(app.getHttpServer())

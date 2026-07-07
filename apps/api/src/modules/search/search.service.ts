@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import type { Index } from 'meilisearch';
 import type { Listing, ListingImage, Entitlement } from '@prisma/client';
 import { MeilisearchService } from '../../infra/meilisearch/meilisearch.service';
+import { FilterableAttributesResolver } from './filterable-attributes.resolver';
 
 export const LISTINGS_INDEX = process.env.MEILI_INDEX_NAME ?? 'listings';
 
@@ -57,35 +58,12 @@ const SEARCHABLE_ATTRIBUTES = [
 ];
 
 // ---------------------------------------------------------------------------
-// Variable attribute keys — derived from seed attributeSchema entries where
-// filterable: true. Exported so SearchQueryDto and SearchController can import
-// this single source of truth instead of maintaining their own copies.
-//
-// Deliberately EXCLUDED from this list:
-//   - "type"  → name-collides with the listing-level ListingType (PRODUCT/SERVICE).
-//               The seed uses it in ordenadores/electrodomésticos/accesorios/muebles;
-//               it must be renamed (e.g. itemType) in the seed before it can be
-//               exposed safely. The spread-order fix in toDocument() already
-//               prevents it from overwriting the core `type` field.
-//   - "model" → filterable: false in all categories that use it.
-//   - "floor" → filterable: false in all categories that use it.
-// ---------------------------------------------------------------------------
-export const VARIABLE_ATTRIBUTE_KEYS = [
-  // Vehículos
-  'brand', 'year', 'km', 'fuel', 'gearbox', 'displacement',
-  // Inmuebles
-  'sqm', 'rooms', 'bathrooms', 'elevator', 'garage', 'pool',
-  // Tecnología — 'itemType' renamed from 'type' (RC5.2) to avoid collision with ListingType enum
-  'storage', 'ram', 'itemType',
-  // Moda — calzado.size normalised to string in RC5.2 migration; both ropa and calzado now comparable
-  'gender', 'size',
-  // Servicios
-  'specialty', 'subject', 'modality',
-] as const;
-
-export type VariableAttributeKey = (typeof VARIABLE_ATTRIBUTE_KEYS)[number];
-
 // Core listing fields that are always filterable regardless of category.
+// The variable part of Meilisearch's filterableAttributes (brand, fuel, sqm,
+// itemType, …) is resolved dynamically at startup by
+// FilterableAttributesResolver from Category.attributeSchema instead of a
+// hardcoded list — see onModuleInit below.
+// ---------------------------------------------------------------------------
 const CORE_FILTERABLE_ATTRIBUTES = [
   'categoryId',
   'categorySlug',
@@ -100,12 +78,6 @@ const CORE_FILTERABLE_ATTRIBUTES = [
   'sellerId',
 ];
 
-// Derived from VARIABLE_ATTRIBUTE_KEYS — the two lists stay in sync automatically.
-const FILTERABLE_ATTRIBUTES = [
-  ...CORE_FILTERABLE_ATTRIBUTES,
-  ...VARIABLE_ATTRIBUTE_KEYS,
-];
-
 const SORTABLE_ATTRIBUTES = [
   'price',
   'publishedAt',
@@ -115,6 +87,10 @@ const SORTABLE_ATTRIBUTES = [
 
 // Facets returned in every search response for guided navigation in the UI.
 // Only select/boolean attributes with bounded cardinality make sense here.
+// Curated editorially — NOT auto-derived from the schema like filterableAttributes.
+// Names here that aren't (yet) filterable in the live environment (e.g. an
+// attribute only present in the production seed but not in a lighter test
+// fixture) are dropped at query time in search() — see filterableAttributeNames.
 const FACET_ATTRIBUTES = [
   'categorySlug',
   'type',
@@ -212,20 +188,30 @@ export interface SearchParams {
 export class SearchService implements OnModuleInit {
   private readonly logger = new Logger(SearchService.name);
   private readonly index: Index<ListingDocument>;
+  // Populated in onModuleInit; used to keep the requested facets (below) a
+  // subset of what's actually filterable — see the comment on FACET_ATTRIBUTES.
+  private filterableAttributeNames = new Set<string>(CORE_FILTERABLE_ATTRIBUTES);
 
-  constructor(private readonly meili: MeilisearchService) {
+  constructor(
+    private readonly meili: MeilisearchService,
+    private readonly attributesResolver: FilterableAttributesResolver,
+  ) {
     this.index = this.meili.client.index<ListingDocument>(LISTINGS_INDEX);
   }
 
   /** Ensures the index exists and its settings are up to date on every startup. */
   async onModuleInit(): Promise<void> {
     try {
+      const attributeTypes = await this.attributesResolver.getAttributeTypes();
+      const filterableAttributes = [...CORE_FILTERABLE_ATTRIBUTES, ...attributeTypes.keys()];
+      this.filterableAttributeNames = new Set(filterableAttributes);
+
       await this.meili.client
         .createIndex(LISTINGS_INDEX, { primaryKey: 'id' })
         .catch(() => undefined); // index already exists — that's fine
       await this.index.updateSettings({
         searchableAttributes: SEARCHABLE_ATTRIBUTES,
-        filterableAttributes: FILTERABLE_ATTRIBUTES,
+        filterableAttributes,
         sortableAttributes: SORTABLE_ATTRIBUTES,
         rankingRules: RANKING_RULES,
         typoTolerance: {
@@ -329,10 +315,16 @@ export class SearchService implements OnModuleInit {
       sort.push(params.sort);
     }
 
+    // Meilisearch rejects a facet request for any attribute not currently in
+    // filterableAttributes. FACET_ATTRIBUTES is curated independently of the
+    // dynamically-resolved filterable set, so intersect defensively instead of
+    // assuming the two always agree.
+    const facets = FACET_ATTRIBUTES.filter((f) => this.filterableAttributeNames.has(f));
+
     return this.index.search(params.q ?? '', {
       filter: filters.length ? filters : undefined,
       sort: sort.length ? sort : undefined,
-      facets: FACET_ATTRIBUTES,
+      facets,
       page: params.page ?? 1,
       hitsPerPage: params.hitsPerPage ?? 24,
     });

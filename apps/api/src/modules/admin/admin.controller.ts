@@ -162,7 +162,7 @@ export class AdminController {
   // (@Patch('categories/:id')) so the literal segment is not captured as :id.
 
   @Get('categories/searchable-keys')
-  getSearchableAttributeKeys() {
+  async getSearchableAttributeKeys() {
     return this.adminService.getSearchableAttributeKeys();
   }
 

@@ -1,12 +1,16 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { SearchService, VARIABLE_ATTRIBUTE_KEYS } from './search.service';
-import { SearchQueryDto } from './dto/search-query.dto';
+import { SearchService } from './search.service';
+import { FilterableAttributesResolver } from './filterable-attributes.resolver';
+import { parseSearchQuery } from './search-query.parser';
 
 @ApiTags('Search')
 @Controller('search')
 export class SearchController {
-  constructor(private readonly searchService: SearchService) {}
+  constructor(
+    private readonly searchService: SearchService,
+    private readonly attributesResolver: FilterableAttributesResolver,
+  ) {}
 
   @Get()
   @ApiOperation({
@@ -15,24 +19,19 @@ export class SearchController {
       'Búsqueda de texto completo con filtros y facetas resuelta por Meilisearch. ' +
       'Devuelve datos suficientes para pintar la tarjeta sin consultar la base de datos. ' +
       'Los atributos variables de categoría (brand, fuel, gearbox, sqm, rooms, gender, size…) ' +
-      'se pueden usar como filtros adicionales. Cualquier parámetro no declarado en el DTO ' +
+      'se pueden usar como filtros adicionales, derivados dinámicamente del esquema de ' +
+      'categorías. Cualquier parámetro no reconocido (ni core ni atributo filtrable) ' +
       'es rechazado con 400.',
   })
   @ApiOkResponse({
     description:
       '{ hits: ResumenAnuncio[], totalHits: number, page: number, hitsPerPage: number, facets?: Record<string, Record<string, number>> }',
   })
-  async search(@Query() dto: SearchQueryDto) {
-    // Extract validated variable attributes from the DTO.
-    // VARIABLE_ATTRIBUTE_KEYS is the single source of truth shared with the
-    // service; adding a new attribute there and in the DTO is all that's needed.
-    const attributes: Record<string, string | number | boolean> = {};
-    for (const key of VARIABLE_ATTRIBUTE_KEYS) {
-      const value = dto[key];
-      if (value !== undefined) {
-        attributes[key] = value as string | number | boolean;
-      }
-    }
+  async search(@Query() rawQuery: Record<string, unknown>) {
+    // attributeTypes drives both the query validation below and the hit
+    // normalisation further down — resolved once (memoized) per process.
+    const attributeTypes = await this.attributesResolver.getAttributeTypes();
+    const { dto, attributes } = await parseSearchQuery(rawQuery, attributeTypes);
 
     const result = await this.searchService.search({
       q: dto.q,
@@ -61,7 +60,7 @@ export class SearchController {
     // the frontend card reads them from `listing.attributes` (same as the Postgres path).
     const hits = result.hits.map((hit) => {
       const attrs: Record<string, unknown> = {};
-      for (const key of VARIABLE_ATTRIBUTE_KEYS) {
+      for (const key of attributeTypes.keys()) {
         const v = (hit as Record<string, unknown>)[key];
         if (v !== undefined) attrs[key] = v;
       }

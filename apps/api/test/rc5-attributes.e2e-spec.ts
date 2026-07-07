@@ -34,8 +34,10 @@ describe('RC5 — Categorías y atributos (e2e)', () => {
   beforeAll(async () => {
     prisma = new PrismaClient();
     meili = buildMeiliClient();
-    app = await createTestApp();
-    await app.init();
+    // App boot happens AFTER the test categories below are created: search's
+    // FilterableAttributesResolver resolves its filterable-attribute map once
+    // at boot (no hot refresh — see RÁFAGA 0), so a category created after
+    // app.init() would not be filterable within this same test run.
     await cleanDb(prisma);
     await resetMeili(meili);
 
@@ -136,6 +138,11 @@ describe('RC5 — Categorías y atributos (e2e)', () => {
       },
     });
     catCalzadoId = catCalzado.id;
+
+    // App boots now that every test category (with its filterable attributes)
+    // already exists in the DB — see the note in the beforeAll preamble above.
+    app = await createTestApp();
+    await app.init();
 
     // ── Login ─────────────────────────────────────────────────────────────────
     const [adminRes, modRes, sellerRes] = await Promise.all([
@@ -371,10 +378,9 @@ describe('RC5 — Categorías y atributos (e2e)', () => {
     expect(res.body.keys).toBeInstanceOf(Array);
     // Must contain the recently added itemType key
     expect(res.body.keys).toContain('itemType');
-    // Must contain core attribute keys
+    // Must contain this suite's own filterable attribute keys
     expect(res.body.keys).toContain('brand');
     expect(res.body.keys).toContain('size');
-    expect(res.body.keys).toContain('fuel');
   });
 
   it('GET /admin/categories/searchable-keys sin auth → 401', async () => {

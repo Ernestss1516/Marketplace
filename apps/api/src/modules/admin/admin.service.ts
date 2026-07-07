@@ -31,7 +31,7 @@ import { UpdateCategoryDto } from './dto/update-category.dto';
 import { ReorderCategoriesDto } from './dto/reorder-categories.dto';
 import { UpdateSettingDto } from './dto/update-setting.dto';
 import { AttributeField, resolveEffectiveSchema } from '../categories/category.types';
-import { VARIABLE_ATTRIBUTE_KEYS } from '../search/search.service';
+import { FilterableAttributesResolver } from '../search/filterable-attributes.resolver';
 
 const cacheKey = (slug: string) => `listing:${slug}`;
 
@@ -60,6 +60,7 @@ export class AdminService {
     private readonly redis: RedisService,
     private readonly meili: MeilisearchService,
     private readonly auditLog: AuditLogService,
+    private readonly attributesResolver: FilterableAttributesResolver,
     @InjectQueue(QUEUE_INDEXING) private readonly indexingQueue: Queue,
   ) {}
 
@@ -542,8 +543,9 @@ export class AdminService {
     });
   }
 
-  getSearchableAttributeKeys(): { keys: readonly string[] } {
-    return { keys: VARIABLE_ATTRIBUTE_KEYS };
+  async getSearchableAttributeKeys(): Promise<{ keys: readonly string[] }> {
+    const attributeTypes = await this.attributesResolver.getAttributeTypes();
+    return { keys: [...attributeTypes.keys()] };
   }
 
   // Cuenta cuántos anuncios de una categoría tienen datos bajo `key` en su

@@ -3,6 +3,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { QUEUE_INDEXING } from '../../infra/queue/queue.constants';
 import { MeilisearchModule } from '../../infra/meilisearch/meilisearch.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
+import { SearchModule } from '../search/search.module';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { AdminBillingController } from './admin-billing.controller';
@@ -13,6 +14,7 @@ import { AdminBillingService } from './admin-billing.service';
     BullModule.registerQueue({ name: QUEUE_INDEXING }),
     MeilisearchModule,
     AuditLogModule,
+    SearchModule,
   ],
   controllers: [AdminController, AdminBillingController],
   providers: [AdminService, AdminBillingService],

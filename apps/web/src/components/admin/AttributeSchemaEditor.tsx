@@ -652,7 +652,7 @@ function FieldForm({
           className={`flex items-center gap-1.5 text-xs ${filterableDisabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
           title={
             filterableDisabled
-              ? `"${draft.name.trim()}" no está en VARIABLE_ATTRIBUTE_KEYS. Para habilitarlo, añádelo al backend.`
+              ? `"${draft.name.trim()}" aún no es filtrable en el backend. Guarda el esquema; se habilitará como filtro de búsqueda en el próximo reinicio del servidor.`
               : undefined
           }
         >
