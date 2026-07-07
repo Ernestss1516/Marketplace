@@ -94,7 +94,7 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 
 ## 2. Decisiones técnicas y desviaciones respecto al diseño original
 
-Índice de esta sección (74 decisiones/desviaciones documentadas, orden cronológico por ráfaga;
+Índice de esta sección (75 decisiones/desviaciones documentadas, orden cronológico por ráfaga;
 enlaces ancla — funcionan en GitHub y en la vista previa de Markdown de VS Code):
 
 - [Ruta `/vendedor/[slug]` en lugar de `/[vendedor]`](#ruta-vendedorslug-en-lugar-de-vendedor)
@@ -113,6 +113,7 @@ enlaces ancla — funcionan en GitHub y en la vista previa de Markdown de VS Cod
 - [Modelo producto/servicio — RÁFAGA 1](#modelo-productoservicio-ráfaga-1)
 - [Admin de categorías producto/servicio — RÁFAGA 2](#admin-de-categorías-productoservicio-ráfaga-2)
 - [Wizard producto/servicio — RÁFAGA 3](#wizard-productoservicio-ráfaga-3)
+- [Búsqueda y ficha producto/servicio — RÁFAGA 4](#búsqueda-y-ficha-productoservicio-ráfaga-4)
 - [Fix ioredis en BullMQ](#fix-ioredis-en-bullmq)
 - [Verificación de email: nuevo JWT en lugar de re-login](#verificación-de-email-nuevo-jwt-en-lugar-de-re-login)
 - [Imágenes: upload pre-anuncio (huérfanas temporales)](#imágenes-upload-pre-anuncio-huérfanas-temporales)
@@ -610,14 +611,64 @@ complejidad en el futuro (p. ej. más de dos tipos, reglas de combinación), amb
 deben actualizarse juntas — inventariado, no urgente mientras la lógica siga siendo un
 filtro tan simple.
 
-**Pendiente antes de dar por cerrado el cambio producto/servicio**: `wizard-herencia.spec.ts`
-(Playwright) se revisó **por inspección**, no se ejecutó en real — requiere levantar todo
-el stack (Postgres/Redis/Meilisearch/MinIO + backend + frontend). El análisis de código
-indica que es un no-op (sus categorías de test — Vehículos/Coches, Electrónica/Móviles —
-no usan `allowedListingType` ni `appliesTo`, así que el filtrado no cambia nada y el
-`RadioGroup` sigue visible igual que antes), pero **no está verificado con una corrida
-real**. Correrlo al ejecutar R4, que de todas formas necesita levantar el stack completo
-para verificar búsqueda/ficha.
+**✅ RESUELTO EN RÁFAGA 4**: `wizard-herencia.spec.ts` corrió en real (13/13 verde, incluidos
+sus 5 casos) al levantar el stack completo para R4 — confirma por corrida real, no solo por
+inspección, que es un no-op. Texto original conservado por contexto histórico: se había
+revisado solo por inspección (sin ejecutar), porque requería levantar todo el stack
+(Postgres/Redis/Meilisearch/MinIO + backend + frontend); el análisis de código ya indicaba
+que sería un no-op (sus categorías de test — Vehículos/Coches, Electrónica/Móviles — no usan
+`allowedListingType` ni `appliesTo`).
+
+### Búsqueda y ficha producto/servicio — RÁFAGA 4
+
+Cierra la **presentación pública** del cambio producto/servicio (R0-R3 ya cerradas — ver
+«Cambio en curso — Producto/Servicio» más abajo, antes de §4). Con R4, el cambio
+producto/servicio es **funcional de punta a punta**: un admin configura la política de una
+categoría, un usuario publica con el tipo forzado o elegido según corresponda, la búsqueda
+filtra y presenta facetas conscientes del tipo, y la ficha muestra solo los atributos
+aplicables — sin ningún tramo del flujo ajeno a la dimensión de tipo.
+
+**Hallazgo clave de esta ráfaga**: al observar antes de diseñar, la mayor parte de lo que R4
+"necesitaba" **ya existía** o salía gratis de ráfagas anteriores:
+- El filtro por tipo (Producto/Servicio) en `FilterPanel` **ya existía desde H6.2** —
+  `Listing.type` siempre fue un campo core de dominio, indexado y filtrable en Meilisearch
+  desde antes de este cambio, ajeno a la política de categoría.
+- Las facetas conscientes del tipo salen **gratis por construcción**: `SearchService.search()`
+  ya incluye `type` en el mismo array `filters` que se usa como base de `facets` en la misma
+  llamada a Meilisearch (la facetDistribution se calcula sobre el resultado ya filtrado), y
+  `FilterPanel` ya omite renderizar una faceta sin valores. Ningún atributo `appliesTo`-restringido
+  llega nunca a un anuncio del tipo que no le aplica (R1/R3), así que su faceta
+  simplemente no tiene valores que mostrar cuando se filtra por el otro tipo.
+- "Condición" ya se oculta en fichas de servicio sin tocar nada — el campo es nullable y el
+  wizard (R1) ya lo limpia al elegir `SERVICE`.
+
+Con esto, R4 se redujo a **2 piezas de código** + verificar (no reconstruir) lo demás — la
+observación previa evitó reconstruir un filtro y un mecanismo de facetas que ya funcionaban.
+
+**Código**:
+- Ficha: `filterSchemaByType(schema, listing.type)` aplicado antes de `AttributeList`. El
+  `schema` **sin filtrar** se conserva aparte para el mapa de atributos de tarjeta de los
+  anuncios relacionados (`buildCardAttributeMapFromSchema`), que pueden ser de un tipo
+  distinto al de este anuncio — caso borde cubierto explícitamente, no una omisión.
+- `FilterPanel`: nuevo prop `allowedListingType?: ListingTypePolicy` — si se pasa y no es
+  `BOTH`, oculta la sección "Tipo" en vez de ofrecer una opción que siempre daría 0
+  resultados (mismo criterio que `readOnlyType` en el wizard, R3). `/[categoria]` ya pasa la
+  política efectiva de su categoría (disponible desde R3); `/busqueda` no la pasa → sin
+  cambios, sigue mostrando "Tipo" siempre.
+
+**Verificado, no construido** (lo que R4 heredaba de antes):
+- Filtro por tipo end-to-end: confirmado con Playwright real (`categoria-meili.spec.ts`,
+  caso "Filtro de tipo: type=PRODUCT muestra el coche; type=SERVICE no lo muestra").
+- Facetas conscientes del tipo: confirmado **empíricamente** con un e2e nuevo
+  (`search-facets-by-type.e2e-spec.ts`, 5/5) — categoría `BOTH` con `gearbox` (solo-PRODUCT)
+  y `modality` (solo-SERVICE): filtrar por tipo hace desaparecer la faceta del otro tipo.
+- Condición oculta en servicios: confirmado, sin cambios de código.
+
+**Migración indolora — verificación**: 5 tests e2e nuevos (`search-facets-by-type.e2e-spec.ts`)
++ 2 suites Jest nuevas en frontend (`attribute-schema.test.ts`, `FilterPanel.test.tsx`) +
+batería completa (38 suites, 603 tests) en verde sobre `Category` truncada + 6 suites/32
+tests de Jest en el frontend + **13/13 Playwright real** (`wizard-herencia`,
+`categoria-meili`, `listing-card-attrs`), sin tocar ningún test existente.
 
 ### Fix ioredis en BullMQ
 
@@ -3631,9 +3682,11 @@ tipos. `Category.attributeSchema` con herencia de 2 niveles (hoja → padre,
 atributos filtrables dinámicamente del schema (RÁFAGA 0), lo que evita que producto/servicio
 tenga que volver a tocar el mecanismo de búsqueda al multiplicar atributos por tipo.
 
-**Plan de ráfagas** (número/orden a confirmar tras diseñar R4; el terreno puede cambiar
-el reparto). **Backend y creación completos (R0-R3 cerradas); falta la presentación
-pública (R4) y los tests exhaustivos (R5):**
+**Plan de ráfagas. Con R0-R4 cerradas, el cambio producto/servicio es FUNCIONAL DE PUNTA A
+PUNTA**: un admin configura la política de una categoría → un usuario publica con el tipo
+forzado o elegido según corresponda → la búsqueda filtra y presenta facetas conscientes del
+tipo → la ficha muestra solo los atributos aplicables. Solo queda R5 (verificación
+integral):
 
 - **R0 — Dinamización de búsqueda.** ✅ **CERRADA.** Ver «Atributos filtrables dinámicos —
   RÁFAGA 0» en §2 y «Deuda nueva abierta por RÁFAGA 0» en §3.
@@ -3653,17 +3706,27 @@ pública (R4) y los tests exhaustivos (R5):**
   consumo (render, validación, envío); transiciones — cambio de categoría deriva
   `type`/`condition` de la nueva política, cambio de tipo conserva en memoria y filtra en
   consumo. Migración indolora verificada (598 tests e2e + 23 tests Jest frontend en
-  verde). **Pendiente real**: `wizard-herencia.spec.ts` (Playwright) solo revisado por
-  inspección, no ejecutado — correr con R4. Ver «Wizard producto/servicio — RÁFAGA 3» en §2.
-- **R4 — Búsqueda y ficha.** **Siguiente ráfaga.** Filtrar y mostrar por tipo en las
-  páginas públicas. Esperado **ligero** gracias a R0: un atributo solo-servicio
-  simplemente no aparece en los documentos de anuncios `PRODUCT` (Meilisearch tolera
-  campos ausentes sin configuración extra); la ficha filtra con
-  `filterSchemaByType(schema, listing.type)` al listar labels. Levanta el stack completo —
-  aprovechar para correr también `wizard-herencia.spec.ts` en real (deuda de R3).
-- **R5 — Tests exhaustivos.**
+  verde). Ver «Wizard producto/servicio — RÁFAGA 3» en §2.
+- **R4 — Búsqueda y ficha.** ✅ **CERRADA.** Ficha filtra atributos por tipo
+  (`filterSchemaByType`, con el caso borde de los relacionados cubierto); `FilterPanel`
+  oculta "Tipo" en categorías single-type. **Hallazgo clave**: casi todo lo que R4
+  "necesitaba" ya existía o salía gratis — el filtro por tipo desde H6.2, las facetas
+  conscientes del tipo por construcción (Meilisearch + `FilterPanel` ya existentes),
+  "condición" ya oculta en servicios (campo nullable). R4 fue 2 piezas de código +
+  verificación de lo demás. Deuda de R3 cerrada: `wizard-herencia.spec.ts` corrido en real
+  (13/13). Migración indolora verificada (603 tests e2e + 32 Jest frontend + 13/13
+  Playwright real). Ver «Búsqueda y ficha producto/servicio — RÁFAGA 4» en §2.
+- **R5 — Tests exhaustivos.** **Última ráfaga.** No es escribir tests desde cero — R1-R4 ya
+  vinieron cada una con su propia batería. R5 es **verificación integral**: flujos
+  end-to-end que cruzan varias ráfagas a la vez (p. ej. admin configura `PRODUCT_ONLY` →
+  publicar con tipo forzado → búsqueda filtrada → ficha), y los casos borde de interacción
+  entre ráfagas que ninguna cubrió aislada. **Decisión de alcance pendiente para cuando
+  arranque**: si incluir el refuerzo de la validación débil de `attributes`
+  (`validateAttributes` solo comprueba `required`, no tipo/opciones/claves desconocidas —
+  deuda inventariada desde el mapa original) ahora que el sistema de atributos está
+  completo con `appliesTo`.
 
-**Siguiente paso:** ráfaga R4 (búsqueda y ficha).
+**Siguiente paso:** ráfaga R5 (verificación integral) — decidir su alcance exacto al arrancar.
 
 ---
 
