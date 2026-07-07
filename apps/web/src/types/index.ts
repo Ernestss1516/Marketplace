@@ -83,6 +83,8 @@ export interface Category {
 
 export interface CategoryWithSchema extends Category {
   attributeSchema: AttributeSchema[];
+  /** Política efectiva (propia + heredada del padre) — RÁFAGA 3 (wizard). */
+  allowedListingType: ListingTypePolicy;
 }
 
 // ── Listings ─────────────────────────────────────────────────────────────────

@@ -12,6 +12,7 @@ import { StepUbicacion, type UbicacionData } from './steps/StepUbicacion';
 import { updateListing } from '@/lib/api/anuncios';
 import { toUserMessage } from '@/lib/api/client';
 import { useApiAction } from '@/lib/api/use-api-action';
+import { filterSchemaByType } from '@/lib/attribute-schema';
 import type { AttributeSchema, Condition } from '@/types';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -81,7 +82,9 @@ function validateStep(id: StepId, data: EditarWizardData): Record<string, string
   }
 
   if (id === 'atributos') {
-    for (const field of data.attributeSchema) {
+    // Tipo y categoría son inmutables aquí — sin transición posible, pero el
+    // filtrado por tipo sigue aplicando (mismo criterio que en publicar).
+    for (const field of filterSchemaByType(data.attributeSchema, data.type)) {
       if (field.required) {
         const val = data.attributes[field.name];
         if (!val || val === '') errors[field.name] = `${field.label} es obligatorio.`;
@@ -182,7 +185,7 @@ export function EditarWizard({ listingId, token, initialData }: EditarWizardProp
             condition: data.condition ? (data.condition as Condition) : undefined,
             price: data.priceMode === 'fixed' ? parseFloat(data.price) : 0,
             priceType: priceTypeFromMode(data.priceMode),
-            attributes: buildAttributes(data.attributes, data.attributeSchema),
+            attributes: buildAttributes(data.attributes, filterSchemaByType(data.attributeSchema, data.type)),
             city: data.city,
             province: data.province,
             postalCode: data.postalCode || undefined,
@@ -243,7 +246,7 @@ export function EditarWizard({ listingId, token, initialData }: EditarWizardProp
 
         {currentStepId === 'atributos' && (
           <StepAtributos
-            schema={data.attributeSchema}
+            schema={filterSchemaByType(data.attributeSchema, data.type)}
             values={data.attributes}
             onChange={(attrs) => update({ attributes: attrs })}
             errors={errors}

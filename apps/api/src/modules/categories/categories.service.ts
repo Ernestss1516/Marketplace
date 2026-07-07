@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../infra/prisma/prisma.service';
-import { AttributeField, resolveEffectiveSchema } from './category.types';
+import { AttributeField, resolveEffectiveSchema, resolveEffectivePolicy } from './category.types';
 
 @Injectable()
 export class CategoriesService {
@@ -57,7 +57,8 @@ export class CategoriesService {
         name: true,
         slug: true,
         attributeSchema: true,
-        parent: { select: { attributeSchema: true } },
+        allowedListingType: true,
+        parent: { select: { attributeSchema: true, allowedListingType: true } },
       },
     });
     if (!category) throw new NotFoundException('Category not found');
@@ -71,6 +72,12 @@ export class CategoriesService {
       slug: category.slug,
       // backward-compat: same field name; now returns the merged effective schema
       attributeSchema: resolveEffectiveSchema(own, parentSchema),
+      // RÁFAGA 3 (wizard): política efectiva para que el wizard sepa si debe
+      // preguntar el tipo (BOTH) o fijarlo sin preguntar (PRODUCT_ONLY/SERVICE_ONLY).
+      allowedListingType: resolveEffectivePolicy(
+        category.allowedListingType,
+        category.parent?.allowedListingType ?? 'BOTH',
+      ),
     };
   }
 }

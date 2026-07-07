@@ -3,13 +3,14 @@
 import { useState } from 'react';
 import { ChevronRight, Loader2 } from 'lucide-react';
 import { getCategoryBySlug } from '@/lib/api/categorias';
-import type { Category, AttributeSchema } from '@/types';
+import type { Category, AttributeSchema, ListingTypePolicy } from '@/types';
 
 interface CategoryData {
   categoryId: string;
   categorySlug: string;
   categoryName: string;
   attributeSchema: AttributeSchema[];
+  allowedListingType: ListingTypePolicy;
 }
 
 interface StepCategoriaProps {
@@ -41,6 +42,7 @@ export function StepCategoria({ categories, selected, onComplete }: StepCategori
         categorySlug: cat.slug,
         categoryName: cat.name,
         attributeSchema: full.attributeSchema,
+        allowedListingType: full.allowedListingType,
       });
     } catch {
       setError('No se pudo cargar la categoría. Inténtalo de nuevo.');

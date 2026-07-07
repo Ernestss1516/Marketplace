@@ -14,7 +14,8 @@ import { StepPrevisualizacion } from './steps/StepPrevisualizacion';
 import { createListing, publishListing } from '@/lib/api/anuncios';
 import { toUserMessage } from '@/lib/api/client';
 import { useApiAction } from '@/lib/api/use-api-action';
-import type { Category, AttributeSchema, ListingType, Condition } from '@/types';
+import { filterSchemaByType } from '@/lib/attribute-schema';
+import type { Category, AttributeSchema, ListingType, ListingTypePolicy, Condition } from '@/types';
 
 // ── Shared state shape ────────────────────────────────────────────────────────
 
@@ -24,6 +25,7 @@ export interface WizardData extends DatosData, UbicacionData {
   categorySlug: string;
   categoryName: string;
   attributeSchema: AttributeSchema[];
+  allowedListingType: ListingTypePolicy;
   // Step 2
   images: UploadedImage[];
   // Step 4
@@ -80,7 +82,9 @@ function validateStep(id: StepId, data: WizardData): Record<string, string> {
   }
 
   if (id === 'atributos') {
-    for (const field of data.attributeSchema) {
+    // Solo los campos que aplican al tipo elegido pueden bloquear el avance —
+    // un requerido de PRODUCT no debe exigirse a un anuncio SERVICE.
+    for (const field of filterSchemaByType(data.attributeSchema, data.type)) {
       if (field.required) {
         const val = data.attributes[field.name];
         if (!val || val === '') {
@@ -129,6 +133,7 @@ const INITIAL_DATA: WizardData = {
   categorySlug: '',
   categoryName: '',
   attributeSchema: [],
+  allowedListingType: 'BOTH',
   // Step 2
   images: [],
   // Step 3
@@ -212,8 +217,20 @@ export function PublicarWizard({ token, categories, initialLocation }: PublicarW
     categorySlug: string;
     categoryName: string;
     attributeSchema: AttributeSchema[];
+    allowedListingType: ListingTypePolicy;
   }) {
-    setData((prev) => ({ ...prev, ...cat, attributes: {} }));
+    setData((prev) => ({
+      ...prev,
+      ...cat,
+      attributes: {},
+      // La política de la nueva categoría manda: PRODUCT_ONLY/SERVICE_ONLY fija
+      // el tipo sin preguntar; BOTH conserva la elección previa (si la había).
+      type:
+        cat.allowedListingType === 'PRODUCT_ONLY' ? 'PRODUCT'
+        : cat.allowedListingType === 'SERVICE_ONLY' ? 'SERVICE'
+        : prev.type,
+      condition: cat.allowedListingType === 'SERVICE_ONLY' ? '' : prev.condition,
+    }));
     setErrors({});
     // Use the new schema to decide next step before state flush —
     // goNext reads activeSteps which is derived from current render's data,
@@ -244,7 +261,10 @@ export function PublicarWizard({ token, categories, initialLocation }: PublicarW
             type: data.type as ListingType,
             condition: data.condition ? (data.condition as Condition) : undefined,
             categoryId: data.categoryId,
-            attributes: buildAttributes(data.attributes, data.attributeSchema),
+            // CRÍTICO: construir sobre el schema FILTRADO por tipo — solo se envían
+            // los atributos que aplican al tipo final, aunque la memoria conserve
+            // valores de un tipo anterior (idas y venidas en el wizard).
+            attributes: buildAttributes(data.attributes, filterSchemaByType(data.attributeSchema, data.type)),
             city: data.city,
             province: data.province,
             postalCode: data.postalCode || undefined,
@@ -292,6 +312,7 @@ export function PublicarWizard({ token, categories, initialLocation }: PublicarW
                     categorySlug: data.categorySlug,
                     categoryName: data.categoryName,
                     attributeSchema: data.attributeSchema,
+                    allowedListingType: data.allowedListingType,
                   }
                 : null
             }
@@ -320,12 +341,13 @@ export function PublicarWizard({ token, categories, initialLocation }: PublicarW
             }}
             onChange={(patch) => update(patch as Partial<WizardData>)}
             errors={errors}
+            readOnlyType={data.allowedListingType !== 'BOTH'}
           />
         )}
 
         {currentStepId === 'atributos' && (
           <StepAtributos
-            schema={data.attributeSchema}
+            schema={filterSchemaByType(data.attributeSchema, data.type)}
             values={data.attributes}
             onChange={(attrs) => update({ attributes: attrs })}
             errors={errors}
