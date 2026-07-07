@@ -1,7 +1,10 @@
 # Estado técnico del proyecto — Marketplace
 
-> Fecha: 2026-07-04 · Rama: `main` · Último commit: b5eb9c9 — R7. Frontend entregado; CI test
-> Plan vigente: `docs/Hoja_de_ruta_rafagas_Hito5-9.docx` (Hitos 5–9). Hitos 5–7 firmes; 8–9 boceto a re-detallar al llegar.
+> Fecha: 2026-07-08 · Rama: `main` · Último commit: 01c69f1 — CI test def5.
+> Plan vigente: `docs/Hoja_de_ruta_rafagas_Hito5-9.docx` (Hitos 5–9). Hitos 5–8 cerrados (incluye el
+> bloque de blog — rol EDITOR, editor de markdown, páginas informativas, footer — y el Hito 8
+> ampliado completo: H8.1–H8.6 + Bloques C/D/E). Hito 9 (navegación, interfaz, deuda transversal y
+> testing) pendiente de arrancar.
 
 Documento de referencia para retomar el proyecto. Recoge qué hay implementado,
 qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
@@ -90,6 +93,80 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 ---
 
 ## 2. Decisiones técnicas y desviaciones respecto al diseño original
+
+Índice de esta sección (70 decisiones/desviaciones documentadas, orden cronológico por ráfaga;
+enlaces ancla — funcionan en GitHub y en la vista previa de Markdown de VS Code):
+
+- [Ruta `/vendedor/[slug]` en lugar de `/[vendedor]`](#ruta-vendedorslug-en-lugar-de-vendedor)
+- [Campo `priceType` (enum `FIXED | FREE | NEGOTIABLE`)](#campo-pricetype-enum-fixed-free-negotiable)
+- [Anuncios recientes vía Postgres; categorías vía Meilisearch (H6.2)](#anuncios-recientes-vía-postgres-categorías-vía-meilisearch-h62)
+- [`categoryPath` jerárquico y sintaxis de filtro de array en Meilisearch](#categorypath-jerárquico-y-sintaxis-de-filtro-de-array-en-meilisearch)
+- [Orden del spread en `toDocument` para no pisar campos core](#orden-del-spread-en-todocument-para-no-pisar-campos-core)
+- [DTO explícito de atributos variables por el ValidationPipe estricto](#dto-explícito-de-atributos-variables-por-el-validationpipe-estricto)
+- [Herencia de schema de atributos (RC5.2 + RC5.2b)](#herencia-de-schema-de-atributos-rc52-rc52b)
+- [Editor visual de atributos: decisiones de diseño (RC5.3)](#editor-visual-de-atributos-decisiones-de-diseño-rc53)
+- [Mapa de integridad ante borrados/ediciones (cierre Fase 5.2)](#mapa-de-integridad-ante-borradosediciones-cierre-fase-52)
+- [ListingCard con cardAttributes: decisiones de diseño (RC5.5)](#listingcard-con-cardattributes-decisiones-de-diseño-rc55)
+- [`allAttributes` en el árbol de categorías + `buildFullAttributeMap` (H6.5c)](#allattributes-en-el-árbol-de-categorías-buildfullattributemap-h65c)
+- [Deuda `type` → `itemType` (RC5.2)](#deuda-type-itemtype-rc52)
+- [Fix ioredis en BullMQ](#fix-ioredis-en-bullmq)
+- [Verificación de email: nuevo JWT en lugar de re-login](#verificación-de-email-nuevo-jwt-en-lugar-de-re-login)
+- [Imágenes: upload pre-anuncio (huérfanas temporales)](#imágenes-upload-pre-anuncio-huérfanas-temporales)
+- [Script reindex: `ReindexModule` mínimo y cierre limpio sin `process.exit()`](#script-reindex-reindexmodule-mínimo-y-cierre-limpio-sin-processexit)
+- [Gateway WebSocket y modelo de rooms (Fase 5)](#gateway-websocket-y-modelo-de-rooms-fase-5)
+- [Deduplicación idempotente por id en el cliente (Fase 5)](#deduplicación-idempotente-por-id-en-el-cliente-fase-5)
+- [Fix de propagación de `emailVerified` desde login (Fase 5)](#fix-de-propagación-de-emailverified-desde-login-fase-5)
+- [Caducidad automática y renovación de anuncios](#caducidad-automática-y-renovación-de-anuncios)
+- [Geocoding configurable con fallback silencioso](#geocoding-configurable-con-fallback-silencioso)
+- [Geocoding asíncrono y FIFO BullMQ (H6 — cambio de arquitectura)](#geocoding-asíncrono-y-fifo-bullmq-h6-cambio-de-arquitectura)
+- [`waitForTask()` en `indexListing`: indexación determinista (H6 — fix raíz del flaky de CI)](#waitfortask-en-indexlisting-indexación-determinista-h6-fix-raíz-del-flaky-de-ci)
+- [Búsqueda por proximidad: `_geoRadius` + `_geoPoint`](#búsqueda-por-proximidad-georadius-geopoint)
+- [Testing e2e: aislamiento por identificadores (Fase T)](#testing-e2e-aislamiento-por-identificadores-fase-t)
+- [Helpers y fixtures de test compartidos (Fase T)](#helpers-y-fixtures-de-test-compartidos-fase-t)
+- [`global-setup.ts` de Playwright y seed de usuarios e2e (Fase T)](#global-setupts-de-playwright-y-seed-de-usuarios-e2e-fase-t)
+- [webServer de Playwright y propagación de env vars en CI (Fase T)](#webserver-de-playwright-y-propagación-de-env-vars-en-ci-fase-t)
+- [CI: workflow de GitHub Actions (Fase T — RT.5)](#ci-workflow-de-github-actions-fase-t-rt5)
+- [Observabilidad: Sentry (Fase T — RT.6)](#observabilidad-sentry-fase-t-rt6)
+- [Observabilidad: logging estructurado con pino (Fase T — RT.6)](#observabilidad-logging-estructurado-con-pino-fase-t-rt6)
+- [Markdown del blog: `rehype-sanitize` sin `rehype-raw` (Fase B — regla invariante)](#markdown-del-blog-rehype-sanitize-sin-rehype-raw-fase-b-regla-invariante)
+- [Valoraciones (Reviews): elegibilidad, unicidad, edición y agregado (Hito 3)](#valoraciones-reviews-elegibilidad-unicidad-edición-y-agregado-hito-3)
+- [`@tailwindcss/typography`: import ESM, no `require()` (Fase B)](#tailwindcsstypography-import-esm-no-require-fase-b)
+- [Portadas del blog: solo upload a nuestro almacenamiento (Fase B)](#portadas-del-blog-solo-upload-a-nuestro-almacenamiento-fase-b)
+- [`@IsUrl` en DTOs: `require_tld: false, require_protocol: true` (Fase B / Hito 3)](#isurl-en-dtos-requiretld-false-requireprotocol-true-fase-b-hito-3)
+- [AuditLog: captura explícita en el service, nunca vía interceptor (Fase 7)](#auditlog-captura-explícita-en-el-service-nunca-vía-interceptor-fase-7)
+- [BadWordService: filtro con fallback silencioso al publicar (Fase 7)](#badwordservice-filtro-con-fallback-silencioso-al-publicar-fase-7)
+- [Separación de roles ADMIN / MODERATOR en el backoffice (RR5.1 + RR5.1-ext)](#separación-de-roles-admin-moderator-en-el-backoffice-rr51-rr51-ext)
+- [Rol EDITOR — blog (BLOG-EDITOR)](#rol-editor-blog-blog-editor)
+- [UI de asignación de roles en /admin/usuarios (BLOG-ADMIN-ROLE-UI)](#ui-de-asignación-de-roles-en-adminusuarios-blog-admin-role-ui)
+- [Editor de markdown en PostForm (`@uiw/react-md-editor`)](#editor-de-markdown-en-postform-uiwreact-md-editor)
+- [Páginas informativas (BLOG-PAGINAS) — cierra el bloque de blog](#páginas-informativas-blog-paginas-cierra-el-bloque-de-blog)
+- [Footer semi-dinámico + slug inmutable para páginas (BLOG-FOOTER-DINAMICO)](#footer-semi-dinámico-slug-inmutable-para-páginas-blog-footer-dinamico)
+- [Footer estructurado en columnas por grupos (BLOG-FOOTER-COLUMNAS)](#footer-estructurado-en-columnas-por-grupos-blog-footer-columnas)
+- [CI: `footer-paginas.spec.ts` fallaba consistentemente — causa raíz real (`APP_URL` equivocado, no el secret)](#ci-footer-paginasspects-fallaba-consistentemente-causa-raíz-real-appurl-equivocado-no-el-secret)
+- [Protección anti-degradación de ADMIN en cambio de rol (Fase 7)](#protección-anti-degradación-de-admin-en-cambio-de-rol-fase-7)
+- [Límites de anuncios activos por plan y configuración en caliente (RF.7-A)](#límites-de-anuncios-activos-por-plan-y-configuración-en-caliente-rf7-a)
+- [`revokedAt` en Entitlement: patrón de expiración idempotente (RF.7-B.1)](#revokedat-en-entitlement-patrón-de-expiración-idempotente-rf7-b1)
+- [boostScore y sortDate en Meilisearch (RF.8)](#boostscore-y-sortdate-en-meilisearch-rf8)
+- [Pro downgrade con des-indexado de Meilisearch (RF.7-B.2 — bug detectado y corregido)](#pro-downgrade-con-des-indexado-de-meilisearch-rf7-b2-bug-detectado-y-corregido)
+- [Settings: whitelist explícita en el service (Fase 7)](#settings-whitelist-explícita-en-el-service-fase-7)
+- [Migración `add_audit_log_and_settings` (Fase 7)](#migración-addauditlogandsettings-fase-7)
+- [UserStatus aplicado en login y en el guard JWT (Fase 7 — deuda cerrada)](#userstatus-aplicado-en-login-y-en-el-guard-jwt-fase-7-deuda-cerrada)
+- [Stripe v22: subscription de la primera factura en `invoice.parent` (RF.3)](#stripe-v22-subscription-de-la-primera-factura-en-invoiceparent-rf3)
+- [Modo de pago Redsys: REDIRECCIÓN (no InSite) (RF.10)](#modo-de-pago-redsys-redirección-no-insite-rf10)
+- [Bonus Pro: congelar el bonus calculado, no la condición Pro (RF.10)](#bonus-pro-congelar-el-bonus-calculado-no-la-condición-pro-rf10)
+- [Manejo centralizado de sesión stale: hook `useApiAction` (RF.9)](#manejo-centralizado-de-sesión-stale-hook-useapiaction-rf9)
+- [`FavoritesGridContext`: omisión deliberada de `listingIds` en el `useEffect` (RF.9)](#favoritesgridcontext-omisión-deliberada-de-listingids-en-el-useeffect-rf9)
+- [RF.11: código estructural `ALREADY_FEATURED` en lugar de match de substring (RF.11)](#rf11-código-estructural-alreadyfeatured-en-lugar-de-match-de-substring-rf11)
+- [RF.11: `apiFetch` endurecido — body-first parsing con soporte de 2xx vacíos](#rf11-apifetch-endurecido-body-first-parsing-con-soporte-de-2xx-vacíos)
+- [RF.11: `featuredUntil` y `bumpedAt` servidos frescos para el propietario](#rf11-featureduntil-y-bumpedat-servidos-frescos-para-el-propietario)
+- [RF.11: `ApiError` extendida con `retryAfter`, `isCooldownError`, `isCreditError`](#rf11-apierror-extendida-con-retryafter-iscooldownerror-iscrediterror)
+- [RF.11: matriz de cobertura acción × vía × ubicación × error](#rf11-matriz-de-cobertura-acción-vía-ubicación-error)
+- [RF.12: `AdminBillingController` — select explícito y filtro de entitlements activos](#rf12-adminbillingcontroller-select-explícito-y-filtro-de-entitlements-activos)
+- [RF.12b: acreditación manual atómica y separación de nota vs. motivo](#rf12b-acreditación-manual-atómica-y-separación-de-nota-vs-motivo)
+- [RF.12b: `AuditLogService.log(dto, tx?)` — parámetro de transacción opcional](#rf12b-auditlogservicelogdto-tx-parámetro-de-transacción-opcional)
+- [Lecciones de método: la saga del flaky del CI (H6 — las más valiosas del proyecto)](#lecciones-de-método-la-saga-del-flaky-del-ci-h6-las-más-valiosas-del-proyecto)
+- [Login social con Google — backend (Hito 7, parte 1)](#login-social-con-google-backend-hito-7-parte-1)
+- [Login social con Google — frontend (Hito 7, parte 2 — cierra el Hito 7)](#login-social-con-google-frontend-hito-7-parte-2-cierra-el-hito-7)
 
 ### Ruta `/vendedor/[slug]` en lugar de `/[vendedor]`
 
@@ -1486,6 +1563,30 @@ Una sola migración añade los modelos `AuditLog` y `Setting`. Detalles relevant
 
 ### UserStatus aplicado en login y en el guard JWT (Fase 7 — deuda cerrada)
 
+Tanto SUSPENDED como BANNED bloquean el acceso con el mismo comportamiento técnico
+(403 Forbidden), diferenciado únicamente en el mensaje al usuario. No se distingue
+semánticamente en la API porque añadiría edge cases (p.ej. "SUSPENDED puede leer pero
+no escribir") sin un requisito de negocio concreto para el MVP.
+
+**Bloqueo en login** (`AuthService.login()`): tras verificar la contraseña, se
+comprueba `User.status`. Si es SUSPENDED o BANNED se lanza `ForbiddenException` con
+mensaje específico antes de emitir el token. Se usa 403 y no 401 porque las
+credenciales son correctas — el problema es el estado de la cuenta.
+
+**Bloqueo en el guard** (`JwtStrategy.validate()`): convertida a `async`; hace un
+`findUnique` por `userId` (clave primaria indexada) en cada petición autenticada.
+Si el usuario no existe → 401; si SUSPENDED o BANNED → 403. Esto garantiza que un
+token emitido antes del baneo queda inoperativo en la siguiente petición, sin
+necesidad de invalidar el JWT.
+
+Se eligió la query a Postgres sobre las alternativas:
+- **Status en el JWT payload**: inútil con TTL de 7 días; el usuario baneado opera
+  durante todo ese período.
+- **Blacklist en Redis**: bloqueo inmediato sin query por request, pero requiere
+  mantener el blacklist al suspender/banear/reinstaurar y aumenta la complejidad
+  operativa. Es la evolución natural si el tráfico crece y la query de Postgres
+  se convierte en un cuello de botella.
+
 ### Stripe v22: subscription de la primera factura en `invoice.parent` (RF.3)
 
 En Stripe API versión `2026-06-24.dahlia` (v22), para la **primera factura** de una
@@ -1526,30 +1627,6 @@ webhooks → Subscription + Entitlement + Transaction con IVA 21 % correcto:
 **Pendiente de verificar:** la renovación de suscripción (segunda factura, fallback a
 `line0.subscription`) — no ejercida aún; requiere test clock de Stripe o esperar al
 segundo ciclo de facturación.
-
-Tanto SUSPENDED como BANNED bloquean el acceso con el mismo comportamiento técnico
-(403 Forbidden), diferenciado únicamente en el mensaje al usuario. No se distingue
-semánticamente en la API porque añadiría edge cases (p.ej. "SUSPENDED puede leer pero
-no escribir") sin un requisito de negocio concreto para el MVP.
-
-**Bloqueo en login** (`AuthService.login()`): tras verificar la contraseña, se
-comprueba `User.status`. Si es SUSPENDED o BANNED se lanza `ForbiddenException` con
-mensaje específico antes de emitir el token. Se usa 403 y no 401 porque las
-credenciales son correctas — el problema es el estado de la cuenta.
-
-**Bloqueo en el guard** (`JwtStrategy.validate()`): convertida a `async`; hace un
-`findUnique` por `userId` (clave primaria indexada) en cada petición autenticada.
-Si el usuario no existe → 401; si SUSPENDED o BANNED → 403. Esto garantiza que un
-token emitido antes del baneo queda inoperativo en la siguiente petición, sin
-necesidad de invalidar el JWT.
-
-Se eligió la query a Postgres sobre las alternativas:
-- **Status en el JWT payload**: inútil con TTL de 7 días; el usuario baneado opera
-  durante todo ese período.
-- **Blacklist en Redis**: bloqueo inmediato sin query por request, pero requiere
-  mantener el blacklist al suspender/banear/reinstaurar y aumenta la complejidad
-  operativa. Es la evolución natural si el tráfico crece y la query de Postgres
-  se convierte en un cuello de botella.
 
 ### Modo de pago Redsys: REDIRECCIÓN (no InSite) (RF.10)
 
@@ -1888,23 +1965,76 @@ paralelo) y el problema de fondo — suites sin BD/schema propio, todas comparte
 en su propia BD o schema (p. ej. derivando el nombre de `JEST_WORKER_ID`), lo que
 permitiría volver a correr en paralelo sin las condiciones de carrera.
 
-**2. Carrera de navegación del App Router bajo `next start` — mitigada con `toPass`, reaparece intermitente.**
-`h8-d4-banners.spec.ts` y otros tests de navegación han sido flaky en CI (falla en
-algunos runs, no en otros) de forma intermitente incluso con mitigaciones tipo
-`toPass`/polling ya aplicadas en el pasado. Causa raíz no cerrada — puede ser un
-problema real de la app bajo carga (el runner de CI es más lento que un dev local),
-no solo un test impaciente. Pendiente investigar si el propio App Router tiene una
-condición de carrera de verdad bajo latencia alta, o si falta ampliar el patrón
-`toPass` a más aserciones de navegación.
+**2. Carrera de navegación del App Router bajo `next start` — recurrente, mitigada por sitio, causa
+raíz sin cerrar.** Mismo bug de fondo documentado de forma independiente al menos 5 veces a lo largo
+de varias ráfagas, cada vez como si fuera un hallazgo nuevo — consolidado aquí en una sola entrada.
 
-**3. Meilisearch lento en CI — mitigado con reintentos en el test, recursos del runner sin investigar.**
-`listing-card-attrs.spec.ts` y similares usan un `waitForCard` con hasta 20-28
-recargas antes de encontrar la card indexada (visible en los logs: `[waitForCard]
-found after N reload(s)`). El contenedor de Meilisearch se comparte entre la suite
-Jest del backend y la suite Playwright dentro del mismo job de CI, lo que puede
-saturarlo. Pendiente: aplicar el patrón `waitForCard` retroactivamente donde falte, e
-investigar si el runner de CI necesita más recursos o si Meilisearch necesita su
-propio contenedor por step.
+**Qué es:** bajo `next start` (nunca reproducido bajo `next dev`), un click sobre un `<Link>` del App
+Router a veces no completa la transición de navegación — el elemento registra el click, la RSC
+payload y los assets de la página destino se piden y responden con 200, pero el router nunca confirma
+la transición (sin `history.pushState`, sin cambio de DOM, sin error de consola). La investigación más
+exhaustiva (ver ocurrencia 2 más abajo) descartó datos/fixtures, la página de destino, un error real
+de JS y que fuera solo cuestión de esperar más — sin llegar a una causa determinista única pese a
+varias rondas de aislamiento.
+
+**Ocurrencias documentadas** (orden cronológico; detalle completo de cada una en «Historial de
+ráfagas — Hito 8»):
+1. Detectada por primera vez tras BLOG-FOOTER-COLUMNAS, en `h8-d4-banners.spec.ts` y "otros tests de
+   navegación" (redacción original de este mismo ítem, antes de esta consolidación).
+2. `flujo-critico.spec.ts` — click en un resultado de búsqueda, `page.waitForURL` nunca resuelve
+   (H8 Bloque D fase 1, «Causa real #2» — la investigación más detallada de las cinco).
+3. `busqueda-mapa.spec.ts` — toggle Lista→Mapa→Lista, mismo mecanismo en un punto de click distinto
+   (ráfaga de estabilización posterior a D fase 1; mitigado, verificado 65/65 con `--repeat-each=5`).
+4. `wizard-herencia.spec.ts` / `prefill-ubicacion.spec.ts` — enlace "Editar",
+   `page.waitForURL('**/editar**')` nunca resuelve (H8 Bloque D fase 3a, «Hallazgo incidental»).
+5. `busqueda-mapa.spec.ts` de nuevo — toggle de mapa, con un matiz nuevo: falla de forma consistente
+   (3/3) cuando corre junto a sus tests hermanos del mismo archivo, pero pasa siempre en aislamiento —
+   sugiere que el estado acumulado (caché de router/RSC del servidor Next.js) incrementa la
+   probabilidad de la carrera (H8 Bloque D fase 3b, nota de proceso). **No abordado en esa ráfaga**
+   (decisión explícita del usuario, fuera de alcance de "admin CRUD de cupones + canje").
+
+**Mitigación actual (aplicada en cada sitio, no es una cura):** reintentar el click dentro de un
+`toPass` (click + `expect(url).toHaveURL(...)` con timeout corto; si no navega, reclicar) en vez de
+clicar una vez y solo reintentar la espera. Funciona en cada sitio donde se aplicó, pero es una
+mitigación por sitio, no una corrección de la causa raíz — y la ocurrencia 5 sugiere que la tasa de
+fallo depende de cuánto estado acumule la suite antes de llegar a ese test, no solo del propio click.
+
+**Causa raíz: sin cerrar.** Pendiente para el Hito 9: o bien confirmar que es un problema real de
+latencia del App Router bajo carga (reportar upstream a Next.js con un caso mínimo reproducible — no
+logrado aún, ver ocurrencia 2), o bien ampliar sistemáticamente el patrón `toPass` a toda navegación
+por click en la suite Playwright antes de que reaparezca en un sexto sitio.
+
+**3. Indexación de Meilisearch en CI — dos problemas distintos, no confundir.**
+
+**3a. RESUELTO — la asunción "el índice empieza vacío" en `busqueda-mapa.spec.ts` era falsa
+siempre en CI, no una cuestión de velocidad.** Diagnosticado y corregido en H8 Bloque D fase 4 (ver
+«Historial de ráfagas — Hito 8», sección «Ráfaga de estabilización», punto 1 — «`busqueda-mapa.spec.ts`
+— la asunción "Meilisearch está vacío" es FALSA siempre en CI real»): el job `e2e` ejecuta primero la suite Jest del backend, que indexa anuncios reales como
+parte de probar el propio módulo de búsqueda, compartiendo el mismo contenedor de Meilisearch con
+Playwright — el índice nunca está vacío cuando arranca Playwright. No era lentitud de indexación;
+era un test que asumía un estado inicial que la propia arquitectura del job de CI nunca produce. Las
+dos pruebas afectadas se corrigieron para usar una query sin coincidencias garantizadas en vez de
+depender de un índice vacío.
+
+**3b. ACTIVA — la indexación (BullMQ + Meilisearch) sí es lenta de verdad en CI, no solo el test es
+impaciente.** Esto es un problema distinto de 3a y sigue sin resolver: `listing-card-attrs.spec.ts`
+y similares necesitan hasta 20-28 recargas de `waitForCard` (~30-42 s sobre un timeout de 45 s,
+`intervalMs=1500`) antes de encontrar la card recién publicada. `SearchService.indexListing()` ya
+hace `await this.meili.client.waitForTask(...)` antes de que el job BullMQ se dé por completado (ver
+«`waitForTask()` en `indexListing`» más arriba) — es decir, el propio mecanismo garantiza que el
+documento es consultable en el momento en que el job termina; el retraso observado por `waitForCard`
+tiene que estar, por tanto, ANTES de eso: tiempo en cola hasta que el worker de BullMQ recoge el job
+(`queueWaitMs`, ya logueado como `[TIMING] index start ... queueWait=...ms`) y/o el propio
+`indexListing()`. Causa más probable, no confirmada con logs reales de CI (no hay acceso a ellos
+desde aquí): los tres processors de BullMQ (`IndexingProcessor` incluido) no declaran ninguna opción
+de `concurrency` en su `@Processor(...)`, por lo que corren con la concurrencia por defecto de
+`@nestjs/bullmq` (1 job a la vez); combinado con un runner de GitHub Actions de recursos compartidos
+(el servicio de Meilisearch en `ci.yml` no declara límites de CPU/memoria propios) y varias suites
+publicando anuncios en la misma ventana, una cola de jobs de indexado serializados a 1 a la vez
+explicaría los 20+ reintentos observados sin necesidad de que Meilisearch en sí sea lento. Pendiente
+para el Hito 9: instrumentar `queueWaitMs`/`indexTime` en un run de CI real para confirmar si el
+cuello de botella es la cola (subir `concurrency`) o el propio Meilisearch (recursos del runner o
+contenedor dedicado).
 
 **4. Observabilidad de `callRevalidateEndpoint` — errores tragados en silencio, ya ocultaron 3 bugs reales.**
 El fire-and-forget (`fetch(...).catch(() => {})`, sin comprobar `response.ok`) ha
@@ -1922,6 +2052,64 @@ Añadidos a `.env.example` (backend y frontend) como documentación — evita qu
 máquina nueva o un futuro CI repita este mismo fantasma. **Pendiente**: verificar
 que la otra máquina de desarrollo del equipo también los tiene configurados
 correctamente (no solo esta).
+
+**6. Seed de test no resetea `Setting` entre corridas locales — `freeActiveListingLimit` (y
+cualquier otro setting) queda contaminado entre suites.** Mecanismo real (documentado aquí por
+primera vez con detalle — antes solo había una alusión de pasada en «Lecciones de método» §2 y una
+referencia rota que apuntaba al sitio equivocado): `seed-test.ts#seedSettings()` siembra los
+`Setting` con `prisma.setting.createMany({ data: [...], skipDuplicates: true })` — `skipDuplicates`
+hace que una fila cuya `key` ya existe se **salte silenciosamente**, sin tocar su valor. Si un
+test de una suite (p. ej. `rf7-limits.e2e-spec.ts` o `rf7-expiration.e2e-spec.ts`) hace
+`PATCH /admin/settings/freeActiveListingLimit` a un valor de prueba (p. ej. `100`) para ejercer un
+caso límite, ese valor **sobrevive** en la BD `marketplace_test` local después de que el test
+termina — el siguiente test, o la siguiente ejecución completa de la suite en la misma BD, arranca
+con `freeActiveListingLimit = 100` en vez del default (`5`), y cualquier aserción que dependa del
+límite real falla o pasa por razones equivocadas. Causó **6 fallos** en una ejecución local reciente
+(specs de `rf7-limits`/`rf7-expiration`). **No afecta a CI**: cada job arranca con contenedores de
+Postgres nuevos (BD limpia), así que nunca hereda un `Setting` mutado por una ejecución anterior —
+por eso este problema es invisible en CI y solo aparece corriendo la suite repetidas veces en local
+sobre la misma BD, el mismo patrón de "contaminación local" ya visto con Meilisearch (ver más
+abajo). **Cura**: el seed de test debería **resetear** los `Setting` a sus defaults en cada corrida
+(`upsert` con `update: { value: default }` explícito, no solo `create`), en vez de respetar
+residuales de ejecuciones previas. Deuda para el Hito 9 (mismo saco que el resto de aislamiento
+dev/test de esta lista).
+
+**7. Duplicación del punto de concesión de destacados (`grantFeaturedListing`/`grantFeaturedListingTx`
+vs. `featuredByCredits`) — ACTIVA.** Anotada por primera vez en H8.1/H8.5a («Deuda de diseño sin
+resolver (heredada, anotada, no se toca aquí): `featuredByCredits` sigue sin llamar a
+`grantFeaturedListing` — mantiene su propia copia de la lógica de concesión dentro de su
+`$transaction` por la atomicidad con el wallet/la cuota. Dos puntos de concesión en vez de uno.»). El
+refactor `grantFeaturedListing` → `grantFeaturedListingTx` de H8 Bloque D fase 3a («salda parte de la
+deuda de duplicación de H8.1») solo cubre a `RedsysProcessor.handleFeaturedPay` y
+`CouponsService.redeem` — no a `featuredByCredits`. **Verificado en código (2026-07-08):**
+`grantFeaturedListingTx` solo la usan `grantFeaturedListing` (→ `RedsysProcessor.handleFeaturedPay`)
+y `CouponsService.redeem`. `BillingService.featuredByCredits` sigue sin llamar a ninguna de las dos —
+mantiene su propia validación (`assertFeaturable`) y su propio `tx.entitlement.create` inline,
+duplicado además en sus dos ramas internas (cuota Pro y créditos), cada una con su propio
+`entitlement.create`. El comentario en el código junto al `entitlement.create` de la rama de créditos
+(`billing.service.ts`, dentro de `featuredByCredits`) dice literalmente "single source of truth: this
+is the ONLY place" — inexacto, ya que `grantFeaturedListingTx` es otra. Siguen existiendo, por tanto,
+**tres** implementaciones independientes de "crear un `Entitlement FEATURED_LISTING`":
+`grantFeaturedListingTx` (Redsys + cupones) y las dos ramas inline de `featuredByCredits` (cuota Pro y
+créditos). Unificar `featuredByCredits` sobre `grantFeaturedListingTx` queda como deuda para el
+Hito 9.
+
+**8. Solapamiento check-then-act en campañas — ACTIVA, riesgo aceptado.** (H8 Bloque D fase 1,
+`CampaignsService.assertNoOverlap`.) La validación de solapamiento es check-then-act (lee, luego
+escribe fuera de la misma sección crítica) — dos activaciones concurrentes de campañas `INACTIVE`
+solapadas del mismo `type` podrían ambas superar la validación antes de que ninguna confirme su
+escritura. Riesgo bajo (acción de admin, un único actor, clics deliberados). Cierre robusto si el
+negocio lo exige: `EXCLUDE` constraint de Postgres (GiST sobre `type` + `tsrange(startsAt, endsAt)`);
+no implementado.
+
+**9. Caché de 5 min no se invalida al cambiar `trusted` del vendedor — ACTIVA.** (H8 Bloque E,
+`ListingsService.LISTING_INCLUDE.seller`.) `findBySlug` de `ListingsService` cachea la ficha completa
+del anuncio (incluido el sub-objeto `seller`) en Redis 5 minutos (`CACHE_TTL`); desmarcar a un
+vendedor como "de confianza" no invalida esa caché, así que una ficha ya cacheada puede seguir
+mostrando el badge hasta que expire. Mismo lag que ya tenían `avatarUrl`/`name` ahí — no es una
+regresión del bloque de "Vendedor de confianza", es una característica preexistente que ahora es más
+visible por tener un campo administrable con efecto inmediato esperado por el admin. Mejora futura:
+invalidar la caché del listing al cambiar `trusted` del vendedor.
 
 ### Reintentos del job `geocode` (nuevo — H6)
 
@@ -2015,6 +2203,16 @@ antes de asumir: el roadmap sobreestimaba el alcance real de Hito 7.
   H6 — puede quedar algún `toBeVisible(Ns)` pasivo sin migrar. Revisar en Hito 9.
 - **Job `geocode` sin reintentos**: deuda ya documentada más arriba («Reintentos del job `geocode`»)
   — sigue abierta, sin cambios en este hito. `geocode-backfill` es la red de seguridad.
+
+## Historial de ráfagas — Hito 8 (cerrado)
+
+Registro cronológico de las ráfagas que implementaron el Hito 8 (Pro/facturación ampliado: cuota
+mensual de destacados, badge Pro, Vendedor de confianza, estadísticas de anuncio, campañas,
+descuentos, cupones y banners). Movido aquí desde §3 en la reorganización de 2026-07-08 — no es
+deuda técnica, es el changelog de features ya cerradas. Los ítems de deuda real que estaban
+intercalados en este historial se extrajeron a §3 antes del movimiento (ver ítems 7, 8 y 9 de la
+lista «Deuda de test/CI consolidada», y las notas «(Ocurrencia consolidada en §3...)» dentro de
+este historial para la carrera de navegación del App Router).
 
 ### Hito 8 — en curso: cuota mensual de destacados Pro
 
@@ -2121,8 +2319,8 @@ hito (H8.6); mientras tanto, el detalle de las decisiones vive en el hilo de dis
   que siempre), el Setting de duración cambia el resultado, y los dos tests de concurrencia
   (best-effort + determinista) adaptados a la elección explícita.
 - **Deuda de diseño sin resolver (heredada, anotada, no se toca aquí):** `featuredByCredits` sigue
-  sin llamar a `grantFeaturedListing` — mantiene su propia copia de la lógica de concesión dentro de
-  su `$transaction` por la atomicidad con el wallet/la cuota. Dos puntos de concesión en vez de uno.
+  sin llamar a `grantFeaturedListing`. (Ítem de deuda activa — ver «Duplicación del punto de
+  concesión de destacados» en §3.)
 
 **H8.5b (UX: selector de vía al destacar + visibilidad de cuota Pro) — hecho:**
 
@@ -2217,14 +2415,9 @@ cerrar el Hito 8 enfocado.**
   - `UsersService.findBySlug` (`/vendedor/[slug]`): `trusted` es un campo directo del `select`, no
     requiere cálculo (a diferencia de `isPro`, que sí necesita `isProActive`).
   - `ListingsService.LISTING_INCLUDE.seller`: se añadió `trusted: true` al `select` del vendedor en
-    la ficha del anuncio (`/anuncio/[slug]`, vía `SellerCard`). **Caveat real, no arreglado aquí**:
-    `findBySlug` de `ListingsService` cachea la ficha completa (incluido el sub-objeto `seller`) en
-    Redis 5 minutos (`CACHE_TTL`); desmarcar a un vendedor no invalida esa caché, así que una ficha
-    ya cacheada puede seguir mostrando el badge hasta que expire. Mismo lag que ya tenían
-    `avatarUrl`/`name` ahí — no es una regresión de esta ráfaga, es una característica preexistente
-    que ahora es más visible por tener un campo administrable con efecto inmediato esperado por el
-    admin. Anotado como mejora futura (invalidar la caché del listing al cambiar `trusted` del
-    vendedor), no resuelto en esta ráfaga.
+    la ficha del anuncio (`/anuncio/[slug]`, vía `SellerCard`). **Caveat real, no arreglado aquí**
+    (detalle e ítem de deuda activa — ver «Caché de 5 min no se invalida al cambiar `trusted` del
+    vendedor» en §3).
 - **Frontend — tres badges visualmente distintos y coexistentes:** Pro (`Crown`, fondo primary
   sólido), Destacado (ámbar, ya existente en `MyListingCard`), de confianza (`BadgeCheck`, `outline`
   verde — `border-green-300 bg-green-50 text-green-700`). En `/vendedor/[slug]` ambos badges (Pro +
@@ -2354,8 +2547,8 @@ a "Hito 8b"; se retoma y cierra en esta ráfaga (C1 backend + C2 frontend).
    vaciando el índice (`DELETE /indexes/listings_test/documents`) y volviendo a correr la suite
    completa: 111/111 verde. No requiere ningún cambio de código — es un artefacto de repetir
    Playwright en local sin resetear Meilisearch entre corridas (mismo patrón que la contaminación de
-   `freeActiveListingLimit` en la BD de test compartida, ya documentada arriba en la nota de H8.6
-   sobre suite en paralelo vs. serie).
+   `freeActiveListingLimit` en la BD de test compartida — ver «Seed de test no resetea `Setting` entre
+   corridas locales» en §3).
 
 **H8 Bloque D fase 1 (motor de campañas + bonus de créditos promocional) — hecho.** Mini-diseño
 aprobado previamente; una sola ráfaga (schema + admin CRUD + aplicación en checkout).
@@ -2381,11 +2574,8 @@ aprobado previamente; una sola ráfaga (schema + admin CRUD + aplicación en che
   `AuditLog` con `CAMPAIGN_CREATE`/`CAMPAIGN_EDIT`/`CAMPAIGN_ACTIVATE`/`CAMPAIGN_DEACTIVATE` (acción
   derivada del cambio real de `active`, no solo del endpoint llamado).
 - **Deuda conocida, documentada y aceptada (no resuelta en esta fase):** la validación de
-  solapamiento es check-then-act (lee, luego escribe fuera de la misma sección crítica) — dos
-  activaciones concurrentes de campañas `INACTIVE` solapadas del mismo `type` podrían ambas superar la
-  validación antes de que ninguna confirme su escritura. Riesgo bajo (acción de admin, un único actor,
-  clics deliberados). Cierre robusto si el negocio lo exige: `EXCLUDE` constraint de Postgres (GiST
-  sobre `type` + `tsrange(startsAt, endsAt)`); no implementado aquí.
+  solapamiento de campañas es check-then-act. (Detalle e ítem de deuda activa — ver «Solapamiento
+  check-then-act en campañas» en §3.)
 - **Checkout** (`RedsysService.createCreditPackCheckout`): el bonus de campaña se calcula y congela
   igual que el Bonus Pro, **antes** de crear la `Transaction` — el bonus vigente es el del instante
   del checkout, no el de la confirmación del pago (documentado explícitamente; mismo criterio que ya
@@ -2484,6 +2674,7 @@ la causa real en vez de re-aplicar el fix anterior a ciegas.
    - Pendiente si reaparece con más incidencia: reportar upstream a Next.js con un caso mínimo
      reproducible (no se abrió aquí — no se logró una reproducción 100% determinista fuera del propio
      test, requisito habitual para un issue accionable).
+   - (Ocurrencia consolidada en §3, «Carrera de navegación del App Router».)
 
 **Suite completa verde de verdad tras ambos arreglos** (verificado sobre BD y Meilisearch limpios,
 no solo repitiendo con datos ya calientes): 27/27 suites backend (406/406 tests), 2/2 suites unitarias
@@ -2544,6 +2735,7 @@ necesaria para explicar los fallos observados).
    producción, no algo específico de un test. **Mitigación**: mismo patrón que en H8 Bloque D —
    reintentar el click dentro de un `toPass`, en vez de clicar una vez y solo reintentar la espera.
    Verificado con `--repeat-each=5` sobre el archivo completo (65/65 en verde).
+   (Ocurrencia consolidada en §3, «Carrera de navegación del App Router».)
 
 **Cierre verificado con el estándar exigido — 5+ runs consecutivos limpios, no "pasó una vez tras
 varios intentos":** dos rondas separadas de 5 ejecuciones completas de la suite (111/111 tests cada
@@ -2676,7 +2868,9 @@ usos que se agota) — mismo rigor que la cuota Pro de H8.3.
   (`RedsysProcessor.handleFeaturedPay`) — verificado sin regresión (`billing-rf6.e2e-spec.ts` sigue en
   verde). `priceId` pasa a opcional en `GrantFeaturedParams` (la columna ya era nullable, como en la
   rama de cuota Pro, que tampoco pasa `priceId`). Esto permite que `CouponsService.redeem` componga
-  la concesión del destacado DENTRO de su propia transacción de canje.
+  la concesión del destacado DENTRO de su propia transacción de canje. (La deuda de duplicación que
+  este refactor solo salda en parte — verificado en código, sigue activa — está consolidada en §3,
+  «Duplicación del punto de concesión de destacados».)
 - **Rollback limpio en cupón FEATURED sobre anuncio inválido:** si `grantFeaturedListingTx` lanza
   (anuncio no ACTIVE, ya destacado, o no es del usuario) dentro de la transacción de canje, TODA la
   transacción revierte — incluido el incremento de `redemptionCount` del paso (a). El cupón no se
@@ -2696,7 +2890,8 @@ usos que se agota) — mismo rigor que la cuota Pro de H8.3.
   card de búsqueda). Mismo arreglo ya establecido: reintentar el clic dentro de un `toPass`, aplicado
   a ambos archivos. Verificado con `--repeat-each=5`: sin más fallos de este tipo (los 4 fallos que sí
   aparecieron en esa tanda eran otra cosa — ver nota siguiente). Confirmado limpio con rondas
-  adicionales de la suite completa en pasada única.
+  adicionales de la suite completa en pasada única. (Ocurrencia consolidada en §3, «Carrera de
+  navegación del App Router».)
 - **Nota de proceso — artefacto de `--repeat-each` distinto de un fallo real:** al verificar el
   arreglo anterior con `--repeat-each=5`, `prefill-ubicacion.spec.ts` falló 4/5 veces en su PRIMER
   test ("usuario SIN ubicación → campos vacíos"), esperando que el perfil de `seller-e2e` tuviera
@@ -2783,7 +2978,7 @@ concurrencia nueva — eso ya quedó cerrado en fase 3a; esta ráfaga es admin +
   de lo que ocurría en el cierre de fase 3a. **No abordado en esta ráfaga** (fuera del alcance de
   "admin CRUD de cupones + canje"; decisión explícita del usuario tras reportarlo). Pendiente como
   seguimiento: investigar por qué el orden/acumulación dentro del archivo afecta la tasa de fallo del
-  reintento ya existente.
+  reintento ya existente. (Ocurrencia consolidada en §3, «Carrera de navegación del App Router».)
 
 **H8 Bloque D fase 4 (banners de difusión + enlaces compartibles) — hecho. Cierra el Bloque D
 completo.** Mini-diseño aprobado; presentación, sin dinero ni concurrencia — la fase tranquila.
