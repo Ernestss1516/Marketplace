@@ -94,7 +94,7 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 
 ## 2. Decisiones técnicas y desviaciones respecto al diseño original
 
-Índice de esta sección (71 decisiones/desviaciones documentadas, orden cronológico por ráfaga;
+Índice de esta sección (72 decisiones/desviaciones documentadas, orden cronológico por ráfaga;
 enlaces ancla — funcionan en GitHub y en la vista previa de Markdown de VS Code):
 
 - [Ruta `/vendedor/[slug]` en lugar de `/[vendedor]`](#ruta-vendedorslug-en-lugar-de-vendedor)
@@ -110,6 +110,7 @@ enlaces ancla — funcionan en GitHub y en la vista previa de Markdown de VS Cod
 - [`allAttributes` en el árbol de categorías + `buildFullAttributeMap` (H6.5c)](#allattributes-en-el-árbol-de-categorías-buildfullattributemap-h65c)
 - [Deuda `type` → `itemType` (RC5.2)](#deuda-type-itemtype-rc52)
 - [Atributos filtrables dinámicos — RÁFAGA 0](#atributos-filtrables-dinámicos-ráfaga-0)
+- [Modelo producto/servicio — RÁFAGA 1](#modelo-productoservicio-ráfaga-1)
 - [Fix ioredis en BullMQ](#fix-ioredis-en-bullmq)
 - [Verificación de email: nuevo JWT en lugar de re-login](#verificación-de-email-nuevo-jwt-en-lugar-de-re-login)
 - [Imágenes: upload pre-anuncio (huérfanas temporales)](#imágenes-upload-pre-anuncio-huérfanas-temporales)
@@ -452,6 +453,62 @@ aserción de `rc5-attributes.e2e-spec.ts` (`toContain('fuel')`) que solo pasaba 
 lista estática global siempre incluía `fuel`, sin relación con las categorías propias de
 ese test. Verificado repitiendo la batería con `Category` truncada entre pasadas (no solo
 antes de la primera) para descartar falsos verdes por residuos de corridas anteriores.
+
+### Modelo producto/servicio — RÁFAGA 1
+
+Base del cambio producto/servicio (ver «Cambio en curso — Producto/Servicio» más abajo,
+antes de §4). Objetivo: la categoría configura qué tipo(s) de anuncio admite, cada atributo
+del esquema se etiqueta con a qué tipo(s) aplica, y `Listing.type` se valida contra esa
+política. Migración deliberadamente suave: mismo comportamiento observable hasta que un
+admin configure algo (verificado con 584 tests e2e en verde sobre BD limpia).
+
+**Política de tipo en `Category`**: `enum ListingTypePolicy { PRODUCT_ONLY, SERVICE_ONLY,
+BOTH }` + `Category.allowedListingType ListingTypePolicy @default(BOTH)`. Columna propia
+(no vive en el canal Json de `attributeSchema`/`Listing.attributes`) y nombre
+`allowedListingType` — deliberadamente ni `type` ni `itemType` ni `ListingType`, para no
+repetir la colisión ya sufrida (ver «Deuda `type` → `itemType`» arriba). Migración sin
+backfill: Prisma escribe el default `BOTH` en las categorías existentes al aplicar
+`20260707201127_add_category_allowed_listing_type`.
+
+**Conexión tipo↔atributos**: `AttributeField` gana `appliesTo?: ('PRODUCT'|'SERVICE')[]`
+(opcional; ausente = aplica a ambos). Solo cambia la forma del objeto TS dentro del mismo
+`Json`, no la columna — cero migración de datos, todo atributo existente en el seed sigue
+aplicando a ambos tipos sin tocarlo.
+
+**Funciones puras en `category.types.ts`** (mismo patrón de separación merge/validación que
+`resolveEffectiveSchema` + `validateCardAttributeLimit`):
+- `resolveEffectivePolicy(own, parentEffective)`: `BOTH` es el elemento neutro (hijo `BOTH`
+  → hereda la política ya resuelta del padre; padre `BOTH` → manda la política propia del
+  hijo). Si ambos restringen a un tipo *distinto* — contradicción real — la función nunca
+  lanza: gana el padre, defensivamente. Misma profundidad de 2 niveles (hoja → padre) que
+  `resolveEffectiveSchema`.
+- `isListingTypeAllowed(policy, type)`: si la política efectiva permite ese `ListingType`.
+- `filterSchemaByType(schema, type)`: filtra un schema ya resuelto por `appliesTo` —
+  compuesta **sobre** `resolveEffectiveSchema` (primero heredar, luego filtrar por tipo), no
+  la sustituye.
+
+**Validación de `Listing.type`**: `ListingsService.create()` añade `allowedListingType` al
+`select` que ya traía `category` + `category.parent` (sin round-trip extra), resuelve la
+política efectiva y valida `dto.type` — `UnprocessableEntityException` (422, mismo estilo
+que `validateAttributes` hermana) si no está permitido. `update()` repite la misma
+comprobación cuando cambia `categoryId`, contra `existing.type` (inmutable, ver debajo) —
+cierra el vector de mover un anuncio a una categoría cuya política ya no lo admite.
+
+**`Listing.type` inmutable tras crear** — decisión consciente, no trivial: `type` retirado
+de `UpdateListingDto` (mismo patrón y comentario explícito que `UpdatePostDto.type`), pero a
+diferencia de `Post.type` esto **sí retiró una capacidad real y activa**: `EditarWizard.tsx`
+reutilizaba `StepDatos` (con su `RadioGroup` Producto/Servicio) y enviaba `type` en cada
+PATCH; ningún test e2e lo protegía, pero la UI lo ejercitaba en cada edición. `StepDatos.tsx`
+gana un modo lectura (`readOnlyType`) para cuando lo usa `EditarWizard`; este ya no envía
+`type` en el payload. De paso cierra una grieta preexistente: `update()` no revalidaba
+`attributes` cuando el único campo que cambiaba era `type` — al ser ahora inmutable, ese
+camino deja de existir.
+
+**Migración indolora — verificación**: batería completa (35 suites, 584 tests) en verde
+sobre `Category` truncada (BD limpia, no solo antes de la primera pasada). Único ajuste:
+`listings.service.spec.ts` (unitario) simulaba a mano una fila de `Category` sin
+`allowedListingType` — hueco de fixture (la BD real siempre devuelve ese campo, `NOT NULL
+DEFAULT 'BOTH'`), no cambio de comportamiento; se completó el mock.
 
 ### Fix ioredis en BullMQ
 
@@ -3458,24 +3515,32 @@ tipos. `Category.attributeSchema` con herencia de 2 niveles (hoja → padre,
 atributos filtrables dinámicamente del schema (RÁFAGA 0), lo que evita que producto/servicio
 tenga que volver a tocar el mecanismo de búsqueda al multiplicar atributos por tipo.
 
-**Plan de ráfagas** (número/orden a confirmar tras diseñar R1; el terreno puede cambiar
+**Plan de ráfagas** (número/orden a confirmar tras diseñar R2; el terreno puede cambiar
 el reparto):
 
 - **R0 — Dinamización de búsqueda.** ✅ **CERRADA.** Ver «Atributos filtrables dinámicos —
   RÁFAGA 0» en §2 y «Deuda nueva abierta por RÁFAGA 0» en §3.
-- **R1 — Modelo.** Política de tipo en `Category` (solo producto / solo servicio / ambos),
-  conexión tipo↔atributos (qué atributos aplican según el tipo elegido), migración de
-  datos existentes. **Siguiente ráfaga.**
-- **R2 — Admin de categorías.** Configurar la política de tipo y los atributos por tipo en
-  el editor visual; incluye el refresco en caliente de `filterableAttributes` diferido en
-  R0 (ver deuda en §3), porque este admin se toca de todas formas.
+- **R1 — Modelo.** ✅ **CERRADA.** Política de tipo en `Category` (`ListingTypePolicy`,
+  `allowedListingType @default(BOTH)`), conexión tipo↔atributos (`AttributeField.appliesTo`),
+  validación e inmutabilidad de `Listing.type`. Migración indolora verificada (584 tests
+  e2e en verde). Ver «Modelo producto/servicio — RÁFAGA 1» en §2.
+- **R2 — Admin de categorías.** **Siguiente ráfaga.** Necesita: (a) selector
+  `allowedListingType` en el editor de categoría, **validado en escritura** contra el padre
+  ya resuelto — mismo molde que `validateCardAttributeLimit` (traer padre, resolver
+  efectivo, 400 si la política propia contradice la del padre); (b) checkboxes
+  Producto/Servicio por atributo en `AttributeSchemaEditor.tsx` para `appliesTo` (default
+  ambos marcados); (c) el refresco en caliente de `filterableAttributes` que R0 dejó
+  diferido (ver deuda en §3) — este admin se toca de todas formas, es el momento natural.
+  **Matiz de diseño principal de R2:** R1 dejó `resolveEffectivePolicy` defensivo en
+  *lectura* (contradicción → gana el padre, nunca lanza); R2 es donde esa misma función se
+  ejerce también en *escritura*, para que la contradicción no llegue a persistirse nunca.
 - **R3 — Wizard.** Preguntar el tipo solo cuando la categoría permite «ambos»; aplicar los
-  atributos del tipo elegido.
+  atributos del tipo elegido (`filterSchemaByType`).
 - **R4 — Búsqueda y ficha.** Filtrar y mostrar por tipo — más fácil ahora que la búsqueda
   deriva sus atributos filtrables dinámicamente (R0).
 - **R5 — Tests exhaustivos.**
 
-**Siguiente paso:** ráfaga R1 (modelo).
+**Siguiente paso:** ráfaga R2 (admin de categorías).
 
 ---
 
