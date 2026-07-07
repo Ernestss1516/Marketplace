@@ -29,12 +29,12 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **Expiration** | ✅ Completo | `ExpirationService`: cron 02:00 — marca EXPIRED los anuncios ACTIVE con `expiresAt ≤ now`, invalida caché Redis y encola reindexado (RESERVED excluidos intencionalmente). **RF.7-B**: `EntitlementExpirationService`: cron 03:00 con **dos expiraciones en paralelo** — **B.1** `expireFeaturedListings`: selecciona entitlements `FEATURED_LISTING` caducados sin `revokedAt`, los marca en batch (`updateMany → revokedAt = now`, crash-safe), encola reindex con `boostScore:0`; deduplicación BullMQ por `jobId = feat-exp-${id}-${fecha}`. **B.2** `downgradeExpiredPro`: usuarios con `PRO_SUBSCRIPTION` expirado hace > 7 días (periodo de gracia), sin suscripción activa renovada; mueve los listings en exceso a DRAFT ordenado por `publishedAt asc` (más antiguos primero); **purga caché Redis + encola reindex** para cada listing drafteado → Meilisearch los elimina del índice. `runExpirationSweep()` público para tests sin necesidad de reloj real |
 | **Geocoding** | ✅ Completo | `GeocodingService` con proveedor configurable (`nominatim` por defecto, `maptiler`). Timeout 3 000 ms; fallback sin postalCode si la query completa devuelve vacío (CP incorrecto → vacío en Nominatim, resuelto sin CP); logs INFO/WARN detallados (provider, ciudad, "resolved" o "TIMEOUT/HTTP xxx"); normalización de nombres de provincia bilinguales ("Alicante/Alacant" → "Alicante") antes de enviar a Nominatim. **Para activar MapTiler en producción: solo `GEOCODING_PROVIDER=maptiler` + `MAPTILER_API_KEY`, cero cambios de código.** Script `geocode-backfill` para anuncios sin coordenadas (cursor-based, 1 req/s). |
 | **Media** | ✅ Upload + Avatar | `POST /media/upload` → R2/MinIO → crea `ListingImage` huérfana → encola procesado con sharp; **sin DELETE**. **RL5.1-C**: `POST /media/upload-avatar` (JwtAuthGuard) → sube a `avatars/` en R2/MinIO, devuelve `{ url }`, **NO crea ListingImage** (avatar no es una imagen de anuncio; tabla no crece). Mismos límites que `/upload`: 10 MB, solo JPEG/PNG/WebP (422 si otro tipo). Test e2e: `media.e2e-spec.ts` (4 tests: 401 sin auth, 422 no-imagen, 400 sin archivo, 201 + url + sin ListingImage creada). |
-| **Search** | ✅ Completo (RC5.2 + H6.5) | `GET /search` con texto libre, filtros core, atributos variables (brand, fuel, rooms, gender, size, **itemType**…), **filtro por proximidad** (`lat` + `lng` + `radius` en km → `_geoRadius` en Meilisearch) y **orden por distancia** cuando no hay sort explícito, facetas, paginación y ordenación; `IndexingProcessor` real con jobs `index`/`remove`. **RF.8**: `boostScore` (0/1) en el documento — 1 si el listing tiene un `FEATURED_LISTING` vigente al reindexar. `sortDate = max(publishedAt, bumpedAt)`. `rankingRules`: `[words, typo, proximity, attribute, boostScore:desc, sort, exactness, sortDate:desc]`. **H6.5c**: `INDEX_INCLUDE` incluye `seller: { name, slug, avatarUrl }` → `ListingDocument` guarda `sellerName`, `sellerSlug`, `sellerAvatarUrl` para que el panel del mapa los muestre sin fetch por selección. **H6 (fix raíz flaky CI)**: `indexListing()` llama a `waitForTask(task.taskUid)` — el job BullMQ no completa hasta que el documento es **consultable** en Meilisearch (antes completaba cuando Meili lo recibía, provocando flaky en tests que buscaban el anuncio justo después de indexar). **RC5.2**: `VARIABLE_ATTRIBUTE_KEYS` ampliado con `itemType`; `FACET_ATTRIBUTES` ampliado con `itemType`; `SearchQueryDto` declara `itemType?: string`. |
+| **Search** | ✅ Completo (RC5.2 + H6.5) | `GET /search` con texto libre, filtros core, atributos variables (brand, fuel, rooms, gender, size, **itemType**…), **filtro por proximidad** (`lat` + `lng` + `radius` en km → `_geoRadius` en Meilisearch) y **orden por distancia** cuando no hay sort explícito, facetas, paginación y ordenación; `IndexingProcessor` real con jobs `index`/`remove`. **RF.8**: `boostScore` (0/1) en el documento — 1 si el listing tiene un `FEATURED_LISTING` vigente al reindexar. `sortDate = max(publishedAt, bumpedAt)`. `rankingRules`: `[words, typo, proximity, attribute, boostScore:desc, sort, exactness, sortDate:desc]`. **H6.5c**: `INDEX_INCLUDE` incluye `seller: { name, slug, avatarUrl }` → `ListingDocument` guarda `sellerName`, `sellerSlug`, `sellerAvatarUrl` para que el panel del mapa los muestre sin fetch por selección. **H6 (fix raíz flaky CI)**: `indexListing()` llama a `waitForTask(task.taskUid)` — el job BullMQ no completa hasta que el documento es **consultable** en Meilisearch (antes completaba cuando Meili lo recibía, provocando flaky en tests que buscaban el anuncio justo después de indexar). **RC5.2**: `VARIABLE_ATTRIBUTE_KEYS` ampliado con `itemType`; `FACET_ATTRIBUTES` ampliado con `itemType`; `SearchQueryDto` declara `itemType?: string`. **RÁFAGA 0 (producto/servicio) — atributos filtrables dinámicos**: `VARIABLE_ATTRIBUTE_KEYS` (hardcodeado) eliminado; `FilterableAttributesResolver` (nuevo) deriva `Map<name, type>` de `Category.attributeSchema` en todas las categorías (unión plana, guard estructural contra nombres reservados, conflicto de tipo entre categorías → se conserva el primero + `Logger.warn`), memoizado desde `onModuleInit()` (sin refresco en caliente — ver §3). `SearchQueryDto` reducido a los campos core; `search-query.parser.ts` (nuevo) valida los atributos variables contra el mapa dinámico reutilizando el propio `ValidationPipe` de Nest para los campos fijos (mismo 400 ante clave desconocida). `FACET_ATTRIBUTES` (lista curada, sin cambios) se intersecta con lo realmente filtrable en tiempo de consulta para no pedir a Meilisearch facetas sobre atributos ausentes en un entorno dado. Ver «Atributos filtrables dinámicos — RÁFAGA 0» en §2. |
 | **Script reindex** | ✅ Completo (RF.9 fix) | `pnpm reindex` — reconstruye el índice en batches de 100; `ReindexModule` mínimo (sin BullMQ) para cierre limpio. **RF.9 fix**: antes hacía `addDocuments` sin vaciar (documentos huérfanos de listings borrados sobrevivían al reindexado); ahora llama `clearAll()` + `waitForTask` antes de repoblar → idempotente respecto a borrados |
 | **Messaging** | ✅ Completo | REST: `GET /conversations`, `POST /conversations`, `GET /conversations/:id` (cursor), `POST /conversations/:id/messages`. WebSocket gateway `/ws`: auth en handshake, rooms de conversación y de usuario, emit tras el POST REST |
 | **AuditLog** | ✅ Completo | `AuditLogService.log()` inyectable; captura explícita `before`/`after` dentro del método de service que muta el recurso, antes de llamar a Prisma; nunca vía interceptor (ver §2). **RF.12b**: `log(dto, tx?)` admite segundo parámetro `tx: Prisma.TransactionClient` opcional; si se pasa, el `prisma.auditLog.create` corre dentro de la transacción del llamador; backward-compat con todos los callers existentes (Fase 7) |
 | **Moderation** | ✅ Completo | Reportes CRUD + cola (GET con filtros status/reason/page); acciones sobre listings (approve, reject, deactivate, restore); `BadWordService` con fallback silencioso al publicar; AuditLog en todas las mutaciones; roles MODERATOR + ADMIN |
-| **Admin** | ✅ Completo (RC5.2) | Listings (list, detail, PATCH status); Users (list, detail, suspend, ban, reinstate, role); Categories CRUD + batch reorder; Settings GET + PATCH con whitelist; `GET /admin/stats` con 7 métricas + Meilisearch null-fallback; todos los endpoints con `@Roles(ADMIN)` y AuditLog. **RF.7**: whitelist de settings ampliada con `freeActiveListingLimit` y `proActiveListingLimit`; ambos configurables desde el backoffice sin redeploy. **RC5.2**: `createCategory` y `updateCategory` validan que el schema efectivo (propio + heredado del padre) tenga ≤ 2 atributos con `cardAttribute: true` (→ 400 si supera). `GET /admin/categories/searchable-keys` (ADMIN-only) → `{ keys: VARIABLE_ATTRIBUTE_KEYS }` para que RC5.3 pueda deshabilitar el checkbox `filterable` en atributos no listados. **Cierre Fase 5.2 (ráfaga de integridad)**: `deleteCategory` cuenta anuncios de **cualquier** `status` (antes solo `ACTIVE`), eliminando un 500 no controlado — ver «Mapa de integridad» más abajo; `GET /admin/categories/:id/attribute-usage?key=X` (ADMIN-only) cuenta anuncios con datos bajo una key concreta, usado por el editor para avisar antes de renombrar un atributo con datos. |
+| **Admin** | ✅ Completo (RC5.2) | Listings (list, detail, PATCH status); Users (list, detail, suspend, ban, reinstate, role); Categories CRUD + batch reorder; Settings GET + PATCH con whitelist; `GET /admin/stats` con 7 métricas + Meilisearch null-fallback; todos los endpoints con `@Roles(ADMIN)` y AuditLog. **RF.7**: whitelist de settings ampliada con `freeActiveListingLimit` y `proActiveListingLimit`; ambos configurables desde el backoffice sin redeploy. **RC5.2**: `createCategory` y `updateCategory` validan que el schema efectivo (propio + heredado del padre) tenga ≤ 2 atributos con `cardAttribute: true` (→ 400 si supera). `GET /admin/categories/searchable-keys` (ADMIN-only) → `{ keys }` para que RC5.3 pueda deshabilitar el checkbox `filterable` en atributos no listados; **RÁFAGA 0**: `keys` ahora viene de `FilterableAttributesResolver.getAttributeTypes()` (dinámico) en vez de la constante `VARIABLE_ATTRIBUTE_KEYS` (eliminada) — mismo contrato de respuesta, tooltip del editor actualizado en consecuencia. **Cierre Fase 5.2 (ráfaga de integridad)**: `deleteCategory` cuenta anuncios de **cualquier** `status` (antes solo `ACTIVE`), eliminando un 500 no controlado — ver «Mapa de integridad» más abajo; `GET /admin/categories/:id/attribute-usage?key=X` (ADMIN-only) cuenta anuncios con datos bajo una key concreta, usado por el editor para avisar antes de renombrar un atributo con datos. |
 | **Blog** | ✅ Completo | Modelo `Post` (enum `PostStatus { DRAFT, PUBLISHED }`, body Markdown raw, `tags String[]`, `coverUrl`, campos SEO opcionales `metaTitle`/`metaDescription`). `BlogController`: `GET /blog` (solo PUBLISHED, paginado, filtro `?tag=`) y `GET /blog/:slug` (404 si no existe o es DRAFT). `BlogAdminController` (`@Roles(ADMIN)`): CRUD completo + `POST /admin/blog/:id/publish` + `POST /admin/blog/:id/unpublish`. AuditLog en todas las mutaciones (`POST_CREATE`, `POST_UPDATE`, `POST_PUBLISH`, `POST_UNPUBLISH`, `POST_DELETE`). Revalidación ISR on-demand fire-and-forget al publicar/despublicar/editar/borrar posts publicados (el blog es el **primer productor del webhook** desde el backend; el webhook en sí existía desde Fase 5). `BlogModule` importa `PrismaModule` + `AuditLogModule`; autónomo, no modifica `AdminModule` |
 | **Favorites** | ✅ Completo | `POST /favorites/:listingId` (marcar), `DELETE /favorites/:listingId` (desmarcar), `GET /favorites` (paginado), `GET /favorites/:listingId` (check), `POST /favorites/batch-check` (máx. 100 ids → `{ favoritedIds }`). Todos idempotentes y con `JwtAuthGuard`. Suite `favorites.e2e-spec.ts` (12 tests) |
 | **Reviews** | ✅ Completo (H7) | `POST /reviews` (crear; guard de elegibilidad vía `Conversation`; snapshot de `listingTitle`), `GET /reviews/eligibility?listingId=&targetId=` (check antes de mostrar el formulario), `PATCH /reviews/:id` (editar en ventana 72 h; persiste `editedAt`), `DELETE /reviews/:id` (borrar en ventana 72 h). Listado público via `GET /users/:slug/reviews` (cursor paginado + aggregate on-the-fly: average, count, distribución 1–5). Unicidad `(authorId, targetId, listingId)` — una reseña por par de usuarios por anuncio. `FAKE_REVIEW` añadido a `ReportReason`; `Report.reviewId` FK con CASCADE para moderar reseñas. **H7**: `Review.listingId` es `onDelete: SetNull` (nullable) — la reseña sobrevive al borrado del anuncio con snapshot `listingTitle`; ver «H7 — La reseña sobrevive al borrado del anuncio» más abajo. Suite `reviews.e2e-spec.ts` (24 tests) |
@@ -94,7 +94,7 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 
 ## 2. Decisiones técnicas y desviaciones respecto al diseño original
 
-Índice de esta sección (70 decisiones/desviaciones documentadas, orden cronológico por ráfaga;
+Índice de esta sección (71 decisiones/desviaciones documentadas, orden cronológico por ráfaga;
 enlaces ancla — funcionan en GitHub y en la vista previa de Markdown de VS Code):
 
 - [Ruta `/vendedor/[slug]` en lugar de `/[vendedor]`](#ruta-vendedorslug-en-lugar-de-vendedor)
@@ -109,6 +109,7 @@ enlaces ancla — funcionan en GitHub y en la vista previa de Markdown de VS Cod
 - [ListingCard con cardAttributes: decisiones de diseño (RC5.5)](#listingcard-con-cardattributes-decisiones-de-diseño-rc55)
 - [`allAttributes` en el árbol de categorías + `buildFullAttributeMap` (H6.5c)](#allattributes-en-el-árbol-de-categorías-buildfullattributemap-h65c)
 - [Deuda `type` → `itemType` (RC5.2)](#deuda-type-itemtype-rc52)
+- [Atributos filtrables dinámicos — RÁFAGA 0](#atributos-filtrables-dinámicos-ráfaga-0)
 - [Fix ioredis en BullMQ](#fix-ioredis-en-bullmq)
 - [Verificación de email: nuevo JWT en lugar de re-login](#verificación-de-email-nuevo-jwt-en-lugar-de-re-login)
 - [Imágenes: upload pre-anuncio (huérfanas temporales)](#imágenes-upload-pre-anuncio-huérfanas-temporales)
@@ -218,16 +219,33 @@ de definición inferior porque los campos core van después.
 
 ### DTO explícito de atributos variables por el ValidationPipe estricto
 
+**✅ SUPERADO (RÁFAGA 0 — producto/servicio):** `SearchQueryDto` ya no declara un campo
+por atributo variable; `search-query.parser.ts` valida esas claves contra el mapa dinámico
+de `FilterableAttributesResolver` (ver «Atributos filtrables dinámicos — RÁFAGA 0»). El
+párrafo original queda por contexto histórico: por qué el DTO llegó a declarar cada
+atributo explícitamente.
+
 El backend arranca con `ValidationPipe({ whitelist: true, forbidNonWhitelisted: true })`.
-Cualquier query parameter que no esté declarado en `SearchQueryDto` es rechazado con
+Cualquier query parameter que no esté declarado en `SearchQueryDto` era rechazado con
 400. Por eso los atributos variables de categoría (brand, fuel, rooms, gender, size,
-**itemType**…) están **declarados explícitamente** como campos del DTO en lugar de
-leerse como mapa genérico. `VARIABLE_ATTRIBUTE_KEYS` en `search.service.ts` es la
-fuente de verdad compartida; el DTO y el service deben mantenerse en sync al añadir
+**itemType**…) estaban **declarados explícitamente** como campos del DTO en lugar de
+leerse como mapa genérico. `VARIABLE_ATTRIBUTE_KEYS` en `search.service.ts` era la
+fuente de verdad compartida; el DTO y el service debían mantenerse en sync al añadir
 atributos nuevos. El atributo `itemType` fue añadido en RC5.2 para reemplazar `type`
 (colisión con el enum `ListingType`).
 
-**Tensión dinámico-vs-estático en atributos filtrables:** los atributos filtrables en búsqueda siguen hardcodeados (`VARIABLE_ATTRIBUTE_KEYS` + `SearchQueryDto`); los demás usos (wizard, ficha de anuncio, tarjeta RC5.5) son dinámicos desde BD. Un atributo guardado con `filterable: true` cuyo `name` no esté en `VARIABLE_ATTRIBUTE_KEYS` se almacena y se muestra en el wizard y la ficha, pero el parámetro `?name=valor` en `GET /search` es rechazado con 400 (campo no declarado en `SearchQueryDto`). El endpoint `GET /admin/categories/searchable-keys` expone esa lista para que el editor visual (RC5.3) deshabilite el checkbox `filterable` para esos nombres, haciendo inalcanzable desde la UI el estado incoherente `{ filterable: true, name no buscable }`. Un PATCH directo a la API sí puede crear ese estado; el backend no lo valida (es metadato del wizard, no un campo de Meilisearch).
+**✅ RESUELTO (RÁFAGA 0 — producto/servicio):** la tensión dinámico-vs-estático descrita en este
+párrafo (atributos filtrables hardcodeados en `VARIABLE_ATTRIBUTE_KEYS`/`SearchQueryDto` frente al
+resto de usos, dinámicos desde BD) ya no existe: `FilterableAttributesResolver` deriva el conjunto
+filtrable de `Category.attributeSchema` para toda la aplicación, incluida la búsqueda. Un atributo
+guardado con `filterable: true` es filtrable en `GET /search` sin tocar código — solo requiere
+reiniciar el proceso (memoizado una vez al arrancar, sin refresco en caliente; ver §3). Detalle
+completo en «Atributos filtrables dinámicos — RÁFAGA 0» más abajo. Texto original conservado por
+contexto histórico: los atributos filtrables en búsqueda seguían hardcodeados (`VARIABLE_ATTRIBUTE_KEYS`
++ `SearchQueryDto`); los demás usos (wizard, ficha de anuncio, tarjeta RC5.5) eran dinámicos desde BD.
+Un atributo guardado con `filterable: true` cuyo `name` no estuviera en `VARIABLE_ATTRIBUTE_KEYS` se
+almacenaba y se mostraba en el wizard y la ficha, pero el parámetro `?name=valor` en `GET /search` era
+rechazado con 400 (campo no declarado en `SearchQueryDto`).
 
 ### Herencia de schema de atributos (RC5.2 + RC5.2b)
 
@@ -246,9 +264,10 @@ por lo que `required: true` en el padre se sigue enforcing en los hijos.
 El admin backoffice (create/update category) valida que el schema **efectivo** (propio +
 heredado) no supere 2 atributos con `cardAttribute: true`. Este flag marca los atributos
 que se mostrarán en la tarjeta de anuncio (RC5.5). El endpoint
-`GET /admin/categories/searchable-keys` expone `VARIABLE_ATTRIBUTE_KEYS` para que el
+`GET /admin/categories/searchable-keys` expone el conjunto filtrable (desde RÁFAGA 0,
+`FilterableAttributesResolver` — antes `VARIABLE_ATTRIBUTE_KEYS` hardcodeado) para que el
 editor de atributos (RC5.3) desactive el checkbox `filterable` para atributos cuyo
-nombre no esté en la lista hardcodeada.
+nombre no esté (todavía) en ese conjunto.
 
 ### Editor visual de atributos: decisiones de diseño (RC5.3)
 
@@ -371,6 +390,68 @@ para usar `itemType` en el nuevo campo. `VARIABLE_ATTRIBUTE_KEYS`, `SearchQueryD
 La misma migración normaliza `calzado.size` de número JSON a string JSON para que el
 filtro `?size=38` (string) coincida con el valor almacenado. El seed cambia el campo a
 `type: 'select'` con opciones `['35', …, '45']`.
+
+### Atributos filtrables dinámicos — RÁFAGA 0
+
+Ráfaga de saneamiento previa al cambio producto/servicio (ver «Cambio en curso —
+Producto/Servicio» más abajo, antes de §4). Objetivo: derivar los atributos filtrables de
+búsqueda de `Category.attributeSchema` en vez de la lista hardcodeada
+`VARIABLE_ATTRIBUTE_KEYS`, para que añadir un atributo filtrable a una categoría no
+requiera tocar código de búsqueda — necesario porque producto/servicio multiplicará los
+atributos por tipo. Refactorización pura: **comportamiento observable idéntico**,
+verificado sobre BD de test limpia (571 tests e2e en verde).
+
+**`FilterableAttributesResolver`** (nuevo, `modules/search/filterable-attributes.resolver.ts`):
+consulta `Category.attributeSchema` de **todas** las categorías (unión plana — no
+`resolveEffectiveSchema` — porque la pregunta es "qué claves existen como filtrables en
+todo el sistema", no "qué schema aplica a una categoría concreta"), se queda con las
+entradas `filterable: true`, y excluye estructuralmente cualquier `name` que coincida con
+un campo reservado (core de Meilisearch o campo core del DTO de búsqueda) — esto convierte
+la antigua convención humana (renombrar `type` → `itemType` a mano en el seed, ver deuda
+de arriba) en una regla del código. Si dos categorías declaran el mismo `name` con `type`
+distinto, se conserva el primero y se emite `Logger.warn` (tolerante, no rompe el
+arranque). El resultado (`Map<name, type>`) se memoiza la primera vez que se pide —
+efectivamente una vez por arranque del proceso, **sin refresco en caliente** (ver deuda en
+§3): cambiar `filterable` en el admin de categorías no tiene efecto hasta reiniciar,
+comportamiento idéntico al de la lista hardcodeada anterior.
+
+**Los 4 usos reales de `VARIABLE_ATTRIBUTE_KEYS`** (constante eliminada) migrados al mapa
+dinámico: (1) `filterableAttributes` de Meilisearch en `onModuleInit()`; (2) extracción de
+atributos válidos desde el query string en `SearchController`; (3) normalización de los
+hits planos de Meilisearch al objeto `attributes` anidado que lee `ListingCard`; (4)
+`AdminService.getSearchableAttributeKeys()` (`GET /admin/categories/searchable-keys`) —
+este último no estaba en el plan original de la ráfaga, se descubrió al grepear todas las
+referencias antes de borrar la constante.
+
+**Validación dinámica del query string:** `SearchQueryDto` se redujo a los campos core;
+`search-query.parser.ts` (nuevo) separa el query crudo en campos core (validados
+reutilizando el propio `ValidationPipe` de Nest con las mismas opciones que `main.ts`, sin
+reimplementar su lógica) y atributos variables (validados/coeraccionados contra el mapa
+dinámico — `number` → `Number()` + `isFinite`, `boolean` → `'true'`/`true` literal o
+`false` sin rechazar nunca, `text`/`select` → debe ser string). Una clave que no es ni
+campo core ni atributo filtrable conocido sigue devolviendo 400, igual que antes con
+`forbidNonWhitelisted`.
+
+**Fix derivado, no anticipado en el diseño:** `FACET_ATTRIBUTES` (lista curada a mano,
+independiente de lo filtrable) pedía facetas sobre atributos (`gearbox`, `gender`,
+`modality`, `rooms`…) que en el entorno de test (`prisma/seed-test.ts`, fixture mínimo, sin
+relación con `prisma/seed.ts` de producción) no existen — Meilisearch rechaza con 500 pedir
+una faceta sobre un atributo no filtrable. La lista estática anterior enmascaraba esto
+porque declaraba esos nombres como filtrables sin importar si algún dato real los usaba.
+Solución: `SearchService.search()` intersecta `FACET_ATTRIBUTES` con el conjunto realmente
+filtrable en tiempo de consulta antes de pedirlo a Meilisearch. `FACET_ATTRIBUTES` en sí no
+se tocó.
+
+**Efecto colateral en dos tests e2e (no comportamiento, orden de setup):** `rc5-attributes.e2e-spec.ts`
+y `rc5b-vehiculos.e2e-spec.ts` crean categorías propias con `prisma.category.create(...)`
+**después** de `app.init()` en su `beforeAll` — con la lista estática esto no importaba
+(hardcodeada, ajena al momento de creación de la categoría); con el resolver memoizado al
+arrancar, una categoría creada después del arranque no es filtrable en esa misma corrida.
+Se reordenó el `beforeAll` de ambos specs (categorías antes de `app.init()`) y se quitó una
+aserción de `rc5-attributes.e2e-spec.ts` (`toContain('fuel')`) que solo pasaba porque la
+lista estática global siempre incluía `fuel`, sin relación con las categorías propias de
+ese test. Verificado repitiendo la batería con `Category` truncada entre pasadas (no solo
+antes de la primera) para descartar falsos verdes por residuos de corridas anteriores.
 
 ### Fix ioredis en BullMQ
 
@@ -2281,6 +2362,26 @@ antes de asumir: el roadmap sobreestimaba el alcance real de Hito 7.
   H6 — puede quedar algún `toBeVisible(Ns)` pasivo sin migrar. Revisar en Hito 9.
 - **Job `geocode` sin reintentos**: resuelto en Hito 9 — ver «Reintentos del job `geocode`» más arriba.
 
+### Deuda nueva abierta por RÁFAGA 0 (producto/servicio — dinamización de búsqueda)
+
+- **Sin refresco en caliente de `filterableAttributes`.** `FilterableAttributesResolver`
+  memoiza el mapa de atributos filtrables una vez por arranque del proceso (decisión
+  explícita, ver «Atributos filtrables dinámicos — RÁFAGA 0» en §2). Cambiar `filterable`
+  en el editor de categorías del admin no se propaga a Meilisearch ni a la validación del
+  query string hasta reiniciar — comportamiento preservado de la lista hardcodeada
+  anterior, no una regresión. Mejora diferida a la ráfaga del admin de categorías de
+  producto/servicio (R2 del plan — ver «Cambio en curso — Producto/Servicio» más abajo,
+  antes de §4), donde ese admin se va a tocar de todas formas para añadir la política de
+  tipo por categoría.
+- **Validación débil de atributos (deuda preexistente, no introducida por esta ráfaga).**
+  `ListingsService.validateAttributes()` solo comprueba que las keys marcadas `required:
+  true` estén presentes (`hasOwnProperty`); no valida que el tipo del valor coincida con el
+  `type` del schema (`number`/`boolean`/`select`), no valida que un valor `select` esté
+  entre las `options` declaradas, y no rechaza claves desconocidas no declaradas en el
+  schema efectivo de la categoría. Queda inventariada; candidata a reforzarse cuando se
+  toque el sistema de atributos en las ráfagas de producto/servicio (el mismo sitio donde
+  se conectará la política de tipo con los atributos aplicables).
+
 ## Historial de ráfagas — Hito 8 (cerrado)
 
 Registro cronológico de las ráfagas que implementaron el Hito 8 (Pro/facturación ampliado: cuota
@@ -3337,6 +3438,44 @@ no entiende por qué `brand` aparece como no filterable.
 
 Mejora futura: mostrar un banner «No se pudo cargar la lista de atributos buscables» en
 lugar de deshabilitar silenciosamente todos los checkboxes.
+
+---
+
+## Cambio en curso — Producto/Servicio
+
+**Objetivo:** los anuncios diferencian producto/servicio; la categoría configura qué
+tipos permite (solo producto / solo servicio / ambos); cuando permite ambos, el anuncio
+elige y se aplican atributos distintos según el tipo elegido. Alcance deliberadamente
+acotado: **solo cambian los atributos** — precio, envío, estado y flujos de publicación
+siguen igual. Los atributos propios de servicio son filtrables en búsqueda igual que los
+de producto.
+
+**Estado del terreno** (del mapa hecho antes de diseñar, y de RÁFAGA 0 ya cerrada):
+`Listing.type` (`PRODUCT`/`SERVICE`) ya existe como enum de dominio, elegido libremente en
+el wizard, hoy sin ninguna restricción por categoría — cualquier categoría admite ambos
+tipos. `Category.attributeSchema` con herencia de 2 niveles (hoja → padre,
+`resolveEffectiveSchema`) ya modela atributos por categoría. La búsqueda ya deriva sus
+atributos filtrables dinámicamente del schema (RÁFAGA 0), lo que evita que producto/servicio
+tenga que volver a tocar el mecanismo de búsqueda al multiplicar atributos por tipo.
+
+**Plan de ráfagas** (número/orden a confirmar tras diseñar R1; el terreno puede cambiar
+el reparto):
+
+- **R0 — Dinamización de búsqueda.** ✅ **CERRADA.** Ver «Atributos filtrables dinámicos —
+  RÁFAGA 0» en §2 y «Deuda nueva abierta por RÁFAGA 0» en §3.
+- **R1 — Modelo.** Política de tipo en `Category` (solo producto / solo servicio / ambos),
+  conexión tipo↔atributos (qué atributos aplican según el tipo elegido), migración de
+  datos existentes. **Siguiente ráfaga.**
+- **R2 — Admin de categorías.** Configurar la política de tipo y los atributos por tipo en
+  el editor visual; incluye el refresco en caliente de `filterableAttributes` diferido en
+  R0 (ver deuda en §3), porque este admin se toca de todas formas.
+- **R3 — Wizard.** Preguntar el tipo solo cuando la categoría permite «ambos»; aplicar los
+  atributos del tipo elegido.
+- **R4 — Búsqueda y ficha.** Filtrar y mostrar por tipo — más fácil ahora que la búsqueda
+  deriva sus atributos filtrables dinámicamente (R0).
+- **R5 — Tests exhaustivos.**
+
+**Siguiente paso:** ráfaga R1 (modelo).
 
 ---
 
