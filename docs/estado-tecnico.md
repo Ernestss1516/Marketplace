@@ -94,7 +94,7 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 
 ## 2. Decisiones técnicas y desviaciones respecto al diseño original
 
-Índice de esta sección (73 decisiones/desviaciones documentadas, orden cronológico por ráfaga;
+Índice de esta sección (74 decisiones/desviaciones documentadas, orden cronológico por ráfaga;
 enlaces ancla — funcionan en GitHub y en la vista previa de Markdown de VS Code):
 
 - [Ruta `/vendedor/[slug]` en lugar de `/[vendedor]`](#ruta-vendedorslug-en-lugar-de-vendedor)
@@ -112,6 +112,7 @@ enlaces ancla — funcionan en GitHub y en la vista previa de Markdown de VS Cod
 - [Atributos filtrables dinámicos — RÁFAGA 0](#atributos-filtrables-dinámicos-ráfaga-0)
 - [Modelo producto/servicio — RÁFAGA 1](#modelo-productoservicio-ráfaga-1)
 - [Admin de categorías producto/servicio — RÁFAGA 2](#admin-de-categorías-productoservicio-ráfaga-2)
+- [Wizard producto/servicio — RÁFAGA 3](#wizard-productoservicio-ráfaga-3)
 - [Fix ioredis en BullMQ](#fix-ioredis-en-bullmq)
 - [Verificación de email: nuevo JWT en lugar de re-login](#verificación-de-email-nuevo-jwt-en-lugar-de-re-login)
 - [Imágenes: upload pre-anuncio (huérfanas temporales)](#imágenes-upload-pre-anuncio-huérfanas-temporales)
@@ -562,6 +563,61 @@ limitante nuevo de caché-por-proceso inventariado allí.
 **Migración indolora — verificación**: 53 tests unitarios + 9 e2e nuevos
 (`admin-category-type-policy.e2e-spec.ts`) + batería completa (36 suites, 593 tests) en
 verde sobre `Category` truncada, sin tocar ningún test existente.
+
+### Wizard producto/servicio — RÁFAGA 3
+
+Cierra la cara de **creación** del cambio producto/servicio (backend R0+R1+R2 ya cerrado —
+ver «Cambio en curso — Producto/Servicio» más abajo, antes de §4): el wizard pregunta el
+tipo solo cuando corresponde y muestra únicamente los atributos del tipo elegido.
+
+`CategoriesService.findBySlug()` expone `allowedListingType` ya resuelto, mismo patrón que
+`attributeSchema` (reutiliza `resolveEffectivePolicy` de R1, sin round-trip extra — el
+padre ya se traía en la misma query para el schema). `StepDatos` recibe
+`readOnlyType = data.allowedListingType !== 'BOTH'` en `PublicarWizard` (reutilizando el
+prop ya construido en R1 para `EditarWizard`): el `RadioGroup` Producto/Servicio se oculta
+y el tipo queda fijo cuando la política no es `BOTH`.
+
+**`filterSchemaByType`** — nuevo helper en `apps/web/src/lib/attribute-schema.ts`, espejo
+del backend (`category.types.ts`) — se aplica en los **tres puntos de consumo**, no uno
+solo: `StepAtributos` (render), `validateStep('atributos')` (un requerido del tipo apagado
+no bloquea el avance) y `buildAttributes` en el envío. **Caso crítico verificado**:
+`buildAttributes` itera el **schema filtrado** y lee sus valores de `data.attributes` — no
+al revés — así que un atributo del tipo ya no elegido queda excluido del body enviado
+aunque siga en memoria tras varias idas y venidas del usuario entre tipos.
+
+**Transiciones de estado** (el matiz central de la ráfaga):
+- **Cambio de categoría**: `handleCategoryComplete` ya limpiaba `attributes: {}`; se
+  amplió para derivar también `type`/`condition` de la política de la nueva categoría
+  (`PRODUCT_ONLY`/`SERVICE_ONLY` fuerza el tipo; `BOTH` conserva la elección previa).
+- **Cambio de tipo, misma categoría `BOTH`**: `data.attributes` **no se toca** — se
+  conserva en memoria y se filtra en cada punto de consumo. Si el usuario cambia de tipo y
+  vuelve al anterior, sus respuestas siguen ahí; los campos del tipo no elegido nunca se
+  muestran, exigen ni envían mientras tanto.
+
+`EditarWizard` aplica el mismo `filterSchemaByType` al schema que ya recibía — sin matiz de
+transición (tipo y categoría inmutables ahí desde R1).
+
+**Migración indolora — verificación**: 5 tests e2e nuevos
+(`categories-type-policy.e2e-spec.ts`) + 6 tests RTL nuevos (`PublicarWizard.test.tsx`,
+incluido el caso crítico del payload) + batería completa (37 suites, 598 tests) en verde
+sobre `Category` truncada + 4 suites/23 tests de Jest en el frontend, sin tocar ningún test
+existente.
+
+**Deuda/nota nueva**: `filterSchemaByType` está **duplicado** — backend
+(`category.types.ts`) y frontend (`attribute-schema.ts`) no comparten código entre paquetes
+del monorepo, así que es un espejo deliberado, no un descuido. Si `appliesTo` gana
+complejidad en el futuro (p. ej. más de dos tipos, reglas de combinación), ambas copias
+deben actualizarse juntas — inventariado, no urgente mientras la lógica siga siendo un
+filtro tan simple.
+
+**Pendiente antes de dar por cerrado el cambio producto/servicio**: `wizard-herencia.spec.ts`
+(Playwright) se revisó **por inspección**, no se ejecutó en real — requiere levantar todo
+el stack (Postgres/Redis/Meilisearch/MinIO + backend + frontend). El análisis de código
+indica que es un no-op (sus categorías de test — Vehículos/Coches, Electrónica/Móviles —
+no usan `allowedListingType` ni `appliesTo`, así que el filtrado no cambia nada y el
+`RadioGroup` sigue visible igual que antes), pero **no está verificado con una corrida
+real**. Correrlo al ejecutar R4, que de todas formas necesita levantar el stack completo
+para verificar búsqueda/ficha.
 
 ### Fix ioredis en BullMQ
 
@@ -3575,9 +3631,9 @@ tipos. `Category.attributeSchema` con herencia de 2 niveles (hoja → padre,
 atributos filtrables dinámicamente del schema (RÁFAGA 0), lo que evita que producto/servicio
 tenga que volver a tocar el mecanismo de búsqueda al multiplicar atributos por tipo.
 
-**Plan de ráfagas** (número/orden a confirmar tras diseñar R3; el terreno puede cambiar
-el reparto). **El backend del cambio está esencialmente completo (R0+R1+R2, las tres
-cerradas); R3-R5 son la cara de usuario** (wizard, búsqueda/ficha, tests exhaustivos):
+**Plan de ráfagas** (número/orden a confirmar tras diseñar R4; el terreno puede cambiar
+el reparto). **Backend y creación completos (R0-R3 cerradas); falta la presentación
+pública (R4) y los tests exhaustivos (R5):**
 
 - **R0 — Dinamización de búsqueda.** ✅ **CERRADA.** Ver «Atributos filtrables dinámicos —
   RÁFAGA 0» en §2 y «Deuda nueva abierta por RÁFAGA 0» en §3.
@@ -3592,19 +3648,22 @@ cerradas); R3-R5 son la cara de usuario** (wizard, búsqueda/ficha, tests exhaus
   caliente de `filterableAttributes` vía cola (resuelve el diferido de R0). Migración
   indolora verificada (593 tests e2e en verde). Ver «Admin de categorías producto/servicio
   — RÁFAGA 2» en §2.
-- **R3 — Wizard.** **Siguiente ráfaga.** Preguntar el tipo **solo** cuando la política
-  efectiva de la categoría elegida es `BOTH`; si `PRODUCT_ONLY`/`SERVICE_ONLY`, el wizard
-  fija el tipo sin preguntar — requiere que el wizard conozca esa política efectiva antes
-  del paso de tipo (`StepDatos`). Aplicar `filterSchemaByType` en el paso de atributos
-  (`StepAtributos`) para mostrar solo los del tipo elegido. **Matiz de diseño principal:**
-  las transiciones de estado — qué pasa con el tipo ya elegido si el usuario cambia de
-  categoría a mitad del wizard (p. ej. de una `BOTH` donde eligió `SERVICE`, a una
-  `PRODUCT_ONLY`).
-- **R4 — Búsqueda y ficha.** Filtrar y mostrar por tipo — más fácil ahora que la búsqueda
-  deriva sus atributos filtrables dinámicamente (R0).
+- **R3 — Wizard.** ✅ **CERRADA.** El tipo se pregunta solo si la política efectiva es
+  `BOTH` (`readOnlyType` reutilizado de R1); `filterSchemaByType` en los 3 puntos de
+  consumo (render, validación, envío); transiciones — cambio de categoría deriva
+  `type`/`condition` de la nueva política, cambio de tipo conserva en memoria y filtra en
+  consumo. Migración indolora verificada (598 tests e2e + 23 tests Jest frontend en
+  verde). **Pendiente real**: `wizard-herencia.spec.ts` (Playwright) solo revisado por
+  inspección, no ejecutado — correr con R4. Ver «Wizard producto/servicio — RÁFAGA 3» en §2.
+- **R4 — Búsqueda y ficha.** **Siguiente ráfaga.** Filtrar y mostrar por tipo en las
+  páginas públicas. Esperado **ligero** gracias a R0: un atributo solo-servicio
+  simplemente no aparece en los documentos de anuncios `PRODUCT` (Meilisearch tolera
+  campos ausentes sin configuración extra); la ficha filtra con
+  `filterSchemaByType(schema, listing.type)` al listar labels. Levanta el stack completo —
+  aprovechar para correr también `wizard-herencia.spec.ts` en real (deuda de R3).
 - **R5 — Tests exhaustivos.**
 
-**Siguiente paso:** ráfaga R3 (wizard).
+**Siguiente paso:** ráfaga R4 (búsqueda y ficha).
 
 ---
 
