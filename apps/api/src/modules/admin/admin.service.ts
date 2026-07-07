@@ -17,6 +17,7 @@ import {
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { RedisService } from '../../infra/redis/redis.service';
 import { MeilisearchService } from '../../infra/meilisearch/meilisearch.service';
+import { isP2002 } from '../../common/prisma/is-p2002';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { ExpirationService } from '../expiration/expiration.service';
 import { QUEUE_INDEXING } from '../../infra/queue/queue.constants';
@@ -462,7 +463,7 @@ export class AdminService {
 
       return created;
     } catch (e) {
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+      if (isP2002(e)) {
         throw new ConflictException('Ya existe una categoría con ese slug');
       }
       throw e;
@@ -513,7 +514,7 @@ export class AdminService {
 
       return updated;
     } catch (e) {
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+      if (isP2002(e)) {
         throw new ConflictException('Ya existe una categoría con ese slug');
       }
       throw e;

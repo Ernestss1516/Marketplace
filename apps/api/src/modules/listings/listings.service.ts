@@ -1,7 +1,9 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
@@ -13,6 +15,7 @@ import { RedisService } from '../../infra/redis/redis.service';
 import { EntitlementType, Prisma } from '@prisma/client';
 import type { Listing, ListingStatus, PriceType } from '@prisma/client';
 import { QUEUE_INDEXING } from '../../infra/queue/queue.constants';
+import { isP2002 } from '../../common/prisma/is-p2002';
 import { ExpirationService } from '../expiration/expiration.service';
 import { EntitlementService } from '../billing/entitlement.service';
 import { BadWordService } from '../moderation/bad-word.service';
@@ -20,6 +23,9 @@ import { AttributeField, resolveEffectiveSchema } from '../categories/category.t
 import { CreateListingDto } from './dto/create-listing.dto';
 import { UpdateListingDto } from './dto/update-listing.dto';
 import { MyListingsQueryDto } from './dto/my-listings-query.dto';
+
+/** Cap on slug-collision retries — high enough that exhausting it means something is very wrong, not bad luck. */
+const MAX_SLUG_ATTEMPTS = 5;
 
 const CACHE_TTL = 60 * 5;
 const cacheKey = (slug: string) => `listing:${slug}`;
@@ -76,6 +82,8 @@ interface AttributeSchemaEntry {
 
 @Injectable()
 export class ListingsService {
+  private readonly logger = new Logger(ListingsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
@@ -96,27 +104,22 @@ export class ListingsService {
     );
     this.validateAttributes(dto.attributes ?? {}, effectiveSchema);
 
-    const slug = this.buildSlug(dto.title);
-
-    const listing = await this.prisma.listing.create({
-      data: {
-        title: dto.title,
-        slug,
-        description: dto.description,
-        price: dto.price,
-        currency: dto.currency ?? 'EUR',
-        type: dto.type,
-        condition: dto.condition,
-        priceType: dto.priceType,
-        attributes: (dto.attributes ?? {}) as Prisma.InputJsonValue,
-        city: dto.city,
-        province: dto.province,
-        postalCode: dto.postalCode,
-        latitude: dto.latitude ?? null,
-        longitude: dto.longitude ?? null,
-        sellerId,
-        categoryId: dto.categoryId,
-      },
+    const listing = await this.createWithUniqueSlug(dto.title, {
+      title: dto.title,
+      description: dto.description,
+      price: dto.price,
+      currency: dto.currency ?? 'EUR',
+      type: dto.type,
+      condition: dto.condition,
+      priceType: dto.priceType,
+      attributes: (dto.attributes ?? {}) as Prisma.InputJsonValue,
+      city: dto.city,
+      province: dto.province,
+      postalCode: dto.postalCode,
+      latitude: dto.latitude ?? null,
+      longitude: dto.longitude ?? null,
+      sellerId,
+      categoryId: dto.categoryId,
     });
 
     if (dto.imageIds?.length) {
@@ -625,6 +628,37 @@ export class ListingsService {
       .slice(0, 60);
     const suffix = randomBytes(3).toString('hex');
     return `${base}-${suffix}`;
+  }
+
+  // The slug isn't user-chosen (it's derived from the title + a random hex
+  // suffix), so a P2002 collision isn't a conflict for the user to resolve —
+  // regenerate a fresh random suffix and retry, silently. Only surfaces to the
+  // caller if MAX_SLUG_ATTEMPTS is exhausted, which at a 16.7M-value keyspace
+  // means something is very wrong (not ordinary bad luck).
+  private async createWithUniqueSlug(
+    title: string,
+    data: Omit<Prisma.ListingUncheckedCreateInput, 'slug'>,
+  ): Promise<Listing> {
+    for (let attempt = 1; attempt <= MAX_SLUG_ATTEMPTS; attempt++) {
+      try {
+        return await this.prisma.listing.create({
+          data: { ...data, slug: this.buildSlug(title) },
+        });
+      } catch (err) {
+        if (!isP2002(err)) throw err;
+        if (attempt < MAX_SLUG_ATTEMPTS) continue;
+        this.logger.error(`Slug generation exhausted ${MAX_SLUG_ATTEMPTS} attempts for title="${title}"`);
+        throw new ConflictException({
+          message: 'No se pudo generar un identificador único para el anuncio, inténtalo de nuevo',
+          code: 'SLUG_GENERATION_FAILED',
+        });
+      }
+    }
+    // Unreachable: every loop iteration either returns or throws above.
+    throw new ConflictException({
+      message: 'No se pudo generar un identificador único para el anuncio, inténtalo de nuevo',
+      code: 'SLUG_GENERATION_FAILED',
+    });
   }
 
   private validateAttributes(

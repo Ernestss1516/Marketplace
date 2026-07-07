@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
+import { isP2002 } from '../../common/prisma/is-p2002';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { UpdateReviewDto } from './dto/update-review.dto';
 
@@ -59,10 +60,7 @@ export class ReviewsService {
         include: { author: { select: SELECT_AUTHOR } },
       });
     } catch (err) {
-      if (
-        err instanceof Prisma.PrismaClientKnownRequestError &&
-        err.code === 'P2002'
-      ) {
+      if (isP2002(err)) {
         throw new ConflictException('Ya has valorado a este usuario para este anuncio');
       }
       throw err;

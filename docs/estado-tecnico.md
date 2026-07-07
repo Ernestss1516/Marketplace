@@ -512,7 +512,7 @@ Al **editar** con cambio de ubicación: mismo orden `[geocode, index]` (antes er
 
 **Logs de diagnóstico**: el `IndexingProcessor` emite líneas `[TIMING] index/geocode start/done listingId=... queueWait=...ms` para detectar cuellos de botella futuros.
 
-**Deuda pendiente**: el job `geocode` no tiene reintentos configurados — si Nominatim falla, el anuncio queda sin coordenadas permanentemente (ver §3).
+**Resuelto en Hito 9** (ver «Reintentos del job `geocode`» más abajo): el job SÍ tenía `attempts`/backoff configurados a nivel de cola — lo que faltaba era que `GeocodingService.geocode()` dejara de tragarse los fallos transitorios como `null`.
 
 ### `waitForTask()` en `indexListing`: indexación determinista (H6 — fix raíz del flaky de CI)
 
@@ -2166,11 +2166,34 @@ regresión del bloque de "Vendedor de confianza", es una característica preexis
 visible por tener un campo administrable con efecto inmediato esperado por el admin. Mejora futura:
 invalidar la caché del listing al cambiar `trusted` del vendedor.
 
-### Reintentos del job `geocode` (nuevo — H6)
+### Reintentos del job `geocode` (H6 → resuelto en Hito 9)
 
-El job BullMQ de geocoding no tiene reintentos configurados. Si Nominatim devuelve error o timeout en el momento en que se procesa el job, el anuncio queda con `latitude/longitude = null` permanentemente (no aparece en el mapa, no se ordena por proximidad). El script `geocode-backfill` cubre este caso en lote, pero requiere ejecución manual.
+**Hallazgo real, distinto de lo asumido:** el job `geocode` comparte `QUEUE_INDEXING` con `index`/`remove`, que **ya tenía** `attempts: 3` + `backoff: { type: 'exponential', delay: 2_000 }` configurado a nivel de cola ([queue.module.ts](../apps/api/src/infra/queue/queue.module.ts)) — no faltaba config de reintento. El problema real: `GeocodingService.geocode()` estaba documentado como "*always resolves — returns null on any error, timeout, or empty result*", así que timeout/fallo de red/HTTP no-ok/sin-resultados colapsaban TODOS a `null` sin lanzar nunca — el job de BullMQ "tenía éxito" siempre, así que `attempts`/`backoff` no tenían nada que reintentar.
 
-**Pendiente**: añadir `{ attempts: 3, backoff: { type: 'exponential', delay: 5000 } }` al job `geocode` en `IndexingProcessor` o en el `add()` del llamador. Baja prioridad a la escala actual (Nominatim es fiable en producción con MapTiler como alternativa) pero debería cerrarse antes de escalar.
+**Fix**: `geocode()` ahora distingue transitorio de permanente:
+- **Transitorio → lanza `TransientGeocodingError`** (timeout/`AbortError`, fallo de red, HTTP 429, HTTP 5xx): timeout y fallo de red se detectan envolviendo el propio `fetch()` en try/catch; 429/5xx se detectan tras comprobar `res.ok`.
+- **Permanente → sigue devolviendo `null`** (como antes): HTTP 4xx que no sea 429, o respuesta válida sin resultados.
+
+**Nada más cambió en la maquinaria de reintento** — no hizo falta: `IndexingProcessor.process()` ya envolvía cada job en un `try/catch` que hace `Sentry.captureException(err); throw err;` para cualquier excepción de cualquier job. En cuanto `geocode()` empezó a lanzar en el caso transitorio, ese `throw` ya propaga tal cual hasta BullMQ (que aplica `attempts`/backoff, ya configurados) y hasta Sentry (visibilidad tras agotar los 3 intentos, sin código nuevo).
+
+Ajustes acompañantes:
+- `IndexingProcessor.handleGeocode()`: el log de "sin resultado" (caso permanente) subió de `debug` a `warn` — visible, no silencioso, coherente con la ráfaga de observabilidad de `callRevalidateEndpoint`.
+- `geocode-backfill.ts`: como su loop asumía "`geocode()` nunca lanza", ahora envuelve la llamada en try/catch por listing — un `TransientGeocodingError` se loguea (`warn`) y se pasa al siguiente listing (queda con `latitude: null`, así que el `WHERE` del backfill lo recoge en la siguiente ejecución) en vez de abortar el backfill completo.
+- Idempotencia confirmada: `handleGeocode` solo escribe `latitude`/`longitude`, sin efectos colaterales — reintentar (BullMQ o backfill) es seguro.
+- Sin cola dedicada ni `attempts` distintos para `geocode` — sigue compartiendo `QUEUE_INDEXING` con `index`/`remove`, sin evidencia de necesitar valores propios.
+- Tests unitarios en `geocoding.service.spec.ts` (13 casos: Nominatim + MapTiler, transitorio/permanente/reintento-sin-postalCode/idempotencia).
+
+### Slug de anuncio sin reintento ante P2002 (Hito 9 — resuelto)
+
+`ListingsService.buildSlug()` genera el slug con normalización del título + sufijo aleatorio de 3 bytes hex (`randomBytes(3).toString('hex')`, keyspace de 16,7M) — visible en la URL pública (`/anuncio/{slug}`, `Listing.slug @unique`), pero **no elegido por el usuario**. `create()` llamaba a `prisma.listing.create(...)` directamente, sin ningún manejo de P2002; sin filtro global de excepciones (`common/filters/index.ts` seguía siendo un `// TODO` vacío), una colisión real habría sido el 500 genérico por defecto de Nest.
+
+**Fix**: `ListingsService.createWithUniqueSlug(title, data)` — loop con tope `MAX_SLUG_ATTEMPTS = 5`; cada vuelta genera un sufijo aleatorio NUEVO (no incremental — coherente con que ya era aleatorio, y evita la carrera de un esquema incremental); ante P2002 reintenta; si agota los 5 intentos, `logger.error` (visible) + `ConflictException({ code: 'SLUG_GENERATION_FAILED' })`; cualquier otro error de Prisma se relanza sin reintentar. `create()` usa este método. Regenerar-y-reintentar es **silencioso** para el usuario salvo agotar los intentos — el slug no es un valor que el usuario haya elegido, así que un P2002 no es un conflicto suyo que resolver (contraste con `Coupon.code`, elegido por un admin, donde `ConflictException` inmediato sí es la respuesta correcta).
+
+**`isP2002` centralizado**: existían ya dos convenciones para detectar P2002 en el repo — un helper local duck-typed en `coupons.service.ts` y checks inline `instanceof Prisma.PrismaClientKnownRequestError && code === 'P2002'` en `admin.service.ts` (×2), `reviews.service.ts` y `favorites.service.ts`. Con esta pieza siendo la 5ª duplicación, se extrajo a `common/prisma/is-p2002.ts` (estilo type-safe, `instanceof Prisma.PrismaClientKnownRequestError`) y las cinco instancias se reemplazaron por el import compartido — comportamiento idéntico, verificado con la suite e2e existente de esos módulos.
+
+Tests unitarios en `listings.service.spec.ts`: reintento exitoso al 2º intento, agotar los 5 intentos → `ConflictException` + `logger.error` (una vez), y un error de Prisma distinto de P2002 se relanza sin reintentar.
+
+**Deuda inventariada, NO tocada**: `BlogService.buildSlug()` (para `Post.slug`, también `@unique`, también visible en `/blog/{slug}` y `/paginas/{slug}`) usa el **algoritmo idéntico** (mismo `buildSlug`, mismo riesgo) y **tampoco reintenta en P2002** — misma vulnerabilidad, contexto distinto (slug editable por rol EDITOR, inmutable tras publicar — ver rol EDITOR / BLOG-PAGINAS más arriba). Cuando se aborde, puede reutilizar `createWithUniqueSlug`/`isP2002` ya extraídos aquí.
 
 ### MapTiler: claves frontend y backend separadas; restringir por dominio en producción
 
@@ -2256,8 +2279,7 @@ antes de asumir: el roadmap sobreestimaba el alcance real de Hito 7.
   vigente («cualquier test futuro que espere indexación Meili debe usar `waitForCard`», ver
   §Lecciones de método del CI) no se ha auditado retroactivamente contra todos los specs previos a
   H6 — puede quedar algún `toBeVisible(Ns)` pasivo sin migrar. Revisar en Hito 9.
-- **Job `geocode` sin reintentos**: deuda ya documentada más arriba («Reintentos del job `geocode`»)
-  — sigue abierta, sin cambios en este hito. `geocode-backfill` es la red de seguridad.
+- **Job `geocode` sin reintentos**: resuelto en Hito 9 — ver «Reintentos del job `geocode`» más arriba.
 
 ## Historial de ráfagas — Hito 8 (cerrado)
 

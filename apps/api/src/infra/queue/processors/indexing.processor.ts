@@ -90,7 +90,10 @@ export class IndexingProcessor extends WorkerHost {
       listing.postalCode ?? undefined,
     );
     if (!coords) {
-      this.logger.debug(`Geocode job: no result for listing ${listingId}`);
+      // Permanent failure (bad address, no results) — geocode() already threw
+      // TransientGeocodingError for anything retriable, so reaching here means
+      // this listing simply won't resolve. Visible at warn, not silent debug.
+      this.logger.warn(`Geocode job: no result for listing ${listingId} (permanent — not retried)`);
       return;
     }
 

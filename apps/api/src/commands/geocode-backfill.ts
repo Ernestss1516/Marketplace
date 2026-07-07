@@ -25,7 +25,7 @@ import { PrismaService } from '../infra/prisma/prisma.service';
 import { SearchModule } from '../modules/search/search.module';
 import { SearchService, INDEX_INCLUDE } from '../modules/search/search.service';
 import { GeocodingModule } from '../modules/geocoding/geocoding.module';
-import { GeocodingService } from '../modules/geocoding/geocoding.service';
+import { GeocodingService, TransientGeocodingError } from '../modules/geocoding/geocoding.service';
 
 // ---------------------------------------------------------------------------
 // Minimal module: Postgres + Meilisearch + Geocoding only, no BullMQ/Redis
@@ -70,6 +70,7 @@ async function bootstrap(): Promise<void> {
 
   let geocoded = 0;
   let notFound = 0;
+  let failed = 0;
   let cursor: string | undefined;
 
   for (;;) {
@@ -86,11 +87,26 @@ async function bootstrap(): Promise<void> {
     if (listings.length === 0) break;
 
     for (const listing of listings) {
-      const coords = await geocoding.geocode(
-        listing.city!,
-        listing.province ?? '',
-        listing.postalCode ?? undefined,
-      );
+      // geocode() throws TransientGeocodingError for timeout/network/429/5xx —
+      // failures worth retrying on a LATER run of this script, not the same
+      // pass. Skip this listing (it stays latitude: null, so the WHERE clause
+      // picks it up again next run) instead of aborting the whole backfill.
+      let coords: Awaited<ReturnType<typeof geocoding.geocode>>;
+      try {
+        coords = await geocoding.geocode(
+          listing.city!,
+          listing.province ?? '',
+          listing.postalCode ?? undefined,
+        );
+      } catch (err) {
+        if (!(err instanceof TransientGeocodingError)) throw err;
+        failed++;
+        logger.warn(
+          `[${geocoded + notFound + failed}] Transient failure, will retry on a future run: "${listing.city}, ${listing.province}" — ${err.message}`,
+        );
+        await delay(DELAY_MS);
+        continue;
+      }
 
       if (coords) {
         await prisma.listing.update({
@@ -124,7 +140,7 @@ async function bootstrap(): Promise<void> {
   }
 
   logger.log(
-    `Backfill complete. Geocoded: ${geocoded}, no result: ${notFound}.`,
+    `Backfill complete. Geocoded: ${geocoded}, no result: ${notFound}, transient failures (retry next run): ${failed}.`,
   );
 
   // See reindex.ts for the explanation of why $disconnect() + no process.exit().

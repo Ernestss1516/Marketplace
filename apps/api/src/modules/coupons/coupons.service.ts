@@ -4,6 +4,7 @@ import { Queue } from 'bullmq';
 import { Coupon, CouponRewardType, CreditLedgerType, FeaturedOrigin, Prisma } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { QUEUE_INDEXING } from '../../infra/queue/queue.constants';
+import { isP2002 } from '../../common/prisma/is-p2002';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { BillingService } from '../billing/billing.service';
 import { RedeemCouponDto } from './dto/redeem-coupon.dto';
@@ -12,16 +13,6 @@ import { UpdateCouponDto } from './dto/update-coupon.dto';
 import { ListCouponsDto } from './dto/list-coupons.dto';
 
 type CouponStatus = 'upcoming' | 'live' | 'ended';
-
-/** Returns true when the error is a Prisma unique constraint violation (P2002). */
-function isP2002(err: unknown): boolean {
-  return (
-    err !== null &&
-    typeof err === 'object' &&
-    'code' in err &&
-    (err as { code: string }).code === 'P2002'
-  );
-}
 
 export interface RedeemResult {
   rewardType: 'CREDITS' | 'FEATURED';

@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
+import { isP2002 } from '../../common/prisma/is-p2002';
 
 const FAVORITE_INCLUDE = {
   listing: {
@@ -23,17 +24,15 @@ export class FavoritesService {
         include: FAVORITE_INCLUDE,
       });
     } catch (err) {
-      if (err instanceof Prisma.PrismaClientKnownRequestError) {
-        if (err.code === 'P2002') {
-          // Already favorited — return existing record (idempotent)
-          return this.prisma.favorite.findUnique({
-            where: { userId_listingId: { userId, listingId } },
-            include: FAVORITE_INCLUDE,
-          });
-        }
-        if (err.code === 'P2003') {
-          throw new NotFoundException(`Listing ${listingId} not found`);
-        }
+      if (isP2002(err)) {
+        // Already favorited — return existing record (idempotent)
+        return this.prisma.favorite.findUnique({
+          where: { userId_listingId: { userId, listingId } },
+          include: FAVORITE_INCLUDE,
+        });
+      }
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2003') {
+        throw new NotFoundException(`Listing ${listingId} not found`);
       }
       throw err;
     }
