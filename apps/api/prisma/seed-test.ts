@@ -70,25 +70,37 @@ async function seedCategories() {
 }
 
 async function seedSettings() {
-  await prisma.setting.createMany({
-    data: [
-      { key: 'badWordList', value: [] },
-      { key: 'listingExpiryDays', value: 60 },
-      { key: 'contactRequiresVerification', value: true },
-      { key: 'featuredCreditCost7d', value: 30 },
-      { key: 'featuredCreditCost14d', value: 50 },
-      { key: 'featuredCreditCost30d', value: 100 },
-      { key: 'bumpCreditCost', value: 5 },
-      { key: 'proExtraCreditsPercent', value: 20 },
-      { key: 'freeActiveListingLimit', value: 5 },
-      { key: 'proActiveListingLimit', value: 20 },
-      { key: 'proMonthlyFeaturedQuota', value: 4 },
-      { key: 'proQuotaFeaturedDurationDays', value: 7 },
-    ],
-    skipDuplicates: true,
-  });
+  // upsert (not createMany/skipDuplicates): FORCES every value back to its
+  // default on each run. Settings are excluded from cleanDb (see helpers/db.ts)
+  // because they're static system data shared across suites — but that means
+  // a value changed by one suite/spec (e.g. admin-ajustes-numeric.spec.ts in
+  // Playwright, which shares this same DB) survives to contaminate the next
+  // run if it's ever left un-restored. Forcing the default here is the fix,
+  // independent of --runInBand / worker isolation (see estado-tecnico.md).
+  const settings: { key: string; value: Prisma.InputJsonValue }[] = [
+    { key: 'badWordList', value: [] },
+    { key: 'listingExpiryDays', value: 60 },
+    { key: 'contactRequiresVerification', value: true },
+    { key: 'featuredCreditCost7d', value: 30 },
+    { key: 'featuredCreditCost14d', value: 50 },
+    { key: 'featuredCreditCost30d', value: 100 },
+    { key: 'bumpCreditCost', value: 5 },
+    { key: 'proExtraCreditsPercent', value: 20 },
+    { key: 'freeActiveListingLimit', value: 5 },
+    { key: 'proActiveListingLimit', value: 20 },
+    { key: 'proMonthlyFeaturedQuota', value: 4 },
+    { key: 'proQuotaFeaturedDurationDays', value: 7 },
+  ];
 
-  console.log('Test seed: settings OK');
+  for (const s of settings) {
+    await prisma.setting.upsert({
+      where: { key: s.key },
+      create: s,
+      update: { value: s.value },
+    });
+  }
+
+  console.log('Test seed: settings OK (reset to defaults)');
 }
 
 async function seedCreditPacks() {

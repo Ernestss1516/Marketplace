@@ -1965,6 +1965,34 @@ paralelo) y el problema de fondo — suites sin BD/schema propio, todas comparte
 en su propia BD o schema (p. ej. derivando el nombre de `JEST_WORKER_ID`), lo que
 permitiría volver a correr en paralelo sin las condiciones de carrera.
 
+**Resuelto en Hito 9 (mini-diseño de aislamiento dev/test):** se investigó el mapa real
+(33 suites `*.e2e-spec.ts`, 564 tests, 110 s en serie con `--runInBand`) y se evaluaron
+tres opciones: schema-por-worker (`JEST_WORKER_ID`), BD-por-worker, y quedarse en
+`--runInBand` arreglando solo el seed. **Decisión: no aislar por worker todavía.**
+Razón: la suite es corta (110 s), y el paralelismo real ahorraría ~60-70 s a cambio de
+una orquestación no trivial — `JEST_WORKER_ID` no existe en `globalSetup` (solo dentro
+de cada worker), así que schema-por-worker obligaría a crear/migrar los schemas con
+idempotencia propia en otro punto del ciclo de vida de Jest. La Opción B
+(BD-por-worker) se descarta sin más análisis: estrictamente más cara que la A sin más
+aislamiento útil, porque Redis/Meilisearch seguirían compartidos igual. Si la suite
+crece sustancialmente (p. ej. supera los 600 s en serie), reconsiderar la Opción A.
+
+Más importante: **el bug de contaminación que motivó esta investigación no era un
+problema de aislamiento entre workers — era contaminación entre corridas.** Reproducido
+en vivo: `freeActiveListingLimit` quedó en `100` (residual de una sesión anterior de
+`apps/web/e2e/admin-ajustes-numeric.spec.ts`, que edita ese ajuste vía Playwright
+compartiendo la misma `marketplace_test`) y `rf7-limits.e2e-spec.ts` +
+`rf7-expiration.e2e-spec.ts` fallaban (6 tests, `expected 403, got 200`) porque
+`prisma/seed-test.ts#seedSettings()` usaba `createMany({ skipDuplicates: true })`:
+si la fila `Setting` ya existía, el seed nunca la reseteaba a su default.
+`--runInBand` nunca iba a arreglar esto (es un solo worker igual). **Fix real:**
+`seedSettings()` ahora hace `upsert` por clave forzando el valor en `update`
+(mismo patrón que `seedCategories()` ya usaba en el mismo archivo). Verificado sobre
+estado sucio real (no solo en BD limpia): con `freeActiveListingLimit=100` en la BD,
+correr el seed lo resetea a `5` y las 33 suites (564 tests) pasan limpias.
+`--runInBand` se mantiene, pero ahora como decisión informada (suite corta, no
+compensa aislar) y no como parche de un bug que en realidad vivía en el seed.
+
 **2. Carrera de navegación del App Router bajo `next start` — recurrente, mitigada por sitio, causa
 raíz sin cerrar.** Mismo bug de fondo documentado de forma independiente al menos 5 veces a lo largo
 de varias ráfagas, cada vez como si fuera un hallazgo nuevo — consolidado aquí en una sola entrada.
@@ -2462,6 +2490,10 @@ característica preexistente de la suite (solo es segura en serie, o en paralelo
 tuviera su propia BD); documentado aquí porque solo se hizo visible al ejecutar la suite completa en
 local con varios núcleos libres. Revisar en Hito 9 si conviene aislar por base de datos por worker
 (`jest --maxWorkers` + BD por worker) en vez de depender de la serialización.
+
+**Revisado en Hito 9:** ver "Deuda de test/CI consolidada tras BLOG-FOOTER-COLUMNAS" más arriba —
+decisión de no aislar por worker todavía (suite corta, 110 s en serie) y fix real del bug de
+contaminación de `Setting` (no era un problema de paralelismo, sino de seed).
 
 **H8 Bloque C (estadísticas de anuncios: vistas + me gusta, free vs Pro) — hecho.** Diferido en H8.6
 a "Hito 8b"; se retoma y cierra en esta ráfaga (C1 backend + C2 frontend).
