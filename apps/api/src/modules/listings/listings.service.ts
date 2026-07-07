@@ -19,7 +19,13 @@ import { isP2002 } from '../../common/prisma/is-p2002';
 import { ExpirationService } from '../expiration/expiration.service';
 import { EntitlementService } from '../billing/entitlement.service';
 import { BadWordService } from '../moderation/bad-word.service';
-import { AttributeField, resolveEffectiveSchema } from '../categories/category.types';
+import {
+  AttributeField,
+  resolveEffectiveSchema,
+  resolveEffectivePolicy,
+  isListingTypeAllowed,
+} from '../categories/category.types';
+import type { ListingTypePolicy } from '@prisma/client';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { UpdateListingDto } from './dto/update-listing.dto';
 import { MyListingsQueryDto } from './dto/my-listings-query.dto';
@@ -95,7 +101,11 @@ export class ListingsService {
   async create(sellerId: string, dto: CreateListingDto): Promise<Listing> {
     const category = await this.prisma.category.findUnique({
       where: { id: dto.categoryId },
-      select: { attributeSchema: true, parent: { select: { attributeSchema: true } } },
+      select: {
+        attributeSchema: true,
+        allowedListingType: true,
+        parent: { select: { attributeSchema: true, allowedListingType: true } },
+      },
     });
     if (!category) throw new NotFoundException('Category not found');
     const effectiveSchema = resolveEffectiveSchema(
@@ -103,6 +113,11 @@ export class ListingsService {
       (category.parent?.attributeSchema as unknown as AttributeField[]) ?? [],
     );
     this.validateAttributes(dto.attributes ?? {}, effectiveSchema);
+    this.validateListingTypeAllowed(
+      dto.type,
+      category.allowedListingType,
+      category.parent?.allowedListingType,
+    );
 
     const listing = await this.createWithUniqueSlug(dto.title, {
       title: dto.title,
@@ -142,7 +157,11 @@ export class ListingsService {
       const catId = dto.categoryId ?? existing.categoryId;
       const category = await this.prisma.category.findUnique({
         where: { id: catId },
-        select: { attributeSchema: true, parent: { select: { attributeSchema: true } } },
+        select: {
+          attributeSchema: true,
+          allowedListingType: true,
+          parent: { select: { attributeSchema: true, allowedListingType: true } },
+        },
       });
       if (!category) throw new NotFoundException('Category not found');
       const effectiveSchema = resolveEffectiveSchema(
@@ -154,6 +173,16 @@ export class ListingsService {
         ...(dto.attributes ?? {}),
       };
       this.validateAttributes(mergedAttrs, effectiveSchema);
+
+      // type is immutable (not on UpdateListingDto) — but categoryId can still change,
+      // so a listing's fixed type must stay allowed by whatever category it moves into.
+      if (dto.categoryId !== undefined) {
+        this.validateListingTypeAllowed(
+          existing.type,
+          category.allowedListingType,
+          category.parent?.allowedListingType,
+        );
+      }
     }
 
     const { imageIds, ...fields } = dto;
@@ -179,7 +208,6 @@ export class ListingsService {
         ...(fields.description !== undefined && { description: fields.description }),
         ...(fields.price !== undefined && { price: fields.price }),
         ...(fields.currency !== undefined && { currency: fields.currency }),
-        ...(fields.type !== undefined && { type: fields.type }),
         ...(fields.condition !== undefined && { condition: fields.condition }),
         ...(fields.priceType !== undefined && { priceType: fields.priceType }),
         ...(fields.categoryId !== undefined && { categoryId: fields.categoryId }),
@@ -672,6 +700,24 @@ export class ListingsService {
     if (missing.length) {
       throw new UnprocessableEntityException(
         `Atributos requeridos faltantes: ${missing.join(', ')}`,
+      );
+    }
+  }
+
+  /**
+   * Validates a listing's type against its category's effective ListingTypePolicy
+   * (own + parent, same 2-level depth as resolveEffectiveSchema). Every existing
+   * category defaults to BOTH, so this is a no-op until an admin restricts one.
+   */
+  private validateListingTypeAllowed(
+    type: Listing['type'],
+    ownPolicy: ListingTypePolicy,
+    parentPolicy: ListingTypePolicy | undefined,
+  ): void {
+    const effective = resolveEffectivePolicy(ownPolicy, parentPolicy ?? 'BOTH');
+    if (!isListingTypeAllowed(effective, type)) {
+      throw new UnprocessableEntityException(
+        `Esta categoría no admite anuncios de tipo ${type}.`,
       );
     }
   }

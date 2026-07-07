@@ -29,7 +29,14 @@ interface StepDatosProps {
   data: DatosData;
   onChange: (updates: Partial<DatosData>) => void;
   errors: Record<string, string>;
+  /** true en edición: el tipo ya no se puede cambiar tras crear el anuncio. */
+  readOnlyType?: boolean;
 }
+
+const TYPE_LABELS: Record<ListingType, string> = {
+  PRODUCT: 'Producto',
+  SERVICE: 'Servicio',
+};
 
 const CONDITION_OPTIONS: { value: Condition; label: string }[] = [
   { value: 'NEW', label: 'Nuevo' },
@@ -55,7 +62,7 @@ export function priceTypeFromMode(mode: PriceMode): PriceType {
   return 'FIXED';
 }
 
-export function StepDatos({ data, onChange, errors }: StepDatosProps) {
+export function StepDatos({ data, onChange, errors, readOnlyType = false }: StepDatosProps) {
   return (
     <div className="space-y-6">
       <div>
@@ -103,30 +110,43 @@ export function StepDatos({ data, onChange, errors }: StepDatosProps) {
       {/* Tipo */}
       <div className="space-y-1.5">
         <Label>Tipo *</Label>
-        <RadioGroup
-          value={data.type}
-          onValueChange={(v) =>
-            onChange({
-              type: v as ListingType,
-              condition: v === 'SERVICE' ? '' : data.condition,
-            })
-          }
-          className="flex gap-6"
-        >
-          <div className="flex items-center gap-2">
-            <RadioGroupItem value="PRODUCT" id="type-product" />
-            <Label htmlFor="type-product" className="cursor-pointer font-normal">
-              Producto
-            </Label>
+        {readOnlyType ? (
+          <div>
+            <p className="text-sm font-medium">
+              {data.type ? TYPE_LABELS[data.type] : '—'}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              El tipo no se puede cambiar tras crear el anuncio.
+            </p>
           </div>
-          <div className="flex items-center gap-2">
-            <RadioGroupItem value="SERVICE" id="type-service" />
-            <Label htmlFor="type-service" className="cursor-pointer font-normal">
-              Servicio
-            </Label>
-          </div>
-        </RadioGroup>
-        <FieldError message={errors.type} />
+        ) : (
+          <>
+            <RadioGroup
+              value={data.type}
+              onValueChange={(v) =>
+                onChange({
+                  type: v as ListingType,
+                  condition: v === 'SERVICE' ? '' : data.condition,
+                })
+              }
+              className="flex gap-6"
+            >
+              <div className="flex items-center gap-2">
+                <RadioGroupItem value="PRODUCT" id="type-product" />
+                <Label htmlFor="type-product" className="cursor-pointer font-normal">
+                  Producto
+                </Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <RadioGroupItem value="SERVICE" id="type-service" />
+                <Label htmlFor="type-service" className="cursor-pointer font-normal">
+                  Servicio
+                </Label>
+              </div>
+            </RadioGroup>
+            <FieldError message={errors.type} />
+          </>
+        )}
       </div>
 
       {/* Condición (solo productos) */}

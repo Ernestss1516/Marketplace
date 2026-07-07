@@ -35,7 +35,13 @@ describe('ListingsService.create — reintento de slug ante P2002', () => {
 
   beforeEach(() => {
     prisma = {
-      category: { findUnique: jest.fn().mockResolvedValue({ attributeSchema: [], parent: null }) },
+      category: {
+        findUnique: jest.fn().mockResolvedValue({
+          attributeSchema: [],
+          allowedListingType: 'BOTH',
+          parent: null,
+        }),
+      },
       listing: { create: jest.fn() },
     };
     indexingQueue = { add: jest.fn().mockResolvedValue(undefined) };

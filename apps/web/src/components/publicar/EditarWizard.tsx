@@ -12,7 +12,7 @@ import { StepUbicacion, type UbicacionData } from './steps/StepUbicacion';
 import { updateListing } from '@/lib/api/anuncios';
 import { toUserMessage } from '@/lib/api/client';
 import { useApiAction } from '@/lib/api/use-api-action';
-import type { AttributeSchema, ListingType, Condition } from '@/types';
+import type { AttributeSchema, Condition } from '@/types';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -67,8 +67,7 @@ function validateStep(id: StepId, data: EditarWizardData): Record<string, string
     if (!data.description.trim()) errors.description = 'La descripción es obligatoria.';
     else if (data.description.length > 4000) errors.description = 'Máximo 4000 caracteres.';
 
-    if (!data.type) errors.type = 'Elige el tipo de anuncio.';
-
+    // type es inmutable tras crear (RÁFAGA 1) — no se valida aquí, siempre viene de initialData.
     if (data.type === 'PRODUCT' && !data.condition) {
       errors.condition = 'Indica el estado del artículo.';
     }
@@ -180,7 +179,6 @@ export function EditarWizard({ listingId, token, initialData }: EditarWizardProp
           {
             title: data.title,
             description: data.description,
-            type: data.type as ListingType,
             condition: data.condition ? (data.condition as Condition) : undefined,
             price: data.priceMode === 'fixed' ? parseFloat(data.price) : 0,
             priceType: priceTypeFromMode(data.priceMode),
@@ -239,6 +237,7 @@ export function EditarWizard({ listingId, token, initialData }: EditarWizardProp
             }}
             onChange={(patch) => update(patch as Partial<EditarWizardData>)}
             errors={errors}
+            readOnlyType
           />
         )}
 

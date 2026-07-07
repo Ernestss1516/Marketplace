@@ -58,6 +58,8 @@ export interface AttributeSchema {
   filterable: boolean;
   required: boolean;
   cardAttribute?: boolean;
+  /** Which listing type(s) this attribute applies to. Absent = applies to both. */
+  appliesTo?: ListingType[];
 }
 
 export interface CardAttributeDef {
@@ -225,7 +227,7 @@ export interface UpdateListingPayload {
   price?: number;
   currency?: string;
   priceType?: PriceType;
-  type?: ListingType;
+  // type deliberately omitted — immutable after creation (RÁFAGA 1, producto/servicio).
   condition?: Condition;
   categoryId?: string;
   attributes?: Record<string, unknown>;

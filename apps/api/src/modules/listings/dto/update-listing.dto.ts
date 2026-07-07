@@ -11,7 +11,7 @@ import {
   Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { Condition, ListingType, PriceType } from '@prisma/client';
+import { Condition, PriceType } from '@prisma/client';
 
 export class UpdateListingDto {
   @IsOptional()
@@ -36,9 +36,9 @@ export class UpdateListingDto {
   @IsString()
   currency?: string;
 
-  @IsOptional()
-  @IsEnum(ListingType)
-  type?: ListingType;
+  // type (PRODUCT|SERVICE) deliberately has NO field here — it's immutable after
+  // creation (RÁFAGA 1, producto/servicio): changing it would leave attributes
+  // that no longer apply to the new type, same reasoning as UpdatePostDto.type.
 
   @IsOptional()
   @IsEnum(Condition)

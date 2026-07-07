@@ -66,6 +66,16 @@ enum ListingType {
   SERVICE
 }
 
+/// Qué tipo(s) de anuncio admite una categoría. Vive en su propia columna de
+/// Category — nunca en el canal Json de attributeSchema/Listing.attributes —
+/// para no repetir la colisión de nombres ya sufrida entre un atributo de
+/// categoría y el campo core `type` (ver Deuda `type` → `itemType`, RC5.2).
+enum ListingTypePolicy {
+  PRODUCT_ONLY
+  SERVICE_ONLY
+  BOTH
+}
+
 /// Estado del artículo (aplica sobre todo a productos).
 enum Condition {
   NEW
@@ -262,6 +272,12 @@ model Category {
   /// opciones, si es filtrable…). El frontend la usa para pintar el formulario
   /// de publicación y los filtros; los valores concretos viven en Listing.attributes.
   attributeSchema Json @default("[]")
+
+  /// Qué tipo(s) de Listing admite esta categoría. @default(BOTH) preserva el
+  /// comportamiento actual (cualquier categoría admite cualquier tipo) para
+  /// todas las categorías existentes — sin backfill, Prisma escribe el default
+  /// en las filas ya existentes al aplicar la migración.
+  allowedListingType ListingTypePolicy @default(BOTH)
 
   listings  Listing[]
 
