@@ -2070,10 +2070,37 @@ enmascarado, en una sola sesión de trabajo: `REVALIDATE_SECRET` ausente en el
 frontend (footer semi-dinámico), `REVALIDATE_SECRET` ausente en CI, y `APP_URL`
 apuntando al puerto equivocado en CI (ver sección anterior) — los tres silenciosos,
 los tres solo detectados al investigar fallos de test, nunca por un log de error.
-**Mejora pendiente**: sin quitar el fire-and-forget (una revalidación fallida no debe
-romper la acción del admin), añadir un `Logger.warn(...)` cuando la llamada falla
-(secret ausente localmente, `!response.ok`, excepción de red) — que grite en los
-logs en vez de desaparecer.
+**Resuelto en Hito 9.** `BlogService` tiene ahora `Logger` de clase. Los tres
+silencios se cerraron sin tocar el fire-and-forget (`revalidate`/`revalidateTag`/
+`callRevalidateEndpoint` siguen `void`, sin `await` en los callers, sin propagar,
+sin reintentos):
+- Secret ausente: `Logger.warn` **una sola vez, en el constructor** (el servicio es
+  singleton de Nest) — no por request, porque es un modo soportado en dev (el ISR
+  sigue revalidando por su propio TTL), no necesariamente una config rota.
+- Respuesta no-ok: tras el `fetch`, `if (!res.ok) this.logger.warn(...)` con el
+  status y el `target` (`path` o `tag:...`) — cubre el 404 de `APP_URL` mal
+  configurado, que antes se colaba como "éxito" porque `fetch()` solo rechaza en
+  fallo de red, nunca en 4xx/5xx.
+- Excepción/fallo de red: el `.catch(() => {})` mudo ahora loguea
+  `this.logger.warn(...)` con el mensaje del error, mismo `target`.
+- El `target` se construye aparte de la URL real y es lo único que se loguea — la
+  URL lleva `secret` en la query string y nunca debe aparecer en logs.
+- Test unitario (`blog.service.spec.ts`, sin Nest boot ni Postgres): fetch mockeado
+  para las 4 rutas (no-ok, red, ok, secret ausente) + verificación explícita de que
+  el caso ok NO loguea (sin falso positivo). Verificado además que 33/33 suites e2e
+  (564/564 tests) siguen verdes tras el cambio.
+
+**Deuda relacionada, NO tocada en esta ráfaga — mismo patrón, otro módulo:**
+`billing.processor.ts:161` hace `.catch(() => undefined)` al persistir
+`stripeCustomerId` tras un webhook de Stripe (`prisma.user.update(...)`), comentado
+como "idempotent; ignore if already set". A diferencia de ese comentario, el `catch`
+traga **cualquier** error, no solo el de fila duplicada esperado — un fallo real de
+Postgres a mitad del webhook quedaría igual de silencioso (el usuario pagó pero el
+`customerId` no queda vinculado). Mismo tratamiento (loguear + swallow) pendiente,
+pero es una pieza separada de billing, fuera de alcance aquí. Distinto de
+`search.service.ts:225` (`.catch(() => undefined)` con comentario `// index already
+exists — that's fine`): ahí el swallow está bien acotado a un caso esperado y
+documentado — no es deuda.
 
 **5. `REVALIDATE_SECRET`/`APP_URL` deben estar configurados en TODOS los entornos.**
 Añadidos a `.env.example` (backend y frontend) como documentación — evita que una

@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
@@ -17,10 +18,22 @@ const AUTHOR_ADMIN = { select: { id: true, name: true, email: true } } as const;
 
 @Injectable()
 export class BlogService {
+  private readonly logger = new Logger(BlogService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLog: AuditLogService,
-  ) {}
+  ) {
+    // Logged once at boot (this service is a Nest singleton), not per request:
+    // absent REVALIDATE_SECRET is a supported dev mode (ISR still revalidates
+    // on its own TTL), not necessarily misconfiguration — a warn per call would
+    // just be noise in any environment that intentionally omits it.
+    if (!process.env.REVALIDATE_SECRET) {
+      this.logger.warn(
+        'REVALIDATE_SECRET no configurado: revalidación on-demand deshabilitada (blog/páginas se actualizan al expirar el TTL de ISR)',
+      );
+    }
+  }
 
   // ── Public endpoints ────────────────────────────────────────────────────────
   // listPublished/findBySlug (blog, type=POST) and listPublishedPages/
@@ -439,9 +452,24 @@ export class BlogService {
     const qs = new URLSearchParams({ secret });
     if (params.path !== undefined) qs.set('path', params.path);
     if (params.tag !== undefined) qs.set('tag', params.tag);
+    // Logged separately from the request URL — the URL carries `secret` in its
+    // query string and must never end up in logs.
+    const target = params.path ?? `tag:${params.tag}`;
     fetch(`${appUrl}/api/revalidate?${qs}`, {
       method: 'POST',
       signal: AbortSignal.timeout(3000),
-    }).catch(() => {});
+    })
+      .then((res) => {
+        // fetch() only rejects on network failure — a 404/500 resolves
+        // "successfully" and silently fails to revalidate unless checked here.
+        if (!res.ok) {
+          this.logger.warn(`Revalidation endpoint returned ${res.status} for ${target}`);
+        }
+      })
+      .catch((err) => {
+        this.logger.warn(
+          `Revalidation request failed for ${target}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
   }
 }
