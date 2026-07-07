@@ -12,6 +12,8 @@ export type ListingStatus =
 
 export type ListingType = 'PRODUCT' | 'SERVICE';
 
+export type ListingTypePolicy = 'PRODUCT_ONLY' | 'SERVICE_ONLY' | 'BOTH';
+
 export type Condition = 'NEW' | 'LIKE_NEW' | 'GOOD' | 'FAIR' | 'FOR_PARTS';
 
 export type Role = 'USER' | 'MODERATOR' | 'ADMIN';

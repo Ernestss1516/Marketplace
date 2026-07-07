@@ -24,18 +24,25 @@ import {
   serializeAttributeSchema,
   type AttributeSchemaWithExtras,
 } from '@/components/admin/AttributeSchemaEditor';
-import type { AttributeSchema } from '@/types';
+import type { AttributeSchema, ListingTypePolicy } from '@/types';
 
-// ─── Form values (name/slug/iconUrl/order only — schema is managed separately) ──
+// ─── Form values (name/slug/iconUrl/order/allowedListingType — schema is managed separately) ──
 
 interface CategoryFormValues {
   name: string;
   slug: string;
   iconUrl: string;
   order: string;
+  allowedListingType: ListingTypePolicy;
 }
 
-const EMPTY_FORM: CategoryFormValues = { name: '', slug: '', iconUrl: '', order: '0' };
+const EMPTY_FORM: CategoryFormValues = { name: '', slug: '', iconUrl: '', order: '0', allowedListingType: 'BOTH' };
+
+const POLICY_OPTIONS: { value: ListingTypePolicy; label: string }[] = [
+  { value: 'BOTH', label: 'Ambos (producto y servicio)' },
+  { value: 'PRODUCT_ONLY', label: 'Solo producto' },
+  { value: 'SERVICE_ONLY', label: 'Solo servicio' },
+];
 
 function toForm(cat: AdminCategoryChild): CategoryFormValues {
   return {
@@ -43,6 +50,7 @@ function toForm(cat: AdminCategoryChild): CategoryFormValues {
     slug: cat.slug,
     iconUrl: cat.iconUrl ?? '',
     order: String(cat.order),
+    allowedListingType: cat.allowedListingType,
   };
 }
 
@@ -110,6 +118,20 @@ function CategoryForm({
             className="rounded-md border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
             disabled={saving}
           />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-medium text-muted-foreground">Tipo de anuncio permitido</label>
+          <select
+            value={values.allowedListingType}
+            onChange={(e) => onChange({ allowedListingType: e.target.value as ListingTypePolicy })}
+            className="rounded-md border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            disabled={saving}
+            data-testid="allowed-listing-type-select"
+          >
+            {POLICY_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
         </div>
       </div>
       {error && (
@@ -468,6 +490,7 @@ export default function AdminCategoriasPage() {
         slug: editForm.slug,
         iconUrl: editForm.iconUrl || undefined,
         order: parseInt(editForm.order) || 0,
+        allowedListingType: editForm.allowedListingType,
       });
       setEditingId(null);
       await fetchCategories();
@@ -528,6 +551,7 @@ export default function AdminCategoriasPage() {
         parentId: createParentId ?? undefined,
         iconUrl: createForm.iconUrl || undefined,
         order: parseInt(createForm.order) || 0,
+        allowedListingType: createForm.allowedListingType,
         attributeSchema: serializeAttributeSchema(createOwnSchema, searchableKeys),
       });
       setCreateParentId(undefined);

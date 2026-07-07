@@ -201,6 +201,16 @@ export class SearchService implements OnModuleInit {
 
   /** Ensures the index exists and its settings are up to date on every startup. */
   async onModuleInit(): Promise<void> {
+    await this.applyFilterableAttributes();
+  }
+
+  /**
+   * Recomputes the filterable-attribute set from FilterableAttributesResolver
+   * and pushes it to Meilisearch. Shared by onModuleInit (boot) and
+   * refreshFilterableAttributes() (hot refresh after an admin edits a
+   * category's attributeSchema — RÁFAGA 2).
+   */
+  private async applyFilterableAttributes(): Promise<void> {
     try {
       const attributeTypes = await this.attributesResolver.getAttributeTypes();
       const filterableAttributes = [...CORE_FILTERABLE_ATTRIBUTES, ...attributeTypes.keys()];
@@ -223,6 +233,20 @@ export class SearchService implements OnModuleInit {
     } catch (err) {
       this.logger.error('Failed to configure Meilisearch index', err);
     }
+  }
+
+  /**
+   * Hot refresh (RÁFAGA 2): invalidates the resolver's memoized map and
+   * re-applies filterableAttributes to Meilisearch without a process restart.
+   * Called from the 'refresh-filterable-attributes' BullMQ job — never
+   * inline in an admin HTTP request (apps/api CLAUDE.md: heavy work goes to
+   * queues). Only refreshes the in-memory state of the process that runs the
+   * job; a multi-instance deployment would need pub/sub to reach every
+   * instance — out of scope for R2.
+   */
+  async refreshFilterableAttributes(): Promise<void> {
+    this.attributesResolver.invalidate();
+    await this.applyFilterableAttributes();
   }
 
   // --------------------------------------------------------------------------

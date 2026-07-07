@@ -1,5 +1,6 @@
-import { IsArray, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { IsArray, IsEnum, IsInt, IsOptional, IsString, Min } from 'class-validator';
 import { Type } from 'class-transformer';
+import { ListingTypePolicy } from '@prisma/client';
 
 export class CreateCategoryDto {
   @IsString()
@@ -25,4 +26,8 @@ export class CreateCategoryDto {
   @IsOptional()
   @IsArray()
   attributeSchema?: unknown[];
+
+  @IsOptional()
+  @IsEnum(ListingTypePolicy)
+  allowedListingType?: ListingTypePolicy;
 }

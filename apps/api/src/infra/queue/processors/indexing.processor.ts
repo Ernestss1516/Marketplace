@@ -19,11 +19,11 @@ export class IndexingProcessor extends WorkerHost {
     super();
   }
 
-  async process(job: Job<{ listingId: string }>): Promise<void> {
+  async process(job: Job<{ listingId?: string }>): Promise<void> {
     try {
-      const { listingId } = job.data;
       switch (job.name) {
         case 'index': {
+          const listingId = job.data.listingId!;
           const queueWaitMs = Date.now() - job.timestamp;
           this.logger.log(`[TIMING] index start listingId=${listingId} queueWait=${queueWaitMs}ms`);
           const t0 = Date.now();
@@ -32,8 +32,9 @@ export class IndexingProcessor extends WorkerHost {
           return;
         }
         case 'remove':
-          return this.handleRemove(listingId);
+          return this.handleRemove(job.data.listingId!);
         case 'geocode': {
+          const listingId = job.data.listingId!;
           const queueWaitMs = Date.now() - job.timestamp;
           this.logger.log(`[TIMING] geocode start listingId=${listingId} queueWait=${queueWaitMs}ms`);
           const t0 = Date.now();
@@ -41,6 +42,10 @@ export class IndexingProcessor extends WorkerHost {
           this.logger.log(`[TIMING] geocode done listingId=${listingId} geocodeTime=${Date.now() - t0}ms`);
           return;
         }
+        // RÁFAGA 2 (admin de categorías) — refresco en caliente tras editar
+        // attributeSchema. Sin listingId; encolado desde AdminService.
+        case 'refresh-filterable-attributes':
+          return this.search.refreshFilterableAttributes();
         default:
           this.logger.warn(`Unknown indexing job: ${job.name}`);
       }

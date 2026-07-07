@@ -43,6 +43,17 @@ export class FilterableAttributesResolver {
     return this.cache;
   }
 
+  /**
+   * Forces the next getAttributeTypes() call to recompute from the DB instead
+   * of reusing the memoized value. Called after a category schema edit
+   * (RÁFAGA 2 — admin de categorías) so the change is reflected without
+   * restarting the process. Only invalidates the in-memory cache of the
+   * process that runs it — see the multi-instance caveat in SearchService.
+   */
+  invalidate(): void {
+    this.cache = null;
+  }
+
   private async resolve(): Promise<Map<string, AttributeField['type']>> {
     const categories = await this.prisma.category.findMany({
       select: { attributeSchema: true },

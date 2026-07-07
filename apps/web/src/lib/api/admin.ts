@@ -1,5 +1,5 @@
 import { apiFetch } from './client';
-import type { AttributeSchema } from '@/types';
+import type { AttributeSchema, ListingTypePolicy } from '@/types';
 
 // ─── Stats ────────────────────────────────────────────────────────────────────
 
@@ -202,6 +202,7 @@ export interface AdminCategoryChild {
   iconUrl: string | null;
   order: number;
   attributeSchema: AttributeSchema[];
+  allowedListingType: ListingTypePolicy;
 }
 
 export interface AdminCategory extends AdminCategoryChild {
@@ -215,6 +216,7 @@ export interface CategoryMutationDto {
   iconUrl?: string;
   order?: number;
   attributeSchema?: unknown[];
+  allowedListingType?: ListingTypePolicy;
 }
 
 export function getSearchableKeys(token: string): Promise<{ keys: string[] }> {

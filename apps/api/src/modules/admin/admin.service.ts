@@ -9,6 +9,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import {
   ListingStatus,
+  ListingTypePolicy,
   Prisma,
   ReportStatus,
   Role,
@@ -399,6 +400,7 @@ export class AdminService {
         iconUrl: true,
         order: true,
         attributeSchema: true,
+        allowedListingType: true,
         children: {
           orderBy: { order: 'asc' },
           select: {
@@ -408,6 +410,7 @@ export class AdminService {
             iconUrl: true,
             order: true,
             attributeSchema: true,
+            allowedListingType: true,
           },
         },
       },
@@ -435,9 +438,76 @@ export class AdminService {
     }
   }
 
+  /**
+   * Hacia arriba: una política propia no puede contradecir la del padre ya
+   * persistido. Árbol de 2 niveles (parentId inmutable) — la política del
+   * padre es su valor propio, sin resolución recursiva. Guard explícito que
+   * LANZA; no reutiliza resolveEffectivePolicy (esa función es defensiva y
+   * nunca lanza, pensada para la lectura en tiempo de creación de anuncios).
+   */
+  private async assertPolicyConsistentWithParent(
+    own: ListingTypePolicy,
+    parentId: string | null | undefined,
+  ): Promise<void> {
+    if (!parentId || own === 'BOTH') return;
+    const parent = await this.prisma.category.findUnique({
+      where: { id: parentId },
+      select: { allowedListingType: true },
+    });
+    if (parent && parent.allowedListingType !== 'BOTH' && parent.allowedListingType !== own) {
+      throw new BadRequestException(
+        `La política "${own}" contradice la política del padre ("${parent.allowedListingType}").`,
+      );
+    }
+  }
+
+  /**
+   * Hacia abajo: cambiar la política de una categoría con hijos y/o anuncios
+   * ya existentes puede volverlos incoherentes. Mismo molde que
+   * deleteCategory (conteos exactos, 400 con el número) — rechazar, no
+   * avisar ni permitir en silencio. Ensanchar a BOTH nunca rompe nada.
+   */
+  private async assertPolicyChangeDoesNotBreakChildren(
+    categoryId: string,
+    newPolicy: ListingTypePolicy,
+  ): Promise<void> {
+    if (newPolicy === 'BOTH') return;
+
+    const children = await this.prisma.category.findMany({
+      where: { parentId: categoryId },
+      select: { id: true, name: true, allowedListingType: true },
+    });
+
+    const contradictingChild = children.find(
+      (c) => c.allowedListingType !== 'BOTH' && c.allowedListingType !== newPolicy,
+    );
+    if (contradictingChild) {
+      throw new BadRequestException(
+        `No se puede cambiar la política: la subcategoría "${contradictingChild.name}" ya está configurada como ${contradictingChild.allowedListingType}.`,
+      );
+    }
+
+    // Incluye la propia categoría y TODOS sus hijos: un hijo BOTH hereda la
+    // nueva restricción del padre, así que sus anuncios del tipo prohibido
+    // quedarían igual de incoherentes que los de la propia categoría.
+    const forbiddenType = newPolicy === 'PRODUCT_ONLY' ? 'SERVICE' : 'PRODUCT';
+    const categoryIds = [categoryId, ...children.map((c) => c.id)];
+    const count = await this.prisma.listing.count({
+      where: { categoryId: { in: categoryIds }, type: forbiddenType },
+    });
+    if (count > 0) {
+      throw new BadRequestException(
+        `No se puede cambiar la política: ${count} anuncio(s) de tipo ${forbiddenType} quedarían fuera de la política permitida.`,
+      );
+    }
+  }
+
   async createCategory(actorId: string, dto: CreateCategoryDto, ip?: string) {
     if (dto.attributeSchema) {
       await this.validateCardAttributeLimit(dto.attributeSchema as AttributeField[], dto.parentId);
+    }
+    if (dto.allowedListingType !== undefined) {
+      await this.assertPolicyConsistentWithParent(dto.allowedListingType, dto.parentId);
     }
     try {
       const created = await this.prisma.category.create({
@@ -450,6 +520,9 @@ export class AdminService {
           ...(dto.attributeSchema !== undefined && {
             attributeSchema: dto.attributeSchema as Prisma.InputJsonValue,
           }),
+          ...(dto.allowedListingType !== undefined && {
+            allowedListingType: dto.allowedListingType,
+          }),
         },
       });
 
@@ -461,6 +534,10 @@ export class AdminService {
         after: { name: created.name, slug: created.slug },
         ip,
       });
+
+      if (dto.attributeSchema !== undefined) {
+        await this.indexingQueue.add('refresh-filterable-attributes', {});
+      }
 
       return created;
     } catch (e) {
@@ -487,6 +564,16 @@ export class AdminService {
       );
     }
 
+    if (dto.allowedListingType !== undefined) {
+      await this.assertPolicyConsistentWithParent(dto.allowedListingType, category.parentId);
+      // Solo se consulta hijos/anuncios (coste extra) cuando la política REALMENTE
+      // cambia respecto a la ya persistida — editar nombre/schema sin tocar la
+      // política no paga este coste.
+      if (dto.allowedListingType !== category.allowedListingType) {
+        await this.assertPolicyChangeDoesNotBreakChildren(id, dto.allowedListingType);
+      }
+    }
+
     const before = { name: category.name, slug: category.slug, order: category.order };
 
     try {
@@ -500,6 +587,9 @@ export class AdminService {
           ...(dto.attributeSchema !== undefined && {
             attributeSchema: dto.attributeSchema as Prisma.InputJsonValue,
           }),
+          ...(dto.allowedListingType !== undefined && {
+            allowedListingType: dto.allowedListingType,
+          }),
         },
       });
 
@@ -512,6 +602,10 @@ export class AdminService {
         after: { name: updated.name, slug: updated.slug, order: updated.order },
         ip,
       });
+
+      if (dto.attributeSchema !== undefined) {
+        await this.indexingQueue.add('refresh-filterable-attributes', {});
+      }
 
       return updated;
     } catch (e) {

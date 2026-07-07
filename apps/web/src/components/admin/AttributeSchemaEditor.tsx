@@ -40,7 +40,7 @@
 
 import { useState } from 'react';
 import { Plus, Trash2, Edit2, X, Info, Loader2 } from 'lucide-react';
-import type { AttributeSchema } from '@/types';
+import type { AttributeSchema, ListingType } from '@/types';
 import { Button } from '@/components/ui/button';
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -51,7 +51,15 @@ export interface AttributeSchemaWithExtras extends AttributeSchema {
 
 // ── Parse / serialize ─────────────────────────────────────────────────────────
 
-const KNOWN_KEYS = ['name', 'label', 'type', 'unit', 'options', 'filterable', 'required', 'cardAttribute'];
+const KNOWN_KEYS = ['name', 'label', 'type', 'unit', 'options', 'filterable', 'required', 'cardAttribute', 'appliesTo'];
+
+function parseAppliesTo(value: unknown): ListingType[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const valid = value.filter((v): v is ListingType => v === 'PRODUCT' || v === 'SERVICE');
+  // Ausente o {PRODUCT,SERVICE} completo son equivalentes ("aplica a ambos") —
+  // no conservar un array de 2 elementos evita reescribir datos ya migrados.
+  return valid.length > 0 && valid.length < 2 ? valid : undefined;
+}
 
 export function parseAttributeSchema(raw: unknown[]): AttributeSchemaWithExtras[] {
   return (raw ?? []).map((item) => {
@@ -63,6 +71,7 @@ export function parseAttributeSchema(raw: unknown[]): AttributeSchemaWithExtras[
     const type = (['text', 'number', 'select', 'boolean'] as const).includes(r.type as never)
       ? (r.type as AttributeSchema['type'])
       : 'text';
+    const appliesTo = parseAppliesTo(r.appliesTo);
     return {
       name: String(r.name ?? ''),
       label: String(r.label ?? ''),
@@ -72,6 +81,7 @@ export function parseAttributeSchema(raw: unknown[]): AttributeSchemaWithExtras[
       filterable: Boolean(r.filterable),
       required: Boolean(r.required),
       ...(r.cardAttribute ? { cardAttribute: true as const } : {}),
+      ...(appliesTo ? { appliesTo } : {}),
       ...(Object.keys(extra).length > 0 ? { _extra: extra } : {}),
     };
   });
@@ -99,6 +109,7 @@ export function serializeAttributeSchema(
       out.options = known.options;
     }
     if (known.cardAttribute) out.cardAttribute = true;
+    if (known.appliesTo) out.appliesTo = known.appliesTo;
     return out;
   });
 }
@@ -114,11 +125,17 @@ interface DraftState {
   filterable: boolean;
   required: boolean;
   cardAttribute: boolean;
+  /** Ambos marcados (default) = comportamiento actual, sin restricción de tipo. */
+  appliesTo: ListingType[];
   _extra?: Record<string, unknown>;
 }
 
 function emptyDraft(): DraftState {
-  return { name: '', label: '', type: 'text', unit: '', options: [], filterable: false, required: false, cardAttribute: false };
+  return {
+    name: '', label: '', type: 'text', unit: '', options: [],
+    filterable: false, required: false, cardAttribute: false,
+    appliesTo: ['PRODUCT', 'SERVICE'],
+  };
 }
 
 function toDraft(f: AttributeSchemaWithExtras): DraftState {
@@ -131,6 +148,7 @@ function toDraft(f: AttributeSchemaWithExtras): DraftState {
     filterable: f.filterable,
     required: f.required,
     cardAttribute: f.cardAttribute ?? false,
+    appliesTo: f.appliesTo ? [...f.appliesTo] : ['PRODUCT', 'SERVICE'],
     _extra: f._extra,
   };
 }
@@ -145,6 +163,9 @@ function fromDraft(d: DraftState): AttributeSchemaWithExtras {
     filterable: d.filterable,
     required: d.required,
     ...(d.cardAttribute ? { cardAttribute: true as const } : {}),
+    // Ambos marcados → omitir el campo (attributeSchema byte-idéntico al de
+    // antes de RÁFAGA 2 para quien nunca toca estos checkboxes).
+    ...(d.appliesTo.length < 2 ? { appliesTo: [...d.appliesTo] } : {}),
     ...( d._extra ? { _extra: d._extra } : {}),
   };
 }
@@ -167,6 +188,9 @@ function validateDraft(
   if (!d.label.trim()) errors.push('La etiqueta visible es obligatoria');
   if (d.type === 'select' && d.options.length === 0) {
     errors.push('Un atributo de tipo select necesita al menos 1 opción');
+  }
+  if (d.appliesTo.length === 0) {
+    errors.push('Selecciona al menos un tipo (Producto o Servicio)');
   }
   return errors;
 }
@@ -691,6 +715,40 @@ function FieldForm({
           {cardAttributeDisabled && (
             <Info className="h-3 w-3 text-muted-foreground" />
           )}
+        </label>
+
+        {/* appliesTo — a qué tipo(s) de anuncio aplica este atributo (ambos = default, comportamiento actual) */}
+        <label className="flex cursor-pointer items-center gap-1.5 text-xs">
+          <input
+            type="checkbox"
+            checked={draft.appliesTo.includes('PRODUCT')}
+            onChange={(e) => {
+              const next = e.target.checked
+                ? [...draft.appliesTo, 'PRODUCT' as const]
+                : draft.appliesTo.filter((t) => t !== 'PRODUCT');
+              set({ appliesTo: next });
+            }}
+            disabled={disabled}
+            className="h-3.5 w-3.5 rounded"
+            data-testid="applies-to-product-checkbox"
+          />
+          Producto
+        </label>
+        <label className="flex cursor-pointer items-center gap-1.5 text-xs">
+          <input
+            type="checkbox"
+            checked={draft.appliesTo.includes('SERVICE')}
+            onChange={(e) => {
+              const next = e.target.checked
+                ? [...draft.appliesTo, 'SERVICE' as const]
+                : draft.appliesTo.filter((t) => t !== 'SERVICE');
+              set({ appliesTo: next });
+            }}
+            disabled={disabled}
+            className="h-3.5 w-3.5 rounded"
+            data-testid="applies-to-service-checkbox"
+          />
+          Servicio
         </label>
       </div>
 
