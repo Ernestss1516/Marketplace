@@ -11,6 +11,31 @@ export interface AttributeField {
   cardAttribute?: boolean;
   /** Which listing type(s) this attribute applies to. Absent = applies to both (preserves every attribute defined before RÁFAGA 1 without touching data). */
   appliesTo?: ListingType[];
+  /**
+   * Name of another `select` attribute in the same effective schema whose
+   * value gates this field's valid options. Single level only (no chains):
+   * the parent itself must not have its own `dependsOn`. When present,
+   * `options` is ignored — `optionsByParent` is the only source of truth.
+   */
+  dependsOn?: string;
+  /** Valid options for this field, keyed by the current value of `dependsOn`'s field. Only meaningful when `dependsOn` is set. */
+  optionsByParent?: Record<string, string[]>;
+}
+
+/**
+ * Resolves the valid options for a (possibly linked) select field given the
+ * current value of its parent field (if any). Plain selects (no `dependsOn`)
+ * just return their own `options`. Linked selects with no parent value yet,
+ * or a parent value with no matching entry, resolve to an empty list —
+ * callers (wizard UI, backend guard) treat that as "not selectable yet".
+ */
+export function resolveLinkedOptions(
+  field: AttributeField,
+  parentValue: string | undefined,
+): string[] {
+  if (!field.dependsOn) return field.options ?? [];
+  if (parentValue === undefined) return [];
+  return field.optionsByParent?.[parentValue] ?? [];
 }
 
 /**

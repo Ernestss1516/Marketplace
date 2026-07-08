@@ -16,3 +16,20 @@ export function filterSchemaByType(
   if (!type) return schema;
   return schema.filter((f) => !f.appliesTo || f.appliesTo.includes(type));
 }
+
+/**
+ * Resolves the valid options for a (possibly linked) select field given the
+ * current value of its parent field (if any) — espejo del
+ * resolveLinkedOptions del backend (category.types.ts). Plain selects (sin
+ * `dependsOn`) devuelven directamente sus `options`. Un select vinculado sin
+ * valor de padre, o con un valor de padre sin entrada, resuelve a lista
+ * vacía — el wizard trata eso como "aún no seleccionable".
+ */
+export function resolveLinkedOptions(
+  field: AttributeSchema,
+  parentValue: string | undefined,
+): string[] {
+  if (!field.dependsOn) return field.options ?? [];
+  if (parentValue === undefined) return [];
+  return field.optionsByParent?.[parentValue] ?? [];
+}

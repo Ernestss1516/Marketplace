@@ -12,7 +12,7 @@ import { StepUbicacion, type UbicacionData } from './steps/StepUbicacion';
 import { updateListing } from '@/lib/api/anuncios';
 import { toUserMessage } from '@/lib/api/client';
 import { useApiAction } from '@/lib/api/use-api-action';
-import { filterSchemaByType } from '@/lib/attribute-schema';
+import { filterSchemaByType, resolveLinkedOptions } from '@/lib/attribute-schema';
 import type { AttributeSchema, Condition } from '@/types';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -88,6 +88,15 @@ function validateStep(id: StepId, data: EditarWizardData): Record<string, string
       if (field.required) {
         const val = data.attributes[field.name];
         if (!val || val === '') errors[field.name] = `${field.label} es obligatorio.`;
+      }
+      if (field.dependsOn) {
+        const val = data.attributes[field.name];
+        if (val) {
+          const parentVal = data.attributes[field.dependsOn];
+          if (!resolveLinkedOptions(field, parentVal).includes(val)) {
+            errors[field.name] = `${field.label} no es válido para el valor elegido.`;
+          }
+        }
       }
     }
   }

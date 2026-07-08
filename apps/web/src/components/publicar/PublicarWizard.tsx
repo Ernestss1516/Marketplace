@@ -14,7 +14,7 @@ import { StepPrevisualizacion } from './steps/StepPrevisualizacion';
 import { createListing, publishListing } from '@/lib/api/anuncios';
 import { toUserMessage } from '@/lib/api/client';
 import { useApiAction } from '@/lib/api/use-api-action';
-import { filterSchemaByType } from '@/lib/attribute-schema';
+import { filterSchemaByType, resolveLinkedOptions } from '@/lib/attribute-schema';
 import type { Category, AttributeSchema, ListingType, ListingTypePolicy, Condition } from '@/types';
 
 // ── Shared state shape ────────────────────────────────────────────────────────
@@ -89,6 +89,19 @@ function validateStep(id: StepId, data: WizardData): Record<string, string> {
         const val = data.attributes[field.name];
         if (!val || val === '') {
           errors[field.name] = `${field.label} es obligatorio.`;
+        }
+      }
+      // Selects vinculados: si el campo tiene valor, debe ser una opción
+      // válida para el valor actual de su padre (la UI ya lo impide en el
+      // caso normal — deshabilitado hasta elegir el padre, opciones acotadas
+      // — pero el estado puede quedar obsoleto tras idas y venidas).
+      if (field.dependsOn) {
+        const val = data.attributes[field.name];
+        if (val) {
+          const parentVal = data.attributes[field.dependsOn];
+          if (!resolveLinkedOptions(field, parentVal).includes(val)) {
+            errors[field.name] = `${field.label} no es válido para el valor elegido.`;
+          }
         }
       }
     }

@@ -11,6 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { resolveLinkedOptions } from '@/lib/attribute-schema';
 import type { AttributeSchema } from '@/types';
 
 interface StepAtributosProps {
@@ -40,7 +41,20 @@ export function StepAtributos({ schema, values, onChange, errors }: StepAtributo
   }
 
   function set(name: string, value: string) {
-    onChange({ ...values, [name]: value });
+    const next = { ...values, [name]: value };
+    // Selects vinculados: si este campo es el "padre" de otro, y el valor
+    // actual del hijo ya no es una opción válida para el nuevo valor del
+    // padre, se resetea. Un solo nivel de vínculo (no cadenas).
+    for (const field of schema) {
+      if (field.dependsOn !== name) continue;
+      const childValue = next[field.name];
+      if (!childValue) continue;
+      const validOptions = resolveLinkedOptions(field, value);
+      if (!validOptions.includes(childValue)) {
+        next[field.name] = '';
+      }
+    }
+    onChange(next);
   }
 
   return (
@@ -75,15 +89,29 @@ export function StepAtributos({ schema, values, onChange, errors }: StepAtributo
         }
 
         if (field.type === 'select') {
+          const parentValue = field.dependsOn ? values[field.dependsOn] : undefined;
+          const isLinked = Boolean(field.dependsOn);
+          const isDisabled = isLinked && !parentValue;
+          const options = isLinked ? resolveLinkedOptions(field, parentValue) : (field.options ?? []);
+          const parentLabel = isLinked
+            ? (schema.find((f) => f.name === field.dependsOn)?.label ?? field.dependsOn)
+            : undefined;
+
           return (
             <div key={field.name} className="space-y-1.5">
               <Label htmlFor={id}>{label}</Label>
-              <Select value={value} onValueChange={(v) => set(field.name, v)}>
+              <Select value={value} onValueChange={(v) => set(field.name, v)} disabled={isDisabled}>
                 <SelectTrigger id={id} aria-invalid={Boolean(error)}>
-                  <SelectValue placeholder={`Selecciona ${field.label.toLowerCase()}…`} />
+                  <SelectValue
+                    placeholder={
+                      isDisabled
+                        ? `Elige ${parentLabel?.toLowerCase()} primero`
+                        : `Selecciona ${field.label.toLowerCase()}…`
+                    }
+                  />
                 </SelectTrigger>
                 <SelectContent>
-                  {(field.options ?? []).map((opt) => (
+                  {options.map((opt) => (
                     <SelectItem key={opt} value={opt}>
                       {opt}
                     </SelectItem>

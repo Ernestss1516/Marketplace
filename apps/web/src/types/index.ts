@@ -62,6 +62,10 @@ export interface AttributeSchema {
   cardAttribute?: boolean;
   /** Which listing type(s) this attribute applies to. Absent = applies to both. */
   appliesTo?: ListingType[];
+  /** Name of another `select` attribute whose value gates this field's valid options. Single level only (no chains). When set, `options` is ignored. */
+  dependsOn?: string;
+  /** Valid options for this field, keyed by the current value of `dependsOn`'s field. Only meaningful when `dependsOn` is set. */
+  optionsByParent?: Record<string, string[]>;
 }
 
 export interface CardAttributeDef {

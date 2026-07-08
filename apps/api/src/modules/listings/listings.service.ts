@@ -23,6 +23,7 @@ import {
   AttributeField,
   resolveEffectiveSchema,
   resolveEffectivePolicy,
+  resolveLinkedOptions,
   isListingTypeAllowed,
 } from '../categories/category.types';
 import type { ListingTypePolicy } from '@prisma/client';
@@ -113,6 +114,7 @@ export class ListingsService {
       (category.parent?.attributeSchema as unknown as AttributeField[]) ?? [],
     );
     this.validateAttributes(dto.attributes ?? {}, effectiveSchema);
+    this.validateLinkedSelects(dto.attributes ?? {}, effectiveSchema);
     this.validateListingTypeAllowed(
       dto.type,
       category.allowedListingType,
@@ -173,6 +175,7 @@ export class ListingsService {
         ...(dto.attributes ?? {}),
       };
       this.validateAttributes(mergedAttrs, effectiveSchema);
+      this.validateLinkedSelects(mergedAttrs, effectiveSchema);
 
       // type is immutable (not on UpdateListingDto) — but categoryId can still change,
       // so a listing's fixed type must stay allowed by whatever category it moves into.
@@ -701,6 +704,43 @@ export class ListingsService {
       throw new UnprocessableEntityException(
         `Atributos requeridos faltantes: ${missing.join(', ')}`,
       );
+    }
+  }
+
+  /**
+   * Enforces linked selects (`AttributeField.dependsOn` / `optionsByParent`):
+   * a dependent field's value must belong to its parent's currently-chosen
+   * value. Deliberately asymmetric with `validateAttributes` — plain
+   * attributes not present in the schema are tolerated, but a *linked* field
+   * with a value must resolve against its parent within the SAME payload.
+   * Only fields that actually carry a value are checked; presence/required-ness
+   * is `validateAttributes`'s job.
+   */
+  private validateLinkedSelects(
+    attributes: Record<string, unknown>,
+    schema: AttributeField[],
+  ): void {
+    for (const field of schema) {
+      if (!field.dependsOn) continue;
+      const rawValue = attributes[field.name];
+      if (rawValue === undefined || rawValue === null || rawValue === '') continue;
+      const value = String(rawValue);
+
+      const parentRaw = attributes[field.dependsOn];
+      if (parentRaw === undefined || parentRaw === null || parentRaw === '') {
+        const parentLabel =
+          schema.find((f) => f.name === field.dependsOn)?.label ?? field.dependsOn;
+        throw new UnprocessableEntityException(
+          `"${field.label}" requiere seleccionar primero "${parentLabel}".`,
+        );
+      }
+
+      const validOptions = resolveLinkedOptions(field, String(parentRaw));
+      if (!validOptions.includes(value)) {
+        throw new UnprocessableEntityException(
+          `"${value}" no es una opción válida de "${field.label}" para el valor elegido.`,
+        );
+      }
     }
   }
 

@@ -39,7 +39,7 @@
  */
 
 import { useState } from 'react';
-import { Plus, Trash2, Edit2, X, Info, Loader2 } from 'lucide-react';
+import { Plus, Trash2, Edit2, X, Info, Loader2, ChevronUp, ChevronDown } from 'lucide-react';
 import type { AttributeSchema, ListingType } from '@/types';
 import { Button } from '@/components/ui/button';
 
@@ -51,7 +51,11 @@ export interface AttributeSchemaWithExtras extends AttributeSchema {
 
 // ── Parse / serialize ─────────────────────────────────────────────────────────
 
-const KNOWN_KEYS = ['name', 'label', 'type', 'unit', 'options', 'filterable', 'required', 'cardAttribute', 'appliesTo'];
+const KNOWN_KEYS = ['name', 'label', 'type', 'unit', 'options', 'filterable', 'required', 'cardAttribute', 'appliesTo', 'dependsOn', 'optionsByParent'];
+
+function cloneOptionsByParent(o: Record<string, string[]>): Record<string, string[]> {
+  return Object.fromEntries(Object.entries(o).map(([k, v]) => [k, [...v]]));
+}
 
 function parseAppliesTo(value: unknown): ListingType[] | undefined {
   if (!Array.isArray(value)) return undefined;
@@ -72,6 +76,15 @@ export function parseAttributeSchema(raw: unknown[]): AttributeSchemaWithExtras[
       ? (r.type as AttributeSchema['type'])
       : 'text';
     const appliesTo = parseAppliesTo(r.appliesTo);
+    const dependsOn = typeof r.dependsOn === 'string' && r.dependsOn ? r.dependsOn : undefined;
+    const optionsByParent =
+      dependsOn && r.optionsByParent && typeof r.optionsByParent === 'object' && !Array.isArray(r.optionsByParent)
+        ? Object.fromEntries(
+            Object.entries(r.optionsByParent as Record<string, unknown>)
+              .filter(([, v]) => Array.isArray(v))
+              .map(([k, v]) => [k, (v as unknown[]).filter((x): x is string => typeof x === 'string')]),
+          )
+        : undefined;
     return {
       name: String(r.name ?? ''),
       label: String(r.label ?? ''),
@@ -82,6 +95,8 @@ export function parseAttributeSchema(raw: unknown[]): AttributeSchemaWithExtras[
       required: Boolean(r.required),
       ...(r.cardAttribute ? { cardAttribute: true as const } : {}),
       ...(appliesTo ? { appliesTo } : {}),
+      ...(dependsOn ? { dependsOn } : {}),
+      ...(optionsByParent ? { optionsByParent } : {}),
       ...(Object.keys(extra).length > 0 ? { _extra: extra } : {}),
     };
   });
@@ -110,6 +125,10 @@ export function serializeAttributeSchema(
     }
     if (known.cardAttribute) out.cardAttribute = true;
     if (known.appliesTo) out.appliesTo = known.appliesTo;
+    if (known.type === 'select' && known.dependsOn) {
+      out.dependsOn = known.dependsOn;
+      if (known.optionsByParent) out.optionsByParent = known.optionsByParent;
+    }
     return out;
   });
 }
@@ -127,7 +146,18 @@ interface DraftState {
   cardAttribute: boolean;
   /** Ambos marcados (default) = comportamiento actual, sin restricción de tipo. */
   appliesTo: ListingType[];
+  /** Name del atributo select del que depende, o '' si es un select plano. */
+  dependsOn: string;
+  /** Opciones válidas por valor del padre. Solo relevante si dependsOn !== ''. */
+  optionsByParent: Record<string, string[]>;
   _extra?: Record<string, unknown>;
+}
+
+/** Candidato a "padre" en un select vinculado: otro select sin su propio dependsOn (un solo nivel, sin cadenas). */
+interface ParentCandidate {
+  name: string;
+  label: string;
+  options: string[];
 }
 
 function emptyDraft(): DraftState {
@@ -135,6 +165,7 @@ function emptyDraft(): DraftState {
     name: '', label: '', type: 'text', unit: '', options: [],
     filterable: false, required: false, cardAttribute: false,
     appliesTo: ['PRODUCT', 'SERVICE'],
+    dependsOn: '', optionsByParent: {},
   };
 }
 
@@ -149,23 +180,35 @@ function toDraft(f: AttributeSchemaWithExtras): DraftState {
     required: f.required,
     cardAttribute: f.cardAttribute ?? false,
     appliesTo: f.appliesTo ? [...f.appliesTo] : ['PRODUCT', 'SERVICE'],
+    dependsOn: f.dependsOn ?? '',
+    optionsByParent: f.optionsByParent ? cloneOptionsByParent(f.optionsByParent) : {},
     _extra: f._extra,
   };
 }
 
-function fromDraft(d: DraftState): AttributeSchemaWithExtras {
+/**
+ * dependsOnValid: false cuando el padre elegido ya no está entre los
+ * candidatos disponibles (borrado/renombrado/ya no es select plano) — en ese
+ * caso se guarda como select plano (tolerante, no bloquea el guardado).
+ */
+function fromDraft(d: DraftState, dependsOnValid: boolean): AttributeSchemaWithExtras {
+  const useLinked = d.type === 'select' && Boolean(d.dependsOn) && dependsOnValid;
   return {
     name: d.name.trim(),
     label: d.label.trim(),
     type: d.type,
     ...(d.unit.trim() ? { unit: d.unit.trim() } : {}),
-    ...(d.type === 'select' && d.options.length > 0 ? { options: [...d.options] } : {}),
+    ...(d.type === 'select' && !useLinked && d.options.length > 0 ? { options: [...d.options] } : {}),
     filterable: d.filterable,
     required: d.required,
     ...(d.cardAttribute ? { cardAttribute: true as const } : {}),
     // Ambos marcados → omitir el campo (attributeSchema byte-idéntico al de
     // antes de RÁFAGA 2 para quien nunca toca estos checkboxes).
     ...(d.appliesTo.length < 2 ? { appliesTo: [...d.appliesTo] } : {}),
+    ...(useLinked ? { dependsOn: d.dependsOn } : {}),
+    ...(useLinked && Object.keys(d.optionsByParent).length > 0
+      ? { optionsByParent: cloneOptionsByParent(d.optionsByParent) }
+      : {}),
     ...( d._extra ? { _extra: d._extra } : {}),
   };
 }
@@ -174,6 +217,7 @@ function validateDraft(
   d: DraftState,
   rows: AttributeSchemaWithExtras[],
   editingIdx: number | null,
+  dependsOnValid: boolean,
 ): string[] {
   const errors: string[] = [];
   const name = d.name.trim();
@@ -186,13 +230,34 @@ function validateDraft(
     if (others.includes(name)) errors.push('Ya existe un atributo con este nombre');
   }
   if (!d.label.trim()) errors.push('La etiqueta visible es obligatoria');
-  if (d.type === 'select' && d.options.length === 0) {
-    errors.push('Un atributo de tipo select necesita al menos 1 opción');
+  if (d.type === 'select') {
+    const useLinked = Boolean(d.dependsOn) && dependsOnValid;
+    if (!useLinked && d.options.length === 0) {
+      errors.push('Un atributo de tipo select necesita al menos 1 opción');
+    }
+    if (useLinked && !Object.values(d.optionsByParent).some((arr) => arr.length > 0)) {
+      errors.push('Añade al menos una opción para algún valor del atributo del que depende');
+    }
   }
   if (d.appliesTo.length === 0) {
     errors.push('Selecciona al menos un tipo (Producto o Servicio)');
   }
   return errors;
+}
+
+/** Candidatos a "padre": selects (propios, excluyendo el que se edita, + heredados) sin su propio dependsOn. */
+function collectParentCandidates(
+  rows: AttributeSchemaWithExtras[],
+  inheritedFields: AttributeSchema[],
+  excludeIdx: number | null,
+): ParentCandidate[] {
+  const inheritedCandidates = inheritedFields
+    .filter((f) => f.type === 'select' && !f.dependsOn)
+    .map((f) => ({ name: f.name, label: f.label, options: f.options ?? [] }));
+  const ownCandidates = rows
+    .filter((r, i) => i !== excludeIdx && r.type === 'select' && !r.dependsOn)
+    .map((r) => ({ name: r.name, label: r.label, options: r.options ?? [] }));
+  return [...inheritedCandidates, ...ownCandidates];
 }
 
 // ── Component props ───────────────────────────────────────────────────────────
@@ -267,9 +332,11 @@ export function AttributeSchemaEditor({
 
   async function commitDraft() {
     if (!draft) return;
-    const errors = validateDraft(draft, rows, editingIdx);
+    const parentCandidates = collectParentCandidates(rows, inheritedFields, editingIdx);
+    const dependsOnValid = !draft.dependsOn || parentCandidates.some((p) => p.name === draft.dependsOn);
+    const errors = validateDraft(draft, rows, editingIdx, dependsOnValid);
     if (errors.length) { setDraftErrors(errors); return; }
-    const updated = fromDraft(draft);
+    const updated = fromDraft(draft, dependsOnValid);
 
     // Renaming (not creating) an existing key that already has listing data:
     // warn before committing. Never migrates — only informs the admin.
@@ -319,6 +386,20 @@ export function AttributeSchemaEditor({
     setDeletingIdx(null);
   }
 
+  /**
+   * El orden de los atributos propios es su posición en `rows` — no hay campo
+   * `order` separado. Mover es un simple swap de posiciones; se persiste con
+   * el guardado de `attributeSchema` ya existente (sin endpoint nuevo).
+   */
+  function moveRow(idx: number, dir: 'up' | 'down') {
+    const neighborIdx = dir === 'up' ? idx - 1 : idx + 1;
+    if (neighborIdx < 0 || neighborIdx >= rows.length) return;
+    const newRows = [...rows];
+    [newRows[idx], newRows[neighborIdx]] = [newRows[neighborIdx], newRows[idx]];
+    setRows(newRows);
+    onChange(newRows);
+  }
+
   function addOption() {
     const val = optionInput.trim();
     if (!val || !draft || draft.options.includes(val)) return;
@@ -338,6 +419,7 @@ export function AttributeSchemaEditor({
   }
 
   const canInteract = !disabled && editingIdx === null && deletingIdx === null;
+  const parentCandidates = collectParentCandidates(rows, inheritedFields, editingIdx);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -434,6 +516,7 @@ export function AttributeSchemaEditor({
                     onCancel={cancelEdit}
                     disabled={disabled}
                     checkingUsage={checkingUsage}
+                    parentCandidates={parentCandidates}
                   />
                 </div>
               );
@@ -448,8 +531,31 @@ export function AttributeSchemaEditor({
                 <FieldFlag v={row.required} label="req" />
                 <FieldFlag v={row.filterable} label="filt" />
                 <FieldFlag v={Boolean(row.cardAttribute)} label="card" />
+                {row.dependsOn && (
+                  <span className="text-[10px] text-muted-foreground" title={`Depende de "${row.dependsOn}"`}>
+                    ↳ {row.dependsOn}
+                  </span>
+                )}
                 {canInteract && (
                   <div className="ml-auto flex shrink-0 gap-0.5">
+                    <button
+                      onClick={() => moveRow(idx, 'up')}
+                      disabled={idx === 0}
+                      className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
+                      title="Subir"
+                      data-testid={`move-up-attr-${row.name}`}
+                    >
+                      <ChevronUp className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={() => moveRow(idx, 'down')}
+                      disabled={idx === rows.length - 1}
+                      className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
+                      title="Bajar"
+                      data-testid={`move-down-attr-${row.name}`}
+                    >
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    </button>
                     <button
                       onClick={() => startEdit(idx)}
                       className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -487,6 +593,7 @@ export function AttributeSchemaEditor({
                 onCommit={commitDraft}
                 onCancel={cancelEdit}
                 disabled={disabled}
+                parentCandidates={parentCandidates}
               />
             </div>
           )}
@@ -524,6 +631,7 @@ interface FieldFormProps {
   onCancel: () => void;
   disabled: boolean;
   checkingUsage?: boolean;
+  parentCandidates: ParentCandidate[];
 }
 
 function FieldForm({
@@ -540,10 +648,15 @@ function FieldForm({
   onCancel,
   disabled,
   checkingUsage = false,
+  parentCandidates,
 }: FieldFormProps) {
   function set(partial: Partial<DraftState>) {
     onChange({ ...draft, ...partial });
   }
+
+  const parentField = parentCandidates.find((p) => p.name === draft.dependsOn);
+  const isDependsOnBroken = Boolean(draft.dependsOn) && !parentField;
+  const useLinkedEditor = draft.type === 'select' && Boolean(draft.dependsOn) && !isDependsOnBroken;
 
   // Filterable checkbox: disabled when name is not in searchableKeys.
   // Value is PRESERVED (Ajuste 1) — not cleared on disable.
@@ -612,8 +725,35 @@ function FieldForm({
         </div>
       </div>
 
-      {/* Options editor — only visible for select type */}
+      {/* dependsOn — select vinculado a otro select ya definido (un solo nivel, sin cadenas) */}
       {draft.type === 'select' && (
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] font-medium text-muted-foreground">Depende de (opcional)</label>
+          <select
+            value={draft.dependsOn}
+            onChange={(e) => set({ dependsOn: e.target.value, ...(e.target.value ? {} : { optionsByParent: {} }) })}
+            className="rounded border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+            disabled={disabled}
+            data-testid="attr-depends-on-select"
+          >
+            <option value="">— Ninguno (select plano) —</option>
+            {parentCandidates.map((p) => (
+              <option key={p.name} value={p.name}>{p.label} ({p.name})</option>
+            ))}
+            {isDependsOnBroken && (
+              <option value={draft.dependsOn}>{draft.dependsOn} (no disponible)</option>
+            )}
+          </select>
+          {isDependsOnBroken && (
+            <p className="text-[11px] text-amber-600">
+              El atributo del que depende ya no está disponible — se guardará como select plano.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Options editor — select plano (sin dependsOn, o dependsOn roto/tolerado como plano) */}
+      {draft.type === 'select' && !useLinkedEditor && (
         <div className="space-y-1.5" data-testid="options-editor">
           <span className="text-[11px] font-medium text-muted-foreground">Opciones *</span>
           <div className="flex flex-wrap gap-1">
@@ -655,6 +795,16 @@ function FieldForm({
             </Button>
           </div>
         </div>
+      )}
+
+      {/* Options editor — select vinculado: un sub-editor de chips por cada valor del padre */}
+      {useLinkedEditor && parentField && (
+        <LinkedOptionsEditor
+          parentField={parentField}
+          optionsByParent={draft.optionsByParent}
+          onChange={(next) => set({ optionsByParent: next })}
+          disabled={disabled}
+        />
       )}
 
       {/* Checkbox row */}
@@ -773,6 +923,102 @@ function FieldForm({
           <span className="text-xs text-muted-foreground">Comprobando uso…</span>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── LinkedOptionsEditor ───────────────────────────────────────────────────────
+
+/**
+ * Sub-editor de `optionsByParent`: un mini editor de chips por cada opción
+ * actual del atributo padre (`parentField.options`), rellenando de qué
+ * opciones dispone hoy para no obligar a recordarlas. Entradas huérfanas de
+ * `optionsByParent` (valores de padre que ya no existen) simplemente no se
+ * muestran — son inertes, no molestan (se preservan en el objeto igualmente
+ * porque este componente solo añade/quita dentro de las claves visibles).
+ */
+function LinkedOptionsEditor({
+  parentField,
+  optionsByParent,
+  onChange,
+  disabled,
+}: {
+  parentField: ParentCandidate;
+  optionsByParent: Record<string, string[]>;
+  onChange: (next: Record<string, string[]>) => void;
+  disabled: boolean;
+}) {
+  const [inputs, setInputs] = useState<Record<string, string>>({});
+
+  function addOption(parentValue: string) {
+    const val = (inputs[parentValue] ?? '').trim();
+    if (!val) return;
+    const current = optionsByParent[parentValue] ?? [];
+    if (current.includes(val)) return;
+    onChange({ ...optionsByParent, [parentValue]: [...current, val] });
+    setInputs((prev) => ({ ...prev, [parentValue]: '' }));
+  }
+
+  function removeOption(parentValue: string, opt: string) {
+    onChange({
+      ...optionsByParent,
+      [parentValue]: (optionsByParent[parentValue] ?? []).filter((o) => o !== opt),
+    });
+  }
+
+  if (parentField.options.length === 0) {
+    return (
+      <p className="text-[11px] text-muted-foreground">
+        &quot;{parentField.label}&quot; todavía no tiene opciones propias — añade opciones ahí primero.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-2" data-testid="linked-options-editor">
+      <span className="text-[11px] font-medium text-muted-foreground">
+        Opciones por valor de &quot;{parentField.label}&quot; *
+      </span>
+      {parentField.options.map((parentValue) => (
+        <div key={parentValue} className="space-y-1 rounded border bg-background/50 p-2">
+          <p className="text-[11px] font-medium">{parentValue}</p>
+          <div className="flex flex-wrap gap-1">
+            {(optionsByParent[parentValue] ?? []).map((opt) => (
+              <span key={opt} className="flex items-center gap-1 rounded bg-muted px-2 py-0.5 text-xs">
+                {opt}
+                <button
+                  onClick={() => removeOption(parentValue, opt)}
+                  className="text-muted-foreground hover:text-destructive"
+                  disabled={disabled}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+          <div className="flex gap-1">
+            <input
+              type="text"
+              value={inputs[parentValue] ?? ''}
+              onChange={(e) => setInputs((prev) => ({ ...prev, [parentValue]: e.target.value }))}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addOption(parentValue); } }}
+              placeholder="Nueva opción…"
+              className="flex-1 rounded border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+              disabled={disabled}
+              data-testid={`linked-option-input-${parentValue}`}
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              onClick={() => addOption(parentValue)}
+              disabled={disabled || !(inputs[parentValue] ?? '').trim()}
+            >
+              Añadir
+            </Button>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

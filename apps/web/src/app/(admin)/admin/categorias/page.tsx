@@ -26,17 +26,17 @@ import {
 } from '@/components/admin/AttributeSchemaEditor';
 import type { AttributeSchema, ListingTypePolicy } from '@/types';
 
-// ─── Form values (name/slug/iconUrl/order/allowedListingType — schema is managed separately) ──
+// ─── Form values (name/slug/iconUrl/allowedListingType — schema is managed separately;
+// order se ordena SOLO con las flechas ↑↓, ya no hay input numérico aquí) ──
 
 interface CategoryFormValues {
   name: string;
   slug: string;
   iconUrl: string;
-  order: string;
   allowedListingType: ListingTypePolicy;
 }
 
-const EMPTY_FORM: CategoryFormValues = { name: '', slug: '', iconUrl: '', order: '0', allowedListingType: 'BOTH' };
+const EMPTY_FORM: CategoryFormValues = { name: '', slug: '', iconUrl: '', allowedListingType: 'BOTH' };
 
 const POLICY_OPTIONS: { value: ListingTypePolicy; label: string }[] = [
   { value: 'BOTH', label: 'Ambos (producto y servicio)' },
@@ -49,12 +49,12 @@ function toForm(cat: AdminCategoryChild): CategoryFormValues {
     name: cat.name,
     slug: cat.slug,
     iconUrl: cat.iconUrl ?? '',
-    order: String(cat.order),
     allowedListingType: cat.allowedListingType,
   };
 }
 
-// ─── Inline category form (name / slug / iconUrl / order only) ────────────────
+// ─── Inline category form (name / slug / iconUrl / allowedListingType — el orden se
+// cambia solo con las flechas ↑↓ de la lista, no desde aquí) ────────────────
 
 function CategoryForm({
   title,
@@ -104,17 +104,6 @@ function CategoryForm({
             value={values.iconUrl}
             onChange={(e) => onChange({ iconUrl: e.target.value })}
             placeholder="https://..."
-            className="rounded-md border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-            disabled={saving}
-          />
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium text-muted-foreground">Orden</label>
-          <input
-            type="number"
-            value={values.order}
-            onChange={(e) => onChange({ order: e.target.value })}
-            min={0}
             className="rounded-md border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
             disabled={saving}
           />
@@ -489,7 +478,6 @@ export default function AdminCategoriasPage() {
         name: editForm.name,
         slug: editForm.slug,
         iconUrl: editForm.iconUrl || undefined,
-        order: parseInt(editForm.order) || 0,
         allowedListingType: editForm.allowedListingType,
       });
       setEditingId(null);
@@ -539,6 +527,15 @@ export default function AdminCategoriasPage() {
     }
   }
 
+  /** Nace al final de su nivel (raíces, o hijos del padre elegido) — nunca colisiona. */
+  function nextOrderFor(parentId: string | null): number {
+    const siblings = parentId
+      ? categories.find((c) => c.id === parentId)?.children ?? []
+      : categories;
+    if (siblings.length === 0) return 0;
+    return Math.max(...siblings.map((c) => c.order)) + 1;
+  }
+
   async function handleCreateSave() {
     if (!token || createSaving || createParentId === undefined) return;
 
@@ -550,7 +547,7 @@ export default function AdminCategoriasPage() {
         slug: createForm.slug,
         parentId: createParentId ?? undefined,
         iconUrl: createForm.iconUrl || undefined,
-        order: parseInt(createForm.order) || 0,
+        order: nextOrderFor(createParentId),
         allowedListingType: createForm.allowedListingType,
         attributeSchema: serializeAttributeSchema(createOwnSchema, searchableKeys),
       });

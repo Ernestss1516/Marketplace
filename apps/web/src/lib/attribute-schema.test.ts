@@ -1,4 +1,4 @@
-import { filterSchemaByType } from './attribute-schema';
+import { filterSchemaByType, resolveLinkedOptions } from './attribute-schema';
 import type { AttributeSchema } from '@/types';
 
 const common: AttributeSchema = {
@@ -36,5 +36,35 @@ describe('filterSchemaByType', () => {
   it("type === '' (aún no decidido) no filtra nada", () => {
     const schema = [common, productOnly, serviceOnly];
     expect(filterSchemaByType(schema, '')).toEqual(schema);
+  });
+});
+
+describe('resolveLinkedOptions — selects vinculados (Marca/Modelo)', () => {
+  const brand: AttributeSchema = {
+    name: 'brand', label: 'Marca', type: 'select', filterable: true, required: false,
+    options: ['Seat', 'BMW'],
+  };
+  const model: AttributeSchema = {
+    name: 'model', label: 'Modelo', type: 'select', filterable: true, required: false,
+    dependsOn: 'brand',
+    optionsByParent: { Seat: ['Ibiza', 'León'], BMW: ['Serie 1', 'Serie 3'] },
+  };
+
+  it('un select plano devuelve directamente sus options, sin importar el valor de padre', () => {
+    expect(resolveLinkedOptions(brand, undefined)).toEqual(['Seat', 'BMW']);
+    expect(resolveLinkedOptions(brand, 'cualquiera')).toEqual(['Seat', 'BMW']);
+  });
+
+  it('select vinculado sin valor de padre → lista vacía', () => {
+    expect(resolveLinkedOptions(model, undefined)).toEqual([]);
+  });
+
+  it('select vinculado con valor de padre válido → sus opciones', () => {
+    expect(resolveLinkedOptions(model, 'Seat')).toEqual(['Ibiza', 'León']);
+    expect(resolveLinkedOptions(model, 'BMW')).toEqual(['Serie 1', 'Serie 3']);
+  });
+
+  it('select vinculado con valor de padre sin entrada → lista vacía', () => {
+    expect(resolveLinkedOptions(model, 'Renault')).toEqual([]);
   });
 });
