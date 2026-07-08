@@ -750,6 +750,77 @@ las categorías de vehículos del seed) a `select` y poblar `optionsByParent` co
 real Marca/Modelo — paso de datos/seed posterior, a hacer desde el editor admin o un script
 de seed. El mecanismo ya es genérico y queda demostrado y probado con el caso mínimo.
 
+### Verificación integral producto/servicio — RÁFAGA 5 (cierra el cambio)
+
+R0-R4 ya habían cerrado el cambio producto/servicio pieza por pieza, cada una con su
+propia batería en aislamiento (búsqueda dinámica, modelo, admin, wizard, ficha). R5 no
+repite esas baterías — verifica las **costuras**: los flujos que cruzan varias ráfagas a
+la vez y la coherencia entre backend y frontend (la lógica duplicada deliberadamente,
+`filterSchemaByType` / `resolveLinkedOptions`, nunca antes contrastada contra un backend
+real, solo contra mocks en RTL o vía API directa en aislamiento).
+
+**Inventario previo** (antes de escribir ningún test): ninguna categoría
+`PRODUCT_ONLY`/`SERVICE_ONLY` había pasado nunca por un navegador real; la UI admin de
+`/admin/categorias` nunca se había ejercitado en Playwright para `allowedListingType`,
+`appliesTo` ni `dependsOn` (RC5.3 es anterior a todas estas features); las transiciones
+del wizard (R3) y la composición `appliesTo`+`dependsOn` (selects vinculados) solo se
+habían probado con RTL mockeado. Esos eran los huecos reales, no los que ya cubrían R0-R4.
+
+**2 specs Playwright nuevos**, corridos en real (no por inspección), cada uno una costura
+distinta para que un fallo sea diagnosticable:
+- `admin-categorias-tipo.spec.ts` — **costura D** (la más importante: UI admin real vs.
+  backend). Un ADMIN configura por navegador una categoría `SERVICE_ONLY` con un atributo
+  `appliesTo: ['SERVICE']` y un par vinculado Marca→Modelo (`dependsOn`/`optionsByParent`);
+  se confirma por API que el backend persistió exactamente eso, y un `POST /listings`
+  crudo construyendo un `PRODUCT` en esa categoría confirma el mismo límite con `422`
+  (control positivo con `SERVICE` → `201`).
+- `producto-servicio-flujo.spec.ts` — **costuras A, B, C, E, F**: `SERVICE_ONLY` sin
+  preguntar tipo (A); herencia de política (R1) ejercida en flujo real, no solo en
+  unit/API aislada (B); transición de tipo **y** de categoría a mitad del wizard, con
+  aserción explícita de que el resultado final no arrastra ningún atributo del estado
+  intermedio (C — el equivalente end-to-end del test unitario "excluye atributos del tipo
+  apagado" de R3); `appliesTo`+`dependsOn` compuestos en el wizard real, con reactividad
+  completa (deshabilitado→opciones→selección) (E); facetas por tipo (R4) + selects
+  vinculados + Meilisearch juntos (F). Categorías de prueba creadas vía API admin directa
+  (rápido; la UI admin ya la cubre el spec D).
+
+**Hallazgo de factibilidad, no un hueco de R5**: `FACET_ATTRIBUTES` en
+`search.service.ts` es una lista **curada a mano**, independiente del mecanismo dinámico
+de R0 — un nombre de atributo nuevo (p. ej. uno inventado para un test) nunca aparece
+como faceta aunque sea `filterable: true`, por diseño deliberado y preexistente. El spec F
+usa `gearbox`/`fuel` (ya en esa lista, mismo patrón que `search-facets-by-type.e2e-spec.ts`)
+en vez de nombres arbitrarios.
+
+**Bug real encontrado por la costura C (no un ajuste de test)**:
+`ListingsService.validateAttributes()`/`validateLinkedSelects()`, en `create()` y
+`update()`, comprobaban `required`/vínculos contra el schema efectivo **sin filtrar por
+tipo** — a diferencia del wizard, que sí filtra (`filterSchemaByType`) antes de decidir
+qué es obligatorio y qué atributos enviar. Consecuencia real: cualquier categoría con un
+atributo `required: true` restringido a un tipo (`appliesTo: ['SERVICE']`, por ejemplo)
+rechazaba **siempre** con `422` los anuncios del tipo contrario, aunque el wizard
+construyera el payload correctamente (nunca envía ese campo para el tipo que no aplica).
+Nadie lo había detectado porque R1/R3 solo probaron esta combinación con RTL mockeado,
+nunca contra un backend real de punta a punta — exactamente el tipo de hueco que R5 existe
+para encontrar. **No es la deuda ya documentada de "validación débil"** (esa es sobre
+aceptar de más; esta es rechazar de más).
+
+Fix (aprobado tras reportar el hallazgo, antes de tocar nada): ambos métodos ahora
+filtran el schema efectivo por el tipo del anuncio (`dto.type` en `create()`; el tipo ya
+fijado — inmutable — en `update()`) antes de validar, igual que ya hacía el wizard.
+Cambio acotado, mismo sitio que el guard de selects vinculados. Test de regresión
+dedicado: `listing-attributes-applies-to.e2e-spec.ts` (5 tests: cada tipo omite
+correctamente el `required` del tipo contrario, cada tipo sigue exigiendo el suyo propio,
+y `update()` respeta el mismo filtro).
+
+**Migración indolora — verificación**: los 2 specs Playwright corridos varias veces en
+real (incluida una reinicialización de Docker Desktop a mitad de sesión) hasta 6/6 en
+verde repetido; batería backend completa (39 suites, 615 tests: 610 + 5 del test de
+regresión) en verde tras el fix, sin tocar ningún test existente.
+
+**Cierra el cambio producto/servicio**: con R5, R0-R5 quedan cerradas. El cambio funciona
+como un TODO coherente de punta a punta — las costuras entre ráfagas y la coherencia
+backend/frontend confirmadas por flujos reales, no solo asumidas por baterías aisladas.
+
 ### Fix ioredis en BullMQ
 
 `@nestjs/bullmq` usa `ioredis@5.10.x` internamente. Pasar una instancia
@@ -3753,7 +3824,11 @@ lugar de deshabilitar silenciosamente todos los checkboxes.
 
 ---
 
-## Cambio en curso — Producto/Servicio
+## Cambio cerrado — Producto/Servicio (R0-R5)
+
+**✅ CERRADO** (2026-07-08). Las 6 ráfagas (R0-R5) están completas; el cambio funciona de
+punta a punta y sus costuras entre ráfagas están verificadas, no solo asumidas. Sección
+conservada como registro histórico del plan y su ejecución.
 
 **Objetivo:** los anuncios diferencian producto/servicio; la categoría configura qué
 tipos permite (solo producto / solo servicio / ambos); cuando permite ambos, el anuncio
@@ -3770,11 +3845,11 @@ tipos. `Category.attributeSchema` con herencia de 2 niveles (hoja → padre,
 atributos filtrables dinámicamente del schema (RÁFAGA 0), lo que evita que producto/servicio
 tenga que volver a tocar el mecanismo de búsqueda al multiplicar atributos por tipo.
 
-**Plan de ráfagas. Con R0-R4 cerradas, el cambio producto/servicio es FUNCIONAL DE PUNTA A
-PUNTA**: un admin configura la política de una categoría → un usuario publica con el tipo
-forzado o elegido según corresponda → la búsqueda filtra y presenta facetas conscientes del
-tipo → la ficha muestra solo los atributos aplicables. Solo queda R5 (verificación
-integral):
+**Plan de ráfagas — R0-R5 CERRADAS.** El cambio producto/servicio es FUNCIONAL DE PUNTA A
+PUNTA y verificado como tal: un admin configura la política de una categoría → un usuario
+publica con el tipo forzado o elegido según corresponda → la búsqueda filtra y presenta
+facetas conscientes del tipo → la ficha muestra solo los atributos aplicables — y R5
+confirmó con flujos reales (no solo baterías aisladas) que las piezas encajan entre sí:
 
 - **R0 — Dinamización de búsqueda.** ✅ **CERRADA.** Ver «Atributos filtrables dinámicos —
   RÁFAGA 0» en §2 y «Deuda nueva abierta por RÁFAGA 0» en §3.
@@ -3804,17 +3879,20 @@ integral):
   verificación de lo demás. Deuda de R3 cerrada: `wizard-herencia.spec.ts` corrido en real
   (13/13). Migración indolora verificada (603 tests e2e + 32 Jest frontend + 13/13
   Playwright real). Ver «Búsqueda y ficha producto/servicio — RÁFAGA 4» en §2.
-- **R5 — Tests exhaustivos.** **Última ráfaga.** No es escribir tests desde cero — R1-R4 ya
-  vinieron cada una con su propia batería. R5 es **verificación integral**: flujos
-  end-to-end que cruzan varias ráfagas a la vez (p. ej. admin configura `PRODUCT_ONLY` →
-  publicar con tipo forzado → búsqueda filtrada → ficha), y los casos borde de interacción
-  entre ráfagas que ninguna cubrió aislada. **Decisión de alcance pendiente para cuando
-  arranque**: si incluir el refuerzo de la validación débil de `attributes`
-  (`validateAttributes` solo comprueba `required`, no tipo/opciones/claves desconocidas —
-  deuda inventariada desde el mapa original) ahora que el sistema de atributos está
-  completo con `appliesTo`.
+- **R5 — Verificación integral.** ✅ **CERRADA.** No repitió las baterías de R1-R4 —
+  verificó las **costuras**: 2 specs Playwright nuevos (`admin-categorias-tipo.spec.ts`,
+  `producto-servicio-flujo.spec.ts`) cubriendo 6 flujos transversales reales (UI admin ↔
+  backend, herencia en flujo real, transiciones sin residuo, `appliesTo`+`dependsOn`
+  compuestos en el wizard, facetas+vínculos+Meilisearch). Encontró y corrigió un bug real
+  (no la deuda de validación débil, que sigue diferida): `validateAttributes`/
+  `validateLinkedSelects` no filtraban por tipo antes de exigir `required`, rechazando
+  siempre los anuncios del tipo contrario en categorías con un `required` restringido por
+  `appliesTo`. Ver «Verificación integral producto/servicio — RÁFAGA 5» en §2.
 
-**Siguiente paso:** ráfaga R5 (verificación integral) — decidir su alcance exacto al arrancar.
+**El cambio producto/servicio queda cerrado.** Próximo trabajo relacionado (fuera de este
+cambio): el refuerzo de la validación débil de `attributes` (`validateAttributes` solo
+comprueba `required`, no tipo/opciones/claves desconocidas) sigue diferido como mejora
+ortogonal — ver «Validación débil de atributos» en §3.
 
 ---
 
