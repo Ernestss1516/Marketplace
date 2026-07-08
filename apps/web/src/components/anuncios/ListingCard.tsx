@@ -28,7 +28,14 @@ export function ListingCard({ listing }: { listing: ListingSummary }) {
   const location = [listing.city, listing.province].filter(Boolean).join(', ');
 
   return (
-    <Link href={`/anuncio/${listing.slug}`} className="group block h-full">
+    // prefetch={false}: mitigación del bug conocido del App Router de Next 15
+    // (vercel/next.js#57565, sin fix upstream a fecha de esta investigación) — una
+    // parrilla con muchas tarjetas dispara una ráfaga de prefetches concurrentes al
+    // mismo patrón dinámico /anuncio/[slug] que puede dejar el router cliente
+    // wedged (clicks posteriores no navegan). En una parrilla de resultados el
+    // prefetch-on-viewport rinde poco de todos modos (se prefetchean destinos que
+    // el usuario no visita), así que el coste de desactivarlo es mínimo.
+    <Link href={`/anuncio/${listing.slug}`} className="group block h-full" prefetch={false}>
       <Card className="h-full overflow-hidden transition-shadow group-hover:shadow-md">
         <div className="relative aspect-square overflow-hidden bg-muted">
           {listing.thumbnailUrl ? (

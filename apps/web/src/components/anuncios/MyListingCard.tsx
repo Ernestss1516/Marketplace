@@ -193,7 +193,9 @@ export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) 
           {/* Editar — available for DRAFT, ACTIVE, RESERVED */}
           {['DRAFT', 'ACTIVE', 'RESERVED'].includes(listing.status) && (
             <Button asChild variant="outline" size="sm">
-              <Link href={editHref}>
+              {/* prefetch={false}: misma mitigación que ListingCard.tsx — parrilla de
+                  varias tarjetas, mismo patrón dinámico /mis-anuncios/[id]/editar. */}
+              <Link href={editHref} prefetch={false}>
                 <Pencil className="mr-1.5 h-3.5 w-3.5" />
                 Editar
               </Link>

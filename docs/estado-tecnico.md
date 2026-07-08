@@ -2497,44 +2497,92 @@ correr el seed lo resetea a `5` y las 33 suites (564 tests) pasan limpias.
 `--runInBand` se mantiene, pero ahora como decisión informada (suite corta, no
 compensa aislar) y no como parche de un bug que en realidad vivía en el seed.
 
-**2. Carrera de navegación del App Router bajo `next start` — recurrente, mitigada por sitio, causa
-raíz sin cerrar.** Mismo bug de fondo documentado de forma independiente al menos 5 veces a lo largo
-de varias ráfagas, cada vez como si fuera un hallazgo nuevo — consolidado aquí en una sola entrada.
+**2. Carrera de navegación del App Router bajo `next start` — CARACTERIZADA y mitigada parcialmente
+(causa residual sin cerrar).** Mismo bug de fondo documentado de forma independiente al menos 5 veces a
+lo largo de varias ráfagas, cada vez como si fuera un hallazgo nuevo — consolidado aquí. Una
+investigación dedicada de 5 rondas (fuera del ciclo de ráfagas de producto, cada ronda con su propia
+hipótesis medida y confirmada o refutada con datos) llevó esto de "sin caracterizar" a "caracterizado +
+mitigado parcialmente, causa residual conocida pero no identificada".
 
 **Qué es:** bajo `next start` (nunca reproducido bajo `next dev`), un click sobre un `<Link>` del App
-Router a veces no completa la transición de navegación — el elemento registra el click, la RSC
-payload y los assets de la página destino se piden y responden con 200, pero el router nunca confirma
-la transición (sin `history.pushState`, sin cambio de DOM, sin error de consola). La investigación más
-exhaustiva (ver ocurrencia 2 más abajo) descartó datos/fixtures, la página de destino, un error real
-de JS y que fuera solo cuestión de esperar más — sin llegar a una causa determinista única pese a
-varias rondas de aislamiento.
+Router a veces no completa la transición de navegación — el elemento registra el click, la RSC payload
+y los assets de la página destino se piden y responden con 200, pero el router nunca confirma la
+transición (sin `history.pushState`, sin cambio de DOM, sin error de consola). No es una ventana
+transitoria: reintentar el click no recupera el estado roto — la página queda con el router cliente
+**persistentemente wedged** el resto de su vida. Confirmado instrumentando `flujo-critico.spec.ts` real:
+tras el primer fallo, 5 reintentos consecutivos fallan todos igual de limpio, con la request RSC
+respondiendo 200 en <10 ms cada vez — no es un problema de red ni de latencia, es el router que no
+conmuta pese a tener ya la respuesta.
 
-**Ocurrencias documentadas** (orden cronológico; detalle completo de cada una en «Historial de
-ráfagas — Hito 8»):
-1. Detectada por primera vez tras BLOG-FOOTER-COLUMNAS, en `h8-d4-banners.spec.ts` y "otros tests de
-   navegación" (redacción original de este mismo ítem, antes de esta consolidación).
-2. `flujo-critico.spec.ts` — click en un resultado de búsqueda, `page.waitForURL` nunca resuelve
-   (H8 Bloque D fase 1, «Causa real #2» — la investigación más detallada de las cinco).
-3. `busqueda-mapa.spec.ts` — toggle Lista→Mapa→Lista, mismo mecanismo en un punto de click distinto
-   (ráfaga de estabilización posterior a D fase 1; mitigado, verificado 65/65 con `--repeat-each=5`).
-4. `wizard-herencia.spec.ts` / `prefill-ubicacion.spec.ts` — enlace "Editar",
-   `page.waitForURL('**/editar**')` nunca resuelve (H8 Bloque D fase 3a, «Hallazgo incidental»).
-5. `busqueda-mapa.spec.ts` de nuevo — toggle de mapa, con un matiz nuevo: falla de forma consistente
-   (3/3) cuando corre junto a sus tests hermanos del mismo archivo, pero pasa siempre en aislamiento —
-   sugiere que el estado acumulado (caché de router/RSC del servidor Next.js) incrementa la
-   probabilidad de la carrera (H8 Bloque D fase 3b, nota de proceso). **No abordado en esa ráfaga**
-   (decisión explícita del usuario, fuera de alcance de "admin CRUD de cupones + canje").
+**Causa identificada:** condición de carrera en la contabilidad de prefetch/caché del router cliente del
+App Router de Next 15, disparada por navegación/prefetch concurrente hacia el mismo patrón de ruta
+dinámica (`/anuncio/[slug]`) cuando hay un grid grande de tarjetas (`ListingCard`/`MyListingCard`) en
+pantalla — cada `<Link>` visible dispara su propio prefetch, y con un grid lleno (`hitsPerPage: 24`, el
+techo real de producción, no un caso extremo de test) son hasta ~24 prefetches concurrentes al mismo
+patrón dinámico. Bug conocido de Next.js sin fix upstream a fecha de esta investigación (misma firma que
+vercel/next.js discussion #57565, persiste en 15.5.x). **No es un problema de test — afecta a usuarios
+reales**: cualquier categoría o búsqueda con una página de resultados llena está en la misma condición.
 
-**Mitigación actual (aplicada en cada sitio, no es una cura):** reintentar el click dentro de un
-`toPass` (click + `expect(url).toHaveURL(...)` con timeout corto; si no navega, reclicar) en vez de
-clicar una vez y solo reintentar la espera. Funciona en cada sitio donde se aplicó, pero es una
-mitigación por sitio, no una corrección de la causa raíz — y la ocurrencia 5 sugiere que la tasa de
-fallo depende de cuánto estado acumule la suite antes de llegar a ese test, no solo del propio click.
+**Descartado por la investigación** (orden cronológico de las 5 rondas; cada hipótesis medida y
+refutada con datos, no supuesta por lectura de código):
+1. **Hidratación incompleta** (click antes de que React enganche el handler del `Link`) — refutada: el
+   sitio "más frío" (un solo click tras un solo `goto`, sin navegación previa en la página) falló MENOS
+   que los sitios con más actividad previa, justo lo contrario de lo que predice la hipótesis.
+2. **Repro sintético mínimo de navegación acumulada** (N ciclos de `goto`/`reload`/navegación-por-Link a
+   una página trivial antes de un click, N hasta 50) — 180 trials, 0 fallos. Refuta que sea pura "cuenta
+   de navegaciones del cliente" sobre una página sin más contenido.
+3. **Agotamiento de recurso del servidor** (heap de `next start`/`nest start`, backlog de la cola BullMQ
+   `indexing`) — refutado instrumentando en vivo sobre `flujo-critico.spec.ts` real: heap plano (76-138
+   MB sin tendencia en 15 repeats), cola BullMQ en `waiting=0, active=0` en el 100% de las muestras. El
+   hallazgo de que el estado del CLIENTE se destruye entre repeats (los fixtures abren `newContext()` +
+   `close()` por test) pero la degradación persiste sí apuntó correctamente a que la causa vive del lado
+   servidor/página, no del navegador — solo que no es memoria, CPU ni cola, es el punto 4.
+4. **Repro controlado por nº de tarjetas** (N=1,5,10,15,20 anuncios reales sembrados vía API, con
+   imágenes reales subidas, con sesión autenticada) — 0 fallos incluso a N=20, pese a variar en teoría la
+   única variable que parecía explicarlo. Este repro sintético nunca reprodujo el fallo pese a varios
+   intentos de ajuste — indica que hay al menos un ingrediente más, no capturado por un grid sintético
+   aislado, y que el banco de pruebas fiable sigue siendo el escenario real (`flujo-critico.spec.ts` en
+   loop), no un repro minimal.
+5. **Prefetch por viewport Y por hover de `next/link`** — `prefetch={false}` en `ListingCard`/
+   `MyListingCard` sí suprime ambos (confirmado instrumentando: un hover explícito sobre una tarjeta de
+   un grid de 24 no dispara ninguna request; un click "natural" que recorre el grid con el cursor solo
+   dispara la request de su propio destino, ninguna de las 23 tarjetas restantes). Aun así la carrera
+   **persiste al 20-50%** tras aplicar el arreglo → el prefetch de `<Link>` no es la única fuente; algo
+   más en un grid grande sigue corrompiendo el router, sin identificar.
 
-**Causa raíz: sin cerrar.** Pendiente para el Hito 9: o bien confirmar que es un problema real de
-latencia del App Router bajo carga (reportar upstream a Next.js con un caso mínimo reproducible — no
-logrado aún, ver ocurrencia 2), o bien ampliar sistemáticamente el patrón `toPass` a toda navegación
-por click en la suite Playwright antes de que reaparezca en un sexto sitio.
+**Mitigación aplicada** (`ListingCard.tsx`, `MyListingCard.tsx` — comentario en código referenciando
+#57565): `prefetch={false}` en el `<Link>` de tarjeta en contextos de listado (grids). Coste cero, sin
+regresiones. **Medida contra el mismo banco de pruebas antes/después** (no un verde suelto):
+`flujo-critico.spec.ts` en loop de 15 pasadas, mismo build y mismo entorno — **53% → 20% de fallo**
+(8/15 → 3/15). Reducción real y sustancial, pero no cierre: `busqueda-mapa.spec.ts` (toggle Lista/Mapa)
+se mantuvo en ~30% y `prefill-ubicacion.spec.ts` (enlace "Editar", grid de `mis-anuncios` más grande por
+el orden de ejecución de esa suite) en ~50% tras el mismo arreglo, sin mejora medible. `wizard-herencia.
+spec.ts` (mismo tipo de enlace, grid más pequeño en ese punto de la suite) sí quedó limpio (0/10). Todos
+los fallos residuales muestran la misma firma exacta de siempre — no es una regresión ni un bug nuevo,
+es la misma carrera a menor incidencia según el tamaño del grid.
+
+**`toPass` mitigadores del lado del test: MANTENIDOS, no retirar.** La carrera sigue viva en los sitios
+con grids grandes; quitar el reintento-de-click reintroduciría flaky real en CI.
+
+**`loginAs` (`admin-roles.spec.ts`) queda FUERA de esta familia.** Mecanismo de navegación distinto (un
+submit de formulario + `goto` real, no un click sobre `<Link>` del App Router) — carrera de hidratación
+propia, ya documentada aparte (ver nota de feedback sobre el login), sin relación con esto.
+
+**Punto de retoma si se persigue el residual** (madriguera nueva, no una continuación barata de lo ya
+hecho — rendimiento decreciente ya señalado, conscientemente no perseguido más allá de esto): qué otra
+cosa, además del prefetch de `<Link>` (ya descartado con datos), corrompe el estado del router bajo un
+grid grande. El repro controlado por N de la ronda 4 (aunque no reprodujo el fallo en su forma actual) y
+el banco de pruebas real (`flujo-critico.spec.ts` en loop, con `--retries=0`) quedan como punto de
+partida reutilizable para medir cualquier hipótesis futura de forma cuantitativa, sin depender de un
+verde suelto.
+
+**Método:** 5 rondas de refutación sistemática (hidratación → acumulación de cliente → recurso de
+servidor → nº de tarjetas → prefetch viewport/hover), cada hipótesis confirmada o refutada con datos
+medidos, con un criterio de parada explícito por ronda para evitar la madriguera cuando el rendimiento de
+seguir investigando se volvió incierto. Vale como plantilla para cualquier flaky futuro de este tipo:
+caracterizar el patrón común antes de tocar nada, reproducir de forma controlada y medir una tasa base,
+aislar una variable por ronda, y parar cuando una ronda refuta limpiamente en vez de forzar la siguiente
+hipótesis.
 
 **3. Indexación de Meilisearch en CI — dos problemas distintos, no confundir.**
 
