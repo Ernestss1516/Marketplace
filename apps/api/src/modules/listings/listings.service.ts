@@ -24,6 +24,7 @@ import {
   resolveEffectiveSchema,
   resolveEffectivePolicy,
   resolveLinkedOptions,
+  filterSchemaByType,
   isListingTypeAllowed,
 } from '../categories/category.types';
 import type { ListingTypePolicy } from '@prisma/client';
@@ -113,8 +114,13 @@ export class ListingsService {
       (category.attributeSchema as unknown as AttributeField[]) ?? [],
       (category.parent?.attributeSchema as unknown as AttributeField[]) ?? [],
     );
-    this.validateAttributes(dto.attributes ?? {}, effectiveSchema);
-    this.validateLinkedSelects(dto.attributes ?? {}, effectiveSchema);
+    // required se exige solo entre los campos aplicables al tipo del anuncio —
+    // igual que el wizard, que nunca envía un campo appliesTo-restringido al
+    // otro tipo. Sin este filtro, un required de un tipo bloquearía SIEMPRE
+    // los anuncios del tipo contrario (RÁFAGA 5, bug real encontrado en verificación).
+    const applicableSchema = filterSchemaByType(effectiveSchema, dto.type);
+    this.validateAttributes(dto.attributes ?? {}, applicableSchema);
+    this.validateLinkedSelects(dto.attributes ?? {}, applicableSchema);
     this.validateListingTypeAllowed(
       dto.type,
       category.allowedListingType,
@@ -174,8 +180,10 @@ export class ListingsService {
         ...(existing.attributes as Record<string, unknown>),
         ...(dto.attributes ?? {}),
       };
-      this.validateAttributes(mergedAttrs, effectiveSchema);
-      this.validateLinkedSelects(mergedAttrs, effectiveSchema);
+      // type es inmutable — se filtra por el tipo YA fijado del anuncio, igual que en create().
+      const applicableSchema = filterSchemaByType(effectiveSchema, existing.type);
+      this.validateAttributes(mergedAttrs, applicableSchema);
+      this.validateLinkedSelects(mergedAttrs, applicableSchema);
 
       // type is immutable (not on UpdateListingDto) — but categoryId can still change,
       // so a listing's fixed type must stay allowed by whatever category it moves into.
