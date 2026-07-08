@@ -821,6 +821,61 @@ regresión) en verde tras el fix, sin tocar ningún test existente.
 como un TODO coherente de punta a punta — las costuras entre ráfagas y la coherencia
 backend/frontend confirmadas por flujos reales, no solo asumidas por baterías aisladas.
 
+### Refuerzo de validación de atributos — cierra la deuda de "validación débil"
+
+Cierra la deuda inventariada desde RÁFAGA 0 (ver «Validación débil de atributos» en §3):
+`validateAttributes` solo comprobaba `required`; los selects planos, los tipos de dato y
+las claves desconocidas no se validaban en absoluto. Medición previa a diseñar (mismo
+principio que las medidas de empates de orden y anuncios huérfanos): **8 de 22 anuncios**
+"sucios" en la BD de dev, **todos basura de prueba** en `brand`/Coches (0 tipos malos,
+0 claves desconocidas) — refuerzo de bajo riesgo, sin volumen real que proteger, pero con
+un vector de riesgo real: `EditarWizard` reenvía el bag de atributos completo en cada
+guardado, así que validar de más rompería la edición de anuncios viejos sucios por campos
+que el usuario ni toca.
+
+**División de responsabilidades** (`ListingsService`):
+- `validateRequired` — igual que la antigua `validateAttributes`, sin cambios de
+  comportamiento (bag completo, tanto en `create()` como en `update()`).
+- `validateAttributeValues` (nueva) — claves desconocidas → 422; select plano (sin
+  `dependsOn`) con valor fuera de `options` → 422; `number`/`boolean` mal tipado → 422.
+  Sobre el schema ya filtrado por tipo (`filterSchemaByType`, el fix de R5) — no
+  reintroduce su bug. Cierra la asimetría con `validateLinkedSelects`: los selects
+  **planos** ahora validan su valor con el mismo rigor que los **vinculados** desde R5.
+
+**El DELTA — la pieza central de `update()`:** `computeAttributesDelta(existing, incoming)`
+compara por `JSON.stringify` (primitivos planos, sin anidamiento — suficiente y cubre
+null/undefined sin casos especiales); una clave reenviada con el mismo valor **no** es
+delta. `create()` valida el bag completo (no hay "existing" con el que comparar);
+`update()` valida `required` sobre el bag completo (sin cambios, invariante de
+completitud del anuncio) pero acota `validateAttributeValues`/`validateLinkedSelects`
+al delta — grandfathering **por construcción**, sin migrar los 8 sucios: se toleran
+mientras no se edite el campo concreto que los ensucia.
+
+**`validateLinkedSelects` extendido con `deltaKeys?: Set<string>`** — si ni el campo ni
+su `dependsOn` cambiaron en esta petición, no se re-valida el par, aunque ya fuera
+inválido. Ausente en `create()` (comportamiento intacto: valida siempre). **Esto arregla
+un bug PRESENTE, no solo teórico**: tras poblar el catálogo real Marca/Modelo, el anuncio
+"Cotce" (medido antes, `brand="Hyndai"` — inválido para el catálogo nuevo, `model="i20"`
+ya no resoluble) habría devuelto 422 en **cualquier** edición suya (aunque fuera solo el
+precio) sin este delta — el guard de vinculados de R5 nunca había sido delta-aware,
+porque nunca se había probado contra un anuncio *existente* con datos ya inconsistentes.
+
+**Verificación**: `listing-attributes-strict-validation.e2e-spec.ts` (15 tests nuevos) —
+`create()` completo (positivo, select/number/boolean/clave-desconocida/required, y la
+coherencia con R5: un select solo-PRODUCT ni se exige ni se valida en SERVICE), `update()`
+delta en planos (reenvío idéntico + cambio de precio → 200, caso central) y en vinculados
+(reproduce "Cotce" exacto: reenvío idéntico → 200; tocar el campo → si sigue inválido,
+422). Batería completa: **630/630** (615 preexistentes + 15 nuevos), sin tocar ninguno
+existente.
+
+**Deuda relacionada, no resuelta aquí** (registrada en §3): la colisión Redis dev/test
+(ya inventariada en Hito 7) se manifestó de forma concreta durante la verificación de
+esta ráfaga — un backend de dev vivo en el puerto 3001 competía por la cola BullMQ
+`bull:indexing` con la suite de test, robándole jobs de indexado y produciendo falsos
+negativos de Meilisearch ajenos a este cambio. Y un hallazgo nuevo: el teardown de los
+tests e2e deja handles asíncronos abiertos (Jest fuerza el `exit`); inofensivo hoy, pero
+podría colgar un runner de CI que no fuerce salida.
+
 ### Fix ioredis en BullMQ
 
 `@nestjs/bullmq` usa `ioredis@5.10.x` internamente. Pasar una instancia
@@ -2724,6 +2779,22 @@ antes de asumir: el roadmap sobreestimaba el alcance real de Hito 7.
   de test (mismo Redis, sin DB ni prefijo distintos para las colas), los workers de dev pueden robar
   jobs encolados por los tests. Solo afecta a desarrollo local con ambos procesos vivos a la vez; CI
   usa un Redis de servicio dedicado y no lo sufre. Aislar por namespace/prefijo de cola en Hito 9.
+
+  **Manifestación concreta (refuerzo de validación de atributos, 2026-07-08):** con un backend de
+  dev vivo en el puerto 3001 (`node dist/src/main`) durante la verificación de la batería completa,
+  varios suites no relacionados (`search`, `rc5-attributes`, `rc5b-vehiculos`,
+  `search-facets-by-type`, `listings`, `admin`, `moderation`) fallaron con "not indexed in
+  Meilisearch within 15000ms" — el worker de dev competía por `bull:indexing` y se quedaba los jobs
+  de los tests. Confirma el riesgo ya inventariado, no es un bug del código bajo prueba; se resolvió
+  deteniendo el proceso de dev antes de la corrida final. Refuerza la prioridad de aislar por
+  namespace/prefijo.
+
+- **Teardown de tests e2e deja handles asíncronos abiertos.** Cada corrida de la suite e2e termina
+  con el aviso de Jest "Force exiting Jest: Have you considered using `--detectOpenHandles`" — alguna
+  conexión (Redis/Postgres/BullMQ) no se cierra explícitamente en el teardown de cada spec. Hoy
+  inofensivo (Jest fuerza la salida del proceso igualmente), pero podría colgar un runner de CI que
+  no fuerce `exit` por defecto. Inventariado, no investigado a fondo — candidato a revisar en Hito 9
+  junto con el resto de deuda de test/CI.
 - **Patrón `waitForCard` pendiente de aplicar a specs anteriores a su introducción.** La regla
   vigente («cualquier test futuro que espere indexación Meili debe usar `waitForCard`», ver
   §Lecciones de método del CI) no se ha auditado retroactivamente contra todos los specs previos a
@@ -2748,22 +2819,21 @@ antes de asumir: el roadmap sobreestimaba el alcance real de Hito 7.
   instancia de API (el caso actual) esto refresca todo; si el proyecto escala a varias
   instancias, cada una necesitaría su propio refresco (pub/sub sobre Redis) para que
   todas queden al día. Fuera de alcance hasta que la infraestructura lo requiera.
-- **Validación débil de atributos (deuda preexistente, no introducida por esta ráfaga).**
-  `ListingsService.validateAttributes()` solo comprueba que las keys marcadas `required:
-  true` estén presentes (`hasOwnProperty`); no valida que el tipo del valor coincida con el
-  `type` del schema (`number`/`boolean`/`select`), no valida que un valor `select` esté
-  entre las `options` declaradas, y no rechaza claves desconocidas no declaradas en el
-  schema efectivo de la categoría. Queda inventariada; candidata a reforzarse cuando se
-  toque el sistema de atributos en las ráfagas de producto/servicio (el mismo sitio donde
-  se conectará la política de tipo con los atributos aplicables).
+- **✅ CERRADA — Validación débil de atributos.** Ver «Refuerzo de validación de
+  atributos — cierra la deuda de "validación débil"» en §2. Texto original conservado
+  por contexto histórico: `ListingsService.validateAttributes()` solo comprobaba que las
+  keys marcadas `required: true` estuvieran presentes (`hasOwnProperty`); no validaba que
+  el tipo del valor coincidiera con el `type` del schema (`number`/`boolean`/`select`), no
+  validaba que un valor `select` estuviera entre las `options` declaradas, y no rechazaba
+  claves desconocidas no declaradas en el schema efectivo de la categoría.
 
-  **Asimetría nueva (selects vinculados — ver «Selects vinculados (Marca/Modelo) —
-  mecanismo» en §2):** `ListingsService.validateLinkedSelects()` sí valida en profundidad —
-  pero **solo** los campos que declaran `dependsOn`, porque el vínculo lo exige (sin esa
-  validación el par Marca/Modelo podría guardar combinaciones inconsistentes). El resto de
-  atributos (planos, incluidos otros `select` sin `dependsOn`) sigue con la validación débil
-  de arriba, sin cambios. Es una asimetría consciente y acotada — no un paso hacia una
-  validación general de tipos/opciones que sigue diferida a R5 o después.
+  La asimetría con `validateLinkedSelects()` (que sí validaba en profundidad, solo para
+  campos `dependsOn`) queda cerrada: `validateAttributeValues` (nueva) da a los selects
+  planos el mismo rigor. `update()` valida solo el delta (grandfathering por
+  construcción, sin migrar los 8 anuncios sucios medidos); `create()` sigue exigiendo el
+  bag completo. De paso, se arregló un bug presente en `validateLinkedSelects` (no era
+  delta-aware — rompía la edición de cualquier anuncio con un par vinculado ya
+  inconsistente, como "Cotce" tras poblar el catálogo real).
 
 ## Historial de ráfagas — Hito 8 (cerrado)
 
