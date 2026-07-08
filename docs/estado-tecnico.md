@@ -670,6 +670,86 @@ batería completa (38 suites, 603 tests) en verde sobre `Category` truncada + 6 
 tests de Jest en el frontend + **13/13 Playwright real** (`wizard-herencia`,
 `categoria-meili`, `listing-card-attrs`), sin tocar ningún test existente.
 
+### Orden por flechas (categorías + atributos)
+
+Se retiró el input numérico de `order` de `CategoryForm` — era la "puerta trasera" que
+permitía introducir empates o huecos que el mecanismo de flechas (intercambio atómico de
+pareja, ya existente para categorías) no puede producir por construcción. Al crear una
+categoría, `order` se calcula automáticamente: `max(hermanos del mismo nivel) + 1`, o `0` si
+es la primera de su nivel (`nextOrderFor(parentId)`). El campo `order` sigue existiendo en
+el modelo y el DTO (`CreateCategoryDto.order` sigue siendo opcional) — solo se retira de la
+UI de edición manual.
+
+**Atributos** (novedad — antes no tenían mecanismo de reordenación): flechas
+`ChevronUp`/`ChevronDown` por atributo **propio** en `AttributeSchemaEditor` (los heredados
+no son reordenables — se editan desde la categoría padre). El orden es la posición del
+atributo en el array `attributeSchema` — no hay campo `order` separado ni endpoint nuevo:
+`moveRow(idx, dir)` hace un swap de posiciones en el array y se persiste con el guardado ya
+existente del schema. Intrínsecamente robusto: al no depender de un campo numérico, no puede
+generar el mismo tipo de empate/hueco que el input retirado.
+
+**Dato verificado, no asumido**: antes de decidir si migrar datos existentes, se consultó la
+base de datos de desarrollo real y se encontró **1 empate genuino** preexistente (categorías
+Vehículos/Inmuebles, ambas con `order = 2`). Decisión: **no migrar** — es cosmético (afecta
+solo el orden relativo de esas dos categorías en un empate), y las flechas lo toleran y lo
+autocorrigen en cuanto un admin mueva cualquiera de las dos.
+
+### Selects vinculados (Marca/Modelo) — mecanismo
+
+Nuevo mecanismo genérico para atributos `select` cuyas opciones dependen del valor elegido
+en otro `select` de la misma categoría (caso de uso: Marca → Modelo). Aditivo y de un solo
+nivel (A independiente, B depende de A — sin cadenas); demostrado con un caso mínimo (2
+marcas, 2-3 modelos cada una), **no** el catálogo real Marca/Modelo — eso es un paso de
+contenido/seed posterior, fuera de esta ráfaga.
+
+**Modelo** (`category.types.ts` / `types/index.ts`, espejo backend-frontend como
+`filterSchemaByType`): `AttributeField` gana `dependsOn?: string` (name del atributo padre) y
+`optionsByParent?: Record<string, string[]>`. Si `dependsOn` está presente, `optionsByParent`
+es la **única** fuente de opciones — `options` (plano) se ignora. `resolveLinkedOptions(field,
+parentValue)` resuelve `optionsByParent[parentValue] ?? []` (select plano: devuelve `options`
+directamente). Ortogonal a `appliesTo` — ambos ejes se componen sin interferir (verificado con
+test dedicado: un campo vinculado con `appliesTo` restringido conserva su
+`dependsOn`/`optionsByParent` intactos tras `filterSchemaByType`).
+
+**Wizard** (`StepAtributos.tsx`): el select dependiente se deshabilita hasta que el padre
+tenga valor; al cambiar el padre, recalcula las opciones del hijo y lo resetea si su valor ya
+no es válido para el nuevo valor del padre (un solo nivel — no hay propagación en cascada).
+Validación client-side en `validateStep` (`PublicarWizard`/`EditarWizard`): un valor de campo
+vinculado que ya no encaja con el padre bloquea el avance.
+
+**Backend** (`ListingsService.validateLinkedSelects`, junto a `validateAttributes`, en
+`create()` y `update()`): para cada campo con `dependsOn` en el schema efectivo, si el payload
+trae valor para el hijo, debe estar en `optionsByParent[valor del padre en el MISMO payload]`
+→ si no, `422`. Caso borde con mensaje explícito: hijo presente sin padre → "requiere
+seleccionar primero «Marca»" (no un genérico "valor inválido"). **Asimetría consciente**: el
+guard solo se acota a campos con `dependsOn` — los atributos planos siguen con la validación
+débil preexistente (ver nota actualizada en «Validación débil de atributos» en §3).
+
+**Búsqueda**: sin cambios — se mantiene plana (Meilisearch filtra por igualdad normal); las
+facetas de RÁFAGA 4 ya podan por construcción las combinaciones sin resultados, sin necesidad
+de que la búsqueda conozca el vínculo entre ambos atributos.
+
+**Admin** (`AttributeSchemaEditor.tsx`): selector "Depende de" que solo ofrece como candidatos
+otros `select` (propios excluyendo el propio + heredados) que **no tengan ya su propio
+`dependsOn`** — la cadena de vínculos es imposible **por construcción** (la UI nunca la
+ofrece), no solo por convención documentada. Editor de `optionsByParent`: un sub-editor de
+chips por cada opción actual del padre, precargado con sus valores para no obligar a
+recordarlos. `dependsOn` roto (el padre referenciado ya no existe entre los candidatos —
+borrado o cambiado de tipo) se trata como select plano, tolerante: no bloquea el guardado,
+solo avisa.
+
+**Migración indolora — verificación**: 3 tests nuevos en `category.types.spec.ts` (incluida
+la composición con `appliesTo`) + `linked-select-attributes.e2e-spec.ts` (9 tests: guard en
+create/update, ambos casos 422, plano no afectado) + 3 suites Jest nuevas en frontend
+(`StepAtributos.test.tsx`, `AttributeSchemaEditor.dependsOn.test.tsx`, extensión de
+`attribute-schema.test.ts`) + batería completa (39 suites, 610 tests e2e backend; 10 suites,
+53 tests frontend) en verde, sin tocar ningún test existente.
+
+**Pendiente (contenido, no mecanismo)**: convertir el atributo real `model` (hoy `text` en
+las categorías de vehículos del seed) a `select` y poblar `optionsByParent` con el catálogo
+real Marca/Modelo — paso de datos/seed posterior, a hacer desde el editor admin o un script
+de seed. El mecanismo ya es genérico y queda demostrado y probado con el caso mínimo.
+
 ### Fix ioredis en BullMQ
 
 `@nestjs/bullmq` usa `ioredis@5.10.x` internamente. Pasar una instancia
@@ -2605,6 +2685,14 @@ antes de asumir: el roadmap sobreestimaba el alcance real de Hito 7.
   schema efectivo de la categoría. Queda inventariada; candidata a reforzarse cuando se
   toque el sistema de atributos en las ráfagas de producto/servicio (el mismo sitio donde
   se conectará la política de tipo con los atributos aplicables).
+
+  **Asimetría nueva (selects vinculados — ver «Selects vinculados (Marca/Modelo) —
+  mecanismo» en §2):** `ListingsService.validateLinkedSelects()` sí valida en profundidad —
+  pero **solo** los campos que declaran `dependsOn`, porque el vínculo lo exige (sin esa
+  validación el par Marca/Modelo podría guardar combinaciones inconsistentes). El resto de
+  atributos (planos, incluidos otros `select` sin `dependsOn`) sigue con la validación débil
+  de arriba, sin cambios. Es una asimetría consciente y acotada — no un paso hacia una
+  validación general de tipos/opciones que sigue diferida a R5 o después.
 
 ## Historial de ráfagas — Hito 8 (cerrado)
 
