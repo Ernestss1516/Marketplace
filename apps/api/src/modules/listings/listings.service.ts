@@ -83,11 +83,6 @@ type SummaryDbRow = {
   images: { url: string }[];
 };
 
-interface AttributeSchemaEntry {
-  name: string;
-  required?: boolean;
-}
-
 @Injectable()
 export class ListingsService {
   private readonly logger = new Logger(ListingsService.name);
@@ -119,7 +114,9 @@ export class ListingsService {
     // otro tipo. Sin este filtro, un required de un tipo bloquearía SIEMPRE
     // los anuncios del tipo contrario (RÁFAGA 5, bug real encontrado en verificación).
     const applicableSchema = filterSchemaByType(effectiveSchema, dto.type);
-    this.validateAttributes(dto.attributes ?? {}, applicableSchema);
+    // create() valida COMPLETO — no hay "existing" con el que calcular un delta.
+    this.validateRequired(dto.attributes ?? {}, applicableSchema);
+    this.validateAttributeValues(dto.attributes ?? {}, applicableSchema);
     this.validateLinkedSelects(dto.attributes ?? {}, applicableSchema);
     this.validateListingTypeAllowed(
       dto.type,
@@ -182,8 +179,21 @@ export class ListingsService {
       };
       // type es inmutable — se filtra por el tipo YA fijado del anuncio, igual que en create().
       const applicableSchema = filterSchemaByType(effectiveSchema, existing.type);
-      this.validateAttributes(mergedAttrs, applicableSchema);
-      this.validateLinkedSelects(mergedAttrs, applicableSchema);
+      // required se exige siempre sobre el bag COMPLETO (invariante de completitud
+      // del anuncio, no depende de qué campo tocó esta edición en concreto).
+      this.validateRequired(mergedAttrs, applicableSchema);
+      // El resto (opciones/tipo/claves desconocidas + el guard de vinculados) se
+      // acota al DELTA: valores ya guardados que el usuario ni toca se toleran
+      // (grandfathering por construcción) — así una edición trivial (p. ej. solo
+      // el precio) de un anuncio con datos sucios preexistentes no rompe.
+      const delta = this.computeAttributesDelta(
+        (existing.attributes as Record<string, unknown>) ?? {},
+        dto.attributes ?? {},
+      );
+      const deltaAttrs: Record<string, unknown> = {};
+      for (const key of delta) deltaAttrs[key] = mergedAttrs[key];
+      this.validateAttributeValues(deltaAttrs, applicableSchema);
+      this.validateLinkedSelects(mergedAttrs, applicableSchema, delta);
 
       // type is immutable (not on UpdateListingDto) — but categoryId can still change,
       // so a listing's fixed type must stay allowed by whatever category it moves into.
@@ -700,14 +710,13 @@ export class ListingsService {
     });
   }
 
-  private validateAttributes(
+  private validateRequired(
     attributes: Record<string, unknown>,
-    schema: unknown,
+    schema: AttributeField[],
   ): void {
-    const entries = (Array.isArray(schema) ? schema : []) as AttributeSchemaEntry[];
-    const missing = entries
-      .filter((e) => e.required && !Object.prototype.hasOwnProperty.call(attributes, e.name))
-      .map((e) => e.name);
+    const missing = schema
+      .filter((f) => f.required && !Object.prototype.hasOwnProperty.call(attributes, f.name))
+      .map((f) => f.name);
     if (missing.length) {
       throw new UnprocessableEntityException(
         `Atributos requeridos faltantes: ${missing.join(', ')}`,
@@ -716,20 +725,107 @@ export class ListingsService {
   }
 
   /**
+   * Refuerzo de validación (cierra la asimetría con validateLinkedSelects,
+   * que ya valida sus valores desde R5): claves desconocidas, opciones de
+   * select PLANO, y tipo de dato. Los selects vinculados (`dependsOn`) se
+   * saltan aquí — los valida `validateLinkedSelects`. Presencia/required-ness
+   * es trabajo de `validateRequired`, no de esta función.
+   *
+   * `attributes` puede ser el bag completo (create) o solo el delta (update)
+   * — el caller decide qué subconjunto pasar; esta función valida lo que
+   * recibe sin distinguir el origen.
+   */
+  private validateAttributeValues(
+    attributes: Record<string, unknown>,
+    schema: AttributeField[],
+  ): void {
+    const byName = new Map(schema.map((f) => [f.name, f]));
+
+    const unknown = Object.keys(attributes).filter((k) => !byName.has(k));
+    if (unknown.length) {
+      throw new UnprocessableEntityException(
+        `Atributos no reconocidos: ${unknown.join(', ')}`,
+      );
+    }
+
+    for (const field of schema) {
+      if (field.dependsOn) continue; // vinculados: los valida validateLinkedSelects
+      if (!(field.name in attributes)) continue;
+      const value = attributes[field.name];
+      if (value === null || value === undefined || value === '') continue;
+
+      if (field.type === 'select') {
+        if (!(field.options ?? []).includes(String(value))) {
+          throw new UnprocessableEntityException(
+            `"${value}" no es una opción válida de "${field.label}".`,
+          );
+        }
+      } else if (field.type === 'number') {
+        const n = typeof value === 'number' ? value : Number(value);
+        if (typeof value === 'boolean' || value === '' || Number.isNaN(n)) {
+          throw new UnprocessableEntityException(`"${field.label}" debe ser un número.`);
+        }
+      } else if (field.type === 'boolean') {
+        if (typeof value !== 'boolean' && value !== 'true' && value !== 'false') {
+          throw new UnprocessableEntityException(`"${field.label}" debe ser verdadero/falso.`);
+        }
+      }
+      // text: cualquier string vale, sin refuerzo adicional.
+    }
+  }
+
+  /**
+   * Una clave cuenta como "delta" (cambiada en ESTA petición) si su valor en
+   * el payload entrante difiere del ya guardado, o es una clave nueva. Una
+   * clave reenviada con el MISMO valor no es delta — así update() puede
+   * recibir el bag completo (como hace EditarWizard, incondicionalmente) sin
+   * que eso re-valide datos preexistentes que el usuario ni toca.
+   * JSON.stringify en vez de `===`: los 4 tipos de atributo son siempre
+   * primitivos planos, nunca objetos/arrays anidados, así que es suficiente
+   * y cubre null/undefined sin casos especiales.
+   */
+  private computeAttributesDelta(
+    existingAttrs: Record<string, unknown>,
+    incomingAttrs: Record<string, unknown>,
+  ): Set<string> {
+    const changed = new Set<string>();
+    for (const [key, value] of Object.entries(incomingAttrs)) {
+      if (
+        !Object.prototype.hasOwnProperty.call(existingAttrs, key) ||
+        JSON.stringify(existingAttrs[key]) !== JSON.stringify(value)
+      ) {
+        changed.add(key);
+      }
+    }
+    return changed;
+  }
+
+  /**
    * Enforces linked selects (`AttributeField.dependsOn` / `optionsByParent`):
    * a dependent field's value must belong to its parent's currently-chosen
-   * value. Deliberately asymmetric with `validateAttributes` — plain
+   * value. Deliberately asymmetric with `validateAttributeValues` — plain
    * attributes not present in the schema are tolerated, but a *linked* field
    * with a value must resolve against its parent within the SAME payload.
    * Only fields that actually carry a value are checked; presence/required-ness
-   * is `validateAttributes`'s job.
+   * is `validateRequired`'s job.
+   *
+   * `deltaKeys` — solo en update(): si ni el campo ni su padre (`dependsOn`)
+   * cambiaron en esta petición, el par no se re-valida, aunque ya fuera
+   * inválido (grandfathering, igual que `validateAttributeValues`). Ausente
+   * en create() — ahí se valida siempre, no hay "existing" con el que
+   * comparar. `attributes` sigue siendo el bag COMPLETO (fusionado) en
+   * ambos casos: se necesita para resolver el valor ACTUAL del padre,
+   * aunque no haya cambiado en esta petición.
    */
   private validateLinkedSelects(
     attributes: Record<string, unknown>,
     schema: AttributeField[],
+    deltaKeys?: Set<string>,
   ): void {
     for (const field of schema) {
       if (!field.dependsOn) continue;
+      if (deltaKeys && !deltaKeys.has(field.name) && !deltaKeys.has(field.dependsOn)) continue;
+
       const rawValue = attributes[field.name];
       if (rawValue === undefined || rawValue === null || rawValue === '') continue;
       const value = String(rawValue);

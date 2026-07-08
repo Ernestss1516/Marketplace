@@ -14,6 +14,10 @@ interface AttributeField {
   filterable: boolean;
   required: boolean;
   cardAttribute?: boolean;
+  /** Select vinculado — name de otro atributo select del que dependen las opciones. */
+  dependsOn?: string;
+  /** Opciones válidas por valor de `dependsOn`. Solo junto a `dependsOn`. */
+  optionsByParent?: Record<string, string[]>;
 }
 
 interface CategorySeed {
@@ -43,9 +47,36 @@ const CATEGORIES: CategorySeed[] = [
         order: 1,
         // year + km inherited from Vehículos. Effective = [year, km, brand, model, fuel, gearbox, power].
         // Card shows: "Año: 2022 · Marca: Toyota"
+        // brand/model: selects vinculados (dependsOn/optionsByParent) — catálogo real,
+        // no el caso mínimo de demostración de la ráfaga del mecanismo. Las claves de
+        // model.optionsByParent son EXACTAMENTE brand.options (mismos strings) — es la
+        // coherencia que el mecanismo exige entre los dos atributos.
         attributeSchema: [
-          { name: 'brand', label: 'Marca', type: 'text', filterable: true, required: true, cardAttribute: true },
-          { name: 'model', label: 'Modelo', type: 'text', filterable: false, required: true },
+          {
+            name: 'brand',
+            label: 'Marca',
+            type: 'select',
+            options: ['Seat', 'Volkswagen', 'Toyota', 'Renault', 'Peugeot', 'BMW'],
+            filterable: true,
+            required: true,
+            cardAttribute: true,
+          },
+          {
+            name: 'model',
+            label: 'Modelo',
+            type: 'select',
+            dependsOn: 'brand',
+            optionsByParent: {
+              Seat: ['Ibiza', 'León', 'Arona', 'Ateca'],
+              Volkswagen: ['Golf', 'Polo', 'Passat', 'Tiguan'],
+              Toyota: ['Corolla', 'Yaris', 'RAV4', 'Auris'],
+              Renault: ['Clio', 'Megane', 'Captur'],
+              Peugeot: ['208', '308', '3008'],
+              BMW: ['Serie 1', 'Serie 3', 'X1', 'X3'],
+            },
+            filterable: true,
+            required: true,
+          },
           {
             name: 'fuel',
             label: 'Combustible',
