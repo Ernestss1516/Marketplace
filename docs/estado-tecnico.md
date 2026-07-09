@@ -2596,25 +2596,65 @@ era un test que asumía un estado inicial que la propia arquitectura del job de 
 dos pruebas afectadas se corrigieron para usar una query sin coincidencias garantizadas en vez de
 depender de un índice vacío.
 
-**3b. ACTIVA — la indexación (BullMQ + Meilisearch) sí es lenta de verdad en CI, no solo el test es
-impaciente.** Esto es un problema distinto de 3a y sigue sin resolver: `listing-card-attrs.spec.ts`
-y similares necesitan hasta 20-28 recargas de `waitForCard` (~30-42 s sobre un timeout de 45 s,
-`intervalMs=1500`) antes de encontrar la card recién publicada. `SearchService.indexListing()` ya
-hace `await this.meili.client.waitForTask(...)` antes de que el job BullMQ se dé por completado (ver
-«`waitForTask()` en `indexListing`» más arriba) — es decir, el propio mecanismo garantiza que el
-documento es consultable en el momento en que el job termina; el retraso observado por `waitForCard`
-tiene que estar, por tanto, ANTES de eso: tiempo en cola hasta que el worker de BullMQ recoge el job
-(`queueWaitMs`, ya logueado como `[TIMING] index start ... queueWait=...ms`) y/o el propio
-`indexListing()`. Causa más probable, no confirmada con logs reales de CI (no hay acceso a ellos
-desde aquí): los tres processors de BullMQ (`IndexingProcessor` incluido) no declaran ninguna opción
-de `concurrency` en su `@Processor(...)`, por lo que corren con la concurrencia por defecto de
-`@nestjs/bullmq` (1 job a la vez); combinado con un runner de GitHub Actions de recursos compartidos
-(el servicio de Meilisearch en `ci.yml` no declara límites de CPU/memoria propios) y varias suites
-publicando anuncios en la misma ventana, una cola de jobs de indexado serializados a 1 a la vez
-explicaría los 20+ reintentos observados sin necesidad de que Meilisearch en sí sea lento. Pendiente
-para el Hito 9: instrumentar `queueWaitMs`/`indexTime` en un run de CI real para confirmar si el
-cuello de botella es la cola (subir `concurrency`) o el propio Meilisearch (recursos del runner o
-contenedor dedicado).
+**3b. RESUELTO — la indexación (BullMQ + Meilisearch) sí era lenta de verdad en CI, no solo el test
+impaciente. Hipótesis de `concurrency=1` confirmada con datos (local) y arreglada.** Este era un
+problema distinto de 3a: `listing-card-attrs.spec.ts` y similares necesitaban hasta 20-28 recargas de
+`waitForCard` (~30-42 s sobre un timeout de 45 s, `intervalMs=1500`) antes de encontrar la card recién
+publicada.
+
+*Confirmación empírica (repro local, no logs de CI reales):* con la instrumentación `[TIMING]` ya
+existente en `indexing.processor.ts`, una ráfaga de 20 anuncios de 20 usuarios distintos publicándose
+a la vez (mismo patrón que varias suites Playwright publicando en la misma ventana) mostró
+concurrencia observada = 1 sin excepción (ningún `index start` solapa con el `index done` anterior) y
+`queueWaitMs` creciendo lineal y monótonamente con la posición en la ráfaga (3ms → 2154ms sobre 20
+jobs), mientras `indexTimeMs` se mantenía estable (~92-126ms, sin tendencia). Confirma que el cuello
+de botella era la cola (concurrency=1 por omisión — ningún `@Processor(...)` de los 5 processors del
+proyecto declaraba la opción), no Meilisearch en sí.
+
+*Antes de subir `concurrency` se encontró una dependencia de orden real* (no solo el descuido de la
+opción no declarada): en `update()`, cuando cambiaba la ubicación en texto sin coordenadas explícitas,
+se encolaban `geocode` e `index` para el mismo `listingId` uno detrás de otro, confiando en que
+concurrency=1 los procesara en ese orden exacto (comentario explícito en el código: "Do NOT call
+handleIndex here... FIFO... one single Meilisearch write instead of two"). Con concurrency>1 esto
+podía indexar coordenadas viejas sin ningún job posterior que lo corrigiera. Arreglado:
+`handleGeocode()` ahora reindexa directamente al terminar (éxito o fallo permanente de geocoding) en
+la misma ejecución del job — sin depender del orden de otro job separado — y `update()` ya no encola
+un `index` adicional cuando encola `geocode` (evita el duplicado que podía re-introducir la misma
+carrera). `SearchService.indexListing()` ya maneja ACTIVE/no-ACTIVE internamente, así que la llamada
+extra es segura también para anuncios DRAFT (no-op vía `removeListing`).
+
+*Riesgo residual, más general y más estrecho, documentado y NO arreglado (deuda nueva aceptada):*
+dos jobs `index`/`geocode` para el MISMO `listingId` procesados en paralelo (p. ej. dos ediciones casi
+simultáneas del mismo anuncio) pueden completarse fuera de orden — el que leyó Postgres primero podría
+escribir en Meilisearch después, dejando datos viejos sin corrección posterior. A concurrency=1 esto
+era estructuralmente imposible; a concurrency>1 es una ventana real pero estrecha (requiere edición
+concurrente del mismo anuncio, no anuncios distintos — el caso común de la ráfaga de CI). No se
+implementó un lock por `listingId` (Redis, ya disponible en el proyecto) por ser mayor alcance del
+necesario para cerrar el síntoma de CI; candidato si en el futuro se observa este patrón en producción.
+
+*`concurrency` elegido: 5* (`INDEXING_CONCURRENCY` en `queue.constants.ts`, constante literal —
+**no** env var: `@Processor(...)` evalúa sus opciones en tiempo de decoración de clase, cuando
+`QueueModule` se importa desde `app.module.ts` ANTES de que `ConfigModule.forRoot()` —más abajo en el
+mismo archivo— cargue `.env`; leer `process.env` ahí vería `undefined` en silencio). Barrido local
+sobre el mismo repro de 20 anuncios:
+
+| concurrency | concurrencia observada | queueWaitMs último job | indexTimeMs avg | totalFromEnqueue último job |
+|---|---|---|---|---|
+| 1 | 1 | 2154ms | 110.3ms | 2266ms |
+| 3 | 3 | 667ms | 106.8ms | 766ms |
+| 5 | 5 | 301ms | 94.5ms | 393ms |
+| 8 | 8 | 306ms | 117.6ms | 402ms |
+
+5 es el punto óptimo local: ~5.8x más rápido que concurrency=1 sin degradar `indexTimeMs`; 8 no mejora
+la latencia de cola (mismo `totalFromEnqueue` que 5) y `indexTimeMs` empieza a subir — señal temprana
+de contención, no de beneficio. El número correcto depende del runner, no solo de Meilisearch —
+re-medir si CI sigue mostrando el síntoma tras este cambio.
+
+*Verificación:* batería e2e backend completa verde (41 suites, 630 tests) y batería Playwright
+completa verde (157 tests) tras el cambio, ambas sin backend de dev fantasma en :3001 (parado antes de
+correr, ver deuda "Colisión Redis dev/test en local" más abajo). Confirmación directa del síntoma
+original: en la corrida verde, cada línea `[waitForCard]` de `categoria-meili.spec.ts` y
+`listing-card-attrs.spec.ts` mostró `found after 1 reload(s)` — antes hasta 20-28.
 
 **4. Observabilidad de `callRevalidateEndpoint` — errores tragados en silencio, ya ocultaron 3 bugs reales.**
 El fire-and-forget (`fetch(...).catch(() => {})`, sin comprobar `response.ok`) ha

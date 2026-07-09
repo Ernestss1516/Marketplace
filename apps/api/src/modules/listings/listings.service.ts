@@ -250,14 +250,20 @@ export class ListingsService {
       }
     }
 
-    // Clear cache immediately, then enqueue geocode (if needed) BEFORE index so
-    // the FIFO worker updates lat/lng before the 'index' job re-fetches the listing.
-    // This guarantees a single Meilisearch write with the new coordinates.
+    // Clear cache immediately, then enqueue exactly one indexing-affecting job.
+    // When the address changed without explicit coords, the 'geocode' job
+    // reindexes itself once it has resolved (or given up on) the new
+    // coordinates (see handleGeocode) — it is NOT paired with a separate
+    // 'index' job here anymore. Two jobs for the same listingId with no
+    // ordering guarantee beyond incidental queue concurrency=1 previously
+    // raced: enqueuing only one job per update removes that race regardless
+    // of @Processor(QUEUE_INDEXING) concurrency.
     await this.redis.client.del(cacheKey(existing.slug));
     if (locationChanged && !coordsExplicit) {
       await this.indexingQueue.add('geocode', { listingId: id });
+    } else {
+      await this.indexingQueue.add('index', { listingId: id });
     }
-    await this.indexingQueue.add('index', { listingId: id });
     return listing;
   }
 

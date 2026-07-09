@@ -2,12 +2,12 @@ import * as Sentry from '@sentry/nestjs';
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
-import { QUEUE_INDEXING } from '../queue.constants';
+import { INDEXING_CONCURRENCY, QUEUE_INDEXING } from '../queue.constants';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SearchService, INDEX_INCLUDE } from '../../../modules/search/search.service';
 import { GeocodingService } from '../../../modules/geocoding/geocoding.service';
 
-@Processor(QUEUE_INDEXING)
+@Processor(QUEUE_INDEXING, { concurrency: INDEXING_CONCURRENCY })
 export class IndexingProcessor extends WorkerHost {
   private readonly logger = new Logger(IndexingProcessor.name);
 
@@ -99,6 +99,10 @@ export class IndexingProcessor extends WorkerHost {
       // TransientGeocodingError for anything retriable, so reaching here means
       // this listing simply won't resolve. Visible at warn, not silent debug.
       this.logger.warn(`Geocode job: no result for listing ${listingId} (permanent — not retried)`);
+      // Still reindex: the caller (update()) may have changed other fields
+      // (price, title, attributes...) that must reach Meilisearch even when
+      // the address itself never resolves.
+      await this.handleIndex(listingId);
       return;
     }
 
@@ -107,10 +111,12 @@ export class IndexingProcessor extends WorkerHost {
       data: { latitude: coords.lat, longitude: coords.lng },
     });
 
-    // Do NOT call handleIndex here. The 'index' job already in the queue
-    // (enqueued by publishListing or update) will run next (FIFO) and will
-    // re-fetch the listing with the updated coordinates — one single Meilisearch
-    // write per publication instead of two.
+    // Reindex here, in the same job, right after the coordinate write —
+    // instead of relying on a separately queued 'index' job to run afterwards
+    // (which only held true under concurrency=1 / strict FIFO; see queue.module.ts
+    // comment history). update() no longer enqueues a second 'index' job for this
+    // case, so there is nothing left to race against, at any concurrency.
+    await this.handleIndex(listingId);
     this.logger.debug(`Geocode job: listing ${listingId} → ${coords.lat},${coords.lng}`);
   }
 }
