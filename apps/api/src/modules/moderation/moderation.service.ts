@@ -12,6 +12,7 @@ import { RedisService } from '../../infra/redis/redis.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { ExpirationService } from '../expiration/expiration.service';
 import { QUEUE_INDEXING } from '../../infra/queue/queue.constants';
+import { ListingActivationService } from '../listing-activation/listing-activation.service';
 import { CreateReportDto } from './dto/create-report.dto';
 import { ListReportsQueryDto } from './dto/list-reports-query.dto';
 
@@ -24,6 +25,7 @@ export class ModerationService {
     private readonly redis: RedisService,
     private readonly auditLog: AuditLogService,
     @InjectQueue(QUEUE_INDEXING) private readonly indexingQueue: Queue,
+    private readonly activation: ListingActivationService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -220,7 +222,7 @@ export class ModerationService {
       },
     });
 
-    await this.invalidateAndIndex(listing.slug, listingId);
+    await this.activation.listingBecameActive(listing.slug, listingId);
 
     await this.auditLog.log({
       action: 'LISTING_APPROVE',
@@ -328,7 +330,7 @@ export class ModerationService {
       },
     });
 
-    await this.invalidateAndIndex(listing.slug, listingId);
+    await this.activation.listingBecameActive(listing.slug, listingId);
 
     await this.auditLog.log({
       action: 'LISTING_RESTORE',
@@ -365,12 +367,4 @@ export class ModerationService {
     });
   }
 
-  // ---------------------------------------------------------------------------
-  // Private helpers
-  // ---------------------------------------------------------------------------
-
-  private async invalidateAndIndex(slug: string, listingId: string): Promise<void> {
-    await this.redis.client.del(listingCacheKey(slug));
-    await this.indexingQueue.add('index', { listingId });
-  }
 }

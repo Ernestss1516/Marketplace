@@ -19,6 +19,7 @@ import { isP2002 } from '../../common/prisma/is-p2002';
 import { ExpirationService } from '../expiration/expiration.service';
 import { EntitlementService } from '../billing/entitlement.service';
 import { BadWordService } from '../moderation/bad-word.service';
+import { ListingActivationService } from '../listing-activation/listing-activation.service';
 import {
   AttributeField,
   resolveEffectiveSchema,
@@ -93,6 +94,7 @@ export class ListingsService {
     @InjectQueue(QUEUE_INDEXING) private readonly indexingQueue: Queue,
     private readonly badWordService: BadWordService,
     private readonly entitlementService: EntitlementService,
+    private readonly activation: ListingActivationService,
   ) {}
 
   async create(sellerId: string, dto: CreateListingDto): Promise<Listing> {
@@ -305,7 +307,7 @@ export class ListingsService {
     });
 
     if (targetStatus === 'ACTIVE') {
-      await this.invalidateAndReindex(listing.slug, id);
+      await this.activation.listingBecameActive(listing.slug, id);
     }
 
     return listing;
@@ -561,9 +563,11 @@ export class ListingsService {
     return listing;
   }
 
+  /** Non-activation reindex trigger (renew/reserve/markAsSold) — delegates the
+   * mechanical work to ListingActivationService without going through
+   * listingBecameActive, which is reserved for the 3 paths that reach ACTIVE. */
   private async invalidateAndReindex(slug: string, id: string): Promise<void> {
-    await this.redis.client.del(cacheKey(slug));
-    await this.indexingQueue.add('index', { listingId: id });
+    await this.activation.reindexListing(slug, id);
   }
 
   // ---------------------------------------------------------------------------
