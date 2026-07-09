@@ -42,14 +42,14 @@ export default async function HomePage() {
           se ilustra, se convierte literalmente en lo más grande de la pantalla. */}
       <section className="border-b bg-primary/5">
         <div className="container mx-auto px-4 py-14 md:py-20">
-          <div className="mx-auto max-w-2xl text-center">
+          <div className="mx-auto max-w-4xl text-center">
             <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-primary">
               Miles de anuncios cerca de ti
             </p>
             <h1 className="mb-8 text-2xl font-bold tracking-tight md:text-3xl">
               Compra y vende de segunda mano
             </h1>
-            <SearchBar />
+            <SearchBar categories={categories} />
 
             {popularCategories.length > 0 && (
               <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
