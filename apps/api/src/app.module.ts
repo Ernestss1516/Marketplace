@@ -16,6 +16,7 @@ import { CategoriesModule } from './modules/categories/categories.module';
 import { SearchModule } from './modules/search/search.module';
 import { MessagingModule } from './modules/messaging/messaging.module';
 import { FavoritesModule } from './modules/favorites/favorites.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
 import { MediaModule } from './modules/media/media.module';
 import { ModerationModule } from './modules/moderation/moderation.module';
@@ -65,6 +66,7 @@ import { BannersModule } from './modules/banners/banners.module';
     SearchModule,
     MessagingModule,
     FavoritesModule,
+    NotificationsModule,
     ReviewsModule,
     MediaModule,
     ModerationModule,

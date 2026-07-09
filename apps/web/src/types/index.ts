@@ -344,3 +344,34 @@ export interface Post extends PostSummary {
   metaTitle: string | null;
   metaDescription: string | null;
 }
+
+// ── Notifications ────────────────────────────────────────────────────────────
+
+export type NotificationType = 'ALERT_MATCH';
+
+/** Self-contained snapshot — mirrors AlertMatchData in the backend. */
+export interface AlertMatchData {
+  alertId: string;
+  alertName: string;
+  listingId: string;
+  listingSlug: string;
+  listingTitle: string;
+}
+
+export interface NotificationItem {
+  id: string;
+  userId: string;
+  type: NotificationType;
+  data: AlertMatchData;
+  read: boolean;
+  readAt: string | null;
+  createdAt: string;
+}
+
+export interface NotificationsResponse {
+  items: NotificationItem[];
+  total: number;
+  page: number;
+  perPage: number;
+  pages: number;
+}

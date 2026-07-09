@@ -1,7 +1,18 @@
 import Link from 'next/link';
 import { SITE_NAME } from '@/config';
+import { auth } from '@/lib/auth';
+import { getUnreadNotificationsCount } from '@/lib/api/notificaciones';
+import { HeaderAuthNav } from './HeaderAuthNav';
 
-export default function Header() {
+export default async function Header() {
+  const session = await auth();
+  const token = session?.user.accessToken;
+  const initialUnreadCount = token
+    ? await getUnreadNotificationsCount(token)
+        .then((r) => r.count)
+        .catch(() => 0)
+    : 0;
+
   return (
     <header className="sticky top-0 z-50 border-b bg-background">
       <div className="container mx-auto flex h-16 items-center justify-between px-4">
@@ -21,12 +32,7 @@ export default function Header() {
           >
             Publicar anuncio
           </Link>
-          <Link
-            href="/login"
-            className="text-muted-foreground transition-colors hover:text-foreground"
-          >
-            Iniciar sesión
-          </Link>
+          <HeaderAuthNav initialUnreadCount={initialUnreadCount} />
         </nav>
       </div>
     </header>

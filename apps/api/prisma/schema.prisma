@@ -231,6 +231,7 @@ model User {
   transactions        Transaction[]
   wallet              Wallet?
   couponRedemptions   CouponRedemption[]
+  notifications       Notification[]
 
   @@index([status])
 }
@@ -384,6 +385,31 @@ model Favorite {
   // Un usuario no puede marcar el mismo anuncio dos veces.
   @@unique([userId, listingId])
   @@index([userId])
+}
+
+/// Notificación in-app. `type` es String (no enum) — igual que AuditLog.action —
+/// para poder añadir tipos futuros sin migración.
+/// Valores de `type` conocidos: ALERT_MATCH.
+model Notification {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type String
+
+  /// Snapshot autocontenido del evento — NO punteros a otras entidades. La
+  /// notificación es un registro histórico que debe poder renderizarse sin
+  /// consultas adicionales y sobrevivir aunque el anuncio o la alerta se
+  /// borren después. Forma para ALERT_MATCH: { alertId, alertName, listingId,
+  /// listingSlug, listingTitle }.
+  data Json
+
+  read      Boolean   @default(false)
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, createdAt])
+  @@index([userId, read])
 }
 
 /// H8 Bloque C1 — agregado diario de vistas de un anuncio (no un evento por
