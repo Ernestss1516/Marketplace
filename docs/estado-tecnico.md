@@ -2877,12 +2877,37 @@ antes de asumir: el roadmap sobreestimaba el alcance real de Hito 7.
   deteniendo el proceso de dev antes de la corrida final. Refuerza la prioridad de aislar por
   namespace/prefijo.
 
-- **Teardown de tests e2e deja handles asíncronos abiertos.** Cada corrida de la suite e2e termina
-  con el aviso de Jest "Force exiting Jest: Have you considered using `--detectOpenHandles`" — alguna
-  conexión (Redis/Postgres/BullMQ) no se cierra explícitamente en el teardown de cada spec. Hoy
-  inofensivo (Jest fuerza la salida del proceso igualmente), pero podría colgar un runner de CI que
-  no fuerce `exit` por defecto. Inventariado, no investigado a fondo — candidato a revisar en Hito 9
-  junto con el resto de deuda de test/CI.
+- **✅ RESUELTO — "Teardown de tests e2e deja handles asíncronos abiertos" era un falso positivo.**
+  El aviso "Force exiting Jest: Have you considered using `--detectOpenHandles`" que aparecía en cada
+  corrida de la suite e2e nunca fue evidencia de una conexión sin cerrar — era el mensaje boilerplate
+  que Jest imprime SIEMPRE que `forceExit: true` está en la config, incluso cuando no hace falta.
+  Confirmado diagnosticando en vez de asumir: corriendo la suite con `--detectOpenHandles` y
+  `--no-forceExit` (override de CLI), tanto un único spec trivial (`smoke.e2e-spec.ts`, exit limpio en
+  2.5s) como la batería completa (41 suites/630 tests, exit limpio en ~76s) terminan **solos**, sin
+  handles reportados. `git log --follow` sobre `jest-e2e.json` confirma que `forceExit: true` estaba
+  desde el commit de scaffolding inicial (`R0.2`) — nunca añadido en respuesta a un colgado real
+  observado, boilerplate heredado. **Arreglo:** `forceExit` eliminado de `apps/api/test/jest-e2e.json`.
+  Como red de seguridad — el job `e2e` de CI no tenía `timeout-minutes` (default de GitHub Actions:
+  360 min) — se añadió `timeout-minutes: 30` al job en `ci.yml`: si alguna vez se introduce un colgado
+  real, falla en 30 min en vez de colgar horas.
+
+  **Hallazgo colateral durante la verificación, más relevante que la propia deuda:** al re-correr la
+  batería completa para confirmar el arreglo, aparecieron 7 suites fallando de forma consistente y
+  reproducible (`admin`, `moderation`, `listings`, `search`, `rc5-attributes`, `rc5b-vehiculos`,
+  `search-facets-by-type`) con "not indexed in Meilisearch within 15000ms" — en 3 corridas seguidas,
+  contenedores fríos y calientes por igual, y también reproducido a `concurrency=1` (descartando que
+  fuera el arreglo de concurrency de la deuda anterior). Causa real: un proceso `nest start --watch`
+  huérfano (arrancado como `webServer` de Playwright en una sesión de trabajo anterior sobre este mismo
+  repo, y que sobrevivió — junto con un hijo `node dist/src/main` — pese a que un chequeo de puerto
+  después de esa sesión no mostraba nada escuchando) seguía compitiendo por `bull:indexing` contra los
+  tests, con el mismo síntoma que "Colisión Redis dev/test en local" arriba, pero en su variante más
+  insidiosa: el proceso zombi no aparece con un simple check de puerto si no está activamente
+  escuchando en ese instante — hace falta `tasklist`/`Get-CimInstance Win32_Process` para encontrarlo
+  por línea de comandos. Confirmado con la tabla de tareas de Meilisearch (`GET /tasks`): sin el
+  zombi, la batería completa vuelve a pasar limpia (41/41, 630/630, 60.7s, sin `Force exiting`).
+  **Lección de método:** un checkeo de puerto (`netstat`/`lsof`) no es suficiente para descartar un
+  backend fantasma local — el proceso watcher puede seguir vivo sin tener nada bindeado en el momento
+  exacto del check. Verificar por proceso (`nest start`, `dist/src/main`), no solo por puerto.
 - **Patrón `waitForCard` pendiente de aplicar a specs anteriores a su introducción.** La regla
   vigente («cualquier test futuro que espere indexación Meili debe usar `waitForCard`», ver
   §Lecciones de método del CI) no se ha auditado retroactivamente contra todos los specs previos a

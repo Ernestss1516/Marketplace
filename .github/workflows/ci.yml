@@ -55,6 +55,13 @@ jobs:
     name: E2E Tests
     runs-on: ubuntu-latest
     needs: lint
+    # No async handle leak was found in apps/api/test/jest-e2e.json (forceExit
+    # removed after confirming with --detectOpenHandles that Jest already exits
+    # on its own). This bound replaces that safety net: locally the backend Jest
+    # suite + Playwright together take well under 15 minutes, so 30 gives real
+    # headroom while still failing loudly instead of hanging for GitHub's 360-minute
+    # default if a genuine hang is ever introduced.
+    timeout-minutes: 30
 
     services:
       postgres:
