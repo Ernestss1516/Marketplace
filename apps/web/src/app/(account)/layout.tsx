@@ -5,6 +5,7 @@ const navItems = [
   { href: '/publicar', label: 'Publicar anuncio' },
   { href: '/mensajes', label: 'Mensajes' },
   { href: '/favoritos', label: 'Favoritos' },
+  { href: '/mis-alertas', label: 'Mis alertas' },
   { href: '/notificaciones', label: 'Notificaciones' },
   { href: '/perfil', label: 'Mi perfil' },
   { href: '/perfil/suscripcion', label: 'Mi suscripción' },

@@ -375,3 +375,52 @@ export interface NotificationsResponse {
   perPage: number;
   pages: number;
 }
+
+// ── Alerts ───────────────────────────────────────────────────────────────────
+
+export interface Alert {
+  id: string;
+  userId: string;
+  name: string;
+  q: string | null;
+  categorySlug: string | null;
+  type: ListingType | null;
+  condition: Condition | null;
+  priceType: PriceType | null;
+  /** Prisma Decimal serializes as a numeric string over JSON. */
+  minPrice: string | null;
+  maxPrice: string | null;
+  province: string | null;
+  city: string | null;
+  attributes: Record<string, string | number | boolean> | null;
+  lat: number | null;
+  lng: number | null;
+  radiusMeters: number | null;
+  active: boolean;
+  createdAt: string;
+}
+
+export interface AlertsResponse {
+  items: Alert[];
+  total: number;
+  page: number;
+  perPage: number;
+  pages: number;
+}
+
+/** Criteria payload for POST/PATCH /alerts — `radius` stays in km (API boundary unit). */
+export interface AlertCriteria {
+  q?: string;
+  categorySlug?: string;
+  type?: ListingType;
+  condition?: Condition;
+  priceType?: PriceType;
+  minPrice?: number;
+  maxPrice?: number;
+  province?: string;
+  city?: string;
+  attributes?: Record<string, string>;
+  lat?: number;
+  lng?: number;
+  radius?: number;
+}

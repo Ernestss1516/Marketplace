@@ -232,6 +232,7 @@ model User {
   wallet              Wallet?
   couponRedemptions   CouponRedemption[]
   notifications       Notification[]
+  alerts              Alert[]
 
   @@index([status])
 }
@@ -410,6 +411,46 @@ model Notification {
 
   @@index([userId, createdAt])
   @@index([userId, read])
+}
+
+/// Búsqueda guardada de un comprador. Los criterios core son columnas propias
+/// (no un blob Json de SearchParams) para que B3 pueda pre-filtrar alertas
+/// candidatas con SQL al publicarse un anuncio, en vez de deserializar todas
+/// las alertas activas en memoria. Mismo patrón core+attributes que
+/// Listing.attributes / parseSearchQuery. Ver alertToSearchParams() en
+/// AlertsService para la conversión de vuelta a SearchParams.
+model Alert {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Mostrado en /mis-alertas y snapshoteado en Notification.data.alertName (B1).
+  name String
+
+  q            String?
+  categorySlug String?
+  type         ListingType?
+  condition    Condition?
+  priceType    PriceType?
+  minPrice     Decimal?     @db.Decimal(12, 2)
+  maxPrice     Decimal?     @db.Decimal(12, 2)
+  province     String?
+  city         String?
+  /// Atributos dinámicos por categoría, ya coaccionados a su tipo real
+  /// (number/boolean/string) al guardar — ver AlertsService. Mismo shape que
+  /// SearchParams.attributes.
+  attributes   Json?
+
+  // Alternativa/complemento a province/city, igual que SearchParams.geo.
+  lat          Float?
+  lng          Float?
+  radiusMeters Int?
+
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([active])
 }
 
 /// H8 Bloque C1 — agregado diario de vistas de un anuncio (no un evento por

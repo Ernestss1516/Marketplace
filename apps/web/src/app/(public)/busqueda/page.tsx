@@ -7,10 +7,12 @@ import { ListingCard } from '@/components/anuncios/ListingCard';
 import { FavoritesGridProvider } from '@/components/anuncios/FavoritesGridContext';
 import { CardAttributesProvider } from '@/components/anuncios/CardAttributesContext';
 import { FilterPanel } from '@/components/busqueda/FilterPanel';
+import { CrearAlertaButton } from '@/components/busqueda/CrearAlertaButton';
 import MapViewClient from '@/components/busqueda/MapViewClient';
 import { search, type SearchResponse } from '@/lib/api/busqueda';
 import { getCategories } from '@/lib/api/categorias';
 import { buildCardAttributeMap, buildFullAttributeMap } from '@/lib/card-attributes';
+import type { AlertCriteria } from '@/types';
 
 const KNOWN_PARAMS = new Set([
   'q', 'category', 'type', 'condition', 'priceType',
@@ -181,6 +183,22 @@ export default async function BusquedaPage({
     attributes,
   };
 
+  // Same source values as the `search()` call above — no re-parsing. `category`
+  // here is the URL param name; the alert DTO field is `categorySlug`.
+  const alertCriteria: AlertCriteria = {
+    ...(q && { q }),
+    ...(category && { categorySlug: category }),
+    ...(type && { type }),
+    ...(condition && { condition }),
+    ...(priceType && { priceType }),
+    ...(minPrice !== undefined && !isNaN(minPrice) && { minPrice }),
+    ...(maxPrice !== undefined && !isNaN(maxPrice) && { maxPrice }),
+    ...(province && { province }),
+    ...(city && { city }),
+    ...(Object.keys(attributes).length > 0 && { attributes }),
+    ...(proximityActive && { lat, lng, radius }),
+  };
+
   const activeFilterCount = [
     category, typeRaw, conditionRaw, priceTypeRaw,
     province, city, minPriceStr, maxPriceStr,
@@ -235,6 +253,8 @@ export default async function BusquedaPage({
                 </span>
               )}
             </div>
+
+            <CrearAlertaButton criteria={alertCriteria} />
 
             {/* Lista / Mapa toggle */}
             <div className="flex overflow-hidden rounded-md border" role="group" aria-label="Cambiar vista">

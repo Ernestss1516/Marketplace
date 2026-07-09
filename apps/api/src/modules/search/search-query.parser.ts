@@ -16,7 +16,7 @@ export interface ParsedSearchQuery {
   attributes: Record<string, string | number | boolean>;
 }
 
-function coerceAttributeValue(
+export function coerceAttributeValue(
   kind: AttributeField['type'],
   rawValue: unknown,
   key: string,
