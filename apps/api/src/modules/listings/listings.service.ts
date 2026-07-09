@@ -337,7 +337,11 @@ export class ListingsService {
       },
     });
 
-    await this.invalidateAndReindex(listing.slug, id);
+    // Not the generic wrapper: a renewed listing reappears in the marketplace
+    // exactly like an approved/restored one, so it must also feed the alert-
+    // matching hook (dedup in AlertMatch prevents re-notifying alerts that
+    // already matched this listing — see B3).
+    await this.activation.listingBecameActive(listing.slug, id);
     return listing;
   }
 

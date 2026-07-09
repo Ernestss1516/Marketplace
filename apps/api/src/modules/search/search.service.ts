@@ -65,6 +65,7 @@ const SEARCHABLE_ATTRIBUTES = [
 // hardcoded list — see onModuleInit below.
 // ---------------------------------------------------------------------------
 const CORE_FILTERABLE_ATTRIBUTES = [
+  'id',
   'categoryId',
   'categorySlug',
   'categoryPath',
@@ -178,6 +179,9 @@ export interface SearchParams {
   sort?: 'price:asc' | 'price:desc' | 'publishedAt:desc' | 'sortDate:desc';
   page?: number;
   hitsPerPage?: number;
+  /** Confirms "is this specific listing in these results?" (B3 alert-matching Fase 2)
+   * with the exact same filtering semantics as a real search — not a separate JS check. */
+  listingId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -316,6 +320,7 @@ export class SearchService implements OnModuleInit {
     if (params.city) filters.push(`city = "${this.escape(params.city)}"`);
     if (params.minPrice != null) filters.push(`price >= ${params.minPrice}`);
     if (params.maxPrice != null) filters.push(`price <= ${params.maxPrice}`);
+    if (params.listingId) filters.push(`id = "${this.escape(params.listingId)}"`);
 
     for (const [key, value] of Object.entries(params.attributes ?? {})) {
       filters.push(

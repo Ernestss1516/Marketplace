@@ -4,7 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { BullModule } from '@nestjs/bullmq';
 import { PrismaModule } from '../../infra/prisma/prisma.module';
-import { QUEUE_NOTIFICATIONS } from '../../infra/queue/queue.constants';
+import { QUEUE_NOTIFICATIONS, RETRY_JOB_OPTIONS } from '../../infra/queue/queue.constants';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
@@ -21,7 +21,10 @@ import { JwtStrategy } from './strategies/jwt.strategy';
         signOptions: { expiresIn: '7d' },
       }),
     }),
-    BullModule.registerQueue({ name: QUEUE_NOTIFICATIONS }),
+    // defaultJobOptions repeated here (not just in queue.module.ts) — see the
+    // comment on RETRY_JOB_OPTIONS: this module's own Queue instance is the
+    // one AuthService's SEND_VERIFICATION_EMAIL/SEND_RESET_EMAIL actually use.
+    BullModule.registerQueue({ name: QUEUE_NOTIFICATIONS, defaultJobOptions: RETRY_JOB_OPTIONS }),
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy],

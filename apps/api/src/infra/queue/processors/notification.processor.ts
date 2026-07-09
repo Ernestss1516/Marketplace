@@ -7,6 +7,7 @@ import { Resend } from 'resend';
 import { QUEUE_NOTIFICATIONS } from '../queue.constants';
 import {
   NOTIFICATION_JOB,
+  SendAlertEmailData,
   SendResetEmailData,
   SendVerificationEmailData,
 } from '../notification.types';
@@ -32,6 +33,8 @@ export class NotificationProcessor extends WorkerHost {
           return this.sendVerificationEmail(job.data as SendVerificationEmailData);
         case NOTIFICATION_JOB.SEND_RESET_EMAIL:
           return this.sendResetEmail(job.data as SendResetEmailData);
+        case NOTIFICATION_JOB.SEND_ALERT_EMAIL:
+          return this.sendAlertEmail(job.data as SendAlertEmailData);
         default:
           this.logger.warn(`Unknown notification job: ${job.name}`);
       }
@@ -61,5 +64,16 @@ export class NotificationProcessor extends WorkerHost {
       text: `Hola ${data.name},\n\nRestablece tu contraseña haciendo clic en este enlace (válido 1h):\n${link}\n\nSi no solicitaste esto, ignora este email.`,
     });
     this.logger.log(`Reset email sent to ${data.email}`);
+  }
+
+  private async sendAlertEmail(data: SendAlertEmailData): Promise<void> {
+    const link = `${this.appUrl}/anuncio/${data.listingSlug}`;
+    await this.resend.emails.send({
+      from: this.from,
+      to: data.email,
+      subject: `Nuevo anuncio para tu alerta "${data.alertName}"`,
+      text: `Hola ${data.name},\n\nHay un nuevo anuncio que coincide con tu alerta "${data.alertName}":\n${data.listingTitle}\n\nVerlo aquí:\n${link}`,
+    });
+    this.logger.log(`Alert email sent to ${data.email}`);
   }
 }

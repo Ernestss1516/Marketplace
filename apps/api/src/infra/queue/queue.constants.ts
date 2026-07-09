@@ -3,6 +3,21 @@ export const QUEUE_INDEXING = 'indexing';
 export const QUEUE_NOTIFICATIONS = 'notifications';
 export const QUEUE_BILLING = 'billing';
 export const QUEUE_REDSYS = 'redsys';
+export const QUEUE_ALERT_MATCHING = 'alert-matching';
+
+// Each module that injects a queue calls its own BullModule.registerQueue({name})
+// — @nestjs/bullmq creates a SEPARATE Queue (producer) instance per module
+// registration of the same name, each with its own client-side defaultJobOptions.
+// Declaring retry only in queue.module.ts does NOT reach a producer that lives
+// in a different module (e.g. AuthService, AlertMatchingService) — every module
+// that calls queue.add() and wants retry must pass this same object to ITS OWN
+// registerQueue() call. Shared here so they can't drift from each other.
+export const RETRY_JOB_OPTIONS = {
+  attempts: 3,
+  backoff: { type: 'exponential' as const, delay: 2_000 },
+  removeOnComplete: true,
+  removeOnFail: 100,
+};
 
 // A plain constant, not an env var: @Processor()'s options evaluate at class
 // decoration time, when QueueModule is require()'d by AppModule's import chain —

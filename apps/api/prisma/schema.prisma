@@ -344,6 +344,7 @@ model Listing {
   entitlements  Entitlement[]
   transactions  Transaction[]
   viewsDaily    ListingViewDaily[]
+  alertMatches  AlertMatch[]
 
   // Índices para los filtros y ordenaciones más frecuentes (rendimiento de listados).
   @@index([categoryId, status])
@@ -449,8 +450,28 @@ model Alert {
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
 
+  matches AlertMatch[]
+
   @@index([userId])
   @@index([active])
+}
+
+/// Deduplicación (alerta, anuncio): impide re-notificar el mismo anuncio para
+/// la misma alerta (p. ej. tras un renew()), y hace idempotente un reintento
+/// del job de matching (create() + catch P2002 = ya notificado, se salta).
+/// Tabla propia (no Notification.data Json) por la misma razón que Alert usa
+/// columnas: se necesita consultar/insertar por (alertId, listingId) con un
+/// índice único, no un blob opaco.
+model AlertMatch {
+  id        String   @id @default(cuid())
+  alertId   String
+  alert     Alert    @relation(fields: [alertId], references: [id], onDelete: Cascade)
+  listingId String
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([alertId, listingId])
+  @@index([listingId])
 }
 
 /// H8 Bloque C1 — agregado diario de vistas de un anuncio (no un evento por

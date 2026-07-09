@@ -19,7 +19,7 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 |---|---|---|
 | **Infra: Prisma** | ✅ Completo | Schema con todos los modelos; PostGIS habilitado; **15 migraciones aplicadas** (las de billing RF.2–RF.6 añaden Subscription, Transaction, Wallet, Entitlement, CreditLedger, GatewayEvent, Price…; **RF.7** añade **`add_entitlement_revoked_at`**: columna nullable `Entitlement.revokedAt DateTime?` + índice; **Bonus Pro** añade **`add_pro_bonus`**: valor `PRO_BONUS` al enum `CreditLedgerType` + columna nullable `Transaction.bonusCreditAmount Int?`; **RC5.2** añade **`rename_itemtype_normalize_size`**: renombra `type→itemType` en `Listing.attributes` JSONB + normaliza `calzado.size` de número a string; **Hito 7** añade **`review_survives_listing_delete`**: `Review.listingId` pasa de `Cascade` a `SetNull` (nullable) + columna `Review.listingTitle String?` + backfill de reseñas existentes cuyo anuncio todavía vive; y **`social_login_google`**: tabla `Account` (`provider`+`providerAccountId`) + `User.passwordHash` pasa a nullable) |
 | **Infra: Redis** | ✅ Completo | `RedisService` global; caché de fichas de anuncio (TTL 5 min) |
-| **Infra: BullMQ** | ✅ Colas activas | 4 colas registradas con processors reales: `image-processing`, `indexing`, `notifications`, `billing`, `redsys` |
+| **Infra: BullMQ** | ✅ Colas activas | 6 colas registradas con processors reales: `image-processing`, `indexing`, `notifications`, `billing`, `redsys`, **`alert-matching`** (Sistema de Alertas B3). **Hallazgo/fix (B3)**: cada módulo que llama a `BullModule.registerQueue({name})` crea su **propia** instancia `Queue` (productor) — `defaultJobOptions` declarado solo en `queue.module.ts` no llega a un productor que vive en otro módulo (p. ej. `AuthService`, `AlertMatchingService`). `RETRY_JOB_OPTIONS` centralizado en `queue.constants.ts` y repetido explícitamente en cada `registerQueue()` que encola en `notifications` (`AuthModule`, `AlertsModule`, `queue.module.ts`) — ver «Sistema de Alertas» más abajo. |
 | **Infra: Meilisearch** | ✅ Completo | `SearchService.onModuleInit()` crea el índice `listings` y aplica searchable/filterable/sortable attrs, ranking rules y typo tolerance al arrancar |
 | **Infra: MinIO/R2** | ✅ Completo | Dev: MinIO vía docker-compose (bucket `marketplace` con lectura pública, creado por el contenedor `createbuckets`). Prod: Cloudflare R2 vía `R2Service` |
 | **Auth** | ✅ Completo | register, login, verify-email, forgot-password, reset-password; `JwtAuthGuard`, `RolesGuard`, `@CurrentUser`; login devuelve `emailVerified` (fix fase 5). **Hito 7 (backend)**: `POST /auth/social/google` — login social Google; ver «Login social con Google» en §2 |
@@ -44,6 +44,9 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **BillingModule RF.6** | ✅ Completo | **`grantFeaturedListing(params)`** — punto único de concesión de `FEATURED_LISTING`; valida ACTIVE + propietario (→403) + sin entitlement activo (→400); crea `Entitlement` con `expiresAt = now + durationDays`; encola reindexado. No conoce la vía de pago. **`featuredByCredits`** — `POST /billing/featured-by-credits { priceId, listingId }`: debit atómico (`UPDATE Wallet WHERE balance >= cost`, affected=0 → 402) + `CreditLedger FEATURED_DEBIT` + entitlement, todo en una `$transaction`; rollback automático si la concesión falla. **`bump`** — `POST /listings/:id/bump`: cooldown 1h (→429 Retry-After); debit atómico + `CreditLedger BUMP_DEBIT` + `Listing.bumpedAt`, todo en una `$transaction`; fallos 402/403/400 no consumen cooldown. **`GET /billing/wallet`** — saldo + ledger paginado. **Dependencia `ListingsModule → BillingModule`**: unidireccional, sin circular, NestJS arranca limpio. **VERIFICADO (batería e2e completa, 181/181, 15 casos nuevos)**: grantFeaturedListing como punto único; débito atómico con rollback (saldo restaurado + sin `CreditLedger` huérfano); cooldown no consumido en fallos; convergencia de vías (featuredByCredits y featuredByRedsys producen mismo entitlement: tipo, priceId, `|expiresAt_A − expiresAt_B| < 60s`). **DEUDA HEREDADA de RF.5**: camino featuredByRedsys implementado pero sin ejercicio E2E contra Redsys real (firma/notificación pendientes de tooling). |
 | **BillingModule — catalog (RF.9/RF.10)** | ✅ Completo | `GET /billing/catalog` — endpoint público (sin auth); DTO sin `gatewayPriceId`; devuelve los planes del catálogo de BD. **RF.10**: cada precio de pack incluye ahora `creditPackId` (`CreditPack.id`, lo que necesita `POST /billing/checkout/credits-pack`) y `packName` (`CreditPack.name`, p. ej. "Pack Básico") para que el frontend pueda renderizar una tarjeta por pack individual sin una llamada adicional |
 | **AdminBillingModule (RF.12)** | ✅ RF.12a+RF.12b | `AdminBillingController` + `AdminBillingService` con `@Roles(ADMIN)` explícito (no MODERATOR). **RF.12a**: `GET /admin/billing/transactions` (paginado, filtros por userId/status/gateway) y `GET /admin/billing/users/:userId` (saldo + historial + entitlements activos); DTO de salida con Prisma `select` explícito que excluye 9 campos sensibles (`gatewayPaymentIntentId`, `subscriptionId`, `taxAmount`, `invoiceNumber`, `gatewayEventId`, `stripeCustomerId`, `refundedAt`, `refundAmount`, `invoiceUrl`); respuestas `Cache-Control: no-store`; filtro de entitlements activos: `revokedAt null AND (expiresAt null OR > now)`. **RF.12b**: `POST /admin/billing/credits/:userId` — acreditación manual; tres writes atómicos en `$transaction` (wallet upsert + `CreditLedger ADMIN_CREDIT` + `AuditLog` vía `log(dto, tx)`); NO crea `Transaction` (no hecho imponible); NO aplica bonus Pro; `CreditLedger.note = "Créditos añadidos por el equipo"` (genérico, visible al usuario en su historial); `AuditLog.after.reason` = motivo real del admin (solo backoffice); `amount @Min(1)@Max(10000)`, `reason @MinLength(5)@MaxLength(500)` |
+| **ListingActivation** | ✅ Completo (B0) | `ListingActivationService.listingBecameActive(slug, listingId)` — único punto de enganche para toda transición de un `Listing` a `ACTIVE` (`publish` rama ACTIVE, `approveListing`, `restoreListing`, **`renew`**). Consolida el reindexado (antes duplicado en `ListingsService`/`ModerationService`) y, desde B3, encola el flag `triggerAlertMatch` en el job `index`. `reserve`/`markAsSold` usan el wrapper genérico `reindexListing()` sin el flag — no disparan matching. Ver «Sistema de Alertas» más abajo |
+| **Notifications** | ✅ Completo (B1) | Canal in-app genérico. Modelo `Notification` (`type: String` — molde `AuditLog.action`, no enum, para tipos futuros sin migración; `data: Json` = snapshot autocontenido, no punteros). `GET /notifications` (paginado), `GET /notifications/unread-count`, `POST /notifications/:id/read` (idempotente, `updateMany` scoped por `userId` — nunca confía en el `:id` solo), `POST /notifications/read-all`. `createNotification(userId, type, data)` — sin cola, para que B3 lo invoque directamente. Solo el tipo `ALERT_MATCH` implementado. Ver «Sistema de Alertas» más abajo |
+| **Alerts** | ✅ Completo (B2+B3) | Búsqueda guardada de un comprador con matching automático. Modelo `Alert`: columnas core (`q`, `categorySlug`, `type`, `condition`, `priceType`, `minPrice`/`maxPrice`, `province`, `city`, `lat`/`lng`/`radiusMeters`) + `attributes Json` — no un blob `SearchParams` completo, para que B3 pueda pre-filtrar con SQL. `alertToSearchParams()` reconstruye `SearchParams` desde una alerta (reusado por el preview de B2 y el matching de B3). `POST /alerts` (crea + devuelve `{alert, matches}` con preview inmediato), `GET /alerts`, `PATCH /alerts/:id` (criterios/`active`), `DELETE /alerts/:id`, `GET /alerts/:id/matches`; todo scoped por `(id, userId)`. Modelo `AlertMatch` (`@@unique([alertId,listingId])`) para deduplicación. Ver «Sistema de Alertas» más abajo |
 
 ### Frontend (`apps/web` — puerto 3000)
 
@@ -89,6 +92,10 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **Wallet y packs** `/mis-creditos` | ✅ RF.10 | Server Component; ruta protegida (añadida a `accountPrefixes` en middleware y al sidebar de cuenta). Fetcha en paralelo `GET /billing/wallet` (saldo + historial paginado con etiquetas legibles por tipo de movimiento: "Compra de pack", "Destacado", "Bump", "Crédito manual", "Ajuste", "Bonus Pro") y `GET /billing/catalog` (packs ONE_TIME con `creditAmount`). `PackList` (client component): renderiza una tarjeta por pack individual — itera `product.prices` en vez de `products`, usa `price.packName` y `price.creditPackId`. `handleBuy(creditPackId)` llama `createPackCheckout`, monta `RedsysRedirectForm` al recibir el form firmado. `RedsysRedirectForm`: form `method="POST"` con `Ds_MerchantParameters`, `Ds_SignatureVersion`, `Ds_Signature` como hidden inputs + `data-testid="redsys-redirect-form"` (Playwright), auto-submit via `useEffect`. Gestión de sesión stale vía `useApiAction` (igual que RF.9). |
 | **Retorno pago de packs (éxito)** `/mis-creditos/exito` | ✅ RF.10 | Client Component (`'use client'`). **INVARIANTE DE SEGURIDAD**: no concede créditos ni ejecuta lógica de negocio; el wallet lo acredita exclusivamente la notificación online de Redsys (`POST /webhooks/redsys`), no esta página (ver `diseno-facturacion.md §7.5`). Muestra mensaje "procesando", consulta `GET /billing/wallet` para mostrar el saldo actual si está disponible, y ofrece un botón "Actualizar saldo" que re-consulta el wallet manualmente. |
 | **Retorno pago de packs (error)** `/mis-creditos/error` | ✅ RF.10 | Server Component estático. Solo UI: "El pago no se completó", "No se te ha cobrado ningún importe", enlace de vuelta a `/mis-creditos`. |
+| **Header global** | ✅ Completo (B1) | Pasó de estático (siempre "Iniciar sesión") a consciente de sesión: `Header` (server, `auth()`) delega la parte de sesión a `HeaderAuthNav` (client, `useSession()`) — anónimo ve login sin cambios, logueado ve `NotificationBell` + menú de usuario nuevo (antes no existía ningún acceso al área privada desde el header público). Primer uso de `@radix-ui/react-dropdown-menu` en el proyecto (instalado para esto) |
+| **Notificaciones** `/notificaciones` | ✅ Completo (B1) | Molde exacto de `/favoritos` (SSR + estado optimista). Campana con badge de no-leídas: SSR inicial + refetch al cambiar de ruta y al abrir el desplegable — sin polling por intervalo. Marcar leída al click (optimista); "Marcar todas como leídas". Solo renderiza `ALERT_MATCH` (`getNotificationContent` — `switch(type)`, listo para tipos futuros) |
+| **Crear alerta** (en `/busqueda`) | ✅ Completo (B2) | Botón "Crear alerta" lee `alertCriteria` ya calculado por el server component de `/busqueda` (mismas variables que arman la llamada a `search()`, sin re-parseo) y abre un `Dialog` que solo pide el nombre; `POST /alerts` devuelve `{alert, matches}` y el diálogo muestra el preview de coincidencias al instante |
+| **Mis alertas** `/mis-alertas` | ✅ Completo (B2) | Molde `/favoritos`: SSR + `MisAlertasClient` con pausar/reactivar (`PATCH active`) y borrar optimistas; "Ver coincidencias" expande inline bajo demanda (`GET /alerts/:id/matches`) |
 
 ---
 
@@ -4076,6 +4083,128 @@ confirmó con flujos reales (no solo baterías aisladas) que las piezas encajan 
 cambio): el refuerzo de la validación débil de `attributes` (`validateAttributes` solo
 comprueba `required`, no tipo/opciones/claves desconocidas) sigue diferido como mejora
 ortogonal — ver «Validación débil de atributos» en §3.
+
+---
+
+## Sistema de Alertas — cerrado (B0-B3)
+
+**✅ CERRADO** (2026-07-09). Las 4 ráfagas (B0-B3) están completas y verificadas de punta a
+punta: el comprador guarda una búsqueda como alerta, y al publicarse/aprobarse/restaurarse/
+renovarse un anuncio que encaja, recibe una notificación in-app + email automáticamente, sin
+carreras y sin ruido de re-notificación.
+
+**Objetivo:** cerrar el círculo comprador — hoy un comprador solo puede volver manualmente a
+`/busqueda` para ver si hay algo nuevo. Una alerta invierte eso: guarda los criterios una vez
+y el sistema avisa cuando aparece un anuncio que encaja.
+
+**Estado del terreno** (del mapa hecho antes de diseñar B0): tres caminos llevan un `Listing`
+a `ACTIVE` (`publish`, `approveListing`, `restoreListing`), cada uno con su propio reindexado
+duplicado; no existía canal de notificación in-app; `SearchService.search()` ya era reutilizable
+para "¿qué encaja con estos criterios?"; el patrón de email (`QUEUE_NOTIFICATIONS`,
+`NOTIFICATION_JOB`) ya existía para verificación/reset.
+
+**Plan de ráfagas — B0-B3 CERRADAS:**
+
+- **B0 — Saneamiento previo (hook único).** ✅ **CERRADA.** Los 2 reindexados duplicados
+  (`ListingsService.invalidateAndReindex` / `ModerationService.invalidateAndIndex`, idénticos
+  byte a byte) se consolidaron en `ListingActivationService.listingBecameActive(slug, listingId)`
+  — nuevo módulo neutral, importado por `ListingsModule` y `ModerationModule` sin dependencia
+  circular (la relación existente Listings→Moderation no cambia). Es el único punto que las 3
+  transiciones a ACTIVE llaman; las transiciones en sí (ownership, guards, badword/límite,
+  AuditLog) se dejaron intactas — unificar solo el reindexado, no las transiciones (habría sido
+  abstracción prematura con ramas por caller). **Hallazgo aparcado para B3**: `renew()` también
+  lleva un anuncio a ACTIVE y no estaba en los "3 caminos" originales — resuelto en B3 una vez
+  la deduplicación lo hizo seguro. Migración indolora (630/630 tests e2e).
+- **B1 — Canal de notificaciones in-app.** ✅ **CERRADA.** Infraestructura nueva desde cero
+  (molde `Favorite`): modelo `Notification` (`type: String` — mismo patrón que `AuditLog.action`,
+  no enum, para tipos futuros sin migración; `data: Json` = **snapshot autocontenido**, no
+  punteros — sobrevive aunque el anuncio o la alerta se borren después). `GET /notifications`
+  paginado, `GET /notifications/unread-count`, `POST /notifications/:id/read` (idempotente,
+  `updateMany` scoped por `userId` — nunca confía en el `:id` solo, evita IDOR), `POST
+  /notifications/read-all`. `createNotification(userId, type, data)` sin cola ni efectos
+  secundarios, listo para que B3 lo invoque. **Hallazgo real de UI**: el `Header` público era
+  estático (siempre "Iniciar sesión", sin reflejar sesión) y no existía ningún dropdown en el
+  proyecto — se instaló `@radix-ui/react-dropdown-menu` y el `Header` pasó a ser
+  session-aware. Verificado con el test crítico de Playwright (login anónimo + navegación
+  logueada) además de 41 suites e2e / 630 tests backend.
+- **B2 — Modelo `Alert` + creación.** ✅ **CERRADA.** Columnas core (`q`, `categorySlug`,
+  `type`, `condition`, `priceType`, `minPrice`/`maxPrice`, `province`, `city`,
+  `lat`/`lng`/`radiusMeters`) + `attributes Json` — **no** un blob `SearchParams` completo,
+  decisión simétrica a la de `Notification` pero en sentido contrario: aquí el conjunto de
+  criterios es estable (no crece con tipos nuevos) y sí se necesita consultar por columna (B3
+  pre-filtra con SQL). `alertToSearchParams(alert)` reconstruye `SearchParams` desde una
+  alerta — la misma función que usa el preview de creación y, luego, el matching de B3.
+  Coacción de tipos de `attributes` al persistir (reutiliza `coerceAttributeValue`, exportado
+  de `search-query.parser.ts`) para que lo guardado y lo que Meili filtra nunca diverjan en
+  tipo. `POST /alerts` crea y devuelve `{alert, matches}` en una sola llamada (preview
+  inmediato). Creación desde `/busqueda`: el botón lee `alertCriteria` ya calculado por el
+  server component, sin re-parsear la URL. Todo scoped por `(id, userId)`. Migración indolora
+  (43 suites e2e / 656 tests).
+- **B3 — Matching inverso (el corazón de la feature).** ✅ **CERRADA.** Ver detalle completo
+  más abajo.
+
+### B3 — Matching inverso: arquitectura de 2 fases
+
+**Fase 1 (SQL, candidatas)**: al confirmarse la indexación de un anuncio, `AlertMatchingService`
+relee el listing y consulta `Alert.findMany({ active: true, AND: [...] })` con un `OR
+[campo=null, campo=valor-del-listing]` por cada columna core (`categorySlug`, `type`,
+`condition`, `priceType`, `minPrice≤precio`, `maxPrice≥precio`, `province`, `city`).
+Deliberadamente **no** filtra `attributes`/`q`/geo en SQL — sobre-aproximación segura, nunca
+excluye un match real; solo reduce "todas las alertas activas" a "las plausibles".
+
+**Fase 2 (Meilisearch, confirmación — ruta A)**: por cada candidata,
+`search({...alertToSearchParams(alert), listingId, hitsPerPage:1})` — si el anuncio aparece,
+el match es real, con la MISMA semántica (atributos, geo-radio, tolerancia) que una búsqueda
+de verdad. Evita reimplementar el filtrado en JS ("el espejo divergente").
+
+**Sin carrera (hook encadenado, no paralelo)**: `listingBecameActive()` pasa
+`triggerAlertMatch: true` en el payload del job `'index'` (no un segundo job en paralelo).
+`IndexingProcessor`, tras confirmar `waitForTask` y releer `listing.status === 'ACTIVE'`
+fresco de Postgres, **solo entonces** encola `'match-alerts'` en la cola dedicada
+`QUEUE_ALERT_MATCHING`. El matching arranca con Meili ya poblado, por construcción — mismo
+principio que `handleGeocode` ya aplicaba (encadenar en el mismo job, no encolar en paralelo).
+
+**Deduplicación**: tabla `AlertMatch` (`@@unique([alertId, listingId])`). Antes de notificar,
+`prisma.alertMatch.create()` — si P2002 (ya existe), se salta. Doble función: evita ruido
+(un `renew()` no re-notifica lo ya notificado) y hace el job **idempotente frente a
+reintentos de BullMQ** (necesario ahora que `QUEUE_ALERT_MATCHING` tiene retry). Misma
+decisión arquitectónica que `Alert` (columnas, no Json) aplicada por tercera vez: se necesita
+consultar/insertar por `(alertId, listingId)` con índice único.
+
+**`renew()` dispara matching**: habilitado por la dedup — un anuncio EXPIRED que vuelve a
+ACTIVE no re-notifica a quien ya lo vio, pero sí notifica a alertas creadas *después* de la
+publicación original. `renew()` pasó de llamar al wrapper genérico a llamar
+`activation.listingBecameActive()` directamente, igual que `publish()` — cierra el hallazgo
+aparcado en B0. `reserve()`/`markAsSold()` siguen sin disparar matching (no llevan el anuncio
+a ACTIVE).
+
+**Moderación**: confirmado sin cambios — `PENDING_REVIEW` nunca dispara nada; `approveListing()`
+sí, al llamar al mismo hook.
+
+**Hallazgo real (no solo de B3): retry de cola "roto" entre módulos.** Cada módulo que llama
+`BullModule.registerQueue({name})` crea su **propia** instancia `Queue` (productor) — el
+`defaultJobOptions` declarado en `queue.module.ts` nunca llegaba a un productor que vive en
+otro módulo. Esto significa que el retry de `QUEUE_NOTIFICATIONS` para
+`SEND_VERIFICATION_EMAIL`/`SEND_RESET_EMAIL` (`AuthService`, registrado en `AuthModule`)
+**nunca estuvo realmente activo**, pese a que `queue.module.ts` lo declaraba — un bug
+preexistente a B3, descubierto al escribir el test "retry de `QUEUE_NOTIFICATIONS` presente"
+para `AlertMatchingService`. Fix: `RETRY_JOB_OPTIONS` centralizado en `queue.constants.ts` y
+repetido explícitamente en cada `registerQueue()` real (`AuthModule`, `AlertsModule`,
+`queue.module.ts`). **Deuda igual sin tocar**: `QUEUE_INDEXING` tiene el mismo patrón de
+re-registro "desnudo" (sin `defaultJobOptions`) en `ListingsModule`, `ModerationModule`,
+`AdminModule`, `CouponsModule`, `ExpirationModule` y `ListingActivationModule` — probablemente
+el mismo bug, fuera del alcance de B3 (no se tocó ninguno de esos módulos); pendiente de
+verificar y corregir en una ráfaga aparte.
+
+**Verificado (19 tests e2e nuevos en `alert-matching.e2e-spec.ts` + suite completa)**: Fase 1
+(categoría null/coincide/distinta, precio fuera de rango), Fase 2 (atributo y geo confirmados
+o descartados exactamente por Meili, no por SQL), dedup (reintento del job no duplica),
+`renew()` notifica solo a alertas nuevas sin re-notificar las ya vistas, `reserve`/`markAsSold`
+nunca disparan matching, moderación (`PENDING_REVIEW` no dispara, `approveListing` sí), flujo
+completo real por HTTP (crear alerta → publicar → notificación in-app + email encolado, sin
+llamar a `matchListing()` directamente — prueba la cadena async real, no solo la lógica).
+Migración indolora: **44 suites e2e / 675 tests backend**, 53 tests frontend, Playwright
+crítico (login → publicar → buscar → contactar) en verde.
 
 ---
 
