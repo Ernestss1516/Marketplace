@@ -1,43 +1,29 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { AlertCircle, Eye, EyeOff, Loader2, Upload } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { AlertCircle, Loader2, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { uploadMedia } from '@/lib/api/media';
-import { getFooterGroups } from '@/lib/api/blog-admin';
 import { ApiError } from '@/lib/api/client';
-import { MarkdownBody } from '@/components/blog/MarkdownBody';
-import MarkdownEditorClient from './MarkdownEditorClient';
 
 export interface PostFormValues {
   title: string;
   slug: string;
   excerpt: string;
-  body: string;
   tags: string;
   coverUrl: string;
   metaTitle: string;
   metaDescription: string;
-  // Solo páginas (showFooterControls) — footerOrder como string de input, se
-  // parsea a number|undefined al enviar (mismo patrón que tags: string → string[]).
-  showInFooter: boolean;
-  footerOrder: string;
-  // Columna del footer agrupado — texto libre, sugerido vía <datalist>.
-  footerGroup: string;
 }
 
 export const EMPTY_POST_FORM: PostFormValues = {
   title: '',
   slug: '',
   excerpt: '',
-  body: '',
   tags: '',
   coverUrl: '',
   metaTitle: '',
   metaDescription: '',
-  showInFooter: false,
-  footerOrder: '',
-  footerGroup: '',
 };
 
 interface PostFormProps {
@@ -51,8 +37,6 @@ interface PostFormProps {
   showSlugHint?: boolean;
   // Las páginas informativas (type=PAGE) no tienen tags — /admin/paginas pasa false.
   showTagsField?: boolean;
-  // Checkbox "Mostrar en el footer" + orden — solo para páginas (type=PAGE).
-  showFooterControls?: boolean;
 }
 
 export function PostForm({
@@ -65,23 +49,10 @@ export function PostForm({
   token,
   showSlugHint = false,
   showTagsField = true,
-  showFooterControls = false,
 }: PostFormProps) {
-  const [showPreview, setShowPreview] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [footerGroups, setFooterGroups] = useState<string[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
-
-  // Sugerencias del datalist — fresco (sin caché), solo cuando el bloque de
-  // footer es relevante. Falla en silencio: el input sigue funcionando sin
-  // sugerencias si el fetch falla.
-  useEffect(() => {
-    if (!showFooterControls) return;
-    getFooterGroups(token)
-      .then(setFooterGroups)
-      .catch(() => {});
-  }, [showFooterControls, token]);
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -151,44 +122,14 @@ export function PostForm({
         />
       </div>
 
-      {/* Body + Preview toggle */}
-      <div className="flex flex-col gap-1">
-        <div className="flex items-center justify-between">
-          <label className={labelCls}>Cuerpo (Markdown GFM)</label>
-          <button
-            type="button"
-            onClick={() => setShowPreview((v) => !v)}
-            className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
-          >
-            {showPreview ? (
-              <>
-                <EyeOff className="h-3 w-3" /> Ocultar preview
-              </>
-            ) : (
-              <>
-                <Eye className="h-3 w-3" /> Ver preview
-              </>
-            )}
-          </button>
-        </div>
-        <MarkdownEditorClient
-          value={values.body}
-          onChange={(body) => onChange({ body })}
-          token={token}
-          disabled={isSubmitting}
-        />
-        {showPreview && (
-          <div className="rounded-md border bg-muted/20 p-4">
-            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Preview
-            </p>
-            {values.body ? (
-              <MarkdownBody body={values.body} className="prose prose-neutral max-w-none text-sm dark:prose-invert" />
-            ) : (
-              <p className="text-sm italic text-muted-foreground">Sin contenido aún.</p>
-            )}
-          </div>
-        )}
+      {/* Cuerpo — sistema de bloques (Ráfaga 1: modelo + validación + renderizadores,
+          sin editor todavía). El editor visual de bloques llega en la Ráfaga 2;
+          hasta entonces, el contenido de un post/página se gestiona directo en BD
+          o se conserva tal cual al editar solo metadatos aquí. */}
+      <div className="rounded-md border border-dashed bg-muted/20 p-4 text-sm text-muted-foreground">
+        El editor de contenido por bloques llega en la próxima ráfaga. De momento
+        este formulario solo edita metadatos (título, resumen, portada, etiquetas,
+        SEO) — el contenido existente del post no se toca al guardar.
       </div>
 
       {/* Tags — no aplica a páginas informativas */}
@@ -203,56 +144,6 @@ export function PostForm({
             disabled={isSubmitting}
             placeholder="consejos, segunda-mano, electrónica"
           />
-        </div>
-      )}
-
-      {/* Footer — solo páginas informativas. Fuente única: la BD (footer
-          cacheado, ver Footer.tsx); marcar/desmarcar aquí revalida ese cache. */}
-      {showFooterControls && (
-        <div className="flex flex-col gap-2">
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={values.showInFooter}
-              onChange={(e) => onChange({ showInFooter: e.target.checked })}
-              disabled={isSubmitting}
-            />
-            Mostrar en el footer
-          </label>
-          {values.showInFooter && (
-            <>
-              <div className="flex flex-col gap-1">
-                <label htmlFor="footerOrder" className={labelCls}>Orden en el footer</label>
-                <input
-                  id="footerOrder"
-                  type="number"
-                  value={values.footerOrder}
-                  onChange={(e) => onChange({ footerOrder: e.target.value })}
-                  className={`${inputCls} max-w-[8rem]`}
-                  disabled={isSubmitting}
-                  placeholder="0"
-                />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label htmlFor="footerGroup" className={labelCls}>Grupo/columna del footer</label>
-                <input
-                  id="footerGroup"
-                  type="text"
-                  list="footer-group-suggestions"
-                  value={values.footerGroup}
-                  onChange={(e) => onChange({ footerGroup: e.target.value })}
-                  className={`${inputCls} max-w-xs`}
-                  disabled={isSubmitting}
-                  placeholder="p.ej. Legal (vacío = columna sin título)"
-                />
-                <datalist id="footer-group-suggestions">
-                  {footerGroups.map((g) => (
-                    <option key={g} value={g} />
-                  ))}
-                </datalist>
-              </div>
-            </>
-          )}
         </div>
       )}
 

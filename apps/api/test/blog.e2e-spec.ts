@@ -55,7 +55,7 @@ describe('Blog (e2e)', () => {
       data: {
         title: 'Borrador Secreto',
         slug: 'borrador-secreto-fixture',
-        body: 'Contenido borrador que no debe ser público',
+        blocks: [{ id: 'b1', type: 'text', markdown: 'Contenido borrador que no debe ser público' }],
         status: 'DRAFT',
         authorId: admin.id,
       },
@@ -69,7 +69,7 @@ describe('Blog (e2e)', () => {
         title: 'Artículo Publicado Fixture',
         slug: 'articulo-publicado-fixture',
         excerpt: 'Resumen del artículo publicado',
-        body: '# Hola\n\nEste es el cuerpo del artículo.',
+        blocks: [{ id: 'b1', type: 'text', markdown: '# Hola\n\nEste es el cuerpo del artículo.' }],
         status: 'PUBLISHED',
         tags: ['test-tag', 'segunda-mano'],
         publishedAt: new Date(),
@@ -193,16 +193,16 @@ describe('Blog (e2e)', () => {
     expect(res.body.perPage).toBe(1);
   });
 
-  it('GET /api/blog/:slug → respuesta incluye body (Markdown) y author.name', async () => {
+  it('GET /api/blog/:slug → respuesta incluye blocks y author.name', async () => {
     const res = await request(app.getHttpServer())
       .get(`/api/blog/${sharedPublishedSlug}`)
       .expect(200);
 
-    expect(typeof res.body.body).toBe('string');
-    expect(res.body.body.length).toBeGreaterThan(0);
+    expect(Array.isArray(res.body.blocks)).toBe(true);
+    expect(res.body.blocks.length).toBeGreaterThan(0);
     expect(res.body.author).toBeDefined();
     expect(typeof res.body.author.name).toBe('string');
-    // body must NOT be present in the list response (only in detail)
+    // blocks must NOT be present in the list response (only in detail)
     // — verified separately via the list test above
   });
 
@@ -285,7 +285,7 @@ describe('Blog (e2e)', () => {
     });
   });
 
-  it('GET /api/admin/blog/:id → detalle completo con body y author', async () => {
+  it('GET /api/admin/blog/:id → detalle completo con blocks y author', async () => {
     const res = await request(app.getHttpServer())
       .get(`/api/admin/blog/${crudPostId}`)
       .set('Authorization', `Bearer ${adminToken}`)
@@ -295,7 +295,7 @@ describe('Blog (e2e)', () => {
     expect(res.body.slug).toBe(crudPostSlug);
     expect(res.body.author).toBeDefined();
     expect(res.body.author.id).toBe(adminId);
-    expect(typeof res.body.body).toBe('string');
+    expect(Array.isArray(res.body.blocks)).toBe(true);
   });
 
   it('PATCH /api/admin/blog/:id → edita título + AuditLog POST_UPDATE con before/after', async () => {

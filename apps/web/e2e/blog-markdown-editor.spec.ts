@@ -7,10 +7,18 @@
 // la página pública del post.
 //
 // Prerequisites: global-setup seeds admin-e2e@example.com (ADMIN).
+//
+// SKIP (Sistema de bloques, Ráfaga 1): PostForm ya no monta este editor —
+// Post.body fue sustituido por Post.blocks (ver blog.service.ts) y el campo
+// de cuerpo se ocultó del formulario hasta que exista el editor de bloques
+// (Ráfaga 2). El componente MarkdownEditor.tsx NO se tocó ni se eliminó — la
+// Ráfaga 2 lo reconecta tal cual como el editor del bloque `text` (mismo
+// hallazgo de seguridad sobre el preview de @uiw/react-md-editor sigue
+// aplicando entonces). Reactivar este spec en cuanto ese editor exista.
 
 import { test, expect } from './fixtures/auth';
 
-test.describe('Editor de markdown en /admin/blog/nuevo', () => {
+test.describe.skip('Editor de markdown en /admin/blog/nuevo', () => {
   test('ADMIN escribe un post con formato variado, lo guarda y lo publica; el público lo renderiza igual', async ({
     adminContext,
   }) => {

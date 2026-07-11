@@ -1,4 +1,5 @@
 import { apiFetch } from './client';
+import type { Block } from '@/types/blocks';
 
 export type PostType = 'POST' | 'PAGE';
 
@@ -11,15 +12,12 @@ export interface AdminPostSummary {
   publishedAt: string | null;
   updatedAt: string;
   tags: string[];
-  showInFooter: boolean;
-  footerOrder: number | null;
-  footerGroup: string | null;
   author: { name: string; email: string };
 }
 
 export interface AdminPost extends AdminPostSummary {
   excerpt: string | null;
-  body: string;
+  blocks: Block[];
   coverUrl: string | null;
   metaTitle: string | null;
   metaDescription: string | null;
@@ -41,15 +39,11 @@ export interface CreatePostPayload {
   title: string;
   slug?: string;
   excerpt?: string;
-  body?: string;
+  blocks?: Block[];
   coverUrl?: string;
   tags?: string[];
   metaTitle?: string;
   metaDescription?: string;
-  // Solo válidos si type resuelve a PAGE — el backend rechaza (400) en otro caso.
-  showInFooter?: boolean;
-  footerOrder?: number;
-  footerGroup?: string;
 }
 
 export type UpdatePostPayload = Partial<Omit<CreatePostPayload, 'type'>>;
@@ -101,10 +95,4 @@ export function unpublishAdminPost(token: string, id: string): Promise<AdminPost
 
 export function deleteAdminPost(token: string, id: string): Promise<void> {
   return apiFetch<void>(`/admin/blog/${id}`, { method: 'DELETE', token });
-}
-
-// Sugerencias para el <datalist> de footerGroup en PostForm — fresco, sin
-// caché (un grupo recién creado debe sugerirse de inmediato).
-export function getFooterGroups(token: string): Promise<string[]> {
-  return apiFetch<string[]>('/admin/blog/footer-groups', { token });
 }

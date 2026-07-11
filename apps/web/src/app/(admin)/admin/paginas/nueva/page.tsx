@@ -27,13 +27,9 @@ export default function NuevaPaginaPage() {
         title: values.title,
         slug: values.slug || undefined,
         excerpt: values.excerpt || undefined,
-        body: values.body || undefined,
         coverUrl: values.coverUrl || undefined,
         metaTitle: values.metaTitle || undefined,
         metaDescription: values.metaDescription || undefined,
-        showInFooter: values.showInFooter,
-        footerOrder: values.footerOrder ? Number(values.footerOrder) : undefined,
-        footerGroup: values.footerGroup || undefined,
       });
       router.push(`/admin/paginas/${page.id}/editar`);
     } catch (err) {
@@ -74,7 +70,6 @@ export default function NuevaPaginaPage() {
           token={token}
           showSlugHint
           showTagsField={false}
-          showFooterControls
         />
       </div>
     </div>

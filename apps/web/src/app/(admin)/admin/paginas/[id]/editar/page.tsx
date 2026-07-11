@@ -33,14 +33,10 @@ function toFormValues(post: AdminPost): PostFormValues {
     title: post.title,
     slug: post.slug,
     excerpt: post.excerpt ?? '',
-    body: post.body,
     tags: '',
     coverUrl: post.coverUrl ?? '',
     metaTitle: post.metaTitle ?? '',
     metaDescription: post.metaDescription ?? '',
-    showInFooter: post.showInFooter,
-    footerOrder: post.footerOrder != null ? String(post.footerOrder) : '',
-    footerGroup: post.footerGroup ?? '',
   };
 }
 
@@ -56,14 +52,10 @@ export default function EditarPaginaPage() {
     title: '',
     slug: '',
     excerpt: '',
-    body: '',
     tags: '',
     coverUrl: '',
     metaTitle: '',
     metaDescription: '',
-    showInFooter: false,
-    footerOrder: '',
-    footerGroup: '',
   });
 
   const [saving, setSaving] = useState(false);
@@ -101,13 +93,9 @@ export default function EditarPaginaPage() {
         title: values.title,
         slug: values.slug || undefined,
         excerpt: values.excerpt || undefined,
-        body: values.body || undefined,
         coverUrl: values.coverUrl || undefined,
         metaTitle: values.metaTitle || undefined,
         metaDescription: values.metaDescription || undefined,
-        showInFooter: values.showInFooter,
-        footerOrder: values.footerOrder ? Number(values.footerOrder) : undefined,
-        footerGroup: values.footerGroup || undefined,
       });
       setPost(updated);
       setValues(toFormValues(updated));
@@ -256,6 +244,14 @@ export default function EditarPaginaPage() {
         </div>
       )}
 
+      <div className="mb-4 rounded-md border bg-muted/20 p-3 text-sm text-muted-foreground">
+        Para mostrar esta página en el footer, añade un enlace hacia ella desde{' '}
+        <Link href="/admin/footer" className="underline hover:text-foreground">
+          Footer
+        </Link>
+        .
+      </div>
+
       <div className="max-w-3xl">
         <PostForm
           values={values}
@@ -266,7 +262,6 @@ export default function EditarPaginaPage() {
           submitError={saveError}
           token={token}
           showTagsField={false}
-          showFooterControls
         />
       </div>
     </div>

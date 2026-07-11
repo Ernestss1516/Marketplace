@@ -6,7 +6,7 @@ import { getPost } from '@/lib/api/blog';
 import { ApiError } from '@/lib/api/client';
 import { SITE_NAME, SITE_URL } from '@/config';
 import { isSafeSrc } from '@/lib/image-domains';
-import { MarkdownBody } from '@/components/blog/MarkdownBody';
+import { BlockRenderer } from '@/components/blocks/BlockRenderer';
 
 export const revalidate = 3600;
 
@@ -130,10 +130,10 @@ export default async function BlogPostPage({
             </div>
           )}
 
-          {/* Body: Markdown rendered server-side via el mismo <MarkdownBody>
-              que usan /paginas/[slug] y el preview de PostForm — ver el
-              comentario de seguridad en ese componente. */}
-          <MarkdownBody body={post.body} />
+          {/* Bloques: mismo <BlockRenderer> que usa /paginas/[slug] — el
+              bloque `text` reutiliza la tubería Markdown ya auditada (ver
+              comentario de seguridad en MarkdownBody). */}
+          <BlockRenderer blocks={post.blocks} />
         </article>
 
         {/* Back link */}

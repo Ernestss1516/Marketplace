@@ -33,7 +33,6 @@ export default function NuevoBlogPage() {
         title: values.title,
         slug: values.slug || undefined,
         excerpt: values.excerpt || undefined,
-        body: values.body || undefined,
         coverUrl: values.coverUrl || undefined,
         tags: parseTags(values.tags),
         metaTitle: values.metaTitle || undefined,

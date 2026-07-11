@@ -664,7 +664,7 @@ describe('Moderation (e2e)', () => {
       .send({
         title: 'Post RR5.1-ext Role Boundary',
         slug: 'post-rr51-role-boundary',
-        body: 'Contenido de prueba para verificar acceso del moderador al blog.',
+        blocks: [{ id: 'b1', type: 'text', markdown: 'Contenido de prueba para verificar acceso del moderador al blog.' }],
       })
       .expect(201);
     roleBoundaryBlogPostId = res.body.id as string;

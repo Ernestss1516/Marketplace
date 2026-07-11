@@ -40,17 +40,10 @@ function toFormValues(post: AdminPost): PostFormValues {
     title: post.title,
     slug: post.slug,
     excerpt: post.excerpt ?? '',
-    body: post.body,
     tags: post.tags.join(', '),
     coverUrl: post.coverUrl ?? '',
     metaTitle: post.metaTitle ?? '',
     metaDescription: post.metaDescription ?? '',
-    // Posts nunca muestran los controles de footer (showFooterControls no se
-    // pasa desde esta página) — estos valores no se usan, solo satisfacen el
-    // tipo compartido con las páginas informativas.
-    showInFooter: false,
-    footerOrder: '',
-    footerGroup: '',
   };
 }
 
@@ -66,14 +59,10 @@ export default function EditarBlogPage() {
     title: '',
     slug: '',
     excerpt: '',
-    body: '',
     tags: '',
     coverUrl: '',
     metaTitle: '',
     metaDescription: '',
-    showInFooter: false,
-    footerOrder: '',
-    footerGroup: '',
   });
 
   const [saving, setSaving] = useState(false);
@@ -111,7 +100,6 @@ export default function EditarBlogPage() {
         title: values.title,
         slug: values.slug || undefined,
         excerpt: values.excerpt || undefined,
-        body: values.body || undefined,
         coverUrl: values.coverUrl || undefined,
         tags: parseTags(values.tags),
         metaTitle: values.metaTitle || undefined,

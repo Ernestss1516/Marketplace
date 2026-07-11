@@ -1,3 +1,5 @@
+import type { Block } from './blocks';
+
 // Enums — mirror the Prisma schema
 export type PriceType = 'FIXED' | 'FREE' | 'NEGOTIABLE';
 
@@ -352,7 +354,7 @@ export interface PostSummary {
 }
 
 export interface Post extends PostSummary {
-  body: string;
+  blocks: Block[];
   metaTitle: string | null;
   metaDescription: string | null;
 }

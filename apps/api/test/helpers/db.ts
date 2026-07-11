@@ -4,13 +4,16 @@ import { MeiliSearch } from 'meilisearch';
 /**
  * Truncates all user-generated data tables in dependency order.
  * TRUNCATE "User" CASCADE removes all FK-dependent rows (Listing, Conversation,
- * Message, Favorite, Review, Report, ListingImage, tokens, Post, AuditLog, …).
+ * Message, Favorite, Review, Report, ListingImage, tokens, Post, AuditLog, …),
+ * which in turn cascades to FooterItem (FooterItem.page → Post). FooterColumn
+ * is included explicitly in the same statement — it has no FK to User/Post, so
+ * it would otherwise survive cleanup and leak columns/order between suites.
  * Category and Setting are intentionally excluded — they are static system data
  * seeded once in globalSetup and must not be touched by individual suite cleanup,
  * since multiple Jest workers run suites in parallel and share the same DB.
  */
 export async function cleanDb(prisma: PrismaClient): Promise<void> {
-  await prisma.$executeRaw`TRUNCATE "User" CASCADE`;
+  await prisma.$executeRaw`TRUNCATE "User", "FooterColumn" CASCADE`;
 }
 
 /**

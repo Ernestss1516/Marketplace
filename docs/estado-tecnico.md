@@ -35,7 +35,8 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **AuditLog** | ✅ Completo | `AuditLogService.log()` inyectable; captura explícita `before`/`after` dentro del método de service que muta el recurso, antes de llamar a Prisma; nunca vía interceptor (ver §2). **RF.12b**: `log(dto, tx?)` admite segundo parámetro `tx: Prisma.TransactionClient` opcional; si se pasa, el `prisma.auditLog.create` corre dentro de la transacción del llamador; backward-compat con todos los callers existentes (Fase 7) |
 | **Moderation** | ✅ Completo | Reportes CRUD + cola (GET con filtros status/reason/page); acciones sobre listings (approve, reject, deactivate, restore); `BadWordService` con fallback silencioso al publicar; AuditLog en todas las mutaciones; roles MODERATOR + ADMIN |
 | **Admin** | ✅ Completo (RC5.2) | Listings (list, detail, PATCH status); Users (list, detail, suspend, ban, reinstate, role); Categories CRUD + batch reorder; Settings GET + PATCH con whitelist; `GET /admin/stats` con 7 métricas + Meilisearch null-fallback; todos los endpoints con `@Roles(ADMIN)` y AuditLog. **RF.7**: whitelist de settings ampliada con `freeActiveListingLimit` y `proActiveListingLimit`; ambos configurables desde el backoffice sin redeploy. **RC5.2**: `createCategory` y `updateCategory` validan que el schema efectivo (propio + heredado del padre) tenga ≤ 2 atributos con `cardAttribute: true` (→ 400 si supera). `GET /admin/categories/searchable-keys` (ADMIN-only) → `{ keys }` para que RC5.3 pueda deshabilitar el checkbox `filterable` en atributos no listados; **RÁFAGA 0**: `keys` ahora viene de `FilterableAttributesResolver.getAttributeTypes()` (dinámico) en vez de la constante `VARIABLE_ATTRIBUTE_KEYS` (eliminada) — mismo contrato de respuesta, tooltip del editor actualizado en consecuencia. **Cierre Fase 5.2 (ráfaga de integridad)**: `deleteCategory` cuenta anuncios de **cualquier** `status` (antes solo `ACTIVE`), eliminando un 500 no controlado — ver «Mapa de integridad» más abajo; `GET /admin/categories/:id/attribute-usage?key=X` (ADMIN-only) cuenta anuncios con datos bajo una key concreta, usado por el editor para avisar antes de renombrar un atributo con datos. |
-| **Blog** | ✅ Completo | Modelo `Post` (enum `PostStatus { DRAFT, PUBLISHED }`, body Markdown raw, `tags String[]`, `coverUrl`, campos SEO opcionales `metaTitle`/`metaDescription`). `BlogController`: `GET /blog` (solo PUBLISHED, paginado, filtro `?tag=`) y `GET /blog/:slug` (404 si no existe o es DRAFT). `BlogAdminController` (`@Roles(ADMIN)`): CRUD completo + `POST /admin/blog/:id/publish` + `POST /admin/blog/:id/unpublish`. AuditLog en todas las mutaciones (`POST_CREATE`, `POST_UPDATE`, `POST_PUBLISH`, `POST_UNPUBLISH`, `POST_DELETE`). Revalidación ISR on-demand fire-and-forget al publicar/despublicar/editar/borrar posts publicados (el blog es el **primer productor del webhook** desde el backend; el webhook en sí existía desde Fase 5). `BlogModule` importa `PrismaModule` + `AuditLogModule`; autónomo, no modifica `AdminModule` |
+| **Blog** | ✅ Completo (Ráfaga 1 bloques) | Modelo `Post` (enum `PostStatus { DRAFT, PUBLISHED }`, `tags String[]`, `coverUrl`, campos SEO opcionales `metaTitle`/`metaDescription`; también cubre páginas informativas vía `type: PostType`). **Contenido en `blocks: Json` (sistema de bloques, 9 tipos discriminados por `type`), YA NO `body: String` Markdown** — ver «Sistema de bloques — Ráfaga 1» en §3 para el detalle completo (esquema, validación, renderizadores; el editor visual llega en la Ráfaga 2, `PostForm` queda con los metadatos editables y una nota). `BlogController`: `GET /blog` (solo PUBLISHED, paginado, filtro `?tag=`) y `GET /blog/:slug` (404 si no existe o es DRAFT). `BlogAdminController` (`@Roles(ADMIN)`): CRUD completo + `POST /admin/blog/:id/publish` + `POST /admin/blog/:id/unpublish`. AuditLog en todas las mutaciones (`POST_CREATE`, `POST_UPDATE`, `POST_PUBLISH`, `POST_UNPUBLISH`, `POST_DELETE`). Revalidación ISR on-demand fire-and-forget al publicar/despublicar/editar/borrar posts publicados vía `RevalidateService` compartido (ver **Footer** más abajo — extraído de aquí). `BlogModule` importa `PrismaModule` + `AuditLogModule` + `RevalidateModule`; autónomo, no modifica `AdminModule`. **Ya NO gestiona la navegación del footer** (`showInFooter`/`footerOrder`/`footerGroup` retirados de `Post` — ver módulo **Footer**) |
+| **Footer** | ✅ Completo | Navegación del footer como entidad propia (`FooterColumn`+`FooterItem`), independiente de `Post` — sustituye a `Post.showInFooter/footerOrder/footerGroup`. `type: FooterItemType (PAGE\|INTERNAL\|EXTERNAL)` con destino discriminado validado en `FooterService` (no en el DTO ni con un CHECK de schema); `pageId` FK a `Post` con `onDelete: Restrict` + precheck en `BlogService.adminDelete` (molde `deleteCategory`). `GET /footer` público (resuelto: `href`/`external`, páginas DRAFT omitidas). `GET|POST|PATCH|DELETE /admin/footer/{columns,items}` + `.../reorder` (molde `categories/reorder`), `@Roles(ADMIN)`. Ver «Navegación del footer como entidad propia» en §3 para el detalle completo (migración en dos pasos, `RevalidateService` compartido, molde de UI) |
 | **Favorites** | ✅ Completo | `POST /favorites/:listingId` (marcar), `DELETE /favorites/:listingId` (desmarcar), `GET /favorites` (paginado), `GET /favorites/:listingId` (check), `POST /favorites/batch-check` (máx. 100 ids → `{ favoritedIds }`). Todos idempotentes y con `JwtAuthGuard`. Suite `favorites.e2e-spec.ts` (12 tests) |
 | **Reviews** | ✅ Completo (H7) | `POST /reviews` (crear; guard de elegibilidad vía `Conversation`; snapshot de `listingTitle`), `GET /reviews/eligibility?listingId=&targetId=` (check antes de mostrar el formulario), `PATCH /reviews/:id` (editar en ventana 72 h; persiste `editedAt`), `DELETE /reviews/:id` (borrar en ventana 72 h). Listado público via `GET /users/:slug/reviews` (cursor paginado + aggregate on-the-fly: average, count, distribución 1–5). Unicidad `(authorId, targetId, listingId)` — una reseña por par de usuarios por anuncio. `FAKE_REVIEW` añadido a `ReportReason`; `Report.reviewId` FK con CASCADE para moderar reseñas. **H7**: `Review.listingId` es `onDelete: SetNull` (nullable) — la reseña sobrevive al borrado del anuncio con snapshot `listingTitle`; ver «H7 — La reseña sobrevive al borrado del anuncio» más abajo. Suite `reviews.e2e-spec.ts` (24 tests) |
 | **BillingModule (Stripe)** | ✅ RF.3 Completo | Checkout Pro (Stripe Checkout), `StripeWebhookGuard`, `BillingProcessor` (5 eventos), `EntitlementService`. Verificado con Stripe CLI. Pendiente: renovación (segunda factura) |
@@ -154,6 +155,8 @@ enlaces ancla — funcionan en GitHub y en la vista previa de Markdown de VS Cod
 - [Páginas informativas (BLOG-PAGINAS) — cierra el bloque de blog](#páginas-informativas-blog-paginas-cierra-el-bloque-de-blog)
 - [Footer semi-dinámico + slug inmutable para páginas (BLOG-FOOTER-DINAMICO)](#footer-semi-dinámico-slug-inmutable-para-páginas-blog-footer-dinamico)
 - [Footer estructurado en columnas por grupos (BLOG-FOOTER-COLUMNAS)](#footer-estructurado-en-columnas-por-grupos-blog-footer-columnas)
+- [Navegación del footer como entidad propia (FooterColumn/FooterItem) — retira BLOG-FOOTER-DINAMICO/COLUMNAS](#navegación-del-footer-como-entidad-propia-footercolumnfooteritem-retira-blog-footer-dinamicocolumnas)
+- [Sistema de bloques — Ráfaga 1: modelo + validación + los 9 renderizadores (SIN editor)](#sistema-de-bloques-ráfaga-1-modelo-validación-los-9-renderizadores-sin-editor)
 - [CI: `footer-paginas.spec.ts` fallaba consistentemente — causa raíz real (`APP_URL` equivocado, no el secret)](#ci-footer-paginasspects-fallaba-consistentemente-causa-raíz-real-appurl-equivocado-no-el-secret)
 - [Protección anti-degradación de ADMIN en cambio de rol (Fase 7)](#protección-anti-degradación-de-admin-en-cambio-de-rol-fase-7)
 - [Límites de anuncios activos por plan y configuración en caliente (RF.7-A)](#límites-de-anuncios-activos-por-plan-y-configuración-en-caliente-rf7-a)
@@ -1913,6 +1916,282 @@ Verificado manualmente contra servidores de desarrollo reales: páginas creadas
 en distintos grupos aparecen en columnas separadas y ordenadas correctamente,
 una página sin grupo aparece en una columna sin título, y el datalist sugiere
 los grupos ya existentes de inmediato.
+
+### Navegación del footer como entidad propia (FooterColumn/FooterItem) — retira BLOG-FOOTER-DINAMICO/COLUMNAS
+
+**Mini-hito posterior** que sustituye por completo los dos bloques anteriores
+(BLOG-FOOTER-DINAMICO, BLOG-FOOTER-COLUMNAS): el footer dejó de derivarse de
+`Post.showInFooter`/`footerOrder`/`footerGroup` — esa asunción ("todo ítem del
+footer ES una página") se rompía en cuanto se quería enlazar una ruta interna
+(`/busqueda`) o una URL externa. El footer es ahora una **estructura propia**,
+independiente del contenido.
+
+**Modelo:** `FooterColumn` (`id`, `name String?` — null = sin encabezado,
+`order`) y `FooterItem` (`id`, `columnId` FK `onDelete: Cascade`, `label`
+—independiente de `Post.title`, editable sin tocar la página—, `order`, `type:
+FooterItemType` enum `PAGE|INTERNAL|EXTERNAL`, `pageId String?` FK a `Post`
+`onDelete: Restrict`, `url String?`). Destino discriminado por `type`,
+validado en `FooterService.assertItemDestination` (**en el servicio, no con
+un CHECK de schema** — mismo estilo que el retirado
+`Post.assertFooterFieldsAllowed`): `PAGE` → `pageId` obligatorio + `url`
+ausente + el `Post` referenciado debe ser `type=PAGE` (nunca un `POST` de
+blog); `INTERNAL` → `url` obligatorio empezando por `/` + `pageId` ausente
+(**sin registro de rutas reales** — una ruta inexistente solo se descubre en
+runtime como 404, aceptado conscientemente); `EXTERNAL` → `url` obligatorio
+como URL absoluta (`new URL(value).protocol` ∈ `http:`/`https:`) + `pageId`
+ausente.
+
+**Qué pasa si la página enlazada se borra o se despublica (decidido, no un
+empate):** borrar la página → `BlogService.adminDelete` precomprueba
+`prisma.footerItem.count({where:{pageId}})` **antes** del `delete` (molde
+`AdminService.deleteCategory`) y devuelve 400 con el conteo exacto
+("enlazada desde N sitio(s) del footer") en vez de dejar que la constraint
+física `onDelete: Restrict` reviente con un 500 sin controlar. Despublicar
+(`status → DRAFT`) → el `FooterItem` **sigue existiendo**, pero
+`FooterService.listPublicNav()` hace `include: {page}` y filtra
+`item.type !== PAGE || item.page.status === PUBLISHED` — el ítem desaparece
+del footer público sin borrarse (mismo comportamiento implícito que el
+sistema anterior, no una regresión). `GET /admin/footer` devuelve el `status`
+de la página enlazada para que la UI pinte un badge "en borrador — no se
+muestra" — el admin sabe por qué el ítem no aparece, en vez de tener que
+adivinarlo.
+
+**Migración de las 7 páginas existentes (dos migraciones, no una — orden
+importa):** migración 1 (`20260711081900_add_footer_nav`) solo AÑADE
+`FooterColumn`/`FooterItem`/`FooterItemType`, sin tocar `Post` — las columnas
+legacy (`showInFooter`/`footerOrder`/`footerGroup`) siguen vivas. Script
+`pnpm footer-backfill` (molde `reindex.ts`/`geocode-backfill.ts`, comando
+standalone con `NestFactory.createApplicationContext`) lee esas columnas
+legacy vía `$queryRaw` (no el `PrismaClient` tipado — para que el build no
+falle una vez el modelo ya no las declara), agrupa por `footerGroup` (una
+`FooterColumn` por grupo distinto, orden = `footerOrder` mínimo del grupo,
+desempate alfabético — mismo cálculo que el retirado
+`listFooterPages()`) y crea un `FooterItem type=PAGE` por página
+(`label = title`, `order = footerOrder`); idempotente (aborta si ya existe
+alguna `FooterColumn`, para no duplicar en una segunda ejecución accidental).
+Solo **después** de correr el backfill, migración 2
+(`20260711082727_drop_post_footer_fields`) retira las 3 columnas de `Post` —
+generada con `prisma migrate diff` + `migrate resolve`/`deploy` en vez de
+`migrate dev` porque el entorno no-interactivo de este agente no puede
+confirmar el prompt de pérdida de datos que Prisma exige ante un `DROP
+COLUMN` con filas no-nulas. Backfill verificado contra la BD dev: 7 páginas →
+4 columnas (`Aux`, `Medio`, `Legal`, `Aux1`) con el mismo orden que producía
+`listFooterPages()`.
+
+**API (nuevo módulo `modules/footer/`, fuera de `blog`):** `GET /footer`
+(público, ya resuelto: `{name, items: [{label, href, external}]}` — `PAGE` →
+`/paginas/{slug}`, `INTERNAL`/`EXTERNAL` → `url` tal cual). `GET
+/admin/footer` (estructura completa + `page.status` en ítems `PAGE`). CRUD +
+reorder de columnas e ítems bajo `/admin/footer/columns` y
+`/admin/footer/items` (rutas estáticas `.../reorder` declaradas ANTES de
+`.../:id` — mismo gotcha ya documentado para `categories/reorder` y el
+retirado `paginas/footer`), `@Roles(ADMIN)` en todo el controller. Reorder:
+mismo molde que `AdminService.reorderCategories` — el frontend calcula el
+swap de 2 elementos con las flechas ↑↓ y envía la lista `{id,order}[]`
+completa en una `$transaction`, sin lógica de swap en el backend. "Mover de
+columna" = `PATCH items/:id {columnId}` (no hay drag&drop ni endpoint
+aparte); tocar `type`/`pageId`/`url` exige mandar la combinación **completa**
+del nuevo destino en el mismo payload (no se mezcla con lo ya guardado en
+BD) — el formulario de edición del admin siempre envía el destino entero de
+una vez, así que esto nunca es una limitación real.
+
+**Revalidación — extraída a un servicio compartido:** el fetch
+fire-and-forget hacia `/api/revalidate` (con su logging de observabilidad,
+ya instrumentado desde Hito 9 — ver más abajo) vivía como método privado de
+`BlogService`. Se extrajo a `RevalidateService`
+(`common/revalidate/`, `revalidatePath`/`revalidateTag`, mismo
+`AbortSignal.timeout(3000)` y mismo `logger.warn` en `!res.ok` y en fallo de
+red) para que tanto `FooterService` como `BlogService` lo inyecten — "reutilizar
+`callRevalidateEndpoint`" (instrucción explícita del mini-hito) significaba
+literalmente eso, no una segunda copia-pega del mismo fetch. Tag renombrado
+`footer-pages` → `footer-nav`. `BlogService` ya no revalida el footer en
+`adminUpdate` (el footer no depende de ningún campo de `Post` — label/orden/
+columna viven en `FooterItem`, y el slug es inmutable mientras la PAGE está
+publicada); solo `adminPublish`/`adminUnpublish`/`adminDelete` revalidan
+`footer-nav`, porque son los únicos que pueden cambiar si un `FooterItem`
+que referencia esa página se renderiza o no.
+
+**Frontend:** `Footer.tsx` consume `getCachedFooterNav()`
+(`lib/api/footer.ts`, mismo `unstable_cache`/TTL 3600s/tag `footer-nav` que
+antes). Enlaces `EXTERNAL` → `target="_blank" rel="noopener noreferrer"`
+(seguridad); `INTERNAL`/`PAGE` → `<Link>` normal. `PostForm.tsx` pierde por
+completo `showFooterControls`/`showInFooter`/`footerOrder`/`footerGroup` — la
+navegación del footer ya no se gestiona página por página. Nueva pantalla
+`/admin/footer` (molde `admin/categorias`): columnas con flechas ↑↓
+(deshabilitadas en extremos, swap optimista), nombre renombrable de golpe
+(resuelve una carencia real del sistema anterior: antes había que editar cada
+página para cambiar el `footerGroup`), borrado con `window.confirm` avisando
+cuántos ítems se van (cascade explícito, consciente); ítems con flechas ↑↓
+scoped a su columna, badge ámbar si la página enlazada está en `DRAFT`,
+selector de destino (página del CMS —buscador sobre `Post type=PAGE`
+reutilizando `getAdminPosts`, sin endpoint nuevo— / ruta interna / URL
+externa) que prerrellena el `label` con el título de la página elegida
+(editable después).
+
+**Tests:** `footer.service.spec.ts` (unit, destino discriminado × 3 tipos +
+cruces inválidos, `updateItem` exige combinación completa al tocar el
+destino, reorder/delete-cascade); `test/footer.e2e-spec.ts` (e2e, +23 casos:
+permisos ADMIN-only, CRUD+reorder de columnas e ítems, los 3 destinos válidos
+e inválidos, `pageId` apuntando a un POST → 400, borrado de página enlazada →
+400 con conteo, despublicar → omitido del público pero visible en admin con
+badge, mover de columna, `GET /footer` resuelto con `external` correcto).
+`pages.e2e-spec.ts` perdió los ~19 casos de footer (movidos/reemplazados por
+lo anterior). `e2e/footer-admin.spec.ts` (Playwright, sustituye a
+`footer-paginas.spec.ts`, retirado): crear columna+ítem página → aparece en
+el footer público; ítems `INTERNAL`/`EXTERNAL` con `href`/`target`/`rel`
+correctos; despublicar → desaparece del público, badge en admin; reordenar
+columnas con las flechas cambia el orden público; borrar columna se lleva sus
+ítems. `test/helpers/db.ts`: `cleanDb` pasa a `TRUNCATE "User",
+"FooterColumn" CASCADE` — `FooterColumn` no cuelga de `User` por FK (solo
+`FooterItem.page → Post → User` lo hace), así que sin este cambio quedaba
+huérfana entre suites y filtraba columnas/orden de un test a otro.
+
+Verificado en vivo contra servidores de desarrollo reales (`pnpm dev` en
+ambos, backfill ya corrido): `GET /api/footer` devuelve la estructura
+migrada; `/admin/footer` renderiza las 4 columnas con sus ítems; crear una
+columna nueva con un ítem `INTERNAL` (`/busqueda`) y comprobar que aparece de
+inmediato en el `<footer>` de `/` tras la revalidación; limpieza posterior
+confirmada contra la API (`GET /api/footer` ya no la incluye).
+
+### Sistema de bloques — Ráfaga 1: modelo + validación + los 9 renderizadores (SIN editor)
+
+**Corte limpio**: `Post.body String` (Markdown raw) se sustituye por
+`Post.blocks Json @default("[]")` — un array ORDENADO (la posición en el
+array es el orden; no hay un campo `order` por bloque, a diferencia de
+`FooterItem`, porque no son filas separadas, viven todas en el Json de una
+única fila `Post`). Sin backfill: las 8 filas placeholder de dev (texto tipo
+`sdfsdfsdf`) quedaron con `blocks: []` — contenido reconocido como basura, no
+merecía ni un script de envoltura. Migración generada con el mismo workaround
+ya usado en el mini-hito de footer (`prisma migrate diff` → editar
+`migration.sql` a mano → `migrate deploy`, porque el entorno no-interactivo
+no puede confirmar el prompt de pérdida de datos que exige un `DROP COLUMN`
+con filas no-nulas).
+
+**Los 9 tipos** (unión discriminada por `type`, espejo exacto entre DTOs del
+backend — `modules/blog/dto/blocks/*.dto.ts` — y `apps/web/src/types/blocks.ts`
+en el frontend): `text{markdown}`, `faq{title?, items[{question, answer}]}`,
+`hub{title?, links[{label, href, description?}]}`, `image{url, alt, caption?,
+position?, width?}`, `cta{label, href, style?}`, `quote{text, author?}`,
+`video{provider, videoId}`, `separator{}`, `table{headers[], rows[][]}`.
+`BaseBlock{id}` — `id` generado en cliente con `generateId()`
+(`lib/utils.ts`, ya existente — `crypto.randomUUID` con fallback, mismo uso
+que en `StepFotos.tsx`), persistido tal cual, nunca regenerado por el
+backend.
+
+**Validación profunda — `class-transformer` discriminator, sin zod (no está
+en el stack; class-validator+class-transformer es exclusivo en todo el
+proyecto)**: `ValidBlocksArray()` (`dto/blocks/block.dto.ts`) empaqueta con
+`applyDecorators` (`@nestjs/common`) un `@Type(() => BaseBlockDto,
+{discriminator: {property:'type', subTypes:[...9 clases...]}})` — cada
+elemento del array se valida contra SU PROPIA clase DTO según `type`,
+reutilizado tal cual en `CreatePostDto`/`UpdatePostDto`. `ValidationPipe`
+global (`whitelist:true, forbidNonWhitelisted:true`) rechaza `type`
+desconocido y propiedades extra sin decorador.
+
+**Contraste consciente con un precedente existente que NO se siguió**:
+`Category.attributeSchema` solo valida `@IsArray()` superficialmente (cast a
+`unknown[]`) — tolerable ahí porque nunca se interpola en un atributo HTML
+real. Los bloques sí lo hacen (`image.url`, `cta.href`, `hub.links[].href`
+acaban en `href`/`src`), así que aquí la validación es profunda por campo,
+no superficial.
+
+**Validador de URL compartido** (`common/validators/safe-url.ts`) — extraído
+del footer mini-hito, ahora con dos consumidores (`FooterService` Y los DTOs
+de bloques): `isSafeContentUrl`/`@IsSafeContentUrl()` (ruta relativa `/...` O
+absoluta http/https, nunca `javascript:`/`data:`) para `cta.href` y
+`hub.links[].href`; `isOwnStorageUrl`/`@IsOwnStorageUrl()` (debe empezar por
+`process.env.S3_PUBLIC_URL`, leído directo — mismo estilo que
+`RevalidateService` con `APP_URL`) para `image.url`, restringida a nuestro
+propio storage (mismo criterio que `coverUrl` — "upload-only, no external
+URLs").
+
+**Vídeo — nunca una URL cruda ni un iframe libre**: solo se guarda
+`{provider, videoId}`. El cliente (Ráfaga 2) parseará la URL pegada por el
+admin; el backend REVALIDA el formato de `videoId` independientemente vía un
+`ValidatorConstraint` que lee el campo hermano `provider` por
+`args.object` — el ejemplo canónico de class-validator para "un campo
+depende de otro del mismo objeto" (su propio ejemplo de referencia es un
+password-confirm). Nota de diseño: se descartó apilar dos `@ValidateIf` (uno
+por provider) porque sus condiciones se combinan con AND — con `provider`
+fijo en un único valor, una de las dos siempre sería falsa y el decorador
+emparejado nunca correría (lección ya aprendida en el diseño del destino de
+`FooterItem`, donde por eso esa regla vive en el servicio en vez del DTO).
+
+**Tabla — la única regla que SÍ vive en el servicio**:
+`rows[i].length === headers.length` depende de dos campos del mismo bloque Y
+es una regla de negocio, no de forma — `BlogService.assertTableBlocksValid`,
+mismo estilo que el ya retirado `assertFooterFieldsAllowed` /
+`FooterService.assertItemDestination`. (Técnicamente también sería
+expresable como un `ValidatorConstraint` con `args.object`, igual que el de
+vídeo — se dejó en el servicio porque así se acordó explícitamente en el
+diseño aprobado, no porque no hubiera alternativa a nivel de DTO.)
+
+**Renderizador** (`components/blocks/`): `BlockRenderer.tsx` hace un `switch`
+exhaustivo sobre el union — un `assertUnreachable(block: never)` en el
+`default` hace que el build falle si se añade un 10º tipo sin su `case` (el
+compilador ES la validación de que el esquema y el renderizador nunca
+divergen). `text`/`faq.items[].answer` reutilizan `MarkdownBody` sin tocar
+(misma tubería auditada `react-markdown`+`remark-gfm`+`rehype-sanitize`, sin
+`rehype-raw`) — es el ÚNICO sitio del sistema de bloques que interpreta texto
+como Markdown; todo lo demás es texto React auto-escapado o una URL ya
+validada. `faq`/`table` usan componentes shadcn nuevos (`accordion`, `table`
+— instalados en esta ráfaga, `npx shadcn add accordion table`). `video` usa
+`aspect-video` (utilidad nativa de Tailwind, sin dependencia) + iframe
+construido server-side hacia `youtube-nocookie.com/embed/{videoId}` o
+`player.vimeo.com/video/{videoId}`. `image` usa un `<img>` plano (no
+`next/image`: el bloque no guarda dimensiones, solo un `width` en %, así que
+no hay como fijar el `width`/`height`/`fill` que `next/image` exige) con el
+mismo guard `isSafeSrc()` que ya protegía `coverUrl`. `cta`/`hub` reutilizan
+el patrón interno/externo (`target="_blank" rel="noopener noreferrer"` en
+externos) recién construido para `FooterItem`. `separator` reutiliza
+`separator.tsx` (ya instalado).
+
+**Admin — el editor queda TEMPORALMENTE desconectado**: `PostForm.tsx` pierde
+por completo el `MarkdownEditor`/preview de `body` (`Post.body` ya no
+existe) — se sustituye por una nota fija ("el editor de contenido por
+bloques llega en la próxima ráfaga…"); el formulario sigue editando
+metadatos (título, slug, excerpt, cover, tags, SEO) sin tocar `blocks` en
+absoluto (`UpdatePostPayload` sin `blocks` → el backend no lo toca,
+`dto.blocks !== undefined` es la guarda). El componente `MarkdownEditor.tsx`
+NO se tocó ni se eliminó — la Ráfaga 2 lo reconecta tal cual como editor del
+bloque `text`.
+
+**Tests**:
+- `test/blocks.e2e-spec.ts` (backend, 25 casos): los 9 tipos válidos +
+  1 post con los 9 a la vez; inválidos (faq sin items, tabla con fila de
+  longitud ≠ headers, cta/hub con `href` `javascript:`/`data:`, image con
+  URL externa, image sin `alt`, video con `videoId` basura o `provider`
+  desconocido, `type` desconocido, propiedad extra no declarada); seguridad
+  (un POST/PATCH rechazado no crea fila ni muta la existente).
+- `src/components/blocks/BlockRenderer.test.tsx` (frontend, 10 casos): los 9
+  tipos se renderizan sin lanzar (smoke test del switch exhaustivo) +
+  aserciones específicas por tipo (href/target/rel de `hub`, src del iframe
+  de `video`, filas de `table`…). `MarkdownBody` se mockea aquí — su cadena
+  de dependencias (`react-markdown` v10 → `devlop`, ESM-only) no la
+  transforma `next/jest`, mismo motivo por el que ningún test de este repo
+  ejercitaba `MarkdownBody` directamente antes de esta ráfaga.
+- `e2e/paginas.spec.ts`: el test "`<script>` literal nunca se ejecuta" se
+  reescribió para crear el post vía API directa (`loginViaApi`/`authedPost`,
+  sin pasar por la UI del editor, que ya no existe) — sigue siendo la
+  cobertura real, sin mocks, de que el bloque `text` escapa HTML literal.
+  `e2e/blog-markdown-editor.spec.ts` (batería dedicada al editor de
+  Markdown) se marcó `test.describe.skip` con una nota — se reactivará
+  cuando la Ráfaga 2 reconecte el editor al bloque `text`.
+- Script `pnpm seed-blocks-demo` (molde `reindex.ts`/`footer-backfill.ts`):
+  crea/actualiza una PAGE (`/paginas/blocks-demo`) y un POST
+  (`/blog/blocks-demo-post`) PUBLISHED con los 9 tipos rellenos de contenido
+  de ejemplo — el bloque `image` reutiliza la URL de un `ListingImage` real
+  ya subido, para pasar también `isOwnStorageUrl` si se reedita desde el
+  admin. Usado para el QA visual, no para tests automatizados.
+
+Verificado en vivo contra servidores de desarrollo reales tras
+`pnpm seed-blocks-demo`: los 9 bloques se renderizan correctamente en
+`/paginas/blocks-demo` y `/blog/blocks-demo-post` (capturas desktop 900px y
+mobile 390px), incluido el iframe de vídeo (confirmado por HTML servido —
+`src="https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"` — en blanco en la
+captura solo por falta de red saliente en el entorno de verificación, no un
+bug); `/admin/blog/nuevo` muestra la nota de "editor en la próxima ráfaga" y
+el resto del formulario de metadatos funciona con normalidad.
 
 ### CI: `footer-paginas.spec.ts` fallaba consistentemente — causa raíz real (`APP_URL` equivocado, no el secret)
 
@@ -4254,6 +4533,12 @@ pnpm --filter @marketplace/api reindex
 
 # Geocodificar anuncios sin coordenadas
 pnpm --filter @marketplace/api geocode-backfill
+
+# Backfill de navegación del footer (solo one-off, ver migración en dos pasos en §3)
+pnpm --filter @marketplace/api footer-backfill
+
+# Sembrar contenido de ejemplo con los 9 tipos de bloque, para QA visual
+pnpm --filter @marketplace/api seed-blocks-demo
 ```
 
 ### Correr los tests

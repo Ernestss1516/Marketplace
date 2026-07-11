@@ -1,28 +1,36 @@
-import { Logger } from '@nestjs/common';
 import { PostStatus, PostType } from '@prisma/client';
 import { BlogService } from './blog.service';
 import type { PrismaService } from '../../infra/prisma/prisma.service';
 import type { AuditLogService } from '../audit-log/audit-log.service';
+import type { RevalidateService } from '../../common/revalidate/revalidate.service';
 
-// callRevalidateEndpoint is fire-and-forget: nothing in BlogService awaits its
-// fetch(). setImmediate runs after the whole microtask queue (Promise jobs +
-// process.nextTick) has drained, so this reliably waits out the .then/.catch
-// chain regardless of how many hops it takes to settle.
-function flushMicrotasks(): Promise<void> {
-  return new Promise((resolve) => setImmediate(resolve));
-}
+// La observabilidad del fetch fire-and-forget (warn en !ok / fallo de red /
+// arranque sin REVALIDATE_SECRET) vive ahora en revalidate.service.spec.ts —
+// aquí solo se prueba que BlogService delega los paths/tags correctos a
+// RevalidateService, no el mecanismo de red en sí.
 
 function buildPrismaStub() {
   return {
     post: {
       findUnique: jest.fn(),
       update: jest.fn(),
+      delete: jest.fn(),
+    },
+    footerItem: {
+      count: jest.fn().mockResolvedValue(0),
     },
   } as unknown as PrismaService;
 }
 
 function buildAuditLogStub() {
   return { log: jest.fn().mockResolvedValue(undefined) } as unknown as AuditLogService;
+}
+
+function buildRevalidateStub() {
+  return {
+    revalidatePath: jest.fn(),
+    revalidateTag: jest.fn(),
+  } as unknown as RevalidateService;
 }
 
 function makePublishedPage() {
@@ -33,96 +41,84 @@ function makePublishedPage() {
     slug: 'ayuda',
     title: 'Ayuda',
     excerpt: null,
-    body: '',
+    blocks: [],
     coverUrl: null,
     tags: [],
     metaTitle: null,
     metaDescription: null,
-    showInFooter: true,
-    footerOrder: 1,
-    footerGroup: null,
     publishedAt: new Date(),
   };
 }
 
-describe('BlogService — observabilidad de callRevalidateEndpoint', () => {
-  const ORIGINAL_ENV = { ...process.env };
-  let warnSpy: jest.SpyInstance;
-  let fetchSpy: jest.SpyInstance;
-
-  beforeEach(() => {
-    process.env.REVALIDATE_SECRET = 'test-secret';
-    process.env.APP_URL = 'http://frontend.test';
-    warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
-  });
-
-  afterEach(() => {
-    jest.restoreAllMocks();
-    process.env = { ...ORIGINAL_ENV };
-  });
-
-  it('loguea un warn con el status cuando la respuesta no es ok (p. ej. 404)', async () => {
+describe('BlogService — delegación a RevalidateService', () => {
+  it('adminUpdate sobre una PAGE publicada revalida solo su propia ruta (footer ya no depende de campos de Post)', async () => {
     const page = makePublishedPage();
     const prisma = buildPrismaStub();
     (prisma.post.findUnique as jest.Mock).mockResolvedValue(page);
     (prisma.post.update as jest.Mock).mockResolvedValue(page);
-    fetchSpy = jest.spyOn(global, 'fetch').mockResolvedValue({ ok: false, status: 404 } as Response);
+    const revalidate = buildRevalidateStub();
 
-    const service = new BlogService(prisma, buildAuditLogStub());
+    const service = new BlogService(prisma, buildAuditLogStub(), revalidate);
     await service.adminUpdate(page.id, 'actor-1', { title: 'Ayuda actualizada' });
-    await flushMicrotasks();
 
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('404'));
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('/paginas/ayuda'));
-    // La URL real (con el secret en la query string) nunca debe aparecer en logs.
-    for (const call of warnSpy.mock.calls) {
-      expect(String(call[0])).not.toContain('test-secret');
-    }
+    expect(revalidate.revalidatePath).toHaveBeenCalledWith('/paginas/ayuda');
+    expect(revalidate.revalidateTag).not.toHaveBeenCalled();
   });
 
-  it('loguea un warn con el mensaje de error cuando el fetch rechaza (fallo de red)', async () => {
+  it('adminPublish sobre una PAGE revalida su ruta Y el tag footer-nav', async () => {
+    const page = { ...makePublishedPage(), status: PostStatus.DRAFT, publishedAt: null };
+    const prisma = buildPrismaStub();
+    (prisma.post.findUnique as jest.Mock).mockResolvedValue(page);
+    (prisma.post.update as jest.Mock).mockResolvedValue({ ...page, status: PostStatus.PUBLISHED, publishedAt: new Date() });
+    const revalidate = buildRevalidateStub();
+
+    const service = new BlogService(prisma, buildAuditLogStub(), revalidate);
+    await service.adminPublish(page.id, 'actor-1');
+
+    expect(revalidate.revalidatePath).toHaveBeenCalledWith('/paginas/ayuda');
+    expect(revalidate.revalidateTag).toHaveBeenCalledWith('footer-nav');
+  });
+
+  it('adminUnpublish sobre una PAGE revalida su ruta Y el tag footer-nav (el ítem del footer deja de renderizarse)', async () => {
     const page = makePublishedPage();
     const prisma = buildPrismaStub();
     (prisma.post.findUnique as jest.Mock).mockResolvedValue(page);
-    (prisma.post.update as jest.Mock).mockResolvedValue(page);
-    fetchSpy = jest.spyOn(global, 'fetch').mockRejectedValue(new Error('fetch failed: ECONNREFUSED'));
+    (prisma.post.update as jest.Mock).mockResolvedValue({ ...page, status: PostStatus.DRAFT, publishedAt: null });
+    const revalidate = buildRevalidateStub();
 
-    const service = new BlogService(prisma, buildAuditLogStub());
-    await service.adminUpdate(page.id, 'actor-1', { title: 'Ayuda actualizada' });
-    await flushMicrotasks();
+    const service = new BlogService(prisma, buildAuditLogStub(), revalidate);
+    await service.adminUnpublish(page.id, 'actor-1');
 
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('ECONNREFUSED'));
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('/paginas/ayuda'));
+    expect(revalidate.revalidatePath).toHaveBeenCalledWith('/paginas/ayuda');
+    expect(revalidate.revalidateTag).toHaveBeenCalledWith('footer-nav');
   });
 
-  it('NO loguea ningún warn cuando la revalidación responde ok (no falso positivo)', async () => {
+  it('adminDelete sobre una PAGE publicada SIN ítems de footer revalida el tag footer-nav', async () => {
     const page = makePublishedPage();
     const prisma = buildPrismaStub();
     (prisma.post.findUnique as jest.Mock).mockResolvedValue(page);
-    (prisma.post.update as jest.Mock).mockResolvedValue(page);
-    fetchSpy = jest.spyOn(global, 'fetch').mockResolvedValue({ ok: true, status: 200 } as Response);
+    (prisma.footerItem.count as jest.Mock).mockResolvedValue(0);
+    const revalidate = buildRevalidateStub();
 
-    const service = new BlogService(prisma, buildAuditLogStub());
-    await service.adminUpdate(page.id, 'actor-1', { title: 'Ayuda actualizada' });
-    await flushMicrotasks();
+    const service = new BlogService(prisma, buildAuditLogStub(), revalidate);
+    await service.adminDelete(page.id, 'actor-1');
 
-    expect(warnSpy).not.toHaveBeenCalled();
+    expect(prisma.post.delete).toHaveBeenCalledWith({ where: { id: page.id } });
+    expect(revalidate.revalidateTag).toHaveBeenCalledWith('footer-nav');
   });
 
-  it('loguea un warn UNA vez al construirse si falta REVALIDATE_SECRET, sin llamar a fetch', () => {
-    delete process.env.REVALIDATE_SECRET;
-    fetchSpy = jest.spyOn(global, 'fetch');
+  it('adminDelete sobre una PAGE enlazada desde el footer → BadRequest, NO borra (molde deleteCategory)', async () => {
+    const page = makePublishedPage();
+    const prisma = buildPrismaStub();
+    (prisma.post.findUnique as jest.Mock).mockResolvedValue(page);
+    (prisma.footerItem.count as jest.Mock).mockResolvedValue(2);
+    const revalidate = buildRevalidateStub();
 
-    new BlogService(buildPrismaStub(), buildAuditLogStub());
+    const service = new BlogService(prisma, buildAuditLogStub(), revalidate);
 
-    expect(warnSpy).toHaveBeenCalledTimes(1);
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('REVALIDATE_SECRET'));
-    expect(fetchSpy).not.toHaveBeenCalled();
-  });
-
-  it('NO loguea warn de arranque cuando REVALIDATE_SECRET está configurado', () => {
-    new BlogService(buildPrismaStub(), buildAuditLogStub());
-
-    expect(warnSpy).not.toHaveBeenCalled();
+    await expect(service.adminDelete(page.id, 'actor-1')).rejects.toThrow(
+      'No se puede eliminar: la página está enlazada desde 2 sitio(s) del footer',
+    );
+    expect(prisma.post.delete).not.toHaveBeenCalled();
   });
 });

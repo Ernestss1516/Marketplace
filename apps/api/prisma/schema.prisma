@@ -4,7 +4,7 @@
 // ============================================================================
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
   // postgresqlExtensions habilita extensiones de Postgres (p. ej. PostGIS) desde el schema.
   previewFeatures = ["postgresqlExtensions"]
 }
@@ -22,8 +22,8 @@ datasource db {
 
 /// Estado de un post de blog.
 enum PostStatus {
-  DRAFT       // Borrador, no visible públicamente
-  PUBLISHED   // Publicado, indexado en sitemap
+  DRAFT // Borrador, no visible públicamente
+  PUBLISHED // Publicado, indexado en sitemap
 }
 
 /// Tipo de contenido de un Post: artículo de blog o página informativa estática
@@ -51,13 +51,13 @@ enum UserStatus {
 
 /// Ciclo de vida de un anuncio. Modela el flujo de publicación y moderación.
 enum ListingStatus {
-  DRAFT           // Borrador, aún no enviado
-  PENDING_REVIEW  // En espera de moderación
-  ACTIVE          // Publicado y visible
-  RESERVED        // Reservado a un comprador
-  SOLD            // Vendido
-  EXPIRED         // Caducado
-  REJECTED        // Rechazado por moderación
+  DRAFT // Borrador, aún no enviado
+  PENDING_REVIEW // En espera de moderación
+  ACTIVE // Publicado y visible
+  RESERVED // Reservado a un comprador
+  SOLD // Vendido
+  EXPIRED // Caducado
+  REJECTED // Rechazado por moderación
 }
 
 /// Un anuncio puede ofrecer un producto o un servicio.
@@ -87,9 +87,9 @@ enum Condition {
 
 /// Tipo de precio de un anuncio.
 enum PriceType {
-  FIXED       // Precio fijo
-  FREE        // Gratis (price = 0)
-  NEGOTIABLE  // A convenir
+  FIXED // Precio fijo
+  FREE // Gratis (price = 0)
+  NEGOTIABLE // A convenir
 }
 
 // ============================================================================
@@ -97,8 +97,8 @@ enum PriceType {
 // ============================================================================
 
 enum ProductType {
-  ONE_TIME   // Pago único (destacado de anuncio)
-  RECURRING  // Suscripción recurrente (Plan Pro)
+  ONE_TIME // Pago único (destacado de anuncio)
+  RECURRING // Suscripción recurrente (Plan Pro)
 }
 
 enum PriceInterval {
@@ -107,23 +107,23 @@ enum PriceInterval {
 }
 
 enum SubscriptionStatus {
-  ACTIVE     // Activa y se renovará automáticamente
-  CANCELING  // Cancelada por el usuario; sigue activa hasta currentPeriodEnd
-  CANCELED   // Expirada definitivamente
-  PAST_DUE   // Pago fallido; en período de reintento por la pasarela
+  ACTIVE // Activa y se renovará automáticamente
+  CANCELING // Cancelada por el usuario; sigue activa hasta currentPeriodEnd
+  CANCELED // Expirada definitivamente
+  PAST_DUE // Pago fallido; en período de reintento por la pasarela
 }
 
 enum TransactionStatus {
-  PENDING            // Esperando confirmación de la pasarela
-  SUCCEEDED          // Cobro confirmado
-  FAILED             // Cobro fallido definitivamente
-  REFUNDED           // Devuelto íntegramente
+  PENDING // Esperando confirmación de la pasarela
+  SUCCEEDED // Cobro confirmado
+  FAILED // Cobro fallido definitivamente
+  REFUNDED // Devuelto íntegramente
   PARTIALLY_REFUNDED
 }
 
 enum EntitlementType {
-  PRO_SUBSCRIPTION  // Acceso al Plan Pro (nivel de usuario)
-  FEATURED_LISTING  // Anuncio destacado (nivel de anuncio)
+  PRO_SUBSCRIPTION // Acceso al Plan Pro (nivel de usuario)
+  FEATURED_LISTING // Anuncio destacado (nivel de anuncio)
 }
 
 /// Origen de un Entitlement FEATURED_LISTING (H8.1). Distingue las dos bolsas
@@ -132,29 +132,29 @@ enum EntitlementType {
 /// adquiridos por créditos o pago directo (no caducan). Irrelevante para
 /// PRO_SUBSCRIPTION.
 enum FeaturedOrigin {
-  CREDITS    // featuredByCredits — débito de Wallet
-  REDSYS     // pago directo vía Redsys
-  PRO_QUOTA  // cuota mensual gratis de Pro
-  COUPON     // canje de cupón (H8 Bloque D fase 3)
+  CREDITS // featuredByCredits — débito de Wallet
+  REDSYS // pago directo vía Redsys
+  PRO_QUOTA // cuota mensual gratis de Pro
+  COUPON // canje de cupón (H8 Bloque D fase 3)
 }
 
 enum CreditLedgerType {
-  PACK_PURCHASE   // Compra de pack de créditos → entrada (positivo)
-  FEATURED_DEBIT  // Destacado pagado con créditos → salida (negativo)
-  BUMP_DEBIT      // Bump pagado con créditos → salida (negativo)
-  ADMIN_CREDIT    // Acreditación manual de soporte → entrada
-  ADMIN_DEBIT     // Débito manual de soporte → salida
-  PRO_BONUS       // Créditos extra concedidos a usuarios Pro al comprar un pack → entrada
-  CAMPAIGN_BONUS  // Créditos extra concedidos por una campaña promocional al comprar un pack → entrada
-  COUPON_REDEEM   // Créditos otorgados al canjear un cupón → entrada (H8 Bloque D fase 3)
+  PACK_PURCHASE // Compra de pack de créditos → entrada (positivo)
+  FEATURED_DEBIT // Destacado pagado con créditos → salida (negativo)
+  BUMP_DEBIT // Bump pagado con créditos → salida (negativo)
+  ADMIN_CREDIT // Acreditación manual de soporte → entrada
+  ADMIN_DEBIT // Débito manual de soporte → salida
+  PRO_BONUS // Créditos extra concedidos a usuarios Pro al comprar un pack → entrada
+  CAMPAIGN_BONUS // Créditos extra concedidos por una campaña promocional al comprar un pack → entrada
+  COUPON_REDEEM // Créditos otorgados al canjear un cupón → entrada (H8 Bloque D fase 3)
 }
 
 /// Tipo de campaña promocional (H8 Bloque D). Extensible sin migración de datos:
 /// los parámetros concretos de cada tipo viven en Campaign.params (jsonb), no en
 /// columnas propias. Futuro: COUPON (cupón canjeable, fase 3), BANNER (difusión, fase 4).
 enum CampaignType {
-  CREDIT_BONUS     // Bonus de créditos al comprar un pack
-  ACTION_DISCOUNT  // Descuento % sobre el coste en créditos de bump/destacar (fase 2)
+  CREDIT_BONUS // Bonus de créditos al comprar un pack
+  ACTION_DISCOUNT // Descuento % sobre el coste en créditos de bump/destacar (fase 2)
 }
 
 /// Motivo de una denuncia, para la cola de moderación.
@@ -199,27 +199,27 @@ model User {
   trusted       Boolean    @default(false)
 
   // Ubicación para mostrar y prefiltrar
-  city          String?
-  province      String?
-  postalCode    String?
+  city       String?
+  province   String?
+  postalCode String?
 
   /// Referencia al Customer de Stripe; null hasta el primer pago
   stripeCustomerId String? @unique
 
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // --- Relaciones ---
   listings            Listing[]
   favorites           Favorite[]
-  buyerConvos         Conversation[]      @relation("BuyerConversations")
-  sellerConvos        Conversation[]      @relation("SellerConversations")
+  buyerConvos         Conversation[]       @relation("BuyerConversations")
+  sellerConvos        Conversation[]       @relation("SellerConversations")
   messages            Message[]
-  reviewsAuthored     Review[]            @relation("ReviewAuthor")
-  reviewsReceived     Review[]            @relation("ReviewTarget")
-  reportsMade         Report[]            @relation("Reporter")
-  reportsReceived     Report[]            @relation("ReportedUser")
-  reportsResolved     Report[]            @relation("ReportResolver")
+  reviewsAuthored     Review[]             @relation("ReviewAuthor")
+  reviewsReceived     Review[]             @relation("ReviewTarget")
+  reportsMade         Report[]             @relation("Reporter")
+  reportsReceived     Report[]             @relation("ReportedUser")
+  reportsResolved     Report[]             @relation("ReportResolver")
   verificationTokens  VerificationToken[]
   passwordResetTokens PasswordResetToken[]
   accounts            Account[]
@@ -258,17 +258,17 @@ model Account {
 // ============================================================================
 
 model Category {
-  id        String  @id @default(cuid())
-  name      String
+  id      String  @id @default(cuid())
+  name    String
   /// Slug único para la URL de listado (SEO): /{slug}
-  slug      String  @unique
-  iconUrl   String?
-  order     Int     @default(0)
+  slug    String  @unique
+  iconUrl String?
+  order   Int     @default(0)
 
   // Auto-relación: una categoría puede tener una categoría padre y subcategorías.
-  parentId  String?
-  parent    Category?  @relation("CategoryTree", fields: [parentId], references: [id])
-  children  Category[] @relation("CategoryTree")
+  parentId String?
+  parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children Category[] @relation("CategoryTree")
 
   /// Definición de los atributos esperados para esta categoría (nombre, tipo,
   /// opciones, si es filtrable…). El frontend la usa para pintar el formulario
@@ -281,7 +281,7 @@ model Category {
   /// en las filas ya existentes al aplicar la migración.
   allowedListingType ListingTypePolicy @default(BOTH)
 
-  listings  Listing[]
+  listings     Listing[]
   sponsoredAds SponsoredAd[]
 
   @@index([parentId])
@@ -292,50 +292,50 @@ model Category {
 // ============================================================================
 
 model Listing {
-  id          String        @id @default(cuid())
+  id          String @id @default(cuid())
   title       String
   /// Slug único para la ficha (SEO): /anuncio/{slug}
-  slug        String        @unique
-  description String        @db.Text
+  slug        String @unique
+  description String @db.Text
 
   // Decimal (no Float) para evitar errores de redondeo en importes monetarios.
-  price       Decimal       @db.Decimal(12, 2)
-  currency    String        @default("EUR")
+  price    Decimal @db.Decimal(12, 2)
+  currency String  @default("EUR")
 
-  type        ListingType
-  condition   Condition?    // Nulo en servicios
-  priceType   PriceType     @default(FIXED)
-  status      ListingStatus @default(DRAFT)
+  type      ListingType
+  condition Condition? // Nulo en servicios
+  priceType PriceType     @default(FIXED)
+  status    ListingStatus @default(DRAFT)
 
   /// jsonb con los atributos variables según la categoría.
   /// Coche → { km, año, combustible, cambio }; Inmueble → { m2, habitaciones, planta }…
   /// Evita una tabla de columnas distintas por categoría. La búsqueda y el filtrado
   /// fino de estos campos se delegan en Meilisearch.
-  attributes  Json          @default("{}")
+  attributes Json @default("{}")
 
   // --- Ubicación ---
-  city        String?
-  province    String?
-  postalCode  String?
-  latitude    Float?
-  longitude   Float?
+  city       String?
+  province   String?
+  postalCode String?
+  latitude   Float?
+  longitude  Float?
   // NOTA PostGIS: para búsquedas por radio eficientes ("anuncios a 10 km") se
   // añade en una migración SQL una columna geography(Point, 4326) con índice GiST,
   // poblada desde latitude/longitude. Prisma la trata como campo no gestionado.
 
-  viewCount   Int           @default(0)
+  viewCount Int @default(0)
 
   publishedAt DateTime?
   expiresAt   DateTime?
   bumpedAt    DateTime?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   // --- Relaciones ---
-  sellerId    String
-  seller      User          @relation(fields: [sellerId], references: [id], onDelete: Cascade)
-  categoryId  String
-  category    Category      @relation(fields: [categoryId], references: [id])
+  sellerId   String
+  seller     User     @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id])
 
   images        ListingImage[]
   favorites     Favorite[]
@@ -356,18 +356,18 @@ model Listing {
 }
 
 model ListingImage {
-  id        String   @id @default(cuid())
-  url       String
-  alt       String?
-  width     Int?
-  height    Int?
-  order     Int      @default(0)
+  id     String  @id @default(cuid())
+  url    String
+  alt    String?
+  width  Int?
+  height Int?
+  order  Int     @default(0)
 
-  listingId    String?
-  listing      Listing? @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  listingId String?
+  listing   Listing? @relation(fields: [listingId], references: [id], onDelete: Cascade)
 
   uploadedById String?
-  uploadedBy   User?    @relation("UploadedImages", fields: [uploadedById], references: [id], onDelete: SetNull)
+  uploadedBy   User?   @relation("UploadedImages", fields: [uploadedById], references: [id], onDelete: SetNull)
 
   @@index([listingId])
   @@index([uploadedById])
@@ -494,18 +494,18 @@ model ListingViewDaily {
 // ============================================================================
 
 model Conversation {
-  id            String    @id @default(cuid())
-  listingId     String
-  listing       Listing   @relation(fields: [listingId], references: [id], onDelete: Cascade)
-  buyerId       String
-  buyer         User      @relation("BuyerConversations", fields: [buyerId], references: [id])
-  sellerId      String
-  seller        User      @relation("SellerConversations", fields: [sellerId], references: [id])
+  id        String  @id @default(cuid())
+  listingId String
+  listing   Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  buyerId   String
+  buyer     User    @relation("BuyerConversations", fields: [buyerId], references: [id])
+  sellerId  String
+  seller    User    @relation("SellerConversations", fields: [sellerId], references: [id])
 
-  lastMessageAt DateTime  @default(now())
-  createdAt     DateTime  @default(now())
+  lastMessageAt DateTime @default(now())
+  createdAt     DateTime @default(now())
 
-  messages      Message[]
+  messages Message[]
 
   // Una sola conversación por (anuncio, comprador).
   @@unique([listingId, buyerId])
@@ -531,19 +531,19 @@ model Message {
 // ============================================================================
 
 model Review {
-  id        String    @id @default(cuid())
-  rating    Int       // 1..5 (validado en el DTO)
-  comment   String?   @db.Text
+  id      String  @id @default(cuid())
+  rating  Int // 1..5 (validado en el DTO)
+  comment String? @db.Text
 
-  authorId  String
-  author    User      @relation("ReviewAuthor", fields: [authorId], references: [id], onDelete: Cascade)
-  targetId  String
-  target    User      @relation("ReviewTarget", fields: [targetId], references: [id], onDelete: Cascade)
+  authorId     String
+  author       User     @relation("ReviewAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  targetId     String
+  target       User     @relation("ReviewTarget", fields: [targetId], references: [id], onDelete: Cascade)
   // Nullable: la reseña sobrevive al borrado del anuncio (la reputación no es
   // borrable por el vendedor); listingId pasa a NULL, análogo a
   // Entitlement/Transaction. listingTitle conserva el contexto.
-  listingId String?
-  listing   Listing?  @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  listingId    String?
+  listing      Listing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
   // Snapshot del título del anuncio en el momento de crear la reseña, para que
   // el listado público pueda mostrar contexto aunque el anuncio se borre después.
   listingTitle String?
@@ -553,7 +553,7 @@ model Review {
   // null hasta la primera edición; frontend muestra indicador "Editada" cuando no es null
   editedAt  DateTime?
 
-  reports   Report[]
+  reports Report[]
 
   // [authorId, targetId, listingId] permite bidireccionalidad:
   // buyer→seller y seller→buyer son filas distintas sobre el mismo anuncio.
@@ -567,30 +567,30 @@ model Review {
 // ============================================================================
 
 model Report {
-  id             String       @id @default(cuid())
-  reason         ReportReason
-  description    String?      @db.Text
-  status         ReportStatus @default(PENDING)
+  id          String       @id @default(cuid())
+  reason      ReportReason
+  description String?      @db.Text
+  status      ReportStatus @default(PENDING)
 
-  reporterId     String
-  reporter       User         @relation("Reporter", fields: [reporterId], references: [id])
+  reporterId String
+  reporter   User   @relation("Reporter", fields: [reporterId], references: [id])
 
   // Una denuncia apunta a un anuncio o a un usuario (al menos uno).
   listingId      String?
-  listing        Listing?     @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  listing        Listing? @relation(fields: [listingId], references: [id], onDelete: Cascade)
   reportedUserId String?
-  reportedUser   User?        @relation("ReportedUser", fields: [reportedUserId], references: [id])
+  reportedUser   User?    @relation("ReportedUser", fields: [reportedUserId], references: [id])
 
   // Auditoría de la resolución por parte de un moderador.
-  resolvedById   String?
-  resolvedBy     User?        @relation("ReportResolver", fields: [resolvedById], references: [id])
-  resolvedAt     DateTime?
+  resolvedById String?
+  resolvedBy   User?     @relation("ReportResolver", fields: [resolvedById], references: [id])
+  resolvedAt   DateTime?
 
   // Una denuncia puede apuntar a una valoración (además de a listing o user)
-  reviewId       String?
-  review         Review?      @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  reviewId String?
+  review   Review? @relation(fields: [reviewId], references: [id], onDelete: Cascade)
 
-  createdAt      DateTime     @default(now())
+  createdAt DateTime @default(now())
 
   @@index([status])
   @@index([listingId])
@@ -607,7 +607,7 @@ model Report {
 /// tiene acceso al estado de Prisma antes de la mutación (el campo `before`
 /// requiere leer el recurso justo antes de modificarlo, dentro del service).
 model AuditLog {
-  id           String   @id @default(cuid())
+  id String @id @default(cuid())
 
   /// Convención SCREAMING_SNAKE_CASE:
   /// LISTING_DEACTIVATE | LISTING_RESTORE | LISTING_APPROVE | LISTING_REJECT
@@ -616,10 +616,10 @@ model AuditLog {
   /// CATEGORY_CREATE | CATEGORY_EDIT | CATEGORY_DELETE | CATEGORY_REORDER
   /// SETTING_UPDATE
   /// SPONSORED_AD_CREATE | SPONSORED_AD_EDIT | SPONSORED_AD_ACTIVATE | SPONSORED_AD_DEACTIVATE
-  action       String
+  action String
 
-  actorId      String
-  actor        User     @relation("AuditLogActor", fields: [actorId], references: [id])
+  actorId String
+  actor   User   @relation("AuditLogActor", fields: [actorId], references: [id])
 
   /// "Listing" | "User" | "Report" | "Category" | "Setting"
   resourceType String
@@ -627,15 +627,15 @@ model AuditLog {
 
   /// Snapshot del estado ANTES de la mutación. Null si no aplica (p.ej. primera
   /// escritura de un Setting).
-  before       Json?
+  before Json?
 
   /// Snapshot del estado DESPUÉS de la mutación.
-  after        Json?
+  after Json?
 
   /// IP del actor para auditoría de seguridad (extraída del request).
-  ip           String?
+  ip String?
 
-  createdAt    DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([actorId])
   @@index([resourceType, resourceId])
@@ -653,15 +653,15 @@ model AuditLog {
 /// que el admin haya cambiado manualmente.
 model Setting {
   /// Clave única del ajuste (ej. "badWordList").
-  key          String   @id
+  key String @id
 
   /// Valor serializado como JSON. El tipo concreto depende de la key.
-  value        Json
+  value Json
 
-  updatedAt    DateTime @updatedAt
+  updatedAt DateTime @updatedAt
 
   /// ID del admin que actualizó el ajuste por última vez (null en seed inicial).
-  updatedById  String?
+  updatedById String?
 }
 
 // ============================================================================
@@ -705,45 +705,45 @@ model Product {
 
   /// Cuando active=false, el producto no se ofrece en nuevas compras
   /// pero sus Prices y Entitlements existentes siguen vigentes.
-  active      Boolean     @default(true)
+  active Boolean @default(true)
 
-  prices      Price[]
+  prices Price[]
 
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 /// Variante de precio de un producto. Una variante = una opción de compra.
 model Price {
-  id            String         @id @default(cuid())
-  productId     String
-  product       Product        @relation(fields: [productId], references: [id])
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
 
-  amount        Decimal        @db.Decimal(10, 2)
-  currency      String         @default("EUR")
+  amount   Decimal @db.Decimal(10, 2)
+  currency String  @default("EUR")
 
   // Solo para RECURRING
   interval      PriceInterval?
   intervalCount Int?           @default(1)
 
   // Solo para ONE_TIME (destacado)
-  durationDays  Int?
+  durationDays Int?
 
   /// ID del objeto equivalente en la pasarela (Stripe Price ID).
-  gatewayPriceId String?       @unique
+  gatewayPriceId String? @unique
 
   /// FK al CreditPack asociado; solo presente en Prices de packs de créditos.
-  creditPackId  String?        @unique
-  creditPack    CreditPack?    @relation(fields: [creditPackId], references: [id])
+  creditPackId String?     @unique
+  creditPack   CreditPack? @relation(fields: [creditPackId], references: [id])
 
-  active        Boolean        @default(true)
+  active Boolean @default(true)
 
   transactions  Transaction[]
   subscriptions Subscription[]
   entitlements  Entitlement[]
 
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([productId])
 }
@@ -760,39 +760,39 @@ model Price {
 ///   2. Un administrador revoca manualmente un entitlement aún no caducado (futuro).
 /// Nunca se borra una fila de esta tabla; la revocación es el mecanismo de cierre.
 model Entitlement {
-  id             String          @id @default(cuid())
-  userId         String
-  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  type           EntitlementType
+  type EntitlementType
 
   /// Solo para FEATURED_LISTING: de qué bolsa salió (cuota Pro vs. adquirido).
   /// Null para PRO_SUBSCRIPTION. Backfill H8.1: transactionId presente → REDSYS,
   /// ausente → CREDITS (así se distinguían ya antes de existir este campo).
-  origin         FeaturedOrigin?
+  origin FeaturedOrigin?
 
   /// Solo para FEATURED_LISTING: anuncio al que aplica el boost.
-  listingId      String?
-  listing        Listing?        @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  listingId String?
+  listing   Listing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
 
-  startsAt       DateTime        @default(now())
+  startsAt  DateTime  @default(now())
   /// Null = sin caducidad (reservado para créditos manuales de soporte).
-  expiresAt      DateTime?
+  expiresAt DateTime?
 
   /// Seteado cuando el entitlement se revoca explícitamente (cron de expiración de
   /// FEATURED_LISTING, o revocación manual de admin). Un entitlement con revokedAt
   /// seteado NO cuenta como vigente aunque expiresAt sea futuro.
-  revokedAt      DateTime?
+  revokedAt DateTime?
 
   // Trazabilidad del origen
   priceId        String?
-  price          Price?          @relation(fields: [priceId], references: [id])
+  price          Price?        @relation(fields: [priceId], references: [id])
   transactionId  String?
-  transaction    Transaction?    @relation(fields: [transactionId], references: [id])
+  transaction    Transaction?  @relation(fields: [transactionId], references: [id])
   subscriptionId String?
-  subscription   Subscription?   @relation(fields: [subscriptionId], references: [id])
+  subscription   Subscription? @relation(fields: [subscriptionId], references: [id])
 
-  createdAt      DateTime        @default(now())
+  createdAt DateTime @default(now())
 
   @@index([userId, type])
   @@index([userId, type, origin, createdAt])
@@ -803,29 +803,29 @@ model Entitlement {
 
 /// Estado de una suscripción recurrente. Una sola suscripción activa por usuario.
 model Subscription {
-  id                    String             @id @default(cuid())
-  userId                String
-  user                  User               @relation(fields: [userId], references: [id], onDelete: Restrict)
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
 
-  priceId               String
-  price                 Price              @relation(fields: [priceId], references: [id])
+  priceId String
+  price   Price  @relation(fields: [priceId], references: [id])
 
-  status                SubscriptionStatus @default(ACTIVE)
+  status SubscriptionStatus @default(ACTIVE)
 
-  currentPeriodStart    DateTime
-  currentPeriodEnd      DateTime
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
 
-  cancelAtPeriodEnd     Boolean            @default(false)
-  canceledAt            DateTime?
+  cancelAtPeriodEnd Boolean   @default(false)
+  canceledAt        DateTime?
 
   /// ID de la suscripción en Stripe. Inmutable tras la creación.
-  gatewaySubscriptionId String             @unique
+  gatewaySubscriptionId String @unique
 
-  entitlements          Entitlement[]
-  transactions          Transaction[]
+  entitlements Entitlement[]
+  transactions Transaction[]
 
-  createdAt             DateTime           @default(now())
-  updatedAt             DateTime           @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId])
   @@index([status])
@@ -834,40 +834,40 @@ model Subscription {
 
 /// Registro permanente de cada cobro. NUNCA se borra ni se modifica el importe.
 model Transaction {
-  id           String            @id @default(cuid())
-  userId       String
-  user         User              @relation(fields: [userId], references: [id], onDelete: Restrict)
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
 
-  priceId      String
-  price        Price             @relation(fields: [priceId], references: [id])
+  priceId String
+  price   Price  @relation(fields: [priceId], references: [id])
 
-  amountGross  Decimal           @db.Decimal(10, 2)
-  amountNet    Decimal           @db.Decimal(10, 2)
-  taxAmount    Decimal           @db.Decimal(10, 2)
-  taxRate      Decimal           @db.Decimal(5, 4)
-  currency     String            @default("EUR")
+  amountGross Decimal @db.Decimal(10, 2)
+  amountNet   Decimal @db.Decimal(10, 2)
+  taxAmount   Decimal @db.Decimal(10, 2)
+  taxRate     Decimal @db.Decimal(5, 4)
+  currency    String  @default("EUR")
 
-  status       TransactionStatus @default(PENDING)
+  status TransactionStatus @default(PENDING)
 
   /// Pasarela que procesó el cobro. "STRIPE" | "REDSYS"
-  gateway      String            @default("STRIPE")
+  gateway String @default("STRIPE")
 
   /// Referencias de la pasarela. NUNCA se almacenan PANs, CVVs ni datos de tarjeta.
-  gatewayPaymentIntentId String?  @unique
-  gatewayInvoiceId       String?  @unique
+  gatewayPaymentIntentId String? @unique
+  gatewayInvoiceId       String? @unique
   gatewayChargeId        String?
 
-  invoiceNumber  String?
-  invoiceUrl     String?
+  invoiceNumber String?
+  invoiceUrl    String?
 
   subscriptionId String?
   subscription   Subscription? @relation(fields: [subscriptionId], references: [id])
 
   /// Solo en destacados: anuncio al que corresponde el cobro.
-  listingId      String?
-  listing        Listing?      @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  listingId String?
+  listing   Listing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
 
-  entitlements   Entitlement[]
+  entitlements Entitlement[]
 
   /// Créditos extra congelados en el checkout para usuarios Pro. Null = sin bonus.
   /// Calculado en createCreditPackCheckout; el RedsysProcessor lo lee sin recalcular.
@@ -883,8 +883,8 @@ model Transaction {
   campaignId          String?
   campaign            Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
 
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId])
   @@index([status])
@@ -895,17 +895,17 @@ model Transaction {
 /// Garantiza que un webhook duplicado no tenga efectos secundarios.
 /// Solo se escribe; nunca se actualiza ni se borra.
 model GatewayEvent {
-  id             String   @id @default(cuid())
+  id String @id @default(cuid())
 
   /// ID único del evento en la pasarela (p.ej. "evt_1ABC..." en Stripe; Ds_Order en Redsys).
-  gatewayEventId String   @unique
+  gatewayEventId String @unique
 
-  eventType      String
+  eventType String
 
   /// "STRIPE" | "REDSYS" — distingue el origen del evento para trazabilidad.
-  gateway        String   @default("STRIPE")
+  gateway String @default("STRIPE")
 
-  processedAt    DateTime @default(now())
+  processedAt DateTime @default(now())
 
   @@index([processedAt])
 }
@@ -917,18 +917,18 @@ model GatewayEvent {
 /// Pack de créditos comprable. El precio en EUR vive en el Price asociado (creditPackId).
 /// Los costes de gastar créditos (featured, bump) viven en Setting.
 model CreditPack {
-  id           String   @id @default(cuid())
+  id           String  @id @default(cuid())
   name         String
-  description  String?  @db.Text
+  description  String? @db.Text
   /// Créditos que el usuario recibe al comprar este pack.
   creditAmount Int
-  active       Boolean  @default(true)
+  active       Boolean @default(true)
 
   /// Relación inversa: el Price asociado apunta a este pack vía creditPackId.
-  price        Price?
+  price Price?
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 /// Saldo de créditos de un usuario. Una fila por usuario.
@@ -937,40 +937,40 @@ model CreditPack {
 /// El débito atómico via UPDATE ... WHERE balance >= N garantiza este invariante
 /// sin serializable isolation. Ver diseno-facturacion.md §3.2 para el patrón.
 model Wallet {
-  id        String         @id @default(cuid())
-  userId    String         @unique
-  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   /// Saldo en créditos enteros. Fuente de verdad del saldo actual.
-  balance   Int            @default(0)
+  balance Int @default(0)
 
-  entries   CreditLedger[]
+  entries CreditLedger[]
 
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 /// Registro inmutable de cada movimiento de créditos.
 /// NUNCA se modifica ni se borra una fila de esta tabla.
 /// amount > 0 = crédito (suma); amount < 0 = débito (resta).
 model CreditLedger {
-  id            String           @id @default(cuid())
-  walletId      String
-  wallet        Wallet           @relation(fields: [walletId], references: [id])
+  id       String @id @default(cuid())
+  walletId String
+  wallet   Wallet @relation(fields: [walletId], references: [id])
 
-  type          CreditLedgerType
+  type CreditLedgerType
 
   /// Positivo = crédito (suma al saldo); negativo = débito (resta al saldo).
-  amount        Int
+  amount Int
 
   /// Referencia polimórfica al recurso que originó el movimiento.
   /// Transaction.id para compras; Entitlement.id para destacados; Listing.id para bumps.
   referenceId   String?
-  referenceType String?          // "Transaction" | "Entitlement" | "Listing"
+  referenceType String? // "Transaction" | "Entitlement" | "Listing"
 
-  note          String?
+  note String?
 
-  createdAt     DateTime         @default(now())
+  createdAt DateTime @default(now())
 
   @@index([walletId])
   @@index([createdAt])
@@ -989,24 +989,24 @@ model CreditLedger {
 /// "cuál aplicar" — a lo sumo una campaña de un type(+action) dado está vigente
 /// en un instante dado. Campañas de types (o acciones) distintos sí conviven.
 model Campaign {
-  id        String       @id @default(cuid())
-  name      String
-  type      CampaignType
-  active    Boolean      @default(true)
-  startsAt  DateTime
-  endsAt    DateTime
+  id       String       @id @default(cuid())
+  name     String
+  type     CampaignType
+  active   Boolean      @default(true)
+  startsAt DateTime
+  endsAt   DateTime
 
   /// Parámetros específicos del type. Para CREDIT_BONUS:
   /// { "kind": "PERCENT" | "FIXED", "value": number }. Para ACTION_DISCOUNT:
   /// { "action": "BUMP" | "FEATURED", "percent": number }.
   /// Validado en el DTO según `type`, no a nivel de BD (mismo patrón que
   /// Setting.value / Listing.attributes) — evita migración por cada type nuevo.
-  params    Json
+  params Json
 
   transactions Transaction[]
 
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([type, active, startsAt, endsAt])
 }
@@ -1033,10 +1033,10 @@ enum CouponRewardType {
 /// por el mismo usuario reintroduciría la misma complejidad de "límite por
 /// usuario" que este diseño evita para el límite total.
 model Coupon {
-  id                   String             @id @default(cuid())
+  id         String           @id @default(cuid())
   /// Normalizado a MAYÚSCULAS al crear y al canjear (evita "Verano2026" vs "VERANO2026").
-  code                 String             @unique
-  rewardType           CouponRewardType
+  code       String           @unique
+  rewardType CouponRewardType
 
   /// Solo si rewardType = CREDITS.
   creditAmount         Int?
@@ -1044,16 +1044,16 @@ model Coupon {
   featuredDurationDays Int?
 
   /// null = ilimitado.
-  maxRedemptions       Int?
-  redemptionCount      Int                @default(0)
+  maxRedemptions  Int?
+  redemptionCount Int  @default(0)
 
-  active               Boolean            @default(true)
-  startsAt             DateTime
-  endsAt               DateTime
+  active   Boolean  @default(true)
+  startsAt DateTime
+  endsAt   DateTime
 
-  redemptions          CouponRedemption[]
-  createdAt            DateTime           @default(now())
-  updatedAt            DateTime           @updatedAt
+  redemptions CouponRedemption[]
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
 
   @@index([active, startsAt, endsAt])
 }
@@ -1061,12 +1061,12 @@ model Coupon {
 /// Registro de canje — uno por [couponId, userId] (onePerUser, ver Coupon).
 /// NUNCA se borra ni se modifica: historial permanente de canjes.
 model CouponRedemption {
-  id            String   @id @default(cuid())
-  couponId      String
-  coupon        Coupon   @relation(fields: [couponId], references: [id])
-  userId        String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  redeemedAt    DateTime @default(now())
+  id         String   @id @default(cuid())
+  couponId   String
+  coupon     Coupon   @relation(fields: [couponId], references: [id])
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  redeemedAt DateTime @default(now())
 
   /// Trazabilidad polimórfica de qué se otorgó: 'CreditLedger' + id de la
   /// entrada (CREDITS), o 'Entitlement' + id del FEATURED_LISTING (FEATURED).
@@ -1104,29 +1104,29 @@ enum BannerVariant {
 /// no se distribuye fuera de la app, así que editar título/texto/placements no
 /// rompe nada externo.
 model Banner {
-  id         String            @id @default(cuid())
-  title      String
-  text       String            @db.Text
+  id    String @id @default(cuid())
+  title String
+  text  String @db.Text
 
-  linkUrl    String?
-  linkText   String?
+  linkUrl  String?
+  linkText String?
 
   /// Ubicaciones donde se muestra. No puede quedar vacío (validado en el DTO).
   placements BannerPlacement[]
 
-  variant    BannerVariant     @default(INFO)
+  variant BannerVariant @default(INFO)
 
   /// Si true, se ofrece el botón "Compartir" (navigator.share o portapapeles).
-  shareable  Boolean           @default(false)
+  shareable Boolean @default(false)
   /// Texto a compartir si difiere de `text`. Si es null, se comparte `text`.
-  shareText  String?
+  shareText String?
 
-  active     Boolean           @default(true)
-  startsAt   DateTime
-  endsAt     DateTime
+  active   Boolean  @default(true)
+  startsAt DateTime
+  endsAt   DateTime
 
-  createdAt  DateTime          @default(now())
-  updatedAt  DateTime          @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([active, startsAt, endsAt])
 }
@@ -1135,33 +1135,33 @@ model Banner {
 /// promocionado del marketplace. Se inyecta entre los resultados de búsqueda de
 /// su categoría (o de las hijas de esta). Sin billing: gestión 100% manual.
 model SponsoredAd {
-  id          String    @id @default(cuid())
+  id          String @id @default(cuid())
   imageUrl    String
   title       String
-  description String    @db.Text
+  description String @db.Text
   /// Enlace EXTERNO (fuera del marketplace); se abre en pestaña nueva.
   targetUrl   String
 
-  categoryId  String
+  categoryId String
   /// onDelete por defecto (RESTRICT, igual que Listing.categoryId): borrar una
   /// categoría con patrocinados debe rechazarse explícitamente (ver
   /// AdminService.deleteCategory), no Cascade silencioso — un patrocinado
   /// huérfano de categoría no tiene dónde inyectarse.
-  category    Category  @relation(fields: [categoryId], references: [id])
+  category   Category @relation(fields: [categoryId], references: [id])
 
   /// Desempate cuando hay varios patrocinados activos para la misma categoría
   /// (asc; empate → más reciente). No es un array de posiciones en la parrilla.
-  order       Int       @default(0)
+  order Int @default(0)
 
-  active      Boolean   @default(true)
+  active   Boolean   @default(true)
   /// A diferencia de Banner, ambos son opcionales: un patrocinado puede no
   /// tener ventana de vigencia y permanecer activo indefinidamente mientras
   /// `active` sea true.
-  startsAt    DateTime?
-  endsAt      DateTime?
+  startsAt DateTime?
+  endsAt   DateTime?
 
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([categoryId, active])
 }
@@ -1186,8 +1186,14 @@ model Post {
   /// Resumen corto: aparece en tarjetas de listado y como meta description fallback.
   /// En PAGE solo se usa como fallback de metaDescription (no hay listado de páginas).
   excerpt         String?    @db.Text
-  /// Cuerpo en Markdown raw.
-  body            String     @db.Text @default("")
+  /// Sistema de bloques: array ORDENADO (la posición en el array es el orden,
+  /// no hay campo `order` por bloque) de objetos { id, type, ...datos }, unión
+  /// discriminada por `type` en TS/DTOs (9 tipos: text, faq, hub, image, cta,
+  /// quote, video, separator, table). Sustituye al `body: String` Markdown
+  /// (corte limpio, sin migración — ver commands/ para el seed de QA).
+  /// Validado en profundidad en el DTO (discriminador class-transformer) y en
+  /// el servicio (reglas cruzadas, p. ej. table.rows[i].length === headers.length).
+  blocks          Json       @default("[]")
   status          PostStatus @default(DRAFT)
   /// URL de la imagen de portada (obtenida vía POST /media/upload). En PAGE es
   /// opcional y solo se usa como OG image, nunca como hero visual de la página.
@@ -1202,22 +1208,66 @@ model Post {
   author          User       @relation("PostAuthor", fields: [authorId], references: [id])
   /// Gating de publicación y auditoría. En PAGE no se muestra en la propia página.
   publishedAt     DateTime?
-  /// Solo PAGE — marca si aparece en el bloque dinámico de enlaces legales del
-  /// footer (validado en el servicio, no en el schema). El footer se sirve desde
-  /// un cache (unstable_cache, tag 'footer-pages'), nunca con query directa por
-  /// request — ver revalidateTag() en BlogService.
-  showInFooter    Boolean    @default(false)
-  /// Orden de aparición en el footer (ascendente). Solo relevante junto a
-  /// showInFooter=true. También determina el orden de la COLUMNA de su grupo
-  /// (el mínimo footerOrder entre las páginas de un mismo footerGroup).
-  footerOrder     Int?
-  /// Nombre de columna del footer agrupado (texto libre, p.ej. "Legal",
-  /// "Ayuda"). null → columna sin encabezado (la página no desaparece).
-  /// Solo PAGE, validado en el servicio como showInFooter/footerOrder.
-  footerGroup     String?
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
 
+  /// Ítems de navegación del footer que enlazan a esta página (type=PAGE). Un
+  /// Post con footerItems no vacío no puede borrarse (ver FooterItem.page,
+  /// onDelete: Restrict) — el servicio precomprueba y da un 400 legible antes
+  /// de que la constraint física falle.
+  footerItems FooterItem[]
+
   @@index([type, status, publishedAt])
-  @@index([type, status, showInFooter])
+}
+
+// ============================================================================
+//  FOOTER NAVIGATION — estructura propia (columnas + ítems), independiente del
+//  contenido (Post). Un ítem apunta a página del CMS / ruta interna / URL
+//  externa — ver FooterItem para el destino discriminado.
+// ============================================================================
+
+/// Tipo de destino de un FooterItem. Discrimina qué campo del destino aplica
+/// (pageId vs url) — validado en el servicio, no con un CHECK de schema
+/// (mismo estilo que Post.assertFooterFieldsAllowed).
+enum FooterItemType {
+  PAGE
+  INTERNAL
+  EXTERNAL
+}
+
+model FooterColumn {
+  id        String       @id @default(cuid())
+  /// null = columna sin encabezado (mismo significado que footerGroup=null
+  /// en el sistema anterior basado en Post).
+  name      String?
+  order     Int          @default(0)
+  items     FooterItem[]
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+}
+
+model FooterItem {
+  id       String         @id @default(cuid())
+  columnId String
+  column   FooterColumn   @relation(fields: [columnId], references: [id], onDelete: Cascade)
+  /// Texto visible del enlace — independiente de Post.title (el admin puede
+  /// acortarlo/personalizarlo sin tocar la página).
+  label    String
+  order    Int            @default(0)
+  type     FooterItemType
+
+  /// Solo type=PAGE. onDelete: Restrict — borrar una página enlazada desde el
+  /// footer debe rechazarse con un 400 legible (precomprobado en el
+  /// servicio), nunca reventar en silencio ni borrar el ítem sin avisar.
+  pageId String?
+  page   Post?   @relation(fields: [pageId], references: [id], onDelete: Restrict)
+
+  /// type=INTERNAL (ruta relativa, sin registro de rutas reales — ver nota en
+  /// el DTO) o type=EXTERNAL (URL absoluta). null si type=PAGE.
+  url String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([columnId, order])
 }

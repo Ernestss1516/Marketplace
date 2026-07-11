@@ -6,7 +6,8 @@ import { ListPublicPostsDto } from './dto/list-public-posts.dto';
 // Público, sin guards — mismo patrón que BlogController, pero type=PAGE
 // (páginas informativas: términos, privacidad...). GET / solo lo consume el
 // sitemap (no hay UI que liste páginas; se enlazan manualmente, p.ej. desde el
-// footer).
+// footer). El endpoint del footer ya no vive aquí — ver GET /footer en
+// FooterController (modules/footer): el footer dejó de derivarse de Post.
 @ApiTags('Pages')
 @Controller('paginas')
 export class PagesController {
@@ -15,15 +16,6 @@ export class PagesController {
   @Get()
   listPublished(@Query() dto: ListPublicPostsDto) {
     return this.blogService.listPublishedPages(dto);
-  }
-
-  // IMPORTANTE: esta ruta estática debe declararse ANTES de @Get(':slug') — si
-  // no, Nest la trataría como findBySlug('footer') y este endpoint nunca se
-  // alcanzaría (mismo gotcha ya documentado en AdminController para
-  // categories/searchable-keys y categories/reorder).
-  @Get('footer')
-  listFooter() {
-    return this.blogService.listFooterPages();
   }
 
   @Get(':slug')

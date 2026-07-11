@@ -1,17 +1,5 @@
-import {
-  IsArray,
-  IsBoolean,
-  IsInt,
-  IsOptional,
-  IsString,
-  IsUrl,
-  Matches,
-  MaxLength,
-} from 'class-validator';
-import { Transform } from 'class-transformer';
-
-const trimToUndefined = ({ value }: { value: unknown }) =>
-  typeof value === 'string' ? value.trim() || undefined : value;
+import { IsArray, IsOptional, IsString, IsUrl, Matches } from 'class-validator';
+import { BlockDto, ValidBlocksArray } from './blocks/block.dto';
 
 // type (POST|PAGE) deliberately has NO field here — it's immutable after creation.
 // ValidationPipe({ forbidNonWhitelisted: true }) rejects any request that tries to
@@ -35,8 +23,8 @@ export class UpdatePostDto {
   excerpt?: string;
 
   @IsOptional()
-  @IsString()
-  body?: string;
+  @ValidBlocksArray()
+  blocks?: BlockDto[];
 
   @IsOptional()
   @IsUrl({ require_tld: false, require_protocol: true })
@@ -54,19 +42,4 @@ export class UpdatePostDto {
   @IsOptional()
   @IsString()
   metaDescription?: string;
-
-  // Solo aplican a PAGE — el servicio rechaza (400) si el post es POST.
-  @IsOptional()
-  @IsBoolean()
-  showInFooter?: boolean;
-
-  @IsOptional()
-  @IsInt()
-  footerOrder?: number;
-
-  @IsOptional()
-  @Transform(trimToUndefined)
-  @IsString()
-  @MaxLength(50)
-  footerGroup?: string;
 }

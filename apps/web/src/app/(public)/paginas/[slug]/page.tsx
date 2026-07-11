@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { getPage } from '@/lib/api/blog';
 import { ApiError } from '@/lib/api/client';
 import { SITE_NAME, SITE_URL } from '@/config';
-import { MarkdownBody } from '@/components/blog/MarkdownBody';
+import { BlockRenderer } from '@/components/blocks/BlockRenderer';
 
 export const revalidate = 3600;
 
@@ -81,7 +81,7 @@ export default async function InfoPagePage({
             {page.title}
           </h1>
 
-          <MarkdownBody body={page.body} />
+          <BlockRenderer blocks={page.blocks} />
         </article>
       </div>
     </>

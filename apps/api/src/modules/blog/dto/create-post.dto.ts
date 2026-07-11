@@ -1,23 +1,14 @@
 import {
   IsArray,
-  IsBoolean,
   IsEnum,
-  IsInt,
   IsNotEmpty,
   IsOptional,
   IsString,
   IsUrl,
   Matches,
-  MaxLength,
 } from 'class-validator';
-import { Transform } from 'class-transformer';
 import { PostType } from '@prisma/client';
-
-// Trim + blank→undefined es higiene de datos, no una regla de negocio — vive en
-// el DTO. La regla "solo aplica a PAGE" sí depende del type resuelto, por eso
-// vive en el servicio (assertFooterFieldsAllowed), igual que showInFooter/footerOrder.
-const trimToUndefined = ({ value }: { value: unknown }) =>
-  typeof value === 'string' ? value.trim() || undefined : value;
+import { BlockDto, ValidBlocksArray } from './blocks/block.dto';
 
 export class CreatePostDto {
   // Omitido para crear un POST (blog) normal — el service usa PostType.POST por
@@ -42,9 +33,12 @@ export class CreatePostDto {
   @IsString()
   excerpt?: string;
 
+  // Array ordenado (el orden ES la posición en el array, no un campo `order`
+  // — no son filas separadas como FooterItem). Omitido → [] en el servicio.
+  // Validación profunda por tipo vía discriminador (ver ValidBlocksArray).
   @IsOptional()
-  @IsString()
-  body?: string;
+  @ValidBlocksArray()
+  blocks?: BlockDto[];
 
   @IsOptional()
   @IsUrl({ require_tld: false, require_protocol: true })
@@ -62,24 +56,4 @@ export class CreatePostDto {
   @IsOptional()
   @IsString()
   metaDescription?: string;
-
-  // Solo aplican a type=PAGE — el servicio rechaza (400) si se envían junto a un
-  // POST (el DTO no puede validar esto por sí solo: valida antes de resolver el
-  // default type ?? POST). Ver BlogService.assertFooterFieldsAllowed().
-  @IsOptional()
-  @IsBoolean()
-  showInFooter?: boolean;
-
-  @IsOptional()
-  @IsInt()
-  footerOrder?: number;
-
-  // Nombre de columna en el footer agrupado — texto libre, NO enum. Trim
-  // aplicado aquí (higiene); blank pasa a undefined. Sin normalización de
-  // mayúsculas: el admin controla el casing visible del encabezado.
-  @IsOptional()
-  @Transform(trimToUndefined)
-  @IsString()
-  @MaxLength(50)
-  footerGroup?: string;
 }
