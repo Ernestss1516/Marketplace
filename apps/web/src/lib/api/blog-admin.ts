@@ -96,3 +96,16 @@ export function unpublishAdminPost(token: string, id: string): Promise<AdminPost
 export function deleteAdminPost(token: string, id: string): Promise<void> {
   return apiFetch<void>(`/admin/blog/${id}`, { method: 'DELETE', token });
 }
+
+// Upload-only para el bloque `image` (molde sponsored-ads): sube a R2 con
+// prefijo `blocks/`, NO crea ListingImage. Distinto de uploadMedia/uploadAvatar
+// (lib/api/media.ts) — vive aquí porque es específico del dominio blog/bloques.
+export function uploadBlockImage(file: File, token: string): Promise<{ url: string }> {
+  const body = new FormData();
+  body.append('file', file);
+  return apiFetch<{ url: string }>('/admin/blog/upload-image', {
+    method: 'POST',
+    body,
+    token,
+  });
+}

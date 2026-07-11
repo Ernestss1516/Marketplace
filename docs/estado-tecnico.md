@@ -35,7 +35,7 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **AuditLog** | ✅ Completo | `AuditLogService.log()` inyectable; captura explícita `before`/`after` dentro del método de service que muta el recurso, antes de llamar a Prisma; nunca vía interceptor (ver §2). **RF.12b**: `log(dto, tx?)` admite segundo parámetro `tx: Prisma.TransactionClient` opcional; si se pasa, el `prisma.auditLog.create` corre dentro de la transacción del llamador; backward-compat con todos los callers existentes (Fase 7) |
 | **Moderation** | ✅ Completo | Reportes CRUD + cola (GET con filtros status/reason/page); acciones sobre listings (approve, reject, deactivate, restore); `BadWordService` con fallback silencioso al publicar; AuditLog en todas las mutaciones; roles MODERATOR + ADMIN |
 | **Admin** | ✅ Completo (RC5.2) | Listings (list, detail, PATCH status); Users (list, detail, suspend, ban, reinstate, role); Categories CRUD + batch reorder; Settings GET + PATCH con whitelist; `GET /admin/stats` con 7 métricas + Meilisearch null-fallback; todos los endpoints con `@Roles(ADMIN)` y AuditLog. **RF.7**: whitelist de settings ampliada con `freeActiveListingLimit` y `proActiveListingLimit`; ambos configurables desde el backoffice sin redeploy. **RC5.2**: `createCategory` y `updateCategory` validan que el schema efectivo (propio + heredado del padre) tenga ≤ 2 atributos con `cardAttribute: true` (→ 400 si supera). `GET /admin/categories/searchable-keys` (ADMIN-only) → `{ keys }` para que RC5.3 pueda deshabilitar el checkbox `filterable` en atributos no listados; **RÁFAGA 0**: `keys` ahora viene de `FilterableAttributesResolver.getAttributeTypes()` (dinámico) en vez de la constante `VARIABLE_ATTRIBUTE_KEYS` (eliminada) — mismo contrato de respuesta, tooltip del editor actualizado en consecuencia. **Cierre Fase 5.2 (ráfaga de integridad)**: `deleteCategory` cuenta anuncios de **cualquier** `status` (antes solo `ACTIVE`), eliminando un 500 no controlado — ver «Mapa de integridad» más abajo; `GET /admin/categories/:id/attribute-usage?key=X` (ADMIN-only) cuenta anuncios con datos bajo una key concreta, usado por el editor para avisar antes de renombrar un atributo con datos. |
-| **Blog** | ✅ Completo (Ráfaga 1 bloques) | Modelo `Post` (enum `PostStatus { DRAFT, PUBLISHED }`, `tags String[]`, `coverUrl`, campos SEO opcionales `metaTitle`/`metaDescription`; también cubre páginas informativas vía `type: PostType`). **Contenido en `blocks: Json` (sistema de bloques, 9 tipos discriminados por `type`), YA NO `body: String` Markdown** — ver «Sistema de bloques — Ráfaga 1» en §3 para el detalle completo (esquema, validación, renderizadores; el editor visual llega en la Ráfaga 2, `PostForm` queda con los metadatos editables y una nota). `BlogController`: `GET /blog` (solo PUBLISHED, paginado, filtro `?tag=`) y `GET /blog/:slug` (404 si no existe o es DRAFT). `BlogAdminController` (`@Roles(ADMIN)`): CRUD completo + `POST /admin/blog/:id/publish` + `POST /admin/blog/:id/unpublish`. AuditLog en todas las mutaciones (`POST_CREATE`, `POST_UPDATE`, `POST_PUBLISH`, `POST_UNPUBLISH`, `POST_DELETE`). Revalidación ISR on-demand fire-and-forget al publicar/despublicar/editar/borrar posts publicados vía `RevalidateService` compartido (ver **Footer** más abajo — extraído de aquí). `BlogModule` importa `PrismaModule` + `AuditLogModule` + `RevalidateModule`; autónomo, no modifica `AdminModule`. **Ya NO gestiona la navegación del footer** (`showInFooter`/`footerOrder`/`footerGroup` retirados de `Post` — ver módulo **Footer**) |
+| **Blog** | ✅ Completo (Ráfaga 1 bloques + Ráfaga 2 editor) | Modelo `Post` (enum `PostStatus { DRAFT, PUBLISHED }`, `tags String[]`, `coverUrl`, campos SEO opcionales `metaTitle`/`metaDescription`; también cubre páginas informativas vía `type: PostType`). **Contenido en `blocks: Json` (sistema de bloques, 9 tipos discriminados por `type`), YA NO `body: String` Markdown** — ver «Sistema de bloques — Ráfaga 1» y «Sistema de bloques — Ráfaga 2» en §3 para el detalle completo (esquema, validación, renderizadores, y el editor visual con el que un admin no técnico construye los 9 tipos desde `/admin`). `BlogController`: `GET /blog` (solo PUBLISHED, paginado, filtro `?tag=`) y `GET /blog/:slug` (404 si no existe o es DRAFT). `BlogAdminController` (`@Roles(ADMIN)`): CRUD completo + `POST /admin/blog/:id/publish` + `POST /admin/blog/:id/unpublish` + `POST /admin/blog/upload-image` (Ráfaga 2, molde sponsored-ads, prefijo `blocks/`). AuditLog en todas las mutaciones (`POST_CREATE`, `POST_UPDATE`, `POST_PUBLISH`, `POST_UNPUBLISH`, `POST_DELETE`). Revalidación ISR on-demand fire-and-forget al publicar/despublicar/editar/borrar posts publicados vía `RevalidateService` compartido (ver **Footer** más abajo — extraído de aquí). `BlogModule` importa `PrismaModule` + `AuditLogModule` + `RevalidateModule`; autónomo, no modifica `AdminModule`. **Ya NO gestiona la navegación del footer** (`showInFooter`/`footerOrder`/`footerGroup` retirados de `Post` — ver módulo **Footer**) |
 | **Footer** | ✅ Completo | Navegación del footer como entidad propia (`FooterColumn`+`FooterItem`), independiente de `Post` — sustituye a `Post.showInFooter/footerOrder/footerGroup`. `type: FooterItemType (PAGE\|INTERNAL\|EXTERNAL)` con destino discriminado validado en `FooterService` (no en el DTO ni con un CHECK de schema); `pageId` FK a `Post` con `onDelete: Restrict` + precheck en `BlogService.adminDelete` (molde `deleteCategory`). `GET /footer` público (resuelto: `href`/`external`, páginas DRAFT omitidas). `GET|POST|PATCH|DELETE /admin/footer/{columns,items}` + `.../reorder` (molde `categories/reorder`), `@Roles(ADMIN)`. Ver «Navegación del footer como entidad propia» en §3 para el detalle completo (migración en dos pasos, `RevalidateService` compartido, molde de UI) |
 | **Favorites** | ✅ Completo | `POST /favorites/:listingId` (marcar), `DELETE /favorites/:listingId` (desmarcar), `GET /favorites` (paginado), `GET /favorites/:listingId` (check), `POST /favorites/batch-check` (máx. 100 ids → `{ favoritedIds }`). Todos idempotentes y con `JwtAuthGuard`. Suite `favorites.e2e-spec.ts` (12 tests) |
 | **Reviews** | ✅ Completo (H7) | `POST /reviews` (crear; guard de elegibilidad vía `Conversation`; snapshot de `listingTitle`), `GET /reviews/eligibility?listingId=&targetId=` (check antes de mostrar el formulario), `PATCH /reviews/:id` (editar en ventana 72 h; persiste `editedAt`), `DELETE /reviews/:id` (borrar en ventana 72 h). Listado público via `GET /users/:slug/reviews` (cursor paginado + aggregate on-the-fly: average, count, distribución 1–5). Unicidad `(authorId, targetId, listingId)` — una reseña por par de usuarios por anuncio. `FAKE_REVIEW` añadido a `ReportReason`; `Report.reviewId` FK con CASCADE para moderar reseñas. **H7**: `Review.listingId` es `onDelete: SetNull` (nullable) — la reseña sobrevive al borrado del anuncio con snapshot `listingTitle`; ver «H7 — La reseña sobrevive al borrado del anuncio» más abajo. Suite `reviews.e2e-spec.ts` (24 tests) |
@@ -157,6 +157,7 @@ enlaces ancla — funcionan en GitHub y en la vista previa de Markdown de VS Cod
 - [Footer estructurado en columnas por grupos (BLOG-FOOTER-COLUMNAS)](#footer-estructurado-en-columnas-por-grupos-blog-footer-columnas)
 - [Navegación del footer como entidad propia (FooterColumn/FooterItem) — retira BLOG-FOOTER-DINAMICO/COLUMNAS](#navegación-del-footer-como-entidad-propia-footercolumnfooteritem-retira-blog-footer-dinamicocolumnas)
 - [Sistema de bloques — Ráfaga 1: modelo + validación + los 9 renderizadores (SIN editor)](#sistema-de-bloques-ráfaga-1-modelo-validación-los-9-renderizadores-sin-editor)
+- [Sistema de bloques — Ráfaga 2: el editor completo (cierra el sistema de contenido)](#sistema-de-bloques-ráfaga-2-el-editor-completo-cierra-el-sistema-de-contenido)
 - [CI: `footer-paginas.spec.ts` fallaba consistentemente — causa raíz real (`APP_URL` equivocado, no el secret)](#ci-footer-paginasspects-fallaba-consistentemente-causa-raíz-real-appurl-equivocado-no-el-secret)
 - [Protección anti-degradación de ADMIN en cambio de rol (Fase 7)](#protección-anti-degradación-de-admin-en-cambio-de-rol-fase-7)
 - [Límites de anuncios activos por plan y configuración en caliente (RF.7-A)](#límites-de-anuncios-activos-por-plan-y-configuración-en-caliente-rf7-a)
@@ -2192,6 +2193,135 @@ mobile 390px), incluido el iframe de vídeo (confirmado por HTML servido —
 captura solo por falta de red saliente en el entorno de verificación, no un
 bug); `/admin/blog/nuevo` muestra la nota de "editor en la próxima ráfaga" y
 el resto del formulario de metadatos funciona con normalidad.
+
+### Sistema de bloques — Ráfaga 2: el editor completo (cierra el sistema de contenido)
+
+Sustituye la nota placeholder de `PostForm.tsx` por un editor visual completo
+— un admin no técnico puede construir un post/página con los 9 tipos sin
+tocar JSON ni Markdown crudo (salvo el bloque `text`, que sigue siendo
+Markdown por decisión ya aprobada en R1, pero con toolbar de botones).
+
+**Andamiaje** (`admin/blog/_components/block-editor/`): `BlockEditor.tsx` es
+el contenedor — el estado es simplemente el array `blocks` de `PostForm`,
+igual que título/slug/excerpt. Añadir/reordenar/borrar son manipulaciones
+del array EN CLIENTE, sin ningún endpoint propio — a diferencia de
+categorías/footer (filas separadas, con `PATCH .../reorder` y transacción
+multi-fila), los bloques viven en un único array Json de una sola fila
+`Post`, así que el "guardado" real es el mismo `POST`/`PATCH
+/admin/blog[/:id]` que ya existía desde R1, con el array completo dentro.
+`BlockTypePicker.tsx` — panel de tarjetas (no un `<select>` compacto): cada
+tipo necesita espacio para nombre Y descripción en lenguaje claro ("FAQ:
+preguntas desplegables", no "faq") — es el requisito central de "usable por
+no técnicos". `BlockEditorRow.tsx` — switch exhaustivo sobre el union
+(`assertUnreachable`, mismo patrón que `BlockRenderer.tsx`) con flechas ↑↓
+(deshabilitadas en extremos) y borrado con confirmación SOLO si el bloque ya
+tiene contenido (`blockHasContent()` por tipo — un bloque recién añadido y
+vacío se quita sin fricción). El preview reutiliza el **mismo**
+`BlockRenderer` de R1 — "lo que ve el admin es lo que se publica", literal.
+
+**Los 9 formularios**, construidos en orden simple→caro:
+- `separator`/`quote`/`cta`: triviales (0-3 inputs). `cta.href` valida en
+  vivo con `isSafeContentUrl()` (`lib/blocks/validation.ts` — espejo
+  deliberado del validador del backend, `common/validators/safe-url.ts`: da
+  feedback inmediato sin esperar el 400, el backend sigue siendo la fuente
+  de verdad) y muestra el error junto al campo ("El enlace debe empezar por
+  `/`... o por `https://`"), nunca un 400 críptico.
+- `text`: **reuso literal** de `MarkdownEditor.tsx`/`MarkdownEditorClient.tsx`
+  — cero líneas nuevas en esos archivos, el hallazgo de seguridad sobre el
+  preview de `@uiw/react-md-editor` (documentado en R0/R1) sigue aplicando
+  sin cambios.
+- `image`: **nuevo endpoint** `POST /admin/blog/upload-image`
+  (`BlogService.uploadBlockImage`) — molde `SponsoredAdsService.uploadImage`
+  calcado: sube directo a R2 con prefijo `blocks/`, NO crea `ListingImage`.
+  `alt` es obligatorio (no opcional) en el formulario, igual que en el DTO.
+- `faq`/`hub`: **`SubItemList.tsx`** — patrón "lista repetible de
+  sub-ítems" extraído una sola vez y compartido entre ambos (única pareja de
+  bloques con arrays de objetos anidados), con las mismas flechas ↑↓ y un
+  "Quitar" deshabilitado cuando solo queda 1 ítem (backend exige
+  `ArrayMinSize(1)` — mejor deshabilitar el botón que dejar que el guardado
+  falle con un 400 evitable). La respuesta de `faq` usa un `<textarea>`
+  simple, NO el `MarkdownEditor` completo — una respuesta típica son 1-2
+  frases, montar un editor con toolbar por ítem sería más fricción que
+  ayuda; sigue pasando por `MarkdownBody`/`rehype-sanitize` al renderizar,
+  así que no pierde la sanitización por no tener toolbar.
+- `video`: el admin pega la URL tal cual la copia de YouTube/Vimeo;
+  `parseVideoUrl()` (mismo archivo `lib/blocks/validation.ts`) la convierte a
+  `{provider, videoId}` con una regex por proveedor — si no la reconoce,
+  error claro ("No reconocemos esta URL..."), sin guardar nada roto. El
+  preview reutiliza el propio `VideoBlockRenderer` de R1 (mismo iframe
+  controlado hacia `youtube-nocookie.com`). El backend re-valida el formato
+  de `videoId` de forma independiente (R1) — nunca confía en el parseo del
+  cliente.
+- `table`: la pieza más cara — grid dinámico. La invariante
+  `rows[i].length === headers.length` (exigida por
+  `BlogService.assertTableBlocksValid` desde R1) se mantiene **por
+  construcción**: añadir/quitar columna siempre toca `headers` Y todas las
+  filas en la MISMA llamada a `onChange`, así que nunca existe un estado
+  intermedio inconsistente — no hace falta validación adicional en el
+  cliente para esto, es estructuralmente imposible producir una tabla
+  inconsistente desde el editor.
+
+**Tests**:
+- `BlockEditor.test.tsx` (frontend, 32 casos — RTL, `fireEvent` no
+  `userEvent`, que no está entre las devDependencies del workspace, mismo
+  molde que `AttributeSchemaEditor.test.tsx`): andamiaje completo (añadir
+  cada uno de los 9 tipos, flechas deshabilitadas en extremos, reordenar,
+  borrar con/sin confirmación, preview con `BlockRenderer` real) + por tipo
+  (`cta`/`hub` con `href` inválido → error inline; `table` añadir/quitar
+  fila y columna mantiene la coherencia; `video` URL válida/basura). Detalle
+  de arnés de test importante: el primer intento usaba un `onChange` mock
+  "hueco" (`jest.fn()` sin actualizar estado) — los inputs controlados
+  quedaban congelados tras `fireEvent.change` porque React nunca los
+  re-renderizaba con el valor nuevo; arreglado con un wrapper de test con
+  `useState` real, igual que haría `PostForm` en producción.
+- `test/blocks.e2e-spec.ts` (backend, +5 casos sobre R1 → 30 totales):
+  `POST /admin/blog/upload-image` — 401 sin auth, 422 no-imagen, 400 sin
+  archivo, 201 con prefijo `blocks/` y sin crear `ListingImage`, y que la URL
+  devuelta pasa la validación `isOwnStorageUrl` al crear un post con ella.
+- `e2e/blog-markdown-editor.spec.ts` — **reactivado** (estaba `skip` desde
+  R1): mismos 2 casos de antes (formato variado se publica igual, `<script>`
+  literal nunca se ejecuta), adaptados para añadir primero un bloque `text`
+  vía el picker antes de interactuar con `.w-md-editor-text-input`.
+- `e2e/block-editor-full.spec.ts` (nuevo) — la prueba de fuego pedida: un
+  admin construye una página con los 9 tipos (incluye upload real de imagen
+  vía `setInputFiles` + fixture `test-image.png`, y añadir fila/columna en la
+  tabla), guarda, publica, y se verifica cada bloque en la página pública
+  (incluido el `iframe` de vídeo por `src`, y `href`/`target`/`rel` de
+  `cta`/`hub`). `data-testid` añadidos donde hacía falta desambiguar en el
+  DOM real (`block-type-picker`, `block-row-{type}`, `block-image-input`) —
+  no existían en R1 porque no había UI que los necesitara.
+- `e2e/paginas.spec.ts` — el test de `<script>` (ya adaptado a API directa en
+  R1, sin depender del editor) sigue verde sin cambios adicionales.
+
+**Hallazgo operativo durante la verificación** (no es un bug de código): la
+batería completa de Jest e2e falló ~80 tests con "not indexed in
+Meilisearch" de forma reproducible, en módulos totalmente ajenos a blog/
+bloques (search, rc5b-vehiculos, sponsored-ads...). Ni reiniciar
+Meilisearch/Redis ni limpiar el índice lo arregló. Causa real: un proceso
+`pnpm dev` suelto seguía escuchando en `:3001` desde una verificación manual
+anterior (`Stop-Process` sobre el wrapper de `nest start --watch` no mató al
+hijo) — `.env`/`.env.test` comparten el mismo `REDIS_URL` y los mismos
+nombres de cola BullMQ (sin prefijo por entorno), así que ese worker de dev
+competía por los jobs de indexado del run de test y los escribía en el
+índice de **dev**, no en `listings_test`. Matar ese proceso resolvió el 100%
+de los fallos al instante. Ver [[feedback_e2e_zombie_dev_process]] en
+memoria — antes de sospechar de Meilisearch/Redis/BullMQ, comprobar
+`Get-NetTCPConnection -LocalPort 3001`.
+
+**Hallazgo aparte, fuera de alcance de esta ráfaga**: al correr por primera
+vez la batería Playwright COMPLETA (antes solo se había verificado
+`footer-admin.spec.ts` con un script manual de capturas, nunca con
+`npx playwright test`), 3 de sus 5 casos fallan de forma reproducible — el
+selector de "página del CMS" en `/admin/footer` no encuentra la página recién
+creada. No investigado a fondo (pertenece a la ráfaga de footer, no a esta);
+ver [[project_footer_admin_e2e_broken]] en memoria.
+
+Verificado en vivo (Playwright real, no mocks): `block-editor-full.spec.ts`
+construye una página con los 9 bloques desde `/admin/paginas/nueva`
+(incluida una subida de imagen real a R2/MinIO y edición de la tabla),
+publica, y confirma cada bloque en `/paginas/[slug]` — 3/3 tests verdes
+(este + los 2 de `blog-markdown-editor.spec.ts`) en ejecuciones repetidas
+con estado limpio.
 
 ### CI: `footer-paginas.spec.ts` fallaba consistentemente — causa raíz real (`APP_URL` equivocado, no el secret)
 

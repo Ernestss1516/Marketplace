@@ -27,6 +27,7 @@ export default function NuevaPaginaPage() {
         title: values.title,
         slug: values.slug || undefined,
         excerpt: values.excerpt || undefined,
+        blocks: values.blocks,
         coverUrl: values.coverUrl || undefined,
         metaTitle: values.metaTitle || undefined,
         metaDescription: values.metaDescription || undefined,

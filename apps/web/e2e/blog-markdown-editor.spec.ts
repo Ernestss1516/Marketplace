@@ -1,25 +1,18 @@
-// BLOG — editor de markdown estilo GitHub (@uiw/react-md-editor) en PostForm.
-//
-// Verifica que el editor WYSIWYG-de-sintaxis reemplaza el textarea sin romper el
-// resto del formulario, que el markdown escrito se guarda y se publica
-// correctamente, y que la regla invariante de seguridad se mantiene: un <script>
-// literal escrito en el editor nunca se ejecuta, ni en el preview del admin ni en
-// la página pública del post.
+// BLOG — editor de markdown estilo GitHub (@uiw/react-md-editor), ahora
+// montado DENTRO del bloque `text` del editor de bloques (Ráfaga 2), no
+// directo en PostForm como antes de la Ráfaga 1. Verifica que el editor
+// WYSIWYG-de-sintaxis funciona igual que antes (reuso literal de
+// MarkdownEditor.tsx — cero cambios en ese componente), que el markdown se
+// guarda y se publica correctamente, y que la regla invariante de seguridad
+// se mantiene: un <script> literal escrito en el editor nunca se ejecuta, ni
+// en el preview del editor de bloques ni en la página pública del post.
 //
 // Prerequisites: global-setup seeds admin-e2e@example.com (ADMIN).
-//
-// SKIP (Sistema de bloques, Ráfaga 1): PostForm ya no monta este editor —
-// Post.body fue sustituido por Post.blocks (ver blog.service.ts) y el campo
-// de cuerpo se ocultó del formulario hasta que exista el editor de bloques
-// (Ráfaga 2). El componente MarkdownEditor.tsx NO se tocó ni se eliminó — la
-// Ráfaga 2 lo reconecta tal cual como el editor del bloque `text` (mismo
-// hallazgo de seguridad sobre el preview de @uiw/react-md-editor sigue
-// aplicando entonces). Reactivar este spec en cuanto ese editor exista.
 
 import { test, expect } from './fixtures/auth';
 
-test.describe.skip('Editor de markdown en /admin/blog/nuevo', () => {
-  test('ADMIN escribe un post con formato variado, lo guarda y lo publica; el público lo renderiza igual', async ({
+test.describe('Editor de markdown (bloque "Texto") en /admin/blog/nuevo', () => {
+  test('ADMIN añade un bloque de texto con formato variado, lo guarda y lo publica; el público lo renderiza igual', async ({
     adminContext,
   }) => {
     const page = await adminContext.newPage();
@@ -31,6 +24,10 @@ test.describe.skip('Editor de markdown en /admin/blog/nuevo', () => {
 
     const title = `Post editor rico ${Date.now()}`;
     await titleInput.fill(title);
+
+    // Añadir un bloque de texto — el editor arranca vacío (Ráfaga 2).
+    await page.getByRole('button', { name: 'Añadir bloque' }).click();
+    await page.getByText('Texto', { exact: true }).click();
 
     // El editor de @uiw/react-md-editor renderiza un <textarea> real bajo
     // .w-md-editor-text-input en modo "edit" (fijado así en MarkdownEditor.tsx —
@@ -82,6 +79,9 @@ test.describe.skip('Editor de markdown en /admin/blog/nuevo', () => {
     const title = `Post XSS check ${Date.now()}`;
     await titleInput.fill(title);
 
+    await page.getByRole('button', { name: 'Añadir bloque' }).click();
+    await page.getByText('Texto', { exact: true }).click();
+
     const editorTextarea = page.locator('.w-md-editor-text-input');
     await expect(editorTextarea).toBeVisible();
     await editorTextarea.click();
@@ -89,14 +89,17 @@ test.describe.skip('Editor de markdown en /admin/blog/nuevo', () => {
       'Texto normal.\n\n<script>window.__xss_executed = true;</script>\n',
     );
 
-    // Preview del propio editor (toggle existente en PostForm, tubería
-    // react-markdown + remark-gfm + rehype-sanitize, sin rehype-raw) — el script
-    // no debe ejecutarse aquí tampoco.
+    // Preview del editor de bloques (BlockEditor, reutiliza el mismo
+    // BlockRenderer que el sitio público — tubería react-markdown +
+    // remark-gfm + rehype-sanitize, sin rehype-raw) — el script no debe
+    // ejecutarse aquí tampoco.
     await page.getByRole('button', { name: /ver preview/i }).click();
     await page.waitForTimeout(300);
     const executedInEditor = await page.evaluate(() => (window as unknown as { __xss_executed?: boolean }).__xss_executed === true);
     expect(executedInEditor).toBe(false);
+    await expect(page.getByText('Texto normal.')).toBeVisible();
 
+    await page.getByRole('button', { name: /ocultar preview/i }).click();
     await page.getByRole('button', { name: 'Guardar borrador' }).click();
     await page.waitForURL(/\/admin\/blog\/.+\/editar/, { timeout: 10_000 });
     await page.getByRole('button', { name: /publicar/i }).click();
@@ -110,5 +113,6 @@ test.describe.skip('Editor de markdown en /admin/blog/nuevo', () => {
 
     const executedPublic = await page.evaluate(() => (window as unknown as { __xss_executed?: boolean }).__xss_executed === true);
     expect(executedPublic).toBe(false);
+    await expect(page.getByText('Texto normal.')).toBeVisible();
   });
 });

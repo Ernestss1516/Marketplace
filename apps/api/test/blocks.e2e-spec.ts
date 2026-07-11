@@ -254,4 +254,70 @@ describe('Sistema de bloques — validación (e2e)', () => {
     const unchanged = await prisma.post.findUniqueOrThrow({ where: { id } });
     expect(unchanged.blocks).toEqual([{ id: 'b1', type: 'text', markdown: 'original' }]);
   });
+
+  // ── POST /admin/blog/upload-image (Ráfaga 2, bloque `image`) ─────────────
+  // Molde media.e2e-spec.ts (upload-avatar): sube a R2, NO crea ListingImage.
+
+  describe('POST /admin/blog/upload-image', () => {
+    // Minimal 1×1 JPEG in memory — no filesystem dependency.
+    const TINY_JPEG = Buffer.from(
+      '/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkS' +
+      'Ew8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJ' +
+      'CQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIy' +
+      'MjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAFAABAAAAAAAAAAAAAAAAAAAACf/' +
+      'EABQQAQAAAAAAAAAAAAAAAAAAAAD/xAAUAQEAAAAAAAAAAAAAAAAAAAAA/8QAFBEBAAAA' +
+      'AAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/AJQA/9k=',
+      'base64',
+    );
+
+    it('sin auth → 401', async () => {
+      await request(app.getHttpServer())
+        .post('/api/admin/blog/upload-image')
+        .attach('file', TINY_JPEG, { filename: 'x.jpg', contentType: 'image/jpeg' })
+        .expect(401);
+    });
+
+    it('archivo no-imagen → 422', async () => {
+      await request(app.getHttpServer())
+        .post('/api/admin/blog/upload-image')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .attach('file', Buffer.from('not an image'), { filename: 'x.txt', contentType: 'text/plain' })
+        .expect(422);
+    });
+
+    it('sin archivo → 400', async () => {
+      await request(app.getHttpServer())
+        .post('/api/admin/blog/upload-image')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(400);
+    });
+
+    it('autenticado → 201 { url } con prefijo blocks/, y NO crea ListingImage', async () => {
+      const countBefore = await prisma.listingImage.count();
+
+      const res = await request(app.getHttpServer())
+        .post('/api/admin/blog/upload-image')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .attach('file', TINY_JPEG, { filename: 'x.jpg', contentType: 'image/jpeg' })
+        .expect(201);
+
+      expect(res.body).toHaveProperty('url');
+      expect(res.body.url).toMatch(/blocks\//);
+
+      const countAfter = await prisma.listingImage.count();
+      expect(countAfter).toBe(countBefore);
+    });
+
+    it('la URL devuelta pasa la validación isOwnStorageUrl del bloque image', async () => {
+      const uploadRes = await request(app.getHttpServer())
+        .post('/api/admin/blog/upload-image')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .attach('file', TINY_JPEG, { filename: 'x.jpg', contentType: 'image/jpeg' })
+        .expect(201);
+
+      await createPost('Post con imagen subida real', [
+        { id: 'b1', type: 'image', url: uploadRes.body.url, alt: 'alt' },
+      ]).expect(201);
+    });
+  });
 });

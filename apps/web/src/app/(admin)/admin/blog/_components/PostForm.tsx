@@ -5,11 +5,14 @@ import { AlertCircle, Loader2, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { uploadMedia } from '@/lib/api/media';
 import { ApiError } from '@/lib/api/client';
+import type { Block } from '@/types/blocks';
+import { BlockEditor } from './block-editor/BlockEditor';
 
 export interface PostFormValues {
   title: string;
   slug: string;
   excerpt: string;
+  blocks: Block[];
   tags: string;
   coverUrl: string;
   metaTitle: string;
@@ -20,6 +23,7 @@ export const EMPTY_POST_FORM: PostFormValues = {
   title: '',
   slug: '',
   excerpt: '',
+  blocks: [],
   tags: '',
   coverUrl: '',
   metaTitle: '',
@@ -122,15 +126,13 @@ export function PostForm({
         />
       </div>
 
-      {/* Cuerpo — sistema de bloques (Ráfaga 1: modelo + validación + renderizadores,
-          sin editor todavía). El editor visual de bloques llega en la Ráfaga 2;
-          hasta entonces, el contenido de un post/página se gestiona directo en BD
-          o se conserva tal cual al editar solo metadatos aquí. */}
-      <div className="rounded-md border border-dashed bg-muted/20 p-4 text-sm text-muted-foreground">
-        El editor de contenido por bloques llega en la próxima ráfaga. De momento
-        este formulario solo edita metadatos (título, resumen, portada, etiquetas,
-        SEO) — el contenido existente del post no se toca al guardar.
-      </div>
+      {/* Cuerpo — sistema de bloques (Ráfaga 2: editor completo). */}
+      <BlockEditor
+        blocks={values.blocks}
+        onChange={(blocks) => onChange({ blocks })}
+        token={token}
+        disabled={isSubmitting}
+      />
 
       {/* Tags — no aplica a páginas informativas */}
       {showTagsField && (

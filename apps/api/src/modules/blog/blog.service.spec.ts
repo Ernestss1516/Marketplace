@@ -3,6 +3,7 @@ import { BlogService } from './blog.service';
 import type { PrismaService } from '../../infra/prisma/prisma.service';
 import type { AuditLogService } from '../audit-log/audit-log.service';
 import type { RevalidateService } from '../../common/revalidate/revalidate.service';
+import type { R2Service } from '../../infra/r2/r2.service';
 
 // La observabilidad del fetch fire-and-forget (warn en !ok / fallo de red /
 // arranque sin REVALIDATE_SECRET) vive ahora en revalidate.service.spec.ts —
@@ -33,6 +34,13 @@ function buildRevalidateStub() {
   } as unknown as RevalidateService;
 }
 
+function buildR2Stub() {
+  return {
+    upload: jest.fn(),
+    getPublicUrl: jest.fn(),
+  } as unknown as R2Service;
+}
+
 function makePublishedPage() {
   return {
     id: 'page-1',
@@ -58,7 +66,7 @@ describe('BlogService — delegación a RevalidateService', () => {
     (prisma.post.update as jest.Mock).mockResolvedValue(page);
     const revalidate = buildRevalidateStub();
 
-    const service = new BlogService(prisma, buildAuditLogStub(), revalidate);
+    const service = new BlogService(prisma, buildAuditLogStub(), revalidate, buildR2Stub());
     await service.adminUpdate(page.id, 'actor-1', { title: 'Ayuda actualizada' });
 
     expect(revalidate.revalidatePath).toHaveBeenCalledWith('/paginas/ayuda');
@@ -72,7 +80,7 @@ describe('BlogService — delegación a RevalidateService', () => {
     (prisma.post.update as jest.Mock).mockResolvedValue({ ...page, status: PostStatus.PUBLISHED, publishedAt: new Date() });
     const revalidate = buildRevalidateStub();
 
-    const service = new BlogService(prisma, buildAuditLogStub(), revalidate);
+    const service = new BlogService(prisma, buildAuditLogStub(), revalidate, buildR2Stub());
     await service.adminPublish(page.id, 'actor-1');
 
     expect(revalidate.revalidatePath).toHaveBeenCalledWith('/paginas/ayuda');
@@ -86,7 +94,7 @@ describe('BlogService — delegación a RevalidateService', () => {
     (prisma.post.update as jest.Mock).mockResolvedValue({ ...page, status: PostStatus.DRAFT, publishedAt: null });
     const revalidate = buildRevalidateStub();
 
-    const service = new BlogService(prisma, buildAuditLogStub(), revalidate);
+    const service = new BlogService(prisma, buildAuditLogStub(), revalidate, buildR2Stub());
     await service.adminUnpublish(page.id, 'actor-1');
 
     expect(revalidate.revalidatePath).toHaveBeenCalledWith('/paginas/ayuda');
@@ -100,7 +108,7 @@ describe('BlogService — delegación a RevalidateService', () => {
     (prisma.footerItem.count as jest.Mock).mockResolvedValue(0);
     const revalidate = buildRevalidateStub();
 
-    const service = new BlogService(prisma, buildAuditLogStub(), revalidate);
+    const service = new BlogService(prisma, buildAuditLogStub(), revalidate, buildR2Stub());
     await service.adminDelete(page.id, 'actor-1');
 
     expect(prisma.post.delete).toHaveBeenCalledWith({ where: { id: page.id } });
@@ -114,7 +122,7 @@ describe('BlogService — delegación a RevalidateService', () => {
     (prisma.footerItem.count as jest.Mock).mockResolvedValue(2);
     const revalidate = buildRevalidateStub();
 
-    const service = new BlogService(prisma, buildAuditLogStub(), revalidate);
+    const service = new BlogService(prisma, buildAuditLogStub(), revalidate, buildR2Stub());
 
     await expect(service.adminDelete(page.id, 'actor-1')).rejects.toThrow(
       'No se puede eliminar: la página está enlazada desde 2 sitio(s) del footer',

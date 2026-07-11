@@ -2,12 +2,15 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import { Prisma, PostStatus, PostType } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { RevalidateService } from '../../common/revalidate/revalidate.service';
+import { R2Service } from '../../infra/r2/r2.service';
+import { MIME_TO_EXT } from '../media/media.service';
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
 import { ListPublicPostsDto } from './dto/list-public-posts.dto';
@@ -23,7 +26,20 @@ export class BlogService {
     private readonly prisma: PrismaService,
     private readonly auditLog: AuditLogService,
     private readonly revalidateService: RevalidateService,
+    private readonly r2: R2Service,
   ) {}
+
+  // Molde sponsored-ads (SponsoredAdsService.uploadImage): sube directo a R2,
+  // NO crea ListingImage (una imagen de bloque de contenido no es una imagen
+  // de anuncio). Prefijo propio `blocks/` para distinguirla en el bucket.
+  async uploadBlockImage(file: Express.Multer.File): Promise<{ url: string }> {
+    const ext = MIME_TO_EXT[file.mimetype];
+    if (!ext) throw new UnprocessableEntityException('File type not allowed. Use JPEG, PNG or WebP.');
+
+    const key = `blocks/${randomBytes(16).toString('hex')}${ext}`;
+    await this.r2.upload(key, file.buffer, file.mimetype);
+    return { url: this.r2.getPublicUrl(key) };
+  }
 
   // ── Public endpoints ────────────────────────────────────────────────────────
   // listPublished/findBySlug (blog, type=POST) and listPublishedPages/
