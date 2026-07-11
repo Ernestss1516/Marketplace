@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { AlertCircle, LayoutGrid, Map, Package } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ListingCard } from '@/components/anuncios/ListingCard';
+import { SponsoredCard, isSponsoredAdHit } from '@/components/anuncios/SponsoredCard';
 import { FavoritesGridProvider } from '@/components/anuncios/FavoritesGridContext';
 import { CardAttributesProvider } from '@/components/anuncios/CardAttributesContext';
 import { FilterPanel } from '@/components/busqueda/FilterPanel';
@@ -12,7 +13,7 @@ import MapViewClient from '@/components/busqueda/MapViewClient';
 import { search, type SearchResponse } from '@/lib/api/busqueda';
 import { getCategories } from '@/lib/api/categorias';
 import { buildCardAttributeMap, buildFullAttributeMap } from '@/lib/card-attributes';
-import type { AlertCriteria } from '@/types';
+import type { AlertCriteria, ListingSummary } from '@/types';
 
 const KNOWN_PARAMS = new Set([
   'q', 'category', 'type', 'condition', 'priceType',
@@ -138,6 +139,9 @@ export default async function BusquedaPage({
 
   const totalHits = data?.totalHits ?? 0;
   const hits = data?.hits ?? [];
+  // H6.6 — el patrocinado (si lo hay) va intercalado en `hits` para la parrilla de
+  // lista; el mapa y el conteo de favoritos solo conocen anuncios reales.
+  const listingHits = hits.filter((h): h is ListingSummary => !isSponsoredAdHit(h));
   const facets = data?.facets;
   const hitsPerPage = data?.hitsPerPage ?? hitsPerFetch;
   const totalPages = isMapView ? 0 : Math.ceil(totalHits / hitsPerPage);
@@ -325,22 +329,29 @@ export default async function BusquedaPage({
           {!searchError && isMapView && (
             <MapViewClient
               key={mapKey}
-              hits={hits}
+              hits={listingHits}
               totalHits={totalHits}
               listUrl={viewUrl('lista')}
               attributeMap={buildFullAttributeMap(categories)}
             />
           )}
 
-          {/* List view: grid + pagination */}
-          {!searchError && hits.length > 0 && !isMapView && (
+          {/* List view: grid + pagination. Basado en totalHits (anuncios reales), no en
+              hits.length: un patrocinado inyectado no debe disfrazar 0 resultados reales
+              como "con resultados" (evita que este bloque y el de "Sin resultados" de
+              arriba se rendericen a la vez). */}
+          {!searchError && totalHits > 0 && !isMapView && (
             <>
               <CardAttributesProvider cardAttributeMap={buildCardAttributeMap(categories)}>
-                <FavoritesGridProvider listingIds={hits.map((l) => l.id)}>
+                <FavoritesGridProvider listingIds={listingHits.map((l) => l.id)}>
                   <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-                    {hits.map((listing) => (
-                      <ListingCard key={listing.id} listing={listing} />
-                    ))}
+                    {hits.map((hit) =>
+                      isSponsoredAdHit(hit) ? (
+                        <SponsoredCard key={`sponsored-${hit.id}`} ad={hit} />
+                      ) : (
+                        <ListingCard key={hit.id} listing={hit} />
+                      ),
+                    )}
                   </div>
                 </FavoritesGridProvider>
               </CardAttributesProvider>

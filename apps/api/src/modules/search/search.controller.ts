@@ -3,6 +3,10 @@ import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { SearchService } from './search.service';
 import { FilterableAttributesResolver } from './filterable-attributes.resolver';
 import { parseSearchQuery } from './search-query.parser';
+import { SponsoredAdsService } from '../sponsored-ads/sponsored-ads.service';
+
+// Posición fija de inserción entre los hits, convención documentada en H6.1.
+const SPONSORED_AD_POSITION = 3;
 
 @ApiTags('Search')
 @Controller('search')
@@ -10,6 +14,7 @@ export class SearchController {
   constructor(
     private readonly searchService: SearchService,
     private readonly attributesResolver: FilterableAttributesResolver,
+    private readonly sponsoredAdsService: SponsoredAdsService,
   ) {}
 
   @Get()
@@ -58,7 +63,7 @@ export class SearchController {
     // Normalize flat Meilisearch documents to the ListingSummary contract expected by the
     // frontend. Variable attributes are spread at the top level in the index document but
     // the frontend card reads them from `listing.attributes` (same as the Postgres path).
-    const hits = result.hits.map((hit) => {
+    const hits: Array<Record<string, unknown>> = result.hits.map((hit) => {
       const attrs: Record<string, unknown> = {};
       for (const key of attributeTypes.keys()) {
         const v = (hit as Record<string, unknown>)[key];
@@ -75,6 +80,19 @@ export class SearchController {
         attributes: attrs,
       };
     });
+
+    // H6.6 — patrocinados: solo página 1, solo con categoría, un único hueco.
+    // Rompe conscientemente el invariante "búsqueda no toca Postgres", mitigado
+    // con la caché Redis de SponsoredAdsService (ver apps/api/CLAUDE.md).
+    if ((dto.page ?? 1) === 1 && dto.category) {
+      const sponsoredAd = await this.sponsoredAdsService.resolveForSearch(dto.category);
+      if (sponsoredAd) {
+        hits.splice(Math.min(SPONSORED_AD_POSITION, hits.length), 0, {
+          __sponsored: true,
+          ...sponsoredAd,
+        });
+      }
+    }
 
     return {
       hits,

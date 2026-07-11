@@ -28,6 +28,11 @@ frontend. Aquí viven las reglas, la persistencia, la caché, las colas y la bú
   documentos indexados incluyen todos los campos necesarios para la tarjeta
   (título, slug, precio, thumbnail, ubicación…), por lo que las consultas de
   búsqueda no requieren ninguna llamada adicional a Postgres.
+  **Excepción (H6.6, patrocinados):** en página 1 con `category`,
+  `SearchController` sí consulta Postgres (vía `SponsoredAdsService`) para
+  intercalar un anuncio patrocinado — mitigado con caché Redis por categoría
+  (TTL 5 min + invalidación en create/edit/desactivar) para no penalizar la
+  ruta caliente. Ver `docs/estado-tecnico.md` (sección H6.6).
 - **Caché:** las fichas y listados más consultados se cachean en Redis; **invalidar
   la caché al actualizar** el anuncio.
 - **Validación** siempre con DTOs (class-validator). **Autorización** con guards;

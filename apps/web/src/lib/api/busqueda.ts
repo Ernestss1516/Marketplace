@@ -1,5 +1,7 @@
-import type { ListingSummary } from '@/types';
+import type { ListingSummary, SponsoredAdHit } from '@/types';
 import { apiFetch } from './client';
+
+export type SearchHit = ListingSummary | SponsoredAdHit;
 
 export interface SearchParams {
   q?: string;
@@ -21,7 +23,7 @@ export interface SearchParams {
 }
 
 export interface SearchResponse {
-  hits: ListingSummary[];
+  hits: SearchHit[];
   totalHits: number;
   page: number;
   hitsPerPage: number;

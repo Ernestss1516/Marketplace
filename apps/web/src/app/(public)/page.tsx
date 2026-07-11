@@ -6,9 +6,11 @@ import { CategoryGrid } from '@/components/categorias/CategoryGrid';
 import { ListingCard } from '@/components/anuncios/ListingCard';
 import { FavoritesGridProvider } from '@/components/anuncios/FavoritesGridContext';
 import { CardAttributesProvider } from '@/components/anuncios/CardAttributesContext';
+import { isSponsoredAdHit } from '@/components/anuncios/SponsoredCard';
 import { BannerList } from '@/components/banners/BannerList';
 import { getCategories } from '@/lib/api/categorias';
-import { search } from '@/lib/api/busqueda';
+import { search, type SearchResponse } from '@/lib/api/busqueda';
+import type { ListingSummary } from '@/types';
 import { getActiveBanners } from '@/lib/api/banners';
 import { buildCardAttributeMap } from '@/lib/card-attributes';
 
@@ -17,16 +19,15 @@ const POPULAR_CATEGORY_COUNT = 6;
 export default async function HomePage() {
   const [categories, recentResult, banners] = await Promise.all([
     getCategories().catch(() => [] as Awaited<ReturnType<typeof getCategories>>),
-    search({ sort: 'publishedAt:desc', hitsPerPage: 8 }).catch(() => ({
-      hits: [],
-      totalHits: 0,
-      page: 1,
-      hitsPerPage: 8,
-    })),
+    search({ sort: 'publishedAt:desc', hitsPerPage: 8 }).catch(
+      (): SearchResponse => ({ hits: [], totalHits: 0, page: 1, hitsPerPage: 8 }),
+    ),
     getActiveBanners('HOME').catch(() => []),
   ]);
 
-  const recent = recentResult.hits;
+  // Nunca pasa `category`, así que SearchController nunca inyecta un patrocinado
+  // aquí — el filtro es una guarda de tipos defensiva, no una necesidad funcional.
+  const recent = recentResult.hits.filter((h): h is ListingSummary => !isSponsoredAdHit(h));
   const popularCategories = categories.slice(0, POPULAR_CATEGORY_COUNT);
 
   return (

@@ -91,6 +91,18 @@ export interface CategoryWithSchema extends Category {
   allowedListingType: ListingTypePolicy;
 }
 
+// ── Sponsored ads (H6.6) ─────────────────────────────────────────────────────
+
+/** Anuncio publicitario externo intercalado en /busqueda (página 1). No es un Listing. */
+export interface SponsoredAdHit {
+  __sponsored: true;
+  id: string;
+  title: string;
+  description: string;
+  imageUrl: string;
+  targetUrl: string;
+}
+
 // ── Listings ─────────────────────────────────────────────────────────────────
 
 export interface ListingSummary {

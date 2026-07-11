@@ -282,6 +282,7 @@ model Category {
   allowedListingType ListingTypePolicy @default(BOTH)
 
   listings  Listing[]
+  sponsoredAds SponsoredAd[]
 
   @@index([parentId])
 }
@@ -614,6 +615,7 @@ model AuditLog {
   /// REPORT_RESOLVE | REPORT_DISMISS
   /// CATEGORY_CREATE | CATEGORY_EDIT | CATEGORY_DELETE | CATEGORY_REORDER
   /// SETTING_UPDATE
+  /// SPONSORED_AD_CREATE | SPONSORED_AD_EDIT | SPONSORED_AD_ACTIVATE | SPONSORED_AD_DEACTIVATE
   action       String
 
   actorId      String
@@ -1127,6 +1129,41 @@ model Banner {
   updatedAt  DateTime          @updatedAt
 
   @@index([active, startsAt, endsAt])
+}
+
+/// Anuncio PUBLICITARIO EXTERNO gestionado por admin (H6.6) — NO es un Listing
+/// promocionado del marketplace. Se inyecta entre los resultados de búsqueda de
+/// su categoría (o de las hijas de esta). Sin billing: gestión 100% manual.
+model SponsoredAd {
+  id          String    @id @default(cuid())
+  imageUrl    String
+  title       String
+  description String    @db.Text
+  /// Enlace EXTERNO (fuera del marketplace); se abre en pestaña nueva.
+  targetUrl   String
+
+  categoryId  String
+  /// onDelete por defecto (RESTRICT, igual que Listing.categoryId): borrar una
+  /// categoría con patrocinados debe rechazarse explícitamente (ver
+  /// AdminService.deleteCategory), no Cascade silencioso — un patrocinado
+  /// huérfano de categoría no tiene dónde inyectarse.
+  category    Category  @relation(fields: [categoryId], references: [id])
+
+  /// Desempate cuando hay varios patrocinados activos para la misma categoría
+  /// (asc; empate → más reciente). No es un array de posiciones en la parrilla.
+  order       Int       @default(0)
+
+  active      Boolean   @default(true)
+  /// A diferencia de Banner, ambos son opcionales: un patrocinado puede no
+  /// tener ventana de vigencia y permanecer activo indefinidamente mientras
+  /// `active` sea true.
+  startsAt    DateTime?
+  endsAt      DateTime?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([categoryId, active])
 }
 
 // ============================================================================

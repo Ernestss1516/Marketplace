@@ -6,7 +6,8 @@ import { PrismaService } from '../../infra/prisma/prisma.service';
 import { R2Service } from '../../infra/r2/r2.service';
 import { QUEUE_IMAGE } from '../../infra/queue/queue.constants';
 
-const MIME_TO_EXT: Record<string, string> = {
+/** Exported so other upload endpoints (e.g. SponsoredAds) that bypass this service but still write to R2 can reuse the same mime→ext mapping instead of duplicating it. */
+export const MIME_TO_EXT: Record<string, string> = {
   'image/jpeg': '.jpg',
   'image/png': '.png',
   'image/webp': '.webp',

@@ -1,11 +1,21 @@
-import type { Alert, AlertCriteria, AlertsResponse } from '@/types';
-import type { SearchResponse } from './busqueda';
+import type { Alert, AlertCriteria, AlertsResponse, ListingSummary } from '@/types';
 import { apiFetch } from './client';
+
+// Los "matches" de una alerta nunca pasan por SearchController (alerts.service.ts
+// llama a SearchService.search() directamente) — nunca pueden traer un
+// SponsoredAdHit, así que no reutilizan el SearchResponse de busqueda.ts.
+export interface AlertMatchesResponse {
+  hits: ListingSummary[];
+  totalHits: number;
+  page: number;
+  hitsPerPage: number;
+  facets?: Record<string, Record<string, number>>;
+}
 
 export function createAlert(
   payload: AlertCriteria & { name: string },
   token: string,
-): Promise<{ alert: Alert; matches: SearchResponse }> {
+): Promise<{ alert: Alert; matches: AlertMatchesResponse }> {
   return apiFetch('/alerts', { method: 'POST', body: JSON.stringify(payload), token });
 }
 
@@ -26,6 +36,6 @@ export function deleteAlert(id: string, token: string): Promise<void> {
   return apiFetch(`/alerts/${id}`, { method: 'DELETE', token });
 }
 
-export function getAlertMatches(id: string, token: string): Promise<SearchResponse> {
-  return apiFetch<SearchResponse>(`/alerts/${id}/matches`, { token });
+export function getAlertMatches(id: string, token: string): Promise<AlertMatchesResponse> {
+  return apiFetch<AlertMatchesResponse>(`/alerts/${id}/matches`, { token });
 }

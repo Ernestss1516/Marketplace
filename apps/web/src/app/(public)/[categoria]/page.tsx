@@ -5,12 +5,13 @@ import Link from 'next/link';
 import { AlertCircle, Package } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ListingCard } from '@/components/anuncios/ListingCard';
+import { SponsoredCard, isSponsoredAdHit } from '@/components/anuncios/SponsoredCard';
 import { FavoritesGridProvider } from '@/components/anuncios/FavoritesGridContext';
 import { CardAttributesProvider } from '@/components/anuncios/CardAttributesContext';
 import { FilterPanel } from '@/components/busqueda/FilterPanel';
 import { getCategoryBySlug } from '@/lib/api/categorias';
 import { getListingsByCategory } from '@/lib/api/anuncios';
-import { search } from '@/lib/api/busqueda';
+import { search, type SearchHit } from '@/lib/api/busqueda';
 import { ApiError } from '@/lib/api/client';
 import { buildCardAttributeMapFromSchema } from '@/lib/card-attributes';
 import type { ListingSummary } from '@/types';
@@ -120,7 +121,7 @@ export default async function CategoriaPage({
   // ── Fetch listings ──────────────────────────────────────────────────────────
   // Primary: Meilisearch (facets + attribute filters + proximity).
   // Fallback: Postgres (no facets, basic sort only) when Meili is unavailable.
-  let hits: ListingSummary[] = [];
+  let hits: SearchHit[] = [];
   let total = 0;
   let hitsPerPage = 24;
   let facets: Record<string, Record<string, number>> | undefined;
@@ -160,6 +161,9 @@ export default async function CategoriaPage({
   }
 
   const totalPages = Math.ceil(total / hitsPerPage) || 0;
+  // H6.6 — igual que en /busqueda: el patrocinado (si lo hay) va intercalado en
+  // `hits`; favoritos solo conoce anuncios reales.
+  const listingHits = hits.filter((h): h is ListingSummary => !isSponsoredAdHit(h));
 
   function pageUrl(p: number): string {
     const params = new URLSearchParams();
@@ -241,7 +245,9 @@ export default async function CategoriaPage({
         )}
 
         <main className="min-w-0 flex-1">
-          {hits.length > 0 ? (
+          {/* Basado en `total` (anuncios reales), no en `hits.length`: un patrocinado
+              inyectado no debe disfrazar una categoría sin anuncios como "con resultados". */}
+          {total > 0 ? (
             <>
               <CardAttributesProvider
                 cardAttributeMap={buildCardAttributeMapFromSchema(
@@ -249,11 +255,15 @@ export default async function CategoriaPage({
                   category.attributeSchema ?? [],
                 )}
               >
-                <FavoritesGridProvider listingIds={hits.map((l) => l.id)}>
+                <FavoritesGridProvider listingIds={listingHits.map((l) => l.id)}>
                   <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-                    {hits.map((listing) => (
-                      <ListingCard key={listing.id} listing={listing} />
-                    ))}
+                    {hits.map((hit) =>
+                      isSponsoredAdHit(hit) ? (
+                        <SponsoredCard key={`sponsored-${hit.id}`} ad={hit} />
+                      ) : (
+                        <ListingCard key={hit.id} listing={hit} />
+                      ),
+                    )}
                   </div>
                 </FavoritesGridProvider>
               </CardAttributesProvider>

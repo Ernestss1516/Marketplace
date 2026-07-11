@@ -669,9 +669,13 @@ export class AdminService {
     // categoría con anuncios DRAFT/SOLD/EXPIRED/etc. pasaría este chequeo y el
     // DELETE físico posterior fallaría con un 500 sin controlar (RESTRICT de
     // Postgres) en vez de este 400 legible.
-    const [totalListings, children] = await this.prisma.$transaction([
+    // Mismo chequeo que totalListings/children: SponsoredAd.categoryId también
+    // es RESTRICT (H6.6) — sin este chequeo el DELETE físico fallaría con un
+    // 500 sin controlar en vez de este 400 legible.
+    const [totalListings, children, sponsoredAds] = await this.prisma.$transaction([
       this.prisma.listing.count({ where: { categoryId: id } }),
       this.prisma.category.count({ where: { parentId: id } }),
+      this.prisma.sponsoredAd.count({ where: { categoryId: id } }),
     ]);
 
     if (totalListings > 0) {
@@ -682,6 +686,11 @@ export class AdminService {
     if (children > 0) {
       throw new BadRequestException(
         `No se puede eliminar: la categoría tiene ${children} subcategoría(s)`,
+      );
+    }
+    if (sponsoredAds > 0) {
+      throw new BadRequestException(
+        `No se puede eliminar: la categoría tiene ${sponsoredAds} patrocinado(s)`,
       );
     }
 
