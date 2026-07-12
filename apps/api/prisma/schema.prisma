@@ -194,6 +194,14 @@ model User {
   role          Role       @default(USER)
   status        UserStatus @default(ACTIVE)
   emailVerified Boolean    @default(false)
+  /// Contador de intentos de login fallidos consecutivos; se resetea en login correcto (RÁFAGA 3).
+  failedLoginAttempts Int       @default(0)
+  /// Si está en el futuro, login() rechaza sin comprobar la contraseña (RÁFAGA 3).
+  lockedUntil         DateTime?
+  /// Se incrementa en resetPassword()/changePassword()/setPassword(); el JWT lleva su propio
+  /// tokenVersion y JwtStrategy lo compara contra este — un cambio invalida TODOS los tokens
+  /// previos al instante, sin esperar a que caduquen (RÁFAGA 3).
+  tokenVersion        Int       @default(0)
   /// H8 Bloque E — "Vendedor de confianza": confianza otorgada por la plataforma (ADMIN-only).
   /// Independiente de Pro (isProActive): un usuario puede ser Pro, de confianza, ambos o ninguno.
   trusted       Boolean    @default(false)

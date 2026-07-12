@@ -1441,11 +1441,17 @@ ráfaga "Rol EDITOR — blog"; filas de páginas informativas añadidas en
 | Páginas informativas: **eliminar** (`DELETE`, borrado físico) | ❌ | ❌ | ✅ |
 | Subir imágenes (`POST /media/upload`) | ✅ (cualquier autenticado) | ✅ (cualquier autenticado) | ✅ |
 
-**Deuda técnica — sesión stale tras cambio de rol:** si un ADMIN degrada a MODERATOR
-a otro usuario, el JWT de ese usuario permanece válido hasta su expiración (7 días).
-Durante ese período, el middleware Next.js lee el rol del JWT (stale), no de la DB.
-Mitigación pendiente: forzar logout tras cambio de rol o reducir TTL del JWT para roles
-privilegiados.
+**✅ RESUELTO (RÁFAGA 3, ver «Paquete de seguridad de auth» más abajo) — sesión stale tras
+cambio de rol:** antes, si un ADMIN degradaba a MODERATOR a otro usuario, el JWT de ese usuario
+permanecía válido con el rol viejo hasta su expiración (7 días) — el middleware Next.js leía el rol
+del JWT (stale), no de la DB. Cerrado leyendo `role`/`emailVerified` frescos de la BD en
+`JwtStrategy.validate()` (que ya consultaba la BD para `status`/`tokenVersion`, coste cero) en vez
+de confiarlos al payload firmado — un cambio de rol tiene efecto en la siguiente request del
+backend. **Nota:** el middleware de Next.js sigue confiando en el rol de la cookie de NextAuth
+(hasta 7 días, tras alinear su `maxAge` en la misma ráfaga) para decidir qué ve el usuario en el
+navegador — el backend (RolesGuard) es la barrera real y ya es fresca; el frontend puede mostrar
+temporalmente una UI stale hasta el siguiente login, pero nunca una acción que el backend permita
+de más.
 
 **Tests (RR5.1 + RR5.1-ext):**
 - `moderation.e2e-spec.ts`: 45 casos. Los 8 tests de frontera añadidos en RR5.1 se
@@ -3060,6 +3066,98 @@ falsear — verifica la firma del `id_token` él mismo.
   `busqueda-mapa.spec.ts` — es una flakiness preexistente de datos de Meilisearch, no relacionada
   con este cambio, reproducible en aislamiento sin tocar código de auth).
 
+### RÁFAGA 3 — Paquete de seguridad de auth
+
+Motivado por una auditoría previa (RC.2, puramente diagnóstica, sin tocar código) que encontró
+el sistema de login/signup **sin ninguna protección básica**: login fuerza-bruteable, sin
+lockout, el reset de contraseña no cerraba sesiones, y un ADMIN podía entrar por Google. Todo lo
+de abajo vive en `apps/api/src/modules/auth/` salvo donde se indique.
+
+- **Rate limiting — `RateLimitService` genérico** (`infra/redis/rate-limit.service.ts`): el
+  limitador Redis (INCR+EXPIRE) que RC.1 construyó solo para `/contacto` se extrajo a un servicio
+  reutilizable, parametrizado por clave/límite/ventana. `ContactRateLimitService` ahora es un
+  wrapper fino sobre él (mismo comportamiento, sin cambios de interfaz — sus tests siguen en
+  verde tal cual). Registrado en `RedisModule` (`@Global`), disponible en cualquier módulo sin
+  import explícito.
+  - **Login** (`auth.constants.ts`): por IP (150/15min) y por email (5/15min) — el límite por
+    email es la defensa real contra fuerza bruta sobre UNA cuenta (protege aunque el atacante
+    rote de IP); el de IP es una red de flood-control más gruesa y deliberadamente generosa,
+    porque un umbral bajo penaliza tráfico legítimo detrás de NAT/proxy compartido — incluida la
+    propia batería e2e, que reutiliza una única IP de loopback para ~70 logins de setup
+    repartidos en decenas de specs no relacionados con auth (se probó primero con 10/15min: rompió
+    38 suites en cascada).
+  - **Register**: 3/hora por IP (anti-spam de cuentas).
+  - **Forgot-password**: por IP (5/hora) y por email (3/hora) — anti-abuso de envío de correos,
+    sin romper el `{ok:true}` no-enumerable existente.
+  - **Change-password**: 5/hora por usuario (autenticado, así que la clave es el userId, no la IP).
+  - Los contadores usan la clave `auth:*` en Redis; el `globalSetup` de Jest e2e
+    (`test/setup-e2e.js`) los limpia ANTES de toda la batería — no basta con que un spec los limpie
+    en su propio `beforeAll`, porque `/auth/login` es infraestructura de setup para casi todos los
+    specs, no solo para los de auth (mismo principio que «resetear entre cada pasada, no solo antes
+    de la primera», ver «CI verde repetido» más abajo).
+- **Lockout** (`User.failedLoginAttempts`, `User.lockedUntil`): a partir del 5º fallo consecutivo,
+  la cuenta se bloquea con backoff exponencial (`computeLockoutMinutes`: 15min → 30min → 60min…,
+  techo 24h). Login correcto resetea el contador. **Sin romper la no-enumerabilidad**: una cuenta
+  bloqueada devuelve el mismo 401 genérico que un email inexistente o una contraseña incorrecta —
+  ni siquiera se compara la contraseña si `lockedUntil` está en el futuro (evita además el coste
+  de un bcrypt.compare innecesario).
+- **Invalidación de sesiones — `User.tokenVersion`**: el JWT del backend ahora lleva
+  `tokenVersion` en el payload; `JwtStrategy.validate()` (que YA releía `status` de la BD en cada
+  request) lo compara contra el valor en BD — si difiere, 401 inmediato, sin esperar a que el
+  token caduque. `resetPassword()`, `changePassword()` y `setPassword()` incrementan
+  `tokenVersion` (`{ increment: 1 }`), invalidando así TODOS los tokens previos al instante.
+  Verificado con un token real en tests (login → token → reset → el MISMO token pasa a dar 401),
+  no solo asumido.
+- **Rol y `emailVerified` frescos — cierra la deuda de «sesión stale» documentada arriba**:
+  ya que `JwtStrategy.validate()` consulta la BD en cada request (para `status` y `tokenVersion`),
+  ahora también devuelve `role`/`emailVerified` **de la BD, no del payload firmado** — coste cero
+  (mismo query). Un cambio de rol tiene efecto en la SIGUIENTE request de ese usuario, sin esperar
+  7 días ni forzar un logout. La mitigación "forzar logout tras cambio de rol" que la deuda
+  original proponía ya no hace falta.
+- **`POST /auth/change-password`** (autenticado): exige la contraseña actual + la nueva:
+  incrementa `tokenVersion` y devuelve un `accessToken` fresco (para que el propio llamante no se
+  quede desconectado por su propia acción) — cierra otras sesiones abiertas en otros dispositivos.
+  Rechaza con 400 si la cuenta no tiene contraseña (`passwordHash: null`), remitiendo a
+  `set-password`.
+- **`POST /auth/set-password`** (autenticado) — **cierra la deuda «usuarios solo-Google no
+  pueden fijar contraseña»** documentada más abajo: mismo mecanismo que `change-password` pero sin
+  exigir una contraseña actual (no la hay). Solo funciona si `passwordHash` es `null`; si la cuenta
+  ya tiene contraseña, 409 (usa `change-password` en su lugar). También incrementa `tokenVersion`.
+- **ADMIN solo con contraseña (decidido)**: `loginWithGoogle()` rechaza con 403
+  (`code: ADMIN_GOOGLE_LOGIN_BLOCKED`) si el `User` resuelto tiene `role: ADMIN` — el `Account` de
+  Google puede quedar vinculado (la vinculación ocurre antes del bloqueo), pero no sirve para
+  entrar. **Precondición verificada antes de aplicar el bloqueo**: no había ningún ADMIN con
+  `passwordHash: null` en la BD de desarrollo en el momento del cambio — de haberlo habido, habría
+  quedado sin poder entrar. **Pendiente antes de desplegar a producción**: repetir la misma
+  comprobación contra la BD de producción. El frontend distingue este 403 del de "email no
+  verificado por Google" vía el `code` de la respuesta (`auth.config.ts`, página `/login`) para no
+  decirle a un admin bloqueado que el problema es su email.
+  - **Promoción a ADMIN**: no evaluado en código porque no hace falta — `ChangeUserRoleDto`
+    (`admin/dto/change-user-role.dto.ts`) ya restringe el rol destino a `USER|MODERATOR|EDITOR`
+    (regla de oro anti-escalada de privilegios, ver «Separación de roles ADMIN/MODERATOR» arriba);
+    hoy no existe NINGÚN endpoint que promueva a alguien a ADMIN — ese rol solo se asigna
+    directamente en BD/seed. Si en el futuro se añade un camino de promoción a ADMIN por API,
+    debe comprobar que el usuario tiene `passwordHash` no nulo (o forzar `set-password` primero).
+- **Expiración de sesión alineada (frontend)**: `session.maxAge` de NextAuth
+  (`apps/web/src/lib/auth/auth.config.ts`) pasa de su default (30 días) a 7 días explícitos,
+  igualando el TTL del `accessToken` del backend (`auth.module.ts`, hardcodeado). Antes, la cookie
+  de NextAuth podía sobrevivir hasta 23 días más que el token que lleva dentro, dejando sesiones
+  "medio muertas" y, sobre todo, dejando que el gate de `/admin` en el navegador (que confía en
+  esa cookie) sobreviviera más que el propio accessToken que el backend valida en cada request.
+- **Enumeración en `register()` — decisión consciente, no arreglada**: `register()` sigue
+  devolviendo 409 si el email ya existe (filtra existencia de cuenta), a diferencia de
+  `login()`/`forgot-password()` que son no-enumerables. Es un trade-off de UX vs seguridad
+  aceptado deliberadamente (la mayoría de sitios devuelven este 409 por claridad de UX —
+  "ese email ya está registrado" — en vez de forzar al usuario a adivinar por qué el registro no
+  avanza); documentado aquí para que quede como decisión, no como descuido.
+- **Tests**: `test/auth-security.e2e-spec.ts` (15 tests nuevos) — rate limiting (login IP+email,
+  register IP, forgot-password IP+email, change-password), lockout (bloqueo tras N fallos,
+  no-enumerable, reset de contador en login correcto), invalidación de sesión real tras
+  reset-password, rol fresco sin re-login (vía `GET /moderation/reports`, gateado
+  `MODERATOR|ADMIN`), change-password y set-password (incl. cierre de otras sesiones). Más 2 tests
+  nuevos en `social-auth.e2e-spec.ts` (ADMIN bloqueado vía Google, usuario normal sigue entrando
+  bien). Suite completa verificada en verde (49/49 suites, 794/794 tests).
+
 ### RC.1 — Formulario de contacto público (endpoint sin autenticación, 5 defensas)
 
 Primer endpoint de escritura del proyecto alcanzable sin JWT (aparte de `/auth/register`) —
@@ -3627,10 +3725,11 @@ antes de asumir: el roadmap sobreestimaba el alcance real de Hito 7.
 
 **Deuda nueva abierta por este hito:**
 
-- **Usuarios solo-Google no pueden fijar una contraseña.** Hoy no hay flujo de "añadir contraseña"
-  para una cuenta creada vía Google (`passwordHash: null`); `forgotPassword()` es un no-op silencioso
-  para ellos (ver «Login social con Google — backend»). Si un usuario social quiere entrar también
-  con contraseña, no hay camino. Mejora futura, fuera de alcance de H7.
+- **✅ RESUELTO (RÁFAGA 3) — Usuarios solo-Google no pueden fijar una contraseña.** Cerrado con
+  `POST /auth/set-password` (autenticado, sin exigir contraseña actual) — ver «Paquete de
+  seguridad de auth» más abajo. `forgotPassword()` sigue siendo un no-op silencioso para cuentas
+  solo-Google (sigue sin poder recuperar lo que nunca tuvieron), pero ahora tienen un camino
+  explícito para fijar una por primera vez.
 - **Colisión Redis dev/test en local.** `REDIS_URL` no lleva namespace/prefijo por entorno; si un
   proceso `pnpm dev` (BullMQ apuntando al Redis local) queda corriendo mientras se ejecuta la suite
   de test (mismo Redis, sin DB ni prefijo distintos para las colas), los workers de dev pueden robar

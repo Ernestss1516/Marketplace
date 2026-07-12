@@ -217,6 +217,53 @@ describe('Social Auth - Google (e2e)', () => {
       .expect(403);
   });
 
+  it('RÁFAGA 3 — ADMIN intentando entrar con Google → 403, mensaje claro, no emite JWT (Account puede quedar vinculado, pero no sirve para entrar)', async () => {
+    await prisma.user.create({
+      data: {
+        email: 'admin-social@example.com',
+        name: 'Admin Social',
+        slug: 'admin-social',
+        passwordHash: await bcrypt.hash('Test1234!', 4),
+        emailVerified: true,
+        role: 'ADMIN',
+      },
+    });
+
+    mockVerifyIdToken.mockResolvedValue({
+      getPayload: () => googlePayload({ sub: 'google-sub-admin', email: 'admin-social@example.com' }),
+    });
+
+    const res = await request(app.getHttpServer())
+      .post('/api/auth/social/google')
+      .send({ idToken: 'valid-token' })
+      .expect(403);
+
+    expect(res.body.message).toMatch(/contraseña/i);
+    expect(res.body.code).toBe('ADMIN_GOOGLE_LOGIN_BLOCKED');
+
+    // El bloqueo ocurre DESPUÉS de linkOrCreateSocialUser (que ya vinculó el
+    // Account) y ANTES de emitir el JWT — el vínculo queda, pero no sirve para
+    // entrar la próxima vez tampoco (mismo bloqueo se repetiría).
+    const account = await prisma.account.findUnique({
+      where: { provider_providerAccountId: { provider: 'google', providerAccountId: 'google-sub-admin' } },
+    });
+    expect(account).not.toBeNull();
+  });
+
+  it('RÁFAGA 3 — un usuario normal (no ADMIN) con Google sigue entrando bien (no se rompe el flujo social)', async () => {
+    mockVerifyIdToken.mockResolvedValue({
+      getPayload: () => googlePayload({ sub: 'google-sub-normal-user', email: 'normal-social@example.com' }),
+    });
+
+    const res = await request(app.getHttpServer())
+      .post('/api/auth/social/google')
+      .send({ idToken: 'valid-token' })
+      .expect(200);
+
+    expect(res.body.accessToken).toEqual(expect.any(String));
+    expect(res.body.user.role).toBe('USER');
+  });
+
   it('nunca se crean dos User con el mismo email (constraint + lógica de vinculación)', async () => {
     await prisma.user.create({
       data: {

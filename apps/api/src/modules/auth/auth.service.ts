@@ -2,6 +2,8 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -14,6 +16,7 @@ import { randomBytes } from 'crypto';
 import { OAuth2Client } from 'google-auth-library';
 import { Role, UserStatus } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
+import { RateLimitService } from '../../infra/redis/rate-limit.service';
 import { QUEUE_NOTIFICATIONS } from '../../infra/queue/queue.constants';
 import {
   NOTIFICATION_JOB,
@@ -21,10 +24,27 @@ import {
   SendVerificationEmailData,
 } from '../../infra/queue/notification.types';
 import { JwtPayload } from './auth.types';
+import {
+  CHANGE_PASSWORD_RATE_LIMIT_PER_HOUR,
+  CHANGE_PASSWORD_RATE_LIMIT_WINDOW_SECONDS,
+  FORGOT_PASSWORD_RATE_LIMIT_EMAIL_PER_HOUR,
+  FORGOT_PASSWORD_RATE_LIMIT_IP_PER_HOUR,
+  FORGOT_PASSWORD_RATE_LIMIT_WINDOW_SECONDS,
+  LOGIN_RATE_LIMIT_EMAIL_PER_WINDOW,
+  LOGIN_RATE_LIMIT_EMAIL_WINDOW_SECONDS,
+  LOGIN_RATE_LIMIT_IP_PER_WINDOW,
+  LOGIN_RATE_LIMIT_IP_WINDOW_SECONDS,
+  LOCKOUT_THRESHOLD,
+  REGISTER_RATE_LIMIT_IP_PER_HOUR,
+  REGISTER_RATE_LIMIT_WINDOW_SECONDS,
+  computeLockoutMinutes,
+} from './auth.constants';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { SetPasswordDto } from './dto/set-password.dto';
 import { SocialLoginDto } from './dto/social-login.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 
@@ -36,6 +56,7 @@ const SOCIAL_USER_SELECT = {
   role: true,
   status: true,
   emailVerified: true,
+  tokenVersion: true,
 } as const;
 
 type SocialUser = {
@@ -46,11 +67,19 @@ type SocialUser = {
   role: Role;
   status: UserStatus;
   emailVerified: boolean;
+  tokenVersion: number;
 };
 
 const BCRYPT_ROUNDS = 12;
 const VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
 const RESET_TTL_MS = 60 * 60 * 1000;
+
+function tooManyRequests(retryAfter: number): never {
+  throw new HttpException(
+    { message: 'Demasiados intentos. Inténtalo más tarde.', retryAfter },
+    HttpStatus.TOO_MANY_REQUESTS,
+  );
+}
 
 @Injectable()
 export class AuthService {
@@ -60,10 +89,18 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    private readonly rateLimit: RateLimitService,
     @InjectQueue(QUEUE_NOTIFICATIONS) private readonly notificationQueue: Queue,
   ) {}
 
-  async register(dto: RegisterDto) {
+  async register(dto: RegisterDto, ip: string) {
+    const ipLimit = await this.rateLimit.checkAndIncrement(
+      `auth:register:ip:${ip}`,
+      REGISTER_RATE_LIMIT_IP_PER_HOUR,
+      REGISTER_RATE_LIMIT_WINDOW_SECONDS,
+    );
+    if (ipLimit.limited) tooManyRequests(ipLimit.retryAfter);
+
     const existing = await this.prisma.user.findUnique({
       where: { email: dto.email },
       select: { id: true },
@@ -89,7 +126,24 @@ export class AuthService {
     return user;
   }
 
-  async login(dto: LoginDto) {
+  async login(dto: LoginDto, ip: string) {
+    // Por IP y por email — el segundo protege una cuenta concreta aunque el
+    // atacante rote de IP. Aplicado a la clave (email tal cual llega en el
+    // body) exista o no la cuenta: nunca revela existencia por el propio 429.
+    const ipLimit = await this.rateLimit.checkAndIncrement(
+      `auth:login:ip:${ip}`,
+      LOGIN_RATE_LIMIT_IP_PER_WINDOW,
+      LOGIN_RATE_LIMIT_IP_WINDOW_SECONDS,
+    );
+    if (ipLimit.limited) tooManyRequests(ipLimit.retryAfter);
+
+    const emailLimit = await this.rateLimit.checkAndIncrement(
+      `auth:login:email:${dto.email.toLowerCase()}`,
+      LOGIN_RATE_LIMIT_EMAIL_PER_WINDOW,
+      LOGIN_RATE_LIMIT_EMAIL_WINDOW_SECONDS,
+    );
+    if (emailLimit.limited) tooManyRequests(emailLimit.retryAfter);
+
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email },
       select: {
@@ -101,18 +155,38 @@ export class AuthService {
         status: true,
         emailVerified: true,
         passwordHash: true,
+        failedLoginAttempts: true,
+        lockedUntil: true,
+        tokenVersion: true,
       },
     });
 
     if (!user || !user.passwordHash) throw new UnauthorizedException('Invalid credentials');
 
+    // Cuenta bloqueada por intentos fallidos: mismo 401 genérico que cualquier
+    // otro fallo, sin comprobar la contraseña — no revela que la cuenta existe
+    // ni que está bloqueada (no-enumerable, igual que el resto de login()).
+    if (user.lockedUntil && user.lockedUntil > new Date()) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
     const passwordMatch = await bcrypt.compare(dto.password, user.passwordHash);
-    if (!passwordMatch) throw new UnauthorizedException('Invalid credentials');
+    if (!passwordMatch) {
+      await this.registerFailedLogin(user.id, user.failedLoginAttempts);
+      throw new UnauthorizedException('Invalid credentials');
+    }
 
     if (user.status === UserStatus.SUSPENDED)
       throw new ForbiddenException('Tu cuenta está suspendida. Contacta con soporte si crees que es un error.');
     if (user.status === UserStatus.BANNED)
       throw new ForbiddenException('Tu cuenta ha sido inhabilitada permanentemente.');
+
+    if (user.failedLoginAttempts > 0 || user.lockedUntil) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { failedLoginAttempts: 0, lockedUntil: null },
+      });
+    }
 
     const accessToken = this.signToken(user);
     return {
@@ -121,10 +195,27 @@ export class AuthService {
     };
   }
 
+  /** Incrementa el contador de fallos y, a partir del umbral, bloquea la
+   * cuenta con backoff exponencial (ver computeLockoutMinutes). */
+  private async registerFailedLogin(userId: string, currentAttempts: number): Promise<void> {
+    const attempts = currentAttempts + 1;
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        failedLoginAttempts: attempts,
+        ...(attempts >= LOCKOUT_THRESHOLD
+          ? { lockedUntil: new Date(Date.now() + computeLockoutMinutes(attempts) * 60_000) }
+          : {}),
+      },
+    });
+  }
+
   async verifyEmail(dto: VerifyEmailDto) {
     const record = await this.prisma.verificationToken.findUnique({
       where: { token: dto.token },
-      include: { user: { select: { id: true, email: true, role: true, emailVerified: true } } },
+      include: {
+        user: { select: { id: true, email: true, role: true, emailVerified: true, tokenVersion: true } },
+      },
     });
 
     if (!record || record.expiresAt < new Date()) {
@@ -134,7 +225,7 @@ export class AuthService {
     const user = await this.prisma.user.update({
       where: { id: record.userId },
       data: { emailVerified: true },
-      select: { id: true, email: true, role: true, emailVerified: true },
+      select: { id: true, email: true, role: true, emailVerified: true, tokenVersion: true },
     });
 
     await this.prisma.verificationToken.delete({ where: { id: record.id } });
@@ -143,7 +234,21 @@ export class AuthService {
     return { verified: true, accessToken };
   }
 
-  async forgotPassword(dto: ForgotPasswordDto) {
+  async forgotPassword(dto: ForgotPasswordDto, ip: string) {
+    const ipLimit = await this.rateLimit.checkAndIncrement(
+      `auth:forgot:ip:${ip}`,
+      FORGOT_PASSWORD_RATE_LIMIT_IP_PER_HOUR,
+      FORGOT_PASSWORD_RATE_LIMIT_WINDOW_SECONDS,
+    );
+    if (ipLimit.limited) tooManyRequests(ipLimit.retryAfter);
+
+    const emailLimit = await this.rateLimit.checkAndIncrement(
+      `auth:forgot:email:${dto.email.toLowerCase()}`,
+      FORGOT_PASSWORD_RATE_LIMIT_EMAIL_PER_HOUR,
+      FORGOT_PASSWORD_RATE_LIMIT_WINDOW_SECONDS,
+    );
+    if (emailLimit.limited) tooManyRequests(emailLimit.retryAfter);
+
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email },
       select: { id: true, email: true, name: true, passwordHash: true },
@@ -173,10 +278,13 @@ export class AuthService {
 
     const passwordHash = await bcrypt.hash(dto.newPassword, BCRYPT_ROUNDS);
 
+    // tokenVersion incrementado atómicamente ({ increment: 1 }) → invalida al
+    // instante TODOS los JWT emitidos antes de este reset (JwtStrategy los
+    // compara contra el valor en BD en cada request). Decisión RÁFAGA 3.
     await this.prisma.$transaction([
       this.prisma.user.update({
         where: { id: record.userId },
-        data: { passwordHash },
+        data: { passwordHash, tokenVersion: { increment: 1 } },
       }),
       this.prisma.passwordResetToken.update({
         where: { id: record.id },
@@ -216,6 +324,16 @@ export class AuthService {
       throw new ForbiddenException('Tu cuenta está suspendida. Contacta con soporte si crees que es un error.');
     if (user.status === UserStatus.BANNED)
       throw new ForbiddenException('Tu cuenta ha sido inhabilitada permanentemente.');
+
+    // Decisión RÁFAGA 3: ADMIN solo entra con contraseña — la seguridad del
+    // panel de admin no debe depender de la cuenta de Google del admin. El
+    // Account (si existe) no se borra, solo deja de servir para autenticar.
+    if (user.role === Role.ADMIN) {
+      throw new ForbiddenException({
+        message: 'Las cuentas de administración deben iniciar sesión con contraseña.',
+        code: 'ADMIN_GOOGLE_LOGIN_BLOCKED',
+      });
+    }
 
     const accessToken = this.signToken(user);
     return {
@@ -306,14 +424,86 @@ export class AuthService {
     });
   }
 
-  signToken(user: { id: string; email: string; role: string; emailVerified: boolean }): string {
+  signToken(user: {
+    id: string;
+    email: string;
+    role: string;
+    emailVerified: boolean;
+    tokenVersion: number;
+  }): string {
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
       role: user.role as JwtPayload['role'],
       emailVerified: user.emailVerified,
+      tokenVersion: user.tokenVersion,
     };
     return this.jwt.sign(payload);
+  }
+
+  /** Requiere la contraseña actual — para un usuario que ya tiene una. Incrementa
+   * tokenVersion (cierra cualquier otra sesión) y devuelve un accessToken fresco
+   * para que el propio llamante no se quede desconectado. */
+  async changePassword(userId: string, dto: ChangePasswordDto): Promise<{ ok: true; accessToken: string }> {
+    const limit = await this.rateLimit.checkAndIncrement(
+      `auth:change-password:${userId}`,
+      CHANGE_PASSWORD_RATE_LIMIT_PER_HOUR,
+      CHANGE_PASSWORD_RATE_LIMIT_WINDOW_SECONDS,
+    );
+    if (limit.limited) tooManyRequests(limit.retryAfter);
+
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { id: true, email: true, role: true, emailVerified: true, passwordHash: true, tokenVersion: true },
+    });
+
+    if (!user.passwordHash) {
+      throw new BadRequestException('Esta cuenta no tiene contraseña todavía — usa /auth/set-password.');
+    }
+
+    const passwordMatch = await bcrypt.compare(dto.currentPassword, user.passwordHash);
+    if (!passwordMatch) throw new UnauthorizedException('Contraseña actual incorrecta.');
+
+    const passwordHash = await bcrypt.hash(dto.newPassword, BCRYPT_ROUNDS);
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash, tokenVersion: { increment: 1 } },
+      select: { id: true, email: true, role: true, emailVerified: true, tokenVersion: true },
+    });
+
+    return { ok: true, accessToken: this.signToken(updated) };
+  }
+
+  /** Para un usuario solo-Google (passwordHash null): fija una contraseña por
+   * primera vez, sin exigir una "actual" que no tiene. Cierra la deuda
+   * "usuarios solo-Google no pueden fijar contraseña". Misma invalidación de
+   * sesiones que changePassword — aunque no había contraseña que filtrar, el
+   * usuario puede tener otras sesiones Google abiertas en otros dispositivos. */
+  async setPassword(userId: string, dto: SetPasswordDto): Promise<{ ok: true; accessToken: string }> {
+    const limit = await this.rateLimit.checkAndIncrement(
+      `auth:change-password:${userId}`,
+      CHANGE_PASSWORD_RATE_LIMIT_PER_HOUR,
+      CHANGE_PASSWORD_RATE_LIMIT_WINDOW_SECONDS,
+    );
+    if (limit.limited) tooManyRequests(limit.retryAfter);
+
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { id: true, passwordHash: true },
+    });
+
+    if (user.passwordHash) {
+      throw new ConflictException('Esta cuenta ya tiene contraseña — usa /auth/change-password.');
+    }
+
+    const passwordHash = await bcrypt.hash(dto.newPassword, BCRYPT_ROUNDS);
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash, tokenVersion: { increment: 1 } },
+      select: { id: true, email: true, role: true, emailVerified: true, tokenVersion: true },
+    });
+
+    return { ok: true, accessToken: this.signToken(updated) };
   }
 
   async createVerificationToken(userId: string): Promise<string> {

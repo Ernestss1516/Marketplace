@@ -14,6 +14,7 @@ const GOOGLE_ERROR_MESSAGES: Record<string, string> = {
   google_unverified_email:
     'No pudimos verificar tu email con Google. Inicia sesión con tu contraseña.',
   google_error: 'No se pudo iniciar sesión con Google. Inténtalo de nuevo.',
+  admin_google_blocked: 'Las cuentas de administración deben iniciar sesión con contraseña.',
 };
 
 export default function LoginPage() {

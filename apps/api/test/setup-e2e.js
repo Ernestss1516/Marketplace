@@ -12,6 +12,7 @@
 const { execSync } = require('child_process');
 const { join } = require('path');
 const { config } = require('dotenv');
+const Redis = require('ioredis');
 
 module.exports = async function globalSetup() {
   config({ path: join(__dirname, '..', '.env.test') });
@@ -27,4 +28,19 @@ module.exports = async function globalSetup() {
     stdio: 'inherit',
     env: { ...process.env },
   });
+
+  // RÁFAGA 3 — /auth/login (rate limit) es llamado como infraestructura de
+  // setup por CASI TODOS los specs (login de usuarios de prueba), a
+  // diferencia de /contacto (cuyo rate limit solo lo ejercita su propio
+  // archivo). Sin este flush, una corrida local repetida dentro de la misma
+  // ventana (15min/1h) hereda contadores de la corrida anterior y specs sin
+  // ninguna relación con auth empiezan a recibir 401/429 en cascada — mismo
+  // principio que "resetear entre CADA pasada, no solo antes de la primera"
+  // (ver feedback_ci_verde_repetido). Flush aquí, una vez, antes de toda la
+  // batería — no basta con que auth-security.e2e-spec.ts lo haga en su propio
+  // beforeAll, porque ese archivo no es necesariamente el primero en correr.
+  const redis = new Redis(process.env.REDIS_URL);
+  const staleKeys = await redis.keys('auth:*');
+  if (staleKeys.length > 0) await redis.del(...staleKeys);
+  await redis.quit();
 };

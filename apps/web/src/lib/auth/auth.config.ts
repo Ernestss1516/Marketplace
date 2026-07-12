@@ -9,6 +9,15 @@ interface SocialLoginResponse {
 
 export const authConfig: NextAuthConfig = {
   providers: [],
+  // RÁFAGA 3: alineado con el TTL del accessToken del backend (7d, hardcodeado en
+  // apps/api auth.module.ts). Sin esto, Auth.js usa su default de 30d — la cookie de
+  // NextAuth podía sobrevivir hasta 23 días más que el accessToken que lleva dentro,
+  // dejando sesiones "medio muertas" (con cookie, sin token de API válido) y, sobre
+  // todo, dejando que el gate de /admin en el navegador (que confía en esta cookie)
+  // sobreviviera más que el propio accessToken que el backend valida en cada request.
+  session: {
+    maxAge: 7 * 24 * 60 * 60,
+  },
   callbacks: {
     // Runs once, right after Google (or any OAuth provider) returns control to us — before
     // the session/JWT is created. We exchange the Google id_token for our own backend JWT
@@ -37,6 +46,12 @@ export const authConfig: NextAuthConfig = {
         return true;
       } catch (error) {
         if (error instanceof ApiError && error.statusCode === 403) {
+          // RÁFAGA 3: ADMIN solo entra con contraseña — distinguible del 403 de
+          // "email no verificado por Google" vía `code`, para no decirle a un
+          // admin bloqueado que el problema es su email.
+          if (error.code === 'ADMIN_GOOGLE_LOGIN_BLOCKED') {
+            return '/login?error=admin_google_blocked';
+          }
           return '/login?error=google_unverified_email';
         }
         return '/login?error=google_error';
