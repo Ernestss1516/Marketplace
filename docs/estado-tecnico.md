@@ -5142,13 +5142,50 @@ otro módulo. Esto significa que el retry de `QUEUE_NOTIFICATIONS` para
 `SEND_VERIFICATION_EMAIL`/`SEND_RESET_EMAIL` (`AuthService`, registrado en `AuthModule`)
 **nunca estuvo realmente activo**, pese a que `queue.module.ts` lo declaraba — un bug
 preexistente a B3, descubierto al escribir el test "retry de `QUEUE_NOTIFICATIONS` presente"
-para `AlertMatchingService`. Fix: `RETRY_JOB_OPTIONS` centralizado en `queue.constants.ts` y
-repetido explícitamente en cada `registerQueue()` real (`AuthModule`, `AlertsModule`,
-`queue.module.ts`). **Deuda igual sin tocar**: `QUEUE_INDEXING` tiene el mismo patrón de
-re-registro "desnudo" (sin `defaultJobOptions`) en `ListingsModule`, `ModerationModule`,
-`AdminModule`, `CouponsModule`, `ExpirationModule` y `ListingActivationModule` — probablemente
-el mismo bug, fuera del alcance de B3 (no se tocó ninguno de esos módulos); pendiente de
-verificar y corregir en una ráfaga aparte.
+para `AlertMatchingService`. Fix inicial: `RETRY_JOB_OPTIONS` centralizado en
+`queue.constants.ts`, repetido explícitamente en cada `registerQueue()` real (`AuthModule`,
+`AlertsModule`, `queue.module.ts`).
+
+**Deuda "retry fantasma de QUEUE_INDEXING" — CERRADA (ráfaga aparte).** Confirmado en
+ejecución (no solo por inspección) el mismo patrón, y con alcance mayor del previsto:
+
+- `QUEUE_INDEXING` sin `defaultJobOptions` en **7** módulos (no 6): `ListingsModule`,
+  `ModerationModule`, `AdminModule`, `CouponsModule`, `ExpirationModule`,
+  `ListingActivationModule` **y `BillingModule`** (este último no estaba en la lista original
+  de la deuda).
+- `QUEUE_BILLING` — hallazgo nuevo: `BillingModule` se re-registraba **a sí mismo** sin
+  `defaultJobOptions`, tapando el retry ya declarado en `queue.module.ts` — mismo patrón
+  exacto, dentro del propio módulo que lo sufre.
+- `QUEUE_REDSYS` — sin retry en ningún sitio (`RedsysModule` es su único registro; ni
+  siquiera está en `queue.module.ts`). Especialmente grave: `RedsysProcessor.handleFeaturedPay()`
+  tiene un comentario explícito ("Transaction stays PENDING on failure so BullMQ can retry")
+  que **asumía** un retry que nunca existió.
+- `QUEUE_IMAGE` — sin retry en ningún sitio, tampoco en el registro central de
+  `queue.module.ts`. Los tres procesadores (`RedsysProcessor`, `ImageProcessor`,
+  `IndexingProcessor`) son idempotentes (upserts, checks de estado antes de escribir,
+  overwrite de la misma key en R2), así que el retry es seguro en los tres.
+
+**Fix**: helper `retryQueue(name)` en `queue.constants.ts` (envuelve
+`{ name, defaultJobOptions: RETRY_JOB_OPTIONS }`), aplicado en **todos** los `registerQueue()`
+reales del backend — los 7 de `QUEUE_INDEXING`, `QUEUE_BILLING` (2 sitios), `QUEUE_REDSYS`,
+`QUEUE_IMAGE` (2 sitios) y, por consistencia, también los ya arreglados de
+`QUEUE_NOTIFICATIONS` (`AuthModule`, `AlertsModule`, `ContactModule`, `queue.module.ts`).
+
+**Guard estructural** (el proyecto prefiere esto a una convención humana):
+`test/queue-retry.e2e-spec.ts` escanea todos los `*.module.ts` de `src/` y falla si alguno
+llama `registerQueue({ name: ... })` a pelo, saltándose el helper — un módulo nuevo no puede
+reintroducir el bug en silencio.
+
+**Verificado ejerciendo un fallo real, no solo por inspección** (la deuda lo pedía
+explícitamente): el mismo spec (a) lee la instancia de `Queue` real inyectada en cada
+servicio/guard productor (`ListingsService.indexingQueue`, `StripeWebhookGuard.billingQueue`,
+`RedsysWebhookGuard.redsysQueue`, `MediaService.imageQueue`, etc. — 12 casos) y confirma
+`attempts:3` + backoff exponencial; se comprobó a mano que este test **falla** si se revierte
+el fix en cualquiera de esos módulos (sanity check deshaciendo temporalmente el de
+`ListingsModule`); y (b) publica un anuncio de verdad, fuerza que
+`SearchService.indexListing()` falle en el primer intento (mock lanzando una vez), y confirma
+que BullMQ reintenta y el anuncio **sí** acaba apareciendo en Meilisearch — el síntoma real
+del bug (anuncio ACTIVE invisible en búsqueda, en silencio) no se reproduce.
 
 **Verificado (19 tests e2e nuevos en `alert-matching.e2e-spec.ts` + suite completa)**: Fase 1
 (categoría null/coincide/distinta, precio fuera de rango), Fase 2 (atributo y geo confirmados

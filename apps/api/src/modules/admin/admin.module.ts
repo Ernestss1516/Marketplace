@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
-import { QUEUE_INDEXING } from '../../infra/queue/queue.constants';
+import { QUEUE_INDEXING, retryQueue } from '../../infra/queue/queue.constants';
 import { MeilisearchModule } from '../../infra/meilisearch/meilisearch.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { SearchModule } from '../search/search.module';
@@ -11,7 +11,7 @@ import { AdminBillingService } from './admin-billing.service';
 
 @Module({
   imports: [
-    BullModule.registerQueue({ name: QUEUE_INDEXING }),
+    BullModule.registerQueue(retryQueue(QUEUE_INDEXING)),
     MeilisearchModule,
     AuditLogModule,
     SearchModule,

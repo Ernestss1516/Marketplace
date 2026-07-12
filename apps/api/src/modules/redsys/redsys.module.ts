@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
-import { QUEUE_REDSYS } from '../../infra/queue/queue.constants';
+import { QUEUE_REDSYS, retryQueue } from '../../infra/queue/queue.constants';
 import { BillingModule } from '../billing/billing.module';
 import { CampaignsModule } from '../campaigns/campaigns.module';
 import { RedsysController } from './redsys.controller';
@@ -10,7 +10,9 @@ import { RedsysWebhookGuard } from './guards/redsys-webhook.guard';
 
 @Module({
   imports: [
-    BullModule.registerQueue({ name: QUEUE_REDSYS }),
+    // RedsysProcessor.processSuccess() is explicitly idempotent (checks
+    // Transaction.status before crediting) so a retried job never double-pays.
+    BullModule.registerQueue(retryQueue(QUEUE_REDSYS)),
     // Import BillingModule to get EntitlementService (used by RedsysService for
     // featured-pay validation: isFeaturedActive check before generating the form).
     BillingModule,

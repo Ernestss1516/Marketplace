@@ -7,7 +7,7 @@ import {
   QUEUE_IMAGE,
   QUEUE_INDEXING,
   QUEUE_NOTIFICATIONS,
-  RETRY_JOB_OPTIONS,
+  retryQueue,
 } from './queue.constants';
 import { ImageProcessor } from './processors/image.processor';
 import { IndexingProcessor } from './processors/indexing.processor';
@@ -40,14 +40,14 @@ import { AlertsModule } from '../../modules/alerts/alerts.module';
       inject: [ConfigService],
     }),
     BullModule.registerQueue(
-      { name: QUEUE_IMAGE },
-      { name: QUEUE_INDEXING, defaultJobOptions: RETRY_JOB_OPTIONS },
-      { name: QUEUE_NOTIFICATIONS, defaultJobOptions: RETRY_JOB_OPTIONS },
-      { name: QUEUE_BILLING, defaultJobOptions: RETRY_JOB_OPTIONS },
+      retryQueue(QUEUE_IMAGE),
+      retryQueue(QUEUE_INDEXING),
+      retryQueue(QUEUE_NOTIFICATIONS),
+      retryQueue(QUEUE_BILLING),
       // Dedicated queue, isolated from QUEUE_INDEXING: matching failures must
       // never back up the queue that keeps the search index fresh. Retry is
       // safe because AlertMatchingService is idempotent (AlertMatch @@unique).
-      { name: QUEUE_ALERT_MATCHING, defaultJobOptions: RETRY_JOB_OPTIONS },
+      retryQueue(QUEUE_ALERT_MATCHING),
     ),
     GeocodingModule,
     SearchModule,

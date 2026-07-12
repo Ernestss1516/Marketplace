@@ -19,6 +19,15 @@ export const RETRY_JOB_OPTIONS = {
   removeOnFail: 100,
 };
 
+// Structural guard for the bug above: every registerQueue() call site should
+// go through this helper instead of writing `{ name }` by hand, so a new
+// module can't silently end up with attempts:1 by forgetting the option.
+// `queue-retry.e2e-spec.ts` greps src/ for any registerQueue() call that
+// bypasses this helper and fails the suite if one is found.
+export function retryQueue(name: string): { name: string; defaultJobOptions: typeof RETRY_JOB_OPTIONS } {
+  return { name, defaultJobOptions: RETRY_JOB_OPTIONS };
+}
+
 // A plain constant, not an env var: @Processor()'s options evaluate at class
 // decoration time, when QueueModule is require()'d by AppModule's import chain —
 // before ConfigModule.forRoot() (further down in the same file) has loaded
