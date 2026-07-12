@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 import { Camera, Loader2 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -21,6 +22,7 @@ interface Props {
 }
 
 export function PerfilForm({ initialUser, token }: Props) {
+  const router = useRouter();
   const [fields, setFields] = useState({
     name: initialUser.name,
     phone: initialUser.phone ?? '',
@@ -83,6 +85,7 @@ export function PerfilForm({ initialUser, token }: Props) {
           token,
         );
         setStatus('success');
+        router.refresh();
       } catch {
         setStatus('error');
       }

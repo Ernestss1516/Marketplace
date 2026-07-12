@@ -5,7 +5,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { PerfilForm } from '@/components/perfil/PerfilForm';
-import { auth, signOut } from '@/lib/auth';
+import { SignOutButton } from '@/components/perfil/SignOutButton';
+import { auth } from '@/lib/auth';
 import { getMe } from '@/lib/api/usuarios';
 
 export const metadata = { title: 'Mi perfil' };
@@ -88,16 +89,7 @@ export default async function PerfilPage() {
       {/* Sign out */}
       <section>
         <h2 className="mb-4 text-lg font-semibold">Sesión</h2>
-        <form
-          action={async () => {
-            'use server';
-            await signOut({ redirectTo: '/' });
-          }}
-        >
-          <Button type="submit" variant="destructive">
-            Cerrar sesión
-          </Button>
-        </form>
+        <SignOutButton />
       </section>
     </div>
   );
