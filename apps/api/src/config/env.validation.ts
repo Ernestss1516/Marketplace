@@ -72,4 +72,8 @@ export const envValidationSchema = Joi.object({
   }),
   REDSYS_ENVIRONMENT: Joi.string().allow('').optional(),
   REDSYS_NOTIFICATION_URL: Joi.string().allow('').optional(),
+  // RC.1 — formulario de contacto público. Secreto dedicado para firmar el
+  // token del time-trap (nunca reutilizar JWT_SECRET).
+  CONTACT_FORM_SECRET: Joi.string().min(16).required(),
+  TRUST_PROXY_HOPS: Joi.number().integer().min(0).default(1),
 });

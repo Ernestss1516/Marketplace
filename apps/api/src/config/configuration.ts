@@ -43,4 +43,14 @@ export default () => ({
     secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
     publicUrl: process.env.S3_PUBLIC_URL,
   },
+  // Número de saltos de proxy de confianza delante de la API en producción —
+  // pasado a Express vía app.set('trust proxy', N) en main.ts. Determina hasta
+  // qué punto de X-Forwarded-For se confía para el rate limit por IP del
+  // formulario de contacto (RC.1). Confirmado con el usuario: 1 proxy en
+  // producción. Configurable por si la topología de despliegue cambia.
+  trustProxyHops: parseInt(process.env.TRUST_PROXY_HOPS ?? '1', 10),
+  contactForm: {
+    // Firma el token del time-trap (RC.1) — dedicado, NUNCA reutilizar JWT_SECRET.
+    secret: process.env.CONTACT_FORM_SECRET,
+  },
 });

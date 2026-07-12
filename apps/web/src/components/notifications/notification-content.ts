@@ -11,6 +11,11 @@ export function getNotificationContent(n: NotificationItem): { text: string; hre
         text: `Nuevo anuncio que coincide con tu alerta «${n.data.alertName}»: ${n.data.listingTitle}`,
         href: `/anuncio/${n.data.listingSlug}`,
       };
+    case 'CONTACT_MESSAGE':
+      return {
+        text: `Nuevo mensaje de contacto de ${n.data.email}: «${n.data.extracto}»`,
+        href: `/admin/mensajes-contacto/${n.data.messageId}`,
+      };
     default:
       return { text: 'Nueva notificación', href: '/notificaciones' };
   }

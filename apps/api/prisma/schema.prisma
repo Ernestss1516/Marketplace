@@ -233,6 +233,7 @@ model User {
   couponRedemptions   CouponRedemption[]
   notifications       Notification[]
   alerts              Alert[]
+  contactReplies      ContactReply[]      @relation("ContactReplyAdmin")
 
   @@index([status])
 }
@@ -392,7 +393,13 @@ model Favorite {
 
 /// Notificación in-app. `type` es String (no enum) — igual que AuditLog.action —
 /// para poder añadir tipos futuros sin migración.
-/// Valores de `type` conocidos: ALERT_MATCH.
+/// Valores de `type` conocidos: ALERT_MATCH, CONTACT_MESSAGE.
+/// CONTACT_MESSAGE es fan-out: una Notification por cada User con role ADMIN, no
+/// un buzón compartido — Notification es estrictamente userId 1:1 (ver RC.1).
+/// Limitación conocida y aceptada: cuando un admin atiende el mensaje, las
+/// notificaciones de los demás admins no se marcan como leídas automáticamente
+/// (exigiría consultar dentro de `data`, justo lo que este diseño evita). Ruido
+/// tolerable con pocos admins; revisar si el equipo de admins crece mucho.
 model Notification {
   id     String @id @default(cuid())
   userId String
@@ -616,6 +623,9 @@ model AuditLog {
   /// CATEGORY_CREATE | CATEGORY_EDIT | CATEGORY_DELETE | CATEGORY_REORDER
   /// SETTING_UPDATE
   /// SPONSORED_AD_CREATE | SPONSORED_AD_EDIT | SPONSORED_AD_ACTIVATE | SPONSORED_AD_DEACTIVATE
+  /// CONTACT_MESSAGE_STATUS_CHANGE | CONTACT_MESSAGE_REPLY
+  /// CONTACT_REASON_CREATE | CONTACT_REASON_EDIT | CONTACT_REASON_ACTIVATE |
+  /// CONTACT_REASON_DEACTIVATE | CONTACT_REASON_REORDER
   action String
 
   actorId String
@@ -1270,4 +1280,75 @@ model FooterItem {
   updatedAt DateTime @updatedAt
 
   @@index([columnId, order])
+}
+
+// ============================================================================
+//  CONTACTO PÚBLICO (RC.1)
+// ============================================================================
+
+/// Estado de gestión de un mensaje de contacto.
+enum ContactEstado {
+  NUEVO
+  LEIDO
+  RESPONDIDO
+  CERRADO
+}
+
+/// Motivo de contacto configurable por el admin (RC.2) — reemplaza al enum
+/// ContactMotivo. Sin DELETE, solo desactivación (molde Banner/SponsoredAd):
+/// un motivo desactivado deja de ofrecerse en /contacto, pero los mensajes
+/// históricos conservan su motivoId intacto — nunca se borra. `orden` define
+/// cómo aparece en el <select> público y se reordena con flechas ↑↓ (molde
+/// categorías/footer). Guard en el service: no se puede desactivar el último
+/// motivo activo (el formulario público se quedaría sin opciones).
+model ContactReason {
+  id        String   @id @default(cuid())
+  nombre    String
+  orden     Int      @default(0)
+  activo    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages ContactMessage[]
+
+  @@index([activo, orden])
+}
+
+/// Mensaje enviado desde /contacto (público, sin autenticación). Sin columna de
+/// IP: decisión RGPD — la IP solo vive en Redis (rate limiting, TTL corto), nunca
+/// se persiste junto a los datos del remitente. Sin relación a User: el remitente
+/// no está autenticado.
+model ContactMessage {
+  id       String @id @default(cuid())
+  motivoId String
+  /// onDelete: Restrict — un ContactReason con mensajes no puede borrarse
+  /// (de todos modos no hay endpoint DELETE; se desactiva, nunca se borra).
+  motivo   ContactReason @relation(fields: [motivoId], references: [id], onDelete: Restrict)
+  email    String
+  telefono String?
+  mensaje   String        @db.Text
+  estado    ContactEstado @default(NUEVO)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  replies ContactReply[]
+
+  @@index([estado, createdAt])
+}
+
+/// Respuesta del admin a un ContactMessage. Modelo separado (no un campo
+/// mutable en ContactMessage) — permite responder más de una vez y deja rastro
+/// auditable de qué se envió exactamente (asunto/cuerpo), a diferencia de
+/// AuditLog que solo registra la acción, no el contenido del email.
+model ContactReply {
+  id               String   @id @default(cuid())
+  contactMessageId String
+  contactMessage   ContactMessage @relation(fields: [contactMessageId], references: [id], onDelete: Cascade)
+  adminUserId      String
+  admin            User     @relation("ContactReplyAdmin", fields: [adminUserId], references: [id])
+  asunto           String
+  cuerpo           String   @db.Text
+  sentAt           DateTime @default(now())
+
+  @@index([contactMessageId])
 }

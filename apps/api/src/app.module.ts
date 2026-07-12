@@ -32,6 +32,7 @@ import { CampaignsModule } from './modules/campaigns/campaigns.module';
 import { CouponsModule } from './modules/coupons/coupons.module';
 import { BannersModule } from './modules/banners/banners.module';
 import { SponsoredAdsModule } from './modules/sponsored-ads/sponsored-ads.module';
+import { ContactModule } from './modules/contact/contact.module';
 
 @Module({
   imports: [
@@ -85,6 +86,7 @@ import { SponsoredAdsModule } from './modules/sponsored-ads/sponsored-ads.module
     CouponsModule,
     BannersModule,
     SponsoredAdsModule,
+    ContactModule,
   ],
 })
 export class AppModule {}

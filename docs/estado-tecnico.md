@@ -1,10 +1,13 @@
 # Estado técnico del proyecto — Marketplace
 
-> Fecha: 2026-07-08 · Rama: `main` · Último commit: 01c69f1 — CI test def5.
+> Fecha: 2026-07-12 · Rama: `main` · Último commit: 01c69f1 — CI test def5.
 > Plan vigente: `docs/Hoja_de_ruta_rafagas_Hito5-9.docx` (Hitos 5–9). Hitos 5–8 cerrados (incluye el
 > bloque de blog — rol EDITOR, editor de markdown, páginas informativas, footer — y el Hito 8
 > ampliado completo: H8.1–H8.6 + Bloques C/D/E). Hito 9 (navegación, interfaz, deuda transversal y
-> testing) pendiente de arrancar.
+> testing) pendiente de arrancar. **RC.1+RC.2 — Formulario de contacto público cerrado** (ver
+> módulo `Contact` más abajo): endpoint público sin autenticación con 5 defensas anti-bot/anti-XSS,
+> gestión y respuesta desde `/admin/mensajes-contacto`, cambio de estado libre, y motivos
+> configurables por el admin (`/admin/motivos-contacto`, enum → datos).
 
 Documento de referencia para retomar el proyecto. Recoge qué hay implementado,
 qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
@@ -48,6 +51,7 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **ListingActivation** | ✅ Completo (B0) | `ListingActivationService.listingBecameActive(slug, listingId)` — único punto de enganche para toda transición de un `Listing` a `ACTIVE` (`publish` rama ACTIVE, `approveListing`, `restoreListing`, **`renew`**). Consolida el reindexado (antes duplicado en `ListingsService`/`ModerationService`) y, desde B3, encola el flag `triggerAlertMatch` en el job `index`. `reserve`/`markAsSold` usan el wrapper genérico `reindexListing()` sin el flag — no disparan matching. Ver «Sistema de Alertas» más abajo |
 | **Notifications** | ✅ Completo (B1) | Canal in-app genérico. Modelo `Notification` (`type: String` — molde `AuditLog.action`, no enum, para tipos futuros sin migración; `data: Json` = snapshot autocontenido, no punteros). `GET /notifications` (paginado), `GET /notifications/unread-count`, `POST /notifications/:id/read` (idempotente, `updateMany` scoped por `userId` — nunca confía en el `:id` solo), `POST /notifications/read-all`. `createNotification(userId, type, data)` — sin cola, para que B3 lo invoque directamente. Solo el tipo `ALERT_MATCH` implementado. Ver «Sistema de Alertas» más abajo |
 | **Alerts** | ✅ Completo (B2+B3) | Búsqueda guardada de un comprador con matching automático. Modelo `Alert`: columnas core (`q`, `categorySlug`, `type`, `condition`, `priceType`, `minPrice`/`maxPrice`, `province`, `city`, `lat`/`lng`/`radiusMeters`) + `attributes Json` — no un blob `SearchParams` completo, para que B3 pueda pre-filtrar con SQL. `alertToSearchParams()` reconstruye `SearchParams` desde una alerta (reusado por el preview de B2 y el matching de B3). `POST /alerts` (crea + devuelve `{alert, matches}` con preview inmediato), `GET /alerts`, `PATCH /alerts/:id` (criterios/`active`), `DELETE /alerts/:id`, `GET /alerts/:id/matches`; todo scoped por `(id, userId)`. Modelo `AlertMatch` (`@@unique([alertId,listingId])`) para deduplicación. Ver «Sistema de Alertas» más abajo |
+| **Contact** | ✅ Completo (RC.1+RC.2) | Formulario público de contacto — endpoint sin autenticación, superficie de ataque nueva; **5 defensas** (ver «RC.1 — Formulario de contacto público» en §2). `GET /contacto/token` (token firmado del time-trap), `GET /contacto/motivos` (**RC.2** — motivos activos, ordenados), `POST /contacto` (público; honeypot y time-trap fallidos → `200` silencioso sin persistir; rate limit superado → `429`). Modelos `ContactMessage` (sin columna de IP — decisión RGPD; `motivoId` FK a `ContactReason`) + `ContactReply` (historial 1:N) + **`ContactReason`** (RC.2 — motivo configurable por el admin, sustituye al enum `ContactMotivo`; sin DELETE, solo desactivación). `AdminContactMessagesController` (`@Roles(ADMIN)`, molde de `BannersService`: listado paginado+filtros por estado/motivoId, detalle con auto `NUEVO→LEIDO`, `PATCH :id/estado` **libre entre cualquier par de estados** + AuditLog, `POST :id/responder` — crea `ContactReply`, encola email, `→RESPONDIDO`; sin DELETE). `AdminContactReasonsController` (RC.2 — CRUD + reorder de motivos, guard: no se puede desactivar el último activo). Notifica a los admins por fan-out: una `Notification` `CONTACT_MESSAGE` (segundo tipo de B1, confirma que el modelo era extensible sin migración; snapshot guarda el nombre del motivo ya resuelto) + un email `SEND_CONTACT_NOTIFICATION` por cada `User role=ADMIN`. Ver «RC.2» en §2 para el detalle de la migración enum→datos. |
 
 ### Frontend (`apps/web` — puerto 3000)
 
@@ -97,6 +101,9 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **Notificaciones** `/notificaciones` | ✅ Completo (B1) | Molde exacto de `/favoritos` (SSR + estado optimista). Campana con badge de no-leídas: SSR inicial + refetch al cambiar de ruta y al abrir el desplegable — sin polling por intervalo. Marcar leída al click (optimista); "Marcar todas como leídas". Solo renderiza `ALERT_MATCH` (`getNotificationContent` — `switch(type)`, listo para tipos futuros) |
 | **Crear alerta** (en `/busqueda`) | ✅ Completo (B2) | Botón "Crear alerta" lee `alertCriteria` ya calculado por el server component de `/busqueda` (mismas variables que arman la llamada a `search()`, sin re-parseo) y abre un `Dialog` que solo pide el nombre; `POST /alerts` devuelve `{alert, matches}` y el diálogo muestra el preview de coincidencias al instante |
 | **Mis alertas** `/mis-alertas` | ✅ Completo (B2) | Molde `/favoritos`: SSR + `MisAlertasClient` con pausar/reactivar (`PATCH active`) y borrar optimistas; "Ver coincidencias" expande inline bajo demanda (`GET /alerts/:id/matches`) |
+| **Contacto** `/contacto` | ✅ Completo (RC.1+RC.2) | Público, sin auth. `'use client'` (no Server Component): el token del time-trap y **la lista de motivos activos** (`GET /contacto/motivos`, RC.2) se piden en cliente en el mismo `useEffect` al montar — evita el riesgo de caché ISR que ya mordió al footer en H6.4. Campos: motivo (select, poblado dinámicamente — ya no un enum fijo), email, teléfono opcional, mensaje; honeypot (`empresa`) oculto por CSS fuera de pantalla — **NUNCA** `display:none`/`visibility:hidden` (los bots que solo parsean el DOM filtran por esos atributos). Enlace desde el footer lo añade el admin desde `/admin/footer` (`FooterItemType.INTERNAL`), sin tocar código. |
+| **Admin mensajes de contacto** `/admin/mensajes-contacto` | ✅ Completo (RC.1+RC.2) | Listado (filtros estado/motivoId — el filtro de motivo usa `GET /admin/contact-reasons`, TODOS incluidos inactivos, paginado) + detalle (auto `NUEVO→LEIDO` al abrir) + cambio de estado **libre** (selector, cualquier transición) + formulario de responder (envía a `ContactMessage.email`, inmutable — nunca un campo libre) + historial de respuestas. El mensaje se renderiza siempre como texto plano (React lo escapa por defecto); **prohibido `dangerouslySetInnerHTML`** en esta vista — el remitente no está autenticado (defensa XSS central del diseño). Botón "Motivos" enlaza a `/admin/motivos-contacto`. |
+| **Admin motivos de contacto** `/admin/motivos-contacto` | ✅ Completo (RC.2) | CRUD de `ContactReason`: crear, renombrar (inline), reordenar (flechas ↑↓, molde `/admin/categorias` — swap optimista de 2 `orden` + rollback por refetch en error), activar/desactivar. Sin DELETE. Aviso explícito en la página: un motivo desactivado deja de ofrecerse en `/contacto` pero los mensajes históricos lo conservan intacto. |
 
 ---
 
@@ -3053,9 +3060,148 @@ falsear — verifica la firma del `id_token` él mismo.
   `busqueda-mapa.spec.ts` — es una flakiness preexistente de datos de Meilisearch, no relacionada
   con este cambio, reproducible en aislamiento sin tocar código de auth).
 
+### RC.1 — Formulario de contacto público (endpoint sin autenticación, 5 defensas)
+
+Primer endpoint de escritura del proyecto alcanzable sin JWT (aparte de `/auth/register`) —
+superficie de ataque nueva. Diseño aprobado y documentado en memoria de proyecto antes de
+implementar (`project_contact_form_design.md`), con requisito central de seguridad. Las 5
+defensas, todas en `ContactService.submit()` (`modules/contact/contact.service.ts`):
+
+1. **Honeypot** — campo señuelo `empresa` en `CreateContactMessageDto`, oculto por CSS
+   (`position:absolute; left:-9999px`) en el frontend, **nunca `display:none`/`visibility:hidden`**
+   (los bots que solo parsean el DOM, sin renderizar CSS, filtran precisamente por esos atributos
+   y evitan rellenar el campo — usar `display:none` sería contraproducente). Si llega relleno →
+   `200 OK` con el mismo payload de éxito, **sin persistir nada y sin notificar** — silencio
+   deliberado para no enseñarle a un bot qué detección lo detuvo.
+2. **Time-trap firmado** (`ContactTimeTrapService`) — `GET /contacto/token` emite
+   `issuedAt` + `HMAC-SHA256(issuedAt, CONTACT_FORM_SECRET)` (secreto **dedicado**, nunca
+   `JWT_SECRET`); verificación con `crypto.timingSafeEqual` (comparación en tiempo constante) y
+   ventana `[3s, 2h)` desde la emisión. Fuera de ventana o firma inválida → mismo `200` silencioso
+   que el honeypot. El frontend (`ContactForm.tsx`) pide el token en un **client component**, no
+   en un Server Component con `fetch` cacheable — evita a propósito el mismo riesgo de caché ISR
+   que ya mordió al footer en H6.4 (un token cacheado compartiría `issuedAt` entre visitantes y
+   rompería el time-trap para todos).
+3. **Rate limit** (`ContactRateLimitService`, Redis `INCR`+`EXPIRE`, sin dependencia nueva —
+   reutiliza el cliente que ya usa BullMQ) — 5/hora por IP + 200/hora global, ambos contadores
+   incrementados siempre (incluso si el de IP ya excede) para que un ataque con IPs rotando
+   también agote el global. Supera cualquiera de los dos → `429` explícito con `retryAfter` (mismo
+   patrón que el cooldown de bump en `billing.service.ts`) — aquí sí es ruidoso a propósito: no
+   ayuda a un bot a evadir el honeypot, y el cliente necesita saber que debe esperar.
+   **Depende de que `app.set('trust proxy', N)` (`main.ts`, config `trustProxyHops`,
+   `TRUST_PROXY_HOPS` env var, default 1) refleje la topología REAL de despliegue — confirmado
+   con el usuario: 1 proxy en producción.** Esto solo es fiable si ese proxy **sobrescribe**
+   `X-Forwarded-For` en vez de reenviar la cabecera del cliente tal cual; no verificado contra el
+   proxy real de producción, ver «Limitaciones» más abajo.
+4. **XSS contra el admin** (el vector más grave, ya que un desconocido escribe el mensaje y un
+   admin con sesión lo lee) — el mensaje se guarda y se sirve como texto plano; el panel admin
+   (`/admin/mensajes-contacto`) lo interpola directamente en JSX (React escapa por defecto),
+   **`dangerouslySetInnerHTML` prohibido** en esa vista. Los emails de aviso (`SEND_CONTACT_NOTIFICATION`)
+   y de respuesta (`SEND_CONTACT_REPLY`) usan `text:` en Resend, nunca `html:` — mismo patrón que
+   ya seguía `NotificationProcessor` para verificación/reset/alertas, sin necesidad de sanitizado
+   nuevo porque nunca se genera HTML a partir de contenido no confiable.
+5. **Email header injection** — `@IsEmail()` estricto en el DTO de entrada; la respuesta del
+   admin (`POST /admin/contact-messages/:id/responder`) envía siempre a `ContactMessage.email`
+   (inmutable, leído del propio registro), nunca a un campo del body — `whitelist:true` del
+   `ValidationPipe` global rechaza con `400` cualquier intento de colar un `to`/`email` alternativo
+   en el DTO de respuesta. `@MaxLength` en todos los campos (`mensaje` ≤ 5000, `telefono` ≤ 20…)
+   contra relleno de BD.
+
+**Notificación a admins — fan-out, no buzón de rol.** `Notification` (B1) es estrictamente
+`userId` 1:1; no existe (ni se construyó) un mecanismo de "notificar a un rol". `ContactService`
+resuelve esto con fan-out: `prisma.user.findMany({where:{role:'ADMIN'}})` + una `Notification`
+`CONTACT_MESSAGE` y un job `SEND_CONTACT_NOTIFICATION` por cada admin. Confirma que B1 era
+extensible sin migración (`Notification.type` es `String`, no enum) — objetivo explícito del
+diseño. **Limitación conocida y aceptada** (no resuelta aquí): cuando un admin atiende el
+mensaje, las notificaciones de los demás admins no se marcan como leídas — exigiría consultar
+dentro de `Notification.data` (Json), justo lo que este diseño evita. Ruido tolerable con pocos
+admins; revisar si el equipo de admins crece mucho.
+
+**Modelo (histórico, ver RC.2 más abajo — `ContactMotivo` ya no es un enum):** `ContactMessage`
+(enum `ContactEstado` `NUEVO|LEIDO|RESPONDIDO|CERRADO`, **sin columna de IP** — decisión RGPD, la
+IP solo vive en Redis para el rate limit, con TTL de 1 h) + `ContactReply` (1:N, no un campo
+mutable — permite responder más de una vez y deja rastro auditable de qué se envió).
+`AdminContactMessagesController` sigue el molde de `BannersService`: `AuditLog` dentro de
+`$transaction`, sin `DELETE` (`CERRADO` no es terminal — el estado se cambia libremente entre
+cualquier par, ver RC.2 «Ajuste 1»). Migración `add_contact_message`.
+
+**Hallazgo durante la verificación (no producto, sí entorno):** dev y test comparten la misma
+instancia Redis sin namespace separado (`REDIS_URL` idéntica en `.env` y `.env.test`) — correr la
+suite e2e de contacto deja contadores `contact:rate:*` en Redis que también bloquean al servidor
+`dev` durante QA manual inmediatamente después. Sin fix de producto (no aplica en producción, un
+solo entorno); anotado como fricción de flujo de trabajo local, no como bug.
+
+### RC.2 — Cambio manual de estado (confirmado, sin código) + motivos de contacto configurables
+
+Dos ajustes sobre RC.1, el mismo día.
+
+**Ajuste 1 — cambio manual de estado.** Se observó antes de tocar nada: tanto el endpoint
+(`PATCH /admin/contact-messages/:id/estado`) como la UI (selector de estado en la página de
+detalle) **ya existían** de RC.1 — no fue necesario código nuevo. `updateEstado()` no tenía (ni
+tiene ahora) restricciones de transición: cualquier estado admite cambiar a cualquier otro, con
+`AuditLog CONTACT_MESSAGE_STATUS_CHANGE` en cada salto — decisión de diseño confirmada explícitamente
+("el admin sabe lo que hace"). El automatismo de RC.1 (`NUEVO→LEIDO` al abrir, `→RESPONDIDO` al
+responder) sigue intacto — el cambio manual lo complementa, no lo sustituye. Se amplió la
+cobertura de tests para probar una cadena arbitraria de transiciones
+(`NUEVO→CERRADO→LEIDO→RESPONDIDO→NUEVO`), no solo un salto.
+
+**Ajuste 2 — motivos configurables (enum → datos).** `ContactMotivo` (enum Prisma) sustituido por
+el modelo `ContactReason` (`nombre`, `orden`, `activo`, timestamps) para que el admin pueda
+crear/renombrar/reordenar/desactivar motivos sin migración. `ContactMessage.motivo` pasa de enum a
+relación (`motivoId` FK, `onDelete: Restrict`). Mismo molde que Banner/SponsoredAd: **sin DELETE,
+solo desactivación** — un motivo desactivado deja de ofrecerse en `/contacto` pero los mensajes
+históricos conservan su `motivoId` intacto (nunca se borra), lo que resuelve de raíz "¿qué pasa
+con los mensajes de un motivo borrado?" al no permitir que se borren. Guard explícito en
+`ContactReasonsService.update()`: no se puede desactivar el último motivo activo (`400` — el
+formulario público se quedaría sin opciones).
+
+**Migración en dos pasos (molde `footer-backfill.ts` — nunca borrar el origen antes de migrar
+los datos):**
+1. `add_contact_reason` — crea `ContactReason` + columna `ContactMessage.motivoId` nullable,
+   **conserva** la columna/enum `motivo` legacy.
+2. `pnpm contact-reason-backfill` (`src/commands/contact-reason-backfill.ts`) — crea los 6 motivos
+   con nombres legibles (no el `SCREAMING_SNAKE_CASE` del enum: "Consulta general", "Problema
+   técnico"…) y mapea cada `ContactMessage.motivo` (leído vía `$queryRaw`, mismo motivo que en
+   footer-backfill: el cliente Prisma tipado no debe depender de que la columna siga viva) a su
+   `motivoId`. Idempotente — aborta si ya existe algún `ContactReason`.
+3. `drop_contact_motivo_enum` — retira la columna `motivo` y el enum `ContactMotivo`, `motivoId`
+   pasa a `NOT NULL`. Autorada a mano (SQL generado con `prisma migrate diff --script`, ya que
+   `prisma migrate dev` exige confirmación interactiva ante una columna con datos — no soportado en
+   este entorno no interactivo) y aplicada con `prisma migrate deploy`.
+
+**Notification.data (fan-out, B1) guarda el NOMBRE ya resuelto, no el `motivoId`** — mismo
+principio de "snapshot autocontenido, no punteros" que ya regía el diseño (ver RC.1): el
+snapshot de una notificación debe sobrevivir aunque el motivo se renombre o se desactive después.
+`ContactService.notifyAdmins()` recibe el nombre resuelto como parámetro, no el id.
+
+**Endpoints nuevos:** `GET /contacto/motivos` (público, solo activos ordenados — puebla el
+`<select>` del formulario; sin riesgo de caché stale porque el formulario ya es fetch de cliente,
+no SSR, por el time-trap de RC.1). `GET|POST|PATCH /admin/contact-reasons` +
+`PATCH /admin/contact-reasons/reorder` (`@Roles(ADMIN)`, molde `FooterAdminController`: ruta
+estática `reorder` declarada antes de `:id`). El filtro por motivo del listado de mensajes
+(`/admin/mensajes-contacto`) usa `GET /admin/contact-reasons` (TODOS, incluidos inactivos —
+hay mensajes históricos con motivos ya desactivados), no el endpoint público.
+
+**Frontend:** nueva página `/admin/motivos-contacto` (CRUD + reorder con flechas ↑↓, molde
+`/admin/categorias`: swap optimista de 2 `orden` + rollback por refetch en error). El formulario
+público (`ContactForm.tsx`) pide `GET /contacto/motivos` en el mismo `useEffect` que ya pedía el
+token del time-trap.
+
 ---
 
 ## 3. Limitaciones conocidas y deuda técnica
+
+### RC.1 — Rate limit por IP no verificado contra el proxy real de producción
+
+El rate limit por IP del formulario de contacto (`ContactRateLimitService`, 5/h) depende de que
+`app.set('trust proxy', 1)` (`TRUST_PROXY_HOPS=1`) coincida con la topología real de despliegue Y
+de que ese proxy **sobrescriba** `X-Forwarded-For` con la IP real del cliente en vez de reenviar
+lo que el cliente le mande. Ninguno de los dos supuestos está verificado contra la infraestructura
+de producción real todavía — si el proxy reenvía la cabecera del cliente sin más, un atacante
+puede rotar su propia IP declarada y evadir el límite por IP sin esfuerzo. El **límite global**
+(200/h, no depende de la IP) es la red de seguridad mientras esto no se verifique: sigue
+protegiendo aunque el de IP resulte falsificable. Acción pendiente: confirmar el comportamiento
+exacto de `X-Forwarded-For` en el proxy/CDN de producción antes o justo después del primer
+despliegue de esta feature.
 
 ### ✅ Flaky de indexación Meilisearch — RESUELTO (H6, causa raíz: `waitForTask`)
 

@@ -21,6 +21,14 @@ async function bootstrap() {
   // the logger is ready, preventing them from falling back to console.
   app.useLogger(app.get(Logger));
 
+  // Trust exactly N proxy hops (config: TRUST_PROXY_HOPS) so Express resolves
+  // req.ip from X-Forwarded-For only up to that many hops — anything beyond is
+  // never trusted, so a client can't spoof the header to evade the contact-form
+  // rate limit (RC.1). Without this, req.ip is the raw socket peer (the proxy
+  // itself in production), making per-IP rate limiting meaningless.
+  const trustProxyHops = app.get(ConfigService).get<number>('trustProxyHops') ?? 1;
+  app.getHttpAdapter().getInstance().set('trust proxy', trustProxyHops);
+
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

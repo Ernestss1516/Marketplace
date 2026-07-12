@@ -361,7 +361,7 @@ export interface Post extends PostSummary {
 
 // ── Notifications ────────────────────────────────────────────────────────────
 
-export type NotificationType = 'ALERT_MATCH';
+export type NotificationType = 'ALERT_MATCH' | 'CONTACT_MESSAGE';
 
 /** Self-contained snapshot — mirrors AlertMatchData in the backend. */
 export interface AlertMatchData {
@@ -372,15 +372,25 @@ export interface AlertMatchData {
   listingTitle: string;
 }
 
-export interface NotificationItem {
+/** Self-contained snapshot — mirrors ContactMessageData in the backend (RC.1). */
+export interface ContactMessageData {
+  messageId: string;
+  motivo: string;
+  email: string;
+  extracto: string;
+}
+
+interface NotificationBase {
   id: string;
   userId: string;
-  type: NotificationType;
-  data: AlertMatchData;
   read: boolean;
   readAt: string | null;
   createdAt: string;
 }
+
+export type NotificationItem =
+  | (NotificationBase & { type: 'ALERT_MATCH'; data: AlertMatchData })
+  | (NotificationBase & { type: 'CONTACT_MESSAGE'; data: ContactMessageData });
 
 export interface NotificationsResponse {
   items: NotificationItem[];
