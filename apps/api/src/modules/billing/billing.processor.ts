@@ -44,22 +44,6 @@ function invoiceTaxBreakdown(invoice: Stripe.Invoice): {
   return { amountGross, amountNet, taxAmount, taxRate };
 }
 
-/**
- * Derive tax breakdown for a one-time Checkout Session (no invoice in v22).
- */
-function sessionTaxBreakdown(amountTotal: number): {
-  amountGross: Prisma.Decimal;
-  amountNet: Prisma.Decimal;
-  taxAmount: Prisma.Decimal;
-  taxRate: Prisma.Decimal;
-} {
-  const amountGross = new Prisma.Decimal(amountTotal).div(100);
-  const taxRate = new Prisma.Decimal(VAT_RATE);
-  const amountNet = amountGross.div(new Prisma.Decimal(1).add(taxRate)).toDecimalPlaces(2);
-  const taxAmount = amountGross.sub(amountNet).toDecimalPlaces(2);
-  return { amountGross, amountNet, taxAmount, taxRate };
-}
-
 /** Extract the Stripe Price ID from a v22 InvoiceLineItem. */
 function stripePriceIdFromLine(line: Stripe.InvoiceLineItem): string | undefined {
   const p = line.pricing?.price_details?.price;
@@ -147,7 +131,7 @@ export class BillingProcessor extends WorkerHost {
   // ---------------------------------------------------------------------------
 
   private async handleCheckoutCompleted(session: Stripe.Checkout.Session): Promise<void> {
-    const { userId, priceId, listingId } = session.metadata ?? {};
+    const { userId, priceId } = session.metadata ?? {};
     if (!userId || !priceId) {
       this.logger.warn(`checkout.session.completed missing metadata: ${session.id}`);
       return;
@@ -161,67 +145,20 @@ export class BillingProcessor extends WorkerHost {
         .catch(() => undefined);
     }
 
+    // mode: 'payment' (ONE_TIME/destacado) is no longer sold through Stripe —
+    // BillingService.createCheckoutSession rejects it before a session can be
+    // created. This only fires for a session created before that change; log
+    // loudly instead of silently granting (see git history for the removed
+    // handleOneTimePayment).
     if (session.mode === 'payment') {
-      await this.handleOneTimePayment(session, userId, priceId, listingId || undefined);
-    } else if (session.mode === 'subscription') {
-      await this.handleSubscriptionCheckout(session, userId, priceId);
-    }
-  }
-
-  /** ONE_TIME: creates Transaction + FEATURED_LISTING Entitlement. */
-  private async handleOneTimePayment(
-    session: Stripe.Checkout.Session,
-    userId: string,
-    priceId: string,
-    listingId?: string,
-  ): Promise<void> {
-    const price = await this.prisma.price.findUnique({
-      where: { id: priceId },
-      select: { id: true, durationDays: true },
-    });
-    if (!price) {
-      this.logger.warn(`Price ${priceId} not found for session ${session.id}`);
+      this.logger.warn(
+        `checkout.session.completed with mode=payment — Stripe one-time/destacado checkout is discontinued, ignoring: ${session.id}`,
+      );
       return;
     }
-
-    const tax = sessionTaxBreakdown(session.amount_total ?? 0);
-    const paymentIntentId =
-      session.payment_intent == null
-        ? null
-        : typeof session.payment_intent === 'string'
-          ? session.payment_intent
-          : session.payment_intent.id;
-
-    const upsertKey = paymentIntentId ?? `session-${session.id}`;
-
-    const transaction = await this.prisma.transaction.upsert({
-      where: { gatewayPaymentIntentId: upsertKey },
-      create: {
-        userId,
-        priceId,
-        ...tax,
-        status: TransactionStatus.SUCCEEDED,
-        gatewayPaymentIntentId: upsertKey,
-        listingId: listingId ?? null,
-      },
-      update: { status: TransactionStatus.SUCCEEDED },
-    });
-
-    if (listingId && price.durationDays) {
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + price.durationDays);
-      await this.prisma.entitlement.create({
-        data: {
-          userId,
-          type: EntitlementType.FEATURED_LISTING,
-          listingId,
-          expiresAt,
-          priceId,
-          transactionId: transaction.id,
-        },
-      });
+    if (session.mode === 'subscription') {
+      await this.handleSubscriptionCheckout(session, userId, priceId);
     }
-    this.logger.log(`ONE_TIME checkout processed: session=${session.id}, user=${userId}`);
   }
 
   /** RECURRING: creates Subscription + PRO Entitlement (no Transaction — that comes from invoice). */

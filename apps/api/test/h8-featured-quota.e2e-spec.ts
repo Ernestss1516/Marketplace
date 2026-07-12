@@ -31,9 +31,13 @@ import {
 } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import * as request from 'supertest';
+import { getQueueToken } from '@nestjs/bullmq';
+import type { Queue } from 'bullmq';
 import { createTestApp } from './helpers/create-app';
 import { cleanDb } from './helpers/db';
 import { EntitlementService } from 'src/modules/billing/entitlement.service';
+import { BillingService } from 'src/modules/billing/billing.service';
+import { QUEUE_INDEXING } from 'src/infra/queue/queue.constants';
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -332,6 +336,59 @@ describe('H8.2 — GET /billing/pro-status (cuota mensual de destacados Pro)', (
       const statusAfter = await getProStatus(token);
       expect(statusAfter.used).toBe(1);
       expect(statusAfter.remaining).toBe(3);
+    });
+
+    it('H8 Bloque D fase 4 — cuota y créditos delegan en grantFeaturedListingTx (unificación), y ambos encolan reindexado', async () => {
+      const billingService = app.get(BillingService);
+      const indexingQueue = app.get<Queue>(getQueueToken(QUEUE_INDEXING));
+      const grantSpy = jest.spyOn(billingService, 'grantFeaturedListingTx');
+
+      // ── Rama cuota ──────────────────────────────────────────────────────────
+      const { user, token } = await createUser('unify-quota');
+      await createProSubscription(
+        user.id,
+        new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+        new Date(Date.now() + 25 * 24 * 60 * 60 * 1000),
+      );
+      const quotaListing = await createActiveListing(user.id, 'unify-quota');
+
+      const jobsBefore = await indexingQueue.getJobs(['waiting', 'active', 'completed', 'delayed']);
+
+      await destacar(token, quotaListing.id, { useQuota: true }).expect(201);
+
+      expect(grantSpy).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          userId: user.id,
+          listingId: quotaListing.id,
+          origin: FeaturedOrigin.PRO_QUOTA,
+        }),
+      );
+      const jobsAfterQuota = await indexingQueue.getJobs(['waiting', 'active', 'completed', 'delayed']);
+      expect(jobsAfterQuota.some((j) => j.data?.listingId === quotaListing.id)).toBe(true);
+      expect(jobsAfterQuota.length).toBeGreaterThan(jobsBefore.length);
+
+      // ── Rama créditos ───────────────────────────────────────────────────────
+      grantSpy.mockClear();
+      await grantWallet(user.id, 1000);
+      const creditsListing = await createActiveListing(user.id, 'unify-credits');
+      const price7dId = await getFeaturedPriceIdByDuration(7);
+
+      await destacar(token, creditsListing.id, { priceId: price7dId }).expect(201);
+
+      expect(grantSpy).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          userId: user.id,
+          listingId: creditsListing.id,
+          priceId: price7dId,
+          origin: FeaturedOrigin.CREDITS,
+        }),
+      );
+      const jobsAfterCredits = await indexingQueue.getJobs(['waiting', 'active', 'completed', 'delayed']);
+      expect(jobsAfterCredits.some((j) => j.data?.listingId === creditsListing.id)).toBe(true);
+
+      grantSpy.mockRestore();
     });
 
     it('elige CUOTA con un priceId de 30d adjunto → lo IGNORA, usa siempre proQuotaFeaturedDurationDays', async () => {

@@ -72,7 +72,17 @@ export class BillingService {
   }
 
   // ---------------------------------------------------------------------------
-  // Stripe Pro checkout (unchanged from RF.3)
+  // Stripe Pro checkout — RECURRING (Plan Pro) only.
+  //
+  // Featured listings (ONE_TIME) used to be purchasable here too, but that
+  // path (BillingProcessor.handleOneTimePayment) never re-validated
+  // ownership/ACTIVE/duplicate at grant time, never set `origin`, never
+  // enqueued reindexing, and wasn't wrapped in the same $transaction as the
+  // Transaction upsert — a retried webhook/job could grant a second
+  // entitlement with nothing to stop it. Redsys is now the only card channel
+  // for destacado (POST /billing/checkout/featured-pay, via
+  // grantFeaturedListingTx). Closed explicitly below rather than left to
+  // silently ignore a stray listingId.
   // ---------------------------------------------------------------------------
 
   async createCheckoutSession(userId: string, dto: CheckoutDto): Promise<{ checkoutUrl: string }> {
@@ -82,21 +92,10 @@ export class BillingService {
     });
     if (!price || !price.active) throw new NotFoundException('Price not found or inactive');
 
-    const isOneTime = price.product.type === ProductType.ONE_TIME;
-
-    if (isOneTime) {
-      if (!dto.listingId) throw new BadRequestException('listingId is required for featured listings');
-      const listing = await this.prisma.listing.findUnique({
-        where: { id: dto.listingId },
-        select: { id: true, status: true, sellerId: true },
-      });
-      if (!listing || listing.status !== ListingStatus.ACTIVE) {
-        throw new BadRequestException('Only ACTIVE listings can be featured');
-      }
-      if (listing.sellerId !== userId) throw new ForbiddenException('Listing does not belong to you');
-
-      const alreadyFeatured = await this.entitlements.isFeaturedActive(dto.listingId);
-      if (alreadyFeatured) throw new BadRequestException('Listing already has an active featured period');
+    if (price.product.type === ProductType.ONE_TIME) {
+      throw new BadRequestException(
+        'Los destacados no se compran por Stripe. Usa POST /billing/checkout/featured-pay (Redsys).',
+      );
     }
 
     const user = await this.prisma.user.findUniqueOrThrow({
@@ -114,26 +113,17 @@ export class BillingService {
     const successUrl = `${this.appUrl}/planes/exito?session_id={CHECKOUT_SESSION_ID}`;
     const cancelUrl = `${this.appUrl}/planes/cancelado`;
 
-    const sessionParams: Stripe.Checkout.SessionCreateParams = {
+    const session = await this.stripe.checkout.sessions.create({
       customer: customerId,
-      mode: isOneTime ? 'payment' : 'subscription',
+      mode: 'subscription',
       line_items: [{ price: price.gatewayPriceId ?? undefined, quantity: 1 }],
       success_url: successUrl,
       cancel_url: cancelUrl,
-      metadata: {
-        userId,
-        priceId: dto.priceId,
-        listingId: dto.listingId ?? '',
-      },
-    };
-
-    if (!isOneTime) {
-      sessionParams.subscription_data = {
+      metadata: { userId, priceId: dto.priceId },
+      subscription_data: {
         metadata: { userId, priceId: dto.priceId },
-      };
-    }
-
-    const session = await this.stripe.checkout.sessions.create(sessionParams);
+      },
+    });
 
     if (!session.url) throw new BadRequestException('Stripe did not return a checkout URL');
     return { checkoutUrl: session.url };
@@ -198,22 +188,14 @@ export class BillingService {
   // ---------------------------------------------------------------------------
 
   /**
-   * The ONLY place that creates a FEATURED_LISTING entitlement.
-   * Does NOT know how the feature was paid — receives the validated result.
-   * Validates listing ownership + ACTIVE + no existing active entitlement.
-   * Enqueues reindexing after the entitlement is persisted.
+   * Thin standalone wrapper around grantFeaturedListingTx for callers that don't
+   * already have an open transaction: opens its own $transaction, then enqueues
+   * reindexing and logs after commit.
    *
-   * Called from:
-   *   - featuredByCredits (via internal $transaction path)
-   *   - RedsysProcessor.handleFeaturedPay (standalone, after Transaction.status = SUCCEEDED)
-   *   - CouponsService.redeem (via grantFeaturedListingTx, composed inside its own $transaction)
-   *
-   * Thin wrapper around grantFeaturedListingTx (H8 Bloque D fase 3 — extracted so
-   * callers with their own transaction, like coupon redemption, can compose the
-   * grant atomically with their own bookkeeping). Signature and behavior for this
-   * public method are unchanged — indexing is still enqueued AFTER commit, never
-   * inside the transaction (a BullMQ job for work that might roll back is worse
-   * than not enqueuing at all).
+   * Called from RedsysProcessor.handleFeaturedPay, after Transaction.status is
+   * set to SUCCEEDED. (Stripe used to have an equivalent one-time-payment path;
+   * removed — Redsys is now the only card channel for destacado, see
+   * BillingService.createCheckoutSession.)
    */
   async grantFeaturedListing(params: GrantFeaturedParams): Promise<void> {
     await this.prisma.$transaction((tx) => this.grantFeaturedListingTx(tx, params));
@@ -228,12 +210,29 @@ export class BillingService {
   }
 
   /**
-   * Validation + Entitlement.create only — no indexing enqueue, no logging (the
-   * caller's own transaction may still roll back after this returns). Runs
-   * against the CALLER's `tx`, so it composes inside a larger atomic operation
-   * (e.g. CouponsService.redeem: coupon redemption bookkeeping + this grant,
-   * all-or-nothing). Returns the created entitlement's id for the caller's own
-   * traceability (e.g. CouponRedemption.referenceId) without an extra query.
+   * The ONLY place that creates a FEATURED_LISTING entitlement (H8 Bloque D
+   * fase 4 — unification). Validates listing ownership + ACTIVE + no existing
+   * active entitlement, then Entitlement.create. No indexing enqueue, no
+   * logging here — the caller's own transaction may still roll back after
+   * this returns. Runs against the CALLER's `tx`, so it composes inside a
+   * larger atomic operation. Returns the created entitlement's id for the
+   * caller's own traceability (e.g. CouponRedemption.referenceId) without an
+   * extra query.
+   *
+   * Called from (always inside a $transaction):
+   *   - grantFeaturedListing (its own tx) — RedsysProcessor.handleFeaturedPay
+   *   - BillingService.featuredByCredits — both the quota branch and the
+   *     credits branch call this instead of creating the entitlement inline;
+   *     each still runs its own assertFeaturable() pre-check first purely for
+   *     a fast, structured `code: 'ALREADY_FEATURED'` HTTP response (same
+   *     pattern as RedsysService's checkout-creation pre-check) — the
+   *     re-validation in here is the real backstop, same tx/snapshot.
+   *   - CouponsService.redeem — composed inside its own $transaction
+   *
+   * Duration is caller-supplied (`durationDays`) and legitimately differs by
+   * channel: fixed Setting for Pro quota, Price.durationDays for Redsys/credits,
+   * the coupon's own value for cupón. That's the one thing that's allowed to
+   * diverge — the grant itself does not.
    */
   async grantFeaturedListingTx(
     tx: Prisma.TransactionClient,
@@ -378,14 +377,11 @@ export class BillingService {
 
         // Free grant — no wallet debit, no CreditLedger entry, no priceId (no
         // variant was chosen: the quota always uses the fixed duration above).
-        await tx.entitlement.create({
-          data: {
-            userId,
-            type: EntitlementType.FEATURED_LISTING,
-            listingId,
-            expiresAt,
-            origin: FeaturedOrigin.PRO_QUOTA,
-          },
+        await this.grantFeaturedListingTx(tx, {
+          userId,
+          listingId,
+          durationDays,
+          origin: FeaturedOrigin.PRO_QUOTA,
         });
       });
 
@@ -451,16 +447,12 @@ export class BillingService {
         },
       });
 
-      // Create entitlement (single source of truth: this is the ONLY place)
-      await tx.entitlement.create({
-        data: {
-          userId,
-          type: EntitlementType.FEATURED_LISTING,
-          listingId,
-          expiresAt,
-          priceId,
-          origin: FeaturedOrigin.CREDITS,
-        },
+      await this.grantFeaturedListingTx(tx, {
+        userId,
+        listingId,
+        durationDays,
+        priceId,
+        origin: FeaturedOrigin.CREDITS,
       });
     });
 

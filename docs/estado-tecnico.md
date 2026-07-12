@@ -3776,25 +3776,72 @@ abajo). **Cura**: el seed de test debería **resetear** los `Setting` a sus defa
 residuales de ejecuciones previas. Deuda para el Hito 9 (mismo saco que el resto de aislamiento
 dev/test de esta lista).
 
-**7. Duplicación del punto de concesión de destacados (`grantFeaturedListing`/`grantFeaturedListingTx`
-vs. `featuredByCredits`) — ACTIVA.** Anotada por primera vez en H8.1/H8.5a («Deuda de diseño sin
-resolver (heredada, anotada, no se toca aquí): `featuredByCredits` sigue sin llamar a
-`grantFeaturedListing` — mantiene su propia copia de la lógica de concesión dentro de su
-`$transaction` por la atomicidad con el wallet/la cuota. Dos puntos de concesión en vez de uno.»). El
-refactor `grantFeaturedListing` → `grantFeaturedListingTx` de H8 Bloque D fase 3a («salda parte de la
-deuda de duplicación de H8.1») solo cubre a `RedsysProcessor.handleFeaturedPay` y
-`CouponsService.redeem` — no a `featuredByCredits`. **Verificado en código (2026-07-08):**
-`grantFeaturedListingTx` solo la usan `grantFeaturedListing` (→ `RedsysProcessor.handleFeaturedPay`)
-y `CouponsService.redeem`. `BillingService.featuredByCredits` sigue sin llamar a ninguna de las dos —
-mantiene su propia validación (`assertFeaturable`) y su propio `tx.entitlement.create` inline,
-duplicado además en sus dos ramas internas (cuota Pro y créditos), cada una con su propio
-`entitlement.create`. El comentario en el código junto al `entitlement.create` de la rama de créditos
-(`billing.service.ts`, dentro de `featuredByCredits`) dice literalmente "single source of truth: this
-is the ONLY place" — inexacto, ya que `grantFeaturedListingTx` es otra. Siguen existiendo, por tanto,
-**tres** implementaciones independientes de "crear un `Entitlement FEATURED_LISTING`":
-`grantFeaturedListingTx` (Redsys + cupones) y las dos ramas inline de `featuredByCredits` (cuota Pro y
-créditos). Unificar `featuredByCredits` sobre `grantFeaturedListingTx` queda como deuda para el
-Hito 9.
+**7. Duplicación del punto de concesión de destacados — CERRADA (H8 Bloque D fase 4,
+2026-07-12).** Historial: anotada en H8.1/H8.5a, parcialmente saldada en H8 Bloque D fase 3a
+(extracción de `grantFeaturedListingTx`, usada por Redsys y cupones) pero sin cubrir
+`featuredByCredits`. La observación previa a este cierre encontró que no eran 3 caminos sino
+**4**: además de `grantFeaturedListingTx` (Redsys/cupón) y las dos ramas inline de
+`featuredByCredits` (cuota Pro, créditos), `BillingProcessor.handleOneTimePayment` creaba un
+`Entitlement FEATURED_LISTING` para compras vía Stripe checkout (`POST /billing/checkout` con
+`listingId`) — un camino no inventariado en la deuda original. Ese cuarto camino no revalidaba
+ownership/ACTIVE/duplicado en el momento de conceder (solo al crear la sesión de Stripe, antes del
+pago), no seteaba `origin`, no encolaba reindexado (el processor ni inyectaba la cola), y no estaba
+en la misma `$transaction` que el `Transaction.upsert` — sin nada que impidiera una doble concesión
+si el job se reprocesaba tras un commit exitoso con ack fallido (justo el escenario que abrió el
+retry de `QUEUE_BILLING`). **Comprobación de datos antes de tocar nada** (BD local): 0 filas
+`Entitlement` `FEATURED_LISTING` con `origin IS NULL` (el único origen que no seteaba `origin`) sobre
+9 totales, y 0 listings con más de un `FEATURED_LISTING` activo simultáneo — el bug era teórico en
+este entorno, nadie completó nunca esa compra por Stripe (el frontend actual solo llama a
+`/billing/checkout/featured-pay`, Redsys, para destacar). No hizo falta reparación de datos.
+
+**Decisiones tomadas y aplicadas:**
+- **Stripe destacado, cerrado.** Redsys es el único canal de tarjeta para destacados.
+  `BillingProcessor.handleOneTimePayment` eliminado; `handleCheckoutCompleted` ahora registra un
+  `warn` y no hace nada si le llega un `session.mode === 'payment'` (solo podría pasar por una
+  sesión creada antes de este cierre). `CheckoutDto` ya no tiene `listingId` — el `ValidationPipe`
+  global (`forbidNonWhitelisted`) lo rechaza con 400 si algún cliente lo manda. Y
+  `BillingService.createCheckoutSession` rechaza explícitamente cualquier `Price` de tipo
+  `ONE_TIME` con un 400 con mensaje claro, antes de tocar Stripe — la puerta queda cerrada, no
+  entornada. El checkout de Plan Pro (RECURRING) no se tocó.
+- **`@@unique([transactionId, type])` en `Entitlement`** (migración
+  `20260712193902_entitlement_transaction_type_unique`) — red de seguridad en BD contra el vector de
+  retry: una misma `Transaction` no puede generar dos `Entitlement` del mismo tipo. Se evaluó
+  `@@unique([listingId, type])` (descartado: bloquearía renovar un destacado tras expirar, caso
+  legítimo) y un índice único parcial sobre "activos" (inviable: Postgres no permite `now()` en el
+  predicado de un índice). `NULL` no colisiona consigo mismo (semántica estándar de `UNIQUE` en
+  Postgres): esto protege el camino con retry automático de infraestructura (Redsys, vía BullMQ) pero
+  **no** a cuota Pro/créditos/cupón, que no llevan `transactionId` — esos siguen dependiendo solo del
+  check en aplicación (`assertFeaturable`/`grantFeaturedListingTx`, sin `SELECT ... FOR UPDATE` sobre
+  el listing, a diferencia del lock que sí toma `hasAvailableFeaturedQuota` sobre la `Subscription`).
+  Riesgo residual aceptado, no cerrado: una carrera concurrente genuina (dos requests simultáneas
+  sobre el mismo listing por cuota/créditos/cupón) podría en teoría colar una doble concesión antes de
+  que cualquiera de las dos commitee — igual que ya podía pasar antes de este cierre. Si se quiere
+  cerrar del todo, el arreglo sería un `SELECT ... FOR UPDATE` sobre el `Listing` dentro de
+  `grantFeaturedListingTx`, no implementado aquí.
+- **`featuredByCredits` unificado sobre `grantFeaturedListingTx`.** Las dos ramas (cuota Pro,
+  créditos) ya no hacen su propio `tx.entitlement.create` — llaman a `grantFeaturedListingTx` pasando
+  su propia `durationDays` (Setting fijo para cuota, `Price.durationDays` para créditos — la duración
+  sigue divergiendo por canal deliberadamente, es la parte legítima). Cada rama conserva su propio
+  `assertFeaturable` como pre-check síncrono (mismo patrón que ya usaba `RedsysService` al crear el
+  checkout): sirve para devolver el código estructural `{code: 'ALREADY_FEATURED'}` que el frontend
+  (`apps/web/src/lib/api/client.ts`) usa para mostrar "Este anuncio ya está destacado" —
+  `grantFeaturedListingTx` internamente solo lanza un `BadRequestException` de texto plano, así que
+  quitar el pre-check habría roto ese mensaje. La revalidación duplicada dentro de la misma tx/snapshot
+  es intencional (defensa en profundidad), no descuido.
+- **Comentarios corregidos.** El de `grantFeaturedListingTx` ahora sí es cierto: es la única
+  implementación que escribe un `Entitlement FEATURED_LISTING`, con la lista real de quién la llama
+  (siempre dentro de una `$transaction`). El de `grantFeaturedListing` deja de reclamar ser el único
+  sitio y pasa a describirse correctamente como wrapper standalone para callers sin tx propia
+  (Redsys).
+
+Ahora sí son **1** implementación de concesión (`grantFeaturedListingTx`) + 3 canales de cobro
+(Redsys, créditos/cuota, cupón) que la llaman. Tests nuevos: unit (`billing.service.spec.ts`, Stripe
+mockeado) para "ONE_TIME rechazado sin llamar a Stripe" / "RECURRING sigue llegando a Stripe"; e2e en
+`billing-rf6.e2e-spec.ts` para el `@@unique` (P2002 en colisión, insert libre en renovación con
+`transactionId` distinto) y el cierre de Stripe (400 con `listingId`, 400 explícito en `ONE_TIME` sin
+`listingId`); e2e en `h8-featured-quota.e2e-spec.ts` con `jest.spyOn(billingService,
+'grantFeaturedListingTx')` verificando que ambas ramas delegan de verdad (no solo que el resultado
+final tiene la misma forma) y que ambas encolan reindexado.
 
 **8. Solapamiento check-then-act en campañas — ACTIVA, riesgo aceptado.** (H8 Bloque D fase 1,
 `CampaignsService.assertNoOverlap`.) La validación de solapamiento es check-then-act (lee, luego
@@ -4118,9 +4165,9 @@ hito (H8.6); mientras tanto, el detalle de las decisiones vive en el hilo de dis
   sin efectos secundarios), créditos con cuota disponible (cuota intacta), créditos sin cuota (igual
   que siempre), el Setting de duración cambia el resultado, y los dos tests de concurrencia
   (best-effort + determinista) adaptados a la elección explícita.
-- **Deuda de diseño sin resolver (heredada, anotada, no se toca aquí):** `featuredByCredits` sigue
-  sin llamar a `grantFeaturedListing`. (Ítem de deuda activa — ver «Duplicación del punto de
-  concesión de destacados» en §3.)
+- **Deuda de diseño (heredada, anotada, no se tocó en su momento):** `featuredByCredits` seguía sin
+  llamar a `grantFeaturedListing`. **Cerrada en H8 Bloque D fase 4** — ver «Duplicación del punto de
+  concesión de destacados» en §3 (ahora marcada CERRADA).
 
 **H8.5b (UX: selector de vía al destacar + visibilidad de cuota Pro) — hecho:**
 

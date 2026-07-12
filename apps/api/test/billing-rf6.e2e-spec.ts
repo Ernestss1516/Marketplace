@@ -609,4 +609,141 @@ describe('RF.6 — Featured listing, bump, and wallet (e2e)', () => {
       expect(res.body.total).toBeGreaterThan(0);
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // POST /billing/checkout — Stripe destacado cerrado (H8 Bloque D fase 4)
+  //
+  // Redsys es ahora el único canal de tarjeta para destacados. Stripe checkout
+  // solo vende RECURRING (Plan Pro); un intento de destacado se rechaza con
+  // 400 explícito, nunca en silencio. No se ejercita el camino "Pro sigue
+  // funcionando" contra la API real de Stripe aquí (no hay infraestructura de
+  // mocking de Stripe en el proyecto) — ver billing.service.spec.ts (unit,
+  // Stripe mockeado) para esa cobertura.
+  // ---------------------------------------------------------------------------
+
+  describe('POST /billing/checkout — Stripe destacado cerrado (H8 Bloque D fase 4)', () => {
+    it('rechaza cualquier listingId con 400 (ValidationPipe forbidNonWhitelisted)', async () => {
+      const listingId = await createActiveListing('-stripe-closed-1');
+      const res = await request(app.getHttpServer())
+        .post('/api/billing/checkout')
+        .set('Authorization', `Bearer ${sellerToken}`)
+        .send({ priceId: featuredPrice7dId, listingId })
+        .expect(400);
+
+      expect(JSON.stringify(res.body)).toMatch(/listingId/);
+
+      // No side effects: no Transaction, no Entitlement.
+      const entitlement = await prisma.entitlement.findFirst({
+        where: { listingId, type: EntitlementType.FEATURED_LISTING },
+      });
+      expect(entitlement).toBeNull();
+    });
+
+    it('rechaza un priceId ONE_TIME con 400 explícito aunque no se envíe listingId', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/api/billing/checkout')
+        .set('Authorization', `Bearer ${sellerToken}`)
+        .send({ priceId: featuredPrice7dId })
+        .expect(400);
+
+      expect(JSON.stringify(res.body)).toMatch(/Redsys/);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Entitlement @@unique([transactionId, type]) — red de seguridad en BD
+  //
+  // Ataca el vector de retry (mismo Transaction concediendo dos veces, p.ej.
+  // un job de BullMQ reprocesado tras un commit exitoso pero un ack fallido).
+  // NULLs no colisionan (cuota/créditos/cupón no llevan transactionId — esos
+  // caminos siguen dependiendo del check en aplicación, sin lock).
+  // ---------------------------------------------------------------------------
+
+  describe('Entitlement @@unique([transactionId, type]) — red de seguridad en BD', () => {
+    async function createRawTransaction(): Promise<string> {
+      const price = await prisma.price.findUniqueOrThrow({ where: { id: featuredPrice7dId } });
+      const tax = redsysTaxBreakdown(price.amount);
+      const tx = await prisma.transaction.create({
+        data: {
+          userId: sellerUserId,
+          priceId: featuredPrice7dId,
+          ...tax,
+          status: TransactionStatus.SUCCEEDED,
+          gateway: 'REDSYS',
+          gatewayPaymentIntentId: `unique-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        },
+        select: { id: true },
+      });
+      return tx.id;
+    }
+
+    it('la MISMA transacción no puede conceder dos FEATURED_LISTING (P2002, no solo en la app)', async () => {
+      const transactionId = await createRawTransaction();
+      const listingA = await createActiveListing('-unique-tx-a');
+      const listingB = await createActiveListing('-unique-tx-b');
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 7);
+
+      // Primera concesión — pasa.
+      await prisma.entitlement.create({
+        data: {
+          userId: sellerUserId,
+          type: EntitlementType.FEATURED_LISTING,
+          listingId: listingA,
+          expiresAt,
+          transactionId,
+        },
+      });
+
+      // Segunda concesión desde LA MISMA transacción — simula un retry tras un
+      // commit exitoso con ack fallido. Debe fallar por la constraint de BD,
+      // sin depender de que la app recuerde comprobarlo.
+      await expect(
+        prisma.entitlement.create({
+          data: {
+            userId: sellerUserId,
+            type: EntitlementType.FEATURED_LISTING,
+            listingId: listingB,
+            expiresAt,
+            transactionId,
+          },
+        }),
+      ).rejects.toMatchObject({ code: 'P2002' });
+    });
+
+    it('permite re-destacar (renovación): dos transacciones distintas, mismo listing', async () => {
+      const listingId = await createActiveListing('-unique-renewal');
+      const expiredAt = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const futureAt = new Date();
+      futureAt.setDate(futureAt.getDate() + 7);
+
+      const oldTransactionId = await createRawTransaction();
+      const newTransactionId = await createRawTransaction();
+
+      // Destacado anterior, ya expirado.
+      await prisma.entitlement.create({
+        data: {
+          userId: sellerUserId,
+          type: EntitlementType.FEATURED_LISTING,
+          listingId,
+          expiresAt: expiredAt,
+          transactionId: oldTransactionId,
+        },
+      });
+
+      // Nueva compra, nuevo destacado para el MISMO listing — distinta
+      // transactionId, no debe chocar con la constraint.
+      await expect(
+        prisma.entitlement.create({
+          data: {
+            userId: sellerUserId,
+            type: EntitlementType.FEATURED_LISTING,
+            listingId,
+            expiresAt: futureAt,
+            transactionId: newTransactionId,
+          },
+        }),
+      ).resolves.toBeDefined();
+    });
+  });
 });

@@ -812,6 +812,15 @@ model Entitlement {
 
   createdAt DateTime @default(now())
 
+  /// Red de seguridad en BD contra doble concesión: una misma Transaction no
+  /// puede generar dos entitlements del mismo tipo (el escenario de un job de
+  /// BillingProcessor/RedsysProcessor reintentado tras un commit exitoso pero
+  /// un ack fallido — ver deuda "concesión de destacado", H8 Bloque D fase 4).
+  /// NULLs no colisionan entre sí (semántica estándar de UNIQUE en Postgres):
+  /// esto NO protege los caminos que no llevan transactionId (cuota Pro,
+  /// créditos, cupón — sus checks de "ya activo" viven solo en aplicación,
+  /// sin lock; ver grantFeaturedListingTx/assertFeaturable).
+  @@unique([transactionId, type])
   @@index([userId, type])
   @@index([userId, type, origin, createdAt])
   @@index([listingId])
