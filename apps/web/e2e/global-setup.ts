@@ -41,6 +41,18 @@ export default async function globalSetup(playwrightConfig: FullConfig) {
     );
   }
 
+  // Same principle as the DATABASE_URL check above, for Redis: dev and test share
+  // one Redis server, isolated only by logical db (REDIS_URL's path segment, e.g.
+  // .../1 — see apps/api/src/infra/redis/redis-connection.ts). Catch a missing
+  // suffix here with a clear message instead of the flush script's generic guard.
+  const redisUrl = process.env.REDIS_URL ?? '';
+  if (!/\/[1-9]\d*$/.test(redisUrl)) {
+    throw new Error(
+      `[Playwright globalSetup] REDIS_URL must select a non-zero db (e.g. redis://localhost:6379/1) but got:\n  ${redisUrl || '(empty)'}\n\n` +
+      'Otherwise this run\'s FLUSHDB and rate-limit counters would collide with a dev server on the same Redis.',
+    );
+  }
+
   const execOpts = { cwd: API_DIR, stdio: 'inherit' as const, env: { ...process.env } };
 
   // ── 2. Migrate test DB ───────────────────────────────────────────────────────
@@ -59,9 +71,11 @@ export default async function globalSetup(playwrightConfig: FullConfig) {
   // auth-friction.spec.ts) — sin este flush, una corrida repetida en local (o
   // varios specs compartiendo las mismas cuentas sembradas dentro de la MISMA
   // corrida) puede agotar el cupo de una cuenta y provocar 429 en cascada en
-  // specs sin ninguna relación con auth. Mismo script que usa el globalSetup
-  // de Jest (apps/api/test/flush-auth-rate-limits.js) — una sola fuente.
-  execSync('node test/flush-auth-rate-limits.js', execOpts);
+  // specs sin ninguna relación con auth. Ahora hace FLUSHDB completo (seguro:
+  // db de test aislada de la de dev, con guard si REDIS_URL apuntara a db 0
+  // — ver apps/api/src/infra/redis/redis-connection.ts). Mismo script que usa
+  // el globalSetup de Jest (apps/api/test/flush-redis-test-db.js) — una sola fuente.
+  execSync('node test/flush-redis-test-db.js', execOpts);
 
   // ── 5. Save storageState for both users ──────────────────────────────────────
   const baseURL =

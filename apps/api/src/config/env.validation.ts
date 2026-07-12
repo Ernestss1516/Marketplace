@@ -16,7 +16,20 @@ export const envValidationSchema = Joi.object({
       }),
     otherwise: Joi.string().required(),
   }),
-  REDIS_URL: Joi.string().required(),
+  // REDIS_URL's path segment is the logical db index (default 0). Dev and test
+  // share one Redis server, so test must select a non-zero db (e.g. .../1) —
+  // otherwise BullMQ jobs, rate-limit counters and caches collide with dev's.
+  REDIS_URL: Joi.when('NODE_ENV', {
+    is: 'test',
+    then: Joi.string()
+      .pattern(/\/[1-9]\d*$/)
+      .required()
+      .messages({
+        'string.pattern.base':
+          'REDIS_URL must select a non-zero db (e.g. redis://localhost:6379/1) in test env — prevents colliding with the dev db (db 0)',
+      }),
+    otherwise: Joi.string().required(),
+  }),
   MEILI_HOST: Joi.string().required(),
   MEILI_MASTER_KEY: Joi.string().required(),
   MEILI_INDEX_NAME: Joi.when('NODE_ENV', {

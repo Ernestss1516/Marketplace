@@ -16,6 +16,7 @@ import { AlertMatchingProcessor } from './processors/alert-matching.processor';
 import { GeocodingModule } from '../../modules/geocoding/geocoding.module';
 import { SearchModule } from '../../modules/search/search.module';
 import { AlertsModule } from '../../modules/alerts/alerts.module';
+import { parseRedisConnection } from '../redis/redis-connection';
 
 // PrismaModule is @Global(), so PrismaService is available without importing PrismaModule here.
 // SearchModule and GeocodingModule are imported to provide their services to IndexingProcessor.
@@ -25,18 +26,15 @@ import { AlertsModule } from '../../modules/alerts/alerts.module';
   imports: [
     BullModule.forRootAsync({
       imports: [ConfigModule],
-      useFactory: (config: ConfigService) => {
-        // Parse REDIS_URL into host/port to avoid ioredis version type conflicts.
-        const url = new URL(config.getOrThrow<string>('redis.url'));
-        return {
-          connection: {
-            host: url.hostname,
-            port: parseInt(url.port || '6379', 10),
-            password: url.password || undefined,
-            maxRetriesPerRequest: null,
-          },
-        };
-      },
+      useFactory: (config: ConfigService) => ({
+        // parseRedisConnection resolves the db index from REDIS_URL's path (e.g.
+        // redis://localhost:6379/1) — without it BullMQ silently connects to db 0
+        // regardless of REDIS_URL, defeating dev/test Redis isolation entirely.
+        connection: {
+          ...parseRedisConnection(config.getOrThrow<string>('redis.url')),
+          maxRetriesPerRequest: null,
+        },
+      }),
       inject: [ConfigService],
     }),
     BullModule.registerQueue(

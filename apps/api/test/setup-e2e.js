@@ -12,7 +12,7 @@
 const { execSync } = require('child_process');
 const { join } = require('path');
 const { config } = require('dotenv');
-const flushAuthRateLimits = require('./flush-auth-rate-limits');
+const flushRedisTestDb = require('./flush-redis-test-db');
 
 module.exports = async function globalSetup() {
   config({ path: join(__dirname, '..', '.env.test') });
@@ -30,15 +30,16 @@ module.exports = async function globalSetup() {
   });
 
   // RÁFAGA 3 — /auth/login (rate limit) es llamado como infraestructura de
-  // setup por CASI TODOS los specs (login de usuarios de prueba), a
-  // diferencia de /contacto (cuyo rate limit solo lo ejercita su propio
-  // archivo). Sin este flush, una corrida local repetida dentro de la misma
-  // ventana (15min/1h) hereda contadores de la corrida anterior y specs sin
-  // ninguna relación con auth empiezan a recibir 401/429 en cascada — mismo
-  // principio que "resetear entre CADA pasada, no solo antes de la primera"
-  // (ver feedback_ci_verde_repetido). Flush aquí, una vez, antes de toda la
+  // setup por CASI TODOS los specs (login de usuarios de prueba). Sin este
+  // flush, una corrida local repetida dentro de la misma ventana (15min/1h)
+  // hereda contadores de la corrida anterior y specs sin ninguna relación con
+  // auth empiezan a recibir 401/429 en cascada — mismo principio que
+  // "resetear entre CADA pasada, no solo antes de la primera" (ver
+  // feedback_ci_verde_repetido). Flush aquí, una vez, antes de toda la
   // batería — no basta con que auth-security.e2e-spec.ts lo haga en su propio
   // beforeAll, porque ese archivo no es necesariamente el primero en correr.
-  // (Compartido con el globalSetup de Playwright — ver flush-auth-rate-limits.js).
-  await flushAuthRateLimits();
+  // Ahora es un FLUSHDB completo (seguro: db de test aislada de la de dev —
+  // ver redis-connection.ts), no solo `auth:*`. Compartido con el globalSetup
+  // de Playwright — ver flush-redis-test-db.js.
+  await flushRedisTestDb();
 };

@@ -2320,7 +2320,9 @@ competía por los jobs de indexado del run de test y los escribía en el
 índice de **dev**, no en `listings_test`. Matar ese proceso resolvió el 100%
 de los fallos al instante. Ver [[feedback_e2e_zombie_dev_process]] en
 memoria — antes de sospechar de Meilisearch/Redis/BullMQ, comprobar
-`Get-NetTCPConnection -LocalPort 3001`.
+`Get-NetTCPConnection -LocalPort 3001`. **Causa raíz cerrada 2026-07-12** —
+dev/test ya están en dbs Redis separadas, ver «Colisión Redis dev/test en
+local» en la sección de Hito 7.
 
 **Hallazgo aparte, fuera de alcance de esta ráfaga**: al correr por primera
 vez la batería Playwright COMPLETA (antes solo se había verificado
@@ -3230,9 +3232,10 @@ para un Nivel 2 a evaluar después.
   dispositivos. **Corregido de raíz, no parcheado**: se retiró el contador de rate-limit por email
   (redundante con el lockout, que ya cubre "5 fallos por cuenta" con más matices —backoff
   creciente— y sin ese falso positivo, porque solo cuenta fallos, nunca éxitos). Ver el comentario
-  en `auth.constants.ts`. De paso, se extrajo `apps/api/test/flush-auth-rate-limits.js` (compartido
-  entre el `globalSetup` de Jest y el de Playwright) para que ninguna corrida repetida en local
-  herede contadores de la anterior.
+  en `auth.constants.ts`. De paso, se extrajo `apps/api/test/flush-redis-test-db.js` (compartido
+  entre el `globalSetup` de Jest y el de Playwright; renombrado y ampliado a `FLUSHDB` completo al
+  cerrar la colisión Redis dev/test — ver «Colisión Redis dev/test en local» más abajo) para que
+  ninguna corrida repetida en local herede contadores de la anterior.
 - **Tests**: `apps/web/e2e/auth-friction.spec.ts` (10 tests) — el bug de `ContactButton` arreglado
   (vuelve al anuncio, no a `/mis-anuncios`), el middleware devolviendo a `/publicar`/`/mensajes`/
   `/favoritos`/`/mis-creditos`, favoritos visibles y con retorno correcto (ficha y tarjeta), Comprar
@@ -3414,7 +3417,9 @@ cualquier par, ver RC.2 «Ajuste 1»). Migración `add_contact_message`.
 instancia Redis sin namespace separado (`REDIS_URL` idéntica en `.env` y `.env.test`) — correr la
 suite e2e de contacto deja contadores `contact:rate:*` en Redis que también bloquean al servidor
 `dev` durante QA manual inmediatamente después. Sin fix de producto (no aplica en producción, un
-solo entorno); anotado como fricción de flujo de trabajo local, no como bug.
+solo entorno); anotado como fricción de flujo de trabajo local, no como bug. **Causa raíz cerrada
+2026-07-12** — dev/test ya están en dbs Redis separadas (db 0 / db 1), ver «Colisión Redis dev/test
+en local» en la sección de Hito 7.
 
 ### RC.2 — Cambio manual de estado (confirmado, sin código) + motivos de contacto configurables
 
@@ -3965,11 +3970,16 @@ antes de asumir: el roadmap sobreestimaba el alcance real de Hito 7.
   seguridad de auth» más abajo. `forgotPassword()` sigue siendo un no-op silencioso para cuentas
   solo-Google (sigue sin poder recuperar lo que nunca tuvieron), pero ahora tienen un camino
   explícito para fijar una por primera vez.
-- **Colisión Redis dev/test en local.** `REDIS_URL` no lleva namespace/prefijo por entorno; si un
-  proceso `pnpm dev` (BullMQ apuntando al Redis local) queda corriendo mientras se ejecuta la suite
-  de test (mismo Redis, sin DB ni prefijo distintos para las colas), los workers de dev pueden robar
-  jobs encolados por los tests. Solo afecta a desarrollo local con ambos procesos vivos a la vez; CI
-  usa un Redis de servicio dedicado y no lo sufre. Aislar por namespace/prefijo de cola en Hito 9.
+- **✅ RESUELTO (2026-07-12) — Colisión Redis dev/test en local.** `REDIS_URL` no llevaba
+  namespace/prefijo por entorno; si un proceso `pnpm dev` (BullMQ apuntando al Redis local) quedaba
+  corriendo mientras se ejecutaba la suite de test (mismo Redis, sin DB ni prefijo distintos para
+  las colas), los workers de dev podían robar jobs encolados por los tests. Solo afectaba a
+  desarrollo local con ambos procesos vivos a la vez; CI ya usaba `REDIS_URL: redis://localhost:6379/1`
+  en su Redis de servicio, pero **ese `/1` era decorativo**: `QueueModule` reconstruía la conexión de
+  BullMQ manualmente a partir de `host`/`port`/`password` y descartaba el `pathname` de la URL, así
+  que las colas siempre se conectaban a la db 0 sin importar lo que dijera `REDIS_URL` — el propio CI
+  nunca estuvo realmente aislado en BullMQ, solo en `RedisService` (que sí usa `new Redis(url)` y por
+  tanto sí respetaba el path).
 
   **Manifestación concreta (refuerzo de validación de atributos, 2026-07-08):** con un backend de
   dev vivo en el puerto 3001 (`node dist/src/main`) durante la verificación de la batería completa,
@@ -3977,8 +3987,25 @@ antes de asumir: el roadmap sobreestimaba el alcance real de Hito 7.
   `search-facets-by-type`, `listings`, `admin`, `moderation`) fallaron con "not indexed in
   Meilisearch within 15000ms" — el worker de dev competía por `bull:indexing` y se quedaba los jobs
   de los tests. Confirma el riesgo ya inventariado, no es un bug del código bajo prueba; se resolvió
-  deteniendo el proceso de dev antes de la corrida final. Refuerza la prioridad de aislar por
-  namespace/prefijo.
+  deteniendo el proceso de dev antes de la corrida final.
+
+  **Arreglo de raíz:** separación por db lógica de Redis (dev = db 0, test = db 1), no por
+  prefijo de claves — se descartó prefijar cada consumidor (`contact:rate:*`, `auth:*`,
+  `listing:*`, `sponsored-ad:*`, `view:dedup:*`, colas BullMQ…) por el riesgo real de olvidar uno
+  (había 6 definiciones duplicadas de la clave de caché `listing:{slug}` en otros tantos archivos).
+  En su lugar, `apps/api/src/infra/redis/redis-connection.ts` (`parseRedisConnection`) resuelve
+  host/puerto/password/db a partir de `REDIS_URL` una sola vez, y es el ÚNICO punto por el que pasan
+  las dos conexiones reales del proceso (`RedisService` y `QueueModule`/BullMQ) — un futuro
+  consumidor no puede "olvidar" el namespace porque no construye su propia conexión, inyecta
+  `RedisService` (ya `@Global()`) como todos los demás. `.env.test` pasa a `REDIS_URL="redis://localhost:6379/1"`;
+  `env.validation.ts` exige (Joi, mismo patrón que `DATABASE_URL`/`_test`) que en `NODE_ENV=test`
+  `REDIS_URL` termine en una db no-cero, o el backend no arranca. El flush de Jest/Playwright
+  (`apps/api/test/flush-redis-test-db.js`, antes `flush-auth-rate-limits.js`) pasó de borrar solo
+  `auth:*` a un `FLUSHDB` completo — seguro porque la db de test ya está aislada — con un guard que
+  lanza si `REDIS_URL` resolviera a db 0, para que una `.env.test` mal configurada nunca pueda
+  vaciar el Redis de un desarrollador. Verificado ejerciendo la colisión: servidor dev corriendo +
+  batería e2e completa en paralelo sin afectar sus colas/rate limits, y dos corridas seguidas de la
+  suite sin heredar contadores entre sí.
 
 - **✅ RESUELTO — "Teardown de tests e2e deja handles asíncronos abiertos" era un falso positivo.**
   El aviso "Force exiting Jest: Have you considered using `--detectOpenHandles`" que aparecía en cada
