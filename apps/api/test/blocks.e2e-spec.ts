@@ -320,4 +320,177 @@ describe('Sistema de bloques — validación (e2e)', () => {
       ]).expect(201);
     });
   });
+
+  // ── Ráfaga 3 — 4 tipos nuevos (3 estáticos + 1 dinámico) ──────────────────
+  // Categorías reales sembradas en globalSetup (electronica -> moviles,
+  // vehiculos -> coches) — Category no se trunca entre suites (ver
+  // helpers/db.ts), así que estos slugs son estables en toda la batería.
+
+  describe('Ráfaga 3 — imageText, steps, profile (estáticos)', () => {
+    it('imageText válido → 201', async () => {
+      const res = await createPost('Bloque imageText', [
+        {
+          id: 'b1',
+          type: 'imageText',
+          image: { url: OWN_IMAGE_URL, alt: 'alt' },
+          markdown: 'Texto **con formato**.',
+          layout: 'imageLeft',
+        },
+      ]).expect(201);
+      expect(res.body.blocks[0].layout).toBe('imageLeft');
+    });
+
+    it('imageText con image.url externa (no nuestro storage) → 400', async () => {
+      await createPost('imageText inválido', [
+        {
+          id: 'b1',
+          type: 'imageText',
+          image: { url: 'https://evil.example.com/x.jpg', alt: 'alt' },
+          markdown: 'texto',
+          layout: 'imageRight',
+        },
+      ]).expect(400);
+    });
+
+    it('imageText con layout desconocido → 400', async () => {
+      await createPost('imageText layout inválido', [
+        {
+          id: 'b1',
+          type: 'imageText',
+          image: { url: OWN_IMAGE_URL, alt: 'alt' },
+          markdown: 'texto',
+          layout: 'imageCenter',
+        },
+      ]).expect(400);
+    });
+
+    it('steps válido (con imagen opcional en un paso) → 201', async () => {
+      const res = await createPost('Bloque steps', [
+        {
+          id: 'b1',
+          type: 'steps',
+          title: 'Cómo funciona',
+          items: [
+            { title: 'Paso 1', description: 'Haz esto' },
+            { title: 'Paso 2', description: 'Luego esto', image: OWN_IMAGE_URL },
+          ],
+        },
+      ]).expect(201);
+      expect(res.body.blocks[0].items).toHaveLength(2);
+    });
+
+    it('steps sin items → 400 (ArrayMinSize)', async () => {
+      await createPost('steps inválido', [{ id: 'b1', type: 'steps', items: [] }]).expect(400);
+    });
+
+    it('profile válido (sin imagen, atributos varios) → 201', async () => {
+      const res = await createPost('Bloque profile', [
+        {
+          id: 'b1',
+          type: 'profile',
+          name: 'Ana',
+          attributes: [
+            { label: 'Experiencia', value: '10 años' },
+            { label: 'Especialidad', value: 'Fontanería' },
+          ],
+        },
+      ]).expect(201);
+      expect(res.body.blocks[0].attributes).toHaveLength(2);
+    });
+
+    it('profile sin attributes → 400 (ArrayMinSize)', async () => {
+      await createPost('profile inválido', [
+        { id: 'b1', type: 'profile', name: 'Ana', attributes: [] },
+      ]).expect(400);
+    });
+  });
+
+  describe('Ráfaga 3 — listings (primer bloque dinámico)', () => {
+    it('listings válido (categoría real, limit permitido) → 201', async () => {
+      const res = await createPost('Bloque listings', [
+        { id: 'b1', type: 'listings', categorySlug: 'electronica', limit: 8 },
+      ]).expect(201);
+      expect(res.body.blocks[0].categorySlug).toBe('electronica');
+    });
+
+    it('listings con categoría inexistente → 400', async () => {
+      await createPost('listings categoría inválida', [
+        { id: 'b1', type: 'listings', categorySlug: 'categoria-que-no-existe', limit: 8 },
+      ]).expect(400);
+    });
+
+    it('listings con limit fuera del enum permitido (4|6|8|12) → 400', async () => {
+      await createPost('listings limit inválido', [
+        { id: 'b1', type: 'listings', categorySlug: 'electronica', limit: 10 },
+      ]).expect(400);
+    });
+
+    it('listings con sort desconocido → 400', async () => {
+      await createPost('listings sort inválido', [
+        { id: 'b1', type: 'listings', categorySlug: 'electronica', limit: 8, sort: 'random' },
+      ]).expect(400);
+    });
+
+    it('más de 4 bloques listings en la misma página → 400 (guardarraíl anti-abuso)', async () => {
+      await createPost('demasiados listings', [
+        { id: 'b1', type: 'listings', categorySlug: 'electronica', limit: 4 },
+        { id: 'b2', type: 'listings', categorySlug: 'electronica', limit: 4 },
+        { id: 'b3', type: 'listings', categorySlug: 'electronica', limit: 4 },
+        { id: 'b4', type: 'listings', categorySlug: 'electronica', limit: 4 },
+        { id: 'b5', type: 'listings', categorySlug: 'electronica', limit: 4 },
+      ]).expect(400);
+    });
+
+    it('exactamente 4 bloques listings → 201 (límite inclusive)', async () => {
+      await createPost('cuatro listings', [
+        { id: 'b1', type: 'listings', categorySlug: 'electronica', limit: 4 },
+        { id: 'b2', type: 'listings', categorySlug: 'moviles', limit: 4 },
+        { id: 'b3', type: 'listings', categorySlug: 'vehiculos', limit: 4 },
+        { id: 'b4', type: 'listings', categorySlug: 'coches', limit: 4 },
+      ]).expect(201);
+    });
+
+    it('un PATCH que supera el límite de listings NO muta el post existente', async () => {
+      const created = await createPost('Post a proteger (listings)', [
+        { id: 'b1', type: 'text', markdown: 'original' },
+      ]).expect(201);
+      const id = created.body.id as string;
+
+      await request(app.getHttpServer())
+        .patch(`/api/admin/blog/${id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          blocks: [
+            { id: 'b1', type: 'listings', categorySlug: 'electronica', limit: 4 },
+            { id: 'b2', type: 'listings', categorySlug: 'electronica', limit: 4 },
+            { id: 'b3', type: 'listings', categorySlug: 'electronica', limit: 4 },
+            { id: 'b4', type: 'listings', categorySlug: 'electronica', limit: 4 },
+            { id: 'b5', type: 'listings', categorySlug: 'electronica', limit: 4 },
+          ],
+        })
+        .expect(400);
+
+      const unchanged = await prisma.post.findUniqueOrThrow({ where: { id } });
+      expect(unchanged.blocks).toEqual([{ id: 'b1', type: 'text', markdown: 'original' }]);
+    });
+  });
+
+  it('post con los 13 tipos a la vez → 201 (el esquema completo, con los 4 nuevos, es válido combinado)', async () => {
+    const res = await createPost('Post con los 13 bloques', [
+      { id: 'b1', type: 'text', markdown: 'texto' },
+      { id: 'b2', type: 'faq', items: [{ question: 'q', answer: 'a' }] },
+      { id: 'b3', type: 'hub', links: [{ label: 'l', href: '/x' }] },
+      { id: 'b4', type: 'image', url: OWN_IMAGE_URL, alt: 'alt' },
+      { id: 'b5', type: 'cta', label: 'l', href: '/x' },
+      { id: 'b6', type: 'quote', text: 'q' },
+      { id: 'b7', type: 'video', provider: 'youtube', videoId: 'dQw4w9WgXcQ' },
+      { id: 'b8', type: 'separator' },
+      { id: 'b9', type: 'table', headers: ['H'], rows: [['1']] },
+      { id: 'b10', type: 'imageText', image: { url: OWN_IMAGE_URL, alt: 'alt' }, markdown: 'texto', layout: 'imageLeft' },
+      { id: 'b11', type: 'steps', items: [{ title: 't', description: 'd' }] },
+      { id: 'b12', type: 'profile', attributes: [{ label: 'l', value: 'v' }] },
+      { id: 'b13', type: 'listings', categorySlug: 'electronica', limit: 4 },
+    ]).expect(201);
+    expect(res.body.blocks).toHaveLength(13);
+  });
 });

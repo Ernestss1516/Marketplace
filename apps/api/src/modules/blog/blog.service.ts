@@ -16,6 +16,9 @@ import { UpdatePostDto } from './dto/update-post.dto';
 import { ListPublicPostsDto } from './dto/list-public-posts.dto';
 import { ListAdminPostsDto } from './dto/list-admin-posts.dto';
 import { BlockDto } from './dto/blocks/block.dto';
+import { ListingsBlockDto } from './dto/blocks/listings-block.dto';
+
+const MAX_LISTINGS_BLOCKS_PER_PAGE = 4;
 
 const AUTHOR_PUBLIC = { select: { name: true } } as const;
 const AUTHOR_ADMIN = { select: { id: true, name: true, email: true } } as const;
@@ -113,6 +116,7 @@ export class BlogService {
     const resolvedType = dto.type ?? PostType.POST;
     const slug = dto.slug ?? this.buildSlug(dto.title);
     this.assertTableBlocksValid(dto.blocks);
+    await this.assertListingsBlocksValid(dto.blocks);
 
     const post = await this.prisma.post.create({
       data: {
@@ -196,6 +200,7 @@ export class BlogService {
     }
 
     this.assertTableBlocksValid(dto.blocks);
+    await this.assertListingsBlocksValid(dto.blocks);
 
     const before = { title: post.title, slug: post.slug, status: post.status };
 
@@ -363,6 +368,43 @@ export class BlogService {
           `Bloque de tabla inválido: todas las filas deben tener ${block.headers.length} columna(s), como \`headers\``,
         );
       }
+    }
+  }
+
+  // Reglas cruzadas de un bloque `listings` — primer bloque DINÁMICO: a
+  // diferencia de assertTableBlocksValid (cruza dos campos del MISMO
+  // bloque), esta cruza contra estado externo (Category en Postgres) y
+  // contra el array COMPLETO de bloques (cuenta cuántos hay), así que no
+  // puede vivir en un decorador de campo — mismo criterio de "regla de
+  // negocio en el service" que assertItemDestination/assertPageDestination
+  // de FooterService. Async por el lookup a Category (a diferencia de
+  // assertTableBlocksValid, que es puramente estructural y síncrono).
+  private async assertListingsBlocksValid(blocks: BlockDto[] | undefined): Promise<void> {
+    if (!blocks) return;
+    const listingsBlocks: ListingsBlockDto[] = [];
+    for (const block of blocks) {
+      if (block.type === 'listings') listingsBlocks.push(block);
+    }
+    if (listingsBlocks.length === 0) return;
+
+    // Guardarraíl: una página con muchos bloques `listings` dispararía una
+    // consulta a Meilisearch por bloque en cada render — limitar el número,
+    // no el tamaño de cada consulta (eso ya lo hace `limit` con IsIn).
+    if (listingsBlocks.length > MAX_LISTINGS_BLOCKS_PER_PAGE) {
+      throw new BadRequestException(
+        `Máximo ${MAX_LISTINGS_BLOCKS_PER_PAGE} bloques de "anuncios de una categoría" por página/post`,
+      );
+    }
+
+    const slugs = [...new Set(listingsBlocks.map((b) => b.categorySlug))];
+    const found = await this.prisma.category.findMany({
+      where: { slug: { in: slugs } },
+      select: { slug: true },
+    });
+    const foundSlugs = new Set(found.map((c) => c.slug));
+    const missing = slugs.filter((s) => !foundSlugs.has(s));
+    if (missing.length > 0) {
+      throw new BadRequestException(`Categoría(s) no encontrada(s): ${missing.join(', ')}`);
     }
   }
 

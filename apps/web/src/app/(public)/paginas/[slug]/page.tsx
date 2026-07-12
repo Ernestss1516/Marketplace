@@ -5,6 +5,7 @@ import { getPage } from '@/lib/api/blog';
 import { ApiError } from '@/lib/api/client';
 import { SITE_NAME, SITE_URL } from '@/config';
 import { BlockRenderer } from '@/components/blocks/BlockRenderer';
+import { resolveListingsBlocksData } from '@/lib/blocks/resolve-listings';
 
 export const revalidate = 3600;
 
@@ -52,6 +53,9 @@ export default async function InfoPagePage({
     throw err;
   }
 
+  // Ver ListingsBlockRenderer + lib/blocks/resolve-listings.ts.
+  const listingsData = await resolveListingsBlocksData(page.blocks);
+
   const jsonLd = {
     '@context': 'https://schema.org',
     '@type': 'WebPage',
@@ -81,7 +85,7 @@ export default async function InfoPagePage({
             {page.title}
           </h1>
 
-          <BlockRenderer blocks={page.blocks} />
+          <BlockRenderer blocks={page.blocks} listingsData={listingsData} />
         </article>
       </div>
     </>

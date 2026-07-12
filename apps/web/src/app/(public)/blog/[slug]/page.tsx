@@ -7,6 +7,7 @@ import { ApiError } from '@/lib/api/client';
 import { SITE_NAME, SITE_URL } from '@/config';
 import { isSafeSrc } from '@/lib/image-domains';
 import { BlockRenderer } from '@/components/blocks/BlockRenderer';
+import { resolveListingsBlocksData } from '@/lib/blocks/resolve-listings';
 
 export const revalidate = 3600;
 
@@ -59,6 +60,13 @@ export default async function BlogPostPage({
     month: 'long',
     year: 'numeric',
   });
+
+  // Ver ListingsBlockRenderer + lib/blocks/resolve-listings.ts: si post.blocks
+  // no tiene ningún bloque `listings`, esto es un no-op instantáneo (no
+  // afecta el revalidate=3600 de esta ruta). Si lo tiene, resuelve en
+  // paralelo con Promise.all y su propio TTL corto — esta página deja de ser
+  // autocontenida, ver la nota en estado-tecnico.md.
+  const listingsData = await resolveListingsBlocksData(post.blocks);
 
   const jsonLd = {
     '@context': 'https://schema.org',
@@ -133,7 +141,7 @@ export default async function BlogPostPage({
           {/* Bloques: mismo <BlockRenderer> que usa /paginas/[slug] — el
               bloque `text` reutiliza la tubería Markdown ya auditada (ver
               comentario de seguridad en MarkdownBody). */}
-          <BlockRenderer blocks={post.blocks} />
+          <BlockRenderer blocks={post.blocks} listingsData={listingsData} />
         </article>
 
         {/* Back link */}

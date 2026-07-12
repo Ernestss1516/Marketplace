@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import type { Block } from '@/types/blocks';
 import { BlockRenderer } from '@/components/blocks/BlockRenderer';
+import { search, type SearchResponse } from '@/lib/api/busqueda';
 import { BlockEditorRow } from './BlockEditorRow';
 import { BlockTypePicker } from './BlockTypePicker';
 import { createDefaultBlock, type BlockType } from './blockDefaults';
@@ -26,6 +27,53 @@ export function BlockEditor({
   disabled?: boolean;
 }) {
   const [showPreview, setShowPreview] = useState(false);
+  const [listingsData, setListingsData] = useState<Record<string, SearchResponse>>({});
+
+  // El preview reusa el mismo BlockRenderer que el sitio público, pero
+  // BlockRenderer es síncrono — así que el bloque `listings` necesita sus
+  // datos ya resueltos (ver ListingsBlockRenderer). En público se resuelven
+  // por SSR (lib/blocks/resolve-listings.ts); aquí, en un efecto cliente
+  // equivalente, misma fuente (search()). Clave derivada (no `blocks`
+  // completo) para no relanzar la consulta en cada tecla de campos
+  // ajenos al bloque `listings`.
+  const listingsKey = blocks
+    .filter((b): b is Extract<Block, { type: 'listings' }> => b.type === 'listings')
+    .map((b) => `${b.id}:${b.categorySlug}:${b.limit}:${b.sort ?? ''}`)
+    .join('|');
+
+  useEffect(() => {
+    if (!showPreview) return;
+    const listingsBlocks = blocks.filter(
+      (b): b is Extract<Block, { type: 'listings' }> => b.type === 'listings' && !!b.categorySlug,
+    );
+    if (listingsBlocks.length === 0) {
+      setListingsData({});
+      return;
+    }
+    let cancelled = false;
+    Promise.all(
+      listingsBlocks.map(async (b) => {
+        try {
+          const result = await search({
+            category: b.categorySlug,
+            hitsPerPage: b.limit,
+            sort: b.sort === 'featured' ? 'sortDate:desc' : 'publishedAt:desc',
+          });
+          return [b.id, result] as const;
+        } catch {
+          return [b.id, undefined] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (cancelled) return;
+      const resolved = entries.filter((e): e is [string, SearchResponse] => e[1] !== undefined);
+      setListingsData(Object.fromEntries(resolved));
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showPreview, listingsKey]);
 
   function updateBlock(index: number, block: Block) {
     onChange(blocks.map((b, i) => (i === index ? block : b)));
@@ -75,7 +123,7 @@ export function BlockEditor({
           <p className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Preview — así se ve publicado
           </p>
-          <BlockRenderer blocks={blocks} />
+          <BlockRenderer blocks={blocks} listingsData={listingsData} />
         </div>
       ) : (
         <>

@@ -83,6 +83,70 @@ export interface TableBlock extends BaseBlock {
   rows: string[][];
 }
 
+// ── Ráfaga 3 — 4 tipos nuevos ────────────────────────────────────────────────
+
+export interface ImageTextImage {
+  url: string;
+  alt: string;
+  caption?: string;
+}
+
+export type ImageTextLayout = 'imageLeft' | 'imageRight';
+
+export interface ImageTextBlock extends BaseBlock {
+  type: 'imageText';
+  image: ImageTextImage;
+  markdown: string;
+  layout: ImageTextLayout;
+}
+
+export interface StepItem {
+  title: string;
+  description: string;
+  image?: string;
+}
+
+export interface StepsBlock extends BaseBlock {
+  type: 'steps';
+  title?: string;
+  items: StepItem[];
+}
+
+export interface ProfileImage {
+  url: string;
+  alt: string;
+}
+
+export interface ProfileAttribute {
+  label: string;
+  value: string;
+}
+
+export interface ProfileBlock extends BaseBlock {
+  type: 'profile';
+  image?: ProfileImage;
+  name?: string;
+  attributes: ProfileAttribute[];
+}
+
+// Primer bloque DINÁMICO — no guarda contenido, guarda una consulta que se
+// resuelve contra SearchService.search() en cada render (ver
+// ListingsBlockRenderer + la resolución SSR en page.tsx de /paginas y
+// /blog). 'recent'/'featured' se mapean a un `sort` de search() en
+// lib/api/busqueda — ver el comentario en el DTO del backend.
+export const LISTINGS_BLOCK_LIMITS = [4, 6, 8, 12] as const;
+export type ListingsBlockLimit = (typeof LISTINGS_BLOCK_LIMITS)[number];
+export type ListingsBlockSort = 'recent' | 'featured';
+
+export interface ListingsBlock extends BaseBlock {
+  type: 'listings';
+  title?: string;
+  categorySlug: string;
+  limit: ListingsBlockLimit;
+  sort?: ListingsBlockSort;
+  showAllLink?: boolean;
+}
+
 export type Block =
   | TextBlock
   | FaqBlock
@@ -92,4 +156,8 @@ export type Block =
   | QuoteBlock
   | VideoBlock
   | SeparatorBlock
-  | TableBlock;
+  | TableBlock
+  | ImageTextBlock
+  | StepsBlock
+  | ProfileBlock
+  | ListingsBlock;

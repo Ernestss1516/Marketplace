@@ -7,10 +7,11 @@
 // mismos casos para inputs controlados de un solo `onChange`.
 
 import { useState } from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { BlockEditor } from './BlockEditor';
 import { BLOCK_TYPE_META, BLOCK_TYPE_ORDER } from './blockDefaults';
 import type { Block } from '@/types/blocks';
+import { search as mockedSearch } from '@/lib/api/busqueda';
 
 jest.mock('next/link', () => {
   return function MockLink({ href, children, ...props }: { href: string; children: React.ReactNode }) {
@@ -24,6 +25,14 @@ jest.mock('next/link', () => {
 
 jest.mock('@/components/blog/MarkdownBody', () => ({
   MarkdownBody: ({ body }: { body: string }) => <div data-testid="markdown-body">{body}</div>,
+}));
+
+// next-auth/react es ESM-only (ver memoria de sesión) — lo arrastra
+// ListingCard -> FavoriteCardButton, usado por el preview del nuevo bloque
+// `listings` (mismo BlockRenderer que el sitio público). Sin sesión, el
+// botón de favorito degrada a `null` con gracia.
+jest.mock('next-auth/react', () => ({
+  useSession: () => ({ data: null }),
 }));
 
 // MarkdownEditorClient carga @uiw/react-md-editor vía dynamic import
@@ -43,6 +52,32 @@ jest.mock('../MarkdownEditorClient', () => {
     );
   };
 });
+
+// Ráfaga 3 — el bloque `listings` llama a getCategories()/search() (network
+// real vía apiFetch) tanto desde su propio editor como desde el preview de
+// BlockEditor. Mockeados aquí — mismo motivo que MarkdownBody/
+// MarkdownEditorClient: aislar el test unitario de dependencias externas. La
+// resolución SSR real contra Meilisearch está cubierta en e2e
+// (block-editor-full.spec.ts).
+jest.mock('@/lib/api/categorias', () => ({
+  getCategories: jest.fn().mockResolvedValue([
+    {
+      id: 'c1',
+      name: 'Electrónica',
+      slug: 'electronica',
+      children: [{ id: 'c2', name: 'Móviles', slug: 'moviles' }],
+    },
+  ]),
+}));
+
+jest.mock('@/lib/api/busqueda', () => ({
+  search: jest.fn().mockResolvedValue({
+    hits: [{ id: 'l1', title: 'Anuncio de prueba', slug: 'anuncio', price: 10, currency: 'EUR', priceType: 'FIXED', status: 'ACTIVE' }],
+    totalHits: 1,
+    page: 1,
+    hitsPerPage: 8,
+  }),
+}));
 
 // Wrapper con estado real (como haría PostForm) — un `onChange` jest.fn()
 // "hueco" dejaría los inputs controlados congelados en su valor inicial tras
@@ -321,6 +356,151 @@ describe('BlockEditor — formularios producen bloques válidos', () => {
     const blocks: Block[] = [{ id: 'a', type: 'separator' }];
     renderEditor(blocks);
     expect(screen.getByText(/Sin opciones/)).toBeInTheDocument();
+  });
+});
+
+// ── Ráfaga 3 — 4 tipos nuevos ────────────────────────────────────────────────
+
+describe('BlockEditor — Ráfaga 3 (imageText, steps, profile: reutilización)', () => {
+  it('imageText: cambiar el layout actualiza el bloque', () => {
+    const blocks: Block[] = [
+      { id: 'a', type: 'imageText', image: { url: '', alt: '' }, markdown: '', layout: 'imageLeft' },
+    ];
+    const { onChange } = renderEditor(blocks);
+
+    fireEvent.change(screen.getByDisplayValue('Imagen a la izquierda'), { target: { value: 'imageRight' } });
+
+    const updated = onChange.mock.calls.at(-1)![0][0] as { layout: string };
+    expect(updated.layout).toBe('imageRight');
+  });
+
+  it('imageText: escribir en el editor de markdown (mockeado) actualiza el bloque', () => {
+    const blocks: Block[] = [
+      { id: 'a', type: 'imageText', image: { url: '', alt: '' }, markdown: '', layout: 'imageLeft' },
+    ];
+    const { onChange } = renderEditor(blocks);
+
+    fireEvent.change(screen.getByTestId('mock-markdown-editor'), { target: { value: 'Texto compuesto' } });
+
+    const updated = onChange.mock.calls.at(-1)![0][0] as { markdown: string };
+    expect(updated.markdown).toBe('Texto compuesto');
+  });
+
+  it('imageText: el texto alternativo obligatorio está presente en el formulario', () => {
+    const blocks: Block[] = [
+      { id: 'a', type: 'imageText', image: { url: '', alt: '' }, markdown: '', layout: 'imageLeft' },
+    ];
+    renderEditor(blocks);
+    expect(screen.getByPlaceholderText('Describe la imagen (accesibilidad y SEO)')).toBeInTheDocument();
+  });
+
+  it('steps: reutiliza SubItemList — añadir un paso agrega un sub-ítem; quitar el único disponible está deshabilitado', () => {
+    const blocks: Block[] = [{ id: 'a', type: 'steps', items: [{ title: '', description: '' }] }];
+    const { onChange } = renderEditor(blocks);
+
+    expect(screen.getByTitle('Debe haber al menos 1')).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: /Añadir paso/ }));
+    const updated = onChange.mock.calls.at(-1)![0][0] as { items: unknown[] };
+    expect(updated.items).toHaveLength(2);
+  });
+
+  it('steps: rellenar el título de un paso actualiza el bloque', () => {
+    const blocks: Block[] = [{ id: 'a', type: 'steps', items: [{ title: '', description: '' }] }];
+    const { onChange } = renderEditor(blocks);
+
+    fireEvent.change(screen.getByPlaceholderText('Título del paso'), { target: { value: 'Paso uno' } });
+
+    const updated = onChange.mock.calls.at(-1)![0][0] as { items: { title: string }[] };
+    expect(updated.items[0].title).toBe('Paso uno');
+  });
+
+  it('profile: reutiliza SubItemList — añadir un atributo agrega un sub-ítem', () => {
+    const blocks: Block[] = [{ id: 'a', type: 'profile', attributes: [{ label: '', value: '' }] }];
+    const { onChange } = renderEditor(blocks);
+
+    fireEvent.click(screen.getByRole('button', { name: /Añadir atributo/ }));
+    const updated = onChange.mock.calls.at(-1)![0][0] as { attributes: unknown[] };
+    expect(updated.attributes).toHaveLength(2);
+  });
+
+  it('profile: rellenar nombre y un atributo actualiza el bloque', () => {
+    const blocks: Block[] = [{ id: 'a', type: 'profile', attributes: [{ label: '', value: '' }] }];
+    const { onChange } = renderEditor(blocks);
+
+    fireEvent.change(screen.getByPlaceholderText('Etiqueta (p.ej. Experiencia)'), { target: { value: 'Experiencia' } });
+
+    const updated = onChange.mock.calls.at(-1)![0][0] as { attributes: { label: string }[] };
+    expect(updated.attributes[0].label).toBe('Experiencia');
+  });
+});
+
+describe('BlockEditor — Ráfaga 3 (listings: primer bloque dinámico)', () => {
+  it('el selector de categoría carga las categorías reales (mismo getCategories() que el resto del admin)', async () => {
+    const blocks: Block[] = [{ id: 'a', type: 'listings', categorySlug: '', limit: 8 }];
+    renderEditor(blocks);
+
+    await waitFor(() => expect(screen.getByText('Electrónica')).toBeInTheDocument());
+    expect(screen.getByText('Electrónica > Móviles')).toBeInTheDocument();
+  });
+
+  it('cambiar la categoría actualiza categorySlug', async () => {
+    const blocks: Block[] = [{ id: 'a', type: 'listings', categorySlug: '', limit: 8 }];
+    const { onChange } = renderEditor(blocks);
+
+    await waitFor(() => expect(screen.getByText('Electrónica')).toBeInTheDocument());
+    fireEvent.change(screen.getByDisplayValue('Elige una categoría'), { target: { value: 'electronica' } });
+
+    const updated = onChange.mock.calls.at(-1)![0][0] as { categorySlug: string };
+    expect(updated.categorySlug).toBe('electronica');
+  });
+
+  it('cambiar el límite y el orden actualiza el bloque', () => {
+    const blocks: Block[] = [{ id: 'a', type: 'listings', categorySlug: 'electronica', limit: 8 }];
+    const { onChange } = renderEditor(blocks);
+
+    fireEvent.change(screen.getByDisplayValue('8'), { target: { value: '4' } });
+    expect((onChange.mock.calls.at(-1)![0][0] as { limit: number }).limit).toBe(4);
+
+    fireEvent.change(screen.getByDisplayValue('Más recientes'), { target: { value: 'featured' } });
+    expect((onChange.mock.calls.at(-1)![0][0] as { sort: string }).sort).toBe('featured');
+  });
+
+  it('showAllLink: marcar la casilla actualiza el bloque', () => {
+    const blocks: Block[] = [{ id: 'a', type: 'listings', categorySlug: 'electronica', limit: 8 }];
+    const { onChange } = renderEditor(blocks);
+
+    fireEvent.click(screen.getByRole('checkbox'));
+    expect((onChange.mock.calls.at(-1)![0][0] as { showAllLink: boolean }).showAllLink).toBe(true);
+  });
+
+  it('categoría sin anuncios (totalHits=0) muestra un aviso claro al admin', async () => {
+    (mockedSearch as jest.Mock).mockResolvedValueOnce({ hits: [], totalHits: 0, page: 1, hitsPerPage: 1 });
+
+    const blocks: Block[] = [{ id: 'a', type: 'listings', categorySlug: 'electronica', limit: 8 }];
+    renderEditor(blocks);
+
+    await waitFor(() =>
+      expect(screen.getByText(/no tiene anuncios activos ahora mismo/)).toBeInTheDocument(),
+    );
+  });
+
+  it('categoría CON anuncios no muestra ningún aviso', async () => {
+    const blocks: Block[] = [{ id: 'a', type: 'listings', categorySlug: 'electronica', limit: 8 }];
+    renderEditor(blocks);
+
+    await waitFor(() => expect(mockedSearch).toHaveBeenCalled());
+    expect(screen.queryByText(/no tiene anuncios activos ahora mismo/)).not.toBeInTheDocument();
+  });
+
+  it('preview: resuelve datos client-side vía search() y pinta el bloque listings con el mismo BlockRenderer', async () => {
+    const blocks: Block[] = [{ id: 'a', type: 'listings', title: 'Sección de anuncios', categorySlug: 'electronica', limit: 8 }];
+    renderEditor(blocks);
+
+    fireEvent.click(screen.getByRole('button', { name: /Ver preview/ }));
+
+    await waitFor(() => expect(screen.getByText('Anuncio de prueba')).toBeInTheDocument());
+    expect(screen.getByText('Sección de anuncios')).toBeInTheDocument();
   });
 });
 

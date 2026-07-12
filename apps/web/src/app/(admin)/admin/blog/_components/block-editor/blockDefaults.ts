@@ -8,6 +8,10 @@ import {
   Video as VideoIcon,
   Minus,
   Table2,
+  Columns2,
+  ListOrdered,
+  IdCard,
+  ShoppingBag,
   type LucideIcon,
 } from 'lucide-react';
 import { generateId } from '@/lib/utils';
@@ -28,6 +32,10 @@ export const BLOCK_TYPE_META: Record<BlockType, { label: string; description: st
   video: { label: 'Vídeo', description: 'Un vídeo incrustado de YouTube o Vimeo', icon: VideoIcon },
   separator: { label: 'Separador', description: 'Una línea divisoria entre secciones', icon: Minus },
   table: { label: 'Tabla', description: 'Una tabla de filas y columnas', icon: Table2 },
+  imageText: { label: 'Imagen y texto', description: 'Una foto junto a un párrafo con formato', icon: Columns2 },
+  steps: { label: 'Pasos', description: 'Una secuencia numerada de pasos, cada uno con foto opcional', icon: ListOrdered },
+  profile: { label: 'Ficha', description: 'Foto, nombre y una lista de atributos (perfil, ficha técnica)', icon: IdCard },
+  listings: { label: 'Anuncios de una categoría', description: 'Muestra automáticamente los anuncios más recientes de una categoría', icon: ShoppingBag },
 };
 
 // Orden fijo del selector — de más simple/frecuente a más elaborado, no
@@ -35,12 +43,16 @@ export const BLOCK_TYPE_META: Record<BlockType, { label: string; description: st
 export const BLOCK_TYPE_ORDER: BlockType[] = [
   'text',
   'image',
+  'imageText',
   'cta',
   'quote',
   'faq',
   'hub',
+  'steps',
+  'profile',
   'video',
   'table',
+  'listings',
   'separator',
 ];
 
@@ -69,6 +81,14 @@ export function createDefaultBlock(type: BlockType): Block {
       return { id, type };
     case 'table':
       return { id, type, headers: ['Columna 1'], rows: [['']] };
+    case 'imageText':
+      return { id, type, image: { url: '', alt: '' }, markdown: '', layout: 'imageLeft' };
+    case 'steps':
+      return { id, type, items: [{ title: '', description: '' }] };
+    case 'profile':
+      return { id, type, attributes: [{ label: '', value: '' }] };
+    case 'listings':
+      return { id, type, categorySlug: '', limit: 8 };
   }
 }
 
@@ -93,5 +113,17 @@ export function blockHasContent(block: Block): boolean {
       return false;
     case 'table':
       return block.rows.some((row) => row.some((cell) => cell.trim().length > 0));
+    case 'imageText':
+      return block.image.url.trim().length > 0 || block.markdown.trim().length > 0;
+    case 'steps':
+      return block.items.some((i) => i.title.trim() || i.description.trim());
+    case 'profile':
+      return (
+        !!block.image ||
+        !!block.name?.trim() ||
+        block.attributes.some((a) => a.label.trim() || a.value.trim())
+      );
+    case 'listings':
+      return block.categorySlug.trim().length > 0;
   }
 }

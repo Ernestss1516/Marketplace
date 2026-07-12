@@ -15,9 +15,23 @@
 import { render, screen } from '@testing-library/react';
 import { BlockRenderer } from './BlockRenderer';
 import type { Block } from '@/types/blocks';
+import type { ListingSummary } from '@/types';
+import type { SearchResponse } from '@/lib/api/busqueda';
 
 jest.mock('next/link', () => {
-  return function MockLink({ href, children, ...props }: { href: string; children: React.ReactNode }) {
+  // `prefetch` (booleano) no es un atributo DOM válido — ListingCard (bloque
+  // `listings`, Ráfaga 3) lo pasa a <Link>; se descarta aquí para no
+  // colarlo al <a> real y disparar el warning de React.
+  return function MockLink({
+    href,
+    children,
+    prefetch: _prefetch,
+    ...props
+  }: {
+    href: string;
+    children: React.ReactNode;
+    prefetch?: boolean;
+  }) {
     return (
       <a href={href} {...props}>
         {children}
@@ -28,6 +42,15 @@ jest.mock('next/link', () => {
 
 jest.mock('@/components/blog/MarkdownBody', () => ({
   MarkdownBody: ({ body }: { body: string }) => <div data-testid="markdown-body">{body}</div>,
+}));
+
+// next-auth/react es ESM-only (misma familia de problema que react-markdown/
+// @uiw/react-md-editor, ver memoria de sesión) — next/jest no lo transforma
+// por defecto. Solo lo arrastra ListingCard -> FavoriteCardButton, para el
+// nuevo bloque `listings` de esta ráfaga. Mock mínimo: sin sesión, el botón
+// de favorito ya degrada a `null` con gracia (ver FavoriteCardButton.tsx).
+jest.mock('next-auth/react', () => ({
+  useSession: () => ({ data: null }),
 }));
 
 const OWN_IMAGE_URL = 'http://localhost:9000/marketplace/media/test.jpg';
@@ -128,5 +151,153 @@ describe('BlockRenderer — los 9 tipos se renderizan', () => {
 
   it('los 9 tipos combinados se renderizan sin lanzar (smoke test del switch exhaustivo)', () => {
     expect(() => render(<BlockRenderer blocks={ALL_BLOCKS} />)).not.toThrow();
+  });
+});
+
+// ── Ráfaga 3 — 4 tipos nuevos ────────────────────────────────────────────────
+
+function fakeListing(overrides: Partial<ListingSummary> = {}): ListingSummary {
+  return {
+    id: 'l1',
+    title: 'Un anuncio de prueba',
+    slug: 'un-anuncio-de-prueba',
+    price: 100,
+    currency: 'EUR',
+    priceType: 'FIXED',
+    status: 'ACTIVE',
+    ...overrides,
+  };
+}
+
+describe('BlockRenderer — Ráfaga 3 (4 tipos nuevos)', () => {
+  it('imageText: renderiza la imagen y el texto (composición de las dos piezas existentes)', () => {
+    const block: Block = {
+      id: 'b1',
+      type: 'imageText',
+      image: { url: OWN_IMAGE_URL, alt: 'alt imageText', caption: 'pie' },
+      markdown: 'Texto compuesto',
+      layout: 'imageLeft',
+    };
+    render(<BlockRenderer blocks={[block]} />);
+    expect(screen.getByAltText('alt imageText')).toHaveAttribute('src', OWN_IMAGE_URL);
+    expect(screen.getByTestId('markdown-body')).toHaveTextContent('Texto compuesto');
+  });
+
+  it('steps: renderiza título, pasos numerados y la imagen opcional de un paso', () => {
+    const block: Block = {
+      id: 'b1',
+      type: 'steps',
+      title: 'Cómo funciona',
+      items: [
+        { title: 'Paso uno', description: 'Descripción uno' },
+        { title: 'Paso dos', description: 'Descripción dos', image: OWN_IMAGE_URL },
+      ],
+    };
+    render(<BlockRenderer blocks={[block]} />);
+    expect(screen.getByText('Cómo funciona')).toBeInTheDocument();
+    expect(screen.getByText('Paso uno')).toBeInTheDocument();
+    expect(screen.getByText('Paso dos')).toBeInTheDocument();
+    expect(screen.getByAltText('Paso dos')).toHaveAttribute('src', OWN_IMAGE_URL);
+  });
+
+  it('profile: renderiza nombre, imagen y la lista de atributos', () => {
+    const block: Block = {
+      id: 'b1',
+      type: 'profile',
+      name: 'Ana',
+      image: { url: OWN_IMAGE_URL, alt: 'Ana' },
+      attributes: [
+        { label: 'Experiencia', value: '10 años' },
+        { label: 'Especialidad', value: 'Fontanería' },
+      ],
+    };
+    render(<BlockRenderer blocks={[block]} />);
+    expect(screen.getByText('Ana')).toBeInTheDocument();
+    expect(screen.getByAltText('Ana')).toHaveAttribute('src', OWN_IMAGE_URL);
+    expect(screen.getByText('Experiencia:')).toBeInTheDocument();
+    expect(screen.getByText('10 años')).toBeInTheDocument();
+  });
+
+  it('listings: con datos resueltos, renderiza las tarjetas y el badge "Destacado" si boostScore=1', () => {
+    const block: Block = {
+      id: 'b1',
+      type: 'listings',
+      title: 'Anuncios destacados',
+      categorySlug: 'electronica',
+      limit: 8,
+    };
+    const data: SearchResponse = {
+      hits: [fakeListing({ id: 'l1', title: 'Anuncio destacado', boostScore: 1 })],
+      totalHits: 1,
+      page: 1,
+      hitsPerPage: 8,
+    };
+    render(<BlockRenderer blocks={[block]} listingsData={{ b1: data }} />);
+    expect(screen.getByText('Anuncios destacados')).toBeInTheDocument();
+    expect(screen.getByText('Anuncio destacado')).toBeInTheDocument();
+    expect(screen.getByText('Destacado')).toBeInTheDocument();
+  });
+
+  it('listings: sin datos resueltos (aún no llegó SSR) → no renderiza nada (no deja un hueco)', () => {
+    const block: Block = { id: 'b1', type: 'listings', categorySlug: 'electronica', limit: 8 };
+    const { container } = render(<BlockRenderer blocks={[block]} />);
+    expect(container.querySelector('.space-y-8')?.textContent).toBe('');
+  });
+
+  it('listings: categoría vacía (totalHits=0) → oculta el bloque, no deja un hueco', () => {
+    const block: Block = { id: 'b1', type: 'listings', categorySlug: 'electronica', limit: 8 };
+    const data: SearchResponse = { hits: [], totalHits: 0, page: 1, hitsPerPage: 8 };
+    const { container } = render(<BlockRenderer blocks={[block]} listingsData={{ b1: data }} />);
+    expect(container.querySelector('.space-y-8')?.textContent).toBe('');
+  });
+
+  it('listings: patrocinados excluidos, solo se pintan anuncios reales', () => {
+    const block: Block = { id: 'b1', type: 'listings', categorySlug: 'electronica', limit: 8 };
+    const sponsoredHit = {
+      __sponsored: true,
+      id: 's1',
+      title: 'Patrocinado',
+      imageUrl: OWN_IMAGE_URL,
+      href: 'https://example.com',
+    } as unknown as ListingSummary;
+    const data: SearchResponse = {
+      hits: [fakeListing({ id: 'l1', title: 'Anuncio real' }), sponsoredHit],
+      totalHits: 2,
+      page: 1,
+      hitsPerPage: 8,
+    };
+    render(<BlockRenderer blocks={[block]} listingsData={{ b1: data }} />);
+    expect(screen.getByText('Anuncio real')).toBeInTheDocument();
+    expect(screen.queryByText('Patrocinado')).not.toBeInTheDocument();
+  });
+
+  it('listings: showAllLink añade el enlace "Ver todos" hacia /busqueda?category=', () => {
+    const block: Block = {
+      id: 'b1',
+      type: 'listings',
+      categorySlug: 'electronica',
+      limit: 8,
+      showAllLink: true,
+    };
+    const data: SearchResponse = { hits: [fakeListing()], totalHits: 1, page: 1, hitsPerPage: 8 };
+    render(<BlockRenderer blocks={[block]} listingsData={{ b1: data }} />);
+    const link = screen.getByRole('link', { name: /Ver todos/ });
+    expect(link).toHaveAttribute('href', '/busqueda?category=electronica');
+  });
+
+  it('los 13 tipos combinados (9 + 4 nuevos) se renderizan sin lanzar', () => {
+    const extraBlocks: Block[] = [
+      {
+        id: 'b10',
+        type: 'imageText',
+        image: { url: OWN_IMAGE_URL, alt: 'alt' },
+        markdown: 'texto',
+        layout: 'imageRight',
+      },
+      { id: 'b11', type: 'steps', items: [{ title: 't', description: 'd' }] },
+      { id: 'b12', type: 'profile', attributes: [{ label: 'l', value: 'v' }] },
+      { id: 'b13', type: 'listings', categorySlug: 'electronica', limit: 4 },
+    ];
+    expect(() => render(<BlockRenderer blocks={[...ALL_BLOCKS, ...extraBlocks]} />)).not.toThrow();
   });
 });

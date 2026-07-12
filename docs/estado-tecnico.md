@@ -35,7 +35,7 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **AuditLog** | ✅ Completo | `AuditLogService.log()` inyectable; captura explícita `before`/`after` dentro del método de service que muta el recurso, antes de llamar a Prisma; nunca vía interceptor (ver §2). **RF.12b**: `log(dto, tx?)` admite segundo parámetro `tx: Prisma.TransactionClient` opcional; si se pasa, el `prisma.auditLog.create` corre dentro de la transacción del llamador; backward-compat con todos los callers existentes (Fase 7) |
 | **Moderation** | ✅ Completo | Reportes CRUD + cola (GET con filtros status/reason/page); acciones sobre listings (approve, reject, deactivate, restore); `BadWordService` con fallback silencioso al publicar; AuditLog en todas las mutaciones; roles MODERATOR + ADMIN |
 | **Admin** | ✅ Completo (RC5.2) | Listings (list, detail, PATCH status); Users (list, detail, suspend, ban, reinstate, role); Categories CRUD + batch reorder; Settings GET + PATCH con whitelist; `GET /admin/stats` con 7 métricas + Meilisearch null-fallback; todos los endpoints con `@Roles(ADMIN)` y AuditLog. **RF.7**: whitelist de settings ampliada con `freeActiveListingLimit` y `proActiveListingLimit`; ambos configurables desde el backoffice sin redeploy. **RC5.2**: `createCategory` y `updateCategory` validan que el schema efectivo (propio + heredado del padre) tenga ≤ 2 atributos con `cardAttribute: true` (→ 400 si supera). `GET /admin/categories/searchable-keys` (ADMIN-only) → `{ keys }` para que RC5.3 pueda deshabilitar el checkbox `filterable` en atributos no listados; **RÁFAGA 0**: `keys` ahora viene de `FilterableAttributesResolver.getAttributeTypes()` (dinámico) en vez de la constante `VARIABLE_ATTRIBUTE_KEYS` (eliminada) — mismo contrato de respuesta, tooltip del editor actualizado en consecuencia. **Cierre Fase 5.2 (ráfaga de integridad)**: `deleteCategory` cuenta anuncios de **cualquier** `status` (antes solo `ACTIVE`), eliminando un 500 no controlado — ver «Mapa de integridad» más abajo; `GET /admin/categories/:id/attribute-usage?key=X` (ADMIN-only) cuenta anuncios con datos bajo una key concreta, usado por el editor para avisar antes de renombrar un atributo con datos. |
-| **Blog** | ✅ Completo (Ráfaga 1 bloques + Ráfaga 2 editor) | Modelo `Post` (enum `PostStatus { DRAFT, PUBLISHED }`, `tags String[]`, `coverUrl`, campos SEO opcionales `metaTitle`/`metaDescription`; también cubre páginas informativas vía `type: PostType`). **Contenido en `blocks: Json` (sistema de bloques, 9 tipos discriminados por `type`), YA NO `body: String` Markdown** — ver «Sistema de bloques — Ráfaga 1» y «Sistema de bloques — Ráfaga 2» en §3 para el detalle completo (esquema, validación, renderizadores, y el editor visual con el que un admin no técnico construye los 9 tipos desde `/admin`). `BlogController`: `GET /blog` (solo PUBLISHED, paginado, filtro `?tag=`) y `GET /blog/:slug` (404 si no existe o es DRAFT). `BlogAdminController` (`@Roles(ADMIN)`): CRUD completo + `POST /admin/blog/:id/publish` + `POST /admin/blog/:id/unpublish` + `POST /admin/blog/upload-image` (Ráfaga 2, molde sponsored-ads, prefijo `blocks/`). AuditLog en todas las mutaciones (`POST_CREATE`, `POST_UPDATE`, `POST_PUBLISH`, `POST_UNPUBLISH`, `POST_DELETE`). Revalidación ISR on-demand fire-and-forget al publicar/despublicar/editar/borrar posts publicados vía `RevalidateService` compartido (ver **Footer** más abajo — extraído de aquí). `BlogModule` importa `PrismaModule` + `AuditLogModule` + `RevalidateModule`; autónomo, no modifica `AdminModule`. **Ya NO gestiona la navegación del footer** (`showInFooter`/`footerOrder`/`footerGroup` retirados de `Post` — ver módulo **Footer**) |
+| **Blog** | ✅ Completo (Ráfaga 1 bloques + Ráfaga 2 editor + Ráfaga 3: 13 tipos) | Modelo `Post` (enum `PostStatus { DRAFT, PUBLISHED }`, `tags String[]`, `coverUrl`, campos SEO opcionales `metaTitle`/`metaDescription`; también cubre páginas informativas vía `type: PostType`). **Contenido en `blocks: Json` (sistema de bloques, 13 tipos discriminados por `type` — 12 estáticos + `listings`, el primer bloque DINÁMICO), YA NO `body: String` Markdown** — ver «Sistema de bloques — Ráfaga 1», «Ráfaga 2» y «Ráfaga 3» en §3 para el detalle completo (esquema, validación, renderizadores, el editor visual con el que un admin no técnico construye los 13 tipos desde `/admin`, y la decisión de caché del bloque dinámico — páginas con `listings` dejan de ser autocontenidas). `BlogController`: `GET /blog` (solo PUBLISHED, paginado, filtro `?tag=`) y `GET /blog/:slug` (404 si no existe o es DRAFT). `BlogAdminController` (`@Roles(ADMIN)`): CRUD completo + `POST /admin/blog/:id/publish` + `POST /admin/blog/:id/unpublish` + `POST /admin/blog/upload-image` (Ráfaga 2, molde sponsored-ads, prefijo `blocks/`). AuditLog en todas las mutaciones (`POST_CREATE`, `POST_UPDATE`, `POST_PUBLISH`, `POST_UNPUBLISH`, `POST_DELETE`). Revalidación ISR on-demand fire-and-forget al publicar/despublicar/editar/borrar posts publicados vía `RevalidateService` compartido (ver **Footer** más abajo — extraído de aquí). `BlogModule` importa `PrismaModule` + `AuditLogModule` + `RevalidateModule`; autónomo, no modifica `AdminModule`. **Ya NO gestiona la navegación del footer** (`showInFooter`/`footerOrder`/`footerGroup` retirados de `Post` — ver módulo **Footer**) |
 | **Footer** | ✅ Completo | Navegación del footer como entidad propia (`FooterColumn`+`FooterItem`), independiente de `Post` — sustituye a `Post.showInFooter/footerOrder/footerGroup`. `type: FooterItemType (PAGE\|INTERNAL\|EXTERNAL)` con destino discriminado validado en `FooterService` (no en el DTO ni con un CHECK de schema); `pageId` FK a `Post` con `onDelete: Restrict` + precheck en `BlogService.adminDelete` (molde `deleteCategory`). `GET /footer` público (resuelto: `href`/`external`, páginas DRAFT omitidas). `GET|POST|PATCH|DELETE /admin/footer/{columns,items}` + `.../reorder` (molde `categories/reorder`), `@Roles(ADMIN)`. Ver «Navegación del footer como entidad propia» en §3 para el detalle completo (migración en dos pasos, `RevalidateService` compartido, molde de UI) |
 | **Favorites** | ✅ Completo | `POST /favorites/:listingId` (marcar), `DELETE /favorites/:listingId` (desmarcar), `GET /favorites` (paginado), `GET /favorites/:listingId` (check), `POST /favorites/batch-check` (máx. 100 ids → `{ favoritedIds }`). Todos idempotentes y con `JwtAuthGuard`. Suite `favorites.e2e-spec.ts` (12 tests) |
 | **Reviews** | ✅ Completo (H7) | `POST /reviews` (crear; guard de elegibilidad vía `Conversation`; snapshot de `listingTitle`), `GET /reviews/eligibility?listingId=&targetId=` (check antes de mostrar el formulario), `PATCH /reviews/:id` (editar en ventana 72 h; persiste `editedAt`), `DELETE /reviews/:id` (borrar en ventana 72 h). Listado público via `GET /users/:slug/reviews` (cursor paginado + aggregate on-the-fly: average, count, distribución 1–5). Unicidad `(authorId, targetId, listingId)` — una reseña por par de usuarios por anuncio. `FAKE_REVIEW` añadido a `ReportReason`; `Report.reviewId` FK con CASCADE para moderar reseñas. **H7**: `Review.listingId` es `onDelete: SetNull` (nullable) — la reseña sobrevive al borrado del anuncio con snapshot `listingTitle`; ver «H7 — La reseña sobrevive al borrado del anuncio» más abajo. Suite `reviews.e2e-spec.ts` (24 tests) |
@@ -158,6 +158,7 @@ enlaces ancla — funcionan en GitHub y en la vista previa de Markdown de VS Cod
 - [Navegación del footer como entidad propia (FooterColumn/FooterItem) — retira BLOG-FOOTER-DINAMICO/COLUMNAS](#navegación-del-footer-como-entidad-propia-footercolumnfooteritem-retira-blog-footer-dinamicocolumnas)
 - [Sistema de bloques — Ráfaga 1: modelo + validación + los 9 renderizadores (SIN editor)](#sistema-de-bloques-ráfaga-1-modelo-validación-los-9-renderizadores-sin-editor)
 - [Sistema de bloques — Ráfaga 2: el editor completo (cierra el sistema de contenido)](#sistema-de-bloques-ráfaga-2-el-editor-completo-cierra-el-sistema-de-contenido)
+- [Sistema de bloques — Ráfaga 3: 4 tipos nuevos (3 estáticos + el primer bloque DINÁMICO) — 13 tipos](#sistema-de-bloques-ráfaga-3-4-tipos-nuevos-3-estáticos-el-primer-bloque-dinámico-13-tipos)
 - [CI: `footer-paginas.spec.ts` fallaba consistentemente — causa raíz real (`APP_URL` equivocado, no el secret)](#ci-footer-paginasspects-fallaba-consistentemente-causa-raíz-real-appurl-equivocado-no-el-secret)
 - [Protección anti-degradación de ADMIN en cambio de rol (Fase 7)](#protección-anti-degradación-de-admin-en-cambio-de-rol-fase-7)
 - [Límites de anuncios activos por plan y configuración en caliente (RF.7-A)](#límites-de-anuncios-activos-por-plan-y-configuración-en-caliente-rf7-a)
@@ -2322,6 +2323,198 @@ construye una página con los 9 bloques desde `/admin/paginas/nueva`
 publica, y confirma cada bloque en `/paginas/[slug]` — 3/3 tests verdes
 (este + los 2 de `blog-markdown-editor.spec.ts`) en ejecuciones repetidas
 con estado limpio.
+
+### Sistema de bloques — Ráfaga 3: 4 tipos nuevos (3 estáticos + el primer bloque DINÁMICO) — 13 tipos
+
+Prueba deliberada de que el esquema de R1/R2 hace barato añadir tipos: los 3
+estáticos (`imageText`, `steps`, `profile`) son pura composición de piezas ya
+existentes, y el cuarto (`listings`) introduce la primera pieza de contenido
+que NO vive en el propio bloque sino que se resuelve contra el estado vivo
+del marketplace (Postgres + Meilisearch) en cada render — el diseño tenía
+que absorber esto sin romper el contrato "BlockRenderer es síncrono y se
+comparte entre SSR público y el preview client-side del editor".
+
+**Los 3 tipos estáticos** — cero pieza nueva, solo reagrupar:
+- `imageText` (`{image:{url,alt,caption?}, markdown, layout}`): el editor
+  reusa literalmente el botón de subida de `image` (mismo
+  `POST /admin/blog/upload-image`) operando sobre el sub-objeto `image`, y el
+  `MarkdownEditorClient` de `text` sin cambios. El renderizador es un grid de
+  2 columnas (`imageLeft`/`imageRight`, se apila en móvil).
+- `steps` (`{title?, items:[{title, description, image?}]}`) y `profile`
+  (`{image?, name?, attributes:[{label, value}]}`): ambos reutilizan
+  `SubItemList<T>` (extraído en R2 para faq/hub) **sin tocarlo** — ya era
+  genérico, confirmando que la extracción de R2 fue la correcta. La imagen
+  opcional de cada paso de `steps` necesitó su propio estado de
+  subida/error por ítem (`StepItemFields`, subcomponente con `useState`
+  propio dentro de `renderItem`), porque `SubItemList` no gestiona estado
+  por-ítem — el resto (añadir/quitar/reordenar) es gratis.
+- Backend: 3 DTOs nuevos (`image-text-block.dto.ts`, `steps-block.dto.ts`,
+  `profile-block.dto.ts`), registrados en `ValidBlocksArray()`
+  (`block.dto.ts`) — el único punto de registro de tipos, sin tocar
+  `CreatePostDto`/`UpdatePostDto`. Sin reglas cruzadas nuevas en el service
+  (a diferencia de `table`): la forma de estos 3 tipos es válida campo a
+  campo, sin invariantes entre hermanos.
+
+**El bloque `listings` (primer bloque dinámico)** —
+`{title?, categorySlug, limit:4|6|8|12, sort?:'recent'|'featured',
+showAllLink?}` — no guarda contenido, guarda una **consulta**:
+- **Fuente única**: `ListingsBlockRenderer` (público) y `ListingsBlockEditor`
+  (admin, para el aviso de categoría vacía y el preview) llaman los dos a
+  `search()` de `lib/api/busqueda.ts` — la MISMA función que usan
+  `/busqueda`, `/[categoria]` y la portada. Cero query nueva en el backend.
+  `sort:'recent'` mapea a `sort:'publishedAt:desc'` (igual que la portada);
+  `sort:'featured'` mapea a `sort:'sortDate:desc'`
+  (`sortDate = max(publishedAt, bumpedAt)`, favorece re-impulsados) — en
+  ambos casos `boostScore:desc` sigue siendo la rankingRule que manda
+  primero en Meilisearch (RF.8), así que el badge "Destacado" en
+  `ListingCard` aparece solo, sin lógica adicional.
+- **Render**: grid con `ListingCard` (mismo componente que búsqueda/portada,
+  `prefetch={false}` ya incluido en el propio componente). Grid, no
+  carrusel. Deliberadamente **sin** `FavoritesGridProvider` ni
+  `CardAttributesProvider` — `ListingCard` degrada con gracia sin ellos
+  (`FavoriteCardButton`/`CardAttrsDisplay` leen contexto vía `useContext`
+  con default vacío, nunca lanzan) a cambio de no acoplar el sistema de
+  bloques a la resolución de `attributeSchema` por categoría; el coste es
+  que las tarjetas del bloque no muestran el corazón de favorito ni la
+  línea de atributo variable (p. ej. "45.000 km"). Los hits patrocinados se
+  filtran (`isSponsoredAdHit`) — un bloque de contenido editorial no debe
+  convertirse en inventario publicitario sin pedirlo explícitamente (mismo
+  criterio que "recientes" en la portada).
+- **Contrato síncrono preservado**: `BlockRenderer` NO se volvió async. Su
+  única concesión es una prop nueva y opcional, `listingsData?: Record<
+  blockId, SearchResponse>`, resuelta por QUIEN LLAMA antes de renderizar.
+  En público, `lib/blocks/resolve-listings.ts` (`resolveListingsBlocksData`)
+  se ejecuta en el server component de la página (`/paginas/[slug]`,
+  `/blog/[slug]`) con `Promise.all` sobre todos los bloques `listings` de
+  esa página. En el editor, `BlockEditor.tsx` hace lo mismo en un efecto
+  cliente (mismo `search()`, misma fuente) solo cuando el preview está
+  abierto, con una clave de dependencia derivada (`id:categorySlug:limit:
+  sort` de los bloques `listings`, no el array `blocks` completo) para no
+  relanzar la consulta en cada tecla de un campo ajeno. Se documenta como
+  una divergencia CONSCIENTE y acotada de "el preview es literalmente el
+  mismo BlockRenderer": el mecanismo de *resolución* de datos difiere
+  (SSR vs. efecto cliente) por necesidad técnica (Server Component async vs.
+  Client Component), pero el *renderizado* — mismo `ListingsBlockRenderer`,
+  mismos datos, mismo `ListingCard` — es idéntico en ambos sitios.
+- **Estado vacío**: si la categoría no tiene anuncios, `ListingsBlockRenderer`
+  devuelve `null` — el bloque entero desaparece, título incluido, sin dejar
+  un hueco. El editor avisa aparte: un `useEffect` en
+  `ListingsBlockEditor` llama a `search({categorySlug, hitsPerPage:1})` al
+  cambiar de categoría y muestra "esta categoría no tiene anuncios activos
+  ahora mismo" si `totalHits === 0` — mismo `search()`, una llamada más
+  barata, cero fuente nueva.
+- **Validación** (`BlogService.assertListingsBlocksValid`, mismo criterio que
+  `assertTableBlocksValid`/`FooterService.assertItemDestination`: reglas
+  cruzadas o que dependen de estado externo viven en el service, no en el
+  DTO): `categorySlug` debe existir en `Category` (lookup real contra
+  Postgres); máximo **4** bloques `listings` por página/post — guardarraíl
+  contra que una página dispare N consultas a Meilisearch en cada render;
+  `limit` restringido a `{4,6,8,12}` vía `@IsIn` en el DTO (forma, no
+  cruzado).
+
+**LA DECISIÓN CLAVE — caché**: observado el estado actual antes de diseñar
+— `/paginas/[slug]` y `/blog/[slug]` usan `export const revalidate = 3600`
+(ISR de 1h a nivel de ruta) más invalidación on-demand
+(`RevalidateService.revalidatePath`) disparada SOLO cuando el propio `Post`
+cambia, nunca cuando cambia un `Listing`. Next 15 además cambió el default
+de la Data Cache (`fetch()`) a no-cacheado — lo que gobierna la frescura de
+una página estática/ISR es la Full Route Cache, y su intervalo efectivo para
+una URL concreta es el MÍNIMO `revalidate` entre todos los `fetch()`
+usados para generarla (no solo el `export const revalidate` del segmento).
+Se aprovechó esto directamente: `resolveListingsBlocksData` pasa
+`next: { revalidate: 180 }` (3 min, `LISTINGS_BLOCK_REVALIDATE_SECONDS` en
+`lib/blocks/resolve-listings.ts`) a su llamada a `search()` — como cada
+`/paginas/<slug>` es una entrada de caché independiente, SOLO las páginas
+que de verdad incluyen un bloque `listings` bajan su TTL efectivo a 3 min;
+el resto de páginas conserva la 1h intacta sin tocar el `revalidate` global
+de la ruta. Cero infraestructura nueva, cero PPR experimental. Alternativas
+descartadas (documentadas para que la decisión no se repita sin motivo):
+bajar `revalidate` a un valor corto para TODA la ruta (más simple, pero
+penaliza páginas 100% estáticas sin necesidad); resolver los anuncios en el
+cliente (frescura total, pero deja de ser SSR — mal para SEO y contradice
+la petición explícita de resolver "en el server component de la página").
+
+**Consecuencia documentada, a propósito**: una página con un bloque
+`listings` **deja de ser autocontenida** — su contenido visible depende de
+estado externo (Postgres + índice de Meilisearch) con una ventana de hasta
+180 s de posible desajuste (p. ej. un anuncio vendido puede seguir
+apareciendo hasta 3 minutos). Es una propiedad que se rompe conscientemente,
+no un descuido — antes de esta ráfaga, publicar una página o post
+garantizaba que su contenido no cambiaría hasta la siguiente edición
+explícita; ahora eso solo es cierto para páginas SIN bloques `listings`.
+
+**Tests**:
+- `test/blocks.e2e-spec.ts` (backend, +19 casos → 45 totales): los 3
+  estáticos válidos/inválidos (`imageText` con `image.url` externa → 400,
+  `layout` desconocido → 400; `steps`/`profile` sin sub-ítems → 400
+  `ArrayMinSize`); `listings` válido con categoría real, categoría
+  inexistente → 400, `limit` fuera del enum → 400, `sort` desconocido →
+  400, más de 4 bloques `listings` → 400 (y exactamente 4 → 201, límite
+  inclusive), un PATCH que supera el límite NO muta el post existente
+  (mismo molde que el PATCH-rechazado de `table`); post con los 13 tipos a
+  la vez → 201.
+- `BlockRenderer.test.tsx` (frontend, +9 casos): los 3 estáticos renderizan;
+  `listings` con datos resueltos pinta las tarjetas y el badge "Destacado"
+  si `boostScore:1`; sin `listingsData` (aún no resuelto) y con
+  `totalHits:0` ambos no renderizan nada; patrocinados excluidos; enlace
+  "Ver todos" con el href correcto; los 13 tipos combinados no lanzan.
+  Mock nuevo de `next-auth/react` (ESM-only, mismo problema que
+  react-markdown documentado en R1/R2) — lo arrastra `ListingCard` vía
+  `FavoriteCardButton`, solo necesario desde que el bloque `listings` reusa
+  ese componente.
+- `BlockEditor.test.tsx` (frontend, +14 casos): reuso de `SubItemList`
+  confirmado para `steps`/`profile`; `listings` — categorías reales
+  cargadas vía `getCategories()` (mockeado), cambiar categoría/límite/orden
+  actualiza el bloque, aviso de categoría vacía cuando `totalHits:0`, y el
+  preview resuelve datos vía `search()` client-side y pinta con el mismo
+  `BlockRenderer`.
+- `resolve-listings.test.ts` (nuevo, 5 casos): mapeo `recent`→
+  `publishedAt:desc`/`featured`→`sortDate:desc`, el TTL corto se pasa
+  siempre como `next.revalidate`, resolución en paralelo de varios bloques
+  por `Promise.all`, bloques no-`listings` ignorados.
+- `e2e/block-listings.spec.ts` (nuevo, Playwright, datos reales — Postgres +
+  Meilisearch, sin mocks): crea un anuncio real vía API en una categoría
+  propia (creada al vuelo, nunca "electronica" — ver nota de flakiness más
+  abajo), construye una página con DOS bloques `listings` (una categoría
+  con contenido y una vacía recién creada), publica, y verifica que la
+  categoría poblada pinta el anuncio real y la vacía OCULTA el bloque
+  entero (título incluido) en la página pública. El TTL de 180 s no se
+  verifica esperando en tiempo real (lento y fràgil sin aportar cobertura
+  que `resolve-listings.test.ts` no dé ya sobre el mecanismo) — se
+  considera cubierto por el test unitario del mapeo a `search()`.
+- `e2e/block-editor-full.spec.ts` (actualizado, prueba de fuego): ahora
+  construye una página con los **13** tipos (9 de R2 + 4 de R3) desde
+  `/admin/paginas/nueva`, incluido un anuncio real para el bloque
+  `listings`, publica, y verifica los 13 en `/paginas/[slug]`.
+
+**Hallazgo de flakiness (corregido, no del código de producción)**: la
+suite Playwright NO trunca la base de datos entre specs (a diferencia de la
+batería Jest e2e, que sí lo hace en cada `beforeAll` vía `cleanDb`) — así
+que categorías compartidas como "electronica" acumulan anuncios de otras
+specs a lo largo de sucesivas ejecuciones locales, algunos posiblemente
+destacados. Como `boostScore:desc` es siempre la primera rankingRule de
+Meilisearch (por delante de cualquier `sort` pedido), un anuncio recién
+creado en una categoría "sucia" puede quedar fuera de `hitsPerPage` si ya
+hay ≥ `limit` anuncios destacados acumulados — un test que asumiera
+"electronica" como categoría de prueba sería flaky sin ninguna relación con
+el código del bloque. Fix: `block-listings.spec.ts` y
+`block-editor-full.spec.ts` crean su propia categoría al vuelo
+(`POST /admin/categories`, slug con timestamp) para cualquier assertion que
+dependa de que el anuncio recién creado sea visible — la categoría nueva
+garantiza que es el único candidato posible. Segundo hallazgo relacionado:
+`blog-markdown-editor.spec.ts` localizaba el post publicado con
+`new RegExp(title.slice(0,20))` — una carrera de timestamps de milisegundo
+con ejecuciones anteriores en la misma sesión podía hacer que ese prefijo
+truncado matchee DOS posts distintos (`strict mode violation`); corregido a
+un match exacto del título completo (`{ exact: true }`), sin relación con
+el sistema de bloques pero descubierto y arreglado en esta ráfaga al
+re-ejecutar la suite repetidamente.
+
+Verificado en vivo (Playwright real, datos reales de Postgres/Meilisearch,
+sin mocks): `block-editor-full.spec.ts` (13 tipos) y `block-listings.spec.ts`
+(datos reales + categoría vacía) — 2/2 verdes, junto con el resto de la
+suite de bloques/páginas (7/7 en conjunto). Backend: 47/47 suites, 746/746
+tests (+15 sobre R2). Puertos 3000/3001 comprobados limpios antes y después.
 
 ### CI: `footer-paginas.spec.ts` fallaba consistentemente — causa raíz real (`APP_URL` equivocado, no el secret)
 

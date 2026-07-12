@@ -11,6 +11,10 @@ import { QuoteBlockDto } from './quote-block.dto';
 import { VideoBlockDto } from './video-block.dto';
 import { SeparatorBlockDto } from './separator-block.dto';
 import { TableBlockDto } from './table-block.dto';
+import { ImageTextBlockDto } from './image-text-block.dto';
+import { StepsBlockDto } from './steps-block.dto';
+import { ProfileBlockDto } from './profile-block.dto';
+import { ListingsBlockDto } from './listings-block.dto';
 
 export type BlockDto =
   | TextBlockDto
@@ -21,14 +25,18 @@ export type BlockDto =
   | QuoteBlockDto
   | VideoBlockDto
   | SeparatorBlockDto
-  | TableBlockDto;
+  | TableBlockDto
+  | ImageTextBlockDto
+  | StepsBlockDto
+  | ProfileBlockDto
+  | ListingsBlockDto;
 
 // Máximo de bloques por post — guardarraíl contra payloads abusivos, no una
 // limitación de producto (100 bloques es muchísimo más de lo que cualquier
 // artículo/página real necesitaría).
 const MAX_BLOCKS = 100;
 
-// Único punto donde se declaran los 9 subtipos — si se añade un 10º bloque,
+// Único punto donde se declaran los 13 subtipos — si se añade un 14º bloque,
 // solo hace falta tocar aquí (y su propio *-block.dto.ts), no en cada DTO que
 // use `blocks`. Empaquetado con applyDecorators (@nestjs/common) para no
 // duplicar este bloque de ~20 líneas en CreatePostDto Y UpdatePostDto.
@@ -50,6 +58,10 @@ export function ValidBlocksArray(): PropertyDecorator {
           { value: VideoBlockDto, name: 'video' },
           { value: SeparatorBlockDto, name: 'separator' },
           { value: TableBlockDto, name: 'table' },
+          { value: ImageTextBlockDto, name: 'imageText' },
+          { value: StepsBlockDto, name: 'steps' },
+          { value: ProfileBlockDto, name: 'profile' },
+          { value: ListingsBlockDto, name: 'listings' },
         ],
       },
       keepDiscriminatorProperty: true,

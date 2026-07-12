@@ -57,7 +57,7 @@ test.describe('Editor de markdown (bloque "Texto") en /admin/blog/nuevo', () => 
     // aparecerá aquí y el test fallará al no encontrar el link) ---
     await page.goto('/blog');
     await page.waitForLoadState('networkidle');
-    await page.getByRole('link', { name: new RegExp(title.slice(0, 20)) }).click();
+    await page.getByRole('link', { name: title, exact: true }).click();
     await page.waitForLoadState('domcontentloaded');
 
     const article = page.locator('article, main').first();
@@ -108,7 +108,7 @@ test.describe('Editor de markdown (bloque "Texto") en /admin/blog/nuevo', () => 
     // Verificar también en la página pública.
     await page.goto('/blog');
     await page.waitForLoadState('networkidle');
-    await page.getByRole('link', { name: new RegExp(title.slice(0, 20)) }).click();
+    await page.getByRole('link', { name: title, exact: true }).click();
     await page.waitForLoadState('domcontentloaded');
 
     const executedPublic = await page.evaluate(() => (window as unknown as { __xss_executed?: boolean }).__xss_executed === true);

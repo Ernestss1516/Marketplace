@@ -16,7 +16,7 @@ export interface SearchParams {
   lat?: number;
   lng?: number;
   radius?: number;
-  sort?: 'price:asc' | 'price:desc' | 'publishedAt:desc';
+  sort?: 'price:asc' | 'price:desc' | 'publishedAt:desc' | 'sortDate:desc';
   page?: number;
   hitsPerPage?: number;
   [key: string]: string | number | undefined;
@@ -30,10 +30,17 @@ export interface SearchResponse {
   facets?: Record<string, Record<string, number>>;
 }
 
-export function search(params: SearchParams): Promise<SearchResponse> {
+// `next`: opciones de caché de fetch de Next.js, opcionales — usado por el
+// bloque `listings` (Ráfaga 3) para pasar un revalidate corto propio sin
+// afectar a los demás llamadores (home, /busqueda, /[categoria]), que no lo
+// pasan y siguen con el comportamiento de caché por defecto de esa página.
+export function search(
+  params: SearchParams,
+  fetchOptions?: { next?: { revalidate?: number; tags?: string[] } },
+): Promise<SearchResponse> {
   const query = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined) query.set(key, String(value));
   });
-  return apiFetch<SearchResponse>(`/search?${query}`);
+  return apiFetch<SearchResponse>(`/search?${query}`, fetchOptions);
 }

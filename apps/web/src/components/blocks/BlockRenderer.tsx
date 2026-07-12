@@ -1,4 +1,5 @@
 import type { Block } from '@/types/blocks';
+import type { SearchResponse } from '@/lib/api/busqueda';
 import { TextBlockRenderer } from './TextBlockRenderer';
 import { FaqBlockRenderer } from './FaqBlockRenderer';
 import { HubBlockRenderer } from './HubBlockRenderer';
@@ -8,15 +9,23 @@ import { QuoteBlockRenderer } from './QuoteBlockRenderer';
 import { VideoBlockRenderer } from './VideoBlockRenderer';
 import { SeparatorBlockRenderer } from './SeparatorBlockRenderer';
 import { TableBlockRenderer } from './TableBlockRenderer';
+import { ImageTextBlockRenderer } from './ImageTextBlockRenderer';
+import { StepsBlockRenderer } from './StepsBlockRenderer';
+import { ProfileBlockRenderer } from './ProfileBlockRenderer';
+import { ListingsBlockRenderer } from './ListingsBlockRenderer';
 
-// Switch exhaustivo: si se añade un 10º tipo de bloque sin su `case` aquí, el
+// Switch exhaustivo: si se añade un 14º tipo de bloque sin su `case` aquí, el
 // `never` de `assertUnreachable` falla en build — el compilador ES la
 // validación de que el esquema y el renderizador nunca divergen.
 function assertUnreachable(block: never): never {
   throw new Error(`Tipo de bloque no soportado: ${JSON.stringify(block)}`);
 }
 
-function renderBlock(block: Block) {
+// `listingsData`: resultados de search() ya resueltos, uno por bloque
+// `listings` (clave = block.id). BlockRenderer sigue siendo síncrono (lo
+// comparten la página pública SSR y el preview client-side del editor) — la
+// resolución async vive fuera, en quien llama. Ver ListingsBlockRenderer.
+function renderBlock(block: Block, listingsData?: Record<string, SearchResponse>) {
   switch (block.type) {
     case 'text':
       return <TextBlockRenderer block={block} />;
@@ -36,6 +45,14 @@ function renderBlock(block: Block) {
       return <SeparatorBlockRenderer />;
     case 'table':
       return <TableBlockRenderer block={block} />;
+    case 'imageText':
+      return <ImageTextBlockRenderer block={block} />;
+    case 'steps':
+      return <StepsBlockRenderer block={block} />;
+    case 'profile':
+      return <ProfileBlockRenderer block={block} />;
+    case 'listings':
+      return <ListingsBlockRenderer block={block} data={listingsData?.[block.id]} />;
     default:
       return assertUnreachable(block);
   }
@@ -45,11 +62,17 @@ function renderBlock(block: Block) {
 // /paginas/[slug]. Cada bloque se envuelve en su propio contenedor con
 // espaciado vertical consistente — los renderizadores individuales no se
 // preocupan del ritmo entre bloques.
-export function BlockRenderer({ blocks }: { blocks: Block[] }) {
+export function BlockRenderer({
+  blocks,
+  listingsData,
+}: {
+  blocks: Block[];
+  listingsData?: Record<string, SearchResponse>;
+}) {
   return (
     <div className="space-y-8">
       {blocks.map((block) => (
-        <div key={block.id}>{renderBlock(block)}</div>
+        <div key={block.id}>{renderBlock(block, listingsData)}</div>
       ))}
     </div>
   );

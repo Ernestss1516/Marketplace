@@ -13,13 +13,17 @@ import { FaqBlockEditor } from './editors/FaqBlockEditor';
 import { HubBlockEditor } from './editors/HubBlockEditor';
 import { VideoBlockEditor } from './editors/VideoBlockEditor';
 import { TableBlockEditor } from './editors/TableBlockEditor';
+import { ImageTextBlockEditor } from './editors/ImageTextBlockEditor';
+import { StepsBlockEditor } from './editors/StepsBlockEditor';
+import { ProfileBlockEditor } from './editors/ProfileBlockEditor';
+import { ListingsBlockEditor } from './editors/ListingsBlockEditor';
 
 function assertUnreachable(block: never): never {
   throw new Error(`Tipo de bloque no soportado: ${JSON.stringify(block)}`);
 }
 
 // Switch exhaustivo — mismo patrón que BlockRenderer.tsx (components/blocks/):
-// si se añade un 10º tipo sin su editor aquí, el build falla.
+// si se añade un 14º tipo sin su editor aquí, el build falla.
 function renderEditor(
   block: Block,
   onChange: (block: Block) => void,
@@ -45,6 +49,14 @@ function renderEditor(
       return <VideoBlockEditor block={block} onChange={(patch) => onChange({ ...block, ...patch })} disabled={disabled} />;
     case 'table':
       return <TableBlockEditor block={block} onChange={(patch) => onChange({ ...block, ...patch })} disabled={disabled} />;
+    case 'imageText':
+      return <ImageTextBlockEditor block={block} onChange={(patch) => onChange({ ...block, ...patch })} token={token} disabled={disabled} />;
+    case 'steps':
+      return <StepsBlockEditor block={block} onChange={(patch) => onChange({ ...block, ...patch })} token={token} disabled={disabled} />;
+    case 'profile':
+      return <ProfileBlockEditor block={block} onChange={(patch) => onChange({ ...block, ...patch })} token={token} disabled={disabled} />;
+    case 'listings':
+      return <ListingsBlockEditor block={block} onChange={(patch) => onChange({ ...block, ...patch })} disabled={disabled} />;
     default:
       return assertUnreachable(block);
   }
