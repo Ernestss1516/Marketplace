@@ -19,6 +19,7 @@ import {
   Prisma,
   ProductType,
   SubscriptionStatus,
+  TransactionStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { QUEUE_INDEXING } from '../../infra/queue/queue.constants';
@@ -192,10 +193,9 @@ export class BillingService {
    * already have an open transaction: opens its own $transaction, then enqueues
    * reindexing and logs after commit.
    *
-   * Called from RedsysProcessor.handleFeaturedPay, after Transaction.status is
-   * set to SUCCEEDED. (Stripe used to have an equivalent one-time-payment path;
-   * removed — Redsys is now the only card channel for destacado, see
-   * BillingService.createCheckoutSession.)
+   * Used by featuredByCredits and CouponsService.redeem. NOT used by the Redsys
+   * path — see grantFeaturedListingAndSucceed, which needs the Transaction
+   * status update inside the SAME atomic block (see its own doc for why).
    */
   async grantFeaturedListing(params: GrantFeaturedParams): Promise<void> {
     await this.prisma.$transaction((tx) => this.grantFeaturedListingTx(tx, params));
@@ -206,6 +206,40 @@ export class BillingService {
       `Featured listing granted: listingId=${params.listingId}, userId=${params.userId}, ` +
         `durationDays=${params.durationDays}, origin=${params.origin}, ` +
         `transactionId=${params.transactionId ?? 'none'}`,
+    );
+  }
+
+  /**
+   * Redsys-only variant of grantFeaturedListing: grants the entitlement AND marks
+   * the Transaction SUCCEEDED in the SAME Postgres transaction.
+   *
+   * Fixes a money-accounting bug found by e2e (redsys-featured-payment-e2e):
+   * the previous design granted the entitlement in its own tx, then updated
+   * Transaction.status in a separate step "so BullMQ can retry" if that second
+   * step failed. But grantFeaturedListingTx's own guard ("listing already has
+   * an active featured period") then rejects every retry, since the entitlement
+   * from the first attempt is already there — so the Transaction is stuck
+   * PENDING forever after any transient failure on the status update, with no
+   * way for BullMQ's retry to ever complete it. Wrapping both steps atomically
+   * means a mid-way failure rolls back the entitlement too, so a retry starts
+   * from a clean PENDING state exactly like every other job retry in this app.
+   */
+  async grantFeaturedListingAndSucceed(
+    params: GrantFeaturedParams & { transactionId: string },
+  ): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      await this.grantFeaturedListingTx(tx, params);
+      await tx.transaction.update({
+        where: { id: params.transactionId },
+        data: { status: TransactionStatus.SUCCEEDED },
+      });
+    });
+
+    await this.indexingQueue.add('index', { listingId: params.listingId });
+
+    this.logger.log(
+      `Featured listing granted (Redsys): listingId=${params.listingId}, userId=${params.userId}, ` +
+        `durationDays=${params.durationDays}, transactionId=${params.transactionId}`,
     );
   }
 

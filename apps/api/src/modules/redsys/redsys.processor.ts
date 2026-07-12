@@ -193,9 +193,11 @@ export class RedsysProcessor extends WorkerHost {
   /**
    * Grants a FEATURED_LISTING entitlement for a confirmed Redsys featured-pay.
    *
-   * Design (§3.4): call grantFeaturedListing FIRST (in its own Postgres TX);
-   * only mark Transaction SUCCEEDED after the entitlement is persisted.
-   * This keeps Transaction PENDING on failure so BullMQ can retry.
+   * grantFeaturedListingAndSucceed grants the entitlement AND marks the
+   * Transaction SUCCEEDED atomically (same Postgres transaction), so a failure
+   * at any point rolls back both and BullMQ's retry starts from a clean PENDING
+   * state. See that method's doc for the bug this replaced (a two-step version
+   * where a failure between the two steps left the Transaction PENDING forever).
    */
   private async handleFeaturedPay(
     userId: string,
@@ -204,9 +206,7 @@ export class RedsysProcessor extends WorkerHost {
     priceId: string,
     durationDays: number,
   ): Promise<void> {
-    // Grant entitlement (validates listing ACTIVE + ownership + no duplicate) + enqueues indexing.
-    // If this throws, Transaction stays PENDING and BullMQ retries.
-    await this.billingService.grantFeaturedListing({
+    await this.billingService.grantFeaturedListingAndSucceed({
       userId,
       listingId,
       durationDays,
@@ -214,15 +214,5 @@ export class RedsysProcessor extends WorkerHost {
       transactionId,
       origin: FeaturedOrigin.REDSYS,
     });
-
-    // Mark Transaction SUCCEEDED only after entitlement is confirmed created.
-    await this.prisma.transaction.update({
-      where: { id: transactionId },
-      data: { status: TransactionStatus.SUCCEEDED },
-    });
-
-    this.logger.log(
-      `Featured pay processed: user=${userId}, listing=${listingId}, tx=${transactionId}`,
-    );
   }
 }
