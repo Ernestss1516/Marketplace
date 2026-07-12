@@ -9,7 +9,8 @@ import type { APIRequestContext } from '@playwright/test';
 
 const API_BASE = 'http://localhost:3001';
 
-/** Login directo contra el backend (independiente de la sesión next-auth del navegador). */
+/** Login directo contra el backend (independiente de la sesión next-auth del navegador).
+ * Rechaza a ADMIN (deben usar loginAdminViaApi) — ver AuthService.login. */
 export async function loginViaApi(
   request: APIRequestContext,
   email: string,
@@ -20,6 +21,23 @@ export async function loginViaApi(
   });
   if (!res.ok()) {
     throw new Error(`[loginViaApi] login falló para ${email}: ${res.status()} ${await res.text()}`);
+  }
+  const body = (await res.json()) as { accessToken: string };
+  return body.accessToken;
+}
+
+/** Login directo contra /auth/admin-login — la única puerta para cuentas
+ * ADMIN (loginViaApi las rechaza). Ver AuthService.adminLogin. */
+export async function loginAdminViaApi(
+  request: APIRequestContext,
+  email: string,
+  password: string,
+): Promise<string> {
+  const res = await request.post(`${API_BASE}/api/auth/admin-login`, {
+    data: { email, password },
+  });
+  if (!res.ok()) {
+    throw new Error(`[loginAdminViaApi] login falló para ${email}: ${res.status()} ${await res.text()}`);
   }
   const body = (await res.json()) as { accessToken: string };
   return body.accessToken;

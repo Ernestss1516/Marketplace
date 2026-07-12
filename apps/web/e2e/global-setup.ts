@@ -75,7 +75,10 @@ export default async function globalSetup(playwrightConfig: FullConfig) {
     { email: 'seller-e2e@example.com',    file: 'seller.storageState.json'    },
     { email: 'buyer-e2e@example.com',     file: 'buyer.storageState.json'     },
     { email: 'pro-e2e@example.com',       file: 'pro.storageState.json'       },
-    { email: 'admin-e2e@example.com',     file: 'admin.storageState.json'     },
+    // ADMIN solo puede entrar por /admin/login — el /login público lo rechaza
+    // (decisión de diseño; ver AuthService.login/adminLogin). Es la ÚNICA
+    // cuenta de las 6 que usa una ruta/botón distintos.
+    { email: 'admin-e2e@example.com',     file: 'admin.storageState.json',     admin: true },
     { email: 'moderator-e2e@example.com', file: 'moderator.storageState.json' },
     { email: 'editor-e2e@example.com',    file: 'editor.storageState.json'    },
   ];
@@ -84,24 +87,28 @@ export default async function globalSetup(playwrightConfig: FullConfig) {
     const context = await browser.newContext();
     const page = await context.newPage();
 
-    await page.goto(`${baseURL}/login`);
+    const loginPath = user.admin ? '/admin/login' : '/login';
+    const submitLabel = user.admin ? 'Entrar' : 'Iniciar sesión';
+    const verifyPath = user.admin ? '/admin' : '/mis-anuncios';
+
+    await page.goto(`${baseURL}${loginPath}`);
     await page.getByLabel('Email').fill(user.email);
     await page.getByLabel('Contraseña').fill('Test1234!');
-    await page.getByRole('button', { name: 'Iniciar sesión' }).click();
+    await page.getByRole('button', { name: submitLabel }).click();
 
-    // Wait for the redirect away from /login without assuming the destination.
-    // next-auth may resolve the session before Next.js Router fires the
-    // callbackUrl push, so the landing route is not guaranteed.
-    await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 15_000 });
+    // Wait for the redirect away from the login page without assuming the
+    // destination. next-auth may resolve the session before Next.js Router
+    // fires the callbackUrl push, so the landing route is not guaranteed.
+    await page.waitForURL((url) => !url.pathname.startsWith(loginPath), { timeout: 15_000 });
 
     // Navigate explicitly to a protected route to confirm the session cookie is
     // live and middleware does not bounce us back to login.
-    await page.goto(`${baseURL}/mis-anuncios`);
+    await page.goto(`${baseURL}${verifyPath}`);
     const finalUrl = page.url();
     if (finalUrl.includes('/login')) {
       throw new Error(
         `[globalSetup] Session not established for ${user.email} — ` +
-        `/mis-anuncios redirected to: ${finalUrl}`,
+        `${verifyPath} redirected to: ${finalUrl}`,
       );
     }
 

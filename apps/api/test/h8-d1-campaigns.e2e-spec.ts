@@ -137,7 +137,7 @@ describe('H8 Bloque D fase 1 — Campaigns (e2e)', () => {
 
     const [adminRes, userRes, modRes] = await Promise.all([
       request(app.getHttpServer())
-        .post('/api/auth/login')
+        .post('/api/auth/admin-login')
         .send({ email: 'h8d1-admin@example.com', password: 'Test1234!' }),
       request(app.getHttpServer())
         .post('/api/auth/login')

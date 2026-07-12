@@ -19,7 +19,7 @@
 // editor-e2e@example.com (EDITOR).
 
 import { test, expect } from './fixtures/auth';
-import { loginViaApi, authedPost } from './helpers/api';
+import { loginAdminViaApi, authedPost } from './helpers/api';
 
 test.describe('Páginas informativas — /admin/paginas y /paginas/[slug]', () => {
   test('ADMIN crea y publica una página; se sirve en /paginas/[slug] con presentación de página y no aparece en el feed del blog', async ({
@@ -76,7 +76,7 @@ test.describe('Páginas informativas — /admin/paginas y /paginas/[slug]', () =
     adminContext,
     request,
   }) => {
-    const adminToken = await loginViaApi(request, 'admin-e2e@example.com', 'Test1234!');
+    const adminToken = await loginAdminViaApi(request, 'admin-e2e@example.com', 'Test1234!');
     const title = `Pagina XSS check ${Date.now()}`;
 
     const created = await authedPost(request, '/admin/blog', adminToken, {

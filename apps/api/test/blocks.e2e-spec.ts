@@ -37,7 +37,7 @@ describe('Sistema de bloques — validación (e2e)', () => {
     });
 
     const res = await request(app.getHttpServer())
-      .post('/api/auth/login')
+      .post('/api/auth/admin-login')
       .send({ email: 'blocks-admin@example.com', password: 'Test1234!' });
     adminToken = res.body.accessToken as string;
   });

@@ -20,7 +20,7 @@
 // unitario no cubra ya sobre el mecanismo.
 
 import { test, expect } from './fixtures/auth';
-import { loginViaApi, authedPost, pollSearch } from './helpers/api';
+import { loginAdminViaApi, authedPost, pollSearch } from './helpers/api';
 
 test.describe('Bloque listings (dinámico) — datos reales', () => {
   test('pinta anuncios reales de una categoría con contenido y oculta la categoría vacía', async ({
@@ -29,7 +29,7 @@ test.describe('Bloque listings (dinámico) — datos reales', () => {
   }) => {
     test.setTimeout(90_000);
     const ts = Date.now();
-    const adminToken = await loginViaApi(request, 'admin-e2e@example.com', 'Test1234!');
+    const adminToken = await loginAdminViaApi(request, 'admin-e2e@example.com', 'Test1234!');
 
     // ── Categoría con contenido: propia, creada al vuelo ─────────────────────
     const populatedSlug = `r3-poblada-${ts}`;

@@ -3251,6 +3251,101 @@ para un Nivel 2 a evaluar después.
   login → de vuelta en la misma ficha) y del open-redirect cayendo al default en vez de navegar a
   un dominio externo.
 
+### RÁFAGA 5 — `/admin/login` separada (superficie de login administrativa independiente)
+
+Motivado por una decisión de diseño explícita: un `ADMIN` ya no puede entrar por el `/login`
+público en absoluto — solo por `/admin/login`, una página propia sin Google y con estilo
+distinto. El riesgo central del diseño era el **auto-bloqueo**: si `/login` rechaza admins y
+`/admin/login` queda mal protegida o rota, no hay vía de entrada al panel. Los tres puntos de
+abajo se diseñaron con ese riesgo por delante y se verificaron en vivo, no solo con e2e.
+
+- **Backend — `AuthService` (`apps/api/src/modules/auth/auth.service.ts`)**: `login()` se
+  descompuso extrayendo `validateCredentials(dto)` (lookup, lockout, `bcrypt.compare`, checks de
+  `SUSPENDED`/`BANNED` — nunca decide sobre el rol). `login()` llama a `validateCredentials()` y,
+  **solo si tiene éxito**, comprueba `role === ADMIN` → `403 ADMIN_MUST_USE_ADMIN_LOGIN` con el
+  mensaje "Las cuentas de administración deben iniciar sesión en /admin/login." Nuevo
+  `adminLogin(dto, ip)` — mismo `validateCredentials()`, rechaza con `403
+  ADMIN_LOGIN_NOT_ADMIN` si el usuario resuelto NO es `ADMIN`. **El rechazo por rol ocurre
+  siempre DESPUÉS de validar credenciales**, nunca antes — es la misma disciplina que ya regía el
+  lockout de RÁFAGA 3: comparar la contraseña primero evita que el propio mensaje de error sirva
+  de oráculo de enumeración de administradores. Verificado con un test que compara el 401 de un
+  ADMIN con contraseña incorrecta contra el 401 de un email inexistente **campo por campo**
+  (`Object.keys().sort()`) — deben ser bit a bit idénticos, y lo son.
+- **Rate limiting propio, más estricto** (`ADMIN_LOGIN_RATE_LIMIT_IP_PER_WINDOW = 20` / 15 min,
+  `auth.constants.ts`) — mismo `RateLimitService` de RÁFAGA 3, pero con un techo menor que el
+  login público (150/15min): es la puerta del panel, no infraestructura de tráfico general.
+- **`POST /auth/admin-login`** (`auth.controller.ts`) — mismo `LoginDto`, sin cambios de forma
+  respecto al login público.
+- **Frontend — exclusión del guard, no un caso especial dentro de él**
+  (`apps/web/src/middleware.ts`): `isAdminRoute` ahora es `pathname !== '/admin/login' &&
+  adminPrefixes.some(...)` — `/admin/login` queda completamente fuera tanto del redirect
+  `!session` como del bloqueo por rol, así que un anónimo la abre sin ningún salto. Se verificó
+  explícitamente que esto no degenera en bucle: la condición se evalúa ANTES de cualquier chequeo
+  de sesión, no como una excepción dentro de la rama que sí redirige.
+- **Página propia, aislada por construcción** — `apps/web/src/app/admin/login/page.tsx` vive
+  **fuera** tanto de `app/(admin)/` como de `app/(public)/` (carpeta literal `admin/login/`, sin
+  paréntesis): en el App Router de Next.js eso la convierte en un árbol físico distinto, así que
+  no hereda `(admin)/layout.tsx` (que trae `AdminNav`/`AdminUserBar`, ambos gateados por sesión —
+  justo la dependencia circular que habría causado el auto-bloqueo) ni ningún chrome de
+  `(public)`. Solo hereda el `app/layout.tsx` raíz. Estilo propio (paleta oscura, sin Google),
+  sin coincidencia visual deliberada con `/login` público — refuerza que es una superficie
+  distinta, no una variante.
+- **`next-auth` — segundo provider `Credentials`, no una rama del existente**
+  (`apps/web/src/lib/auth/index.ts`): `id: 'admin-credentials'` llama a `/auth/admin-login`; el
+  provider público sigue llamando a `/auth/login` y ahora captura el nuevo `403
+  ADMIN_MUST_USE_ADMIN_LOGIN` para relanzarlo como un `CredentialsSignin` con `code:
+  'admin_must_use_admin_login'`. El mecanismo de paso de `code` (subclase de `CredentialsSignin`
+  de `next-auth`, propiedad `code` propia) se confirmó leyendo el código fuente real de
+  `@auth/core`/`next-auth` en `node_modules` en vez de asumir por memoria de framework, dado que
+  era una pieza crítica del flujo ("si falla, no hay forma de mostrar el mensaje correcto"): el
+  `code` llega intacto a `signIn(..., {redirect:false})` como `result.code` en el cliente.
+  `/login` público lo intercepta y muestra el mensaje de redirección a `/admin/login`; el
+  provider `admin-credentials` hace lo simétrico con `403 ADMIN_LOGIN_NOT_ADMIN` →
+  `admin_login_not_admin`.
+- **Redirección tras login** — `/admin/login` reutiliza `resolveCallbackUrl()` de RÁFAGA 4
+  (generalizada para aceptar un `fallback` explícito en vez de tener el default de `/mis-anuncios`
+  hardcodeado) con fallback `/admin`, así que respeta un `callbackUrl` legítimo sin reabrir el
+  open-redirect que RÁFAGA 4 cerró.
+- **`AdminUserBar` — corregido de paso, encontrado por revisión propia, no por un fallo
+  reportado**: el botón de logout tenía `signOut({ callbackUrl: '/login' })` hardcodeado. Esa
+  barra la comparten `ADMIN`/`MODERATOR`/`EDITOR`, pero solo `ADMIN` está atado a
+  `/admin/login` — con el hardcode, un `MODERATOR`/`EDITOR` que cerrara sesión habría aterrizado
+  en `/admin/login` y habría sido rechazado ahí también (no es `ADMIN`), un mini-auto-bloqueo de
+  UX para dos de los tres roles del panel. Corregido a condicional por rol:
+  `session.user.role === 'ADMIN' ? '/admin/login' : '/login'`.
+- **Impacto en la batería de tests — cambio de contrato esperado, no una regresión**: `ADMIN`
+  se usaba de forma masiva como infraestructura de setup vía el login público, tanto en Playwright
+  (`global-setup.ts`, `helpers/api.ts::loginViaApi`) como en ~18 suites Jest e2e del backend (una
+  duplicaba `loginUser(app, email, password)` por archivo, sin helper compartido). Todo ese código
+  de setup ahora usa `/auth/admin-login`/`loginAdminViaApi` para las cuentas `ADMIN` específicamente
+  — el resto de logins (USER/MODERATOR/EDITOR/seller) no cambian. `loginViaApi` documentado
+  explícitamente como "ya no sirve para ADMIN".
+- **Hallazgo colateral durante la verificación — assertion desactualizada preexistente,
+  encontrada y arreglada de paso**: correr la batería Playwright completa (no solo el spec nuevo)
+  reveló `admin-roles.spec.ts` fallando con `esperado 12, recibido 14` en el conteo de ítems del
+  nav — `AdminNav.tsx` ya tenía 14 ítems (Footer de R.3 y "Mensajes de contacto" de RC.2 se
+  añadieron sin actualizar esta aserción), sin relación alguna con este cambio de admin-login
+  (confirmado con `git log` sobre ambos archivos). Corregido aquí ya que se tenía el contexto
+  completo a mano: aserción y comentario del test actualizados a 14. Los otros 3 fallos vistos en
+  la misma corrida (`footer-admin.spec.ts`) son la flakiness preexistente ya documentada aparte
+  (`project_footer_admin_e2e_broken.md`), sin relación con esta ráfaga tampoco.
+- **Tests**: `apps/api/test/admin-login.e2e-spec.ts` (7 tests nuevos) — `ADMIN` con contraseña
+  correcta en `/login` público → 403 sin `accessToken`; misma contraseña incorrecta → 401
+  idéntico byte a byte al de un email inexistente; `USER` normal sin cambios; `ADMIN` vía
+  `/admin-login` → 200, token verificado funcional contra `GET /api/admin/stats`; no-admin vía
+  `/admin-login` → 403 (tras confirmar que contraseña incorrecta da 401 primero); rate limit
+  propio; lockout también aplicable vía `/admin-login`. Suite backend completa verde (51/51
+  suites, 814/814 tests, tras adaptar las ~18 suites afectadas). Suite Playwright completa verde
+  (171/171, tras el fix de `admin-roles.spec.ts`; los 3 fallos de `footer-admin.spec.ts` son la
+  flakiness preexistente ya conocida). **QA en vivo contra el stack de desarrollo real** (no solo
+  e2e, con `admin@marketplace.es` real y un usuario no-admin creado ad hoc): anónimo abre
+  `/admin/login` sin redirect y sin botón de Google; `ADMIN` entra por `/admin/login` y llega a
+  `/admin`; `ADMIN` con contraseña correcta en `/login` público es rechazado con el mensaje
+  específico, permanece en `/login`; `ADMIN` con contraseña incorrecta en `/login` público recibe
+  el mismo mensaje genérico que cualquier fallo (sin pista de que es admin); usuario no-admin con
+  contraseña correcta en `/admin/login` es rechazado y permanece ahí. 8/8 comprobaciones en
+  navegador real, más las mismas rutas confirmadas por `curl` directo contra el backend.
+
 ### RC.1 — Formulario de contacto público (endpoint sin autenticación, 5 defensas)
 
 Primer endpoint de escritura del proyecto alcanzable sin JWT (aparte de `/auth/register`) —

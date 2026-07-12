@@ -14,8 +14,13 @@ import * as request from 'supertest';
 import { createTestApp } from './helpers/create-app';
 import { cleanDb } from './helpers/db';
 
-async function loginUser(app: INestApplication, email: string, password: string): Promise<string> {
-  const res = await request(app.getHttpServer()).post('/api/auth/login').send({ email, password });
+async function loginUser(
+  app: INestApplication,
+  email: string,
+  password: string,
+  endpoint = '/api/auth/login',
+): Promise<string> {
+  const res = await request(app.getHttpServer()).post(endpoint).send({ email, password });
   return res.body.accessToken as string;
 }
 
@@ -86,7 +91,7 @@ describe('H8 Bloque D fase 4 — Banners (e2e)', () => {
     ]);
 
     [adminToken, userToken, moderatorToken] = await Promise.all([
-      loginUser(app, 'h8d4-admin@example.com', 'Test1234!'),
+      loginUser(app, 'h8d4-admin@example.com', 'Test1234!', '/api/auth/admin-login'),
       loginUser(app, 'h8d4-user@example.com', 'Test1234!'),
       loginUser(app, 'h8d4-mod@example.com', 'Test1234!'),
     ]);

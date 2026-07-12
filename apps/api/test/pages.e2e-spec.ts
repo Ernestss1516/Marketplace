@@ -90,7 +90,7 @@ describe('Páginas informativas — Post.type (e2e)', () => {
 
     const [adminRes, editorRes] = await Promise.all([
       request(app.getHttpServer())
-        .post('/api/auth/login')
+        .post('/api/auth/admin-login')
         .send({ email: 'pages-admin@example.com', password: 'Test1234!' }),
       request(app.getHttpServer())
         .post('/api/auth/login')

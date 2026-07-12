@@ -29,6 +29,14 @@ export class AuthController {
     return this.authService.login(dto, ip);
   }
 
+  /** Puerta separada del panel — los ADMIN solo entran por aquí, nunca por
+   * /auth/login (ver AuthService.login/adminLogin). */
+  @Post('admin-login')
+  @HttpCode(HttpStatus.OK)
+  async adminLogin(@Body() dto: LoginDto, @Ip() ip: string) {
+    return this.authService.adminLogin(dto, ip);
+  }
+
   @Post('verify-email')
   @HttpCode(HttpStatus.OK)
   async verifyEmail(@Body() dto: VerifyEmailDto) {

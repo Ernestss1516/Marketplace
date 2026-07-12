@@ -25,6 +25,8 @@ import {
 } from '../../infra/queue/notification.types';
 import { JwtPayload } from './auth.types';
 import {
+  ADMIN_LOGIN_RATE_LIMIT_IP_PER_WINDOW,
+  ADMIN_LOGIN_RATE_LIMIT_IP_WINDOW_SECONDS,
   CHANGE_PASSWORD_RATE_LIMIT_PER_HOUR,
   CHANGE_PASSWORD_RATE_LIMIT_WINDOW_SECONDS,
   FORGOT_PASSWORD_RATE_LIMIT_EMAIL_PER_HOUR,
@@ -125,9 +127,9 @@ export class AuthService {
   }
 
   async login(dto: LoginDto, ip: string) {
-    // Por IP y por email — el segundo protege una cuenta concreta aunque el
-    // atacante rote de IP. Aplicado a la clave (email tal cual llega en el
-    // body) exista o no la cuenta: nunca revela existencia por el propio 429.
+    // Por IP — flood-control genérico, aplicado a la clave (email tal cual
+    // llega en el body) exista o no la cuenta: nunca revela existencia por el
+    // propio 429 (la defensa real por cuenta es el lockout, ver más abajo).
     const ipLimit = await this.rateLimit.checkAndIncrement(
       `auth:login:ip:${ip}`,
       LOGIN_RATE_LIMIT_IP_PER_WINDOW,
@@ -135,6 +137,66 @@ export class AuthService {
     );
     if (ipLimit.limited) tooManyRequests(ipLimit.retryAfter);
 
+    const user = await this.validateCredentials(dto);
+
+    // ADMIN solo puede entrar por /admin/login (decisión de diseño) — el
+    // rechazo ocurre AQUÍ, después de validar la contraseña, nunca antes: si
+    // rechazáramos por email antes de comprobar la contraseña, este endpoint
+    // se convertiría en un oráculo de enumeración de administradores (probar
+    // emails al público /login y ver cuáles responden "eres admin" sin
+    // siquiera acertar la contraseña). Con la contraseña ya probada correcta,
+    // decir "eres admin, ve a /admin/login" no filtra nada que el llamante no
+    // supiera ya (mismo principio que el bloqueo de Google en R3).
+    if (user.role === Role.ADMIN) {
+      throw new ForbiddenException({
+        message: 'Las cuentas de administración deben iniciar sesión en /admin/login.',
+        code: 'ADMIN_MUST_USE_ADMIN_LOGIN',
+      });
+    }
+
+    const accessToken = this.signToken(user);
+    return {
+      accessToken,
+      user: { id: user.id, name: user.name, email: user.email, slug: user.slug, role: user.role, emailVerified: user.emailVerified },
+    };
+  }
+
+  /** Puerta separada para el panel de administración — decidido: los ADMIN
+   * SOLO pueden entrar por aquí (login() los rechaza, ver arriba). Un límite
+   * de IP más estricto que el público: es la puerta del panel. */
+  async adminLogin(dto: LoginDto, ip: string) {
+    const ipLimit = await this.rateLimit.checkAndIncrement(
+      `auth:admin-login:ip:${ip}`,
+      ADMIN_LOGIN_RATE_LIMIT_IP_PER_WINDOW,
+      ADMIN_LOGIN_RATE_LIMIT_IP_WINDOW_SECONDS,
+    );
+    if (ipLimit.limited) tooManyRequests(ipLimit.retryAfter);
+
+    const user = await this.validateCredentials(dto);
+
+    // Mismo principio que arriba: el rechazo de "no eres admin" ocurre
+    // DESPUÉS de validar la contraseña — nunca antes.
+    if (user.role !== Role.ADMIN) {
+      throw new ForbiddenException({
+        message: 'Esta entrada es solo para administración.',
+        code: 'ADMIN_LOGIN_NOT_ADMIN',
+      });
+    }
+
+    const accessToken = this.signToken(user);
+    return {
+      accessToken,
+      user: { id: user.id, name: user.name, email: user.email, slug: user.slug, role: user.role, emailVerified: user.emailVerified },
+    };
+  }
+
+  /**
+   * Núcleo compartido de login() y adminLogin(): valida email+contraseña,
+   * lockout y estado de cuenta. Nunca decide sobre el rol — eso es cosa de
+   * cada llamante, después de que esto ya haya confirmado la contraseña.
+   * Comparte también el reseteo del contador de fallos en éxito.
+   */
+  private async validateCredentials(dto: LoginDto) {
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email },
       select: {
@@ -179,11 +241,7 @@ export class AuthService {
       });
     }
 
-    const accessToken = this.signToken(user);
-    return {
-      accessToken,
-      user: { id: user.id, name: user.name, email: user.email, slug: user.slug, role: user.role, emailVerified: user.emailVerified },
-    };
+    return user;
   }
 
   /** Incrementa el contador de fallos y, a partir del umbral, bloquea la

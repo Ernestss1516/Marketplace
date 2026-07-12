@@ -48,7 +48,12 @@ export default function LoginPage() {
       redirect: false,
     });
 
-    if (result?.error) {
+    // result.code solo se distingue del genérico "credenciales incorrectas"
+    // DESPUÉS de que Auth.js ya intentó validar la contraseña contra el
+    // backend — nunca antes (ver AdminMustUseAdminLoginError en lib/auth).
+    if (result?.code === 'admin_must_use_admin_login') {
+      setError('Las cuentas de administración deben iniciar sesión en /admin/login.');
+    } else if (result?.error) {
       setError('Email o contraseña incorrectos.');
     } else {
       router.push(callbackUrl);

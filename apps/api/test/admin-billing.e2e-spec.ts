@@ -214,7 +214,7 @@ describe('Admin Billing RF.12a (e2e)', () => {
 
     const [adminRes, userRes, modRes] = await Promise.all([
       request(app.getHttpServer())
-        .post('/api/auth/login')
+        .post('/api/auth/admin-login')
         .send({ email: 'ab-admin@example.com', password: 'Test1234!' }),
       request(app.getHttpServer())
         .post('/api/auth/login')

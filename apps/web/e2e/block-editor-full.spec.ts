@@ -23,7 +23,7 @@
 
 import * as path from 'path';
 import { test, expect } from './fixtures/auth';
-import { loginViaApi, authedPost, pollSearch } from './helpers/api';
+import { loginAdminViaApi, authedPost, pollSearch } from './helpers/api';
 
 const TEST_IMAGE = path.join(__dirname, 'fixtures', 'test-image.png');
 
@@ -43,7 +43,7 @@ test.describe('Editor de bloques — construir una página completa con los 13 t
     // ── Anuncio real para el bloque `listings` (primer bloque dinámico) ──────
     // Categoría propia (ver comentario de cabecera) — evita depender de lo
     // que otras specs hayan acumulado en "electronica".
-    const adminToken = await loginViaApi(request, 'admin-e2e@example.com', 'Test1234!');
+    const adminToken = await loginAdminViaApi(request, 'admin-e2e@example.com', 'Test1234!');
     const listingsCategorySlug = `r3-fuego-${suffix}`;
     const listingsCategoryName = `R3 Fuego ${suffix}`;
     const catRes = await authedPost(request, '/admin/categories', adminToken, {

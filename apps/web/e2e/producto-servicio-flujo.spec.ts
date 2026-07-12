@@ -20,7 +20,7 @@
 
 import path from 'path';
 import { test, expect } from './fixtures/auth';
-import { loginViaApi, authedPost, pollSearch } from './helpers/api';
+import { loginAdminViaApi, authedPost, pollSearch } from './helpers/api';
 
 interface CatRef {
   id: string;
@@ -48,7 +48,7 @@ test.describe('R5 — flujo transversal producto/servicio (costuras A, B, C, E, 
   let linkedCatF: CatRef;
 
   test.beforeAll(async ({ request }) => {
-    adminToken = await loginViaApi(request, 'admin-e2e@example.com', 'Test1234!');
+    adminToken = await loginAdminViaApi(request, 'admin-e2e@example.com', 'Test1234!');
     const ts = Date.now();
 
     async function createCategory(body: Record<string, unknown>): Promise<CatRef> {

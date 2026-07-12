@@ -18,8 +18,15 @@ import { buildMeiliClient, cleanDb, resetMeili } from './helpers/db';
 import { waitForIndex } from './helpers/meili';
 import { RedisService } from 'src/infra/redis/redis.service';
 
-async function loginUser(app: INestApplication, email: string, password: string): Promise<string> {
-  const res = await request(app.getHttpServer()).post('/api/auth/login').send({ email, password });
+// ADMIN solo puede entrar por /auth/admin-login — /auth/login lo rechaza (ver
+// AuthService.login/adminLogin). endpoint lo pasa explícito el llamante.
+async function loginUser(
+  app: INestApplication,
+  email: string,
+  password: string,
+  endpoint = '/api/auth/login',
+): Promise<string> {
+  const res = await request(app.getHttpServer()).post(endpoint).send({ email, password });
   return res.body.accessToken as string;
 }
 
@@ -142,7 +149,7 @@ describe('H6.6 Bloque C — Sponsored Ads (e2e)', () => {
     ]);
 
     [adminToken, userToken, moderatorToken, sellerToken] = await Promise.all([
-      loginUser(app, 'h66-admin@example.com', 'Test1234!'),
+      loginUser(app, 'h66-admin@example.com', 'Test1234!', '/api/auth/admin-login'),
       loginUser(app, 'h66-user@example.com', 'Test1234!'),
       loginUser(app, 'h66-mod@example.com', 'Test1234!'),
       loginUser(app, 'h66-seller@example.com', 'Test1234!'),

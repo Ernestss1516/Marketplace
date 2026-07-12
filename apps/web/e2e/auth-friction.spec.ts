@@ -46,7 +46,9 @@ test.describe('RÁFAGA 4 — fricción de login (Nivel 1)', () => {
   test('middleware: /publicar anónimo → login → vuelve a /publicar', async ({ page }) => {
     await page.goto('/publicar');
     await expect(page).toHaveURL(/\/login\?callbackUrl=%2Fpublicar$/);
-    await loginViaForm(page, 'admin-e2e@example.com');
+    // admin-e2e ya no sirve aquí: los ADMIN están bloqueados en el /login
+    // público (decisión posterior — solo entran por /admin/login).
+    await loginViaForm(page, 'moderator-e2e@example.com');
     await expect(page).toHaveURL(/\/publicar$/);
   });
 
@@ -115,7 +117,8 @@ test.describe('RÁFAGA 4 — fricción de login (Nivel 1)', () => {
 
   test('SEGURIDAD — open redirect: callbackUrl a dominio externo se ignora, cae al default', async ({ page }) => {
     await page.goto('/login?callbackUrl=https%3A%2F%2Fevil.example.com');
-    await loginViaForm(page, 'admin-e2e@example.com');
+    // admin-e2e ya no sirve aquí: bloqueado en el /login público.
+    await loginViaForm(page, 'moderator-e2e@example.com');
     await expect(page).not.toHaveURL(/evil\.example\.com/);
     await expect(page).toHaveURL(/\/mis-anuncios/);
   });

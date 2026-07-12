@@ -6,8 +6,13 @@ import { Button } from '@/components/ui/button';
 
 export function AdminUserBar() {
   const { data: session } = useSession();
-  const u = session?.user as { name?: string; email?: string } | undefined;
+  const u = session?.user as { name?: string; email?: string; role?: string } | undefined;
   const name = u?.name ?? u?.email ?? 'Admin';
+  // Esta barra la comparten ADMIN/MODERATOR/EDITOR — solo ADMIN está
+  // bloqueado del /login público (y solo ADMIN puede entrar por
+  // /admin/login); cada rol debe volver a SU puerta válida al desloguearse,
+  // o el otro grupo queda en un callejón sin salida.
+  const loginPath = u?.role === 'ADMIN' ? '/admin/login' : '/login';
 
   return (
     <div className="flex items-center gap-3">
@@ -19,7 +24,7 @@ export function AdminUserBar() {
         variant="ghost"
         size="icon"
         className="h-8 w-8 shrink-0"
-        onClick={() => signOut({ callbackUrl: '/login' })}
+        onClick={() => signOut({ callbackUrl: loginPath })}
         title="Cerrar sesión"
       >
         <LogOut className="h-4 w-4" />

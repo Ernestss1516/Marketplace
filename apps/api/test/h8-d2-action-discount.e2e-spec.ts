@@ -36,8 +36,15 @@ import { cleanDb } from './helpers/db';
 import { RedsysProcessor } from 'src/modules/redsys/redsys.processor';
 import { redsysTaxBreakdown } from 'src/modules/redsys/redsys.types';
 
-async function loginUser(app: INestApplication, email: string, password: string): Promise<string> {
-  const res = await request(app.getHttpServer()).post('/api/auth/login').send({ email, password });
+// ADMIN solo puede entrar por /auth/admin-login — /auth/login lo rechaza (ver
+// AuthService.login/adminLogin). endpoint lo pasa explícito el llamante.
+async function loginUser(
+  app: INestApplication,
+  email: string,
+  password: string,
+  endpoint = '/api/auth/login',
+): Promise<string> {
+  const res = await request(app.getHttpServer()).post(endpoint).send({ email, password });
   return res.body.accessToken as string;
 }
 
@@ -411,7 +418,7 @@ describe('H8 Bloque D fase 2 — Action discount campaigns (e2e)', () => {
           role: 'ADMIN',
         },
       });
-      adminToken = await loginUser(app, 'h8d2-admin@example.com', 'Test1234!');
+      adminToken = await loginUser(app, 'h8d2-admin@example.com', 'Test1234!', '/api/auth/admin-login');
       void admin;
     });
 

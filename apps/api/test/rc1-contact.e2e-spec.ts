@@ -32,8 +32,15 @@ function validToken(offsetMs = 5_000): string {
   return signToken(Date.now() - offsetMs);
 }
 
-async function loginUser(app: INestApplication, email: string, password: string): Promise<string> {
-  const res = await request(app.getHttpServer()).post('/api/auth/login').send({ email, password });
+// ADMIN solo puede entrar por /auth/admin-login — /auth/login lo rechaza (ver
+// AuthService.login/adminLogin). endpoint lo pasa explícito el llamante.
+async function loginUser(
+  app: INestApplication,
+  email: string,
+  password: string,
+  endpoint = '/api/auth/login',
+): Promise<string> {
+  const res = await request(app.getHttpServer()).post(endpoint).send({ email, password });
   return res.body.accessToken as string;
 }
 
@@ -107,7 +114,7 @@ describe('RC.1/RC.2 — Formulario de contacto (e2e)', () => {
     });
 
     [adminToken, userToken] = await Promise.all([
-      loginUser(app, 'rc1-admin@example.com', 'Test1234!'),
+      loginUser(app, 'rc1-admin@example.com', 'Test1234!', '/api/auth/admin-login'),
       loginUser(app, 'rc1-user@example.com', 'Test1234!'),
     ]);
 

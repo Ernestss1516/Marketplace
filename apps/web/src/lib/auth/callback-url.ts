@@ -27,8 +27,10 @@ export function buildLoginUrl(callbackUrl: string): string {
   return `/login?callbackUrl=${encodeURIComponent(safe)}`;
 }
 
-/** Para /login y /registro: el callbackUrl ya viene del query param (input
- * del atacante en potencia) — nunca usarlo sin pasar por aquí primero. */
-export function resolveCallbackUrl(raw: string | null): string {
-  return isSafeCallbackUrl(raw) ? raw : DEFAULT_CALLBACK_URL;
+/** Para /login, /registro y /admin/login: el callbackUrl ya viene del query
+ * param (input del atacante en potencia) — nunca usarlo sin pasar por aquí
+ * primero. `fallback` permite un destino por defecto distinto del público
+ * (p. ej. /admin/login cae a '/admin', no a DEFAULT_CALLBACK_URL). */
+export function resolveCallbackUrl(raw: string | null, fallback: string = DEFAULT_CALLBACK_URL): string {
+  return isSafeCallbackUrl(raw) ? raw : fallback;
 }

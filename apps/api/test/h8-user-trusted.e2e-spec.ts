@@ -15,8 +15,13 @@ import * as request from 'supertest';
 import { createTestApp } from './helpers/create-app';
 import { cleanDb } from './helpers/db';
 
-async function loginUser(app: INestApplication, email: string, password: string): Promise<string> {
-  const res = await request(app.getHttpServer()).post('/api/auth/login').send({ email, password });
+async function loginUser(
+  app: INestApplication,
+  email: string,
+  password: string,
+  endpoint = '/api/auth/login',
+): Promise<string> {
+  const res = await request(app.getHttpServer()).post(endpoint).send({ email, password });
   return res.body.accessToken as string;
 }
 
@@ -50,7 +55,7 @@ describe('H8 Bloque E — Vendedor de confianza (e2e)', () => {
         role: Role.ADMIN,
       },
     });
-    adminToken = await loginUser(app, 'h8trust-admin@example.com', 'Test1234!');
+    adminToken = await loginUser(app, 'h8trust-admin@example.com', 'Test1234!', '/api/auth/admin-login');
 
     await prisma.user.create({
       data: {

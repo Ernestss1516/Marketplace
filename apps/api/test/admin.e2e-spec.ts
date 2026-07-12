@@ -172,7 +172,7 @@ describe('Admin (e2e)', () => {
 
     const [adminRes, userRes] = await Promise.all([
       request(app.getHttpServer())
-        .post('/api/auth/login')
+        .post('/api/auth/admin-login')
         .send({ email: 'adm-admin@example.com', password: 'Test1234!' }),
       request(app.getHttpServer())
         .post('/api/auth/login')

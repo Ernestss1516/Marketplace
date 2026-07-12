@@ -2,7 +2,8 @@
 //
 // Tests:
 //   ADMIN
-//     1. /admin carga (dashboard) → el nav muestra los 12 ítems (+Páginas BLOG-PAGINAS, +Patrocinados H6.6)
+//     1. /admin carga (dashboard) → el nav muestra los 14 ítems (+Páginas BLOG-PAGINAS,
+//        +Patrocinados H6.6, +Footer R.3, +Mensajes de contacto RC.2)
 //   MODERATOR — rutas aún bloqueadas (ADMIN-only)
 //     2. /admin → redirige a /
 //     3. /admin/ajustes → redirige a /
@@ -57,7 +58,7 @@ async function loginAs(browser: Browser, email: string) {
 }
 
 test.describe('Backoffice — ADMIN acceso total', () => {
-  test('ADMIN carga /admin y el nav muestra los 12 ítems', async ({ adminContext }) => {
+  test('ADMIN carga /admin y el nav muestra los 14 ítems', async ({ adminContext }) => {
     const page = await adminContext.newPage();
 
     await page.goto('/admin');
@@ -67,11 +68,12 @@ test.describe('Backoffice — ADMIN acceso total', () => {
     expect(page.url()).toContain('/admin');
     expect(page.url()).not.toContain('/login');
 
-    // AdminNav should show all 12 items (BLOG-PAGINAS added "Páginas", H6.6 added "Patrocinados")
+    // AdminNav should show all 14 items (BLOG-PAGINAS added "Páginas", H6.6 added
+    // "Patrocinados", R.3 added "Footer", RC.2 added "Mensajes de contacto")
     const nav = page.getByTestId('admin-nav');
     await expect(nav).toBeVisible();
     const links = nav.getByRole('link');
-    await expect(links).toHaveCount(12);
+    await expect(links).toHaveCount(14);
 
     // Spot-check some labels
     await expect(nav.getByRole('link', { name: 'Dashboard' })).toBeVisible();

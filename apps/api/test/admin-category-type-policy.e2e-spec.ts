@@ -50,7 +50,7 @@ describe('Admin — validación de escritura de allowedListingType (e2e)', () =>
     void admin;
 
     const [adminRes, sellerRes] = await Promise.all([
-      request(app.getHttpServer()).post('/api/auth/login').send({ email: 'atp2-admin@example.com', password: 'Test1234!' }),
+      request(app.getHttpServer()).post('/api/auth/admin-login').send({ email: 'atp2-admin@example.com', password: 'Test1234!' }),
       request(app.getHttpServer()).post('/api/auth/login').send({ email: 'atp2-seller@example.com', password: 'Test1234!' }),
     ]);
     adminToken = adminRes.body.accessToken as string;

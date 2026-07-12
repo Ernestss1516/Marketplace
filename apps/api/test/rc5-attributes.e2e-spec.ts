@@ -147,7 +147,7 @@ describe('RC5 — Categorías y atributos (e2e)', () => {
     // ── Login ─────────────────────────────────────────────────────────────────
     const [adminRes, modRes, sellerRes] = await Promise.all([
       request(app.getHttpServer())
-        .post('/api/auth/login')
+        .post('/api/auth/admin-login')
         .send({ email: 'rc5-admin@example.com', password: 'Test1234!' }),
       request(app.getHttpServer())
         .post('/api/auth/login')

@@ -85,7 +85,7 @@ describe('Rol EDITOR (e2e)', () => {
         .post('/api/auth/login')
         .send({ email: 'editor-role-e2e@example.com', password: 'Test1234!' }),
       request(app.getHttpServer())
-        .post('/api/auth/login')
+        .post('/api/auth/admin-login')
         .send({ email: 'admin-editor-role-e2e@example.com', password: 'Test1234!' }),
     ]);
 

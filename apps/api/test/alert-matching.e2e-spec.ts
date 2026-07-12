@@ -37,8 +37,10 @@ describe('Alert matching (e2e) — B3', () => {
         role,
       },
     });
+    // ADMIN solo puede entrar por /auth/admin-login — /auth/login lo rechaza
+    // (ver AuthService.login/adminLogin).
     const login = await request(app.getHttpServer())
-      .post('/api/auth/login')
+      .post(role === 'ADMIN' ? '/api/auth/admin-login' : '/api/auth/login')
       .send({ email, password: 'Test1234!' });
     return { id: user.id, token: login.body.accessToken as string };
   }

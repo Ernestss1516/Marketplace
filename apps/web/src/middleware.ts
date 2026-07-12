@@ -17,6 +17,13 @@ const accountPrefixes = [
 
 const adminPrefixes = ['/admin'];
 
+// /admin/login es la puerta de entrada al panel — NO puede caer bajo el guard
+// de /admin/* (exige rol ADMIN + sesión), o nadie podría llegar a ella nunca
+// (bucle: para entrar necesitas estar ya dentro). Excluida explícitamente de
+// isAdminRoute; su propia página/endpoint controlan el acceso (ver
+// AuthService.adminLogin — rechaza tras validar credenciales, nunca antes).
+const ADMIN_LOGIN_PATH = '/admin/login';
+
 // Paths within /admin/ that each restricted role may access.
 // ADMIN always has full access. Any role not listed here is always blocked.
 // Add/extend entries here when a section is opened to a role.
@@ -30,7 +37,8 @@ export default auth((req) => {
   const { pathname, search } = req.nextUrl;
 
   const isAccountRoute = accountPrefixes.some((p) => pathname.startsWith(p));
-  const isAdminRoute = adminPrefixes.some((p) => pathname.startsWith(p));
+  const isAdminRoute =
+    pathname !== ADMIN_LOGIN_PATH && adminPrefixes.some((p) => pathname.startsWith(p));
 
   if ((isAccountRoute || isAdminRoute) && !session) {
     // RÁFAGA 4 — el punto de entrada más frecuente a /login (nav directa,

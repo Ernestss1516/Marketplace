@@ -9,6 +9,14 @@
 export const LOGIN_RATE_LIMIT_IP_PER_WINDOW = 150;
 export const LOGIN_RATE_LIMIT_IP_WINDOW_SECONDS = 15 * 60;
 
+// /admin/login — la puerta del panel: límite de IP deliberadamente más
+// estricto que el login público (20, no 150). Mismo principio de fondo (el
+// lockout por cuenta es la defensa real contra fuerza bruta dirigida); este
+// límite de IP más bajo es una capa extra de flood-control específicamente
+// para el endpoint que puede llevar a privilegios de administración.
+export const ADMIN_LOGIN_RATE_LIMIT_IP_PER_WINDOW = 20;
+export const ADMIN_LOGIN_RATE_LIMIT_IP_WINDOW_SECONDS = 15 * 60;
+
 // La defensa real contra fuerza bruta sobre UNA cuenta concreta es el lockout
 // (más abajo), no un contador de rate-limit aparte: se probó un límite de 5
 // intentos/email/15min que contaba TODOS los intentos (éxito incluido) — no
