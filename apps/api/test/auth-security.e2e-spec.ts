@@ -21,7 +21,6 @@ import { RedisService } from 'src/infra/redis/redis.service';
 import { AuthService } from 'src/modules/auth/auth.service';
 import {
   LOGIN_RATE_LIMIT_IP_PER_WINDOW,
-  LOGIN_RATE_LIMIT_EMAIL_PER_WINDOW,
   REGISTER_RATE_LIMIT_IP_PER_HOUR,
   FORGOT_PASSWORD_RATE_LIMIT_IP_PER_HOUR,
   FORGOT_PASSWORD_RATE_LIMIT_EMAIL_PER_HOUR,
@@ -85,15 +84,13 @@ describe('RÁFAGA 3 — Auth security (e2e)', () => {
       expect(typeof res.body.retryAfter).toBe('number');
     });
 
-    it(`${LOGIN_RATE_LIMIT_EMAIL_PER_WINDOW} intentos por EMAIL permitidos (con IPs distintas), el siguiente devuelve 429 — protege la cuenta aunque el atacante rote de IP`, async () => {
-      const email = 'emaillimit-target@example.com';
-      for (let i = 0; i < LOGIN_RATE_LIMIT_EMAIL_PER_WINDOW; i++) {
-        const res = await loginRaw(app, email, 'whatever', freshIp());
-        expect(res.status).toBe(401);
-      }
-      const res = await loginRaw(app, email, 'whatever', freshIp());
-      expect(res.status).toBe(429);
-    });
+    // No hay un límite de rate-limit aparte "por email" — la defensa contra
+    // fuerza bruta sobre UNA cuenta es el lockout (ver más abajo), que solo
+    // cuenta FALLOS (nunca éxitos). Un límite separado que contara todos los
+    // intentos bloqueaba logins legítimos repetidos de una misma cuenta
+    // (varios dispositivos, o — como se descubrió corriendo la batería e2e de
+    // Playwright completa — varios specs reutilizando las mismas cuentas
+    // sembradas). Ver el comentario en auth.constants.ts.
   });
 
   // ── Rate limit: register ──────────────────────────────────────────────────

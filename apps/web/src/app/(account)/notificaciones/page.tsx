@@ -3,6 +3,7 @@ import { BellOff } from 'lucide-react';
 import { auth } from '@/lib/auth';
 import { getMyNotifications } from '@/lib/api/notificaciones';
 import { NotificacionesClient } from './NotificacionesClient';
+import { buildLoginUrl } from '@/lib/auth/callback-url';
 
 export const metadata = { title: 'Notificaciones' };
 
@@ -14,7 +15,7 @@ export default async function NotificacionesPage({
   searchParams: Promise<{ page?: string }>;
 }) {
   const session = await auth();
-  if (!session?.user.accessToken) redirect('/login');
+  if (!session?.user.accessToken) redirect(buildLoginUrl('/notificaciones'));
 
   const { page: pageParam } = await searchParams;
   const page = Math.max(1, Number(pageParam) || 1);

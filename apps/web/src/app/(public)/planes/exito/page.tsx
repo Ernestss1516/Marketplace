@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { CheckCircle, Loader2, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getMyEntitlements, type MyEntitlement } from '@/lib/api/billing';
+import { buildLoginUrl } from '@/lib/auth/callback-url';
 
 export default function PlanesExitoPage() {
   const { data: session, status: sessionStatus } = useSession();
@@ -58,7 +59,7 @@ export default function PlanesExitoPage() {
           Inicia sesión para activar tu suscripción Pro.
         </p>
         <Button asChild>
-          <Link href="/login?callbackUrl=/perfil/suscripcion">Iniciar sesión</Link>
+          <Link href={buildLoginUrl('/perfil/suscripcion')}>Iniciar sesión</Link>
         </Button>
       </div>
     );

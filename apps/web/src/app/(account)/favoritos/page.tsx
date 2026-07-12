@@ -8,6 +8,7 @@ import { auth } from '@/lib/auth';
 import { getMyFavorites } from '@/lib/api/favoritos';
 import { getCategories } from '@/lib/api/categorias';
 import { buildCardAttributeMap } from '@/lib/card-attributes';
+import { buildLoginUrl } from '@/lib/auth/callback-url';
 
 export const metadata = { title: 'Favoritos' };
 
@@ -19,7 +20,7 @@ export default async function FavoritosPage({
   searchParams: Promise<{ page?: string }>;
 }) {
   const session = await auth();
-  if (!session?.user.accessToken) redirect('/login');
+  if (!session?.user.accessToken) redirect(buildLoginUrl('/favoritos'));
 
   const { page: pageParam } = await searchParams;
   const page = Math.max(1, Number(pageParam) || 1);

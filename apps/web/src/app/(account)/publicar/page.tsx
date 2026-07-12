@@ -3,12 +3,13 @@ import { auth } from '@/lib/auth';
 import { getCategories } from '@/lib/api/categorias';
 import { getMe } from '@/lib/api/usuarios';
 import { PublicarWizard } from '@/components/publicar/PublicarWizard';
+import { buildLoginUrl } from '@/lib/auth/callback-url';
 
 export const metadata = { title: 'Publicar anuncio' };
 
 export default async function PublicarPage() {
   const session = await auth();
-  if (!session?.user.accessToken) redirect('/login');
+  if (!session?.user.accessToken) redirect(buildLoginUrl('/publicar'));
 
   const token = session.user.accessToken;
   const [categories, me] = await Promise.all([

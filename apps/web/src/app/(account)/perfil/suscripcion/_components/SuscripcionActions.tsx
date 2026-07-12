@@ -15,6 +15,7 @@ import {
 import { cancelSubscription, type MySubscription } from '@/lib/api/billing';
 import { toUserMessage } from '@/lib/api/client';
 import { useApiAction } from '@/lib/api/use-api-action';
+import { useRequireAuth } from '@/hooks/use-require-auth';
 
 interface Props {
   subscription: MySubscription;
@@ -23,6 +24,7 @@ interface Props {
 
 export function SuscripcionActions({ subscription, token }: Props) {
   const { run } = useApiAction();
+  const { loginUrl } = useRequireAuth();
   const [open, setOpen] = useState(false);
   const [canceling, setCanceling] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,7 +38,7 @@ export function SuscripcionActions({ subscription, token }: Props) {
       {
         onSuccess: () => { setLocalStatus('CANCELING'); setOpen(false); },
         onError: (err) => setError(toUserMessage(err)),
-        callbackUrl: '/login?callbackUrl=%2Fperfil%2Fsuscripcion',
+        callbackUrl: loginUrl,
       },
     );
     setCanceling(false);

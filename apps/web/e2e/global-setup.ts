@@ -52,6 +52,17 @@ export default async function globalSetup(playwrightConfig: FullConfig) {
   // ── 4. Seed Playwright users (seller-e2e, buyer-e2e) ─────────────────────────
   execSync('npx ts-node -P tsconfig.scripts.json prisma/seed-playwright.ts', execOpts);
 
+  // RÁFAGA 3 — /auth/login está limitado a 5 intentos/15min por cuenta. Este
+  // globalSetup ya loguea 6 cuentas (una vez cada una), y varios specs además
+  // llaman a POST /auth/login directamente (p. ej. loginViaApi en
+  // producto-servicio-flujo.spec.ts) o repiten el login por UI (p. ej.
+  // auth-friction.spec.ts) — sin este flush, una corrida repetida en local (o
+  // varios specs compartiendo las mismas cuentas sembradas dentro de la MISMA
+  // corrida) puede agotar el cupo de una cuenta y provocar 429 en cascada en
+  // specs sin ninguna relación con auth. Mismo script que usa el globalSetup
+  // de Jest (apps/api/test/flush-auth-rate-limits.js) — una sola fuente.
+  execSync('node test/flush-auth-rate-limits.js', execOpts);
+
   // ── 5. Save storageState for both users ──────────────────────────────────────
   const baseURL =
     playwrightConfig.projects[0]?.use?.baseURL ?? 'http://localhost:3000';

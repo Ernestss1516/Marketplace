@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { auth } from '@/lib/auth';
 import { getMyAlerts } from '@/lib/api/alertas';
 import { MisAlertasClient } from './MisAlertasClient';
+import { buildLoginUrl } from '@/lib/auth/callback-url';
 
 export const metadata = { title: 'Mis alertas' };
 
@@ -16,7 +17,7 @@ export default async function MisAlertasPage({
   searchParams: Promise<{ page?: string }>;
 }) {
   const session = await auth();
-  if (!session?.user.accessToken) redirect('/login');
+  if (!session?.user.accessToken) redirect(buildLoginUrl('/mis-alertas'));
 
   const { page: pageParam } = await searchParams;
   const page = Math.max(1, Number(pageParam) || 1);

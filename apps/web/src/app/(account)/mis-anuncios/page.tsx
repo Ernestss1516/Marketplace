@@ -8,12 +8,13 @@ import { getProStatus, getCatalog, type ProStatus, type CatalogResponse } from '
 import { getActiveBanners } from '@/lib/api/banners';
 import { MisAnunciosClient } from '@/components/anuncios/MisAnunciosClient';
 import { BannerList } from '@/components/banners/BannerList';
+import { buildLoginUrl } from '@/lib/auth/callback-url';
 
 export const metadata = { title: 'Mis anuncios' };
 
 export default async function MisAnunciosPage() {
   const session = await auth();
-  if (!session?.user.accessToken) redirect('/login');
+  if (!session?.user.accessToken) redirect(buildLoginUrl('/mis-anuncios'));
 
   const token = session.user.accessToken;
 

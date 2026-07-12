@@ -6,6 +6,7 @@ import { Flag, Loader2, X } from 'lucide-react';
 import { createReport, type ReportReason } from '@/lib/api/moderacion';
 import { ApiError, toUserMessage } from '@/lib/api/client';
 import { useApiAction } from '@/lib/api/use-api-action';
+import { useRequireAuth } from '@/hooks/use-require-auth';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 
@@ -23,6 +24,7 @@ interface Props {
 export function ReviewReportButton({ reviewId }: Props) {
   const { data: session } = useSession();
   const { run } = useApiAction();
+  const { loginUrl } = useRequireAuth();
   const token = (session?.user as { accessToken?: string } | undefined)?.accessToken;
 
   const [open, setOpen] = useState(false);
@@ -71,7 +73,7 @@ export function ReviewReportButton({ reviewId }: Props) {
             setError(toUserMessage(err));
           }
         },
-        callbackUrl: '/login',
+        callbackUrl: loginUrl,
       },
     );
     setSubmitting(false);

@@ -14,6 +14,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { createReview, editReview } from '@/lib/api/valoraciones';
 import { ApiError } from '@/lib/api/client';
 import { useApiAction } from '@/lib/api/use-api-action';
+import { useRequireAuth } from '@/hooks/use-require-auth';
 
 const MAX_COMMENT = 1000;
 
@@ -82,6 +83,7 @@ export function ReviewModal({
 }: ReviewModalProps) {
   const isEdit = !!existingReviewId;
   const { run } = useApiAction();
+  const { loginUrl } = useRequireAuth();
 
   const [rating, setRating] = useState(initialRating);
   const [comment, setComment] = useState(initialComment);
@@ -132,7 +134,7 @@ export function ReviewModal({
             setError('Error inesperado. Inténtalo de nuevo.');
           }
         },
-        callbackUrl: '/login',
+        callbackUrl: loginUrl,
       },
     );
     setSubmitting(false);

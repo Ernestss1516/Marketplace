@@ -1,20 +1,25 @@
 // RÁFAGA 3 — paquete de seguridad de auth. Límites confirmados con el usuario.
 
-// Login: por IP (protege contra fuerza bruta distribuida) y por email (protege
-// una cuenta concreta aunque el atacante rote de IP). Ambos devuelven 429
-// genérico — no distinguen cuenta-existe de cuenta-no-existe, se aplican con
-// la misma clave (el email tal cual llega en el body) exista o no la cuenta.
-//
-// El límite por IP es deliberadamente generoso (150, no 10): la defensa real
-// contra fuerza bruta sobre UNA cuenta es el límite por email (5) — el de IP
-// es una red de flood-control más gruesa, y un umbral bajo penaliza tráfico
-// legítimo detrás de NAT/proxy compartido (oficinas, y aquí mismo: la propia
-// batería e2e, que reutiliza una única IP de loopback para ~70 logins de
-// setup repartidos en decenas de specs no relacionados con auth).
+// Login: por IP — flood-control genérico (429, no distingue cuenta-existe de
+// cuenta-no-existe: misma clave, el email tal cual llega en el body, exista o
+// no la cuenta). Deliberadamente generoso (150, no 10): un umbral bajo
+// penaliza tráfico legítimo detrás de NAT/proxy compartido (oficinas, y aquí
+// mismo: la propia batería e2e, que reutiliza una única IP de loopback para
+// ~70 logins de setup repartidos en decenas de specs no relacionados con auth).
 export const LOGIN_RATE_LIMIT_IP_PER_WINDOW = 150;
 export const LOGIN_RATE_LIMIT_IP_WINDOW_SECONDS = 15 * 60;
-export const LOGIN_RATE_LIMIT_EMAIL_PER_WINDOW = 5;
-export const LOGIN_RATE_LIMIT_EMAIL_WINDOW_SECONDS = 15 * 60;
+
+// La defensa real contra fuerza bruta sobre UNA cuenta concreta es el lockout
+// (más abajo), no un contador de rate-limit aparte: se probó un límite de 5
+// intentos/email/15min que contaba TODOS los intentos (éxito incluido) — no
+// solo los fallidos, como pedía el diseño original ("5 intentos FALLIDOS por
+// cuenta") — y bloqueaba logins legítimos repetidos de una misma cuenta desde
+// varios sitios (varios specs de la batería e2e comparten las cuentas
+// sembradas y llaman a /auth/login más de 5 veces cada una en una corrida
+// completa; en producción, el mismo patrón se daría con alguien logueado en
+// varios dispositivos). El lockout ya cubre exactamente "5 fallos por cuenta"
+// — con más matices (backoff creciente) y sin ese falso positivo, porque solo
+// cuenta fallos, nunca éxitos.
 
 // Register: anti-spam de cuentas, solo por IP (no hay "email existente" que
 // proteger — el propio 409 de email duplicado ya es la defensa de esa cuenta).

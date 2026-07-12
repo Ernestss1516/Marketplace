@@ -3158,6 +3158,99 @@ de abajo vive en `apps/api/src/modules/auth/` salvo donde se indique.
   nuevos en `social-auth.e2e-spec.ts` (ADMIN bloqueado vía Google, usuario normal sigue entrando
   bien). Suite completa verificada en verde (49/49 suites, 794/794 tests).
 
+### RÁFAGA 4 — Fricción de login en flujos con acción (Nivel 1: vuelve a la página)
+
+Motivado por la auditoría RC.2, que mapeó cada punto donde un usuario anónimo topa con un muro de
+login: sin mecanismo compartido (cada componente escribía su propia cadena `/login?...` a mano, de
+ahí la inconsistencia `redirect=` vs `callbackUrl=`), un bug real en `ContactButton` (usaba la
+clave que `/login` no lee → el usuario perdía el anuncio y el mensaje escrito), el middleware sin
+`callbackUrl` en su punto de entrada más frecuente, y los favoritos invisibles para anónimos
+(oportunidad de conversión perdida). **Nivel 1** = vuelve a la página correcta; retomar la acción en
+sí (reabrir el checkout, conservar el mensaje escrito, marcar el favorito automáticamente) queda
+para un Nivel 2 a evaluar después.
+
+- **Mecanismo único — causa raíz de la inconsistencia**:
+  - `apps/web/src/lib/auth/callback-url.ts` — funciones puras (sin `'use client'`/`'use server'`,
+    usables desde Server Components, Client Components y `middleware.ts` por igual):
+    `isSafeCallbackUrl()` (la puerta anti-open-redirect, ver abajo), `buildLoginUrl(path)` (arma
+    `/login?callbackUrl=...` con `encodeURIComponent`, cayendo al default si el path no es seguro),
+    `resolveCallbackUrl(raw)` (para consumir el query param de `/login` sin confiar en él).
+  - `apps/web/src/hooks/use-require-auth.ts` — `useRequireAuth()` para Client Components: expone
+    `loginUrl` (siempre `buildLoginUrl(usePathname())`, la página actual) y `requireAuth()` (si no
+    hay sesión, `router.push(loginUrl)` y devuelve `false` para que el llamante corte la acción).
+    Un solo hook cubre los dos patrones que existían sueltos: el pre-check antes de una acción
+    (`if (!requireAuth()) return`) y el fallback de `useApiAction()` para el caso "la sesión caducó
+    a media acción" (`callbackUrl: loginUrl`).
+  - Todos los puntos del mapa de la auditoría migrados a este mecanismo — ninguno escribe
+    `/login?...` a mano: `ContactButton`, `FavoriteButton`, `FavoriteCardButton`, `CheckoutButton`,
+    `PackList`, `SuscripcionActions`, `ReportButton`, `ReviewReportButton`, `ReviewModal`,
+    `DestacadoDialog`, `MyListingCard`, `EditarWizard`, `PublicarWizard`, `ListingOwnerActions`,
+    `/planes/exito`. Como `useRequireAuth()` deriva el destino de `usePathname()`, varios de estos
+    quedaron además MÁS PRECISOS que antes (p. ej. `ListingOwnerActions`/`EditarWizard` ahora
+    devuelven a la ficha/edición concreta, no a `/mis-anuncios` genérico) — y se pudieron retirar
+    props que solo existían para construir esa URL a mano (`ContactButton.listingSlug`,
+    `ListingOwnerActions.listingSlug`).
+  - Los `redirect('/login')` de Server Components (12 páginas bajo `(account)/`) pasan a
+    `redirect(buildLoginUrl('/ruta'))` — antes no llevaban `callbackUrl` en absoluto.
+- **El bug de `ContactButton` (arreglado)**: usaba `redirect=`, una clave que `/login` nunca leyó
+  (solo lee `callbackUrl=`) — el usuario aterrizaba siempre en `/mis-anuncios`, perdiendo el
+  anuncio y cualquier mensaje ya escrito. Ahora usa el hook — vuelve al anuncio exacto.
+- **`middleware.ts` con `callbackUrl`**: el redirect a `/login` (para `accountPrefixes` y
+  `adminPrefixes`) ahora incluye `buildLoginUrl(pathname + search)` — antes no llevaba ningún
+  parámetro, y es el punto de entrada MÁS FRECUENTE (nav directa, bookmark, enlace del menú) a
+  login desde una acción. De paso, `accountPrefixes` gana `/mis-alertas` y `/notificaciones`
+  (estaban fuera del array por lo visto un descuido — sus páginas ya hacían el mismo check a mano
+  sin `callbackUrl`, ahora las cubre el middleware Y llevan `callbackUrl` en su propio fallback).
+- **Favoritos descubribles para anónimos**: `FavoriteButton` (ficha) y `FavoriteCardButton`
+  (tarjetas de listado) ya no hacen `if (!token) return null` — el corazón SIEMPRE se renderiza; al
+  pulsarlo sin sesión, `requireAuth()` redirige con retorno a la página actual. Nivel 1: no marca el
+  favorito automáticamente al volver, el usuario lo pulsa de nuevo — pero ahora al menos descubre
+  que la función existe. (`FavoriteButton` tenía además un bug latente propio: su `ready` state
+  nunca pasaba a `true` para un anónimo porque el `useEffect` que lo hacía dependía de tener token
+  — arreglado de paso, aunque era invisible mientras el botón nunca se renderizaba para ellos.)
+- **Cierre del open-redirect — el hallazgo de seguridad de esta ráfaga**: `/login` (y `/registro`)
+  hacían `router.push(callbackUrl)`/pasaban `callbackUrl` a `GoogleSignInButton` con el query param
+  **sin validar** — un enlace a `/login?callbackUrl=https://evil.com` (o `//evil.com`,
+  protocol-relative, incluso más furtivo por parecer una ruta relativa) habría logueado a la
+  víctima y la habría mandado a un dominio ajeno: vector de phishing real ("inicia sesión, luego te
+  mando a tu banco" en un enlace que en realidad manda a un clon). `isSafeCallbackUrl()` exige que
+  el path empiece por `/` y explícitamente rechaza `//` y `/\` — ambas páginas resuelven el query
+  param con `resolveCallbackUrl()` UNA vez, y ese valor ya seguro es lo único que se usa tanto para
+  el submit de credentials como para el botón de Google. Probado explícitamente (e2e y a mano, ver
+  abajo): un `callbackUrl` externo cae al default (`/mis-anuncios`) tras loguearse, nunca navega
+  fuera del sitio.
+- **Hallazgo colateral durante la verificación — colisión con el rate limit de RÁFAGA 3**: correr la
+  batería Playwright completa (no solo el spec nuevo) reveló que el límite de login "5
+  intentos/email/15min" de RÁFAGA 3 contaba TODOS los intentos, no solo los fallidos como pedía el
+  diseño original — y `/auth/login` es infraestructura de setup compartida por casi toda la
+  batería e2e (varios specs llaman a `loginViaApi` con `admin-e2e@example.com`, y el propio
+  `global-setup.ts` de Playwright loguea 6 cuentas para guardar su `storageState`); sumado a los
+  logins de este spec nuevo, una cuenta podía superar 5 usos legítimos en una sola corrida y
+  quedar bloqueada — el mismo patrón se daría en producción con alguien logueado en varios
+  dispositivos. **Corregido de raíz, no parcheado**: se retiró el contador de rate-limit por email
+  (redundante con el lockout, que ya cubre "5 fallos por cuenta" con más matices —backoff
+  creciente— y sin ese falso positivo, porque solo cuenta fallos, nunca éxitos). Ver el comentario
+  en `auth.constants.ts`. De paso, se extrajo `apps/api/test/flush-auth-rate-limits.js` (compartido
+  entre el `globalSetup` de Jest y el de Playwright) para que ninguna corrida repetida en local
+  herede contadores de la anterior.
+- **Tests**: `apps/web/e2e/auth-friction.spec.ts` (10 tests) — el bug de `ContactButton` arreglado
+  (vuelve al anuncio, no a `/mis-anuncios`), el middleware devolviendo a `/publicar`/`/mensajes`/
+  `/favoritos`/`/mis-creditos`, favoritos visibles y con retorno correcto (ficha y tarjeta), Comprar
+  Pro sigue funcionando, y **dos tests de seguridad** que ejercen el open-redirect de verdad
+  (`callbackUrl` externo y protocol-relative, ambos verificados con un login real completo — no
+  solo inspeccionando la URL construida). Los logins de este spec se reparten entre las 6 cuentas
+  ya sembradas (máx. 2 usos por cuenta en el archivo) para no agotar el cupo de ninguna. Suite
+  Playwright completa verificada en verde (171/171 tests en aislamiento; los 2 fallos vistos en una
+  corrida larga de la batería completa —`prefill-ubicacion.spec.ts`,
+  `producto-servicio-flujo.spec.ts` B— fueron un `ECONNREFUSED` transitorio del backend en modo
+  watch bajo carga sostenida, no reproducible corriendo esos archivos solos; el fallo de
+  `admin-roles.spec.ts` —"12 ítems" cuando el nav ya tiene 14— es una aserción desactualizada
+  preexistente, sin relación con esta ráfaga, igual que los 3 de `footer-admin.spec.ts` ya
+  documentados más abajo). Además, QA en vivo (no solo e2e) contra el stack de desarrollo real:
+  capturas del flujo completo (anónimo → clic en Contactar/Guardar → `/login?callbackUrl=...` →
+  login → de vuelta en la misma ficha) y del open-redirect cayendo al default en vez de navegar a
+  un dominio externo.
+
 ### RC.1 — Formulario de contacto público (endpoint sin autenticación, 5 defensas)
 
 Primer endpoint de escritura del proyecto alcanzable sin JWT (aparte de `/auth/register`) —

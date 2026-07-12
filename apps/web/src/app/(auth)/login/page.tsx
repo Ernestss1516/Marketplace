@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { signIn } from 'next-auth/react';
 import { GoogleSignInButton } from '@/components/auth/GoogleSignInButton';
 import { Separator } from '@/components/ui/separator';
+import { resolveCallbackUrl } from '@/lib/auth/callback-url';
 
 // Codes set by our signIn callback (auth.config.ts) when it redirects back here after a
 // failed Google sign-in — see the comment there for why the exchange returns a redirect
@@ -21,7 +22,11 @@ export default function LoginPage() {
   const router = useRouter();
   const params = useSearchParams();
   const verified = params.get('verified') === '1';
-  const callbackUrl = params.get('callbackUrl') ?? '/mis-anuncios';
+  // Nunca confiar en el query param tal cual — es input del atacante en
+  // potencia (enlace a /login?callbackUrl=https://evil.com). Validado UNA vez
+  // aquí; tanto el submit de credentials como GoogleSignInButton usan este
+  // mismo valor ya seguro.
+  const callbackUrl = resolveCallbackUrl(params.get('callbackUrl'));
   const googleErrorCode = params.get('error');
 
   const [error, setError] = useState(

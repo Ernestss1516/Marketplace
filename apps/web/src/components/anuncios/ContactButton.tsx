@@ -9,16 +9,17 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { startConversation } from '@/lib/api/mensajes';
 import { useApiAction } from '@/lib/api/use-api-action';
+import { useRequireAuth } from '@/hooks/use-require-auth';
 
 interface Props {
   listingId: string;
-  listingSlug: string;
 }
 
-export function ContactButton({ listingId, listingSlug }: Props) {
+export function ContactButton({ listingId }: Props) {
   const { data: session } = useSession();
   const { run } = useApiAction();
   const router = useRouter();
+  const { requireAuth, loginUrl } = useRequireAuth();
 
   const [showForm, setShowForm] = useState(false);
   const [message, setMessage] = useState('');
@@ -26,10 +27,7 @@ export function ContactButton({ listingId, listingSlug }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   function handleOpenContact() {
-    if (!session) {
-      router.push(`/login?redirect=/anuncio/${listingSlug}`);
-      return;
-    }
+    if (!requireAuth()) return;
     setShowForm(true);
   }
 
@@ -49,7 +47,7 @@ export function ContactButton({ listingId, listingSlug }: Props) {
       {
         onSuccess: (conv) => router.push(`/mensajes/${conv.id}`),
         onError: () => { setError('No se pudo enviar el mensaje. Inténtalo de nuevo.'); setSending(false); },
-        callbackUrl: `/login?redirect=/anuncio/${listingSlug}`,
+        callbackUrl: loginUrl,
       },
     );
   }

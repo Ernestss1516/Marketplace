@@ -28,6 +28,7 @@ import {
 import { bumpListing } from '@/lib/api/billing';
 import { toUserMessage, isCreditError, isCooldownError, formatRetryAfter, toBumpMessage } from '@/lib/api/client';
 import { useApiAction } from '@/lib/api/use-api-action';
+import { useRequireAuth } from '@/hooks/use-require-auth';
 import { DestacadoDialog } from './DestacadoDialog';
 import type { BumpPricing, ListingSummary, PriceType } from '@/types';
 
@@ -69,6 +70,7 @@ interface Props {
 
 export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) {
   const { run } = useApiAction();
+  const { loginUrl } = useRequireAuth();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [bumpError, setBumpError] = useState<React.ReactNode | null>(null);
@@ -89,7 +91,7 @@ export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) 
     await run(fn, {
       onSuccess: () => onAction(),
       onError: (err) => setError(toUserMessage(err)),
-      callbackUrl: '/login',
+      callbackUrl: loginUrl,
     });
     setBusy(null);
   }
@@ -315,7 +317,7 @@ export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) 
                       }
                       setBusy(null);
                     },
-                    callbackUrl: '/login',
+                    callbackUrl: loginUrl,
                   },
                 );
               }}

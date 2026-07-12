@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { Coins, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -9,6 +8,7 @@ import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card'
 import { createPackCheckout, type CatalogProduct, type RedsysFormData } from '@/lib/api/billing';
 import { toUserMessage } from '@/lib/api/client';
 import { useApiAction } from '@/lib/api/use-api-action';
+import { useRequireAuth } from '@/hooks/use-require-auth';
 import { RedsysRedirectForm } from './RedsysRedirectForm';
 
 interface Props {
@@ -21,8 +21,8 @@ function formatPrice(amount: number, currency: string): string {
 
 export function PackList({ packs }: Props) {
   const { data: session, status } = useSession();
-  const router = useRouter();
   const { run } = useApiAction();
+  const { requireAuth, loginUrl } = useRequireAuth();
 
   const [loadingPackId, setLoadingPackId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -37,17 +37,13 @@ export function PackList({ packs }: Props) {
 
   async function handleBuy(creditPackId: string) {
     if (status === 'loading') return;
-
-    if (!session?.user.accessToken) {
-      router.push('/login?callbackUrl=%2Fmis-creditos');
-      return;
-    }
+    if (!requireAuth()) return;
 
     setLoadingPackId(creditPackId);
     setError(null);
 
     await run(
-      () => createPackCheckout(session.user.accessToken!, creditPackId),
+      () => createPackCheckout(session!.user.accessToken!, creditPackId),
       {
         onSuccess: ({ redsysFormData: data }) => {
           setRedsysFormData(data);
@@ -56,7 +52,7 @@ export function PackList({ packs }: Props) {
           setError(toUserMessage(err));
           setLoadingPackId(null);
         },
-        callbackUrl: '/login?callbackUrl=%2Fmis-creditos',
+        callbackUrl: loginUrl,
       },
     );
   }

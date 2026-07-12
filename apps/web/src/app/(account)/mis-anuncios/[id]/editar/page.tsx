@@ -4,6 +4,7 @@ import { getMyListingById } from '@/lib/api/anuncios';
 import { getCategoryBySlug } from '@/lib/api/categorias';
 import { EditarWizard, type EditarWizardData } from '@/components/publicar/EditarWizard';
 import { ApiError } from '@/lib/api/client';
+import { buildLoginUrl } from '@/lib/auth/callback-url';
 import type { PriceType } from '@/types';
 
 export const metadata = { title: 'Editar anuncio' };
@@ -22,7 +23,7 @@ export default async function EditarAnuncioPage({
   const { id } = await params;
 
   const session = await auth();
-  if (!session?.user.accessToken) redirect('/login');
+  if (!session?.user.accessToken) redirect(buildLoginUrl(`/mis-anuncios/${id}/editar`));
 
   const token = session.user.accessToken;
 

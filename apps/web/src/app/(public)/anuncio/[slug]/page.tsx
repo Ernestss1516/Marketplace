@@ -170,11 +170,10 @@ export default async function AnuncioPage({
 
           {/* ── Right column (desktop sidebar) ── */}
           <div className="space-y-4">
-            <ContactButton listingSlug={slug} listingId={listing.id} />
+            <ContactButton listingId={listing.id} />
             <FavoriteButton listingId={listing.id} />
             <ListingOwnerActions
               listingId={listing.id}
-              listingSlug={slug}
               sellerSlug={listing.seller.slug}
               listingStatus={listing.status}
               featuredUntil={listing.featuredUntil}

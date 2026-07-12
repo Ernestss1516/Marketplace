@@ -9,12 +9,12 @@ import { Button } from '@/components/ui/button';
 import { bumpListing } from '@/lib/api/billing';
 import { toUserMessage, isCreditError, isCooldownError, formatRetryAfter, toBumpMessage } from '@/lib/api/client';
 import { useApiAction } from '@/lib/api/use-api-action';
+import { useRequireAuth } from '@/hooks/use-require-auth';
 import { DestacadoDialog } from './DestacadoDialog';
 import type { ListingStatus } from '@/types';
 
 interface Props {
   listingId: string;
-  listingSlug: string;
   sellerSlug: string;
   listingStatus: ListingStatus;
   featuredUntil?: string | null;
@@ -22,7 +22,6 @@ interface Props {
 
 export function ListingOwnerActions({
   listingId,
-  listingSlug,
   sellerSlug,
   listingStatus,
   featuredUntil,
@@ -30,6 +29,7 @@ export function ListingOwnerActions({
   const { data: session } = useSession();
   const { run } = useApiAction();
   const router = useRouter();
+  const { loginUrl } = useRequireAuth();
 
   const [bumpBusy, setBumpBusy] = useState(false);
   const [bumpError, setBumpError] = useState<React.ReactNode | null>(null);
@@ -68,7 +68,7 @@ export function ListingOwnerActions({
             setBumpError(toBumpMessage(err));
           }
         },
-        callbackUrl: `/login?callbackUrl=/anuncio/${listingSlug}`,
+        callbackUrl: loginUrl,
       },
     );
     setBumpBusy(false);

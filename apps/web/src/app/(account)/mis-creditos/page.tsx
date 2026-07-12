@@ -7,6 +7,7 @@ import { auth } from '@/lib/auth';
 import { getWallet, getCatalog, type WalletItem, type CreditLedgerType } from '@/lib/api/billing';
 import { PackList } from './_components/PackList';
 import { RedeemCouponForm } from './_components/RedeemCouponForm';
+import { buildLoginUrl } from '@/lib/auth/callback-url';
 
 export const metadata: Metadata = { title: 'Mis créditos' };
 
@@ -56,7 +57,7 @@ function LedgerRow({ item }: { item: WalletItem }) {
 
 export default async function MisCreditosPage() {
   const session = await auth();
-  if (!session?.user.accessToken) redirect('/login');
+  if (!session?.user.accessToken) redirect(buildLoginUrl('/mis-creditos'));
 
   const token = session.user.accessToken;
 

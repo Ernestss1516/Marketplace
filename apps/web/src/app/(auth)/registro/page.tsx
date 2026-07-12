@@ -6,13 +6,15 @@ import Link from 'next/link';
 import { apiFetch, ApiError } from '@/lib/api/client';
 import { GoogleSignInButton } from '@/components/auth/GoogleSignInButton';
 import { Separator } from '@/components/ui/separator';
+import { resolveCallbackUrl } from '@/lib/auth/callback-url';
 
 export default function RegistroPage() {
   const router = useRouter();
   const params = useSearchParams();
   // A failed Google sign-in always redirects to /login (see auth.config.ts's signIn
   // callback and authConfig.pages.error) — /registro only needs callbackUrl for the button.
-  const callbackUrl = params.get('callbackUrl') ?? '/mis-anuncios';
+  // Nunca confiar en el query param tal cual — mismo motivo que en /login.
+  const callbackUrl = resolveCallbackUrl(params.get('callbackUrl'));
 
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);

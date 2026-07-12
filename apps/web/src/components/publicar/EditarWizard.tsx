@@ -12,6 +12,7 @@ import { StepUbicacion, type UbicacionData } from './steps/StepUbicacion';
 import { updateListing } from '@/lib/api/anuncios';
 import { toUserMessage } from '@/lib/api/client';
 import { useApiAction } from '@/lib/api/use-api-action';
+import { useRequireAuth } from '@/hooks/use-require-auth';
 import { filterSchemaByType, resolveLinkedOptions } from '@/lib/attribute-schema';
 import type { AttributeSchema, Condition } from '@/types';
 
@@ -120,6 +121,7 @@ interface EditarWizardProps {
 export function EditarWizard({ listingId, token, initialData }: EditarWizardProps) {
   const router = useRouter();
   const { run } = useApiAction();
+  const { loginUrl } = useRequireAuth();
   const [data, setData] = useState<EditarWizardData>(initialData);
   const [currentStepId, setCurrentStepId] = useState<StepId>('fotos');
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -207,7 +209,7 @@ export function EditarWizard({ listingId, token, initialData }: EditarWizardProp
       },
       {
         onError: (err) => { setSaveError(toUserMessage(err)); setSaving(false); },
-        callbackUrl: '/login?callbackUrl=%2Fmis-anuncios',
+        callbackUrl: loginUrl,
       },
     );
   }

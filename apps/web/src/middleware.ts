@@ -1,5 +1,6 @@
 import NextAuth from 'next-auth';
 import { authConfig } from '@/lib/auth/auth.config';
+import { buildLoginUrl } from '@/lib/auth/callback-url';
 
 const { auth } = NextAuth(authConfig);
 
@@ -10,6 +11,8 @@ const accountPrefixes = [
   '/favoritos',
   '/perfil',
   '/mis-creditos',
+  '/mis-alertas',
+  '/notificaciones',
 ];
 
 const adminPrefixes = ['/admin'];
@@ -24,13 +27,16 @@ const ROLE_ALLOWED_PATHS: Record<string, string[]> = {
 
 export default auth((req) => {
   const session = req.auth;
-  const { pathname } = req.nextUrl;
+  const { pathname, search } = req.nextUrl;
 
   const isAccountRoute = accountPrefixes.some((p) => pathname.startsWith(p));
   const isAdminRoute = adminPrefixes.some((p) => pathname.startsWith(p));
 
   if ((isAccountRoute || isAdminRoute) && !session) {
-    return Response.redirect(new URL('/login', req.url));
+    // RÁFAGA 4 — el punto de entrada más frecuente a /login (nav directa,
+    // bookmark, enlace del menú) antes no llevaba callbackUrl: tras loguearse
+    // el usuario aterrizaba siempre en el default, nunca en la ruta que pedía.
+    return Response.redirect(new URL(buildLoginUrl(pathname + search), req.url));
   }
 
   if (isAdminRoute) {

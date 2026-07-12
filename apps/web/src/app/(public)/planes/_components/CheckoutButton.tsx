@@ -1,12 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { Button } from '@/components/ui/button';
 import { createCheckout } from '@/lib/api/billing';
 import { toUserMessage } from '@/lib/api/client';
 import { useApiAction } from '@/lib/api/use-api-action';
+import { useRequireAuth } from '@/hooks/use-require-auth';
 
 interface Props {
   priceId: string;
@@ -15,27 +15,23 @@ interface Props {
 
 export function CheckoutButton({ priceId, label = 'Hazte Pro' }: Props) {
   const { data: session, status } = useSession();
-  const router = useRouter();
   const { run } = useApiAction();
+  const { requireAuth, loginUrl } = useRequireAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function handleClick() {
     if (status === 'loading') return;
-
-    if (!session?.user.accessToken) {
-      router.push(`/login?callbackUrl=${encodeURIComponent('/planes')}`);
-      return;
-    }
+    if (!requireAuth()) return;
 
     setLoading(true);
     setError(null);
     await run(
-      () => createCheckout(session.user.accessToken!, priceId),
+      () => createCheckout(session!.user.accessToken!, priceId),
       {
         onSuccess: ({ checkoutUrl }) => { window.location.href = checkoutUrl; },
         onError: (err) => { setError(toUserMessage(err)); setLoading(false); },
-        callbackUrl: '/login?callbackUrl=%2Fplanes',
+        callbackUrl: loginUrl,
       },
     );
   }

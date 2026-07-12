@@ -30,8 +30,6 @@ import {
   FORGOT_PASSWORD_RATE_LIMIT_EMAIL_PER_HOUR,
   FORGOT_PASSWORD_RATE_LIMIT_IP_PER_HOUR,
   FORGOT_PASSWORD_RATE_LIMIT_WINDOW_SECONDS,
-  LOGIN_RATE_LIMIT_EMAIL_PER_WINDOW,
-  LOGIN_RATE_LIMIT_EMAIL_WINDOW_SECONDS,
   LOGIN_RATE_LIMIT_IP_PER_WINDOW,
   LOGIN_RATE_LIMIT_IP_WINDOW_SECONDS,
   LOCKOUT_THRESHOLD,
@@ -136,13 +134,6 @@ export class AuthService {
       LOGIN_RATE_LIMIT_IP_WINDOW_SECONDS,
     );
     if (ipLimit.limited) tooManyRequests(ipLimit.retryAfter);
-
-    const emailLimit = await this.rateLimit.checkAndIncrement(
-      `auth:login:email:${dto.email.toLowerCase()}`,
-      LOGIN_RATE_LIMIT_EMAIL_PER_WINDOW,
-      LOGIN_RATE_LIMIT_EMAIL_WINDOW_SECONDS,
-    );
-    if (emailLimit.limited) tooManyRequests(emailLimit.retryAfter);
 
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email },

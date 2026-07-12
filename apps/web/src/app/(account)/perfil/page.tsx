@@ -8,12 +8,13 @@ import { PerfilForm } from '@/components/perfil/PerfilForm';
 import { SignOutButton } from '@/components/perfil/SignOutButton';
 import { auth } from '@/lib/auth';
 import { getMe } from '@/lib/api/usuarios';
+import { buildLoginUrl } from '@/lib/auth/callback-url';
 
 export const metadata = { title: 'Mi perfil' };
 
 export default async function PerfilPage() {
   const session = await auth();
-  if (!session?.user.accessToken) redirect('/login');
+  if (!session?.user.accessToken) redirect(buildLoginUrl('/perfil'));
 
   const user = await getMe(session.user.accessToken);
 

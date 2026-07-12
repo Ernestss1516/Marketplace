@@ -4,6 +4,7 @@ import { auth } from '@/lib/auth';
 import { getConversation } from '@/lib/api/mensajes';
 import { ApiError } from '@/lib/api/client';
 import { ChatClient } from '@/components/mensajes/ChatClient';
+import { buildLoginUrl } from '@/lib/auth/callback-url';
 
 export const metadata: Metadata = { title: 'Conversación' };
 
@@ -13,7 +14,7 @@ export default async function ChatPage({
   params: Promise<{ id: string }>;
 }) {
   const [session, { id }] = await Promise.all([auth(), params]);
-  if (!session?.user.accessToken) redirect('/login');
+  if (!session?.user.accessToken) redirect(buildLoginUrl(`/mensajes/${id}`));
 
   let initialData;
   try {

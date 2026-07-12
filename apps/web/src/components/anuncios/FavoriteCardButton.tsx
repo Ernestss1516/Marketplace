@@ -3,6 +3,7 @@
 import { useSession } from 'next-auth/react';
 import { Heart } from 'lucide-react';
 import { useFavoritesContext } from './FavoritesGridContext';
+import { useRequireAuth } from '@/hooks/use-require-auth';
 
 interface Props {
   listingId: string;
@@ -11,16 +12,19 @@ interface Props {
 export function FavoriteCardButton({ listingId }: Props) {
   const { data: session } = useSession();
   const ctx = useFavoritesContext();
+  const { requireAuth } = useRequireAuth();
 
-  // Render nothing when not authenticated or when no provider is in the tree.
-  if (!session?.user.accessToken || !ctx) return null;
-
+  // Render nothing only when there's no provider in the tree (structural) —
+  // se renderiza igual para anónimos, para que descubran la función (RÁFAGA 4).
+  if (!ctx) return null;
   const { isFavorited, toggleFavorite } = ctx;
-  const favorited = isFavorited(listingId);
+
+  const favorited = session?.user.accessToken ? isFavorited(listingId) : false;
 
   function handleClick(e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
+    if (!requireAuth()) return;
     void toggleFavorite(listingId);
   }
 

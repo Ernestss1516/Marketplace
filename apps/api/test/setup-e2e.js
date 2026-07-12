@@ -12,7 +12,7 @@
 const { execSync } = require('child_process');
 const { join } = require('path');
 const { config } = require('dotenv');
-const Redis = require('ioredis');
+const flushAuthRateLimits = require('./flush-auth-rate-limits');
 
 module.exports = async function globalSetup() {
   config({ path: join(__dirname, '..', '.env.test') });
@@ -39,8 +39,6 @@ module.exports = async function globalSetup() {
   // (ver feedback_ci_verde_repetido). Flush aquí, una vez, antes de toda la
   // batería — no basta con que auth-security.e2e-spec.ts lo haga en su propio
   // beforeAll, porque ese archivo no es necesariamente el primero en correr.
-  const redis = new Redis(process.env.REDIS_URL);
-  const staleKeys = await redis.keys('auth:*');
-  if (staleKeys.length > 0) await redis.del(...staleKeys);
-  await redis.quit();
+  // (Compartido con el globalSetup de Playwright — ver flush-auth-rate-limits.js).
+  await flushAuthRateLimits();
 };

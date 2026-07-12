@@ -16,6 +16,7 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Separator } from '@/components/ui/separator';
 import { useApiAction } from '@/lib/api/use-api-action';
+import { useRequireAuth } from '@/hooks/use-require-auth';
 import {
   toUserMessage,
   isCreditError,
@@ -47,6 +48,7 @@ type FeatureMethod = 'quota' | 'paid';
 
 export function DestacadoDialog({ listing, token, open, onOpenChange, onSuccess }: Props) {
   const { run } = useApiAction();
+  const { loginUrl } = useRequireAuth();
 
   const [featuredPrices, setFeaturedPrices] = useState<CatalogPrice[]>([]);
   const [walletBalance, setWalletBalance] = useState<number>(0);
@@ -118,7 +120,7 @@ export function DestacadoDialog({ listing, token, open, onOpenChange, onSuccess 
               setError(toFeaturedByCreditsMessage(err));
             }
           },
-          callbackUrl: '/login',
+          callbackUrl: loginUrl,
         },
       );
       setBusy(false);
@@ -157,7 +159,7 @@ export function DestacadoDialog({ listing, token, open, onOpenChange, onSuccess 
               setError(toFeaturedByCreditsMessage(err));
             }
           },
-          callbackUrl: '/login',
+          callbackUrl: loginUrl,
         },
       );
     } else {
@@ -169,7 +171,7 @@ export function DestacadoDialog({ listing, token, open, onOpenChange, onSuccess 
             setRedsysFormData(data);
           },
           onError: (err) => setError(toFeaturedByCreditsMessage(err)),
-          callbackUrl: '/login',
+          callbackUrl: loginUrl,
         },
       );
     }

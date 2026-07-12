@@ -14,6 +14,7 @@ import { StepPrevisualizacion } from './steps/StepPrevisualizacion';
 import { createListing, publishListing } from '@/lib/api/anuncios';
 import { toUserMessage } from '@/lib/api/client';
 import { useApiAction } from '@/lib/api/use-api-action';
+import { useRequireAuth } from '@/hooks/use-require-auth';
 import { filterSchemaByType, resolveLinkedOptions } from '@/lib/attribute-schema';
 import type { Category, AttributeSchema, ListingType, ListingTypePolicy, Condition } from '@/types';
 
@@ -167,6 +168,7 @@ const INITIAL_DATA: WizardData = {
 export function PublicarWizard({ token, categories, initialLocation }: PublicarWizardProps) {
   const router = useRouter();
   const { run } = useApiAction();
+  const { loginUrl } = useRequireAuth();
   const [data, setData] = useState<WizardData>({
     ...INITIAL_DATA,
     city: initialLocation?.city || '',
@@ -300,7 +302,7 @@ export function PublicarWizard({ token, categories, initialLocation }: PublicarW
       },
       {
         onError: (err) => { setSubmitError(toUserMessage(err)); setSubmitState('idle'); },
-        callbackUrl: '/login?callbackUrl=%2Fpublicar',
+        callbackUrl: loginUrl,
       },
     );
   }

@@ -9,6 +9,7 @@ import { Separator } from '@/components/ui/separator';
 import { auth } from '@/lib/auth';
 import { getMySubscriptions, getMyEntitlements, getProStatus, type ProStatus } from '@/lib/api/billing';
 import { SuscripcionActions } from './_components/SuscripcionActions';
+import { buildLoginUrl } from '@/lib/auth/callback-url';
 
 export const metadata: Metadata = { title: 'Mi suscripción' };
 
@@ -28,7 +29,7 @@ const STATUS_VARIANTS: Record<string, 'default' | 'secondary' | 'destructive' | 
 
 export default async function SuscripcionPage() {
   const session = await auth();
-  if (!session?.user.accessToken) redirect('/login');
+  if (!session?.user.accessToken) redirect(buildLoginUrl('/perfil/suscripcion'));
 
   const token = session.user.accessToken;
 
