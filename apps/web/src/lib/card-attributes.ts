@@ -2,12 +2,11 @@ import type { Category, AttributeSchema, CardAttributeDef } from '@/types';
 import type { CardAttributeMap } from '@/components/anuncios/CardAttributesContext';
 
 // RÁFAGA 3 — mismas reglas de default que resolveShowLabel/resolveShowUnit en
-// apps/api/src/modules/categories/category.types.ts. Duplicadas aquí porque
-// las páginas de una sola categoría (/[categoria]) construyen sus mapas de
-// atributos a partir del `attributeSchema` crudo (ya no de una lista
-// pre-resuelta por el backend, como sí hace el árbol de /categories) — sin un
-// paquete compartido entre api/web, es la misma duplicación que ya existía
-// para "cardAttribute"/"unit" antes de esta ráfaga, solo que ahora con default.
+// apps/api/src/modules/categories/category.types.ts. Duplicada aquí porque
+// buildCardAttributeMapFromSchema (más abajo) construye su mapa a partir del
+// `attributeSchema` crudo (no de una lista pre-resuelta por el backend, como sí
+// hace el árbol de /categories) — sin un paquete compartido entre api/web, es
+// la misma duplicación que ya existía para "cardAttribute"/"unit".
 function toAttrDef(f: AttributeSchema): CardAttributeDef {
   return {
     key: f.name,
@@ -20,7 +19,11 @@ function toAttrDef(f: AttributeSchema): CardAttributeDef {
 
 /**
  * Builds a slug→cardAttributes map from the full category tree returned by GET /categories.
- * Covers home, búsqueda and vendedor pages that receive the full tree.
+ * Cubre home, búsqueda, /[categoria] y vendedor — CUALQUIER página que pueda mostrar
+ * listings de más de una categoría (incluida una categoría padre, cuyo listado mezcla
+ * anuncios de sus hijas vía categoryPath de Meilisearch) necesita el árbol completo:
+ * una entrada por categoría (padres Y hojas), no solo la de la categoría de la URL —
+ * ver «RÁFAGA 3, bug de atributos en /[categoria]» en docs/estado-tecnico.md.
  */
 export function buildCardAttributeMap(categories: Category[]): CardAttributeMap {
   const map: CardAttributeMap = {};
@@ -54,8 +57,14 @@ export function buildFullAttributeMap(categories: Category[]): CardAttributeMap 
 
 /**
  * Builds a single-entry map from a category's effective attributeSchema
- * (as returned by GET /categories/:slug). Used on single-category pages
- * (categoría, ficha) that already have the schema without fetching the full tree.
+ * (as returned by GET /categories/:slug). Usado SOLO en /anuncio/[slug] (ficha +
+ * relacionados): ahí todos los listings — el actual y sus relacionados — comparten
+ * SIEMPRE la misma categoría (relacionados se piden filtrando por
+ * `listing.category.slug`), así que un mapa de una sola entrada es correcto — no
+ * hay riesgo de mezcla de categorías como si lo había en /[categoria] (ver
+ * buildCardAttributeMap). NO USAR esto para una página que pueda listar más de
+ * una categoría — para eso, `getCategories()` + buildCardAttributeMap/
+ * buildWideCardAttributeMap/buildFullAttributeMap con el árbol completo.
  */
 export function buildCardAttributeMapFromSchema(
   slug: string,
@@ -66,23 +75,9 @@ export function buildCardAttributeMapFromSchema(
 }
 
 /**
- * Builds a single-entry map with ALL attribute definitions from a category's
- * effective attributeSchema — used by the map's detail panel on /[categoria]
- * (RÁFAGA 2, mapa ahora disponible ahí), mismo criterio que buildFullAttributeMap
- * para el árbol completo.
- */
-export function buildFullAttributeMapFromSchema(
-  slug: string,
-  schema: AttributeSchema[],
-): CardAttributeMap {
-  const defs: CardAttributeDef[] = schema.map(toAttrDef);
-  return defs.length ? { [slug]: defs } : {};
-}
-
-/**
  * Builds a slug→wideCardAttributes map from the full category tree (RÁFAGA 2 —
- * vista ampliada en /busqueda, que mezcla categorías). Up to 6 per category,
- * independent of buildCardAttributeMap's 2-attribute compact set.
+ * vista ampliada). Up to 6 per category, independent of buildCardAttributeMap's
+ * 2-attribute compact set. Mismo criterio de "árbol completo" que buildCardAttributeMap.
  */
 export function buildWideCardAttributeMap(categories: Category[]): CardAttributeMap {
   const map: CardAttributeMap = {};
@@ -93,16 +88,4 @@ export function buildWideCardAttributeMap(categories: Category[]): CardAttribute
     }
   }
   return map;
-}
-
-/**
- * Builds a single-entry wideCardAttributes map from a category's effective
- * attributeSchema (GET /categories/:slug) — used on /[categoria] in vista ampliada.
- */
-export function buildWideCardAttributeMapFromSchema(
-  slug: string,
-  schema: AttributeSchema[],
-): CardAttributeMap {
-  const defs: CardAttributeDef[] = schema.filter((f) => f.wideCardAttribute).map(toAttrDef);
-  return defs.length ? { [slug]: defs } : {};
 }

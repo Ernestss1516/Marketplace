@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Image from 'next/image';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 
@@ -15,6 +16,26 @@ interface PhotoLightboxProps {
  * Visor a pantalla completa (RÁFAGA 2). Solo monta el <Image> del índice
  * actual — igual que CardPhotoCarousel, nunca hay más de una foto cargándose
  * a la vez, ni aquí ni en la card.
+ *
+ * BUG encontrado y arreglado (post-RÁFAGA 2): ListingCard/ListingCardWide envuelven
+ * TODA la card en un <Link> a la ficha del anuncio; este componente se montaba
+ * como hijo normal de ese árbol. Aunque los botones ya llamaban a `stopPropagation()`,
+ * eso no bastaba: la navegación de un <a> al hacer click es la acción POR DEFECTO
+ * del navegador, gobernada por `preventDefault()` — y ninguno de los botones de
+ * aquí lo llamaba. Confirmado en vivo con Playwright: click en "Cerrar" navegaba
+ * igualmente a /anuncio/... pese al stopPropagation.
+ *
+ * LA CURA — `createPortal` monta este árbol en `document.body`, fuera del <a> a
+ * efectos del DOM real: elimina la navegación NATIVA del navegador de raíz (el
+ * navegador decide si sigue un enlace mirando el DOM real, y aquí ya no hay
+ * relación de ancestro/descendiente). PERO — matiz importante encontrado
+ * escribiendo el test — React vuelve a "reenganchar" un portal AL ÁRBOL DE REACT
+ * (no al del DOM) para el burbujeo de sus eventos sintéticos: un click dentro de
+ * este portal SIGUE alcanzando el onClick de React del <a> (que es lo que usa
+ * Next.js `<Link>` para navegar) salvo que se corte con `stopPropagation()` en
+ * el camino. El portal quita el riesgo del navegador; `stopPropagation()` en
+ * CADA manejador de aquí (incluido el backdrop) quita el de React/Next — hacen
+ * falta las dos cosas, no una sola.
  */
 export function PhotoLightbox({ images, startIndex, title, onClose }: PhotoLightboxProps) {
   const [index, setIndex] = useState(startIndex);
@@ -34,13 +55,20 @@ export function PhotoLightbox({ images, startIndex, title, onClose }: PhotoLight
     };
   }, [images.length, onClose]);
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
       role="dialog"
       aria-modal="true"
       aria-label={`Fotos de ${title}`}
-      onClick={onClose}
+      // stopPropagation aquí también: React vuelve a "engancharse" al árbol de React (no
+      // al del DOM) para el burbujeo de eventos de un portal — createPortal saca el
+      // visor del <a> a efectos del DOM (por eso el navegador ya no navega solo), pero
+      // un click aquí seguiría llegando al onClick del <a> vía React si no se corta aquí
+      // (encontrado escribiendo el test: sin este stopPropagation, el backdrop SÍ disparaba
+      // el <a> pese al portal — la cura estructural del portal no exime de cortar la
+      // propagación en cada manejador, solo evita la navegación NATIVA del navegador).
+      onClick={(e) => { e.stopPropagation(); onClose(); }}
       data-testid="photo-lightbox"
     >
       <button
@@ -89,6 +117,7 @@ export function PhotoLightbox({ images, startIndex, title, onClose }: PhotoLight
           {index + 1} / {images.length}
         </div>
       )}
-    </div>
+    </div>,
+    document.body,
   );
 }

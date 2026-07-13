@@ -181,6 +181,7 @@ enlaces ancla — funcionan en GitHub y en la vista previa de Markdown de VS Cod
 - [`/[categoria]/[subcategoria]` — ruta muerta eliminada (RÁFAGA 1)](#categoriasubcategoria--ruta-muerta-eliminada-ráfaga-1)
 - [3 vistas de resultados configurables por categoría (RÁFAGA 2, 2026-07-13)](#3-vistas-de-resultados-configurables-por-categoría-ráfaga-2-2026-07-13)
 - [Display de atributos en card: showLabel/showUnit configurables (RÁFAGA 3, 2026-07-13)](#display-de-atributos-en-card-showlabelshowunit-configurables-ráfaga-3-2026-07-13)
+- [Dos bugs de RÁFAGA 2 encontrados y corregidos de raíz (2026-07-13)](#dos-bugs-de-ráfaga-2-encontrados-y-corregidos-de-raíz-2026-07-13)
 - [Pro downgrade con des-indexado de Meilisearch (RF.7-B.2 — bug detectado y corregido)](#pro-downgrade-con-des-indexado-de-meilisearch-rf7-b2-bug-detectado-y-corregido)
 - [Settings: whitelist explícita en el service (Fase 7)](#settings-whitelist-explícita-en-el-service-fase-7)
 - [Migración `add_audit_log_and_settings` (Fase 7)](#migración-addauditlogandsettings-fase-7)
@@ -2942,6 +2943,90 @@ central de esta ráfaga:** se comparó la categoría real `casas` (con atributos
 RÁFAGA 2 ("casota 2" sigue mostrando "3 m² · Habitaciones: 3", byte por byte); confirmado también
 consultando `GET /categories` en vivo que `sqm` resuelve a `showLabel:false, showUnit:true` y
 `rooms` a `showLabel:true, showUnit:true` sin haber tocado ningún dato existente.
+
+### Dos bugs de RÁFAGA 2 encontrados y corregidos de raíz (2026-07-13)
+
+**BUG 1 — el visor de fotos (lightbox) navegaba a la ficha con cualquier click:**
+`ListingCard`/`ListingCardWide` envuelven TODA la card en un `<Link>` a `/anuncio/[slug]`;
+`PhotoLightbox` se montaba como hijo normal de ese árbol (dentro de `CardPhotoCarousel`, dentro
+del `<Link>`). Aunque los botones del visor ya llamaban a `stopPropagation()`, eso no bastaba: la
+navegación de un `<a>` al hacer click es la acción POR DEFECTO del NAVEGADOR, gobernada por
+`preventDefault()` — no por si el evento sigue burbujeando — y ningún botón del visor lo llamaba.
+**Confirmado en vivo con Playwright** antes de tocar nada: click en "Cerrar" navegaba igual a
+`/anuncio/...` pese al `stopPropagation()`.
+
+**La cura (no el parche):** `PhotoLightbox` ahora se monta con `createPortal` en
+`document.body` — fuera del `<a>` a efectos del DOM real, así que el navegador ya no tiene
+ninguna relación de ancestro/descendiente que le haga considerar "esto es un click dentro de un
+enlace" y su navegación NATIVA queda eliminada de raíz.
+
+**Matiz encontrado escribiendo el test (no solo con la QA en vivo):** React vuelve a
+"reenganchar" un portal AL ÁRBOL DE REACT (no al del DOM) para el burbujeo de sus eventos
+sintéticos — un test unitario con `fireEvent.click` directamente sobre el backdrop demostró que,
+pese al portal, el `onClick` de React del `<a>` (el que usa `next/link` para navegar
+programáticamente vía `router.push`) SEGUÍA disparándose, porque el backdrop pasaba `onClick=
+{onClose}` directo, sin `stopPropagation()`. Se corrigió envolviéndolo igual que el resto de
+controles del visor. Conclusión correcta y completa: el portal elimina el riesgo de navegación
+NATIVA del navegador (la causa más visible y la que motivó el reporte); `stopPropagation()` en
+cada manejador (ya presente en X/prev/next, añadido al backdrop) elimina el riesgo de navegación
+PROGRAMÁTICA vía React/Next — hacen falta las dos cosas, no una sola. Verificado también con
+`document.elementFromPoint` en vivo: el visor deja de tener un `<a href>` en su cadena de
+ancestros; el right-click sobre la foto ahora da el menú contextual normal del navegador (antes,
+al estar la imagen dentro de un enlace, podía mezclar opciones de "abrir enlace").
+
+**Carrusel DENTRO de la card (flechas para pasar foto sin ampliar) — evaluado, no tenía el
+bug:** ya llamaba a `preventDefault()` + `stopPropagation()` en el mismo `go()` (ver
+`CardPhotoCarousel.tsx`) — confirmado en vivo (Playwright) y con test unitario que las flechas/
+puntos de la card NO navegan. No necesitaba cambios; vive dentro de la card a propósito (las
+flechas deben posicionarse sobre la foto, no tiene sentido un portal ahí).
+
+**BUG 2 — los atributos no se veían en las cards de /[categoria] (categorías PADRE):**
+confirmado que NO reproducía en categorías hoja (`/casas`, `/coches` mostraban los atributos
+correctamente) — reproducía específicamente al navegar una categoría PADRE (p. ej. `/vehiculos`,
+que mezcla anuncios de sus hijas coches/motos/furgonetas vía `categoryPath` de Meilisearch).
+Causa: `/[categoria]/page.tsx` construía el mapa de atributos con
+`buildCardAttributeMapFromSchema(categoria, category.attributeSchema)` — una entrada ÚNICA,
+keyeada por el slug de la URL ("vehiculos"). Cada listing mostrado trae su PROPIO `categorySlug`
+de hoja ("coches", "motos"...), que no existía como clave en ese mapa de una sola entrada →
+`CardAttrsDisplay` no encontraba nada → sin atributos. `/busqueda` no tenía este problema porque
+ya construye el mapa desde el ÁRBOL COMPLETO (`getCategories()` + `buildCardAttributeMap`), con
+una entrada por CADA categoría (padres y hojas) — dos caminos de datos para lo mismo, uno se
+quedó corto.
+
+**Arreglo — unificado a una sola fuente, no dos espejos:** `/[categoria]/page.tsx` ahora también
+llama a `getCategories()` (en paralelo, propia promesa fuera del try/catch de búsqueda para que
+esté disponible también en el modo fallback a Postgres) y usa
+`buildCardAttributeMap`/`buildWideCardAttributeMap`/`buildFullAttributeMap` — EXACTAMENTE los
+mismos builders y la misma fuente de datos que `/busqueda`. Verificado en vivo: comparación
+byte-a-byte entre `/vehiculos` y `/busqueda?category=vehiculos` — el mismo listado de atributos
+(mismos conteos de "Marca: X", "N km", etc.), confirmando que ambos caminos convergen.
+`buildCardAttributeMapFromSchema`/`buildWideCardAttributeMapFromSchema`/
+`buildFullAttributeMapFromSchema` (los builders de una sola entrada) quedaron sin uso en esta
+página tras el cambio — `buildWideCardAttributeMapFromSchema` y `buildFullAttributeMapFromSchema`
+se ELIMINARON de `card-attributes.ts` (código muerto); `buildCardAttributeMapFromSchema` se
+CONSERVÓ porque `/anuncio/[slug]` (ficha + relacionados) sigue usándola legítimamente — ahí todos
+los listings mostrados (el actual y sus relacionados, pedidos filtrando por
+`listing.category.slug`) comparten SIEMPRE la misma categoría, así que no hay riesgo de mezcla de
+categorías como el que sí había en `/[categoria]`.
+
+**Otras posibles divergencias revisadas (pedido explícito de la ráfaga) — ninguna más
+encontrada:** destacados del bloque "Promocionados" (`featured`), patrocinados
+(`isSponsoredAdHit`), conteo (`totalHits`) — los tres vienen de la MISMA respuesta de
+`GET /search` en ambas páginas, sin caminos separados. La única divergencia real de "vistas"
+(`/busqueda` ofrece las 3 siempre; `/[categoria]` usa `category.allowedViews`) es intencional
+(RÁFAGA 2 — la categoría define el menú), no un bug.
+
+**Tests:** `CardPhotoCarousel.test.tsx` (nuevo — 9 casos: el visor se monta en `document.body`
+sin ser descendiente del `<a>`; abrir/cerrar (X, backdrop, Escape)/navegar (flechas, teclado) no
+disparan el `onClick` del `<a>` padre; el carrusel de la card tampoco lo dispara). `card-
+attributes.test.ts` (nuevo — 5 casos: el árbol da una entrada independiente por cada categoría,
+padre Y cada hija, con `buildCardAttributeMap`/`buildWideCardAttributeMap`/
+`buildFullAttributeMap`). Batería completa: frontend 17 suites (mismos 3 fallos pre-existentes de
+RÁFAGA 2, no relacionados — 147 tests propios en verde); sin cambios en backend, no se re-ejecutó
+la suite completa de e2e (`git status` confirma que ningún archivo de `apps/api` cambió). **QA en
+vivo (Playwright, ambos bugs):** reproducidos ANTES del fix (navegación real a `/anuncio/...` al
+cerrar el visor; `/vehiculos` sin atributos) y verificados DESPUÉS (visor usable de punta a
+punta incl. botón derecho; `/vehiculos` con atributos idénticos a `/busqueda?category=vehiculos`).
 
 ### Pro downgrade con des-indexado de Meilisearch (RF.7-B.2 — bug detectado y corregido)
 

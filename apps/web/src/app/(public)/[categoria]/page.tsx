@@ -13,15 +13,11 @@ import { FilterPanel } from '@/components/busqueda/FilterPanel';
 import { FeaturedBlock } from '@/components/busqueda/FeaturedBlock';
 import { ViewSwitcher } from '@/components/busqueda/ViewSwitcher';
 import MapViewClient from '@/components/busqueda/MapViewClient';
-import { getCategoryBySlug } from '@/lib/api/categorias';
+import { getCategoryBySlug, getCategories } from '@/lib/api/categorias';
 import { getListingsByCategory } from '@/lib/api/anuncios';
 import { search, type SearchHit } from '@/lib/api/busqueda';
 import { ApiError } from '@/lib/api/client';
-import {
-  buildCardAttributeMapFromSchema,
-  buildWideCardAttributeMapFromSchema,
-  buildFullAttributeMapFromSchema,
-} from '@/lib/card-attributes';
+import { buildCardAttributeMap, buildWideCardAttributeMap, buildFullAttributeMap } from '@/lib/card-attributes';
 import { resolveCurrentView, VIEW_PARAM } from '@/lib/view-mode';
 import type { ListingSummary, ListingViewMode } from '@/types';
 
@@ -139,12 +135,30 @@ export default async function CategoriaPage({
   // ── Fetch listings ──────────────────────────────────────────────────────────
   // Primary: Meilisearch (facets + attribute filters + proximity).
   // Fallback: Postgres (no facets, basic sort only) when Meili is unavailable.
+  //
+  // BUG encontrado y arreglado: esta página construía el mapa de atributos de
+  // card a partir del schema de la ÚNICA categoría de la URL
+  // (`buildCardAttributeMapFromSchema(categoria, category.attributeSchema)`,
+  // keyeado solo por `categoria`). Al navegar una categoría PADRE (p. ej.
+  // /vehiculos, que mezcla anuncios de sus hijas coches/motos/furgonetas vía
+  // categoryPath de Meilisearch), cada listing trae su PROPIO categorySlug de
+  // hoja ("coches", "motos"...) — que no existía como clave en ese mapa de una
+  // sola entrada, así que CardAttrsDisplay no encontraba nada y no mostraba
+  // atributos. /busqueda no tenía este problema porque ya construye el mapa a
+  // partir del ÁRBOL COMPLETO (`getCategories()` + `buildCardAttributeMap`),
+  // que trae una entrada por cada categoría (padres Y hojas). Unificado aquí:
+  // misma fuente de datos que /busqueda, no dos caminos que puedan divergir.
   let hits: SearchHit[] = [];
   let featured: ListingSummary[] = [];
   let total = 0;
   let hitsPerPage = 24;
   let facets: Record<string, Record<string, number>> | undefined;
   let fallbackMode = false;
+
+  // Fetched independently of the search-or-fallback branch below (own promise,
+  // in flight in parallel) so it's available either way — including during a
+  // Meilisearch outage, when the page still renders the Postgres-fallback grid.
+  const categoriesPromise = getCategories().catch(() => []);
 
   try {
     const result = await search({
@@ -181,6 +195,8 @@ export default async function CategoriaPage({
       // Both sources failed — render empty state below.
     }
   }
+
+  const categories = await categoriesPromise;
 
   const totalPages = isMapView ? 0 : Math.ceil(total / hitsPerPage) || 0;
   // H6.6 — igual que en /busqueda: el patrocinado (si lo hay) va intercalado en
@@ -303,21 +319,11 @@ export default async function CategoriaPage({
                   hits={listingHits}
                   totalHits={total}
                   listUrl={viewUrl('LISTA')}
-                  attributeMap={buildFullAttributeMapFromSchema(categoria, category.attributeSchema ?? [])}
+                  attributeMap={buildFullAttributeMap(categories)}
                 />
               ) : (
-                <CardAttributesProvider
-                  cardAttributeMap={buildCardAttributeMapFromSchema(
-                    categoria,
-                    category.attributeSchema ?? [],
-                  )}
-                >
-                  <WideCardAttributesProvider
-                    cardAttributeMap={buildWideCardAttributeMapFromSchema(
-                      categoria,
-                      category.attributeSchema ?? [],
-                    )}
-                  >
+                <CardAttributesProvider cardAttributeMap={buildCardAttributeMap(categories)}>
+                  <WideCardAttributesProvider cardAttributeMap={buildWideCardAttributeMap(categories)}>
                     <FavoritesGridProvider
                       listingIds={[...new Set([...featured.map((l) => l.id), ...listingHits.map((l) => l.id)])]}
                     >
