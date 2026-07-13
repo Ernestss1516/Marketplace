@@ -94,24 +94,24 @@ const SORTABLE_ATTRIBUTES = [
   '_geo', // enables _geoPoint(...):asc sorting; only useful when listings carry coordinates
 ];
 
-// Facets returned in every search response for guided navigation in the UI.
-// Only select/boolean attributes with bounded cardinality make sense here.
-// Curated editorially — NOT auto-derived from the schema like filterableAttributes.
-// Names here that aren't (yet) filterable in the live environment (e.g. an
-// attribute only present in the production seed but not in a lighter test
-// fixture) are dropped at query time in search() — see filterableAttributeNames.
-const FACET_ATTRIBUTES = [
+// Native (non-category-attribute) facets, always requested for guided navigation.
+// The category-attribute part of the facet list is NOT hardcoded here — it used to
+// be (FACET_ATTRIBUTES, an editorially curated list), which meant a category
+// attribute marked filterable:true in the schema (the ONE place an admin actually
+// configures this) would silently never appear as a filter in the UI unless someone
+// also remembered to add its name to this constant — two sources of truth for the
+// same question ("is this attribute filterable?"), and the one that mattered to the
+// UI wasn't the one the admin could change. Fixed: attribute facets are now derived
+// per-request from the SAME attribute-type map already resolved for query-param
+// validation (FilterableAttributesResolver, scoped by category when one is given —
+// see SearchParams.attributeFacetNames / SearchController). Marking an attribute
+// filterable:true is now sufficient on its own for it to become a UI filter.
+const NATIVE_FACET_ATTRIBUTES = [
   'categorySlug',
   'type',
   'condition',
   'priceType',
   'province',
-  'fuel',
-  'gearbox',
-  'rooms',
-  'gender',
-  'modality',
-  'itemType',
 ];
 
 // Política de ordenación C (RÁFAGA 1, 2026-07-13): boostScore NO participa en las
@@ -188,6 +188,16 @@ export interface SearchParams {
   province?: string;
   city?: string;
   attributes?: Record<string, string | number | boolean>;
+  /**
+   * Category-attribute names to request as Meilisearch facets, IN ADDITION to
+   * NATIVE_FACET_ATTRIBUTES — supplied by the controller from the exact same
+   * attribute-type map already resolved for query-param validation
+   * (FilterableAttributesResolver.getAttributeTypes()/getAttributeTypesForCategory()),
+   * so "filterable" and "facetable" are one decision, not two. Ignored when
+   * `onlyBoosted` is set (the featured-block query never surfaces facets to the
+   * frontend — no point paying Meilisearch's facet-computation cost for it).
+   */
+  attributeFacetNames?: string[];
   geo?: { lat: number; lng: number; radiusMeters: number };
   sort?: 'price:asc' | 'price:desc' | 'publishedAt:desc' | 'sortDate:desc';
   page?: number;
@@ -362,10 +372,17 @@ export class SearchService implements OnModuleInit {
     }
 
     // Meilisearch rejects a facet request for any attribute not currently in
-    // filterableAttributes. FACET_ATTRIBUTES is curated independently of the
-    // dynamically-resolved filterable set, so intersect defensively instead of
-    // assuming the two always agree.
-    const facets = FACET_ATTRIBUTES.filter((f) => this.filterableAttributeNames.has(f));
+    // filterableAttributes — intersect defensively (a name can arrive here from a
+    // resolver map computed a moment before a hot-refresh landed) instead of
+    // assuming the two always agree. `onlyBoosted` (the featured-block query) never
+    // surfaces facets to the frontend, so skip requesting attribute facets for it —
+    // free cost reduction now that the list can be as large as every filterable
+    // attribute in scope, not just the small curated native set.
+    const nativeFacets = NATIVE_FACET_ATTRIBUTES.filter((f) => this.filterableAttributeNames.has(f));
+    const attributeFacets = params.onlyBoosted
+      ? []
+      : (params.attributeFacetNames ?? []).filter((f) => this.filterableAttributeNames.has(f));
+    const facets = [...nativeFacets, ...attributeFacets];
 
     return this.index.search(params.q ?? '', {
       filter: filters.length ? filters : undefined,

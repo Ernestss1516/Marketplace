@@ -150,4 +150,69 @@ describe('FilterableAttributesResolver', () => {
       expect(types.size).toBe(0);
     });
   });
+
+  describe('getAllAttributeNames(ForCategory) — ATRIBUTOS EN CARD (bug 1): sin filtrar por filterable', () => {
+    it('getAllAttributeNames incluye atributos filterable:false (getAttributeTypes NO los incluiría)', async () => {
+      const { resolver } = makeResolver([
+        { attributeSchema: [{ name: 'brand', label: 'Marca', type: 'text', filterable: true, required: false }] },
+        { attributeSchema: [{ name: 'tariff', label: 'Tarifa', type: 'number', filterable: false, required: false }] },
+      ]);
+
+      const names = await resolver.getAllAttributeNames();
+
+      expect(names.has('brand')).toBe(true);
+      expect(names.has('tariff')).toBe(true); // el caso que getAttributeTypes() excluiría
+    });
+
+    it('getAllAttributeNamesForCategory: hoja incluye lo propio (filterable o no) + lo heredado del padre', async () => {
+      const { resolver } = makeResolverWithSlugs([
+        {
+          slug: 'vehiculos', parent: null,
+          attributeSchema: [{ name: 'brand', label: 'Marca', type: 'text', filterable: true, required: false }],
+        },
+        {
+          slug: 'coches', parent: { slug: 'vehiculos' },
+          attributeSchema: [{ name: 'tariff', label: 'Tarifa', type: 'number', filterable: false, required: false }],
+        },
+        {
+          slug: 'pisos', parent: null,
+          attributeSchema: [{ name: 'rooms', label: 'Habitaciones', type: 'number', filterable: true, required: false }],
+        },
+      ]);
+
+      const names = await resolver.getAllAttributeNamesForCategory('coches');
+
+      expect(names.has('tariff')).toBe(true); // propio, no filtrable — el caso del bug 1
+      expect(names.has('brand')).toBe(true); // heredado
+      expect(names.has('rooms')).toBe(false); // otra rama
+    });
+
+    it('getAllAttributeNamesForCategory: padre agrega lo propio + lo de cada hijo (mismo criterio que getAttributeTypesForCategory)', async () => {
+      const { resolver } = makeResolverWithSlugs([
+        {
+          slug: 'vehiculos', parent: null,
+          attributeSchema: [{ name: 'brand', label: 'Marca', type: 'text', filterable: true, required: false }],
+        },
+        {
+          slug: 'coches', parent: { slug: 'vehiculos' },
+          attributeSchema: [{ name: 'tariff', label: 'Tarifa', type: 'number', filterable: false, required: false }],
+        },
+      ]);
+
+      const names = await resolver.getAllAttributeNamesForCategory('vehiculos');
+
+      expect(names.has('brand')).toBe(true);
+      expect(names.has('tariff')).toBe(true);
+    });
+
+    it('slug desconocido: set vacío', async () => {
+      const { resolver } = makeResolverWithSlugs([
+        { slug: 'coches', parent: null, attributeSchema: [] },
+      ]);
+
+      const names = await resolver.getAllAttributeNamesForCategory('no-existe');
+
+      expect(names.size).toBe(0);
+    });
+  });
 });

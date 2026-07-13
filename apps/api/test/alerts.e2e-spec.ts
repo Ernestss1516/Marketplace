@@ -157,6 +157,54 @@ describe('Alerts (e2e)', () => {
       .expect(422);
   });
 
+  // ── AUDITORÍA DE FILTROS — mismo cross-category leak que RÁFAGA 1 arregló en
+  // /search, replicado aquí: un atributo que SÍ existe globalmente (de OTRA
+  // categoría) pero no aplica a la categoría de la alerta debía ser aceptado
+  // (201) antes de este fix — la alerta quedaba guardada con un criterio
+  // imposible que ningún anuncio de "moviles" cumpliría jamás, sin avisar.
+  // "km" vive en "vehiculos" (y se hereda en "coches") — nada que ver con "moviles".
+
+  it('atributo de OTRA categoría (km, de "vehiculos") en una alerta de categorySlug=moviles → 422, ya no 201', async () => {
+    await request(app.getHttpServer())
+      .post('/api/alerts')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ name: 'Cross-category', categorySlug: 'moviles', attributes: { km: 50000 } })
+      .expect(422);
+  });
+
+  it('el mismo atributo "km" SÍ se acepta para una alerta de categorySlug=coches (heredado de vehiculos)', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/api/alerts')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ name: 'Coches con km', categorySlug: 'coches', attributes: { km: 50000 } })
+      .expect(201);
+    expect(res.body.alert.categorySlug).toBe('coches');
+  });
+
+  it('sin categorySlug (alerta general), "km" se sigue aceptando (unión global, comportamiento sin cambios)', async () => {
+    await request(app.getHttpServer())
+      .post('/api/alerts')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ name: 'General con km', attributes: { km: 50000 } })
+      .expect(201);
+  });
+
+  it('PATCH que solo toca attributes valida contra la categoría YA guardada de la alerta', async () => {
+    const createRes = await request(app.getHttpServer())
+      .post('/api/alerts')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ name: 'Moviles para editar', categorySlug: 'moviles', attributes: { brand: 'Apple' } })
+      .expect(201);
+    const id = createRes.body.alert.id as string;
+
+    // "km" no aplica a "moviles" (la categoría YA guardada, no tocada en este PATCH).
+    await request(app.getHttpServer())
+      .patch(`/api/alerts/${id}`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ attributes: { km: 50000 } })
+      .expect(422);
+  });
+
   it('radius (km) se persiste como radiusMeters', async () => {
     const res = await request(app.getHttpServer())
       .post('/api/alerts')

@@ -476,6 +476,53 @@ export class AdminService {
   }
 
   /**
+   * BUG 2 (auditoría de herencia, parte 2) — el guard de arriba solo mira HACIA
+   * ARRIBA (el propio schema efectivo contra el padre). Editar el PADRE nunca
+   * comprobaba si el cambio rompía a una HIJA que YA tenía sus propios
+   * cardAttribute/wideCardAttribute: el tope es una propiedad del conjunto
+   * EFECTIVO (propios + heredados), no de "lo que cada categoría tiene por su
+   * cuenta" — confirmado en vivo antes de escribir esto (2 cardAttribute en el
+   * padre + 2 ya existentes en una hija se aceptaba sin más, dejando a la hija
+   * con 4 en su schema efectivo — visible en la card sin truncar, sin aviso).
+   * Mismo mecanismo que validateCardAttributeLimitByType, aplicado en la
+   * dirección contraria: por cada hija DIRECTA, se recalcula su schema
+   * efectivo con el NUEVO schema propuesto para el padre (no el que ya está
+   * persistido) y se valida igual que si fuera la propia hija la que se
+   * estuviera guardando.
+   */
+  private async assertCardAttributeChangeDoesNotBreakChildren(
+    categoryId: string,
+    newOwnSchema: AttributeField[],
+  ): Promise<void> {
+    const children = await this.prisma.category.findMany({
+      where: { parentId: categoryId },
+      select: { id: true, name: true, attributeSchema: true },
+    });
+    if (children.length === 0) return;
+
+    const checks: Array<{ flag: 'cardAttribute' | 'wideCardAttribute'; limit: number }> = [
+      { flag: 'cardAttribute', limit: 2 },
+      { flag: 'wideCardAttribute', limit: 6 },
+    ];
+
+    for (const child of children) {
+      const childSchema = (child.attributeSchema as unknown as AttributeField[]) ?? [];
+      const effective = resolveEffectiveSchema(childSchema, newOwnSchema);
+      for (const { flag, limit } of checks) {
+        const counts = countAttributesByType(effective, flag);
+        const exceeded = (['PRODUCT', 'SERVICE'] as const).find((type) => counts[type] > limit);
+        if (exceeded) {
+          const typeLabel = exceeded === 'PRODUCT' ? 'producto' : 'servicio';
+          throw new BadRequestException(
+            `No se puede guardar: la subcategoría "${child.name}" quedaría con ${counts[exceeded]} ` +
+              `atributos de tipo ${typeLabel} con ${flag}:true (máximo ${limit}) al heredar este cambio.`,
+          );
+        }
+      }
+    }
+  }
+
+  /**
    * RÁFAGA 2 (vistas configurables): valida el estado FINAL (ya fusionado con lo
    * persistido, en el caso de update) de allowedViews/defaultView.
    * `allowedViews: []` es válido siempre (equivale a "no configurado" — el
@@ -568,7 +615,39 @@ export class AdminService {
     }
   }
 
+  /**
+   * Guarda de profundidad (auditoría de herencia de atributos, decisión: opción A,
+   * la barata). `Category.parentId` es una auto-relación sin límite de
+   * profundidad en el modelo — pero TODA la resolución de herencia
+   * (resolveEffectiveSchema y cada consumidor: findTree, findBySlug, el wizard,
+   * FilterableAttributesResolver…) asume exactamente 2 niveles (hoja → padre).
+   * Antes de esta guarda, un POST con parentId = una categoría que YA tiene
+   * padre creaba un nieto que desaparecía por completo de GET /categories
+   * (findTree solo recorre raíces + un nivel de hijos) y perdía los atributos
+   * del ABUELO en GET /categories/:slug (findBySlug solo fusiona 1 nivel hacia
+   * arriba) — en silencio, sin error. La UI del admin ya lo impedía
+   * estructuralmente (el botón "Nueva subcategoría" no existe en una fila de
+   * hijo); esta guarda cierra el mismo hueco para cualquier llamada directa a
+   * la API. Si el negocio necesita 3+ niveles algún día, la alternativa (opción
+   * B: generalizar resolveEffectiveSchema a N niveles) se implementa a
+   * conciencia entonces — no dejando el modelo permitir hoy lo que la lógica no
+   * resuelve.
+   */
+  private async assertParentIsRoot(parentId: string | null | undefined): Promise<void> {
+    if (!parentId) return;
+    const parent = await this.prisma.category.findUnique({
+      where: { id: parentId },
+      select: { parentId: true, name: true },
+    });
+    if (parent?.parentId) {
+      throw new BadRequestException(
+        `No se puede crear: "${parent.name}" ya es una subcategoría — el árbol de categorías admite solo 2 niveles (padre → hija).`,
+      );
+    }
+  }
+
   async createCategory(actorId: string, dto: CreateCategoryDto, ip?: string) {
+    await this.assertParentIsRoot(dto.parentId);
     if (dto.attributeSchema) {
       await this.validateCardAttributeLimit(dto.attributeSchema as AttributeField[], dto.parentId);
       await this.validateWideCardAttributeLimit(dto.attributeSchema as AttributeField[], dto.parentId);
@@ -636,6 +715,9 @@ export class AdminService {
         dto.attributeSchema as AttributeField[],
         category.parentId,
       );
+      // BUG 2 — la validación de arriba solo mira hacia el padre; esta mira
+      // hacia las hijas (si las hay) con el schema NUEVO que se está guardando.
+      await this.assertCardAttributeChangeDoesNotBreakChildren(id, dto.attributeSchema as AttributeField[]);
     }
 
     if (dto.allowedListingType !== undefined) {

@@ -18,7 +18,16 @@ export class AlertsService {
   ) {}
 
   async create(userId: string, dto: CreateAlertDto) {
-    const attributeTypes = await this.attributesResolver.getAttributeTypes();
+    // AUDITORÍA DE FILTROS — mismo cross-category leak que RÁFAGA 1 arregló en
+    // /search (SearchController), nunca replicado aquí: usar el mapa GLOBAL plano
+    // dejaba crear una alerta con un atributo de OTRA categoría (p. ej. "rooms" en
+    // una alerta de "coches") — 201 donde /search ya daba 400. La alerta quedaba
+    // guardada con un criterio imposible que ningún anuncio real cumpliría jamás,
+    // sin avisar al usuario. Misma función que /search (getAttributeTypesForCategory),
+    // no una copia — así no puede volver a divergir.
+    const attributeTypes = dto.categorySlug
+      ? await this.attributesResolver.getAttributeTypesForCategory(dto.categorySlug)
+      : await this.attributesResolver.getAttributeTypes();
     const attributes = this.coerceAttributes(dto.attributes, attributeTypes);
 
     const alert = await this.prisma.alert.create({
@@ -82,7 +91,20 @@ export class AlertsService {
     if (dto.lng !== undefined) data.lng = dto.lng;
     if (dto.radius !== undefined) data.radiusMeters = Math.round(dto.radius * 1000);
     if (dto.attributes !== undefined) {
-      const attributeTypes = await this.attributesResolver.getAttributeTypes();
+      // Categoría EFECTIVA para el guard: la que llega en este mismo PATCH si la
+      // toca, si no la ya guardada — un PATCH que solo toca `attributes` debe
+      // seguir validando contra la categoría real de la alerta, no contra el mapa
+      // global. Alerta inexistente/ajena → categorySlug queda undefined → cae al
+      // mapa global, pero es inofensivo: el updateMany de abajo la resuelve a 404
+      // de todas formas.
+      const categorySlug =
+        dto.categorySlug !== undefined
+          ? dto.categorySlug
+          : (await this.prisma.alert.findFirst({ where: { id, userId }, select: { categorySlug: true } }))
+              ?.categorySlug;
+      const attributeTypes = categorySlug
+        ? await this.attributesResolver.getAttributeTypesForCategory(categorySlug)
+        : await this.attributesResolver.getAttributeTypes();
       data.attributes = this.coerceAttributes(
         dto.attributes,
         attributeTypes,

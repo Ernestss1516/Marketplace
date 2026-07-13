@@ -92,7 +92,7 @@ describe('AdminService — refresco en caliente encolado solo cuando cambia attr
 });
 
 describe('AdminService — el chequeo "hacia abajo" solo consulta hijos/anuncios si la política REALMENTE cambia', () => {
-  it('editar name/schema sin allowedListingType → NO consulta children ni listing.count', async () => {
+  it('editar name/schema sin allowedListingType → NO consulta listing.count (el chequeo de política no corre)', async () => {
     const { service, prisma } = buildService();
 
     await service.updateCategory('cat-1', 'actor-1', {
@@ -100,7 +100,16 @@ describe('AdminService — el chequeo "hacia abajo" solo consulta hijos/anuncios
       attributeSchema: [{ name: 'brand', label: 'Marca', type: 'text', filterable: true, required: false }],
     });
 
-    expect(prisma.category.findMany).not.toHaveBeenCalled();
+    // category.findMany SÍ se llama ahora — no por el chequeo de política (que este
+    // test verifica que no corre), sino por assertCardAttributeChangeDoesNotBreakChildren
+    // (ATRIBUTOS EN CARD, bug 2): editar attributeSchema siempre comprueba si el
+    // cambio rompería el tope de card de alguna hija existente. Ambos chequeos
+    // llaman a category.findMany por razones distintas; listing.count sigue siendo
+    // exclusivo del chequeo de política, y por eso sigue sin llamarse aquí.
+    expect(prisma.category.findMany).toHaveBeenCalledWith({
+      where: { parentId: 'cat-1' },
+      select: { id: true, name: true, attributeSchema: true },
+    });
     expect(prisma.listing.count).not.toHaveBeenCalled();
   });
 

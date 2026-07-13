@@ -184,6 +184,8 @@ enlaces ancla — funcionan en GitHub y en la vista previa de Markdown de VS Cod
 - [Dos bugs de RÁFAGA 2 encontrados y corregidos de raíz (2026-07-13)](#dos-bugs-de-ráfaga-2-encontrados-y-corregidos-de-raíz-2026-07-13)
 - [Atributos en card: respetar producto/servicio (2026-07-13)](#atributos-en-card-respetar-productoservicio-2026-07-13)
 - [Auditoría — herencia de atributos en categorías + dos bugs de filtros (2026-07-13)](#auditoría--herencia-de-atributos-en-categorías--dos-bugs-de-filtros-2026-07-13)
+- [Filtros — cerrando dos hallazgos de la auditoría + guarda de profundidad (2026-07-14)](#filtros--cerrando-dos-hallazgos-de-la-auditoría--guarda-de-profundidad-2026-07-14)
+- [Dos bugs de atributos en card: no-filtrables ausentes + contadores sin herencia (2026-07-14)](#dos-bugs-de-atributos-en-card-no-filtrables-ausentes--contadores-sin-herencia-2026-07-14)
 - [Pro downgrade con des-indexado de Meilisearch (RF.7-B.2 — bug detectado y corregido)](#pro-downgrade-con-des-indexado-de-meilisearch-rf7-b2-bug-detectado-y-corregido)
 - [Settings: whitelist explícita en el service (Fase 7)](#settings-whitelist-explícita-en-el-service-fase-7)
 - [Migración `add_audit_log_and_settings` (Fase 7)](#migración-addauditlogandsettings-fase-7)
@@ -3261,6 +3263,175 @@ de la Parte 1 Y para el bug A (navegación padre→hija arrastrando `province=Ma
 Bug B verificado en `/busqueda` con Playwright: aparece/desaparece "Condición" al
 cambiar Productos↔Servicios; `curl` directo al servidor de desarrollo confirma el
 400 del backend. Categoría, anuncio y alerta de prueba eliminados al cerrar.
+
+### Filtros — cerrando dos hallazgos de la auditoría + guarda de profundidad (2026-07-14)
+
+Cierra los tres hallazgos NO corregidos que dejó la auditoría de la sesión anterior.
+
+**1. FACET_ATTRIBUTES (lista editorial fija) → facetas derivadas del schema.**
+Antes, `search.service.ts` pedía a Meilisearch las facetas de una lista escrita a
+mano (`FACET_ATTRIBUTES`) — un atributo marcado `filterable:true` en el schema de
+una categoría (la ÚNICA config que un admin puede tocar) no aparecía como filtro en
+la UI a menos que alguien también recordara añadir su nombre a esa constante. Dos
+fuentes de verdad para "¿esto se puede filtrar?", y la que mandaba en la UI no era
+la que el admin configuraba. **Arreglado:** `SearchController` ya resolvía
+`attributeTypes` (vía `FilterableAttributesResolver.getAttributeTypesForCategory`/
+`getAttributeTypes`, scoped por categoría cuando hay una) para validar los query
+params — ahora esas mismas claves (`attributeTypes.keys()`) se pasan a
+`SearchService.search()` como `attributeFacetNames`, que las une a un `
+NATIVE_FACET_ATTRIBUTES` reducido (`categorySlug, type, condition, priceType,
+province` — los únicos que NO vienen del schema). Una fuente, no dos. La faceta de
+`onlyBoosted` (la query interna del bloque "Promocionados", cuyo resultado nunca se
+expone al frontend) se omite por completo — coste gratis ahorrado ahora que la
+lista puede ser mucho más larga que antes.
+
+**Medido antes de decidir (no asumido), como se pidió:** hoy hay 21 nombres de
+atributo filtrable ÚNICOS en total (30 categorías, máx. 5 por schema propio de una
+categoría). Comparado en vivo contra el índice real de Meilisearch (33 documentos,
+20 repeticiones por caso): pedir las 11 facetas de la lista vieja tarda de media
+0.95ms; pedir las 27 (todas las de hoy + nativas) tarda 1.10ms; sin pedir ninguna,
+0.85ms — diferencia dentro del ruido de medición a este volumen. La opción de
+acotar por categoría cuando hay una (la inmensa mayoría de las búsquedas, vía
+`/[categoria]` o el filtro de categoría en `/busqueda`) YA estaba implementada de
+antes (`getAttributeTypesForCategory` nunca devuelve más de lo propio + heredado de
+una categoría, hoy máx. ~6) — es el caso general (`/busqueda` sin categoría) el
+único que pide la unión completa (hoy 21). Si el catálogo crece a un punto donde
+eso importe, la opción documentada es acotar ese caso general también (nativas +
+las N más comunes, o requerir categoría) — no implementado porque medir hoy no lo
+justifica.
+
+**2. Alertas — mismo cross-category leak que RÁFAGA 1 arregló en `/search`.**
+`AlertsService.create()`/`update()` usaban `getAttributeTypes()` (mapa global
+plano) en vez de `getAttributeTypesForCategory(dto.categorySlug)` — confirmado
+antes de tocar código: una alerta con `categorySlug:'coches'` y
+`attributes:{sqm:80}` (atributo de pisos/casas, nada que ver con coches) se
+aceptaba (201) donde `/search` con la misma combinación ya daba 400. Consecuencia
+real: el usuario crea una alerta con un criterio imposible y nunca le salta nada,
+sin ningún aviso. **Arreglado** reusando la MISMA función que `/search` (no una
+copia): `create()` resuelve `attributeTypes` por `dto.categorySlug` cuando lo hay;
+`update()` usa el `categorySlug` que llegue en el propio PATCH, o si el PATCH solo
+toca `attributes`, el YA guardado en la alerta (una lectura extra puntual, solo en
+ese caso) — un PATCH que no toca la categoría no debe relajar la validación de
+qué categoría es. El código de error sigue siendo 422 (`UnprocessableEntityException`,
+el que `coerceAttributes` ya usaba) — no se cambió a 400 porque el pedido era
+igualar el ALCANCE de la validación (misma función), no el código HTTP, y no hay
+ningún consumidor del frontend que dependa de un código concreto para alertas.
+**Alertas ya existentes con criterios imposibles:** comprobado con un script
+puntual (no persistido en el repo) que replica `getAttributeTypesForCategory`
+sobre todas las alertas con `attributes` no vacío en la base de datos de
+desarrollo — **0 encontradas**. No hace falta limpieza ni aviso al usuario en este
+entorno; el mismo script puede correrse contra producción antes de desplegar este
+fix si se quiere el conteo real ahí.
+
+**3. Profundidad de la jerarquía — opción A (barata) implementada.** El modelo
+(`Category.parentId`, autorreferencial) permitía N niveles sin que ningún DTO ni
+servicio lo impidiera; toda la lógica de herencia asume exactamente 2. **Arreglado**
+con una guarda en `admin.service.ts::createCategory()`
+(`assertParentIsRoot`): si `dto.parentId` apunta a una categoría que YA tiene
+padre, 400 con mensaje claro ("ya es una subcategoría — el árbol admite solo 2
+niveles"). `UpdateCategoryDto` no tiene `parentId` en absoluto (ya era inmutable
+tras crear), así que la guarda en `createCategory` cierra el único punto de
+entrada. La UI del admin ya lo impedía estructuralmente (sin botón "Nueva
+subcategoría" en una fila de hijo); esto cierra el hueco para cualquier llamada
+directa a la API. Opción B (generalizar `resolveEffectiveSchema` a N niveles)
+queda documentada como la alternativa si el negocio necesita 3+ niveles algún día.
+
+**Tests:** `search-facets-schema-derived.e2e-spec.ts` (nuevo, 6 casos — LA prueba
+pedida: un atributo nunca antes visto en la lista editorial vieja, marcado
+`filterable:true`, aparece como faceta sin tocar código; uno `filterable:false` no
+aparece; facetas por categoría no se filtran entre sí; sin categoría → unión
+global; nativos siempre presentes). `alerts.e2e-spec.ts` (+4 casos: atributo
+cross-categoría → 422, el mismo atributo válido en su categoría real → 201, sin
+categoría → sigue permitido, PATCH que solo toca `attributes` valida contra la
+categoría ya guardada). `rc5-attributes.e2e-spec.ts` (+2 casos: crear un nieto →
+400, crear una categoría normal bajo una raíz → 201 sin cambios). Batería completa:
+backend 12 suites/106 tests unitarios + 57 suites/885 tests e2e (`npm run
+test:e2e`, serial), todos verdes — sin cambios en frontend, no hacía falta
+re-ejecutar esa batería. **QA en vivo** contra el servidor de desarrollo real (no
+solo el de test): categoría nueva con un atributo `torque` (nunca configurado
+antes) marcado `filterable:true` → apareció como faceta en `GET /search`
+inmediatamente; intento de crear un nieto bajo "Coches" → 400 con el mensaje
+exacto; alerta con atributo cruzado sobre "Coches" → 422; alerta con atributo
+válido → 201. Medición de rendimiento contra el índice de Meilisearch real (ver
+arriba). Datos de prueba eliminados al cerrar.
+
+### Dos bugs de atributos en card: no-filtrables ausentes + contadores sin herencia (2026-07-14)
+
+Ambos partían de hipótesis concretas de rondas anteriores — comprobadas antes de tocar código.
+
+**BUG 1 — los atributos de card de SERVICIOS (y de PRODUCTO no-filtrables en general) no
+se mostraban en `/busqueda`/`/[categoria]`.** Hipótesis confirmada mirando la BD de
+desarrollo real: los atributos de servicio que Ernest había configurado (`serv`/`other`
+en "Coches", `material` en "Muebles"...) eran `cardAttribute:true` pero `filterable:false`
+— exactamente el hallazgo colateral "latente" documentado en la ráfaga de producto/
+servicio, activado por el patrón real de configurar atributos de servicio como
+decorativos. Confirmado que NO es un bug específico de servicio: "Muebles" tenía también
+un atributo `prod` (solo-PRODUCTO) igual de afectado — es un bug de "no filtrable", que
+solo se manifiesta más en servicios porque sus atributos (tarifa, modalidad...) rara vez
+necesitan ser un filtro de búsqueda.
+
+Comprobado ANTES de tocar código, con un anuncio real: el documento de Meilisearch
+(`toDocument()`, sin cambios) SÍ tenía los campos no-filtrables indexados como raw fields
+— el problema no era el índice, era `normalizeHit()` en `SearchController`, que
+reconstruía `hit.attributes` iterando SOLO `attributeTypes.keys()` (el mapa FILTRABLE de
+`FilterableAttributesResolver`). Arreglado separando las dos preguntas, que son
+independientes: "¿es un filtro válido?" (sigue siendo `getAttributeTypes(ForCategory)`,
+sin cambios) vs. "¿es un atributo de esta categoría, se muestre donde se muestre?" (nuevo
+`getAllAttributeNames(ForCategory)` en `FilterableAttributesResolver` — mismo merge
+padre/hija que ya usaba `getAttributeTypesForCategory`, extraído a un método privado
+compartido `mergeSchemasForCategory`, sin el filtro `filterable` final). `normalizeHit()`
+ahora usa el segundo. No hizo falta tocar `toDocument()` ni reindexar nada — el dato ya
+estaba ahí.
+
+**BUG 2 — los contadores de card no contaban la herencia; el hueco real estaba en el
+padre, no en la hija.** Comprobado en vivo con un padre + una hija reales antes de
+arreglar nada: (a) crear una hija con sus propios `cardAttribute` cuando el padre YA
+tiene 2 → **ya rechazaba con 400** (`validateCardAttributeLimit` ya fusiona con el padre
+al crear/editar la hija — esto NUNCA estuvo roto); (b) el contador del admin
+(`AttributeSchemaEditor`, "Card estándar — Producto: X/2...") YA contaba correctamente
+lo heredado — verificado abriendo el editor de una hija con 2 propios + 2 heredados: el
+contador mostraba **"4/2"**, no "2/2" — el mecanismo de conteo (`otherFields()` +
+`countByType()`, de la ráfaga de producto/servicio) ya incluía `inheritedFields`. **El
+hueco real:** editar el PADRE para AÑADIR cardAttribute nunca comprobaba si eso rompía a
+una HIJA que ya tenía los suyos — confirmado en vivo: padre vacío + hija con 2 propios
+(válido, 2/2) → PATCH al padre añadiendo 2 más → **201, aceptado sin más** — la hija
+quedó con un schema efectivo de 4 (`GET /categories` tree lo mostraba tal cual, sin
+truncar a 2 ni avisar).
+
+**Arreglado validando en el padre (no truncando en render)** — decisión explícita, más
+honesta que cortar en silencio: nuevo `assertCardAttributeChangeDoesNotBreakChildren()`
+en `admin.service.ts`, llamado desde `updateCategory()` junto a la validación existente
+(que mira hacia el padre) cada vez que se edita `attributeSchema`. Por cada hija DIRECTA,
+recalcula su schema efectivo con el schema NUEVO propuesto para el padre (mismo
+`resolveEffectiveSchema` + `countAttributesByType` de siempre — ninguna lógica de merge
+nueva) y rechaza con 400 nombrando la hija, el tipo y el conteo exacto si excede. Sin
+hijas, el chequeo es un no-op inmediato (no paga ningún coste). Comprobado que no hay
+categorías YA rotas en la base de datos de desarrollo real (script puntual, no
+persistido en el repo) — solo mis propias categorías de prueba, limpiadas al cerrar.
+
+**Tests:** `filterable-attributes.resolver.spec.ts` (+4 casos: `getAllAttributeNames(ForCategory)`
+incluye lo no-filtrable, hoja/padre con el mismo criterio de merge, slug desconocido).
+`search-card-attributes-not-filterable.e2e-spec.ts` (nuevo, 4 casos: LA prueba —
+cardAttribute no-filtrable aparece en `hit.attributes`; un filtrable sigue igual; sin
+categoría también aparece; el bloque `featured` no rompe con el `Set` nuevo).
+`rc5-attributes.e2e-spec.ts` (+4 casos: crear hija que rompe el tope del padre seguía
+rechazando — regresión cubierta; **el bug** — editar el padre que rompe una hija ya
+existente → 400 nombrando la hija, la hija no se toca; editar el padre con un cambio que
+SÍ cabe (1+1) → 201; categoría sin hijas nunca paga el coste extra). Una prueba unitaria
+existente (`admin.service.category-policy.spec.ts`) se actualizó: ya no podía afirmar
+"`category.findMany` nunca se llama al editar name+schema sin tocar la política" — ahora
+SÍ se llama, por el nuevo chequeo (motivo distinto, mismo método de Prisma); `listing.count`
+(exclusivo del chequeo de política) sigue sin llamarse ahí, que es lo que la prueba
+realmente necesitaba proteger. Batería completa: backend 12 suites/110 tests unitarios +
+58 suites/893 tests e2e (`npm run test:e2e`, serial), todos verdes — sin cambios en
+frontend, no hacía falta re-ejecutar esa batería. **QA en vivo** contra el servidor de
+desarrollo real con una jerarquía padre+hija real y un anuncio de cada tipo: el padre
+con un atributo decorativo (`notes`, ambos tipos, no filtrable) y la hija con `tariff`
+(solo SERVICIO, no filtrable) y `km` (solo PRODUCTO, filtrable) — la card de PRODUCTO
+mostró "Notas: ... · 85000 km" y la de SERVICIO "Notas: ... · Tarifa: ..." en las 4
+combinaciones (`/[categoria]` hija, `/busqueda`, `/[categoria]` padre), confirmando que
+el bug 1 y la herencia funcionan juntos correctamente. Datos de prueba eliminados al
+cerrar.
 
 ### Pro downgrade con des-indexado de Meilisearch (RF.7-B.2 — bug detectado y corregido)
 

@@ -4,7 +4,6 @@ import { SearchService, type SearchParams } from './search.service';
 import { FilterableAttributesResolver } from './filterable-attributes.resolver';
 import { parseSearchQuery } from './search-query.parser';
 import { SponsoredAdsService } from '../sponsored-ads/sponsored-ads.service';
-import type { AttributeField } from '../categories/category.types';
 
 // Posición fija de inserción entre los hits, convención documentada en H6.1.
 const SPONSORED_AD_POSITION = 3;
@@ -48,6 +47,20 @@ export class SearchController {
         : this.attributesResolver.getAttributeTypes(),
     );
 
+    // BUG 1 (post-producto/servicio) — "filterable" (query param válido) y "se
+    // muestra en la card" (cardAttribute/wideCardAttribute) son propiedades
+    // INDEPENDIENTES de un atributo, pero normalizeHit() reconstruía
+    // `hit.attributes` a partir del mapa FILTRABLE (attributeTypes) — un
+    // cardAttribute marcado filterable:false (frecuente en atributos de
+    // servicio: tarifa, modalidad… útiles de mostrar, no de filtrar) nunca
+    // llegaba a `hit.attributes` aunque SÍ estuviera indexado en el documento
+    // de Meilisearch (toDocument() indexa TODOS los atributos, sin mirar
+    // filterable). Set sin restricción, mismo scope por categoría que
+    // attributeTypes — no una copia del cálculo, solo sin el filtro final.
+    const allAttributeNames = dto.category
+      ? await this.attributesResolver.getAllAttributeNamesForCategory(dto.category)
+      : await this.attributesResolver.getAllAttributeNames();
+
     const baseParams: SearchParams = {
       q: dto.q,
       categorySlug: dto.category,
@@ -59,6 +72,10 @@ export class SearchController {
       province: dto.province,
       city: dto.city,
       ...(Object.keys(attributes).length > 0 ? { attributes } : {}),
+      // Facetas de atributo derivadas del MISMO mapa que valida los query params
+      // (auditoría de filtros — antes una lista editorial fija, FACET_ATTRIBUTES,
+      // desconectada de qué atributos configura realmente el admin como filterable).
+      attributeFacetNames: [...attributeTypes.keys()],
       // Geo proximity: all three params required. radius converts km → metres.
       // When geo is set and sort is absent the service orders by _geoPoint distance.
       // Documents without _geo are excluded by Meilisearch's _geoRadius filter.
@@ -74,7 +91,7 @@ export class SearchController {
       hitsPerPage: dto.hitsPerPage,
     });
 
-    const hits = result.hits.map((hit) => this.normalizeHit(hit, attributeTypes));
+    const hits = result.hits.map((hit) => this.normalizeHit(hit, allAttributeNames));
 
     // H6.6 — patrocinados: solo página 1, solo con categoría, un único hueco.
     // Rompe conscientemente el invariante "búsqueda no toca Postgres", mitigado
@@ -104,7 +121,7 @@ export class SearchController {
         page: 1,
         hitsPerPage: FEATURED_BLOCK_SIZE,
       });
-      featured = featuredResult.hits.map((hit) => this.normalizeHit(hit, attributeTypes));
+      featured = featuredResult.hits.map((hit) => this.normalizeHit(hit, allAttributeNames));
     }
 
     return {
@@ -123,12 +140,17 @@ export class SearchController {
   // Normalize a flat Meilisearch document to the ListingSummary contract expected by
   // the frontend. Variable attributes are spread at the top level in the index document
   // but the frontend card reads them from `listing.attributes` (same as the Postgres path).
+  // `allAttributeNames` is UNRESTRICTED by `filterable` on purpose (bug 1, ver arriba) —
+  // the frontend's own CardAttrsDisplay/WideCardAttrsDisplay already narrow this bag
+  // down to whichever keys are cardAttribute/wideCardAttribute for the listing's
+  // category, so surfacing every category-attribute name here (not just the
+  // filterable ones) is safe and matches what /anuncio/[slug] already shows.
   private normalizeHit(
     hit: Record<string, unknown>,
-    attributeTypes: ReadonlyMap<string, AttributeField['type']>,
+    allAttributeNames: ReadonlySet<string>,
   ): Record<string, unknown> {
     const attrs: Record<string, unknown> = {};
-    for (const key of attributeTypes.keys()) {
+    for (const key of allAttributeNames) {
       const v = hit[key];
       if (v !== undefined) attrs[key] = v;
     }

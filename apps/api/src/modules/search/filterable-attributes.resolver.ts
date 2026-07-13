@@ -72,10 +72,47 @@ export class FilterableAttributesResolver {
   async getAttributeTypesForCategory(
     categorySlug: string,
   ): Promise<ReadonlyMap<string, AttributeField['type']>> {
+    const merged = await this.mergeSchemasForCategory(categorySlug);
+    return this.toMap(merged);
+  }
+
+  /**
+   * Like getAttributeTypesForCategory, but returns EVERY attribute name in the
+   * merged (own + inherited) schema, regardless of `filterable`. "Filterable"
+   * (usable as a search query param) and "shown on a card" are independent
+   * properties of an attribute — SearchController.normalizeHit() uses this to
+   * reconstruct the full attribute bag for display (cards, map panel), which
+   * must include cardAttribute/wideCardAttribute fields that were never meant
+   * to be search filters (bug found post-producto/servicio: a card attribute
+   * marked filterable:false silently never reached /busqueda or /[categoria]'s
+   * cards, though it always worked on /anuncio/[slug], which reads
+   * `listing.attributes` straight from Postgres with no such restriction).
+   */
+  async getAllAttributeNamesForCategory(categorySlug: string): Promise<ReadonlySet<string>> {
+    const merged = await this.mergeSchemasForCategory(categorySlug);
+    return new Set(merged.map((f) => f.name));
+  }
+
+  /** Flat union of EVERY attribute name across every category — the unrestricted
+   * counterpart to getAttributeTypes(), for the same reason getAllAttributeNamesForCategory
+   * is the unrestricted counterpart to getAttributeTypesForCategory. */
+  async getAllAttributeNames(): Promise<ReadonlySet<string>> {
+    const categories = await this.loadCategories();
+    return new Set(categories.flatMap((c) => c.schema).map((f) => f.name));
+  }
+
+  /**
+   * Resolves the merged (own + inherited) attribute schema for one category —
+   * shared by getAttributeTypesForCategory and getAllAttributeNamesForCategory,
+   * which differ only in whether the result is then filtered by `filterable`.
+   * See getAttributeTypesForCategory's original doc comment for the LEAF vs
+   * PARENT merge rule (still accurate, just moved here).
+   */
+  private async mergeSchemasForCategory(categorySlug: string): Promise<AttributeField[]> {
     const categories = await this.loadCategories();
     const bySlug = new Map(categories.map((c) => [c.slug, c]));
     const target = bySlug.get(categorySlug);
-    if (!target) return new Map();
+    if (!target) return [];
 
     const children = categories.filter((c) => c.parentSlug === categorySlug);
     const schemasToMerge: AttributeField[][] =
@@ -90,7 +127,7 @@ export class FilterableAttributesResolver {
         if (!merged.has(field.name)) merged.set(field.name, field);
       }
     }
-    return this.toMap([...merged.values()]);
+    return [...merged.values()];
   }
 
   /**

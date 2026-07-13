@@ -19,6 +19,15 @@ const RC5_SLUGS = [
   'rc5-card-ambos-overflow',
   'rc5-widecard-por-tipo-ok',
   'rc5-appliesto-tree',
+  'rc5-nieto-test',
+  'rc5-hijo-normal-test',
+  'rc5-bug2-padre-a',
+  'rc5-bug2-hija-a',
+  'rc5-bug2-padre-b',
+  'rc5-bug2-hija-b',
+  'rc5-bug2-padre-c',
+  'rc5-bug2-hija-c',
+  'rc5-bug2-sin-hijas',
 ];
 
 describe('RC5 — Categorías y atributos (e2e)', () => {
@@ -509,6 +518,184 @@ describe('RC5 — Categorías y atributos (e2e)', () => {
         slug: 'rc5-widecard-por-tipo-ok',
         order: 99,
         attributeSchema: attrs,
+      })
+      .expect(201);
+
+    await prisma.category.delete({ where: { id: res.body.id } });
+  });
+
+  // ── ATRIBUTOS EN CARD — BUG 2: la HERENCIA de la config de card no se
+  // validaba en ambas direcciones. Crear/editar una HIJA ya validaba contra el
+  // padre (arriba); lo que faltaba era que editar el PADRE validara contra sus
+  // HIJAS ya existentes — el tope de card es una propiedad del conjunto
+  // EFECTIVO (propios + heredados), no de lo que cada categoría tiene por su
+  // cuenta.
+
+  it('crear una hija con sus propios cardAttribute cuando el padre YA tiene 2 → 400 (esto YA funcionaba)', async () => {
+    const parent = await request(app.getHttpServer())
+      .post('/api/admin/categories')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        name: 'RC5 Bug2 Padre A', slug: 'rc5-bug2-padre-a', order: 99,
+        attributeSchema: [
+          { name: 'pa1', label: 'PA1', type: 'text', filterable: false, required: false, cardAttribute: true },
+          { name: 'pa2', label: 'PA2', type: 'text', filterable: false, required: false, cardAttribute: true },
+        ],
+      })
+      .expect(201);
+
+    const res = await request(app.getHttpServer())
+      .post('/api/admin/categories')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        name: 'RC5 Bug2 Hija A', slug: 'rc5-bug2-hija-a', parentId: parent.body.id, order: 1,
+        attributeSchema: [
+          { name: 'ha1', label: 'HA1', type: 'text', filterable: false, required: false, cardAttribute: true },
+          { name: 'ha2', label: 'HA2', type: 'text', filterable: false, required: false, cardAttribute: true },
+        ],
+      })
+      .expect(400);
+
+    expect(res.body.message).toMatch(/producto/i);
+    await prisma.category.delete({ where: { id: parent.body.id } });
+  });
+
+  it('EL BUG: editar el PADRE para añadir 2 cardAttribute cuando la HIJA ya tiene los suyos propios → 400 (antes: 201, sin avisar)', async () => {
+    const parent = await request(app.getHttpServer())
+      .post('/api/admin/categories')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ name: 'RC5 Bug2 Padre B', slug: 'rc5-bug2-padre-b', order: 99, attributeSchema: [] })
+      .expect(201);
+
+    const child = await request(app.getHttpServer())
+      .post('/api/admin/categories')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        name: 'RC5 Bug2 Hija B', slug: 'rc5-bug2-hija-b', parentId: parent.body.id, order: 1,
+        attributeSchema: [
+          { name: 'hb1', label: 'HB1', type: 'text', filterable: false, required: false, cardAttribute: true },
+          { name: 'hb2', label: 'HB2', type: 'text', filterable: false, required: false, cardAttribute: true },
+        ],
+      })
+      .expect(201);
+
+    const patchRes = await request(app.getHttpServer())
+      .patch(`/api/admin/categories/${parent.body.id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        attributeSchema: [
+          { name: 'pb1', label: 'PB1', type: 'text', filterable: false, required: false, cardAttribute: true },
+          { name: 'pb2', label: 'PB2', type: 'text', filterable: false, required: false, cardAttribute: true },
+        ],
+      })
+      .expect(400);
+
+    expect(patchRes.body.message).toMatch(/RC5 Bug2 Hija B/);
+    expect(patchRes.body.message).toMatch(/producto/i);
+
+    // La hija sigue con su schema original (el PATCH del padre nunca se aplicó).
+    const childEffective = await request(app.getHttpServer())
+      .get('/api/categories/rc5-bug2-hija-b')
+      .expect(200);
+    expect(childEffective.body.attributeSchema.map((f: { name: string }) => f.name)).toEqual(['hb1', 'hb2']);
+
+    await prisma.category.delete({ where: { id: child.body.id } });
+    await prisma.category.delete({ where: { id: parent.body.id } });
+  });
+
+  it('editar el PADRE con un cardAttribute que SÍ cabe junto con los de la hija (1+1) → 201', async () => {
+    const parent = await request(app.getHttpServer())
+      .post('/api/admin/categories')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ name: 'RC5 Bug2 Padre C', slug: 'rc5-bug2-padre-c', order: 99, attributeSchema: [] })
+      .expect(201);
+
+    const child = await request(app.getHttpServer())
+      .post('/api/admin/categories')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        name: 'RC5 Bug2 Hija C', slug: 'rc5-bug2-hija-c', parentId: parent.body.id, order: 1,
+        attributeSchema: [
+          { name: 'hc1', label: 'HC1', type: 'text', filterable: false, required: false, cardAttribute: true },
+        ],
+      })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .patch(`/api/admin/categories/${parent.body.id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        attributeSchema: [
+          { name: 'pc1', label: 'PC1', type: 'text', filterable: false, required: false, cardAttribute: true },
+        ],
+      })
+      .expect(200);
+
+    const childEffective = await request(app.getHttpServer())
+      .get('/api/categories/rc5-bug2-hija-c')
+      .expect(200);
+    expect(childEffective.body.attributeSchema.map((f: { name: string }) => f.name).sort())
+      .toEqual(['hc1', 'pc1']);
+
+    await prisma.category.delete({ where: { id: child.body.id } });
+    await prisma.category.delete({ where: { id: parent.body.id } });
+  });
+
+  it('editar una categoría SIN hijas nunca paga el coste de esta comprobación (sigue aceptando su propio tope normal)', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/api/admin/categories')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        name: 'RC5 Bug2 Sin Hijas', slug: 'rc5-bug2-sin-hijas', order: 99,
+        attributeSchema: [
+          { name: 'x1', label: 'X1', type: 'text', filterable: false, required: false, cardAttribute: true },
+        ],
+      })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .patch(`/api/admin/categories/${res.body.id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        attributeSchema: [
+          { name: 'x1', label: 'X1', type: 'text', filterable: false, required: false, cardAttribute: true },
+          { name: 'x2', label: 'X2', type: 'text', filterable: false, required: false, cardAttribute: true },
+        ],
+      })
+      .expect(200);
+
+    await prisma.category.delete({ where: { id: res.body.id } });
+  });
+
+  // ── AUDITORÍA DE FILTROS — guarda de profundidad (opción A, la barata): el
+  // árbol de categorías admite solo 2 niveles (padre → hija). Antes de esta
+  // guarda, un POST con parentId = una categoría que YA tiene padre (un nieto)
+  // se aceptaba sin más y desaparecía en silencio de GET /categories.
+
+  it('POST /admin/categories con parentId = una categoría que YA tiene padre (nieto) → 400', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/api/admin/categories')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        name: 'RC5 Nieto',
+        slug: 'rc5-nieto-test',
+        parentId: catChildId, // rc5-ordenadores-test, que a su vez cuelga de rc5-tech-parent
+        order: 99,
+      })
+      .expect(400);
+
+    expect(res.body.message).toMatch(/2 niveles|subcategoría/i);
+  });
+
+  it('POST /admin/categories con parentId = una categoría RAÍZ (sin padre) → 201, sin cambios', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/api/admin/categories')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        name: 'RC5 Hijo Normal',
+        slug: 'rc5-hijo-normal-test',
+        parentId: catParentId, // rc5-tech-parent, categoría raíz
+        order: 99,
       })
       .expect(201);
 
