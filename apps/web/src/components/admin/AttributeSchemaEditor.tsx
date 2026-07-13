@@ -86,6 +86,24 @@ function countByType(
   return counts;
 }
 
+// IMPACTO EN HIJAS (contador, no solo validación al guardar) — mirrors
+// resolveEffectiveSchema (category.types.ts, backend): la hija SIEMPRE gana
+// sobre el padre en un mismo `name` — misma duplicación que countByType/
+// toAttrDef arriba, por la misma razón (no hay paquete compartido api/web).
+// `own` (la hija) y `parentSchema` (el padre, con el draft ya aplicado) pueden
+// ser formas ligeramente distintas — countByType solo necesita el subconjunto
+// común (cardAttribute/wideCardAttribute/appliesTo), así que el resultado se
+// tipa como unión en vez de forzar un único T.
+function mergeEffective<A extends { name: string }, B extends { name: string }>(
+  own: A[],
+  parentSchema: B[],
+): (A | B)[] {
+  if (!parentSchema.length) return own;
+  const ownNames = new Set(own.map((f) => f.name));
+  const inherited = parentSchema.filter((f) => !ownNames.has(f.name));
+  return [...inherited, ...own];
+}
+
 function parseAppliesTo(value: unknown): ListingType[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const valid = value.filter((v): v is ListingType => v === 'PRODUCT' || v === 'SERVICE');
@@ -341,6 +359,16 @@ interface AttributeSchemaEditorProps {
    * Omit for the create-category flow, where no rename can ever have data.
    */
   checkAttributeUsage?: (oldKey: string) => Promise<number>;
+  /**
+   * IMPACTO EN HIJAS — solo se pasa cuando esta categoría es una RAÍZ que YA
+   * tiene subcategorías. Sin esto, editar el PADRE solo mostraba el error de
+   * validación AL GUARDAR (assertCardAttributeChangeDoesNotBreakChildren, ya
+   * existente) — nada visible mientras se edita, a diferencia del contador de
+   * la propia categoría. Con esto, cada hija se recalcula en vivo con el
+   * schema del padre TAL COMO quedaría con el draft actual (confirmado en
+   * vivo con Ernest: quería ver el impacto, no solo el error al guardar).
+   */
+  childCategories?: { name: string; attributeSchema: AttributeSchema[] }[];
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -354,6 +382,7 @@ export function AttributeSchemaEditor({
   onHasActiveEdit,
   disabled = false,
   checkAttributeUsage,
+  childCategories,
 }: AttributeSchemaEditorProps) {
   const [rows, setRows] = useState<AttributeSchemaWithExtras[]>(() => [...ownSchema]);
   const [editingIdx, setEditingIdx] = useState<number | null>(null); // -1 = adding new
@@ -508,6 +537,37 @@ export function AttributeSchemaEditor({
     return counts;
   }
 
+  /**
+   * IMPACTO EN HIJAS — el schema PROPIO de esta categoría (no el efectivo: esta
+   * categoría, si tiene hijas, es una raíz sin padre propio) tal como quedaría
+   * con el draft actual ya aplicado — mismo criterio que usa commitDraft() para
+   * construir `newRows`, pero recalculado en cada render (sin comprometer nada)
+   * para que el impacto se vea MIENTRAS se edita, no solo tras guardar.
+   */
+  function proposedOwnSchema(): { name: string; cardAttribute?: boolean; wideCardAttribute?: boolean; appliesTo?: ListingType[] }[] {
+    const base = rows.map((r) => ({ name: r.name, cardAttribute: r.cardAttribute, wideCardAttribute: r.wideCardAttribute, appliesTo: r.appliesTo }));
+    if (!draft) return base;
+    const draftEntry = {
+      name: draft.name.trim(),
+      cardAttribute: draft.cardAttribute || undefined,
+      wideCardAttribute: draft.wideCardAttribute || undefined,
+      appliesTo: draft.appliesTo.length < 2 ? draft.appliesTo : undefined,
+    };
+    return editingIdx === -1 ? [...base, draftEntry] : base.map((r, i) => (i === editingIdx ? draftEntry : r));
+  }
+
+  /** Por cada hija: su schema efectivo con el schema del padre TAL COMO quedaría
+   * con este draft — mismo mergeEffective que ya usa el backend (resolveEffectiveSchema),
+   * no un cálculo nuevo que pueda divergir. */
+  function childrenImpact(flag: CardFlag): { name: string; counts: TypeCounts }[] {
+    if (!childCategories || childCategories.length === 0) return [];
+    const proposedParent = proposedOwnSchema();
+    return childCategories.map((child) => ({
+      name: child.name,
+      counts: countByType(mergeEffective(child.attributeSchema, proposedParent), flag),
+    }));
+  }
+
   const canInteract = !disabled && editingIdx === null && deletingIdx === null;
   const parentCandidates = collectParentCandidates(rows, inheritedFields, editingIdx);
 
@@ -602,6 +662,8 @@ export function AttributeSchemaEditor({
                     wideCardAttributeDisabled={wideCardDisabled()}
                     cardCounts={displayCounts('cardAttribute')}
                     wideCardCounts={displayCounts('wideCardAttribute')}
+                    cardChildrenImpact={childrenImpact('cardAttribute')}
+                    wideCardChildrenImpact={childrenImpact('wideCardAttribute')}
                     optionInput={optionInput}
                     setOptionInput={setOptionInput}
                     onAddOption={addOption}
@@ -684,6 +746,8 @@ export function AttributeSchemaEditor({
                 wideCardAttributeDisabled={wideCardDisabled()}
                 cardCounts={displayCounts('cardAttribute')}
                 wideCardCounts={displayCounts('wideCardAttribute')}
+                cardChildrenImpact={childrenImpact('cardAttribute')}
+                wideCardChildrenImpact={childrenImpact('wideCardAttribute')}
                 optionInput={optionInput}
                 setOptionInput={setOptionInput}
                 onAddOption={addOption}
@@ -726,6 +790,9 @@ interface FieldFormProps {
    * el propio draft si está marcado, para mostrar "Producto: X/2 · Servicio: Y/2". */
   cardCounts: TypeCounts;
   wideCardCounts: TypeCounts;
+  /** IMPACTO EN HIJAS — vacío si esta categoría no tiene hijas. */
+  cardChildrenImpact: { name: string; counts: TypeCounts }[];
+  wideCardChildrenImpact: { name: string; counts: TypeCounts }[];
   optionInput: string;
   setOptionInput: (v: string) => void;
   onAddOption: () => void;
@@ -746,6 +813,8 @@ function FieldForm({
   wideCardAttributeDisabled,
   cardCounts,
   wideCardCounts,
+  cardChildrenImpact,
+  wideCardChildrenImpact,
   optionInput,
   setOptionInput,
   onAddOption,
@@ -1067,6 +1136,37 @@ function FieldForm({
         Card estándar — Producto: {cardCounts.PRODUCT}/2 · Servicio: {cardCounts.SERVICE}/2
         {' · '}Card ampliada — Producto: {wideCardCounts.PRODUCT}/6 · Servicio: {wideCardCounts.SERVICE}/6
       </p>
+
+      {/* IMPACTO EN HIJAS — solo aparece editando una categoría RAÍZ con
+          subcategorías. Un anuncio publicado EN el padre nunca ve los atributos
+          de una hija (la herencia va padre→hija, no al revés) — esto no es "lo
+          que verá la card del padre", es informativo: cuánto quedaría cada hija
+          si se guarda el cambio actual, para no descubrirlo con el error al
+          guardar (assertCardAttributeChangeDoesNotBreakChildren, backend). */}
+      {cardChildrenImpact.length > 0 && (
+        <div className="space-y-1 rounded-md border border-dashed p-2" data-testid="children-impact">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Impacto en subcategorías
+          </p>
+          {cardChildrenImpact.map((child, i) => {
+            const wide = wideCardChildrenImpact[i];
+            const exceeds =
+              child.counts.PRODUCT > 2 || child.counts.SERVICE > 2 ||
+              wide.counts.PRODUCT > 6 || wide.counts.SERVICE > 6;
+            return (
+              <p
+                key={child.name}
+                className={`text-[11px] ${exceeds ? 'font-medium text-destructive' : 'text-muted-foreground'}`}
+                data-testid={`child-impact-${child.name}`}
+              >
+                {exceeds && '⚠ '}
+                {child.name} — Card: Producto {child.counts.PRODUCT}/2 · Servicio {child.counts.SERVICE}/2
+                {' · '}Ampliada: Producto {wide.counts.PRODUCT}/6 · Servicio {wide.counts.SERVICE}/6
+              </p>
+            );
+          })}
+        </div>
+      )}
 
       {/* Vista previa (RÁFAGA 3) — cómo queda el atributo en la card con un valor de ejemplo */}
       <p className="text-[11px] text-muted-foreground" data-testid="attr-preview">

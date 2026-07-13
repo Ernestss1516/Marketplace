@@ -223,6 +223,14 @@ interface SchemaEditorPanelProps {
   onSave: () => void;
   onHasActiveEdit: (v: boolean) => void;
   checkAttributeUsage?: (oldKey: string) => Promise<number>;
+  /**
+   * Solo cuando se edita una categoría RAÍZ que ya tiene hijas — su propio
+   * schema (crudo, sin fusionar). AttributeSchemaEditor lo usa para mostrar,
+   * mientras se edita/añade un atributo del PADRE, el impacto que tendría en
+   * CADA hija (su schema efectivo resultante) — un contador, no solo el error
+   * de validación que ya existía al guardar (assertCardAttributeChangeDoesNotBreakChildren).
+   */
+  childCategories?: { name: string; attributeSchema: AttributeSchema[] }[];
 }
 
 function SchemaEditorPanel({
@@ -240,6 +248,7 @@ function SchemaEditorPanel({
   onSave,
   onHasActiveEdit,
   checkAttributeUsage,
+  childCategories,
 }: SchemaEditorPanelProps) {
   return (
     <div className="mt-4 rounded-md border bg-muted/10 p-4">
@@ -269,6 +278,7 @@ function SchemaEditorPanel({
           onHasActiveEdit={onHasActiveEdit}
           disabled={saving}
           checkAttributeUsage={checkAttributeUsage}
+          childCategories={childCategories}
         />
       )}
 
@@ -725,8 +735,10 @@ export default function AdminCategoriasPage() {
     );
   }
 
-  // Schema panel props for the currently-editing category (shared between root and child rows)
-  function buildSchemaPanel(cat: AdminCategoryChild): SchemaEditorPanelProps {
+  // Schema panel props for the currently-editing category (shared between root and child rows).
+  // `children` solo se pasa desde la fila RAÍZ (la única que puede tener hijas en el
+  // modelo de 2 niveles) — ver childCategories en SchemaEditorPanelProps.
+  function buildSchemaPanel(cat: AdminCategoryChild, children?: AdminCategoryChild[]): SchemaEditorPanelProps {
     return {
       catId: cat.id,
       ownSchema: editOwnSchema,
@@ -743,6 +755,7 @@ export default function AdminCategoriasPage() {
       onHasActiveEdit: setSchemaHasActiveEdit,
       checkAttributeUsage: (key) =>
         getCategoryAttributeUsage(token!, cat.id, key).then((r) => r.count),
+      childCategories: children?.map((c) => ({ name: c.name, attributeSchema: c.attributeSchema })),
     };
   }
 
@@ -832,7 +845,7 @@ export default function AdminCategoriasPage() {
               onEditCancel={() => setEditingId(null)}
               editSaving={editSaving}
               editError={editError}
-              schemaPanel={editingId === cat.id ? buildSchemaPanel(cat) : null}
+              schemaPanel={editingId === cat.id ? buildSchemaPanel(cat, cat.children) : null}
               indent={false}
             />
 

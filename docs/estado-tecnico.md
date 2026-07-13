@@ -186,6 +186,7 @@ enlaces ancla — funcionan en GitHub y en la vista previa de Markdown de VS Cod
 - [Auditoría — herencia de atributos en categorías + dos bugs de filtros (2026-07-13)](#auditoría--herencia-de-atributos-en-categorías--dos-bugs-de-filtros-2026-07-13)
 - [Filtros — cerrando dos hallazgos de la auditoría + guarda de profundidad (2026-07-14)](#filtros--cerrando-dos-hallazgos-de-la-auditoría--guarda-de-profundidad-2026-07-14)
 - [Dos bugs de atributos en card: no-filtrables ausentes + contadores sin herencia (2026-07-14)](#dos-bugs-de-atributos-en-card-no-filtrables-ausentes--contadores-sin-herencia-2026-07-14)
+- [Contadores de atributos de card — resuelto el desacuerdo con hechos, añadido "impacto en hijas" (2026-07-14)](#contadores-de-atributos-de-card--resuelto-el-desacuerdo-con-hechos-añadido-impacto-en-hijas-2026-07-14)
 - [Pro downgrade con des-indexado de Meilisearch (RF.7-B.2 — bug detectado y corregido)](#pro-downgrade-con-des-indexado-de-meilisearch-rf7-b2-bug-detectado-y-corregido)
 - [Settings: whitelist explícita en el service (Fase 7)](#settings-whitelist-explícita-en-el-service-fase-7)
 - [Migración `add_audit_log_and_settings` (Fase 7)](#migración-addauditlogandsettings-fase-7)
@@ -3432,6 +3433,55 @@ mostró "Notas: ... · 85000 km" y la de SERVICIO "Notas: ... · Tarifa: ..." en
 combinaciones (`/[categoria]` hija, `/busqueda`, `/[categoria]` padre), confirmando que
 el bug 1 y la herencia funcionan juntos correctamente. Datos de prueba eliminados al
 cerrar.
+
+### Contadores de atributos de card — resuelto el desacuerdo con hechos, añadido "impacto en hijas" (2026-07-14)
+
+**El desacuerdo:** la ráfaga anterior reportó el contador de la hija correcto ("4/2" al
+abrir, no "2/2"); Ernest observó que "al editar cualquier atributo, los contadores
+siguen sin contar los heredados de la hija o el padre". Antes de tocar código, se montó
+en vivo la jerarquía real pedida (padre con `cardAttribute` de producto Y de servicio +
+hija con los suyos) y se reprodujeron 7 escenarios explícitos: abrir un atributo
+existente para editar, tocar un campo no relacionado (`required`) mientras se edita,
+abrir "Añadir atributo", alternar los checkboxes Producto/Servicio, marcar
+`cardAttribute` en el nuevo, **guardar y reabrir** otro atributo, y abrir el contador
+del padre. **Los 7 dieron el número correcto** — el contador de la HIJA (`Card estándar
+— Producto: X/2 · Servicio: Y/2`, ya implementado en la ráfaga de producto/servicio
+combinando `inheritedFields` + `rows` en `otherFields()`/`countByType()`) nunca perdió
+lo heredado, ni al editar, ni tras guardar y volver a abrir.
+
+**Lo único que el contador NO hacía:** al editar el PADRE, su propio contador solo
+mostraba SUS atributos (p. ej. "1/2 · 1/2"), sin reflejar el impacto en las hijas ya
+existentes — consultado directamente con Ernest (era la ambigüedad marcada en el
+encargo, punto 2): confirmó que SÍ quiere ver ese impacto al editar el padre, no solo el
+error de validación al guardar (`assertCardAttributeChangeDoesNotBreakChildren`, ya
+implementado en la ráfaga anterior).
+
+**Arreglado — nueva sección "Impacto en subcategorías" en `AttributeSchemaEditor`,**
+visible solo cuando se edita una categoría RAÍZ que ya tiene hijas: `admin/categorias/
+page.tsx` pasa `cat.children` (con su `attributeSchema` propio, ya disponible en el
+árbol que la página ya cargaba — sin fetch nuevo) como prop `childCategories`. Por cada
+hija, se recalcula EN VIVO (en cada render, mientras se edita/añade un atributo del
+padre — no solo al guardar) su schema efectivo con el schema del padre TAL COMO
+quedaría con el draft actual: `mergeEffective()` en el frontend replica exactamente
+`resolveEffectiveSchema` (el mismo criterio "la hija gana en caso de mismo `name`"), y
+`countByType()` (ya existente) hace el resto — ninguna lógica de merge nueva que pueda
+divergir de la que ya valida el backend. Cada hija se muestra con sus 4 números (Card
+Producto/Servicio, Ampliada Producto/Servicio) y un `⚠` + estilo de aviso cuando
+CUALQUIERA excede su tope — antes de intentar guardar.
+
+**Tests:** `AttributeSchemaEditor.childrenImpact.test.tsx` (nuevo, 6 casos): sin
+`childCategories` no aparece la sección; con una hija, el impacto inicial es correcto
+(coincide con lo ya guardado); el impacto se recalcula en vivo al marcar `cardAttribute`
+en el nuevo atributo del padre (antes de guardar); exceder el tope de una hija marca
+`⚠`; varias hijas se muestran cada una con lo suyo; el impacto de card ampliada
+(`wideCardAttribute`) se calcula independiente del estándar. Batería completa: frontend
+20 suites/185 tests (175 verdes, mismos 10 fallos pre-existentes no relacionados) — sin
+cambios en backend, no hacía falta re-ejecutar esa batería. **QA en vivo** contra el
+servidor de desarrollo real: padre con `cardAttribute` de producto ya heredado por una
+hija que también tiene el suyo (efectivo 2/2) — añadir un tercer `cardAttribute` de
+producto en el padre muestra en vivo, ANTES de guardar, "⚠ ... Producto 3/2" en rojo; al
+intentar guardar, el error de validación (ya existente) se sigue mostrando igual.
+Categorías de prueba eliminadas al cerrar.
 
 ### Pro downgrade con des-indexado de Meilisearch (RF.7-B.2 — bug detectado y corregido)
 
