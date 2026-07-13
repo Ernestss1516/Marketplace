@@ -1,4 +1,4 @@
-import type { ListingType, ListingTypePolicy } from '@prisma/client';
+import type { ListingType, ListingTypePolicy, ListingViewMode } from '@prisma/client';
 
 export interface AttributeField {
   name: string;
@@ -8,7 +8,12 @@ export interface AttributeField {
   options?: string[];
   filterable: boolean;
   required: boolean;
+  /** Shown in the compact/standard card (max 2 in the effective schema, validated at write time). */
   cardAttribute?: boolean;
+  /** Shown in the wide/ampliada card (RÁFAGA 2 — max 6 in the effective schema, validated at
+   * write time). Independent of `cardAttribute`: the standard card stays compact regardless
+   * of how many attributes are flagged here. */
+  wideCardAttribute?: boolean;
   /** Which listing type(s) this attribute applies to. Absent = applies to both (preserves every attribute defined before RÁFAGA 1 without touching data). */
   appliesTo?: ListingType[];
   /**
@@ -95,4 +100,35 @@ export function isListingTypeAllowed(
 ): boolean {
   if (policy === 'BOTH') return true;
   return policy === (type === 'PRODUCT' ? 'PRODUCT_ONLY' : 'SERVICE_ONLY');
+}
+
+/** All three view modes with LISTA as default — the global fallback when
+ * neither a category nor any of its ancestors configures views explicitly. */
+export const DEFAULT_EFFECTIVE_VIEWS: EffectiveViews = {
+  allowedViews: ['LISTA', 'AMPLIADA', 'MAPA'],
+  defaultView: 'LISTA',
+};
+
+export interface EffectiveViews {
+  allowedViews: ListingViewMode[];
+  defaultView: ListingViewMode;
+}
+
+/**
+ * Resolves which result views a category effectively offers (RÁFAGA 2).
+ * `allowedViews: []` means "not configured" — an own config always fully
+ * REPLACES the parent's (no per-view merging, unlike attribute schemas): a
+ * category either defines its whole menu or inherits the parent's whole menu.
+ * Falls back to DEFAULT_EFFECTIVE_VIEWS when neither this category nor its
+ * parent configures anything. Same 2-level depth assumption as
+ * resolveEffectiveSchema/resolveEffectivePolicy (leaf → parent only).
+ */
+export function resolveEffectiveViews(
+  own: { allowedViews: ListingViewMode[]; defaultView: ListingViewMode | null },
+  parentEffective: EffectiveViews | null,
+): EffectiveViews {
+  if (own.allowedViews.length > 0) {
+    return { allowedViews: own.allowedViews, defaultView: own.defaultView ?? own.allowedViews[0] };
+  }
+  return parentEffective ?? DEFAULT_EFFECTIVE_VIEWS;
 }

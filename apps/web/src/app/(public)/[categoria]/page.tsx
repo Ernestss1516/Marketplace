@@ -5,17 +5,25 @@ import Link from 'next/link';
 import { AlertCircle, Package } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ListingCard } from '@/components/anuncios/ListingCard';
+import { ListingCardWide } from '@/components/anuncios/ListingCardWide';
 import { SponsoredCard, isSponsoredAdHit } from '@/components/anuncios/SponsoredCard';
 import { FavoritesGridProvider } from '@/components/anuncios/FavoritesGridContext';
-import { CardAttributesProvider } from '@/components/anuncios/CardAttributesContext';
+import { CardAttributesProvider, WideCardAttributesProvider } from '@/components/anuncios/CardAttributesContext';
 import { FilterPanel } from '@/components/busqueda/FilterPanel';
 import { FeaturedBlock } from '@/components/busqueda/FeaturedBlock';
+import { ViewSwitcher } from '@/components/busqueda/ViewSwitcher';
+import MapViewClient from '@/components/busqueda/MapViewClient';
 import { getCategoryBySlug } from '@/lib/api/categorias';
 import { getListingsByCategory } from '@/lib/api/anuncios';
 import { search, type SearchHit } from '@/lib/api/busqueda';
 import { ApiError } from '@/lib/api/client';
-import { buildCardAttributeMapFromSchema } from '@/lib/card-attributes';
-import type { ListingSummary } from '@/types';
+import {
+  buildCardAttributeMapFromSchema,
+  buildWideCardAttributeMapFromSchema,
+  buildFullAttributeMapFromSchema,
+} from '@/lib/card-attributes';
+import { resolveCurrentView, VIEW_PARAM } from '@/lib/view-mode';
+import type { ListingSummary, ListingViewMode } from '@/types';
 
 type Params = { categoria: string };
 type RawParams = Record<string, string | string[] | undefined>;
@@ -27,7 +35,7 @@ type Sort = (typeof VALID_SORTS)[number];
 const KNOWN_PARAMS = new Set([
   'page', 'sort', 'type', 'condition', 'priceType',
   'minPrice', 'maxPrice', 'province', 'city',
-  'lat', 'lng', 'radius',
+  'lat', 'lng', 'radius', 'view',
 ]);
 
 function str(v: string | string[] | undefined): string | undefined {
@@ -61,7 +69,6 @@ export default async function CategoriaPage({
   const { categoria } = await params;
   const raw = await searchParams;
 
-  const page = Math.max(1, Number(str(raw.page) ?? 1));
   const sortRaw = str(raw.sort);
   const sort: Sort = (VALID_SORTS as readonly string[]).includes(sortRaw ?? '')
     ? (sortRaw as Sort)
@@ -110,7 +117,7 @@ export default async function CategoriaPage({
     }
   }
 
-  // Load category metadata (h1, breadcrumb, card attribute defs). 404 if not found.
+  // Load category metadata (h1, breadcrumb, card attribute defs, allowedViews). 404 if not found.
   let category: Awaited<ReturnType<typeof getCategoryBySlug>>;
   try {
     category = await getCategoryBySlug(categoria);
@@ -118,6 +125,16 @@ export default async function CategoriaPage({
     if (err instanceof ApiError && err.statusCode === 404) notFound();
     throw err;
   }
+
+  // RÁFAGA 2 — vistas: la categoría define el menú (category.allowedViews, ya
+  // resuelto con herencia por el backend), el usuario elige del menú.
+  const viewRaw = str(raw.view);
+  const currentView = resolveCurrentView(viewRaw, category.allowedViews, category.defaultView);
+  const isMapView = currentView === 'MAPA';
+
+  const page = isMapView ? 1 : Math.max(1, Number(str(raw.page) ?? 1));
+  // Igual que /busqueda: el mapa trae hasta 200 hits sin paginar para pintar todos los marcadores.
+  const hitsPerFetch = isMapView ? 200 : 24;
 
   // ── Fetch listings ──────────────────────────────────────────────────────────
   // Primary: Meilisearch (facets + attribute filters + proximity).
@@ -142,7 +159,7 @@ export default async function CategoriaPage({
       ...(sortForApi && { sort: sortForApi }),
       ...(proximityActive && { lat, lng, radius }),
       page,
-      hitsPerPage: 24,
+      hitsPerPage: hitsPerFetch,
       ...attributes,
     });
     hits = result.hits;
@@ -151,7 +168,9 @@ export default async function CategoriaPage({
     hitsPerPage = result.hitsPerPage;
     facets = result.facets;
   } catch {
-    // Meilisearch unavailable — degrade to Postgres (no facets, no attribute filters).
+    // Meilisearch unavailable — degrade to Postgres (no facets, no attribute filters,
+    // no mapa/ampliada: esas vistas dependen de datos que solo trae el documento de
+    // Meilisearch — se fuerza LISTA mientras dure el fallback, ver render más abajo).
     fallbackMode = true;
     try {
       const fallback = await getListingsByCategory(categoria, { page, sort });
@@ -163,10 +182,21 @@ export default async function CategoriaPage({
     }
   }
 
-  const totalPages = Math.ceil(total / hitsPerPage) || 0;
+  const totalPages = isMapView ? 0 : Math.ceil(total / hitsPerPage) || 0;
   // H6.6 — igual que en /busqueda: el patrocinado (si lo hay) va intercalado en
   // `hits`; favoritos solo conoce anuncios reales.
   const listingHits = hits.filter((h): h is ListingSummary => !isSponsoredAdHit(h));
+
+  function viewUrl(target: ListingViewMode): string {
+    const params = new URLSearchParams();
+    for (const [key, val] of Object.entries(raw)) {
+      if (key === 'page' || key === 'view') continue;
+      const v = str(val);
+      if (v) params.set(key, v);
+    }
+    if (target !== category.defaultView) params.set('view', VIEW_PARAM[target]);
+    return `/${categoria}?${params.toString()}`;
+  }
 
   function pageUrl(p: number): string {
     const params = new URLSearchParams();
@@ -201,6 +231,16 @@ export default async function CategoriaPage({
     proximityActive ? 'geo' : undefined,
   ].filter(Boolean).length;
 
+  // Stable key for MapView: remounts when search params change (except view/page) — mismo criterio que /busqueda.
+  const mapKey = Object.entries(raw)
+    .filter(([k]) => k !== 'view' && k !== 'page')
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${k}=${Array.isArray(v) ? (v[0] ?? '') : (v ?? '')}`)
+    .join('&');
+
+  // Fallback mode fuerza LISTA (ver comentario más arriba) — el switcher no tiene sentido ahí.
+  const effectiveView = fallbackMode ? 'LISTA' : currentView;
+
   return (
     <div className="container mx-auto px-4 pb-16 pt-8">
       <nav className="mb-4 text-xs text-muted-foreground" aria-label="Breadcrumb">
@@ -209,12 +249,17 @@ export default async function CategoriaPage({
         <span>{category.name}</span>
       </nav>
 
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">{category.name}</h1>
-        {total > 0 && (
-          <p className="text-sm text-muted-foreground">
-            {total} {total === 1 ? 'anuncio' : 'anuncios'}
-          </p>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h1 className="text-2xl font-bold">{category.name}</h1>
+          {total > 0 && (
+            <p className="text-sm text-muted-foreground">
+              {total} {total === 1 ? 'anuncio' : 'anuncios'}
+            </p>
+          )}
+        </div>
+        {!fallbackMode && (
+          <ViewSwitcher allowedViews={category.allowedViews} currentView={currentView} buildUrl={viewUrl} />
         )}
       </div>
 
@@ -252,27 +297,56 @@ export default async function CategoriaPage({
               inyectado no debe disfrazar una categoría sin anuncios como "con resultados". */}
           {total > 0 ? (
             <>
-              <CardAttributesProvider
-                cardAttributeMap={buildCardAttributeMapFromSchema(
-                  categoria,
-                  category.attributeSchema ?? [],
-                )}
-              >
-                <FavoritesGridProvider
-                  listingIds={[...new Set([...featured.map((l) => l.id), ...listingHits.map((l) => l.id)])]}
+              {!fallbackMode && effectiveView === 'MAPA' ? (
+                <MapViewClient
+                  key={mapKey}
+                  hits={listingHits}
+                  totalHits={total}
+                  listUrl={viewUrl('LISTA')}
+                  attributeMap={buildFullAttributeMapFromSchema(categoria, category.attributeSchema ?? [])}
+                />
+              ) : (
+                <CardAttributesProvider
+                  cardAttributeMap={buildCardAttributeMapFromSchema(
+                    categoria,
+                    category.attributeSchema ?? [],
+                  )}
                 >
-                  <FeaturedBlock listings={featured} />
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-                    {hits.map((hit) =>
-                      isSponsoredAdHit(hit) ? (
-                        <SponsoredCard key={`sponsored-${hit.id}`} ad={hit} />
-                      ) : (
-                        <ListingCard key={hit.id} listing={hit} />
-                      ),
+                  <WideCardAttributesProvider
+                    cardAttributeMap={buildWideCardAttributeMapFromSchema(
+                      categoria,
+                      category.attributeSchema ?? [],
                     )}
-                  </div>
-                </FavoritesGridProvider>
-              </CardAttributesProvider>
+                  >
+                    <FavoritesGridProvider
+                      listingIds={[...new Set([...featured.map((l) => l.id), ...listingHits.map((l) => l.id)])]}
+                    >
+                      <FeaturedBlock listings={featured} />
+                      {effectiveView === 'AMPLIADA' ? (
+                        <div className="flex flex-col gap-3">
+                          {hits.map((hit, i) =>
+                            isSponsoredAdHit(hit) ? (
+                              <SponsoredCard key={`sponsored-${hit.id}`} ad={hit} />
+                            ) : (
+                              <ListingCardWide key={hit.id} listing={hit} priority={i < 4} />
+                            ),
+                          )}
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+                          {hits.map((hit, i) =>
+                            isSponsoredAdHit(hit) ? (
+                              <SponsoredCard key={`sponsored-${hit.id}`} ad={hit} />
+                            ) : (
+                              <ListingCard key={hit.id} listing={hit} priority={i < 4} />
+                            ),
+                          )}
+                        </div>
+                      )}
+                    </FavoritesGridProvider>
+                  </WideCardAttributesProvider>
+                </CardAttributesProvider>
+              )}
 
               {totalPages > 1 && (
                 <div className="mt-8 flex items-center justify-center gap-3">

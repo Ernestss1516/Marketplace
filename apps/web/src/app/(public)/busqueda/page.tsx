@@ -1,30 +1,38 @@
 import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { AlertCircle, LayoutGrid, Map, Package } from 'lucide-react';
+import { AlertCircle, Package } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ListingCard } from '@/components/anuncios/ListingCard';
+import { ListingCardWide } from '@/components/anuncios/ListingCardWide';
 import { SponsoredCard, isSponsoredAdHit } from '@/components/anuncios/SponsoredCard';
 import { FavoritesGridProvider } from '@/components/anuncios/FavoritesGridContext';
-import { CardAttributesProvider } from '@/components/anuncios/CardAttributesContext';
+import { CardAttributesProvider, WideCardAttributesProvider } from '@/components/anuncios/CardAttributesContext';
 import { FilterPanel } from '@/components/busqueda/FilterPanel';
 import { FeaturedBlock } from '@/components/busqueda/FeaturedBlock';
+import { ViewSwitcher } from '@/components/busqueda/ViewSwitcher';
 import { CrearAlertaButton } from '@/components/busqueda/CrearAlertaButton';
 import MapViewClient from '@/components/busqueda/MapViewClient';
 import { search, type SearchResponse } from '@/lib/api/busqueda';
 import { getCategories } from '@/lib/api/categorias';
-import { buildCardAttributeMap, buildFullAttributeMap } from '@/lib/card-attributes';
-import type { AlertCriteria, ListingSummary } from '@/types';
+import { buildCardAttributeMap, buildFullAttributeMap, buildWideCardAttributeMap } from '@/lib/card-attributes';
+import { resolveCurrentView, VIEW_PARAM } from '@/lib/view-mode';
+import type { AlertCriteria, ListingSummary, ListingViewMode } from '@/types';
 
 const KNOWN_PARAMS = new Set([
   'q', 'category', 'type', 'condition', 'priceType',
   'minPrice', 'maxPrice', 'province', 'city', 'sort', 'page', 'hitsPerPage',
   'lat', 'lng', 'radius',
-  'view', // lista | mapa — view toggle, must NOT be forwarded as an attribute filter
+  'view', // lista | ampliada | mapa — view switcher, must NOT be forwarded as an attribute filter
 ]);
 
 const VALID_SORTS = ['price:asc', 'price:desc', 'publishedAt:desc'] as const;
 type Sort = (typeof VALID_SORTS)[number];
+
+// /busqueda GENERAL: las 3 vistas siempre disponibles, Lista por defecto — a
+// diferencia de /[categoria], aquí no hay una categoría fija que las acote.
+const ALL_VIEWS: ListingViewMode[] = ['LISTA', 'AMPLIADA', 'MAPA'];
+const DEFAULT_VIEW: ListingViewMode = 'LISTA';
 
 type RawParams = Record<string, string | string[] | undefined>;
 
@@ -60,7 +68,8 @@ export default async function BusquedaPage({
   const city = str(raw.city);
 
   const viewRaw = str(raw.view);
-  const isMapView = viewRaw === 'mapa';
+  const currentView = resolveCurrentView(viewRaw, ALL_VIEWS, DEFAULT_VIEW);
+  const isMapView = currentView === 'MAPA';
 
   const typeRaw = str(raw.type);
   const type = typeRaw === 'PRODUCT' || typeRaw === 'SERVICE' ? typeRaw : undefined;
@@ -95,7 +104,7 @@ export default async function BusquedaPage({
     : undefined;
 
   // Map mode fetches up to 200 hits (no pagination) so all markers are shown.
-  // List mode uses 24 hits per page with normal pagination.
+  // List/Ampliada mode uses 24 hits per page with normal pagination.
   const hitsPerFetch = isMapView ? 200 : 24;
 
   const page = isMapView ? 1 : Math.max(1, parseInt(str(raw.page) ?? '1', 10));
@@ -148,15 +157,15 @@ export default async function BusquedaPage({
   const hitsPerPage = data?.hitsPerPage ?? hitsPerFetch;
   const totalPages = isMapView ? 0 : Math.ceil(totalHits / hitsPerPage);
 
-  // Build URL for the view toggle: preserves all filters, resets page, sets/clears view.
-  function viewUrl(target: 'lista' | 'mapa'): string {
+  // Build URL for the view switcher: preserves all filters, resets page, sets/clears view.
+  function viewUrl(target: ListingViewMode): string {
     const params = new URLSearchParams();
     for (const [key, val] of Object.entries(raw)) {
       if (key === 'page' || key === 'view') continue;
       const v = str(val);
       if (v) params.set(key, v);
     }
-    if (target === 'mapa') params.set('view', 'mapa');
+    if (target !== DEFAULT_VIEW) params.set('view', VIEW_PARAM[target]);
     return `/busqueda?${params.toString()}`;
   }
 
@@ -246,7 +255,7 @@ export default async function BusquedaPage({
 
         {/* Main content */}
         <main className="min-w-0 flex-1">
-          {/* Header: title + count + view toggle */}
+          {/* Header: title + count + view switcher */}
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-3">
               <h1 className="text-lg font-semibold">
@@ -260,38 +269,9 @@ export default async function BusquedaPage({
               )}
             </div>
 
-            <CrearAlertaButton criteria={alertCriteria} />
-
-            {/* Lista / Mapa toggle */}
-            <div className="flex overflow-hidden rounded-md border" role="group" aria-label="Cambiar vista">
-              <Button
-                variant={!isMapView ? 'secondary' : 'ghost'}
-                size="sm"
-                className="rounded-none border-r"
-                asChild
-              >
-                <Link
-                  href={viewUrl('lista')}
-                  aria-current={!isMapView ? 'page' : undefined}
-                >
-                  <LayoutGrid className="mr-1.5 h-4 w-4" />
-                  Lista
-                </Link>
-              </Button>
-              <Button
-                variant={isMapView ? 'secondary' : 'ghost'}
-                size="sm"
-                className="rounded-none"
-                asChild
-              >
-                <Link
-                  href={viewUrl('mapa')}
-                  aria-current={isMapView ? 'page' : undefined}
-                >
-                  <Map className="mr-1.5 h-4 w-4" />
-                  Mapa
-                </Link>
-              </Button>
+            <div className="flex items-center gap-2">
+              <CrearAlertaButton criteria={alertCriteria} />
+              <ViewSwitcher allowedViews={ALL_VIEWS} currentView={currentView} buildUrl={viewUrl} />
             </div>
           </div>
 
@@ -311,7 +291,7 @@ export default async function BusquedaPage({
             </div>
           )}
 
-          {/* Empty state: list mode only — map handles zero hits by centering on Spain */}
+          {/* Empty state: list/ampliada modes only — map handles zero hits by centering on Spain */}
           {!searchError && totalHits === 0 && !isMapView && (
             <div className="flex flex-col items-center py-24 text-center">
               <Package className="mb-4 h-12 w-12 text-muted-foreground/40" aria-hidden />
@@ -333,32 +313,46 @@ export default async function BusquedaPage({
               key={mapKey}
               hits={listingHits}
               totalHits={totalHits}
-              listUrl={viewUrl('lista')}
+              listUrl={viewUrl('LISTA')}
               attributeMap={buildFullAttributeMap(categories)}
             />
           )}
 
-          {/* List view: grid + pagination. Basado en totalHits (anuncios reales), no en
-              hits.length: un patrocinado inyectado no debe disfrazar 0 resultados reales
-              como "con resultados" (evita que este bloque y el de "Sin resultados" de
-              arriba se rendericen a la vez). */}
+          {/* List/Ampliada view: grid or single-column + pagination. Basado en totalHits
+              (anuncios reales), no en hits.length: un patrocinado inyectado no debe
+              disfrazar 0 resultados reales como "con resultados" (evita que este bloque
+              y el de "Sin resultados" de arriba se rendericen a la vez). */}
           {!searchError && totalHits > 0 && !isMapView && (
             <>
               <CardAttributesProvider cardAttributeMap={buildCardAttributeMap(categories)}>
-                <FavoritesGridProvider
-                  listingIds={[...new Set([...featured.map((l) => l.id), ...listingHits.map((l) => l.id)])]}
-                >
-                  <FeaturedBlock listings={featured} />
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-                    {hits.map((hit) =>
-                      isSponsoredAdHit(hit) ? (
-                        <SponsoredCard key={`sponsored-${hit.id}`} ad={hit} />
-                      ) : (
-                        <ListingCard key={hit.id} listing={hit} />
-                      ),
+                <WideCardAttributesProvider cardAttributeMap={buildWideCardAttributeMap(categories)}>
+                  <FavoritesGridProvider
+                    listingIds={[...new Set([...featured.map((l) => l.id), ...listingHits.map((l) => l.id)])]}
+                  >
+                    <FeaturedBlock listings={featured} />
+                    {currentView === 'AMPLIADA' ? (
+                      <div className="flex flex-col gap-3">
+                        {hits.map((hit, i) =>
+                          isSponsoredAdHit(hit) ? (
+                            <SponsoredCard key={`sponsored-${hit.id}`} ad={hit} />
+                          ) : (
+                            <ListingCardWide key={hit.id} listing={hit} priority={i < 4} />
+                          ),
+                        )}
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+                        {hits.map((hit, i) =>
+                          isSponsoredAdHit(hit) ? (
+                            <SponsoredCard key={`sponsored-${hit.id}`} ad={hit} />
+                          ) : (
+                            <ListingCard key={hit.id} listing={hit} priority={i < 4} />
+                          ),
+                        )}
+                      </div>
                     )}
-                  </div>
-                </FavoritesGridProvider>
+                  </FavoritesGridProvider>
+                </WideCardAttributesProvider>
               </CardAttributesProvider>
 
               {totalPages > 1 && (

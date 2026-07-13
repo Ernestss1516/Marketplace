@@ -49,3 +49,48 @@ export function buildCardAttributeMapFromSchema(
     .map((f) => ({ key: f.name, label: f.label, ...(f.unit ? { unit: f.unit } : {}) }));
   return defs.length ? { [slug]: defs } : {};
 }
+
+/**
+ * Builds a single-entry map with ALL attribute definitions from a category's
+ * effective attributeSchema — used by the map's detail panel on /[categoria]
+ * (RÁFAGA 2, mapa ahora disponible ahí), mismo criterio que buildFullAttributeMap
+ * para el árbol completo.
+ */
+export function buildFullAttributeMapFromSchema(
+  slug: string,
+  schema: AttributeSchema[],
+): CardAttributeMap {
+  const defs: CardAttributeDef[] = schema
+    .map((f) => ({ key: f.name, label: f.label, ...(f.unit ? { unit: f.unit } : {}) }));
+  return defs.length ? { [slug]: defs } : {};
+}
+
+/**
+ * Builds a slug→wideCardAttributes map from the full category tree (RÁFAGA 2 —
+ * vista ampliada en /busqueda, que mezcla categorías). Up to 6 per category,
+ * independent of buildCardAttributeMap's 2-attribute compact set.
+ */
+export function buildWideCardAttributeMap(categories: Category[]): CardAttributeMap {
+  const map: CardAttributeMap = {};
+  for (const cat of categories) {
+    if (cat.wideCardAttributes?.length) map[cat.slug] = cat.wideCardAttributes;
+    for (const child of cat.children ?? []) {
+      if (child.wideCardAttributes?.length) map[child.slug] = child.wideCardAttributes;
+    }
+  }
+  return map;
+}
+
+/**
+ * Builds a single-entry wideCardAttributes map from a category's effective
+ * attributeSchema (GET /categories/:slug) — used on /[categoria] in vista ampliada.
+ */
+export function buildWideCardAttributeMapFromSchema(
+  slug: string,
+  schema: AttributeSchema[],
+): CardAttributeMap {
+  const defs: CardAttributeDef[] = schema
+    .filter((f) => f.wideCardAttribute)
+    .map((f) => ({ key: f.name, label: f.label, ...(f.unit ? { unit: f.unit } : {}) }));
+  return defs.length ? { [slug]: defs } : {};
+}

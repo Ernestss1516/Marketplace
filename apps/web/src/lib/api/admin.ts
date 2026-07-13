@@ -1,5 +1,5 @@
 import { apiFetch } from './client';
-import type { AttributeSchema, ListingTypePolicy } from '@/types';
+import type { AttributeSchema, ListingTypePolicy, ListingViewMode } from '@/types';
 
 // ─── Stats ────────────────────────────────────────────────────────────────────
 
@@ -203,6 +203,9 @@ export interface AdminCategoryChild {
   order: number;
   attributeSchema: AttributeSchema[];
   allowedListingType: ListingTypePolicy;
+  /** RÁFAGA 2 — valores PROPIOS (no resueltos): [] = "no configurado". */
+  allowedViews: ListingViewMode[];
+  defaultView: ListingViewMode | null;
 }
 
 export interface AdminCategory extends AdminCategoryChild {
@@ -217,6 +220,8 @@ export interface CategoryMutationDto {
   order?: number;
   attributeSchema?: unknown[];
   allowedListingType?: ListingTypePolicy;
+  allowedViews?: ListingViewMode[];
+  defaultView?: ListingViewMode;
 }
 
 export function getSearchableKeys(token: string): Promise<{ keys: string[] }> {

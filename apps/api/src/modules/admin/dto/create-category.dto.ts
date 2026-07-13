@@ -1,6 +1,6 @@
 import { IsArray, IsEnum, IsInt, IsOptional, IsString, Min } from 'class-validator';
 import { Type } from 'class-transformer';
-import { ListingTypePolicy } from '@prisma/client';
+import { ListingTypePolicy, ListingViewMode } from '@prisma/client';
 
 export class CreateCategoryDto {
   @IsString()
@@ -30,4 +30,14 @@ export class CreateCategoryDto {
   @IsOptional()
   @IsEnum(ListingTypePolicy)
   allowedListingType?: ListingTypePolicy;
+
+  /** RÁFAGA 2 — [] u omitido = "no configurado" (hereda del padre / default global). */
+  @IsOptional()
+  @IsArray()
+  @IsEnum(ListingViewMode, { each: true })
+  allowedViews?: ListingViewMode[];
+
+  @IsOptional()
+  @IsEnum(ListingViewMode)
+  defaultView?: ListingViewMode;
 }

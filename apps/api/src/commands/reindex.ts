@@ -8,8 +8,24 @@
  * Usage (from apps/api/):
  *   pnpm reindex
  *
- * Uses its own minimal NestJS module (no BullMQ / Redis workers) so that
- * all connections close cleanly and the process exits with code 0.
+ * Uses its own minimal NestJS module (no BullMQ workers) so that all
+ * connections close cleanly and the process exits with code 0.
+ *
+ * RÁFAGA 2 (bug pre-existente encontrado y arreglado): SearchModule importa
+ * SponsoredAdsModule desde H6.6 (SearchController inyecta SponsoredAdsService
+ * para el hueco patrocinado), y SponsoredAdsService depende de RedisService
+ * (caché por categoría) y R2Service (subida del banner). Ambos módulos son
+ * @Global() pero ninguno se importaba aquí — createApplicationContext
+ * instancia igualmente el SearchController declarado por SearchModule (aunque
+ * el script solo use SearchService), así que sin ellos esto fallaba con
+ * "Nest can't resolve dependencies of SponsoredAdsService". Fix: importar
+ * RedisModule + R2Module. R2Service usa un cliente S3 sobre HTTP (sin socket
+ * persistente, no necesita cierre explícito); RedisService sí mantiene una
+ * conexión ioredis abierta, y el script NUNCA llama a app.close() (ver
+ * comentario en $disconnect() más abajo) — así que su hook
+ * OnApplicationShutdown no se dispara solo, y hace falta un quit() explícito
+ * al final (ver bootstrap) o el proceso se queda colgado.
+ * ---------------------------------------------------------------------------
  */
 
 import { Module } from '@nestjs/common';
@@ -21,14 +37,12 @@ import configuration from '../config/configuration';
 import { envValidationSchema } from '../config/env.validation';
 import { PrismaModule } from '../infra/prisma/prisma.module';
 import { PrismaService } from '../infra/prisma/prisma.service';
+import { RedisModule } from '../infra/redis/redis.module';
+import { RedisService } from '../infra/redis/redis.service';
+import { R2Module } from '../infra/r2/r2.module';
 import { SearchModule } from '../modules/search/search.module';
 import { SearchService, INDEX_INCLUDE } from '../modules/search/search.service';
 
-// ---------------------------------------------------------------------------
-// Minimal module: Postgres + Meilisearch only, no BullMQ/Redis workers.
-// Without QueueModule there are no persistent Redis handles, so app.close()
-// shuts everything down cleanly and libuv has nothing left open.
-// ---------------------------------------------------------------------------
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -37,6 +51,8 @@ import { SearchService, INDEX_INCLUDE } from '../modules/search/search.service';
       validationSchema: envValidationSchema,
     }),
     PrismaModule,
+    RedisModule,
+    R2Module,
     SearchModule,
   ],
 })
@@ -85,6 +101,11 @@ async function bootstrap(): Promise<void> {
   }
 
   logger.log(`Reindex complete. Total indexed: ${total} listings.`);
+
+  // Explicit quit — no app.close() is called here (see below), so RedisService's
+  // OnApplicationShutdown hook never fires on its own; without this the ioredis
+  // TCP connection stays open and the process hangs instead of exiting.
+  await app.get(RedisService).client.quit();
 
   // Prisma recommended pattern for CLI scripts: call $disconnect() and do NOT
   // call process.exit() on the happy path.

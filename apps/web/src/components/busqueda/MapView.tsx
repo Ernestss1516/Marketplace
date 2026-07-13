@@ -408,7 +408,12 @@ export default function MapView({ hits, totalHits, listUrl, attributeMap }: Prop
       <div className="relative">
         <div
           ref={containerRef}
-          className="h-[520px] w-full overflow-hidden rounded-lg"
+          // RÁFAGA 2 — mapa más grande: alto relativo al viewport (antes fijo en
+          // 520px) para aprovechar la pantalla, con un suelo igual al tamaño
+          // anterior (nunca más pequeño que antes) y un techo para pantallas muy
+          // altas. El clustering (H6.5b) ya soporta muchos marcadores; esto es
+          // solo layout, no cambia cuántos se pintan.
+          className="h-[520px] w-full overflow-hidden rounded-lg sm:h-[calc(100vh-260px)] sm:min-h-[520px] sm:max-h-[900px]"
         />
         {selected && cardPos && (
           <FloatingCard

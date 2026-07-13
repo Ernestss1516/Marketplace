@@ -76,6 +76,16 @@ enum ListingTypePolicy {
   BOTH
 }
 
+/// Vistas de resultados disponibles en /busqueda y /[categoria] (RÁFAGA 2 —
+/// vistas configurables). LISTA = cards estándar (grid, la de siempre),
+/// AMPLIADA = una columna con card ancha (hasta 6 atributos + descripción),
+/// MAPA = vista de mapa.
+enum ListingViewMode {
+  LISTA
+  AMPLIADA
+  MAPA
+}
+
 /// Estado del artículo (aplica sobre todo a productos).
 enum Condition {
   NEW
@@ -289,6 +299,18 @@ model Category {
   /// todas las categorías existentes — sin backfill, Prisma escribe el default
   /// en las filas ya existentes al aplicar la migración.
   allowedListingType ListingTypePolicy @default(BOTH)
+
+  /// Vistas de resultados que esta categoría permite ofrecer al usuario en
+  /// /[categoria] (RÁFAGA 2). [] = "no configurado" — hereda del padre, o si
+  /// tampoco el padre configura nada, cae al default global (las 3, con LISTA
+  /// por defecto). Ver `resolveEffectiveViews` en category.types.ts — mismo
+  /// criterio de herencia (override completo, no fusión) que allowedListingType.
+  allowedViews ListingViewMode[] @default([])
+
+  /// Vista por defecto al entrar en la categoría. Debe estar en `allowedViews`
+  /// cuando esta tiene elementos (validado en admin.service.ts al escribir).
+  /// null = "no configurado", mismo criterio de herencia que allowedViews.
+  defaultView ListingViewMode?
 
   listings     Listing[]
   sponsoredAds SponsoredAd[]

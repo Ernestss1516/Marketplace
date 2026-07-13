@@ -28,11 +28,17 @@ export function removeFavorite(listingId: string, token: string): Promise<void> 
 function normalize(data: FavoritesResponse): { items: ListingSummary[]; total: number; page: number; pages: number } {
   return {
     ...data,
-    items: data.items.map((fav) => ({
-      ...fav.listing,
-      thumbnailUrl: fav.listing.images[0]?.url,
-      categorySlug: fav.listing.category?.slug,
-    })),
+    items: data.items.map((fav) => {
+      // Drop the raw `images` (Postgres ListingImage[]-shaped) before spreading — it's
+      // incompatible with ListingSummary.images (Meilisearch string[] carousel URLs).
+      // Favorites don't get the carousel (out of RÁFAGA 2 scope); thumbnailUrl still works.
+      const { images: rawImages, category, ...rest } = fav.listing;
+      return {
+        ...rest,
+        thumbnailUrl: rawImages[0]?.url,
+        categorySlug: category?.slug,
+      };
+    }),
   };
 }
 

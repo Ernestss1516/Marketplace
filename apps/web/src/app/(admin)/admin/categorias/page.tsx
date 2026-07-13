@@ -24,24 +24,37 @@ import {
   serializeAttributeSchema,
   type AttributeSchemaWithExtras,
 } from '@/components/admin/AttributeSchemaEditor';
-import type { AttributeSchema, ListingTypePolicy } from '@/types';
+import type { AttributeSchema, ListingTypePolicy, ListingViewMode } from '@/types';
 
-// ─── Form values (name/slug/iconUrl/allowedListingType — schema is managed separately;
-// order se ordena SOLO con las flechas ↑↓, ya no hay input numérico aquí) ──
+// ─── Form values (name/slug/iconUrl/allowedListingType/allowedViews/defaultView —
+// schema is managed separately; order se ordena SOLO con las flechas ↑↓) ──
 
 interface CategoryFormValues {
   name: string;
   slug: string;
   iconUrl: string;
   allowedListingType: ListingTypePolicy;
+  /** RÁFAGA 2 — [] = "no configurado" (hereda del padre / default global: las 3, LISTA). */
+  allowedViews: ListingViewMode[];
+  /** '' = sin defaultView propio (coherente con allowedViews:[]). */
+  defaultView: ListingViewMode | '';
 }
 
-const EMPTY_FORM: CategoryFormValues = { name: '', slug: '', iconUrl: '', allowedListingType: 'BOTH' };
+const EMPTY_FORM: CategoryFormValues = {
+  name: '', slug: '', iconUrl: '', allowedListingType: 'BOTH',
+  allowedViews: [], defaultView: '',
+};
 
 const POLICY_OPTIONS: { value: ListingTypePolicy; label: string }[] = [
   { value: 'BOTH', label: 'Ambos (producto y servicio)' },
   { value: 'PRODUCT_ONLY', label: 'Solo producto' },
   { value: 'SERVICE_ONLY', label: 'Solo servicio' },
+];
+
+const VIEW_OPTIONS: { value: ListingViewMode; label: string }[] = [
+  { value: 'LISTA', label: 'Lista (cards estándar)' },
+  { value: 'AMPLIADA', label: 'Ampliada (una columna)' },
+  { value: 'MAPA', label: 'Mapa' },
 ];
 
 function toForm(cat: AdminCategoryChild): CategoryFormValues {
@@ -50,6 +63,8 @@ function toForm(cat: AdminCategoryChild): CategoryFormValues {
     slug: cat.slug,
     iconUrl: cat.iconUrl ?? '',
     allowedListingType: cat.allowedListingType,
+    allowedViews: cat.allowedViews ?? [],
+    defaultView: cat.defaultView ?? '',
   };
 }
 
@@ -122,6 +137,56 @@ function CategoryForm({
             ))}
           </select>
         </div>
+        <div className="flex flex-col gap-1 sm:col-span-2">
+          <label className="text-xs font-medium text-muted-foreground">
+            Vistas de resultados permitidas
+            <span className="ml-1 font-normal text-muted-foreground/70">
+              (vacío = hereda del padre, o las 3 con Lista por defecto)
+            </span>
+          </label>
+          <div className="flex flex-wrap gap-4">
+            {VIEW_OPTIONS.map((opt) => (
+              <label key={opt.value} className="flex cursor-pointer items-center gap-1.5 text-sm">
+                <input
+                  type="checkbox"
+                  checked={values.allowedViews.includes(opt.value)}
+                  onChange={(e) => {
+                    const nextAllowed = e.target.checked
+                      ? [...values.allowedViews, opt.value]
+                      : values.allowedViews.filter((v) => v !== opt.value);
+                    // Si se desmarca la vista que era la por defecto, se limpia también —
+                    // mismo criterio que el backend (nunca dejar un defaultView huérfano).
+                    const nextDefault = nextAllowed.includes(values.defaultView as ListingViewMode)
+                      ? values.defaultView
+                      : '';
+                    onChange({ allowedViews: nextAllowed, defaultView: nextDefault });
+                  }}
+                  disabled={saving}
+                  className="h-3.5 w-3.5 rounded"
+                  data-testid={`allowed-view-${opt.value.toLowerCase()}`}
+                />
+                {opt.label}
+              </label>
+            ))}
+          </div>
+        </div>
+        {values.allowedViews.length > 0 && (
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-muted-foreground">Vista por defecto</label>
+            <select
+              value={values.defaultView}
+              onChange={(e) => onChange({ defaultView: e.target.value as ListingViewMode })}
+              className="rounded-md border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              disabled={saving}
+              data-testid="default-view-select"
+            >
+              <option value="">— Elegir —</option>
+              {VIEW_OPTIONS.filter((opt) => values.allowedViews.includes(opt.value)).map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
       {error && (
         <div className="mt-2 flex items-center gap-2 text-xs text-destructive">
@@ -479,6 +544,8 @@ export default function AdminCategoriasPage() {
         slug: editForm.slug,
         iconUrl: editForm.iconUrl || undefined,
         allowedListingType: editForm.allowedListingType,
+        allowedViews: editForm.allowedViews,
+        ...(editForm.defaultView && { defaultView: editForm.defaultView }),
       });
       setEditingId(null);
       await fetchCategories();
@@ -549,6 +616,8 @@ export default function AdminCategoriasPage() {
         iconUrl: createForm.iconUrl || undefined,
         order: nextOrderFor(createParentId),
         allowedListingType: createForm.allowedListingType,
+        allowedViews: createForm.allowedViews,
+        ...(createForm.defaultView && { defaultView: createForm.defaultView }),
         attributeSchema: serializeAttributeSchema(createOwnSchema, searchableKeys),
       });
       setCreateParentId(undefined);

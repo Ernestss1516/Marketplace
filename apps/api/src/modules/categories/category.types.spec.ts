@@ -1,10 +1,50 @@
 import {
   AttributeField,
+  DEFAULT_EFFECTIVE_VIEWS,
   filterSchemaByType,
   isListingTypeAllowed,
   resolveEffectivePolicy,
+  resolveEffectiveViews,
   resolveLinkedOptions,
 } from './category.types';
+
+describe('resolveEffectiveViews', () => {
+  it('categoría con config propia → esa config manda tal cual (defaultView explícito)', () => {
+    const result = resolveEffectiveViews(
+      { allowedViews: ['LISTA', 'MAPA'], defaultView: 'MAPA' },
+      null,
+    );
+    expect(result).toEqual({ allowedViews: ['LISTA', 'MAPA'], defaultView: 'MAPA' });
+  });
+
+  it('config propia sin defaultView explícito → usa el primero de allowedViews', () => {
+    const result = resolveEffectiveViews(
+      { allowedViews: ['AMPLIADA', 'MAPA'], defaultView: null },
+      null,
+    );
+    expect(result.defaultView).toBe('AMPLIADA');
+  });
+
+  it('sin config propia (subcategoría) → hereda íntegra la del padre, sin fusionar', () => {
+    const parentEffective = { allowedViews: ['LISTA' as const, 'MAPA' as const], defaultView: 'MAPA' as const };
+    const result = resolveEffectiveViews({ allowedViews: [], defaultView: null }, parentEffective);
+    expect(result).toEqual(parentEffective);
+  });
+
+  it('sin config propia NI del padre → cae al default global (las 3, LISTA por defecto)', () => {
+    const result = resolveEffectiveViews({ allowedViews: [], defaultView: null }, null);
+    expect(result).toEqual(DEFAULT_EFFECTIVE_VIEWS);
+  });
+
+  it('config propia siempre reemplaza al padre por completo (no hay fusión parcial)', () => {
+    const parentEffective = { allowedViews: ['LISTA' as const, 'AMPLIADA' as const, 'MAPA' as const], defaultView: 'LISTA' as const };
+    const result = resolveEffectiveViews(
+      { allowedViews: ['MAPA'], defaultView: 'MAPA' },
+      parentEffective,
+    );
+    expect(result).toEqual({ allowedViews: ['MAPA'], defaultView: 'MAPA' });
+  });
+});
 
 describe('resolveEffectivePolicy', () => {
   it('hijo BOTH → hereda la política efectiva del padre', () => {

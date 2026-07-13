@@ -51,7 +51,7 @@ export interface AttributeSchemaWithExtras extends AttributeSchema {
 
 // ── Parse / serialize ─────────────────────────────────────────────────────────
 
-const KNOWN_KEYS = ['name', 'label', 'type', 'unit', 'options', 'filterable', 'required', 'cardAttribute', 'appliesTo', 'dependsOn', 'optionsByParent'];
+const KNOWN_KEYS = ['name', 'label', 'type', 'unit', 'options', 'filterable', 'required', 'cardAttribute', 'wideCardAttribute', 'appliesTo', 'dependsOn', 'optionsByParent'];
 
 function cloneOptionsByParent(o: Record<string, string[]>): Record<string, string[]> {
   return Object.fromEntries(Object.entries(o).map(([k, v]) => [k, [...v]]));
@@ -94,6 +94,7 @@ export function parseAttributeSchema(raw: unknown[]): AttributeSchemaWithExtras[
       filterable: Boolean(r.filterable),
       required: Boolean(r.required),
       ...(r.cardAttribute ? { cardAttribute: true as const } : {}),
+      ...(r.wideCardAttribute ? { wideCardAttribute: true as const } : {}),
       ...(appliesTo ? { appliesTo } : {}),
       ...(dependsOn ? { dependsOn } : {}),
       ...(optionsByParent ? { optionsByParent } : {}),
@@ -124,6 +125,7 @@ export function serializeAttributeSchema(
       out.options = known.options;
     }
     if (known.cardAttribute) out.cardAttribute = true;
+    if (known.wideCardAttribute) out.wideCardAttribute = true;
     if (known.appliesTo) out.appliesTo = known.appliesTo;
     if (known.type === 'select' && known.dependsOn) {
       out.dependsOn = known.dependsOn;
@@ -144,6 +146,7 @@ interface DraftState {
   filterable: boolean;
   required: boolean;
   cardAttribute: boolean;
+  wideCardAttribute: boolean;
   /** Ambos marcados (default) = comportamiento actual, sin restricción de tipo. */
   appliesTo: ListingType[];
   /** Name del atributo select del que depende, o '' si es un select plano. */
@@ -163,7 +166,7 @@ interface ParentCandidate {
 function emptyDraft(): DraftState {
   return {
     name: '', label: '', type: 'text', unit: '', options: [],
-    filterable: false, required: false, cardAttribute: false,
+    filterable: false, required: false, cardAttribute: false, wideCardAttribute: false,
     appliesTo: ['PRODUCT', 'SERVICE'],
     dependsOn: '', optionsByParent: {},
   };
@@ -179,6 +182,7 @@ function toDraft(f: AttributeSchemaWithExtras): DraftState {
     filterable: f.filterable,
     required: f.required,
     cardAttribute: f.cardAttribute ?? false,
+    wideCardAttribute: f.wideCardAttribute ?? false,
     appliesTo: f.appliesTo ? [...f.appliesTo] : ['PRODUCT', 'SERVICE'],
     dependsOn: f.dependsOn ?? '',
     optionsByParent: f.optionsByParent ? cloneOptionsByParent(f.optionsByParent) : {},
@@ -202,6 +206,7 @@ function fromDraft(d: DraftState, dependsOnValid: boolean): AttributeSchemaWithE
     filterable: d.filterable,
     required: d.required,
     ...(d.cardAttribute ? { cardAttribute: true as const } : {}),
+    ...(d.wideCardAttribute ? { wideCardAttribute: true as const } : {}),
     // Ambos marcados → omitir el campo (attributeSchema byte-idéntico al de
     // antes de RÁFAGA 2 para quien nunca toca estos checkboxes).
     ...(d.appliesTo.length < 2 ? { appliesTo: [...d.appliesTo] } : {}),
@@ -299,6 +304,7 @@ export function AttributeSchemaEditor({
   const [checkingUsage, setCheckingUsage] = useState(false);
 
   const inheritedCardCount = inheritedFields.filter(f => f.cardAttribute).length;
+  const inheritedWideCardCount = inheritedFields.filter(f => f.wideCardAttribute).length;
 
   function notify(active: boolean) {
     onHasActiveEdit?.(active);
@@ -418,6 +424,13 @@ export function AttributeSchemaEditor({
     return inheritedCardCount + otherOwnCard >= 2 && !draft.cardAttribute;
   }
 
+  // RÁFAGA 2 — mismo mecanismo que cardDisabled() pero con tope 6 para la vista ampliada.
+  function wideCardDisabled(): boolean {
+    if (!draft) return false;
+    const otherOwnWideCard = rows.filter((r, i) => i !== editingIdx && r.wideCardAttribute).length;
+    return inheritedWideCardCount + otherOwnWideCard >= 6 && !draft.wideCardAttribute;
+  }
+
   const canInteract = !disabled && editingIdx === null && deletingIdx === null;
   const parentCandidates = collectParentCandidates(rows, inheritedFields, editingIdx);
 
@@ -446,6 +459,7 @@ export function AttributeSchemaEditor({
                 <FieldFlag v={f.required} label="req" />
                 <FieldFlag v={f.filterable} label="filt" />
                 <FieldFlag v={Boolean(f.cardAttribute)} label="card" />
+                <FieldFlag v={Boolean(f.wideCardAttribute)} label="wcard" />
                 <span className="rounded border border-muted-foreground/20 bg-background px-1.5 py-0.5 text-[9px] text-muted-foreground">
                   heredado
                 </span>
@@ -508,6 +522,7 @@ export function AttributeSchemaEditor({
                     errors={draftErrors}
                     searchableKeys={searchableKeys}
                     cardAttributeDisabled={cardDisabled()}
+                    wideCardAttributeDisabled={wideCardDisabled()}
                     optionInput={optionInput}
                     setOptionInput={setOptionInput}
                     onAddOption={addOption}
@@ -531,6 +546,7 @@ export function AttributeSchemaEditor({
                 <FieldFlag v={row.required} label="req" />
                 <FieldFlag v={row.filterable} label="filt" />
                 <FieldFlag v={Boolean(row.cardAttribute)} label="card" />
+                <FieldFlag v={Boolean(row.wideCardAttribute)} label="wcard" />
                 {row.dependsOn && (
                   <span className="text-[10px] text-muted-foreground" title={`Depende de "${row.dependsOn}"`}>
                     ↳ {row.dependsOn}
@@ -586,6 +602,7 @@ export function AttributeSchemaEditor({
                 errors={draftErrors}
                 searchableKeys={searchableKeys}
                 cardAttributeDisabled={cardDisabled()}
+                wideCardAttributeDisabled={wideCardDisabled()}
                 optionInput={optionInput}
                 setOptionInput={setOptionInput}
                 onAddOption={addOption}
@@ -623,6 +640,7 @@ interface FieldFormProps {
   errors: string[];
   searchableKeys: string[];
   cardAttributeDisabled: boolean;
+  wideCardAttributeDisabled: boolean;
   optionInput: string;
   setOptionInput: (v: string) => void;
   onAddOption: () => void;
@@ -640,6 +658,7 @@ function FieldForm({
   errors,
   searchableKeys,
   cardAttributeDisabled,
+  wideCardAttributeDisabled,
   optionInput,
   setOptionInput,
   onAddOption,
@@ -863,6 +882,29 @@ function FieldForm({
           />
           cardAttribute
           {cardAttributeDisabled && (
+            <Info className="h-3 w-3 text-muted-foreground" />
+          )}
+        </label>
+
+        {/* wideCardAttribute — RÁFAGA 2: hasta 6 en el schema efectivo, independiente de cardAttribute */}
+        <label
+          className={`flex items-center gap-1.5 text-xs ${wideCardAttributeDisabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
+          title={
+            wideCardAttributeDisabled
+              ? 'Ya hay 6 atributos de vista ampliada en el schema efectivo (máximo permitido)'
+              : undefined
+          }
+        >
+          <input
+            type="checkbox"
+            checked={draft.wideCardAttribute}
+            onChange={(e) => { if (!wideCardAttributeDisabled) set({ wideCardAttribute: e.target.checked }); }}
+            disabled={disabled || wideCardAttributeDisabled}
+            className="h-3.5 w-3.5 rounded"
+            data-testid="wide-card-attribute-checkbox"
+          />
+          wideCardAttribute
+          {wideCardAttributeDisabled && (
             <Info className="h-3 w-3 text-muted-foreground" />
           )}
         </label>

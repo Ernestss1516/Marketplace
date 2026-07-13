@@ -29,6 +29,11 @@ export interface ListingDocument {
   _geo?: { lat: number; lng: number };
   slug: string;
   thumbnailUrl: string | null;
+  /** Ordered URLs of every photo (RÁFAGA 2 — carrusel en la card). Just strings, not
+   * full ListingImage objects: cheap to carry in the payload (a URL is ~100 bytes vs.
+   * the image bytes themselves), and the frontend only ever mounts an <Image> for the
+   * one currently visible — so this does NOT mean the browser fetches every photo. */
+  images: string[];
   sellerId: string;
   /** Public seller fields — stored in the index so the map panel avoids a per-selection fetch. */
   sellerName: string;
@@ -411,6 +416,8 @@ export class SearchService implements OnModuleInit {
         : {}),
       slug: listing.slug,
       thumbnailUrl: thumbnail?.url ?? null,
+      // Already ordered by `order asc` via INDEX_INCLUDE.images.orderBy.
+      images: listing.images.map((img) => img.url),
       sellerId: listing.sellerId,
       sellerName: listing.seller.name,
       sellerSlug: listing.seller.slug,

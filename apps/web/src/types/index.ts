@@ -16,6 +16,9 @@ export type ListingType = 'PRODUCT' | 'SERVICE';
 
 export type ListingTypePolicy = 'PRODUCT_ONLY' | 'SERVICE_ONLY' | 'BOTH';
 
+/** Vistas de resultados en /busqueda y /[categoria] (RÁFAGA 2). */
+export type ListingViewMode = 'LISTA' | 'AMPLIADA' | 'MAPA';
+
 export type Condition = 'NEW' | 'LIKE_NEW' | 'GOOD' | 'FAIR' | 'FOR_PARTS';
 
 export type Role = 'USER' | 'MODERATOR' | 'ADMIN';
@@ -62,6 +65,8 @@ export interface AttributeSchema {
   filterable: boolean;
   required: boolean;
   cardAttribute?: boolean;
+  /** Shown in the wide/ampliada card (RÁFAGA 2 — max 6 in the effective schema). Independent of `cardAttribute`. */
+  wideCardAttribute?: boolean;
   /** Which listing type(s) this attribute applies to. Absent = applies to both. */
   appliesTo?: ListingType[];
   /** Name of another `select` attribute whose value gates this field's valid options. Single level only (no chains). When set, `options` is ignored. */
@@ -82,6 +87,8 @@ export interface Category {
   slug: string;
   iconUrl?: string;
   cardAttributes?: CardAttributeDef[];
+  /** Hasta 6 atributos para la vista ampliada (RÁFAGA 2) — independiente de cardAttributes. */
+  wideCardAttributes?: CardAttributeDef[];
   /** Full attribute list (all fields, not just card-highlighted ones). Populated by GET /categories tree. */
   allAttributes?: CardAttributeDef[];
   children?: Category[];
@@ -91,6 +98,9 @@ export interface CategoryWithSchema extends Category {
   attributeSchema: AttributeSchema[];
   /** Política efectiva (propia + heredada del padre) — RÁFAGA 3 (wizard). */
   allowedListingType: ListingTypePolicy;
+  /** Vistas efectivas (propias o heredadas del padre, o default global) — RÁFAGA 2. */
+  allowedViews: ListingViewMode[];
+  defaultView: ListingViewMode;
 }
 
 // ── Sponsored ads (H6.6) ─────────────────────────────────────────────────────
@@ -115,6 +125,9 @@ export interface ListingSummary {
   currency: string;
   priceType: PriceType;
   thumbnailUrl?: string;
+  /** Ordered URLs of every photo (RÁFAGA 2 — carrusel en la card). Present on Meilisearch
+   * hits after reindex; absent on the Postgres fallback path (thumbnailUrl still works there). */
+  images?: string[];
   city?: string;
   province?: string;
   status: ListingStatus;
@@ -296,7 +309,11 @@ export interface MyListing {
 
 // ── Favorites ────────────────────────────────────────────────────────────────
 
-export interface FavoriteListingData extends ListingSummary {
+// Omits the base `images?: string[]` (Meilisearch carousel URLs, RÁFAGA 2): the favorites
+// API (Postgres) returns full ListingImage-like objects under the same JSON key, an
+// incompatible shape. `normalize()` in lib/api/favoritos.ts reads this to derive
+// `thumbnailUrl` and does NOT carry it over into the ListingSummary-typed result.
+export interface FavoriteListingData extends Omit<ListingSummary, 'images'> {
   images: { url: string }[];
   /** Raw nested relation returned by the favorites API (used in normalize() to extract categorySlug). */
   category?: { slug: string };

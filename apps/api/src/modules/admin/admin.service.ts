@@ -10,6 +10,7 @@ import { Queue } from 'bullmq';
 import {
   ListingStatus,
   ListingTypePolicy,
+  ListingViewMode,
   Prisma,
   ReportStatus,
   Role,
@@ -401,6 +402,8 @@ export class AdminService {
         order: true,
         attributeSchema: true,
         allowedListingType: true,
+        allowedViews: true,
+        defaultView: true,
         children: {
           orderBy: { order: 'asc' },
           select: {
@@ -411,6 +414,8 @@ export class AdminService {
             order: true,
             attributeSchema: true,
             allowedListingType: true,
+            allowedViews: true,
+            defaultView: true,
           },
         },
       },
@@ -434,6 +439,61 @@ export class AdminService {
     if (cardCount > 2) {
       throw new BadRequestException(
         `El schema efectivo tiene ${cardCount} atributos con cardAttribute:true pero el máximo permitido es 2.`,
+      );
+    }
+  }
+
+  /**
+   * RÁFAGA 2 (vista ampliada): mismo mecanismo que validateCardAttributeLimit
+   * pero para wideCardAttribute, con un tope de 6 en vez de 2 — la card ancha
+   * tiene más espacio que la compacta pero sigue acotada.
+   */
+  private async validateWideCardAttributeLimit(
+    ownSchema: AttributeField[],
+    parentId: string | null | undefined,
+  ): Promise<void> {
+    let parentSchema: AttributeField[] = [];
+    if (parentId) {
+      const parent = await this.prisma.category.findUnique({
+        where: { id: parentId },
+        select: { attributeSchema: true },
+      });
+      if (parent) parentSchema = (parent.attributeSchema as unknown as AttributeField[]) ?? [];
+    }
+    const effective = resolveEffectiveSchema(ownSchema, parentSchema);
+    const wideCardCount = effective.filter((f) => f.wideCardAttribute).length;
+    if (wideCardCount > 6) {
+      throw new BadRequestException(
+        `El schema efectivo tiene ${wideCardCount} atributos con wideCardAttribute:true pero el máximo permitido es 6.`,
+      );
+    }
+  }
+
+  /**
+   * RÁFAGA 2 (vistas configurables): valida el estado FINAL (ya fusionado con lo
+   * persistido, en el caso de update) de allowedViews/defaultView.
+   * `allowedViews: []` es válido siempre (equivale a "no configurado" — el
+   * resto de allowedViews:[]+defaultView:null nunca se rechaza). Con al menos
+   * una vista permitida, la vista por defecto es obligatoria y debe estar
+   * entre ellas — un 400 explícito en vez de auto-corregir en silencio, para
+   * que un PATCH inconsistente (p. ej. hecho a mano contra la API) falle alto
+   * y claro en vez de guardar un estado a medias.
+   */
+  private validateViewsConfig(
+    finalAllowedViews: ListingViewMode[],
+    finalDefaultView: ListingViewMode | null,
+  ): void {
+    if (finalAllowedViews.length === 0) {
+      if (finalDefaultView !== null) {
+        throw new BadRequestException(
+          'No se puede fijar una vista por defecto sin al menos una vista permitida.',
+        );
+      }
+      return;
+    }
+    if (finalDefaultView === null || !finalAllowedViews.includes(finalDefaultView)) {
+      throw new BadRequestException(
+        'La vista por defecto debe estar entre las vistas permitidas.',
       );
     }
   }
@@ -505,10 +565,12 @@ export class AdminService {
   async createCategory(actorId: string, dto: CreateCategoryDto, ip?: string) {
     if (dto.attributeSchema) {
       await this.validateCardAttributeLimit(dto.attributeSchema as AttributeField[], dto.parentId);
+      await this.validateWideCardAttributeLimit(dto.attributeSchema as AttributeField[], dto.parentId);
     }
     if (dto.allowedListingType !== undefined) {
       await this.assertPolicyConsistentWithParent(dto.allowedListingType, dto.parentId);
     }
+    this.validateViewsConfig(dto.allowedViews ?? [], dto.defaultView ?? null);
     try {
       const created = await this.prisma.category.create({
         data: {
@@ -523,6 +585,8 @@ export class AdminService {
           ...(dto.allowedListingType !== undefined && {
             allowedListingType: dto.allowedListingType,
           }),
+          ...(dto.allowedViews !== undefined && { allowedViews: dto.allowedViews }),
+          ...(dto.defaultView !== undefined && { defaultView: dto.defaultView }),
         },
       });
 
@@ -562,6 +626,10 @@ export class AdminService {
         dto.attributeSchema as AttributeField[],
         category.parentId,
       );
+      await this.validateWideCardAttributeLimit(
+        dto.attributeSchema as AttributeField[],
+        category.parentId,
+      );
     }
 
     if (dto.allowedListingType !== undefined) {
@@ -572,6 +640,23 @@ export class AdminService {
       if (dto.allowedListingType !== category.allowedListingType) {
         await this.assertPolicyChangeDoesNotBreakChildren(id, dto.allowedListingType);
       }
+    }
+
+    // RÁFAGA 2 — valida el estado FINAL (lo que ya había + lo que este PATCH cambia),
+    // no solo lo que llega en el body: un PATCH que solo toca `defaultView` debe
+    // seguir siendo válido contra el `allowedViews` ya persistido, y viceversa.
+    // Caso especial: vaciar allowedViews (→ []) sin tocar defaultView explícitamente
+    // AUTO-LIMPIA defaultView a null en vez de dejarlo huérfano apuntando a una vista
+    // que ya no está permitida — "volver a no configurado" debe limpiar el par entero.
+    const defaultViewToWrite: ListingViewMode | null | undefined =
+      dto.allowedViews !== undefined && dto.allowedViews.length === 0 && dto.defaultView === undefined
+        ? null
+        : dto.defaultView;
+    if (dto.allowedViews !== undefined || defaultViewToWrite !== undefined) {
+      this.validateViewsConfig(
+        dto.allowedViews ?? category.allowedViews,
+        defaultViewToWrite !== undefined ? defaultViewToWrite : category.defaultView,
+      );
     }
 
     const before = { name: category.name, slug: category.slug, order: category.order };
@@ -590,6 +675,8 @@ export class AdminService {
           ...(dto.allowedListingType !== undefined && {
             allowedListingType: dto.allowedListingType,
           }),
+          ...(dto.allowedViews !== undefined && { allowedViews: dto.allowedViews }),
+          ...(defaultViewToWrite !== undefined && { defaultView: defaultViewToWrite }),
         },
       });
 

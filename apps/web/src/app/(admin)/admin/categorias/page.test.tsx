@@ -43,6 +43,8 @@ function rootCat(overrides: Partial<AdminCategory>): AdminCategory {
     order: overrides.order ?? 0,
     attributeSchema: [],
     allowedListingType: 'BOTH',
+    allowedViews: [],
+    defaultView: null,
     children: overrides.children ?? [],
   };
 }
@@ -52,10 +54,11 @@ beforeEach(() => {
   mockGetSearchableKeys.mockResolvedValue({ keys: [] });
   mockGetCategoryBySlug.mockResolvedValue({
     id: 'x', name: 'X', slug: 'x', attributeSchema: [], allowedListingType: 'BOTH',
+    allowedViews: ['LISTA', 'AMPLIADA', 'MAPA'], defaultView: 'LISTA',
   });
   mockCreateAdminCategory.mockResolvedValue({
     id: 'new', name: 'Nueva', slug: 'nueva', iconUrl: null, order: 0,
-    attributeSchema: [], allowedListingType: 'BOTH',
+    attributeSchema: [], allowedListingType: 'BOTH', allowedViews: [], defaultView: null,
   });
 });
 

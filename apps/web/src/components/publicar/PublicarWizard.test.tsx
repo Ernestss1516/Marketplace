@@ -53,11 +53,13 @@ const SCHEMA_BOTH: CategoryWithSchema = {
   id: 'cat-both', name: 'Categoría Ambos', slug: 'cat-both',
   attributeSchema: [COMMON, PRODUCT_ONLY, SERVICE_ONLY],
   allowedListingType: 'BOTH',
+  allowedViews: ['LISTA', 'AMPLIADA', 'MAPA'], defaultView: 'LISTA',
 };
 const SCHEMA_PRODUCT_ONLY: CategoryWithSchema = {
   id: 'cat-po', name: 'Categoría Solo Producto', slug: 'cat-po',
   attributeSchema: [COMMON, PRODUCT_ONLY],
   allowedListingType: 'PRODUCT_ONLY',
+  allowedViews: ['LISTA', 'AMPLIADA', 'MAPA'], defaultView: 'LISTA',
 };
 
 function renderWizard() {
