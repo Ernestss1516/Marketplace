@@ -85,9 +85,11 @@ export default async function HomePage() {
           </section>
         )}
 
-        {/* Recién publicados — vía Meilisearch (search), no el listado Postgres:
-            así los anuncios con boostScore muestran su badge "Destacado" de forma
-            natural, sin necesitar una sección aparte. */}
+        {/* Recién publicados — vía Meilisearch (search), no el listado Postgres: así los
+            anuncios con boostScore muestran su badge "Destacado" de forma natural. Desde
+            la política de ordenación C (RÁFAGA 1) boostScore ya no reordena la lista, así
+            que esto son de verdad los más recientes — antes un destacado antiguo podía
+            colarse por delante de un anuncio genuinamente nuevo. */}
         <section className="py-12">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-xl font-semibold">Recién publicados</h2>

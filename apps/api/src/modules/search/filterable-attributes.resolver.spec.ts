@@ -9,6 +9,15 @@ function makeResolver(categories: Array<{ attributeSchema: unknown }>) {
   return { resolver: new FilterableAttributesResolver(prisma), prisma };
 }
 
+function makeResolverWithSlugs(
+  categories: Array<{ slug: string; parent?: { slug: string } | null; attributeSchema: unknown }>,
+) {
+  const prisma = {
+    category: { findMany: jest.fn().mockResolvedValue(categories) },
+  } as unknown as PrismaService;
+  return { resolver: new FilterableAttributesResolver(prisma), prisma };
+}
+
 describe('FilterableAttributesResolver', () => {
   it('incluye los atributos filterable:true de todas las categorías (padres y hojas)', async () => {
     const { resolver } = makeResolver([
@@ -76,5 +85,69 @@ describe('FilterableAttributesResolver', () => {
     await resolver.getAttributeTypes();
 
     expect(prisma.category.findMany).toHaveBeenCalledTimes(1);
+  });
+
+  describe('getAttributeTypesForCategory (RÁFAGA 1 — fix del leak cross-categoría)', () => {
+    it('categoría hoja: incluye su propio schema + el heredado del padre, no el de otra rama', async () => {
+      const { resolver } = makeResolverWithSlugs([
+        {
+          slug: 'vehiculos',
+          parent: null,
+          attributeSchema: [{ name: 'brand', label: 'Marca', type: 'text', filterable: true, required: false }],
+        },
+        {
+          slug: 'coches',
+          parent: { slug: 'vehiculos' },
+          attributeSchema: [{ name: 'fuel', label: 'Combustible', type: 'text', filterable: true, required: false }],
+        },
+        {
+          slug: 'pisos',
+          parent: null,
+          attributeSchema: [{ name: 'rooms', label: 'Habitaciones', type: 'number', filterable: true, required: false }],
+        },
+      ]);
+
+      const types = await resolver.getAttributeTypesForCategory('coches');
+
+      expect(types.has('fuel')).toBe(true); // propio
+      expect(types.has('brand')).toBe(true); // heredado del padre
+      expect(types.has('rooms')).toBe(false); // de otra rama — el bug que se arregla
+    });
+
+    it('categoría padre: agrega su propio schema + el efectivo de cada hijo (browse mezcla hijos)', async () => {
+      const { resolver } = makeResolverWithSlugs([
+        {
+          slug: 'vehiculos',
+          parent: null,
+          attributeSchema: [{ name: 'brand', label: 'Marca', type: 'text', filterable: true, required: false }],
+        },
+        {
+          slug: 'coches',
+          parent: { slug: 'vehiculos' },
+          attributeSchema: [{ name: 'fuel', label: 'Combustible', type: 'text', filterable: true, required: false }],
+        },
+        {
+          slug: 'motos',
+          parent: { slug: 'vehiculos' },
+          attributeSchema: [{ name: 'displacement', label: 'Cilindrada', type: 'number', filterable: true, required: false }],
+        },
+      ]);
+
+      const types = await resolver.getAttributeTypesForCategory('vehiculos');
+
+      expect(types.has('brand')).toBe(true);
+      expect(types.has('fuel')).toBe(true);
+      expect(types.has('displacement')).toBe(true);
+    });
+
+    it('slug desconocido: mapa vacío (ningún atributo es válido para una categoría inexistente)', async () => {
+      const { resolver } = makeResolverWithSlugs([
+        { slug: 'coches', parent: null, attributeSchema: [] },
+      ]);
+
+      const types = await resolver.getAttributeTypesForCategory('no-existe');
+
+      expect(types.size).toBe(0);
+    });
   });
 });

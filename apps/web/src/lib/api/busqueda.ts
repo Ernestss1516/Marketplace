@@ -24,6 +24,11 @@ export interface SearchParams {
 
 export interface SearchResponse {
   hits: SearchHit[];
+  /** Bloque "Promocionados" (política de ordenación C): hasta 4 destacados que
+   * cumplen los mismos filtros, solo en página 1. Se muestran ADEMÁS de su
+   * posición natural en `hits` — no se restan de `totalHits`. Ausente en los
+   * fallbacks locales (p. ej. cuando falla la búsqueda) — tratar como []. */
+  featured?: ListingSummary[];
   totalHits: number;
   page: number;
   hitsPerPage: number;

@@ -77,6 +77,9 @@ const CORE_FILTERABLE_ATTRIBUTES = [
   'city',
   '_geo',
   'sellerId',
+  // Filterable (not just sortable) so the controller can query "only boosted"
+  // for the promoted block (RÁFAGA 1 — política de ordenación C).
+  'boostScore',
 ];
 
 const SORTABLE_ATTRIBUTES = [
@@ -106,14 +109,19 @@ const FACET_ATTRIBUTES = [
   'itemType',
 ];
 
+// Política de ordenación C (RÁFAGA 1, 2026-07-13): boostScore NO participa en las
+// ranking rules. Antes 'boostScore:desc' vivía aquí, ANTES de 'sort' — en Meilisearch
+// cada regla PARTICIONA el resultado (no solo desempata), así que un destacado caro
+// salía por delante de un no-destacado barato incluso ordenando por "precio: menor a
+// mayor". Verificado ejecutando contra el índice real. Ahora la lista respeta siempre
+// el orden pedido por el usuario (o la relevancia/recencia por defecto); la promoción
+// de pago se resuelve aparte, como un bloque "Promocionados" post-query en
+// SearchController (mismo molde que SponsoredAd — ver onlyBoosted en SearchParams).
 const RANKING_RULES = [
   'words',
   'typo',
   'proximity',
   'attribute',
-  // Featured listings rise after textual relevance; before user-applied sort so they
-  // remain visible in every ordering. Does NOT boost irrelevant results.
-  'boostScore:desc',
   'sort',
   'exactness',
   // Final tiebreaker: most recently published/bumped listing wins.
@@ -182,6 +190,9 @@ export interface SearchParams {
   /** Confirms "is this specific listing in these results?" (B3 alert-matching Fase 2)
    * with the exact same filtering semantics as a real search — not a separate JS check. */
   listingId?: string;
+  /** Restricts to boostScore=1 — used by SearchController to resolve the "Promocionados"
+   * block (política de ordenación C) with the exact same filters as the main query. */
+  onlyBoosted?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -321,6 +332,7 @@ export class SearchService implements OnModuleInit {
     if (params.minPrice != null) filters.push(`price >= ${params.minPrice}`);
     if (params.maxPrice != null) filters.push(`price <= ${params.maxPrice}`);
     if (params.listingId) filters.push(`id = "${this.escape(params.listingId)}"`);
+    if (params.onlyBoosted) filters.push('boostScore = 1');
 
     for (const [key, value] of Object.entries(params.attributes ?? {})) {
       filters.push(

@@ -196,15 +196,22 @@ describe('RF.8 — Meilisearch boostScore + sortDate (e2e)', () => {
       await waitForDocumentField(meili, INDEX_NAME, listingBId, 'boostScore', 0);
     }, 30_000);
 
-    it('destacado (boostScore=1) aparece primero entre dos listings igualmente relevantes', async () => {
+    it('destacado (boostScore=1) entra al bloque "featured" pero NO reordena la lista principal (política C)', async () => {
       const res = await request(app.getHttpServer())
         .get('/api/search')
         .query({ q: 'TelefonoRF8Boost' })
         .expect(200);
 
       const hits = res.body.hits as { id: string }[];
+      const featured = res.body.featured as { id: string }[];
       expect(hits.length).toBeGreaterThanOrEqual(2);
-      expect(hits[0].id).toBe(listingAId); // A featured → ranks first
+      // boostScore ya NO está en las ranking rules (RÁFAGA 1): sin él, el desempate final
+      // es sortDate:desc — B (publicado 1s más tarde) queda por delante de A en la LISTA,
+      // aunque A esté destacado. El boost ya no particiona el orden de la lista.
+      expect(hits[0].id).toBe(listingBId);
+      // A sí entra al bloque de "Promocionados" — la promoción de pago vive ahí, no reordenando la lista.
+      expect(featured.some((h) => h.id === listingAId)).toBe(true);
+      expect(featured.some((h) => h.id === listingBId)).toBe(false);
     });
 
     it('destacado NO aparece en búsquedas con query irrelevante (boost no contamina)', async () => {
@@ -234,10 +241,13 @@ describe('RF.8 — Meilisearch boostScore + sortDate (e2e)', () => {
         .expect(200);
 
       const hits = res.body.hits as { id: string }[];
+      const featured = res.body.featured as { id: string }[];
       expect(hits.length).toBeGreaterThanOrEqual(2);
       // A (boostScore=0, published 2s earlier) vs B (boostScore=0, published 1s earlier).
       // sortDate tiebreaker: B has higher sortDate → B appears first.
       expect(hits[0].id).toBe(listingBId);
+      // Neither is boosted anymore — the "Promocionados" block is empty for this query.
+      expect(featured.some((h) => h.id === listingAId)).toBe(false);
     });
   });
 

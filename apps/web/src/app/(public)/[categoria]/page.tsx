@@ -9,6 +9,7 @@ import { SponsoredCard, isSponsoredAdHit } from '@/components/anuncios/Sponsored
 import { FavoritesGridProvider } from '@/components/anuncios/FavoritesGridContext';
 import { CardAttributesProvider } from '@/components/anuncios/CardAttributesContext';
 import { FilterPanel } from '@/components/busqueda/FilterPanel';
+import { FeaturedBlock } from '@/components/busqueda/FeaturedBlock';
 import { getCategoryBySlug } from '@/lib/api/categorias';
 import { getListingsByCategory } from '@/lib/api/anuncios';
 import { search, type SearchHit } from '@/lib/api/busqueda';
@@ -122,6 +123,7 @@ export default async function CategoriaPage({
   // Primary: Meilisearch (facets + attribute filters + proximity).
   // Fallback: Postgres (no facets, basic sort only) when Meili is unavailable.
   let hits: SearchHit[] = [];
+  let featured: ListingSummary[] = [];
   let total = 0;
   let hitsPerPage = 24;
   let facets: Record<string, Record<string, number>> | undefined;
@@ -144,6 +146,7 @@ export default async function CategoriaPage({
       ...attributes,
     });
     hits = result.hits;
+    featured = result.featured ?? [];
     total = result.totalHits;
     hitsPerPage = result.hitsPerPage;
     facets = result.facets;
@@ -255,7 +258,10 @@ export default async function CategoriaPage({
                   category.attributeSchema ?? [],
                 )}
               >
-                <FavoritesGridProvider listingIds={listingHits.map((l) => l.id)}>
+                <FavoritesGridProvider
+                  listingIds={[...new Set([...featured.map((l) => l.id), ...listingHits.map((l) => l.id)])]}
+                >
+                  <FeaturedBlock listings={featured} />
                   <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
                     {hits.map((hit) =>
                       isSponsoredAdHit(hit) ? (

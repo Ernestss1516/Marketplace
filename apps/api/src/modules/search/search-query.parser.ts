@@ -14,6 +14,9 @@ export const CORE_SEARCH_QUERY_KEYS = new Set([
 export interface ParsedSearchQuery {
   dto: SearchQueryDto;
   attributes: Record<string, string | number | boolean>;
+  /** The map actually used to validate/coerce `attributes` — reused by the controller
+   * for hit normalisation so both steps agree on which keys are attributes. */
+  attributeTypes: ReadonlyMap<string, AttributeField['type']>;
 }
 
 export function coerceAttributeValue(
@@ -55,9 +58,21 @@ export function coerceAttributeValue(
  * into a single 400, mirroring the combined-message behaviour of the
  * previous single-DTO whitelist validation.
  */
+/**
+ * Resolves which attribute names are valid for this request. Receives a
+ * category slug (undefined for /busqueda general, which accepts any
+ * category's attribute) and returns the map to validate `attributes`
+ * against — plain function so the caller decides global vs.
+ * per-category (FilterableAttributesResolver.getAttributeTypes vs.
+ * getAttributeTypesForCategory).
+ */
+export type AttributeTypesResolver = (
+  categorySlug: string | undefined,
+) => Promise<ReadonlyMap<string, AttributeField['type']>>;
+
 export async function parseSearchQuery(
   raw: Record<string, unknown>,
-  attributeTypes: ReadonlyMap<string, AttributeField['type']>,
+  resolveAttributeTypes: AttributeTypesResolver,
 ): Promise<ParsedSearchQuery> {
   const coreRaw: Record<string, unknown> = {};
   const restRaw: Record<string, unknown> = {};
@@ -81,6 +96,13 @@ export async function parseSearchQuery(
     }
   }
 
+  // Scope attribute validation to the requested category (RÁFAGA 1 — fixes the
+  // cross-category leak, e.g. /coches?rooms=3 silently accepting "pisos"' attribute).
+  // Falls back to the raw (unvalidated) category string if the core DTO failed to
+  // parse, so attribute errors still make sense even when category itself is malformed.
+  const categorySlug = dto?.category ?? (typeof coreRaw.category === 'string' ? coreRaw.category : undefined);
+  const attributeTypes = await resolveAttributeTypes(categorySlug);
+
   const attributes: Record<string, string | number | boolean> = {};
   for (const [key, rawValue] of Object.entries(restRaw)) {
     const kind = attributeTypes.get(key);
@@ -96,5 +118,5 @@ export async function parseSearchQuery(
     throw new BadRequestException(errors);
   }
 
-  return { dto, attributes };
+  return { dto, attributes, attributeTypes };
 }

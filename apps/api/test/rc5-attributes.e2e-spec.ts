@@ -264,6 +264,37 @@ describe('RC5 — Categorías y atributos (e2e)', () => {
     expect(res.body.hits).toHaveLength(0);
   });
 
+  // ── RÁFAGA 1 — fix del leak cross-categoría ──────────────────────────────
+
+  it('GET /api/search?category=rc5-calzado-test&itemType=Portátil → 400 (itemType es de otra categoría, no de calzado)', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/search')
+      .query({ category: 'rc5-calzado-test', itemType: 'Portátil' })
+      .expect(400);
+
+    expect(res.body.message).toEqual(
+      expect.arrayContaining([expect.stringContaining('itemType')]),
+    );
+  });
+
+  it('GET /api/search?itemType=Portátil SIN categoría sigue aceptándose (unión global, /busqueda general)', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/search')
+      .query({ itemType: 'Portátil' })
+      .expect(200);
+
+    expect(res.body.hits.some((h: { title: string }) => h.title === 'Portátil de Prueba RC5')).toBe(true);
+  });
+
+  it('GET /api/search?category=rc5-tech-parent&itemType=Portátil → 200 (categoría padre agrega los atributos del hijo)', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/search')
+      .query({ category: 'rc5-tech-parent', itemType: 'Portátil' })
+      .expect(200);
+
+    expect(res.body.hits.some((h: { title: string }) => h.title === 'Portátil de Prueba RC5')).toBe(true);
+  });
+
   // ── Herencia de atributos ────────────────────────────────────────────────
 
   it('GET /api/categories/:slug devuelve schema efectivo: year heredado + itemType y brand del hijo', async () => {

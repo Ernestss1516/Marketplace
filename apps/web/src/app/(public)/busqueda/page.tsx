@@ -8,6 +8,7 @@ import { SponsoredCard, isSponsoredAdHit } from '@/components/anuncios/Sponsored
 import { FavoritesGridProvider } from '@/components/anuncios/FavoritesGridContext';
 import { CardAttributesProvider } from '@/components/anuncios/CardAttributesContext';
 import { FilterPanel } from '@/components/busqueda/FilterPanel';
+import { FeaturedBlock } from '@/components/busqueda/FeaturedBlock';
 import { CrearAlertaButton } from '@/components/busqueda/CrearAlertaButton';
 import MapViewClient from '@/components/busqueda/MapViewClient';
 import { search, type SearchResponse } from '@/lib/api/busqueda';
@@ -142,6 +143,7 @@ export default async function BusquedaPage({
   // H6.6 — el patrocinado (si lo hay) va intercalado en `hits` para la parrilla de
   // lista; el mapa y el conteo de favoritos solo conocen anuncios reales.
   const listingHits = hits.filter((h): h is ListingSummary => !isSponsoredAdHit(h));
+  const featured = data?.featured ?? [];
   const facets = data?.facets;
   const hitsPerPage = data?.hitsPerPage ?? hitsPerFetch;
   const totalPages = isMapView ? 0 : Math.ceil(totalHits / hitsPerPage);
@@ -343,7 +345,10 @@ export default async function BusquedaPage({
           {!searchError && totalHits > 0 && !isMapView && (
             <>
               <CardAttributesProvider cardAttributeMap={buildCardAttributeMap(categories)}>
-                <FavoritesGridProvider listingIds={listingHits.map((l) => l.id)}>
+                <FavoritesGridProvider
+                  listingIds={[...new Set([...featured.map((l) => l.id), ...listingHits.map((l) => l.id)])]}
+                >
+                  <FeaturedBlock listings={featured} />
                   <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
                     {hits.map((hit) =>
                       isSponsoredAdHit(hit) ? (

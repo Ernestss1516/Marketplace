@@ -36,7 +36,7 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **Expiration** | ✅ Completo | `ExpirationService`: cron 02:00 — marca EXPIRED los anuncios ACTIVE con `expiresAt ≤ now`, invalida caché Redis y encola reindexado (RESERVED excluidos intencionalmente). **RF.7-B**: `EntitlementExpirationService`: cron 03:00 con **dos expiraciones en paralelo** — **B.1** `expireFeaturedListings`: selecciona entitlements `FEATURED_LISTING` caducados sin `revokedAt`, los marca en batch (`updateMany → revokedAt = now`, crash-safe), encola reindex con `boostScore:0`; deduplicación BullMQ por `jobId = feat-exp-${id}-${fecha}`. **B.2** `downgradeExpiredPro`: usuarios con `PRO_SUBSCRIPTION` expirado hace > 7 días (periodo de gracia), sin suscripción activa renovada; mueve los listings en exceso a DRAFT ordenado por `publishedAt asc` (más antiguos primero); **purga caché Redis + encola reindex** para cada listing drafteado → Meilisearch los elimina del índice. `runExpirationSweep()` público para tests sin necesidad de reloj real |
 | **Geocoding** | ✅ Completo | `GeocodingService` con proveedor configurable (`nominatim` por defecto, `maptiler`). Timeout 3 000 ms; fallback sin postalCode si la query completa devuelve vacío (CP incorrecto → vacío en Nominatim, resuelto sin CP); logs INFO/WARN detallados (provider, ciudad, "resolved" o "TIMEOUT/HTTP xxx"); normalización de nombres de provincia bilinguales ("Alicante/Alacant" → "Alicante") antes de enviar a Nominatim. **Para activar MapTiler en producción: solo `GEOCODING_PROVIDER=maptiler` + `MAPTILER_API_KEY`, cero cambios de código.** Script `geocode-backfill` para anuncios sin coordenadas (cursor-based, 1 req/s). |
 | **Media** | ✅ Upload + Avatar | `POST /media/upload` → R2/MinIO → crea `ListingImage` huérfana → encola procesado con sharp; **sin DELETE**. **RL5.1-C**: `POST /media/upload-avatar` (JwtAuthGuard) → sube a `avatars/` en R2/MinIO, devuelve `{ url }`, **NO crea ListingImage** (avatar no es una imagen de anuncio; tabla no crece). Mismos límites que `/upload`: 10 MB, solo JPEG/PNG/WebP (422 si otro tipo). Test e2e: `media.e2e-spec.ts` (4 tests: 401 sin auth, 422 no-imagen, 400 sin archivo, 201 + url + sin ListingImage creada). |
-| **Search** | ✅ Completo (RC5.2 + H6.5) | `GET /search` con texto libre, filtros core, atributos variables (brand, fuel, rooms, gender, size, **itemType**…), **filtro por proximidad** (`lat` + `lng` + `radius` en km → `_geoRadius` en Meilisearch) y **orden por distancia** cuando no hay sort explícito, facetas, paginación y ordenación; `IndexingProcessor` real con jobs `index`/`remove`. **RF.8**: `boostScore` (0/1) en el documento — 1 si el listing tiene un `FEATURED_LISTING` vigente al reindexar. `sortDate = max(publishedAt, bumpedAt)`. `rankingRules`: `[words, typo, proximity, attribute, boostScore:desc, sort, exactness, sortDate:desc]`. **H6.5c**: `INDEX_INCLUDE` incluye `seller: { name, slug, avatarUrl }` → `ListingDocument` guarda `sellerName`, `sellerSlug`, `sellerAvatarUrl` para que el panel del mapa los muestre sin fetch por selección. **H6 (fix raíz flaky CI)**: `indexListing()` llama a `waitForTask(task.taskUid)` — el job BullMQ no completa hasta que el documento es **consultable** en Meilisearch (antes completaba cuando Meili lo recibía, provocando flaky en tests que buscaban el anuncio justo después de indexar). **RC5.2**: `VARIABLE_ATTRIBUTE_KEYS` ampliado con `itemType`; `FACET_ATTRIBUTES` ampliado con `itemType`; `SearchQueryDto` declara `itemType?: string`. **RÁFAGA 0 (producto/servicio) — atributos filtrables dinámicos**: `VARIABLE_ATTRIBUTE_KEYS` (hardcodeado) eliminado; `FilterableAttributesResolver` (nuevo) deriva `Map<name, type>` de `Category.attributeSchema` en todas las categorías (unión plana, guard estructural contra nombres reservados, conflicto de tipo entre categorías → se conserva el primero + `Logger.warn`), memoizado desde `onModuleInit()` (sin refresco en caliente — ver §3). `SearchQueryDto` reducido a los campos core; `search-query.parser.ts` (nuevo) valida los atributos variables contra el mapa dinámico reutilizando el propio `ValidationPipe` de Nest para los campos fijos (mismo 400 ante clave desconocida). `FACET_ATTRIBUTES` (lista curada, sin cambios) se intersecta con lo realmente filtrable en tiempo de consulta para no pedir a Meilisearch facetas sobre atributos ausentes en un entorno dado. Ver «Atributos filtrables dinámicos — RÁFAGA 0» en §2. |
+| **Search** | ✅ Completo (RC5.2 + H6.5 + RÁFAGA 1) | `GET /search` con texto libre, filtros core, atributos variables (brand, fuel, rooms, gender, size, **itemType**…), **filtro por proximidad** (`lat` + `lng` + `radius` en km → `_geoRadius` en Meilisearch) y **orden por distancia** cuando no hay sort explícito, facetas, paginación y ordenación; `IndexingProcessor` real con jobs `index`/`remove`. **RF.8**: `boostScore` (0/1) en el documento — 1 si el listing tiene un `FEATURED_LISTING` vigente al reindexar. `sortDate = max(publishedAt, bumpedAt)`. **RÁFAGA 1 (política de ordenación C)**: `rankingRules` ya NO incluye `boostScore:desc` — `[words, typo, proximity, attribute, sort, exactness, sortDate:desc]`; antes, al ir ANTES de `sort`, particionaba (no desempataba) y un destacado ganaba a cualquier no-destacado en cualquier orden (verificado ejecutando: precio asc devolvía un destacado de 333€ antes que uno de 7€ sin destacar). Ahora la lista (`hits`) respeta siempre el orden pedido; los destacados que cumplen los filtros actuales se devuelven ADEMÁS en `featured` (bloque "Promocionados", 4 máx., solo página 1 — mismo molde que el patrocinado H6.6, query aparte con `onlyBoosted`/`boostScore = 1`, ahora filterable). `totalHits` no se contamina con `featured` ni con el patrocinado. Ver «Política de ordenación C» en §2. **RÁFAGA 1 (filtros)**: `FilterableAttributesResolver.getAttributeTypesForCategory(slug)` (nuevo) fija el leak cross-categoría — antes `?category=coches&rooms=3` (`rooms` es de "pisos") pasaba validación y devolvía 0 resultados en silencio; ahora 400. Ver «Filtros: validación de atributos por categoría» en §2. **H6.5c**: `INDEX_INCLUDE` incluye `seller: { name, slug, avatarUrl }` → `ListingDocument` guarda `sellerName`, `sellerSlug`, `sellerAvatarUrl` para que el panel del mapa los muestre sin fetch por selección. **H6 (fix raíz flaky CI)**: `indexListing()` llama a `waitForTask(task.taskUid)` — el job BullMQ no completa hasta que el documento es **consultable** en Meilisearch (antes completaba cuando Meili lo recibía, provocando flaky en tests que buscaban el anuncio justo después de indexar). **RC5.2**: `VARIABLE_ATTRIBUTE_KEYS` ampliado con `itemType`; `FACET_ATTRIBUTES` ampliado con `itemType`; `SearchQueryDto` declara `itemType?: string`. **RÁFAGA 0 (producto/servicio) — atributos filtrables dinámicos**: `VARIABLE_ATTRIBUTE_KEYS` (hardcodeado) eliminado; `FilterableAttributesResolver` (nuevo) deriva `Map<name, type>` de `Category.attributeSchema` en todas las categorías (unión plana, guard estructural contra nombres reservados, conflicto de tipo entre categorías → se conserva el primero + `Logger.warn`), memoizado desde `onModuleInit()` (sin refresco en caliente — ver §3). `SearchQueryDto` reducido a los campos core; `search-query.parser.ts` (nuevo) valida los atributos variables contra el mapa dinámico reutilizando el propio `ValidationPipe` de Nest para los campos fijos (mismo 400 ante clave desconocida). `FACET_ATTRIBUTES` (lista curada, sin cambios) se intersecta con lo realmente filtrable en tiempo de consulta para no pedir a Meilisearch facetas sobre atributos ausentes en un entorno dado. Ver «Atributos filtrables dinámicos — RÁFAGA 0» en §2. |
 | **Script reindex** | ✅ Completo (RF.9 fix) | `pnpm reindex` — reconstruye el índice en batches de 100; `ReindexModule` mínimo (sin BullMQ) para cierre limpio. **RF.9 fix**: antes hacía `addDocuments` sin vaciar (documentos huérfanos de listings borrados sobrevivían al reindexado); ahora llama `clearAll()` + `waitForTask` antes de repoblar → idempotente respecto a borrados |
 | **Messaging** | ✅ Completo | REST: `GET /conversations`, `POST /conversations`, `GET /conversations/:id` (cursor), `POST /conversations/:id/messages`. WebSocket gateway `/ws`: auth en handshake, rooms de conversación y de usuario, emit tras el POST REST |
 | **AuditLog** | ✅ Completo | `AuditLogService.log()` inyectable; captura explícita `before`/`after` dentro del método de service que muta el recurso, antes de llamar a Prisma; nunca vía interceptor (ver §2). **RF.12b**: `log(dto, tx?)` admite segundo parámetro `tx: Prisma.TransactionClient` opcional; si se pasa, el `prisma.auditLog.create` corre dentro de la transacción del llamador; backward-compat con todos los callers existentes (Fase 7) |
@@ -175,6 +175,10 @@ enlaces ancla — funcionan en GitHub y en la vista previa de Markdown de VS Cod
 - [Límites de anuncios activos por plan y configuración en caliente (RF.7-A)](#límites-de-anuncios-activos-por-plan-y-configuración-en-caliente-rf7-a)
 - [`revokedAt` en Entitlement: patrón de expiración idempotente (RF.7-B.1)](#revokedat-en-entitlement-patrón-de-expiración-idempotente-rf7-b1)
 - [boostScore y sortDate en Meilisearch (RF.8)](#boostscore-y-sortdate-en-meilisearch-rf8)
+- [Política de ordenación C: boostScore deja de particionar la lista (RÁFAGA 1, 2026-07-13)](#política-de-ordenación-c-boostscore-deja-de-particionar-la-lista-ráfaga-1-2026-07-13)
+- [Filtros: validación de atributos por categoría (RÁFAGA 1 — fix del leak cross-categoría)](#filtros-validación-de-atributos-por-categoría-ráfaga-1--fix-del-leak-cross-categoría)
+- [Provincia: select cerrado en FilterPanel (RÁFAGA 1 — cierra la inconsistencia con la portada)](#provincia-select-cerrado-en-filterpanel-ráfaga-1--cierra-la-inconsistencia-con-la-portada)
+- [`/[categoria]/[subcategoria]` — ruta muerta eliminada (RÁFAGA 1)](#categoriasubcategoria--ruta-muerta-eliminada-ráfaga-1)
 - [Pro downgrade con des-indexado de Meilisearch (RF.7-B.2 — bug detectado y corregido)](#pro-downgrade-con-des-indexado-de-meilisearch-rf7-b2-bug-detectado-y-corregido)
 - [Settings: whitelist explícita en el service (Fase 7)](#settings-whitelist-explícita-en-el-service-fase-7)
 - [Migración `add_audit_log_and_settings` (Fase 7)](#migración-addauditlogandsettings-fase-7)
@@ -2634,12 +2638,12 @@ y encola reindex → `sortDate` sube al momento del bump. La renovación (`renew
 timestamps → `sortDate` no cambia. Cierra el "republish-gratis" a nivel de búsqueda (complementa
 el fix de `publishedAt` de RF.7-A que lo cerraba a nivel de Postgres).
 
-**`rankingRules`:**
+**`rankingRules`** (actualizado en RÁFAGA 1 — ver política de ordenación C más abajo):
 ```
-[words, typo, proximity, attribute, boostScore:desc, sort, exactness, sortDate:desc]
+[words, typo, proximity, attribute, sort, exactness, sortDate:desc]
 ```
-- `boostScore:desc` en posición 5: tras relevancia textual (no eleva resultados irrelevantes),
-  antes de `sort` (los destacados suben en cualquier ordenación del usuario).
+- `boostScore:desc` **ya no está aquí** (estaba en posición 5, antes de `sort`) — ver
+  «Política de ordenación C: boostScore deja de particionar la lista (RÁFAGA 1)».
 - `sortDate:desc` al final: tiebreaker determinista para búsquedas sin sort explícito;
   reemplaza el antiguo `publishedAt:desc`.
 
@@ -2652,6 +2656,112 @@ Meilisearch al reindexar; Meilisearch no reevalúa `expiresAt > now` por su cuen
 retraso. Aceptado: a la escala actual del proyecto la granularidad diaria es suficiente. Si en
 el futuro se requiere expiración horaria, la solución sería un cron más frecuente o un job
 BullMQ con delay calculado (`expiresAt - now`).
+
+### Política de ordenación C: boostScore deja de particionar la lista (RÁFAGA 1, 2026-07-13)
+
+**Antecedente — decisión implícita, nunca ratificada:** `boostScore:desc` llevaba en
+`rankingRules` desde RF.8 (billing), colocado ANTES de `sort`. En Meilisearch cada regla de
+`rankingRules` **particiona** los resultados (no solo desempata) — así que, en la práctica, un
+destacado quedaba SIEMPRE por delante de cualquier no-destacado, en cualquier ordenación,
+incluida "precio: menor a mayor". **Verificado ejecutando** contra el índice real (auditoría
+RÁFAGA 0): ordenar por precio ascendente devolvía un destacado de 333 € antes que anuncios sin
+destacar de 0 € y 7 €. Esto nunca se decidió conscientemente como política de negocio — fue un
+efecto lateral de cómo se implementó el binario `boostScore` en RF.8.
+
+**Decisión tomada (Ernest, 2026-07-13) — Política C, híbrida:**
+- La LISTA (`hits`) respeta siempre el orden pedido por el usuario (o la relevancia/recencia por
+  defecto). `boostScore` ya NO figura en `rankingRules` — no particiona ni desempata.
+- Los destacados que además cumplen los filtros actuales se muestran ADEMÁS en un bloque
+  marcado "Promocionados" (`featured` en la respuesta de `GET /search`), arriba de la lista.
+  Tamaño fijo: 4 (`FEATURED_BLOCK_SIZE` en `search.controller.ts`). Solo página 1 (mismo criterio
+  que el patrocinado H6.6 — un bloque de promoción no tiene sentido en la página 7).
+- Los destacados del bloque **se repiten** en su posición natural dentro de `hits` (no se
+  excluyen de la lista) — el bloque es la vitrina de pago, la lista es la lista real. Decisión
+  consciente, no efecto colateral.
+
+**Cómo (mismo molde que H6.6 patrocinados):** `SearchController.search()` resuelve `hits` con
+una query normal (sort del usuario, sin `boostScore` en las ranking rules) y, si `page === 1`,
+lanza una SEGUNDA query con los mismos filtros (`baseParams`) + `onlyBoosted: true` (nuevo filtro
+`boostScore = 1`, para lo cual `boostScore` pasó a formar parte de `filterableAttributes`) +
+`hitsPerPage: FEATURED_BLOCK_SIZE`. El resultado va en `featured`, separado de `hits` — el
+conteo (`totalHits`) sale solo de la query principal, así que ni el bloque ni el patrocinado
+contaminan el estado vacío ("sin resultados"), igual que ya se cuidaba con el patrocinado.
+
+**Efecto colateral corregido de paso:** la sección "Recién publicados" de la portada
+(`search({ sort: 'publishedAt:desc' })`) podía mostrar un destacado publicado hace días por
+delante de un anuncio genuinamente nuevo — con `boostScore` fuera de las ranking rules, la
+sección vuelve a ser literalmente cierta.
+
+**Frontend:** `FeaturedBlock` (nuevo, `components/busqueda/FeaturedBlock.tsx`) — sección con
+icono + "Promocionados" y grid de `ListingCard`, usada en `/busqueda` y `/[categoria]` (ambas
+comparten `FavoritesGridProvider` con la unión de ids de `featured` + `hits` para que el corazón
+de favoritos funcione también en el bloque). No se añadió a la portada (no pedido en RÁFAGA 1).
+
+**Tests actualizados:** `rf8-meilisearch.e2e-spec.ts` — el caso "destacado aparece primero"
+pasó a comprobar que el destacado entra en `featured` sin reordenar `hits` (el desempate ahora
+lo decide `sortDate:desc`, así que el más reciente de los dos gana la lista aunque el otro esté
+destacado).
+
+**Transparencia P2B — pendiente, no resuelto en esta ráfaga:** sigue sin existir ningún texto o
+enlace junto al selector "Ordenar por" que explique que el pago influye en qué aparece en el
+bloque "Promocionados". El badge "Destacado" (H6.3) identifica el anuncio, pero no explica el
+mecanismo. Inventariado en la auditoría RÁFAGA 0, no forma parte del alcance de esta ráfaga.
+
+### Filtros: validación de atributos por categoría (RÁFAGA 1 — fix del leak cross-categoría)
+
+**Bug encontrado en la auditoría RÁFAGA 0:** `FilterableAttributesResolver` calculaba una unión
+plana GLOBAL de los atributos `filterable` de TODAS las categorías, sin distinguir de cuál era
+cada uno. Consecuencia: `GET /search?category=coches&rooms=3` (`rooms` es un atributo de
+"pisos", no de "coches") pasaba la validación igualmente, se traducía a un filtro Meilisearch
+válido, y devolvía 0 resultados **sin explicación** — indistinguible de "no hay coches a ese
+precio" para quien lo depure.
+
+**Fix:** `FilterableAttributesResolver` gana `getAttributeTypesForCategory(slug)`, además del
+`getAttributeTypes()` global (que se sigue usando para `/busqueda` sin categoría — la unión
+global sigue siendo correcta ahí, nada la acota). Ambos comparten una única caché memoizada
+(`loadCategories()`, misma invalidación de siempre — sin query extra a Postgres por request, se
+mantiene el invariante "búsqueda no toca Postgres"). Resolución:
+- **Categoría hoja** (sin hijas): su propio schema + el heredado del padre —
+  `resolveEffectiveSchema()`, la misma función que ya resuelve la herencia en
+  `CategoriesService.findBySlug`.
+- **Categoría padre** (con hijas): unión de su propio schema + el schema efectivo de CADA hija —
+  porque `categoryPath = "parentSlug"` en Meilisearch mezcla los anuncios de todas las hijas al
+  navegar por el padre (ej. `/vehiculos` mezcla coches+motos+furgonetas), así que un atributo
+  propio de una hija (`fuel` de coches) es un filtro legítimo también ahí.
+- **Slug desconocido:** mapa vacío — ningún atributo es válido para una categoría que no existe.
+
+`search-query.parser.ts` resuelve el `categorySlug` del núcleo de la query ANTES de validar los
+atributos variables, y usa el mapa correspondiente (global o por categoría). Un atributo ajeno a
+la categoría pedida da **400** (`property X should not exist`) — se decidió reutilizar
+exactamente el mismo camino de error que ya existía para atributos totalmente desconocidos, en
+vez de introducir un modo "ignorar con aviso": mantiene un único comportamiento de error en toda
+la API y prioriza un fallo honesto sobre uno silencioso (coherente con la auditoría RÁFAGA 0).
+
+**Verificado (e2e):** `rc5-attributes.e2e-spec.ts` — `category=rc5-calzado-test&itemType=...`
+(atributo de otra categoría) → 400; el mismo `itemType=...` sin `category` → 200 (unión global);
+`category=rc5-tech-parent&itemType=...` (categoría padre, atributo de su hija) → 200. Verificado
+también en vivo contra el índice real: `GET /search?category=coches&rooms=3` → 400 antes
+devolvía 200 con `totalHits: 0`.
+
+### Provincia: select cerrado en FilterPanel (RÁFAGA 1 — cierra la inconsistencia con la portada)
+
+`FilterPanel.tsx` (usado por `/busqueda` y `/[categoria]`) usaba un `<input type="text">` libre
+para provincia; la portada (`SearchBar`) ya usaba un `<select>` con `PROVINCIAS`
+(`lib/provincias.ts`). El filtro de provincia es un `=` exacto contra `Listing.province` en
+Meilisearch — una errata o variación de mayúsculas/tildes en el texto libre daba 0 resultados
+sin ninguna pista. Fix: `FilterPanel` usa ahora el mismo `<select>` con `PROVINCIAS`, aplicando
+el cambio inmediatamente (mismo patrón que el selector de categoría/condición, sin estado local
+de blur/Enter — ese patrón se conserva solo para "Ciudad", que sigue sin lista canónica). Cierra
+la deuda inventariada en H6.4 (`FilterPanel.tsx:405-428`).
+
+### `/[categoria]/[subcategoria]` — ruta muerta eliminada (RÁFAGA 1)
+
+Era un stub sin implementar (`TODO: Listado — {categoria}/{subcategoria}`) desde antes de esta
+ráfaga. La navegación real de categorías es plana (`CategoryGrid`/selects enlazan siempre
+`/${slug}`, sea la categoría padre o hija — nunca anidan `/padre/hija`); confirmado que nada en
+el código enlazaba a esa ruta. Eliminada por ser código muerto que podía confundir al leer el
+árbol de rutas; visitarla ahora da 404 (comportamiento correcto para una URL que nunca existió
+funcionalmente).
 
 ### Pro downgrade con des-indexado de Meilisearch (RF.7-B.2 — bug detectado y corregido)
 

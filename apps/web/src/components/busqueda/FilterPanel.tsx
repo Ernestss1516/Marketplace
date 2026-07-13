@@ -5,6 +5,7 @@ import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { ChevronDown, MapPin, SlidersHorizontal, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { PROVINCIAS } from '@/lib/provincias';
 import type { Category, ListingTypePolicy } from '@/types';
 
 const TYPE_OPTIONS = [
@@ -108,7 +109,6 @@ export function FilterPanel({
   // Local state for inputs that apply on blur/Enter to avoid router.push on every keystroke
   const [localMin, setLocalMin] = useState(currentFilters.minPrice ?? '');
   const [localMax, setLocalMax] = useState(currentFilters.maxPrice ?? '');
-  const [localProvince, setLocalProvince] = useState(currentFilters.province ?? '');
   const [localCity, setLocalCity] = useState(currentFilters.city ?? '');
 
   // Geolocation state: tracks the async permission/position request lifecycle.
@@ -122,14 +122,12 @@ export function FilterPanel({
   useEffect(() => {
     setLocalMin(currentFilters.minPrice ?? '');
     setLocalMax(currentFilters.maxPrice ?? '');
-    setLocalProvince(currentFilters.province ?? '');
     setLocalCity(currentFilters.city ?? '');
     // Reset transient geo error when proximity is deactivated from outside
     if (!proximityActive) setGeoStatus('idle');
   }, [
     currentFilters.minPrice,
     currentFilters.maxPrice,
-    currentFilters.province,
     currentFilters.city,
     proximityActive,
   ]);
@@ -156,8 +154,8 @@ export function FilterPanel({
     update({ minPrice: localMin || undefined, maxPrice: localMax || undefined });
   }
 
-  function applyLocation() {
-    update({ province: localProvince || undefined, city: localCity || undefined });
+  function applyCity() {
+    update({ city: localCity || undefined });
   }
 
   function clearAll() {
@@ -406,22 +404,27 @@ export function FilterPanel({
       <div>
         <SectionLabel>Ubicación</SectionLabel>
         <div className="flex flex-col gap-2">
-          <input
-            type="text"
-            placeholder="Provincia"
-            value={localProvince}
-            onChange={(e) => setLocalProvince(e.target.value)}
-            onBlur={applyLocation}
-            onKeyDown={(e) => e.key === 'Enter' && applyLocation()}
-            className="rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-          />
+          {/* Select cerrado (mismo lib/provincias.ts que la portada) — antes era texto libre
+              y una errata o variación de mayúsculas/tildes daba 0 resultados en silencio,
+              porque el filtro es un `=` exacto contra el campo `province` del documento. */}
+          <select
+            value={currentFilters.province ?? ''}
+            onChange={(e) => update({ province: e.target.value || undefined })}
+            className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            aria-label="Provincia"
+          >
+            <option value="">Toda España</option>
+            {PROVINCIAS.map((p) => (
+              <option key={p} value={p}>{p}</option>
+            ))}
+          </select>
           <input
             type="text"
             placeholder="Ciudad"
             value={localCity}
             onChange={(e) => setLocalCity(e.target.value)}
-            onBlur={applyLocation}
-            onKeyDown={(e) => e.key === 'Enter' && applyLocation()}
+            onBlur={applyCity}
+            onKeyDown={(e) => e.key === 'Enter' && applyCity()}
             className="rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
           />
         </div>
