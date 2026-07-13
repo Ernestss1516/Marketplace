@@ -183,6 +183,7 @@ enlaces ancla — funcionan en GitHub y en la vista previa de Markdown de VS Cod
 - [Display de atributos en card: showLabel/showUnit configurables (RÁFAGA 3, 2026-07-13)](#display-de-atributos-en-card-showlabelshowunit-configurables-ráfaga-3-2026-07-13)
 - [Dos bugs de RÁFAGA 2 encontrados y corregidos de raíz (2026-07-13)](#dos-bugs-de-ráfaga-2-encontrados-y-corregidos-de-raíz-2026-07-13)
 - [Atributos en card: respetar producto/servicio (2026-07-13)](#atributos-en-card-respetar-productoservicio-2026-07-13)
+- [Auditoría — herencia de atributos en categorías + dos bugs de filtros (2026-07-13)](#auditoría--herencia-de-atributos-en-categorías--dos-bugs-de-filtros-2026-07-13)
 - [Pro downgrade con des-indexado de Meilisearch (RF.7-B.2 — bug detectado y corregido)](#pro-downgrade-con-des-indexado-de-meilisearch-rf7-b2-bug-detectado-y-corregido)
 - [Settings: whitelist explícita en el service (Fase 7)](#settings-whitelist-explícita-en-el-service-fase-7)
 - [Migración `add_audit_log_and_settings` (Fase 7)](#migración-addauditlogandsettings-fase-7)
@@ -3130,6 +3131,136 @@ kilometraje — en vista estándar Y ampliada, en `/busqueda?category=X` Y `/X` 
 confirma que los caminos siguen convergiendo tras el bug 2 de la ráfaga anterior). Editor de
 atributos del admin verificado en vivo mostrando "Card estándar — Producto: 1/2 · Servicio: 1/2 ·
 Card ampliada — Producto: 2/6 · Servicio: 2/6" para la categoría de prueba.
+
+### Auditoría — herencia de atributos en categorías + dos bugs de filtros (2026-07-13)
+
+**Encargo:** mapear TODOS los sitios donde la herencia padre→hija de atributos debería
+aplicar y verificar cada uno EJECUTANDO (categoría padre con atributo propio `fuel` +
+categoría hija con atributo propio `gearbox`, un anuncio real publicado en la hija), sin
+tocar código en esta parte. Aparte, arreglar dos bugs acotados de filtros si eran limpios.
+
+#### Parte 1 — mapa de la herencia (auditoría, sin cambios de código)
+
+**El algoritmo de fusión NO está duplicado — `resolveEffectiveSchema()` (category.types.ts)
+es la única función que fusiona schema propio + del padre, y la reutilizan sin excepción:**
+`admin.service.ts` (validación de topes), `categories.service.ts` (`findTree`/`findBySlug`,
+lo que consume `/busqueda`, `/[categoria]`, el wizard y la ficha), `listings.service.ts`
+(`create`/`update`, validación de atributos al guardar) y
+`filterable-attributes.resolver.ts` (validación de query params). Lo que SÍ está duplicado
+es la construcción del INPUT de esa función: 5 sitios independientes hacen su propia
+consulta Prisma para obtener "schema propio + schema del padre" (mismo patrón que
+reindexado ×3 / concesión de destacado ×4 mencionados en la sesión) — hoy consistentes
+porque los 5 asumen exactamente 1 nivel, pero es un punto de fricción si el modelo de
+profundidad cambia (ver hallazgo de 3 niveles más abajo).
+
+Tabla de verificación (todo ejecutado en vivo, categoría padre `audit-vehiculos` con
+`fuel`, hija `audit-coches` con `gearbox`, un anuncio PRODUCT publicado en la hija con
+`{fuel:'diesel', gearbox:'manual'}`):
+
+| Punto | ¿Hereda correctamente? | Evidencia / causa |
+|---|---|---|
+| (a) Formulario de publicar | ✅ Sí | `GET /categories/:slug` (`findBySlug`) devuelve `attributeSchema` ya fusionado (`["fuel","gearbox"]`); el wizard lo consume tal cual. |
+| (b) Filtros en `/[categoria-hija]` | ✅ Sí, **con matiz importante** | El FilterPanel no lee `attributeSchema` en absoluto: renderiza un control por cada *facet* que devuelve Meilisearch. La inherencia en sí funciona (confirmado con `fuel`/`gearbox`, ambos aparecieron), pero **`facets` viene de `FACET_ATTRIBUTES`, una lista editorial fija en `search.service.ts`** (`categorySlug, type, condition, priceType, province, fuel, gearbox, rooms, gender, modality, itemType`) — NO derivada del schema. Un atributo definido por un admin fuera de esa lista (probado con `km`: `filterable:true`, propio Y heredado) nunca genera facet, así que el FilterPanel JAMÁS ofrece un control para él — el backend SÍ acepta `?km=50000` (200), pero no hay forma de que el usuario lo escriba desde la UI. Esto no es un bug de herencia: afecta IGUAL a un atributo propio que a uno heredado, y es probablemente la causa real detrás de "no parece funcionar demasiado bien" para cualquier categoría con atributos fuera del seed original. |
+| (c) Validación de query params | ✅ Sí | `?category=audit-coches&fuel=diesel` → 200 (heredado); `&gearbox=manual` → 200 (propio); `?category=audit-vehiculos&gearbox=manual` (atributo de la HIJA, navegando el PADRE) → 200 (unión correcta vía `getAttributeTypesForCategory`); `?category=audit-coches&rooms=3` (ajeno) → 400. Los 4 casos correctos. |
+| (d) Cards en `/busqueda` y `/[categoria]` | ✅ Sí | `GET /categories` (árbol) da a la hija su propia entrada `cardAttributes:["fuel","gearbox"]` (no solo las suyas). Confirmado en vivo en las 4 combinaciones (`/busqueda?category=hija`, `/hija`, `/busqueda?category=padre`, `/padre`): las 4 muestran "Combustible: diesel · Cambio: manual". |
+| (e) Ficha `/anuncio/[slug]` | ✅ Sí | Misma fuente que (a) (`findBySlug` + `filterSchemaByType`), confirmado en vivo. |
+| (f) Alertas | ❌ **No — bug real, no relacionado con herencia** | `AlertsService.create()`/`update()` llaman a `attributesResolver.getAttributeTypes()` (mapa GLOBAL, plano, de TODAS las categorías) en vez de `getAttributeTypesForCategory(dto.categorySlug)` — a pesar de que `dto.categorySlug` está disponible. Confirmado en vivo: crear una alerta con `categorySlug: 'audit-coches'` y `attributes: {rooms: 3}` (atributo de "pisos", sin ninguna relación con vehículos) devuelve **201** — la MISMA combinación en `/search` devuelve 400. Es exactamente el "cross-category leak" que RÁFAGA 1 arregló para `/search` (`getAttributeTypesForCategory` en vez del mapa plano) pero nunca se replicó en alertas. No corregido en esta ráfaga (no es "herencia rota", es "falta aplicar el mismo fix de RÁFAGA 1 en un segundo sitio") — recomendado para una ráfaga futura, cambio pequeño y acotado. |
+| (g) Admin UI (config. de la hija) | ✅ Sí | `AttributeSchemaEditor` muestra "HEREDADOS DE {padre}" con `fuel` (badge "heredado") y "PROPIOS" con `gearbox`, verificado en vivo con captura de pantalla. |
+
+**Profundidad — el modelo permite N niveles, la resolución solo cubre 2 (bug latente,
+no alcanzable desde la UI normal):** `Category.parentId` es una auto-relación sin
+límite de profundidad en el schema de Prisma ni en `create-category.dto.ts`/
+`admin.service.ts` (nada valida que `parentId` no apunte a una categoría que YA
+tiene padre). La UI del admin (`admin/categorias/page.tsx`) SÍ impone 2 niveles
+estructuralmente — el botón "Nueva subcategoría" solo se renderiza para categorías
+raíz, nunca para una fila de hijo — así que un admin normal no puede crear un nieto.
+Pero un POST directo a `/admin/categories` con `parentId` = el id de una hija YA
+creada lo consigue sin ningún error (probado en vivo: 201). Consecuencias
+confirmadas: (1) `GET /categories` (`findTree`) solo recorre raíces + `children` de
+un nivel — el nieto **desaparece por completo** del árbol, sin entrada en
+`cardAttributes`/`wideCardAttributes`/`allAttributes` en ningún nodo — cualquier
+anuncio publicado ahí no mostraría NINGÚN atributo de card, reproduciendo el bug de
+"/vehiculos sin atributos" de la ráfaga anterior pero a un nivel invisible para el
+fix ya aplicado (que asume 2 niveles). (2) `findBySlug` (usado por el wizard y la
+ficha) SÍ resuelve el nieto, pero solo 1 nivel hacia arriba (fusiona con el
+schema PROPIO del padre inmediato, no con el schema YA EFECTIVO del padre) — el
+nieto pierde los atributos del ABUELO por completo (`attributeSchema` del nieto
+salió `["gearbox","km","turbo"]`, sin `fuel`). No es un crash ni un 500: los datos
+simplemente se pierden en silencio. No corregido (fuera de alcance explícito de
+esta ráfaga — "la herencia no se arregla en esta ráfaga"); recomendación: o bien
+prohibir explícitamente `parentId` de un padre que ya tiene padre (mantener 2
+niveles como invariante real, no solo de UI), o generalizar `resolveEffectiveSchema`
+a N niveles si el negocio necesita 3+ algún día. Dado que la UI ya impone 2 niveles
+en la práctica, la opción barata es la validación defensiva en el backend.
+
+**Recomendación de unificación (no implementada, para una futura ráfaga):** el
+algoritmo de fusión ya está unificado (`resolveEffectiveSchema`); lo que vale la pena
+centralizar es (1) el FETCH de "propio + padre" — hoy 5 consultas Prisma
+independientes podrían pasar por un único `CategorySchemaResolver.getEffective(id)`
+que además prohíba profundidad > 2 en el mismo sitio; (2) derivar `FACET_ATTRIBUTES`
+del schema real (unión de todos los `filterable:true`) en vez de mantener una lista
+editorial que se queda corta en cuanto un admin define un atributo nuevo; (3)
+replicar en `AlertsService` el fix de RÁFAGA 1 (`getAttributeTypesForCategory`).
+
+#### Parte 2 — dos bugs acotados (código SÍ tocado)
+
+**BUG A — sin forma de acotar de una categoría padre a una hija.** La navegación de
+categorías es plana (`CategoryGrid` enlaza `/{slug}` tanto para padres como para
+hijas; el stub `/[categoria]/[subcategoria]` ya se había borrado en RÁFAGA 1) y
+`FilterPanel` en `/[categoria]` se invocaba con `categories={[]}` (comentario
+explícito: "la categoría ya está fija en la URL"), ocultando también el selector de
+categoría que en `/busqueda` SÍ ofrece las hijas vía `<optgroup>`. **Arreglado** con
+un selector de "Subcategoría" nuevo y separado (no reutiliza el selector de
+categoría) en `FilterPanel.tsx`: aparece solo cuando la categoría fija de la página
+tiene hijas (prop `subcategories`, calculada en `/[categoria]/page.tsx` a partir del
+árbol de `getCategories()` que la página ya pedía para el bug de atributos de la
+ráfaga anterior — sin fetch nuevo). Elegir una hija navega con `router.push` a
+`/{slug de la hija}` **arrastrando los filtros ya aplicados** (mismos query params,
+`page` descartado) — decidido así en vez de un query param porque una hija siempre
+tiene al menos los atributos heredados del padre, así que ningún filtro se invalida
+al navegar hacia abajo en la jerarquía. Verificado en vivo: desde
+`/audit-vehiculos?province=Madrid`, elegir "Audit Coches" navega a
+`/audit-coches?province=Madrid` (filtro conservado); una categoría hoja (sin hijas)
+no muestra la sección. `/busqueda` no necesitaba cambios — su propio selector de
+categoría ya ofrecía las hijas (confirmado, sin bug ahí).
+
+**BUG B — el filtro "Condición" (estado de conservación) aparece para servicios,
+donde no aplica.** Mismo patrón que el bug de atributos de card de la ráfaga
+anterior, pero para un filtro NATIVO en vez de uno de categoría. Revisada la lista
+completa de filtros nativos de `FilterPanel`: orden, proximidad, categoría, tipo,
+condición, precio, ubicación — **condición es el único que no aplica a servicios**
+(un servicio no tiene estado de conservación físico). `priceType` (FIXED/FREE/
+NEGOTIABLE) SÍ aplica igual a ambos tipos (un servicio puede ser gratuito, de precio
+fijo o a convenir, igual que un producto) — no necesitaba cambio. **Arreglado**: (1)
+`FilterPanel.tsx` oculta "Condición" cuando `allowedListingType === 'SERVICE_ONLY'`
+(categoría fija de solo-servicio) O cuando `currentFilters.type === 'SERVICE'`
+(categoría mixta o `/busqueda` general, con el usuario filtrando explícitamente por
+servicios) — decidido cubrir ambos casos, no solo el de categoría fija. El radio
+"Servicios" también limpia `condition` de la URL al seleccionarse (mismo
+comportamiento que `StepDatos.tsx` en el wizard de publicar, que ya limpiaba
+`condition` al cambiar el tipo a SERVICE). (2) **Coherencia en el backend**:
+`search-query.parser.ts` rechaza con 400 la combinación `type=SERVICE&condition=X`
+("condition no aplica a anuncios de tipo SERVICE") en vez de devolver 0 resultados
+en silencio — mismo criterio que el rechazo ya existente para atributos
+cross-categoría. Verificado en vivo: `/busqueda` con "Servicios" seleccionado ya no
+muestra "Condición"; vuelve a aparecer al seleccionar "Productos"; `GET /search?
+type=SERVICE&condition=NEW` → 400 en el servidor real (no solo en el test).
+
+**Tests:** `search-query.parser.spec.ts` (nuevo, 4 casos unitarios del guard
+`type=SERVICE+condition`), `search-facets-by-type.e2e-spec.ts` (+3 casos e2e:
+rechazo 400, `type=PRODUCT+condition` sigue permitido, `condition` sin `type` sigue
+permitido), `FilterPanel.audit.test.tsx` (nuevo, 9 casos: selector de subcategoría
+—ausente/presente/navega/arrastra filtros— y ocultar "Condición" —por política de
+categoría, por `type` del usuario, limpieza al cambiar a Servicios—). Batería
+completa: backend 12 suites/106 tests unitarios + 56 suites/873 tests e2e (con
+`npm run test:e2e`, serial), todos verdes; frontend 19 suites/179 tests (169 verdes,
+mismos 10 fallos pre-existentes no relacionados). **QA en vivo:** categoría padre
+`audit-vehiculos` (atributo propio `fuel`) + hija `audit-coches` (atributo propio
+`gearbox`) + un anuncio real publicado en la hija, usada para las 7 verificaciones
+de la Parte 1 Y para el bug A (navegación padre→hija arrastrando `province=Madrid`).
+Bug B verificado en `/busqueda` con Playwright: aparece/desaparece "Condición" al
+cambiar Productos↔Servicios; `curl` directo al servidor de desarrollo confirma el
+400 del backend. Categoría, anuncio y alerta de prueba eliminados al cerrar.
 
 ### Pro downgrade con des-indexado de Meilisearch (RF.7-B.2 — bug detectado y corregido)
 

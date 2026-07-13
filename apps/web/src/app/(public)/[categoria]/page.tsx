@@ -198,6 +198,12 @@ export default async function CategoriaPage({
 
   const categories = await categoriesPromise;
 
+  // BUG A (auditoría de filtros) — hijas de ESTA categoría, si tiene. Una hoja (no
+  // aparece como nodo de nivel superior en el árbol) resuelve a [] sin más: no hay en
+  // qué acotar. Alimenta el selector "Subcategoría" del FilterPanel.
+  const subcategories = (categories.find((c) => c.slug === categoria)?.children ?? [])
+    .map((child) => ({ slug: child.slug, name: child.name }));
+
   const totalPages = isMapView ? 0 : Math.ceil(total / hitsPerPage) || 0;
   // H6.6 — igual que en /busqueda: el patrocinado (si lo hay) va intercalado en
   // `hits`; favoritos solo conoce anuncios reales.
@@ -303,6 +309,7 @@ export default async function CategoriaPage({
                 currentFilters={currentFilters}
                 activeFilterCount={activeFilterCount}
                 allowedListingType={category.allowedListingType}
+                subcategories={subcategories}
               />
             </Suspense>
           </aside>

@@ -82,6 +82,15 @@ interface FilterPanelProps {
    * Ausente en /busqueda (sin categoría fija, o mixta): comportamiento actual.
    */
   allowedListingType?: ListingTypePolicy;
+  /**
+   * BUG A (auditoría de filtros) — hijas de la categoría FIJA de esta página (solo
+   * /[categoria], cuando esa categoría es un padre). /busqueda no lo necesita: su
+   * propio selector "Categoría" ya ofrece las hijas vía <optgroup> (categories arriba).
+   * Elegir una navega a /{slug de la hija}, arrastrando los filtros ya aplicados (page
+   * se descarta, igual que cualquier otro cambio de filtro) — nunca se pierden porque
+   * una hija siempre tiene AL MENOS los atributos heredados del padre.
+   */
+  subcategories?: { slug: string; name: string }[];
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
@@ -100,6 +109,7 @@ export function FilterPanel({
   currentFilters,
   activeFilterCount,
   allowedListingType,
+  subcategories,
 }: FilterPanelProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -117,6 +127,14 @@ export function FilterPanel({
 
   const proximityActive =
     !!currentFilters.lat && !!currentFilters.lng && !!currentFilters.radius;
+
+  // BUG B (auditoría de filtros) — "Condición" (estado de conservación) no aplica a
+  // servicios, igual que un atributo de card solo-PRODUCT no se muestra en un anuncio
+  // SERVICE (mismo patrón, aplicado ahora a un filtro NATIVO en vez de uno de
+  // categoría). Se oculta cuando la categoría fija ya es solo-servicio, o cuando el
+  // usuario ha filtrado explícitamente por type=SERVICE en una categoría mixta/general.
+  const isServiceContext =
+    allowedListingType === 'SERVICE_ONLY' || currentFilters.type === 'SERVICE';
 
   // Sync local inputs when the server re-renders with new URL-derived props
   useEffect(() => {
@@ -143,6 +161,16 @@ export function FilterPanel({
       }
     }
     router.push(`${pathname}?${params.toString()}`);
+  }
+
+  // BUG A — navega a la subcategoría elegida (cambia el PATH, no un query param, así
+  // que no puede reutilizar update()) arrastrando los filtros ya aplicados. `page` se
+  // descarta igual que en update(): narrow a una subcategoría es un cambio de filtro.
+  function goToSubcategory(slug: string) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete('page');
+    const query = params.toString();
+    router.push(`/${slug}${query ? `?${query}` : ''}`);
   }
 
   function toggleFacet(key: string, value: string) {
@@ -336,6 +364,25 @@ export function FilterPanel({
         </div>
       )}
 
+      {/* Subcategoría (BUG A) — solo /[categoria] cuando la categoría fija tiene hijas.
+          /busqueda no la necesita: su propio selector "Categoría" ya las ofrece. */}
+      {subcategories && subcategories.length > 0 && (
+        <div>
+          <SectionLabel>Subcategoría</SectionLabel>
+          <select
+            value=""
+            onChange={(e) => { if (e.target.value) goToSubcategory(e.target.value); }}
+            className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            aria-label="Acotar a una subcategoría"
+          >
+            <option value="">Todas</option>
+            {subcategories.map((sub) => (
+              <option key={sub.slug} value={sub.slug}>{sub.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {/* Type — oculto cuando la categoría fija ya no permite ambos tipos */}
       {(allowedListingType ?? 'BOTH') === 'BOTH' && (
         <div>
@@ -348,7 +395,14 @@ export function FilterPanel({
                   name="type"
                   value={o.value}
                   checked={(currentFilters.type ?? '') === o.value}
-                  onChange={() => update({ type: o.value || undefined })}
+                  onChange={() =>
+                    update({
+                      type: o.value || undefined,
+                      // Al pasar a Servicios, "condición" deja de aplicar — se limpia
+                      // igual que hace el wizard de publicar al cambiar a SERVICE.
+                      ...(o.value === 'SERVICE' ? { condition: undefined } : {}),
+                    })
+                  }
                   className="accent-primary"
                 />
                 {o.label}
@@ -358,19 +412,21 @@ export function FilterPanel({
         </div>
       )}
 
-      {/* Condition */}
-      <div>
-        <SectionLabel>Condición</SectionLabel>
-        <select
-          value={currentFilters.condition ?? ''}
-          onChange={(e) => update({ condition: e.target.value || undefined })}
-          className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-        >
-          {CONDITION_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </select>
-      </div>
+      {/* Condition — oculto en contexto solo-servicio (ver isServiceContext arriba) */}
+      {!isServiceContext && (
+        <div>
+          <SectionLabel>Condición</SectionLabel>
+          <select
+            value={currentFilters.condition ?? ''}
+            onChange={(e) => update({ condition: e.target.value || undefined })}
+            className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            {CONDITION_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Price range */}
       <div>

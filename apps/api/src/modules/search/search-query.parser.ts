@@ -96,6 +96,15 @@ export async function parseSearchQuery(
     }
   }
 
+  // `condition` (estado de conservación) no aplica a SERVICE — un servicio no tiene
+  // estado de conservación, igual que un producto no tiene "especialidad". Sin este
+  // guard, `type=SERVICE&condition=NEW` no daba error: simplemente devolvía 0
+  // resultados en silencio (ningún SERVICE tiene `condition` seteado por el wizard),
+  // indistinguible de "esta búsqueda concreta no tiene resultados".
+  if (dto?.type === 'SERVICE' && dto?.condition) {
+    errors.push('condition no aplica a anuncios de tipo SERVICE');
+  }
+
   // Scope attribute validation to the requested category (RÁFAGA 1 — fixes the
   // cross-category leak, e.g. /coches?rooms=3 silently accepting "pisos"' attribute).
   // Falls back to the raw (unvalidated) category string if the core DTO failed to

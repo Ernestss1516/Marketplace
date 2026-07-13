@@ -158,4 +158,31 @@ describe('Facetas conscientes del tipo — RÁFAGA 4 (e2e, verificación empíri
     expect(res.body.facets?.gearbox).toEqual({ Manual: 1 });
     expect(res.body.facets?.modality).toEqual({ Online: 1 });
   });
+
+  // AUDITORÍA DE FILTROS — BUG B: "condition" (estado de conservación) no aplica a
+  // SERVICE, igual que un atributo appliesTo:['PRODUCT'] no aplica a un anuncio
+  // SERVICE. Antes de este fix, `type=SERVICE&condition=NEW` no daba error: se
+  // limitaba a devolver 0 resultados en silencio (ningún SERVICE tiene `condition`).
+  it('type=SERVICE + condition → 400 (condition no aplica a servicios)', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/search')
+      .query({ category: categorySlug, type: 'SERVICE', condition: 'NEW' })
+      .expect(400);
+
+    expect(res.body.message).toContain('condition no aplica a anuncios de tipo SERVICE');
+  });
+
+  it('type=PRODUCT + condition → sigue permitido (200)', async () => {
+    await request(app.getHttpServer())
+      .get('/api/search')
+      .query({ category: categorySlug, type: 'PRODUCT', condition: 'GOOD' })
+      .expect(200);
+  });
+
+  it('condition sin type → sigue permitido (200) — el guard solo actúa junto a type=SERVICE', async () => {
+    await request(app.getHttpServer())
+      .get('/api/search')
+      .query({ category: categorySlug, condition: 'GOOD' })
+      .expect(200);
+  });
 });
