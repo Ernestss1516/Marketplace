@@ -14,6 +14,19 @@ export interface AttributeField {
    * write time). Independent of `cardAttribute`: the standard card stays compact regardless
    * of how many attributes are flagged here. */
   wideCardAttribute?: boolean;
+  /**
+   * RÁFAGA 3 (display de atributos en card) — dos ejes independientes, no un enum de 3 modos:
+   * el nombre (label) y la unidad son conceptos ortogonales, la unidad no es alternativa al
+   * nombre sino parte del valor formateado. Aplica igual a card estándar y ampliada (es config
+   * del atributo, no de la vista).
+   *
+   * showLabel: si se antepone "Label: " al valor. Default (ausente) = `!unit` — reproduce la
+   * regla hardcodeada anterior a esta ráfaga ("oculta el label si hay unidad").
+   */
+  showLabel?: boolean;
+  /** showUnit: si se añade la unidad al valor. Solo tiene efecto si el atributo tiene `unit`.
+   * Default (ausente) = true. */
+  showUnit?: boolean;
   /** Which listing type(s) this attribute applies to. Absent = applies to both (preserves every attribute defined before RÁFAGA 1 without touching data). */
   appliesTo?: ListingType[];
   /**
@@ -91,6 +104,26 @@ export function resolveEffectivePolicy(
   if (own === 'BOTH') return parentEffective;
   if (parentEffective === 'BOTH') return own;
   return own === parentEffective ? own : parentEffective;
+}
+
+/**
+ * Resolves whether the attribute's label should be shown alongside its value
+ * in cards (RÁFAGA 3). Absent `showLabel` defaults to `!field.unit` — this is
+ * the exact rule that was hardcoded in the frontend before this ráfaga
+ * ("hide the label when there's a unit"), preserved here so existing
+ * attributes (which never set `showLabel`) render identically.
+ */
+export function resolveShowLabel(field: AttributeField): boolean {
+  return field.showLabel ?? !field.unit;
+}
+
+/**
+ * Resolves whether the attribute's unit should be appended to its value in
+ * cards (RÁFAGA 3). Absent `showUnit` defaults to `true` — moot when the
+ * attribute has no `unit` (nothing to append either way).
+ */
+export function resolveShowUnit(field: AttributeField): boolean {
+  return field.showUnit ?? true;
 }
 
 /** Whether a resolved ListingTypePolicy allows a given listing type. */

@@ -36,7 +36,7 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **Expiration** | ✅ Completo | `ExpirationService`: cron 02:00 — marca EXPIRED los anuncios ACTIVE con `expiresAt ≤ now`, invalida caché Redis y encola reindexado (RESERVED excluidos intencionalmente). **RF.7-B**: `EntitlementExpirationService`: cron 03:00 con **dos expiraciones en paralelo** — **B.1** `expireFeaturedListings`: selecciona entitlements `FEATURED_LISTING` caducados sin `revokedAt`, los marca en batch (`updateMany → revokedAt = now`, crash-safe), encola reindex con `boostScore:0`; deduplicación BullMQ por `jobId = feat-exp-${id}-${fecha}`. **B.2** `downgradeExpiredPro`: usuarios con `PRO_SUBSCRIPTION` expirado hace > 7 días (periodo de gracia), sin suscripción activa renovada; mueve los listings en exceso a DRAFT ordenado por `publishedAt asc` (más antiguos primero); **purga caché Redis + encola reindex** para cada listing drafteado → Meilisearch los elimina del índice. `runExpirationSweep()` público para tests sin necesidad de reloj real |
 | **Geocoding** | ✅ Completo | `GeocodingService` con proveedor configurable (`nominatim` por defecto, `maptiler`). Timeout 3 000 ms; fallback sin postalCode si la query completa devuelve vacío (CP incorrecto → vacío en Nominatim, resuelto sin CP); logs INFO/WARN detallados (provider, ciudad, "resolved" o "TIMEOUT/HTTP xxx"); normalización de nombres de provincia bilinguales ("Alicante/Alacant" → "Alicante") antes de enviar a Nominatim. **Para activar MapTiler en producción: solo `GEOCODING_PROVIDER=maptiler` + `MAPTILER_API_KEY`, cero cambios de código.** Script `geocode-backfill` para anuncios sin coordenadas (cursor-based, 1 req/s). |
 | **Media** | ✅ Upload + Avatar | `POST /media/upload` → R2/MinIO → crea `ListingImage` huérfana → encola procesado con sharp; **sin DELETE**. **RL5.1-C**: `POST /media/upload-avatar` (JwtAuthGuard) → sube a `avatars/` en R2/MinIO, devuelve `{ url }`, **NO crea ListingImage** (avatar no es una imagen de anuncio; tabla no crece). Mismos límites que `/upload`: 10 MB, solo JPEG/PNG/WebP (422 si otro tipo). Test e2e: `media.e2e-spec.ts` (4 tests: 401 sin auth, 422 no-imagen, 400 sin archivo, 201 + url + sin ListingImage creada). |
-| **Search** | ✅ Completo (RC5.2 + H6.5 + RÁFAGA 1 + RÁFAGA 2) | **RÁFAGA 2**: `ListingDocument.images: string[]` (todas las fotos, ordenadas — antes solo `thumbnailUrl`, requiere reindex tras deploy). Ver «3 vistas de resultados configurables por categoría» en §2. `GET /search` con texto libre, filtros core, atributos variables (brand, fuel, rooms, gender, size, **itemType**…), **filtro por proximidad** (`lat` + `lng` + `radius` en km → `_geoRadius` en Meilisearch) y **orden por distancia** cuando no hay sort explícito, facetas, paginación y ordenación; `IndexingProcessor` real con jobs `index`/`remove`. **RF.8**: `boostScore` (0/1) en el documento — 1 si el listing tiene un `FEATURED_LISTING` vigente al reindexar. `sortDate = max(publishedAt, bumpedAt)`. **RÁFAGA 1 (política de ordenación C)**: `rankingRules` ya NO incluye `boostScore:desc` — `[words, typo, proximity, attribute, sort, exactness, sortDate:desc]`; antes, al ir ANTES de `sort`, particionaba (no desempataba) y un destacado ganaba a cualquier no-destacado en cualquier orden (verificado ejecutando: precio asc devolvía un destacado de 333€ antes que uno de 7€ sin destacar). Ahora la lista (`hits`) respeta siempre el orden pedido; los destacados que cumplen los filtros actuales se devuelven ADEMÁS en `featured` (bloque "Promocionados", 4 máx., solo página 1 — mismo molde que el patrocinado H6.6, query aparte con `onlyBoosted`/`boostScore = 1`, ahora filterable). `totalHits` no se contamina con `featured` ni con el patrocinado. Ver «Política de ordenación C» en §2. **RÁFAGA 1 (filtros)**: `FilterableAttributesResolver.getAttributeTypesForCategory(slug)` (nuevo) fija el leak cross-categoría — antes `?category=coches&rooms=3` (`rooms` es de "pisos") pasaba validación y devolvía 0 resultados en silencio; ahora 400. Ver «Filtros: validación de atributos por categoría» en §2. **H6.5c**: `INDEX_INCLUDE` incluye `seller: { name, slug, avatarUrl }` → `ListingDocument` guarda `sellerName`, `sellerSlug`, `sellerAvatarUrl` para que el panel del mapa los muestre sin fetch por selección. **H6 (fix raíz flaky CI)**: `indexListing()` llama a `waitForTask(task.taskUid)` — el job BullMQ no completa hasta que el documento es **consultable** en Meilisearch (antes completaba cuando Meili lo recibía, provocando flaky en tests que buscaban el anuncio justo después de indexar). **RC5.2**: `VARIABLE_ATTRIBUTE_KEYS` ampliado con `itemType`; `FACET_ATTRIBUTES` ampliado con `itemType`; `SearchQueryDto` declara `itemType?: string`. **RÁFAGA 0 (producto/servicio) — atributos filtrables dinámicos**: `VARIABLE_ATTRIBUTE_KEYS` (hardcodeado) eliminado; `FilterableAttributesResolver` (nuevo) deriva `Map<name, type>` de `Category.attributeSchema` en todas las categorías (unión plana, guard estructural contra nombres reservados, conflicto de tipo entre categorías → se conserva el primero + `Logger.warn`), memoizado desde `onModuleInit()` (sin refresco en caliente — ver §3). `SearchQueryDto` reducido a los campos core; `search-query.parser.ts` (nuevo) valida los atributos variables contra el mapa dinámico reutilizando el propio `ValidationPipe` de Nest para los campos fijos (mismo 400 ante clave desconocida). `FACET_ATTRIBUTES` (lista curada, sin cambios) se intersecta con lo realmente filtrable en tiempo de consulta para no pedir a Meilisearch facetas sobre atributos ausentes en un entorno dado. Ver «Atributos filtrables dinámicos — RÁFAGA 0» en §2. |
+| **Search** | ✅ Completo (RC5.2 + H6.5 + RÁFAGA 1 + RÁFAGA 2 + RÁFAGA 3) | **RÁFAGA 3**: `AttributeField.showLabel`/`showUnit` — cómo se muestra cada atributo en card (nombre sí/no, unidad sí/no) es configurable por atributo, ya no una regla hardcodeada en el frontend; default reproduce el comportamiento anterior. Ver «Display de atributos en card» en §2. **RÁFAGA 2**: `ListingDocument.images: string[]` (todas las fotos, ordenadas — antes solo `thumbnailUrl`, requiere reindex tras deploy). Ver «3 vistas de resultados configurables por categoría» en §2. `GET /search` con texto libre, filtros core, atributos variables (brand, fuel, rooms, gender, size, **itemType**…), **filtro por proximidad** (`lat` + `lng` + `radius` en km → `_geoRadius` en Meilisearch) y **orden por distancia** cuando no hay sort explícito, facetas, paginación y ordenación; `IndexingProcessor` real con jobs `index`/`remove`. **RF.8**: `boostScore` (0/1) en el documento — 1 si el listing tiene un `FEATURED_LISTING` vigente al reindexar. `sortDate = max(publishedAt, bumpedAt)`. **RÁFAGA 1 (política de ordenación C)**: `rankingRules` ya NO incluye `boostScore:desc` — `[words, typo, proximity, attribute, sort, exactness, sortDate:desc]`; antes, al ir ANTES de `sort`, particionaba (no desempataba) y un destacado ganaba a cualquier no-destacado en cualquier orden (verificado ejecutando: precio asc devolvía un destacado de 333€ antes que uno de 7€ sin destacar). Ahora la lista (`hits`) respeta siempre el orden pedido; los destacados que cumplen los filtros actuales se devuelven ADEMÁS en `featured` (bloque "Promocionados", 4 máx., solo página 1 — mismo molde que el patrocinado H6.6, query aparte con `onlyBoosted`/`boostScore = 1`, ahora filterable). `totalHits` no se contamina con `featured` ni con el patrocinado. Ver «Política de ordenación C» en §2. **RÁFAGA 1 (filtros)**: `FilterableAttributesResolver.getAttributeTypesForCategory(slug)` (nuevo) fija el leak cross-categoría — antes `?category=coches&rooms=3` (`rooms` es de "pisos") pasaba validación y devolvía 0 resultados en silencio; ahora 400. Ver «Filtros: validación de atributos por categoría» en §2. **H6.5c**: `INDEX_INCLUDE` incluye `seller: { name, slug, avatarUrl }` → `ListingDocument` guarda `sellerName`, `sellerSlug`, `sellerAvatarUrl` para que el panel del mapa los muestre sin fetch por selección. **H6 (fix raíz flaky CI)**: `indexListing()` llama a `waitForTask(task.taskUid)` — el job BullMQ no completa hasta que el documento es **consultable** en Meilisearch (antes completaba cuando Meili lo recibía, provocando flaky en tests que buscaban el anuncio justo después de indexar). **RC5.2**: `VARIABLE_ATTRIBUTE_KEYS` ampliado con `itemType`; `FACET_ATTRIBUTES` ampliado con `itemType`; `SearchQueryDto` declara `itemType?: string`. **RÁFAGA 0 (producto/servicio) — atributos filtrables dinámicos**: `VARIABLE_ATTRIBUTE_KEYS` (hardcodeado) eliminado; `FilterableAttributesResolver` (nuevo) deriva `Map<name, type>` de `Category.attributeSchema` en todas las categorías (unión plana, guard estructural contra nombres reservados, conflicto de tipo entre categorías → se conserva el primero + `Logger.warn`), memoizado desde `onModuleInit()` (sin refresco en caliente — ver §3). `SearchQueryDto` reducido a los campos core; `search-query.parser.ts` (nuevo) valida los atributos variables contra el mapa dinámico reutilizando el propio `ValidationPipe` de Nest para los campos fijos (mismo 400 ante clave desconocida). `FACET_ATTRIBUTES` (lista curada, sin cambios) se intersecta con lo realmente filtrable en tiempo de consulta para no pedir a Meilisearch facetas sobre atributos ausentes en un entorno dado. Ver «Atributos filtrables dinámicos — RÁFAGA 0» en §2. |
 | **Script reindex** | ✅ Completo (RF.9 fix) | `pnpm reindex` — reconstruye el índice en batches de 100; `ReindexModule` mínimo (sin BullMQ) para cierre limpio. **RF.9 fix**: antes hacía `addDocuments` sin vaciar (documentos huérfanos de listings borrados sobrevivían al reindexado); ahora llama `clearAll()` + `waitForTask` antes de repoblar → idempotente respecto a borrados |
 | **Messaging** | ✅ Completo | REST: `GET /conversations`, `POST /conversations`, `GET /conversations/:id` (cursor), `POST /conversations/:id/messages`. WebSocket gateway `/ws`: auth en handshake, rooms de conversación y de usuario, emit tras el POST REST |
 | **AuditLog** | ✅ Completo | `AuditLogService.log()` inyectable; captura explícita `before`/`after` dentro del método de service que muta el recurso, antes de llamar a Prisma; nunca vía interceptor (ver §2). **RF.12b**: `log(dto, tx?)` admite segundo parámetro `tx: Prisma.TransactionClient` opcional; si se pasa, el `prisma.auditLog.create` corre dentro de la transacción del llamador; backward-compat con todos los callers existentes (Fase 7) |
@@ -180,6 +180,7 @@ enlaces ancla — funcionan en GitHub y en la vista previa de Markdown de VS Cod
 - [Provincia: select cerrado en FilterPanel (RÁFAGA 1 — cierra la inconsistencia con la portada)](#provincia-select-cerrado-en-filterpanel-ráfaga-1--cierra-la-inconsistencia-con-la-portada)
 - [`/[categoria]/[subcategoria]` — ruta muerta eliminada (RÁFAGA 1)](#categoriasubcategoria--ruta-muerta-eliminada-ráfaga-1)
 - [3 vistas de resultados configurables por categoría (RÁFAGA 2, 2026-07-13)](#3-vistas-de-resultados-configurables-por-categoría-ráfaga-2-2026-07-13)
+- [Display de atributos en card: showLabel/showUnit configurables (RÁFAGA 3, 2026-07-13)](#display-de-atributos-en-card-showlabelshowunit-configurables-ráfaga-3-2026-07-13)
 - [Pro downgrade con des-indexado de Meilisearch (RF.7-B.2 — bug detectado y corregido)](#pro-downgrade-con-des-indexado-de-meilisearch-rf7-b2-bug-detectado-y-corregido)
 - [Settings: whitelist explícita en el service (Fase 7)](#settings-whitelist-explícita-en-el-service-fase-7)
 - [Migración `add_audit_log_and_settings` (Fase 7)](#migración-addauditlogandsettings-fase-7)
@@ -2876,6 +2877,71 @@ backend / 860 tests, suite frontend (13 suites — los 3 fallos existentes en `B
 anteriores a esta ráfaga, no causados por ella). QA visual con Playwright (headless, sin
 `chromium-cli` disponible): las 3 vistas, carrusel con flechas+puntos, visor a pantalla completa,
 mobile 390px sin overflow horizontal — cero errores de consola/página en todo el recorrido.
+
+### Display de atributos en card: showLabel/showUnit configurables (RÁFAGA 3, 2026-07-13)
+
+**Regla hardcodeada sustituida:** antes de esta ráfaga, `CardAttrsDisplay`/`WideCardAttrsDisplay`
+(frontend) decidían el formato con una regla implícita fija: si el atributo tenía `unit`, se
+mostraba solo "valor unidad" (sin nombre); si no tenía, "Label: valor". No era configurable ni
+estaba en el schema — vivía como lógica de renderizado.
+
+**Diseño — dos ejes independientes, no un enum de 3 modos:** `showLabel` (¿se antepone el
+nombre?) y `showUnit` (¿se añade la unidad al valor?) son ortogonales — la unidad no es una
+alternativa al nombre, es parte del valor formateado. Con dos booleanos salen las 4
+combinaciones (las 3 pedidas + "nombre y unidad juntos", que probablemente también se quiere):
+"Kilometraje: 150.000 km" / "150.000 km" / "Habitaciones: 3" / "3". Validado contra el modelo
+actual antes de implementar: `unit` ya vivía como campo independiente de `cardAttribute` en
+`AttributeField` — nada en el modelo desaconsejaba el diseño de dos flags.
+
+**Modelo — mismo sitio que `cardAttribute`/`wideCardAttribute`:** `AttributeField.showLabel?:
+boolean` y `showUnit?: boolean` (`category.types.ts`). Ausentes → default calculado, NO
+booleanos planos con default `false` (a diferencia de `cardAttribute`): `resolveShowLabel(field)
+= field.showLabel ?? !field.unit` y `resolveShowUnit(field) = field.showUnit ?? true` —
+reproduce EXACTAMENTE la regla hardcodeada anterior, así que los ~50 atributos ya configurados
+en las 17 categorías con schema (7 de ellas con unidad: casas, coches, locales, motos, pisos,
+vehiculos, + una duplicada) no cambian de aspecto sin que nadie los toque.
+
+**Dónde se resuelve:** `CategoriesService.toAttrDef()` (ambas instancias, `findTree` y
+`findBySlug`) aplica `resolveShowLabel`/`resolveShowUnit` al construir `cardAttributes`/
+`wideCardAttributes`/`allAttributes` — igual que ya resolvía `key`/`label`/`unit`. El campo
+`attributeSchema` (schema efectivo crudo, sin pasar por `toAttrDef`) NO lleva estos valores
+resueltos — ausentes ahí si no se configuraron, exactamente como ya pasaba con `cardAttribute`/
+`wideCardAttribute` antes de esta ráfaga (encontrado escribiendo el e2e: un primer intento de
+test comprobaba `showLabel`/`showUnit` sobre `attributeSchema` directamente y fallaba con
+`undefined` — la resolución solo vive en las listas derivadas, no en el schema crudo).
+`/[categoria]/page.tsx` construye sus mapas desde `attributeSchema` crudo (no desde una lista
+pre-resuelta) → `card-attributes.ts` (frontend) duplica el mismo cálculo de default en un
+`toAttrDef` local, mismo patrón de duplicación ya existente para `cardAttribute`/`unit` sin
+paquete compartido entre `apps/api`/`apps/web`.
+
+**Frontend — reemplazo de la regla:** `formatAttrValue(value, unit, showUnit)` ya no decide "con
+unidad, sin nombre" — el join final decide `showLabel ? "Label: valor" : valor` leyendo el flag
+resuelto. Aplica igual a `CardAttrsDisplay` (card estándar) y `WideCardAttrsDisplay` (ampliada,
+RÁFAGA 2) — es config del atributo, no de la vista. El panel de atributos del mapa
+(`MapView.tsx`'s `getAllAttrs`) tiene su PROPIA regla, distinta y siempre fija ("Label: valor",
+nunca omite el nombre) — no tocado, fuera del alcance pedido ("aplica a AMBAS cards").
+
+**Admin UI:** `AttributeSchemaEditor` — dos checkboxes nuevos (`showLabel`, `showUnit`) junto a
+`cardAttribute`/`wideCardAttribute`; `showUnit` solo se muestra si el atributo tiene unidad
+(moot sin ella). Vista previa en vivo bajo los checkboxes ("Vista previa: Kilometraje: 150.000
+km") con un valor de ejemplo, actualizada en cada toggle. Serialización: mismo patrón que
+`appliesTo` (RÁFAGA 1) — `showLabel`/`showUnit` solo se escriben en el JSON si DIFIEREN del
+default calculado a partir de la unidad actual del draft; si el admin nunca toca los checkboxes,
+el atributo se guarda byte-idéntico a antes de esta ráfaga.
+
+**Tests:** `category.types.spec.ts` (+6 casos `resolveShowLabel`/`resolveShowUnit`),
+`CardAttributesContext.test.tsx` (nuevo — 11 casos: las 4 combinaciones en ambas cards + atributo
+sin unidad con showUnit:true no rompe + valor ausente no renderiza), `AttributeSchemaEditor.
+showLabelUnit.test.tsx` (nuevo — 5 casos: defaults por atributo con/sin unidad, byte-identidad al
+no tocar los checkboxes, las 4 combinaciones vía preview, dato preexistente tolerado),
+`categories-attribute-display.e2e-spec.ts` (nuevo — 5 casos: default con/sin unidad, overrides
+explícitos de cada flag, herencia). Batería completa: 56 suites backend / 865 tests, frontend 15
+suites (mismos 3 fallos pre-existentes de RÁFAGA 2, no relacionados). **QA en vivo — la prueba
+central de esta ráfaga:** se comparó la categoría real `casas` (con atributos `sqm` con unidad y
+`rooms` sin unidad) antes/después — captura de pantalla de `/busqueda` PIXEL-IDÉNTICA a la de
+RÁFAGA 2 ("casota 2" sigue mostrando "3 m² · Habitaciones: 3", byte por byte); confirmado también
+consultando `GET /categories` en vivo que `sqm` resuelve a `showLabel:false, showUnit:true` y
+`rooms` a `showLabel:true, showUnit:true` sin haber tocado ningún dato existente.
 
 ### Pro downgrade con des-indexado de Meilisearch (RF.7-B.2 — bug detectado y corregido)
 

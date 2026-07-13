@@ -5,6 +5,8 @@ import {
   resolveEffectiveSchema,
   resolveEffectivePolicy,
   resolveEffectiveViews,
+  resolveShowLabel,
+  resolveShowUnit,
 } from './category.types';
 
 @Injectable()
@@ -30,7 +32,15 @@ export class CategoriesService {
 
     return roots.map((root) => {
       const rootSchema = (root.attributeSchema as unknown as AttributeField[]) ?? [];
-      const toAttrDef = (f: AttributeField) => ({ key: f.name, label: f.label, ...(f.unit !== undefined ? { unit: f.unit } : {}) });
+      const toAttrDef = (f: AttributeField) => ({
+        key: f.name,
+        label: f.label,
+        ...(f.unit !== undefined ? { unit: f.unit } : {}),
+        // RÁFAGA 3 — resueltos aquí (no en el frontend) para que "cómo se muestra" sea
+        // el mismo dato para card estándar, ampliada y cualquier futuro consumidor.
+        showLabel: resolveShowLabel(f),
+        showUnit: resolveShowUnit(f),
+      });
       return {
         id: root.id,
         name: root.name,
@@ -85,7 +95,13 @@ export class CategoriesService {
     const parentSchema = (category.parent?.attributeSchema as unknown as AttributeField[]) ?? [];
     const effectiveSchema = resolveEffectiveSchema(own, parentSchema);
 
-    const toAttrDef = (f: AttributeField) => ({ key: f.name, label: f.label, ...(f.unit !== undefined ? { unit: f.unit } : {}) });
+    const toAttrDef = (f: AttributeField) => ({
+      key: f.name,
+      label: f.label,
+      ...(f.unit !== undefined ? { unit: f.unit } : {}),
+      showLabel: resolveShowLabel(f),
+      showUnit: resolveShowUnit(f),
+    });
 
     // RÁFAGA 2 — vistas: el padre resuelve primero contra `null` (2 niveles, sin abuelo),
     // luego el hijo resuelve contra el efectivo del padre. Mismo patrón que allowedListingType.

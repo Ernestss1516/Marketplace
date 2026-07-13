@@ -1,6 +1,23 @@
 import type { Category, AttributeSchema, CardAttributeDef } from '@/types';
 import type { CardAttributeMap } from '@/components/anuncios/CardAttributesContext';
 
+// RÁFAGA 3 — mismas reglas de default que resolveShowLabel/resolveShowUnit en
+// apps/api/src/modules/categories/category.types.ts. Duplicadas aquí porque
+// las páginas de una sola categoría (/[categoria]) construyen sus mapas de
+// atributos a partir del `attributeSchema` crudo (ya no de una lista
+// pre-resuelta por el backend, como sí hace el árbol de /categories) — sin un
+// paquete compartido entre api/web, es la misma duplicación que ya existía
+// para "cardAttribute"/"unit" antes de esta ráfaga, solo que ahora con default.
+function toAttrDef(f: AttributeSchema): CardAttributeDef {
+  return {
+    key: f.name,
+    label: f.label,
+    ...(f.unit ? { unit: f.unit } : {}),
+    showLabel: f.showLabel ?? !f.unit,
+    showUnit: f.showUnit ?? true,
+  };
+}
+
 /**
  * Builds a slug→cardAttributes map from the full category tree returned by GET /categories.
  * Covers home, búsqueda and vendedor pages that receive the full tree.
@@ -44,9 +61,7 @@ export function buildCardAttributeMapFromSchema(
   slug: string,
   schema: AttributeSchema[],
 ): CardAttributeMap {
-  const defs: CardAttributeDef[] = schema
-    .filter((f) => f.cardAttribute)
-    .map((f) => ({ key: f.name, label: f.label, ...(f.unit ? { unit: f.unit } : {}) }));
+  const defs: CardAttributeDef[] = schema.filter((f) => f.cardAttribute).map(toAttrDef);
   return defs.length ? { [slug]: defs } : {};
 }
 
@@ -60,8 +75,7 @@ export function buildFullAttributeMapFromSchema(
   slug: string,
   schema: AttributeSchema[],
 ): CardAttributeMap {
-  const defs: CardAttributeDef[] = schema
-    .map((f) => ({ key: f.name, label: f.label, ...(f.unit ? { unit: f.unit } : {}) }));
+  const defs: CardAttributeDef[] = schema.map(toAttrDef);
   return defs.length ? { [slug]: defs } : {};
 }
 
@@ -89,8 +103,6 @@ export function buildWideCardAttributeMapFromSchema(
   slug: string,
   schema: AttributeSchema[],
 ): CardAttributeMap {
-  const defs: CardAttributeDef[] = schema
-    .filter((f) => f.wideCardAttribute)
-    .map((f) => ({ key: f.name, label: f.label, ...(f.unit ? { unit: f.unit } : {}) }));
+  const defs: CardAttributeDef[] = schema.filter((f) => f.wideCardAttribute).map(toAttrDef);
   return defs.length ? { [slug]: defs } : {};
 }

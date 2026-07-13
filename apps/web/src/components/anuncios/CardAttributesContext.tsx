@@ -31,18 +31,22 @@ export function CardAttributesProvider({ cardAttributeMap, children }: ProviderP
 //
 // Tiny client island that reads cardAttributes from context and renders the
 // attribute line inside ListingCard.
-// Format: unit present → "valor unit" (e.g. "45000 km"); no unit → "Label: valor".
+// Format: CONFIGURABLE per attribute (RÁFAGA 3 — showLabel/showUnit en el schema,
+// ya resueltos por el backend), no más una regla hardcodeada aquí. Dos ejes
+// independientes: showLabel ("Label: " antepuesto o no) y showUnit (unidad
+// añadida al valor o no) — no un enum de 3 modos, porque la unidad es parte
+// del valor formateado, no una alternativa al nombre.
 //
 // Keeping this as a separate client sub-component lets ListingCard itself stay
 // as a Server Component (RSC): its Link/Image/Card structure ships zero client
 // JS, while only this small piece is hydrated for context access.
 
-function formatAttrValue(value: unknown, unit?: string): string {
+function formatAttrValue(value: unknown, unit: string | undefined, showUnit: boolean): string {
   if (value === null || value === undefined) return '';
   if (typeof value === 'boolean') return value ? 'Sí' : 'No';
   const str = String(value);
   if (str === '') return '';
-  return unit ? `${str} ${unit}` : str;
+  return showUnit && unit ? `${str} ${unit}` : str;
 }
 
 interface CardAttrsProps {
@@ -56,8 +60,8 @@ export function CardAttrsDisplay({ categorySlug, attributes }: CardAttrsProps) {
   const entries = defs
     .map((def) => ({
       label: def.label,
-      value: formatAttrValue(attributes?.[def.key], def.unit),
-      hasUnit: !!def.unit,
+      value: formatAttrValue(attributes?.[def.key], def.unit, def.showUnit),
+      showLabel: def.showLabel,
     }))
     .filter((e) => e.value !== '');
 
@@ -65,7 +69,7 @@ export function CardAttrsDisplay({ categorySlug, attributes }: CardAttrsProps) {
 
   return (
     <p className="mt-1 truncate text-xs text-muted-foreground">
-      {entries.map((e) => (e.hasUnit ? e.value : `${e.label}: ${e.value}`)).join(' · ')}
+      {entries.map((e) => (e.showLabel ? `${e.label}: ${e.value}` : e.value)).join(' · ')}
     </p>
   );
 }
@@ -102,8 +106,8 @@ export function WideCardAttrsDisplay({ categorySlug, attributes }: CardAttrsProp
   const entries = defs
     .map((def) => ({
       label: def.label,
-      value: formatAttrValue(attributes?.[def.key], def.unit),
-      hasUnit: !!def.unit,
+      value: formatAttrValue(attributes?.[def.key], def.unit, def.showUnit),
+      showLabel: def.showLabel,
     }))
     .filter((e) => e.value !== '');
 
@@ -113,7 +117,7 @@ export function WideCardAttrsDisplay({ categorySlug, attributes }: CardAttrsProp
     <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground sm:grid-cols-3">
       {entries.map((e, i) => (
         <div key={i} className="flex gap-1 truncate">
-          {!e.hasUnit && <dt className="shrink-0 font-medium text-foreground/70">{e.label}:</dt>}
+          {e.showLabel && <dt className="shrink-0 font-medium text-foreground/70">{e.label}:</dt>}
           <dd className="truncate">{e.value}</dd>
         </div>
       ))}

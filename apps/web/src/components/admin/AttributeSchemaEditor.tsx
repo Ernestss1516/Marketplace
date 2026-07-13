@@ -51,7 +51,15 @@ export interface AttributeSchemaWithExtras extends AttributeSchema {
 
 // ── Parse / serialize ─────────────────────────────────────────────────────────
 
-const KNOWN_KEYS = ['name', 'label', 'type', 'unit', 'options', 'filterable', 'required', 'cardAttribute', 'wideCardAttribute', 'appliesTo', 'dependsOn', 'optionsByParent'];
+const KNOWN_KEYS = ['name', 'label', 'type', 'unit', 'options', 'filterable', 'required', 'cardAttribute', 'wideCardAttribute', 'showLabel', 'showUnit', 'appliesTo', 'dependsOn', 'optionsByParent'];
+
+// RÁFAGA 3 — mismo default que resolveShowLabel/resolveShowUnit en el backend
+// (category.types.ts): ausente ⇒ oculta el label si hay unidad, muestra la
+// unidad si la hay. Reproduce la regla hardcodeada previa a esta ráfaga.
+function defaultShowLabel(unit: string): boolean {
+  return !unit.trim();
+}
+const DEFAULT_SHOW_UNIT = true;
 
 function cloneOptionsByParent(o: Record<string, string[]>): Record<string, string[]> {
   return Object.fromEntries(Object.entries(o).map(([k, v]) => [k, [...v]]));
@@ -95,6 +103,11 @@ export function parseAttributeSchema(raw: unknown[]): AttributeSchemaWithExtras[
       required: Boolean(r.required),
       ...(r.cardAttribute ? { cardAttribute: true as const } : {}),
       ...(r.wideCardAttribute ? { wideCardAttribute: true as const } : {}),
+      // Tri-state (true / false / ausente): a diferencia de cardAttribute (booleano plano,
+      // default false), aquí "ausente" significa "calcular el default a partir de unit" — así
+      // que un `false` explícito debe distinguirse de "no configurado", no colapsarse a él.
+      ...(typeof r.showLabel === 'boolean' ? { showLabel: r.showLabel } : {}),
+      ...(typeof r.showUnit === 'boolean' ? { showUnit: r.showUnit } : {}),
       ...(appliesTo ? { appliesTo } : {}),
       ...(dependsOn ? { dependsOn } : {}),
       ...(optionsByParent ? { optionsByParent } : {}),
@@ -126,6 +139,10 @@ export function serializeAttributeSchema(
     }
     if (known.cardAttribute) out.cardAttribute = true;
     if (known.wideCardAttribute) out.wideCardAttribute = true;
+    // fromDraft() ya decidió si showLabel/showUnit deben persistirse (solo cuando difieren
+    // del default calculado a partir de unit) — aquí solo se pasa lo que ya viene en la row.
+    if (known.showLabel !== undefined) out.showLabel = known.showLabel;
+    if (known.showUnit !== undefined) out.showUnit = known.showUnit;
     if (known.appliesTo) out.appliesTo = known.appliesTo;
     if (known.type === 'select' && known.dependsOn) {
       out.dependsOn = known.dependsOn;
@@ -147,6 +164,11 @@ interface DraftState {
   required: boolean;
   cardAttribute: boolean;
   wideCardAttribute: boolean;
+  /** RÁFAGA 3 — siempre concretos en el draft (el checkbox necesita un booleano real);
+   * la ambigüedad "ausente = calcular default" solo existe en el JSON persistido, resuelta
+   * al entrar en toDraft() y vuelta a colapsar en fromDraft() si coincide con el default. */
+  showLabel: boolean;
+  showUnit: boolean;
   /** Ambos marcados (default) = comportamiento actual, sin restricción de tipo. */
   appliesTo: ListingType[];
   /** Name del atributo select del que depende, o '' si es un select plano. */
@@ -154,6 +176,14 @@ interface DraftState {
   /** Opciones válidas por valor del padre. Solo relevante si dependsOn !== ''. */
   optionsByParent: Record<string, string[]>;
   _extra?: Record<string, unknown>;
+}
+
+/** Vista previa de cómo queda el atributo en la card, con un valor de ejemplo (RÁFAGA 3). */
+function previewText(d: Pick<DraftState, 'label' | 'unit' | 'type' | 'showLabel' | 'showUnit'>): string {
+  const label = d.label.trim() || 'Etiqueta';
+  const exampleValue = d.type === 'boolean' ? 'Sí' : '150.000';
+  const value = d.showUnit && d.unit.trim() ? `${exampleValue} ${d.unit.trim()}` : exampleValue;
+  return d.showLabel ? `${label}: ${value}` : value;
 }
 
 /** Candidato a "padre" en un select vinculado: otro select sin su propio dependsOn (un solo nivel, sin cadenas). */
@@ -167,6 +197,7 @@ function emptyDraft(): DraftState {
   return {
     name: '', label: '', type: 'text', unit: '', options: [],
     filterable: false, required: false, cardAttribute: false, wideCardAttribute: false,
+    showLabel: defaultShowLabel(''), showUnit: DEFAULT_SHOW_UNIT,
     appliesTo: ['PRODUCT', 'SERVICE'],
     dependsOn: '', optionsByParent: {},
   };
@@ -183,6 +214,9 @@ function toDraft(f: AttributeSchemaWithExtras): DraftState {
     required: f.required,
     cardAttribute: f.cardAttribute ?? false,
     wideCardAttribute: f.wideCardAttribute ?? false,
+    // Mismo default que resolveShowLabel/resolveShowUnit en el backend.
+    showLabel: f.showLabel ?? defaultShowLabel(f.unit ?? ''),
+    showUnit: f.showUnit ?? DEFAULT_SHOW_UNIT,
     appliesTo: f.appliesTo ? [...f.appliesTo] : ['PRODUCT', 'SERVICE'],
     dependsOn: f.dependsOn ?? '',
     optionsByParent: f.optionsByParent ? cloneOptionsByParent(f.optionsByParent) : {},
@@ -207,6 +241,11 @@ function fromDraft(d: DraftState, dependsOnValid: boolean): AttributeSchemaWithE
     required: d.required,
     ...(d.cardAttribute ? { cardAttribute: true as const } : {}),
     ...(d.wideCardAttribute ? { wideCardAttribute: true as const } : {}),
+    // Solo se persiste si difiere del default calculado a partir de la unidad ACTUAL del
+    // draft — así un atributo cuyo admin nunca toca estos checkboxes se guarda
+    // byte-idéntico a antes de RÁFAGA 3 (misma lógica que appliesTo, dos líneas más abajo).
+    ...(d.showLabel !== defaultShowLabel(d.unit) ? { showLabel: d.showLabel } : {}),
+    ...(d.showUnit !== DEFAULT_SHOW_UNIT ? { showUnit: d.showUnit } : {}),
     // Ambos marcados → omitir el campo (attributeSchema byte-idéntico al de
     // antes de RÁFAGA 2 para quien nunca toca estos checkboxes).
     ...(d.appliesTo.length < 2 ? { appliesTo: [...d.appliesTo] } : {}),
@@ -909,6 +948,33 @@ function FieldForm({
           )}
         </label>
 
+        {/* showLabel / showUnit — RÁFAGA 3: dos ejes independientes de cómo se muestra el
+            atributo en card (no un enum de 3 modos). showUnit solo tiene sentido con unidad. */}
+        <label className="flex cursor-pointer items-center gap-1.5 text-xs">
+          <input
+            type="checkbox"
+            checked={draft.showLabel}
+            onChange={(e) => set({ showLabel: e.target.checked })}
+            disabled={disabled}
+            className="h-3.5 w-3.5 rounded"
+            data-testid="show-label-checkbox"
+          />
+          showLabel
+        </label>
+        {draft.unit.trim() && (
+          <label className="flex cursor-pointer items-center gap-1.5 text-xs">
+            <input
+              type="checkbox"
+              checked={draft.showUnit}
+              onChange={(e) => set({ showUnit: e.target.checked })}
+              disabled={disabled}
+              className="h-3.5 w-3.5 rounded"
+              data-testid="show-unit-checkbox"
+            />
+            showUnit
+          </label>
+        )}
+
         {/* appliesTo — a qué tipo(s) de anuncio aplica este atributo (ambos = default, comportamiento actual) */}
         <label className="flex cursor-pointer items-center gap-1.5 text-xs">
           <input
@@ -943,6 +1009,11 @@ function FieldForm({
           Servicio
         </label>
       </div>
+
+      {/* Vista previa (RÁFAGA 3) — cómo queda el atributo en la card con un valor de ejemplo */}
+      <p className="text-[11px] text-muted-foreground" data-testid="attr-preview">
+        Vista previa: <span className="font-medium text-foreground">{previewText(draft)}</span>
+      </p>
 
       {/* Validation errors */}
       {errors.length > 0 && (

@@ -67,6 +67,11 @@ export interface AttributeSchema {
   cardAttribute?: boolean;
   /** Shown in the wide/ampliada card (RÁFAGA 2 — max 6 in the effective schema). Independent of `cardAttribute`. */
   wideCardAttribute?: boolean;
+  /** RÁFAGA 3 — dos ejes independientes de cómo se muestra el atributo en card (no un enum de 3
+   * modos: la unidad es parte del valor formateado, no alternativa al nombre). Ausente = default
+   * calculado a partir de `unit` (ver resolveShowLabel/resolveShowUnit en el backend). */
+  showLabel?: boolean;
+  showUnit?: boolean;
   /** Which listing type(s) this attribute applies to. Absent = applies to both. */
   appliesTo?: ListingType[];
   /** Name of another `select` attribute whose value gates this field's valid options. Single level only (no chains). When set, `options` is ignored. */
@@ -79,6 +84,10 @@ export interface CardAttributeDef {
   key: string;
   label: string;
   unit?: string;
+  /** RÁFAGA 3 — ya resueltos por el backend (categories.service.ts): siempre presentes aquí,
+   * nunca "ausente = calcular default" en el frontend. */
+  showLabel: boolean;
+  showUnit: boolean;
 }
 
 export interface Category {

@@ -6,7 +6,49 @@ import {
   resolveEffectivePolicy,
   resolveEffectiveViews,
   resolveLinkedOptions,
+  resolveShowLabel,
+  resolveShowUnit,
 } from './category.types';
+
+function attr(overrides: Partial<AttributeField> = {}): AttributeField {
+  return { name: 'km', label: 'Kilometraje', type: 'number', filterable: false, required: false, ...overrides };
+}
+
+describe('resolveShowLabel / resolveShowUnit (RÁFAGA 3 — display de atributos en card)', () => {
+  it('sin showLabel explícito y CON unidad → false (reproduce la regla hardcodeada anterior)', () => {
+    expect(resolveShowLabel(attr({ unit: 'km' }))).toBe(false);
+  });
+
+  it('sin showLabel explícito y SIN unidad → true (reproduce la regla hardcodeada anterior)', () => {
+    expect(resolveShowLabel(attr({ unit: undefined }))).toBe(true);
+  });
+
+  it('showLabel explícito manda siempre, tenga o no unidad', () => {
+    expect(resolveShowLabel(attr({ unit: 'km', showLabel: true }))).toBe(true);
+    expect(resolveShowLabel(attr({ unit: undefined, showLabel: false }))).toBe(false);
+  });
+
+  it('sin showUnit explícito → true, con o sin unidad (moot sin unidad)', () => {
+    expect(resolveShowUnit(attr({ unit: 'km' }))).toBe(true);
+    expect(resolveShowUnit(attr({ unit: undefined }))).toBe(true);
+  });
+
+  it('showUnit explícito manda siempre', () => {
+    expect(resolveShowUnit(attr({ unit: 'km', showUnit: false }))).toBe(false);
+  });
+
+  it('las 4 combinaciones son independientes entre sí', () => {
+    const base = { unit: 'km' };
+    expect(resolveShowLabel(attr({ ...base, showLabel: true }))).toBe(true);
+    expect(resolveShowUnit(attr({ ...base, showUnit: true }))).toBe(true);
+    expect(resolveShowLabel(attr({ ...base, showLabel: false }))).toBe(false);
+    expect(resolveShowUnit(attr({ ...base, showUnit: true }))).toBe(true);
+    expect(resolveShowLabel(attr({ ...base, showLabel: true }))).toBe(true);
+    expect(resolveShowUnit(attr({ ...base, showUnit: false }))).toBe(false);
+    expect(resolveShowLabel(attr({ ...base, showLabel: false }))).toBe(false);
+    expect(resolveShowUnit(attr({ ...base, showUnit: false }))).toBe(false);
+  });
+});
 
 describe('resolveEffectiveViews', () => {
   it('categoría con config propia → esa config manda tal cual (defaultView explícito)', () => {
