@@ -53,6 +53,16 @@ jest.mock('next-auth/react', () => ({
   useSession: () => ({ data: null }),
 }));
 
+// FavoriteCardButton también llama a useRequireAuth() incondicionalmente
+// (regla de hooks), que a su vez llama a useRouter()/usePathname() — sin
+// este mock, jsdom no tiene un AppRouterContext montado y revienta con
+// "invariant expected app router to be mounted" en cuanto el bloque
+// `listings` pinta una ListingCard real (con hits, no el caso "sin datos").
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: jest.fn() }),
+  usePathname: () => '/',
+}));
+
 const OWN_IMAGE_URL = 'http://localhost:9000/marketplace/media/test.jpg';
 
 const ALL_BLOCKS: Block[] = [

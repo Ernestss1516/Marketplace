@@ -35,6 +35,15 @@ jest.mock('next-auth/react', () => ({
   useSession: () => ({ data: null }),
 }));
 
+// FavoriteCardButton también llama a useRequireAuth() incondicionalmente,
+// que a su vez llama a useRouter()/usePathname() — sin este mock no hay
+// AppRouterContext montado en jsdom y revienta en cuanto el preview del
+// bloque `listings` pinta una ListingCard con hits reales.
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: jest.fn() }),
+  usePathname: () => '/',
+}));
+
 // MarkdownEditorClient carga @uiw/react-md-editor vía dynamic import
 // (ssr:false) — mockeado aquí para que el andamiaje se pruebe sin depender
 // de esa librería pesada; el wrapper TextBlockEditor en sí no tiene lógica

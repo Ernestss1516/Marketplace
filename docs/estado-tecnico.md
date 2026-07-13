@@ -6076,6 +6076,45 @@ en los callers de Fase 7. El parámetro `tx?` opcional ya está disponible en
 `AuditLogService.log()` tras el refactor de RF.12b — ningún caller existente requiere cambio
 de firma.
 
+### ✅ Deuda de señal en tests de frontend: 10 rojos permanentes — RESUELTA (2026-07-14)
+
+**Contexto.** Varias ráfagas acumulaban "los mismos 10 de siempre" en rojo en la batería de
+frontend (`pnpm --filter @marketplace/web test:unit`), confirmados preexistentes vía `git
+stash`. Un test siempre rojo deja de ser señal: el próximo rojo real habría pasado
+desapercibido porque el rojo ya era "lo normal".
+
+**Inventario y causa raíz.** Los 10 eran, en realidad, una única causa raíz repetida en 3
+suites — no 10 problemas distintos:
+
+- `PublicarWizard.test.tsx` (6 tests): `TypeError: useSession is not a function`. El mock de
+  `next-auth/react` en el test solo exponía `signOut`; le faltaba `useSession`.
+- `BlockRenderer.test.tsx` (3 tests, bloque `listings`) y `BlockEditor.test.tsx` (1 test,
+  preview del bloque `listings`): `invariant expected app router to be mounted`. Ninguno de
+  los dos mockeaba `next/navigation` (`useRouter`/`usePathname`).
+
+**Clasificación:** los 10 son tipo **(a) test desactualizado** — no bug real ni test mal
+escrito de origen. `useRequireAuth()` (que llama incondicionalmente a `useSession()`,
+`useRouter()` y `usePathname()`) se fue conectando a más componentes en ráfagas sucesivas
+(`PublicarWizard` desde el commit `7552259` "Nav Login SingUp User-Admin 2"; `ListingCard` →
+`FavoriteCardButton` desde `ce0f675` "Sistema bloques R.3", al montar tarjetas reales de
+anuncio en el bloque dinámico `listings`) sin que los mocks de los tests preexistentes se
+actualizaran para cubrir esas nuevas llamadas a hooks. `PublicarWizard.test.tsx` sí mockeaba
+`next/navigation`, pero solo `useRouter` — le faltaba `usePathname`, la misma familia de gap.
+
+**Fix.** Completar los mocks en los 3 ficheros de test (`useSession: () => ({ data: null
+})` y/o `usePathname: () => '/...'` junto al `useRouter` ya existente), sin tocar código de
+producción — el comportamiento de los componentes en producción siempre fue correcto, el
+`SessionProvider`/`AppRouterContext` real de Next.js siempre estuvieron presentes fuera de
+tests.
+
+**Verificación.** Batería completa en verde: `185/185`. Sanity-check (mismo criterio que el
+guard de retry de Redsys): se rompió deliberadamente una aserción trivial
+(`BlockRenderer.test.tsx`, caso `faq`) y la batería lo cazó (`1 failed, 184 passed`); se
+revirtió y volvió a quedar en `185/185`. Un rojo en la batería de frontend vuelve a
+significar "algo se ha roto".
+
+---
+
 ### Editor de atributos: `searchableKeys` no cargado → todos los `filterable` deshabilitados sin distinguir causa
 
 Si `GET /admin/categories/searchable-keys` falla (API caída, error de red), la llamada es

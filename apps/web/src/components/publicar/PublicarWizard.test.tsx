@@ -8,10 +8,16 @@ import type { Category, CategoryWithSchema } from '@/types';
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn() }),
+  // useRequireAuth() también llama a usePathname() para construir loginUrl.
+  usePathname: () => '/publicar',
 }));
 
 jest.mock('next-auth/react', () => ({
   signOut: jest.fn(),
+  // useRequireAuth() (llamado incondicionalmente por PublicarWizard para el
+  // callbackUrl de sesión expirada) llama a useSession() — sin este mock,
+  // TypeError: useSession is not a function.
+  useSession: () => ({ data: null }),
 }));
 
 jest.mock('@/lib/api/categorias', () => ({
