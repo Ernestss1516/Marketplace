@@ -67,6 +67,8 @@ export default async function EditarAnuncioPage({
     city: listing.city ?? '',
     province: listing.province ?? '',
     postalCode: listing.postalCode ?? '',
+    // Del ANUNCIO, no del perfil — igual que city/province/postalCode arriba.
+    phone: listing.phone ?? '',
   };
 
   return (

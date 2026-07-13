@@ -328,6 +328,12 @@ model Listing {
   postalCode String?
   latitude   Float?
   longitude  Float?
+
+  /// Teléfono PUBLICADO de este anuncio — opcional, distinto de User.phone (que es
+  /// privado). Sugerido desde el perfil al crear, pero el usuario decide explícitamente
+  /// si lo publica. Nunca viaja en el payload público de la ficha (ver findBySlug) —
+  /// solo se sirve tras autenticación en GET /listings/:id/phone.
+  phone String?
   // NOTA PostGIS: para búsquedas por radio eficientes ("anuncios a 10 km") se
   // añade en una migración SQL una columna geography(Point, 4326) con índice GiST,
   // poblada desde latitude/longitude. Prisma la trata como campo no gestionado.

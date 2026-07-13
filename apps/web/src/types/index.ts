@@ -176,6 +176,8 @@ export interface Listing {
   publishedAt?: string;
   viewCount: number;
   featuredUntil?: string | null;
+  /** true cuando el anuncio tiene teléfono publicado — el número en sí nunca viaja aquí (ver GET /listings/:id/phone). */
+  hasPhone: boolean;
 }
 
 // ── H8 Bloque C — estadísticas de anuncios ──────────────────────────────────
@@ -225,6 +227,8 @@ export interface CreateListingPayload {
   city: string;
   province: string;
   postalCode?: string;
+  /** Teléfono a PUBLICAR en este anuncio (opcional, distinto del teléfono del perfil). */
+  phone?: string;
   imageIds?: string[];
 }
 
@@ -256,6 +260,8 @@ export interface UpdateListingPayload {
   city?: string;
   province?: string;
   postalCode?: string;
+  /** Vacío ('') deja de publicar teléfono en este anuncio (mismo convenio que postalCode). */
+  phone?: string;
   imageIds?: string[];
 }
 
@@ -282,6 +288,7 @@ export interface MyListing {
   city?: string;
   province?: string;
   postalCode?: string;
+  phone?: string;
   images: MyListingImage[];
   category: { id: string; name: string; slug: string };
   publishedAt?: string;

@@ -96,6 +96,15 @@ export class ListingsController {
     return this.billingService.bump(id, user.userId);
   }
 
+  // "Ver teléfono" — requiere login. El teléfono NUNCA viaja en GET /:slug
+  // (ver ListingsService.findBySlug); solo se sirve aquí, autenticado y con
+  // rate limit.
+  @Get(':id/phone')
+  @UseGuards(JwtAuthGuard)
+  getPhone(@Param('id') id: string, @CurrentUser() user: JwtUser, @Ip() ip: string) {
+    return this.listingsService.getPhone(id, user.userId, ip);
+  }
+
   // ---------------------------------------------------------------------------
   // Public — no auth required
   // ---------------------------------------------------------------------------

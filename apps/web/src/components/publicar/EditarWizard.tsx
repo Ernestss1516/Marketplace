@@ -105,6 +105,9 @@ function validateStep(id: StepId, data: EditarWizardData): Record<string, string
   if (id === 'ubicacion') {
     if (!data.city.trim()) errors.city = 'La ciudad es obligatoria.';
     if (!data.province.trim()) errors.province = 'La provincia es obligatoria.';
+    if (data.phone.trim() && !/^[0-9+\-\s()]{6,20}$/.test(data.phone.trim())) {
+      errors.phone = 'Introduce un teléfono válido (6-20 caracteres).';
+    }
   }
 
   return errors;
@@ -200,6 +203,7 @@ export function EditarWizard({ listingId, token, initialData }: EditarWizardProp
             city: data.city,
             province: data.province,
             postalCode: data.postalCode || undefined,
+            phone: data.phone.trim(),
             imageIds: validImageIds,
           },
           token,
@@ -267,7 +271,7 @@ export function EditarWizard({ listingId, token, initialData }: EditarWizardProp
         {currentStepId === 'ubicacion' && (
           <>
             <StepUbicacion
-              data={{ city: data.city, province: data.province, postalCode: data.postalCode }}
+              data={{ city: data.city, province: data.province, postalCode: data.postalCode, phone: data.phone }}
               onChange={(patch) => update(patch as Partial<EditarWizardData>)}
               errors={errors}
             />

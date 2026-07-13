@@ -7,11 +7,13 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { Condition, PriceType } from '@prisma/client';
+import { LISTING_PHONE_REGEX } from '../listing-phone.constants';
 
 export class UpdateListingDto {
   @IsOptional()
@@ -80,6 +82,13 @@ export class UpdateListingDto {
   @IsNumber()
   @Type(() => Number)
   longitude?: number;
+
+  /// Igual que en create — opcional, distinto de User.phone. Cadena vacía
+  /// permitida: es como el usuario deja de publicar teléfono en este anuncio.
+  @IsOptional()
+  @IsString()
+  @Matches(LISTING_PHONE_REGEX, { message: 'Teléfono no válido' })
+  phone?: string;
 
   @IsOptional()
   @IsArray()

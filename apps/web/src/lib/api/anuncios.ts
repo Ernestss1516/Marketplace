@@ -25,6 +25,15 @@ export function trackListingView(slug: string, token?: string): Promise<void> {
   return apiFetch<void>(`/listings/${slug}/view`, { method: 'POST', token });
 }
 
+/**
+ * "Ver teléfono" — requiere sesión. El número solo se sirve por esta vía
+ * autenticada; NUNCA viaja en el payload de getListing() (ver diseño en el
+ * backend, ListingsService.findBySlug).
+ */
+export function getListingPhone(id: string, token: string): Promise<{ phone: string }> {
+  return apiFetch<{ phone: string }>(`/listings/${id}/phone`, { token });
+}
+
 /** Básico para todos los dueños; enriquecido (dailyViews, likeRatio) si el dueño es Pro. */
 export function getMineStats(id: string, token: string): Promise<ListingStats> {
   return apiFetch<ListingStats>(`/listings/mine/${id}/stats`, { token });

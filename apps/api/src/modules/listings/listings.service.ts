@@ -2,6 +2,8 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
   Logger,
   NotFoundException,
@@ -12,6 +14,12 @@ import { Queue } from 'bullmq';
 import { randomBytes } from 'node:crypto';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { RedisService } from '../../infra/redis/redis.service';
+import { RateLimitService } from '../../infra/redis/rate-limit.service';
+import {
+  PHONE_REVEAL_LIMIT_IP_PER_HOUR,
+  PHONE_REVEAL_LIMIT_USER_PER_HOUR,
+  PHONE_REVEAL_WINDOW_SECONDS,
+} from './listing-phone.constants';
 import { EntitlementType, Prisma } from '@prisma/client';
 import type { Listing, ListingStatus, PriceType } from '@prisma/client';
 import { QUEUE_INDEXING } from '../../infra/queue/queue.constants';
@@ -91,6 +99,7 @@ export class ListingsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    private readonly rateLimit: RateLimitService,
     @InjectQueue(QUEUE_INDEXING) private readonly indexingQueue: Queue,
     private readonly badWordService: BadWordService,
     private readonly entitlementService: EntitlementService,
@@ -140,6 +149,7 @@ export class ListingsService {
       postalCode: dto.postalCode,
       latitude: dto.latitude ?? null,
       longitude: dto.longitude ?? null,
+      phone: dto.phone,
       sellerId,
       categoryId: dto.categoryId,
     });
@@ -238,6 +248,7 @@ export class ListingsService {
         ...(fields.city !== undefined && { city: fields.city }),
         ...(fields.province !== undefined && { province: fields.province }),
         ...(fields.postalCode !== undefined && { postalCode: fields.postalCode }),
+        ...(fields.phone !== undefined && { phone: fields.phone }),
         ...coordUpdate,
       },
     });
@@ -382,6 +393,44 @@ export class ListingsService {
     return listing;
   }
 
+  /**
+   * "Ver teléfono" — requiere sesión (JwtAuthGuard en el controller). El
+   * rate limit se comprueba PRIMERO, antes de tocar la BD (mismo orden que
+   * ContactService: es el chequeo más barato y evita que un scraper agote
+   * el presupuesto de la query en vez del propio). Cuenta tanto si el
+   * anuncio no existe/no tiene teléfono como si lo revela — un usuario/IP
+   * que insiste en ids inválidos también está "cosechando".
+   */
+  async getPhone(id: string, userId: string, ip: string): Promise<{ phone: string }> {
+    const [userLimit, ipLimit] = await Promise.all([
+      this.rateLimit.checkAndIncrement(
+        `phone:reveal:user:${userId}`,
+        PHONE_REVEAL_LIMIT_USER_PER_HOUR,
+        PHONE_REVEAL_WINDOW_SECONDS,
+      ),
+      this.rateLimit.checkAndIncrement(
+        `phone:reveal:ip:${ip}`,
+        PHONE_REVEAL_LIMIT_IP_PER_HOUR,
+        PHONE_REVEAL_WINDOW_SECONDS,
+      ),
+    ]);
+    if (userLimit.limited || ipLimit.limited) {
+      throw new HttpException(
+        { message: 'Demasiadas peticiones, inténtalo más tarde', retryAfter: PHONE_REVEAL_WINDOW_SECONDS },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    const listing = await this.prisma.listing.findUnique({
+      where: { id },
+      select: { phone: true, status: true },
+    });
+    if (!listing || listing.status !== 'ACTIVE' || !listing.phone) {
+      throw new NotFoundException('Anuncio no encontrado');
+    }
+    return { phone: listing.phone };
+  }
+
   async remove(id: string, userId: string): Promise<void> {
     const existing = await this.assertOwnership(id, userId);
     await this.prisma.listing.delete({ where: { id } });
@@ -403,8 +452,16 @@ export class ListingsService {
       if (!listing || listing.status !== 'ACTIVE') {
         throw new NotFoundException('Anuncio no encontrado');
       }
-      await this.redis.client.setex(cacheKey(slug), CACHE_TTL, JSON.stringify(listing));
-      listingData = listing;
+      // PRIVACIDAD — CRÍTICO: phone se descarta aquí, antes de cachear y de
+      // devolver nada. No hay una capa de serialización posterior que lo
+      // filtre — este destructuring ES el único punto donde se garantiza que
+      // el teléfono nunca viaja en el payload público de la ficha (ni en
+      // Redis ni en la respuesta). hasPhone es lo único que se expone, para
+      // pintar el botón "Ver teléfono" sin revelar el número.
+      const { phone, ...publicListing } = listing;
+      const listingToCache = { ...publicListing, hasPhone: Boolean(phone) };
+      await this.redis.client.setex(cacheKey(slug), CACHE_TTL, JSON.stringify(listingToCache));
+      listingData = listingToCache;
     }
 
     // Always computed fresh — not cached — so router.refresh() reflects featuring instantly.

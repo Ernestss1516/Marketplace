@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { ListingsService } from './listings.service';
 import type { PrismaService } from '../../infra/prisma/prisma.service';
 import type { RedisService } from '../../infra/redis/redis.service';
+import type { RateLimitService } from '../../infra/redis/rate-limit.service';
 import type { BadWordService } from '../moderation/bad-word.service';
 import type { EntitlementService } from '../billing/entitlement.service';
 import type { ListingActivationService } from '../listing-activation/listing-activation.service';
@@ -49,6 +50,7 @@ describe('ListingsService.create — reintento de slug ante P2002', () => {
     service = new ListingsService(
       prisma as unknown as PrismaService,
       {} as RedisService,
+      {} as RateLimitService,
       indexingQueue as never,
       {} as BadWordService,
       {} as EntitlementService,

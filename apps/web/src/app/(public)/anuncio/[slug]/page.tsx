@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { ListingGallery } from '@/components/anuncios/ListingGallery';
 import { ContactButton } from '@/components/anuncios/ContactButton';
+import { PhoneButton } from '@/components/anuncios/PhoneButton';
+import { ShareButton } from '@/components/anuncios/ShareButton';
 import { SellerCard } from '@/components/anuncios/SellerCard';
 import { AttributeList } from '@/components/anuncios/AttributeList';
 import { ListingCard } from '@/components/anuncios/ListingCard';
@@ -18,7 +20,7 @@ import { getCategoryBySlug } from '@/lib/api/categorias';
 import { buildCardAttributeMapFromSchema } from '@/lib/card-attributes';
 import { filterSchemaByType } from '@/lib/attribute-schema';
 import { ApiError } from '@/lib/api/client';
-import { SITE_NAME } from '@/config';
+import { SITE_NAME, SITE_URL } from '@/config';
 
 type Params = { slug: string };
 
@@ -34,6 +36,7 @@ export async function generateMetadata({
     return {
       title: listing.title,
       description,
+      alternates: { canonical: `${SITE_URL}/anuncio/${slug}` },
       openGraph: {
         title: `${listing.title} | ${SITE_NAME}`,
         description,
@@ -171,6 +174,8 @@ export default async function AnuncioPage({
           {/* ── Right column (desktop sidebar) ── */}
           <div className="space-y-4">
             <ContactButton listingId={listing.id} />
+            {listing.hasPhone && <PhoneButton listingId={listing.id} />}
+            <ShareButton url={`${SITE_URL}/anuncio/${slug}`} title={listing.title} />
             <FavoriteButton listingId={listing.id} />
             <ListingOwnerActions
               listingId={listing.id}

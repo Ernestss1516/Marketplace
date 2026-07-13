@@ -9,6 +9,7 @@ export interface UbicacionData {
   city: string;
   province: string;
   postalCode: string;
+  phone: string;
 }
 
 interface StepUbicacionProps {
@@ -73,6 +74,24 @@ export function StepUbicacion({ data, onChange, errors }: StepUbicacionProps) {
           maxLength={10}
           onChange={(e) => onChange({ postalCode: e.target.value })}
         />
+      </div>
+
+      <div className="space-y-1.5 border-t pt-4">
+        <Label htmlFor="phone">Teléfono de contacto</Label>
+        <Input
+          id="phone"
+          type="tel"
+          value={data.phone}
+          placeholder="p. ej. 600 000 000"
+          maxLength={20}
+          aria-invalid={Boolean(errors.phone)}
+          onChange={(e) => onChange({ phone: e.target.value })}
+        />
+        <p className="text-xs text-muted-foreground">
+          Opcional. Este número será visible para usuarios registrados que pulsen &quot;Ver
+          teléfono&quot; en tu anuncio. Déjalo vacío si no quieres publicar un teléfono.
+        </p>
+        <FieldError message={errors.phone} />
       </div>
     </div>
   );

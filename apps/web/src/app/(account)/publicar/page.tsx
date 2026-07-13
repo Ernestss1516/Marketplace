@@ -28,6 +28,7 @@ export default async function PublicarPage() {
           province: ('province' in me && me.province) ? me.province : '',
           postalCode: ('postalCode' in me && me.postalCode) ? me.postalCode : '',
         }}
+        initialPhone={('phone' in me && me.phone) ? me.phone : ''}
       />
     </div>
   );

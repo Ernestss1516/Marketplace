@@ -7,11 +7,13 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { Condition, ListingType, PriceType } from '@prisma/client';
+import { LISTING_PHONE_REGEX } from '../listing-phone.constants';
 
 export class CreateListingDto {
   @IsString()
@@ -72,6 +74,13 @@ export class CreateListingDto {
   @IsNumber()
   @Type(() => Number)
   longitude?: number;
+
+  /// Teléfono que se PUBLICARÁ en la ficha de este anuncio (opcional, distinto de
+  /// User.phone). Sugerido por el frontend desde el perfil, nunca forzado.
+  @IsOptional()
+  @IsString()
+  @Matches(LISTING_PHONE_REGEX, { message: 'Teléfono no válido' })
+  phone?: string;
 
   @IsOptional()
   @IsArray()

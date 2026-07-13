@@ -111,6 +111,11 @@ function validateStep(id: StepId, data: WizardData): Record<string, string> {
   if (id === 'ubicacion') {
     if (!data.city.trim()) errors.city = 'La ciudad es obligatoria.';
     if (!data.province.trim()) errors.province = 'La provincia es obligatoria.';
+    // Opcional — solo se valida el formato si el usuario escribió algo (mismo
+    // patrón que el backend, LISTING_PHONE_REGEX).
+    if (data.phone.trim() && !/^[0-9+\-\s()]{6,20}$/.test(data.phone.trim())) {
+      errors.phone = 'Introduce un teléfono válido (6-20 caracteres).';
+    }
   }
 
   return errors;
@@ -139,6 +144,7 @@ interface PublicarWizardProps {
   token: string;
   categories: Category[];
   initialLocation?: { city?: string; province?: string; postalCode?: string };
+  initialPhone?: string;
 }
 
 const INITIAL_DATA: WizardData = {
@@ -163,9 +169,10 @@ const INITIAL_DATA: WizardData = {
   city: '',
   province: '',
   postalCode: '',
+  phone: '',
 };
 
-export function PublicarWizard({ token, categories, initialLocation }: PublicarWizardProps) {
+export function PublicarWizard({ token, categories, initialLocation, initialPhone }: PublicarWizardProps) {
   const router = useRouter();
   const { run } = useApiAction();
   const { loginUrl } = useRequireAuth();
@@ -174,6 +181,7 @@ export function PublicarWizard({ token, categories, initialLocation }: PublicarW
     city: initialLocation?.city || '',
     province: initialLocation?.province || '',
     postalCode: initialLocation?.postalCode || '',
+    phone: initialPhone || '',
   });
   const [currentStepId, setCurrentStepId] = useState<StepId>('categoria');
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -283,6 +291,7 @@ export function PublicarWizard({ token, categories, initialLocation }: PublicarW
             city: data.city,
             province: data.province,
             postalCode: data.postalCode || undefined,
+            phone: data.phone.trim() || undefined,
             imageIds: imageIds.length ? imageIds : undefined,
           },
           token,
@@ -371,7 +380,7 @@ export function PublicarWizard({ token, categories, initialLocation }: PublicarW
 
         {currentStepId === 'ubicacion' && (
           <StepUbicacion
-            data={{ city: data.city, province: data.province, postalCode: data.postalCode }}
+            data={{ city: data.city, province: data.province, postalCode: data.postalCode, phone: data.phone }}
             onChange={(patch) => update(patch as Partial<WizardData>)}
             errors={errors}
           />

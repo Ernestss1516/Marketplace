@@ -35,8 +35,8 @@ async function main() {
       slug: 'vendedor-e2e',
       emailVerified: true,
     },
-    // Reset location so prefill tests always start from a known-empty state.
-    update: { passwordHash, emailVerified: true, city: null, province: null, postalCode: null },
+    // Reset location/phone so prefill tests always start from a known-empty state.
+    update: { passwordHash, emailVerified: true, city: null, province: null, postalCode: null, phone: null },
   });
 
   await prisma.user.upsert({
