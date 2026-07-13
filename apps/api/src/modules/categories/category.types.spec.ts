@@ -1,5 +1,6 @@
 import {
   AttributeField,
+  countAttributesByType,
   DEFAULT_EFFECTIVE_VIEWS,
   filterSchemaByType,
   isListingTypeAllowed,
@@ -172,6 +173,54 @@ describe('filterSchemaByType', () => {
     const schema = [brand, specialty, warrantyMonths];
     expect(filterSchemaByType(schema, 'PRODUCT')).toEqual([brand, warrantyMonths]);
     expect(filterSchemaByType(schema, 'SERVICE')).toEqual([brand, specialty]);
+  });
+});
+
+describe('countAttributesByType (ATRIBUTOS EN CARD — respetar producto/servicio)', () => {
+  const km: AttributeField = {
+    name: 'km', label: 'Kilometraje', type: 'number', filterable: false, required: false,
+    cardAttribute: true, appliesTo: ['PRODUCT'],
+  };
+  const year: AttributeField = {
+    name: 'year', label: 'Año', type: 'number', filterable: false, required: false,
+    cardAttribute: true, appliesTo: ['PRODUCT'],
+  };
+  const rate: AttributeField = {
+    name: 'rate', label: 'Tarifa/hora', type: 'number', filterable: false, required: false,
+    cardAttribute: true, appliesTo: ['SERVICE'],
+  };
+  const displacement: AttributeField = {
+    name: 'displacement', label: 'Desplazamiento', type: 'number', filterable: false, required: false,
+    cardAttribute: true, appliesTo: ['SERVICE'],
+  };
+  const brand: AttributeField = {
+    name: 'brand', label: 'Marca', type: 'text', filterable: false, required: false,
+    cardAttribute: true, // sin appliesTo → cuenta en ambos
+  };
+  const notFlagged: AttributeField = {
+    name: 'color', label: 'Color', type: 'text', filterable: false, required: false,
+    appliesTo: ['PRODUCT'], // no tiene cardAttribute → no debe contar
+  };
+
+  it('4 marcados (2 PRODUCT + 2 SERVICE) → 2 y 2, no 4 — el caso central del bug', () => {
+    const counts = countAttributesByType([km, year, rate, displacement], 'cardAttribute');
+    expect(counts).toEqual({ PRODUCT: 2, SERVICE: 2 });
+  });
+
+  it('un atributo sin appliesTo (ambos) cuenta en las dos cuentas', () => {
+    const counts = countAttributesByType([km, brand], 'cardAttribute');
+    expect(counts).toEqual({ PRODUCT: 2, SERVICE: 1 });
+  });
+
+  it('ignora atributos sin el flag marcado', () => {
+    const counts = countAttributesByType([km, notFlagged], 'cardAttribute');
+    expect(counts).toEqual({ PRODUCT: 1, SERVICE: 0 });
+  });
+
+  it('wideCardAttribute se cuenta de forma independiente de cardAttribute', () => {
+    const wideOnly: AttributeField = { ...km, cardAttribute: undefined, wideCardAttribute: true };
+    expect(countAttributesByType([wideOnly], 'cardAttribute')).toEqual({ PRODUCT: 0, SERVICE: 0 });
+    expect(countAttributesByType([wideOnly], 'wideCardAttribute')).toEqual({ PRODUCT: 1, SERVICE: 0 });
   });
 });
 

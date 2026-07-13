@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { X } from 'lucide-react';
 import type { ListingSummary } from '@/types';
 import type { CardAttributeMap } from '@/components/anuncios/CardAttributesContext';
+import { filterDefsByListingType } from '@/lib/card-attributes';
 
 const SPAIN_CENTER: [number, number] = [-3.7038, 40.4168];
 const SPAIN_ZOOM = 5;
@@ -34,9 +35,12 @@ interface AttrEntry {
   value: string;
 }
 
-/** Returns all non-null attribute entries for the listing, with their display labels. */
+/** Returns all non-null attribute entries for the listing, with their display labels.
+ * ATRIBUTOS EN CARD — respetar producto/servicio: filtrado por el `type` de ESTE
+ * anuncio antes de formatear (mismo criterio que CardAttrsDisplay/WideCardAttrsDisplay). */
 function getAllAttrs(listing: ListingSummary, attributeMap: CardAttributeMap): AttrEntry[] {
-  const defs = (listing.categorySlug ? attributeMap[listing.categorySlug] : undefined) ?? [];
+  const allDefs = (listing.categorySlug ? attributeMap[listing.categorySlug] : undefined) ?? [];
+  const defs = filterDefsByListingType(allDefs, listing.type);
   return defs
     .map((def) => {
       const raw = listing.attributes?.[def.key];

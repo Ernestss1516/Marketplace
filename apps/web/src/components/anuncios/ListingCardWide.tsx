@@ -59,6 +59,7 @@ export function ListingCardWide({
             <WideCardAttrsDisplay
               categorySlug={listing.categorySlug}
               attributes={listing.attributes as Record<string, unknown> | undefined}
+              listingType={listing.type}
             />
             <TruncatedDescription text={listing.description} />
             <ListingStatusBadge status={listing.status} />

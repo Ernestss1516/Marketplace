@@ -32,7 +32,7 @@ import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { ReorderCategoriesDto } from './dto/reorder-categories.dto';
 import { UpdateSettingDto } from './dto/update-setting.dto';
-import { AttributeField, resolveEffectiveSchema } from '../categories/category.types';
+import { AttributeField, resolveEffectiveSchema, countAttributesByType } from '../categories/category.types';
 import { FilterableAttributesResolver } from '../search/filterable-attributes.resolver';
 
 const cacheKey = (slug: string) => `listing:${slug}`;
@@ -422,9 +422,19 @@ export class AdminService {
     });
   }
 
-  private async validateCardAttributeLimit(
+  /**
+   * Valida un tope de card (cardAttribute o wideCardAttribute) POR TIPO, no
+   * globalmente: un atributo marcado solo para PRODUCT (o solo SERVICE) solo
+   * cuenta en el tope de ESE tipo; uno sin `appliesTo` (aplica a ambos) cuenta
+   * en los dos. Así, 2 atributos de producto + 2 de servicio marcados para la
+   * card estándar son válidos (4 en total, pero ningún anuncio ve más de 2) —
+   * ver «ATRIBUTOS EN CARD — respetar producto/servicio» en docs/estado-tecnico.md.
+   */
+  private async validateCardAttributeLimitByType(
     ownSchema: AttributeField[],
     parentId: string | null | undefined,
+    flag: 'cardAttribute' | 'wideCardAttribute',
+    limit: number,
   ): Promise<void> {
     let parentSchema: AttributeField[] = [];
     if (parentId) {
@@ -435,12 +445,22 @@ export class AdminService {
       if (parent) parentSchema = (parent.attributeSchema as unknown as AttributeField[]) ?? [];
     }
     const effective = resolveEffectiveSchema(ownSchema, parentSchema);
-    const cardCount = effective.filter((f) => f.cardAttribute).length;
-    if (cardCount > 2) {
+    const counts = countAttributesByType(effective, flag);
+    const exceeded = (['PRODUCT', 'SERVICE'] as const).find((type) => counts[type] > limit);
+    if (exceeded) {
+      const typeLabel = exceeded === 'PRODUCT' ? 'producto' : 'servicio';
       throw new BadRequestException(
-        `El schema efectivo tiene ${cardCount} atributos con cardAttribute:true pero el máximo permitido es 2.`,
+        `El schema efectivo tiene ${counts[exceeded]} atributos de tipo ${typeLabel} con ` +
+          `${flag}:true pero el máximo permitido es ${limit}.`,
       );
     }
+  }
+
+  private async validateCardAttributeLimit(
+    ownSchema: AttributeField[],
+    parentId: string | null | undefined,
+  ): Promise<void> {
+    await this.validateCardAttributeLimitByType(ownSchema, parentId, 'cardAttribute', 2);
   }
 
   /**
@@ -452,21 +472,7 @@ export class AdminService {
     ownSchema: AttributeField[],
     parentId: string | null | undefined,
   ): Promise<void> {
-    let parentSchema: AttributeField[] = [];
-    if (parentId) {
-      const parent = await this.prisma.category.findUnique({
-        where: { id: parentId },
-        select: { attributeSchema: true },
-      });
-      if (parent) parentSchema = (parent.attributeSchema as unknown as AttributeField[]) ?? [];
-    }
-    const effective = resolveEffectiveSchema(ownSchema, parentSchema);
-    const wideCardCount = effective.filter((f) => f.wideCardAttribute).length;
-    if (wideCardCount > 6) {
-      throw new BadRequestException(
-        `El schema efectivo tiene ${wideCardCount} atributos con wideCardAttribute:true pero el máximo permitido es 6.`,
-      );
-    }
+    await this.validateCardAttributeLimitByType(ownSchema, parentId, 'wideCardAttribute', 6);
   }
 
   /**

@@ -86,6 +86,28 @@ export function filterSchemaByType(
 }
 
 /**
+ * Counts how many attributes in an (already-resolved, own+inherited) schema
+ * have `flag` set (cardAttribute or wideCardAttribute), broken down by which
+ * listing type they apply to. An attribute without `appliesTo` applies to
+ * BOTH and is counted in both buckets — this is why the card-attribute limit
+ * cannot be validated as one global count: 4 attributes flagged for the
+ * standard card, 2 PRODUCT-only + 2 SERVICE-only, is valid (no listing ever
+ * sees more than 2), while 3 PRODUCT-only (or 3 with no appliesTo) is not.
+ */
+export function countAttributesByType(
+  schema: AttributeField[],
+  flag: 'cardAttribute' | 'wideCardAttribute',
+): Record<ListingType, number> {
+  const counts: Record<ListingType, number> = { PRODUCT: 0, SERVICE: 0 };
+  for (const f of schema) {
+    if (!f[flag]) continue;
+    if (!f.appliesTo || f.appliesTo.includes('PRODUCT')) counts.PRODUCT++;
+    if (!f.appliesTo || f.appliesTo.includes('SERVICE')) counts.SERVICE++;
+  }
+  return counts;
+}
+
+/**
  * Merges a category's own ListingTypePolicy with its already-resolved parent
  * policy. BOTH is the neutral element: an own policy of BOTH defers entirely
  * to the parent; a parent policy of BOTH imposes no restriction, so the

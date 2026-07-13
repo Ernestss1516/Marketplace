@@ -13,6 +13,12 @@ const RC5_SLUGS = [
   'rc5-ordenadores-test',
   'rc5-calzado-test',
   'rc5-card-overflow',
+  'rc5-card-ok',
+  'rc5-card-por-tipo-ok',
+  'rc5-card-producto-overflow',
+  'rc5-card-ambos-overflow',
+  'rc5-widecard-por-tipo-ok',
+  'rc5-appliesto-tree',
 ];
 
 describe('RC5 — Categorías y atributos (e2e)', () => {
@@ -356,6 +362,33 @@ describe('RC5 — Categorías y atributos (e2e)', () => {
     }
   });
 
+  it('GET /api/categories tree propaga appliesTo en cardAttributes (antes se perdía en toAttrDef)', async () => {
+    const created = await request(app.getHttpServer())
+      .post('/api/admin/categories')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        name: 'AppliesTo Tree RC5',
+        slug: 'rc5-appliesto-tree',
+        order: 99,
+        attributeSchema: [
+          { name: 'rate', label: 'Tarifa/hora', type: 'number', filterable: false, required: false, cardAttribute: true, appliesTo: ['SERVICE'] },
+        ],
+      })
+      .expect(201);
+
+    try {
+      const tree = await request(app.getHttpServer()).get('/api/categories').expect(200);
+      type CardAttr = { key: string; appliesTo?: string[] };
+      const node = (tree.body as Array<{ slug: string; cardAttributes: CardAttr[] }>)
+        .find((c) => c.slug === 'rc5-appliesto-tree');
+      expect(node).toBeDefined();
+      const rateAttr = node?.cardAttributes.find((a) => a.key === 'rate');
+      expect(rateAttr?.appliesTo).toEqual(['SERVICE']);
+    } finally {
+      await prisma.category.delete({ where: { id: created.body.id } });
+    }
+  });
+
   // ── Validación max 2 cardAttribute ───────────────────────────────────────
 
   it('POST /admin/categories con 3 atributos cardAttribute → 400', async () => {
@@ -395,6 +428,90 @@ describe('RC5 — Categorías y atributos (e2e)', () => {
       .expect(201);
 
     // Cleanup
+    await prisma.category.delete({ where: { id: res.body.id } });
+  });
+
+  // ── ATRIBUTOS EN CARD — respetar producto/servicio: el tope de card se valida
+  // POR TIPO, no globalmente (un atributo solo-PRODUCT o solo-SERVICE solo cuenta
+  // en el tope de ese tipo; uno sin appliesTo cuenta en los dos) ────────────────
+
+  it('POST /admin/categories con 2 cardAttribute de PRODUCT + 2 de SERVICE (4 en total) → 201: el tope se cumple por tipo', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/api/admin/categories')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        name: 'Card Por Tipo RC5',
+        slug: 'rc5-card-por-tipo-ok',
+        order: 99,
+        attributeSchema: [
+          { name: 'km', label: 'Kilometraje', type: 'number', filterable: false, required: false, cardAttribute: true, appliesTo: ['PRODUCT'] },
+          { name: 'year', label: 'Año', type: 'number', filterable: false, required: false, cardAttribute: true, appliesTo: ['PRODUCT'] },
+          { name: 'rate', label: 'Tarifa/hora', type: 'number', filterable: false, required: false, cardAttribute: true, appliesTo: ['SERVICE'] },
+          { name: 'displacement', label: 'Desplazamiento', type: 'number', filterable: false, required: false, cardAttribute: true, appliesTo: ['SERVICE'] },
+        ],
+      })
+      .expect(201);
+
+    await prisma.category.delete({ where: { id: res.body.id } });
+  });
+
+  it('POST /admin/categories con 3 cardAttribute de PRODUCT (aunque solo 2 sean de SERVICE) → 400 nombrando el tipo que excede', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/api/admin/categories')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        name: 'Card Producto Overflow RC5',
+        slug: 'rc5-card-producto-overflow',
+        order: 99,
+        attributeSchema: [
+          { name: 'km', label: 'Kilometraje', type: 'number', filterable: false, required: false, cardAttribute: true, appliesTo: ['PRODUCT'] },
+          { name: 'year', label: 'Año', type: 'number', filterable: false, required: false, cardAttribute: true, appliesTo: ['PRODUCT'] },
+          { name: 'brand', label: 'Marca', type: 'text', filterable: false, required: false, cardAttribute: true, appliesTo: ['PRODUCT'] },
+          { name: 'rate', label: 'Tarifa/hora', type: 'number', filterable: false, required: false, cardAttribute: true, appliesTo: ['SERVICE'] },
+        ],
+      })
+      .expect(400);
+
+    expect(res.body.message).toMatch(/cardAttribute/);
+    expect(res.body.message).toMatch(/producto/i);
+    expect(res.body.message).toMatch(/máximo.*2|2.*máximo/i);
+  });
+
+  it('un atributo "ambos" cuenta en las dos cuentas: 2 de producto + 1 sin appliesTo → 3 de producto → 400', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/api/admin/categories')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        name: 'Card Ambos Overflow RC5',
+        slug: 'rc5-card-ambos-overflow',
+        order: 99,
+        attributeSchema: [
+          { name: 'km', label: 'Kilometraje', type: 'number', filterable: false, required: false, cardAttribute: true, appliesTo: ['PRODUCT'] },
+          { name: 'year', label: 'Año', type: 'number', filterable: false, required: false, cardAttribute: true, appliesTo: ['PRODUCT'] },
+          { name: 'brand', label: 'Marca', type: 'text', filterable: false, required: false, cardAttribute: true },
+        ],
+      })
+      .expect(400);
+
+    expect(res.body.message).toMatch(/producto/i);
+  });
+
+  it('el tope de wideCardAttribute (6) también se valida por tipo: 3 PRODUCT + 3 SERVICE (6 en total) → 201', async () => {
+    const attrs = [1, 2, 3].flatMap((n) => [
+      { name: `p${n}`, label: `P${n}`, type: 'text' as const, filterable: false, required: false, wideCardAttribute: true, appliesTo: ['PRODUCT'] as const },
+      { name: `s${n}`, label: `S${n}`, type: 'text' as const, filterable: false, required: false, wideCardAttribute: true, appliesTo: ['SERVICE'] as const },
+    ]);
+    const res = await request(app.getHttpServer())
+      .post('/api/admin/categories')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        name: 'WideCard Por Tipo RC5',
+        slug: 'rc5-widecard-por-tipo-ok',
+        order: 99,
+        attributeSchema: attrs,
+      })
+      .expect(201);
+
     await prisma.category.delete({ where: { id: res.body.id } });
   });
 

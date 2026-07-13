@@ -65,6 +65,27 @@ function cloneOptionsByParent(o: Record<string, string[]>): Record<string, strin
   return Object.fromEntries(Object.entries(o).map(([k, v]) => [k, [...v]]));
 }
 
+// ATRIBUTOS EN CARD — respetar producto/servicio. Mismo cálculo que
+// countAttributesByType en el backend (category.types.ts) — duplicado aquí porque
+// no hay paquete compartido entre api/web (mismo criterio que toAttrDef arriba).
+// Un atributo sin appliesTo (aplica a ambos) cuenta en las dos cuentas; el tope
+// (2 para card, 6 para wideCard) se valida POR TIPO, no globalmente.
+type TypeCounts = { PRODUCT: number; SERVICE: number };
+type CardFlag = 'cardAttribute' | 'wideCardAttribute';
+
+function countByType(
+  fields: { cardAttribute?: boolean; wideCardAttribute?: boolean; appliesTo?: ListingType[] }[],
+  flag: CardFlag,
+): TypeCounts {
+  const counts: TypeCounts = { PRODUCT: 0, SERVICE: 0 };
+  for (const f of fields) {
+    if (!f[flag]) continue;
+    if (!f.appliesTo || f.appliesTo.includes('PRODUCT')) counts.PRODUCT++;
+    if (!f.appliesTo || f.appliesTo.includes('SERVICE')) counts.SERVICE++;
+  }
+  return counts;
+}
+
 function parseAppliesTo(value: unknown): ListingType[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const valid = value.filter((v): v is ListingType => v === 'PRODUCT' || v === 'SERVICE');
@@ -342,8 +363,11 @@ export function AttributeSchemaEditor({
   const [optionInput, setOptionInput] = useState('');
   const [checkingUsage, setCheckingUsage] = useState(false);
 
-  const inheritedCardCount = inheritedFields.filter(f => f.cardAttribute).length;
-  const inheritedWideCardCount = inheritedFields.filter(f => f.wideCardAttribute).length;
+  /** Fields OTHER than the one currently being edited/added — the base to check the
+   * draft's own flag against (heredados + propios salvo la fila en edición). */
+  function otherFields(): (AttributeSchema | AttributeSchemaWithExtras)[] {
+    return [...inheritedFields, ...rows.filter((_, i) => i !== editingIdx)];
+  }
 
   function notify(active: boolean) {
     onHasActiveEdit?.(active);
@@ -456,18 +480,32 @@ export function AttributeSchemaEditor({
     setDraft(prev => prev ? { ...prev, options: prev.options.filter(o => o !== opt) } : prev);
   }
 
-  // Whether cardAttribute checkbox should be disabled for the current draft
+  // Whether cardAttribute checkbox should be disabled for the current draft.
+  // ATRIBUTOS EN CARD — respetar producto/servicio: el tope se comprueba SOLO para
+  // los tipos a los que aplica ESTE draft (draft.appliesTo) — marcarlo nunca se
+  // bloquea por culpa de un tipo al que el atributo ni siquiera aplica.
   function cardDisabled(): boolean {
-    if (!draft) return false;
-    const otherOwnCard = rows.filter((r, i) => i !== editingIdx && r.cardAttribute).length;
-    return inheritedCardCount + otherOwnCard >= 2 && !draft.cardAttribute;
+    if (!draft || draft.cardAttribute) return false;
+    const counts = countByType(otherFields(), 'cardAttribute');
+    return draft.appliesTo.some((t) => counts[t] >= 2);
   }
 
   // RÁFAGA 2 — mismo mecanismo que cardDisabled() pero con tope 6 para la vista ampliada.
   function wideCardDisabled(): boolean {
-    if (!draft) return false;
-    const otherOwnWideCard = rows.filter((r, i) => i !== editingIdx && r.wideCardAttribute).length;
-    return inheritedWideCardCount + otherOwnWideCard >= 6 && !draft.wideCardAttribute;
+    if (!draft || draft.wideCardAttribute) return false;
+    const counts = countByType(otherFields(), 'wideCardAttribute');
+    return draft.appliesTo.some((t) => counts[t] >= 6);
+  }
+
+  /** Cuentas POR TIPO a mostrar en la UI (incluye el propio draft si está marcado) —
+   * para que el admin entienda "Producto: 2/2 · Servicio: 1/2" en vez de un tope
+   * global que parecería arbitrario cuando hay más de 2 atributos de card marcados. */
+  function displayCounts(flag: CardFlag): TypeCounts {
+    const counts = countByType(otherFields(), flag);
+    if (draft?.[flag]) {
+      for (const t of draft.appliesTo) counts[t]++;
+    }
+    return counts;
   }
 
   const canInteract = !disabled && editingIdx === null && deletingIdx === null;
@@ -562,6 +600,8 @@ export function AttributeSchemaEditor({
                     searchableKeys={searchableKeys}
                     cardAttributeDisabled={cardDisabled()}
                     wideCardAttributeDisabled={wideCardDisabled()}
+                    cardCounts={displayCounts('cardAttribute')}
+                    wideCardCounts={displayCounts('wideCardAttribute')}
                     optionInput={optionInput}
                     setOptionInput={setOptionInput}
                     onAddOption={addOption}
@@ -642,6 +682,8 @@ export function AttributeSchemaEditor({
                 searchableKeys={searchableKeys}
                 cardAttributeDisabled={cardDisabled()}
                 wideCardAttributeDisabled={wideCardDisabled()}
+                cardCounts={displayCounts('cardAttribute')}
+                wideCardCounts={displayCounts('wideCardAttribute')}
                 optionInput={optionInput}
                 setOptionInput={setOptionInput}
                 onAddOption={addOption}
@@ -680,6 +722,10 @@ interface FieldFormProps {
   searchableKeys: string[];
   cardAttributeDisabled: boolean;
   wideCardAttributeDisabled: boolean;
+  /** ATRIBUTOS EN CARD — respetar producto/servicio: cuentas POR TIPO ya incluyendo
+   * el propio draft si está marcado, para mostrar "Producto: X/2 · Servicio: Y/2". */
+  cardCounts: TypeCounts;
+  wideCardCounts: TypeCounts;
   optionInput: string;
   setOptionInput: (v: string) => void;
   onAddOption: () => void;
@@ -698,6 +744,8 @@ function FieldForm({
   searchableKeys,
   cardAttributeDisabled,
   wideCardAttributeDisabled,
+  cardCounts,
+  wideCardCounts,
   optionInput,
   setOptionInput,
   onAddOption,
@@ -907,7 +955,8 @@ function FieldForm({
           className={`flex items-center gap-1.5 text-xs ${cardAttributeDisabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
           title={
             cardAttributeDisabled
-              ? 'Ya hay 2 atributos de tarjeta en el schema efectivo (máximo permitido)'
+              ? `Ya hay 2 atributos de card estándar marcados para el/los tipo(s) de este atributo ` +
+                `(Producto: ${cardCounts.PRODUCT}/2 · Servicio: ${cardCounts.SERVICE}/2)`
               : undefined
           }
         >
@@ -930,7 +979,8 @@ function FieldForm({
           className={`flex items-center gap-1.5 text-xs ${wideCardAttributeDisabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
           title={
             wideCardAttributeDisabled
-              ? 'Ya hay 6 atributos de vista ampliada en el schema efectivo (máximo permitido)'
+              ? `Ya hay 6 atributos de vista ampliada marcados para el/los tipo(s) de este atributo ` +
+                `(Producto: ${wideCardCounts.PRODUCT}/6 · Servicio: ${wideCardCounts.SERVICE}/6)`
               : undefined
           }
         >
@@ -1009,6 +1059,14 @@ function FieldForm({
           Servicio
         </label>
       </div>
+
+      {/* ATRIBUTOS EN CARD — respetar producto/servicio: cuentas POR TIPO (no un tope
+          global) — un atributo "ambos" cuenta en las dos. Incluye el propio draft si
+          está marcado, para que el admin vea el estado que se guardaría. */}
+      <p className="text-[11px] text-muted-foreground" data-testid="card-attribute-counts">
+        Card estándar — Producto: {cardCounts.PRODUCT}/2 · Servicio: {cardCounts.SERVICE}/2
+        {' · '}Card ampliada — Producto: {wideCardCounts.PRODUCT}/6 · Servicio: {wideCardCounts.SERVICE}/6
+      </p>
 
       {/* Vista previa (RÁFAGA 3) — cómo queda el atributo en la card con un valor de ejemplo */}
       <p className="text-[11px] text-muted-foreground" data-testid="attr-preview">

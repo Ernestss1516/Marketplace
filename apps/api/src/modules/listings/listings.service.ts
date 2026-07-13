@@ -21,7 +21,7 @@ import {
   PHONE_REVEAL_WINDOW_SECONDS,
 } from './listing-phone.constants';
 import { EntitlementType, Prisma } from '@prisma/client';
-import type { Listing, ListingStatus, PriceType } from '@prisma/client';
+import type { Listing, ListingStatus, ListingType, PriceType } from '@prisma/client';
 import { QUEUE_INDEXING } from '../../infra/queue/queue.constants';
 import { isP2002 } from '../../common/prisma/is-p2002';
 import { ExpirationService } from '../expiration/expiration.service';
@@ -61,6 +61,11 @@ const SELECT_SUMMARY = {
   price: true,
   currency: true,
   priceType: true,
+  // ATRIBUTOS EN CARD — respetar producto/servicio: sin `type` aquí, el fallback a
+  // Postgres (findByCategory y demás usos de SELECT_SUMMARY) no podía filtrar los
+  // atributos de card por tipo de anuncio — a diferencia del documento de Meilisearch,
+  // que ya indexaba `type` desde antes (ver toDocument() en search.service.ts).
+  type: true,
   city: true,
   province: true,
   status: true,
@@ -80,6 +85,7 @@ type SummaryDbRow = {
   price: Prisma.Decimal;
   currency: string;
   priceType: PriceType;
+  type: ListingType;
   city: string | null;
   province: string | null;
   status: ListingStatus;

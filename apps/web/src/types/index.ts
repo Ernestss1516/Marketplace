@@ -88,6 +88,9 @@ export interface CardAttributeDef {
    * nunca "ausente = calcular default" en el frontend. */
   showLabel: boolean;
   showUnit: boolean;
+  /** ATRIBUTOS EN CARD — respetar producto/servicio. Qué tipo(s) de anuncio muestran este
+   * atributo en card. Ausente = aplica a ambos (mismo default que AttributeSchema.appliesTo). */
+  appliesTo?: ListingType[];
 }
 
 export interface Category {
@@ -146,6 +149,10 @@ export interface ListingSummary {
   featuredUntil?: string | null;
   categorySlug?: string;
   attributes?: Record<string, unknown>;
+  /** ATRIBUTOS EN CARD — respetar producto/servicio: presente en hits de Meilisearch (ya
+   * indexado en toDocument()) y en el fallback a Postgres (SELECT_SUMMARY) — necesario para
+   * que la card filtre qué atributos mostrar según el tipo de ESTE anuncio concreto. */
+  type?: ListingType;
   /** Present on Meilisearch hits. Enables map panel to show a description preview. */
   description?: string;
   /** Public seller fields. Present on Meilisearch hits after H6.5c re-index. */

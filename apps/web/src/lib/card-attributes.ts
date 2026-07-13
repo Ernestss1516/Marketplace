@@ -1,4 +1,4 @@
-import type { Category, AttributeSchema, CardAttributeDef } from '@/types';
+import type { Category, AttributeSchema, CardAttributeDef, ListingType } from '@/types';
 import type { CardAttributeMap } from '@/components/anuncios/CardAttributesContext';
 
 // RÁFAGA 3 — mismas reglas de default que resolveShowLabel/resolveShowUnit en
@@ -14,7 +14,24 @@ function toAttrDef(f: AttributeSchema): CardAttributeDef {
     ...(f.unit ? { unit: f.unit } : {}),
     showLabel: f.showLabel ?? !f.unit,
     showUnit: f.showUnit ?? true,
+    ...(f.appliesTo ? { appliesTo: f.appliesTo } : {}),
   };
+}
+
+/**
+ * Filters attribute defs to the ones that apply to a listing's type (ATRIBUTOS
+ * EN CARD — respetar producto/servicio). Absent `appliesTo` on a def = applies
+ * to both (same default used everywhere else — filterSchemaByType en el backend,
+ * AttributeSchemaEditor en el admin). Absent `listingType` (no debería pasar una
+ * vez que `type` se selecciona en todos los caminos de datos, pero es defensivo)
+ * = mostrar todo en vez de ocultar, porque no se puede saber qué aplica.
+ */
+export function filterDefsByListingType(
+  defs: CardAttributeDef[],
+  listingType: ListingType | undefined,
+): CardAttributeDef[] {
+  if (!listingType) return defs;
+  return defs.filter((d) => !d.appliesTo || d.appliesTo.includes(listingType));
 }
 
 /**

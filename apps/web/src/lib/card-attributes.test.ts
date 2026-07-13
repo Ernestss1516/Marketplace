@@ -5,8 +5,13 @@
 // anuncios de sus hijas coches/motos vía categoryPath de Meilisearch), cada
 // listing trae el categorySlug de su propia hoja — si el mapa solo tuviera la
 // entrada del padre, CardAttrsDisplay no encontraría nada para esos listings.
-import { buildCardAttributeMap, buildWideCardAttributeMap, buildFullAttributeMap } from './card-attributes';
-import type { Category } from '@/types';
+import {
+  buildCardAttributeMap,
+  buildWideCardAttributeMap,
+  buildFullAttributeMap,
+  filterDefsByListingType,
+} from './card-attributes';
+import type { Category, CardAttributeDef } from '@/types';
 
 const tree: Category[] = [
   {
@@ -90,5 +95,26 @@ describe('buildFullAttributeMap — todas las hojas Y el padre, cada una con su 
     expect(map.motos).toEqual([
       { key: 'displacement', label: 'Cilindrada', unit: 'cc', showLabel: false, showUnit: true },
     ]);
+  });
+});
+
+describe('filterDefsByListingType — ATRIBUTOS EN CARD respetar producto/servicio', () => {
+  const km: CardAttributeDef = { key: 'km', label: 'Kilometraje', showLabel: false, showUnit: true, appliesTo: ['PRODUCT'] };
+  const rate: CardAttributeDef = { key: 'rate', label: 'Tarifa/hora', showLabel: true, showUnit: true, appliesTo: ['SERVICE'] };
+  const brand: CardAttributeDef = { key: 'brand', label: 'Marca', showLabel: true, showUnit: true }; // sin appliesTo = ambos
+  const defs = [km, rate, brand];
+
+  it('un anuncio de PRODUCTO ve solo los de producto + los de ambos', () => {
+    expect(filterDefsByListingType(defs, 'PRODUCT')).toEqual([km, brand]);
+  });
+
+  it('un anuncio de SERVICIO ve solo los de servicio + los de ambos — nunca "Kilometraje"', () => {
+    const result = filterDefsByListingType(defs, 'SERVICE');
+    expect(result).toEqual([rate, brand]);
+    expect(result.find((d) => d.key === 'km')).toBeUndefined();
+  });
+
+  it('sin listingType (defensivo) → no filtra, devuelve todo', () => {
+    expect(filterDefsByListingType(defs, undefined)).toEqual(defs);
   });
 });

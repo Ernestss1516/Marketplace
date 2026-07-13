@@ -40,6 +40,10 @@ export class CategoriesService {
         // el mismo dato para card estándar, ampliada y cualquier futuro consumidor.
         showLabel: resolveShowLabel(f),
         showUnit: resolveShowUnit(f),
+        // ATRIBUTOS EN CARD — respetar producto/servicio: se propaga tal cual (ausente =
+        // aplica a ambos) para que el frontend pueda filtrar cada card por el `type` del
+        // anuncio concreto que renderiza — antes se perdía aquí y ninguna card lo filtraba.
+        ...(f.appliesTo !== undefined ? { appliesTo: f.appliesTo } : {}),
       });
       return {
         id: root.id,
@@ -101,6 +105,7 @@ export class CategoriesService {
       ...(f.unit !== undefined ? { unit: f.unit } : {}),
       showLabel: resolveShowLabel(f),
       showUnit: resolveShowUnit(f),
+      ...(f.appliesTo !== undefined ? { appliesTo: f.appliesTo } : {}),
     });
 
     // RÁFAGA 2 — vistas: el padre resuelve primero contra `null` (2 niveles, sin abuelo),

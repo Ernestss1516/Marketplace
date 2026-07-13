@@ -182,6 +182,7 @@ enlaces ancla — funcionan en GitHub y en la vista previa de Markdown de VS Cod
 - [3 vistas de resultados configurables por categoría (RÁFAGA 2, 2026-07-13)](#3-vistas-de-resultados-configurables-por-categoría-ráfaga-2-2026-07-13)
 - [Display de atributos en card: showLabel/showUnit configurables (RÁFAGA 3, 2026-07-13)](#display-de-atributos-en-card-showlabelshowunit-configurables-ráfaga-3-2026-07-13)
 - [Dos bugs de RÁFAGA 2 encontrados y corregidos de raíz (2026-07-13)](#dos-bugs-de-ráfaga-2-encontrados-y-corregidos-de-raíz-2026-07-13)
+- [Atributos en card: respetar producto/servicio (2026-07-13)](#atributos-en-card-respetar-productoservicio-2026-07-13)
 - [Pro downgrade con des-indexado de Meilisearch (RF.7-B.2 — bug detectado y corregido)](#pro-downgrade-con-des-indexado-de-meilisearch-rf7-b2-bug-detectado-y-corregido)
 - [Settings: whitelist explícita en el service (Fase 7)](#settings-whitelist-explícita-en-el-service-fase-7)
 - [Migración `add_audit_log_and_settings` (Fase 7)](#migración-addauditlogandsettings-fase-7)
@@ -3027,6 +3028,108 @@ la suite completa de e2e (`git status` confirma que ningún archivo de `apps/api
 vivo (Playwright, ambos bugs):** reproducidos ANTES del fix (navegación real a `/anuncio/...` al
 cerrar el visor; `/vehiculos` sin atributos) y verificados DESPUÉS (visor usable de punta a
 punta incl. botón derecho; `/vehiculos` con atributos idénticos a `/busqueda?category=vehiculos`).
+
+### Atributos en card: respetar producto/servicio (2026-07-13)
+
+**El mecanismo ya existía, faltaba que los topes y el renderizado lo respetaran.**
+`appliesTo?: ListingType[]` en `AttributeField` (backend) y en `AttributeSchemaEditor`
+(checkboxes "Producto"/"Servicio", RÁFAGA 1 del wizard) ya distinguía qué atributos aplican a
+qué tipo de anuncio; `filterSchemaByType()` ya lo usaba en `/anuncio/[slug]` (ficha) y en el
+wizard de publicar. Lo que faltaba: (1) que la VALIDACIÓN del tope de card (2 estándar / 6
+ampliada) contara POR TIPO en vez de globalmente, y (2) que las CARDS (no la ficha) filtraran qué
+atributos mostrar según el tipo del anuncio — hasta ahora, `CardAttrsDisplay`/
+`WideCardAttrsDisplay` mostraban TODOS los atributos configurados para la categoría, sin mirar
+`appliesTo` ni el `type` del anuncio.
+
+**El problema central — el tope no se puede validar globalmente:** 2 atributos marcados
+`cardAttribute:true` con `appliesTo:['PRODUCT']` + 2 con `appliesTo:['SERVICE']` son 4 en total,
+pero NINGÚN anuncio ve más de 2 (uno de producto ve 2, uno de servicio ve 2). La validación
+correcta es "máx. 2 que apliquen a PRODUCT" Y "máx. 2 que apliquen a SERVICE" por separado; un
+atributo sin `appliesTo` (aplica a ambos) cuenta en las dos cuentas. Igual para el máx. 6 de la
+card ampliada.
+
+**Backend — validación por tipo:** nueva `countAttributesByType(schema, flag)` en
+`category.types.ts` (con tests en `category.types.spec.ts`), que cuenta por separado
+`PRODUCT`/`SERVICE` para `cardAttribute`/`wideCardAttribute`. `admin.service.ts` unificó
+`validateCardAttributeLimit`/`validateWideCardAttributeLimit` en una única
+`validateCardAttributeLimitByType(schema, parentId, flag, limit)` que usa esta cuenta y lanza un
+`BadRequestException` nombrando el tipo que excede (p. ej. "El schema efectivo tiene 3 atributos
+de tipo producto con cardAttribute:true pero el máximo permitido es 2") — mismo formato que el
+mensaje anterior (conserva `cardAttribute:true`/`máximo...N` para no romper los e2e existentes que
+matcheaban ese texto), con el tipo insertado. 5 tests e2e nuevos en `rc5-attributes.e2e-spec.ts`:
+2 PRODUCT + 2 SERVICE (4 en total) → 201; 3 de PRODUCT → 400 nombrando "producto"; un atributo
+"ambos" sumando al tercero de producto → 400; el mismo mecanismo para `wideCardAttribute` (3+3=6
+en total) → 201.
+
+**Backend — `appliesTo` se perdía en el camino API→card:** `categories.service.ts` construye
+`cardAttributes`/`wideCardAttributes`/`allAttributes` (los que consume el frontend) con una
+función `toAttrDef()` que resuelve `showLabel`/`showUnit` pero NUNCA propagaba `appliesTo` —
+así que aunque el schema crudo lo tuviera, la card no tenía forma de saber a qué tipo aplicaba
+cada atributo. Corregido en `findTree()` (árbol de `/categories`) y `findBySlug()` (schema
+efectivo de una categoría) para incluir `appliesTo` cuando está presente. Nuevo test e2e
+confirma que `GET /categories` (árbol) expone `appliesTo` en `cardAttributes`.
+
+**Backend — el fallback a Postgres no traía el `type` del anuncio:** `SELECT_SUMMARY` en
+`listings.service.ts` (usado por `findByCategory`/`findBySellerSlug`/`findRecent`/etc., el
+fallback cuando Meilisearch no está disponible) no incluía `type`. Añadido `type: true` — el
+documento de Meilisearch YA lo indexaba (`toDocument()`, sin cambios), pero el camino de Postgres
+se había quedado corto, sería una divergencia latente entre ambos caminos si Meili cae. `type`
+fluye ahora igual en ambos.
+
+**Frontend — filtrado en las cards por tipo del anuncio:** `CardAttributeDef` (tipo) y
+`ListingSummary` ganan `appliesTo`/`type` respectivamente. Nueva `filterDefsByListingType(defs,
+listingType)` en `lib/card-attributes.ts` (ausente `appliesTo` en el def = aplica a ambos;
+ausente `listingType` en el anuncio = no filtra, defensivo). `CardAttrsDisplay`/
+`WideCardAttrsDisplay` (`CardAttributesContext.tsx`) y `getAllAttrs()` (panel de detalle del
+mapa, `MapView.tsx`) la aplican antes de formatear. `ListingCard`/`ListingCardWide` pasan
+`listingType={listing.type}`. Cubre los 3 sitios que muestran atributos de card: estándar,
+ampliada y el panel de la vista Mapa.
+
+**Admin UI — cuentas por tipo, no un tope global:** `AttributeSchemaEditor.tsx` dejó de
+deshabilitar `cardAttribute`/`wideCardAttribute` por una cuenta global (`inheritedCardCount +
+otherOwnCard >= 2`); ahora `countByType()` (mismo cálculo que el backend, duplicado por la
+ausencia de paquete compartido api/web) cuenta solo los tipos a los que aplica el atributo EN
+EDICIÓN (`draft.appliesTo`) — marcar un atributo SERVICE-only nunca se bloquea porque PRODUCT ya
+llegó al tope. Nueva línea siempre visible bajo los checkboxes: "Card estándar — Producto: X/2 ·
+Servicio: Y/2 · Card ampliada — Producto: X/6 · Servicio: Y/6", verificada en vivo editando la
+categoría de prueba (ver QA abajo). No se implementó la simplificación opcional para categorías
+de un solo tipo (`allowedListingType` PRODUCT_ONLY/SERVICE_ONLY) — las cuentas del tipo no
+aplicable simplemente se quedan en 0/N, informativo pero no confuso; queda como posible pulido
+futuro, no bloqueaba el cierre de esta ráfaga.
+
+**Hallazgo colateral (NO corregido, fuera de alcance) — `normalizeHit()` en
+`search.controller.ts` solo incluye en `attributes` los campos FILTRABLES.** Encontrado
+verificando en vivo: una categoría de prueba con `km`/`specialty` marcados `cardAttribute:true`
+pero `filterable:false` mostraba `attributes: {}` en los hits de `/search` — el bucle que
+construye `attrs` en `normalizeHit()` itera `attributeTypes.keys()` (el mapa de
+`FilterableAttributesResolver`, que solo incluye atributos con `filterable:true`). Un atributo
+puramente decorativo (cardAttribute sin necesidad de ser también filtro) nunca llegaría a
+mostrarse en `/busqueda`/`/[categoria]` aunque SÍ se vería en `/anuncio/[slug]` (que lee
+`listing.attributes` directo de Postgres, sin pasar por `normalizeHit`). No se reprodujo con
+datos reales del seed (todo cardAttribute existente ya era también filterable), así que es un
+bug latente, no uno con síntoma visible hoy — anotado aquí para no perderlo, corrección fuera del
+alcance de esta ráfaga.
+
+**Tests:** `category.types.spec.ts` (+4 casos `countAttributesByType`), `rc5-attributes.e2e-spec.ts`
+(+5 casos validación por tipo +1 caso `appliesTo` en el árbol), `card-attributes.test.ts` (+3 casos
+`filterDefsByListingType`), `CardAttributesContext.test.tsx` (+4 casos listingType en ambas
+cards), `AttributeSchemaEditor.cardLimitByType.test.tsx` (nuevo, 5 casos: tope por tipo no
+global, incl. el caso central del bug con 4 marcados/2+2 por tipo, y las cuentas mostradas).
+Batería completa: backend 56 suites / 870 tests e2e (`npm run test:e2e`, serial —
+**importante: sin `--runInBand` los workers en paralelo corrompen estado compartido de
+Postgres/Redis entre suites**, confirmado al reproducir 765 fallos espurios con `jest
+--config test/jest-e2e.json` a secas antes de usar el script correcto) + 102 tests unitarios,
+todos verdes; frontend 18 suites / 169 tests (159 verdes, mismos 10 fallos pre-existentes
+confirmados idénticos vía `git stash` contra la rama base — "invariant expected app router to be
+mounted" en tests de `BlockRenderer`/`BlockEditor`/`PublicarWizard`, no relacionados con este
+cambio). **QA en vivo:** categoría de prueba con `km` (solo PRODUCTO, cardAttribute+
+wideCardAttribute), `specialty` (solo SERVICIO, ídem) y `brand` (ambos, wideCardAttribute); un
+anuncio de cada tipo. Confirmado con Playwright que la card de PRODUCTO muestra "85000 km" y
+NUNCA "Especialidad", y la de SERVICIO muestra "Especialidad: Fontanería" y NUNCA el
+kilometraje — en vista estándar Y ampliada, en `/busqueda?category=X` Y `/X` (mismo HTML,
+confirma que los caminos siguen convergiendo tras el bug 2 de la ráfaga anterior). Editor de
+atributos del admin verificado en vivo mostrando "Card estándar — Producto: 1/2 · Servicio: 1/2 ·
+Card ampliada — Producto: 2/6 · Servicio: 2/6" para la categoría de prueba.
 
 ### Pro downgrade con des-indexado de Meilisearch (RF.7-B.2 — bug detectado y corregido)
 

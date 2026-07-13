@@ -93,3 +93,52 @@ describe('WideCardAttrsDisplay — las 4 combinaciones (vista ampliada)', () => 
     expect(screen.getByText('3')).toBeInTheDocument();
   });
 });
+
+describe('ATRIBUTOS EN CARD — respetar producto/servicio (listingType)', () => {
+  const km: CardAttributeDef = { key: 'km', label: 'Kilometraje', unit: 'km', showLabel: false, showUnit: true, appliesTo: ['PRODUCT'] };
+  const rate: CardAttributeDef = { key: 'rate', label: 'Tarifa', showLabel: true, showUnit: false, appliesTo: ['SERVICE'] };
+  const brand: CardAttributeDef = { key: 'brand', label: 'Marca', showLabel: true, showUnit: false }; // ambos
+  const attrs = { km: 150000, rate: 40, brand: 'Seat' };
+
+  it('CardAttrsDisplay — anuncio de PRODUCTO no muestra "Tarifa" (solo-SERVICE)', () => {
+    render(
+      <CardAttributesProvider cardAttributeMap={{ coches: [km, rate, brand] }}>
+        <CardAttrsDisplay categorySlug="coches" attributes={attrs} listingType="PRODUCT" />
+      </CardAttributesProvider>,
+    );
+    expect(screen.getByText(/150000 km/)).toBeInTheDocument();
+    expect(screen.getByText(/Marca: Seat/)).toBeInTheDocument();
+    expect(screen.queryByText(/Tarifa/)).not.toBeInTheDocument();
+  });
+
+  it('CardAttrsDisplay — anuncio de SERVICIO no muestra "Kilometraje" (solo-PRODUCT), el bug original', () => {
+    render(
+      <CardAttributesProvider cardAttributeMap={{ coches: [km, rate, brand] }}>
+        <CardAttrsDisplay categorySlug="coches" attributes={attrs} listingType="SERVICE" />
+      </CardAttributesProvider>,
+    );
+    expect(screen.getByText(/Tarifa: 40/)).toBeInTheDocument();
+    expect(screen.getByText(/Marca: Seat/)).toBeInTheDocument();
+    expect(screen.queryByText(/150000/)).not.toBeInTheDocument();
+  });
+
+  it('WideCardAttrsDisplay — mismo filtrado en la vista ampliada', () => {
+    render(
+      <WideCardAttributesProvider cardAttributeMap={{ coches: [km, rate, brand] }}>
+        <WideCardAttrsDisplay categorySlug="coches" attributes={attrs} listingType="PRODUCT" />
+      </WideCardAttributesProvider>,
+    );
+    expect(screen.getByText(/150000 km/)).toBeInTheDocument();
+    expect(screen.queryByText('Tarifa:')).not.toBeInTheDocument();
+  });
+
+  it('sin listingType (defensivo) → se muestran todos, como antes de esta ráfaga', () => {
+    render(
+      <CardAttributesProvider cardAttributeMap={{ coches: [km, rate, brand] }}>
+        <CardAttrsDisplay categorySlug="coches" attributes={attrs} />
+      </CardAttributesProvider>,
+    );
+    expect(screen.getByText(/150000 km/)).toBeInTheDocument();
+    expect(screen.getByText(/Tarifa: 40/)).toBeInTheDocument();
+  });
+});

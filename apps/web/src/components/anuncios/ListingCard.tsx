@@ -47,6 +47,7 @@ export function ListingCard({
           <CardAttrsDisplay
             categorySlug={listing.categorySlug}
             attributes={listing.attributes as Record<string, unknown> | undefined}
+            listingType={listing.type}
           />
           {location && (
             <p className="mt-1 truncate text-xs text-muted-foreground">{location}</p>

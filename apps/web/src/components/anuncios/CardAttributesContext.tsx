@@ -1,7 +1,8 @@
 'use client';
 
 import { createContext, useContext } from 'react';
-import type { CardAttributeDef } from '@/types';
+import type { CardAttributeDef, ListingType } from '@/types';
+import { filterDefsByListingType } from '@/lib/card-attributes';
 
 export type CardAttributeMap = Record<string, CardAttributeDef[]>;
 
@@ -52,10 +53,13 @@ function formatAttrValue(value: unknown, unit: string | undefined, showUnit: boo
 interface CardAttrsProps {
   categorySlug: string | undefined;
   attributes: Record<string, unknown> | undefined;
+  /** ATRIBUTOS EN CARD — respetar producto/servicio: el tipo de ESTE anuncio, para no
+   * mostrar (p. ej.) "Tarifa/hora" en la card de un anuncio de PRODUCTO. */
+  listingType?: ListingType;
 }
 
-export function CardAttrsDisplay({ categorySlug, attributes }: CardAttrsProps) {
-  const defs = useCardAttributes(categorySlug);
+export function CardAttrsDisplay({ categorySlug, attributes, listingType }: CardAttrsProps) {
+  const defs = filterDefsByListingType(useCardAttributes(categorySlug), listingType);
 
   const entries = defs
     .map((def) => ({
@@ -100,8 +104,8 @@ export function WideCardAttributesProvider({ cardAttributeMap, children }: Provi
 
 /** Like CardAttrsDisplay but reads the wide-card map and renders each attribute as its
  * own labeled row (the wide card has room for that) instead of one truncated dot-joined line. */
-export function WideCardAttrsDisplay({ categorySlug, attributes }: CardAttrsProps) {
-  const defs = useWideCardAttributes(categorySlug);
+export function WideCardAttrsDisplay({ categorySlug, attributes, listingType }: CardAttrsProps) {
+  const defs = filterDefsByListingType(useWideCardAttributes(categorySlug), listingType);
 
   const entries = defs
     .map((def) => ({
