@@ -140,6 +140,26 @@ describe('Redsys — camino completo de pago con tarjeta para destacar (e2e)', (
       Ds_Response: opts.dsResponse,
       Ds_Currency: '978',
       Ds_MerchantCode: '999008881',
+      // Campos adicionales confirmados contra el sandbox REAL de Redsys
+      // (verificación 2026-07-14 con túnel público + tarjeta de prueba —
+      // ver docs/estado-tecnico.md, "Redsys — verificación contra el sandbox
+      // real"). El procesador no los lee hoy, pero SIEMPRE están presentes
+      // en una notificación real; se incluyen para que esta simulación deje
+      // de ser un subconjunto artificial de lo que Redsys manda de verdad.
+      Ds_Date: '14/07/2026',
+      Ds_Hour: '19:49',
+      Ds_SecurePayment: '1',
+      Ds_Card_Country: '724',
+      Ds_Terminal: '001',
+      Ds_MerchantData: '',
+      Ds_TransactionType: '0',
+      Ds_ConsumerLanguage: '1',
+      Ds_AuthorisationCode: '167157',
+      Ds_Card_Brand: '1',
+      Ds_Card_Typology: 'CONSUMO',
+      Ds_ProcessedPayMethod: '78',
+      Ds_ECI: '05',
+      Ds_Response_Description: 'OPERACION AUTORIZADA',
     });
   }
 

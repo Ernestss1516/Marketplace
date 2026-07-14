@@ -137,12 +137,14 @@ export class BillingProcessor extends WorkerHost {
       return;
     }
 
-    // Persist stripeCustomerId (idempotent; ignore if already set).
+    // Persist stripeCustomerId. Must NOT swallow errors: if this silently fails,
+    // the user's next payment creates a SECOND Stripe customer (no way to
+    // reconcile after the fact). Let it throw — the rest of this handler hasn't
+    // run yet, so BullMQ's retry (QUEUE_BILLING, attempts:3) re-enters cleanly
+    // from the top rather than duplicating a partial grant.
     if (session.customer) {
       const customerId = typeof session.customer === 'string' ? session.customer : session.customer.id;
-      await this.prisma.user
-        .update({ where: { id: userId }, data: { stripeCustomerId: customerId } })
-        .catch(() => undefined);
+      await this.prisma.user.update({ where: { id: userId }, data: { stripeCustomerId: customerId } });
     }
 
     // mode: 'payment' (ONE_TIME/destacado) is no longer sold through Stripe —
@@ -179,20 +181,25 @@ export class BillingProcessor extends WorkerHost {
     const now = new Date();
     const periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
-    await this.prisma.subscription.upsert({
-      where: { gatewaySubscriptionId },
-      create: {
-        userId,
-        priceId,
-        status: SubscriptionStatus.ACTIVE,
-        currentPeriodStart: now,
-        currentPeriodEnd: periodEnd,
-        gatewaySubscriptionId,
-      },
-      update: { status: SubscriptionStatus.ACTIVE },
-    });
+    // Subscription + Entitlement en la misma $transaction: un fallo entre
+    // ambas dejaría al usuario habiendo pagado sin acceso Pro y sin forma de
+    // que un reintento lo complete limpiamente (mismo patrón que Redsys).
+    await this.prisma.$transaction(async (tx) => {
+      await tx.subscription.upsert({
+        where: { gatewaySubscriptionId },
+        create: {
+          userId,
+          priceId,
+          status: SubscriptionStatus.ACTIVE,
+          currentPeriodStart: now,
+          currentPeriodEnd: periodEnd,
+          gatewaySubscriptionId,
+        },
+        update: { status: SubscriptionStatus.ACTIVE },
+      });
 
-    await this.ensureProEntitlement(userId, priceId, gatewaySubscriptionId, periodEnd);
+      await this.ensureProEntitlement(userId, priceId, gatewaySubscriptionId, periodEnd, tx);
+    });
     this.logger.log(`SUBSCRIPTION checkout processed: session=${session.id}, user=${userId}`);
   }
 
@@ -236,73 +243,80 @@ export class BillingProcessor extends WorkerHost {
       ? new Date(firstLine.period.start * 1000)
       : undefined;
 
-    // Find or create Subscription (order-tolerant: invoice may arrive before checkout.completed).
-    let subscription = await this.prisma.subscription.findUnique({
-      where: { gatewaySubscriptionId },
-    });
+    // Crear/extender Subscription + Entitlement y registrar la Transaction en
+    // UNA sola $transaction: un fallo a mitad de camino revierte todo entero,
+    // y el reintento de BullMQ arranca siempre desde un estado limpio (mismo
+    // patrón que grantFeaturedListingAndSucceed / handlePackPurchase en Redsys
+    // — ver docs/estado-tecnico.md, "Stripe — checkout + renovación...").
+    await this.prisma.$transaction(async (tx) => {
+      // Find or create Subscription (order-tolerant: invoice may arrive before checkout.completed).
+      let subscription = await tx.subscription.findUnique({
+        where: { gatewaySubscriptionId },
+      });
 
-    if (!subscription) {
-      // Resolve user via stripeCustomerId (always set before checkout session is created).
-      const customerId = typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id;
-      const user = customerId
-        ? await this.prisma.user.findUnique({ where: { stripeCustomerId: customerId }, select: { id: true } })
-        : null;
+      if (!subscription) {
+        // Resolve user via stripeCustomerId (always set before checkout session is created).
+        const customerId = typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id;
+        const user = customerId
+          ? await tx.user.findUnique({ where: { stripeCustomerId: customerId }, select: { id: true } })
+          : null;
 
-      if (!user || !price) {
-        throw new Error(
-          `invoice.payment_succeeded: cannot resolve user/price for sub ${gatewaySubscriptionId}`,
-        );
+        if (!user || !price) {
+          throw new Error(
+            `invoice.payment_succeeded: cannot resolve user/price for sub ${gatewaySubscriptionId}`,
+          );
+        }
+
+        const periodEndResolved = periodEnd ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+        const periodStartResolved = periodStart ?? new Date();
+
+        subscription = await tx.subscription.upsert({
+          where: { gatewaySubscriptionId },
+          create: {
+            userId: user.id,
+            priceId: price.id,
+            status: SubscriptionStatus.ACTIVE,
+            currentPeriodStart: periodStartResolved,
+            currentPeriodEnd: periodEndResolved,
+            gatewaySubscriptionId,
+          },
+          update: { currentPeriodEnd: periodEndResolved, status: SubscriptionStatus.ACTIVE },
+        });
+
+        await this.ensureProEntitlement(user.id, price.id, gatewaySubscriptionId, periodEndResolved, tx);
+      } else if (periodEnd) {
+        // Renewal: update period end and extend Entitlement.
+        subscription = await tx.subscription.update({
+          where: { id: subscription.id },
+          data: {
+            currentPeriodEnd: periodEnd,
+            ...(periodStart && { currentPeriodStart: periodStart }),
+            status: SubscriptionStatus.ACTIVE,
+            cancelAtPeriodEnd: false,
+          },
+        });
+        await tx.entitlement.updateMany({
+          where: { subscriptionId: subscription.id, type: EntitlementType.PRO_SUBSCRIPTION },
+          data: { expiresAt: periodEnd },
+        });
       }
 
-      const periodEndResolved = periodEnd ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-      const periodStartResolved = periodStart ?? new Date();
-
-      subscription = await this.prisma.subscription.upsert({
-        where: { gatewaySubscriptionId },
-        create: {
-          userId: user.id,
-          priceId: price.id,
-          status: SubscriptionStatus.ACTIVE,
-          currentPeriodStart: periodStartResolved,
-          currentPeriodEnd: periodEndResolved,
-          gatewaySubscriptionId,
-        },
-        update: { currentPeriodEnd: periodEndResolved, status: SubscriptionStatus.ACTIVE },
-      });
-
-      await this.ensureProEntitlement(user.id, price.id, gatewaySubscriptionId, periodEndResolved);
-    } else if (periodEnd) {
-      // Renewal: update period end and extend Entitlement.
-      await this.prisma.subscription.update({
-        where: { id: subscription.id },
-        data: {
-          currentPeriodEnd: periodEnd,
-          ...(periodStart && { currentPeriodStart: periodStart }),
-          status: SubscriptionStatus.ACTIVE,
-          cancelAtPeriodEnd: false,
-        },
-      });
-      await this.prisma.entitlement.updateMany({
-        where: { subscriptionId: subscription.id, type: EntitlementType.PRO_SUBSCRIPTION },
-        data: { expiresAt: periodEnd },
-      });
-    }
-
-    // Idempotent Transaction record.
-    if (invoice.id) {
-      await this.prisma.transaction.upsert({
-        where: { gatewayInvoiceId: invoice.id },
-        create: {
-          userId: subscription.userId,
-          priceId: price?.id ?? subscription.priceId,
-          ...tax,
-          status: TransactionStatus.SUCCEEDED,
-          gatewayInvoiceId: invoice.id,
-          subscriptionId: subscription.id,
-        },
-        update: { status: TransactionStatus.SUCCEEDED },
-      });
-    }
+      // Idempotent Transaction record.
+      if (invoice.id) {
+        await tx.transaction.upsert({
+          where: { gatewayInvoiceId: invoice.id },
+          create: {
+            userId: subscription.userId,
+            priceId: price?.id ?? subscription.priceId,
+            ...tax,
+            status: TransactionStatus.SUCCEEDED,
+            gatewayInvoiceId: invoice.id,
+            subscriptionId: subscription.id,
+          },
+          update: { status: TransactionStatus.SUCCEEDED },
+        });
+      }
+    });
     this.logger.log(`invoice.payment_succeeded processed: inv=${invoice.id}`);
   }
 
@@ -423,30 +437,34 @@ export class BillingProcessor extends WorkerHost {
   /**
    * Upsert a PRO_SUBSCRIPTION entitlement for a subscription.
    * Idempotent: updates expiresAt if the entitlement already exists.
+   * Accepts an optional transaction client so callers can fold this into
+   * their own $transaction (both call sites do, as of the atomicity fix).
    */
   private async ensureProEntitlement(
     userId: string,
     priceId: string,
     gatewaySubscriptionId: string,
     expiresAt: Date,
+    tx?: Prisma.TransactionClient,
   ): Promise<void> {
-    const subscription = await this.prisma.subscription.findUnique({
+    const client = tx ?? this.prisma;
+    const subscription = await client.subscription.findUnique({
       where: { gatewaySubscriptionId },
       select: { id: true },
     });
     if (!subscription) return;
 
-    const existing = await this.prisma.entitlement.findFirst({
+    const existing = await client.entitlement.findFirst({
       where: { subscriptionId: subscription.id, type: EntitlementType.PRO_SUBSCRIPTION },
       select: { id: true },
     });
 
     if (existing) {
-      await this.prisma.entitlement.update({ where: { id: existing.id }, data: { expiresAt } });
+      await client.entitlement.update({ where: { id: existing.id }, data: { expiresAt } });
       return;
     }
 
-    await this.prisma.entitlement.create({
+    await client.entitlement.create({
       data: {
         userId,
         type: EntitlementType.PRO_SUBSCRIPTION,

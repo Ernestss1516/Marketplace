@@ -18,7 +18,11 @@ export async function createTestApp(): Promise<INestApplication> {
     imports: [AppModule],
   }).compile();
 
-  const app = moduleRef.createNestApplication();
+  // rawBody: true mirrors main.ts's bootstrap() — StripeWebhookGuard (and any
+  // future raw-body webhook) needs the exact byte buffer on req.rawBody to
+  // verify HMAC signatures; without it every real-signature webhook test fails
+  // with "Missing stripe-signature or body" regardless of the signature itself.
+  const app = moduleRef.createNestApplication({ rawBody: true });
 
   // Mirrors main.ts's bootstrap() — RC.1's contact-form rate limit is IP-based
   // (@Ip()/req.ip), so e2e tests that simulate different client IPs via
