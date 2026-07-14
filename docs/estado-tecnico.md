@@ -1,6 +1,6 @@
 # Estado técnico del proyecto — Marketplace
 
-> Fecha: 2026-07-13 · Rama: `main` · Último commit: 01c69f1 — CI test def5.
+> Fecha: 2026-07-14 · Rama: `main` · Último commit: 9ee7b5d — Deuda diez tests cerrado; CI test.
 > Plan vigente: `docs/Hoja_de_ruta_rafagas_Hito5-9.docx` (Hitos 5–9). Hitos 5–8 cerrados (incluye el
 > bloque de blog — rol EDITOR, editor de markdown, páginas informativas, footer — y el Hito 8
 > ampliado completo: H8.1–H8.6 + Bloques C/D/E). Hito 9 (navegación, interfaz, deuda transversal y
@@ -11,7 +11,10 @@
 > Compartir cerrado** (ver «Teléfono en anuncios + Compartir anuncio» en §2): `Listing.phone`
 > opcional publicado tras confirmación explícita del usuario, servido solo autenticado y con rate
 > limit (nunca en el payload público de la ficha); `ShareButton` con Web Share API nativa y
-> fallback (copiar/WhatsApp/Telegram/email).
+> fallback (copiar/WhatsApp/Telegram/email). **Redsys — ambos caminos de pago con tarjeta cerrados
+> E2E** (ver «Redsys — ciclo notificación...» más abajo): destacado (bug de retry encontrado y
+> arreglado) y credits-pack (premisa de atomicidad CONFIRMADA, sin bug) ejercidos de punta a punta
+> con firmas HMAC reales; solo queda deuda menor de sandbox real de Redsys.
 
 Documento de referencia para retomar el proyecto. Recoge qué hay implementado,
 qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
@@ -47,9 +50,9 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **Favorites** | ✅ Completo | `POST /favorites/:listingId` (marcar), `DELETE /favorites/:listingId` (desmarcar), `GET /favorites` (paginado), `GET /favorites/:listingId` (check), `POST /favorites/batch-check` (máx. 100 ids → `{ favoritedIds }`). Todos idempotentes y con `JwtAuthGuard`. Suite `favorites.e2e-spec.ts` (12 tests) |
 | **Reviews** | ✅ Completo (H7) | `POST /reviews` (crear; guard de elegibilidad vía `Conversation`; snapshot de `listingTitle`), `GET /reviews/eligibility?listingId=&targetId=` (check antes de mostrar el formulario), `PATCH /reviews/:id` (editar en ventana 72 h; persiste `editedAt`), `DELETE /reviews/:id` (borrar en ventana 72 h). Listado público via `GET /users/:slug/reviews` (cursor paginado + aggregate on-the-fly: average, count, distribución 1–5). Unicidad `(authorId, targetId, listingId)` — una reseña por par de usuarios por anuncio. `FAKE_REVIEW` añadido a `ReportReason`; `Report.reviewId` FK con CASCADE para moderar reseñas. **H7**: `Review.listingId` es `onDelete: SetNull` (nullable) — la reseña sobrevive al borrado del anuncio con snapshot `listingTitle`; ver «H7 — La reseña sobrevive al borrado del anuncio» más abajo. Suite `reviews.e2e-spec.ts` (24 tests) |
 | **BillingModule (Stripe)** | ✅ RF.3 Completo | Checkout Pro (Stripe Checkout), `StripeWebhookGuard`, `BillingProcessor` (5 eventos), `EntitlementService`. Verificado con Stripe CLI. Pendiente: renovación (segunda factura) |
-| **RedsysModule** | ✅ RF.5/RF.10 — firma ✅ · ciclo notificación featured-pay ✅ (credits-pack pendiente, ver deuda) | `RedsysService` (checkout credits-pack / featured-pay, Ds_Order YYYYMMDD+4random con retry). **Bonus Pro en `createCreditPackCheckout`**: llama a `EntitlementService.isProActive(userId)`, lee `proExtraCreditsPercent` de `Setting` (fallback 20), calcula `Math.ceil(creditAmount × pct / 100)` y lo persiste en `Transaction.bonusCreditAmount`; el importe, el IVA y el `amountGross` NO se tocan. `RedsysWebhookGuard` (HMAC vía `redsys-easy`, idempotencia doble capa, enqueue / FAILED). `RedsysProcessor` — `handlePackPurchase`: acreditación wallet atómica en `$transaction`: wallet upsert con `balance += base + bonus` (una sola escritura); entrada `CreditLedger PACK_PURCHASE` (+base); si `transaction.bonusCreditAmount != null`, segunda entrada `CreditLedger PRO_BONUS` (+bonus, misma `referenceId = transactionId`); `Transaction.status = SUCCEEDED`. Validación importe `Ds_Amount` vs `amountGross×100`; idempotencia capa 2 por `status≠PENDING`. El processor **no inyecta `EntitlementService` ni lee `Setting`** — solo lee el entero ya congelado en la Transaction. Endpoints: `POST /billing/checkout/credits-pack`, `POST /billing/checkout/featured-pay`, `POST /webhooks/redsys`. **RF.10**: URLs de retorno cambiadas a `/mis-creditos/exito|error` (en `buildForm`), separadas del flujo Pro. Modo: REDIRECCIÓN (ver §2). **VERIFICADO (e2e, 22 tests — 220/220, 18/18 Playwright)**: acreditación wallet (no-Pro), acumulación de balance, idempotencia ×2 (GatewayEvent P2002 + status≠PENDING), cálculo IVA sin descuadre (4,99 / 9,99 / 19,99 €), validación importe (mismatch → FAILED sin tocar wallet), unicidad de 1.000 Ds_Order. **Bonus Pro (5 tests nuevos)**: checkout congela bonusCreditAmount (Pro=10, non-Pro=null), ceil con creditAmount=51→bonus=11 (10.2 redondeado), processor Pro→wallet=60 con dos entradas ledger, processor non-Pro→solo base. **RF.10 — verificado con clave pública Redsys** (sq7HjrUO…, 999008881): `Ds_Signature` 44 chars genuinos, `Ds_MerchantParameters` correcto, aceptado por TPV sandbox. **Ciclo de notificación featured-pay VERIFICADO E2E** (`redsys-featured-payment-e2e.e2e-spec.ts`): webhook con firma real → cola → entitlement → `boostScore` en Meilisearch; firma inválida rechazada; duplicado idempotente; rechazo marca FAILED; bug de retry encontrado y arreglado (`grantFeaturedListingAndSucceed`, ver sección "Redsys — ciclo notificación..."). **NO VERIFICADO — deuda pendiente**: mismo ciclo para credits-pack vía webhook real (hoy solo processSuccess directo), y prueba contra el TPV sandbox real con tarjeta de prueba + túnel público. `featuredByRedsys`: completado en RF.6, ciclo notificación ya verificado. |
+| **RedsysModule** | ✅ RF.5/RF.10 — firma ✅ · ciclo notificación featured-pay ✅ · ciclo notificación credits-pack ✅ | `RedsysService` (checkout credits-pack / featured-pay, Ds_Order YYYYMMDD+4random con retry). **Bonus Pro en `createCreditPackCheckout`**: llama a `EntitlementService.isProActive(userId)`, lee `proExtraCreditsPercent` de `Setting` (fallback 20), calcula `Math.ceil(creditAmount × pct / 100)` y lo persiste en `Transaction.bonusCreditAmount`; el importe, el IVA y el `amountGross` NO se tocan. `RedsysWebhookGuard` (HMAC vía `redsys-easy`, idempotencia doble capa, enqueue / FAILED). `RedsysProcessor` — `handlePackPurchase`: acreditación wallet atómica en `$transaction`: wallet upsert con `balance += base + bonus` (una sola escritura); entrada `CreditLedger PACK_PURCHASE` (+base); si `transaction.bonusCreditAmount != null`, segunda entrada `CreditLedger PRO_BONUS` (+bonus, misma `referenceId = transactionId`); `Transaction.status = SUCCEEDED`. Validación importe `Ds_Amount` vs `amountGross×100`; idempotencia capa 2 por `status≠PENDING`. El processor **no inyecta `EntitlementService` ni lee `Setting`** — solo lee el entero ya congelado en la Transaction. Endpoints: `POST /billing/checkout/credits-pack`, `POST /billing/checkout/featured-pay`, `POST /webhooks/redsys`. **RF.10**: URLs de retorno cambiadas a `/mis-creditos/exito|error` (en `buildForm`), separadas del flujo Pro. Modo: REDIRECCIÓN (ver §2). **VERIFICADO (e2e, 22 tests — 220/220, 18/18 Playwright)**: acreditación wallet (no-Pro), acumulación de balance, idempotencia ×2 (GatewayEvent P2002 + status≠PENDING), cálculo IVA sin descuadre (4,99 / 9,99 / 19,99 €), validación importe (mismatch → FAILED sin tocar wallet), unicidad de 1.000 Ds_Order. **Bonus Pro (5 tests nuevos)**: checkout congela bonusCreditAmount (Pro=10, non-Pro=null), ceil con creditAmount=51→bonus=11 (10.2 redondeado), processor Pro→wallet=60 con dos entradas ledger, processor non-Pro→solo base. **RF.10 — verificado con clave pública Redsys** (sq7HjrUO…, 999008881): `Ds_Signature` 44 chars genuinos, `Ds_MerchantParameters` correcto, aceptado por TPV sandbox. **Ciclo de notificación featured-pay VERIFICADO E2E** (`redsys-featured-payment-e2e.e2e-spec.ts`): webhook con firma real → cola → entitlement → `boostScore` en Meilisearch; firma inválida rechazada; duplicado idempotente; rechazo marca FAILED; bug de retry encontrado y arreglado (`grantFeaturedListingAndSucceed`, ver sección "Redsys — ciclo notificación..."). **Ciclo de notificación credits-pack VERIFICADO E2E** (`redsys-credits-payment-e2e.e2e-spec.ts`, 6 tests): mismo patrón — webhook con firma real → cola → wallet acreditado con los créditos del pack; firma inválida rechazada (0 créditos regalados); duplicado idempotente; retry de BullMQ tras `SUCCEEDED` no duplica; rechazo marca FAILED; **fallo transitorio a mitad de la `$transaction` revierte TODO (wallet+ledger+status) y el retry acredita limpio una sola vez — sin bug, a diferencia del destacado**: `handlePackPurchase` ya envolvía wallet+ledger+status en una única `$transaction` desde que se escribió (RF.5), así que la premisa de que "créditos ya era atómico" queda **CONFIRMADA**, no solo asumida. **NO VERIFICADO — deuda menor restante**: prueba contra el TPV sandbox real con tarjeta de prueba + túnel público (ambos caminos). `featuredByRedsys`: completado en RF.6, ciclo notificación ya verificado. |
 | **EntitlementService (RF.7)** | ✅ Actualizado | Validez de un entitlement: `revokedAt IS NULL AND (expiresAt IS NULL OR expiresAt > now)`. Un entitlement con `revokedAt` seteado **no** cuenta como vigente aunque `expiresAt` sea futuro (permite revocación manual desde backoffice en el futuro). Helper `activeFilter()` centraliza el predicado en `isProActive`, `isFeaturedActive` y `findActiveForUser` |
-| **BillingModule RF.6** | ✅ Completo | **`grantFeaturedListing(params)`** — punto único de concesión de `FEATURED_LISTING`; valida ACTIVE + propietario (→403) + sin entitlement activo (→400); crea `Entitlement` con `expiresAt = now + durationDays`; encola reindexado. No conoce la vía de pago. **`featuredByCredits`** — `POST /billing/featured-by-credits { priceId, listingId }`: debit atómico (`UPDATE Wallet WHERE balance >= cost`, affected=0 → 402) + `CreditLedger FEATURED_DEBIT` + entitlement, todo en una `$transaction`; rollback automático si la concesión falla. **`bump`** — `POST /listings/:id/bump`: cooldown 1h (→429 Retry-After); debit atómico + `CreditLedger BUMP_DEBIT` + `Listing.bumpedAt`, todo en una `$transaction`; fallos 402/403/400 no consumen cooldown. **`GET /billing/wallet`** — saldo + ledger paginado. **Dependencia `ListingsModule → BillingModule`**: unidireccional, sin circular, NestJS arranca limpio. **VERIFICADO (batería e2e completa, 181/181, 15 casos nuevos)**: grantFeaturedListing como punto único; débito atómico con rollback (saldo restaurado + sin `CreditLedger` huérfano); cooldown no consumido en fallos; convergencia de vías (featuredByCredits y featuredByRedsys producen mismo entitlement: tipo, priceId, `|expiresAt_A − expiresAt_B| < 60s`). **DEUDA HEREDADA de RF.5 — CERRADA para featured-pay**: el camino featuredByRedsys ya tiene ejercicio E2E completo (webhook con firma real, ver sección "Redsys — ciclo notificación..."); solo queda pendiente el mismo patrón para credits-pack y la prueba contra el TPV sandbox real. `grantFeaturedListingAndSucceed` (nuevo) sustituye a `grantFeaturedListing` específicamente en el camino Redsys — concede el entitlement y marca la Transaction `SUCCEEDED` en la misma `$transaction`, cerrando un bug real de retry (Transaction atascada en `PENDING` para siempre) encontrado por ese E2E. |
+| **BillingModule RF.6** | ✅ Completo | **`grantFeaturedListing(params)`** — punto único de concesión de `FEATURED_LISTING`; valida ACTIVE + propietario (→403) + sin entitlement activo (→400); crea `Entitlement` con `expiresAt = now + durationDays`; encola reindexado. No conoce la vía de pago. **`featuredByCredits`** — `POST /billing/featured-by-credits { priceId, listingId }`: debit atómico (`UPDATE Wallet WHERE balance >= cost`, affected=0 → 402) + `CreditLedger FEATURED_DEBIT` + entitlement, todo en una `$transaction`; rollback automático si la concesión falla. **`bump`** — `POST /listings/:id/bump`: cooldown 1h (→429 Retry-After); debit atómico + `CreditLedger BUMP_DEBIT` + `Listing.bumpedAt`, todo en una `$transaction`; fallos 402/403/400 no consumen cooldown. **`GET /billing/wallet`** — saldo + ledger paginado. **Dependencia `ListingsModule → BillingModule`**: unidireccional, sin circular, NestJS arranca limpio. **VERIFICADO (batería e2e completa, 181/181, 15 casos nuevos)**: grantFeaturedListing como punto único; débito atómico con rollback (saldo restaurado + sin `CreditLedger` huérfano); cooldown no consumido en fallos; convergencia de vías (featuredByCredits y featuredByRedsys producen mismo entitlement: tipo, priceId, `|expiresAt_A − expiresAt_B| < 60s`). **DEUDA HEREDADA de RF.5 — CERRADA (ambos caminos)**: featuredByRedsys y el credits-pack tienen ahora ejercicio E2E completo (webhook con firma real, ver sección "Redsys — ciclo notificación..."); solo queda pendiente la prueba contra el TPV sandbox real. `grantFeaturedListingAndSucceed` (nuevo) sustituye a `grantFeaturedListing` específicamente en el camino Redsys de featured-pay — concede el entitlement y marca la Transaction `SUCCEEDED` en la misma `$transaction`, cerrando un bug real de retry (Transaction atascada en `PENDING` para siempre) encontrado por ese E2E; `handlePackPurchase` (credits-pack) ya tenía ese mismo patrón atómico desde RF.5 y quedó confirmado, sin bug, por el E2E equivalente. |
 | **BillingModule — catalog (RF.9/RF.10)** | ✅ Completo | `GET /billing/catalog` — endpoint público (sin auth); DTO sin `gatewayPriceId`; devuelve los planes del catálogo de BD. **RF.10**: cada precio de pack incluye ahora `creditPackId` (`CreditPack.id`, lo que necesita `POST /billing/checkout/credits-pack`) y `packName` (`CreditPack.name`, p. ej. "Pack Básico") para que el frontend pueda renderizar una tarjeta por pack individual sin una llamada adicional |
 | **AdminBillingModule (RF.12)** | ✅ RF.12a+RF.12b | `AdminBillingController` + `AdminBillingService` con `@Roles(ADMIN)` explícito (no MODERATOR). **RF.12a**: `GET /admin/billing/transactions` (paginado, filtros por userId/status/gateway) y `GET /admin/billing/users/:userId` (saldo + historial + entitlements activos); DTO de salida con Prisma `select` explícito que excluye 9 campos sensibles (`gatewayPaymentIntentId`, `subscriptionId`, `taxAmount`, `invoiceNumber`, `gatewayEventId`, `stripeCustomerId`, `refundedAt`, `refundAmount`, `invoiceUrl`); respuestas `Cache-Control: no-store`; filtro de entitlements activos: `revokedAt null AND (expiresAt null OR > now)`. **RF.12b**: `POST /admin/billing/credits/:userId` — acreditación manual; tres writes atómicos en `$transaction` (wallet upsert + `CreditLedger ADMIN_CREDIT` + `AuditLog` vía `log(dto, tx)`); NO crea `Transaction` (no hecho imponible); NO aplica bonus Pro; `CreditLedger.note = "Créditos añadidos por el equipo"` (genérico, visible al usuario en su historial); `AuditLog.after.reason` = motivo real del admin (solo backoffice); `amount @Min(1)@Max(10000)`, `reason @MinLength(5)@MaxLength(500)` |
 | **ListingActivation** | ✅ Completo (B0) | `ListingActivationService.listingBecameActive(slug, listingId)` — único punto de enganche para toda transición de un `Listing` a `ACTIVE` (`publish` rama ACTIVE, `approveListing`, `restoreListing`, **`renew`**). Consolida el reindexado (antes duplicado en `ListingsService`/`ModerationService`) y, desde B3, encola el flag `triggerAlertMatch` en el job `index`. `reserve`/`markAsSold` usan el wrapper genérico `reindexListing()` sin el flag — no disparan matching. Ver «Sistema de Alertas» más abajo |
@@ -5966,13 +5969,15 @@ El bloque `otherwise` replica la regla de dev/prod exacta → los entornos de pr
 cambian. Verificado rompiendo los tres a propósito: cada ausencia hace fallar el arranque del
 módulo NestJS con un mensaje descriptivo antes de ejecutar cualquier test.
 
-### Redsys — ciclo notificación + acreditación E2E, camino de tarjeta para destacados (CERRADO)
+### Redsys — ciclo notificación + acreditación E2E, ambos caminos de pago con tarjeta (CERRADO)
 
-**Contexto:** el camino por el que un usuario paga un destacado CON TARJETA (Redsys)
-nunca se había ejercido de punta a punta — todos los tests existentes (`redsys.e2e-spec.ts`,
-`billing-rf6.e2e-spec.ts`) llamaban a `RedsysProcessor.processSuccess()` directamente,
-saltándose la verificación HMAC real, el endpoint `POST /webhooks/redsys` y la
-visibilidad resultante en Meilisearch. Cerrado con `redsys-featured-payment-e2e.e2e-spec.ts`.
+**Contexto:** los dos caminos por los que un usuario paga CON TARJETA (Redsys) —
+destacar un anuncio y comprar un pack de créditos — nunca se habían ejercido de punta
+a punta — todos los tests existentes (`redsys.e2e-spec.ts`, `billing-rf6.e2e-spec.ts`)
+llamaban a `RedsysProcessor.processSuccess()` directamente, saltándose la verificación
+HMAC real, el endpoint `POST /webhooks/redsys` y (para el destacado) la visibilidad
+resultante en Meilisearch. Cerrado en dos ráfagas: `redsys-featured-payment-e2e.e2e-spec.ts`
+(destacado) y `redsys-credits-payment-e2e.e2e-spec.ts` (créditos).
 
 **Cómo se simula Redsys sin sandbox real:** la librería `redsys-easy` firma requests y
 verifica notificaciones con el mismo algoritmo simétrico (`HMAC_SHA256_V1` derivado de
@@ -6030,13 +6035,45 @@ Verificado sin regresión: `redsys.e2e-spec.ts`, `billing-rf6.e2e-spec.ts`,
 (89 tests, todos en verde) — los caminos de créditos/cuota/cupón usan `grantFeaturedListing`
 sin cambios.
 
-**Deuda restante (menor, no bloqueante):** el ciclo de acreditación de **credits-pack**
-(`handlePackPurchase`) sigue sin un test que pase por el webhook HTTP real con firma —
-solo por `processSuccess()` directo (`redsys.e2e-spec.ts`). El guard que verifica la
-firma y el routing es el mismo código para ambos caminos y ya quedó verificado por el
-camino de featured-pay, así que el riesgo real es bajo, pero cerrar el mismo patrón de
-test para credits-pack sería el siguiente paso natural. La prueba contra el sandbox real
-de Redsys (tarjeta de prueba + túnel público) tampoco se ha hecho — ver nota arriba.
+**Segunda ráfaga — mismo molde aplicado a credits-pack (`redsys-credits-payment-e2e.e2e-spec.ts`, 6 tests, todos pasando):**
+la ráfaga del destacado dejó una premisa sin verificar: que el camino de créditos "ya
+usaba el mismo patrón atómico" que el fix de `grantFeaturedListingAndSucceed` (se leyó
+del código, no se ejerció). Esta ráfaga lo comprueba de verdad:
+1. Camino feliz: `POST /billing/checkout/credits-pack` → notificación firmada real →
+   `Transaction.status = SUCCEEDED` → `Wallet.balance` incrementado en el `creditAmount`
+   exacto del pack, `CreditLedger PACK_PURCHASE` con `referenceId = transactionId`.
+2. Firma inválida → `400`, cero créditos regalados, sin `Wallet` creado — el hallazgo
+   crítico de esta ráfaga es de seguridad: sin esta verificación cualquiera podría
+   forjar una notificación y regalarse créditos.
+3. Notificación duplicada (mismo `Ds_Order` dos veces vía HTTP real) → segunda respuesta
+   `{ duplicate: true }`, un solo abono.
+4. Reintento de BullMQ tras `Transaction` ya `SUCCEEDED` (llamada directa a
+   `processSuccess()` simulando un job espurio) → la guarda de idempotencia capa 2
+   (`status ≠ PENDING`) lo bloquea, no duplica.
+5. `Ds_Response` de rechazo (`0180`) → `Transaction FAILED` síncronamente, wallet
+   intacto (`null`).
+6. **El escenario que rompió el destacado, reproducido aquí:** fallo transitorio forzado
+   a mitad de la `$transaction` de `handlePackPurchase` (mismo truco que el test 5 del
+   destacado — dejar correr la transacción real hasta el final y lanzar desde el
+   callback para forzar un `ROLLBACK` genuino de Postgres). Resultado: revierte TODO
+   (wallet no creado, ledger vacío, `Transaction` sigue `PENDING`); el retry de BullMQ
+   parte de cero y acredita limpio, una sola vez, sin ni un céntimo de más.
+
+**Premisa CONFIRMADA, no solo asumida:** `handlePackPurchase` envuelve el `Wallet.upsert`,
+las escrituras de `CreditLedger` (base + bonus Pro + bonus de campaña) y el
+`Transaction.status = SUCCEEDED` en una única `prisma.$transaction` desde que el método
+se escribió en RF.5 (`git log -S "handlePackPurchase"` → un solo commit, nunca tocado
+por el fix de atomicidad del destacado). A diferencia del destacado, aquí **no apareció
+ningún bug de dinero** — el test 6 pasó en verde a la primera. La lección de esta sesión
+("el código parece correcto" no basta, hay que ejercerlo) se aplicó y esta vez el
+resultado fue una confirmación, no un hallazgo — vale la pena registrar el caso negativo
+para no repetir la verificación sin necesidad en el futuro.
+
+**Deuda restante (menor, no bloqueante):** con ambos caminos (destacado y credits-pack)
+ejercidos de punta a punta con firmas HMAC reales, solo queda la prueba contra el TPV
+sandbox real de Redsys (tarjeta de prueba + túnel público `ngrok`/`cloudflared`) — ver
+nota arriba. No bloqueante: la lógica de firma/idempotencia/routing/atomicidad ya está
+verificada de extremo a extremo con la clave real para ambos productos.
 
 ### `reindex`: ventana breve de índice vacío durante la repoblación
 
