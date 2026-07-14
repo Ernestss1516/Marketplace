@@ -6,6 +6,7 @@ import { AlertCircle, Check, Loader2 } from 'lucide-react';
 import { getAdminSettings, updateAdminSetting, type AdminSetting } from '@/lib/api/admin';
 import { ApiError } from '@/lib/api/client';
 import { Button } from '@/components/ui/button';
+import { PriceListEditor } from './_components/PriceListEditor';
 
 // ─── Helpers for badWordList ───────────────────────────────────────────────────
 
@@ -270,6 +271,33 @@ const SETTING_DESCRIPTIONS: Record<string, string> = {
     'Duración fija (en días) de un destacado pagado con la cuota gratuita de Pro. Al pagar con créditos, el usuario elige la duración (7/14/30 días); la cuota siempre usa esta duración fija.',
 };
 
+// ─── Monetización: costes en créditos ──────────────────────────────────────────
+
+const MONETIZATION_SETTING_KEYS = [
+  'bumpCreditCost',
+  'featuredCreditCost7d',
+  'featuredCreditCost14d',
+  'featuredCreditCost30d',
+] as const;
+
+const MONETIZATION_TITLES: Record<string, string> = {
+  bumpCreditCost: 'Coste de subir un anuncio',
+  featuredCreditCost7d: 'Coste del destacado — 7 días',
+  featuredCreditCost14d: 'Coste del destacado — 14 días',
+  featuredCreditCost30d: 'Coste del destacado — 30 días',
+};
+
+const MONETIZATION_DESCRIPTIONS: Record<string, string> = {
+  bumpCreditCost:
+    'Créditos que se descuentan al usuario cada vez que sube un anuncio a la parte superior del listado.',
+  featuredCreditCost7d:
+    'Créditos que cuesta destacar un anuncio durante 7 días, pagando con el saldo de créditos.',
+  featuredCreditCost14d:
+    'Créditos que cuesta destacar un anuncio durante 14 días, pagando con el saldo de créditos.',
+  featuredCreditCost30d:
+    'Créditos que cuesta destacar un anuncio durante 30 días, pagando con el saldo de créditos.',
+};
+
 export default function AdminAjustesPage() {
   const { data: session } = useSession();
   const token = (session?.user as { accessToken?: string } | undefined)?.accessToken;
@@ -449,6 +477,55 @@ export default function AdminAjustesPage() {
           );
         })}
       </div>
+
+      <h2 className="mb-4 mt-10 text-lg font-bold">Monetización</h2>
+
+      <h3 className="mb-3 text-sm font-semibold text-muted-foreground">
+        Costes en créditos
+      </h3>
+      <div className="space-y-6">
+        {MONETIZATION_SETTING_KEYS.map((key) => {
+          const setting = settingsByKey[key];
+          if (!setting) return null;
+
+          const updatedAt = lastSaved[key] ?? setting.updatedAt;
+
+          return (
+            <div key={key} className="rounded-md border bg-background p-5">
+              <div className="mb-1 flex items-start justify-between gap-4">
+                <h4 className="text-base font-semibold">{MONETIZATION_TITLES[key]}</h4>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  Actualizado: {formatDate(updatedAt)}
+                </span>
+              </div>
+              <p className="mb-4 text-sm text-muted-foreground">
+                {MONETIZATION_DESCRIPTIONS[key]}
+              </p>
+              <NumberSettingEditor
+                setting={setting}
+                token={token}
+                onSaved={() => handleSaved(key)}
+                settingKey={key}
+                label="Créditos"
+                helpText="Debe ser un número entero de al menos 1 crédito."
+                min={1}
+              />
+            </div>
+          );
+        })}
+      </div>
+
+      <h3 className="mb-3 mt-6 text-sm font-semibold text-muted-foreground">
+        Precios (Redsys)
+      </h3>
+      <PriceListEditor
+        token={token}
+        creditCosts={{
+          7: settingsByKey.featuredCreditCost7d?.value as number | undefined,
+          14: settingsByKey.featuredCreditCost14d?.value as number | undefined,
+          30: settingsByKey.featuredCreditCost30d?.value as number | undefined,
+        }}
+      />
     </div>
   );
 }

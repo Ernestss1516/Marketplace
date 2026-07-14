@@ -83,10 +83,13 @@ export class RedsysProcessor extends WorkerHost {
     const creditPack = transaction.price?.creditPack;
 
     if (creditPack) {
+      // baseCreditAmount is frozen at checkout; only fall back to a live read
+      // for PENDING transactions created before this field existed.
+      const baseCreditAmount = transaction.baseCreditAmount ?? creditPack.creditAmount;
       await this.handlePackPurchase(
         transaction.userId,
         transactionId,
-        creditPack.creditAmount,
+        baseCreditAmount,
         transaction.bonusCreditAmount,
         transaction.campaignBonusAmount,
       );

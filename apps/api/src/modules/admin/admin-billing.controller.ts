@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Ip,
   Param,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -19,6 +20,8 @@ import { AdminBillingService } from './admin-billing.service';
 import { ListAdminTransactionsDto } from './dto/list-admin-transactions.dto';
 import { ListAdminWalletsDto } from './dto/list-admin-wallets.dto';
 import { CreditGrantDto } from './dto/credit-grant.dto';
+import { UpdatePriceDto } from './dto/update-price.dto';
+import { UpdateCreditPackDto } from './dto/update-credit-pack.dto';
 
 @ApiTags('Admin — Billing')
 @ApiBearerAuth('access-token')
@@ -52,5 +55,30 @@ export class AdminBillingController {
     @Ip() ip: string,
   ) {
     return this.adminBillingService.grantCredits(userId, user.userId, dto, ip);
+  }
+
+  @Get('prices')
+  listPrices() {
+    return this.adminBillingService.listPrices();
+  }
+
+  @Patch('prices/:id')
+  updatePrice(
+    @Param('id') id: string,
+    @Body() dto: UpdatePriceDto,
+    @CurrentUser() user: JwtUser,
+    @Ip() ip: string,
+  ) {
+    return this.adminBillingService.updatePrice(id, user.userId, dto, ip);
+  }
+
+  @Patch('credit-packs/:id')
+  updateCreditPackAmount(
+    @Param('id') id: string,
+    @Body() dto: UpdateCreditPackDto,
+    @CurrentUser() user: JwtUser,
+    @Ip() ip: string,
+  ) {
+    return this.adminBillingService.updateCreditPackAmount(id, user.userId, dto, ip);
   }
 }

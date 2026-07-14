@@ -149,6 +149,11 @@ export class RedsysService {
             status: TransactionStatus.PENDING,
             gateway: 'REDSYS',
             gatewayPaymentIntentId: dsOrder,
+            // Frozen at checkout, same as bonusCreditAmount/campaignBonusAmount —
+            // the processor must never re-read CreditPack.creditAmount live, or
+            // an admin editing the pack mid-flight would change what this
+            // specific purchase grants.
+            baseCreditAmount: pack.creditAmount,
             bonusCreditAmount,
             campaignBonusAmount,
             campaignId,

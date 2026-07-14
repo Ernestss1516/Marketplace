@@ -662,6 +662,7 @@ model AuditLog {
   /// CONTACT_MESSAGE_STATUS_CHANGE | CONTACT_MESSAGE_REPLY
   /// CONTACT_REASON_CREATE | CONTACT_REASON_EDIT | CONTACT_REASON_ACTIVATE |
   /// CONTACT_REASON_DEACTIVATE | CONTACT_REASON_REORDER
+  /// PRICE_UPDATE | CREDIT_PACK_UPDATE
   action String
 
   actorId String
@@ -937,6 +938,13 @@ model Transaction {
   /// campañas no se borran (solo se desactivan), pero SetNull es red de seguridad.
   campaignId          String?
   campaign            Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+
+  /// Créditos base del pack, congelados en el checkout (Redsys). Igual que
+  /// bonusCreditAmount/campaignBonusAmount: el processor NUNCA relee
+  /// CreditPack.creditAmount en vivo, para que un cambio de precio admin no
+  /// altere lo que un pago ya en curso otorga. Null en transacciones que no
+  /// son de un pack de créditos, y en las creadas antes de este campo.
+  baseCreditAmount Int?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

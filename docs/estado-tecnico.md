@@ -6630,6 +6630,71 @@ llamar a `matchListing()` directamente — prueba la cadena async real, no solo 
 Migración indolora: **44 suites e2e / 675 tests backend**, 53 tests frontend, Playwright
 crítico (login → publicar → buscar → contactar) en verde.
 
+### Monetización configurable: costes en créditos + precios en euros de Redsys (CERRADO)
+
+**Alcance decidido con el usuario**: costes en créditos (bump, destacado) + precios en
+euros de Redsys (packs de créditos, destacado por tarjeta), editables desde
+`/admin/ajustes → Monetización`, sin tocar código. **Stripe queda fuera**: sus `Price`
+son inmutables en Stripe, cambiarlos exige crear objetos nuevos vía API y decidir el
+grandfathering de suscriptores — se deja como otra ráfaga. Reforzado en el backend, no
+solo por omisión en la UI: `AdminBillingService.updatePrice()` rechaza con 400 cualquier
+`Price` con `interval != null` (Plan Pro recurrente).
+
+**Lo que ya existía y no se tocó**: los costes en créditos de bump/destacado ya eran
+`Setting` (JSON en Postgres, leídos en vivo, **sin caché** — confirmado, ni Redis ni
+`unstable_cache` del frontend tocan `Setting` ni el catálogo de `Price`), pero no estaban
+en la whitelist `SETTING_KEYS` de [`admin.service.ts`](#settings-whitelist-explícita-en-el-service-fase-7)
+ni en la UI — en la práctica solo editables con un `UPDATE` manual en Postgres. Se
+añadieron `bumpCreditCost`, `featuredCreditCost7d/14d/30d` a la whitelist, con validación
+de entero ≥ 1 (0 no se permite: las promociones ya tienen su propio mecanismo,
+`CampaignService`, un coste en 0 desde ajustes sería una vía paralela confusa). La
+escritura de `Setting` se envolvió en `$transaction` (antes no era atómica con el
+`AuditLog`, a diferencia del resto de mutaciones sensibles).
+
+**Precios en euros**: `Price.amount` (packs de créditos y destacado por tarjeta) y
+`CreditPack.creditAmount` pasan a ser editables vía dos endpoints nuevos en
+`AdminBillingService`/`AdminBillingController` — `GET /admin/billing/prices` (lista los
+`Price` con `durationDays != null` o `creditPackId != null`, excluyendo de raíz los
+recurrentes de Stripe) y `PATCH /admin/billing/prices/:id` /
+`PATCH /admin/billing/credit-packs/:id`. Mismo molde atómico que `grantCredits`
+(`$transaction` con `AuditLog` dentro, acciones `PRICE_UPDATE`/`CREDIT_PACK_UPDATE`).
+`Price.durationDays` **NO** es editable — los Setting `featuredCreditCost7d/14d/30d`
+usan el número de días como parte del nombre de la clave; cambiar la duración de un tier
+desincronizaría el nombre del coste asociado sin un rediseño de esas claves, así que se
+dejó fuera de alcance deliberadamente.
+
+**El histórico**: verificado que `Transaction.amountGross/amountNet/taxAmount/taxRate`
+se congelan en el checkout (`redsysTaxBreakdown(price.amount)` en
+`RedsysService.createCreditPackCheckout`/`createFeaturedPayCheckout`) y ningún punto de
+lectura (transacciones del usuario, panel admin, validación del webhook) vuelve a leer
+`Price` — todos muestran lo que de verdad se guardó. Confirmado con un test e2e que sube
+el precio después de una compra `SUCCEEDED` y comprueba que esa `Transaction` no cambia.
+
+**Bug cerrado (encontrado en la investigación, no reportado antes)**: al confirmar la
+compra de un pack, `RedsysProcessor.processSuccess()` leía `CreditPack.creditAmount` **en
+vivo** en el momento en que Redsys confirmaba el pago, a diferencia de
+`bonusCreditAmount`/`campaignBonusAmount`, que sí se congelan en el checkout. Era
+inofensivo mientras nadie podía editar `creditAmount` — pero esta ráfaga lo hace
+editable, así que un admin subiendo los créditos de un pack entre el checkout y la
+confirmación del pago habría alterado silenciosamente lo que esa compra concreta otorga.
+Cerrado añadiendo `Transaction.baseCreditAmount Int?` (migración
+`transaction_base_credit_amount`), congelado en `createCreditPackCheckout` igual que los
+bonus, y leído por el processor con `transaction.baseCreditAmount ?? creditPack.creditAmount`
+— el fallback cubre únicamente `Transaction` `PENDING` creadas antes de desplegar la
+migración, es transitorio.
+
+**Verificado**: `test/admin-pricing.e2e-spec.ts` (13 tests) — cambio de coste en créditos
+aplica al siguiente `bump()`; cambio de precio/créditos de un pack aplica al siguiente
+checkout (importe firmado a Redsys y créditos otorgados); **el test que importa**: una
+`Transaction` ya `SUCCEEDED` con el precio viejo no cambia tras subir el precio, ni su
+`CreditLedger` asociado; validación de mínimos (≤ 0 → 400); guard de precios de Stripe;
+`AuditLog` con `before`/`after` en cada cambio. Aislamiento: como `Setting`/`Price`/
+`CreditPack` son datos estáticos globales que `cleanDb()` no trunca (se comparten entre
+todos los ficheros e2e de la misma pasada `--runInBand`), el spec crea su propio
+`Product`/`Price`/`CreditPack` dedicados en vez de mutar los sembrados (p. ej. "Pack
+Básico", del que dependen los specs de Redsys con su valor original), y restaura
+`bumpCreditCost` en `afterAll`. Suite completa verde tras el cambio.
+
 ---
 
 ## 4. Documentación de la API y el diseño

@@ -52,8 +52,22 @@ const SETTING_KEYS = [
   'proMonthlyFeaturedQuota',
   // H8.5a: fixed duration of a featured grant paid from the quota
   'proQuotaFeaturedDurationDays',
+  // Monetización: credit costs for bump / featured-by-credits
+  'bumpCreditCost',
+  'featuredCreditCost7d',
+  'featuredCreditCost14d',
+  'featuredCreditCost30d',
 ] as const;
 type SettingKey = (typeof SETTING_KEYS)[number];
+
+// Keys whose value must be a positive integer (>= 1) — credit costs. Prices
+// in euros are a separate table (Price), not a Setting; see admin-billing.
+const POSITIVE_INT_SETTING_KEYS: readonly string[] = [
+  'bumpCreditCost',
+  'featuredCreditCost7d',
+  'featuredCreditCost14d',
+  'featuredCreditCost30d',
+];
 
 @Injectable()
 export class AdminService {
@@ -901,31 +915,45 @@ export class AdminService {
       );
     }
 
+    if (POSITIVE_INT_SETTING_KEYS.includes(key)) {
+      const value = dto.value;
+      if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
+        throw new BadRequestException(
+          `'${key}' debe ser un número entero mayor o igual a 1.`,
+        );
+      }
+    }
+
     const setting = await this.prisma.setting.findUnique({ where: { key } });
     if (!setting) throw new NotFoundException(`Setting '${key}' no encontrado`);
 
     const before = { value: setting.value } as unknown as Prisma.InputJsonValue;
     const after = { value: dto.value } as unknown as Prisma.InputJsonValue;
 
-    const updated = await this.prisma.setting.update({
-      where: { key },
-      data: {
-        value: dto.value as Prisma.InputJsonValue,
-        updatedById: actorId,
-      },
-    });
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.setting.update({
+        where: { key },
+        data: {
+          value: dto.value as Prisma.InputJsonValue,
+          updatedById: actorId,
+        },
+      });
 
-    await this.auditLog.log({
-      action: 'SETTING_UPDATE',
-      actorId,
-      resourceType: 'Setting',
-      resourceId: key,
-      before,
-      after,
-      ip,
-    });
+      await this.auditLog.log(
+        {
+          action: 'SETTING_UPDATE',
+          actorId,
+          resourceType: 'Setting',
+          resourceId: key,
+          before,
+          after,
+          ip,
+        },
+        tx,
+      );
 
-    return updated;
+      return updated;
+    });
   }
 
   // ===========================================================================
