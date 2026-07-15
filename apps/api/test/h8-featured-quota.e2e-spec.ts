@@ -248,6 +248,47 @@ describe('H8.2 — GET /billing/pro-status (cuota mensual de destacados Pro)', (
     expect(status.remaining).toBe(3);
   });
 
+  it('CARACTERIZACIÓN — alta día 1 vs alta día 15 del mismo mes calendario: ambas ven la cuota COMPLETA, sin prorrateo (Monetización ráfaga 1)', async () => {
+    // getFeaturedQuotaStatus deriva el periodo de Subscription.currentPeriodStart, que es
+    // el instante de ALTA (billing.processor.ts fija currentPeriodStart = now() al crear
+    // la suscripción), no el día del mes calendario. Este test blinda ese comportamiento
+    // documentado (diseno-facturacion.md §15, "Reseteo de la cuota DERIVADO"): un alta a
+    // mitad de mes no reduce la cuota — el "periodo" de un Pro siempre dura 30 días
+    // completos desde SU alta, no desde el día 1 del calendario. Si alguien introdujera
+    // prorrateo por accidente (p. ej. calculando remaining en función del día del mes),
+    // este test lo detectaría.
+    const day1 = new Date();
+    day1.setDate(1);
+    day1.setHours(10, 0, 0, 0);
+    const day15 = new Date();
+    day15.setDate(15);
+    day15.setHours(10, 0, 0, 0);
+
+    const { user: userDay1, token: tokenDay1 } = await createUser('signup-day1');
+    await createProSubscription(
+      userDay1.id,
+      day1,
+      new Date(day1.getTime() + 30 * 24 * 60 * 60 * 1000),
+    );
+
+    const { user: userDay15, token: tokenDay15 } = await createUser('signup-day15');
+    await createProSubscription(
+      userDay15.id,
+      day15,
+      new Date(day15.getTime() + 30 * 24 * 60 * 60 * 1000),
+    );
+
+    const statusDay1 = await getProStatus(tokenDay1);
+    const statusDay15 = await getProStatus(tokenDay15);
+
+    // Misma cuota completa (4) para ambos — el día del mes en que se dio de alta no influye.
+    expect(statusDay1.limit).toBe(4);
+    expect(statusDay1.remaining).toBe(4);
+    expect(statusDay15.limit).toBe(4);
+    expect(statusDay15.remaining).toBe(4);
+    expect(statusDay1.remaining).toBe(statusDay15.remaining);
+  });
+
   // ---------------------------------------------------------------------------
   // H8.5a — POST /billing/featured-by-credits: vía ELEGIDA por el usuario
   // ---------------------------------------------------------------------------

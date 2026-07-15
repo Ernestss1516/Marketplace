@@ -89,6 +89,7 @@ function NumberSettingEditor({
   helpText,
   min = 1,
   max,
+  suffix,
 }: {
   setting: AdminSetting;
   token: string;
@@ -98,6 +99,7 @@ function NumberSettingEditor({
   helpText: string;
   min?: number;
   max?: number;
+  suffix?: string;
 }) {
   const [value, setValue] = useState(() => String(setting.value ?? min));
   const [saving, setSaving] = useState(false);
@@ -106,8 +108,12 @@ function NumberSettingEditor({
 
   async function handleSave() {
     const num = parseInt(value, 10);
-    if (isNaN(num) || num < min) {
-      setError(`Debe ser un número entero ${min > 0 ? 'positivo' : `mayor o igual a ${min}`}.`);
+    if (isNaN(num) || num < min || (max != null && num > max)) {
+      setError(
+        max != null
+          ? `Debe ser un número entero entre ${min} y ${max}.`
+          : `Debe ser un número entero ${min > 0 ? 'positivo' : `mayor o igual a ${min}`}.`,
+      );
       return;
     }
     setSaving(true);
@@ -129,15 +135,18 @@ function NumberSettingEditor({
       <div className="flex items-center gap-3">
         <div className="flex flex-col gap-1">
           <label className="text-xs font-medium text-muted-foreground">{label}</label>
-          <input
-            type="number"
-            value={value}
-            onChange={(e) => { setValue(e.target.value); setSuccess(false); }}
-            min={min}
-            max={max}
-            className="w-32 rounded-md border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-            disabled={saving}
-          />
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              value={value}
+              onChange={(e) => { setValue(e.target.value); setSuccess(false); }}
+              min={min}
+              max={max}
+              className="w-32 rounded-md border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              disabled={saving}
+            />
+            {suffix && <span className="text-sm text-muted-foreground">{suffix}</span>}
+          </div>
         </div>
       </div>
       <p className="text-xs text-muted-foreground">{helpText}</p>
@@ -252,6 +261,7 @@ const SETTING_TITLES: Record<string, string> = {
   proActiveListingLimit: 'Límite de anuncios activos (Pro)',
   proMonthlyFeaturedQuota: 'Cuota mensual de destacados (Pro)',
   proQuotaFeaturedDurationDays: 'Duración del destacado por cuota (Pro)',
+  proExtraCreditsPercent: 'Bonus de créditos al comprar packs (Pro)',
 };
 
 const SETTING_DESCRIPTIONS: Record<string, string> = {
@@ -269,6 +279,8 @@ const SETTING_DESCRIPTIONS: Record<string, string> = {
     'Destacados gratuitos que un usuario Pro puede usar cada mes. Se renuevan en el aniversario del ciclo de su suscripción; los no usados no se acumulan al mes siguiente.',
   proQuotaFeaturedDurationDays:
     'Duración fija (en días) de un destacado pagado con la cuota gratuita de Pro. Al pagar con créditos, el usuario elige la duración (7/14/30 días); la cuota siempre usa esta duración fija.',
+  proExtraCreditsPercent:
+    'Porcentaje de créditos extra que recibe un usuario Pro al comprar un pack de créditos, sobre el mismo precio que paga cualquier usuario (no es un descuento en euros). Se congela en cada compra: cambiar este valor no afecta a compras ya realizadas.',
 };
 
 // ─── Monetización: costes en créditos ──────────────────────────────────────────
@@ -379,6 +391,7 @@ export default function AdminAjustesPage() {
     'proActiveListingLimit',
     'proMonthlyFeaturedQuota',
     'proQuotaFeaturedDurationDays',
+    'proExtraCreditsPercent',
   ] as const;
 
   return (
@@ -471,6 +484,19 @@ export default function AdminAjustesPage() {
                   helpText="Todos los destacados pagados con la cuota gratuita de Pro usan esta duración fija, sin importar qué variante hubiera elegido el usuario."
                   min={1}
                   max={365}
+                />
+              )}
+              {key === 'proExtraCreditsPercent' && (
+                <NumberSettingEditor
+                  setting={setting}
+                  token={token}
+                  onSaved={() => handleSaved(key)}
+                  settingKey="proExtraCreditsPercent"
+                  label="Bonus de créditos (%)"
+                  helpText="Porcentaje extra de créditos que un Pro recibe al comprar un pack, sobre el mismo precio que paga cualquier usuario. 0 desactiva el bonus sin quitar la ventaja de la lista."
+                  min={0}
+                  max={100}
+                  suffix="%"
                 />
               )}
             </div>

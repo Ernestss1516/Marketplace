@@ -57,6 +57,8 @@ const SETTING_KEYS = [
   'featuredCreditCost7d',
   'featuredCreditCost14d',
   'featuredCreditCost30d',
+  // §2.5 RF.10: Pro bonus percentage on credit-pack purchases
+  'proExtraCreditsPercent',
 ] as const;
 type SettingKey = (typeof SETTING_KEYS)[number];
 
@@ -68,6 +70,11 @@ const POSITIVE_INT_SETTING_KEYS: readonly string[] = [
   'featuredCreditCost14d',
   'featuredCreditCost30d',
 ];
+
+// Keys whose value is a percentage: integer in [0, 100]. 0 is valid (disables
+// the Pro bonus without removing the key); >100 would gift more credits than
+// the pack costs, which is never intended.
+const PERCENT_SETTING_KEYS: readonly string[] = ['proExtraCreditsPercent'];
 
 @Injectable()
 export class AdminService {
@@ -920,6 +927,15 @@ export class AdminService {
       if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
         throw new BadRequestException(
           `'${key}' debe ser un número entero mayor o igual a 1.`,
+        );
+      }
+    }
+
+    if (PERCENT_SETTING_KEYS.includes(key)) {
+      const value = dto.value;
+      if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > 100) {
+        throw new BadRequestException(
+          `'${key}' debe ser un número entero entre 0 y 100.`,
         );
       }
     }

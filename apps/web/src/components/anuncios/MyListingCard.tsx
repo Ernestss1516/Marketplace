@@ -350,7 +350,9 @@ export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) 
                   </span>
                 </>
               ) : (
-                'Bump'
+                <>
+                  Bump <span className="ml-1">{bumpPricing.bumpCreditCost} cr.</span>
+                </>
               )}
             </Button>
           )}

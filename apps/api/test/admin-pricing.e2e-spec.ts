@@ -29,7 +29,14 @@
  */
 
 import { INestApplication } from '@nestjs/common';
-import { AuditLog, Prisma, PrismaClient, TransactionStatus } from '@prisma/client';
+import {
+  AuditLog,
+  EntitlementType,
+  Prisma,
+  PrismaClient,
+  ProductType,
+  TransactionStatus,
+} from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import * as request from 'supertest';
 import { createTestApp } from './helpers/create-app';
@@ -359,6 +366,202 @@ describe('Monetización — precios y costes configurables (e2e)', () => {
 
       // Restore.
       await prisma.price.update({ where: { id: priceId }, data: { amount: ORIGINAL_AMOUNT } });
+    });
+  });
+
+  // ── Bonus Pro configurable (proExtraCreditsPercent) — Monetización ráfaga 1 ──
+  //
+  // El bonus de créditos Pro (§2.5) ya se congelaba correctamente en la Transaction
+  // (verificado en redsys.e2e-spec.ts, describe('Bonus Pro (RF.10 §2.5)')), pero la
+  // Setting proExtraCreditsPercent NO estaba en la whitelist de admin.service.ts — solo
+  // editable con un UPDATE manual en Postgres, a diferencia de sus hermanas
+  // (bumpCreditCost, featuredCreditCost*d). Este bloque cierra ese hueco: prueba que
+  // ahora es editable desde /admin/settings, validada como porcentaje [0,100], deja
+  // AuditLog, y — el test que de verdad importa, mismo patrón que el bloque de arriba —
+  // que un checkout YA HECHO por un Pro no cambia su bonus si el admin sube el
+  // porcentaje ANTES de que Redsys confirme el pago.
+  describe('Bonus Pro configurable (proExtraCreditsPercent)', () => {
+    let originalProExtraCreditsPercent: number;
+    let proUserId: string;
+    let proToken: string;
+    let bonusPackId: string;
+    const BONUS_PACK_CREDITS = 50;
+
+    beforeAll(async () => {
+      const setting = await prisma.setting.findUniqueOrThrow({
+        where: { key: 'proExtraCreditsPercent' },
+      });
+      originalProExtraCreditsPercent = Number(setting.value);
+
+      const product = await prisma.product.create({
+        data: { name: 'AP Bonus Test Product', type: 'ONE_TIME', active: true },
+      });
+      const pack = await prisma.creditPack.create({
+        data: { name: 'AP Bonus Test Pack', creditAmount: BONUS_PACK_CREDITS, active: true },
+      });
+      await prisma.price.create({
+        data: {
+          productId: product.id,
+          amount: 9.99,
+          currency: 'EUR',
+          creditPackId: pack.id,
+          active: true,
+        },
+      });
+      bonusPackId = pack.id;
+
+      const email = `ap-bonus-pro-${Date.now()}@example.com`;
+      const proUser = await prisma.user.create({
+        data: {
+          email,
+          name: 'AP Bonus Pro',
+          slug: `ap-bonus-pro-${Date.now()}`,
+          passwordHash: await bcrypt.hash('Test1234!', 4),
+          emailVerified: true,
+        },
+      });
+      proUserId = proUser.id;
+      const login = await request(app.getHttpServer())
+        .post('/api/auth/login')
+        .send({ email, password: 'Test1234!' });
+      proToken = login.body.accessToken as string;
+
+      const proPrice = await prisma.price.findFirstOrThrow({
+        where: { product: { type: ProductType.RECURRING } },
+      });
+      const subscription = await prisma.subscription.create({
+        data: {
+          userId: proUserId,
+          priceId: proPrice.id,
+          status: 'ACTIVE',
+          currentPeriodStart: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+          currentPeriodEnd: new Date(Date.now() + 25 * 24 * 60 * 60 * 1000),
+          gatewaySubscriptionId: `sub_ap_bonus_${proUserId}`,
+        },
+      });
+      await prisma.entitlement.create({
+        data: {
+          userId: proUserId,
+          type: EntitlementType.PRO_SUBSCRIPTION,
+          subscriptionId: subscription.id,
+          priceId: proPrice.id,
+          expiresAt: subscription.currentPeriodEnd,
+        },
+      });
+    });
+
+    afterAll(async () => {
+      // Restore the shared Setting so later spec files in the same --runInBand
+      // run see the seeded default (redsys.e2e-spec.ts hardcodes PRO_BONUS_PCT=20
+      // matching it).
+      await prisma.setting.update({
+        where: { key: 'proExtraCreditsPercent' },
+        data: { value: originalProExtraCreditsPercent },
+      });
+    });
+
+    async function checkoutAsPro() {
+      await request(app.getHttpServer())
+        .post('/api/billing/checkout/credits-pack')
+        .set('Authorization', `Bearer ${proToken}`)
+        .send({ packId: bonusPackId })
+        .expect(201);
+      return prisma.transaction.findFirstOrThrow({
+        where: { userId: proUserId, status: TransactionStatus.PENDING },
+        orderBy: { createdAt: 'desc' },
+      });
+    }
+
+    it('PATCH /admin/settings/proExtraCreditsPercent → el siguiente checkout de un Pro congela el nuevo bonus + AuditLog', async () => {
+      const newPct = 40;
+      const res = await request(app.getHttpServer())
+        .patch('/api/admin/settings/proExtraCreditsPercent')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ value: newPct })
+        .expect(200);
+      expect(res.body.value).toBe(newPct);
+
+      const auditLog = await lastAuditLog('SETTING_UPDATE', 'proExtraCreditsPercent');
+      expect(auditLog).not.toBeNull();
+      expect((auditLog!.after as { value: number }).value).toBe(newPct);
+
+      const tx = await checkoutAsPro();
+      expect(tx.bonusCreditAmount).toBe(Math.ceil((BONUS_PACK_CREDITS * newPct) / 100));
+
+      await prisma.transaction.deleteMany({ where: { id: tx.id } });
+    });
+
+    it('EL TEST QUE IMPORTA: un checkout ya hecho no cambia su bonus si el admin sube el % antes de que se confirme el pago', async () => {
+      await prisma.setting.update({
+        where: { key: 'proExtraCreditsPercent' },
+        data: { value: 20 },
+      });
+
+      const tx = await checkoutAsPro();
+      const frozenBonus = Math.ceil((BONUS_PACK_CREDITS * 20) / 100); // 10
+      expect(tx.bonusCreditAmount).toBe(frozenBonus);
+
+      // Admin sube el % DESPUÉS del checkout, ANTES de que Redsys confirme el pago.
+      await request(app.getHttpServer())
+        .patch('/api/admin/settings/proExtraCreditsPercent')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ value: 90 })
+        .expect(200);
+
+      const cents = tx.amountGross.mul(100).toFixed(0);
+      await processor.processSuccess({
+        transactionId: tx.id,
+        dsAmount: cents,
+        dsOrder: tx.gatewayPaymentIntentId!,
+      });
+
+      const confirmed = await prisma.transaction.findUniqueOrThrow({ where: { id: tx.id } });
+      // Sigue siendo el bonus congelado al 20 %, nunca el 90 % vigente ahora.
+      expect(confirmed.bonusCreditAmount).toBe(frozenBonus);
+
+      const wallet = await prisma.wallet.findUniqueOrThrow({ where: { userId: proUserId } });
+      expect(wallet.balance).toBe(BONUS_PACK_CREDITS + frozenBonus); // 60, nunca 50+45=95
+
+      const ledger = await prisma.creditLedger.findFirst({
+        where: { referenceType: 'Transaction', referenceId: tx.id, type: 'PRO_BONUS' },
+      });
+      expect(ledger?.amount).toBe(frozenBonus);
+    });
+
+    it('validación: negativo → 400', async () => {
+      await request(app.getHttpServer())
+        .patch('/api/admin/settings/proExtraCreditsPercent')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ value: -1 })
+        .expect(400);
+    });
+
+    it('validación: > 100 → 400', async () => {
+      await request(app.getHttpServer())
+        .patch('/api/admin/settings/proExtraCreditsPercent')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ value: 101 })
+        .expect(400);
+    });
+
+    it('validación: decimal → 400', async () => {
+      await request(app.getHttpServer())
+        .patch('/api/admin/settings/proExtraCreditsPercent')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ value: 15.5 })
+        .expect(400);
+    });
+
+    it('0 es un valor válido → desactiva el bonus sin quitar la ventaja de la whitelist', async () => {
+      const res = await request(app.getHttpServer())
+        .patch('/api/admin/settings/proExtraCreditsPercent')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ value: 0 })
+        .expect(200);
+      expect(res.body.value).toBe(0);
+
+      const tx = await checkoutAsPro();
+      expect(tx.bonusCreditAmount).toBe(0);
     });
   });
 

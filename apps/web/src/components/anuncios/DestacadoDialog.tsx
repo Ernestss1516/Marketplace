@@ -302,6 +302,11 @@ export function DestacadoDialog({ listing, token, open, onOpenChange, onSuccess 
                       );
                     })}
                   </RadioGroup>
+                  {featuredPrices.some((pr) => pr.discountPercent != null) && (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      El descuento aplica solo al pagar con créditos.
+                    </p>
+                  )}
                 </div>
 
                 <Separator />

@@ -6695,6 +6695,59 @@ todos los ficheros e2e de la misma pasada `--runInBand`), el spec crea su propio
 Básico", del que dependen los specs de Redsys con su valor original), y restaura
 `bumpCreditCost` en `afterAll`. Suite completa verde tras el cambio.
 
+### Monetización — ráfaga 1: huecos de coherencia + verificación + claridad de coste (CERRADO)
+
+Punto de partida: auditoría completa de monetización (2026-07-15) que construyó la matriz
+precio/coste/créditos/duración de packs, destacado y bump para Pro vs. no-Pro, verificando cada
+celda ejecutando (no deduciendo del código) contra las 8 suites e2e relevantes. La auditoría no
+encontró ningún caso de "Pro paga más que no-Pro" ni ningún coste leyendo un valor hardcodeado, y
+confirmó que gran parte de lo que esta ráfaga se proponía cerrar **ya estaba hecho** por ráfagas
+previas (H8.1 dejó `proMonthlyFeaturedQuota`/`proQuotaFeaturedDurationDays`/límites de anuncios
+activos editables desde `/admin/ajustes`; RF.10 §2.5 ya congelaba el bonus Pro en `Transaction.
+bonusCreditAmount`, verificado en `redsys.e2e-spec.ts`). El trabajo real de esta ráfaga fue más
+acotado de lo previsto:
+
+- **Hueco de coherencia cerrado**: `proExtraCreditsPercent` (el bonus de créditos Pro, §2.5) era
+  la única Setting de monetización fuera de la whitelist de `admin.service.ts` — solo editable con
+  un `UPDATE` manual en Postgres, a diferencia de sus hermanas (`bumpCreditCost`,
+  `featuredCreditCost*d`). Añadida a `SETTING_KEYS`, con una nueva categoría de validación
+  `PERCENT_SETTING_KEYS` (entero en `[0,100]`; 0 es válido y desactiva el bonus sin quitar la
+  ventaja de la whitelist; >100 se rechaza porque regalaría más créditos de los que cuesta el pack).
+  Editor nuevo en `/admin/ajustes` (`NumberSettingEditor` con `suffix="%"` y `max`), agrupado junto
+  a las otras dos Settings de Plan Pro.
+- **Huecos de verificación cerrados** (caracterización, no cambio de comportamiento):
+  - `admin-pricing.e2e-spec.ts`, describe `'Bonus Pro configurable (proExtraCreditsPercent)'`:
+    admin-editable + `AuditLog` + validación (negativo/>100/decimal → 400, 0 → 200), y el test que
+    importa (mismo patrón que el resto del fichero): un checkout de pack ya hecho por un Pro no
+    cambia su `bonusCreditAmount` si el admin sube el % **después** del checkout pero **antes** de
+    que Redsys confirme el pago — el `RedsysProcessor` solo lee lo ya congelado.
+  - `h8-featured-quota.e2e-spec.ts`: test de caracterización "alta día 1 vs alta día 15 del mismo
+    mes calendario → misma cuota completa (4), sin prorrateo" — blinda el comportamiento ya
+    documentado (`Subscription.currentPeriodStart` = instante de alta, no día de calendario) contra
+    una regresión futura que introdujera prorrateo sin querer.
+- **Claridad de coste**: la investigación encontró que `DestacadoDialog` ya mostraba con claridad
+  la cuota disponible, el coste en créditos y en euros por cada opción (implementado en H8.5b) — no
+  hizo falta rediseñarlo. Se añadió solo una nota ("El descuento aplica solo al pagar con
+  créditos") cuando hay un descuento de campaña activo, para que el usuario entienda la asimetría
+  sin tener que leer este documento. **Hueco real encontrado en QA en vivo** (con capturas Playwright
+  contra la app corriendo, tres usuarios: Pro con cuota, Pro con cuota agotada, no-Pro): el botón
+  "Bump" de `MyListingCard` no mostraba coste alguno salvo que hubiera un descuento de campaña
+  activo — un bump normal decía literalmente "Bump", sin créditos. Corregido para mostrar siempre
+  `bumpCreditCost` (ya venía en `BumpPricing`, solo no se renderizaba en el caso sin descuento).
+- **Decisiones documentadas como tales** (no cambiadas): añadidas tres filas nuevas a la tabla de
+  §15 de `diseno-facturacion.md` — cuota Pro con duración fija que ignora el `priceId` adjunto (es
+  un regalo acotado, no un vale canjeable por más duración), descuentos de campaña solo sobre
+  créditos y nunca sobre Redsys directo (motivo fiscal: el cobro por Redsys es un hecho imponible,
+  los créditos no), y la gracia asimétrica al expirar Pro (cuota sin gracia, anuncios activos con 7
+  días — dos mecanismos con distinta urgencia, no una inconsistencia).
+- Fuera de esta ráfaga (explícitamente diferido a otra): pago con tarjeta para bump, cupones de
+  bump, bumps gratis para Pro.
+
+**Verificado**: batería e2e completa — 61 suites / 927 tests en verde (`--runInBand`), incluidos
+los 2 ficheros nuevos/ampliados de esta ráfaga. QA en vivo con capturas de pantalla reales
+(Playwright headless) para los tres estados de usuario en `/mis-anuncios` (destacar y bump) y para
+el editor nuevo en `/admin/ajustes` (validación de rango + guardado real).
+
 ---
 
 ## 4. Documentación de la API y el diseño
