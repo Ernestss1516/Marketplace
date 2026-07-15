@@ -4,7 +4,13 @@ import { PlusCircle, BarChart3 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { auth } from '@/lib/auth';
 import { getMyListings } from '@/lib/api/anuncios';
-import { getProStatus, getCatalog, type ProStatus, type CatalogResponse } from '@/lib/api/billing';
+import {
+  getProStatus,
+  getCatalog,
+  getWallet,
+  type ProStatus,
+  type CatalogResponse,
+} from '@/lib/api/billing';
 import { getActiveBanners } from '@/lib/api/banners';
 import { MisAnunciosClient } from '@/components/anuncios/MisAnunciosClient';
 import { BannerList } from '@/components/banners/BannerList';
@@ -18,7 +24,7 @@ export default async function MisAnunciosPage() {
 
   const token = session.user.accessToken;
 
-  const [{ items }, proStatus, catalog, banners] = await Promise.all([
+  const [{ items }, proStatus, catalog, wallet, banners] = await Promise.all([
     getMyListings(token),
     getProStatus(token).catch(
       (): ProStatus => ({ isPro: false, limit: 0, used: 0, remaining: 0 }),
@@ -29,6 +35,9 @@ export default async function MisAnunciosPage() {
     getCatalog().catch(
       (): CatalogResponse => ({ products: [], bumpCreditCost: 5 }),
     ),
+    // Monetización ráfaga 2 — saldo de bumps del usuario, para que el botón
+    // "Bump" sepa si va a ser gratis antes de que el usuario haga clic.
+    getWallet(token).catch(() => ({ balance: 0, bumpBalance: 0 })),
     getActiveBanners('MIS_ANUNCIOS').catch(() => []),
   ]);
 
@@ -36,6 +45,7 @@ export default async function MisAnunciosPage() {
     bumpCreditCost: catalog.bumpCreditCost,
     bumpOriginalCreditCost: catalog.bumpOriginalCreditCost,
     bumpDiscountPercent: catalog.bumpDiscountPercent,
+    bumpBalance: wallet.bumpBalance,
   };
 
   return (

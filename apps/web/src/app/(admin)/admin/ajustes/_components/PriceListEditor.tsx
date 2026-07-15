@@ -28,6 +28,7 @@ function PriceRow({
 }) {
   const [amount, setAmount] = useState(String(price.amount));
   const [creditAmount, setCreditAmount] = useState(String(price.creditAmount ?? ''));
+  const [highlightBumps, setHighlightBumps] = useState(price.highlightBumps ?? false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -62,7 +63,12 @@ function PriceRow({
     try {
       let updated = await updateAdminPrice(token, price.id, amountNum);
       if (price.creditPackId && creditAmountNum != null) {
-        updated = await updateAdminCreditPackAmount(token, price.creditPackId, creditAmountNum);
+        updated = await updateAdminCreditPackAmount(
+          token,
+          price.creditPackId,
+          creditAmountNum,
+          highlightBumps,
+        );
       }
       setSuccess(true);
       onSaved(updated);
@@ -110,6 +116,21 @@ function PriceRow({
             className="w-28 rounded-md border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
             disabled={saving}
           />
+        </label>
+      )}
+
+      {price.creditPackId && (
+        <label className="flex items-center gap-2 self-end pb-1.5">
+          <input
+            type="checkbox"
+            checked={highlightBumps}
+            onChange={(e) => { setHighlightBumps(e.target.checked); setSuccess(false); }}
+            disabled={saving}
+            className="h-4 w-4 rounded border-input"
+          />
+          <span className="text-xs text-muted-foreground">
+            Mostrar como &quot;pack de bumps&quot; (≈N bumps, calculado en vivo)
+          </span>
         </label>
       )}
 

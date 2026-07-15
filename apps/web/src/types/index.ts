@@ -173,6 +173,8 @@ export interface BumpPricing {
   bumpCreditCost: number;
   bumpOriginalCreditCost?: number;
   bumpDiscountPercent?: number;
+  /** Monetización ráfaga 2 — saldo de bumps gratis del usuario (moneda separada). */
+  bumpBalance: number;
 }
 
 export interface ListingImage {

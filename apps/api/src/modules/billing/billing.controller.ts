@@ -104,4 +104,14 @@ export class BillingController {
   getWallet(@CurrentUser() user: JwtUser, @Query() query: WalletQueryDto) {
     return this.billing.getWallet(user.userId, query);
   }
+
+  // ---------------------------------------------------------------------------
+  // Monetización ráfaga 2 — saldo de bumps (moneda separada de los créditos)
+  // ---------------------------------------------------------------------------
+
+  @Get('bump-ledger')
+  @UseGuards(JwtAuthGuard)
+  getBumpLedger(@CurrentUser() user: JwtUser, @Query() query: WalletQueryDto) {
+    return this.billing.getBumpLedger(user.userId, query);
+  }
 }

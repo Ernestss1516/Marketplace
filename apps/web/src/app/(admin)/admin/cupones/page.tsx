@@ -189,7 +189,9 @@ export default function AdminCuponesPage() {
                   <td className="px-4 py-3 text-muted-foreground">
                     {coupon.rewardType === 'CREDITS'
                       ? `${coupon.creditAmount} créditos`
-                      : `Destacado ${coupon.featuredDurationDays}d`}
+                      : coupon.rewardType === 'BUMP'
+                        ? `${coupon.bumpAmount} bumps`
+                        : `Destacado ${coupon.featuredDurationDays}d`}
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">
                     {coupon.redemptionCount}/{coupon.maxRedemptions ?? '∞'}

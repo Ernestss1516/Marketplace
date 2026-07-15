@@ -536,15 +536,38 @@ async function seedCreditPacks() {
     },
   });
 
-  const packs: { name: string; description: string; creditAmount: number; amount: string }[] = [
+  const packs: {
+    name: string;
+    description: string;
+    creditAmount: number;
+    amount: string;
+    highlightBumps?: boolean;
+  }[] = [
     { name: 'Pack Básico', description: '50 créditos para empezar.', creditAmount: 50, amount: '4.99' },
     { name: 'Pack Estándar', description: '150 créditos con mejor relación calidad-precio.', creditAmount: 150, amount: '9.99' },
     { name: 'Pack Max', description: '400 créditos para usuarios frecuentes.', creditAmount: 400, amount: '19.99' },
+    // Monetización ráfaga 2 (Opción B) — "pack de bumps": por dentro es un
+    // CreditPack normal (mismo checkout, mismo bonus Pro), con highlightBumps
+    // para que el catálogo calcule "≈N bumps" en vivo. Mismo precio que el
+    // Pack Básico pero más créditos — el descuento real está en el precio por
+    // crédito, no en una moneda nueva.
+    {
+      name: 'Pack de bumps',
+      description: 'Créditos pensados para subir tus anuncios más veces.',
+      creditAmount: 60,
+      amount: '4.99',
+      highlightBumps: true,
+    },
   ];
 
   for (const p of packs) {
     const pack = await prisma.creditPack.create({
-      data: { name: p.name, description: p.description, creditAmount: p.creditAmount },
+      data: {
+        name: p.name,
+        description: p.description,
+        creditAmount: p.creditAmount,
+        ...(p.highlightBumps && { highlightBumps: true }),
+      },
     });
     await prisma.price.create({
       data: {

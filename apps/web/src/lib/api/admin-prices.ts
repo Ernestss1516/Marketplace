@@ -9,6 +9,8 @@ export interface AdminPrice {
   active: boolean;
   creditPackId: string | null;
   creditAmount: number | null;
+  /** Monetización ráfaga 2 — solo relevante cuando creditPackId != null. */
+  highlightBumps: boolean | null;
 }
 
 export function getAdminPrices(token: string): Promise<AdminPrice[]> {
@@ -27,10 +29,11 @@ export function updateAdminCreditPackAmount(
   token: string,
   creditPackId: string,
   creditAmount: number,
+  highlightBumps?: boolean,
 ): Promise<AdminPrice> {
   return apiFetch<AdminPrice>(`/admin/billing/credit-packs/${creditPackId}`, {
     method: 'PATCH',
-    body: JSON.stringify({ creditAmount }),
+    body: JSON.stringify({ creditAmount, ...(highlightBumps !== undefined && { highlightBumps }) }),
     token,
   });
 }

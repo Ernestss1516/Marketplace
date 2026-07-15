@@ -94,6 +94,11 @@ export function PackList({ packs }: Props) {
                 <p className="mt-1 text-sm text-muted-foreground">
                   {formatPrice(price.amount, price.currency)}
                 </p>
+                {price.bumpEquivalent != null && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    ≈{price.bumpEquivalent} bumps al precio actual
+                  </p>
+                )}
               </CardContent>
               <CardFooter>
                 <Button

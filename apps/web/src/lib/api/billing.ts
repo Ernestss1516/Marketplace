@@ -27,11 +27,43 @@ export interface WalletItem {
 
 export interface WalletResponse {
   balance: number;
+  /** Monetización ráfaga 2 — saldo de bumps, siempre presente (0 si nunca se ha tenido). */
+  bumpBalance: number;
   items: WalletItem[];
   total: number;
   page: number;
   perPage: number;
   totalPages: number;
+}
+
+// ---------------------------------------------------------------------------
+// Monetización ráfaga 2 — saldo de bumps (moneda separada, historial propio)
+// ---------------------------------------------------------------------------
+
+export type BumpLedgerType = 'COUPON_REDEEM' | 'BUMP_DEBIT' | 'ADMIN_CREDIT' | 'ADMIN_DEBIT';
+
+export interface BumpLedgerItem {
+  id: string;
+  walletId: string;
+  type: BumpLedgerType;
+  amount: number;
+  referenceId: string | null;
+  referenceType: string | null;
+  note: string | null;
+  createdAt: string;
+}
+
+export interface BumpLedgerResponse {
+  bumpBalance: number;
+  items: BumpLedgerItem[];
+  total: number;
+  page: number;
+  perPage: number;
+  totalPages: number;
+}
+
+export function getBumpLedger(token: string, page = 1): Promise<BumpLedgerResponse> {
+  return apiFetch<BumpLedgerResponse>(`/billing/bump-ledger?page=${page}&perPage=20`, { token });
 }
 
 // ---------------------------------------------------------------------------
@@ -64,6 +96,8 @@ export interface CatalogPrice {
   creditAmount?: number;
   creditPackId?: string;
   packName?: string;
+  /** Monetización ráfaga 2 (Opción B) — solo presente si el pack tiene highlightBumps=true. Calculado en vivo. */
+  bumpEquivalent?: number;
 }
 
 export interface CatalogProduct {
@@ -163,11 +197,14 @@ export function createFeaturedCheckout(
 export function bumpListing(
   token: string,
   listingId: string,
-): Promise<{ bumpedAt: string }> {
-  return apiFetch<{ bumpedAt: string }>(`/listings/${listingId}/bump`, {
-    method: 'POST',
-    token,
-  });
+): Promise<{ bumpedAt: string; paidWith: 'BUMP_BALANCE' | 'CREDITS'; cost: number }> {
+  return apiFetch<{ bumpedAt: string; paidWith: 'BUMP_BALANCE' | 'CREDITS'; cost: number }>(
+    `/listings/${listingId}/bump`,
+    {
+      method: 'POST',
+      token,
+    },
+  );
 }
 
 export function createCheckout(

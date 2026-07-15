@@ -74,6 +74,7 @@ export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) 
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [bumpError, setBumpError] = useState<React.ReactNode | null>(null);
+  const [bumpConfirmation, setBumpConfirmation] = useState<string | null>(null);
   const [destacadoOpen, setDestacadoOpen] = useState(false);
 
   const location = [listing.city, listing.province].filter(Boolean).join(', ');
@@ -190,6 +191,11 @@ export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) 
       <CardContent className="border-t px-4 pb-4 pt-3">
         {error && <p className="mb-2 text-xs text-destructive">{error}</p>}
         {bumpError && <p className="mb-2 text-xs text-destructive">{bumpError}</p>}
+        {bumpConfirmation && (
+          <p className="mb-2 text-xs text-green-700" data-testid="bump-confirmation">
+            {bumpConfirmation}
+          </p>
+        )}
 
         <div className="flex flex-wrap gap-2">
           {/* Editar — available for DRAFT, ACTIVE, RESERVED */}
@@ -294,10 +300,20 @@ export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) 
               onClick={async () => {
                 setBusy('bump');
                 setBumpError(null);
+                setBumpConfirmation(null);
                 await run(
                   () => bumpListing(token, listing.id),
                   {
-                    onSuccess: () => { setBusy(null); onAction(); },
+                    onSuccess: (result) => {
+                      setBusy(null);
+                      // Monetización ráfaga 2 — confirmación clara de qué moneda se gastó.
+                      setBumpConfirmation(
+                        result.paidWith === 'BUMP_BALANCE'
+                          ? 'Bump gratis usado (saldo de bumps).'
+                          : `Se han descontado ${result.cost} créditos.`,
+                      );
+                      onAction();
+                    },
                     onError: (err) => {
                       if (isCreditError(err)) {
                         setBumpError(
@@ -338,6 +354,11 @@ export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) 
               )}
               {bumpOnCooldown ? (
                 'Bump (espera)'
+              ) : bumpPricing.bumpBalance > 0 ? (
+                // Monetización ráfaga 2 — prioridad de consumo: si hay saldo de
+                // bumps, el próximo click SIEMPRE lo gasta primero (billing.service.ts),
+                // así que el botón debe anunciarlo, no el coste en créditos.
+                <>Bump gratis <span className="ml-1 text-xs">(te quedan {bumpPricing.bumpBalance})</span></>
               ) : bumpPricing.bumpDiscountPercent != null ? (
                 <>
                   Bump{' '}

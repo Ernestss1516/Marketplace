@@ -118,15 +118,22 @@ async function seedCreditPacks() {
     },
   });
 
-  const packs: { name: string; creditAmount: number; amount: string }[] = [
+  const packs: { name: string; creditAmount: number; amount: string; highlightBumps?: boolean }[] = [
     { name: 'Pack Básico', creditAmount: 50, amount: '4.99' },
     { name: 'Pack Estándar', creditAmount: 150, amount: '9.99' },
     { name: 'Pack Max', creditAmount: 400, amount: '19.99' },
+    // Monetización ráfaga 2 — mismos valores que seed.ts (real), para que los
+    // e2e que la ejercen reflejen el pack tal cual lo verá el usuario.
+    { name: 'Pack de bumps', creditAmount: 60, amount: '4.99', highlightBumps: true },
   ];
 
   for (const p of packs) {
     const pack = await prisma.creditPack.create({
-      data: { name: p.name, creditAmount: p.creditAmount },
+      data: {
+        name: p.name,
+        creditAmount: p.creditAmount,
+        ...(p.highlightBumps && { highlightBumps: true }),
+      },
     });
     await prisma.price.create({
       data: {

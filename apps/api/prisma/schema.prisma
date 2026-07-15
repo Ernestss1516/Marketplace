@@ -159,6 +159,18 @@ enum CreditLedgerType {
   COUPON_REDEEM // Créditos otorgados al canjear un cupón → entrada (H8 Bloque D fase 3)
 }
 
+/// Monetización ráfaga 2 — movimientos de BumpLedger (saldo de bumps, moneda
+/// separada de los créditos: solo vale para bumps, intransferible). Mismo
+/// molde que CreditLedgerType, ámbito reducido a lo que existe hoy para esta
+/// moneda (sin PACK_PURCHASE: los bumps NO se compran directamente, solo se
+/// conceden por cupón o a mano por soporte — ver diseno-facturacion.md).
+enum BumpLedgerType {
+  COUPON_REDEEM // Bumps otorgados al canjear un cupón → entrada
+  BUMP_DEBIT // Bump pagado con saldo de bumps → salida
+  ADMIN_CREDIT // Acreditación manual de soporte → entrada
+  ADMIN_DEBIT // Débito manual de soporte → salida
+}
+
 /// Tipo de campaña promocional (H8 Bloque D). Extensible sin migración de datos:
 /// los parámetros concretos de cada tipo viven en Campaign.params (jsonb), no en
 /// columnas propias. Futuro: COUPON (cupón canjeable, fase 3), BANNER (difusión, fase 4).
@@ -191,30 +203,30 @@ enum ReportStatus {
 // ============================================================================
 
 model User {
-  id            String     @id @default(cuid())
-  email         String     @unique
+  id                  String     @id @default(cuid())
+  email               String     @unique
   /// Null para usuarios que solo entran vía login social (Google, etc.)
-  passwordHash  String?
-  name          String
+  passwordHash        String?
+  name                String
   /// Slug único para la URL del perfil público (SEO): /vendedor/{slug}
-  slug          String     @unique
-  phone         String?
-  avatarUrl     String?
-  bio           String?    @db.Text
-  role          Role       @default(USER)
-  status        UserStatus @default(ACTIVE)
-  emailVerified Boolean    @default(false)
+  slug                String     @unique
+  phone               String?
+  avatarUrl           String?
+  bio                 String?    @db.Text
+  role                Role       @default(USER)
+  status              UserStatus @default(ACTIVE)
+  emailVerified       Boolean    @default(false)
   /// Contador de intentos de login fallidos consecutivos; se resetea en login correcto (RÁFAGA 3).
-  failedLoginAttempts Int       @default(0)
+  failedLoginAttempts Int        @default(0)
   /// Si está en el futuro, login() rechaza sin comprobar la contraseña (RÁFAGA 3).
   lockedUntil         DateTime?
   /// Se incrementa en resetPassword()/changePassword()/setPassword(); el JWT lleva su propio
   /// tokenVersion y JwtStrategy lo compara contra este — un cambio invalida TODOS los tokens
   /// previos al instante, sin esperar a que caduquen (RÁFAGA 3).
-  tokenVersion        Int       @default(0)
+  tokenVersion        Int        @default(0)
   /// H8 Bloque E — "Vendedor de confianza": confianza otorgada por la plataforma (ADMIN-only).
   /// Independiente de Pro (isProActive): un usuario puede ser Pro, de confianza, ambos o ninguno.
-  trusted       Boolean    @default(false)
+  trusted             Boolean    @default(false)
 
   // Ubicación para mostrar y prefiltrar
   city       String?
@@ -251,7 +263,7 @@ model User {
   couponRedemptions   CouponRedemption[]
   notifications       Notification[]
   alerts              Alert[]
-  contactReplies      ContactReply[]      @relation("ContactReplyAdmin")
+  contactReplies      ContactReply[]       @relation("ContactReplyAdmin")
 
   @@index([status])
 }
@@ -987,6 +999,14 @@ model CreditPack {
   creditAmount Int
   active       Boolean @default(true)
 
+  /// Monetización ráfaga 2 (Opción B): cuando true, el catálogo público añade
+  /// un campo derivado `bumpEquivalent = floor(creditAmount / bumpCreditCost)`,
+  /// calculado EN VIVO con el Setting vigente — nunca guardado como texto fijo,
+  /// para que no pueda desincronizarse si bumpCreditCost cambia después. Este
+  /// pack sigue siendo, por dentro, un CreditPack normal: mismo checkout, mismo
+  /// congelamiento en Transaction.baseCreditAmount, mismo bonus Pro.
+  highlightBumps Boolean @default(false)
+
   /// Relación inversa: el Price asociado apunta a este pack vía creditPackId.
   price Price?
 
@@ -994,11 +1014,15 @@ model CreditPack {
   updatedAt DateTime @updatedAt
 }
 
-/// Saldo de créditos de un usuario. Una fila por usuario.
+/// Saldo de créditos (y, desde la ráfaga 2, de bumps) de un usuario. Una fila
+/// por usuario — las dos monedas comparten fila a propósito: se consumen en
+/// la MISMA operación (bumpear intenta primero bumpBalance, luego balance), así
+/// que vivir en la misma fila evita coordinar dos filas en cada bump.
 ///
-/// INVARIANTE: balance >= 0. Nunca se vuelve negativo.
-/// El débito atómico via UPDATE ... WHERE balance >= N garantiza este invariante
-/// sin serializable isolation. Ver diseno-facturacion.md §3.2 para el patrón.
+/// INVARIANTE: balance >= 0 y bumpBalance >= 0. Ninguno se vuelve negativo.
+/// El débito atómico via UPDATE ... WHERE balance >= N (o bumpBalance >= N)
+/// garantiza este invariante sin serializable isolation. Ver
+/// diseno-facturacion.md §3.2 para el patrón de créditos; §17 para bumps.
 model Wallet {
   id     String @id @default(cuid())
   userId String @unique
@@ -1007,7 +1031,15 @@ model Wallet {
   /// Saldo en créditos enteros. Fuente de verdad del saldo actual.
   balance Int @default(0)
 
-  entries CreditLedger[]
+  /// Saldo de bumps gratis (moneda separada, intransferible, solo canjeable
+  /// por bumps). NO caduca — misma decisión que balance, documentada en
+  /// diseno-facturacion.md §17. Solo se acredita por cupón o a mano (soporte);
+  /// no se compra directamente (ver Opción B: comprar bumps acredita balance,
+  /// no bumpBalance).
+  bumpBalance Int @default(0)
+
+  entries     CreditLedger[]
+  bumpEntries BumpLedger[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1028,6 +1060,8 @@ model CreditLedger {
 
   /// Referencia polimórfica al recurso que originó el movimiento.
   /// Transaction.id para compras; Entitlement.id para destacados; Listing.id para bumps.
+  /// Para bumps pagados con crédito: SIEMPRE 'Listing' + el id del anuncio —
+  /// consultable sin ambigüedad junto con BumpLedger (ver su comentario).
   referenceId   String?
   referenceType String? // "Transaction" | "Entitlement" | "Listing"
 
@@ -1037,6 +1071,43 @@ model CreditLedger {
 
   @@index([walletId])
   @@index([createdAt])
+  @@index([referenceType, referenceId])
+}
+
+/// Registro inmutable de cada movimiento de saldo de bumps. Mismo molde que
+/// CreditLedger, moneda separada.
+///
+/// HISTÓRICO SIN AMBIGÜEDAD (Monetización ráfaga 2, corrección pedida): para
+/// saber con qué se pagó UN bump concreto, la consulta correcta es filtrar
+/// CreditLedger y BumpLedger por referenceType='Listing' AND referenceId=<id>,
+/// NUNCA por cercanía temporal a Listing.bumpedAt (ese campo se sobrescribe en
+/// cada bump — no sirve de índice histórico). Cada fila de cualquiera de los
+/// dos ledgers es, por sí sola, el registro permanente de UN evento de bump:
+/// su createdAt es el instante exacto de ESE bump, y su sola presencia en un
+/// ledger u otro (nunca ambos a la vez para el mismo evento) dice con qué se
+/// pagó. Si un anuncio se bumpea varias veces, hay una fila por bump en el
+/// ledger que corresponda — se leen todas, ordenadas por createdAt, sin
+/// necesitar correlacionarlas con ningún otro campo del Listing.
+model BumpLedger {
+  id       String @id @default(cuid())
+  walletId String
+  wallet   Wallet @relation(fields: [walletId], references: [id])
+
+  type BumpLedgerType
+
+  /// Positivo = crédito (cupón, soporte); negativo = débito (bump consumido).
+  amount Int
+
+  referenceId   String?
+  referenceType String? // "Coupon" | "Listing" | "User"
+
+  note String?
+
+  createdAt DateTime @default(now())
+
+  @@index([walletId])
+  @@index([createdAt])
+  @@index([referenceType, referenceId])
 }
 
 /// Campaña promocional gestionada desde el backoffice (H8 Bloque D). El MOTOR es
@@ -1078,6 +1149,10 @@ model Campaign {
 enum CouponRewardType {
   CREDITS
   FEATURED
+  /// Monetización ráfaga 2 — acredita BumpLedger.amount al bumpBalance del
+  /// usuario, no CreditLedger/balance. Disponible para cualquier usuario
+  /// (Pro o no), igual que CREDITS/FEATURED: este sistema no distingue plan.
+  BUMP
 }
 
 /// Cupón canjeable por código. A diferencia de Campaign, NO usa `params` Json:
@@ -1105,6 +1180,8 @@ model Coupon {
   creditAmount         Int?
   /// Solo si rewardType = FEATURED.
   featuredDurationDays Int?
+  /// Solo si rewardType = BUMP.
+  bumpAmount           Int?
 
   /// null = ilimitado.
   maxRedemptions  Int?
@@ -1372,13 +1449,13 @@ model ContactReason {
 /// se persiste junto a los datos del remitente. Sin relación a User: el remitente
 /// no está autenticado.
 model ContactMessage {
-  id       String @id @default(cuid())
-  motivoId String
+  id        String        @id @default(cuid())
+  motivoId  String
   /// onDelete: Restrict — un ContactReason con mensajes no puede borrarse
   /// (de todos modos no hay endpoint DELETE; se desactiva, nunca se borra).
-  motivo   ContactReason @relation(fields: [motivoId], references: [id], onDelete: Restrict)
-  email    String
-  telefono String?
+  motivo    ContactReason @relation(fields: [motivoId], references: [id], onDelete: Restrict)
+  email     String
+  telefono  String?
   mensaje   String        @db.Text
   estado    ContactEstado @default(NUEVO)
   createdAt DateTime      @default(now())
@@ -1394,14 +1471,14 @@ model ContactMessage {
 /// auditable de qué se envió exactamente (asunto/cuerpo), a diferencia de
 /// AuditLog que solo registra la acción, no el contenido del email.
 model ContactReply {
-  id               String   @id @default(cuid())
+  id               String         @id @default(cuid())
   contactMessageId String
   contactMessage   ContactMessage @relation(fields: [contactMessageId], references: [id], onDelete: Cascade)
   adminUserId      String
-  admin            User     @relation("ContactReplyAdmin", fields: [adminUserId], references: [id])
+  admin            User           @relation("ContactReplyAdmin", fields: [adminUserId], references: [id])
   asunto           String
-  cuerpo           String   @db.Text
-  sentAt           DateTime @default(now())
+  cuerpo           String         @db.Text
+  sentAt           DateTime       @default(now())
 
   @@index([contactMessageId])
 }

@@ -6748,6 +6748,62 @@ los 2 ficheros nuevos/ampliados de esta ráfaga. QA en vivo con capturas de pant
 (Playwright headless) para los tres estados de usuario en `/mis-anuncios` (destacar y bump) y para
 el editor nuevo en `/admin/ajustes` (validación de rango + guardado real).
 
+### Monetización — ráfaga 2: saldo de bumps, pack de bumps y cupones de bump (CERRADO)
+
+Diseñado y aprobado explícitamente antes de implementar — documentación completa del diseño en
+`diseno-facturacion.md` §17. Resumen de lo construido:
+
+- **Saldo de bumps** (`Wallet.bumpBalance`, moneda separada de los créditos: gratuita,
+  intransferible, específica de bumps). Ledger propio (`BumpLedger`/`BumpLedgerType`), mismo molde
+  que `CreditLedger`. NO caduca (misma decisión que los créditos, con la puerta documentada si algún
+  día hace falta). Débito atómico con el mismo patrón `UPDATE ... WHERE bumpBalance >= N` que ya
+  usaba `balance` — sin lock nuevo.
+- **Prioridad de consumo** en `BillingService.bump()`: se intenta primero `bumpBalance` (gratis,
+  inmune a descuentos de campaña), y solo si no hay se cae a créditos (comportamiento previo
+  intacto, con descuento de campaña si lo hay). La respuesta ahora incluye `paidWith` (
+  `'BUMP_BALANCE' | 'CREDITS'`) y `cost`, para que la UI confirme sin ambigüedad qué se gastó.
+- **Pack de bumps — Opción B** (decidida explícitamente: NO es una moneda nueva). Es un `CreditPack`
+  normal (`highlightBumps: true`) que acredita créditos, no bumpBalance. El catálogo añade
+  `bumpEquivalent = floor(creditAmount / bumpCreditCost)` calculado EN VIVO — nunca un texto fijo
+  que pueda desincronizarse si `bumpCreditCost` cambia después. Un Pro que lo compra recibe el mismo
+  +20% (§2.5) que cualquier otro pack, sin casuística especial. Sembrado en `seed.ts`/`seed-test.ts`
+  ("Pack de bumps", 60 créditos / 4,99 €, mismo precio que el Pack Básico pero más créditos).
+- **Cupones de bump**: `CouponRewardType.BUMP` + `Coupon.bumpAmount`, mismo molde exacto que
+  `CREDITS`. Canje atómico dentro de la `$transaction` ya existente de `CouponsService.redeem()`.
+  Disponible para cualquier usuario (Pro o no) — el sistema de cupones nunca ha distinguido plan.
+  Admin CRUD ampliado (`/admin/coupones`, formulario con el campo condicional al tipo).
+- **Histórico sin ambigüedad** (corrección incorporada al diseño antes de implementar): tanto
+  `BumpLedger` como `CreditLedger` usan siempre `referenceType='Listing'` + `referenceId=<id>` para
+  los débitos de bump — consultable por referencia, nunca por cercanía a `Listing.bumpedAt` (que
+  solo guarda el último bump). Verificado con un test que bumpea el mismo anuncio dos veces, una vez
+  por cada moneda, y localiza cada pago sin ambigüedad.
+- **UI**: `MyListingCard` — el botón "Bump" anuncia de antemano si va a ser gratis ("Bump gratis (te
+  quedan N)") leyendo el wallet; tras bumpear, confirma con qué se pagó. `/mis-creditos` — saldo de
+  bumps SIEMPRE visible (aunque sea 0, mismo principio que el saldo de créditos), con su propio
+  historial en una lista separada (decisión explícita: fusionar dos ledgers paginados de modelos
+  distintos en una sola vista cronológica exigiría una consulta `UNION` a mano; con los volúmenes
+  reales de esta moneda, dos listas independientes es la opción simple sin sacrificar corrección).
+- **Deuda inventariada, no tocada**: la carrera de cooldown de bump (`listing.bumpedAt` leído fuera
+  de la `$transaction`) sigue ahí, preexistente a esta ráfaga — señalada de nuevo al diseñar,
+  deliberadamente fuera de alcance.
+- **Fuera de esta ráfaga** (diferido explícitamente): pago con tarjeta para bump directo, reglas de
+  cupón más ricas, bumps gratis automáticos para Pro.
+
+**Verificado**: nuevo fichero `test/bump-balance.e2e-spec.ts` (12 tests) cubriendo, ejerciendo (no
+declarando): atomicidad del débito bajo concurrencia real (dos bumps simultáneos con
+`bumpBalance=1` compartido), idempotencia (reintento bloqueado por cooldown no debita dos veces;
+canjear el mismo cupón BUMP dos veces no duplica el crédito), la prioridad de consumo en sus tres
+variantes (con ambas monedas disponibles, solo créditos, saldo agotado a mitad de flujo), el
+histórico sin ambigüedad por referencia, el cupón BUMP para un usuario no-Pro, la validación admin
+del nuevo tipo de cupón, el bonus Pro del pack de bumps, y el recálculo en vivo de `bumpEquivalent`
+al cambiar `bumpCreditCost`. Batería completa: 62 suites / 939 tests (1 test de un fichero no
+relacionado —`redsys-featured-payment-e2e.e2e-spec.ts`— resultó flaky por timing de Meilisearch bajo
+la carga de la pasada completa; 5/5 verde al re-ejecutarlo en aislado, no relacionado con esta
+ráfaga). Typecheck de frontend limpio. QA en vivo con capturas Playwright: botón de bump consciente
+del saldo en los dos estados (con/sin saldo), confirmación tras bumpear, saldo de bumps y pack de
+bumps en `/mis-creditos`, canje de cupón en vivo, y el nuevo tipo de recompensa en el formulario de
+cupones del backoffice.
+
 ---
 
 ## 4. Documentación de la API y el diseño

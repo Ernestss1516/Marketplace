@@ -6,7 +6,7 @@ import { Loader2, PlusCircle, Star } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MyListingCard } from './MyListingCard';
 import { getMyListings } from '@/lib/api/anuncios';
-import { getProStatus, type ProStatus } from '@/lib/api/billing';
+import { getProStatus, getWallet, type ProStatus } from '@/lib/api/billing';
 import type { BumpPricing, ListingSummary } from '@/types';
 
 const FILTERS: { label: string; value: string | null }[] = [
@@ -26,9 +26,15 @@ interface Props {
   bumpPricing: BumpPricing;
 }
 
-export function MisAnunciosClient({ initialListings, initialProStatus, token, bumpPricing }: Props) {
+export function MisAnunciosClient({
+  initialListings,
+  initialProStatus,
+  token,
+  bumpPricing: initialBumpPricing,
+}: Props) {
   const [listings, setListings] = useState<ListingSummary[]>(initialListings);
   const [proStatus, setProStatus] = useState<ProStatus>(initialProStatus);
+  const [bumpPricing, setBumpPricing] = useState<BumpPricing>(initialBumpPricing);
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -53,6 +59,12 @@ export function MisAnunciosClient({ initialListings, initialProStatus, token, bu
     // count — refresh it here so the reminder below stays accurate without a
     // full page reload.
     getProStatus(token).then(setProStatus).catch(() => {});
+    // Monetización ráfaga 2: un bump puede haber consumido saldo de bumps —
+    // refresca para que el botón refleje el saldo real en el siguiente render,
+    // mismo patrón que proStatus arriba.
+    getWallet(token)
+      .then((wallet) => setBumpPricing((prev) => ({ ...prev, bumpBalance: wallet.bumpBalance })))
+      .catch(() => {});
   }
 
   const visibleListings = listings;

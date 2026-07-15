@@ -1,9 +1,10 @@
 import { apiFetch } from './client';
 
 export interface RedeemCouponResult {
-  rewardType: 'CREDITS' | 'FEATURED';
+  rewardType: 'CREDITS' | 'FEATURED' | 'BUMP';
   creditAmount: number | null;
   featuredDurationDays: number | null;
+  bumpAmount: number | null;
 }
 
 /**

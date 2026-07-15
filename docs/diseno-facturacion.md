@@ -1069,3 +1069,97 @@ verificación manual con capturas de pantalla reales en las ráfagas de UX (H8.5
 3. Esta tabla de decisiones (§15) tiene ahora entradas corregidas respecto a revisiones anteriores
    (`grantFeaturedListing` ya no es "punto único") — si algo de código contradice lo escrito aquí,
    confiar en el código y actualizar el documento, no al revés.
+
+---
+
+## 17. Saldo de bumps (Monetización ráfaga 2) — moneda separada, gratuita e intransferible
+
+Diseñado y aprobado antes de implementar (mismo rigor que el sistema de créditos: una moneda a
+medias es peor que ninguna). Cierra la deuda de "bumps gratis" que quedó fuera de la ráfaga 1.
+
+### 17.1 Modelo
+
+`Wallet` gana una segunda columna, `bumpBalance Int @default(0)`, en vez de una tabla `BumpWallet`
+separada: las dos monedas se consumen en la MISMA operación (bumpear intenta primero bumpBalance,
+luego balance — ver §17.3), así que compartir fila evita coordinar dos filas en cada bump. El
+invariante (`bumpBalance >= 0`) se protege con el mismo patrón `UPDATE ... WHERE bumpBalance >= N`
+que ya usa `balance` — sin `SELECT ... FOR UPDATE`, sin serializable isolation.
+
+`BumpLedger` es una tabla nueva, separada de `CreditLedger` (mismo molde: `walletId`, `type`,
+`amount`, `referenceId`/`referenceType`, `note`, `createdAt`, inmutable). Moneda distinta, ledger
+distinto — mezclarlas en una tabla habría exigido un discriminador de moneda en cada fila, más
+confuso que dos tablas con la misma forma. `BumpLedgerType`: `COUPON_REDEEM` (entrada),
+`BUMP_DEBIT` (salida), `ADMIN_CREDIT`/`ADMIN_DEBIT` (ajustes de soporte). Sin `PACK_PURCHASE`: los
+bumps no se compran directamente con dinero real (ver §17.4, Opción B).
+
+### 17.2 Caducidad — decisión: NO caducan
+
+Mismo motivo que los créditos hoy (§15, "simplicidad y UX"). Razón técnica añadida: un saldo que
+caduca por partes (cupón A caduca antes que cupón B) no se puede representar correctamente con un
+contador simple (`bumpBalance Int`) — haría falta saldo *derivado* del ledger (sumar solo entradas
+no caducadas), un diseño bastante más grande. Si en el futuro hace falta caducidad, la puerta ya
+está documentada (igual que para créditos): añadir `expiresAt` por fila de `BumpLedger` y pasar de
+saldo-contador a saldo-derivado.
+
+### 17.3 Prioridad de consumo — EL PUNTO CRÍTICO
+
+Al bumpear (`BillingService.bump()`), dos `UPDATE ... WHERE` condicionales encadenados, nunca
+`SELECT ... FOR UPDATE`:
+
+1. Intentar `bumpBalance - 1` (gratis, siempre 1 unidad exacta, inmune a descuentos de campaña —
+   igual que la cuota Pro: lo gratis no se abarata más). Si afecta 1 fila → `BumpLedger BUMP_DEBIT`,
+   `paidWith: 'BUMP_BALANCE'`, listo.
+2. Si no había saldo (afecta 0 filas) → débito de créditos EXACTAMENTE como antes de esta ráfaga
+   (con descuento de campaña si aplica) → `CreditLedger BUMP_DEBIT`, `paidWith: 'CREDITS'`.
+
+La respuesta de `POST /listings/:id/bump` incluye `paidWith` y `cost` para que la UI confirme sin
+ambigüedad qué se gastó (`MyListingCard`: "Bump gratis usado" vs. "Se han descontado N créditos").
+El botón, ANTES de hacer clic, ya anuncia cuál va a ser ("Bump gratis (te quedan N)" vs. el coste en
+créditos) leyendo `bumpBalance` del wallet.
+
+### 17.4 Pack de bumps — Opción B (no es una moneda nueva)
+
+Decisión tomada explícitamente: comprar bumps con dinero real NO acredita `bumpBalance`. Acredita
+`balance` (créditos), como cualquier pack — es un `CreditPack` normal con un flag de presentación,
+`highlightBumps Boolean`. Cuando está activo, `GET /billing/catalog` añade un campo derivado
+`bumpEquivalent = floor(creditAmount / bumpCreditCost)`, calculado EN VIVO con el `Setting` vigente
+— nunca guardado como texto fijo. Si el admin cambia `bumpCreditCost` después, el número mostrado
+se recalcula solo en la siguiente lectura del catálogo; lo que el comprador ya recibió
+(`creditAmount`, congelado en `Transaction.baseCreditAmount` igual que cualquier pack) no cambia.
+Por ser un `CreditPack` normal, un Pro que lo compra recibe el mismo bonus del +20% (§2.5) que
+cualquier otro pack — sin casuística especial.
+
+### 17.5 Cupones de bump
+
+`CouponRewardType` gana `BUMP`; `Coupon.bumpAmount Int?` (solo para ese tipo), mismo molde exacto
+que `CREDITS`/`creditAmount`. El canje (`CouponsService.redeem()`) gana una tercera rama que
+acredita `bumpBalance`/`BumpLedger` dentro de la misma `$transaction` que ya protege el límite total
+y el uno-por-usuario — cero mecanismo de concurrencia nuevo. Disponible para cualquier usuario, Pro
+o no: el sistema de cupones nunca ha distinguido plan (los de `CREDITS`/`FEATURED` tampoco lo
+hacen), así que no hizo falta añadir NI quitar autorización. Los cupones se crean a mano desde
+`/admin/coupones` y se distribuyen fuera de la app (marketing, soporte) — mismo patrón que
+`CREDITS`/`FEATURED`, no se implementó concesión automática por evento.
+
+### 17.6 Histórico sin ambigüedad
+
+Corrección incorporada al diseño antes de implementar: la fila que registra CON QUÉ se pagó un bump
+concreto (`BumpLedger` o `CreditLedger`, nunca ambas para el mismo evento) usa siempre
+`referenceType='Listing'` + `referenceId=<listingId>`. La consulta correcta para reconstruir el
+histórico de un anuncio es filtrar CADA ledger por esa referencia y ordenar por `createdAt` — nunca
+por cercanía a `Listing.bumpedAt`, que solo guarda el instante del ÚLTIMO bump y se sobrescribe en
+cada uno. Verificado con un test que bumpea el mismo listing dos veces (una por cada moneda) y
+localiza cada pago sin más pista que `referenceId` (`bump-balance.e2e-spec.ts`).
+
+### 17.7 Deuda inventariada, no tocada en esta ráfaga
+
+La comprobación de cooldown de bump (`listing.bumpedAt`) se lee FUERA de la `$transaction` — dos
+peticiones concurrentes sobre el mismo listing podrían, en teoría, pasar ambas la comprobación
+antes de que ninguna confirme su propio `UPDATE`. Preexistente a esta ráfaga (la prioridad de
+consumo no lo agrava ni lo mejora); señalada al diseñar, deliberadamente no resuelta aquí para no
+ampliar el alcance.
+
+### 17.8 Fuera de esta ráfaga (diferido explícitamente)
+
+Pago con tarjeta para bump directo, cupones de bump con reglas más ricas (p. ej. por segmento de
+usuario), bumps gratis automáticos para Pro (más allá del cupón manual). Ninguno se empezó; no hay
+código parcial que mantener.

@@ -50,6 +50,7 @@ export function CouponFormDialog({ token, open, onOpenChange, coupon, onSuccess 
   const [rewardType, setRewardType] = useState<CouponRewardType>('CREDITS');
   const [creditAmount, setCreditAmount] = useState('');
   const [featuredDurationDays, setFeaturedDurationDays] = useState('');
+  const [bumpAmount, setBumpAmount] = useState('');
   const [maxRedemptions, setMaxRedemptions] = useState('');
   const [active, setActive] = useState(true);
   const [startsAt, setStartsAt] = useState('');
@@ -67,6 +68,7 @@ export function CouponFormDialog({ token, open, onOpenChange, coupon, onSuccess 
       setFeaturedDurationDays(
         coupon.featuredDurationDays != null ? String(coupon.featuredDurationDays) : '',
       );
+      setBumpAmount(coupon.bumpAmount != null ? String(coupon.bumpAmount) : '');
       setMaxRedemptions(coupon.maxRedemptions != null ? String(coupon.maxRedemptions) : '');
       setActive(coupon.active);
       setStartsAt(toLocalInput(coupon.startsAt));
@@ -76,6 +78,7 @@ export function CouponFormDialog({ token, open, onOpenChange, coupon, onSuccess 
       setRewardType('CREDITS');
       setCreditAmount('');
       setFeaturedDurationDays('');
+      setBumpAmount('');
       setMaxRedemptions('');
       setActive(true);
       setStartsAt('');
@@ -101,6 +104,7 @@ export function CouponFormDialog({ token, open, onOpenChange, coupon, onSuccess 
           ...(rewardType === 'FEATURED'
             ? { featuredDurationDays: Number(featuredDurationDays) }
             : {}),
+          ...(rewardType === 'BUMP' ? { bumpAmount: Number(bumpAmount) } : {}),
         });
       } else {
         await createAdminCoupon(token, {
@@ -114,6 +118,7 @@ export function CouponFormDialog({ token, open, onOpenChange, coupon, onSuccess 
           ...(rewardType === 'FEATURED'
             ? { featuredDurationDays: Number(featuredDurationDays) }
             : {}),
+          ...(rewardType === 'BUMP' ? { bumpAmount: Number(bumpAmount) } : {}),
         });
       }
       onOpenChange(false);
@@ -158,7 +163,8 @@ export function CouponFormDialog({ token, open, onOpenChange, coupon, onSuccess 
             <Label htmlFor="coupon-reward-type">Recompensa</Label>
             {isEdit ? (
               <p className="text-sm text-muted-foreground">
-                {rewardType === 'CREDITS' ? 'Créditos' : 'Destacado'} (no se puede cambiar tras crear)
+                {rewardType === 'CREDITS' ? 'Créditos' : rewardType === 'BUMP' ? 'Bumps gratis' : 'Destacado'}
+                {' '}(no se puede cambiar tras crear)
               </p>
             ) : (
               <Select value={rewardType} onValueChange={(v) => setRewardType(v as CouponRewardType)}>
@@ -168,6 +174,7 @@ export function CouponFormDialog({ token, open, onOpenChange, coupon, onSuccess 
                 <SelectContent>
                   <SelectItem value="CREDITS">Créditos</SelectItem>
                   <SelectItem value="FEATURED">Destacado</SelectItem>
+                  <SelectItem value="BUMP">Bumps gratis</SelectItem>
                 </SelectContent>
               </Select>
             )}
@@ -183,6 +190,21 @@ export function CouponFormDialog({ token, open, onOpenChange, coupon, onSuccess 
                 value={creditAmount}
                 onChange={(e) => setCreditAmount(e.target.value)}
               />
+            </div>
+          ) : rewardType === 'BUMP' ? (
+            <div>
+              <Label htmlFor="coupon-bump-amount">Bumps gratis a otorgar</Label>
+              <Input
+                id="coupon-bump-amount"
+                type="number"
+                min={1}
+                value={bumpAmount}
+                onChange={(e) => setBumpAmount(e.target.value)}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Van al saldo de bumps del usuario (moneda separada de los créditos, disponible para
+                cualquiera). No caducan.
+              </p>
             </div>
           ) : (
             <div>

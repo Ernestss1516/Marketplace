@@ -36,4 +36,10 @@ export class UpdateCouponDto {
   @IsInt()
   @Min(1)
   featuredDurationDays?: number;
+
+  /** Solo válido si el cupón es rewardType=BUMP. */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  bumpAmount?: number;
 }

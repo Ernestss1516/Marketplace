@@ -12,6 +12,7 @@ import { Queue } from 'bullmq';
 import { ConfigService } from '@nestjs/config';
 import Stripe = require('stripe');
 import {
+  BumpLedgerType,
   CreditLedgerType,
   EntitlementType,
   FeaturedOrigin,
@@ -507,10 +508,23 @@ export class BillingService {
 
   /**
    * POST /listings/:id/bump
-   * Atomic: wallet debit + CreditLedger + Listing.bumpedAt in a single Postgres TX.
+   * Atomic: wallet debit + ledger entry + Listing.bumpedAt in a single Postgres TX.
    * Failed attempts (insufficient credits, cooldown, not ACTIVE) do NOT update bumpedAt.
+   *
+   * Monetización ráfaga 2 — PRIORIDAD DE CONSUMO: se intenta primero el saldo
+   * de bumps (bumpBalance, moneda específica y gratuita), y solo si no hay
+   * disponible se cae al débito de créditos (moneda general, de pago) que ya
+   * existía. Ambos intentos son un único UPDATE ... WHERE condicional cada
+   * uno — mismo patrón atómico que el débito de créditos de abajo, sin
+   * SELECT ... FOR UPDATE. El saldo de bumps NUNCA se abarata por campaña
+   * (igual que la cuota Pro): ya es gratis, un descuento no tiene sentido ahí.
+   *
+   * HISTÓRICO SIN AMBIGÜEDAD: la fila creada (BumpLedger o CreditLedger, nunca
+   * ambas para el mismo bump) usa siempre referenceType='Listing' +
+   * referenceId=listingId — consultable por referencia, no por cercanía a
+   * bumpedAt (ver comentario en schema.prisma sobre BumpLedger).
    */
-  async bump(listingId: string, userId: string): Promise<{ bumpedAt: Date }> {
+  async bump(listingId: string, userId: string): Promise<{ bumpedAt: Date; paidWith: 'BUMP_BALANCE' | 'CREDITS'; cost: number }> {
     const listing = await this.prisma.listing.findUnique({
       where: { id: listingId },
       select: { id: true, status: true, sellerId: true, bumpedAt: true },
@@ -521,7 +535,11 @@ export class BillingService {
       throw new BadRequestException('Only ACTIVE listings can be bumped');
     }
 
-    // Cooldown check: if bumpedAt is within the last hour, reject
+    // Cooldown check: if bumpedAt is within the last hour, reject. (Deuda
+    // menor preexistente, no de esta ráfaga: esta comprobación lee bumpedAt
+    // FUERA de la transacción, así que dos peticiones concurrentes sobre el
+    // mismo listing podrían ambas pasarla antes de que ninguna confirme su
+    // propio UPDATE — inventariada, no se toca aquí.)
     const now = new Date();
     if (listing.bumpedAt) {
       const elapsedSeconds = (now.getTime() - listing.bumpedAt.getTime()) / 1000;
@@ -540,25 +558,48 @@ export class BillingService {
     const baseCost = bumpCostSetting ? Number(bumpCostSetting.value) : 5;
 
     // H8 Bloque D fase 2 — mismo criterio que featuredByCredits: calculado en
-    // vivo, floor a favor del usuario.
+    // vivo, floor a favor del usuario. Solo aplica a la rama de créditos.
     const discount = await this.campaigns.getActiveActionDiscount('BUMP');
-    const cost = discount
+    const creditCost = discount
       ? Math.floor(baseCost * (100 - (discount.params as { percent: number }).percent) / 100)
       : baseCost;
 
     const bumpedAt = new Date();
 
-    await this.prisma.$transaction(async (tx) => {
-      // Atomic debit
+    const { paidWith, cost } = await this.prisma.$transaction(async (tx) => {
+      // 1) Intentar saldo de bumps primero — 1 unidad, siempre, sin descuento.
+      const viaBumpBalance = await tx.$executeRaw`
+        UPDATE "Wallet" SET "bumpBalance" = "bumpBalance" - 1
+        WHERE "userId" = ${userId} AND "bumpBalance" >= 1
+      `;
+
+      if (viaBumpBalance > 0) {
+        const wallet = await tx.wallet.findUniqueOrThrow({
+          where: { userId },
+          select: { id: true },
+        });
+        await tx.bumpLedger.create({
+          data: {
+            walletId: wallet.id,
+            type: BumpLedgerType.BUMP_DEBIT,
+            amount: -1,
+            referenceType: 'Listing',
+            referenceId: listingId,
+          },
+        });
+        await tx.listing.update({ where: { id: listingId }, data: { bumpedAt } });
+        return { paidWith: 'BUMP_BALANCE' as const, cost: 0 };
+      }
+
+      // 2) Sin saldo de bumps — débito de créditos, exactamente como antes.
       const affected = await tx.$executeRaw`
-        UPDATE "Wallet" SET balance = balance - ${cost}
-        WHERE "userId" = ${userId} AND balance >= ${cost}
+        UPDATE "Wallet" SET balance = balance - ${creditCost}
+        WHERE "userId" = ${userId} AND balance >= ${creditCost}
       `;
       if (affected === 0) {
         throw new HttpException('Insufficient credits', HttpStatus.PAYMENT_REQUIRED);
       }
 
-      // Ledger entry — amount is the cost ALREADY discounted (the real debit).
       const wallet = await tx.wallet.findUniqueOrThrow({
         where: { userId },
         select: { id: true },
@@ -567,25 +608,22 @@ export class BillingService {
         data: {
           walletId: wallet.id,
           type: CreditLedgerType.BUMP_DEBIT,
-          amount: -cost,
+          amount: -creditCost,
           referenceType: 'Listing',
           referenceId: listingId,
           ...(discount && { note: `Campaña "${discount.name}" (-${(discount.params as { percent: number }).percent}%)` }),
         },
       });
 
-      // Update bumpedAt — only on successful debit
-      await tx.listing.update({
-        where: { id: listingId },
-        data: { bumpedAt },
-      });
+      await tx.listing.update({ where: { id: listingId }, data: { bumpedAt } });
+      return { paidWith: 'CREDITS' as const, cost: creditCost };
     });
 
     // After TX commits: enqueue reindexing so Meilisearch picks up new sortDate
     await this.indexingQueue.add('index', { listingId });
 
-    this.logger.log(`Bump: listingId=${listingId}, userId=${userId}, cost=${cost}`);
-    return { bumpedAt };
+    this.logger.log(`Bump: listingId=${listingId}, userId=${userId}, paidWith=${paidWith}, cost=${cost}`);
+    return { bumpedAt, paidWith, cost };
   }
 
   // ---------------------------------------------------------------------------
@@ -601,7 +639,7 @@ export class BillingService {
     });
 
     if (!wallet) {
-      return { balance: 0, items: [], total: 0, page, perPage, totalPages: 0 };
+      return { balance: 0, bumpBalance: 0, items: [], total: 0, page, perPage, totalPages: 0 };
     }
 
     const [items, total] = await Promise.all([
@@ -615,7 +653,48 @@ export class BillingService {
     ]);
 
     return {
+      // Saldo de bumps SIEMPRE presente en la respuesta, aunque sea 0 — igual
+      // que balance: ocultarlo cuando es 0 escondería que la función existe a
+      // un usuario que aún no ha canjeado ningún cupón de bump.
       balance: wallet.balance,
+      bumpBalance: wallet.bumpBalance,
+      items,
+      total,
+      page,
+      perPage,
+      totalPages: Math.ceil(total / perPage),
+    };
+  }
+
+  /**
+   * Monetización ráfaga 2 — historial del saldo de bumps, en una lista
+   * separada del historial de créditos (decisión de diseño explícita: fusionar
+   * dos ledgers paginados de modelos distintos en una sola vista cronológica
+   * exigiría una UNION SQL a mano; con los volúmenes reales de esta moneda
+   * (unidades, no miles), dos listas independientes es la opción simple que
+   * no sacrifica corrección — se puede revisar si algún día hace falta.
+   */
+  async getBumpLedger(userId: string, query: WalletQueryDto) {
+    const page = query.page ?? 1;
+    const perPage = query.perPage ?? 20;
+
+    const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
+    if (!wallet) {
+      return { bumpBalance: 0, items: [], total: 0, page, perPage, totalPages: 0 };
+    }
+
+    const [items, total] = await Promise.all([
+      this.prisma.bumpLedger.findMany({
+        where: { walletId: wallet.id },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * perPage,
+        take: perPage,
+      }),
+      this.prisma.bumpLedger.count({ where: { walletId: wallet.id } }),
+    ]);
+
+    return {
+      bumpBalance: wallet.bumpBalance,
       items,
       total,
       page,
@@ -716,6 +795,15 @@ export class BillingService {
                   creditAmount: price.creditPack.creditAmount,
                   creditPackId: price.creditPack.id,
                   packName: price.creditPack.name,
+                  // Monetización ráfaga 2 (Opción B) — "≈N bumps" calculado EN
+                  // VIVO con el bumpCreditCost vigente (no la variante
+                  // descontada por campaña: la equivalencia es sobre el coste
+                  // estándar, no sobre una promoción pasajera). Nunca se
+                  // guarda como texto fijo, así que no puede desincronizarse
+                  // si el admin cambia bumpCreditCost después.
+                  ...(price.creditPack.highlightBumps && {
+                    bumpEquivalent: Math.floor(price.creditPack.creditAmount / baseBumpCreditCost),
+                  }),
                 }
               : {}),
           };

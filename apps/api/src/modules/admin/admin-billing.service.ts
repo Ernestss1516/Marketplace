@@ -228,7 +228,9 @@ export class AdminBillingService {
       },
       include: {
         product: { select: { name: true } },
-        creditPack: { select: { id: true, name: true, creditAmount: true, active: true } },
+        creditPack: {
+          select: { id: true, name: true, creditAmount: true, active: true, highlightBumps: true },
+        },
       },
       orderBy: [{ product: { name: 'asc' } }, { durationDays: 'asc' }],
     });
@@ -242,6 +244,7 @@ export class AdminBillingService {
       active: price.active,
       creditPackId: price.creditPack?.id ?? null,
       creditAmount: price.creditPack?.creditAmount ?? null,
+      highlightBumps: price.creditPack?.highlightBumps ?? null,
     }));
   }
 
@@ -291,7 +294,10 @@ export class AdminBillingService {
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.creditPack.update({
         where: { id: creditPackId },
-        data: { creditAmount: dto.creditAmount },
+        data: {
+          creditAmount: dto.creditAmount,
+          ...(dto.highlightBumps !== undefined && { highlightBumps: dto.highlightBumps }),
+        },
       });
 
       await this.auditLog.log(
@@ -300,8 +306,14 @@ export class AdminBillingService {
           actorId,
           resourceType: 'CreditPack',
           resourceId: creditPackId,
-          before: { creditAmount: existing.creditAmount } as Prisma.InputJsonValue,
-          after: { creditAmount: dto.creditAmount } as Prisma.InputJsonValue,
+          before: {
+            creditAmount: existing.creditAmount,
+            highlightBumps: existing.highlightBumps,
+          } as Prisma.InputJsonValue,
+          after: {
+            creditAmount: dto.creditAmount,
+            highlightBumps: updated.highlightBumps,
+          } as Prisma.InputJsonValue,
           ip,
         },
         tx,

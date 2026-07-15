@@ -1,7 +1,14 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import { Coupon, CouponRewardType, CreditLedgerType, FeaturedOrigin, Prisma } from '@prisma/client';
+import {
+  BumpLedgerType,
+  Coupon,
+  CouponRewardType,
+  CreditLedgerType,
+  FeaturedOrigin,
+  Prisma,
+} from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { QUEUE_INDEXING } from '../../infra/queue/queue.constants';
 import { isP2002 } from '../../common/prisma/is-p2002';
@@ -15,9 +22,10 @@ import { ListCouponsDto } from './dto/list-coupons.dto';
 type CouponStatus = 'upcoming' | 'live' | 'ended';
 
 export interface RedeemResult {
-  rewardType: 'CREDITS' | 'FEATURED';
+  rewardType: 'CREDITS' | 'FEATURED' | 'BUMP';
   creditAmount: number | null;
   featuredDurationDays: number | null;
+  bumpAmount: number | null;
 }
 
 @Injectable()
@@ -114,6 +122,27 @@ export class CouponsService {
           });
           referenceType = 'CreditLedger';
           referenceId = ledger.id;
+        } else if (coupon.rewardType === 'BUMP') {
+          // Monetización ráfaga 2 — mismo molde que CREDITS, moneda distinta
+          // (bumpBalance/BumpLedger en vez de balance/CreditLedger). Disponible
+          // para cualquier usuario, Pro o no — este sistema no distingue plan.
+          const wallet = await tx.wallet.upsert({
+            where: { userId },
+            create: { userId, bumpBalance: coupon.bumpAmount! },
+            update: { bumpBalance: { increment: coupon.bumpAmount! } },
+            select: { id: true },
+          });
+          const ledger = await tx.bumpLedger.create({
+            data: {
+              walletId: wallet.id,
+              type: BumpLedgerType.COUPON_REDEEM,
+              amount: coupon.bumpAmount!,
+              referenceType: 'Coupon',
+              referenceId: coupon.id,
+            },
+          });
+          referenceType = 'BumpLedger';
+          referenceId = ledger.id;
         } else {
           // FEATURED — si grantFeaturedListingTx lanza (anuncio no ACTIVE, ya
           // destacado, o no es del usuario), TODA la tx hace rollback: el
@@ -154,6 +183,7 @@ export class CouponsService {
       rewardType: coupon.rewardType,
       creditAmount: coupon.creditAmount,
       featuredDurationDays: coupon.featuredDurationDays,
+      bumpAmount: coupon.bumpAmount,
     };
   }
 
@@ -193,7 +223,12 @@ export class CouponsService {
     if (endsAt <= startsAt) {
       throw new BadRequestException('endsAt debe ser posterior a startsAt');
     }
-    this.assertRewardFieldsMatchType(dto.rewardType, dto.creditAmount, dto.featuredDurationDays);
+    this.assertRewardFieldsMatchType(
+      dto.rewardType,
+      dto.creditAmount,
+      dto.featuredDurationDays,
+      dto.bumpAmount,
+    );
 
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -204,6 +239,7 @@ export class CouponsService {
             creditAmount: dto.rewardType === CouponRewardType.CREDITS ? dto.creditAmount : null,
             featuredDurationDays:
               dto.rewardType === CouponRewardType.FEATURED ? dto.featuredDurationDays : null,
+            bumpAmount: dto.rewardType === CouponRewardType.BUMP ? dto.bumpAmount : null,
             maxRedemptions: dto.maxRedemptions ?? null,
             active: dto.active ?? true,
             startsAt,
@@ -258,6 +294,9 @@ export class CouponsService {
     ) {
       throw new BadRequestException('featuredDurationDays solo aplica a cupones FEATURED');
     }
+    if (dto.bumpAmount !== undefined && existing.rewardType !== CouponRewardType.BUMP) {
+      throw new BadRequestException('bumpAmount solo aplica a cupones BUMP');
+    }
 
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.coupon.update({
@@ -271,6 +310,7 @@ export class CouponsService {
           ...(dto.featuredDurationDays !== undefined && {
             featuredDurationDays: dto.featuredDurationDays,
           }),
+          ...(dto.bumpAmount !== undefined && { bumpAmount: dto.bumpAmount }),
         },
       });
 
@@ -311,6 +351,7 @@ export class CouponsService {
       rewardType: coupon.rewardType,
       creditAmount: coupon.creditAmount,
       featuredDurationDays: coupon.featuredDurationDays,
+      bumpAmount: coupon.bumpAmount,
       maxRedemptions: coupon.maxRedemptions,
       active: coupon.active,
       startsAt: coupon.startsAt.toISOString(),
@@ -322,12 +363,16 @@ export class CouponsService {
     rewardType: CouponRewardType,
     creditAmount?: number,
     featuredDurationDays?: number,
+    bumpAmount?: number,
   ): void {
-    if (rewardType === CouponRewardType.CREDITS && featuredDurationDays != null) {
-      throw new BadRequestException('featuredDurationDays no debe enviarse para cupones CREDITS');
+    if (rewardType !== CouponRewardType.FEATURED && featuredDurationDays != null) {
+      throw new BadRequestException('featuredDurationDays solo aplica a cupones FEATURED');
     }
-    if (rewardType === CouponRewardType.FEATURED && creditAmount != null) {
-      throw new BadRequestException('creditAmount no debe enviarse para cupones FEATURED');
+    if (rewardType !== CouponRewardType.CREDITS && creditAmount != null) {
+      throw new BadRequestException('creditAmount solo aplica a cupones CREDITS');
+    }
+    if (rewardType !== CouponRewardType.BUMP && bumpAmount != null) {
+      throw new BadRequestException('bumpAmount solo aplica a cupones BUMP');
     }
   }
 }

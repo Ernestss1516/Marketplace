@@ -43,9 +43,17 @@ export function RedeemCouponForm({ token }: Props) {
   const [selectedListingId, setSelectedListingId] = useState<string>('');
   const [loadingListings, setLoadingListings] = useState(false);
 
-  function successMessage(result: { rewardType: string; creditAmount: number | null; featuredDurationDays: number | null }) {
+  function successMessage(result: {
+    rewardType: string;
+    creditAmount: number | null;
+    featuredDurationDays: number | null;
+    bumpAmount: number | null;
+  }) {
     if (result.rewardType === 'CREDITS') {
       return `¡+${result.creditAmount} créditos añadidos!`;
+    }
+    if (result.rewardType === 'BUMP') {
+      return `¡+${result.bumpAmount} bumps gratis añadidos a tu saldo!`;
     }
     return `¡Anuncio destacado ${result.featuredDurationDays} días!`;
   }

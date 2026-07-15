@@ -37,6 +37,12 @@ export class CreateCouponDto {
   @Min(1)
   featuredDurationDays?: number;
 
+  /** Requerido cuando rewardType=BUMP — ver nota de creditAmount arriba. */
+  @ValidateIf((o: CreateCouponDto) => o.rewardType === CouponRewardType.BUMP)
+  @IsInt()
+  @Min(1)
+  bumpAmount?: number;
+
   /** Omitido o null = ilimitado. */
   @IsOptional()
   @IsInt()

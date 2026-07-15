@@ -1,6 +1,6 @@
 import { apiFetch } from './client';
 
-export type CouponRewardType = 'CREDITS' | 'FEATURED';
+export type CouponRewardType = 'CREDITS' | 'FEATURED' | 'BUMP';
 export type CouponStatus = 'upcoming' | 'live' | 'ended';
 
 export interface AdminCoupon {
@@ -9,6 +9,7 @@ export interface AdminCoupon {
   rewardType: CouponRewardType;
   creditAmount: number | null;
   featuredDurationDays: number | null;
+  bumpAmount: number | null;
   maxRedemptions: number | null;
   redemptionCount: number;
   active: boolean;
@@ -31,6 +32,7 @@ export interface CreateCouponPayload {
   rewardType: CouponRewardType;
   creditAmount?: number;
   featuredDurationDays?: number;
+  bumpAmount?: number;
   maxRedemptions?: number | null;
   active?: boolean;
   startsAt: string;
@@ -44,6 +46,7 @@ export interface UpdateCouponPayload {
   maxRedemptions?: number | null;
   creditAmount?: number;
   featuredDurationDays?: number;
+  bumpAmount?: number;
 }
 
 export function getAdminCoupons(
