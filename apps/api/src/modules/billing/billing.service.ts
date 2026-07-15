@@ -511,20 +511,31 @@ export class BillingService {
    * Atomic: wallet debit + ledger entry + Listing.bumpedAt in a single Postgres TX.
    * Failed attempts (insufficient credits, cooldown, not ACTIVE) do NOT update bumpedAt.
    *
-   * Monetización ráfaga 2 — PRIORIDAD DE CONSUMO: se intenta primero el saldo
-   * de bumps (bumpBalance, moneda específica y gratuita), y solo si no hay
-   * disponible se cae al débito de créditos (moneda general, de pago) que ya
-   * existía. Ambos intentos son un único UPDATE ... WHERE condicional cada
-   * uno — mismo patrón atómico que el débito de créditos de abajo, sin
-   * SELECT ... FOR UPDATE. El saldo de bumps NUNCA se abarata por campaña
-   * (igual que la cuota Pro): ya es gratis, un descuento no tiene sentido ahí.
+   * Monetización ráfaga 3 — PRIORIDAD DE CONSUMO EN 3 NIVELES, todos dentro de
+   * la MISMA $transaction, encadenados:
+   *   1) Cuota mensual Pro (gratis, se pierde si no se usa este periodo —
+   *      EntitlementService.hasAvailableBumpQuota, mismo lock SELECT ... FOR
+   *      UPDATE sobre Subscription que ya usa la cuota de destacados).
+   *   2) Saldo de bumps por cupón (bumpBalance — gratis, permanente, no
+   *      caduca). UPDATE ... WHERE condicional, ráfaga 2.
+   *   3) Créditos (de pago, con descuento de campaña si lo hay). Comportamiento
+   *      previo intacto.
+   * Orden deliberado: se gasta primero lo que se PIERDE al resetear (cuota),
+   * luego lo gratis-permanente (cupón), luego lo pagado (créditos) — el
+   * usuario nunca sale perdiendo por el orden automático. Ninguno de los tres
+   * niveles se abarata por descuento de campaña salvo el 3 — los dos gratis ya
+   * lo son, un descuento no tiene sentido ahí (mismo criterio que la cuota de
+   * destacados).
    *
-   * HISTÓRICO SIN AMBIGÜEDAD: la fila creada (BumpLedger o CreditLedger, nunca
-   * ambas para el mismo bump) usa siempre referenceType='Listing' +
-   * referenceId=listingId — consultable por referencia, no por cercanía a
-   * bumpedAt (ver comentario en schema.prisma sobre BumpLedger).
+   * HISTÓRICO SIN AMBIGÜEDAD: la fila creada (BumpLedger PRO_QUOTA/BUMP_DEBIT
+   * o CreditLedger, nunca dos para el mismo bump) usa siempre
+   * referenceType='Listing' + referenceId=listingId — consultable por
+   * referencia, no por cercanía a bumpedAt (ver comentario en schema.prisma).
    */
-  async bump(listingId: string, userId: string): Promise<{ bumpedAt: Date; paidWith: 'BUMP_BALANCE' | 'CREDITS'; cost: number }> {
+  async bump(
+    listingId: string,
+    userId: string,
+  ): Promise<{ bumpedAt: Date; paidWith: 'PRO_QUOTA' | 'BUMP_BALANCE' | 'CREDITS'; cost: number }> {
     const listing = await this.prisma.listing.findUnique({
       where: { id: listingId },
       select: { id: true, status: true, sellerId: true, bumpedAt: true },
@@ -567,7 +578,39 @@ export class BillingService {
     const bumpedAt = new Date();
 
     const { paidWith, cost } = await this.prisma.$transaction(async (tx) => {
-      // 1) Intentar saldo de bumps primero — 1 unidad, siempre, sin descuento.
+      // 1) Cuota mensual Pro — se pierde si no se usa este periodo, así que
+      // se gasta primero. hasAvailableBumpQuota bloquea (FOR UPDATE) la fila
+      // Subscription del usuario hasta que esta tx confirme o revierta.
+      const hasBumpQuota = await this.entitlements.hasAvailableBumpQuota(tx, userId);
+      if (hasBumpQuota) {
+        // upsert, no findUniqueOrThrow: un Pro con cuota disponible puede no
+        // haber tenido NUNCA una fila Wallet (nunca compró créditos ni
+        // recibió un cupón de bump) — a diferencia del nivel 2, donde
+        // bumpBalance >= 1 ya implica que la fila existe.
+        const wallet = await tx.wallet.upsert({
+          where: { userId },
+          create: { userId },
+          update: {},
+          select: { id: true },
+        });
+        // amount: 0 — SIEMPRE. Esta fila es un marcador contable para el
+        // COUNT de la cuota (mismo rol que Entitlement.origin=PRO_QUOTA para
+        // destacados), NO un movimiento de bumpBalance. amount:-1 rompería
+        // el invariante wallet.bumpBalance == SUM(BumpLedger.amount).
+        await tx.bumpLedger.create({
+          data: {
+            walletId: wallet.id,
+            type: BumpLedgerType.PRO_QUOTA,
+            amount: 0,
+            referenceType: 'Listing',
+            referenceId: listingId,
+          },
+        });
+        await tx.listing.update({ where: { id: listingId }, data: { bumpedAt } });
+        return { paidWith: 'PRO_QUOTA' as const, cost: 0 };
+      }
+
+      // 2) Intentar saldo de bumps por cupón — 1 unidad, siempre, sin descuento.
       const viaBumpBalance = await tx.$executeRaw`
         UPDATE "Wallet" SET "bumpBalance" = "bumpBalance" - 1
         WHERE "userId" = ${userId} AND "bumpBalance" >= 1
@@ -591,7 +634,7 @@ export class BillingService {
         return { paidWith: 'BUMP_BALANCE' as const, cost: 0 };
       }
 
-      // 2) Sin saldo de bumps — débito de créditos, exactamente como antes.
+      // 3) Sin cuota ni saldo de bumps — débito de créditos, exactamente como antes.
       const affected = await tx.$executeRaw`
         UPDATE "Wallet" SET balance = balance - ${creditCost}
         WHERE "userId" = ${userId} AND balance >= ${creditCost}

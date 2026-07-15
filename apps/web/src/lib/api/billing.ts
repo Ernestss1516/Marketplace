@@ -146,6 +146,12 @@ export interface CatalogResponse {
 // H8.5b — Pro featured quota status
 // ---------------------------------------------------------------------------
 
+export interface BumpQuotaStatus {
+  limit: number;
+  used: number;
+  remaining: number;
+}
+
 export interface ProStatus {
   isPro: boolean;
   limit: number;
@@ -155,6 +161,8 @@ export interface ProStatus {
   periodEnd?: string;
   /** Fixed duration (days) a quota-paid featured grant lasts. */
   quotaDurationDays?: number;
+  /** Monetización ráfaga 3 — cuota mensual de bumps gratis, mismo periodo. */
+  bumpQuota: BumpQuotaStatus;
 }
 
 /** Single point the frontend consults for "how many free featured grants are left this month?" */
@@ -194,11 +202,13 @@ export function createFeaturedCheckout(
   });
 }
 
+export type BumpPaidWith = 'PRO_QUOTA' | 'BUMP_BALANCE' | 'CREDITS';
+
 export function bumpListing(
   token: string,
   listingId: string,
-): Promise<{ bumpedAt: string; paidWith: 'BUMP_BALANCE' | 'CREDITS'; cost: number }> {
-  return apiFetch<{ bumpedAt: string; paidWith: 'BUMP_BALANCE' | 'CREDITS'; cost: number }>(
+): Promise<{ bumpedAt: string; paidWith: BumpPaidWith; cost: number }> {
+  return apiFetch<{ bumpedAt: string; paidWith: BumpPaidWith; cost: number }>(
     `/listings/${listingId}/bump`,
     {
       method: 'POST',

@@ -27,7 +27,13 @@ export default async function MisAnunciosPage() {
   const [{ items }, proStatus, catalog, wallet, banners] = await Promise.all([
     getMyListings(token),
     getProStatus(token).catch(
-      (): ProStatus => ({ isPro: false, limit: 0, used: 0, remaining: 0 }),
+      (): ProStatus => ({
+        isPro: false,
+        limit: 0,
+        used: 0,
+        remaining: 0,
+        bumpQuota: { limit: 0, used: 0, remaining: 0 },
+      }),
     ),
     // H8 Bloque D fase 2 — catálogo público, solo para leer el coste de bump
     // (con descuento de campaña ya aplicado si lo hay). Fallback silencioso:
@@ -46,6 +52,7 @@ export default async function MisAnunciosPage() {
     bumpOriginalCreditCost: catalog.bumpOriginalCreditCost,
     bumpDiscountPercent: catalog.bumpDiscountPercent,
     bumpBalance: wallet.bumpBalance,
+    bumpQuota: proStatus.bumpQuota,
   };
 
   return (

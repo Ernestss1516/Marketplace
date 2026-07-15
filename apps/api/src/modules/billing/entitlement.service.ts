@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { EntitlementType, FeaturedOrigin, Prisma } from '@prisma/client';
+import { BumpLedgerType, EntitlementType, FeaturedOrigin, Prisma } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 
 function activeFilter() {
@@ -12,6 +12,19 @@ function activeFilter() {
 
 const DEFAULT_PRO_MONTHLY_FEATURED_QUOTA = 4;
 const DEFAULT_PRO_QUOTA_FEATURED_DURATION_DAYS = 7;
+/** Monetización ráfaga 3 — mismo default que la cuota de destacados. */
+const DEFAULT_PRO_MONTHLY_BUMP_QUOTA = 4;
+
+/** Monetización ráfaga 3 — cuota mensual de bumps gratis de Pro, campo hermano
+ * de la cuota de destacados en GET /billing/pro-status (una sola petición para
+ * pintar el estado mensual completo de Pro). Mismo shape en los tres campos
+ * que el nivel superior, sin periodStart/periodEnd propios: comparte
+ * necesariamente el periodo de la cuota de destacados (misma Subscription). */
+export interface BumpQuotaStatus {
+  limit: number;
+  used: number;
+  remaining: number;
+}
 
 /**
  * H8.2 — estado de la cuota mensual de destacados gratis de Pro.
@@ -28,6 +41,8 @@ export interface FeaturedQuotaStatus {
   periodEnd?: Date;
   /** H8.5b — duración fija (días) que otorga un destacado pagado con la cuota. */
   quotaDurationDays?: number;
+  /** Monetización ráfaga 3 — cuota mensual de bumps gratis, mismo periodo. */
+  bumpQuota: BumpQuotaStatus;
 }
 
 @Injectable()
@@ -99,28 +114,52 @@ export class EntitlementService {
     // Subscription) one without a linked Subscription: no period to derive the
     // quota from, so no quota applies.
     if (!proEntitlement?.subscription) {
-      return { isPro: false, limit: 0, used: 0, remaining: 0 };
+      return {
+        isPro: false,
+        limit: 0,
+        used: 0,
+        remaining: 0,
+        bumpQuota: { limit: 0, used: 0, remaining: 0 },
+      };
     }
 
     const { currentPeriodStart, currentPeriodEnd } = proEntitlement.subscription;
 
     const settings = await this.prisma.setting.findMany({
-      where: { key: { in: ['proMonthlyFeaturedQuota', 'proQuotaFeaturedDurationDays'] } },
+      where: {
+        key: {
+          in: ['proMonthlyFeaturedQuota', 'proQuotaFeaturedDurationDays', 'proMonthlyBumpQuota'],
+        },
+      },
       select: { key: true, value: true },
     });
     const settingMap = Object.fromEntries(settings.map((s) => [s.key, Number(s.value)]));
     const limit = settingMap['proMonthlyFeaturedQuota'] ?? DEFAULT_PRO_MONTHLY_FEATURED_QUOTA;
     const quotaDurationDays =
       settingMap['proQuotaFeaturedDurationDays'] ?? DEFAULT_PRO_QUOTA_FEATURED_DURATION_DAYS;
+    const bumpLimit = settingMap['proMonthlyBumpQuota'] ?? DEFAULT_PRO_MONTHLY_BUMP_QUOTA;
 
-    const used = await this.prisma.entitlement.count({
-      where: {
-        userId,
-        type: EntitlementType.FEATURED_LISTING,
-        origin: FeaturedOrigin.PRO_QUOTA,
-        createdAt: { gte: currentPeriodStart },
-      },
-    });
+    const [used, bumpUsed] = await Promise.all([
+      this.prisma.entitlement.count({
+        where: {
+          userId,
+          type: EntitlementType.FEATURED_LISTING,
+          origin: FeaturedOrigin.PRO_QUOTA,
+          createdAt: { gte: currentPeriodStart },
+        },
+      }),
+      // Monetización ráfaga 3 — mismo COUNT derivado que la cuota de
+      // destacados, pero sobre BumpLedger (los bumps no tienen Entitlement).
+      // BumpLedger no tiene columna userId propia; el filtro por relación
+      // wallet:{userId} resuelve el join en una sola query.
+      this.prisma.bumpLedger.count({
+        where: {
+          type: BumpLedgerType.PRO_QUOTA,
+          createdAt: { gte: currentPeriodStart },
+          wallet: { userId },
+        },
+      }),
+    ]);
 
     return {
       isPro: true,
@@ -130,6 +169,11 @@ export class EntitlementService {
       periodStart: currentPeriodStart,
       periodEnd: currentPeriodEnd,
       quotaDurationDays,
+      bumpQuota: {
+        limit: bumpLimit,
+        used: bumpUsed,
+        remaining: Math.max(0, bumpLimit - bumpUsed),
+      },
     };
   }
 
@@ -177,6 +221,50 @@ export class EntitlementService {
         type: EntitlementType.FEATURED_LISTING,
         origin: FeaturedOrigin.PRO_QUOTA,
         createdAt: { gte: currentPeriodStart },
+      },
+    });
+
+    return used < limit;
+  }
+
+  /**
+   * Monetización ráfaga 3 — réplica literal de hasAvailableFeaturedQuota para
+   * la cuota mensual de bumps: mismo lock `SELECT ... FOR UPDATE` sobre la
+   * MISMA fila Subscription (es la misma suscripción del mismo usuario — las
+   * dos cuotas comparten periodo por construcción, no hay dos "Subscription"
+   * distintas que lockear). Única diferencia real: el COUNT es sobre
+   * BumpLedger{type:PRO_QUOTA} en vez de Entitlement{type:FEATURED_LISTING,
+   * origin:PRO_QUOTA} — los bumps no tienen Entitlement propio.
+   *
+   * El caller SOLO debe crear la fila BumpLedger PRO_QUOTA (amount:0, ver
+   * comentario del enum en schema.prisma) dentro de la misma `tx` si este
+   * método devuelve `true` — el lock se mantiene hasta que esa `tx` confirme.
+   */
+  async hasAvailableBumpQuota(tx: Prisma.TransactionClient, userId: string): Promise<boolean> {
+    const proEntitlement = await tx.entitlement.findFirst({
+      where: { userId, type: EntitlementType.PRO_SUBSCRIPTION, ...activeFilter() },
+      select: { subscriptionId: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!proEntitlement?.subscriptionId) return false;
+
+    const rows = await tx.$queryRaw<{ currentPeriodStart: Date }[]>`
+      SELECT "currentPeriodStart" FROM "Subscription" WHERE id = ${proEntitlement.subscriptionId} FOR UPDATE
+    `;
+    const currentPeriodStart = rows[0]?.currentPeriodStart;
+    if (!currentPeriodStart) return false; // defensive — subscription row vanished mid-flight
+
+    const setting = await tx.setting.findUnique({
+      where: { key: 'proMonthlyBumpQuota' },
+      select: { value: true },
+    });
+    const limit = setting ? Number(setting.value) : DEFAULT_PRO_MONTHLY_BUMP_QUOTA;
+
+    const used = await tx.bumpLedger.count({
+      where: {
+        type: BumpLedgerType.PRO_QUOTA,
+        createdAt: { gte: currentPeriodStart },
+        wallet: { userId },
       },
     });
 

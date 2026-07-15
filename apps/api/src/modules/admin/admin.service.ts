@@ -59,16 +59,27 @@ const SETTING_KEYS = [
   'featuredCreditCost30d',
   // §2.5 RF.10: Pro bonus percentage on credit-pack purchases
   'proExtraCreditsPercent',
+  // Monetización ráfaga 3: monthly free-bump quota granted to Pro subscribers
+  'proMonthlyBumpQuota',
 ] as const;
 type SettingKey = (typeof SETTING_KEYS)[number];
 
-// Keys whose value must be a positive integer (>= 1) — credit costs. Prices
-// in euros are a separate table (Price), not a Setting; see admin-billing.
+// Keys whose value must be a positive integer (>= 1) — credit costs, and (as
+// of ráfaga 3) the two Pro monthly quotas. proMonthlyFeaturedQuota was
+// whitelisted (SETTING_KEYS) without ever landing here — the backend accepted
+// negative or non-integer values, protected only by the frontend's min={0}.
+// Closed here rather than replicated: "coherencia con el molde" no aplica
+// cuando el molde tiene un fallo de validación — server-side validation is
+// what actually protects, client-side is UX. Both quotas now require >= 1
+// (a Pro plan always grants at least one of each per period); the frontend
+// editor for proMonthlyFeaturedQuota was updated to match (min 0 → min 1).
 const POSITIVE_INT_SETTING_KEYS: readonly string[] = [
   'bumpCreditCost',
   'featuredCreditCost7d',
   'featuredCreditCost14d',
   'featuredCreditCost30d',
+  'proMonthlyFeaturedQuota',
+  'proMonthlyBumpQuota',
 ];
 
 // Keys whose value is a percentage: integer in [0, 100]. 0 is valid (disables

@@ -58,7 +58,15 @@ export function MisAnunciosClient({
     // H8.5b: any action (destacar por cuota included) can change the remaining
     // count — refresh it here so the reminder below stays accurate without a
     // full page reload.
-    getProStatus(token).then(setProStatus).catch(() => {});
+    getProStatus(token)
+      .then((status) => {
+        setProStatus(status);
+        // Monetización ráfaga 3: un bump puede haber consumido cuota mensual
+        // Pro — refresca bumpQuota junto con el resto de pro-status (mismo
+        // origen, una sola petición).
+        setBumpPricing((prev) => ({ ...prev, bumpQuota: status.bumpQuota }));
+      })
+      .catch(() => {});
     // Monetización ráfaga 2: un bump puede haber consumido saldo de bumps —
     // refresca para que el botón refleje el saldo real en el siguiente render,
     // mismo patrón que proStatus arriba.

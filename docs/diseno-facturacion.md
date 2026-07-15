@@ -1163,3 +1163,99 @@ ampliar el alcance.
 Pago con tarjeta para bump directo, cupones de bump con reglas más ricas (p. ej. por segmento de
 usuario), bumps gratis automáticos para Pro (más allá del cupón manual). Ninguno se empezó; no hay
 código parcial que mantener.
+
+> **Actualización (Monetización ráfaga 3)**: "bumps gratis automáticos para Pro" ya no está
+> diferido — es exactamente lo que añade §18 (cuota mensual de bumps). El resto de este punto
+> (pago con tarjeta para bump, cupones con reglas más ricas) sigue diferido.
+
+---
+
+## 18. Cuota mensual de bumps para Pro (Monetización ráfaga 3) — nivel 1 de 3
+
+Diseñado y aprobado antes de implementar. Réplica deliberada del molde de la cuota de destacados
+(§1.4.1, H8.2/H8.3) — mismo mecanismo de conteo derivado, mismo lock de concurrencia, mismo
+comportamiento de expiración sin gracia. La diferencia real: los bumps no tienen `Entitlement`
+propio (son eventos instantáneos, no derechos con vigencia), así que el conteo usa
+`BumpLedger{type: PRO_QUOTA}` en su lugar.
+
+### 18.1 Modelo
+
+Setting `proMonthlyBumpQuota` (int, mismo molde que `proMonthlyFeaturedQuota`). "Usado este
+periodo" se cuenta con un COUNT derivado sobre `BumpLedger` filtrado por
+`type=PRO_QUOTA AND createdAt >= currentPeriodStart AND wallet:{userId}` — sin contador propio ni
+cron, mismo principio que la cuota de destacados. Reseteo: por construcción, comparte periodo con
+la cuota de destacados (misma `Subscription.currentPeriodStart` — un usuario Pro tiene una sola
+suscripción/ciclo de facturación; no existen "dos periodos" que sincronizar). Cada cuota lleva su
+propio límite y su propio contador, independientes entre sí.
+
+**Cuidado de diseño explícito**: las filas `BumpLedger{type:PRO_QUOTA}` llevan siempre
+**`amount: 0`** — son un marcador contable para el COUNT de la cuota (mismo rol que
+`Entitlement.origin=PRO_QUOTA` para destacados), nunca un movimiento de `bumpBalance`. Con
+`amount: -1` habrían roto el invariante `wallet.bumpBalance == SUM(BumpLedger.amount)` que se
+cumple por construcción para el resto de tipos (`COUPON_REDEEM`, `BUMP_DEBIT`,
+`ADMIN_CREDIT`/`ADMIN_DEBIT`). Verificado explícitamente con un test que mezcla una fila
+`PRO_QUOTA` y una `COUPON_REDEEM` en el mismo wallet y confirma que la suma sigue cuadrando
+(`pro-bump-quota.e2e-spec.ts`, describe "Invariante del ledger").
+
+### 18.2 `EntitlementService.hasAvailableBumpQuota` — réplica literal de `hasAvailableFeaturedQuota`
+
+Mismo `SELECT ... FOR UPDATE` sobre la fila `Subscription` del usuario (es la MISMA fila que ya
+lockea la cuota de destacados — no hay una segunda "Subscription" que lockear, porque comparten
+periodo por construcción). Verificado bajo solapamiento REAL forzado (mismo técnica que el test
+determinista de destacados: `jest.spyOn` + delay inyectado tras adquirir el lock): dos bumps
+simultáneos con 1 de cuota restante → exactamente uno usa `PRO_QUOTA`, el otro cae al siguiente
+nivel — nunca los dos, nunca ninguno.
+
+### 18.3 Los 3 niveles, atómicos, misma `$transaction`
+
+Insertado en `BillingService.bump()` como nivel 1, ANTES del `bumpBalance` de la ráfaga 2:
+
+1. **Cuota mensual Pro** — gratis, se pierde si no se usa este periodo. Se gasta primero
+   precisamente por eso: es lo más restringido, lo que conviene consumir antes de que caduque.
+2. **Saldo de bumps por cupón** (`bumpBalance`, ráfaga 2) — gratis, permanente, no caduca.
+3. **Créditos** — de pago, con descuento de campaña si lo hay (el único nivel al que aplica).
+
+`paidWith` en la respuesta de `POST /listings/:id/bump` gana el valor `'PRO_QUOTA'`.
+
+**Detalle nuevo frente al nivel 2**: crear la fila `BumpLedger PRO_QUOTA` exige una fila `Wallet`
+que puede no existir — un Pro con cuota disponible puede no haber tenido nunca una fila `Wallet`
+(nunca compró créditos ni recibió un cupón de bump), a diferencia del nivel 2, donde
+`bumpBalance >= 1` ya implica que la fila existe. Se resuelve con `tx.wallet.upsert(...)` en vez
+de `findUniqueOrThrow`. Verificado explícitamente (`pro-bump-quota.e2e-spec.ts`, describe "Pro sin
+Wallet previo").
+
+### 18.4 `GET /billing/pro-status` — `bumpQuota` como campo hermano
+
+Decisión tomada: campo aditivo (`bumpQuota: { limit, used, remaining }`) en la misma respuesta,
+no un endpoint separado — la cuota de destacados y la de bumps son, conceptualmente, "el estado
+mensual del Pro", y se pintan juntas con una sola petición. Para no-Pro, `bumpQuota` va siempre
+`{ limit: 0, used: 0, remaining: 0 }` (mismo patrón que `limit`/`used`/`remaining` del nivel
+superior — nunca `undefined`, para que la UI no tenga que distinguir "no está" de "es cero").
+
+### 18.5 Expiración
+
+Heredada automáticamente, sin diseño adicional: `hasAvailableBumpQuota` reutiliza el mismo
+`activeFilter()` sobre el `Entitlement PRO_SUBSCRIPTION` que ya usa la cuota de destacados. Al
+expirar, deja de encontrarlo → cuota no disponible desde ese instante → el siguiente bump cae
+directo a nivel 2/3, sin gracia. Verificado (`pro-bump-quota.e2e-spec.ts`, describe "Expiración de
+Pro").
+
+### 18.6 Hueco de validación cerrado (no replicado)
+
+Al diseñar se encontró que `proMonthlyFeaturedQuota` estaba en la whitelist de `SETTING_KEYS`
+desde H8.1 sin validación numérica en el backend — el 400 por valor negativo o no entero solo lo
+daba el `min={0}` del frontend, que un `PATCH` directo a la API podía saltarse. Decisión explícita:
+**no replicar el hueco** en `proMonthlyBumpQuota` — se cerró para las dos a la vez, añadiendo
+ambas a `POSITIVE_INT_SETTING_KEYS` (entero ≥ 1). Efecto secundario aceptado: `proMonthlyFeaturedQuota`
+ya no admite `0` como "cuota desactivada este mes" (antes lo admitía por omisión, nunca declarado
+como comportamiento soportado) — un Pro siempre tiene al menos 1 destacado y 1 bump gratis si la
+suscripción está vigente. El editor de `/admin/ajustes` para `proMonthlyFeaturedQuota` se actualizó
+en consecuencia (`min={0}` → `min={1}`). Verificado con 8 tests (`pro-bump-quota.e2e-spec.ts`,
+describe "Validación de las Settings de cuota").
+
+### 18.7 UX — tres monedas distinguibles
+
+El botón "Bump" en `MyListingCard` prioriza visualmente en el mismo orden que el consumo real:
+"Bump gratis (cuota: te quedan N este mes)" → "Bump gratis (guardado: te quedan N)" → coste en
+créditos. La confirmación tras bumpear usa `paidWith` para decir exactamente cuál de las tres se
+gastó, sin que el usuario tenga que inferirlo.

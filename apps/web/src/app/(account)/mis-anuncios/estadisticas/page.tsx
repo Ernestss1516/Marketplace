@@ -16,7 +16,13 @@ export default async function EstadisticasPage() {
   const [{ items }, proStatus] = await Promise.all([
     getMyListings(token),
     getProStatus(token).catch(
-      (): ProStatus => ({ isPro: false, limit: 0, used: 0, remaining: 0 }),
+      (): ProStatus => ({
+        isPro: false,
+        limit: 0,
+        used: 0,
+        remaining: 0,
+        bumpQuota: { limit: 0, used: 0, remaining: 0 },
+      }),
     ),
   ]);
 

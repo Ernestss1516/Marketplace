@@ -173,8 +173,10 @@ export interface BumpPricing {
   bumpCreditCost: number;
   bumpOriginalCreditCost?: number;
   bumpDiscountPercent?: number;
-  /** Monetización ráfaga 2 — saldo de bumps gratis del usuario (moneda separada). */
+  /** Monetización ráfaga 2 — saldo de bumps gratis del usuario (moneda separada, por cupón). */
   bumpBalance: number;
+  /** Monetización ráfaga 3 — cuota mensual de bumps gratis de Pro (distinta del saldo por cupón). */
+  bumpQuota: { limit: number; used: number; remaining: number };
 }
 
 export interface ListingImage {

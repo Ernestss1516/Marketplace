@@ -262,6 +262,7 @@ const SETTING_TITLES: Record<string, string> = {
   proMonthlyFeaturedQuota: 'Cuota mensual de destacados (Pro)',
   proQuotaFeaturedDurationDays: 'Duración del destacado por cuota (Pro)',
   proExtraCreditsPercent: 'Bonus de créditos al comprar packs (Pro)',
+  proMonthlyBumpQuota: 'Cuota mensual de bumps (Pro)',
 };
 
 const SETTING_DESCRIPTIONS: Record<string, string> = {
@@ -281,6 +282,8 @@ const SETTING_DESCRIPTIONS: Record<string, string> = {
     'Duración fija (en días) de un destacado pagado con la cuota gratuita de Pro. Al pagar con créditos, el usuario elige la duración (7/14/30 días); la cuota siempre usa esta duración fija.',
   proExtraCreditsPercent:
     'Porcentaje de créditos extra que recibe un usuario Pro al comprar un pack de créditos, sobre el mismo precio que paga cualquier usuario (no es un descuento en euros). Se congela en cada compra: cambiar este valor no afecta a compras ya realizadas.',
+  proMonthlyBumpQuota:
+    'Bumps gratuitos que un usuario Pro puede usar cada mes. Mismo periodo que la cuota de destacados (una sola suscripción por usuario); se renuevan en el aniversario del ciclo, los no usados no se acumulan. Se consumen ANTES que el saldo de bumps por cupón y que los créditos.',
 };
 
 // ─── Monetización: costes en créditos ──────────────────────────────────────────
@@ -392,6 +395,7 @@ export default function AdminAjustesPage() {
     'proMonthlyFeaturedQuota',
     'proQuotaFeaturedDurationDays',
     'proExtraCreditsPercent',
+    'proMonthlyBumpQuota',
   ] as const;
 
   return (
@@ -471,7 +475,7 @@ export default function AdminAjustesPage() {
                   settingKey="proMonthlyFeaturedQuota"
                   label="Destacados gratis por mes"
                   helpText="Cantidad de destacados que la cuota mensual de Pro concede gratis. No se acumulan de un mes a otro."
-                  min={0}
+                  min={1}
                 />
               )}
               {key === 'proQuotaFeaturedDurationDays' && (
@@ -497,6 +501,17 @@ export default function AdminAjustesPage() {
                   min={0}
                   max={100}
                   suffix="%"
+                />
+              )}
+              {key === 'proMonthlyBumpQuota' && (
+                <NumberSettingEditor
+                  setting={setting}
+                  token={token}
+                  onSaved={() => handleSaved(key)}
+                  settingKey="proMonthlyBumpQuota"
+                  label="Bumps gratis por mes"
+                  helpText="Cantidad de bumps que la cuota mensual de Pro concede gratis, antes que el saldo de bumps por cupón y que los créditos. No se acumulan de un mes a otro."
+                  min={1}
                 />
               )}
             </div>

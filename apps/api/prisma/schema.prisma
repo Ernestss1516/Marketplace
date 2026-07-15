@@ -169,6 +169,12 @@ enum BumpLedgerType {
   BUMP_DEBIT // Bump pagado con saldo de bumps → salida
   ADMIN_CREDIT // Acreditación manual de soporte → entrada
   ADMIN_DEBIT // Débito manual de soporte → salida
+  /// Monetización ráfaga 3 — bump gratis consumido de la cuota mensual Pro.
+  /// SIEMPRE amount=0: es un marcador contable para el COUNT de la cuota
+  /// (mismo rol que Entitlement.origin=PRO_QUOTA para destacados), NO un
+  /// movimiento de bumpBalance. Si llevara amount=-1 rompería el invariante
+  /// wallet.bumpBalance == SUM(BumpLedger.amount).
+  PRO_QUOTA
 }
 
 /// Tipo de campaña promocional (H8 Bloque D). Extensible sin migración de datos:

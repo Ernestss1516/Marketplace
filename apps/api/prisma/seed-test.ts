@@ -90,6 +90,8 @@ async function seedSettings() {
     { key: 'proActiveListingLimit', value: 20 },
     { key: 'proMonthlyFeaturedQuota', value: 4 },
     { key: 'proQuotaFeaturedDurationDays', value: 7 },
+    // Monetización ráfaga 3.
+    { key: 'proMonthlyBumpQuota', value: 4 },
   ];
 
   for (const s of settings) {

@@ -6804,6 +6804,51 @@ del saldo en los dos estados (con/sin saldo), confirmación tras bumpear, saldo 
 bumps en `/mis-creditos`, canje de cupón en vivo, y el nuevo tipo de recompensa en el formulario de
 cupones del backoffice.
 
+### Monetización — ráfaga 3: cuota mensual de bumps para Pro (CERRADO)
+
+Diseñado y aprobado explícitamente antes de implementar — documentación completa del diseño en
+`diseno-facturacion.md` §18. Cierra el punto "bumps gratis automáticos para Pro" que la ráfaga 2
+había diferido explícitamente. Réplica deliberada del molde de la cuota de destacados (H8.2/H8.3):
+
+- **Nivel 1 de 3** en la prioridad de consumo del bump, insertado ANTES de `bumpBalance` (ráfaga
+  2): cuota mensual Pro (gratis, se pierde si no se usa) → saldo de bumps por cupón (gratis,
+  permanente) → créditos (de pago). Orden deliberado: se gasta primero lo más restringido.
+- Setting `proMonthlyBumpQuota`, contada con el mismo mecanismo DERIVADO que
+  `proMonthlyFeaturedQuota` (COUNT sin contador ni cron), pero sobre `BumpLedger{type:PRO_QUOTA}`
+  en vez de `Entitlement` (los bumps no tienen entitlement propio). Las filas `PRO_QUOTA` llevan
+  siempre `amount: 0` — marcador contable, no movimiento de `bumpBalance`; con `amount:-1` habrían
+  roto el invariante `wallet.bumpBalance == SUM(BumpLedger.amount)`, verificado explícitamente.
+- `EntitlementService.hasAvailableBumpQuota`, réplica literal de `hasAvailableFeaturedQuota`:
+  mismo lock `SELECT ... FOR UPDATE` sobre la MISMA fila `Subscription` (las dos cuotas comparten
+  periodo por construcción — un Pro tiene una sola suscripción). Verificado bajo solapamiento real
+  forzado con la misma técnica del test determinista de destacados.
+- `GET /billing/pro-status` gana `bumpQuota: { limit, used, remaining }` como campo hermano
+  aditivo (decisión: una sola petición para pintar el estado mensual completo de Pro, no un
+  endpoint separado).
+- **Hueco de validación preexistente cerrado, no replicado**: `proMonthlyFeaturedQuota` llevaba
+  desde H8.1 en la whitelist de `SETTING_KEYS` sin validación numérica en el backend (el 400 solo
+  lo daba el `min` del frontend). Añadidas ambas claves (`proMonthlyFeaturedQuota` y
+  `proMonthlyBumpQuota`) a `POSITIVE_INT_SETTING_KEYS` — ahora el backend exige entero ≥ 1 para
+  las dos. Efecto secundario aceptado: `proMonthlyFeaturedQuota` ya no admite `0` (comportamiento
+  nunca declarado como soportado); el editor de `/admin/ajustes` se actualizó (`min={0}` →
+  `min={1}`).
+- UX: botón de bump con 3 estados en el mismo orden de prioridad ("cuota: te quedan N este mes" →
+  "guardado: te quedan N" → coste en créditos); confirmación tras bumpear distingue las tres
+  monedas vía `paidWith` (gana el valor `'PRO_QUOTA'`).
+
+**Verificado**: nuevo fichero `test/pro-bump-quota.e2e-spec.ts` (17 tests) — la matriz completa de
+consumo (5 casos: Pro-con-cuota, Pro-sin-cuota-con-saldo, Pro-sin-cuota-sin-saldo, no-Pro-con-saldo,
+no-Pro-sin-nada), concurrencia de la cuota bajo solapamiento real forzado (molde exacto del test
+determinista de destacados), el invariante `bumpBalance == SUM(BumpLedger.amount)` explícitamente
+tras mezclar una fila `PRO_QUOTA` y una `COUPON_REDEEM` en el mismo wallet, `wallet.upsert` para un
+Pro sin fila `Wallet` previa, expiración de Pro sin gracia, y la validación nueva (negativo/decimal/
+cero → 400, entero positivo → 200 con `AuditLog`) para ambas claves de cuota. Batería completa: 63
+suites / 956 tests en verde (`--runInBand`, incluida una corrección a una aserción exacta
+preexistente en `h8-featured-quota.e2e-spec.ts` que no contemplaba el nuevo campo `bumpQuota`
+aditivo). Typecheck de frontend limpio. QA en vivo con capturas Playwright: botón de bump con
+cuota disponible, confirmación "cuota mensual Pro" tras bumpear, botón cayendo a "guardado" con la
+cuota agotada, y el editor nuevo en `/admin/ajustes`.
+
 ---
 
 ## 4. Documentación de la API y el diseño

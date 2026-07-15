@@ -467,6 +467,10 @@ async function seedSettings() {
       // H8.5a: fixed duration of a featured grant paid from the quota (the user
       // chooses duration only when paying with credits).
       { key: 'proQuotaFeaturedDurationDays', value: 7 },
+      // Monetización ráfaga 3: bumps gratis/mes que otorga la cuota de Pro —
+      // mismo periodo que proMonthlyFeaturedQuota (misma Subscription), reseteo
+      // derivado, sin cron.
+      { key: 'proMonthlyBumpQuota', value: 4 },
     ],
     skipDuplicates: true,
   });

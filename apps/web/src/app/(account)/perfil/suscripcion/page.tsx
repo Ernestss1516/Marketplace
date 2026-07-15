@@ -37,7 +37,13 @@ export default async function SuscripcionPage() {
     getMySubscriptions(token).catch(() => []),
     getMyEntitlements(token).catch(() => []),
     getProStatus(token).catch(
-      (): ProStatus => ({ isPro: false, limit: 0, used: 0, remaining: 0 }),
+      (): ProStatus => ({
+        isPro: false,
+        limit: 0,
+        used: 0,
+        remaining: 0,
+        bumpQuota: { limit: 0, used: 0, remaining: 0 },
+      }),
     ),
   ]);
 

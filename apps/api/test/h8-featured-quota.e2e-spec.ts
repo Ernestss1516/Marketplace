@@ -191,7 +191,14 @@ describe('H8.2 — GET /billing/pro-status (cuota mensual de destacados Pro)', (
     const { token } = await createUser('nopro');
 
     const status = await getProStatus(token);
-    expect(status).toEqual({ isPro: false, limit: 0, used: 0, remaining: 0 });
+    expect(status).toEqual({
+      isPro: false,
+      limit: 0,
+      used: 0,
+      remaining: 0,
+      // Monetización ráfaga 3 — campo hermano añadido a pro-status.
+      bumpQuota: { limit: 0, used: 0, remaining: 0 },
+    });
   });
 
   it('Pro con 0 usados este periodo → remaining = limit', async () => {

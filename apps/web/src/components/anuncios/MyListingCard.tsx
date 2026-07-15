@@ -306,11 +306,14 @@ export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) 
                   {
                     onSuccess: (result) => {
                       setBusy(null);
-                      // Monetización ráfaga 2 — confirmación clara de qué moneda se gastó.
+                      // Monetización ráfaga 2/3 — confirmación clara de qué
+                      // moneda se gastó, distinguiendo las tres.
                       setBumpConfirmation(
-                        result.paidWith === 'BUMP_BALANCE'
-                          ? 'Bump gratis usado (saldo de bumps).'
-                          : `Se han descontado ${result.cost} créditos.`,
+                        result.paidWith === 'PRO_QUOTA'
+                          ? 'Bump gratis usado (cuota mensual Pro).'
+                          : result.paidWith === 'BUMP_BALANCE'
+                            ? 'Bump gratis usado (saldo de bumps).'
+                            : `Se han descontado ${result.cost} créditos.`,
                       );
                       onAction();
                     },
@@ -354,11 +357,23 @@ export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) 
               )}
               {bumpOnCooldown ? (
                 'Bump (espera)'
+              ) : bumpPricing.bumpQuota.remaining > 0 ? (
+                // Monetización ráfaga 3 — prioridad de consumo: nivel 1, se
+                // gasta ANTES que el saldo de bumps y que los créditos (se
+                // pierde si no se usa este periodo, a diferencia del saldo).
+                <>
+                  Bump gratis{' '}
+                  <span className="ml-1 text-xs">
+                    (cuota: te quedan {bumpPricing.bumpQuota.remaining} este mes)
+                  </span>
+                </>
               ) : bumpPricing.bumpBalance > 0 ? (
-                // Monetización ráfaga 2 — prioridad de consumo: si hay saldo de
-                // bumps, el próximo click SIEMPRE lo gasta primero (billing.service.ts),
-                // así que el botón debe anunciarlo, no el coste en créditos.
-                <>Bump gratis <span className="ml-1 text-xs">(te quedan {bumpPricing.bumpBalance})</span></>
+                // Monetización ráfaga 2 — nivel 2: si no hay cuota, el saldo de
+                // bumps por cupón se gasta antes que los créditos.
+                <>
+                  Bump gratis{' '}
+                  <span className="ml-1 text-xs">(guardado: te quedan {bumpPricing.bumpBalance})</span>
+                </>
               ) : bumpPricing.bumpDiscountPercent != null ? (
                 <>
                   Bump{' '}
