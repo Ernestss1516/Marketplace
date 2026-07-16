@@ -44,6 +44,7 @@ const BUMP_LEDGER_LABELS: Record<BumpLedgerType, string> = {
   ADMIN_DEBIT: 'Ajuste',
   PACK_PURCHASE: 'Compra de pack',
   PRO_BONUS: 'Bonus Pro',
+  CAMPAIGN_BONUS: 'Bonus campaña',
 };
 
 function LedgerRow({ item }: { item: WalletItem }) {

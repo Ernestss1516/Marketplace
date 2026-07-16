@@ -7,18 +7,22 @@
 //
 // - Descuento (ACTION_DISCOUNT): BillingService.featuredByCredits/.bump —
 //   floor(base * (100-percent) / 100), a favor del usuario.
-// - Bonus (CREDIT_BONUS): RedsysService.createCreditPackCheckout —
-//   PERCENT: ceil(packSize * value / 100); FIXED: value tal cual.
+// - Bonus (CREDIT_BONUS y BUMP_BONUS — campaña #10, misma fórmula, distinta
+//   moneda): RedsysService.createCreditPackCheckout/createBumpPackCheckout —
+//   PERCENT: ceil(packSize * value / 100); FIXED: value tal cual. Aditivo
+//   sobre la base, nunca compuesto con el bonus Pro (cada uno se calcula
+//   independientemente contra la misma base, luego se suman).
 
 export function applyActionDiscount(baseCreditCost: number, percent: number): number {
   return Math.floor((baseCreditCost * (100 - percent)) / 100);
 }
 
-export function applyCreditBonus(
-  packCreditAmount: number,
+/** Genérica a propósito: sirve igual para packs de créditos que de bumps — la fórmula nunca fue específica de una moneda. */
+export function applyBonus(
+  packAmount: number,
   kind: 'PERCENT' | 'FIXED',
   value: number,
 ): number {
-  const bonus = kind === 'PERCENT' ? Math.ceil((packCreditAmount * value) / 100) : value;
-  return packCreditAmount + bonus;
+  const bonus = kind === 'PERCENT' ? Math.ceil((packAmount * value) / 100) : value;
+  return packAmount + bonus;
 }

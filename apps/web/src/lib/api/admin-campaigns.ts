@@ -1,12 +1,13 @@
 import { apiFetch } from './client';
 
-export type CampaignType = 'CREDIT_BONUS' | 'ACTION_DISCOUNT';
+export type CampaignType = 'CREDIT_BONUS' | 'ACTION_DISCOUNT' | 'BUMP_BONUS';
 export type CampaignStatus = 'upcoming' | 'live' | 'ended';
-export type CreditBonusKind = 'PERCENT' | 'FIXED';
+export type BonusKind = 'PERCENT' | 'FIXED';
 export type ActionDiscountAction = 'BUMP' | 'FEATURED';
 
-export interface CreditBonusParams {
-  kind: CreditBonusKind;
+/** Shape compartido por CREDIT_BONUS y BUMP_BONUS (campaña #10) — mismo `params`, distinta moneda. */
+export interface BonusParams {
+  kind: BonusKind;
   value: number;
 }
 
@@ -15,18 +16,19 @@ export interface ActionDiscountParams {
   percent: number;
 }
 
-export type CampaignParams = CreditBonusParams | ActionDiscountParams;
+export type CampaignParams = BonusParams | ActionDiscountParams;
 
 /**
  * Topes de cordura — mismos valores que `CampaignsService` (backend, fuente de
- * verdad: sigue validando aunque el front rechace antes). Ver comentario de
- * `CREDIT_BONUS_PERCENT_MAX`/`CREDIT_BONUS_FIXED_MAX` en `campaigns.service.ts`.
+ * verdad: sigue validando aunque el front rechace antes). Comparten CREDIT_BONUS
+ * y BUMP_BONUS (campaña #10). Ver comentario de
+ * `CAMPAIGN_BONUS_PERCENT_MAX`/`CAMPAIGN_BONUS_FIXED_MAX` en `campaigns.service.ts`.
  */
 export const ACTION_DISCOUNT_PERCENT_MIN = 1;
 export const ACTION_DISCOUNT_PERCENT_MAX = 90;
-export const CREDIT_BONUS_VALUE_MIN = 1;
-export const CREDIT_BONUS_PERCENT_MAX = 500;
-export const CREDIT_BONUS_FIXED_MAX = 1_000_000;
+export const CAMPAIGN_BONUS_VALUE_MIN = 1;
+export const CAMPAIGN_BONUS_PERCENT_MAX = 500;
+export const CAMPAIGN_BONUS_FIXED_MAX = 1_000_000;
 
 export interface AdminCampaign {
   id: string;

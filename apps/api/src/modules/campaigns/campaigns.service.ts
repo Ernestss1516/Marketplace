@@ -14,20 +14,22 @@ type CampaignStatus = 'upcoming' | 'live' | 'ended';
 type ActionDiscountAction = 'BUMP' | 'FEATURED';
 
 /**
- * Topes de cordura para CREDIT_BONUS.value — sin esto, un typo de admin (p.
- * ej. 10000 en vez de 100) regala una cantidad absurda de créditos a quien
- * compre durante la campaña. A diferencia de ACTION_DISCOUNT.percent (tope
- * 90%, un descuento >100% no tiene sentido: regalarías el producto y encima
- * pagarías), un bonus SÍ puede pasar de 100% de forma legítima ("compra 100
- * créditos, llévate 200" = 200%), así que el tope va más alto — 500% deja
- * margen a promociones agresivas y sigue atrapando un error de una o más
- * órdenes de magnitud.
- * PERCENT_MAX es relativo (%); FIXED_MAX es absoluto (créditos) — mismo
- * valor de cordura que UpdateCreditPackDto.creditAmount (@Max(1000000)), no
- * un límite de negocio real, solo la valla que ningún caso legítimo alcanza.
+ * Topes de cordura para CREDIT_BONUS.value Y BUMP_BONUS.value (campaña #10 —
+ * mismo shape, mismo tope, reutilizado, no duplicado) — sin esto, un typo de
+ * admin (p. ej. 10000 en vez de 100) regala una cantidad absurda de créditos
+ * o bumps a quien compre durante la campaña. A diferencia de
+ * ACTION_DISCOUNT.percent (tope 90%, un descuento >100% no tiene sentido:
+ * regalarías el producto y encima pagarías), un bonus SÍ puede pasar de 100%
+ * de forma legítima ("compra 100 créditos, llévate 200" = 200%), así que el
+ * tope va más alto — 500% deja margen a promociones agresivas y sigue
+ * atrapando un error de una o más órdenes de magnitud.
+ * PERCENT_MAX es relativo (%); FIXED_MAX es absoluto (créditos o bumps,
+ * según el type) — mismo valor de cordura que
+ * UpdateCreditPackDto.creditAmount (@Max(1000000)), no un límite de negocio
+ * real, solo la valla que ningún caso legítimo alcanza.
  */
-const CREDIT_BONUS_PERCENT_MAX = 500;
-const CREDIT_BONUS_FIXED_MAX = 1_000_000;
+const CAMPAIGN_BONUS_PERCENT_MAX = 500;
+const CAMPAIGN_BONUS_FIXED_MAX = 1_000_000;
 
 @Injectable()
 export class CampaignsService {
@@ -46,6 +48,22 @@ export class CampaignsService {
     return this.prisma.campaign.findFirst({
       where: {
         type: CampaignType.CREDIT_BONUS,
+        active: true,
+        startsAt: { lte: now },
+        endsAt: { gte: now },
+      },
+    });
+  }
+
+  /**
+   * Campaña #10 — espejo literal de getActiveCreditBonusCampaign, moneda
+   * distinta. Consultado por RedsysService.createBumpPackCheckout.
+   */
+  async getActiveBumpBonusCampaign(): Promise<Campaign | null> {
+    const now = new Date();
+    return this.prisma.campaign.findFirst({
+      where: {
+        type: CampaignType.BUMP_BONUS,
         active: true,
         startsAt: { lte: now },
         endsAt: { gte: now },
@@ -246,6 +264,13 @@ export class CampaignsService {
    * cierre robusto sería un EXCLUDE constraint de Postgres (GiST sobre
    * type + tsrange, y para ACTION_DISCOUNT también sobre la action); no
    * implementado en esta fase.
+   *
+   * Campaña #10 (BUMP_BONUS) NO tocó este método: el filtro `where: { type }`
+   * de abajo ya aísla BUMP_BONUS de CREDIT_BONUS/ACTION_DISCOUNT sin ningún
+   * cambio — dos BUMP_BONUS solapados bloquean (misma rama `candidates[0]`
+   * que ya usa CREDIT_BONUS, sin `action`), un BUMP_BONUS nunca compite con
+   * un CREDIT_BONUS (types distintos, ni siquiera entran en `candidates`).
+   * Verificado con test e2e, no solo leído.
    */
   private async assertNoOverlap(
     type: CampaignType,
@@ -298,10 +323,11 @@ export class CampaignsService {
     // Tope de cordura no expresable en el DTO (depende de `kind`, mismo
     // motivo por el que el DTO no se elige por reflexión — ver comentario de
     // este método). @Min(1) ya vive en CampaignParamsDto; esto solo añade el
-    // techo. Ver constantes CREDIT_BONUS_*_MAX arriba.
-    if (type === CampaignType.CREDIT_BONUS) {
+    // techo. Aplica a CREDIT_BONUS y BUMP_BONUS por igual — mismo shape,
+    // mismo tope (campaña #10). Ver constantes CAMPAIGN_BONUS_*_MAX arriba.
+    if (type === CampaignType.CREDIT_BONUS || type === CampaignType.BUMP_BONUS) {
       const { kind, value } = params as { kind: 'PERCENT' | 'FIXED'; value: number };
-      const max = kind === 'PERCENT' ? CREDIT_BONUS_PERCENT_MAX : CREDIT_BONUS_FIXED_MAX;
+      const max = kind === 'PERCENT' ? CAMPAIGN_BONUS_PERCENT_MAX : CAMPAIGN_BONUS_FIXED_MAX;
       if (value > max) {
         throw new BadRequestException({
           message: `params inválidos para el type ${type}`,

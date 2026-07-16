@@ -104,6 +104,7 @@ export class RedsysProcessor extends WorkerHost {
         transactionId,
         baseBumpAmount,
         transaction.bonusBumpAmount,
+        transaction.campaignBonusBumpAmount,
       );
     } else {
       // Featured pay via Redsys (RF.6)
@@ -207,13 +208,13 @@ export class RedsysProcessor extends WorkerHost {
 
   /**
    * Espejo literal de handlePackPurchase, moneda distinta: acredita
-   * Wallet.bumpBalance/BumpLedger, nunca balance/CreditLedger. Dos filas
-   * SEPARADAS (PACK_PURCHASE + PRO_BONUS), no una combinada — mismo criterio
-   * que créditos: permite reportar "cuánto regala el bonus Pro" como métrica
-   * de negocio, sin depender de una migración de datos si algún día hiciera
-   * falta desglosarlo (decisión explícita, no el combinado propuesto
-   * originalmente). Sin bonus de campaña — los packs de bumps no lo tienen
-   * (ver createBumpPackCheckout).
+   * Wallet.bumpBalance/BumpLedger, nunca balance/CreditLedger. Filas
+   * SEPARADAS (PACK_PURCHASE, PRO_BONUS, CAMPAIGN_BONUS), nunca combinadas —
+   * mismo criterio que créditos: permite reportar "cuánto regala cada
+   * origen" como métrica de negocio, sin depender de una migración de datos
+   * si algún día hiciera falta desglosarlo. Campaña #10 añadió
+   * CAMPAIGN_BONUS (bonus de campaña BUMP_BONUS, ver createBumpPackCheckout)
+   * — mismo guard `!= null` que PRO_BONUS, nunca una fila con amount 0.
    *
    * Misma idempotencia que créditos: el caller (processSuccess) ya comprobó
    * `status !== PENDING` antes de llegar aquí — un reintento de BullMQ sobre
@@ -224,8 +225,9 @@ export class RedsysProcessor extends WorkerHost {
     transactionId: string,
     bumpAmount: number,
     bonusBumpAmount: number | null,
+    campaignBonusBumpAmount: number | null,
   ): Promise<void> {
-    const totalBumps = bumpAmount + (bonusBumpAmount ?? 0);
+    const totalBumps = bumpAmount + (bonusBumpAmount ?? 0) + (campaignBonusBumpAmount ?? 0);
 
     await this.prisma.$transaction(async (tx) => {
       // Upsert Wallet with total bumps (base + bonus) atomically.
@@ -261,6 +263,21 @@ export class RedsysProcessor extends WorkerHost {
         });
       }
 
+      // Campaign bonus ledger entry (only when a BUMP_BONUS campaign was
+      // active at checkout) — campaña #10, fila SEPARADA, mismo criterio que
+      // CreditLedgerType.CAMPAIGN_BONUS.
+      if (campaignBonusBumpAmount != null) {
+        await tx.bumpLedger.create({
+          data: {
+            walletId: wallet.id,
+            type: BumpLedgerType.CAMPAIGN_BONUS,
+            amount: campaignBonusBumpAmount,
+            referenceType: 'Transaction',
+            referenceId: transactionId,
+          },
+        });
+      }
+
       // Mark the Transaction as SUCCEEDED.
       await tx.transaction.update({
         where: { id: transactionId },
@@ -271,7 +288,8 @@ export class RedsysProcessor extends WorkerHost {
     this.logger.log(
       `Bump pack purchase processed: user=${userId}, transactionId=${transactionId}, ` +
         `bumpAmount=+${bumpAmount}` +
-        (bonusBumpAmount != null ? `, proBonus=+${bonusBumpAmount}` : ''),
+        (bonusBumpAmount != null ? `, proBonus=+${bonusBumpAmount}` : '') +
+        (campaignBonusBumpAmount != null ? `, campaignBonus=+${campaignBonusBumpAmount}` : ''),
     );
   }
 

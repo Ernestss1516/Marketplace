@@ -46,7 +46,9 @@ export type BumpLedgerType =
   | 'ADMIN_CREDIT'
   | 'ADMIN_DEBIT'
   | 'PACK_PURCHASE'
-  | 'PRO_BONUS';
+  | 'PRO_BONUS'
+  /** Campaña #10 — bonus de una campaña BUMP_BONUS al comprar un BumpPack. */
+  | 'CAMPAIGN_BONUS';
 
 export interface BumpLedgerItem {
   id: string;

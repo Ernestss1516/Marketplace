@@ -184,6 +184,11 @@ enum BumpLedgerType {
   /// CreditLedgerType.PRO_BONUS: permite reportar "cuánto regala el bonus
   /// Pro" como métrica de negocio). Congelado en Transaction.bonusBumpAmount.
   PRO_BONUS
+  /// Campaña #10 — bumps extra de una campaña BUMP_BONUS al comprar un
+  /// BumpPack → entrada, fila SEPARADA de PACK_PURCHASE/PRO_BONUS (espejo de
+  /// CreditLedgerType.CAMPAIGN_BONUS). Congelado en
+  /// Transaction.campaignBonusBumpAmount.
+  CAMPAIGN_BONUS
 }
 
 /// Tipo de campaña promocional (H8 Bloque D). Extensible sin migración de datos:
@@ -192,6 +197,7 @@ enum BumpLedgerType {
 enum CampaignType {
   CREDIT_BONUS // Bonus de créditos al comprar un pack
   ACTION_DISCOUNT // Descuento % sobre el coste en créditos de bump/destacar (fase 2)
+  BUMP_BONUS // Campaña #10 — bonus de bumps al comprar un BumpPack, espejo de CREDIT_BONUS (moneda distinta)
 }
 
 /// Motivo de una denuncia, para la cola de moderación.
@@ -969,8 +975,16 @@ model Transaction {
   /// lo sustituye. El RedsysProcessor lo lee sin recalcular — el bonus vigente es el
   /// del instante del checkout, no el de la confirmación del pago.
   campaignBonusAmount Int?
-  /// Campaña que originó campaignBonusAmount, para trazabilidad/reporting. Las
-  /// campañas no se borran (solo se desactivan), pero SetNull es red de seguridad.
+  /// Campaña #10 — bonus de campaña en packs de bumps, espejo bump de
+  /// campaignBonusAmount arriba (misma fórmula, misma congelación). Null = sin
+  /// campaña BUMP_BONUS activa en ese instante.
+  campaignBonusBumpAmount Int?
+  /// Campaña APLICADA a esta Transaction — CREDIT_BONUS si es un pack de
+  /// créditos (ver campaignBonusAmount), BUMP_BONUS si es un pack de bumps
+  /// (ver campaignBonusBumpAmount). NUNCA ambas a la vez: una Transaction es
+  /// de una moneda o de la otra, nunca las dos. Para trazabilidad/reporting.
+  /// Las campañas no se borran (solo se desactivan), pero SetNull es red de
+  /// seguridad.
   campaignId          String?
   campaign            Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
 

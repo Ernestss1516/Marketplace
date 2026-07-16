@@ -7076,6 +7076,90 @@ parecida: CRUD con tipo inmutable tras crear, ventana temporal, activar/desactiv
 
 ---
 
+### Campaña #10 — `BUMP_BONUS`: bonus de campaña en packs de bumps (CERRADO)
+
+Cierra el hallazgo #10 de la auditoría de campañas: `createBumpPackCheckout` tenía bonus Pro pero
+**no** bonus de campaña, con un comentario explícito "no decidido en esta ráfaga". Se decidió: nuevo
+`CampaignType.BUMP_BONUS`, espejo literal de `CREDIT_BONUS` — mismo shape de `params`
+(`{kind, value}`), mismos topes, misma fórmula de acumulación, mismo criterio de filas separadas en
+el ledger. Diseñado y aprobado antes de tocar código; verificado ejerciendo después.
+
+- **Fórmula de acumulación — ADITIVA, copiada de créditos, no reinventada.** Confirmado leyendo
+  `RedsysService.createCreditPackCheckout` antes de escribir una sola línea: el bonus Pro y el bonus
+  de campaña se calculan cada uno **independientemente contra la base** (`pack.creditAmount`/
+  `pack.bumpAmount`), ambos con `Math.ceil`, y se SUMAN — nunca uno sobre el resultado del otro
+  (`N + ceil(N×proPct/100) + ceil(N×campaignPct/100)`, nunca `N×(1+proPct)×(1+campaignPct)`).
+  `createBumpPackCheckout` replica exactamente ese cálculo para `campaignBonusBumpAmount`.
+- **Schema (migración `20260716164351_campaign_bump_bonus`, puramente aditiva):**
+  `CampaignType` +`BUMP_BONUS`; `BumpLedgerType` +`CAMPAIGN_BONUS` (espejo de
+  `CreditLedgerType.CAMPAIGN_BONUS`); `Transaction` +`campaignBonusBumpAmount Int?`.
+  **`Transaction.campaignId` se REUTILIZA** (no se añadió una segunda FK): su comentario ahora deja
+  explícito que apunta a "la campaña APLICADA, sea CREDIT_BONUS o BUMP_BONUS — nunca ambas a la vez,
+  una Transaction es de una moneda o de la otra" (nota de Ernest al aprobar el diseño, para que nadie
+  lo lea como "solo créditos").
+- **`CampaignsService`:** `getActiveBumpBonusCampaign()` nuevo, copia literal de
+  `getActiveCreditBonusCampaign()`. El tope de cordura (antes `CREDIT_BONUS_PERCENT_MAX`/
+  `CREDIT_BONUS_FIXED_MAX`) se **renombró** a `CAMPAIGN_BONUS_PERCENT_MAX`/`CAMPAIGN_BONUS_FIXED_MAX`
+  — el nombre viejo ya mentía en cuanto lo empezó a usar también `BUMP_BONUS` (mismos valores: 500% /
+  1.000.000). **`assertNoOverlap` NO se tocó** — hallazgo verificado antes de diseñar: el filtro
+  `where: { type }` ya aísla `BUMP_BONUS` de `CREDIT_BONUS`/`ACTION_DISCOUNT` sin ningún cambio de
+  código (dos `BUMP_BONUS` solapados bloquean por la misma rama `candidates[0]` que ya usa
+  `CREDIT_BONUS`; `BUMP_BONUS` y `CREDIT_BONUS` nunca compiten, ni siquiera entran en `candidates`
+  porque el `type` de la query los separa). Verificado con test e2e, no solo leído.
+- **`RedsysService.createBumpPackCheckout`:** gana el bloque espejo de
+  `createCreditPackCheckout` — consulta `getActiveBumpBonusCampaign()`, calcula
+  `campaignBonusBumpAmount` (PERCENT `ceil`, FIXED tal cual) y lo congela en la `Transaction` junto a
+  `campaignId`. El JSDoc que decía "no decidido en esta ráfaga" se reescribió.
+- **`RedsysProcessor.handleBumpPackPurchase`:** gana un cuarto parámetro y una tercera fila de
+  `BumpLedger` (`CAMPAIGN_BONUS`), con el mismo guard `!= null` que ya usa `PRO_BONUS` — **nunca una
+  fila con `amount: 0`**. `totalBumps = bumpAmount + (bonusBumpAmount ?? 0) + (campaignBonusBumpAmount ?? 0)`.
+- **Frontend:** `CampaignFormDialog.tsx` gana "Bonus de bumps" en el selector de tipo; los campos
+  `kind`/`value` (antes solo para `CREDIT_BONUS`) se reutilizan sin duplicar — la condición pasó de
+  `type === 'CREDIT_BONUS'` a `type !== 'ACTION_DISCOUNT'`. `effect-preview.ts`:
+  `applyCreditBonus` se **renombró** a `applyBonus` — la fórmula nunca fue específica de créditos, el
+  nombre viejo también mentía. La vista previa usa los packs de bumps reales del catálogo
+  (`bumpAmount`, no `creditAmount`) cuando `type === 'BUMP_BONUS'`. `page.tsx` y
+  `mis-creditos/page.tsx`/`admin/facturacion/usuarios/[id]` ganan la etiqueta "Bonus campaña" para la
+  nueva entrada de `BumpLedger` (la etiqueta de la vista admin, con clave `Record<string,string>` no
+  tipada por enum, ya cubría `CAMPAIGN_BONUS` gratis — comparte el nombre del tipo con créditos).
+
+**Verificado ejerciendo — nueva batería `campaigns-bump-bonus.e2e-spec.ts` (13 tests, real Postgres
+de test vía `test:e2e`, no mocks):**
+- **Matriz de 4 casos, filas EXACTAS:** Pro+campaña → 3 filas (`PACK_PURCHASE`+`PRO_BONUS`+
+  `CAMPAIGN_BONUS`); no-Pro+campaña → 2 (sin `PRO_BONUS`); Pro+sin campaña → 2 (sin `CAMPAIGN_BONUS`,
+  comportamiento de hoy intacto); ni-ni → 1 (solo `PACK_PURCHASE`). Las cuatro verificadas con
+  `wallet.bumpBalance` exacto y el listado de tipos de fila comparado, no solo el conteo.
+- **Paridad con créditos, con un caso adversarial:** pack de 40, Pro 20% + campaña 33% (porcentaje
+  impar a propósito, para que aditivo y compuesto den números DISTINTOS) → aditivo da 62
+  (`40+8+14`), compuesto habría dado 64 (`ceil(40×1.2×1.33)`) — el test afirma expresamente
+  `not.toBe(compoundTotal)`, no solo el valor esperado.
+- **Invariante con las 3 filas:** `SUM(BumpLedger.amount) === wallet.bumpBalance`, y
+  `bumpBalance > base` para descartar que la suma se quedara en 0 por error.
+- **Congelado:** cambiar `BumpPack.bumpAmount` a 999 y el `%` de la campaña a 90 (vía
+  `PATCH /admin/campaigns/:id`) DESPUÉS del checkout, ANTES de confirmar — el `bumpBalance` final usa
+  los valores congelados en ambos casos, nunca los nuevos.
+- **Idempotencia:** reintento de `processor.processSuccess` sobre una `Transaction` ya `SUCCEEDED` —
+  `bumpBalance` sin cambios, 3 filas (no 6).
+- **Solapamiento:** dos `BUMP_BONUS` activos solapados → `400 CAMPAIGN_OVERLAP`; un `BUMP_BONUS` y un
+  `CREDIT_BONUS` solapados en las mismas fechas → ambos `201`, coexisten.
+- **Tope:** `value=501` (`PERCENT`) → `400`; `value=500` (límite exacto) → `201`.
+- **Pantalla, con navegador real (Playwright desechable, sin rastro en el repo):** campaña
+  `BUMP_BONUS` PERCENT 40% creada desde el form → vista previa mostró, para los 3 packs de bumps
+  reales sembrados, "Pack 5 bumps → recibirá 7 bumps / Pack 15 bumps → recibirá 21 bumps / Pack 40
+  bumps → recibirá 56 bumps" ANTES de guardar → **se hizo un checkout real del pack de 15 y
+  `Transaction.campaignBonusBumpAmount` quedó en 6** (15 base + 6 = 21, igual que la previsualización).
+- **Batería completa, dos corridas:** primera corrida — 64/65 suites verdes, 1 suite
+  (`admin-category-type-policy.e2e-spec.ts`, sin relación alguna con campañas/bumps) con 9 fallos
+  `401` en cascada. Verificado como flake preexistente, no regresión: esa suite pasa 9/9 en solitario,
+  y una SEGUNDA corrida completa de toda la batería dio **65/65 suites, 984/984 tests, todos verdes**
+  — mismo patrón de "contadores de rate-limit heredados entre specs no relacionados" ya documentado
+  en `setup-e2e.js`. Unit tests backend (12/12 suites, 110/110), typecheck de `apps/api` y
+  `apps/web` limpios (mismo error preexistente y no relacionado de siempre en
+  `AttributeSchemaEditor.childrenImpact.test.tsx`). Toda la BD de prueba (dev) y el script de
+  Playwright se limpiaron al terminar.
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.

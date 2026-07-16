@@ -38,9 +38,10 @@ function formatDate(iso: string) {
 }
 
 function describeParams(campaign: AdminCampaign): string {
-  if (campaign.type === 'CREDIT_BONUS') {
+  if (campaign.type !== 'ACTION_DISCOUNT') {
     const { kind, value } = campaign.params as { kind: 'PERCENT' | 'FIXED'; value: number };
-    return kind === 'PERCENT' ? `Bonus +${value}%` : `Bonus +${value} créditos`;
+    const unit = campaign.type === 'BUMP_BONUS' ? 'bumps' : 'créditos';
+    return kind === 'PERCENT' ? `Bonus +${value}%` : `Bonus +${value} ${unit}`;
   }
   const { action, percent } = campaign.params as { action: 'BUMP' | 'FEATURED'; percent: number };
   return `-${percent}% en ${action === 'BUMP' ? 'bumps' : 'destacados'}`;
@@ -207,7 +208,11 @@ export default function AdminCampaignsPage() {
                 <tr key={campaign.id} className="hover:bg-muted/20">
                   <td className="px-4 py-3 font-medium">{campaign.name}</td>
                   <td className="px-4 py-3 text-muted-foreground">
-                    {campaign.type === 'CREDIT_BONUS' ? 'Bonus de créditos' : 'Descuento en acción'}
+                    {campaign.type === 'CREDIT_BONUS'
+                      ? 'Bonus de créditos'
+                      : campaign.type === 'BUMP_BONUS'
+                        ? 'Bonus de bumps'
+                        : 'Descuento en acción'}
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">{describeParams(campaign)}</td>
                   <td className="px-4 py-3 text-xs text-muted-foreground">

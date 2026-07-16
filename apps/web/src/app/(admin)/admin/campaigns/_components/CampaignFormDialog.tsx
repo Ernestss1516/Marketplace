@@ -26,15 +26,15 @@ import {
   updateAdminCampaign,
   ACTION_DISCOUNT_PERCENT_MIN,
   ACTION_DISCOUNT_PERCENT_MAX,
-  CREDIT_BONUS_VALUE_MIN,
-  CREDIT_BONUS_PERCENT_MAX,
-  CREDIT_BONUS_FIXED_MAX,
+  CAMPAIGN_BONUS_VALUE_MIN,
+  CAMPAIGN_BONUS_PERCENT_MAX,
+  CAMPAIGN_BONUS_FIXED_MAX,
   type AdminCampaign,
   type CampaignType,
-  type CreditBonusKind,
+  type BonusKind,
   type ActionDiscountAction,
 } from '@/lib/api/admin-campaigns';
-import { applyActionDiscount, applyCreditBonus } from '@/lib/campaigns/effect-preview';
+import { applyActionDiscount, applyBonus } from '@/lib/campaigns/effect-preview';
 
 interface Props {
   token: string;
@@ -58,12 +58,25 @@ function actionLabel(action: ActionDiscountAction): string {
   return action === 'BUMP' ? 'bumps' : 'destacados';
 }
 
+function typeLabel(type: CampaignType): string {
+  if (type === 'CREDIT_BONUS') return 'Bonus de créditos';
+  if (type === 'BUMP_BONUS') return 'Bonus de bumps';
+  return 'Descuento en bump/destacado';
+}
+
+/** "de bonus de créditos" / "de bonus de bumps" / "de descuento en bumps" — para el mensaje de CAMPAIGN_OVERLAP. */
+function overlapWhat(type: CampaignType, action: ActionDiscountAction): string {
+  if (type === 'CREDIT_BONUS') return 'de bonus de créditos';
+  if (type === 'BUMP_BONUS') return 'de bonus de bumps';
+  return `de descuento en ${actionLabel(action)}`;
+}
+
 export function CampaignFormDialog({ token, open, onOpenChange, campaign, onSuccess }: Props) {
   const isEdit = campaign != null;
 
   const [name, setName] = useState('');
   const [type, setType] = useState<CampaignType>('ACTION_DISCOUNT');
-  const [kind, setKind] = useState<CreditBonusKind>('PERCENT');
+  const [kind, setKind] = useState<BonusKind>('PERCENT');
   const [value, setValue] = useState('');
   const [action, setAction] = useState<ActionDiscountAction>('BUMP');
   const [percent, setPercent] = useState('');
@@ -75,14 +88,17 @@ export function CampaignFormDialog({ token, open, onOpenChange, campaign, onSucc
 
   const [catalog, setCatalog] = useState<CatalogResponse | null>(null);
 
+  const isBonus = type !== 'ACTION_DISCOUNT';
+  const bonusUnit = type === 'BUMP_BONUS' ? 'bumps' : 'créditos';
+
   useEffect(() => {
     if (!open) return;
     setError(null);
     if (campaign) {
       setName(campaign.name);
       setType(campaign.type);
-      if (campaign.type === 'CREDIT_BONUS') {
-        setKind((campaign.params as { kind: CreditBonusKind }).kind);
+      if (campaign.type !== 'ACTION_DISCOUNT') {
+        setKind((campaign.params as { kind: BonusKind }).kind);
         setValue(String((campaign.params as { value: number }).value));
       } else {
         setAction((campaign.params as { action: ActionDiscountAction }).action);
@@ -119,14 +135,14 @@ export function CampaignFormDialog({ token, open, onOpenChange, campaign, onSucc
     if (!startsAt || !endsAt) return 'Las fechas de inicio y fin son obligatorias.';
     if (new Date(endsAt) <= new Date(startsAt)) return 'La fecha de fin debe ser posterior a la de inicio.';
 
-    if (type === 'CREDIT_BONUS') {
+    if (isBonus) {
       const v = Number(value);
-      if (!value.trim() || !Number.isInteger(v) || v < CREDIT_BONUS_VALUE_MIN) {
-        return `El valor debe ser un número entero de al menos ${CREDIT_BONUS_VALUE_MIN}.`;
+      if (!value.trim() || !Number.isInteger(v) || v < CAMPAIGN_BONUS_VALUE_MIN) {
+        return `El valor debe ser un número entero de al menos ${CAMPAIGN_BONUS_VALUE_MIN}.`;
       }
-      const max = kind === 'PERCENT' ? CREDIT_BONUS_PERCENT_MAX : CREDIT_BONUS_FIXED_MAX;
+      const max = kind === 'PERCENT' ? CAMPAIGN_BONUS_PERCENT_MAX : CAMPAIGN_BONUS_FIXED_MAX;
       if (v > max) {
-        return `El valor no puede superar ${max.toLocaleString('es-ES')}${kind === 'PERCENT' ? '%' : ' créditos'}.`;
+        return `El valor no puede superar ${max.toLocaleString('es-ES')}${kind === 'PERCENT' ? '%' : ` ${bonusUnit}`}.`;
       }
     } else {
       const p = Number(percent);
@@ -149,7 +165,7 @@ export function CampaignFormDialog({ token, open, onOpenChange, campaign, onSucc
     try {
       const startsAtIso = new Date(startsAt).toISOString();
       const endsAtIso = new Date(endsAt).toISOString();
-      const params = type === 'CREDIT_BONUS'
+      const params = isBonus
         ? { kind, value: Number(value) }
         : { action, percent: Number(percent) };
 
@@ -175,9 +191,8 @@ export function CampaignFormDialog({ token, open, onOpenChange, campaign, onSucc
       onSuccess();
     } catch (err) {
       if (err instanceof ApiError && err.code === 'CAMPAIGN_OVERLAP') {
-        const what = type === 'CREDIT_BONUS' ? 'de bonus de créditos' : `de descuento en ${actionLabel(action)}`;
         setError(
-          `Ya existe una campaña ${what} activa que se solapa en esas fechas. ` +
+          `Ya existe una campaña ${overlapWhat(type, action)} activa que se solapa en esas fechas. ` +
           'Desactívala o ajusta las fechas de esta campaña.',
         );
       } else if (err instanceof ApiError) {
@@ -215,20 +230,21 @@ export function CampaignFormDialog({ token, open, onOpenChange, campaign, onSucc
     }
 
     const v = Number(value);
-    if (!value.trim() || !Number.isInteger(v) || v < CREDIT_BONUS_VALUE_MIN) return null;
-    const max = kind === 'PERCENT' ? CREDIT_BONUS_PERCENT_MAX : CREDIT_BONUS_FIXED_MAX;
+    if (!value.trim() || !Number.isInteger(v) || v < CAMPAIGN_BONUS_VALUE_MIN) return null;
+    const max = kind === 'PERCENT' ? CAMPAIGN_BONUS_PERCENT_MAX : CAMPAIGN_BONUS_FIXED_MAX;
     if (v > max) return null;
 
     const packs = catalog.products
       .flatMap((prod) => prod.prices)
-      .filter((pr) => pr.creditAmount != null)
-      .sort((a, b) => (a.creditAmount ?? 0) - (b.creditAmount ?? 0));
+      .filter((pr) => (type === 'CREDIT_BONUS' ? pr.creditAmount != null : pr.bumpAmount != null))
+      .map((pr) => ({ packName: pr.packName, amount: (type === 'CREDIT_BONUS' ? pr.creditAmount : pr.bumpAmount)! }))
+      .sort((a, b) => a.amount - b.amount);
     if (packs.length === 0) return null;
     return packs.map((pack) => {
-      const total = applyCreditBonus(pack.creditAmount!, kind, v);
-      return `${pack.packName ?? 'Pack'} (${pack.creditAmount} créditos) → recibirá ${total} créditos`;
+      const total = applyBonus(pack.amount, kind, v);
+      return `${pack.packName ?? 'Pack'} (${pack.amount} ${bonusUnit}) → recibirá ${total} ${bonusUnit}`;
     });
-  }, [catalog, type, action, percent, kind, value]);
+  }, [catalog, type, action, percent, kind, value, bonusUnit]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -252,8 +268,7 @@ export function CampaignFormDialog({ token, open, onOpenChange, campaign, onSucc
             <Label htmlFor="campaign-type">Tipo</Label>
             {isEdit ? (
               <p className="text-sm text-muted-foreground">
-                {type === 'CREDIT_BONUS' ? 'Bonus de créditos' : 'Descuento en bump/destacado'}
-                {' '}(no se puede cambiar tras crear)
+                {typeLabel(type)} (no se puede cambiar tras crear)
               </p>
             ) : (
               <Select value={type} onValueChange={(v) => setType(v as CampaignType)}>
@@ -263,41 +278,43 @@ export function CampaignFormDialog({ token, open, onOpenChange, campaign, onSucc
                 <SelectContent>
                   <SelectItem value="ACTION_DISCOUNT">Descuento en bump/destacado</SelectItem>
                   <SelectItem value="CREDIT_BONUS">Bonus de créditos</SelectItem>
+                  <SelectItem value="BUMP_BONUS">Bonus de bumps</SelectItem>
                 </SelectContent>
               </Select>
             )}
           </div>
 
-          {type === 'CREDIT_BONUS' ? (
+          {isBonus ? (
             <>
               <div>
                 <Label htmlFor="campaign-kind">Tipo de bonus</Label>
-                <Select value={kind} onValueChange={(v) => setKind(v as CreditBonusKind)}>
+                <Select value={kind} onValueChange={(v) => setKind(v as BonusKind)}>
                   <SelectTrigger id="campaign-kind">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="PERCENT">Porcentaje sobre el pack</SelectItem>
-                    <SelectItem value="FIXED">Cantidad fija de créditos</SelectItem>
+                    <SelectItem value="FIXED">{`Cantidad fija de ${bonusUnit}`}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div>
                 <Label htmlFor="campaign-value">
-                  {kind === 'PERCENT' ? 'Porcentaje de bonus' : 'Créditos de bonus'}
+                  {kind === 'PERCENT' ? 'Porcentaje de bonus' : `${bonusUnit[0].toUpperCase()}${bonusUnit.slice(1)} de bonus`}
                 </Label>
                 <Input
                   id="campaign-value"
                   type="number"
-                  min={CREDIT_BONUS_VALUE_MIN}
-                  max={kind === 'PERCENT' ? CREDIT_BONUS_PERCENT_MAX : CREDIT_BONUS_FIXED_MAX}
+                  min={CAMPAIGN_BONUS_VALUE_MIN}
+                  max={kind === 'PERCENT' ? CAMPAIGN_BONUS_PERCENT_MAX : CAMPAIGN_BONUS_FIXED_MAX}
                   value={value}
                   onChange={(e) => setValue(e.target.value)}
                 />
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Entre {CREDIT_BONUS_VALUE_MIN} y{' '}
-                  {(kind === 'PERCENT' ? CREDIT_BONUS_PERCENT_MAX : CREDIT_BONUS_FIXED_MAX).toLocaleString('es-ES')}
-                  {kind === 'PERCENT' ? '%' : ' créditos'}. Se suma al bonus Pro si el comprador es Pro (no lo sustituye).
+                  Entre {CAMPAIGN_BONUS_VALUE_MIN} y{' '}
+                  {(kind === 'PERCENT' ? CAMPAIGN_BONUS_PERCENT_MAX : CAMPAIGN_BONUS_FIXED_MAX).toLocaleString('es-ES')}
+                  {kind === 'PERCENT' ? '%' : ` ${bonusUnit}`}. Se suma al bonus Pro de {bonusUnit} si el comprador
+                  es Pro (no lo sustituye).
                 </p>
               </div>
             </>

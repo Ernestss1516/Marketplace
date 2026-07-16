@@ -184,10 +184,9 @@ export class RedsysService {
 
   /**
    * Mismo molde que createCreditPackCheckout, moneda distinta: acredita
-   * BumpLedger/Wallet.bumpBalance, no CreditLedger/Wallet.balance. Sin bonus
-   * de campaña — CampaignsService.getActiveCreditBonusCampaign() es
-   * específico de créditos (CampaignType.CREDIT_BONUS); extenderlo a bumps
-   * no se decidió en esta ráfaga.
+   * BumpLedger/Wallet.bumpBalance, no CreditLedger/Wallet.balance. Campaña
+   * #10 — bonus de campaña vía CampaignsService.getActiveBumpBonusCampaign()
+   * (CampaignType.BUMP_BONUS), mismo criterio aditivo que créditos.
    */
   async createBumpPackCheckout(
     userId: string,
@@ -215,6 +214,20 @@ export class RedsysService {
       20,
     );
 
+    // Freeze campaign bonus at checkout time (campaña #10). SUMS with the Pro
+    // bonus above — mismo criterio ADITIVO que createCreditPackCheckout: cada
+    // bonus se calcula contra pack.bumpAmount de forma independiente, nunca
+    // uno sobre el resultado del otro. El processor lee esto tal cual; el
+    // bonus que aplica es el vigente en ESTE instante, no el de la confirmación.
+    const activeCampaign = await this.campaigns.getActiveBumpBonusCampaign();
+    let campaignBonusBumpAmount: number | null = null;
+    let campaignId: string | null = null;
+    if (activeCampaign) {
+      const { kind, value } = activeCampaign.params as { kind: 'PERCENT' | 'FIXED'; value: number };
+      campaignBonusBumpAmount = kind === 'PERCENT' ? Math.ceil(pack.bumpAmount * value / 100) : value;
+      campaignId = activeCampaign.id;
+    }
+
     let transactionId: string;
     let dsOrder: string = '';
     for (let attempt = 1; attempt <= 3; attempt++) {
@@ -234,6 +247,8 @@ export class RedsysService {
             // specific purchase grants.
             baseBumpAmount: pack.bumpAmount,
             bonusBumpAmount,
+            campaignBonusBumpAmount,
+            campaignId,
           },
           select: { id: true },
         });
@@ -249,7 +264,8 @@ export class RedsysService {
     }
     this.logger.log(
       `Created PENDING Transaction ${transactionId!} for bump pack ${dto.packId}, ` +
-        `Ds_Order=${dsOrder}, proBonus=${bonusBumpAmount ?? 'none'}`,
+        `Ds_Order=${dsOrder}, proBonus=${bonusBumpAmount ?? 'none'}, ` +
+        `campaignBonus=${campaignBonusBumpAmount ?? 'none'}`,
     );
 
     return { redsysFormData: this.buildForm(dsOrder, amountCents) };
