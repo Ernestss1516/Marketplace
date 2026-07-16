@@ -222,10 +222,26 @@ export class AdminBillingService {
    * (durationDays != null), packs de créditos (creditPackId != null) y packs
    * de bumps (bumpPackId != null, Monetización ráfaga 4). Excluye de raíz los
    * Price recurrentes de Stripe (Plan Pro), que se gestionan aparte.
+   *
+   * Monetización ráfaga 5 — `active: true`: los packs retirados (desactivados,
+   * no borrados — ver §19.4/§20) quedan FUERA de la lista editable. No se
+   * borran de la BD (protegen el histórico de Transaction que los
+   * referencian), pero no tiene sentido que un admin los vea ni pueda
+   * "editarlos" — ya no se ofrecen a nadie. Si algún día se añade un toggle
+   * de activar/desactivar en el backoffice, este filtro habrá que revisarlo.
+   *
+   * Orden: por producto (agrupa destacado / packs de créditos / packs de
+   * bumps, que son productos distintos — nunca se mezclan entre sí) y, DENTRO
+   * de cada grupo, por cantidad ascendente (duración para destacado,
+   * creditAmount para packs de créditos, bumpAmount para packs de bumps). Las
+   * claves de relación que no aplican a un Price dado quedan NULL y Postgres
+   * las ordena al final por defecto — inofensivo, porque esos Price ya están
+   * en su propio grupo de producto.
    */
   async listPrices() {
     const prices = await this.prisma.price.findMany({
       where: {
+        active: true,
         OR: [
           { durationDays: { not: null } },
           { creditPackId: { not: null } },
@@ -241,7 +257,12 @@ export class AdminBillingService {
           select: { id: true, name: true, bumpAmount: true, active: true },
         },
       },
-      orderBy: [{ product: { name: 'asc' } }, { durationDays: 'asc' }],
+      orderBy: [
+        { product: { name: 'asc' } },
+        { durationDays: 'asc' },
+        { creditPack: { creditAmount: 'asc' } },
+        { bumpPack: { bumpAmount: 'asc' } },
+      ],
     });
 
     return prices.map((price) => ({

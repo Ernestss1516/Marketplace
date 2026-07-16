@@ -214,4 +214,81 @@ describe('GET /billing/catalog (e2e)', () => {
 
     await prisma.price.delete({ where: { id: inactivePrice.id } });
   });
+
+  // ── Monetización ráfaga 5: mismo orden ascendente por cantidad que el admin ──
+  describe('orden de los packs: ascendente por cantidad, agrupado por tipo', () => {
+    it('los packs de créditos y de bumps SEMBRADOS vienen ordenados por cantidad ascendente dentro de su propio producto', async () => {
+      // Igual que en admin-pricing.e2e-spec.ts: no se puede afirmar un orden
+      // global sobre TODAS las creditAmount de la respuesta porque otros
+      // specs e2e crean sus propios Product activos ad hoc que comparten
+      // esta misma BD (--runInBand). Cada Product real (créditos / bumps) sí
+      // ordena SU PROPIO array `prices` ascendente — que es justo lo que
+      // implementa getCatalog() — así que se comprueba ahí.
+      const res = await request(app.getHttpServer())
+        .get('/api/billing/catalog')
+        .expect(200);
+
+      const { products } = res.body as CatalogResponse;
+      const creditProduct = products.find((p) => (p as { name: string }).name === 'Packs de créditos');
+      const bumpProduct = products.find((p) => (p as { name: string }).name === 'Packs de bumps');
+      expect(creditProduct).toBeDefined();
+      expect(bumpProduct).toBeDefined();
+
+      const creditAmounts = (creditProduct as { prices: Record<string, unknown>[] }).prices.map(
+        (p) => p.creditAmount as number,
+      );
+      const bumpAmounts = (bumpProduct as { prices: Record<string, unknown>[] }).prices.map(
+        (p) => p.bumpAmount as number,
+      );
+
+      expect(creditAmounts).toEqual([50, 150, 400]);
+      expect(bumpAmounts).toEqual([5, 15, 40]);
+    });
+
+    it('un pack de créditos grande creado antes que uno pequeño sale DESPUÉS en el catálogo (orden por cantidad, no por creación ni por €)', async () => {
+      const product = await prisma.product.findFirstOrThrow({
+        where: { name: 'Packs de créditos' },
+      });
+      const bigPack = await prisma.creditPack.create({
+        data: { name: 'BC Order Big Pack', creditAmount: 999, active: true },
+      });
+      // Precio en € más BAJO que el pack pequeño creado después, para probar
+      // que el orden es por cantidad y no por importe (antiguo orderBy: amount asc).
+      const bigPrice = await prisma.price.create({
+        data: {
+          productId: product.id,
+          amount: 0.5,
+          currency: 'EUR',
+          creditPackId: bigPack.id,
+          active: true,
+        },
+      });
+      const smallPack = await prisma.creditPack.create({
+        data: { name: 'BC Order Small Pack', creditAmount: 1, active: true },
+      });
+      const smallPrice = await prisma.price.create({
+        data: {
+          productId: product.id,
+          amount: 99.99,
+          currency: 'EUR',
+          creditPackId: smallPack.id,
+          active: true,
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get('/api/billing/catalog')
+        .expect(200);
+
+      const { products } = res.body as CatalogResponse;
+      const creditProduct = products.find((p) => (p as { id: string }).id === product.id);
+      const priceIds = (creditProduct as { prices: { priceId: string }[] }).prices.map(
+        (p) => p.priceId,
+      );
+      expect(priceIds.indexOf(smallPrice.id)).toBeLessThan(priceIds.indexOf(bigPrice.id));
+
+      await prisma.price.deleteMany({ where: { id: { in: [bigPrice.id, smallPrice.id] } } });
+      await prisma.creditPack.deleteMany({ where: { id: { in: [bigPack.id, smallPack.id] } } });
+    });
+  });
 });

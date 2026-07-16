@@ -565,6 +565,160 @@ describe('Monetización — precios y costes configurables (e2e)', () => {
     });
   });
 
+  // ── Monetización ráfaga 5: listPrices() oculta inactivos y ordena por cantidad ──
+  //
+  // AJUSTE 1 (ocultar en vez de borrar): el "Pack de bumps" (highlightBumps,
+  // retirado en ráfaga 4) tiene una Transaction real referenciándolo en la BD
+  // de producción — borrarlo dejaría esa Transaction huérfana, así que en vez
+  // de eso se desactivó (CreditPack.active=false + Price.active=false) y
+  // ahora listPrices() debe excluirlo de la lista editable.
+  //
+  // AJUSTE 2 (orden ascendente por cantidad, agrupado): antes el orden era
+  // por nombre de producto + durationDays, sin tocar creditAmount/bumpAmount
+  // — así que un pack de 400 créditos podía salir antes que uno de 50. Ahora
+  // debe venir ascendente DENTRO de cada grupo (créditos / bumps), sin
+  // mezclar un grupo con otro.
+  describe('listPrices(): oculta packs inactivos y ordena por cantidad ascendente', () => {
+    it('un CreditPack desactivado (y su Price) no aparece en /admin/billing/prices', async () => {
+      const product = await prisma.product.create({
+        data: { name: 'AP Retired Pack Product', type: 'ONE_TIME', active: true },
+      });
+      const retiredPack = await prisma.creditPack.create({
+        data: { name: 'AP Retired Pack', creditAmount: 999, active: false },
+      });
+      const retiredPrice = await prisma.price.create({
+        data: {
+          productId: product.id,
+          amount: 1.99,
+          currency: 'EUR',
+          creditPackId: retiredPack.id,
+          active: false,
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get('/api/admin/billing/prices')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      const ids = (res.body as { id: string }[]).map((p) => p.id);
+      expect(ids).not.toContain(retiredPrice.id);
+
+      await prisma.price.delete({ where: { id: retiredPrice.id } });
+      await prisma.creditPack.delete({ where: { id: retiredPack.id } });
+      await prisma.product.delete({ where: { id: product.id } });
+    });
+
+    it('un BumpPack desactivado (y su Price) no aparece en /admin/billing/prices', async () => {
+      const product = await prisma.product.create({
+        data: { name: 'AP Retired Bump Pack Product', type: 'ONE_TIME', active: true },
+      });
+      const retiredPack = await prisma.bumpPack.create({
+        data: { name: 'AP Retired Bump Pack', bumpAmount: 999, active: false },
+      });
+      const retiredPrice = await prisma.price.create({
+        data: {
+          productId: product.id,
+          amount: 1.99,
+          currency: 'EUR',
+          bumpPackId: retiredPack.id,
+          active: false,
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get('/api/admin/billing/prices')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      const ids = (res.body as { id: string }[]).map((p) => p.id);
+      expect(ids).not.toContain(retiredPrice.id);
+
+      await prisma.price.delete({ where: { id: retiredPrice.id } });
+      await prisma.bumpPack.delete({ where: { id: retiredPack.id } });
+      await prisma.product.delete({ where: { id: product.id } });
+    });
+
+    it('los packs de créditos y de bumps SEMBRADOS vienen ordenados por cantidad ascendente, cada grupo por su cuenta', async () => {
+      // Ojo: no se puede comprobar un orden global sobre TODO creditAmount de
+      // la respuesta — otros bloques de este mismo fichero (y otros specs e2e
+      // que comparten BD) crean sus propios packs de prueba bajo Product ad
+      // hoc dedicados (ver cabecera del fichero, "IMPORTANTE (aislamiento)"),
+      // y el orden agrupa primero por producto. Los packs SEMBRADOS (Pack
+      // Básico/Estándar/Max, Pack 5/15/40 bumps) sí comparten un único
+      // Product real cada familia, así que su orden relativo entre sí es la
+      // garantía que importa aquí.
+      const res = await request(app.getHttpServer())
+        .get('/api/admin/billing/prices')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      const prices = res.body as {
+        label: string;
+        creditAmount: number | null;
+        bumpAmount: number | null;
+      }[];
+      const seededCreditLabels = ['Pack Básico', 'Pack Estándar', 'Pack Max'];
+      const seededBumpLabels = ['Pack 5 bumps', 'Pack 15 bumps', 'Pack 40 bumps'];
+
+      const creditAmounts = prices
+        .filter((p) => seededCreditLabels.includes(p.label))
+        .map((p) => p.creditAmount as number);
+      const bumpAmounts = prices
+        .filter((p) => seededBumpLabels.includes(p.label))
+        .map((p) => p.bumpAmount as number);
+
+      expect(creditAmounts).toEqual([50, 150, 400]);
+      expect(bumpAmounts).toEqual([5, 15, 40]);
+    });
+
+    it('un pack de créditos con más cantidad pero creado antes sale DESPUÉS de uno más pequeño creado después', async () => {
+      // Reproduce el bug: sin ORDER BY explícito por cantidad, el orden de
+      // creación podía ganarle al orden numérico. Se crea primero el grande
+      // (999) y luego el pequeño (1) — si el fix funciona, el pequeño debe
+      // listarse antes pese a haberse creado después.
+      const product = await prisma.product.create({
+        data: { name: 'AP Order Test Product', type: 'ONE_TIME', active: true },
+      });
+      const bigPack = await prisma.creditPack.create({
+        data: { name: 'AP Order Big Pack', creditAmount: 999, active: true },
+      });
+      const bigPrice = await prisma.price.create({
+        data: {
+          productId: product.id,
+          amount: 29.99,
+          currency: 'EUR',
+          creditPackId: bigPack.id,
+          active: true,
+        },
+      });
+      const smallPack = await prisma.creditPack.create({
+        data: { name: 'AP Order Small Pack', creditAmount: 1, active: true },
+      });
+      const smallPrice = await prisma.price.create({
+        data: {
+          productId: product.id,
+          amount: 0.99,
+          currency: 'EUR',
+          creditPackId: smallPack.id,
+          active: true,
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get('/api/admin/billing/prices')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      const ids = (res.body as { id: string }[]).map((p) => p.id);
+      expect(ids.indexOf(smallPrice.id)).toBeLessThan(ids.indexOf(bigPrice.id));
+
+      await prisma.price.deleteMany({ where: { id: { in: [bigPrice.id, smallPrice.id] } } });
+      await prisma.creditPack.deleteMany({ where: { id: { in: [bigPack.id, smallPack.id] } } });
+      await prisma.product.delete({ where: { id: product.id } });
+    });
+  });
+
   // ── 5, 6. Guard de precios de Stripe ────────────────────────────────────────
 
   describe('Precios de Stripe quedan fuera', () => {

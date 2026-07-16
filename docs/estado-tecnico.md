@@ -6903,6 +6903,33 @@ tenía los dos valores nuevos). QA en vivo con capturas Playwright: página "Mi 
 secciones para un Pro (con preview de bonus +1/+3/+8 en los 3 packs) y para un no-Pro (sin
 preview), y el editor nuevo en `/admin/ajustes` (Setting + los 3 `BumpPack` en Precios Redsys).
 
+### Monetización — ráfaga 5: dos ajustes de catálogo (CERRADO)
+
+Documentación completa en `diseno-facturacion.md` §20.
+
+- **El "Pack de bumps" (highlightBumps) retirado en la ráfaga 4 NO se borra.** Antes de tocar nada
+  se comprobó la BD (mismo criterio que "verificar entitlement origin IS NULL antes de cerrar
+  Stripe"): cuántas `Transaction` referencian su `Price`. Resultado: **1 Transaction PENDING real**,
+  de una cuenta de producción, no un fixture de prueba — borrar el `CreditPack`/`Price` la habría
+  dejado con una FK rota. Decisión: no se borra, se deja desactivado (ya lo estaba desde la ráfaga
+  4). En su lugar, `AdminBillingService.listPrices()` gana `active: true` en el `where` — los packs
+  desactivados (créditos o bumps) desaparecen de la lista editable del backoffice sin tocar ninguna
+  fila existente.
+- **Orden de los packs — ascendente por cantidad, agrupado por tipo.** Antes, `listPrices()`
+  ordenaba solo por `product.name` + `durationDays` (nunca por `creditAmount`/`bumpAmount` — el
+  orden dentro de un producto era el de inserción, visto en vivo un pack de 40 bumps antes que uno
+  de 15) y `getCatalog()` ordenaba por precio en €, no por cantidad. Fix: ambos `orderBy` ganan
+  `creditPack.creditAmount`/`bumpPack.bumpAmount` ascendentes; la agrupación por tipo ya venía
+  gratis (créditos y bumps son `Product`/relaciones distintas), así que el criterio de cantidad solo
+  actúa dentro de cada grupo.
+
+**Verificado**: nuevos tests en `admin-pricing.e2e-spec.ts` y `billing-catalog.e2e-spec.ts` — un
+pack desactivado (créditos y bumps) no aparece en `/admin/billing/prices`; los packs sembrados
+vienen en el orden exacto esperado (`[50,150,400]` créditos, `[5,15,40]` bumps) en admin y en
+catálogo; un pack con más cantidad pero creado (o con precio en €) más bajo sale igualmente DESPUÉS
+de uno más pequeño, para descartar que el orden dependa de inserción o de precio. Batería completa:
+64 suites / 971 tests en verde. Typecheck de backend limpio.
+
 ---
 
 ## 4. Documentación de la API y el diseño

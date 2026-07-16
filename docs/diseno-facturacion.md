@@ -1359,3 +1359,41 @@ principio que ya regía el historial (§17). El botón "Comprar" de un pack de b
 preview "+N de regalo por ser Pro" cuando aplica; la página de confirmación tras el pago
 (`/mis-creditos/exito`, compartida entre packs de créditos y de bumps porque Redsys no distingue
 cuál se compró) muestra ambos saldos actuales.
+
+## 20. Monetización ráfaga 5 — dos ajustes de catálogo
+
+### 20.1 El pack "Pack de bumps" (highlightBumps) retirado NO se borra — sigue habiendo histórico real
+
+Se planteó borrar por completo el `CreditPack` desactivado en §19.4 (desactivado, no borrado, para
+proteger histórico). Antes de borrar nada se comprobó la BD (mismo criterio que "verificar
+entitlement origin IS NULL antes de cerrar Stripe" en otra ráfaga): cuántas `Transaction`
+referencian su `Price` vía `priceId`.
+
+Resultado: **1 Transaction en estado PENDING la referencia**, y pertenece a una cuenta real de
+producción (no un fixture `@example.com`). Borrar el `CreditPack`/`Price` habría dejado esa
+`Transaction` con una FK rota o forzado un cascade que la destruye — ninguna de las dos opciones es
+aceptable sin autorización explícita, así que **no se borra**.
+
+En su lugar: `AdminBillingService.listPrices()` gana `active: true` en el `where` — los packs
+desactivados (créditos o bumps) ya no aparecen en la lista editable del backoffice, sin tocar
+ninguna fila existente. `getCatalog()` (cara al usuario) ya los excluía desde antes (§19.4). No se
+creó ningún flujo para reactivar un pack — si algún día hace falta, es una migración de datos igual
+de simple que la que lo desactivó.
+
+### 20.2 Orden de los packs — ascendente por cantidad, agrupado por tipo
+
+Antes: `listPrices()` ordenaba por `product.name` + `durationDays` únicamente — ningún criterio
+tocaba `creditAmount`/`bumpAmount`, así que dentro de un mismo producto el orden era el de
+inserción en BD (arbitrario en la práctica; se vio en vivo un pack de 40 bumps listado antes que
+uno de 15). `getCatalog()` ordenaba por `amount` (precio en €), no por cantidad — un pack más caro
+por unidad podía salir antes que uno más barato con más cantidad.
+
+Fix en ambos sitios: el `orderBy` gana dos claves más — `creditPack.creditAmount` y
+`bumpPack.bumpAmount`, ambas ascendentes. La agrupación por tipo (créditos nunca se mezclan con
+bumps) ya venía gratis: son `Product`/relaciones distintas, así que el ordenamiento por cantidad
+solo actúa DENTRO de cada grupo. Para un `Price` al que no le aplica una de las dos claves (p. ej.
+un destacado no tiene `creditPack`), Prisma genera un LEFT JOIN y Postgres ordena los `NULL` al
+final por defecto — inofensivo, porque ese `Price` ya está en su propio grupo por producto/tipo.
+
+Aplicado en `AdminBillingService.listPrices()` y `BillingService.getCatalog()` — mismo criterio en
+admin y en "Mi saldo", para que el orden visual sea coherente en ambos lados.

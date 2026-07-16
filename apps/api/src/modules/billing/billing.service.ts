@@ -758,7 +758,17 @@ export class BillingService {
           prices: {
             where: { active: true },
             include: { creditPack: true, bumpPack: true },
-            orderBy: { amount: 'asc' },
+            // Monetización ráfaga 5 — orden ascendente por cantidad (no por
+            // precio en €): duración para destacado, creditAmount para packs
+            // de créditos, bumpAmount para packs de bumps. Cada Price solo
+            // tiene una de las tres claves con valor real; las otras quedan
+            // NULL y no afectan porque ya está agrupado por Product (los
+            // packs de créditos y de bumps son productos distintos).
+            orderBy: [
+              { durationDays: 'asc' },
+              { creditPack: { creditAmount: 'asc' } },
+              { bumpPack: { bumpAmount: 'asc' } },
+            ],
           },
         },
         orderBy: { createdAt: 'asc' },
