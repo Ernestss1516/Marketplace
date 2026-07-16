@@ -5,7 +5,13 @@ import { FavoriteCardButton } from './FavoriteCardButton';
 import { CardPhotoCarousel } from './CardPhotoCarousel';
 import { WideCardAttrsDisplay } from './CardAttributesContext';
 import { TruncatedDescription } from './TruncatedDescription';
-import { formatListingPrice, getListingPhotos, buildListingLocation, ListingStatusBadge } from './listing-card-shared';
+import {
+  formatListingPrice,
+  getListingPhotos,
+  buildListingLocation,
+  ListingStatusBadge,
+  SellerRatingInline,
+} from './listing-card-shared';
 import type { ListingSummary } from '@/types';
 
 /**
@@ -53,9 +59,10 @@ export function ListingCardWide({
                 {formatListingPrice(listing.price, listing.currency, listing.priceType)}
               </p>
             </div>
-            {location && (
-              <p className="mt-0.5 text-xs text-muted-foreground">{location}</p>
-            )}
+            <div className="mt-0.5 flex items-center gap-2">
+              {location && <p className="text-xs text-muted-foreground">{location}</p>}
+              <SellerRatingInline average={listing.sellerRatingAverage} count={listing.sellerRatingCount} />
+            </div>
             <WideCardAttrsDisplay
               categorySlug={listing.categorySlug}
               attributes={listing.attributes as Record<string, unknown> | undefined}

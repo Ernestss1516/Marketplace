@@ -203,4 +203,38 @@ export class ReviewsService {
 
     await this.prisma.review.delete({ where: { id } });
   }
+
+  /**
+   * Escaparate RÁFAGA 4 — media/conteo VERIFICADOS de varios usuarios a la vez,
+   * para enriquecer una página de listado (cards) o una ficha sin N+1: una
+   * sola query agrupada por los sellerId presentes en esa página, mismo molde
+   * que featuredMap/favoritesCountMap en ListingsService.findMine.
+   *
+   * Medido antes de construir esto (ver estado-tecnico.md, "Escaparate —
+   * RÁFAGA 4"): con 88k reviews sintéticas y el peor caso adversarial (40
+   * "power sellers" con 385-498 reviews cada uno), esta consulta cuesta
+   * ~2.8ms — ruido frente al resto de la petición. On-the-fly, sin
+   * desnormalizar: una sola fuente de verdad, cero riesgo de desincronización.
+   */
+  async getRatingSummaries(
+    userIds: string[],
+  ): Promise<Map<string, { average: number | null; count: number }>> {
+    const map = new Map<string, { average: number | null; count: number }>();
+    if (userIds.length === 0) return map;
+
+    const rows = await this.prisma.review.groupBy({
+      by: ['targetId'],
+      where: { targetId: { in: userIds }, verified: true },
+      _avg: { rating: true },
+      _count: { rating: true },
+    });
+
+    for (const row of rows) {
+      map.set(row.targetId, {
+        average: Math.round((row._avg.rating ?? 0) * 10) / 10,
+        count: row._count.rating,
+      });
+    }
+    return map;
+  }
 }

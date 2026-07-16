@@ -1,26 +1,17 @@
-import { redirect } from 'next/navigation';
-import type { Metadata } from 'next';
-import { auth } from '@/lib/auth';
-import { getConversations } from '@/lib/api/mensajes';
-import { BandejaMensajesClient } from '@/components/mensajes/BandejaMensajesClient';
-import { buildLoginUrl } from '@/lib/auth/callback-url';
+import { MessageCircle } from 'lucide-react';
 
-export const metadata: Metadata = { title: 'Mensajes' };
-
-export default async function MensajesPage() {
-  const session = await auth();
-  if (!session?.user.accessToken) redirect(buildLoginUrl('/mensajes'));
-
-  const { items } = await getConversations(session.user.accessToken);
-
+/**
+ * Estado vacío del panel de chat cuando no hay conversación seleccionada.
+ * La lista y la conexión WebSocket ya viven en el layout — esta página solo
+ * rellena el hueco derecho en escritorio (en móvil, MensajesShell oculta este
+ * panel por completo cuando no hay selección, así que este contenido nunca
+ * se ve ahí).
+ */
+export default function MensajesPage() {
   return (
-    <div>
-      <h1 className="mb-6 text-2xl font-bold">Mensajes</h1>
-      <BandejaMensajesClient
-        initialConversations={items}
-        token={session.user.accessToken}
-        userId={session.user.id}
-      />
+    <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center text-muted-foreground">
+      <MessageCircle className="h-10 w-10" />
+      <p>Selecciona una conversación para ver los mensajes.</p>
     </div>
   );
 }

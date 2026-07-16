@@ -1,5 +1,8 @@
+import { Star } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import type { ListingSummary, ListingStatus, PriceType } from '@/types';
+
+const RATING_FORMAT = new Intl.NumberFormat('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 
 // Shared by ListingCard (estándar) and ListingCardWide (ampliada, RÁFAGA 2) —
 // extraído para no duplicar precio/estado/resolución de fotos entre las dos.
@@ -44,4 +47,38 @@ export function getListingPhotos(listing: ListingSummary): string[] {
 
 export function buildListingLocation(listing: ListingSummary): string {
   return [listing.city, listing.province].filter(Boolean).join(', ');
+}
+
+/**
+ * Escaparate RÁFAGA 4 — reputación del vendedor donde el comprador decide.
+ * `count` en 0 (o `average` null, misma señal que ya usa el perfil) → "Nuevo",
+ * nunca ★0,0: un vendedor sin valoraciones VERIFICADAS no es lo mismo que uno
+ * mal valorado. Sin Link propio a propósito — la card entera ya es un Link a
+ * /anuncio/[slug] (no se puede anidar otro); en la ficha, SellerCard ya
+ * envuelve su contenido en el Link a /vendedor/[slug].
+ */
+export function SellerRatingInline({
+  average,
+  count,
+  detailed = false,
+}: {
+  average: number | null | undefined;
+  count: number | undefined;
+  /** true en la ficha (más detalle: nº de valoraciones); false en la card (solo la media). */
+  detailed?: boolean;
+}) {
+  if (!count) {
+    return <span className="text-xs text-muted-foreground">Nuevo</span>;
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+      <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" aria-hidden />
+      <span className="font-medium text-foreground">{RATING_FORMAT.format(average ?? 0)}</span>
+      {detailed && (
+        <span>
+          · {count} {count === 1 ? 'valoración' : 'valoraciones'}
+        </span>
+      )}
+    </span>
+  );
 }

@@ -4,6 +4,7 @@ import { SearchService, type SearchParams } from './search.service';
 import { FilterableAttributesResolver } from './filterable-attributes.resolver';
 import { parseSearchQuery } from './search-query.parser';
 import { SponsoredAdsService } from '../sponsored-ads/sponsored-ads.service';
+import { ReviewsService } from '../reviews/reviews.service';
 
 // Posición fija de inserción entre los hits, convención documentada en H6.1.
 const SPONSORED_AD_POSITION = 3;
@@ -20,6 +21,7 @@ export class SearchController {
     private readonly searchService: SearchService,
     private readonly attributesResolver: FilterableAttributesResolver,
     private readonly sponsoredAdsService: SponsoredAdsService,
+    private readonly reviewsService: ReviewsService,
   ) {}
 
   @Get()
@@ -91,20 +93,7 @@ export class SearchController {
       hitsPerPage: dto.hitsPerPage,
     });
 
-    const hits = result.hits.map((hit) => this.normalizeHit(hit, allAttributeNames));
-
-    // H6.6 — patrocinados: solo página 1, solo con categoría, un único hueco.
-    // Rompe conscientemente el invariante "búsqueda no toca Postgres", mitigado
-    // con la caché Redis de SponsoredAdsService (ver apps/api/CLAUDE.md).
-    if ((dto.page ?? 1) === 1 && dto.category) {
-      const sponsoredAd = await this.sponsoredAdsService.resolveForSearch(dto.category);
-      if (sponsoredAd) {
-        hits.splice(Math.min(SPONSORED_AD_POSITION, hits.length), 0, {
-          __sponsored: true,
-          ...sponsoredAd,
-        });
-      }
-    }
+    let hits = result.hits.map((hit) => this.normalizeHit(hit, allAttributeNames));
 
     // Bloque "Promocionados" (política de ordenación C, RÁFAGA 1): los destacados
     // que además cumplen los filtros actuales, en una consulta APARTE con los
@@ -122,6 +111,30 @@ export class SearchController {
         hitsPerPage: FEATURED_BLOCK_SIZE,
       });
       featured = featuredResult.hits.map((hit) => this.normalizeHit(hit, allAttributeNames));
+    }
+
+    // Escaparate RÁFAGA 4 — media VERIFICADA del vendedor, en una sola consulta
+    // agrupada por los sellerId distintos de hits+featured (antes de mezclar el
+    // patrocinado, que no tiene sellerId). Medido: ver ReviewsService.getRatingSummaries
+    // y estado-tecnico.md ("Escaparate — RÁFAGA 4") — ruido frente al resto de la
+    // petición, de ahí on-the-fly en vez de tocar el documento de Meilisearch
+    // (que habría exigido reindexar TODOS los anuncios de un vendedor en cada
+    // review nueva, un coste de propagación muy distinto al de sellerName/trusted,
+    // que casi nunca cambian).
+    hits = await this.enrichWithSellerRating(hits);
+    featured = await this.enrichWithSellerRating(featured);
+
+    // H6.6 — patrocinados: solo página 1, solo con categoría, un único hueco.
+    // Rompe conscientemente el invariante "búsqueda no toca Postgres", mitigado
+    // con la caché Redis de SponsoredAdsService (ver apps/api/CLAUDE.md).
+    if ((dto.page ?? 1) === 1 && dto.category) {
+      const sponsoredAd = await this.sponsoredAdsService.resolveForSearch(dto.category);
+      if (sponsoredAd) {
+        hits.splice(Math.min(SPONSORED_AD_POSITION, hits.length), 0, {
+          __sponsored: true,
+          ...sponsoredAd,
+        });
+      }
     }
 
     return {
@@ -164,5 +177,26 @@ export class SearchController {
       thumbnailUrl: (hit.thumbnailUrl as string | null) ?? undefined,
       attributes: attrs,
     };
+  }
+
+  /**
+   * Escaparate RÁFAGA 4 — una sola consulta agrupada por los sellerId
+   * distintos de esta página (nunca N+1 por hit). `average: null` (0
+   * verificadas) es la señal de "Nuevo" que consume el frontend.
+   */
+  private async enrichWithSellerRating(
+    hits: Array<Record<string, unknown>>,
+  ): Promise<Array<Record<string, unknown>>> {
+    const sellerIds = [...new Set(hits.map((h) => h.sellerId).filter((id): id is string => typeof id === 'string'))];
+    if (sellerIds.length === 0) return hits;
+    const ratings = await this.reviewsService.getRatingSummaries(sellerIds);
+    return hits.map((hit) => {
+      const rating = typeof hit.sellerId === 'string' ? ratings.get(hit.sellerId) : undefined;
+      return {
+        ...hit,
+        sellerRatingAverage: rating?.average ?? null,
+        sellerRatingCount: rating?.count ?? 0,
+      };
+    });
   }
 }

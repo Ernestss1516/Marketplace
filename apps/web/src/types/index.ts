@@ -161,6 +161,14 @@ export interface ListingSummary {
   sellerName?: string;
   sellerSlug?: string;
   sellerAvatarUrl?: string | null;
+  /** Escaparate RÁFAGA 4 — presente en todos los orígenes de listado (Meilisearch y Postgres),
+   * solo para que el backend pueda enriquecer con la media en lote; no se usa para nada más
+   * en el frontend directamente. */
+  sellerId?: string;
+  /** Escaparate RÁFAGA 4 — media VERIFICADA del vendedor (misma fuente que el perfil). null =
+   * sin valoraciones verificadas → mostrar "Nuevo", nunca ★0,0. */
+  sellerRatingAverage?: number | null;
+  sellerRatingCount?: number;
   /** 1 when the listing has an active boost (paid feature). Only present on Meilisearch hits. */
   boostScore?: 0 | 1;
   /** Geo-coordinates from Meilisearch. Only present on hits with latitude/longitude set. */
@@ -207,7 +215,12 @@ export interface Listing {
   longitude?: number;
   images: ListingImage[];
   category: Pick<Category, 'name' | 'slug'>;
-  seller: Pick<UserPublic, 'name' | 'slug' | 'avatarUrl' | 'trusted'>;
+  seller: Pick<UserPublic, 'name' | 'slug' | 'avatarUrl' | 'trusted'> & {
+    /** Escaparate RÁFAGA 4 — media VERIFICADA, siempre fresca (nunca dentro de la caché
+     * de 5 min de la ficha). null = sin valoraciones verificadas → "Nuevo". */
+    ratingAverage: number | null;
+    ratingCount: number;
+  };
   publishedAt?: string;
   viewCount: number;
   featuredUntil?: string | null;

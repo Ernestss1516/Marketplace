@@ -4,7 +4,13 @@ import { Badge } from '@/components/ui/badge';
 import { FavoriteCardButton } from './FavoriteCardButton';
 import { CardPhotoCarousel } from './CardPhotoCarousel';
 import { CardAttrsDisplay } from './CardAttributesContext';
-import { formatListingPrice, getListingPhotos, buildListingLocation, ListingStatusBadge } from './listing-card-shared';
+import {
+  formatListingPrice,
+  getListingPhotos,
+  buildListingLocation,
+  ListingStatusBadge,
+  SellerRatingInline,
+} from './listing-card-shared';
 import type { ListingSummary } from '@/types';
 
 export function ListingCard({
@@ -49,9 +55,12 @@ export function ListingCard({
             attributes={listing.attributes as Record<string, unknown> | undefined}
             listingType={listing.type}
           />
-          {location && (
-            <p className="mt-1 truncate text-xs text-muted-foreground">{location}</p>
-          )}
+          <div className="mt-1 flex items-center gap-2">
+            {location && (
+              <p className="truncate text-xs text-muted-foreground">{location}</p>
+            )}
+            <SellerRatingInline average={listing.sellerRatingAverage} count={listing.sellerRatingCount} />
+          </div>
           <ListingStatusBadge status={listing.status} />
         </CardContent>
       </Card>

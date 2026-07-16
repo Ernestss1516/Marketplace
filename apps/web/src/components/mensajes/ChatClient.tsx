@@ -13,7 +13,12 @@ import { getEligibility } from '@/lib/api/valoraciones';
 import { useApiAction } from '@/lib/api/use-api-action';
 import type { EligibilityResult } from '@/lib/api/valoraciones';
 import { ReviewModal } from '@/components/valoraciones/ReviewModal';
-import { useMessagingSocket } from '@/hooks/useMessagingSocket';
+import { useMessagingSocketContext } from './MessagingSocketContext';
+
+/** Ráfaga en la que se agrupan los "marcar leído" de fondo cuando llegan
+ * varios mensajes seguidos por socket — una sola llamada por ráfaga, no una
+ * por mensaje (instrucción explícita de Ernest). */
+const MARK_READ_DEBOUNCE_MS = 1200;
 
 const EDIT_WINDOW_MS = 72 * 60 * 60 * 1000;
 
@@ -47,10 +52,13 @@ export function ChatClient({ initialData, token, userId }: Props) {
   const [reviewModalOpen, setReviewModalOpen] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
+  const markReadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const listingId = initialData.listing.id;
   const targetId = initialData.otherUser.id;
   const targetName = initialData.otherUser.name;
+
+  const { latestMessage, joinConversation } = useMessagingSocketContext();
 
   async function fetchEligibility() {
     // Non-critical check — auth errors sign out; other errors silently ignored
@@ -60,10 +68,14 @@ export function ChatClient({ initialData, token, userId }: Props) {
     );
   }
 
+  // Este efecto re-dispara en cada conversación distinta porque ChatClient se
+  // remonta al navegar entre /mensajes/[id] (páginas dinámicas distintas) —
+  // preserva fetchEligibility() estructuralmente, sin código extra para eso.
   useEffect(() => {
     void fetchEligibility();
+    joinConversation(initialData.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [initialData.id]);
 
   // Compute whether the existing review is still within the 72h edit window
   const canEdit =
@@ -71,22 +83,39 @@ export function ChatClient({ initialData, token, userId }: Props) {
     eligibility.existingReview !== null &&
     Date.now() < new Date(eligibility.existingReview.createdAt).getTime() + EDIT_WINDOW_MS;
 
-  // Real-time: receive messages pushed by the server via WebSocket.
+  // Real-time: receive messages pushed by la conexión compartida (Context).
   // Deduplication by id is idempotent — the sender already added the message
   // optimistically from the REST response, so the socket echo is safely ignored.
-  useMessagingSocket({
-    token,
-    conversationId: initialData.id,
-    onMessage({ message: incoming }) {
-      flushSync(() => {
-        setMessages((prev) => {
-          if (prev.some((m) => m.id === incoming.id)) return prev;
-          return [...prev, incoming];
-        });
+  useEffect(() => {
+    if (!latestMessage || latestMessage.conversationId !== initialData.id) return;
+    const incoming = latestMessage.message;
+
+    flushSync(() => {
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === incoming.id)) return prev;
+        return [...prev, incoming];
       });
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-    },
-  });
+    });
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+
+    // Marcar como leído en segundo plano — con debounce: una ráfaga de varios
+    // mensajes seguidos dispara UNA sola llamada, no una por mensaje. Se omite
+    // si la pestaña no está enfocada (no tiene sentido marcar como leído lo
+    // que el usuario no está mirando).
+    if (incoming.senderId !== userId && document.visibilityState === 'visible') {
+      if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current);
+      markReadTimerRef.current = setTimeout(() => {
+        void getConversation(initialData.id, token);
+      }, MARK_READ_DEBOUNCE_MS);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latestMessage]);
+
+  useEffect(() => {
+    return () => {
+      if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current);
+    };
+  }, []);
 
   // Scroll to the most recent messages instantly on first render
   useLayoutEffect(() => {
@@ -136,7 +165,7 @@ export function ChatClient({ initialData, token, userId }: Props) {
 
   return (
     <>
-      <div className="flex h-[calc(100vh-12rem)] flex-col overflow-hidden rounded-lg border">
+      <div className="flex h-full flex-col overflow-hidden">
         {/* Header */}
         <div className="border-b bg-background px-4 py-3">
           <div className="flex items-start justify-between gap-3">

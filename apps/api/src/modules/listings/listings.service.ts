@@ -31,6 +31,7 @@ import { BadWordService } from '../moderation/bad-word.service';
 import { ListingActivationService } from '../listing-activation/listing-activation.service';
 import { MessagingService } from '../messaging/messaging.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { ReviewsService } from '../reviews/reviews.service';
 import {
   AttributeField,
   resolveEffectiveSchema,
@@ -85,6 +86,10 @@ const SELECT_SUMMARY = {
   viewCount: true,
   category: { select: { slug: true } },
   images: { orderBy: { order: 'asc' as const }, take: 1, select: { url: true } },
+  // Escaparate RÁFAGA 4 — necesario para enriquecer la card con la media
+  // verificada del vendedor en lote (ver enrichWithSellerRating), no para
+  // mostrarlo tal cual.
+  sellerId: true,
 } as const;
 
 type SummaryDbRow = {
@@ -105,6 +110,7 @@ type SummaryDbRow = {
   viewCount: number;
   category: { slug: string };
   images: { url: string }[];
+  sellerId: string;
 };
 
 @Injectable()
@@ -122,6 +128,7 @@ export class ListingsService {
     private readonly activation: ListingActivationService,
     private readonly messaging: MessagingService,
     private readonly notifications: NotificationsService,
+    private readonly reviews: ReviewsService,
   ) {}
 
   async create(sellerId: string, dto: CreateListingDto): Promise<Listing> {
@@ -723,7 +730,21 @@ export class ListingsService {
       orderBy: { expiresAt: 'desc' },
     });
 
-    return { ...listingData, featuredUntil: featuredEntitlement?.expiresAt ?? null };
+    // Escaparate RÁFAGA 4 — igual que featuredUntil arriba: SIEMPRE fresca,
+    // nunca dentro del blob cacheado en Redis. Una ficha se ve mucho menos
+    // que una card en agregado, así que pagar una query propia (~sub-ms,
+    // ver ReviewsService.getRatingSummaries) por la media EXACTA en el
+    // momento de la visita es preferible a arrastrar la caché de 5 min del
+    // listado y su propia invalidación.
+    const seller = (listingData as unknown as { seller: { id: string } }).seller;
+    const ratings = await this.reviews.getRatingSummaries([seller.id]);
+    const sellerRating = ratings.get(seller.id) ?? { average: null, count: 0 };
+
+    return {
+      ...listingData,
+      featuredUntil: featuredEntitlement?.expiresAt ?? null,
+      seller: { ...seller, ratingAverage: sellerRating.average, ratingCount: sellerRating.count },
+    };
   }
 
   async findByCategory(
@@ -751,7 +772,8 @@ export class ListingsService {
       }),
       this.prisma.listing.count({ where }),
     ]);
-    return { items: rows.map((r) => this.toSummary(r)), total, page, perPage };
+    const items = await this.enrichWithSellerRating(rows.map((r) => this.toSummary(r)));
+    return { items, total, page, perPage };
   }
 
   async findBySellerSlug(sellerSlug: string, page = 1, perPage = 24) {
@@ -766,7 +788,11 @@ export class ListingsService {
       }),
       this.prisma.listing.count({ where }),
     ]);
-    return { items: rows.map((r) => this.toSummary(r)), total, page, perPage };
+    // Todas las cards de esta página pertenecen al MISMO vendedor — una sola
+    // fila en el batch de todos modos (el helper ya dedup por sellerId), no
+    // hace falta un camino especial.
+    const items = await this.enrichWithSellerRating(rows.map((r) => this.toSummary(r)));
+    return { items, total, page, perPage };
   }
 
   async findRecent(page = 1, perPage = 8) {
@@ -781,7 +807,8 @@ export class ListingsService {
       }),
       this.prisma.listing.count({ where }),
     ]);
-    return { items: rows.map((r) => this.toSummary(r)), total, page, perPage };
+    const items = await this.enrichWithSellerRating(rows.map((r) => this.toSummary(r)));
+    return { items, total, page, perPage };
   }
 
   async findMine(userId: string, query: MyListingsQueryDto) {
@@ -854,6 +881,28 @@ export class ListingsService {
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
+
+  /**
+   * Escaparate RÁFAGA 4 — enriquece una página de summaries con la media
+   * verificada de sus vendedores, en UNA sola consulta agrupada por los
+   * sellerId distintos de esa página (nunca N+1 por listing). Medido: ver
+   * ReviewsService.getRatingSummaries. `average: null` (0 verificadas) es la
+   * señal de "Nuevo" que consume el frontend — no se convierte a 0 aquí.
+   */
+  private async enrichWithSellerRating<T extends { sellerId: string }>(
+    items: T[],
+  ): Promise<(T & { sellerRatingAverage: number | null; sellerRatingCount: number })[]> {
+    const sellerIds = [...new Set(items.map((i) => i.sellerId))];
+    const ratings = await this.reviews.getRatingSummaries(sellerIds);
+    return items.map((item) => {
+      const rating = ratings.get(item.sellerId);
+      return {
+        ...item,
+        sellerRatingAverage: rating?.average ?? null,
+        sellerRatingCount: rating?.count ?? 0,
+      };
+    });
+  }
 
   private toSummary({ images, bumpedAt, attributes, category, ...rest }: SummaryDbRow) {
     return {

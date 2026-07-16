@@ -2,9 +2,18 @@ import Link from 'next/link';
 import { BadgeCheck } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
+import { SellerRatingInline } from './listing-card-shared';
 
 interface SellerCardProps {
-  seller: { name: string; slug: string; avatarUrl?: string; trusted?: boolean };
+  seller: {
+    name: string;
+    slug: string;
+    avatarUrl?: string;
+    trusted?: boolean;
+    /** Escaparate RÁFAGA 4 — media VERIFICADA; null = "Nuevo". */
+    ratingAverage?: number | null;
+    ratingCount?: number;
+  };
   publishedAt?: string;
 }
 
@@ -30,6 +39,7 @@ export function SellerCard({ seller, publishedAt }: SellerCardProps) {
         </Avatar>
         <div>
           <p className="font-medium">{seller.name}</p>
+          <SellerRatingInline average={seller.ratingAverage} count={seller.ratingCount} detailed />
           {published && (
             <p className="text-xs text-muted-foreground">Publicado el {published}</p>
           )}

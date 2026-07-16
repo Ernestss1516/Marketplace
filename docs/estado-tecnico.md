@@ -6798,6 +6798,152 @@ merece la pena el coste de una revisión ciega.
 
 ---
 
+## Escaparate — RÁFAGA 4: reputación donde el comprador decide (cerrada)
+
+**✅ CERRADA** (2026-07-16, misma sesión que RÁFAGA 1/2/3 — medición, decisión de
+arquitectura, implementación y verificación ejerciendo). Último punto del mapa de la
+auditoría original: la reputación solo vivía en `/vendedor/[slug]`; ni las cards de
+listado ni la ficha del anuncio mostraban una estrella — invisible justo en el momento en
+que el comprador decide. Ahora que la media solo cuenta reviews **verificadas** (RÁFAGA
+3), tenía sentido mostrarla donde se decide, no solo en el perfil.
+
+**Medición ANTES de elegir arquitectura** (regla ya fijada por Ernest: ruido → on-the-fly;
+caro → desnormalizar). Candidato medido: una única consulta `Review.groupBy(['targetId'])`
+agrupada por los `sellerId` distintos de una página de listado (nunca N+1 por card — mismo
+molde que `featuredMap`/`favoritesCountMap` ya usados en `findMine`).
+- Volumen inicial: 150 vendedores, 5.877 reviews sintéticas → **~1.05ms** de media para una
+  página de 32 vendedores distintos.
+- Volumen 15× más pesado: 1.000 vendedores, 88.372 reviews (10% "power sellers" con 200-500
+  reviews cada uno) → **~1.15ms** para 32 vendedores normales.
+- **Peor caso adversarial**: los 40 vendedores más pesados de ese volumen (385-498 reviews
+  cada uno) → **~2.83ms** de media (Prisma), **2.25ms** de ejecución real en Postgres
+  (`EXPLAIN ANALYZE`), vía `Index Scan` sobre `Review_targetId_idx` — el índice ya
+  existente, sin tabla nueva.
+- Comparado con queries ya aceptadas como gratis en este mismo listado (`findRecent`-
+  equivalente: ~0.59ms; el propio molde `favoritesCount` groupBy: ~0.55ms) — incluso en el
+  peor caso, la nueva consulta es una milésima de segundo más, no un orden de magnitud más.
+
+**Decisión: on-the-fly, sin desnormalizar** — ruido incluso 15× por encima del volumen
+real y con vendedores adversarialmente pesados. Una sola fuente de verdad (la misma que ya
+usa el perfil), cero riesgo de desincronización, cero test de invariante que mantener.
+
+**Dónde se conecta la consulta** (todas comparten `ReviewsService.getRatingSummaries()`,
+la misma función, sin duplicar la lógica de agregación):
+- `SearchController.search()` — el choke point único de `/busqueda`, `/[categoria]`, la
+  portada y los bloques de contenido (`resolve-listings.ts`), todos pasan por aquí. La
+  media se mezcla DESPUÉS de leer los hits de Meilisearch, nunca dentro del propio
+  documento indexado — a diferencia de `sellerName`/`sellerSlug`/`trusted` (que sí viven en
+  el documento porque casi nunca cambian), la media cambiaría con cada review nueva y
+  habría obligado a reindexar TODOS los anuncios de un vendedor en cada valoración — un
+  coste de propagación de una naturaleza completamente distinta que se evita quedándose
+  fuera del índice.
+- `ListingsService.findRecent/findByCategory/findBySellerSlug` — mismo patrón Postgres
+  (`SELECT_SUMMARY` ahora incluye `sellerId` para poder agrupar).
+- `ListingsService.findBySlug` (ficha) — igual que `featuredUntil`: **siempre fresca,
+  nunca dentro de la caché de 5 min de Redis** de la ficha (mismo criterio ya usado ahí).
+
+**Frontend**: `SellerRatingInline` (`listing-card-shared.tsx`), un componente compacto
+reutilizado en `ListingCard`, `ListingCardWide` y `SellerCard` — `count` en 0 (o `average`
+null) → "Nuevo", nunca ★0,0. En la card, sin detalle (solo ★ + media); en la ficha,
+`detailed` añade "· N valoraciones" — mismo dato, más contexto.
+
+**Implementado y verificado ejerciendo** (3 vendedores — uno con review verificada, uno
+con SOLO review no verificada, uno nuevo sin ninguna — reales contra la API en marcha):
+- Vendedor con review verificada → `average: 5, count: 1` idéntico en perfil, ficha
+  (`seller.ratingAverage`) y card (`GET /search`, `sellerRatingAverage`) — verificado en
+  las tres respuestas.
+- **El caso que conecta con la ráfaga anterior**: vendedor con SOLO una review NO
+  verificada (trato declarado) → `ratingAverage: null, ratingCount: 0` en la ficha —
+  verificado que NO se cuela como ★2,0 (su media cruda sin filtrar habría sido 2.0); el
+  frontend lo interpreta como "Nuevo".
+- Vendedor sin ninguna review → `null`/`0` en los tres sitios — "Nuevo".
+- **Sin reindexar nada**: los tres anuncios se consultaron por Meilisearch (`GET /search`)
+  inmediatamente después de publicarse, y la media ya aparecía correcta — confirma que no
+  desnormalizar en el documento fue la decisión correcta (cero latencia de propagación).
+- Suites e2e en verde: `search`, `search-images`, `search-facets-by-type`,
+  `search-dynamic-attributes`, `search-card-attributes-not-filterable`, `reviews`,
+  `listings`, `alert-matching`, `messaging` (109 tests, sin regresiones).
+
+**Cierra el mapa de dependencias de la auditoría original** (mensajería → ciclo de vida →
+reputación → escaparate): los cuatro puntos quedan cerrados.
+
+---
+
+## Mensajería — RÁFAGA 5: bandeja + chat unificados en split-view (cerrada)
+
+**✅ CERRADA** (2026-07-17, misma sesión que RÁFAGA 1/2/3/4). Reestructuración de UI, no
+arreglo de bug — la auditoría original ya había encontrado la mensajería sana. `/mensajes`
+(bandeja) y `/mensajes/[id]` (chat) eran dos páginas independientes, cada una con su propia
+conexión WebSocket; ahora son una sola vista de dos columnas (escritorio) o una columna con
+navegación nativa (móvil, <768px), con una única conexión WebSocket compartida.
+
+**Riesgo señalado explícitamente antes de implementar**: `ChatClient.fetchEligibility()` (el
+botón "Valorar" de la RÁFAGA 3) no podía dejar de dispararse al cambiar de conversación.
+Resuelto de forma **estructural**, no manual: `layout.tsx` de `/mensajes` vive por encima de
+`page.tsx`/`[id]/page.tsx`, así que Next.js nunca lo remonta al navegar entre ambas rutas (la
+lista y el socket sobreviven), mientras que `[id]/page.tsx` sigue siendo una ruta dinámica
+distinta por cada `id` — se remonta con cada selección, así que el `useEffect(() => {
+fetchEligibility() }, [])` ya existente de `ChatClient` se re-dispara solo, sin código nuevo
+para ese caso concreto.
+
+**Piezas nuevas**:
+- `useMessagingSocket` (reescrito): conexión persistente keyed solo en `token` (no en
+  `conversationId`) + `joinConversation(id)` imperativo que no fuerza reconexión — recuerda
+  todas las salas unidas en la sesión para re-unirlas tras un reconnect.
+- `MessagingSocketContext` + `MessagingSocketProvider`: única forma de cruzar la conexión
+  compartida desde `MensajesShell` (Client Component) hacia `ChatClient`, que Next.js renderiza
+  como Server Component hijo de `{children}` — Context no está bloqueado por ese límite RSC,
+  paso directo de props sí.
+- `MensajesShell`: grid responsive (`selectedId` derivado de `usePathname()`, no de props —
+  un layout no recibe el segmento `[id]` de sus páginas hijas). Sin conversaciones,
+  colapsa a un único panel a ancho completo en vez de dejar una columna de 22rem vacía.
+- `ConversationList` (antes `BandejaMensajesClient`): consume `latestMessage` del Context en
+  vez de abrir su propio socket; la fila seleccionada siempre muestra `unreadCount: 0` sin
+  esperar ningún round-trip (cálculo puramente de presentación, el valor guardado real no se
+  toca hasta que el servidor confirma el marcado como leído).
+- `ChatClient`: el GET de fondo "marcar como leído" (para el caso de un mensaje que llega por
+  socket con la conversación ya abierta) va **debounced 1200ms** y se omite por completo si la
+  pestaña no está enfocada (`document.visibilityState`) — instrucción explícita de Ernest: una
+  ráfaga de varios mensajes seguidos debía disparar una sola llamada, no una por mensaje.
+
+**Bug real encontrado y arreglado durante la verificación** (no en el diseño, en el CSS):
+`MensajesShell` combinaba una clase `flex` incondicional con `hidden`/`flex` condicional en el
+mismo string de clases, para la misma propiedad `display`, a igual especificidad — en
+escritorio no se notaba porque `md:flex` (con media query) siempre ganaba, pero en móvil (sin
+esa media query de por medio) el orden interno del CSS generado por Tailwind decidía, y el
+panel de chat podía quedar visible a la vez que la lista. Arreglado quitando el `flex`
+incondicional de la clase base y dejándolo solo en la rama condicional — patrón a evitar en
+el resto del proyecto: no mezclar una utilidad de `display` fija con una condicional para la
+misma propiedad en el mismo nivel de especificidad.
+
+**Verificado ejerciendo con navegador real** (Playwright, dos sesiones seller/buyer,
+`e2e/mensajeria-unificada.spec.ts` — nuevo spec, permanente, no solo de esta sesión):
+- `fetchEligibility`/"Valorar" con un `Deal` real, en la primera apertura y tras dos ciclos de
+  ida-y-vuelta a la bandeja.
+- Una sola conexión WebSocket real (contada vía `page.on('websocket')`) a lo largo de todo el
+  recorrido — abrir, volver a la bandeja, reabrir, dos veces — confirma que
+  `joinConversation` nunca reconecta.
+- Refrescar (F5) se queda en la conversación abierta, no vuelve a la bandeja.
+- Tiempo real: ráfaga de 3 mensajes seguidos visible en el seller con la conversación abierta;
+  un 4º mensaje con la conversación cerrada actualiza el badge de la lista sin round-trip, y
+  se pone a 0 al reabrir sin esperar ninguna llamada de red.
+- El GET de fondo de "marcar leído" se disparó **exactamente una vez** para los 3 mensajes de
+  la ráfaga (contado vía `page.on('request')`), confirmando el debounce.
+- Móvil (375px): una sola columna a la vez, el botón atrás nativo del navegador vuelve a la
+  bandeja sin código adicional (es una navegación real, no estado de cliente).
+- Estado vacío sin conversaciones: a ancho completo, sin columna fija de 22rem sin sentido.
+- Batería e2e de backend sin regresiones: `messaging` (7), `reviews` + `listings` (48) — cero
+  cambios de backend en esta ráfaga, así que era una confirmación, no una sorpresa esperada.
+
+**Deuda conocida, pre-existente y fuera de alcance**: `(account)/layout.tsx` (el menú lateral
+de toda el área privada) no tiene ninguna clase responsive — el sidebar de 224px se mantiene
+fijo incluso en móvil, comiéndose una fracción grande del viewport. La mensajería unificada
+hereda esa limitación tal cual (no la agrava, no la corrige); en anchos muy estrechos (375px)
+deja poco margen a la columna de conversaciones. Corregirlo es un cambio a nivel de todo el
+área de cuenta, no específico de mensajería.
+
+---
+
 ## Sistema de Alertas — cerrado (B0-B3)
 
 **✅ CERRADO** (2026-07-09). Las 4 ráfagas (B0-B3) están completas y verificadas de punta a
