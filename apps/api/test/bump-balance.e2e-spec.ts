@@ -1,6 +1,6 @@
 /**
  * Monetización ráfaga 2 — saldo de bumps (moneda separada, gratuita e
- * intransferible), pack de bumps (Opción B) y cupones de bump.
+ * intransferible) y cupones de bump.
  *
  * Verifica, con el mismo rigor que el sistema de créditos (ejerciendo, no
  * declarando):
@@ -15,31 +15,24 @@
  *   - Histórico SIN AMBIGÜEDAD: un mismo listing bumpeado dos veces (una vía
  *     cada moneda) deja una fila localizable por referenceId en el ledger
  *     correspondiente — no hace falta adivinar por cercanía a bumpedAt.
- *   - Pack de bumps (Opción B): es un CreditPack normal por dentro — un Pro
- *     que lo compra recibe el mismo +20% que cualquier pack; el "≈N bumps"
- *     del catálogo se recalcula en vivo si bumpCreditCost cambia.
+ *
+ * Monetización ráfaga 4 — el describe "Pack de bumps (Opción B)" que vivía
+ * aquí (CreditPack con highlightBumps, "≈N bumps" calculado en vivo) se
+ * ELIMINÓ: ese mecanismo fue retirado por completo (los packs de bumps ahora
+ * acreditan bumpBalance directamente, ver bump-pack-purchase.e2e-spec.ts).
+ * Probar código retirado no aporta nada.
  */
 
 import { INestApplication } from '@nestjs/common';
-import {
-  BumpLedgerType,
-  CreditLedgerType,
-  EntitlementType,
-  Prisma,
-  PrismaClient,
-  ProductType,
-  TransactionStatus,
-} from '@prisma/client';
+import { BumpLedgerType, CreditLedgerType, Prisma, PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import * as request from 'supertest';
 import { createTestApp } from './helpers/create-app';
 import { cleanDb } from './helpers/db';
-import { RedsysProcessor } from 'src/modules/redsys/redsys.processor';
 
 describe('Monetización ráfaga 2 — saldo de bumps (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaClient;
-  let processor: RedsysProcessor;
   let categoryId: string;
   let adminToken: string;
 
@@ -48,8 +41,6 @@ describe('Monetización ráfaga 2 — saldo de bumps (e2e)', () => {
     app = await createTestApp();
     await app.init();
     await cleanDb(prisma);
-
-    processor = app.get(RedsysProcessor);
 
     const category = await prisma.category.findUniqueOrThrow({ where: { slug: 'moviles' } });
     categoryId = category.id;
@@ -435,140 +426,4 @@ describe('Monetización ráfaga 2 — saldo de bumps (e2e)', () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
-  // 6. Pack de bumps (Opción B) — sigue siendo un CreditPack normal
-  // ---------------------------------------------------------------------------
-
-  describe('Pack de bumps — Opción B (CreditPack con highlightBumps)', () => {
-    let bumpPackId: string;
-    let bumpPackPriceId: string;
-    const BUMP_PACK_CREDITS = 60;
-    let originalBumpCreditCost: number;
-
-    beforeAll(async () => {
-      // Dedicado a este describe (no el "Pack de bumps" sembrado): evita
-      // interferir con otros specs que puedan compartir BD en la misma pasada.
-      const product = await prisma.product.create({
-        data: { name: 'BB Bump Pack Test Product', type: ProductType.ONE_TIME, active: true },
-      });
-      const pack = await prisma.creditPack.create({
-        data: {
-          name: 'BB Bump Pack Test',
-          creditAmount: BUMP_PACK_CREDITS,
-          active: true,
-          highlightBumps: true,
-        },
-      });
-      const price = await prisma.price.create({
-        data: { productId: product.id, amount: 4.99, currency: 'EUR', creditPackId: pack.id, active: true },
-      });
-      bumpPackId = pack.id;
-      bumpPackPriceId = price.id;
-
-      const setting = await prisma.setting.findUniqueOrThrow({ where: { key: 'bumpCreditCost' } });
-      originalBumpCreditCost = Number(setting.value);
-    });
-
-    afterAll(async () => {
-      await prisma.setting.update({
-        where: { key: 'bumpCreditCost' },
-        data: { value: originalBumpCreditCost },
-      });
-    });
-
-    it('un Pro que compra el pack de bumps recibe el mismo +20% de bonus que cualquier pack (Opción B: no es una moneda nueva)', async () => {
-      const email = `bb-pro-buyer-${Date.now()}@example.com`;
-      const proUser = await prisma.user.create({
-        data: {
-          email,
-          name: 'BB Pro Buyer',
-          slug: `bb-pro-buyer-${Date.now()}`,
-          passwordHash: await bcrypt.hash('Test1234!', 4),
-          emailVerified: true,
-        },
-      });
-      const login = await request(app.getHttpServer())
-        .post('/api/auth/login')
-        .send({ email, password: 'Test1234!' });
-      const token = login.body.accessToken as string;
-
-      const proPrice = await prisma.price.findFirstOrThrow({
-        where: { product: { type: ProductType.RECURRING } },
-      });
-      const subscription = await prisma.subscription.create({
-        data: {
-          userId: proUser.id,
-          priceId: proPrice.id,
-          status: 'ACTIVE',
-          currentPeriodStart: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
-          currentPeriodEnd: new Date(Date.now() + 25 * 24 * 60 * 60 * 1000),
-          gatewaySubscriptionId: `sub_bb_${proUser.id}`,
-        },
-      });
-      await prisma.entitlement.create({
-        data: {
-          userId: proUser.id,
-          type: EntitlementType.PRO_SUBSCRIPTION,
-          subscriptionId: subscription.id,
-          priceId: proPrice.id,
-          expiresAt: subscription.currentPeriodEnd,
-        },
-      });
-
-      await request(app.getHttpServer())
-        .post('/api/billing/checkout/credits-pack')
-        .set('Authorization', `Bearer ${token}`)
-        .send({ packId: bumpPackId })
-        .expect(201);
-
-      const tx = await prisma.transaction.findFirstOrThrow({
-        where: { userId: proUser.id, status: TransactionStatus.PENDING },
-        orderBy: { createdAt: 'desc' },
-      });
-      const expectedBonus = Math.ceil((BUMP_PACK_CREDITS * 20) / 100); // 12, con el 20% sembrado
-      expect(tx.bonusCreditAmount).toBe(expectedBonus);
-
-      const cents = tx.amountGross.mul(100).toFixed(0);
-      await processor.processSuccess({
-        transactionId: tx.id,
-        dsAmount: cents,
-        dsOrder: tx.gatewayPaymentIntentId!,
-      });
-
-      const wallet = await prisma.wallet.findUniqueOrThrow({ where: { userId: proUser.id } });
-      expect(wallet.balance).toBe(BUMP_PACK_CREDITS + expectedBonus); // 72 — el pack acredita CRÉDITOS, no bumpBalance
-      expect(wallet.bumpBalance).toBe(0); // Opción B: comprar el pack NUNCA toca la moneda de bumps
-    });
-
-    it('el catálogo recalcula "≈N bumps" EN VIVO si bumpCreditCost cambia — nunca queda un texto fijo desincronizado', async () => {
-      await prisma.setting.update({ where: { key: 'bumpCreditCost' }, data: { value: 5 } });
-      const before = await request(app.getHttpServer()).get('/api/billing/catalog').expect(200);
-      const priceBefore = findPriceInCatalog(before.body, bumpPackPriceId);
-      expect(priceBefore.bumpEquivalent).toBe(Math.floor(BUMP_PACK_CREDITS / 5)); // 12
-
-      await request(app.getHttpServer())
-        .patch('/api/admin/settings/bumpCreditCost')
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({ value: 10 })
-        .expect(200);
-
-      const after = await request(app.getHttpServer()).get('/api/billing/catalog').expect(200);
-      const priceAfter = findPriceInCatalog(after.body, bumpPackPriceId);
-      expect(priceAfter.bumpEquivalent).toBe(Math.floor(BUMP_PACK_CREDITS / 10)); // 6 — recalculado, nada guardado
-
-      // Un pack SIN highlightBumps (p. ej. "Pack Estándar" sembrado) nunca expone bumpEquivalent.
-      const standardPrice = after.body.products
-        .flatMap((p: { prices: unknown[] }) => p.prices)
-        .find((pr: { packName?: string }) => pr.packName === 'Pack Estándar');
-      expect(standardPrice?.bumpEquivalent).toBeUndefined();
-    });
-
-    function findPriceInCatalog(catalogBody: { products: { prices: { priceId: string }[] }[] }, priceId: string) {
-      const price = catalogBody.products
-        .flatMap((p) => p.prices)
-        .find((pr) => pr.priceId === priceId);
-      if (!price) throw new Error(`Price ${priceId} not found in catalog response`);
-      return price as { bumpEquivalent?: number };
-    }
-  });
 });

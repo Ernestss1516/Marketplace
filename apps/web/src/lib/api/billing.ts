@@ -40,7 +40,13 @@ export interface WalletResponse {
 // Monetización ráfaga 2 — saldo de bumps (moneda separada, historial propio)
 // ---------------------------------------------------------------------------
 
-export type BumpLedgerType = 'COUPON_REDEEM' | 'BUMP_DEBIT' | 'ADMIN_CREDIT' | 'ADMIN_DEBIT';
+export type BumpLedgerType =
+  | 'COUPON_REDEEM'
+  | 'BUMP_DEBIT'
+  | 'ADMIN_CREDIT'
+  | 'ADMIN_DEBIT'
+  | 'PACK_PURCHASE'
+  | 'PRO_BONUS';
 
 export interface BumpLedgerItem {
   id: string;
@@ -96,8 +102,9 @@ export interface CatalogPrice {
   creditAmount?: number;
   creditPackId?: string;
   packName?: string;
-  /** Monetización ráfaga 2 (Opción B) — solo presente si el pack tiene highlightBumps=true. Calculado en vivo. */
-  bumpEquivalent?: number;
+  /** Monetización ráfaga 4 — solo presentes en Prices de packs de bumps directos. */
+  bumpAmount?: number;
+  bumpPackId?: string;
 }
 
 export interface CatalogProduct {
@@ -140,6 +147,10 @@ export interface CatalogResponse {
   /** H8 Bloque D fase 2 — solo presentes si hay un ACTION_DISCOUNT activo para bump. */
   bumpOriginalCreditCost?: number;
   bumpDiscountPercent?: number;
+  /** Monetización ráfaga 4 — SOLO para previsualizar "+N de regalo" en un pack
+   * de bumps antes de comprar. Lo que de verdad se acredita se congela en el
+   * checkout; esto nunca es lo que se cobra. */
+  proExtraBumpsPercent: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -252,6 +263,18 @@ export function createPackCheckout(
   packId: string,
 ): Promise<{ redsysFormData: RedsysFormData }> {
   return apiFetch<{ redsysFormData: RedsysFormData }>('/billing/checkout/credits-pack', {
+    method: 'POST',
+    body: JSON.stringify({ packId }),
+    token,
+  });
+}
+
+/** Monetización ráfaga 4 — mismo molde que createPackCheckout, moneda distinta (bumps directos). */
+export function createBumpPackCheckout(
+  token: string,
+  packId: string,
+): Promise<{ redsysFormData: RedsysFormData }> {
+  return apiFetch<{ redsysFormData: RedsysFormData }>('/billing/checkout/bump-pack', {
     method: 'POST',
     body: JSON.stringify({ packId }),
     token,

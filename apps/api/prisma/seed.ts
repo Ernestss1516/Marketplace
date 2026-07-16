@@ -471,6 +471,10 @@ async function seedSettings() {
       // mismo periodo que proMonthlyFeaturedQuota (misma Subscription), reseteo
       // derivado, sin cron.
       { key: 'proMonthlyBumpQuota', value: 4 },
+      // Monetización ráfaga 4: bonus de bumps extra para Pro al comprar un
+      // BumpPack — Setting propia, NO se reutiliza proExtraCreditsPercent
+      // (son beneficios distintos, calibrables por separado).
+      { key: 'proExtraBumpsPercent', value: 20 },
     ],
     skipDuplicates: true,
   });
@@ -545,23 +549,15 @@ async function seedCreditPacks() {
     description: string;
     creditAmount: number;
     amount: string;
-    highlightBumps?: boolean;
   }[] = [
     { name: 'Pack Básico', description: '50 créditos para empezar.', creditAmount: 50, amount: '4.99' },
     { name: 'Pack Estándar', description: '150 créditos con mejor relación calidad-precio.', creditAmount: 150, amount: '9.99' },
     { name: 'Pack Max', description: '400 créditos para usuarios frecuentes.', creditAmount: 400, amount: '19.99' },
-    // Monetización ráfaga 2 (Opción B) — "pack de bumps": por dentro es un
-    // CreditPack normal (mismo checkout, mismo bonus Pro), con highlightBumps
-    // para que el catálogo calcule "≈N bumps" en vivo. Mismo precio que el
-    // Pack Básico pero más créditos — el descuento real está en el precio por
-    // crédito, no en una moneda nueva.
-    {
-      name: 'Pack de bumps',
-      description: 'Créditos pensados para subir tus anuncios más veces.',
-      creditAmount: 60,
-      amount: '4.99',
-      highlightBumps: true,
-    },
+    // Monetización ráfaga 4: retirado el "Pack de bumps" (Opción B, ráfaga 2
+    // — créditos con highlightBumps). Sustituido por BumpPack, ver
+    // seedBumpPacks(). En bases de datos ya sembradas, ese CreditPack se
+    // desactiva vía migración de datos (20260716090500_deactivate_
+    // highlightbumps_pack), no aquí — el seed no toca datos existentes.
   ];
 
   for (const p of packs) {
@@ -570,7 +566,6 @@ async function seedCreditPacks() {
         name: p.name,
         description: p.description,
         creditAmount: p.creditAmount,
-        ...(p.highlightBumps && { highlightBumps: true }),
       },
     });
     await prisma.price.create({
@@ -584,12 +579,52 @@ async function seedCreditPacks() {
   }
 }
 
+async function seedBumpPacks() {
+  console.log('Seeding bump packs...');
+  const existing = await prisma.bumpPack.count();
+  if (existing > 0) {
+    console.log('  ✓ bump packs already present, skipped');
+    return;
+  }
+
+  // Bump pack Prices need a Product to satisfy the non-nullable productId FK
+  // — producto propio, distinto de "Packs de créditos" (moneda distinta).
+  const packsProduct = await prisma.product.create({
+    data: {
+      name: 'Packs de bumps',
+      description: 'Paquetes de bumps directos para subir tus anuncios.',
+      type: ProductType.ONE_TIME,
+    },
+  });
+
+  const packs: { name: string; description: string; bumpAmount: number; amount: string }[] = [
+    { name: 'Pack 5 bumps', description: '5 bumps para dar un empujón puntual.', bumpAmount: 5, amount: '2.99' },
+    { name: 'Pack 15 bumps', description: '15 bumps con mejor relación calidad-precio.', bumpAmount: 15, amount: '6.99' },
+    { name: 'Pack 40 bumps', description: '40 bumps para vendedores activos.', bumpAmount: 40, amount: '14.99' },
+  ];
+
+  for (const p of packs) {
+    const pack = await prisma.bumpPack.create({
+      data: { name: p.name, description: p.description, bumpAmount: p.bumpAmount },
+    });
+    await prisma.price.create({
+      data: {
+        productId: packsProduct.id,
+        amount: new Prisma.Decimal(p.amount),
+        bumpPackId: pack.id,
+      },
+    });
+    console.log(`  ✓ ${p.name} (${p.bumpAmount} bumps / ${p.amount} €)`);
+  }
+}
+
 async function main() {
   await seedCategories();
   await seedAdmin();
   await seedSettings();
   await seedBillingCatalog();
   await seedCreditPacks();
+  await seedBumpPacks();
   console.log('Seed completed.');
 }
 

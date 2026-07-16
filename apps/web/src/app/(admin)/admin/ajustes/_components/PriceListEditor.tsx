@@ -6,6 +6,7 @@ import {
   getAdminPrices,
   updateAdminPrice,
   updateAdminCreditPackAmount,
+  updateAdminBumpPackAmount,
   type AdminPrice,
 } from '@/lib/api/admin-prices';
 import { ApiError } from '@/lib/api/client';
@@ -28,7 +29,7 @@ function PriceRow({
 }) {
   const [amount, setAmount] = useState(String(price.amount));
   const [creditAmount, setCreditAmount] = useState(String(price.creditAmount ?? ''));
-  const [highlightBumps, setHighlightBumps] = useState(price.highlightBumps ?? false);
+  const [bumpAmount, setBumpAmount] = useState(String(price.bumpAmount ?? ''));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -51,11 +52,23 @@ function PriceRow({
         return;
       }
     }
+    let bumpAmountNum: number | null = null;
+    if (price.bumpPackId) {
+      bumpAmountNum = parseInt(bumpAmount, 10);
+      if (isNaN(bumpAmountNum) || bumpAmountNum <= 0) {
+        setError('Los bumps del pack deben ser un entero mayor que 0.');
+        return;
+      }
+    }
 
-    const label = price.creditPackId
-      ? `Cambiar "${price.label}" a ${formatEur(amountNum, price.currency)} / ${creditAmountNum} créditos?`
-      : `¿Cambiar "${price.label}" a ${formatEur(amountNum, price.currency)}?`;
-    if (!window.confirm(label)) return;
+    const extra = creditAmountNum != null
+      ? ` / ${creditAmountNum} créditos`
+      : bumpAmountNum != null
+        ? ` / ${bumpAmountNum} bumps`
+        : '';
+    if (!window.confirm(`¿Cambiar "${price.label}" a ${formatEur(amountNum, price.currency)}${extra}?`)) {
+      return;
+    }
 
     setSaving(true);
     setError(null);
@@ -63,12 +76,9 @@ function PriceRow({
     try {
       let updated = await updateAdminPrice(token, price.id, amountNum);
       if (price.creditPackId && creditAmountNum != null) {
-        updated = await updateAdminCreditPackAmount(
-          token,
-          price.creditPackId,
-          creditAmountNum,
-          highlightBumps,
-        );
+        updated = await updateAdminCreditPackAmount(token, price.creditPackId, creditAmountNum);
+      } else if (price.bumpPackId && bumpAmountNum != null) {
+        updated = await updateAdminBumpPackAmount(token, price.bumpPackId, bumpAmountNum);
       }
       setSuccess(true);
       onSaved(updated);
@@ -119,18 +129,18 @@ function PriceRow({
         </label>
       )}
 
-      {price.creditPackId && (
-        <label className="flex items-center gap-2 self-end pb-1.5">
+      {price.bumpPackId && (
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-muted-foreground">Bumps otorgados</span>
           <input
-            type="checkbox"
-            checked={highlightBumps}
-            onChange={(e) => { setHighlightBumps(e.target.checked); setSuccess(false); }}
+            type="number"
+            min="1"
+            step="1"
+            value={bumpAmount}
+            onChange={(e) => { setBumpAmount(e.target.value); setSuccess(false); }}
+            className="w-28 rounded-md border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
             disabled={saving}
-            className="h-4 w-4 rounded border-input"
           />
-          <span className="text-xs text-muted-foreground">
-            Mostrar como &quot;pack de bumps&quot; (≈N bumps, calculado en vivo)
-          </span>
         </label>
       )}
 

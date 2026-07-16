@@ -263,6 +263,7 @@ const SETTING_TITLES: Record<string, string> = {
   proQuotaFeaturedDurationDays: 'Duración del destacado por cuota (Pro)',
   proExtraCreditsPercent: 'Bonus de créditos al comprar packs (Pro)',
   proMonthlyBumpQuota: 'Cuota mensual de bumps (Pro)',
+  proExtraBumpsPercent: 'Bonus de bumps al comprar packs de bumps (Pro)',
 };
 
 const SETTING_DESCRIPTIONS: Record<string, string> = {
@@ -284,6 +285,8 @@ const SETTING_DESCRIPTIONS: Record<string, string> = {
     'Porcentaje de créditos extra que recibe un usuario Pro al comprar un pack de créditos, sobre el mismo precio que paga cualquier usuario (no es un descuento en euros). Se congela en cada compra: cambiar este valor no afecta a compras ya realizadas.',
   proMonthlyBumpQuota:
     'Bumps gratuitos que un usuario Pro puede usar cada mes. Mismo periodo que la cuota de destacados (una sola suscripción por usuario); se renuevan en el aniversario del ciclo, los no usados no se acumulan. Se consumen ANTES que el saldo de bumps por cupón y que los créditos.',
+  proExtraBumpsPercent:
+    'Porcentaje de bumps extra que recibe un usuario Pro al comprar un pack de bumps, sobre el mismo precio que paga cualquier usuario. Setting independiente del bonus de créditos (proExtraCreditsPercent) — beneficios distintos, calibrables por separado. Se congela en cada compra: cambiar este valor no afecta a compras ya realizadas.',
 };
 
 // ─── Monetización: costes en créditos ──────────────────────────────────────────
@@ -396,6 +399,7 @@ export default function AdminAjustesPage() {
     'proQuotaFeaturedDurationDays',
     'proExtraCreditsPercent',
     'proMonthlyBumpQuota',
+    'proExtraBumpsPercent',
   ] as const;
 
   return (
@@ -512,6 +516,19 @@ export default function AdminAjustesPage() {
                   label="Bumps gratis por mes"
                   helpText="Cantidad de bumps que la cuota mensual de Pro concede gratis, antes que el saldo de bumps por cupón y que los créditos. No se acumulan de un mes a otro."
                   min={1}
+                />
+              )}
+              {key === 'proExtraBumpsPercent' && (
+                <NumberSettingEditor
+                  setting={setting}
+                  token={token}
+                  onSaved={() => handleSaved(key)}
+                  settingKey="proExtraBumpsPercent"
+                  label="Bonus de bumps (%)"
+                  helpText="Porcentaje extra de bumps que un Pro recibe al comprar un pack de bumps, sobre el mismo precio que paga cualquier usuario. 0 desactiva el bonus sin quitar la ventaja de la lista."
+                  min={0}
+                  max={100}
+                  suffix="%"
                 />
               )}
             </div>

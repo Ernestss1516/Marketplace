@@ -175,6 +175,15 @@ enum BumpLedgerType {
   /// movimiento de bumpBalance. Si llevara amount=-1 rompería el invariante
   /// wallet.bumpBalance == SUM(BumpLedger.amount).
   PRO_QUOTA
+  /// Monetización ráfaga 4 — bumps base de un BumpPack comprado por Redsys →
+  /// entrada. Congelado en Transaction.baseBumpAmount en el checkout; el
+  /// processor nunca relee BumpPack.bumpAmount en vivo.
+  PACK_PURCHASE
+  /// Monetización ráfaga 4 — bumps extra de bonus Pro al comprar un BumpPack
+  /// → entrada, fila SEPARADA de PACK_PURCHASE (mismo criterio que
+  /// CreditLedgerType.PRO_BONUS: permite reportar "cuánto regala el bonus
+  /// Pro" como métrica de negocio). Congelado en Transaction.bonusBumpAmount.
+  PRO_BONUS
 }
 
 /// Tipo de campaña promocional (H8 Bloque D). Extensible sin migración de datos:
@@ -801,6 +810,14 @@ model Price {
   creditPackId String?     @unique
   creditPack   CreditPack? @relation(fields: [creditPackId], references: [id])
 
+  /// Monetización ráfaga 4 — FK al BumpPack asociado; solo presente en Prices
+  /// de packs de bumps directos. Un Price representa un único propósito
+  /// (destacado XOR pack de créditos XOR pack de bumps), por convención, no
+  /// forzado por constraint — igual que ya era el caso entre durationDays y
+  /// creditPackId.
+  bumpPackId String?   @unique
+  bumpPack   BumpPack? @relation(fields: [bumpPackId], references: [id])
+
   active Boolean @default(true)
 
   transactions  Transaction[]
@@ -964,6 +981,18 @@ model Transaction {
   /// son de un pack de créditos, y en las creadas antes de este campo.
   baseCreditAmount Int?
 
+  /// Monetización ráfaga 4 — bumps base de un BumpPack, congelados en el
+  /// checkout. Mismo principio que baseCreditAmount, moneda distinta: el
+  /// processor nunca relee BumpPack.bumpAmount en vivo. Null salvo en
+  /// transacciones de pack de bumps.
+  baseBumpAmount Int?
+
+  /// Monetización ráfaga 4 — bumps extra de bonus Pro al comprar un BumpPack,
+  /// congelados en el checkout (Setting proExtraBumpsPercent vigente en ESE
+  /// instante). Null = sin bonus (no era Pro en el checkout). El processor
+  /// los lee tal cual, nunca revalida isPro en la confirmación.
+  bonusBumpAmount Int?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1005,15 +1034,31 @@ model CreditPack {
   creditAmount Int
   active       Boolean @default(true)
 
-  /// Monetización ráfaga 2 (Opción B): cuando true, el catálogo público añade
-  /// un campo derivado `bumpEquivalent = floor(creditAmount / bumpCreditCost)`,
-  /// calculado EN VIVO con el Setting vigente — nunca guardado como texto fijo,
-  /// para que no pueda desincronizarse si bumpCreditCost cambia después. Este
-  /// pack sigue siendo, por dentro, un CreditPack normal: mismo checkout, mismo
-  /// congelamiento en Transaction.baseCreditAmount, mismo bonus Pro.
-  highlightBumps Boolean @default(false)
-
   /// Relación inversa: el Price asociado apunta a este pack vía creditPackId.
+  price Price?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// Monetización ráfaga 4 — pack de bumps DIRECTOS (acredita bumpBalance, no
+/// créditos). Sustituye al mecanismo highlightBumps de la ráfaga 2 (Opción B,
+/// retirado — ver CreditPack.highlightBumps). Tabla paralela a CreditPack, no
+/// generalizada en una sola tabla `Pack{type}`: el checkout y el processor ya
+/// ramifican por moneda de todas formas (Setting de bonus distinta, ledger
+/// distinto, columna de Wallet distinta), así que unificar el catálogo no
+/// habría evitado esa rama — solo habría obligado a renombrar
+/// Transaction.baseCreditAmount/bonusCreditAmount a algo genérico, con mucho
+/// radio de explosión sobre código ya verde. Ver diseno-facturacion.md §19.
+model BumpPack {
+  id          String  @id @default(cuid())
+  name        String
+  description String? @db.Text
+  /// Bumps que el usuario recibe al comprar este pack (base, sin el bonus Pro).
+  bumpAmount  Int
+  active      Boolean @default(true)
+
+  /// Relación inversa: el Price asociado apunta a este pack vía bumpPackId.
   price Price?
 
   createdAt DateTime @default(now())

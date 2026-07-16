@@ -17,6 +17,7 @@ import { PrismaService } from '../../infra/prisma/prisma.service';
 import { EntitlementService } from '../billing/entitlement.service';
 import { CampaignsService } from '../campaigns/campaigns.service';
 import { CheckoutCreditsPackDto } from './dto/checkout-credits-pack.dto';
+import { CheckoutBumpPackDto } from './dto/checkout-bump-pack.dto';
 import { CheckoutFeaturedPayDto } from './dto/checkout-featured-pay.dto';
 import { redsysTaxBreakdown, type RedsysFormData } from './redsys.types';
 
@@ -112,15 +113,12 @@ export class RedsysService {
 
     // Freeze Pro bonus at checkout time (design §2.5).
     // The processor will read this value as-is; it never re-checks Pro status.
-    const isPro = await this.entitlements.isProActive(userId);
-    let bonusCreditAmount: number | null = null;
-    if (isPro) {
-      const pctSetting = await this.prisma.setting.findUnique({
-        where: { key: 'proExtraCreditsPercent' },
-      });
-      const pct = pctSetting ? Number(pctSetting.value) : 20;
-      bonusCreditAmount = Math.ceil(pack.creditAmount * pct / 100);
-    }
+    const bonusCreditAmount = await this.computeProBonus(
+      userId,
+      pack.creditAmount,
+      'proExtraCreditsPercent',
+      20,
+    );
 
     // Freeze campaign bonus at checkout time (H8 Bloque D). SUMS with the Pro
     // bonus above (both are "gifted credits in the wallet, no VAT" — a Pro user
@@ -178,6 +176,103 @@ export class RedsysService {
     );
 
     return { redsysFormData: this.buildForm(dsOrder, amountCents) };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Checkout: pack de bumps (Monetización ráfaga 4)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Mismo molde que createCreditPackCheckout, moneda distinta: acredita
+   * BumpLedger/Wallet.bumpBalance, no CreditLedger/Wallet.balance. Sin bonus
+   * de campaña — CampaignsService.getActiveCreditBonusCampaign() es
+   * específico de créditos (CampaignType.CREDIT_BONUS); extenderlo a bumps
+   * no se decidió en esta ráfaga.
+   */
+  async createBumpPackCheckout(
+    userId: string,
+    dto: CheckoutBumpPackDto,
+  ): Promise<{ redsysFormData: RedsysFormData }> {
+    const pack = await this.prisma.bumpPack.findUnique({
+      where: { id: dto.packId },
+      include: { price: true },
+    });
+    if (!pack || !pack.active) throw new NotFoundException('Bump pack not found or inactive');
+    if (!pack.price || !pack.price.active) {
+      throw new NotFoundException('Price for this bump pack is not active');
+    }
+
+    const price = pack.price;
+    const tax = redsysTaxBreakdown(price.amount);
+    const amountCents = price.amount.mul(100).toFixed(0);
+
+    // Freeze Pro bonus at checkout time — same principle as credit packs
+    // (§2.5), Setting propia (proExtraBumpsPercent, NUNCA proExtraCreditsPercent).
+    const bonusBumpAmount = await this.computeProBonus(
+      userId,
+      pack.bumpAmount,
+      'proExtraBumpsPercent',
+      20,
+    );
+
+    let transactionId: string;
+    let dsOrder: string = '';
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      dsOrder = this.generateDsOrder();
+      try {
+        const tx = await this.prisma.transaction.create({
+          data: {
+            userId,
+            priceId: price.id,
+            ...tax,
+            status: TransactionStatus.PENDING,
+            gateway: 'REDSYS',
+            gatewayPaymentIntentId: dsOrder,
+            // Frozen at checkout, same reasoning as baseCreditAmount: the
+            // processor must never re-read BumpPack.bumpAmount live, or an
+            // admin editing the pack mid-flight would change what this
+            // specific purchase grants.
+            baseBumpAmount: pack.bumpAmount,
+            bonusBumpAmount,
+          },
+          select: { id: true },
+        });
+        transactionId = tx.id;
+        break;
+      } catch (err) {
+        if (isP2002(err) && attempt < 3) {
+          this.logger.warn(`Ds_Order collision on attempt ${attempt}, retrying...`);
+          continue;
+        }
+        throw err;
+      }
+    }
+    this.logger.log(
+      `Created PENDING Transaction ${transactionId!} for bump pack ${dto.packId}, ` +
+        `Ds_Order=${dsOrder}, proBonus=${bonusBumpAmount ?? 'none'}`,
+    );
+
+    return { redsysFormData: this.buildForm(dsOrder, amountCents) };
+  }
+
+  /**
+   * Bonus Pro congelado en el checkout: lee isPro UNA VEZ (§2.5, "el momento
+   * de la comprobación"), y si lo es, lee el Setting indicado y redondea
+   * hacia arriba a favor del usuario. Compartido entre packs de créditos y
+   * de bumps — la fórmula es idéntica, solo cambia qué Setting/base usa cada
+   * moneda (nunca se comparte la Setting entre las dos).
+   */
+  private async computeProBonus(
+    userId: string,
+    baseAmount: number,
+    settingKey: string,
+    defaultPct: number,
+  ): Promise<number | null> {
+    const isPro = await this.entitlements.isProActive(userId);
+    if (!isPro) return null;
+    const pctSetting = await this.prisma.setting.findUnique({ where: { key: settingKey } });
+    const pct = pctSetting ? Number(pctSetting.value) : defaultPct;
+    return Math.ceil((baseAmount * pct) / 100);
   }
 
   // ---------------------------------------------------------------------------

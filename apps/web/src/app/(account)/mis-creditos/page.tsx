@@ -8,16 +8,22 @@ import {
   getWallet,
   getCatalog,
   getBumpLedger,
+  getProStatus,
   type WalletItem,
   type CreditLedgerType,
   type BumpLedgerItem,
   type BumpLedgerType,
+  type ProStatus,
 } from '@/lib/api/billing';
 import { PackList } from './_components/PackList';
+import { BumpPackList } from './_components/BumpPackList';
 import { RedeemCouponForm } from './_components/RedeemCouponForm';
 import { buildLoginUrl } from '@/lib/auth/callback-url';
 
-export const metadata: Metadata = { title: 'Mis créditos' };
+// Monetización ráfaga 4 — la URL se queda /mis-creditos (histórica), pero el
+// título pasa a algo más general: la página ahora cubre dos monedas
+// (créditos y bumps), no solo una. Cosmético, no afecta a rutas ni lógica.
+export const metadata: Metadata = { title: 'Mi saldo' };
 
 const LEDGER_LABELS: Record<CreditLedgerType, string> = {
   PACK_PURCHASE: 'Compra de pack',
@@ -30,12 +36,14 @@ const LEDGER_LABELS: Record<CreditLedgerType, string> = {
   COUPON_REDEEM: 'Cupón canjeado',
 };
 
-/** Monetización ráfaga 2 — etiquetas del historial de bumps (moneda separada). */
+/** Monetización ráfaga 2/4 — etiquetas del historial de bumps (moneda separada). */
 const BUMP_LEDGER_LABELS: Record<BumpLedgerType, string> = {
   COUPON_REDEEM: 'Cupón canjeado',
   BUMP_DEBIT: 'Bump',
   ADMIN_CREDIT: 'Crédito manual',
   ADMIN_DEBIT: 'Ajuste',
+  PACK_PURCHASE: 'Compra de pack',
+  PRO_BONUS: 'Bonus Pro',
 };
 
 function LedgerRow({ item }: { item: WalletItem }) {
@@ -113,7 +121,7 @@ export default async function MisCreditosPage() {
 
   const token = session.user.accessToken;
 
-  const [wallet, catalog, bumpLedger] = await Promise.all([
+  const [wallet, catalog, bumpLedger, proStatus] = await Promise.all([
     getWallet(token).catch(() => ({
       balance: 0,
       bumpBalance: 0,
@@ -123,7 +131,7 @@ export default async function MisCreditosPage() {
       perPage: 20,
       totalPages: 0,
     })),
-    getCatalog().catch(() => ({ products: [], bumpCreditCost: 5 })),
+    getCatalog().catch(() => ({ products: [], bumpCreditCost: 5, proExtraBumpsPercent: 20 })),
     // Monetización ráfaga 2 — historial de bumps, lista separada de créditos.
     getBumpLedger(token).catch(() => ({
       bumpBalance: 0,
@@ -133,23 +141,44 @@ export default async function MisCreditosPage() {
       perPage: 20,
       totalPages: 0,
     })),
+    // Monetización ráfaga 4 — solo para saber isPro y previsualizar el bonus
+    // de packs de bumps antes de comprar.
+    getProStatus(token).catch(
+      (): ProStatus => ({
+        isPro: false,
+        limit: 0,
+        used: 0,
+        remaining: 0,
+        bumpQuota: { limit: 0, used: 0, remaining: 0 },
+      }),
+    ),
   ]);
 
   const packProducts = catalog.products.filter(
     (p) => p.type === 'ONE_TIME' && p.prices.some((pr) => pr.creditAmount != null),
   );
+  // Monetización ráfaga 4 — packs de bumps DIRECTOS, separados de los de créditos.
+  const bumpPackProducts = catalog.products.filter(
+    (p) => p.type === 'ONE_TIME' && p.prices.some((pr) => pr.bumpAmount != null),
+  );
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-10">
       <div>
-        <h1 className="text-2xl font-bold">Mis créditos</h1>
+        <h1 className="text-2xl font-bold">Mi saldo</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Usa tus créditos para destacar anuncios o hacer bump.
+          Créditos y bumps son monedas distintas: los créditos sirven para destacar anuncios o
+          hacer bump; los bumps solo sirven para bumpear, y se gastan primero al hacerlo.
         </p>
       </div>
 
-      {/* Saldo */}
-      <div className="grid gap-4 sm:grid-cols-2">
+      {/* Canjear cupón — válido para cualquiera de las dos monedas según el tipo de cupón */}
+      <RedeemCouponForm token={token} />
+
+      {/* ── Créditos ────────────────────────────────────────────────────── */}
+      <section className="space-y-6">
+        <h2 className="text-xl font-bold">Créditos</h2>
+
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-base">
@@ -165,8 +194,43 @@ export default async function MisCreditosPage() {
           </CardContent>
         </Card>
 
+        {packProducts.length > 0 && (
+          <div>
+            <h3 className="mb-4 text-lg font-semibold">Comprar créditos</h3>
+            <PackList packs={packProducts} />
+          </div>
+        )}
+
+        <div>
+          <h3 className="mb-4 text-lg font-semibold">Historial de créditos</h3>
+          {wallet.items.length === 0 ? (
+            <Card className="border-dashed">
+              <CardContent className="py-10 text-center text-sm text-muted-foreground">
+                No hay movimientos todavía. Compra un pack para empezar.
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardContent className="pt-4">
+                {wallet.items.map((item, idx) => (
+                  <div key={item.id}>
+                    <LedgerRow item={item} />
+                    {idx < wallet.items.length - 1 && <Separator />}
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      </section>
+
+      {/* ── Bumps ───────────────────────────────────────────────────────── */}
+      <section className="space-y-6">
+        <h2 className="text-xl font-bold">Bumps</h2>
+
         {/* Monetización ráfaga 2 — saldo de bumps SIEMPRE visible, aunque sea 0:
-            ocultarlo escondería que la función existe a quien nunca canjeó un cupón. */}
+            ocultarlo escondería que la función existe a quien nunca compró ni
+            canjeó un cupón de bumps. */}
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-base">
@@ -182,64 +246,44 @@ export default async function MisCreditosPage() {
               </span>
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              No caducan. Se gastan antes que los créditos al bumpear.
+              No caducan. Al bumpear se gastan antes que los créditos (y, si eres Pro, después de
+              tu cuota mensual gratis).
             </p>
           </CardContent>
         </Card>
-      </div>
 
-      {/* Canjear cupón */}
-      <RedeemCouponForm token={token} />
+        {/* Monetización ráfaga 4 — packs de bumps directos, opción B retirada
+            (ya no son créditos con highlightBumps). */}
+        {bumpPackProducts.length > 0 && (
+          <div>
+            <h3 className="mb-4 text-lg font-semibold">Comprar bumps</h3>
+            <BumpPackList
+              packs={bumpPackProducts}
+              isPro={proStatus.isPro}
+              proExtraBumpsPercent={catalog.proExtraBumpsPercent}
+            />
+          </div>
+        )}
 
-      {/* Compra de packs */}
-      {packProducts.length > 0 && (
-        <section>
-          <h2 className="mb-4 text-lg font-semibold">Comprar créditos</h2>
-          <PackList packs={packProducts} />
-        </section>
-      )}
-
-      {/* Historial */}
-      <section>
-        <h2 className="mb-4 text-lg font-semibold">Historial de movimientos</h2>
-        {wallet.items.length === 0 ? (
-          <Card className="border-dashed">
-            <CardContent className="py-10 text-center text-sm text-muted-foreground">
-              No hay movimientos todavía. Compra un pack para empezar.
-            </CardContent>
-          </Card>
-        ) : (
-          <Card>
-            <CardContent className="pt-4">
-              {wallet.items.map((item, idx) => (
-                <div key={item.id}>
-                  <LedgerRow item={item} />
-                  {idx < wallet.items.length - 1 && <Separator />}
-                </div>
-              ))}
-            </CardContent>
-          </Card>
+        {/* Historial de bumps, lista separada (ver comentario de diseño en
+            BumpLedgerRow). Solo se muestra si hay algo que mostrar, para no
+            añadir ruido a quien nunca ha tenido bumps. */}
+        {bumpLedger.items.length > 0 && (
+          <div>
+            <h3 className="mb-4 text-lg font-semibold">Historial de bumps</h3>
+            <Card>
+              <CardContent className="pt-4">
+                {bumpLedger.items.map((item, idx) => (
+                  <div key={item.id}>
+                    <BumpLedgerRow item={item} />
+                    {idx < bumpLedger.items.length - 1 && <Separator />}
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          </div>
         )}
       </section>
-
-      {/* Monetización ráfaga 2 — historial de bumps, lista separada (ver
-          comentario de diseño en BumpLedgerRow). Solo se muestra si hay algo
-          que mostrar, para no añadir ruido a quien nunca ha tenido bumps. */}
-      {bumpLedger.items.length > 0 && (
-        <section>
-          <h2 className="mb-4 text-lg font-semibold">Historial de bumps</h2>
-          <Card>
-            <CardContent className="pt-4">
-              {bumpLedger.items.map((item, idx) => (
-                <div key={item.id}>
-                  <BumpLedgerRow item={item} />
-                  {idx < bumpLedger.items.length - 1 && <Separator />}
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        </section>
-      )}
     </div>
   );
 }

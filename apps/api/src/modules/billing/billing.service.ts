@@ -757,7 +757,7 @@ export class BillingService {
         include: {
           prices: {
             where: { active: true },
-            include: { creditPack: true },
+            include: { creditPack: true, bumpPack: true },
             orderBy: { amount: 'asc' },
           },
         },
@@ -771,6 +771,7 @@ export class BillingService {
               'featuredCreditCost14d',
               'featuredCreditCost30d',
               'bumpCreditCost',
+              'proExtraBumpsPercent',
             ],
           },
         },
@@ -784,6 +785,11 @@ export class BillingService {
       30: settingMap['featuredCreditCost30d'] ?? 100,
     };
     const baseBumpCreditCost = settingMap['bumpCreditCost'] ?? 5;
+    // Monetización ráfaga 4 — expuesto para que la UI pueda PREVISUALIZAR el
+    // bonus Pro de un pack de bumps antes de comprar ("+N de regalo"). Es solo
+    // una vista previa: lo que de verdad se acredita se congela en el
+    // checkout (RedsysService.computeProBonus), esto nunca se usa para cobrar.
+    const proExtraBumpsPercent = settingMap['proExtraBumpsPercent'] ?? 20;
 
     // H8 Bloque D fase 2 — descuentos de campaña activos ahora mismo (a lo sumo
     // uno por acción). El catálogo es público y sin caché por request, así que
@@ -838,15 +844,16 @@ export class BillingService {
                   creditAmount: price.creditPack.creditAmount,
                   creditPackId: price.creditPack.id,
                   packName: price.creditPack.name,
-                  // Monetización ráfaga 2 (Opción B) — "≈N bumps" calculado EN
-                  // VIVO con el bumpCreditCost vigente (no la variante
-                  // descontada por campaña: la equivalencia es sobre el coste
-                  // estándar, no sobre una promoción pasajera). Nunca se
-                  // guarda como texto fijo, así que no puede desincronizarse
-                  // si el admin cambia bumpCreditCost después.
-                  ...(price.creditPack.highlightBumps && {
-                    bumpEquivalent: Math.floor(price.creditPack.creditAmount / baseBumpCreditCost),
-                  }),
+                }
+              : {}),
+            // Monetización ráfaga 4 — packs de bumps DIRECTOS (acreditan
+            // bumpBalance, no créditos). Sustituye al mecanismo highlightBumps/
+            // bumpEquivalent de la ráfaga 2 (retirado — ver diseno-facturacion.md §19).
+            ...(price.bumpPack != null
+              ? {
+                  bumpAmount: price.bumpPack.bumpAmount,
+                  bumpPackId: price.bumpPack.id,
+                  packName: price.bumpPack.name,
                 }
               : {}),
           };
@@ -857,6 +864,7 @@ export class BillingService {
         bumpOriginalCreditCost: baseBumpCreditCost,
         bumpDiscountPercent,
       }),
+      proExtraBumpsPercent,
     };
   }
 

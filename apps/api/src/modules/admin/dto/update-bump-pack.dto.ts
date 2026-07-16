@@ -1,8 +1,8 @@
 import { IsInt, IsPositive, Max } from 'class-validator';
 
-export class UpdateCreditPackDto {
+export class UpdateBumpPackDto {
   @IsInt()
   @IsPositive()
   @Max(1000000)
-  creditAmount!: number;
+  bumpAmount!: number;
 }

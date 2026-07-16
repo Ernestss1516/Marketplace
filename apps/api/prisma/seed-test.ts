@@ -92,6 +92,8 @@ async function seedSettings() {
     { key: 'proQuotaFeaturedDurationDays', value: 7 },
     // Monetización ráfaga 3.
     { key: 'proMonthlyBumpQuota', value: 4 },
+    // Monetización ráfaga 4.
+    { key: 'proExtraBumpsPercent', value: 20 },
   ];
 
   for (const s of settings) {
@@ -120,13 +122,12 @@ async function seedCreditPacks() {
     },
   });
 
-  const packs: { name: string; creditAmount: number; amount: string; highlightBumps?: boolean }[] = [
+  const packs: { name: string; creditAmount: number; amount: string }[] = [
     { name: 'Pack Básico', creditAmount: 50, amount: '4.99' },
     { name: 'Pack Estándar', creditAmount: 150, amount: '9.99' },
     { name: 'Pack Max', creditAmount: 400, amount: '19.99' },
-    // Monetización ráfaga 2 — mismos valores que seed.ts (real), para que los
-    // e2e que la ejercen reflejen el pack tal cual lo verá el usuario.
-    { name: 'Pack de bumps', creditAmount: 60, amount: '4.99', highlightBumps: true },
+    // Monetización ráfaga 4: "Pack de bumps" (Opción B, highlightBumps)
+    // retirado — ver seedBumpPacks().
   ];
 
   for (const p of packs) {
@@ -134,7 +135,6 @@ async function seedCreditPacks() {
       data: {
         name: p.name,
         creditAmount: p.creditAmount,
-        ...(p.highlightBumps && { highlightBumps: true }),
       },
     });
     await prisma.price.create({
@@ -146,6 +146,44 @@ async function seedCreditPacks() {
     });
   }
   console.log('Test seed: credit packs OK (Básico/Estándar/Max)');
+}
+
+async function seedBumpPacks() {
+  const existing = await prisma.bumpPack.count();
+  if (existing > 0) {
+    console.log('Test seed: bump packs already present, skipped');
+    return;
+  }
+
+  const packsProduct = await prisma.product.create({
+    data: {
+      name: 'Packs de bumps',
+      description: 'Paquetes de bumps directos.',
+      type: ProductType.ONE_TIME,
+    },
+  });
+
+  // Mismos valores que seed.ts (real), para que los e2e que los ejercen
+  // reflejen los packs tal cual los verá el usuario.
+  const packs: { name: string; bumpAmount: number; amount: string }[] = [
+    { name: 'Pack 5 bumps', bumpAmount: 5, amount: '2.99' },
+    { name: 'Pack 15 bumps', bumpAmount: 15, amount: '6.99' },
+    { name: 'Pack 40 bumps', bumpAmount: 40, amount: '14.99' },
+  ];
+
+  for (const p of packs) {
+    const pack = await prisma.bumpPack.create({
+      data: { name: p.name, bumpAmount: p.bumpAmount },
+    });
+    await prisma.price.create({
+      data: {
+        productId: packsProduct.id,
+        amount: new Prisma.Decimal(p.amount),
+        bumpPackId: pack.id,
+      },
+    });
+  }
+  console.log('Test seed: bump packs OK (5/15/40 bumps)');
 }
 
 async function seedFeaturedPrices() {
@@ -242,6 +280,7 @@ async function main() {
   await seedCategories();
   await seedSettings();
   await seedCreditPacks();
+  await seedBumpPacks();
   await seedFeaturedPrices();
   await seedProPlans();
 }

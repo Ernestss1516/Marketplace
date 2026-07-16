@@ -39,7 +39,7 @@ export default async function MisAnunciosPage() {
     // (con descuento de campaña ya aplicado si lo hay). Fallback silencioso:
     // sin campaña visible es exactamente el comportamiento de hoy.
     getCatalog().catch(
-      (): CatalogResponse => ({ products: [], bumpCreditCost: 5 }),
+      (): CatalogResponse => ({ products: [], bumpCreditCost: 5, proExtraBumpsPercent: 20 }),
     ),
     // Monetización ráfaga 2 — saldo de bumps del usuario, para que el botón
     // "Bump" sepa si va a ser gratis antes de que el usuario haga clic.

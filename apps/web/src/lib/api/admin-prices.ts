@@ -9,8 +9,9 @@ export interface AdminPrice {
   active: boolean;
   creditPackId: string | null;
   creditAmount: number | null;
-  /** Monetización ráfaga 2 — solo relevante cuando creditPackId != null. */
-  highlightBumps: boolean | null;
+  /** Monetización ráfaga 4 — solo presente cuando el Price es de un BumpPack. */
+  bumpPackId: string | null;
+  bumpAmount: number | null;
 }
 
 export function getAdminPrices(token: string): Promise<AdminPrice[]> {
@@ -29,11 +30,23 @@ export function updateAdminCreditPackAmount(
   token: string,
   creditPackId: string,
   creditAmount: number,
-  highlightBumps?: boolean,
 ): Promise<AdminPrice> {
   return apiFetch<AdminPrice>(`/admin/billing/credit-packs/${creditPackId}`, {
     method: 'PATCH',
-    body: JSON.stringify({ creditAmount, ...(highlightBumps !== undefined && { highlightBumps }) }),
+    body: JSON.stringify({ creditAmount }),
+    token,
+  });
+}
+
+/** Monetización ráfaga 4 — mismo molde que updateAdminCreditPackAmount, moneda distinta. */
+export function updateAdminBumpPackAmount(
+  token: string,
+  bumpPackId: string,
+  bumpAmount: number,
+): Promise<AdminPrice> {
+  return apiFetch<AdminPrice>(`/admin/billing/bump-packs/${bumpPackId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ bumpAmount }),
     token,
   });
 }

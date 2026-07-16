@@ -14,6 +14,7 @@ import { JwtUser } from '../auth/auth.types';
 import { RedsysService } from './redsys.service';
 import { RedsysWebhookGuard, type RedsysWebhookRequest } from './guards/redsys-webhook.guard';
 import { CheckoutCreditsPackDto } from './dto/checkout-credits-pack.dto';
+import { CheckoutBumpPackDto } from './dto/checkout-bump-pack.dto';
 import { CheckoutFeaturedPayDto } from './dto/checkout-featured-pay.dto';
 
 /**
@@ -42,6 +43,18 @@ export class RedsysController {
     @Body() dto: CheckoutCreditsPackDto,
   ) {
     return this.redsysService.createCreditPackCheckout(user.userId, dto);
+  }
+
+  @ApiTags('Billing')
+  @ApiBearerAuth('access-token')
+  @Post('billing/checkout/bump-pack')
+  @HttpCode(HttpStatus.CREATED)
+  @UseGuards(JwtAuthGuard)
+  checkoutBumpPack(
+    @CurrentUser() user: JwtUser,
+    @Body() dto: CheckoutBumpPackDto,
+  ) {
+    return this.redsysService.createBumpPackCheckout(user.userId, dto);
   }
 
   @ApiTags('Billing')

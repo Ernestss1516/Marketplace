@@ -7,6 +7,7 @@ import { ListAdminWalletsDto } from './dto/list-admin-wallets.dto';
 import { CreditGrantDto } from './dto/credit-grant.dto';
 import { UpdatePriceDto } from './dto/update-price.dto';
 import { UpdateCreditPackDto } from './dto/update-credit-pack.dto';
+import { UpdateBumpPackDto } from './dto/update-bump-pack.dto';
 
 @Injectable()
 export class AdminBillingService {
@@ -218,18 +219,26 @@ export class AdminBillingService {
 
   /**
    * Lista los Price editables desde el backoffice: destacado por tarjeta
-   * (durationDays != null) y packs de créditos (creditPackId != null). Excluye
-   * de raíz los Price recurrentes de Stripe (Plan Pro), que se gestionan aparte.
+   * (durationDays != null), packs de créditos (creditPackId != null) y packs
+   * de bumps (bumpPackId != null, Monetización ráfaga 4). Excluye de raíz los
+   * Price recurrentes de Stripe (Plan Pro), que se gestionan aparte.
    */
   async listPrices() {
     const prices = await this.prisma.price.findMany({
       where: {
-        OR: [{ durationDays: { not: null } }, { creditPackId: { not: null } }],
+        OR: [
+          { durationDays: { not: null } },
+          { creditPackId: { not: null } },
+          { bumpPackId: { not: null } },
+        ],
       },
       include: {
         product: { select: { name: true } },
         creditPack: {
-          select: { id: true, name: true, creditAmount: true, active: true, highlightBumps: true },
+          select: { id: true, name: true, creditAmount: true, active: true },
+        },
+        bumpPack: {
+          select: { id: true, name: true, bumpAmount: true, active: true },
         },
       },
       orderBy: [{ product: { name: 'asc' } }, { durationDays: 'asc' }],
@@ -237,14 +246,19 @@ export class AdminBillingService {
 
     return prices.map((price) => ({
       id: price.id,
-      label: price.creditPack ? price.creditPack.name : `${price.product.name} — ${price.durationDays} días`,
+      label: price.creditPack
+        ? price.creditPack.name
+        : price.bumpPack
+          ? price.bumpPack.name
+          : `${price.product.name} — ${price.durationDays} días`,
       amount: price.amount,
       currency: price.currency,
       durationDays: price.durationDays,
       active: price.active,
       creditPackId: price.creditPack?.id ?? null,
       creditAmount: price.creditPack?.creditAmount ?? null,
-      highlightBumps: price.creditPack?.highlightBumps ?? null,
+      bumpPackId: price.bumpPack?.id ?? null,
+      bumpAmount: price.bumpPack?.bumpAmount ?? null,
     }));
   }
 
@@ -294,10 +308,7 @@ export class AdminBillingService {
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.creditPack.update({
         where: { id: creditPackId },
-        data: {
-          creditAmount: dto.creditAmount,
-          ...(dto.highlightBumps !== undefined && { highlightBumps: dto.highlightBumps }),
-        },
+        data: { creditAmount: dto.creditAmount },
       });
 
       await this.auditLog.log(
@@ -306,14 +317,41 @@ export class AdminBillingService {
           actorId,
           resourceType: 'CreditPack',
           resourceId: creditPackId,
-          before: {
-            creditAmount: existing.creditAmount,
-            highlightBumps: existing.highlightBumps,
-          } as Prisma.InputJsonValue,
-          after: {
-            creditAmount: dto.creditAmount,
-            highlightBumps: updated.highlightBumps,
-          } as Prisma.InputJsonValue,
+          before: { creditAmount: existing.creditAmount } as Prisma.InputJsonValue,
+          after: { creditAmount: dto.creditAmount } as Prisma.InputJsonValue,
+          ip,
+        },
+        tx,
+      );
+
+      return updated;
+    });
+  }
+
+  /** Monetización ráfaga 4 — mismo molde que updateCreditPackAmount, moneda distinta. */
+  async updateBumpPackAmount(
+    bumpPackId: string,
+    actorId: string,
+    dto: UpdateBumpPackDto,
+    ip?: string,
+  ) {
+    const existing = await this.prisma.bumpPack.findUnique({ where: { id: bumpPackId } });
+    if (!existing) throw new NotFoundException('Bump pack no encontrado');
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.bumpPack.update({
+        where: { id: bumpPackId },
+        data: { bumpAmount: dto.bumpAmount },
+      });
+
+      await this.auditLog.log(
+        {
+          action: 'BUMP_PACK_UPDATE',
+          actorId,
+          resourceType: 'BumpPack',
+          resourceId: bumpPackId,
+          before: { bumpAmount: existing.bumpAmount } as Prisma.InputJsonValue,
+          after: { bumpAmount: dto.bumpAmount } as Prisma.InputJsonValue,
           ip,
         },
         tx,

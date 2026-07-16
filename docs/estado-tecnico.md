@@ -6849,6 +6849,60 @@ aditivo). Typecheck de frontend limpio. QA en vivo con capturas Playwright: bot�
 cuota disponible, confirmación "cuota mensual Pro" tras bumpear, botón cayendo a "guardado" con la
 cuota agotada, y el editor nuevo en `/admin/ajustes`.
 
+### Monetización — ráfaga 4: packs de bumps directos, retirada de la Opción B (CERRADO)
+
+Diseñado y aprobado explícitamente antes de implementar (cambio de modelo con dinero de por medio,
+retira algo existente) — documentación completa del diseño en `diseno-facturacion.md` §19.
+
+- **`BumpPack`** — tabla nueva, paralela a `CreditPack` (se evaluó generalizar en una sola tabla
+  `Pack{type}` y se descartó: el checkout/processor ramifican por moneda de todas formas —
+  Setting de bonus distinta, ledger distinto, columna de Wallet distinta — así que unificar el
+  catálogo no habría evitado esa rama, solo habría forzado un rename de gran radio de explosión
+  sobre `Transaction.baseCreditAmount`/`bonusCreditAmount`). `Price.bumpPackId`, paralelo a
+  `creditPackId`.
+- **Compra por Redsys**: `RedsysService.createBumpPackCheckout`, espejo de
+  `createCreditPackCheckout` — congela `Transaction.baseBumpAmount`/`bonusBumpAmount` en el
+  checkout, nunca releídos en vivo por el processor. `RedsysProcessor.processSuccess()` gana una
+  tercera vía de enrutado (`bumpPack` → `handleBumpPackPurchase`, espejo de `handlePackPurchase`,
+  moneda distinta). Sin bonus de campaña (`CampaignsService` es específico de créditos, no
+  extendido en esta ráfaga).
+- **Bonus Pro — `proExtraBumpsPercent`**: Setting propia, NUNCA reutiliza
+  `proExtraCreditsPercent`. Ledger con **dos filas separadas** (`BumpLedgerType.PACK_PURCHASE` +
+  `PRO_BONUS`, decisión reconsiderada durante la aprobación — inicialmente propuesta como una fila
+  combinada, cambiada para permitir reportar el coste del bonus Pro como métrica de negocio sin
+  necesitar una migración de datos después). A diferencia de `PRO_QUOTA` (ráfaga 3, siempre
+  `amount:0`), estas dos SÍ llevan `amount` real — verificado que el invariante
+  `bumpBalance == SUM(BumpLedger.amount)` se mantiene.
+- **Bordes verificados explícitamente**: cambiar `BumpPack.bumpAmount` o `proExtraBumpsPercent`
+  DESPUÉS del checkout pero ANTES de confirmar el pago no altera lo que esa compra congeló (mismo
+  patrón "el test que importa" que créditos); el bonus se aplica en el checkout, no se revalida en
+  el webhook aunque el usuario deje de ser Pro entre medias (mismo criterio que créditos — cobrar
+  sin dar lo prometido es peor que el caso contrario).
+- **Hallazgo real durante el diseño**: desactivar solo `CreditPack.active` NO retira un pack del
+  catálogo — `getCatalog()` filtra por `Product.active`/`Price.active`, nunca por
+  `CreditPack.active`. Cerrado desactivando ambos. Migración en dos pasos, mismo patrón que
+  `drop_contact_motivo_enum`/`drop_post_footer_fields`: dato (`...090500_deactivate_
+  highlightbumps_pack`, desactiva `CreditPack` + `Price`, sin tocar histórico) → schema
+  (`...100000_drop_highlightbumps_column`), aplicada solo después de retirar las 9 referencias de
+  código (backend: schema, `admin-billing.service.ts`, DTO, `getCatalog()`, seeds; frontend:
+  `admin-prices.ts`, `billing.ts`, `PriceListEditor.tsx`, `PackList.tsx`; más un describe de test
+  que probaba el mecanismo retirado, eliminado — probar código muerto no aporta nada).
+- **UI**: `/mis-creditos` renombrada "Mi saldo" en el título visible (URL histórica intacta), dos
+  secciones separadas "Créditos"/"Bumps" con saldo, compra e historial propios. El botón de compra
+  de un pack de bumps previsualiza "+N de regalo por ser Pro" (solo vista previa — lo acreditado se
+  congela en el checkout). `/mis-creditos/exito` (compartida entre ambos tipos de pack, Redsys no
+  distingue cuál se compró) muestra ambos saldos.
+
+**Verificado**: nuevo fichero `test/bump-pack-purchase.e2e-spec.ts` (11 tests) — compra atómica con
+bonus Pro correcto, no-Pro sin bonus, las dos filas de ledger separadas, idempotencia (reintento de
+webhook sobre Transaction ya SUCCEEDED no duplica), congelado bajo cambio de pack y de Setting a
+mitad de vuelo, el invariante del ledger con montos reales, y la retirada (pack desactivado
+invisible + no comprable + histórico íntegro). Batería completa: 64 suites / 965 tests en verde.
+Typecheck de frontend limpio (incluida una corrección al tipo `BumpLedgerType` del frontend, que no
+tenía los dos valores nuevos). QA en vivo con capturas Playwright: página "Mi saldo" con las dos
+secciones para un Pro (con preview de bonus +1/+3/+8 en los 3 packs) y para un no-Pro (sin
+preview), y el editor nuevo en `/admin/ajustes` (Setting + los 3 `BumpPack` en Precios Redsys).
+
 ---
 
 ## 4. Documentación de la API y el diseño

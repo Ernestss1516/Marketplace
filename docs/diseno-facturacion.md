@@ -1259,3 +1259,103 @@ El botón "Bump" en `MyListingCard` prioriza visualmente en el mismo orden que e
 "Bump gratis (cuota: te quedan N este mes)" → "Bump gratis (guardado: te quedan N)" → coste en
 créditos. La confirmación tras bumpear usa `paidWith` para decir exactamente cuál de las tres se
 gastó, sin que el usuario tenga que inferirlo.
+
+---
+
+## 19. Packs de bumps directos (Monetización ráfaga 4) — retirada de la Opción B
+
+Diseñado y aprobado antes de implementar (cambio de modelo que retira algo existente, con dinero de
+por medio). Sustituye el pack de bumps-vía-créditos de la ráfaga 2 (`CreditPack.highlightBumps`,
+Opción B) por packs que acreditan `bumpBalance` directamente.
+
+### 19.1 Modelo — `BumpPack`, tabla paralela a `CreditPack`, no generalizada
+
+Se evaluó generalizar en una sola tabla `Pack{type: CREDITS|BUMPS}` y se descartó: el checkout y el
+processor ramifican por moneda de todas formas (Setting de bonus distinta —
+`proExtraBumpsPercent` ≠ `proExtraCreditsPercent`—, ledger distinto, columna de `Wallet` distinta),
+así que unificar el catálogo no habría evitado esa rama — solo habría obligado a renombrar
+`Transaction.baseCreditAmount`/`bonusCreditAmount` a algo genérico, con mucho radio de explosión
+sobre código ya verde (`redsys.service.ts`, `redsys.processor.ts`, varios e2e). `BumpPack` es una
+tabla nueva, misma forma que `CreditPack` (`name`, `description`, `bumpAmount`, `active`, `price`
+1:1). `Price` gana `bumpPackId String? @unique`, paralelo a `creditPackId`.
+
+### 19.2 La compra — mismo rigor que packs de créditos
+
+`RedsysService.createBumpPackCheckout`, espejo de `createCreditPackCheckout`: congela
+`Transaction.baseBumpAmount`/`bonusBumpAmount` en el checkout (el processor nunca relee
+`BumpPack.bumpAmount` ni `Setting.proExtraBumpsPercent` en vivo). El cálculo del bonus Pro se
+extrajo a un helper compartido (`computeProBonus(userId, baseAmount, settingKey, defaultPct)`) —
+misma fórmula, distinto Setting según la moneda; el resto (Ds_Order, retry, tax breakdown) ya era
+genérico y se reutiliza tal cual. Sin bonus de campaña: `CampaignsService.getActiveCreditBonusCampaign()`
+es específico de `CampaignType.CREDIT_BONUS`; extenderlo a bumps no se decidió en esta ráfaga.
+
+`RedsysProcessor.processSuccess()` gana una tercera vía de enrutado (antes: `creditPack` → paquete de
+créditos; si no, destacado por Redsys — ahora: `creditPack` → créditos; `bumpPack` → bumps directos;
+si no, destacado). `handleBumpPackPurchase` es un espejo de `handlePackPurchase`, moneda distinta:
+acredita `Wallet.bumpBalance`/`BumpLedger` en vez de `balance`/`CreditLedger`, misma capa de
+idempotencia ya existente (`Transaction.status !== PENDING` corta antes de llegar aquí — un
+reintento de BullMQ nunca ejecuta esto dos veces).
+
+**Decisión reconsiderada durante la aprobación**: el ledger usa DOS filas separadas
+(`BumpLedgerType.PACK_PURCHASE` para la base, `PRO_BONUS` para el bonus), no una combinada — mismo
+criterio que créditos (`CreditLedgerType.PACK_PURCHASE`/`PRO_BONUS`), para poder reportar "cuánto
+regala el bonus Pro" como métrica de negocio, y para no necesitar una migración de datos si algún
+día hiciera falta desglosarlo. A diferencia de `BumpLedgerType.PRO_QUOTA` (ráfaga 3, siempre
+`amount: 0` — un marcador, no un movimiento), estas dos filas SÍ llevan `amount` real: verificado
+explícitamente que `wallet.bumpBalance == SUM(BumpLedger.amount)` se mantiene con ambas.
+
+### 19.3 Bonus Pro — `proExtraBumpsPercent`
+
+Setting propia, `PERCENT_SETTING_KEYS` (0-100, igual que `proExtraCreditsPercent`) — NUNCA se
+reutiliza la de créditos, por decisión explícita: son beneficios distintos, calibrables por
+separado. El catálogo expone `proExtraBumpsPercent` en su raíz (mismo patrón que `bumpCreditCost`)
+para que la UI pueda PREVISUALIZAR "+N de regalo por ser Pro" antes de comprar — es solo una
+vista previa (`Math.ceil(bumpAmount × pct / 100)` calculado en el frontend); lo que de verdad se
+acredita se congela en el checkout, nunca se deriva de esta previsualización.
+
+**Los dos bordes preguntados explícitamente al aprobar el diseño**:
+- *¿El bonus se aplica en el checkout o en la confirmación del webhook?* En el checkout — mismo
+  criterio que créditos (§2.5). Si el usuario deja de ser Pro entre el checkout y la confirmación,
+  el bonus YA CONGELADO se acredita igual; revalidar `isPro` en el webhook abriría una ventana de
+  carrera peor (cobrar sin dar lo prometido al pagar es peor que el caso contrario). Verificado
+  explícitamente con un test que sube `proExtraBumpsPercent` a 90 entre el checkout y la
+  confirmación, y comprueba que se acredita el bonus congelado, no el nuevo.
+- *¿Qué pasa si se cambia `BumpPack.bumpAmount` a mitad de una compra en curso?* Igual — el valor
+  congelado en `Transaction.baseBumpAmount` es el que se acredita, nunca el vigente en el momento
+  de la confirmación. Verificado con el mismo patrón ("el test que importa") que ya usa
+  `admin-pricing.e2e-spec.ts` para créditos.
+
+### 19.4 Retirada limpia de la Opción B — sin romper histórico
+
+**Hallazgo real durante el diseño, no un supuesto**: desactivar solo `CreditPack.active` NO basta
+para retirar un pack — `BillingService.getCatalog()` filtra el catálogo por `Product.active`/
+`Price.active`, nunca por `CreditPack.active`. Un pack "desactivado" así seguía siendo visible y
+comprable (el checkout sí comprobaba ambos; el catálogo no). Cerrado desactivando **ambos**:
+`CreditPack.active = false` Y su `Price.active = false`.
+
+Migración en dos pasos, mismo patrón que `drop_contact_motivo_enum`/`drop_post_footer_fields`
+(precedente real en este repo, no inventado):
+1. **Dato** (`20260716090500_deactivate_highlightbumps_pack`): `UPDATE` sobre `CreditPack` y
+   `Price` — sin tocar ninguna `Transaction`/`CreditLedger` histórica, que siguen íntegras (mismas
+   FKs, solo `active=false` en las filas padre).
+2. **Schema** (`20260716100000_drop_highlightbumps_column`), aplicada DESPUÉS de retirar las 9
+   referencias de código (backend: schema, `admin-billing.service.ts`, `update-credit-pack.dto.ts`,
+   `getCatalog()`, seeds; frontend: `admin-prices.ts`, `billing.ts`, `PriceListEditor.tsx`,
+   `PackList.tsx`; más un describe de test que probaba el mecanismo retirado) — `DROP COLUMN
+   "highlightBumps"`.
+
+Verificado (`bump-pack-purchase.e2e-spec.ts`): un pack desactivado no aparece en el catálogo, un
+intento de checkout devuelve 404, y una `Transaction` histórica que lo referencia sigue legible con
+sus montos intactos.
+
+### 19.5 Admin + UI
+
+3 `BumpPack` configurables en `/admin/ajustes → Precios (Redsys)` (mismo `PriceListEditor`,
+extendido con una tercera rama para `bumpPackId`), `proExtraBumpsPercent` editable junto a las
+otras Settings de Pro. En `/mis-creditos` (renombrada "Mi saldo" en el título visible — la URL se
+queda igual, es solo la página que ahora cubre dos monedas): dos secciones claramente separadas,
+"Créditos" y "Bumps", cada una con su saldo, su compra y su historial — no fusionadas, mismo
+principio que ya regía el historial (§17). El botón "Comprar" de un pack de bumps muestra el
+preview "+N de regalo por ser Pro" cuando aplica; la página de confirmación tras el pago
+(`/mis-creditos/exito`, compartida entre packs de créditos y de bumps porque Redsys no distingue
+cuál se compró) muestra ambos saldos actuales.

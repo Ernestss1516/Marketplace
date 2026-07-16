@@ -61,6 +61,10 @@ const SETTING_KEYS = [
   'proExtraCreditsPercent',
   // Monetización ráfaga 3: monthly free-bump quota granted to Pro subscribers
   'proMonthlyBumpQuota',
+  // Monetización ráfaga 4: Pro bonus percentage on bump-pack purchases — a
+  // Setting OF ITS OWN, not reused from proExtraCreditsPercent (distinct,
+  // separately calibrated Pro perks).
+  'proExtraBumpsPercent',
 ] as const;
 type SettingKey = (typeof SETTING_KEYS)[number];
 
@@ -85,7 +89,7 @@ const POSITIVE_INT_SETTING_KEYS: readonly string[] = [
 // Keys whose value is a percentage: integer in [0, 100]. 0 is valid (disables
 // the Pro bonus without removing the key); >100 would gift more credits than
 // the pack costs, which is never intended.
-const PERCENT_SETTING_KEYS: readonly string[] = ['proExtraCreditsPercent'];
+const PERCENT_SETTING_KEYS: readonly string[] = ['proExtraCreditsPercent', 'proExtraBumpsPercent'];
 
 @Injectable()
 export class AdminService {

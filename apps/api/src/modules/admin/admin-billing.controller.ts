@@ -22,6 +22,7 @@ import { ListAdminWalletsDto } from './dto/list-admin-wallets.dto';
 import { CreditGrantDto } from './dto/credit-grant.dto';
 import { UpdatePriceDto } from './dto/update-price.dto';
 import { UpdateCreditPackDto } from './dto/update-credit-pack.dto';
+import { UpdateBumpPackDto } from './dto/update-bump-pack.dto';
 
 @ApiTags('Admin — Billing')
 @ApiBearerAuth('access-token')
@@ -80,5 +81,15 @@ export class AdminBillingController {
     @Ip() ip: string,
   ) {
     return this.adminBillingService.updateCreditPackAmount(id, user.userId, dto, ip);
+  }
+
+  @Patch('bump-packs/:id')
+  updateBumpPackAmount(
+    @Param('id') id: string,
+    @Body() dto: UpdateBumpPackDto,
+    @CurrentUser() user: JwtUser,
+    @Ip() ip: string,
+  ) {
+    return this.adminBillingService.updateBumpPackAmount(id, user.userId, dto, ip);
   }
 }
