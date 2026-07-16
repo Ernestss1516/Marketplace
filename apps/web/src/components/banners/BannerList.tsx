@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Share2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { isSafeContentUrl } from '@/lib/blocks/validation';
 import type { Banner, BannerVariant } from '@/lib/api/banners';
 
 const DISMISSED_KEY = 'dismissed-banners';
@@ -32,7 +33,7 @@ function persistDismissedIds(ids: Set<string>) {
 }
 
 async function shareBanner(banner: Banner): Promise<'shared' | 'copied' | 'failed'> {
-  const shareUrl = banner.linkUrl
+  const shareUrl = banner.linkUrl && isSafeContentUrl(banner.linkUrl)
     ? new URL(banner.linkUrl, window.location.origin).toString()
     : window.location.origin;
   const shareText = banner.shareText ?? banner.text;
@@ -106,7 +107,7 @@ export function BannerList({ banners }: Props) {
             <p className="font-medium">{banner.title}</p>
             <p className="text-sm">{banner.text}</p>
             <div className="mt-2 flex items-center gap-3">
-              {banner.linkUrl && (
+              {banner.linkUrl && isSafeContentUrl(banner.linkUrl) && (
                 <Link href={banner.linkUrl} className="text-sm font-medium underline underline-offset-2">
                   {banner.linkText ?? 'Ver más'}
                 </Link>

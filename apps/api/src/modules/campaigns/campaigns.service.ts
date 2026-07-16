@@ -13,6 +13,22 @@ import { ActionDiscountParamsDto } from './dto/action-discount-params.dto';
 type CampaignStatus = 'upcoming' | 'live' | 'ended';
 type ActionDiscountAction = 'BUMP' | 'FEATURED';
 
+/**
+ * Topes de cordura para CREDIT_BONUS.value — sin esto, un typo de admin (p.
+ * ej. 10000 en vez de 100) regala una cantidad absurda de créditos a quien
+ * compre durante la campaña. A diferencia de ACTION_DISCOUNT.percent (tope
+ * 90%, un descuento >100% no tiene sentido: regalarías el producto y encima
+ * pagarías), un bonus SÍ puede pasar de 100% de forma legítima ("compra 100
+ * créditos, llévate 200" = 200%), así que el tope va más alto — 500% deja
+ * margen a promociones agresivas y sigue atrapando un error de una o más
+ * órdenes de magnitud.
+ * PERCENT_MAX es relativo (%); FIXED_MAX es absoluto (créditos) — mismo
+ * valor de cordura que UpdateCreditPackDto.creditAmount (@Max(1000000)), no
+ * un límite de negocio real, solo la valla que ningún caso legítimo alcanza.
+ */
+const CREDIT_BONUS_PERCENT_MAX = 500;
+const CREDIT_BONUS_FIXED_MAX = 1_000_000;
+
 @Injectable()
 export class CampaignsService {
   constructor(
@@ -277,6 +293,21 @@ export class CampaignsService {
         message: `params inválidos para el type ${type}`,
         errors: errors.map((e) => ({ property: e.property, constraints: e.constraints })),
       });
+    }
+
+    // Tope de cordura no expresable en el DTO (depende de `kind`, mismo
+    // motivo por el que el DTO no se elige por reflexión — ver comentario de
+    // este método). @Min(1) ya vive en CampaignParamsDto; esto solo añade el
+    // techo. Ver constantes CREDIT_BONUS_*_MAX arriba.
+    if (type === CampaignType.CREDIT_BONUS) {
+      const { kind, value } = params as { kind: 'PERCENT' | 'FIXED'; value: number };
+      const max = kind === 'PERCENT' ? CREDIT_BONUS_PERCENT_MAX : CREDIT_BONUS_FIXED_MAX;
+      if (value > max) {
+        throw new BadRequestException({
+          message: `params inválidos para el type ${type}`,
+          errors: [{ property: 'value', constraints: { max: `value must not be greater than ${max}` } }],
+        });
+      }
     }
   }
 }

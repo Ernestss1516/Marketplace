@@ -10,6 +10,7 @@ import {
   MaxLength,
 } from 'class-validator';
 import { BannerPlacement, BannerVariant } from '@prisma/client';
+import { IsSafeContentUrl } from '../../../common/validators/safe-url';
 
 export class CreateBannerDto {
   @IsString()
@@ -21,8 +22,11 @@ export class CreateBannerDto {
   @IsNotEmpty()
   text!: string;
 
+  // Ruta relativa ("/...") o URL absoluta http/https — nunca javascript:/data:.
+  // Mismo validador que Footer (url EXTERNAL) y los bloques cta/hub del blog.
+  // Ver common/validators/safe-url.ts.
   @IsOptional()
-  @IsString()
+  @IsSafeContentUrl()
   linkUrl?: string;
 
   @IsOptional()

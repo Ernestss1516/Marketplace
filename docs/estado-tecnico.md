@@ -6932,6 +6932,150 @@ de uno más pequeño, para descartar que el orden dependa de inserción o de pre
 
 ---
 
+### Auditoría campañas/banners — ráfaga A: XSS en `Banner.linkUrl` + tope a `CREDIT_BONUS` (CERRADO)
+
+Cierra los dos hallazgos de seguridad/dinero de la auditoría de campañas/banners (motor de
+descuentos verificado ejerciendo — bump/destacado por créditos, prioridad cuota→saldo→créditos,
+ciclo de vida, solapamiento — todo coherente; el resto de huecos, incluida la falta de bonus de
+campaña en packs de bumps directos, queda inventariado para otra ráfaga). Acotada a los dos fixes,
+sin decisiones de producto nuevas.
+
+- **XSS en `Banner.linkUrl` (bug real).** `linkUrl` no tenía ninguna validación de formato: un
+  banner con `linkUrl: "javascript:alert(1)"` se guardaba y se servía tal cual por `GET /banners`
+  (público), y el frontend (`BannerList.tsx`) lo renderizaba directo en `<Link href={banner.linkUrl}>`
+  sin sanear. El propio proyecto ya tiene el validador — `common/validators/safe-url.ts`
+  (`isSafeContentUrl`/`IsSafeContentUrl`), aplicado a `Footer` (url `EXTERNAL`) y a los bloques
+  `cta`/`hub` del blog — pero nunca se enchufó a `Banner`. Fix: **mismo validador, no uno nuevo**.
+  - Backend: `CreateBannerDto`/`UpdateBannerDto.linkUrl` gana `@IsSafeContentUrl()` (acepta ruta
+    relativa `"/..."` o absoluta http/https; rechaza `javascript:`/`data:`/cualquier otro esquema).
+    `@IsOptional()` sigue permitiendo omitir el campo o, en `UpdateBannerDto`, mandar `null`
+    explícito para limpiar un link existente (`IsOptional` salta la validación en `null`/`undefined`,
+    no en `""` — una cadena vacía ahora se rechaza; no era un valor con significado propio, solo un
+    efecto colateral de la falta de validación).
+  - Frontend (defensa en profundidad): `BannerList.tsx` reutiliza el mismo `isSafeContentUrl`
+    (espejo cliente ya existente en `lib/blocks/validation.ts`, usado hasta ahora solo en los
+    editores admin de bloques cta/hub) y solo renderiza el `<Link>` — y solo usa la URL real en el
+    botón "Compartir" — si `isSafeContentUrl(linkUrl)` es cierto. Cubre el caso de un registro ya
+    guardado con una URL peligrosa (p. ej. de antes de este fix): backend valida al entrar, frontend
+    sanea al salir.
+  - **Verificado ejerciendo** (servidor real en `:3001`, banner real): `linkUrl: "javascript:alert(1)"`
+    y `"data:text/html,..."` → `400` en `POST` y en `PATCH` (edición de un banner válido existente
+    queda intacta tras el rechazo); `"https://..."` y `"/ruta-interna"` → aceptados; `null` en
+    `PATCH` sigue limpiando el link. Home real (`:3000`) servida contra la API real: un banner con
+    link válido renderiza su `<a href>` correcto en el HTML SSR. Se insertó además un banner
+    directamente en BD (bypaseando la API, simulando un registro ya existente con
+    `linkUrl: "javascript:alert(1)"`) para probar la segunda capa: el título/texto del banner se
+    siguen mostrando, pero no existe ningún `<a href="javascript:...">` real en el HTML — el string
+    solo aparece de forma inerte dentro del payload de hidratación de RSC (nunca como atributo
+    interpretado). **Auditoría de datos existentes:** la tabla `Banner` estaba vacía en el momento
+    del fix (0 filas) — no había ningún `linkUrl` peligroso ya guardado que limpiar.
+- **`CampaignParamsDto.value` de `CREDIT_BONUS` sin tope superior (bug real).** `ActionDiscountParamsDto.percent`
+  tiene tope 90% (un descuento >100% no tiene sentido: regalarías el producto y encima pagarías),
+  pero `CampaignParamsDto.value` (usado tanto para `kind:"PERCENT"` como `kind:"FIXED"`) solo tenía
+  `@Min(1)` — se aceptaba `{"kind":"PERCENT","value":100000}` (bonus del 100.000%) sin rechazo. Un
+  typo de admin (un cero de más) regalaría una cantidad absurda de créditos a quien comprara durante
+  la campaña. A diferencia de un descuento, un bonus SÍ puede pasar de 100% de forma legítima
+  ("compra 100 créditos, llévate 200" = 200% de bonus), así que el tope no podía ser 90% — tenía que
+  ir más alto que el de `ACTION_DISCOUNT` pero seguir existiendo. `kind` no se validaba con un
+  `@Max` en el DTO porque el límite depende de `kind` (mismo motivo, ya documentado en el código, por
+  el que el DTO se elige por `type` con un switch manual en vez de por reflexión declarativa) — el
+  tope se añadió como chequeo manual en `CampaignsService.validateParams`, después de la validación
+  del DTO, con el mismo shape de error (`errors: [{property, constraints}]`) que ya devuelve
+  class-validator, para que un consumidor de la API no note la diferencia.
+  - **`kind:"PERCENT"` → tope 500%.** Dentro del rango de "promoción agresiva pero con techo" que
+    pidió Ernest (200–500%); se eligió el extremo alto para no bloquear una campaña legítima futura
+    y seguir atrapando un error de una o más órdenes de magnitud (10.000%, 100.000% — el caso real
+    de la auditoría). Abierto a ajustar si Ernest prefiere un tope más conservador.
+  - **`kind:"FIXED"` → tope 1.000.000 créditos.** No es un límite de negocio (los packs de créditos
+    actuales van de 50 a 400) — es la misma valla de cordura que ya existe en
+    `UpdateCreditPackDto.creditAmount` (`@Max(1000000)`), reutilizada en vez de inventar un número
+    nuevo: ningún caso legítimo la alcanza, pero corta en seco un typo de varios ceros.
+  - **Verificado ejerciendo** (servidor real, límite exacto probado en ambos sentidos):
+    `PERCENT value:501` → `400`; `value:500` → `201` (aceptado); `value:100000` (repro original de
+    la auditoría) → `400`. `FIXED value:1000001` → `400`; `value:1000000` → `201`; `value:50` (caso
+    normal) → `201`. `PATCH` sobre una campaña `CREDIT_BONUS` existente con un valor por encima del
+    tope → `400`, campaña sin modificar. `ACTION_DISCOUNT.percent` se re-probó igual que antes
+    (tope 90% intacto, no tocado por este cambio).
+
+**Verificado**: batería de backend completa en verde (12 suites / 110 tests) antes y después del
+cambio — no existe test unitario dedicado a `CampaignsService`/`BannersService` (ninguno de los dos
+módulos lo tenía ya antes de esta ráfaga), así que la verificación fue en vivo contra el servidor
+real (`:3001` para la API, `:3000` para la home) en vez de una batería nueva — mismo método que el
+resto de esta ráfaga y que la propia auditoría previa. Typecheck de backend y de frontend limpios
+(los únicos errores de `tsc --noEmit` en `apps/web` son preexistentes en
+`AttributeSchemaEditor.childrenImpact.test.tsx`, sin relación con este cambio — confirmado con
+`git status` antes de tocar nada). Toda la BD de prueba (banners, campañas, usuario admin de
+verificación) se limpió al terminar.
+
+---
+
+### Panel de admin de campañas (CIERRA el hueco "API-only" — CERRADO)
+
+Hasta ahora `CampaignsService`/`/admin/campaigns` (H8 Bloque D fase 1/2) no tenía ninguna pantalla —
+decisión deliberada de scope en su momento ("no pedido un panel visual"), documentada arriba en la
+sección de fase 1. Se gestionaba solo por Swagger. Esta ráfaga añade el panel, **sin tocar backend**
+(el CRUD ya estaba completo y probado) — molde exacto de `admin/cupones` (la pantalla hermana más
+parecida: CRUD con tipo inmutable tras crear, ventana temporal, activar/desactivar sin `DELETE`).
+
+- **Ruta:** `/admin/campaigns` (nombre en inglés, sin traducir — mismo criterio que
+  `/admin/sponsored-ads`: coincide 1:1 con el path del backend y el nombre del modelo `Campaign`,
+  evita el acento de "campañas" en la URL). Añadida a `AdminNav.tsx` junto al resto de herramientas
+  promocionales (Cupones, Banners, Patrocinados).
+- **Ficheros nuevos:** `lib/api/admin-campaigns.ts` (cliente HTTP — mismo molde que
+  `admin-coupons.ts`: tipos, `getAdminCampaigns`/`createAdminCampaign`/`updateAdminCampaign`, y las
+  constantes de tope de front — `ACTION_DISCOUNT_PERCENT_MAX=90`,
+  `CREDIT_BONUS_PERCENT_MAX=500`, `CREDIT_BONUS_FIXED_MAX=1_000_000` — copiadas literalmente de
+  `CampaignsService`, backend sigue siendo quien de verdad protege); `admin/campaigns/page.tsx`
+  (listado, molde `cupones/page.tsx`: filtro activas/inactivas, tabla con columna "Efecto" — resumen
+  legible de `params`, p. ej. "-20% en bumps" o "Bonus +50%" —, activar/desactivar, sin `DELETE`);
+  `admin/campaigns/_components/CampaignFormDialog.tsx` (crear/editar, molde `CouponFormDialog.tsx`:
+  `type` fijo tras crear igual que `rewardType` en cupones, campos condicionales por tipo).
+- **Validación de front — espejo del backend, no una fuente nueva.** El formulario rechaza
+  `percent`/`value` fuera de rango ANTES de llamar a la API (mismos topes que
+  `CampaignsService.validateParams`/`ActionDiscountParamsDto`) — UX, no seguridad: el backend
+  revalida igual y sigue siendo quien de verdad puede rechazar. Fechas: `endsAt > startsAt`
+  comprobado en el front antes de enviar, igual que ya rechazaba el backend.
+- **`CAMPAIGN_OVERLAP` traducido, no reimplementado.** El front NO recalcula solapamiento (una sola
+  fuente: `CampaignsService.assertNoOverlap`) — captura el `code: 'CAMPAIGN_OVERLAP'` que ya
+  devuelve el backend (`ApiError.code`, mismo mecanismo que `COUPON_CODE_TAKEN` en
+  `CouponFormDialog`) y compone un mensaje en español con el tipo/acción que el admin tenía
+  seleccionados en ese momento ("Ya existe una campaña de descuento en bumps activa que se solapa en
+  esas fechas. Desactívala o ajusta las fechas de esta campaña.") en vez de dejar pasar el 400 crudo.
+- **Vista previa del efecto — en vivo, con los números reales del catálogo, no inventados.**
+  `lib/campaigns/effect-preview.ts` (nuevo, comentado explícitamente como espejo — igual que
+  `lib/blocks/validation.ts` para `safe-url`: "si cambia la fórmula en el backend, cambiar aquí
+  también") replica las dos fórmulas exactas de `BillingService`/`RedsysService`:
+  `floor(base × (100-percent) / 100)` para `ACTION_DISCOUNT`, `ceil(pack × value / 100)` (o `value`
+  tal cual si `kind=FIXED`) para `CREDIT_BONUS`. La `base` NO se reinventa: sale de `GET
+  /billing/catalog` (público, ya existente) — `bumpOriginalCreditCost ?? bumpCreditCost` para bump,
+  `originalCreditCost ?? creditCost` por duración para destacado, y los `creditAmount` reales de los
+  packs de créditos sembrados para el bonus — así que si cambia un `Setting` de coste o el catálogo
+  de packs, la vista previa lo seguiría automáticamente sin tocar código. Se recalcula en cada
+  cambio de `percent`/`value`/`kind`/`action` (`useMemo`), antes de guardar.
+- **Verificado ejerciendo — con navegador real (Playwright, script desechable, sin dejar rastro en
+  el repo), no solo `curl`:** login como ADMIN vía `/admin/login` → clic en "Campañas" desde el nav →
+  crear una campaña `ACTION_DISCOUNT` (BUMP, -20%, ventana ya vigente) desde el formulario → la vista
+  previa mostró "Bump: 4 créditos (antes 5)" ANTES de guardar → aparece en la lista con badge
+  "Vigente" → **se hizo un bump real contra un anuncio de prueba y costó exactamente 4 créditos** —
+  la previsualización y el cobro real coinciden byte a byte. Editar reabre el diálogo con los valores
+  correctos y `type` bloqueado. Crear una segunda campaña `ACTION_DISCOUNT`/BUMP solapada en fechas →
+  el mensaje de `CAMPAIGN_OVERLAP` se mostró traducido, no un 400 crudo. Desactivar/activar desde la
+  lista cambia el badge al instante. Crear una `CREDIT_BONUS` con `value=600` (`kind=PERCENT`,
+  tope 500) → rechazado por el FRONT antes de disparar ninguna petición; con `value=50` la vista
+  previa mostró "Pack Básico (50 créditos) → recibirá 75 créditos" (entre otros packs) → **se hizo un
+  checkout real de ese pack y `Transaction.campaignBonusAmount` quedó en 25** (50 base + 25 = 75,
+  igual que la previsualización). Typecheck y `next lint` limpios (mismo resultado de `tsc` que la
+  entrada anterior: solo el error preexistente y no relacionado en
+  `AttributeSchemaEditor.childrenImpact.test.tsx`); `jest` de frontend en verde (20 suites / 185
+  tests, sin regresiones). Toda la BD de prueba (anuncio, wallet, transacción, campañas, usuario
+  admin de verificación) y el script de Playwright desechable se limpiaron al terminar — no queda
+  ningún fichero temporal en el repo.
+- **Backend intacto:** cero cambios en `apps/api` en esta ráfaga — el CRUD, la validación de topes y
+  `assertNoOverlap` son exactamente los que ya se habían verificado y documentado antes. Solo
+  frontend consumiendo una API que ya funcionaba.
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.

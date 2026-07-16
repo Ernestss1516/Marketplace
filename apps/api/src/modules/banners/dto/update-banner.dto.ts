@@ -10,6 +10,7 @@ import {
   MaxLength,
 } from 'class-validator';
 import { BannerPlacement, BannerVariant } from '@prisma/client';
+import { IsSafeContentUrl } from '../../../common/validators/safe-url';
 
 /**
  * A diferencia de UpdateCouponDto, TODO es editable — un banner no se
@@ -28,8 +29,11 @@ export class UpdateBannerDto {
   @IsNotEmpty()
   text?: string;
 
+  // Ruta relativa ("/...") o URL absoluta http/https — nunca javascript:/data:.
+  // Mismo validador que Footer (url EXTERNAL) y los bloques cta/hub del blog.
+  // null explícito sigue permitido (limpia el link) — IsOptional lo salta.
   @IsOptional()
-  @IsString()
+  @IsSafeContentUrl()
   linkUrl?: string | null;
 
   @IsOptional()

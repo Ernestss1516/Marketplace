@@ -15,6 +15,7 @@ const NAV_ITEMS: { href: string; label: string; roles: string[] }[] = [
   { href: '/admin/blog',        label: 'Blog',         roles: ['ADMIN', 'MODERATOR', 'EDITOR'] },
   { href: '/admin/paginas',     label: 'Páginas',      roles: ['ADMIN', 'MODERATOR', 'EDITOR'] },
   { href: '/admin/footer',      label: 'Footer',       roles: ['ADMIN'] },
+  { href: '/admin/campaigns',   label: 'Campañas',     roles: ['ADMIN'] },
   { href: '/admin/cupones',     label: 'Cupones',      roles: ['ADMIN'] },
   { href: '/admin/banners',     label: 'Banners',      roles: ['ADMIN'] },
   { href: '/admin/sponsored-ads', label: 'Patrocinados', roles: ['ADMIN'] },
