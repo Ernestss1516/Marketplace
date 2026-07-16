@@ -21,13 +21,14 @@ import {
   PHONE_REVEAL_WINDOW_SECONDS,
 } from './listing-phone.constants';
 import { EntitlementType, Prisma } from '@prisma/client';
-import type { Listing, ListingStatus, ListingType, PriceType } from '@prisma/client';
+import type { Deal, Listing, ListingStatus, ListingType, PriceType } from '@prisma/client';
 import { QUEUE_INDEXING } from '../../infra/queue/queue.constants';
 import { isP2002 } from '../../common/prisma/is-p2002';
 import { ExpirationService } from '../expiration/expiration.service';
 import { EntitlementService } from '../billing/entitlement.service';
 import { BadWordService } from '../moderation/bad-word.service';
 import { ListingActivationService } from '../listing-activation/listing-activation.service';
+import { MessagingService } from '../messaging/messaging.service';
 import {
   AttributeField,
   resolveEffectiveSchema,
@@ -40,6 +41,12 @@ import type { ListingTypePolicy } from '@prisma/client';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { UpdateListingDto } from './dto/update-listing.dto';
 import { MyListingsQueryDto } from './dto/my-listings-query.dto';
+import { CloseDealDto } from './dto/close-deal.dto';
+
+/** Ventana para deshacer un Deal — mismo criterio que el plazo de edición/borrado de Review. */
+const DEAL_UNDO_WINDOW_MS = 72 * 60 * 60 * 1000;
+
+const SELECT_CONTACT = { id: true, name: true, slug: true, avatarUrl: true } as const;
 
 /** Cap on slug-collision retries — high enough that exhausting it means something is very wrong, not bad luck. */
 const MAX_SLUG_ATTEMPTS = 5;
@@ -110,6 +117,7 @@ export class ListingsService {
     private readonly badWordService: BadWordService,
     private readonly entitlementService: EntitlementService,
     private readonly activation: ListingActivationService,
+    private readonly messaging: MessagingService,
   ) {}
 
   async create(sellerId: string, dto: CreateListingDto): Promise<Listing> {
@@ -355,9 +363,9 @@ export class ListingsService {
     });
 
     // Not the generic wrapper: a renewed listing reappears in the marketplace
-    // exactly like an approved/restored one, so it must also feed the alert-
-    // matching hook (dedup in AlertMatch prevents re-notifying alerts that
-    // already matched this listing — see B3).
+    // exactly like an approved/restored/reactivated one, so it must also feed
+    // the alert-matching hook (dedup in AlertMatch prevents re-notifying
+    // alerts that already matched this listing — see B3).
     await this.activation.listingBecameActive(listing.slug, id);
     return listing;
   }
@@ -377,14 +385,192 @@ export class ListingsService {
     return listing;
   }
 
-  async markAsSold(id: string, userId: string): Promise<Listing> {
+  /**
+   * Ciclo de vida RÁFAGA 2 — pausa temporal, reactivable, ambos tipos. Solo
+   * desde ACTIVE (ni RESERVED — negociación abierta, ni DRAFT/PENDING_REVIEW —
+   * nunca estuvo publicado). Sin comprobación de cuota: salir de ACTIVE
+   * siempre libera, nunca hay que bloquearlo. El cron de expiración
+   * (`ExpirationService.expireListings`) solo consulta status=ACTIVE, así que
+   * un PAUSED queda invisible para él por construcción — no hace falta
+   * "congelar" expiresAt aquí, solo recalcularlo al reactivar (ver abajo).
+   */
+  async pause(id: string, userId: string): Promise<Listing> {
     const existing = await this.assertOwnership(id, userId);
+    if (existing.status !== 'ACTIVE') {
+      throw new BadRequestException('Solo se pueden pausar anuncios en estado ACTIVE');
+    }
+
     const listing = await this.prisma.listing.update({
       where: { id },
-      data: { status: 'SOLD' },
+      data: { status: 'PAUSED' },
     });
+
     await this.invalidateAndReindex(existing.slug, id);
     return listing;
+  }
+
+  /**
+   * Ciclo de vida RÁFAGA 2 — reactiva un anuncio pausado. Recalcula expiresAt
+   * desde ahora (mismo motivo que renew(): un pausado "viejo" podría tener un
+   * expiresAt ya pasado y el cron lo caducaría en <24h) y respeta la cuota de
+   * activos — si se llenó mientras estaba pausado, falla igual que
+   * publish()/renew(). Alimenta el matching de alertas: un anuncio reactivado
+   * reaparece en el marketplace igual que uno recién publicado/renovado.
+   */
+  async reactivate(id: string, userId: string): Promise<Listing> {
+    const existing = await this.assertOwnership(id, userId);
+    if (existing.status !== 'PAUSED') {
+      throw new BadRequestException('Solo se pueden reactivar anuncios en estado PAUSED');
+    }
+
+    await this.checkActiveListingLimit(userId);
+
+    const now = new Date();
+    const listing = await this.prisma.listing.update({
+      where: { id },
+      data: {
+        status: 'ACTIVE',
+        expiresAt: ExpirationService.expiresAt(now),
+      },
+    });
+
+    await this.activation.listingBecameActive(listing.slug, id);
+    return listing;
+  }
+
+  /**
+   * Ciclo de vida RÁFAGA 2 — archiva permanentemente, IRREVERSIBLE, ambos
+   * tipos. Desde cualquier estado donde hoy la única salida era el borrado
+   * físico (remove()): ACTIVE, PAUSED, SOLD, EXPIRED, REJECTED. Excluye
+   * DRAFT/PENDING_REVIEW (nada publicado aún) y RESERVED (negociación
+   * abierta — archivar dejaría un trato colgado sin resolver). A diferencia
+   * de remove(), NO borra conversaciones/tratos/valoraciones — esas
+   * relaciones sobreviven tal cual (Conversation/Deal/Review no dependen del
+   * status del Listing, solo de su existencia).
+   */
+  private static readonly ARCHIVABLE_STATUSES: ListingStatus[] = [
+    'ACTIVE',
+    'PAUSED',
+    'SOLD',
+    'EXPIRED',
+    'REJECTED',
+  ];
+
+  async archive(id: string, userId: string): Promise<Listing> {
+    const existing = await this.assertOwnership(id, userId);
+    if (!ListingsService.ARCHIVABLE_STATUSES.includes(existing.status)) {
+      throw new BadRequestException(
+        'Solo se pueden archivar anuncios en estado ACTIVE, PAUSED, SOLD, EXPIRED o REJECTED',
+      );
+    }
+
+    const listing = await this.prisma.listing.update({
+      where: { id },
+      data: { status: 'ARCHIVED' },
+    });
+
+    await this.invalidateAndReindex(existing.slug, id);
+    return listing;
+  }
+
+  /**
+   * Ciclo de vida RÁFAGA 1 — cierra un trato, ramificado por ListingType.
+   * PRODUCTO: se agota (→ SOLD), un único Deal. SERVICIO: sigue ACTIVE (nunca
+   * SOLD por esto — también si venía de RESERVED, que no tiene un significado
+   * claro de "no acepto más clientes" para un servicio), puede repetirse.
+   * Sustituye a markAsSold(): la guarda de estado (antes ausente — un DRAFT
+   * podía marcarse SOLD directo) aplica igual a ambos tipos.
+   */
+  async closeDeal(id: string, sellerId: string, dto: CloseDealDto): Promise<{ listing: Listing; deal: Deal | null }> {
+    const existing = await this.assertOwnership(id, sellerId);
+    if (existing.status !== 'ACTIVE' && existing.status !== 'RESERVED') {
+      throw new BadRequestException('Solo se puede cerrar un trato desde un anuncio ACTIVE o RESERVED');
+    }
+    if (existing.type === 'SERVICE' && !dto.buyerId) {
+      throw new BadRequestException('Un servicio necesita un cliente registrado para cerrar un trato');
+    }
+    if (dto.buyerId === sellerId) {
+      throw new BadRequestException('No puedes registrar un trato contigo mismo');
+    }
+
+    let deal: Deal | null = null;
+    if (dto.buyerId) {
+      const buyer = await this.prisma.user.findUnique({ where: { id: dto.buyerId }, select: { id: true } });
+      if (!buyer) throw new NotFoundException('Comprador no encontrado');
+
+      // El backend enlaza la conversación por sí mismo a partir de los hechos —
+      // NUNCA acepta un conversationId del cliente. Aceptar uno enviado por el
+      // vendedor permitiría fabricar un Deal con apariencia de "verificable"
+      // adjuntando una conversación arbitraria, justo el hueco que Deal existe
+      // para cerrar (ver Deal.conversationId en schema.prisma).
+      const conversation = await this.prisma.conversation.findFirst({
+        where: { listingId: id, buyerId: dto.buyerId, sellerId },
+        select: { id: true },
+      });
+
+      deal = await this.prisma.deal.create({
+        data: {
+          listingId: id,
+          listingTitle: existing.title,
+          sellerId,
+          buyerId: dto.buyerId,
+          conversationId: conversation?.id ?? null,
+        },
+      });
+    }
+
+    const newStatus: ListingStatus = existing.type === 'PRODUCT' ? 'SOLD' : 'ACTIVE';
+    const listing = await this.prisma.listing.update({
+      where: { id },
+      data: { status: newStatus },
+    });
+    await this.invalidateAndReindex(existing.slug, id);
+    return { listing, deal };
+  }
+
+  /**
+   * Deshace un Deal dentro de la ventana de 72h (mismo plazo que editar/borrar
+   * una Review). Para PRODUCTO revierte el status a ACTIVE en la misma
+   * transacción — si no, el anuncio quedaría fuera del catálogo sin ningún
+   * Deal que lo explique. Para SERVICIO solo borra el Deal (el status nunca
+   * cambió al cerrarlo).
+   */
+  async undoDeal(id: string, dealId: string, sellerId: string): Promise<Listing> {
+    const existing = await this.assertOwnership(id, sellerId);
+    const deal = await this.prisma.deal.findUnique({ where: { id: dealId } });
+    if (!deal || deal.listingId !== id || deal.sellerId !== sellerId) {
+      throw new NotFoundException('Trato no encontrado');
+    }
+    if (Date.now() > deal.createdAt.getTime() + DEAL_UNDO_WINDOW_MS) {
+      throw new ForbiddenException('El plazo de 72 horas para deshacer este trato ha expirado');
+    }
+
+    const [, listing] = await this.prisma.$transaction([
+      this.prisma.deal.delete({ where: { id: dealId } }),
+      this.prisma.listing.update({
+        where: { id },
+        data: existing.type === 'PRODUCT' && existing.status === 'SOLD' ? { status: 'ACTIVE' } : {},
+      }),
+    ]);
+
+    await this.invalidateAndReindex(existing.slug, id);
+    return listing;
+  }
+
+  /** Tratos cerrados sobre este anuncio — p. ej. para que un servicio muestre "N clientes atendidos". */
+  async getDeals(id: string, sellerId: string) {
+    await this.assertOwnership(id, sellerId);
+    return this.prisma.deal.findMany({
+      where: { listingId: id },
+      orderBy: { createdAt: 'desc' },
+      include: { buyer: { select: SELECT_CONTACT } },
+    });
+  }
+
+  /** Contactos de este anuncio (quick-pick del selector de comprador/cliente). */
+  async getContacts(id: string, sellerId: string) {
+    await this.assertOwnership(id, sellerId);
+    return this.messaging.findContactsForListing(id, sellerId);
   }
 
   async findMineById(id: string, userId: string) {
@@ -548,7 +734,11 @@ export class ListingsService {
     const { status, page = 1, perPage = 24 } = query;
     const where = {
       sellerId: userId,
-      ...(status !== undefined ? { status } : {}),
+      // Ciclo de vida RÁFAGA 2 — "todos" (sin filtro explícito) significa "todo
+      // menos archivado": un anuncio ARCHIVED ya está cerrado para el vendedor
+      // y no debería seguir ensuciando la vista por defecto de /mis-anuncios.
+      // Solo aparece cuando se pide explícitamente status=ARCHIVED.
+      ...(status !== undefined ? { status } : { status: { not: 'ARCHIVED' as const } }),
     };
     const [rows, total] = await this.prisma.$transaction([
       this.prisma.listing.findMany({

@@ -281,9 +281,9 @@ describe('Alert matching (e2e) — B3', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // renew() dispara matching (con dedup); reserve/sold NO disparan
+  // renew() dispara matching (con dedup); reserve/closeDeal NO disparan
   // ═══════════════════════════════════════════════════════════════════════════
-  describe('renew() vs reserve()/markAsSold()', () => {
+  describe('renew() vs reserve()/closeDeal()', () => {
     let alertOld: { id: string; token: string };
     let alertNew: { id: string; token: string };
     let alertOldId: string;
@@ -325,7 +325,7 @@ describe('Alert matching (e2e) — B3', () => {
       expect(count).toBe(1);
     });
 
-    it('reserve() y markAsSold() NO disparan matching (ninguna alerta nueva se notifica)', async () => {
+    it('reserve() y closeDeal() NO disparan matching (ninguna alerta nueva se notifica)', async () => {
       const listing2Id = await createListing({ title: 'iPhone Reserve Sold' });
       await publish(listing2Id);
       await waitForIndex(meili, process.env.MEILI_INDEX_NAME!, listing2Id);
@@ -339,11 +339,12 @@ describe('Alert matching (e2e) — B3', () => {
         .set('Authorization', `Bearer ${sellerToken}`)
         .expect(200);
       await request(app.getHttpServer())
-        .post(`/api/listings/${listing2Id}/sold`)
+        .post(`/api/listings/${listing2Id}/deals`)
         .set('Authorization', `Bearer ${sellerToken}`)
-        .expect(200);
+        .send({})
+        .expect(201);
 
-      // No 'match-alerts' job is ever enqueued for reserve/sold (triggerAlertMatch
+      // No 'match-alerts' job is ever enqueued for reserve/deals (triggerAlertMatch
       // stays false) — wait past normal processing time, then assert absence.
       await new Promise((r) => setTimeout(r, 2_000));
       expect(await hasMatch(lateAlertId, listing2Id)).toBe(false);

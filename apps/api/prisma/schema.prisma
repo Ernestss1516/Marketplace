@@ -58,6 +58,17 @@ enum ListingStatus {
   SOLD // Vendido
   EXPIRED // Caducado
   REJECTED // Rechazado por moderación
+  /// Ciclo de vida RÁFAGA 2 — temporal, reactivable (PAUSED → ACTIVE), ambos
+  /// tipos. Ni cuenta para la cuota de activos ni se indexa (ambos ya excluyen
+  /// por construcción cualquier status != ACTIVE, sin cambios ahí). El cron de
+  /// expiración tampoco la toca (solo consulta status=ACTIVE) — no hace falta
+  /// congelar expiresAt; se recalcula al reactivar (ver reactivate()).
+  PAUSED
+  /// Ciclo de vida RÁFAGA 2 — permanente, IRREVERSIBLE, ambos tipos. Ninguna
+  /// transición sale de este estado; remove() (borrado físico) sigue siendo
+  /// la única vía posterior. A diferencia de remove(), no destruye
+  /// conversaciones/tratos/valoraciones — es la alternativa no destructiva.
+  ARCHIVED
 }
 
 /// Un anuncio puede ofrecer un producto o un servicio.
@@ -268,6 +279,8 @@ model User {
   messages            Message[]
   reviewsAuthored     Review[]             @relation("ReviewAuthor")
   reviewsReceived     Review[]             @relation("ReviewTarget")
+  dealsAsSeller       Deal[]               @relation("DealSeller")
+  dealsAsBuyer        Deal[]               @relation("DealBuyer")
   reportsMade         Report[]             @relation("Reporter")
   reportsReceived     Report[]             @relation("ReportedUser")
   reportsResolved     Report[]             @relation("ReportResolver")
@@ -410,6 +423,7 @@ model Listing {
   images        ListingImage[]
   favorites     Favorite[]
   conversations Conversation[]
+  deals         Deal[]
   reports       Report[]
   reviews       Review[]
   entitlements  Entitlement[]
@@ -582,6 +596,7 @@ model Conversation {
   createdAt     DateTime @default(now())
 
   messages Message[]
+  deals    Deal[]
 
   // Una sola conversación por (anuncio, comprador).
   @@unique([listingId, buyerId])
@@ -600,6 +615,56 @@ model Message {
   createdAt      DateTime     @default(now())
 
   @@index([conversationId, createdAt])
+}
+
+// ============================================================================
+//  TRATOS (ciclo de vida — RÁFAGA 1: cierre de venta/servicio por tipo)
+// ============================================================================
+
+/// Un trato cerrado sobre un anuncio: quién fue el comprador/cliente. No existía
+/// ningún registro de esto antes de esta ráfaga (SOLD no llevaba comprador).
+/// NO reutiliza `Transaction` (esa es solo facturación de la plataforma — Pro,
+/// destacados — nunca dinero entre particulares, que sigue fuera de la app).
+/// PRODUCTO genera un único Deal y agota el anuncio (→ SOLD); SERVICIO genera
+/// N Deals (uno por cliente) y el anuncio sigue ACTIVE — ver `closeDeal()` en
+/// ListingsService.
+model Deal {
+  id String @id @default(cuid())
+
+  // Nullable + SetNull, mismo molde que Review.listingId: un Deal es evidencia
+  // de reputación (pensado para que la ráfaga 2 lo consulte igual que hoy
+  // consulta Conversation) y no debe desaparecer si el anuncio se borra
+  // después. listingTitle conserva el contexto, igual que Review.listingTitle.
+  listingId    String?
+  listing      Listing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  listingTitle String
+
+  // Denormalizados — mismo criterio que Conversation.sellerId (derivable de
+  // listing.sellerId y aun así guardado aparte): evita joins para "mis tratos
+  // como vendedor" y es el shape que la ráfaga 2 necesita para sustituir la
+  // búsqueda por Conversation en reviews.service.ts sin cambiar su forma.
+  sellerId String
+  seller   User   @relation("DealSeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  buyerId  String
+  buyer    User   @relation("DealBuyer", fields: [buyerId], references: [id], onDelete: Cascade)
+
+  /// Enlazada por el SERVIDOR buscando una Conversation real para
+  /// (listingId, buyerId) — NUNCA aceptada del cliente. Null si el trato se
+  /// cerró sin conversación previa por la plataforma (comprador elegido por
+  /// búsqueda libre: por teléfono, en persona...). Distingue "interacción
+  /// verificable" de "afirmado por el vendedor" — relevante para cuando la
+  /// ráfaga 2 decida si valorar exige un Deal.
+  conversationId String?
+  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  // Sin unique constraint: un mismo cliente puede repetir trato con el mismo
+  // servicio (a diferencia de Review, que sí es único por [author,target,listing]).
+  @@index([listingId])
+  @@index([sellerId])
+  @@index([buyerId])
+  @@index([conversationId])
 }
 
 // ============================================================================

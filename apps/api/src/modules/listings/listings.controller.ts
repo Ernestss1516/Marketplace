@@ -23,6 +23,7 @@ import { BillingService } from '../billing/billing.service';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { UpdateListingDto } from './dto/update-listing.dto';
 import { RecentListingsQueryDto } from './dto/recent-listings-query.dto';
+import { CloseDealDto } from './dto/close-deal.dto';
 
 @ApiTags('Listings')
 @ApiBearerAuth('access-token')
@@ -64,11 +65,66 @@ export class ListingsController {
     return this.listingsService.reserve(id, user.userId);
   }
 
-  @Post(':id/sold')
+  // ---------------------------------------------------------------------------
+  // Ciclo de vida RÁFAGA 2 — pausar (temporal, reactivable) y archivar
+  // (permanente, irreversible), alternativa no destructiva a remove().
+  // ---------------------------------------------------------------------------
+
+  @Post(':id/pause')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
-  sold(@Param('id') id: string, @CurrentUser() user: JwtUser) {
-    return this.listingsService.markAsSold(id, user.userId);
+  pause(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+    return this.listingsService.pause(id, user.userId);
+  }
+
+  @Post(':id/reactivate')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  reactivate(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+    return this.listingsService.reactivate(id, user.userId);
+  }
+
+  @Post(':id/archive')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  archive(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+    return this.listingsService.archive(id, user.userId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Ciclo de vida RÁFAGA 1 — cerrar/deshacer tratos (ramificado por tipo en el
+  // servicio). Sustituye a POST /:id/sold — una acción, un camino.
+  // ---------------------------------------------------------------------------
+
+  @Post(':id/deals')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.CREATED)
+  closeDeal(@Param('id') id: string, @CurrentUser() user: JwtUser, @Body() dto: CloseDealDto) {
+    return this.listingsService.closeDeal(id, user.userId, dto);
+  }
+
+  @Get(':id/deals')
+  @UseGuards(JwtAuthGuard)
+  getDeals(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+    return this.listingsService.getDeals(id, user.userId);
+  }
+
+  @Delete(':id/deals/:dealId')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  undoDeal(
+    @Param('id') id: string,
+    @Param('dealId') dealId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.listingsService.undoDeal(id, dealId, user.userId);
+  }
+
+  // Contactos del anuncio — quick-pick del selector de comprador/cliente.
+  @Get(':id/contacts')
+  @UseGuards(JwtAuthGuard)
+  getContacts(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+    return this.listingsService.getContacts(id, user.userId);
   }
 
   @Post(':id/renew')

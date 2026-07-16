@@ -67,4 +67,24 @@ export class UsersService {
     const isPro = await this.entitlements.isProActive(id);
     return { ...rest, memberSince: createdAt, isPro };
   }
+
+  /**
+   * Ciclo de vida RÁFAGA 1 — buscador de usuarios para elegir comprador/cliente
+   * al cerrar un Deal (ver ListingsService.closeDeal). Solo devuelve datos ya
+   * públicos (mismos campos que un perfil público) — nunca email/teléfono.
+   * Acotado a 10 resultados; el rate limit vive en el controller.
+   */
+  async search(query: string, excludeUserId: string) {
+    return this.prisma.user.findMany({
+      where: {
+        id: { not: excludeUserId },
+        OR: [
+          { name: { contains: query, mode: 'insensitive' } },
+          { slug: { contains: query, mode: 'insensitive' } },
+        ],
+      },
+      select: { id: true, name: true, slug: true, avatarUrl: true },
+      take: 10,
+    });
+  }
 }

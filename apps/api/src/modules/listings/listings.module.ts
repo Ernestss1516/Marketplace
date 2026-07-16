@@ -4,6 +4,7 @@ import { QUEUE_INDEXING, retryQueue } from '../../infra/queue/queue.constants';
 import { BillingModule } from '../billing/billing.module';
 import { ModerationModule } from '../moderation/moderation.module';
 import { ListingActivationModule } from '../listing-activation/listing-activation.module';
+import { MessagingModule } from '../messaging/messaging.module';
 import { ListingsController } from './listings.controller';
 import { ListingsService } from './listings.service';
 
@@ -13,6 +14,7 @@ import { ListingsService } from './listings.service';
     BillingModule,
     ModerationModule,
     ListingActivationModule,
+    MessagingModule,
   ],
   controllers: [ListingsController],
   providers: [ListingsService],

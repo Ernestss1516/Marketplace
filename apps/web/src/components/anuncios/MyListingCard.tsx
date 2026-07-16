@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Loader2, Pencil, Trash2, CheckCircle, Lock, Send, RotateCcw, Star, TrendingUp, Eye, Heart } from 'lucide-react';
+import { Loader2, Pencil, Trash2, CheckCircle, Lock, Send, RotateCcw, Star, TrendingUp, Eye, Heart, UserPlus, PauseCircle, PlayCircle, Archive } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -21,15 +21,18 @@ import {
 import {
   publishListing,
   reserveListing,
-  markListingSold,
   deleteListing,
   renewListing,
+  pauseListing,
+  reactivateListing,
+  archiveListing,
 } from '@/lib/api/anuncios';
 import { bumpListing } from '@/lib/api/billing';
 import { toUserMessage, isCreditError, isCooldownError, formatRetryAfter, toBumpMessage } from '@/lib/api/client';
 import { useApiAction } from '@/lib/api/use-api-action';
 import { useRequireAuth } from '@/hooks/use-require-auth';
 import { DestacadoDialog } from './DestacadoDialog';
+import { CloseDealDialog } from './CloseDealDialog';
 import type { BumpPricing, ListingSummary, PriceType } from '@/types';
 
 const STATUS_LABELS: Record<string, string> = {
@@ -40,6 +43,8 @@ const STATUS_LABELS: Record<string, string> = {
   EXPIRED: 'Caducado',
   PENDING_REVIEW: 'En revisión',
   REJECTED: 'Rechazado',
+  PAUSED: 'Pausado',
+  ARCHIVED: 'Archivado',
 };
 
 const STATUS_VARIANTS: Record<
@@ -53,7 +58,12 @@ const STATUS_VARIANTS: Record<
   EXPIRED: 'outline',
   PENDING_REVIEW: 'secondary',
   REJECTED: 'destructive',
+  PAUSED: 'secondary',
+  ARCHIVED: 'outline',
 };
+
+/** Ciclo de vida RÁFAGA 2 — estados desde los que se puede archivar (irreversible). */
+const ARCHIVABLE_STATUSES = ['ACTIVE', 'PAUSED', 'SOLD', 'EXPIRED', 'REJECTED'];
 
 function formatPrice(price: number, currency: string, priceType: PriceType) {
   if (priceType === 'FREE') return 'Gratis';
@@ -76,6 +86,7 @@ export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) 
   const [bumpError, setBumpError] = useState<React.ReactNode | null>(null);
   const [bumpConfirmation, setBumpConfirmation] = useState<string | null>(null);
   const [destacadoOpen, setDestacadoOpen] = useState(false);
+  const [dealDialogOpen, setDealDialogOpen] = useState(false);
 
   const location = [listing.city, listing.province].filter(Boolean).join(', ');
   const editHref = `/mis-anuncios/${listing.id}/editar`;
@@ -187,6 +198,16 @@ export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) 
         />
       )}
 
+      {dealDialogOpen && listing.type && (
+        <CloseDealDialog
+          listing={{ id: listing.id, type: listing.type }}
+          token={token}
+          open={dealDialogOpen}
+          onOpenChange={setDealDialogOpen}
+          onSuccess={onAction}
+        />
+      )}
+
       {/* Actions */}
       <CardContent className="border-t px-4 pb-4 pt-3">
         {error && <p className="mb-2 text-xs text-destructive">{error}</p>}
@@ -198,8 +219,10 @@ export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) 
         )}
 
         <div className="flex flex-wrap gap-2">
-          {/* Editar — available for DRAFT, ACTIVE, RESERVED */}
-          {['DRAFT', 'ACTIVE', 'RESERVED'].includes(listing.status) && (
+          {/* Editar — available for DRAFT, ACTIVE, RESERVED, PAUSED (ciclo de
+              vida RÁFAGA 2: nada impide editar algo solo temporalmente fuera
+              del catálogo) */}
+          {['DRAFT', 'ACTIVE', 'RESERVED', 'PAUSED'].includes(listing.status) && (
             <Button asChild variant="outline" size="sm">
               {/* prefetch={false}: misma mitigación que ListingCard.tsx — parrilla de
                   varias tarjetas, mismo patrón dinámico /mis-anuncios/[id]/editar. */}
@@ -243,20 +266,23 @@ export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) 
             </Button>
           )}
 
-          {/* Marcar vendido — ACTIVE or RESERVED */}
-          {['ACTIVE', 'RESERVED'].includes(listing.status) && (
+          {/* Cerrar trato — ACTIVE or RESERVED. Ramificado por tipo (ciclo de
+              vida RÁFAGA 1): PRODUCTO "Marcar vendido" (se agota), SERVICIO
+              "Registrar cliente" (sigue publicado, admite repetirse) — el
+              copy deja claro que no se despublica. */}
+          {['ACTIVE', 'RESERVED'].includes(listing.status) && listing.type && (
             <Button
               variant="outline"
               size="sm"
               disabled={busy !== null}
-              onClick={() => runAction('sold', () => markListingSold(listing.id, token))}
+              onClick={() => setDealDialogOpen(true)}
             >
-              {busy === 'sold' ? (
-                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              {listing.type === 'SERVICE' ? (
+                <UserPlus className="mr-1.5 h-3.5 w-3.5" />
               ) : (
                 <CheckCircle className="mr-1.5 h-3.5 w-3.5" />
               )}
-              Marcar vendido
+              {listing.type === 'SERVICE' ? 'Registrar cliente' : 'Marcar vendido'}
             </Button>
           )}
 
@@ -274,6 +300,40 @@ export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) 
                 <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
               )}
               Renovar
+            </Button>
+          )}
+
+          {/* Pausar — ciclo de vida RÁFAGA 2: temporal, reactivable, solo ACTIVE */}
+          {listing.status === 'ACTIVE' && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy !== null}
+              onClick={() => runAction('pause', () => pauseListing(listing.id, token))}
+            >
+              {busy === 'pause' ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <PauseCircle className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              Pausar
+            </Button>
+          )}
+
+          {/* Reactivar — solo PAUSED */}
+          {listing.status === 'PAUSED' && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy !== null}
+              onClick={() => runAction('reactivate', () => reactivateListing(listing.id, token))}
+            >
+              {busy === 'reactivate' ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <PlayCircle className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              Reactivar
             </Button>
           )}
 
@@ -391,6 +451,41 @@ export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) 
                 </>
               )}
             </Button>
+          )}
+
+          {/* Archivar — ciclo de vida RÁFAGA 2: permanente, IRREVERSIBLE, alternativa
+              no destructiva a Eliminar. Pide confirmación igual que Eliminar. */}
+          {ARCHIVABLE_STATUSES.includes(listing.status) && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="outline" size="sm" disabled={busy !== null}>
+                  {busy === 'archive' ? (
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Archive className="mr-1.5 h-3.5 w-3.5" />
+                  )}
+                  Archivar
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>¿Archivar este anuncio?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    «{listing.title}» dejará de estar publicado de forma permanente. A diferencia
+                    de eliminar, conserva las conversaciones, tratos y valoraciones — pero esta
+                    acción no se puede deshacer.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() => runAction('archive', () => archiveListing(listing.id, token))}
+                  >
+                    Archivar
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           )}
 
           {/* Eliminar — always available */}

@@ -8,6 +8,10 @@ import type {
   CreateListingPayload,
   UpdateListingPayload,
   CreatedListing,
+  CloseDealResult,
+  Deal,
+  ListingContact,
+  ListingStatus,
 } from '@/types';
 import { apiFetch } from './client';
 
@@ -128,8 +132,58 @@ export function reserveListing(id: string, token: string): Promise<{ id: string;
   return apiFetch(`/listings/${id}/reserve`, { method: 'POST', token });
 }
 
-export function markListingSold(id: string, token: string): Promise<{ id: string; status: 'SOLD' }> {
-  return apiFetch(`/listings/${id}/sold`, { method: 'POST', token });
+/** Ciclo de vida RÁFAGA 2 — pausa temporal (reactivable), ambos tipos. No cuenta para la cuota ni se indexa. */
+export function pauseListing(id: string, token: string): Promise<{ id: string; status: 'PAUSED' }> {
+  return apiFetch(`/listings/${id}/pause`, { method: 'POST', token });
+}
+
+/** Reactiva un anuncio pausado — recalcula expiresAt, respeta la cuota de activos. */
+export function reactivateListing(
+  id: string,
+  token: string,
+): Promise<{ id: string; status: 'ACTIVE'; expiresAt: string }> {
+  return apiFetch(`/listings/${id}/reactivate`, { method: 'POST', token });
+}
+
+/** Archiva permanentemente (irreversible) — alternativa no destructiva a deleteListing(). */
+export function archiveListing(id: string, token: string): Promise<{ id: string; status: 'ARCHIVED' }> {
+  return apiFetch(`/listings/${id}/archive`, { method: 'POST', token });
+}
+
+/**
+ * Ciclo de vida RÁFAGA 1 — cierra un trato, ramificado por tipo en el backend:
+ * PRODUCTO se agota (→ SOLD); SERVICIO sigue ACTIVE y admite repetirse.
+ * buyerId omitido = fallback "sin comprador registrado" (solo válido en
+ * PRODUCTO — el backend rechaza un SERVICIO sin buyerId).
+ */
+export function closeDeal(
+  id: string,
+  buyerId: string | undefined,
+  token: string,
+): Promise<CloseDealResult> {
+  return apiFetch<CloseDealResult>(`/listings/${id}/deals`, {
+    method: 'POST',
+    body: JSON.stringify(buyerId ? { buyerId } : {}),
+    token,
+  });
+}
+
+/** Deshace un Deal dentro de la ventana de 72h — revierte a ACTIVE si era un PRODUCTO vendido. */
+export function undoDeal(
+  id: string,
+  dealId: string,
+  token: string,
+): Promise<{ id: string; status: ListingStatus }> {
+  return apiFetch(`/listings/${id}/deals/${dealId}`, { method: 'DELETE', token });
+}
+
+export function getListingDeals(id: string, token: string): Promise<Deal[]> {
+  return apiFetch<Deal[]>(`/listings/${id}/deals`, { token });
+}
+
+/** Contactos del anuncio (quick-pick del selector de comprador/cliente). */
+export function getListingContacts(id: string, token: string): Promise<ListingContact[]> {
+  return apiFetch<ListingContact[]>(`/listings/${id}/contacts`, { token });
 }
 
 export function deleteListing(id: string, token: string): Promise<void> {

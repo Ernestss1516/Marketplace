@@ -14,6 +14,9 @@ describe('Listings (e2e)', () => {
 
   let sellerToken: string;
   let buyerToken: string;
+  let sellerUserId: string;
+  let buyerUserId: string;
+  let secondBuyerUserId: string;
   let categoryId: string;
 
   /**
@@ -70,15 +73,33 @@ describe('Listings (e2e)', () => {
       },
     });
 
+    // Segundo comprador — para los tests de Deal (SERVICIO con varios clientes).
+    await prisma.user.create({
+      data: {
+        email: 'buyer2@example.com',
+        name: 'Buyer Two Test',
+        slug: 'buyer-two-test',
+        passwordHash: await bcrypt.hash('Test1234!', 4),
+        emailVerified: true,
+      },
+    });
+
     const sellerLoginRes = await request(app.getHttpServer())
       .post('/api/auth/login')
       .send({ email: 'seller@example.com', password: 'Test1234!' });
     sellerToken = sellerLoginRes.body.accessToken as string;
+    sellerUserId = sellerLoginRes.body.user.id as string;
 
     const buyerLoginRes = await request(app.getHttpServer())
       .post('/api/auth/login')
       .send({ email: 'buyer@example.com', password: 'Test1234!' });
     buyerToken = buyerLoginRes.body.accessToken as string;
+    buyerUserId = buyerLoginRes.body.user.id as string;
+
+    const buyer2LoginRes = await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .send({ email: 'buyer2@example.com', password: 'Test1234!' });
+    secondBuyerUserId = buyer2LoginRes.body.user.id as string;
 
     // Create and publish the shared read-only listing
     const draftRes = await request(app.getHttpServer())
@@ -218,7 +239,7 @@ describe('Listings (e2e)', () => {
     expect(reserveRes.body.status).toBe('RESERVED');
   });
 
-  it('POST /api/listings/:id/sold → 200, status SOLD y retirado del índice', async () => {
+  it('POST /api/listings/:id/deals (PRODUCTO, sin comprador) → 201, status SOLD y retirado del índice', async () => {
     const draftRes = await request(app.getHttpServer())
       .post('/api/listings')
       .set('Authorization', `Bearer ${sellerToken}`)
@@ -230,18 +251,172 @@ describe('Listings (e2e)', () => {
       .set('Authorization', `Bearer ${sellerToken}`)
       .expect(200);
 
-    // Wait for the index job from publish to complete before marking sold
+    // Wait for the index job from publish to complete before closing the deal
     await waitForIndex(meili, process.env.MEILI_INDEX_NAME!, draftRes.body.id as string);
 
-    const soldRes = await request(app.getHttpServer())
-      .post(`/api/listings/${draftRes.body.id}/sold`)
+    const dealRes = await request(app.getHttpServer())
+      .post(`/api/listings/${draftRes.body.id}/deals`)
       .set('Authorization', `Bearer ${sellerToken}`)
-      .expect(200);
+      .send({})
+      .expect(201);
 
-    expect(soldRes.body.status).toBe('SOLD');
+    expect(dealRes.body.listing.status).toBe('SOLD');
+    expect(dealRes.body.deal).toBeNull();
 
     // The indexing worker re-fetches the listing (status=SOLD) and calls removeListing
     await waitForRemoval(meili, process.env.MEILI_INDEX_NAME!, draftRes.body.id as string);
+  });
+
+  it('POST /api/listings/:id/deals (PRODUCTO, con comprador) → crea Deal y no exige conversación previa', async () => {
+    const draftRes = await request(app.getHttpServer())
+      .post('/api/listings')
+      .set('Authorization', `Bearer ${sellerToken}`)
+      .send(draftPayload('Anuncio Con Comprador Registrado'))
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post(`/api/listings/${draftRes.body.id}/publish`)
+      .set('Authorization', `Bearer ${sellerToken}`)
+      .expect(200);
+
+    const dealRes = await request(app.getHttpServer())
+      .post(`/api/listings/${draftRes.body.id}/deals`)
+      .set('Authorization', `Bearer ${sellerToken}`)
+      .send({ buyerId: buyerUserId })
+      .expect(201);
+
+    expect(dealRes.body.listing.status).toBe('SOLD');
+    expect(dealRes.body.deal.buyerId).toBe(buyerUserId);
+    expect(dealRes.body.deal.sellerId).toBe(sellerUserId);
+    // Sin Conversation previa entre ambos sobre este anuncio → enlazado por el
+    // servidor a null, nunca confiado del cliente.
+    expect(dealRes.body.deal.conversationId).toBeNull();
+  });
+
+  it('POST /api/listings/:id/deals (SERVICIO) → status sigue ACTIVE, admite varios tratos', async () => {
+    const draftRes = await request(app.getHttpServer())
+      .post('/api/listings')
+      .set('Authorization', `Bearer ${sellerToken}`)
+      .send({ ...draftPayload('Servicio Con Varios Clientes'), type: 'SERVICE', condition: undefined })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post(`/api/listings/${draftRes.body.id}/publish`)
+      .set('Authorization', `Bearer ${sellerToken}`)
+      .expect(200);
+
+    const firstDeal = await request(app.getHttpServer())
+      .post(`/api/listings/${draftRes.body.id}/deals`)
+      .set('Authorization', `Bearer ${sellerToken}`)
+      .send({ buyerId: buyerUserId })
+      .expect(201);
+
+    expect(firstDeal.body.listing.status).toBe('ACTIVE');
+    expect(firstDeal.body.deal.buyerId).toBe(buyerUserId);
+
+    // Un segundo cliente puede cerrar OTRO trato sobre el mismo anuncio, que
+    // sigue ACTIVE — el punto central de la ráfaga.
+    const secondDeal = await request(app.getHttpServer())
+      .post(`/api/listings/${draftRes.body.id}/deals`)
+      .set('Authorization', `Bearer ${sellerToken}`)
+      .send({ buyerId: secondBuyerUserId })
+      .expect(201);
+
+    expect(secondDeal.body.listing.status).toBe('ACTIVE');
+
+    const dealsRes = await request(app.getHttpServer())
+      .get(`/api/listings/${draftRes.body.id}/deals`)
+      .set('Authorization', `Bearer ${sellerToken}`)
+      .expect(200);
+    expect(dealsRes.body).toHaveLength(2);
+
+    // Cleanup — a SERVICE deliberately stays ACTIVE after closeDeal (the whole
+    // point of this ráfaga), which would otherwise eat into sellerToken's
+    // shared active-listing quota (freeActiveListingLimit=5) for the rest of
+    // this file's tests.
+    await request(app.getHttpServer())
+      .delete(`/api/listings/${draftRes.body.id}`)
+      .set('Authorization', `Bearer ${sellerToken}`)
+      .expect(204);
+  });
+
+  it('POST /api/listings/:id/deals (SERVICIO, sin comprador) → 400', async () => {
+    const draftRes = await request(app.getHttpServer())
+      .post('/api/listings')
+      .set('Authorization', `Bearer ${sellerToken}`)
+      .send({ ...draftPayload('Servicio Sin Cliente'), type: 'SERVICE', condition: undefined })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post(`/api/listings/${draftRes.body.id}/publish`)
+      .set('Authorization', `Bearer ${sellerToken}`)
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .post(`/api/listings/${draftRes.body.id}/deals`)
+      .set('Authorization', `Bearer ${sellerToken}`)
+      .send({})
+      .expect(400);
+
+    // Cleanup — rejected but the listing itself was published (ACTIVE); see
+    // note above on the shared active-listing quota.
+    await request(app.getHttpServer())
+      .delete(`/api/listings/${draftRes.body.id}`)
+      .set('Authorization', `Bearer ${sellerToken}`)
+      .expect(204);
+  });
+
+  it('POST /api/listings/:id/deals sobre un DRAFT → 400 (guarda de estado)', async () => {
+    const draftRes = await request(app.getHttpServer())
+      .post('/api/listings')
+      .set('Authorization', `Bearer ${sellerToken}`)
+      .send(draftPayload('Anuncio Nunca Publicado'))
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post(`/api/listings/${draftRes.body.id}/deals`)
+      .set('Authorization', `Bearer ${sellerToken}`)
+      .send({})
+      .expect(400);
+  });
+
+  it('DELETE /api/listings/:id/deals/:dealId (PRODUCTO, dentro de 72h) → revierte a ACTIVE', async () => {
+    const draftRes = await request(app.getHttpServer())
+      .post('/api/listings')
+      .set('Authorization', `Bearer ${sellerToken}`)
+      .send(draftPayload('Anuncio Para Deshacer Trato'))
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post(`/api/listings/${draftRes.body.id}/publish`)
+      .set('Authorization', `Bearer ${sellerToken}`)
+      .expect(200);
+
+    const dealRes = await request(app.getHttpServer())
+      .post(`/api/listings/${draftRes.body.id}/deals`)
+      .set('Authorization', `Bearer ${sellerToken}`)
+      .send({ buyerId: buyerUserId })
+      .expect(201);
+
+    const undoRes = await request(app.getHttpServer())
+      .delete(`/api/listings/${draftRes.body.id}/deals/${dealRes.body.deal.id}`)
+      .set('Authorization', `Bearer ${sellerToken}`)
+      .expect(200);
+
+    expect(undoRes.body.status).toBe('ACTIVE');
+
+    const dealsAfter = await request(app.getHttpServer())
+      .get(`/api/listings/${draftRes.body.id}/deals`)
+      .set('Authorization', `Bearer ${sellerToken}`)
+      .expect(200);
+    expect(dealsAfter.body).toHaveLength(0);
+
+    // Cleanup — undo left this PRODUCT back at ACTIVE; see note above on the
+    // shared active-listing quota.
+    await request(app.getHttpServer())
+      .delete(`/api/listings/${draftRes.body.id}`)
+      .set('Authorization', `Bearer ${sellerToken}`)
+      .expect(204);
   });
 
   it('DELETE /api/listings/:id → 204 y retirado del índice', async () => {

@@ -5099,6 +5099,68 @@ antes de asumir: el roadmap sobreestimaba el alcance real de Hito 7.
   delta-aware — rompía la edición de cualquier anuncio con un par vinculado ya
   inconsistente, como "Cotce" tras poblar el catálogo real).
 
+### Auditoría — Mensajería, ciclo de vida (producto/servicio) y reputación (2026-07-16)
+
+**Diagnóstico, sin arreglar.** Verificado ejerciendo (2 usuarios, 1 anuncio PRODUCT, 1
+anuncio SERVICE, conversaciones y valoraciones reales) sobre los tres sistemas que se
+condicionan entre sí en este orden: **mensajería → ciclo de vida → reputación → cómo se
+muestra**. El cambio Producto/Servicio (R0-R5, ver «Cambio cerrado — Producto/Servicio»
+más abajo) fue deliberadamente acotado a atributos: *"precio, envío, estado y flujos de
+publicación siguen igual"*. Esta auditoría es el mapa de dónde ese trato único (mismo
+ciclo de vida para ambos tipos) empieza a fallar para servicio.
+
+**Hallazgo central (incoherencia producto/servicio):** marcar un anuncio SERVICE como
+`SOLD` es un callejón sin salida. Verificado en vivo: `markAsSold()` no distingue tipo,
+saca el anuncio de la búsqueda pública, `CONTACTABLE_STATUSES` bloquea nuevas
+conversaciones sobre él, y ninguna transición existente (`reserve()` solo acepta
+`ACTIVE`, `renew()` solo `ACTIVE`/`EXPIRED`) puede reactivarlo. Un fontanero que cierra
+un cliente y pulsa "Marcar vendido" (mismo botón, mismo label que en un producto —
+`MyListingCard.tsx`) pierde el anuncio entero para el resto de clientes, sin forma de
+deshacerlo. No existe ningún concepto de "cerrar un trato con este cliente sin
+despublicar" — el modelo de datos sí soportaría varios compradores por anuncio
+(`Conversation` es única por `[listingId, buyerId]`, no por `listingId`), pero esa
+capacidad queda anulada porque la única acción de cierre disponible es global.
+
+**Bug independiente:** `markAsSold()` no comprueba el estado previo del anuncio —
+verificado marcando `SOLD` un anuncio `DRAFT` nunca publicado. Aplica a ambos tipos.
+
+**Reputación — funciona, pero por un atajo que tiene coste propio:** la elegibilidad
+para valorar (`ReviewsService`) no depende de `Listing.status`, solo de que exista una
+`Conversation` entre autor y objetivo. Esto es lo que salva a los servicios (si
+exigiera `SOLD`, nunca serían valorables dado el punto anterior), pero verificado en
+vivo: un solo mensaje de "¿sigue disponible?" sobre un anuncio `ACTIVE` nunca vendido ya
+deja `canReview: true` — cero prueba de trato real. Autovaloración, doble valoración y
+valorar sin conversación previa sí están correctamente bloqueados (verificado). No hay
+notificación que pida la valoración al cerrar un trato — es 100% self-serve desde el
+chat (`ChatClient.tsx`).
+
+**Escaparate:** el perfil público (`/vendedor/[slug]`) muestra media/conteo/distribución
+correctos, con estado vacío (0 valoraciones) bien manejado — verificado. Las cards de
+listado y la ficha de anuncio (`SellerCard`) **no muestran rating en ningún punto**, solo
+el badge "de confianza" (flag manual de admin, no derivado de reviews) — la reputación
+solo es visible si el comprador visita el perfil por separado.
+
+**Mensajería:** funciona de punta a punta (verificado con envío bidireccional, bandeja
+con `unreadCount`, marcado de leído implícito al abrir). Estructura actual de cara a
+"unificar bandeja y chat": hoy son dos rutas Next.js separadas (`/mensajes` lista,
+`/mensajes/[id]` chat), navegación de página completa, sin split-view. Sin endpoint de
+borrado de mensaje/conversación (incompleto, no bloqueante).
+
+**Orden recomendado para las próximas ráfagas** (por dependencia, no arreglar fuera de
+orden):
+1. **Ciclo de vida primero.** Definir semántica de "cerrar un trato" por tipo — producto
+   conserva su flujo actual; servicio necesita una acción que no despublique ni bloquee
+   nuevas conversaciones. Incluye el fix de la guarda de estado ausente en `markAsSold()`.
+2. **Reputación después.** Con una señal real de "trato cerrado" desde (1), endurecer la
+   elegibilidad de valorar más allá de "hubo conversación" — hacerlo antes rompería la
+   reputación de los servicios.
+3. **Escaparate al final.** Mostrar rating en cards solo tiene sentido una vez que (2)
+   garantiza que el agregado refleja tratos reales, no simples preguntas de
+   disponibilidad.
+4. **Mensajería no bloquea** — única precaución: si se unifica bandeja+chat, preservar el
+   hook de elegibilidad que hoy vive en `ChatClient.tsx`, del que depende el botón
+   "Valorar".
+
 ## Historial de ráfagas — Hito 8 (cerrado)
 
 Registro cronológico de las ráfagas que implementaron el Hito 8 (Pro/facturación ampliado: cuota
@@ -6470,6 +6532,185 @@ confirmó con flujos reales (no solo baterías aisladas) que las piezas encajan 
 cambio): el refuerzo de la validación débil de `attributes` (`validateAttributes` solo
 comprueba `required`, no tipo/opciones/claves desconocidas) sigue diferido como mejora
 ortogonal — ver «Validación débil de atributos» en §3.
+
+---
+
+## Ciclo de vida — RÁFAGA 1: entidad `Deal` (cerrada)
+
+**✅ CERRADA** (2026-07-16, diseño e implementación en la misma sesión, verificada
+ejerciendo — no solo tests). Continúa
+donde el cambio Producto/Servicio (R0-R5, arriba) se detuvo a propósito: aquel cambio solo
+tocó atributos, dejando explícito que *"precio, envío, estado y flujos de publicación
+siguen igual"*. La auditoría de mensajería/ciclo de vida/reputación (§3, "Auditoría —
+Mensajería, ciclo de vida...") encontró que ese trato único rompe a los SERVICE: marcar
+`SOLD` los saca del catálogo, bloquea conversaciones nuevas y no tiene transición de
+vuelta. Esta ráfaga cierra ese hueco.
+
+**Decisiones de producto (Ernest):** PRODUCTO se agota al vender (un comprador, anuncio →
+`SOLD`, desaparece). SERVICIO cierra VARIOS tratos, cada uno con su comprador, y
+**nunca** llega a `SOLD` por cerrar un trato — sigue `ACTIVE`. Ambos registran quién fue
+el comprador/cliente (hoy no existe ese dato en ningún sitio).
+
+**Entidad nueva — `Deal`** (no reutiliza `Transaction`, que es solo facturación de
+plataforma): `listingId` nullable + `onDelete: SetNull` + `listingTitle` snapshot —
+mismo molde que `Review`, porque un `Deal` es evidencia de reputación para la ráfaga 2 y
+no debe desaparecer si el anuncio se borra después. `sellerId`/`buyerId` denormalizados
+(mismo criterio que `Conversation.sellerId`, ya derivable pero guardado aparte). Sin
+constraint de unicidad — un mismo cliente puede repetir trato con el mismo servicio.
+`conversationId` opcional: **el backend lo determina buscando `Conversation.findFirst({
+listingId, buyerId })` — nunca lo acepta del cliente**, para que no pueda fabricarse un
+`Deal` con apariencia de "verificable" adjuntando una conversación arbitraria.
+
+**Acción de cierre — `POST /listings/:id/deals { buyerId }`**, ramificada por
+`ListingType` en el servicio (mismo criterio que `validateListingTypeAllowed` en
+creación): PRODUCTO → `Deal` + `status = SOLD`; SERVICIO → `Deal`, `status` siempre
+`ACTIVE` (también si venía de `RESERVED` — "reservado" no tiene un significado claro de
+"no acepto más clientes" para un servicio). Guarda de estado añadida: solo desde
+`ACTIVE`/`RESERVED` — cierra el bug confirmado en la auditoría (`markAsSold()` no
+comprobaba el estado previo; un `DRAFT` podía marcarse `SOLD` directamente).
+**Sustituye a `POST /listings/:id/sold`** (retirado — una acción, un camino, no dos en
+paralelo).
+
+**Selector de comprador — cualquier usuario, no solo contactos.** Decisión explícita de
+Ernest: además de los contactos del anuncio (`GET /listings/:id/contacts`, quick-pick,
+el caso común), un buscador (`GET /users/search?q=`, rate-limited, solo devuelve
+`{id,name,slug,avatarUrl}` ya públicos) permite elegir a cualquier usuario — cubre tratos
+cerrados por teléfono o en persona. Consecuencia anotada para la ráfaga 2: un `Deal` sin
+`conversationId` es una afirmación del vendedor, no una interacción verificable — si la
+ráfaga 2 exige `Deal` para valorar, puede querer distinguir ambos casos.
+
+**Deshacer — ventana de 72h**, mismo molde que editar/borrar `Review`.
+`DELETE /listings/:id/deals/:dealId`, solo el vendedor, solo dentro de 72h desde
+`createdAt`. Para PRODUCTO revierte `status → ACTIVE` en la misma transacción que borra
+el `Deal` (si no, el anuncio queda fuera del catálogo sin ningún `Deal` que lo explique).
+
+**Sin contactos → fallback explícito** "marcar vendido/cerrado sin comprador
+registrado" (no crea `Deal`) — evita bloquear anuncios sin conversaciones.
+
+**Migración:** aditiva, sin backfill. Los `SOLD` históricos quedan sin `Deal` (no se sabe
+a quién se vendieron) — documentado como límite aceptado, no como deuda.
+
+**Fuera de alcance, señalado para la ráfaga siguiente:** no existe ningún estado
+`PAUSED`/`ARCHIVED` — la única forma de retirar un anuncio sin vender es el borrado
+físico (`remove()`), destructivo (borra también las conversaciones vía
+`Conversation.listing onDelete: Cascade`). Sin un estado de pausa, un SERVICIO no tiene
+ningún offramp no destructivo una vez que "vender" deja de despublicarlo. Prioridad alta
+para la próxima ráfaga.
+
+**Implementado y verificado ejerciendo** (2 vendedores/compradores reales, un PRODUCT y
+un SERVICE reales, contra la API en marcha — no solo tests):
+- Migración aditiva `20260716183829_deal_entity` — modelo `Deal`, sin backfill.
+- `POST /listings/:id/deals` `{ buyerId? }`, `GET /listings/:id/deals`,
+  `DELETE /listings/:id/deals/:dealId`, `GET /listings/:id/contacts`,
+  `GET /users/search?q=` (rate-limited, 30/h). `POST /listings/:id/sold` retirado.
+- **Bug de guarda de estado cerrado**: un `DRAFT` nunca publicado ya no puede cerrar un
+  trato (antes se marcaba `SOLD` sin más) — verificado, 400.
+- **PRODUCTO**: `closeDeal` con comprador de una conversación real → `Deal` con
+  `conversationId` enlazado, anuncio → `SOLD`, desaparece de la búsqueda pública
+  (verificado 404). Deshacer dentro de 72h revierte a `ACTIVE` y borra el `Deal`
+  (verificado); fuera de la ventana (`createdAt` forzado a 73h), 403 (verificado).
+- **SERVICIO**: 3 tratos consecutivos con 3 clientes distintos sobre el mismo anuncio →
+  siempre `ACTIVE`, sigue indexado (200 público) y sigue aceptando conversaciones nuevas
+  de un 4º cliente (verificado) — cierra el callejón sin salida encontrado en la
+  auditoría. Cerrar un trato desde `RESERVED` también deja el status en `ACTIVE`
+  (verificado). Sin `buyerId` → 400 (verificado).
+- **El backend enlaza `conversationId`, nunca el cliente**: verificado en dos capas —
+  enviar `conversationId` en el body es rechazado (400, `whitelist` del DTO no lo admite)
+  y, con un comprador sin conversación real (elegido por `GET /users/search`), el `Deal`
+  queda con `conversationId: null` en vez de aceptar cualquier valor.
+- Suites e2e actualizadas y en verde: `listings.e2e-spec.ts` (34/34, incluye 7 tests
+  nuevos de `Deal`), `alert-matching.e2e-spec.ts`, `messaging.e2e-spec.ts`,
+  `reviews.e2e-spec.ts` (65 tests en total, sin tocar estos dos últimos — verificación de
+  no regresión).
+- Frontend: `MyListingCard` ramifica el botón por `listing.type` ("Marcar vendido" /
+  "Registrar cliente") con `CloseDealDialog` (contactos + buscador libre). Verificado con
+  un render SSR real y autenticado de `/mis-anuncios` (sesión next-auth real, no mock):
+  ambos labels aparecen correctamente para un PRODUCT y un SERVICE de prueba, sin errores
+  de aplicación.
+
+---
+
+## Ciclo de vida — RÁFAGA 2: pausar y archivar (cerrada)
+
+**✅ CERRADA** (2026-07-16, misma sesión que RÁFAGA 1 — diseño, implementación y
+verificación ejerciendo, no solo tests). Cierra el hueco que dejó abierto la ráfaga
+anterior: "marcar vendido" dejó de despublicar un SERVICE, y la única forma de retirar
+un anuncio sin vender seguía siendo `remove()` — borrado físico que además destruye las
+conversaciones (`Conversation.listing onDelete: Cascade`).
+
+**Estados nuevos** (migración aditiva `20260716191816_pause_archive_states`, sin
+backfill): `PAUSED` (temporal, reactivable, ambos tipos) y `ARCHIVED` (permanente,
+irreversible, ambos tipos, no destructivo — conserva conversaciones/tratos/valoraciones).
+
+**Hallazgo clave de la fase de diseño, confirmado en vivo antes de escribir código**: casi
+toda la superficie que esta ráfaga "necesitaba" ya excluía por construcción cualquier
+`status` que no fuera `ACTIVE`/`RESERVED` — la cuota de 5 activos
+(`checkActiveListingLimit`, cuenta `status: 'ACTIVE'` literal), el índice de Meilisearch
+(`indexListing` saca cualquier `status !== 'ACTIVE'`), las conversaciones nuevas
+(`CONTACTABLE_STATUSES`) y `closeDeal()`. Verificado en vivo con la cuota llena (5
+activos): reservar uno la libera sin tocar código — confirma que `PAUSED`/`ARCHIVED` la
+liberarían igual, sin ningún cambio en `checkActiveListingLimit`.
+
+**Grafo de transiciones:**
+```
+ACTIVE  →(pause)→      PAUSED
+PAUSED  →(reactivate)→ ACTIVE   [recalcula expiresAt, exige cuota — igual que renew()]
+{ACTIVE, PAUSED, SOLD, EXPIRED, REJECTED} →(archive)→ ARCHIVED   [irreversible]
+```
+`pause()` solo desde `ACTIVE` (ni `RESERVED` — negociación abierta, ni
+`DRAFT`/`PENDING_REVIEW` — nunca publicado). `reactivate()` solo desde `PAUSED`,
+recalcula `expiresAt` desde el momento de reactivar (el cron de expiración solo consulta
+`status='ACTIVE'`, así que un `PAUSED` es invisible para él por construcción — no hace
+falta "congelar" nada, solo recalcular al volver) y llama a `listingBecameActive()`
+(reindexa + alimenta el matching de alertas, ahora en la lista de 4 caminos junto a
+publish/renew/restore). `archive()` excluye `DRAFT`/`PENDING_REVIEW` (nada publicado
+aún) y `RESERVED` (dejaría un trato colgado sin resolver).
+
+**Endpoints** (owner-only, molde de `reserve`/`closeDeal`, sin `AuditLog` — reservado a
+acciones de admin sobre recursos ajenos, no a acciones del dueño sobre lo suyo):
+`POST /listings/:id/pause`, `POST /listings/:id/reactivate`, `POST /listings/:id/archive`.
+
+**`/mis-anuncios`**: "Todos" (sin filtro) ahora excluye `ARCHIVED` explícitamente en
+`findMine()` — un archivado ya está cerrado para el vendedor, solo aparece en su propia
+pestaña. `PAUSED` sí sigue apareciendo en "Todos". Dos pestañas nuevas ("Pausados",
+"Archivados"), mismo patrón que las 6 ya existentes.
+
+**Implementado y verificado ejerciendo** (usuarios reales contra la API en marcha):
+- **Pausar**: `ACTIVE → PAUSED`, sale del índice (404 público) — verificado. Con la cuota
+  de 5 activos llena, pausar uno permitió publicar un 6º — verificado. Conversación
+  existente sigue accesible y se le puede seguir escribiendo estando pausado (verificado);
+  un tercero no puede iniciar una nueva (400, verificado).
+- **Reactivar**: `PAUSED → ACTIVE`. Con `expiresAt` forzado a 5 días en el pasado (simula
+  "llevaba tiempo pausado"), reactivar lo recalculó a ~60 días desde ahora — NO expira en
+  &lt;24h (verificado). Con la cuota llena, reactivar devolvió 403 (verificado); liberada
+  la cuota, reactivar funcionó y el anuncio volvió a ser público (200, verificado).
+- **Archivar**: irreversible — intentar `pause`/`reactivate`/`archive` de nuevo sobre un
+  `ARCHIVED` devuelve 400 en los tres casos (verificado). Aceptado desde `ACTIVE`,
+  `PAUSED`, `SOLD`, `EXPIRED` y `REJECTED` (verificado los 5); rechazado desde `DRAFT` y
+  `RESERVED` (verificado ambos).
+- **`undoDeal` tras archivar**: un PRODUCTO vendido (`SOLD`) y luego archivado, al
+  deshacer el trato dentro de 72h, borra el `Deal` pero el status se queda en `ARCHIVED`
+  (NO revive a `ACTIVE`) — verificado. Archivar ya es la decisión final del vendedor;
+  deshacer el trato después solo "olvida" al comprador.
+- Suites e2e en verde: `listings`, `alert-matching`, `messaging`, `reviews` (65 tests,
+  sin tocar los dos últimos — no regresión).
+- Frontend: badges "Pausado"/"Archivado", botones "Pausar"/"Reactivar"/"Archivar" (este
+  último con confirmación vía `AlertDialog`, mismo componente que ya usaba "Eliminar"),
+  pestañas "Pausados"/"Archivados", "Editar" ahora también disponible en `PAUSED`.
+  Verificado con un render SSR autenticado real de `/mis-anuncios` (sesión next-auth
+  real): los 6 textos nuevos aparecen, sin errores de aplicación.
+
+**Deuda conocida documentada, NO resuelta en esta ráfaga** (hallazgos colaterales de la
+observación, señalados para no sorprender más adelante):
+- **`RESERVED` no tiene ninguna salida hacia `ACTIVE`** salvo `closeDeal()` — y para
+  PRODUCTO `closeDeal()` siempre fuerza `SOLD`. Si un trato se cae estando reservado, no
+  hay forma de cancelar la reserva y volver a publicarlo. Pre-existente a esta ráfaga (no
+  la introduce `PAUSED`/`ARCHIVED`); candidato a una futura ráfaga menor.
+- **Archivar un `REJECTED` deja a la moderación sin `restoreListing()`** — esa acción de
+  admin exige `status === 'REJECTED'` para restaurar; si el dueño archiva primero, el
+  admin ya no lo encuentra ahí. Comportamiento aceptado (el dueño ya pasó página), pero es
+  una interacción nueva entre acción de dueño y moderación que no existía antes de esta
+  ráfaga — documentado para que no sorprenda.
 
 ---
 

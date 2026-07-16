@@ -10,7 +10,9 @@ export type ListingStatus =
   | 'RESERVED'
   | 'SOLD'
   | 'EXPIRED'
-  | 'REJECTED';
+  | 'REJECTED'
+  | 'PAUSED'
+  | 'ARCHIVED';
 
 export type ListingType = 'PRODUCT' | 'SERVICE';
 
@@ -325,6 +327,37 @@ export interface MyListing {
   images: MyListingImage[];
   category: { id: string; name: string; slug: string };
   publishedAt?: string;
+}
+
+// ── Ciclo de vida RÁFAGA 1 — Deal (cierre de trato) ────────────────────────────
+
+/** Persona mínima para elegir comprador/cliente — contactos del anuncio o resultado de búsqueda. */
+export interface PersonStub {
+  id: string;
+  name: string;
+  slug: string;
+  avatarUrl?: string;
+}
+
+/** Contacto de un anuncio — alguien con conversación abierta sobre él. */
+export interface ListingContact extends PersonStub {
+  lastMessageAt: string;
+}
+
+export interface Deal {
+  id: string;
+  listingId: string | null;
+  listingTitle: string;
+  sellerId: string;
+  buyerId: string;
+  buyer: PersonStub;
+  conversationId: string | null;
+  createdAt: string;
+}
+
+export interface CloseDealResult {
+  listing: { id: string; status: ListingStatus };
+  deal: Deal | null;
 }
 
 // ── Favorites ────────────────────────────────────────────────────────────────

@@ -53,7 +53,7 @@ export async function waitForIndex(
  * the worker processes it asynchronously.
  *
  * Pattern:
- *   await request.post(`/api/listings/${id}/sold`);
+ *   await request.post(`/api/listings/${id}/deals`).send({});
  *   await waitForRemoval(meiliClient, process.env.MEILI_INDEX_NAME!, id);
  */
 export async function waitForRemoval(

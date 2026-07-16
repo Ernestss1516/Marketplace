@@ -9,14 +9,19 @@ import { getMyListings } from '@/lib/api/anuncios';
 import { getProStatus, getWallet, type ProStatus } from '@/lib/api/billing';
 import type { BumpPricing, ListingSummary } from '@/types';
 
+// "Todos" (value: null) es "sin filtro explícito" — el backend (findMine) ya
+// excluye ARCHIVED de esa vista por defecto (ciclo de vida RÁFAGA 2); PAUSED
+// sí aparece en "Todos", solo ARCHIVED necesita su propia pestaña.
 const FILTERS: { label: string; value: string | null }[] = [
   { label: 'Todos', value: null },
   { label: 'Activos', value: 'ACTIVE' },
   { label: 'En revisión', value: 'PENDING_REVIEW' },
   { label: 'Borradores', value: 'DRAFT' },
   { label: 'Reservados', value: 'RESERVED' },
+  { label: 'Pausados', value: 'PAUSED' },
   { label: 'Vendidos', value: 'SOLD' },
   { label: 'Caducados', value: 'EXPIRED' },
+  { label: 'Archivados', value: 'ARCHIVED' },
 ];
 
 interface Props {

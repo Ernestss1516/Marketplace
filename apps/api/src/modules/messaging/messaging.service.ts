@@ -66,6 +66,22 @@ export class MessagingService {
     };
   }
 
+  /**
+   * Ciclo de vida RÁFAGA 1 — usuarios con conversación abierta sobre ESTE
+   * anuncio, para el selector de comprador/cliente al cerrar un Deal
+   * (quick-pick; el buscador libre de GET /users/search cubre lo demás).
+   * Filtra por sellerId en la propia query — el llamador (ListingsService)
+   * ya comprueba la propiedad del anuncio antes de delegar aquí.
+   */
+  async findContactsForListing(listingId: string, sellerId: string) {
+    const convs = await this.prisma.conversation.findMany({
+      where: { listingId, sellerId },
+      orderBy: { lastMessageAt: 'desc' },
+      select: { lastMessageAt: true, buyer: { select: SELECT_USER_STUB } },
+    });
+    return convs.map((c) => ({ ...c.buyer, lastMessageAt: c.lastMessageAt }));
+  }
+
   async startConversation(buyerId: string, dto: CreateConversationDto) {
     const listing = await this.prisma.listing.findUnique({
       where: { id: dto.listingId },
