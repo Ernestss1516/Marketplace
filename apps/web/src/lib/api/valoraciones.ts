@@ -3,6 +3,9 @@ import { apiFetch } from './client';
 
 export interface EligibilityResult {
   canReview: boolean;
+  /** Reputación RÁFAGA 3 — si el trato que habilita valorar es verificable
+   * (hubo conversación) o no, ANTES de enviar la valoración. */
+  wouldBeVerified?: boolean;
   alreadyReviewed: boolean;
   existingReview: { id: string; createdAt: string } | null;
 }

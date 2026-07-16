@@ -8,6 +8,7 @@ import type { BadWordService } from '../moderation/bad-word.service';
 import type { EntitlementService } from '../billing/entitlement.service';
 import type { ListingActivationService } from '../listing-activation/listing-activation.service';
 import type { MessagingService } from '../messaging/messaging.service';
+import type { NotificationsService } from '../notifications/notifications.service';
 import type { CreateListingDto } from './dto/create-listing.dto';
 
 function p2002(): Prisma.PrismaClientKnownRequestError {
@@ -53,10 +54,12 @@ describe('ListingsService.create — reintento de slug ante P2002', () => {
       {} as RedisService,
       {} as RateLimitService,
       indexingQueue as never,
+      { add: jest.fn().mockResolvedValue(undefined) } as never,
       {} as BadWordService,
       {} as EntitlementService,
       {} as ListingActivationService,
       {} as MessagingService,
+      {} as NotificationsService,
     );
     errorSpy = jest.spyOn((service as unknown as { logger: { error: (...a: unknown[]) => void } }).logger, 'error');
   });

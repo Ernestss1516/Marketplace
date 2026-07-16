@@ -1,20 +1,24 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
-import { QUEUE_INDEXING, retryQueue } from '../../infra/queue/queue.constants';
+import { QUEUE_INDEXING, QUEUE_NOTIFICATIONS, retryQueue } from '../../infra/queue/queue.constants';
 import { BillingModule } from '../billing/billing.module';
 import { ModerationModule } from '../moderation/moderation.module';
 import { ListingActivationModule } from '../listing-activation/listing-activation.module';
 import { MessagingModule } from '../messaging/messaging.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { ListingsController } from './listings.controller';
 import { ListingsService } from './listings.service';
 
 @Module({
   imports: [
     BullModule.registerQueue(retryQueue(QUEUE_INDEXING)),
+    // Re-registrado aquí (mismo patrón que ContactModule/AlertsModule para QUEUE_NOTIFICATIONS)
+    BullModule.registerQueue(retryQueue(QUEUE_NOTIFICATIONS)),
     BillingModule,
     ModerationModule,
     ListingActivationModule,
     MessagingModule,
+    NotificationsModule,
   ],
   controllers: [ListingsController],
   providers: [ListingsService],

@@ -6714,6 +6714,90 @@ observación, señalados para no sorprender más adelante):
 
 ---
 
+## Reputación — RÁFAGA 3: elegibilidad basada en Deal (cerrada)
+
+**✅ CERRADA** (2026-07-16, misma sesión que RÁFAGA 1/2 — auditoría, diseño,
+implementación y verificación ejerciendo). Cierra el desajuste que dejaron las dos
+ráfagas de ciclo de vida: la elegibilidad de valorar seguía mirando `Conversation`
+(anterior a que existiera `Deal`), así que un trato real y cerrado (declarado, sin
+conversación) **no** habilitaba valorar, mientras que un simple "¿sigue disponible?" sin
+ningún trato **sí** lo hacía. Verificado en vivo antes de tocar código, ambos sentidos.
+
+**Campo nuevo — `Review.verified`** (migración aditiva, `@default(true)`: grandfathering
+automático de las reseñas existentes, sin backfill manual). Congelado al crear, nunca
+recalculado — ni por `edit()`, ni por ningún otro endpoint. `true` si en el momento de
+crear existía al menos un `Deal` verificable (`conversationId != null`) entre autor y
+objetivo sobre ese listing.
+
+**Elegibilidad migrada de `Conversation` a `Deal`** en `ReviewsService.create`/
+`getEligibility` — cualquier `Deal` (verificable o declarado) habilita valorar;
+`wouldBeVerified` se expone en la elegibilidad para que la UI lo anticipe antes de enviar.
+
+**Relación Review↔Deal — decisión de diseño clave, evaluada y descartada la alternativa
+más obvia**: NO se añadió `dealId` a `Review`. Se mantiene
+`@@unique([authorId, targetId, listingId])` tal cual (una review por par por listing,
+sin importar cuántos `Deal` haya entre ellos) — anclar a un `Deal` concreto (`dealId` +
+`unique[authorId, dealId]`) habría permitido a un cliente recurrente valorar cada trato
+por separado, pero `Deal` no tiene límite de repetición (RÁFAGA 1: "un mismo cliente
+puede repetir trato con el mismo servicio"), así que esa alternativa abría la puerta a
+multiplicar el peso de una review repitiendo tratos con el mismo par. Verificado en vivo:
+un segundo `Deal` sobre el mismo par no habilita una segunda review (409).
+
+**Media/count/distribution solo cuentan `verified: true`**; `items` (la lista pública)
+muestra todas, cada una con su `verified`, con `unverifiedCount` aparte para no mezclarlas
+con la puntuación de confianza. Verificado: sockpuppet con `Deal` declarado consigo mismo
+no mueve la media del vendedor (sigue en la misma cifra, solo sube `unverifiedCount`).
+
+**Notificación + email al cerrar un `Deal`** — `REVIEW_REQUEST` (in-app,
+`NotificationsService.createNotification`) + email (Resend, cola `QUEUE_NOTIFICATIONS`,
+mismo patrón que `ContactService.submitMessage()`), bidireccional a ambas partes, sin
+deduplicar entre `Deal`s distintos del mismo par (cada trato es un evento real nuevo).
+El fallback "sin comprador" de PRODUCTO no dispara nada (no hay a quién avisar).
+
+**Punto de entrada nuevo en el frontend, no anticipado en el diseño original**: un `Deal`
+declarado no tiene ninguna `Conversation` asociada, así que el botón "Valorar" que ya
+vivía dentro de `ChatClient.tsx` nunca podría mostrarse para ese caso. Se añadió
+`ValorarDesdePerfil` en `/vendedor/[slug]`, activado solo por el deep-link que manda la
+notificación (`?valorar=<listingId>&target=<userId>`) — mismo patrón de 3 estados
+(Valorar / Editar valoración / Ya valoraste) que `ChatClient`, reutilizando `ReviewModal`
+tal cual.
+
+**Implementado y verificado ejerciendo** (5 usuarios reales, un SERVICE real, contra la
+API en marcha):
+- Desajuste arreglado: `Deal` declarado (sin conversación) → `canReview: true`,
+  `wouldBeVerified: false`; conversación sin ningún `Deal` → `canReview: false` (inverso
+  del hallazgo original de la auditoría).
+- `verified` congelado: review sobre `Deal` verificable → `true`, cuenta para la media;
+  sobre `Deal` declarado → `false`, aparece en la lista etiquetada pero no cuenta. Una
+  review ya creada como `false` cuya autora luego SÍ conversa con el vendedor sigue
+  `false` — no se recalcula (verificado creando la conversación después y releyendo la
+  fila).
+- Media solo verificadas, `unverifiedCount` refleja el resto; el intento de un vendedor
+  de fabricar un `Deal` declarado con una cuenta cómplice no subió su media (verificado).
+- Una review por par pese a `Deal`s repetidos: segundo `Deal` con el mismo comprador →
+  `alreadyReviewed: true`, segundo intento de crear review → 409 (verificado).
+- Bidireccional: comprador y vendedor se valoraron mutuamente sobre el mismo `Deal`
+  (verificado, ya funcionaba desde antes de esta ráfaga).
+- Notificación + email verificados en ambas direcciones para cada `Deal` cerrado (3
+  tratos distintos → 3 notificaciones al vendedor, sin deduplicar); el fallback de
+  PRODUCTO sin comprador no generó ninguna. 6 emails reales enviados vía Resend,
+  confirmados en el log del processor.
+- Suites e2e actualizadas y en verde: `reviews.e2e-spec.ts` (con un bloque nuevo
+  específico de esta ráfaga), `listings`, `alert-matching`, `messaging` (74 tests).
+- Frontend: `ReviewsSection`/`ReviewCard` muestran el badge "No verificada" y el aviso de
+  `unverifiedCount`; `ReviewModal` anticipa si la review será verificada o no antes de
+  enviarla. Verificado con un render SSR autenticado real de `/vendedor/[slug]`.
+
+**Deuda conocida documentada, NO resuelta en esta ráfaga**: **sesgo de represalia** en la
+valoración bidireccional — sin revisión ciega (ocultar las reseñas hasta que ambas partes
+hayan valorado, o hasta un plazo), cada parte puede ver la review de la otra antes de
+escribir/editar la suya y ajustarla en consecuencia (p. ej. bajar la puntuación tras ver
+una mala reseña recibida). Pre-existente a esta ráfaga (la bidireccionalidad ya existía),
+no se introduce aquí ni se resuelve — candidato a una ráfaga futura si se decide que
+merece la pena el coste de una revisión ciega.
+
+---
+
 ## Sistema de Alertas — cerrado (B0-B3)
 
 **✅ CERRADO** (2026-07-09). Las 4 ráfagas (B0-B3) están completas y verificadas de punta a

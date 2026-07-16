@@ -4,6 +4,7 @@ export const NOTIFICATION_JOB = {
   SEND_ALERT_EMAIL: 'send-alert-email',
   SEND_CONTACT_NOTIFICATION: 'send-contact-notification',
   SEND_CONTACT_REPLY: 'send-contact-reply',
+  SEND_REVIEW_REQUEST_EMAIL: 'send-review-request-email',
 } as const;
 
 export interface SendVerificationEmailData {
@@ -46,4 +47,15 @@ export interface SendContactReplyData {
   to: string;
   asunto: string;
   cuerpo: string;
+}
+
+/** Reputación RÁFAGA 3 — aviso al cerrar un Deal (bidireccional: un job por
+ * cada parte que puede valorar). Copy deliberadamente sin presión ni plazo
+ * — valorar es opcional, la ventana es indefinida. */
+export interface SendReviewRequestEmailData {
+  email: string;
+  name: string;
+  otherUserName: string;
+  listingTitle: string;
+  listingSlug: string;
 }

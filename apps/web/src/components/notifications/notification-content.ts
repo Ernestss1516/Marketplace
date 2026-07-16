@@ -16,6 +16,14 @@ export function getNotificationContent(n: NotificationItem): { text: string; hre
         text: `Nuevo mensaje de contacto de ${n.data.email}: «${n.data.extracto}»`,
         href: `/admin/mensajes-contacto/${n.data.messageId}`,
       };
+    case 'REVIEW_REQUEST':
+      return {
+        text: `${n.data.otherUserName} cerró un trato contigo sobre «${n.data.listingTitle}». Puedes valorar si quieres.`,
+        // target=otherUserId va en la URL porque el perfil público (GET /users/:slug)
+        // no expone el id internamente — evita ensanchar esa respuesta pública
+        // solo para este flujo; el id ya lo trae la propia notificación.
+        href: `/vendedor/${n.data.otherUserSlug}?valorar=${encodeURIComponent(n.data.listingId ?? '')}&target=${encodeURIComponent(n.data.otherUserId)}`,
+      };
     default:
       return { text: 'Nueva notificación', href: '/notificaciones' };
   }

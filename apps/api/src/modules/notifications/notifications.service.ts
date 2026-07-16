@@ -1,11 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
-import { NotificationType, AlertMatchData, ContactMessageData } from './notification.types';
+import { NotificationType, AlertMatchData, ContactMessageData, ReviewRequestData } from './notification.types';
 
 type DataByType = {
   ALERT_MATCH: AlertMatchData;
   CONTACT_MESSAGE: ContactMessageData;
+  REVIEW_REQUEST: ReviewRequestData;
 };
 
 @Injectable()

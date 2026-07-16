@@ -24,27 +24,42 @@ const SELECT_AUTHOR = {
 export class ReviewsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /**
+   * Reputación RÁFAGA 3 — elegibilidad ya NO mira Conversation, mira Deal:
+   * un trato real (verificable O declarado) habilita valorar; solo hablar,
+   * ya no. `verified` se congela en el momento de crear — es "¿algún Deal
+   * de este par sobre este listing es verificable?", NUNCA se ancla a un
+   * Deal concreto (sin dealId) a propósito: Deal no tiene límite de
+   * repetición (RÁFAGA 1), así que anclar a "un" Deal abriría la puerta a
+   * multiplicar el peso de una review repitiendo tratos con el mismo par.
+   * El unique [authorId, targetId, listingId] ya limita a una review por
+   * par por listing, sin importar cuántos Deals haya entre ellos.
+   */
+  private async findDealsBetween(authorId: string, listingId: string, targetId: string) {
+    return this.prisma.deal.findMany({
+      where: {
+        listingId,
+        OR: [
+          { sellerId: authorId, buyerId: targetId },
+          { buyerId: authorId, sellerId: targetId },
+        ],
+      },
+      select: { conversationId: true, listingTitle: true },
+    });
+  }
+
   async create(authorId: string, dto: CreateReviewDto) {
     if (authorId === dto.targetId) {
       throw new BadRequestException('No puedes valorarte a ti mismo');
     }
 
-    // Elegibilidad: debe existir una conversación entre author y target para ese anuncio
-    const conversation = await this.prisma.conversation.findFirst({
-      where: {
-        listingId: dto.listingId,
-        OR: [
-          { buyerId: authorId, sellerId: dto.targetId },
-          { sellerId: authorId, buyerId: dto.targetId },
-        ],
-      },
-      select: { id: true, listing: { select: { title: true } } },
-    });
-    if (!conversation) {
+    const deals = await this.findDealsBetween(authorId, dto.listingId, dto.targetId);
+    if (deals.length === 0) {
       throw new ForbiddenException(
-        'Solo puedes valorar a usuarios con los que has tenido una conversación sobre este anuncio',
+        'Solo puedes valorar a usuarios con los que has cerrado un trato sobre este anuncio',
       );
     }
+    const verified = deals.some((d) => d.conversationId != null);
 
     try {
       return await this.prisma.review.create({
@@ -54,8 +69,10 @@ export class ReviewsService {
           authorId,
           targetId: dto.targetId,
           listingId: dto.listingId,
-          // Snapshot: sobrevive aunque el anuncio se borre más adelante (listingId → NULL)
-          listingTitle: conversation.listing.title,
+          // Snapshot ya disponible en el propio Deal — no hace falta cargar
+          // el Listing en vivo (sobrevive igual aunque el anuncio se borre).
+          listingTitle: deals[0].listingTitle,
+          verified,
         },
         include: { author: { select: SELECT_AUTHOR } },
       });
@@ -72,17 +89,8 @@ export class ReviewsService {
       return { canReview: false, alreadyReviewed: false };
     }
 
-    const [conversation, existing] = await Promise.all([
-      this.prisma.conversation.findFirst({
-        where: {
-          listingId,
-          OR: [
-            { buyerId: authorId, sellerId: targetId },
-            { sellerId: authorId, buyerId: targetId },
-          ],
-        },
-        select: { id: true },
-      }),
+    const [deals, existing] = await Promise.all([
+      this.findDealsBetween(authorId, listingId, targetId),
       this.prisma.review.findUnique({
         where: { authorId_targetId_listingId: { authorId, targetId, listingId } },
         select: { id: true, createdAt: true },
@@ -90,7 +98,9 @@ export class ReviewsService {
     ]);
 
     return {
-      canReview: !!conversation && !existing,
+      canReview: deals.length > 0 && !existing,
+      // Anticipa a la UI si la review se marcará verificada o no antes de enviarla.
+      wouldBeVerified: deals.some((d) => d.conversationId != null),
       alreadyReviewed: !!existing,
       existingReview: existing ?? null,
     };
@@ -117,7 +127,12 @@ export class ReviewsService {
       }
     }
 
-    const [raw, aggregate, groupBy] = await Promise.all([
+    // Reputación RÁFAGA 3 — average/count/distribution cuentan SOLO verified=true
+    // (el bloque de confianza); `items` muestra TODAS (verificadas y no), cada
+    // una con su propio `verified`, para que la lista pública no censure
+    // opinión real solo porque el trato no pasó por el chat. unverifiedCount
+    // permite mostrarlas sin mezclarlas con la puntuación de confianza.
+    const [raw, aggregate, groupBy, unverifiedCount] = await Promise.all([
       this.prisma.review.findMany({
         where: whereWithCursor,
         orderBy: { createdAt: 'desc' },
@@ -125,15 +140,16 @@ export class ReviewsService {
         include: { author: { select: SELECT_AUTHOR } },
       }),
       this.prisma.review.aggregate({
-        where: { targetId },
+        where: { targetId, verified: true },
         _avg: { rating: true },
         _count: { rating: true },
       }),
       this.prisma.review.groupBy({
         by: ['rating'],
-        where: { targetId },
+        where: { targetId, verified: true },
         _count: true,
       }),
+      this.prisma.review.count({ where: { targetId, verified: false } }),
     ]);
 
     const hasMore = raw.length > limit;
@@ -155,7 +171,7 @@ export class ReviewsService {
       distribution[String(row.rating)] = row._count;
     }
 
-    return { average, count, distribution, items, nextCursor };
+    return { average, count, distribution, unverifiedCount, items, nextCursor };
   }
 
   async edit(id: string, authorId: string, dto: UpdateReviewDto) {

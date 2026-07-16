@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { ListingCard } from '@/components/anuncios/ListingCard';
 import { FavoritesGridProvider } from '@/components/anuncios/FavoritesGridContext';
 import { CardAttributesProvider } from '@/components/anuncios/CardAttributesContext';
+import { auth } from '@/lib/auth';
 import { getSellerProfile } from '@/lib/api/usuarios';
 import { getListingsBySellerSlug } from '@/lib/api/anuncios';
 import { getUserReviews } from '@/lib/api/valoraciones';
@@ -15,10 +16,14 @@ import { getCategories } from '@/lib/api/categorias';
 import { buildCardAttributeMap } from '@/lib/card-attributes';
 import { ApiError } from '@/lib/api/client';
 import { ReviewsSection } from '@/components/valoraciones/ReviewsSection';
+import { ValorarDesdePerfil } from '@/components/valoraciones/ValorarDesdePerfil';
 import { SITE_NAME } from '@/config';
 
 type Params = { slug: string };
-type SearchParams = { page?: string };
+// valorar/target: deep-link desde la notificación REVIEW_REQUEST (Reputación
+// RÁFAGA 3) — el único punto de entrada para valorar un Deal sin conversación
+// asociada (ver ValorarDesdePerfil).
+type SearchParams = { page?: string; valorar?: string; target?: string };
 
 export async function generateMetadata({
   params,
@@ -45,8 +50,9 @@ export default async function VendedorPage({
   searchParams: Promise<SearchParams>;
 }) {
   const { slug } = await params;
-  const { page: pageStr } = await searchParams;
+  const { page: pageStr, valorar: valorarListingId, target: valorarTargetId } = await searchParams;
   const page = Math.max(1, Number(pageStr ?? 1));
+  const session = await auth();
 
   let seller;
   try {
@@ -58,7 +64,7 @@ export default async function VendedorPage({
 
   const [{ items, total, perPage }, reviewsData, categories] = await Promise.all([
     getListingsBySellerSlug(slug, { page }).catch(() => ({ items: [], total: 0, page, perPage: 24 })),
-    getUserReviews(slug).catch(() => ({ average: null, count: 0, distribution: {}, items: [], nextCursor: null })),
+    getUserReviews(slug).catch(() => ({ average: null, count: 0, distribution: {}, unverifiedCount: 0, items: [], nextCursor: null })),
     getCategories().catch(() => [] as Awaited<ReturnType<typeof getCategories>>),
   ]);
 
@@ -119,6 +125,17 @@ export default async function VendedorPage({
           )}
         </div>
       </div>
+
+      {/* Valorar desde notificación — Reputación RÁFAGA 3, único punto de
+          entrada para un Deal sin conversación asociada (ver ValorarDesdePerfil) */}
+      {valorarListingId && valorarTargetId && session?.user.accessToken && (
+        <ValorarDesdePerfil
+          listingId={valorarListingId}
+          targetId={valorarTargetId}
+          targetName={seller.name}
+          token={session.user.accessToken}
+        />
+      )}
 
       {/* Anuncios activos */}
       <div className="mb-4 flex items-baseline gap-2">

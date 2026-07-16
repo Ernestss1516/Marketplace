@@ -78,14 +78,26 @@ describe('Reviews (e2e)', () => {
     });
     listingId = listing.id;
 
-    // Conversation between buyer and seller for this listing (elegibility gate)
-    await prisma.conversation.create({
+    // Reputación RÁFAGA 3 — la elegibilidad ya no mira Conversation, mira Deal.
+    // La Conversation se conserva (mensajería sigue funcionando igual) y el
+    // Deal se crea CON conversationId — mismo camino real que closeDeal()
+    // produce cuando el comprador viene de una conversación real (verified=true).
+    const conversation = await prisma.conversation.create({
       data: {
         listingId: listing.id,
         buyerId: buyer.id,
         sellerId: seller.id,
         lastMessageAt: new Date(),
         messages: { create: { senderId: buyer.id, body: '¿Sigue disponible?' } },
+      },
+    });
+    await prisma.deal.create({
+      data: {
+        listingId: listing.id,
+        listingTitle: listing.title,
+        sellerId: seller.id,
+        buyerId: buyer.id,
+        conversationId: conversation.id,
       },
     });
 
@@ -128,17 +140,18 @@ describe('Reviews (e2e)', () => {
 
   // ── eligibility: before any review ──────────────────────────────────────────
 
-  it('GET eligibility: comprador CON conversación → canReview true', async () => {
+  it('GET eligibility: comprador CON Deal verificable → canReview true, wouldBeVerified true', async () => {
     const res = await request(app.getHttpServer())
       .get(`/api/reviews/eligibility?listingId=${listingId}&targetId=${sellerId}`)
       .set('Authorization', `Bearer ${buyerToken}`)
       .expect(200);
 
     expect(res.body.canReview).toBe(true);
+    expect(res.body.wouldBeVerified).toBe(true);
     expect(res.body.alreadyReviewed).toBe(false);
   });
 
-  it('GET eligibility: outsider SIN conversación → canReview false', async () => {
+  it('GET eligibility: outsider SIN Deal → canReview false', async () => {
     const res = await request(app.getHttpServer())
       .get(`/api/reviews/eligibility?listingId=${listingId}&targetId=${sellerId}`)
       .set('Authorization', `Bearer ${outsiderToken}`)
@@ -158,7 +171,7 @@ describe('Reviews (e2e)', () => {
       .expect(400);
   });
 
-  it('POST /api/reviews outsider sin conversación → 403', async () => {
+  it('POST /api/reviews outsider sin Deal → 403', async () => {
     await request(app.getHttpServer())
       .post('/api/reviews')
       .set('Authorization', `Bearer ${outsiderToken}`)
@@ -182,6 +195,8 @@ describe('Reviews (e2e)', () => {
     expect(res.body.authorId).toBe(buyerId);
     expect(res.body.targetId).toBe(sellerId);
     expect(res.body.editedAt).toBeNull();
+    // Deal con conversationId → verified congelado a true al crear.
+    expect(res.body.verified).toBe(true);
     buyerReviewId = res.body.id as string;
   });
 
@@ -383,13 +398,22 @@ describe('Reviews (e2e)', () => {
       });
       deletableListingId = listing.id;
 
-      await prisma.conversation.create({
+      const conversation = await prisma.conversation.create({
         data: {
           listingId: listing.id,
           buyerId,
           sellerId,
           lastMessageAt: new Date(),
           messages: { create: { senderId: buyerId, body: '¿Sigue disponible?' } },
+        },
+      });
+      await prisma.deal.create({
+        data: {
+          listingId: listing.id,
+          listingTitle,
+          sellerId,
+          buyerId,
+          conversationId: conversation.id,
         },
       });
 
@@ -461,13 +485,22 @@ describe('Reviews (e2e)', () => {
         },
       });
 
-      await prisma.conversation.create({
+      const conversation = await prisma.conversation.create({
         data: {
           listingId: liveListing.id,
           buyerId,
           sellerId,
           lastMessageAt: new Date(),
           messages: { create: { senderId: buyerId, body: '¿Disponible?' } },
+        },
+      });
+      await prisma.deal.create({
+        data: {
+          listingId: liveListing.id,
+          listingTitle: liveListing.title,
+          sellerId,
+          buyerId,
+          conversationId: conversation.id,
         },
       });
 
@@ -484,6 +517,279 @@ describe('Reviews (e2e)', () => {
         .set('Authorization', `Bearer ${buyerToken}`)
         .send({ rating: 2, listingId: liveListing.id, targetId: sellerId })
         .expect(409);
+    });
+  });
+
+  // ── Reputación RÁFAGA 3: elegibilidad basada en Deal, verified congelado ────
+  describe('Deal reemplaza a Conversation como gate de elegibilidad', () => {
+    let d3SellerId: string;
+    let d3SellerSlug: string;
+    let d3SellerToken: string;
+    let d3DeclaredBuyerToken: string;
+    let d3DeclaredBuyerId: string;
+    let d3VerifiedBuyerToken: string;
+    let d3VerifiedBuyerId: string;
+    let d3ListingId: string;
+
+    beforeAll(async () => {
+      const category = await prisma.category.findUniqueOrThrow({ where: { slug: 'moviles' } });
+
+      const [seller, declaredBuyer, verifiedBuyer] = await Promise.all([
+        prisma.user.create({
+          data: {
+            email: 'rv3-seller@example.com',
+            name: 'RV3 Seller',
+            slug: 'rv3-seller',
+            passwordHash: await bcrypt.hash('Test1234!', 4),
+            emailVerified: true,
+          },
+        }),
+        prisma.user.create({
+          data: {
+            email: 'rv3-declared@example.com',
+            name: 'RV3 Declared',
+            slug: 'rv3-declared',
+            passwordHash: await bcrypt.hash('Test1234!', 4),
+            emailVerified: true,
+          },
+        }),
+        prisma.user.create({
+          data: {
+            email: 'rv3-verified@example.com',
+            name: 'RV3 Verified',
+            slug: 'rv3-verified',
+            passwordHash: await bcrypt.hash('Test1234!', 4),
+            emailVerified: true,
+          },
+        }),
+      ]);
+      d3SellerId = seller.id;
+      d3SellerSlug = seller.slug;
+      d3DeclaredBuyerId = declaredBuyer.id;
+      d3VerifiedBuyerId = verifiedBuyer.id;
+
+      const listing = await prisma.listing.create({
+        data: {
+          title: 'Fontanero RV3',
+          slug: 'fontanero-rv3',
+          description: 'Prueba Deal↔Review',
+          price: 40,
+          type: 'SERVICE',
+          priceType: 'FIXED',
+          status: 'ACTIVE',
+          categoryId: category.id,
+          sellerId: d3SellerId,
+        },
+      });
+      d3ListingId = listing.id;
+
+      // Trato DECLARADO — Deal SIN conversación (comprador elegido por búsqueda libre).
+      await prisma.deal.create({
+        data: {
+          listingId: listing.id,
+          listingTitle: listing.title,
+          sellerId: d3SellerId,
+          buyerId: d3DeclaredBuyerId,
+          conversationId: null,
+        },
+      });
+
+      // Trato VERIFICABLE — Deal CON conversación real.
+      const conversation = await prisma.conversation.create({
+        data: {
+          listingId: listing.id,
+          buyerId: d3VerifiedBuyerId,
+          sellerId: d3SellerId,
+          lastMessageAt: new Date(),
+          messages: { create: { senderId: d3VerifiedBuyerId, body: 'Necesito un fontanero' } },
+        },
+      });
+      await prisma.deal.create({
+        data: {
+          listingId: listing.id,
+          listingTitle: listing.title,
+          sellerId: d3SellerId,
+          buyerId: d3VerifiedBuyerId,
+          conversationId: conversation.id,
+        },
+      });
+
+      const [sellerRes, declaredRes, verifiedRes] = await Promise.all([
+        request(app.getHttpServer())
+          .post('/api/auth/login')
+          .send({ email: 'rv3-seller@example.com', password: 'Test1234!' }),
+        request(app.getHttpServer())
+          .post('/api/auth/login')
+          .send({ email: 'rv3-declared@example.com', password: 'Test1234!' }),
+        request(app.getHttpServer())
+          .post('/api/auth/login')
+          .send({ email: 'rv3-verified@example.com', password: 'Test1234!' }),
+      ]);
+      d3SellerToken = sellerRes.body.accessToken as string;
+      d3DeclaredBuyerToken = declaredRes.body.accessToken as string;
+      d3VerifiedBuyerToken = verifiedRes.body.accessToken as string;
+    });
+
+    it('Deal declarado (sin conversación) → canReview true, wouldBeVerified false', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/reviews/eligibility?listingId=${d3ListingId}&targetId=${d3SellerId}`)
+        .set('Authorization', `Bearer ${d3DeclaredBuyerToken}`)
+        .expect(200);
+      expect(res.body.canReview).toBe(true);
+      expect(res.body.wouldBeVerified).toBe(false);
+    });
+
+    it('solo Conversation SIN Deal → canReview false (el desajuste que cierra esta ráfaga)', async () => {
+      // Alguien que solo habló, sin ningún trato — antes de esta ráfaga esto daba true.
+      const onlyChatted = await prisma.user.create({
+        data: {
+          email: 'rv3-onlychat@example.com',
+          name: 'RV3 OnlyChat',
+          slug: 'rv3-onlychat',
+          passwordHash: await bcrypt.hash('Test1234!', 4),
+          emailVerified: true,
+        },
+      });
+      await prisma.conversation.create({
+        data: {
+          listingId: d3ListingId,
+          buyerId: onlyChatted.id,
+          sellerId: d3SellerId,
+          lastMessageAt: new Date(),
+          messages: { create: { senderId: onlyChatted.id, body: '¿Sigue disponible?' } },
+        },
+      });
+      const res = await request(app.getHttpServer())
+        .post('/api/auth/login')
+        .send({ email: 'rv3-onlychat@example.com', password: 'Test1234!' });
+      const onlyChattedToken = res.body.accessToken as string;
+
+      const elig = await request(app.getHttpServer())
+        .get(`/api/reviews/eligibility?listingId=${d3ListingId}&targetId=${d3SellerId}`)
+        .set('Authorization', `Bearer ${onlyChattedToken}`)
+        .expect(200);
+      expect(elig.body.canReview).toBe(false);
+    });
+
+    let declaredReviewId: string;
+
+    it('review sobre Deal declarado → verified false', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/api/reviews')
+        .set('Authorization', `Bearer ${d3DeclaredBuyerToken}`)
+        .send({ rating: 5, comment: 'Trato cerrado por teléfono', listingId: d3ListingId, targetId: d3SellerId })
+        .expect(201);
+      expect(res.body.verified).toBe(false);
+      declaredReviewId = res.body.id as string;
+    });
+
+    it('review sobre Deal verificable → verified true', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/api/reviews')
+        .set('Authorization', `Bearer ${d3VerifiedBuyerToken}`)
+        .send({ rating: 4, comment: 'Hablamos por el chat primero', listingId: d3ListingId, targetId: d3SellerId })
+        .expect(201);
+      expect(res.body.verified).toBe(true);
+    });
+
+    it('el aggregate del vendedor solo cuenta la verificada; unverifiedCount refleja la otra', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/users/${d3SellerSlug}/reviews`)
+        .expect(200);
+      expect(res.body.count).toBe(1);
+      expect(res.body.average).toBe(4);
+      expect(res.body.unverifiedCount).toBe(1);
+      expect(res.body.items).toHaveLength(2);
+    });
+
+    it('un vendedor que fabrica un Deal declarado consigo mismo (sockpuppet) no sube su media', async () => {
+      const sockpuppet = await prisma.user.create({
+        data: {
+          email: 'rv3-sockpuppet@example.com',
+          name: 'RV3 Sockpuppet',
+          slug: 'rv3-sockpuppet',
+          passwordHash: await bcrypt.hash('Test1234!', 4),
+          emailVerified: true,
+        },
+      });
+      await prisma.deal.create({
+        data: {
+          listingId: d3ListingId,
+          listingTitle: 'Fontanero RV3',
+          sellerId: d3SellerId,
+          buyerId: sockpuppet.id,
+          conversationId: null, // declarado — nadie verificó que hubo trato real
+        },
+      });
+      const loginRes = await request(app.getHttpServer())
+        .post('/api/auth/login')
+        .send({ email: 'rv3-sockpuppet@example.com', password: 'Test1234!' });
+      const sockpuppetToken = loginRes.body.accessToken as string;
+
+      await request(app.getHttpServer())
+        .post('/api/reviews')
+        .set('Authorization', `Bearer ${sockpuppetToken}`)
+        .send({ rating: 5, comment: '¡El mejor fontanero del mundo!', listingId: d3ListingId, targetId: d3SellerId })
+        .expect(201);
+
+      const after = await request(app.getHttpServer())
+        .get(`/api/users/${d3SellerSlug}/reviews`)
+        .expect(200);
+      // La media sigue en 4 (solo la review verificada cuenta) — el intento de
+      // inflarla con un Deal declarado fabricado no tuvo ningún efecto.
+      expect(after.body.average).toBe(4);
+      expect(after.body.count).toBe(1);
+      expect(after.body.unverifiedCount).toBe(2);
+    });
+
+    it('repetir el trato con el mismo comprador NO habilita una segunda review (una por par)', async () => {
+      // Un segundo Deal declarado con el mismo comprador — el vector que
+      // dealId-como-ancla habría abierto.
+      await prisma.deal.create({
+        data: {
+          listingId: d3ListingId,
+          listingTitle: 'Fontanero RV3',
+          sellerId: d3SellerId,
+          buyerId: d3DeclaredBuyerId,
+          conversationId: null,
+        },
+      });
+      const elig = await request(app.getHttpServer())
+        .get(`/api/reviews/eligibility?listingId=${d3ListingId}&targetId=${d3SellerId}`)
+        .set('Authorization', `Bearer ${d3DeclaredBuyerToken}`)
+        .expect(200);
+      expect(elig.body.canReview).toBe(false);
+      expect(elig.body.alreadyReviewed).toBe(true);
+
+      await request(app.getHttpServer())
+        .post('/api/reviews')
+        .set('Authorization', `Bearer ${d3DeclaredBuyerToken}`)
+        .send({ rating: 1, listingId: d3ListingId, targetId: d3SellerId })
+        .expect(409);
+    });
+
+    it('una review no verificada que luego consigue una Conversation NO se recalcula', async () => {
+      // El comprador declarado ahora SÍ conversa con el vendedor — su review
+      // ya existente debe seguir false, congelada desde que se creó.
+      await request(app.getHttpServer())
+        .post('/api/conversations')
+        .set('Authorization', `Bearer ${d3DeclaredBuyerToken}`)
+        .send({ listingId: d3ListingId, message: 'Ahora sí, hola' })
+        .expect(201);
+
+      const review = await prisma.review.findUniqueOrThrow({ where: { id: declaredReviewId } });
+      expect(review.verified).toBe(false);
+    });
+
+    it('bidireccional: el vendedor puede valorar al comprador verificado', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/api/reviews')
+        .set('Authorization', `Bearer ${d3SellerToken}`)
+        .send({ rating: 5, comment: 'Cliente puntual', listingId: d3ListingId, targetId: d3VerifiedBuyerId })
+        .expect(201);
+      expect(res.body.authorId).toBe(d3SellerId);
+      expect(res.body.targetId).toBe(d3VerifiedBuyerId);
+      expect(res.body.verified).toBe(true);
     });
   });
 });

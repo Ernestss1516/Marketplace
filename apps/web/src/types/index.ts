@@ -406,12 +406,18 @@ export interface Review {
   // conserva el título como snapshot para dar contexto igualmente.
   listingId: string | null;
   listingTitle: string | null;
+  /** Reputación RÁFAGA 3 — congelado al crear (ver Review.verified en el backend).
+   * true = cuenta para average/count/distribution; false = solo aparece en la lista. */
+  verified: boolean;
 }
 
 export interface ReviewsPageResponse {
   average: number | null;
   count: number;
   distribution: Record<string, number>;
+  /** Reputación RÁFAGA 3 — reseñas no verificadas para este usuario, fuera de
+   * average/count/distribution pero presentes en `items`. */
+  unverifiedCount: number;
   items: Review[];
   nextCursor: string | null;
 }
@@ -438,7 +444,7 @@ export interface Post extends PostSummary {
 
 // ── Notifications ────────────────────────────────────────────────────────────
 
-export type NotificationType = 'ALERT_MATCH' | 'CONTACT_MESSAGE';
+export type NotificationType = 'ALERT_MATCH' | 'CONTACT_MESSAGE' | 'REVIEW_REQUEST';
 
 /** Self-contained snapshot — mirrors AlertMatchData in the backend. */
 export interface AlertMatchData {
@@ -457,6 +463,16 @@ export interface ContactMessageData {
   extracto: string;
 }
 
+/** Self-contained snapshot — mirrors ReviewRequestData in the backend (Reputación RÁFAGA 3). */
+export interface ReviewRequestData {
+  dealId: string;
+  listingId: string | null;
+  listingTitle: string;
+  otherUserId: string;
+  otherUserName: string;
+  otherUserSlug: string;
+}
+
 interface NotificationBase {
   id: string;
   userId: string;
@@ -467,7 +483,8 @@ interface NotificationBase {
 
 export type NotificationItem =
   | (NotificationBase & { type: 'ALERT_MATCH'; data: AlertMatchData })
-  | (NotificationBase & { type: 'CONTACT_MESSAGE'; data: ContactMessageData });
+  | (NotificationBase & { type: 'CONTACT_MESSAGE'; data: ContactMessageData })
+  | (NotificationBase & { type: 'REVIEW_REQUEST'; data: ReviewRequestData });
 
 export interface NotificationsResponse {
   items: NotificationItem[];

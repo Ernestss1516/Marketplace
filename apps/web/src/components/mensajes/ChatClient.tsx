@@ -284,6 +284,7 @@ export function ChatClient({ initialData, token, userId }: Props) {
         targetId={targetId}
         token={token}
         onSuccess={() => void fetchEligibility()}
+        wouldBeVerified={eligibility?.wouldBeVerified}
       />
     </>
   );

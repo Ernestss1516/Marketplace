@@ -1,4 +1,4 @@
-export type NotificationType = 'ALERT_MATCH' | 'CONTACT_MESSAGE';
+export type NotificationType = 'ALERT_MATCH' | 'CONTACT_MESSAGE' | 'REVIEW_REQUEST';
 
 /** Self-contained snapshot stored in Notification.data — see schema.prisma comment. */
 export interface AlertMatchData {
@@ -17,4 +17,17 @@ export interface ContactMessageData {
   motivo: string;
   email: string;
   extracto: string;
+}
+
+/** Reputación RÁFAGA 3 — self-contained, mismo criterio que AlertMatchData:
+ * sobrevive aunque el Deal/Listing cambien después. dealId no es necesario
+ * para acceder al recurso (a diferencia de alertId/messageId, no hay una
+ * página propia de "el Deal") — solo para trazabilidad. */
+export interface ReviewRequestData {
+  dealId: string;
+  listingId: string | null;
+  listingTitle: string;
+  otherUserId: string;
+  otherUserName: string;
+  otherUserSlug: string;
 }

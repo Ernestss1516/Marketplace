@@ -632,16 +632,17 @@ model Deal {
   id String @id @default(cuid())
 
   // Nullable + SetNull, mismo molde que Review.listingId: un Deal es evidencia
-  // de reputación (pensado para que la ráfaga 2 lo consulte igual que hoy
-  // consulta Conversation) y no debe desaparecer si el anuncio se borra
-  // después. listingTitle conserva el contexto, igual que Review.listingTitle.
+  // de reputación (RÁFAGA 3 lo consulta en vez de Conversation — ver
+  // ReviewsService.getEligibility/create) y no debe desaparecer si el
+  // anuncio se borra después. listingTitle conserva el contexto, igual que
+  // Review.listingTitle.
   listingId    String?
   listing      Listing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
   listingTitle String
 
   // Denormalizados — mismo criterio que Conversation.sellerId (derivable de
   // listing.sellerId y aun así guardado aparte): evita joins para "mis tratos
-  // como vendedor" y es el shape que la ráfaga 2 necesita para sustituir la
+  // como vendedor" y es el shape que RÁFAGA 3 usa para sustituir la
   // búsqueda por Conversation en reviews.service.ts sin cambiar su forma.
   sellerId String
   seller   User   @relation("DealSeller", fields: [sellerId], references: [id], onDelete: Cascade)
@@ -694,10 +695,24 @@ model Review {
   // null hasta la primera edición; frontend muestra indicador "Editada" cuando no es null
   editedAt  DateTime?
 
+  /// Reputación RÁFAGA 3 — congelado al crear, NUNCA recalculado (ni por
+  /// edit(), ni por ningún otro endpoint): true si en ese momento existía
+  /// AL MENOS UN Deal verificable (conversationId != null) entre autor y
+  /// objetivo sobre este listing. Solo las verified=true cuentan para
+  /// average/count/distribution en listForUser(); las no verificadas se
+  /// muestran igual en la lista pública, etiquetadas. @default(true) es
+  /// grandfathering deliberado: las reseñas creadas antes de esta ráfaga
+  /// (bajo el gate viejo de Conversation) cuentan como contaban, sin backfill.
+  verified Boolean @default(true)
+
   reports Report[]
 
-  // [authorId, targetId, listingId] permite bidireccionalidad:
-  // buyer→seller y seller→buyer son filas distintas sobre el mismo anuncio.
+  // [authorId, targetId, listingId] permite bidireccionalidad (buyer→seller y
+  // seller→buyer son filas distintas) Y limita a una review por par por
+  // listing — deliberado (RÁFAGA 3): NO se ancla a un Deal concreto
+  // (sin dealId) precisamente para que repetir tratos con el mismo par
+  // (Deal no tiene límite de repetición) no multiplique el peso de una
+  // review. Ver ReviewsService.getEligibility/create.
   @@unique([authorId, targetId, listingId])
   @@index([targetId])
   @@index([listingId])

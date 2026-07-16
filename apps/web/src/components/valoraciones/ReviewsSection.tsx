@@ -1,5 +1,6 @@
-import { Star, MessageSquare } from 'lucide-react';
+import { Star, MessageSquare, ShieldCheck } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
 import type { ReviewsPageResponse, Review } from '@/types';
 import { ReviewReportButton } from './ReviewReportButton';
 
@@ -57,11 +58,16 @@ function ReviewCard({ review }: { review: Review }) {
         </Avatar>
         <div className="flex-1 min-w-0">
           <p className="truncate text-sm font-medium">{review.author.name}</p>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Stars value={review.rating} size="sm" />
             <span className="text-xs text-muted-foreground">{date}</span>
             {review.editedAt && (
               <span className="text-xs text-muted-foreground italic">· Editada</span>
+            )}
+            {!review.verified && (
+              <Badge variant="outline" className="text-[10px] font-normal text-muted-foreground">
+                No verificada
+              </Badge>
             )}
           </div>
         </div>
@@ -92,7 +98,11 @@ interface ReviewsSectionProps {
 }
 
 export function ReviewsSection({ data, sellerName }: ReviewsSectionProps) {
-  const { average, count, distribution, items } = data;
+  const { average, count, distribution, unverifiedCount, items } = data;
+  // count (verificadas) + unverifiedCount = total real de valoraciones — ni
+  // "count" solo ni "items.length" (paginado) sirven para saber si hay
+  // ALGO que mostrar (Reputación RÁFAGA 3: count ya solo cuenta verificadas).
+  const totalCount = count + unverifiedCount;
 
   return (
     <section aria-labelledby="reviews-heading">
@@ -100,14 +110,14 @@ export function ReviewsSection({ data, sellerName }: ReviewsSectionProps) {
         <h2 id="reviews-heading" className="text-lg font-semibold">
           Valoraciones
         </h2>
-        {count > 0 && (
+        {totalCount > 0 && (
           <span className="text-sm text-muted-foreground">
-            {count} {count === 1 ? 'valoración' : 'valoraciones'}
+            {totalCount} {totalCount === 1 ? 'valoración' : 'valoraciones'}
           </span>
         )}
       </div>
 
-      {count === 0 ? (
+      {totalCount === 0 ? (
         <div className="flex flex-col items-center py-16 text-center">
           <MessageSquare className="mb-4 h-10 w-10 text-muted-foreground/40" aria-hidden />
           <p className="text-sm text-muted-foreground">
@@ -116,33 +126,47 @@ export function ReviewsSection({ data, sellerName }: ReviewsSectionProps) {
         </div>
       ) : (
         <>
-          {/* Aggregate */}
-          <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-8">
-            {/* Average + stars */}
-            <div className="flex flex-col items-center gap-1 sm:items-start">
-              <span className="text-4xl font-bold tabular-nums">
-                {average?.toFixed(1)}
-              </span>
-              <Stars value={average ?? 0} size="lg" />
-              <span className="text-sm text-muted-foreground">
-                de 5 estrellas
-              </span>
-            </div>
+          {/* Aggregate — solo valoraciones verificadas (Reputación RÁFAGA 3) */}
+          {count > 0 ? (
+            <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-8">
+              {/* Average + stars */}
+              <div className="flex flex-col items-center gap-1 sm:items-start">
+                <span className="text-4xl font-bold tabular-nums">
+                  {average?.toFixed(1)}
+                </span>
+                <Stars value={average ?? 0} size="lg" />
+                <span className="flex items-center gap-1 text-sm text-muted-foreground">
+                  <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
+                  de 5 estrellas, {count} verificada{count === 1 ? '' : 's'}
+                </span>
+              </div>
 
-            {/* Distribution bars */}
-            <div className="flex-1 space-y-1.5 pt-1">
-              {['5', '4', '3', '2', '1'].map((star) => (
-                <DistributionBar
-                  key={star}
-                  label={star}
-                  count={distribution[star] ?? 0}
-                  total={count}
-                />
-              ))}
+              {/* Distribution bars */}
+              <div className="flex-1 space-y-1.5 pt-1">
+                {['5', '4', '3', '2', '1'].map((star) => (
+                  <DistributionBar
+                    key={star}
+                    label={star}
+                    count={distribution[star] ?? 0}
+                    total={count}
+                  />
+                ))}
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="mb-6 rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+              {sellerName} todavía no tiene valoraciones verificadas.
+            </div>
+          )}
 
-          {/* Review list */}
+          {unverifiedCount > 0 && (
+            <p className="mb-4 text-xs text-muted-foreground">
+              +{unverifiedCount} valoración{unverifiedCount === 1 ? '' : 'es'} no verificada
+              {unverifiedCount === 1 ? '' : 's'} (no {unverifiedCount === 1 ? 'cuenta' : 'cuentan'} para la media).
+            </p>
+          )}
+
+          {/* Review list — verificadas y no verificadas, cada una etiquetada */}
           <div className="space-y-3">
             {items.map((review) => (
               <ReviewCard key={review.id} review={review} />

@@ -22,13 +22,15 @@ import {
 } from './listing-phone.constants';
 import { EntitlementType, Prisma } from '@prisma/client';
 import type { Deal, Listing, ListingStatus, ListingType, PriceType } from '@prisma/client';
-import { QUEUE_INDEXING } from '../../infra/queue/queue.constants';
+import { QUEUE_INDEXING, QUEUE_NOTIFICATIONS } from '../../infra/queue/queue.constants';
+import { NOTIFICATION_JOB, SendReviewRequestEmailData } from '../../infra/queue/notification.types';
 import { isP2002 } from '../../common/prisma/is-p2002';
 import { ExpirationService } from '../expiration/expiration.service';
 import { EntitlementService } from '../billing/entitlement.service';
 import { BadWordService } from '../moderation/bad-word.service';
 import { ListingActivationService } from '../listing-activation/listing-activation.service';
 import { MessagingService } from '../messaging/messaging.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   AttributeField,
   resolveEffectiveSchema,
@@ -114,10 +116,12 @@ export class ListingsService {
     private readonly redis: RedisService,
     private readonly rateLimit: RateLimitService,
     @InjectQueue(QUEUE_INDEXING) private readonly indexingQueue: Queue,
+    @InjectQueue(QUEUE_NOTIFICATIONS) private readonly notificationQueue: Queue,
     private readonly badWordService: BadWordService,
     private readonly entitlementService: EntitlementService,
     private readonly activation: ListingActivationService,
     private readonly messaging: MessagingService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async create(sellerId: string, dto: CreateListingDto): Promise<Listing> {
@@ -495,7 +499,18 @@ export class ListingsService {
 
     let deal: Deal | null = null;
     if (dto.buyerId) {
-      const buyer = await this.prisma.user.findUnique({ where: { id: dto.buyerId }, select: { id: true } });
+      // Trae ambas partes de una vez — nombre+email hacen falta para el
+      // aviso de reputación de abajo, no solo para validar que el comprador existe.
+      const [buyer, seller] = await Promise.all([
+        this.prisma.user.findUnique({
+          where: { id: dto.buyerId },
+          select: { id: true, name: true, email: true, slug: true },
+        }),
+        this.prisma.user.findUniqueOrThrow({
+          where: { id: sellerId },
+          select: { id: true, name: true, email: true, slug: true },
+        }),
+      ]);
       if (!buyer) throw new NotFoundException('Comprador no encontrado');
 
       // El backend enlaza la conversación por sí mismo a partir de los hechos —
@@ -517,6 +532,45 @@ export class ListingsService {
           conversationId: conversation?.id ?? null,
         },
       });
+
+      // Reputación RÁFAGA 3 — aviso bidireccional a ambas partes, in-app +
+      // email, mismo patrón que ContactService.submitMessage() (dispatches
+      // independientes, uno puede fallar sin bloquear el otro). Sin
+      // deduplicar entre Deals distintos del mismo par — cada trato es un
+      // evento real nuevo, no un reenvío del mismo evento (a diferencia de
+      // ALERT_MATCH). Copy sin presión, sin plazo (ventana indefinida).
+      await Promise.all([
+        this.notifications.createNotification(sellerId, 'REVIEW_REQUEST', {
+          dealId: deal.id,
+          listingId: id,
+          listingTitle: existing.title,
+          otherUserId: buyer.id,
+          otherUserName: buyer.name,
+          otherUserSlug: buyer.slug,
+        }),
+        this.notifications.createNotification(buyer.id, 'REVIEW_REQUEST', {
+          dealId: deal.id,
+          listingId: id,
+          listingTitle: existing.title,
+          otherUserId: sellerId,
+          otherUserName: seller.name,
+          otherUserSlug: seller.slug,
+        }),
+        this.notificationQueue.add(NOTIFICATION_JOB.SEND_REVIEW_REQUEST_EMAIL, {
+          email: seller.email,
+          name: seller.name,
+          otherUserName: buyer.name,
+          listingTitle: existing.title,
+          listingSlug: existing.slug,
+        } satisfies SendReviewRequestEmailData),
+        this.notificationQueue.add(NOTIFICATION_JOB.SEND_REVIEW_REQUEST_EMAIL, {
+          email: buyer.email,
+          name: buyer.name,
+          otherUserName: seller.name,
+          listingTitle: existing.title,
+          listingSlug: existing.slug,
+        } satisfies SendReviewRequestEmailData),
+      ]);
     }
 
     const newStatus: ListingStatus = existing.type === 'PRODUCT' ? 'SOLD' : 'ACTIVE';

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Star, Loader2 } from 'lucide-react';
+import { Star, Loader2, ShieldCheck, ShieldAlert } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -31,6 +31,10 @@ interface ReviewModalProps {
   /** Pre-fill values when editing */
   initialRating?: number;
   initialComment?: string;
+  /** Reputación RÁFAGA 3 — si el trato que habilita esta valoración es
+   * verificable (hubo conversación) o no; solo se muestra en modo crear
+   * (verified se congela al crear, no cambia al editar). */
+  wouldBeVerified?: boolean;
 }
 
 function StarSelector({ value, onChange }: { value: number; onChange: (v: number) => void }) {
@@ -80,6 +84,7 @@ export function ReviewModal({
   onSuccess,
   initialRating = 0,
   initialComment = '',
+  wouldBeVerified,
 }: ReviewModalProps) {
   const isEdit = !!existingReviewId;
   const { run } = useApiAction();
@@ -153,6 +158,22 @@ export function ReviewModal({
               : `Comparte tu experiencia con ${targetName}.`}
           </DialogDescription>
         </DialogHeader>
+
+        {!isEdit && wouldBeVerified !== undefined && !done && (
+          <p className="flex items-center gap-1.5 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+            {wouldBeVerified ? (
+              <>
+                <ShieldCheck className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                Se marcará como verificada — contará para la media de {targetName}.
+              </>
+            ) : (
+              <>
+                <ShieldAlert className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                Se marcará como no verificada — se mostrará, pero no cuenta para la media.
+              </>
+            )}
+          </p>
+        )}
 
         {done ? (
           <div className="flex flex-col items-center gap-3 py-6 text-center">

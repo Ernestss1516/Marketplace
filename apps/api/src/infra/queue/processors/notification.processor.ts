@@ -11,6 +11,7 @@ import {
   SendContactNotificationData,
   SendContactReplyData,
   SendResetEmailData,
+  SendReviewRequestEmailData,
   SendVerificationEmailData,
 } from '../notification.types';
 
@@ -41,6 +42,8 @@ export class NotificationProcessor extends WorkerHost {
           return this.sendContactNotification(job.data as SendContactNotificationData);
         case NOTIFICATION_JOB.SEND_CONTACT_REPLY:
           return this.sendContactReply(job.data as SendContactReplyData);
+        case NOTIFICATION_JOB.SEND_REVIEW_REQUEST_EMAIL:
+          return this.sendReviewRequestEmail(job.data as SendReviewRequestEmailData);
         default:
           this.logger.warn(`Unknown notification job: ${job.name}`);
       }
@@ -106,5 +109,19 @@ export class NotificationProcessor extends WorkerHost {
       text: data.cuerpo,
     });
     this.logger.log(`Contact reply email sent to ${data.to}`);
+  }
+
+  /** Reputación RÁFAGA 3 — copy deliberadamente sin presión ni plazo: valorar
+   * es opcional, sin ventana de tiempo. Un job por parte (ver closeDeal en
+   * ListingsService), igual que SEND_CONTACT_NOTIFICATION es un job por admin. */
+  private async sendReviewRequestEmail(data: SendReviewRequestEmailData): Promise<void> {
+    const link = `${this.appUrl}/anuncio/${data.listingSlug}`;
+    await this.resend.emails.send({
+      from: this.from,
+      to: data.email,
+      subject: `${data.otherUserName} cerró un trato contigo`,
+      text: `Hola ${data.name},\n\n${data.otherUserName} cerró un trato contigo sobre "${data.listingTitle}". Si quieres, puedes dejar tu valoración:\n${link}\n\nEs totalmente opcional.`,
+    });
+    this.logger.log(`Review request email sent to ${data.email}`);
   }
 }
