@@ -62,6 +62,5 @@ contactar para comprar/vender productos y servicios. Es una plataforma
 
 ## Documentación de referencia
 - `docs/estado-tecnico.md` — estado real implementado: módulos, decisiones técnicas, deuda pendiente.
-- `docs/Hoja_de_ruta_rafagas_Hito2.docx` — plan vigente de trabajo.
 - `docs/contratos-api.md` — resumen de alto nivel de la API; detalle en Swagger (`/api/docs`).
 - El resto de `docs/` contiene documentos de diseño y planificación del MVP (históricos).
