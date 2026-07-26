@@ -25,6 +25,9 @@ export type Condition = 'NEW' | 'LIKE_NEW' | 'GOOD' | 'FAIR' | 'FOR_PARTS';
 
 export type Role = 'USER' | 'MODERATOR' | 'ADMIN';
 
+/** RF.13 — tipo fiscal del receptor de facturas. Mirror del enum de Prisma. */
+export type FiscalEntityType = 'INDIVIDUAL' | 'SELF_EMPLOYED' | 'COMPANY';
+
 // ── Users ────────────────────────────────────────────────────────────────────
 
 export interface User {
@@ -40,6 +43,16 @@ export interface User {
   postalCode?: string;
   role: Role;
   emailVerified: boolean;
+  // Datos fiscales (RF.13) — para facturación. Opcionales hasta que el usuario
+  // los rellene en /perfil/facturacion.
+  fiscalTaxId?: string;
+  fiscalName?: string;
+  fiscalEntityType?: FiscalEntityType;
+  fiscalAddress?: string;
+  fiscalCity?: string;
+  fiscalPostalCode?: string;
+  fiscalProvince?: string;
+  fiscalCountry?: string;
 }
 
 export interface UserPublic {

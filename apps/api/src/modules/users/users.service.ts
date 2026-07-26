@@ -16,6 +16,15 @@ const PRIVATE_PROFILE_SELECT = {
   postalCode: true,
   emailVerified: true,
   role: true,
+  // Datos fiscales (RF.13) — para precargar el formulario de /perfil/facturacion.
+  fiscalTaxId: true,
+  fiscalName: true,
+  fiscalEntityType: true,
+  fiscalAddress: true,
+  fiscalCity: true,
+  fiscalPostalCode: true,
+  fiscalProvince: true,
+  fiscalCountry: true,
 } as const;
 
 @Injectable()

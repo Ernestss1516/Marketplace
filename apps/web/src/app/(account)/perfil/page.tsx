@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
-import { AlertCircle, Heart, MessageSquare, Package } from 'lucide-react';
+import { AlertCircle, Heart, MessageSquare, Package, Receipt } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -80,6 +80,12 @@ export default async function PerfilPage() {
             <Link href="/favoritos">
               <Heart className="mr-2 h-4 w-4" />
               Favoritos
+            </Link>
+          </Button>
+          <Button variant="outline" asChild>
+            <Link href="/perfil/facturacion">
+              <Receipt className="mr-2 h-4 w-4" />
+              Datos de facturación
             </Link>
           </Button>
         </div>

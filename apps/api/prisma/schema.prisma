@@ -211,6 +211,48 @@ enum CampaignType {
   BUMP_BONUS // Campaña #10 — bonus de bumps al comprar un BumpPack, espejo de CREDIT_BONUS (moneda distinta)
 }
 
+// ============================================================================
+//  ENUMS DE FACTURACIÓN FISCAL (emisión de facturas — RF.13)
+// ============================================================================
+// Capa SEPARADA de la de cobros. La EMISIÓN conforme (número correlativo,
+// VeriFactu, PDF válido) la aporta un proveedor homologado externo tras la
+// interfaz InvoicingProvider; estos enums modelan solo lo que guardamos NOSOTROS.
+// El sistema NO afirma conformidad fiscal por sí mismo. Ver diseno-facturacion.md §13.
+
+/// Tipo fiscal del receptor de una factura. El conjunto exacto que exige una
+/// factura española lo valida Ernest con su asesor; esto es la estructura.
+enum FiscalEntityType {
+  INDIVIDUAL // Particular
+  SELF_EMPLOYED // Autónomo
+  COMPANY // Empresa / persona jurídica
+}
+
+/// Tipo de factura. Una rectificativa NO edita la original (inmutable): es una
+/// factura nueva que la referencia (Invoice.rectifiesInvoiceId).
+enum InvoiceType {
+  ORDINARY // Factura ordinaria
+  RECTIFICATIVE // Factura rectificativa (corrige una anterior)
+}
+
+/// Estado de una factura. DRAFT → ISSUED es un latch de un solo sentido: una vez
+/// ISSUED la factura es INMUTABLE (sin update de número/importe/datos). FAILED =
+/// la emisión vía proveedor no pudo completarse; reintentable sin duplicar.
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  FAILED
+}
+
+/// Origen de la emisión. AUTO_PERIODIC = cron de cierre de periodo (periodicidad
+/// CONFIGURABLE vía Setting, NO fija en trimestral — la decide el asesor);
+/// USER_REQUESTED = emisión manual del usuario dentro de la ventana; ADMIN =
+/// emisión/rectificación desde el backoffice.
+enum InvoiceOrigin {
+  AUTO_PERIODIC
+  USER_REQUESTED
+  ADMIN
+}
+
 /// Motivo de una denuncia, para la cola de moderación.
 enum ReportReason {
   SPAM
@@ -268,6 +310,20 @@ model User {
   /// Referencia al Customer de Stripe; null hasta el primer pago
   stripeCustomerId String? @unique
 
+  // --- Datos fiscales (receptor de facturas — RF.13). Editables por el usuario;
+  // se CONGELAN (copia, no referencia) en cada Invoice al emitir: si el usuario
+  // cambia su NIF después, la factura ya emitida conserva el de su momento.
+  // Bloque SEPARADO de city/province/postalCode (esos son ubicación pública). El
+  // conjunto mínimo exacto que exige una factura española lo valida el asesor.
+  fiscalTaxId      String? // NIF / DNI / CIF
+  fiscalName       String? // Razón social o nombre y apellidos fiscales
+  fiscalEntityType FiscalEntityType?
+  fiscalAddress    String? // Vía y número
+  fiscalCity       String?
+  fiscalPostalCode String?
+  fiscalProvince   String?
+  fiscalCountry    String? @default("ES")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -298,6 +354,7 @@ model User {
   notifications       Notification[]
   alerts              Alert[]
   contactReplies      ContactReply[]       @relation("ContactReplyAdmin")
+  invoices            Invoice[]
 
   @@index([status])
 }
@@ -808,7 +865,10 @@ model AuditLog {
 
 /// Configuración del sistema editable desde el backoffice sin despliegue.
 /// Keys conocidas: badWordList (string[]), listingExpiryDays (number),
-/// contactRequiresVerification (boolean).
+/// contactRequiresVerification (boolean), fiscalIssuer (datos fiscales del
+/// EMISOR de facturas: { taxId, fiscalName, address, city, postalCode, province,
+/// country } — RF.13; se congela en cada Invoice al emitir), fiscalSelfServiceWindow
+/// (ventana de autoservicio de facturación — RF.13; su valor fiscal lo fija el asesor).
 /// Sembradas en seed.ts con createMany + skipDuplicates para no pisar valores
 /// que el admin haya cambiado manualmente.
 model Setting {
@@ -1045,6 +1105,10 @@ model Transaction {
   listing   Listing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
 
   entitlements Entitlement[]
+
+  /// Factura que incluye este cobro (RF.13). Null = aún sin facturar. Relación
+  /// 1:1 vía InvoiceLine.transactionId @unique — guard duro anti-doble-facturación.
+  invoiceLine InvoiceLine?
 
   /// Créditos extra congelados en el checkout para usuarios Pro. Null = sin bonus.
   /// Calculado en createCreditPackCheckout; el RedsysProcessor lo lee sin recalcular.
@@ -1626,4 +1690,119 @@ model ContactReply {
   sentAt           DateTime       @default(now())
 
   @@index([contactMessageId])
+}
+
+// ============================================================================
+//  FACTURACIÓN FISCAL — EMISIÓN DE FACTURAS (RF.13)
+// ============================================================================
+// Capa SEPARADA de la de cobros: Transaction registra el COBRO; Invoice es el
+// DOCUMENTO FISCAL que lo acredita. La emisión conforme la aporta un proveedor
+// homologado externo tras InvoicingProvider — nosotros orquestamos, congelamos
+// los datos y guardamos el resultado (número, PDF, VeriFactu). El sistema NO
+// afirma conformidad fiscal por sí mismo. Ver docs/diseno-facturacion.md §13.
+
+/// Factura emitida. APPEND-ONLY e INMUTABLE una vez ISSUED. El número NO lo
+/// generamos nosotros: lo asigna el proveedor (correlativo garantizado por él) y
+/// es null hasta emitir. Una factura agrupa 1..N Transactions (recapitulativa;
+/// 1:1 = una sola línea). Corrección = rectificativa nueva (rectifiesInvoiceId),
+/// nunca UPDATE de esta. El bloqueo de UPDATE post-ISSUED se refuerza a nivel de
+/// BD/middleware en R2 (no solo en la capa de servicio).
+model Invoice {
+  id String @id @default(cuid())
+
+  /// Número correlativo asignado por el PROVEEDOR. Null hasta ISSUED. Único.
+  number String? @unique
+  /// Serie/ejercicio del proveedor, si aplica (el proveedor es dueño de la serie).
+  series String?
+
+  type   InvoiceType   @default(ORDINARY)
+  status InvoiceStatus @default(DRAFT)
+  origin InvoiceOrigin
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  // --- Receptor CONGELADO (copia en el momento de emitir) ---
+  receiverTaxId      String?
+  receiverName       String?
+  receiverEntityType FiscalEntityType?
+  receiverAddress    String?
+  receiverCity       String?
+  receiverPostalCode String?
+  receiverProvince   String?
+  receiverCountry    String?
+
+  // --- Emisor CONGELADO (copia de Setting fiscalIssuer en el momento de emitir) ---
+  issuerTaxId      String?
+  issuerName       String?
+  issuerAddress    String?
+  issuerCity       String?
+  issuerPostalCode String?
+  issuerProvince   String?
+  issuerCountry    String?
+
+  // --- Totales CONGELADOS (suma de líneas; provienen de Transaction) ---
+  currency    String  @default("EUR")
+  subtotalNet Decimal @db.Decimal(10, 2)
+  totalTax    Decimal @db.Decimal(10, 2)
+  totalGross  Decimal @db.Decimal(10, 2)
+
+  /// Periodo de OPERACIÓN al que corresponde (ej. "2026-Q3" o "2026-07"), para
+  /// agrupar/filtrar. Distinto de issuedAt (fecha de EMISIÓN): la emisión puede
+  /// caer en otro trimestre o año que la operación.
+  periodKey String?
+
+  /// Fecha de emisión. Null hasta ISSUED.
+  issuedAt DateTime?
+
+  // --- Resultado del PROVEEDOR (referencias, no las generamos) ---
+  pdfKey        String? // Clave PRIVADA en R2 (nunca URL pública)
+  verifactuHash String?
+  verifactuQr   String? @db.Text
+  providerRef   String? // Id/eco de idempotencia del proveedor
+
+  // --- Rectificativa: vínculo a la original (no re-lía Transactions) ---
+  rectifiesInvoiceId String?
+  rectifies          Invoice?  @relation("Rectification", fields: [rectifiesInvoiceId], references: [id])
+  rectifiedBy        Invoice[] @relation("Rectification")
+
+  /// Guard de idempotencia de la emisión automática: "userId:periodKey" en
+  /// AUTO_PERIODIC (null en el resto). @unique ⇒ dos jobs del mismo usuario+periodo
+  /// no pueden crear dos facturas. Ver diseño §C (triple guard).
+  idempotencyKey String? @unique
+
+  lines InvoiceLine[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([periodKey])
+  @@index([issuedAt])
+}
+
+/// Línea de factura = un cobro (Transaction) facturado, con su snapshot CONGELADO.
+/// transactionId es @unique: una Transaction cabe en UNA sola línea — es el guard
+/// duro anti-doble-facturación a nivel de BD (invariante como bumpBalance==SUM,
+/// pero fiscal). Una rectificativa referencia la factura original, NO re-crea
+/// líneas sobre las mismas Transactions.
+model InvoiceLine {
+  id        String  @id @default(cuid())
+  invoiceId String
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  transactionId String      @unique
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+
+  /// Concepto legible congelado ("Suscripción Pro", "Pack 150 créditos", "Destacado 30d").
+  concept       String
+  amountNet     Decimal  @db.Decimal(10, 2)
+  taxAmount     Decimal  @db.Decimal(10, 2)
+  taxRate       Decimal  @db.Decimal(5, 4)
+  amountGross   Decimal  @db.Decimal(10, 2)
+  /// Fecha del cobro (Transaction.createdAt), congelada.
+  operationDate DateTime
+
+  @@index([invoiceId])
 }

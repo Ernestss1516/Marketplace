@@ -20,7 +20,26 @@ export function getSellerProfile(slug: string): Promise<UserPublic> {
 }
 
 export function updateMe(
-  data: Partial<Pick<User, 'name' | 'phone' | 'avatarUrl' | 'bio' | 'city' | 'province' | 'postalCode'>>,
+  data: Partial<
+    Pick<
+      User,
+      | 'name'
+      | 'phone'
+      | 'avatarUrl'
+      | 'bio'
+      | 'city'
+      | 'province'
+      | 'postalCode'
+      | 'fiscalTaxId'
+      | 'fiscalName'
+      | 'fiscalEntityType'
+      | 'fiscalAddress'
+      | 'fiscalCity'
+      | 'fiscalPostalCode'
+      | 'fiscalProvince'
+      | 'fiscalCountry'
+    >
+  >,
   token: string,
 ): Promise<User> {
   return apiFetch<User>('/users/me', {
