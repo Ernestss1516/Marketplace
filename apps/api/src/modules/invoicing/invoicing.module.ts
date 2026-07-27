@@ -3,12 +3,15 @@ import { ConfigService } from '@nestjs/config';
 import { BullModule } from '@nestjs/bullmq';
 import { QUEUE_INVOICING, retryQueue } from '../../infra/queue/queue.constants';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { AuditLogModule } from '../audit-log/audit-log.module';
 import { INVOICING_PROVIDER, InvoicingProvider } from './invoicing.types';
 import { StubInvoicingProvider } from './providers/stub-invoicing.provider';
 import { InvoicingService } from './invoicing.service';
 import { InvoicingController } from './invoicing.controller';
 import { InvoiceProcessor } from './invoice.processor';
 import { InvoicingScheduleService } from './invoicing-schedule.service';
+import { AdminInvoicingController } from './admin-invoicing.controller';
+import { AdminInvoicingService } from './admin-invoicing.service';
 
 /**
  * InvoicingModule — cablea el puerto INVOICING_PROVIDER (RF.13).
@@ -31,8 +34,10 @@ import { InvoicingScheduleService } from './invoicing-schedule.service';
     BullModule.registerQueue(retryQueue(QUEUE_INVOICING)),
     // NotificationsService: aviso in-app a usuarios con facturables sin datos fiscales.
     NotificationsModule,
+    // AuditLogService: registrar el cambio del emisor fiscal (dato sensible).
+    AuditLogModule,
   ],
-  controllers: [InvoicingController],
+  controllers: [InvoicingController, AdminInvoicingController],
   providers: [
     StubInvoicingProvider,
     {
@@ -54,6 +59,7 @@ import { InvoicingScheduleService } from './invoicing-schedule.service';
     InvoicingService,
     InvoiceProcessor,
     InvoicingScheduleService,
+    AdminInvoicingService,
   ],
   exports: [INVOICING_PROVIDER, InvoicingService, InvoicingScheduleService],
 })
