@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { INVOICING_PROVIDER, InvoicingProvider } from './invoicing.types';
 import { StubInvoicingProvider } from './providers/stub-invoicing.provider';
+import { InvoicingService } from './invoicing.service';
+import { InvoicingController } from './invoicing.controller';
 
 /**
  * InvoicingModule — cablea el puerto INVOICING_PROVIDER (RF.13).
@@ -17,6 +19,7 @@ import { StubInvoicingProvider } from './providers/stub-invoicing.provider';
  * El resto del sistema NO cambia: habla solo con el token, nunca con la clase.
  */
 @Module({
+  controllers: [InvoicingController],
   providers: [
     StubInvoicingProvider,
     {
@@ -35,7 +38,8 @@ import { StubInvoicingProvider } from './providers/stub-invoicing.provider';
         }
       },
     },
+    InvoicingService,
   ],
-  exports: [INVOICING_PROVIDER],
+  exports: [INVOICING_PROVIDER, InvoicingService],
 })
 export class InvoicingModule {}
