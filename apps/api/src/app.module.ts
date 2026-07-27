@@ -33,6 +33,7 @@ import { CouponsModule } from './modules/coupons/coupons.module';
 import { BannersModule } from './modules/banners/banners.module';
 import { SponsoredAdsModule } from './modules/sponsored-ads/sponsored-ads.module';
 import { ContactModule } from './modules/contact/contact.module';
+import { InvoicingModule } from './modules/invoicing/invoicing.module';
 
 @Module({
   imports: [
@@ -87,6 +88,7 @@ import { ContactModule } from './modules/contact/contact.module';
     BannersModule,
     SponsoredAdsModule,
     ContactModule,
+    InvoicingModule,
   ],
 })
 export class AppModule {}

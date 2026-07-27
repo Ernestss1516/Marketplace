@@ -89,4 +89,8 @@ export const envValidationSchema = Joi.object({
   // token del time-trap (nunca reutilizar JWT_SECRET).
   CONTACT_FORM_SECRET: Joi.string().min(16).required(),
   TRUST_PROXY_HOPS: Joi.number().integer().min(0).default(1),
+  // RF.13 — selección del proveedor de facturación. Solo "stub" por ahora (NO
+  // emite facturas válidas). Al conectar un proveedor homologado, añadir su
+  // nombre aquí y el case correspondiente en InvoicingModule.
+  INVOICING_PROVIDER: Joi.string().valid('stub').default('stub'),
 });

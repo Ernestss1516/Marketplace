@@ -36,6 +36,12 @@ export default () => ({
     environment: process.env.REDSYS_ENVIRONMENT ?? 'test',
     notificationUrl: process.env.REDSYS_NOTIFICATION_URL ?? '',
   },
+  // RF.13 — proveedor de emisión de facturas. "stub" (por defecto) NO emite
+  // facturas fiscalmente válidas; se sustituye por el proveedor homologado real
+  // cuando se elija (ver InvoicingModule).
+  invoicing: {
+    provider: process.env.INVOICING_PROVIDER ?? 'stub',
+  },
   s3: {
     endpoint: process.env.S3_ENDPOINT,
     bucket: process.env.S3_BUCKET,

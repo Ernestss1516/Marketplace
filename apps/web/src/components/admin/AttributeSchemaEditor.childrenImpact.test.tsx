@@ -19,7 +19,7 @@ const pServ: AttributeSchemaWithExtras = {
 const cochesChild = {
   name: 'Coches',
   attributeSchema: [
-    { name: 'cProd', label: 'Hija Producto', type: 'text' as const, filterable: false, required: false, cardAttribute: true, appliesTo: ['PRODUCT'] as const },
+    { name: 'cProd', label: 'Hija Producto', type: 'text' as const, filterable: false, required: false, cardAttribute: true, appliesTo: ['PRODUCT' as const] },
   ],
 };
 const motosChild = {
@@ -108,7 +108,7 @@ describe('AttributeSchemaEditor — impacto en subcategorías (contador, editand
     const childWithWide = {
       name: 'Coches',
       attributeSchema: [
-        { name: 'cWide1', label: 'W1', type: 'text' as const, filterable: false, required: false, wideCardAttribute: true, appliesTo: ['PRODUCT'] as const },
+        { name: 'cWide1', label: 'W1', type: 'text' as const, filterable: false, required: false, cardAttribute: false, wideCardAttribute: true, appliesTo: ['PRODUCT' as const] },
       ],
     };
     renderEditor([pProd], [childWithWide]);
