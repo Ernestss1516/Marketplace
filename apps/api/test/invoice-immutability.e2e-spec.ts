@@ -82,11 +82,16 @@ describe('Inmutabilidad de facturas ISSUED (trigger de BD) — e2e', () => {
       include: { lines: true },
     });
 
+    // Número ÚNICO por factura: Invoice.number tiene @unique (numeración fiscal
+    // sin duplicados). Un valor fijo reutilizado entre tests choca con el
+    // constraint en el 2º test y mata el setup antes de ejercer el guard.
+    const number = `DEV-2026-${randomUUID().slice(0, 8)}`;
+
     const issued = await prisma.invoice.update({
       where: { id: draft.id },
       data: {
         status: 'ISSUED',
-        number: 'DEV-2026-000001',
+        number,
         series: 'DEV-2026',
         issuedAt: new Date(),
         pdfKey: `facturas/${draft.id}.pdf`,
@@ -94,24 +99,24 @@ describe('Inmutabilidad de facturas ISSUED (trigger de BD) — e2e', () => {
       include: { lines: true },
     });
 
-    return { issued, user, tx, lineId: draft.lines[0]?.id };
+    return { issued, user, tx, lineId: draft.lines[0]?.id, number };
   }
 
   it('el latch DRAFT → ISSUED se permite (rellena número/pdf/issuedAt una vez)', async () => {
-    const { issued } = await createIssuedInvoice();
+    const { issued, number } = await createIssuedInvoice();
     expect(issued.status).toBe('ISSUED');
-    expect(issued.number).toBe('DEV-2026-000001');
+    expect(issued.number).toBe(number);
     expect(issued.issuedAt).not.toBeNull();
   });
 
   it('UPDATE directo del número de una factura ISSUED → RECHAZADO', async () => {
-    const { issued } = await createIssuedInvoice();
+    const { issued, number } = await createIssuedInvoice();
     await expect(
       prisma.$executeRawUnsafe(`UPDATE "Invoice" SET "number" = 'HACKED' WHERE id = $1`, issued.id),
     ).rejects.toThrow();
 
     const after = await prisma.invoice.findUnique({ where: { id: issued.id } });
-    expect(after?.number).toBe('DEV-2026-000001'); // intacto
+    expect(after?.number).toBe(number); // intacto
   });
 
   it('UPDATE directo de un importe de una factura ISSUED → RECHAZADO', async () => {

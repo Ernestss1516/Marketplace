@@ -1,3 +1,4 @@
+import { PDFDocument } from 'pdf-lib';
 import { EmitInvoiceInput } from '../invoicing.types';
 import { StubInvoicingProvider } from './stub-invoicing.provider';
 
@@ -40,10 +41,20 @@ describe('StubInvoicingProvider — emisión DE PRUEBA (NO válida fiscalmente)'
     expect(result.providerRef).toBe('stub:inv-1');
   });
 
-  it('el PDF lleva el sello inequívoco "NO VALIDO FISCALMENTE"', async () => {
+  it('el PDF lleva el sello inequívoco "NO VALIDO FISCALMENTE" en sus metadatos', async () => {
     const result = await provider.emitInvoice(makeInput('inv-2'));
-    const bytes = result.pdf.toString('latin1');
-    expect(bytes).toContain(StubInvoicingProvider.INVALID_MARK); // "NO VALIDO FISCALMENTE"
+
+    // pdf-lib escribe los metadatos en UTF-16BE, así que NO se pueden buscar en
+    // los bytes crudos como latin1. Se recargan y se leen decodificados. (El
+    // sello VISUAL diagonal del cuerpo va en el stream del contenido y no es
+    // texto plano buscable — se valida abriendo el PDF a ojo.)
+    const loaded = await PDFDocument.load(result.pdf);
+    // Title y Subject los fija el stub y pdf-lib no los sobrescribe; ambos llevan
+    // el marcador. (Producer podría ser reemplazado por pdf-lib al guardar, así
+    // que no se asienta sobre él.)
+    expect(loaded.getTitle()).toContain(StubInvoicingProvider.INVALID_MARK);
+    expect(loaded.getSubject()).toContain(StubInvoicingProvider.INVALID_MARK);
+    expect(loaded.getTitle()).toContain('DOCUMENTO DE PRUEBA');
   });
 
   it('es idempotente: la misma idempotencyKey devuelve el MISMO número y PDF', async () => {

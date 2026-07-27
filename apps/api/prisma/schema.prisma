@@ -1707,6 +1707,14 @@ model ContactReply {
 /// 1:1 = una sola línea). Corrección = rectificativa nueva (rectifiesInvoiceId),
 /// nunca UPDATE de esta. El bloqueo de UPDATE post-ISSUED se refuerza a nivel de
 /// BD/middleware en R2 (no solo en la capa de servicio).
+///
+/// ALCANCE DE LA INMUTABILIDAD (Decisión Opción A, 2026-07-27): el guard de BD
+/// (triggers BEFORE UPDATE/DELETE, migración 20260727000001_invoice_immutability_guard)
+/// protege las vías-de-APLICACIÓN (UPDATE/DELETE). NO cubre TRUNCATE — los triggers
+/// BEFORE de fila no se disparan con él: decisión consciente, TRUNCATE exige un
+/// superusuario/owner que la app NO tiene en producción, y contra ese actor ningún
+/// trigger protege (puede desactivarlo); la fuente de verdad fiscal definitiva la
+/// conserva el proveedor homologado. Ver estado-tecnico.md.
 model Invoice {
   id String @id @default(cuid())
 

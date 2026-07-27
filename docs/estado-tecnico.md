@@ -1144,16 +1144,46 @@ Todos los helpers viven en `apps/api/test/helpers/`:
   que los tests e2e ejerzan el ciclo completo publish → BullMQ → Meilisearch.
 - `db.ts` — `cleanDb()`: emite `TRUNCATE "User" CASCADE`, que elimina en cascada todas
   las filas FK-dependientes (Listing, Conversation, Message, Favorite, Review, Report,
-  ListingImage, tokens, Post, AuditLog…). `Category` y `Setting` quedan **excluidos** —
-  son datos estáticos sembrados una sola vez en `globalSetup` vía upsert idempotente.
-  Truncarlos en `cleanDb` provocaría race conditions cuando Jest ejecuta suites en
-  paralelo sobre la misma BD.
+  ListingImage, tokens, Post, AuditLog… y **Invoice/InvoiceLine**). `Category` y `Setting`
+  quedan **excluidos** — son datos estáticos sembrados una sola vez en `globalSetup` vía
+  upsert idempotente. Truncarlos en `cleanDb` provocaría race conditions cuando Jest
+  ejecuta suites en paralelo sobre la misma BD. **RF.13 — inmutabilidad de facturas
+  (Decisión Opción A, 2026-07-27)**: el `TRUNCATE` de `cleanDb` NO dispara los triggers
+  `BEFORE UPDATE/DELETE` que hacen inmutables las `Invoice` ISSUED (los triggers de fila
+  no se disparan con TRUNCATE), así que la limpieza funciona aun con facturas ISSUED
+  presentes. Esto es coherente con el alcance decidido: la inmutabilidad local cubre las
+  **vías-de-aplicación** (UPDATE/DELETE), no TRUNCATE — que exige un superusuario/owner que
+  la app NO tiene en producción, y contra quien ningún trigger protege (puede desactivarlo);
+  la fuente de verdad fiscal definitiva será el proveedor homologado. Ver el doc-comment del
+  modelo `Invoice` en `schema.prisma` (la decisión NO se documenta dentro del `.sql` de la
+  migración — ese fichero ya está aplicado y es inmutable por checksum).
 - `meili.ts` — `waitForIndex(client, indexName, docId, timeoutMs = 15 000 ms)` y
   `waitForRemoval(client, indexName, docId, timeoutMs = 15 000 ms)`: polling hasta que
   el documento aparece / desaparece en Meilisearch. Necesarios porque la indexación es
   asíncrona (BullMQ worker); sin ellos los tests de búsqueda y de eliminación fallan
   intermitentemente. El timeout de 15 s cubre los service containers de CI, que tardan
   más que el entorno local.
+
+**Nota operativa (2026-07-27) — recrear la BD de test para una batería completa fiable:**
+el `seed`/`globalSetup` NO limpia entre corridas (solo re-upserta `Category`/`Setting`;
+`cleanDb` corre por-suite en cada `beforeAll`, no globalmente). Una corrida PARCIAL (un
+solo spec, o una batería interrumpida) puede dejar residuo que contamine la siguiente
+pasada — es el origen del susto de los ~68 rojos del 2026-07-27. Para una batería completa
+fiable, recrear la BD de test antes: `DROP DATABASE marketplace_test` y recrearla (o
+`pnpm --filter @marketplace/api test:setup:db`); el `globalSetup` re-aplica migraciones
+(`prisma migrate deploy`) y siembra de cero. Regla: ante rojos raros por estado acumulado,
+recrear la BD antes de diagnosticar el código.
+
+**Práctica (2026-07-27) — una migración APLICADA es INMUTABLE:** nunca se edita el `.sql`
+de una migración ya aplicada, ni siquiera un comentario. Prisma guarda un checksum del
+contenido; cualquier cambio (incluido texto de comentario) rompe el checksum y hace fallar
+`prisma migrate deploy`/`status` con *"migration modified after applied"* — que a su vez
+tumba el `globalSetup` de la batería e2e. La documentación de decisiones de diseño va en
+`estado-tecnico.md`, en `schema.prisma` (doc-comments `///`) o en el código del módulo,
+**nunca** editando un `.sql` aplicado. (Incidente que originó la regla: se añadió la
+decisión Opción A del TRUNCATE dentro de `20260727000001_invoice_immutability_guard/migration.sql`
+tras aplicarla; se revirtió el fichero a su estado aplicado con `git checkout HEAD --` y la
+decisión se movió al doc-comment del modelo `Invoice`.)
 
 Para Playwright, `apps/web/e2e/fixtures/auth.ts` define los fixtures `sellerContext` y
 `buyerContext` que cargan los `storageState` generados por `global-setup.ts`.
