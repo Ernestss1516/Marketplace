@@ -10,6 +10,7 @@
     "^src/(.*)$": "<rootDir>/src/$1"
   },
   "setupFiles": ["<rootDir>/test/load-env.ts"],
+  "setupFilesAfterEnv": ["<rootDir>/test/reset-redis-between-suites.ts"],
   "globalSetup": "<rootDir>/test/setup-e2e.js",
   "globalTeardown": "<rootDir>/test/teardown-e2e.js",
   "testTimeout": 30000

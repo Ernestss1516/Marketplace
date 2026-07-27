@@ -1,9 +1,14 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { BullModule } from '@nestjs/bullmq';
+import { QUEUE_INVOICING, retryQueue } from '../../infra/queue/queue.constants';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { INVOICING_PROVIDER, InvoicingProvider } from './invoicing.types';
 import { StubInvoicingProvider } from './providers/stub-invoicing.provider';
 import { InvoicingService } from './invoicing.service';
 import { InvoicingController } from './invoicing.controller';
+import { InvoiceProcessor } from './invoice.processor';
+import { InvoicingScheduleService } from './invoicing-schedule.service';
 
 /**
  * InvoicingModule — cablea el puerto INVOICING_PROVIDER (RF.13).
@@ -19,6 +24,14 @@ import { InvoicingController } from './invoicing.controller';
  * El resto del sistema NO cambia: habla solo con el token, nunca con la clase.
  */
 @Module({
+  imports: [
+    // El cron produce a QUEUE_INVOICING; el InvoiceProcessor la consume. Cada
+    // módulo que produce/consume registra la cola con retryQueue (ver
+    // queue.constants.ts) — attempts:3 + backoff hacen segura la recuperación.
+    BullModule.registerQueue(retryQueue(QUEUE_INVOICING)),
+    // NotificationsService: aviso in-app a usuarios con facturables sin datos fiscales.
+    NotificationsModule,
+  ],
   controllers: [InvoicingController],
   providers: [
     StubInvoicingProvider,
@@ -39,7 +52,9 @@ import { InvoicingController } from './invoicing.controller';
       },
     },
     InvoicingService,
+    InvoiceProcessor,
+    InvoicingScheduleService,
   ],
-  exports: [INVOICING_PROVIDER, InvoicingService],
+  exports: [INVOICING_PROVIDER, InvoicingService, InvoicingScheduleService],
 })
 export class InvoicingModule {}

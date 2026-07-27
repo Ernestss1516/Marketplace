@@ -4,6 +4,7 @@ export const QUEUE_NOTIFICATIONS = 'notifications';
 export const QUEUE_BILLING = 'billing';
 export const QUEUE_REDSYS = 'redsys';
 export const QUEUE_ALERT_MATCHING = 'alert-matching';
+export const QUEUE_INVOICING = 'invoicing';
 
 // Each module that injects a queue calls its own BullModule.registerQueue({name})
 // — @nestjs/bullmq creates a SEPARATE Queue (producer) instance per module

@@ -6,15 +6,17 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { InvoiceOrigin, Prisma } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { R2Service } from '../../infra/r2/r2.service';
 import { isP2002 } from '../../common/prisma/is-p2002';
 import {
   FrozenFiscalParty,
+  hasCompleteFiscalData,
   INVOICING_PROVIDER,
   InvoicingProvider,
 } from './invoicing.types';
+import { periodKeyContaining, periodRange } from './period';
 
 /**
  * Clave `Setting` con la ventana de autoservicio de facturación, en MESES (RF.13).
@@ -48,6 +50,15 @@ const FACTURABLE_INCLUDE = {
 
 type FacturableTx = Prisma.TransactionGetPayload<{ include: typeof FACTURABLE_INCLUDE }>;
 
+type InvoiceWithLines = Prisma.InvoiceGetPayload<{ include: { lines: true } }>;
+
+interface EmitOpts {
+  origin: InvoiceOrigin;
+  periodKey: string;
+  /** null en emisión manual (el guard es transactionId @unique); "userId:periodKey" en el cron. */
+  idempotencyKey: string | null;
+}
+
 @Injectable()
 export class InvoicingService {
   constructor(
@@ -56,11 +67,11 @@ export class InvoicingService {
     @Inject(INVOICING_PROVIDER) private readonly provider: InvoicingProvider,
   ) {}
 
-  // ── Elegibilidad y facturables ─────────────────────────────────────────────
+  // ── Elegibilidad y facturables (ventana de autoservicio) ────────────────────
 
-  /** Movimientos facturables del usuario (DTO), con su concepto derivado. */
   async getFacturables(userId: string) {
-    const txs = await this.findFacturableTx(userId);
+    const windowStart = await this.getWindowStart();
+    const txs = await this.findFacturableTx(userId, { gte: windowStart });
     return txs.map((tx) => ({
       transactionId: tx.id,
       concept: this.deriveConcept(tx),
@@ -73,15 +84,11 @@ export class InvoicingService {
     }));
   }
 
-  /**
-   * ¿Puede el usuario solicitar factura? Requiere (a) datos fiscales completos y
-   * (b) ≥1 movimiento facturable en la ventana. Devuelve el motivo si es false
-   * para que la UI lo explique.
-   */
   async getEligibility(userId: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId }, select: FISCAL_SELECT });
-    const facturableCount = (await this.findFacturableTx(userId)).length;
-    const hasFiscalData = this.isFiscalDataComplete(user);
+    const windowStart = await this.getWindowStart();
+    const facturableCount = (await this.findFacturableTx(userId, { gte: windowStart })).length;
+    const hasFiscalData = !!user && hasCompleteFiscalData(user);
 
     if (!hasFiscalData) {
       return { canRequest: false, reason: 'MISSING_FISCAL_DATA' as const, hasFiscalData, facturableCount };
@@ -92,29 +99,19 @@ export class InvoicingService {
     return { canRequest: true, reason: null, hasFiscalData, facturableCount };
   }
 
-  // ── Emisión manual (flujo completo, con el proveedor inyectado) ─────────────
+  // ── Emisión manual (R3): todos los facturables de la ventana en una factura ──
 
-  /**
-   * El usuario solicita factura de TODOS sus movimientos facturables de la
-   * ventana (recapitulativa; 1 movimiento = factura de 1 línea). Congela emisor,
-   * receptor y desglose; llama al proveedor; guarda el PDF en R2 privado; hace el
-   * latch DRAFT→ISSUED.
-   *
-   * Anti-doble-facturación: `InvoiceLine.transactionId @unique` (guard de BD). Un
-   * doble-submit concurrente sobre los mismos movimientos rebota con P2002 y se
-   * devuelve la factura ya creada (idempotente). Un segundo intento secuencial no
-   * encuentra facturables (ya tienen línea) → 409.
-   */
   async requestInvoice(userId: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId }, select: FISCAL_SELECT });
-    if (!user || !this.isFiscalDataComplete(user)) {
+    if (!user || !hasCompleteFiscalData(user)) {
       throw new BadRequestException({
         code: 'MISSING_FISCAL_DATA',
         message: 'Completa tus datos fiscales antes de solicitar factura.',
       });
     }
 
-    const txs = await this.findFacturableTx(userId);
+    const windowStart = await this.getWindowStart();
+    const txs = await this.findFacturableTx(userId, { gte: windowStart });
     if (txs.length === 0) {
       throw new ConflictException({
         code: 'NO_INVOICEABLE_MOVEMENTS',
@@ -122,10 +119,55 @@ export class InvoicingService {
       });
     }
 
+    return this.emitInvoiceCore(user, userId, txs, {
+      origin: 'USER_REQUESTED',
+      periodKey: periodKeyContaining(new Date(), 'QUARTERLY'),
+      idempotencyKey: null,
+    });
+  }
+
+  // ── Emisión automática de un periodo (R4): la usa el InvoiceProcessor ────────
+
+  /**
+   * Emite la factura automática (origin AUTO_PERIODIC) de un usuario para un periodo cerrado.
+   * Idempotente por `idempotencyKey = userId:periodKey` (@unique): si ya está
+   * ISSUED, la devuelve sin re-emitir. Devuelve null si el usuario no tiene datos
+   * fiscales o no tiene facturables en el periodo (el cron ya avisó a los primeros).
+   */
+  async emitForPeriod(userId: string, periodKey: string) {
+    const idempotencyKey = `${userId}:${periodKey}`;
+
+    const existing = await this.prisma.invoice.findUnique({
+      where: { idempotencyKey },
+      include: { lines: true },
+    });
+    if (existing?.status === 'ISSUED') return this.toInvoiceDto(existing); // ya emitida (idempotente)
+    if (existing) {
+      // DRAFT huérfano de un intento previo que murió antes del rollback →
+      // limpiar (no-ISSUED, el trigger permite DELETE) y reintentar limpio.
+      await this.prisma.invoice.delete({ where: { id: existing.id } }).catch(() => undefined);
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: FISCAL_SELECT });
+    if (!user || !hasCompleteFiscalData(user)) return null;
+
+    const { start, end } = periodRange(periodKey);
+    const txs = await this.findFacturableTx(userId, { gte: start, lt: end });
+    if (txs.length === 0) return null;
+
+    return this.emitInvoiceCore(user, userId, txs, { origin: 'AUTO_PERIODIC', periodKey, idempotencyKey });
+  }
+
+  // ── Núcleo de emisión compartido (congela, crea DRAFT, emite, latch) ────────
+
+  private async emitInvoiceCore(
+    user: FiscalUser,
+    userId: string,
+    txs: FacturableTx[],
+    opts: EmitOpts,
+  ) {
     const issuer = await this.getFrozenIssuer();
     const receiver = this.frozenReceiver(user);
-    const now = new Date();
-    const periodKey = this.currentPeriodKey(now);
     const currency = txs[0].currency;
 
     let subtotalNet = new Prisma.Decimal(0);
@@ -137,23 +179,22 @@ export class InvoicingService {
       totalGross = totalGross.plus(tx.amountGross);
     }
 
-    // 1) Crear la Invoice DRAFT + líneas (escritura anidada atómica). El
-    //    transactionId @unique de cada línea es el guard duro anti-doble-factura.
-    //    Manual → idempotencyKey null (multiples null conviven; el guard es
-    //    transactionId). El cron de R4 usará userId:periodKey.
-    let draft;
+    // 1) DRAFT + líneas (escritura anidada atómica). El transactionId @unique de
+    //    cada línea y el idempotencyKey @unique son los guards de BD contra la
+    //    doble facturación. P2002 → devolver la factura existente (idempotente).
+    let draft: InvoiceWithLines;
     try {
       draft = await this.prisma.invoice.create({
         data: {
-          origin: 'USER_REQUESTED',
+          origin: opts.origin,
           status: 'DRAFT',
           userId,
-          periodKey,
+          periodKey: opts.periodKey,
+          idempotencyKey: opts.idempotencyKey,
           currency,
           subtotalNet,
           totalTax,
           totalGross,
-          // Receptor CONGELADO (copia, no referencia)
           receiverTaxId: receiver.taxId,
           receiverName: receiver.name,
           receiverEntityType: user.fiscalEntityType,
@@ -162,7 +203,6 @@ export class InvoicingService {
           receiverPostalCode: receiver.postalCode,
           receiverProvince: receiver.province,
           receiverCountry: receiver.country,
-          // Emisor CONGELADO
           issuerTaxId: issuer.taxId,
           issuerName: issuer.name,
           issuerAddress: issuer.address,
@@ -186,25 +226,32 @@ export class InvoicingService {
       });
     } catch (e) {
       if (isP2002(e)) {
-        // Carrera/doble-submit: alguna Transaction ya se está facturando.
-        const existing = await this.findInvoiceOwningTransaction(userId, txs[0].id);
+        const existing = opts.idempotencyKey
+          ? await this.prisma.invoice.findUnique({
+              where: { idempotencyKey: opts.idempotencyKey },
+              include: { lines: true },
+            })
+          : await this.findInvoiceOwningTransaction(userId, txs[0].id);
         if (existing) return this.toInvoiceDto(existing);
         throw new ConflictException({ code: 'ALREADY_INVOICED', message: 'Esos movimientos ya están facturados.' });
       }
       throw e;
     }
 
-    // 2) Emitir vía proveedor → PDF en R2 privado → latch DRAFT→ISSUED. Si algo
+    // 2) Emitir vía proveedor → PDF a R2 privado → latch DRAFT→ISSUED. Si algo
     //    falla, borrar el DRAFT (no-ISSUED → el trigger permite DELETE) para
-    //    liberar las Transactions (vuelven a ser facturables).
+    //    liberar las Transactions; el job de la cola reintenta (retryQueue).
+    //    NOTA (proveedor real): con un proveedor homologado, revisar esto para
+    //    REANUDAR el DRAFT (idempotencyKey=invoice.id del proveedor) en vez de
+    //    borrarlo, y no dejar un número fiscal huérfano. Con el stub es indiferente.
     try {
       const result = await this.provider.emitInvoice({
         idempotencyKey: draft.id,
-        type: 'ORDINARY',
+        type: draft.type,
         issuer,
         receiver,
         currency,
-        issueDate: now,
+        issueDate: new Date(),
         lines: draft.lines.map((l) => ({
           concept: l.concept,
           amountNet: l.amountNet.toString(),
@@ -264,15 +311,17 @@ export class InvoicingService {
 
   // ── Helpers internos ────────────────────────────────────────────────────────
 
-  private async findFacturableTx(userId: string): Promise<FacturableTx[]> {
-    const windowStart = await this.getWindowStart();
+  private async findFacturableTx(
+    userId: string,
+    range: { gte: Date; lt?: Date },
+  ): Promise<FacturableTx[]> {
     return this.prisma.transaction.findMany({
       where: {
         userId,
         status: 'SUCCEEDED',
         gateway: { in: ['STRIPE', 'REDSYS'] },
         invoiceLine: { is: null },
-        createdAt: { gte: windowStart },
+        createdAt: range.lt ? { gte: range.gte, lt: range.lt } : { gte: range.gte },
       },
       include: FACTURABLE_INCLUDE,
       orderBy: { createdAt: 'asc' },
@@ -286,20 +335,6 @@ export class InvoicingService {
     const start = new Date();
     start.setMonth(start.getMonth() - safeMonths);
     return start;
-  }
-
-  private isFiscalDataComplete(user: FiscalUser | null): boolean {
-    if (!user) return false;
-    // País tiene default 'ES'; entityType es opcional. El resto es obligatorio
-    // para identificar al receptor de una factura.
-    return Boolean(
-      user.fiscalTaxId &&
-        user.fiscalName &&
-        user.fiscalAddress &&
-        user.fiscalCity &&
-        user.fiscalPostalCode &&
-        user.fiscalProvince,
-    );
   }
 
   private frozenReceiver(user: FiscalUser): FrozenFiscalParty {
@@ -344,16 +379,6 @@ export class InvoicingService {
       return days ? `Destacado ${days} días` : 'Destacado';
     }
     return tx.price?.product?.name ?? 'Cargo de la plataforma';
-  }
-
-  /**
-   * Clave de periodo (semestre natural) de la fecha dada: "YYYY-H1" (ene-jun) o
-   * "YYYY-H2" (jul-dic). Provisional: la granularidad fiscal exacta la confirma
-   * el asesor. Informativa para agrupar/filtrar.
-   */
-  private currentPeriodKey(d: Date): string {
-    const half = d.getMonth() < 6 ? 1 : 2;
-    return `${d.getFullYear()}-H${half}`;
   }
 
   private async findInvoiceOwningTransaction(userId: string, transactionId: string) {

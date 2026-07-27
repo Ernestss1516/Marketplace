@@ -89,3 +89,26 @@ export interface EmitInvoiceResult {
 export interface InvoicingProvider {
   emitInvoice(input: EmitInvoiceInput): Promise<EmitInvoiceResult>;
 }
+
+/**
+ * ¿Tiene el usuario los datos fiscales mínimos para ser RECEPTOR de una factura?
+ * País tiene default 'ES'; entityType es opcional. Único punto de verdad,
+ * reutilizado por la emisión manual (R3) y por el cron automático (R4).
+ */
+export function hasCompleteFiscalData(user: {
+  fiscalTaxId?: string | null;
+  fiscalName?: string | null;
+  fiscalAddress?: string | null;
+  fiscalCity?: string | null;
+  fiscalPostalCode?: string | null;
+  fiscalProvince?: string | null;
+}): boolean {
+  return Boolean(
+    user.fiscalTaxId &&
+      user.fiscalName &&
+      user.fiscalAddress &&
+      user.fiscalCity &&
+      user.fiscalPostalCode &&
+      user.fiscalProvince,
+  );
+}

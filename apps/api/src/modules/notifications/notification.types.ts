@@ -1,4 +1,8 @@
-export type NotificationType = 'ALERT_MATCH' | 'CONTACT_MESSAGE' | 'REVIEW_REQUEST';
+export type NotificationType =
+  | 'ALERT_MATCH'
+  | 'CONTACT_MESSAGE'
+  | 'REVIEW_REQUEST'
+  | 'INVOICING_PENDING_FISCAL_DATA';
 
 /** Self-contained snapshot stored in Notification.data — see schema.prisma comment. */
 export interface AlertMatchData {
@@ -30,4 +34,12 @@ export interface ReviewRequestData {
   otherUserId: string;
   otherUserName: string;
   otherUserSlug: string;
+}
+
+/** RF.13 R4 — el cron detecta movimientos facturables de un periodo cerrado pero
+ * el usuario no tiene datos fiscales completos: no se le puede emitir factura.
+ * Se le avisa para que los complete y facture manualmente (R3) dentro de la ventana. */
+export interface InvoicingPendingFiscalDataData {
+  periodKey: string;
+  facturableCount: number;
 }
