@@ -113,6 +113,25 @@ enum PriceType {
   NEGOTIABLE // A convenir
 }
 
+/// Unidad de medida del importe de un anuncio (RP.1 — formatos de precio).
+/// ORTOGONAL a PriceType, no una extensión suya: PriceType dice si hay importe
+/// y si es firme ("¿gratis? ¿a convenir?"), PriceUnit dice por qué unidad se
+/// cobra ese importe ("¿al mes? ¿por hora?"). Los dos ejes se combinan — un
+/// alquiler puede ser a la vez NEGOTIABLE y PER_MONTH. Fusionarlos en un solo
+/// enum multiplicaría los valores de facet en Meilisearch y cambiaría en
+/// silencio el significado de las alertas ya guardadas (Alert.priceType).
+/// ONE_TIME es el default y describe correctamente todos los anuncios
+/// anteriores a esta migración — sin backfill.
+enum PriceUnit {
+  ONE_TIME // Pago único
+  PER_MONTH // Al mes
+  PER_WEEK // A la semana
+  PER_DAY // Al día
+  PER_HOUR // Por hora
+  PER_UNIT // Por unidad
+  PER_SESSION // Por sesión
+}
+
 // ============================================================================
 //  ENUMS DE FACTURACIÓN
 // ============================================================================
@@ -415,6 +434,16 @@ model Category {
   /// null = "no configurado", mismo criterio de herencia que allowedViews.
   defaultView ListingViewMode?
 
+  /// Formatos de precio seleccionables en esta categoría (RP.1). [] = "no
+  /// configurado" — hereda del padre; si el padre tampoco configura nada, cae
+  /// al default global DEFAULT_ALLOWED_PRICE_UNITS = [ONE_TIME], que reproduce
+  /// exactamente el comportamiento anterior a esta ráfaga. Override COMPLETO,
+  /// no fusión — mismo criterio de herencia que allowedViews (ver
+  /// `resolveEffectivePriceUnits` en category.types.ts), y no el de
+  /// allowedListingType: aquí el hijo no está obligado a restringir dentro del
+  /// padre (Inmobiliaria [ONE_TIME] → Alquiler [PER_MONTH] es legítimo).
+  allowedPriceUnits PriceUnit[] @default([])
+
   listings     Listing[]
   sponsoredAds SponsoredAd[]
 
@@ -439,6 +468,12 @@ model Listing {
   type      ListingType
   condition Condition? // Nulo en servicios
   priceType PriceType     @default(FIXED)
+  /// Formato del precio (RP.1). Eje independiente de priceType — ver PriceUnit.
+  /// @default(ONE_TIME) preserva el comportamiento actual (todo anuncio era, de
+  /// facto, pago único) para todas las filas existentes: Prisma escribe el
+  /// default al aplicar la migración, sin backfill. Debe estar entre los
+  /// formatos efectivos de su categoría (validado en listings.service, 422).
+  priceUnit PriceUnit     @default(ONE_TIME)
   status    ListingStatus @default(DRAFT)
 
   /// jsonb con los atributos variables según la categoría.

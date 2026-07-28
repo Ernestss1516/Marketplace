@@ -12,7 +12,7 @@ import {
   Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { Condition, ListingType, PriceType } from '@prisma/client';
+import { Condition, ListingType, PriceType, PriceUnit } from '@prisma/client';
 import { LISTING_PHONE_REGEX } from '../listing-phone.constants';
 
 export class CreateListingDto {
@@ -44,6 +44,14 @@ export class CreateListingDto {
 
   @IsEnum(PriceType)
   priceType!: PriceType;
+
+  /// Formato del precio (RP.1). OPCIONAL a propósito, a diferencia de priceType:
+  /// cualquier cliente anterior a esta ráfaga que no lo envíe sigue funcionando
+  /// y obtiene ONE_TIME (el default de la columna). Debe estar entre los
+  /// formatos efectivos de la categoría — si no, 422 (validatePriceUnitAllowed).
+  @IsOptional()
+  @IsEnum(PriceUnit)
+  priceUnit?: PriceUnit;
 
   @IsString()
   @IsNotEmpty()

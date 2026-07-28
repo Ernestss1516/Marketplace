@@ -1,4 +1,4 @@
-import type { ListingType, ListingTypePolicy, ListingViewMode } from '@prisma/client';
+import type { ListingType, ListingTypePolicy, ListingViewMode, PriceUnit } from '@prisma/client';
 
 export interface AttributeField {
   name: string;
@@ -186,4 +186,44 @@ export function resolveEffectiveViews(
     return { allowedViews: own.allowedViews, defaultView: own.defaultView ?? own.allowedViews[0] };
   }
   return parentEffective ?? DEFAULT_EFFECTIVE_VIEWS;
+}
+
+/**
+ * Global fallback for price formats (RP.1): only one-time payment. Reproduces
+ * the behavior of every listing created before this ráfaga — all of them were,
+ * de facto, one-time payments — so a category that configures nothing keeps
+ * behaving exactly as it did. Deliberately NOT "every unit": that would make
+ * "per hour" selectable in categories where it makes no sense without an admin
+ * ever asking for it.
+ */
+export const DEFAULT_ALLOWED_PRICE_UNITS: PriceUnit[] = ['ONE_TIME'];
+
+/**
+ * Resolves which price formats a category effectively offers (RP.1).
+ * `allowedPriceUnits: []` means "not configured" — an own config always fully
+ * REPLACES the parent's (no per-unit merging), same criterion as
+ * resolveEffectiveViews. Falls back to DEFAULT_ALLOWED_PRICE_UNITS when neither
+ * this category nor its parent configures anything.
+ *
+ * Note this is deliberately NOT modeled on resolveEffectivePolicy: a listing
+ * TYPE policy is hierarchical (a child may only narrow what its parent allows),
+ * whereas price formats are not — "Inmobiliaria" may allow [ONE_TIME] (sales)
+ * while its child "Alquiler de pisos" allows [PER_MONTH]. The child offering
+ * something the parent does not is legitimate here, not a contradiction, so
+ * there is no parent-consistency guard to mirror either.
+ *
+ * Same 2-level depth assumption as resolveEffectiveSchema/resolveEffectiveViews
+ * (leaf → parent only, no grandparent — enforced by assertParentIsRoot).
+ */
+export function resolveEffectivePriceUnits(
+  own: PriceUnit[],
+  parentEffective: PriceUnit[] | null,
+): PriceUnit[] {
+  if (own.length > 0) return own;
+  return parentEffective ?? DEFAULT_ALLOWED_PRICE_UNITS;
+}
+
+/** Whether an already-resolved list of price formats allows a given one. */
+export function isPriceUnitAllowed(allowed: PriceUnit[], unit: PriceUnit): boolean {
+  return allowed.includes(unit);
 }

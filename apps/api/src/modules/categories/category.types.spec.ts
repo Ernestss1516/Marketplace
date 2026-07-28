@@ -1,10 +1,13 @@
 import {
   AttributeField,
   countAttributesByType,
+  DEFAULT_ALLOWED_PRICE_UNITS,
   DEFAULT_EFFECTIVE_VIEWS,
   filterSchemaByType,
   isListingTypeAllowed,
+  isPriceUnitAllowed,
   resolveEffectivePolicy,
+  resolveEffectivePriceUnits,
   resolveEffectiveViews,
   resolveLinkedOptions,
   resolveShowLabel,
@@ -278,5 +281,72 @@ describe('resolveLinkedOptions — selects vinculados (Marca/Modelo)', () => {
     // de selects vinculados no interfiere con el filtrado por tipo.
     const visibleForService = filterSchemaByType(schema, 'SERVICE');
     expect(visibleForService).toEqual([brandField]);
+  });
+});
+
+// ─── RP.1 — formatos de precio por categoría ────────────────────────────────
+
+describe('resolveEffectivePriceUnits — herencia de formatos de precio (RP.1)', () => {
+  it('sin config propia ni de padre → default global [ONE_TIME] (el comportamiento anterior a RP.1)', () => {
+    expect(resolveEffectivePriceUnits([], null)).toEqual(['ONE_TIME']);
+    expect(resolveEffectivePriceUnits([], null)).toEqual(DEFAULT_ALLOWED_PRICE_UNITS);
+  });
+
+  it('config propia → gana sobre todo lo demás', () => {
+    expect(resolveEffectivePriceUnits(['PER_HOUR', 'PER_DAY'], null)).toEqual([
+      'PER_HOUR',
+      'PER_DAY',
+    ]);
+  });
+
+  it('sin config propia → hereda la del padre', () => {
+    expect(resolveEffectivePriceUnits([], ['PER_MONTH'])).toEqual(['PER_MONTH']);
+  });
+
+  it('override TOTAL, no fusión: la lista propia sustituye la del padre, no se suma a ella', () => {
+    // El caso real del diseño: Inmobiliaria [ONE_TIME] → Alquiler [PER_MONTH].
+    // La hija NO acaba con [ONE_TIME, PER_MONTH]; solo ofrece PER_MONTH.
+    expect(resolveEffectivePriceUnits(['PER_MONTH'], ['ONE_TIME'])).toEqual(['PER_MONTH']);
+  });
+
+  it('el hijo puede ofrecer formatos que el padre no permite (no es una jerarquía de restricción, a diferencia de allowedListingType)', () => {
+    const effective = resolveEffectivePriceUnits(['PER_MONTH'], ['ONE_TIME']);
+    expect(isPriceUnitAllowed(effective, 'PER_MONTH')).toBe(true);
+    expect(isPriceUnitAllowed(effective, 'ONE_TIME')).toBe(false);
+  });
+
+  it('padre con lista vacía → no tapa el default global', () => {
+    expect(resolveEffectivePriceUnits([], [])).toEqual([]);
+    // Y en la composición real de dos pasos que usan findBySlug/listings.service,
+    // el padre se resuelve primero contra null: [] → [ONE_TIME].
+    const parentEffective = resolveEffectivePriceUnits([], null);
+    expect(resolveEffectivePriceUnits([], parentEffective)).toEqual(['ONE_TIME']);
+  });
+
+  it('es pura: no muta las listas que recibe ni devuelve el array constante por referencia mutable', () => {
+    const own: ('ONE_TIME' | 'PER_HOUR')[] = [];
+    const parent = ['PER_HOUR' as const];
+    resolveEffectivePriceUnits(own, parent);
+    expect(own).toEqual([]);
+    expect(parent).toEqual(['PER_HOUR']);
+  });
+});
+
+describe('isPriceUnitAllowed', () => {
+  it('true si el formato está en la lista resuelta', () => {
+    expect(isPriceUnitAllowed(['ONE_TIME', 'PER_MONTH'], 'PER_MONTH')).toBe(true);
+  });
+
+  it('false si no está', () => {
+    expect(isPriceUnitAllowed(['ONE_TIME'], 'PER_HOUR')).toBe(false);
+  });
+
+  it('lista vacía no permite nada', () => {
+    expect(isPriceUnitAllowed([], 'ONE_TIME')).toBe(false);
+  });
+
+  it('el default global permite ONE_TIME y solo ONE_TIME', () => {
+    expect(isPriceUnitAllowed(DEFAULT_ALLOWED_PRICE_UNITS, 'ONE_TIME')).toBe(true);
+    expect(isPriceUnitAllowed(DEFAULT_ALLOWED_PRICE_UNITS, 'PER_MONTH')).toBe(false);
   });
 });

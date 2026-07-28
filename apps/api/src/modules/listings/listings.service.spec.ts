@@ -44,6 +44,9 @@ describe('ListingsService.create — reintento de slug ante P2002', () => {
         findUnique: jest.fn().mockResolvedValue({
           attributeSchema: [],
           allowedListingType: 'BOTH',
+          // columna NOT NULL, siempre presente en selects reales (el mock debe
+          // reflejar la forma real de la categoría, no una parcial).
+          allowedPriceUnits: [],
           parent: null,
         }),
       },

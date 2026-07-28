@@ -5,6 +5,7 @@ import {
   resolveEffectiveSchema,
   resolveEffectivePolicy,
   resolveEffectiveViews,
+  resolveEffectivePriceUnits,
   resolveShowLabel,
   resolveShowUnit,
 } from './category.types';
@@ -83,12 +84,14 @@ export class CategoriesService {
         allowedListingType: true,
         allowedViews: true,
         defaultView: true,
+        allowedPriceUnits: true,
         parent: {
           select: {
             attributeSchema: true,
             allowedListingType: true,
             allowedViews: true,
             defaultView: true,
+            allowedPriceUnits: true,
           },
         },
       },
@@ -121,6 +124,17 @@ export class CategoriesService {
       parentEffectiveViews,
     );
 
+    // RP.1 — formatos de precio: misma resolución en dos pasos que las vistas.
+    // El padre resuelve primero contra `null` (2 niveles, sin abuelo) para que un
+    // padre sin config propia caiga al default global en vez de tapar al hijo.
+    const parentEffectivePriceUnits = category.parent
+      ? resolveEffectivePriceUnits(category.parent.allowedPriceUnits, null)
+      : null;
+    const effectivePriceUnits = resolveEffectivePriceUnits(
+      category.allowedPriceUnits,
+      parentEffectivePriceUnits,
+    );
+
     return {
       id: category.id,
       name: category.name,
@@ -138,6 +152,9 @@ export class CategoriesService {
       // RÁFAGA 2: vistas efectivamente ofrecidas por esta categoría + su default.
       allowedViews: effectiveViews.allowedViews,
       defaultView: effectiveViews.defaultView,
+      // RP.1 (formatos de precio): lista efectiva para que el wizard sepa qué
+      // formatos ofrecer — y si es de un solo elemento, no preguntar nada.
+      allowedPriceUnits: effectivePriceUnits,
     };
   }
 }

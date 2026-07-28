@@ -39,8 +39,10 @@ import {
   resolveLinkedOptions,
   filterSchemaByType,
   isListingTypeAllowed,
+  resolveEffectivePriceUnits,
+  isPriceUnitAllowed,
 } from '../categories/category.types';
-import type { ListingTypePolicy } from '@prisma/client';
+import type { ListingTypePolicy, PriceUnit } from '@prisma/client';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { UpdateListingDto } from './dto/update-listing.dto';
 import { MyListingsQueryDto } from './dto/my-listings-query.dto';
@@ -137,7 +139,10 @@ export class ListingsService {
       select: {
         attributeSchema: true,
         allowedListingType: true,
-        parent: { select: { attributeSchema: true, allowedListingType: true } },
+        allowedPriceUnits: true,
+        parent: {
+          select: { attributeSchema: true, allowedListingType: true, allowedPriceUnits: true },
+        },
       },
     });
     if (!category) throw new NotFoundException('Category not found');
@@ -159,6 +164,15 @@ export class ListingsService {
       category.allowedListingType,
       category.parent?.allowedListingType,
     );
+    // priceUnit es opcional en el DTO: ausente equivale a ONE_TIME (el default de
+    // la columna), así que se valida ese mismo valor — una categoría que NO
+    // permita ONE_TIME rechaza igual un alta que lo omita que una que lo mande.
+    const priceUnit: PriceUnit = dto.priceUnit ?? 'ONE_TIME';
+    this.validatePriceUnitAllowed(
+      priceUnit,
+      category.allowedPriceUnits,
+      category.parent?.allowedPriceUnits,
+    );
 
     const listing = await this.createWithUniqueSlug(dto.title, {
       title: dto.title,
@@ -168,6 +182,7 @@ export class ListingsService {
       type: dto.type,
       condition: dto.condition,
       priceType: dto.priceType,
+      priceUnit,
       attributes: (dto.attributes ?? {}) as Prisma.InputJsonValue,
       city: dto.city,
       province: dto.province,
@@ -195,50 +210,82 @@ export class ListingsService {
   async update(id: string, userId: string, dto: UpdateListingDto): Promise<Listing> {
     const existing = await this.assertOwnership(id, userId);
 
-    if (dto.categoryId !== undefined || dto.attributes !== undefined) {
+    // La categoría (propia + padre) la necesitan DOS validaciones con
+    // disparadores distintos: la de atributos/tipo (categoryId o attributes) y
+    // la de formato de precio (priceUnit o categoryId, RP.1). Se resuelve una
+    // sola vez aquí para no consultar dos veces la misma fila en un PATCH que
+    // toque ambas cosas — y, sobre todo, para que cada bloque conserve su
+    // propio disparador: un PATCH de solo `priceUnit` NO debe reejecutar
+    // validateRequired sobre los atributos (rompería anuncios antiguos con el
+    // bag incompleto, justo el grandfathering que este método ya protege).
+    const needsCategory =
+      dto.categoryId !== undefined ||
+      dto.attributes !== undefined ||
+      dto.priceUnit !== undefined;
+
+    if (needsCategory) {
       const catId = dto.categoryId ?? existing.categoryId;
       const category = await this.prisma.category.findUnique({
         where: { id: catId },
         select: {
           attributeSchema: true,
           allowedListingType: true,
-          parent: { select: { attributeSchema: true, allowedListingType: true } },
+          allowedPriceUnits: true,
+          parent: {
+            select: { attributeSchema: true, allowedListingType: true, allowedPriceUnits: true },
+          },
         },
       });
       if (!category) throw new NotFoundException('Category not found');
-      const effectiveSchema = resolveEffectiveSchema(
-        (category.attributeSchema as unknown as AttributeField[]) ?? [],
-        (category.parent?.attributeSchema as unknown as AttributeField[]) ?? [],
-      );
-      const mergedAttrs = {
-        ...(existing.attributes as Record<string, unknown>),
-        ...(dto.attributes ?? {}),
-      };
-      // type es inmutable — se filtra por el tipo YA fijado del anuncio, igual que en create().
-      const applicableSchema = filterSchemaByType(effectiveSchema, existing.type);
-      // required se exige siempre sobre el bag COMPLETO (invariante de completitud
-      // del anuncio, no depende de qué campo tocó esta edición en concreto).
-      this.validateRequired(mergedAttrs, applicableSchema);
-      // El resto (opciones/tipo/claves desconocidas + el guard de vinculados) se
-      // acota al DELTA: valores ya guardados que el usuario ni toca se toleran
-      // (grandfathering por construcción) — así una edición trivial (p. ej. solo
-      // el precio) de un anuncio con datos sucios preexistentes no rompe.
-      const delta = this.computeAttributesDelta(
-        (existing.attributes as Record<string, unknown>) ?? {},
-        dto.attributes ?? {},
-      );
-      const deltaAttrs: Record<string, unknown> = {};
-      for (const key of delta) deltaAttrs[key] = mergedAttrs[key];
-      this.validateAttributeValues(deltaAttrs, applicableSchema);
-      this.validateLinkedSelects(mergedAttrs, applicableSchema, delta);
 
-      // type is immutable (not on UpdateListingDto) — but categoryId can still change,
-      // so a listing's fixed type must stay allowed by whatever category it moves into.
-      if (dto.categoryId !== undefined) {
-        this.validateListingTypeAllowed(
-          existing.type,
-          category.allowedListingType,
-          category.parent?.allowedListingType,
+      if (dto.categoryId !== undefined || dto.attributes !== undefined) {
+        const effectiveSchema = resolveEffectiveSchema(
+          (category.attributeSchema as unknown as AttributeField[]) ?? [],
+          (category.parent?.attributeSchema as unknown as AttributeField[]) ?? [],
+        );
+        const mergedAttrs = {
+          ...(existing.attributes as Record<string, unknown>),
+          ...(dto.attributes ?? {}),
+        };
+        // type es inmutable — se filtra por el tipo YA fijado del anuncio, igual que en create().
+        const applicableSchema = filterSchemaByType(effectiveSchema, existing.type);
+        // required se exige siempre sobre el bag COMPLETO (invariante de completitud
+        // del anuncio, no depende de qué campo tocó esta edición en concreto).
+        this.validateRequired(mergedAttrs, applicableSchema);
+        // El resto (opciones/tipo/claves desconocidas + el guard de vinculados) se
+        // acota al DELTA: valores ya guardados que el usuario ni toca se toleran
+        // (grandfathering por construcción) — así una edición trivial (p. ej. solo
+        // el precio) de un anuncio con datos sucios preexistentes no rompe.
+        const delta = this.computeAttributesDelta(
+          (existing.attributes as Record<string, unknown>) ?? {},
+          dto.attributes ?? {},
+        );
+        const deltaAttrs: Record<string, unknown> = {};
+        for (const key of delta) deltaAttrs[key] = mergedAttrs[key];
+        this.validateAttributeValues(deltaAttrs, applicableSchema);
+        this.validateLinkedSelects(mergedAttrs, applicableSchema, delta);
+
+        // type is immutable (not on UpdateListingDto) — but categoryId can still change,
+        // so a listing's fixed type must stay allowed by whatever category it moves into.
+        if (dto.categoryId !== undefined) {
+          this.validateListingTypeAllowed(
+            existing.type,
+            category.allowedListingType,
+            category.parent?.allowedListingType,
+          );
+        }
+      }
+
+      // Formato de precio (RP.1) — mismo grandfathering que validateListingTypeAllowed:
+      // solo se revalida si el usuario TOCA el formato, o si el anuncio se mueve a
+      // otra categoría (donde su formato ya fijado debe seguir siendo válido). Una
+      // edición que no toca ninguna de las dos cosas nunca falla, aunque un admin
+      // haya restringido la categoría después de publicar el anuncio.
+      if (dto.priceUnit !== undefined || dto.categoryId !== undefined) {
+        this.validatePriceUnitAllowed(
+          dto.priceUnit ?? existing.priceUnit,
+          category.allowedPriceUnits,
+          category.parent?.allowedPriceUnits,
         );
       }
     }
@@ -268,6 +315,7 @@ export class ListingsService {
         ...(fields.currency !== undefined && { currency: fields.currency }),
         ...(fields.condition !== undefined && { condition: fields.condition }),
         ...(fields.priceType !== undefined && { priceType: fields.priceType }),
+        ...(fields.priceUnit !== undefined && { priceUnit: fields.priceUnit }),
         ...(fields.categoryId !== undefined && { categoryId: fields.categoryId }),
         ...(fields.attributes !== undefined && { attributes: fields.attributes as object }),
         ...(fields.city !== undefined && { city: fields.city }),
@@ -1232,6 +1280,34 @@ export class ListingsService {
     if (!isListingTypeAllowed(effective, type)) {
       throw new UnprocessableEntityException(
         `Esta categoría no admite anuncios de tipo ${type}.`,
+      );
+    }
+  }
+
+  /**
+   * Validates a listing's price format against its category's effective list of
+   * allowed formats (own + parent, same 2-level depth as resolveEffectiveSchema).
+   * Every existing category defaults to `[]` = not configured, which resolves to
+   * DEFAULT_ALLOWED_PRICE_UNITS (`[ONE_TIME]`) — and every existing listing is
+   * ONE_TIME — so this is a no-op until an admin configures a category.
+   *
+   * The parent is resolved against `null` first (not against the child's own
+   * list): `resolveEffectivePriceUnits` is an override, so feeding the child's
+   * value in as the parent's fallback would make an unconfigured parent shadow
+   * the global default. Same two-step shape used by findBySlug for allowedViews.
+   */
+  private validatePriceUnitAllowed(
+    unit: PriceUnit,
+    ownAllowed: PriceUnit[],
+    parentAllowed: PriceUnit[] | undefined,
+  ): void {
+    const effective = resolveEffectivePriceUnits(
+      ownAllowed,
+      parentAllowed ? resolveEffectivePriceUnits(parentAllowed, null) : null,
+    );
+    if (!isPriceUnitAllowed(effective, unit)) {
+      throw new UnprocessableEntityException(
+        `Esta categoría no admite el formato de precio ${unit}.`,
       );
     }
   }

@@ -12,7 +12,7 @@ import {
   Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { Condition, PriceType } from '@prisma/client';
+import { Condition, PriceType, PriceUnit } from '@prisma/client';
 import { LISTING_PHONE_REGEX } from '../listing-phone.constants';
 
 export class UpdateListingDto {
@@ -49,6 +49,14 @@ export class UpdateListingDto {
   @IsOptional()
   @IsEnum(PriceType)
   priceType?: PriceType;
+
+  /// Formato del precio (RP.1). Mutable, a diferencia de `type`: cambiarlo no
+  /// invalida ningún atributo, solo reetiqueta el mismo importe. Se revalida
+  /// contra la categoría solo cuando llega explícitamente (o cuando cambia
+  /// categoryId) — ver update() en listings.service.ts.
+  @IsOptional()
+  @IsEnum(PriceUnit)
+  priceUnit?: PriceUnit;
 
   @IsOptional()
   @IsString()
