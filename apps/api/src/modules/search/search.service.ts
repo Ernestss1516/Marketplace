@@ -13,6 +13,9 @@ export interface ListingDocument {
   price: number;
   currency: string;
   priceType: string;
+  /** RP.4 — formato del precio (ONE_TIME, PER_MONTH, PER_HOUR…). Eje ortogonal a
+   *  priceType: filtrable por separado. */
+  priceUnit: string;
   type: string;
   condition: string | null;
   categoryId: string;
@@ -77,6 +80,9 @@ const CORE_FILTERABLE_ATTRIBUTES = [
   'type',
   'condition',
   'priceType',
+  // RP.4 — filtrable SIEMPRE (barato). Distinto de aparecer como faceta en el
+  // panel de filtros: eso se decide por categoría, ver NATIVE_FACET_ATTRIBUTES.
+  'priceUnit',
   'price',
   'province',
   'city',
@@ -111,6 +117,16 @@ const NATIVE_FACET_ATTRIBUTES = [
   'type',
   'condition',
   'priceType',
+  // RP.4 — se PIDE siempre (una faceta más en la misma petición a Meilisearch,
+  // sin viaje extra ni consulta a Postgres). Quién la MUESTRA se decide en el
+  // frontend con la distribución devuelta: si la categoría solo admite pago
+  // único, el reparto trae un único valor y FilterPanel oculta el filtro — que
+  // es el objetivo de "facet visible solo con >1 formato efectivo" (§10.4),
+  // conseguido sin meter una consulta de categoría en la ruta caliente de
+  // búsqueda. Además se adapta al resultado real: una categoría multi-formato
+  // cuyos resultados actuales sean todos PER_HOUR tampoco enseña un filtro de
+  // un solo valor.
+  'priceUnit',
   'province',
 ];
 
@@ -183,6 +199,8 @@ export interface SearchParams {
   type?: string;
   condition?: string;
   priceType?: string;
+  /** RP.4 — formato del precio; eje independiente de priceType. */
+  priceUnit?: string;
   minPrice?: number;
   maxPrice?: number;
   province?: string;
@@ -342,6 +360,7 @@ export class SearchService implements OnModuleInit {
     if (params.type) filters.push(`type = "${this.escape(params.type)}"`);
     if (params.condition) filters.push(`condition = "${this.escape(params.condition)}"`);
     if (params.priceType) filters.push(`priceType = "${this.escape(params.priceType)}"`);
+    if (params.priceUnit) filters.push(`priceUnit = "${this.escape(params.priceUnit)}"`);
     if (params.province) filters.push(`province = "${this.escape(params.province)}"`);
     if (params.city) filters.push(`city = "${this.escape(params.city)}"`);
     if (params.minPrice != null) filters.push(`price >= ${params.minPrice}`);
@@ -417,6 +436,7 @@ export class SearchService implements OnModuleInit {
       price: Number(listing.price),
       currency: listing.currency,
       priceType: listing.priceType,
+      priceUnit: listing.priceUnit,
       type: listing.type,
       condition: listing.condition,
       categoryId: listing.category.id,

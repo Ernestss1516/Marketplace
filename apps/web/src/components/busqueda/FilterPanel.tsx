@@ -46,7 +46,27 @@ const CONDITION_LABELS: Record<string, string> = {
   FOR_PARTS: 'Para piezas',
   PRODUCT: 'Productos',
   SERVICE: 'Servicios',
+  // RP.4 — formatos de precio. Mismas etiquetas que el wizard y el panel de
+  // categorías, para que vendedor, admin y comprador lean lo mismo.
+  ONE_TIME: 'Pago único',
+  PER_MONTH: 'Al mes',
+  PER_WEEK: 'A la semana',
+  PER_DAY: 'Al día',
+  PER_HOUR: 'Por hora',
+  PER_UNIT: 'Por unidad',
+  PER_SESSION: 'Por sesión',
 };
+
+/** Títulos legibles de los grupos de facetas. Sin entrada aquí se muestra el
+ *  nombre crudo del campo, que es el comportamiento que ya había. */
+const FACET_SECTION_LABELS: Record<string, string> = {
+  priceUnit: 'Formato del precio',
+};
+
+/** Facetas que NO se muestran cuando solo traen un valor: un filtro con una
+ *  única opción no filtra nada, solo hace ruido (§10.4 del diseño). Se aplica
+ *  solo a las nuevas para no alterar cómo se ven las facetas ya existentes. */
+const HIDE_IF_SINGLE_VALUE = new Set(['priceUnit']);
 
 // Facets already covered by explicit filter controls, or raw slugs with no useful display.
 // 'categorySlug' is the Meilisearch field name; skip it because the category is already
@@ -494,9 +514,10 @@ export function FilterPanel({
             const currentValue = searchParams.get(facetKey);
             const entries = Object.entries(facetValues).sort(([, a], [, b]) => b - a);
             if (entries.length === 0) return null;
+            if (HIDE_IF_SINGLE_VALUE.has(facetKey) && entries.length < 2) return null;
             return (
-              <div key={facetKey}>
-                <SectionLabel>{facetKey}</SectionLabel>
+              <div key={facetKey} data-testid={`facet-${facetKey}`}>
+                <SectionLabel>{FACET_SECTION_LABELS[facetKey] ?? facetKey}</SectionLabel>
                 <div className="flex flex-wrap gap-1.5">
                   {entries.map(([value, count]) => {
                     const isActive = currentValue === value;

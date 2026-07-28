@@ -27,13 +27,14 @@ import {
   reactivateListing,
   archiveListing,
 } from '@/lib/api/anuncios';
+import { formatListingPrice } from './listing-card-shared';
 import { bumpListing } from '@/lib/api/billing';
 import { toUserMessage, isCreditError, isCooldownError, formatRetryAfter, toBumpMessage } from '@/lib/api/client';
 import { useApiAction } from '@/lib/api/use-api-action';
 import { useRequireAuth } from '@/hooks/use-require-auth';
 import { DestacadoDialog } from './DestacadoDialog';
 import { CloseDealDialog } from './CloseDealDialog';
-import type { BumpPricing, ListingSummary, PriceType } from '@/types';
+import type { BumpPricing, ListingSummary } from '@/types';
 
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: 'Borrador',
@@ -65,11 +66,6 @@ const STATUS_VARIANTS: Record<
 /** Ciclo de vida RÁFAGA 2 — estados desde los que se puede archivar (irreversible). */
 const ARCHIVABLE_STATUSES = ['ACTIVE', 'PAUSED', 'SOLD', 'EXPIRED', 'REJECTED'];
 
-function formatPrice(price: number, currency: string, priceType: PriceType) {
-  if (priceType === 'FREE') return 'Gratis';
-  if (priceType === 'NEGOTIABLE') return 'A convenir';
-  return new Intl.NumberFormat('es-ES', { style: 'currency', currency }).format(price);
-}
 
 interface Props {
   listing: ListingSummary;
@@ -138,7 +134,7 @@ export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) 
           </div>
 
           <p className="text-base font-bold">
-            {formatPrice(listing.price, listing.currency, listing.priceType)}
+            {formatListingPrice(listing.price, listing.currency, listing.priceType, listing.priceUnit)}
           </p>
 
           {location && (

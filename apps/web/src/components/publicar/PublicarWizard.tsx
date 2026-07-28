@@ -7,7 +7,12 @@ import { Button } from '@/components/ui/button';
 import { StepIndicator } from './StepIndicator';
 import { StepCategoria } from './steps/StepCategoria';
 import { StepFotos, type UploadedImage } from './steps/StepFotos';
-import { StepDatos, type DatosData, priceTypeFromMode } from './steps/StepDatos';
+import {
+  StepDatos,
+  type DatosData,
+  priceTypeFromMode,
+  resolvePriceUnitSelection,
+} from './steps/StepDatos';
 import { StepAtributos } from './steps/StepAtributos';
 import { StepUbicacion, type UbicacionData } from './steps/StepUbicacion';
 import { StepPrevisualizacion } from './steps/StepPrevisualizacion';
@@ -16,7 +21,7 @@ import { toUserMessage } from '@/lib/api/client';
 import { useApiAction } from '@/lib/api/use-api-action';
 import { useRequireAuth } from '@/hooks/use-require-auth';
 import { filterSchemaByType, resolveLinkedOptions } from '@/lib/attribute-schema';
-import type { Category, AttributeSchema, ListingType, ListingTypePolicy, Condition } from '@/types';
+import type { Category, AttributeSchema, ListingType, ListingTypePolicy, Condition, PriceUnit } from '@/types';
 
 // ── Shared state shape ────────────────────────────────────────────────────────
 
@@ -27,6 +32,8 @@ export interface WizardData extends DatosData, UbicacionData {
   categoryName: string;
   attributeSchema: AttributeSchema[];
   allowedListingType: ListingTypePolicy;
+  /** RP.3 — formatos efectivos de la categoría; acotan el selector de StepDatos. */
+  allowedPriceUnits: PriceUnit[];
   // Step 2
   images: UploadedImage[];
   // Step 4
@@ -154,6 +161,7 @@ const INITIAL_DATA: WizardData = {
   categoryName: '',
   attributeSchema: [],
   allowedListingType: 'BOTH',
+  allowedPriceUnits: [],
   // Step 2
   images: [],
   // Step 3
@@ -163,6 +171,7 @@ const INITIAL_DATA: WizardData = {
   condition: '',
   priceMode: 'fixed',
   price: '',
+  priceUnit: 'ONE_TIME',
   // Step 4
   attributes: {},
   // Step 5
@@ -241,6 +250,7 @@ export function PublicarWizard({ token, categories, initialLocation, initialPhon
     categoryName: string;
     attributeSchema: AttributeSchema[];
     allowedListingType: ListingTypePolicy;
+    allowedPriceUnits: PriceUnit[];
   }) {
     setData((prev) => ({
       ...prev,
@@ -253,6 +263,11 @@ export function PublicarWizard({ token, categories, initialLocation, initialPhon
         : cat.allowedListingType === 'SERVICE_ONLY' ? 'SERVICE'
         : prev.type,
       condition: cat.allowedListingType === 'SERVICE_ONLY' ? '' : prev.condition,
+      // RP.3 — mismo criterio que `type`: los formatos de la NUEVA categoría
+      // mandan. Se conserva la elección previa solo si sigue permitida; si no,
+      // cae a ONE_TIME o al primero. Sin esto, volver atrás y cambiar de
+      // categoría dejaría un formato que la nueva rechazaría con 422.
+      priceUnit: resolvePriceUnitSelection(cat.allowedPriceUnits, prev.priceUnit),
     }));
     setErrors({});
     // Use the new schema to decide next step before state flush —
@@ -281,6 +296,9 @@ export function PublicarWizard({ token, categories, initialLocation, initialPhon
             description: data.description,
             price,
             priceType: priceTypeFromMode(data.priceMode),
+            // "Gratis" nunca lleva formato — se envía ONE_TIME, que es lo que
+            // toda categoría sin configurar permite y el default del backend.
+            priceUnit: data.priceMode === 'free' ? 'ONE_TIME' : data.priceUnit,
             type: data.type as ListingType,
             condition: data.condition ? (data.condition as Condition) : undefined,
             categoryId: data.categoryId,
@@ -337,6 +355,7 @@ export function PublicarWizard({ token, categories, initialLocation, initialPhon
                     categoryName: data.categoryName,
                     attributeSchema: data.attributeSchema,
                     allowedListingType: data.allowedListingType,
+                    allowedPriceUnits: data.allowedPriceUnits,
                   }
                 : null
             }
@@ -362,10 +381,12 @@ export function PublicarWizard({ token, categories, initialLocation, initialPhon
               condition: data.condition,
               priceMode: data.priceMode,
               price: data.price,
+              priceUnit: data.priceUnit,
             }}
             onChange={(patch) => update(patch as Partial<WizardData>)}
             errors={errors}
             readOnlyType={data.allowedListingType !== 'BOTH'}
+            allowedPriceUnits={data.allowedPriceUnits}
           />
         )}
 

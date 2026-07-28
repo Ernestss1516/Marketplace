@@ -330,4 +330,118 @@ describe('RF.8 — Meilisearch boostScore + sortDate (e2e)', () => {
       expect(dIdx).toBeLessThan(cIdx); // D still before C — renew did not change sortDate
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // RP.4 — priceUnit indexado, filtrable y facetable
+  // ---------------------------------------------------------------------------
+
+  describe('priceUnit — formato de precio en el índice (RP.4)', () => {
+    let hourId: string;
+    let monthId: string;
+    let oneTimeId: string;
+
+    beforeAll(async () => {
+      async function createWithUnit(title: string, priceUnit: 'ONE_TIME' | 'PER_HOUR' | 'PER_MONTH') {
+        const listing = await prisma.listing.create({
+          data: {
+            title,
+            slug: `rf8pu-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            description: title,
+            price: new Prisma.Decimal('30.00'),
+            currency: 'EUR',
+            type: 'SERVICE',
+            priceType: 'FIXED',
+            priceUnit,
+            status: ListingStatus.ACTIVE,
+            categoryId,
+            sellerId: userId,
+            publishedAt: new Date(),
+          },
+        });
+        await fetchAndIndex(listing.id);
+        return listing.id;
+      }
+
+      hourId = await createWithUnit('ClaseParticularRF8PU por horas', 'PER_HOUR');
+      monthId = await createWithUnit('ClaseParticularRF8PU mensual', 'PER_MONTH');
+      oneTimeId = await createWithUnit('ClaseParticularRF8PU suelta', 'ONE_TIME');
+
+      await waitForDocumentField(meili, INDEX_NAME, hourId, 'priceUnit', 'PER_HOUR');
+      await waitForDocumentField(meili, INDEX_NAME, monthId, 'priceUnit', 'PER_MONTH');
+      await waitForDocumentField(meili, INDEX_NAME, oneTimeId, 'priceUnit', 'ONE_TIME');
+    }, 40_000);
+
+    it('el documento indexado incluye priceUnit', async () => {
+      const doc = (await meili.index(INDEX_NAME).getDocument(hourId)) as Record<string, unknown>;
+      expect(doc.priceUnit).toBe('PER_HOUR');
+    });
+
+    it('los anuncios sin formato explícito se indexan como ONE_TIME (default de la columna)', async () => {
+      const doc = (await meili.index(INDEX_NAME).getDocument(oneTimeId)) as Record<string, unknown>;
+      expect(doc.priceUnit).toBe('ONE_TIME');
+    });
+
+    it('filtrar por priceUnit=PER_HOUR devuelve SOLO los de por horas', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/api/search')
+        .query({ q: 'ClaseParticularRF8PU', priceUnit: 'PER_HOUR' })
+        .expect(200);
+
+      const hits = res.body.hits as { id: string; priceUnit: string }[];
+      expect(hits.length).toBe(1);
+      expect(hits[0].id).toBe(hourId);
+      expect(hits.every((h) => h.priceUnit === 'PER_HOUR')).toBe(true);
+    });
+
+    it('filtrar por priceUnit=PER_MONTH devuelve solo el mensual', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/api/search')
+        .query({ q: 'ClaseParticularRF8PU', priceUnit: 'PER_MONTH' })
+        .expect(200);
+
+      const hits = res.body.hits as { id: string }[];
+      expect(hits.length).toBe(1);
+      expect(hits[0].id).toBe(monthId);
+    });
+
+    it('sin filtro de priceUnit salen los tres (el filtro es opcional)', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/api/search')
+        .query({ q: 'ClaseParticularRF8PU' })
+        .expect(200);
+
+      expect((res.body.hits as unknown[]).length).toBe(3);
+    });
+
+    it('priceUnit viaja como faceta con su reparto de valores', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/api/search')
+        .query({ q: 'ClaseParticularRF8PU' })
+        .expect(200);
+
+      const facets = res.body.facets as Record<string, Record<string, number>>;
+      expect(facets.priceUnit).toBeDefined();
+      expect(facets.priceUnit.PER_HOUR).toBe(1);
+      expect(facets.priceUnit.PER_MONTH).toBe(1);
+      expect(facets.priceUnit.ONE_TIME).toBe(1);
+    });
+
+    it('priceUnit y priceType son ejes independientes: se combinan sin pisarse', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/api/search')
+        .query({ q: 'ClaseParticularRF8PU', priceType: 'FIXED', priceUnit: 'PER_HOUR' })
+        .expect(200);
+
+      const hits = res.body.hits as { id: string }[];
+      expect(hits.length).toBe(1);
+      expect(hits[0].id).toBe(hourId);
+    });
+
+    it('un priceUnit fuera del enum → 400 (validado por el DTO, no tratado como atributo)', async () => {
+      await request(app.getHttpServer())
+        .get('/api/search')
+        .query({ q: 'ClaseParticularRF8PU', priceUnit: 'PER_FORTNIGHT' })
+        .expect(400);
+    });
+  });
 });

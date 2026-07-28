@@ -1,6 +1,6 @@
 import { Star } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import type { ListingSummary, ListingStatus, PriceType } from '@/types';
+import type { ListingSummary, ListingStatus, PriceType, PriceUnit } from '@/types';
 
 const RATING_FORMAT = new Intl.NumberFormat('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 
@@ -19,10 +19,42 @@ const STATUS_VARIANTS: Partial<Record<string, 'secondary' | 'outline'>> = {
   EXPIRED: 'outline',
 };
 
-export function formatListingPrice(price: number, currency: string, priceType: PriceType): string {
+/** Sufijo que se añade al precio según su formato (RP.4b). ONE_TIME es cadena
+ *  vacía: un pago único se sigue mostrando "200 €" a secas, exactamente como
+ *  antes de esta ráfaga. */
+const UNIT_SUFFIX: Record<PriceUnit, string> = {
+  ONE_TIME: '',
+  PER_MONTH: '/mes',
+  PER_WEEK: '/semana',
+  PER_DAY: '/día',
+  PER_HOUR: '/hora',
+  PER_UNIT: '/ud.',
+  PER_SESSION: '/sesión',
+};
+
+/**
+ * Precio tal y como lo ve el comprador (RP.4b).
+ *
+ * Los dos ejes se combinan, no se excluyen — por eso NEGOTIABLE no puede hacer
+ * un `return` temprano como FREE: "a convenir, al mes" es un caso real de
+ * alquiler y debe leerse "A convenir/mes". Solo FREE sale sin sufijo: un
+ * anuncio gratis no se cobra por hora ni por mes, así que "Gratis" es la
+ * lectura completa.
+ *
+ * `priceUnit` lleva default ONE_TIME a propósito: toda llamada anterior a RP.4b
+ * (y todo anuncio anterior a RP.1) sigue compilando y renderizando idéntica.
+ */
+export function formatListingPrice(
+  price: number,
+  currency: string,
+  priceType: PriceType,
+  priceUnit: PriceUnit = 'ONE_TIME',
+): string {
   if (priceType === 'FREE') return 'Gratis';
-  if (priceType === 'NEGOTIABLE') return 'A convenir';
-  return new Intl.NumberFormat('es-ES', { style: 'currency', currency }).format(price);
+  const suffix = UNIT_SUFFIX[priceUnit] ?? '';
+  if (priceType === 'NEGOTIABLE') return `A convenir${suffix}`;
+  const amount = new Intl.NumberFormat('es-ES', { style: 'currency', currency }).format(price);
+  return `${amount}${suffix}`;
 }
 
 export function ListingStatusBadge({ status, className }: { status: ListingStatus; className?: string }) {

@@ -69,6 +69,7 @@ export class SearchController {
       type: dto.type,
       condition: dto.condition,
       priceType: dto.priceType,
+      priceUnit: dto.priceUnit,
       minPrice: dto.minPrice,
       maxPrice: dto.maxPrice,
       province: dto.province,

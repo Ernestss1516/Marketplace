@@ -1,4 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { PriceUnit } from '@prisma/client';
 import {
   IsEnum,
   IsIn,
@@ -48,6 +49,11 @@ export class SearchQueryDto {
   @IsOptional()
   @IsEnum(PriceType)
   priceType?: PriceType;
+
+  @ApiPropertyOptional({ enum: PriceUnit, description: 'Formato del precio (RP.4)' })
+  @IsOptional()
+  @IsEnum(PriceUnit)
+  priceUnit?: PriceUnit;
 
   @ApiPropertyOptional({ minimum: 0, description: 'Precio mínimo (inclusive)' })
   @IsOptional()

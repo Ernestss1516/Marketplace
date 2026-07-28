@@ -3,6 +3,7 @@ import { auth } from '@/lib/auth';
 import { getMyListingById } from '@/lib/api/anuncios';
 import { getCategoryBySlug } from '@/lib/api/categorias';
 import { EditarWizard, type EditarWizardData } from '@/components/publicar/EditarWizard';
+import { resolvePriceUnitSelection } from '@/components/publicar/steps/StepDatos';
 import { ApiError } from '@/lib/api/client';
 import { buildLoginUrl } from '@/lib/auth/callback-url';
 import type { PriceType } from '@/types';
@@ -43,6 +44,10 @@ export default async function EditarAnuncioPage({
     categorySlug: category.slug,
     categoryName: category.name,
     attributeSchema: category.attributeSchema ?? [],
+    // RP.3 — formatos efectivos de la categoría del anuncio (ya resueltos por
+    // el backend). Aquí la categoría no se puede cambiar, así que la lista es
+    // fija durante toda la edición.
+    allowedPriceUnits: category.allowedPriceUnits ?? [],
     // Images — preloaded with backend IDs so the wizard can manage them.
     // localId reuses img.id (a UUID from the DB, unique within the listing).
     images: listing.images.map((img) => ({
@@ -59,6 +64,13 @@ export default async function EditarAnuncioPage({
     condition: listing.condition ?? '',
     priceMode: priceModeFromType(listing.priceType),
     price: String(listing.price),
+    // Preselecciona el formato ACTUAL del anuncio; si su categoría ya no lo
+    // permitiera (caso de borde: el guard de RP.2 lo impide por la vía normal),
+    // cae al primero válido en vez de mostrar el selector en blanco.
+    priceUnit: resolvePriceUnitSelection(
+      category.allowedPriceUnits ?? [],
+      listing.priceUnit,
+    ),
     // Attributes — convert unknown values to strings for the wizard inputs
     attributes: Object.fromEntries(
       Object.entries(listing.attributes).map(([k, v]) => [k, String(v)]),

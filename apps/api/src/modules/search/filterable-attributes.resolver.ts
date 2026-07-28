@@ -10,7 +10,7 @@ import { resolveEffectiveSchema, type AttributeField } from '../categories/categ
 // structurally here instead of relying on a seed-authoring convention.
 const RESERVED_ATTRIBUTE_NAMES = new Set([
   // SearchQueryDto core query params
-  'q', 'category', 'type', 'condition', 'priceType', 'minPrice', 'maxPrice',
+  'q', 'category', 'type', 'condition', 'priceType', 'priceUnit', 'minPrice', 'maxPrice',
   'province', 'city', 'sort', 'page', 'hitsPerPage', 'lat', 'lng', 'radius',
   // Meilisearch core document fields (CORE_FILTERABLE_ATTRIBUTES in search.service.ts)
   'categoryId', 'categorySlug', 'categoryPath', 'price', '_geo', 'sellerId',

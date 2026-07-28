@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import type { ListingType, Condition, PriceType } from '@/types';
+import type { ListingType, Condition, PriceType, PriceUnit } from '@/types';
 
 export type PriceMode = 'fixed' | 'free' | 'negotiable';
 
@@ -23,6 +23,9 @@ export interface DatosData {
   condition: Condition | '';
   priceMode: PriceMode;
   price: string;
+  /** RP.3 — formato del precio. Siempre tiene valor (ONE_TIME por defecto), aunque
+   *  el selector no se muestre: así el wizard envía algo coherente sin ramas. */
+  priceUnit: PriceUnit;
 }
 
 interface StepDatosProps {
@@ -31,6 +34,11 @@ interface StepDatosProps {
   errors: Record<string, string>;
   /** true en edición: el tipo ya no se puede cambiar tras crear el anuncio. */
   readOnlyType?: boolean;
+  /** RP.3 — formatos EFECTIVOS de la categoría elegida (ya resueltos por el
+   *  backend en GET /categories/:slug). Con uno solo o ninguno, el selector no
+   *  se renderiza: toda categoría sin configurar (todas las de hoy) resuelve a
+   *  [ONE_TIME] y ve el formulario exactamente igual que antes de RP.3. */
+  allowedPriceUnits?: PriceUnit[];
 }
 
 const TYPE_LABELS: Record<ListingType, string> = {
@@ -62,7 +70,76 @@ export function priceTypeFromMode(mode: PriceMode): PriceType {
   return 'FIXED';
 }
 
-export function StepDatos({ data, onChange, errors, readOnlyType = false }: StepDatosProps) {
+/** Etiquetas ES de los formatos — las mismas que PRICE_UNIT_OPTIONS del panel
+ *  de categorías (RP.2), para que admin y vendedor lean lo mismo. */
+export const PRICE_UNIT_LABELS: Record<PriceUnit, string> = {
+  ONE_TIME: 'Pago único',
+  PER_MONTH: 'Al mes',
+  PER_WEEK: 'A la semana',
+  PER_DAY: 'Al día',
+  PER_HOUR: 'Por hora',
+  PER_UNIT: 'Por unidad',
+  PER_SESSION: 'Por sesión',
+};
+
+/**
+ * Elige qué formato debe quedar seleccionado (RP.3). Preferencias, en orden:
+ * el actual si la categoría lo permite (edición: no se cambia lo que el
+ * vendedor ya eligió), ONE_TIME si está permitido, y si no el primero de la
+ * lista. Nunca devuelve un formato fuera de `allowed` salvo que la lista venga
+ * vacía, donde ONE_TIME es el mismo default que aplica el backend.
+ *
+ * Pura: el wizard la llama al elegir categoría y al montar la edición.
+ */
+export function resolvePriceUnitSelection(
+  allowed: PriceUnit[],
+  current?: PriceUnit,
+): PriceUnit {
+  if (current && allowed.includes(current)) return current;
+  if (allowed.includes('ONE_TIME')) return 'ONE_TIME';
+  return allowed[0] ?? 'ONE_TIME';
+}
+
+/** Selector de formato. Extraído para que las ramas "precio fijo" y "a convenir"
+ *  compartan exactamente el mismo control sin duplicarlo. */
+function PriceUnitSelect({
+  value,
+  units,
+  onChange,
+}: {
+  value: PriceUnit;
+  units: PriceUnit[];
+  onChange: (updates: Partial<DatosData>) => void;
+}) {
+  return (
+    <Select value={value} onValueChange={(v) => onChange({ priceUnit: v as PriceUnit })}>
+      <SelectTrigger className="w-40" aria-label="Formato del precio" data-testid="price-unit-select">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {units.map((unit) => (
+          <SelectItem key={unit} value={unit}>
+            {PRICE_UNIT_LABELS[unit]}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+export function StepDatos({
+  data,
+  onChange,
+  errors,
+  readOnlyType = false,
+  allowedPriceUnits,
+}: StepDatosProps) {
+  const units = allowedPriceUnits ?? [];
+  // Con 0 o 1 formato no hay nada que elegir: no se pregunta. Esto es lo que
+  // mantiene el formulario idéntico al de siempre en toda categoría sin
+  // configurar (efectivo [ONE_TIME]) — ver §6.1 del diseño.
+  const showUnitSelector = units.length > 1;
+
   return (
     <div className="space-y-6">
       <div>
@@ -219,7 +296,17 @@ export function StepDatos({ data, onChange, errors, readOnlyType = false }: Step
                 €
               </span>
             </div>
+            {showUnitSelector && <PriceUnitSelect value={data.priceUnit} units={units} onChange={onChange} />}
             <FieldError message={errors.price} />
+          </div>
+        )}
+
+        {/* "A convenir" no lleva importe, pero sí puede llevar formato: un
+            alquiler «a convenir, al mes» es un caso real (decisión aprobada,
+            §7.1 del diseño). "Gratis" nunca lleva formato. */}
+        {data.priceMode === 'negotiable' && showUnitSelector && (
+          <div className="flex items-center gap-2">
+            <PriceUnitSelect value={data.priceUnit} units={units} onChange={onChange} />
           </div>
         )}
       </fieldset>

@@ -56,7 +56,7 @@ export function ListingCardWide({
             <div className="flex flex-wrap items-start justify-between gap-2">
               <p className="text-base font-semibold leading-snug">{listing.title}</p>
               <p className="shrink-0 text-lg font-bold">
-                {formatListingPrice(listing.price, listing.currency, listing.priceType)}
+                {formatListingPrice(listing.price, listing.currency, listing.priceType, listing.priceUnit)}
               </p>
             </div>
             <div className="mt-0.5 flex items-center gap-2">

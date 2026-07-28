@@ -14,7 +14,7 @@ import { toUserMessage } from '@/lib/api/client';
 import { useApiAction } from '@/lib/api/use-api-action';
 import { useRequireAuth } from '@/hooks/use-require-auth';
 import { filterSchemaByType, resolveLinkedOptions } from '@/lib/attribute-schema';
-import type { AttributeSchema, Condition } from '@/types';
+import type { AttributeSchema, Condition, PriceUnit } from '@/types';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -23,6 +23,9 @@ export interface EditarWizardData extends DatosData, UbicacionData {
   categorySlug: string;
   categoryName: string;
   attributeSchema: AttributeSchema[];
+  /** RP.3 — formatos efectivos de la categoría YA ASIGNADA (aquí no se puede
+   *  cambiar de categoría, así que la lista es fija durante toda la edición). */
+  allowedPriceUnits: PriceUnit[];
   images: UploadedImage[];
   attributes: Record<string, string>;
 }
@@ -126,6 +129,12 @@ export function EditarWizard({ listingId, token, initialData }: EditarWizardProp
   const { run } = useApiAction();
   const { loginUrl } = useRequireAuth();
   const [data, setData] = useState<EditarWizardData>(initialData);
+  // RP.3 — formato con el que se abrió la edición. Se congela al montar para
+  // poder enviar `priceUnit` SOLO si el vendedor lo cambia: así una edición que
+  // no lo toca no lo revalida contra la categoría, que es exactamente el
+  // grandfathering que garantiza update() en el backend (RP.1). Un anuncio
+  // antiguo cuyo formato ya no encajara podría seguir editando título o precio.
+  const [initialPriceUnit] = useState<PriceUnit>(initialData.priceUnit);
   const [currentStepId, setCurrentStepId] = useState<StepId>('fotos');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -191,6 +200,9 @@ export function EditarWizard({ listingId, token, initialData }: EditarWizardProp
           .filter((img) => img.id && !img.error && !img.uploading)
           .map((img) => img.id!);
 
+        const nextPriceUnit: PriceUnit =
+          data.priceMode === 'free' ? 'ONE_TIME' : data.priceUnit;
+
         await updateListing(
           listingId,
           {
@@ -199,6 +211,10 @@ export function EditarWizard({ listingId, token, initialData }: EditarWizardProp
             condition: data.condition ? (data.condition as Condition) : undefined,
             price: data.priceMode === 'fixed' ? parseFloat(data.price) : 0,
             priceType: priceTypeFromMode(data.priceMode),
+            // Igual que en el alta, "Gratis" no lleva formato. Y solo se envía si
+            // CAMBIÓ (ver initialPriceUnit): omitirlo evita revalidar el formato
+            // de un anuncio cuya edición no lo tocaba.
+            ...(nextPriceUnit !== initialPriceUnit && { priceUnit: nextPriceUnit }),
             attributes: buildAttributes(data.attributes, filterSchemaByType(data.attributeSchema, data.type)),
             city: data.city,
             province: data.province,
@@ -252,10 +268,12 @@ export function EditarWizard({ listingId, token, initialData }: EditarWizardProp
               condition: data.condition,
               priceMode: data.priceMode,
               price: data.price,
+              priceUnit: data.priceUnit,
             }}
             onChange={(patch) => update(patch as Partial<EditarWizardData>)}
             errors={errors}
             readOnlyType
+            allowedPriceUnits={data.allowedPriceUnits}
           />
         )}
 

@@ -49,7 +49,7 @@ export function ListingCard({
         </CardPhotoCarousel>
         <CardContent className="p-3">
           <p className="mb-1 line-clamp-2 text-sm font-medium leading-snug">{listing.title}</p>
-          <p className="text-base font-bold">{formatListingPrice(listing.price, listing.currency, listing.priceType)}</p>
+          <p className="text-base font-bold">{formatListingPrice(listing.price, listing.currency, listing.priceType, listing.priceUnit)}</p>
           <CardAttrsDisplay
             categorySlug={listing.categorySlug}
             attributes={listing.attributes as Record<string, unknown> | undefined}

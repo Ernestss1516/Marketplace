@@ -60,12 +60,17 @@ const SCHEMA_BOTH: CategoryWithSchema = {
   attributeSchema: [COMMON, PRODUCT_ONLY, SERVICE_ONLY],
   allowedListingType: 'BOTH',
   allowedViews: ['LISTA', 'AMPLIADA', 'MAPA'], defaultView: 'LISTA',
+  // RP.3 — findBySlug siempre resuelve este campo (nunca ausente en respuestas
+  // reales). [ONE_TIME] es el efectivo de una categoría sin configurar: con un
+  // solo formato el selector no se renderiza, que es el caso de siempre.
+  allowedPriceUnits: ['ONE_TIME'],
 };
 const SCHEMA_PRODUCT_ONLY: CategoryWithSchema = {
   id: 'cat-po', name: 'Categoría Solo Producto', slug: 'cat-po',
   attributeSchema: [COMMON, PRODUCT_ONLY],
   allowedListingType: 'PRODUCT_ONLY',
   allowedViews: ['LISTA', 'AMPLIADA', 'MAPA'], defaultView: 'LISTA',
+  allowedPriceUnits: ['ONE_TIME'],
 };
 
 function renderWizard() {
@@ -260,5 +265,176 @@ describe('PublicarWizard — política efectiva y filtrado por tipo (RÁFAGA 3)'
 
     await waitFor(() => screen.getByRole('heading', { name: 'Atributos' }));
     expect(screen.getByLabelText(/Garantía/)).toHaveValue('3 años');
+  });
+});
+
+// ─── RP.3 — selector de formato de precio ───────────────────────────────────
+
+/** Categoría con varios formatos: aquí SÍ hay elección, así que el selector se
+ *  renderiza. Sin atributos, para que el wizard salte el paso "Atributos", y
+ *  SERVICE_ONLY para que tampoco pregunte el estado (un solo combobox en
+ *  pantalla: el de formato). */
+const SCHEMA_MULTI: CategoryWithSchema = {
+  id: 'cat-multi', name: 'Categoría Multi Formato', slug: 'cat-multi',
+  attributeSchema: [],
+  allowedListingType: 'SERVICE_ONLY',
+  allowedViews: ['LISTA', 'AMPLIADA', 'MAPA'], defaultView: 'LISTA',
+  allowedPriceUnits: ['ONE_TIME', 'PER_MONTH', 'PER_HOUR'],
+};
+
+const CAT_MULTI: Category = { id: 'cat-multi', name: 'Categoría Multi Formato', slug: 'cat-multi' };
+
+function renderWizardWith(categories: Category[]) {
+  return render(
+    <PublicarWizard
+      token="test-token"
+      categories={categories}
+      initialLocation={{ city: 'Madrid', province: 'Madrid' }}
+    />,
+  );
+}
+
+/** Elige el formato en el Select de shadcn: abre el trigger por su testid y
+ *  pulsa la opción por su etiqueta. No sirve getByRole('combobox') a secas —
+ *  en una categoría de producto convive con el select de estado. */
+function selectPriceUnit(label: string) {
+  fireEvent.click(screen.getByTestId('price-unit-select'));
+  fireEvent.click(screen.getByText(label));
+}
+
+/** Desde "datos": ubicación → previsualización → guardar borrador. Devuelve el
+ *  payload con el que se llamó a createListing. */
+async function submitAsDraft() {
+  goNext(); // datos → ubicación (sin atributos, ese paso no existe)
+  await waitFor(() => screen.getByRole('heading', { name: 'Ubicación' }));
+  goNext(); // ubicación → previsualización
+  await waitFor(() => screen.getByRole('button', { name: 'Guardar borrador' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Guardar borrador' }));
+  await waitFor(() => expect(mockCreateListing).toHaveBeenCalled());
+  return mockCreateListing.mock.calls[0][0];
+}
+
+describe('PublicarWizard — formato de precio (RP.3)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockCreateListing.mockResolvedValue({ id: 'listing-1', slug: 'anuncio-de-prueba', status: 'DRAFT' });
+    mockPublishListing.mockResolvedValue({ id: 'listing-1', slug: 'anuncio-de-prueba', status: 'ACTIVE', publishedAt: '2026-01-01' });
+  });
+
+  // ── Categoría sin configurar: el formulario de siempre ────────────────────
+
+  it('categoría no configurada (efectivo [ONE_TIME]) → el selector NO se renderiza', async () => {
+    mockGetCategoryBySlug.mockResolvedValue(SCHEMA_BOTH);
+    renderWizard();
+
+    await pickCategoryAndReachDatos('Categoría Ambos');
+
+    expect(screen.queryByTestId('price-unit-select')).not.toBeInTheDocument();
+  });
+
+  it('categoría no configurada → el anuncio se crea con ONE_TIME', async () => {
+    mockGetCategoryBySlug.mockResolvedValue(SCHEMA_PRODUCT_ONLY);
+    renderWizardWith([CAT_PRODUCT_ONLY]);
+
+    await pickCategoryAndReachDatos('Categoría Solo Producto');
+    fillDatosBase();
+    selectCondition('Buen estado');
+    goNext(); // datos → atributos
+    await waitFor(() => screen.getByRole('heading', { name: 'Atributos' }));
+    fireEvent.change(screen.getByLabelText(/Marca/), { target: { value: 'Bosch' } });
+    fireEvent.change(screen.getByLabelText(/Garantía/), { target: { value: '2 años' } });
+    goNext();
+    await waitFor(() => screen.getByRole('heading', { name: 'Ubicación' }));
+    goNext();
+    await waitFor(() => screen.getByRole('button', { name: 'Guardar borrador' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar borrador' }));
+
+    await waitFor(() => expect(mockCreateListing).toHaveBeenCalled());
+    expect(mockCreateListing.mock.calls[0][0].priceUnit).toBe('ONE_TIME');
+  });
+
+  // ── Categoría con varios formatos ─────────────────────────────────────────
+
+  it('categoría multi-formato → el selector aparece, con SOLO los formatos permitidos', async () => {
+    mockGetCategoryBySlug.mockResolvedValue(SCHEMA_MULTI);
+    renderWizardWith([CAT_MULTI]);
+
+    await pickCategoryAndReachDatos('Categoría Multi Formato');
+
+    expect(screen.getByTestId('price-unit-select')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('price-unit-select'));
+
+    expect(screen.getByText('Al mes')).toBeInTheDocument();
+    expect(screen.getByText('Por hora')).toBeInTheDocument();
+    // Formatos que la categoría NO permite: no se ofrecen.
+    expect(screen.queryByText('A la semana')).not.toBeInTheDocument();
+    expect(screen.queryByText('Por sesión')).not.toBeInTheDocument();
+  });
+
+  it('preselección: ONE_TIME cuando está entre los permitidos', async () => {
+    mockGetCategoryBySlug.mockResolvedValue(SCHEMA_MULTI);
+    renderWizardWith([CAT_MULTI]);
+
+    await pickCategoryAndReachDatos('Categoría Multi Formato');
+
+    expect(screen.getByTestId('price-unit-select')).toHaveTextContent('Pago único');
+  });
+
+  it('elegir "Por hora" → el anuncio se crea con PER_HOUR', async () => {
+    mockGetCategoryBySlug.mockResolvedValue(SCHEMA_MULTI);
+    renderWizardWith([CAT_MULTI]);
+
+    await pickCategoryAndReachDatos('Categoría Multi Formato');
+    fillDatosBase();
+    selectPriceUnit('Por hora');
+
+    const payload = await submitAsDraft();
+    expect(payload.priceUnit).toBe('PER_HOUR');
+    expect(payload.priceType).toBe('FIXED');
+  });
+
+  // ── Interacción con el modo de precio ─────────────────────────────────────
+
+  it('priceMode "Gratis" → el selector NO se renderiza', async () => {
+    mockGetCategoryBySlug.mockResolvedValue(SCHEMA_MULTI);
+    renderWizardWith([CAT_MULTI]);
+
+    await pickCategoryAndReachDatos('Categoría Multi Formato');
+    expect(screen.getByTestId('price-unit-select')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText('Gratis'));
+    expect(screen.queryByTestId('price-unit-select')).not.toBeInTheDocument();
+  });
+
+  it('"Gratis" se envía siempre con ONE_TIME, aunque antes se hubiera elegido otro formato', async () => {
+    mockGetCategoryBySlug.mockResolvedValue(SCHEMA_MULTI);
+    renderWizardWith([CAT_MULTI]);
+
+    await pickCategoryAndReachDatos('Categoría Multi Formato');
+    fillDatosBase();
+    selectPriceUnit('Por hora');
+    fireEvent.click(screen.getByLabelText('Gratis'));
+
+    const payload = await submitAsDraft();
+    expect(payload.priceType).toBe('FREE');
+    expect(payload.priceUnit).toBe('ONE_TIME');
+  });
+
+  it('NEGOTIABLE + formato: "A convenir" mantiene el selector y respeta la elección', async () => {
+    mockGetCategoryBySlug.mockResolvedValue(SCHEMA_MULTI);
+    renderWizardWith([CAT_MULTI]);
+
+    await pickCategoryAndReachDatos('Categoría Multi Formato');
+    fireEvent.change(screen.getByLabelText(/Título/), { target: { value: 'Alquiler de prueba' } });
+    fireEvent.change(screen.getByLabelText(/Descripción/), { target: { value: 'Descripción de prueba con contenido' } });
+    fireEvent.click(screen.getByLabelText('A convenir'));
+
+    // El selector sigue presente con "A convenir" (decisión aprobada, §7.1).
+    expect(screen.getByTestId('price-unit-select')).toBeInTheDocument();
+    selectPriceUnit('Al mes');
+
+    const payload = await submitAsDraft();
+    expect(payload.priceType).toBe('NEGOTIABLE');
+    expect(payload.priceUnit).toBe('PER_MONTH');
   });
 });

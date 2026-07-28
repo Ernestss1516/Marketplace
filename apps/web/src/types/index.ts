@@ -139,6 +139,10 @@ export interface CategoryWithSchema extends Category {
   /** Vistas efectivas (propias o heredadas del padre, o default global) — RÁFAGA 2. */
   allowedViews: ListingViewMode[];
   defaultView: ListingViewMode;
+  /** Formatos de precio EFECTIVOS (propios, heredados del padre, o el default
+   *  global [ONE_TIME]) — RP.1 los resuelve en findBySlug. El wizard solo ofrece
+   *  estos; con uno solo no pregunta nada. */
+  allowedPriceUnits: PriceUnit[];
 }
 
 // ── Sponsored ads (H6.6) ─────────────────────────────────────────────────────
@@ -162,6 +166,10 @@ export interface ListingSummary {
   price: number;
   currency: string;
   priceType: PriceType;
+  /** RP.4 — formato del precio. Opcional: los hits de Meilisearch anteriores al
+   *  reindex de esta ráfaga no lo traen, y `formatListingPrice` cae a ONE_TIME
+   *  (sufijo vacío), que es exactamente como se venían mostrando. */
+  priceUnit?: PriceUnit;
   thumbnailUrl?: string;
   /** Ordered URLs of every photo (RÁFAGA 2 — carrusel en la card). Present on Meilisearch
    * hits after reindex; absent on the Postgres fallback path (thumbnailUrl still works there). */
@@ -228,6 +236,8 @@ export interface Listing {
   price: number;
   currency: string;
   priceType: PriceType;
+  /** RP.4 — formato del precio, mostrado como sufijo en la ficha. */
+  priceUnit?: PriceUnit;
   type: ListingType;
   condition?: Condition;
   status: ListingStatus;
@@ -292,6 +302,10 @@ export interface CreateListingPayload {
   price: number;
   currency?: string;
   priceType: PriceType;
+  /** RP.3 — opcional: omitirlo deja que el backend aplique ONE_TIME (default de
+   *  la columna). Debe estar entre los formatos que la categoría permite; si no,
+   *  el backend responde 422 (validatePriceUnitAllowed, RP.1). */
+  priceUnit?: PriceUnit;
   type: ListingType;
   condition?: Condition;
   categoryId: string;
@@ -325,6 +339,8 @@ export interface UpdateListingPayload {
   price?: number;
   currency?: string;
   priceType?: PriceType;
+  /** RP.3 — mutable (a diferencia de `type`): solo reetiqueta el mismo importe. */
+  priceUnit?: PriceUnit;
   // type deliberately omitted — immutable after creation (RÁFAGA 1, producto/servicio).
   condition?: Condition;
   categoryId?: string;
@@ -353,6 +369,8 @@ export interface MyListing {
   price: number;
   currency: string;
   priceType: PriceType;
+  /** RP.3 — el wizard de edición lo usa para preseleccionar el formato actual. */
+  priceUnit: PriceUnit;
   type: ListingType;
   condition?: Condition;
   status: ListingStatus;

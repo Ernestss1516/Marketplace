@@ -394,13 +394,37 @@ Mezclar ambos pasos haría indistinguible un fallo de refactor de un fallo de la
 
 ### 7.3 Meilisearch
 
-- `priceUnit` se añade a `toDocument()` y a `CORE_FILTERABLE_ATTRIBUTES` → **filtrable
-  siempre**. Requiere `pnpm --filter @marketplace/api reindex`.
-- Como **facet visible** en el panel de filtros: **solo en categorías con más de un formato
-  efectivo**. No se añade a `NATIVE_FACET_ATTRIBUTES` (que aplicaría a todas las categorías,
-  incluidas las de solo pago único, donde sería un filtro de un único valor: ruido). Se
-  resuelve por petición, con el mismo criterio con el que `SearchController` ya calcula
-  `attributeFacetNames` según la categoría.
+- `priceUnit` se añade a `toDocument()`, a `CORE_FILTERABLE_ATTRIBUTES` y al DTO/params de
+  búsqueda → **filtrable siempre**, combinable con `priceType` (ejes independientes).
+- También entra en las dos listas de nombres reservados (`CORE_SEARCH_QUERY_KEYS` en
+  `search-query.parser.ts` y `RESERVED_ATTRIBUTE_NAMES` en
+  `filterable-attributes.resolver.ts`); sin eso, `?priceUnit=` se interpretaría como un
+  atributo de categoría en vez de como campo core.
+
+**Facet visible — implementación final (difiere de lo previsto en §10.4):** `priceUnit` se
+añade a `NATIVE_FACET_ATTRIBUTES`, es decir se **pide siempre**, y quién lo **muestra** lo
+decide el frontend con la distribución devuelta: `FilterPanel` oculta el grupo cuando trae
+menos de dos valores (`HIDE_IF_SINGLE_VALUE`).
+
+El plan original era resolver los formatos efectivos de la categoría en el
+`SearchController` y pedir el facet condicionalmente. Se descartó: eso mete una consulta a
+Postgres en la **ruta caliente de búsqueda** — justo el coste que H6.6 tuvo que mitigar con
+caché Redis para los patrocinados. Pedir el facet no cuesta un viaje extra (va en la misma
+petición a Meilisearch), y decidir en el frontend logra el mismo objetivo (nunca un filtro
+de un solo valor) siendo además más preciso: una categoría multi-formato cuyos resultados
+actuales sean todos `PER_HOUR` tampoco enseña un filtro inútil.
+
+> **⚠️ DESPLIEGUE — reindexado obligatorio.** `priceUnit` es un campo nuevo del documento y
+> un `filterableAttribute` nuevo. Los documentos ya indexados **no lo tienen**, así que
+> tras desplegar RP.4 hay que ejecutar:
+>
+> ```bash
+> pnpm --filter @marketplace/api reindex
+> ```
+>
+> Sin reindexar: los anuncios existentes se siguen listando con normalidad (el frontend
+> cae a `ONE_TIME`, sufijo vacío → se ven igual que hoy), pero **filtrar por `priceUnit` no
+> devolvería resultados** y el facet no aparecería. Es degradación silenciosa, no rotura.
 
 ---
 
@@ -430,7 +454,7 @@ reportar, no «arreglar» el test.
 | **RP.1 — Backend: modelo + validación** | Enum `PriceUnit`, `Listing.priceUnit`, `Category.allowedPriceUnits`, migración, `DEFAULT_ALLOWED_PRICE_UNITS`/`resolveEffectivePriceUnits`/`isPriceUnitAllowed`, `validatePriceUnitAllowed` (422) en create/update, DTOs de listing, `findBySlug` expone el efectivo | `category.types.spec.ts` ampliado + `price-unit-policy.e2e-spec.ts` (calcado de `listing-type-policy.e2e-spec.ts`) |
 | **RP.2 — Admin: categorías** | DTOs de categoría, `assertPriceUnitsChangeDoesNotBreakListings`, escritura en create/updateCategory, `findTree` devuelve el campo, panel de categorías | `admin-price-units-policy.e2e-spec.ts` + `page.test.tsx` |
 | **RP.3 — Frontend: anuncio** | `StepCategoria` → `StepDatos` selector, `PublicarWizard`/`EditarWizard`, tipos web | `PublicarWizard.test.tsx` + e2e Playwright `formato-precio.spec.ts` |
-| **RP.4 — Visualización + búsqueda** | (a) unificar las 3 `formatPrice` sin cambiar comportamiento; (b) sufijos en cards y ficha; `priceUnit` en Meilisearch (`toDocument` + filtrable + reindex); facet condicional en `FilterPanel` | unit de formato + `rf8-meilisearch.e2e-spec.ts` |
+| **RP.4 — Visualización + búsqueda** ✅ | (a) unificar las 3 `formatPrice` sin cambiar comportamiento; (b) sufijos en cards y ficha; `priceUnit` en Meilisearch (`toDocument` + filtrable + reindex); facet condicional en `FilterPanel` | unit de formato + `rf8-meilisearch.e2e-spec.ts` |
 
 RP.1 y RP.2 son independientes de RP.3/RP.4: tras RP.2 el sistema es funcional vía API
 aunque la UI no lo exponga todavía.

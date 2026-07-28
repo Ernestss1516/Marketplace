@@ -7,7 +7,7 @@ import type { AttributeField } from '../categories/category.types';
 // resolved name -> type map) or unknown (rejected), replacing the previous
 // static forbidNonWhitelisted whitelist for the attribute section.
 export const CORE_SEARCH_QUERY_KEYS = new Set([
-  'q', 'category', 'type', 'condition', 'priceType', 'minPrice', 'maxPrice',
+  'q', 'category', 'type', 'condition', 'priceType', 'priceUnit', 'minPrice', 'maxPrice',
   'province', 'city', 'sort', 'page', 'hitsPerPage', 'lat', 'lng', 'radius',
 ]);
 

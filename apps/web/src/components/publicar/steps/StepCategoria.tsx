@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { ChevronRight, Loader2 } from 'lucide-react';
 import { getCategoryBySlug } from '@/lib/api/categorias';
-import type { Category, AttributeSchema, ListingTypePolicy } from '@/types';
+import type { Category, AttributeSchema, ListingTypePolicy, PriceUnit } from '@/types';
 
 interface CategoryData {
   categoryId: string;
@@ -11,6 +11,9 @@ interface CategoryData {
   categoryName: string;
   attributeSchema: AttributeSchema[];
   allowedListingType: ListingTypePolicy;
+  /** RP.3 — formatos de precio EFECTIVOS de la categoría (ya resueltos por el
+   *  backend). El wizard los pasa a StepDatos para acotar el selector. */
+  allowedPriceUnits: PriceUnit[];
 }
 
 interface StepCategoriaProps {
@@ -43,6 +46,10 @@ export function StepCategoria({ categories, selected, onComplete }: StepCategori
         categoryName: cat.name,
         attributeSchema: full.attributeSchema,
         allowedListingType: full.allowedListingType,
+        // Ya resuelto por el backend (propio → padre → default global [ONE_TIME]),
+        // igual que allowedListingType. `?? []` cubre una API antigua sin el campo:
+        // lista vacía → el selector no se muestra → comportamiento pre-RP.3.
+        allowedPriceUnits: full.allowedPriceUnits ?? [],
       });
     } catch {
       setError('No se pudo cargar la categoría. Inténtalo de nuevo.');

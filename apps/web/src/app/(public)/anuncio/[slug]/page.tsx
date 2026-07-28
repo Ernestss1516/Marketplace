@@ -9,6 +9,7 @@ import { ShareButton } from '@/components/anuncios/ShareButton';
 import { SellerCard } from '@/components/anuncios/SellerCard';
 import { AttributeList } from '@/components/anuncios/AttributeList';
 import { ListingCard } from '@/components/anuncios/ListingCard';
+import { formatListingPrice } from '@/components/anuncios/listing-card-shared';
 import { ReportButton } from '@/components/anuncios/ReportButton';
 import { FavoriteButton } from '@/components/anuncios/FavoriteButton';
 import { ListingViewTracker } from '@/components/anuncios/ListingViewTracker';
@@ -60,11 +61,6 @@ const CONDITION_LABELS: Record<string, string> = {
   FOR_PARTS: 'Para piezas',
 };
 
-function formatPrice(price: number, currency: string, priceType: string) {
-  if (priceType === 'FREE') return 'Gratis';
-  if (priceType === 'NEGOTIABLE') return 'A convenir';
-  return new Intl.NumberFormat('es-ES', { style: 'currency', currency }).format(price);
-}
 
 export default async function AnuncioPage({
   params,
@@ -130,7 +126,7 @@ export default async function AnuncioPage({
                 {statusLabel && <Badge variant="secondary">{statusLabel}</Badge>}
               </div>
               <p className="text-3xl font-extrabold text-primary">
-                {formatPrice(listing.price, listing.currency, listing.priceType)}
+                {formatListingPrice(listing.price, listing.currency, listing.priceType, listing.priceUnit)}
               </p>
             </div>
 

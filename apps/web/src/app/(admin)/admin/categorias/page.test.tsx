@@ -58,6 +58,9 @@ beforeEach(() => {
   mockGetCategoryBySlug.mockResolvedValue({
     id: 'x', name: 'X', slug: 'x', attributeSchema: [], allowedListingType: 'BOTH',
     allowedViews: ['LISTA', 'AMPLIADA', 'MAPA'], defaultView: 'LISTA',
+    // RP.3 — findBySlug siempre resuelve este campo (nunca ausente en respuestas
+    // reales); [ONE_TIME] es el efectivo de una categoría sin configurar.
+    allowedPriceUnits: ['ONE_TIME'],
   });
   mockCreateAdminCategory.mockResolvedValue({
     id: 'new', name: 'Nueva', slug: 'nueva', iconUrl: null, order: 0,
