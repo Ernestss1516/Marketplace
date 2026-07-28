@@ -21,6 +21,17 @@ export type ListingTypePolicy = 'PRODUCT_ONLY' | 'SERVICE_ONLY' | 'BOTH';
 /** Vistas de resultados en /busqueda y /[categoria] (RÁFAGA 2). */
 export type ListingViewMode = 'LISTA' | 'AMPLIADA' | 'MAPA';
 
+/** Formato del precio de un anuncio (RP.1). Eje ORTOGONAL a PriceType: un precio
+ *  puede ser a la vez NEGOTIABLE y PER_MONTH. */
+export type PriceUnit =
+  | 'ONE_TIME'
+  | 'PER_MONTH'
+  | 'PER_WEEK'
+  | 'PER_DAY'
+  | 'PER_HOUR'
+  | 'PER_UNIT'
+  | 'PER_SESSION';
+
 export type Condition = 'NEW' | 'LIKE_NEW' | 'GOOD' | 'FAIR' | 'FOR_PARTS';
 
 export type Role = 'USER' | 'MODERATOR' | 'ADMIN';

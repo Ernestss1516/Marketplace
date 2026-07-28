@@ -1,6 +1,6 @@
 import { IsArray, IsEnum, IsInt, IsOptional, IsString, Min } from 'class-validator';
 import { Type } from 'class-transformer';
-import { ListingTypePolicy, ListingViewMode } from '@prisma/client';
+import { ListingTypePolicy, ListingViewMode, PriceUnit } from '@prisma/client';
 
 export class CreateCategoryDto {
   @IsString()
@@ -40,4 +40,12 @@ export class CreateCategoryDto {
   @IsOptional()
   @IsEnum(ListingViewMode)
   defaultView?: ListingViewMode;
+
+  /** RP.1/RP.2 — [] u omitido = "no configurado" (hereda del padre; si tampoco,
+   * solo pago único). Override completo, no fusión — ver allowedPriceUnits en
+   * schema.prisma y resolveEffectivePriceUnits en category.types.ts. */
+  @IsOptional()
+  @IsArray()
+  @IsEnum(PriceUnit, { each: true })
+  allowedPriceUnits?: PriceUnit[];
 }

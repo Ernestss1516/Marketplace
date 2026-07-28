@@ -1,5 +1,5 @@
 import { apiFetch } from './client';
-import type { AttributeSchema, ListingTypePolicy, ListingViewMode } from '@/types';
+import type { AttributeSchema, ListingTypePolicy, ListingViewMode, PriceUnit } from '@/types';
 
 // ─── Stats ────────────────────────────────────────────────────────────────────
 
@@ -206,6 +206,9 @@ export interface AdminCategoryChild {
   /** RÁFAGA 2 — valores PROPIOS (no resueltos): [] = "no configurado". */
   allowedViews: ListingViewMode[];
   defaultView: ListingViewMode | null;
+  /** RP.2 — también PROPIO, no el efectivo: el admin edita lo que esta categoría
+   *  configura, no lo que hereda. [] = "no configurado". */
+  allowedPriceUnits: PriceUnit[];
 }
 
 export interface AdminCategory extends AdminCategoryChild {
@@ -222,6 +225,7 @@ export interface CategoryMutationDto {
   allowedListingType?: ListingTypePolicy;
   allowedViews?: ListingViewMode[];
   defaultView?: ListingViewMode;
+  allowedPriceUnits?: PriceUnit[];
 }
 
 export function getSearchableKeys(token: string): Promise<{ keys: string[] }> {

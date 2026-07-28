@@ -24,7 +24,7 @@ import {
   serializeAttributeSchema,
   type AttributeSchemaWithExtras,
 } from '@/components/admin/AttributeSchemaEditor';
-import type { AttributeSchema, ListingTypePolicy, ListingViewMode } from '@/types';
+import type { AttributeSchema, ListingTypePolicy, ListingViewMode, PriceUnit } from '@/types';
 
 // ─── Form values (name/slug/iconUrl/allowedListingType/allowedViews/defaultView —
 // schema is managed separately; order se ordena SOLO con las flechas ↑↓) ──
@@ -38,11 +38,13 @@ interface CategoryFormValues {
   allowedViews: ListingViewMode[];
   /** '' = sin defaultView propio (coherente con allowedViews:[]). */
   defaultView: ListingViewMode | '';
+  /** RP.2 — [] = "no configurado" (hereda del padre / default global: solo pago único). */
+  allowedPriceUnits: PriceUnit[];
 }
 
 const EMPTY_FORM: CategoryFormValues = {
   name: '', slug: '', iconUrl: '', allowedListingType: 'BOTH',
-  allowedViews: [], defaultView: '',
+  allowedViews: [], defaultView: '', allowedPriceUnits: [],
 };
 
 const POLICY_OPTIONS: { value: ListingTypePolicy; label: string }[] = [
@@ -57,6 +59,16 @@ const VIEW_OPTIONS: { value: ListingViewMode; label: string }[] = [
   { value: 'MAPA', label: 'Mapa' },
 ];
 
+const PRICE_UNIT_OPTIONS: { value: PriceUnit; label: string }[] = [
+  { value: 'ONE_TIME', label: 'Pago único' },
+  { value: 'PER_MONTH', label: 'Al mes' },
+  { value: 'PER_WEEK', label: 'A la semana' },
+  { value: 'PER_DAY', label: 'Al día' },
+  { value: 'PER_HOUR', label: 'Por hora' },
+  { value: 'PER_UNIT', label: 'Por unidad' },
+  { value: 'PER_SESSION', label: 'Por sesión' },
+];
+
 function toForm(cat: AdminCategoryChild): CategoryFormValues {
   return {
     name: cat.name,
@@ -65,6 +77,7 @@ function toForm(cat: AdminCategoryChild): CategoryFormValues {
     allowedListingType: cat.allowedListingType,
     allowedViews: cat.allowedViews ?? [],
     defaultView: cat.defaultView ?? '',
+    allowedPriceUnits: cat.allowedPriceUnits ?? [],
   };
 }
 
@@ -164,6 +177,39 @@ function CategoryForm({
                   disabled={saving}
                   className="h-3.5 w-3.5 rounded"
                   data-testid={`allowed-view-${opt.value.toLowerCase()}`}
+                />
+                {opt.label}
+              </label>
+            ))}
+          </div>
+        </div>
+        <div className="flex flex-col gap-1 sm:col-span-2">
+          <label className="text-xs font-medium text-muted-foreground">
+            Formatos de precio permitidos
+            <span className="ml-1 font-normal text-muted-foreground/70">
+              (vacío = hereda del padre, o solo pago único)
+            </span>
+          </label>
+          <div className="flex flex-wrap gap-4" data-testid="allowed-price-units-checkbox">
+            {PRICE_UNIT_OPTIONS.map((opt) => (
+              <label key={opt.value} className="flex cursor-pointer items-center gap-1.5 text-sm">
+                <input
+                  type="checkbox"
+                  checked={values.allowedPriceUnits.includes(opt.value)}
+                  onChange={(e) => {
+                    // Override total, no fusión: la lista propia sustituye entera a
+                    // la del padre. Sin campo "por defecto" asociado que limpiar
+                    // (a diferencia de allowedViews/defaultView) — el wizard
+                    // preselecciona ONE_TIME o el primero de la lista.
+                    onChange({
+                      allowedPriceUnits: e.target.checked
+                        ? [...values.allowedPriceUnits, opt.value]
+                        : values.allowedPriceUnits.filter((u) => u !== opt.value),
+                    });
+                  }}
+                  disabled={saving}
+                  className="h-3.5 w-3.5 rounded"
+                  data-testid={`allowed-price-unit-${opt.value.toLowerCase()}`}
                 />
                 {opt.label}
               </label>
@@ -556,6 +602,7 @@ export default function AdminCategoriasPage() {
         allowedListingType: editForm.allowedListingType,
         allowedViews: editForm.allowedViews,
         ...(editForm.defaultView && { defaultView: editForm.defaultView }),
+        allowedPriceUnits: editForm.allowedPriceUnits,
       });
       setEditingId(null);
       await fetchCategories();
@@ -628,6 +675,7 @@ export default function AdminCategoriasPage() {
         allowedListingType: createForm.allowedListingType,
         allowedViews: createForm.allowedViews,
         ...(createForm.defaultView && { defaultView: createForm.defaultView }),
+        allowedPriceUnits: createForm.allowedPriceUnits,
         attributeSchema: serializeAttributeSchema(createOwnSchema, searchableKeys),
       });
       setCreateParentId(undefined);

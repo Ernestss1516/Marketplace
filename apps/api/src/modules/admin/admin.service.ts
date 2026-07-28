@@ -11,6 +11,7 @@ import {
   ListingStatus,
   ListingTypePolicy,
   ListingViewMode,
+  PriceUnit,
   Prisma,
   ReportStatus,
   Role,
@@ -440,6 +441,11 @@ export class AdminService {
         allowedListingType: true,
         allowedViews: true,
         defaultView: true,
+        // RP.2 — valor CRUDO (propio de la categoría), no el efectivo: el admin
+        // edita lo que esta categoría configura, no lo que hereda. Mismo
+        // criterio que allowedListingType y allowedViews en este árbol; el
+        // resuelto solo lo sirve el findBySlug público, para el wizard.
+        allowedPriceUnits: true,
         children: {
           orderBy: { order: 'asc' },
           select: {
@@ -452,6 +458,7 @@ export class AdminService {
             allowedListingType: true,
             allowedViews: true,
             defaultView: true,
+            allowedPriceUnits: true,
           },
         },
       },
@@ -652,6 +659,61 @@ export class AdminService {
   }
 
   /**
+   * Compara dos listas de formatos como CONJUNTOS: reordenar los checkboxes del
+   * panel no es un cambio real y no debe disparar el guard (ni sus consultas).
+   * Solo se usa para decidir si hace falta validar, nunca para escribir — lo que
+   * se persiste es siempre la lista tal cual llega en el DTO.
+   */
+  private samePriceUnits(a: PriceUnit[], b: PriceUnit[]): boolean {
+    if (a.length !== b.length) return false;
+    const setB = new Set(b);
+    return a.every((u) => setB.has(u));
+  }
+
+  /**
+   * RP.2 — red de seguridad de los formatos de precio. Mismo molde que
+   * assertPolicyChangeDoesNotBreakChildren (conteo exacto, 400 con el número):
+   * restringir los formatos de una categoría con anuncios ya publicados podría
+   * dejarlos con un formato que su propia categoría ya no admite. Se rechaza el
+   * cambio; no se avisa ni se permite en silencio. Es lo que hace que abrir la
+   * edición del campo en el admin (esta misma ráfaga) sea seguro.
+   *
+   * NO hay guarda de coherencia con el PADRE, a diferencia de
+   * assertPolicyConsistentWithParent: los formatos se heredan por override
+   * total, no por restricción jerárquica, así que una hija con [PER_MONTH] bajo
+   * un padre [ONE_TIME] es legítima (Inmobiliaria → Alquiler), no una
+   * contradicción. Ver resolveEffectivePriceUnits en category.types.ts.
+   */
+  private async assertPriceUnitsChangeDoesNotBreakListings(
+    categoryId: string,
+    newUnits: PriceUnit[],
+  ): Promise<void> {
+    // Volver a "no configurado" solo puede AMPLIAR lo permitido (se pasa a
+    // heredar del padre o al default global), nunca dejar un anuncio fuera.
+    if (newUnits.length === 0) return;
+
+    // Solo las hijas SIN config propia heredan este cambio; las que tienen la
+    // suya son inmunes por el override total — sus anuncios no se ven afectados.
+    const children = await this.prisma.category.findMany({
+      where: { parentId: categoryId },
+      select: { id: true, allowedPriceUnits: true },
+    });
+    const affectedIds = [
+      categoryId,
+      ...children.filter((c) => c.allowedPriceUnits.length === 0).map((c) => c.id),
+    ];
+
+    const count = await this.prisma.listing.count({
+      where: { categoryId: { in: affectedIds }, priceUnit: { notIn: newUnits } },
+    });
+    if (count > 0) {
+      throw new BadRequestException(
+        `No se puede cambiar los formatos de precio: ${count} anuncio(s) usan un formato que quedaría fuera de los permitidos.`,
+      );
+    }
+  }
+
+  /**
    * Guarda de profundidad (auditoría de herencia de atributos, decisión: opción A,
    * la barata). `Category.parentId` es una auto-relación sin límite de
    * profundidad en el modelo — pero TODA la resolución de herencia
@@ -708,6 +770,12 @@ export class AdminService {
           }),
           ...(dto.allowedViews !== undefined && { allowedViews: dto.allowedViews }),
           ...(dto.defaultView !== undefined && { defaultView: dto.defaultView }),
+          // RP.2 — sin guard anti-huérfanos aquí: una categoría recién creada no
+          // tiene anuncios todavía, así que ninguna restricción puede dejar a
+          // ninguno fuera. El guard solo tiene sentido en updateCategory.
+          ...(dto.allowedPriceUnits !== undefined && {
+            allowedPriceUnits: dto.allowedPriceUnits,
+          }),
         },
       });
 
@@ -783,6 +851,16 @@ export class AdminService {
       );
     }
 
+    // RP.2 — formatos de precio: igual que con allowedListingType, solo se paga
+    // el coste de consultar hijas/anuncios cuando la lista CAMBIA de verdad
+    // respecto a la persistida (editar el nombre o el schema no lo paga).
+    if (
+      dto.allowedPriceUnits !== undefined &&
+      !this.samePriceUnits(dto.allowedPriceUnits, category.allowedPriceUnits)
+    ) {
+      await this.assertPriceUnitsChangeDoesNotBreakListings(id, dto.allowedPriceUnits);
+    }
+
     const before = { name: category.name, slug: category.slug, order: category.order };
 
     try {
@@ -801,6 +879,9 @@ export class AdminService {
           }),
           ...(dto.allowedViews !== undefined && { allowedViews: dto.allowedViews }),
           ...(defaultViewToWrite !== undefined && { defaultView: defaultViewToWrite }),
+          ...(dto.allowedPriceUnits !== undefined && {
+            allowedPriceUnits: dto.allowedPriceUnits,
+          }),
         },
       });
 

@@ -45,6 +45,9 @@ function rootCat(overrides: Partial<AdminCategory>): AdminCategory {
     allowedListingType: 'BOTH',
     allowedViews: [],
     defaultView: null,
+    // RP.2 — columna NOT NULL, siempre presente en las respuestas reales del
+    // árbol admin (el fixture debe reflejar la forma real, no una parcial).
+    allowedPriceUnits: overrides.allowedPriceUnits ?? [],
     children: overrides.children ?? [],
   };
 }
@@ -59,6 +62,7 @@ beforeEach(() => {
   mockCreateAdminCategory.mockResolvedValue({
     id: 'new', name: 'Nueva', slug: 'nueva', iconUrl: null, order: 0,
     attributeSchema: [], allowedListingType: 'BOTH', allowedViews: [], defaultView: null,
+    allowedPriceUnits: [],
   });
 });
 
@@ -120,5 +124,117 @@ describe('Admin categorías — el formulario ya no tiene input numérico de Ord
     await waitFor(() => expect(mockCreateAdminCategory).toHaveBeenCalled());
     const [, dto] = mockCreateAdminCategory.mock.calls[0];
     expect(dto.order).toBe(6);
+  });
+});
+
+// ─── RP.2 — formatos de precio permitidos por categoría ─────────────────────
+
+describe('Admin categorías — formatos de precio permitidos (RP.2)', () => {
+  async function openCreateForm() {
+    mockGetAdminCategories.mockResolvedValue([]);
+    render(<AdminCategoriasPage />);
+    await waitFor(() => screen.getByRole('button', { name: 'Nueva categoría raíz' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Nueva categoría raíz' }));
+  }
+
+  function fillNameAndSlug() {
+    const [nombreInput, slugInput] = screen.getAllByRole('textbox');
+    fireEvent.change(nombreInput, { target: { value: 'Nueva' } });
+    fireEvent.change(slugInput, { target: { value: 'nueva' } });
+  }
+
+  it('el formulario ofrece los 7 formatos, todos desmarcados por defecto (= "no configurado")', async () => {
+    await openCreateForm();
+
+    const group = screen.getByTestId('allowed-price-units-checkbox');
+    expect(group).toBeInTheDocument();
+    for (const label of [
+      'Pago único', 'Al mes', 'A la semana', 'Al día', 'Por hora', 'Por unidad', 'Por sesión',
+    ]) {
+      expect(screen.getByText(label)).toBeInTheDocument();
+    }
+
+    for (const unit of [
+      'one_time', 'per_month', 'per_week', 'per_day', 'per_hour', 'per_unit', 'per_session',
+    ]) {
+      expect(screen.getByTestId(`allowed-price-unit-${unit}`)).not.toBeChecked();
+    }
+  });
+
+  it('sin marcar nada → se envía [] ("no configurado": hereda del padre o solo pago único)', async () => {
+    await openCreateForm();
+    fillNameAndSlug();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+    });
+
+    await waitFor(() => expect(mockCreateAdminCategory).toHaveBeenCalled());
+    const [, dto] = mockCreateAdminCategory.mock.calls[0];
+    expect(dto.allowedPriceUnits).toEqual([]);
+  });
+
+  it('marcar formatos los envía en el DTO', async () => {
+    await openCreateForm();
+    fillNameAndSlug();
+
+    fireEvent.click(screen.getByTestId('allowed-price-unit-per_month'));
+    fireEvent.click(screen.getByTestId('allowed-price-unit-per_hour'));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+    });
+
+    await waitFor(() => expect(mockCreateAdminCategory).toHaveBeenCalled());
+    const [, dto] = mockCreateAdminCategory.mock.calls[0];
+    expect(dto.allowedPriceUnits).toEqual(['PER_MONTH', 'PER_HOUR']);
+  });
+
+  it('desmarcar un formato ya marcado lo quita del DTO', async () => {
+    await openCreateForm();
+    fillNameAndSlug();
+
+    fireEvent.click(screen.getByTestId('allowed-price-unit-per_month'));
+    fireEvent.click(screen.getByTestId('allowed-price-unit-per_hour'));
+    fireEvent.click(screen.getByTestId('allowed-price-unit-per_month'));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+    });
+
+    await waitFor(() => expect(mockCreateAdminCategory).toHaveBeenCalled());
+    const [, dto] = mockCreateAdminCategory.mock.calls[0];
+    expect(dto.allowedPriceUnits).toEqual(['PER_HOUR']);
+  });
+
+  it('marcar formatos NO toca allowedViews ni defaultView — son ejes independientes', async () => {
+    await openCreateForm();
+    fillNameAndSlug();
+
+    fireEvent.click(screen.getByTestId('allowed-price-unit-per_hour'));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+    });
+
+    await waitFor(() => expect(mockCreateAdminCategory).toHaveBeenCalled());
+    const [, dto] = mockCreateAdminCategory.mock.calls[0];
+    expect(dto.allowedPriceUnits).toEqual(['PER_HOUR']);
+    expect(dto.allowedViews).toEqual([]);
+    expect(dto.defaultView).toBeUndefined();
+  });
+
+  it('editar una categoría precarga sus formatos ya configurados', async () => {
+    mockGetAdminCategories.mockResolvedValue([
+      rootCat({ id: 'a', name: 'A', allowedPriceUnits: ['PER_MONTH'] }),
+    ]);
+    render(<AdminCategoriasPage />);
+
+    await waitFor(() => screen.getByText('A'));
+    fireEvent.click(screen.getByRole('button', { name: 'Editar' }));
+
+    await waitFor(() => screen.getByTestId('allowed-price-units-checkbox'));
+    expect(screen.getByTestId('allowed-price-unit-per_month')).toBeChecked();
+    expect(screen.getByTestId('allowed-price-unit-one_time')).not.toBeChecked();
   });
 });
