@@ -66,6 +66,7 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **Alerts** | ✅ Completo (B2+B3) | Búsqueda guardada de un comprador con matching automático. Modelo `Alert`: columnas core (`q`, `categorySlug`, `type`, `condition`, `priceType`, `minPrice`/`maxPrice`, `province`, `city`, `lat`/`lng`/`radiusMeters`) + `attributes Json` — no un blob `SearchParams` completo, para que B3 pueda pre-filtrar con SQL. `alertToSearchParams()` reconstruye `SearchParams` desde una alerta (reusado por el preview de B2 y el matching de B3). `POST /alerts` (crea + devuelve `{alert, matches}` con preview inmediato), `GET /alerts`, `PATCH /alerts/:id` (criterios/`active`), `DELETE /alerts/:id`, `GET /alerts/:id/matches`; todo scoped por `(id, userId)`. Modelo `AlertMatch` (`@@unique([alertId,listingId])`) para deduplicación. Ver «Sistema de Alertas» más abajo |
 | **InvoicingModule (RF.13)** | ✅ Completo a nivel de PLATAFORMA (R1–R5) · **falta conectar un proveedor homologado real** (usa StubInvoicingProvider = NO VÁLIDO FISCALMENTE) | **EMISIÓN de facturas fiscales — capa SEPARADA de cobros.** La emisión VÁLIDA se DELEGA en un proveedor homologado externo (aún sin elegir) tras el puerto `InvoicingProvider`; el sistema NO afirma conformidad fiscal por sí mismo. **R1 (modelo)**: campos fiscales en `User` (`fiscalTaxId/fiscalName/fiscalEntityType/fiscalAddress/…`, congelables), `Setting fiscalIssuer` (emisor), modelos `Invoice` (append-only) + `InvoiceLine` (relación 1:N con `Transaction` vía `InvoiceLine.transactionId @unique` = guard duro anti-doble-facturación; `Invoice.idempotencyKey @unique` = guard de la emisión automática); validador de formato NIF/DNI/NIE/CIF (`common/validators/spanish-tax-id.ts`) en back y front; formulario `/perfil/facturacion`. **R2 (puerto + stub + inmutabilidad)**: interfaz `InvoicingProvider.emitInvoice(input) → { number, pdf, verifactu, providerRef }` con token DI `INVOICING_PROVIDER` (seleccionado por `config invoicing.provider` / env `INVOICING_PROVIDER`, hoy solo `stub`). `StubInvoicingProvider` — **NO emite facturas válidas**: número de prueba `DEV-YYYY-NNNNNN` (contador local), PDF (pdf-lib, dependencia nueva) sellado «NO VÁLIDO FISCALMENTE», verifactu ficticio, idempotente por `idempotencyKey`. **Guard de INMUTABILIDAD a nivel de BD** (migración `20260727000001_invoice_immutability_guard`): triggers Postgres que RECHAZAN cualquier UPDATE/DELETE de una `Invoice` ISSUED y cualquier INSERT/UPDATE/DELETE de sus `InvoiceLine` (solo se permite el latch DRAFT→ISSUED). Ejercido con SQL directo en `test/invoice-immutability.e2e-spec.ts` (incluye sanity-check desactivando el trigger). **R3 (elegibilidad + emisión manual)**: `InvoicingService` + `InvoicingController` (bajo `/billing`, owner-scoped). `getFacturables` = Transactions `SUCCEEDED`, gateway plataforma (STRIPE/REDSYS), **sin `InvoiceLine`** (relación `invoiceLine: { is: null }`), dentro de la **ventana** (`Setting fiscalSelfServiceWindow`, meses, default 6 provisional — plazo exacto pendiente del asesor), con **concepto derivado** (subscriptionId→Pro, baseCreditAmount→pack créditos, baseBumpAmount→pack bumps, listingId→destacado, si no `Price.product.name`). `getEligibility` = datos fiscales completos + ≥1 facturable (con motivo si false). `requestInvoice` (`POST /billing/facturas`): valida elegibilidad → crea `Invoice` DRAFT **congelando** emisor (`Setting fiscalIssuer`) + receptor (User fiscal) + totales + líneas (snapshot) → `provider.emitInvoice(idempotencyKey=invoice.id)` → **PDF a R2 PRIVADO** (`facturas/<id>.pdf`) → latch DRAFT→ISSUED. Manual usa `idempotencyKey` null (el guard real es `InvoiceLine.transactionId @unique`; el cron de R4 usará `userId:periodKey`); doble-submit concurrente → P2002 → devuelve la existente; secuencial → 409 (nada facturable). Si el proveedor/R2 fallan, se **borra el DRAFT** (no-ISSUED → el trigger permite DELETE) liberando las Transactions. Endpoints: `GET /billing/facturables`, `GET /billing/eligibility`, `POST /billing/facturas`, `GET /billing/my-invoices`, `GET /billing/invoices/:id/pdf` (descarga **autenticada** vía `StreamableFile` + `R2.download`, solo el dueño → 403 si no). Front: `/perfil/facturacion` muestra facturables + "Solicitar factura" + lista de facturas con descarga (blob con token). **Verificado e2e** (`test/invoicing-manual.e2e-spec.ts`): flujo completo (facturables→ISSUED N líneas→facturados), idempotencia (2º POST no duplica), sin datos fiscales→400, sin facturables→409, descarga dueño 200 / ajeno 403, **congelación** (cambiar NIF tras emitir no altera la factura). **R4 (cron automático + cola idempotente)**: `InvoicingScheduleService` — `@Cron('0 4 * * *')` fino → `runScheduledInvoicing(today)` público/testeable (molde `entitlement-expiration`). **OPCIÓN A** (confirmada con el asesor: periodicidad TRIMESTRAL, configurable en caliente vía `Setting fiscalInvoicingPeriodicity`, también soporta MONTHLY): el cron se despierta A DIARIO y, en vez de "¿hoy es día 1?", pregunta "¿hay periodos cerrados sin facturar?" comparando la marca `Setting fiscalInvoicingLastPeriod` con el periodo cerrado más reciente (`period.ts`: `previousClosedPeriodKey`/`periodsToProcess`) → **RECUPERACIÓN**: si el servidor estuvo caído en uno o varios cierres, al arrancar detecta y emite todos los pendientes en orden. Para cada periodo pendiente selecciona usuarios con facturables de ese rango (`periodRange`); los elegibles (datos fiscales completos, helper `hasCompleteFiscalData`) → **encola** un job `emit-period {userId, periodKey}` en `QUEUE_INVOICING` (`retryQueue`, `jobId` estable); los que tienen movimientos pero **sin datos fiscales** → aviso in-app `INVOICING_PENDING_FISCAL_DATA` (sus Transactions siguen facturables para emisión manual R3 — BORDE si la ventana cierra sin datos: decisión de negocio, marcada). Trabajo pesado NUNCA inline. `InvoiceProcessor` (`WorkerHost`) invoca `InvoicingService.emitForPeriod(userId, periodKey)` — reutiliza el núcleo `emitInvoiceCore` de R3. **Idempotencia triple** (documentos fiscales): (1) `idempotencyKey=userId:periodKey` @unique → job reintentado no duplica, corta si ya ISSUED; (2) `InvoiceLine.transactionId` @unique; (3) `idempotencyKey=invoice.id` al proveedor. Fallo proveedor/R2 → rollback del DRAFT (libera Transactions) → el job reintenta (retryQueue). **Verificado**: `period.spec.ts` (decisión pura: día-emisión/no-toca/recuperación mono y multi-periodo/config MONTHLY) + `test/invoicing-cron.e2e-spec.ts` (chain cron→cola→processor→factura; día que no toca; recuperación; idempotencia doble disparo y nivel emisión; sin datos fiscales→notifica+no factura; configurable MONTHLY; rollback en fallo del proveedor con reintento, app con provider sobrescrito). **R5 (panel admin)**: `AdminInvoicingController` (`@Controller('admin')`, `@Roles(ADMIN)` + `RolesGuard`) + `AdminInvoicingService`. `GET /admin/invoices` (paginado; filtros status/origin/periodKey/userId/userQuery email-nombre/rango issuedAt; orden issuedAt desc) — TODAS las facturas de TODOS los usuarios. `GET /admin/invoices/:id` (detalle con líneas + emisor/receptor congelados + verifactu/providerRef). `GET /admin/invoices/:id/pdf` (descarga admin de CUALQUIER factura vía `StreamableFile` — contraste con el owner-scope del usuario en R3). **Configuración del emisor**: `GET /admin/fiscal-issuer` (lee `Setting fiscalIssuer`), `PUT /admin/fiscal-issuer` — valida taxId con el mismo validador NIF/CIF + campos obligatorios (400 si inválido/incompleto), guarda el Setting y registra `AuditLog FISCAL_ISSUER_UPDATE` (before/after, dato sensible). **NO retroactivo**: el emisor se congela en cada factura al emitir; cambiarlo solo afecta a las futuras (la UI lo avisa explícitamente). Front: `/admin/facturas` (tabla+filtros+descarga, aviso si el emisor no está configurado) + `/admin/facturas/emisor` (formulario con validación en vivo y aviso de no-retroactividad); entrada "Facturas" en `AdminNav`. **Verificado** (`test/admin-invoicing.e2e-spec.ts`): listado multi-usuario, filtros (origin+periodKey), permisos (USER/MODERATOR→403, sin auth→401), descarga admin de factura ajena→200 (vs. usuario→403), PUT emisor válido→200+Setting+AuditLog / NIF inválido→400 / campo ausente→400, y **NO-RETROACTIVIDAD** (cambiar el emisor no altera las ya emitidas; solo las nuevas). **ÚLTIMO PASO PENDIENTE (fuera de estos hitos, decisión de Ernest con su asesor):** elegir y conectar un **proveedor homologado real** — una clase que implemente `InvoicingProvider` + un `case` en `InvoicingModule` + config de credenciales/env. Hasta entonces el sistema de emisión está COMPLETO a nivel de plataforma pero usa el `StubInvoicingProvider`: los PDF van marcados **NO VÁLIDOS FISCALMENTE** y NO se factura de verdad. |
 | **Contact** | ✅ Completo (RC.1+RC.2) | Formulario público de contacto — endpoint sin autenticación, superficie de ataque nueva; **5 defensas** (ver «RC.1 — Formulario de contacto público» en §2). `GET /contacto/token` (token firmado del time-trap), `GET /contacto/motivos` (**RC.2** — motivos activos, ordenados), `POST /contacto` (público; honeypot y time-trap fallidos → `200` silencioso sin persistir; rate limit superado → `429`). Modelos `ContactMessage` (sin columna de IP — decisión RGPD; `motivoId` FK a `ContactReason`) + `ContactReply` (historial 1:N) + **`ContactReason`** (RC.2 — motivo configurable por el admin, sustituye al enum `ContactMotivo`; sin DELETE, solo desactivación). `AdminContactMessagesController` (`@Roles(ADMIN)`, molde de `BannersService`: listado paginado+filtros por estado/motivoId, detalle con auto `NUEVO→LEIDO`, `PATCH :id/estado` **libre entre cualquier par de estados** + AuditLog, `POST :id/responder` — crea `ContactReply`, encola email, `→RESPONDIDO`; sin DELETE). `AdminContactReasonsController` (RC.2 — CRUD + reorder de motivos, guard: no se puede desactivar el último activo). Notifica a los admins por fan-out: una `Notification` `CONTACT_MESSAGE` (segundo tipo de B1, confirma que el modelo era extensible sin migración; snapshot guarda el nombre del motivo ya resuelto) + un email `SEND_CONTACT_NOTIFICATION` por cada `User role=ADMIN`. Ver «RC.2» en §2 para el detalle de la migración enum→datos. |
+| **Tickets (atención al usuario)** | ✅ Completo salvo dos incrementos (adjuntos y tiempo real) | Canal bidireccional usuario↔administración con máquina de estados; **la conversación in-app es la fuente de verdad**, la notificación y el email solo avisan. Modelos `Ticket` / `TicketMessage` / `TicketAttachment` (⚠️ este último **existe en el schema pero su subida NO está implementada**) + enums `TicketStatus`/`TicketOrigin`/`TicketAuthorSide` + `ContactReasonScope`; migración `add_ticketing` (aditiva). `TicketsController` (usuario, owner-scoped: crear con enlace validado, listar, topics, hilo con cursor, responder/reabrir, cerrar) + `AdminTicketsController` (`@Roles(MODERATOR, ADMIN)`: bandeja con filtros, take, responder **o nota interna**, resolve, close, reassign, flujo (b) y `from-report/:reportId` para el flujo (c)) + `TicketNotificationsService` (3 tipos de `Notification` + 3 jobs de Resend; fan-out in-app al staff pero **un solo email** a `Setting.supportEmail`) + `TicketsScheduleService` (cron 05:00 de auto-cierre, ventana `Setting.ticketAutoCloseWindowDays` default 14). Los tres flujos: (a) usuario→admin, (b) admin→usuario, (c) desde un `Report` **sin modificarlo**. **INVARIANTE DE PRIVACIDAD**: las notas internas (`TicketMessage.internal`) no salen nunca por ninguna ruta de usuario — cinco defensas, ver «Sistema de atención al usuario (tickets) — ESTADO CONSOLIDADO» en §2, que es la referencia completa. |
 
 ### Frontend (`apps/web` — puerto 3000)
 
@@ -118,6 +119,10 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **Contacto** `/contacto` | ✅ Completo (RC.1+RC.2) | Público, sin auth. `'use client'` (no Server Component): el token del time-trap y **la lista de motivos activos** (`GET /contacto/motivos`, RC.2) se piden en cliente en el mismo `useEffect` al montar — evita el riesgo de caché ISR que ya mordió al footer en H6.4. Campos: motivo (select, poblado dinámicamente — ya no un enum fijo), email, teléfono opcional, mensaje; honeypot (`empresa`) oculto por CSS fuera de pantalla — **NUNCA** `display:none`/`visibility:hidden` (los bots que solo parsean el DOM filtran por esos atributos). Enlace desde el footer lo añade el admin desde `/admin/footer` (`FooterItemType.INTERNAL`), sin tocar código. |
 | **Admin mensajes de contacto** `/admin/mensajes-contacto` | ✅ Completo (RC.1+RC.2) | Listado (filtros estado/motivoId — el filtro de motivo usa `GET /admin/contact-reasons`, TODOS incluidos inactivos, paginado) + detalle (auto `NUEVO→LEIDO` al abrir) + cambio de estado **libre** (selector, cualquier transición) + formulario de responder (envía a `ContactMessage.email`, inmutable — nunca un campo libre) + historial de respuestas. El mensaje se renderiza siempre como texto plano (React lo escapa por defecto); **prohibido `dangerouslySetInnerHTML`** en esta vista — el remitente no está autenticado (defensa XSS central del diseño). Botón "Motivos" enlaza a `/admin/motivos-contacto`. |
 | **Admin motivos de contacto** `/admin/motivos-contacto` | ✅ Completo (RC.2) | CRUD de `ContactReason`: crear, renombrar (inline), reordenar (flechas ↑↓, molde `/admin/categorias` — swap optimista de 2 `orden` + rollback por refetch en error), activar/desactivar. Sin DELETE. Aviso explícito en la página: un motivo desactivado deja de ofrecerse en `/contacto` pero los mensajes históricos lo conservan intacto. |
+| **Mis tickets** `/mis-tickets` (+ `/nuevo`, `/[id]`) | ✅ Completo (R6) | Área de cuenta, owner-scoped. Lista con filtro abiertos/todos, badge de no leídos, motivo y entidad enlazada; alta con motivo (`GET /tickets/topics`, ámbito TICKET/BOTH) y **entidad prefijada por query param** desde el contexto de origen; hilo con burbujas por lado y paginación por cursor (`?before`, molde `ChatClient`). Acciones según §7.2: "Reabrir y responder" solo dentro de la ventana (que **manda el servidor** en `reopenWindowDays`, no cableada), "Ya no lo necesito" solo si `origin=USER`, y aviso "abre uno nuevo" si está cerrado. **Nunca pinta notas internas** — ni las espera. `middleware.ts`: `accountPrefixes` += `/mis-tickets`. |
+| **Entradas contextuales a tickets** | ✅ Completo (R6) | Botón "¿Necesitas ayuda?" en `MyListingCard` (`?listingId=`), en cada fila de `FacturasPanel` (`?invoiceId=`) y en `ReviewsSection` (`?reviewId=`) — este último **solo con `esMiPerfil`**, porque es un componente PÚBLICO y ofrecérselo a cualquier visitante sería ofrecer una acción que el backend rechaza con 422. El id del query param es solo una sugerencia: el backend revalida la propiedad al crear. |
+| **Admin tickets** `/admin/tickets` (+ `/nuevo`, `/[id]`) | ✅ Completo (R7 + notas internas) | Backoffice client-side. Bandeja con filtros (estado, origen, motivo, agente con centinelas `me`/`none`) y paginación; hilo completo **incluidas las notas internas**, marcadas y diferenciadas visualmente; acciones (tomar, responder, resolver, cerrar, asignármelo) según `resolveStaffActions()` — función pura extraída para poder probar la matriz estado×rol×asignación entera sin clics. `/nuevo` = flujo (b) con el buscador `GET /users/search` **que ya existía**. **Toggle de nota interna** en la caja de respuesta: cambia el destinatario, así que el recuadro cambia de color, el botón de texto e icono, y **se resetea tras cada envío** (un modo pegajoso acaba mandando al usuario lo que era para el equipo). El MODERATOR no ve aquí los tickets con factura: **no se filtra en el cliente**, el backend simplemente no se los lista. `ROLE_ALLOWED_PATHS.MODERATOR` + `AdminNav` (los dos a la vez, o la sección queda inaccesible o invisible). |
+| **Admin reportes — flujo (c)** `/admin/reportes` | ✅ Completo (R7) | Botón "Contactar al reportado" por fila → `POST /admin/tickets/from-report/:reportId`; si el reporte ya tiene hilo, se enlaza en vez de ofrecer abrir otro (`Report.tickets`, include de solo lectura). **El `Report` no se modifica**: abrir el hilo no cambia su estado. |
 
 ---
 
@@ -4550,6 +4555,229 @@ añadiendo `phone: null` al mismo `update` que ya reseteaba la ubicación.
 
 ---
 
+## Sistema de atención al usuario (tickets) — ESTADO CONSOLIDADO
+
+> **Esta es la referencia de qué hay construido.** Las entradas por ráfaga que siguen
+> (R1…notas internas) son el histórico de *cómo* se llegó aquí y por qué se decidió cada
+> cosa; esta sección es el *qué*. El diseño aprobado vive en
+> `docs/diseno-atencion-usuario.md` — donde diverjan, **manda el código y manda esta
+> sección**. Los contratos de endpoint, en `docs/contratos-api.md`.
+
+### Qué es
+
+Canal de comunicación **bidireccional y trazable** entre usuarios y administración, sobre
+cualquier tema de gestión: dudas, quejas, cuestiones con anuncios, valoraciones o facturas.
+
+**La conversación in-app es la FUENTE DE VERDAD.** La `Notification` y el email son vías
+AUXILIARES: avisan y reenganchan, pero no transportan el hilo ni transicionan nada. El
+correo lleva un extracto de ≤140 caracteres y un enlace, y cierra con "no respondas a este
+correo" — que además es literal: **no existe email entrante en el proyecto**.
+
+**Los TRES FLUJOS:**
+
+| Flujo | Origen | Cómo se modela |
+|---|---|---|
+| (a) usuario → admin | `origin = USER` | El usuario abre su ticket. Nace `OPEN`, sin asignar. |
+| (b) admin → usuario | `origin = ADMIN` | `POST /admin/tickets`. Nace `WAITING_USER` y asignado al agente. |
+| (c) reporte → admin → usuario | `origin = REPORT` | `POST /admin/tickets/from-report/:reportId`. **Se apoya en la moderación existente**: lee el `Report` para resolver al destinatario y lo referencia con `Ticket.reportId`. **`Report` no se modifica** — resolver la denuncia y cerrar el hilo son acciones independientes. |
+
+El flujo (c) no reinventa la cola de denuncias: el *triaje* ya existía y estaba probado; lo
+que faltaba era el *canal de comunicación*, que es lo que este sistema aporta.
+
+### Modelo
+
+Migración **`20260729084926_add_ticketing`**, 100% aditiva (3 tablas, 4 enums, 1 columna con
+default, relaciones inversas; cero DROP/RENAME/backfill).
+
+- **`Ticket`** — asunto, estado, origen, motivo (`ContactReason`), usuario dueño, quién lo
+  abrió, agente asignado, enlaces, `linkedLabel`, `lastMessageAt`, `resolvedAt`,
+  `closedAt`/`closedById`.
+- **`TicketMessage`** — hilo append-only. `side` **congelado al escribir** (nunca derivado
+  de `author.role` al leer), `internal`, acuses `readByUserAt`/`readByStaffAt`.
+- **`TicketAttachment`** — ⚠️ **el modelo existe, la funcionalidad NO.** Ver «Lo que no
+  está» al final.
+
+Enums: `TicketStatus`, `TicketOrigin`, `TicketAuthorSide`, y `ContactReasonScope`
+(`PUBLIC`/`TICKET`/`BOTH`, que reparte la taxonomía única de motivos entre `/contacto` y los
+tickets).
+
+**Enlaces polimórficos — patrón A** (FKs nullables, molde `Report`), no `referenceType`+id:
+`listingId`/`reviewId`/`invoiceId`/`reportId`, **todos `onDelete: SetNull`** más el snapshot
+`linkedLabel`. Borrar el anuncio no puede llevarse por delante el hilo que hablaba de él.
+
+### Máquina de estados — las 11 transiciones, todas con disparador
+
+Guards como **arrays estáticos privados** en `TicketsService` (molde
+`ListingsService.ARCHIVABLE_STATUSES`); no se introdujo ninguna abstracción de máquina de
+estados, porque el proyecto no tiene ninguna.
+
+| # | Transición | Disparador | Quién |
+|---|---|---|---|
+| T1 | — → `OPEN` | `POST /tickets` | usuario |
+| T1' | — → `WAITING_USER` | `POST /admin/tickets` · `/from-report` | staff (flujos b/c) |
+| T2 | `OPEN` → `IN_PROGRESS` | `POST /admin/tickets/:id/take` | staff |
+| T3 | `IN_PROGRESS` → `WAITING_USER` | `POST /admin/tickets/:id/messages` | staff |
+| T4 | `OPEN` → `WAITING_USER` (+asigna) | idem, sin haber tomado el ticket | staff |
+| T5 | `WAITING_USER` → `IN_PROGRESS` | `POST /tickets/:id/messages` | usuario |
+| T6 | `OPEN` → `OPEN` | idem (solo mueve `lastMessageAt`) | usuario |
+| T7 | `IN_PROGRESS`/`WAITING_USER` → `RESOLVED` | `POST /admin/tickets/:id/resolve` | staff |
+| T8 | `RESOLVED` → `IN_PROGRESS` | **responder ES reabrir** (no hay `/reopen`) | usuario |
+| T9 | `RESOLVED` → `CLOSED` | **cron diario** `TicketsScheduleService` | sistema |
+| T10 | cualquiera vivo → `CLOSED` | `POST /admin/tickets/:id/close` | staff |
+| T11 | cualquiera vivo → `CLOSED` | `POST /tickets/:id/close`, solo `origin=USER` | usuario |
+
+**`CLOSED` es irreversible POR CONSTRUCCIÓN**, no por un `if`: no aparece como estado ORIGEN
+en ninguno de los cuatro arrays de transición (molde `ListingStatus.ARCHIVED`). Hay un test
+de comportamiento que ejerce las seis puertas de salida y otro **estructural** que afirma que
+`CLOSED` no está en ninguno de los arrays.
+
+**Auto-cierre (T9).** Cron diario a las 05:00 → `runTicketAutoClose(now)` con la fecha
+inyectada (molde `InvoicingScheduleService`). Cierra los `RESOLVED` cuya ventana venció, con
+`closedById = null`.
+- **Ventana configurable en caliente:** `Setting.ticketAutoCloseWindowDays`, default 14.
+  **UN SOLO valor para dos cosas** — el guard de reapertura (T8) y el cron (T9) lo leen del
+  mismo punto (`TicketsService.getReopenWindowDays`). No está duplicado: si divergieran
+  habría un limbo (un ticket que ya no se puede reabrir pero que nunca se cierra).
+- **Frontera inclusiva** (`resolvedAt <= now - ventana`): a los 14 días exactos ya cierra,
+  justo cuando el guard de reapertura deja de permitir reabrir. Sin hueco entre ambos.
+- **Condición anti-carrera en el propio UPDATE** (`WHERE status = 'RESOLVED'`, molde del
+  débito de `Wallet`): entre la query del cron y el UPDATE, el usuario puede haber reabierto
+  el ticket, y `assertClosable` no protege de eso porque `IN_PROGRESS` también es cerrable.
+- **Idempotencia natural, sin marca de última corrida**: un ticket cerrado deja de casar
+  `status = RESOLVED`. El estado de la fila ES la marca.
+- Todas las vías de cierre (T9/T10/T11) pasan por el mismo `closeCore()`.
+
+### Autorización
+
+**Usuario — owner-scope.** 403 explícito tras leer (molde `InvoicingService.getInvoicePdf`).
+`GET /tickets` filtra siempre por `userId` del JWT; **ninguna ruta acepta un `userId`**.
+
+**Staff — `@Roles(MODERATOR, ADMIN)`**, con **TRES puertas ADMIN-only**. Las dos primeras
+dependen del CONTENIDO de la fila, así que el `RolesGuard` no puede decidirlas y viven en el
+servicio:
+
+1. **Ticket con `invoiceId` enlazada.** La facturación es ADMIN-only en todo el proyecto. La
+   puerta cubre **TODOS los verbos** (ver, responder, tomar, resolver, cerrar, reasignar,
+   nota interna), no solo ver/responder: poder cerrar a ciegas lo que no puedes leer sería
+   una puerta trasera. Además **no se listan** en la bandeja del MODERATOR.
+2. **Reasignar el ticket de OTRO agente.** Un MODERATOR sí puede coger uno sin asignar o
+   mover el suyo.
+3. **Cambio de rol de usuario** (`PATCH /admin/users/:id/role`) — ya era ADMIN-only, sigue
+   siéndolo; regla de oro innegociable.
+
+**El oráculo de ids, bloqueado.** Enlazar una entidad **ajena** y una **inexistente**
+devuelven exactamente la misma respuesta (`422 LINKED_ENTITY_NOT_ALLOWED`, mismo cuerpo). Un
+404 para lo primero y un 403 para lo segundo habría convertido el campo en un sondeador de
+ids ajenos. En el **flujo (b) los enlaces se validan contra el usuario DESTINATARIO**, no
+contra el agente: `linkedLabel` se le sirve a él, así que enlazar ahí la factura de un
+tercero sería filtrarle un dato ajeno.
+
+### INVARIANTE DE PRIVACIDAD — las cinco defensas de las notas internas
+
+`TicketMessage.internal` guarda lo que el equipo escribe **sobre** un usuario. Es el dato más
+sensible del sistema y su fuga es el modo de fallo que más caro sale. Las cinco defensas se
+construyeron **antes** de que existiera la vía de escritura (precedente: `Listing.phone`), y
+al abrirla se **re-verificaron todas con notas creadas por el endpoint real**, no sembradas
+en BD:
+
+1. **`getForUser` filtra `internal: false` EN LA QUERY** — las notas no llegan ni a memoria
+   por esa vía. Cubre también la paginación hacia atrás con `?before`.
+2. **El contador de no leídos filtra `internal`** — si contara, el usuario sabría que el
+   equipo escribió algo que no ve (fuga por canal lateral, no por contenido).
+3. **`getForUser` y `getForStaff` son métodos SEPARADOS**, no uno con un flag: un booleano se
+   pasa mal una vez y el fallo es silencioso.
+4. **`SendStaffMessageDto extends SendTicketMessageDto`** — el campo `internal` vive SOLO en
+   la subclase de staff. Las dos rutas compartían DTO; añadir el campo al compartido habría
+   abierto la vía de usuario en el mismo commit. La herencia solo propaga hacia el lado
+   seguro, y el `forbidNonWhitelisted` global rechaza con 400 un `internal` en la ruta de
+   usuario sin que ningún `if` tenga que acordarse.
+5. **Una nota interna no dispara NINGÚN aviso**, no mueve **`lastMessageAt`** (campo que el
+   usuario lee como "último movimiento" — moverlo delataría la existencia de la nota) y no
+   transiciona ni asigna el ticket.
+
+Guard estructural adicional: `internal: true` con `side: 'USER'` lanza — sería un mensaje del
+usuario que el propio usuario no puede ver. Auditoría propia: `TICKET_INTERNAL_NOTE`, no
+`TICKET_REPLY`.
+
+**Trazabilidad del cierre:** `closedById` distingue quién cerró — un id de agente (T10), el
+del usuario (T11), o **`null` = el sistema** (T9). Por eso la columna es nullable desde R1:
+no es un hueco, es el discriminante. **El auto-cierre no escribe `AuditLog`** porque
+`AuditLog.actorId` es NOT NULL con FK a `User` y no hay actor humano: habría que inventar
+uno, envenenando el registro que sirve para pedir cuentas. Queda un log de resumen por
+corrida.
+
+### Avisos auxiliares
+
+**Tres tipos de `Notification`, cero migraciones** (`type` es `String` a propósito):
+`TICKET_MESSAGE` y `TICKET_OPENED` al usuario, `TICKET_STAFF_NEW` en fan-out al staff. Los
+`data` son snapshots autocontenidos con **nombres ya resueltos**, nunca ids.
+
+**Fan-out in-app SÍ, email NO.** La notificación va a cada agente (`Notification` es `userId`
+1:1, no hay buzón de rol); el email va a **UNA** dirección, `Setting.supportEmail` — contraste
+deliberado con `ContactService`, que sí manda uno por administrador. **Sin `supportEmail`
+configurado se omite SOLO el correo** (con warning); la notificación in-app se crea igual, así
+que no se pierde ningún aviso.
+
+Tres jobs de Resend (`SEND_TICKET_MESSAGE`, `SEND_TICKET_STAFF_NOTIFICATION`,
+`SEND_TICKET_RESOLVED`), todos `text:` plano, nunca `html:`.
+
+### Frontend
+
+- **Usuario:** `/mis-tickets`, `/mis-tickets/nuevo`, `/mis-tickets/[id]`.
+- **Staff:** `/admin/tickets`, `/admin/tickets/nuevo` (flujo b), `/admin/tickets/[id]` (con
+  el toggle de nota interna), y el botón de **flujo (c)** en cada fila de `/admin/reportes`.
+- **Entradas contextuales** que prefijan la entidad enlazada: `MyListingCard`
+  (`?listingId=`), `FacturasPanel` (`?invoiceId=`) y `ReviewsSection` (`?reviewId=`, solo
+  con `esMiPerfil` — es un componente público y ofrecérselo a todo visitante sería ofrecer
+  una acción que el backend rechaza).
+- **Navegación:** `middleware.ts` (`accountPrefixes` += `/mis-tickets`;
+  `ROLE_ALLOWED_PATHS.MODERATOR` += `/admin/tickets`) y `AdminNav` (`Tickets`, ADMIN+MODERATOR).
+  **Los dos ficheros a la vez**: sin el path la sección es inaccesible, sin el ítem es invisible.
+
+**Principio del frontend: la UI RESTRINGE, el backend GARANTIZA.** El frontend decide qué
+*ofrecer* según el estado y el rol; no reimplementa validación. Donde discrepen, manda el
+backend — por eso los errores se muestran en vez de ocultarse.
+
+### LO QUE NO ESTÁ (incrementos pendientes)
+
+- **R5 — ADJUNTOS. NO IMPLEMENTADO.** El modelo `TicketAttachment` existe en el schema
+  (`key`, `filename`, `mimeType`, `sizeBytes`) pero **no hay subida, ni descarga, ni UI, ni
+  endpoint**. Diseño en §14.7 / §3.5 de `diseno-atencion-usuario.md`: JPEG/PNG/WebP + PDF,
+  10 MB, máximo 5 por mensaje, y **molde FACTURA (R2 privado + endpoint autenticado que
+  revalida el acceso), NO molde media** (público) — un pantallazo puede llevar datos
+  personales y una URL pública de R2 es compartible y no revocable.
+- **R9 — TIEMPO REAL. NO IMPLEMENTADO.** Diseño en §12: salas `ticket:<id>` y una sala
+  `staff` (que **no existe** hoy en `MessagingGateway`, que solo tiene `user:` y `conv:`).
+  **REQUISITO PREVIO:** cerrar el `TODO(prod)` del `cors: { origin: '*' }` del gateway antes
+  de ampliar su uso.
+- **Los dos huecos de notificación de §14.5**, fuera del sistema de tickets y pendientes de
+  ráfaga propia: avisar al **denunciante** del desenlace de su denuncia, y avisar al
+  **vendedor** cuando le rechazan o desactivan un anuncio (hoy el anuncio desaparece del
+  marketplace sin que se le diga nada). Se resuelven con `Notification`, no con tickets.
+
+### Deuda de test conocida asociada
+
+- **`queue-retry › "Retry real"` es flaky por timing de indexación de Meilisearch** (el
+  `attempts` recibido oscila entre 0, 1 y 2 según la carga). Los **14 estructurales de esa
+  misma suite son fiables** y sí detectan un `registerQueue()` que se salte `retryQueue()`.
+  No es regresión de este sistema: ya fallaba antes.
+- **NO correr Playwright y la batería e2e de backend a la vez.** Comparten
+  `marketplace_test` y Redis db 1: el `globalSetup` de Playwright resiembra los `Setting` y
+  el `cleanDb` de Jest trunca `User CASCADE` a mitad del otro. Los síntomas engañan
+  (`rf7-limits` con `expected 403, got 200`; logins que "no establecen sesión"). **Deuda de
+  tooling pendiente:** una barrera estructural — instancias separadas de Postgres/Redis por
+  runner, o un lock — en vez de depender de la disciplina de quien lanza los comandos.
+- **`admin-roles.spec.ts` afirma el número EXACTO de ítems del nav.** Es frágil por diseño
+  (obliga a mirar el test al añadir una sección), pero solo funciona si se actualiza: llegó a
+  estar desactualizado en 2 ítems sin que nadie lo notara. Al añadir una entrada a
+  `AdminNav`, actualizar las tres cuentas (ADMIN / MODERATOR / EDITOR).
+- **Rate limit de apertura (10 tickets/día por usuario) en los e2e de navegador:** dos specs
+  que usen el mismo usuario sembrado agotan la cuota entre ambos. `tickets-usuario.spec.ts`
+  usa `seller-e2e` y `tickets-admin.spec.ts` usa `buyer-e2e` justo por eso. **El límite de
+  producción no se toca para acomodar los tests.**
+
+---
+
 ### Atención al usuario R1 — modelo de datos + máquina de estados (sin API)
 
 Cimiento del sistema de tickets. Diseño aprobado en `docs/diseno-atencion-usuario.md`.
@@ -5148,6 +5376,37 @@ en su hilo, ni en el HTML servido, ni en la lista.
 ---
 
 ## 3. Limitaciones conocidas y deuda técnica
+
+### Atención al usuario — incrementos pendientes y deuda de test
+
+Detalle completo en «Sistema de atención al usuario (tickets) — ESTADO CONSOLIDADO» (§2).
+Resumen para no perderlo de vista:
+
+**Incrementos NO implementados** (el sistema es usable sin ellos):
+- **Adjuntos (R5).** `TicketAttachment` está en el schema pero **no hay subida, descarga, UI
+  ni endpoint**. Al implementarlo: molde FACTURA (R2 privado + endpoint autenticado que
+  revalida el acceso al ticket), **nunca** molde media (URL pública) — un pantallazo puede
+  llevar datos personales y una URL pública de R2 no es revocable.
+- **Tiempo real (R9).** Sin empezar. **Requisito previo:** cerrar el `TODO(prod)` del
+  `cors: { origin: '*' }` de `MessagingGateway` antes de ampliar su uso. Falta además una
+  sala de rol `staff`, que el gateway hoy no tiene (solo `user:` y `conv:`).
+- **Dos huecos de notificación de moderación** (§14.5 del diseño), fuera del sistema de
+  tickets: al **denunciante** no se le dice en qué acabó su denuncia, y al **vendedor** no se
+  le avisa cuando le rechazan o desactivan un anuncio — hoy simplemente desaparece del
+  marketplace. Se resuelven con `Notification`, no con tickets.
+
+**Deuda de test/tooling asociada:**
+- **`queue-retry › "Retry real"` es flaky** por timing de indexación de Meilisearch; los 14
+  estructurales de esa suite sí son fiables. Preexistente, no es regresión de tickets.
+- **Playwright y la batería e2e de backend NO pueden correr a la vez** — comparten
+  `marketplace_test` y Redis db 1, y cada uno resiembra o trunca a mitad del otro. Los
+  síntomas engañan (403→200 en `rf7-limits`, "sesión no establecida" en el `globalSetup`).
+  **Deuda de tooling:** poner una barrera estructural (instancias separadas por runner, o un
+  lock) en vez de depender de la disciplina de quien lanza los comandos. Es el fallo que más
+  veces se ha repetido en este sistema.
+- **`admin-roles.spec.ts` afirma el número exacto de ítems del nav**: frágil por diseño, pero
+  llegó a estar desactualizado en 2 sin que nadie lo notara. Al tocar `AdminNav`, actualizar
+  las tres cuentas.
 
 ### RC.1 — Rate limit por IP no verificado contra el proxy real de producción
 

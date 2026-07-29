@@ -1,7 +1,39 @@
 # Diseño del sistema de atención al usuario (tickets) — revisión 1
 
-> **Estado:** PROPUESTA. Nada implementado. Pendiente de aprobación de Ernest.
-> **Fecha:** 2026-07-28
+> ## ⚠️ ESTADO: APROBADO E IMPLEMENTADO, salvo dos incrementos
+>
+> **Este documento es el DISEÑO, no el estado.** Se conserva tal como se aprobó (2026-07-28)
+> porque explica el *porqué* de cada decisión; para saber qué hay construido de verdad, la
+> referencia es **`estado-tecnico.md` → «Sistema de atención al usuario (tickets) — ESTADO
+> CONSOLIDADO»**. Donde este documento y el código difieran, **manda el código**.
+>
+> **Implementado** (ráfagas R1, R2, R3, R4, R6, R7, R8 + notas internas): modelo, máquina de
+> estados completa (las 11 transiciones con disparador), API de usuario y de staff, los tres
+> flujos, avisos in-app + email auxiliar, frontend de usuario y de staff, cron de auto-cierre,
+> y las notas internas con sus cinco defensas.
+>
+> **NO implementado, y por tanto lo que este documento describe ahí es plan, no realidad:**
+> - **§14.7 / R5 — ADJUNTOS.** El modelo `TicketAttachment` existe en el schema; la subida y
+>   la descarga **no están construidas**. No hay endpoint, ni UI, ni escritura en R2.
+> - **§12 / R9 — TIEMPO REAL.** No se ha tocado. Sigue en pie la recomendación de no hacerlo
+>   antes de cerrar el `TODO(prod)` del `cors: { origin: '*' }` de `MessagingGateway`.
+> - **§14.5 — los dos huecos de notificación de moderación** (avisar al denunciante del
+>   desenlace de su denuncia; avisar al vendedor cuando le rechazan un anuncio). Se dejaron
+>   fuera de alcance a propósito: se resuelven con `Notification`, no con tickets.
+>
+> **Decisiones que la implementación cambió respecto a lo aprobado aquí** (detalle y motivo
+> en `estado-tecnico.md`):
+> - Un ticket abierto por el staff (flujos b/c) nace en **`WAITING_USER` y asignado** al
+>   agente, no en `OPEN` sin asignar como decía §7.2 T1.
+> - La ventana de reapertura de §14.2 es un **`Setting` configurable en caliente**
+>   (`ticketAutoCloseWindowDays`), no una constante; el guard de T8 y el cron de T9 la leen
+>   del mismo sitio.
+> - `TICKET_REOPEN` (§7.3) **no tiene emisor**: la única reapertura de la matriz es del
+>   usuario, y las acciones de usuario no se auditan.
+> - La puerta ADMIN-only de los tickets con factura (§10.2) cubre **todos los verbos**, no
+>   solo ver y responder.
+>
+> **Fecha del diseño:** 2026-07-28
 > **Alcance:** canal de comunicación bidireccional y trazable usuario ↔ administración,
 > con máquina de estados, enlace a entidades del marketplace (anuncio / valoración /
 > factura), y reutilización de `Notification` + Resend como vías auxiliares.

@@ -152,13 +152,20 @@ resolver, cerrar, abrir hilo) es otra cosa y vive aparte — ver R3.
   (`429` con `retryAfter`).
 - **`GET /tickets`** *(auth)* — Mis tickets, orden por último movimiento, paginado
   (`page`/`perPage`), con `unreadCount` por hilo.
+- **`GET /tickets/topics`** *(auth)* — Motivos ofrecibles al abrir un ticket:
+  `ContactReason` activos con `scope` `TICKET` o `BOTH`. **No** es `GET /contacto/motivos`
+  (ese sirve el ámbito contrario, `PUBLIC`+`BOTH`) ni `GET /admin/contact-reasons`
+  (ADMIN-only y devuelve también los inactivos). Declarado **antes** de `:id` en el
+  controlador, o Nest buscaría un ticket con id `"topics"`.
 - **`GET /tickets/:id`** *(auth, propietario)* — El hilo, mensajes **más recientes
   primero** con cursor `?before=<messageId>` (mismo contrato que `GET /conversations/:id`).
   Marca como leídos los mensajes del staff pendientes. `403` si no es tuyo.
 - **`POST /tickets/:id/messages`** *(auth, propietario)* — Responder. **Reabrir es
-  escribir**: si el ticket estaba `RESOLVED` y no han pasado 14 días desde `resolvedAt`,
-  responder lo devuelve a `IN_PROGRESS` (no hay endpoint `/reopen` aparte). Fuera de esa
-  ventana → `400 REOPEN_WINDOW_EXPIRED`. Sobre un ticket `CLOSED` → `400`.
+  escribir**: si el ticket estaba `RESOLVED` y no ha vencido la ventana de reapertura
+  (`Setting.ticketAutoCloseWindowDays`, por defecto 14 días desde `resolvedAt`), responder
+  lo devuelve a `IN_PROGRESS` (no hay endpoint `/reopen` aparte). Fuera de esa ventana →
+  `400 REOPEN_WINDOW_EXPIRED`. Sobre un ticket `CLOSED` → `400`.
+  El body **no admite `internal`** (ver más abajo).
 - **`POST /tickets/:id/close`** *(auth, propietario)* — Cerrar el propio, **irreversible**.
   Solo tickets de `origin=USER`: un hilo iniciado por la administración → `403`.
 
@@ -168,9 +175,12 @@ resolver, cerrar, abrir hilo) es otra cosa y vive aparte — ver R3.
 > y un `403` para "no es tuya" convertirían el campo en un oráculo con el que sondear la
 > existencia de ids ajenos.
 
-> **Notas internas del staff.** El modelo tiene `TicketMessage.internal`, pero está
-> **aplazado**: no hay ninguna vía de escritura, y ninguna ruta de usuario las devuelve
-> (ni en el hilo ni en el contador de no leídos).
+> **Notas internas del staff — la vía de usuario está CERRADA.** El staff sí puede escribir
+> notas internas (ver la ruta de staff), pero **ninguna ruta de usuario las devuelve ni las
+> acepta**: no salen en el hilo, no cuentan en `unreadCount`, no mueven `lastMessageAt`, y
+> un `internal` en el body de `POST /tickets` o `POST /tickets/:id/messages` se rechaza con
+> `400`. El campo solo existe en el DTO de staff (`SendStaffMessageDto`), que extiende al de
+> usuario — la herencia solo propaga hacia el lado seguro.
 
 ---
 
@@ -186,9 +196,14 @@ uno por la puerta del otro.
 - **`GET /admin/tickets/:id`** — El hilo completo, **incluidas las notas internas**
   (contraste exacto con `GET /tickets/:id`). Marca como leídos los mensajes del usuario.
 - **`POST /admin/tickets/:id/take`** — T2: `OPEN → IN_PROGRESS`, auto-asignación.
-- **`POST /admin/tickets/:id/messages`** — T3/T4. `OPEN`/`IN_PROGRESS` → `WAITING_USER`;
-  responder sin haber tomado el ticket lo asigna de paso. El mensaje sale siempre con
-  `side=STAFF` e `internal=false`.
+- **`POST /admin/tickets/:id/messages`** — T3/T4, **o una NOTA INTERNA**. `side=STAFF`
+  siempre.
+  · Con `internal: false` (o ausente): respuesta al usuario. `OPEN`/`IN_PROGRESS` →
+    `WAITING_USER`, y asigna el ticket al autor si no lo llevaba nadie.
+  · Con `internal: true`: **nota interna**. Se guarda en el hilo, la ve solo el equipo, y
+    **no toca el ticket** (ni estado, ni asignación, ni `lastMessageAt` — ese campo lo lee
+    el usuario) **ni dispara ningún aviso**. Auditada como `TICKET_INTERNAL_NOTE`, no como
+    `TICKET_REPLY`.
 - **`POST /admin/tickets/:id/resolve`** — T7: `IN_PROGRESS`/`WAITING_USER` → `RESOLVED`.
 - **`POST /admin/tickets/:id/close`** — T10. **Irreversible.**
 - **`POST /admin/tickets/:id/reassign`** — Cambia el agente asignado.
@@ -237,5 +252,5 @@ uno por la puerta del otro.
 | Search | texto+filtros+facetas+proximidad (lat/lng/radius en km) |
 | Media | upload |
 | Messaging | conversations REST (CRUD + cursor) · WebSocket /ws (message:new) |
-| Tickets (usuario) | create (con enlace validado) · list mine · thread+cursor · reply/reopen · close |
-| Tickets (staff) | bandeja+filtros · take · reply · resolve · close · reassign · flujo (b) · from-report (c) |
+| Tickets (usuario) | create (con enlace validado) · list mine · topics · thread+cursor · reply/reopen · close |
+| Tickets (staff) | bandeja+filtros · take · reply/nota interna · resolve · close · reassign · flujo (b) · from-report (c) |
