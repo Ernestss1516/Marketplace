@@ -7,6 +7,7 @@ import { createTestApp } from './helpers/create-app';
 import { cleanDb } from './helpers/db';
 import { TicketsService } from 'src/modules/tickets/tickets.service';
 import { RedisService } from 'src/infra/redis/redis.service';
+import { StaffActor } from 'src/modules/tickets/tickets.types';
 import { TICKET_CREATE_LIMIT_PER_DAY, TICKET_REOPEN_WINDOW_DAYS } from 'src/modules/tickets/tickets.constants';
 
 /**
@@ -33,6 +34,8 @@ describe('Tickets — API de usuario (R2) e2e', () => {
   let alice: { id: string; token: string };
   let bob: { id: string; token: string };
   let staffId: string;
+  /** Actor de staff — R3 cambió la firma de los métodos de staff a StaffActor. */
+  let staff: StaffActor;
 
   beforeAll(async () => {
     prisma = new PrismaClient();
@@ -53,6 +56,7 @@ describe('Tickets — API de usuario (R2) e2e', () => {
     alice = await createUserAndLogin('USER');
     bob = await createUserAndLogin('USER');
     staffId = (await createUser('ADMIN')).id;
+    staff = { userId: staffId, role: 'ADMIN' };
   });
 
   // --- helpers -------------------------------------------------------------
@@ -333,8 +337,8 @@ describe('Tickets — API de usuario (R2) e2e', () => {
 
     it('unreadCount cuenta los mensajes del staff sin leer', async () => {
       const t = await openTicket(alice.token);
-      await tickets.replyAsStaff(t.body.id, staffId, 'Respuesta 1');
-      await tickets.replyAsStaff(t.body.id, staffId, 'Respuesta 2');
+      await tickets.replyAsStaff(t.body.id, staff, 'Respuesta 1');
+      await tickets.replyAsStaff(t.body.id, staff, 'Respuesta 2');
 
       const lista = await request(server).get('/api/tickets').set(auth(alice.token)).expect(200);
       expect(lista.body.items[0].unreadCount).toBe(2);
@@ -363,7 +367,7 @@ describe('Tickets — API de usuario (R2) e2e', () => {
     it('GET /tickets/:id NO sirve la nota interna — búsqueda de la cadena EN CRUDO en el JSON', async () => {
       const t = await openTicket(alice.token);
       await seedInternalNote(t.body.id);
-      await tickets.replyAsStaff(t.body.id, staffId, 'Esto sí lo puedes leer');
+      await tickets.replyAsStaff(t.body.id, staff, 'Esto sí lo puedes leer');
 
       const res = await request(server)
         .get(`/api/tickets/${t.body.id}`)
@@ -428,7 +432,7 @@ describe('Tickets — API de usuario (R2) e2e', () => {
   describe('POST /tickets/:id/messages', () => {
     it('T5: WAITING_USER → IN_PROGRESS', async () => {
       const t = await openTicket(alice.token);
-      await tickets.replyAsStaff(t.body.id, staffId, 'Te leo'); // → WAITING_USER
+      await tickets.replyAsStaff(t.body.id, staff, 'Te leo'); // → WAITING_USER
 
       const res = await request(server)
         .post(`/api/tickets/${t.body.id}/messages`)
@@ -457,8 +461,8 @@ describe('Tickets — API de usuario (R2) e2e', () => {
 
     it('T8: reabre un RESOLVED DENTRO de la ventana → IN_PROGRESS y limpia resolvedAt', async () => {
       const t = await openTicket(alice.token);
-      await tickets.take(t.body.id, staffId);
-      await tickets.resolve(t.body.id, staffId);
+      await tickets.take(t.body.id, staff);
+      await tickets.resolve(t.body.id, staff);
 
       const res = await request(server)
         .post(`/api/tickets/${t.body.id}/messages`)
@@ -472,8 +476,8 @@ describe('Tickets — API de usuario (R2) e2e', () => {
 
     it('T8: FUERA de la ventana de 14 días → 400 y el ticket sigue RESOLVED', async () => {
       const t = await openTicket(alice.token);
-      await tickets.take(t.body.id, staffId);
-      await tickets.resolve(t.body.id, staffId);
+      await tickets.take(t.body.id, staff);
+      await tickets.resolve(t.body.id, staff);
 
       // Se envejece resolvedAt un día más allá del plazo.
       const vencido = new Date(Date.now() - (TICKET_REOPEN_WINDOW_DAYS + 1) * 24 * 60 * 60 * 1000);
@@ -532,7 +536,7 @@ describe('Tickets — API de usuario (R2) e2e', () => {
     });
 
     it('NO puede cerrar un hilo abierto por la administración (origin=ADMIN) → 403', async () => {
-      const t = await tickets.createByStaff(staffId, {
+      const t = await tickets.createByStaff(staff, {
         userId: alice.id,
         subject: 'Revisión',
         body: 'Hola',
@@ -553,7 +557,7 @@ describe('Tickets — API de usuario (R2) e2e', () => {
   describe('acuse de lectura', () => {
     it('marca readByUserAt en los mensajes del staff al abrir el hilo, y es idempotente', async () => {
       const t = await openTicket(alice.token);
-      const { message } = await tickets.replyAsStaff(t.body.id, staffId, 'Respuesta');
+      const { message } = await tickets.replyAsStaff(t.body.id, staff, 'Respuesta');
 
       expect((await prisma.ticketMessage.findUniqueOrThrow({ where: { id: message.id } })).readByUserAt).toBeNull();
 
@@ -579,7 +583,7 @@ describe('Tickets — API de usuario (R2) e2e', () => {
 
     it('abrir un hilo ajeno (403) no marca nada como leído', async () => {
       const t = await openTicket(bob.token);
-      const { message } = await tickets.replyAsStaff(t.body.id, staffId, 'Para Bob');
+      const { message } = await tickets.replyAsStaff(t.body.id, staff, 'Para Bob');
 
       await request(server).get(`/api/tickets/${t.body.id}`).set(auth(alice.token)).expect(403);
 

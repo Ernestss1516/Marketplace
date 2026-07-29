@@ -4,6 +4,7 @@ import { PrismaClient, Role, Ticket, TicketStatus } from '@prisma/client';
 import { createTestApp } from './helpers/create-app';
 import { cleanDb } from './helpers/db';
 import { TicketsService } from 'src/modules/tickets/tickets.service';
+import { StaffActor } from 'src/modules/tickets/tickets.types';
 
 /**
  * Atención al usuario R1 — la MÁQUINA DE ESTADOS ejercida contra la BD real.
@@ -28,6 +29,13 @@ describe('Tickets — máquina de estados (R1) e2e', () => {
   let userId: string;
   let otherUserId: string;
   let staffId: string;
+  /**
+   * Actor de staff. R3 pasó los métodos de staff de `actorId: string` a un
+   * `StaffActor { userId, role }`: el rol hace falta para las dos puertas que el
+   * RolesGuard no puede vigilar (ticket con factura, reasignar el de otro). Es
+   * mantenimiento de fixture por cambio de FIRMA — ninguna aserción cambia.
+   */
+  let staff: StaffActor;
 
   beforeAll(async () => {
     prisma = new PrismaClient();
@@ -46,6 +54,7 @@ describe('Tickets — máquina de estados (R1) e2e', () => {
     userId = (await createUser('USER')).id;
     otherUserId = (await createUser('USER')).id;
     staffId = (await createUser('ADMIN')).id;
+    staff = { userId: staffId, role: 'ADMIN' };
   });
 
   async function createUser(role: Role) {
@@ -60,16 +69,16 @@ describe('Tickets — máquina de estados (R1) e2e', () => {
     let ticket = await tickets.createByUser(userId, { subject: 'Asunto', body: 'Hola' });
     if (status === 'OPEN') return ticket;
 
-    ticket = await tickets.take(ticket.id, staffId); // OPEN → IN_PROGRESS
+    ticket = await tickets.take(ticket.id, staff); // OPEN → IN_PROGRESS
     if (status === 'IN_PROGRESS') return ticket;
 
-    ({ ticket } = await tickets.replyAsStaff(ticket.id, staffId, 'Te leo')); // → WAITING_USER
+    ({ ticket } = await tickets.replyAsStaff(ticket.id, staff, 'Te leo')); // → WAITING_USER
     if (status === 'WAITING_USER') return ticket;
 
-    ticket = await tickets.resolve(ticket.id, staffId); // → RESOLVED
+    ticket = await tickets.resolve(ticket.id, staff); // → RESOLVED
     if (status === 'RESOLVED') return ticket;
 
-    return tickets.closeAsStaff(ticket.id, staffId); // → CLOSED
+    return tickets.closeAsStaff(ticket.id, staff); // → CLOSED
   }
 
   const auditFor = (ticketId: string) =>
@@ -120,7 +129,7 @@ describe('Tickets — máquina de estados (R1) e2e', () => {
      * siempre. La aserción de abajo es la que vigila ese corolario.
      */
     it('(b) el staff abre un hilo: WAITING_USER, asignado al agente, primer mensaje side STAFF', async () => {
-      const ticket = await tickets.createByStaff(staffId, {
+      const ticket = await tickets.createByStaff(staff, {
         userId,
         subject: 'Revisión de tu cuenta',
         body: 'Necesitamos que confirmes un dato',
@@ -143,7 +152,7 @@ describe('Tickets — máquina de estados (R1) e2e', () => {
         data: { reason: 'SPAM', reporterId: otherUserId, reportedUserId: userId },
       });
 
-      const ticket = await tickets.createByStaff(staffId, {
+      const ticket = await tickets.createByStaff(staff, {
         userId,
         subject: 'Sobre una denuncia recibida',
         body: 'Nos han reportado tu anuncio',
@@ -160,7 +169,7 @@ describe('Tickets — máquina de estados (R1) e2e', () => {
     });
 
     it('(b/c) escribe AuditLog TICKET_OPEN_BY_ADMIN', async () => {
-      const ticket = await tickets.createByStaff(staffId, {
+      const ticket = await tickets.createByStaff(staff, {
         userId,
         subject: 'S',
         body: 'B',
@@ -175,7 +184,7 @@ describe('Tickets — máquina de estados (R1) e2e', () => {
 
     it('rechaza origin USER en la vía de staff (sería mentir sobre quién abrió el hilo)', async () => {
       await expect(
-        tickets.createByStaff(staffId, {
+        tickets.createByStaff(staff, {
           userId,
           subject: 'S',
           body: 'B',
@@ -193,7 +202,7 @@ describe('Tickets — máquina de estados (R1) e2e', () => {
     it('OPEN → IN_PROGRESS, asignándose el agente, con AuditLog TICKET_ASSIGN', async () => {
       const ticket = await ticketInState('OPEN');
 
-      const taken = await tickets.take(ticket.id, staffId);
+      const taken = await tickets.take(ticket.id, staff);
 
       expect(taken.status).toBe('IN_PROGRESS');
       expect(taken.assignedToId).toBe(staffId);
@@ -206,7 +215,7 @@ describe('Tickets — máquina de estados (R1) e2e', () => {
 
     it('RECHAZA tomar un ticket que no está OPEN', async () => {
       const ticket = await ticketInState('IN_PROGRESS');
-      await expect(tickets.take(ticket.id, staffId)).rejects.toBeInstanceOf(BadRequestException);
+      await expect(tickets.take(ticket.id, staff)).rejects.toBeInstanceOf(BadRequestException);
     });
   });
 
@@ -218,7 +227,7 @@ describe('Tickets — máquina de estados (R1) e2e', () => {
     it('T3: IN_PROGRESS → WAITING_USER, con AuditLog TICKET_REPLY', async () => {
       const ticket = await ticketInState('IN_PROGRESS');
 
-      const { ticket: updated, message } = await tickets.replyAsStaff(ticket.id, staffId, 'Ya lo miramos');
+      const { ticket: updated, message } = await tickets.replyAsStaff(ticket.id, staff, 'Ya lo miramos');
 
       expect(updated.status).toBe('WAITING_USER');
       expect(message.side).toBe('STAFF');
@@ -231,7 +240,7 @@ describe('Tickets — máquina de estados (R1) e2e', () => {
       const ticket = await ticketInState('OPEN');
       expect(ticket.assignedToId).toBeNull();
 
-      const { ticket: updated } = await tickets.replyAsStaff(ticket.id, staffId, 'Respondemos ya');
+      const { ticket: updated } = await tickets.replyAsStaff(ticket.id, staff, 'Respondemos ya');
 
       expect(updated.status).toBe('WAITING_USER');
       expect(updated.assignedToId).toBe(staffId);
@@ -240,22 +249,22 @@ describe('Tickets — máquina de estados (R1) e2e', () => {
     it('no le roba el ticket al agente que ya lo lleva', async () => {
       const otherAgent = await createUser('MODERATOR');
       const ticket = await ticketInState('OPEN');
-      await tickets.take(ticket.id, staffId);
+      await tickets.take(ticket.id, staff);
 
-      const { ticket: updated } = await tickets.replyAsStaff(ticket.id, otherAgent.id, 'Aporto yo');
+      const { ticket: updated } = await tickets.replyAsStaff(ticket.id, { userId: otherAgent.id, role: 'MODERATOR' as const }, 'Aporto yo');
 
       expect(updated.assignedToId).toBe(staffId); // sigue siendo el primero
     });
 
     it('responder desde WAITING_USER es válido y deja el estado igual', async () => {
       const ticket = await ticketInState('WAITING_USER');
-      const { ticket: updated } = await tickets.replyAsStaff(ticket.id, staffId, 'Añado un dato');
+      const { ticket: updated } = await tickets.replyAsStaff(ticket.id, staff, 'Añado un dato');
       expect(updated.status).toBe('WAITING_USER');
     });
 
     it('RECHAZA responder sobre un ticket RESOLVED (hay que reabrirlo primero)', async () => {
       const ticket = await ticketInState('RESOLVED');
-      await expect(tickets.replyAsStaff(ticket.id, staffId, 'x')).rejects.toBeInstanceOf(
+      await expect(tickets.replyAsStaff(ticket.id, staff, 'x')).rejects.toBeInstanceOf(
         BadRequestException,
       );
     });
@@ -316,7 +325,7 @@ describe('Tickets — máquina de estados (R1) e2e', () => {
       async (from) => {
         const ticket = await ticketInState(from);
 
-        const resolved = await tickets.resolve(ticket.id, staffId);
+        const resolved = await tickets.resolve(ticket.id, staff);
 
         expect(resolved.status).toBe('RESOLVED');
         expect(resolved.resolvedAt).toBeInstanceOf(Date);
@@ -326,7 +335,7 @@ describe('Tickets — máquina de estados (R1) e2e', () => {
 
     it('RECHAZA resolver un ticket OPEN — nadie lo ha atendido todavía', async () => {
       const ticket = await ticketInState('OPEN');
-      await expect(tickets.resolve(ticket.id, staffId)).rejects.toBeInstanceOf(BadRequestException);
+      await expect(tickets.resolve(ticket.id, staff)).rejects.toBeInstanceOf(BadRequestException);
       expect((await prisma.ticket.findUniqueOrThrow({ where: { id: ticket.id } })).status).toBe('OPEN');
     });
   });
@@ -341,7 +350,7 @@ describe('Tickets — máquina de estados (R1) e2e', () => {
       async (from) => {
         const ticket = await ticketInState(from);
 
-        const closed = await tickets.closeAsStaff(ticket.id, staffId);
+        const closed = await tickets.closeAsStaff(ticket.id, staff);
 
         expect(closed.status).toBe('CLOSED');
         expect(closed.closedAt).toBeInstanceOf(Date);
@@ -365,7 +374,7 @@ describe('Tickets — máquina de estados (R1) e2e', () => {
     it.each<'ADMIN' | 'REPORT'>(['ADMIN', 'REPORT'])(
       'RECHAZA cerrar un ticket origin=%s — no es suyo para cerrarlo unilateralmente',
       async (origin) => {
-        const ticket = await tickets.createByStaff(staffId, {
+        const ticket = await tickets.createByStaff(staff, {
           userId,
           subject: 'S',
           body: 'B',
@@ -399,15 +408,15 @@ describe('Tickets — máquina de estados (R1) e2e', () => {
       const auditBefore = (await auditFor(closed.id)).length;
 
       // Las seis únicas puertas que existen para salir de un estado.
-      await expect(tickets.take(closed.id, staffId)).rejects.toBeInstanceOf(BadRequestException);
-      await expect(tickets.replyAsStaff(closed.id, staffId, 'x')).rejects.toBeInstanceOf(
+      await expect(tickets.take(closed.id, staff)).rejects.toBeInstanceOf(BadRequestException);
+      await expect(tickets.replyAsStaff(closed.id, staff, 'x')).rejects.toBeInstanceOf(
         BadRequestException,
       );
       await expect(tickets.replyAsUser(closed.id, userId, 'x')).rejects.toBeInstanceOf(
         BadRequestException,
       );
-      await expect(tickets.resolve(closed.id, staffId)).rejects.toBeInstanceOf(BadRequestException);
-      await expect(tickets.closeAsStaff(closed.id, staffId)).rejects.toBeInstanceOf(
+      await expect(tickets.resolve(closed.id, staff)).rejects.toBeInstanceOf(BadRequestException);
+      await expect(tickets.closeAsStaff(closed.id, staff)).rejects.toBeInstanceOf(
         BadRequestException,
       );
       await expect(tickets.closeAsUser(closed.id, userId)).rejects.toBeInstanceOf(
@@ -443,7 +452,7 @@ describe('Tickets — máquina de estados (R1) e2e', () => {
   describe('side congelado al escribir', () => {
     it('un mensaje de STAFF sigue siendo STAFF aunque su autor deje de ser staff', async () => {
       const ticket = await ticketInState('IN_PROGRESS');
-      const { message } = await tickets.replyAsStaff(ticket.id, staffId, 'Respuesta oficial');
+      const { message } = await tickets.replyAsStaff(ticket.id, staff, 'Respuesta oficial');
       expect(message.side).toBe('STAFF');
 
       // El agente es degradado a USER después de escribir.
@@ -474,7 +483,7 @@ describe('Tickets — máquina de estados (R1) e2e', () => {
       const ticket = await ticketInState('OPEN');
       const t0 = ticket.lastMessageAt;
 
-      const { ticket: afterStaff } = await tickets.replyAsStaff(ticket.id, staffId, 'staff');
+      const { ticket: afterStaff } = await tickets.replyAsStaff(ticket.id, staff, 'staff');
       expect(afterStaff.lastMessageAt.getTime()).toBeGreaterThan(t0.getTime());
 
       const { ticket: afterUser } = await tickets.replyAsUser(ticket.id, userId, 'user');
@@ -509,7 +518,7 @@ describe('Tickets — máquina de estados (R1) e2e', () => {
       const ticket = await ticketInState('IN_PROGRESS');
       const SECRETO = 'NOTA-INTERNA-NO-DEBE-SALIR-9f3a';
       await seedInternalNote(ticket.id, SECRETO);
-      await tickets.replyAsStaff(ticket.id, staffId, 'Respuesta pública');
+      await tickets.replyAsStaff(ticket.id, staff, 'Respuesta pública');
 
       const view = await tickets.getForUser(ticket.id, userId);
 
@@ -525,14 +534,14 @@ describe('Tickets — máquina de estados (R1) e2e', () => {
       const SECRETO = 'NOTA-INTERNA-VISIBLE-PARA-STAFF';
       await seedInternalNote(ticket.id, SECRETO);
 
-      const view = await tickets.getForStaff(ticket.id);
+      const view = await tickets.getForStaff(ticket.id, staff);
 
       expect(view.messages.map((m) => m.body)).toContain(SECRETO);
     });
 
     it('ningún método del servicio crea mensajes internos (R1 no tiene vía de escritura)', async () => {
       const ticket = await ticketInState('IN_PROGRESS');
-      await tickets.replyAsStaff(ticket.id, staffId, 'a');
+      await tickets.replyAsStaff(ticket.id, staff, 'a');
       await tickets.replyAsUser(ticket.id, userId, 'b');
 
       const internos = await prisma.ticketMessage.count({ where: { ticketId: ticket.id, internal: true } });

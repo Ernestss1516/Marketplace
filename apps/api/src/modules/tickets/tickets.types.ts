@@ -1,4 +1,40 @@
-import { TicketOrigin } from '@prisma/client';
+import { Role, TicketOrigin, TicketStatus } from '@prisma/client';
+
+/**
+ * Quién actúa desde el lado de la administración (R3).
+ *
+ * Lleva el ROL, no solo el id, porque tres puertas del sistema NO las puede
+ * decidir el `RolesGuard`: dependen del CONTENIDO de la fila, no de la ruta
+ * (un ticket con factura enlazada es ADMIN-only; reasignar el ticket de otro
+ * agente es ADMIN-only). El guard vive en el servicio y necesita el rol ahí.
+ *
+ * Es un parámetro OBLIGATORIO en todos los métodos de staff, no opcional con
+ * default permisivo: un guard que se desactiva solo con olvidarse de pasar un
+ * argumento es el mismo modo de fallo silencioso que se evitó separando
+ * getForUser/getForStaff en vez de usar un booleano.
+ */
+export interface StaffActor {
+  userId: string;
+  role: Role;
+}
+
+/** Filtros de la bandeja de staff (R3). */
+export interface StaffTicketFilters {
+  status?: TicketStatus;
+  origin?: TicketOrigin;
+  topicId?: string;
+  /**
+   * Id de agente, o uno de los dos centinelas: `'me'` (los míos) y `'none'`
+   * (sin asignar). Son seguros como centinelas porque los ids son cuid y nunca
+   * pueden valer literalmente "me" ni "none".
+   */
+  assignedTo?: string;
+  page?: number;
+  perPage?: number;
+}
+
+export const ASSIGNED_TO_ME = 'me';
+export const ASSIGNED_TO_NONE = 'none';
 
 /**
  * Entradas de TicketsService (R1). Interfaces planas, NO DTOs de class-validator:

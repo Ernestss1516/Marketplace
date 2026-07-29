@@ -174,6 +174,49 @@ resolver, cerrar, abrir hilo) es otra cosa y vive aparte — ver R3.
 
 ---
 
+## Tickets — rutas de STAFF
+
+`@Roles(MODERATOR, ADMIN)` a nivel de clase (molde `ModerationController`). Controlador
+SEPARADO del de usuario: los payloads difieren en lo esencial (este incluye las notas
+internas y los datos del usuario), y tenerlos en clases distintas es lo que impide servir
+uno por la puerta del otro.
+
+- **`GET /admin/tickets`** — La bandeja. Filtros `status`, `origin`, `topicId` y
+  `assignedTo` (un id de agente, o `me` / `none`). Orden por último movimiento, paginado.
+- **`GET /admin/tickets/:id`** — El hilo completo, **incluidas las notas internas**
+  (contraste exacto con `GET /tickets/:id`). Marca como leídos los mensajes del usuario.
+- **`POST /admin/tickets/:id/take`** — T2: `OPEN → IN_PROGRESS`, auto-asignación.
+- **`POST /admin/tickets/:id/messages`** — T3/T4. `OPEN`/`IN_PROGRESS` → `WAITING_USER`;
+  responder sin haber tomado el ticket lo asigna de paso. El mensaje sale siempre con
+  `side=STAFF` e `internal=false`.
+- **`POST /admin/tickets/:id/resolve`** — T7: `IN_PROGRESS`/`WAITING_USER` → `RESOLVED`.
+- **`POST /admin/tickets/:id/close`** — T10. **Irreversible.**
+- **`POST /admin/tickets/:id/reassign`** — Cambia el agente asignado.
+- **`POST /admin/tickets`** — **Flujo (b)**: abrir un hilo con un usuario concreto.
+  `origin=ADMIN`, nace en `WAITING_USER` y asignado al agente. El usuario se elige con
+  `GET /users/search`.
+- **`POST /admin/tickets/from-report/:reportId`** — **Flujo (c)**: contactar con el usuario
+  reportado. `origin=REPORT` + `reportId`.
+
+> **Dos puertas ADMIN-only que el `RolesGuard` no puede vigilar** — dependen del CONTENIDO
+> de la fila, no de la ruta, así que viven en el servicio:
+> 1. **Ticket con `invoiceId` enlazada → ADMIN-only.** La facturación lo es en todo el
+>    proyecto. El MODERATOR ni lo ve en la bandeja ni puede operarlo por **ningún** verbo
+>    (`403 TICKET_BILLING_ADMIN_ONLY`): poder cerrar a ciegas lo que no puedes leer sería
+>    una puerta trasera, no una excepción menor.
+> 2. **Reasignar el ticket de OTRO agente → ADMIN-only**
+>    (`403 TICKET_REASSIGN_ADMIN_ONLY`). Un MODERATOR sí puede coger uno sin asignar o
+>    mover el suyo.
+
+> **Flujo (c) — el `Report` NO se modifica.** Se LEE para resolver el destinatario
+> (usuario reportado → vendedor del anuncio → autor de la valoración) y se referencia desde
+> `Ticket.reportId`. La cola de moderación sigue siendo la única dueña de su ciclo de vida:
+> resolver el reporte y cerrar el ticket son acciones **independientes**. El destinatario lo
+> resuelve el **servidor**; el body no puede elegirlo (no existe el campo, así que un intento
+> se rechaza con 400).
+
+---
+
 ## Resumen de recursos
 
 | Recurso | Operaciones principales |
@@ -186,3 +229,4 @@ resolver, cerrar, abrir hilo) es otra cosa y vive aparte — ver R3.
 | Media | upload |
 | Messaging | conversations REST (CRUD + cursor) · WebSocket /ws (message:new) |
 | Tickets (usuario) | create (con enlace validado) · list mine · thread+cursor · reply/reopen · close |
+| Tickets (staff) | bandeja+filtros · take · reply · resolve · close · reassign · flujo (b) · from-report (c) |

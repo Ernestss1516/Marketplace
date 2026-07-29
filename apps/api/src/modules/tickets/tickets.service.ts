@@ -11,7 +11,15 @@ import { Prisma, Ticket, TicketMessage, TicketStatus } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { RateLimitService } from '../../infra/redis/rate-limit.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
-import { CreateStaffTicketInput, CreateUserTicketInput, TicketLinkInput } from './tickets.types';
+import {
+  ASSIGNED_TO_ME,
+  ASSIGNED_TO_NONE,
+  CreateStaffTicketInput,
+  CreateUserTicketInput,
+  StaffActor,
+  StaffTicketFilters,
+  TicketLinkInput,
+} from './tickets.types';
 import {
   TICKET_CREATE_LIMIT_PER_DAY,
   TICKET_CREATE_WINDOW_SECONDS,
@@ -286,7 +294,7 @@ export class TicketsService {
    * semántica que T4: escribir como staff implica hacerse cargo.
    */
   async createByStaff(
-    actorId: string,
+    actor: StaffActor,
     input: CreateStaffTicketInput,
     ip?: string,
   ): Promise<Ticket> {
@@ -297,6 +305,15 @@ export class TicketsService {
       throw new BadRequestException('Un ticket abierto por la administración debe tener origin ADMIN o REPORT');
     }
 
+    await this.assertTopicUsableInTickets(input.topicId);
+    // Los enlaces se validan contra el USUARIO DESTINATARIO, no contra el agente:
+    // `linkedLabel` (que puede llevar el número de una factura o el título de un
+    // anuncio) SE LE SIRVE A ÉL en GET /tickets/:id. Enlazar aquí la factura de
+    // otra persona no sería un descuido administrativo — sería filtrarle a un
+    // usuario el dato de un tercero. Mismo guard que en la vía de usuario, con
+    // el dueño del hilo como sujeto.
+    const link = await this.assertLinkable(input.userId, input);
+
     return this.prisma.$transaction(async (tx) => {
       const ticket = await tx.ticket.create({
         data: {
@@ -305,20 +322,20 @@ export class TicketsService {
           origin: input.origin,
           topicId: input.topicId ?? null,
           userId: input.userId,
-          openedById: actorId,
-          assignedToId: actorId,
+          openedById: actor.userId,
+          assignedToId: actor.userId,
           reportId: input.reportId ?? null,
-          ...this.linkData(input),
+          ...link,
           lastMessageAt: new Date(),
         },
       });
 
-      await this.writeMessage(tx, ticket.id, actorId, 'STAFF', input.body);
+      await this.writeMessage(tx, ticket.id, actor.userId, 'STAFF', input.body);
 
       await this.auditLog.log(
         {
           action: 'TICKET_OPEN_BY_ADMIN',
-          actorId,
+          actorId: actor.userId,
           resourceType: 'Ticket',
           resourceId: ticket.id,
           after: { status: ticket.status, origin: ticket.origin, userId: ticket.userId },
@@ -331,13 +348,170 @@ export class TicketsService {
     });
   }
 
+  /**
+   * FLUJO (c) — abrir un hilo con el usuario reportado, a partir de un Report.
+   *
+   * `Report` NO SE TOCA: se LEE para resolver el destinatario y se referencia
+   * desde `Ticket.reportId`. Ni su estado ni ningún campo suyo cambian aquí, y
+   * la cola de moderación sigue siendo la única dueña de su ciclo de vida
+   * (decisión §8.3: el triaje ya existe y está probado; lo que faltaba era el
+   * canal de comunicación, no otra cola).
+   *
+   * El DESTINATARIO lo resuelve el SERVIDOR desde el propio reporte, en el orden
+   * en que un reporte identifica a su sujeto: usuario reportado → vendedor del
+   * anuncio reportado → autor de la valoración reportada. Nunca se acepta del
+   * cliente: si se aceptara, este endpoint sería una vía para abrir un hilo
+   * "oficial" con cualquiera usando un reporte ajeno como excusa.
+   */
+  async createFromReport(
+    actor: StaffActor,
+    reportId: string,
+    input: { subject: string; body: string; topicId?: string | null },
+    ip?: string,
+  ): Promise<Ticket> {
+    const report = await this.prisma.report.findUnique({
+      where: { id: reportId },
+      select: {
+        id: true,
+        reportedUserId: true,
+        listing: { select: { sellerId: true } },
+        review: { select: { authorId: true } },
+      },
+    });
+    if (!report) throw new NotFoundException('Reporte no encontrado');
+
+    const targetUserId =
+      report.reportedUserId ?? report.listing?.sellerId ?? report.review?.authorId ?? null;
+    if (!targetUserId) {
+      throw new UnprocessableEntityException({
+        code: 'REPORT_WITHOUT_TARGET_USER',
+        message:
+          'No se puede determinar el usuario de este reporte (ni usuario reportado, ni anuncio, ni valoración con autor).',
+      });
+    }
+
+    return this.createByStaff(
+      actor,
+      {
+        userId: targetUserId,
+        subject: input.subject,
+        body: input.body,
+        origin: 'REPORT',
+        topicId: input.topicId ?? null,
+        reportId: report.id,
+      },
+      ip,
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Bandeja de staff (R3)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * La BANDEJA. Molde `ContactService.list` / `ModerationService.listReports`:
+   * page/perPage + `$transaction([findMany, count])`.
+   *
+   * FILTRADO POR ROL: un MODERATOR no ve los tickets con factura enlazada. Se
+   * excluyen de la LISTA, no solo del detalle — listar lo que no se puede abrir
+   * sería enseñar el asunto y el nombre del usuario de un hilo de facturación a
+   * quien no tiene acceso a facturación, además de producir 403 al hacer clic.
+   */
+  async listForStaff(actor: StaffActor, filters: StaffTicketFilters = {}) {
+    const { status, origin, topicId, assignedTo, page = 1, perPage = 25 } = filters;
+
+    const where: Prisma.TicketWhereInput = {
+      ...(status && { status }),
+      ...(origin && { origin }),
+      ...(topicId && { topicId }),
+      ...this.assignedFilter(actor, assignedTo),
+      ...(actor.role === 'ADMIN' ? {} : { invoiceId: null }),
+    };
+
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.ticket.findMany({
+        where,
+        orderBy: { lastMessageAt: 'desc' },
+        skip: (page - 1) * perPage,
+        take: perPage,
+        include: {
+          topic: { select: { id: true, nombre: true } },
+          user: { select: { id: true, name: true, slug: true, email: true } },
+          assignedTo: { select: { id: true, name: true } },
+          _count: {
+            // Pendientes de atender por el staff: lo que el usuario ha escrito y
+            // nadie ha abierto todavía.
+            select: { messages: { where: { side: 'USER', readByStaffAt: null } } },
+          },
+        },
+      }),
+      this.prisma.ticket.count({ where }),
+    ]);
+
+    return {
+      items: items.map((t) => ({
+        id: t.id,
+        subject: t.subject,
+        status: t.status,
+        origin: t.origin,
+        topic: t.topic,
+        user: t.user,
+        assignedTo: t.assignedTo,
+        linkedLabel: t.linkedLabel,
+        hasInvoice: t.invoiceId !== null,
+        reportId: t.reportId,
+        lastMessageAt: t.lastMessageAt,
+        createdAt: t.createdAt,
+        unreadFromUser: t._count.messages,
+      })),
+      total,
+      page,
+      perPage,
+      pages: Math.ceil(total / perPage),
+    };
+  }
+
+  /** Traduce los centinelas `me`/`none` del filtro de asignación. */
+  private assignedFilter(actor: StaffActor, assignedTo?: string): Prisma.TicketWhereInput {
+    if (!assignedTo) return {};
+    if (assignedTo === ASSIGNED_TO_NONE) return { assignedToId: null };
+    if (assignedTo === ASSIGNED_TO_ME) return { assignedToId: actor.userId };
+    return { assignedToId: assignedTo };
+  }
+
+  /**
+   * PUERTA ADMIN-ONLY POR CONTENIDO DE FILA. El `RolesGuard` no puede decidir
+   * esto: depende de si ESTE ticket lleva factura, no de la ruta.
+   *
+   * Se aplica a TODAS las operaciones de staff sobre el ticket, no solo a ver y
+   * responder. Un MODERATOR que pudiera resolver o cerrar un hilo que no puede
+   * leer sería una incoherencia con consecuencias reales: cerraría a ciegas una
+   * reclamación de facturación. La regla es "este hilo no es tuyo", y eso no
+   * admite excepciones por verbo.
+   */
+  private assertCanHandle(ticket: Ticket, actor: StaffActor): void {
+    if (ticket.invoiceId && actor.role !== 'ADMIN') {
+      throw new ForbiddenException({
+        code: 'TICKET_BILLING_ADMIN_ONLY',
+        message: 'Los tickets con una factura enlazada solo los gestiona un administrador.',
+      });
+    }
+  }
+
+  /** Carga + guard de contenido, para las transiciones de staff. */
+  private async loadForStaff(ticketId: string, actor: StaffActor): Promise<Ticket> {
+    const ticket = await this.loadTicket(ticketId);
+    this.assertCanHandle(ticket, actor);
+    return ticket;
+  }
+
   // ---------------------------------------------------------------------------
   // T2 — el staff toma el ticket
   // ---------------------------------------------------------------------------
 
   /** T2 — OPEN → IN_PROGRESS, asignándose el agente a sí mismo. */
-  async take(ticketId: string, actorId: string, ip?: string): Promise<Ticket> {
-    const existing = await this.loadTicket(ticketId);
+  async take(ticketId: string, actor: StaffActor, ip?: string): Promise<Ticket> {
+    const existing = await this.loadForStaff(ticketId, actor);
     if (existing.status !== 'OPEN') {
       throw new BadRequestException('Solo se pueden tomar tickets en estado OPEN');
     }
@@ -345,17 +519,78 @@ export class TicketsService {
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.ticket.update({
         where: { id: ticketId },
-        data: { status: 'IN_PROGRESS', assignedToId: actorId },
+        data: { status: 'IN_PROGRESS', assignedToId: actor.userId },
       });
 
       await this.auditLog.log(
         {
           action: 'TICKET_ASSIGN',
-          actorId,
+          actorId: actor.userId,
           resourceType: 'Ticket',
           resourceId: ticketId,
           before: { status: existing.status, assignedToId: existing.assignedToId },
           after: { status: updated.status, assignedToId: updated.assignedToId },
+          ip,
+        },
+        tx,
+      );
+
+      return updated;
+    });
+  }
+
+  /**
+   * Reasignar a otro agente.
+   *
+   * SEGUNDA PUERTA ADMIN-ONLY POR CONTENIDO: un MODERATOR puede coger uno SIN
+   * ASIGNAR o mover el SUYO, pero no quitarle el ticket a otro agente. Robar el
+   * caso de un compañero es una decisión de coordinación, no de atención — y sin
+   * este guard sería además la vía para saltarse "no toques lo que no llevas".
+   */
+  async reassign(
+    ticketId: string,
+    actor: StaffActor,
+    assignedToId: string,
+    ip?: string,
+  ): Promise<Ticket> {
+    const existing = await this.loadForStaff(ticketId, actor);
+
+    const perteneceAOtro =
+      existing.assignedToId !== null && existing.assignedToId !== actor.userId;
+    if (perteneceAOtro && actor.role !== 'ADMIN') {
+      throw new ForbiddenException({
+        code: 'TICKET_REASSIGN_ADMIN_ONLY',
+        message: 'Solo un administrador puede reasignar el ticket de otro agente.',
+      });
+    }
+
+    const nuevo = await this.prisma.user.findUnique({
+      where: { id: assignedToId },
+      select: { role: true },
+    });
+    // Asignar a alguien que no es staff dejaría el ticket en manos de quien no
+    // puede abrirlo — el mismo callejón sin salida que el corolario de R2.
+    if (!nuevo || (nuevo.role !== 'ADMIN' && nuevo.role !== 'MODERATOR')) {
+      throw new UnprocessableEntityException({
+        code: 'ASSIGNEE_NOT_STAFF',
+        message: 'Solo se puede asignar un ticket a un administrador o moderador.',
+      });
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.ticket.update({
+        where: { id: ticketId },
+        data: { assignedToId },
+      });
+
+      await this.auditLog.log(
+        {
+          action: 'TICKET_ASSIGN',
+          actorId: actor.userId,
+          resourceType: 'Ticket',
+          resourceId: ticketId,
+          before: { assignedToId: existing.assignedToId },
+          after: { assignedToId: updated.assignedToId },
           ip,
         },
         tx,
@@ -380,11 +615,11 @@ export class TicketsService {
    */
   async replyAsStaff(
     ticketId: string,
-    actorId: string,
+    actor: StaffActor,
     body: string,
     ip?: string,
   ): Promise<TicketWithMessage> {
-    const existing = await this.loadTicket(ticketId);
+    const existing = await this.loadForStaff(ticketId, actor);
     if (!TicketsService.STAFF_REPLYABLE.includes(existing.status)) {
       throw new BadRequestException(
         'Solo se puede responder a tickets en estado OPEN, IN_PROGRESS o WAITING_USER',
@@ -392,7 +627,10 @@ export class TicketsService {
     }
 
     return this.prisma.$transaction(async (tx) => {
-      const message = await this.writeMessage(tx, ticketId, actorId, 'STAFF', body);
+      // `internal` no se pasa (ver writeMessage): en R3 el staff solo escribe
+      // mensajes normales. La escritura de notas internas sigue APLAZADA (§14.3)
+      // y no se abre aquí — el DTO de staff tampoco declara el campo.
+      const message = await this.writeMessage(tx, ticketId, actor.userId, 'STAFF', body);
 
       const ticket = await tx.ticket.update({
         where: { id: ticketId },
@@ -400,7 +638,7 @@ export class TicketsService {
           status: 'WAITING_USER',
           // T4: responder sin haber tomado el ticket lo asigna al autor. `??` y no
           // asignación incondicional: no le robamos el ticket al agente que ya lo lleva.
-          assignedToId: existing.assignedToId ?? actorId,
+          assignedToId: existing.assignedToId ?? actor.userId,
           lastMessageAt: message.createdAt,
         },
       });
@@ -408,7 +646,7 @@ export class TicketsService {
       await this.auditLog.log(
         {
           action: 'TICKET_REPLY',
-          actorId,
+          actorId: actor.userId,
           resourceType: 'Ticket',
           resourceId: ticketId,
           before: { status: existing.status, assignedToId: existing.assignedToId },
@@ -476,8 +714,8 @@ export class TicketsService {
   // ---------------------------------------------------------------------------
 
   /** T7 — IN_PROGRESS | WAITING_USER → RESOLVED. Solo staff. */
-  async resolve(ticketId: string, actorId: string, ip?: string): Promise<Ticket> {
-    const existing = await this.loadTicket(ticketId);
+  async resolve(ticketId: string, actor: StaffActor, ip?: string): Promise<Ticket> {
+    const existing = await this.loadForStaff(ticketId, actor);
     if (!TicketsService.RESOLVABLE.includes(existing.status)) {
       throw new BadRequestException(
         'Solo se pueden resolver tickets en estado IN_PROGRESS o WAITING_USER',
@@ -493,7 +731,7 @@ export class TicketsService {
       await this.auditLog.log(
         {
           action: 'TICKET_RESOLVE',
-          actorId,
+          actorId: actor.userId,
           resourceType: 'Ticket',
           resourceId: ticketId,
           before: { status: existing.status },
@@ -512,20 +750,20 @@ export class TicketsService {
   // ---------------------------------------------------------------------------
 
   /** T9/T10 — cierre por el staff desde cualquier estado vivo. IRREVERSIBLE. */
-  async closeAsStaff(ticketId: string, actorId: string, ip?: string): Promise<Ticket> {
-    const existing = await this.loadTicket(ticketId);
+  async closeAsStaff(ticketId: string, actor: StaffActor, ip?: string): Promise<Ticket> {
+    const existing = await this.loadForStaff(ticketId, actor);
     this.assertClosable(existing.status);
 
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.ticket.update({
         where: { id: ticketId },
-        data: { status: 'CLOSED', closedAt: new Date(), closedById: actorId },
+        data: { status: 'CLOSED', closedAt: new Date(), closedById: actor.userId },
       });
 
       await this.auditLog.log(
         {
           action: 'TICKET_CLOSE',
-          actorId,
+          actorId: actor.userId,
           resourceType: 'Ticket',
           resourceId: ticketId,
           before: { status: existing.status },
@@ -659,8 +897,16 @@ export class TicketsService {
     };
   }
 
-  /** Vista del STAFF: el hilo completo, incluidas las notas internas cuando existan. */
-  async getForStaff(ticketId: string) {
+  /**
+   * Vista del STAFF: el hilo completo, incluidas las notas internas cuando
+   * existan (contraste exacto con `getForUser`, que las filtra).
+   *
+   * `actor` es OBLIGATORIO — es lo que permite aplicar la puerta ADMIN-only de
+   * los tickets con factura enlazada, que el `RolesGuard` no puede decidir
+   * porque depende de la fila, no de la ruta. Hacerlo opcional habría dejado el
+   * guard desactivado con solo olvidar un argumento.
+   */
+  async getForStaff(ticketId: string, actor: StaffActor) {
     const ticket = await this.prisma.ticket.findUnique({
       where: { id: ticketId },
       include: {
@@ -670,6 +916,15 @@ export class TicketsService {
       },
     });
     if (!ticket) throw new NotFoundException('Ticket no encontrado');
+    this.assertCanHandle(ticket, actor);
+
+    // Acuse de lectura del lado del staff: lo que escribió el usuario queda
+    // marcado al abrir. Espejo del de getForUser, con la columna del otro lado.
+    await this.prisma.ticketMessage.updateMany({
+      where: { ticketId, side: 'USER', readByStaffAt: null },
+      data: { readByStaffAt: new Date() },
+    });
+
     return ticket;
   }
 

@@ -4707,6 +4707,82 @@ rojo el de privacidad; quitar el check de `sellerId` → rojo el del anuncio aje
 
 ---
 
+### Atención al usuario R3 — API de staff (bandeja, transiciones y los tres flujos)
+
+`AdminTicketsController` (`/admin/tickets`, `@Roles(MODERATOR, ADMIN)`, molde
+`ModerationController`). Controlador SEPARADO del de usuario: sus payloads difieren en lo
+esencial (este incluye notas internas y datos del usuario), y tenerlos en clases distintas
+es lo que impide servir uno por la puerta del otro.
+
+**`StaffActor { userId, role }` — cambio de firma en todos los métodos de staff.** Antes
+recibían `actorId: string`. Ahora llevan el ROL porque **dos puertas del sistema no las
+puede decidir el `RolesGuard`: dependen del CONTENIDO de la fila, no de la ruta**. Es un
+parámetro OBLIGATORIO, no opcional con default permisivo — un guard que se desactiva con
+solo olvidar un argumento es el mismo modo de fallo silencioso que se evitó separando
+`getForUser`/`getForStaff`. Las llamadas de las suites de R1 y R2 se actualizaron
+mecánicamente (cambio de FIRMA); **ninguna aserción cambió**.
+
+**Puerta 1 — ticket con `invoiceId` enlazada es ADMIN-only.** La facturación lo es en todo
+el proyecto. Aplicada en **TODOS los verbos**, no solo en ver y responder (que es lo que
+pedía la letra de la ráfaga): un MODERATOR que pudiera `resolve`/`close`/`reassign` un hilo
+que no puede LEER estaría cerrando a ciegas una reclamación de facturación — la regla es
+"este hilo no es tuyo" y eso no admite excepciones por verbo. Además se excluyen de la
+BANDEJA, no solo del detalle: listar lo que no se puede abrir enseñaría el asunto y el
+usuario de un hilo de facturación a quien no tiene acceso a facturación.
+
+**Puerta 2 — reasignar el ticket de OTRO agente es ADMIN-only.** Un MODERATOR sí puede
+coger uno sin asignar o mover el suyo. Guard adicional no pedido pero necesario: no se
+puede asignar a alguien que no sea ADMIN/MODERATOR — el ticket quedaría en manos de quien
+no puede abrirlo, el mismo callejón sin salida que motivó el corolario de R2.
+
+**Flujo (c) — `Report` intacto, verificado con la fila entera.** Se LEE para resolver el
+destinatario (`reportedUserId` → `listing.sellerId` → `review.authorId`) y se referencia
+desde `Ticket.reportId`. `ModerationService`/`ModerationController`/`Report` **no se
+tocaron**, y `moderation.e2e-spec.ts` sigue verde SIN editarlo. Dos tests comparan el
+`Report` con `toEqual` antes y después, y otro ejerce las dos direcciones: cerrar el ticket
+no toca el reporte, y resolver el reporte por la vía de moderación no toca el ticket.
+
+El destinatario lo resuelve el SERVIDOR. El DTO **no declara `userId`**, así que un intento
+de elegirlo se rechaza con 400 (`forbidNonWhitelisted`) en vez de ignorarse en silencio —
+falla ruidosamente, que es mejor. Sin este guard, la ruta sería la vía para abrir un hilo
+"oficial", con la autoridad que da venir de moderación, contra cualquiera.
+
+**Enlaces en el flujo (b): se validan contra el USUARIO DESTINATARIO, no contra el agente.**
+No estaba pedido y es necesario: `linkedLabel` (que puede llevar el número de una factura)
+SE LE SIRVE AL USUARIO en `GET /tickets/:id`. Enlazar ahí la factura de un tercero no sería
+un descuido administrativo — sería filtrarle a un usuario el dato de otro.
+
+**Notas internas: siguen sin vía de escritura.** El DTO de staff tampoco declara `internal`
+(§14.3). En R3 el staff solo escribe mensajes normales. Lo que sí se ejerce es el CONTRASTE:
+sembrando la nota en BD, `GET /admin/tickets/:id` la devuelve y `GET /tickets/:id` no.
+
+**Sin notificaciones ni email** — eso es R4. R3 solo transiciones y `AuditLog`.
+`TICKET_REOPEN` sigue sin emisor, y un test lo vigila explícitamente.
+
+**Verificación — `tickets-admin.e2e-spec.ts`, 32 tests por HTTP.**
+
+*Sanity-check del andamiaje (lección de R5 de facturación, no repetida):* el ADMIN entra por
+`/auth/admin-login`, **no** por `/auth/login` (que rechaza admins con 403
+`ADMIN_MUST_USE_ADMIN_LOGIN` y devolvería `accessToken: undefined` — con token vacío toda
+ruta da 401 y un test de permisos "pasaría" por el motivo equivocado). Hay tres tests
+dedicados a que el contraste 403-vs-200 sea real: que el token del ADMIN **funciona**, que
+el del MODERATOR **funciona**, y que `/auth/login` efectivamente rechaza a un ADMIN.
+
+*Hallazgo de infraestructura:* la suite crea y loguea 5 usuarios por test y
+`/auth/admin-login` tiene un límite por IP más estricto que el público (es la puerta del
+panel). Desde localhost todos los logins comparten IP, así que la suite se estrangulaba a sí
+misma a mitad de camino y los fallos salían como 429 en el `beforeEach`. Se limpian las
+claves `auth:*` antes de cada test — mismo principio que `reset-redis-between-suites.ts`,
+con grano más fino porque una sola suite ya agota la ventana. El rate limit se sigue
+probando donde le toca (`auth-security.e2e-spec.ts`).
+
+**Validado por mutación, tres veces:** desactivar `assertCanHandle` en `loadForStaff` → rojo
+el test de "la puerta cubre todos los verbos"; quitar el filtro por rol de la bandeja → rojo
+el de "el MODERATOR tampoco lo ve en la bandeja"; anular el guard de reasignación → rojo el
+de "no puede quitarle el ticket a otro agente".
+
+---
+
 ## 3. Limitaciones conocidas y deuda técnica
 
 ### RC.1 — Rate limit por IP no verificado contra el proxy real de producción
