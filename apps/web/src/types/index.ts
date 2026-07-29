@@ -559,6 +559,33 @@ export interface TicketStaffNewData {
   topic: string | null;
 }
 
+// ── Moderación (§14.5) ───────────────────────────────────────────────────────
+// Espejo de notification.types.ts. Snapshots autocontenidos: nombres resueltos y
+// títulos congelados, para que el aviso siga siendo legible si la entidad
+// denunciada o moderada desaparece después.
+
+export interface ReportResolvedData {
+  reportId: string;
+  outcome: 'RESOLVED' | 'DISMISSED';
+  targetType: 'LISTING' | 'REVIEW' | 'USER';
+  targetLabel: string;
+  listingSlug: string | null;
+}
+
+export interface ListingModeratedData {
+  listingId: string;
+  listingTitle: string;
+  action: 'REJECTED' | 'DEACTIVATED' | 'RESTORED';
+  reason: string | null;
+}
+
+export interface ReviewModeratedData {
+  reviewId: string;
+  rating: number;
+  listingTitle: string | null;
+  targetName: string;
+}
+
 interface NotificationBase {
   id: string;
   userId: string;
@@ -577,7 +604,10 @@ export type NotificationItem =
     })
   | (NotificationBase & { type: 'TICKET_MESSAGE'; data: TicketMessageData })
   | (NotificationBase & { type: 'TICKET_OPENED'; data: TicketOpenedData })
-  | (NotificationBase & { type: 'TICKET_STAFF_NEW'; data: TicketStaffNewData });
+  | (NotificationBase & { type: 'TICKET_STAFF_NEW'; data: TicketStaffNewData })
+  | (NotificationBase & { type: 'REPORT_RESOLVED'; data: ReportResolvedData })
+  | (NotificationBase & { type: 'LISTING_MODERATED'; data: ListingModeratedData })
+  | (NotificationBase & { type: 'REVIEW_MODERATED'; data: ReviewModeratedData });
 
 export interface NotificationsResponse {
   items: NotificationItem[];

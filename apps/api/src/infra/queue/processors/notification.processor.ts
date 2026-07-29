@@ -12,6 +12,7 @@ import {
   SendContactReplyData,
   SendResetEmailData,
   SendReviewRequestEmailData,
+  SendListingModeratedData,
   SendTicketMessageData,
   SendTicketResolvedData,
   SendTicketStaffNotificationData,
@@ -53,6 +54,8 @@ export class NotificationProcessor extends WorkerHost {
           return this.sendTicketStaffNotification(job.data as SendTicketStaffNotificationData);
         case NOTIFICATION_JOB.SEND_TICKET_RESOLVED:
           return this.sendTicketResolved(job.data as SendTicketResolvedData);
+        case NOTIFICATION_JOB.SEND_LISTING_MODERATED:
+          return this.sendListingModerated(job.data as SendListingModeratedData);
         default:
           this.logger.warn(`Unknown notification job: ${job.name}`);
       }
@@ -183,6 +186,48 @@ export class NotificationProcessor extends WorkerHost {
         `en el hilo:\n${link}\n\nPasado ese plazo tendrás que abrir uno nuevo.\n\n${this.noReply}`,
     });
     this.logger.log(`Ticket resolved email sent to ${data.email}`);
+  }
+
+  /**
+   * Moderación (§14.5) — al vendedor. `text:` plano como todos: el `reason` lo
+   * escribe un moderador, pero se mantiene la regla invariante del processor.
+   *
+   * Copy sin acusación: la moderación puede equivocarse (de hecho `restoreListing`
+   * existe justo para deshacerla), así que el correo dice QUÉ ha pasado y CÓMO
+   * seguir, no sentencia sobre la conducta del vendedor.
+   */
+  private async sendListingModerated(data: SendListingModeratedData): Promise<void> {
+    const link = `${this.appUrl}/mis-anuncios`;
+    const motivo = data.reason ? `\n\nMotivo indicado: ${data.reason}` : '';
+
+    const copy = {
+      REJECTED: {
+        subject: `Tu anuncio "${data.listingTitle}" no ha pasado la revisión`,
+        cuerpo:
+          `Hemos revisado tu anuncio «${data.listingTitle}» y de momento no podemos publicarlo.${motivo}\n\n` +
+          `Puedes editarlo y volver a enviarlo desde aquí:\n${link}`,
+      },
+      DEACTIVATED: {
+        subject: `Hemos retirado tu anuncio "${data.listingTitle}"`,
+        cuerpo:
+          `Hemos retirado del marketplace tu anuncio «${data.listingTitle}».${motivo}\n\n` +
+          `Puedes revisarlo desde aquí:\n${link}\n\nSi crees que es un error, escríbenos y lo miramos.`,
+      },
+      RESTORED: {
+        subject: `Tu anuncio "${data.listingTitle}" vuelve a estar publicado`,
+        cuerpo:
+          `Buenas noticias: hemos revisado tu anuncio «${data.listingTitle}» y vuelve a estar ` +
+          `publicado en el marketplace.\n\nPuedes verlo aquí:\n${link}`,
+      },
+    }[data.action];
+
+    await this.resend.emails.send({
+      from: this.from,
+      to: data.email,
+      subject: copy.subject,
+      text: `Hola ${data.name},\n\n${copy.cuerpo}`,
+    });
+    this.logger.log(`Listing moderated email (${data.action}) sent to ${data.email}`);
   }
 
   /** Reputación RÁFAGA 3 — copy deliberadamente sin presión ni plazo: valorar

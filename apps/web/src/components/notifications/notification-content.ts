@@ -49,6 +49,30 @@ export function getNotificationContent(n: NotificationItem): { text: string; hre
         text: `${n.data.userName}${n.data.topic ? ` (${n.data.topic})` : ''}: «${n.data.subject}» — ${n.data.extracto}`,
         href: `/admin/tickets/${n.data.ticketId}`,
       };
+    // ── Moderación (§14.5) ───────────────────────────────────────────────────
+    case 'REPORT_RESOLVED':
+      return {
+        text:
+          n.data.outcome === 'RESOLVED'
+            ? `Hemos revisado tu denuncia sobre ${n.data.targetLabel} y hemos tomado medidas.`
+            : `Hemos revisado tu denuncia sobre ${n.data.targetLabel} y no hemos encontrado motivo para actuar.`,
+        // Solo hay a dónde ir si lo denunciado era un anuncio que sigue vivo.
+        href: n.data.listingSlug ? `/anuncio/${n.data.listingSlug}` : '/notificaciones',
+      };
+    case 'LISTING_MODERATED':
+      return {
+        text: {
+          REJECTED: `Tu anuncio «${n.data.listingTitle}» no ha pasado la revisión${n.data.reason ? `: ${n.data.reason}` : '.'}`,
+          DEACTIVATED: `Hemos retirado tu anuncio «${n.data.listingTitle}»${n.data.reason ? `: ${n.data.reason}` : '.'}`,
+          RESTORED: `Tu anuncio «${n.data.listingTitle}» vuelve a estar publicado.`,
+        }[n.data.action],
+        href: '/mis-anuncios',
+      };
+    case 'REVIEW_MODERATED':
+      return {
+        text: `Hemos retirado tu valoración de ${n.data.rating}★ sobre ${n.data.targetName}${n.data.listingTitle ? ` (${n.data.listingTitle})` : ''} por incumplir las normas.`,
+        href: '/notificaciones',
+      };
     default:
       return { text: 'Nueva notificación', href: '/notificaciones' };
   }

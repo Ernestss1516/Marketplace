@@ -13,6 +13,7 @@ import { AuditLogService } from '../audit-log/audit-log.service';
 import { ExpirationService } from '../expiration/expiration.service';
 import { QUEUE_INDEXING } from '../../infra/queue/queue.constants';
 import { ListingActivationService } from '../listing-activation/listing-activation.service';
+import { ModerationNotificationsService } from './moderation-notifications.service';
 import { CreateReportDto } from './dto/create-report.dto';
 import { ListReportsQueryDto } from './dto/list-reports-query.dto';
 
@@ -26,6 +27,10 @@ export class ModerationService {
     private readonly auditLog: AuditLogService,
     @InjectQueue(QUEUE_INDEXING) private readonly indexingQueue: Queue,
     private readonly activation: ListingActivationService,
+    // §14.5 — los avisos. Servicio APARTE: la lógica de moderación (transiciones
+    // de Report, guards, acciones sobre el anuncio) no cambia; solo gana un
+    // efecto posterior, siempre después de que la acción haya persistido.
+    private readonly notify: ModerationNotificationsService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -171,6 +176,9 @@ export class ModerationService {
       ip,
     });
 
+    // §14.5 — TRAS persistir: el denunciante sabe en qué acabó su denuncia.
+    await this.notify.reportClosed(report, 'RESOLVED', actorId);
+
     return updated;
   }
 
@@ -201,6 +209,10 @@ export class ModerationService {
       after: { status: ReportStatus.DISMISSED },
       ip,
     });
+
+    // §14.5 — TRAS persistir. Desestimar también es un desenlace: quien denunció
+    // merece saberlo tanto como si se le hubiera dado la razón.
+    await this.notify.reportClosed(report, 'DISMISSED', actorId);
 
     return updated;
   }
@@ -276,6 +288,10 @@ export class ModerationService {
       ip,
     });
 
+    // §14.5 — TRAS persistir. `listing` es la fila previa: de ahí salen sellerId
+    // y title sin ninguna consulta extra.
+    await this.notify.listingModerated(listing, 'REJECTED', actorId, reason);
+
     return updated;
   }
 
@@ -314,6 +330,10 @@ export class ModerationService {
       ip,
     });
 
+    // §14.5 — TRAS persistir. Este es EL hueco que motivó la ráfaga: hasta hoy
+    // el anuncio desaparecía del marketplace sin que al vendedor le llegara nada.
+    await this.notify.listingModerated(listing, 'DEACTIVATED', actorId, reason);
+
     return updated;
   }
 
@@ -350,6 +370,11 @@ export class ModerationService {
       ip,
     });
 
+    // §14.5 — TRAS persistir. Restaurar es deshacer una moderación: si al
+    // vendedor se le avisó de que se lo retiraban, hay que avisarle también de
+    // que vuelve. Avisar solo de lo malo sería la mitad de la conversación.
+    await this.notify.listingModerated(listing, 'RESTORED', actorId);
+
     return updated;
   }
 
@@ -373,6 +398,11 @@ export class ModerationService {
       before,
       ip,
     });
+
+    // §14.5 — TRAS persistir. El borrado es FÍSICO: el aviso se construye con la
+    // fila `review` que se cargó ANTES de borrarla, porque después no habría de
+    // dónde sacar el dato.
+    await this.notify.reviewModerated(review, actorId);
   }
 
 }

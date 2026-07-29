@@ -9,6 +9,8 @@ export const NOTIFICATION_JOB = {
   SEND_TICKET_MESSAGE: 'send-ticket-message',
   SEND_TICKET_STAFF_NOTIFICATION: 'send-ticket-staff-notification',
   SEND_TICKET_RESOLVED: 'send-ticket-resolved',
+  // Moderación (§14.5)
+  SEND_LISTING_MODERATED: 'send-listing-moderated',
 } as const;
 
 export interface SendVerificationEmailData {
@@ -97,6 +99,24 @@ export interface SendTicketStaffNotificationData {
   userName: string;
   /** 'new' = ticket recién abierto; 'reply' = el usuario ha contestado. */
   kind: 'new' | 'reply';
+}
+
+/**
+ * Al VENDEDOR: su anuncio ha sido moderado (retirado, rechazado o restaurado).
+ *
+ * ES EL ÚNICO AVISO DE MODERACIÓN QUE LLEVA EMAIL, y es una decisión: al vendedor
+ * le quitan (o le devuelven) presencia en el marketplace y tiene algo que hacer
+ * —corregir y republicar—, y puede tardar días en entrar. Los otros dos avisos de
+ * moderación (denuncia resuelta, valoración retirada) se quedan en la campana:
+ * son informativos, no hay nada que hacer con ellos, y las denuncias son muchas
+ * más que las moderaciones — un correo por cada una sería el camino al ruido.
+ */
+export interface SendListingModeratedData {
+  email: string;
+  name: string;
+  listingTitle: string;
+  action: 'REJECTED' | 'DEACTIVATED' | 'RESTORED';
+  reason: string | null;
 }
 
 /** Al usuario: su ticket se ha marcado como resuelto (T7). */

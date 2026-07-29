@@ -17,9 +17,11 @@
 >   la descarga **no están construidas**. No hay endpoint, ni UI, ni escritura en R2.
 > - **§12 / R9 — TIEMPO REAL.** No se ha tocado. Sigue en pie la recomendación de no hacerlo
 >   antes de cerrar el `TODO(prod)` del `cors: { origin: '*' }` de `MessagingGateway`.
-> - **§14.5 — los dos huecos de notificación de moderación** (avisar al denunciante del
->   desenlace de su denuncia; avisar al vendedor cuando le rechazan un anuncio). Se dejaron
->   fuera de alcance a propósito: se resuelven con `Notification`, no con tickets.
+>
+> **§14.5 — LOS DOS HUECOS DE NOTIFICACIÓN DE MODERACIÓN: YA IMPLEMENTADOS.** Se resolvieron
+> en ráfaga propia, con `Notification` y sin tocar tickets, tal y como se preveía aquí, y
+> con dos avisos más que la auditoría no había listado (restaurar un anuncio y retirar una
+> valoración). Detalle en `estado-tecnico.md`.
 >
 > **Decisiones que la implementación cambió respecto a lo aprobado aquí** (detalle y motivo
 > en `estado-tecnico.md`):

@@ -4750,10 +4750,8 @@ backend — por eso los errores se muestran en vez de ocultarse.
   `staff` (que **no existe** hoy en `MessagingGateway`, que solo tiene `user:` y `conv:`).
   **REQUISITO PREVIO:** cerrar el `TODO(prod)` del `cors: { origin: '*' }` del gateway antes
   de ampliar su uso.
-- **Los dos huecos de notificación de §14.5**, fuera del sistema de tickets y pendientes de
-  ráfaga propia: avisar al **denunciante** del desenlace de su denuncia, y avisar al
-  **vendedor** cuando le rechazan o desactivan un anuncio (hoy el anuncio desaparece del
-  marketplace sin que se le diga nada). Se resuelven con `Notification`, no con tickets.
+*(Los dos huecos de notificación de §14.5 **ya no están aquí**: se cerraron en ráfaga propia
+— ver «Notificaciones de moderación (§14.5)» más abajo.)*
 
 ### Deuda de test conocida asociada
 
@@ -5373,6 +5371,64 @@ en su hilo, ni en el HTML servido, ni en la lista.
    segunda corrida fallaba con 409 — el clásico "verde la primera vez, rojo al repetir sin
    resetear la BD". Corregido con `invoiceLine: { is: null }`.
 
+### Notificaciones de moderación (§14.5) — CIERRA LOS DOS HUECOS QUE NO ERAN DE TICKETS
+
+Los dos huecos que destapó la auditoría inicial del sistema de atención al usuario y que
+**no** se resolvían con tickets: la moderación **no avisaba a nadie**. Al denunciante no se le
+decía en qué acabó su denuncia, y a un vendedor le retiraban el anuncio del marketplace sin
+una palabra — simplemente desaparecía.
+
+**Servicio aparte: `ModerationNotificationsService`**, mismo molde que
+`TicketNotificationsService`. "A quién se le cuenta qué" es una preocupación distinta de "qué
+decide la moderación", y mantenerla fuera es lo que permite que `ModerationService` conserve
+su lógica **literalmente intacta**: su diff es de **30 líneas añadidas y 0 tocadas** (un
+import, un parámetro de constructor y seis llamadas `await this.notify.*`, todas DESPUÉS de
+que la acción persista). Sus 45 tests e2e siguen verdes **sin editarse**.
+
+**Seis avisos, tres tipos de `Notification`, cero migraciones** (`type` es `String`):
+
+| Acción | Destinatario | Tipo | Email |
+|---|---|---|---|
+| `resolveReport` / `dismissReport` | denunciante | `REPORT_RESOLVED` (`outcome`) | no |
+| `rejectListing` / `deactivateListing` / `restoreListing` | vendedor | `LISTING_MODERATED` (`action`) | **sí** |
+| `deleteReview` | autor de la valoración | `REVIEW_MODERATED` | no |
+
+**Dos avisos van más allá de lo auditado, y a propósito.** `restoreListing` porque avisar solo
+de lo malo es media conversación: si al vendedor se le dijo que le retiraban el anuncio, hay
+que decirle también que vuelve. Y `deleteReview` porque es un borrado **físico e irreversible**
+de algo que el usuario escribió; el aviso se construye con la fila cargada ANTES del `delete`,
+que es la única forma de tener el dato.
+
+**Solo `LISTING_MODERATED` lleva email.** Es el único caso en que el usuario pierde (o
+recupera) presencia en el marketplace y tiene algo que hacer — corregir y reenviar —, y puede
+tardar días en entrar. Los otros dos son informativos y no admiten réplica: un correo de
+"hemos borrado lo que escribiste" invita a discutir algo que ya no tiene vuelta atrás.
+
+**La regla de supresión, y su límite exacto: a nadie se le avisa de SU PROPIA acción**
+(`esSuPropiaAccion`, comparación destinatario == actor). Es la única supresión. Denunciar tu
+propio anuncio y que **otro** admin lo retire sí genera los dos avisos: son eventos distintos,
+de acciones distintas y con enlaces distintos, y fundirlos ocultaría información.
+
+**Snapshot autocontenido, igual que en tickets:** nombres **ya resueltos** y títulos
+congelados, nunca ids ni punteros. El aviso de moderación sobrevive al borrado posterior del
+anuncio; probado.
+
+**Verificación** — `moderation-notifications.e2e-spec.ts`, **18 casos, fichero NUEVO**
+(`moderation.e2e-spec.ts` no se tocó). Los tres tipos de denuncia (anuncio / valoración /
+usuario), las tres acciones sobre anuncio, los dos destinatarios sin cruzarse, la supresión y
+su límite, y que un guard de estado que rechaza la acción **no** deja notificación.
+**Mutación (4/4 en rojo, revertidas):** guardar el id en vez del nombre resuelto → 1 rojo;
+quitar la supresión de acción propia → 1; id en vez de nombre en el aviso de valoración → 1;
+mover el aviso ANTES del guard de estado → **4 rojos**.
+
+**Trampa de test encontrada, y es reutilizable.** Varios módulos (`contact`, `tickets` y ahora
+`moderation`) registran la **misma cola por nombre**, y cada `registerQueue` crea su propia
+instancia de `Queue`. `app.get(getQueueToken(QUEUE_NOTIFICATIONS))` devuelve *la primera que
+encuentra*, que aquí **no** era la de moderación: el espía no veía los emails y —lo peligroso—
+los asserts en negativo ("no se manda email") **pasaban vacíos, sin probar nada**. La suite
+espía la cola que el servicio tiene **inyectada**. Cualquier suite futura que verifique emails
+de un módulo con cola compartida debe hacer lo mismo.
+
 ---
 
 ## 3. Limitaciones conocidas y deuda técnica
@@ -5390,10 +5446,9 @@ Resumen para no perderlo de vista:
 - **Tiempo real (R9).** Sin empezar. **Requisito previo:** cerrar el `TODO(prod)` del
   `cors: { origin: '*' }` de `MessagingGateway` antes de ampliar su uso. Falta además una
   sala de rol `staff`, que el gateway hoy no tiene (solo `user:` y `conv:`).
-- **Dos huecos de notificación de moderación** (§14.5 del diseño), fuera del sistema de
-  tickets: al **denunciante** no se le dice en qué acabó su denuncia, y al **vendedor** no se
-  le avisa cuando le rechazan o desactivan un anuncio — hoy simplemente desaparece del
-  marketplace. Se resuelven con `Notification`, no con tickets.
+*(Los dos huecos de notificación de moderación de §14.5 ya **no** son deuda: implementados en
+ráfaga propia, con dos avisos extra sobre lo auditado. Ver «Notificaciones de moderación
+(§14.5)» en §2.)*
 
 **Deuda de test/tooling asociada:**
 - **`queue-retry › "Retry real"` es flaky** por timing de indexación de Meilisearch; los 14

@@ -7,7 +7,14 @@ export type NotificationType =
   // es String a propósito (ver schema.prisma). Ya se validó al añadir CONTACT_MESSAGE.
   | 'TICKET_MESSAGE'
   | 'TICKET_OPENED'
-  | 'TICKET_STAFF_NEW';
+  | 'TICKET_STAFF_NEW'
+  // Moderación (§14.5 del diseño de atención al usuario) — hasta ahora NINGUNA
+  // acción de moderación avisaba a nadie: al denunciante no se le decía en qué
+  // acabó su denuncia, y a un vendedor le retiraban el anuncio del marketplace
+  // sin una palabra. Tampoco requieren migración: `type` es String.
+  | 'REPORT_RESOLVED'
+  | 'LISTING_MODERATED'
+  | 'REVIEW_MODERATED';
 
 /** Self-contained snapshot stored in Notification.data — see schema.prisma comment. */
 export interface AlertMatchData {
@@ -85,4 +92,42 @@ export interface TicketStaffNewData {
   userName: string;
   /** Nombre del motivo, resuelto. Null si el ticket no lleva motivo. */
   topic: string | null;
+}
+
+// ─── Moderación (§14.5) ───────────────────────────────────────────────────────
+// Mismos dos principios que el resto: snapshot AUTOCONTENIDO con nombres ya
+// resueltos (nunca ids que haya que resolver al pintar), y superviviencia — un
+// aviso sobre un anuncio retirado debe seguir siendo legible aunque el anuncio
+// se borre después.
+
+/** Al DENUNCIANTE: en qué acabó la denuncia que puso. */
+export interface ReportResolvedData {
+  reportId: string;
+  outcome: 'RESOLVED' | 'DISMISSED';
+  /** Qué se denunció. Determina cómo se redacta el aviso. */
+  targetType: 'LISTING' | 'REVIEW' | 'USER';
+  /** Nombre YA RESUELTO de lo denunciado (título del anuncio, nombre del usuario…). */
+  targetLabel: string;
+  /** Slug para enlazar, solo si lo denunciado era un anuncio que sigue vivo. */
+  listingSlug: string | null;
+}
+
+/** Al VENDEDOR: su anuncio ha sido moderado. */
+export interface ListingModeratedData {
+  listingId: string;
+  /** Título CONGELADO — el aviso sobrevive al borrado del anuncio. */
+  listingTitle: string;
+  action: 'REJECTED' | 'DEACTIVATED' | 'RESTORED';
+  /** Motivo que escribió el moderador, si lo puso. */
+  reason: string | null;
+}
+
+/** Al AUTOR de una valoración: se ha retirado. El borrado es físico e irreversible. */
+export interface ReviewModeratedData {
+  reviewId: string;
+  rating: number;
+  /** Sobre qué anuncio era, congelado (Review.listingTitle ya es un snapshot). */
+  listingTitle: string | null;
+  /** Nombre del usuario valorado, resuelto. */
+  targetName: string;
 }
