@@ -711,6 +711,12 @@ export interface TicketDetail {
   createdAt: string;
   messages: TicketMessage[];
   nextCursor: string | null;
+  /**
+   * R8 — ventana de reapertura VIGENTE, en días. La manda el servidor porque es
+   * configurable en caliente (Setting): cablearla aquí haría que la UI ofreciera
+   * reabrir fuera de plazo en cuanto el admin la cambiara.
+   */
+  reopenWindowDays: number;
 }
 
 /** Payload de POST /tickets. Como máximo UNA entidad enlazada. */

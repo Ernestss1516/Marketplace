@@ -1,16 +1,20 @@
 /**
- * Ventana de reapertura de un ticket RESOLVED (decisión §14.2 del diseño).
+ * Ventana de reapertura de un ticket RESOLVED (decisión §14.2 del diseño), en
+ * días. Es el DEFAULT: el valor vigente vive en `Setting.ticketAutoCloseWindowDays`
+ * y se puede cambiar en caliente desde el backoffice (molde
+ * `fiscalInvoicingPeriodicity`). Sin configurar, manda este 14.
  *
- * Un usuario puede reabrir su ticket respondiendo (T8) mientras no hayan pasado
- * estos días desde `resolvedAt`. Pasada la ventana, responder se rechaza y hay
- * que abrir un ticket nuevo.
- *
- * OJO — el CIERRE AUTOMÁTICO de los RESOLVED vencidos es R8 (cron). Hasta
- * entonces un ticket fuera de ventana se queda en RESOLVED en la BD y es este
- * guard el único que hace cumplir la ventana. Cuando llegue R8, el cron y este
- * guard deben leer la MISMA constante — de ahí que viva aquí y no inline.
+ * UN SOLO VALOR PARA DOS COSAS, y no por casualidad: el guard de reapertura (T8,
+ * `TicketsService.assertWithinReopenWindow`) y el cron de cierre automático (T9,
+ * `TicketsScheduleService`) leen EL MISMO Setting. Si divergieran, habría un
+ * limbo — un ticket que el cron ya cerró pero que la UI seguiría ofreciendo
+ * reabrir, o al revés. Por eso la lectura está centralizada en
+ * `TicketsService.getReopenWindowDays()` y nadie más resuelve el número.
  */
 export const TICKET_REOPEN_WINDOW_DAYS = 14;
+
+/** Clave `Setting` de la ventana. Compartida por el guard de T8 y el cron de T9. */
+export const TICKET_WINDOW_SETTING_KEY = 'ticketAutoCloseWindowDays';
 
 /**
  * Límite de apertura de tickets por usuario y día (decisión §14.8).

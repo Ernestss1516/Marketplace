@@ -26,6 +26,7 @@ import {
   TICKET_CREATE_WINDOW_SECONDS,
   TICKET_MESSAGES_DEFAULT_LIMIT,
   TICKET_REOPEN_WINDOW_DAYS,
+  TICKET_WINDOW_SETTING_KEY,
 } from './tickets.constants';
 
 /**
@@ -701,7 +702,7 @@ export class TicketsService {
     }
 
     const reopening = existing.status === 'RESOLVED';
-    if (reopening) this.assertWithinReopenWindow(existing.resolvedAt);
+    if (reopening) await this.assertWithinReopenWindow(existing.resolvedAt);
 
     const nextStatus: TicketStatus =
       existing.status === 'WAITING_USER' || reopening ? 'IN_PROGRESS' : existing.status;
@@ -781,31 +782,98 @@ export class TicketsService {
   // T9/T10/T11 — cierre (IRREVERSIBLE)
   // ---------------------------------------------------------------------------
 
+  /**
+   * NÚCLEO DE CIERRE — el ÚNICO sitio donde un ticket pasa a CLOSED.
+   *
+   * Las tres vías (T10 staff, T11 usuario, T9 cron) pasan por aquí, así que el
+   * guard `CLOSABLE` y la escritura de `closedAt`/`closedById` viven en un solo
+   * lugar. Molde `emitInvoiceCore`: el camino manual y el automático comparten
+   * núcleo en vez de duplicar la transición.
+   *
+   * `closedById = null` significa "lo cerró el SISTEMA" (el cron), y por eso la
+   * columna es nullable desde R1 — no es un hueco, es el discriminante.
+   *
+   * `requireStatus` añade un guard ATÓMICO sobre el estado en el propio UPDATE
+   * (molde del débito de Wallet: `UPDATE ... WHERE balance >= N`). Lo usa el cron:
+   * entre que su query selecciona los vencidos y llega el UPDATE, el usuario
+   * puede haber reabierto el ticket (T8 → IN_PROGRESS). `assertClosable` NO
+   * protege de eso —IN_PROGRESS también es cerrable—, así que sin esta condición
+   * el cron cerraría un hilo que el usuario acaba de resucitar. Devuelve null si
+   * la fila ya no cumple: el llamador decide (el cron lo cuenta como "no tocado").
+   */
+  private async closeCore(
+    ticket: Ticket,
+    opts: {
+      closedById: string | null;
+      now: Date;
+      requireStatus?: TicketStatus;
+      audit?: { actorId: string; ip?: string };
+    },
+  ): Promise<Ticket | null> {
+    this.assertClosable(ticket.status);
+
+    return this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.ticket.updateMany({
+        where: { id: ticket.id, ...(opts.requireStatus && { status: opts.requireStatus }) },
+        data: { status: 'CLOSED', closedAt: opts.now, closedById: opts.closedById },
+      });
+      if (count === 0) return null;
+
+      const updated = await tx.ticket.findUniqueOrThrow({ where: { id: ticket.id } });
+
+      if (opts.audit) {
+        await this.auditLog.log(
+          {
+            action: 'TICKET_CLOSE',
+            actorId: opts.audit.actorId,
+            resourceType: 'Ticket',
+            resourceId: ticket.id,
+            before: { status: ticket.status },
+            after: { status: updated.status },
+            ip: opts.audit.ip,
+          },
+          tx,
+        );
+      }
+
+      return updated;
+    });
+  }
+
   /** T9/T10 — cierre por el staff desde cualquier estado vivo. IRREVERSIBLE. */
   async closeAsStaff(ticketId: string, actor: StaffActor, ip?: string): Promise<Ticket> {
     const existing = await this.loadForStaff(ticketId, actor);
-    this.assertClosable(existing.status);
 
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.ticket.update({
-        where: { id: ticketId },
-        data: { status: 'CLOSED', closedAt: new Date(), closedById: actor.userId },
-      });
+    const updated = await this.closeCore(existing, {
+      closedById: actor.userId,
+      now: new Date(),
+      audit: { actorId: actor.userId, ip },
+    });
+    // Sin `requireStatus` el UPDATE casa siempre por id; null aquí sería un
+    // borrado concurrente de la fila, no un cambio de estado.
+    if (!updated) throw new NotFoundException('Ticket no encontrado');
+    return updated;
+  }
 
-      await this.auditLog.log(
-        {
-          action: 'TICKET_CLOSE',
-          actorId: actor.userId,
-          resourceType: 'Ticket',
-          resourceId: ticketId,
-          before: { status: existing.status },
-          after: { status: updated.status },
-          ip,
-        },
-        tx,
-      );
+  /**
+   * T9 — CIERRE AUTOMÁTICO por vencimiento de la ventana de reapertura. Lo llama
+   * el cron (`TicketsScheduleService`), nunca una request.
+   *
+   * `closedById = null`: lo cerró el sistema, no una persona. NO escribe AuditLog
+   * — ver la justificación en `TicketsScheduleService`.
+   *
+   * Devuelve null si el ticket ya no está RESOLVED (lo cerró un agente, o el
+   * usuario lo reabrió) entre la query del cron y este UPDATE. Eso, junto con el
+   * `requireStatus`, es lo que hace el cron seguro de repetir.
+   */
+  async closeExpired(ticketId: string, now: Date): Promise<Ticket | null> {
+    const ticket = await this.prisma.ticket.findUnique({ where: { id: ticketId } });
+    if (!ticket || ticket.status !== 'RESOLVED') return null;
 
-      return updated;
+    return this.closeCore(ticket, {
+      closedById: null,
+      now,
+      requireStatus: 'RESOLVED',
     });
   }
 
@@ -828,10 +896,9 @@ export class TicketsService {
       );
     }
 
-    return this.prisma.ticket.update({
-      where: { id: ticketId },
-      data: { status: 'CLOSED', closedAt: new Date(), closedById: userId },
-    });
+    const updated = await this.closeCore(existing, { closedById: userId, now: new Date() });
+    if (!updated) throw new NotFoundException('Ticket no encontrado');
+    return updated;
   }
 
   // ---------------------------------------------------------------------------
@@ -878,7 +945,13 @@ export class TicketsService {
       internal: false,
     });
 
-    return { ...ticket, messages, nextCursor };
+    // R8 — la ventana viaja en el payload porque ya NO es una constante: el admin
+    // puede cambiarla en caliente. Si el frontend la llevara cableada, ofrecería
+    // "reabrir" fuera de plazo (o lo negaría dentro) en cuanto alguien tocara el
+    // Setting. La UI restringe con el número real que manda el servidor.
+    const reopenWindowDays = await this.getReopenWindowDays();
+
+    return { ...ticket, messages, nextCursor, reopenWindowDays };
   }
 
   /**
@@ -1008,21 +1081,40 @@ export class TicketsService {
   }
 
   /**
+   * Ventana de reapertura/auto-cierre vigente, en días. ÚNICO punto de lectura:
+   * lo usan el guard de T8 (aquí) y el cron de T9 (`TicketsScheduleService`), y
+   * que ambos pasen por el mismo sitio es lo que impide que diverjan.
+   *
+   * Un valor no numérico o <= 0 en el Setting cae al default en vez de romper —
+   * mismo criterio defensivo que `InvoicingService.getWindowStart`.
+   */
+  async getReopenWindowDays(): Promise<number> {
+    const setting = await this.prisma.setting.findUnique({
+      where: { key: TICKET_WINDOW_SETTING_KEY },
+    });
+    const value = Number(setting?.value);
+    return Number.isFinite(value) && value > 0 ? value : TICKET_REOPEN_WINDOW_DAYS;
+  }
+
+  /**
    * Ventana de reapertura (T8). Fuera de plazo, responder deja de reabrir y se
    * rechaza con el mensaje que indica la salida: abrir un ticket nuevo.
    *
    * `resolvedAt` nulo en un RESOLVED no debería pasar (`resolve()` siempre lo
    * escribe), pero si pasara se trata como fuera de ventana: ante un dato
-   * incoherente, la opción segura es no reabrir.
+   * incoherente, la opción segura es no reabrir. El cron de T9 hace lo simétrico
+   * — tampoco lo cierra — y además deja un warning para que la anomalía salga a
+   * la luz en vez de barrerse.
    */
-  private assertWithinReopenWindow(resolvedAt: Date | null): void {
+  private async assertWithinReopenWindow(resolvedAt: Date | null): Promise<void> {
+    const windowDays = await this.getReopenWindowDays();
     const deadline = resolvedAt
-      ? resolvedAt.getTime() + TICKET_REOPEN_WINDOW_DAYS * 24 * 60 * 60 * 1000
+      ? resolvedAt.getTime() + windowDays * 24 * 60 * 60 * 1000
       : 0;
     if (Date.now() > deadline) {
       throw new BadRequestException({
         code: 'REOPEN_WINDOW_EXPIRED',
-        message: `El ticket está cerrado (la ventana de reapertura de ${TICKET_REOPEN_WINDOW_DAYS} días ha expirado). Abre uno nuevo.`,
+        message: `El ticket está cerrado (la ventana de reapertura de ${windowDays} días ha expirado). Abre uno nuevo.`,
       });
     }
   }

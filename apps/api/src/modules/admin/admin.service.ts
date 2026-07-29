@@ -72,6 +72,12 @@ const SETTING_KEYS = [
   // TicketNotificationsService registra un warning y omite SOLO el correo (el
   // aviso in-app al staff se crea igual).
   'supportEmail',
+  // Atención al usuario R8: ventana (en días) de reapertura de un ticket RESOLVED
+  // y, por tanto, de su cierre automático. UN SOLO valor para las dos cosas — el
+  // guard de T8 y el cron de T9 lo leen del mismo sitio, o habría un limbo entre
+  // "ya no puedo reabrir" y "aún no me han cerrado". Sin configurar → 14 días
+  // (TICKET_REOPEN_WINDOW_DAYS), así que no hace falta sembrarlo.
+  'ticketAutoCloseWindowDays',
 ] as const;
 type SettingKey = (typeof SETTING_KEYS)[number];
 
@@ -91,6 +97,8 @@ const POSITIVE_INT_SETTING_KEYS: readonly string[] = [
   'featuredCreditCost30d',
   'proMonthlyFeaturedQuota',
   'proMonthlyBumpQuota',
+  // R8 — una ventana de 0 o negativa cerraría al instante todo lo resuelto.
+  'ticketAutoCloseWindowDays',
 ];
 
 // Keys whose value is a percentage: integer in [0, 100]. 0 is valid (disables

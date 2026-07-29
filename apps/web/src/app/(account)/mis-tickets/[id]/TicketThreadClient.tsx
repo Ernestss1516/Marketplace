@@ -11,11 +11,8 @@ import { closeTicket, getTicket, replyTicket, toTicketActionMessage } from '@/li
 import { cn } from '@/lib/utils';
 import type { TicketDetail, TicketMessage } from '@/types';
 
-/** Ventana de reapertura — espejo de TICKET_REOPEN_WINDOW_DAYS del backend. */
-const REOPEN_WINDOW_DAYS = 14;
-const REOPEN_WINDOW_MS = REOPEN_WINDOW_DAYS * 24 * 60 * 60 * 1000;
-
 const PAGE_SIZE = 50;
+const DIA_MS = 24 * 60 * 60 * 1000;
 
 function formatFechaHora(iso: string): string {
   return new Date(iso).toLocaleString('es-ES', {
@@ -52,9 +49,13 @@ export function TicketThreadClient({ initialData, token }: Props) {
   // Cada una de estas condiciones tiene su guard equivalente en el servicio, y
   // si discrepan manda el backend (por eso los errores se muestran, no se ocultan).
 
+  // R8 — la ventana la manda el SERVIDOR (es configurable en caliente); tenerla
+  // cableada aquí haría que la UI ofreciera reabrir fuera de plazo en cuanto el
+  // admin la cambiara. El backend rechazaría igual, pero la pantalla mentiría.
+  const ventanaDias = ticket.reopenWindowDays;
   const dentroDeVentana =
     ticket.resolvedAt !== null &&
-    Date.now() < new Date(ticket.resolvedAt).getTime() + REOPEN_WINDOW_MS;
+    Date.now() < new Date(ticket.resolvedAt).getTime() + ventanaDias * DIA_MS;
 
   /** Responder reabre (T8) cuando está RESOLVED — no hay endpoint /reopen aparte. */
   const puedeEscribir =
@@ -218,8 +219,8 @@ export function TicketThreadClient({ initialData, token }: Props) {
         <form onSubmit={handleReply} className="space-y-2" data-testid="form-respuesta">
           {esReapertura && (
             <p className="text-sm text-muted-foreground">
-              Este ticket está resuelto. Si el problema sigue, respóndenos y lo reabrimos (te
-              quedan días dentro del plazo de {REOPEN_WINDOW_DAYS}).
+              Este ticket está resuelto. Si el problema sigue, respóndenos y lo reabrimos —
+              tienes {ventanaDias} días desde que se resolvió.
             </p>
           )}
           <Textarea

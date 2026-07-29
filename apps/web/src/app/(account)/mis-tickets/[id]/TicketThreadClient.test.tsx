@@ -41,6 +41,10 @@ function buildTicket(overrides: Partial<TicketDetail> = {}): TicketDetail {
     createdAt: new Date().toISOString(),
     messages: [],
     nextCursor: null,
+    // R8 — la ventana la manda el servidor (Setting configurable en caliente).
+    // Campo NOT NULL en el payload: completar el mock es mantenimiento de
+    // fixture por forma del dato, no cambio de lógica.
+    reopenWindowDays: 14,
     ...overrides,
   };
 }
@@ -94,6 +98,28 @@ describe('TicketThreadClient — ventana de reapertura de 14 días (T8)', () => 
   it('RESOLVED sin resolvedAt se trata como fuera de ventana (dato incoherente → opción segura)', () => {
     renderThread({ status: 'RESOLVED', resolvedAt: null });
     expect(screen.queryByTestId('form-respuesta')).not.toBeInTheDocument();
+  });
+
+  // R8 — la ventana dejó de ser una constante: la manda el servidor porque el
+  // admin puede cambiarla en caliente. Estos dos casos usan EXACTAMENTE el mismo
+  // ticket (resuelto hace 10 días) y solo cambian la ventana servida: si la UI
+  // volviera a cablear 14, el segundo fallaría.
+  it('con la ventana servida en 7 días, un RESOLVED de hace 10 queda FUERA', () => {
+    renderThread({
+      status: 'RESOLVED',
+      resolvedAt: new Date(Date.now() - 10 * DIA).toISOString(),
+      reopenWindowDays: 7,
+    });
+    expect(screen.queryByTestId('form-respuesta')).not.toBeInTheDocument();
+  });
+
+  it('el mismo ticket con la ventana en 14 días sí se puede reabrir', () => {
+    renderThread({
+      status: 'RESOLVED',
+      resolvedAt: new Date(Date.now() - 10 * DIA).toISOString(),
+      reopenWindowDays: 14,
+    });
+    expect(screen.getByTestId('form-respuesta')).toBeInTheDocument();
   });
 });
 

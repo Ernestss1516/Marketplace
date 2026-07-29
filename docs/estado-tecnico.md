@@ -4983,6 +4983,88 @@ email no devolvía nada. Ahora dice "Nombre o identificador…".
 
 ---
 
+### Atención al usuario R8 — cron de auto-cierre (COMPLETA LA MÁQUINA DE ESTADOS)
+
+`TicketsScheduleService`: `@Cron('0 5 * * *')` → `runTicketAutoClose(now)`. Cierra los
+RESOLVED cuya ventana venció (T9), que era **la única transición de la matriz §7.2 sin
+disparador**: hasta ahora la ventana solo la hacía cumplir el guard de reapertura y los
+RESOLVED se acumulaban indefinidamente. Con R8, todas las transiciones tienen quien las
+dispare.
+
+**Molde `InvoicingScheduleService`:** el `@Cron` es fino y delega en un método público que
+RECIBE la fecha. La lógica nunca llama a `new Date()` por dentro, y por eso se prueba el día
+13, el 14 exacto y el 15 en la misma corrida, sin esperar al reloj.
+
+**Núcleo de cierre compartido, no reimplementado.** Se extrajo `closeCore()`: el ÚNICO sitio
+donde un ticket pasa a CLOSED. Las tres vías (T10 staff, T11 usuario, T9 cron) pasan por él,
+así que el guard `CLOSABLE` y la escritura de `closedAt`/`closedById` viven en un solo lugar
+(molde `emitInvoiceCore`).
+
+**Guard atómico contra una carrera real.** `closeCore` acepta `requireStatus`, que el cron
+usa con `'RESOLVED'`. Entre que la query selecciona los vencidos y llega el UPDATE, el
+usuario puede haber REABIERTO el ticket (T8 → IN_PROGRESS) — y `assertClosable` NO protege
+de eso, porque IN_PROGRESS también es cerrable. Sin la condición en el propio UPDATE (molde
+del débito de Wallet, `WHERE balance >= N`), el cron cerraría un hilo que el usuario acaba de
+resucitar, con su mensaje dentro.
+
+**IDEMPOTENCIA NATURAL, sin marca de "última corrida"** — a diferencia del cron de
+facturación, que sí la necesita porque su unidad de trabajo es un PERIODO que no deja rastro
+en la fila. Aquí un ticket cerrado pasa a `CLOSED` y deja de casar `status = RESOLVED`: **el
+estado de la fila ES la marca**. Un Setting de "último día procesado" sería estado redundante
+que puede desincronizarse del único dato que manda.
+
+**Frontera inclusiva (`<=`), y no por capricho:** a los 14 días exactos el cron ya cierra,
+porque el guard de reapertura exige `now <= resolvedAt + ventana` para dejar reabrir. En el
+instante del vencimiento el usuario ya no puede reabrir, así que el cron sí puede cerrar — no
+queda ningún hueco entre los dos.
+
+**UN SOLO valor para dos cosas.** `Setting.ticketAutoCloseWindowDays` (default 14, sin
+sembrar) gobierna **a la vez** el guard de reapertura (T8) y el cron (T9), leído desde un
+único punto (`TicketsService.getReopenWindowDays`). Si divergieran habría un limbo: un ticket
+que ya no se puede reabrir pero que nunca se cierra, o al revés. Hay un test dedicado a esa
+coherencia, y es el que se pone rojo si alguien vuelve a cablear la constante en el guard.
+
+**Efecto colateral que R8 obliga a corregir en el frontend:** al volverse configurable, el
+`REOPEN_WINDOW_DAYS = 14` que R6 tenía cableado en `TicketThreadClient` pasó a poder mentir
+(ofrecer "reabrir" fuera de plazo, o negarlo dentro, en cuanto el admin tocara el Setting).
+La ventana viaja ahora en el payload de `GET /tickets/:id` (`reopenWindowDays`) y la UI usa
+ese número. Dos tests nuevos usan el MISMO ticket con ventanas servidas distintas: si alguien
+vuelve a cablear el 14, uno falla.
+
+**DOS DECISIONES, justificadas (no inventadas en silencio):**
+
+1. **SIN AuditLog por ticket auto-cerrado.** No es solo el ruido de 200 filas por corrida: es
+   que **no se puede escribir sin mentir**. `AuditLog.actorId` es NOT NULL con FK a `User`, y
+   este cierre no tiene actor humano — habría que inventar un "usuario sistema" o colar el id
+   de un admin que no hizo nada, envenenando justo el registro que sirve para pedir cuentas
+   ("cada acción ADMINISTRATIVA sensible"). La trazabilidad la lleva la propia fila:
+   `closedAt` dice cuándo y `closedById = null` dice "lo cerró el sistema" — ese es el
+   discriminante frente al cierre de staff (su id) o del usuario (el suyo). Por eso la
+   columna es nullable desde R1: no es un hueco, es el diseño. Queda un log de resumen por
+   corrida.
+2. **SIN notificación al usuario.** Ya se le avisó en T7 (R4, `SEND_TICKET_RESOLVED`) y ese
+   aviso incluía la ventana. El auto-cierre es el vencimiento de un plazo del que ya se le
+   informó — no es información nueva, y no habría nada que hacer con ella: pasada la ventana
+   no se puede reabrir, y la única salida (abrir uno nuevo) ya se la ofrece la pantalla del
+   hilo cerrado (R6).
+
+**Anomalía vigilada:** un RESOLVED sin `resolvedAt` (que `resolve()` nunca produce) no se
+cierra — el `lte` lo excluye por semántica SQL — pero se CUENTA y se avisa por `logger.warn`,
+en vez de barrerse. Un ticket así no se cerraría jamás solo, y eso hay que poder verlo
+(mismo criterio de "falla alto, no autocorrijas" del resto del proyecto).
+
+**Verificación — `tickets-cron.e2e-spec.ts`, 16 tests.** Ventana default y configurable,
+las dos fronteras (14 días exactos cierra; un milisegundo antes no), que solo toca RESOLVED,
+idempotencia por doble disparo, que no pisa el `closedById` de un cierre manual, la anomalía,
+la coherencia guard↔cron, que CLOSED sigue siendo irreversible tras el auto-cierre, y que no
+escribe AuditLog ni notifica.
+
+**Validado por mutación, dos veces:** cambiar `lte` por `lt` → rojo el test de la frontera
+exacta; hacer que el guard de reapertura vuelva a leer la constante en vez del Setting → rojos
+los dos tests de coherencia.
+
+---
+
 ## 3. Limitaciones conocidas y deuda técnica
 
 ### RC.1 — Rate limit por IP no verificado contra el proxy real de producción

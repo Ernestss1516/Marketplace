@@ -6,6 +6,7 @@ import { ContactModule } from '../contact/contact.module';
 import { QUEUE_NOTIFICATIONS, retryQueue } from '../../infra/queue/queue.constants';
 import { TicketsService } from './tickets.service';
 import { TicketNotificationsService } from './ticket-notifications.service';
+import { TicketsScheduleService } from './tickets-schedule.service';
 import { TicketsController } from './tickets.controller';
 import { AdminTicketsController } from './admin-tickets.controller';
 
@@ -42,7 +43,7 @@ import { AdminTicketsController } from './admin-tickets.controller';
     BullModule.registerQueue(retryQueue(QUEUE_NOTIFICATIONS)),
   ],
   controllers: [TicketsController, AdminTicketsController],
-  providers: [TicketsService, TicketNotificationsService],
+  providers: [TicketsService, TicketNotificationsService, TicketsScheduleService],
   exports: [TicketsService],
 })
 export class TicketsModule {}
