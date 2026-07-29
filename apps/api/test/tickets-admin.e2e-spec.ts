@@ -478,16 +478,40 @@ describe('Tickets — API de staff (R3) e2e', () => {
       expect(res.body.message.internal).toBe(false);
     });
 
-    it('el DTO de staff NO acepta internal: { internal: true } → 400 y nada queda interno', async () => {
+    /**
+     * PREMISA INVERTIDA A PROPÓSITO (ráfaga de notas internas).
+     *
+     * Cuando se escribió, en R3, este test afirmaba que el DTO de staff NO
+     * aceptaba `internal` — porque las notas internas estaban aplazadas (§14.3).
+     * Abrir esa vía era justamente el objetivo de la ráfaga posterior, así que la
+     * afirmación de entonces ya no describe el sistema.
+     *
+     * Se conserva lo que seguía siendo valioso —que la puerta del USUARIO sigue
+     * cerrada— y se actualiza lo que cambió. Mismo criterio que los 3 tests que
+     * pasaron de 403 a 200 en RR5.1-ext: cambio de producto deliberado, no
+     * regresión. La cobertura a fondo de las 5 defensas vive en
+     * `tickets-internal-notes.e2e-spec.ts`.
+     */
+    it('el DTO de staff SÍ acepta internal (nota interna); el de usuario sigue sin aceptarlo', async () => {
       const t = await userTicket(alice.id);
 
-      await request(server)
+      // Staff: la vía abierta.
+      const staffRes = await request(server)
         .post(`/api/admin/tickets/${t.id}/messages`)
         .set(auth(admin.token))
-        .send({ body: 'nota', internal: true })
+        .send({ body: 'nota para el equipo', internal: true })
+        .expect(201);
+      expect(staffRes.body.message.internal).toBe(true);
+
+      // Usuario: la misma petición, rechazada. El campo no existe en su DTO.
+      await request(server)
+        .post(`/api/tickets/${t.id}/messages`)
+        .set(auth(alice.token))
+        .send({ body: 'intento colar una nota', internal: true })
         .expect(400);
 
-      expect(await prisma.ticketMessage.count({ where: { internal: true } })).toBe(0);
+      // Y ningún mensaje del lado USUARIO quedó marcado como interno.
+      expect(await prisma.ticketMessage.count({ where: { internal: true, side: 'USER' } })).toBe(0);
     });
 
     it('sobre un CLOSED todo se rechaza (irreversibilidad, también por HTTP)', async () => {

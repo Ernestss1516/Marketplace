@@ -632,6 +632,7 @@ export class TicketsService {
     actor: StaffActor,
     body: string,
     ip?: string,
+    internal = false,
   ): Promise<TicketWithMessage> {
     const existing = await this.loadForStaff(ticketId, actor);
     if (!TicketsService.STAFF_REPLYABLE.includes(existing.status)) {
@@ -641,25 +642,49 @@ export class TicketsService {
     }
 
     const result = await this.prisma.$transaction(async (tx) => {
-      // `internal` no se pasa (ver writeMessage): en R3 el staff solo escribe
-      // mensajes normales. La escritura de notas internas sigue APLAZADA (§14.3)
-      // y no se abre aquí — el DTO de staff tampoco declara el campo.
-      const message = await this.writeMessage(tx, ticketId, actor.userId, 'STAFF', body);
+      const message = await this.writeMessage(
+        tx,
+        ticketId,
+        actor.userId,
+        'STAFF',
+        body,
+        internal,
+      );
 
-      const ticket = await tx.ticket.update({
-        where: { id: ticketId },
-        data: {
-          status: 'WAITING_USER',
-          // T4: responder sin haber tomado el ticket lo asigna al autor. `??` y no
-          // asignación incondicional: no le robamos el ticket al agente que ya lo lleva.
-          assignedToId: existing.assignedToId ?? actor.userId,
-          lastMessageAt: message.createdAt,
-        },
-      });
+      // UNA NOTA INTERNA NO TOCA LA FILA DEL TICKET. Ni el estado, ni la
+      // asignación, ni `lastMessageAt`. No es una respuesta al usuario: es
+      // coordinación entre el equipo que ocurre "al lado" del hilo.
+      //
+      // Lo de `lastMessageAt` no es una preferencia — es la MISMA fuga de canal
+      // lateral que R2 cerró en el contador de no leídos, con otro campo:
+      // `lastMessageAt` SE LE SIRVE AL USUARIO (va en cada fila de GET /tickets
+      // como "último movimiento" y en el payload del hilo). Si una nota interna
+      // lo moviera, el usuario vería actividad fechada sin ningún mensaje nuevo
+      // que la explique, y podría deducir que el equipo escribió algo que no
+      // puede ver. Se descartó por eso, no por simplicidad. El coste —que la
+      // bandeja de staff no reordene por notas internas— es real y asumido; si
+      // algún día se quiere, pide una columna propia (`lastInternalNoteAt`), no
+      // reutilizar una que el usuario lee.
+      const ticket = internal
+        ? existing
+        : await tx.ticket.update({
+            where: { id: ticketId },
+            data: {
+              status: 'WAITING_USER',
+              // T4: responder sin haber tomado el ticket lo asigna al autor. `??` y no
+              // asignación incondicional: no le robamos el ticket al agente que ya lo lleva.
+              assignedToId: existing.assignedToId ?? actor.userId,
+              lastMessageAt: message.createdAt,
+            },
+          });
 
       await this.auditLog.log(
         {
-          action: 'TICKET_REPLY',
+          // Acción distinta a propósito: una nota interna es una acción
+          // administrativa con su propio significado, y mezclarla con
+          // TICKET_REPLY en la auditoría haría imposible distinguir "le
+          // respondimos al usuario" de "anotamos algo entre nosotros".
+          action: internal ? 'TICKET_INTERNAL_NOTE' : 'TICKET_REPLY',
           actorId: actor.userId,
           resourceType: 'Ticket',
           resourceId: ticketId,
@@ -674,8 +699,10 @@ export class TicketsService {
     });
 
     // R4 — T3/T4: el usuario recibe TICKET_MESSAGE + email con extracto y enlace.
-    // `userStaffWrote` sale por la puerta si el mensaje fuera `internal` — hoy
-    // nunca lo es, pero la defensa va puesta desde ya.
+    // Se llama SIEMPRE, también con una nota interna: `userStaffWrote` sale por la
+    // puerta al ver `message.internal` (defensa 5). Es deliberado que el guard
+    // esté en el camino vivo y no que aquí se evite la llamada — así la defensa
+    // es la que decide, y el test que la muta la ve fallar de verdad.
     await this.notify.userStaffWrote(result.ticket, result.message, false);
     return result;
   }
@@ -1156,8 +1183,17 @@ export class TicketsService {
     authorId: string,
     side: 'USER' | 'STAFF',
     body: string,
+    internal = false,
   ): Promise<TicketMessage> {
-    return tx.ticketMessage.create({ data: { ticketId, authorId, side, body } });
+    // Guard estructural: una nota interna es, por definición, del equipo. Un
+    // `internal: true` con `side: 'USER'` sería un mensaje del usuario que el
+    // propio usuario no puede ver — un estado sin sentido que además rompería
+    // los filtros (que combinan `side` e `internal`). Ninguna vía actual puede
+    // producirlo; esto lo hace imposible también para las futuras.
+    if (internal && side !== 'STAFF') {
+      throw new BadRequestException('Una nota interna solo puede escribirla el equipo');
+    }
+    return tx.ticketMessage.create({ data: { ticketId, authorId, side, body, internal } });
   }
 
   /** Normaliza los enlaces opcionales a `null` (Prisma distingue undefined de null). */

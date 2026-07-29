@@ -16,11 +16,28 @@ import { loginViaApi, authedPost, authedGet } from './helpers/api';
 
 test.describe('Tickets — backoffice de staff', () => {
   let sellerToken: string;
+  /**
+   * Los tickets de prueba de ESTA suite los abre `buyer-e2e`, no `seller-e2e`.
+   *
+   * Motivo: el rate limit de apertura es de 10/día POR USUARIO (real, y bien que
+   * esté), y `tickets-usuario.spec.ts` ya gasta buena parte de la cuota de
+   * `seller-e2e` en la misma corrida de Playwright — juntas se pasaban y la
+   * segunda suite recibía 429 en su propio setup. Repartir el usuario es más
+   * honesto que subir el límite o flushear Redis a mitad de corrida: el límite
+   * de producción se queda como está.
+   *
+   * `seller-e2e` se sigue usando SOLO donde hace falta su estado sembrado:
+   * los datos fiscales para poder emitir la factura del test de la puerta
+   * ADMIN-only, y el flujo (b), donde el hilo lo abre el admin (esa vía no
+   * consume la cuota del usuario).
+   */
+  let buyerToken: string;
   let adminToken: string;
   let sellerId: string;
 
   test.beforeAll(async ({ request }) => {
     sellerToken = await loginViaApi(request, 'seller-e2e@example.com', 'Test1234!');
+    buyerToken = await loginViaApi(request, 'buyer-e2e@example.com', 'Test1234!');
 
     const res = await request.post('http://localhost:3001/api/auth/admin-login', {
       data: { email: 'admin-e2e@example.com', password: 'Test1234!' },
@@ -37,7 +54,7 @@ test.describe('Tickets — backoffice de staff', () => {
     request: Parameters<typeof authedPost>[0],
     subject: string,
   ): Promise<string> {
-    const res = await authedPost(request, '/tickets', sellerToken, {
+    const res = await authedPost(request, '/tickets', buyerToken, {
       subject,
       body: 'Cuerpo del ticket de prueba para el backoffice',
     });
@@ -165,6 +182,49 @@ test.describe('Tickets — backoffice de staff', () => {
     await adminPage.goto(`/admin/tickets/${conFacturaId}`);
     await expect(adminPage.getByTestId('error-acceso')).toHaveCount(0);
     await expect(adminPage.getByRole('heading', { name: invoiceSubject })).toBeVisible();
+  });
+
+  // ===========================================================================
+  // NOTAS INTERNAS — el recorrido completo por el navegador
+  // ===========================================================================
+
+  test('una nota interna escrita desde la UI la ve el staff y NUNCA el usuario', async ({
+    adminContext,
+    buyerContext,
+    request,
+  }) => {
+    const page = await adminContext.newPage();
+    const SECRETO = `NOTA-INTERNA-UI-${Date.now()}`;
+    const ticketId = await abrirTicketDeUsuario(request, `Con nota ${Date.now()}`);
+
+    await page.goto(`/admin/tickets/${ticketId}`);
+
+    // Se escribe con el toggle activado: es la vía real, la del agente.
+    await page.getByTestId('input-respuesta-staff').fill(SECRETO);
+    await page.getByTestId('toggle-nota-interna').locator('input').check();
+    await expect(page.getByTestId('enviar-respuesta-staff')).toContainText('nota interna');
+    await page.getByTestId('enviar-respuesta-staff').click();
+
+    // El staff la ve, marcada.
+    await expect(page.getByTestId('hilo-staff')).toContainText(SECRETO);
+    await expect(page.getByTestId('hilo-staff')).toContainText('Nota interna');
+
+    // El toggle se resetea: la siguiente respuesta no sale interna por inercia.
+    await expect(page.getByTestId('toggle-nota-interna').locator('input')).not.toBeChecked();
+
+    // Y una respuesta normal después, para que el hilo del usuario no esté vacío.
+    await page.getByTestId('input-respuesta-staff').fill('Esto sí lo puedes leer.');
+    await page.getByTestId('enviar-respuesta-staff').click();
+    await expect(page.getByTestId('hilo-staff')).toContainText('Esto sí lo puedes leer.');
+
+    // EL USUARIO: ni en el hilo, ni en el HTML servido, ni en el badge.
+    const userPage = await buyerContext.newPage();
+    await userPage.goto(`/mis-tickets/${ticketId}`);
+    await expect(userPage.getByTestId('hilo-mensajes')).toContainText('Esto sí lo puedes leer.');
+    expect(await userPage.content()).not.toContain(SECRETO);
+
+    await userPage.goto('/mis-tickets');
+    expect(await userPage.content()).not.toContain(SECRETO);
   });
 
   // ===========================================================================

@@ -34,14 +34,22 @@ export function takeTicket(id: string, token: string): Promise<TicketRow> {
   return apiFetch(`/admin/tickets/${id}/take`, { method: 'POST', token });
 }
 
+/**
+ * Responder como staff, o dejar una NOTA INTERNA (`internal: true`).
+ *
+ * `internal` solo existe en ESTA función y en el DTO de staff del backend; la
+ * ruta de usuario (`replyTicket` en `lib/api/tickets.ts`) no lo acepta ni lo
+ * envía, y el backend la rechazaría con 400 si lo intentara.
+ */
 export function replyAsStaff(
   id: string,
   body: string,
   token: string,
+  internal = false,
 ): Promise<{ ticket: TicketRow; message: TicketMessage }> {
   return apiFetch(`/admin/tickets/${id}/messages`, {
     method: 'POST',
-    body: JSON.stringify({ body }),
+    body: JSON.stringify({ body, internal }),
     token,
   });
 }

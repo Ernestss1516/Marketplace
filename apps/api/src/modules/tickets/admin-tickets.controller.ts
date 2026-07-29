@@ -21,7 +21,7 @@ import { ListAdminTicketsDto } from './dto/list-admin-tickets.dto';
 import { CreateAdminTicketDto } from './dto/create-admin-ticket.dto';
 import { CreateTicketFromReportDto } from './dto/create-ticket-from-report.dto';
 import { ReassignTicketDto } from './dto/reassign-ticket.dto';
-import { SendTicketMessageDto } from './dto/send-ticket-message.dto';
+import { SendStaffMessageDto } from './dto/send-staff-message.dto';
 
 /**
  * Atención al usuario R3 — API de STAFF. Bandeja, transiciones y los flujos
@@ -93,19 +93,22 @@ export class AdminTicketsController {
   @Post(':id/messages')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
-    summary: 'Responder como staff (T3/T4)',
+    summary: 'Responder como staff (T3/T4), o dejar una NOTA INTERNA',
     description:
-      'OPEN o IN_PROGRESS → WAITING_USER; responder sin haber tomado el ticket lo asigna de paso. ' +
-      'El mensaje sale siempre con side STAFF e internal=false — las notas internas siguen aplazadas.',
+      'Con `internal: false` (o ausente) es una respuesta al usuario: OPEN o IN_PROGRESS → ' +
+      'WAITING_USER, y asigna el ticket al autor si no lo llevaba nadie. ' +
+      'Con `internal: true` es una NOTA INTERNA: se guarda en el hilo, la ve solo el equipo, y ' +
+      'NO toca el ticket (ni estado, ni asignación, ni "último movimiento" — ese campo lo lee el ' +
+      'usuario) ni dispara ningún aviso.',
   })
   @ApiResponse({ status: 400, description: 'El ticket está cerrado o resuelto' })
   reply(
     @Param('id') id: string,
     @CurrentUser() user: JwtUser,
-    @Body() dto: SendTicketMessageDto,
+    @Body() dto: SendStaffMessageDto,
     @Ip() ip: string,
   ) {
-    return this.tickets.replyAsStaff(id, this.actor(user), dto.body, ip);
+    return this.tickets.replyAsStaff(id, this.actor(user), dto.body, ip, dto.internal ?? false);
   }
 
   @Post(':id/resolve')

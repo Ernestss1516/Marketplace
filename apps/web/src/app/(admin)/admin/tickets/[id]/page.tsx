@@ -3,7 +3,7 @@
 import { use, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
-import { AlertCircle, ChevronLeft, Flag, Link2, Loader2, Send, User } from 'lucide-react';
+import { AlertCircle, ChevronLeft, Flag, Link2, Loader2, Lock, Send, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { TicketStatusBadge } from '@/components/tickets/TicketStatusBadge';
@@ -32,9 +32,14 @@ function formatFechaHora(iso: string) {
 /**
  * Hilo completo desde el lado del staff (R7).
  *
- * Muestra TODOS los mensajes, incluidas las notas internas si existieran — es el
- * contraste con la vista de usuario, que las filtra. **R7 NO añade UI para
- * CREARLAS**: siguen aplazadas (§14.3) y no hay vía de escritura en ninguna capa.
+ * Muestra TODOS los mensajes, incluidas las NOTAS INTERNAS — es el contraste con
+ * la vista de usuario, que las filtra en la propia query.
+ *
+ * El toggle de "nota interna" cambia el DESTINATARIO de lo que se escribe, no un
+ * detalle de formato: por eso el recuadro cambia de color, el botón cambia de
+ * texto e icono, y el toggle se resetea después de cada envío. Un modo pegajoso
+ * es exactamente el que acaba mandándole al usuario lo que era para el equipo —
+ * o al revés, dejando sin responder al usuario creyendo que se le respondió.
  */
 export default function AdminTicketPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -46,6 +51,10 @@ export default function AdminTicketPage({ params }: { params: Promise<{ id: stri
   const [ticket, setTicket] = useState<AdminTicketDetail | null>(null);
   const [body, setBody] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
+  /** Toggle de nota interna. Se resetea tras enviar para que la siguiente
+   * respuesta no salga interna por inercia — el modo "pegajoso" es justo el
+   * que acaba publicando una nota como respuesta al usuario. */
+  const [esNotaInterna, setEsNotaInterna] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -75,7 +84,10 @@ export default function AdminTicketPage({ params }: { params: Promise<{ id: stri
     try {
       await action();
       await load();
-      if (key === 'reply') setBody('');
+      if (key === 'reply') {
+        setBody('');
+        setEsNotaInterna(false);
+      }
     } catch (err) {
       setError(toStaffTicketMessage(err));
     } finally {
@@ -253,21 +265,53 @@ export default function AdminTicketPage({ params }: { params: Promise<{ id: stri
                 onChange={(e) => setBody(e.target.value)}
                 rows={4}
                 maxLength={5000}
-                placeholder="Escribe la respuesta al usuario…"
+                placeholder={
+                  esNotaInterna
+                    ? 'Anota algo para el equipo. El usuario NO lo verá…'
+                    : 'Escribe la respuesta al usuario…'
+                }
                 data-testid="input-respuesta-staff"
+                className={esNotaInterna ? 'border-amber-400 bg-amber-50/50' : undefined}
               />
+
+              {/* El toggle cambia el DESTINO del mensaje, así que se avisa en
+                  claro y el propio recuadro cambia de color: escribir para el
+                  equipo y escribir para el usuario no pueden parecer lo mismo. */}
+              <label className="flex items-start gap-2 text-sm" data-testid="toggle-nota-interna">
+                <input
+                  type="checkbox"
+                  checked={esNotaInterna}
+                  onChange={(e) => setEsNotaInterna(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-input"
+                />
+                <span>
+                  <span className="font-medium">Nota interna</span>
+                  <span className="block text-xs text-muted-foreground">
+                    Solo visible para el equipo. El usuario no la ve, no le llega ningún aviso y
+                    no cambia el estado del ticket.
+                  </span>
+                </span>
+              </label>
+
               <Button
                 size="sm"
+                variant={esNotaInterna ? 'secondary' : 'default'}
                 disabled={!body.trim() || busy !== null}
-                onClick={() => run('reply', () => replyAsStaff(ticket.id, body.trim(), token!))}
+                onClick={() =>
+                  run('reply', () =>
+                    replyAsStaff(ticket.id, body.trim(), token!, esNotaInterna),
+                  )
+                }
                 data-testid="enviar-respuesta-staff"
               >
                 {busy === 'reply' ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : esNotaInterna ? (
+                  <Lock className="mr-2 h-4 w-4" />
                 ) : (
                   <Send className="mr-2 h-4 w-4" />
                 )}
-                Responder
+                {esNotaInterna ? 'Guardar nota interna' : 'Responder'}
               </Button>
             </div>
           ) : (

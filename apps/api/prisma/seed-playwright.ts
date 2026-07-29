@@ -310,8 +310,16 @@ async function main() {
 
     const anyPrice = await prisma.price.findFirst({ select: { id: true } });
     if (anyPrice) {
+      // OJO — la condición es "¿queda algo FACTURABLE?", no "¿hay alguna
+      // Transaction?". `tickets-admin.spec.ts` EMITE una factura en cada corrida,
+      // y al emitirla la Transaction queda enlazada a una InvoiceLine y deja de
+      // ser facturable. Con el guard ingenuo (`status: 'SUCCEEDED'` a secas) la
+      // segunda corrida no sembraba nada y la emisión fallaba con 409
+      // NO_INVOICEABLE_MOVEMENTS — el clásico "verde la primera vez, rojo al
+      // repetir sin resetear la BD" (mismo principio que el reset de `phone` en
+      // el seed para prefill-telefono.spec.ts).
       const yaHay = await prisma.transaction.findFirst({
-        where: { userId: sellerUser.id, status: 'SUCCEEDED' },
+        where: { userId: sellerUser.id, status: 'SUCCEEDED', invoiceLine: { is: null } },
         select: { id: true },
       });
       if (!yaHay) {

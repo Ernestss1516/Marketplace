@@ -5065,6 +5065,88 @@ los dos tests de coherencia.
 
 ---
 
+### Atención al usuario — NOTAS INTERNAS (activación de la escritura, §10.3/§14.3)
+
+La última pieza del diseño aprobado. El staff ya puede escribir notas internas; el usuario
+sigue sin poder verlas ni crearlas. **Es la funcionalidad de máximo riesgo del sistema**: el
+campo guarda lo que el equipo escribe SOBRE un usuario.
+
+**Las cinco defensas NO se reconstruyeron — se verificaron en el código y se re-probaron con
+notas creadas por el ENDPOINT REAL** (hasta ahora todos los tests las sembraban en BD, que es
+lo único que se podía hacer sin vía de escritura). Esa es la diferencia que aporta esta
+ráfaga: saber que la vía recién abierta pasa por los mismos filtros y no por un atajo.
+
+**LO MÁS IMPORTANTE DE ESTA RÁFAGA — DTO SEPARADO, no un campo añadido.** Las rutas de
+usuario y de staff **compartían** `SendTicketMessageDto`. Añadir `internal` ahí, que es lo
+que pedía la lectura literal del encargo, habría abierto el campo TAMBIÉN en
+`POST /tickets/:id/messages` — es decir, habría dejado que el usuario marcase sus propios
+mensajes como internos, destruyendo la defensa 4 en el mismo commit que abría la
+funcionalidad. Se creó `SendStaffMessageDto extends SendTicketMessageDto` con el campo en la
+SUBCLASE: la herencia solo propaga hacia el lado seguro, y el `forbidNonWhitelisted` global
+sigue rechazando con 400 un `internal` en la ruta de usuario sin que ningún `if` tenga que
+acordarse. Hay un test que manda el MISMO cuerpo a las dos rutas: staff 201, usuario 400.
+
+**Una nota interna NO TOCA LA FILA DEL TICKET.** Ni estado, ni asignación, ni `lastMessageAt`.
+Lo de `lastMessageAt` no es preferencia: **ese campo SE LE SIRVE AL USUARIO** (va en cada fila
+de `GET /tickets` como "último movimiento" y en el payload del hilo). Si una nota lo moviera,
+el usuario vería actividad fechada sin ningún mensaje nuevo que la explique y podría deducir
+que el equipo escribió algo oculto — exactamente la fuga por canal lateral que R2 cerró en el
+contador de no leídos, con otro campo. **Se descartó por eso**, no por simplicidad; el coste
+(la bandeja de staff no reordena por notas internas) es real y asumido. Si algún día se
+quiere, pide una columna propia (`lastInternalNoteAt`), no reutilizar una que el usuario lee.
+Tiene test propio.
+
+**Guard estructural nuevo en `writeMessage`:** `internal: true` con `side: 'USER'` lanza. Sería
+un mensaje del usuario que el propio usuario no puede ver — un estado sin sentido que además
+rompería los filtros, que combinan `side` e `internal`. Ninguna vía actual puede producirlo;
+esto lo hace imposible también para las futuras.
+
+**AuditLog distinto:** `TICKET_INTERNAL_NOTE` en vez de `TICKET_REPLY`. Mezclarlos haría
+imposible distinguir en la auditoría "le respondimos al usuario" de "anotamos algo entre
+nosotros". Cierra además el hueco que dejó §7.3, donde esa acción estaba prevista y no tenía
+emisor.
+
+**El aviso se sigue llamando SIEMPRE, también con una nota** — `userStaffWrote` sale por la
+puerta al ver `message.internal` (defensa 5). Es deliberado no evitar la llamada desde el
+servicio: así el guard está en el camino vivo, y el test que lo muta lo ve fallar de verdad
+en vez de pasar por un atajo que lo esquiva.
+
+**Frontend (única superficie nueva):** un toggle en la caja de respuesta del hilo de staff.
+Cambia el DESTINATARIO de lo que se escribe, así que el recuadro cambia de color, el botón
+cambia de texto e icono, y **el toggle se resetea tras cada envío** — un modo pegajoso es
+justo el que acaba mandándole al usuario lo que era para el equipo, o dejándolo sin responder
+creyendo que se le respondió.
+
+**Verificación — `tickets-internal-notes.e2e-spec.ts`, 20 tests por HTTP.** Las cinco
+defensas con notas reales, incluido recorrer TODO el hilo paginado hacia atrás con `?before`
+buscando el secreto en cada página, que la nota no marca `readByUserAt`, que no mueve
+`lastMessageAt`, que no transiciona ni asigna, y que la puerta ADMIN-only de R3 cubre también
+este verbo. Cada defensa tiene además su contraparte "y el caso normal SÍ funciona", para que
+un filtro que lo bloquee todo no pase por defensa.
+
+**Validación por mutación de las CUATRO defensas mutables, revertidas byte-idéntico:**
+quitar el filtro de `getForUser` → 3 rojos; quitar el del contador → 2; abrir `internal` en el
+DTO de usuario → 2; quitar el guard de los avisos → 1.
+
+**Playwright:** un test recorre el circuito completo por navegador — el agente escribe la nota
+con el toggle, la ve marcada en su hilo, el toggle se resetea, y el usuario no la encuentra ni
+en su hilo, ni en el HTML servido, ni en la lista.
+
+**Dos hallazgos de infraestructura de test (míos):**
+
+1. **`tickets-usuario` y `tickets-admin` compartían `seller-e2e` y juntas superaban el rate
+   limit real de 10 tickets/día**, así que la segunda recibía 429 en su propio setup. Los
+   tickets de la suite de staff los abre ahora `buyer-e2e`. Repartir el usuario es más honesto
+   que subir el límite o flushear Redis a mitad de corrida: **el límite de producción se queda
+   como está**.
+2. **El guard de idempotencia que añadí al seed en R7 estaba mal**: comprobaba "¿hay alguna
+   Transaction SUCCEEDED?" cuando debía comprobar "¿queda alguna FACTURABLE?". Como el test
+   EMITE una factura en cada corrida, la Transaction quedaba enlazada a una `InvoiceLine` y la
+   segunda corrida fallaba con 409 — el clásico "verde la primera vez, rojo al repetir sin
+   resetear la BD". Corregido con `invoiceLine: { is: null }`.
+
+---
+
 ## 3. Limitaciones conocidas y deuda técnica
 
 ### RC.1 — Rate limit por IP no verificado contra el proxy real de producción
