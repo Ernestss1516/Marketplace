@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { TicketStatusBadge } from '@/components/tickets/TicketStatusBadge';
 import { AttachmentList, AttachmentPicker } from '@/components/tickets/TicketAttachments';
 import { resolveStaffActions } from '@/components/tickets/staff-actions';
+import { useTicketSocket } from '@/hooks/useTicketSocket';
 import { cn } from '@/lib/utils';
 import {
   closeTicketAsStaff,
@@ -79,6 +80,29 @@ export default function AdminTicketPage({ params }: { params: Promise<{ id: stri
   useEffect(() => {
     void load();
   }, [load]);
+
+  /**
+   * R9 — el hilo de staff se mueve solo. Aquí se añade el mensaje entrante al
+   * estado ya cargado en vez de recargar el hilo entero: un `load()` por cada
+   * mensaje perdería la posición de lectura del agente y castigaría al servidor
+   * con la consulta completa del hilo.
+   *
+   * El agente recibe TAMBIÉN las notas internas —por la sala `staff`— y eso es
+   * correcto: es su destinatario. Lo que no ocurre es lo contrario.
+   */
+  useTicketSocket({
+    token,
+    ticketId: id,
+    onMessage: ({ ticketId, message }) => {
+      if (ticketId !== id) return;
+      setTicket((prev) =>
+        !prev || prev.messages.some((m) => m.id === message.id)
+          ? prev
+          : // El hilo de staff viene DESC del backend: el más nuevo va delante.
+            { ...prev, messages: [message, ...prev.messages] },
+      );
+    },
+  });
 
   /** Ejecuta una acción y recarga: el estado resultante lo dicta el BACKEND. */
   async function run(key: string, action: () => Promise<unknown>) {

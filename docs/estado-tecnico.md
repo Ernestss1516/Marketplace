@@ -4738,14 +4738,14 @@ Tres jobs de Resend (`SEND_TICKET_MESSAGE`, `SEND_TICKET_STAFF_NOTIFICATION`,
 *ofrecer* según el estado y el rol; no reimplementa validación. Donde discrepen, manda el
 backend — por eso los errores se muestran en vez de ocultarse.
 
-### LO QUE NO ESTÁ (incrementos pendientes)
+### LO QUE NO ESTÁ
 
-- **R9 — TIEMPO REAL. NO IMPLEMENTADO.** Diseño en §12: salas `ticket:<id>` y una sala
-  `staff` (que **no existe** hoy en `MessagingGateway`, que solo tiene `user:` y `conv:`).
-  **REQUISITO PREVIO:** cerrar el `TODO(prod)` del `cors: { origin: '*' }` del gateway antes
-  de ampliar su uso.
-*(Los dos huecos de notificación de §14.5 **ya no están aquí**: se cerraron en ráfaga propia
-— ver «Notificaciones de moderación (§14.5)» más abajo.)*
+**Nada.** El sistema está completo respecto al diseño aprobado: núcleo (R1-R3), avisos (R4),
+frontend (R6-R7), cron de auto-cierre (R8), notas internas, los dos huecos de moderación
+(§14.5), adjuntos (R5) y tiempo real (R9). Esta sección se conserva porque las ráfagas la
+fueron vaciando por orden, y ese orden es información: lo último que quedaba —R9— exigía
+cerrar antes el `TODO(prod)` del CORS del gateway, y así se hizo (dos pasos verificados por
+separado; ver «R9 — tiempo real»).
 
 ### Deuda de test conocida asociada
 
@@ -4753,12 +4753,15 @@ backend — por eso los errores se muestran en vez de ocultarse.
   `attempts` recibido oscila entre 0, 1 y 2 según la carga). Los **14 estructurales de esa
   misma suite son fiables** y sí detectan un `registerQueue()` que se salte `retryQueue()`.
   No es regresión de este sistema: ya fallaba antes.
-- **NO correr Playwright y la batería e2e de backend a la vez.** Comparten
-  `marketplace_test` y Redis db 1: el `globalSetup` de Playwright resiembra los `Setting` y
-  el `cleanDb` de Jest trunca `User CASCADE` a mitad del otro. Los síntomas engañan
-  (`rf7-limits` con `expected 403, got 200`; logins que "no establecen sesión"). **Deuda de
-  tooling pendiente:** una barrera estructural — instancias separadas de Postgres/Redis por
-  runner, o un lock — en vez de depender de la disciplina de quien lanza los comandos.
+- **✅ RESUELTO (R9) — Playwright y la batería de backend ya no pueden correr a la vez.**
+  Comparten `marketplace_test` y Redis db 1: el `globalSetup` de Playwright resiembra los
+  `Setting` y el `cleanDb` de Jest trunca `User CASCADE` a mitad del otro, con síntomas que
+  engañan (`rf7-limits` con `expected 403, got 200`; logins que "no establecen sesión").
+  Estaba anotado como deuda de tooling con la nota de que "acordarse" no es un mecanismo —
+  y en efecto se incumplió tres veces. Ahora hay un **candado compartido**
+  (`apps/api/test/e2e-lock.js`): la segunda corrida **aborta inmediatamente** con un mensaje
+  que dice qué está en marcha y desde cuándo. Detalles de la implementación en la sección
+  «R9 — tiempo real» (§2).
 - **`admin-roles.spec.ts` afirma el número EXACTO de ítems del nav.** Es frágil por diseño
   (obliga a mirar el test al añadir una sección), pero solo funciona si se actualiza: llegó a
   estar desactualizado en 2 ítems sin que nadie lo notara. Al añadir una entrada a
@@ -5365,6 +5368,123 @@ en su hilo, ni en el HTML servido, ni en la lista.
    segunda corrida fallaba con 409 — el clásico "verde la primera vez, rojo al repetir sin
    resetear la BD". Corregido con `invoiceLine: { is: null }`.
 
+### Atención al usuario R9 — TIEMPO REAL (§12), EN DOS PASOS
+
+**Se hizo en DOS PASOS VERIFICADOS POR SEPARADO, y esa es la decisión de método que importa.**
+El paso 1 tocaba código que YA FUNCIONABA (el gateway de mensajería y sus e2e verdes); el paso
+2 añadía lo nuevo. Juntos, un fallo no habría dicho cuál de los dos fue. Separados sí — y de
+hecho hizo falta: al verificar el paso 1 apareció un rojo en el Playwright de mensajería, y
+poder aislarlo (volver el CORS a `'*'` y ver que seguía rojo, y luego verlo rojo en HEAD
+limpio) fue lo que evitó pasar horas "arreglando" un CORS que no era el culpable.
+
+#### Paso 1 — el `TODO(prod)` del CORS, cerrado
+
+`cors: { origin: '*' }` → `cors: { origin: [appOrigin()] }`. Auditoría previa: **un solo
+gateway** en todo el proyecto y **un solo** `cors: '*'` en él (más el `app.enableCors()` de
+HTTP, que se reporta como deuda aparte en §3 y NO se tocó, por la misma lógica de los dos
+pasos).
+
+**`appOrigin()` y no `ConfigService`**: un decorador se evalúa al cargar la clase, antes de que
+exista el contenedor de inyección. La función vive en `config/app-origin.ts` y es **la misma
+que alimenta `config.appUrl`**, así que no hay dos lecturas del origen que puedan divergir — la
+alternativa era repetir `process.env.APP_URL ?? 'http://localhost:3000'` en el decorador, con su
+default duplicado.
+
+**UN ARRAY DE UNO, no la cadena suelta, y se descubrió ejerciéndolo.** Con `origin: 'x'` el
+paquete `cors` emite `Access-Control-Allow-Origin: x` **sin comparar** con el `Origin` de la
+petición: protege igual (el navegador compara), pero la respuesta es idéntica para todos, y el
+test del origen ajeno seguía recibiendo la cabecera. Con un array, el servidor compara y
+**omite** la cabecera cuando no casa — comportamiento observable y por tanto verificable.
+
+**Qué protege y qué no, dicho sin adornos.** El CORS de socket.io es defensa en profundidad, no
+la puerta: quien autoriza es el token del handshake, y por ser un token **explícito** y no una
+cookie, este gateway nunca fue vulnerable a *cross-site WebSocket hijacking*. Además el
+protocolo WebSocket no pasa por CORS (solo el polling y el handshake) y **el propio frontend
+usa `transports: ['websocket']`**, así que en la práctica el CORS no está ni en el camino vivo
+de esta aplicación. Cerrarlo sigue siendo correcto —quita el `*` del inventario y cierra el
+camino fácil—, pero decir que "cierra un agujero explotable" habría sido falso.
+
+**Verificación del paso 1**: `messaging.e2e-spec.ts` **verde sin editarlo** (requisito de oro) y
+suite nueva `messaging-cors.e2e-spec.ts` (4 casos). Esta última existe porque la de mensajería
+conecta con `transports: ['websocket']` y **por tanto seguiría verde con el CORS puesto,
+quitado o mal**: donde el CORS decide es en el handshake de polling, y ahí se ataca (origen
+permitido → cabecera con el origen concreto; origen ajeno → sin cabecera; preflight igual; sin
+`Origin` —cliente que no es navegador— sigue funcionando). Nota de implementación: el namespace
+`/ws` **no es una ruta**; el handshake va por `/socket.io/`.
+
+#### Paso 2 — salas de tickets
+
+- **`ticket:join`**, molde exacto de `conversation:join`: acceso verificado **contra la BD**
+  antes de unir. Entra el dueño (siempre, incluso con factura enlazada — mismo criterio que la
+  descarga de adjuntos de R5) o el staff, reutilizando `assertCanHandleTicket` para la puerta
+  ADMIN-only de facturación en vez de recopiar la condición. Hilo ajeno e hilo inexistente
+  comparten respuesta: sin oráculo de ids.
+- **Sala de rol `staff`**, al conectar, con el **rol leído de la BD y no del token**: los JWT
+  duran 7 días, así que un MODERATOR degradado seguiría llevando su rol viejo en un token
+  válido — y esta sala recibe la actividad de TODOS los tickets. `JwtStrategy` ya hace lo mismo
+  en cada request HTTP.
+- **`emitTicketMessage`**, gemelo de `emitNewMessage`, cableado en los CUATRO puntos que crean
+  mensajes, **siempre tras el commit** y **siempre junto al aviso de R4, nunca en su lugar**:
+  el socket es para quien tiene la pantalla delante ahora, la `Notification` y el email para
+  quien no. Envuelto en `catch`: el tiempo real es un extra y no puede tumbar la petición de un
+  mensaje ya guardado.
+- **UN SOLO emit con los `to()` ENCADENADOS**, no tres emits seguidos. socket.io deduplica la
+  unión de salas, así que cada socket recibe el evento una vez aunque esté en varias (el usuario
+  está en `ticket:<id>` **y** en `user:<id>`). Con emits separados —como hace `emitNewMessage`,
+  que por eso obliga al cliente a deduplicar— llegaban dos copias. También salió al probarlo.
+
+**★ LA INVARIANTE §10.3 EN EL CANAL DE TIEMPO REAL — lo más importante de la ráfaga.** El
+WebSocket es una **superficie nueva** por la que una nota interna podía filtrarse: las defensas
+anteriores viven en las consultas (`getForUser` filtra `internal: false`), en los contadores, en
+el DTO y en los avisos de R4, y **ninguna protege un canal que empuja el mensaje al navegador**.
+Aquí la defensa es el propio diseño de salas: una nota interna se emite **solo** a `staff`, y el
+`return` corta antes de nombrar `ticket:<id>` — que es la sala donde están el usuario y el
+agente a la vez. Un agente que mire el hilo la recibe igualmente, por `staff`.
+
+**Frontend**: `useTicketSocket` (molde `useMessagingSocket`: mismo namespace, token en el
+handshake, re-`join` en cada `connect` porque también se dispara al reconectar), usado en los
+dos hilos. Deduplicación por id en el cliente —el mensaje propio vuelve por el socket y ya se
+añadió con la respuesta del POST—, y en el hilo de staff se **inserta** el mensaje en vez de
+recargar el hilo entero: un `load()` por mensaje perdería la posición de lectura del agente.
+**La bandeja de staff en vivo se deja fuera a propósito**: era opcional en §12 y su propio
+argumento es que el badge al navegar basta.
+
+**Verificación del paso 2**: `tickets-realtime.e2e-spec.ts` (**20 casos**, sockets de verdad
+contra la app escuchando en un puerto real — no espías sobre el gateway, que probarían que
+llamamos al método y no que el mensaje no llega). Cubre: llegada en vivo en las dos direcciones,
+bandeja de staff sin estar en el hilo, sala personal del usuario, **ataque de `ticket:join` a un
+hilo ajeno** (rechazado *y* comprobando que no recibe los mensajes de esa sala), ticket
+inexistente, puerta de facturación en las dos direcciones, **rol degradado con token válido**,
+idempotencia del join, y los cuatro casos de la nota interna. Más 1 caso de navegador con **dos
+sesiones** (`e2e/tickets-tiempo-real.spec.ts`), que es lo que el e2e de gateway no puede probar:
+que el hook se suscribe y el mensaje se **pinta** sin recargar, una sola vez.
+
+**Mutación (3/3 en rojo, revertidas):** emitir la nota interna también a la sala del hilo → 3
+rojos; quitar la verificación de acceso de `ticket:join` → 2; leer el rol del token en vez de la
+BD → 1.
+
+#### La deuda de tooling que arrastraba tres incumplimientos: cerrada
+
+**`apps/api/test/e2e-lock.js`** — candado compartido por el `globalSetup` de Jest y el de
+Playwright. La segunda corrida **aborta al instante** con un mensaje que dice qué está en marcha,
+con qué PID y desde cuándo, en vez de producir rojos falsos veinte minutos después. Detalles:
+
+- El candado es un **directorio** (`mkdir` es atómico; "comprobar y luego crear" tiene ventana
+  de carrera).
+- Guarda el PID: un candado **huérfano** (Ctrl-C, crash) se detecta con `process.kill(pid, 0)`
+  y se rompe solo — si no, el remedio sería peor que la enfermedad.
+- `release` solo suelta **si el candado es nuestro**.
+- Es un `.js` sin TypeScript porque el `globalSetup` de Jest no pasa por ts-jest; Playwright lo
+  carga con `require` desde `apps/api`, exactamente como ya comparte `flush-redis-test-db.js`.
+  Se añadió `globalTeardown` a `playwright.config.ts` para liberarlo.
+- **Probado ejerciéndolo**, no solo compilado: coger → bloquear la segunda → liberar →
+  readquirir, y el caso del candado huérfano con un PID inexistente.
+
+Nota menor de ruido: ts-jest avisa (`allowJs`) al compilar el `globalTeardown` en `.js`. Es
+cosmético, no falla nada, y `setup-e2e.js` tiene la misma forma desde siempre; no se toca la
+clave `transform` del Jest compartido para silenciarlo, porque su radio de explosión es toda la
+batería.
+
 ### Atención al usuario R5 — ADJUNTOS (§14.7 / §3.5)
 
 **LA DECISIÓN QUE DEFINE LA RÁFAGA: molde FACTURA, no molde media.** No es una preferencia de
@@ -5553,12 +5673,24 @@ bucket (`r2.delete`). Es la misma deuda que ya tiene `media` con las fotos de an
 no se ha inventado un recolector para un borrado que no existe. Detalle en §2.
 
 **Incremento NO implementado** (el sistema es usable sin él):
-- **Tiempo real (R9).** Sin empezar. **Requisito previo:** cerrar el `TODO(prod)` del
-  `cors: { origin: '*' }` de `MessagingGateway` antes de ampliar su uso. Falta además una
-  sala de rol `staff`, que el gateway hoy no tiene (solo `user:` y `conv:`).
-*(Los dos huecos de notificación de moderación de §14.5 ya **no** son deuda: implementados en
-ráfaga propia, con dos avisos extra sobre lo auditado. Ver «Notificaciones de moderación
-(§14.5)» en §2.)*
+*(Ya no queda ningún incremento pendiente: R5 —adjuntos— y R9 —tiempo real, con el CORS del
+gateway cerrado de paso— fueron las dos últimas. Los huecos de §14.5 también están cerrados.
+El sistema de atención al usuario está COMPLETO respecto a su diseño; ver §2.)*
+
+**Deuda REAL que sí queda, no del sistema de tickets:**
+- **`app.enableCors()` sin argumentos en `main.ts` (y en `createTestApp`) abre la API HTTP a
+  cualquier origen.** Es la otra mitad del mismo problema que R9 cerró en el gateway, y salió
+  en su auditoría. **No se tocó a propósito**: su radio de explosión es toda la API (no un
+  gateway), y meterlo en la misma ráfaga habría roto justo la lección de los dos pasos —si algo
+  se cae, no sabrías cuál de los dos cambios fue. Merece su propia ráfaga con su propia
+  verificación. Nota: como en el gateway, no es el control de acceso (que es el JWT), y el CORS
+  no protege de un cliente que no sea un navegador.
+- **`mensajeria-unificada.spec.ts` tiene un caso ROJO PREEXISTENTE** (línea ~241: el badge de
+  no leídos no llega a mostrar `4` tras recibir un mensaje estando en la bandeja). Verificado
+  en HEAD limpio, con y sin el CORS restringido: **no es de R9**. El resto del test —incluida
+  la llegada de mensajes por socket en tiempo real, líneas 225-226— pasa, así que la conexión y
+  el transporte funcionan; lo que falla es el contador. Sin diagnosticar ni arreglar aquí:
+  toca semántica de no leídos de mensajería, ajena a esta ráfaga.
 
 **Deuda de test/tooling asociada:**
 - **`queue-retry › "Retry real"` es flaky** por timing de indexación de Meilisearch; los 14

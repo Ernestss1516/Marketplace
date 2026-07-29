@@ -8,6 +8,9 @@ import { MessagingGateway } from './messaging.gateway';
   imports: [AuthModule], // provides JwtService (via JwtModule export) and ConfigService (global)
   controllers: [MessagingController],
   providers: [MessagingService, MessagingGateway],
-  exports: [MessagingService],
+  // R9 — el gateway se EXPORTA para que `TicketsService` pueda emitir
+  // `ticket:message` tras el commit. Es la misma relación que ya tiene
+  // `MessagingService` con él dentro de este módulo, con el consumidor fuera.
+  exports: [MessagingService, MessagingGateway],
 })
 export class MessagingModule {}

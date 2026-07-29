@@ -136,6 +136,35 @@ WebSocket en `/ws` *(autenticación JWT en el handshake)*:
 > Los mensajes se envían únicamente por REST (`POST /conversations/:id/messages`).
 > No existe un evento `message:send` de cliente a servidor por WebSocket.
 
+**CORS del gateway (R9):** el handshake solo se autoriza desde `APP_URL` (el origen del
+frontend). Antes era `origin: '*'` con un `TODO(prod)`. Es defensa en profundidad, no el
+control de acceso: quien autoriza es el token del handshake — y por ser un token explícito y
+no una cookie, este gateway nunca fue vulnerable a *cross-site WebSocket hijacking*.
+
+**Salas y eventos de TICKETS (R9), en el mismo namespace `/ws`:**
+
+- **`ticket:join`** (cliente → servidor, `{ ticketId }`) — Pide entrar en la sala del hilo.
+  El servidor **verifica el acceso contra la base de datos antes de unir** (molde
+  `conversation:join`): entra el dueño del ticket, o un agente — con la puerta ADMIN-only de
+  facturación aplicada, así que un `MODERATOR` **no** entra en la sala de un ticket con
+  `invoiceId`. Un hilo ajeno y un hilo inexistente reciben el mismo `error: Forbidden`, sin
+  distinguirlos (mismo criterio anti-oráculo que el guard de enlace de R2).
+- **`ticket:message`** (servidor → cliente) — Mensaje nuevo en un hilo. Llega a la sala
+  `ticket:<id>`, a la sala personal `user:<id>` del dueño (para que su lista se mueva sin
+  tener el hilo abierto) y a la sala de rol `staff` (bandeja).
+- **Sala de rol `staff`** — Los agentes entran al conectar, con el rol **leído de la base de
+  datos**, no del token: los JWT duran 7 días y un rol revocado seguiría viajando en uno
+  válido.
+
+> **UNA NOTA INTERNA NO SALE DE LA SALA `staff`.** Es la invariante §10.3 aplicada al canal
+> de tiempo real: `ticket:<id>` contiene al usuario y al agente a la vez, así que una nota
+> emitida ahí se le entregaría al usuario. El agente que mira el hilo la recibe igualmente
+> por la sala `staff`.
+
+> **El WebSocket es ADICIONAL, no sustituye a la `Notification`.** El socket es para quien
+> tiene la pantalla delante ahora; la notificación in-app y el email son para quien no está
+> mirando, y quedan como registro. Los dos canales se disparan en la misma acción.
+
 ---
 
 ## Tickets (atención al usuario) — rutas de USUARIO

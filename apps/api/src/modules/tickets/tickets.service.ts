@@ -14,6 +14,7 @@ import { AuditLogService } from '../audit-log/audit-log.service';
 import { TicketNotificationsService } from './ticket-notifications.service';
 import { PreparedAttachment, TicketAttachmentsService } from './ticket-attachments.service';
 import { assertCanHandleTicket } from './tickets.guards';
+import { MessagingGateway } from '../messaging/messaging.gateway';
 import {
   ASSIGNED_TO_ME,
   ASSIGNED_TO_NONE,
@@ -105,7 +106,31 @@ export class TicketsService {
     private readonly rateLimit: RateLimitService,
     private readonly notify: TicketNotificationsService,
     private readonly attachments: TicketAttachmentsService,
+    private readonly realtime: MessagingGateway,
   ) {}
+
+  /**
+   * R9 — empujón de tiempo real, SIEMPRE tras el commit y SIEMPRE junto al aviso
+   * de R4, nunca en su lugar.
+   *
+   * Los dos canales responden a preguntas distintas y por eso coexisten: el
+   * WebSocket es para quien tiene la pantalla delante AHORA (el mensaje aparece
+   * sin recargar); la `Notification` y el email son para quien no está mirando, y
+   * quedan como registro. Sustituir el segundo por el primero perdería el aviso
+   * de todo el que no estuviera conectado en ese segundo exacto.
+   *
+   * Envuelto en `catch`: el tiempo real es un extra: si el gateway falla, la
+   * petición NO puede fallar con él. El mensaje ya está guardado y la
+   * `Notification` ya se ha creado; lo único que se pierde es la inmediatez.
+   */
+  private emitRealtime(ticket: Ticket, message: TicketMessage): void {
+    try {
+      this.realtime.emitTicketMessage(ticket, message);
+    } catch {
+      // Silencioso a propósito: no hay nada que el usuario pueda hacer, y el
+      // dato ya está persistido.
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // Transiciones permitidas (§7.3)
@@ -197,6 +222,8 @@ export class TicketsService {
     // un ticket que no existe. Molde ContactService.submit (persiste y luego
     // notifica) y ListingsService (encola el reindexado después de escribir).
     await this.notify.staffNewActivity(ticket, message, 'new');
+    // R9 — la bandeja de staff se entera sin recargar (sala `staff`).
+    this.emitRealtime(ticket, message);
     return ticket;
   }
 
@@ -374,6 +401,8 @@ export class TicketsService {
     // R4 — flujos (b)/(c): al usuario le consta que la administración ha abierto
     // un hilo con él (TICKET_OPENED, no TICKET_MESSAGE: no es una respuesta).
     await this.notify.userStaffWrote(ticket, message, true);
+    // R9 — flujos (b)/(c): el usuario ve aparecer el hilo nuevo en vivo.
+    this.emitRealtime(ticket, message);
     return ticket;
   }
 
@@ -727,6 +756,11 @@ export class TicketsService {
     // esté en el camino vivo y no que aquí se evite la llamada — así la defensa
     // es la que decide, y el test que la muta la ve fallar de verdad.
     await this.notify.userStaffWrote(result.ticket, result.message, false);
+    // R9 — se llama SIEMPRE, también con una nota interna: igual que con el aviso
+    // de R4, el guard está en el camino vivo (`emitTicketMessage` no la saca de la
+    // sala `staff`), no en un `if` de este llamador. Así la defensa es la que
+    // decide y el test que la muta la ve fallar de verdad.
+    this.emitRealtime(result.ticket, result.message);
     return result;
   }
 
@@ -795,6 +829,8 @@ export class TicketsService {
     // bandeja necesita ver, y en un ticket ya IN_PROGRESS el agente asignado
     // también quiere enterarse.
     await this.notify.staffNewActivity(result.ticket, result.message, 'reply');
+    // R9 — el agente que tiene el hilo abierto ve la respuesta del usuario.
+    this.emitRealtime(result.ticket, result.message);
     return result;
   }
 

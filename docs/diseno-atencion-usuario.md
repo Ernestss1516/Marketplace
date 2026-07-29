@@ -1,21 +1,20 @@
 # Diseño del sistema de atención al usuario (tickets) — revisión 1
 
-> ## ⚠️ ESTADO: APROBADO E IMPLEMENTADO, salvo UN incremento (R9, tiempo real)
+> ## ✅ ESTADO: APROBADO E IMPLEMENTADO POR COMPLETO
 >
 > **Este documento es el DISEÑO, no el estado.** Se conserva tal como se aprobó (2026-07-28)
 > porque explica el *porqué* de cada decisión; para saber qué hay construido de verdad, la
 > referencia es **`estado-tecnico.md` → «Sistema de atención al usuario (tickets) — ESTADO
 > CONSOLIDADO»**. Donde este documento y el código difieran, **manda el código**.
 >
-> **Implementado** (ráfagas R1, R2, R3, R4, R5, R6, R7, R8 + notas internas): modelo, máquina
-> de estados completa (las 11 transiciones con disparador), API de usuario y de staff, los tres
-> flujos, avisos in-app + email auxiliar, frontend de usuario y de staff, cron de auto-cierre,
-> las notas internas con sus cinco defensas, y los **adjuntos de §14.7 con molde FACTURA**
-> (JPEG/PNG/WebP + PDF, 10 MB, 5 por mensaje; descarga autenticada, sin URL pública).
->
-> **NO implementado, y por tanto lo que este documento describe ahí es plan, no realidad:**
-> - **§12 / R9 — TIEMPO REAL.** No se ha tocado. Sigue en pie la recomendación de no hacerlo
->   antes de cerrar el `TODO(prod)` del `cors: { origin: '*' }` de `MessagingGateway`.
+> **No queda nada del diseño sin construir.** Ráfagas R1, R2, R3, R4, R5, R6, R7, R8, R9 +
+> notas internas + los huecos de §14.5: modelo, máquina de estados completa (las 11
+> transiciones con disparador), API de usuario y de staff, los tres flujos, avisos in-app +
+> email auxiliar, frontend de usuario y de staff, cron de auto-cierre, notas internas con sus
+> defensas, avisos de moderación, **adjuntos de §14.7 con molde FACTURA** (JPEG/PNG/WebP + PDF,
+> 10 MB, 5 por mensaje; descarga autenticada, sin URL pública) y **§12 TIEMPO REAL** (salas
+> `ticket:<id>` y `staff` en el gateway, con el `TODO(prod)` del CORS cerrado antes de
+> ampliarlo, tal y como recomendaba este documento).
 >
 > **§14.5 — LOS DOS HUECOS DE NOTIFICACIÓN DE MODERACIÓN: YA IMPLEMENTADOS.** Se resolvieron
 > en ráfaga propia, con `Notification` y sin tocar tickets, tal y como se preveía aquí, y

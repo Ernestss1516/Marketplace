@@ -15,6 +15,11 @@ const { config } = require('dotenv');
 const flushRedisTestDb = require('./flush-redis-test-db');
 
 module.exports = async function globalSetup() {
+  // ANTES DE TODO: candado compartido con Playwright. Las dos baterías usan la
+  // misma base y la misma db de Redis; correrlas a la vez produce rojos falsos.
+  // Ver test/e2e-lock.js.
+  require('./e2e-lock').acquire('jest-e2e');
+
   config({ path: join(__dirname, '..', '.env.test') });
 
   execSync('npx prisma migrate deploy', {

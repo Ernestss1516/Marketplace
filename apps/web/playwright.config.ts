@@ -27,6 +27,10 @@ const testEnv = dotenvParse({
 export default defineConfig({
   testDir: './e2e',
   globalSetup: './e2e/global-setup.ts',
+  // R9 — libera el candado que impide correr esta batería y la de backend a la
+  // vez (apps/api/test/e2e-lock.js). Sin teardown el candado quedaría cogido
+  // hasta que el PID muriera.
+  globalTeardown: './e2e/global-teardown.ts',
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,

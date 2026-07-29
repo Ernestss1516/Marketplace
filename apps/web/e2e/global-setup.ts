@@ -23,7 +23,27 @@ const API_DIR = path.join(__dirname, '..', '..', 'api');
 const FIXTURES_DIR = path.join(__dirname, 'fixtures');
 const ENV_TEST_PATH = path.join(API_DIR, '.env.test');
 
+/**
+ * Candado compartido con la batería e2e de backend (R9).
+ *
+ * `require` en tiempo de ejecución y no `import`: el módulo vive en `apps/api` y
+ * es un `.js` sin tipos, fuera del `rootDir` de este paquete. Es la misma vía por
+ * la que ya se comparte `flush-redis-test-db.js` con Jest — una sola fuente para
+ * las dos baterías, en vez de dos copias que se desincronizan.
+ */
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const e2eLock = require(path.join(__dirname, '..', '..', 'api', 'test', 'e2e-lock.js')) as {
+  acquire: (owner: string) => void;
+  release: (owner: string) => void;
+};
+
 export default async function globalSetup(playwrightConfig: FullConfig) {
+  // ── 0. ANTES DE TODO: no correr a la vez que la batería de backend ──────────
+  // Comparten marketplace_test y Redis db 1. Si la otra está en marcha, esto
+  // aborta con un mensaje claro en vez de producir rojos falsos (y de que el
+  // `cleanDb` de una trunque la BD a mitad del setup de la otra).
+  e2eLock.acquire('playwright');
+
   // ── 1. Load .env.test (no-op if vars already set by CI runner) ──────────────
   if (fs.existsSync(ENV_TEST_PATH)) {
     loadEnv({ path: ENV_TEST_PATH });

@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { TicketStatusBadge } from '@/components/tickets/TicketStatusBadge';
 import { AttachmentList, AttachmentPicker } from '@/components/tickets/TicketAttachments';
 import { useApiAction } from '@/lib/api/use-api-action';
+import { useTicketSocket } from '@/hooks/useTicketSocket';
 import { closeTicket, getTicket, replyTicket, toTicketActionMessage } from '@/lib/api/tickets';
 import { cn } from '@/lib/utils';
 import type { TicketDetail, TicketMessage } from '@/types';
@@ -46,6 +47,25 @@ export function TicketThreadClient({ initialData, token }: Props) {
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [closing, setClosing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // ── R9: el hilo se mueve solo ──────────────────────────────────────────────
+  // DEDUPLICACIÓN POR ID, y no es opcional: el mensaje que envía este propio
+  // usuario vuelve por el socket (está en la sala del hilo), y ya se añadió con
+  // la respuesta del POST. Sin esta comprobación se vería dos veces cada uno.
+  // Mismo criterio que ChatClient en mensajería.
+  //
+  // Una NOTA INTERNA no puede llegar por aquí: el gateway no la emite a la sala
+  // del hilo ni a la personal del usuario (invariante §10.3 en el canal de tiempo
+  // real, ejercida en tickets-realtime.e2e-spec.ts). El filtro de aquí no es esa
+  // defensa — la defensa está en el servidor.
+  useTicketSocket({
+    token,
+    ticketId: ticket.id,
+    onMessage: ({ ticketId, message }) => {
+      if (ticketId !== ticket.id) return;
+      setMessages((prev) => (prev.some((m) => m.id === message.id) ? prev : [...prev, message]));
+    },
+  });
 
   // ── Qué acciones ofrece la UI, según la matriz §7.2 ────────────────────────
   // La UI RESTRINGE, el backend GARANTIZA: aquí solo se decide qué se OFRECE.

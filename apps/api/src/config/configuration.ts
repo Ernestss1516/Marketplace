@@ -1,3 +1,5 @@
+import { appOrigin } from './app-origin';
+
 export default () => ({
   port: parseInt(process.env.PORT ?? '3000', 10),
   database: {
@@ -20,7 +22,10 @@ export default () => ({
     apiKey: process.env.RESEND_API_KEY,
     from: process.env.RESEND_FROM ?? 'noreply@tudominio.es',
   },
-  appUrl: process.env.APP_URL ?? 'http://localhost:3000',
+  // R9 — la lectura vive en `app-origin.ts` porque el CORS del gateway de
+  // WebSockets la necesita desde un decorador, donde no hay inyección. Mismo
+  // valor, una sola definición.
+  appUrl: appOrigin(),
   geocoding: {
     provider: process.env.GEOCODING_PROVIDER ?? 'nominatim',
     maptilerKey: process.env.MAPTILER_API_KEY,

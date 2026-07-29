@@ -3,6 +3,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { ContactModule } from '../contact/contact.module';
+import { MessagingModule } from '../messaging/messaging.module';
 import { QUEUE_NOTIFICATIONS, retryQueue } from '../../infra/queue/queue.constants';
 import { TicketsService } from './tickets.service';
 import { TicketNotificationsService } from './ticket-notifications.service';
@@ -35,6 +36,11 @@ import { AdminTicketsController } from './admin-tickets.controller';
     // tablas. Importar el módulo entero y no duplicar el servicio es lo que
     // mantiene esa decisión en pie.
     ContactModule,
+    // R9 — de aquí sale `MessagingGateway`, que es el dueño de la conexión de
+    // sockets de la aplicación (un solo namespace `/ws`, una sola sala `user:<id>`
+    // compartida por mensajería y tickets). Sin ciclo: MessagingModule solo
+    // importa AuthModule.
+    MessagingModule,
     // R4 — la cola se REGISTRA AQUÍ con `retryQueue`, igual que hacen
     // ContactModule y AlertsModule. No se hereda del módulo central:
     // @nestjs/bullmq crea una Queue (productora) por registro, cada una con sus
