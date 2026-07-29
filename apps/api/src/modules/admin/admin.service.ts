@@ -66,6 +66,12 @@ const SETTING_KEYS = [
   // Setting OF ITS OWN, not reused from proExtraCreditsPercent (distinct,
   // separately calibrated Pro perks).
   'proExtraBumpsPercent',
+  // Atención al usuario R4: buzón único al que llegan los avisos por email de
+  // tickets (NO fan-out por administrador — ver §14.4 del diseño). Sin sembrar
+  // en el seed: "sin configurar" es un estado válido y explícito, en el que
+  // TicketNotificationsService registra un warning y omite SOLO el correo (el
+  // aviso in-app al staff se crea igual).
+  'supportEmail',
 ] as const;
 type SettingKey = (typeof SETTING_KEYS)[number];
 

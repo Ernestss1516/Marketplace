@@ -24,6 +24,31 @@ export function getNotificationContent(n: NotificationItem): { text: string; hre
         // solo para este flujo; el id ya lo trae la propia notificación.
         href: `/vendedor/${n.data.otherUserSlug}?valorar=${encodeURIComponent(n.data.listingId ?? '')}&target=${encodeURIComponent(n.data.otherUserId)}`,
       };
+    // RF.13 R4 — este tipo existía en el backend desde entonces pero NUNCA tuvo
+    // su `case`: caía al default genérico "Nueva notificación", que ni decía de
+    // qué iba ni llevaba a ninguna parte útil. Cerrado aquí (auditoría §1.3).
+    case 'INVOICING_PENDING_FISCAL_DATA':
+      return {
+        text: `Tienes ${n.data.facturableCount} movimiento(s) facturable(s) del periodo ${n.data.periodKey}, pero faltan tus datos fiscales para emitir la factura.`,
+        href: '/perfil/facturacion',
+      };
+    // Atención al usuario R4 — los tres se pintan desde el snapshot, sin ninguna
+    // consulta: `extracto` ya viene acotado a 140 caracteres desde el servidor.
+    case 'TICKET_MESSAGE':
+      return {
+        text: `Respuesta nueva en tu ticket «${n.data.subject}»: ${n.data.extracto}`,
+        href: `/mis-tickets/${n.data.ticketId}`,
+      };
+    case 'TICKET_OPENED':
+      return {
+        text: `La administración ha abierto un hilo contigo: «${n.data.subject}» — ${n.data.extracto}`,
+        href: `/mis-tickets/${n.data.ticketId}`,
+      };
+    case 'TICKET_STAFF_NEW':
+      return {
+        text: `${n.data.userName}${n.data.topic ? ` (${n.data.topic})` : ''}: «${n.data.subject}» — ${n.data.extracto}`,
+        href: `/admin/tickets/${n.data.ticketId}`,
+      };
     default:
       return { text: 'Nueva notificación', href: '/notificaciones' };
   }

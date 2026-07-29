@@ -22,6 +22,7 @@ import { RedsysWebhookGuard } from '../src/modules/redsys/guards/redsys-webhook.
 import { MediaService } from '../src/modules/media/media.service';
 import { AuthService } from '../src/modules/auth/auth.service';
 import { ContactService } from '../src/modules/contact/contact.service';
+import { TicketNotificationsService } from '../src/modules/tickets/ticket-notifications.service';
 
 /**
  * Deuda: "retry fantasma de QUEUE_INDEXING". Cada módulo que llama
@@ -95,6 +96,14 @@ describe('Retry de colas BullMQ (e2e)', () => {
       ['MediaService (QUEUE_IMAGE, MediaModule)', MediaService, 'imageQueue'],
       ['AuthService (QUEUE_NOTIFICATIONS, AuthModule)', AuthService, 'notificationQueue'],
       ['ContactService (QUEUE_NOTIFICATIONS, ContactModule)', ContactService, 'notificationQueue'],
+      // Atención al usuario R4 — productor nuevo. La lista es de mantenimiento
+      // manual (una entrada por productor), así que un módulo nuevo que encole
+      // debe añadirse aquí o la tabla de cobertura queda incompleta en silencio.
+      [
+        'TicketNotificationsService (QUEUE_NOTIFICATIONS, TicketsModule)',
+        TicketNotificationsService,
+        'queue',
+      ],
     ];
 
     it.each(cases)('%s → attempts:3 + backoff exponencial 2000ms', (_label, providerClass, fieldName) => {

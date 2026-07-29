@@ -4783,6 +4783,75 @@ de "no puede quitarle el ticket a otro agente".
 
 ---
 
+### Atención al usuario R4 — notificaciones in-app + email auxiliar
+
+Cierra el NÚCLEO del sistema: con R4 los tickets son usables de punta a punta vía API.
+Falta solo el frontend (R6/R7) y los incrementos (R5 adjuntos, R8 cron, R9 tiempo real).
+
+**Tres tipos de `Notification` nuevos, CERO migraciones** — `Notification.type` es `String` a
+propósito. `TICKET_MESSAGE` y `TICKET_OPENED` al usuario, `TICKET_STAFF_NEW` en fan-out al
+staff. Tercera validación de que B1 era extensible sin tocar la BD (la primera fue
+`CONTACT_MESSAGE`).
+
+**`TicketNotificationsService` — servicio propio, no más métodos en `TicketsService`.** Aquí
+vive el "a quién se le cuenta qué", que es una preocupación distinta de "qué transición es
+válida". Mismo reparto que `ListingActivationService`, que agrupa los efectos colaterales de
+que un anuncio pase a ACTIVE.
+
+**Fan-out in-app SÍ, email NO (§14.4).** La `Notification` va a cada agente porque
+`Notification` es `userId` 1:1 y no existe buzón de rol (RC.1); el email va a **UNA**
+dirección, `Setting.supportEmail`. Contraste deliberado con `ContactService`, que sí manda
+un correo por administrador: con el volumen que se espera de tickets eso no escala, y la
+campana ya cubre el "a cada uno le consta".
+
+**`supportEmail` sin configurar → warning + se omite SOLO el correo.** Se descartó caer en
+fan-out a los admins: es justo el comportamiento que §14.4 quiso evitar, y reintroducirlo
+por la puerta de atrás en el estado de "mal configurado" es la peor forma de tenerlo. **No
+se pierde ningún aviso** — la notificación in-app a cada agente se crea siempre. No se
+siembra en el seed: "sin configurar" es un estado válido y explícito. Sí se añadió a
+`SETTING_KEYS` para que el admin pueda ponerlo desde el backoffice.
+
+**§11 hecho mecanismo, no eslogan.** `TICKET_EXCERPT_MAX_CHARS = 140`: ni la notificación ni
+el email transportan la conversación, solo extracto + enlace. Para leer el hilo hay que
+entrar. Los tres emails cierran con *"No respondas a este correo: responde desde tu ticket
+en el enlace de arriba"* — y no es solo copy: **no existe email entrante en el proyecto**
+(auditoría §1.4), así que una respuesta no llegaría a ninguna parte.
+
+**El aviso es EFECTO, nunca CAUSA.** Ningún método del notificador escribe en el ticket. Se
+invoca **tras el commit** de la `$transaction`, nunca dentro: si la transacción falla no se
+avisa de un ticket que no existe (molde `ContactService.submit`, que persiste y luego
+notifica). Hay dos tests dedicados: uno comprueba que el estado tras cada transición es el
+que dicta la máquina, y otro que una transición RECHAZADA no deja ni una notificación ni un
+job encolado.
+
+**Snapshots con NOMBRES resueltos** (`userName`, `topic`), nunca ids — la notificación debe
+pintarse sin una consulta extra y seguir siendo legible si el motivo se renombra (mismo
+criterio que hizo que `ContactService.notifyAdmins` reciba el nombre y no el `motivoId`).
+`status` va congelado en el instante del aviso.
+
+**Defensa preparada:** un mensaje `internal` no dispara ningún aviso. Hoy nada los crea
+(§14.3), pero avisar de una nota interna delataría su existencia al usuario — la fuga por
+canal lateral que R2 ya cerró en el contador de no leídos, aquí cerrada en el aviso.
+
+**Frontend: CUATRO `case` nuevos** en `notification-content.ts`. Los tres de tickets, más el
+de **`INVOICING_PENDING_FISCAL_DATA`**, que existía en el backend desde RF.13 R4 pero nunca
+tuvo el suyo y caía al default genérico "Nueva notificación" (detectado en la auditoría
+§1.3). La unión `NotificationItem` de `types/index.ts` ganó los cuatro miembros — sin ellos
+TypeScript ni siquiera admite el `case`, que es exactamente por qué el de facturación llevaba
+tanto tiempo sin cerrarse.
+
+**Verificación — `tickets-notifications.e2e-spec.ts`, 16 tests.** Se observan los DOS lados
+del efecto: las filas `Notification` en Postgres y los jobs encolados (espía sobre
+`queue.add`, en vez de levantar un worker: lo que R4 garantiza es QUÉ se encola, CUÁNTOS y
+con qué cuerpo — que Resend entregue no es de esta ráfaga).
+
+**Validado por mutación, cuatro veces:** email en fan-out por admin → rojos los tres tests
+del "un solo email"; `excerpt()` devolviendo el body entero → rojos los dos de §11; quitar el
+guard de `internal` → rojo el de la nota interna; guardar ids en vez de nombres → rojo el del
+snapshot autocontenido.
+
+---
+
 ## 3. Limitaciones conocidas y deuda técnica
 
 ### RC.1 — Rate limit por IP no verificado contra el proxy real de producción

@@ -5,6 +5,10 @@ export const NOTIFICATION_JOB = {
   SEND_CONTACT_NOTIFICATION: 'send-contact-notification',
   SEND_CONTACT_REPLY: 'send-contact-reply',
   SEND_REVIEW_REQUEST_EMAIL: 'send-review-request-email',
+  // Atención al usuario R4
+  SEND_TICKET_MESSAGE: 'send-ticket-message',
+  SEND_TICKET_STAFF_NOTIFICATION: 'send-ticket-staff-notification',
+  SEND_TICKET_RESOLVED: 'send-ticket-resolved',
 } as const;
 
 export interface SendVerificationEmailData {
@@ -58,4 +62,49 @@ export interface SendReviewRequestEmailData {
   otherUserName: string;
   listingTitle: string;
   listingSlug: string;
+}
+
+// ─── Atención al usuario R4 ───────────────────────────────────────────────────
+// NINGUNO de los tres transporta la conversación: solo `extracto` (≤140) y el
+// enlace al hilo (§11). Es lo que hace verdad —y no eslogan— que la conversación
+// in-app sea la fuente de verdad: para leerla hay que entrar. Los tres cierran
+// con "no respondas a este correo", porque además NO EXISTE email entrante en el
+// proyecto (ver la auditoría §1.4): una respuesta no llegaría a ninguna parte.
+
+/** Al usuario: el staff respondió, o abrió un hilo con él (flujos b/c). */
+export interface SendTicketMessageData {
+  email: string;
+  name: string;
+  ticketId: string;
+  subject: string;
+  extracto: string;
+  /** true si es la apertura de un hilo por parte de la administración. */
+  opened: boolean;
+}
+
+/**
+ * Al buzón de soporte. UN SOLO email, no fan-out por admin — a diferencia de
+ * SEND_CONTACT_NOTIFICATION (RC.1), que sí manda uno por administrador. Decisión
+ * §14.4: los tickets serán bastante más frecuentes que los mensajes de contacto,
+ * y multiplicar cada uno por el número de admins es ruido que no escala. El
+ * aviso in-app SÍ sigue siendo fan-out (uno por agente, en su campana).
+ */
+export interface SendTicketStaffNotificationData {
+  to: string;
+  ticketId: string;
+  subject: string;
+  extracto: string;
+  userName: string;
+  /** 'new' = ticket recién abierto; 'reply' = el usuario ha contestado. */
+  kind: 'new' | 'reply';
+}
+
+/** Al usuario: su ticket se ha marcado como resuelto (T7). */
+export interface SendTicketResolvedData {
+  email: string;
+  name: string;
+  ticketId: string;
+  subject: string;
+  /** Días de la ventana de reapertura, para que el copy no repita el número a mano. */
+  reopenWindowDays: number;
 }

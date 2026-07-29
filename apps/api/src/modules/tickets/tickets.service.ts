@@ -11,6 +11,7 @@ import { Prisma, Ticket, TicketMessage, TicketStatus } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { RateLimitService } from '../../infra/redis/rate-limit.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
+import { TicketNotificationsService } from './ticket-notifications.service';
 import {
   ASSIGNED_TO_ME,
   ASSIGNED_TO_NONE,
@@ -87,6 +88,7 @@ export class TicketsService {
     private readonly prisma: PrismaService,
     private readonly auditLog: AuditLogService,
     private readonly rateLimit: RateLimitService,
+    private readonly notify: TicketNotificationsService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -157,8 +159,8 @@ export class TicketsService {
     await this.assertTopicUsableInTickets(input.topicId);
     const link = await this.assertLinkable(userId, input);
 
-    return this.prisma.$transaction(async (tx) => {
-      const ticket = await tx.ticket.create({
+    const { ticket, message } = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.ticket.create({
         data: {
           subject: input.subject,
           status: 'OPEN',
@@ -171,9 +173,15 @@ export class TicketsService {
         },
       });
 
-      await this.writeMessage(tx, ticket.id, userId, 'USER', input.body);
-      return ticket;
+      const first = await this.writeMessage(tx, created.id, userId, 'USER', input.body);
+      return { ticket: created, message: first };
     });
+
+    // R4 — TRAS EL COMMIT, nunca dentro: si la transacción falla no se avisa de
+    // un ticket que no existe. Molde ContactService.submit (persiste y luego
+    // notifica) y ListingsService (encola el reindexado después de escribir).
+    await this.notify.staffNewActivity(ticket, message, 'new');
+    return ticket;
   }
 
   // ---------------------------------------------------------------------------
@@ -314,8 +322,8 @@ export class TicketsService {
     // el dueño del hilo como sujeto.
     const link = await this.assertLinkable(input.userId, input);
 
-    return this.prisma.$transaction(async (tx) => {
-      const ticket = await tx.ticket.create({
+    const { ticket, message } = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.ticket.create({
         data: {
           subject: input.subject,
           status: 'WAITING_USER',
@@ -330,22 +338,27 @@ export class TicketsService {
         },
       });
 
-      await this.writeMessage(tx, ticket.id, actor.userId, 'STAFF', input.body);
+      const first = await this.writeMessage(tx, created.id, actor.userId, 'STAFF', input.body);
 
       await this.auditLog.log(
         {
           action: 'TICKET_OPEN_BY_ADMIN',
           actorId: actor.userId,
           resourceType: 'Ticket',
-          resourceId: ticket.id,
-          after: { status: ticket.status, origin: ticket.origin, userId: ticket.userId },
+          resourceId: created.id,
+          after: { status: created.status, origin: created.origin, userId: created.userId },
           ip,
         },
         tx,
       );
 
-      return ticket;
+      return { ticket: created, message: first };
     });
+
+    // R4 — flujos (b)/(c): al usuario le consta que la administración ha abierto
+    // un hilo con él (TICKET_OPENED, no TICKET_MESSAGE: no es una respuesta).
+    await this.notify.userStaffWrote(ticket, message, true);
+    return ticket;
   }
 
   /**
@@ -626,7 +639,7 @@ export class TicketsService {
       );
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       // `internal` no se pasa (ver writeMessage): en R3 el staff solo escribe
       // mensajes normales. La escritura de notas internas sigue APLAZADA (§14.3)
       // y no se abre aquí — el DTO de staff tampoco declara el campo.
@@ -658,6 +671,12 @@ export class TicketsService {
 
       return { ticket, message };
     });
+
+    // R4 — T3/T4: el usuario recibe TICKET_MESSAGE + email con extracto y enlace.
+    // `userStaffWrote` sale por la puerta si el mensaje fuera `internal` — hoy
+    // nunca lo es, pero la defensa va puesta desde ya.
+    await this.notify.userStaffWrote(result.ticket, result.message, false);
+    return result;
   }
 
   // ---------------------------------------------------------------------------
@@ -687,7 +706,7 @@ export class TicketsService {
     const nextStatus: TicketStatus =
       existing.status === 'WAITING_USER' || reopening ? 'IN_PROGRESS' : existing.status;
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const message = await this.writeMessage(tx, ticketId, userId, 'USER', body);
 
       const ticket = await tx.ticket.update({
@@ -707,6 +726,14 @@ export class TicketsService {
 
       return { ticket, message };
     });
+
+    // R4 — al staff le consta que hay algo que atender. Se avisa SIEMPRE que el
+    // usuario escribe (T5, T6 y la reapertura T8), no solo desde WAITING_USER:
+    // un mensaje en un ticket OPEN sin tomar es exactamente la actividad que la
+    // bandeja necesita ver, y en un ticket ya IN_PROGRESS el agente asignado
+    // también quiere enterarse.
+    await this.notify.staffNewActivity(result.ticket, result.message, 'reply');
+    return result;
   }
 
   // ---------------------------------------------------------------------------
@@ -722,7 +749,7 @@ export class TicketsService {
       );
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const updatedTicket = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.ticket.update({
         where: { id: ticketId },
         data: { status: 'RESOLVED', resolvedAt: new Date() },
@@ -743,6 +770,11 @@ export class TicketsService {
 
       return updated;
     });
+
+    // R4 — al usuario se le avisa con la ventana de reapertura, para que sepa
+    // que "resuelto" no es "cerrado" y durante cuánto puede responder.
+    await this.notify.userResolved(updatedTicket);
+    return updatedTicket;
   }
 
   // ---------------------------------------------------------------------------

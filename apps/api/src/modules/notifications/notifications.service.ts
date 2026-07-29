@@ -7,6 +7,9 @@ import {
   ContactMessageData,
   ReviewRequestData,
   InvoicingPendingFiscalDataData,
+  TicketMessageData,
+  TicketOpenedData,
+  TicketStaffNewData,
 } from './notification.types';
 
 type DataByType = {
@@ -14,6 +17,9 @@ type DataByType = {
   CONTACT_MESSAGE: ContactMessageData;
   REVIEW_REQUEST: ReviewRequestData;
   INVOICING_PENDING_FISCAL_DATA: InvoicingPendingFiscalDataData;
+  TICKET_MESSAGE: TicketMessageData;
+  TICKET_OPENED: TicketOpenedData;
+  TICKET_STAFF_NEW: TicketStaffNewData;
 };
 
 @Injectable()

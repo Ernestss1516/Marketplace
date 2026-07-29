@@ -208,6 +208,15 @@ uno por la puerta del otro.
 >    (`403 TICKET_REASSIGN_ADMIN_ONLY`). Un MODERATOR sí puede coger uno sin asignar o
 >    mover el suyo.
 
+> **Avisos (R4) — vía auxiliar, nunca el canal.** Las transiciones disparan
+> `Notification` in-app (`TICKET_MESSAGE` y `TICKET_OPENED` al usuario;
+> `TICKET_STAFF_NEW` en fan-out al staff) y un email por Resend. **Ni la notificación ni
+> el email llevan la conversación**: solo un extracto de ≤140 caracteres y el enlace al
+> hilo, y los correos cierran con *"no respondas a este correo"* (no existe email entrante
+> en el proyecto). El email al staff va a **una sola** dirección, `Setting.supportEmail`,
+> no uno por administrador; sin configurar, se omite el correo y quedan los avisos in-app.
+> Ningún aviso transiciona nada: el estado solo cambia por la acción HTTP.
+
 > **Flujo (c) — el `Report` NO se modifica.** Se LEE para resolver el destinatario
 > (usuario reportado → vendedor del anuncio → autor de la valoración) y se referencia desde
 > `Ticket.reportId`. La cola de moderación sigue siendo la única dueña de su ciclo de vida:

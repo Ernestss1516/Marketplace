@@ -528,6 +528,37 @@ export interface ReviewRequestData {
   otherUserSlug: string;
 }
 
+/** Self-contained snapshot — mirrors InvoicingPendingFiscalDataData en el backend (RF.13 R4). */
+export interface InvoicingPendingFiscalDataData {
+  periodKey: string;
+  facturableCount: number;
+}
+
+// ── Atención al usuario R4 ───────────────────────────────────────────────────
+// Espejo de notification.types.ts del backend. `extracto` viene acotado a 140
+// caracteres desde el servidor: el aviso NO transporta la conversación.
+
+export interface TicketMessageData {
+  ticketId: string;
+  subject: string;
+  extracto: string;
+  status: string;
+}
+
+export interface TicketOpenedData {
+  ticketId: string;
+  subject: string;
+  extracto: string;
+}
+
+export interface TicketStaffNewData {
+  ticketId: string;
+  subject: string;
+  extracto: string;
+  userName: string;
+  topic: string | null;
+}
+
 interface NotificationBase {
   id: string;
   userId: string;
@@ -539,7 +570,14 @@ interface NotificationBase {
 export type NotificationItem =
   | (NotificationBase & { type: 'ALERT_MATCH'; data: AlertMatchData })
   | (NotificationBase & { type: 'CONTACT_MESSAGE'; data: ContactMessageData })
-  | (NotificationBase & { type: 'REVIEW_REQUEST'; data: ReviewRequestData });
+  | (NotificationBase & { type: 'REVIEW_REQUEST'; data: ReviewRequestData })
+  | (NotificationBase & {
+      type: 'INVOICING_PENDING_FISCAL_DATA';
+      data: InvoicingPendingFiscalDataData;
+    })
+  | (NotificationBase & { type: 'TICKET_MESSAGE'; data: TicketMessageData })
+  | (NotificationBase & { type: 'TICKET_OPENED'; data: TicketOpenedData })
+  | (NotificationBase & { type: 'TICKET_STAFF_NEW'; data: TicketStaffNewData });
 
 export interface NotificationsResponse {
   items: NotificationItem[];

@@ -27,3 +27,12 @@ export const TICKET_CREATE_WINDOW_SECONDS = 24 * 60 * 60;
 
 /** Página por defecto del hilo (molde MessagesQueryDto: 50, máx. 100). */
 export const TICKET_MESSAGES_DEFAULT_LIMIT = 50;
+
+/**
+ * Longitud máxima del extracto que viaja en una Notification o en un email (§11).
+ *
+ * Es el mecanismo que hace verdad —y no eslogan— que la conversación in-app sea
+ * la fuente de verdad: el aviso NUNCA lleva el mensaje entero, así que para
+ * leerlo hay que entrar. Mismo valor que usa `ContactService.notifyAdmins`.
+ */
+export const TICKET_EXCERPT_MAX_CHARS = 140;

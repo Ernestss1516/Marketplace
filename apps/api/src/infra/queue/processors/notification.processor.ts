@@ -12,6 +12,9 @@ import {
   SendContactReplyData,
   SendResetEmailData,
   SendReviewRequestEmailData,
+  SendTicketMessageData,
+  SendTicketResolvedData,
+  SendTicketStaffNotificationData,
   SendVerificationEmailData,
 } from '../notification.types';
 
@@ -44,6 +47,12 @@ export class NotificationProcessor extends WorkerHost {
           return this.sendContactReply(job.data as SendContactReplyData);
         case NOTIFICATION_JOB.SEND_REVIEW_REQUEST_EMAIL:
           return this.sendReviewRequestEmail(job.data as SendReviewRequestEmailData);
+        case NOTIFICATION_JOB.SEND_TICKET_MESSAGE:
+          return this.sendTicketMessage(job.data as SendTicketMessageData);
+        case NOTIFICATION_JOB.SEND_TICKET_STAFF_NOTIFICATION:
+          return this.sendTicketStaffNotification(job.data as SendTicketStaffNotificationData);
+        case NOTIFICATION_JOB.SEND_TICKET_RESOLVED:
+          return this.sendTicketResolved(job.data as SendTicketResolvedData);
         default:
           this.logger.warn(`Unknown notification job: ${job.name}`);
       }
@@ -109,6 +118,71 @@ export class NotificationProcessor extends WorkerHost {
       text: data.cuerpo,
     });
     this.logger.log(`Contact reply email sent to ${data.to}`);
+  }
+
+  // ─── Atención al usuario R4 ─────────────────────────────────────────────────
+  // `text:` plano, nunca `html:` — la regla invariante de este processor. Aquí
+  // importa especialmente: el asunto y el extracto de un ticket los escribe un
+  // usuario cualquiera, y los lee un agente con sesión. Nunca se genera HTML a
+  // partir de contenido no confiable, así que no hace falta sanitizado.
+
+  /** Cierre común: el email avisa, no es el canal. Ver §11 del diseño. */
+  private readonly noReply =
+    'No respondas a este correo: responde desde tu ticket en el enlace de arriba.';
+
+  /**
+   * Al usuario — el staff respondió (o abrió el hilo). Lleva EXTRACTO + ENLACE,
+   * jamás la conversación: quien quiera leerla entra. Molde exacto de
+   * SEND_CONTACT_NOTIFICATION, que ya hacía esto.
+   */
+  private async sendTicketMessage(data: SendTicketMessageData): Promise<void> {
+    const link = `${this.appUrl}/mis-tickets/${data.ticketId}`;
+    const encabezado = data.opened
+      ? 'La administración ha abierto un hilo contigo'
+      : 'Tienes una respuesta nueva en tu ticket';
+    await this.resend.emails.send({
+      from: this.from,
+      to: data.email,
+      subject: `${encabezado}: ${data.subject}`,
+      text:
+        `Hola ${data.name},\n\n${encabezado} «${data.subject}»:\n\n"${data.extracto}"\n\n` +
+        `Léelo y responde aquí:\n${link}\n\n${this.noReply}`,
+    });
+    this.logger.log(`Ticket message email sent to ${data.email}`);
+  }
+
+  /**
+   * Al buzón de soporte — UNO SOLO, no un email por administrador (§14.4). El
+   * aviso in-app sí es fan-out; el correo no, porque no escala con el volumen de
+   * tickets que se espera.
+   */
+  private async sendTicketStaffNotification(data: SendTicketStaffNotificationData): Promise<void> {
+    const link = `${this.appUrl}/admin/tickets/${data.ticketId}`;
+    const encabezado = data.kind === 'new' ? 'Nuevo ticket' : 'Respuesta del usuario';
+    await this.resend.emails.send({
+      from: this.from,
+      to: data.to,
+      subject: `${encabezado}: ${data.subject}`,
+      text:
+        `${encabezado} de ${data.userName} — «${data.subject}»:\n\n"${data.extracto}"\n\n` +
+        `Atenderlo aquí:\n${link}`,
+    });
+    this.logger.log(`Ticket staff notification email sent to ${data.to}`);
+  }
+
+  /** Al usuario — su ticket se ha resuelto. Explica la ventana de reapertura. */
+  private async sendTicketResolved(data: SendTicketResolvedData): Promise<void> {
+    const link = `${this.appUrl}/mis-tickets/${data.ticketId}`;
+    await this.resend.emails.send({
+      from: this.from,
+      to: data.email,
+      subject: `Tu ticket se ha resuelto: ${data.subject}`,
+      text:
+        `Hola ${data.name},\n\nHemos marcado como resuelto tu ticket «${data.subject}».\n\n` +
+        `Si el problema sigue, tienes ${data.reopenWindowDays} días para reabrirlo respondiendo ` +
+        `en el hilo:\n${link}\n\nPasado ese plazo tendrás que abrir uno nuevo.\n\n${this.noReply}`,
+    });
+    this.logger.log(`Ticket resolved email sent to ${data.email}`);
   }
 
   /** Reputación RÁFAGA 3 — copy deliberadamente sin presión ni plazo: valorar
