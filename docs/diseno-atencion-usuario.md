@@ -1,20 +1,19 @@
 # Diseño del sistema de atención al usuario (tickets) — revisión 1
 
-> ## ⚠️ ESTADO: APROBADO E IMPLEMENTADO, salvo dos incrementos
+> ## ⚠️ ESTADO: APROBADO E IMPLEMENTADO, salvo UN incremento (R9, tiempo real)
 >
 > **Este documento es el DISEÑO, no el estado.** Se conserva tal como se aprobó (2026-07-28)
 > porque explica el *porqué* de cada decisión; para saber qué hay construido de verdad, la
 > referencia es **`estado-tecnico.md` → «Sistema de atención al usuario (tickets) — ESTADO
 > CONSOLIDADO»**. Donde este documento y el código difieran, **manda el código**.
 >
-> **Implementado** (ráfagas R1, R2, R3, R4, R6, R7, R8 + notas internas): modelo, máquina de
-> estados completa (las 11 transiciones con disparador), API de usuario y de staff, los tres
+> **Implementado** (ráfagas R1, R2, R3, R4, R5, R6, R7, R8 + notas internas): modelo, máquina
+> de estados completa (las 11 transiciones con disparador), API de usuario y de staff, los tres
 > flujos, avisos in-app + email auxiliar, frontend de usuario y de staff, cron de auto-cierre,
-> y las notas internas con sus cinco defensas.
+> las notas internas con sus cinco defensas, y los **adjuntos de §14.7 con molde FACTURA**
+> (JPEG/PNG/WebP + PDF, 10 MB, 5 por mensaje; descarga autenticada, sin URL pública).
 >
 > **NO implementado, y por tanto lo que este documento describe ahí es plan, no realidad:**
-> - **§14.7 / R5 — ADJUNTOS.** El modelo `TicketAttachment` existe en el schema; la subida y
->   la descarga **no están construidas**. No hay endpoint, ni UI, ni escritura en R2.
 > - **§12 / R9 — TIEMPO REAL.** No se ha tocado. Sigue en pie la recomendación de no hacerlo
 >   antes de cerrar el `TODO(prod)` del `cors: { origin: '*' }` de `MessagingGateway`.
 >

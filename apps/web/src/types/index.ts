@@ -687,6 +687,19 @@ export interface TicketTopic {
  * backend filtra las notas internas en la propia query (getForUser). La UI
  * tampoco las espera — no hay rama que las pinte.
  */
+/**
+ * R5 — adjunto tal y como llega en el hilo. **No incluye la `key` de R2**: el
+ * backend no la sirve a propósito (no hay URL pública en ningún sitio; el fichero
+ * se pide por su id al endpoint autenticado de descarga).
+ */
+export interface TicketAttachment {
+  id: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  createdAt: string;
+}
+
 export interface TicketMessage {
   id: string;
   ticketId: string;
@@ -697,6 +710,7 @@ export interface TicketMessage {
   readByUserAt: string | null;
   readByStaffAt: string | null;
   createdAt: string;
+  attachments?: TicketAttachment[];
 }
 
 /** Fila de la lista "mis tickets" — el resumen que sirve GET /tickets. */

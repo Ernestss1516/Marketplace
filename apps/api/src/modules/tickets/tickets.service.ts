@@ -12,6 +12,8 @@ import { PrismaService } from '../../infra/prisma/prisma.service';
 import { RateLimitService } from '../../infra/redis/rate-limit.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { TicketNotificationsService } from './ticket-notifications.service';
+import { PreparedAttachment, TicketAttachmentsService } from './ticket-attachments.service';
+import { assertCanHandleTicket } from './tickets.guards';
 import {
   ASSIGNED_TO_ME,
   ASSIGNED_TO_NONE,
@@ -53,6 +55,18 @@ const TICKET_CONTEXT_INCLUDE = {
  */
 const MESSAGE_ORDER = { createdAt: 'desc' } as const;
 
+/**
+ * R5 — lo que de un adjunto viaja en el payload del hilo. **`key` NO está**, y
+ * su ausencia es intencionada: la clave de R2 es una coordenada de almacenamiento,
+ * no un dato del usuario, y el único que la necesita es el endpoint de descarga,
+ * que la lee de la base de datos. Servirla no sería un agujero por sí sola (el
+ * bucket es privado y no hay URL pública en ninguna parte de R5), pero un id
+ * opaco basta para pedir el fichero — así que la clave no sale.
+ */
+const ATTACHMENT_SELECT = {
+  select: { id: true, filename: true, mimeType: true, sizeBytes: true, createdAt: true },
+} as const;
+
 export type TicketWithMessage = { ticket: Ticket; message: TicketMessage };
 
 /** Paginación por cursor del hilo (molde MessagesQueryDto). */
@@ -90,6 +104,7 @@ export class TicketsService {
     private readonly auditLog: AuditLogService,
     private readonly rateLimit: RateLimitService,
     private readonly notify: TicketNotificationsService,
+    private readonly attachments: TicketAttachmentsService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -504,12 +519,10 @@ export class TicketsService {
    * admite excepciones por verbo.
    */
   private assertCanHandle(ticket: Ticket, actor: StaffActor): void {
-    if (ticket.invoiceId && actor.role !== 'ADMIN') {
-      throw new ForbiddenException({
-        code: 'TICKET_BILLING_ADMIN_ONLY',
-        message: 'Los tickets con una factura enlazada solo los gestiona un administrador.',
-      });
-    }
+    // R5 — la regla vive en `tickets.guards.ts` porque el servicio de adjuntos
+    // también la aplica. Delegar y no duplicar: una autorización copiada en dos
+    // sitios diverge en uno de los dos.
+    assertCanHandleTicket(ticket, actor);
   }
 
   /** Carga + guard de contenido, para las transiciones de staff. */
@@ -633,6 +646,7 @@ export class TicketsService {
     body: string,
     ip?: string,
     internal = false,
+    files: Express.Multer.File[] = [],
   ): Promise<TicketWithMessage> {
     const existing = await this.loadForStaff(ticketId, actor);
     if (!TicketsService.STAFF_REPLYABLE.includes(existing.status)) {
@@ -641,7 +655,14 @@ export class TicketsService {
       );
     }
 
-    const result = await this.prisma.$transaction(async (tx) => {
+    // R5 — DESPUÉS de los guards (propiedad, puerta de factura y estado) y ANTES
+    // de la transacción: la puerta ADMIN-only de facturación ya ha decidido aquí,
+    // así que un MODERATOR no llega ni a escribir un byte en R2 de un hilo con
+    // factura. Ver `TicketAttachmentsService.prepare`.
+    const prepared = await this.attachments.prepare(ticketId, files);
+
+    const result = await this.persistOrDiscard(prepared, async () =>
+      this.prisma.$transaction(async (tx) => {
       const message = await this.writeMessage(
         tx,
         ticketId,
@@ -649,6 +670,7 @@ export class TicketsService {
         'STAFF',
         body,
         internal,
+        prepared,
       );
 
       // UNA NOTA INTERNA NO TOCA LA FILA DEL TICKET. Ni el estado, ni la
@@ -696,7 +718,8 @@ export class TicketsService {
       );
 
       return { ticket, message };
-    });
+      }),
+    );
 
     // R4 — T3/T4: el usuario recibe TICKET_MESSAGE + email con extracto y enlace.
     // Se llama SIEMPRE, también con una nota interna: `userStaffWrote` sale por la
@@ -720,7 +743,12 @@ export class TicketsService {
    * tiene emisor en R1: en la matriz aprobada la única reapertura es esta, la del
    * usuario. Si en R3 se añade una reapertura de staff, esa sí la escribirá.
    */
-  async replyAsUser(ticketId: string, userId: string, body: string): Promise<TicketWithMessage> {
+  async replyAsUser(
+    ticketId: string,
+    userId: string,
+    body: string,
+    files: Express.Multer.File[] = [],
+  ): Promise<TicketWithMessage> {
     const existing = await this.loadOwnedTicket(ticketId, userId);
     if (!TicketsService.USER_REPLYABLE.includes(existing.status)) {
       throw new BadRequestException(
@@ -734,8 +762,13 @@ export class TicketsService {
     const nextStatus: TicketStatus =
       existing.status === 'WAITING_USER' || reopening ? 'IN_PROGRESS' : existing.status;
 
-    const result = await this.prisma.$transaction(async (tx) => {
-      const message = await this.writeMessage(tx, ticketId, userId, 'USER', body);
+    // R5 — tras `loadOwnedTicket` y la ventana de reapertura: no se sube nada de
+    // un ticket que no es tuyo ni de uno donde ya no se puede escribir.
+    const prepared = await this.attachments.prepare(ticketId, files);
+
+    const result = await this.persistOrDiscard(prepared, async () =>
+      this.prisma.$transaction(async (tx) => {
+      const message = await this.writeMessage(tx, ticketId, userId, 'USER', body, false, prepared);
 
       const ticket = await tx.ticket.update({
         where: { id: ticketId },
@@ -753,7 +786,8 @@ export class TicketsService {
       });
 
       return { ticket, message };
-    });
+      }),
+    );
 
     // R4 — al staff le consta que hay algo que atender. Se avisa SIEMPRE que el
     // usuario escribe (T5, T6 y la reapertura T8), no solo desde WAITING_USER:
@@ -1044,7 +1078,7 @@ export class TicketsService {
       include: {
         ...TICKET_CONTEXT_INCLUDE,
         report: { select: { id: true, reason: true, status: true } },
-        messages: { orderBy: MESSAGE_ORDER },
+        messages: { orderBy: MESSAGE_ORDER, include: { attachments: ATTACHMENT_SELECT } },
       },
     });
     if (!ticket) throw new NotFoundException('Ticket no encontrado');
@@ -1099,6 +1133,7 @@ export class TicketsService {
       where,
       orderBy: MESSAGE_ORDER,
       take: limit + 1,
+      include: { attachments: ATTACHMENT_SELECT },
     });
 
     const hasMore = raw.length > limit;
@@ -1177,6 +1212,28 @@ export class TicketsService {
    * existe ninguna vía de escritura para las notas internas (decisión §14.3), y
    * esta firma es la que lo garantiza — no hay parámetro que pasar.
    */
+  /**
+   * R5 — R2 NO ES TRANSACCIONAL. Los ficheros ya están subidos cuando empieza la
+   * transacción del mensaje, así que si esta falla hay que retirarlos: si no,
+   * cada error de escritura dejaría objetos pagados y sin dueño en el bucket.
+   *
+   * Al revés no se puede hacer (escribir primero y subir después): dejaría filas
+   * `TicketAttachment` apuntando a un objeto que no existe, y eso el usuario
+   * SÍ lo ve — un adjunto en el hilo que da error al descargarlo. Entre basura
+   * invisible y un enlace roto, basura invisible.
+   */
+  private async persistOrDiscard<T>(
+    prepared: PreparedAttachment[],
+    persist: () => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await persist();
+    } catch (err) {
+      await this.attachments.discard(prepared.map((a) => a.key));
+      throw err;
+    }
+  }
+
   private writeMessage(
     tx: Prisma.TransactionClient,
     ticketId: string,
@@ -1184,6 +1241,7 @@ export class TicketsService {
     side: 'USER' | 'STAFF',
     body: string,
     internal = false,
+    attachments: PreparedAttachment[] = [],
   ): Promise<TicketMessage> {
     // Guard estructural: una nota interna es, por definición, del equipo. Un
     // `internal: true` con `side: 'USER'` sería un mensaje del usuario que el
@@ -1193,7 +1251,24 @@ export class TicketsService {
     if (internal && side !== 'STAFF') {
       throw new BadRequestException('Una nota interna solo puede escribirla el equipo');
     }
-    return tx.ticketMessage.create({ data: { ticketId, authorId, side, body, internal } });
+    // Los adjuntos se crean ANIDADOS, en la MISMA transacción que el mensaje: no
+    // existe un instante en el que haya mensaje sin sus ficheros ni al revés.
+    //
+    // Y se DEVUELVEN con él (`include`): la respuesta del POST es lo que el
+    // frontend añade al hilo sin recargar, así que sin esto el usuario acababa de
+    // adjuntar un fichero y no lo veía hasta refrescar. Lo detectó el test de
+    // navegador — por HTTP y en la BD todo estaba correcto.
+    return tx.ticketMessage.create({
+      data: {
+        ticketId,
+        authorId,
+        side,
+        body,
+        internal,
+        ...(attachments.length > 0 && { attachments: { create: attachments } }),
+      },
+      include: { attachments: ATTACHMENT_SELECT },
+    });
   }
 
   /** Normaliza los enlaces opcionales a `null` (Prisma distingue undefined de null). */

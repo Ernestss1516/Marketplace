@@ -8,14 +8,34 @@ import {
   Param,
   Post,
   Query,
+  StreamableFile,
+  UploadedFiles,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiConsumes,
+  ApiOperation,
+  ApiParam,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
+import { FilesInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { Role } from '@prisma/client';
 import { JwtAuthGuard, RolesGuard } from '../../common/guards';
 import { CurrentUser, Roles } from '../../common/decorators';
 import { JwtUser } from '../auth/auth.types';
 import { TicketsService } from './tickets.service';
+import {
+  TicketAttachmentsService,
+  attachmentDisposition,
+} from './ticket-attachments.service';
+import {
+  TICKET_ATTACHMENT_MULTER_MAX_BYTES,
+  TICKET_ATTACHMENT_MULTER_MAX_FILES,
+} from './tickets.constants';
 import { StaffActor } from './tickets.types';
 import { ListAdminTicketsDto } from './dto/list-admin-tickets.dto';
 import { CreateAdminTicketDto } from './dto/create-admin-ticket.dto';
@@ -47,7 +67,10 @@ import { SendStaffMessageDto } from './dto/send-staff-message.dto';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(Role.MODERATOR, Role.ADMIN)
 export class AdminTicketsController {
-  constructor(private readonly tickets: TicketsService) {}
+  constructor(
+    private readonly tickets: TicketsService,
+    private readonly attachments: TicketAttachmentsService,
+  ) {}
 
   /** El actor que consume el servicio: id + ROL (el rol es lo que abre las dos puertas). */
   private actor(user: JwtUser): StaffActor {
@@ -102,13 +125,64 @@ export class AdminTicketsController {
       'usuario) ni dispara ningún aviso.',
   })
   @ApiResponse({ status: 400, description: 'El ticket está cerrado o resuelto' })
+  @ApiResponse({ status: 422, description: 'Adjunto no admitido: tipo, tamaño o número' })
+  // R5 — igual que la ruta de usuario: multipart además de JSON, con los límites
+  // de multer como tope de memoria y el 422 del servicio como regla de negocio.
+  @ApiConsumes('application/json', 'multipart/form-data')
+  @UseInterceptors(
+    FilesInterceptor('files', TICKET_ATTACHMENT_MULTER_MAX_FILES, {
+      storage: memoryStorage(),
+      limits: { fileSize: TICKET_ATTACHMENT_MULTER_MAX_BYTES },
+    }),
+  )
   reply(
     @Param('id') id: string,
     @CurrentUser() user: JwtUser,
     @Body() dto: SendStaffMessageDto,
     @Ip() ip: string,
+    @UploadedFiles() files?: Express.Multer.File[],
   ) {
-    return this.tickets.replyAsStaff(id, this.actor(user), dto.body, ip, dto.internal ?? false);
+    return this.tickets.replyAsStaff(
+      id,
+      this.actor(user),
+      dto.body,
+      ip,
+      dto.internal ?? false,
+      files ?? [],
+    );
+  }
+
+  /**
+   * R5 — descarga de un adjunto desde el lado del staff. Mismo molde FACTURA que
+   * la del usuario, con dos diferencias:
+   *
+   * - las notas internas SÍ se sirven (el staff es su destinatario);
+   * - se aplica la puerta ADMIN-only por contenido de fila: un MODERATOR no baja
+   *   el adjunto de un ticket con factura enlazada, igual que no puede abrirlo.
+   *   Poder descargar el fichero de un hilo que no se puede leer sería la puerta
+   *   de atrás de esa puerta.
+   */
+  @Get(':id/attachments/:attachmentId')
+  @ApiOperation({ summary: 'Descargar un adjunto de un ticket (staff)' })
+  @ApiParam({ name: 'id', description: 'ID del ticket' })
+  @ApiParam({ name: 'attachmentId', description: 'ID del adjunto' })
+  @ApiResponse({ status: 200, description: 'El fichero' })
+  @ApiResponse({ status: 403, description: 'Ticket con factura: solo ADMIN' })
+  @ApiResponse({ status: 404, description: 'El adjunto no existe o no es de este ticket' })
+  async downloadAttachment(
+    @Param('id') id: string,
+    @Param('attachmentId') attachmentId: string,
+    @CurrentUser() user: JwtUser,
+  ): Promise<StreamableFile> {
+    const { buffer, filename, mimeType } = await this.attachments.downloadForStaff(
+      id,
+      attachmentId,
+      this.actor(user),
+    );
+    return new StreamableFile(buffer, {
+      type: mimeType,
+      disposition: attachmentDisposition(filename),
+    });
   }
 
   @Post(':id/resolve')

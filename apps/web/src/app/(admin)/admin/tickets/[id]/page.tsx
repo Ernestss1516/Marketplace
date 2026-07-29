@@ -7,6 +7,7 @@ import { AlertCircle, ChevronLeft, Flag, Link2, Loader2, Lock, Send, User } from
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { TicketStatusBadge } from '@/components/tickets/TicketStatusBadge';
+import { AttachmentList, AttachmentPicker } from '@/components/tickets/TicketAttachments';
 import { resolveStaffActions } from '@/components/tickets/staff-actions';
 import { cn } from '@/lib/utils';
 import {
@@ -50,6 +51,9 @@ export default function AdminTicketPage({ params }: { params: Promise<{ id: stri
 
   const [ticket, setTicket] = useState<AdminTicketDetail | null>(null);
   const [body, setBody] = useState('');
+  /** R5 — adjuntos pendientes de enviar. Se vacían tras un envío correcto, igual
+   *  que el toggle de nota interna: lo que ya se mandó no puede quedar colgando. */
+  const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   /** Toggle de nota interna. Se resetea tras enviar para que la siguiente
    * respuesta no salga interna por inercia — el modo "pegajoso" es justo el
@@ -86,6 +90,7 @@ export default function AdminTicketPage({ params }: { params: Promise<{ id: stri
       await load();
       if (key === 'reply') {
         setBody('');
+        setFiles([]);
         setEsNotaInterna(false);
       }
     } catch (err) {
@@ -242,6 +247,17 @@ export default function AdminTicketPage({ params }: { params: Promise<{ id: stri
                     <p className="mb-1 text-[11px] font-semibold uppercase">Nota interna</p>
                   )}
                   <p className="whitespace-pre-wrap break-words">{m.body}</p>
+                  {/* Los adjuntos de una NOTA INTERNA se ven aquí y solo aquí: el
+                      endpoint de descarga del usuario los niega con 404, porque
+                      heredan la privacidad de la nota (defensa 6). */}
+                  {m.attachments && m.attachments.length > 0 && (
+                    <AttachmentList
+                      ticketId={ticket.id}
+                      attachments={m.attachments}
+                      token={token!}
+                      scope="staff"
+                    />
+                  )}
                   <p
                     className={cn(
                       'mt-1 text-[11px]',
@@ -293,13 +309,20 @@ export default function AdminTicketPage({ params }: { params: Promise<{ id: stri
                 </span>
               </label>
 
+              <AttachmentPicker
+                files={files}
+                onChange={setFiles}
+                disabled={busy !== null}
+                testId="adjuntos-picker-staff"
+              />
+
               <Button
                 size="sm"
                 variant={esNotaInterna ? 'secondary' : 'default'}
                 disabled={!body.trim() || busy !== null}
                 onClick={() =>
                   run('reply', () =>
-                    replyAsStaff(ticket.id, body.trim(), token!, esNotaInterna),
+                    replyAsStaff(ticket.id, body.trim(), token!, esNotaInterna, files),
                   )
                 }
                 data-testid="enviar-respuesta-staff"

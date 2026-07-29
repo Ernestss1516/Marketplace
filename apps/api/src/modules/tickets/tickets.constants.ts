@@ -1,3 +1,5 @@
+import { MAX_FILE_SIZE, MIME_TO_EXT } from '../media/media.service';
+
 /**
  * Ventana de reapertura de un ticket RESOLVED (decisión §14.2 del diseño), en
  * días. Es el DEFAULT: el valor vigente vive en `Setting.ticketAutoCloseWindowDays`
@@ -40,3 +42,44 @@ export const TICKET_MESSAGES_DEFAULT_LIMIT = 50;
  * leerlo hay que entrar. Mismo valor que usa `ContactService.notifyAdmins`.
  */
 export const TICKET_EXCERPT_MAX_CHARS = 140;
+
+// ─── R5 — ADJUNTOS (§14.7) ───────────────────────────────────────────────────
+
+/**
+ * Tipos aceptados: los MISMOS de `MediaService` **más PDF** (decisión §14.7).
+ *
+ * Se importa `MIME_TO_EXT` en vez de recopiar el mapa: el propio comentario de
+ * `media.service.ts` invita a reutilizarlo ("exported so other upload endpoints
+ * ... can reuse the same mime→ext mapping"), y dos listas de MIME permitidos que
+ * se mantienen por separado acaban divergiendo. **Es una constante, no el
+ * servicio**: R5 no usa `MediaService` (ver `TicketAttachmentsService`).
+ */
+export const TICKET_ATTACHMENT_MIME_TO_EXT: Record<string, string> = {
+  ...MIME_TO_EXT,
+  'application/pdf': '.pdf',
+};
+
+export const TICKET_ATTACHMENT_ALLOWED_MIME = Object.keys(TICKET_ATTACHMENT_MIME_TO_EXT);
+
+/** 10 MB por fichero (§14.7). Mismo tamaño que media, declarado aquí a propósito. */
+export const TICKET_ATTACHMENT_MAX_BYTES = MAX_FILE_SIZE;
+
+/** Máximo 5 adjuntos por mensaje (§14.7). */
+export const TICKET_ATTACHMENT_MAX_PER_MESSAGE = 5;
+
+/**
+ * DOS NIVELES DE LÍMITE, y la distinción es deliberada.
+ *
+ * Los de arriba son la REGLA DE NEGOCIO y los hace cumplir el servicio, que
+ * responde con un 422 explicando cuál se ha pasado. Estos dos son el TOPE DE
+ * MEMORIA de multer: sin ellos, una petición de 1 GB se bufferearía entera antes
+ * de que ningún código nuestro pudiera opinar (multipart no pasa por el límite de
+ * body de Express). Se dejan holgados a propósito para que el caso normal —el
+ * usuario que se pasa un poco— reciba el 422 claro del servicio y no el error
+ * crudo de multer; quien mande 100 MB no busca un mensaje de error.
+ */
+export const TICKET_ATTACHMENT_MULTER_MAX_BYTES = TICKET_ATTACHMENT_MAX_BYTES + 1024 * 1024;
+export const TICKET_ATTACHMENT_MULTER_MAX_FILES = TICKET_ATTACHMENT_MAX_PER_MESSAGE + 5;
+
+/** Tope del nombre original que se guarda (solo para mostrar y descargar). */
+export const TICKET_ATTACHMENT_FILENAME_MAX_CHARS = 200;

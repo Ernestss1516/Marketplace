@@ -7,13 +7,33 @@ import {
   Param,
   Post,
   Query,
+  StreamableFile,
+  UploadedFiles,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiConsumes,
+  ApiOperation,
+  ApiParam,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
+import { FilesInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { JwtAuthGuard } from '../../common/guards';
 import { CurrentUser } from '../../common/decorators';
 import { JwtUser } from '../auth/auth.types';
 import { TicketsService } from './tickets.service';
+import {
+  TicketAttachmentsService,
+  attachmentDisposition,
+} from './ticket-attachments.service';
+import {
+  TICKET_ATTACHMENT_MULTER_MAX_BYTES,
+  TICKET_ATTACHMENT_MULTER_MAX_FILES,
+} from './tickets.constants';
 import { ContactReasonsService } from '../contact/contact-reasons.service';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { SendTicketMessageDto } from './dto/send-ticket-message.dto';
@@ -39,6 +59,7 @@ export class TicketsController {
   constructor(
     private readonly tickets: TicketsService,
     private readonly contactReasons: ContactReasonsService,
+    private readonly attachments: TicketAttachmentsService,
   ) {}
 
   @Post()
@@ -128,12 +149,67 @@ export class TicketsController {
     description: 'Ticket cerrado, o ventana de reapertura de 14 días expirada',
   })
   @ApiResponse({ status: 403, description: 'Este ticket no es tuyo' })
+  @ApiResponse({
+    status: 422,
+    description: 'Adjunto no admitido: tipo, tamaño o número de ficheros',
+  })
+  // R5 — la ruta acepta AHORA multipart además de JSON. El interceptor de multer
+  // solo actúa sobre peticiones `multipart/form-data`; un cuerpo JSON sigue
+  // llegando exactamente igual que antes (por eso las suites de R2/R3, que envían
+  // JSON, no notan el cambio). Los límites de multer son el TOPE DE MEMORIA, no la
+  // regla de negocio: esa la aplica el servicio con un 422 que dice cuál se ha
+  // pasado. Ver `tickets.constants.ts`.
+  @ApiConsumes('application/json', 'multipart/form-data')
+  @UseInterceptors(
+    FilesInterceptor('files', TICKET_ATTACHMENT_MULTER_MAX_FILES, {
+      storage: memoryStorage(),
+      limits: { fileSize: TICKET_ATTACHMENT_MULTER_MAX_BYTES },
+    }),
+  )
   reply(
     @Param('id') id: string,
     @CurrentUser() user: JwtUser,
     @Body() dto: SendTicketMessageDto,
+    @UploadedFiles() files?: Express.Multer.File[],
   ) {
-    return this.tickets.replyAsUser(id, user.userId, dto.body);
+    return this.tickets.replyAsUser(id, user.userId, dto.body, files ?? []);
+  }
+
+  /**
+   * R5 — DESCARGA DE UN ADJUNTO. Molde `GET /billing/invoices/:id/pdf`: endpoint
+   * AUTENTICADO que baja el objeto de R2 y lo devuelve como `StreamableFile`.
+   *
+   * **NO HAY, Y NO PUEDE HABER, UNA URL PÚBLICA.** Es la diferencia entera con
+   * `media`: allí la respuesta de subida ES una URL servida por el bucket; aquí
+   * el fichero solo existe detrás de este endpoint, que revalida el acceso en
+   * CADA descarga. Revocar el acceso es dejar de pasar por él.
+   */
+  @Get(':id/attachments/:attachmentId')
+  @ApiOperation({ summary: 'Descargar un adjunto de un hilo propio' })
+  @ApiParam({ name: 'id', description: 'ID del ticket' })
+  @ApiParam({ name: 'attachmentId', description: 'ID del adjunto' })
+  @ApiResponse({ status: 200, description: 'El fichero' })
+  @ApiResponse({ status: 403, description: 'Este ticket no es tuyo' })
+  @ApiResponse({
+    status: 404,
+    description:
+      'El adjunto no existe, no es de este ticket, o pertenece a una nota interna del staff ' +
+      '(para el usuario, una nota interna no existe)',
+  })
+  async downloadAttachment(
+    @Param('id') id: string,
+    @Param('attachmentId') attachmentId: string,
+    @CurrentUser() user: JwtUser,
+  ): Promise<StreamableFile> {
+    const { buffer, filename, mimeType } = await this.attachments.downloadForUser(
+      id,
+      attachmentId,
+      user.userId,
+    );
+    return new StreamableFile(buffer, {
+      type: mimeType,
+      disposition: attachmentDisposition(filename),
+    });
   }
 
   @Post(':id/close')

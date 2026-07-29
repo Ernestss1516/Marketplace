@@ -166,6 +166,12 @@ resolver, cerrar, abrir hilo) es otra cosa y vive aparte — ver R3.
   lo devuelve a `IN_PROGRESS` (no hay endpoint `/reopen` aparte). Fuera de esa ventana →
   `400 REOPEN_WINDOW_EXPIRED`. Sobre un ticket `CLOSED` → `400`.
   El body **no admite `internal`** (ver más abajo).
+  **Acepta `multipart/form-data` además de JSON** (R5): campo `body` + hasta 5 ficheros en
+  `files`. JSON sigue funcionando exactamente igual.
+- **`GET /tickets/:id/attachments/:attachmentId`** *(auth, propietario)* — Descarga un
+  adjunto. `403` si el ticket no es tuyo; **`404` si el adjunto es de una nota interna** del
+  staff (para el usuario, una nota interna no existe — un `403` confirmaría que hay algo) o
+  si no pertenece a ese ticket.
 - **`POST /tickets/:id/close`** *(auth, propietario)* — Cerrar el propio, **irreversible**.
   Solo tickets de `origin=USER`: un hilo iniciado por la administración → `403`.
 
@@ -180,7 +186,18 @@ resolver, cerrar, abrir hilo) es otra cosa y vive aparte — ver R3.
 > acepta**: no salen en el hilo, no cuentan en `unreadCount`, no mueven `lastMessageAt`, y
 > un `internal` en el body de `POST /tickets` o `POST /tickets/:id/messages` se rechaza con
 > `400`. El campo solo existe en el DTO de staff (`SendStaffMessageDto`), que extiende al de
-> usuario — la herencia solo propaga hacia el lado seguro.
+> usuario — la herencia solo propaga hacia el lado seguro. **Los ADJUNTOS de una nota interna
+> heredan su privacidad**: el endpoint de descarga del usuario responde `404`.
+
+> **ADJUNTOS (R5) — NO HAY URL PÚBLICA, y es la garantía central.** A diferencia de
+> `POST /media/upload`, que devuelve una URL servida por el bucket, de un adjunto de ticket
+> solo se guarda la **clave** de R2 (`TicketAttachment.key`), que **ni siquiera viaja en el
+> payload del hilo**: el fichero existe únicamente detrás del endpoint autenticado de
+> descarga, que revalida el acceso en CADA petición (molde `GET /billing/invoices/:id/pdf`).
+> Límites: JPEG/PNG/WebP + PDF, 10 MB por fichero, 5 por mensaje. Rechazos con `422` y
+> `code`: `ATTACHMENT_TYPE_NOT_ALLOWED`, `ATTACHMENT_TOO_LARGE`, `TOO_MANY_ATTACHMENTS`. La
+> clave se compone con bytes aleatorios, nunca con el nombre subido; ese nombre solo se usa
+> para mostrar y para el `Content-Disposition`.
 
 ---
 
@@ -204,6 +221,13 @@ uno por la puerta del otro.
     **no toca el ticket** (ni estado, ni asignación, ni `lastMessageAt` — ese campo lo lee
     el usuario) **ni dispara ningún aviso**. Auditada como `TICKET_INTERNAL_NOTE`, no como
     `TICKET_REPLY`.
+  · **Acepta `multipart/form-data`** (R5), igual que la ruta de usuario. En multipart
+    `internal` viaja como la cadena `"true"`/`"false"` y el DTO convierte **solo** esos dos
+    valores exactos; cualquier otro sigue dando `400`.
+- **`GET /admin/tickets/:id/attachments/:attachmentId`** — Descarga un adjunto desde el lado
+  del staff. Las notas internas **sí** se sirven aquí (el staff es su destinatario), y se
+  aplica la puerta ADMIN-only de facturación: un `MODERATOR` no descarga el adjunto de un
+  ticket con factura enlazada, igual que no puede abrirlo (`403 TICKET_BILLING_ADMIN_ONLY`).
 - **`POST /admin/tickets/:id/resolve`** — T7: `IN_PROGRESS`/`WAITING_USER` → `RESOLVED`.
 - **`POST /admin/tickets/:id/close`** — T10. **Irreversible.**
 - **`POST /admin/tickets/:id/reassign`** — Cambia el agente asignado.

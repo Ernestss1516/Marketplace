@@ -6,7 +6,9 @@ import type {
   TicketRow,
   TicketTopic,
 } from '@/types';
+import { toAdjuntoMessage } from '@/components/tickets/attachments';
 import { ApiError, apiFetch } from './client';
+import { buildReplyForm } from './tickets';
 
 /** Centinelas del filtro de asignación. Los ids son cuid: nunca colisionan. */
 export const ASSIGNED_TO_ME = 'me';
@@ -46,10 +48,14 @@ export function replyAsStaff(
   body: string,
   token: string,
   internal = false,
+  files: File[] = [],
 ): Promise<{ ticket: TicketRow; message: TicketMessage }> {
   return apiFetch(`/admin/tickets/${id}/messages`, {
     method: 'POST',
-    body: JSON.stringify({ body, internal }),
+    // R5 — con adjuntos va multipart. `internal` viaja como la cadena "true"/"false"
+    // (multipart no tiene tipos) y el DTO de staff la convierte SOLO en esos dos
+    // casos exactos; cualquier otra cosa la sigue rechazando con 400.
+    body: files.length > 0 ? buildReplyForm(body, files, internal) : JSON.stringify({ body, internal }),
     token,
   });
 }
@@ -109,6 +115,10 @@ export function getStaffTicketTopics(token: string): Promise<TicketTopic[]> {
 /** Mensajes de dominio de las acciones de staff, traducidos desde el `code` del backend. */
 export function toStaffTicketMessage(err: unknown): string {
   if (!(err instanceof ApiError)) return 'Ha ocurrido un error. Inténtalo de nuevo.';
+
+  // R5 — mismos textos que la validación de cliente (ver tickets.ts).
+  const adjunto = toAdjuntoMessage(err.code);
+  if (adjunto) return adjunto;
 
   switch (err.code) {
     case 'TICKET_BILLING_ADMIN_ONLY':

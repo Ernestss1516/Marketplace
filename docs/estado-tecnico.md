@@ -4740,12 +4740,6 @@ backend — por eso los errores se muestran en vez de ocultarse.
 
 ### LO QUE NO ESTÁ (incrementos pendientes)
 
-- **R5 — ADJUNTOS. NO IMPLEMENTADO.** El modelo `TicketAttachment` existe en el schema
-  (`key`, `filename`, `mimeType`, `sizeBytes`) pero **no hay subida, ni descarga, ni UI, ni
-  endpoint**. Diseño en §14.7 / §3.5 de `diseno-atencion-usuario.md`: JPEG/PNG/WebP + PDF,
-  10 MB, máximo 5 por mensaje, y **molde FACTURA (R2 privado + endpoint autenticado que
-  revalida el acceso), NO molde media** (público) — un pantallazo puede llevar datos
-  personales y una URL pública de R2 es compartible y no revocable.
 - **R9 — TIEMPO REAL. NO IMPLEMENTADO.** Diseño en §12: salas `ticket:<id>` y una sala
   `staff` (que **no existe** hoy en `MessagingGateway`, que solo tiene `user:` y `conv:`).
   **REQUISITO PREVIO:** cerrar el `TODO(prod)` del `cors: { origin: '*' }` del gateway antes
@@ -5371,6 +5365,120 @@ en su hilo, ni en el HTML servido, ni en la lista.
    segunda corrida fallaba con 409 — el clásico "verde la primera vez, rojo al repetir sin
    resetear la BD". Corregido con `invoiceLine: { is: null }`.
 
+### Atención al usuario R5 — ADJUNTOS (§14.7 / §3.5)
+
+**LA DECISIÓN QUE DEFINE LA RÁFAGA: molde FACTURA, no molde media.** No es una preferencia de
+estilo, son dos productos distintos:
+
+| | `MediaService` (fotos de anuncio) | R5 (adjuntos de ticket) |
+|---|---|---|
+| Qué se guarda | `url` pública (`getPublicUrl`) en `ListingImage` | solo la **clave** en `TicketAttachment.key` |
+| Cómo se sirve | el bucket, a cualquiera con la URL | endpoint **autenticado** que revalida en cada descarga |
+| Revocar acceso | imposible (la URL es compartible y no caduca) | dejar de pasar el control |
+| Efectos | fila `ListingImage` + job de procesado | ninguno |
+
+Un pantallazo de ticket puede llevar un DNI, un importe o una conversación privada. Con molde
+media, quien tuviera la URL —reenviada, cacheada, indexada— tendría el fichero para siempre.
+Así que `TicketAttachmentsService` **usa `R2Service` directamente y no `MediaService`**, y **en
+todo R5 no se llama a `getPublicUrl` ni una vez**. Lo único compartido con media son DOS
+CONSTANTES (whitelist MIME y tamaño máximo), importadas en `tickets.constants.ts` para que no
+existan dos listas de tipos permitidos divergiendo en paralelo. `media.e2e-spec.ts` sigue verde
+sin editarse.
+
+**Superficie**: los dos endpoints de mensaje (`POST /tickets/:id/messages` y
+`POST /admin/tickets/:id/messages`) aceptan ahora **multipart además de JSON** —el interceptor
+de multer solo actúa sobre multipart, así que un cuerpo JSON llega igual que antes y las suites
+de R2/R3 no notan el cambio—, más dos rutas de descarga (`GET …/attachments/:attachmentId`,
+una de usuario y una de staff). JPEG/PNG/WebP + PDF, 10 MB, 5 por mensaje.
+
+**La clave no lleva NADA del cliente**: `tickets/<ticketId>/<randomBytes(16)>.<ext>`, molde
+`MediaService`. El nombre original se guarda en su columna, que es donde un dato del cliente
+puede vivir sin ser una ruta. Y el `key` **no viaja en el payload del hilo** (`ATTACHMENT_SELECT`
+lo excluye): el frontend pide el fichero por su id.
+
+**ORDEN DE OPERACIONES, y cada paso está probado:**
+1. **Autorizar primero.** `prepare()` se llama DESPUÉS de los guards de propiedad, puerta de
+   facturación y estado. Subir antes convertiría el endpoint en almacenamiento gratuito
+   escribible por cualquiera con un id ajeno — hay un test que espía `R2Service.upload` y exige
+   que no se llame en el 403.
+2. **Validar todo antes de subir nada.** Un lote con un fichero inválido no deja los válidos a
+   medias en el bucket.
+3. **R2 no es transaccional.** Los ficheros ya están arriba cuando empieza la transacción del
+   mensaje; si esta falla, `persistOrDiscard` los borra. Al revés (escribir y luego subir)
+   dejaría filas apuntando a objetos inexistentes: un adjunto que el usuario ve y que da error.
+
+**DOS LÍMITES POR CADA REGLA, y la distinción importa**: la regla de negocio la aplica el
+servicio con un 422 que dice cuál se ha pasado (`ATTACHMENT_TOO_LARGE`,
+`ATTACHMENT_TYPE_NOT_ALLOWED`, `TOO_MANY_ATTACHMENTS`); los `limits` de multer son un TOPE DE
+MEMORIA holgado por encima, porque multipart no pasa por el límite de body de Express y sin
+ellos una petición de 1 GB se buffearía entera antes de que ningún código nuestro opinara.
+
+**DEFENSA 6 de la invariante de notas internas — el adjunto hereda la privacidad del mensaje.**
+El endpoint de usuario responde **404** al adjunto de una nota interna, no 403: un 403
+confirmaría que ahí hay algo, y la EXISTENCIA de una nota es precisamente lo que el usuario no
+puede llegar a saber (§10.3). Misma razón por la que una nota no toca `lastMessageAt` ni el
+contador de no leídos. Para un ticket ajeno sí es 403 «este ticket no es tuyo», que es la
+respuesta que ya daban `getForUser` y `getInvoicePdf`.
+
+**El guard de facturación se EXTRAJO a `tickets.guards.ts`** (`assertCanHandleTicket`) porque
+el servicio de adjuntos también lo aplica: un MODERATOR no descarga el fichero de un hilo que no
+puede abrir. Una autorización copiada en dos sitios diverge en uno de los dos;
+`TicketsService.assertCanHandle` ahora delega, con el mismo code, mensaje y 403 que en R3.
+
+**El nombre original es ENTRADA HOSTIL, y esto es nuevo respecto a la factura**: `getInvoicePdf`
+compone su nombre en el servidor, así que nunca tuvo el problema; aquí lo elige quien sube y
+acaba en una cabecera HTTP. Dos capas: se sanea al ENTRAR (fuera separadores de ruta,
+caracteres de control y comillas — un `\r\n` es inyección de cabeceras) y se codifica al SALIR
+(`filename=` ASCII + `filename*=UTF-8''` RFC 5987, siempre `attachment`, nunca `inline`).
+
+**BORRADO (punto abierto del encargo): no aplica hoy, y queda documentado.** No existe ningún
+endpoint que borre un `Ticket` ni un `TicketMessage` —comprobado: cero `@Delete` en el módulo y
+cero llamadas a `delete` sobre esas tablas—, así que no hay camino por el que un adjunto
+desaparezca en uso normal. El único borrado posible es en cascada al borrar un `User`, que
+tampoco tiene endpoint. Si algún día se añade cualquiera de los dos, **el fichero de R2 habrá
+que borrarlo explícitamente** (`r2.delete`, como ya hace `persistOrDiscard`): la cascada de
+Prisma limpia las filas, no el bucket. Se deja **inventariado y no resuelto** a propósito —
+inventar un recolector de basura para un borrado que no existe sería código sin caso de uso, y
+el proyecto ya tiene esta misma deuda con `media` (ninguna imagen de anuncio se borra de R2
+tampoco). Anotado en §3.
+
+**Frontend**: selector de ficheros en las dos cajas de respuesta, adjuntos en las burbujas del
+hilo, y descarga por `fetch` autenticado → blob → click sintético (molde exacto de la descarga
+de facturas en `FacturasPanel`). **No hay `<img src>` ni `<a href>` al fichero, y no es un
+olvido**: no existe URL que poner ahí. El coste —no se pueden pintar miniaturas sin
+descargar— es real y asumido a cambio de que un adjunto no sea un enlace reenviable. La
+validación de cliente (`components/tickets/attachments.ts`, 22 tests unitarios) refleja los tres
+límites del backend y traduce sus tres `code` con los MISMOS textos, para que forzar la petición
+no produzca un mensaje distinto del que ya se habría visto sin salir del navegador.
+
+**Verificación** — `tickets-attachments.e2e-spec.ts`, **29 casos, fichero nuevo**, contra MinIO
+de verdad: se sube, se baja y se compara byte a byte. Ataques ejercidos: adjuntar a un hilo
+ajeno (403 + `upload` no llamado), descargar el adjunto de otro (403), colgar un id de adjunto
+ajeno de un ticket propio (404 — sin esa comprobación el control de propiedad miraría mi ticket
+y serviría el fichero de otro), descargar el adjunto de una nota interna (404), y la puerta de
+facturación en las dos direcciones (MODERATOR 403 / ADMIN 200). Más 2 casos de navegador
+(`e2e/tickets-adjuntos.spec.ts`, con `pro-e2e` para no gastar el cupo de tickets de
+`seller-e2e`) y 22 unitarios de la validación de cliente.
+
+**Mutación (5/5 en rojo, revertidas):** quitar la revalidación de dueño en la descarga → 1;
+servir el adjunto de una nota interna al usuario → 1; construir la clave con el nombre del
+cliente → 2; exponer `key` en el payload del hilo → 2; subir antes de autorizar → 1.
+
+**DOS HALLAZGOS DE LA RÁFAGA, los dos por hacer el trabajo de verdad:**
+
+1. **Un test mío pasaba por mérito ajeno.** El caso de *path traversal* (`../../../etc/passwd.png`)
+   pasaba... porque la librería cliente de multipart recorta el nombre a su basename antes de
+   enviarlo: el nombre hostil no llegaba nunca a nuestro código. Se detectó al mutar la
+   construcción de la clave y ver que ese test **no** enrojecía. Reescrito para llamar a
+   `prepare()` con un `Multer.File` fabricado a mano, y entonces sí muerde. Lección
+   reutilizable: un test de saneado que pasa por una librería intermedia puede estar
+   comprobando la librería, no la defensa.
+2. **Un fallo real de producto que solo vio el navegador.** Tras enviar, el usuario no veía su
+   propio adjunto hasta recargar: `writeMessage` devolvía el mensaje sin `include` de
+   adjuntos, y el frontend añade al hilo exactamente lo que responde el POST. Por HTTP y en
+   base de datos todo estaba correcto — los 29 e2e de backend estaban verdes. Corregido con el
+   `include` en la creación.
+
 ### Notificaciones de moderación (§14.5) — CIERRA LOS DOS HUECOS QUE NO ERAN DE TICKETS
 
 Los dos huecos que destapó la auditoría inicial del sistema de atención al usuario y que
@@ -5438,11 +5546,13 @@ de un módulo con cola compartida debe hacer lo mismo.
 Detalle completo en «Sistema de atención al usuario (tickets) — ESTADO CONSOLIDADO» (§2).
 Resumen para no perderlo de vista:
 
-**Incrementos NO implementados** (el sistema es usable sin ellos):
-- **Adjuntos (R5).** `TicketAttachment` está en el schema pero **no hay subida, descarga, UI
-  ni endpoint**. Al implementarlo: molde FACTURA (R2 privado + endpoint autenticado que
-  revalida el acceso al ticket), **nunca** molde media (URL pública) — un pantallazo puede
-  llevar datos personales y una URL pública de R2 no es revocable.
+**Deuda inventariada y NO resuelta (R5):** un adjunto de ticket que desapareciera de la base de
+datos dejaría su objeto huérfano en R2. Hoy no puede pasar —no hay endpoint que borre tickets,
+mensajes ni usuarios—, pero si se añade cualquiera de los tres habrá que borrar también del
+bucket (`r2.delete`). Es la misma deuda que ya tiene `media` con las fotos de anuncio, y por eso
+no se ha inventado un recolector para un borrado que no existe. Detalle en §2.
+
+**Incremento NO implementado** (el sistema es usable sin él):
 - **Tiempo real (R9).** Sin empezar. **Requisito previo:** cerrar el `TODO(prod)` del
   `cors: { origin: '*' }` de `MessagingGateway` antes de ampliar su uso. Falta además una
   sala de rol `staff`, que el gateway hoy no tiene (solo `user:` y `conv:`).

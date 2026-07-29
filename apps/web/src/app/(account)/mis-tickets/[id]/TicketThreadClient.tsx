@@ -6,6 +6,7 @@ import { AlertCircle, ChevronUp, Link2, Loader2, Lock, Send } from 'lucide-react
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { TicketStatusBadge } from '@/components/tickets/TicketStatusBadge';
+import { AttachmentList, AttachmentPicker } from '@/components/tickets/TicketAttachments';
 import { useApiAction } from '@/lib/api/use-api-action';
 import { closeTicket, getTicket, replyTicket, toTicketActionMessage } from '@/lib/api/tickets';
 import { cn } from '@/lib/utils';
@@ -39,6 +40,8 @@ export function TicketThreadClient({ initialData, token }: Props) {
   );
   const [nextCursor, setNextCursor] = useState<string | null>(initialData.nextCursor);
   const [body, setBody] = useState('');
+  /** R5 — ficheros elegidos y todavía sin enviar. Se vacían al enviar con éxito. */
+  const [files, setFiles] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [closing, setClosing] = useState(false);
@@ -76,7 +79,7 @@ export function TicketThreadClient({ initialData, token }: Props) {
     setSending(true);
     setError(null);
 
-    await run(() => replyTicket(ticket.id, body.trim(), token), {
+    await run(() => replyTicket(ticket.id, body.trim(), token, files), {
       onSuccess: ({ ticket: updated, message }) => {
         setMessages((prev) => [...prev, message]);
         // El estado lo dicta el BACKEND (T5/T6/T8), no se calcula aquí.
@@ -87,6 +90,7 @@ export function TicketThreadClient({ initialData, token }: Props) {
           resolvedAt: updated.status === 'IN_PROGRESS' ? null : prev.resolvedAt,
         }));
         setBody('');
+        setFiles([]);
         setSending(false);
       },
       onError: (err) => {
@@ -189,6 +193,13 @@ export function TicketThreadClient({ initialData, token }: Props) {
               )}
             >
               <p className="whitespace-pre-wrap break-words">{m.body}</p>
+              {m.attachments && m.attachments.length > 0 && (
+                <AttachmentList
+                  ticketId={ticket.id}
+                  attachments={m.attachments}
+                  token={token}
+                />
+              )}
               <p
                 className={cn(
                   'mt-1 text-[11px]',
@@ -231,6 +242,7 @@ export function TicketThreadClient({ initialData, token }: Props) {
             placeholder={esReapertura ? 'Cuéntanos qué sigue fallando…' : 'Escribe tu respuesta…'}
             data-testid="input-respuesta"
           />
+          <AttachmentPicker files={files} onChange={setFiles} disabled={sending} />
           <div className="flex items-center justify-between gap-2">
             <Button type="submit" disabled={!body.trim() || sending} data-testid="enviar-respuesta">
               {sending ? (

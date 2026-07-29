@@ -6,6 +6,7 @@ import { ContactModule } from '../contact/contact.module';
 import { QUEUE_NOTIFICATIONS, retryQueue } from '../../infra/queue/queue.constants';
 import { TicketsService } from './tickets.service';
 import { TicketNotificationsService } from './ticket-notifications.service';
+import { TicketAttachmentsService } from './ticket-attachments.service';
 import { TicketsScheduleService } from './tickets-schedule.service';
 import { TicketsController } from './tickets.controller';
 import { AdminTicketsController } from './admin-tickets.controller';
@@ -43,7 +44,16 @@ import { AdminTicketsController } from './admin-tickets.controller';
     BullModule.registerQueue(retryQueue(QUEUE_NOTIFICATIONS)),
   ],
   controllers: [TicketsController, AdminTicketsController],
-  providers: [TicketsService, TicketNotificationsService, TicketsScheduleService],
+  // R5 — `TicketAttachmentsService` no necesita importar nada: R2Module es @Global
+  // (igual que Prisma y Redis). Y NO se importa MediaModule: los adjuntos de
+  // ticket usan R2Service directamente, nunca MediaService — ver el doc-comment
+  // del servicio.
+  providers: [
+    TicketsService,
+    TicketNotificationsService,
+    TicketsScheduleService,
+    TicketAttachmentsService,
+  ],
   exports: [TicketsService],
 })
 export class TicketsModule {}

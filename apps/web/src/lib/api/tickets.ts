@@ -6,6 +6,8 @@ import type {
   TicketTopic,
   TicketsResponse,
 } from '@/types';
+import { toAdjuntoMessage } from '@/components/tickets/attachments';
+import { API_URL } from '@/config';
 import { ApiError, apiFetch } from './client';
 
 /** Motivos ofrecibles al abrir un ticket (scope TICKET o BOTH). */
@@ -38,16 +40,65 @@ export function createTicket(payload: CreateTicketPayload, token: string): Promi
   return apiFetch('/tickets', { method: 'POST', body: JSON.stringify(payload), token });
 }
 
+/**
+ * Responder, con o sin adjuntos (R5).
+ *
+ * Con ficheros va como `multipart/form-data` y sin ellos sigue yendo como JSON,
+ * exactamente igual que antes. No es un capricho: `apiFetch` no pone
+ * `Content-Type` cuando el cuerpo es un `FormData` para que el navegador ponga el
+ * suyo con el `boundary`, y mandar JSON cuando no hay nada que subir evita el
+ * sobrecoste del multipart en el caso normal.
+ */
 export function replyTicket(
   id: string,
   body: string,
   token: string,
+  files: File[] = [],
 ): Promise<{ ticket: TicketRow; message: TicketMessage }> {
   return apiFetch(`/tickets/${id}/messages`, {
     method: 'POST',
-    body: JSON.stringify({ body }),
+    body: files.length > 0 ? buildReplyForm(body, files) : JSON.stringify({ body }),
     token,
   });
+}
+
+/** El nombre del campo (`files`) tiene que coincidir con el `FilesInterceptor` del backend. */
+export function buildReplyForm(body: string, files: File[], internal?: boolean): FormData {
+  const form = new FormData();
+  form.append('body', body);
+  if (internal !== undefined) form.append('internal', String(internal));
+  for (const file of files) form.append('files', file);
+  return form;
+}
+
+/**
+ * Descarga un adjunto por el endpoint AUTENTICADO y la dispara en el navegador.
+ *
+ * Molde exacto de la descarga de facturas (`FacturasPanel`): `fetch` con el
+ * Bearer → `blob` → object URL → click sintético. **NO hay una URL que se pueda
+ * poner en un `<a href>` ni en un `<img src>`**, y esa es justamente la garantía
+ * de R5: el fichero no existe fuera de una petición autenticada.
+ */
+export async function downloadTicketAttachment(
+  ticketId: string,
+  attachment: { id: string; filename: string },
+  token: string,
+  scope: 'user' | 'staff' = 'user',
+): Promise<void> {
+  const base = scope === 'staff' ? '/admin/tickets' : '/tickets';
+  const res = await fetch(`${API_URL}${base}/${ticketId}/attachments/${attachment.id}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new ApiError(res.status, 'No se pudo descargar el adjunto');
+
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = attachment.filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 export function closeTicket(id: string, token: string): Promise<TicketRow> {
@@ -86,6 +137,12 @@ export function toCreateTicketMessage(err: unknown): string {
 /** Mensajes de error al responder o cerrar un hilo ya existente. */
 export function toTicketActionMessage(err: unknown): string {
   if (!(err instanceof ApiError)) return 'Ha ocurrido un error. Inténtalo de nuevo.';
+
+  // R5 — los 422 de adjunto se traducen con los MISMOS textos que la validación de
+  // cliente, para que forzar la petición no produzca un mensaje distinto del que
+  // ya se habría visto sin salir del navegador.
+  const adjunto = toAdjuntoMessage(err.code);
+  if (adjunto) return adjunto;
 
   if (err.statusCode === 400 && err.code === 'REOPEN_WINDOW_EXPIRED') {
     return 'El plazo para reabrir este ticket ha terminado. Abre uno nuevo y lo vemos.';
