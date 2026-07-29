@@ -4550,6 +4550,163 @@ añadiendo `phone: null` al mismo `update` que ya reseteaba la ubicación.
 
 ---
 
+### Atención al usuario R1 — modelo de datos + máquina de estados (sin API)
+
+Cimiento del sistema de tickets. Diseño aprobado en `docs/diseno-atencion-usuario.md`.
+R1 entrega **solo** el modelo y `TicketsService`; **sin controladores, sin
+notificaciones, sin frontend y sin subida de adjuntos** (R2+).
+
+**Modelo (migración `add_ticketing`, 100% aditiva).** 3 enums (`TicketStatus`,
+`TicketOrigin`, `TicketAuthorSide`) + `ContactReasonScope`, 3 tablas (`Ticket`,
+`TicketMessage`, `TicketAttachment`), 1 columna nueva (`ContactReason.scope`
+`@default(PUBLIC)`) y relaciones inversas en `User`/`Listing`/`Review`/`Invoice`/
+`Report`. **Cero DROP, cero RENAME, cero ALTER COLUMN, cero backfill** — verificado
+con `prisma migrate diff` ANTES de aplicar (4 `CREATE TYPE`, 3 `CREATE TABLE`,
+7 `CREATE INDEX`, 12 `ADD CONSTRAINT`, 1 `ADD COLUMN`).
+
+**`ContactReason.scope` — por qué una columna y no una tabla gemela (§14.1 del
+diseño).** Los motivos del formulario público y los de un ticket no coinciden
+(«consulta general» vs. «problema con mi factura»), pero sí comparten el CRUD de
+admin ya construido (`/admin/motivos-contacto`, con reorden y sin DELETE). El
+`@default(PUBLIC)` preserva exactamente el comportamiento de `/contacto` —
+comprobado replicando en una BD sombra el estado pre-migración (6 motivos
+insertados sin la columna) y aplicando la sentencia real: los 6 salen `PUBLIC`
+sin una sola sentencia de backfill. Mismo criterio que
+`Category.allowedListingType @default(BOTH)`.
+
+**Enlaces polimórficos: patrón A (FKs nullables, molde `Report`), no
+`referenceType`/`referenceId`.** El conjunto de entidades enlazables es cerrado
+(anuncio/valoración/factura/reporte) y la vista del hilo necesita `include`. Los
+cuatro van con **`onDelete: SetNull` + snapshot `linkedLabel`**: borrar el anuncio
+no puede llevarse por delante el hilo de atención al usuario que hablaba de él
+(mismo criterio que `Review.listingId`/`Deal.listingId`). Ejercido en test.
+
+**Máquina de estados — arrays estáticos privados, sin abstracción nueva.**
+`STAFF_REPLYABLE`, `USER_REPLYABLE`, `RESOLVABLE`, `CLOSABLE`, molde
+`ListingsService.ARCHIVABLE_STATUSES`. No se introdujo ninguna clase
+`StateMachine`: el proyecto no tiene ninguna (ni `Listing`, ni `Invoice`, ni
+`Report`) y R1 no era el sitio para inventarla.
+
+**`CLOSED` es irreversible por AUSENCIA, no por un `if`.** No aparece como estado
+origen en ninguno de los cuatro arrays — exactamente el mecanismo de
+`ListingStatus.ARCHIVED`. Sin triggers de BD a propósito: ese refuerzo está
+reservado a lo fiscal (`Invoice`), no es higiene general. Dos tests lo vigilan: uno
+de comportamiento (las SEIS puertas de salida rechazan y la fila queda intacta, sin
+mensajes ni auditoría de más) y uno **estructural** que afirma que `CLOSED` no está
+en ninguno de los arrays — así, añadirlo rompe la suite aunque el comportamiento
+tardara en notarse.
+
+**`TicketMessage.side` congelado al escribir.** Lo fija el método que crea el
+mensaje (`replyAsUser` → `USER`, `replyAsStaff` → `STAFF`), nunca se deriva de
+`author.role` al leer. Probado en ambos sentidos: se degrada al agente a `USER`
+tras responder y su mensaje sigue siendo `STAFF`; y al revés.
+
+**AuditLog solo en transiciones de STAFF**, dentro de la misma `$transaction`
+(`auditLog.log(dto, tx)`): `TICKET_OPEN_BY_ADMIN`, `TICKET_ASSIGN`, `TICKET_REPLY`,
+`TICKET_RESOLVE`, `TICKET_CLOSE`. Las acciones del usuario **no** se auditan — su
+rastro es el propio hilo. **Consecuencia a decidir en R3:** `TICKET_REOPEN`, que el
+diseño §7.3 listaba entre las acciones de auditoría, **no tiene emisor**: la única
+reapertura de la matriz aprobada (T8) es del usuario, y las de usuario no se
+auditan. O se añade una reapertura de staff, o la acción sobra.
+
+**Notas internas: columna sin vía de escritura (decisión §14.3).**
+`TicketMessage.internal` existe con `@default(false)`; ningún método del servicio la
+escribe y `writeMessage()` ni siquiera acepta el parámetro. Lo que **sí** está puesto
+desde R1 es la primera capa de la invariante de privacidad: `getForUser` filtra
+`internal: false` **en la query**, y es un método SEPARADO de `getForStaff` (no uno
+con flag booleano — un flag se pasa mal una vez y el fallo es silencioso).
+Precedente que lo justifica: `Listing.phone`. Test: se siembra la nota interna
+directamente en BD (saltándose el servicio, que no tiene vía) y se busca la cadena
+**en crudo** en el payload serializado, molde `listing-phone.e2e-spec.ts`.
+
+**Verificación — `test/tickets-state-machine.e2e-spec.ts`, 41 tests, contra Postgres
+real.** Vive en `test/` y no como `.spec.ts` unitario a propósito: una transición es
+guard → UPDATE → AuditLog dentro de una `$transaction`, y con Prisma mockeado se
+estaría probando el `if`, no la transición. Cubre las 11 transiciones válidas y sus
+rechazos. **Los tests se validaron por mutación**, no solo por verlos en verde:
+añadir `CLOSED` a `CLOSABLE` pone 2 en rojo; quitar el filtro `internal: false` de
+`getForUser` pone 1 en rojo.
+
+**Pendiente explícito para R2 (anotado en el código):** `createByUser` **no** valida
+la propiedad de la entidad enlazada. Sin controlador no hay entrada no confiable que
+validar, pero R2 debe rechazar enlazar un anuncio/valoración/factura ajenos — si no,
+el enlace se convierte en un oráculo de existencia de ids ajenos.
+
+**Observación planteada al cerrar R1 — RESUELTA en R2 (ver más abajo):** un ticket
+abierto por el staff nacía en `OPEN` y sin asignar. Se cambió a `WAITING_USER` +
+asignado al agente que lo abre.
+
+---
+
+### Atención al usuario R2 — API de usuario (owner-scoped)
+
+Expone por HTTP la parte de usuario del sistema de tickets: abrir, listar, ver el hilo,
+responder y cerrar. `TicketsController` (`@Controller('tickets')`, `JwtAuthGuard` a nivel
+de clase). La API de staff es R3 y vivirá en un controlador SEPARADO bajo
+`/admin/tickets` — mismo reparto que `ContactModule` (público +
+`AdminContactMessagesController`), no más métodos en este.
+
+**Ajuste sobre R1 (cambio de producto deliberado, decidido tras entregarla).** Un hilo
+abierto por el staff nace en `WAITING_USER`, no en `OPEN`: su primer mensaje ya es del
+staff, así que la pelota está en el usuario desde el minuto uno y dejarlo `OPEN` lo metía
+en la bandeja de "sin atender" estando atendido. **Corolario necesario:** se asigna al
+agente que lo abre — `take()` solo acepta `OPEN` (T2), así que un ticket nacido en
+`WAITING_USER` sin asignar habría quedado inasignable para siempre. Dos aserciones de
+`tickets-state-machine.e2e-spec.ts` se actualizaron (cambio de producto, no regresión —
+mismo criterio que los 3 tests que pasaron de 403 a 200 en RR5.1-ext).
+
+**El guard del ORÁCULO DE IDS — lo que R2 venía a cerrar.** `assertLinkable()` valida que
+la entidad enlazada sea del usuario: anuncio propio (`sellerId`), valoración donde es
+**autor o receptor** (ambos lados tienen motivos legítimos para preguntar), o factura
+propia. Lo importante no es que rechace, sino **CÓMO**: "no existe" y "no es tuya" caen en
+el MISMO `throw` — `422 LINKED_ENTITY_NOT_ALLOWED`, cuerpo idéntico. Un `404` para lo
+primero y un `403` para lo segundo habría convertido el campo en un oráculo con el que
+sondear ids ajenos. El test lo ejerce comparando los dos cuerpos de respuesta con
+`toEqual`, no solo los status.
+
+También se rechaza enlazar **dos entidades a la vez** (`422 MULTIPLE_LINKED_ENTITIES`):
+`linkedLabel` es un único snapshot y quedaría ambiguo.
+
+**`linkedLabel` lo deriva el SERVIDOR**, del título/número real de la entidad. No está en
+el DTO: si se aceptara del cliente, el snapshot podría mentir sobre a qué apunta el hilo.
+
+**Notas internas — segunda y tercera capa de la invariante.** R1 puso el filtro en la
+query de `getForUser`. R2 añade: (a) el filtro `internal: false` también en el **contador
+de no leídos** de `GET /tickets` — sin él, el usuario sabría que el staff escribió algo
+que no puede ver (fuga por canal lateral, no por contenido); (b) los DTOs de usuario **no
+declaran `internal`**, así que el `forbidNonWhitelisted: true` del `ValidationPipe` global
+lo rechaza con 400 sin que el servicio tenga que ignorarlo a mano. Ejercido: `{ internal:
+true }` en el body → 400, y `COUNT(internal=true) === 0` en BD.
+
+**Sin `POST /tickets/:id/reopen`.** La matriz aprobada (§7.2) modela T8 como EFECTO de
+responder, no como transición propia. Un endpoint aparte devolvería el ticket a la bandeja
+del agente sin nada nuevo que leer, y crearía un segundo camino a `IN_PROGRESS` que
+mantener en sincronía. **Reabrir es escribir.** La ventana de 14 días
+(`TICKET_REOPEN_WINDOW_DAYS`) se hace cumplir aquí; el cierre automático de los vencidos
+es R8, y el cron deberá leer **esa misma constante**.
+
+**Paginación del hilo:** cursor `before` sobre `createdAt` con `limit + 1` para detectar
+`hasMore`, molde exacto de `MessagingService.getConversation`. El orden pasó a **DESC**
+(más reciente primero) por el mismo motivo que en mensajería: un hilo se abre por el final
+y se sube. Guard propio: un cursor de OTRO hilo se **ignora** en vez de aplicarse — si no,
+un id ajeno serviría para desplazar la ventana y, con ella, inferir cronología ajena.
+
+**Rate limit:** 10 tickets/día por usuario (`RateLimitService`, ya genérico desde RC.1),
+comprobado **antes** de tocar la BD. Constante, no `Setting`: a diferencia de
+`freeActiveListingLimit` (palanca de negocio), es una defensa antiabuso sin valor
+comercial, y meterla en `Setting` obligaba a tocar la whitelist de `AdminService`, el seed
+y la UI de ajustes a cambio de nada. **Nota de test:** el contador vive en Redis y `cleanDb`
+solo trunca tablas — la suite lo limpia en su `beforeEach`, o envenenaría a las siguientes.
+
+**Verificación — `tickets-user.e2e-spec.ts`, 33 tests por HTTP.** A diferencia de R1 (capa
+de servicio), aquí se entra por la red: es la única forma de ejercer guards,
+`whitelist`/`forbidNonWhitelisted` y el payload EXACTO que se sirve. **Validado por
+mutación, cuatro veces:** distinguir 404 de 422 en el enlace → rojo el test del oráculo;
+quitar `internal: false` del contador → rojo el del canal lateral; quitarlo del hilo →
+rojo el de privacidad; quitar el check de `sellerId` → rojo el del anuncio ajeno.
+
+---
+
 ## 3. Limitaciones conocidas y deuda técnica
 
 ### RC.1 — Rate limit por IP no verificado contra el proxy real de producción

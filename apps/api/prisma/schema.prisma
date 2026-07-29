@@ -341,7 +341,7 @@ model User {
   fiscalCity       String?
   fiscalPostalCode String?
   fiscalProvince   String?
-  fiscalCountry    String? @default("ES")
+  fiscalCountry    String?           @default("ES")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -374,6 +374,16 @@ model User {
   alerts              Alert[]
   contactReplies      ContactReply[]       @relation("ContactReplyAdmin")
   invoices            Invoice[]
+
+  // Atención al usuario R1 — cinco papeles distintos sobre el mismo hilo, cada uno
+  // con su @relation nombrada: el usuario DUEÑO del ticket (owner-scope), quien lo
+  // abrió (puede ser staff en los flujos b/c), el agente asignado, quien lo cerró y
+  // el autor de cada mensaje. Ver diseno-atencion-usuario.md §6.2.
+  tickets         Ticket[]        @relation("TicketUser")
+  ticketsOpened   Ticket[]        @relation("TicketOpener")
+  ticketsAssigned Ticket[]        @relation("TicketAssignee")
+  ticketsClosed   Ticket[]        @relation("TicketCloser")
+  ticketMessages  TicketMessage[] @relation("TicketMessageAuthor")
 
   @@index([status])
 }
@@ -522,6 +532,7 @@ model Listing {
   transactions  Transaction[]
   viewsDaily    ListingViewDaily[]
   alertMatches  AlertMatch[]
+  tickets       Ticket[]
 
   // Índices para los filtros y ordenaciones más frecuentes (rendimiento de listados).
   @@index([categoryId, status])
@@ -798,6 +809,7 @@ model Review {
   verified Boolean @default(true)
 
   reports Report[]
+  tickets Ticket[]
 
   // [authorId, targetId, listingId] permite bidireccionalidad (buyer→seller y
   // seller→buyer son filas distintas) Y limita a una review por par por
@@ -839,6 +851,11 @@ model Report {
   review   Review? @relation(fields: [reviewId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
+
+  /// Atención al usuario R1 — hilos abiertos con el usuario reportado a raíz de esta
+  /// denuncia (flujo c). Report NO absorbe la conversación ni cambia por ella: el
+  /// ticket referencia al reporte, no al revés. Ver diseno-atencion-usuario.md §8.3.
+  tickets Ticket[]
 
   @@index([status])
   @@index([listingId])
@@ -1153,7 +1170,7 @@ model Transaction {
   /// campaña activa en ese instante. Se SUMA a bonusCreditAmount (Pro + campaña), no
   /// lo sustituye. El RedsysProcessor lo lee sin recalcular — el bonus vigente es el
   /// del instante del checkout, no el de la confirmación del pago.
-  campaignBonusAmount Int?
+  campaignBonusAmount     Int?
   /// Campaña #10 — bonus de campaña en packs de bumps, espejo bump de
   /// campaignBonusAmount arriba (misma fórmula, misma congelación). Null = sin
   /// campaña BUMP_BONUS activa en ese instante.
@@ -1164,8 +1181,8 @@ model Transaction {
   /// de una moneda o de la otra, nunca las dos. Para trazabilidad/reporting.
   /// Las campañas no se borran (solo se desactivan), pero SetNull es red de
   /// seguridad.
-  campaignId          String?
-  campaign            Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  campaignId              String?
+  campaign                Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
 
   /// Créditos base del pack, congelados en el checkout (Redsys). Igual que
   /// bonusCreditAmount/campaignBonusAmount: el processor NUNCA relee
@@ -1668,6 +1685,21 @@ enum ContactEstado {
   CERRADO
 }
 
+/// Dónde se ofrece un ContactReason (atención al usuario R1, §14.1 del diseño).
+/// El formulario público de /contacto y los tickets de un usuario registrado no
+/// comparten taxonomía real ("consulta general" vs. "problema con mi factura"),
+/// pero sí comparten el CRUD de admin ya construido (/admin/motivos-contacto,
+/// con reorden y sin DELETE) — de ahí una columna de ámbito en vez de una tabla
+/// gemela. @default(PUBLIC) preserva EXACTAMENTE el comportamiento de los motivos
+/// existentes sin backfill: Prisma escribe el default en las filas ya creadas al
+/// aplicar la migración, y /contacto los sigue ofreciendo igual. Mismo criterio
+/// que Category.allowedListingType @default(BOTH).
+enum ContactReasonScope {
+  PUBLIC // Solo en el formulario público /contacto
+  TICKET // Solo al abrir un ticket de atención al usuario
+  BOTH // En ambos
+}
+
 /// Motivo de contacto configurable por el admin (RC.2) — reemplaza al enum
 /// ContactMotivo. Sin DELETE, solo desactivación (molde Banner/SponsoredAd):
 /// un motivo desactivado deja de ofrecerse en /contacto, pero los mensajes
@@ -1683,7 +1715,13 @@ model ContactReason {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// Ámbito donde se ofrece este motivo. Ver ContactReasonScope: el default
+  /// PUBLIC deja intacto el comportamiento de /contacto. El filtro por scope lo
+  /// aplicará quien ofrezca el select (R2/R3); en R1 solo existe la columna.
+  scope ContactReasonScope @default(PUBLIC)
+
   messages ContactMessage[]
+  tickets  Ticket[]         @relation("TicketTopic")
 
   @@index([activo, orden])
 }
@@ -1816,6 +1854,11 @@ model Invoice {
 
   lines InvoiceLine[]
 
+  /// Atención al usuario R1 — tickets que hablan de esta factura. Relación inversa
+  /// solamente: la inmutabilidad de la factura no se ve afectada (un Ticket no
+  /// escribe nada en Invoice, y los triggers BEFORE UPDATE/DELETE siguen intactos).
+  tickets Ticket[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1848,4 +1891,191 @@ model InvoiceLine {
   operationDate DateTime
 
   @@index([invoiceId])
+}
+
+// ============================================================================
+//  ATENCIÃ“N AL USUARIO â€” TICKETS (R1)
+// ============================================================================
+// Canal bidireccional y trazable usuario â†” administraciÃ³n. La CONVERSACIÃ“N AQUÃ
+// ES LA FUENTE DE VERDAD: Notification y email (R4) solo avisan y reenganchan,
+// nunca transicionan un estado ni transportan el hilo. Sistema INDEPENDIENTE de
+// ContactMessage (que es el canal anÃ³nimo, sin userId ni hilo bidireccional) y de
+// Conversation (anclada a @@unique([listingId, buyerId]) y a comprador/vendedor).
+// Ver docs/diseno-atencion-usuario.md Â§5 y Â§6.
+
+/// Ciclo de vida de un ticket de atenciÃ³n al usuario.
+///
+/// CLOSED es IRREVERSIBLE: ninguna transiciÃ³n sale de Ã©l. Se hace cumplir igual
+/// que ListingStatus.ARCHIVED â€” CLOSED no aparece como estado ORIGEN en ninguno
+/// de los arrays de transiciÃ³n de TicketsService (STAFF_REPLYABLE, USER_REPLYABLE,
+/// RESOLVABLE, CLOSABLE), asÃ­ que ningÃºn mÃ©todo lo acepta como punto de partida.
+/// No hay guard de BD (triggers) a propÃ³sito: eso estÃ¡ reservado a lo fiscal
+/// (Invoice), no es higiene general. Ver diseno-atencion-usuario.md Â§7.
+enum TicketStatus {
+  OPEN // Abierto, sin atender aÃºn
+  IN_PROGRESS // Un agente lo ha tomado (assignedToId != null)
+  WAITING_USER // La administraciÃ³n respondiÃ³; la pelota estÃ¡ en el usuario
+  RESOLVED // La administraciÃ³n lo da por resuelto. Reabrible por el usuario (T8).
+  CLOSED // Cerrado definitivamente. IRREVERSIBLE.
+}
+
+/// CuÃ¡l de los TRES FLUJOS originÃ³ el ticket. Columna propia (no derivada de
+/// openedById == userId) porque REPORT y ADMIN se distinguen entre sÃ­ solo por
+/// reportId, y derivarlo obligarÃ­a a un OR en cada consulta de bandeja. AdemÃ¡s
+/// gobierna una regla de negocio: solo un ticket origin=USER puede cerrarlo el
+/// propio usuario (T11) â€” si la administraciÃ³n abriÃ³ el hilo, no es suyo para
+/// cerrarlo unilateralmente.
+enum TicketOrigin {
+  USER // (a) el usuario abriÃ³ el ticket
+  ADMIN // (b) la administraciÃ³n iniciÃ³ el hilo
+  REPORT // (c) derivado de un Report de moderaciÃ³n
+}
+
+/// Lado del que habla un mensaje del hilo. CONGELADO al escribir, NUNCA derivado
+/// de author.role en lectura: un ADMIN tambiÃ©n puede abrir un ticket COMO usuario
+/// sobre su propia cuenta, y el rol puede cambiar despuÃ©s (un moderador degradado
+/// a USER no convierte retroactivamente sus respuestas en mensajes de usuario).
+/// Mismo principio de congelaciÃ³n que Review.verified o los importes de Invoice.
+enum TicketAuthorSide {
+  USER
+  STAFF
+}
+
+/// Hilo de atenciÃ³n al usuario.
+model Ticket {
+  id      String       @id @default(cuid())
+  subject String
+  status  TicketStatus @default(OPEN)
+  origin  TicketOrigin
+
+  /// Motivo/tema, molde ContactReason: configurable por admin, sin DELETE.
+  /// Nullable porque un ticket de flujo ADMIN/REPORT puede no encajar en ninguno.
+  /// Restrict, igual que ContactMessage.motivoId: un motivo con tickets no se borra
+  /// (de todos modos no hay endpoint DELETE; se desactiva).
+  topicId String?
+  topic   ContactReason? @relation("TicketTopic", fields: [topicId], references: [id], onDelete: Restrict)
+
+  /// EL USUARIO del hilo â€” siempre hay exactamente uno, sea quien sea que lo abriÃ³.
+  /// Es la clave del owner-scope y el destinatario de las notificaciones (R4).
+  userId String
+  user   User   @relation("TicketUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  /// QuiÃ©n lo abriÃ³: el propio usuario (flujo a) o un miembro del staff (flujos b/c).
+  /// Restrict (no Cascade): borrar la cuenta de un admin no puede borrar los hilos
+  /// que abriÃ³ con usuarios â€” mismo criterio que Report.reporterId.
+  openedById String
+  openedBy   User   @relation("TicketOpener", fields: [openedById], references: [id])
+
+  /// Agente que lo lleva. SetNull: si el agente deja de existir el hilo sigue vivo
+  /// y vuelve a la bandeja sin asignar.
+  assignedToId String?
+  assignedTo   User?   @relation("TicketAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  // --- Enlaces polimÃ³rficos (FKs nullables, molde Report â€” no (type,id)) ---
+  // TODOS opcionales y TODOS SetNull: el hilo de atenciÃ³n al usuario NO puede
+  // desaparecer porque se borre el anuncio/valoraciÃ³n/factura del que hablaba
+  // (mismo criterio que Review.listingId / Deal.listingId).
+  listingId String?
+  listing   Listing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  reviewId  String?
+  review    Review?  @relation(fields: [reviewId], references: [id], onDelete: SetNull)
+  invoiceId String?
+  invoice   Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  /// Flujo (c): el Report de moderaciÃ³n que originÃ³ este hilo. NO duplica el
+  /// reporte â€” lo referencia. Report no se toca. Ver Â§8.3 del diseÃ±o.
+  reportId String?
+  report   Report? @relation(fields: [reportId], references: [id], onDelete: SetNull)
+
+  /// Snapshot del contexto enlazado (tÃ­tulo del anuncio, nÃºmero de facturaâ€¦), molde
+  /// Deal.listingTitle / Review.listingTitle: los SetNull de arriba dejarÃ­an el hilo
+  /// sin contexto legible, y esta columna es lo que lo conserva.
+  linkedLabel String?
+
+  /// Denormalizado (molde Conversation.lastMessageAt): ordena la bandeja por
+  /// "Ãºltimo movimiento" sin un MAX() sobre TicketMessage.
+  lastMessageAt DateTime @default(now())
+
+  resolvedAt DateTime?
+  closedAt   DateTime?
+  closedById String?
+  closedBy   User?     @relation("TicketCloser", fields: [closedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages TicketMessage[]
+
+  // Sin @@unique de (usuario, entidad): a diferencia de Conversation
+  // (@@unique([listingId, buyerId])), un usuario puede tener legÃ­timamente dos
+  // dudas distintas sobre el mismo anuncio â€” mismo criterio que Deal.
+  @@index([userId, lastMessageAt]) // "mis tickets"
+  @@index([status, lastMessageAt]) // bandeja de admin filtrada por estado
+  @@index([assignedToId, status]) // "mis tickets asignados"
+  @@index([reportId])
+  @@index([listingId])
+}
+
+/// Mensaje del hilo. Append-only en la prÃ¡ctica: no hay ediciÃ³n ni borrado.
+model TicketMessage {
+  id       String @id @default(cuid())
+  ticketId String
+  ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  authorId String
+  author   User   @relation("TicketMessageAuthor", fields: [authorId], references: [id])
+
+  /// CONGELADO al escribir por el mÃ©todo que lo crea (replyAsUser â†’ USER,
+  /// replyAsStaff â†’ STAFF). Nunca se recalcula desde author.role al leer.
+  side TicketAuthorSide
+
+  body String @db.Text
+
+  /// NOTA INTERNA del staff: visible solo para ADMIN/MODERATOR, nunca para el
+  /// usuario del hilo.
+  ///
+  /// APLAZADO (decisiÃ³n Â§14.3): en R1 la columna EXISTE pero NO HAY NINGUNA VÃA DE
+  /// ESCRITURA â€” ningÃºn mÃ©todo de TicketsService la pone a true, y ningÃºn DTO la
+  /// acepta. Lo que sÃ­ estÃ¡ ya puesto es la PRIMERA CAPA de la invariante de
+  /// privacidad (Â§10.3): getForUser filtra `internal: false` en la propia query,
+  /// desde antes de que exista nada que filtrar. Precedente que lo justifica:
+  /// Listing.phone, que un findUnique({include}) sin select habrÃ­a publicado en el
+  /// JSON pÃºblico de la ficha.
+  internal Boolean @default(false)
+
+  /// Acuse de lectura por lado. Dos columnas y no un Ãºnico readAt: el hilo tiene
+  /// dos lados con contadores de "sin leer" independientes (el del usuario y el de
+  /// la bandeja de staff).
+  readByUserAt  DateTime?
+  readByStaffAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  attachments TicketAttachment[]
+
+  @@index([ticketId, createdAt]) // molde Message â€” paginaciÃ³n por cursor sobre createdAt
+}
+
+/// Adjunto de un mensaje. Molde FACTURA (R2 privado), NO molde media (R2 pÃºblico):
+/// se guarda la CLAVE, nunca una URL â€” el fichero se sirve por un endpoint
+/// autenticado que revalida el acceso al ticket. Un pantallazo de un problema puede
+/// llevar datos personales, y una URL pÃºblica de R2 es compartible y no revocable.
+/// El modelo va en R1 para no partir la migraciÃ³n en dos; la SUBIDA real es R5.
+model TicketAttachment {
+  id              String        @id @default(cuid())
+  ticketMessageId String
+  message         TicketMessage @relation(fields: [ticketMessageId], references: [id], onDelete: Cascade)
+
+  /// Clave privada en R2: `tickets/<ticketId>/<randomBytes(16)>.<ext>`.
+  /// NUNCA el nombre original del cliente (molde MediaService).
+  key String
+
+  /// Nombre original, solo para mostrar y para el Content-Disposition. Nunca se usa
+  /// para construir la clave ni ninguna ruta.
+  filename  String
+  mimeType  String
+  sizeBytes Int
+  createdAt DateTime @default(now())
+
+  @@index([ticketMessageId])
 }

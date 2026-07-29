@@ -138,6 +138,42 @@ WebSocket en `/ws` *(autenticación JWT en el handshake)*:
 
 ---
 
+## Tickets (atención al usuario) — rutas de USUARIO
+
+Canal bidireccional usuario ↔ administración. Todas *(auth)* y **owner-scoped**: ninguna
+acepta un `userId`; el scope sale siempre del JWT. La API de STAFF (bandeja, tomar,
+resolver, cerrar, abrir hilo) es otra cosa y vive aparte — ver R3.
+
+- **`POST /tickets`** *(auth)* — Abre un hilo (estado `OPEN`) con el primer mensaje.
+  Puede enlazar **una** entidad: un anuncio propio, una valoración escrita o recibida, o
+  una factura propia. `linkedLabel` (el snapshot legible del contexto) lo deriva el
+  **servidor** del título/número real; nunca se acepta del cliente. `topicId` debe ser un
+  `ContactReason` activo con `scope` `TICKET` o `BOTH`. Límite de 10 al día por usuario
+  (`429` con `retryAfter`).
+- **`GET /tickets`** *(auth)* — Mis tickets, orden por último movimiento, paginado
+  (`page`/`perPage`), con `unreadCount` por hilo.
+- **`GET /tickets/:id`** *(auth, propietario)* — El hilo, mensajes **más recientes
+  primero** con cursor `?before=<messageId>` (mismo contrato que `GET /conversations/:id`).
+  Marca como leídos los mensajes del staff pendientes. `403` si no es tuyo.
+- **`POST /tickets/:id/messages`** *(auth, propietario)* — Responder. **Reabrir es
+  escribir**: si el ticket estaba `RESOLVED` y no han pasado 14 días desde `resolvedAt`,
+  responder lo devuelve a `IN_PROGRESS` (no hay endpoint `/reopen` aparte). Fuera de esa
+  ventana → `400 REOPEN_WINDOW_EXPIRED`. Sobre un ticket `CLOSED` → `400`.
+- **`POST /tickets/:id/close`** *(auth, propietario)* — Cerrar el propio, **irreversible**.
+  Solo tickets de `origin=USER`: un hilo iniciado por la administración → `403`.
+
+> **Enlace a entidades — decisión de seguridad.** Enlazar una entidad **ajena** y enlazar
+> una **inexistente** devuelven exactamente la misma respuesta
+> (`422 LINKED_ENTITY_NOT_ALLOWED`, mismo cuerpo). Es deliberado: un `404` para "no existe"
+> y un `403` para "no es tuya" convertirían el campo en un oráculo con el que sondear la
+> existencia de ids ajenos.
+
+> **Notas internas del staff.** El modelo tiene `TicketMessage.internal`, pero está
+> **aplazado**: no hay ninguna vía de escritura, y ninguna ruta de usuario las devuelve
+> (ni en el hilo ni en el contador de no leídos).
+
+---
+
 ## Resumen de recursos
 
 | Recurso | Operaciones principales |
@@ -149,3 +185,4 @@ WebSocket en `/ws` *(autenticación JWT en el handshake)*:
 | Search | texto+filtros+facetas+proximidad (lat/lng/radius en km) |
 | Media | upload |
 | Messaging | conversations REST (CRUD + cursor) · WebSocket /ws (message:new) |
+| Tickets (usuario) | create (con enlace validado) · list mine · thread+cursor · reply/reopen · close |

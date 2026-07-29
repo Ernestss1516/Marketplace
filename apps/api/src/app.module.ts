@@ -34,6 +34,7 @@ import { BannersModule } from './modules/banners/banners.module';
 import { SponsoredAdsModule } from './modules/sponsored-ads/sponsored-ads.module';
 import { ContactModule } from './modules/contact/contact.module';
 import { InvoicingModule } from './modules/invoicing/invoicing.module';
+import { TicketsModule } from './modules/tickets/tickets.module';
 
 @Module({
   imports: [
@@ -89,6 +90,7 @@ import { InvoicingModule } from './modules/invoicing/invoicing.module';
     SponsoredAdsModule,
     ContactModule,
     InvoicingModule,
+    TicketsModule,
   ],
 })
 export class AppModule {}
