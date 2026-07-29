@@ -2,7 +2,7 @@
 //
 // Tests:
 //   ADMIN
-//     1. /admin carga (dashboard) → el nav muestra los 14 ítems (+Páginas BLOG-PAGINAS,
+//     1. /admin carga (dashboard) → el nav muestra los 17 ítems (+Páginas BLOG-PAGINAS,
 //        +Patrocinados H6.6, +Footer R.3, +Mensajes de contacto RC.2)
 //   MODERATOR — rutas aún bloqueadas (ADMIN-only)
 //     2. /admin → redirige a /
@@ -58,7 +58,7 @@ async function loginAs(browser: Browser, email: string) {
 }
 
 test.describe('Backoffice — ADMIN acceso total', () => {
-  test('ADMIN carga /admin y el nav muestra los 14 ítems', async ({ adminContext }) => {
+  test('ADMIN carga /admin y el nav muestra los 17 ítems', async ({ adminContext }) => {
     const page = await adminContext.newPage();
 
     await page.goto('/admin');
@@ -73,7 +73,7 @@ test.describe('Backoffice — ADMIN acceso total', () => {
     const nav = page.getByTestId('admin-nav');
     await expect(nav).toBeVisible();
     const links = nav.getByRole('link');
-    await expect(links).toHaveCount(14);
+    await expect(links).toHaveCount(17);
 
     // Spot-check some labels
     await expect(nav.getByRole('link', { name: 'Dashboard' })).toBeVisible();
@@ -160,7 +160,7 @@ test.describe('Backoffice — MODERATOR acceso restringido', () => {
 
   // ── AdminNav ───────────────────────────────────────────────────────────────
 
-  test('AdminNav muestra 5 ítems para el MODERATOR (Anuncios, Usuarios, Reportes, Blog, Páginas)', async ({ moderatorContext }) => {
+  test('AdminNav muestra 6 ítems para el MODERATOR (Anuncios, Usuarios, Reportes, Tickets, Blog, Páginas)', async ({ moderatorContext }) => {
     const page = await moderatorContext.newPage();
     await page.goto('/admin/reportes');
     await page.waitForLoadState('networkidle');
@@ -168,14 +168,15 @@ test.describe('Backoffice — MODERATOR acceso restringido', () => {
     const nav = page.getByTestId('admin-nav');
     await expect(nav).toBeVisible();
 
-    // Exactly 5 nav links visible
+    // Exactly 6 nav links visible (R7 de atención al usuario añade Tickets)
     const links = nav.getByRole('link');
-    await expect(links).toHaveCount(5);
+    await expect(links).toHaveCount(6);
 
-    // All 5 must be present
+    // All 6 must be present
     await expect(nav.getByRole('link', { name: 'Anuncios' })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'Usuarios' })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'Reportes' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Tickets' })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'Blog' })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'Páginas' })).toBeVisible();
 
@@ -317,6 +318,8 @@ test.describe('Backoffice — EDITOR acotado exclusivamente al blog', () => {
     await expect(nav.getByRole('link', { name: 'Anuncios' })).not.toBeVisible();
     await expect(nav.getByRole('link', { name: 'Usuarios' })).not.toBeVisible();
     await expect(nav.getByRole('link', { name: 'Reportes' })).not.toBeVisible();
+    // R7 — Tickets es de ADMIN+MODERATOR; el EDITOR no debe verlo.
+    await expect(nav.getByRole('link', { name: 'Tickets' })).not.toBeVisible();
     await expect(nav.getByRole('link', { name: 'Facturación' })).not.toBeVisible();
     await expect(nav.getByRole('link', { name: 'Categorías' })).not.toBeVisible();
     await expect(nav.getByRole('link', { name: 'Cupones' })).not.toBeVisible();

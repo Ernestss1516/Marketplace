@@ -283,6 +283,55 @@ async function main() {
     console.log('Playwright seed: test SPAM report OK');
   }
 
+  // ── Movimiento facturable + datos fiscales para seller-e2e ────────────────
+  // Atención al usuario R7 — `tickets-admin.spec.ts` necesita un ticket con una
+  // FACTURA enlazada para ejercer en el navegador la puerta ADMIN-only (el
+  // MODERATOR no lo ve ni lo abre). Emitir una factura exige dos cosas que el
+  // seed no tenía: datos fiscales del usuario y al menos una Transaction
+  // SUCCEEDED sin facturar. Se siembran aquí, de forma IDEMPOTENTE.
+  //
+  // Ningún otro spec depende del estado fiscal de seller-e2e (comprobado), y las
+  // suites e2e de backend truncan User CASCADE en su propio cleanDb, así que
+  // este dato no las alcanza.
+  if (sellerUser) {
+    await prisma.user.update({
+      where: { id: sellerUser.id },
+      data: {
+        fiscalTaxId: '12345678Z',
+        fiscalName: 'Vendedor E2E',
+        fiscalEntityType: 'INDIVIDUAL',
+        fiscalAddress: 'C/ Prueba 1',
+        fiscalCity: 'Madrid',
+        fiscalPostalCode: '28001',
+        fiscalProvince: 'Madrid',
+        fiscalCountry: 'ES',
+      },
+    });
+
+    const anyPrice = await prisma.price.findFirst({ select: { id: true } });
+    if (anyPrice) {
+      const yaHay = await prisma.transaction.findFirst({
+        where: { userId: sellerUser.id, status: 'SUCCEEDED' },
+        select: { id: true },
+      });
+      if (!yaHay) {
+        await prisma.transaction.create({
+          data: {
+            userId: sellerUser.id,
+            priceId: anyPrice.id,
+            amountGross: 12.1,
+            amountNet: 10,
+            taxAmount: 2.1,
+            taxRate: 0.21,
+            status: 'SUCCEEDED',
+            gateway: 'REDSYS',
+          },
+        });
+      }
+      console.log('Playwright seed: seller-e2e fiscal data + billable transaction OK');
+    }
+  }
+
   console.log('Playwright seed: seller-e2e + buyer-e2e + pro-e2e OK');
 }
 

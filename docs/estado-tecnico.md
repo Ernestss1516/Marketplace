@@ -4918,6 +4918,71 @@ cambian), que la página calcula comparando la sesión con el slug del perfil.
 
 ---
 
+### Atención al usuario R7 — frontend de staff (CIERRA EL NÚCLEO)
+
+`/admin/tickets` (bandeja con filtros), `/admin/tickets/[id]` (hilo + acciones + panel
+lateral) y `/admin/tickets/nuevo` (flujo b). Client-side y sin SEO, regla del backoffice.
+Con R7 el sistema es usable por los dos lados; lo que queda son incrementos (R5 adjuntos,
+R8 cron, R9 tiempo real).
+
+**La matriz de acciones, extraída a función pura.** `resolveStaffActions()`
+(`components/tickets/staff-actions.ts`) decide qué se ofrece según estado × rol ×
+asignación × factura. Es la única lógica de decisión real del frontend de R7 y la que sería
+más cara de cubrir a clics (5 estados × 2 roles × 3 situaciones de asignación): sacada a una
+función, se prueba entera en milisegundos (`staff-actions.test.ts`, 14 tests) y Playwright
+solo comprueba que la pantalla la USA.
+
+**La UI no replica el filtrado por rol de la bandeja, a propósito.** El backend (R3) NO
+LISTA a un MODERATOR los tickets con factura; la bandeja pinta lo que le llega. Replicar el
+filtro en el cliente daría la falsa impresión de que la protección vive ahí — vive en el
+`where` del servidor.
+
+**Navegación: los dos ficheros a la vez.** `ROLE_ALLOWED_PATHS.MODERATOR += '/admin/tickets'`
+y `NAV_ITEMS += Tickets`. Sin el path la sección es inaccesible; sin el ítem, invisible.
+
+**Flujo (c) cerrado de punta a punta.** Botón "Contactar al reportado" en cada fila de
+`/admin/reportes` (no hay ruta `[id]`: la ficha es la propia lista). Si el reporte ya tiene
+hilo, se enlaza en vez de ofrecer abrir otro. Para eso `ModerationService.listReports` gana
+un `include` de `tickets: { id, status }` — **solo lectura, dos campos**; ni el modelo, ni
+los estados, ni los endpoints de `Report` cambian, y `moderation.e2e-spec.ts` sigue verde
+(45/45) **sin editarlo**. Verificado además en el navegador: abrir el hilo NO cambia el
+estado de la denuncia (sigue `PENDING`).
+
+**Notas internas: se VEN, no se CREAN.** El hilo de staff las pinta diferenciadas si
+existieran (contraste con la vista de usuario, que las filtra). R7 **no** añade UI para
+crearlas: siguen aplazadas (§14.3) y no hay vía de escritura en ninguna capa.
+
+**Verificación.**
+
+- `staff-actions.test.ts` — 14 tests. Incluye que la puerta de facturación cubre TODOS los
+  verbos (no solo ver/responder) y las tres situaciones de la puerta de reasignación.
+- `e2e/tickets-admin.spec.ts` — 5 tests Playwright, verdes. Ciclo completo del ADMIN
+  (tomar → responder → resolver → cerrar, comprobando que CLOSED no deja ninguna acción),
+  filtros, la puerta de facturación **con el contraste completo** (MODERATOR no lo ve en la
+  bandeja + 403 al forzar la URL; ADMIN sí lo ve y lo abre), flujo (b) verificado hasta que
+  el usuario lo ve en `/mis-tickets`, y flujo (c) con el `Report` intacto.
+- `admin-roles.spec.ts` actualizado (cuentas de nav) — ver el hallazgo de abajo.
+
+**HALLAZGO — `admin-roles.spec.ts` ya estaba rojo antes de R7.** Afirmaba 14 ítems de nav
+para el ADMIN cuando `NAV_ITEMS` ya tenía **16** en HEAD (comprobado con
+`git show HEAD:…AdminNav.tsx`): la cuenta se quedó desactualizada en alguna ráfaga anterior
+que añadió ítems sin tocar el test. Corregido a **17** (16 + Tickets), y añadidas las
+aserciones de `Tickets` visible para ADMIN/MODERATOR y NO visible para EDITOR. La cuenta
+exacta es frágil por diseño (es su gracia: obliga a mirar el test al añadir una sección),
+pero solo funciona si se actualiza — dos ráfagas la dejaron pasar.
+
+**Cambio en `seed-playwright.ts` (aditivo).** Para ejercer la puerta de facturación en el
+navegador hacía falta una factura real, y emitir una exige datos fiscales + una Transaction
+`SUCCEEDED` sin facturar, que el seed no tenía. Se siembran ambos para `seller-e2e`, de
+forma idempotente. Comprobado que ningún otro spec depende del estado fiscal de ese usuario,
+y las suites e2e de backend truncan `User CASCADE` en su `cleanDb`, así que no las alcanza.
+
+**Corrección de un texto que mentía:** el placeholder del buscador de usuarios decía "Nombre
+o email…", pero `UsersService.search` casa por `name` o `slug`, nunca por email — buscar un
+email no devolvía nada. Ahora dice "Nombre o identificador…".
+
+---
+
 ## 3. Limitaciones conocidas y deuda técnica
 
 ### RC.1 — Rate limit por IP no verificado contra el proxy real de producción

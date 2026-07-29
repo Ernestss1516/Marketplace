@@ -32,6 +32,12 @@ export interface Report {
     target: { name: string; slug: string };
   } | null;
   resolvedBy: { id: string; name: string } | null;
+  /**
+   * Atención al usuario R7 — hilos ya abiertos con el usuario reportado desde
+   * esta denuncia (flujo c). Solo lectura: el ciclo de vida del Report no cambia.
+   * Opcional porque el campo se añadió después; un backend anterior no lo trae.
+   */
+  tickets?: { id: string; status: string }[];
 }
 
 export interface PaginatedReports {

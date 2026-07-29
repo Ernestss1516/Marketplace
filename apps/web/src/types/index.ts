@@ -750,3 +750,76 @@ export interface TicketRow {
   createdAt: string;
   updatedAt: string;
 }
+
+// ── Tickets — vista de STAFF (R7) ────────────────────────────────────────────
+
+export interface TicketUserStub {
+  id: string;
+  name: string;
+  slug: string;
+  email: string;
+}
+
+/** Fila de la bandeja — GET /admin/tickets. */
+export interface AdminTicketListItem {
+  id: string;
+  subject: string;
+  status: TicketStatus;
+  origin: TicketOrigin;
+  topic: TicketTopic | null;
+  user: TicketUserStub;
+  assignedTo: { id: string; name: string } | null;
+  linkedLabel: string | null;
+  /** true si el ticket lleva factura enlazada (solo ADMIN puede gestionarlo). */
+  hasInvoice: boolean;
+  reportId: string | null;
+  lastMessageAt: string;
+  createdAt: string;
+  /** Mensajes del usuario que ningún agente ha abierto todavía. */
+  unreadFromUser: number;
+}
+
+export interface AdminTicketsResponse {
+  items: AdminTicketListItem[];
+  total: number;
+  page: number;
+  perPage: number;
+  pages: number;
+}
+
+/**
+ * Hilo completo — GET /admin/tickets/:id. Incluye TODOS los mensajes, también
+ * los `internal` (las notas internas siguen aplazadas: no hay forma de crearlas,
+ * pero si existieran es aquí donde se verían y en la vista de usuario no).
+ */
+export interface AdminTicketDetail {
+  id: string;
+  subject: string;
+  status: TicketStatus;
+  origin: TicketOrigin;
+  topic: TicketTopic | null;
+  user: { id: string; name: string; slug: string };
+  assignedTo: { id: string; name: string } | null;
+  linkedLabel: string | null;
+  listing: { id: string; title: string; slug: string } | null;
+  review: { id: string; rating: number } | null;
+  invoice: { id: string; number: string | null; status: string } | null;
+  report: { id: string; reason: string; status: string } | null;
+  invoiceId: string | null;
+  reportId: string | null;
+  lastMessageAt: string;
+  resolvedAt: string | null;
+  closedAt: string | null;
+  createdAt: string;
+  messages: TicketMessage[];
+}
+
+/** Filtros de la bandeja. `assignedTo` admite los centinelas `me` y `none`. */
+export interface AdminTicketFilters {
+  status?: TicketStatus;
+  origin?: TicketOrigin;
+  topicId?: string;
+  assignedTo?: string;
+  page?: number;
+  perPage?: number;
+}

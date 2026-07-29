@@ -93,6 +93,14 @@ export class ModerationService {
           listing: { select: { id: true, title: true, slug: true, status: true } },
           review: { select: { id: true, rating: true, comment: true, author: { select: { name: true, slug: true } }, target: { select: { name: true, slug: true } } } },
           resolvedBy: { select: { id: true, name: true } },
+          // Atención al usuario R7 — hilos ya abiertos con el usuario reportado
+          // desde esta denuncia (flujo c). SOLO LECTURA y solo dos campos: la
+          // ficha necesita enseñar "ya hay hilo, aquí está" para no abrir dos.
+          // El ciclo de vida del Report NO cambia: sigue siendo suyo, y resolver
+          // la denuncia y cerrar el hilo siguen siendo acciones independientes
+          // (§8.3). Añadir un campo al payload es aditivo — ningún test de
+          // moderación afirma la forma exacta de la respuesta.
+          tickets: { select: { id: true, status: true }, orderBy: { createdAt: 'desc' } },
         },
       }),
       this.prisma.report.count({ where }),

@@ -29,7 +29,9 @@ const ADMIN_LOGIN_PATH = '/admin/login';
 // ADMIN always has full access. Any role not listed here is always blocked.
 // Add/extend entries here when a section is opened to a role.
 const ROLE_ALLOWED_PATHS: Record<string, string[]> = {
-  MODERATOR: ['/admin/reportes', '/admin/anuncios', '/admin/usuarios', '/admin/blog', '/admin/paginas'],
+  // '/admin/tickets' (atención al usuario R7) va junto a la entrada de AdminNav:
+  // sin el path la sección es inaccesible; sin el ítem del nav, invisible.
+  MODERATOR: ['/admin/reportes', '/admin/anuncios', '/admin/usuarios', '/admin/blog', '/admin/paginas', '/admin/tickets'],
   EDITOR: ['/admin/blog', '/admin/paginas'],
 };
 

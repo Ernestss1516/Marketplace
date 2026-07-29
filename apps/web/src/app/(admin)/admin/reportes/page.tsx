@@ -1,8 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { Star } from 'lucide-react';
+import { createTicketFromReport } from '@/lib/api/admin-tickets';
 import {
   getReports,
   resolveReport,
@@ -311,6 +313,47 @@ export default function AdminReportesPage() {
                             className="rounded bg-red-600 px-2 py-1 text-xs text-white hover:bg-red-700 disabled:opacity-50"
                           >
                             {isPending ? '…' : 'Eliminar reseña'}
+                          </button>
+                        )}
+
+                        {/* Atención al usuario R7 — FLUJO (c). Abre un hilo con el
+                            usuario reportado. El destinatario lo resuelve el
+                            SERVIDOR desde el propio Report (nunca se manda desde
+                            aquí), y el Report NO se modifica: resolver la denuncia
+                            y cerrar el hilo son acciones independientes.
+                            Si ya hay hilo, se enlaza en vez de ofrecer abrir otro. */}
+                        {r.tickets && r.tickets.length > 0 ? (
+                          <Link
+                            href={`/admin/tickets/${r.tickets[0].id}`}
+                            className="rounded border border-blue-600 px-2 py-1 text-xs text-blue-700 hover:bg-blue-50"
+                            data-testid="enlace-hilo-reporte"
+                          >
+                            Hilo abierto ({r.tickets[0].status})
+                          </Link>
+                        ) : (
+                          <button
+                            disabled={isPending}
+                            onClick={() =>
+                              handleAction(
+                                () =>
+                                  createTicketFromReport(
+                                    r.id,
+                                    {
+                                      subject: 'Sobre una denuncia recibida',
+                                      body:
+                                        'Hola, nos ha llegado una denuncia relacionada con tu actividad ' +
+                                        'en la plataforma y queremos contrastarla contigo antes de tomar ' +
+                                        'ninguna decisión. ¿Puedes contarnos tu versión?',
+                                    },
+                                    token,
+                                  ),
+                                r.id,
+                              )
+                            }
+                            className="rounded bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-700 disabled:opacity-50"
+                            data-testid="contactar-reportado"
+                          >
+                            {isPending ? '…' : 'Contactar al reportado'}
                           </button>
                         )}
                       </div>
