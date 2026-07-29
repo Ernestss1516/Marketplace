@@ -635,3 +635,118 @@ export interface AlertCriteria {
   lng?: number;
   radius?: number;
 }
+
+// ── Tickets — atención al usuario (R6) ───────────────────────────────────────
+
+/** Espejo de TicketStatus (Prisma). CLOSED es IRREVERSIBLE. */
+export type TicketStatus = 'OPEN' | 'IN_PROGRESS' | 'WAITING_USER' | 'RESOLVED' | 'CLOSED';
+
+/** Quién originó el hilo. Solo un `USER` puede cerrarlo el propio usuario (T11). */
+export type TicketOrigin = 'USER' | 'ADMIN' | 'REPORT';
+
+/** Lado del mensaje, CONGELADO al escribir por el backend — no se deriva del rol. */
+export type TicketAuthorSide = 'USER' | 'STAFF';
+
+export interface TicketTopic {
+  id: string;
+  nombre: string;
+}
+
+/**
+ * Mensaje del hilo. `internal` viene siempre `false` en la vista de usuario: el
+ * backend filtra las notas internas en la propia query (getForUser). La UI
+ * tampoco las espera — no hay rama que las pinte.
+ */
+export interface TicketMessage {
+  id: string;
+  ticketId: string;
+  authorId: string;
+  side: TicketAuthorSide;
+  body: string;
+  internal: boolean;
+  readByUserAt: string | null;
+  readByStaffAt: string | null;
+  createdAt: string;
+}
+
+/** Fila de la lista "mis tickets" — el resumen que sirve GET /tickets. */
+export interface TicketListItem {
+  id: string;
+  subject: string;
+  status: TicketStatus;
+  origin: TicketOrigin;
+  topic: TicketTopic | null;
+  linkedLabel: string | null;
+  lastMessageAt: string;
+  createdAt: string;
+  /** Mensajes del staff que el usuario aún no ha abierto. Nunca cuenta notas internas. */
+  unreadCount: number;
+}
+
+export interface TicketsResponse {
+  items: TicketListItem[];
+  total: number;
+  page: number;
+  perPage: number;
+  pages: number;
+}
+
+/** Detalle del hilo — GET /tickets/:id (mensajes DESC + cursor). */
+export interface TicketDetail {
+  id: string;
+  subject: string;
+  status: TicketStatus;
+  origin: TicketOrigin;
+  topic: TicketTopic | null;
+  linkedLabel: string | null;
+  listingId: string | null;
+  reviewId: string | null;
+  invoiceId: string | null;
+  listing: { id: string; title: string; slug: string } | null;
+  review: { id: string; rating: number } | null;
+  invoice: { id: string; number: string | null; status: string } | null;
+  lastMessageAt: string;
+  resolvedAt: string | null;
+  closedAt: string | null;
+  createdAt: string;
+  messages: TicketMessage[];
+  nextCursor: string | null;
+}
+
+/** Payload de POST /tickets. Como máximo UNA entidad enlazada. */
+export interface CreateTicketPayload {
+  subject: string;
+  body: string;
+  topicId?: string;
+  listingId?: string;
+  reviewId?: string;
+  invoiceId?: string;
+}
+
+/**
+ * Fila cruda de Ticket tal y como la devuelven POST /tickets,
+ * POST /tickets/:id/messages y POST /tickets/:id/close — el registro entero, no
+ * el resumen de la lista (`TicketListItem`, que el backend sí mapea). Se tipa
+ * aparte precisamente para no confundir los dos shapes.
+ */
+export interface TicketRow {
+  id: string;
+  subject: string;
+  status: TicketStatus;
+  origin: TicketOrigin;
+  topicId: string | null;
+  userId: string;
+  openedById: string;
+  assignedToId: string | null;
+  listingId: string | null;
+  reviewId: string | null;
+  invoiceId: string | null;
+  reportId: string | null;
+  linkedLabel: string | null;
+  lastMessageAt: string;
+  resolvedAt: string | null;
+  closedAt: string | null;
+  closedById: string | null;
+  createdAt: string;
+  updatedAt: string;
+}

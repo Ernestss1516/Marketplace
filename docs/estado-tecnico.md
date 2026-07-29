@@ -4852,6 +4852,72 @@ snapshot autocontenido.
 
 ---
 
+### Atención al usuario R6 — frontend de usuario
+
+`/mis-tickets` (lista + filtro abiertos/todos + paginación), `/mis-tickets/nuevo` (con
+entidad enlazada prefijada) y `/mis-tickets/[id]` (el hilo, con cursor y acciones por
+estado). `middleware.ts` gana el prefijo `/mis-tickets`.
+
+**Principio aplicado literalmente: la UI RESTRINGE, el backend GARANTIZA.** El frontend
+decide qué OFRECER según la matriz §7.2; no reimplementa ninguna validación. Cuando
+discrepan manda el backend — por eso los errores se muestran en vez de ocultarse, y por eso
+`toCreateTicketMessage`/`toTicketActionMessage` traducen los `code` del servidor (422, 429,
+`REOPEN_WINDOW_EXPIRED`) en vez de precomprobar nada.
+
+**Dos huecos del backend que R6 destapó y hubo que cerrar antes de poder construir el
+selector:**
+
+1. **`ContactReasonsService.listActive()` nunca filtró por `scope`.** La columna se añadió
+   en R1 pero este método seguía devolviendo TODOS los activos, así que `/contacto` habría
+   acabado ofreciendo motivos de ámbito TICKET en cuanto se creara el primero. No había
+   mordido porque hasta ahora todos eran `PUBLIC` (el `@default`). Ahora recibe los ámbitos:
+   el endpoint público pide `PUBLIC + BOTH`.
+2. **No existía endpoint de motivos para el usuario.** Nuevo `GET /tickets/topics`
+   (autenticado) → `TICKET + BOTH`. **Declarado ANTES que `@Get(':id')`**: si fuera después,
+   Nest resolvería `/tickets/topics` contra la ruta dinámica y buscaría un ticket con id
+   "topics" (mismo motivo que `reorder` antes de `:id` en `FooterAdminController`).
+   `ContactModule` exporta `ContactReasonsService` para esto — los motivos siguen siendo UNA
+   taxonomía con columna de ámbito (§14.1), no dos tablas.
+
+**Entradas contextuales.** Botón en `MyListingCard` (`?listingId=`), en cada fila de
+`FacturasPanel` (`?invoiceId=`) y en la valoración recibida (`?reviewId=`). `/nuevo` resuelve
+la ETIQUETA best-effort para que el usuario vea con qué relaciona el ticket; si falla (id
+manipulado, entidad ajena) NO bloquea: sigue con etiqueta genérica y es el backend quien
+rechaza con 422 al crear. El `linkedLabel` real lo deriva siempre el servidor.
+
+**Matiz en la entrada de valoraciones.** `ReviewsSection` es un componente PÚBLICO servido a
+cualquier visitante de `/vendedor/[slug]`. Enseñar ahí el botón a todo el mundo ofrecería una
+acción que el backend rechaza (422) a todos salvo al protagonista — justo lo contrario del
+principio. Se añadió la prop `esMiPerfil` (default `false`, así las llamadas existentes no
+cambian), que la página calcula comparando la sesión con el slug del perfil.
+
+**Verificación.**
+
+- **`TicketThreadClient.test.tsx`, 15 tests (Jest + Testing Library).** Cubre la única
+  lógica de decisión real del frontend: la matriz de 5 estados × 3 orígenes que determina qué
+  acciones se ofrecen. En Playwright esa matriz sería lenta; aquí es instantánea. Incluye el
+  caso `RESOLVED` sin `resolvedAt` (dato incoherente → se trata como fuera de ventana, la
+  opción segura). **Validado por mutación:** quitar `origin === 'USER'` del gate de cerrar →
+  2 rojos; ignorar la ventana de reapertura → 2 rojos.
+- **`e2e/tickets-usuario.spec.ts`, 7 tests (Playwright), verdes.** Flujo real en navegador:
+  abrir desde cero, entrada contextual con anuncio, hilo con burbujas por lado, responder y
+  ver la transición, ticket de la administración sin botón de cerrar, cerrado sin caja, y
+  reapertura desde RESOLVED.
+
+**Dos hallazgos de proceso (míos, anotados para no repetirlos):**
+
+1. **Playwright y la batería de backend NO pueden correr a la vez.** Comparten
+   `marketplace_test` y Redis db 1; el `global-setup` de Playwright resiembra los `Setting`
+   a mitad de la batería y `rf7-limits`/`rf7-expiration` se ponen rojos con el
+   `expected 403, got 200` ya documentado en la deuda de test/CI. Verificado: en aislamiento
+   pasan las dos.
+2. **El `page` por defecto de Playwright NO está autenticado.** Las sesiones vienen de los
+   contextos con `storageState` del fixture (`sellerContext.newPage()`), como en
+   `mensajeria-unificada.spec.ts`. Usar `page` a secas hace que todo redirija a `/login` y
+   los fallos aparezcan como "no encuentro el campo del formulario".
+
+---
+
 ## 3. Limitaciones conocidas y deuda técnica
 
 ### RC.1 — Rate limit por IP no verificado contra el proxy real de producción

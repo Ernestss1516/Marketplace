@@ -23,5 +23,10 @@ import { ContactRateLimitService } from './contact-rate-limit.service';
   ],
   controllers: [ContactController, AdminContactMessagesController, AdminContactReasonsController],
   providers: [ContactService, ContactReasonsService, ContactTimeTrapService, ContactRateLimitService],
+  // R6 (atención al usuario) — TicketsModule sirve `GET /tickets/topics` desde
+  // este mismo servicio: los motivos son una taxonomía única con columna de
+  // ámbito (§14.1), no dos tablas gemelas. Solo se exporta el de motivos; el
+  // resto del módulo (formulario público, defensas anti-bot) sigue encapsulado.
+  exports: [ContactReasonsService],
 })
 export class ContactModule {}

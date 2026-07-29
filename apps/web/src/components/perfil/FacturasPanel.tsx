@@ -2,7 +2,8 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { Download, FileText, Loader2 } from 'lucide-react';
+import Link from 'next/link';
+import { Download, FileText, LifeBuoy, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { requestInvoice, type Facturable, type InvoiceDto, type InvoiceEligibility } from '@/lib/api/facturacion';
@@ -131,19 +132,30 @@ export function FacturasPanel({ token, eligibility, facturables, invoices }: Pro
                     </p>
                   </div>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleDownload(inv)}
-                  disabled={!inv.hasPdf || downloadingId === inv.id}
-                >
-                  {downloadingId === inv.id ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Download className="mr-2 h-4 w-4" />
-                  )}
-                  Descargar
-                </Button>
+                <div className="flex shrink-0 items-center gap-1">
+                  {/* Atención al usuario R6 — entrada contextual. El invoiceId es
+                      una sugerencia para prefijar el ticket; el backend revalida
+                      que la factura sea suya al crearlo (422 si no). */}
+                  <Button asChild variant="ghost" size="sm" className="text-muted-foreground">
+                    <Link href={`/mis-tickets/nuevo?invoiceId=${inv.id}`} prefetch={false}>
+                      <LifeBuoy className="mr-1.5 h-3.5 w-3.5" />
+                      ¿Ayuda?
+                    </Link>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleDownload(inv)}
+                    disabled={!inv.hasPdf || downloadingId === inv.id}
+                  >
+                    {downloadingId === inv.id ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="mr-2 h-4 w-4" />
+                    )}
+                    Descargar
+                  </Button>
+                </div>
               </li>
             ))}
           </ul>

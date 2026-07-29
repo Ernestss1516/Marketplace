@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { ContactReason, Prisma } from '@prisma/client';
+import { ContactReason, ContactReasonScope, Prisma } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { CreateContactReasonDto } from './dto/create-contact-reason.dto';
@@ -19,10 +19,21 @@ export class ContactReasonsService {
     private readonly auditLog: AuditLogService,
   ) {}
 
-  /** GET /contacto/motivos (público) — solo activos, ordenados. */
-  async listActive(): Promise<Pick<ContactReason, 'id' | 'nombre'>[]> {
+  /**
+   * Motivos activos de un ÁMBITO, ordenados. Dos consumidores:
+   *   · `GET /contacto/motivos` (público)  → PUBLIC + BOTH
+   *   · `GET /tickets/topics`  (autenticado) → TICKET + BOTH
+   *
+   * El filtro por scope FALTABA: la columna se añadió en R1 de atención al
+   * usuario pero este método seguía devolviendo todos los activos, así que el
+   * formulario público habría acabado ofreciendo motivos de ámbito TICKET en
+   * cuanto se creara el primero. No había mordido porque hasta ahora todos los
+   * motivos eran PUBLIC (el `@default`). Cerrado aquí, en el único sitio que
+   * lee la lista, en vez de en cada llamante.
+   */
+  async listActive(scopes: ContactReasonScope[]): Promise<Pick<ContactReason, 'id' | 'nombre'>[]> {
     return this.prisma.contactReason.findMany({
-      where: { activo: true },
+      where: { activo: true, scope: { in: scopes } },
       orderBy: { orden: 'asc' },
       select: { id: true, nombre: true },
     });

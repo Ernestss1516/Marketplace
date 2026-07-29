@@ -14,6 +14,7 @@ import { JwtAuthGuard } from '../../common/guards';
 import { CurrentUser } from '../../common/decorators';
 import { JwtUser } from '../auth/auth.types';
 import { TicketsService } from './tickets.service';
+import { ContactReasonsService } from '../contact/contact-reasons.service';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { SendTicketMessageDto } from './dto/send-ticket-message.dto';
 import { ListTicketsDto } from './dto/list-tickets.dto';
@@ -35,7 +36,10 @@ import { TicketThreadQueryDto } from './dto/ticket-thread-query.dto';
 @Controller('tickets')
 @UseGuards(JwtAuthGuard)
 export class TicketsController {
-  constructor(private readonly tickets: TicketsService) {}
+  constructor(
+    private readonly tickets: TicketsService,
+    private readonly contactReasons: ContactReasonsService,
+  ) {}
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
@@ -63,6 +67,25 @@ export class TicketsController {
   @ApiResponse({ status: 200, description: 'Lista paginada con unreadCount por ticket' })
   list(@CurrentUser() user: JwtUser, @Query() query: ListTicketsDto) {
     return this.tickets.listForUser(user.userId, query.page, query.perPage);
+  }
+
+  /**
+   * Motivos ofrecibles al abrir un ticket: activos y de ámbito TICKET o BOTH.
+   *
+   * Endpoint propio y NO reutilizar `GET /contacto/motivos`: ese es el del
+   * formulario público y sirve el ámbito contrario (PUBLIC + BOTH). Tampoco
+   * `GET /admin/contact-reasons`, que es ADMIN-only y devuelve también los
+   * inactivos.
+   *
+   * DECLARADO ANTES QUE `:id` a propósito — si fuera después, Nest resolvería
+   * `/tickets/topics` contra la ruta dinámica y buscaría un ticket con id
+   * "topics" (mismo motivo por el que `reorder` va antes que `:id` en
+   * FooterAdminController).
+   */
+  @Get('topics')
+  @ApiOperation({ summary: 'Motivos disponibles para abrir un ticket (scope TICKET o BOTH)' })
+  listTopics() {
+    return this.contactReasons.listActive(['TICKET', 'BOTH']);
   }
 
   @Get(':id')

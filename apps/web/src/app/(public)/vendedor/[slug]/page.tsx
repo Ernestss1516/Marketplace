@@ -194,7 +194,13 @@ export default async function VendedorPage({
 
       {/* Valoraciones recibidas */}
       <div className="mt-12">
-        <ReviewsSection data={reviewsData} sellerName={seller.name} />
+        {/* esMiPerfil habilita la entrada "¿Ayuda con esta valoración?" — solo
+            para el destinatario, que es quien puede abrir ese ticket (R6). */}
+        <ReviewsSection
+          data={reviewsData}
+          sellerName={seller.name}
+          esMiPerfil={session?.user.slug === slug}
+        />
       </div>
     </div>
   );

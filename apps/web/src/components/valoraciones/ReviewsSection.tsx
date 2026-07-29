@@ -1,4 +1,5 @@
-import { Star, MessageSquare, ShieldCheck } from 'lucide-react';
+import Link from 'next/link';
+import { Star, MessageSquare, ShieldCheck, LifeBuoy } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import type { ReviewsPageResponse, Review } from '@/types';
@@ -42,7 +43,14 @@ function DistributionBar({ label, count, total }: { label: string; count: number
   );
 }
 
-function ReviewCard({ review }: { review: Review }) {
+/**
+ * `esMia` = el visitante es el DESTINATARIO de esta valoración (está viendo su
+ * propio perfil). Solo entonces se ofrece la entrada de ayuda: este componente
+ * es PÚBLICO y se sirve a cualquier visitante, así que enseñar el botón siempre
+ * ofrecería a todo el mundo una acción que el backend rechaza con 422 salvo al
+ * protagonista — justo lo contrario del principio "la UI solo ofrece lo válido".
+ */
+function ReviewCard({ review, esMia }: { review: Review; esMia: boolean }) {
   const date = new Intl.DateTimeFormat('es-ES', {
     day: 'numeric',
     month: 'short',
@@ -85,7 +93,19 @@ function ReviewCard({ review }: { review: Review }) {
         </p>
       )}
 
-      <ReviewReportButton reviewId={review.id} />
+      <div className="flex flex-wrap items-center gap-3">
+        <ReviewReportButton reviewId={review.id} />
+        {esMia && (
+          <Link
+            href={`/mis-tickets/nuevo?reviewId=${review.id}`}
+            prefetch={false}
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-2 hover:underline"
+          >
+            <LifeBuoy className="h-3.5 w-3.5" />
+            ¿Ayuda con esta valoración?
+          </Link>
+        )}
+      </div>
     </div>
   );
 }
@@ -95,9 +115,15 @@ function ReviewCard({ review }: { review: Review }) {
 interface ReviewsSectionProps {
   data: ReviewsPageResponse;
   sellerName: string;
+  /**
+   * true cuando el visitante es el dueño del perfil, es decir, el destinatario
+   * de estas valoraciones. Default `false` para que las llamadas existentes
+   * sigan comportándose exactamente igual (no aparece nada nuevo).
+   */
+  esMiPerfil?: boolean;
 }
 
-export function ReviewsSection({ data, sellerName }: ReviewsSectionProps) {
+export function ReviewsSection({ data, sellerName, esMiPerfil = false }: ReviewsSectionProps) {
   const { average, count, distribution, unverifiedCount, items } = data;
   // count (verificadas) + unverifiedCount = total real de valoraciones — ni
   // "count" solo ni "items.length" (paginado) sirven para saber si hay
@@ -169,7 +195,7 @@ export function ReviewsSection({ data, sellerName }: ReviewsSectionProps) {
           {/* Review list — verificadas y no verificadas, cada una etiquetada */}
           <div className="space-y-3">
             {items.map((review) => (
-              <ReviewCard key={review.id} review={review} />
+              <ReviewCard key={review.id} review={review} esMia={esMiPerfil} />
             ))}
           </div>
         </>

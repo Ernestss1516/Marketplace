@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Loader2, Pencil, Trash2, CheckCircle, Lock, Send, RotateCcw, Star, TrendingUp, Eye, Heart, UserPlus, PauseCircle, PlayCircle, Archive } from 'lucide-react';
+import { Loader2, Pencil, Trash2, CheckCircle, Lock, Send, RotateCcw, Star, TrendingUp, Eye, Heart, UserPlus, PauseCircle, PlayCircle, Archive, LifeBuoy } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -515,6 +515,18 @@ export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) 
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
+
+          {/* Atención al usuario R6 — entrada contextual. Lleva el listingId por
+              query param para que /mis-tickets/nuevo prefije la entidad enlazada.
+              El id es solo una SUGERENCIA: el backend revalida que el anuncio es
+              del usuario al crear el ticket (422 si no), así que manipular la URL
+              no consigue nada. */}
+          <Button asChild variant="ghost" size="sm" className="text-muted-foreground">
+            <Link href={`/mis-tickets/nuevo?listingId=${listing.id}`} prefetch={false}>
+              <LifeBuoy className="mr-1.5 h-3.5 w-3.5" />
+              ¿Necesitas ayuda?
+            </Link>
+          </Button>
         </div>
       </CardContent>
     </Card>

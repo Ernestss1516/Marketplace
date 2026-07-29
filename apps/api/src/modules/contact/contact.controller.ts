@@ -22,7 +22,7 @@ export class ContactController {
    * por el time-trap) — sin riesgo de servir una lista de motivos obsoleta. */
   @Get('motivos')
   listMotivos() {
-    return this.contactReasonsService.listActive();
+    return this.contactReasonsService.listActive(['PUBLIC', 'BOTH']);
   }
 
   @Post()

@@ -13,6 +13,7 @@ const accountPrefixes = [
   '/mis-creditos',
   '/mis-alertas',
   '/notificaciones',
+  '/mis-tickets',
 ];
 
 const adminPrefixes = ['/admin'];

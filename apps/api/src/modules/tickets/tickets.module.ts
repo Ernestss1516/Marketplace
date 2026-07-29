@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { ContactModule } from '../contact/contact.module';
 import { QUEUE_NOTIFICATIONS, retryQueue } from '../../infra/queue/queue.constants';
 import { TicketsService } from './tickets.service';
 import { TicketNotificationsService } from './ticket-notifications.service';
@@ -27,6 +28,11 @@ import { AdminTicketsController } from './admin-tickets.controller';
   imports: [
     AuditLogModule,
     NotificationsModule,
+    // R6 — `GET /tickets/topics` reutiliza ContactReasonsService: los motivos son
+    // UNA sola taxonomía con una columna de ámbito (decisión §14.1), no dos
+    // tablas. Importar el módulo entero y no duplicar el servicio es lo que
+    // mantiene esa decisión en pie.
+    ContactModule,
     // R4 — la cola se REGISTRA AQUÍ con `retryQueue`, igual que hacen
     // ContactModule y AlertsModule. No se hereda del módulo central:
     // @nestjs/bullmq crea una Queue (productora) por registro, cada una con sus
