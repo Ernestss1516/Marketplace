@@ -137,9 +137,16 @@ WebSocket en `/ws` *(autenticación JWT en el handshake)*:
 > No existe un evento `message:send` de cliente a servidor por WebSocket.
 
 **CORS del gateway (R9):** el handshake solo se autoriza desde `APP_URL` (el origen del
-frontend). Antes era `origin: '*'` con un `TODO(prod)`. Es defensa en profundidad, no el
-control de acceso: quien autoriza es el token del handshake — y por ser un token explícito y
-no una cookie, este gateway nunca fue vulnerable a *cross-site WebSocket hijacking*.
+frontend), en forma de **array de un elemento** — con `origin` como cadena, el paquete `cors`
+emite la cabecera sin comparar; con array, la omite cuando el origen no casa.
+
+Antes era `origin: '*'` con un `TODO(prod)`. **Sin vender más de lo que es:** es defensa en
+profundidad, **no** el control de acceso. Quien autoriza es el token del handshake y, por ser un
+token explícito y no una cookie, este gateway nunca fue vulnerable a *cross-site WebSocket
+hijacking*. Además el protocolo WebSocket no pasa por CORS (solo el polling y el handshake) y el
+propio frontend conecta con `transports: ['websocket']`, así que en la práctica el CORS **no está
+ni en el camino vivo** de esta aplicación. Cerrarlo es higiene —quita el `*` del inventario y
+cierra el camino fácil—, no el cierre de un exploit.
 
 **Salas y eventos de TICKETS (R9), en el mismo namespace `/ws`:**
 
@@ -304,6 +311,7 @@ uno por la puerta del otro.
 | Listings | create · edit · publish · renew · reserve · sold · delete · recent · /:slug · mine/:id |
 | Search | texto+filtros+facetas+proximidad (lat/lng/radius en km) |
 | Media | upload |
-| Messaging | conversations REST (CRUD + cursor) · WebSocket /ws (message:new) |
-| Tickets (usuario) | create (con enlace validado) · list mine · topics · thread+cursor · reply/reopen · close |
-| Tickets (staff) | bandeja+filtros · take · reply/nota interna · resolve · close · reassign · flujo (b) · from-report (c) |
+| Messaging | conversations REST (CRUD + cursor) · WebSocket /ws (message:new, CORS restringido a APP_URL) |
+| Tickets (usuario) | create (con enlace validado) · list mine · topics · thread+cursor · reply/reopen (multipart con adjuntos) · descarga de adjunto autenticada · close |
+| Tickets (staff) | bandeja+filtros · take · reply/nota interna (multipart) · descarga de adjunto · resolve · close · reassign · flujo (b) · from-report (c) |
+| Tickets (tiempo real) | WebSocket /ws · ticket:join (acceso verificado en BD) · ticket:message · sala de rol staff · **una nota interna NO sale de la sala staff** |

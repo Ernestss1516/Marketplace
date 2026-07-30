@@ -16,6 +16,12 @@
 > `ticket:<id>` y `staff` en el gateway, con el `TODO(prod)` del CORS cerrado antes de
 > ampliarlo, tal y como recomendaba este documento).
 >
+> **Cerrado el 2026-07-30 con el commit `70cc01b` (R9). Todo lo que este documento propone en
+> §1-§17 está construido: no hay ni un incremento del diseño original pendiente.** Lo que sí
+> queda son deudas AJENAS a este sistema, inventariadas en `estado-tecnico.md` §3 (la principal:
+> el `app.enableCors()` sin argumentos de la API HTTP, que es la otra mitad del problema de CORS
+> y se dejó fuera de R9 a propósito).
+>
 > **§14.5 — LOS DOS HUECOS DE NOTIFICACIÓN DE MODERACIÓN: YA IMPLEMENTADOS.** Se resolvieron
 > en ráfaga propia, con `Notification` y sin tocar tickets, tal y como se preveía aquí, y
 > con dos avisos más que la auditoría no había listado (restaurar un anuncio y retirar una
@@ -303,6 +309,8 @@ Tres variantes en uso, todas válidas:
 
 - `@WebSocketGateway({ namespace: '/ws', cors: { origin: '*' } })` sobre socket.io.
   *(Lleva un `TODO(prod)` pendiente: restringir el CORS al `APP_URL` en producción.)*
+  **[AL DÍA DE HOY, YA NO: R9 lo cerró — `cors: { origin: [appOrigin()] }`. Se conserva la
+  frase porque describía el estado cuando se aprobó este diseño.]**
 - Autenticación en `handleConnection`: `socket.handshake.auth.token` → `jwtService.verify`
   → `socket.data.userId`, y auto-join a la sala personal `user:<id>`. Token inválido →
   `disconnect(true)`.
@@ -919,6 +927,8 @@ Razones, con lo auditado:
   el layout de `/mensajes`, no es global — habría que montar otro proveedor, o subirlo).
 - **Hay una deuda abierta en esa superficie:** el `TODO(prod)` de `cors: { origin: '*' }`
   en `MessagingGateway`. Ampliar el uso del gateway antes de cerrarla ensancha el problema.
+  **[SE HIZO ASÍ: R9 se ejecutó en dos pasos — primero cerrar el CORS y verificar que la
+  mensajería seguía intacta, y solo entonces las salas de tickets. Deuda cerrada.]**
 
 Si se hace después, encaja limpio: sala `ticket:<id>` con la misma verificación de
 participación que `conversation:join`, sala `staff` para la bandeja, y un
@@ -1015,7 +1025,13 @@ usuario. ¿Cifra?
 
 ---
 
-## 15. Desglose en ráfagas (SIN implementar)
+## 15. Desglose en ráfagas
+
+> **TODAS EJECUTADAS.** El encabezado original decía "(SIN implementar)" porque esta era la
+> propuesta. La tabla se conserva como el plan que fue; para el estado real de cada una, con lo
+> que cambió al construirla, ver `estado-tecnico.md` §2. Dos notas sobre lo que dice la tabla:
+> R5 se hizo **después** de R8 y de los huecos de §14.5, no en el orden listado, y R9 —marcada
+> aquí como opcional— se pidió y se hizo, en dos pasos (CORS primero, salas después).
 
 | Ráfaga | Contenido | Depende de | Verificación |
 |---|---|---|---|
@@ -1061,7 +1077,7 @@ usable. R5 (adjuntos), R8 (cron) y R9 (tiempo real) son incrementos independient
 | 6 | Email (Resend) **solo avisa**; responder por email no se soporta | No existe email entrante en el proyecto; el cuerpo lleva extracto + enlace, nunca la conversación |
 | 7 | Staff = **MODERATOR + ADMIN**, con facturación y reasignación ADMIN-only | El MODERATOR ya ve reportes/anuncios/usuarios; la facturación es ADMIN-only en todo el proyecto |
 | 8 | Adjuntos en **R2 privado** (molde factura), no público (molde media) | Un pantallazo puede llevar datos personales; `MediaService` además crearía filas `ListingImage` sin sentido |
-| 9 | **Sin WebSocket** en la primera entrega | Un ticket es asíncrono; falta una sala de rol `staff` en el gateway y hay un `TODO(prod)` de CORS abierto |
+| 9 | **Sin WebSocket** en la primera entrega | Un ticket es asíncrono; falta una sala de rol `staff` en el gateway y hay un `TODO(prod)` de CORS abierto — **[decisión revertida en R9: el WebSocket se añadió, cerrando primero el CORS. La razón de aplazarlo era buena y se respetó: no ensanchar el uso del gateway con una deuda de seguridad abierta]** |
 | 10 | Notas internas con **invariante de privacidad y test dedicado** | Precedente exacto de `Listing.phone`: un `include` sin `select` publicó un campo privado |
 
 ---
