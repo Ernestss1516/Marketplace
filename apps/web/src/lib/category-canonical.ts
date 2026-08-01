@@ -126,6 +126,44 @@ export async function resolveCategoryRedirect(
   return canonical === pathname ? null : canonical;
 }
 
+/**
+ * A2 (P3) — `/busqueda?category=X` es la OTRA forma de pedir una categoría, heredada de
+ * antes de que existiera la ruta propia. Deja dos URLs compitiendo por el mismo
+ * contenido, que es exactamente el problema de SEO que A1 vino a cerrar, así que se
+ * canonicaliza igual: 308 a la ruta de la categoría, con el RESTO de la query intacto
+ * (`category` se cae porque pasa a ser el path).
+ *
+ * Se activó tras comprobar que ningún flujo interno depende de que esa URL renderice en
+ * su sitio: en el frontend ya no queda ningún generador (A1 migró los chips de portada y
+ * el bloque CMS a `categoryPath`), y no aparece en plantillas de email, ni en enlaces del
+ * footer, banners, patrocinados o bloques guardados en base de datos — se auditaron las
+ * dos bases. Un redirect que rompe un flujo interno sería peor que la duplicación que
+ * arregla; aquí no hay tal flujo.
+ *
+ * Devuelve la ruta destino (con query) o `null` si no aplica.
+ */
+export async function resolveSearchCategoryRedirect(
+  pathname: string,
+  search: URLSearchParams,
+  now = Date.now(),
+): Promise<string | null> {
+  if (pathname !== '/busqueda') return null;
+
+  const slug = search.get('category');
+  if (!slug) return null;
+
+  const map = await getParentMap(now);
+  // Sin mapa no se redirige: /busqueda?category= sigue funcionando como siempre
+  // (el backend acepta el param), que es el fallo seguro.
+  if (!map || !map.has(slug)) return null;
+
+  const rest = new URLSearchParams(search);
+  rest.delete('category');
+  const query = rest.toString();
+
+  return categoryPath({ slug, parentSlug: map.get(slug) }) + (query ? `?${query}` : '');
+}
+
 /** Solo para tests: vacía la memoización entre casos. */
 export function __resetCategoryCanonicalCache(): void {
   cached = null;

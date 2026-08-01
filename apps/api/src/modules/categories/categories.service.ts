@@ -24,9 +24,14 @@ export class CategoriesService {
         slug: true,
         iconUrl: true,
         attributeSchema: true,
+        // A2 — necesario para resolver la política efectiva de cada nodo (abajo).
+        allowedListingType: true,
         children: {
           orderBy: { order: 'asc' },
-          select: { id: true, name: true, slug: true, iconUrl: true, attributeSchema: true },
+          select: {
+            id: true, name: true, slug: true, iconUrl: true, attributeSchema: true,
+            allowedListingType: true,
+          },
         },
       },
     });
@@ -37,6 +42,14 @@ export class CategoriesService {
         key: f.name,
         label: f.label,
         ...(f.unit !== undefined ? { unit: f.unit } : {}),
+        // A2 (unificación de búsqueda) — si este atributo vale como filtro. Lo necesita
+        // el frontend para decidir qué query params sobreviven al cambiar de categoría:
+        // desde RÁFAGA 1 el backend RECHAZA con 400 cualquier param que no sea filtrable
+        // en la categoría pedida (la defensa anti-leak cross-categoría), así que arrastrar
+        // un atributo ajeno al destino rompería la página. `allAttributes` incluye también
+        // los filterable:false, y mandar uno de esos da 400 igual — de ahí que haga falta
+        // el flag y no baste la lista. Ver lib/filter-carry.ts en el frontend.
+        filterable: f.filterable,
         // RÁFAGA 3 — resueltos aquí (no en el frontend) para que "cómo se muestra" sea
         // el mismo dato para card estándar, ampliada y cualquier futuro consumidor.
         showLabel: resolveShowLabel(f),
@@ -46,11 +59,17 @@ export class CategoriesService {
         // anuncio concreto que renderiza — antes se perdía aquí y ninguna card lo filtraba.
         ...(f.appliesTo !== undefined ? { appliesTo: f.appliesTo } : {}),
       });
+      // A2 — política EFECTIVA, misma resolución en dos pasos que findBySlug: la raíz
+      // resuelve contra 'BOTH' (no tiene padre) y la hija contra el efectivo de la raíz.
+      // El frontend la usa para decidir si `condition` sobrevive al cambiar de categoría
+      // (un servicio no tiene estado de conservación) — ver lib/filter-carry.ts.
+      const rootPolicy = resolveEffectivePolicy(root.allowedListingType, 'BOTH');
       return {
         id: root.id,
         name: root.name,
         slug: root.slug,
         iconUrl: root.iconUrl,
+        allowedListingType: rootPolicy,
         cardAttributes: rootSchema.filter((f) => f.cardAttribute).map(toAttrDef),
         // RÁFAGA 2 (vista ampliada): hasta 6 atributos relevantes para la card ancha,
         // independiente de cardAttributes (que sigue limitado a 2 para la card compacta).
@@ -70,6 +89,7 @@ export class CategoriesService {
             // cuenta y podrían divergir. Las raíces NO lo llevan (ausente = raíz).
             parentSlug: root.slug,
             iconUrl: child.iconUrl,
+            allowedListingType: resolveEffectivePolicy(child.allowedListingType, rootPolicy),
             cardAttributes: effective.filter((f) => f.cardAttribute).map(toAttrDef),
             wideCardAttributes: effective.filter((f) => f.wideCardAttribute).map(toAttrDef),
             allAttributes: effective.map(toAttrDef),

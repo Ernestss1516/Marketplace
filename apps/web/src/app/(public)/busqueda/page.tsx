@@ -244,6 +244,9 @@ export default async function BusquedaPage({
           aria-label="Filtros"
         >
           <Suspense fallback={null}>
+            {/* A2 — sin `currentCategorySlug`: aquí no hay categoría, y el selector
+                muestra "Todas las categorías". Elegir una NAVEGA a su ruta canónica
+                (ya no se queda aquí con ?category=). */}
             <FilterPanel
               categories={categories}
               facets={facets}

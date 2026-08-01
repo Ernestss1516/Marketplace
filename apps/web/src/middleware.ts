@@ -1,7 +1,7 @@
 import NextAuth from 'next-auth';
 import { authConfig } from '@/lib/auth/auth.config';
 import { buildLoginUrl } from '@/lib/auth/callback-url';
-import { resolveCategoryRedirect } from '@/lib/category-canonical';
+import { resolveCategoryRedirect, resolveSearchCategoryRedirect } from '@/lib/category-canonical';
 
 const { auth } = NextAuth(authConfig);
 
@@ -61,6 +61,15 @@ export default auth(async (req) => {
   if (canonical) {
     const target = new URL(canonical + search, req.url);
     return Response.redirect(target, PERMANENT_REDIRECT);
+  }
+
+  // A2 (P3) — /busqueda?category=X es la otra forma, heredada, de pedir una categoría.
+  // Se canonicaliza a su ruta propia por el mismo motivo y con el mismo mecanismo.
+  // Aquí la query SÍ se transforma (se quita `category`), así que la ruta destino ya
+  // viene con su querystring montada.
+  const fromSearch = await resolveSearchCategoryRedirect(pathname, req.nextUrl.searchParams);
+  if (fromSearch) {
+    return Response.redirect(new URL(fromSearch, req.url), PERMANENT_REDIRECT);
   }
 
   const isAccountRoute = accountPrefixes.some((p) => pathname.startsWith(p));

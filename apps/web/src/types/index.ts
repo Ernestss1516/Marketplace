@@ -117,6 +117,11 @@ export interface CardAttributeDef {
   /** ATRIBUTOS EN CARD — respetar producto/servicio. Qué tipo(s) de anuncio muestran este
    * atributo en card. Ausente = aplica a ambos (mismo default que AttributeSchema.appliesTo). */
   appliesTo?: ListingType[];
+  /** A2 — si vale como filtro de búsqueda. Lo emite `GET /categories` en `allAttributes`
+   *  (opcional porque `cardAttributes`/`wideCardAttributes` comparten este tipo y ahí no
+   *  se usa). Decide qué query params sobreviven al cambiar de categoría — ver
+   *  lib/filter-carry.ts: mandar un atributo no filtrable da 400 igual que uno ajeno. */
+  filterable?: boolean;
 }
 
 export interface Category {
@@ -127,6 +132,9 @@ export interface Category {
    *  `GET /categories` en cada hija para que `categoryPath()` construya la URL
    *  canónica sin recorrer el árbol al revés. */
   parentSlug?: string;
+  /** A2 — política EFECTIVA (propia + heredada), resuelta por el backend en el árbol.
+   *  La usa el cambio de categoría para decidir si `condition` sobrevive al destino. */
+  allowedListingType?: ListingTypePolicy;
   iconUrl?: string;
   cardAttributes?: CardAttributeDef[];
   /** Hasta 6 atributos para la vista ampliada (RÁFAGA 2) — independiente de cardAttributes. */

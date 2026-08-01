@@ -19,12 +19,15 @@ type Params = { categoria: string; subcategoria: string };
 
 export async function generateMetadata({
   params,
+  searchParams,
 }: {
   params: Promise<Params>;
+  searchParams: Promise<RawParams>;
 }): Promise<Metadata> {
-  const { subcategoria } = await params;
+  const [{ subcategoria }, raw] = await Promise.all([params, searchParams]);
+  const q = typeof raw.q === 'string' ? raw.q : undefined;
   // Manda el ÚLTIMO segmento — el mismo criterio que la canonicalización.
-  return categoryMetadata(subcategoria);
+  return categoryMetadata(subcategoria, q);
 }
 
 export default async function CategoriaHijaPage({

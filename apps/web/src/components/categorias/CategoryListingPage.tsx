@@ -12,6 +12,7 @@ import { CardAttributesProvider, WideCardAttributesProvider } from '@/components
 import { FilterPanel } from '@/components/busqueda/FilterPanel';
 import { FeaturedBlock } from '@/components/busqueda/FeaturedBlock';
 import { ViewSwitcher } from '@/components/busqueda/ViewSwitcher';
+import { CrearAlertaButton } from '@/components/busqueda/CrearAlertaButton';
 import MapViewClient from '@/components/busqueda/MapViewClient';
 import { getCategoryBySlug, getCategories } from '@/lib/api/categorias';
 import { getListingsByCategory } from '@/lib/api/anuncios';
@@ -22,7 +23,7 @@ import { categoryPath, categoryPathWithQuery } from '@/lib/category-url';
 import { breadcrumbJsonLd } from '@/lib/breadcrumb-json-ld';
 import { resolveCurrentView, VIEW_PARAM } from '@/lib/view-mode';
 import { SITE_URL } from '@/config';
-import type { CategoryWithSchema, ListingSummary, ListingViewMode } from '@/types';
+import type { AlertCriteria, CategoryWithSchema, ListingSummary, ListingViewMode } from '@/types';
 
 export type RawParams = Record<string, string | string[] | undefined>;
 
@@ -30,7 +31,15 @@ const VALID_SORTS = ['publishedAt:desc', 'price:asc', 'price:desc'] as const;
 type Sort = (typeof VALID_SORTS)[number];
 
 // Params handled explicitly; everything else is forwarded as a variable attribute filter.
+//
+// A2 — `q` es NUEVO aquí, y su ausencia era un bug real aunque la búsqueda "funcionara":
+// al no estar en esta lista, `q` caía en el bag de atributos, se hacía spread en la
+// llamada a search() y acababa llegando al backend como `q` DE CASUALIDAD. Funcionaba,
+// pero la página no sabía que había una búsqueda de texto: no salía en el <h1> ni en el
+// title, contaba como "filtro de atributo" y —lo peor— "Limpiar filtros" la BORRABA
+// (clearAll conserva currentFilters.q, que esta página nunca rellenaba).
 const KNOWN_PARAMS = new Set([
+  'q',
   'page', 'sort', 'type', 'condition', 'priceType',
   'minPrice', 'maxPrice', 'province', 'city',
   'lat', 'lng', 'radius', 'view',
@@ -46,12 +55,17 @@ function str(v: string | string[] | undefined): string | undefined {
  * el canonical protege además de las variantes con query params que un crawler
  * descubra por su cuenta (/vehiculos/coches?page=2&sort=…).
  */
-export async function categoryMetadata(slug: string): Promise<Metadata> {
+export async function categoryMetadata(slug: string, q?: string): Promise<Metadata> {
   try {
     const cat = await getCategoryBySlug(slug);
     return {
-      title: cat.name,
-      description: `Anuncios de segunda mano de ${cat.name}. Compra y vende en nuestro marketplace.`,
+      // A2 — con búsqueda de texto el título lo dice, igual que en /busqueda. Antes `q`
+      // no llegaba hasta aquí y dos búsquedas distintas dentro de la misma categoría
+      // compartían title y description.
+      title: q ? `"${q}" en ${cat.name}` : cat.name,
+      description: q
+        ? `Resultados de "${q}" en ${cat.name}.`
+        : `Anuncios de segunda mano de ${cat.name}. Compra y vende en nuestro marketplace.`,
       alternates: {
         canonical: `${SITE_URL}${categoryPath({ slug: cat.slug, parentSlug: cat.parent?.slug })}`,
       },
@@ -134,6 +148,9 @@ export async function CategoryListingPage({
   const categoria = category.slug;
   const parentSlug = category.parent?.slug ?? null;
   const basePath = categoryPath({ slug: categoria, parentSlug });
+
+  // A2 — `q` como filtro de primera: parseado explícito, igual que en /busqueda.
+  const q = str(raw.q);
 
   const sortRaw = str(raw.sort);
   const sort: Sort = (VALID_SORTS as readonly string[]).includes(sortRaw ?? '')
@@ -224,6 +241,7 @@ export async function CategoryListingPage({
   try {
     const result = await search({
       category: categoria,
+      ...(q && { q }),
       ...(type && { type }),
       ...(condition && { condition }),
       ...(priceType && { priceType }),
@@ -259,12 +277,6 @@ export async function CategoryListingPage({
 
   const categories = await categoriesPromise;
 
-  // BUG A (auditoría de filtros) — hijas de ESTA categoría, si tiene. Una hoja (no
-  // aparece como nodo de nivel superior en el árbol) resuelve a [] sin más: no hay en
-  // qué acotar. Alimenta el selector "Subcategoría" del FilterPanel.
-  const subcategories = (categories.find((c) => c.slug === categoria)?.children ?? [])
-    .map((child) => ({ slug: child.slug, name: child.name }));
-
   const totalPages = isMapView ? 0 : Math.ceil(total / hitsPerPage) || 0;
   // H6.6 — igual que en /busqueda: el patrocinado (si lo hay) va intercalado en
   // `hits`; favoritos solo conoce anuncios reales.
@@ -294,6 +306,9 @@ export async function CategoryListingPage({
   }
 
   const currentFilters = {
+    // A2 — sin esto, "Limpiar filtros" borraba la búsqueda de texto: clearAll conserva
+    // `currentFilters.q`, y esta página nunca lo rellenaba.
+    q,
     type: typeRaw,
     condition: conditionRaw,
     priceType: priceTypeRaw,
@@ -308,11 +323,32 @@ export async function CategoryListingPage({
     attributes,
   };
 
+  // A2 — `q` cuenta como filtro de texto. Antes se colaba en `attributes` y se contaba
+  // ahí, que es lo mismo en el número pero no en el significado (y arrastraba el resto
+  // de consecuencias del bag: ver KNOWN_PARAMS).
   const activeFilterCount = [
+    q,
     typeRaw, conditionRaw, priceTypeRaw, province, city, minPriceStr, maxPriceStr,
     ...Object.values(attributes),
     proximityActive ? 'geo' : undefined,
   ].filter(Boolean).length;
+
+  // A2 — mismos criterios ya parseados que la búsqueda global, para que el botón de
+  // alerta guarde exactamente lo que el usuario está viendo. `categorySlug` es la
+  // categoría de la RUTA, que aquí es fija.
+  const alertCriteria: AlertCriteria = {
+    ...(q && { q }),
+    categorySlug: categoria,
+    ...(type && { type }),
+    ...(condition && { condition }),
+    ...(priceType && { priceType }),
+    ...(minPrice !== undefined && !isNaN(minPrice) && { minPrice }),
+    ...(maxPrice !== undefined && !isNaN(maxPrice) && { maxPrice }),
+    ...(province && { province }),
+    ...(city && { city }),
+    ...(Object.keys(attributes).length > 0 && { attributes }),
+    ...(proximityActive && { lat, lng, radius }),
+  };
 
   // Stable key for MapView: remounts when search params change (except view/page) — mismo criterio que /busqueda.
   const mapKey = Object.entries(raw)
@@ -356,16 +392,25 @@ export async function CategoryListingPage({
 
       <div className="mb-6 flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="text-2xl font-bold">{category.name}</h1>
+          {/* A2 — la búsqueda de texto se ve. Antes `q` filtraba de verdad pero en
+              silencio: el usuario leía "Coches" sin saber por qué faltaban anuncios. */}
+          <h1 className="text-2xl font-bold">
+            {q ? `${category.name} — resultados para "${q}"` : category.name}
+          </h1>
           {total > 0 && (
             <p className="text-sm text-muted-foreground">
               {total} {total === 1 ? 'anuncio' : 'anuncios'}
             </p>
           )}
         </div>
-        {!fallbackMode && (
-          <ViewSwitcher allowedViews={category.allowedViews} currentView={currentView} buildUrl={viewUrl} />
-        )}
+        <div className="flex items-center gap-2">
+          {/* A2 — también aquí, no solo en /busqueda: con las dos páginas unificadas,
+              poder guardar la búsqueda en una y no en la otra era arbitrario. */}
+          <CrearAlertaButton criteria={alertCriteria} />
+          {!fallbackMode && (
+            <ViewSwitcher allowedViews={category.allowedViews} currentView={currentView} buildUrl={viewUrl} />
+          )}
+        </div>
       </div>
 
       {/* Fallback banner — shown when Meilisearch is unavailable */}
@@ -384,16 +429,19 @@ export async function CategoryListingPage({
             aria-label="Filtros"
           >
             <Suspense fallback={null}>
-              {/* categories={[]} hides the category picker: the category is already
-                  fixed in the URL path and must not be re-selectable here. */}
+              {/* A2 — el árbol COMPLETO, no `[]`. Antes se ocultaba el selector aquí
+                  ("la categoría ya está fijada en la ruta") y a cambio se ofrecía un
+                  selector de "Subcategoría" que solo bajaba un nivel: desde /coches no
+                  había forma de ir a /pisos ni de volver a la búsqueda global sin
+                  editar la URL. Ahora es el mismo control en las dos páginas, con
+                  `currentCategorySlug` marcando dónde estás. */}
               <FilterPanel
-                categories={[]}
+                categories={categories}
                 facets={facets}
                 currentFilters={currentFilters}
                 activeFilterCount={activeFilterCount}
                 allowedListingType={category.allowedListingType}
-                subcategories={subcategories}
-                subcategoryParentSlug={categoria}
+                currentCategorySlug={categoria}
               />
             </Suspense>
           </aside>

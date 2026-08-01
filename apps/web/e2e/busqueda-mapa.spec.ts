@@ -43,8 +43,13 @@ test.describe('H6.5a — Vista de mapa en /busqueda', () => {
     await expect(page.getByRole('link', { name: /Mapa/ })).toBeVisible();
   });
 
+  // A2 — antes esto entraba por /busqueda?category=coches. Esa URL sigue viva pero
+  // ahora redirige (308) a la ruta de la categoría: una sola URL por categoría. Se
+  // entra ya por la canónica para no depender del salto. Lo que el test protege no
+  // cambia: alternar vista conserva el filtro de categoría — que ahora vive en el
+  // PATH en vez de en un query param.
   test('toggle Lista→Mapa→Lista cambia la vista y preserva filtros', async ({ page }) => {
-    await page.goto('/busqueda?category=coches');
+    await page.goto('/vehiculos/coches');
     await page.waitForLoadState('networkidle');
 
     // Start: list view, no map
@@ -62,7 +67,7 @@ test.describe('H6.5a — Vista de mapa en /busqueda', () => {
     }).toPass({ timeout: 20_000 });
     expect(page.url()).toContain('view=mapa');
     // Category filter preserved
-    expect(page.url()).toContain('category=coches');
+    expect(new URL(page.url()).pathname).toBe('/vehiculos/coches');
 
     // Click Lista
     await expect(async () => {
@@ -71,7 +76,7 @@ test.describe('H6.5a — Vista de mapa en /busqueda', () => {
     }).toPass({ timeout: 20_000 });
     expect(page.url()).not.toContain('view=mapa');
     // Category filter still preserved
-    expect(page.url()).toContain('category=coches');
+    expect(new URL(page.url()).pathname).toBe('/vehiculos/coches');
   });
 
   test('FilterPanel se mantiene visible en vista mapa', async ({ page }) => {
@@ -206,7 +211,8 @@ test.describe('H6.5c — Tarjeta flotante y panel enriquecido del mapa', () => {
   test('Mapa con filtro de categoría: estructura intacta y toggle funciona', async ({ page }) => {
     // Validates that H6.5c props (cardAttributeMap) don't break rendering when a
     // leaf category with card attributes is active.
-    await page.goto('/busqueda?category=coches&view=mapa');
+    // A2 — por la ruta canónica de la categoría; /busqueda?category= ahora redirige.
+    await page.goto('/vehiculos/coches?view=mapa');
     await page.waitForLoadState('networkidle');
     await expect(page.getByTestId('map-view')).toBeVisible({ timeout: 10_000 });
 

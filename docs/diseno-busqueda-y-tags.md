@@ -616,6 +616,23 @@ mantiene vivos los enlaces existentes (G9, G10, cualquier enlace externo, cualqu
 sin dejar dos URLs compitiendo por el mismo contenido — que es exactamente el problema de SEO
 que el ajuste 2 viene a arreglar.
 
+> ### ✅ IMPLEMENTADO (A2, 2026-08-01) — un campo más del previsto
+>
+> El diseño pedía **un** cambio aditivo de backend (`filterable` en `allAttributes`).
+> Hicieron falta **dos**: el árbol tampoco exponía `allowedListingType`, y sin él el
+> cliente no puede aplicar la regla de `condition` (§3.2.2, punto 3) — no hay forma de
+> saber si el destino es `SERVICE_ONLY`. Se añade con la misma resolución de herencia
+> en dos pasos que ya hacía `findBySlug`, así que es el valor EFECTIVO, no el propio.
+>
+> Lo demás salió como estaba diseñado. La regla vive en `lib/filter-carry.ts` y el
+> selector en `components/busqueda/CategorySelect.tsx`.
+>
+> **P3 confirmado antes de activar el redirect**, como pedía la ráfaga: no queda ningún
+> generador de `/busqueda?category=` en el frontend (A1 migró los chips de portada y el
+> bloque CMS), no aparece en plantillas de email ni en enlaces guardados en base de
+> datos (footer, banners, patrocinados, bloques de posts/páginas — auditadas las dos
+> bases), y las alertas solo renderizan texto, nunca una URL de búsqueda.
+
 #### 3.2.2 Preservación de filtros: la regla
 
 Al cambiar de categoría se construye la query destino así:

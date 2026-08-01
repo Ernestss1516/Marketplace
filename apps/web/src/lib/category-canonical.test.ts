@@ -2,7 +2,11 @@
 // 308 real (la página no puede: app/loading.tsx fuerza streaming y la cabecera 200
 // sale antes — ver el comentario largo de category-canonical.ts).
 
-import { resolveCategoryRedirect, __resetCategoryCanonicalCache } from './category-canonical';
+import {
+  resolveCategoryRedirect,
+  resolveSearchCategoryRedirect,
+  __resetCategoryCanonicalCache,
+} from './category-canonical';
 
 const TREE = [
   { slug: 'vehiculos', children: [{ slug: 'coches' }, { slug: 'motos' }] },
@@ -80,6 +84,52 @@ describe('resolveCategoryRedirect — qué NO toca', () => {
 
   it('un slug que no es ninguna categoría: lo resuelve la página (404), no el middleware', async () => {
     expect(await resolveCategoryRedirect('/xxx-no-existe')).toBeNull();
+  });
+});
+
+// A2 (P3) — /busqueda?category=X es la otra forma, heredada, de pedir una categoría.
+// Se canonicaliza a su ruta propia para no dejar dos URLs compitiendo por el mismo
+// contenido (el problema de SEO que A1 vino a cerrar).
+describe('resolveSearchCategoryRedirect', () => {
+  const buscar = (qs: string) => resolveSearchCategoryRedirect('/busqueda', new URLSearchParams(qs));
+
+  it('redirige a la ruta de la categoría y QUITA `category` (pasa a ser el path)', async () => {
+    expect(await buscar('category=coches')).toBe('/vehiculos/coches');
+  });
+
+  it('una raíz va a su URL plana', async () => {
+    expect(await buscar('category=vehiculos')).toBe('/vehiculos');
+  });
+
+  it('conserva el RESTO de la query intacto', async () => {
+    const destino = await buscar('category=coches&q=golf&province=Madrid&minPrice=1000');
+    const url = new URL(destino!, 'http://x');
+    expect(url.pathname).toBe('/vehiculos/coches');
+    expect(url.searchParams.get('q')).toBe('golf');
+    expect(url.searchParams.get('province')).toBe('Madrid');
+    expect(url.searchParams.get('minPrice')).toBe('1000');
+    expect(url.searchParams.has('category')).toBe(false);
+  });
+
+  it('/busqueda SIN category no redirige: es la búsqueda global de siempre', async () => {
+    expect(await buscar('q=golf')).toBeNull();
+    expect(await buscar('')).toBeNull();
+  });
+
+  it('una categoría que no existe no redirige (que responda /busqueda como siempre)', async () => {
+    expect(await buscar('category=no-existe')).toBeNull();
+  });
+
+  it('no toca ninguna otra ruta', async () => {
+    const qs = new URLSearchParams('category=coches');
+    expect(await resolveSearchCategoryRedirect('/', qs)).toBeNull();
+    expect(await resolveSearchCategoryRedirect('/blog', qs)).toBeNull();
+    expect(await resolveSearchCategoryRedirect('/vehiculos/coches', qs)).toBeNull();
+  });
+
+  it('si la API no responde NO redirige: /busqueda?category= sigue funcionando (fail-open)', async () => {
+    fetchMock.mockRejectedValue(new Error('API caída'));
+    expect(await buscar('category=coches')).toBeNull();
   });
 });
 

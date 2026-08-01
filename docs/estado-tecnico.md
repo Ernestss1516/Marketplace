@@ -8914,6 +8914,72 @@ tocar nada, para no atribuirla a A1):
 
 ---
 
+## Búsqueda + Tags — RÁFAGA A2: unificación de /busqueda y /[categoria] (cerrada)
+
+**✅ CERRADA** (2026-08-01). Diseño: `docs/diseno-busqueda-y-tags.md` §3.2.
+
+**Qué cambia:** un ÚNICO selector de categoría en las dos páginas de resultados. Elegir
+cualquier nodo del árbol —o "Todas las categorías"— navega a su ruta canónica
+arrastrando los filtros. Antes había dos controles distintos con el mismo papel: el
+"Categoría" de `/busqueda` (que solo cambiaba un query param y te dejaba allí) y el
+"Subcategoría" de `/[categoria]` (que navegaba, pero solo un nivel hacia abajo). Desde
+`/coches` no había forma de ir a `/pisos` ni de volver a la búsqueda global sin editar
+la URL a mano.
+
+**El eje de la ráfaga — la trampa del 400.** Desde RÁFAGA 1 el backend rechaza con 400
+cualquier query param que no sea filtrable *en la categoría pedida* (defensa anti-leak
+cross-categoría). Así que arrastrar la query tal cual al cambiar de categoría **rompe la
+página**: `/busqueda?rooms=3` → "Coches" → 400. El tránsito padre→hija era seguro por
+herencia (es lo que hacía el viejo selector), pero global→categoría y categoría→otra no.
+
+Se resuelve **filtrando en cliente antes de navegar** (`lib/filter-carry.ts`): solo
+sobreviven los atributos filtrables en el destino. **El 400 del backend no se toca** —
+es la defensa, y sigue verificada en el spec nuevo. La regla completa: se descartan
+`page` y `category`; se conservan los core; `condition` se descarta si el destino es
+`SERVICE_ONLY` (un servicio no tiene estado de conservación); los atributos se filtran
+por destino — hoja → sus filtrables (herencia ya resuelta por el backend), raíz → los
+suyos ∪ los de sus hijas (porque `categoryPath = padre` mezcla los anuncios de las
+hijas), "Todas" → no se filtra nada.
+
+**Backend, aditivo (dos campos, uno más de lo diseñado):**
+- `allAttributes[].filterable` en el árbol — sin él el cliente no sabe qué arrastrar, y
+  un atributo `filterable:false` da 400 igual que uno ajeno.
+- `allowedListingType` EFECTIVO en cada nodo del árbol — no estaba, y sin él no se puede
+  aplicar la regla de `condition`. Misma resolución en dos pasos que `findBySlug`.
+
+**`/busqueda?category=X` → 308** a la ruta canónica (P3), con el resto de la query
+intacto, por el mismo middleware de A1. Se activó **después** de confirmar que ningún
+flujo interno depende de que esa URL renderice en su sitio: no queda ningún generador en
+el frontend (A1 los migró), no aparece en plantillas de email ni en enlaces guardados en
+BD (footer, banners, patrocinados, bloques — auditadas las dos bases), y las alertas
+solo renderizan texto.
+
+**`q` deja de funcionar por accidente en la ruta de categoría.** No estaba en
+`KNOWN_PARAMS`, así que caía en el bag de atributos y llegaba al backend como `q` de
+casualidad. Filtraba de verdad, pero: no salía en el `<h1>` ni en el `<title>`, contaba
+como filtro de atributo, y **"Limpiar filtros" lo borraba** (`clearAll` conserva
+`currentFilters.q`, que esa página nunca rellenaba). Ahora es un filtro de primera.
+
+**`CrearAlertaButton` también en la ruta de categoría** — con las dos páginas
+unificadas, poder guardar la búsqueda en una y no en la otra era arbitrario.
+
+**Verificación:** `e2e/busqueda-unificada.spec.ts` (17) ejerce la trampa en los dos
+sentidos con datos reales del seed (`ram` vale en móviles y no en coches; `km` al revés),
+los cuatro tránsitos, el redirect de P3, `q` formalizado y el descarte de `condition`
+hacia una categoría `SERVICE_ONLY` creada por API de admin y borrada al terminar.
+Unitarios: `filter-carry.test.ts` (17) cubre cada rama de la regla. Backend:
+`category-tree-filter-metadata.e2e-spec.ts` (10), con las categorías creadas **antes de
+`app.init()`** para que entren en el mapa memoizado de `FilterableAttributesResolver` —
+si no, sus 400 saltarían por "categoría desconocida" y pasarían por el motivo
+equivocado.
+
+**Nota sobre el test de auditoría de filtros (BUG A):** el control que probaba
+(selector "Subcategoría") ya no existe. Los casos se reescribieron contra el selector
+nuevo conservando la garantía original —acotar a una hija arrastra los filtros, menos
+`page`— y se ampliaron con los tránsitos que antes eran imposibles.
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.

@@ -1,10 +1,18 @@
 // AUDITORÍA DE FILTROS — dos bugs acotados:
-// BUG A — selector de subcategoría en /[categoria] (antes: sin forma de acotar
-//   de un padre a una hija; navegación PLANA).
+// BUG A — acotar de un padre a una hija desde /[categoria].
+//   El CONTROL ha cambiado dos veces sin que cambie lo que se protege:
+//     · original: selector "Subcategoría", navegación PLANA (/coches).
+//     · A1: mismo selector, URL canónica (/vehiculos/coches).
+//     · A2: el selector desaparece, subsumido por el selector de CATEGORÍA completo
+//       (árbol entero + "Todas"), que además permite ir a otra rama o volver a la
+//       búsqueda global — cosas que antes exigían editar la URL a mano.
+//   Los casos de abajo siguen cubriendo la misma garantía (acotar a una hija arrastra
+//   los filtros aplicados, menos `page`), ejercida sobre el control nuevo.
 // BUG B — "Condición" (estado de conservación) no aplica a SERVICE, igual que un
 //   atributo appliesTo:['PRODUCT'] no aplica a un anuncio SERVICE.
 import { fireEvent, render, screen } from '@testing-library/react';
 import { FilterPanel } from './FilterPanel';
+import type { Category } from '@/types';
 
 const mockPush = jest.fn();
 let mockSearchParams = new URLSearchParams();
@@ -21,69 +29,74 @@ const BASE_PROPS = {
   activeFilterCount: 0,
 };
 
+const attr = (key: string, filterable: boolean) => ({
+  key, label: key, showLabel: true, showUnit: true, filterable,
+});
+
+const TREE: Category[] = [
+  {
+    id: 'v', name: 'Vehículos', slug: 'audit-vehiculos',
+    allAttributes: [attr('year', true)],
+    children: [
+      { id: 'c', name: 'Coches', slug: 'audit-coches', allAttributes: [attr('year', true), attr('fuel', true)] },
+      { id: 'm', name: 'Motos', slug: 'audit-motos', allAttributes: [attr('year', true)] },
+    ],
+  },
+  {
+    id: 'i', name: 'Inmobiliaria', slug: 'audit-inmuebles',
+    allAttributes: [],
+    children: [{ id: 'p', name: 'Pisos', slug: 'audit-pisos', allAttributes: [attr('rooms', true)] }],
+  },
+];
+
 beforeEach(() => {
   mockPush.mockClear();
   mockSearchParams = new URLSearchParams();
 });
 
-describe('BUG A — selector de subcategoría', () => {
-  const subcategories = [
-    { slug: 'audit-coches', name: 'Coches' },
-    { slug: 'audit-motos', name: 'Motos' },
-  ];
-
-  it('sin subcategories (o vacío) → no se muestra la sección', () => {
+describe('BUG A / A2 — selector de categoría', () => {
+  it('sin árbol → no se muestra la sección', () => {
     render(<FilterPanel {...BASE_PROPS} />);
-    expect(screen.queryByText('Subcategoría')).not.toBeInTheDocument();
+    expect(screen.queryByText('Categoría')).not.toBeInTheDocument();
   });
 
-  it('con subcategories → se muestra un select con "Todas" + cada hija', () => {
-    render(<FilterPanel {...BASE_PROPS} subcategories={subcategories} />);
-    expect(screen.getByText('Subcategoría')).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'Todas' })).toBeInTheDocument();
+  it('con árbol → "Todas las categorías" + cada raíz y cada hija', () => {
+    render(<FilterPanel {...BASE_PROPS} categories={TREE} />);
+    expect(screen.getByText('Categoría')).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Todas las categorías' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Todo en Vehículos' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'Coches' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'Motos' })).toBeInTheDocument();
+    // A2 — lo que antes era inalcanzable desde aquí: otra rama del árbol.
+    expect(screen.getByRole('option', { name: 'Pisos' })).toBeInTheDocument();
   });
 
-  // A1 (URLs anidadas) — cambia la FORMA de la URL emitida, no el comportamiento:
-  // la subcategoría es siempre hija de la categoría fija de la página, así que su
-  // URL canónica lleva el slug del padre delante.
   it('elegir una hija navega a /{padre}/{hija} — la URL canónica, no la plana', () => {
-    render(
-      <FilterPanel
-        {...BASE_PROPS}
-        subcategories={subcategories}
-        subcategoryParentSlug="audit-vehiculos"
-      />,
-    );
-    fireEvent.change(screen.getByLabelText('Acotar a una subcategoría'), {
-      target: { value: 'audit-coches' },
-    });
+    render(<FilterPanel {...BASE_PROPS} categories={TREE} currentCategorySlug="audit-vehiculos" />);
+    fireEvent.change(screen.getByLabelText('Categoría'), { target: { value: 'audit-coches' } });
     expect(mockPush).toHaveBeenCalledWith('/audit-vehiculos/audit-coches');
   });
 
   it('elegir una hija ARRASTRA los filtros ya aplicados en la URL (menos page)', () => {
     mockSearchParams = new URLSearchParams('province=Madrid&page=3');
-    render(
-      <FilterPanel
-        {...BASE_PROPS}
-        subcategories={subcategories}
-        subcategoryParentSlug="audit-vehiculos"
-      />,
-    );
-    fireEvent.change(screen.getByLabelText('Acotar a una subcategoría'), {
-      target: { value: 'audit-motos' },
-    });
-    const [url] = mockPush.mock.calls[0];
-    expect(url).toBe('/audit-vehiculos/audit-motos?province=Madrid');
+    render(<FilterPanel {...BASE_PROPS} categories={TREE} currentCategorySlug="audit-vehiculos" />);
+    fireEvent.change(screen.getByLabelText('Categoría'), { target: { value: 'audit-motos' } });
+    expect(mockPush).toHaveBeenCalledWith('/audit-vehiculos/audit-motos?province=Madrid');
   });
 
-  it('sin subcategoryParentSlug cae a la URL plana (que el catch-all redirige), nunca a una rota', () => {
-    render(<FilterPanel {...BASE_PROPS} subcategories={subcategories} />);
-    fireEvent.change(screen.getByLabelText('Acotar a una subcategoría'), {
-      target: { value: 'audit-coches' },
-    });
-    expect(mockPush).toHaveBeenCalledWith('/audit-coches');
+  // A2 — los tránsitos nuevos, imposibles con el selector de "Subcategoría".
+  it('elegir "Todas las categorías" vuelve a la búsqueda global conservando filtros', () => {
+    mockSearchParams = new URLSearchParams('q=x&province=Madrid');
+    render(<FilterPanel {...BASE_PROPS} categories={TREE} currentCategorySlug="audit-coches" />);
+    fireEvent.change(screen.getByLabelText('Categoría'), { target: { value: '' } });
+    expect(mockPush).toHaveBeenCalledWith('/busqueda?q=x&province=Madrid');
+  });
+
+  it('LA TRAMPA: al saltar a otra rama, el atributo que no vale allí se CAE (evita el 400)', () => {
+    mockSearchParams = new URLSearchParams('fuel=diesel&q=x');
+    render(<FilterPanel {...BASE_PROPS} categories={TREE} currentCategorySlug="audit-coches" />);
+    fireEvent.change(screen.getByLabelText('Categoría'), { target: { value: 'audit-pisos' } });
+    expect(mockPush).toHaveBeenCalledWith('/audit-inmuebles/audit-pisos?q=x');
   });
 });
 

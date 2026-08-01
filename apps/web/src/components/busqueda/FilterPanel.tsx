@@ -6,7 +6,7 @@ import { ChevronDown, MapPin, SlidersHorizontal, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { PROVINCIAS } from '@/lib/provincias';
-import { categoryPathWithQuery } from '@/lib/category-url';
+import { CategorySelect } from './CategorySelect';
 import type { Category, ListingTypePolicy } from '@/types';
 
 const TYPE_OPTIONS = [
@@ -104,20 +104,12 @@ interface FilterPanelProps {
    */
   allowedListingType?: ListingTypePolicy;
   /**
-   * BUG A (auditoría de filtros) — hijas de la categoría FIJA de esta página (solo
-   * /[categoria], cuando esa categoría es un padre). /busqueda no lo necesita: su
-   * propio selector "Categoría" ya ofrece las hijas vía <optgroup> (categories arriba).
-   * Elegir una navega a /{slug de la hija}, arrastrando los filtros ya aplicados (page
-   * se descarta, igual que cualquier otro cambio de filtro) — nunca se pierden porque
-   * una hija siempre tiene AL MENOS los atributos heredados del padre.
+   * A2 — categoría en la que está el usuario (solo /[categoria]; ausente en /busqueda
+   * global). Marca la opción activa del selector. Sustituye a los antiguos
+   * `subcategories`/`subcategoryParentSlug`: el selector ya ofrece el árbol entero,
+   * así que no hay un control aparte para "bajar" a una hija.
    */
-  subcategories?: { slug: string; name: string }[];
-  /**
-   * A1 (URLs anidadas) — slug de la categoría FIJA de esta página, que es el padre de
-   * `subcategories`. Necesario para que `goToSubcategory` emita la URL canónica
-   * (/vehiculos/coches) y no la plana, que solo llegaría por redirect.
-   */
-  subcategoryParentSlug?: string;
+  currentCategorySlug?: string;
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
@@ -136,8 +128,7 @@ export function FilterPanel({
   currentFilters,
   activeFilterCount,
   allowedListingType,
-  subcategories,
-  subcategoryParentSlug,
+  currentCategorySlug,
 }: FilterPanelProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -189,18 +180,6 @@ export function FilterPanel({
       }
     }
     router.push(`${pathname}?${params.toString()}`);
-  }
-
-  // BUG A — navega a la subcategoría elegida (cambia el PATH, no un query param, así
-  // que no puede reutilizar update()) arrastrando los filtros ya aplicados. `page` se
-  // descarta igual que en update(): narrow a una subcategoría es un cambio de filtro.
-  function goToSubcategory(slug: string) {
-    const params = new URLSearchParams(searchParams.toString());
-    params.delete('page');
-    // A1 — la subcategoría es SIEMPRE hija de la categoría fija de esta página, así
-    // que su URL canónica es /{padre}/{hija}. Emitirla directamente (en vez de la
-    // plana + redirect) evita un salto de red por cada acotación.
-    router.push(categoryPathWithQuery({ slug, parentSlug: subcategoryParentSlug }, params));
   }
 
   function toggleFacet(key: string, value: string) {
@@ -368,48 +347,16 @@ export function FilterPanel({
         )}
       </div>
 
-      {/* Category */}
+      {/* Categoría (A2) — un SOLO selector para las dos páginas. Antes había dos
+          controles distintos con el mismo papel: el "Categoría" de /busqueda (que solo
+          cambiaba un query param y te dejaba allí) y el "Subcategoría" de /[categoria]
+          (que navegaba, pero solo hacia abajo). Ahora cualquier destino del árbol —y
+          "Todas las categorías"— es alcanzable desde ambas, siempre a la ruta canónica
+          y arrastrando solo los filtros que valen en el destino. */}
       {categories.length > 0 && (
         <div>
           <SectionLabel>Categoría</SectionLabel>
-          <select
-            value={currentFilters.category ?? ''}
-            onChange={(e) => update({ category: e.target.value || undefined })}
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-          >
-            <option value="">Todas las categorías</option>
-            {categories.map((cat) =>
-              cat.children && cat.children.length > 0 ? (
-                <optgroup key={cat.slug} label={cat.name}>
-                  <option value={cat.slug}>Todo en {cat.name}</option>
-                  {cat.children.map((child) => (
-                    <option key={child.slug} value={child.slug}>{child.name}</option>
-                  ))}
-                </optgroup>
-              ) : (
-                <option key={cat.slug} value={cat.slug}>{cat.name}</option>
-              )
-            )}
-          </select>
-        </div>
-      )}
-
-      {/* Subcategoría (BUG A) — solo /[categoria] cuando la categoría fija tiene hijas.
-          /busqueda no la necesita: su propio selector "Categoría" ya las ofrece. */}
-      {subcategories && subcategories.length > 0 && (
-        <div>
-          <SectionLabel>Subcategoría</SectionLabel>
-          <select
-            value=""
-            onChange={(e) => { if (e.target.value) goToSubcategory(e.target.value); }}
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-            aria-label="Acotar a una subcategoría"
-          >
-            <option value="">Todas</option>
-            {subcategories.map((sub) => (
-              <option key={sub.slug} value={sub.slug}>{sub.name}</option>
-            ))}
-          </select>
+          <CategorySelect categories={categories} currentSlug={currentCategorySlug ?? null} />
         </div>
       )}
 
