@@ -815,9 +815,22 @@ export class ListingsService {
     const orderBy =
       sortField === 'price' ? { price: dir } : { publishedAt: dir };
 
+    // Este es el FALLBACK de /[categoria] cuando Meilisearch no responde. Filtraba
+    // por `category: { slug }` EXACTO, sin las hijas — así que con Meili caído una
+    // categoría PADRE mostraba solo los anuncios colgados directamente de ella
+    // (normalmente ninguno: los anuncios cuelgan de las hojas) en vez de los de sus
+    // hijas. Es decir, el fallback no reproducía lo que reemplaza: Meilisearch filtra
+    // por `categoryPath = slug`, y categoryPath es [slugHoja, slugPadre], así que
+    // navegar el padre SÍ agrega las hijas.
+    //
+    // El OR de aquí es el equivalente en Postgres de ese categoryPath, con el mismo
+    // supuesto de 2 niveles (hoja → padre) que todo lo demás. Para una categoría hoja
+    // la segunda rama no casa con nada y el resultado es idéntico al de antes.
     const where = {
       status: 'ACTIVE' as const,
-      category: { slug: categorySlug },
+      category: {
+        OR: [{ slug: categorySlug }, { parent: { slug: categorySlug } }],
+      },
     };
     const [rows, total] = await this.prisma.$transaction([
       this.prisma.listing.findMany({
