@@ -63,6 +63,12 @@ export class CategoriesService {
             id: child.id,
             name: child.name,
             slug: child.slug,
+            // A1 (URLs anidadas) — el slug del padre viaja en la propia hija para que
+            // ningún consumidor tenga que recorrer el árbol al revés buscando quién la
+            // tiene como hija. `categoryPath()` del frontend lo lee directamente; sin
+            // esto, cada generador de URL (11 de ellos) resolvería el padre por su
+            // cuenta y podrían divergir. Las raíces NO lo llevan (ausente = raíz).
+            parentSlug: root.slug,
             iconUrl: child.iconUrl,
             cardAttributes: effective.filter((f) => f.cardAttribute).map(toAttrDef),
             wideCardAttributes: effective.filter((f) => f.wideCardAttribute).map(toAttrDef),
@@ -87,6 +93,12 @@ export class CategoriesService {
         allowedPriceUnits: true,
         parent: {
           select: {
+            // A1 (URLs anidadas) — `slug` y `name` son NUEVOS aquí. La relación ya se
+            // cargaba, pero solo para resolver herencia; nada de ella salía en la
+            // respuesta, y por eso el breadcrumb de /[...ruta] no podía enseñar el padre
+            // (el dato no llegaba, no era un olvido de la vista).
+            slug: true,
+            name: true,
             attributeSchema: true,
             allowedListingType: true,
             allowedViews: true,
@@ -139,6 +151,12 @@ export class CategoriesService {
       id: category.id,
       name: category.name,
       slug: category.slug,
+      // A1 (URLs anidadas): la categoría padre, o null si esta es raíz. Alimenta el
+      // breadcrumb (Inicio > Vehículos > Coches), la URL canónica y `categoryPath()`.
+      // Aditivo: ningún consumidor anterior lo lee.
+      parent: category.parent
+        ? { slug: category.parent.slug, name: category.parent.name }
+        : null,
       // backward-compat: same field name; now returns the merged effective schema
       attributeSchema: effectiveSchema,
       // RÁFAGA 2 (vista ampliada en /[categoria])

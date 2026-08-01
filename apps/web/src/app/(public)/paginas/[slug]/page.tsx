@@ -54,7 +54,8 @@ export default async function InfoPagePage({
   }
 
   // Ver ListingsBlockRenderer + lib/blocks/resolve-listings.ts.
-  const listingsData = await resolveListingsBlocksData(page.blocks);
+  const { data: listingsData, categories: blockCategories } =
+    await resolveListingsBlocksData(page.blocks);
 
   const jsonLd = {
     '@context': 'https://schema.org',
@@ -85,7 +86,11 @@ export default async function InfoPagePage({
             {page.title}
           </h1>
 
-          <BlockRenderer blocks={page.blocks} listingsData={listingsData} />
+          <BlockRenderer
+            blocks={page.blocks}
+            listingsData={listingsData}
+            categories={blockCategories}
+          />
         </article>
       </div>
     </>

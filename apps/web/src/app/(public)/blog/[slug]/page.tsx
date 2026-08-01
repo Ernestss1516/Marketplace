@@ -66,7 +66,8 @@ export default async function BlogPostPage({
   // afecta el revalidate=3600 de esta ruta). Si lo tiene, resuelve en
   // paralelo con Promise.all y su propio TTL corto — esta página deja de ser
   // autocontenida, ver la nota en estado-tecnico.md.
-  const listingsData = await resolveListingsBlocksData(post.blocks);
+  const { data: listingsData, categories: blockCategories } =
+    await resolveListingsBlocksData(post.blocks);
 
   const jsonLd = {
     '@context': 'https://schema.org',
@@ -141,7 +142,11 @@ export default async function BlogPostPage({
           {/* Bloques: mismo <BlockRenderer> que usa /paginas/[slug] — el
               bloque `text` reutiliza la tubería Markdown ya auditada (ver
               comentario de seguridad en MarkdownBody). */}
-          <BlockRenderer blocks={post.blocks} listingsData={listingsData} />
+          <BlockRenderer
+            blocks={post.blocks}
+            listingsData={listingsData}
+            categories={blockCategories}
+          />
         </article>
 
         {/* Back link */}

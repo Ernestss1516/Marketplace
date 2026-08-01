@@ -20,6 +20,8 @@ import { getListing, getListingsByCategory } from '@/lib/api/anuncios';
 import { getCategoryBySlug } from '@/lib/api/categorias';
 import { buildCardAttributeMapFromSchema } from '@/lib/card-attributes';
 import { filterSchemaByType } from '@/lib/attribute-schema';
+import { categoryPath } from '@/lib/category-url';
+import { breadcrumbJsonLd } from '@/lib/breadcrumb-json-ld';
 import { ApiError } from '@/lib/api/client';
 import { SITE_NAME, SITE_URL } from '@/config';
 
@@ -98,20 +100,52 @@ export default async function AnuncioPage({
   const statusLabel = STATUS_LABELS[listing.status];
   const location = [listing.city, listing.province].filter(Boolean).join(', ');
 
+  // A1 (URLs anidadas) — el padre de la categoría, para la miga completa
+  // (Inicio > Vehículos > Coches > Título) y la URL canónica de la categoría.
+  // Se prefiere el de `getCategoryBySlug` (siempre fresco) sobre el del propio
+  // anuncio, que viaja dentro del blob cacheado 5 min en Redis y puede faltar
+  // justo tras desplegar. Si ninguno lo trae, la miga cae a 2 niveles y el
+  // enlace a la URL plana (que redirige) — se degrada, nunca rompe.
+  const categoryParent =
+    (categoryResult.status === 'fulfilled' ? categoryResult.value.parent : undefined) ??
+    listing.category.parent ??
+    null;
+  const categoryHref = categoryPath({
+    slug: listing.category.slug,
+    parentSlug: categoryParent?.slug,
+  });
+
+  const breadcrumbTrail = [
+    ...(categoryParent
+      ? [{ name: categoryParent.name, path: categoryPath({ slug: categoryParent.slug }) }]
+      : []),
+    { name: listing.category.name, path: categoryHref },
+    { name: listing.title, path: `/anuncio/${listing.slug}` },
+  ];
+
   return (
     // pb-24 reserves space on mobile so the fixed contact bar doesn't overlap content
     <div className="pb-24 md:pb-0">
       <ListingViewTracker slug={slug} />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd(breadcrumbTrail)) }}
+      />
       <div className="container mx-auto px-4 py-6">
-        {/* Breadcrumb */}
+        {/* Breadcrumb — refleja el árbol de categorías (A1). El JSON-LD de arriba
+            se genera de la MISMA lista, no de una copia paralela. */}
         <nav className="mb-4 text-xs text-muted-foreground" aria-label="Breadcrumb">
           <Link href="/" className="hover:underline">Inicio</Link>
-          {' / '}
-          <Link href={`/${listing.category.slug}`} className="hover:underline">
-            {listing.category.name}
-          </Link>
-          {' / '}
-          <span className="line-clamp-1">{listing.title}</span>
+          {breadcrumbTrail.map((crumb, i) => (
+            <span key={crumb.path}>
+              {' / '}
+              {i === breadcrumbTrail.length - 1 ? (
+                <span className="line-clamp-1">{crumb.name}</span>
+              ) : (
+                <Link href={crumb.path} className="hover:underline">{crumb.name}</Link>
+              )}
+            </span>
+          ))}
         </nav>
 
         <div className="grid gap-8 md:grid-cols-[1fr_320px]">
@@ -189,7 +223,7 @@ export default async function AnuncioPage({
           <section className="mt-12">
             <h2 className="mb-4 text-lg font-semibold">
               Más anuncios en{' '}
-              <Link href={`/${listing.category.slug}`} className="hover:underline">
+              <Link href={categoryHref} className="hover:underline">
                 {listing.category.name}
               </Link>
             </h2>

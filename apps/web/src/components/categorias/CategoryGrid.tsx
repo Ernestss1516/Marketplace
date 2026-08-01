@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import Image from 'next/image';
+import { categoryPath } from '@/lib/category-url';
 import type { Category } from '@/types';
 
 export function CategoryGrid({ categories }: { categories: Category[] }) {
@@ -8,7 +9,7 @@ export function CategoryGrid({ categories }: { categories: Category[] }) {
       {categories.map((cat) => (
         <Link
           key={cat.id}
-          href={`/${cat.slug}`}
+          href={categoryPath(cat)}
           className="flex w-24 shrink-0 snap-start flex-col items-center gap-2 rounded-xl border p-4 text-center transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-sm sm:w-auto"
         >
           {cat.iconUrl ? (

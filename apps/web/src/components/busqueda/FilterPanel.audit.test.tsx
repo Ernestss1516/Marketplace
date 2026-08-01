@@ -45,22 +45,45 @@ describe('BUG A — selector de subcategoría', () => {
     expect(screen.getByRole('option', { name: 'Motos' })).toBeInTheDocument();
   });
 
-  it('elegir una hija navega a /{slug de la hija}', () => {
+  // A1 (URLs anidadas) — cambia la FORMA de la URL emitida, no el comportamiento:
+  // la subcategoría es siempre hija de la categoría fija de la página, así que su
+  // URL canónica lleva el slug del padre delante.
+  it('elegir una hija navega a /{padre}/{hija} — la URL canónica, no la plana', () => {
+    render(
+      <FilterPanel
+        {...BASE_PROPS}
+        subcategories={subcategories}
+        subcategoryParentSlug="audit-vehiculos"
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('Acotar a una subcategoría'), {
+      target: { value: 'audit-coches' },
+    });
+    expect(mockPush).toHaveBeenCalledWith('/audit-vehiculos/audit-coches');
+  });
+
+  it('elegir una hija ARRASTRA los filtros ya aplicados en la URL (menos page)', () => {
+    mockSearchParams = new URLSearchParams('province=Madrid&page=3');
+    render(
+      <FilterPanel
+        {...BASE_PROPS}
+        subcategories={subcategories}
+        subcategoryParentSlug="audit-vehiculos"
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('Acotar a una subcategoría'), {
+      target: { value: 'audit-motos' },
+    });
+    const [url] = mockPush.mock.calls[0];
+    expect(url).toBe('/audit-vehiculos/audit-motos?province=Madrid');
+  });
+
+  it('sin subcategoryParentSlug cae a la URL plana (que el catch-all redirige), nunca a una rota', () => {
     render(<FilterPanel {...BASE_PROPS} subcategories={subcategories} />);
     fireEvent.change(screen.getByLabelText('Acotar a una subcategoría'), {
       target: { value: 'audit-coches' },
     });
     expect(mockPush).toHaveBeenCalledWith('/audit-coches');
-  });
-
-  it('elegir una hija ARRASTRA los filtros ya aplicados en la URL (menos page)', () => {
-    mockSearchParams = new URLSearchParams('province=Madrid&page=3');
-    render(<FilterPanel {...BASE_PROPS} subcategories={subcategories} />);
-    fireEvent.change(screen.getByLabelText('Acotar a una subcategoría'), {
-      target: { value: 'audit-motos' },
-    });
-    const [url] = mockPush.mock.calls[0];
-    expect(url).toBe('/audit-motos?province=Madrid');
   });
 });
 

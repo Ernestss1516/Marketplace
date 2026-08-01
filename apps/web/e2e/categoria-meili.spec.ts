@@ -62,13 +62,16 @@ async function publishCocheMinimal(
 
 test.describe('H6.2 — Categoría vía Meilisearch', () => {
 
-  test('Categoría hoja /coches: FilterPanel visible + anuncio aparece via Meili', async ({ sellerContext }) => {
+  // A1 — la URL de una categoría hija es ahora anidada (/vehiculos/coches). Cambia
+  // la forma de la URL, no lo que este test verifica. La redirección desde la URL
+  // vieja tiene su propia batería: categoria-urls-anidadas.spec.ts.
+  test('Categoría hoja /vehiculos/coches: FilterPanel visible + anuncio aparece via Meili', async ({ sellerContext }) => {
     const page = await sellerContext.newPage();
     const TITLE = `H6.2 Coche hoja ${Date.now()}`;
 
     await publishCocheMinimal(page, TITLE);
 
-    await waitForCard(page, '/coches', TITLE);
+    await waitForCard(page, '/vehiculos/coches', TITLE);
 
     // FilterPanel must be visible (only present after H6.2 migration)
     await expect(page.getByRole('complementary', { name: 'Filtros' })).toBeVisible({ timeout: 5_000 });
@@ -107,7 +110,7 @@ test.describe('H6.2 — Categoría vía Meilisearch', () => {
 
   test('Página de categoría vacía o sin resultados: no rompe el SSR', async ({ page }) => {
     // Navigate to a valid category that might have no listings with this filter
-    await page.goto('/coches?type=SERVICE&condition=FOR_PARTS');
+    await page.goto('/vehiculos/coches?type=SERVICE&condition=FOR_PARTS');
     await page.waitForLoadState('networkidle');
 
     // Page must render without crashing (h1 visible, no error boundary)

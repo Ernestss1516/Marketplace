@@ -8848,6 +8848,72 @@ de test vía `test:e2e`, no mocks):**
 
 ---
 
+## Búsqueda + Tags — RÁFAGA A1: URLs anidadas de categoría (cerrada)
+
+**✅ CERRADA** (2026-08-01). Diseño: `docs/diseno-busqueda-y-tags.md` §3.1 (con la
+sección de correcciones tras implementar).
+
+**Qué cambia:** una categoría hija pasa de `/coches` a `/vehiculos/coches`. Las raíces
+**no cambian** (`/vehiculos` sigue siendo `/vehiculos`). Toda URL vieja de hija responde
+**308** a su canónica, con la query intacta.
+
+**Rutas.** `[categoria]` (raíz) y `[categoria]/[subcategoria]` (hija), dos rutas
+explícitas que comparten cuerpo en `components/categorias/CategoryListingPage.tsx`.
+**No** un catch-all `[...ruta]`: se probó, y absorbía rutas profundas inexistentes
+(`/a/b/c/d`) convirtiendo su 404 real en uno blando. Como el árbol tiene exactamente 2
+niveles (`assertParentIsRoot`), dos rutas explícitas lo modelan sin residuo.
+
+**El 308 lo emite el MIDDLEWARE, no la página** (`lib/category-canonical.ts`). Razón
+medida sobre el servidor real: `app/loading.tsx` en la raíz envuelve toda ruta en
+Suspense, así que Next manda la cabecera 200 antes de ejecutar la página y allí
+`permanentRedirect()` solo puede degradar a un redirect de cliente sobre un 200 — para
+un crawler, "la URL vieja sigue viva". El middleware corre antes de renderizar. Mapa
+slug→padre memoizado 60 s, deduplicación de peticiones en vuelo, y *fail-open* (si la
+API no responde no redirige, en vez de tumbar la navegación). La canonicalización de la
+página se conserva como red de seguridad para cuando ese mapa esté frío.
+
+**Regla única de canonicalización: manda el último segmento.** Se resuelve la categoría
+por él y se compara con la URL pedida. Cubre de una vez la URL vieja plana (`/coches`),
+el padre incoherente (`/inmuebles/coches`) y el padre inexistente (`/lo-que-sea/coches`),
+sin ninguna tabla de redirects que mantener y siguiendo al día cualquier cambio de padre
+que haga un admin.
+
+**Un solo constructor de URLs:** `lib/category-url.ts` (`categoryPath`,
+`categoryPathWithQuery`, `findCategoryUrlParts`). Los 11 generadores que había repartidos
+por el front pasan por él. Regla de proyecto: **nadie construye `/${slug}` a mano**.
+
+**Backend (todo aditivo):** `GET /categories/:slug` devuelve `parent {slug,name}|null`;
+el árbol devuelve `parentSlug` en cada hija; la ficha del anuncio devuelve
+`category.parent`. Antes la relación se cargaba solo para resolver herencia y no salía
+en ninguna respuesta — por eso el breadcrumb no podía enseñar el padre. Además, guarda
+`RESERVED_ROOT_SLUGS`: una categoría **raíz** no puede tener el slug de una ruta del
+sitio (sería inalcanzable); una hija sí (vive bajo `/x/blog`). Cierra un hueco que ya
+existía en silencio.
+
+**SEO nuevo:** categorías en `sitemap.ts` (no estaban, ni antes), `canonical` explícita,
+y JSON-LD `BreadcrumbList` en categoría y ficha, generado de la misma lista que la miga
+visible.
+
+**Verificación.** `e2e/categoria-urls-anidadas.spec.ts` es transversal, no una muestra:
+recorre `GET /categories` y comprueba **las 648 hijas** (todas redirigen 308 a su
+anidada) y **las 1.786 raíces** (ninguna gana prefijo). Las raíces se comprueban con una
+sonda `/{sonda}/{raiz}` que lee la canónica vía redirect en lugar de renderizar 1.786
+páginas. Backend: `test/category-parent-exposure.e2e-spec.ts` (9). Unitarios:
+`category-url.test.ts`, `category-canonical.test.ts`.
+
+**Deuda anotada, pre-existente y fuera de alcance** (medida contra la rama base antes de
+tocar nada, para no atribuirla a A1):
+- Un slug de categoría inexistente responde **200 + UI de 404** (404 blando) por el
+  `loading.tsx` global. Igual antes de A1. Arreglarlo toca el loading de todo el sitio.
+- `next build` falla por dos errores de lint pre-existentes en
+  `CardPhotoCarousel.test.tsx` (`no-html-link-for-pages`). El build de esta ráfaga se
+  verificó con `--no-lint`.
+- La BD de test arrastra ~1.800 categorías y ~650 hijas de baterías anteriores que nunca
+  se limpiaron: ralentiza toda la suite de Playwright y es lo que hace inviable
+  renderizar una página por raíz.
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.

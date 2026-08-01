@@ -74,7 +74,7 @@ test.describe('Patrocinados en la búsqueda', () => {
     });
 
     const page = await buyerContext.newPage();
-    await page.goto('/coches');
+    await page.goto('/vehiculos/coches');
     await page.waitForLoadState('networkidle');
 
     const card = page.getByTestId('sponsored-card').filter({ hasText: title });
@@ -114,7 +114,7 @@ test.describe('Patrocinados en la búsqueda', () => {
     });
 
     const page = await buyerContext.newPage();
-    await page.goto('/coches');
+    await page.goto('/vehiculos/coches');
     await page.waitForLoadState('networkidle');
 
     await expect(page.getByTestId('sponsored-card').filter({ hasText: title })).toBeVisible({
@@ -137,7 +137,7 @@ test.describe('Patrocinados en la búsqueda', () => {
     });
 
     const page = await buyerContext.newPage();
-    await page.goto('/coches');
+    await page.goto('/vehiculos/coches');
     await page.waitForLoadState('networkidle');
     await expect(page.getByTestId('sponsored-card').filter({ hasText: title })).toBeVisible({
       timeout: 10_000,

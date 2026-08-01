@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { PROVINCIAS } from '@/lib/provincias';
+import { categoryPathWithQuery, findCategoryUrlParts } from '@/lib/category-url';
 import type { Category } from '@/types';
 
 interface SearchBarProps {
@@ -24,8 +25,21 @@ export function SearchBar({ defaultValue = '', categories = [] }: SearchBarProps
     const params = new URLSearchParams();
     const q = query.trim();
     if (q) params.set('q', q);
-    if (category) params.set('category', category);
     if (province) params.set('province', province);
+
+    // A1 (URLs anidadas) — con categoría elegida se navega a SU ruta canónica
+    // (/vehiculos/coches?q=…) en vez de a /busqueda?category=coches: una sola URL
+    // por categoría. Sin categoría, la búsqueda global de siempre.
+    const urlParts = category ? findCategoryUrlParts(categories, category) : null;
+    if (urlParts) {
+      router.push(categoryPathWithQuery(urlParts, params));
+      return;
+    }
+
+    // `category` seleccionada pero ausente del árbol (no debería pasar: las opciones
+    // salen del propio árbol) — se conserva como query param, que sigue siendo
+    // válido en /busqueda, en vez de perder el filtro en silencio.
+    if (category) params.set('category', category);
     const qs = params.toString();
     router.push(qs ? `/busqueda?${qs}` : '/busqueda');
   }

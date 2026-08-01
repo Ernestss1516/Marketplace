@@ -123,6 +123,10 @@ export interface Category {
   id: string;
   name: string;
   slug: string;
+  /** A1 (URLs anidadas) — slug del padre; ausente en las raíces. Lo emite
+   *  `GET /categories` en cada hija para que `categoryPath()` construya la URL
+   *  canónica sin recorrer el árbol al revés. */
+  parentSlug?: string;
   iconUrl?: string;
   cardAttributes?: CardAttributeDef[];
   /** Hasta 6 atributos para la vista ampliada (RÁFAGA 2) — independiente de cardAttributes. */
@@ -133,6 +137,9 @@ export interface Category {
 }
 
 export interface CategoryWithSchema extends Category {
+  /** A1 — categoría padre (o null si es raíz). La emite `GET /categories/:slug`.
+   *  Alimenta el breadcrumb (Inicio > Vehículos > Coches) y la URL canónica. */
+  parent?: { slug: string; name: string } | null;
   attributeSchema: AttributeSchema[];
   /** Política efectiva (propia + heredada del padre) — RÁFAGA 3 (wizard). */
   allowedListingType: ListingTypePolicy;
@@ -248,7 +255,10 @@ export interface Listing {
   latitude?: number;
   longitude?: number;
   images: ListingImage[];
-  category: Pick<Category, 'name' | 'slug'>;
+  /** A1 — `parent` es opcional a propósito: la ficha se cachea en Redis 5 min, así que
+   *  justo tras desplegar habrá payloads sin él. `categoryPath()` lo tolera (emite la
+   *  URL plana, que el catch-all redirige) y el breadcrumb cae a 2 niveles. */
+  category: Pick<Category, 'name' | 'slug'> & { parent?: { slug: string; name: string } | null };
   seller: Pick<UserPublic, 'name' | 'slug' | 'avatarUrl' | 'trusted'> & {
     /** Escaparate RÁFAGA 4 — media VERIFICADA, siempre fresca (nunca dentro de la caché
      * de 5 min de la ficha). null = sin valoraciones verificadas → "Nuevo". */

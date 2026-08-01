@@ -60,7 +60,16 @@ const CACHE_TTL = 60 * 5;
 const cacheKey = (slug: string) => `listing:${slug}`;
 
 const LISTING_INCLUDE = {
-  category: { select: { id: true, slug: true, name: true } },
+  // A1 (URLs anidadas) — `parent` es NUEVO: el breadcrumb de la ficha
+  // (Inicio > Vehículos > Coches > Título) y el enlace a la categoría necesitan el
+  // padre para construir la URL canónica. Aditivo en el payload.
+  // NOTA: findBySlug cachea el resultado en Redis 5 min, así que justo tras
+  // desplegar habrá fichas servidas desde caché SIN `category.parent`. El frontend
+  // lo trata como opcional (categoryPath() cae a la URL plana y el breadcrumb a 2
+  // niveles) — se autocorrige solo al expirar la caché, sin invalidación manual.
+  category: {
+    select: { id: true, slug: true, name: true, parent: { select: { slug: true, name: true } } },
+  },
   images: { orderBy: { order: 'asc' as const } },
   // trusted: H8 Bloque E — "Vendedor de confianza" en la ficha del anuncio (SellerCard).
   seller: { select: { id: true, name: true, slug: true, avatarUrl: true, trusted: true } },

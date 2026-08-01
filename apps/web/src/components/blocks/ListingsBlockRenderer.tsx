@@ -1,9 +1,10 @@
 import Link from 'next/link';
 import type { ListingsBlock } from '@/types/blocks';
 import type { SearchResponse } from '@/lib/api/busqueda';
-import type { ListingSummary } from '@/types';
+import type { Category, ListingSummary } from '@/types';
 import { ListingCard } from '@/components/anuncios/ListingCard';
 import { isSponsoredAdHit } from '@/components/anuncios/SponsoredCard';
+import { categoryPath, findCategoryUrlParts } from '@/lib/category-url';
 
 // Primer bloque DINÁMICO: no resuelve su propia consulta (rompería el
 // contrato síncrono de BlockRenderer, compartido con el preview client-side
@@ -24,10 +25,30 @@ import { isSponsoredAdHit } from '@/components/anuncios/SponsoredCard';
 // gracia sin ellos (sin corazón de favorito, sin línea de atributo variable)
 // — evita meter la resolución de atributos por categoría dentro del sistema
 // de bloques. Decisión documentada en estado-tecnico.md.
-export function ListingsBlockRenderer({ block, data }: { block: ListingsBlock; data?: SearchResponse }) {
+//
+// A1 (URLs anidadas) — "Ver todos" apunta ahora a la RUTA DE CATEGORÍA
+// (/vehiculos/coches) en vez de a /busqueda?category=…: una sola URL por
+// categoría, sin dos rutas compitiendo por el mismo contenido.
+// `categories` (el árbol) es opcional porque el bloque también se renderiza en el
+// preview del editor, que es síncrono y client-side: sin árbol se emite la URL
+// plana, que el catch-all redirige. Las páginas públicas —las únicas que un
+// crawler ve— SÍ lo pasan, así que ningún enlace indexable gasta un redirect.
+export function ListingsBlockRenderer({
+  block,
+  data,
+  categories,
+}: {
+  block: ListingsBlock;
+  data?: SearchResponse;
+  categories?: Category[];
+}) {
   if (!data) return null;
   const listings = data.hits.filter((h): h is ListingSummary => !isSponsoredAdHit(h));
   if (listings.length === 0) return null;
+
+  const urlParts =
+    (categories && findCategoryUrlParts(categories, block.categorySlug)) ??
+    { slug: block.categorySlug };
 
   return (
     <div>
@@ -39,7 +60,7 @@ export function ListingsBlockRenderer({ block, data }: { block: ListingsBlock; d
       </div>
       {block.showAllLink && (
         <Link
-          href={`/busqueda?category=${block.categorySlug}`}
+          href={categoryPath(urlParts)}
           className="mt-4 inline-block text-sm font-medium text-primary hover:underline"
         >
           Ver todos →

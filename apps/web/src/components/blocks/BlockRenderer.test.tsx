@@ -281,7 +281,32 @@ describe('BlockRenderer — Ráfaga 3 (4 tipos nuevos)', () => {
     expect(screen.queryByText('Patrocinado')).not.toBeInTheDocument();
   });
 
-  it('listings: showAllLink añade el enlace "Ver todos" hacia /busqueda?category=', () => {
+  // A1 (URLs anidadas) — "Ver todos" apunta ahora a la RUTA DE CATEGORÍA, no a
+  // /busqueda?category=: una sola URL por categoría. Cambia la forma del enlace,
+  // no lo que hace.
+  it('listings: showAllLink enlaza a la ruta de categoría, anidada si es una hija', () => {
+    const block: Block = {
+      id: 'b1',
+      type: 'listings',
+      categorySlug: 'electronica',
+      limit: 8,
+      showAllLink: true,
+    };
+    const data: SearchResponse = { hits: [fakeListing()], totalHits: 1, page: 1, hitsPerPage: 8 };
+    const categories = [
+      {
+        id: 'c1',
+        name: 'Tecnología',
+        slug: 'tecnologia',
+        children: [{ id: 'c2', name: 'Electrónica', slug: 'electronica' }],
+      },
+    ];
+    render(<BlockRenderer blocks={[block]} listingsData={{ b1: data }} categories={categories} />);
+    const link = screen.getByRole('link', { name: /Ver todos/ });
+    expect(link).toHaveAttribute('href', '/tecnologia/electronica');
+  });
+
+  it('listings: sin árbol (preview del editor) cae a la URL plana, que el catch-all redirige', () => {
     const block: Block = {
       id: 'b1',
       type: 'listings',
@@ -291,8 +316,7 @@ describe('BlockRenderer — Ráfaga 3 (4 tipos nuevos)', () => {
     };
     const data: SearchResponse = { hits: [fakeListing()], totalHits: 1, page: 1, hitsPerPage: 8 };
     render(<BlockRenderer blocks={[block]} listingsData={{ b1: data }} />);
-    const link = screen.getByRole('link', { name: /Ver todos/ });
-    expect(link).toHaveAttribute('href', '/busqueda?category=electronica');
+    expect(screen.getByRole('link', { name: /Ver todos/ })).toHaveAttribute('href', '/electronica');
   });
 
   it('los 13 tipos combinados (9 + 4 nuevos) se renderizan sin lanzar', () => {

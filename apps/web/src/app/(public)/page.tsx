@@ -13,6 +13,7 @@ import { search, type SearchResponse } from '@/lib/api/busqueda';
 import type { ListingSummary } from '@/types';
 import { getActiveBanners } from '@/lib/api/banners';
 import { buildCardAttributeMap } from '@/lib/card-attributes';
+import { categoryPath } from '@/lib/category-url';
 
 const POPULAR_CATEGORY_COUNT = 6;
 
@@ -58,7 +59,7 @@ export default async function HomePage() {
                 {popularCategories.map((cat) => (
                   <Link
                     key={cat.id}
-                    href={`/busqueda?category=${cat.slug}`}
+                    href={categoryPath(cat)}
                     className="rounded-full border bg-background px-3 py-1 text-xs font-medium transition-colors hover:border-primary hover:text-primary"
                   >
                     {cat.name}

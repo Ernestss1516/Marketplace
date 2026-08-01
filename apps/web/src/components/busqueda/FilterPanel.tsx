@@ -6,6 +6,7 @@ import { ChevronDown, MapPin, SlidersHorizontal, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { PROVINCIAS } from '@/lib/provincias';
+import { categoryPathWithQuery } from '@/lib/category-url';
 import type { Category, ListingTypePolicy } from '@/types';
 
 const TYPE_OPTIONS = [
@@ -111,6 +112,12 @@ interface FilterPanelProps {
    * una hija siempre tiene AL MENOS los atributos heredados del padre.
    */
   subcategories?: { slug: string; name: string }[];
+  /**
+   * A1 (URLs anidadas) — slug de la categoría FIJA de esta página, que es el padre de
+   * `subcategories`. Necesario para que `goToSubcategory` emita la URL canónica
+   * (/vehiculos/coches) y no la plana, que solo llegaría por redirect.
+   */
+  subcategoryParentSlug?: string;
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
@@ -130,6 +137,7 @@ export function FilterPanel({
   activeFilterCount,
   allowedListingType,
   subcategories,
+  subcategoryParentSlug,
 }: FilterPanelProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -189,8 +197,10 @@ export function FilterPanel({
   function goToSubcategory(slug: string) {
     const params = new URLSearchParams(searchParams.toString());
     params.delete('page');
-    const query = params.toString();
-    router.push(`/${slug}${query ? `?${query}` : ''}`);
+    // A1 — la subcategoría es SIEMPRE hija de la categoría fija de esta página, así
+    // que su URL canónica es /{padre}/{hija}. Emitirla directamente (en vez de la
+    // plana + redirect) evita un salto de red por cada acotación.
+    router.push(categoryPathWithQuery({ slug, parentSlug: subcategoryParentSlug }, params));
   }
 
   function toggleFacet(key: string, value: string) {

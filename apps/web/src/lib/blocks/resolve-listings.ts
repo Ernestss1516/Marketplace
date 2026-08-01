@@ -1,4 +1,6 @@
 import { search, type SearchResponse } from '@/lib/api/busqueda';
+import { getCategories } from '@/lib/api/categorias';
+import type { Category } from '@/types';
 import type { Block, ListingsBlock, ListingsBlockSort } from '@/types/blocks';
 
 // TTL corto y propio del bloque `listings` — decisión de Ráfaga 3 (ver
@@ -27,21 +29,37 @@ function isListingsBlock(block: Block): block is ListingsBlock {
 // pasar el resultado a <BlockRenderer listingsData={...} />. BlockRenderer
 // en sí sigue siendo síncrono (lo comparte el preview client-side del
 // editor, que resuelve sus propios datos de forma equivalente).
+//
+// A1 — devuelve además el ÁRBOL de categorías, que el bloque necesita para
+// construir la URL canónica de su enlace "Ver todos" (/vehiculos/coches en vez de
+// /busqueda?category=coches). Va aquí y no en cada página porque este es el único
+// sitio que ya sabe si hay algún bloque `listings`: sin ninguno, sigue siendo un
+// no-op instantáneo y las páginas sin bloques de anuncios no pagan la consulta.
+// En paralelo con las búsquedas, no en serie. `categories: []` si falla — el
+// enlace cae entonces a la URL plana (que redirige), nunca rompe la página.
+export interface ListingsBlocksResolution {
+  data: Record<string, SearchResponse>;
+  categories: Category[];
+}
+
 export async function resolveListingsBlocksData(
   blocks: Block[],
-): Promise<Record<string, SearchResponse>> {
+): Promise<ListingsBlocksResolution> {
   const listingsBlocks = blocks.filter(isListingsBlock);
-  if (listingsBlocks.length === 0) return {};
+  if (listingsBlocks.length === 0) return { data: {}, categories: [] };
 
-  const entries = await Promise.all(
-    listingsBlocks.map(async (block) => {
-      const result = await search(
-        { category: block.categorySlug, hitsPerPage: block.limit, sort: mapSort(block.sort) },
-        { next: { revalidate: LISTINGS_BLOCK_REVALIDATE_SECONDS } },
-      );
-      return [block.id, result] as const;
-    }),
-  );
+  const [entries, categories] = await Promise.all([
+    Promise.all(
+      listingsBlocks.map(async (block) => {
+        const result = await search(
+          { category: block.categorySlug, hitsPerPage: block.limit, sort: mapSort(block.sort) },
+          { next: { revalidate: LISTINGS_BLOCK_REVALIDATE_SECONDS } },
+        );
+        return [block.id, result] as const;
+      }),
+    ),
+    getCategories().catch(() => [] as Category[]),
+  ]);
 
-  return Object.fromEntries(entries);
+  return { data: Object.fromEntries(entries), categories };
 }

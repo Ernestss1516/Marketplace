@@ -1,6 +1,7 @@
 import NextAuth from 'next-auth';
 import { authConfig } from '@/lib/auth/auth.config';
 import { buildLoginUrl } from '@/lib/auth/callback-url';
+import { resolveCategoryRedirect } from '@/lib/category-canonical';
 
 const { auth } = NextAuth(authConfig);
 
@@ -35,9 +36,32 @@ const ROLE_ALLOWED_PATHS: Record<string, string[]> = {
   EDITOR: ['/admin/blog', '/admin/paginas'],
 };
 
-export default auth((req) => {
+// A1 (URLs anidadas) — código del redirect permanente de categoría. 308 y no 301:
+// es la decisión aprobada (P1); Google los consolida igual y el 308 preserva el
+// método. Va en una constante para que el número no quede suelto en el cuerpo.
+const PERMANENT_REDIRECT = 308;
+
+export default auth(async (req) => {
   const session = req.auth;
   const { pathname, search } = req.nextUrl;
+
+  // A1 — canonicalización de URLs de categoría (/coches → /vehiculos/coches).
+  // Va PRIMERO: son rutas públicas, no dependen de la sesión, y el redirect debe
+  // salir antes de que se renderice nada.
+  //
+  // Vive aquí y no en la página porque `app/loading.tsx` (raíz) hace que Next
+  // envuelva toda ruta en Suspense y mande la cabecera 200 antes de ejecutar el
+  // componente: allí `permanentRedirect()` degrada a un redirect de cliente sobre
+  // un 200, que para un crawler es "la URL vieja sigue viva". Comprobado sobre el
+  // servidor real — ver el comentario largo en lib/category-canonical.ts.
+  //
+  // `resolveCategoryRedirect` devuelve null (y aquí no se hace nada) cuando la
+  // ruta ya es canónica, no es una categoría, o el mapa no se pudo resolver.
+  const canonical = await resolveCategoryRedirect(pathname);
+  if (canonical) {
+    const target = new URL(canonical + search, req.url);
+    return Response.redirect(target, PERMANENT_REDIRECT);
+  }
 
   const isAccountRoute = accountPrefixes.some((p) => pathname.startsWith(p));
   const isAdminRoute =

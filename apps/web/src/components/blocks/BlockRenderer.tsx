@@ -1,4 +1,5 @@
 import type { Block } from '@/types/blocks';
+import type { Category } from '@/types';
 import type { SearchResponse } from '@/lib/api/busqueda';
 import { TextBlockRenderer } from './TextBlockRenderer';
 import { FaqBlockRenderer } from './FaqBlockRenderer';
@@ -25,7 +26,14 @@ function assertUnreachable(block: never): never {
 // `listings` (clave = block.id). BlockRenderer sigue siendo síncrono (lo
 // comparten la página pública SSR y el preview client-side del editor) — la
 // resolución async vive fuera, en quien llama. Ver ListingsBlockRenderer.
-function renderBlock(block: Block, listingsData?: Record<string, SearchResponse>) {
+// `categories`: árbol de categorías, solo lo consume el bloque `listings` para
+// construir la URL canónica de su "Ver todos" (A1 — ver ListingsBlockRenderer).
+// Opcional: sin él ese enlace cae a la URL plana, que el catch-all redirige.
+function renderBlock(
+  block: Block,
+  listingsData?: Record<string, SearchResponse>,
+  categories?: Category[],
+) {
   switch (block.type) {
     case 'text':
       return <TextBlockRenderer block={block} />;
@@ -52,7 +60,13 @@ function renderBlock(block: Block, listingsData?: Record<string, SearchResponse>
     case 'profile':
       return <ProfileBlockRenderer block={block} />;
     case 'listings':
-      return <ListingsBlockRenderer block={block} data={listingsData?.[block.id]} />;
+      return (
+        <ListingsBlockRenderer
+          block={block}
+          data={listingsData?.[block.id]}
+          categories={categories}
+        />
+      );
     default:
       return assertUnreachable(block);
   }
@@ -65,14 +79,16 @@ function renderBlock(block: Block, listingsData?: Record<string, SearchResponse>
 export function BlockRenderer({
   blocks,
   listingsData,
+  categories,
 }: {
   blocks: Block[];
   listingsData?: Record<string, SearchResponse>;
+  categories?: Category[];
 }) {
   return (
     <div className="space-y-8">
       {blocks.map((block) => (
-        <div key={block.id}>{renderBlock(block, listingsData)}</div>
+        <div key={block.id}>{renderBlock(block, listingsData, categories)}</div>
       ))}
     </div>
   );

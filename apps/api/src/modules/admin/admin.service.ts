@@ -106,6 +106,31 @@ const POSITIVE_INT_SETTING_KEYS: readonly string[] = [
 // the pack costs, which is never intended.
 const PERCENT_SETTING_KEYS: readonly string[] = ['proExtraCreditsPercent', 'proExtraBumpsPercent'];
 
+// A1 (URLs anidadas) — segmentos de primer nivel que YA ocupan rutas estáticas del
+// frontend. Una categoría RAÍZ con uno de estos slugs es inalcanzable: Next resuelve
+// el segmento estático antes que el catch-all de categorías, así que /blog siempre
+// sería el blog y nunca la categoría. Eso ya pasaba con la ruta /[categoria] anterior
+// —en silencio, sin error—, y el catch-all no lo cambia; lo que sí cambia es que
+// ahora hay un único sitio donde el problema se puede nombrar, así que se cierra aquí.
+//
+// Solo aplica a RAÍCES: una hija llamada "blog" vive en /vehiculos/blog y no colisiona
+// con nada (ver assertRootSlugNotReserved).
+//
+// Derivada de las rutas reales de apps/web/src/app: los grupos ((public), (account),
+// (auth), (admin)) NO añaden segmento a la URL, así que todos comparten el espacio de
+// nombres de primer nivel.
+const RESERVED_ROOT_SLUGS: ReadonlySet<string> = new Set([
+  // (public)
+  'anuncio', 'blog', 'busqueda', 'contacto', 'paginas', 'planes', 'vendedor',
+  // (account)
+  'favoritos', 'mensajes', 'mis-alertas', 'mis-anuncios', 'mis-creditos', 'mis-tickets',
+  'notificaciones', 'perfil', 'publicar',
+  // (auth)
+  'login', 'recuperar', 'registro', 'restablecer', 'verificar-email',
+  // (admin) + route handlers + estáticos de Next
+  'admin', 'api', '_next', 'favicon.ico', 'robots.txt', 'sitemap.xml',
+]);
+
 @Injectable()
 export class AdminService {
   constructor(
@@ -758,8 +783,28 @@ export class AdminService {
     }
   }
 
+  /**
+   * A1 (URLs anidadas) — rechaza un slug de categoría RAÍZ que colisione con una ruta
+   * estática de primer nivel del frontend (ver RESERVED_ROOT_SLUGS). Una hija queda
+   * exenta a propósito: su URL lleva el slug del padre delante (/vehiculos/blog), así
+   * que nunca compite con /blog.
+   *
+   * `isRoot` se pasa explícito en vez de deducirlo aquí porque las dos llamadas lo
+   * saben desde sitios distintos: create lo sabe por `dto.parentId`, update por la
+   * fila ya persistida (UpdateCategoryDto no permite mover una categoría de padre).
+   */
+  private assertRootSlugNotReserved(slug: string | undefined, isRoot: boolean): void {
+    if (!slug || !isRoot) return;
+    if (RESERVED_ROOT_SLUGS.has(slug)) {
+      throw new BadRequestException(
+        `El slug "${slug}" está reservado por una ruta del sitio: una categoría raíz con ese slug sería inaccesible. Elige otro, o créala como subcategoría.`,
+      );
+    }
+  }
+
   async createCategory(actorId: string, dto: CreateCategoryDto, ip?: string) {
     await this.assertParentIsRoot(dto.parentId);
+    this.assertRootSlugNotReserved(dto.slug, !dto.parentId);
     if (dto.attributeSchema) {
       await this.validateCardAttributeLimit(dto.attributeSchema as AttributeField[], dto.parentId);
       await this.validateWideCardAttributeLimit(dto.attributeSchema as AttributeField[], dto.parentId);
@@ -823,6 +868,10 @@ export class AdminService {
   ) {
     const category = await this.prisma.category.findUnique({ where: { id } });
     if (!category) throw new NotFoundException('Categoría no encontrada');
+
+    // UpdateCategoryDto no admite `parentId`, así que la condición raíz/hija no puede
+    // cambiar en este PATCH: la de la fila persistida es la definitiva.
+    this.assertRootSlugNotReserved(dto.slug, category.parentId === null);
 
     if (dto.attributeSchema) {
       await this.validateCardAttributeLimit(
