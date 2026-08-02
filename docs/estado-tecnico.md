@@ -10114,6 +10114,39 @@ nadie había notado porque **nada las ejercía** (el CI usaba `dev`):
 Las dos afectan a cómo se arrancaría el backend **en producción real**, así que no se
 arreglan en un cambio de CI. Anotadas aquí para que se traten aparte.
 
+### Bug de PRODUCCIÓN destapado al pasar el CI a modo producción
+
+Poner el CI en `next start` en vez de `next dev` destapó un bug real que llegaba a
+usuarios: **la página de editar anuncio crasheaba en producción.**
+
+```
+⨯ Error: Attempted to call resolvePriceUnitSelection() from the server but
+  resolvePriceUnitSelection is on the client.
+  at .next/server/app/(account)/mis-anuncios/[id]/editar/page.js
+```
+
+`resolvePriceUnitSelection` es lógica **pura** (mira si un valor está en una lista; ni
+hooks, ni estado, ni API de navegador), pero vivía en
+`components/publicar/steps/StepDatos.tsx`, que lleva `'use client'` porque además pinta
+el formulario. Eso la marcaba como función de CLIENTE. Y
+`(account)/mis-anuncios/[id]/editar/page.tsx` es un **Server Component** que la llamaba
+en el cuerpo del render.
+
+`next dev` no lo detecta (frontera cliente/servidor laxa en desarrollo); `next start` sí.
+Es decir: **funcionaba en local y estaba roto en producción**, que es la peor combinación
+posible y la razón de que nadie lo viera.
+
+**La cura** (caso "lógica pura arrastrada a un módulo cliente"): se extrajo a
+`src/lib/price-unit.ts`, un módulo SIN `'use client'`, importable desde los dos lados. La
+función devuelve exactamente lo mismo — solo cambia dónde vive y quién puede llamarla.
+`src/lib/price-unit.test.ts` fija que el traslado no cambió el comportamiento. No se
+re-exporta desde `StepDatos` a propósito: un único sitio de importación evita que alguien
+la vuelva a arrastrar al lado cliente sin darse cuenta.
+
+Auditado el resto del módulo y de las páginas: es la **única** violación de este tipo. Las
+demás páginas server importan de módulos `'use client'`, pero importan **Componentes** para
+renderizarlos, que es el patrón correcto y soportado.
+
 ### Deuda: los 105 `networkidle`
 
 Sustituirlos por aserciones web (`expect(locator).toBeVisible()`) es lo correcto y lo que

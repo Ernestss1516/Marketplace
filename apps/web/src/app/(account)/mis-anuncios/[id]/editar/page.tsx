@@ -3,7 +3,10 @@ import { auth } from '@/lib/auth';
 import { getMyListingById } from '@/lib/api/anuncios';
 import { getCategoryBySlug } from '@/lib/api/categorias';
 import { EditarWizard, type EditarWizardData } from '@/components/publicar/EditarWizard';
-import { resolvePriceUnitSelection } from '@/components/publicar/steps/StepDatos';
+// Desde '@/lib/price-unit' (módulo sin 'use client'), NO desde steps/StepDatos:
+// esta página es un Server Component y llamar a una función de un módulo de
+// cliente durante el render del servidor reventaba la página en producción.
+import { resolvePriceUnitSelection } from '@/lib/price-unit';
 import { ApiError } from '@/lib/api/client';
 import { buildLoginUrl } from '@/lib/auth/callback-url';
 import type { PriceType } from '@/types';

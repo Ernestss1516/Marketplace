@@ -11,8 +11,8 @@ import {
   StepDatos,
   type DatosData,
   priceTypeFromMode,
-  resolvePriceUnitSelection,
 } from './steps/StepDatos';
+import { resolvePriceUnitSelection } from '@/lib/price-unit';
 import { StepAtributos } from './steps/StepAtributos';
 import { StepTags } from './steps/StepTags';
 import { StepUbicacion, type UbicacionData } from './steps/StepUbicacion';

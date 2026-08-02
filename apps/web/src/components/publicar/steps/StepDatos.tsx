@@ -82,23 +82,13 @@ export const PRICE_UNIT_LABELS: Record<PriceUnit, string> = {
   PER_SESSION: 'Por sesión',
 };
 
-/**
- * Elige qué formato debe quedar seleccionado (RP.3). Preferencias, en orden:
- * el actual si la categoría lo permite (edición: no se cambia lo que el
- * vendedor ya eligió), ONE_TIME si está permitido, y si no el primero de la
- * lista. Nunca devuelve un formato fuera de `allowed` salvo que la lista venga
- * vacía, donde ONE_TIME es el mismo default que aplica el backend.
- *
- * Pura: el wizard la llama al elegir categoría y al montar la edición.
- */
-export function resolvePriceUnitSelection(
-  allowed: PriceUnit[],
-  current?: PriceUnit,
-): PriceUnit {
-  if (current && allowed.includes(current)) return current;
-  if (allowed.includes('ONE_TIME')) return 'ONE_TIME';
-  return allowed[0] ?? 'ONE_TIME';
-}
+// `resolvePriceUnitSelection` vivía aquí y se movió a `@/lib/price-unit`.
+// Es lógica PURA, pero este módulo lleva 'use client' (pinta el formulario), así
+// que quedaba marcada como función de cliente — y la página de EDITAR anuncio,
+// que es un Server Component, la llamaba en el render del servidor. En `next dev`
+// no se nota; en producción (`next start`) la página crasheaba. No se re-exporta
+// desde aquí a propósito: que haya un único sitio de donde importarla evita que
+// alguien vuelva a arrastrarla al lado cliente sin darse cuenta.
 
 /** Selector de formato. Extraído para que las ramas "precio fijo" y "a convenir"
  *  compartan exactamente el mismo control sin duplicarlo. */
