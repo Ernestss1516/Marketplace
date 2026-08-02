@@ -9416,13 +9416,11 @@ audit en creación y en actualización, y que un 400 no deja rastro en el audit.
 El reparto es la prueba: los tests de creación ejercen el upsert y **solo** el upsert, y los
 de whitelist ejercen el whitelist y **solo** el whitelist. Ninguno pasa por accidente.
 
-### Lo que este fix NO hace
+### Lo que este fix NO hizo (→ cerrado en la ráfaga siguiente)
 
-El editor de `/admin/ajustes` **sigue sin mostrar estas tres claves**: renderiza desde una
-lista `ORDER` fija que no las incluye y, además, hace `if (!setting) return null` — se salta
-cualquier clave sin fila, que es exactamente el caso de las tres. **La API ya las acepta**;
-darles un editor en la UI es trabajo aparte, fuera del "arreglar la causa, nada más" de esta
-ráfaga.
+El editor de `/admin/ajustes` seguía sin mostrar las tres claves: `ORDER` no las incluía y
+`if (!setting) return null` se saltaba cualquier clave sin fila. La API ya las aceptaba, pero
+un admin no podía tocarlas. Cerrado en "UI de ajustes" más abajo.
 
 **Batería:** backend **1408/1408 en dos corridas consecutivas idénticas** (88 suites; eran
 1393/87 al cerrar B1 → +16 del spec nuevo, −1 por los dos tests de B1 que se funden en uno).
@@ -9433,6 +9431,90 @@ ráfaga.
 fila se comportan idéntico; ningún test preexistente con lógica modificada. El único test
 retocado es el de B1 que **documentaba el bug** (`maxTagsPerListing … → 404`): ahora asserta
 el contrato correcto (200 + fila creada), porque el bug que describía ya no existe.
+
+---
+
+## UI de ajustes — las tres claves sin fila, editables desde el backoffice (cerrado)
+
+Última milla del fix del upsert. El PATCH ya las aceptaba; faltaba que el editor supiera que
+existen.
+
+### El bug tenía DOS capas, y hacían falta las dos para verlo
+
+1. **`ORDER`** — la lista fija de claves que `/admin/ajustes` pinta no incluía ninguna de las
+   tres.
+2. **`if (!setting) return null`** — aunque estuvieran en `ORDER`, el editor se saltaba toda
+   clave sin fila, que es exactamente su caso.
+
+Arreglar solo una no habría cambiado nada visible. Está verificado por mutación: **matar
+cualquiera de las dos capas por separado vuelve a dejar los ajustes invisibles.**
+
+### El arreglo
+
+**Backend (aditivo).** `getSettings()` devuelve ahora **toda** clave del whitelist, tenga
+fila o no; las que no la tienen salen con su default y `configured: false`:
+
+```ts
+const SETTING_DEFAULTS: Readonly<Record<string, unknown>> = {
+  maxTagsPerListing: DEFAULT_MAX_TAGS_PER_LISTING,
+  ticketAutoCloseWindowDays: TICKET_REOPEN_WINDOW_DAYS,
+  supportEmail: null,
+};
+```
+
+Las constantes se **importan, no se copian**. Ese era el punto delicado: un `5` escrito a
+mano en el front habría divergido en silencio de `DEFAULT_MAX_TAGS_PER_LISTING` la primera
+vez que alguien lo cambiara. `supportEmail` no tiene constante a propósito — "sin configurar"
+significa que no hay buzón. Las filas reales salen exactamente igual que antes (mismos
+campos, mismo orden por clave); lo nuevo son las entradas sintéticas y el flag, y el test
+preexistente de `GET /admin/settings` usa `toContain`, así que no se ve afectado.
+
+**Frontend.** Las tres claves entran en `ORDER` **sin mover ninguna de las que ya estaban**
+(`maxTagsPerListing` junto a la config de anuncios; el par de tickets al final, que se leen
+juntas). `TextSettingEditor` nuevo para `supportEmail`; los dos numéricos reutilizan
+`NumberSettingEditor` con `min={1}`. Cuando no hay fila, la cabecera dice **"Sin configurar —
+se usa el valor por defecto"** en vez de formatear un `updatedAt` que no existe.
+
+Una honestidad sobre la validación de cliente: en los numéricos **refleja** la del backend
+(`POSITIVE_INT` rechaza `< 1` igual si se la salta). En `supportEmail` **no**: el backend no
+valida el formato de esa clave, así que el aviso es UX y nada más. Está dicho en el código en
+vez de dejar creer que hay una garantía que no existe.
+
+### Verificación
+
+**Backend:** `settings-upsert.e2e-spec.ts` pasa de 16 a **21 tests** — las claves sin fila
+salen en el listado con `configured:false` y `updatedAt:null`, el default que viaja es
+literalmente `DEFAULT_MAX_TAGS_PER_LISTING`/`TICKET_REOPEN_WINDOW_DAYS` (el test los importa,
+así que sigue el cambio si alguien los toca), tras guardar pasa a `configured:true`, las
+claves con fila salen igual que antes, y el listado sigue ordenado por clave.
+
+**Playwright:** `admin-ajustes-sin-fila.spec.ts`, 3 tests. El primero recorre el ciclo entero
+que antes era imposible — sin fila → se pinta con su default → guardar la crea → recargar
+muestra el valor guardado — y comprueba contra la API que la fila existe de verdad, no que
+sea estado de cliente. Los defaults esperados **se leen del backend al empezar**, no se
+escriben en el spec. Los otros dos: la validación de cliente del `0`, y que un ajuste
+preexistente (`listingExpiryDays`) se sigue editando igual.
+
+El estado "sin fila" está garantizado porque `global-setup.ts` trunca la base antes de cada
+corrida y ningún seed siembra estas tres claves; el spec las restaura a su valor por defecto
+al terminar (no se pueden borrar por API) para no alterar las specs posteriores.
+
+**Validación por mutación (dos), una por capa:**
+
+| Mutación | Resultado |
+|---|---|
+| `getSettings` vuelve a devolver solo las filas existentes | **2 de 3 rojos** — las tres tarjetas desaparecen |
+| Las tres claves fuera de `ORDER` | **2 de 3 rojos** — mismas tarjetas, mismo fallo |
+
+En los dos casos el tercer test —el del ajuste preexistente— **sigue verde**, que es lo que
+demuestra que el spec distingue entre "el editor está roto" y "estas tres claves no se ven".
+
+**Batería:** backend **1413/1413 en dos corridas consecutivas idénticas** (88 suites; +5 del
+spec ampliado). `tsc` limpio en api y web; lint igual que el baseline (6).
+
+**Requisito de oro cumplido:** las claves que ya se editaban conservan input, validación y
+guardado; el backend solo cambia de forma aditiva; ningún test existente con lógica
+modificada.
 
 ---
 

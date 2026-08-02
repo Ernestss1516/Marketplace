@@ -146,6 +146,72 @@ describe('Settings — el PATCH crea la fila si no existe (upsert, e2e)', () => 
       .toBe(21);
   });
 
+  // ── GET /admin/settings devuelve también las claves SIN fila ─────────────────
+
+  it('las claves sin fila salen en el listado, con su default y configured:false', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/admin/settings').set(admin()).expect(200);
+
+    const porClave = Object.fromEntries(
+      res.body.map((s: { key: string }) => [s.key, s]),
+    );
+
+    // maxTagsPerListing no tiene fila (el beforeEach la borra) y aun así sale.
+    expect(porClave['maxTagsPerListing']).toBeDefined();
+    expect(porClave['maxTagsPerListing'].configured).toBe(false);
+    expect(porClave['maxTagsPerListing'].updatedAt).toBeNull();
+    expect(porClave['supportEmail'].configured).toBe(false);
+    expect(porClave['ticketAutoCloseWindowDays'].configured).toBe(false);
+  });
+
+  it('el default que viaja es el MISMO que usa el backend, no un número suelto', async () => {
+    // Si alguien cambia DEFAULT_MAX_TAGS_PER_LISTING o TICKET_REOPEN_WINDOW_DAYS,
+    // este test lo sigue; un 5 hardcodeado en el front no lo seguiría.
+    const { DEFAULT_MAX_TAGS_PER_LISTING } = await import('../src/modules/tags/tag.types');
+    const { TICKET_REOPEN_WINDOW_DAYS } = await import('../src/modules/tickets/tickets.constants');
+
+    const res = await request(app.getHttpServer())
+      .get('/api/admin/settings').set(admin()).expect(200);
+    const porClave = Object.fromEntries(res.body.map((s: { key: string }) => [s.key, s]));
+
+    expect(porClave['maxTagsPerListing'].value).toBe(DEFAULT_MAX_TAGS_PER_LISTING);
+    expect(porClave['ticketAutoCloseWindowDays'].value).toBe(TICKET_REOPEN_WINDOW_DAYS);
+    // supportEmail no tiene constante: "sin configurar" es no tener buzón.
+    expect(porClave['supportEmail'].value).toBeNull();
+  });
+
+  it('una vez guardada, la clave pasa a configured:true con su valor y su fecha', async () => {
+    await request(app.getHttpServer())
+      .patch('/api/admin/settings/maxTagsPerListing').set(admin())
+      .send({ value: 3 }).expect(200);
+
+    const res = await request(app.getHttpServer())
+      .get('/api/admin/settings').set(admin()).expect(200);
+    const encontrado = res.body.find((s: { key: string }) => s.key === 'maxTagsPerListing');
+
+    expect(encontrado.configured).toBe(true);
+    expect(encontrado.value).toBe(3);
+    expect(encontrado.updatedAt).not.toBeNull();
+  });
+
+  it('las claves que YA tenían fila siguen saliendo igual que antes', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/admin/settings').set(admin()).expect(200);
+    const badWord = res.body.find((s: { key: string }) => s.key === 'badWordList');
+
+    expect(badWord.configured).toBe(true);
+    expect(badWord.updatedAt).toEqual(expect.any(String));
+    expect(badWord).toHaveProperty('value');
+  });
+
+  it('el listado sale ordenado por clave, con fila o sin ella', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/admin/settings').set(admin()).expect(200);
+    const claves = res.body.map((s: { key: string }) => s.key);
+
+    expect(claves).toEqual([...claves].sort((a: string, b: string) => a.localeCompare(b)));
+  });
+
   // ── El whitelist sigue siendo la puerta ──────────────────────────────────────
 
   it('clave FUERA del whitelist → 400 y NO se crea fila basura', async () => {

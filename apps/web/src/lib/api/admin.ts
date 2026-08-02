@@ -292,7 +292,13 @@ export function getCategoryAttributeUsage(
 export interface AdminSetting {
   key: string;
   value: unknown;
-  updatedAt: string;
+  /** null cuando la clave todavía no tiene fila: nunca se ha guardado. */
+  updatedAt: string | null;
+  /**
+   * false = no hay fila en la base y `value` es el DEFAULT que usa el backend.
+   * El primer guardado crea la fila (PATCH → upsert).
+   */
+  configured?: boolean;
 }
 
 export function getAdminSettings(token: string): Promise<AdminSetting[]> {

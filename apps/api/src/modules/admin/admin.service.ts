@@ -35,6 +35,8 @@ import { ReorderCategoriesDto } from './dto/reorder-categories.dto';
 import { UpdateSettingDto } from './dto/update-setting.dto';
 import { AttributeField, resolveEffectiveSchema, countAttributesByType } from '../categories/category.types';
 import { FilterableAttributesResolver } from '../search/filterable-attributes.resolver';
+import { DEFAULT_MAX_TAGS_PER_LISTING } from '../tags/tag.types';
+import { TICKET_REOPEN_WINDOW_DAYS } from '../tickets/tickets.constants';
 
 const cacheKey = (slug: string) => `listing:${slug}`;
 
@@ -111,6 +113,20 @@ const POSITIVE_INT_SETTING_KEYS: readonly string[] = [
 // the Pro bonus without removing the key); >100 would gift more credits than
 // the pack costs, which is never intended.
 const PERCENT_SETTING_KEYS: readonly string[] = ['proExtraCreditsPercent', 'proExtraBumpsPercent'];
+
+// Defaults of the keys that are deliberately NOT seeded: "sin configurar" is a
+// valid state and each reader falls back to its own constant. Listed here so
+// getSettings() can hand the backoffice the SAME value the backend would use —
+// otherwise the editor would have to hardcode a 5 that could silently drift from
+// DEFAULT_MAX_TAGS_PER_LISTING. The constants are imported, never copied.
+//
+// `supportEmail` has no constant on purpose: unset means "no hay buzón", and
+// TicketNotificationsService logs a warning and skips only the email.
+const SETTING_DEFAULTS: Readonly<Record<string, unknown>> = {
+  maxTagsPerListing: DEFAULT_MAX_TAGS_PER_LISTING,
+  ticketAutoCloseWindowDays: TICKET_REOPEN_WINDOW_DAYS,
+  supportEmail: null,
+};
 
 // A1 (URLs anidadas) — segmentos de primer nivel que YA ocupan rutas estáticas del
 // frontend. Una categoría RAÍZ con uno de estos slugs es inalcanzable: Next resuelve
@@ -1144,8 +1160,36 @@ export class AdminService {
   // Settings (R7.5)
   // ===========================================================================
 
-  getSettings() {
-    return this.prisma.setting.findMany({ orderBy: { key: 'asc' } });
+  /**
+   * TODA clave del whitelist sale aquí, tenga fila o no. Las que no la tienen se
+   * devuelven con su default y `configured: false`.
+   *
+   * Antes solo salían las filas existentes, y el editor del backoffice hacía
+   * `if (!setting) return null` — así que las tres claves que nacen sin fila
+   * (maxTagsPerListing, supportEmail, ticketAutoCloseWindowDays) eran invisibles.
+   * Con el PATCH ya arreglado a upsert, lo único que faltaba era que el editor
+   * supiera que existen y con qué valor pintarlas.
+   *
+   * Aditivo: las filas reales salen exactamente igual que antes (mismos campos,
+   * mismo orden por clave); lo nuevo son las entradas sintéticas y el flag.
+   */
+  async getSettings() {
+    const filas = await this.prisma.setting.findMany({ orderBy: { key: 'asc' } });
+    const conFila = new Set(filas.map((f) => f.key));
+
+    const sinFila = SETTING_KEYS.filter((k) => !conFila.has(k)).map((key) => ({
+      key,
+      value: SETTING_DEFAULTS[key] ?? null,
+      // Nunca se ha guardado, así que no hay fecha que enseñar. El front pinta
+      // "Sin configurar" en vez de una fecha inventada.
+      updatedAt: null,
+      updatedById: null,
+      configured: false,
+    }));
+
+    return [...filas.map((f) => ({ ...f, configured: true })), ...sinFila].sort((a, b) =>
+      a.key.localeCompare(b.key),
+    );
   }
 
   async updateSetting(

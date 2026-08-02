@@ -155,6 +155,82 @@ function NumberSettingEditor({
   );
 }
 
+/**
+ * Editor de texto libre. Hoy solo lo usa `supportEmail`.
+ *
+ * OJO con la validación: el backend NO valida el formato de esta clave (no está en
+ * POSITIVE_INT ni en PERCENT — acepta cualquier string). Así que el aviso de aquí es
+ * UX, no una garantía: sirve para que nadie guarde "soporte@" por un dedazo, pero
+ * quien se lo salte no recibe un 400. Se dice explícitamente para no dar por
+ * enforced algo que no lo está.
+ */
+function TextSettingEditor({
+  setting,
+  token,
+  onSaved,
+  settingKey,
+  label,
+  helpText,
+  placeholder,
+  tipo = 'text',
+}: {
+  setting: AdminSetting;
+  token: string;
+  onSaved: () => void;
+  settingKey: string;
+  label: string;
+  helpText: string;
+  placeholder?: string;
+  tipo?: 'text' | 'email';
+}) {
+  const [value, setValue] = useState(() =>
+    typeof setting.value === 'string' ? setting.value : '',
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+
+  async function handleSave() {
+    const limpio = value.trim();
+    // Vacío es un valor VÁLIDO: "sin buzón configurado" es un estado que el backend
+    // entiende (registra un warning y omite solo el email).
+    if (tipo === 'email' && limpio && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(limpio)) {
+      setError('No parece una dirección de correo válida.');
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    setSuccess(false);
+    try {
+      await updateAdminSetting(token, settingKey, limpio);
+      setSuccess(true);
+      onSaved();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Error al guardar');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-col gap-1">
+        <label className="text-xs font-medium text-muted-foreground">{label}</label>
+        <input
+          type={tipo}
+          value={value}
+          onChange={(e) => { setValue(e.target.value); setSuccess(false); }}
+          placeholder={placeholder}
+          className="w-full max-w-md rounded-md border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          disabled={saving}
+        />
+      </div>
+      <p className="text-xs text-muted-foreground">{helpText}</p>
+      <SaveRow saving={saving} success={success} error={error} onSave={handleSave} />
+    </div>
+  );
+}
+
 function ContactVerificationEditor({
   setting,
   token,
@@ -264,6 +340,9 @@ const SETTING_TITLES: Record<string, string> = {
   proExtraCreditsPercent: 'Bonus de créditos al comprar packs (Pro)',
   proMonthlyBumpQuota: 'Cuota mensual de bumps (Pro)',
   proExtraBumpsPercent: 'Bonus de bumps al comprar packs de bumps (Pro)',
+  maxTagsPerListing: 'Máximo de tags por anuncio',
+  supportEmail: 'Buzón de soporte',
+  ticketAutoCloseWindowDays: 'Ventana de reapertura y cierre de tickets',
 };
 
 const SETTING_DESCRIPTIONS: Record<string, string> = {
@@ -287,6 +366,12 @@ const SETTING_DESCRIPTIONS: Record<string, string> = {
     'Bumps gratuitos que un usuario Pro puede usar cada mes. Mismo periodo que la cuota de destacados (una sola suscripción por usuario); se renuevan en el aniversario del ciclo, los no usados no se acumulan. Se consumen ANTES que el saldo de bumps por cupón y que los créditos.',
   proExtraBumpsPercent:
     'Porcentaje de bumps extra que recibe un usuario Pro al comprar un pack de bumps, sobre el mismo precio que paga cualquier usuario. Setting independiente del bonus de créditos (proExtraCreditsPercent) — beneficios distintos, calibrables por separado. Se congela en cada compra: cambiar este valor no afecta a compras ya realizadas.',
+  maxTagsPerListing:
+    'Cuántas etiquetas puede llevar como máximo un anuncio. Los tags se configuran por categoría (catálogo en Tags, asignación en Categorías) y el usuario elige entre los que su categoría ofrece; este número es el tope de cuántos puede marcar. Subirlo no afecta a los anuncios ya publicados con menos.',
+  supportEmail:
+    'Dirección única a la que llegan los avisos por correo de los tickets de soporte. No es un reparto por administrador: es un buzón compartido. Si se deja vacío, el aviso in-app al staff se sigue creando y solo se omite el correo.',
+  ticketAutoCloseWindowDays:
+    'Días que un ticket resuelto admite reapertura por parte del usuario y, pasados los cuales, se cierra automáticamente. Es UN SOLO valor para las dos cosas a propósito: si divergieran habría un limbo entre "ya no puedo reabrir" y "aún no me han cerrado".',
 };
 
 // ─── Monetización: costes en créditos ──────────────────────────────────────────
@@ -388,10 +473,13 @@ export default function AdminAjustesPage() {
 
   const settingsByKey = Object.fromEntries(settings.map((s) => [s.key, s]));
 
-  // Canonical display order
+  // Canonical display order. Las tres últimas se intercalan sin mover ninguna de
+  // las que ya estaban: maxTagsPerListing junto a la otra config de anuncios, y el
+  // par de tickets al final porque se leen juntas.
   const ORDER = [
     'badWordList',
     'listingExpiryDays',
+    'maxTagsPerListing',
     'contactRequiresVerification',
     'freeActiveListingLimit',
     'proActiveListingLimit',
@@ -400,6 +488,8 @@ export default function AdminAjustesPage() {
     'proExtraCreditsPercent',
     'proMonthlyBumpQuota',
     'proExtraBumpsPercent',
+    'supportEmail',
+    'ticketAutoCloseWindowDays',
   ] as const;
 
   return (
@@ -409,6 +499,11 @@ export default function AdminAjustesPage() {
       <div className="space-y-6">
         {ORDER.map((key) => {
           const setting = settingsByKey[key];
+          // El backend devuelve TODA clave del whitelist: las que no tienen fila
+          // llegan con su DEFAULT y `configured: false`. Este guard ya no oculta
+          // esas —antes sí, y por eso tres ajustes eran invisibles—; solo salta una
+          // clave que el backend no conozca, p. ej. si se quita del whitelist y se
+          // olvida aquí.
           if (!setting) return null;
 
           const updatedAt = lastSaved[key] ?? setting.updatedAt;
@@ -418,7 +513,9 @@ export default function AdminAjustesPage() {
               <div className="mb-1 flex items-start justify-between gap-4">
                 <h2 className="text-base font-semibold">{SETTING_TITLES[key] ?? key}</h2>
                 <span className="shrink-0 text-xs text-muted-foreground">
-                  Actualizado: {formatDate(updatedAt)}
+                  {updatedAt
+                    ? `Actualizado: ${formatDate(updatedAt)}`
+                    : 'Sin configurar — se usa el valor por defecto'}
                 </span>
               </div>
               <p className="mb-4 text-sm text-muted-foreground">{SETTING_DESCRIPTIONS[key]}</p>
@@ -440,6 +537,18 @@ export default function AdminAjustesPage() {
                   helpText="Los anuncios en estado ACTIVE que superen este período sin renovarse pasarán a EXPIRED."
                   min={1}
                   max={365}
+                />
+              )}
+              {key === 'maxTagsPerListing' && (
+                <NumberSettingEditor
+                  setting={setting}
+                  token={token}
+                  onSaved={() => handleSaved(key)}
+                  settingKey="maxTagsPerListing"
+                  label="Tags como máximo por anuncio"
+                  helpText="Debe ser al menos 1: un tope de 0 dejaría el sistema de tags muerto, y el backend lo rechaza."
+                  min={1}
+                  suffix="tags"
                 />
               )}
               {key === 'contactRequiresVerification' && (
@@ -529,6 +638,30 @@ export default function AdminAjustesPage() {
                   min={0}
                   max={100}
                   suffix="%"
+                />
+              )}
+              {key === 'supportEmail' && (
+                <TextSettingEditor
+                  setting={setting}
+                  token={token}
+                  onSaved={() => handleSaved(key)}
+                  settingKey="supportEmail"
+                  label="Dirección del buzón"
+                  helpText="Déjalo vacío para no enviar correos: el aviso in-app al staff se crea igual y solo se omite el email."
+                  placeholder="soporte@tudominio.com"
+                  tipo="email"
+                />
+              )}
+              {key === 'ticketAutoCloseWindowDays' && (
+                <NumberSettingEditor
+                  setting={setting}
+                  token={token}
+                  onSaved={() => handleSaved(key)}
+                  settingKey="ticketAutoCloseWindowDays"
+                  label="Días de ventana"
+                  helpText="Debe ser al menos 1: una ventana de 0 cerraría al instante todo lo que se resuelva."
+                  min={1}
+                  suffix="días"
                 />
               )}
             </div>
