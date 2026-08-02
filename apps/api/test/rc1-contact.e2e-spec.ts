@@ -654,13 +654,26 @@ describe('RC.1/RC.2 — Formulario de contacto (e2e)', () => {
       // la primera).
       await redis.client.del('contact:rate:global');
 
-      // En lotes (no 205 a la vez): supertest agota el pool de sockets del
-      // agente HTTP por defecto de Node con demasiadas conexiones concurrentes
-      // reales, y provoca ECONNRESET — no es una limitación del rate limiter.
-      const BATCH_SIZE = 25;
+      // En lotes (no 205 a la vez): supertest abre una conexión REAL por
+      // petición, y demasiadas concurrentes agotan el pool de sockets del
+      // agente HTTP de Node → ECONNRESET. No es una limitación del rate
+      // limiter: es el cliente del test saturándose a sí mismo.
+      //
+      // El lote era de 25 y seguía dando ECONNRESET en el CI, donde el runner
+      // es más lento y las 25 conexiones se solapan mucho más que en local
+      // (aquí se vaciaban antes de acumularse). Esta es una fragilidad de
+      // CARGA, no de latencia asíncrona: no se arregla esperando mejor, se
+      // arregla no abriendo tantas conexiones a la vez.
+      //
+      // Se mantienen las 205 peticiones — la cobertura del límite global
+      // (200/hora) es exactamente la misma, solo cambia cuántas van en vuelo
+      // simultáneamente. Cuesta algo de tiempo de reloj y compra que el test
+      // no dependa de cuántos sockets tolere el runner.
+      const BATCH_SIZE = 5;
+      const TOTAL = 205;
       let limitedCount = 0;
-      for (let sent = 0; sent < 205; sent += BATCH_SIZE) {
-        const batch = Array.from({ length: Math.min(BATCH_SIZE, 205 - sent) }, () =>
+      for (let sent = 0; sent < TOTAL; sent += BATCH_SIZE) {
+        const batch = Array.from({ length: Math.min(BATCH_SIZE, TOTAL - sent) }, () =>
           request(app.getHttpServer())
             .post('/api/contacto')
             .set('X-Forwarded-For', freshIp())

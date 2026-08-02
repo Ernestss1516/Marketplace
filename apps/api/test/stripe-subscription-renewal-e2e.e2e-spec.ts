@@ -41,6 +41,7 @@ import Stripe = require('stripe');
 import { Job } from 'bullmq';
 import { createTestApp } from './helpers/create-app';
 import { cleanDb } from './helpers/db';
+import { pollFor } from './helpers/async-state';
 import { PrismaService } from 'src/infra/prisma/prisma.service';
 import { BillingProcessor } from 'src/modules/billing/billing.processor';
 import { BILLING_JOB, BillingJobData, STRIPE_EVENTS } from 'src/modules/billing/billing.types';
@@ -127,16 +128,6 @@ describe('Stripe — checkout + renovación de suscripción Pro (e2e)', () => {
       .send(bodyStr);
   }
 
-  async function pollUntil<T>(fn: () => Promise<T>, predicate: (v: T) => boolean, timeoutMs = 15_000): Promise<T> {
-    const deadline = Date.now() + timeoutMs;
-    let last: T;
-    do {
-      last = await fn();
-      if (predicate(last)) return last;
-      await new Promise((r) => setTimeout(r, 200));
-    } while (Date.now() < deadline);
-    throw new Error(`pollUntil: condition not met within ${timeoutMs}ms. Last value: ${JSON.stringify(last)}`);
-  }
 
   function checkoutSessionObject(
     userId: string,
@@ -194,7 +185,7 @@ describe('Stripe — checkout + renovación de suscripción Pro (e2e)', () => {
     );
     await postWebhook(checkout.bodyStr, checkout.signature).expect(200);
 
-    await pollUntil(
+    await pollFor(
       () => prisma.subscription.findUnique({ where: { gatewaySubscriptionId } }),
       (s) => s !== null,
     );
@@ -216,7 +207,7 @@ describe('Stripe — checkout + renovación de suscripción Pro (e2e)', () => {
     );
     await postWebhook(invA.bodyStr, invA.signature).expect(200);
 
-    await pollUntil(
+    await pollFor(
       () => prisma.transaction.findUnique({ where: { gatewayInvoiceId: invoiceAId } }),
       (t) => t !== null,
     );
@@ -246,7 +237,7 @@ describe('Stripe — checkout + renovación de suscripción Pro (e2e)', () => {
     const res = await postWebhook(invB.bodyStr, invB.signature).expect(200);
     expect(res.body).toEqual({ received: true });
 
-    await pollUntil(
+    await pollFor(
       () => prisma.transaction.findUnique({ where: { gatewayInvoiceId: invoiceBId } }),
       (t) => t !== null,
     );
@@ -263,7 +254,7 @@ describe('Stripe — checkout + renovación de suscripción Pro (e2e)', () => {
     const transactions = await prisma.transaction.findMany({ where: { subscriptionId: sub.id } });
     expect(transactions).toHaveLength(2);
     expect(transactions.every((t) => t.status === TransactionStatus.SUCCEEDED)).toBe(true);
-  }, 20_000);
+  });
 
   // ── 2. Firma inválida en la renovación → 400, no extiende nada ────────────
 
@@ -325,14 +316,14 @@ describe('Stripe — checkout + renovación de suscripción Pro (e2e)', () => {
     const second = await postWebhook(invB.bodyStr, invB.signature).expect(200);
     expect(second.body).toEqual({ received: true, duplicate: true });
 
-    await pollUntil(
+    await pollFor(
       () => prisma.transaction.findUnique({ where: { gatewayInvoiceId: invoiceBId } }),
       (t) => t !== null,
     );
 
     const transactions = await prisma.transaction.findMany({ where: { gatewayInvoiceId: invoiceBId } });
     expect(transactions).toHaveLength(1);
-  }, 20_000);
+  });
 
   // ── 4. Reintento espurio de BullMQ tras la renovación ya procesada ────────
 
@@ -350,7 +341,7 @@ describe('Stripe — checkout + renovación de suscripción Pro (e2e)', () => {
     const invB = signedEvent(`evt_e2e_invB_${n}`, STRIPE_EVENTS.INVOICE_PAYMENT_SUCCEEDED, invoiceBObj);
 
     await postWebhook(invB.bodyStr, invB.signature).expect(200);
-    await pollUntil(
+    await pollFor(
       () => prisma.transaction.findUnique({ where: { gatewayInvoiceId: invoiceBId } }),
       (t) => t !== null,
     );
@@ -369,7 +360,7 @@ describe('Stripe — checkout + renovación de suscripción Pro (e2e)', () => {
 
     const sub = await prisma.subscription.findUniqueOrThrow({ where: { gatewaySubscriptionId } });
     expect(Math.floor(sub.currentPeriodEnd.getTime() / 1000)).toBe(periodBEnd);
-  }, 20_000);
+  });
 
   // ── 5. ATOMICIDAD de la renovación ────────────────────────────────────────
   //
@@ -482,7 +473,7 @@ describe('Stripe — checkout + renovación de suscripción Pro (e2e)', () => {
     const res = await postWebhook(failEvent.bodyStr, failEvent.signature).expect(200);
     expect(res.body).toEqual({ received: true });
 
-    const sub = await pollUntil(
+    const sub = await pollFor(
       () => prisma.subscription.findUniqueOrThrow({ where: { gatewaySubscriptionId } }),
       (s) => s.status !== SubscriptionStatus.ACTIVE,
     );
@@ -497,7 +488,7 @@ describe('Stripe — checkout + renovación de suscripción Pro (e2e)', () => {
     });
     expect(entitlement.revokedAt).toBeNull();
     expect(Math.floor(entitlement.expiresAt!.getTime() / 1000)).toBe(periodAEnd);
-  }, 20_000);
+  });
 
   // ── 7. Cancelación ─────────────────────────────────────────────────────────
 
@@ -529,7 +520,7 @@ describe('Stripe — checkout + renovación de suscripción Pro (e2e)', () => {
     const res = await postWebhook(cancelEvent.bodyStr, cancelEvent.signature).expect(200);
     expect(res.body).toEqual({ received: true });
 
-    const sub = await pollUntil(
+    const sub = await pollFor(
       () => prisma.subscription.findUniqueOrThrow({ where: { gatewaySubscriptionId } }),
       (s) => s.status !== SubscriptionStatus.ACTIVE,
     );
@@ -542,7 +533,7 @@ describe('Stripe — checkout + renovación de suscripción Pro (e2e)', () => {
     });
     expect(entitlement.revokedAt).toBeNull();
     expect(Math.floor(entitlement.expiresAt!.getTime() / 1000)).toBe(periodAEnd);
-  }, 20_000);
+  });
 
   // ── 8. El .catch() que tragaba errores al guardar stripeCustomerId ────────
   //

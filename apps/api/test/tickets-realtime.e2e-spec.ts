@@ -7,6 +7,7 @@ import * as request from 'supertest';
 import { io, Socket } from 'socket.io-client';
 import { createTestApp } from './helpers/create-app';
 import { cleanDb } from './helpers/db';
+import { waitUntil, scaleForCi } from './helpers/async-state';
 import { TicketsService } from 'src/modules/tickets/tickets.service';
 import { RedisService } from 'src/infra/redis/redis.service';
 import { TICKET_MESSAGE_EVENT } from 'src/modules/messaging/messaging.gateway';
@@ -145,14 +146,29 @@ describe('Tickets — tiempo real (R9) e2e', () => {
     return box;
   }
 
-  /** Espera hasta que `check()` sea cierto, o se agote el plazo. */
-  async function waitFor(check: () => boolean, ms = 3_000): Promise<boolean> {
-    const limite = Date.now() + ms;
-    while (Date.now() < limite) {
-      if (check()) return true;
-      await new Promise((r) => setTimeout(r, 50));
+  /**
+   * Espera hasta que `check()` sea cierto, o se agote el plazo.
+   *
+   * DEVUELVE un booleano en vez de lanzar (a diferencia de `waitUntil`): los
+   * tests afirman `expect(await waitFor(...)).toBe(true)`, y ese contrato se
+   * mantiene tal cual — solo cambia CÓMO se espera por dentro. El plazo eran
+   * 3 s fijos, pensados para local; en el CI un evento de websocket puede
+   * tardar bastante más solo por carga del runner. Sigue siendo un plazo corto
+   * (esto no es un job de BullMQ: debería llegar en milisegundos), pero ya no
+   * es el mismo número en los dos entornos. Todas las llamadas de este archivo
+   * afirman `true`, así que un plazo mayor no ralentiza el camino feliz: se
+   * vuelve en cuanto el evento llega.
+   */
+  async function waitFor(check: () => boolean, ms = scaleForCi(5_000)): Promise<boolean> {
+    try {
+      await waitUntil(async () => check(), {
+        timeoutMs: ms,
+        description: 'un evento de tiempo real (websocket)',
+      });
+      return true;
+    } catch {
+      return check();
     }
-    return check();
   }
 
   /** Margen para afirmar que algo NO llegó: se espera de verdad, no se asume. */

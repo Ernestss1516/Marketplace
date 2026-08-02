@@ -28,6 +28,7 @@ import * as request from 'supertest';
 import { serializeAndSignJSONRequest } from 'redsys-easy';
 import { createTestApp } from './helpers/create-app';
 import { cleanDb } from './helpers/db';
+import { pollFor } from './helpers/async-state';
 import { PrismaService } from 'src/infra/prisma/prisma.service';
 import { RedsysProcessor } from 'src/modules/redsys/redsys.processor';
 import { redsysTaxBreakdown } from 'src/modules/redsys/redsys.types';
@@ -143,16 +144,6 @@ describe('Redsys — camino completo de pago con tarjeta para pack de créditos 
     return amount.mul(100).toFixed(0);
   }
 
-  async function pollUntil<T>(fn: () => Promise<T>, predicate: (v: T) => boolean, timeoutMs = 15_000): Promise<T> {
-    const deadline = Date.now() + timeoutMs;
-    let last: T;
-    do {
-      last = await fn();
-      if (predicate(last)) return last;
-      await new Promise((r) => setTimeout(r, 200));
-    } while (Date.now() < deadline);
-    throw new Error(`pollUntil: condition not met within ${timeoutMs}ms. Last value: ${JSON.stringify(last)}`);
-  }
 
   // ── 1. Camino feliz completo: checkout → webhook firmado → job → wallet acreditado ──
 
@@ -177,7 +168,7 @@ describe('Redsys — camino completo de pago con tarjeta para pack de créditos 
     // Como wallet + ledger + status se escriben en la MISMA transacción Postgres
     // atómica (handlePackPurchase), observar SUCCEEDED aquí ya garantiza que el
     // resto también está commiteado — no hace falta un poll aparte para el wallet.
-    const finalTx = await pollUntil(
+    const finalTx = await pollFor(
       () => prisma.transaction.findUniqueOrThrow({ where: { id: tx.id } }),
       (t) => t.status !== TransactionStatus.PENDING,
     );
@@ -194,7 +185,7 @@ describe('Redsys — camino completo de pago con tarjeta para pack de créditos 
     expect(wallet!.entries[0]!.amount).toBe(packBasicoCreditAmount);
     expect(wallet!.entries[0]!.referenceType).toBe('Transaction');
     expect(wallet!.entries[0]!.referenceId).toBe(tx.id);
-  }, 20_000);
+  });
 
   // ── 2. Firma inválida: rechazada, no acredita nada ────────────────────────
   //
@@ -249,7 +240,7 @@ describe('Redsys — camino completo de pago con tarjeta para pack de créditos 
     const second = await request(app.getHttpServer()).post('/api/webhooks/redsys').send(notification).expect(200);
     expect(second.body).toEqual({ received: true, duplicate: true });
 
-    await pollUntil(
+    await pollFor(
       () => prisma.transaction.findUniqueOrThrow({ where: { id: tx.id } }),
       (t) => t.status !== TransactionStatus.PENDING,
     );
@@ -260,7 +251,7 @@ describe('Redsys — camino completo de pago con tarjeta para pack de créditos 
     });
     expect(wallet.balance).toBe(packBasicoCreditAmount);
     expect(wallet.entries).toHaveLength(1);
-  }, 20_000);
+  });
 
   // ── 4. El job se reintenta (BullMQ) después de ya haber acreditado con éxito ──
   //
@@ -279,7 +270,7 @@ describe('Redsys — camino completo de pago con tarjeta para pack de créditos 
     const notification = buildSignedNotification({ dsOrder, dsAmountCents: cents, dsResponse: '0000' });
     await request(app.getHttpServer()).post('/api/webhooks/redsys').send(notification).expect(200);
 
-    await pollUntil(
+    await pollFor(
       () => prisma.transaction.findUniqueOrThrow({ where: { id: tx.id } }),
       (t) => t.status !== TransactionStatus.PENDING,
     );
@@ -293,7 +284,7 @@ describe('Redsys — camino completo de pago con tarjeta para pack de créditos 
     });
     expect(wallet.balance).toBe(packBasicoCreditAmount);
     expect(wallet.entries).toHaveLength(1);
-  }, 20_000);
+  });
 
   // ── 5. Pago rechazado por Redsys (tarjeta rechazada / usuario cancela) ────
 

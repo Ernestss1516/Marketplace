@@ -16,5 +16,5 @@
   ],
   "globalSetup": "<rootDir>/test/setup-e2e.js",
   "globalTeardown": "<rootDir>/test/teardown-e2e.js",
-  "testTimeout": 30000
+  "testTimeout": 120000
 }

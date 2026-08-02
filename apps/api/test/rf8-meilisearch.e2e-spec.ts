@@ -22,6 +22,7 @@ import * as bcrypt from 'bcrypt';
 import * as request from 'supertest';
 import { createTestApp } from './helpers/create-app';
 import { buildMeiliClient, cleanDb, resetMeili } from './helpers/db';
+import { waitForDocumentWhere } from './helpers/meili';
 import { SearchService, INDEX_INCLUDE } from 'src/modules/search/search.service';
 
 const INDEX_NAME = process.env.MEILI_INDEX_NAME ?? 'listings_test';
@@ -30,47 +31,42 @@ const INDEX_NAME = process.env.MEILI_INDEX_NAME ?? 'listings_test';
 // Polling helpers
 // ---------------------------------------------------------------------------
 
-/** Polls until doc[field] === expected or timeout. */
+// Estas dos esperas eran locales de este archivo y ya usaban el patrón correcto
+// (predicado sobre el VALOR del campo, no sobre la existencia del documento).
+// Ahora delegan en el helper compartido para heredar el backoff y el deadline
+// que cubre el CI — ver test/helpers/async-state.ts. El predicado no cambia.
+
+/** Espera a que doc[field] === expected. */
 async function waitForDocumentField(
   client: MeiliSearch,
   indexName: string,
   docId: string,
   field: string,
   expected: unknown,
-  timeoutMs = 12_000,
 ): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const doc = (await client.index(indexName).getDocument(docId)) as Record<string, unknown>;
-      if (doc[field] === expected) return;
-    } catch { /* not yet indexed */ }
-    await new Promise<void>((r) => setTimeout(r, 300));
-  }
-  throw new Error(
-    `Document "${docId}" field "${field}" did not reach ${JSON.stringify(expected)} within ${timeoutMs} ms`,
+  await waitForDocumentWhere<Record<string, unknown>>(
+    client,
+    indexName,
+    docId,
+    (doc) => doc[field] === expected,
+    { description: `a que "${docId}".${field} === ${JSON.stringify(expected)}` },
   );
 }
 
-/** Polls until doc[field] (numeric) exceeds threshold. */
+/** Espera a que doc[field] (numérico) supere el umbral. */
 async function waitForFieldGreaterThan(
   client: MeiliSearch,
   indexName: string,
   docId: string,
   field: string,
   threshold: number,
-  timeoutMs = 12_000,
 ): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const doc = (await client.index(indexName).getDocument(docId)) as Record<string, unknown>;
-      if (typeof doc[field] === 'number' && (doc[field] as number) > threshold) return;
-    } catch { /* not yet indexed */ }
-    await new Promise<void>((r) => setTimeout(r, 300));
-  }
-  throw new Error(
-    `Document "${docId}" field "${field}" did not exceed ${threshold} within ${timeoutMs} ms`,
+  await waitForDocumentWhere<Record<string, unknown>>(
+    client,
+    indexName,
+    docId,
+    (doc) => typeof doc[field] === 'number' && (doc[field] as number) > threshold,
+    { description: `a que "${docId}".${field} supere ${threshold}` },
   );
 }
 

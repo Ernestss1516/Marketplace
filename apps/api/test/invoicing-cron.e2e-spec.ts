@@ -4,6 +4,7 @@ import { Test } from '@nestjs/testing';
 import { PrismaClient } from '@prisma/client';
 import { createTestApp } from './helpers/create-app';
 import { cleanDb } from './helpers/db';
+import { waitUntil } from './helpers/async-state';
 import { AppModule } from '../src/app.module';
 import { InvoicingScheduleService } from '../src/modules/invoicing/invoicing-schedule.service';
 import { InvoicingService } from '../src/modules/invoicing/invoicing.service';
@@ -38,13 +39,12 @@ const ISSUER = {
 };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-async function waitFor(cond: () => Promise<boolean>, timeout = 20000, interval = 200): Promise<void> {
-  const start = Date.now();
-  while (Date.now() - start < timeout) {
-    if (await cond()) return;
-    await sleep(interval);
-  }
-  throw new Error('waitFor: timeout');
+
+// Delega en el helper compartido (test/helpers/async-state.ts): backoff en vez
+// de un intervalo fijo, deadline que cubre el CI y un error que dice qué se
+// estaba esperando en vez de 'waitFor: timeout'. El predicado no cambia.
+async function waitFor(cond: () => Promise<boolean>, timeoutMs?: number): Promise<void> {
+  await waitUntil(cond, { timeoutMs, description: 'una condición de facturación (cron)' });
 }
 
 async function seedFixtures(prisma: PrismaClient) {

@@ -9933,16 +9933,111 @@ gateway y el `updateSetting` que hacía tres ajustes ineditables (con su UI).
 
 ### Deuda anotada, no cerrada
 
-- **`alert-matching` y `queue-retry` son frágiles** (ver la nota en B2). Inestabilidad de
-  TIEMPOS: ambas inspeccionan la cola de BullMQ, que es una foto de algo en movimiento.
-  Medido contra HEAD limpio: **6 rojos en HEAD**, 2 con los cambios. Candidatas a una
-  ráfaga de saneamiento — el arreglo es esperar a un estado observable en vez de a un
-  instante de la cola.
+- ~~**`alert-matching` y `queue-retry` son frágiles**~~ → **cerrado en parte**: ver
+  "Cómo se esperan estados asíncronos en los e2e" más abajo. `alert-matching` era
+  fragilidad de espera y está resuelto. `queue-retry` resultó ser OTRA COSA (no un
+  problema de espera) y sigue abierto — detalle en esa misma sección.
 - **`RESERVED_ATTRIBUTE_NAMES` no rechaza, solo ignora** (ver la nota en B2). Añadir un
   400 al guardar afectaría a todos los nombres reservados, no solo a los de tags.
 - **Reindex recomendado tras desplegar** (`pnpm reindex`) para normalizar `tags: []` en
   los documentos anteriores a B2. No obligatorio: un documento sin `tags` no casa con
   `tags=x`, que es la semántica correcta.
+
+---
+
+## Cómo se esperan estados asíncronos en los e2e (barrera estructural)
+
+**Regla, en una línea: se espera al ESTADO DEFINITIVO, nunca a la mera existencia, y
+siempre con el helper compartido `test/helpers/async-state.ts`.**
+
+### Por qué existe esta sección
+
+Casi todo lo interesante del backend termina en un job de BullMQ: publicar encola la
+indexación, un webhook de pago encola la concesión del entitlement. El test hace la
+petición HTTP y el efecto llega DESPUÉS. Esperar mal producía rojos que ROTABAN entre
+corridas (el CI, más lento, ensancha la ventana) y —peor— verdes falsos.
+
+La auditoría encontró **tres formas distintas de esperar mal**, no una:
+
+1. **Probe que lanza = fallo inmediato.** Tres copias locales de `pollUntil`
+   (redsys-credits, redsys-featured, stripe-renewal) hacían `last = await fn()` **sin
+   try/catch**. Con `getDocument()` de Meilisearch —que LANZA "Document not found" si el
+   documento aún no está— el poll moría en la PRIMERA iteración. No agotaba el deadline:
+   no llegaba a la segunda vuelta. *Subir el deadline no arreglaba nada*, porque el
+   deadline nunca entraba en juego. Este era el fallo real de `redsys-featured`.
+2. **Predicado de existencia, no de estado.** `waitForIndex` volvía en cuanto el
+   documento existía. La primera versión escrita todavía puede cambiar (un job de
+   geocode reindexa después), así que el test leía un documento en vuelo. Es la lección
+   de B2. El caso extremo era un predicado literal `() => true` seguido de
+   `expect(doc.boostScore).toBe(1)`.
+3. **Deadline pensado para el caso feliz local.** 15 s fijos, más `testTimeout: 30000`,
+   más `}, 20_000)` por test: en el CI no daba.
+
+### Qué usar
+
+| Situación | Helper |
+|---|---|
+| Vas a afirmar sobre el CONTENIDO de un documento indexado | `waitForDocumentWhere(...)` / `waitForDocumentField(...)` |
+| Solo importa que el documento ESTÉ (aparece en `/search`) | `waitForIndex(...)` |
+| El documento debe DESAPARECER del índice | `waitForRemoval(...)` |
+| Un efecto asíncrono cualquiera (Postgres, contadores) | `pollFor(probe, predicado)` / `waitUntil(cond)` |
+| Un plazo corto propio (websocket) que igual debe crecer en CI | `scaleForCi(ms)` |
+
+```ts
+// MAL — espera a que exista y luego afirma sobre un campo que aún puede cambiar
+await waitForIndex(meili, INDEX, id);
+expect((await meili.index(INDEX).getDocument(id)).boostScore).toBe(1);
+
+// BIEN — espera a que el campo VALGA lo esperado
+const doc = await waitForDocumentWhere<{ boostScore: number }>(
+  meili, INDEX, id, (d) => d.boostScore === 1,
+);
+expect(doc.boostScore).toBe(1);
+```
+
+### Garantías del mecanismo
+
+- Un **probe que lanza es "todavía no"**, no un fallo: se reintenta.
+- **Backoff** (50 ms → 500 ms) en vez de un intervalo fijo.
+- **Deadline que cubre el CI**: 20 s en local, 60 s en CI (`DEFAULT_TIMEOUT_MS`), con
+  `testTimeout: 120000` en `jest-e2e.json` para que Jest no mate el test antes de que el
+  plazo se agote. **Cuesta cero en el camino feliz**: el poll vuelve en cuanto el
+  predicado se cumple.
+- **Generoso pero FINITO**: un bug real (el documento no llega nunca) sigue poniendo el
+  test en rojo. No hay ninguna vía de "esperar para siempre".
+- El error dice **qué se esperaba y cuál fue el último valor visto**, para diagnosticar
+  sin reproducir.
+
+El propio mecanismo tiene pruebas: `test/async-state.e2e-spec.ts` cubre las dos mitades
+—que aguanta una latencia muy superior al intervalo, y que un fallo real termina en rojo
+en vez de colgarse—. No necesita infraestructura y corre en ~6 s.
+
+**No escribas un `pollUntil` nuevo en un test.** Cada copia trae su propio deadline
+arbitrario y su propio olvido del try/catch; eso es lo que había y es lo que rotaba.
+
+### `rc1-contact` era otra cosa: saturación de conexiones
+
+El `ECONNRESET` del test del límite global (200/hora) **no** es latencia asíncrona: es el
+cliente del test saturándose a sí mismo. Supertest abre una conexión real por petición y
+205 peticiones en lotes de 25 agotaban el pool de sockets del agente HTTP de Node. Se
+bajó el lote a 5. **Se mantienen las 205 peticiones**: la cobertura del límite es la
+misma, solo cambia cuántas van en vuelo a la vez.
+
+### `queue-retry` sigue abierto — y NO es un problema de espera
+
+Se investigó a fondo y **no** pertenece a esta clase. El test espía
+`SearchService.indexListing` para forzar un fallo en el primer intento y comprobar que
+BullMQ reintenta. Medido con diagnóstico:
+
+- El documento **no** existe antes de `publish` (correcto).
+- El espía **sí** está instalado, y `processor.search === search espiado` es `true`.
+- Aun así: `waitForIndex` vuelve en **~80 ms** con `attempts = 0` — el documento se
+  indexa **sin que el `indexListing` espiado se llegue a llamar**.
+
+Es decir: el job lo procesa algo que no es el `IndexingProcessor` espiado de esta app.
+Falla **de forma determinista y también contra HEAD limpio** (verificado con `git stash`:
+mismo `Expected >= 2 / Received 0`), así que es **preexistente** y ajeno al saneamiento de
+esperas. Arreglarlo es aislar quién consume la cola en los tests, no esperar mejor.
 
 ---
 

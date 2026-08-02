@@ -31,6 +31,8 @@ import { MeiliSearch } from 'meilisearch';
 import { serializeAndSignJSONRequest } from 'redsys-easy';
 import { createTestApp } from './helpers/create-app';
 import { cleanDb, resetMeili, buildMeiliClient } from './helpers/db';
+import { pollFor } from './helpers/async-state';
+import { waitForDocumentWhere } from './helpers/meili';
 import { PrismaService } from 'src/infra/prisma/prisma.service';
 import { RedsysProcessor } from 'src/modules/redsys/redsys.processor';
 import { redsysTaxBreakdown } from 'src/modules/redsys/redsys.types';
@@ -167,17 +169,6 @@ describe('Redsys — camino completo de pago con tarjeta para destacar (e2e)', (
     return amount.mul(100).toFixed(0);
   }
 
-  async function pollUntil<T>(fn: () => Promise<T>, predicate: (v: T) => boolean, timeoutMs = 15_000): Promise<T> {
-    const deadline = Date.now() + timeoutMs;
-    let last: T;
-    do {
-      last = await fn();
-      if (predicate(last)) return last;
-      await new Promise((r) => setTimeout(r, 200));
-    } while (Date.now() < deadline);
-    throw new Error(`pollUntil: condition not met within ${timeoutMs}ms. Last value: ${JSON.stringify(last)}`);
-  }
-
   // ── 1. Camino feliz completo: checkout → webhook firmado → job → entitlement → búsqueda ──
 
   it('checkout → notificación firmada real → Transaction SUCCEEDED → Entitlement REDSYS → destacado visible en Meilisearch', async () => {
@@ -198,7 +189,7 @@ describe('Redsys — camino completo de pago con tarjeta para destacar (e2e)', (
     expect(res.body).toEqual({ received: true });
 
     // BullMQ procesa el job de forma asíncrona — esperar a que la Transaction llegue a SUCCEEDED.
-    const finalTx = await pollUntil(
+    const finalTx = await pollFor(
       () => prisma.transaction.findUniqueOrThrow({ where: { id: tx.id } }),
       (t) => t.status !== TransactionStatus.PENDING,
     );
@@ -215,12 +206,23 @@ describe('Redsys — camino completo de pago con tarjeta para destacar (e2e)', (
     expect(daysLeft).toBeLessThanOrEqual(featuredDurationDays);
 
     // El resultado que le importa al usuario: su anuncio aparece destacado en la búsqueda.
-    const doc = await pollUntil(
-      () => meili.index(process.env.MEILI_INDEX_NAME!).getDocument(listingId) as Promise<{ boostScore: number }>,
-      () => true,
+    //
+    // Se espera a boostScore === 1, NO a que el documento exista. Antes esto era
+    // un `pollUntil(getDocument, () => true)`: con el predicado en `true` bastaba
+    // la primera lectura con éxito, y como aquel poll no capturaba la excepción,
+    // el "Document not found" de la PRIMERA iteración (el job de indexación aún
+    // no había corrido) tumbaba el test en el acto — sin llegar a reintentar ni
+    // a agotar el deadline. Esperar al VALOR cubre las dos cosas: reintenta
+    // mientras el documento no está, y no da por bueno un documento en vuelo.
+    const doc = await waitForDocumentWhere<{ boostScore: number }>(
+      meili,
+      process.env.MEILI_INDEX_NAME!,
+      listingId,
+      (d) => d.boostScore === 1,
+      { description: `a que el anuncio "${listingId}" quede destacado (boostScore=1) en la búsqueda` },
     );
     expect(doc.boostScore).toBe(1);
-  }, 20_000);
+  });
 
   // ── 2. Firma inválida: rechazada, no concede nada ─────────────────────────
 
@@ -274,7 +276,7 @@ describe('Redsys — camino completo de pago con tarjeta para destacar (e2e)', (
     const second = await request(app.getHttpServer()).post('/api/webhooks/redsys').send(notification).expect(200);
     expect(second.body).toEqual({ received: true, duplicate: true });
 
-    await pollUntil(
+    await pollFor(
       () => prisma.transaction.findUniqueOrThrow({ where: { id: tx.id } }),
       (t) => t.status !== TransactionStatus.PENDING,
     );
@@ -283,7 +285,7 @@ describe('Redsys — camino completo de pago con tarjeta para destacar (e2e)', (
       where: { listingId, type: EntitlementType.FEATURED_LISTING },
     });
     expect(entitlements).toHaveLength(1);
-  }, 20_000);
+  });
 
   // ── 4. Pago rechazado por Redsys (tarjeta rechazada / usuario cancela) ────
 
