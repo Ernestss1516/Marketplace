@@ -14,6 +14,19 @@ const { join } = require('path');
 const { config } = require('dotenv');
 const flushRedisTestDb = require('./flush-redis-test-db');
 
+// OJO CON EL ORDEN DE LOS require. `reset-test-db.js` y `flush-meili-test-index.js`
+// NO se cargan aquí arriba a propósito: `reset-test-db` hace
+// `require('@prisma/client')`, y Prisma carga por su cuenta el `.env` que hay junto
+// al schema —el de DESARROLLO— en cuanto se importa. Como `dotenv.config()` NUNCA
+// pisa una variable ya puesta, cargarlos antes de leer `.env.test` dejaría
+// `DATABASE_URL` apuntando a la base de dev durante todo el globalSetup.
+//
+// No es teórico: pasó al escribir esta barrera, y lo que lo detectó fue el guard
+// por nombre de base de `reset-test-db.js`, que se negó a truncar. Sin ese guard,
+// el primer TRUNCATE se habría llevado la base de desarrollo entera.
+//
+// Se cargan dentro de la función, después de `config({ path: .env.test })`.
+
 module.exports = async function globalSetup() {
   // ANTES DE TODO: candado compartido con Playwright. Las dos baterías usan la
   // misma base y la misma db de Redis; correrlas a la vez produce rojos falsos.
@@ -22,11 +35,27 @@ module.exports = async function globalSetup() {
 
   config({ path: join(__dirname, '..', '.env.test') });
 
+  // Ahora sí (ver la nota sobre el orden de los require, arriba): con .env.test ya
+  // cargado, importar Prisma no puede colar la DATABASE_URL de desarrollo.
+  const resetTestDb = require('./reset-test-db');
+  const flushMeiliTestIndex = require('./flush-meili-test-index');
+
   execSync('npx prisma migrate deploy', {
     cwd: join(__dirname, '..'),
     stdio: 'inherit',
     env: { ...process.env },
   });
+
+  // BARRERA 1 — vaciar ANTES de sembrar. Sin esto la base solo crecía: el seed es
+  // de upserts y `cleanDb` (por suite) excluye Category/Setting a propósito, así
+  // que toda categoría creada por un spec sobrevivía para siempre (2.775 donde el
+  // seed pone ~20, ver reset-test-db.js). Cada corrida parte ahora del seed
+  // determinista, no de la sedimentación de las anteriores.
+  // Va después de `migrate deploy` porque necesita que las tablas existan.
+  await resetTestDb();
+  // El índice va con la base: al vaciar Postgres, todo documento indexado queda
+  // huérfano. Las dos limpiezas son una sola cosa.
+  await flushMeiliTestIndex();
 
   execSync('npx ts-node --project tsconfig.json prisma/seed-test.ts', {
     cwd: join(__dirname, '..'),

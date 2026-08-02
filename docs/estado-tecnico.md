@@ -8980,6 +8980,105 @@ nuevo conservando la garantía original —acotar a una hija arrastra los filtro
 
 ---
 
+## Saneamiento de la base de test — barreras contra la degradación (cerrado)
+
+**✅ CERRADO** (2026-08-02). No es una ráfaga de producto: **no se tocó ni un fichero de
+`src/`**. Es deuda de entorno que había madurado hasta hacer la batería ilegible.
+
+**El problema.** Ni el globalSetup de Jest ni el de Playwright borraban nada: hacían
+`migrate deploy` + un seed de **upserts** sobre lo que hubiera. Y `cleanDb` (la limpieza
+por suite) excluye `Category` y `Setting` a propósito — truncarlas destruiría el seed que
+las demás suites necesitan. Resultado: **toda categoría creada por un spec sobrevivía para
+siempre**. Medido: **2.901 categorías** donde el seed pone 4, y el índice de Meilisearch
+con documentos huérfanos (21 de "coches" indexados frente a 12 anuncios ACTIVE). El
+reparto por prefijo delataba a los culpables: 638 de `admin-price-units-policy`, 629 de
+`admin-category-views`, 592 de `admin-category-type-policy`, 288 de
+`categories-type-policy`, 252 de `categories-attribute-display`, 229 de
+`producto-servicio-flujo`… La consecuencia práctica: el conjunto de rojos cambiaba entre
+corridas, así que "verde" no significaba nada sin comparar con un baseline.
+
+**BARRERA 1 — reseteo real en el globalSetup** (`test/reset-test-db.js` +
+`test/flush-meili-test-index.js`, compartidos por las dos baterías, igual que
+`flush-redis-test-db.js`): entre `migrate deploy` y el seed se vacía **toda** tabla del
+esquema salvo `_prisma_migrations`, y se vacía el índice de test. Se truncan todas en vez
+de una lista escrita a mano porque una lista hay que acordarse de actualizarla al añadir
+un modelo. Guard por **nombre de base** (`marketplace_test`) y por **nombre de índice**
+(nunca el `listings` de dev).
+
+> **Ese guard salvó la base de desarrollo el primer día.** `reset-test-db.js` hace
+> `require('@prisma/client')`, y Prisma carga por su cuenta el `.env` de dev en cuanto se
+> importa; como `dotenv.config()` nunca pisa una variable ya puesta, requerirlo en la
+> cabecera de `setup-e2e.js` dejaba `DATABASE_URL` apuntando a **dev** durante todo el
+> globalSetup. El guard se negó a truncar y lo hizo evidente. Los `require` van ahora
+> dentro de la función, después de cargar `.env.test`; queda anotado en el propio fichero
+> para que nadie los "ordene" hacia arriba.
+
+**BARRERA 2 — ninguna suite deja categorías detrás.** La auditoría encontró 22 specs de
+backend que crean categorías y solo 6 que borraban algo. En vez de añadir un `afterAll` a
+mano en los 16 restantes —que deja el problema resuelto hoy y abierto mañana, porque el
+spec 91 volverá a olvidarlo—, se engancha en `setupFilesAfterEnv`
+(`test/reset-categories-between-suites.ts`): fotografía los ids al empezar cada ARCHIVO y
+borra la diferencia al terminar. Cubre las 90 suites que hay y las que se escriban después
+**sin tocar ni una línea de ningún spec**. Playwright no tiene ese punto de enganche (sus
+specs hablan por HTTP, no por Prisma), así que allí la simetría la da el globalTeardown
+(`test/clean-categories-delta.js`).
+
+**Resultado medido.** Base: **2.901 → 4** (exactamente el seed) tras tres corridas
+completas de backend. Meilisearch: **77 → 0** documentos. La base de **desarrollo**,
+intacta (24 categorías, 17 anuncios, 6 usuarios). Playwright dejaba ~20 categorías por
+corrida; ahora **0**. Los 4 tests de `producto-servicio-flujo` que fallaban por
+acumulación han dejado de fallar.
+
+**Repetibilidad.** Tres corridas completas de backend seguidas, sin resembrar entre
+medias: 1336 / **1335** / **1335**. La primera limpió las 2.901 heredadas y por eso salió
+distinta; las dos siguientes son **idénticas**, que es el criterio.
+
+**Playwright** (misma vía que CI: build de producción + `next start`): de **24 rojos** a
+**20**, con `producto-servicio-flujo` y `busqueda-unificada` fuera de la lista, y la base
+en 4 categorías al terminar. Los 20 que quedan son los mismos de siempre —verificados en
+A1/A2 contra `HEAD` limpio— y ya NO cambian de composición entre corridas por
+sedimentación; su causa es otra (flakes de navegación del App Router, specs que publican
+por el wizard). Esa batería aún no es "verde", pero por fin es **legible**: la lista de
+rojos es estable y comparable sin baseline.
+
+**Lo que la limpieza destapó (no lo causó).**
+1. **`tickets-realtime` — carrera de producto en `messaging.gateway.ts`.** Es el único
+   rojo estable de la batería de backend. `handleConnection` es `async`: fija
+   `socket.data.userId` en el acto, pero `socket.data.role` solo **después** de ir a la
+   base (`freshRole`). Socket.IO emite el `connect` del cliente en cuanto termina el
+   handshake del transporte — no espera a que el handler async acabe. Así que un cliente
+   que emite `ticket:join` inmediatamente puede llegar antes de que el rol esté puesto, y
+   un ADMIN legítimo es tratado como no-staff → `error` → "forbidden". Encaja con todo lo
+   observado: solo falla en la PRIMERA suite de la corrida (pool de Prisma más frío), las
+   aserciones de "el dueño entra" nunca fallan (esa vía solo usa `userId`, que es
+   síncrono), y la del MODERATOR tampoco porque la carrera produce justo la respuesta que
+   espera. **No es de test: afecta a producción** (un ADMIN reconectando puede ver
+   rechazado su primer join; el cliente re-emite los joins en cada reconexión). Arreglarlo
+   —resolver el rol antes de aceptar mensajes, o encolar los que lleguen antes— es cambio
+   de producto y queda fuera de una ráfaga de infraestructura.
+2. **`busqueda-mapa`, "Mapa con filtro de categoría"** — marcado `test.fixme` con la
+   explicación entera en el propio spec. Solo pasaba por los anuncios fantasma: en la ruta
+   de categoría el mapa vive dentro de `total > 0`, mientras que `/busqueda` lo pinta
+   aunque haya cero resultados. Con la base limpia no hay anuncios en "coches" y no se
+   pinta. Su aserción de fondo (el mapa de atributos de card) tampoco se ejercía de verdad
+   salvo por accidente. Dos salidas posibles, ambas decisión de producto: que el spec
+   publique un anuncio primero, o igualar las dos páginas. **Esa asimetría es previa a
+   A1/A2.**
+3. **`busqueda-mapa`, "toggle Lista→Mapa→Lista"** — este sí se arregló, porque la fragilidad
+   la introdujo A2: al redirigir `/busqueda?category=` se apuntó el test a la ruta de
+   categoría y quedó dependiendo de que hubiera anuncios. Vuelve a `/busqueda` con
+   `province` como filtro: protege exactamente lo mismo (alternar vista no pierde filtros)
+   sin depender de datos.
+
+**Nota de método.** Una comparación intermedia de esta sesión salió mal y conviene que
+quede escrito: se comparó una corrida de Playwright contra un `.next` construido con el
+código de A1 (había quedado así tras un `git stash` para medir un baseline, y no se
+reconstruyó al recuperar A2). El resultado —15 rojos en el spec de A2— era del build viejo,
+no de las barreras. **Tras cualquier `stash`/`pop` que toque `apps/web`, reconstruir antes
+de leer un resultado de Playwright.**
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.

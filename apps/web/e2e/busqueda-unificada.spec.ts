@@ -173,7 +173,10 @@ test.describe('A2 — unificación de búsqueda', () => {
     await esperarPaginaSana(page);
 
     await page.getByRole('button', { name: 'Limpiar filtros' }).first().click();
-    await page.waitForLoadState('networkidle');
+    // Se espera a la URL concreta, no a `networkidle`: el push del router puede
+    // no haber aterrizado cuando la red se calma, y leer page.url() entonces
+    // devuelve la de antes (visto: `province` seguía puesto en ~1 de cada 10).
+    await page.waitForURL((url) => !url.searchParams.has('province'));
 
     const url = new URL(page.url());
     expect(url.pathname).toBe('/vehiculos/coches');

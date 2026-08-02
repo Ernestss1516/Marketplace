@@ -78,6 +78,17 @@ export default async function globalSetup(playwrightConfig: FullConfig) {
   // ── 2. Migrate test DB ───────────────────────────────────────────────────────
   execSync('npx prisma migrate deploy', execOpts);
 
+  // ── 2b. BARRERA 1: vaciar la base ANTES de sembrar ───────────────────────────
+  // Mismo motivo y mismos scripts que el globalSetup de Jest (una sola fuente
+  // para las dos baterías, como ya pasa con flush-redis-test-db.js). Sin esto la
+  // base solo crecía entre corridas — el seed es de upserts y nada borraba: 2.775
+  // categorías donde el seed pone ~20, y specs empezando a fallar por la
+  // acumulación. Ver apps/api/test/reset-test-db.js.
+  // Se invocan por `node` y no por `require` porque viven en apps/api, fuera del
+  // rootDir de este paquete — misma vía que ya se usa para el flush de Redis.
+  execSync('node test/reset-test-db.js', execOpts);
+  execSync('node test/flush-meili-test-index.js', execOpts);
+
   // ── 3. Seed categories (electronica → moviles) ───────────────────────────────
   execSync('npx ts-node --project tsconfig.json prisma/seed-test.ts', execOpts);
 
@@ -96,6 +107,14 @@ export default async function globalSetup(playwrightConfig: FullConfig) {
   // — ver apps/api/src/infra/redis/redis-connection.ts). Mismo script que usa
   // el globalSetup de Jest (apps/api/test/flush-redis-test-db.js) — una sola fuente.
   execSync('node test/flush-redis-test-db.js', execOpts);
+
+  // ── 4b. BARRERA 2: foto de las categorías sembradas ─────────────────────────
+  // El globalTeardown borrará las que esta corrida cree de más. En la batería de
+  // Jest lo hace `reset-categories-between-suites.ts` por cada suite; aquí no hay
+  // ese punto de enganche (los specs hablan con la app por HTTP, no por Prisma),
+  // así que se limpia al terminar. Medido: sin esto, una corrida completa dejaba
+  // ~20 categorías detrás. Ver apps/api/test/clean-categories-delta.js.
+  execSync('node test/clean-categories-delta.js snapshot', execOpts);
 
   // ── 5. Save storageState for both users ──────────────────────────────────────
   const baseURL =
