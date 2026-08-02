@@ -6,6 +6,8 @@ import { ChevronDown, MapPin, SlidersHorizontal, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { PROVINCIAS } from '@/lib/provincias';
+import { resolveLinkedOptions } from '@/lib/attribute-schema';
+import type { AttributeFieldView } from '@/lib/filterable-fields';
 import { CategorySelect } from './CategorySelect';
 import type { Category, ListingTypePolicy } from '@/types';
 
@@ -74,6 +76,13 @@ const HIDE_IF_SINGLE_VALUE = new Set(['priceUnit']);
 // either selected via the dropdown or locked in the URL path on category pages.
 const SKIP_FACETS = new Set(['type', 'condition', 'category', 'categorySlug']);
 
+/** A3 — etiquetas de los valores booleanos. Antes se pintaba el valor crudo del
+ *  documento de Meilisearch ("true"/"false") como si fuera una opción de negocio. */
+const BOOLEAN_OPTIONS = [
+  { value: 'true', label: 'Sí' },
+  { value: 'false', label: 'No' },
+] as const;
+
 interface CurrentFilters {
   q?: string;
   category?: string;
@@ -110,6 +119,17 @@ interface FilterPanelProps {
    * así que no hay un control aparte para "bajar" a una hija.
    */
   currentCategorySlug?: string;
+  /**
+   * A3 — definición efectiva de cada atributo FILTRABLE del ámbito de la página.
+   * Es lo que invierte el eje del panel: hasta ahora las secciones de atributo las
+   * dictaban las FACETAS que devolvía Meilisearch, así que un atributo filtrable sin
+   * ningún anuncio no aparecía nunca. Ahora las dicta la CONFIG y las facetas solo
+   * aportan el conteo de cada valor. Ver lib/filterable-fields.ts.
+   *
+   * Ausente = comportamiento anterior (el panel solo pinta lo que traigan las facetas),
+   * para que ningún consumidor que aún no lo pase se quede sin filtros.
+   */
+  filterableFields?: AttributeFieldView[];
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
@@ -117,6 +137,171 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
     <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
       {children}
     </p>
+  );
+}
+
+/** Chip de valor. `count === 0` lo deja visible pero DESHABILITADO: la sección se pinta
+ *  desde la config (F6), y esconder los valores muertos volvería a hacer que la lista la
+ *  dictara el resultado — pero dejarlos pulsables llevaría a un callejón de 0 hits. */
+function ValueChip({
+  label,
+  count,
+  isActive,
+  onClick,
+}: {
+  label: string;
+  count: number;
+  isActive: boolean;
+  onClick: () => void;
+}) {
+  const vacio = count === 0 && !isActive;
+  return (
+    <button
+      type="button"
+      disabled={vacio}
+      onClick={onClick}
+      className={[
+        'flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition-colors',
+        isActive
+          ? 'border-primary bg-primary text-primary-foreground'
+          : vacio
+            ? 'cursor-not-allowed border-border/60 text-muted-foreground/50'
+            : 'border-border hover:border-primary/50 hover:bg-accent',
+      ].join(' ')}
+    >
+      {label}
+      <span className={isActive ? 'opacity-70' : 'text-muted-foreground'}>({count})</span>
+      {isActive && <X className="h-3 w-3 shrink-0" />}
+    </button>
+  );
+}
+
+/**
+ * A3 — un filtro de atributo, pintado SEGÚN SU TIPO.
+ *
+ * Antes todos se pintaban igual: chips con el valor crudo y el nombre crudo del campo
+ * como título ("sqm" en vez de "Metros cuadrados", "true"/"false" en vez de "Sí"/"No").
+ * El panel no tenía la definición del atributo, solo pares clave→conteo.
+ *
+ * `number` se sigue pintando como chips a propósito: convertirlo en un rango mín/máx
+ * exige que el backend acepte `_min`/`_max` (hoy los atributos solo se filtran por
+ * igualdad), y eso es A4. Aquí ya gana su label y su unidad.
+ */
+function AttributeFilter({
+  field,
+  counts,
+  value,
+  parentValue,
+  onToggle,
+  onSet,
+}: {
+  field: AttributeFieldView;
+  counts?: Record<string, number>;
+  value?: string;
+  /** Valor actual del campo del que este depende (`dependsOn`), si lo tiene. */
+  parentValue?: string;
+  onToggle: (value: string) => void;
+  onSet: (value: string | undefined) => void;
+}) {
+  const [texto, setTexto] = useState(value ?? '');
+  useEffect(() => { setTexto(value ?? ''); }, [value]);
+
+  const unidad = field.unit ? ` (${field.unit})` : '';
+  const titulo = `${field.label}${unidad}`;
+
+  // F5 — un select VINCULADO no se ofrece hasta que su padre tiene valor: sus opciones
+  // dependen de él. `resolveLinkedOptions` es la MISMA función que usan el wizard y la
+  // validación del backend, no una copia con la regla reescrita.
+  if (field.dependsOn) {
+    const opciones = resolveLinkedOptions(field, parentValue);
+    if (opciones.length === 0) return null;
+    return (
+      <div data-testid={`facet-${field.name}`}>
+        <SectionLabel>{titulo}</SectionLabel>
+        <div className="flex flex-wrap gap-1.5">
+          {opciones.map((opcion) => (
+            <ValueChip
+              key={opcion}
+              label={opcion}
+              count={counts?.[opcion] ?? 0}
+              isActive={value === opcion}
+              onClick={() => onToggle(opcion)}
+            />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (field.type === 'boolean') {
+    return (
+      <div data-testid={`facet-${field.name}`}>
+        <SectionLabel>{titulo}</SectionLabel>
+        <div className="flex flex-wrap gap-1.5">
+          {BOOLEAN_OPTIONS.map((o) => (
+            <ValueChip
+              key={o.value}
+              label={o.label}
+              count={counts?.[o.value] ?? 0}
+              isActive={value === o.value}
+              onClick={() => onToggle(o.value)}
+            />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (field.type === 'text') {
+    return (
+      <div data-testid={`facet-${field.name}`}>
+        <SectionLabel>{titulo}</SectionLabel>
+        <input
+          type="text"
+          value={texto}
+          aria-label={field.label}
+          placeholder={field.label}
+          onChange={(e) => setTexto(e.target.value)}
+          onBlur={() => onSet(texto || undefined)}
+          onKeyDown={(e) => e.key === 'Enter' && onSet(texto || undefined)}
+          className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+        />
+      </div>
+    );
+  }
+
+  // `select` y `number`: chips de valores.
+  //
+  // Un `select` los saca de su CONFIGURACIÓN (`options`), así que se ven todos aunque
+  // ninguno tenga anuncios — que es el punto de F6. Un `number` no tiene lista
+  // configurada, así que sus valores solo pueden salir de las facetas; su sección
+  // aparece igual, vacía si no hay nada que ofrecer todavía.
+  const valores =
+    field.type === 'select' && field.options?.length
+      ? field.options
+      : Object.entries(counts ?? {})
+          .sort(([, a], [, b]) => b - a)
+          .map(([v]) => v);
+
+  return (
+    <div data-testid={`facet-${field.name}`}>
+      <SectionLabel>{titulo}</SectionLabel>
+      {valores.length === 0 ? (
+        <p className="text-xs text-muted-foreground/70">Sin valores todavía</p>
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          {valores.map((v) => (
+            <ValueChip
+              key={v}
+              label={v}
+              count={counts?.[v] ?? 0}
+              isActive={value === v}
+              onClick={() => onToggle(v)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -129,6 +314,7 @@ export function FilterPanel({
   activeFilterCount,
   allowedListingType,
   currentCategorySlug,
+  filterableFields,
 }: FilterPanelProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -463,10 +649,29 @@ export function FilterPanel({
         </div>
       </div>
 
-      {/* Dynamic facets */}
+      {/* A3 — FILTROS DE ATRIBUTO, dictados por la CONFIG (no por el resultado).
+          Una sección por cada atributo filtrable de la categoría, exista o no en las
+          facetas: eso es F6. Los conteos siguen saliendo de `facets`. */}
+      {filterableFields?.map((field) => (
+        <AttributeFilter
+          key={field.name}
+          field={field}
+          counts={facets?.[field.name]}
+          value={searchParams.get(field.name) ?? undefined}
+          parentValue={field.dependsOn ? searchParams.get(field.dependsOn) ?? undefined : undefined}
+          onToggle={(value) => toggleFacet(field.name, value)}
+          onSet={(value) => update({ [field.name]: value })}
+        />
+      ))}
+
+      {/* Facetas NATIVAS (priceType, priceUnit, province…): siguen siendo facet-driven.
+          No son atributos de categoría —no tienen schema ni `label` que consultar—, así
+          que su lista sí la marca lo que devuelva la búsqueda. Se excluyen las que ya
+          pinta el bloque de arriba para no duplicar la sección. */}
       {facets &&
         Object.entries(facets)
           .filter(([key]) => !SKIP_FACETS.has(key))
+          .filter(([key]) => !filterableFields?.some((f) => f.name === key))
           .map(([facetKey, facetValues]) => {
             const currentValue = searchParams.get(facetKey);
             const entries = Object.entries(facetValues).sort(([, a], [, b]) => b - a);

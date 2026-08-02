@@ -26,7 +26,11 @@ export function filterSchemaByType(
  * vacía — el wizard trata eso como "aún no seleccionable".
  */
 export function resolveLinkedOptions(
-  field: AttributeSchema,
+  // Solo los tres campos que de verdad lee, en vez del `AttributeSchema` entero: el
+  // panel de filtros (A3) le pasa una vista reducida del atributo que no tiene por qué
+  // arrastrar `filterable`/`required`, y esta era la única razón por la que no podía
+  // reutilizar la MISMA función que el wizard. Sin cambio de comportamiento.
+  field: Pick<AttributeSchema, 'dependsOn' | 'options' | 'optionsByParent'>,
   parentValue: string | undefined,
 ): string[] {
   if (!field.dependsOn) return field.options ?? [];

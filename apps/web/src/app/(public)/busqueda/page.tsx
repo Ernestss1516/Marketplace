@@ -16,6 +16,7 @@ import MapViewClient from '@/components/busqueda/MapViewClient';
 import { search, type SearchResponse } from '@/lib/api/busqueda';
 import { getCategories } from '@/lib/api/categorias';
 import { buildCardAttributeMap, buildFullAttributeMap, buildWideCardAttributeMap } from '@/lib/card-attributes';
+import { filterableFieldsForTree } from '@/lib/filterable-fields';
 import { resolveCurrentView, VIEW_PARAM } from '@/lib/view-mode';
 import type { AlertCriteria, ListingSummary, ListingViewMode } from '@/types';
 
@@ -252,6 +253,10 @@ export default async function BusquedaPage({
               facets={facets}
               currentFilters={currentFilters}
               activeFilterCount={activeFilterCount}
+              // A3 — sin categoría, los filtros de atributo son la unión de lo
+              // filtrable de todo el árbol: el mismo criterio que usa el backend aquí
+              // (sin categoría que acote, cualquier atributo es un filtro legítimo).
+              filterableFields={filterableFieldsForTree(categories)}
             />
           </Suspense>
         </aside>

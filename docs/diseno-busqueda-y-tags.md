@@ -689,6 +689,23 @@ valores ya parseados. **Recomendado incluirlo**; se marca como opcional en la r�
 
 ### 3.3 Ajuste 3 — que los filtros muestren todos los campos filtrables
 
+> ### ✅ IMPLEMENTADO (A3, 2026-08-02) — F1, F2, F4, F5, F6. **F3 queda para A4.**
+>
+> A3 se hizo **solo frontend**, como estaba planeado: ni parser, ni service, ni DTO de
+> búsqueda. El único cambio de backend es aditivo (`toAttrDef` expone `type`, `options`,
+> `dependsOn`, `optionsByParent`, además del `filterable` que ya añadió A2).
+>
+> **F3 (rango numérico) NO entra**, y es deliberado: exige que el backend acepte
+> `_min`/`_max` en el parser y los traduzca en el service, lo que rompería "A3 es solo
+> frontend". En A3 un atributo `number` se sigue pintando como chips — pero ya con su
+> label (F1) y su unidad (F2) correctos. Su conversión a rango es **A4**.
+>
+> La regla del panel queda así: las **secciones** las dicta la configuración
+> (`lib/filterable-fields.ts`); las **facetas** solo aportan el conteo de cada valor. Las
+> facetas NATIVAS (`priceUnit`, `province`, `priceType`) siguen siendo facet-driven —no
+> son atributos de categoría, no tienen schema que consultar— y el bloque nuevo excluye
+> las claves que ya pinta, para no duplicar secciones.
+
 **Diagnóstico:** el backend no tiene hueco (H4). El frontend pinta facetas **a ciegas**, y por
 eso falla en seis puntos (F1-F6, §1.4).
 

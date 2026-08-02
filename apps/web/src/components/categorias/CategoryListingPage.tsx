@@ -20,6 +20,7 @@ import { search, type SearchHit } from '@/lib/api/busqueda';
 import { ApiError } from '@/lib/api/client';
 import { buildCardAttributeMap, buildWideCardAttributeMap, buildFullAttributeMap } from '@/lib/card-attributes';
 import { categoryPath, categoryPathWithQuery } from '@/lib/category-url';
+import { filterableFieldsForCategory } from '@/lib/filterable-fields';
 import { breadcrumbJsonLd } from '@/lib/breadcrumb-json-ld';
 import { resolveCurrentView, VIEW_PARAM } from '@/lib/view-mode';
 import { SITE_URL } from '@/config';
@@ -442,6 +443,11 @@ export async function CategoryListingPage({
                 activeFilterCount={activeFilterCount}
                 allowedListingType={category.allowedListingType}
                 currentCategorySlug={categoria}
+                filterableFields={filterableFieldsForCategory(
+                  category.attributeSchema,
+                  categories,
+                  categoria,
+                )}
               />
             </Suspense>
           </aside>

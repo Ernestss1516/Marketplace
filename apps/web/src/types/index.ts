@@ -122,6 +122,13 @@ export interface CardAttributeDef {
    *  se usa). Decide qué query params sobreviven al cambiar de categoría — ver
    *  lib/filter-carry.ts: mandar un atributo no filtrable da 400 igual que uno ajeno. */
   filterable?: boolean;
+  /** A3 — CÓMO se pinta el filtro. Los emite `GET /categories` en `allAttributes`; en la
+   *  ruta de categoría salen del `attributeSchema` completo. Opcionales por el mismo
+   *  motivo que `filterable`: este tipo lo comparten las listas de card, donde no aplican. */
+  type?: AttributeSchema['type'];
+  options?: string[];
+  dependsOn?: string;
+  optionsByParent?: Record<string, string[]>;
 }
 
 export interface Category {

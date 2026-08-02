@@ -9147,6 +9147,60 @@ así que es un cambio de más superficie y se deja anotado en vez de colarlo aqu
 
 ---
 
+## Búsqueda + Tags — RÁFAGA A3: panel de filtros schema-driven (cerrada)
+
+**✅ CERRADA** (2026-08-02). Diseño: `docs/diseno-busqueda-y-tags.md` §3.3.
+
+**Qué cambia:** el panel de filtros deja de pintar las facetas **a ciegas**. Antes recibía
+`Record<string, Record<string, number>>` —pares clave cruda → conteo, y nada más— sin
+ninguna definición del atributo. De ahí seis síntomas; A3 cierra cinco:
+
+| | Síntoma | Ahora |
+|---|---|---|
+| F1 | El título era el nombre CRUDO (`sqm`, `gearbox`) | Su `label` ("Metros cuadrados") |
+| F2 | La unidad no se mostraba nunca | `Metros cuadrados (m²)` |
+| F4 | Un booleano pintaba chips `true`/`false` | Chips **Sí/No** (el valor emitido sigue siendo `true`) |
+| F5 | Los selects vinculados no se acotaban | Ocultos hasta que el padre tiene valor; opciones vía `resolveLinkedOptions` |
+| F6 | Un filtrable **sin anuncios no aparecía nunca** | La sección aparece siempre; los valores muertos, deshabilitados con `(0)` |
+| F3 | Un `number` se pinta como chips de valores sueltos | **Sigue igual — es A4** (exige `_min`/`_max` en parser + service) |
+
+**El cambio de eje.** La lista de secciones la dictaba el RESULTADO: si Meilisearch no
+devolvía la clave (porque ningún anuncio tenía ese atributo), el filtro no existía para el
+usuario, por muy `filterable: true` que estuviera en la configuración. Ahora la dicta la
+CONFIG (`lib/filterable-fields.ts`) y las facetas solo aportan **conteos**. Eso es F6, y
+era el hueco conceptual del ajuste 3.
+
+**Ámbito de los filtros**, replicando la regla del backend: una HOJA usa su
+`attributeSchema` efectivo (herencia ya resuelta por `GET /categories/:slug`); una RAÍZ
+además la unión con lo filtrable de sus hijas (navegar una raíz mezcla los anuncios de las
+hijas vía `categoryPath`, así que "combustible" en `/vehiculos` es un filtro legítimo);
+`/busqueda` sin categoría, la unión de todo el árbol.
+
+**Solo frontend.** El único cambio de backend es aditivo: `toAttrDef` de `findTree` expone
+`type`, `options`, `dependsOn` y `optionsByParent`. **Parser, service y DTO de búsqueda no
+se tocan**, y sus specs pasan sin modificar. Las facetas NATIVAS (`priceUnit`, `province`,
+`priceType`) siguen siendo facet-driven —no son atributos de categoría— y el bloque nuevo
+excluye lo que ya pinta para no duplicar secciones.
+
+**Un ajuste de tipo, sin cambio de comportamiento:** `resolveLinkedOptions` pasa a aceptar
+`Pick<AttributeSchema, 'dependsOn'|'options'|'optionsByParent'>` en vez del schema entero.
+Era la única razón por la que el panel no podía reutilizar la MISMA función que el wizard y
+la validación del backend, y duplicar esa regla es garantizar que divergirá.
+
+**Verificación.** `e2e/filtros-schema-driven.spec.ts` (12) ejerce los cinco síntomas contra
+una categoría creada por API de admin **sin ni un anuncio** — precisamente el caso que
+antes no pintaba nada— con atributos cuyo `name` y `label` difieren, con unidad, un
+booleano, un select con opciones y un par vinculado marca→modelo, más un atributo
+`filterable: false` de control que no debe aparecer. Incluye dos tests de que **el filtrado
+real no cambia**: los hits con filtro siguen cumpliéndolo y un atributo ajeno a la
+categoría **sigue dando 400** (la defensa anti-leak intacta). Unitarios:
+`filterable-fields.test.ts` (14) y `FilterPanel.schema.test.tsx` (19).
+
+**Batería:** backend 1342/1342 en dos corridas consecutivas idénticas; web 347/347;
+`tsc` limpio en ambos; lint igual que el baseline.
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.

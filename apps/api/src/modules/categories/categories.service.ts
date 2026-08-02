@@ -50,6 +50,20 @@ export class CategoriesService {
         // los filterable:false, y mandar uno de esos da 400 igual — de ahí que haga falta
         // el flag y no baste la lista. Ver lib/filter-carry.ts en el frontend.
         filterable: f.filterable,
+        // A3 (panel de filtros schema-driven) — CÓMO se pinta el filtro, no solo que
+        // exista. Sin `type` el panel no sabe si un atributo es un select, un booleano
+        // o un número, y los pintaba todos igual: chips con el valor crudo. Con
+        // `options` la sección puede mostrar TODAS las opciones configuradas (aunque
+        // ninguna tenga anuncios), y con `dependsOn`/`optionsByParent` puede acotar un
+        // select vinculado por el valor de su padre.
+        //
+        // `GET /categories/:slug` ya devolvía el `attributeSchema` completo, así que la
+        // ruta de categoría no lo necesitaba; el árbol sí, porque es la única fuente de
+        // /busqueda sin categoría y de la unión de una raíz con sus hijas.
+        type: f.type,
+        ...(f.options !== undefined ? { options: f.options } : {}),
+        ...(f.dependsOn !== undefined ? { dependsOn: f.dependsOn } : {}),
+        ...(f.optionsByParent !== undefined ? { optionsByParent: f.optionsByParent } : {}),
         // RÁFAGA 3 — resueltos aquí (no en el frontend) para que "cómo se muestra" sea
         // el mismo dato para card estándar, ampliada y cualquier futuro consumidor.
         showLabel: resolveShowLabel(f),
