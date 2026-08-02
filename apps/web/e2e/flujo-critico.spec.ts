@@ -148,8 +148,27 @@ test('publicar → buscar → ver ficha → contactar', async ({ sellerContext, 
   // instantly). Mitigated the only way that's actually reliable for a race
   // outside the test's control: retry the click itself inside toPass, instead
   // of clicking once and only retrying the wait.
+  // Se clica el TÍTULO de la tarjeta, no la tarjeta "a secas". El `<a>` envuelve
+  // toda la card, así que su centro cae sobre la FOTO — y encima de la foto hay un
+  // botón `absolute inset-0` ("Ampliar foto", RÁFAGA 2) que abre el visor en vez de
+  // navegar. Ese primer click abría el PhotoLightbox, el `toHaveURL` fallaba, y a
+  // partir de ahí el visor (un diálogo a pantalla completa) interceptaba los
+  // reintentos: "…<div data-testid='photo-lightbox'> subtree intercepts pointer
+  // events". El overlay de la foto es comportamiento DELIBERADO y tiene su propio
+  // test de regresión (CardPhotoCarousel.test.tsx); quien quiere ir a la ficha clica
+  // el título, y eso es lo que se hace aquí. El título vive en CardContent, fuera del
+  // contenedor de la foto, así que ningún overlay lo tapa.
+  //
+  // El `toPass` NO se retira: mitiga la carrera del router del App Router bajo
+  // `next start` descrita arriba, que sigue viva (ver estado-tecnico.md). Lo que
+  // cambia es DÓNDE se clica, no que se reintente.
   await expect(async () => {
-    await buyerPage.locator('a').filter({ hasText: LISTING_TITLE }).first().click();
+    await buyerPage
+      .locator('a')
+      .filter({ hasText: LISTING_TITLE })
+      .first()
+      .getByText(LISTING_TITLE)
+      .click();
     await expect(buyerPage).toHaveURL(/\/anuncio\//, { timeout: 5_000 });
   }).toPass({ timeout: 30_000 });
   await expect(buyerPage.locator('h1')).toContainText(LISTING_TITLE);

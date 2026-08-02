@@ -61,6 +61,12 @@ export function authedGet(request: APIRequestContext, path: string, token?: stri
   });
 }
 
+export function authedDelete(request: APIRequestContext, path: string, token: string) {
+  return request.delete(`${API_BASE}/api${path}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
 /**
  * Sondea GET /api/search hasta que `predicate` acepte el body, o hasta agotar
  * el timeout. Necesario porque la indexación en Meilisearch es asíncrona

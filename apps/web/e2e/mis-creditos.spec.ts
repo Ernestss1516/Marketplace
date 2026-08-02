@@ -81,7 +81,13 @@ test.describe('/mis-creditos — con sesión (sellerContext)', () => {
 
     await page.goto('/mis-creditos');
 
-    await expect(page.getByRole('heading', { name: 'Mis créditos' })).toBeVisible({ timeout: 10_000 });
+    // El <h1> de la página es "Mi saldo", NO "Mis créditos". Ojo: "Mis créditos"
+    // sí existe, pero como etiqueta del NAV de la cuenta ((account)/layout.tsx),
+    // no como título de la página. El test se escribió contra el rótulo del menú.
+    // Ver docs/ci-playwright-plan.md §3: el desajuste nav ↔ página está reportado
+    // como decisión de producto pendiente; aquí el test afirma lo que la página
+    // MUESTRA hoy, que es lo que le toca.
+    await expect(page.getByRole('heading', { name: 'Mi saldo' })).toBeVisible({ timeout: 10_000 });
 
     // "Saldo disponible" section
     await expect(page.getByText('Saldo disponible')).toBeVisible();
@@ -237,8 +243,10 @@ test.describe('/mis-creditos/exito', () => {
     // "Actualizar saldo" button present
     await expect(page.getByRole('button', { name: /actualizar saldo/i })).toBeVisible();
 
-    // Link back to wallet
-    await expect(page.getByRole('link', { name: /ir a mis créditos/i })).toBeVisible();
+    // Link back to wallet — el enlace real dice "Ir a mi saldo" (mismo desajuste
+    // de rótulo que el <h1> de /mis-creditos: la página habla de "saldo", el nav
+    // de "créditos").
+    await expect(page.getByRole('link', { name: /ir a mi saldo/i })).toBeVisible();
 
     // No error state visible
     await expect(page.getByText(/error/i)).not.toBeVisible();

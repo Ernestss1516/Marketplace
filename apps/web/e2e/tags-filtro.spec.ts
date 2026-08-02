@@ -15,6 +15,7 @@
 
 import { test, expect } from './fixtures/auth';
 import { loginViaApi, authedPost, pollSearch } from './helpers/api';
+import { limpiarAnunciosPorPrefijo } from './helpers/seed-listings';
 import type { APIRequestContext } from '@playwright/test';
 
 const API_BASE = 'http://localhost:3001';
@@ -62,6 +63,15 @@ test.describe('B3 — sección Etiquetas del panel', () => {
   test.beforeAll(async ({ playwright }) => {
     const request = await playwright.request.newContext();
     const token = await loginViaApi(request, 'seller-e2e@example.com', 'Test1234!');
+
+    // BARRERA (ver e2e/helpers/seed-listings.ts): Playwright descarta el worker
+    // cuando un test falla —también con `--retries=0`— y arranca otro, lo que
+    // vuelve a ejecutar este `beforeAll`. Sin esto, cada fallo dejaba OTRA
+    // generación de los tres anuncios y la página acababa mostrando varias a la
+    // vez ("resolved to 3 elements", con tres sellos distintos). Borrar lo que
+    // haya quedado de generaciones anteriores deja el terreno igual que en la
+    // primera ejecución, sea o no la primera.
+    await limpiarAnunciosPorPrefijo(request, token, 'B3 ');
 
     const sello = Date.now();
     const a = await publicarConTags(request, token, `B3 Solo unico dueno ${sello}`, ['unico-dueno']);

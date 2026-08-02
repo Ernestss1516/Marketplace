@@ -45,7 +45,14 @@ export default defineConfig({
   workers: 1,
   reporter: 'html',
   // The critical-path test is long: publish wizard + Meilisearch wait + contact.
-  timeout: 90_000,
+  //
+  // Escala al CI por la misma razón que `waitForCard` (ver e2e/helpers/wait-for-card.ts):
+  // era el TOPE REAL de esos tests, no el plazo del helper. Un publish por el wizard
+  // consume ~40 s y la espera de la card hasta 45 s más: 85 s contra un presupuesto de
+  // 90 s. Subir solo el helper no habría servido de nada — Playwright mataba el test
+  // antes de que su plazo llegara a agotarse. Los dos plazos suben juntos o no sube
+  // ninguno.
+  timeout: process.env.CI ? 150_000 : 90_000,
 
   use: {
     baseURL: 'http://localhost:3000',

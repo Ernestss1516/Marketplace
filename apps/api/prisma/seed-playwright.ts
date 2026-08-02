@@ -198,6 +198,51 @@ async function main() {
     update: { value: 100 },
   });
 
+  // ── Emisor fiscal ───────────────────────────────────────────────────────────
+  // Sin este Setting, POST /billing/facturas responde 400 ISSUER_NOT_CONFIGURED
+  // (ver InvoicingService.getFrozenIssuer) y `tickets-admin.spec.ts` moría antes
+  // de llegar a lo que de verdad prueba: que un MODERATOR no ve los tickets de
+  // facturación y un ADMIN sí. No es un fallo del producto —se niega, con razón,
+  // a emitir una factura sin emisor configurado— sino una pieza del entorno que
+  // faltaba: las suites de backend (admin-invoicing, invoicing-cron,
+  // invoicing-manual) se lo configuran ellas mismas, y Playwright no tenía nada
+  // equivalente.
+  //
+  // Se siembra AQUÍ y no en `seedSettings()` de seed-test.ts a propósito: ese
+  // seed lo comparten las dos baterías, y `admin-invoicing.e2e-spec.ts` BORRA
+  // esta clave para gobernar su propio escenario. Dejarlo en el seed exclusivo
+  // de Playwright evita tocar las condiciones de la batería de backend.
+  //
+  // Mismos valores que usan las suites de backend, para que un importe/emisor
+  // distinto no haga divergir lo que se ve en cada batería.
+  await prisma.setting.upsert({
+    where: { key: 'fiscalIssuer' },
+    create: {
+      key: 'fiscalIssuer',
+      value: {
+        taxId: 'B12345678',
+        fiscalName: 'Marketplace S.L.',
+        address: 'Av. de la Plataforma 2',
+        city: 'Madrid',
+        postalCode: '28001',
+        province: 'Madrid',
+        country: 'ES',
+      },
+    },
+    update: {
+      value: {
+        taxId: 'B12345678',
+        fiscalName: 'Marketplace S.L.',
+        address: 'Av. de la Plataforma 2',
+        city: 'Madrid',
+        postalCode: '28001',
+        province: 'Madrid',
+        country: 'ES',
+      },
+    },
+  });
+  console.log('Playwright seed: fiscalIssuer OK');
+
   // ── Admin and moderator users for role-separation E2E tests ──────────────────
   await prisma.user.upsert({
     where: { email: 'admin-e2e@example.com' },
