@@ -10147,6 +10147,46 @@ Auditado el resto del módulo y de las páginas: es la **única** violación de 
 demás páginas server importan de módulos `'use client'`, pero importan **Componentes** para
 renderizarlos, que es el patrón correcto y soportado.
 
+### Familia 1 de rojos: drift de tests por features aprobadas (cerrada)
+
+Con el CI cancelándose por timeout, el drift se sedimentó sin verse: había tests con
+aserciones **congeladas antes de features que se aprobaron y funcionan**. No eran bugs;
+eran tests que no se habían enterado.
+
+**El paso "Etiquetas" (B2).** El wizard es
+`Categoría → Fotos → Datos → Atributos → ETIQUETAS → Ubicación → Publicar`, pero los
+specs hacían "Siguiente" tras Atributos y esperaban `heading "Ubicación"` — que ahora es
+`"Etiquetas"`. Detalles que decidieron el arreglo:
+
+- El paso **nunca bloquea**: `validateStep('tags', …)` solo se queja si se pasa del tope,
+  jamás por no marcar nada. Se cruza con un "Siguiente" y el anuncio queda igual que
+  antes — lo que cada test verifica no cambia.
+- **Regla de desaparición**: el paso solo existe si la categoría tiene tags efectivos. En
+  el seed, `coches` los tiene (hereda `garantia` + `envio-incluido` de `vehiculos`, más
+  `unico-dueno`); `moviles` no. Por eso fallaban los specs de coches y no los de móviles.
+- **No había ningún helper compartido de wizard** — nueve specs lo navegaban a mano. Se
+  añadió `e2e/helpers/wizard.ts` con `cruzarPasoEtiquetas(page)`, que detecta si el paso
+  está y lo cruza solo si está. El conocimiento frágil (¿existe el paso? ¿cómo se cruza?)
+  vive en UN sitio; los specs solo lo llaman. **La aserción de "Ubicación" de cada spec se
+  mantiene intacta**: el helper no la sustituye, se asegura de que se llegue hasta ahí.
+
+**El conteo del nav (B1).** `admin-roles` esperaba 17 ítems; `NAV_ITEMS` de `AdminNav.tsx`
+tiene 18 y todas incluyen `ADMIN`. El último en sumarse fue "Tags" (B1). El comentario del
+test decía 14 — se había actualizado el número a trompicones sin tocar el comentario. Se
+puso 18 y se quitó del comentario la lista de "qué ráfaga añadió cada ítem", que es justo
+lo que se desincroniza: la fuente de verdad es `NAV_ITEMS`. (De paso, otro comentario de
+cabecera decía 5 ítems para MODERATOR donde el test siempre afirmó 6.)
+
+**PROPUESTA, no hecha:** un conteo exacto de ítems de nav es frágil por diseño — se rompe
+cada vez que se añade una sección aunque el backoffice esté perfecto. Comprobar la
+PRESENCIA de ítems clave (Dashboard, Tags, Ajustes…) lo haría robusto al próximo. No se
+cambió porque eso altera lo que el test prueba, y esa es una decisión de producto.
+
+**Lo que NO era familia 1** (se separó al auditar, en vez de arrastrarlo):
+`flujo-critico` falla porque el `PhotoLightbox` abierto intercepta el click sobre la card,
+y el cuarto caso de `listing-card-attrs` (Electrónica → Móviles, categoría SIN tags) falla
+por un timeout de indexación en Meilisearch. Ninguno pasa por el paso Etiquetas.
+
 ### Deuda: los 105 `networkidle`
 
 Sustituirlos por aserciones web (`expect(locator).toBeVisible()`) es lo correcto y lo que

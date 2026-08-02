@@ -17,6 +17,7 @@
 import path from 'path';
 import { test, expect } from './fixtures/auth';
 import { waitForCard } from './helpers/wait-for-card';
+import { cruzarPasoEtiquetas } from './helpers/wizard';
 
 // ── Helper: publish a coche via the wizard and return its URL ────────────────
 
@@ -50,6 +51,8 @@ async function publishCoche(
   await page.locator('#attr-km').fill('50000');
   await page.locator('#attr-brand').fill('Toyota');
   await page.getByRole('button', { name: 'Siguiente' }).click();
+
+  await cruzarPasoEtiquetas(page);
 
   await expect(page.getByRole('heading', { name: 'Ubicación' })).toBeVisible();
   await page.locator('#city').fill('Valencia');
@@ -118,6 +121,8 @@ test.describe('RC5.5 — ListingCard: cardAttributes por categoría', () => {
     // brand left empty — optional
     await page.getByRole('button', { name: 'Siguiente' }).click();
 
+    await cruzarPasoEtiquetas(page);
+
     await expect(page.getByRole('heading', { name: 'Ubicación' })).toBeVisible();
     await page.locator('#city').fill('Sevilla');
     await page.locator('#province').fill('Sevilla');
@@ -178,6 +183,8 @@ test.describe('RC5.5 — ListingCard: cardAttributes por categoría', () => {
     // Atributos step — brand and ram are optional, leave empty
     await expect(page.getByRole('heading', { name: 'Atributos' })).toBeVisible();
     await page.getByRole('button', { name: 'Siguiente' }).click();
+
+    await cruzarPasoEtiquetas(page);
 
     await expect(page.getByRole('heading', { name: 'Ubicación' })).toBeVisible();
     await page.locator('#city').fill('Zaragoza');

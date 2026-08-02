@@ -14,6 +14,7 @@
 import path from 'path';
 import { test, expect } from './fixtures/auth';
 import { waitForCard } from './helpers/wait-for-card';
+import { cruzarPasoEtiquetas } from './helpers/wizard';
 
 
 async function publishCocheMinimal(
@@ -49,6 +50,8 @@ async function publishCocheMinimal(
   await page.locator('#attr-year').fill('2019');
   await page.locator('#attr-km').fill('40000');
   await page.getByRole('button', { name: 'Siguiente' }).click();
+
+  await cruzarPasoEtiquetas(page);
 
   await expect(page.getByRole('heading', { name: 'Ubicación' })).toBeVisible();
   await page.locator('#city').fill('Madrid');

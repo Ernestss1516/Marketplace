@@ -2,8 +2,8 @@
 //
 // Tests:
 //   ADMIN
-//     1. /admin carga (dashboard) → el nav muestra los 17 ítems (+Páginas BLOG-PAGINAS,
-//        +Patrocinados H6.6, +Footer R.3, +Mensajes de contacto RC.2)
+//     1. /admin carga (dashboard) → el nav muestra los 18 ítems que ve un ADMIN
+//        (la cuenta sale de NAV_ITEMS en AdminNav.tsx: son 18 y todos incluyen ADMIN)
 //   MODERATOR — rutas aún bloqueadas (ADMIN-only)
 //     2. /admin → redirige a /
 //     3. /admin/ajustes → redirige a /
@@ -14,7 +14,7 @@
 //     7. /admin/usuarios → carga correctamente (RR5.1-ext)
 //     8. /admin/blog → carga correctamente (RR5.1-ext)
 //     8b. /admin/paginas → carga correctamente (BLOG-PAGINAS)
-//     9. AdminNav muestra exactamente 5 ítems (Anuncios, Usuarios, Reportes, Blog, Páginas)
+//     9. AdminNav muestra exactamente 6 ítems (Anuncios, Usuarios, Reportes, Tickets, Blog, Páginas)
 //    10. MODERATOR no ve el botón "Banear" en /admin/usuarios
 //    11. MODERATOR no ve el botón "Eliminar" en /admin/blog
 //    12. MODERATOR desestima un reporte → funciona (sin 403)
@@ -58,7 +58,7 @@ async function loginAs(browser: Browser, email: string) {
 }
 
 test.describe('Backoffice — ADMIN acceso total', () => {
-  test('ADMIN carga /admin y el nav muestra los 17 ítems', async ({ adminContext }) => {
+  test('ADMIN carga /admin y el nav muestra los 18 ítems', async ({ adminContext }) => {
     const page = await adminContext.newPage();
 
     await page.goto('/admin');
@@ -68,12 +68,24 @@ test.describe('Backoffice — ADMIN acceso total', () => {
     expect(page.url()).toContain('/admin');
     expect(page.url()).not.toContain('/login');
 
-    // AdminNav should show all 14 items (BLOG-PAGINAS added "Páginas", H6.6 added
-    // "Patrocinados", R.3 added "Footer", RC.2 added "Mensajes de contacto")
+    // El número sale de NAV_ITEMS en AdminNav.tsx: hoy son 18 entradas y TODAS
+    // incluyen 'ADMIN' en sus roles, así que un ADMIN las ve todas. El último en
+    // sumarse fue "Tags" (B1).
+    //
+    // Este comentario venía diciendo 14 mientras la aserción decía 17: el conteo se
+    // fue actualizando a trompicones y el comentario se quedó atrás, así que ya no
+    // se lista aquí qué ráfaga añadió cada ítem — esa lista es justo lo que se
+    // desincroniza. La fuente de verdad es NAV_ITEMS.
+    //
+    // OJO: un conteo EXACTO es frágil por diseño — se rompe cada vez que se añade
+    // una sección al backoffice, aunque el backoffice esté perfectamente. Ver la
+    // propuesta de cambiar a comprobar PRESENCIA de ítems clave en la nota de
+    // familia 1 (docs/estado-tecnico.md); no se cambia aquí porque eso altera lo
+    // que el test prueba, y esa es una decisión de producto, no de saneamiento.
     const nav = page.getByTestId('admin-nav');
     await expect(nav).toBeVisible();
     const links = nav.getByRole('link');
-    await expect(links).toHaveCount(17);
+    await expect(links).toHaveCount(18);
 
     // Spot-check some labels
     await expect(nav.getByRole('link', { name: 'Dashboard' })).toBeVisible();

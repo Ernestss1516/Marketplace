@@ -14,6 +14,7 @@
 
 import path from 'path';
 import { test, expect } from './fixtures/auth';
+import { cruzarPasoEtiquetas } from './helpers/wizard';
 
 // ── Helper: navigate through wizard to the "Atributos" step ───────────────────
 //
@@ -118,6 +119,7 @@ test.describe('RC5.4 — Wizard: herencia de atributos', () => {
 
     // Advance to Ubicación
     await page.getByRole('button', { name: 'Siguiente' }).click();
+    await cruzarPasoEtiquetas(page);
     await expect(page.getByRole('heading', { name: 'Ubicación' })).toBeVisible();
 
     await page.locator('#city').fill('Madrid');
@@ -162,6 +164,7 @@ test.describe('RC5.4 — Wizard: herencia de atributos', () => {
     await page.locator('#attr-brand').fill('Ford');
 
     await page.getByRole('button', { name: 'Siguiente' }).click();
+    await cruzarPasoEtiquetas(page);
     await expect(page.getByRole('heading', { name: 'Ubicación' })).toBeVisible();
     await page.locator('#city').fill('Barcelona');
     await page.locator('#province').fill('Barcelona');
@@ -227,6 +230,7 @@ test.describe('RC5.4 — Wizard: herencia de atributos', () => {
 
     // Optional fields: can advance without filling them
     await page.getByRole('button', { name: 'Siguiente' }).click();
+    await cruzarPasoEtiquetas(page);
     await expect(page.getByRole('heading', { name: 'Ubicación' })).toBeVisible();
   });
 });
