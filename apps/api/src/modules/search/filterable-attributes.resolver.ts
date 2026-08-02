@@ -14,6 +14,12 @@ const RESERVED_ATTRIBUTE_NAMES = new Set([
   'province', 'city', 'sort', 'page', 'hitsPerPage', 'lat', 'lng', 'radius',
   // Meilisearch core document fields (CORE_FILTERABLE_ATTRIBUTES in search.service.ts)
   'categoryId', 'categorySlug', 'categoryPath', 'price', '_geo', 'sellerId',
+  // B2 — el sistema de tags ocupa estos dos nombres en el documento. Un atributo de
+  // categoría llamado `tags` machacaría el array de slugs (o al revés, según el orden
+  // del spread) y dejaría el filtro por etiquetas devolviendo cualquier cosa.
+  // `tagNames` no es filtrable, pero se reserva igual: es un campo del documento y
+  // colisionar con él estropearía la relevancia de texto en silencio.
+  'tags', 'tagNames',
 ]);
 
 interface CategoryAttrEntry {

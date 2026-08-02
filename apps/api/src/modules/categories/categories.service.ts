@@ -215,6 +215,12 @@ export class CategoriesService {
       // allowedViews/allowedPriceUnits: el wizard llama a este endpoint al elegir
       // categoría y no debe necesitar un segundo viaje para saber qué ofrecer.
       tags: await this.tagsService.effectiveTagsForCategory(slug),
+      // B2 — el tope vigente, en la MISMA respuesta que los tags. Es un valor global,
+      // no de la categoría, y aun así viaja aquí por lo mismo que `allowedPriceUnits`:
+      // esta llamada es "todo lo que el wizard necesita para configurarse". La
+      // alternativa era que el front escribiera un 5, que es exactamente la
+      // divergencia con DEFAULT_MAX_TAGS_PER_LISTING que ya costó una ráfaga evitar.
+      maxTags: await this.tagsService.getMaxTagsPerListing(),
     };
   }
 }

@@ -1,10 +1,16 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { RedisService } from '../../infra/redis/redis.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { isP2002 } from '../../common/prisma/is-p2002';
-import { resolveEffectiveTags, type TagRef } from './tag.types';
+import { DEFAULT_MAX_TAGS_PER_LISTING, resolveEffectiveTags, type TagRef } from './tag.types';
 import { CreateTagDto } from './dto/create-tag.dto';
 import { UpdateTagDto } from './dto/update-tag.dto';
 import { ReorderTagsDto } from './dto/reorder-tags.dto';
@@ -18,6 +24,9 @@ const CACHE_TTL_SECONDS = 300;
 
 /** Campos que viajan al público. `orden`/`activo` son de administración. */
 const TAG_REF_SELECT = { id: true, slug: true, name: true } as const;
+
+/** B2 — la clave del tope. Debe coincidir con SETTING_KEYS en admin.service.ts. */
+const MAX_TAGS_SETTING_KEY = 'maxTagsPerListing';
 
 @Injectable()
 export class TagsService {
@@ -64,6 +73,79 @@ export class TagsService {
 
     await this.redis.client.set(cacheKey, JSON.stringify(efectivos), 'EX', CACHE_TTL_SECONDS);
     return efectivos;
+  }
+
+  /**
+   * B2 — tope de tags por anuncio. Molde exacto de `TicketsService.getReopenWindowDays`:
+   * un valor no numérico o <= 0 cae al default en vez de romper, y "sin fila" es un
+   * estado válido (la clave no se siembra).
+   */
+  async getMaxTagsPerListing(): Promise<number> {
+    const setting = await this.prisma.setting.findUnique({
+      where: { key: MAX_TAGS_SETTING_KEY },
+    });
+    const value = Number(setting?.value);
+    return Number.isFinite(value) && value > 0 ? value : DEFAULT_MAX_TAGS_PER_LISTING;
+  }
+
+  /**
+   * B2 — valida los slugs que manda el wizard y los traduce a ids. Es el punto donde
+   * `maxTagsPerListing` POR FIN se usa: B1 lo definió, aquí se aplica.
+   *
+   * Dos reglas, las dos con 422 (regla de negocio incumplida, no petición malformada —
+   * mismo criterio que `validateAttributeValues`):
+   *  1. Cada slug debe estar en el set EFECTIVO de la categoría (propios + heredados,
+   *     solo activos). Un tag del catálogo que la categoría no ofrece es tan inválido
+   *     como uno inexistente: el usuario no podía verlo en el wizard.
+   *  2. `tags.length <= max`, con el tope en el mensaje para que el cliente pueda
+   *     decirle al usuario cuántos sobran.
+   *
+   * El orden lo fija el set efectivo, no el array de entrada: así dos anuncios con los
+   * mismos tags los guardan igual, y los propios de la categoría van antes que los
+   * heredados como en todo lo demás.
+   */
+  async resolveTagsForListing(slugs: string[], categorySlug: string): Promise<string[]> {
+    // Duplicados: el mismo tag dos veces no es "dos tags", y sin deduplicar
+    // reventaría la clave compuesta de ListingTag con un P2002 opaco.
+    const pedidos = [...new Set(slugs)];
+    if (pedidos.length === 0) return [];
+
+    const efectivos = await this.effectiveTagsForCategory(categorySlug);
+    const porSlug = new Map(efectivos.map((t) => [t.slug, t]));
+
+    const ajenos = pedidos.filter((s) => !porSlug.has(s));
+    if (ajenos.length > 0) {
+      throw new UnprocessableEntityException(
+        `Etiquetas no válidas para esta categoría: ${ajenos.join(', ')}`,
+      );
+    }
+
+    const max = await this.getMaxTagsPerListing();
+    if (pedidos.length > max) {
+      throw new UnprocessableEntityException(
+        `Un anuncio admite como máximo ${max} etiqueta(s); se han enviado ${pedidos.length}.`,
+      );
+    }
+
+    const seleccionados = new Set(pedidos);
+    return efectivos.filter((t) => seleccionados.has(t.slug)).map((t) => t.id);
+  }
+
+  /**
+   * B2 — al MOVER un anuncio de categoría se descartan los tags que la nueva no ofrece,
+   * en silencio y sin rechazar la edición. El usuario no eligió romperlos: cambió de
+   * categoría, y los tags son propiedad de la categoría, no del anuncio.
+   *
+   * NO se aplica el tope aquí a propósito — es una poda, nunca puede aumentar el
+   * número de tags, así que un anuncio con más tags que el tope actual (grandfathering)
+   * sobrevive a un cambio de categoría igual que sobrevive a cualquier otra edición
+   * que no toque `tags`.
+   */
+  async pruneTagsForCategory(tagIds: string[], categorySlug: string): Promise<string[]> {
+    if (tagIds.length === 0) return [];
+    const efectivos = await this.effectiveTagsForCategory(categorySlug);
+    const validos = new Set(efectivos.map((t) => t.id));
+    return efectivos.filter((t) => validos.has(t.id) && tagIds.includes(t.id)).map((t) => t.id);
   }
 
   // ===========================================================================

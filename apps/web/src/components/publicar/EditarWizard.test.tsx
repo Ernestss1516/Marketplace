@@ -30,8 +30,14 @@ function buildInitialData(overrides: Partial<EditarWizardData> = {}): EditarWiza
     categoryName: 'Categoría',
     attributeSchema: [],
     allowedPriceUnits: ['ONE_TIME', 'PER_MONTH', 'PER_HOUR'],
+    // B2 — sin tags efectivos: este spec va del formato de precio, y la regla de
+    // desaparición hace que el paso de etiquetas ni exista, igual que ya pasaba con
+    // 'atributos' por el attributeSchema vacío de arriba.
+    availableTags: [],
+    maxTags: 5,
     images: [],
     attributes: {},
+    tags: [],
     title: 'Anuncio existente',
     description: 'Descripción del anuncio existente',
     type: 'SERVICE',

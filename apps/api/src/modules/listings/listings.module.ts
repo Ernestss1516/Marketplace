@@ -7,6 +7,7 @@ import { ListingActivationModule } from '../listing-activation/listing-activatio
 import { MessagingModule } from '../messaging/messaging.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { ReviewsModule } from '../reviews/reviews.module';
+import { TagsModule } from '../tags/tags.module';
 import { ListingsController } from './listings.controller';
 import { ListingsService } from './listings.service';
 
@@ -21,6 +22,7 @@ import { ListingsService } from './listings.service';
     MessagingModule,
     NotificationsModule,
     ReviewsModule,
+    TagsModule,
   ],
   controllers: [ListingsController],
   providers: [ListingsService],

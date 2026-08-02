@@ -32,6 +32,7 @@ import { ListingActivationService } from '../listing-activation/listing-activati
 import { MessagingService } from '../messaging/messaging.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ReviewsService } from '../reviews/reviews.service';
+import { TagsService } from '../tags/tags.service';
 import {
   AttributeField,
   resolveEffectiveSchema,
@@ -73,6 +74,13 @@ const LISTING_INCLUDE = {
   images: { orderBy: { order: 'asc' as const } },
   // trusted: H8 Bloque E — "Vendedor de confianza" en la ficha del anuncio (SellerCard).
   seller: { select: { id: true, name: true, slug: true, avatarUrl: true, trusted: true } },
+  // B2 — tags para pintarlos en la ficha. Ordenados por el `orden` del CATÁLOGO
+  // (ListingTag no tiene orden propio): así el mismo par de tags sale igual en todas
+  // las fichas, en vez de en el orden accidental de inserción.
+  tags: {
+    orderBy: { tag: { orden: 'asc' as const } },
+    select: { tag: { select: { id: true, slug: true, name: true } } },
+  },
 };
 
 const SELECT_SUMMARY = {
@@ -140,12 +148,21 @@ export class ListingsService {
     private readonly messaging: MessagingService,
     private readonly notifications: NotificationsService,
     private readonly reviews: ReviewsService,
+    // B2 — el sistema de tags es HERMANO del de atributos, no parte de él: los
+    // atributos se validan en este servicio (viven en un jsonb del propio anuncio),
+    // los tags los valida el suyo (viven en tablas propias, con herencia de categoría
+    // y un tope configurable).
+    private readonly tags: TagsService,
   ) {}
 
   async create(sellerId: string, dto: CreateListingDto): Promise<Listing> {
     const category = await this.prisma.category.findUnique({
       where: { id: dto.categoryId },
       select: {
+        // B2 — el slug hace falta para los tags: TagsService cachea el set efectivo
+        // POR SLUG (B1), así que pedirlo aquí reutiliza esa caché en vez de abrir un
+        // segundo camino de resolución por id.
+        slug: true,
         attributeSchema: true,
         allowedListingType: true,
         allowedPriceUnits: true,
@@ -183,6 +200,11 @@ export class ListingsService {
       category.parent?.allowedPriceUnits,
     );
 
+    // B2 — los tags se validan COMPLETO en create, igual que los atributos: no hay
+    // "existing" con el que calcular un delta. Se resuelven a ids ANTES de crear nada,
+    // para que un 422 no deje un anuncio a medias.
+    const tagIds = await this.tags.resolveTagsForListing(dto.tags ?? [], category.slug);
+
     const listing = await this.createWithUniqueSlug(dto.title, {
       title: dto.title,
       description: dto.description,
@@ -201,6 +223,13 @@ export class ListingsService {
       phone: dto.phone,
       sellerId,
       categoryId: dto.categoryId,
+      // B2 — escritura ATÓMICA con el anuncio: un create anidado de Prisma va en la
+      // misma transacción implícita que la fila padre, así que o se crean el anuncio y
+      // sus tags, o no se crea nada. Un segundo createMany después habría dejado la
+      // puerta abierta a un anuncio sin sus tags si fallara.
+      ...(tagIds.length > 0 && {
+        tags: { create: tagIds.map((tagId) => ({ tagId })) },
+      }),
     });
 
     if (dto.imageIds?.length) {
@@ -230,13 +259,20 @@ export class ListingsService {
     const needsCategory =
       dto.categoryId !== undefined ||
       dto.attributes !== undefined ||
-      dto.priceUnit !== undefined;
+      dto.priceUnit !== undefined ||
+      // B2 — los tags son la CUARTA validación con disparador propio.
+      dto.tags !== undefined;
+
+    // B2 — se resuelve dentro del bloque de categoría y se aplica al final, junto al
+    // resto de campos. `undefined` = no tocar los tags (grandfathering).
+    let tagIds: string[] | undefined;
 
     if (needsCategory) {
       const catId = dto.categoryId ?? existing.categoryId;
       const category = await this.prisma.category.findUnique({
         where: { id: catId },
         select: {
+          slug: true,
           attributeSchema: true,
           allowedListingType: true,
           allowedPriceUnits: true,
@@ -297,6 +333,34 @@ export class ListingsService {
           category.parent?.allowedPriceUnits,
         );
       }
+
+      // B2 — TAGS. Mismo grandfathering que los dos bloques de arriba, con una
+      // asimetría deliberada entre los dos disparadores:
+      //
+      //  · `dto.tags` presente → el usuario ELIGIÓ estos tags: se validan estrictos
+      //    contra la nueva categoría y el tope vigente. Un tag ajeno o pasarse del
+      //    tope es un 422, porque el usuario puede corregirlo.
+      //
+      //  · solo cambia `categoryId` → el usuario NO eligió romper nada, movió el
+      //    anuncio. Los tags que la categoría destino no ofrece se PODAN en silencio
+      //    y la edición pasa. Rechazarla obligaría a limpiar tags a mano antes de
+      //    poder mover un anuncio, que es exactamente el tipo de fricción que el
+      //    grandfathering de los atributos ya evita.
+      //
+      // Un PATCH que no toca ni `tags` ni `categoryId` no entra aquí: un anuncio con 8
+      // tags y un tope nuevo de 5 sigue editándose sin problema.
+      if (dto.tags !== undefined) {
+        tagIds = await this.tags.resolveTagsForListing(dto.tags, category.slug);
+      } else if (dto.categoryId !== undefined) {
+        const actuales = await this.prisma.listingTag.findMany({
+          where: { listingId: id },
+          select: { tagId: true },
+        });
+        tagIds = await this.tags.pruneTagsForCategory(
+          actuales.map((t) => t.tagId),
+          category.slug,
+        );
+      }
     }
 
     const { imageIds, ...fields } = dto;
@@ -331,6 +395,16 @@ export class ListingsService {
         ...(fields.province !== undefined && { province: fields.province }),
         ...(fields.postalCode !== undefined && { postalCode: fields.postalCode }),
         ...(fields.phone !== undefined && { phone: fields.phone }),
+        // B2 — reemplazo COMPLETO del set, en la MISMA transacción implícita que el
+        // resto de la fila: deleteMany + create anidados no pueden dejar un anuncio
+        // sin tags a medio camino. `tagIds === undefined` (el PATCH no los tocó) no
+        // emite nada, así que ni siquiera se leen.
+        ...(tagIds !== undefined && {
+          tags: {
+            deleteMany: {},
+            create: tagIds.map((tagId) => ({ tagId })),
+          },
+        }),
         ...coordUpdate,
       },
     });
@@ -700,7 +774,12 @@ export class ListingsService {
     if (listing.sellerId !== userId) {
       throw new ForbiddenException('No tienes permiso sobre este anuncio');
     }
-    return listing;
+    // B2 — se aplana igual que en findBySlug: la tabla puente es un detalle de
+    // almacenamiento, y el wizard de edición espera la misma forma (TagRef[]) que la
+    // ficha pública. Si una devolviera `{tag:{…}}` y la otra no, el front tendría que
+    // saber por qué endpoint llegó cada anuncio.
+    const { tags, ...resto } = listing;
+    return { ...resto, tags: tags.map((t) => t.tag) };
   }
 
   /**
@@ -768,8 +847,19 @@ export class ListingsService {
       // el teléfono nunca viaja en el payload público de la ficha (ni en
       // Redis ni en la respuesta). hasPhone es lo único que se expone, para
       // pintar el botón "Ver teléfono" sin revelar el número.
-      const { phone, ...publicListing } = listing;
-      const listingToCache = { ...publicListing, hasPhone: Boolean(phone) };
+      // B2 — `tags` se APLANA aquí, antes de cachear: la ficha quiere TagRef[], no la
+      // tabla puente. Este es el mismo punto donde `phone` ya se descarta, así que la
+      // forma pública del payload se decide en un solo sitio.
+      //
+      // OJO con la caché: los blobs guardados antes de B2 no llevan `tags`. Se
+      // autocorrige al expirar (5 min) y el frontend lo trata como opcional — mismo
+      // precedente que `category.parent` en A1.
+      const { phone, tags, ...publicListing } = listing;
+      const listingToCache = {
+        ...publicListing,
+        hasPhone: Boolean(phone),
+        tags: tags.map((t) => t.tag),
+      };
       await this.redis.client.setex(cacheKey(slug), CACHE_TTL, JSON.stringify(listingToCache));
       listingData = listingToCache;
     }

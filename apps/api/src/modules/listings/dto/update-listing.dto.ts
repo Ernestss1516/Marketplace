@@ -67,6 +67,14 @@ export class UpdateListingDto {
   @IsObject()
   attributes?: Record<string, unknown>;
 
+  /// B2 — etiquetas por SLUG. Reemplazo COMPLETO del set, no un delta: mandar `[]`
+  /// quita todas las que tuviera. Ausente ≠ vacío — si no viaja, los tags no se
+  /// tocan (es lo que protege el grandfathering; ver el disparador en update()).
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  tags?: string[];
+
   @IsOptional()
   @IsString()
   @IsNotEmpty()

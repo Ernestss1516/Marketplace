@@ -1081,6 +1081,36 @@ excluyentes. Se muestran primero los que tienen resultados; los de 0, deshabilit
 Funciona igual en `/busqueda` (sin categoría → catálogo global activo, acotado a los que
 aparecen en la faceta) y en `/[…ruta]`.
 
+> ### ✅ IMPLEMENTADO (B2, 2026-08-02) — §4.5, §4.6 y §4.7 salvo el FILTRO
+>
+> Wizard, validación, escritura y **indexación** entregados. Lo que NO entra: el filtro por
+> `?tags=`, el panel de "Etiquetas" y el buscador de portada — B3 y B4.
+>
+> **Los slugs ganaron a los ids**, como recomendaba §4.6: un solo identificador para el DTO,
+> la URL y el índice.
+>
+> **`GET /categories/:slug` también devuelve `maxTags`** (no estaba en el diseño). El
+> contador `3/5` del wizard necesita el tope, y escribir un `5` en el front habría divergido
+> de `DEFAULT_MAX_TAGS_PER_LISTING` en cuanto alguien lo cambiara. Viaja en la misma llamada
+> por el mismo criterio que `allowedPriceUnits`.
+>
+> **La regla de desaparición se extrajo a `resolveActiveSteps()`**, compartida por los dos
+> wizards: el diseño la escribía inline en cada uno y así podían divergir.
+>
+> **`?tags=` da 400 en B2, no se ignora.** Añadir `tags` a `CORE_SEARCH_QUERY_KEYS` sin
+> añadirlo a `SearchQueryDto` lo hace chocar con `forbidNonWhitelisted`. Es deliberado: un
+> enlace con `?tags=` que pareciera filtrar sin hacerlo sería peor que un error claro.
+>
+> #### ⚠️ CORRECCIÓN AL DISEÑO — el paso 6 del §1.5 no protege como se creía
+>
+> `RESERVED_ATTRIBUTE_NAMES` **no rechaza** un atributo llamado `tags`: se ejerció y el
+> `PATCH /admin/categories/:id` devuelve **200**. No es una validación de escritura, sino un
+> filtro en `FilterableAttributesResolver.toMap` que SALTA los nombres reservados. La
+> protección real son dos barreras distintas: el atributo nunca llega a ser filtro, y el
+> campo core gana en el documento porque se emite después del `...attributes`. Ambas
+> verificadas. Añadir un 400 al guardar queda como decisión abierta — afectaría a todos los
+> nombres reservados, no solo a los de tags. Detalle en `docs/estado-tecnico.md`.
+
 ### 4.8 Buscador de portada con sugerencia de tags
 
 **Endpoint:** `GET /tags/suggest?q=<texto>&category=<slug>&limit=8`

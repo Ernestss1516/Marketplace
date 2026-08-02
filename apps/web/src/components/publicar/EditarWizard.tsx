@@ -8,13 +8,15 @@ import { StepIndicator } from './StepIndicator';
 import { StepFotos, type UploadedImage } from './steps/StepFotos';
 import { StepDatos, type DatosData, priceTypeFromMode } from './steps/StepDatos';
 import { StepAtributos } from './steps/StepAtributos';
+import { StepTags } from './steps/StepTags';
 import { StepUbicacion, type UbicacionData } from './steps/StepUbicacion';
+import { resolveActiveSteps } from './PublicarWizard';
 import { updateListing } from '@/lib/api/anuncios';
 import { toUserMessage } from '@/lib/api/client';
 import { useApiAction } from '@/lib/api/use-api-action';
 import { useRequireAuth } from '@/hooks/use-require-auth';
 import { filterSchemaByType, resolveLinkedOptions } from '@/lib/attribute-schema';
-import type { AttributeSchema, Condition, PriceUnit } from '@/types';
+import type { AttributeSchema, Condition, PriceUnit, TagRef } from '@/types';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -26,16 +28,24 @@ export interface EditarWizardData extends DatosData, UbicacionData {
   /** RP.3 — formatos efectivos de la categoría YA ASIGNADA (aquí no se puede
    *  cambiar de categoría, así que la lista es fija durante toda la edición). */
   allowedPriceUnits: PriceUnit[];
+  /** B2 — tags efectivos de la categoría del anuncio. Fija durante la edición, por
+   *  lo mismo que `allowedPriceUnits`: aquí no se cambia de categoría. */
+  availableTags: TagRef[];
+  /** B2 — tope vigente (maxTagsPerListing). */
+  maxTags: number;
   images: UploadedImage[];
   attributes: Record<string, string>;
+  /** B2 — slugs ya asignados al anuncio, precargados. */
+  tags: string[];
 }
 
-type StepId = 'fotos' | 'datos' | 'atributos' | 'ubicacion';
+type StepId = 'fotos' | 'datos' | 'atributos' | 'tags' | 'ubicacion';
 
 const ALL_STEPS: { id: StepId; label: string }[] = [
   { id: 'fotos', label: 'Fotos' },
   { id: 'datos', label: 'Datos' },
   { id: 'atributos', label: 'Atributos' },
+  { id: 'tags', label: 'Etiquetas' },
   { id: 'ubicacion', label: 'Ubicación' },
 ];
 
@@ -105,6 +115,16 @@ function validateStep(id: StepId, data: EditarWizardData): Record<string, string
     }
   }
 
+  if (id === 'tags') {
+    // Nunca bloquea por falta (no son obligatorios); solo por pasarse del tope, que
+    // la UI ya impide. Aquí importa más que en el alta: un anuncio antiguo puede
+    // llevar más tags que el tope actual, así que este aviso es lo que le dice al
+    // vendedor cuántos quitar antes de guardar (el backend daría 422 si no).
+    if (data.tags.length > data.maxTags) {
+      errors.tags = `Como máximo ${data.maxTags} etiquetas; el anuncio tiene ${data.tags.length}.`;
+    }
+  }
+
   if (id === 'ubicacion') {
     if (!data.city.trim()) errors.city = 'La ciudad es obligatoria.';
     if (!data.province.trim()) errors.province = 'La provincia es obligatoria.';
@@ -140,10 +160,9 @@ export function EditarWizard({ listingId, token, initialData }: EditarWizardProp
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  // Skip atributos if the category has no schema
-  const activeSteps = data.attributeSchema.length > 0
-    ? ALL_STEPS
-    : ALL_STEPS.filter((s) => s.id !== 'atributos');
+  // Skip 'atributos' sin schema y 'tags' sin tags efectivos — misma regla y misma
+  // función que en PublicarWizard, para que los dos wizards no puedan divergir.
+  const activeSteps = resolveActiveSteps(ALL_STEPS, data);
 
   const currentIndex = activeSteps.findIndex((s) => s.id === currentStepId);
   const isLast = currentIndex === activeSteps.length - 1;
@@ -216,6 +235,11 @@ export function EditarWizard({ listingId, token, initialData }: EditarWizardProp
             // de un anuncio cuya edición no lo tocaba.
             ...(nextPriceUnit !== initialPriceUnit && { priceUnit: nextPriceUnit }),
             attributes: buildAttributes(data.attributes, filterSchemaByType(data.attributeSchema, data.type)),
+            // B2 — se envían SIEMPRE (no solo si cambian, a diferencia de priceUnit):
+            // el DTO trata `tags` como reemplazo completo, así que omitirlos los
+            // dejaría intactos y una deselección no se guardaría nunca. Aquí no se
+            // puede cambiar de categoría, así que enviarlos no revalida nada más.
+            tags: data.tags,
             city: data.city,
             province: data.province,
             postalCode: data.postalCode || undefined,
@@ -282,6 +306,16 @@ export function EditarWizard({ listingId, token, initialData }: EditarWizardProp
             schema={filterSchemaByType(data.attributeSchema, data.type)}
             values={data.attributes}
             onChange={(attrs) => update({ attributes: attrs })}
+            errors={errors}
+          />
+        )}
+
+        {currentStepId === 'tags' && (
+          <StepTags
+            available={data.availableTags}
+            selected={data.tags}
+            max={data.maxTags}
+            onChange={(tags) => update({ tags })}
             errors={errors}
           />
         )}

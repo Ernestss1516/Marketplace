@@ -48,6 +48,10 @@ export default async function EditarAnuncioPage({
     // el backend). Aquí la categoría no se puede cambiar, así que la lista es
     // fija durante toda la edición.
     allowedPriceUnits: category.allowedPriceUnits ?? [],
+    // B2 — tags efectivos de la categoría y tope vigente, del mismo GET que ya se
+    // hacía. Sin tags → el wizard omite el paso (regla de desaparición).
+    availableTags: category.tags ?? [],
+    maxTags: category.maxTags ?? 0,
     // Images — preloaded with backend IDs so the wizard can manage them.
     // localId reuses img.id (a UUID from the DB, unique within the listing).
     images: listing.images.map((img) => ({
@@ -75,6 +79,13 @@ export default async function EditarAnuncioPage({
     attributes: Object.fromEntries(
       Object.entries(listing.attributes).map(([k, v]) => [k, String(v)]),
     ),
+    // B2 — precarga: los tags que el anuncio YA tiene. Se filtran contra los efectivos
+    // porque un tag puede haber dejado de ofrecerse en la categoría (o haberse
+    // desactivado) después de publicarse: mostrarlo marcado sería ofrecer algo que el
+    // backend rechazaría al guardar. El anuncio lo conserva mientras no se edite.
+    tags: (listing.tags ?? [])
+      .map((t) => t.slug)
+      .filter((slug) => (category.tags ?? []).some((t) => t.slug === slug)),
     // Ubicacion
     city: listing.city ?? '',
     province: listing.province ?? '',

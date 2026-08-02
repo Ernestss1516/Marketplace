@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { ChevronRight, Loader2 } from 'lucide-react';
 import { getCategoryBySlug } from '@/lib/api/categorias';
-import type { Category, AttributeSchema, ListingTypePolicy, PriceUnit } from '@/types';
+import type { Category, AttributeSchema, ListingTypePolicy, PriceUnit, TagRef } from '@/types';
 
 interface CategoryData {
   categoryId: string;
@@ -14,6 +14,11 @@ interface CategoryData {
   /** RP.3 — formatos de precio EFECTIVOS de la categoría (ya resueltos por el
    *  backend). El wizard los pasa a StepDatos para acotar el selector. */
   allowedPriceUnits: PriceUnit[];
+  /** B2 — tags efectivos (propios + heredados). Lista vacía → el wizard OMITE el
+   *  paso de etiquetas, igual que omite 'atributos' sin schema. */
+  availableTags: TagRef[];
+  /** B2 — tope vigente de etiquetas por anuncio. */
+  maxTags: number;
 }
 
 interface StepCategoriaProps {
@@ -50,6 +55,11 @@ export function StepCategoria({ categories, selected, onComplete }: StepCategori
         // igual que allowedListingType. `?? []` cubre una API antigua sin el campo:
         // lista vacía → el selector no se muestra → comportamiento pre-RP.3.
         allowedPriceUnits: full.allowedPriceUnits ?? [],
+        // B2 — mismo criterio y misma llamada: el backend ya resolvió la herencia
+        // (propios + del padre, solo activos). `?? []` cubre una API anterior a B2:
+        // sin tags el wizard omite el paso, que es el comportamiento pre-B2.
+        availableTags: full.tags ?? [],
+        maxTags: full.maxTags ?? 0,
       });
     } catch {
       setError('No se pudo cargar la categoría. Inténtalo de nuevo.');

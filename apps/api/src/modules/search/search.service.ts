@@ -48,6 +48,14 @@ export interface ListingDocument {
   publishedAt: number;
   /** 1 if listing has an active (non-revoked, non-expired) FEATURED_LISTING entitlement; 0 otherwise. */
   boostScore: 0 | 1;
+  /** B2 — slugs de los tags del anuncio. Filtrable y facetable: es lo que viajará en
+   *  `?tags=` y lo que alimenta la faceta. El FILTRO en sí es B3; B2 solo indexa. */
+  tags: string[];
+  /** B2 — nombres visibles de esos mismos tags. SOLO searchable, NUNCA filtrable:
+   *  existe para que "coche automatico" en el buscador libre encuentre los anuncios
+   *  con el tag "Cambio automático". Filtrar por nombre sería filtrar por un texto
+   *  que el admin puede renombrar; para eso está el slug, que es inmutable. */
+  tagNames: string[];
   /** Flattened category-specific attributes (brand, km, sqm, rooms, gearbox, gender, …). */
   [attribute: string]: unknown;
 }
@@ -59,6 +67,11 @@ export interface ListingDocument {
 const SEARCHABLE_ATTRIBUTES = [
   // Order defines relevance priority: first = most important.
   'title',
+  // B2 — DESPUÉS de title y ANTES de description a propósito: un tag es vocabulario
+  // controlado que alguien eligió deliberadamente, así que pesa más que la prosa
+  // libre de la descripción; pero menos que el título, que es lo que el vendedor
+  // decidió que ES el anuncio.
+  'tagNames',
   'brand',
   'model',
   'categoryName',
@@ -91,6 +104,9 @@ const CORE_FILTERABLE_ATTRIBUTES = [
   // Filterable (not just sortable) so the controller can query "only boosted"
   // for the promoted block (RÁFAGA 1 — política de ordenación C).
   'boostScore',
+  // B2 — filtrable SIEMPRE, como priceUnit: declararlo aquí no filtra nada por sí
+  // solo, solo habilita que se PUEDA. `tagNames` NO está: es searchable y nada más.
+  'tags',
 ];
 
 const SORTABLE_ATTRIBUTES = [
@@ -128,6 +144,11 @@ const NATIVE_FACET_ATTRIBUTES = [
   // un solo valor.
   'priceUnit',
   'province',
+  // B2 — se pide ya, aunque B2 no muestre el filtro: es una faceta más en la misma
+  // petición (sin viaje extra, mismo razonamiento que priceUnit) y deja los conteos
+  // por tag listos para cuando B3 pinte la sección "Etiquetas". Pedir una faceta no
+  // altera los hits.
+  'tags',
 ];
 
 // Política de ordenación C (RÁFAGA 1, 2026-07-13): boostScore NO participa en las
@@ -184,6 +205,11 @@ export const INDEX_INCLUDE = {
   // Public seller fields stored in the index so the map panel can display them
   // without a per-selection API fetch.
   seller: { select: { name: true, slug: true, avatarUrl: true } },
+  // B2 — tags del anuncio. Como todo lo de aquí, lo COMPARTEN el processor de
+  // indexación y `pnpm reindex`: si solo uno lo cargara, un mismo anuncio tendría
+  // documentos distintos según por qué camino se indexara (con tags al editarlo,
+  // sin tags al reindexar en masa) — exactamente lo que advierte la nota de arriba.
+  tags: { select: { tag: { select: { slug: true, name: true } } } },
 } as const;
 
 type ListingWithRelations = Listing & {
@@ -191,6 +217,7 @@ type ListingWithRelations = Listing & {
   images: ListingImage[];
   entitlements: Pick<Entitlement, 'expiresAt'>[];
   seller: { name: string; slug: string; avatarUrl: string | null };
+  tags: { tag: { slug: string; name: string } }[];
 };
 
 export interface SearchParams {
@@ -494,6 +521,12 @@ export class SearchService implements OnModuleInit {
       )
         ? 1
         : 0,
+      // B2 — DESPUÉS del `...attributes`, como todo campo core: un atributo de
+      // categoría que se llamara `tags` no puede pisarlos. Que además no PUEDA
+      // llamarse así lo garantiza RESERVED_ATTRIBUTE_NAMES; esto es la segunda
+      // barrera, la estructural, para los datos que ya estuvieran sucios.
+      tags: listing.tags.map((t) => t.tag.slug),
+      tagNames: listing.tags.map((t) => t.tag.name),
     };
   }
 }

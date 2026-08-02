@@ -165,6 +165,24 @@ export interface CategoryWithSchema extends Category {
    *  global [ONE_TIME]) — RP.1 los resuelve en findBySlug. El wizard solo ofrece
    *  estos; con uno solo no pregunta nada. */
   allowedPriceUnits: PriceUnit[];
+  /** B2 — tags EFECTIVOS de la categoría (propios + heredados del padre, solo
+   *  activos, los propios primero). Los resuelve el backend en el mismo
+   *  `GET /categories/:slug` que el wizard ya pide al elegir categoría, así que no
+   *  hace falta un segundo viaje. Opcional por el mismo motivo que
+   *  `allowedPriceUnits`: una API anterior a B2 no lo trae → sin tags → el paso del
+   *  wizard no existe, que es el comportamiento pre-B2. */
+  tags?: TagRef[];
+  /** B2 — tope vigente de etiquetas por anuncio (`maxTagsPerListing`, configurable).
+   *  Viaja aquí para que el contador del wizard use el número REAL en vez de una
+   *  copia del default escrita en el front. */
+  maxTags?: number;
+}
+
+/** B2 — una etiqueta tal como la ve el público: identificar, filtrar y mostrar. */
+export interface TagRef {
+  id: string;
+  slug: string;
+  name: string;
 }
 
 // ── Sponsored ads (H6.6) ─────────────────────────────────────────────────────
@@ -264,6 +282,10 @@ export interface Listing {
   condition?: Condition;
   status: ListingStatus;
   attributes: Record<string, unknown>;
+  /** B2 — tags asignados al anuncio, ya aplanados a TagRef[] por el backend.
+   *  Opcional: la ficha se cachea en Redis 5 min, así que justo tras desplegar
+   *  habrá payloads sin él (mismo precedente que `category.parent` en A1). */
+  tags?: TagRef[];
   city?: string;
   province?: string;
   postalCode?: string;
@@ -335,6 +357,8 @@ export interface CreateListingPayload {
   condition?: Condition;
   categoryId: string;
   attributes?: Record<string, unknown>;
+  /** B2 — etiquetas por SLUG. El backend valida pertenencia a la categoría y tope. */
+  tags?: string[];
   city: string;
   province: string;
   postalCode?: string;
@@ -370,6 +394,10 @@ export interface UpdateListingPayload {
   condition?: Condition;
   categoryId?: string;
   attributes?: Record<string, unknown>;
+  /** B2 — etiquetas por SLUG. REEMPLAZO COMPLETO: `[]` las quita todas. Omitirlo las
+   *  deja intactas, que es lo que protege a un anuncio antiguo de revalidarse contra
+   *  un tope que bajó después de publicarse. */
+  tags?: string[];
   city?: string;
   province?: string;
   postalCode?: string;
@@ -400,6 +428,10 @@ export interface MyListing {
   condition?: Condition;
   status: ListingStatus;
   attributes: Record<string, unknown>;
+  /** B2 — tags asignados al anuncio, ya aplanados a TagRef[] por el backend.
+   *  Opcional: la ficha se cachea en Redis 5 min, así que justo tras desplegar
+   *  habrá payloads sin él (mismo precedente que `category.parent` en A1). */
+  tags?: TagRef[];
   city?: string;
   province?: string;
   postalCode?: string;

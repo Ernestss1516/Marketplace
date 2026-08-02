@@ -10,6 +10,7 @@ import type { ListingActivationService } from '../listing-activation/listing-act
 import type { MessagingService } from '../messaging/messaging.service';
 import type { NotificationsService } from '../notifications/notifications.service';
 import type { ReviewsService } from '../reviews/reviews.service';
+import type { TagsService } from '../tags/tags.service';
 import type { CreateListingDto } from './dto/create-listing.dto';
 
 function p2002(): Prisma.PrismaClientKnownRequestError {
@@ -42,6 +43,8 @@ describe('ListingsService.create — reintento de slug ante P2002', () => {
     prisma = {
       category: {
         findUnique: jest.fn().mockResolvedValue({
+          // B2 — create() pide el slug para resolver los tags efectivos.
+          slug: 'bicicletas',
           attributeSchema: [],
           allowedListingType: 'BOTH',
           // columna NOT NULL, siempre presente en selects reales (el mock debe
@@ -65,6 +68,9 @@ describe('ListingsService.create — reintento de slug ante P2002', () => {
       {} as MessagingService,
       {} as NotificationsService,
       {} as ReviewsService,
+      // B2 — este spec va del reintento de slug, no de los tags: el dto no los lleva,
+      // así que basta con que la resolución devuelva la lista vacía.
+      { resolveTagsForListing: jest.fn().mockResolvedValue([]) } as unknown as TagsService,
     );
     errorSpy = jest.spyOn((service as unknown as { logger: { error: (...a: unknown[]) => void } }).logger, 'error');
   });

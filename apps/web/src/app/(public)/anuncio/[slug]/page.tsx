@@ -174,6 +174,23 @@ export default async function AnuncioPage({
               />
             )}
 
+            {/* B2 — etiquetas del anuncio. Misma regla de desaparición que los
+                atributos: sin tags no se pinta la sección, en vez de un hueco con un
+                título vacío. Todavía NO enlazan a ninguna búsqueda filtrada — el
+                filtro por tags es B3; poner el href ahora llevaría a un 400. */}
+            {listing.tags && listing.tags.length > 0 && (
+              <div className="flex flex-wrap gap-1.5" data-testid="ficha-tags">
+                {listing.tags.map((tag) => (
+                  <span
+                    key={tag.slug}
+                    className="rounded-full border bg-muted/40 px-2.5 py-1 text-xs font-medium"
+                  >
+                    {tag.name}
+                  </span>
+                ))}
+              </div>
+            )}
+
             {/* Condition */}
             {listing.condition && (
               <p className="text-sm">

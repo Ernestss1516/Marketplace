@@ -14,6 +14,7 @@ import {
   resolvePriceUnitSelection,
 } from './steps/StepDatos';
 import { StepAtributos } from './steps/StepAtributos';
+import { StepTags } from './steps/StepTags';
 import { StepUbicacion, type UbicacionData } from './steps/StepUbicacion';
 import { StepPrevisualizacion } from './steps/StepPrevisualizacion';
 import { createListing, publishListing } from '@/lib/api/anuncios';
@@ -21,7 +22,7 @@ import { toUserMessage } from '@/lib/api/client';
 import { useApiAction } from '@/lib/api/use-api-action';
 import { useRequireAuth } from '@/hooks/use-require-auth';
 import { filterSchemaByType, resolveLinkedOptions } from '@/lib/attribute-schema';
-import type { Category, AttributeSchema, ListingType, ListingTypePolicy, Condition, PriceUnit } from '@/types';
+import type { Category, AttributeSchema, ListingType, ListingTypePolicy, Condition, PriceUnit, TagRef } from '@/types';
 
 // ── Shared state shape ────────────────────────────────────────────────────────
 
@@ -34,24 +35,48 @@ export interface WizardData extends DatosData, UbicacionData {
   allowedListingType: ListingTypePolicy;
   /** RP.3 — formatos efectivos de la categoría; acotan el selector de StepDatos. */
   allowedPriceUnits: PriceUnit[];
+  /** B2 — tags efectivos de la categoría. Vacío → el paso 'tags' no existe. */
+  availableTags: TagRef[];
+  /** B2 — tope vigente (maxTagsPerListing), tal como lo da el backend. */
+  maxTags: number;
   // Step 2
   images: UploadedImage[];
   // Step 4
   attributes: Record<string, string>;
+  /** B2 — slugs elegidos. Se descartan en silencio los que no valgan al cambiar de categoría. */
+  tags: string[];
 }
 
 // ── Step IDs ──────────────────────────────────────────────────────────────────
 
-type StepId = 'categoria' | 'fotos' | 'datos' | 'atributos' | 'ubicacion' | 'previsualizacion';
+type StepId = 'categoria' | 'fotos' | 'datos' | 'atributos' | 'tags' | 'ubicacion' | 'previsualizacion';
 
 const ALL_STEPS: { id: StepId; label: string }[] = [
   { id: 'categoria', label: 'Categoría' },
   { id: 'fotos', label: 'Fotos' },
   { id: 'datos', label: 'Datos' },
   { id: 'atributos', label: 'Atributos' },
+  { id: 'tags', label: 'Etiquetas' },
   { id: 'ubicacion', label: 'Ubicación' },
   { id: 'previsualizacion', label: 'Publicar' },
 ];
+
+/**
+ * B2 — REGLA DE DESAPARICIÓN, encadenada. 'atributos' ya desaparecía sin schema;
+ * 'tags' desaparece sin tags efectivos. Las dos conviven: un wizard puede no tener
+ * ninguno de los dos pasos, uno, o los dos. Se extrae a función porque ahora la usan
+ * los dos wizards y `handleCategoryComplete`, que necesita saber el próximo paso
+ * ANTES de que el estado se haya volcado.
+ */
+export function resolveActiveSteps<T extends { id: string; label: string }>(
+  steps: T[],
+  d: { attributeSchema: unknown[]; availableTags: unknown[] },
+): T[] {
+  let activos = steps;
+  if (d.attributeSchema.length === 0) activos = activos.filter((s) => s.id !== 'atributos');
+  if (d.availableTags.length === 0) activos = activos.filter((s) => s.id !== 'tags');
+  return activos;
+}
 
 // ── Validation ────────────────────────────────────────────────────────────────
 
@@ -115,6 +140,17 @@ function validateStep(id: StepId, data: WizardData): Record<string, string> {
     }
   }
 
+  if (id === 'tags') {
+    // NUNCA bloquea por falta: los tags son opcionales. Lo único que bloquea es
+    // pasarse del tope — situación que la UI ya impide (los no marcados se
+    // deshabilitan al llegar al límite), pero que el estado puede alcanzar tras idas
+    // y venidas si un admin baja el tope a media sesión. Mismo motivo por el que se
+    // revalidan los selects vinculados.
+    if (data.tags.length > data.maxTags) {
+      errors.tags = `Como máximo ${data.maxTags} etiquetas; has elegido ${data.tags.length}.`;
+    }
+  }
+
   if (id === 'ubicacion') {
     if (!data.city.trim()) errors.city = 'La ciudad es obligatoria.';
     if (!data.province.trim()) errors.province = 'La provincia es obligatoria.';
@@ -162,6 +198,8 @@ const INITIAL_DATA: WizardData = {
   attributeSchema: [],
   allowedListingType: 'BOTH',
   allowedPriceUnits: [],
+  availableTags: [],
+  maxTags: 0,
   // Step 2
   images: [],
   // Step 3
@@ -174,6 +212,7 @@ const INITIAL_DATA: WizardData = {
   priceUnit: 'ONE_TIME',
   // Step 4
   attributes: {},
+  tags: [],
   // Step 5
   city: '',
   province: '',
@@ -198,10 +237,8 @@ export function PublicarWizard({ token, categories, initialLocation, initialPhon
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [pendingReview, setPendingReview] = useState(false);
 
-  // Active step list — skip 'atributos' when the chosen category has no schema
-  const activeSteps = data.attributeSchema.length > 0
-    ? ALL_STEPS
-    : ALL_STEPS.filter((s) => s.id !== 'atributos');
+  // Skip 'atributos' sin schema y 'tags' sin tags efectivos (ver resolveActiveSteps).
+  const activeSteps = resolveActiveSteps(ALL_STEPS, data);
 
   const currentIndex = activeSteps.findIndex((s) => s.id === currentStepId);
 
@@ -251,11 +288,18 @@ export function PublicarWizard({ token, categories, initialLocation, initialPhon
     attributeSchema: AttributeSchema[];
     allowedListingType: ListingTypePolicy;
     allowedPriceUnits: PriceUnit[];
+    availableTags: TagRef[];
+    maxTags: number;
   }) {
     setData((prev) => ({
       ...prev,
       ...cat,
       attributes: {},
+      // B2 — los tags que la NUEVA categoría no ofrece se descartan EN SILENCIO, el
+      // mismo criterio con el que los atributos se reinician arriba. Los que sí
+      // siguen valiendo se conservan: rehacer la selección tras un cambio de
+      // categoría sería fricción gratuita cuando el tag es válido en las dos.
+      tags: prev.tags.filter((slug) => cat.availableTags.some((t) => t.slug === slug)),
       // La política de la nueva categoría manda: PRODUCT_ONLY/SERVICE_ONLY fija
       // el tipo sin preguntar; BOTH conserva la elección previa (si la había).
       type:
@@ -306,6 +350,10 @@ export function PublicarWizard({ token, categories, initialLocation, initialPhon
             // los atributos que aplican al tipo final, aunque la memoria conserve
             // valores de un tipo anterior (idas y venidas en el wizard).
             attributes: buildAttributes(data.attributes, filterSchemaByType(data.attributeSchema, data.type)),
+            // B2 — mismo criterio que los atributos: se envía lo que sigue siendo
+            // válido para la categoría ACTUAL, no lo que la memoria arrastre de una
+            // categoría anterior. `handleCategoryComplete` ya poda, esto es el cinturón.
+            tags: data.tags.filter((slug) => data.availableTags.some((t) => t.slug === slug)),
             city: data.city,
             province: data.province,
             postalCode: data.postalCode || undefined,
@@ -356,6 +404,8 @@ export function PublicarWizard({ token, categories, initialLocation, initialPhon
                     attributeSchema: data.attributeSchema,
                     allowedListingType: data.allowedListingType,
                     allowedPriceUnits: data.allowedPriceUnits,
+                    availableTags: data.availableTags,
+                    maxTags: data.maxTags,
                   }
                 : null
             }
@@ -395,6 +445,16 @@ export function PublicarWizard({ token, categories, initialLocation, initialPhon
             schema={filterSchemaByType(data.attributeSchema, data.type)}
             values={data.attributes}
             onChange={(attrs) => update({ attributes: attrs })}
+            errors={errors}
+          />
+        )}
+
+        {currentStepId === 'tags' && (
+          <StepTags
+            available={data.availableTags}
+            selected={data.tags}
+            max={data.maxTags}
+            onChange={(tags) => update({ tags })}
             errors={errors}
           />
         )}

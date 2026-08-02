@@ -9518,6 +9518,174 @@ modificada.
 
 ---
 
+## Búsqueda + Tags — RÁFAGA B2: tags en el anuncio (cerrada)
+
+Diseño §4.5–§4.7. B1 construyó el vocabulario; B2 lo pone **en uso**: el usuario elige
+etiquetas al publicar, se validan, se indexan y se ven en la ficha. **NADA filtra por tags
+todavía** — eso es B3.
+
+### Backend
+
+**DTO.** `tags?: string[]` en create y update, por **SLUG** (no id): es lo que viajará en la
+URL de búsqueda y lo que se indexa, así que un solo identificador para las tres cosas. El DTO
+valida solo la FORMA (`@IsArray` + `@IsString({each:true})`), igual que `attributes` se queda
+en `@IsObject`: qué slugs valen depende de la categoría y el tope depende de un Setting.
+**Sin `@ArrayMaxSize`** a propósito — clavar el tope ahí crearía un segundo sitio donde vive
+el mismo número.
+
+**Validación** (`TagsService.resolveTagsForListing`) — el punto donde `maxTagsPerListing`
+por fin se usa. Dos reglas, las dos con **422**: pertenencia al set EFECTIVO de la categoría
+(propios + heredados, solo activos) y `length <= max`, con el tope en el mensaje. Deduplica
+antes: el mismo tag dos veces no son dos tags, y sin deduplicar reventaría la clave compuesta
+de `ListingTag` con un P2002 opaco.
+
+**Disparador por-campo en `update()`** — la cuarta validación con disparador propio, junto a
+atributos, tipo y formato de precio. La asimetría es deliberada:
+
+| Qué llega en el PATCH | Qué pasa con los tags |
+|---|---|
+| `tags` presente | Validación ESTRICTA contra la categoría destino y el tope → 422 si algo falla. El usuario los eligió, puede corregirlos. |
+| Solo cambia `categoryId` | Los que la categoría destino no ofrece se **podan en silencio**; la edición pasa. El usuario no eligió romperlos, movió el anuncio. |
+| Ninguna de las dos | No se tocan. **Grandfathering**: un anuncio con 8 tags y un tope nuevo de 5 se sigue editando. |
+
+`pruneTagsForCategory` **no** aplica el tope, a propósito: es una poda, nunca puede aumentar
+el número de tags, así que un anuncio grandfathered sobrevive también a un cambio de
+categoría.
+
+**Escritura atómica.** `create` anida `tags: { create: [...] }` dentro de
+`prisma.listing.create`, y `update` anida `deleteMany + create` dentro de
+`prisma.listing.update`. Un write anidado de Prisma va en la misma transacción implícita que
+la fila padre: o se guardan anuncio y tags, o no se guarda nada.
+
+**Lectura.** `LISTING_INCLUDE` trae los tags ordenados por el `orden` del CATÁLOGO
+(`ListingTag` no tiene orden propio), y tanto `findBySlug` como `findMineById` los **aplanan**
+a `TagRef[]` — la tabla puente es un detalle de almacenamiento. Se aplanan en el mismo sitio
+donde `phone` ya se descarta, así que la forma pública se decide en un punto. *Ojo con la
+caché*: los blobs de Redis anteriores a B2 no llevan `tags`; se autocorrige en 5 min y el
+front lo trata como opcional (precedente de `category.parent` en A1).
+
+**`GET /categories/:slug` gana `tags` y `maxTags`.** El segundo es global, no de la
+categoría, y viaja aquí por lo mismo que `allowedPriceUnits`: esta llamada es "todo lo que el
+wizard necesita para configurarse". La alternativa era escribir un `5` en el front — la misma
+divergencia con `DEFAULT_MAX_TAGS_PER_LISTING` que ya costó una ráfaga evitar.
+
+### Indexación — los 6 pasos del §1.5
+
+1. `INDEX_INCLUDE` += `tags: { select: { tag: { select: { slug, name } } } }` — **compartido**
+   por el processor y `pnpm reindex`, como advierte su nota: si solo uno lo cargara, un mismo
+   anuncio tendría documentos distintos según por qué camino se indexara.
+2. `toDocument()` emite `tags` (slugs) y `tagNames` (nombres) **DESPUÉS del `...attributes`**.
+3. `CORE_FILTERABLE_ATTRIBUTES` += `tags`. `tagNames` NO: es searchable y nada más.
+4. `SEARCHABLE_ATTRIBUTES` += `tagNames`, **después de `title` y antes de `description`** — un
+   tag es vocabulario que alguien eligió, pesa más que la prosa libre; menos que el título.
+5. `NATIVE_FACET_ATTRIBUTES` += `tags` — una faceta más en la misma petición, sin viaje extra
+   (razonamiento de `priceUnit`), para que B3 tenga los conteos listos.
+6. `RESERVED_ATTRIBUTE_NAMES` += `tags`, `tagNames`; `CORE_SEARCH_QUERY_KEYS` += `tags`.
+
+**El límite de B2, explícito:** añadir `tags` a `CORE_SEARCH_QUERY_KEYS` sin añadirlo a
+`SearchQueryDto` hace que `?tags=x` choque con `forbidNonWhitelisted` y devuelva **400**. Es
+lo que se quiere: el filtro llega en B3 y hasta entonces el parámetro se **rechaza** en vez de
+ignorarse en silencio — que sería peor, porque un enlace con `?tags=` parecería filtrar sin
+hacerlo. Verificado.
+
+**Reindex:** no obligatorio (un documento sin `tags` no casa con `tags=x`, que es la semántica
+correcta). `pnpm reindex` queda **recomendado** tras desplegar, para normalizar `tags: []` en
+los documentos viejos.
+
+### Frontend
+
+Paso `StepTags` entre `atributos` y `ubicacion`, en los **dos** wizards. La regla de
+desaparición se extrajo a `resolveActiveSteps(steps, data)`, compartida por ambos para que no
+puedan divergir: sin schema desaparece `atributos`, sin tags efectivos desaparece `tags`, y
+las dos reglas conviven. `StepCategoria` guarda `availableTags`/`maxTags` del mismo
+`GET /categories/:slug` que ya pedía. Al cambiar de categoría, los tags que la nueva no
+ofrece se descartan **en silencio** y los que siguen valiendo se conservan.
+`validateStep('tags')` nunca bloquea por falta (no son obligatorios); solo por superar el
+tope, situación que la UI ya impide pero que el estado puede alcanzar tras idas y venidas.
+`EditarWizard` precarga los tags del anuncio, filtrados contra los efectivos (uno puede
+haberse desactivado tras publicarse). La ficha los pinta como chips, con la misma regla de
+desaparición; **sin enlace**, porque el destino filtrado no existe hasta B3.
+
+### ⚠️ Hallazgo — `RESERVED_ATTRIBUTE_NAMES` no rechaza, solo ignora
+
+El brief daba por hecho que crear un atributo de categoría llamado `tags` devolvería 400.
+**No lo hace**: se ejerció y el `PATCH /admin/categories/:id` responde **200**.
+`RESERVED_ATTRIBUTE_NAMES` no es una validación de escritura — vive en
+`FilterableAttributesResolver.toMap`, que **salta** los nombres reservados al construir el
+mapa de atributos filtrables. Es preexistente y afecta a todos los nombres core, no solo a los
+de tags.
+
+El requisito de oro se cumple igual, porque lo que pide es que **ningún atributo pueda
+colisionar**, y hay dos barreras que sí funcionan: (1) un atributo llamado `tags` nunca llega
+a ser filtro, y (2) aunque un anuncio lo lleve en su bag, el documento tiene los slugs, porque
+los campos core se emiten después del spread. Las dos están verificadas. **Queda como decisión
+abierta** si añadir un 400 al guardar: sería una validación nueva sobre un endpoint existente
+que afectaría a todos los nombres reservados, no solo a los de B2, y el propio comentario del
+resolver recuerda que ya hubo datos con nombres colisionantes (`type` vs `itemType` en el
+seed) — así que el cambio necesita mirar antes qué hay en producción.
+
+### Verificación
+
+`tags-b2.e2e-spec.ts` **21 tests** y `search.service.todocument.spec.ts` **5**.
+
+**Validación por mutación (tres):**
+
+| Mutación | Rojos |
+|---|---|
+| Quitar la comprobación de pertenencia al set efectivo | **7** — tag ajeno, tag huérfano, tag desactivado, PATCH con categoría nueva (+3 arrastrados) |
+| Quitar el tope de `resolveTagsForListing` | **3** — los tres del tope, incluido el configurable |
+| Emitir `tags` ANTES del `...attributes` | **2** — las dos colisiones del spec unitario |
+
+**Nota de método — una carrera que casi da un falso verde.** La tercera mutación se probó
+primero en el e2e (crear → publicar → cola → Meilisearch → `getDocument`) y salía **VERDE**:
+`waitForIndex` solo espera a que el documento EXISTA, y la aserción leía una versión que aún
+podía cambiar. Se detectó porque añadir una consulta a Postgres antes de la lectura —unos
+milisegundos— la volvía roja. El orden de las claves de un objeto literal es lógica pura y
+determinista; medirlo a través de tres asíncronos mide los tiempos, no el código. Por eso esa
+afirmación vive ahora en un test **unitario** de `toDocument`, donde la mutación falla siempre,
+y el e2e conserva lo que sí es observable de punta a punta (que un atributo `tags` no filtra).
+
+**Batería.** Backend e2e **1432/1434 en dos corridas consecutivas idénticas** (89 suites);
+unitarios api **164/164** (17 suites, +5 del spec de `toDocument`); web 357/357; `tsc` limpio
+en api y web; lint igual que el baseline (6).
+
+Los **2 rojos son PREEXISTENTES**, y se midió para poder afirmarlo:
+
+| | Tests | Suites | Rojos |
+|---|---|---|---|
+| HEAD limpio (con `git stash`) | 1413 | 88 | **6** |
+| Con B2 | 1434 | 89 | **2** |
+
+Los 21 tests y la suite de más son exactamente `tags-b2.e2e-spec.ts`. Los rojos caen siempre
+en las mismas dos suites —`alert-matching` y `queue-retry`— y en HEAD son **más** (6) que con
+B2 (2), así que no los introduce esta ráfaga.
+
+### ⚠️ Test frágil que hay que reportar — `alert-matching` y `queue-retry`
+
+Estas dos suites **eran verdes hace unas horas**: al cerrar la ráfaga anterior el mismo HEAD
+daba 1413/1413 en dos corridas idénticas. Sin ningún cambio de código en ellas, ahora el mismo
+commit da 1407/1413. Y en aislado la inestabilidad se mueve: corriendo `alert-matching` sola
+tres veces fallan **tres tests distintos** del bloque `renew() vs reserve()/closeDeal()` en dos
+corridas y ninguno en la tercera.
+
+Es inestabilidad de TIEMPOS, no de lógica: ambas suites esperan a que un job de BullMQ pase por
+Meilisearch y luego inspeccionan la cola (`getJobs(['completed','waiting','active','delayed'])`),
+que es una foto de algo que se está moviendo. `queue-retry` además cuenta reintentos de un spy
+que en la corrida fallida no se llegó a invocar (`attempts: 0`).
+
+Siguiendo el criterio de la ráfaga de saneamiento —"si un test que pasaba se pone rojo, ESO ES
+UN TEST FRÁGIL QUE HAY QUE REPORTAR, no un fallo del saneamiento"— **se reporta y no se
+parchea**: arreglarlas es trabajo propio (esperar a un estado observable en vez de a un
+instante de la cola), no algo que deba colarse dentro de B2.
+
+**Requisito de oro cumplido:** el sistema de atributos intacto (`...attributes` sigue primero,
+tags después); la búsqueda sin `?tags=` devuelve lo mismo; ningún test existente con lógica
+modificada — los dos retocados lo son por FIRMA, no por lógica: `listings.service.spec.ts`
+gana un mock para el parámetro nuevo del constructor y `EditarWizard.test.tsx` los campos
+nuevos del estado.
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.
