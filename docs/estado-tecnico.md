@@ -9042,8 +9042,8 @@ por el wizard). Esa batería aún no es "verde", pero por fin es **legible**: la
 rojos es estable y comparable sin baseline.
 
 **Lo que la limpieza destapó (no lo causó).**
-1. **`tickets-realtime` — carrera de producto en `messaging.gateway.ts`.** Es el único
-   rojo estable de la batería de backend. `handleConnection` es `async`: fija
+1. **`tickets-realtime` — carrera de producto en `messaging.gateway.ts`.** Era el único
+   rojo estable de la batería de backend. **✅ ARREGLADO** — ver la sección siguiente. `handleConnection` es `async`: fija
    `socket.data.userId` en el acto, pero `socket.data.role` solo **después** de ir a la
    base (`freshRole`). Socket.IO emite el `connect` del cliente en cuanto termina el
    handshake del transporte — no espera a que el handler async acabe. Así que un cliente
@@ -9076,6 +9076,74 @@ código de A1 (había quedado así tras un `git stash` para medir un baseline, y
 reconstruyó al recuperar A2). El resultado —15 rojos en el spec de A2— era del build viejo,
 no de las barreras. **Tras cualquier `stash`/`pop` que toque `apps/web`, reconstruir antes
 de leer un resultado de Playwright.**
+
+---
+
+## Fix — carrera en `handleConnection` del MessagingGateway (cerrado)
+
+**✅ CERRADO** (2026-08-02). Bug de R9 que llegó a producción; lo destapó el saneamiento
+de la base de test, que lo separó del ruido y lo dejó como el único rojo estable.
+
+**El bug.** `handleConnection` es `async`: fija `socket.data.userId` en el acto (tras
+verificar el JWT, que es síncrono) pero `socket.data.role` solo **después** de consultar la
+base (`freshRole`). Socket.IO le da el `connect` al cliente en cuanto termina el handshake
+del transporte — **no espera** a que el handler asíncrono acabe. Entre medias hay una
+ventana en la que `userId` está puesto y `role` no. `ticket:join` leía `socket.data.role`
+directamente, así que un **ADMIN o MODERATOR legítimo que emite el join en esa ventana era
+tratado como no-staff y rechazado con `Forbidden`**.
+
+**No era solo de test.** El cliente **re-emite sus joins en cada reconexión** (wifi,
+suspensión del portátil, cambio de red), que es exactamente el patrón que dispara la
+carrera. En la batería se veía como un rojo intermitente y se confundió dos veces con un
+flake: solo fallaba en la primera suite de la corrida (pool de Prisma frío → ventana más
+ancha), las vías que solo usan `userId` nunca fallaban, y la aserción del MODERATOR no lo
+veía porque la carrera produce justo la respuesta que ella espera.
+
+**Superficie real, acotada en la auditoría:** un solo gateway, dos `@SubscribeMessage`.
+`conversation:join` solo lee `userId` (síncrono) → inmune. `ticket:join` era el **único**
+lector de `socket.data.role` → el único afectado.
+
+**El arreglo (opción A del plan, con un matiz).** `handleConnection` guarda la **promesa**
+del rol en `socket.data.rolePromise` de forma **síncrona, antes del primer `await`**, y
+`ticket:join` la espera vía `resolveRole(socket)` en vez de leer un campo a medio poner.
+Invierte la dependencia: quien necesita el rol espera a que esté, en lugar de confiar en
+que `handleConnection` ya haya terminado. Y como es la misma promesa compartida, **no cuesta
+una consulta extra**: el join se engancha a la que ya está en vuelo.
+
+Guardar la promesa y no hacer `socket.data.role ?? await freshRole(...)` importa: `null` es
+un valor legítimo (usuario borrado entre el login y el join), y `??` lo confundiría con
+"aún no resuelto", disparando una consulta de más en cada join de un socket sin rol. Hay
+además un camino de respaldo —si no hubiera promesa, se resuelve contra la base— porque el
+fallo por defecto de un problema de orden no puede ser denegar a quien sí tiene permiso.
+
+**Las puertas de R9 siguen cerradas.** El arreglo solo cierra la ventana temporal; no
+relaja ninguna verificación. Verificado ejerciendo: un MODERATOR sigue SIN entrar en un
+ticket con `invoiceId`, un tercero sigue rechazado, y la nota interna sigue sin salir de
+`staff`.
+
+**Verificación — se ejerce la carrera, no el camino feliz.** Seis tests nuevos en
+`tickets-realtime.e2e-spec.ts` que emiten `ticket:join` **dentro del handler de `connect`**
+(mismo tick, sin esperas artificiales — el patrón del cliente real al reconectar) y repiten
+**8 veces** cada escenario, porque una carrera es probabilística y un intento suelto puede
+pasar por suerte. Incluyen un **contraste** (un tercero debe ser rechazado SIEMPRE en ese
+mismo escenario) para que "no hubo rechazo" no pueda pasar por no observarse nunca.
+
+**Validación por mutación**: revertido el fix a `socket.data.role`, los tests del ADMIN y
+del MODERATOR se ponen **rojos** y el de la puerta de factura sigue verde. Es la prueba de
+que ejercen la carrera y no el *timing*.
+
+**Batería:** dos corridas completas consecutivas de backend e2e, **1342/1342 las dos**
+(84/84 suites), y `tickets-realtime` 26/26 estable en tres corridas seguidas. Antes del fix
+eran 1335/1336 con ese rojo yendo y viniendo.
+
+**Residuo conocido, distinto y menor (no lo cubre este fix).** Sigue habiendo una ventana
+—la que dura `freshRole`— en la que el socket está conectado pero **aún no está en la sala
+`staff`**, porque a esa sala lo mete el propio `handleConnection`. No es un fallo de
+autorización (nadie es rechazado): es que un `ticket:message` emitido justo en ese instante
+no alcanza a ese socket. Cerrarla del todo exige resolver el rol en un **middleware de
+Socket.IO** (`server.use()`), que corre antes del `connect` del cliente; eso cambia además
+la semántica de error del handshake (`next(err)` → `connect_error` en vez de `disconnect`),
+así que es un cambio de más superficie y se deja anotado en vez de colarlo aquí.
 
 ---
 

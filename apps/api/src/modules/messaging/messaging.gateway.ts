@@ -71,6 +71,26 @@ export class MessagingGateway implements OnGatewayConnection, OnGatewayDisconnec
         secret: this.configService.getOrThrow<string>('jwt.secret'),
       });
       socket.data.userId = payload.sub;
+
+      // CARRERA DE handleConnection (arreglada) — la promesa se guarda AQUÍ, de
+      // forma SÍNCRONA, antes del primer `await`.
+      //
+      // El problema: este método es `async`, pero Socket.IO le da el `connect` al
+      // cliente en cuanto termina el handshake del transporte — NO espera a que
+      // acabe. `socket.data.userId` quedaba puesto en el acto, pero
+      // `socket.data.role` solo DESPUÉS de ir a la base. Un cliente que emite
+      // `ticket:join` nada más conectar (que es exactamente lo que hace el
+      // nuestro al reconectar: re-emite sus joins) caía en esa ventana y leía un
+      // rol `undefined` → un ADMIN legítimo tratado como no-staff y rechazado.
+      //
+      // Guardar la PROMESA en vez del valor invierte la dependencia: quien
+      // necesite el rol la espera (ver `resolveRole`), en vez de confiar en que
+      // handleConnection ya haya terminado. Y como es una sola promesa
+      // compartida, no cuesta una consulta extra: el join se engancha a la que
+      // ya está en vuelo.
+      const rolePromise = this.freshRole(payload.sub);
+      socket.data.rolePromise = rolePromise;
+
       // Auto-join user personal room so the bandeja receives message:new without
       // having to know which conversation rooms to subscribe to
       await socket.join(`user:${payload.sub}`);
@@ -84,7 +104,7 @@ export class MessagingGateway implements OnGatewayConnection, OnGatewayDisconnec
       // exactamente esto en cada request HTTP por el mismo motivo; el canal de
       // tiempo real no puede ser la puerta laxa por la que se cuela un rol
       // caducado, y esta sala recibe los avisos de TODOS los tickets.
-      const role = await this.freshRole(payload.sub);
+      const role = await rolePromise;
       socket.data.role = role;
       if (role === 'ADMIN' || role === 'MODERATOR') {
         await socket.join(STAFF_ROOM);
@@ -101,6 +121,30 @@ export class MessagingGateway implements OnGatewayConnection, OnGatewayDisconnec
       select: { role: true },
     });
     return user?.role ?? null;
+  }
+
+  /**
+   * Rol del socket, ESPERANDO a que termine la resolución que lanzó
+   * `handleConnection` si todavía está en vuelo. Es lo que cierra la carrera: un
+   * handler nunca lee un `socket.data.role` a medio poner.
+   *
+   * No basta con `socket.data.role ?? await this.freshRole(...)`, y la diferencia
+   * importa: `null` es un valor legítimo (usuario borrado entre el login y ahora),
+   * así que `??` lo confundiría con "aún no resuelto" y dispararía una consulta de
+   * más en cada join de un socket sin rol. La promesa distingue las dos cosas sola.
+   *
+   * El camino de respaldo (sin promesa) no debería darse —el prefijo síncrono de
+   * `handleConnection` corre entero antes de que pueda llegar ningún mensaje—,
+   * pero se resuelve contra la base igualmente en vez de asumir "no es staff":
+   * el fallo por defecto de un problema de orden no puede ser denegar a quien sí
+   * tiene permiso.
+   */
+  private async resolveRole(socket: Socket): Promise<Role | null> {
+    const pendiente = socket.data.rolePromise as Promise<Role | null> | undefined;
+    if (pendiente) return pendiente;
+
+    const userId = socket.data.userId as string | undefined;
+    return userId ? this.freshRole(userId) : null;
   }
 
   handleDisconnect(_socket: Socket) {
@@ -185,9 +229,16 @@ export class MessagingGateway implements OnGatewayConnection, OnGatewayDisconnec
     }
 
     if (ticket.userId !== userId) {
-      // No es suyo: solo cabe por la vía de staff, con el rol FRESCO que se
-      // resolvió al conectar.
-      const role = socket.data.role as Role | undefined;
+      // No es suyo: solo cabe por la vía de staff, con el rol FRESCO resuelto
+      // contra la base al conectar.
+      //
+      // `await this.resolveRole(socket)` y NO `socket.data.role`: ese campo se
+      // rellena a mitad de `handleConnection`, después de una consulta, mientras
+      // que el cliente ya tiene su `connect` y puede haber emitido este join. Leerlo
+      // directamente hacía que un ADMIN que reconecta y re-emite sus joins en el
+      // mismo tick fuese tratado como no-staff. Esperar a la promesa elimina la
+      // ventana entera; la verificación de abajo no se relaja en nada.
+      const role = await this.resolveRole(socket);
       if (role !== 'ADMIN' && role !== 'MODERATOR') {
         socket.emit('error', { message: 'Forbidden' });
         return;

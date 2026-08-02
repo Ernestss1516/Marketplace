@@ -507,4 +507,137 @@ describe('Tickets — tiempo real (R9) e2e', () => {
       expect(await prisma.notification.count({ where: { userId: alice.id } })).toBe(0);
     });
   });
+
+  // ===========================================================================
+  // LA CARRERA DE handleConnection
+  //
+  // `handleConnection` es async: fija `socket.data.userId` en el acto pero
+  // `socket.data.role` solo DESPUÉS de consultar la base. Socket.IO le da el
+  // `connect` al cliente sin esperar a que termine, así que quien emite
+  // `ticket:join` nada más conectar leía un rol a medio poner: un ADMIN legítimo
+  // rechazado como si no fuera staff.
+  //
+  // No es un problema de test: el cliente real RE-EMITE sus joins en cada
+  // reconexión (wifi, suspensión, cambio de red), que es justo el patrón que
+  // dispara la carrera. Se veía como un rojo intermitente de esta suite —solo con
+  // el pool frío, porque la ventana se ensancha— y por eso se confundió con flake.
+  //
+  // Estos tests emiten EN EL MISMO TICK que el `connect`, sin esperas
+  // artificiales, y repiten para que no pase por suerte.
+  // ===========================================================================
+
+  describe('carrera: join emitido en el mismo tick que el connect', () => {
+    /** Cuántas veces se repite cada escenario. La carrera es probabilística: un
+     *  solo intento podría pasar por casualidad justo por el lado bueno. */
+    const REPETICIONES = 8;
+
+    /**
+     * Conecta y emite `ticket:join` SIN esperar al `connect` — el emit se engancha
+     * al evento, que es literalmente lo que hace el cliente real al reconectar.
+     * Devuelve si el gateway respondió con `error` (rechazo).
+     *
+     * A diferencia del helper `join` de arriba, aquí no se espera a que el socket
+     * esté listo: esperar sería justamente esquivar la carrera que se quiere
+     * ejercer.
+     */
+    async function conectarYUnirseEnElMismoTick(
+      token: string,
+      ticketId: string,
+    ): Promise<{ rechazado: boolean }> {
+      const socket = io(wsBase, { auth: { token }, transports: ['websocket'], forceNew: true });
+      sockets.push(socket);
+
+      let rechazado = false;
+      socket.on('error', () => { rechazado = true; });
+      // El emit va DENTRO del handler de connect: mismo tick, sin margen.
+      socket.on('connect', () => { socket.emit('ticket:join', { ticketId }); });
+
+      await new Promise<void>((resolve, reject) => {
+        socket.once('connect', () => resolve());
+        socket.once('connect_error', reject);
+        setTimeout(() => reject(new Error('timeout de conexión')), 10_000);
+      });
+
+      // Ventana para que un rechazo llegue si va a llegar. El gateway responde en
+      // el mismo viaje que el join, así que con esto basta y sobra.
+      await esperar(500);
+      return { rechazado };
+    }
+
+    it('EL ADMIN SIEMPRE ENTRA aunque emita el join en el mismo tick que el connect', async () => {
+      const t = await userTicket(alice.id);
+
+      const rechazos: number[] = [];
+      for (let i = 0; i < REPETICIONES; i++) {
+        const { rechazado } = await conectarYUnirseEnElMismoTick(admin.token, t.id);
+        if (rechazado) rechazos.push(i);
+      }
+
+      // Si falla, el array dice EN QUÉ intentos: el rol no estaba resuelto cuando
+      // llegó el join (la carrera de handleConnection).
+      expect(rechazos).toEqual([]);
+    });
+
+    it('y el MODERATOR también, en un ticket normal', async () => {
+      const t = await userTicket(alice.id);
+
+      const rechazos: number[] = [];
+      for (let i = 0; i < REPETICIONES; i++) {
+        const { rechazado } = await conectarYUnirseEnElMismoTick(moderator.token, t.id);
+        if (rechazado) rechazos.push(i);
+      }
+
+      expect(rechazos).toEqual([]);
+    });
+
+    // CONTRASTE — sin esto, los dos tests de arriba pasarían igual si el `error`
+    // simplemente no se observara nunca. Este demuestra que sí se ve.
+    it('un tercero SIGUE siendo rechazado en el mismo escenario (la observación no es vacía)', async () => {
+      const t = await userTicket(alice.id);
+
+      const rechazos: number[] = [];
+      for (let i = 0; i < REPETICIONES; i++) {
+        const { rechazado } = await conectarYUnirseEnElMismoTick(bob.token, t.id);
+        if (rechazado) rechazos.push(i);
+      }
+
+      // Un usuario ajeno debe ser rechazado SIEMPRE.
+      expect(rechazos.length).toBe(REPETICIONES);
+    });
+
+    // LA PUERTA DE R9 NO SE ABRE — el arreglo solo cierra la ventana de tiempo;
+    // no relaja ninguna verificación.
+    it('la puerta de factura sigue cerrada: MODERATOR NO entra en un ticket con invoiceId', async () => {
+      const t = await ticketConFactura(alice.id);
+
+      const rechazos: number[] = [];
+      for (let i = 0; i < REPETICIONES; i++) {
+        const { rechazado } = await conectarYUnirseEnElMismoTick(moderator.token, t.id);
+        if (rechazado) rechazos.push(i);
+      }
+
+      // El MODERATOR debe ser rechazado SIEMPRE aquí: puerta ADMIN-only de R9.
+      expect(rechazos.length).toBe(REPETICIONES);
+    });
+
+    it('y el ADMIN sí entra en ese mismo ticket con factura, también en el mismo tick', async () => {
+      const t = await ticketConFactura(alice.id);
+
+      const rechazos: number[] = [];
+      for (let i = 0; i < REPETICIONES; i++) {
+        const { rechazado } = await conectarYUnirseEnElMismoTick(admin.token, t.id);
+        if (rechazado) rechazos.push(i);
+      }
+
+      expect(rechazos).toEqual([]);
+    });
+
+    it('el DUEÑO entra en el mismo tick (esta vía nunca dependió del rol, se fija por si acaso)', async () => {
+      const t = await userTicket(alice.id);
+
+      const { rechazado } = await conectarYUnirseEnElMismoTick(alice.token, t.id);
+
+      expect(rechazado).toBe(false);
+    });
+  });
 });
