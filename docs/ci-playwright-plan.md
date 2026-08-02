@@ -281,6 +281,66 @@ habría servido de nada.
 error que distingue lento de roto) y, sobre todo, **el descarte con datos de la hipótesis de
 latencia**, que era lo que bloqueaba el diagnóstico real.
 
+## 10. La starvation de `geocode` NO existe — refutada con números de cola (ráfaga B)
+
+**Hipótesis:** los jobs `geocode` (Nominatim, externo) ocupan las 5 plazas de `QUEUE_INDEXING`
+y dejan sin correr a los `index` posteriores.
+
+**Instrumento** (temporal, ya borrado): publicar 8 anuncios SIN coordenadas por la API —igual
+que hace el wizard— y observar la cola por fuera (`waiting/active/delayed/failed/completed` y
+el tipo de cada job activo), más un `/search` final por cada uno.
+
+**Resultado — el mecanismo existe pero es inofensivo:**
+
+```
+t(s)  waiting active delayed failed completed | activos por tipo
+   0        7      5       0      0         0 | activos={"geocode":5} esperando={"index":4,"geocode":3}
+   3        0      0       0      0         0 | (cola vacía)
+
+RESUMEN: 8/8 indexados
+```
+
+En t=0 se ve **exactamente** lo que predecía la hipótesis: las 5 plazas ocupadas por `geocode`
+y 4 `index` esperando. Pero **la cola se vacía en 3 segundos y se indexan los 8**. La ventana
+de bloqueo es de segundos, no de los 90-120 s que aguantan los tests. **Hipótesis REFUTADA.**
+(Encaja con el código: `GEOCODING_TIMEOUT_MS = 3000` y, en los reintentos, el job queda
+*delayed* — que no ocupa plaza — no *active*.)
+
+### Y de paso se refutó que 2a sea un problema de indexación, en ningún punto
+
+Tomando el anuncio de una ejecución REAL que falló (`waitForCard` agotado tras 33 recargas):
+
+| Comprobación | Resultado |
+|---|---|
+| Postgres | `status: ACTIVE`, `publishedAt` puesto, categoría `coches` correcta, geocodificado (lat/lng) |
+| Meilisearch | documento presente y completo |
+| `GET /api/search?category=coches` | `totalHits: 1`, devuelve el anuncio |
+| Página `/vehiculos/coches` | HTTP 200 y **contiene el título** |
+| Páginas `/coches`, `/vehiculos`, `/busqueda?category=coches` | HTTP 200 tras seguir el 308, **las tres contienen el título** |
+
+O sea: **la cola, el índice, la API y las cuatro páginas están bien.** El `type: "SERVICE"` y
+la ciudad "Valencia" del documento, que al principio parecían anomalías, son lo que el spec
+pide a propósito (`getByLabel('Servicio').click()`, `#city` = Valencia): el documento refleja
+fielmente lo que el test creó.
+
+### Lo que queda abierto (y el instrumento que hace falta)
+
+Queda una contradicción honesta: **después** de la corrida todo está correcto y las páginas
+sirven la card, pero **durante** la corrida `waitForCard` no la encuentra en 90 s y 33
+recargas. Todas las comprobaciones de arriba son *post mortem*; ninguna observa el sistema en
+el instante en que el test está recargando.
+
+**Siguiente instrumento (no hecho aquí):** medir DURANTE la corrida de Playwright, no después
+— registrar en cada vuelta de `waitForCard` qué devuelve `/api/search` para ese id y en qué
+estado está la cola. Eso separa las dos únicas explicaciones que quedan en pie: (1) la
+indexación termina más tarde de lo que el instrumento por API sugiere cuando se publica **por
+el wizard con imagen** (hay un `QUEUE_IMAGE` de por medio que la medición por API no ejerce),
+o (2) la página que ve el navegador durante la corrida no es la que sirve un `curl` después.
+
+**Saldo de la ráfaga B: 0 rojos caídos, 2 hipótesis muertas** (starvation, e "indexación"
+como familia). 2a deja de ser "latencia de indexación" y pasa a ser **causa desconocida, con
+todo el camino de datos ya descartado**.
+
 ## 8. Reclasificación de los sospechosos de 2c (ráfaga C)
 
 Los dos "sospechosos" de familia 2c **no lo eran**. Medidos con `--retries=0`, siguen fallando
