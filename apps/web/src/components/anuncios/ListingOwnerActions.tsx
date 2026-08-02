@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation';
 import { Loader2, Star, TrendingUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { bumpListing } from '@/lib/api/billing';
-import { toUserMessage, isCreditError, isCooldownError, formatRetryAfter, toBumpMessage } from '@/lib/api/client';
+import { isCreditError, isCooldownError, formatRetryAfter, toBumpMessage } from '@/lib/api/client';
 import { useApiAction } from '@/lib/api/use-api-action';
 import { useRequireAuth } from '@/hooks/use-require-auth';
 import { DestacadoDialog } from './DestacadoDialog';

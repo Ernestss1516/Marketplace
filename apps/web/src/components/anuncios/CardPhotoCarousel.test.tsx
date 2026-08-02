@@ -10,19 +10,45 @@
 // del visor llega al listener del <a> padre — en vez de solo repetir el parche
 // (stopPropagation) que ya demostró no ser suficiente.
 import { fireEvent, render, screen, within } from '@testing-library/react';
+import Link from 'next/link';
 import { CardPhotoCarousel } from './CardPhotoCarousel';
 
 const IMAGES = ['https://example.com/1.jpg', 'https://example.com/2.jpg', 'https://example.com/3.jpg'];
 
+// El envoltorio es <Link>, no un <a> plano, porque eso es LO QUE HAY EN PRODUCCIÓN:
+// ListingCard/ListingCardWide envuelven toda la card en <Link href={`/anuncio/${slug}`}>.
+// `onAnchorClick` hace de doble del manejador interno con el que Next <Link> navega —
+// exactamente el que este bug disparaba (ver cabecera y PhotoLightbox.tsx). <Link>
+// renderiza un <a> y reenvía onClick a ese mismo nodo, así que el mecanismo de la
+// prueba es idéntico al del <a> plano que había antes, solo que un paso más cerca
+// de producción. No hace falta montar el router: ningún click llega nunca al ancla,
+// que es justo lo que se afirma aquí.
 function renderInsideAnchor(onAnchorClick: () => void) {
   return render(
-    <a href="/anuncio/test" onClick={onAnchorClick} data-testid="card-link">
+    <Link href="/anuncio/test" onClick={onAnchorClick} data-testid="card-link">
       <CardPhotoCarousel images={IMAGES} title="Anuncio de prueba" sizes="200px" />
-    </a>,
+    </Link>,
   );
 }
 
 describe('CardPhotoCarousel + PhotoLightbox — el visor no vive dentro del <a> (portal)', () => {
+  // CONTROL NEGATIVO del propio fixture. Todo lo de abajo se apoya en
+  // `expect(onAnchorClick).not.toHaveBeenCalled()`, que pasaría igual de bien si el
+  // spy no llegara a estar cableado al ancla — siete afirmaciones convertidas en
+  // no-ops sin que nada se pusiera rojo. Esto fija que el cableado existe: si <Link>
+  // dejara de reenviar onClick, ESTE test cae y el resto no miente en silencio.
+  it('control: un click DIRECTO en el ancla SÍ dispara su onClick (el spy está cableado)', () => {
+    const onAnchorClick = jest.fn();
+    renderInsideAnchor(onAnchorClick);
+
+    const anchor = screen.getByTestId('card-link');
+    expect(anchor.tagName).toBe('A');
+
+    fireEvent.click(anchor);
+
+    expect(onAnchorClick).toHaveBeenCalled();
+  });
+
   it('el visor se monta en document.body, no como descendiente del <a>', () => {
     renderInsideAnchor(jest.fn());
     fireEvent.click(screen.getByTestId('card-photo-open-lightbox'));

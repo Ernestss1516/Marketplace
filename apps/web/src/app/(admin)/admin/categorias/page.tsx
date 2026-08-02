@@ -516,6 +516,17 @@ export default function AdminCategoriasPage() {
   const [createOwnSchema, setCreateOwnSchema] = useState<AttributeSchemaWithExtras[]>([]);
   const [createInherited, setCreateInherited] = useState<AttributeSchema[]>([]);
   const [createParentName, setCreateParentName] = useState<string | undefined>();
+  // TODO (cableado a medias — NO borrar para "limpiar" el warning de no-unused-vars).
+  // El productor está puesto: el editor de esquema llama a onHasActiveEdit en los dos
+  // formularios de creación (raíz y subcategoría). Falta el CONSUMIDOR. En modo edición
+  // el gemelo `schemaHasActiveEdit` sí se lee y hace dos cosas (ver SchemaEditorPanel):
+  //   · disabled={saving || !modified || hasActiveEdit} en "Guardar atributos"
+  //   · el aviso "Confirma o cancela el campo en edición primero"
+  // En creación no se hace ninguna de las dos: handleCreateSave() solo corta por
+  // (!token || createSaving || createParentId === undefined), así que se puede crear la
+  // categoría con un atributo a medio editar y ese campo en vuelo se pierde en silencio.
+  // Borrar esta variable enterraría el bug; arreglarlo es un cambio de comportamiento
+  // del backoffice y va en su propio commit, no en una pasada de lint.
   const [createSchemaHasActiveEdit, setCreateSchemaHasActiveEdit] = useState(false);
 
   // Delete state

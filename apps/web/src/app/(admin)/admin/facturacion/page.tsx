@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { AlertCircle, Loader2, Search } from 'lucide-react';
+import { AlertCircle, Search } from 'lucide-react';
 import {
   getAdminTransactions,
   getAdminWallets,
