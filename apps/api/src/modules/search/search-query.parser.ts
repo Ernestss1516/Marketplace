@@ -9,12 +9,14 @@ import type { AttributeField } from '../categories/category.types';
 export const CORE_SEARCH_QUERY_KEYS = new Set([
   'q', 'category', 'type', 'condition', 'priceType', 'priceUnit', 'minPrice', 'maxPrice',
   'province', 'city', 'sort', 'page', 'hitsPerPage', 'lat', 'lng', 'radius',
-  // B2 — RESERVADO, todavía NO funcional. `tags` es un nombre core (lo indexa B2), así
-  // que no puede tratarse como un atributo de categoría; enrutarlo aquí hace que
-  // `?tags=x` choque con `forbidNonWhitelisted` del pipe core y devuelva 400 mientras
-  // SearchQueryDto no tenga el campo. Eso es lo que se quiere en B2: el filtro llega
-  // en B3, y hasta entonces el parámetro se rechaza en vez de ignorarse en silencio —
-  // que sería peor, porque un enlace con ?tags= parecería filtrar sin hacerlo.
+  // B2 lo reservó (para que no se tratara como atributo de categoría) y B3 lo activó:
+  // ahora `SearchQueryDto.tags` existe, así que en vez de chocar con
+  // `forbidNonWhitelisted` se parsea como CSV.
+  //
+  // Estar aquí es lo que lo mantiene FUERA de la validación scoped-por-categoría de
+  // los atributos, y eso es exactamente lo que hace falta: un atributo pertenece a una
+  // categoría (de ahí el 400 anti-leak cross-categoría de RÁFAGA 1), pero un tag es
+  // vocabulario GLOBAL — `?tags=diesel` sin categoría es una búsqueda legítima.
   'tags',
 ]);
 

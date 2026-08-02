@@ -116,6 +116,49 @@ export function filterableAttributeNamesFor(
 }
 
 /**
+ * B3 — slugs de etiqueta VÁLIDOS en la categoría destino.
+ *
+ * Hermano exacto de `filterableAttributeNamesFor`, y por el mismo motivo: un tag es
+ * global como vocabulario pero se OFRECE por categoría (CategoryTag), así que
+ * `?tags=unico-dueno` puede tener sentido en "coches" y ninguno en "pisos". Si se
+ * arrastrara igualmente, el backend no daría 400 (lo descartaría en silencio), pero el
+ * usuario vería un filtro en la URL que no filtra — peor que perderlo.
+ *
+ * - Destino **hoja**: sus tags efectivos (el backend ya resolvió la herencia).
+ * - Destino **raíz**: los suyos ∪ los de sus hijas, porque navegar una raíz agrega los
+ *   anuncios de las hijas (`categoryPath = raíz`) — misma regla que los atributos.
+ * - Destino **null** ("Todas"): `null` = no filtres nada. El vocabulario es global y
+ *   `/busqueda?tags=x` es válido sin categoría.
+ */
+export function effectiveTagSlugsFor(
+  tree: Category[],
+  targetSlug: string | null,
+): ReadonlySet<string> | null {
+  if (targetSlug === null) return null;
+
+  const slugs = new Set<string>();
+  const add = (cat: Category | undefined) => {
+    for (const tag of cat?.tags ?? []) slugs.add(tag.slug);
+  };
+
+  for (const root of tree) {
+    if (root.slug === targetSlug) {
+      add(root);
+      for (const child of root.children ?? []) add(child);
+      return slugs;
+    }
+    const child = (root.children ?? []).find((c) => c.slug === targetSlug);
+    if (child) {
+      add(child);
+      return slugs;
+    }
+  }
+
+  // Slug desconocido: mismo criterio conservador que con los atributos.
+  return slugs;
+}
+
+/**
  * Construye la query de destino al cambiar de categoría.
  *
  * @param current  Query actual (la de la URL en la que está el usuario).
@@ -128,8 +171,22 @@ export function carryFilters(
   current: URLSearchParams,
   target: CarryTarget | null,
   allowedAttributeNames: ReadonlySet<string> | null,
+  allowedTagSlugs: ReadonlySet<string> | null = null,
 ): URLSearchParams {
   const next = new URLSearchParams();
+
+  // B3 — ETIQUETAS. Se filtran una a una en vez de conservar o tirar el param entero:
+  // si un anuncio se busca por `diesel,garantia` y el destino solo ofrece `garantia`,
+  // lo útil es llegar filtrando por `garantia`, no perder los dos ni arrastrar uno que
+  // no filtra. `null` = destino "Todas": el vocabulario es global, sobreviven todos.
+  const tagsActuales = (current.get('tags') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  if (tagsActuales.length > 0) {
+    const supervivientes =
+      allowedTagSlugs === null
+        ? tagsActuales
+        : tagsActuales.filter((slug) => allowedTagSlugs.has(slug));
+    if (supervivientes.length > 0) next.set('tags', supervivientes.join(','));
+  }
 
   // `condition` (estado de conservación) no aplica a servicios: un servicio no está
   // "como nuevo". Si el destino es solo-servicio, el filtro no tendría sentido y el
@@ -144,7 +201,11 @@ export function carryFilters(
   }
 
   // Atributos de categoría: todo lo que no es core ni descartado explícitamente.
-  const known = new Set<string>([...CARRIED_CORE_PARAMS, ...DROPPED_PARAMS]);
+  // `tags` va en la lista de conocidos porque YA se ha resuelto arriba con su propia
+  // regla. Sin esto caería en el bucle de atributos, donde no está en el set de
+  // permitidos (nunca puede ser un atributo: es un nombre reservado) y se perdería
+  // siempre al cambiar de categoría.
+  const known = new Set<string>([...CARRIED_CORE_PARAMS, ...DROPPED_PARAMS, 'tags']);
   for (const [key, value] of current.entries()) {
     if (known.has(key) || !value) continue;
     // A4 — un extremo de rango (`km_min`) vale donde valga su atributo BASE. Sin esto

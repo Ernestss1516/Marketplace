@@ -21,6 +21,7 @@ import { ApiError } from '@/lib/api/client';
 import { buildCardAttributeMap, buildWideCardAttributeMap, buildFullAttributeMap } from '@/lib/card-attributes';
 import { categoryPath, categoryPathWithQuery } from '@/lib/category-url';
 import { filterableFieldsForCategory } from '@/lib/filterable-fields';
+import { availableTagsForCategory } from '@/lib/available-tags';
 import { breadcrumbJsonLd } from '@/lib/breadcrumb-json-ld';
 import { resolveCurrentView, VIEW_PARAM } from '@/lib/view-mode';
 import { SITE_URL } from '@/config';
@@ -331,6 +332,9 @@ export async function CategoryListingPage({
     q,
     typeRaw, conditionRaw, priceTypeRaw, province, city, minPriceStr, maxPriceStr,
     ...Object.values(attributes),
+    // B3 — las etiquetas cuentan como UN filtro, no una por slug: el badge dice
+    // "cuántos filtros tengo puestos", y "Etiquetas" es una sección como "Provincia".
+    str(raw.tags),
     proximityActive ? 'geo' : undefined,
   ].filter(Boolean).length;
 
@@ -448,6 +452,9 @@ export async function CategoryListingPage({
                   categories,
                   categoria,
                 )}
+                // B3 — etiquetas ofrecidas en ESTA categoría (efectivas: la herencia
+                // padre→hija ya viene resuelta en el árbol).
+                availableTags={availableTagsForCategory(categories, categoria)}
               />
             </Suspense>
           </aside>

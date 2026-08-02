@@ -236,6 +236,9 @@ export interface SearchParams {
   /** A4 — rangos por atributo numérico (`km_min`/`km_max` en la query). Separados de
    *  `attributes`, que son filtros de igualdad: un atributo puede llevar ambos. */
   attributeRanges?: Record<string, { min?: number; max?: number }>;
+  /** B3 — slugs de etiqueta, ya filtrados contra el catálogo activo por el controller.
+   *  Se combinan en AND: acumular etiquetas ACOTA. */
+  tags?: string[];
   /**
    * Category-attribute names to request as Meilisearch facets, IN ADDITION to
    * NATIVE_FACET_ATTRIBUTES — supplied by the controller from the exact same
@@ -419,6 +422,18 @@ export class SearchService implements OnModuleInit {
     for (const [key, range] of Object.entries(params.attributeRanges ?? {})) {
       if (range.min != null && Number.isFinite(range.min)) filters.push(`${key} >= ${range.min}`);
       if (range.max != null && Number.isFinite(range.max)) filters.push(`${key} <= ${range.max}`);
+    }
+
+    // B3 — ETIQUETAS. Una cláusula POR TAG, no una sola con OR: cada elemento de
+    // `filters` se combina con AND, así que `?tags=diesel,garantia` exige que el
+    // anuncio tenga LAS DOS. Acumular etiquetas ACOTA, igual que acumular filtros de
+    // atributo — es lo que espera quien va marcando chips en el panel.
+    //
+    // `tags` es un array en el documento, y en Meilisearch `tags = "x"` sobre un array
+    // significa "contiene x". De ahí que la igualdad baste y no haga falta sintaxis
+    // especial.
+    for (const tag of params.tags ?? []) {
+      filters.push(`tags = "${this.escape(tag)}"`);
     }
 
     if (params.geo) {

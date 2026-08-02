@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { TagsService } from '../tags/tags.service';
+import { resolveEffectiveTags } from '../tags/tag.types';
 import {
   AttributeField,
   resolveEffectiveSchema,
@@ -30,11 +31,25 @@ export class CategoriesService {
         attributeSchema: true,
         // A2 — necesario para resolver la política efectiva de cada nodo (abajo).
         allowedListingType: true,
+        // B3 — etiquetas PROPIAS de cada nodo, solo activas. El frontend necesita saber
+        // qué tags valen en la categoría destino para decidir si `?tags=` sobrevive al
+        // cambio de categoría — exactamente el mismo motivo por el que `allAttributes`
+        // vive aquí desde A2. La herencia se resuelve abajo, no en el cliente.
+        tags: {
+          where: { tag: { activo: true } },
+          orderBy: { orden: 'asc' },
+          select: { tag: { select: { id: true, slug: true, name: true } } },
+        },
         children: {
           orderBy: { order: 'asc' },
           select: {
             id: true, name: true, slug: true, iconUrl: true, attributeSchema: true,
             allowedListingType: true,
+            tags: {
+              where: { tag: { activo: true } },
+              orderBy: { orden: 'asc' },
+              select: { tag: { select: { id: true, slug: true, name: true } } },
+            },
           },
         },
       },
@@ -93,6 +108,8 @@ export class CategoriesService {
         // independiente de cardAttributes (que sigue limitado a 2 para la card compacta).
         wideCardAttributes: rootSchema.filter((f) => f.wideCardAttribute).map(toAttrDef),
         allAttributes: rootSchema.map(toAttrDef),
+        // B3 — una raíz no hereda de nadie: sus efectivos son los suyos.
+        tags: root.tags.map((t) => t.tag),
         children: root.children.map((child) => {
           const childSchema = (child.attributeSchema as unknown as AttributeField[]) ?? [];
           const effective = resolveEffectiveSchema(childSchema, rootSchema);
@@ -111,6 +128,14 @@ export class CategoriesService {
             cardAttributes: effective.filter((f) => f.cardAttribute).map(toAttrDef),
             wideCardAttributes: effective.filter((f) => f.wideCardAttribute).map(toAttrDef),
             allAttributes: effective.map(toAttrDef),
+            // B3 — efectivos de la hija: los suyos MÁS los del padre, con la misma
+            // resolución (y el mismo orden: propios primero) que
+            // `TagsService.effectiveTagsForCategory`. Se resuelve aquí y no en el
+            // cliente para que la herencia tenga un solo sitio donde vivir.
+            tags: resolveEffectiveTags(
+              child.tags.map((t) => t.tag),
+              root.tags.map((t) => t.tag),
+            ),
           };
         }),
       };

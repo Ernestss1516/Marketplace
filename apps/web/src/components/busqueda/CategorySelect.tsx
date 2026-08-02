@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from 'next/navigation';
 import { categoryPathWithQuery } from '@/lib/category-url';
-import { carryFilters, filterableAttributeNamesFor } from '@/lib/filter-carry';
+import { carryFilters, effectiveTagSlugsFor, filterableAttributeNamesFor } from '@/lib/filter-carry';
 import type { Category } from '@/types';
 
 /**
@@ -39,7 +39,9 @@ export function CategorySelect({
   function goTo(slug: string) {
     const target = slug === '' ? null : findTarget(categories, slug);
     const allowed = filterableAttributeNamesFor(categories, target?.slug ?? null);
-    const next = carryFilters(searchParams, target, allowed);
+    // B3 — los tags tienen su propia regla de validez en el destino (CategoryTag).
+    const tagsPermitidos = effectiveTagSlugsFor(categories, target?.slug ?? null);
+    const next = carryFilters(searchParams, target, allowed, tagsPermitidos);
     const query = next.toString();
 
     if (!target) {

@@ -174,19 +174,26 @@ export default async function AnuncioPage({
               />
             )}
 
-            {/* B2 — etiquetas del anuncio. Misma regla de desaparición que los
-                atributos: sin tags no se pinta la sección, en vez de un hueco con un
-                título vacío. Todavía NO enlazan a ninguna búsqueda filtrada — el
-                filtro por tags es B3; poner el href ahora llevaría a un 400. */}
+            {/* B2 pintó los chips; B3 los ENLAZA — el destino filtrado ya existe.
+                Cierra el círculo: una etiqueta en la ficha lleva a la búsqueda de todo
+                lo que la lleva, dentro de la misma categoría del anuncio.
+
+                Se reutiliza `categoryHref` —el mismo que ya usa el breadcrumb— en vez de
+                recalcular la ruta: ahí el padre ya está resuelto (incluso cuando el
+                payload viene de una caché vieja sin `parent`), así que el enlace del tag
+                y el de la categoría no pueden divergir.
+
+                Misma regla de desaparición que los atributos: sin tags, sin sección. */}
             {listing.tags && listing.tags.length > 0 && (
               <div className="flex flex-wrap gap-1.5" data-testid="ficha-tags">
                 {listing.tags.map((tag) => (
-                  <span
+                  <Link
                     key={tag.slug}
-                    className="rounded-full border bg-muted/40 px-2.5 py-1 text-xs font-medium"
+                    href={`${categoryHref}?tags=${encodeURIComponent(tag.slug)}`}
+                    className="rounded-full border bg-muted/40 px-2.5 py-1 text-xs font-medium transition-colors hover:border-primary/50 hover:bg-accent"
                   >
                     {tag.name}
-                  </span>
+                  </Link>
                 ))}
               </div>
             )}

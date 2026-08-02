@@ -510,11 +510,19 @@ describe('Tags en el anuncio (B2, e2e)', () => {
         ],
       }).expect(200);
 
-    // 1. No es un filtro válido: el resolver lo saltó, así que la búsqueda lo trata
-    //    como parámetro desconocido igual que antes de existir.
-    const filtro = await request(app.getHttpServer())
-      .get(`/api/search?category=${hijaSlug}&tags=loquesea`);
-    expect(filtro.status).toBe(400);
+    // 1. El atributo NO se registra como filtro de categoría: el resolver lo saltó.
+    //    Se comprueba por el lado que sigue siendo observable tras B3 — `tags` es un
+    //    parámetro CORE (el filtro de etiquetas), y su valor se interpreta como slug de
+    //    etiqueta, nunca como valor del atributo. `valor-del-atributo` no es ninguna
+    //    etiqueta, así que se descarta y la búsqueda no queda filtrada por él.
+    //
+    //    (En B2 esto se comprobaba con un 400, porque `?tags=` aún no filtraba. B3
+    //    activó el filtro, así que el 400 ya no es la señal correcta.)
+    const conAtributo = await request(app.getHttpServer())
+      .get(`/api/search?category=${hijaSlug}&tags=valor-del-atributo`).expect(200);
+    const sinNada = await request(app.getHttpServer())
+      .get(`/api/search?category=${hijaSlug}`).expect(200);
+    expect(conAtributo.body.totalHits).toBe(sinNada.body.totalHits);
 
     // 2. Un anuncio puede llevar el atributo Y tags de verdad, y se guarda sin drama:
     //    la colisión es de NOMBRES en el documento, no de datos en Postgres.
@@ -529,14 +537,22 @@ describe('Tags en el anuncio (B2, e2e)', () => {
       .send({ attributeSchema: [] }).expect(200);
   }, 40_000);
 
-  // ── El límite de B2: indexar sí, filtrar no ──────────────────────────────────
+  // ── Lo que B2 indexa, B3 ya lo filtra ────────────────────────────────────────
 
-  it('B2 NO filtra: ?tags= se RECHAZA, no se ignora en silencio', async () => {
-    // El filtro llega en B3. Hasta entonces el parámetro debe dar 400 — ignorarlo
-    // sería peor: un enlace con ?tags= parecería filtrar sin hacerlo.
-    const res = await request(app.getHttpServer()).get(`/api/search?tags=${S.hija}`);
-    expect(res.status).toBe(400);
-  });
+  it('el campo indexado es el que usa el filtro de B3', async () => {
+    // En B2 este test afirmaba lo contrario —`?tags=` daba 400— porque el filtro no
+    // existía. B3 lo activó, así que aquí se comprueba lo que B2 sí garantiza y sigue
+    // siendo suyo: que lo que se INDEXA es lo que el filtro encuentra. El filtro en sí
+    // (AND, CSV, slugs desconocidos) se prueba en `tags-b3.e2e-spec.ts`.
+    const res = await crearAnuncio('B2 Indexado y filtrable', { tags: [S.hija] }).expect(201);
+    await request(app.getHttpServer())
+      .post(`/api/listings/${res.body.id}/publish`).set(auth()).expect(200);
+    await waitForIndex(meili, INDEX, res.body.id);
+
+    const busqueda = await request(app.getHttpServer())
+      .get(`/api/search?tags=${S.hija}`).expect(200);
+    expect(busqueda.body.hits.some((h: { id: string }) => h.id === res.body.id)).toBe(true);
+  }, 30_000);
 
   it('la búsqueda SIN ?tags= devuelve lo mismo que antes de indexar el campo', async () => {
     const res = await crearAnuncio('B2 Búsqueda intacta unicornio').expect(201);

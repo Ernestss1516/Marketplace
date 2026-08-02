@@ -9,7 +9,7 @@ import { PROVINCIAS } from '@/lib/provincias';
 import { resolveLinkedOptions } from '@/lib/attribute-schema';
 import type { AttributeFieldView } from '@/lib/filterable-fields';
 import { CategorySelect } from './CategorySelect';
-import type { Category, ListingTypePolicy } from '@/types';
+import type { Category, ListingTypePolicy, TagRef } from '@/types';
 
 const TYPE_OPTIONS = [
   { value: '', label: 'Todos' },
@@ -74,7 +74,9 @@ const HIDE_IF_SINGLE_VALUE = new Set(['priceUnit']);
 // Facets already covered by explicit filter controls, or raw slugs with no useful display.
 // 'categorySlug' is the Meilisearch field name; skip it because the category is already
 // either selected via the dropdown or locked in the URL path on category pages.
-const SKIP_FACETS = new Set(['type', 'condition', 'category', 'categorySlug']);
+// B3 — `tags` se excluye porque tiene su PROPIA sección: la genérica de abajo pinta
+// chips excluyentes (toggleFacet) y las etiquetas son multi-selección.
+const SKIP_FACETS = new Set(['type', 'condition', 'category', 'categorySlug', 'tags']);
 
 /** A3 — etiquetas de los valores booleanos. Antes se pintaba el valor crudo del
  *  documento de Meilisearch ("true"/"false") como si fuera una opción de negocio. */
@@ -130,6 +132,15 @@ interface FilterPanelProps {
    * para que ningún consumidor que aún no lo pase se quede sin filtros.
    */
   filterableFields?: AttributeFieldView[];
+  /**
+   * B3 — etiquetas OFRECIDAS en el ámbito de esta página: los tags efectivos de la
+   * categoría, o el catálogo activo global en /busqueda. Igual que `filterableFields`,
+   * viene de la CONFIG y no de las facetas — así una etiqueta configurada aparece
+   * aunque hoy no la lleve ningún anuncio (F6), con su conteo a 0 y deshabilitada.
+   *
+   * Ausente o vacía = no se pinta la sección.
+   */
+  availableTags?: TagRef[];
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
@@ -364,6 +375,7 @@ export function FilterPanel({
   allowedListingType,
   currentCategorySlug,
   filterableFields,
+  availableTags,
 }: FilterPanelProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -420,6 +432,25 @@ export function FilterPanel({
   function toggleFacet(key: string, value: string) {
     const current = searchParams.get(key);
     update({ [key]: current === value ? undefined : value });
+  }
+
+  /** B3 — slugs de etiqueta activos ahora mismo, leídos del CSV de la URL. */
+  const tagsActivos = (searchParams.get('tags') ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  /**
+   * B3 — a diferencia de `toggleFacet`, esto ACUMULA: marcar una segunda etiqueta no
+   * deselecciona la primera, las suma. Es la única sección multi-selección del panel, y
+   * es coherente con el backend, donde cada etiqueta es una cláusula AND: ir marcando
+   * chips va ACOTANDO el resultado.
+   */
+  function toggleTag(slug: string) {
+    const next = tagsActivos.includes(slug)
+      ? tagsActivos.filter((s) => s !== slug)
+      : [...tagsActivos, slug];
+    update({ tags: next.length ? next.join(',') : undefined });
   }
 
   function applyPrice() {
@@ -717,6 +748,40 @@ export function FilterPanel({
           }
         />
       ))}
+
+      {/* B3 — ETIQUETAS. La lista la dicta la CONFIG (los tags ofrecidos en el ámbito),
+          no las facetas: una etiqueta configurada sin anuncios aparece igual, con (0) y
+          deshabilitada — mismo criterio F6 que los atributos. Los conteos vienen de
+          `facets.tags`.
+
+          Es la ÚNICA sección multi-selección del panel: el resto de facetas son toggles
+          excluyentes porque un anuncio tiene una provincia o un estado, pero puede tener
+          varias etiquetas, y marcarlas ACOTA (AND en el backend). */}
+      {availableTags && availableTags.length > 0 && (
+        <div data-testid="filter-tags">
+          <SectionLabel>Etiquetas</SectionLabel>
+          <div className="flex flex-wrap gap-1.5">
+            {[...availableTags]
+              // Primero las que tienen resultados, conservando el orden editorial del
+              // catálogo dentro de cada grupo: un chip muerto no debe abrir la lista.
+              .sort((a, b) => (facets?.tags?.[b.slug] ?? 0) - (facets?.tags?.[a.slug] ?? 0) || 0)
+              .map((tag) => (
+                <ValueChip
+                  key={tag.slug}
+                  label={tag.name}
+                  count={facets?.tags?.[tag.slug] ?? 0}
+                  isActive={tagsActivos.includes(tag.slug)}
+                  onClick={() => toggleTag(tag.slug)}
+                />
+              ))}
+          </div>
+          {tagsActivos.length > 1 && (
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              Se muestran los anuncios que tienen TODAS las etiquetas marcadas.
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Facetas NATIVAS (priceType, priceUnit, province…): siguen siendo facet-driven.
           No son atributos de categoría —no tienen schema ni `label` que consultar—, así

@@ -148,6 +148,10 @@ export interface Category {
   wideCardAttributes?: CardAttributeDef[];
   /** Full attribute list (all fields, not just card-highlighted ones). Populated by GET /categories tree. */
   allAttributes?: CardAttributeDef[];
+  /** B3 — etiquetas EFECTIVAS de este nodo (propias + heredadas del padre, solo
+   *  activas), resueltas por el backend en el árbol. Mismo papel que `allAttributes`:
+   *  decidir si `?tags=` sobrevive al cambiar de categoría, sin un viaje extra. */
+  tags?: TagRef[];
   children?: Category[];
 }
 

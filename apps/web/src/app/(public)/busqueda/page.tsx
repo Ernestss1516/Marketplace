@@ -17,6 +17,7 @@ import { search, type SearchResponse } from '@/lib/api/busqueda';
 import { getCategories } from '@/lib/api/categorias';
 import { buildCardAttributeMap, buildFullAttributeMap, buildWideCardAttributeMap } from '@/lib/card-attributes';
 import { filterableFieldsForTree } from '@/lib/filterable-fields';
+import { availableTagsForTree } from '@/lib/available-tags';
 import { resolveCurrentView, VIEW_PARAM } from '@/lib/view-mode';
 import type { AlertCriteria, ListingSummary, ListingViewMode } from '@/types';
 
@@ -219,6 +220,10 @@ export default async function BusquedaPage({
     category, typeRaw, conditionRaw, priceTypeRaw,
     province, city, minPriceStr, maxPriceStr,
     ...Object.values(attributes),
+    // B3 — las etiquetas cuentan como UN filtro activo, no como una por slug: en el
+    // badge del panel el usuario lee "cuántos filtros tengo puestos", y "Etiquetas" es
+    // una sección, igual que "Provincia".
+    str(raw.tags),
     proximityActive ? 'geo' : undefined,
   ].filter(Boolean).length;
 
@@ -257,6 +262,9 @@ export default async function BusquedaPage({
               // filtrable de todo el árbol: el mismo criterio que usa el backend aquí
               // (sin categoría que acote, cualquier atributo es un filtro legítimo).
               filterableFields={filterableFieldsForTree(categories)}
+              // B3 — las etiquetas ofrecidas en TODO el árbol: sin categoría, el
+              // vocabulario es global (mismo criterio que los atributos aquí arriba).
+              availableTags={availableTagsForTree(categories)}
             />
           </Suspense>
         </aside>

@@ -28,6 +28,10 @@ const TAG_REF_SELECT = { id: true, slug: true, name: true } as const;
 /** B2 — la clave del tope. Debe coincidir con SETTING_KEYS en admin.service.ts. */
 const MAX_TAGS_SETTING_KEY = 'maxTagsPerListing';
 
+/** B3 — catálogo activo completo, para descartar slugs viejos en la búsqueda. */
+const ACTIVE_SLUGS_KEY = 'tags:active-slugs';
+
+
 @Injectable()
 export class TagsService {
   constructor(
@@ -73,6 +77,29 @@ export class TagsService {
 
     await this.redis.client.set(cacheKey, JSON.stringify(efectivos), 'EX', CACHE_TTL_SECONDS);
     return efectivos;
+  }
+
+  /**
+   * B3 — slugs de TODOS los tags activos. Global, sin categoría: un tag es vocabulario
+   * común, y `?tags=diesel` en `/busqueda` (sin categoría) es una búsqueda legítima. Por
+   * eso NO pasa por la resolución scoped-por-categoría de los atributos, que existe para
+   * otra cosa (el anti-leak cross-categoría de RÁFAGA 1: un atributo SÍ pertenece a una
+   * categoría; un tag no).
+   *
+   * Se cachea entero porque el vocabulario son cientos de filas, no millones, y esto está
+   * en la ruta caliente de la búsqueda.
+   */
+  async activeTagSlugs(): Promise<Set<string>> {
+    const cached = await this.redis.client.get(ACTIVE_SLUGS_KEY);
+    if (cached) return new Set(JSON.parse(cached) as string[]);
+
+    const filas = await this.prisma.tag.findMany({
+      where: { activo: true },
+      select: { slug: true },
+    });
+    const slugs = filas.map((f) => f.slug);
+    await this.redis.client.set(ACTIVE_SLUGS_KEY, JSON.stringify(slugs), 'EX', CACHE_TTL_SECONDS);
+    return new Set(slugs);
   }
 
   /**
@@ -195,6 +222,11 @@ export class TagsService {
         after: { name: created.name, slug: created.slug },
         ip,
       });
+
+      // B3 — un tag nuevo nace ACTIVO, así que el catálogo que la búsqueda acepta
+      // acaba de cambiar. Sin esto, `?tags=<slug-nuevo>` se descartaría en silencio
+      // hasta que expirara el TTL.
+      await this.invalidateAllCategoryTagCaches();
 
       return created;
     } catch (e) {
@@ -371,6 +403,10 @@ export class TagsService {
   private async invalidateAllCategoryTagCaches(): Promise<void> {
     const keys = await this.redis.client.keys(`${CACHE_PREFIX}*`);
     if (keys.length) await this.redis.client.del(...keys);
+    // B3 — el catálogo activo cuelga de lo mismo: crear un tag o (des)activarlo cambia
+    // qué slugs acepta la búsqueda. Se invalida aquí para no tener dos sitios que
+    // recordar cuando se toque el vocabulario.
+    await this.redis.client.del(ACTIVE_SLUGS_KEY);
   }
 }
 

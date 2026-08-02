@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { PriceUnit } from '@prisma/client';
 import {
+  IsArray,
   IsEnum,
   IsIn,
   IsInt,
@@ -11,8 +12,26 @@ import {
   Min,
   ValidateIf,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { Condition, ListingType, PriceType } from '@prisma/client';
+
+/**
+ * B3 — parte `?tags=a,b,c` en slugs. Tolerante a propósito con la forma (espacios,
+ * comas de más, repetidos): son cosas que pasan al construir una URL a mano o al
+ * concatenar, no intentos de nada. Lo que NO se tolera es un slug que no exista — pero
+ * eso se decide en el controller, que es quien conoce el catálogo.
+ *
+ * Acepta también un array por si algún cliente manda `?tags=a&tags=b`: se aplana en vez
+ * de quedarse con el primero, que sería perder un filtro en silencio.
+ */
+function splitTagsCsv(value: unknown): string[] {
+  const partes = Array.isArray(value) ? value : [value];
+  const slugs = partes
+    .flatMap((v) => (typeof v === 'string' ? v.split(',') : []))
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  return [...new Set(slugs)];
+}
 
 // Only the fixed/core query params live here. Category-derived variable
 // attributes (brand, fuel, sqm, itemType, …) are validated dynamically by
@@ -78,6 +97,30 @@ export class SearchQueryDto {
   @IsOptional()
   @IsString()
   city?: string;
+
+  /**
+   * B3 — etiquetas por las que filtrar, en **CSV**: `?tags=diesel,garantia`.
+   *
+   * CSV y no multivalor (`?tags=a&tags=b`) porque todo el frontend asume UN valor por
+   * clave: el helper `str()` de las dos páginas se queda con el primero y
+   * `FilterPanel.update()` usa `params.set()`. El multivalor obligaría a tocarlos
+   * todos; el CSV los deja intactos.
+   *
+   * Semántica **AND**: acumular etiquetas ACOTA (ver search.service.ts).
+   *
+   * Aquí NO se valida que el slug exista. Se normaliza y se deduplica, y quien decide
+   * qué slugs sobreviven es el controller contra el catálogo activo — ver allí por qué
+   * un slug desconocido se descarta en silencio en vez de dar 400.
+   */
+  @ApiPropertyOptional({
+    description: 'Etiquetas separadas por comas (AND): ?tags=diesel,garantia',
+    example: 'diesel,garantia',
+  })
+  @IsOptional()
+  @Transform(({ value }) => splitTagsCsv(value))
+  @IsArray()
+  @IsString({ each: true })
+  tags?: string[];
 
   // ---------- Sort & pagination ----------
 

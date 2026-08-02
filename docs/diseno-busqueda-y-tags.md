@@ -1111,6 +1111,21 @@ aparecen en la faceta) y en `/[…ruta]`.
 > verificadas. Añadir un 400 al guardar queda como decisión abierta — afectaría a todos los
 > nombres reservados, no solo a los de tags. Detalle en `docs/estado-tecnico.md`.
 
+> ### ✅ IMPLEMENTADO (B3, 2026-08-02) — el FILTRO del §4.7
+>
+> CSV, AND y sección multi-selección, tal cual se diseñan aquí. Queda solo §4.8 (B4).
+>
+> **Slug desconocido → se descarta en silencio** (el diseño no lo decidía). Un tag
+> desactivado tras compartir un enlace no debe romper la búsqueda: pasarlo a Meilisearch
+> daría 0 resultados, indistinguible de "no hay nada". El 400 se reserva para los
+> atributos, donde sí es un error de ámbito.
+>
+> **El árbol de `GET /categories` lleva ahora los tags de cada nodo.** El diseño no lo
+> preveía, pero el arrastre de `?tags=` al cambiar de categoría lo necesita en cliente —
+> mismo papel y mismo motivo que `allAttributes` desde A2. Con eso, el panel de
+> `/busqueda` se alimenta de la unión del árbol y NO hizo falta el endpoint de catálogo
+> global que se llegó a escribir (ver la nota en `estado-tecnico.md`).
+
 ### 4.8 Buscador de portada con sugerencia de tags
 
 **Endpoint:** `GET /tags/suggest?q=<texto>&category=<slug>&limit=8`

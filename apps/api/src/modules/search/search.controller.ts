@@ -5,6 +5,7 @@ import { FilterableAttributesResolver } from './filterable-attributes.resolver';
 import { parseSearchQuery } from './search-query.parser';
 import { SponsoredAdsService } from '../sponsored-ads/sponsored-ads.service';
 import { ReviewsService } from '../reviews/reviews.service';
+import { TagsService } from '../tags/tags.service';
 
 // Posición fija de inserción entre los hits, convención documentada en H6.1.
 const SPONSORED_AD_POSITION = 3;
@@ -22,6 +23,8 @@ export class SearchController {
     private readonly attributesResolver: FilterableAttributesResolver,
     private readonly sponsoredAdsService: SponsoredAdsService,
     private readonly reviewsService: ReviewsService,
+    // B3 — el catálogo de tags activos, para descartar slugs viejos de la query.
+    private readonly tagsService: TagsService,
   ) {}
 
   @Get()
@@ -63,6 +66,29 @@ export class SearchController {
       ? await this.attributesResolver.getAllAttributeNamesForCategory(dto.category)
       : await this.attributesResolver.getAllAttributeNames();
 
+    // B3 — ETIQUETAS. Se descarta EN SILENCIO cualquier slug que no esté en el catálogo
+    // activo, en vez de devolver 400.
+    //
+    // Es deliberadamente distinto del trato que reciben los atributos, y la diferencia
+    // no es de rigor sino de qué significa cada cosa:
+    //  · un atributo ajeno a la categoría es un ERROR DE ÁMBITO (`/coches?rooms=3`) — el
+    //    400 de RÁFAGA 1 existe para que no se filtre en silencio a través de
+    //    categorías, y NO se relaja aquí;
+    //  · un tag desconocido es casi siempre un ENLACE VIEJO: alguien compartió
+    //    `?tags=diesel` y meses después un admin desactivó ese tag. Romper esa búsqueda
+    //    con un 400 castiga al visitante por una decisión de administración que no vio.
+    //
+    // La alternativa —pasarlo tal cual a Meilisearch— daría 0 resultados, que es peor:
+    // "no hay nada" y "ese filtro ya no existe" no son lo mismo, y el usuario no puede
+    // distinguirlos. Descartándolo ve el resto de la búsqueda.
+    //
+    // El panel no queda incoherente: solo pinta chips de tags que están en la lista de
+    // disponibles, así que un tag descartado tampoco aparece marcado.
+    const tagsPedidos = dto.tags ?? [];
+    // El catálogo se resuelve UNA vez (cacheado en Redis), no una por slug.
+    const activos = tagsPedidos.length ? await this.tagsService.activeTagSlugs() : null;
+    const tags = activos ? tagsPedidos.filter((slug) => activos.has(slug)) : [];
+
     const baseParams: SearchParams = {
       q: dto.q,
       categorySlug: dto.category,
@@ -78,6 +104,9 @@ export class SearchController {
       // A4 — rangos numéricos (km_min/km_max). Van aparte de `attributes` porque son
       // filtros de intervalo, no de igualdad; el service emite >= / <= con ellos.
       ...(Object.keys(attributeRanges).length > 0 ? { attributeRanges } : {}),
+      // B3 — ya filtrados contra el catálogo activo (ver arriba). Se omite la clave si
+      // no queda ninguno, para que la petición sea idéntica a una sin `?tags=`.
+      ...(tags.length > 0 ? { tags } : {}),
       // Facetas de atributo derivadas del MISMO mapa que valida los query params
       // (auditoría de filtros — antes una lista editorial fija, FACET_ATTRIBUTES,
       // desconectada de qué atributos configura realmente el admin como filterable).

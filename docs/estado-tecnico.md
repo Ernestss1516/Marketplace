@@ -9686,6 +9686,134 @@ nuevos del estado.
 
 ---
 
+## Búsqueda + Tags — RÁFAGA B3: filtrado por etiquetas (cerrada)
+
+Diseño §4.7. B2 indexó el campo y dejó `?tags=` dando 400 a propósito; B3 lo activa. A
+diferencia de B2 —que era aditivo— **esto cambia qué anuncios salen**.
+
+### Backend
+
+**Formato CSV** (`?tags=diesel,garantia`) y no multivalor, como decidía el diseño: todo el
+frontend asume un valor por clave (`str()` se queda con el primero, `FilterPanel.update()`
+usa `params.set()`), así que el multivalor obligaría a tocar todos esos helpers. El
+`@Transform` del DTO parte por comas, normaliza y deduplica; también acepta un array por si
+algún cliente manda `?tags=a&tags=b`, aplanándolo en vez de perder un filtro en silencio.
+
+**Semántica AND** — una cláusula de filtro POR ETIQUETA, no una con `OR`:
+
+```ts
+for (const tag of params.tags ?? []) filters.push(`tags = "${this.escape(tag)}"`);
+```
+
+Cada elemento de `filters` se combina con AND, así que acumular etiquetas **acota**, igual
+que acumular filtros de atributo. En Meilisearch `tags = "x"` sobre un array significa
+"contiene x", de ahí que la igualdad baste.
+
+**Sin categoría funciona.** `tags` está en `CORE_SEARCH_QUERY_KEYS`, y eso es justo lo que lo
+mantiene **fuera** de la validación scoped-por-categoría de los atributos: un atributo
+pertenece a una categoría (de ahí el 400 anti-leak de RÁFAGA 1, que **no se toca**), pero un
+tag es vocabulario global. `/busqueda?tags=diesel` es una búsqueda legítima.
+
+#### Decisión: un slug desconocido se descarta EN SILENCIO, no da 400
+
+Es el punto que el brief pedía justificar. Se descarta, y la diferencia con los atributos no
+es de rigor sino de qué significa cada cosa:
+
+- un atributo ajeno a la categoría (`/coches?rooms=3`) es un **error de ámbito**: el 400
+  existe para que no se filtre a través de categorías;
+- un tag desconocido es casi siempre un **enlace viejo** — alguien compartió `?tags=diesel` y
+  meses después un admin desactivó ese tag. Romper esa búsqueda castiga al visitante por una
+  decisión de administración que no vio.
+
+La tercera opción —pasar el slug a Meilisearch tal cual— daría **0 resultados**, que es peor:
+"no hay nada" y "ese filtro ya no existe" son indistinguibles para el usuario. Descartándolo
+ve el resto de la búsqueda. Y el panel no queda incoherente, porque solo pinta chips de tags
+ofrecidos: un tag descartado tampoco aparece marcado.
+
+El filtrado usa `TagsService.activeTagSlugs()`, cacheado en Redis (misma invalidación que el
+resto del vocabulario: crear un tag o (des)activarlo la limpia).
+
+**`GET /categories` (el árbol) gana `tags` por nodo**, efectivos y solo activos. Es lo que
+permite que el cliente decida sin un viaje extra — exactamente el papel que `allAttributes`
+juega desde A2. La herencia se resuelve en el backend, con `resolveEffectiveTags`, para que
+viva en un solo sitio.
+
+### Frontend
+
+**Sección "Etiquetas"** en `FilterPanel`, la **única multi-selección** del panel: el resto de
+facetas son toggles excluyentes (`toggleFacet`) porque un anuncio tiene una provincia o un
+estado, pero puede tener varias etiquetas — y marcarlas acota. La lista la dicta la CONFIG
+(`availableTags`), no las facetas, así que una etiqueta configurada sin anuncios se pinta con
+`(0)` y deshabilitada (criterio F6 de A3); los conteos vienen de `facets.tags`, y las que
+tienen resultados van primero. Con dos o más marcadas aparece un aviso de que se exigen
+todas — el AND es contraintuitivo si no se dice.
+
+**`lib/available-tags.ts`** — hermano de `filterable-fields.ts`, misma regla: hoja → sus
+efectivos; raíz → los suyos ∪ los de sus hijas (navegar una raíz agrega los anuncios de las
+hijas); `/busqueda` → la unión del árbol. Esa unión **no** es "el catálogo entero": un tag sin
+asignar a ninguna categoría no lo puede llevar ningún anuncio, así que ofrecerlo sería un
+callejón sin salida garantizado.
+
+**Preservación al cambiar de categoría** (`filter-carry.ts`): las etiquetas se filtran **una a
+una**, no se conserva o tira el parámetro entero. Si el usuario venía con `diesel,garantia` y
+el destino solo ofrece `garantia`, lo útil es llegar filtrando por `garantia`.
+
+**Los chips de la ficha ahora enlazan** (B2 los dejó sin `href` porque el destino no existía).
+Reutilizan el `categoryHref` que ya calcula el breadcrumb, así que el enlace del tag y el de
+la categoría no pueden divergir.
+
+### Verificación
+
+`tags-b3.e2e-spec.ts` **15 tests**, `tags-filtro.spec.ts` (Playwright) **5**, y
+`src/lib/tags-filter.test.ts` **14** unitarios.
+
+El reparto no es casual: el **AND** y el descarte de slugs se prueban en el backend, donde son
+deterministas; la **regla de arrastre** al cambiar de categoría es lógica pura sobre el árbol,
+así que va en el unitario (medirla en Playwright probaría el `router.push`); y en el navegador
+queda solo lo que solo ahí se puede ver — que el segundo chip **acumula** en vez de sustituir.
+
+Tres anuncios construidos justo para distinguir AND de OR: uno con cada etiqueta por separado
+y uno con las dos. Con OR saldrían los tres.
+
+**Validación por mutación (dos):**
+
+| Mutación | Rojos |
+|---|---|
+| AND → OR (una cláusula con `OR` en vez de una por tag) | **3** — los tres del AND |
+| Quitar el filtro de tags del service | **6** — todos los que dependen de que filtre |
+
+**Batería:** backend **1449 tests, 90 suites** (+15 y +1 respecto a B2: exactamente el spec
+nuevo). Dos corridas: **1448/1449** y **1447/1449**.
+
+No son idénticas, y conviene decir por qué: `queue-retry` falla en las dos —rojo estable y
+preexistente— y `alert-matching` falla en una sí y en otra no. Son los **mismos dos flakes ya
+reportados al cerrar B2**, donde se midieron contra HEAD limpio (`git stash`): **6 rojos en
+HEAD** frente a 2 con los cambios. Ninguna otra suite se mueve entre corridas.
+
+Web 371/371 (31 suites, +14 del spec nuevo); Playwright de tags 5/5; `tsc` limpio en api y
+web; lint igual que el baseline (6).
+
+**Requisito de oro cumplido:** sin `?tags=` los hits son los mismos; el 400 anti-leak de
+atributos sigue intacto (verificado con un test propio); los filtros existentes no cambian —
+`tags` es una sección más.
+
+**Dos tests de B2 SÍ se modificaron, y era obligatorio.** Los dos afirmaban el LÍMITE de B2
+—que `?tags=` devolvía 400—, que es justo lo que B3 elimina. Un test que describe un
+comportamiento retirado no se puede dejar en verde. `B2 NO filtra` pasa a comprobar lo que
+sigue siendo suyo (que lo indexado es lo que el filtro encuentra), y el de nombres reservados
+cambia su señal: antes el 400 probaba que un atributo `tags` no era filtro; ahora, que
+`?tags=valor-del-atributo` no acota la búsqueda. Ningún otro test existente tocado.
+
+### Nota — un endpoint que se escribió y se quitó
+
+Se llegó a añadir un `GET /tags` público para alimentar el panel en `/busqueda`. Se eliminó
+antes de cerrar: el árbol de categorías ya lleva los tags de cada nodo (necesarios para el
+arrastre), y su unión es a la vez más barata —cero llamadas nuevas— y más correcta, porque
+excluye los tags que no se ofrecen en ninguna categoría. Si B4 necesita el catálogo completo
+para las sugerencias de portada, ese será su endpoint y su decisión.
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.
