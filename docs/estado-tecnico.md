@@ -9346,8 +9346,20 @@ camino completo incluido el rechazo de `0`.
 **MODERATOR → 403** en todos los endpoints admin, la caché Redis (segunda llamada cacheada,
 `PUT` la invalida) y el ajuste `maxTagsPerListing`.
 
+**Batería:** backend **1393/1393 en dos corridas consecutivas idénticas** (87 suites; eran
+1363/86 al cerrar A4 — exactamente los +30 de `tags-b1.e2e-spec.ts`), unitarios **159/159**
+(16 suites), `tsc` limpio en api y web, lint igual que el baseline (6, ninguno en ficheros
+nuevos).
+
 **Requisito de oro cumplido:** tres tablas nuevas, ninguna columna existente tocada; el
 sistema de atributos intacto; ningún test existente con lógica modificada.
+
+**Nota de método (invocar la batería).** Hay que lanzarla con
+`pnpm --filter @marketplace/api test:e2e`, **no** con `node ./node_modules/jest/bin/jest.js`
+directamente: `multer` (que importa `admin-sponsored-ads.controller.ts`) no está declarado
+como dependencia y solo resuelve por el `NODE_PATH` hoisteado que pone pnpm. Invocando jest
+a pelo caen **86 de 87 suites** con `Cannot find module 'multer'`, que parece una regresión
+enorme y no lo es.
 
 ---
 
