@@ -49,3 +49,12 @@ export function resolveEffectiveTags(own: TagRef[], parent: TagRef[]): TagRef[] 
  * configurar" es un estado válido y explícito que cae a esta constante.
  */
 export const DEFAULT_MAX_TAGS_PER_LISTING = 5;
+
+/**
+ * B4 — una sugerencia del buscador de portada: la etiqueta más cuántos anuncios la
+ * llevan en el ámbito consultado. `count: 0` es un valor legítimo y se muestra: un
+ * vocabulario recién configurado no puede nacer mudo (P6).
+ */
+export interface TagSuggestion extends TagRef {
+  count: number;
+}

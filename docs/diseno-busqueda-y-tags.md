@@ -1147,6 +1147,24 @@ aparecen en la faceta) y en `/[…ruta]`.
 pero nunca sugiere un tag sin anuncios y no puede ordenar por criterio editorial (`orden`).
 Con un vocabulario controlado, ambas cosas importan.
 
+> ### ✅ IMPLEMENTADO (B4, 2026-08-02) — §4.8. **BLOQUE B COMPLETO.**
+>
+> Postgres-first tal cual se recomienda aquí, y la razón resultó ser aún más fuerte de lo
+> escrito: además de no poder sugerir tags con 0 anuncios ni ordenar por criterio
+> editorial, **`facetQuery` filtra por el SLUG indexado, no por el nombre**. El usuario
+> teclea "automático" y el slug es `cambio-automatico`: usarla para seleccionar
+> descartaría candidatos legítimos en silencio. Meilisearch aporta SOLO los conteos.
+>
+> **No hace falta `updateFacetSearch`**: el servidor es Meilisearch **v1.10** y el ajuste
+> `facetSearch` llegó en 1.12 — llamarlo daría 400.
+>
+> **`q` vacío:** con categoría, sus tags por orden editorial (descubrimiento); sin
+> categoría, nada — el catálogo entero no es una sugerencia.
+>
+> **La caché de sugerencias no se invalidaba** al cambiar la asignación por categoría.
+> Detectado ejerciéndolo (tres tests en rojo), corregido: toda mutación del vocabulario
+> tira ahora `tags:suggest:*`. Ver `docs/estado-tecnico.md`.
+
 **UI (`SearchBar`):** input con debounce (~250 ms) y desplegable en dos bloques:
 
 ```

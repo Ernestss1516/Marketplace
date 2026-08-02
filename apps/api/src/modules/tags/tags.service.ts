@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
@@ -10,7 +11,14 @@ import { PrismaService } from '../../infra/prisma/prisma.service';
 import { RedisService } from '../../infra/redis/redis.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { isP2002 } from '../../common/prisma/is-p2002';
-import { DEFAULT_MAX_TAGS_PER_LISTING, resolveEffectiveTags, type TagRef } from './tag.types';
+import {
+  DEFAULT_MAX_TAGS_PER_LISTING,
+  resolveEffectiveTags,
+  type TagRef,
+  type TagSuggestion,
+} from './tag.types';
+import { MeilisearchService } from '../../infra/meilisearch/meilisearch.service';
+import { LISTINGS_INDEX } from '../search/search.service';
 import { CreateTagDto } from './dto/create-tag.dto';
 import { UpdateTagDto } from './dto/update-tag.dto';
 import { ReorderTagsDto } from './dto/reorder-tags.dto';
@@ -31,13 +39,29 @@ const MAX_TAGS_SETTING_KEY = 'maxTagsPerListing';
 /** B3 — catálogo activo completo, para descartar slugs viejos en la búsqueda. */
 const ACTIVE_SLUGS_KEY = 'tags:active-slugs';
 
+/** B4 — caché de sugerencias por (categoría, q, limit). TTL corto: molde SponsoredAdsService. */
+const SUGGEST_PREFIX = 'tags:suggest:';
+const SUGGEST_TTL_SECONDS = 300;
+
+/**
+ * Candidatos que se traen de Postgres ANTES de ordenar por conteo y recortar al `limit`
+ * pedido. Se pide de más a propósito: quedarse con los primeros por orden editorial
+ * descartaría el tag más popular si el admin lo hubiera puesto abajo del todo.
+ */
+const SUGGEST_CANDIDATE_POOL = 50;
 
 @Injectable()
 export class TagsService {
+  private readonly logger = new Logger(TagsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly auditLog: AuditLogService,
+    // B4 — los conteos de las sugerencias salen del índice. Se inyecta la INFRA
+    // directamente y no SearchService: `SearchModule` ya importa `TagsModule` (B3), así
+    // que depender de él al revés cerraría el ciclo.
+    private readonly meili: MeilisearchService,
   ) {}
 
   // ===========================================================================
@@ -100,6 +124,135 @@ export class TagsService {
     const slugs = filas.map((f) => f.slug);
     await this.redis.client.set(ACTIVE_SLUGS_KEY, JSON.stringify(slugs), 'EX', CACHE_TTL_SECONDS);
     return new Set(slugs);
+  }
+
+  /**
+   * B4 — SUGERENCIAS para el buscador de portada.
+   *
+   * POSTGRES-FIRST, y no `searchForFacetValues` a secas. Dos razones, las dos decisivas
+   * con un vocabulario controlado:
+   *
+   *  1. Una búsqueda de facetas NUNCA puede sugerir un tag SIN anuncios — por
+   *     definición, solo devuelve valores presentes en el índice. Un catálogo recién
+   *     creado nacería mudo: el admin configura "Con garantía" y el buscador no lo
+   *     ofrece hasta que alguien publique con él. Aquí salen igual, al final y con (0).
+   *  2. Tampoco puede ordenar por criterio EDITORIAL (`orden`), que es la razón de ser
+   *     de un vocabulario controlado.
+   *
+   * Y una tercera, que apareció al implementarlo: `facetQuery` filtra por el VALOR
+   * indexado, que es el SLUG. El usuario teclea el NOMBRE, con acentos —"automático"
+   * no casa con `cambio-automatico`—. Usar `facetQuery` para SELECCIONAR descartaría
+   * candidatos legítimos en silencio. Por eso Meilisearch aporta solo los CONTEOS
+   * (una llamada, sin `facetQuery`) y el emparejamiento por nombre lo hace Postgres.
+   */
+  async suggestTags(
+    q: string,
+    categorySlug: string | undefined,
+    limit: number,
+  ): Promise<TagSuggestion[]> {
+    const texto = q.trim();
+    const cacheKey = `${SUGGEST_PREFIX}${categorySlug ?? '*'}:${texto.toLowerCase()}:${limit}`;
+    const cached = await this.redis.client.get(cacheKey);
+    if (cached) return JSON.parse(cached) as TagSuggestion[];
+
+    const candidatos = await this.suggestCandidates(texto, categorySlug);
+
+    let resultado: TagSuggestion[] = [];
+    if (candidatos.length > 0) {
+      const conteos = await this.tagCounts(categorySlug);
+      resultado = candidatos
+        .map((tag, posicionEditorial) => ({
+          ...tag,
+          count: conteos.get(tag.slug) ?? 0,
+          posicionEditorial,
+        }))
+        // Primero por resultados, y a igualdad por el orden que decidió el admin. Los
+        // de 0 caen al final por el mismo criterio, sin una regla aparte (P6).
+        .sort((a, b) => b.count - a.count || a.posicionEditorial - b.posicionEditorial)
+        .slice(0, limit)
+        .map(({ posicionEditorial: _orden, ...s }) => s);
+    }
+
+    await this.redis.client.set(cacheKey, JSON.stringify(resultado), 'EX', SUGGEST_TTL_SECONDS);
+    return resultado;
+  }
+
+  /**
+   * Candidatos por NOMBRE, ya acotados por categoría. `contains` de Prisma viaja como
+   * parámetro, así que un `q` hostil no puede inyectar nada; `%` y `_` sí actúan como
+   * comodines de LIKE dentro del valor, lo que como mucho hace que el buscador sugiera
+   * de más — inofensivo, y evitarlo exigiría SQL crudo con ESCAPE, que cambiaría una
+   * propiedad de seguridad real por una cosmética.
+   */
+  private async suggestCandidates(
+    texto: string,
+    categorySlug: string | undefined,
+  ): Promise<TagRef[]> {
+    // `q` vacío: con categoría se ofrecen sus tags efectivos por orden editorial —
+    // abrir el desplegable y VER de qué se puede hablar es descubrimiento, y el
+    // vocabulario de una categoría es corto. Sin categoría no se sugiere nada: el
+    // catálogo global entero no es una sugerencia, es un volcado.
+    if (texto.length === 0) {
+      return categorySlug ? this.effectiveTagsForCategory(categorySlug) : [];
+    }
+
+    let ambito: { categoryId: { in: string[] } } | undefined;
+    if (categorySlug) {
+      const category = await this.prisma.category.findUnique({
+        where: { slug: categorySlug },
+        select: { id: true, parentId: true },
+      });
+      // Categoría inexistente: sin ámbito no hay nada que sugerir. Devolver el
+      // catálogo global sería sugerir tags que el destino no ofrece.
+      if (!category) return [];
+      ambito = {
+        categoryId: { in: [category.id, ...(category.parentId ? [category.parentId] : [])] },
+      };
+    }
+
+    return this.prisma.tag.findMany({
+      where: {
+        activo: true,
+        name: { contains: texto, mode: 'insensitive' },
+        ...(ambito ? { categories: { some: ambito } } : {}),
+      },
+      orderBy: [{ orden: 'asc' }, { name: 'asc' }],
+      select: TAG_REF_SELECT,
+      // Se pide de más y se recorta DESPUÉS de ordenar por conteo: quedarse con los
+      // `limit` primeros por orden editorial descartaría el más popular si el admin lo
+      // hubiera puesto abajo.
+      take: SUGGEST_CANDIDATE_POOL,
+    });
+  }
+
+  /**
+   * Conteo de anuncios por tag en el ámbito, en UNA llamada. Sin `facetQuery`: se
+   * piden todos los valores del ámbito y el emparejamiento ya lo hizo Postgres.
+   *
+   * Meilisearch v1.10 — la búsqueda de facetas está siempre disponible; el ajuste
+   * `facetSearch` (y su `updateFacetSearch`) llegó en 1.12, así que NO se llama: en
+   * esta versión sería un 400.
+   *
+   * Si Meilisearch no responde, se devuelven conteos vacíos en vez de romper: el
+   * buscador sigue sugiriendo el vocabulario, todo a (0). Degradar es preferible a que
+   * la portada deje de sugerir.
+   */
+  private async tagCounts(categorySlug: string | undefined): Promise<Map<string, number>> {
+    try {
+      const index = this.meili.client.index(LISTINGS_INDEX);
+      const res = await index.searchForFacetValues({
+        facetName: 'tags',
+        facetQuery: '',
+        ...(categorySlug ? { filter: `categoryPath = "${categorySlug.replace(/"/g, '\\"')}"` } : {}),
+      });
+      return new Map(res.facetHits.map((h) => [h.value, h.count]));
+    } catch (e) {
+      this.logger.warn(
+        `No se pudieron obtener los conteos de tags (${(e as Error).message}). ` +
+          'Se sugiere el vocabulario con conteo 0.',
+      );
+      return new Map();
+    }
   }
 
   /**
@@ -380,6 +533,11 @@ export class TagsService {
     // `invalidateCacheForCategory` de SponsoredAdsService.
     const slugs = [category.slug, ...category.children.map((c) => c.slug)];
     await this.redis.client.del(...slugs.map((s) => CACHE_PREFIX + s));
+    // B4 — y las SUGERENCIAS, que se cachean por (categoría, q): cambiar qué tags
+    // ofrece una categoría cambia lo que la portada debe sugerir en ella. Se detectó
+    // ejerciéndolo — sin esto, asignar un tag al padre y sugerir en la hija seguía
+    // devolviendo la lista vieja hasta que expirara el TTL.
+    await this.invalidateSuggestCache();
 
     return this.categoryTags(categoryId);
   }
@@ -407,6 +565,20 @@ export class TagsService {
     // qué slugs acepta la búsqueda. Se invalida aquí para no tener dos sitios que
     // recordar cuando se toque el vocabulario.
     await this.redis.client.del(ACTIVE_SLUGS_KEY);
+    // B4 — y las sugerencias, que dependen del nombre y del `orden`. Renombrar un tag
+    // sin esto dejaría la portada sugiriendo el nombre viejo hasta 5 minutos.
+    await this.invalidateSuggestCache();
+  }
+
+  /**
+   * B4 — tira TODA la caché de sugerencias. Es de brocha gorda a propósito: las claves
+   * llevan el texto tecleado, así que no hay forma de saber cuáles se ven afectadas por
+   * un cambio de vocabulario sin recorrerlas igualmente. Son eventos de administración,
+   * raros, y el TTL es corto.
+   */
+  private async invalidateSuggestCache(): Promise<void> {
+    const claves = await this.redis.client.keys(`${SUGGEST_PREFIX}*`);
+    if (claves.length) await this.redis.client.del(...claves);
   }
 }
 

@@ -9814,6 +9814,138 @@ para las sugerencias de portada, ese será su endpoint y su decisión.
 
 ---
 
+## Búsqueda + Tags — RÁFAGA B4: buscador de portada con sugerencias (cerrada)
+
+Diseño §4.8. **Última pieza del trabajo de Búsqueda + Tags.** El buscador de la home
+sugiere etiquetas según texto + categoría; el texto libre sigue existiendo, pero
+canalizado.
+
+### `GET /tags/suggest?q=&category=&limit=` — POSTGRES-FIRST
+
+La decisión de diseño y su motivo, que es lo que hace que esta ráfaga no sea trivial. Una
+búsqueda de facetas (`searchForFacetValues`) sola **no sirve**, por tres razones:
+
+1. **Nunca puede sugerir una etiqueta sin anuncios** — por definición solo devuelve
+   valores presentes en el índice. Un catálogo recién configurado nacería mudo: el admin
+   crea "Con garantía" y el buscador no la ofrece hasta que alguien publique con ella.
+2. **No puede ordenar por criterio editorial** (`orden`), que es la razón de ser de un
+   vocabulario controlado.
+3. **Apareció al implementarlo:** `facetQuery` filtra por el valor INDEXADO, que es el
+   **slug**. El usuario teclea el **nombre**, con acentos — "automático" no casa con
+   `cambio-automatico`. Usarlo para SELECCIONAR descartaría candidatos legítimos en
+   silencio.
+
+Por eso: **candidatos** desde Postgres por nombre (`contains`, insensible a mayúsculas,
+acotado por `CategoryTag` propio + del padre), **conteos** desde Meilisearch en UNA
+llamada sin `facetQuery`, y fusión ordenando por `count desc` y, a igualdad, por el
+`orden` del admin — con lo que los de 0 caen al final solos, sin una regla aparte (P6).
+
+Se piden **50 candidatos** y se recorta al `limit` DESPUÉS de ordenar: quedarse con los
+primeros por orden editorial descartaría el tag más popular si el admin lo hubiera puesto
+abajo.
+
+**`q` vacío:** con categoría se devuelven sus etiquetas efectivas por orden editorial —
+abrir el desplegable y ver de qué se puede hablar es descubrimiento, y el vocabulario de
+una categoría es corto. Sin categoría, nada: el catálogo global entero no es una
+sugerencia, es un volcado.
+
+**Meilisearch v1.10 — NO se llama a `updateFacetSearch`.** La búsqueda de facetas está
+siempre disponible en esta versión; el ajuste `facetSearch` llegó en **1.12**, así que
+llamarlo aquí daría 400. Verificado contra `docker-compose.yml`.
+
+**Degradación:** si Meilisearch no responde, se devuelven conteos vacíos en vez de
+romper. El buscador sigue sugiriendo el vocabulario, todo a (0) — preferible a que la
+portada deje de sugerir.
+
+**Inyección:** `contains` de Prisma viaja como parámetro. `%` y `_` sí actúan como
+comodines de LIKE dentro del valor, lo que como mucho sugiere de más; evitarlo exigiría
+SQL crudo con `ESCAPE`, cambiando una propiedad de seguridad real por una cosmética.
+
+### Frontend — `SearchBar`
+
+Debounce de 250 ms a partir de 2 caracteres, con `AbortController`: sin él, teclear
+rápido puede hacer que una respuesta vieja llegue después de una nueva y pinte una lista
+que ya no corresponde a lo escrito.
+
+Desplegable en dos bloques, y **ese orden ES la decisión de producto**: las etiquetas
+arriba y destacadas, el texto libre al final como salida de escape. Los conteos se
+muestran siempre, también el `(0)` — es información honesta ("existe, pero todavía no hay
+nada").
+
+**Destino** — donde el bloque A y el B se tocan: elegir una etiqueta con categoría lleva a
+`categoryPath(cat)?tags=slug` (URL anidada de A1 + filtro de B3), sin categoría a
+`/busqueda?tags=slug`, y la provincia elegida viaja en los dos casos. Elegir una etiqueta
+NO hace una búsqueda de texto: el usuario escribió "diesel" y acaba con un filtro exacto,
+no con una coincidencia de texto. Eso es literalmente "el texto libre canalizado".
+
+Teclado completo: flechas (que recorren la lista **y** la salida de escape), Enter, Esc y
+clic fuera.
+
+### ⚠️ Bug encontrado al ejercer — la caché de sugerencias no se invalidaba
+
+`setCategoryTags` invalidaba los tags efectivos de la categoría y sus hijas, pero no las
+sugerencias. Asignar una etiqueta al padre y sugerir en la hija seguía devolviendo la
+lista vieja hasta que expirara el TTL. Lo mismo con renombrar o reordenar. Corregido: toda
+mutación del vocabulario tira ahora también `tags:suggest:*`. Se detectó porque tres tests
+fallaron por ello — no por revisión.
+
+### Verificación
+
+`tags-b4.e2e-spec.ts` **19 tests** y `buscador-sugerencias.spec.ts` (Playwright) **11**.
+
+**Validación por mutación (dos):**
+
+| Mutación | Rojos |
+|---|---|
+| Quitar el orden por conteo (solo criterio editorial) | **2** — el de orden y el de `limit` |
+| Candidatos SOLO desde la faceta (sin Postgres) | **6**, incluido **el de P6** |
+
+La segunda es la que justifica la arquitectura: con candidatos de faceta, el tag sin
+anuncios desaparece. Ese test **es** el argumento de por qué Postgres-first, no un extra.
+
+**Batería:** backend **1466/1468 en dos corridas consecutivas IDÉNTICAS** (91 suites; +19
+y +1 respecto a B3, exactamente el spec nuevo). Los 2 rojos son los flakes preexistentes
+de `alert-matching` y `queue-retry`, medidos en HEAD limpio al cerrar B2 (**6 rojos ahí**).
+Unitarios api 164/164; web 371/371; Playwright de B4 11/11; `tsc` limpio en api y web;
+lint igual que el baseline (6).
+
+**Requisito de oro cumplido:** el submit de texto libre funciona exactamente como antes
+—hay un test dedicado— y `/tags/suggest` es nuevo y aislado: no toca `/search` ni el
+filtrado. Ningún test existente con lógica modificada.
+
+---
+
+## 🏁 BÚSQUEDA + TAGS — TRABAJO COMPLETO
+
+| | Ráfaga | Qué cerró |
+|---|---|---|
+| **A1** | URLs anidadas de categoría | `/vehiculos/coches` + 308 desde las planas |
+| **A2** | Unificación `/busqueda` ↔ `/[categoria]` | un selector, filtros que sobreviven |
+| **A3** | Panel de filtros schema-driven | la config dicta las secciones, no las facetas |
+| **A4** | Rango numérico | `_min`/`_max`, aditivo sobre la igualdad |
+| **B1** | Modelo Tag + herencia + CRUD admin | vocabulario, `maxTagsPerListing` |
+| **B2** | Tags en el anuncio | wizard, validación, indexación |
+| **B3** | Filtrado por etiquetas | `?tags=` CSV con AND, sección multi-selección |
+| **B4** | Buscador de portada | sugerencias Postgres-first, texto libre canalizado |
+
+Más dos arreglos que salieron por el camino: la carrera de `handleConnection` en el
+gateway y el `updateSetting` que hacía tres ajustes ineditables (con su UI).
+
+### Deuda anotada, no cerrada
+
+- **`alert-matching` y `queue-retry` son frágiles** (ver la nota en B2). Inestabilidad de
+  TIEMPOS: ambas inspeccionan la cola de BullMQ, que es una foto de algo en movimiento.
+  Medido contra HEAD limpio: **6 rojos en HEAD**, 2 con los cambios. Candidatas a una
+  ráfaga de saneamiento — el arreglo es esperar a un estado observable en vez de a un
+  instante de la cola.
+- **`RESERVED_ATTRIBUTE_NAMES` no rechaza, solo ignora** (ver la nota en B2). Añadir un
+  400 al guardar afectaría a todos los nombres reservados, no solo a los de tags.
+- **Reindex recomendado tras desplegar** (`pnpm reindex`) para normalizar `tags: []` en
+  los documentos anteriores a B2. No obligatorio: un documento sin `tags` no casa con
+  `tags=x`, que es la semántica correcta.
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.

@@ -934,3 +934,12 @@ export interface AdminTicketFilters {
   page?: number;
   perPage?: number;
 }
+
+/**
+ * B4 — sugerencia del buscador de portada: la etiqueta más cuántos anuncios la llevan
+ * en el ámbito consultado. `count: 0` es legítimo y se muestra — un vocabulario recién
+ * configurado tiene que poder sugerirse antes de que nadie publique con él.
+ */
+export interface TagSuggestion extends TagRef {
+  count: number;
+}

@@ -75,7 +75,9 @@ test.describe('B3 — sección Etiquetas del panel', () => {
     await pollSearch(
       request,
       { category: 'coches', tags: 'unico-dueno' },
-      (body) => body.hits.some((h: { id: string }) => h.id === unicoDuenoId),
+      // `hits` llega como unknown[] desde el helper: se estrecha aquí en vez de
+      // anotar el callback, que es lo que TypeScript no acepta.
+      (body) => body.hits.some((h) => (h as { id: string }).id === unicoDuenoId),
     );
     await request.dispose();
   });
