@@ -18,9 +18,22 @@ import { loginAdminViaApi, authedPost } from './helpers/api';
 
 const CATEGORIA = 'Categoría';
 
-/** Elige una categoría en el selector y espera a que la navegación aterrice. */
+/**
+ * Elige una categoría en el selector y espera a que la navegación aterrice.
+ *
+ * Se espera a que cambie el PATH, no a `networkidle`: el push del router puede no haber
+ * aterrizado cuando la red se calma, y entonces `page.url()` devuelve la de antes
+ * (visto como flake intermitente). El destino es la ruta canónica de la categoría, o
+ * /busqueda cuando se elige "Todas".
+ *
+ * `waitUntil: 'commit'` es imprescindible: por defecto `waitForURL` espera ADEMÁS al
+ * evento `load`, que una navegación de cliente del App Router no dispara — la URL casa
+ * y el wait se queda colgado hasta el timeout.
+ */
 async function elegirCategoria(page: Page, valor: string) {
+  const origen = new URL(page.url()).pathname;
   await page.getByLabel(CATEGORIA).selectOption(valor);
+  await page.waitForURL((url) => url.pathname !== origen, { waitUntil: 'commit' });
   await page.waitForLoadState('networkidle');
 }
 
@@ -90,6 +103,36 @@ test.describe('A2 — unificación de búsqueda', () => {
     const url = new URL(page.url());
     expect(url.pathname).toBe('/vehiculos');
     expect(url.searchParams.get('brand')).toBe('Seat');
+    await esperarPaginaSana(page);
+  });
+
+  // ── A4 — los rangos viajan como su atributo base ──────────────────────────
+  test('A4: el rango sobrevive al cambiar a una categoría donde su atributo vale', async ({ page }) => {
+    // `km` es de vehículos y lo heredan sus hijas, así que vale en las dos puntas de
+    // este salto. (El seed de test solo tiene vehiculos→coches, así que el tránsito
+    // que lo ejerce con datos reales es hija→padre.)
+    await page.goto('/vehiculos/coches?km_min=50000&km_max=150000');
+    await esperarPaginaSana(page);
+
+    await elegirCategoria(page, 'vehiculos');
+
+    const url = new URL(page.url());
+    expect(url.pathname).toBe('/vehiculos');
+    expect(url.searchParams.get('km_min')).toBe('50000');
+    expect(url.searchParams.get('km_max')).toBe('150000');
+    await esperarPaginaSana(page);
+  });
+
+  test('A4: el rango se CAE, sin 400, si su atributo no vale en el destino', async ({ page }) => {
+    await page.goto('/vehiculos/coches?km_min=50000&q=golf');
+    await esperarPaginaSana(page);
+
+    await elegirCategoria(page, 'moviles');
+
+    const url = new URL(page.url());
+    expect(url.pathname).toBe('/electronica/moviles');
+    expect(url.searchParams.has('km_min')).toBe(false);
+    expect(url.searchParams.get('q')).toBe('golf');
     await esperarPaginaSana(page);
   });
 
@@ -176,7 +219,7 @@ test.describe('A2 — unificación de búsqueda', () => {
     // Se espera a la URL concreta, no a `networkidle`: el push del router puede
     // no haber aterrizado cuando la red se calma, y leer page.url() entonces
     // devuelve la de antes (visto: `province` seguía puesto en ~1 de cada 10).
-    await page.waitForURL((url) => !url.searchParams.has('province'));
+    await page.waitForURL((url) => !url.searchParams.has('province'), { waitUntil: 'commit' });
 
     const url = new URL(page.url());
     expect(url.pathname).toBe('/vehiculos/coches');

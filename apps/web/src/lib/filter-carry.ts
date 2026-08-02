@@ -45,6 +45,20 @@ const DROPPED_PARAMS = [
   'category',
 ] as const;
 
+/**
+ * A4 — sufijos de rango numérico. Espejo de `RANGE_SUFFIXES` en el parser del backend
+ * (`search-query.parser.ts`): si allí cambian, aquí también.
+ */
+export const RANGE_SUFFIXES = ['_min', '_max'] as const;
+
+/** `km_min` → `km`. `null` si la clave no es un extremo de rango. */
+export function rangeBaseName(key: string): string | null {
+  for (const sufijo of RANGE_SUFFIXES) {
+    if (key.length > sufijo.length && key.endsWith(sufijo)) return key.slice(0, -sufijo.length);
+  }
+  return null;
+}
+
 /** Categoría destino, o `null` para "Todas las categorías" (→ /busqueda). */
 export interface CarryTarget {
   slug: string;
@@ -133,8 +147,12 @@ export function carryFilters(
   const known = new Set<string>([...CARRIED_CORE_PARAMS, ...DROPPED_PARAMS]);
   for (const [key, value] of current.entries()) {
     if (known.has(key) || !value) continue;
+    // A4 — un extremo de rango (`km_min`) vale donde valga su atributo BASE. Sin esto
+    // se caería siempre al cambiar de categoría, porque el set de permitidos contiene
+    // `km`, no `km_min`, y el usuario perdería el rango sin motivo.
+    const nombreBase = rangeBaseName(key) ?? key;
     // `null` = destino "Todas": la unión global los acepta todos.
-    if (allowedAttributeNames === null || allowedAttributeNames.has(key)) {
+    if (allowedAttributeNames === null || allowedAttributeNames.has(nombreBase)) {
       next.set(key, value);
     }
     // Si no está permitido en el destino, se cae EN SILENCIO. Avisar ("hemos quitado

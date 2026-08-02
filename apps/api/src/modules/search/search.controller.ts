@@ -43,7 +43,7 @@ export class SearchController {
       '{ hits: ResumenAnuncio[], featured: ResumenAnuncio[], totalHits: number, page: number, hitsPerPage: number, facets?: Record<string, Record<string, number>> }',
   })
   async search(@Query() rawQuery: Record<string, unknown>) {
-    const { dto, attributes, attributeTypes } = await parseSearchQuery(rawQuery, (categorySlug) =>
+    const { dto, attributes, attributeRanges, attributeTypes } = await parseSearchQuery(rawQuery, (categorySlug) =>
       categorySlug
         ? this.attributesResolver.getAttributeTypesForCategory(categorySlug)
         : this.attributesResolver.getAttributeTypes(),
@@ -75,6 +75,9 @@ export class SearchController {
       province: dto.province,
       city: dto.city,
       ...(Object.keys(attributes).length > 0 ? { attributes } : {}),
+      // A4 — rangos numéricos (km_min/km_max). Van aparte de `attributes` porque son
+      // filtros de intervalo, no de igualdad; el service emite >= / <= con ellos.
+      ...(Object.keys(attributeRanges).length > 0 ? { attributeRanges } : {}),
       // Facetas de atributo derivadas del MISMO mapa que valida los query params
       // (auditoría de filtros — antes una lista editorial fija, FACET_ATTRIBUTES,
       // desconectada de qué atributos configura realmente el admin como filterable).

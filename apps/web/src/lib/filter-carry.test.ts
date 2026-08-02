@@ -108,6 +108,52 @@ describe('carryFilters — LA TRAMPA (§1.2.1)', () => {
   });
 });
 
+// A4 — los extremos de rango (`km_min`) valen donde valga su atributo BASE. Sin esto se
+// caerían siempre al cambiar de categoría, porque el set de permitidos contiene `km`.
+describe('carryFilters — rangos numéricos (A4)', () => {
+  it('conserva `year_min`/`year_max` si `year` es filtrable en el destino', () => {
+    const current = new URLSearchParams('year_min=2015&year_max=2020');
+    const next = carryFilters(current, { slug: 'coches', parentSlug: 'vehiculos' }, filterableAttributeNamesFor(TREE, 'coches'));
+
+    expect(next.get('year_min')).toBe('2015');
+    expect(next.get('year_max')).toBe('2020');
+  });
+
+  it('DESCARTA el rango si su atributo base no vale en el destino — y sin 400', () => {
+    // `rooms` es de pisos; su rango no puede viajar a coches, igual que no viaja él.
+    const current = new URLSearchParams('rooms_min=2&q=x');
+    const next = carryFilters(current, { slug: 'coches', parentSlug: 'vehiculos' }, filterableAttributeNamesFor(TREE, 'coches'));
+
+    expect(next.has('rooms_min')).toBe(false);
+    expect(next.get('q')).toBe('x');
+  });
+
+  it('un extremo suelto viaja igual (rango abierto)', () => {
+    const current = new URLSearchParams('year_min=2015');
+    const next = carryFilters(current, { slug: 'coches', parentSlug: 'vehiculos' }, filterableAttributeNamesFor(TREE, 'coches'));
+
+    expect(next.get('year_min')).toBe('2015');
+    expect(next.has('year_max')).toBe(false);
+  });
+
+  it('hacia "Todas" se conserva todo, rangos incluidos', () => {
+    const current = new URLSearchParams('rooms_min=2&year_max=2020');
+    const next = carryFilters(current, null, filterableAttributeNamesFor(TREE, null));
+
+    expect(next.get('rooms_min')).toBe('2');
+    expect(next.get('year_max')).toBe('2020');
+  });
+
+  it('un atributo que TERMINA en _min pero cuya base no existe se trata como atributo normal', () => {
+    // `presupuesto_min` no es el rango de nada si no hay un `presupuesto`: se comprueba
+    // contra el set como cualquier otra clave, y aquí no está → se cae.
+    const current = new URLSearchParams('presupuesto_min=100');
+    const next = carryFilters(current, { slug: 'coches', parentSlug: 'vehiculos' }, filterableAttributeNamesFor(TREE, 'coches'));
+
+    expect(next.has('presupuesto_min')).toBe(false);
+  });
+});
+
 describe('carryFilters — core y descartes', () => {
   it('conserva todos los params core', () => {
     const current = new URLSearchParams(

@@ -171,22 +171,83 @@ describe('F6 — TODOS los filtrables se pintan, aunque no tengan anuncios', () 
   });
 });
 
-describe('number y text — se pintan, con su label; el rango es A4', () => {
-  it('un `number` sigue como chips de los valores que haya (su rango es A4)', () => {
-    const campos: AttributeFieldView[] = [{ name: 'km', label: 'Kilómetros', type: 'number', unit: 'km' }];
-    render(<FilterPanel {...BASE} filterableFields={campos} facets={{ km: { '1000': 2, '5000': 1 } }} />);
+// A4 — un `number` pasa de chips de valores sueltos a control de RANGO. Filtrar km por
+// igualdad no sirve de nada: nadie busca "exactamente 120.000 km".
+describe('A4 — un `number` se filtra por rango mín/máx', () => {
+  const campos: AttributeFieldView[] = [
+    { name: 'km', label: 'Kilómetros', type: 'number', unit: 'km' },
+  ];
+
+  it('ofrece dos inputs, mínimo y máximo, con la unidad en el placeholder', () => {
+    render(<FilterPanel {...BASE} filterableFields={campos} facets={{}} />);
 
     const s = within(seccion('km'));
-    expect(s.getByText(/Kilómetros/)).toBeInTheDocument();
-    expect(s.getByRole('button', { name: /1000/ })).toBeInTheDocument();
+    expect(s.getByLabelText('Kilómetros mínimo')).toHaveAttribute('placeholder', 'Mín (km)');
+    expect(s.getByLabelText('Kilómetros máximo')).toHaveAttribute('placeholder', 'Máx (km)');
   });
 
-  it('un `number` sin valores muestra la sección igualmente', () => {
-    const campos: AttributeFieldView[] = [{ name: 'km', label: 'Kilómetros', type: 'number' }];
+  it('ya NO pinta chips de valores sueltos aunque haya facetas', () => {
+    render(<FilterPanel {...BASE} filterableFields={campos} facets={{ km: { '1000': 2 } }} />);
+    expect(within(seccion('km')).queryByRole('button', { name: /1000/ })).not.toBeInTheDocument();
+  });
+
+  it('emite `km_min` al aplicar el mínimo', () => {
     render(<FilterPanel {...BASE} filterableFields={campos} facets={{}} />);
-    expect(within(seccion('km')).getByText('Sin valores todavía')).toBeInTheDocument();
+
+    const min = within(seccion('km')).getByLabelText('Kilómetros mínimo');
+    fireEvent.change(min, { target: { value: '50000' } });
+    fireEvent.keyDown(min, { key: 'Enter' });
+
+    expect(mockPush).toHaveBeenCalledWith('/vehiculos/coches?km_min=50000');
   });
 
+  it('emite los dos extremos al aplicar un rango cerrado', () => {
+    render(<FilterPanel {...BASE} filterableFields={campos} facets={{}} />);
+
+    const s = within(seccion('km'));
+    fireEvent.change(s.getByLabelText('Kilómetros mínimo'), { target: { value: '50000' } });
+    fireEvent.change(s.getByLabelText('Kilómetros máximo'), { target: { value: '150000' } });
+    fireEvent.blur(s.getByLabelText('Kilómetros máximo'));
+
+    const [url] = mockPush.mock.calls[0] as [string];
+    expect(url).toContain('km_min=50000');
+    expect(url).toContain('km_max=150000');
+  });
+
+  it('precarga los extremos que ya vienen en la URL', () => {
+    mockSearchParams = new URLSearchParams('km_min=50000&km_max=150000');
+    render(<FilterPanel {...BASE} filterableFields={campos} facets={{}} />);
+
+    const s = within(seccion('km'));
+    expect(s.getByLabelText('Kilómetros mínimo')).toHaveValue(50000);
+    expect(s.getByLabelText('Kilómetros máximo')).toHaveValue(150000);
+  });
+
+  it('vaciar un extremo lo quita de la URL', () => {
+    mockSearchParams = new URLSearchParams('km_min=50000');
+    render(<FilterPanel {...BASE} filterableFields={campos} facets={{}} />);
+
+    const min = within(seccion('km')).getByLabelText('Kilómetros mínimo');
+    fireEvent.change(min, { target: { value: '' } });
+    fireEvent.blur(min);
+
+    expect(mockPush).toHaveBeenCalledWith('/vehiculos/coches?');
+  });
+
+  it('sin unidad, los placeholders son solo Mín/Máx', () => {
+    render(
+      <FilterPanel
+        {...BASE}
+        filterableFields={[{ name: 'rooms', label: 'Habitaciones', type: 'number' }]}
+        facets={{}}
+      />,
+    );
+    const s = within(seccion('rooms'));
+    expect(s.getByLabelText('Habitaciones mínimo')).toHaveAttribute('placeholder', 'Mín');
+  });
+});
+
+describe('text — se pinta con su label', () => {
   it('un `text` se ofrece como input y aplica al pulsar Enter', () => {
     const campos: AttributeFieldView[] = [{ name: 'ref', label: 'Referencia', type: 'text' }];
     render(<FilterPanel {...BASE} filterableFields={campos} facets={{}} />);

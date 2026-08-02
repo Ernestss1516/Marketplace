@@ -748,6 +748,13 @@ atributos solo se filtran por **igualdad** (`${key} = ${value}` en
 [search.service.ts:371-377](apps/api/src/modules/search/search.service.ts#L371)). Un filtro de
 km/m²/año por valor exacto es inútil en la práctica.
 
+> **✅ IMPLEMENTADO EN A4** (2026-08-02), tal cual se propone aquí y con la reserva de
+> nombres cerrada en la config de admin (`assertNoRangeSuffixCollision`), no solo en el
+> resolver. Añadido sobre lo diseñado: **`min > max` devuelve 400** en vez de una búsqueda
+> vacía —un rango invertido es un error del cliente, y 0 hits en silencio lo escondería—,
+> y `filter-carry` (A2) reconoce los sufijos para que un rango viaje donde viaje su
+> atributo base. **P4 queda resuelto: el rango fue su propia ráfaga.**
+>
 > **Propuesta:** sufijos `_min`/`_max` en el query param, reconocidos por `parseSearchQuery`
 > cuando la clave base es un atributo filtrable de tipo `number`, traducidos a
 > `key >= n` / `key <= n` en el filtro Meilisearch. Aditivo puro: la igualdad

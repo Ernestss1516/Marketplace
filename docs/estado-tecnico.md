@@ -9201,6 +9201,72 @@ categoría **sigue dando 400** (la defensa anti-leak intacta). Unitarios:
 
 ---
 
+## Búsqueda + Tags — RÁFAGA A4: rango numérico en filtros (cerrada) · **BLOQUE A COMPLETO**
+
+**✅ CERRADA** (2026-08-02). Diseño: `docs/diseno-busqueda-y-tags.md` §3.3 (bloque de
+rango) y §8 P4. Cierra **F3**, el sexto síntoma de la auditoría de filtros.
+
+**El problema.** Los atributos de categoría se filtraban SOLO por igualdad
+(`km = 120000`). Para kilómetros, metros o año eso no sirve de nada: nadie busca un valor
+exacto. A3 les dio label y unidad correctos, pero seguían siendo chips de valores sueltos.
+
+**La forma:** sufijos `_min`/`_max` sobre la clave base —
+`km_min=50000&km_max=150000` → `km >= 50000 AND km <= 150000`. Se eligen sufijos (y no
+una sintaxis tipo `km=50000..150000`) porque encajan con lo que ya hay: cada filtro sigue
+siendo UN query param plano, así que el panel, `filter-carry` y las URLs compartidas no
+tienen que entender ninguna gramática nueva.
+
+**ADITIVO — la igualdad no se rompe.** `km=120000` sigue funcionando exactamente igual, y
+un atributo puede recibir las dos cosas a la vez (se combinan con AND). El spec lo fija.
+
+**Validación (todo 400, coherente con el anti-leak de RÁFAGA 1):** un rango sobre un
+atributo que no es `number`; un rango sobre un atributo ajeno a la categoría; un valor no
+numérico; y **`min > max`** — un rango invertido es un error del cliente, no una búsqueda
+vacía, y devolver 0 hits en silencio escondería el fallo justo cuando hay que verlo. Los
+extremos son **inclusivos** (`>=`/`<=`) y cualquiera de los dos puede faltar (`km_min`
+suelto es "50000 o más").
+
+**El DTO no cambia.** `SearchQueryDto` solo declara los params CORE; los de atributo se
+validan dinámicamente en el parser contra el mapa del resolver. `_min`/`_max` entran por
+ese mismo mecanismo — no había un patrón nuevo que inventar.
+
+**Colisión de nombres, cerrada en la CONFIGURACIÓN** (`assertNoRangeSuffixCollision`): un
+atributo no puede llamarse `X_min`/`X_max` si existe un `X` numérico en el mismo ámbito, ni
+al revés. Si coexistieran, la misma clave querría decir dos cosas y el parser —que mira la
+clave literal primero— resolvería a favor del atributo, dejando el rango en la sombra sin
+que nadie se entere. Mismo criterio que `RESERVED_ROOT_SLUGS` (A1): el sitio de un choque
+de nombres es el guardado, con un 400 que lo explica, no el tiempo de búsqueda. El ámbito
+es el que ve el parser: propio + padre para una hoja, propio + hijas para un padre. El
+sufijo por sí solo NO se veta: `presupuesto_min` es válido mientras no exista un
+`presupuesto` numérico.
+
+**Frontend:** un `number` pasa de chips a control de **rango mín/máx**, molde exacto del
+filtro de precio que ya existía (dos inputs, estado local, aplicar en blur/Enter, la
+unidad en el placeholder) — no un tercer patrón de rango. Y `filter-carry` (A2) reconoce
+los sufijos: un `km_min` viaja donde viaje su atributo BASE. Sin eso se habría caído
+siempre al cambiar de categoría, porque el set de permitidos contiene `km`, no `km_min`.
+
+**Verificación — con anuncios a ambos lados del rango.** `search-attribute-range` (13)
+publica tres anuncios (40k, 100k, 200k km) y comprueba el rango cerrado, los dos abiertos,
+los extremos inclusivos, la igualdad intacta, la combinación de ambos y los cinco 400.
+`admin-range-suffix-collision` (8) ejerce la colisión en las dos direcciones, la herencia
+del padre, la edición, y que un sufijo inocente se sigue guardando.
+
+**Validación por mutación (dos):** sustituir `>=`/`<=` por `=` en el service → **5 tests de
+rango en rojo**; quitar la comprobación de "solo number" en el parser → **el test del
+select con `_min` en rojo**. Los tests ejercen el mecanismo, no el camino feliz.
+
+**Batería:** backend **1363/1363 en dos corridas consecutivas idénticas** (86 suites); web
+357/357; `tsc` limpio en ambos; lint igual que el baseline.
+
+**Nota de método (Playwright).** `page.waitForURL(predicado)` espera POR DEFECTO al evento
+`load`, que una navegación de cliente del App Router **no dispara**: la URL casa y el wait
+se queda colgado hasta el timeout. Hay que pasarle `{ waitUntil: 'commit' }`. Costó una
+corrida entera diagnosticarlo y está aplicado en los tres sitios donde se espera un push
+del router.
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.

@@ -546,6 +546,66 @@ export class AdminService {
   }
 
   /**
+   * A4 (rango numérico) — un atributo NO puede llamarse `X_min`/`X_max` si existe un
+   * atributo NUMÉRICO llamado `X` en el mismo ámbito, ni al revés.
+   *
+   * Por qué: desde A4, `km_min=50000` en la búsqueda significa "km mayor o igual que
+   * 50000". Si además existiera un atributo literalmente llamado `km_min`, la misma
+   * clave querría decir dos cosas — y el parser, que mira la clave literal primero,
+   * resolvería a favor del atributo, dejando el rango de `km` en la sombra sin que
+   * nadie se entere. Es la misma clase de problema que `RESERVED_ATTRIBUTE_NAMES`
+   * (colisión con un campo core) resuelto en el mismo sitio: la configuración, con un
+   * 400 claro al guardar, en vez de un comportamiento raro en tiempo de búsqueda.
+   *
+   * El ÁMBITO es el que ve el parser al resolver una categoría: propio + padre para
+   * una hoja, y propio + hijas para un padre (igual que
+   * `getAttributeTypesForCategory`). Se comprueban las dos direcciones — crear el
+   * `_min` teniendo el número, y crear el número teniendo el `_min`.
+   */
+  private async assertNoRangeSuffixCollision(
+    ownSchema: AttributeField[],
+    categoryId: string | null,
+    parentId: string | null | undefined,
+  ): Promise<void> {
+    const vecinos: AttributeField[] = [];
+
+    if (parentId) {
+      const parent = await this.prisma.category.findUnique({
+        where: { id: parentId },
+        select: { attributeSchema: true },
+      });
+      if (parent) vecinos.push(...((parent.attributeSchema as unknown as AttributeField[]) ?? []));
+    }
+    if (categoryId) {
+      const hijas = await this.prisma.category.findMany({
+        where: { parentId: categoryId },
+        select: { attributeSchema: true },
+      });
+      for (const hija of hijas) {
+        vecinos.push(...((hija.attributeSchema as unknown as AttributeField[]) ?? []));
+      }
+    }
+
+    const todos = [...ownSchema, ...vecinos];
+    const numericos = new Set(todos.filter((f) => f.type === 'number').map((f) => f.name));
+
+    for (const campo of todos) {
+      for (const sufijo of ['_min', '_max']) {
+        if (campo.name.length > sufijo.length && campo.name.endsWith(sufijo)) {
+          const base = campo.name.slice(0, -sufijo.length);
+          if (numericos.has(base)) {
+            throw new BadRequestException(
+              `El atributo "${campo.name}" choca con el filtro de rango del atributo numérico ` +
+                `"${base}": desde A4, "${base}${sufijo}" en una búsqueda significa el ` +
+                `${sufijo === '_min' ? 'mínimo' : 'máximo'} de "${base}". Renombra uno de los dos.`,
+            );
+          }
+        }
+      }
+    }
+  }
+
+  /**
    * RÁFAGA 2 (vista ampliada): mismo mecanismo que validateCardAttributeLimit
    * pero para wideCardAttribute, con un tope de 6 en vez de 2 — la card ancha
    * tiene más espacio que la compacta pero sigue acotada.
@@ -808,6 +868,12 @@ export class AdminService {
     if (dto.attributeSchema) {
       await this.validateCardAttributeLimit(dto.attributeSchema as AttributeField[], dto.parentId);
       await this.validateWideCardAttributeLimit(dto.attributeSchema as AttributeField[], dto.parentId);
+      // A4 — sin categoryId todavía (se está creando), así que no hay hijas que mirar.
+      await this.assertNoRangeSuffixCollision(
+        dto.attributeSchema as AttributeField[],
+        null,
+        dto.parentId,
+      );
     }
     if (dto.allowedListingType !== undefined) {
       await this.assertPolicyConsistentWithParent(dto.allowedListingType, dto.parentId);
@@ -885,6 +951,13 @@ export class AdminService {
       // BUG 2 — la validación de arriba solo mira hacia el padre; esta mira
       // hacia las hijas (si las hay) con el schema NUEVO que se está guardando.
       await this.assertCardAttributeChangeDoesNotBreakChildren(id, dto.attributeSchema as AttributeField[]);
+      // A4 — aquí SÍ hay id, así que la colisión se mira en las dos direcciones:
+      // contra el padre y contra las hijas.
+      await this.assertNoRangeSuffixCollision(
+        dto.attributeSchema as AttributeField[],
+        id,
+        category.parentId,
+      );
     }
 
     if (dto.allowedListingType !== undefined) {

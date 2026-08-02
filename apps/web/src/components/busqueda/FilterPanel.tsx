@@ -191,20 +191,34 @@ function AttributeFilter({
   field,
   counts,
   value,
+  rangeMin,
+  rangeMax,
   parentValue,
   onToggle,
   onSet,
+  onSetRange,
 }: {
   field: AttributeFieldView;
   counts?: Record<string, number>;
   value?: string;
+  /** A4 — extremos actuales del rango (`<attr>_min` / `<attr>_max` de la URL). */
+  rangeMin?: string;
+  rangeMax?: string;
   /** Valor actual del campo del que este depende (`dependsOn`), si lo tiene. */
   parentValue?: string;
   onToggle: (value: string) => void;
   onSet: (value: string | undefined) => void;
+  onSetRange: (min: string | undefined, max: string | undefined) => void;
 }) {
   const [texto, setTexto] = useState(value ?? '');
   useEffect(() => { setTexto(value ?? ''); }, [value]);
+
+  // Estado local del rango: se aplica en blur/Enter, no en cada tecla — mismo criterio
+  // que el filtro de precio, para no lanzar una navegación por dígito tecleado.
+  const [min, setMin] = useState(rangeMin ?? '');
+  const [max, setMax] = useState(rangeMax ?? '');
+  useEffect(() => { setMin(rangeMin ?? ''); setMax(rangeMax ?? ''); }, [rangeMin, rangeMax]);
+  const aplicarRango = () => onSetRange(min || undefined, max || undefined);
 
   const unidad = field.unit ? ` (${field.unit})` : '';
   const titulo = `${field.label}${unidad}`;
@@ -247,6 +261,41 @@ function AttributeFilter({
               onClick={() => onToggle(o.value)}
             />
           ))}
+        </div>
+      </div>
+    );
+  }
+
+  // A4 — un atributo NUMÉRICO se filtra por RANGO, no por valor exacto. Filtrar km o
+  // m² por igualdad no sirve de nada: nadie busca "exactamente 120.000 km".
+  // Es el molde EXACTO del filtro de precio que ya existía (dos inputs, estado local,
+  // aplicar en blur/Enter) para no inventar un tercer patrón de rango en el panel.
+  if (field.type === 'number') {
+    return (
+      <div data-testid={`facet-${field.name}`}>
+        <SectionLabel>{titulo}</SectionLabel>
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            aria-label={`${field.label} mínimo`}
+            placeholder={field.unit ? `Mín (${field.unit})` : 'Mín'}
+            value={min}
+            onChange={(e) => setMin(e.target.value)}
+            onBlur={aplicarRango}
+            onKeyDown={(e) => e.key === 'Enter' && aplicarRango()}
+            className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+          <span className="shrink-0 text-muted-foreground">—</span>
+          <input
+            type="number"
+            aria-label={`${field.label} máximo`}
+            placeholder={field.unit ? `Máx (${field.unit})` : 'Máx'}
+            value={max}
+            onChange={(e) => setMax(e.target.value)}
+            onBlur={aplicarRango}
+            onKeyDown={(e) => e.key === 'Enter' && aplicarRango()}
+            className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          />
         </div>
       </div>
     );
@@ -658,9 +707,14 @@ export function FilterPanel({
           field={field}
           counts={facets?.[field.name]}
           value={searchParams.get(field.name) ?? undefined}
+          rangeMin={searchParams.get(`${field.name}_min`) ?? undefined}
+          rangeMax={searchParams.get(`${field.name}_max`) ?? undefined}
           parentValue={field.dependsOn ? searchParams.get(field.dependsOn) ?? undefined : undefined}
           onToggle={(value) => toggleFacet(field.name, value)}
           onSet={(value) => update({ [field.name]: value })}
+          onSetRange={(min, max) =>
+            update({ [`${field.name}_min`]: min, [`${field.name}_max`]: max })
+          }
         />
       ))}
 

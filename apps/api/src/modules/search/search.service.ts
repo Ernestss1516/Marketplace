@@ -206,6 +206,9 @@ export interface SearchParams {
   province?: string;
   city?: string;
   attributes?: Record<string, string | number | boolean>;
+  /** A4 — rangos por atributo numérico (`km_min`/`km_max` en la query). Separados de
+   *  `attributes`, que son filtros de igualdad: un atributo puede llevar ambos. */
+  attributeRanges?: Record<string, { min?: number; max?: number }>;
   /**
    * Category-attribute names to request as Meilisearch facets, IN ADDITION to
    * NATIVE_FACET_ATTRIBUTES — supplied by the controller from the exact same
@@ -374,6 +377,21 @@ export class SearchService implements OnModuleInit {
           ? `${key} = "${this.escape(value)}"`
           : `${key} = ${value}`,
       );
+    }
+
+    // A4 — RANGOS sobre atributos numéricos (km, m², año). Aditivo: la igualdad de
+    // arriba sigue exactamente igual, y un atributo puede recibir las dos cosas.
+    // Los dos extremos se emiten como cláusulas separadas, que Meilisearch combina
+    // con AND igual que el resto de `filters` — un rango cerrado es simplemente las
+    // dos a la vez.
+    //
+    // `Number.isFinite` aunque el parser ya haya validado: esto se interpola CRUDO en
+    // la expresión de filtro (un número no se puede citar como una cadena), así que la
+    // comprobación se repite aquí en vez de confiar en que el único llamador de hoy
+    // siga siendo el único mañana.
+    for (const [key, range] of Object.entries(params.attributeRanges ?? {})) {
+      if (range.min != null && Number.isFinite(range.min)) filters.push(`${key} >= ${range.min}`);
+      if (range.max != null && Number.isFinite(range.max)) filters.push(`${key} <= ${range.max}`);
     }
 
     if (params.geo) {

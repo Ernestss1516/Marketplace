@@ -150,6 +150,47 @@ test.describe('A3 — panel de filtros dictado por la configuración', () => {
     await expect(modelo.getByRole('button', { name: /Ibiza/ })).toHaveCount(0);
   });
 
+  // ── A4 — rango numérico ───────────────────────────────────────────────────
+  test('A4: un atributo numérico se ofrece como RANGO mín/máx, no como chips', async ({ page }) => {
+    await abrirPanel(page);
+
+    const metros = page.locator(SECCION('a3Metros')).first();
+    await expect(metros.getByLabel('Metros cuadrados mínimo')).toBeVisible();
+    await expect(metros.getByLabel('Metros cuadrados máximo')).toBeVisible();
+    // La unidad va en el placeholder, que es donde ayuda al escribir.
+    await expect(metros.getByLabel('Metros cuadrados mínimo')).toHaveAttribute('placeholder', 'Mín (m²)');
+  });
+
+  test('A4: aplicar el rango emite _min/_max y la página responde', async ({ page }) => {
+    await abrirPanel(page);
+
+    const metros = page.locator(SECCION('a3Metros')).first();
+    await metros.getByLabel('Metros cuadrados mínimo').fill('50');
+    await metros.getByLabel('Metros cuadrados máximo').fill('150');
+    await metros.getByLabel('Metros cuadrados máximo').blur();
+
+    // `waitUntil: 'commit'` — sin él, waitForURL espera además al evento `load`, que una
+    // navegación de cliente del App Router NO dispara: la URL ya casa y aun así se queda
+    // colgado hasta el timeout.
+    await page.waitForURL((u) => u.searchParams.has('a3Metros_min'), { waitUntil: 'commit' });
+    const url = new URL(page.url());
+    expect(url.searchParams.get('a3Metros_min')).toBe('50');
+    expect(url.searchParams.get('a3Metros_max')).toBe('150');
+
+    // Y el backend lo acepta: sin 400, la página sigue viva.
+    await expect(page.getByRole('heading', { name: 'Algo salió mal' })).toHaveCount(0);
+    await expect(page.getByLabel('Filtros')).toBeVisible();
+  });
+
+  test('A4: los extremos vuelven precargados al recargar la URL', async ({ page }) => {
+    await page.goto(`/${catSlug}?a3Metros_min=50&a3Metros_max=150`);
+    await expect(page.getByLabel('Filtros')).toBeVisible();
+
+    const metros = page.locator(SECCION('a3Metros')).first();
+    await expect(metros.getByLabel('Metros cuadrados mínimo')).toHaveValue('50');
+    await expect(metros.getByLabel('Metros cuadrados máximo')).toHaveValue('150');
+  });
+
   // ── La página no se rompe con un filtro aplicado ───────────────────────────
   test('aplicar un filtro de la categoría no rompe la página (sigue siendo un param válido)', async ({ page }) => {
     // A3 es presentación: el filtrado real no cambia. Lo que se comprueba aquí es que

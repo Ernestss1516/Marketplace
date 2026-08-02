@@ -11,9 +11,42 @@ export const CORE_SEARCH_QUERY_KEYS = new Set([
   'province', 'city', 'sort', 'page', 'hitsPerPage', 'lat', 'lng', 'radius',
 ]);
 
+/**
+ * A4 — sufijos de RANGO. `km_min=50000&km_max=150000` filtra por intervalo; la
+ * igualdad de siempre (`km=120000`) se conserva intacta.
+ *
+ * Se eligen sufijos sobre la clave base (y no un formato tipo `km=50000..150000`)
+ * porque encajan con lo que ya hay: cada filtro sigue siendo UN query param plano,
+ * así que el panel de filtros, `filter-carry` y las URLs compartidas no necesitan
+ * entender ninguna sintaxis nueva.
+ */
+const RANGE_SUFFIXES = { _min: 'min', _max: 'max' } as const;
+type RangeBound = (typeof RANGE_SUFFIXES)[keyof typeof RANGE_SUFFIXES];
+
+/** Rango pedido para un atributo numérico. Cualquiera de los dos extremos puede
+ *  faltar: `km_min` suelto es "50000 o más". */
+export interface AttributeRange {
+  min?: number;
+  max?: number;
+}
+
+/** Parte `km_min` en `{ base: 'km', bound: 'min' }`. `null` si no lleva sufijo. */
+function splitRangeKey(key: string): { base: string; bound: RangeBound } | null {
+  for (const [suffix, bound] of Object.entries(RANGE_SUFFIXES) as [string, RangeBound][]) {
+    if (key.length > suffix.length && key.endsWith(suffix)) {
+      return { base: key.slice(0, -suffix.length), bound };
+    }
+  }
+  return null;
+}
+
 export interface ParsedSearchQuery {
   dto: SearchQueryDto;
   attributes: Record<string, string | number | boolean>;
+  /** A4 — rangos por atributo numérico, ya validados y coaccionados a número. Van
+   *  aparte de `attributes` a propósito: esos son filtros de IGUALDAD y estos de
+   *  intervalo, y mezclarlos obligaría al service a adivinar cuál es cuál. */
+  attributeRanges: Record<string, AttributeRange>;
   /** The map actually used to validate/coerce `attributes` — reused by the controller
    * for hit normalisation so both steps agree on which keys are attributes. */
   attributeTypes: ReadonlyMap<string, AttributeField['type']>;
@@ -113,19 +146,61 @@ export async function parseSearchQuery(
   const attributeTypes = await resolveAttributeTypes(categorySlug);
 
   const attributes: Record<string, string | number | boolean> = {};
+  const attributeRanges: Record<string, AttributeRange> = {};
+
   for (const [key, rawValue] of Object.entries(restRaw)) {
+    // La clave LITERAL manda: un atributo que de verdad se llame `km_min` sigue
+    // filtrando por igualdad como cualquier otro. Que eso no pueda convivir con un
+    // `km` numérico lo garantiza el guard de la config de admin
+    // (assertNoRangeSuffixCollision), no este parser.
     const kind = attributeTypes.get(key);
-    if (!kind) {
-      errors.push(`property ${key} should not exist`);
+    if (kind) {
+      const coerced = coerceAttributeValue(kind, rawValue, key, errors);
+      if (coerced !== undefined) attributes[key] = coerced;
       continue;
     }
-    const coerced = coerceAttributeValue(kind, rawValue, key, errors);
-    if (coerced !== undefined) attributes[key] = coerced;
+
+    // A4 — ¿es el extremo de un rango sobre un atributo numérico?
+    const rango = splitRangeKey(key);
+    if (rango) {
+      const baseKind = attributeTypes.get(rango.base);
+      if (baseKind === undefined) {
+        // Ni el sufijo ni la base existen aquí: mismo 400 que cualquier param
+        // desconocido. Es la defensa anti-leak cross-categoría de RÁFAGA 1, que el
+        // rango no debe abrir por la puerta de atrás.
+        errors.push(`property ${key} should not exist`);
+        continue;
+      }
+      if (baseKind !== 'number') {
+        // Un rango sobre un `select` o un `text` no significa nada. Se rechaza en vez
+        // de ignorarlo en silencio: ignorarlo devolvería resultados sin el filtro que
+        // el usuario cree haber aplicado.
+        errors.push(`${key} solo aplica a atributos numéricos (${rango.base} es ${baseKind})`);
+        continue;
+      }
+      const n = Number(rawValue as string);
+      if (!Number.isFinite(n)) {
+        errors.push(`${key} must be a number`);
+        continue;
+      }
+      (attributeRanges[rango.base] ??= {})[rango.bound] = n;
+      continue;
+    }
+
+    errors.push(`property ${key} should not exist`);
+  }
+
+  // Un rango invertido es un error del cliente, no una búsqueda sin resultados:
+  // devolver 0 hits en silencio esconde el fallo justo cuando hay que verlo.
+  for (const [base, rango] of Object.entries(attributeRanges)) {
+    if (rango.min != null && rango.max != null && rango.min > rango.max) {
+      errors.push(`${base}_min (${rango.min}) no puede ser mayor que ${base}_max (${rango.max})`);
+    }
   }
 
   if (errors.length > 0 || !dto) {
     throw new BadRequestException(errors);
   }
 
-  return { dto, attributes, attributeTypes };
+  return { dto, attributes, attributeRanges, attributeTypes };
 }
