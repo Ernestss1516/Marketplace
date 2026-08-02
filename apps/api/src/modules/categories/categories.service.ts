@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../infra/prisma/prisma.service';
+import { TagsService } from '../tags/tags.service';
 import {
   AttributeField,
   resolveEffectiveSchema,
@@ -12,7 +13,10 @@ import {
 
 @Injectable()
 export class CategoriesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tagsService: TagsService,
+  ) {}
 
   async findTree() {
     const roots = await this.prisma.category.findMany({
@@ -207,6 +211,10 @@ export class CategoriesService {
       // RP.1 (formatos de precio): lista efectiva para que el wizard sepa qué
       // formatos ofrecer — y si es de un solo elemento, no preguntar nada.
       allowedPriceUnits: effectivePriceUnits,
+      // B1 — tags EFECTIVOS (propios + heredados, activos). Mismo criterio que
+      // allowedViews/allowedPriceUnits: el wizard llama a este endpoint al elegir
+      // categoría y no debe necesitar un segundo viaje para saber qué ofrecer.
+      tags: await this.tagsService.effectiveTagsForCategory(slug),
     };
   }
 }

@@ -456,8 +456,92 @@ model Category {
 
   listings     Listing[]
   sponsoredAds SponsoredAd[]
+  /// B1 — tags que esta categoría OFRECE. La herencia padre→hija NO se materializa
+  /// aquí: se resuelve en lectura (resolveEffectiveTags). Ver model CategoryTag.
+  tags         CategoryTag[]
 
   @@index([parentId])
+}
+
+// ============================================================================
+//  TAGS (B1) — vocabulario controlado, HERMANO del sistema de atributos
+// ============================================================================
+
+/// Etiqueta de vocabulario controlado. Sistema HERMANO del de atributos, NO fusionado
+/// con él: un atributo es clave→valor y vive en `Listing.attributes` (jsonb); un tag es
+/// pertenece/no-pertenece y vive en una tabla puente.
+///
+/// POR QUÉ TABLAS Y NO UN `Category.tagSchema Json` calcando el molde de atributos:
+///  1. Es vocabulario COMPARTIDO. "Envío incluido" es el mismo concepto en 30 categorías;
+///     en Json habría 30 copias y renombrarlo sería reescribir 30 filas.
+///  2. Se consulta TRANSVERSALMENTE: el buscador de portada (B4) sugiere sobre todo el
+///     vocabulario, con o sin categoría. Con Json habría que cargar y aplanar el árbol
+///     entero en cada sugerencia.
+///  3. `ListingTag` da INTEGRIDAD REFERENCIAL: no puede existir un anuncio con un tag
+///     inexistente. El bag Json de atributos no la tiene — por eso existe
+///     `validateAttributeValues`.
+/// Lo que SÍ se calca del molde de atributos es lo que importa: config por categoría,
+/// herencia padre→hija resuelta en lectura, y CRUD de admin.
+///
+/// SIN DELETE DURO, solo desactivación — molde ContactReason/Banner/SponsoredAd:
+/// desactivar un tag deja de ofrecerlo y de filtrarlo, pero los anuncios que ya lo
+/// llevan conservan su fila de ListingTag intacta.
+model Tag {
+  id String @id @default(cuid())
+
+  /// Lo que viaja en la URL (?tags=cambio-automatico) y lo que se indexará en
+  /// Meilisearch (B3). INMUTABLE una vez creado: cambiarlo obligaría a redirigir las
+  /// URLs de filtro y a reindexar todos los anuncios que lo llevan. Se renombra `name`.
+  slug String @unique
+
+  /// Lo que ve el usuario. Sí es editable.
+  name String
+
+  orden  Int     @default(0)
+  activo Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  categories CategoryTag[]
+  listings   ListingTag[]
+
+  @@index([activo, orden])
+}
+
+/// Qué tags se OFRECEN en qué categoría.
+///
+/// La herencia padre→hija se resuelve EN LECTURA (`resolveEffectiveTags`), NO se
+/// materializa aquí: una hija nunca lleva filas duplicadas de lo que ya ofrece su padre
+/// — mismo criterio que `resolveEffectiveSchema` con `attributeSchema`. Materializarla
+/// obligaría a propagar cada cambio del padre a todas las hijas, y a mantenerlas en
+/// sincronía para siempre.
+model CategoryTag {
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  tagId      String
+  tag        Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  /// Orden de oferta dentro de la categoría (el wizard y el panel los muestran así).
+  orden Int @default(0)
+
+  @@id([categoryId, tagId])
+  @@index([tagId])
+}
+
+/// Qué tags TIENE un anuncio concreto. El tope por anuncio es el Setting
+/// `maxTagsPerListing`, que se valida al escribir (B2).
+model ListingTag {
+  listingId String
+  listing   Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  tagId     String
+  /// Restrict y no Cascade: borrar un Tag que anuncios están usando no puede llevárselos
+  /// por delante en silencio. Hoy no hay DELETE de Tag (solo desactivación), así que
+  /// esto es defensa estructural: si algún día se añadiera, la base lo impediría.
+  tag       Tag     @relation(fields: [tagId], references: [id], onDelete: Restrict)
+
+  @@id([listingId, tagId])
+  @@index([tagId])
 }
 
 // ============================================================================
@@ -533,6 +617,8 @@ model Listing {
   viewsDaily    ListingViewDaily[]
   alertMatches  AlertMatch[]
   tickets       Ticket[]
+  /// B1 — tags que este anuncio TIENE. Un anuncio sin tags simplemente no tiene filas.
+  tags          ListingTag[]
 
   // Índices para los filtros y ordenaciones más frecuentes (rendimiento de listados).
   @@index([categoryId, status])

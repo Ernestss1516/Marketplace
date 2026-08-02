@@ -276,8 +276,59 @@ async function seedProPlans() {
   }
 }
 
+/**
+ * B1 — tags de ejemplo, parte del ESTADO BASE.
+ *
+ * Van en el seed (y no creados por cada spec) porque el saneamiento resetea la base a lo
+ * que el seed diga: así B2/B3/B4 y sus e2e tienen un vocabulario con el que trabajar sin
+ * inventárselo cada vez, y es determinista entre corridas.
+ *
+ * El reparto ejercita la HERENCIA a propósito: "garantia" y "envio-incluido" cuelgan de
+ * `vehiculos` (padre), así que `coches` (hija) los ve heredados; "unico-dueno" cuelga
+ * directamente de `coches`, así que sale ANTES que los heredados. "descatalogado" no se
+ * asigna a nada: existe en el catálogo pero no se ofrece en ninguna categoría.
+ */
+async function seedTags() {
+  const tags = [
+    { slug: 'garantia', name: 'Con garantía', orden: 0 },
+    { slug: 'envio-incluido', name: 'Envío incluido', orden: 1 },
+    { slug: 'unico-dueno', name: 'Único dueño', orden: 2 },
+    { slug: 'descatalogado', name: 'Descatalogado', orden: 3 },
+  ];
+  for (const t of tags) {
+    await prisma.tag.upsert({ where: { slug: t.slug }, create: t, update: { name: t.name, orden: t.orden } });
+  }
+
+  const vehiculos = await prisma.category.findUnique({ where: { slug: 'vehiculos' }, select: { id: true } });
+  const coches = await prisma.category.findUnique({ where: { slug: 'coches' }, select: { id: true } });
+  const porSlug = Object.fromEntries(
+    (await prisma.tag.findMany({ where: { slug: { in: tags.map((t) => t.slug) } } })).map((t) => [t.slug, t.id]),
+  );
+
+  const asignaciones: { categoryId: string; tagId: string; orden: number }[] = [];
+  if (vehiculos) {
+    asignaciones.push(
+      { categoryId: vehiculos.id, tagId: porSlug['garantia'], orden: 0 },
+      { categoryId: vehiculos.id, tagId: porSlug['envio-incluido'], orden: 1 },
+    );
+  }
+  if (coches) {
+    asignaciones.push({ categoryId: coches.id, tagId: porSlug['unico-dueno'], orden: 0 });
+  }
+  for (const a of asignaciones) {
+    await prisma.categoryTag.upsert({
+      where: { categoryId_tagId: { categoryId: a.categoryId, tagId: a.tagId } },
+      create: a,
+      update: { orden: a.orden },
+    });
+  }
+
+  console.log('Test seed: tags OK (vehiculos → garantia+envio-incluido; coches → unico-dueno)');
+}
+
 async function main() {
   await seedCategories();
+  await seedTags();
   await seedSettings();
   await seedCreditPacks();
   await seedBumpPacks();

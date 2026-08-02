@@ -939,6 +939,47 @@ padre" en gris. Y una página nueva `/admin/tags` para el catálogo global (mold
 `DEFAULT_MAX_TAGS_PER_LISTING = 5`, mismo patrón que `ticketAutoCloseWindowDays`. Editor en
 `/admin/ajustes` junto a los demás numéricos.
 
+> ### ✅ IMPLEMENTADO (B1, 2026-08-02) — §4.1 a §4.4 completas
+>
+> **Modelo:** `Tag`, `CategoryTag`, `ListingTag` tal cual se diseñan aquí. Migración
+> `20260802021723_add_tags`, verificada **puramente aditiva**: 3 `CREATE TABLE`, 4 índices,
+> 4 FKs, **cero `ALTER` sobre columnas existentes**. `ListingTag` ya se crea en B1 aunque
+> los anuncios no la escriban hasta B2 — separar la migración habría obligado a una segunda
+> migración por una tabla que el diseño ya tenía cerrada.
+>
+> **Herencia:** `resolveEffectiveTags(own, parent)` en `tags/tag.types.ts` — unión, propios
+> primero, dedup por `id`, sin override. A diferencia de `resolveEffectiveSchema`, aquí **no
+> hay override por nombre**: un tag es identidad (una fila), no una definición que la hija
+> pueda redefinir. La hija solo puede **añadir**. Quitar un heredado exigiría una lista de
+> exclusión y no se ha implementado — se edita en el padre.
+>
+> **Caché:** `effectiveTagsForCategory` cachea en Redis con prefijo `category-tags:`, TTL
+> 300 s, y resuelve propios + heredados en **una sola query**. `setCategoryTags` invalida la
+> clave propia **y la de todas las hijas** (si no, cambiar el padre dejaría a las hijas
+> sirviendo herencia vieja hasta 5 min).
+>
+> **Endpoints:** públicos `GET /categories/:slug/tags`; admin `GET/POST /admin/tags`,
+> `PATCH /admin/tags/reorder` (**declarado antes de `:id`**), `PATCH /admin/tags/:id`,
+> `GET /admin/tags/:id/usage`, `GET/PUT /admin/categories/:id/tags`. Todos los de admin bajo
+> `@Roles(Role.ADMIN)`: un MODERATOR recibe 403 (verificado).
+>
+> **UI:** `/admin/tags` (catálogo global, molde `/admin/motivos-contacto`, con confirmación
+> que nombra los anuncios y categorías afectados antes de desactivar) y `TagsEditorPanel`
+> en cada fila de `/admin/categorias`.
+>
+> #### ⚠️ HALLAZGO — `maxTagsPerListing` no se puede editar hasta que exista la fila
+>
+> La clave está en `SETTING_KEYS` y `POSITIVE_INT_SETTING_KEYS`, y el valor por defecto
+> (`DEFAULT_MAX_TAGS_PER_LISTING = 5`) funciona en lectura. Pero **`updateSetting` hace
+> `findUnique` + `NotFoundException`, no `upsert`**: `PATCH /admin/settings/maxTagsPerListing`
+> devuelve **404** mientras la fila no exista, así que el editor de `/admin/ajustes` no puede
+> darle un valor. Esto es **preexistente y no exclusivo de los tags** — `supportEmail` y
+> `ticketAutoCloseWindowDays` se comportan igual. El diseño decía "sin sembrar", así que B1
+> **no lo cambia**; queda como decisión abierta: sembrar la fila, o convertir `updateSetting`
+> en `upsert` (arreglaría las tres claves de golpe). El test e2e asserta el contrato real
+> (404 ≠ 400, lo que prueba que la clave **sí** está en el whitelist) y, sembrando la fila a
+> mano, ejercita el camino completo incluido el rechazo de `0`.
+
 ### 4.5 Wizard: elegir tags al crear/editar
 
 **Paso nuevo `tags`**, entre `atributos` y `ubicacion`:

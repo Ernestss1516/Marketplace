@@ -24,6 +24,7 @@ import {
   serializeAttributeSchema,
   type AttributeSchemaWithExtras,
 } from '@/components/admin/AttributeSchemaEditor';
+import { TagsEditorPanel } from '@/components/admin/TagsEditorPanel';
 import type { AttributeSchema, ListingTypePolicy, ListingViewMode, PriceUnit } from '@/types';
 
 // ─── Form values (name/slug/iconUrl/allowedListingType/allowedViews/defaultView —
@@ -375,6 +376,7 @@ function CategoryRow({
   editSaving,
   editError,
   schemaPanel,
+  tagsPanel,
   indent,
 }: {
   cat: AdminCategoryChild;
@@ -394,6 +396,8 @@ function CategoryRow({
   editSaving: boolean;
   editError: string | null;
   schemaPanel: SchemaEditorPanelProps | null;
+  /** B1 — panel de tags, hermano del de atributos. Null cuando no se está editando. */
+  tagsPanel: { categoryId: string; categoryName: string; token: string } | null;
   indent: boolean;
 }) {
   return (
@@ -468,6 +472,7 @@ function CategoryRow({
             error={editError}
           />
           {schemaPanel && <SchemaEditorPanel {...schemaPanel} />}
+          {tagsPanel && <TagsEditorPanel {...tagsPanel} />}
         </div>
       )}
     </div>
@@ -894,6 +899,11 @@ export default function AdminCategoriasPage() {
               editSaving={editSaving}
               editError={editError}
               schemaPanel={editingId === cat.id ? buildSchemaPanel(cat, cat.children) : null}
+              tagsPanel={
+                editingId === cat.id && token
+                  ? { categoryId: cat.id, categoryName: cat.name, token }
+                  : null
+              }
               indent={false}
             />
 
@@ -923,6 +933,11 @@ export default function AdminCategoriasPage() {
                       editSaving={editSaving}
                       editError={editError}
                       schemaPanel={editingId === child.id ? buildSchemaPanel(child) : null}
+                      tagsPanel={
+                        editingId === child.id && token
+                          ? { categoryId: child.id, categoryName: child.name, token }
+                          : null
+                      }
                       indent
                     />
                   ))}

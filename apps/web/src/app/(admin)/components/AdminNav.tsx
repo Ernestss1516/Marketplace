@@ -14,6 +14,8 @@ const NAV_ITEMS: { href: string; label: string; roles: string[] }[] = [
   { href: '/admin/facturacion', label: 'Facturación',  roles: ['ADMIN'] },
   { href: '/admin/facturas',    label: 'Facturas',     roles: ['ADMIN'] },
   { href: '/admin/categorias',  label: 'Categorías',   roles: ['ADMIN'] },
+  // B1 — el catálogo de tags es config del vocabulario, junto a Categorías.
+  { href: '/admin/tags',        label: 'Tags',         roles: ['ADMIN'] },
   { href: '/admin/blog',        label: 'Blog',         roles: ['ADMIN', 'MODERATOR', 'EDITOR'] },
   { href: '/admin/paginas',     label: 'Páginas',      roles: ['ADMIN', 'MODERATOR', 'EDITOR'] },
   { href: '/admin/footer',      label: 'Footer',       roles: ['ADMIN'] },

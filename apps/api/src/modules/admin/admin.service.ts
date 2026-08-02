@@ -78,6 +78,10 @@ const SETTING_KEYS = [
   // "ya no puedo reabrir" y "aún no me han cerrado". Sin configurar → 14 días
   // (TICKET_REOPEN_WINDOW_DAYS), así que no hace falta sembrarlo.
   'ticketAutoCloseWindowDays',
+  // B1 (tags) — tope de tags por anuncio. B1 solo lo DEFINE; quien lo usa para validar
+  // al crear/editar un anuncio es B2. Sin sembrar: "sin configurar" cae a
+  // DEFAULT_MAX_TAGS_PER_LISTING (5), mismo patrón que ticketAutoCloseWindowDays.
+  'maxTagsPerListing',
 ] as const;
 type SettingKey = (typeof SETTING_KEYS)[number];
 
@@ -99,6 +103,8 @@ const POSITIVE_INT_SETTING_KEYS: readonly string[] = [
   'proMonthlyBumpQuota',
   // R8 — una ventana de 0 o negativa cerraría al instante todo lo resuelto.
   'ticketAutoCloseWindowDays',
+  // B1 — un tope de 0 dejaría el sistema de tags muerto: nadie podría poner ninguno.
+  'maxTagsPerListing',
 ];
 
 // Keys whose value is a percentage: integer in [0, 100]. 0 is valid (disables

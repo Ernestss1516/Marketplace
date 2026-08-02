@@ -9267,6 +9267,90 @@ del router.
 
 ---
 
+## Búsqueda + Tags — RÁFAGA B1: modelo Tag, herencia y CRUD admin (cerrada)
+
+Diseño: `docs/diseno-busqueda-y-tags.md` §4.1–§4.4. El **cimiento** del sistema de tags:
+modelo, herencia, endpoints y UI de configuración. **No toca anuncios (B2), ni búsqueda
+(B3), ni portada (B4).**
+
+### Qué se construyó
+
+**Tres tablas nuevas** (`prisma/schema.prisma`), migración `20260802021723_add_tags`:
+
+| Tabla | Clave | Notas |
+|---|---|---|
+| `Tag` | `id` cuid, `slug @unique` | Catálogo **global**: `name`, `orden`, `activo`. Sin DELETE duro (molde `ContactReason`). |
+| `CategoryTag` | `@@id([categoryId, tagId])` | Qué tags se ofrecen en qué categoría. `onDelete: Cascade` en ambos lados. |
+| `ListingTag` | `@@id([listingId, tagId])` | Qué tags lleva un anuncio. `Cascade` desde `Listing`, **`Restrict` desde `Tag`** — un tag no se borra nunca, así que la fila del anuncio no puede desaparecer bajo sus pies. |
+
+La migración se verificó **puramente aditiva**: 3 `CREATE TABLE`, 4 índices, 4 FKs, **cero
+`ALTER` sobre columnas existentes**. `ListingTag` se crea ya en B1 aunque nadie la escriba
+hasta B2: el diseño la tenía cerrada y partirla habría costado una segunda migración.
+
+**Herencia** — `apps/api/src/modules/tags/tag.types.ts`:
+
+```ts
+export function resolveEffectiveTags(own: TagRef[], parent: TagRef[]): TagRef[] {
+  const propios = new Set(own.map((t) => t.id));
+  return [...own, ...parent.filter((t) => !propios.has(t.id))];
+}
+```
+
+Unión, **propios primero**, dedup por `id`, solo activos. A diferencia de
+`resolveEffectiveSchema`, **no hay override**: un tag es identidad (una fila), no una
+definición que la hija pueda redefinir — la hija solo **añade**. Quitar un heredado exigiría
+una lista de exclusión; se edita en el padre. Hermano del sistema de atributos, **no
+fusionado con él**: un atributo es clave→valor (`Listing.attributes` jsonb), un tag es
+pertenece/no-pertenece (tabla puente).
+
+**Caché** — `effectiveTagsForCategory` (Redis, prefijo `category-tags:`, TTL 300 s) resuelve
+propios + heredados en **una sola query**. `setCategoryTags` invalida la clave propia **y la
+de todas las hijas**: sin eso, cambiar el padre dejaría a las hijas sirviendo herencia vieja
+hasta 5 minutos.
+
+**Endpoints.** Público: `GET /categories/:slug/tags`. Admin (todos `@Roles(Role.ADMIN)`):
+`GET/POST /admin/tags`, `PATCH /admin/tags/reorder` (**declarado antes de `:id`**, si no la
+ruta estática la come el parámetro), `PATCH /admin/tags/:id` (**`slug` no viaja: es
+inmutable** — es la URL de filtro y lo indexado), `GET /admin/tags/:id/usage`,
+`GET/PUT /admin/categories/:id/tags`.
+
+**UI.** `/admin/tags` — catálogo global (molde `/admin/motivos-contacto`: tabla, alta
+inline, flechas ↑↓, toggle activo), con una confirmación que **nombra cuántos anuncios y
+categorías afecta** antes de desactivar. `TagsEditorPanel` — panel en cada fila de
+`/admin/categorias`, hermano de `SchemaEditorPanel`: multiselect con buscador sobre el
+catálogo activo + bloque "Heredados del padre" en gris, solo lectura. Entrada de nav nueva
+junto a Categorías.
+
+**Seed de test** (`prisma/seed-test.ts`, `seedTags()`): `garantia` y `envio-incluido` en
+`vehiculos`, `unico-dueno` en `coches`, `descatalogado` sin asignar — así la herencia queda
+ejercitada de forma determinista (coches ve 3, vehiculos ve 2).
+
+### ⚠️ Hallazgo — `maxTagsPerListing` no se puede editar hasta que exista la fila
+
+La clave está en `SETTING_KEYS` y `POSITIVE_INT_SETTING_KEYS`, y la **lectura** funciona
+(`DEFAULT_MAX_TAGS_PER_LISTING = 5` cuando no hay fila). Pero **`updateSetting` hace
+`findUnique` + `NotFoundException`, no `upsert`**: `PATCH /admin/settings/maxTagsPerListing`
+devuelve **404** mientras la fila no exista, así que el editor de `/admin/ajustes` no puede
+darle valor. Es **preexistente y no exclusivo de los tags**: `supportEmail` y
+`ticketAutoCloseWindowDays` se comportan igual. El diseño decía "sin sembrar", así que B1
+**no lo cambia**. Decisión abierta: sembrar la fila, o convertir `updateSetting` en `upsert`
+(arreglaría las tres claves de golpe). El test e2e asserta el contrato real (**404 ≠ 400**,
+lo que prueba que la clave sí está en el whitelist) y, sembrando la fila a mano, ejercita el
+camino completo incluido el rechazo de `0`.
+
+### Verificación
+
+`tag.types.spec.ts` **9/9** (herencia pura: unión, orden, dedup, sin override).
+`tags-b1.e2e-spec.ts` **30/30**: CRUD, slugify, 409 de slug duplicado, `reorder` antes de
+`:id`, inmutabilidad del slug, `usage`, asignación por categoría, herencia efectiva,
+**MODERATOR → 403** en todos los endpoints admin, la caché Redis (segunda llamada cacheada,
+`PUT` la invalida) y el ajuste `maxTagsPerListing`.
+
+**Requisito de oro cumplido:** tres tablas nuevas, ninguna columna existente tocada; el
+sistema de atributos intacto; ningún test existente con lógica modificada.
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.
