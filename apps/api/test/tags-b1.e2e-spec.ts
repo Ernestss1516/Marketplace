@@ -361,46 +361,34 @@ describe('Tags — modelo, herencia y CRUD admin (B1, e2e)', () => {
 
   // ── Setting ─────────────────────────────────────────────────────────────────
 
-  it('maxTagsPerListing está en la whitelist de ajustes', async () => {
-    // 404 ("no encontrado") y NO 400 ("clave no permitida") es la prueba de que la
-    // clave está aceptada: la validación de whitelist corre ANTES de buscar la fila.
-    //
-    // El 404 es comportamiento PRE-EXISTENTE de PATCH /admin/settings/:key, que exige
-    // que la fila exista (`findUnique` + NotFound, no un upsert). Afecta igual a
-    // `supportEmail` y `ticketAutoCloseWindowDays`, que tampoco se siembran. Como el
-    // diseño pide expresamente NO sembrar esta clave —"sin configurar" es un estado
-    // válido que cae a DEFAULT_MAX_TAGS_PER_LISTING—, se deja así y se documenta.
-    const res = await request(app.getHttpServer())
-      .patch('/api/admin/settings/maxTagsPerListing').set(admin())
-      .send({ value: 8 });
-
-    expect(res.status).toBe(404);
-    expect(JSON.stringify(res.body)).not.toMatch(/no permitida/);
-  });
-
-  it('maxTagsPerListing rechaza 0 — un tope de 0 mataría el sistema', async () => {
-    // La validación de POSITIVE_INT corre antes que la búsqueda de la fila, así que
-    // este 400 se ve aunque el ajuste no esté sembrado.
-    const res = await request(app.getHttpServer())
-      .patch('/api/admin/settings/maxTagsPerListing').set(admin())
-      .send({ value: 0 });
-
-    expect(res.status).toBe(400);
-    expect(JSON.stringify(res.body)).toMatch(/mayor o igual a 1/);
-  });
-
-  it('una vez sembrada la fila, el ajuste se edita con normalidad', async () => {
-    // Se crea la fila a mano para ejercer el camino completo sin sembrarla en el seed.
-    await prisma.setting.upsert({
-      where: { key: 'maxTagsPerListing' }, create: { key: 'maxTagsPerListing', value: 5 }, update: {},
-    });
+  it('maxTagsPerListing está en la whitelist y es editable sin fila previa', async () => {
+    // La clave nace SIN sembrar a propósito. Antes eso la hacía ineditable
+    // (findUnique + 404); desde el fix del upsert, el primer PATCH crea la fila.
+    await prisma.setting.deleteMany({ where: { key: 'maxTagsPerListing' } });
 
     const res = await request(app.getHttpServer())
       .patch('/api/admin/settings/maxTagsPerListing').set(admin())
       .send({ value: 8 }).expect(200);
     expect(res.body.value).toBe(8);
 
+    const fila = await prisma.setting.findUnique({ where: { key: 'maxTagsPerListing' } });
+    expect(fila?.value).toBe(8);
+
     await prisma.setting.deleteMany({ where: { key: 'maxTagsPerListing' } });
+  });
+
+  it('maxTagsPerListing rechaza 0 — un tope de 0 mataría el sistema', async () => {
+    // La validación de POSITIVE_INT corre ANTES del upsert, así que el 400 se ve
+    // aunque el ajuste no esté sembrado — y sin dejar una fila con el 0 dentro.
+    await prisma.setting.deleteMany({ where: { key: 'maxTagsPerListing' } });
+
+    const res = await request(app.getHttpServer())
+      .patch('/api/admin/settings/maxTagsPerListing').set(admin())
+      .send({ value: 0 });
+
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(res.body)).toMatch(/mayor o igual a 1/);
+    expect(await prisma.setting.findUnique({ where: { key: 'maxTagsPerListing' } })).toBeNull();
   });
 
   // ── Caché ───────────────────────────────────────────────────────────────────

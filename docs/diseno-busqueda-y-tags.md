@@ -967,18 +967,18 @@ padre" en gris. Y una página nueva `/admin/tags` para el catálogo global (mold
 > que nombra los anuncios y categorías afectados antes de desactivar) y `TagsEditorPanel`
 > en cada fila de `/admin/categorias`.
 >
-> #### ⚠️ HALLAZGO — `maxTagsPerListing` no se puede editar hasta que exista la fila
+> #### ⚠️ HALLAZGO (B1) → ✅ ARREGLADO en la ráfaga siguiente
 >
-> La clave está en `SETTING_KEYS` y `POSITIVE_INT_SETTING_KEYS`, y el valor por defecto
-> (`DEFAULT_MAX_TAGS_PER_LISTING = 5`) funciona en lectura. Pero **`updateSetting` hace
-> `findUnique` + `NotFoundException`, no `upsert`**: `PATCH /admin/settings/maxTagsPerListing`
-> devuelve **404** mientras la fila no exista, así que el editor de `/admin/ajustes` no puede
-> darle un valor. Esto es **preexistente y no exclusivo de los tags** — `supportEmail` y
-> `ticketAutoCloseWindowDays` se comportan igual. El diseño decía "sin sembrar", así que B1
-> **no lo cambia**; queda como decisión abierta: sembrar la fila, o convertir `updateSetting`
-> en `upsert` (arreglaría las tres claves de golpe). El test e2e asserta el contrato real
-> (404 ≠ 400, lo que prueba que la clave **sí** está en el whitelist) y, sembrando la fila a
-> mano, ejercita el camino completo incluido el rechazo de `0`.
+> B1 destapó que **`updateSetting` hacía `findUnique` + `NotFoundException`, no `upsert`**:
+> `PATCH /admin/settings/maxTagsPerListing` devolvía **404** mientras la fila no existiera,
+> así que la clave era ineditable para siempre (catch-22: para editarla la fila debía
+> existir; para que existiera había que editarla). Preexistente y no exclusivo de los tags —
+> `supportEmail` y `ticketAutoCloseWindowDays` estaban igual.
+>
+> B1 lo dejó documentado sin tocarlo (el diseño pedía no sembrar). **La ráfaga siguiente
+> arregló la causa**: `updateSetting` es ahora un upsert, el whitelist sigue siendo la única
+> puerta, y `maxTagsPerListing` se puede configurar de verdad — lo que B2 necesita para que
+> el tope sea real. Ver `docs/estado-tecnico.md`, "Fix — `updateSetting` es UPSERT".
 
 ### 4.5 Wizard: elegir tags al crear/editar
 

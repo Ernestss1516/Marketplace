@@ -9325,18 +9325,15 @@ junto a Categorías.
 `vehiculos`, `unico-dueno` en `coches`, `descatalogado` sin asignar — así la herencia queda
 ejercitada de forma determinista (coches ve 3, vehiculos ve 2).
 
-### ⚠️ Hallazgo — `maxTagsPerListing` no se puede editar hasta que exista la fila
+### ⚠️ Hallazgo — `maxTagsPerListing` no se podía editar (→ arreglado después)
 
-La clave está en `SETTING_KEYS` y `POSITIVE_INT_SETTING_KEYS`, y la **lectura** funciona
-(`DEFAULT_MAX_TAGS_PER_LISTING = 5` cuando no hay fila). Pero **`updateSetting` hace
-`findUnique` + `NotFoundException`, no `upsert`**: `PATCH /admin/settings/maxTagsPerListing`
-devuelve **404** mientras la fila no exista, así que el editor de `/admin/ajustes` no puede
-darle valor. Es **preexistente y no exclusivo de los tags**: `supportEmail` y
-`ticketAutoCloseWindowDays` se comportan igual. El diseño decía "sin sembrar", así que B1
-**no lo cambia**. Decisión abierta: sembrar la fila, o convertir `updateSetting` en `upsert`
-(arreglaría las tres claves de golpe). El test e2e asserta el contrato real (**404 ≠ 400**,
-lo que prueba que la clave sí está en el whitelist) y, sembrando la fila a mano, ejercita el
-camino completo incluido el rechazo de `0`.
+B1 destapó que **`updateSetting` hacía `findUnique` + `NotFoundException`, no `upsert`**:
+`PATCH /admin/settings/maxTagsPerListing` devolvía **404** mientras la fila no existiera. La
+lectura sí funcionaba (`DEFAULT_MAX_TAGS_PER_LISTING = 5`); era solo la **escritura** la que
+estaba rota, y de forma terminal. Preexistente y no exclusivo de los tags: `supportEmail` y
+`ticketAutoCloseWindowDays` estaban igual. B1 lo documentó sin tocarlo (el diseño pedía no
+sembrar la clave). **Arreglado en la ráfaga siguiente** — ver "Fix — `updateSetting` es
+UPSERT" más abajo.
 
 ### Verificación
 
@@ -9360,6 +9357,82 @@ directamente: `multer` (que importa `admin-sponsored-ads.controller.ts`) no est�
 como dependencia y solo resuelve por el `NODE_PATH` hoisteado que pone pnpm. Invocando jest
 a pelo caen **86 de 87 suites** con `Cannot find module 'multer'`, que parece una regresión
 enorme y no lo es.
+
+---
+
+## Fix — `updateSetting` es UPSERT, no `findUnique` + 404 (cerrado)
+
+Bug **preexistente del sistema de settings**, destapado en B1. Se arregla la **causa**, no
+se siembran filas.
+
+### El catch-22
+
+`updateSetting` buscaba la fila con `findUnique` y lanzaba `NotFoundException` si no estaba.
+Pero varias claves del whitelist nacen **a propósito sin fila** — "sin configurar" es un
+estado válido y la lectura cae a su `DEFAULT_*`. Resultado: para editarlas la fila tenía que
+existir, y para que existiera había que editarlas. Eran ineditables **para siempre**:
+
+| Clave | Default de lectura | Quién la necesita |
+|---|---|---|
+| `maxTagsPerListing` | `DEFAULT_MAX_TAGS_PER_LISTING` (5) | B1/B2 — el tope de tags por anuncio |
+| `supportEmail` | sin configurar → warning y se omite solo el email | Tickets R4 |
+| `ticketAutoCloseWindowDays` | `TICKET_REOPEN_WINDOW_DAYS` (14) | Tickets R8 |
+
+Solo la **escritura** estaba rota: en lectura las tres funcionaban, que es por qué el fallo
+sobrevivió tanto.
+
+### El arreglo
+
+`prisma.setting.upsert` en lugar de `findUnique` + `update`, con `updatedById: actorId`
+**también en el `create`** — quien crea la fila queda registrado igual que quien la modifica.
+Todo lo que corría antes sigue corriendo **antes** de tocar la base:
+
+1. **El whitelist `SETTING_KEYS` sigue siendo la única puerta.** Corre primero, así que el
+   upsert nunca puede crear una fila arbitraria. Cambiar a upsert **no relaja nada**: sin el
+   whitelist, un `PATCH /admin/settings/loQueSea` crearía la fila (verificado por mutación).
+2. **`POSITIVE_INT_SETTING_KEYS` y `PERCENT_SETTING_KEYS`** — un `0` en una clave numérica se
+   rechaza con 400 exista la fila o no, y no deja una fila con el `0` dentro.
+3. **AuditLog `SETTING_UPDATE`** se registra igual en el camino de creación, con el `actorId`
+   del admin del PATCH. El `before` es `{ value: null }` cuando no había fila — mismo shape
+   en ambos caminos, y el propio `schema.prisma` ya lo anticipaba
+   (*"Null si no aplica (p.ej. primera escritura de un Setting)"*).
+
+### Verificación
+
+`settings-upsert.e2e-spec.ts` — **16 tests**: creación sin fila previa, el valor leído
+después vía `GET /admin/settings`, segundo PATCH → update (no un segundo create), un setting
+que ya tenía fila comportándose idéntico, `supportEmail` y `ticketAutoCloseWindowDays` por
+fin editables, clave fuera del whitelist → 400 **sin fila basura** (y con el recuento total
+de la tabla intacto), `POSITIVE_INT` con y sin fila, `PERCENT`, `updatedById`, la entrada de
+audit en creación y en actualización, y que un 400 no deja rastro en el audit.
+
+**Validación por mutación (dos), y lo que importa es cómo REPARTEN los rojos:**
+
+| Mutación | Rojos | Verdes |
+|---|---|---|
+| Volver a `findUnique` + throw | **9** — todos los del camino de creación | los 7 de guardas: whitelist, ataque, `POSITIVE_INT` sin fila, `PERCENT`, fila existente, sin-audit-en-400 |
+| Vaciar el whitelist | **2** — los dos del whitelist (llegan al upsert y devuelven 200) | los 14 restantes |
+
+El reparto es la prueba: los tests de creación ejercen el upsert y **solo** el upsert, y los
+de whitelist ejercen el whitelist y **solo** el whitelist. Ninguno pasa por accidente.
+
+### Lo que este fix NO hace
+
+El editor de `/admin/ajustes` **sigue sin mostrar estas tres claves**: renderiza desde una
+lista `ORDER` fija que no las incluye y, además, hace `if (!setting) return null` — se salta
+cualquier clave sin fila, que es exactamente el caso de las tres. **La API ya las acepta**;
+darles un editor en la UI es trabajo aparte, fuera del "arreglar la causa, nada más" de esta
+ráfaga.
+
+**Batería:** backend **1408/1408 en dos corridas consecutivas idénticas** (88 suites; eran
+1393/87 al cerrar B1 → +16 del spec nuevo, −1 por los dos tests de B1 que se funden en uno).
+`tsc` limpio en api y web. El upsert **no siembra nada**: el spec limpia sus tres claves en
+`beforeEach` y en `afterAll`, así que el estado base no cambia entre corridas.
+
+**Requisito de oro cumplido:** el whitelist sigue siendo la única puerta; los settings con
+fila se comportan idéntico; ningún test preexistente con lógica modificada. El único test
+retocado es el de B1 que **documentaba el bug** (`maxTagsPerListing … → 404`): ahora asserta
+el contrato correcto (200 + fila creada), porque el bug que describía ya no existe.
 
 ---
 

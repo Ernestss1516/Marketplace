@@ -1178,16 +1178,33 @@ export class AdminService {
       }
     }
 
+    // UPSERT, no update: varias claves del whitelist nacen A PROPÓSITO sin fila
+    // ("sin configurar" → el default de lectura), y con findUnique+404 eran
+    // ineditables para siempre — catch-22: para editarlas la fila debía existir, y
+    // para que existiera había que editarlas. Afectaba a maxTagsPerListing,
+    // supportEmail y ticketAutoCloseWindowDays.
+    //
+    // Esto NO relaja nada: el whitelist de arriba sigue siendo la única puerta y ya
+    // ha rechazado con 400 cualquier clave ajena, así que el upsert nunca puede
+    // crear una fila arbitraria. Las validaciones por-clave también van ANTES, de
+    // modo que un valor inválido se rechaza igual exista la fila o no.
     const setting = await this.prisma.setting.findUnique({ where: { key } });
-    if (!setting) throw new NotFoundException(`Setting '${key}' no encontrado`);
 
-    const before = { value: setting.value } as unknown as Prisma.InputJsonValue;
+    // Mismo shape en los dos caminos; `value: null` es "no había fila todavía".
+    const before = { value: setting?.value ?? null } as unknown as Prisma.InputJsonValue;
     const after = { value: dto.value } as unknown as Prisma.InputJsonValue;
 
     return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.setting.update({
+      const updated = await tx.setting.upsert({
         where: { key },
-        data: {
+        // `updatedById` también en el create: quien crea la fila queda registrado
+        // igual que quien la modifica.
+        create: {
+          key,
+          value: dto.value as Prisma.InputJsonValue,
+          updatedById: actorId,
+        },
+        update: {
           value: dto.value as Prisma.InputJsonValue,
           updatedById: actorId,
         },
