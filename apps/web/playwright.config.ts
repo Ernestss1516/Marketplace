@@ -34,6 +34,14 @@ export default defineConfig({
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
+  // workers: 1 NO es una palanca de rendimiento pendiente de subir: es un
+  // requisito. Las specs comparten UNA sola base (marketplace_test), UN índice
+  // de Meili y UNA db de Redis, y globalSetup siembra seis cuentas fijas que
+  // todas reutilizan. Nueve specs además MUTAN estado global (ajustes del
+  // backoffice, árbol de categorías, páginas del footer) que otras leen.
+  // Paralelizar sin aislar primero cada spec cambiaría cuelgues por rojos
+  // aleatorios. El tiempo se recupera arrancando en producción (ver webServer),
+  // no repartiendo tests que comparten estado.
   workers: 1,
   reporter: 'html',
   // The critical-path test is long: publish wizard + Meilisearch wait + contact.
@@ -42,7 +50,27 @@ export default defineConfig({
   use: {
     baseURL: 'http://localhost:3000',
     trace: 'on-first-retry',
+
+    // ── Plazos FINITOS por acción y por navegación ────────────────────────────
+    // Sin esto, una acción o una navegación que no resuelve NO tiene plazo
+    // propio: se come los 90 s del test entero antes de rendirse (marcador ×T),
+    // y con `retries: 1` en CI son 180 s por test colgado. Varios así se comían
+    // la ventana de 30 min del job y lo dejaban sin veredicto.
+    //
+    // El caso concreto que lo provocaba: 105 llamadas a
+    // `waitForLoadState('networkidle')` sin plazo. `networkidle` espera 500 ms
+    // sin tráfico de red; si algo mantiene la red viva (o el backend va lento),
+    // no se cumple NUNCA y el test cuelga hasta el timeout global.
+    //
+    // Con estos plazos, lo que antes colgaba 90 s ahora FALLA en 30 s con el
+    // paso exacto señalado: un rojo legible en vez de un job cancelado.
+    actionTimeout: 15_000,
+    navigationTimeout: 30_000,
   },
+
+  // Igual que arriba, para las aserciones: un `expect(locator).toBeVisible()`
+  // sobre algo que no llega falla en 10 s en vez de agotar el test.
+  expect: { timeout: 10_000 },
 
   projects: [
     {
@@ -56,7 +84,33 @@ export default defineConfig({
       // Backend: all test env vars injected explicitly so they are available
       // regardless of how nest-cli manages NODE_ENV in its child process.
       // .env.test uses PORT=3001 (Jest API tests use supertest in-process, no port binding).
-      command: 'pnpm --filter @marketplace/api dev',
+      //
+      // EN CI VA EN PRODUCCIÓN, NUNCA `--watch`. Este comando era
+      // `pnpm --filter @marketplace/api dev` de forma INCONDICIONAL, o sea
+      // `nest start --watch` también en CI: un compilador en modo vigilancia
+      // que reconstruye, se queda residente y compite por la CPU del runner con
+      // los 331 tests que intenta servir. El front ya distinguía CI de local
+      // justo aquí abajo; el backend nunca lo hizo. Es la causa principal de que
+      // el job se comiera los 30 min sin llegar a veredicto.
+      //
+      // `nest start` SIN `--watch`: compila una vez y ejecuta. Medido en local,
+      // levanta y sirve 200 en ~14 s. Lo que sobra es el VIGILANTE: `--watch`
+      // deja un compilador residente reaccionando a cambios que en CI no van a
+      // ocurrir nunca, peleando por la CPU del runner con la propia batería.
+      //
+      // NO se usa `pnpm ... start` (que sería lo natural para "producción")
+      // porque ese script está ROTO: apunta a `node dist/main`, y `nest build`
+      // compila también `prisma/`, así que el rootDir inferido es la raíz del
+      // paquete y el entry real queda en `dist/src/main.js`. Además, arrancar el
+      // `dist` con `node` a pelo revienta con `Cannot find module 'multer'`:
+      // multer es una dependencia FANTASMA (solo llega por
+      // @nestjs/platform-express, sin declarar en package.json, y pnpm no la
+      // expone). `nest start` sí la resuelve. Las dos cosas están anotadas como
+      // deuda en estado-tecnico.md: tocan el arranque de PRODUCCIÓN y no se
+      // cuelan en un cambio de CI.
+      command: process.env.CI
+        ? 'pnpm --filter @marketplace/api exec nest start'
+        : 'pnpm --filter @marketplace/api dev',
       // /api/categories is a public endpoint guaranteed to return 200 once NestJS
       // and Prisma are fully ready. /api root has no handler → 404.
       url: 'http://localhost:3001/api/categories',

@@ -10041,6 +10041,88 @@ esperas. Arreglarlo es aislar quién consume la cola en los tests, no esperar me
 
 ---
 
+## El webServer de Playwright va en modo PRODUCCIÓN, nunca `--watch`
+
+**Regla: en CI, los dos servidores que levanta Playwright arrancan compilados. `--watch`
+(y `next dev`) están prohibidos en CI.**
+
+### Qué pasaba
+
+El job de Playwright se comía los **30 minutos** de `timeout-minutes` y GitHub lo
+cancelaba: **sin veredicto y sin artefactos** (el `playwright-report` se sube en un paso
+`if: always()`, pero un job cancelado no llega a subirlo). No era un flake ni una
+regresión: era configuración que nunca estuvo bien, del mismo tipo que el `next lint`
+roto — un "estado de fondo" que se daba por normal.
+
+Tres causas sumando, no una:
+
+1. **El backend arrancaba con `nest start --watch` TAMBIÉN en CI.** En
+   `playwright.config.ts` el comando era `pnpm --filter @marketplace/api dev`
+   —o sea `--watch`— de forma **incondicional**. El frontend sí distinguía CI de local
+   tres líneas más abajo (`next start` vs `next dev`); el backend nunca lo hizo. Un
+   compilador en modo vigilancia, residente, reaccionando a cambios que en CI no van a
+   ocurrir jamás, compitiendo por la CPU del runner con los 271 tests que debe servir.
+2. **Ninguna espera tenía plazo propio.** `playwright.config.ts` no definía
+   `actionTimeout`, ni `navigationTimeout`, ni `expect.timeout`. Solo el `timeout: 90_000`
+   del test entero. Consecuencia: cualquier espera que no resuelve **se come los 90 s**
+   (marcador `×T`), y con `retries: 1` en CI son **180 s por test colgado**. Tres o cuatro
+   así y la ventana se agota sola.
+3. **105 llamadas a `waitForLoadState('networkidle')` sin plazo.** `networkidle` espera
+   500 ms sin tráfico de red; si algo mantiene la red viva, no se cumple NUNCA. Es el
+   mecanismo concreto de los `×T`. (Playwright desaconseja `networkidle` explícitamente;
+   quedan 105 como deuda, ver abajo.)
+
+### Qué se hizo
+
+| Palanca | Antes | Ahora |
+|---|---|---|
+| Backend en CI | `nest start --watch` (siempre) | `nest start` sin watch, solo si `CI` |
+| Frontend en CI | `next start` ✔ (ya estaba bien) | igual |
+| `actionTimeout` | — (sin plazo) | 15 s |
+| `navigationTimeout` | — (sin plazo) | 30 s |
+| `expect.timeout` | — (5 s por defecto) | 10 s explícito |
+| `workers` | 1 | **1 (a propósito, ver abajo)** |
+
+Lo que antes colgaba 90 s (180 s con reintento) ahora **falla en 30 s señalando el paso
+exacto**: un rojo legible en vez de un job cancelado. No se ha tocado ninguna aserción —
+se arregla **cómo se espera**, no qué se verifica.
+
+### `workers: 1` NO es una palanca pendiente de subir
+
+Es un requisito, y conviene dejarlo escrito para que nadie "optimice" el CI subiéndolo:
+las specs comparten **una** base (`marketplace_test`), **un** índice de Meili y **una** db
+de Redis, y `globalSetup` siembra seis cuentas fijas que todas reutilizan. Nueve specs
+además MUTAN estado global que otras leen (ajustes del backoffice, árbol de categorías,
+páginas del footer). Paralelizar sin aislar antes cada spec cambiaría cuelgues por rojos
+aleatorios — que es peor, porque parecen regresiones. El tiempo se recupera arrancando en
+producción, no repartiendo tests que comparten estado.
+
+### Deuda descubierta por el camino (NO tocada: es arranque de PRODUCCIÓN)
+
+Al intentar arrancar el backend con el `dist/` compilado aparecieron dos cosas rotas que
+nadie había notado porque **nada las ejercía** (el CI usaba `dev`):
+
+- **`pnpm start` y `pnpm start:prod` del backend apuntan a una ruta que no existe.** Son
+  `node dist/main`, pero `nest build` compila también `prisma/`, así que el rootDir
+  inferido es la raíz del paquete y el entry real queda en **`dist/src/main.js`**.
+- **`multer` es una dependencia FANTASMA.** Cinco ficheros hacen
+  `import { memoryStorage } from 'multer'` (un import de VALOR, no de tipo), pero
+  `package.json` solo declara `@types/multer`. multer llega de rebote por
+  `@nestjs/platform-express` y pnpm no lo expone: `node dist/src/main` revienta con
+  `Cannot find module 'multer'`. `nest start` sí lo resuelve, por eso el CI funciona.
+
+Las dos afectan a cómo se arrancaría el backend **en producción real**, así que no se
+arreglan en un cambio de CI. Anotadas aquí para que se traten aparte.
+
+### Deuda: los 105 `networkidle`
+
+Sustituirlos por aserciones web (`expect(locator).toBeVisible()`) es lo correcto y lo que
+recomienda Playwright, pero son 105 sitios en 44 specs: cambiar en bloque qué espera cada
+test es un riesgo mayor que el que se estaba arreglando. Con los plazos finitos ya no
+cuelgan el job; quedan como deuda de una ráfaga propia.
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.

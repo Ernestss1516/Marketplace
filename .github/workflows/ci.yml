@@ -57,11 +57,29 @@ jobs:
     needs: lint
     # No async handle leak was found in apps/api/test/jest-e2e.json (forceExit
     # removed after confirming with --detectOpenHandles that Jest already exits
-    # on its own). This bound replaces that safety net: locally the backend Jest
-    # suite + Playwright together take well under 15 minutes, so 30 gives real
-    # headroom while still failing loudly instead of hanging for GitHub's 360-minute
-    # default if a genuine hang is ever introduced.
-    timeout-minutes: 30
+    # on its own). This bound replaces that safety net: fail loudly instead of
+    # hanging for GitHub's 360-minute default if a genuine hang is introduced.
+    #
+    # 30 → 60. La premisa de los 30 ("la batería de backend + Playwright tardan
+    # bastante menos de 15 minutos") era FALSA y por eso el job se cancelaba sin
+    # dar veredicto. Medido de verdad, en local y en modo CI:
+    #   · batería backend (Jest, --runInBand) ....... ~4,5 min
+    #   · next build (producción, para next start) .. ~1 min
+    #   · Playwright: 271 tests, 1 worker ........... ~45 min (~10 s/test)
+    # Los 30 minutos no daban ni para Playwright solo, y encima Playwright era el
+    # ÚLTIMO paso: se comía lo que sobraba de los otros.
+    #
+    # Se sube DESPUÉS de atacar la lentitud, no en su lugar: el backend ya no
+    # arranca con `--watch` y las esperas tienen plazo finito (ver
+    # playwright.config.ts). Subir el límite sin eso solo habría retrasado el corte.
+    #
+    # Sigue siendo un límite FINITO y holgado, no un cheque en blanco. Si se quiere
+    # bajar el reloj de verdad, la vía es repartir Playwright en varios shards
+    # (`--shard=i/N`) como jobs de matriz: cada job trae sus propios contenedores de
+    # servicio, así que cada shard tendría SU base/Redis/Meili y el estado
+    # compartido que hoy obliga a `workers: 1` dejaría de ser un problema. Es una
+    # reestructuración del workflow, no un ajuste — queda propuesta, no hecha.
+    timeout-minutes: 60
 
     services:
       postgres:
@@ -243,6 +261,7 @@ jobs:
       # in at build time, so this step must run with the same job-level env as below.
       - name: Build frontend for e2e (production build — see playwright.config.ts)
         run: pnpm --filter @marketplace/web build
+
 
       # Playwright spawns the backend (port 3001) and frontend (port 3000) via
       # webServer because reuseExistingServer = !process.env.CI = false.
