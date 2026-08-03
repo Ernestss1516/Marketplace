@@ -216,11 +216,32 @@ test.describe('Admin — /admin/footer', () => {
     await page.goto('/admin/footer');
     await page.waitForLoadState('networkidle');
 
+    // La columna se crea CON un ítem a propósito. `listPublicNav` termina con
+    // `.filter((column) => column.items.length > 0)`: una columna VACÍA no sale
+    // en el footer público, y es deliberado —lo dice el comentario de
+    // `adminListStructure`: "a diferencia de listPublicNav, incluye
+    // columnas/ítems vacíos"—. Una columna sin enlaces no pinta nada.
+    //
+    // Este test creaba las dos columnas vacías y luego esperaba verlas en el
+    // footer público, así que fallaba por su PREMISA, no por lo que afirma. Se
+    // veía en el propio fallo: el footer mostraba las columnas de otros tests
+    // (que sí añaden ítems) y nunca estas dos. Lo que el test prueba —que
+    // reordenar en el admin cambia el orden público— no cambia.
     async function createColumn(name: string) {
       await page.getByRole('button', { name: 'Nueva columna' }).click();
       await page.getByPlaceholder('p.ej. Legal').fill(name);
       await page.getByRole('button', { name: 'Crear' }).click();
       await expect(page.getByText(name, { exact: true })).toBeVisible();
+
+      // Un ítem cualquiera (ruta interna, sin depender del CMS) para que la
+      // columna sea visible públicamente.
+      const bloque = page.locator('div.rounded-md.border').filter({ hasText: name }).first();
+      await bloque.getByRole('button', { name: 'Nuevo ítem' }).click();
+      await page.getByTestId('item-label-input').fill(`Enlace ${name}`);
+      await page.getByTestId('item-type-select').selectOption('INTERNAL');
+      await page.getByTestId('item-internal-url-input').fill('/busqueda');
+      await page.getByTestId('item-submit-btn').click();
+      await expect(page.getByText(`Ruta: /busqueda`).first()).toBeVisible();
     }
 
     await createColumn(colA);
