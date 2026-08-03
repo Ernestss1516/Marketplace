@@ -341,6 +341,90 @@ o (2) la página que ve el navegador durante la corrida no es la que sirve un `c
 como familia). 2a deja de ser "latencia de indexación" y pasa a ser **causa desconocida, con
 todo el camino de datos ya descartado**.
 
+## 11. Familia 2a RESUELTA — ni A ni B: `waitForCard` comprueba demasiado pronto
+
+Instrumento durante-la-corrida (`DIAG_WAITFORCARD=1` en `e2e/helpers/wait-for-card.ts`,
+opt-in, solo observa): en cada vuelta sondea Meili, la API, el HTML recibido, el texto
+VISIBLE y el DOM. Corrido sobre un fallo real (`listing-card-attrs`, 33 vueltas / 90 s):
+
+```
+#1 t=  351ms url=/coches loc=no meili=SI(1) api=SI(1) html=SI texto=SI anclas=1
+   rectAncla=233x364 | ocultadores: (ninguno)
+#2 t=  982ms url=/coches loc=no meili=SI(1) api=SI(1) html=SI texto=no anclas=1
+   rectAncla=0x0 | ocultadores: <a class="group block h-full"> w=0 h=0
+     <= <div class="grid grid-cols-2 …"> <= <main class="min-w-0 flex-1">
+     <= … <= <div class=""> display=none
+```
+
+**Las dos explicaciones candidatas mueren en la primera línea:**
+
+- **A (indexación tardía por la imagen del wizard): REFUTADA.** `meili=SI` y `api=SI` ya en la
+  vuelta #1, a los **351 ms**. No hay nada tarde.
+- **B (el navegador ve algo distinto): REFUTADA.** `html=SI`, `anclas=1` y `textContent`
+  incluye el título (`incluye=true`): el navegador recibe y PINTA la card.
+
+**La causa real (tercera):** `waitForCard` hacía `page.goto(url)` y preguntaba
+`card.isVisible()` **en el acto**. En ese instante el contenido de la página cuelga de un
+`<div class="">` con `display:none` —estado transitorio de transición/carga del App Router,
+que se ve en la cadena de ocultadores de la vuelta #2— así que la card existe, está pintada,
+pero mide `0x0` y ni `innerText` ni Playwright la ven. Milisegundos después ya es visible
+(vuelta #1: `rectAncla=233x364`, `texto=SI`), pero para entonces `isVisible()` ya devolvió
+`false`, el helper duerme y **recarga, reiniciando exactamente el mismo transitorio**. Se
+repite 33 veces. Por eso **más plazo nunca ayudó** (ráfaga D): cada vuelta vuelve a pillar la
+página en el peor microsegundo.
+
+Encaja con lo que ya sabíamos y no encajaba: el único caso que PASA usa `/vehiculos/coches`
+—la URL canónica, sin redirección—, mientras que los que fallan pasan todos por un 308
+(`/coches`, `/moviles`, `/busqueda?category=coches`), que alarga esa ventana.
+
+**Es deuda de TEST, no bug de producto.** La página sirve la card correctamente: `curl` la
+encuentra en las cuatro URLs y el propio navegador la pinta a los ~350 ms. Lo que está mal es
+CÓMO se comprueba.
+
+### Opciones de arreglo (para decisión de Ernest — NO implementadas)
+
+1. **Esperar a la card en vez de preguntar por ella** (mínimo y directo): sustituir el
+   `isVisible()` instantáneo por un `card.waitFor({ state: 'visible', timeout: ~2 s })` dentro
+   de cada vuelta. Le da a la página el momento de asentarse; si no aparece en ese margen,
+   recarga como hasta ahora. No cambia qué se verifica.
+2. **Esperar a que la navegación asiente antes de comprobar**: un `waitForLoadState` tras el
+   `goto` de cada vuelta. Ataca lo mismo un escalón antes.
+3. **Usar la URL canónica en los specs** (`/vehiculos/coches` en vez de `/coches`): quita la
+   redirección que alarga la ventana. Ataca el síntoma, no la comprobación prematura — y los
+   308 son comportamiento legítimo que conviene seguir ejerciendo en otro sitio.
+
+Recomendación: **(1)**, o (1)+(2). Cae toda la familia 2a (7 tests) si el diagnóstico se
+sostiene, sin tocar producto.
+
+### CERRADA — arreglo aplicado y verificado
+
+Se aplicó la opción (1): el `isVisible()` instantáneo pasa a
+`card.waitFor({ state: 'visible', timeout: 2 s })` dentro de cada vuelta. El predicado no
+cambia (sigue siendo "aparece la card"); lo que cambia es que **espera al estado en vez de
+muestrear el instante** — la misma lección de `async-state.ts` y del `pollUntil` de redsys.
+
+| Medición | Antes | Después |
+|---|---|---|
+| Los 8 tests de 2a (producción) | 6 fallos, **13,4 min** | **8 pasan, 1,2 min** |
+| Recargas por espera | 33 (agotando 90 s) | **1**, en ~470-570 ms |
+| `--repeat-each=3` (24 ejecuciones) | — | **24/24**, las 21 esperas en 1 recarga |
+
+**Validación por mutación:** revertir a `isVisible()` instantáneo devuelve el fallo exacto
+—`Card not found after 33 reload(s) (90000ms)`—. Confirma que lo que cura es el `waitFor`.
+
+**Un fallo real sigue siendo finito:** una card que no existe con plazo de 8 s falla en
+**8044 ms** con su diagnóstico.
+
+**Bug encontrado POR la validación (y arreglado):** el primer intento calculaba el plazo
+por vuelta con `Math.max(0, …)`. En Playwright **`timeout: 0` significa esperar PARA
+SIEMPRE**, así que en la última vuelta —cuando ya no queda plazo— el helper se colgaba: un
+plazo global de 8 s tardaba **147 s** en rendirse. Corregido con `Math.max(1, …)`. Sin el
+paso de validación por mutación/fallo-real, ese fallo habría entrado en el CI disfrazado de
+arreglo.
+
+El instrumento `DIAG_WAITFORCARD=1` se queda, opt-in y a coste cero: fue lo que cerró cinco
+ráfagas de misterio.
+
 ## 8. Reclasificación de los sospechosos de 2c (ráfaga C)
 
 Los dos "sospechosos" de familia 2c **no lo eran**. Medidos con `--retries=0`, siguen fallando
