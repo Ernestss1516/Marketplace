@@ -1,33 +1,33 @@
-/**
- * BÚSQUEDA+TAGS — RÁFAGA A2: unificación de /busqueda y /[categoria].
+﻿/**
+ * BÃšSQUEDA+TAGS â€” RÃFAGA A2: unificaciÃ³n de /busqueda y /[categoria].
  *
- * EL TEST CENTRAL es "LA TRAMPA": desde RÁFAGA 1 el backend RECHAZA con 400 cualquier
- * query param que no sea filtrable EN LA CATEGORÍA PEDIDA (defensa anti-leak
- * cross-categoría). Arrastrar la query tal cual al cambiar de categoría rompe la
- * página. A2 filtra en CLIENTE antes de navegar; el 400 del backend no se toca.
+ * EL TEST CENTRAL es "LA TRAMPA": desde RÃFAGA 1 el backend RECHAZA con 400 cualquier
+ * query param que no sea filtrable EN LA CATEGORÃA PEDIDA (defensa anti-leak
+ * cross-categorÃ­a). Arrastrar la query tal cual al cambiar de categorÃ­a rompe la
+ * pÃ¡gina. A2 filtra en CLIENTE antes de navegar; el 400 del backend no se toca.
  *
  * Datos del seed que se usan (apps/api/prisma/seed-test.ts):
- *   electronica → moviles : brand, ram
- *   vehiculos   → coches  : brand (propio) + year, km (heredados)
- * Así que `ram` vale en móviles y NO en coches, y `km` vale en coches y NO en móviles:
+ *   electronica â†’ moviles : brand, ram
+ *   vehiculos   â†’ coches  : brand (propio) + year, km (heredados)
+ * AsÃ­ que `ram` vale en mÃ³viles y NO en coches, y `km` vale en coches y NO en mÃ³viles:
  * los dos sentidos de la trampa con datos reales.
  */
 
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
 import { loginAdminViaApi, authedPost } from './helpers/api';
 
-const CATEGORIA = 'Categoría';
+const CATEGORIA = 'CategorÃ­a';
 
 /**
- * Elige una categoría en el selector y espera a que la navegación aterrice.
+ * Elige una categorÃ­a en el selector y espera a que la navegaciÃ³n aterrice.
  *
  * Se espera a que cambie el PATH, no a `networkidle`: el push del router puede no haber
  * aterrizado cuando la red se calma, y entonces `page.url()` devuelve la de antes
- * (visto como flake intermitente). El destino es la ruta canónica de la categoría, o
+ * (visto como flake intermitente). El destino es la ruta canÃ³nica de la categorÃ­a, o
  * /busqueda cuando se elige "Todas".
  *
- * `waitUntil: 'commit'` es imprescindible: por defecto `waitForURL` espera ADEMÁS al
- * evento `load`, que una navegación de cliente del App Router no dispara — la URL casa
+ * `waitUntil: 'commit'` es imprescindible: por defecto `waitForURL` espera ADEMÃS al
+ * evento `load`, que una navegaciÃ³n de cliente del App Router no dispara â€” la URL casa
  * y el wait se queda colgado hasta el timeout.
  */
 async function elegirCategoria(page: Page, valor: string) {
@@ -37,17 +37,17 @@ async function elegirCategoria(page: Page, valor: string) {
   await page.waitForLoadState('networkidle');
 }
 
-/** La página ha renderizado resultados de verdad (ni error ni 400). */
+/** La pÃ¡gina ha renderizado resultados de verdad (ni error ni 400). */
 async function esperarPaginaSana(page: Page) {
-  await expect(page.getByRole('heading', { name: 'Algo salió mal' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Algo saliÃ³ mal' })).toHaveCount(0);
   await expect(page.getByLabel('Filtros')).toBeVisible();
 }
 
-test.describe('A2 — unificación de búsqueda', () => {
-  // ── LA TRAMPA ─────────────────────────────────────────────────────────────
-  test('global → categoría: el atributo ajeno se CAE; sin 400 y la página renderiza', async ({ page }) => {
-    // `ram` es de móviles. En /busqueda vale (sin categoría, la unión global lo acepta);
-    // en coches NO existe, así que arrastrarlo daría 400.
+test.describe('A2 â€” unificaciÃ³n de bÃºsqueda', () => {
+  // â”€â”€ LA TRAMPA â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  test('global â†’ categorÃ­a: el atributo ajeno se CAE; sin 400 y la pÃ¡gina renderiza', { tag: '@2b' }, async ({ page }) => {
+    // `ram` es de mÃ³viles. En /busqueda vale (sin categorÃ­a, la uniÃ³n global lo acepta);
+    // en coches NO existe, asÃ­ que arrastrarlo darÃ­a 400.
     await page.goto('/busqueda?q=golf&ram=8&province=Madrid');
     await esperarPaginaSana(page);
 
@@ -60,13 +60,13 @@ test.describe('A2 — unificación de búsqueda', () => {
     // Lo que define A2: el atributo ajeno no ha viajado.
     expect(url.searchParams.has('ram')).toBe(false);
 
-    // Y la página está viva — no un 400 ni el error boundary.
+    // Y la pÃ¡gina estÃ¡ viva â€” no un 400 ni el error boundary.
     await esperarPaginaSana(page);
     await expect(page.getByRole('heading', { level: 1 })).toContainText('Coches');
   });
 
-  test('categoría → otra categoría: también se cae lo que no aplica en el destino', { tag: '@2b' }, async ({ page }) => {
-    // `km` se hereda de vehículos, así que vale en coches pero no en móviles.
+  test('categorÃ­a â†’ otra categorÃ­a: tambiÃ©n se cae lo que no aplica en el destino', { tag: '@2b' }, async ({ page }) => {
+    // `km` se hereda de vehÃ­culos, asÃ­ que vale en coches pero no en mÃ³viles.
     await page.goto('/vehiculos/coches?km=100000&q=golf');
     await esperarPaginaSana(page);
 
@@ -79,8 +79,8 @@ test.describe('A2 — unificación de búsqueda', () => {
     await esperarPaginaSana(page);
   });
 
-  // ── El caso que YA era seguro (herencia): no debe perder nada ──────────────
-  test('padre → hija: el atributo heredado SÍ se conserva', async ({ page }) => {
+  // â”€â”€ El caso que YA era seguro (herencia): no debe perder nada â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  test('padre â†’ hija: el atributo heredado SÃ se conserva', { tag: '@2b' }, async ({ page }) => {
     await page.goto('/vehiculos?km=100000');
     await esperarPaginaSana(page);
 
@@ -92,9 +92,9 @@ test.describe('A2 — unificación de búsqueda', () => {
     await esperarPaginaSana(page);
   });
 
-  test('hija → padre: un atributo de la hija sigue valiendo en el padre', async ({ page }) => {
-    // Navegar el padre mezcla los anuncios de las hijas (categoryPath), así que un
-    // atributo de hija es filtro legítimo ahí.
+  test('hija â†’ padre: un atributo de la hija sigue valiendo en el padre', { tag: '@2b' }, async ({ page }) => {
+    // Navegar el padre mezcla los anuncios de las hijas (categoryPath), asÃ­ que un
+    // atributo de hija es filtro legÃ­timo ahÃ­.
     await page.goto('/vehiculos/coches?brand=Seat');
     await esperarPaginaSana(page);
 
@@ -106,11 +106,11 @@ test.describe('A2 — unificación de búsqueda', () => {
     await esperarPaginaSana(page);
   });
 
-  // ── A4 — los rangos viajan como su atributo base ──────────────────────────
-  test('A4: el rango sobrevive al cambiar a una categoría donde su atributo vale', async ({ page }) => {
-    // `km` es de vehículos y lo heredan sus hijas, así que vale en las dos puntas de
-    // este salto. (El seed de test solo tiene vehiculos→coches, así que el tránsito
-    // que lo ejerce con datos reales es hija→padre.)
+  // â”€â”€ A4 â€” los rangos viajan como su atributo base â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  test('A4: el rango sobrevive al cambiar a una categorÃ­a donde su atributo vale', { tag: '@2b' }, async ({ page }) => {
+    // `km` es de vehÃ­culos y lo heredan sus hijas, asÃ­ que vale en las dos puntas de
+    // este salto. (El seed de test solo tiene vehiculosâ†’coches, asÃ­ que el trÃ¡nsito
+    // que lo ejerce con datos reales es hijaâ†’padre.)
     await page.goto('/vehiculos/coches?km_min=50000&km_max=150000');
     await esperarPaginaSana(page);
 
@@ -136,8 +136,8 @@ test.describe('A2 — unificación de búsqueda', () => {
     await esperarPaginaSana(page);
   });
 
-  // ── Tránsito inverso ──────────────────────────────────────────────────────
-  test('categoría → "Todas las categorías": vuelve a /busqueda conservando los filtros', async ({ page }) => {
+  // â”€â”€ TrÃ¡nsito inverso â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  test('categorÃ­a â†’ "Todas las categorÃ­as": vuelve a /busqueda conservando los filtros', { tag: '@2b' }, async ({ page }) => {
     await page.goto('/vehiculos/coches?q=golf&province=Madrid');
     await esperarPaginaSana(page);
 
@@ -150,7 +150,7 @@ test.describe('A2 — unificación de búsqueda', () => {
     await esperarPaginaSana(page);
   });
 
-  test('el selector marca la categoría en la que estás', async ({ page }) => {
+  test('el selector marca la categorÃ­a en la que estÃ¡s', async ({ page }) => {
     await page.goto('/vehiculos/coches');
     await expect(page.getByLabel(CATEGORIA)).toHaveValue('coches');
 
@@ -158,18 +158,18 @@ test.describe('A2 — unificación de búsqueda', () => {
     await expect(page.getByLabel(CATEGORIA)).toHaveValue('');
   });
 
-  test('el selector ofrece TODO el árbol desde la ruta de categoría (antes solo bajaba un nivel)', async ({ page }) => {
+  test('el selector ofrece TODO el Ã¡rbol desde la ruta de categorÃ­a (antes solo bajaba un nivel)', async ({ page }) => {
     await page.goto('/vehiculos/coches');
     const select = page.getByLabel(CATEGORIA);
 
-    await expect(select.locator('option', { hasText: 'Todas las categorías' })).toHaveCount(1);
-    // Otra rama del árbol: inalcanzable con el viejo selector de "Subcategoría".
-    await expect(select.locator('option', { hasText: 'Móviles' })).toHaveCount(1);
+    await expect(select.locator('option', { hasText: 'Todas las categorÃ­as' })).toHaveCount(1);
+    // Otra rama del Ã¡rbol: inalcanzable con el viejo selector de "SubcategorÃ­a".
+    await expect(select.locator('option', { hasText: 'MÃ³viles' })).toHaveCount(1);
     // Y el viejo control ya no existe.
-    await expect(page.getByText('Subcategoría')).toHaveCount(0);
+    await expect(page.getByText('SubcategorÃ­a')).toHaveCount(0);
   });
 
-  test('`page` se descarta al cambiar de categoría', { tag: '@2b' }, async ({ page }) => {
+  test('`page` se descarta al cambiar de categorÃ­a', { tag: '@2b' }, async ({ page }) => {
     await page.goto('/busqueda?page=3&q=golf');
     await esperarPaginaSana(page);
 
@@ -178,8 +178,8 @@ test.describe('A2 — unificación de búsqueda', () => {
     expect(new URL(page.url()).searchParams.has('page')).toBe(false);
   });
 
-  // ── P3: /busqueda?category= redirige ──────────────────────────────────────
-  test('/busqueda?category=X redirige permanentemente a la ruta canónica', async ({ request }) => {
+  // â”€â”€ P3: /busqueda?category= redirige â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  test('/busqueda?category=X redirige permanentemente a la ruta canÃ³nica', async ({ request }) => {
     const res = await request.get('/busqueda?category=coches', { maxRedirects: 0 });
     expect(res.status()).toBe(308);
     expect(res.headers()['location']).toBe('/vehiculos/coches');
@@ -196,12 +196,12 @@ test.describe('A2 — unificación de búsqueda', () => {
     expect(url.searchParams.has('category')).toBe(false);
   });
 
-  test('/busqueda sin category sigue siendo la búsqueda global, sin redirect', async ({ request }) => {
+  test('/busqueda sin category sigue siendo la bÃºsqueda global, sin redirect', async ({ request }) => {
     expect((await request.get('/busqueda?q=golf', { maxRedirects: 0 })).status()).toBe(200);
   });
 
-  // ── `q` formalizado en la ruta de categoría ───────────────────────────────
-  test('q se ve en el <h1> de la categoría (antes filtraba en silencio)', async ({ page }) => {
+  // â”€â”€ `q` formalizado en la ruta de categorÃ­a â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  test('q se ve en el <h1> de la categorÃ­a (antes filtraba en silencio)', async ({ page }) => {
     await page.goto('/vehiculos/coches?q=golf');
     await expect(page.getByRole('heading', { level: 1 })).toContainText('resultados para "golf"');
   });
@@ -211,14 +211,14 @@ test.describe('A2 — unificación de búsqueda', () => {
     await expect(page).toHaveTitle(/golf/);
   });
 
-  test('"Limpiar filtros" CONSERVA q — antes lo borraba', { tag: '@2b' }, async ({ page }) => {
+  test('"Limpiar filtros" CONSERVA q â€” antes lo borraba', { tag: '@2b' }, async ({ page }) => {
     await page.goto('/vehiculos/coches?q=golf&province=Madrid');
     await esperarPaginaSana(page);
 
     await page.getByRole('button', { name: 'Limpiar filtros' }).first().click();
     // Se espera a la URL concreta, no a `networkidle`: el push del router puede
     // no haber aterrizado cuando la red se calma, y leer page.url() entonces
-    // devuelve la de antes (visto: `province` seguía puesto en ~1 de cada 10).
+    // devuelve la de antes (visto: `province` seguÃ­a puesto en ~1 de cada 10).
     await page.waitForURL((url) => !url.searchParams.has('province'), { waitUntil: 'commit' });
 
     const url = new URL(page.url());
@@ -227,7 +227,7 @@ test.describe('A2 — unificación de búsqueda', () => {
     expect(url.searchParams.has('province')).toBe(false);
   });
 
-  test('q sobrevive al cambiar de categoría', { tag: '@2b' }, async ({ page }) => {
+  test('q sobrevive al cambiar de categorÃ­a', { tag: '@2b' }, async ({ page }) => {
     await page.goto('/vehiculos/coches?q=golf');
     await esperarPaginaSana(page);
 
@@ -237,11 +237,11 @@ test.describe('A2 — unificación de búsqueda', () => {
   });
 });
 
-// ── `condition` al saltar a una categoría solo-servicio ─────────────────────
-// Necesita una categoría SERVICE_ONLY, que el seed no trae: se crea por la API de
-// admin (mismo patrón que producto-servicio-flujo.spec.ts) y se borra al terminar,
-// para no dejar más residuo en la base compartida del que ya arrastra.
-test.describe('A2 — condition no viaja a una categoría de servicios', () => {
+// â”€â”€ `condition` al saltar a una categorÃ­a solo-servicio â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Necesita una categorÃ­a SERVICE_ONLY, que el seed no trae: se crea por la API de
+// admin (mismo patrÃ³n que producto-servicio-flujo.spec.ts) y se borra al terminar,
+// para no dejar mÃ¡s residuo en la base compartida del que ya arrastra.
+test.describe('A2 â€” condition no viaja a una categorÃ­a de servicios', () => {
   let adminToken: string;
   let svcId: string;
   let svcSlug: string;
@@ -256,7 +256,7 @@ test.describe('A2 — condition no viaja a una categoría de servicios', () => {
       attributeSchema: [],
     });
     if (res.status() !== 201) {
-      throw new Error(`[A2 setup] no se pudo crear la categoría: ${res.status()} ${await res.text()}`);
+      throw new Error(`[A2 setup] no se pudo crear la categorÃ­a: ${res.status()} ${await res.text()}`);
     }
     svcId = (await res.json()).id as string;
   });
@@ -269,8 +269,8 @@ test.describe('A2 — condition no viaja a una categoría de servicios', () => {
     }
   });
 
-  test('al elegir una categoría SERVICE_ONLY, `condition` se descarta y el resto se conserva', async ({ page }) => {
-    // Un servicio no tiene estado de conservación: arrastrar `condition` dejaría un
+  test('al elegir una categorÃ­a SERVICE_ONLY, `condition` se descarta y el resto se conserva', { tag: '@2b' }, async ({ page }) => {
+    // Un servicio no tiene estado de conservaciÃ³n: arrastrar `condition` dejarÃ­a un
     // filtro activo, invisible (el panel lo oculta en contexto de servicio) y
     // restrictivo.
     await page.goto('/vehiculos/coches?condition=NEW&q=golf&province=Madrid');
@@ -286,7 +286,7 @@ test.describe('A2 — condition no viaja a una categoría de servicios', () => {
     await esperarPaginaSana(page);
   });
 
-  test('hacia una categoría que admite productos, `condition` SÍ se conserva (el contraste)', { tag: '@2b' }, async ({ page }) => {
+  test('hacia una categorÃ­a que admite productos, `condition` SÃ se conserva (el contraste)', { tag: '@2b' }, async ({ page }) => {
     await page.goto('/electronica/moviles?condition=NEW');
     await esperarPaginaSana(page);
 

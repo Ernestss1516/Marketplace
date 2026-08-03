@@ -50,8 +50,33 @@ test.describe('Tickets — adjuntos', () => {
 
     // El input está oculto (lo dispara el botón "Adjuntar"): se rellena directo,
     // que es lo que Playwright recomienda para inputs de fichero.
-    await page.getByTestId('adjuntos-picker-input').setInputFiles(IMAGEN);
-    await expect(page.getByTestId('adjuntos-picker-lista')).toContainText('test-image.png');
+    //
+    // CARRERA DE HIDRATACIÓN — observada con una sonda, no supuesta. El input
+    // existe en el HTML servido, así que `setInputFiles` "funciona" aunque React
+    // todavía no haya enganchado su `onChange`: el fichero se queda EN EL INPUT y
+    // el componente nunca se entera. Medido en los fallos:
+    //   ficherosEnInput: 1, nombre: "test-image.png"  →  hayLista: false, hayError: false
+    // y en los aciertos:
+    //   ficherosEnInput: 0 (handlePick resetea el input al procesarlo)  →  hayLista: true
+    // O sea: fichero todavía en el input = el manejador no llegó a correr.
+    //
+    // Se reintenta la ACCIÓN, no solo la espera (mismo patrón que el envío de
+    // mensajes en mensajeria-unificada y que `clicarYEsperarUrl`). El guard de
+    // "ya está en la lista" evita añadir el fichero dos veces si el primer intento
+    // sí llegó a registrarse y solo faltaba pintar.
+    // El `setInputFiles([])` previo NO es cosmético: volver a poner el MISMO
+    // fichero sobre un input que ya lo tiene no dispara otro `change`, así que
+    // sin vaciarlo antes el reintento no despertaba nada (medido: el reintento
+    // solo repetía el estado roto). Vaciar y volver a poner sí emite el evento.
+    await expect(async () => {
+      if ((await page.getByTestId('adjuntos-picker-lista').count()) === 0) {
+        await page.getByTestId('adjuntos-picker-input').setInputFiles([]);
+        await page.getByTestId('adjuntos-picker-input').setInputFiles(IMAGEN);
+      }
+      await expect(page.getByTestId('adjuntos-picker-lista')).toContainText('test-image.png', {
+        timeout: 2_000,
+      });
+    }).toPass({ timeout: 20_000 });
 
     await page.getByTestId('input-respuesta').fill('Te mando la captura');
     await page.getByTestId('enviar-respuesta').click();
@@ -92,11 +117,23 @@ test.describe('Tickets — adjuntos', () => {
       if (r.method() === 'POST' && r.url().includes('/messages')) subidas.push(r.url());
     });
 
-    await page
-      .getByTestId('adjuntos-picker-input')
-      .setInputFiles({ name: 'notas.txt', mimeType: 'text/plain', buffer: Buffer.from('hola') });
-
-    await expect(page.getByTestId('adjuntos-picker-error')).toContainText('no es un tipo admitido');
+    // Misma carrera de hidratación que en el test de arriba: si React aún no ha
+    // enganchado el `onChange`, el fichero se queda en el input y no aparece ni la
+    // lista ni el error. Se reintenta la acción; el guard mira el ERROR, que es lo
+    // que este caso espera (el fichero se rechaza, no se añade a la lista).
+    await expect(async () => {
+      if ((await page.getByTestId('adjuntos-picker-error').count()) === 0) {
+        // Vaciar antes de reponer — si no, el mismo fichero no dispara `change`.
+        await page.getByTestId('adjuntos-picker-input').setInputFiles([]);
+        await page
+          .getByTestId('adjuntos-picker-input')
+          .setInputFiles({ name: 'notas.txt', mimeType: 'text/plain', buffer: Buffer.from('hola') });
+      }
+      await expect(page.getByTestId('adjuntos-picker-error')).toContainText(
+        'no es un tipo admitido',
+        { timeout: 2_000 },
+      );
+    }).toPass({ timeout: 20_000 });
     // Ni se ha añadido a la lista de pendientes ni se ha mandado nada.
     await expect(page.getByTestId('adjuntos-picker-lista')).toHaveCount(0);
     expect(subidas).toHaveLength(0);
