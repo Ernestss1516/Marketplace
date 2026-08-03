@@ -425,6 +425,242 @@ arreglo.
 El instrumento `DIAG_WAITFORCARD=1` se queda, opt-in y a coste cero: fue lo que cerró cinco
 ráfagas de misterio.
 
+## 13. 🔴 BUG DE PRODUCCIÓN CONFIRMADO — `perPage` por encima del tope del backend
+
+**La reserva de la §12 sobre `footer-admin:11`/`:113` era correcta: es PRODUCTO, no test.**
+La sonda lo cerró en una sola corrida.
+
+### Lo que se observó (red del navegador, corrida real)
+
+```
+201 POST /api/admin/blog                     → página creada
+200 POST /api/admin/blog/<id>/publish        → status: "PUBLISHED"   (el dato está bien)
+400 GET  /api/admin/blog?type=PAGE&perPage=200
+    {"message":["perPage must not be greater than 50"],"error":"Bad Request","statusCode":400}
+
+[SONDA] select existe=1 nOpciones=1
+[SONDA] opciones=["— Selecciona una página —"]
+```
+
+El `<select>` se queda **con una sola opción: el placeholder**. No es que falte la página
+recién creada — **no hay NINGUNA**.
+
+### La cadena
+
+1. `admin/footer/page.tsx:362` pide `getAdminPosts(token, { type: 'PAGE', perPage: 200 })`.
+2. El DTO del backend (`list-admin-posts.dto.ts`) tiene **`@Max(50)`** → responde **400**.
+3. El `.catch(() => { /* el selector queda vacío si falla — no bloquea el resto */ })` de la
+   línea 364 **se traga el error**. La UI no avisa de nada.
+4. `pages` se queda en `[]` y el selector solo muestra el placeholder.
+
+**Impacto real:** un ADMIN **nunca** puede enlazar una página del CMS en el footer — el
+selector está vacío siempre, para todos. No es timing ni entorno de test: es determinista.
+El comentario del `.catch` anticipaba el fallo pero no su causa, y por eso llevaba tiempo
+invisible.
+
+### Y NO es un caso aislado — el sitemap está igual (SEO)
+
+Barriendo las llamadas con `perPage` por encima del tope, y **verificado con peticiones
+reales**:
+
+```
+GET /api/blog?perPage=500     → HTTP 400      ← sitemap.ts:31
+GET /api/paginas?perPage=500  → HTTP 400      ← sitemap.ts:32
+GET /api/blog?perPage=50      → HTTP 200      (el tope es la causa)
+```
+
+`sitemap.ts` las envuelve en `.catch(() => ({ items: [] }))`, así que **el sitemap se genera
+sin NINGÚN post del blog y sin NINGUNA página del CMS**. En un proyecto que el propio
+CLAUDE.md define como "fuertemente dependiente del SEO", esto es más grave que el footer.
+
+(Las llamadas a `getAdminTags(..., perPage: 200)` **NO** están afectadas: el DTO de tags
+tiene `@Max(200)`, justo en el tope.)
+
+### Opciones (decisión de Ernest — NO implementadas)
+
+- **Subir el tope del backend** en los DTO de blog (p. ej. `@Max(500)`), que es lo que los
+  llamantes ya asumen. Cambia el contrato público — hay que valorar el coste de una consulta
+  grande.
+- **Bajar lo que piden los llamantes a ≤50 y paginar** donde haga falta. Correcto pero
+  obliga a paginar el selector del footer y el sitemap.
+- **Dejar de tragarse el error** en los dos `.catch`: aunque se arregle el tope, un fallo
+  silencioso que deja un selector vacío o un sitemap sin URLs volverá a esconderse. Esto es
+  independiente de las otras dos y conviene igualmente.
+
+**`footer-admin:11` y `:113` NO son arreglables como deuda de test**: seguirán rojos hasta
+que se decida esto. Son, de hecho, los únicos tests que estaban detectando el bug.
+
+### ARREGLADO — causa (tope) + clase (silenciador)
+
+**Alcance elegido: A para el tope, B para el sitemap.** Los dos DTO de blog pasan de
+`@Max(50)` a **`@Max(500)`**, que cubre a todos los llamantes actuales (footer pide 200,
+sitemap pedía 500). Ningún test dependía del 50 (solo se probaba `perPage=1`), y el resto de
+llamantes ya paginaban con un `PER_PAGE` pequeño, así que subir el techo no cambia nada de lo
+que funcionaba.
+
+**Pero el sitemap además PAGINA** (`traerTodo` en `sitemap.ts`), y no por gusto: las páginas
+del CMS están acotadas por naturaleza (legal, ayuda, sobre nosotros… decenas), pero **el blog
+crece sin techo**. Con un número fijo, el día que hubiera más posts que ese número el sitemap
+volvería a salir incompleto — y otra vez en silencio. Recorrer el listado hasta agotar `total`
+cierra esa puerta para siempre.
+
+**El silenciador, fuera** (esto va en cualquier caso, y es la barrera real):
+
+- `sitemap.ts`: cada fallo se registra con `console.error` diciendo QUÉ falló, en qué página y
+  cuántas entradas se pierden. Se devuelve lo acumulado —un sitemap parcial le sirve más a un
+  buscador que un 500— pero el fallo **queda en los logs**.
+- `admin/footer/page.tsx`: el `.catch` mudo se sustituye por un estado `pagesError` que pinta
+  un mensaje visible (`role="alert"`, `data-testid="item-page-select-error"`) en lugar del
+  desplegable. El admin ya no ve un selector vacío sin explicación.
+
+**Verificado ejerciendo, con peticiones reales:**
+
+| Comprobación | Resultado |
+|---|---|
+| `GET /blog?perPage=500`, `/paginas?perPage=500` | **200** (antes 400) |
+| `GET /blog?perPage=501` | **400** — el tope sigue existiendo, no se ha quitado |
+| Sitemap generado | **1 entrada `/paginas/`**, que es exactamente cuántas páginas PUBLISHED hay en la BD (antes: 0, en silencio) |
+| Sitemap con el backend CAÍDO | 3 × `[sitemap] fallo cargando … El sitemap saldrá INCOMPLETO` en los logs (antes: vacío silencioso con 200) |
+| `footer-admin:11` y `:113` (centinelas) | **VERDES, sin tocar los tests** — los arregla el producto |
+| Batería backend (`blog`+`footer`) | 45/45 |
+| tsc api · tsc web · lint | 0 · 0 · 0 |
+
+`footer-admin:175` sigue rojo: es el caso de ISR/revalidación, causa distinta y ya
+identificada (§15), no tiene que ver con este bug.
+
+## 14. Tratamiento de 2b: aplicado, unificado — y NO basta (medido)
+
+Se creó `e2e/helpers/nav.ts` → `clicarYEsperarUrl(page, chip, predicado)`: reintenta **el
+CLIC** (no la espera) dentro de un `toPass`, con plazo corto por intento. Es el patrón que
+`busqueda-mapa` y `flujo-critico` ya usaban en línea; ahora vive en un sitio y se aplicó a los
+5 puntos de clic de `tags-filtro`.
+
+**Medido, sin adornos:**
+
+| Condición | Resultado |
+|---|---|
+| `tags-filtro` con `--retries=0`, antes | 2 rojos duros |
+| `tags-filtro` con `--retries=0`, después | **1 rojo duro**, 4 pasan |
+| `tags-filtro` con `retries=1` (como el CI) | **2 fallos, 1 flaky, 2 pasan** |
+
+O sea: el mitigador ayuda pero **no garantiza verde, ni siquiera con el retry del CI**. La
+corrida con retry salió PEOR que la de sin retry — no es una regresión, es la varianza propia
+de 2b (la investigación de `estado-tecnico.md` ya medía residuales del 20-50 % según el spec).
+`tags-filtro` está en la franja alta.
+
+Esto **confirma lo que ya decía la investigación** y conviene no olvidarlo: *"reintentar el
+click no recupera el estado roto — la página queda con el router cliente persistentemente
+wedged"*. El `toPass` rescata los casos en que el wedge aún no ha ocurrido; cuando ocurre, no
+hay reintento que valga.
+
+**Conclusión honesta:** 2b no se "arregla" desde el test. Lo que queda es aceptar el residual
+como known-issue y **etiquetarlo** para que no ensucie la señal — el paso que esta ráfaga
+**NO** llegó a dar (ver §15).
+
+## 15. Estado al cerrar la ráfaga — lo hecho y lo NO hecho
+
+**Hecho:**
+- Sonda de `getAdminPosts` → **bug de producción confirmado** (§13). Reportado, **no
+  arreglado**: es producto y requiere decisión.
+- Helper `clicarYEsperarUrl` creado y aplicado a `tags-filtro` (§14), con la medición de que
+  no basta.
+
+**NO hecho (el bug de producción se llevó el presupuesto de la ráfaga):**
+- **Etiquetado `@2b`** de los specs afectados + el job/grep que separe "rojo 2b conocido" de
+  "rojo nuevo". Es lo que de verdad devuelve la SEÑAL al CI, más que perseguir el verde.
+- **`footer-admin:175`** (ISR): esperar a que la revalidación complete en vez de leer el
+  footer público al instante. Causa clara, arreglo pequeño, sin sonda pendiente.
+- **`mensajeria-unificada:91`**: falta la sonda que registre qué número pinta el badge. NO
+  tocar la aserción (4→1) sin ese dato — la hipótesis viene de leer código, y esta saga ha
+  enterrado cinco hipótesis leídas del código.
+
+**Suelo esperable tras lo pendiente:** 2b etiquetado aparte (5, residual conocido), `footer-
+admin:11`/`:113` bloqueados por el bug de producción, y 2 sueltos con arreglo claro.
+
+## 12. El suelo real, clasificado por firma (6 duros + 3 flaky)
+
+La corrida completa midió el suelo: **6 fallos + 3 flaky + 261 pasados en 11,7 min** — muy
+por debajo de los ~21 que este plan proyectaba. (Otra proyección fallida; el patrón de la
+saga se mantiene hasta el final.) 2a, 2c, familia 1 y los sueltos de A **no reaparecen**.
+
+Los 6 duros se reprodujeron en una corrida dirigida con `--retries=0` — **los mismos 6**, con
+su firma exacta leída del log, no supuesta.
+
+| # | Test | Firma exacta | Familia | Test o producto | Confianza |
+|---|---|---|---|---|---|
+| 1 | `footer-admin:11` | `locator.getAttribute: Timeout 15000ms` esperando `item-page-select > option` con el título de la página recién creada | **Select de admin** | Test (con matiz, ver abajo) | Media |
+| 2 | `footer-admin:113` | **idéntica a la #1** | **Select de admin** | Test (mismo matiz) | Media |
+| 3 | `footer-admin:175` | `expect(headings.indexOf(colA)).toBeLessThan(...)` → `-1`: la columna no está en el footer público | **ISR/revalidación** | Test | Alta |
+| 4 | `mensajeria-unificada:91` | `getByText('4', {exact:true})` → *element(s) not found* | **Realtime/badge** | Test probable | Media |
+| 5 | `tags-filtro:107` | `page.waitForURL: Timeout 30000ms — waiting for navigation until "commit"` | **2b** | Producto (bug de Next) | **Alta** |
+| 6 | `tags-filtro:135` | idéntica a la #5 | **2b** | Producto (bug de Next) | **Alta** |
+| F1 | `busqueda-unificada:172` | waitForURL/commit (pasa al reintentar) | **2b** | Producto (bug de Next) | Alta |
+| F2 | `busqueda-unificada:214` | idem | **2b** | Producto (bug de Next) | Alta |
+| F3 | `filtros-schema-driven:164` | idem | **2b** | Producto (bug de Next) | Alta |
+
+### No hay ningún bug de producción NUEVO
+
+Se investigaron los dos candidatos que el enunciado señalaba, y **ninguno lo es**:
+
+- **Footer (¿la revalidación no ocurre?) → NO.** Está cableada y completa: las **ocho**
+  mutaciones de `FooterService` llaman a `revalidateTag('footer-nav')`
+  (create/update/delete/reorder de columna e ítem), y `BlogService` la llama también al
+  cambiar el estado de publicación de una página —con tests unitarios que lo afirman—.
+  `listPublicNav` filtra por `page.status === PUBLISHED`. Lo que falla en `:175` es que el
+  test mira el footer público **inmediatamente**: la revalidación es *fire-and-forget* (el
+  backend responde 200 y dispara el POST a `/api/revalidate` sin esperarlo), así que hay una
+  ventana de consistencia eventual que el test no espera. Para un usuario real la
+  revalidación llega en menos de un segundo. **Deuda de test.**
+- **Mensajería (¿el badge no actualiza?) → probablemente NO.** `ConversationList` incrementa
+  `conv.unreadCount + 1` por mensaje recibido vía socket, y el test hace `markRead` antes
+  (afirma `markReadCalls === 1`), con lo que el contador queda a 0 y **un** mensaje nuevo
+  daría badge **1**, no **4**. La firma es *element(s) not found* —falta el elemento— no
+  "muestra otro número", así que no está probado al 100%; pero la hipótesis de aserción
+  obsoleta encaja mejor que "el realtime está roto". **Confirmar con una sonda que registre
+  qué número pinta el badge** antes de tocar nada.
+
+### El matiz de `footer-admin:11` / `:113` — vigilar
+
+Las dos comparten firma y **no son del footer público**: el `<option>` que falta está en el
+**select del BACKOFFICE** (`item-page-select`), que se puebla con
+`getAdminPosts(token, { type: 'PAGE', perPage: 200 })`. No es paginación (200 de tope, y la
+corrida no crea tantas) ni ISR (es cliente). No se ha aislado por qué la página recién creada
+no aparece en 15 s.
+
+**Si resultara que el select NUNCA lista una página recién creada, eso SÍ sería bug de
+producto** (un admin no podría enlazar en el footer una página que acaba de crear). La sonda
+que lo decide es barata: registrar qué devuelve `getAdminPosts` en ese momento. Hasta tenerla,
+clasificado como deuda de test **con reserva explícita**.
+
+### Tratamiento propuesto para 2b (5 de los 9: #5, #6, F1, F2, F3)
+
+Más de la mitad del suelo es el mismo bug conocido de Next (#57565), ya caracterizado en
+`estado-tecnico.md` en 5 rondas y mitigado con `prefetch={false}` (53 % → 20 %).
+
+1. **Extender el mitigador `toPass` (reintento del CLICK, no de la espera)** a los sitios que
+   aún no lo tienen: `tags-filtro`, `busqueda-unificada`, `filtros-schema-driven`. Es lo que
+   convirtió a `busqueda-mapa` y `flujo-critico` en flaky-recuperables en vez de rojos duros
+   — nótese que los 3 flaky de esta corrida son exactamente eso: 2b **ya rescatado por el
+   retry**. Aplicarlo debería mover #5 y #6 de "duro" a "flaky recuperable".
+2. **Aceptar el residual como known-issue documentado**, no perseguirlo: la investigación ya
+   marcó rendimiento decreciente y la causa residual sigue sin identificar aguas arriba.
+3. **Que el CI distinga "rojo 2b conocido" de "rojo nuevo"**: la vía barata es que los specs
+   afectados lleven una anotación estable (p. ej. `test.describe` con etiqueta `@2b` y un
+   `--grep-invert @2b` opcional en un job aparte), para que un rojo NUEVO no se pierda entre
+   los conocidos. Requiere decisión: no se toca nada sin ella.
+
+### Orden de ataque propuesto
+
+Como no hay bug de producción nuevo, manda el criterio de tamaño y certeza:
+
+1. **2b (5 tests)** — extender `toPass`. Es el grupo mayor y el arreglo está probado en dos
+   specs. Convierte rojos duros en flaky recuperables.
+2. **`footer-admin` (3)** — primero la sonda de `getAdminPosts` (decide si #1/#2 son test o
+   producto); `:175` es esperar la revalidación en vez de mirar al instante.
+3. **`mensajeria-unificada` (1)** — sonda del badge; casi seguro aserción obsoleta.
+
+Con 2b tratado, el suelo duro esperable queda en **~4**, todos con causa propia y acotada.
+
 ## 8. Reclasificación de los sospechosos de 2c (ráfaga C)
 
 Los dos "sospechosos" de familia 2c **no lo eran**. Medidos con `--retries=0`, siguen fallando

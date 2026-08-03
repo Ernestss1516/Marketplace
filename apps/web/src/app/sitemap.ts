@@ -1,4 +1,5 @@
 import type { MetadataRoute } from 'next';
+import type { PostSummary } from '@/types';
 import { SITE_URL } from '@/config';
 import { getPostList, getPageList } from '@/lib/api/blog';
 import { getCategories } from '@/lib/api/categorias';
@@ -23,14 +24,71 @@ import { categoryPath } from '@/lib/category-url';
  */
 export const dynamic = 'force-dynamic';
 
+/** Tamaño de página al recorrer el listado. Holgado pero DENTRO del tope del
+ *  backend (`@Max(500)` en los DTO de blog) — pedir por encima del tope devolvía
+ *  400, y ese era justo el bug: ver `traerTodo` abajo. */
+const POR_PAGINA = 200;
+
+/**
+ * Recorre TODAS las páginas del listado en vez de pedir "muchos de golpe".
+ *
+ * El sitemap pedía `perPage: 500` de una tacada y envolvía la llamada en un
+ * `.catch(() => ({ items: [] }))`. Dos problemas encadenados:
+ *
+ *  1. El tope del DTO estaba en 50, así que la petición respondía **400** —
+ *     siempre, no en un caso raro.
+ *  2. El `.catch` silencioso lo convertía en una lista vacía, y el sitemap se
+ *     publicaba con 200 y **sin un solo post ni página**. En un proyecto que vive
+ *     del SEO, ese era el peor desenlace posible, y era invisible.
+ *
+ * Subir el tope arregla (1). Recorrer el listado evita que (1) vuelva por la
+ * puerta de atrás cuando el blog crezca: con un número fijo, el día que haya más
+ * posts que ese número el sitemap volvería a estar incompleto — otra vez en
+ * silencio. Aquí se pide hasta agotar `total`.
+ *
+ * Y si algo falla, **se grita**: se registra el error con el detalle en vez de
+ * devolver una lista vacía sin más. Se devuelve lo acumulado hasta el fallo (un
+ * sitemap parcial le sirve más a un buscador que un 500), pero el fallo queda en
+ * los logs, que es lo que no pasaba antes.
+ */
+async function traerTodo(
+  nombre: string,
+  cargar: (page: number) => Promise<{ items: PostSummary[]; total?: number }>,
+): Promise<PostSummary[]> {
+  const acumulado: PostSummary[] = [];
+  // Tope de vueltas: red de seguridad para que un `total` incoherente no cuelgue
+  // la generación del sitemap. 50 × 200 = 10.000 URLs, muy por encima de lo real.
+  for (let page = 1; page <= 50; page++) {
+    try {
+      const res = await cargar(page);
+      acumulado.push(...res.items);
+      if (res.items.length === 0 || acumulado.length >= (res.total ?? 0)) break;
+    } catch (err) {
+      console.error(
+        `[sitemap] fallo cargando "${nombre}" en la página ${page}: ${
+          err instanceof Error ? err.message : String(err)
+        }. El sitemap saldrá INCOMPLETO (${acumulado.length} entradas de "${nombre}").`,
+      );
+      break;
+    }
+  }
+  return acumulado;
+}
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // Only PUBLISHED posts are returned by getPostList (calls GET /blog, type=POST
   // enforced backend-side). getPageList calls GET /paginas (type=PAGE) — separate
   // endpoint, separate URL namespace.
-  const [{ items: posts }, { items: pages }, categories] = await Promise.all([
-    getPostList({ perPage: 500 }).catch(() => ({ items: [] })),
-    getPageList({ perPage: 500 }).catch(() => ({ items: [] })),
-    getCategories().catch(() => []),
+  const [posts, pages, categories] = await Promise.all([
+    traerTodo('blog', (page) => getPostList({ page, perPage: POR_PAGINA })),
+    traerTodo('paginas', (page) => getPageList({ page, perPage: POR_PAGINA })),
+    getCategories().catch((err) => {
+      console.error(
+        `[sitemap] fallo cargando categorías: ${err instanceof Error ? err.message : String(err)}. ` +
+          `El sitemap saldrá SIN categorías.`,
+      );
+      return [];
+    }),
   ]);
 
   // A1 (URLs anidadas) — las categorías NO estaban en el sitemap (ni antes de esta

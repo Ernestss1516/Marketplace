@@ -16,6 +16,7 @@
 import { test, expect } from './fixtures/auth';
 import { loginViaApi, authedPost, pollSearch } from './helpers/api';
 import { limpiarAnunciosPorPrefijo } from './helpers/seed-listings';
+import { clicarYEsperarUrl } from './helpers/nav';
 import type { APIRequestContext } from '@playwright/test';
 
 const API_BASE = 'http://localhost:3001';
@@ -110,19 +111,12 @@ test.describe('B3 — sección Etiquetas del panel', () => {
     await page.goto(COCHES);
     await page.waitForLoadState('networkidle');
 
-    await chipEtiqueta(page, 'Único dueño').click();
-    await page.waitForURL((url) => url.searchParams.get('tags') === 'unico-dueno', {
-      waitUntil: 'commit',
-    });
+    await clicarYEsperarUrl(page, chipEtiqueta(page, 'Único dueño'), (url) => url.searchParams.get('tags') === 'unico-dueno');
 
-    await chipEtiqueta(page, 'Con garantía').click();
-    await page.waitForURL(
-      (url) => {
-        const t = (url.searchParams.get('tags') ?? '').split(',');
-        return t.includes('unico-dueno') && t.includes('garantia');
-      },
-      { waitUntil: 'commit' },
-    );
+    await clicarYEsperarUrl(page, chipEtiqueta(page, 'Con garantía'), (url) => {
+      const t = (url.searchParams.get('tags') ?? '').split(',');
+      return t.includes('unico-dueno') && t.includes('garantia');
+    });
 
     // Y en CSV, no repitiendo la clave.
     const url = new URL(page.url());
@@ -136,13 +130,9 @@ test.describe('B3 — sección Etiquetas del panel', () => {
     await page.goto(`${COCHES}?tags=unico-dueno,garantia`);
     await page.waitForLoadState('networkidle');
 
-    await chipEtiqueta(page, 'Con garantía').click();
-    await page.waitForURL((url) => url.searchParams.get('tags') === 'unico-dueno', {
-      waitUntil: 'commit',
-    });
+    await clicarYEsperarUrl(page, chipEtiqueta(page, 'Con garantía'), (url) => url.searchParams.get('tags') === 'unico-dueno');
 
-    await chipEtiqueta(page, 'Único dueño').click();
-    await page.waitForURL((url) => !url.searchParams.has('tags'), { waitUntil: 'commit' });
+    await clicarYEsperarUrl(page, chipEtiqueta(page, 'Único dueño'), (url) => !url.searchParams.has('tags'));
   });
 
   test('el filtro se refleja en los resultados', async ({ page }) => {
@@ -169,11 +159,11 @@ test.describe('B3 — sección Etiquetas del panel', () => {
 
     const chip = page.getByTestId('ficha-tags').getByRole('link', { name: 'Único dueño' });
     await expect(chip).toBeVisible();
-    await chip.click();
 
-    await page.waitForURL(
+    await clicarYEsperarUrl(
+      page,
+      chip,
       (url) => url.pathname === COCHES && url.searchParams.get('tags') === 'unico-dueno',
-      { waitUntil: 'commit' },
     );
   });
 });

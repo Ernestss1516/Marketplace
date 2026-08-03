@@ -56,6 +56,7 @@ function ItemForm({
   columns,
   pages,
   pagesLoading,
+  pagesError,
 }: {
   values: ItemFormValues;
   onChange: (v: Partial<ItemFormValues>) => void;
@@ -66,6 +67,7 @@ function ItemForm({
   columns: AdminFooterColumn[];
   pages: AdminPostSummary[];
   pagesLoading: boolean;
+  pagesError: string | null;
 }) {
   const inputCls =
     'w-full rounded-md border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50';
@@ -127,6 +129,19 @@ function ItemForm({
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Loader2 className="h-3 w-3 animate-spin" /> Cargando páginas…
               </div>
+            ) : pagesError ? (
+              // Antes esto era un `.catch` mudo: si la carga fallaba, el admin veía
+              // un desplegable vacío sin ninguna explicación y no podía enlazar
+              // NINGUNA página. Así estuvo roto sin que nadie lo notara (el
+              // backend devolvía 400 por pedir perPage por encima de su tope).
+              // Un fallo de carga tiene que VERSE.
+              <p
+                className="text-xs text-destructive"
+                role="alert"
+                data-testid="item-page-select-error"
+              >
+                {pagesError}
+              </p>
             ) : (
               <select
                 value={values.pageId}
@@ -309,6 +324,7 @@ export default function AdminFooterPage() {
 
   const [pages, setPages] = useState<AdminPostSummary[]>([]);
   const [pagesLoading, setPagesLoading] = useState(true);
+  const [pagesError, setPagesError] = useState<string | null>(null);
 
   // Rename inline
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -359,9 +375,21 @@ export default function AdminFooterPage() {
 
   useEffect(() => {
     if (!token) return;
+    setPagesError(null);
     getAdminPosts(token, { type: 'PAGE', perPage: 200 })
       .then((res) => setPages(res.items))
-      .catch(() => { /* el selector de páginas queda vacío si falla — no bloquea el resto */ })
+      .catch((err) => {
+        // NO se traga: antes había aquí un `.catch` vacío y por eso este bug vivió
+        // invisible — el backend respondía 400 ("perPage must not be greater than
+        // 50") y el selector salía vacío, sin que el admin pudiera enlazar ninguna
+        // página ni enterarse de por qué.
+        console.error('[admin/footer] no se pudieron cargar las páginas del CMS', err);
+        setPagesError(
+          `No se pudieron cargar las páginas: ${
+            err instanceof Error ? err.message : String(err)
+          }. Recarga la página; si persiste, revisa la API.`,
+        );
+      })
       .finally(() => setPagesLoading(false));
   }, [token]);
 
@@ -735,6 +763,7 @@ export default function AdminFooterPage() {
                       columns={columns}
                       pages={pages}
                       pagesLoading={pagesLoading}
+                      pagesError={pagesError}
                     />
                   ) : (
                     <ItemRow
@@ -764,6 +793,7 @@ export default function AdminFooterPage() {
                     columns={columns}
                     pages={pages}
                     pagesLoading={pagesLoading}
+                      pagesError={pagesError}
                   />
                 </div>
               )}
