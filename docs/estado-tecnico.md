@@ -9951,11 +9951,9 @@ De **~32 rojos rotando ilegibles** (y un job que ni siquiera llegaba a veredicto
 cancelaba GitHub a los 30 min) a un pipeline **estructurado para que verde signifique "el
 producto funciona"**, con el ruido conocido marcado y aparte.
 
-> **Estado honesto a fecha de esta nota:** la separación está montada y verificada
-> (`261 + 10 = 271`, complemento exacto), pero el grupo de señal **todavía no está verde**.
-> En la última medición quedaban **2 rojos no-2b**: `footer-admin` (reordenar columnas) y
-> `mensajeria-unificada`. Los dos tienen su causa abierta —ver «Lo que queda» al final de esta
-> sección—. No se declara la saga cerrada hasta que el grupo de señal pase.
+> **CERRADA, con la medición delante.** Grupo de señal (`--grep-invert @2b`, 248 tests):
+> **245 pasados, 2 flaky recuperados por retry, 1 saltado, CERO fallos duros, exit 0.**
+> El split es complemento exacto (`248 + 23 = 271`, verificado con `--list`).
 
 ### La regla que queda
 
@@ -10021,28 +10019,85 @@ De ahí las dos reglas que quedan escritas en los helpers: **esperar al ESTADO, 
 instante** (`waitForCard`, `async-state.ts`, `esperarFooterPublico`) y **un comentario en el
 código es una pista, no una medición**.
 
-### Lo que queda (2 rojos no-2b, con causa abierta)
+### Cómo se cerraron los últimos rojos
 
 - **`footer-admin` — reordenar columnas.** La hipótesis "la revalidación es eventual, basta
-  con esperar" **se midió y es FALSA**: tras 20 s recargando, el footer público muestra las
-  columnas de tests ANTERIORES (`["Legal …","Ayuda …"]`) pero nunca las de este test. No es
-  impaciencia; algo impide que esas columnas concretas lleguen al footer público. Queda la
-  espera-con-reintento (`esperarFooterPublico`), que al menos convirtió un `indexOf → -1`
-  opaco en un error que dice qué encabezados hay — así se descubrió esto.
-- **`mensajeria-unificada` — badge de no leídos.** La sonda salió **inconcluyente**: el testid
-  que usé (`conversation-row`) no existe, así que "no hay fila" es artefacto de la sonda, no
-  dato. **No se tocó la aserción** (`4`): cambiarla sin observar el badge sería la séptima
-  hipótesis-de-código de esta saga. Próximo paso: sondear con el selector real
-  (`a[href="/mensajes/<id>"]`, que el propio spec ya usa).
+  con esperar" se midió y era FALSA. La causa real: `listPublicNav` termina con
+  `.filter((column) => column.items.length > 0)` — **una columna VACÍA no sale en el footer
+  público, y es deliberado**. El test creaba las dos columnas sin ítems y esperaba verlas: el
+  fallo era de su PREMISA. Se le añade un ítem a cada una; lo que el test prueba no cambia.
+- **`mensajeria-unificada` — badge de no leídos.** Era el bug de producción #3 (ver abajo).
+  Arreglado el sobre-conteo, el badge volvió a **4**, que es lo que el test esperaba desde
+  siempre. *La aserción nunca estuvo mal; el producto sí.*
+- **`blog-markdown-editor`** — parecía "el markdown no renderiza". Sondado en vivo: el
+  `<h1>` faltaba porque **el clic no navegaba** y el test seguía en `/blog`. Era 2b. Con el
+  reintento de clic: 6/6.
+- **`tickets-adjuntos`** — mecanismo observado por fin: el fichero se queda EN EL INPUT
+  (`files.length: 1`) y ni lista ni error aparecen → el `onChange` de React no llegó a
+  engancharse. Carrera de hidratación. Se reintenta la ACCIÓN, vaciando el input antes de
+  reponerlo (poner el mismo fichero no dispara otro `change`). 6/6.
 
-**Sobre el etiquetado `@2b`, una lección propia:** la primera tanda se etiquetó a partir de
-los fallos de UNA corrida, y la siguiente corrida sacó **otros cuatro** tests del mismo spec
-con firma 2b idéntica. 2b es estocástico dentro de `busqueda-unificada`: no falla siempre el
-mismo test, falla alguno de los que navegan con `waitForURL … commit`. Etiquetar por
-"el que falló hoy" es insuficiente; hay que etiquetar por **patrón de navegación**, y
-verificar la firma antes de añadir ninguno.
+### Etiquetado `@2b`: por PATRÓN, nunca por incidencia
+
+La primera tanda se etiquetó a partir de los fallos de UNA corrida, y la siguiente sacó otros
+cuatro tests del mismo spec con firma idéntica. **2b es estocástico**: no falla siempre el
+mismo test, falla alguno de los que navegan con `waitForURL … 'commit'`. Etiquetar "el que
+falló hoy" deja expuestos sin marcar, siempre.
+
+Regla vigente: se etiqueta **todo test cuya ruta pasa por una navegación
+`waitUntil: 'commit'`** (hoy: 12 en `busqueda-unificada` vía `elegirCategoria`, 6 en
+`buscador-sugerencias`, 1 en `filtros-schema-driven`, más `busqueda-mapa`, `h8-d4-banners` y
+2 en `tags-filtro`) — y **nada más**. Un `@2b` sobre un fallo de otra causa sería un
+`test.fixme` disfrazado.
+
+**Excepción medida:** `blog-markdown-editor` alcanza el vector pero NO lleva etiqueta, porque
+va por `clicarYEsperarUrl` (que reintenta el clic) y mide 6/6 verde. Es el camino a seguir:
+**mitigar el vector hace innecesaria la etiqueta**. Hoy el conjunto tolerado son 23 de 271
+(~8,5 %) — bastante suite que no puede bloquear. Encauzar `elegirCategoria` y
+`buscador-sugerencias` por el mismo reintento reduciría ese número; queda propuesto.
+
+### Aviso de herramienta (aprendido rompiendo dos ficheros)
+
+**Nunca escribir ficheros fuente con `Set-Content` de PowerShell en este repo.** Al etiquetar
+se usó `Set-Content -Encoding UTF8` y dejó los dos specs con UTF-8 doblemente codificado y BOM
+(`BÚSQUEDA` → `BÃšSQUEDA`): 7 rojos que NO eran reales, en ficheros ya commiteados. Se
+reparó invirtiendo el round-trip Windows-1252 y quitando el BOM (diff de solo encoding,
+84↔84). Las ediciones con `perl -0pi` sí conservan UTF-8 correctamente.
 
 ---
+
+## `alert-matching:441` — no bastaba con esperar: la cola BORRA lo que se esperaba
+
+Último flake anotado de la familia BullMQ. La comprobación miraba la cola buscando el job
+`send-alert-email` y a veces lo encontraba `undefined`. Parecía "otra espera sin migrar", pero
+al auditarlo eran **dos** problemas, y el segundo invalida el arreglo obvio:
+
+1. **Carrera de orden.** `AlertMatchingService` escribe la fila de match (`:74`) ANTES de
+   encolar el email (`:90`). El test esperaba a `hasMatch` y luego miraba la cola: `hasMatch`
+   puede ser cierto con el email todavía sin encolar.
+2. **Y la cola borra el job.** `RETRY_JOB_OPTIONS` lleva `removeOnComplete: true`, y el
+   `NotificationProcessor` está vivo en los tests. O sea que el job se encola, se procesa y
+   **desaparece**. Mirar la cola a posteriori es una ventana de DOS lados: demasiado pronto
+   (aún no está) o demasiado tarde (ya se borró).
+
+Por eso **envolver la comprobación en una espera no habría bastado**: arregla el lado
+"pronto" y empeora el lado "tarde" — cuanto más se espera, más probable es que el job ya no
+exista. No hay estado durable que sondear: `sendAlertEmail` solo llama al proveedor de correo,
+sin rastro en la BD.
+
+**La cura: capturar en el momento del `add`, y esperar a lo capturado.** Se registran los
+encolados espiando el productor y se espera con `pollUntil` (async-state) a que aparezca el
+`send-alert-email` de esa alerta. La captura elimina la ventana de borrado; la espera resuelve
+la carrera de orden. Lo que el test prueba no cambia.
+
+**Detalle que costó un intento:** hay que espiar la instancia de `Queue` **del servicio**, no
+la de `app.get(getQueueToken(...))`. Cada `registerQueue()` crea su PROPIA instancia (la deuda
+del "retry fantasma" de `queue-retry.e2e-spec.ts`): espiando la del token no se registraba ni
+un `add`. Comparten la cola de Redis —por eso `getJobs` sí las veía— pero no el objeto.
+
+*Validación de fallo real, obtenida sin buscarla:* ese primer intento fallido dejó la prueba
+de que un fallo de verdad sigue siendo FINITO — `Timeout … 15000 ms (35 intentos). Último
+valor observado: false`, con diagnóstico, sin colgarse.
 
 ## Cómo se esperan estados asíncronos en los e2e (barrera estructural)
 

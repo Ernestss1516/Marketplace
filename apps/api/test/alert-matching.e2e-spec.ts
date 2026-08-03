@@ -411,34 +411,76 @@ describe('Alert matching (e2e) — B3', () => {
         maxPrice: 1000,
       });
 
-      const listingId = await createListing({ title: 'iPhone Flujo Completo' }, fullFlowSeller.token);
-      await publish(listingId, fullFlowSeller.token); // real HTTP flow — index job chains match-alerts itself
+      // Se REGISTRAN los encolados en vez de mirar la cola después. La cola tiene
+      // `removeOnComplete: true` y el NotificationProcessor está vivo en los tests,
+      // así que el job `send-alert-email` se procesa y SE BORRA: mirar la cola a
+      // posteriori es una ventana de dos lados —demasiado pronto (aún no encolado)
+      // o demasiado tarde (ya consumido y eliminado)— y ninguna espera arregla el
+      // segundo lado. Capturar en el momento del `add` no tiene ventana.
+      // OJO con QUÉ instancia se espía: cada módulo que llama a
+      // `BullModule.registerQueue()` recibe su PROPIA instancia de Queue (la deuda
+      // del "retry fantasma", ver queue-retry.e2e-spec.ts). `app.get(getQueueToken
+      // (QUEUE_NOTIFICATIONS))` NO es la que usa AlertMatchingService para encolar
+      // — comprobado: espiar esa no registraba ni un `add`. Hay que espiar el campo
+      // inyectado en el servicio, que es el productor real.
+      const matchingSvc = app.get(AlertMatchingService);
+      const colaDelProductor = (matchingSvc as unknown as { notificationQueue: Queue })
+        .notificationQueue;
 
-      await pollUntil(() => hasMatch(alertId, listingId), 15_000);
+      const encolados: Array<{ name: string; data: Record<string, unknown> }> = [];
+      const addReal = colaDelProductor.add.bind(colaDelProductor);
+      const addSpy = jest
+        .spyOn(colaDelProductor, 'add')
+        .mockImplementation((name: string, data: Record<string, unknown>, opts?: unknown) => {
+          encolados.push({ name, data });
+          return (addReal as (...a: unknown[]) => Promise<unknown>)(name, data, opts) as never;
+        });
 
-      const list = await request(app.getHttpServer())
-        .get('/api/notifications')
-        .set('Authorization', `Bearer ${buyer.token}`)
-        .expect(200);
-      const match = list.body.items.find(
-        (n: { data: { alertId: string } }) => n.data.alertId === alertId,
-      );
-      expect(match).toBeDefined();
-      expect(match.type).toBe('ALERT_MATCH');
+      try {
+        const listingId = await createListing({ title: 'iPhone Flujo Completo' }, fullFlowSeller.token);
+        await publish(listingId, fullFlowSeller.token); // real HTTP flow — index job chains match-alerts itself
 
-      const unread = await request(app.getHttpServer())
-        .get('/api/notifications/unread-count')
-        .set('Authorization', `Bearer ${buyer.token}`)
-        .expect(200);
-      expect(unread.body.count).toBeGreaterThanOrEqual(1);
+        await pollUntil(() => hasMatch(alertId, listingId), 15_000);
 
-      // The email job was enqueued for this alert (in-app and email are
-      // independent dispatches from the same match).
-      const jobs = await notificationQueue.getJobs(['completed', 'waiting', 'active', 'delayed']);
-      const emailJob = jobs.find(
-        (j) => j.name === 'send-alert-email' && j.data.alertName === 'Flujo completo',
-      );
-      expect(emailJob).toBeDefined();
+        const list = await request(app.getHttpServer())
+          .get('/api/notifications')
+          .set('Authorization', `Bearer ${buyer.token}`)
+          .expect(200);
+        const match = list.body.items.find(
+          (n: { data: { alertId: string } }) => n.data.alertId === alertId,
+        );
+        expect(match).toBeDefined();
+        expect(match.type).toBe('ALERT_MATCH');
+
+        const unread = await request(app.getHttpServer())
+          .get('/api/notifications/unread-count')
+          .set('Authorization', `Bearer ${buyer.token}`)
+          .expect(200);
+        expect(unread.body.count).toBeGreaterThanOrEqual(1);
+
+        // The email job was enqueued for this alert (in-app and email are
+        // independent dispatches from the same match).
+        //
+        // Se ESPERA al estado definitivo en vez de muestrear un instante: el
+        // `alertMatch.create` (alert-matching.service.ts:74) ocurre ANTES del
+        // `notificationQueue.add` (:90), así que `hasMatch` puede ser cierto y el
+        // email todavía no estar encolado. Esa era la carrera que dejaba
+        // `emailJob` en `undefined`.
+        await pollUntil(
+          async () =>
+            encolados.some(
+              (j) => j.name === 'send-alert-email' && j.data.alertName === 'Flujo completo',
+            ),
+          15_000,
+        );
+
+        const emailJob = encolados.find(
+          (j) => j.name === 'send-alert-email' && j.data.alertName === 'Flujo completo',
+        );
+        expect(emailJob).toBeDefined();
+      } finally {
+        addSpy.mockRestore();
+      }
     });
 
     it('QUEUE_NOTIFICATIONS tiene retry configurado (attempts:3 + backoff)', () => {
