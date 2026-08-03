@@ -105,7 +105,7 @@ test.describe('B3 — sección Etiquetas del panel', () => {
     await expect(chipEtiqueta(page, 'Envío incluido')).toBeVisible();
   });
 
-  test('MULTI-SELECCIÓN: marcar la segunda NO deselecciona la primera', async ({ page }) => {
+  test('MULTI-SELECCIÓN: marcar la segunda NO deselecciona la primera', { tag: '@2b' }, async ({ page }) => {
     // El corazón de este spec. Con una faceta normal (toggleFacet) el segundo clic
     // sustituiría al primero; aquí tienen que acumular.
     await page.goto(COCHES);
@@ -126,7 +126,7 @@ test.describe('B3 — sección Etiquetas del panel', () => {
     await expect(page.getByText(/TODAS las etiquetas marcadas/i)).toBeVisible();
   });
 
-  test('desmarcar quita solo esa etiqueta, y la última limpia el parámetro', async ({ page }) => {
+  test('desmarcar quita solo esa etiqueta, y la última limpia el parámetro', { tag: '@2b' }, async ({ page }) => {
     await page.goto(`${COCHES}?tags=unico-dueno,garantia`);
     await page.waitForLoadState('networkidle');
 

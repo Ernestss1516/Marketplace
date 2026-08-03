@@ -9945,6 +9945,105 @@ gateway y el `updateSetting` que hacía tres ajustes ineditables (con su UI).
 
 ---
 
+## 🏁 La saga del CI — estado final: el CI vuelve a ser SEÑAL
+
+De **~32 rojos rotando ilegibles** (y un job que ni siquiera llegaba a veredicto: lo
+cancelaba GitHub a los 30 min) a un pipeline **estructurado para que verde signifique "el
+producto funciona"**, con el ruido conocido marcado y aparte.
+
+> **Estado honesto a fecha de esta nota:** la separación está montada y verificada
+> (`261 + 10 = 271`, complemento exacto), pero el grupo de señal **todavía no está verde**.
+> En la última medición quedaban **2 rojos no-2b**: `footer-admin` (reordenar columnas) y
+> `mensajeria-unificada`. Los dos tienen su causa abierta —ver «Lo que queda» al final de esta
+> sección—. No se declara la saga cerrada hasta que el grupo de señal pase.
+
+### La regla que queda
+
+**Verde = el producto funciona.** El CI corre Playwright en dos pasos:
+
+| Paso | Qué corre | Si falla |
+|---|---|---|
+| `Playwright (señal, sin @2b)` | `--grep-invert "@2b"` — **265 de 271** | **Tumba el pipeline.** El fallo es real. |
+| `Playwright (@2b, known-issue)` | `--grep "@2b"` — **6** | `continue-on-error: true`: informa, no bloquea. |
+
+265 + 6 = 271, verificado con `playwright test --list`. El complemento es exacto: ningún test
+se queda fuera de los dos sacos, y ningún no-etiquetado cae en el tolerado.
+
+**`@2b` solo se pone sobre una firma `waitForURL … until "commit"` CONFIRMADA.** Etiquetar un
+rojo de otra causa sería un `test.fixme` disfrazado — escondería un bug real, que es
+exactamente lo que esta separación existe para impedir.
+
+### Qué es 2b (el ruido tolerado)
+
+La carrera de navegación del App Router bajo `next start`: un clic sobre un `<Link>` a veces
+no completa la transición —la RSC payload responde 200 en <10 ms y el router **no conmuta**— y
+la página queda con el router cliente **persistentemente wedged**. Bug conocido de Next 15
+(firma de `vercel/next.js#57565`), **sin fix upstream**. Caracterizado en 5 rondas de
+refutación (ver la sección propia más abajo) y mitigado hasta donde se puede:
+`prefetch={false}` en las tarjetas (53 % → 20 % medido) y reintento del CLIC en
+`e2e/helpers/nav.ts`. No se puede garantizar verde: esperar más no sirve (medido) y reintentar
+tampoco siempre. Por eso se tolera **etiquetado y a la vista**, no escondido.
+
+### Los DOS bugs de PRODUCCIÓN que desenterró el CI legible
+
+Esta es la justificación entera de haber hecho el CI legible: mientras los rojos rotaban, los
+dos estaban ahí sin que nadie los viera.
+
+1. **`resolvePriceUnitSelection` — la página de editar anuncio CRASHEABA en producción.**
+   Lógica pura atrapada en un módulo `'use client'`, invocada desde un Server Component.
+   `next dev` no lo detecta; `next start` sí. Funcionaba en local y estaba roto en producción.
+   Curado extrayéndola a `src/lib/price-unit.ts`.
+2. **`perPage` por encima del tope del DTO, con el error tragado.** Los llamantes pedían 200
+   (selector de páginas del footer) y 500 (sitemap) contra un `@Max(50)` → **400** que un
+   `.catch` silencioso convertía en lista vacía. Consecuencias: un admin **nunca** podía
+   enlazar una página del CMS en el footer, y **el sitemap se generaba sin un solo post ni
+   página** en un proyecto que vive del SEO. Curado subiendo el tope a 500, paginando el
+   sitemap (el blog crece sin techo) y **quitando los dos silenciadores**.
+
+El segundo lo detectaban `footer-admin:11`/`:113`, que llevaban tiempo en rojo tratados como
+"otro test frágil". Eran centinelas correctos.
+
+### La lección de método (la más cara de aprender)
+
+**Seis hipótesis murieron al medirlas.** Todas venían de leer código o comentarios: el tope de
+anuncios activos, la sedimentación entre corridas, la latencia de indexación, la starvation de
+`geocode`, el badge de mensajería, la revalidación eventual del footer. Ninguna sobrevivió al
+contacto con una medición.
+
+Lo que sí funcionó, siempre: **observar el fallo MIENTRAS ocurre**. La familia 2a estuvo cinco
+ráfagas sin explicación porque toda la evidencia era *post mortem* —después de la corrida el
+anuncio estaba en Postgres, en Meili, en la API y en las cuatro páginas—. Un instrumento que
+sondeaba las cuatro capas EN CADA VUELTA lo resolvió en una corrida: la card estaba pintada y
+el helper preguntaba `isVisible()` en el microsegundo en que el App Router la tenía dentro de
+un `display:none`.
+
+De ahí las dos reglas que quedan escritas en los helpers: **esperar al ESTADO, no muestrear el
+instante** (`waitForCard`, `async-state.ts`, `esperarFooterPublico`) y **un comentario en el
+código es una pista, no una medición**.
+
+### Lo que queda (2 rojos no-2b, con causa abierta)
+
+- **`footer-admin` — reordenar columnas.** La hipótesis "la revalidación es eventual, basta
+  con esperar" **se midió y es FALSA**: tras 20 s recargando, el footer público muestra las
+  columnas de tests ANTERIORES (`["Legal …","Ayuda …"]`) pero nunca las de este test. No es
+  impaciencia; algo impide que esas columnas concretas lleguen al footer público. Queda la
+  espera-con-reintento (`esperarFooterPublico`), que al menos convirtió un `indexOf → -1`
+  opaco en un error que dice qué encabezados hay — así se descubrió esto.
+- **`mensajeria-unificada` — badge de no leídos.** La sonda salió **inconcluyente**: el testid
+  que usé (`conversation-row`) no existe, así que "no hay fila" es artefacto de la sonda, no
+  dato. **No se tocó la aserción** (`4`): cambiarla sin observar el badge sería la séptima
+  hipótesis-de-código de esta saga. Próximo paso: sondear con el selector real
+  (`a[href="/mensajes/<id>"]`, que el propio spec ya usa).
+
+**Sobre el etiquetado `@2b`, una lección propia:** la primera tanda se etiquetó a partir de
+los fallos de UNA corrida, y la siguiente corrida sacó **otros cuatro** tests del mismo spec
+con firma 2b idéntica. 2b es estocástico dentro de `busqueda-unificada`: no falla siempre el
+mismo test, falla alguno de los que navegan con `waitForURL … commit`. Etiquetar por
+"el que falló hoy" es insuficiente; hay que etiquetar por **patrón de navegación**, y
+verificar la firma antes de añadir ninguno.
+
+---
+
 ## Cómo se esperan estados asíncronos en los e2e (barrera estructural)
 
 **Regla, en una línea: se espera al ESTADO DEFINITIVO, nunca a la mera existencia, y

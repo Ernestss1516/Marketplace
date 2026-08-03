@@ -161,7 +161,7 @@ test.describe('A3 — panel de filtros dictado por la configuración', () => {
     await expect(metros.getByLabel('Metros cuadrados mínimo')).toHaveAttribute('placeholder', 'Mín (m²)');
   });
 
-  test('A4: aplicar el rango emite _min/_max y la página responde', async ({ page }) => {
+  test('A4: aplicar el rango emite _min/_max y la página responde', { tag: '@2b' }, async ({ page }) => {
     await abrirPanel(page);
 
     const metros = page.locator(SECCION('a3Metros')).first();

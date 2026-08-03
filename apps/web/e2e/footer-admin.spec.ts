@@ -6,6 +6,39 @@
 // Prerequisites: global-setup seeds admin-e2e@example.com (ADMIN).
 
 import { test, expect } from './fixtures/auth';
+import type { Page } from '@playwright/test';
+
+/**
+ * Espera a que el footer PÚBLICO refleje un cambio hecho en el backoffice.
+ *
+ * La revalidación es *fire-and-forget*: el backend responde 200 a la mutación y
+ * DESPUÉS dispara el POST a `/api/revalidate` sin esperarlo. Hay por tanto una
+ * ventana de consistencia eventual —corta, pero real— entre "el admin guardó" y
+ * "el footer público ya lo muestra". Leer el footer al instante es muestrear un
+ * sistema en movimiento; es exactamente lo que hacía `waitForCard` antes de la
+ * ráfaga 2a, y da el mismo tipo de rojo.
+ *
+ * El cableado de la revalidación está BIEN (las 8 mutaciones de FooterService
+ * llaman a `revalidateTag('footer-nav')`, con tests unitarios que lo afirman):
+ * aquí no se toca producto, solo se espera al ESTADO en vez de al instante.
+ *
+ * Recarga en cada intento a propósito: el footer se sirve por SSR con caché por
+ * tag, así que sin una carga nueva no hay contenido nuevo que ver por mucho que
+ * se reintente el `expect`.
+ */
+async function esperarFooterPublico(
+  publicPage: Page,
+  cumple: (headings: string[]) => boolean,
+  queSeEspera: string,
+): Promise<void> {
+  await expect(async () => {
+    await publicPage.goto('/');
+    const headings = await publicPage.locator('footer h3').allTextContents();
+    if (!cumple(headings)) {
+      throw new Error(`${queSeEspera} — encabezados ahora: ${JSON.stringify(headings)}`);
+    }
+  }).toPass({ timeout: 20_000 });
+}
 
 test.describe('Admin — /admin/footer', () => {
   test('crear columna, renombrarla, y crear un ítem tipo página → aparece en el footer público', async ({
@@ -195,20 +228,24 @@ test.describe('Admin — /admin/footer', () => {
 
     // colA fue creada primero → aparece antes que colB por defecto.
     const publicPage = await adminContext.newPage();
-    await publicPage.goto('/');
-    await publicPage.waitForLoadState('networkidle');
-    let headings = await publicPage.locator('footer h3').allTextContents();
-    expect(headings.indexOf(colA)).toBeLessThan(headings.indexOf(colB));
+    await esperarFooterPublico(
+      publicPage,
+      (h) => h.includes(colA) && h.includes(colB) && h.indexOf(colA) < h.indexOf(colB),
+      `se esperaba "${colA}" ANTES que "${colB}" (orden de creación)`,
+    );
 
     // Subir colB por encima de colA.
     const colBBlock = page.locator('div.rounded-md.border').filter({ hasText: colB }).first();
     await colBBlock.getByTitle('Subir').first().click();
-    await page.waitForTimeout(500);
 
-    await publicPage.goto('/');
-    await publicPage.waitForLoadState('networkidle');
-    headings = await publicPage.locator('footer h3').allTextContents();
-    expect(headings.indexOf(colB)).toBeLessThan(headings.indexOf(colA));
+    // Lo que este test prueba —que reordenar en admin cambia el orden público—
+    // no cambia: solo se espera a que la revalidación llegue en vez de leer el
+    // footer 500 ms después y confiar.
+    await esperarFooterPublico(
+      publicPage,
+      (h) => h.includes(colA) && h.includes(colB) && h.indexOf(colB) < h.indexOf(colA),
+      `tras subir "${colB}", se esperaba que fuera ANTES que "${colA}"`,
+    );
 
     await publicPage.close();
   });

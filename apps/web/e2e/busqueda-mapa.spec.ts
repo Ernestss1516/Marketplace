@@ -54,7 +54,7 @@ test.describe('H6.5a — Vista de mapa en /busqueda', () => {
   // Vuelve a /busqueda con un filtro que no es la categoría: lo que este test
   // protege es que alternar vista NO pierde los filtros, y `province` lo ejerce
   // igual de bien sin depender de que existan anuncios.
-  test('toggle Lista→Mapa→Lista cambia la vista y preserva filtros', async ({ page }) => {
+  test('toggle Lista→Mapa→Lista cambia la vista y preserva filtros', { tag: '@2b' }, async ({ page }) => {
     await page.goto('/busqueda?province=Madrid');
     await page.waitForLoadState('networkidle');
 

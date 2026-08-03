@@ -65,7 +65,7 @@ test.describe('A2 — unificación de búsqueda', () => {
     await expect(page.getByRole('heading', { level: 1 })).toContainText('Coches');
   });
 
-  test('categoría → otra categoría: también se cae lo que no aplica en el destino', async ({ page }) => {
+  test('categoría → otra categoría: también se cae lo que no aplica en el destino', { tag: '@2b' }, async ({ page }) => {
     // `km` se hereda de vehículos, así que vale en coches pero no en móviles.
     await page.goto('/vehiculos/coches?km=100000&q=golf');
     await esperarPaginaSana(page);
@@ -123,7 +123,7 @@ test.describe('A2 — unificación de búsqueda', () => {
     await esperarPaginaSana(page);
   });
 
-  test('A4: el rango se CAE, sin 400, si su atributo no vale en el destino', async ({ page }) => {
+  test('A4: el rango se CAE, sin 400, si su atributo no vale en el destino', { tag: '@2b' }, async ({ page }) => {
     await page.goto('/vehiculos/coches?km_min=50000&q=golf');
     await esperarPaginaSana(page);
 
@@ -169,7 +169,7 @@ test.describe('A2 — unificación de búsqueda', () => {
     await expect(page.getByText('Subcategoría')).toHaveCount(0);
   });
 
-  test('`page` se descarta al cambiar de categoría', async ({ page }) => {
+  test('`page` se descarta al cambiar de categoría', { tag: '@2b' }, async ({ page }) => {
     await page.goto('/busqueda?page=3&q=golf');
     await esperarPaginaSana(page);
 
@@ -211,7 +211,7 @@ test.describe('A2 — unificación de búsqueda', () => {
     await expect(page).toHaveTitle(/golf/);
   });
 
-  test('"Limpiar filtros" CONSERVA q — antes lo borraba', async ({ page }) => {
+  test('"Limpiar filtros" CONSERVA q — antes lo borraba', { tag: '@2b' }, async ({ page }) => {
     await page.goto('/vehiculos/coches?q=golf&province=Madrid');
     await esperarPaginaSana(page);
 
@@ -227,7 +227,7 @@ test.describe('A2 — unificación de búsqueda', () => {
     expect(url.searchParams.has('province')).toBe(false);
   });
 
-  test('q sobrevive al cambiar de categoría', async ({ page }) => {
+  test('q sobrevive al cambiar de categoría', { tag: '@2b' }, async ({ page }) => {
     await page.goto('/vehiculos/coches?q=golf');
     await esperarPaginaSana(page);
 
@@ -286,7 +286,7 @@ test.describe('A2 — condition no viaja a una categoría de servicios', () => {
     await esperarPaginaSana(page);
   });
 
-  test('hacia una categoría que admite productos, `condition` SÍ se conserva (el contraste)', async ({ page }) => {
+  test('hacia una categoría que admite productos, `condition` SÍ se conserva (el contraste)', { tag: '@2b' }, async ({ page }) => {
     await page.goto('/electronica/moviles?condition=NEW');
     await esperarPaginaSana(page);
 
