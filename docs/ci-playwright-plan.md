@@ -577,6 +577,59 @@ como known-issue y **etiquetarlo** para que no ensucie la señal — el paso que
 **Suelo esperable tras lo pendiente:** 2b etiquetado aparte (5, residual conocido), `footer-
 admin:11`/`:113` bloqueados por el bug de producción, y 2 sueltos con arreglo claro.
 
+## 17. Bug de producción #3 — sobre-conteo de no leídos (ARREGLADO)
+
+**El mecanismo.** `latestMessage` vive en el Provider (`MensajesShell`), **por encima** de
+`ConversationList`, y sobrevive a navegar entre bandeja y conversación. `ConversationList`, en
+cambio, se monta y desmonta en esas navegaciones — y su efecto
+`useEffect(… unreadCount + 1 …, [latestMessage])` volvía a correr **con el mismo mensaje de
+antes** y lo sumaba otra vez. Sin dedupe por id.
+
+**No era una decisión de diseño, era un descuido**: `ChatClient`, el otro consumidor del mismo
+`latestMessage`, ya lo hacía bien —`if (prev.some((m) => m.id === incoming.id)) return prev`,
+con el comentario "the socket echo is safely ignored"—. El incremento optimista sí es
+deliberado (el badge debe subir sin round-trip); lo que faltaba era no contar dos veces.
+
+**El arreglo:** un `Set` de ids ya contados, con inicialización perezosa que marca como visto
+lo que ya hubiera en el contexto al montar (eso viene reflejado en `initialConversations`, que
+son datos del servidor). Un mensaje NUEVO sigue subiendo el badge al instante; un remount ya no
+re-cuenta.
+
+**Medido: 8 → 4**, estable 3/3. Y `mensajeria-unificada` pasa **6/6** con `--repeat-each=3`.
+
+### Corrección: la aserción `4` era CORRECTA — el error fue mío
+
+Se cambió `4` → `1` apoyándose en una sonda anterior que leyó `unreadCount = 1` del servidor.
+**Estaba mal.** Esa lectura se tomó en otro instante: el `markRead` va con *debounce*, así que
+la foto SSR que alimenta la bandeja tiene todavía 3 pendientes, y con `'cuatro'` son **4**. Al
+arreglar el sobre-conteo el badge volvió a 4 — el valor que el test esperaba desde siempre.
+
+La aserción se dejó como estaba. Es la misma lección de la saga, y esta vez me la salté:
+**una lectura puntual no es el valor correcto; hay que observar el escenario del test.** El
+test nunca estuvo mal; lo que estaba mal era el producto, y ahora está arreglado.
+
+## 16. El filtro `@2b` NO estaba roto — verificado cuatro veces
+
+Se sospechó que el split no filtraba (un log mostraba `Running 271 tests` donde deberían ser
+261, con tests `@2b` aparentemente dentro del grupo señal). **Medido: filtra bien.**
+
+| Forma de invocación | `--grep-invert "@2b"` | `--grep "@2b"` |
+|---|---|---|
+| `npx playwright test --list` | 261 | 10 |
+| `pnpm --filter … test:e2e -- --list …` (la del workflow) | 261 | — |
+| `pnpm --filter … test:e2e --list …` (sin `--`) | 261 | — |
+| **Corrida REAL** (no `--list`) | **`Running 261 tests`** | — |
+
+Y en esa corrida real, **cero** tests etiquetados se colaron en el grupo señal (comprobado
+buscando las 10 líneas concretas: `busqueda-mapa:57`, `filtros-schema-driven:164`,
+`tags-filtro:108/129`, `busqueda-unificada:68/126/172/214/230/289` → 0 coincidencias).
+
+El `271` observado corresponde a una corrida ANTERIOR a que el etiquetado estuviera completo
+(en su momento eran 6 etiquetas, no 10) o a una corrida sin filtro. `pnpm` pasa los flags a
+Playwright correctamente, con `--` y sin él, y el `@` del tag no necesita escaparse.
+
+**Conclusión: la barrera del split es sólida.** No había que arreglar nada; había que medirlo.
+
 ## 12. El suelo real, clasificado por firma (6 duros + 3 flaky)
 
 La corrida completa midió el suelo: **6 fallos + 3 flaky + 261 pasados en 11,7 min** — muy

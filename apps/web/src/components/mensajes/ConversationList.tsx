@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { MessageCircle } from 'lucide-react';
@@ -33,12 +33,41 @@ export function ConversationList({ initialConversations, userId, selectedId }: P
   const [conversations, setConversations] = useState(initialConversations);
   const { latestMessage } = useMessagingSocketContext();
 
+  /**
+   * Ids de mensaje ya contados en el badge. SIN esto, el contador se inflaba.
+   *
+   * `latestMessage` vive en el Provider (MensajesShell), que está POR ENCIMA de
+   * este componente y sobrevive a navegar entre la bandeja y una conversación.
+   * Este componente, en cambio, se monta y desmonta en esas navegaciones — y al
+   * montarse, el efecto de abajo corría otra vez con el MISMO `latestMessage` de
+   * antes y lo volvía a sumar. Medido: el servidor decía 1 no leído y la UI
+   * mostraba 8; solo se corregía con una recarga dura.
+   *
+   * `ChatClient`, el otro consumidor del mismo `latestMessage`, ya lo hacía bien
+   * (`if (prev.some((m) => m.id === incoming.id)) return prev`). Aquí faltaba: el
+   * incremento optimista es deliberado —el badge debe subir en cuanto llega el
+   * socket, sin round-trip— pero le faltaba la parte de no contar dos veces.
+   *
+   * Inicialización perezosa a propósito: lo que ya estuviera en el contexto al
+   * montar viene YA reflejado en `initialConversations` (datos del servidor), así
+   * que se marca como visto para no re-contarlo tras un remount. Solo se cuentan
+   * los mensajes que llegan DESPUÉS de montar, que es justo la inmediatez que se
+   * quería.
+   */
+  const contados = useRef<Set<string> | null>(null);
+  if (contados.current === null) {
+    contados.current = new Set(latestMessage ? [latestMessage.message.id] : []);
+  }
+
   // Antes: ConversationList abría su propia conexión. Ahora consume la
   // conexión compartida (MensajesShell) vía Context — mismo efecto sobre el
   // estado local, solo cambia de dónde viene el evento.
   useEffect(() => {
     if (!latestMessage) return;
     const { conversationId, message } = latestMessage;
+    // Ya contado (o ya venía en los datos del servidor al montar) — no re-contar.
+    if (contados.current!.has(message.id)) return;
+    contados.current!.add(message.id);
     setConversations((prev) => {
       const idx = prev.findIndex((c) => c.id === conversationId);
       if (idx === -1) return prev; // unknown conversation — ignore

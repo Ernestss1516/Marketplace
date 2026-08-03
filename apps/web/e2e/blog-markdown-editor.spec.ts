@@ -10,6 +10,7 @@
 // Prerequisites: global-setup seeds admin-e2e@example.com (ADMIN).
 
 import { test, expect } from './fixtures/auth';
+import { clicarYEsperarUrl } from './helpers/nav';
 
 test.describe('Editor de markdown (bloque "Texto") en /admin/blog/nuevo', () => {
   test('ADMIN añade un bloque de texto con formato variado, lo guarda y lo publica; el público lo renderiza igual', async ({
@@ -57,7 +58,17 @@ test.describe('Editor de markdown (bloque "Texto") en /admin/blog/nuevo', () => 
     // aparecerá aquí y el test fallará al no encontrar el link) ---
     await page.goto('/blog');
     await page.waitForLoadState('networkidle');
-    await page.getByRole('link', { name: title, exact: true }).click();
+    // 2b: el clic sobre este <Link> a veces no conmuta el router (bug de Next
+    // #57565). OBSERVADO con una sonda en este mismo spec: tras el clic la URL
+    // seguía siendo "/blog" y el <h1> del markdown "faltaba" únicamente porque
+    // nunca se salió de la lista — el markdown renderiza perfectamente cuando la
+    // navegación sí ocurre. Reintentar el CLIC (no la espera) es lo único que
+    // recupera el router; ver e2e/helpers/nav.ts.
+    await clicarYEsperarUrl(
+      page,
+      page.getByRole('link', { name: title, exact: true }),
+      (url) => url.pathname.startsWith('/blog/'),
+    );
     await page.waitForLoadState('domcontentloaded');
 
     const article = page.locator('article, main').first();
@@ -108,7 +119,17 @@ test.describe('Editor de markdown (bloque "Texto") en /admin/blog/nuevo', () => 
     // Verificar también en la página pública.
     await page.goto('/blog');
     await page.waitForLoadState('networkidle');
-    await page.getByRole('link', { name: title, exact: true }).click();
+    // 2b: el clic sobre este <Link> a veces no conmuta el router (bug de Next
+    // #57565). OBSERVADO con una sonda en este mismo spec: tras el clic la URL
+    // seguía siendo "/blog" y el <h1> del markdown "faltaba" únicamente porque
+    // nunca se salió de la lista — el markdown renderiza perfectamente cuando la
+    // navegación sí ocurre. Reintentar el CLIC (no la espera) es lo único que
+    // recupera el router; ver e2e/helpers/nav.ts.
+    await clicarYEsperarUrl(
+      page,
+      page.getByRole('link', { name: title, exact: true }),
+      (url) => url.pathname.startsWith('/blog/'),
+    );
     await page.waitForLoadState('domcontentloaded');
 
     const executedPublic = await page.evaluate(() => (window as unknown as { __xss_executed?: boolean }).__xss_executed === true);

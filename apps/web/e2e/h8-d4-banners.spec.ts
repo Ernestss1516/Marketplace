@@ -154,7 +154,7 @@ test.describe('Banners en la web', () => {
     await expect(page.locator('[data-testid="banner"]').filter({ hasText: title })).not.toBeVisible();
   });
 
-  test('banner con enlace y compartible: el enlace navega y el botón compartir copia al portapapeles', async ({
+  test('banner con enlace y compartible: el enlace navega y el botón compartir copia al portapapeles', { tag: '@2b' }, async ({
     adminContext,
     buyerContext,
   }) => {
