@@ -1040,6 +1040,12 @@ Vendedor de confianza— está **cerrado**. Ráfagas H8.1 a H8.6 y Bloque E comp
 tests verde en cada cierre (backend e2e en serie sobre BD fresca + Playwright + `tsc --noEmit`),
 verificación manual con capturas de pantalla reales en las ráfagas de UX (H8.5b, H8.4, Bloque E).
 
+> **Nota de alcance (2026-08-04).** Esta sección describe el **H8 enfocado**, y su título dice
+> «(enfocado)» precisamente porque dejó tres frentes fuera. **Esos tres se cerraron después**:
+> los Bloques **C** y **D** y el ciclo E2E real de **Redsys** — ver §16.2, corregida. Así que
+> el **Hito 8 completo** es hoy **H8.1–H8.6 + Bloques C, D y E**; lo de abajo sigue siendo la
+> foto correcta del cierre *enfocado*, no del hito entero.
+
 ### 16.1 Deuda dejada conscientemente (no bloquea el cierre, sí hay que revisarla más adelante)
 
 | Deuda | Detalle | Dónde revisar |
@@ -1050,15 +1056,56 @@ verificación manual con capturas de pantalla reales en las ráfagas de UX (H8.5
 | Aislamiento dev/test de Redis y BD en paralelo local | Ejecutar `jest --config test/jest-e2e.json` en paralelo (workers por defecto) contra una BD de test local compartida produce deadlocks y violaciones de FK entre suites (cada spec hace `cleanDb` en su `beforeAll`). Con `--runInBand` sobre BD fresca no hay fallos — así corre CI. Preexistente a H8, documentado repetidamente durante el hito porque se hizo evidente al añadir tantas suites nuevas. | `jest-e2e.json`, posible aislar por BD/Redis por worker en Hito 9. |
 | Deuda previa sin tocar en H8 (ver §1.4) | Fotos por anuncio (4/10) y estadísticas de visitas siguen declaradas mas no implementadas. No formaban parte del encargo de H8. | Hito 8b o Hito 9 si se retoman. |
 
-### 16.2 Diferido conscientemente (no es deuda — decisión explícita de alcance, fuera del Hito 8 enfocado)
+### 16.2 Lo que se difirió al cerrar el H8 enfocado — HECHO DESPUÉS, ya no está diferido
 
-- **Bloque C (estadísticas para el vendedor)** y **Bloque D (campañas/cupones)** — quedan para
-  **Hito 8b** o más adelante. No se empezaron; no hay código parcial que mantener.
-- **Redsys E2E real** (el ciclo completo notificación → acreditación con credenciales reales) sigue
-  bloqueado por tooling: hace falta un túnel público (ngrok o similar) para que Redsys pueda
-  notificar a un backend en desarrollo, y no se ha configurado. Los flujos están probados con
-  Redsys mockeado (firma HMAC, generación de formulario) desde RF.10; el ciclo real queda para
-  cuando se disponga del túnel.
+> **Corregido el 2026-08-04 aplicando §16.3 punto 3** («si algo de código contradice lo escrito
+> aquí, confiar en el código y actualizar el documento, no al revés»). Esta sección decía que
+> los Bloques C y D *«no se empezaron»* y que el ciclo E2E real de Redsys seguía bloqueado.
+> **Las dos cosas eran falsas**, y el propio documento ya se contradecía: la tabla de
+> decisiones de §15 cita `h8-d2-action-discount.e2e-spec.ts` —una suite del **Bloque D**— como
+> implementada.
+
+Al cerrar el **H8 enfocado** (H8.1–H8.6 + Bloque E, que es lo que describe §16) estos tres
+frentes quedaron fuera de alcance a propósito. **Los tres se retomaron y cerraron después**, en
+lo que la documentación llama el **H8 ampliado**. Con esto, el Hito 8 está completo:
+**H8.1–H8.6 + Bloques C, D y E.**
+
+- **✅ Bloque C — estadísticas de anuncios para el vendedor.** Hecho en dos fases: **C1**
+  (backend) sustituye el `Listing.viewCount` ingenuo —que contaba al dueño, sin protección
+  anti-recarga— por `POST /listings/:slug/view`, público con auth **opcional**
+  (`OptionalJwtAuthGuard`: nunca rechaza, solo necesita saber si hay sesión para **excluir al
+  propio dueño**), más el desglose free/Pro; **C2** (frontend) lo expone en
+  `/mis-anuncios/estadisticas` y por anuncio. Lectura vía `GET /listings/mine/stats/summary` y
+  `GET /listings/mine/:id/stats`. Tests: `h8-c1-listing-stats.e2e-spec.ts` (14) y
+  `h8-c2-listing-stats.spec.ts` (Playwright).
+
+- **✅ Bloque D — campañas, descuentos, cupones y difusión.** Hecho en **cuatro fases**:
+  **D1** motor de campañas + bonus de créditos promocional (`h8-d1-campaigns.e2e-spec.ts`, 25);
+  **D2** descuentos porcentuales en bump y destacado (`h8-d2-action-discount.e2e-spec.ts`, 16 —
+  la suite que §15 ya citaba); **D3a** canje de cupones en backend, con control de concurrencia
+  (`h8-d3a-coupons.e2e-spec.ts`, 12) y **D3b** CRUD admin + frontend del canje
+  (`h8-d3b-coupons-admin.e2e-spec.ts`, 18 · `h8-d3-coupons.spec.ts`, 6); **D4** banners de
+  difusión, que cierra el bloque haciendo visible lo que D1–D3 construyeron
+  (`h8-d4-banners.spec.ts`). Módulos: `campaigns/`, `coupons/`, `banners/`.
+
+  > **El principio fiscal que gobierna todo el bloque sigue siendo el de §15**, y no cambió al
+  > implementarlo: los descuentos de campaña (`ACTION_DISCOUNT`) se aplican **solo al pagar con
+  > créditos**, nunca al pago directo por Redsys — descontar ahí obligaría a recalcular y
+  > refacturar el IVA de cada campaña.
+
+  > **D4 cerró además una deuda de §16.1**: la duplicación del punto de concesión de destacados.
+
+- **✅ Redsys E2E real — ejercido, no bloqueado.** El túnel sí se configuró (**cloudflared**, no
+  ngrok) y el ciclo completo se ejerció **contra el sandbox real** `sis-t.redsys.es` con el
+  comercio genérico de pruebas y una tarjeta de test: pago real de un pack de créditos y de un
+  destacado, **ambos aprobados**, con los campos coincidiendo con la simulación E2E en todo lo
+  que el procesador lee — **sin discrepancias de formato**. La simulación se enriqueció después
+  con los ~14 campos reales que antes no se probaban. Es la ráfaga **RX.1**, que en la hoja de
+  ruta figuraba «en el aire» a la espera de credenciales y **ya no lo está**.
+
+**Crónica completa** (mini-diseños, decisiones y hallazgos de cada fase) en `estado-tecnico.md`
+— «Historial de ráfagas — Hito 8», «Redsys — verificación contra el sandbox real».
+**Inventario de endpoints** en `docs/contratos-api.md`.
 
 ### 16.3 Qué mirar primero si se retoma el sistema de facturación
 

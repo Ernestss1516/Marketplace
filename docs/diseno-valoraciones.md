@@ -1,11 +1,60 @@
 # Diseño del sistema de valoraciones — Hito 3, Fase V
 
-> Documento de diseño de RV.1 (2026-06-24). Las ráfagas RV.2–RV.5 implementan lo
-> aquí descrito. Este documento es el entregable de la ráfaga RV.1 (Opus).
+> ## ✅ ESTADO: IMPLEMENTADO — con DOS decisiones arquitectónicas invertidas
+>
+> **Diseño de RV.1 (2026-06-24), implementado en RV.2–RV.5** y **modificado después** por el
+> Hito 7 y por las ráfagas de Reputación. Revisado en la auditoría de documentación del
+> **2026-08-04**. **Donde el diseño y la implementación difieran, gana la implementación.**
+>
+> Este documento acertó en casi todo —bidireccionalidad, ventana de 72 h, `editedAt`,
+> agregado on-the-fly, moderación por reportes— **y sus dos decisiones más marcadas se
+> revirtieron.** Las dos están documentadas en su sección, con el razonamiento original
+> conservado: quien leyó este diseño debe entender qué lo sustituyó y por qué.
+>
+> ### 🔄 Reemplazo 1 — el gate de elegibilidad (§1, «decisión arquitectónica principal»)
+>
+> | | Este diseño | Hoy |
+> |---|---|---|
+> | Gate | Existe una **`Conversation`** entre A y B sobre el anuncio L | Existe un **`Deal`** entre A y B sobre L |
+> | Qué prueba | Que **hablaron** | Que **hubo trato** |
+>
+> `Conversation` **no desapareció: fue degradada de gate a señal de confianza.** Hoy
+> cualquier `Deal` habilita valorar, y que ese trato tenga conversación detrás
+> (`conversationId != null`) es lo que marca la reseña como **verificada**. Ver §1.
+>
+> ### 🔄 Reemplazo 2 — `listingId`, y va en dirección CONTRARIA a la planeada (§7)
+>
+> | | Este diseño | Hoy |
+> |---|---|---|
+> | `Review.listingId` | Corregir el stub a **`String` NO nullable** | **`String?` nullable, `onDelete: SetNull`** |
+> | Al borrar el anuncio | La reseña caía en cascada | **La reseña SOBREVIVE**, con `listingTitle` congelado |
+>
+> El diseño quería endurecerlo *«la elegibilidad siempre requiere un anuncio específico»*.
+> El Hito 7 lo aflojó **por una razón distinta que el diseño no había considerado**: la
+> reputación no puede ser borrable por el propio vendedor. Ver §7.
+>
+> ### Lo que se añadió y este diseño no contemplaba
+>
+> - **`Review.verified`** — congelado al crear, nunca recalculado. Solo las verificadas
+>   cuentan para la media (§5).
+> - **`Review.listingTitle`** — snapshot del título, para que la reseña conserve contexto
+>   aunque el anuncio desaparezca (§7).
+> - **El escaparate de reputación** — la media dejó de vivir solo en el perfil del vendedor y
+>   aparece donde el comprador decide: cards de listado, búsqueda y ficha del anuncio (§5).
+>
+> **Para la crónica** —las cuatro ráfagas de Reputación y el Hito 7, con sus mediciones— la
+> referencia es `estado-tecnico.md`. **Para el inventario de endpoints**,
+> `docs/contratos-api.md`.
 
 ---
 
-## 0. Andamiaje existente
+## 0. Andamiaje existente — ESTADO PREVIO (2026-06-24), no el actual
+
+> **Se conserva como punto de partida.** Donde dice «Stub vacío» hoy hay implementación:
+> `modules/reviews/` está completo (suite `reviews.e2e-spec.ts`, 24 tests), `Report` ya tiene
+> `reviewId` y `ReportReason` ya incluye `FAKE_REVIEW`. La fila que más ha cambiado es la de
+> `Conversation` —«fuente de verdad de la elegibilidad»—: **ya no lo es**, ese papel lo tiene
+> `Deal` (§1).
 
 | Elemento | Ubicación | Estado |
 |---|---|---|
@@ -22,6 +71,80 @@
 ---
 
 ## 1. Elegibilidad (anti-fraude) — decisión arquitectónica principal
+
+> ## 🔄 EL GATE REAL: un `Deal`, no una `Conversation`
+>
+> **Esta es la decisión que más ha cambiado del documento, y era su pilar.** La regla vigente:
+>
+> > **`A` puede valorar a `B` por el anuncio `L` si existe al menos un `Deal` entre ambos
+> > sobre `L`** — en cualquiera de los dos sentidos (`A` vendedor y `B` comprador, o al revés).
+>
+> Implementado en `findDealsBetween()` ([reviews.service.ts](apps/api/src/modules/reviews/reviews.service.ts)),
+> que es el guard único: lo usan `create()` y `getEligibility()`, así que la comprobación
+> previa que ve la UI y la que aplica el servidor **no pueden divergir**. Sin trato →
+> `403`.
+>
+> ### El gate tiene DOS niveles, y ahí está la elegancia del cambio
+>
+> | Hecho | Consecuencia |
+> |---|---|
+> | Existe un `Deal` (declarado o verificable) | **Puedes valorar** |
+> | Ese `Deal` tiene `conversationId != null` (**verificable**) | La reseña nace **`verified: true`** |
+>
+> **`Conversation` no se tiró: se degradó de gate a señal de confianza.** El razonamiento
+> original de abajo —que una conversación es el registro de interacción más sólido del
+> sistema— **sigue siendo cierto**; lo que dejó de ser cierto es que fuera el mejor gate.
+>
+> ### Por qué se cambió — los dos errores simétricos del gate viejo
+>
+> Cuando el ciclo de vida ganó la entidad `Deal` («¿a quién se lo vendiste?»), el gate de
+> `Conversation` quedó produciendo dos fallos opuestos, **ambos verificados en vivo antes de
+> tocar código**:
+>
+> 1. **Falso negativo.** Un trato real y cerrado, declarado sin haber chateado por la
+>    plataforma (el comprador llamó por teléfono, o se conocían), **no** habilitaba valorar.
+>    Se penalizaba la venta real por no haber pasado por el chat.
+> 2. **Falso positivo.** Un simple *«¿sigue disponible?»* sin ningún trato **sí** lo
+>    habilitaba. Es decir: el gate anti-fraude se abría con el mensaje más barato de fabricar
+>    del sistema.
+>
+> `Deal` prueba **transacción**, no conversación. Es un gate estrictamente más fuerte contra
+> reseñas falsas y a la vez más justo con las ventas legítimas. Y como los `Deal` los declara
+> el vendedor —que es quien tiene el incentivo de no inflarlos con desconocidos—, el coste de
+> fabricar uno es mucho mayor que el de escribir un mensaje.
+>
+> ### El matiz que hace que esto no sea un agujero
+>
+> Un `Deal` **declarado** (sin conversación) también habilita valorar — si no, se reintroduce
+> el falso negativo. Lo que hace es **no contar para la media**: `verified` se congela a
+> `false` y la reseña sale en la lista pública **etiquetada**, pero fuera de
+> `average`/`count`/`distribution` (§5). Así ninguna opinión real se censura y, a la vez,
+> la puntuación de confianza solo se construye con tratos que el sistema puede corroborar.
+>
+> ### Lo que NO se hizo, y es deliberado: `Review` no tiene `dealId`
+>
+> Se evaluó anclar cada reseña a un `Deal` concreto (`dealId` + `@@unique([authorId, dealId])`)
+> y **se descartó**: `Deal` no tiene límite de repetición —un mismo cliente puede repetir
+> trato con el mismo servicio—, así que anclarlo permitiría **multiplicar el peso de una
+> reseña repitiendo tratos con el mismo par**. Se conserva
+> `@@unique([authorId, targetId, listingId])`: una reseña por par por anuncio, haya los tratos
+> que haya. Por eso `verified` se pregunta *«¿algún `Deal` de este par sobre este anuncio es
+> verificable?»* y nunca se ancla a uno.
+>
+> ### `verified` se congela y NUNCA se recalcula
+>
+> Ni al editar, ni por ningún otro endpoint. Y `@default(true)` es **grandfathering
+> deliberado**: las reseñas creadas bajo el gate viejo de `Conversation` cuentan como
+> contaban, sin backfill ni recálculo retroactivo.
+
+---
+
+### Enfoque inicial (RV.1), reemplazado — se conserva por su razonamiento
+
+> Lo siguiente es el diseño original. **Ya no es la regla vigente**, pero explica de dónde
+> viene la actual: el criterio de fondo —exigir una interacción real y previa, registrada por
+> el sistema, y no la mera intención— es exactamente el mismo. Lo que cambió es **qué
+> interacción cuenta**.
 
 ### Decisión: conversación existente como gate de elegibilidad
 
@@ -70,6 +193,21 @@ El modelo `Conversation` ya es el registro de interacción más sólido del sist
 ---
 
 ## 2. Bidireccionalidad comprador ↔ vendedor
+
+> ## ✅ Se implementó como se diseñó — con una limitación conocida, abierta
+>
+> El `@@unique([authorId, targetId, listingId])` permite las dos direcciones como filas
+> distintas, tal cual se razona aquí, y el gate de `Deal` es simétrico (`A` vendedor y `B`
+> comprador, o al revés).
+>
+> **Lo que sigue abierto: las reseñas NO son ciegas.** No hay periodo de doble ciego, así que
+> cada parte **puede leer la valoración de la otra antes de escribir o editar la suya** y
+> ajustarla en consecuencia — bajar la nota como represalia tras recibir una mala reseña, por
+> ejemplo. Es **preexistente** a las ráfagas de Reputación (venía con la bidireccionalidad
+> desde RV.2) y no se resolvió en ellas: cerrarlo exige publicar solo cuando ambas partes han
+> valorado o cuando vence un plazo, y eso es una ráfaga propia. Anotado como candidato, no
+> como deuda urgente: hoy lo mitiga que la ventana de edición sea de solo 72 h y que
+> `FAKE_REVIEW` permita reportar la represalia.
 
 Ambas partes pueden valorarse entre sí de forma independiente:
 
@@ -164,7 +302,64 @@ que el usuario sepa que la valoración no es la original.
 
 ## 5. Agregado y visualización
 
-### Cálculo
+> ## ✅ On-the-fly, como se diseñó — con dos añadidos
+>
+> **La decisión central de esta sección aguantó**: el agregado se calcula en tiempo de
+> ejecución, sin desnormalizar en `User`. Y no aguantó por inercia — cuando el Hito 7 quiso
+> llevar la media a las cards de listado, se **midió antes de decidir**: incluso con 1 000
+> vendedores, 88 000 reseñas y eligiendo adversarialmente los 40 vendedores más pesados, la
+> consulta agrupada tarda **~2,8 ms** (`Index Scan` sobre el índice que ya existía). Frente a
+> consultas ya aceptadas como gratis en ese mismo listado (~0,6 ms), es una milésima más, no
+> un orden de magnitud. **Se confirmó on-the-fly**: una sola fuente de verdad, cero riesgo de
+> desincronización, cero invariante que mantener. La nota de §5 «YAGNI — no optimizar ahora»
+> se validó con números.
+>
+> ### Añadido 1 — la media cuenta SOLO las reseñas verificadas
+>
+> El `where` real no es `{ targetId }` sino **`{ targetId, verified: true }`** para
+> `average`, `count` y `distribution`. Además se devuelve **`unverifiedCount`**.
+>
+> La respuesta real de `listForUser()`:
+>
+> ```json
+> {
+>   "average": 4.3, "count": 27,
+>   "distribution": { "1": 1, "2": 2, "3": 3, "4": 8, "5": 13 },
+>   "unverifiedCount": 4,
+>   "items": [ … ], "nextCursor": "…"
+> }
+> ```
+>
+> **`items` incluye TODAS las reseñas**, verificadas y no, cada una con su propio `verified`.
+> El criterio: **no censurar opinión real solo porque el trato no pasó por el chat**, pero no
+> dejar que entre en la puntuación de confianza. Se muestran, etiquetadas y aparte.
+>
+> ### Añadido 2 — el escaparate: la reputación donde el comprador decide
+>
+> Este diseño ponía la reputación **solo en el perfil del vendedor**. El problema, medido en
+> la auditoría del Hito 7: es invisible justo en el momento en que se decide la compra — ni
+> las cards de listado ni la ficha del anuncio mostraban una estrella.
+>
+> Hoy la media aparece también en **cards de listado, resultados de búsqueda, portada,
+> bloques de contenido y la ficha del anuncio**, todos a través de la misma función
+> (`ReviewsService.getRatingSummaries()`), sin duplicar la agregación.
+>
+> **Dos decisiones de arquitectura que conviene no deshacer:**
+>
+> - **La media NO se indexa en Meilisearch**, a diferencia de `sellerName` o `trusted`. Esos
+>   casi nunca cambian; la media cambiaría **con cada reseña nueva**, y meterla en el
+>   documento obligaría a **reindexar todos los anuncios de un vendedor en cada valoración**.
+>   Se mezcla *después* de leer los hits. Verificado ejerciendo: la media aparece correcta en
+>   `GET /search` inmediatamente tras publicar, **sin reindexar nada**.
+> - **En la ficha va siempre fresca, fuera de la caché Redis de 5 min** — mismo criterio que
+>   `featuredUntil`.
+>
+> **Sin reseñas verificadas se muestra «Nuevo», nunca ★0,0.** El caso que lo prueba: un
+> vendedor con una única reseña **no verificada** de 2 estrellas devuelve
+> `ratingAverage: null, ratingCount: 0` — su media cruda (2,0) **no se cuela** como si fuera
+> reputación verificada.
+
+### Cálculo *(diseño original — sin el filtro `verified`)*
 
 El agregado se calcula **en tiempo de ejecución** con la función de agregación de Prisma
 (`_avg`, `_count`, `groupBy`) al consultar el perfil del usuario. No se desnormaliza en
@@ -263,7 +458,75 @@ el reporte.
 
 ## 7. Modelo de datos y migración
 
-### Cambios al schema de Prisma
+> ## 🔄 El modelo REAL — y `listingId` acabó al revés de lo que este diseño planeaba
+>
+> ```prisma
+> model Review {
+>   id        String  @id @default(cuid())
+>   rating    Int                    // 1..5, validado en el DTO
+>   comment   String? @db.Text
+>
+>   authorId  String                 // Cascade — igual que se diseñó
+>   targetId  String                 // Cascade — igual que se diseñó
+>
+>   // ⬇️ INVERTIDO respecto a este diseño
+>   listingId    String?             // nullable
+>   listing      Listing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
+>   listingTitle String?             // snapshot del título al crear la reseña
+>
+>   createdAt DateTime  @default(now())
+>   updatedAt DateTime  @updatedAt
+>   editedAt  DateTime?              // null hasta la primera edición — como se diseñó
+>
+>   verified  Boolean @default(true) // ⬅️ AÑADIDO (Reputación RÁFAGA 3)
+>
+>   reports Report[]
+>   tickets Ticket[]                 // ⬅️ AÑADIDO: hilo de atención al usuario desde una reseña
+>
+>   @@unique([authorId, targetId, listingId])
+> }
+> ```
+>
+> ### La inversión, y por qué
+>
+> Este diseño decía: *«No nullable: la elegibilidad siempre requiere un anuncio específico.
+> El stub lo tiene como `String?`; la migración lo convierte a `String`»*. Con
+> `onDelete: Cascade`, borrar un anuncio se llevaba por delante sus reseñas.
+>
+> **El Hito 7 lo revirtió** (migración `review_survives_listing_delete`): `listingId` vuelve a
+> ser nullable, la relación pasa a **`SetNull`**, y se añade `listingTitle` con **backfill**
+> de las reseñas existentes cuyo anuncio seguía vivo.
+>
+> **El motivo no invalida el razonamiento original — responde a otra pregunta.** El diseño
+> razonaba sobre *elegibilidad*: para valorar hace falta un anuncio concreto, y eso **sigue
+> siendo verdad** (el gate exige un `Deal` sobre un `listingId`). La pregunta que no se había
+> hecho es qué pasa **después**:
+>
+> > **La reputación no puede ser borrable por quien la sufre.** Con `Cascade`, a un vendedor
+> > le bastaba con borrar el anuncio para hacer desaparecer las reseñas negativas que había
+> > recibido por él. El anti-fraude de §1 se ocupaba de que no se pudieran *fabricar* reseñas,
+> > y dejaba abierto que se pudieran *destruir*.
+>
+> `listingTitle` es lo que hace que la reseña siga siendo legible sin su anuncio: conserva el
+> contexto («valoró tu venta de *Bicicleta de montaña*») aunque `listingId` sea ya `NULL`. Y
+> se toma **del propio `Deal`**, no cargando el `Listing` en vivo — el `Deal` ya lleva su
+> snapshot por el mismo motivo, así que sobrevive igual.
+>
+> Mismo molde que `Entitlement` y `Transaction`, que también conservan el registro cuando su
+> objeto desaparece. Y `Deal.listingId` es `SetNull` por idéntica razón.
+>
+> ### Otras diferencias del modelo real
+>
+> - **`verified Boolean @default(true)`** — no existía en el diseño. Ver §1 y §5.
+> - **`tickets Ticket[]`** — no existía: permite abrir un hilo de atención al usuario desde
+>   una reseña (el botón solo se ofrece en el perfil propio, porque `ReviewsSection` es un
+>   componente público y ofrecérselo a un visitante sería ofrecer una acción que el backend
+>   rechaza).
+> - **El `@@unique` se mantuvo tal cual se diseñó** — y en el Hito 7 se ratificó
+>   explícitamente al descartar anclar la reseña a un `dealId` (§1).
+> - **`ReportReason.FAKE_REVIEW` y `Report.reviewId`** se implementaron como se diseñaron.
+
+### Cambios al schema de Prisma *(diseño original — `listingId` no nullable, invertido)*
 
 #### Enum `ReportReason` — añadir valor
 
@@ -383,6 +646,18 @@ CREATE INDEX "Report_reviewId_idx" ON "Report"("reviewId");
 
 ## 8. Endpoints
 
+> ## ✅ Las seis rutas se construyeron tal cual. Tres matices:
+>
+> - **`POST /reviews` → 403 «no hay conversación»** es hoy **«no hay trato»**: el mensaje real
+>   es *«Solo puedes valorar a usuarios con los que has cerrado un trato sobre este anuncio»* (§1).
+> - **`GET /reviews/eligibility` devuelve más campos** de los que lista la tabla:
+>   `{ canReview, wouldBeVerified, alreadyReviewed, existingReview }`. **`wouldBeVerified`**
+>   permite que la UI anticipe si la reseña contará para la media **antes** de enviarla — sin
+>   él, el usuario descubriría después que su valoración no puntúa.
+> - **`GET /users/:slug/reviews` devuelve además `unverifiedCount`** (§5).
+>
+> El inventario verificado está en `docs/contratos-api.md`.
+
 ### `ReviewsController` (`/reviews`) — requiere JWT
 
 | Método | Ruta | Body / Query | Respuesta | Notas |
@@ -462,7 +737,29 @@ en el service, no en un interceptor.
 
 ---
 
-## 10. Ráfagas de implementación RV.2–RV.5
+## 10. Ráfagas de implementación RV.2–RV.5 — CERRADAS, más la evolución posterior
+
+> ## ✅ Las cuatro se cerraron. Después el sistema evolucionó en dos tandas.
+>
+> | Ráfaga | Estado | Qué cerró |
+> |---|---|---|
+> | **RV.2** ✅ | Backend completo: modelo, gate, CRUD, agregado |
+> | **RV.3** ✅ | Frontend: perfil del vendedor con reseñas y agregado |
+> | **RV.4** ✅ | Frontend: flujo de valorar |
+> | **RV.5** ✅ | Moderación de reseñas (reportes + `DELETE /moderation/reviews/:id`) |
+>
+> **Lo que vino después, y que este diseño no preveía:**
+>
+> | Después | Qué cambió |
+> |---|---|
+> | **Hito 7** — `review_survives_listing_delete` | `listingId` → `SetNull` + `listingTitle` + backfill (§7). **Invierte** la migración planeada en RV.2 |
+> | **Ciclo de vida RÁFAGA 1** | Aparece `Deal` — la entidad que después reemplazaría al gate |
+> | **Reputación RÁFAGA 3** | El gate pasa de `Conversation` a `Deal`; nace `Review.verified`; la media pasa a contar solo verificadas (§1, §5) |
+> | **Escaparate RÁFAGA 4** | La reputación sale del perfil a cards, búsqueda y ficha (§5) |
+>
+> Verificación: `reviews.e2e-spec.ts` (24 tests). Los avisos de valoración tras cerrar un
+> trato (`Notification REVIEW_REQUEST` + email a **ambas** partes) se disparan desde
+> `ListingsService.closeDeal`, no desde este módulo.
 
 ### RV.2 — Backend completo (Sonnet)
 
