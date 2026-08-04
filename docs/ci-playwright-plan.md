@@ -1,6 +1,23 @@
 # Plan de ataque de los rojos de Playwright (auditoría, sin arreglos)
 
-**Estado del documento:** clasificación completa de los rojos restantes tras cerrar el crash
+> ## 🏁 HISTÓRICO — LA SAGA DEL CI ESTÁ CERRADA
+>
+> **Este documento es el mapa de trabajo de la saga, no el estado actual.** Se conserva como
+> registro porque explica cómo se clasificó cada familia de rojos y por qué; para saber cómo
+> está el CI hoy, la referencia es **`estado-tecnico.md` → «🏁 La saga del CI — estado final:
+> el CI vuelve a ser SEÑAL»**.
+>
+> **Cerrada y verificada en el runner, no en local:** corrida `30930395538`, SHA `e4df671`,
+> `conclusion = success` en los dos jobs (`Lint & Typecheck` y `E2E Tests`). Backend e2e
+> 1476/1476 (92/92 suites), unit del frontend 378/378 (32/32 suites), Playwright de **señal**
+> (`--grep-invert @2b`) 247 pasados / 1 saltado / **0 fallos**, y el bloque `@2b` —el bug
+> conocido de la carrera del App Router— aislado aparte y absorbido por `continue-on-error`.
+>
+> Los números de este documento (32 fallos, 4 flaky, 233 pasados) son **la foto del punto de
+> partida**, no la de ahora. No tomarlos como estado. El cuerpo del documento no se ha tocado
+> en la auditoría de 2026-08-04: se conserva íntegro tal y como se escribió.
+
+**Estado del documento (original):** clasificación completa de los rojos restantes tras cerrar el crash
 del wizard (`resolvePriceUnitSelection`) y la familia 1 (drift del paso Etiquetas + conteo de
 nav). **Esta ráfaga no arregla nada**: es el mapa del terreno para dejar de descubrir el
 tamaño de cada capa corrida a corrida.

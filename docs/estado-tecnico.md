@@ -1,10 +1,18 @@
 # Estado técnico del proyecto — Marketplace
 
-> Fecha: 2026-07-14 · Rama: `main` · Último commit: 9ee7b5d — Deuda diez tests cerrado; CI test.
+> Fecha: 2026-08-04 · Rama: `main` · Último commit: ff333ab — cierre de la saga del CI.
 > Plan vigente: `docs/Hoja_de_ruta_rafagas_Hito5-9.docx` (Hitos 5–9). Hitos 5–8 cerrados (incluye el
 > bloque de blog — rol EDITOR, editor de markdown, páginas informativas, footer — y el Hito 8
-> ampliado completo: H8.1–H8.6 + Bloques C/D/E). Hito 9 (navegación, interfaz, deuda transversal y
-> testing) pendiente de arrancar. **RC.1+RC.2 — Formulario de contacto público cerrado** (ver
+> ampliado completo: H8.1–H8.6 + Bloques C/D/E). **Hito 9: la fase 9.3 (deuda transversal) está
+> arrancada por partes** — CORS del gateway restringido a `APP_URL`, AuditLog atómico (RF.12b),
+> reintento de slug ante P2002, reintentos del job `geocode` y Playwright corriendo en CI ya están
+> cerrados, igual que **la saga del CI** (ver «🏁 La saga del CI — estado final» más abajo: corrida
+> `30930395538`, SHA `e4df671`, `conclusion=success` en los dos jobs del runner — 1476/1476 backend,
+> 378/378 unit web, 247 Playwright de señal sin fallos). **Las fases 9.1 (navegación) y 9.2
+> (interfaz y estilo) no se han empezado**, y quedan abiertos varios ítems de 9.3 (`app.enableCors()`
+> sin argumentos, `allowedDevOrigins`, paginación de home/categorías, preparación de producción).
+> **La lista viva y accionable de todo lo que queda por construir está en `docs/pendientes.md`.**
+> **RC.1+RC.2 — Formulario de contacto público cerrado** (ver
 > módulo `Contact` más abajo): endpoint público sin autenticación con 5 defensas anti-bot/anti-XSS,
 > gestión y respuesta desde `/admin/mensajes-contacto`, cambio de estado libre, y motivos
 > configurables por el admin (`/admin/motivos-contacto`, enum → datos). **Teléfono en anuncios +

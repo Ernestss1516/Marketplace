@@ -3,15 +3,21 @@
 > **HISTÓRICO — MVP completado (fases 0-5)**
 > Este documento recoge el árbol de diseño previo a la implementación. El estado
 > real del código (páginas, decisiones, deuda técnica) está en `docs/estado-tecnico.md`.
-> Plan vigente: `docs/Hoja_de_ruta_rafagas_Hito2.docx`.
+> Plan vigente: `docs/Hoja_de_ruta_rafagas_Hito5-9.docx`. Lo que queda por construir:
+> `docs/pendientes.md`.
+>
+> **Corrección (auditoría 2026-08-04):** donde el texto dice «repositorio separado»,
+> léase **monorepo**: `apps/web` (este frontend) y `apps/api` (el backend) viven en el
+> mismo repositorio. La frontera que describe el documento —presentación aquí, negocio
+> allí— sigue siendo exacta; lo que no es cierto es que sean dos repos.
 
 > **Alcance:** este árbol cubre **únicamente el frontend** (Next.js).
-> El backend (NestJS) es un proyecto y repositorio separado: contiene toda la
-> lógica de negocio y expone la API que este frontend consume. Next.js aquí es
+> El backend (NestJS) es un paquete separado del monorepo (`apps/api`): contiene toda
+> la lógica de negocio y expone la API que este frontend consume. Next.js aquí es
 > **capa de presentación + BFF ligero**; no aloja reglas de negocio.
 
 ```
-marketplace-web/                      # Frontend Next.js (repo separado del backend NestJS)
+apps/web/                             # Frontend Next.js (paquete del monorepo)
 │
 ├── public/                           # Assets estáticos servidos tal cual
 │   ├── images/

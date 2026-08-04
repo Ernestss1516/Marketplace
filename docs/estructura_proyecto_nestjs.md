@@ -3,7 +3,13 @@
 > **HISTÓRICO — MVP completado (fases 0-5)**
 > Este documento recoge el árbol de diseño previo a la implementación. El estado
 > real del código (módulos, decisiones, deuda técnica) está en `docs/estado-tecnico.md`.
-> Plan vigente: `docs/Hoja_de_ruta_rafagas_Hito2.docx`.
+> Plan vigente: `docs/Hoja_de_ruta_rafagas_Hito5-9.docx`. Lo que queda por construir:
+> `docs/pendientes.md`.
+>
+> **Corrección (auditoría 2026-08-04):** el árbol de abajo dice «repo separado del
+> frontend». No es así — el proyecto es un **monorepo**: `apps/api` (este backend) y
+> `apps/web` (el frontend) viven en el mismo repositorio. La separación real es de
+> responsabilidad, no de repositorio, y sigue siendo la que describe este documento.
 
 > **Alcance:** este árbol cubre **únicamente el backend** (NestJS).
 > Es la **única fuente de verdad de la lógica de negocio** y expone la API que
@@ -11,7 +17,7 @@
 > vía Prisma), la caché (Redis), las colas (BullMQ) y la búsqueda (Meilisearch).
 
 ```
-marketplace-api/                       # Backend NestJS (repo separado del frontend)
+apps/api/                              # Backend NestJS (paquete del monorepo)
 │
 ├── prisma/                            # Capa de datos — modelo único de verdad
 │   ├── schema.prisma                  # Esquema de tablas y relaciones

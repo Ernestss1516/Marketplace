@@ -3,7 +3,17 @@
 > **HISTÓRICO — MVP completado (fases 0-5)**
 > Este documento recoge el diseño de pantallas y flujos previo a la implementación.
 > El estado real implementado está en `docs/estado-tecnico.md`.
-> Plan vigente: `docs/Hoja_de_ruta_rafagas_Hito2.docx`.
+> Plan vigente: `docs/Hoja_de_ruta_rafagas_Hito5-9.docx`; pendientes: `docs/pendientes.md`.
+>
+> **Corrección de regla de negocio (auditoría 2026-08-04).** La versión anterior afirmaba en
+> §2.3 que «no se muestran teléfono ni email» como *regla confirmada*. **Esa regla está
+> derogada** y se ha corregido en su sitio: hoy el vendedor puede publicar un teléfono
+> opcional. Se corrige en vez de tacharse porque una regla derogada dentro de un documento
+> histórico se sigue leyendo como regla vigente.
+>
+> **Otras desviaciones sabidas, no corregidas** (el documento es la foto del MVP, y como tal
+> se conserva): el ciclo de vida del anuncio (§3) creció después con `PAUSED` y `ARCHIVED`, y
+> el paso a vendido ya no es `POST /listings/:id/sold` sino la declaración de un `Deal`.
 
 > **Alcance:** pantallas y flujos del MVP (fases 0-5). Las rutas coinciden con los
 > route groups de Next.js definidos en la estructura del frontend. Este documento
@@ -20,7 +30,7 @@
 | Listado por categoría | `/[categoria]` | Anuncios de una categoría, con filtros propios de la categoría |
 | Resultados de búsqueda | `/busqueda` | Resultados por texto con filtros, facetas y proximidad |
 | Ficha de anuncio | `/anuncio/[slug]` | Detalle completo, galería de fotos, ubicación aproximada, botón de contacto |
-| Perfil público de vendedor | `/[vendedor]` | Datos básicos del vendedor y sus anuncios activos |
+| Perfil público de vendedor | `/vendedor/[slug]` | Datos básicos del vendedor y sus anuncios activos |
 
 ### Autenticación — client-side
 
@@ -102,7 +112,17 @@ flowchart TD
     K --> L[Chat en tiempo real]
 ```
 
-El contacto es siempre por mensajería interna; no se muestran teléfono ni email (regla confirmada).
+El contacto **principal** es por mensajería interna. **Además**, el vendedor puede publicar un
+teléfono opcional (`Listing.phone`, distinto de `User.phone`, que sigue siendo privado): se publica
+solo tras confirmación explícita del usuario, nunca viaja en el payload público de la ficha —
+`findBySlug` lo descarta antes de cachear y expone solo `hasPhone: boolean`— y el número real se
+sirve únicamente por `GET /listings/:id/phone`, autenticado y con rate limit (30/h por usuario,
+60/h por IP). El email **nunca** se muestra. Ver «Teléfono en anuncios + Compartir anuncio» en
+`estado-tecnico.md` §2.
+
+> *Regla original de este documento, hoy derogada: «El contacto es siempre por mensajería interna;*
+> *no se muestran teléfono ni email (regla confirmada)». Se mantiene aquí solo como registro del*
+> *diseño del MVP; la regla vigente es la del párrafo anterior.*
 
 ---
 

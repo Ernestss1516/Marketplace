@@ -2,8 +2,14 @@
 
 > **HISTÓRICO — MVP completado (fases 0-5)**
 > Este documento recoge los arquetipos de usuario y wireframes de bloques del diseño
-> previo a la implementación. Referencia útil para el Hito 2 al diseñar nuevas
-> pantallas. Plan vigente: `docs/Hoja_de_ruta_rafagas_Hito2.docx`.
+> previo a la implementación. **Las personas siguen siendo referencia válida y vigente**
+> —no caducan con el código—, y son el insumo natural de las fases 9.1 (navegación) y 9.2
+> (interfaz y estilo), todavía pendientes. Plan vigente:
+> `docs/Hoja_de_ruta_rafagas_Hito5-9.docx`; pendientes: `docs/pendientes.md`.
+>
+> **Nota (auditoría 2026-08-04):** donde el texto remite funciones al futuro («fase 6»), ya
+> están construidas — favoritos (lo que apuntaba Nerea) y la reputación/gestión avanzada (lo
+> que apuntaba Quim) existen desde los Hitos 3 y 7. Léase como diseño de su momento.
 
 > **Propósito:** guiar las decisiones de diseño del frontend con arquetipos de
 > usuario y el esqueleto de contenido de las pantallas clave. Las personas son
