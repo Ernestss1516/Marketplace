@@ -9951,9 +9951,23 @@ De **~32 rojos rotando ilegibles** (y un job que ni siquiera llegaba a veredicto
 cancelaba GitHub a los 30 min) a un pipeline **estructurado para que verde signifique "el
 producto funciona"**, con el ruido conocido marcado y aparte.
 
-> **CERRADA, con la medición delante.** Grupo de señal (`--grep-invert @2b`, 248 tests):
-> **245 pasados, 2 flaky recuperados por retry, 1 saltado, CERO fallos duros, exit 0.**
-> El split es complemento exacto (`248 + 23 = 271`, verificado con `--list`).
+> **CERRADA, con la medición delante y sobre el MISMO estado del árbol.**
+>
+> | Grupo | Medición | Exit |
+> |---|---|---|
+> | Backend e2e (Jest, `--runInBand`) | **1476/1476, 92/92 suites** — dos corridas idénticas (658 s y 284 s; la diferencia es caché caliente de Docker/Meili, los recuentos son iguales) | 0 |
+> | Playwright — señal (`--grep-invert @2b`, 248 tests) | **247 pasados, 1 saltado, CERO fallos duros** | 0 |
+>
+> El split es complemento exacto: **`248 + 23 = 271`**, verificado con `playwright test --list`
+> el día del cierre (no heredado de un log anterior).
+>
+> Nada abierto. Los dos grupos se MIDIERON verdes; no se dedujo que compondrían.
+>
+> *Nota de honestidad sobre el ruido:* una corrida anterior del grupo señal, en esta misma
+> saga, dio **245 pasados + 2 flaky recuperados por retry + 1 saltado** (exit 0 igualmente).
+> Es decir: el grupo señal pasa, pero `retries: 1` todavía está absorbiendo algún rebote
+> ocasional. Verde sí; verde *sin red de seguridad* aún no siempre. Se anota porque el
+> documento registra lo medido, no la versión pulcra.
 
 ### La regla que queda
 
@@ -9961,11 +9975,16 @@ producto funciona"**, con el ruido conocido marcado y aparte.
 
 | Paso | Qué corre | Si falla |
 |---|---|---|
-| `Playwright (señal, sin @2b)` | `--grep-invert "@2b"` — **265 de 271** | **Tumba el pipeline.** El fallo es real. |
-| `Playwright (@2b, known-issue)` | `--grep "@2b"` — **6** | `continue-on-error: true`: informa, no bloquea. |
+| `Playwright (señal, sin @2b)` | `--grep-invert "@2b"` — **248 de 271** | **Tumba el pipeline.** El fallo es real. |
+| `Playwright (@2b, known-issue)` | `--grep "@2b"` — **23** | `continue-on-error: true`: informa, no bloquea. |
 
-265 + 6 = 271, verificado con `playwright test --list`. El complemento es exacto: ningún test
+248 + 23 = 271, verificado con `playwright test --list`. El complemento es exacto: ningún test
 se queda fuera de los dos sacos, y ningún no-etiquetado cae en el tolerado.
+
+**El split vive en el WORKFLOW, no en `playwright.config.ts`** — y es deliberado. En la config,
+el conjunto tolerado sería invisible: se ensancharía en silencio, un `grepInvert` crece sin que
+nadie lo note en un diff. En el workflow son dos pasos con nombre en la UI de Actions, cada uno
+con su recuento. Lo tolerado se ve.
 
 **`@2b` solo se pone sobre una firma `waitForURL … until "commit"` CONFIRMADA.** Etiquetar un
 rojo de otra causa sería un `test.fixme` disfrazado — escondería un bug real, que es
@@ -9982,24 +10001,46 @@ refutación (ver la sección propia más abajo) y mitigado hasta donde se puede:
 `e2e/helpers/nav.ts`. No se puede garantizar verde: esperar más no sirve (medido) y reintentar
 tampoco siempre. Por eso se tolera **etiquetado y a la vista**, no escondido.
 
-### Los DOS bugs de PRODUCCIÓN que desenterró el CI legible
+### Los TRES bugs de PRODUCCIÓN que desenterró el CI legible
 
-Esta es la justificación entera de haber hecho el CI legible: mientras los rojos rotaban, los
-dos estaban ahí sin que nadie los viera.
+Esta es la justificación entera de haber hecho el CI legible: **los tres afectaban a usuarios
+reales y los tres eran invisibles mientras los rojos rotaban.** Cada uno tenía un test en rojo
+señalándolo; ninguno se leía como "bug de producto", porque un rojo entre treinta y dos que
+cambian de corrida en corrida no se lee como nada.
 
 1. **`resolvePriceUnitSelection` — la página de editar anuncio CRASHEABA en producción.**
-   Lógica pura atrapada en un módulo `'use client'`, invocada desde un Server Component.
-   `next dev` no lo detecta; `next start` sí. Funcionaba en local y estaba roto en producción.
-   Curado extrayéndola a `src/lib/price-unit.ts`.
-2. **`perPage` por encima del tope del DTO, con el error tragado.** Los llamantes pedían 200
-   (selector de páginas del footer) y 500 (sitemap) contra un `@Max(50)` → **400** que un
-   `.catch` silencioso convertía en lista vacía. Consecuencias: un admin **nunca** podía
-   enlazar una página del CMS en el footer, y **el sitemap se generaba sin un solo post ni
-   página** en un proyecto que vive del SEO. Curado subiendo el tope a 500, paginando el
-   sitemap (el blog crece sin techo) y **quitando los dos silenciadores**.
+   *(commit `5b779ca`)* Función pura atrapada en un módulo `'use client'`, invocada desde un
+   Server Component. `next dev` no lo detecta; `next start` sí. Funcionaba en local y estaba
+   roto en producción — **el modo dev del CI lo estaba ocultando**. Curado extrayéndola a
+   `src/lib/price-unit.ts` (módulo sin directiva, importable desde los dos lados) con sus
+   pruebas unitarias.
+2. **`perPage` por encima del tope del DTO, con el error tragado (SEO).** *(commit `8903dac`)*
+   Los llamantes pedían 200 (selector de páginas del footer) y 500 (sitemap) contra un
+   `@Max(50)` → **400** que un `.catch` silencioso convertía en lista vacía. Consecuencias: un
+   admin **nunca** podía enlazar una página del CMS en el footer, y **el sitemap se generaba
+   sin un solo post ni página** en un proyecto descrito como *"fuertemente dependiente del
+   SEO"*. Curado con **dos remedios distintos según el volumen**: `@Max(50)` → `@Max(500)` para
+   el footer (volumen acotado, cabe en una petición) y **paginación de verdad** para el sitemap
+   (`POR_PAGINA = 200` + bucle `traerTodo`, porque el blog crece sin techo y un tope nuevo solo
+   aplaza el mismo fallo). Y lo que iba **en cualquier caso**: quitar los silenciadores. Hoy el
+   footer pinta un `role="alert"` visible (`item-page-select-error`) y el sitemap registra
+   `console.error` diciendo que sale **INCOMPLETO** y con cuántas entradas.
+3. **Sobre-conteo de no leídos en la bandeja.** *(commit `c43b5a4`)* `ConversationList`
+   incrementaba `unreadCount + 1` cada vez que corría su efecto sobre `[latestMessage]`, **sin
+   deduplicar por id de mensaje**: un remount volvía a contar el mismo mensaje. Medido:
+   **UI = 8, servidor = 1**. La investigación previa fue la que decidió el arreglo — el
+   incremento optimista **es intencionado** (el hermano `ChatClient` ya lo hacía bien,
+   deduplicando), así que la cura no era quitar el incremento sino darle memoria: un
+   `useRef<Set<string>>` de ids ya contados, sembrado con el `latestMessage` inicial.
 
-El segundo lo detectaban `footer-admin:11`/`:113`, que llevaban tiempo en rojo tratados como
-"otro test frágil". Eran centinelas correctos.
+**Los rojos que los señalaban eran centinelas correctos, no tests frágiles.** `footer-admin:11`
+y `:113` llevaban tiempo en rojo tratados como ruido. Y en `mensajeria-unificada` estuve a punto
+de "arreglar" la aserción de `4` a `1` leyendo un estado del servidor: **la aserción nunca
+estuvo mal, el producto sí** — con el sobre-conteo curado el badge volvió a 4 solo.
+
+*Nota para el historial:* los tres arreglos viajan en commits titulados `test CI 4/9/12`. Los
+mensajes no dicen que ahí dentro hay tres bugs de producción; **este documento es el único
+sitio donde esa correspondencia queda escrita.** Conviene no perderla.
 
 ### La lección de método (la más cara de aprender)
 
@@ -10056,6 +10097,51 @@ va por `clicarYEsperarUrl` (que reintenta el clic) y mide 6/6 verde. Es el camin
 (~8,5 %) — bastante suite que no puede bloquear. Encauzar `elegirCategoria` y
 `buscador-sugerencias` por el mismo reintento reduciría ese número; queda propuesto.
 
+### Las BARRERAS estructurales que quedan
+
+El criterio de toda la saga: **cada barrera convierte una convención-que-hay-que-recordar en una
+imposibilidad.** Un helper compartido que hay que acordarse de usar no es una barrera; se elige
+el diseño en el que hacerlo mal cuesta más que hacerlo bien.
+
+| Barrera | Qué imposibilita |
+|---|---|
+| `apps/api/test/helpers/async-state.ts` | Muestrear el instante. Se espera al **ESTADO definitivo** con una sonda cuyo *throw* significa "aún no", backoff progresivo y **deadline finito** que escala local↔CI. Un bug real falla con diagnóstico; no cuelga. |
+| `testTimeout: 120000` en `test/jest-e2e.json` | Que los deadlines sean **inertes**. Estaba en 30 s: un deadline de 60 s dentro de un test que Jest mata a los 30 no espera nada — el helper nunca llegaba a pronunciarse. Subirlo NO alarga las corridas verdes; solo deja que los rojos se expliquen. |
+| `apps/web/e2e/helpers/wait-for-card.ts` | Preguntar `isVisible()` en un microsegundo. Se espera el **estado visible por iteración** (`card.waitFor({state:'visible'})`), deadline 45 s local / 90 s CI, sonda `DIAG_WAITFORCARD=1` opt-in conservada. Y el `Math.max(1, …)` del timeout por intento, que **no es cosmético**: en Playwright `timeout: 0` significa *esperar para siempre* — con `Math.max(0, …)` un deadline de 8 s colgó 147 s. |
+| `apps/web/e2e/helpers/seed-listings.ts` | La sedimentación entre corridas. Limpieza **por prefijo** que sobrevive al descarte de worker de Playwright, y que borra vía `DELETE /listings/:id` para limpiar **Postgres Y Meili** (no solo la fila). |
+| `apps/web/e2e/helpers/nav.ts` (`clicarYEsperarUrl`) | Esperar más a una espera que ya no va a resolverse. **Reintenta el CLIC**. Es la mitigación de 2b donde 2b es recuperable. |
+| `apps/api/test/reset-redis-between-suites.ts` · `e2e-lock.js` | Que dos baterías compartan Redis o corran a la vez. |
+| El split del workflow (2 pasos, no `playwright.config`) | Que el conjunto tolerado crezca **invisible**. |
+
+### Las lecciones META (la más importante primero)
+
+1. **En bugs de concurrencia y de *timing* bajo carga, el código se ve correcto y razonar DESDE
+   él FALLA.** La causa solo aparece **observando el fallo mientras ocurre**. Más de seis
+   hipótesis —del asesor y mías— murieron al medirlas: el tope de anuncios activos, la
+   sedimentación entre corridas, la latencia de indexación, la *starvation* de `geocode`, el
+   badge de mensajería en 1, la revalidación eventual del footer. **Ninguna** sobrevivió al
+   contacto con una medición, y **cada diagnóstico ganador vino de una sonda que capturó el
+   fallo en el acto.** La familia 2a estuvo cinco ráfagas sin explicación porque toda la
+   evidencia era *post mortem*; un instrumento que sondeaba las cuatro capas en cada vuelta la
+   resolvió en una sola corrida.
+2. **2b es estocástico → se etiqueta el VECTOR, no los fallos observados.** Una muestra no es
+   el conjunto: etiquetar "lo que falló hoy" deja expuestos sin marcar, siempre.
+3. **Observar el MECANISMO antes de clasificar; la firma del error engaña.** `h8-d4-banners` y
+   `blog-markdown-editor` parecían cosas distintas ("el banner no aparece", "el markdown no
+   renderiza") y los dos eran *router wedge*: el clic no navegaba y el test seguía en la página
+   anterior. La pregunta que clasifica bien no es *¿qué dice el error?* sino **¿el clic
+   navegó?**
+4. **Reintentar la ACCIÓN, no esperar más a la espera.** Convergieron ahí tres arreglos
+   independientes: `clicarYEsperarUrl`, el envío de mensaje en `mensajeria-unificada` y el
+   *picker* de ficheros de `tickets-adjuntos` (donde además hay que **vaciar el input antes de
+   reponer el mismo fichero**, o no se dispara otro `change` y el reintento repite el estado
+   roto).
+5. **Medir el comando/estado EXACTO antes de creer un log.** Un `Running 271` resultó ser log
+   **obsoleto** tres veces. El árbitro es `playwright test --list`, ejecutado en el momento.
+   *Corolario de la misma familia:* verificar la **codificación** de lo que se escribe.
+6. **No cerrar en falso sobre un número inferido.** Los dos grupos se midieron verdes sobre el
+   mismo árbol. Habría sido cómodo deducir que componían; deducirlo no es medirlo.
+
 ### Aviso de herramienta (aprendido rompiendo dos ficheros)
 
 **Nunca escribir ficheros fuente con `Set-Content` de PowerShell en este repo.** Al etiquetar
@@ -10063,6 +10149,52 @@ se usó `Set-Content -Encoding UTF8` y dejó los dos specs con UTF-8 doblemente 
 (`BÚSQUEDA` → `BÃšSQUEDA`): 7 rojos que NO eran reales, en ficheros ya commiteados. Se
 reparó invirtiendo el round-trip Windows-1252 y quitando el BOM (diff de solo encoding,
 84↔84). Las ediciones con `perl -0pi` sí conservan UTF-8 correctamente.
+
+### FOLLOW-UPS de la saga (no urgentes, anotados)
+
+- **Encoger el conjunto tolerado.** 23 de 271 (~8,5 %) es bastante suite permanentemente
+  no-bloqueante. `blog-markdown-editor` demuestra el camino: alcanza el vector de 2b y **no
+  lleva etiqueta** porque va por `clicarYEsperarUrl` y mide 6/6. Encauzar `elegirCategoria`
+  (12 tests de `busqueda-unificada`) y `buscador-sugerencias` (6) por el mismo reintento de
+  clic reduciría el tolerado a un puñado. **Mitigar el vector hace innecesaria la etiqueta**;
+  dejar 23 tests sin poder bloquear es la alternativa peor.
+- **Divergencia dev/prod en el webServer LOCAL de Playwright.** El CI se arregló en esta saga
+  (`next start` + `nest start`, ambos en producción); **el local NO**: `playwright.config.ts`
+  sigue usando `next dev` + `nest start --watch` fuera de CI (líneas 118-120 y 142-144). Es la
+  MISMA clase de riesgo que ocultó el bug #1 durante meses: *lo que el modo dev perdona, el
+  build de producción no*. Síntoma ya visto y no investigado: un error de `next/image` con host
+  `example.com` en el arranque dev local, que **no tumbó la corrida**. `example.com` no está en
+  `remotePatterns` (`apps/web/src/lib/image-domains.ts` solo admite `localhost` y
+  `*.r2.cloudflarestorage.com`, y lo consume `next.config.ts`), así que conviene revisar si en
+  producción se comporta distinto.
+- **Comentario obsoleto detectado y NO corregido a ciegas:** `playwright.config.ts:99` habla de
+  *"los 331 tests"*. El árbitro (`--list`) dice **271**. No se reescribe porque no consta a qué
+  recuento se refería cuando se escribió; queda anotado para que nadie lo cite como dato.
+
+### Bugs de PRODUCCIÓN detectados y NO tocados (cada uno pide su propia ráfaga)
+
+Se documentan aquí en vez de arreglarse de pasada: son cambios de comportamiento de producto o
+del arranque de producción, y colarlos en una ráfaga de CI habría sido exactamente lo que esta
+saga existe para impedir.
+
+- **`createSchemaHasActiveEdit` — guard sin consumidor** (`app/(admin)/admin/categorias/page.tsx:530`).
+  En modo CREACIÓN del wizard de categorías, un atributo a medio editar **se descarta en
+  silencio**. La variable existe y nadie la lee; borrarla enterraría el bug, arreglarla cambia
+  el comportamiento del backoffice. TODO anotado en el propio fichero.
+- **`pnpm start` / `start:prod` apuntan a un entry inexistente.** Los dos hacen
+  `node dist/main`, pero `nest build` compila también `prisma/`, así que el `rootDir` inferido
+  es la raíz del paquete y **el entry real es `dist/src/main.js`** (verificado: existe uno, no
+  el otro). Los scripts de arranque de PRODUCCIÓN están rotos.
+- **`multer` es dependencia FANTASMA.** Import **de valor** (`import { memoryStorage } from
+  'multer'`) en **5 ficheros** —`media.controller`, `blog-admin.controller`,
+  `admin-sponsored-ads.controller`, `tickets.controller`, `admin-tickets.controller`— y en
+  `package.json` solo está declarado `@types/multer`. Llega de rebote por
+  `@nestjs/platform-express`, y pnpm (que no aplana) **no la expone**: arrancar el `dist` con
+  `node` a pelo revienta con `Cannot find module 'multer'`. Se combina con el punto anterior
+  para hacer el arranque de producción doblemente inviable.
+- **Prisma 6 → 7: aviso de deprecación.** La configuración vive en el bloque `"prisma"` de
+  `apps/api/package.json` (con `seed`); Prisma 7 lo mueve a `prisma.config.ts`, que **no
+  existe** en el repo. Hoy solo avisa; en el salto de major dejará de funcionar el `db seed`.
 
 ---
 

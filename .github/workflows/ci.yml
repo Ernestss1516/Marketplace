@@ -271,8 +271,10 @@ jobs:
       # job env vars reach the NestJS process when .env.test is absent in CI.
       # ── LA SEÑAL ────────────────────────────────────────────────────────────
       # Todo MENOS los @2b. Si esto falla, el fallo es REAL y el pipeline cae.
-      # 265 de los 271 tests. `--grep-invert @2b` es el complemento exacto del
-      # paso de abajo: verificado con `playwright test --list` (265 + 6 = 271).
+      # 248 de los 271 tests. `--grep-invert @2b` es el complemento exacto del
+      # paso de abajo: verificado con `playwright test --list` (248 + 23 = 271).
+      # (Decía "265 + 6" — cifras del primer etiquetado POR INCIDENCIA, anterior
+      # al retag POR PATRÓN. El árbitro es `--list`, no este comentario.)
       - name: Frontend e2e — Playwright (señal, sin @2b)
         run: pnpm --filter @marketplace/web test:e2e -- --grep-invert "@2b"
 
