@@ -1,17 +1,43 @@
 # Diseño — Ajustes al sistema de búsqueda + sistema de TAGS
 
-> Documento de diseño **para aprobar** (2026-08-01). Recoge la auditoría del código real y
-> el diseño propuesto. **Nada de esto está implementado todavía.**
+> ## ✅ ESTADO: IMPLEMENTADO POR COMPLETO — A1–A4 y B1–B4, verde en CI
 >
-> **Bloque A — Búsqueda (3 ajustes):**
+> **Documento de diseño aprobado (2026-08-01) e implementado entre el 1 y el 2 de agosto de
+> 2026.** Cabecera revisada en la auditoría de documentación del **2026-08-04**: la versión
+> anterior seguía diciendo *«documento para aprobar — nada de esto está implementado
+> todavía»* cuando el propio cuerpo del documento ya llevaba ocho bloques de
+> «IMPLEMENTADO». Era la cabecera lo que estaba desfasado, no el diseño.
+>
+> **Donde el diseño y la implementación difieran, gana la implementación.** Las desviaciones
+> **no se han borrado**: están marcadas en su sitio, dentro de la sección que corrigen, para
+> que quien leyera el diseño original entienda qué cambió y por qué.
+>
+> | Ráfaga | Qué cerró | Desviación respecto al diseño |
+> |---|---|---|
+> | **A1** | URLs anidadas `/vehiculos/coches` + 308 desde las planas | **Sí — dos**: el 308 lo emite el *middleware*, no la página; y dos rutas explícitas en vez del catch-all `[...ruta]`. Ver §3.1.2 |
+> | **A2** | Unificación `/busqueda` ↔ `/[categoria]` | Menor: el backend expuso **dos** campos nuevos, uno más del previsto. Ver §3.2 |
+> | **A3** | Panel de filtros *schema-driven* | Alcance: cierra F1, F2, F4, F5 y F6; **F3 salió a A4**. Ver §3.3 |
+> | **A4** | Rango numérico `_min`/`_max` | **Ráfaga que el plan no tenía** — nació de resolver P4. Ver §8 |
+> | **B1** | Modelo `Tag`, herencia y CRUD admin | Menor: la semilla de ejemplo quedó en `seed-test.ts`, no en `seed.ts`. Ver §6 |
+> | **B2** | Tags en el anuncio (wizard, validación, indexación) | No, salvo un hallazgo abierto sobre nombres reservados. Ver §4.7 |
+> | **B3** | Filtrado `?tags=` con AND | **Sí**: un slug desconocido se descarta en silencio (el diseño no lo decidía), y se retiró un endpoint que se llegó a escribir. Ver §4.7 |
+> | **B4** | Buscador de portada con sugerencias | **Sí**: `facetQuery` no sirve para seleccionar candidatos. Ver §4.8 |
+>
+> **Para la crónica** —qué falló, en qué orden, con qué baterías y qué bugs salieron por el
+> camino— la referencia es `estado-tecnico.md`, secciones «Búsqueda + Tags — RÁFAGA A1…B4» y
+> «🏁 BÚSQUEDA + TAGS — TRABAJO COMPLETO». Aquí está el **diseño y sus desviaciones**, no el
+> registro de ejecución.
+>
+> **Bloque A — Búsqueda (3 ajustes, 4 ráfagas):**
 > 1. Unificar búsqueda: elegir categoría en `/busqueda` lleva a la ruta de categoría
 >    (y el tránsito inverso), preservando filtros.
 > 2. URLs **anidadas** de categoría (`/vehiculos/coches`) con redirects de las viejas.
-> 3. Confirmar que los filtros muestran **todos** los campos filtrables según config.
+> 3. Que los filtros muestren **todos** los campos filtrables según config.
 >
 > **Bloque B — Tags:** sistema nuevo e independiente, hermano del de atributos.
 >
-> **Requisito de oro:** lo que ya funciona sigue funcionando. Se extiende, no se rehace.
+> **Requisito de oro (cumplido y verificado):** lo que ya funciona sigue funcionando. Se
+> extendió, no se rehízo. Ver §7.
 
 ---
 
@@ -33,6 +59,23 @@ como se anticipaba, el ajuste 2 — y el riesgo es de SEO, no técnico.
 ---
 
 # PARTE I — AUDITORÍA
+
+> ## 📌 Esto describe el sistema ANTES de los cambios (estado a 2026-08-01)
+>
+> **No es el estado actual, y se conserva a propósito.** Es lo que explica *por qué* el
+> diseño de la Parte II es como es: cada decisión de allí responde a un hallazgo de aquí.
+> Borrarla dejaría el diseño sin sus premisas.
+>
+> Para saber cómo funciona el sistema **hoy**, la Parte II (ya implementada) y
+> `estado-tecnico.md`. Todo lo que esta parte describe en presente —«hoy el breadcrumb no
+> muestra el padre», «el panel pinta las facetas a ciegas», «el buscador no sugiere nada»—
+> **ya no es cierto**: son exactamente los huecos que A1–A4 y B1–B4 cerraron.
+>
+> **Una precisión sobre H3** (auditoría 2026-08-04): los «8 generadores» de la tabla de §0
+> son los que construían una **ruta de categoría** (`/${slug}`). §3.1.4 enumera **once**
+> (G1–G11) porque añade los tres que construían `/busqueda?category=` (G9–G11), que el
+> ajuste 1 hizo converger con los anteriores. Los dos números son correctos; cuentan cosas
+> distintas. La implementación migró los **once**.
 
 ## 1. Bloque A — el sistema de búsqueda hoy
 
@@ -412,7 +455,33 @@ mecánico.
 
 ---
 
-# PARTE II — DISEÑO
+# PARTE II — DISEÑO (implementado)
+
+> ## 📌 Cómo leer esta parte
+>
+> Está escrita en **futuro** («se hará», «se propone») porque es el diseño tal y como se
+> aprobó. **Todo lo que propone está construido**, así que léase en pasado.
+>
+> No se reescribió verbo a verbo a propósito: el valor de esta parte es que conserva el
+> razonamiento *previo* —qué alternativas se sopesaron y por qué se eligió una—, y pasarlo
+> todo a pasado lo convertiría en una descripción de lo que hay, que ya existe en
+> `estado-tecnico.md` y en el código. Lo que sí se hizo, ráfaga a ráfaga, fue **anotar cada
+> desviación en el punto exacto donde ocurrió**, en bloques `> ✅ IMPLEMENTADO` y
+> `> ⚠️ CORRECCIÓN TRAS IMPLEMENTAR`. Son ocho, y son la parte que manda:
+>
+> | Bloque | Dónde | Qué corrige |
+> |---|---|---|
+> | ⚠️ CORRECCIÓN (A1) | §3.1.2 | El 308 va en el *middleware*; el catch-all se descartó |
+> | ✅ IMPLEMENTADO (A2) | §3.2.2 | Un campo de backend más del previsto |
+> | ✅ IMPLEMENTADO (A3) | §3.3 | F1/F2/F4/F5/F6 sí, F3 sale a A4 |
+> | ✅ IMPLEMENTADO (A4) | §3.3 (rango) | El rango numérico, tal cual se propuso |
+> | ✅ IMPLEMENTADO (B1) | §4.1–§4.4 | Modelo, herencia y CRUD completos |
+> | ✅ IMPLEMENTADO (B2) | §4.5–§4.7 | Todo menos el filtro |
+> | ✅ IMPLEMENTADO (B3) | §4.7 | El filtro + dos decisiones que el diseño no tomaba |
+> | ✅ IMPLEMENTADO (B4) | §4.8 | Postgres-first, con un motivo más fuerte del escrito |
+>
+> **Si el diseño de un párrafo y su bloque de implementación se contradicen, manda el
+> bloque.** Y si el bloque y el código se contradicen, manda el código.
 
 ## 3. Bloque A
 
@@ -1192,13 +1261,32 @@ habría que reescribir ese destino después.
 
 ---
 
-## 5. La relación entre A y B, y el orden recomendado
+## 5. La relación entre A y B, y el orden de ejecución
+
+> **✅ El orden previsto se respetó y funcionó.** Se ejecutó A (A1→A2→A3→A4) y después B
+> (B1→B2→B3→B4), es decir *ajuste 2 → ajuste 1 → ajuste 3 (+ rango) → tags*, exactamente
+> como se recomienda aquí. Las cinco razones de abajo se confirmaron en la práctica:
+>
+> - **(1) se cumplió literalmente:** B4 construye su destino con `categoryPath()` de A1
+>   (§4.8). Escrito antes, habría habido que rehacerlo.
+> - **(2) también:** la sección «Etiquetas» de B3 se montó sobre el panel *schema-driven*
+>   que A3 dejó, y por eso pudo heredar gratis el criterio F6 —una etiqueta configurada sin
+>   anuncios se pinta con `(0)` y deshabilitada— en vez de reinventarlo.
+> - **(3) fue la más rentable:** la regla de arrastre de A2 (`filter-carry.ts`) absorbió
+>   `?tags=` en B3 **sin rediseñarla**; solo hubo que filtrar las etiquetas una a una en vez
+>   de conservar o tirar el parámetro entero.
+> - **(4) se confirmó:** A1 fue efectivamente la de más radio, y sus dos desviaciones
+>   (§3.1.2) salieron ahí, con el resto del sistema quieto.
+> - **(5)** la dependencia fue unidireccional, como se preveía.
+>
+> **Lo único que el orden no anticipó** fue que el ajuste 3 se partiría en dos (A3 + A4).
+> No alteró la secuencia: A4 encaja donde estaba A3.
 
 Los tags se filtran **dentro** de las rutas de búsqueda: `?tags=` es un query param más de
 `/busqueda` y de la ruta de categoría, y el buscador de portada **construye URLs de
 categoría**.
 
-**Recomendación: A antes que B. Y dentro de A: ajuste 2 → ajuste 1 → ajuste 3.**
+**Recomendación original: A antes que B. Y dentro de A: ajuste 2 → ajuste 1 → ajuste 3.**
 
 Razones, en orden de peso:
 
@@ -1222,9 +1310,43 @@ el de menor riesgo.
 
 ---
 
-## 6. Desglose en ráfagas
+## 6. Desglose en ráfagas — TODAS CERRADAS
 
-> Nada de esto se implementa hasta aprobar este documento.
+> ## ✅ Las ocho ráfagas están hechas y verificadas
+>
+> El plan preveía **siete** (A1–A3, B1–B4); se ejecutaron **ocho**: el rango numérico salió
+> del ajuste 3 a una ráfaga propia (**A4**) al resolver P4 —era la mitad del trabajo de A3 y
+> tocaba parser y service, no solo presentación—. Ver §8, P4.
+>
+> | Ráfaga | Estado | Criterio de cierre | Verificación |
+> |---|---|---|---|
+> | **A1** URLs anidadas | ✅ | Cumplido | `categoria-urls-anidadas.spec.ts` — **transversal, no una muestra**: recorre `GET /categories` y comprueba las 648 hijas y las 1 786 raíces. Backend `category-parent-exposure.e2e-spec.ts`. Unitarios `category-url.test.ts`, `category-canonical.test.ts` |
+> | **A2** Unificación | ✅ | Cumplido | `busqueda-unificada.spec.ts` (17) — ejerce la trampa del 400 en los dos sentidos con datos reales del seed. Unitario `filter-carry.test.ts` (17). Backend `category-tree-filter-metadata.e2e-spec.ts` (10) |
+> | **A3** Panel *schema-driven* | ✅ | Cumplido salvo F3 (→ A4) | `filtros-schema-driven.spec.ts` (12) contra una categoría **sin ni un anuncio**, que era justo el caso que antes no pintaba nada. Unitarios `filterable-fields.test.ts` (14), `FilterPanel.schema.test.tsx` (19) |
+> | **A4** Rango numérico | ✅ | *(ráfaga nueva)* | `search-attribute-range` (13) con anuncios a ambos lados del rango; `admin-range-suffix-collision` (8) |
+> | **B1** Modelo + herencia + CRUD | ✅ | Cumplido | `tags-b1.e2e-spec.ts` (30), `tag.types.spec.ts` (9) |
+> | **B2** Tags en el anuncio | ✅ | Cumplido | `tags-b2.e2e-spec.ts` (21), `search.service.todocument.spec.ts` (5) |
+> | **B3** Filtrado por tags | ✅ | Cumplido | `tags-b3.e2e-spec.ts` (15), `tags-filtro.spec.ts` (5), `tags-filter.test.ts` (14) |
+> | **B4** Buscador de portada | ✅ | Cumplido | `tags-b4.e2e-spec.ts` (19), `buscador-sugerencias.spec.ts` (11) |
+>
+> **Cinco de las ocho se validaron por MUTACIÓN**, no solo por camino feliz: se rompió el
+> mecanismo a propósito y se comprobó qué tests caían (A4: quitar `>=`/`<=` → 5 rojos; B2:
+> quitar la pertenencia al set efectivo → 7; B3: AND → OR → 3; B4: candidatos solo desde la
+> faceta → 6, incluido el de P6). Esa última mutación **es** el argumento de por qué
+> Postgres-first, no un extra.
+>
+> **Desviaciones respecto a lo planificado aquí:**
+> - **A1** iba a usar el catch-all `[...ruta]` y `permanentRedirect()` en la página; acabó
+>   con **dos rutas explícitas** y el 308 en el **middleware** (§3.1.2).
+> - **A3** iba a incluir `_min`/`_max`; salieron a **A4**.
+> - **B1** preveía «semilla de tags de ejemplo en `seed.ts`». La semilla (`seedTags()`)
+>   quedó **solo en `seed-test.ts`** —`garantia` y `envio-incluido` en «vehículos»,
+>   `unico-dueno` en «coches», `descatalogado` sin asignar—, elegida para que la herencia
+>   quedara ejercitada de forma determinista. **Consecuencia viva:** una base de datos de
+>   desarrollo recién sembrada nace con el vocabulario de etiquetas **vacío**; hay que
+>   crearlas desde `/admin/tags`. No es un fallo, pero sorprende si no se sabe.
+> - **B1** creó ya la tabla `ListingTag` aunque nadie la escribiera hasta B2, para no
+>   pagar una segunda migración.
 
 ### BLOQUE A
 
@@ -1298,7 +1420,34 @@ el de menor riesgo.
 
 ---
 
-## 7. Compatibilidad: qué NO se rompe y cómo se verifica
+## 7. Compatibilidad: qué NO se rompió, y cómo se comprobó
+
+> ## ✅ Verificado — el requisito de oro se cumplió
+>
+> La tabla de abajo era una **previsión**; hoy es un **resultado**. Cada fila tiene su
+> verificación ejecutada, y las cuatro afirmaciones que más importaban se comprobaron de
+> forma explícita al cerrar cada ráfaga:
+>
+> - **El 400 anti-leak cross-categoría sigue intacto.** Era el riesgo central de A2: la
+>   solución filtra **en cliente** antes de navegar (`filter-carry.ts`); el backend no se
+>   relajó. A3 y B3 lo revalidan cada uno con un test propio.
+> - **`GET /search` sin `?tags=` devuelve exactamente lo mismo.** Comprobado al cerrar B3,
+>   que es la única ráfaga que cambia qué anuncios salen.
+> - **El sistema de atributos quedó intacto.** `...attributes` se sigue emitiendo primero y
+>   los campos core después — hay un test **unitario** de `toDocument` que lo fija (y que
+>   existe precisamente porque medirlo en e2e daba un falso verde: ver §4.7).
+> - **Las categorías raíz no cambiaron de URL.** Las 1 786 comprobadas en A1.
+>
+> **Dos matices honestos:**
+>
+> 1. **La «verificación transversal recomendada» de más abajo se hizo, y a lo grande.** No
+>    fue un script suelto: es `categoria-urls-anidadas.spec.ts`, que recorre el árbol entero
+>    en cada corrida. Las raíces se comprueban con una sonda `/{sonda}/{raiz}` que lee la
+>    canónica vía redirect, en lugar de renderizar 1 786 páginas.
+> 2. **Dos tests de B2 SÍ se modificaron, y era obligatorio.** Afirmaban el *límite* de B2
+>    —que `?tags=` devolvía 400—, que es justo lo que B3 elimina. Un test que describe un
+>    comportamiento retirado no puede quedarse en verde. Ningún otro test existente cambió
+>    de lógica.
 
 | Riesgo | Por qué no se rompe | Verificación |
 |---|---|---|
@@ -1323,7 +1472,64 @@ real, las que haya.
 
 ---
 
-## 8. Preguntas abiertas (decidir antes de implementar)
+## 8. Decisiones tomadas (eran las preguntas abiertas del diseño)
+
+> **Las diez se decidieron al implementar.** Debajo, la decisión de cada una y dónde vive en
+> el código. El enunciado original se conserva bajo cada bloque: una pregunta sin su
+> contexto no explica por qué la respuesta es la que es.
+
+| | Pregunta | Decisión | Dónde |
+|---|---|---|---|
+| **P1** | ¿308 o 301 literal? | **308**, pero **desde el middleware**, no desde la página. Se mantiene el fondo (permanente, derivado de la BD, sin tabla estática); cambia dónde vive, porque `permanentRedirect()` en la página **no puede** emitir 308 en este proyecto | `lib/category-canonical.ts` + `middleware.ts` · §3.1.2 |
+| **P2** | URL incoherente: ¿redirigir o 404? | **Redirigir.** La regla «el último segmento manda» absorbe de una vez la URL vieja plana, el padre incoherente y el padre inexistente, sin tabla que mantener y siguiendo al día cualquier cambio de padre que haga un admin | `lib/category-canonical.ts` · §3.1.1 |
+| **P3** | ¿`/busqueda?category=X` redirige? | **Sí, 308** a la ruta canónica con el resto de la query intacto. Se activó **después** de auditar que ningún flujo interno depende de que renderice: no queda ningún generador en el front (A1 los migró), no aparece en plantillas de email ni en enlaces guardados en BD (footer, banners, patrocinados, bloques — las dos bases auditadas) y las alertas solo renderizan texto | A2 · §3.2 |
+| **P4** | Rango `_min`/`_max`: ¿dentro o fuera del ajuste 3? | **Fuera: ráfaga propia (A4).** Era la mitad del trabajo de A3 y tocaba parser y service, no solo presentación. Los extremos son **inclusivos**, cualquiera de los dos puede faltar, y es **aditivo**: `km=120000` sigue funcionando y se puede combinar con el rango | `search-query.parser.ts` · §3.3 |
+| **P5** | ¿Formato de `?tags=`? | **CSV confirmado** (`?tags=a,b`). Además, el `@Transform` **también acepta** `?tags=a&tags=b` y lo aplana, en vez de perder un filtro en silencio | `SearchQueryDto` · §4.7 |
+| **P6** | ¿Sugerir tags sin anuncios? | **Sí, opción (a): al final y marcados con `(0)`.** Y sale **gratis**: ordenar por `count desc` y, a igualdad, por `orden` editorial ya los manda al final — no hizo falta una regla aparte. Es lo que hace que un catálogo recién configurado no nazca mudo | `TagsService.suggestTags` · §4.8 |
+| **P7** | ¿Un tag puede vivir sin categoría? | **No se ofrece hasta asignarlo.** B3 lo reforzó: la unión del árbol que alimenta el panel de `/busqueda` **no** es el catálogo entero, justamente para no ofrecer un tag que ningún anuncio puede llevar — sería un callejón sin salida garantizado | `lib/available-tags.ts` · §4.7 |
+| **P8** | ¿Alertas por tags? | **Fuera de alcance, confirmado.** `Alert` no tiene columna `tags` (verificado en `schema.prisma`). Queda como **deuda consciente**: añadirlo es columna + DTO + matching + UI de `/mis-alertas` + resumen, o sea una ráfaga entera | — |
+| **P9** | El bug del fallback de categoría padre | **Arreglado.** `findByCategory` filtra ahora con `OR: [{ slug }, { parent: { slug } }]` — el equivalente en Postgres del `categoryPath` de Meilisearch, con el mismo supuesto de 2 niveles. Antes, con Meilisearch caído, `/vehiculos` mostraba solo los anuncios colgados directamente del padre (normalmente ninguno) en vez de los de sus hijas: **el fallback no reproducía lo que reemplaza** | `listings.service.ts` · `findByCategory` |
+| **P10** | ¿Fichas de anuncio en el sitemap? | **No — alcance estricto.** El sitemap ganó las **categorías** (que no estaban, ni antes ni después del diseño), más blog y páginas informativas. Las fichas de anuncio **siguen fuera**; sigue siendo una mejora de SEO disponible | `app/sitemap.ts` |
+
+**Dos decisiones más que el diseño no llegó a plantear**, y que la implementación tuvo que
+tomar sobre la marcha:
+
+- **Un slug de tag desconocido se descarta EN SILENCIO, no da 400.** La diferencia con los
+  atributos no es de rigor, sino de qué significa cada cosa: un atributo ajeno a la categoría
+  es un **error de ámbito** (y el 400 existe para impedir el filtrado cross-categoría); un tag
+  desconocido es casi siempre un **enlace viejo** —alguien compartió `?tags=diesel` y meses
+  después un admin desactivó ese tag—, y romper esa búsqueda castiga al visitante por una
+  decisión de administración que no vio. La tercera opción, pasar el slug a Meilisearch tal
+  cual, es la peor: daría 0 resultados, y «no hay nada» y «ese filtro ya no existe» son
+  indistinguibles para quien mira. El panel tampoco queda incoherente, porque solo pinta
+  chips de tags ofrecidos.
+- **Se escribió un `GET /tags` público y se retiró antes de cerrar B3.** Iba a alimentar el
+  panel de `/busqueda`. Se quitó porque el árbol de `GET /categories` ya lleva los tags de
+  cada nodo —hacen falta para el arrastre de A2—, y su unión es a la vez **más barata** (cero
+  llamadas nuevas) y **más correcta** (excluye los tags que no se ofrecen en ninguna
+  categoría, que es P7 aplicado). B4 tampoco lo necesitó: `/tags/suggest` resuelve lo suyo.
+
+### Hallazgo abierto, no resuelto
+
+**`RESERVED_ATTRIBUTE_NAMES` no rechaza, solo ignora.** El diseño daba por hecho que crear un
+atributo de categoría llamado `tags` devolvería 400. **No lo hace**: se ejerció y
+`PATCH /admin/categories/:id` responde **200**. No es una validación de escritura, sino un
+salto dentro de `FilterableAttributesResolver.toMap` al construir el mapa de filtrables. Es
+**preexistente** y afecta a todos los nombres core, no solo a los de tags.
+
+El requisito de oro se cumple igual —que ningún atributo pueda colisionar— porque hay dos
+barreras que sí funcionan y están verificadas: un atributo llamado `tags` nunca llega a ser
+filtro, y aunque un anuncio lo lleve en su bag, el documento indexado tiene los slugs porque
+los campos core se emiten **después** del spread. Queda **abierto** si añadir un 400 al
+guardar: sería una validación nueva sobre un endpoint existente, afectaría a todos los nombres
+reservados, y ya hubo datos con nombres colisionantes (`type` vs `itemType` en el seed) — así
+que el cambio necesita mirar antes qué hay en producción.
+
+---
+
+### Enunciados originales de las preguntas
+
+*(Se conservan porque explican el contexto de cada decisión.)*
 
 **P1 — ¿308 o 301 literal?**
 `permanentRedirect()` de Next emite **308**, que Google trata igual que un 301 y que es la
