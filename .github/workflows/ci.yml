@@ -284,10 +284,29 @@ jobs:
       # `PLAYWRIGHT_HTML_OUTPUT_DIR` se resuelve con `path.resolve()` sobre el cwd,
       # y `pnpm --filter` ejecuta con cwd = apps/web (verificado), así que estos
       # valores relativos caen en `apps/web/`.
+      #
+      # ── SE INVOCA CON `exec`, NUNCA CON `run <script> -- <args>` ────────────
+      # Esto era `pnpm ... test:e2e -- --grep-invert "@2b"`, y el filtro NUNCA
+      # aplicó en CI: el step señal corría los 271 (medido con `gh`), los @2b
+      # fallaban por el router wedge, el step salía 1 y el job iba a Failure —
+      # arrastrando además al step @2b, que quedaba `skipped`.
+      #
+      # La causa es la frontera `--`, y DIVERGE ENTRE SHELLS:
+      #   PowerShell → playwright test "--list" "--grep-invert" "@2b"   → 248 ✔
+      #   bash/CI    → playwright test "--" "--list" "--grep-invert" "@2b" → 271 ✘
+      # PowerShell se COME el token `--`; bash lo pasa literal, y Playwright lo
+      # trata como fin-de-opciones: todo lo que sigue queda INERTE (ni siquiera
+      # `--list` funciona). Por eso local medía 248 y el runner corría 271: se
+      # estuvo verificando el filtro en el shell que ya había alterado el comando.
+      #
+      # `pnpm exec <bin> <args>` NO tiene esa frontera: los argumentos van al
+      # binario sin pasar por el reenvío de argumentos de `run`. Elimina la CLASE
+      # de bug, no solo el caso de bash. Es equivalente directo porque el script
+      # `test:e2e` es exactamente `playwright test`, sin pre/post hooks.
       - name: Frontend e2e — Playwright (señal, sin @2b)
         env:
           PLAYWRIGHT_HTML_OUTPUT_DIR: playwright-report-senal
-        run: pnpm --filter @marketplace/web test:e2e -- --grep-invert "@2b"
+        run: pnpm --filter @marketplace/web exec playwright test --grep-invert "@2b"
 
       # ── EL RUIDO CONOCIDO ───────────────────────────────────────────────────
       # Solo los @2b: la carrera de navegación del App Router bajo `next start`
@@ -306,11 +325,20 @@ jobs:
       # `waitForURL … until "commit"` CONFIRMADA. Etiquetar un rojo de otra causa
       # sería un `test.fixme` disfrazado — escondería un bug real, que es
       # exactamente lo que esta separación existe para impedir.
+      #
+      # `if: always()` ADEMÁS del `continue-on-error`. Son cosas distintas y hacían
+      # falta las dos: `continue-on-error` impide que su fallo tumbe el job, pero
+      # NO hace que el step corra. Sin `if:`, un step solo se ejecuta si todos los
+      # anteriores fueron bien — así que cuando el señal fallaba, este quedaba
+      # `skipped` y el conjunto tolerado no informaba de nada (confirmado con `gh`:
+      # nunca ha llegado a correr en CI). Con `always()` informa su tasa pase lo que
+      # pase, incluso si el señal cae por un no-@2b real.
       - name: Frontend e2e — Playwright (@2b, known-issue de Next — informa, no bloquea)
+        if: always()
         continue-on-error: true
         env:
           PLAYWRIGHT_HTML_OUTPUT_DIR: playwright-report-2b
-        run: pnpm --filter @marketplace/web test:e2e -- --grep "@2b"
+        run: pnpm --filter @marketplace/web exec playwright test --grep "@2b"
 
       # DOS artefactos con nombre distinto: el de la SEÑAL es el que hay que mirar
       # para decidir si el producto está bien; el de @2b informa del ruido tolerado.
