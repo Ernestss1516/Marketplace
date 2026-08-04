@@ -275,7 +275,18 @@ jobs:
       # paso de abajo: verificado con `playwright test --list` (248 + 23 = 271).
       # (Decía "265 + 6" — cifras del primer etiquetado POR INCIDENCIA, anterior
       # al retag POR PATRÓN. El árbitro es `--list`, no este comentario.)
+      #
+      # CADA PASO ESCRIBE SU PROPIO INFORME. Los dos usaban el
+      # `playwright-report/` por defecto, y como el upload va DESPUÉS de ambos, el
+      # informe de la señal —el que decide el pipeline— quedaba pisado por el del
+      # @2b en cada corrida: el artefacto solo enseñaba 23 tests. Se diagnosticaba
+      # el pipeline a ciegas justo por el lado que importa.
+      # `PLAYWRIGHT_HTML_OUTPUT_DIR` se resuelve con `path.resolve()` sobre el cwd,
+      # y `pnpm --filter` ejecuta con cwd = apps/web (verificado), así que estos
+      # valores relativos caen en `apps/web/`.
       - name: Frontend e2e — Playwright (señal, sin @2b)
+        env:
+          PLAYWRIGHT_HTML_OUTPUT_DIR: playwright-report-senal
         run: pnpm --filter @marketplace/web test:e2e -- --grep-invert "@2b"
 
       # ── EL RUIDO CONOCIDO ───────────────────────────────────────────────────
@@ -297,12 +308,26 @@ jobs:
       # exactamente lo que esta separación existe para impedir.
       - name: Frontend e2e — Playwright (@2b, known-issue de Next — informa, no bloquea)
         continue-on-error: true
+        env:
+          PLAYWRIGHT_HTML_OUTPUT_DIR: playwright-report-2b
         run: pnpm --filter @marketplace/web test:e2e -- --grep "@2b"
 
-      - name: Upload Playwright report
+      # DOS artefactos con nombre distinto: el de la SEÑAL es el que hay que mirar
+      # para decidir si el producto está bien; el de @2b informa del ruido tolerado.
+      # `if: always()` en los dos para que el informe exista también cuando la señal
+      # cae — que es justo cuando hace falta leerlo.
+      - name: Upload Playwright report (señal)
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-report
-          path: apps/web/playwright-report/
+          name: playwright-report-senal
+          path: apps/web/playwright-report-senal/
+          retention-days: 7
+
+      - name: Upload Playwright report (@2b, tolerado)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report-2b
+          path: apps/web/playwright-report-2b/
           retention-days: 7
