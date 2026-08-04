@@ -9948,26 +9948,41 @@ gateway y el `updateSetting` que hacía tres ajustes ineditables (con su UI).
 ## 🏁 La saga del CI — estado final: el CI vuelve a ser SEÑAL
 
 De **~32 rojos rotando ilegibles** (y un job que ni siquiera llegaba a veredicto: lo
-cancelaba GitHub a los 30 min) a un pipeline **estructurado para que verde signifique "el
-producto funciona"**, con el ruido conocido marcado y aparte.
+cancelaba GitHub a los 30 min) a un pipeline **verde en el runner**, estructurado para que verde
+signifique *"el producto funciona"*, con el ruido conocido marcado y aparte.
 
-> **CERRADA, con la medición delante y sobre el MISMO estado del árbol.**
+El objetivo nunca fue "cero rojos". Fue doble, y hasta la última ráfaga solo se había cumplido la
+mitad: que el CI **distinga señal de ruido**, y que **su color diga la verdad**. Durante ráfagas
+ejecutó bien la señal y la **reportó mal** — el pipeline estuvo rojo con el producto sano, no por
+un test frágil sino porque el filtro que separaba las dos cosas **nunca llegó a aplicarse en el
+runner**.
+
+> **CERRADA — y por primera vez el veredicto NO es local: es del runner.**
 >
-> | Grupo | Medición | Exit |
+> Corrida **`30930395538`**, SHA **`e4df671`**, leída con `gh` sobre la API de Actions.
+> `conclusion = success` en los dos jobs.
+>
+> | En el RUNNER (Ubuntu) | Medición | Step |
 > |---|---|---|
-> | Backend e2e (Jest, `--runInBand`) | **1476/1476, 92/92 suites** — dos corridas idénticas (658 s y 284 s; la diferencia es caché caliente de Docker/Meili, los recuentos son iguales) | 0 |
-> | Playwright — señal (`--grep-invert @2b`, 248 tests) | **247 pasados, 1 saltado, CERO fallos duros** | 0 |
+> | Backend e2e — Jest | **1476 pasados / 1476 · 92/92 suites** | success |
+> | Frontend unit — Jest | **378 pasados / 378 · 32/32 suites** | success |
+> | Playwright — **señal** (`--grep-invert @2b`) | **`Running 248`** → 247 pasados, 1 saltado, **0 fallos** (6,1 min) | success |
+> | Playwright — **@2b** (tolerado) | **`Running 23`** → 16 pasados, 4 flaky, **3 fallidos** (6,7 min) | absorbido por `continue-on-error` |
+> | **JOB `E2E Tests`** | — | **success** |
+> | **JOB `Lint & Typecheck`** | — | **success** |
 >
-> El split es complemento exacto: **`248 + 23 = 271`**, verificado con `playwright test --list`
-> el día del cierre (no heredado de un log anterior).
+> Los `Running 248` / `Running 23` son la prueba de que **el split aplica en CI por primera
+> vez desde que existe** (antes el step señal arrancaba con `Running 271`).
 >
-> Nada abierto. Los dos grupos se MIDIERON verdes; no se dedujo que compondrían.
+> El backend además tiene **dos corridas locales idénticas** previas (1476/1476, 658 s y 284 s;
+> la diferencia es caché caliente de Docker/Meili, los recuentos son iguales).
 >
-> *Nota de honestidad sobre el ruido:* una corrida anterior del grupo señal, en esta misma
-> saga, dio **245 pasados + 2 flaky recuperados por retry + 1 saltado** (exit 0 igualmente).
-> Es decir: el grupo señal pasa, pero `retries: 1` todavía está absorbiendo algún rebote
-> ocasional. Verde sí; verde *sin red de seguridad* aún no siempre. Se anota porque el
-> documento registra lo medido, no la versión pulcra.
+> Nada abierto. Nada inferido: el verde se LEYÓ en el runner, no se dedujo de que las piezas
+> compusieran.
+>
+> *Honestidad sobre el ruido tolerado:* el step @2b **falló 3 de 23** y otros 4 solo pasaron
+> por `retries: 1`. Eso es lo esperado —es ruido conocido, por eso está aparte— pero conviene
+> no leerlo como "los 23 pasan": no pasan, simplemente **no bloquean**.
 
 ### La regla que queda
 
@@ -9975,11 +9990,16 @@ producto funciona"**, con el ruido conocido marcado y aparte.
 
 | Paso | Qué corre | Si falla |
 |---|---|---|
-| `Playwright (señal, sin @2b)` | `--grep-invert "@2b"` — **248 de 271** | **Tumba el pipeline.** El fallo es real. |
-| `Playwright (@2b, known-issue)` | `--grep "@2b"` — **23** | `continue-on-error: true`: informa, no bloquea. |
+| `Playwright (señal, sin @2b)` | `exec playwright test --grep-invert "@2b"` — **248 de 271** | **Tumba el pipeline.** El fallo es real. |
+| `Playwright (@2b, known-issue)` | `exec playwright test --grep "@2b"` — **23** | `if: always()` + `continue-on-error: true`: corre siempre, informa, no bloquea. |
 
-248 + 23 = 271, verificado con `playwright test --list`. El complemento es exacto: ningún test
-se queda fuera de los dos sacos, y ningún no-etiquetado cae en el tolerado.
+248 + 23 = 271. El complemento es exacto: ningún test se queda fuera de los dos sacos, y ningún
+no-etiquetado cae en el tolerado. **Verificado en bash y confirmado en el runner** (`Running 248`
+y `Running 23` en el log de la corrida) — no con un `--list` en PowerShell, que es justo lo que
+falló durante ráfagas: ver la lección final más abajo.
+
+**Se invoca con `exec`, nunca con `run <script> -- <args>`.** No es estilo: la forma con `--` es
+sensible al shell y tuvo el split roto en CI desde que se creó.
 
 **El split vive en el WORKFLOW, no en `playwright.config.ts`** — y es deliberado. En la config,
 el conjunto tolerado sería invisible: se ensancharía en silencio, un `grepInvert` crece sin que
@@ -10097,6 +10117,61 @@ va por `clicarYEsperarUrl` (que reintenta el clic) y mide 6/6 verde. Es el camin
 (~8,5 %) — bastante suite que no puede bloquear. Encauzar `elegirCategoria` y
 `buscador-sugerencias` por el mismo reintento reduciría ese número; queda propuesto.
 
+### La ÚLTIMA cabeza: el split nunca aplicó en CI (y es la más instructiva)
+
+Durante toda la saga el pipeline estuvo **rojo mientras el producto estaba sano**, y la razón no
+era ningún test: era **cómo el workflow invocaba Playwright**.
+
+```
+run: pnpm --filter @marketplace/web test:e2e -- --grep-invert "@2b"
+```
+
+`pnpm run <script> -- <args>` **reenvía el `--` al binario**, y ahí empieza el problema:
+Playwright lo interpreta como **fin de opciones**, así que todo lo que va detrás queda
+**inerte**. No es que filtrase mal: es que **no filtraba nada**.
+
+Y lo que lo mantuvo escondido cinco ráfagas es que **diverge entre shells**:
+
+| Shell | Comando que pnpm ejecuta de verdad | Resultado |
+|---|---|---|
+| PowerShell (local) | `playwright test "--list" "--grep-invert" "@2b"` | **248** ✔ |
+| bash (el runner) | `playwright test "--" "--list" "--grep-invert" "@2b"` | **271** ✘ |
+
+**PowerShell se COME el token `--`; bash lo pasa literal.** Mismo `pnpm` (11.8.0), mismo texto
+de comando, resultado opuesto. Cada vez que se "verificó el filtro con `--list`" se verificó en
+el shell que ya había reescrito el comando.
+
+La cadena completa, confirmada con `gh` sobre la corrida real:
+
+1. El step señal corría **los 271**, no 248.
+2. Entre ellos los 23 `@2b`, que fallan por el router wedge.
+3. El step señal salía **1** → **job en Failure**.
+4. Y como el step `@2b` **no tenía `if:`**, quedaba **`skipped`**: nunca llegó a correr en CI.
+
+O sea: el conjunto tolerado **jamás informó de nada**, y el `continue-on-error` que se dio por
+bueno durante ráfagas **nunca llegó a entrar en juego**.
+
+**El arreglo — `exec`, no "quitar el `--`":**
+
+```yaml
+run: pnpm --filter @marketplace/web exec playwright test --grep-invert "@2b"
+```
+
+`pnpm exec <bin> <args>` **no tiene la frontera**: los argumentos van al binario sin pasar por
+el reenvío de `run`. Elimina la **clase** de bug (la frontera script/args sensible al shell), no
+solo el caso de bash. Es equivalente directo porque `test:e2e` es exactamente `playwright test`,
+sin hooks `pre`/`post` — comprobado en el `package.json`, no supuesto.
+
+**Y `if: always()` en el step @2b, ADEMÁS del `continue-on-error`.** Son cosas distintas y
+hacían falta las dos: `continue-on-error` impide que su fallo tumbe el job, pero **no hace que
+el step corra**. Sin `if:`, se saltaba justo cuando su informe importa.
+
+**Colateral arreglado en el mismo sitio:** los dos steps escribían en el mismo
+`playwright-report/`, y como el upload va después de ambos, **el informe de la señal —el que
+decide el pipeline— se perdía en cada corrida**. Ahora cada step tiene su carpeta
+(`PLAYWRIGHT_HTML_OUTPUT_DIR`) y su artefacto (`playwright-report-senal` / `-2b`), los dos con
+`if: always()` para que existan también cuando la señal cae, que es cuando hacen falta.
+
 ### Las BARRERAS estructurales que quedan
 
 El criterio de toda la saga: **cada barrera convierte una convención-que-hay-que-recordar en una
@@ -10136,11 +10211,29 @@ el diseño en el que hacerlo mal cuesta más que hacerlo bien.
    *picker* de ficheros de `tickets-adjuntos` (donde además hay que **vaciar el input antes de
    reponer el mismo fichero**, o no se dispara otro `change` y el reintento repite el estado
    roto).
-5. **Medir el comando/estado EXACTO antes de creer un log.** Un `Running 271` resultó ser log
-   **obsoleto** tres veces. El árbitro es `playwright test --list`, ejecutado en el momento.
+5. **LECCIÓN FINAL — medir el comando exacto NO BASTA si no se mide en el ENTORNO exacto.**
+   Esta corrige a la anterior versión de esta misma lista, que decía "el árbitro es
+   `playwright test --list`, ejecutado en el momento". **Era falsa por incompleta.** El comando
+   *en texto* no es el comando *en ejecución*: **el shell interviene**. Se ejecutó `--list`
+   cuatro veces, en el momento, con la forma literal del workflow… **en PowerShell**, que se
+   come el `--`. Dio 248 — cierto para PowerShell, **falso para el runner**, que corría 271.
+   > **El `Running 271` no mintió ninguna de las cuatro veces.** Decía la verdad de Linux;
+   > se estaba leyendo desde el shell equivocado. Se le llamó "log obsoleto" tres veces
+   > seguidas para no tener que creerlo.
+
+   Corolario doble:
+   - **(a) El entorno de EJECUCIÓN es parte del comando.** Verificar siempre en el entorno del
+     CI —bash/Linux, o el propio CI leído con `gh`—, nunca en el shell de desarrollo.
+   - **(b) El entorno de MANIFESTACIÓN también importa.** La tasa de router wedge es ~3/271 en
+     local y suficiente para tumbar el runner. Por eso local "parecía sano" mientras el
+     pipeline llevaba ráfagas en rojo: no era un CI quisquilloso, era un entorno distinto.
+
    *Corolario de la misma familia:* verificar la **codificación** de lo que se escribe.
-6. **No cerrar en falso sobre un número inferido.** Los dos grupos se midieron verdes sobre el
-   mismo árbol. Habría sido cómodo deducir que componían; deducirlo no es medirlo.
+6. **No cerrar en falso sobre inferencia.** Los dos grupos se midieron verdes **en el runner**,
+   leídos con `gh` sobre la corrida real. Habría sido cómodo deducir que componían; deducirlo no
+   es medirlo. En esta misma saga una cadena de deducción impecable sobre el YAML concluyó que
+   "ningún step puede tumbar el job" — y la corrida enseñaba el step señal en `failure` y el
+   @2b en `skipped`. **Razonar desde el artefacto falló otra vez; leer la corrida acertó.**
 
 ### Aviso de herramienta (aprendido rompiendo dos ficheros)
 
@@ -10150,14 +10243,24 @@ se usó `Set-Content -Encoding UTF8` y dejó los dos specs con UTF-8 doblemente 
 reparó invirtiendo el round-trip Windows-1252 y quitando el BOM (diff de solo encoding,
 84↔84). Las ediciones con `perl -0pi` sí conservan UTF-8 correctamente.
 
+**Segundo aviso de la misma familia, y el que más caro salió: PowerShell se come el `--` de
+pnpm.** No es un detalle cosmético — invalidó cuatro verificaciones seguidas del filtro `@2b` y
+mantuvo el pipeline en rojo durante ráfagas. **Cualquier comprobación de algo que va a correr en
+el CI se hace en bash (o se lee del propio CI con `gh`), nunca en PowerShell.** El shell de
+desarrollo no es un espejo del runner: es otro entorno, y reescribe la línea de comandos.
+
 ### FOLLOW-UPS de la saga (no urgentes, anotados)
 
-- **Encoger el conjunto tolerado.** 23 de 271 (~8,5 %) es bastante suite permanentemente
-  no-bloqueante. `blog-markdown-editor` demuestra el camino: alcanza el vector de 2b y **no
-  lleva etiqueta** porque va por `clicarYEsperarUrl` y mide 6/6. Encauzar `elegirCategoria`
-  (12 tests de `busqueda-unificada`) y `buscador-sugerencias` (6) por el mismo reintento de
-  clic reduciría el tolerado a un puñado. **Mitigar el vector hace innecesaria la etiqueta**;
-  dejar 23 tests sin poder bloquear es la alternativa peor.
+- **Encoger el conjunto tolerado — ahora con DATO, no con estimación.** 23 de 271 (~8,5 %) es
+  bastante suite permanentemente no-bloqueante. Hasta esta corrida no se sabía cuántos fallan de
+  verdad en el runner, porque **el step @2b nunca había llegado a correr**. Ya se sabe:
+  **3 fallidos, 4 flaky, 16 pasados.** O sea: **16 de los 23 pasan limpios en CI** y otros 4 se
+  recuperan con un reintento. Solo **3** justifican hoy la etiqueta.
+  `blog-markdown-editor` demuestra el camino: alcanza el vector de 2b y **no lleva etiqueta**
+  porque va por `clicarYEsperarUrl` y mide 6/6. Encauzar `elegirCategoria` (12 tests de
+  `busqueda-unificada`) y `buscador-sugerencias` (6) por el mismo reintento de clic permitiría
+  **devolver la mayoría al grupo señal**. Repetir la lectura varias corridas antes de decidir:
+  2b es estocástico y un solo dato no es la tasa — pero por primera vez hay de dónde medirla.
 - **Divergencia dev/prod en el webServer LOCAL de Playwright.** El CI se arregló en esta saga
   (`next start` + `nest start`, ambos en producción); **el local NO**: `playwright.config.ts`
   sigue usando `next dev` + `nest start --watch` fuera de CI (líneas 118-120 y 142-144). Es la
