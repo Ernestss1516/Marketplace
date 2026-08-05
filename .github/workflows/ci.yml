@@ -192,6 +192,22 @@ jobs:
       - name: Generate Prisma Client
         run: pnpm --filter @marketplace/api prisma:generate
 
+      # Lógica pura (period del cron de facturación, NIF/DNI/NIE/CIF, el parser de
+      # la query de búsqueda, el resolver de atributos filtrables…): 17 *.spec.ts,
+      # 164 tests. NO necesitan Postgres/Redis/Meili/MinIO, así que van ANTES del
+      # montaje de infraestructura: si se rompe lógica pura, el job cae en ~20 s en
+      # vez de gastar los ~5 min de MinIO + navegadores de Playwright para nada.
+      #
+      # `test` (jest a secas, rootDir=src, testRegex .*\.spec\.ts$) NO se solapa con
+      # `test:e2e` (--config test/jest-e2e.json, rootDir=.., testRegex
+      # test/.*\.e2e-spec\.ts$): los dos conjuntos son disjuntos por regex y por
+      # rootDir, así que este paso no re-ejecuta ningún e2e ni se deja ningún unit.
+      #
+      # Hasta ahora estos 17 solo corrían si alguien los lanzaba a mano — verdes que
+      # nadie miraba. Verificados en local antes de añadir el paso: 17/17, 164/164.
+      - name: Backend unit — Jest
+        run: pnpm --filter @marketplace/api test
+
       # Poll /keys (requires auth) instead of /health: /health returns 200 as soon
       # as the HTTP server binds port 7700, but the key-management subsystem may
       # finish initialization a moment later. A 200 from /keys confirms both that
