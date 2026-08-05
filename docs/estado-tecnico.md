@@ -9992,6 +9992,38 @@ runner**.
 > por `retries: 1`. Eso es lo esperado —es ruido conocido, por eso está aparte— pero conviene
 > no leerlo como "los 23 pasan": no pasan, simplemente **no bloquean**.
 
+### Añadido después del cierre: los unit del backend, que el CI no ejecutaba
+
+La saga se cerró con el CI ejecutando `Backend e2e — Jest`, `Frontend unit — Jest` y los dos
+pasos de Playwright — pero **sin los unit del backend**. Los 17 `*.spec.ts` de `apps/api/src/`
+(lógica pura: el calendario del cron de facturación en `invoicing/period.spec.ts`, el validador
+de NIF/DNI/NIE/CIF, el parser de la query de búsqueda, el resolver de atributos filtrables…)
+solo corrían si alguien lanzaba `pnpm --filter @marketplace/api test` a mano. Eran **verdes que
+nadie miraba**: podrían haber estado en rojo y el pipeline habría seguido dando verde, porque no
+los ejecutaba.
+
+Detectado en la auditoría de documentación de 2026-08-04 (`pendientes.md` §4.2, ahora cerrado) y
+arreglado el 2026-08-05 con el paso **`Backend unit — Jest`** (`pnpm --filter @marketplace/api
+test`), commit `b0c5916`.
+
+**Verificados en verde ANTES de cablearlos**, no después: 17/17 suites, 164/164 tests en local.
+Meter un test sin correr en el CI es cambiar "verde que nadie mira" por "rojo que aparece de
+repente y parece regresión del cambio que lo añadió".
+
+**Va ANTES del montaje de infraestructura** (espera de Meilisearch, MinIO, navegadores de
+Playwright), no junto al e2e: son lógica pura, no tocan ningún contenedor de servicio, y ahí un
+rojo tumba el job en ~20 s en vez de gastar ~5 min de setup primero. En el runner el paso tardó
+**15 s**.
+
+**No solapa con el e2e ni deja ningún unit fuera.** Los dos conjuntos son disjuntos por regex
+*y* por `rootDir`: `test` es `jest` a secas (`rootDir: src`, `testRegex .*\.spec\.ts$`) y
+`test:e2e` es `--config test/jest-e2e.json` (`rootDir: ..`, `testRegex test/.*\.e2e-spec\.ts$`).
+Comprobado con `--listTests` sobre las dos configuraciones: 17 ficheros en el de unit, 0
+intersección.
+
+Verificado **en el runner**, no deducido: corrida `31028999515`, SHA `b0c5916` — step
+`Backend unit — Jest` = `success`, y el resto de pasos sin cambio de comportamiento.
+
 ### La regla que queda
 
 **Verde = el producto funciona.** El CI corre Playwright en dos pasos:

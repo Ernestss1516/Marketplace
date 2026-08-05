@@ -109,6 +109,7 @@ de UI» explícitamente marcado como *«no una brecha funcional»*. Esta fase es
 | Reintentos del job `geocode` | Resuelto — la causa no era la cola sino que `GeocodingService.geocode()` se tragaba los fallos transitorios como `null` |
 | Playwright corriendo en CI | [ci.yml](../.github/workflows/ci.yml) — steps de señal (`--grep-invert @2b`) y `@2b` separados |
 | La saga del CI | Cerrada y verificada **en el runner**: corrida `30930395538`, SHA `e4df671` |
+| **CI sin unit tests del backend** | [ci.yml](../.github/workflows/ci.yml) — paso `Backend unit — Jest`. Verde en local **antes** de añadirlo (17/17 suites, 164/164 tests) y confirmado **en el runner**: corrida `31028999515`, SHA `b0c5916`, step `success` en 15 s |
 
 ### 4.2 Abierto
 
@@ -198,32 +199,6 @@ aterrizaje por tema que no existe.
 | **Sentry en staging** | Implementado y verificado en desarrollo (silencioso con DSN vacío): `instrumentation-client.ts`, `global-error.tsx`, `main.ts` y los 6 processors | Confirmar la integración real con `NEXT_PUBLIC_SENTRY_DSN` activo. Ambas variables ya están en `.env.example` |
 | **Swap atómico del reindex** | `reindex` hace `clearAll()` + repoblar → hay una **ventana breve de índice vacío** | Solo si el volumen lo justifica: indexar en un índice nuevo y hacer swap |
 
-#### El CI no ejecuta los unit tests del backend `[DEUDA]` · coste mínimo
-
-`.github/workflows/ci.yml` tiene los pasos **«Backend e2e — Jest»** y **«Frontend unit — Jest»**,
-pero **no existe el paso equivalente de unit del backend**. Los **17** ficheros `*.spec.ts` de
-`apps/api/src/` solo se ejecutan si alguien lanza `pnpm --filter @marketplace/api test` a mano.
-
-Lógica pura que hoy nadie verifica en el pipeline:
-
-- `modules/invoicing/period.spec.ts` — la decisión de calendario del cron de facturación
-  (día de emisión, periodo que no toca, recuperación mono y multi-periodo).
-- `modules/search/search-query.parser.spec.ts` — el parser que valida los atributos dinámicos y
-  los rangos `_min`/`_max`.
-- `common/validators/spanish-tax-id.spec.ts` — el validador de NIF/DNI/NIE/CIF.
-- `modules/search/filterable-attributes.resolver.spec.ts` — la derivación dinámica de atributos
-  filtrables por categoría.
-
-**Por qué importa más de lo que parece:** son **verdes que nadie mira**. Podrían estar en rojo
-ahora mismo y el CI seguiría dando verde, simplemente porque no los ejecuta. Es la clase de hueco
-que no se nota hasta que un refactor rompe una regla de negocio pura y ningún test lo dice.
-
-**Arreglo:** un paso en `ci.yml` (`pnpm --filter @marketplace/api test`), junto al de frontend unit.
-Coste de una línea. No se aplicó al detectarlo (auditoría 2026-08-04) porque esa ráfaga era de
-documentación y tocar el workflow quedaba fuera de alcance.
-
-**Referencia:** `.github/workflows/ci.yml` (falta el step) · `apps/api/src/**/*.spec.ts`.
-
 #### Ampliar la cobertura e2e (RD9.3, parte pendiente) `[DEUDA]`
 
 La parte de *«confirmar que Playwright corre en CI»* está **hecha**. Lo que no se ha hecho es la
@@ -303,7 +278,6 @@ antes o justo después del primer despliegue de esta feature. **No se puede cerr
 |---|---|---|---|
 | 4.2 | `app.enableCors()` sin argumentos | `[SEGURIDAD]` | — |
 | 6 | Rate limit por IP sin verificar | `[SEGURIDAD]` | §1 |
-| 4.2 | **CI sin unit tests del backend** (arreglo de 1 línea) | `[DEUDA]` | — |
 | 1 | Despliegue (nunca desplegado) | `[DEUDA]` | — |
 | 4.2 | `conversation:read` en tiempo real | `[DEUDA]` | — |
 | 4.2 | `DELETE /media` + huérfanas | `[DEUDA]` | — |
