@@ -10289,6 +10289,32 @@ mantuvo el pipeline en rojo durante ráfagas. **Cualquier comprobación de algo 
 el CI se hace en bash (o se lee del propio CI con `gh`), nunca en PowerShell.** El shell de
 desarrollo no es un espejo del runner: es otro entorno, y reescribe la línea de comandos.
 
+**Tercer aviso (RN.3, nav dinámico): `.next/cache/fetch-cache` SOBREVIVE al reinicio del dev
+server.** Es caché en disco, no en memoria: matar `next dev` y volver a arrancarlo **no** la
+limpia, así que un servidor "nuevo" puede servir el resultado cacheado de una corrida anterior.
+Se descubrió depurando por qué la barra del nav aparecía con datos que ya no existían en la BD:
+el árbol venía de `unstable_cache` sembrado en una ejecución previa. Costó varias vueltas de
+diagnóstico porque el síntoma imita exactamente a una invalidación rota.
+
+No afecta a producción: la invalidación por tag está bien cableada y se verificó a mano el ciclo
+completo (crear → la barra aparece; borrar → desaparece; crear otra vez → aparece la nueva).
+**Al depurar en local cualquier dato servido desde `unstable_cache`** (nav, footer, blog),
+borrar `.next/cache/fetch-cache` antes de sacar conclusiones, o forzar la invalidación con un
+`POST /api/revalidate?secret=…&tag=…`.
+
+**Cuarto aviso, y es el mismo corolario (a) de la saga del CI aplicado a la batería local:
+`next dev` lleva un watchdog de heap que reinicia el proceso al ~80 % de uso.** En baterías
+Playwright largas (20-30 min) eso produce timeouts de `page.goto`/`waitForURL` **no
+deterministas**: dos corridas del MISMO commit dieron 3 fallos y 10 fallos, con conjuntos
+distintos, y entre ellos specs de `(admin)`/`(account)` que el cambio bajo prueba ni siquiera
+tocaba. Todos pasaron al reejecutarse en aislado.
+
+Esto ya estaba documentado en `playwright.config.ts` y en `ci.yml` —el CI usa `next start` sobre
+un build de producción justo por esto—, pero faltaba decirlo como lección: **la batería completa
+solo da señal fiable en modo producción/CI. Correrla contra `next dev` en local genera
+no-determinismo que NO es una regresión**, y tratarlo como tal lleva a perseguir fantasmas.
+Si hay que medir en local, `next build && next start`; si no, leer la corrida del CI.
+
 ### FOLLOW-UPS de la saga (no urgentes, anotados)
 
 - **Encoger el conjunto tolerado — ahora con DATO, no con estimación.** 23 de 271 (~8,5 %) es
@@ -10622,6 +10648,200 @@ Sustituirlos por aserciones web (`expect(locator).toBeVisible()`) es lo correcto
 recomienda Playwright, pero son 105 sitios en 44 specs: cambiar en bloque qué espera cada
 test es un riesgo mayor que el que se estaba arreglando. Con los plazos finitos ya no
 cuelgan el job; quedan como deuda de una ráfaga propia.
+
+---
+
+## Navegación dinámica — barra bajo la cabecera (RN.1-RN.4, cerrado)
+
+Barra de menús y submenús configurable desde el backoffice, bajo el header del sitio público.
+Diseño: `docs/diseno-nav-dinamico.md`. Todo lo de aquí está verificado contra el código, no
+contra el diseño.
+
+### Qué cerró cada ráfaga
+
+| Ráfaga | Cierra |
+|---|---|
+| **RN.1** | Modelo (`NavItem` + enums `NavItemType`/`NavPageType`, migración `20260806085358_add_nav_items`), `NavService` de lectura y validación, y el gate recursivo como función pura con sus tests |
+| **RN.2** | Endpoints público y de admin, auditoría, revalidación, caché por tipo, y las dos modificaciones cruzadas a `BlogService` |
+| **RN.3** | Render público: `MainNav` + `NavDropdown`, los 9 layouts anidados, movimiento de la home a `(home)/` |
+| **RN.4** | CRUD de admin en `/admin/nav` (ADMIN-only) |
+
+### El modelo: un árbol, no dos tablas
+
+`NavItem` es **auto-referencial** (`parentId` → `NavItem`), y esto es lo primero que sorprende a
+quien venga del footer: el sistema hermano usa DOS tablas (`FooterColumn` + `FooterItem`). No se
+reusó ese molde porque **es plano por construcción y no escala a submenús**: una `FooterColumn`
+no tiene destino (solo `name String?`) y un `FooterItem` no puede tener hijos (no hay `parentId`).
+El molde del árbol es `Category`.
+
+Campos propios del nav, ninguno con equivalente en el footer:
+
+- **`type NavItemType?` — NULLABLE.** El destino es OPCIONAL: un nodo puede ser solo-desplegable
+  (abre sus hijos sin navegar). En `FooterItem`, `type` es obligatorio.
+- **`active Boolean @default(true)`.** El footer no tiene interruptor; su única "desactivación"
+  es indirecta (la página enlazada no está publicada). Precedente del flag explícito: `Banner.active`.
+- **`visibleOn NavPageType[]`.** Array escalar, molde `Banner.placements`. **Vacío = se muestra en
+  TODAS**, no en ninguna — diverge a propósito de `Banner.placements`, que prohíbe el vacío;
+  aquí "en todas partes" es el caso mayoritario y debe ser el default. Mismo significado de
+  "[] = no configurado" que `Category.allowedViews`.
+
+**Profundidad máxima 2** (menú → submenú). Es una constante del servicio (`NAV_MAX_DEPTH` en
+`nav.types.ts`), **no una restricción de schema** — mismo criterio que el tope de 2 niveles de
+`Category`, que vive en `AdminService.assertParentIsRoot`. Subirlo es cambiar un número y hacer
+el trabajo de render; bajarlo obligaría a migrar datos.
+
+### Las tres decisiones que se apartaron de los moldes
+
+Documentadas aparte porque un lector que conozca los moldes asumiría lo contrario:
+
+1. **`parentId` con `onDelete: Cascade`, como el footer — NO `SET NULL` como `Category`.**
+   Verificado en las migraciones: `NavItem_parentId_fkey … ON DELETE CASCADE` frente a
+   `Category_parentId_fkey … ON DELETE SET NULL`. Borrar un menú se lleva su subárbol. El
+   criterio es el que `FooterService.deleteColumn` razona: es una acción consciente del admin y
+   la UI anuncia cuántos descendientes se van antes de confirmar. `Category` rechaza con 400 en
+   su lugar porque de una categoría cuelgan terceros (anuncios de otros usuarios, patrocinados)
+   que sí se sorprenderían; **de un `NavItem` no cuelga ninguno**.
+2. **Se puede MOVER un nodo de padre; `Category` no lo permite.** Mover = `PATCH` con `parentId`
+   (no hay endpoint aparte, mismo criterio que "mover de columna" en el footer). Esto no tenía
+   molde: hubo que construir dos guardas de cero, `assertMaxDepth` y `assertNoCycle`. La primera
+   lleva **dos** reglas donde `assertParentIsRoot` de `Category` lleva una: el padre destino no
+   puede ser ya un hijo, **y** el nodo que se mueve no puede arrastrar hijos (caerían a un tercer
+   nivel). La segunda no hace falta con profundidad 2, y se escribió genérica a propósito para
+   que siga siendo correcta si el tope sube.
+3. **El gate es recursivo; el del footer es plano de un nivel.** Ver abajo.
+
+### El gate recursivo — lo único sin precedente
+
+`pruneNavTree(roots, pageType)` en `nav.types.ts`. **Función pura**, sin BD ni stubs (molde: los
+resolvers de `category.types.ts`), así que se prueba sobre estructuras en memoria.
+
+Un nodo se muestra si y solo si se cumplen las tres: `active === true`, **y** `visibleOn` está
+vacío o incluye el tipo de página actual, **y** tiene destino visible **o** al menos un hijo
+visible tras podar. Se resuelve en post-orden —los hijos antes que el corte del padre—, que es lo
+que hace que la poda sea de abajo arriba.
+
+De la tercera condición sale lo que de verdad importa: **un desplegable cuyos hijos quedaron todos
+ocultos se oculta él también**, y nunca queda un botón que abre un menú vacío. Un destino `PAGE`
+solo cuenta si su `Post` está `PUBLISHED` (mismo criterio que el footer), pero con una diferencia:
+en el footer el ítem desaparece, mientras que aquí un nodo con la página en borrador **sobrevive
+como solo-desplegable** si tiene hijos visibles, porque sigue abriendo algo.
+
+**El gate es TOTAL, más estricto que el del footer**: si la raíz queda vacía, `MainNav` devuelve
+`null` y la barra no existe en el DOM — ni `<nav>`, ni contenedor, ni borde. El footer, en cambio,
+conserva su copyright cuando no hay columnas visibles.
+
+`nav.types.spec.ts` tiene 14 tests: los **10** casos de la tabla del §5.3 del diseño, uno a uno y
+en orden, más resolución de href por tipo, ordenación en los dos niveles, no-mutación de la
+entrada y un caso compuesto de poda en dos niveles.
+
+### Visibilidad por tipo de página: 9 layouts, no el pathname
+
+Patrón `BannerPlacement`: cada ruta declara su tipo como literal y el filtro corre server-side.
+**No se deriva del `pathname`**, y las dos alternativas se descartaron por motivos concretos:
+`usePathname()` obligaría a hacer la barra Client Component (y `(public)/[categoria]` es un
+catch-all de un segmento, así que clasificar `/foo` exigiría saber si es categoría o 404); y leer
+`headers()` inyectados por el middleware **forzaría render dinámico de todo `(public)`**, matando
+el ISR ya configurado en `/blog` y `/paginas/[slug]`.
+
+`(public)/layout.tsx` **no puede** montar la barra: un layout de servidor no sabe qué hijo está
+renderizando. El montaje son **9 layouts anidados, mapeo 1:1 con el enum** — verificado: 9 valores
+distintos de `pageType` en los `layout.tsx` de `(public)`.
+
+| Ruta | Layout | `NavPageType` |
+|---|---|---|
+| `/` | `(public)/(home)/layout.tsx` | `HOME` |
+| `/busqueda` | `busqueda/layout.tsx` | `BUSQUEDA` |
+| `/[categoria]` · `/[categoria]/[subcategoria]` | `[categoria]/layout.tsx` | `CATEGORIA` |
+| `/anuncio/[slug]` | `anuncio/layout.tsx` | `ANUNCIO` |
+| `/blog` · `/blog/[slug]` | `blog/layout.tsx` | `BLOG` |
+| `/paginas/[slug]` | `paginas/layout.tsx` | `PAGINA_CMS` |
+| `/vendedor/[slug]` | `vendedor/layout.tsx` | `VENDEDOR` |
+| `/contacto` | `contacto/layout.tsx` | `CONTACTO` |
+| `/planes` (+ `/exito`, `/cancelado`) | `planes/layout.tsx` | `PLANES` |
+
+**Por qué layouts y no una llamada por página** (que sería el calco literal de `getActiveBanners`):
+un layout cubre por HERENCIA toda ruta que cuelgue de él, así que una futura `/blog/categoria/x`
+recibe la barra sin que nadie se acuerde. Una página nueva que se olvidara de pedirla fallaría en
+SILENCIO. El coste es que `(public)/page.tsx` tuvo que moverse a `(public)/(home)/page.tsx`, porque
+la home no puede tener layout propio sin capturar a sus hermanas: **la URL no cambia**, el route
+group es invisible.
+
+`Header.tsx` y `(public)/layout.tsx` quedaron intactos. La barra es el primer hijo de `<main>`
+(que no tiene padding), no es sticky —el header sí lo es, y pegar una segunda barra obligaría a
+duplicar su altura como `top-16` en otro fichero— y va ENCIMA del `BannerList` de la home: chrome
+sobre contenido, para que no baile verticalmente según haya banner.
+
+El desplegable (`NavDropdown`) es el **único trozo cliente**, con Radix `DropdownMenu`; `MainNav`
+sigue siendo Server Component. Mismo reparto que `Header` + `HeaderAuthNav`. Lleva `modal={false}`:
+con el `modal` por defecto Radix marca `aria-hidden` todo lo que queda fuera del menú y bloquea el
+scroll, que es correcto para un diálogo y deja el sitio inerte por desplegar un submenú.
+
+### Caché: una entrada POR TIPO, un solo tag
+
+Diverge del footer, que tiene una entrada con clave constante. Aquí el endpoint filtra por tipo,
+así que la clave es `['main-nav', pageType]` y hay hasta 9 entradas. **Todas comparten el tag
+`'main-nav'`, y `unstable_cache` invalida por TAG, no por clave**, así que un solo
+`revalidateTag('main-nav')` las tumba las nueve. Verificado en la implementación instalada de Next
+(`dist/server/web/spec-extension/unstable-cache.js`): la clave sale de `keyParts.join(',')` y los
+tags viajan aparte hasta el `set` del caché.
+
+**Por qué no la alternativa** (cachear el árbol entero una vez y filtrar en el render, que daría
+una sola entrada): quitar un hijo por `visibleOn` puede vaciar a su padre, así que filtrar por tipo
+obliga a ejecutar **el gate recursivo entero**. Eso metería la lógica de visibilidad en Next,
+contra la regla de que el negocio vive solo en Nest.
+
+Como en el footer, **Redis y Meilisearch no intervienen**: la caché es la de Next, y el backend
+consulta Postgres solo cuando una entrada expira o se invalida.
+
+### Borrado protegido cruzado — modificación de código vivo
+
+`NavItem.pageId → Post` es `onDelete: Restrict`, igual que `FooterItem.page`. Eso obligó a tocar
+`BlogService`, que ya funcionaba:
+
+- **El precheck de `adminDelete` cuenta ahora las DOS tablas** (`footerItem` y `navItem`, en un
+  `$transaction`). Sin esto, borrar una página enlazada **solo desde el nav** pasaba el chequeo y
+  reventaba contra la constraint como un **500 sin controlar**. El mensaje distingue la
+  procedencia (`"… enlazada desde 2 sitio(s) del footer y 1 sitio(s) del nav"`) para que el admin
+  sepa dónde ir a desenlazar. Cubierto por unit y por e2e contra BD real (400, no 500).
+- **`revalidatePostPaths` dispara los DOS tags**, `footer-nav` y `main-nav`: las dos navegaciones
+  son cachés independientes y las dos pueden enlazar la misma página.
+
+Lo que ya protegía al nav sin tocar nada: el slug de una `PAGE` publicada es inmutable
+(`SLUG_IMMUTABLE`), así que un href `/paginas/{slug}` no se queda roto por un renombrado.
+
+Nota de infraestructura de test: `test/helpers/db.ts` tuvo que añadir `"NavItem"` al `TRUNCATE`.
+Solo los nodos con `pageId` cuelgan de `Post`; los de tipo `INTERNAL`/`EXTERNAL` o sin destino no
+tienen camino de vuelta a `User` y habrían filtrado un árbol de nav entre suites — el mismo
+motivo por el que `FooterColumn` ya estaba en la lista.
+
+### CRUD de admin — `/admin/nav`
+
+Solo ADMIN. **`AdminNav` pasó de 18 a 19 entradas** para ADMIN (`Navegación`, junto a `Footer`);
+`admin-roles.spec.ts` actualizó el conteo a 19 — cambio deliberado, no rotura. MODERATOR (6) y
+EDITOR (2) no cambian.
+
+La página combina los dos moldes: el **editor de nodo** viene de `/admin/footer` (campos
+condicionales por tipo que se limpian al cambiarlo, selector de páginas `PAGE`, badge "en borrador
+— no se muestra", confirmación que anuncia el cascade con el número exacto) y la **gestión del
+árbol** de `/admin/categorias` (dos niveles, crear hijo bajo un padre, reordenar hermanos con swap
+de `order` + optimista + refetch si falla). Aquí el reorden se escribió como **una sola** función
+parametrizada por la lista de hermanos; en el footer y en categorías es el mismo algoritmo escrito
+dos veces.
+
+Lo propio, que ningún molde cubría:
+
+- **Selector de destino con CUATRO opciones**, no tres: la primera es "Sin destino (solo
+  desplegable)". Un nodo así es válido al escribir aunque todavía no tenga hijos —rechazarlo haría
+  imposible construir un desplegable, porque el padre nace antes que el primer hijo— y el gate lo
+  poda al leer. La UI lo marca con un badge "sin destino y sin submenús — no se muestra" para que
+  el admin vea el estado en lugar de sufrirlo.
+- **`visibleOn`** como multi-select de los 9 tipos, con el vacío explicado con palabras ("se
+  muestra en TODAS las páginas") porque una lista sin marcar se lee justo al revés.
+- **MOVER = selector "Cuelga de"** en el editor. El desplegable solo ofrece raíces, excluye el
+  propio nodo y **no ofrece ninguna si el nodo tiene hijos** (moverlo dejaría nietos a un tercer
+  nivel). No duplica la validación del backend: la evita. El backend sigue validando lo mismo, y
+  cuando rechaza, su mensaje se pinta legible dentro del formulario — con un test que recorre ese
+  camino entero.
 
 ---
 

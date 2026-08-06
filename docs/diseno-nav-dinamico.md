@@ -683,7 +683,8 @@ Cuatro ráfagas. Cada una cierra en verde y deja el sistema coherente.
 - `NavController` (público) y `NavAdminController` (`admin/nav`), con `*/reorder` antes de
   `*/:id`.
 - DTOs (create/update/reorder), `NavModule`, registro en `app.module.ts`.
-- `auditLog.log` + `revalidateTag('main-nav')` en las 5 mutaciones.
+- `auditLog.log` + `revalidateTag('main-nav')` en las 4 mutaciones (las de la tabla de §7.1:
+  `POST items`, `PATCH items/reorder`, `PATCH items/:id`, `DELETE items/:id`).
 - **Ampliar `BlogService.adminDelete`** para contar también `navItem` (§6.2) y **añadir
   `revalidateTag('main-nav')` a `revalidatePostPaths`** (§6.4). Actualizar
   `blog.service.spec.ts`, que hoy cubre el precheck del footer.
