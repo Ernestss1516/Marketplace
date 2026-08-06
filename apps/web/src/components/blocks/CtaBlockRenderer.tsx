@@ -1,32 +1,11 @@
-import Link from 'next/link';
-import type { CtaBlock, CtaStyle } from '@/types/blocks';
-import { Button } from '@/components/ui/button';
+import type { CtaBlock } from '@/types/blocks';
+import { CtaButton } from '@/components/shared/CtaButton';
 
-const STYLE_TO_VARIANT: Record<CtaStyle, 'default' | 'secondary' | 'outline'> = {
-  primary: 'default',
-  secondary: 'secondary',
-  outline: 'outline',
-};
-
-function isExternalHref(href: string): boolean {
-  return !href.startsWith('/');
-}
-
+// El reparto interno/externo y el mapa estilo→variante viven ahora en
+// components/shared/CtaButton, compartido con el bloque `cta` del motor de
+// PORTADA. Lo que cruza la frontera entre los dos motores son props planas,
+// nunca el tipo `CtaBlock` (docs/diseno-portada.md §4.0) — por eso este fichero
+// sigue existiendo: es quien traduce el bloque del blog a esas props.
 export function CtaBlockRenderer({ block }: { block: CtaBlock }) {
-  const variant = STYLE_TO_VARIANT[block.style ?? 'primary'];
-  const external = isExternalHref(block.href);
-
-  return (
-    <div className="flex justify-center">
-      <Button asChild variant={variant} size="lg">
-        {external ? (
-          <a href={block.href} target="_blank" rel="noopener noreferrer">
-            {block.label}
-          </a>
-        ) : (
-          <Link href={block.href}>{block.label}</Link>
-        )}
-      </Button>
-    </div>
-  );
+  return <CtaButton label={block.label} href={block.href} style={block.style ?? 'primary'} />;
 }

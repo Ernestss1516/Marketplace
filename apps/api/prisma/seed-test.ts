@@ -336,7 +336,9 @@ async function seedHomepageConfig() {
     heroRotatingOptions: [],
     heroRotationMs: 3000,
     heroSubtitle: null,
-    blocks: [],
+    // Mismo bloque `search` que siembra seed.ts: la portada de test debe
+    // reproducir la real, o los specs que leen la home medirían otra página.
+    blocks: [{ id: 'seed-search', type: 'search', showPopularCategories: true, popularCount: 6 }],
   };
   await prisma.homepageConfig.upsert({
     where: { id: 'singleton' },

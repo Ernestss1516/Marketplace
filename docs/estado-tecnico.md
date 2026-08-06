@@ -10852,21 +10852,22 @@ parcialmente rotativo y un array ordenado de bloques. Diseño: `docs/diseno-port
 Motor **nuevo y separado** del sistema de bloques del blog (`Post.blocks`), no una extensión.
 Todo lo de aquí está verificado contra el código.
 
-### Alcance real de RP.1
+### Estado por ráfaga
 
-El diseño (§8) asignaba a RP.1 solo el backend. **Se entregó además la rodaja de RP.2 que
-cubre el hero**: `lib/api/homepage.ts`, `HomeHero`, el CSS del rotativo y su integración en
-`(home)/page.tsx`. Queda para RP.2 lo que no se tocó: `HomeBlockRenderer`, los renderizadores
-de `cta`/`search` y la extracción de `SmartLink`/`CtaButton` a `components/shared/`.
+RP.1 entregó, además de su alcance de backend, la rodaja de RP.2 que cubre el hero
+(`lib/api/homepage.ts`, `HomeHero`, el CSS del rotativo). RP.2 cerró el resto.
 
 | Pieza | Estado |
 |---|---|
-| `HomepageConfig` (migración `20260806195038_add_homepage_config`) | ✔ |
-| DTOs de `cta` y `search` + `ValidHomeBlocksArray` | ✔ (los otros 5 tipos: RP.4-RP.6) |
-| `GET /homepage`, `GET/PATCH /admin/homepage`, `POST /admin/homepage/upload-image` | ✔ |
-| Caché `unstable_cache` + `revalidateTag('homepage-config')` | ✔ |
-| Hero SSR con rotativo CSS, a11y y `prefers-reduced-motion` | ✔ |
+| `HomepageConfig` (migración `20260806195038_add_homepage_config`) | ✔ RP.1 |
+| DTOs de `cta` y `search` + `ValidHomeBlocksArray` | ✔ RP.1 (los otros 5 tipos: RP.4-RP.6) |
+| `GET /homepage`, `GET/PATCH /admin/homepage`, `POST /admin/homepage/upload-image` | ✔ RP.1 |
+| Caché `unstable_cache` + `revalidateTag('homepage-config')` | ✔ RP.1 |
+| Hero SSR con rotativo CSS, a11y y `prefers-reduced-motion` | ✔ RP.1 |
+| `HomeBlockRenderer` + renderizadores `cta` y `search` | ✔ RP.2 |
+| `SmartLink` / `CtaButton` en `components/shared/` | ✔ RP.2 |
 | Editor `/admin/portada` | RP.3 |
+| `grid`, `steps` · `listings`, `categoryCarousel` · `searchTable` | RP.4 · RP.5 · RP.6 |
 
 ### La fila única, y por qué NO es una `Setting`
 
@@ -10946,13 +10947,109 @@ que invalidar este tag**. Borrar una categoría o publicar una página no cambia
 el mundo contra el que se resuelve, y eso se resuelve en cada render. Nada del acoplamiento
 cruzado que `BlogService.revalidatePostPaths` sí necesita con `'footer-nav'` y `'main-nav'`.
 
+### RP.2 — el motor, los 2 tipos reutilizados y la extracción a `shared/`
+
+**`HomeBlockRenderer`** es el molde literal de `BlockRenderer.tsx` del blog: síncrono (para que
+el preview client-side de RP.3 pueda usar el mismo componente que el SSR) y con `switch`
+exhaustivo + `assertUnreachable`.
+
+**No lleva `case` vacíos para los 5 tipos que faltan, y es deliberado.** Un `case` stub significa
+"tipo ya tratado" y desactivaría justo la garantía que se busca. Además no compilaría: la unión
+`HomeBlock` tiene hoy dos miembros, así que un `case 'grid':` es un error de TypeScript. El
+mecanismo va al revés: **cuando RP.4 añada `grid` a la unión, `HomeBlockRenderer` deja de
+compilar hasta que alguien escriba su `case`**. Y un tipo no registrado tampoco puede llegar
+desde la BD: el discriminador del backend lo rechaza con 400 al guardar.
+
+### Compartir entre los dos motores sin acoplarlos: la regla en la práctica
+
+La regla (§4.0 del diseño) es *se comparte todo componente cuya firma NO mencione un tipo de
+bloque*. Aplicada:
+
+- **`components/shared/SmartLink.tsx`** — el reparto interno/externo. Props planas.
+- **`components/shared/CtaButton.tsx`** — `{label, href, style}`. Lo llaman los renderizadores
+  `cta` de los DOS motores, cada uno traduciendo SU tipo de bloque a esas props. `CtaBlock` (blog)
+  y `HomeCtaBlock` (portada) no se importan entre sí: **cero acoplamiento de tipos**.
+
+**Los cuatro usos NO eran copias idénticas** —el diseño decía "cuadruplicado literalmente" y era
+inexacto—, y la diferencia es la que dicta la firma:
+
+| Uso | Cómo decidía `external` |
+|---|---|
+| `CtaBlockRenderer`, `HubBlockRenderer` (blog) | **Derivado** del href: `!href.startsWith('/')` |
+| `Footer`, `MainNav`, `NavDropdown` | **Recibido** del backend (`item.external`, `node.external`), que es quien conoce `FooterItemType`/`NavItemType` |
+
+Por eso `external` es una prop **opcional**: pasarla gana, omitirla cae a la heurística. Ninguno
+de los dos mundos cambia de comportamiento al unificarse.
+
+**El caso difícil: `asChild` de Radix.** `NavDropdown` no estaba en la lista del diseño y llevaba
+un aviso escrito: dentro de `DropdownMenuItem asChild`, Slot clona al hijo y le fusiona
+`role="menuitem"`, los handlers de teclado y el ref; *un componente intermedio que no los
+reenvíe se los traga en silencio*. Por eso `SmartLink` es `forwardRef` y hace spread de todo lo
+que recibe — y con eso el caso difícil también se unifica. Verificado sobre la página real: el
+`<a>` del menú sale con `role="menuitem"` **y con `data-radix-collection-item`** (la prueba de que
+Slot fusionó), las flechas recorren los ítems y Escape devuelve el foco al disparador. Lo mismo
+aplica al `<Button asChild>` que envuelve el CTA.
+
+Resultado: **una sola definición del reparto interno/externo** donde había cinco copias
+(`CtaBlockRenderer`, `HubBlockRenderer`, `Footer`, `MainNav`, `NavDropdown` ×2).
+
+### El backfill del bloque `search` — una trampa del camino de actualización
+
+RP.2 dejó de pintar el buscador a mano y lo pasó a bloque. Pero el seed era un `upsert` con
+`update: {}` (para no pisar lo que un admin haya guardado), así que **una instalación que viniera
+de RP.1 —con `blocks: []`— se habría quedado sin buscador al actualizar**: el código ya no lo
+pinta y la config no lo trae.
+
+`seedHomepageConfig` hace ahora un backfill **acotado**: si la fila existe y su array de bloques
+está VACÍO, le escribe el bloque `search`. En cuanto hay un solo bloque configurado, no toca
+nada. El array vacío es lo único que no puede ser una decisión del admin que merezca respetarse
+—una portada sin un solo bloque no es una portada—, y es el estado exacto que deja RP.1. Mismo
+espíritu que el `skipDuplicates` de `seedSettings`: rellenar lo que falta, nunca pisar lo que hay.
+Comprobado idempotente: la segunda pasada informa "ya configurada, intacta".
+
+### `getByRole` no sirve para sondear si una página ya se actualizó
+
+El spec del motor de bloques salía rojo en un sitio muy concreto: el `beforeAll` que espera a que
+la portada refleje un `cta` recién escrito. El componente estaba bien —la página devolvía 200 y el
+`<a href="/publicar">` estaba en el HTML— pero el sondeo no lo veía.
+
+Causa, medida en la página real: el sondeo hacía `goto(..., 'domcontentloaded')` y consultaba con
+`getByRole('link', { name })`. **`getByRole` se apoya en el árbol de accesibilidad, y un elemento
+sin caja de layout no está en él.** En ese instante el ancla daba `getBoundingClientRect()` de
+**0×0** y `getByRole` devolvía **0**, mientras `getByText` ya la encontraba; con la página
+cargada, **167×44** y `getByRole` = 1.
+
+Regla que queda: en un predicado de espera, `waitUntil: 'load'` y locators PLANOS (`getByText`,
+`locator`, `getByPlaceholder`). `getByRole` en los tests sí, donde `expect()` reintenta hasta que
+el elemento está pintado — que es exactamente lo que allí faltaba. Y una espera de AUSENCIA debe
+exigir además algo presente (el `<h1>`), o daría por buena una página que no ha renderizado nada.
+
 ### La fila semilla reproduce la portada anterior
 
 `seed.ts` siembra `heroStaticTitle: 'Compra y vende de segunda mano'` con `heroRotatingOptions:
-[]` — el `<h1>` exacto que la home pintaba a mano. **Estrenar el motor no cambió una sola palabra
-de lo que ve el usuario**; las opciones rotativas las pone el admin cuando quiera. `seed-test.ts`
-la resetea en cada corrida, como hace con `Setting`, porque es fila estática compartida entre
-suites y excluida de `cleanDb`.
+[]` — el `<h1>` exacto que la home pintaba a mano — y, desde RP.2, el bloque `search` con
+`popularCount: 6`, que es el valor que traía la constante `POPULAR_CATEGORY_COUNT`. **Estrenar el
+motor no cambió una sola palabra de lo que ve el usuario**: comprobado en pantalla contra el build
+de producción, el orden de la banda del hero sigue siendo eyebrow → `<h1>` → buscador → 6 chips →
+CTA, con el mismo espaciado (el `space-y-8` del renderizador coincide con el `mt-8` que había).
+`seed-test.ts` la resetea en cada corrida, como hace con `Setting`, porque es fila estática
+compartida entre suites y excluida de `cleanDb` — y los dos specs que la mutan restauran ese mismo
+valor, bloque `search` incluido: restaurar con `blocks: []` dejaría sin buscador a todo lo que
+corriese después.
+
+**Dos cosas siguen escritas a mano a propósito** hasta la limpieza final de RP.6, y las dos por
+no hacer un cambio visual que no se pidió:
+
+- **El *eyebrow*** ("Miles de anuncios cerca de ti"). El bloque `search` tiene su campo `eyebrow`
+  y funciona, pero el bloque se pinta DEBAJO del `<h1>` y hoy ese texto va ENCIMA; sembrarlo
+  reordenaría el titular.
+- **El botón "Publica gratis"**. El bloque `cta` existe y renderiza, pero el `CtaButton`
+  compartido es `size="lg"` (el del blog) y este botón es `size="sm"`. El modelo no tiene campo de
+  tamaño y no se inventa uno para esto.
+
+Y una estructura transitoria: `HomeBlockRenderer` se monta DENTRO de la banda del hero, porque
+los dos únicos tipos que existen hoy viven ahí en la portada actual. En cuanto RP.4 traiga bloques
+que no son del hero, sale de la `<section>` al sitio que fija §5.1.
 
 ### El fallo que solo aparecía en la batería completa: era un 429, no el hero
 

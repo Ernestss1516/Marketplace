@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { MessageCircle, Search as SearchIcon, ShieldCheck, Sparkles, Star, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { SearchBar } from '@/components/busqueda/SearchBar';
 import { CategoryGrid } from '@/components/categorias/CategoryGrid';
 import { ListingCard } from '@/components/anuncios/ListingCard';
 import { FavoritesGridProvider } from '@/components/anuncios/FavoritesGridContext';
@@ -9,15 +8,14 @@ import { CardAttributesProvider } from '@/components/anuncios/CardAttributesCont
 import { isSponsoredAdHit } from '@/components/anuncios/SponsoredCard';
 import { BannerList } from '@/components/banners/BannerList';
 import { HomeHero } from '@/components/home/HomeHero';
+import { HomeBlockRenderer } from '@/components/home/HomeBlockRenderer';
 import { getCategories } from '@/lib/api/categorias';
 import { search, type SearchResponse } from '@/lib/api/busqueda';
 import type { ListingSummary } from '@/types';
 import { getActiveBanners } from '@/lib/api/banners';
 import { getCachedHomepageConfig, FALLBACK_HOMEPAGE_CONFIG } from '@/lib/api/homepage';
 import { buildCardAttributeMap } from '@/lib/card-attributes';
-import { categoryPath } from '@/lib/category-url';
 
-const POPULAR_CATEGORY_COUNT = 6;
 
 export default async function HomePage() {
   // RP.1 — el hero deja de estar escrito a mano y viene de la configuración de
@@ -37,7 +35,6 @@ export default async function HomePage() {
   // Nunca pasa `category`, así que SearchController nunca inyecta un patrocinado
   // aquí — el filtro es una guarda de tipos defensiva, no una necesidad funcional.
   const recent = recentResult.hits.filter((h): h is ListingSummary => !isSponsoredAdHit(h));
-  const popularCategories = categories.slice(0, POPULAR_CATEGORY_COUNT);
 
   return (
     <>
@@ -53,30 +50,30 @@ export default async function HomePage() {
       <section className="border-b bg-primary/5">
         <div className="container mx-auto px-4 py-14 md:py-20">
           <div className="mx-auto max-w-4xl text-center">
-            {/* Eyebrow y chips "Populares" son vecindad del BUSCADOR, no del
-                titular: en RP.2 pasan a formar parte del bloque `search`
-                (docs/diseno-portada.md §4.1). Hasta entonces siguen aquí. */}
+            {/* El eyebrow se queda escrito a mano y ENCIMA del <h1>. El bloque
+                `search` tiene su propio campo `eyebrow` (§4.1) y funciona, pero
+                el bloque se pinta DEBAJO del titular: moverlo ahí ahora cambiaría
+                el orden visual de la portada, que no es lo que pide esta ráfaga.
+                Se resuelve en la limpieza final de RP.6, cuando la página entera
+                se reordena. */}
             <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-primary">
               Miles de anuncios cerca de ti
             </p>
             <HomeHero config={homepage} />
-            <SearchBar categories={categories} />
 
-            {popularCategories.length > 0 && (
-              <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
-                <span className="text-xs text-muted-foreground">Populares:</span>
-                {popularCategories.map((cat) => (
-                  <Link
-                    key={cat.id}
-                    href={categoryPath(cat)}
-                    className="rounded-full border bg-background px-3 py-1 text-xs font-medium transition-colors hover:border-primary hover:text-primary"
-                  >
-                    {cat.name}
-                  </Link>
-                ))}
-              </div>
-            )}
+            {/* RP.2 — el buscador y sus chips ya vienen de la configuración.
+                TRANSITORIO: el renderizador va DENTRO de la banda del hero
+                porque los dos únicos tipos que existen hoy (`search`, `cta`)
+                viven ahí en la portada actual. En cuanto RP.4 traiga bloques que
+                NO son del hero (rejilla, pasos), esto sale de la <section> al
+                sitio que fija §5.1: hero primero, bloques después. */}
+            <HomeBlockRenderer blocks={homepage.blocks} categories={categories} />
 
+            {/* Sigue a mano: el bloque `cta` ya existe y renderiza, pero el botón
+                compartido es `size="lg"` (el del blog) y este es `size="sm"`.
+                Cambiarlo sería una modificación visual que esta ráfaga no pide;
+                el modelo no tiene campo de tamaño y no se inventa uno. Pasa a
+                bloque cuando RP.4-6 reordenen la portada. */}
             <div className="mt-8">
               <Button asChild variant="outline" size="sm">
                 <Link href="/publicar">¿Tienes algo que vender? Publica gratis</Link>

@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { SITE_NAME } from '@/config';
+import { SmartLink } from '@/components/shared/SmartLink';
 import { getCachedFooterNav } from '@/lib/api/footer';
 
 export default async function Footer() {
@@ -23,20 +24,17 @@ export default async function Footer() {
               <ul className="space-y-2">
                 {col.items.map((item) => (
                   <li key={item.href + item.label}>
-                    {item.external ? (
-                      <a
-                        href={item.href}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sm text-muted-foreground hover:text-foreground"
-                      >
-                        {item.label}
-                      </a>
-                    ) : (
-                      <Link href={item.href} className="text-sm text-muted-foreground hover:text-foreground">
-                        {item.label}
-                      </Link>
-                    )}
+                    {/* `external` va EXPLÍCITO: aquí no se deriva del href, lo
+                        resuelve el backend según FooterItemType (ver
+                        FooterService.listPublicNav). SmartLink respeta el que se
+                        le pasa y solo deriva cuando se omite. */}
+                    <SmartLink
+                      href={item.href}
+                      external={item.external}
+                      className="text-sm text-muted-foreground hover:text-foreground"
+                    >
+                      {item.label}
+                    </SmartLink>
                   </li>
                 ))}
               </ul>

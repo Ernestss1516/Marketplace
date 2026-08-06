@@ -618,28 +618,61 @@ async function seedBumpPacks() {
   }
 }
 
-// RP.1 — fila ÚNICA de la configuración de portada. Reproduce EXACTAMENTE el
-// hero que la home pinta hoy a mano ((home)/page.tsx:51-53): mismo <h1>, sin
-// opciones rotativas y sin subtítulo, para que estrenar el motor no cambie ni
-// una palabra de lo que ve el usuario. Las opciones rotativas las pone el admin
-// cuando quiera (el rotativo está implementado y probado, solo no está sembrado).
+// Fila ÚNICA de la configuración de portada. Reproduce EXACTAMENTE lo que la
+// home pintaba a mano, para que estrenar el motor no cambie ni una palabra de lo
+// que ve el usuario:
+//   RP.1 — el hero: mismo <h1>, sin opciones rotativas y sin subtítulo (el
+//          rotativo está implementado y probado, solo no está sembrado; lo
+//          activa el admin cuando quiera).
+//   RP.2 — el bloque `search`: el buscador con sus chips "Populares", con el
+//          mismo tope de 6 que tenía la constante POPULAR_CATEGORY_COUNT.
+//          Sin `eyebrow`: ese texto sigue escrito a mano ENCIMA del <h1>, y el
+//          bloque se pinta debajo — ver el comentario de (home)/page.tsx.
 //
 // upsert con `update: {}` — NUNCA pisa lo que un admin haya guardado, mismo
 // criterio que el `skipDuplicates` de seedSettings().
+const HOMEPAGE_SEED_BLOCKS = [
+  { id: 'seed-search', type: 'search', showPopularCategories: true, popularCount: 6 },
+];
+
 async function seedHomepageConfig() {
   console.log('Seeding homepage config...');
-  await prisma.homepageConfig.upsert({
-    where: { id: 'singleton' },
-    create: {
-      id: 'singleton',
-      heroStaticTitle: 'Compra y vende de segunda mano',
-      heroRotatingOptions: [],
-      heroRotationMs: 3000,
-      blocks: [],
-    },
-    update: {},
-  });
-  console.log('  ✓ homepage config (fila única)');
+  const existing = await prisma.homepageConfig.findUnique({ where: { id: 'singleton' } });
+
+  if (!existing) {
+    await prisma.homepageConfig.create({
+      data: {
+        id: 'singleton',
+        heroStaticTitle: 'Compra y vende de segunda mano',
+        heroRotatingOptions: [],
+        heroRotationMs: 3000,
+        blocks: HOMEPAGE_SEED_BLOCKS,
+      },
+    });
+    console.log('  ✓ homepage config (fila única creada)');
+    return;
+  }
+
+  // BACKFILL de RP.2, acotado a propósito: una instalación que venga de RP.1
+  // tiene la fila con `blocks: []`, y desde RP.2 la página YA NO pinta el
+  // buscador a mano — sin esto, actualizar dejaría la portada sin buscador.
+  //
+  // Solo actúa si el array está VACÍO. En cuanto un admin ha configurado algo,
+  // esto no lo toca: un array vacío es lo único que no puede ser una decisión
+  // suya que merezca respetarse (una portada sin un solo bloque no es una
+  // portada). Mismo espíritu que el `skipDuplicates` de seedSettings: rellenar
+  // lo que falta, nunca pisar lo que hay.
+  const blocks = existing.blocks;
+  if (Array.isArray(blocks) && blocks.length === 0) {
+    await prisma.homepageConfig.update({
+      where: { id: 'singleton' },
+      data: { blocks: HOMEPAGE_SEED_BLOCKS },
+    });
+    console.log('  ✓ homepage config (backfill del bloque `search` sobre una portada vacía)');
+    return;
+  }
+
+  console.log('  ✓ homepage config ya configurada, intacta');
 }
 
 async function main() {

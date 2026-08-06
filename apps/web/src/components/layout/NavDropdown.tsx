@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { ChevronDown } from 'lucide-react';
 import {
   DropdownMenu,
@@ -8,6 +7,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { SmartLink } from '@/components/shared/SmartLink';
 import type { NavNode } from '@/lib/api/nav';
 
 /**
@@ -34,24 +34,15 @@ export function NavDropdown({ node }: { node: NavNode }) {
 
   return (
     <div className="flex shrink-0 items-center">
-      {hasOwnLink &&
-        (node.external ? (
-          <a
-            href={node.href!}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="rounded-md py-2 pl-3 pr-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
-          >
-            {node.label}
-          </a>
-        ) : (
-          <Link
-            href={node.href!}
-            className="rounded-md py-2 pl-3 pr-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
-          >
-            {node.label}
-          </Link>
-        ))}
+      {hasOwnLink && (
+        <SmartLink
+          href={node.href!}
+          external={node.external}
+          className="rounded-md py-2 pl-3 pr-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
+        >
+          {node.label}
+        </SmartLink>
+      )}
 
       {/* modal={false} a propósito. Con el `modal` por defecto, Radix marca
           `aria-hidden` TODO lo que queda fuera del menú (header, contenido,
@@ -72,30 +63,25 @@ export function NavDropdown({ node }: { node: NavNode }) {
 
         {/* z-40: por debajo del z-50 del header sticky, que debe seguir ganando. */}
         <DropdownMenuContent align="start" className="z-40 min-w-44">
-          {/* El <a>/<Link> va INLINE dentro de DropdownMenuItem asChild, sin un
-              componente intermedio: `asChild` usa Slot, que fusiona sobre el
-              hijo el role="menuitem", los handlers de teclado y el ref con los
-              que Radix gestiona el foco dentro del menú. Un componente propio en
-              medio que no reenvíe props se los traga en silencio — el menú
-              seguiría abriéndose, pero sus ítems dejarían de ser `menuitem` y de
-              recorrerse con las flechas.
+          {/* `asChild` usa Slot, que fusiona sobre el hijo el role="menuitem",
+              los handlers de teclado y el ref con los que Radix gestiona el foco
+              dentro del menú. Aquí antes iba un <a>/<Link> INLINE, porque un
+              componente propio en medio que NO REENVÍE esas props se las traga
+              en silencio: el menú seguiría abriéndose, pero sus ítems dejarían
+              de ser `menuitem` y de recorrerse con las flechas.
+              `SmartLink` sí las reenvía —es forwardRef y hace spread de todo lo
+              que recibe—, que es exactamente el requisito. Lo cubre el test de
+              TECLADO de nav-publico.spec.ts, que comprueba `menuitem`, flechas y
+              devolución del foco al cerrar.
               `href` nunca es null aquí: el gate del backend poda los nodos de
               segundo nivel sin destino. */}
-          {node.children.map((child, idx) =>
-            child.external ? (
-              <DropdownMenuItem key={`${child.href}-${idx}`} asChild>
-                <a href={child.href!} target="_blank" rel="noopener noreferrer" className={CHILD_CLS}>
-                  {child.label}
-                </a>
-              </DropdownMenuItem>
-            ) : (
-              <DropdownMenuItem key={`${child.href}-${idx}`} asChild>
-                <Link href={child.href!} className={CHILD_CLS}>
-                  {child.label}
-                </Link>
-              </DropdownMenuItem>
-            ),
-          )}
+          {node.children.map((child, idx) => (
+            <DropdownMenuItem key={`${child.href}-${idx}`} asChild>
+              <SmartLink href={child.href!} external={child.external} className={CHILD_CLS}>
+                {child.label}
+              </SmartLink>
+            </DropdownMenuItem>
+          ))}
         </DropdownMenuContent>
       </DropdownMenu>
     </div>

@@ -1,20 +1,20 @@
-import Link from 'next/link';
+import { SmartLink } from '@/components/shared/SmartLink';
 import { getCachedNav, type NavNode, type NavPageType } from '@/lib/api/nav';
 import { NavDropdown } from './NavDropdown';
 
 const LINK_CLS =
   'shrink-0 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground';
 
-/** Nodo raíz sin hijos: un enlace suelto. Mismo reparto external/interno que Footer.tsx. */
+/** Nodo raíz sin hijos: un enlace suelto. Mismo reparto external/interno que
+ *  Footer.tsx — literalmente el mismo componente desde RP.2. `external` va
+ *  explícito porque lo resuelve el backend (NavItemType), no el href.
+ *  `href` nunca es null aquí: un nodo raíz sin destino se pinta como
+ *  desplegable, no como enlace. */
 function TopLevelLink({ node }: { node: NavNode }) {
-  return node.external ? (
-    <a href={node.href!} target="_blank" rel="noopener noreferrer" className={LINK_CLS}>
+  return (
+    <SmartLink href={node.href!} external={node.external} className={LINK_CLS}>
       {node.label}
-    </a>
-  ) : (
-    <Link href={node.href!} className={LINK_CLS}>
-      {node.label}
-    </Link>
+    </SmartLink>
   );
 }
 

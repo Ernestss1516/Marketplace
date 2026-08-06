@@ -24,7 +24,12 @@ const DEFAULTS = {
   heroRotatingOptions: [] as string[],
   heroRotationMs: 3000,
   heroSubtitle: null as string | null,
-  blocks: [] as Prisma.InputJsonValue,
+  // Igual que prisma/seed-test.ts, incluido el bloque `search`: esta suite MUTA
+  // una fila estática compartida y tiene que dejarla como la encontró, o la
+  // portada se quedaría sin buscador para la batería de Playwright.
+  blocks: [
+    { id: 'seed-search', type: 'search', showPopularCategories: true, popularCount: 6 },
+  ] as Prisma.InputJsonValue,
 };
 
 describe('Portada configurable — RP.1 (e2e)', () => {
@@ -106,7 +111,10 @@ describe('Portada configurable — RP.1 (e2e)', () => {
     expect(res.body.heroStaticTitle).toBe(DEFAULTS.heroStaticTitle);
     expect(res.body.heroRotatingOptions).toEqual([]);
     expect(res.body.heroRotationMs).toBe(3000);
-    expect(res.body.blocks).toEqual([]);
+    // La semilla trae el bloque `search` desde RP.2 (reproduce el buscador que
+    // la home pintaba a mano). Se compara contra DEFAULTS y no contra [] para
+    // que este test no haya que tocarlo cada vez que la semilla crezca.
+    expect(res.body.blocks).toEqual(DEFAULTS.blocks);
     // updatedById no se expone: es dato de auditoría, no de portada.
     expect(res.body).not.toHaveProperty('updatedById');
   });

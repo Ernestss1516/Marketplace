@@ -35,12 +35,14 @@ const OPTIONS = ['coches', 'bicicletas', 'muebles'];
 const SUBTITLE = 'Miles de anuncios cerca de ti';
 const ROTATION_MS = 2000;
 
-// Lo que siembra prisma/seed-test.ts. Se restaura al terminar.
+// Lo que siembra prisma/seed-test.ts. Se restaura al terminar — y tiene que
+// coincidir EXACTAMENTE, incluido el bloque `search`: restaurar con `blocks: []`
+// dejaría la portada sin buscador para todo lo que corra después.
 const DEFAULTS = {
   heroStaticTitle: 'Compra y vende de segunda mano',
   heroRotatingOptions: [],
   heroRotationMs: 3000,
-  blocks: [],
+  blocks: [{ id: 'seed-search', type: 'search', showPopularCategories: true, popularCount: 6 }],
 };
 
 // CERO logins: el token lo obtiene globalSetup UNA vez para toda la corrida
