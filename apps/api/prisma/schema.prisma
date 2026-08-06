@@ -1704,6 +1704,13 @@ model Post {
   /// de que la constraint física falle.
   footerItems FooterItem[]
 
+  /// Ítems del nav principal que enlazan a esta página (type=PAGE). SEGUNDA
+  /// fuente de enlaces a páginas, con la misma protección que footerItems (ver
+  /// NavItem.page, onDelete: Restrict): el precheck de BlogService.adminDelete
+  /// debe contar LAS DOS tablas, o borrar una página enlazada solo desde el nav
+  /// pasaría el chequeo y reventaría contra la constraint como un 500.
+  navItems NavItem[]
+
   @@index([type, status, publishedAt])
 }
 
@@ -1757,6 +1764,108 @@ model FooterItem {
   updatedAt DateTime @updatedAt
 
   @@index([columnId, order])
+}
+
+// ============================================================================
+//  NAVEGACIÓN PRINCIPAL (RN.1) — barra bajo el header del sitio público.
+//  Árbol propio (menús → submenús desplegables), independiente del contenido
+//  (Post) y del footer. NO reusa FooterColumn/FooterItem: ese modelo es plano
+//  por construcción (una columna no es un enlace y un ítem no tiene hijos) y
+//  no escala a submenús. Ver docs/diseno-nav-dinamico.md.
+// ============================================================================
+
+/// Tipo de destino de un NavItem. Mismos tres valores y misma semántica que
+/// FooterItemType — enum aparte, y no reutilizado, porque los dos sistemas
+/// deben poder divergir sin arrastrarse.
+enum NavItemType {
+  PAGE
+  INTERNAL
+  EXTERNAL
+}
+
+/// Tipos de página de (public) donde un NavItem puede mostrarse. Derivado del
+/// árbol REAL de apps/web/src/app/(public), no de una lista conceptual: cada
+/// valor se corresponde con un layout anidado que declara el suyo (patrón
+/// BannerPlacement, ver diseño §4.2). Nombres en español como
+/// BannerPlacement.MIS_ANUNCIOS: nombran rutas de cara al usuario.
+///
+/// CATEGORIA cubre /[categoria] y /[categoria]/[subcategoria], y BLOG cubre el
+/// índice y la ficha: renderizan por el mismo componente y cuelgan del mismo
+/// layout. Separarlos después es una migración aditiva sin backfill (molde
+/// ContactReasonScope); fusionarlos obligaría a reescribir los `visibleOn` ya
+/// guardados — por eso se empieza grueso.
+enum NavPageType {
+  HOME
+  BUSQUEDA
+  CATEGORIA
+  ANUNCIO
+  BLOG
+  PAGINA_CMS
+  VENDEDOR
+  CONTACTO
+  PLANES
+}
+
+model NavItem {
+  id String @id @default(cuid())
+
+  /// Auto-relación: un nodo puede colgar de otro. null = nodo raíz (primer
+  /// nivel de la barra). Cascade: borrar un menú se lleva su subárbol — es una
+  /// acción consciente del admin y la UI anuncia cuántos descendientes se van
+  /// ANTES de confirmar (mismo criterio que FooterItem.column). A diferencia
+  /// de Category.parentId (SET NULL físico + rechazo en el servicio), de un
+  /// NavItem no cuelga ningún tercero que pueda sorprenderse.
+  ///
+  /// La profundidad la acota el SERVICIO (NAV_MAX_DEPTH), no el schema — mismo
+  /// criterio que Category, cuyo tope de 2 niveles vive en assertParentIsRoot.
+  parentId String?
+  parent   NavItem?  @relation("NavTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children NavItem[] @relation("NavTree")
+
+  /// Texto visible del enlace — independiente de Post.title, igual que
+  /// FooterItem.label (el admin puede acortarlo sin tocar la página).
+  label String
+  order Int    @default(0)
+
+  /// Desactivar oculta el nodo Y su subárbol entero: un hijo de un padre
+  /// inactivo NO se promociona a raíz (ver el paso 1 de la poda en
+  /// nav.types.ts). Es el interruptor rápido que el footer no tiene.
+  active Boolean @default(true)
+
+  /// NULLABLE — ésta es la diferencia estructural con FooterItem.type.
+  /// null = nodo solo-desplegable (sin destino propio, abre sus hijos).
+  /// La coherencia con pageId/url se valida en el SERVICIO, no aquí, igual que
+  /// FooterService.assertItemDestination: Prisma no la valida por sí solo y no
+  /// hay CHECK de schema.
+  ///
+  /// Un nodo sin destino Y sin hijos es INVÁLIDO, pero se acepta al escribir y
+  /// se PODA AL LEER (diseño §2.3): rechazarlo con un 400 haría imposible crear
+  /// un desplegable, porque el padre nace siempre antes que su primer hijo.
+  type NavItemType?
+
+  /// Solo type=PAGE. onDelete: Restrict, igual que FooterItem.page — borrar una
+  /// página enlazada desde el nav debe rechazarse con un 400 legible
+  /// (precomprobado en BlogService.adminDelete, que cuenta las DOS tablas),
+  /// nunca reventar en silencio.
+  pageId String?
+  page   Post?   @relation(fields: [pageId], references: [id], onDelete: Restrict)
+
+  /// type=INTERNAL (ruta relativa, sin registro de rutas reales — misma
+  /// limitación aceptada que FooterItem.url) o type=EXTERNAL (URL absoluta).
+  /// null si type=PAGE o si type es null.
+  url String?
+
+  /// Tipos de página donde se muestra. [] = SIN FILTRO, se muestra en TODAS —
+  /// diverge a propósito de Banner.placements, que prohíbe el vacío. Allí un
+  /// banner sin ubicación es peso muerto; aquí "aparecer en todas partes" es el
+  /// caso mayoritario de un nav, y ese debe ser el estado por defecto. Mismo
+  /// significado de "[] = no configurado" que Category.allowedViews.
+  visibleOn NavPageType[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([parentId, order])
 }
 
 // ============================================================================
