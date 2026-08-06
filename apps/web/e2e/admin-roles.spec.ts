@@ -2,8 +2,8 @@
 //
 // Tests:
 //   ADMIN
-//     1. /admin carga (dashboard) → el nav muestra los 18 ítems que ve un ADMIN
-//        (la cuenta sale de NAV_ITEMS en AdminNav.tsx: son 18 y todos incluyen ADMIN)
+//     1. /admin carga (dashboard) → el nav muestra los 19 ítems que ve un ADMIN
+//        (la cuenta sale de NAV_ITEMS en AdminNav.tsx: son 19 y todos incluyen ADMIN)
 //   MODERATOR — rutas aún bloqueadas (ADMIN-only)
 //     2. /admin → redirige a /
 //     3. /admin/ajustes → redirige a /
@@ -58,7 +58,7 @@ async function loginAs(browser: Browser, email: string) {
 }
 
 test.describe('Backoffice — ADMIN acceso total', () => {
-  test('ADMIN carga /admin y el nav muestra los 18 ítems', async ({ adminContext }) => {
+  test('ADMIN carga /admin y el nav muestra los 19 ítems', async ({ adminContext }) => {
     const page = await adminContext.newPage();
 
     await page.goto('/admin');
@@ -68,9 +68,9 @@ test.describe('Backoffice — ADMIN acceso total', () => {
     expect(page.url()).toContain('/admin');
     expect(page.url()).not.toContain('/login');
 
-    // El número sale de NAV_ITEMS en AdminNav.tsx: hoy son 18 entradas y TODAS
+    // El número sale de NAV_ITEMS en AdminNav.tsx: hoy son 19 entradas y TODAS
     // incluyen 'ADMIN' en sus roles, así que un ADMIN las ve todas. El último en
-    // sumarse fue "Tags" (B1).
+    // sumarse fue "Navegación" (RN.4, el nav dinámico bajo la cabecera).
     //
     // Este comentario venía diciendo 14 mientras la aserción decía 17: el conteo se
     // fue actualizando a trompicones y el comentario se quedó atrás, así que ya no
@@ -85,7 +85,7 @@ test.describe('Backoffice — ADMIN acceso total', () => {
     const nav = page.getByTestId('admin-nav');
     await expect(nav).toBeVisible();
     const links = nav.getByRole('link');
-    await expect(links).toHaveCount(18);
+    await expect(links).toHaveCount(19);
 
     // Spot-check some labels
     await expect(nav.getByRole('link', { name: 'Dashboard' })).toBeVisible();
