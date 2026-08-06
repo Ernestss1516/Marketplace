@@ -6,7 +6,7 @@ import { MeiliSearch } from 'meilisearch';
  * TRUNCATE "User" CASCADE removes all FK-dependent rows (Listing, Conversation,
  * Message, Favorite, Review, Report, ListingImage, tokens, Post, AuditLog, …),
  * which in turn cascades to FooterItem (FooterItem.page → Post). FooterColumn,
- * ContactMessage and ContactReason are included explicitly in the same
+ * NavItem, ContactMessage and ContactReason are included explicitly in the same
  * statement — none has a FK to User (FooterColumn has none at all;
  * ContactMessage's sender is anonymous by design — RC.1; ContactReason is
  * admin-managed reference data, not owned by a User), so they would otherwise
@@ -16,12 +16,16 @@ import { MeiliSearch } from 'meilisearch';
  * ContactMessage (FK'd to it) regardless of listing order, and ContactReply
  * cascades from ContactMessage (onDelete: Cascade) as well as from User
  * (adminUserId), so neither needs a separate entry beyond ContactMessage.
+ * NavItem needs its own entry for the same reason FooterColumn does: only the
+ * nodes with a pageId hang off Post, so nodes of type INTERNAL/EXTERNAL — or
+ * with no destination at all — have no path back to User and would survive
+ * cleanup, leaking a stale nav tree into the next suite.
  * Category and Setting are intentionally excluded — they are static system data
  * seeded once in globalSetup and must not be touched by individual suite cleanup,
  * since multiple Jest workers run suites in parallel and share the same DB.
  */
 export async function cleanDb(prisma: PrismaClient): Promise<void> {
-  await prisma.$executeRaw`TRUNCATE "User", "FooterColumn", "ContactMessage", "ContactReason" CASCADE`;
+  await prisma.$executeRaw`TRUNCATE "User", "FooterColumn", "NavItem", "ContactMessage", "ContactReason" CASCADE`;
 }
 
 /**

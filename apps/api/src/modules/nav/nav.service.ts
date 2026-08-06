@@ -1,8 +1,21 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { NavItemType, NavPageType, PostType } from '@prisma/client';
+import { NavItemType, NavPageType, Prisma, PostType } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
+import { AuditLogService } from '../audit-log/audit-log.service';
+import { RevalidateService } from '../../common/revalidate/revalidate.service';
 import { isAbsoluteHttpUrl } from '../../common/validators/safe-url';
+import { CreateNavItemDto } from './dto/create-nav-item.dto';
+import { UpdateNavItemDto } from './dto/update-nav-item.dto';
+import { ReorderNavItemsDto } from './dto/reorder-nav-items.dto';
 import { NAV_MAX_DEPTH, pruneNavTree, type NavItemNode, type NavNode } from './nav.types';
+
+/**
+ * Tag de caché del nav en el frontend (unstable_cache). ÚNICO para todas las
+ * entradas —hay una por NavPageType, ver apps/web/src/lib/api/nav.ts— porque
+ * unstable_cache invalida por TAG, no por clave: una sola llamada tumba las
+ * nueve. Es lo que hace viable cachear por tipo sin complicar la invalidación.
+ */
+const NAV_CACHE_TAG = 'main-nav';
 
 // Lo que la poda necesita de la página enlazada: el slug para construir el href
 // y el status para saber si ese href cuenta (ver resolveHref en nav.types.ts).
@@ -16,16 +29,19 @@ const PAGE_FOR_ADMIN = { select: { id: true, title: true, slug: true, status: tr
 /**
  * Navegación principal (RN.1) — barra bajo el header del sitio público.
  *
- * En esta ráfaga el servicio solo LEE y VALIDA: los endpoints, la auditoría y la
- * revalidación de caché llegan en RN.2, que es quien cablea los `assert*` en las
- * mutaciones. Por eso el constructor solo pide Prisma: inyectar aquí un
- * AuditLogService que todavía no registra nada sería ruido.
+ * Lectura pública (podada por tipo de página), lectura de admin (sin podar) y
+ * CRUD de admin. Toda mutación deja AuditLog y revalida el tag de caché del
+ * nav, sin excepción — mismo contrato que FooterService.
  *
  * Ver docs/diseno-nav-dinamico.md.
  */
 @Injectable()
 export class NavService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditLog: AuditLogService,
+    private readonly revalidateService: RevalidateService,
+  ) {}
 
   // ── Público ──────────────────────────────────────────────────────────────
 
@@ -67,7 +83,159 @@ export class NavService {
     });
   }
 
-  // ── Validación de escritura (la cablea RN.2) ─────────────────────────────
+  // ── Admin: mutaciones ────────────────────────────────────────────────────
+
+  async createItem(dto: CreateNavItemDto, actorId: string, ip?: string) {
+    this.assertItemDestination(dto.type, dto.pageId, dto.url);
+    if (dto.type === NavItemType.PAGE) {
+      await this.assertPageDestination(dto.pageId!);
+    }
+    // Un nodo recién creado no tiene hijos todavía, así que no puede arrastrar
+    // a nadie a un tercer nivel: assertMaxDepth va sin `movingItemId`.
+    await this.assertMaxDepth(dto.parentId);
+
+    const created = await this.prisma.navItem.create({
+      data: {
+        parentId: dto.parentId ?? null,
+        label: dto.label,
+        order: dto.order ?? 0,
+        active: dto.active ?? true,
+        ...this.destinationData(dto.type ?? null, dto.pageId, dto.url),
+        visibleOn: dto.visibleOn ?? [],
+      },
+    });
+
+    await this.auditLog.log({
+      action: 'NAV_ITEM_CREATE',
+      actorId,
+      resourceType: 'NavItem',
+      resourceId: created.id,
+      after: { label: created.label, type: created.type, parentId: created.parentId },
+      ip,
+    });
+
+    this.revalidateService.revalidateTag(NAV_CACHE_TAG);
+    return created;
+  }
+
+  /**
+   * Editar y MOVER son la misma operación: mandar `parentId` cambia de padre
+   * (null = promover a raíz), igual que "mover de columna" en el footer es
+   * mandar `columnId` en el update.
+   *
+   * Tocar type/pageId/url exige mandar la combinación COMPLETA del destino en
+   * el mismo payload; no se mezcla con lo ya guardado. Misma regla y mismo
+   * motivo que FooterService.updateItem: el formulario de admin siempre envía
+   * el destino entero, así que esto nunca es una limitación real y evita la
+   * ambigüedad de "¿qué campo viejo sigue vigente?" en un update parcial.
+   */
+  async updateItem(id: string, dto: UpdateNavItemDto, actorId: string, ip?: string) {
+    const item = await this.findItemOrThrow(id);
+    const before = {
+      label: item.label,
+      type: item.type,
+      parentId: item.parentId,
+      order: item.order,
+      active: item.active,
+    };
+
+    const touchesDestination =
+      dto.type !== undefined || dto.pageId !== undefined || dto.url !== undefined;
+    // `?? null` y no `?? item.type`: mandar `type: null` explícito debe quitar
+    // el destino, no caer al valor guardado.
+    const resolvedType = dto.type !== undefined ? dto.type : item.type;
+
+    if (touchesDestination) {
+      this.assertItemDestination(resolvedType, dto.pageId, dto.url);
+      if (resolvedType === NavItemType.PAGE) {
+        await this.assertPageDestination(dto.pageId!);
+      }
+    }
+
+    // Solo al MOVER: aquí sí puede arrastrar hijos, así que pasa su propio id.
+    if (dto.parentId !== undefined) {
+      await this.assertNoCycle(id, dto.parentId);
+      await this.assertMaxDepth(dto.parentId, id);
+    }
+
+    const updated = await this.prisma.navItem.update({
+      where: { id },
+      data: {
+        ...(dto.parentId !== undefined && { parentId: dto.parentId }),
+        ...(dto.label !== undefined && { label: dto.label }),
+        ...(dto.order !== undefined && { order: dto.order }),
+        ...(dto.active !== undefined && { active: dto.active }),
+        ...(dto.visibleOn !== undefined && { visibleOn: dto.visibleOn }),
+        ...(touchesDestination && this.destinationData(resolvedType, dto.pageId, dto.url)),
+      },
+    });
+
+    await this.auditLog.log({
+      action: 'NAV_ITEM_UPDATE',
+      actorId,
+      resourceType: 'NavItem',
+      resourceId: id,
+      before,
+      after: {
+        label: updated.label,
+        type: updated.type,
+        parentId: updated.parentId,
+        order: updated.order,
+        active: updated.active,
+      },
+      ip,
+    });
+
+    this.revalidateService.revalidateTag(NAV_CACHE_TAG);
+    return updated;
+  }
+
+  /**
+   * Cascade explícito al subárbol (NavItem.parent, onDelete: Cascade) — es una
+   * acción consciente del admin, no un efecto secundario oculto: la UI muestra
+   * cuántos descendientes se van ANTES de confirmar. Mismo criterio que
+   * FooterService.deleteColumn y a diferencia de deleteCategory, que rechaza:
+   * de un NavItem no cuelga ningún tercero que pueda sorprenderse.
+   *
+   * El conteo se registra en el AuditLog para que el borrado sea reconstruible
+   * (el `before` de un cascade no lo cuenta nadie más).
+   */
+  async deleteItem(id: string, actorId: string, ip?: string) {
+    const item = await this.findItemOrThrow(id);
+    const childCount = await this.prisma.navItem.count({ where: { parentId: id } });
+
+    await this.prisma.navItem.delete({ where: { id } });
+
+    await this.auditLog.log({
+      action: 'NAV_ITEM_DELETE',
+      actorId,
+      resourceType: 'NavItem',
+      resourceId: id,
+      before: { label: item.label, type: item.type, parentId: item.parentId, childCount },
+      ip,
+    });
+
+    this.revalidateService.revalidateTag(NAV_CACHE_TAG);
+  }
+
+  async reorderItems(dto: ReorderNavItemsDto, actorId: string, ip?: string) {
+    await this.prisma.$transaction(
+      dto.items.map(({ id, order }) => this.prisma.navItem.update({ where: { id }, data: { order } })),
+    );
+
+    await this.auditLog.log({
+      action: 'NAV_ITEM_REORDER',
+      actorId,
+      resourceType: 'NavItem',
+      resourceId: 'batch',
+      after: { items: dto.items as unknown as Prisma.InputJsonValue },
+      ip,
+    });
+
+    this.revalidateService.revalidateTag(NAV_CACHE_TAG);
+  }
+
+  // ── Validación de escritura ──────────────────────────────────────────────
 
   /**
    * Coherencia del destino. Vive en el SERVICIO y no en el DTO — mismo estilo
@@ -209,6 +377,26 @@ export class NavService {
   }
 
   // ── Private helpers ──────────────────────────────────────────────────────
+
+  private async findItemOrThrow(id: string) {
+    const item = await this.prisma.navItem.findUnique({ where: { id } });
+    if (!item) throw new NotFoundException('Ítem del nav no encontrado');
+    return item;
+  }
+
+  /**
+   * Los tres campos del destino se escriben SIEMPRE juntos y derivados del
+   * `type` ya resuelto, nunca sueltos: así un cambio de tipo no puede dejar
+   * atrás el `url` del tipo anterior ni un `pageId` huérfano. Llamar a esto
+   * presupone que assertItemDestination ya validó la combinación.
+   */
+  private destinationData(type: NavItemType | null, pageId?: string, url?: string) {
+    return {
+      type,
+      pageId: type === NavItemType.PAGE ? pageId! : null,
+      url: type === NavItemType.INTERNAL || type === NavItemType.EXTERNAL ? url! : null,
+    };
+  }
 
   /**
    * Carga el árbol entero en una sola query. El `include` anidado está acoplado

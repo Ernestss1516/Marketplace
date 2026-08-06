@@ -26,6 +26,7 @@ import { AuditLogModule } from './modules/audit-log/audit-log.module';
 import { ExpirationModule } from './modules/expiration/expiration.module';
 import { BlogModule } from './modules/blog/blog.module';
 import { FooterModule } from './modules/footer/footer.module';
+import { NavModule } from './modules/nav/nav.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { RedsysModule } from './modules/redsys/redsys.module';
 import { CampaignsModule } from './modules/campaigns/campaigns.module';
@@ -83,6 +84,7 @@ import { TagsModule } from './modules/tags/tags.module';
     ExpirationModule,
     BlogModule,
     FooterModule,
+    NavModule,
     BillingModule,
     RedsysModule,
     CampaignsModule,

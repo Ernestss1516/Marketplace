@@ -321,13 +321,27 @@ export class BlogService {
     const wasPublished = post.status === PostStatus.PUBLISHED;
 
     // Precomprobación (molde AdminService.deleteCategory): sin esto, el
-    // DELETE físico chocaría con FooterItem.page (onDelete: Restrict) y
-    // devolvería un 500 sin controlar en vez de este 400 legible.
+    // DELETE físico chocaría con FooterItem.page o NavItem.page (ambas
+    // onDelete: Restrict) y devolvería un 500 sin controlar en vez de este 400
+    // legible.
+    //
+    // DOS tablas, no una: una página puede estar enlazada desde el footer, desde
+    // el nav principal, o desde los dos. Contar solo el footer dejaba pasar el
+    // caso "enlazada solo desde el nav" hasta estrellarse contra la constraint.
+    // El mensaje distingue de dónde viene cada enlace para que el admin sepa
+    // dónde ir a desenlazar, en vez de un total ciego.
     if (post.type === PostType.PAGE) {
-      const footerItemCount = await this.prisma.footerItem.count({ where: { pageId: id } });
-      if (footerItemCount > 0) {
+      const [footerItemCount, navItemCount] = await this.prisma.$transaction([
+        this.prisma.footerItem.count({ where: { pageId: id } }),
+        this.prisma.navItem.count({ where: { pageId: id } }),
+      ]);
+      if (footerItemCount > 0 || navItemCount > 0) {
+        const origenes = [
+          footerItemCount > 0 ? `${footerItemCount} sitio(s) del footer` : null,
+          navItemCount > 0 ? `${navItemCount} sitio(s) del nav` : null,
+        ].filter(Boolean);
         throw new BadRequestException(
-          `No se puede eliminar: la página está enlazada desde ${footerItemCount} sitio(s) del footer`,
+          `No se puede eliminar: la página está enlazada desde ${origenes.join(' y ')}`,
         );
       }
     }
@@ -422,15 +436,21 @@ export class BlogService {
 
   // Publish/unpublish/delete always revalidate the same set of paths for a
   // given type — pages have no feed to bust, only their own route. For PAGE,
-  // ALSO revalidate the footer-nav cache unconditionally: a status change or
-  // deletion is exactly what can flip whether a FooterItem pointing at this
-  // page renders (see FooterService's public query, which filters PAGE items
-  // by status=PUBLISHED). Pages change rarely and the call is fire-and-forget,
+  // ALSO revalidate the two navigation caches unconditionally: a status change
+  // or deletion is exactly what can flip whether an item pointing at this page
+  // renders (both FooterService and NavService filter PAGE destinations by
+  // status=PUBLISHED). Pages change rarely and the calls are fire-and-forget,
   // so there's no cheaper-but-lossy conditional worth adding.
+  //
+  // Both tags, not one: the two navigations are independent caches, and a page
+  // linked only from the main nav would otherwise keep rendering a stale link
+  // after being unpublished. 'main-nav' busts all its per-pageType entries at
+  // once — unstable_cache invalidates by tag, not by key.
   private revalidatePostPaths(type: PostType, slug: string): void {
     if (type === PostType.PAGE) {
       this.revalidateService.revalidatePath(`/paginas/${slug}`);
       this.revalidateService.revalidateTag('footer-nav');
+      this.revalidateService.revalidateTag('main-nav');
     } else {
       this.revalidateService.revalidatePath('/blog');
       this.revalidateService.revalidatePath(`/blog/${slug}`);

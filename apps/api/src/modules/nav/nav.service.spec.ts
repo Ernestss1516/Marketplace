@@ -1,6 +1,8 @@
 import { NavItemType, NavPageType, PostStatus, PostType } from '@prisma/client';
 import { NavService } from './nav.service';
 import type { PrismaService } from '../../infra/prisma/prisma.service';
+import type { AuditLogService } from '../audit-log/audit-log.service';
+import type { RevalidateService } from '../../common/revalidate/revalidate.service';
 
 /**
  * Tests del SERVICIO: la validación de destino (§2.3 del diseño) y las guardas
@@ -15,15 +17,36 @@ function buildPrismaStub() {
       findMany: jest.fn().mockResolvedValue([]),
       findUnique: jest.fn(),
       count: jest.fn().mockResolvedValue(0),
+      create: jest.fn().mockResolvedValue({ id: 'new-1', label: 'Nuevo', type: null, parentId: null }),
+      update: jest.fn().mockResolvedValue({
+        id: 'item-1',
+        label: 'Editado',
+        type: null,
+        parentId: null,
+        order: 0,
+        active: true,
+      }),
+      delete: jest.fn().mockResolvedValue(undefined),
     },
     post: {
       findUnique: jest.fn(),
     },
+    $transaction: jest.fn((ops: unknown[]) => Promise.all(ops as Promise<unknown>[])),
   } as unknown as PrismaService;
 }
 
+function buildAuditLogStub() {
+  return { log: jest.fn().mockResolvedValue(undefined) } as unknown as AuditLogService;
+}
+
+function buildRevalidateStub() {
+  return { revalidatePath: jest.fn(), revalidateTag: jest.fn() } as unknown as RevalidateService;
+}
+
 function buildService(prisma = buildPrismaStub()) {
-  return { service: new NavService(prisma), prisma };
+  const auditLog = buildAuditLogStub();
+  const revalidate = buildRevalidateStub();
+  return { service: new NavService(prisma, auditLog, revalidate), prisma, auditLog, revalidate };
 }
 
 describe('NavService — validación del destino (con destino)', () => {
@@ -267,5 +290,154 @@ describe('NavService — listPublicNav', () => {
   it('sin ningún nodo en BD → [] (la barra no se renderiza)', async () => {
     const { service } = buildService();
     await expect(service.listPublicNav(NavPageType.HOME)).resolves.toEqual([]);
+  });
+});
+
+/**
+ * Contrato del footer aplicado tal cual: NINGUNA mutación puede quedarse sin
+ * AuditLog ni sin revalidar la caché. Son las 4 del CRUD, y se comprueban una a
+ * una a propósito — es exactamente el tipo de olvido que no falla en desarrollo
+ * (el nav simplemente se queda obsoleto hasta que expira el TTL de una hora).
+ */
+describe('NavService — auditoría y revalidación en TODAS las mutaciones', () => {
+  const existingItem = {
+    id: 'item-1',
+    label: 'Ayuda',
+    type: null,
+    parentId: null,
+    order: 0,
+    active: true,
+    pageId: null,
+    url: null,
+  };
+
+  it('createItem registra NAV_ITEM_CREATE y revalida main-nav', async () => {
+    const { service, auditLog, revalidate } = buildService();
+
+    await service.createItem({ label: 'Nuevo' }, 'actor-1', '1.2.3.4');
+
+    expect(auditLog.log).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'NAV_ITEM_CREATE', actorId: 'actor-1', resourceType: 'NavItem' }),
+    );
+    expect(revalidate.revalidateTag).toHaveBeenCalledWith('main-nav');
+  });
+
+  it('updateItem registra NAV_ITEM_UPDATE y revalida main-nav', async () => {
+    const { service, prisma, auditLog, revalidate } = buildService();
+    (prisma.navItem.findUnique as jest.Mock).mockResolvedValue(existingItem);
+
+    await service.updateItem('item-1', { label: 'Editado' }, 'actor-1');
+
+    expect(auditLog.log).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'NAV_ITEM_UPDATE', resourceId: 'item-1' }),
+    );
+    expect(revalidate.revalidateTag).toHaveBeenCalledWith('main-nav');
+  });
+
+  it('deleteItem registra NAV_ITEM_DELETE con el nº de descendientes y revalida main-nav', async () => {
+    const { service, prisma, auditLog, revalidate } = buildService();
+    (prisma.navItem.findUnique as jest.Mock).mockResolvedValue(existingItem);
+    (prisma.navItem.count as jest.Mock).mockResolvedValue(3);
+
+    await service.deleteItem('item-1', 'actor-1');
+
+    expect(auditLog.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'NAV_ITEM_DELETE',
+        // El cascade no lo cuenta nadie más: sin esto el borrado no sería
+        // reconstruible desde el log.
+        before: expect.objectContaining({ childCount: 3 }),
+      }),
+    );
+    expect(revalidate.revalidateTag).toHaveBeenCalledWith('main-nav');
+  });
+
+  it('reorderItems registra NAV_ITEM_REORDER y revalida main-nav', async () => {
+    const { service, auditLog, revalidate } = buildService();
+
+    await service.reorderItems({ items: [{ id: 'a', order: 1 }, { id: 'b', order: 0 }] }, 'actor-1');
+
+    expect(auditLog.log).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'NAV_ITEM_REORDER', resourceId: 'batch' }),
+    );
+    expect(revalidate.revalidateTag).toHaveBeenCalledWith('main-nav');
+  });
+
+  it('una mutación rechazada por validación NO audita ni revalida', async () => {
+    const { service, auditLog, revalidate } = buildService();
+
+    await expect(
+      service.createItem({ label: 'Malo', type: NavItemType.PAGE }, 'actor-1'),
+    ).rejects.toThrow('pageId es obligatorio cuando type=PAGE');
+
+    expect(auditLog.log).not.toHaveBeenCalled();
+    expect(revalidate.revalidateTag).not.toHaveBeenCalled();
+  });
+});
+
+describe('NavService — escritura del destino discriminado', () => {
+  it('cambiar de PAGE a INTERNAL limpia el pageId anterior (los 3 campos van juntos)', async () => {
+    const { service, prisma } = buildService();
+    (prisma.navItem.findUnique as jest.Mock).mockResolvedValue({
+      id: 'item-1',
+      label: 'Ayuda',
+      type: NavItemType.PAGE,
+      pageId: 'page-1',
+      url: null,
+      parentId: null,
+      order: 0,
+      active: true,
+    });
+
+    await service.updateItem('item-1', { type: NavItemType.INTERNAL, url: '/ayuda' }, 'actor-1');
+
+    expect(prisma.navItem.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ type: NavItemType.INTERNAL, pageId: null, url: '/ayuda' }),
+      }),
+    );
+  });
+
+  it('type=null explícito quita el destino y deja el nodo como solo-desplegable', async () => {
+    const { service, prisma } = buildService();
+    (prisma.navItem.findUnique as jest.Mock).mockResolvedValue({
+      id: 'item-1',
+      label: 'Ayuda',
+      type: NavItemType.INTERNAL,
+      pageId: null,
+      url: '/ayuda',
+      parentId: null,
+      order: 0,
+      active: true,
+    });
+
+    await service.updateItem('item-1', { type: null }, 'actor-1');
+
+    expect(prisma.navItem.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ type: null, pageId: null, url: null }),
+      }),
+    );
+  });
+
+  it('un update que no toca el destino no lo reescribe', async () => {
+    const { service, prisma } = buildService();
+    (prisma.navItem.findUnique as jest.Mock).mockResolvedValue({
+      id: 'item-1',
+      label: 'Ayuda',
+      type: NavItemType.INTERNAL,
+      pageId: null,
+      url: '/ayuda',
+      parentId: null,
+      order: 0,
+      active: true,
+    });
+
+    await service.updateItem('item-1', { label: 'Ayuda y soporte' }, 'actor-1');
+
+    const data = (prisma.navItem.update as jest.Mock).mock.calls[0][0].data;
+    expect(data).not.toHaveProperty('type');
+    expect(data).not.toHaveProperty('url');
+    expect(data).not.toHaveProperty('pageId');
   });
 });

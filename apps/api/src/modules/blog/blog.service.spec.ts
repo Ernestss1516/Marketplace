@@ -20,6 +20,12 @@ function buildPrismaStub() {
     footerItem: {
       count: jest.fn().mockResolvedValue(0),
     },
+    // RN.2 — el precheck de adminDelete cuenta las DOS fuentes de enlaces a una
+    // página (footer y nav) en un solo $transaction.
+    navItem: {
+      count: jest.fn().mockResolvedValue(0),
+    },
+    $transaction: jest.fn((ops: unknown[]) => Promise.all(ops as Promise<unknown>[])),
   } as unknown as PrismaService;
 }
 
@@ -128,5 +134,129 @@ describe('BlogService — delegación a RevalidateService', () => {
       'No se puede eliminar: la página está enlazada desde 2 sitio(s) del footer',
     );
     expect(prisma.post.delete).not.toHaveBeenCalled();
+  });
+});
+
+// RN.2 — el nav principal es una SEGUNDA fuente de enlaces a páginas, con la
+// misma FK Restrict que el footer. Estos tests son la garantía de que el
+// precheck cubre las dos tablas: sin ellos, el caso "enlazada solo desde el
+// nav" pasaría el chequeo y reventaría contra la constraint como un 500.
+describe('BlogService — precheck de borrado ampliado al nav (RN.2)', () => {
+  function buildPageWithLinks(footerCount: number, navCount: number) {
+    const page = makePublishedPage();
+    const prisma = buildPrismaStub();
+    (prisma.post.findUnique as jest.Mock).mockResolvedValue(page);
+    (prisma.footerItem.count as jest.Mock).mockResolvedValue(footerCount);
+    (prisma.navItem.count as jest.Mock).mockResolvedValue(navCount);
+    const revalidate = buildRevalidateStub();
+    const service = new BlogService(prisma, buildAuditLogStub(), revalidate, buildR2Stub());
+    return { page, prisma, revalidate, service };
+  }
+
+  it('PAGE enlazada SOLO desde el nav → 400 legible (no un 500 de la constraint)', async () => {
+    const { page, prisma, service } = buildPageWithLinks(0, 3);
+
+    await expect(service.adminDelete(page.id, 'actor-1')).rejects.toThrow(
+      'No se puede eliminar: la página está enlazada desde 3 sitio(s) del nav',
+    );
+    expect(prisma.post.delete).not.toHaveBeenCalled();
+  });
+
+  it('PAGE enlazada desde AMBOS → 400 que nombra las dos procedencias', async () => {
+    const { page, prisma, service } = buildPageWithLinks(2, 1);
+
+    await expect(service.adminDelete(page.id, 'actor-1')).rejects.toThrow(
+      'No se puede eliminar: la página está enlazada desde 2 sitio(s) del footer y 1 sitio(s) del nav',
+    );
+    expect(prisma.post.delete).not.toHaveBeenCalled();
+  });
+
+  it('PAGE sin enlaces en ninguna de las dos → se borra', async () => {
+    const { page, prisma, service } = buildPageWithLinks(0, 0);
+
+    await service.adminDelete(page.id, 'actor-1');
+
+    expect(prisma.post.delete).toHaveBeenCalledWith({ where: { id: page.id } });
+  });
+
+  it('un POST de blog no consulta ninguna de las dos tablas (el precheck es solo para PAGE)', async () => {
+    const prisma = buildPrismaStub();
+    (prisma.post.findUnique as jest.Mock).mockResolvedValue({
+      ...makePublishedPage(),
+      type: PostType.POST,
+      slug: 'articulo',
+    });
+    const service = new BlogService(prisma, buildAuditLogStub(), buildRevalidateStub(), buildR2Stub());
+
+    await service.adminDelete('post-1', 'actor-1');
+
+    expect(prisma.footerItem.count).not.toHaveBeenCalled();
+    expect(prisma.navItem.count).not.toHaveBeenCalled();
+    expect(prisma.post.delete).toHaveBeenCalled();
+  });
+});
+
+// RN.2 — revalidación CRUZADA: las dos navegaciones son cachés independientes y
+// las dos pueden enlazar la misma página, así que publicar/despublicar/borrar
+// tiene que tumbar los dos tags. El de 'main-nav' invalida de golpe sus 9
+// entradas por tipo de página (unstable_cache invalida por tag, no por clave).
+describe('BlogService — revalidación de los DOS tags de navegación (RN.2)', () => {
+  function buildService() {
+    const page = makePublishedPage();
+    const prisma = buildPrismaStub();
+    (prisma.post.findUnique as jest.Mock).mockResolvedValue(page);
+    (prisma.post.update as jest.Mock).mockResolvedValue(page);
+    const revalidate = buildRevalidateStub();
+    return {
+      page,
+      prisma,
+      revalidate,
+      service: new BlogService(prisma, buildAuditLogStub(), revalidate, buildR2Stub()),
+    };
+  }
+
+  it('adminPublish de una PAGE revalida footer-nav Y main-nav', async () => {
+    // adminPublish rechaza lo ya publicado, así que aquí la página parte de DRAFT.
+    const draft = { ...makePublishedPage(), status: PostStatus.DRAFT, publishedAt: null };
+    const prisma = buildPrismaStub();
+    (prisma.post.findUnique as jest.Mock).mockResolvedValue(draft);
+    (prisma.post.update as jest.Mock).mockResolvedValue({ ...draft, status: PostStatus.PUBLISHED });
+    const revalidate = buildRevalidateStub();
+    const service = new BlogService(prisma, buildAuditLogStub(), revalidate, buildR2Stub());
+
+    await service.adminPublish(draft.id, 'actor-1');
+
+    expect(revalidate.revalidateTag).toHaveBeenCalledWith('footer-nav');
+    expect(revalidate.revalidateTag).toHaveBeenCalledWith('main-nav');
+  });
+
+  it('adminUnpublish de una PAGE revalida footer-nav Y main-nav', async () => {
+    const { page, revalidate, service } = buildService();
+    await service.adminUnpublish(page.id, 'actor-1');
+
+    expect(revalidate.revalidateTag).toHaveBeenCalledWith('footer-nav');
+    expect(revalidate.revalidateTag).toHaveBeenCalledWith('main-nav');
+  });
+
+  it('adminDelete de una PAGE publicada revalida footer-nav Y main-nav', async () => {
+    const { page, revalidate, service } = buildService();
+    await service.adminDelete(page.id, 'actor-1');
+
+    expect(revalidate.revalidateTag).toHaveBeenCalledWith('footer-nav');
+    expect(revalidate.revalidateTag).toHaveBeenCalledWith('main-nav');
+  });
+
+  it('un POST de blog NO toca ninguno de los dos tags de navegación', async () => {
+    const prisma = buildPrismaStub();
+    const post = { ...makePublishedPage(), type: PostType.POST, slug: 'articulo' };
+    (prisma.post.findUnique as jest.Mock).mockResolvedValue(post);
+    (prisma.post.update as jest.Mock).mockResolvedValue(post);
+    const revalidate = buildRevalidateStub();
+    const service = new BlogService(prisma, buildAuditLogStub(), revalidate, buildR2Stub());
+
+    await service.adminUnpublish(post.id, 'actor-1');
+
+    expect(revalidate.revalidateTag).not.toHaveBeenCalledWith('footer-nav');
+    expect(revalidate.revalidateTag).not.toHaveBeenCalledWith('main-nav');
   });
 });
