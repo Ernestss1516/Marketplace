@@ -18,7 +18,7 @@
 
 import { test, expect } from './fixtures/auth';
 import type { Page, Locator } from '@playwright/test';
-import { loginAdminViaApi } from './helpers/api';
+import { adminApiToken } from './helpers/api';
 
 const API_BASE = 'http://localhost:3001';
 
@@ -40,7 +40,7 @@ test.describe('Ajustes sin fila — visibles, con su default, y editables', () =
     // Los defaults se LEEN DEL BACKEND, no se escriben aquí: si alguien cambia
     // DEFAULT_MAX_TAGS_PER_LISTING, este test lo sigue en vez de romperse por un 5
     // hardcodeado — que es exactamente la divergencia que el diseño quería evitar.
-    const token = await loginAdminViaApi(request, 'admin-e2e@example.com', 'Test1234!');
+    const token = adminApiToken();
     const antes = await (await request.get(`${API_BASE}/api/admin/settings`, {
       headers: { Authorization: `Bearer ${token}` },
     })).json();

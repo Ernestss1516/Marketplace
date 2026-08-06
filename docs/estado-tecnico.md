@@ -10969,34 +10969,7 @@ límite por ventana de 15 min y la batería entera comparte la cuenta `admin-e2e
 logins de más bastaron para agotar el presupuesto. Arreglado memoizando el token: **un solo
 login por fichero**.
 
-**Hallazgo transversal que esto destapa, MEDIDO y NO tocado — merece su propia ráfaga:**
-
-> **La batería de Playwright agota el límite de `/auth/admin-login` a media corrida.**
->
-> El límite es **20 intentos por IP cada 15 min**
-> (`ADMIN_LOGIN_RATE_LIMIT_IP_PER_WINDOW`, `auth.constants.ts:17-18`). Contador de Redis leído
-> al terminar una corrida completa:
->
-> ```
-> auth:admin-login:ip:::1 = 32
-> ```
->
-> **32 contra un tope de 20.** Todo lo que se autentique a partir del vigésimo intento recibe
-> `429`, y como Playwright ordena los ficheros alfabéticamente, siempre les toca a los mismos:
-> los del final del abecedario. `globalSetup` hace `FLUSHDB` al empezar, así que no es herencia
-> de corridas anteriores — es una sola corrida la que se pasa.
->
-> Se confirma con la línea base: **sin ningún cambio de RP.1 ya fallaban 7 tests**
-> (`nav-publico`, `tags-filtro` ×2, `tickets-admin`, `tickets-usuario`, `busqueda-unificada`,
-> `filtros-schema-driven`) y **todos** son specs que se autentican. El conjunto concreto baila
-> entre corridas porque el orden en que se agota el presupuesto varía.
->
-> **Consecuencia práctica: añadir cualquier spec que se autentique desplaza a otro.** Es
-> exactamente lo que se observó al añadir `portada-hero.spec.ts`.
->
-> Salidas posibles, ninguna aplicada aquí: obtener UN token de admin en `globalSetup` y
-> compartirlo por fixture (11 ficheros hacen su propio `loginAdminViaApi`); o subir el tope solo
-> en entorno de test; o repetir el flush a mitad de batería.
+**Hallazgo transversal que esto destapó — ya RESUELTO, ver la sección siguiente.**
 
 Se mantiene además, por si acaso, **una sola escritura de config entre describes** (sin restore
 intermedio): la invalidación es fire-and-forget, así que dos escrituras seguidas podrían
@@ -11014,6 +10987,86 @@ motor de CSS, así que `portada-hero.spec.ts` las mide donde ocurren:
 - `prefers-reduced-motion`, con `page.emulateMedia()` **sobre el mismo documento** con y sin la
   preferencia. `test.use({ reducedMotion })` en un describe anidado **no llega a la página**
   (se comprobó: `matchMedia` devolvía `false` y la animación seguía corriendo).
+
+---
+
+## Un token de admin para toda la batería Playwright (RESUELTO)
+
+Cierra el defecto que destapó RP.1: la batería agotaba el límite de `/auth/admin-login` a media
+corrida y los specs del final del alfabeto recibían `429`.
+
+### El defecto, medido
+
+`ADMIN_LOGIN_RATE_LIMIT_IP_PER_WINDOW = 20` por IP cada 15 min
+([`auth.constants.ts:17-18`](../apps/api/src/modules/auth/auth.constants.ts#L17-L18)). Contador
+de Redis al terminar una corrida completa:
+
+```
+auth:admin-login:ip:::1  =  32      ← contra un tope de 20
+```
+
+`globalSetup` hace `FLUSHDB` al empezar, así que no era herencia de corridas previas: **una sola
+corrida se pasaba en un 60 %**. Todo lo que se autenticase a partir del intento 20 recibía 429, y
+como Playwright ordena los ficheros alfabéticamente siempre castigaba a los mismos. Peor: **cada
+spec nueva que se autenticaba desplazaba a otra**, así que el conjunto de rojos bailaba entre
+corridas y se leía como inestabilidad ambiental.
+
+Confirmado con una corrida de línea base sobre el árbol intacto: **7 rojos, todos en specs que se
+autentican**, y entre 11 y 21 tests que ni llegaban a ejecutarse.
+
+### Por qué la causa era una laguna, no un exceso
+
+`globalSetup` ya resolvía esto **para el navegador**: loguea las 6 cuentas una vez y guarda
+`storageState`, que los specs consumen por fixture ([`fixtures/auth.ts`](../apps/web/e2e/fixtures/auth.ts)).
+Por eso los specs de admin por UI no gastaban intentos.
+
+Lo que no cubría era el **token bearer de API**: 11 ficheros llamaban cada uno a
+`loginAdminViaApi` para hablar con el backend por HTTP. Ahí estaba todo el consumo. No sobraba
+mecanismo: faltaba extender el que ya existía.
+
+### La salida elegida — (a), y por qué no las otras dos
+
+**Elegida: un token de admin obtenido UNA vez en `globalSetup`**, escrito en
+`e2e/fixtures/admin.token.json` (mismo directorio, mismo ciclo de vida y mismo `.gitignore` que
+los `storageState`) y leído por `adminApiToken()` en `helpers/api.ts`. Ataca la causa: los tests
+dejan de gastar intentos en vez de pedir más. **No depende del tope** —funcionaría igual con 20
+que con 5— y escala: las ráfagas de portada que vienen añadirán specs y ninguna gastará un login.
+
+Descartadas:
+
+- **Subir el tope solo en test.** Impedimento duro:
+  [`admin-login.e2e-spec.ts:185-196`](../apps/api/test/admin-login.e2e-spec.ts#L185-L196) **prueba
+  que el tope rechaza** iterando `ADMIN_LOGIN_RATE_LIMIT_IP_PER_WINDOW` veces y exigiendo un 429.
+  Subir la constante en test no rompe ese test (lee la constante) pero lo convierte en cientos de
+  peticiones y deja de probar el valor real de producción. Y no escala: hay que resubir la cifra
+  cada vez que crece la batería.
+- **Repetir el flush del contador.** Esconde el consumo en vez de reducirlo, y no hay punto de
+  enganche natural entre ficheros (los specs hablan por HTTP, no hay hook por spec).
+
+**El rate-limit de producción no se ha tocado.** Sigue en 20 y se sigue probando que rechaza.
+
+### Resultado medido
+
+| | Antes | Después |
+|---|---|---|
+| `auth:admin-login:ip:::1` tras una corrida completa | **32** (tope 20) | **4** (globalSetup: 1 login de UI + 1 de API; el resto, margen) |
+| Fallos por 429 | 7-10 por corrida | **0** (`grep 429` sobre todos los `error-context.md`: cero) |
+| Tests que pasan | 258-268 | **284** |
+| Tests que no llegaban a correr | 11-21 | **0** |
+
+Quedan 5 rojos, **los mismos que ya fallaban en la línea base** y ninguno por 429: cuatro
+etiquetados `@2b` (`busqueda-unificada` ×2, `tags-filtro` ×2) y `nav-publico`, que muere en un
+`page.waitForURL` de 30 s — la familia *wedge* del router cliente, no autenticación. Son deuda
+aparte, anterior a todo esto.
+
+### Regla para specs nuevas
+
+Para el **setup** de un spec, `adminApiToken()`. Nunca `loginAdminViaApi`, que se mantiene
+exportada solo para lo que la justifica: ejercitar el propio endpoint de login (credenciales
+distintas, casos de rechazo). El aviso está escrito en su propio docblock.
+
+El login público (`/auth/login`, tope 150/IP/15min) se midió en la misma corrida:
+`auth:login:ip:::1 = 32`, un 21 % del presupuesto. No necesita el mismo tratamiento por ahora.
 
 ---
 

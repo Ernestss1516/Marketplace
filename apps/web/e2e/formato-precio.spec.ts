@@ -15,7 +15,7 @@
 
 import path from 'path';
 import { test, expect } from './fixtures/auth';
-import { loginAdminViaApi, authedPost, authedGet } from './helpers/api';
+import { adminApiToken, authedPost, authedGet } from './helpers/api';
 
 interface CatRef {
   id: string;
@@ -38,7 +38,7 @@ test.describe('RP.3 — formato de precio en el wizard', () => {
   let plainCat: CatRef;
 
   test.beforeAll(async ({ request }) => {
-    adminToken = await loginAdminViaApi(request, 'admin-e2e@example.com', 'Test1234!');
+    adminToken = adminApiToken();
     const ts = Date.now();
 
     async function createCategory(body: Record<string, unknown>): Promise<CatRef> {

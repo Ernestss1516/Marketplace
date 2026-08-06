@@ -28,16 +28,13 @@
 // Prerequisites: global-setup siembra admin-e2e@example.com (ADMIN).
 
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
-import { loginAdminViaApi, authedGet, authedPost, authedDelete } from './helpers/api';
-
-const ADMIN_EMAIL = 'admin-e2e@example.com';
-const ADMIN_PASSWORD = 'Test1234!';
+import { adminApiToken, authedGet, authedPost, authedDelete } from './helpers/api';
 
 const BAR = 'nav[aria-label="Navegación principal"]';
 
-async function adminToken(request: APIRequestContext): Promise<string> {
-  return loginAdminViaApi(request, ADMIN_EMAIL, ADMIN_PASSWORD);
-}
+// El token lo obtiene globalSetup UNA vez para toda la corrida — ver
+// `adminApiToken` en helpers/api.ts. Antes este spec se autenticaba dos veces
+// (beforeAll y afterAll) contra un cupo compartido de 20 intentos/15 min.
 
 /** Borra todos los nodos raíz; el cascade se lleva los submenús. */
 async function clearNav(request: APIRequestContext, token: string): Promise<void> {
@@ -74,7 +71,7 @@ async function esperarNav(page: Page, path: string, cumple: (barras: number) => 
 
 test.describe('Nav principal público — árbol configurado', () => {
   test.beforeAll(async ({ browser, request }) => {
-    const token = await adminToken(request);
+    const token = adminApiToken();
     await clearNav(request, token);
 
     await createItem(request, token, { label: 'Comprar', type: 'INTERNAL', url: '/busqueda', order: 0 });
@@ -107,7 +104,7 @@ test.describe('Nav principal público — árbol configurado', () => {
   });
 
   test.afterAll(async ({ request }) => {
-    await clearNav(request, await adminToken(request));
+    await clearNav(request, adminApiToken());
   });
 
   test('la barra aparece bajo el header, con los href ya resueltos por el backend', async ({ page }) => {
@@ -187,14 +184,14 @@ test.describe('Nav principal público — árbol configurado', () => {
 
 test.describe('Nav principal público — sin configurar', () => {
   test.afterAll(async ({ request }) => {
-    await clearNav(request, await adminToken(request));
+    await clearNav(request, adminApiToken());
   });
 
   test('sin nav configurado no se pinta NADA (gate total) y el header sigue intacto', async ({
     page,
     request,
   }) => {
-    const token = await adminToken(request);
+    const token = adminApiToken();
 
     // Se crea un nodo y SE BORRA, en vez de limpiar un árbol que puede estar ya
     // vacío. No es ceremonia: `clearNav` sobre un árbol vacío no borra nada y

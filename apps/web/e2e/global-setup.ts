@@ -9,11 +9,14 @@
 //      editor-e2e, etc. (idempotent).
 //   5. Log in as each user in a headless browser and save storageState so tests
 //      skip the login UI entirely.
+//   6. Obtain ONE admin API bearer token and save it, so specs that talk to the
+//      backend directly don't each burn an /auth/admin-login attempt (see below).
 //
-// storageState files are written to e2e/fixtures/ and are gitignored.
-// They contain next-auth session cookies — treat as ephemeral secrets.
+// storageState files and admin.token.json are written to e2e/fixtures/ and are
+// gitignored. They contain next-auth session cookies / a 7-day JWT — treat as
+// ephemeral secrets.
 
-import { chromium, type FullConfig } from '@playwright/test';
+import { chromium, request as playwrightRequest, type FullConfig } from '@playwright/test';
 import { execSync } from 'child_process';
 import { config as loadEnv } from 'dotenv';
 import * as fs from 'fs';
@@ -170,4 +173,49 @@ export default async function globalSetup(playwrightConfig: FullConfig) {
   }
 
   await browser.close();
+
+  // ── 6. UN solo token de admin para toda la batería ───────────────────────────
+  //
+  // Los storageState de arriba resuelven la sesión del NAVEGADOR, pero no el
+  // token bearer que necesitan los specs que hablan con el backend directamente
+  // (`authedGet`/`authedPost`/`authedPatch` en helpers/api.ts). Hasta aquí, cada
+  // uno de esos ficheros se autenticaba por su cuenta, y eso agotaba el límite:
+  //
+  //   ADMIN_LOGIN_RATE_LIMIT_IP_PER_WINDOW = 20 por IP / 15 min
+  //   (apps/api/src/modules/auth/auth.constants.ts:17-18)
+  //
+  // Medido en una corrida completa ANTES de este bloque: `auth:admin-login:ip:::1`
+  // llegaba a 32. Todo lo que se autenticase a partir del intento 20 recibía un
+  // 429, y como Playwright ordena los ficheros alfabéticamente siempre les tocaba
+  // a los mismos — con el agravante de que CADA spec nueva que se autenticaba
+  // desplazaba a otra. El síntoma se leía como un fallo funcional del spec
+  // afectado, no como lo que era.
+  //
+  // Este bloque cierra esa laguna extendiendo al token de API el patrón que el
+  // paso 5 ya aplica a las cookies: se pide UNA vez, se guarda en el mismo
+  // directorio de fixtures y con el mismo ciclo de vida. El límite de PRODUCCIÓN
+  // no se toca — sigue en 20, y `admin-login.e2e-spec.ts` sigue probando que
+  // rechaza al pasarse. Los tests simplemente dejan de gastar intentos.
+  //
+  // Va DESPUÉS del FLUSHDB del paso 4, así que este login cuenta dentro de una
+  // ventana limpia.
+  const apiBase = process.env.E2E_API_BASE ?? 'http://localhost:3001';
+  const apiContext = await playwrightRequest.newContext();
+  try {
+    const res = await apiContext.post(`${apiBase}/api/auth/admin-login`, {
+      data: { email: 'admin-e2e@example.com', password: 'Test1234!' },
+    });
+    if (!res.ok()) {
+      throw new Error(
+        `[globalSetup] no se pudo obtener el token de admin: ${res.status()} ${await res.text()}`,
+      );
+    }
+    const { accessToken } = (await res.json()) as { accessToken: string };
+    fs.writeFileSync(
+      path.join(FIXTURES_DIR, 'admin.token.json'),
+      JSON.stringify({ accessToken }, null, 2),
+    );
+  } finally {
+    await apiContext.dispose();
+  }
 }

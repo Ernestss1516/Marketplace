@@ -16,6 +16,9 @@ out/
 # Playwright — sesiones autenticadas (generadas por global-setup, contienen cookies)
 apps/web/e2e/fixtures/*.storageState.json
 
+# Playwright — token bearer de admin para el setup por API (global-setup, JWT de 7 días)
+apps/web/e2e/fixtures/admin.token.json
+
 # Playwright — capturas de debug generadas en global-setup (no deben ir al repo)
 
 apps/web/e2e/fixtures/debug-*.png

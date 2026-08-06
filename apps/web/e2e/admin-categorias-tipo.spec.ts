@@ -12,7 +12,7 @@
 // de test.
 
 import { test, expect } from './fixtures/auth';
-import { loginAdminViaApi, authedPost, authedGet } from './helpers/api';
+import { adminApiToken, authedPost, authedGet } from './helpers/api';
 
 test.describe('R5 — Admin UI real: allowedListingType + appliesTo + dependsOn (costura D)', () => {
   test('ADMIN configura por UI una categoría SERVICE_ONLY con appliesTo y un par vinculado; el backend aplica EXACTAMENTE esa política', async ({
@@ -102,7 +102,7 @@ test.describe('R5 — Admin UI real: allowedListingType + appliesTo + dependsOn 
 
     // ── 6. COHERENCIA: POST crudo /listings con type=PRODUCT en una categoría
     //      SERVICE_ONLY → 422 (mismo backend que acaba de aceptar la config).
-    const adminToken = await loginAdminViaApi(request, 'admin-e2e@example.com', 'Test1234!');
+    const adminToken = adminApiToken();
     const rejectRes = await authedPost(request, '/listings', adminToken, {
       title: `R5 Producto rechazado ${ts}`,
       description: 'Construido crudo para probar la coherencia UI/backend de R5.',

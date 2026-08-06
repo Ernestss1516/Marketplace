@@ -28,10 +28,7 @@
 // Prerequisites: global-setup siembra admin-e2e@example.com (ADMIN).
 
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
-import { loginAdminViaApi, authedPatch } from './helpers/api';
-
-const ADMIN_EMAIL = 'admin-e2e@example.com';
-const ADMIN_PASSWORD = 'Test1234!';
+import { adminApiToken, authedPatch } from './helpers/api';
 
 const STATIC_TITLE = 'Compra y vende';
 const OPTIONS = ['coches', 'bicicletas', 'muebles'];
@@ -46,22 +43,11 @@ const DEFAULTS = {
   blocks: [],
 };
 
-// UN solo login por fichero, memoizado. No es una optimización: /auth/login y
-// /auth/admin-login tienen límite de peticiones por ventana (15 min) y la
-// batería entera comparte la misma cuenta admin-e2e. Un helper que vuelva a
-// autenticarse en cada escritura suma logins a un presupuesto ya justo y acaba
-// devolviendo 429 — no solo aquí, también en las specs que corren después. Se
-// vio exactamente eso: verde en aislado, y en la batería completa un
-// "429 Demasiados intentos" que se leía como si fuera un fallo del hero.
-let tokenMemo: string | undefined;
-
-async function adminToken(request: APIRequestContext): Promise<string> {
-  tokenMemo ??= await loginAdminViaApi(request, ADMIN_EMAIL, ADMIN_PASSWORD);
-  return tokenMemo;
-}
-
+// CERO logins: el token lo obtiene globalSetup UNA vez para toda la corrida
+// (ver `adminApiToken` en helpers/api.ts). Este fichero llegó a memoizar su
+// propio login por este mismo motivo; ahora ni eso hace falta.
 async function setConfig(request: APIRequestContext, data: Record<string, unknown>): Promise<void> {
-  const res = await authedPatch(request, '/admin/homepage', await adminToken(request), data);
+  const res = await authedPatch(request, '/admin/homepage', adminApiToken(), data);
   expect(res.status(), await res.text()).toBe(200);
 }
 

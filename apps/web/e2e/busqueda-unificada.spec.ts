@@ -14,7 +14,7 @@
  */
 
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
-import { loginAdminViaApi, authedPost } from './helpers/api';
+import { adminApiToken, authedPost } from './helpers/api';
 
 const CATEGORIA = 'Categoría';
 
@@ -247,7 +247,7 @@ test.describe('A2 — condition no viaja a una categoría de servicios', () => {
   let svcSlug: string;
 
   test.beforeAll(async ({ request }) => {
-    adminToken = await loginAdminViaApi(request, 'admin-e2e@example.com', 'Test1234!');
+    adminToken = adminApiToken();
     svcSlug = `a2-svc-${Date.now()}`;
     const res = await authedPost(request, '/admin/categories', adminToken, {
       name: 'A2 Solo Servicios',

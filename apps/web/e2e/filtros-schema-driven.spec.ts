@@ -16,7 +16,7 @@
  */
 
 import { test, expect, type Page } from '@playwright/test';
-import { loginAdminViaApi, authedPost } from './helpers/api';
+import { adminApiToken, authedPost } from './helpers/api';
 
 const SECCION = (name: string) => `[data-testid="facet-${name}"]`;
 
@@ -26,7 +26,7 @@ test.describe('A3 — panel de filtros dictado por la configuración', () => {
   let catSlug: string;
 
   test.beforeAll(async ({ request }) => {
-    adminToken = await loginAdminViaApi(request, 'admin-e2e@example.com', 'Test1234!');
+    adminToken = adminApiToken();
     catSlug = `a3-filtros-${Date.now()}`;
 
     const res = await authedPost(request, '/admin/categories', adminToken, {
