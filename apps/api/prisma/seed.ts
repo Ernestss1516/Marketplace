@@ -618,10 +618,35 @@ async function seedBumpPacks() {
   }
 }
 
+// RP.1 — fila ÚNICA de la configuración de portada. Reproduce EXACTAMENTE el
+// hero que la home pinta hoy a mano ((home)/page.tsx:51-53): mismo <h1>, sin
+// opciones rotativas y sin subtítulo, para que estrenar el motor no cambie ni
+// una palabra de lo que ve el usuario. Las opciones rotativas las pone el admin
+// cuando quiera (el rotativo está implementado y probado, solo no está sembrado).
+//
+// upsert con `update: {}` — NUNCA pisa lo que un admin haya guardado, mismo
+// criterio que el `skipDuplicates` de seedSettings().
+async function seedHomepageConfig() {
+  console.log('Seeding homepage config...');
+  await prisma.homepageConfig.upsert({
+    where: { id: 'singleton' },
+    create: {
+      id: 'singleton',
+      heroStaticTitle: 'Compra y vende de segunda mano',
+      heroRotatingOptions: [],
+      heroRotationMs: 3000,
+      blocks: [],
+    },
+    update: {},
+  });
+  console.log('  ✓ homepage config (fila única)');
+}
+
 async function main() {
   await seedCategories();
   await seedAdmin();
   await seedSettings();
+  await seedHomepageConfig();
   await seedBillingCatalog();
   await seedCreditPacks();
   await seedBumpPacks();

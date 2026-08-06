@@ -2274,3 +2274,72 @@ model TicketAttachment {
 
   @@index([ticketMessageId])
 }
+
+// ============================================================================
+//  PORTADA CONFIGURABLE (RP.1) — configuración global de la home (/).
+//  Fila ÚNICA. Motor de bloques PROPIO, hermano del de Post.blocks pero
+//  independiente: la portada tiene tipos que una página informativa nunca debe
+//  tener (buscador, tabla de búsquedas) y un hero que el blog no tiene.
+//  Ver docs/diseno-portada.md §2.
+// ============================================================================
+
+/// Configuración de la portada. UNA sola fila, sin borrador/publicado: lo que
+/// hay guardado es lo que se sirve.
+///
+/// POR QUÉ TABLA PROPIA Y NO UNA `Setting` MÁS (diseño §2.1): `Setting.value`
+/// es un Json opaco por construcción —el tipo depende de la clave y NINGÚN DTO
+/// lo valida campo a campo—. Aquí hay `href` y `src` que acaban en atributos
+/// reales del DOM, que es exactamente lo que `@IsSafeContentUrl`/
+/// `@IsOwnStorageUrl` existen para vigilar. Mismo criterio por el que NavItem
+/// no reusó FooterItem: dos sistemas que deben poder divergir no comparten tabla.
+model HomepageConfig {
+  /// Fila única. El servicio SIEMPRE hace upsert sobre este id y nunca expone
+  /// create ni delete, así que "exactamente una fila" no depende de la
+  /// disciplina de nadie. Sembrada en seed.ts y en seed-test.ts.
+  id String @id @default("singleton")
+
+  // ── HERO ─────────────────────────────────────────────────────────────────
+  // Campos propios, FUERA del array de bloques: el hero es la única pieza de la
+  // portada cuyo comportamiento depende de su posición, y sacarlo del array es
+  // lo que permite que ningún bloque conozca su índice (diseño §2.3). Se paga
+  // con que el hero no se puede reordenar — que es justo lo que se quiere.
+
+  /// Parte FIJA del <h1>. Obligatoria y no vacía: la portada SIEMPRE tiene un
+  /// <h1> con texto real. "No tener título" no es configurable (SEO).
+  heroStaticTitle String
+
+  /// Opciones que rotan tras la parte fija. [] = título totalmente estático,
+  /// sin animación (caso degenerado soportado, no un error). Tope 6 en el DTO
+  /// — el tope NO es estético: es la consecuencia de resolver la rotación en
+  /// CSS puro (diseño §3.2), que necesita una regla @keyframes ESTÁTICA por
+  /// cada N soportado porque un selector de keyframe no admite calc().
+  heroRotatingOptions String[] @default([])
+
+  /// Milisegundos que cada opción permanece visible. Acotado en el DTO
+  /// [1500, 10000]: por debajo es ilegible, por encima parece rota.
+  heroRotationMs Int @default(3000)
+
+  /// Subtítulo bajo el <h1>. Texto PLANO, no markdown — un párrafo bajo un
+  /// titular no justifica abrir la tubería de sanitización (react-markdown +
+  /// rehype-sanitize), y no abrirla es una superficie de seguridad menos.
+  heroSubtitle String?
+
+  // ── BLOQUES ──────────────────────────────────────────────────────────────
+
+  /// Array ORDENADO (la posición ES el orden, no hay campo `order` por bloque,
+  /// igual que Post.blocks) de objetos { id, type, ...datos }, unión
+  /// discriminada por `type`. 7 tipos previstos (search, categoryCarousel,
+  /// grid, steps, cta, listings, searchTable); RP.1 implementa los DTOs de
+  /// `cta` y `search`, el resto entra en RP.4-RP.6.
+  /// Validado en profundidad en el DTO (discriminador class-transformer) y en
+  /// el servicio (reglas cruzadas que dependen del array completo o de estado
+  /// externo — ver HomepageService.assertBlocksValid).
+  blocks Json @default("[]")
+
+  updatedAt DateTime @updatedAt
+
+  /// Admin que guardó por última vez (null en el seed inicial), igual que
+  /// Setting.updatedById. Sin relación a User a propósito: si se borrase la
+  /// cuenta del admin no debe arrastrar ni bloquear la config de la portada.
+  updatedById String?
+}

@@ -57,3 +57,117 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ==========================================================================
+   HERO DE PORTADA — título rotativo (RP.1, docs/diseno-portada.md §3)
+
+   CSS PURO, sin JavaScript: el <h1> servido lleva la parte fija más las N
+   opciones, y la rotación es una animación de opacidad. Sobrevive sin
+   hidratación, sin JS y con el JS fallando; el coste es 0 KB de bundle en la
+   ruta más visitada del sitio.
+
+   POR QUÉ FUERA DE @layer utilities (única desviación del §3.2 del diseño):
+   Tailwind purga el contenido de @layer utilities según lo que encuentra
+   escrito en el código, y la clase del contenedor se compone por N. Aquí el
+   riesgo se elimina de raíz — estas reglas nunca pasan por el purge. El
+   componente ADEMÁS usa un mapa de literales estáticos (HomeHero.tsx) para que
+   los nombres aparezcan escritos, que es cinturón y tirantes a propósito.
+
+   POR QUÉ CINCO REGLAS Y NO UNA GENÉRICA: los porcentajes de un @keyframes NO
+   admiten calc(), así que el reparto del ciclo entre N opciones no se puede
+   parametrizar. De ahí el tope de 6 opciones, que está validado en el backend
+   (MAX_HERO_ROTATING_OPTIONS en update-homepage.dto.ts) y documentado como lo
+   que es: la consecuencia de esta decisión, no un límite estético.
+   ========================================================================== */
+
+/* Todas las opciones apiladas en la MISMA celda de un inline-grid: la caja mide
+   lo que la opción más ancha y no cambia de tamaño al rotar. Sin esto el
+   titular daría un salto de layout en cada cambio de palabra. */
+.hero-rot {
+  display: inline-grid;
+}
+
+.hero-rot-item {
+  grid-area: 1 / 1;
+  /* Base sin animación: solo la PRIMERA opción es visible. Es el mismo estado
+     que ve quien pide movimiento reducido y el mismo que oye un lector de
+     pantalla (las demás van con aria-hidden), así que los tres modos degradados
+     coinciden — ver §3.3 del diseño. */
+  opacity: 0;
+}
+
+.hero-rot-item:first-child {
+  opacity: 1;
+}
+
+/* --rot-ms (ms por opción) y --n (nº de opciones) los pone el componente en el
+   contenedor; --i, el índice, en cada opción. El ciclo completo dura
+   rot-ms × n, y cada opción entra desfasada su índice: una sola regla de
+   temporización para las cinco variantes.
+
+   animation-fill-mode: backwards aplica el estado del 0% ANTES de que arranque
+   el retardo. Sin él, las opciones 2…N mostrarían su opacidad base durante el
+   primer ciclo y la primera parpadearía (1 de la base → 0 del keyframe → 1). */
+.hero-rot[class*='hero-rot-'] .hero-rot-item {
+  animation-duration: calc(var(--rot-ms) * var(--n) * 1ms);
+  animation-delay: calc(var(--rot-ms) * var(--i) * 1ms);
+  animation-iteration-count: infinite;
+  animation-fill-mode: backwards;
+  animation-timing-function: ease-in-out;
+}
+
+.hero-rot-2 .hero-rot-item { animation-name: hero-rot-2; }
+.hero-rot-3 .hero-rot-item { animation-name: hero-rot-3; }
+.hero-rot-4 .hero-rot-item { animation-name: hero-rot-4; }
+.hero-rot-5 .hero-rot-item { animation-name: hero-rot-5; }
+.hero-rot-6 .hero-rot-item { animation-name: hero-rot-6; }
+
+/* Cada opción es visible durante su 1/N del ciclo. El fundido de salida de una
+   coincide EXACTAMENTE con el de entrada de la siguiente (mismo tramo del
+   ciclo en tiempo absoluto), así que es un cruce limpio: nunca hay dos
+   opciones legibles a la vez ni un hueco en blanco entre ellas. */
+@keyframes hero-rot-2 {
+  0%   { opacity: 0 }
+  5%   { opacity: 1 }
+  50%  { opacity: 1 }
+  55%  { opacity: 0 }
+  100% { opacity: 0 }
+}
+@keyframes hero-rot-3 {
+  0%      { opacity: 0 }
+  4%      { opacity: 1 }
+  33.333% { opacity: 1 }
+  37.333% { opacity: 0 }
+  100%    { opacity: 0 }
+}
+@keyframes hero-rot-4 {
+  0%   { opacity: 0 }
+  3%   { opacity: 1 }
+  25%  { opacity: 1 }
+  28%  { opacity: 0 }
+  100% { opacity: 0 }
+}
+@keyframes hero-rot-5 {
+  0%    { opacity: 0 }
+  2.5%  { opacity: 1 }
+  20%   { opacity: 1 }
+  22.5% { opacity: 0 }
+  100%  { opacity: 0 }
+}
+@keyframes hero-rot-6 {
+  0%      { opacity: 0 }
+  2%      { opacity: 1 }
+  16.666% { opacity: 1 }
+  18.666% { opacity: 0 }
+  100%    { opacity: 0 }
+}
+
+/* OBLIGATORIO (no existía en el repo antes de RP.1). Con la animación apagada
+   manda la regla base: se ve la primera opción y solo la primera — exactamente
+   lo que anuncia un lector de pantalla. Quien pide movimiento reducido no
+   recibe una versión mutilada del titular, recibe la misma frase. */
+@media (prefers-reduced-motion: reduce) {
+  .hero-rot .hero-rot-item {
+    animation: none;
+  }
+}

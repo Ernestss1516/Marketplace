@@ -326,10 +326,31 @@ async function seedTags() {
   console.log('Test seed: tags OK (vehiculos → garantia+envio-incluido; coches → unico-dueno)');
 }
 
+// RP.1 — fila única de portada. upsert que FUERZA los valores por defecto en
+// cada corrida, mismo motivo que seedSettings() aquí arriba: es una fila
+// estática compartida entre suites y excluida de cleanDb (helpers/db.ts), así
+// que un PATCH de un spec sobreviviría para contaminar la corrida siguiente.
+async function seedHomepageConfig() {
+  const defaults = {
+    heroStaticTitle: 'Compra y vende de segunda mano',
+    heroRotatingOptions: [],
+    heroRotationMs: 3000,
+    heroSubtitle: null,
+    blocks: [],
+  };
+  await prisma.homepageConfig.upsert({
+    where: { id: 'singleton' },
+    create: { id: 'singleton', ...defaults },
+    update: defaults,
+  });
+  console.log('Test seed: homepage config OK (reset to defaults)');
+}
+
 async function main() {
   await seedCategories();
   await seedTags();
   await seedSettings();
+  await seedHomepageConfig();
   await seedCreditPacks();
   await seedBumpPacks();
   await seedFeaturedPrices();

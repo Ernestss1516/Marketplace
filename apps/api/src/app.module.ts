@@ -27,6 +27,7 @@ import { ExpirationModule } from './modules/expiration/expiration.module';
 import { BlogModule } from './modules/blog/blog.module';
 import { FooterModule } from './modules/footer/footer.module';
 import { NavModule } from './modules/nav/nav.module';
+import { HomepageModule } from './modules/homepage/homepage.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { RedsysModule } from './modules/redsys/redsys.module';
 import { CampaignsModule } from './modules/campaigns/campaigns.module';
@@ -85,6 +86,7 @@ import { TagsModule } from './modules/tags/tags.module';
     BlogModule,
     FooterModule,
     NavModule,
+    HomepageModule,
     BillingModule,
     RedsysModule,
     CampaignsModule,

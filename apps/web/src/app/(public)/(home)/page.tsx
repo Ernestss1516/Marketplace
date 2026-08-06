@@ -8,17 +8,25 @@ import { FavoritesGridProvider } from '@/components/anuncios/FavoritesGridContex
 import { CardAttributesProvider } from '@/components/anuncios/CardAttributesContext';
 import { isSponsoredAdHit } from '@/components/anuncios/SponsoredCard';
 import { BannerList } from '@/components/banners/BannerList';
+import { HomeHero } from '@/components/home/HomeHero';
 import { getCategories } from '@/lib/api/categorias';
 import { search, type SearchResponse } from '@/lib/api/busqueda';
 import type { ListingSummary } from '@/types';
 import { getActiveBanners } from '@/lib/api/banners';
+import { getCachedHomepageConfig, FALLBACK_HOMEPAGE_CONFIG } from '@/lib/api/homepage';
 import { buildCardAttributeMap } from '@/lib/card-attributes';
 import { categoryPath } from '@/lib/category-url';
 
 const POPULAR_CATEGORY_COUNT = 6;
 
 export default async function HomePage() {
-  const [categories, recentResult, banners] = await Promise.all([
+  // RP.1 — el hero deja de estar escrito a mano y viene de la configuración de
+  // portada (cacheada aparte, ver lib/api/homepage.ts). Todo lo demás sigue
+  // hardcodeado y lo sustituyen las ráfagas siguientes: el buscador y sus
+  // adornos en RP.2, "Cómo funciona" y las señales de confianza en RP.4, las
+  // categorías y los anuncios recientes en RP.5.
+  const [homepage, categories, recentResult, banners] = await Promise.all([
+    getCachedHomepageConfig().catch(() => FALLBACK_HOMEPAGE_CONFIG),
     getCategories().catch(() => [] as Awaited<ReturnType<typeof getCategories>>),
     search({ sort: 'publishedAt:desc', hitsPerPage: 8 }).catch(
       (): SearchResponse => ({ hits: [], totalHits: 0, page: 1, hitsPerPage: 8 }),
@@ -45,12 +53,13 @@ export default async function HomePage() {
       <section className="border-b bg-primary/5">
         <div className="container mx-auto px-4 py-14 md:py-20">
           <div className="mx-auto max-w-4xl text-center">
+            {/* Eyebrow y chips "Populares" son vecindad del BUSCADOR, no del
+                titular: en RP.2 pasan a formar parte del bloque `search`
+                (docs/diseno-portada.md §4.1). Hasta entonces siguen aquí. */}
             <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-primary">
               Miles de anuncios cerca de ti
             </p>
-            <h1 className="mb-8 text-2xl font-bold tracking-tight md:text-3xl">
-              Compra y vende de segunda mano
-            </h1>
+            <HomeHero config={homepage} />
             <SearchBar categories={categories} />
 
             {popularCategories.length > 0 && (

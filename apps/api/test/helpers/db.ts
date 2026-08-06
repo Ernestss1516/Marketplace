@@ -20,9 +20,12 @@ import { MeiliSearch } from 'meilisearch';
  * nodes with a pageId hang off Post, so nodes of type INTERNAL/EXTERNAL — or
  * with no destination at all — have no path back to User and would survive
  * cleanup, leaking a stale nav tree into the next suite.
- * Category and Setting are intentionally excluded — they are static system data
- * seeded once in globalSetup and must not be touched by individual suite cleanup,
- * since multiple Jest workers run suites in parallel and share the same DB.
+ * Category, Setting and HomepageConfig are intentionally excluded — they are
+ * static system data seeded once in globalSetup and must not be touched by
+ * individual suite cleanup, since multiple Jest workers run suites in parallel
+ * and share the same DB. HomepageConfig is a SINGLE row (id='singleton') that
+ * seed-test.ts resets to its defaults on every run, exactly like Setting: a
+ * suite that PATCHes the portada must not leak into the next corrida.
  */
 export async function cleanDb(prisma: PrismaClient): Promise<void> {
   await prisma.$executeRaw`TRUNCATE "User", "FooterColumn", "NavItem", "ContactMessage", "ContactReason" CASCADE`;

@@ -55,6 +55,18 @@ export function authedPost(
   });
 }
 
+export function authedPatch(
+  request: APIRequestContext,
+  path: string,
+  token: string,
+  data: Record<string, unknown>,
+) {
+  return request.patch(`${API_BASE}/api${path}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data,
+  });
+}
+
 export function authedGet(request: APIRequestContext, path: string, token?: string) {
   return request.get(`${API_BASE}/api${path}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : undefined,

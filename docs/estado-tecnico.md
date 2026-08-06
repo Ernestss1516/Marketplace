@@ -10845,6 +10845,178 @@ Lo propio, que ningún molde cubría:
 
 ---
 
+## Portada configurable — motor propio y hero rotativo (RP.1, en curso)
+
+Configuración global de la home (`/`) editable desde el backoffice: un hero con título
+parcialmente rotativo y un array ordenado de bloques. Diseño: `docs/diseno-portada.md`.
+Motor **nuevo y separado** del sistema de bloques del blog (`Post.blocks`), no una extensión.
+Todo lo de aquí está verificado contra el código.
+
+### Alcance real de RP.1
+
+El diseño (§8) asignaba a RP.1 solo el backend. **Se entregó además la rodaja de RP.2 que
+cubre el hero**: `lib/api/homepage.ts`, `HomeHero`, el CSS del rotativo y su integración en
+`(home)/page.tsx`. Queda para RP.2 lo que no se tocó: `HomeBlockRenderer`, los renderizadores
+de `cta`/`search` y la extracción de `SmartLink`/`CtaButton` a `components/shared/`.
+
+| Pieza | Estado |
+|---|---|
+| `HomepageConfig` (migración `20260806195038_add_homepage_config`) | ✔ |
+| DTOs de `cta` y `search` + `ValidHomeBlocksArray` | ✔ (los otros 5 tipos: RP.4-RP.6) |
+| `GET /homepage`, `GET/PATCH /admin/homepage`, `POST /admin/homepage/upload-image` | ✔ |
+| Caché `unstable_cache` + `revalidateTag('homepage-config')` | ✔ |
+| Hero SSR con rotativo CSS, a11y y `prefers-reduced-motion` | ✔ |
+| Editor `/admin/portada` | RP.3 |
+
+### La fila única, y por qué NO es una `Setting`
+
+`HomepageConfig` tiene `id String @id @default("singleton")`. `HomepageService` **solo hace
+`findUnique` y `upsert`** sobre ese id, y no expone create ni delete: "exactamente una fila" no
+depende de la disciplina de nadie.
+
+Existía un precedente de config global —`Setting`, clave/valor— y **se rechazó a propósito**:
+`Setting.value` es un `Json` opaco por construcción (el tipo depende de la clave, y **ningún
+DTO lo valida campo a campo**). La portada guarda `href` y `src` que acaban en atributos reales
+del DOM, que es justo lo que `@IsSafeContentUrl`/`@IsOwnStorageUrl` existen para vigilar. Mismo
+criterio por el que `NavItem` no reusó `FooterItem`.
+
+`get()` devuelve `DEFAULT_HOMEPAGE_CONFIG` si la fila no existe, **sin escribirla**: la ruta más
+visitada del sitio no puede dar 404 porque alguien no corriera el seed.
+
+### El hero es un CAMPO, no un bloque
+
+`heroStaticTitle` / `heroRotatingOptions` / `heroRotationMs` / `heroSubtitle` viven fuera de
+`blocks`. Es la decisión que **preserva la homogeneidad del motor**: ningún bloque conoce su
+índice, así que el `switch` con `assertUnreachable` del renderizador se mantiene igual que en el
+blog. Un `blocks[0]` con trato especial habría roto esa propiedad. Se paga con que el hero no se
+puede reordenar, que es exactamente lo que se quiere. Y al no pasar por el motor, la página lo
+envuelve en su propia `<section>` a sangre sin inventar un concepto de layout en el array.
+
+### El rotativo: CSS puro, y el tope de 6 es su consecuencia
+
+No había **ningún** precedente de texto animado en el repo (`grep` de
+`typewriter|rotating|framer-motion|@keyframes` sobre `apps/web/src`: cero; lo único en
+`tailwind.config.ts` era `accordion-down/up`, de Radix).
+
+Se resolvió **sin JavaScript**. El `<h1>` servido lleva la parte fija y las N opciones apiladas
+en un `inline-grid` (todas en `grid-area: 1/1`, así la caja mide lo que la más ancha y **no hay
+salto de layout**); la velocidad viaja como custom property inline (`--rot-ms`), y cada opción
+entra desfasada su índice.
+
+**El tope de 6 opciones (`MAX_HERO_ROTATING_OPTIONS`) no es estético.** Los porcentajes de un
+`@keyframes` no admiten `calc()`, así que el reparto del ciclo entre N opciones no se puede
+parametrizar: hay **cinco reglas escritas a mano**, `hero-rot-2` … `hero-rot-6`. Subir el tope
+sin añadir su regla dejaría el título congelado en la primera opción. El límite está validado en
+el backend y comentado en los dos sitios.
+
+**Dos desviaciones de lo que el diseño describía**, ambas por motivos verificados:
+
+1. **Las reglas van fuera de `@layer utilities`**, no dentro. Tailwind purga el contenido de
+   `@layer utilities` según lo que encuentra ESCRITO en el código, y la clase del contenedor se
+   compone por N. Fuera de `@layer` nunca pasan por el purge. `HomeHero` usa además un mapa de
+   literales estáticos (`ROTATION_CLASS`), que es cinturón y tirantes a propósito.
+2. **`animation-fill-mode: backwards`** (el diseño no lo mencionaba). Sin él, las opciones 2…N
+   mostrarían su opacidad base durante el primer ciclo y la primera parpadearía (1 de la base →
+   0 del keyframe → 1).
+
+### Accesibilidad: una frase, no una ristra
+
+Las opciones 2…N llevan **`aria-hidden="true"`**. Verificado con el árbol de accesibilidad real
+de Chromium: el `<h1>` se anuncia como `"Compra y vende coches"` mientras su `innerText` es
+`"Compra y vende coches bicicletas muebles"`. Se descartaron `aria-live` (anunciar un cambio de
+titular cada pocos segundos es hostil, y esto es un adorno) y sacar las opciones fuera del `<h1>`
+(reintroduce el salto de layout).
+
+**`prefers-reduced-motion: reduce` es obligatorio y no existía en ninguna parte del repo.** Con
+la animación apagada manda la regla base y se ve la primera opción y solo la primera — medido:
+opacidades `[1, 0, 0]` y `animation-name: none`. Es decir, **lo que se ve coincide exactamente
+con lo que se oye**; quien pide movimiento reducido no recibe un titular mutilado.
+
+### Caché: el molde del footer, no el del nav
+
+`getCachedHomepageConfig` es `unstable_cache` con **una entrada, clave constante y un tag**
+(`'homepage-config'`) — copia de `getCachedFooterNav`, y NO del nav, que necesita nueve entradas
+porque su endpoint filtra por tipo de página. `GET /homepage` no filtra nada.
+
+**La página sigue siendo dinámica**: el `await auth()` del layout raíz no se toca. Lo único
+cacheado es la config, y `unstable_cache` la aísla de esa dinámica por completo.
+
+Consecuencia limpia de cachear la CONFIG y no los datos resueltos: **ningún otro servicio tiene
+que invalidar este tag**. Borrar una categoría o publicar una página no cambia la config; cambia
+el mundo contra el que se resuelve, y eso se resuelve en cada render. Nada del acoplamiento
+cruzado que `BlogService.revalidatePostPaths` sí necesita con `'footer-nav'` y `'main-nav'`.
+
+### La fila semilla reproduce la portada anterior
+
+`seed.ts` siembra `heroStaticTitle: 'Compra y vende de segunda mano'` con `heroRotatingOptions:
+[]` — el `<h1>` exacto que la home pintaba a mano. **Estrenar el motor no cambió una sola palabra
+de lo que ve el usuario**; las opciones rotativas las pone el admin cuando quiera. `seed-test.ts`
+la resetea en cada corrida, como hace con `Setting`, porque es fila estática compartida entre
+suites y excluida de `cleanDb`.
+
+### El fallo que solo aparecía en la batería completa: era un 429, no el hero
+
+`portada-hero.spec.ts` pasaba aislado y fallaba en la batería. El síntoma engañaba —parecía que
+el hero no reflejaba la config— pero el error real, leído en el `error-context.md` de Playwright,
+era:
+
+```
+[loginAdminViaApi] login falló para admin-e2e@example.com: 429 {"retryAfter":900}
+```
+
+El helper `setConfig()` **volvía a autenticarse en cada escritura**. `/auth/admin-login` tiene
+límite por ventana de 15 min y la batería entera comparte la cuenta `admin-e2e`, así que tres
+logins de más bastaron para agotar el presupuesto. Arreglado memoizando el token: **un solo
+login por fichero**.
+
+**Hallazgo transversal que esto destapa, MEDIDO y NO tocado — merece su propia ráfaga:**
+
+> **La batería de Playwright agota el límite de `/auth/admin-login` a media corrida.**
+>
+> El límite es **20 intentos por IP cada 15 min**
+> (`ADMIN_LOGIN_RATE_LIMIT_IP_PER_WINDOW`, `auth.constants.ts:17-18`). Contador de Redis leído
+> al terminar una corrida completa:
+>
+> ```
+> auth:admin-login:ip:::1 = 32
+> ```
+>
+> **32 contra un tope de 20.** Todo lo que se autentique a partir del vigésimo intento recibe
+> `429`, y como Playwright ordena los ficheros alfabéticamente, siempre les toca a los mismos:
+> los del final del abecedario. `globalSetup` hace `FLUSHDB` al empezar, así que no es herencia
+> de corridas anteriores — es una sola corrida la que se pasa.
+>
+> Se confirma con la línea base: **sin ningún cambio de RP.1 ya fallaban 7 tests**
+> (`nav-publico`, `tags-filtro` ×2, `tickets-admin`, `tickets-usuario`, `busqueda-unificada`,
+> `filtros-schema-driven`) y **todos** son specs que se autentican. El conjunto concreto baila
+> entre corridas porque el orden en que se agota el presupuesto varía.
+>
+> **Consecuencia práctica: añadir cualquier spec que se autentique desplaza a otro.** Es
+> exactamente lo que se observó al añadir `portada-hero.spec.ts`.
+>
+> Salidas posibles, ninguna aplicada aquí: obtener UN token de admin en `globalSetup` y
+> compartirlo por fixture (11 ficheros hacen su propio `loginAdminViaApi`); o subir el tope solo
+> en entorno de test; o repetir el flush a mitad de batería.
+
+Se mantiene además, por si acaso, **una sola escritura de config entre describes** (sin restore
+intermedio): la invalidación es fire-and-forget, así que dos escrituras seguidas podrían
+aterrizar en orden inverso. No fue la causa de este fallo, pero es un riesgo latente real y el
+coste de evitarlo es cero.
+
+### Lo que NO se comprueba con tests unitarios
+
+Las tres propiedades del hero viven en el HTML servido, en el árbol de accesibilidad y en el
+motor de CSS, así que `portada-hero.spec.ts` las mide donde ocurren:
+
+- el `<h1>` se afirma sobre una **petición HTTP cruda sin navegador** (lo que ve un crawler): un
+  `<h1>` rellenado por JS no pasaría de ahí;
+- el nombre accesible, con `toHaveAccessibleName`;
+- `prefers-reduced-motion`, con `page.emulateMedia()` **sobre el mismo documento** con y sin la
+  preferencia. `test.use({ reducedMotion })` en un describe anidado **no llega a la página**
+  (se comprobó: `matchMedia` devolvía `false` y la animación seguía corriendo).
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.
