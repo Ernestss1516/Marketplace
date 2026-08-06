@@ -194,7 +194,22 @@ test.describe('Nav principal público — sin configurar', () => {
     page,
     request,
   }) => {
-    await clearNav(request, await adminToken(request));
+    const token = await adminToken(request);
+
+    // Se crea un nodo y SE BORRA, en vez de limpiar un árbol que puede estar ya
+    // vacío. No es ceremonia: `clearNav` sobre un árbol vacío no borra nada y
+    // por tanto NO dispara ninguna revalidación, así que el test quedaría a
+    // merced de que hubiera llegado la del bloque anterior — y si esa se
+    // perdió (es fire-and-forget), la caché serviría el árbol viejo hasta una
+    // hora. Borrar algo garantiza una invalidación fresca justo antes de medir.
+    const efimero = await createItem(request, token, {
+      label: 'Efímero',
+      type: 'INTERNAL',
+      url: '/efimero',
+    });
+    await esperarNav(page, '/', (n) => n === 1);
+
+    await authedDelete(request, `/admin/nav/items/${efimero}`, token);
 
     // Ni la barra ni un contenedor vacío con borde: MainNav devuelve null.
     await esperarNav(page, '/', (n) => n === 0);
