@@ -424,6 +424,24 @@ y `NavItem.label` respecto a `Post.title`).
 arrastrar y hacer scroll: **la funcionalidad completa está en CSS; el island es una
 comodidad**.
 
+> **CORRECCIÓN (RP.5/RP.6) — este bloque NO retira `CategoryGrid`.**
+>
+> §8 daba por hecho que, al existir el carrusel, la rejilla escrita a mano en la home
+> desaparecía. Al implementarlo se vio que esa previsión no se puede cumplir: el carrusel
+> exige una **foto subida por categoría** (`imageUrl` con `@IsOwnStorageUrl`, arriba), y
+> **una semilla no puede subir ficheros**. Retirar la rejilla dejaría toda instalación
+> nueva —y la de test— sin sección de categorías en la portada, que es exactamente lo que
+> ninguna ráfaga puede hacer.
+>
+> **Decisión firme:** `CategoryGrid` **se queda como fallback** de la página, no como
+> andamio pendiente de retirar. La página la pinta si —y solo si— no hay ningún bloque
+> `categoryCarousel` configurado, y en el sitio donde estaba: justo antes del primer
+> bloque `listings`. El día que un admin suba las fotos y configure el carrusel, la
+> rejilla deja de pintarse sola, sin tocar código.
+>
+> Es la única excepción, junto con los banners, al "la portada la pinta entera el motor"
+> de §5.1, y está escrita en el propio `(home)/page.tsx`.
+
 ### 4.3 `grid` — Rejilla de tarjetas · **nuevo · SSR puro, cero JS**
 
 Cubre dos huérfanos de la home a la vez: los chips "Populares" y la fila de 4 señales de
@@ -903,13 +921,20 @@ algo que hoy tiene.
 - `lib/home-blocks/resolve-listings.ts`; renderizador con los dos providers (§4.6).
 - Carrusel: renderizador servidor + island de desplazamiento + upload por categoría +
   omisión de slugs colgados.
-- Se retiran "Recién publicados", `CategoryGrid` y los chips "Populares"; pasan a la semilla.
+- Se retiran "Recién publicados" y los chips "Populares"; pasan a la semilla.
+- **`CategoryGrid` NO se retira** — ver la corrección de §4.2. Se queda como fallback de la
+  página mientras no haya un `categoryCarousel` configurado, porque el carrusel exige fotos
+  subidas y una semilla no puede subirlas. Esta línea decía lo contrario y era la
+  contradicción §8↔§4.2; queda resuelta a favor del fallback.
 
 ### RP.6 — `searchTable` y limpieza final
 - DTO con las 3 clases de pestaña, renderizador servidor de los 3 paneles, island
   `HomeSearchTabs` con teclado (§4.7), editor con `<select>` de `PROVINCIAS` para las
   combinaciones.
-- `(home)/page.tsx` queda reducido a lo de §5.1: **cero contenido hardcodeado**.
+- `(home)/page.tsx` queda reducido a lo de §5.1 **salvo dos excepciones escritas**: los
+  banners (sistema propio y completo, §5.4) y el fallback `CategoryGrid` (§4.2). El resto
+  —eyebrow, buscador dentro de la banda del hero, botón "Publica gratis"— se retira y pasa a
+  la semilla como bloques.
 - e2e: los enlaces de las 3 pestañas presentes en el HTML servido; navegación por teclado.
 
 **Orden y dependencias:** RP.1 → RP.2 → RP.3 → {RP.4, RP.5, RP.6} (las tres últimas son
@@ -992,3 +1017,6 @@ Muy poco, y todo acotado:
    `@IsOwnStorageUrl`. La decisión 9 del encargo (imagen propia del carrusel) esquiva el
    problema para la portada, pero **`iconUrl` sigue ahí** y se pinta con `next/image` en
    `CategoryGrid`. Queda anotado para `docs/pendientes.md`; no es alcance de esta ráfaga.
+   **Nota RP.6:** al quedarse `CategoryGrid` como fallback permanente (§4.2), esta deriva ya
+   no caduca sola con el tiempo. Sigue sin ser alcance de la portada, pero ahora convive con
+   ella indefinidamente.

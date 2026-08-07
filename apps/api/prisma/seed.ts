@@ -618,33 +618,49 @@ async function seedBumpPacks() {
   }
 }
 
-// Fila ÚNICA de la configuración de portada. Reproduce EXACTAMENTE lo que la
-// home pintaba a mano, para que estrenar el motor no cambie ni una palabra de lo
-// que ve el usuario:
-//   RP.1 — el hero: mismo <h1>, sin opciones rotativas y sin subtítulo (el
-//          rotativo está implementado y probado, solo no está sembrado; lo
-//          activa el admin cuando quiera).
-//   RP.2 — el bloque `search`: el buscador con sus chips "Populares", con el
-//          mismo tope de 6 que tenía la constante POPULAR_CATEGORY_COUNT.
-//          Sin `eyebrow`: ese texto sigue escrito a mano ENCIMA del <h1>, y el
-//          bloque se pinta debajo — ver el comentario de (home)/page.tsx.
+// Fila ÚNICA de la configuración de portada. Desde RP.6 la portada la pinta
+// ENTERA el motor, así que esta lista ES la portada: lo que no esté aquí, no se
+// ve. Reproduce EXACTAMENTE lo que la home pintaba a mano y EN EL MISMO ORDEN.
 //
-// upsert con `update: {}` — NUNCA pisa lo que un admin haya guardado, mismo
-// criterio que el `skipDuplicates` de seedSettings().
-// Los bloques que reproducen la portada tal como estaba escrita a mano, EN EL
-// MISMO ORDEN. Cada ráfaga añade los suyos según van existiendo los tipos:
-//   RP.2  search   — el buscador y sus chips "Populares"
-//   RP.5  listings — "Recién publicados" (de todo el sitio, sin categoría)
-//   RP.4  steps    — "Cómo funciona" (las dos audiencias, tal cual)
-//         grid     — la fila de cuatro señales de confianza
+//   hero      — mismo <h1>, sin opciones rotativas y sin subtítulo (el rotativo
+//               está implementado y probado, solo no sembrado; lo activa el
+//               admin cuando quiera).
+//   search    — el buscador, su eyebrow ("Miles de anuncios cerca de ti") y los
+//               chips "Populares", con el mismo tope de 6 que tenía la constante
+//               POPULAR_CATEGORY_COUNT.
+//   cta       — "¿Tienes algo que vender? Publica gratis".
+//   listings  — "Recién publicados" (de todo el sitio, sin categoría).
+//   steps     — "Cómo funciona" (las dos audiencias, tal cual).
+//   grid      — la fila de cuatro señales de confianza.
 //
-// El carrusel de categorías NO se siembra: sustituiría a la rejilla escrita a
-// mano, pero cada categoría necesita una FOTO SUBIDA que nadie ha subido todavía
+// La REJILLA de categorías no está aquí y no es un olvido: la pinta la página
+// como fallback justo antes del primer bloque `listings`, que es su sitio de
+// siempre (ver (home)/page.tsx). No se puede sembrar como `categoryCarousel`
+// porque cada categoría necesita una FOTO SUBIDA que nadie ha subido todavía
 // (`imageUrl` es @IsOwnStorageUrl, no admite una URL inventada). Lo monta el
 // admin desde /admin/portada — el bloque, su editor y su upload están hechos y
-// probados. Ver la nota en docs/estado-tecnico.md.
+// probados. Ver docs/estado-tecnico.md.
+//
+// `searchTable` SÍ se siembra, al final: es lo ÚNICO que esta lista añade a la
+// portada anterior. Sus dos pestañas sembradas no configuran nada (provincias y
+// categorías salen de datos que ya existen) y aportan varios cientos de enlaces
+// internos a búsquedas, que es el motivo de existir del bloque (§4.7). No quita
+// ni descoloca nada de lo de arriba; un clic en /admin/portada lo retira.
 const HOMEPAGE_SEED_BLOCKS = [
-  { id: 'seed-search', type: 'search', showPopularCategories: true, popularCount: 6 },
+  {
+    id: 'seed-search',
+    type: 'search',
+    eyebrow: 'Miles de anuncios cerca de ti',
+    showPopularCategories: true,
+    popularCount: 6,
+  },
+  {
+    id: 'seed-cta-publicar',
+    type: 'cta',
+    label: '¿Tienes algo que vender? Publica gratis',
+    href: '/publicar',
+    style: 'outline',
+  },
   {
     id: 'seed-listings',
     type: 'listings',
@@ -710,6 +726,18 @@ const HOMEPAGE_SEED_BLOCKS = [
       },
       { media: { kind: 'icon', name: 'star' }, title: 'Valoraciones entre usuarios' },
       { media: { kind: 'icon', name: 'sparkles' }, title: 'Publicar es gratis' },
+    ],
+  },
+  {
+    id: 'seed-search-table',
+    type: 'searchTable',
+    title: 'Búsquedas frecuentes',
+    columns: 4,
+    // Sin pestaña `combos`: sus pares los elige el admin, y una semilla no puede
+    // adivinar qué categoría en qué provincia interesa a cada instalación.
+    tabs: [
+      { kind: 'locations', label: 'Por provincia' },
+      { kind: 'categories', label: 'Por categoría', includeChildren: true },
     ],
   },
 ];

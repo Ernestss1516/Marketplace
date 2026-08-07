@@ -10845,7 +10845,7 @@ Lo propio, que ningún molde cubría:
 
 ---
 
-## Portada configurable — motor propio y hero rotativo (RP.1, en curso)
+## Portada configurable — motor propio y hero rotativo (RP.1–RP.6, completo)
 
 Configuración global de la home (`/`) editable desde el backoffice: un hero con título
 parcialmente rotativo y un array ordenado de bloques. Diseño: `docs/diseno-portada.md`.
@@ -10853,6 +10853,10 @@ Motor **nuevo y separado** del sistema de bloques del blog (`Post.blocks`), no u
 Todo lo de aquí está verificado contra el código.
 
 ### Estado por ráfaga
+
+Las seis ráfagas están entregadas. **Desde RP.6 la portada la pinta entera el motor**, con dos
+excepciones escritas: los banners (sistema propio y completo) y la rejilla de categorías como
+fallback mientras no haya un carrusel configurado.
 
 RP.1 entregó, además de su alcance de backend, la rodaja de RP.2 que cubre el hero
 (`lib/api/homepage.ts`, `HomeHero`, el CSS del rotativo). RP.2 cerró el resto.
@@ -10869,7 +10873,7 @@ RP.1 entregó, además de su alcance de backend, la rodaja de RP.2 que cubre el 
 | Editor `/admin/portada` (hero + bloques + preview) | ✔ RP.3 |
 | `grid` y `steps` + allowlist de iconos + upload de imagen | ✔ RP.4 |
 | `listings` y `categoryCarousel` (los dinámicos) | ✔ RP.5 |
-| `searchTable` + limpieza final de `(home)/page.tsx` | RP.6 |
+| `searchTable` + limpieza final de `(home)/page.tsx` | ✔ RP.6 |
 
 ### La fila única, y por qué NO es una `Setting`
 
@@ -11108,17 +11112,18 @@ semilla y la segunda pasada es idempotente.
 Hace falta en CADA ráfaga que pase algo de la portada a bloque: la página deja de pintarlo a mano
 y, sin backfill, una instalación anterior se quedaría sin ese trozo.
 
-### El andamio transitorio de la página (desaparece en RP.6)
+### El andamio transitorio de la página (RETIRADO en RP.6)
 
-El array de bloques es plano, pero dos secciones siguen escritas en `(home)/page.tsx` —Categorías
-y Recién publicados, hasta RP.5— y van EN MEDIO: entre el buscador y "Cómo funciona". Con una sola
-llamada al renderizador no hay forma de intercalarlas sin reordenar la portada.
+Entre RP.2 y RP.5 la página repartía los bloques en dos sitios: los `search` dentro de la banda
+del hero y el resto debajo de lo que aún estaba escrito a mano, porque las secciones pendientes de
+migrar (Categorías, Recién publicados) iban EN MEDIO y con una sola llamada al renderizador no
+había forma de intercalarlas sin reordenar la portada.
 
-Así que la **página** reparte en dos: los bloques `search` se pintan en la banda del hero, el resto
-debajo de lo que aún está a mano. Se reparte por `search` y nada más — cualquier otro tipo va
-abajo, que es donde lo pondría el admin. **El motor no se entera**: ningún bloque conoce su índice
-y los `switch` siguen igual de homogéneos. Es maquetación de una página en transición, y RP.6 la
-borra al no quedar nada escrito a mano.
+**RP.6 lo borró.** La página es hoy: banda del hero (solo el hero) y, debajo, el array entero en
+una sola llamada. Con él se fueron el *eyebrow* escrito a mano, el buscador dentro de la banda y
+el botón "Publica gratis" — los tres son ahora bloques de la semilla, en ese orden.
+
+El motor nunca se enteró de nada de esto: ningún bloque conoce su índice ni entonces ni ahora.
 
 ### RP.5 — `listings` y `categoryCarousel`, los dos dinámicos
 
@@ -11158,10 +11163,10 @@ sin icono— en vez de dejar un hueco; mismo criterio que la rejilla de RP.4. Y 
 categoría borrada) se **omite**: no hay FK que lo proteja, así que el renderizador aplica la
 doctrina "se acepta al escribir, se oculta al leer" del nav.
 
-### ⚠ Divergencia de §8: `CategoryGrid` NO se ha retirado (y por qué no se puede)
+### `CategoryGrid` se queda como FALLBACK (contradicción §8↔§4.2, ya resuelta en el diseño)
 
-§8 pide retirar en RP.5 tanto "Recién publicados" como `CategoryGrid`. Solo se ha retirado el
-primero, y no por descuido: **el diseño choca consigo mismo**.
+§8 pedía retirar en RP.5 tanto "Recién publicados" como `CategoryGrid`. Solo se retiró el primero,
+y no por descuido: **el diseño chocaba consigo mismo**.
 
 - §4.2 y la decisión 9 exigen que cada categoría del carrusel lleve una **foto propia subida**
   (`imageUrl` con `@IsOwnStorageUrl`). Es lo que separa el carrusel de la rejilla actual, que usa
@@ -11170,9 +11175,98 @@ primero, y no por descuido: **el diseño choca consigo mismo**.
   en una instalación nueva no hay nada en el bucket.
 
 Retirar la rejilla sin poder sembrar el carrusel dejaría la portada **sin la sección de
-categorías**. Así que la rejilla sigue escrita a mano, con la nota en el código, y el admin la
-sustituye desde `/admin/portada` en cuanto tenga las fotos — el bloque, su editor y su upload
-están hechos y probados. Es el único trozo de la portada que no puede migrar solo.
+categorías**.
+
+**RP.6 lo cerró como decisión, no como deuda**, y corrigió `docs/diseno-portada.md` en los dos
+sitios (§4.2 y §8): la rejilla **no es andamio pendiente de retirar, es el fallback de la
+página**. Se pinta si —y solo si— no hay ningún bloque `categoryCarousel` configurado, y en el
+sitio donde siempre estuvo: justo antes del primer bloque `listings` (si no hubiera ninguno, al
+final). En cuanto un admin suba las fotos y configure el carrusel, deja de pintarse sola, sin
+tocar código.
+
+Es, junto con los banners, la única excepción al "la portada la pinta entera el motor". Las dos
+están escritas en la cabecera de `(home)/page.tsx`.
+
+### RP.6 — `searchTable`, y la portada pasa a ser el motor
+
+**El bloque con más valor SEO del motor, y su propiedad central es una restricción de
+implementación:** el contenido de TODAS las pestañas activas viaja en el HTML servido. Una tabla
+con las dos pestañas sembradas son ~60 enlaces internos a búsquedas; de los tres paneles, el
+usuario ve uno.
+
+**Por eso las pestañas son propias y NO Radix.** `@radix-ui/react-tabs` no está instalado, y su
+comportamiento por defecto es **desmontar el panel inactivo**: eso sacaría del HTML los enlaces de
+dos de los tres paneles, que son literalmente el motivo de existir del bloque. Instalar una
+dependencia para luego desactivar su comportamiento principal (`forceMount` + ocultar a mano) no
+compensa frente a las ~45 líneas de `SearchTabs.tsx`, que hace exactamente una cosa: mover un
+atributo `hidden`. Los paneles llegan como `ReactNode` ya renderizados por el Server Component;
+**el island no genera ni un enlace**.
+
+**Trade-off asumido:** los paneles inactivos se sirven CON `hidden` desde el servidor, no
+visibles-y-luego-ocultos. El contenido está en el HTML y sus enlaces se rastrean; a cambio, Google
+pondera algo menos lo que solo se ve tras interactuar. La alternativa —los tres paneles a la vez—
+destruye la interfaz, que es el motivo de que haya pestañas. Y servirlos ocultos desde el servidor
+evita el parpadeo de pintarlos todos y ocultarlos al hidratar.
+
+Teclado completo (patrón `tablist` del APG): flechas ←/→ con vuelta circular, `Home`/`End`, y
+*roving tabindex* — solo la pestaña activa es tabulable, así que el `Tab` no recorre las tres.
+
+**Las tres clases de pestaña y sus URLs**, ninguna concatenada a mano:
+
+| `kind` | Enlaces | Cómo se construye |
+|---|---|---|
+| `locations` | Las 52 provincias | `/busqueda?province=…`, el mismo destino al que navega el buscador sin categoría elegida |
+| `categories` | El árbol, con o sin hijas | `categoryPath()` (la hija va anidada bajo su padre) |
+| `combos` | Los pares que elige el admin | `categoryPathWithQuery()` |
+
+**`province` se valida SOLO EN LA FORMA.** `PROVINCIAS` es una constante del FRONTEND —el backend
+no tiene la lista y filtra `province` como coincidencia exacta contra Meilisearch—, así que
+validarla en el DTO exigiría una segunda copia de 52 cadenas que mantener a mano. En su lugar: el
+editor ofrece un `<select>` (un typo es casi imposible) y el **renderizador omite** la combinación
+cuya provincia no esté en la lista. Misma doctrina "se acepta al escribir, se oculta al leer" que
+el nav y que los slugs colgados del carrusel.
+
+Reglas cruzadas del servicio: **máximo una tabla** (dos duplicarían cientos de enlaces internos y
+en vez de sumar SEO lo diluyen) y **ninguna clase de pestaña repetida** — no es capricho: el id del
+panel ES el `kind`, así que dos `locations` producirían dos elementos con el mismo id y
+`aria-controls` apuntando a cualquiera de los dos. Los `categorySlug` de los combos entran en la
+MISMA consulta que ya comprobaba los de `listings` y el carrusel.
+
+**La página, después de la limpieza.** `(home)/page.tsx` es hoy: banners → banda del hero → array
+entero. Las dos excepciones (banners y rejilla-fallback) están escritas en su cabecera. Y la
+semilla reproduce la portada anterior **elemento a elemento y en el mismo orden**:
+
+| Orden | Antes (escrito a mano) | Ahora |
+|---|---|---|
+| 1 | Banners | Banners (igual, sigue fuera del motor) |
+| 2 | eyebrow "Miles de anuncios cerca de ti" | campo `eyebrow` del bloque `search` |
+| 3 | `<h1>` + rotativo + subtítulo | hero (campo propio de la config) |
+| 4 | `SearchBar` + chips "Populares" | bloque `search` |
+| 5 | botón "¿Tienes algo que vender? Publica gratis" | bloque `cta` (`style: outline`) |
+| 6 | sección "Categorías" (`CategoryGrid`) | igual, ahora como fallback de la página |
+| 7 | "Recién publicados" | bloque `listings` |
+| 8 | "Cómo funciona" | bloque `steps` |
+| 9 | 4 señales de confianza | bloque `grid` |
+| 10 | — | bloque `searchTable` "Búsquedas frecuentes" (**lo único nuevo**) |
+
+**El único cambio visual de la limpieza**, y es consecuencia directa de que el buscador deje de
+estar en la banda del hero: el *eyebrow* pasa de ir ENCIMA del `<h1>` a ir encima de la caja de
+búsqueda (es campo del bloque `search`, §4.1 del diseño), y el buscador y el botón salen del fondo
+`bg-primary/5` y del `max-w-4xl` centrado, al contenedor normal. No se pierde ni se descoloca nada;
+la banda del hero queda con el titular solo, que es lo que §3.5 y §5.1 del diseño describen.
+
+`searchTable` **sí se siembra** (las dos pestañas que no configuran nada), y es lo único que la
+semilla añade respecto a la portada anterior. Va al final, no quita ni descoloca nada, y un clic en
+`/admin/portada` lo retira. El carrusel sigue sin sembrarse por lo de siempre: no se pueden subir
+fotos desde una semilla.
+
+**La barrera del compilador, cerrada.** `searchTable` era el séptimo y último tipo del diseño.
+Registrarlo rompió, como los anteriores, los cinco sitios que exigen exhaustividad: el `switch` del
+renderizador, el del editor, el `Record` de metadatos y los dos `switch` de `homeBlockDefaults`.
+Con la unión completa **ya no queda ningún tipo del diseño sin registrar**, así que el test de API
+que probaba "tipo aún no registrado → 400" se retiró en vez de dejarlo apuntando a un tipo que sí
+existe: habría pasado en verde por el motivo equivocado. La garantía la sigue cubriendo el test de
+tipo inexistente.
 
 ### Lo que cuesta ahora renderizar la portada, y qué pasa si la API falla
 
@@ -11211,9 +11305,18 @@ Dos tests hubo que reorientar por el mismo motivo:
 - El que contaba filas del editor usaba un número ABSOLUTO (`toHaveCount(2)`), que caduca en
   silencio con cada ráfaga. Pasa a contar en relativo (`alEmpezar + 1`).
 - El que comprobaba el orden afirmaba que un `cta` subido al principio precede al BUSCADOR.
-  Con el andamio transitorio eso ya no puede ser cierto —el buscador se pinta en la banda del
-  hero y el resto debajo—, así que ahora compara contra el bloque de pasos, que se pinta en el
-  mismo grupo. Sigue probando lo mismo: entre los bloques que van juntos, el orden del array manda.
+  Con el andamio transitorio eso ya no podía ser cierto —el buscador se pintaba en la banda del
+  hero y el resto debajo—, así que pasó a comparar contra el bloque de pasos, que iba en el mismo
+  grupo. **RP.6 lo devolvió a su forma fuerte**: retirado el andamio, el `cta` sí precede al
+  buscador y la afirmación vuelve a ser "la posición en el array manda sobre TODOS los bloques".
+
+Y RP.6 añadió un tercer motivo de ajuste, este por el crecimiento de la propia semilla: al pasar
+el botón "Publica gratis" a bloque, la semilla **ya trae un `cta`**, así que
+`getByTestId('home-block-row-cta')` y los campos de dentro (`cta-label`, `cta-href`) resuelven dos
+elementos. Los tres tests del editor que añadían un `cta` pasan a resolver la fila por POSICIÓN
+(`filas.nth(i)`), nunca por tipo. Es la misma clase de caducidad silenciosa que el `toHaveCount(2)`
+absoluto, y la misma lección: **nada en estos specs puede asumir que la semilla tiene un solo
+bloque de un tipo**.
 
 ### El trade-off del rotativo, ya medido en el preview (PENDIENTE DE DECIDIR)
 

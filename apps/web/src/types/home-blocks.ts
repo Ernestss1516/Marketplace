@@ -151,17 +151,43 @@ export interface HomeCategoryCarouselBlock extends BaseHomeBlock {
   items: HomeCategoryCarouselItem[];
 }
 
+export const SEARCH_TABLE_COLUMNS = [2, 3, 4] as const;
+export type SearchTableColumns = (typeof SEARCH_TABLE_COLUMNS)[number];
+
+export interface SearchTableCombo {
+  categorySlug: string;
+  province: string;
+}
+
 /**
- * Tipos registrados. Los que faltan entran con su DTO, su renderizador y su
- * editor en la misma ráfaga cada uno (docs/diseno-portada.md §8):
+ * Las tres clases de pestaña de la tabla de búsquedas. El admin elige cuáles y
+ * en qué orden; el contenido de TODAS las activas viaja en el HTML.
+ */
+export type SearchTableTab =
+  | { kind: 'locations'; label: string }
+  | { kind: 'categories'; label: string; includeChildren?: boolean }
+  | { kind: 'combos'; label: string; items: SearchTableCombo[] };
+
+export interface HomeSearchTableBlock extends BaseHomeBlock {
+  type: 'searchTable';
+  title?: string;
+  tabs: SearchTableTab[];
+  columns?: SearchTableColumns;
+}
+
+/**
+ * LOS 7 TIPOS DEL MOTOR, todos registrados. Cada uno entró con su DTO, su
+ * renderizador y su editor en la misma ráfaga (docs/diseno-portada.md §8):
  *   RP.1  cta, search
- *   RP.4  grid, steps                 ← registrados
- *   RP.5  listings, categoryCarousel  ← registrados
- *   RP.6  searchTable
+ *   RP.4  grid, steps
+ *   RP.5  listings, categoryCarousel
+ *   RP.6  searchTable                 ← el último
  *
- * Al añadir un tipo aquí, los `switch` exhaustivos de `HomeBlockRenderer` (RP.2)
- * y `HomeBlockEditorRow` (RP.3) dejan de compilar hasta que tiene renderizador Y
- * editor. El compilador ES la garantía de que nada nazca a medias.
+ * La garantía sigue viva para cualquier tipo futuro: al añadirlo aquí, los
+ * `switch` exhaustivos de `HomeBlockRenderer` y `HomeBlockEditorRow`, el
+ * `Record` de `HOME_BLOCK_TYPE_META` y los dos `switch` de `homeBlockDefaults`
+ * dejan de compilar hasta que tenga renderizador Y editor. Se ha visto disparar
+ * en RP.4, RP.5 y RP.6, y siempre en los mismos cinco sitios.
  */
 export type HomeBlock =
   | HomeCtaBlock
@@ -169,7 +195,8 @@ export type HomeBlock =
   | HomeGridBlock
   | HomeStepsBlock
   | HomeListingsBlock
-  | HomeCategoryCarouselBlock;
+  | HomeCategoryCarouselBlock
+  | HomeSearchTableBlock;
 
 /**
  * Configuración completa de la portada, tal como la sirve `GET /homepage`.

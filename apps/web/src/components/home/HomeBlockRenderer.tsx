@@ -8,6 +8,7 @@ import { GridHomeBlockRenderer } from './blocks/GridHomeBlockRenderer';
 import { StepsHomeBlockRenderer } from './blocks/StepsHomeBlockRenderer';
 import { ListingsHomeBlockRenderer } from './blocks/ListingsHomeBlockRenderer';
 import { CategoryCarouselHomeBlockRenderer } from './blocks/CategoryCarouselHomeBlockRenderer';
+import { SearchTableHomeBlockRenderer } from './blocks/SearchTableHomeBlockRenderer';
 
 /**
  * Despachador del motor de bloques de PORTADA. Molde literal de
@@ -75,6 +76,8 @@ function renderBlock(block: HomeBlock, props: Omit<HomeBlockRendererProps, 'bloc
       );
     case 'categoryCarousel':
       return <CategoryCarouselHomeBlockRenderer block={block} categories={props.categories} />;
+    case 'searchTable':
+      return <SearchTableHomeBlockRenderer block={block} categories={props.categories} />;
     default:
       return assertUnreachable(block);
   }

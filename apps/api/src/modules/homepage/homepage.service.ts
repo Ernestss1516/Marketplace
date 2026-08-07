@@ -165,7 +165,6 @@ export class HomepageService {
   // decorador de campo — mismo criterio que BlogService.assertListingsBlocksValid
   // (blog.service.ts:389-395).
   //
-  // Pendiente para RP.6: máximo 1 bloque `searchTable`.
   private async assertBlocksValid(blocks: HomeBlockDto[]): Promise<void> {
     // Ids duplicados: el array se reordena y se edita por id en el editor, y
     // React los usa como key. Dos bloques con el mismo id producen ediciones
@@ -197,6 +196,22 @@ export class HomepageService {
       );
     }
 
+    // Dos tablas de búsquedas duplicarían cientos de enlaces internos: en vez de
+    // sumar SEO, lo diluyen (docs/diseno-portada.md §2.5).
+    const searchTables = blocks.filter((b) => b.type === 'searchTable');
+    if (searchTables.length > 1) {
+      throw new BadRequestException('Solo puede haber una tabla de búsquedas en la portada');
+    }
+
+    // Y dentro de una tabla, cada CLASE de pestaña una sola vez: son tres
+    // fuentes distintas, repetir una no significa nada.
+    for (const tabla of searchTables) {
+      const kinds = tabla.tabs.map((t) => t.kind);
+      if (new Set(kinds).size !== kinds.length) {
+        throw new BadRequestException('La tabla de búsquedas no puede repetir una pestaña');
+      }
+    }
+
     // Toda categoría referenciada tiene que existir. Depende de estado EXTERNO
     // (la tabla Category), así que no cabe en un decorador — molde
     // BlogService.assertListingsBlocksValid. UNA sola consulta para todos los
@@ -206,6 +221,11 @@ export class HomepageService {
       if (block.type === 'listings' && block.categorySlug) slugs.add(block.categorySlug);
       if (block.type === 'categoryCarousel') {
         for (const item of block.items) slugs.add(item.categorySlug);
+      }
+      if (block.type === 'searchTable') {
+        for (const tab of block.tabs) {
+          if (tab.kind === 'combos') for (const c of tab.items) slugs.add(c.categorySlug);
+        }
       }
     }
 

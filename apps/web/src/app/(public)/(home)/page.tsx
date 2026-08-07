@@ -1,5 +1,3 @@
-import Link from 'next/link';
-import { Button } from '@/components/ui/button';
 import { CategoryGrid } from '@/components/categorias/CategoryGrid';
 import { BannerList } from '@/components/banners/BannerList';
 import { HomeHero } from '@/components/home/HomeHero';
@@ -11,12 +9,21 @@ import { resolveHomeListingsData } from '@/lib/home-blocks/resolve-listings';
 import { buildCardAttributeMap } from '@/lib/card-attributes';
 
 
+/**
+ * Portada. Desde RP.6 la pinta ENTERA el motor de bloques, con dos excepciones
+ * que no son contenido configurable:
+ *
+ *  - Los BANNERS, que son un sistema propio y completo (modelo, backoffice,
+ *    ventana temporal, descarte persistente) y siguen encima del hero.
+ *  - La REJILLA DE CATEGORÍAS, que se queda como fallback mientras no haya un
+ *    bloque `categoryCarousel` configurado. El carrusel exige fotos SUBIDAS por
+ *    categoría (`@IsOwnStorageUrl`) y una semilla no puede subir ficheros, así
+ *    que retirarla dejaría la portada sin categorías. Ver la nota más abajo.
+ *
+ * El hero no pasa por el motor: es campo propio de la configuración, y por eso
+ * ningún bloque conoce su índice (docs/diseno-portada.md §2.3).
+ */
 export default async function HomePage() {
-  // RP.1 — el hero deja de estar escrito a mano y viene de la configuración de
-  // portada (cacheada aparte, ver lib/api/homepage.ts). Todo lo demás sigue
-  // hardcodeado y lo sustituyen las ráfagas siguientes: el buscador y sus
-  // adornos en RP.2, "Cómo funciona" y las señales de confianza en RP.4, las
-  // categorías y los anuncios recientes en RP.5.
   const [homepage, categories, banners] = await Promise.all([
     getCachedHomepageConfig().catch(() => FALLBACK_HOMEPAGE_CONFIG),
     getCategories().catch(() => [] as Awaited<ReturnType<typeof getCategories>>),
@@ -29,24 +36,33 @@ export default async function HomePage() {
   // `homepage.blocks` para saber qué pedir.
   const listingsData = await resolveHomeListingsData(homepage.blocks).catch(() => ({}));
 
-  // ANDAMIO TRANSITORIO — desaparece en RP.6.
-  //
-  // Ya no queda nada intercalado: desde RP.5, Categorías y Recién publicados son
-  // bloques. Lo único que este reparto sigue haciendo es mantener el BUSCADOR
-  // dentro de la banda del hero, que es donde está en la portada actual; el resto
-  // de bloques se pintan debajo, en el orden del array.
-  //
-  // RP.6 lo retira junto con el eyebrow y el botón que aún se escriben a mano, y
-  // la página queda como fija §5.1: hero y, debajo, todos los bloques.
-  //
-  // El motor no se entera: ningún bloque conoce su índice y los `switch` con
-  // assertUnreachable siguen igual de homogéneos.
-  const bloquesDelHero = homepage.blocks.filter((b) => b.type === 'search');
-  const bloquesDebajo = homepage.blocks.filter((b) => b.type !== 'search');
-
   // Se calcula UNA vez para toda la página y baja por props hasta el provider de
   // atributos de las tarjetas — no una vez por bloque.
   const cardAttributeMap = buildCardAttributeMap(categories);
+
+  // ── Dónde va la rejilla de categorías (fallback) ──────────────────────────
+  //
+  // La rejilla solo se pinta si NO hay un `categoryCarousel` configurado: el
+  // carrusel es su sustituto natural y no deben salir los dos.
+  //
+  // Y va donde está hoy: JUSTO ANTES del primer bloque de anuncios. No es una
+  // regla del motor —ningún bloque conoce su índice— sino de esta página, y
+  // responde a la lógica editorial de la portada: primero se enseña por dónde
+  // explorar, luego lo que hay. Si no hubiera bloque de anuncios, va al final.
+  //
+  // El día que alguien configure el carrusel, esto deja de pintarse y la página
+  // pasa a ser hero + bloques, sin excepciones.
+  const hayCarrusel = homepage.blocks.some((b) => b.type === 'categoryCarousel');
+  const mostrarRejilla = !hayCarrusel && categories.length > 0;
+  const corte = mostrarRejilla ? homepage.blocks.findIndex((b) => b.type === 'listings') : -1;
+  const bloquesAntes = corte === -1 ? homepage.blocks : homepage.blocks.slice(0, corte);
+  const bloquesDespues = corte === -1 ? [] : homepage.blocks.slice(corte);
+
+  const rendererProps = {
+    categories,
+    listingsData,
+    cardAttributeMap,
+  };
 
   return (
     <>
@@ -56,69 +72,37 @@ export default async function HomePage() {
         </div>
       )}
 
-      {/* Héroe — el buscador es el elemento tipográfico y visual más grande de la
-          página, por encima del propio titular: la "acción principal" del brief no
-          se ilustra, se convierte literalmente en lo más grande de la pantalla. */}
+      {/* Banda del hero, a sangre y con su propio fondo. Contiene el hero y NADA
+          MÁS: el buscador, su eyebrow y el botón de publicar eran andamio y ahora
+          son bloques, en su posición del array (§3.5 y §5.1 del diseño). */}
       <section className="border-b bg-primary/5">
         <div className="container mx-auto px-4 py-14 md:py-20">
           <div className="mx-auto max-w-4xl text-center">
-            {/* El eyebrow se queda escrito a mano y ENCIMA del <h1>. El bloque
-                `search` tiene su propio campo `eyebrow` (§4.1) y funciona, pero
-                el bloque se pinta DEBAJO del titular: moverlo ahí ahora cambiaría
-                el orden visual de la portada, que no es lo que pide esta ráfaga.
-                Se resuelve en la limpieza final de RP.6, cuando la página entera
-                se reordena. */}
-            <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-primary">
-              Miles de anuncios cerca de ti
-            </p>
             <HomeHero config={homepage} />
-
-            {/* El buscador y sus chips vienen de la configuración desde RP.2. */}
-            <HomeBlockRenderer blocks={bloquesDelHero} categories={categories} />
-
-            {/* Sigue a mano: el bloque `cta` ya existe y renderiza, pero el botón
-                compartido es `size="lg"` (el del blog) y este es `size="sm"`.
-                Cambiarlo sería una modificación visual que esta ráfaga no pide;
-                el modelo no tiene campo de tamaño y no se inventa uno. Pasa a
-                bloque cuando RP.4-6 reordenen la portada. */}
-            <div className="mt-8">
-              <Button asChild variant="outline" size="sm">
-                <Link href="/publicar">¿Tienes algo que vender? Publica gratis</Link>
-              </Button>
-            </div>
           </div>
         </div>
       </section>
 
-      <div className="container mx-auto px-4 pb-16">
-        {/* SIGUE ESCRITO A MANO, y es una divergencia consciente de §8.
-            §8 pide retirar esta rejilla en RP.5 porque el bloque
-            `categoryCarousel` la sustituye. El bloque está hecho, con su editor y
-            su upload — pero cada categoría necesita una FOTO SUBIDA
-            (`imageUrl` es @IsOwnStorageUrl, no admite una URL inventada), y una
-            semilla no puede subir ficheros. Retirar esto sin poder sembrar el
-            carrusel dejaría la portada SIN la sección de categorías, que es
-            precisamente lo que ninguna ráfaga debe hacer.
-            Lo cambia el admin desde /admin/portada en cuanto tenga las fotos; en
-            ese momento esta sección se borra. Ver docs/estado-tecnico.md. */}
-        {categories.length > 0 && (
-          <section className="py-12">
+      <div className="container mx-auto space-y-12 px-4 py-12">
+        <HomeBlockRenderer blocks={bloquesAntes} {...rendererProps} />
+
+        {/* Fallback, NO andamio: §8 daba por retirada esta rejilla en RP.5 y esa
+            previsión no se cumplió. El bloque `categoryCarousel` que la sustituye
+            exige una FOTO SUBIDA por categoría (`imageUrl` es @IsOwnStorageUrl,
+            no admite una URL inventada) y una semilla no puede subir ficheros:
+            retirarla dejaría toda instalación nueva SIN sección de categorías.
+            Se pinta solo mientras no haya carrusel configurado; el día que un
+            admin suba las fotos desde /admin/portada, desaparece sola.
+            Corregido en docs/diseno-portada.md §4.2 y §8. */}
+        {mostrarRejilla && (
+          <section>
             <h2 className="mb-4 text-xl font-semibold">Categorías</h2>
             <CategoryGrid categories={categories} />
           </section>
         )}
 
-        {/* RP.5 — "Recién publicados" ya no se escribe aquí: es el bloque
-            `listings` de la configuración, con sus dos providers recuperados. */}
-        {bloquesDebajo.length > 0 && (
-          <div className="py-12">
-            <HomeBlockRenderer
-              blocks={bloquesDebajo}
-              categories={categories}
-              listingsData={listingsData}
-              cardAttributeMap={cardAttributeMap}
-            />
-          </div>
+        {bloquesDespues.length > 0 && (
+          <HomeBlockRenderer blocks={bloquesDespues} {...rendererProps} />
         )}
       </div>
     </>

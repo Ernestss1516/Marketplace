@@ -18,7 +18,20 @@ export const PORTADA_SEMILLA = {
   heroRotatingOptions: [] as string[],
   heroRotationMs: 3000,
   blocks: [
-    { id: 'seed-search', type: 'search', showPopularCategories: true, popularCount: 6 },
+    {
+      id: 'seed-search',
+      type: 'search',
+      eyebrow: 'Miles de anuncios cerca de ti',
+      showPopularCategories: true,
+      popularCount: 6,
+    },
+    {
+      id: 'seed-cta-publicar',
+      type: 'cta',
+      label: '¿Tienes algo que vender? Publica gratis',
+      href: '/publicar',
+      style: 'outline',
+    },
     {
       id: 'seed-listings',
       type: 'listings',
@@ -63,6 +76,16 @@ export const PORTADA_SEMILLA = {
         { media: { kind: 'icon', name: 'message-circle' }, title: 'Mensajería sin compartir tu teléfono' },
         { media: { kind: 'icon', name: 'star' }, title: 'Valoraciones entre usuarios' },
         { media: { kind: 'icon', name: 'sparkles' }, title: 'Publicar es gratis' },
+      ],
+    },
+    {
+      id: 'seed-search-table',
+      type: 'searchTable',
+      title: 'Búsquedas frecuentes',
+      columns: 4,
+      tabs: [
+        { kind: 'locations', label: 'Por provincia' },
+        { kind: 'categories', label: 'Por categoría', includeChildren: true },
       ],
     },
   ] as unknown[],

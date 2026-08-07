@@ -365,6 +365,103 @@ test.describe('Portada — motor de bloques', () => {
     });
   });
 
+  test.describe('bloque `searchTable` (RP.6)', () => {
+    test.beforeAll(async ({ browser, request }) => {
+      await setBlocks(request, [
+        {
+          id: 'b-table',
+          type: 'searchTable',
+          title: 'Búsquedas frecuentes',
+          columns: 3,
+          tabs: [
+            { kind: 'locations', label: 'Por provincia' },
+            { kind: 'categories', label: 'Por categoría', includeChildren: true },
+            {
+              kind: 'combos',
+              label: 'Combinaciones',
+              items: [{ categorySlug: 'coches', province: 'Madrid' }],
+            },
+          ],
+        },
+      ]);
+      const warmup = await browser.newPage();
+      await esperarPortada(warmup, async (p) => (await p.getByText('Búsquedas frecuentes').count()) > 0);
+      await warmup.close();
+    });
+
+    test('los enlaces de LAS TRES pestañas están en el HTML servido', async ({ request }) => {
+      // ES LA PROPIEDAD CENTRAL DEL BLOQUE, y el motivo de que las pestañas sean
+      // propias y no Radix: Radix DESMONTA el panel inactivo, así que dos de las
+      // tres listas no existirían en el HTML y un crawler no vería sus enlaces.
+      // Aquí no hay navegador: es la respuesta cruda del servidor.
+      const html = await (await request.get('http://localhost:3000/')).text();
+
+      expect(html).toContain('Búsquedas frecuentes');
+
+      // Pestaña 1 (la única visible): provincias, con la URL a la que navega el
+      // buscador cuando no hay categoría elegida.
+      expect(html).toContain('province=Madrid');
+      expect(html).toContain('Zaragoza'); // una del final de la lista de 52
+
+      // Pestaña 2 (OCULTA): categorías, incluidas las hijas anidadas.
+      expect(html).toContain('/vehiculos');
+      expect(html).toContain('/vehiculos/coches');
+
+      // Pestaña 3 (OCULTA): la combinación, categoría anidada + provincia.
+      expect(html).toContain('/vehiculos/coches?province=Madrid');
+      expect(html).toContain('Coches en Madrid');
+    });
+
+    test('los paneles ocultos están en el DOM, solo con `hidden`', async ({ page }) => {
+      await page.goto('/');
+      const paneles = page.locator('[role="tabpanel"]');
+      await expect(paneles).toHaveCount(3);
+      await expect(paneles.nth(0)).not.toHaveAttribute('hidden', /.*/);
+      await expect(paneles.nth(1)).toHaveAttribute('hidden', /.*/);
+      await expect(paneles.nth(2)).toHaveAttribute('hidden', /.*/);
+    });
+
+    test('pulsar una pestaña cambia el panel y el aria-selected', async ({ page }) => {
+      await page.goto('/');
+      const porProvincia = page.getByRole('tab', { name: 'Por provincia' });
+      const porCategoria = page.getByRole('tab', { name: 'Por categoría' });
+
+      await expect(porProvincia).toHaveAttribute('aria-selected', 'true');
+      await expect(page.getByRole('tabpanel')).toContainText('Madrid');
+
+      await porCategoria.click();
+      await expect(porCategoria).toHaveAttribute('aria-selected', 'true');
+      await expect(porProvincia).toHaveAttribute('aria-selected', 'false');
+      // getByRole('tabpanel') solo ve el visible: el oculto no está en el árbol
+      // de accesibilidad, que es exactamente lo que debe pasar.
+      await expect(page.getByRole('tabpanel')).toHaveCount(1);
+      await expect(page.getByRole('tabpanel')).toContainText('Vehículos');
+    });
+
+    test('las flechas recorren las pestañas (patrón tablist del APG)', async ({ page }) => {
+      await page.goto('/');
+      await page.getByRole('tab', { name: 'Por provincia' }).focus();
+      await page.keyboard.press('ArrowRight');
+      await expect(page.getByRole('tab', { name: 'Por categoría' })).toBeFocused();
+      await expect(page.getByRole('tab', { name: 'Por categoría' })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      );
+
+      // End salta a la última, Home vuelve a la primera.
+      await page.keyboard.press('End');
+      await expect(page.getByRole('tab', { name: 'Combinaciones' })).toBeFocused();
+      await page.keyboard.press('Home');
+      await expect(page.getByRole('tab', { name: 'Por provincia' })).toBeFocused();
+    });
+
+    test('solo la pestaña activa es tabulable (foco itinerante)', async ({ page }) => {
+      await page.goto('/');
+      await expect(page.getByRole('tab', { name: 'Por provincia' })).toHaveAttribute('tabindex', '0');
+      await expect(page.getByRole('tab', { name: 'Por categoría' })).toHaveAttribute('tabindex', '-1');
+    });
+  });
+
   test.describe('sin bloques', () => {
     test.beforeAll(async ({ browser, request }) => {
       await setBlocks(request, []);

@@ -1,5 +1,6 @@
 import {
   GalleryHorizontal,
+  LayoutList,
   LayoutGrid,
   ListOrdered,
   MousePointerClick,
@@ -50,6 +51,11 @@ export const HOME_BLOCK_TYPE_META: Record<
     description: 'Los anuncios más recientes, de todo el sitio o de una categoría',
     icon: ShoppingBag,
   },
+  searchTable: {
+    label: 'Tabla de búsquedas',
+    description: 'Pestañas con enlaces a búsquedas: por provincia, por categoría o combinadas',
+    icon: LayoutList,
+  },
   categoryCarousel: {
     label: 'Carrusel de categorías',
     description: 'Una fila de categorías con su foto, que se desplaza de lado',
@@ -69,6 +75,7 @@ export const HOME_BLOCK_TYPE_ORDER: HomeBlockType[] = [
   'cta',
   'grid',
   'steps',
+  'searchTable',
 ];
 
 /**
@@ -101,6 +108,19 @@ export function createDefaultHomeBlock(type: HomeBlockType): HomeBlock {
       return { id, type, limit: 8, sort: 'recent', showAllLink: true };
     case 'categoryCarousel':
       return { id, type, items: [{ categorySlug: '', imageUrl: '', alt: '' }] };
+    case 'searchTable':
+      // Arranca con las dos pestañas que no piden configurar nada (provincias y
+      // categorías salen de datos que ya existen): útil desde el primer clic.
+      // Las combinaciones las añade el admin si quiere.
+      return {
+        id,
+        type,
+        columns: 3,
+        tabs: [
+          { kind: 'locations', label: 'Por provincia' },
+          { kind: 'categories', label: 'Por categoría', includeChildren: true },
+        ],
+      };
   }
 }
 
@@ -129,5 +149,11 @@ export function homeBlockHasContent(block: HomeBlock): boolean {
       return (block.title ?? '').trim().length > 0;
     case 'categoryCarousel':
       return block.items.some((it) => it.categorySlug.trim() || it.imageUrl.trim());
+    case 'searchTable':
+      // Lo único que el admin escribe aquí son los pares de "combinaciones": las
+      // otras dos pestañas salen de datos que ya existen y no se pierden.
+      return block.tabs.some(
+        (t) => t.kind === 'combos' && t.items.some((i) => i.categorySlug.trim()),
+      );
   }
 }

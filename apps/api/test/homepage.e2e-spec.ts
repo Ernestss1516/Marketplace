@@ -299,15 +299,14 @@ describe('Portada configurable — RP.1 (e2e)', () => {
     await patch(body({ blocks: [{ id: 'b1', type: 'search', popularCount: 99 }] })).expect(400);
   });
 
-  it('tipo de bloque aún no registrado (searchTable, RP.6) → 400', async () => {
-    // El discriminador solo conoce los tipos con DTO. Nada entra en `blocks`
-    // sin una clase que lo valide campo a campo. Este hueco lo ocupó `grid`
-    // hasta RP.4 y `listings` hasta RP.5: hay que moverlo a un tipo que de
-    // verdad siga sin existir, o el test pasaría por el motivo equivocado.
-    await patch(body({ blocks: [{ id: 'b1', type: 'searchTable', tabs: [] }] })).expect(400);
-  });
-
   it('tipo de bloque inexistente → 400', async () => {
+    // El discriminador solo conoce los tipos con DTO: nada entra en `blocks`
+    // sin una clase que lo valide campo a campo. Hasta RP.5 este test tenía un
+    // gemelo que probaba la misma garantía con un tipo del diseño todavía sin
+    // registrar (`grid` hasta RP.4, `listings` hasta RP.5, `searchTable` hasta
+    // RP.6). RP.6 registra el séptimo y último, así que ya no queda ninguno: se
+    // retiró en vez de dejarlo apuntando a un tipo que sí existe, que habría
+    // pasado en verde por el motivo equivocado.
     await patch(body({ blocks: [{ id: 'b1', type: 'noExiste' }] })).expect(400);
   });
 
@@ -574,6 +573,106 @@ describe('Portada configurable — RP.1 (e2e)', () => {
 
   it('carrusel sin items → 400', async () => {
     await patch(body({ blocks: [{ id: 'c1', type: 'categoryCarousel', items: [] }] })).expect(400);
+  });
+
+  // ── RP.6: tabla de búsquedas ───────────────────────────────────────────────
+
+  const TAB_PROVINCIAS = { kind: 'locations', label: 'Por provincia' };
+  const TAB_CATEGORIAS = { kind: 'categories', label: 'Por categoría', includeChildren: true };
+
+  function tabla(overrides: Record<string, unknown> = {}) {
+    return { id: 't1', type: 'searchTable', tabs: [TAB_PROVINCIAS], ...overrides };
+  }
+
+  it('tabla con las dos pestañas sin configuración → 200', async () => {
+    const res = await patch(
+      body({ blocks: [tabla({ title: 'Búsquedas frecuentes', columns: 4, tabs: [TAB_PROVINCIAS, TAB_CATEGORIAS] })] }),
+    ).expect(200);
+    expect(res.body.blocks[0].tabs.map((t: { kind: string }) => t.kind)).toEqual([
+      'locations',
+      'categories',
+    ]);
+  });
+
+  it('pestaña de combinaciones con categoría existente → 200', async () => {
+    const res = await patch(
+      body({
+        blocks: [
+          tabla({
+            tabs: [
+              { kind: 'combos', label: 'Populares', items: [{ categorySlug: 'coches', province: 'Madrid' }] },
+            ],
+          }),
+        ],
+      }),
+    ).expect(200);
+    expect(res.body.blocks[0].tabs[0].items[0]).toEqual({
+      categorySlug: 'coches',
+      province: 'Madrid',
+    });
+  });
+
+  it('combinación con categoría inexistente → 400 (misma regla cruzada que carrusel y listings)', async () => {
+    await patch(
+      body({
+        blocks: [
+          tabla({
+            tabs: [
+              { kind: 'combos', label: 'Populares', items: [{ categorySlug: 'no-existe', province: 'Madrid' }] },
+            ],
+          }),
+        ],
+      }),
+    ).expect(400);
+  });
+
+  it('tabla sin pestañas → 400 (un bloque sin nada que enseñar no es un bloque)', async () => {
+    await patch(body({ blocks: [tabla({ tabs: [] })] })).expect(400);
+  });
+
+  it('dos pestañas del mismo tipo → 400 (el id del panel es el `kind`)', async () => {
+    // No es capricho: el island empareja botón y panel por `kind`, así que dos
+    // pestañas `locations` producirían dos elementos con el mismo id en el HTML
+    // y aria-controls apuntaría a cualquiera de los dos.
+    await patch(body({ blocks: [tabla({ tabs: [TAB_PROVINCIAS, TAB_PROVINCIAS] })] })).expect(400);
+  });
+
+  it('pestaña con `kind` desconocido → 400', async () => {
+    await patch(body({ blocks: [tabla({ tabs: [{ kind: 'porPrecio', label: 'X' }] })] })).expect(400);
+  });
+
+  it('pestaña de combinaciones sin items → 400', async () => {
+    await patch(
+      body({ blocks: [tabla({ tabs: [{ kind: 'combos', label: 'Populares', items: [] }] })] }),
+    ).expect(400);
+  });
+
+  it('combinación sin provincia → 400', async () => {
+    await patch(
+      body({
+        blocks: [
+          tabla({ tabs: [{ kind: 'combos', label: 'P', items: [{ categorySlug: 'coches' }] }] }),
+        ],
+      }),
+    ).expect(400);
+  });
+
+  it('columnas fuera del conjunto {2,3,4} → 400', async () => {
+    await patch(body({ blocks: [tabla({ columns: 5 })] })).expect(400);
+  });
+
+  it('`includeChildren` en una pestaña que no es de categorías → 400', async () => {
+    // El discriminador anidado por `kind` es lo que lo impide: cada clase de
+    // pestaña valida SUS campos y `forbidNonWhitelisted` rechaza el resto.
+    await patch(
+      body({ blocks: [tabla({ tabs: [{ ...TAB_PROVINCIAS, includeChildren: true }] })] }),
+    ).expect(400);
+  });
+
+  it('dos bloques searchTable → 400 (regla cruzada del servicio)', async () => {
+    await patch(
+      body({ blocks: [tabla(), tabla({ id: 't2' })] }),
+    ).expect(400);
   });
 
   // ── Bloques: reglas cruzadas del servicio ──────────────────────────────────

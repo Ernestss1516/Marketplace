@@ -10,6 +10,7 @@ import { GridHomeBlockEditor } from './editors/GridHomeBlockEditor';
 import { StepsHomeBlockEditor } from './editors/StepsHomeBlockEditor';
 import { ListingsHomeBlockEditor } from './editors/ListingsHomeBlockEditor';
 import { CategoryCarouselHomeBlockEditor } from './editors/CategoryCarouselHomeBlockEditor';
+import { SearchTableHomeBlockEditor } from './editors/SearchTableHomeBlockEditor';
 
 function assertUnreachable(block: never): never {
   throw new Error(`Tipo de bloque de portada no soportado: ${JSON.stringify(block)}`);
@@ -76,6 +77,14 @@ function renderEditor(
           block={block}
           onChange={(patch) => onChange({ ...block, ...patch })}
           token={token}
+          disabled={disabled}
+        />
+      );
+    case 'searchTable':
+      return (
+        <SearchTableHomeBlockEditor
+          block={block}
+          onChange={(patch) => onChange({ ...block, ...patch })}
           disabled={disabled}
         />
       );
