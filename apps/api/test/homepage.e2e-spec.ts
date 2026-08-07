@@ -576,6 +576,10 @@ describe('Portada configurable — RP.1 (e2e)', () => {
   });
 
   // ── RP.6: tabla de búsquedas ───────────────────────────────────────────────
+  //
+  // Como el carrusel, `searchTable` NO se auto-siembra: la portada por defecto
+  // es exactamente la de siempre. Cada test de aquí abajo escribe el bloque que
+  // va a comprobar, así que la cobertura no depende de lo que traiga la semilla.
 
   const TAB_PROVINCIAS = { kind: 'locations', label: 'Por provincia' };
   const TAB_CATEGORIAS = { kind: 'categories', label: 'Por categoría', includeChildren: true };

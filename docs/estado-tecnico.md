@@ -11234,7 +11234,7 @@ MISMA consulta que ya comprobaba los de `listings` y el carrusel.
 
 **La página, después de la limpieza.** `(home)/page.tsx` es hoy: banners → banda del hero → array
 entero. Las dos excepciones (banners y rejilla-fallback) están escritas en su cabecera. Y la
-semilla reproduce la portada anterior **elemento a elemento y en el mismo orden**:
+portada resultante es **la misma de antes, elemento a elemento y en el mismo orden**:
 
 | Orden | Antes (escrito a mano) | Ahora |
 |---|---|---|
@@ -11247,18 +11247,33 @@ semilla reproduce la portada anterior **elemento a elemento y en el mismo orden*
 | 7 | "Recién publicados" | bloque `listings` |
 | 8 | "Cómo funciona" | bloque `steps` |
 | 9 | 4 señales de confianza | bloque `grid` |
-| 10 | — | bloque `searchTable` "Búsquedas frecuentes" (**lo único nuevo**) |
 
-**El único cambio visual de la limpieza**, y es consecuencia directa de que el buscador deje de
-estar en la banda del hero: el *eyebrow* pasa de ir ENCIMA del `<h1>` a ir encima de la caja de
-búsqueda (es campo del bloque `search`, §4.1 del diseño), y el buscador y el botón salen del fondo
-`bg-primary/5` y del `max-w-4xl` centrado, al contenedor normal. No se pierde ni se descoloca nada;
-la banda del hero queda con el titular solo, que es lo que §3.5 y §5.1 del diseño describen.
+**La semilla no añade NADA.** `searchTable` existe, funciona y es configurable, pero **no se
+auto-siembra**: igual que el carrusel, aparece cuando un admin lo añade desde `/admin/portada`. La
+diferencia entre los dos es el motivo —el carrusel *no puede* sembrarse (necesita fotos subidas),
+la tabla *podría* pero no debe— y el resultado es el mismo: **una instalación nueva ve exactamente
+la portada de siempre**. Los cinco bloques sembrados son los de la tabla de arriba, y la lista es
+idéntica en los tres sitios que la escriben (`seed.ts`, `seed-test.ts`, `e2e/helpers/portada.ts`);
+el backfill de `updatedById === null` usa esa misma lista, así que tampoco introduce la tabla en
+una instalación anterior.
 
-`searchTable` **sí se siembra** (las dos pestañas que no configuran nada), y es lo único que la
-semilla añade respecto a la portada anterior. Va al final, no quita ni descoloca nada, y un clic en
-`/admin/portada` lo retira. El carrusel sigue sin sembrarse por lo de siempre: no se pueden subir
-fotos desde una semilla.
+Los tests de `searchTable` —11 de API y 5 de navegador— **crean el bloque ellos mismos** antes de
+comprobarlo, exactamente como los del carrusel y por el mismo motivo. La cobertura no depende de
+lo que traiga la semilla.
+
+**Los tres cambios visuales**, y ninguno añade ni quita contenido:
+
+1. El *eyebrow* pasa de ir ENCIMA del `<h1>` a ir encima de la caja de búsqueda: es campo del
+   bloque `search` (§4.1 del diseño) y el buscador ya no vive dentro de la banda del hero. Con él
+   salen del fondo `bg-primary/5` y del `max-w-4xl` centrado el buscador y el botón.
+2. **La banda del hero pasa de `py-14 md:py-20` a `py-10 md:py-14`**, y el `mb-8` del `<h1>` a
+   `mb-8 last:mb-0`. Aquel aire estaba dimensionado para una banda que además llevaba buscador y
+   botón; con solo el titular dentro dejaba un hueco que se leía como un fallo de maquetación. La
+   variante `last:` hace lo correcto en los dos sitios sin que ninguno sepa del otro: en la portada
+   el `<h1>` es el último hijo de su contenedor y pierde el margen; en el preview del editor los
+   bloques se pintan a continuación dentro del MISMO contenedor, no es el último, y lo conserva.
+3. **El rotativo se alinea con `justify-items: start`** — la decisión que quedaba abierta desde
+   RP.3, ver más abajo.
 
 **La barrera del compilador, cerrada.** `searchTable` era el séptimo y último tipo del diseño.
 Registrarlo rompió, como los anteriores, los cinco sitios que exigen exhaustividad: el `switch` del
@@ -11318,9 +11333,9 @@ elementos. Los tres tests del editor que añadían un `cta` pasan a resolver la 
 absoluto, y la misma lección: **nada en estos specs puede asumir que la semilla tiene un solo
 bloque de un tipo**.
 
-### El trade-off del rotativo, ya medido en el preview (PENDIENTE DE DECIDIR)
+### El trade-off del rotativo — RESUELTO: `justify-items: start`
 
-RP.1 lo anotó y dejó la decisión para cuando hubiera preview. Ya lo hay, y esto es lo que se ve
+RP.1 lo anotó, RP.3 lo midió en el preview y el ajuste de RP.6 lo cerró. Esto es lo que se veía
 con palabras de anchura dispar (`coches` / `motocicletas` / `bicis`):
 
 - La caja del rotativo mide **181 px**, lo que ocupa la palabra más larga, y **no cambia** al
@@ -11334,9 +11349,15 @@ esa línea el titular se lee con espaciado normal (*"Compra y vende coches"*) a 
 frase entera quede ligeramente descentrada, porque la caja sigue reservando el ancho de la
 palabra más larga.
 
-**No se ha cambiado.** Es una decisión de producto entre dos defectos pequeños: hueco visible
-frente a frase algo descentrada. Recomendación: `justify-items: start`, porque el hueco se lee
-como un error de escritura y el descentrado no.
+**Decisión: `justify-items: start`.** Era una elección de producto entre dos defectos pequeños
+—hueco visible frente a frase algo descentrada— y se resuelve a favor del segundo por un motivo
+concreto: **un margen no se lee como un error y un espacio doble sí**. Un lector que ve
+*"Compra y vende␣␣␣␣coches"* piensa que alguien se dejó un espacio; uno que ve la frase pegada a
+la izquierda con aire a la derecha no piensa nada.
+
+La caja sigue midiendo lo que la opción más ancha, así que **la garantía anti-salto de layout no
+se toca**: lo único que cambia es dónde queda el hueco. Está en `globals.css`, en la regla
+`.hero-rot`, con el porqué escrito al lado. Anotado también en `docs/diseno-portada.md` §3.2.
 
 ### `getByRole` no sirve para sondear si una página ya se actualizó
 

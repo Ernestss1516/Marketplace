@@ -641,11 +641,11 @@ async function seedBumpPacks() {
 // admin desde /admin/portada — el bloque, su editor y su upload están hechos y
 // probados. Ver docs/estado-tecnico.md.
 //
-// `searchTable` SÍ se siembra, al final: es lo ÚNICO que esta lista añade a la
-// portada anterior. Sus dos pestañas sembradas no configuran nada (provincias y
-// categorías salen de datos que ya existen) y aportan varios cientos de enlaces
-// internos a búsquedas, que es el motivo de existir del bloque (§4.7). No quita
-// ni descoloca nada de lo de arriba; un clic en /admin/portada lo retira.
+// `searchTable` TAMPOCO se siembra, y esta vez no por imposibilidad técnica —sus
+// dos pestañas sin configuración se sembrarían perfectamente— sino por decisión:
+// **la portada tras RP.6 es EXACTAMENTE la de antes**. Una semilla no añade
+// secciones que nadie ha pedido. El bloque existe, funciona y es configurable;
+// aparece cuando un admin lo añade desde /admin/portada, igual que el carrusel.
 const HOMEPAGE_SEED_BLOCKS = [
   {
     id: 'seed-search',
@@ -726,18 +726,6 @@ const HOMEPAGE_SEED_BLOCKS = [
       },
       { media: { kind: 'icon', name: 'star' }, title: 'Valoraciones entre usuarios' },
       { media: { kind: 'icon', name: 'sparkles' }, title: 'Publicar es gratis' },
-    ],
-  },
-  {
-    id: 'seed-search-table',
-    type: 'searchTable',
-    title: 'Búsquedas frecuentes',
-    columns: 4,
-    // Sin pestaña `combos`: sus pares los elige el admin, y una semilla no puede
-    // adivinar qué categoría en qué provincia interesa a cada instalación.
-    tabs: [
-      { kind: 'locations', label: 'Por provincia' },
-      { kind: 'categories', label: 'Por categoría', includeChildren: true },
     ],
   },
 ];

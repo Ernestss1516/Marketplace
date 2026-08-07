@@ -399,16 +399,6 @@ async function seedHomepageConfig() {
           { media: { kind: 'icon', name: 'sparkles' }, title: 'Publicar es gratis' },
         ],
       },
-      {
-        id: 'seed-search-table',
-        type: 'searchTable',
-        title: 'Búsquedas frecuentes',
-        columns: 4,
-        tabs: [
-          { kind: 'locations', label: 'Por provincia' },
-          { kind: 'categories', label: 'Por categoría', includeChildren: true },
-        ],
-      },
     ],
   };
   await prisma.homepageConfig.upsert({

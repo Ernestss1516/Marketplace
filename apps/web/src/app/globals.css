@@ -85,6 +85,18 @@
    titular daría un salto de layout en cada cambio de palabra. */
 .hero-rot {
   display: inline-grid;
+  /* DECISIÓN (abierta en RP.3, cerrada en el ajuste de RP.6): las opciones se
+     alinean al PRINCIPIO de la celda, no centradas.
+
+     La caja mide lo que la opción más ancha —eso no cambia, es lo que evita el
+     salto de layout—, así que una opción corta deja hueco. Sin esta línea el
+     hueco se reparte a los dos lados y el titular se lee "Compra y vende␣␣␣␣
+     coches": un espacio doble en mitad de una frase, que se lee como un error
+     de escritura. Con ella el hueco queda ENTERO al final de la frase, donde
+     pasa por margen y no por errata; a cambio, el titular centrado queda
+     ligeramente descentrado respecto a la caja reservada. Medido en el preview:
+     181 px de caja con `coches`/`motocicletas`/`bicis`. */
+  justify-items: start;
 }
 
 .hero-rot-item {

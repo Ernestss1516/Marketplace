@@ -285,6 +285,24 @@ hover no se echa en falta en un titular decorativo — y su ausencia elimina la 
 - `N = 0` → no se emite el `<span class="hero-rot">` en absoluto, solo el título fijo.
   `N = 1` → se emite el `<span>` sin clase `.hero-rot-{n}` ni animación.
 
+**El hueco de la caja — DECISIÓN cerrada (abierta en RP.3, resuelta en el ajuste de RP.6):
+`justify-items: start` en `.hero-rot`.**
+
+La caja mide lo que la opción más ancha y **no cambia al rotar** — es la propiedad que evita
+el salto de layout y no se toca. La consecuencia es que una opción corta deja hueco, y la
+única pregunta era dónde ponerlo. Medido en el preview con `coches`/`motocicletas`/`bicis`:
+caja de **181 px**.
+
+- **Centrado** (el defecto de `inline-grid`): el hueco se reparte a los dos lados y el
+  titular se lee *"Compra y vende␣␣␣␣coches"*. Un espacio doble en mitad de una frase se
+  lee como **una errata**.
+- **`justify-items: start`** (elegido): el hueco queda entero al final de la frase, donde
+  pasa por margen. A cambio, la frase centrada queda ligeramente descentrada respecto a la
+  caja reservada.
+
+Se elige el segundo porque **un margen no se lee como un error y un espacio doble sí**. Es
+una línea en `globals.css` y no toca el mecanismo de §3.1.
+
 ### 3.3 Accesibilidad — **DECISIÓN: una sola opción semántica**
 
 El problema real: con las N opciones en el `<h1>`, un lector de pantalla leería

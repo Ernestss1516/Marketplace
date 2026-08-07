@@ -366,6 +366,10 @@ test.describe('Portada — motor de bloques', () => {
   });
 
   test.describe('bloque `searchTable` (RP.6)', () => {
+    // El bloque LO CREA ESTE SETUP, no la semilla: `searchTable` no se
+    // auto-siembra, igual que el carrusel de aquí arriba. La portada por defecto
+    // es exactamente la de siempre y este bloque aparece cuando un admin lo
+    // añade — así que la cobertura tiene que traérselo puesto.
     test.beforeAll(async ({ browser, request }) => {
       await setBlocks(request, [
         {

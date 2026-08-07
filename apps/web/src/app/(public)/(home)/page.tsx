@@ -75,8 +75,12 @@ export default async function HomePage() {
       {/* Banda del hero, a sangre y con su propio fondo. Contiene el hero y NADA
           MÁS: el buscador, su eyebrow y el botón de publicar eran andamio y ahora
           son bloques, en su posición del array (§3.5 y §5.1 del diseño). */}
+      {/* El padding es `py-10 md:py-14`, no el `py-14 md:py-20` de antes: aquel
+          estaba dimensionado para una banda que además llevaba el buscador y un
+          botón. Con solo el titular dentro, el mismo aire dejaba un hueco que se
+          leía como un fallo de maquetación. */}
       <section className="border-b bg-primary/5">
-        <div className="container mx-auto px-4 py-14 md:py-20">
+        <div className="container mx-auto px-4 py-10 md:py-14">
           <div className="mx-auto max-w-4xl text-center">
             <HomeHero config={homepage} />
           </div>

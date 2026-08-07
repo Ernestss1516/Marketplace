@@ -43,7 +43,15 @@ export function HomeHero({ config }: { config: HomepageConfig }) {
 
   return (
     <>
-      <h1 className="mb-8 text-2xl font-bold tracking-tight md:text-3xl">
+      {/* `last:mb-0` — el margen inferior existe para separar el hero de LO QUE
+          VENGA DEBAJO, y desde la limpieza de RP.6 en la portada no viene nada:
+          el hero es lo único dentro de su banda. Sin esto la banda queda
+          descompensada (el aire de abajo es el padding MÁS estos 32 px). En el
+          preview del editor, donde los bloques sí se pintan a continuación
+          dentro del mismo contenedor, el h1 no es el último hijo y el margen
+          sigue aplicándose: la variante hace lo correcto en los dos sitios sin
+          que ninguno tenga que saber del otro. */}
+      <h1 className="mb-8 text-2xl font-bold tracking-tight last:mb-0 md:text-3xl">
         {config.heroStaticTitle}
         {options.length > 0 && (
           <>
@@ -86,7 +94,9 @@ export function HomeHero({ config }: { config: HomepageConfig }) {
       {config.heroSubtitle && (
         // Texto PLANO, no markdown: no se abre la tubería de sanitización para
         // un párrafo bajo un titular (§2.2).
-        <p className="mb-8 -mt-4 text-base text-muted-foreground md:text-lg">{config.heroSubtitle}</p>
+        <p className="-mt-4 mb-8 text-base text-muted-foreground last:mb-0 md:text-lg">
+          {config.heroSubtitle}
+        </p>
       )}
     </>
   );
