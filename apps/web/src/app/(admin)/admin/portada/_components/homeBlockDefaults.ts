@@ -1,4 +1,4 @@
-import { MousePointerClick, Search, type LucideIcon } from 'lucide-react';
+import { LayoutGrid, ListOrdered, MousePointerClick, Search, type LucideIcon } from 'lucide-react';
 import { generateId } from '@/lib/utils';
 import type { HomeBlock } from '@/types/home-blocks';
 
@@ -27,6 +27,16 @@ export const HOME_BLOCK_TYPE_META: Record<
     description: 'Un botón grande y centrado que lleva a otra página',
     icon: MousePointerClick,
   },
+  grid: {
+    label: 'Rejilla de tarjetas',
+    description: 'Tarjetas con icono o foto y un texto; con enlace o solo informativas',
+    icon: LayoutGrid,
+  },
+  steps: {
+    label: 'Pasos por público',
+    description: 'Cómo funciona: una columna por público, con sus pasos numerados',
+    icon: ListOrdered,
+  },
 };
 
 /**
@@ -34,7 +44,7 @@ export const HOME_BLOCK_TYPE_META: Record<
  * alfabético (ayuda a un admin no técnico a no sentirse abrumado). Mismo
  * criterio que BLOCK_TYPE_ORDER del blog.
  */
-export const HOME_BLOCK_TYPE_ORDER: HomeBlockType[] = ['search', 'cta'];
+export const HOME_BLOCK_TYPE_ORDER: HomeBlockType[] = ['search', 'cta', 'grid', 'steps'];
 
 /**
  * Valores por defecto al añadir un bloque. Arrancan VÁLIDOS donde el backend lo
@@ -49,6 +59,17 @@ export function createDefaultHomeBlock(type: HomeBlockType): HomeBlock {
       return { id, type, showPopularCategories: true, popularCount: 6 };
     case 'cta':
       return { id, type, label: '', href: '' };
+    case 'grid':
+      // 4 columnas y una tarjeta: es la forma de las señales de confianza, el
+      // caso que más se usa. El backend exige ArrayMinSize(1), así que arranca
+      // con la tarjeta ya creada — mejor ver el hueco que recibir un 400.
+      return { id, type, columns: 4, items: [{ title: '' }] };
+    case 'steps':
+      return {
+        id,
+        type,
+        columns: [{ audienceTitle: '', steps: [{ title: '', description: '' }] }],
+      };
   }
 }
 
@@ -61,5 +82,15 @@ export function homeBlockHasContent(block: HomeBlock): boolean {
       return (block.eyebrow ?? '').trim().length > 0;
     case 'cta':
       return block.label.trim().length > 0 || block.href.trim().length > 0;
+    case 'grid':
+      return block.items.some(
+        (cell) => cell.title.trim() || cell.description?.trim() || cell.href?.trim() || cell.media,
+      );
+    case 'steps':
+      return block.columns.some(
+        (col) =>
+          col.audienceTitle.trim() ||
+          col.steps.some((s) => s.title.trim() || s.description.trim()),
+      );
   }
 }

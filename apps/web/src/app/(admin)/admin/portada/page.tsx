@@ -69,6 +69,43 @@ function validate(values: FormState): string | null {
         return 'Hay un botón destacado con un enlace no válido.';
       }
     }
+
+    if (block.type === 'grid') {
+      for (const cell of block.items) {
+        if (!cell.title.trim()) return 'Hay una tarjeta de la rejilla sin texto.';
+        if (cell.href && !isSafeContentUrl(cell.href)) {
+          return 'Hay una tarjeta de la rejilla con un enlace no válido.';
+        }
+        if (cell.media?.kind === 'image') {
+          if (!cell.media.url) return 'Hay una tarjeta a la que le falta subir la imagen.';
+          // El alt no es opcional: sin él la imagen es invisible para quien no
+          // la ve, y el backend lo rechaza igualmente.
+          if (!cell.media.alt.trim()) {
+            return 'Hay una imagen de la rejilla sin texto alternativo.';
+          }
+        }
+      }
+    }
+
+    if (block.type === 'steps') {
+      for (const column of block.columns) {
+        if (!column.audienceTitle.trim()) return 'Hay una columna de pasos sin público.';
+        for (const step of column.steps) {
+          if (!step.title.trim() || !step.description.trim()) {
+            return 'Hay un paso sin título o sin explicación.';
+          }
+        }
+        if (column.cta) {
+          // O los dos campos o ninguno: un enlace sin texto no se puede pintar.
+          if (!column.cta.label.trim() || !column.cta.href.trim()) {
+            return 'Hay un enlace de columna al que le falta el texto o la dirección.';
+          }
+          if (!isSafeContentUrl(column.cta.href)) {
+            return 'Hay un enlace de columna con una dirección no válida.';
+          }
+        }
+      }
+    }
   }
   return null;
 }
@@ -226,6 +263,8 @@ export default function AdminPortadaPage() {
         <HomeBlockEditor
           blocks={values.blocks}
           onChange={(blocks) => patch({ blocks })}
+          // El token baja hasta los editores que suben imágenes (rejilla).
+          token={token}
           disabled={saving}
         />
       </section>

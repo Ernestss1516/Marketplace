@@ -20,10 +20,12 @@ import { createDefaultHomeBlock, type HomeBlockType } from './homeBlockDefaults'
  */
 export function HomeBlockEditor({
   blocks,
+  token,
   onChange,
   disabled,
 }: {
   blocks: HomeBlock[];
+  token?: string;
   onChange: (blocks: HomeBlock[]) => void;
   disabled?: boolean;
 }) {
@@ -67,6 +69,7 @@ export function HomeBlockEditor({
             onMoveUp={() => moveBlock(index, 'up')}
             onMoveDown={() => moveBlock(index, 'down')}
             onDelete={() => deleteBlock(index)}
+            token={token}
             disabled={disabled}
           />
         ))}

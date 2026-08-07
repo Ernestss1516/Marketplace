@@ -336,9 +336,49 @@ async function seedHomepageConfig() {
     heroRotatingOptions: [],
     heroRotationMs: 3000,
     heroSubtitle: null,
-    // Mismo bloque `search` que siembra seed.ts: la portada de test debe
-    // reproducir la real, o los specs que leen la home medirían otra página.
-    blocks: [{ id: 'seed-search', type: 'search', showPopularCategories: true, popularCount: 6 }],
+    // Mismos bloques que siembra seed.ts: la portada de test debe reproducir la
+    // real, o los specs que leen la home medirían otra página.
+    blocks: [
+      { id: 'seed-search', type: 'search', showPopularCategories: true, popularCount: 6 },
+      {
+        id: 'seed-steps',
+        type: 'steps',
+        title: 'Cómo funciona',
+        columns: [
+          {
+            audienceTitle: 'Para compradores',
+            icon: 'search',
+            steps: [
+              { title: 'Busca lo que necesitas', description: 'Usa el buscador o explora por categorías hasta encontrarlo.' },
+              { title: 'Contacta con el vendedor', description: 'Pregunta tus dudas por mensajería interna, sin dar tu teléfono.' },
+              { title: 'Queda y valora', description: 'Cierra el trato en persona y deja tu opinión al vendedor.' },
+            ],
+            cta: { label: 'Buscar ahora →', href: '/busqueda' },
+          },
+          {
+            audienceTitle: 'Para vendedores',
+            icon: 'upload',
+            steps: [
+              { title: 'Publica gratis', description: 'Sube fotos y describe tu artículo en un par de minutos.' },
+              { title: 'Gestiona tus mensajes', description: 'Responde a los interesados desde tu bandeja de mensajes.' },
+              { title: 'Destaca tu anuncio (opcional)', description: 'Dale más visibilidad si quieres vender más rápido.' },
+            ],
+            cta: { label: 'Publicar anuncio →', href: '/publicar' },
+          },
+        ],
+      },
+      {
+        id: 'seed-trust',
+        type: 'grid',
+        columns: 4,
+        items: [
+          { media: { kind: 'icon', name: 'shield-check' }, title: 'Anuncios moderados' },
+          { media: { kind: 'icon', name: 'message-circle' }, title: 'Mensajería sin compartir tu teléfono' },
+          { media: { kind: 'icon', name: 'star' }, title: 'Valoraciones entre usuarios' },
+          { media: { kind: 'icon', name: 'sparkles' }, title: 'Publicar es gratis' },
+        ],
+      },
+    ],
   };
   await prisma.homepageConfig.upsert({
     where: { id: 'singleton' },

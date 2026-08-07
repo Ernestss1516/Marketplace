@@ -16,6 +16,10 @@ import * as request from 'supertest';
 import { createTestApp } from './helpers/create-app';
 import { cleanDb } from './helpers/db';
 
+// URL de NUESTRO almacenamiento — la única forma que `@IsOwnStorageUrl` acepta.
+// Mismo criterio que blocks.e2e-spec.ts del blog.
+const OWN_IMAGE_URL = `${process.env.S3_PUBLIC_URL}/homepage/test-image.png`;
+
 // Config de partida y de restauración. Coincide con la que siembra
 // prisma/seed-test.ts: esta suite MUTA una fila estática compartida (excluida
 // de cleanDb, igual que Setting), así que la deja como la encontró.
@@ -295,14 +299,192 @@ describe('Portada configurable — RP.1 (e2e)', () => {
     await patch(body({ blocks: [{ id: 'b1', type: 'search', popularCount: 99 }] })).expect(400);
   });
 
-  it('tipo de bloque aún no registrado (grid, RP.4) → 400', async () => {
+  it('tipo de bloque aún no registrado (listings, RP.5) → 400', async () => {
     // El discriminador solo conoce los tipos con DTO. Nada entra en `blocks`
-    // sin una clase que lo valide campo a campo.
-    await patch(body({ blocks: [{ id: 'b1', type: 'grid', columns: 3 }] })).expect(400);
+    // sin una clase que lo valide campo a campo. `grid` ocupaba este hueco hasta
+    // que RP.4 lo registró; se cambió a uno que de verdad siga sin existir, o el
+    // test pasaría por el motivo equivocado.
+    await patch(body({ blocks: [{ id: 'b1', type: 'listings', limit: 8 }] })).expect(400);
   });
 
   it('tipo de bloque inexistente → 400', async () => {
     await patch(body({ blocks: [{ id: 'b1', type: 'noExiste' }] })).expect(400);
+  });
+
+  // ── RP.4: grid y steps ─────────────────────────────────────────────────────
+
+  const CELDA_ICONO = { media: { kind: 'icon', name: 'shield-check' }, title: 'Moderados' };
+
+  it('grid válido con icono → 200', async () => {
+    const res = await patch(
+      body({ blocks: [{ id: 'g1', type: 'grid', columns: 4, items: [CELDA_ICONO] }] }),
+    ).expect(200);
+    expect(res.body.blocks[0].items[0].media).toEqual({ kind: 'icon', name: 'shield-check' });
+  });
+
+  it('grid válido con imagen de nuestro storage → 200', async () => {
+    await patch(
+      body({
+        blocks: [
+          {
+            id: 'g1',
+            type: 'grid',
+            columns: 2,
+            items: [{ media: { kind: 'image', url: OWN_IMAGE_URL, alt: 'Foto' }, title: 'Con foto' }],
+          },
+        ],
+      }),
+    ).expect(200);
+  });
+
+  it('celda sin media ni enlace → 200 (las señales de confianza no enlazan)', async () => {
+    await patch(
+      body({ blocks: [{ id: 'g1', type: 'grid', columns: 4, items: [{ title: 'Solo texto' }] }] }),
+    ).expect(200);
+  });
+
+  it('grid con columnas fuera del conjunto {1,2,3,4,6} → 400', async () => {
+    // No es un rango: son las cinco que el renderizador tiene como clases
+    // estáticas de Tailwind. Un 5 no tendría clase que aplicar.
+    await patch(
+      body({ blocks: [{ id: 'g1', type: 'grid', columns: 5, items: [CELDA_ICONO] }] }),
+    ).expect(400);
+  });
+
+  it('grid con un icono fuera de la allowlist → 400', async () => {
+    await patch(
+      body({
+        blocks: [
+          {
+            id: 'g1',
+            type: 'grid',
+            columns: 4,
+            items: [{ media: { kind: 'icon', name: 'rocket' }, title: 'X' }],
+          },
+        ],
+      }),
+    ).expect(400);
+  });
+
+  it('imagen de grid con URL externa → 400 (upload-only)', async () => {
+    await patch(
+      body({
+        blocks: [
+          {
+            id: 'g1',
+            type: 'grid',
+            columns: 2,
+            items: [{ media: { kind: 'image', url: 'https://evil.example/x.png', alt: 'a' }, title: 'X' }],
+          },
+        ],
+      }),
+    ).expect(400);
+  });
+
+  it('imagen de grid sin alt → 400 (accesibilidad y SEO)', async () => {
+    await patch(
+      body({
+        blocks: [
+          {
+            id: 'g1',
+            type: 'grid',
+            columns: 2,
+            items: [{ media: { kind: 'image', url: OWN_IMAGE_URL }, title: 'X' }],
+          },
+        ],
+      }),
+    ).expect(400);
+  });
+
+  it('media con `kind: icon` pero campos de imagen → 400', async () => {
+    // Lo garantiza el discriminador anidado: el subtipo `icon` no conoce `url`,
+    // así que forbidNonWhitelisted lo rechaza. Con un objeto de campos
+    // opcionales esto habría pasado y se habría guardado basura.
+    await patch(
+      body({
+        blocks: [
+          {
+            id: 'g1',
+            type: 'grid',
+            columns: 4,
+            items: [{ media: { kind: 'icon', name: 'star', url: OWN_IMAGE_URL }, title: 'X' }],
+          },
+        ],
+      }),
+    ).expect(400);
+  });
+
+  it('grid con enlace javascript: → 400', async () => {
+    await patch(
+      body({
+        blocks: [
+          {
+            id: 'g1',
+            type: 'grid',
+            columns: 4,
+            items: [{ title: 'X', href: 'javascript:alert(1)' }],
+          },
+        ],
+      }),
+    ).expect(400);
+  });
+
+  const COLUMNA = {
+    audienceTitle: 'Para compradores',
+    icon: 'search',
+    steps: [{ title: 'Busca', description: 'Usa el buscador.' }],
+    cta: { label: 'Buscar →', href: '/busqueda' },
+  };
+
+  it('steps válido con dos columnas → 200', async () => {
+    const res = await patch(
+      body({
+        blocks: [
+          { id: 's1', type: 'steps', title: 'Cómo funciona', columns: [COLUMNA, { ...COLUMNA, audienceTitle: 'Para vendedores' }] },
+        ],
+      }),
+    ).expect(200);
+    expect(res.body.blocks[0].columns).toHaveLength(2);
+  });
+
+  it('steps sin columnas → 400', async () => {
+    await patch(body({ blocks: [{ id: 's1', type: 'steps', columns: [] }] })).expect(400);
+  });
+
+  it('steps con 4 columnas → 400 (el renderizador está escrito para 1..3)', async () => {
+    await patch(
+      body({
+        blocks: [{ id: 's1', type: 'steps', columns: [COLUMNA, COLUMNA, COLUMNA, COLUMNA] }],
+      }),
+    ).expect(400);
+  });
+
+  it('steps con un paso sin descripción → 400', async () => {
+    await patch(
+      body({
+        blocks: [
+          {
+            id: 's1',
+            type: 'steps',
+            columns: [{ audienceTitle: 'X', steps: [{ title: 'Solo título' }] }],
+          },
+        ],
+      }),
+    ).expect(400);
+  });
+
+  it('steps con un cta sin enlace → 400', async () => {
+    await patch(
+      body({
+        blocks: [
+          {
+            id: 's1',
+            type: 'steps',
+            columns: [{ ...COLUMNA, cta: { label: 'Sin destino' } }],
+          },
+        ],
+      }),
+    ).expect(400);
   });
 
   // ── Bloques: reglas cruzadas del servicio ──────────────────────────────────

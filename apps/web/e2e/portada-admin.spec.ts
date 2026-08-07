@@ -18,17 +18,9 @@
 
 import { test, expect } from './fixtures/auth';
 import type { Page } from '@playwright/test';
-import { adminApiToken, authedPatch } from './helpers/api';
+import { PORTADA_SEMILLA, restaurarPortada } from './helpers/portada';
 
-const TITULO_SEMILLA = 'Compra y vende de segunda mano';
-
-// Lo que siembra prisma/seed-test.ts.
-const DEFAULTS = {
-  heroStaticTitle: TITULO_SEMILLA,
-  heroRotatingOptions: [],
-  heroRotationMs: 3000,
-  blocks: [{ id: 'seed-search', type: 'search', showPopularCategories: true, popularCount: 6 }],
-};
+const TITULO_SEMILLA = PORTADA_SEMILLA.heroStaticTitle;
 
 /**
  * Cada test parte de la config sembrada.
@@ -38,15 +30,17 @@ const DEFAULTS = {
  * sobre el que ya había guardado el test previo, y `getByTestId('cta-href')`
  * pasaba a resolver dos elementos. Un `afterAll` no basta — hace falta el estado
  * conocido ANTES de cada uno.
+ *
+ * La semilla viene de helpers/portada.ts, no de una copia local: cuando cada
+ * spec llevaba la suya, se quedó atrás al crecer el seed en RP.4 y estos tests
+ * "restauraban" una portada sin `steps` ni `grid`.
  */
 test.beforeEach(async ({ request }) => {
-  const res = await authedPatch(request, '/admin/homepage', adminApiToken(), DEFAULTS);
-  expect(res.status(), await res.text()).toBe(200);
+  await restaurarPortada(request);
 });
 
 test.afterAll(async ({ request }) => {
-  const res = await authedPatch(request, '/admin/homepage', adminApiToken(), DEFAULTS);
-  expect(res.status(), await res.text()).toBe(200);
+  await restaurarPortada(request);
 });
 
 /** Abre el editor y espera a que cargue la config. */
@@ -222,17 +216,23 @@ test.describe('Editor de portada — bloques', () => {
     const page = await adminContext.newPage();
     await abrirEditor(page);
 
-    // Partimos del buscador sembrado; añadimos un botón detrás.
+    const filas = page.getByTestId('home-blocks-list').locator('[data-testid^="home-block-row-"]');
+    // Cuenta RELATIVA, nunca absoluta: la semilla crece con cada ráfaga (RP.4 le
+    // añadió `steps` y `grid`) y un número fijo aquí caduca en silencio.
+    const alEmpezar = await filas.count();
+
+    // Se añade un botón, que entra AL FINAL.
     await page.getByTestId('home-add-block').click();
     await page.getByTestId('home-block-type-cta').click();
     await page.getByTestId('cta-label').fill('Botón de orden');
     await page.getByTestId('cta-href').fill('/publicar');
+    await expect(filas).toHaveCount(alEmpezar + 1);
 
-    const filas = page.getByTestId('home-blocks-list').locator('[data-testid^="home-block-row-"]');
-    await expect(filas).toHaveCount(2);
-
-    // Subir el botón por encima del buscador.
-    await page.getByRole('button', { name: 'Subir Botón destacado' }).click();
+    // Y se sube hasta el principio, sea cual sea el tamaño de la semilla.
+    const subir = page.getByRole('button', { name: 'Subir Botón destacado' });
+    for (let i = 0; i < alEmpezar; i++) {
+      await subir.click();
+    }
     await expect(filas.first()).toHaveAttribute('data-testid', 'home-block-row-cta');
 
     await page.getByTestId('guardar-portada').click();
@@ -241,30 +241,37 @@ test.describe('Editor de portada — bloques', () => {
     const publica = await adminContext.newPage();
     await esperarEnLaPortada(publica, 'Botón de orden');
 
-    // El botón va ANTES que el buscador, igual que en el editor.
+    // El botón va ahora ANTES que "Cómo funciona", igual que en el editor.
+    //
+    // Se compara contra el bloque de PASOS y no contra el buscador a propósito:
+    // hasta RP.6 la página reparte los bloques en dos sitios (el `search` va en
+    // la banda del hero, el resto debajo — ver el andamio de (home)/page.tsx),
+    // así que un `cta` nunca puede preceder al buscador por mucho que se suba en
+    // el editor. Entre los bloques que se pintan JUNTOS, el orden del array sí
+    // manda, y eso es lo que este test afirma.
     //
     // Se compara el ORDEN EN EL DOM, no coordenadas: `boundingBox()` devuelve
     // null si el elemento todavía no está pintado y —a diferencia de
     // `expect()`— no auto-espera, así que medir posiciones aquí es una carrera.
-    // Además el orden del DOM ES la propiedad que este test afirma: la posición
-    // en el array es el orden, sin campo `order`.
-    const botonPrimero = await publica.evaluate(() => {
+    const botonAntesDePasos = await publica.evaluate(() => {
       const cta = [...document.querySelectorAll('a')].find((a) =>
         a.textContent?.includes('Botón de orden'),
       );
-      const buscador = document.querySelector('form');
-      if (!cta || !buscador) return null;
-      // DOCUMENT_POSITION_FOLLOWING: el buscador viene DESPUÉS del botón.
-      return Boolean(cta.compareDocumentPosition(buscador) & Node.DOCUMENT_POSITION_FOLLOWING);
+      const pasos = [...document.querySelectorAll('h2')].find((h) =>
+        h.textContent?.includes('Cómo funciona'),
+      );
+      if (!cta || !pasos) return null;
+      // DOCUMENT_POSITION_FOLLOWING: los pasos vienen DESPUÉS del botón.
+      return Boolean(cta.compareDocumentPosition(pasos) & Node.DOCUMENT_POSITION_FOLLOWING);
     });
-    expect(botonPrimero, 'el botón debe preceder al buscador en el DOM').toBe(true);
+    expect(botonAntesDePasos, 'el botón debe preceder a "Cómo funciona" en el DOM').toBe(true);
     await publica.close();
 
     // Quitar el botón: como TIENE contenido, el primer clic pide confirmación.
     await page.getByRole('button', { name: 'Quitar Botón destacado' }).click();
     await expect(page.getByTestId('zona-bloques')).toContainText('¿Seguro?');
     await page.getByRole('button', { name: 'Quitar Botón destacado' }).click();
-    await expect(filas).toHaveCount(1);
+    await expect(filas).toHaveCount(alEmpezar);
 
     await page.getByTestId('guardar-portada').click();
     await expect(page.getByTestId('portada-guardada')).toBeVisible();

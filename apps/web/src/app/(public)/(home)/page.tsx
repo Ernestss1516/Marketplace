@@ -1,5 +1,4 @@
 import Link from 'next/link';
-import { MessageCircle, Search as SearchIcon, ShieldCheck, Sparkles, Star, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { CategoryGrid } from '@/components/categorias/CategoryGrid';
 import { ListingCard } from '@/components/anuncios/ListingCard';
@@ -36,6 +35,22 @@ export default async function HomePage() {
   // aquí — el filtro es una guarda de tipos defensiva, no una necesidad funcional.
   const recent = recentResult.hits.filter((h): h is ListingSummary => !isSponsoredAdHit(h));
 
+  // ANDAMIO TRANSITORIO — desaparece en RP.6, cuando ya no quede nada a mano.
+  //
+  // El array de bloques es PLANO y ordenado, pero dos secciones de la portada
+  // siguen escritas en este fichero (Categorías y Recién publicados, hasta RP.5)
+  // y en la página van EN MEDIO: entre el buscador y "Cómo funciona". Con una
+  // sola llamada al renderizador no hay forma de intercalarlas sin reordenar la
+  // portada, así que la PÁGINA —no el motor— reparte en dos.
+  //
+  // Se reparte por `search` y nada más: es el único bloque que hoy vive dentro de
+  // la banda del hero. Cualquier otro tipo, incluido un `cta`, se pinta abajo con
+  // el resto, que es donde lo pondría el admin. Ningún bloque conoce su índice y
+  // el `switch` con assertUnreachable sigue igual de homogéneo — esto es
+  // maquetación de una página en transición, no una regla del motor.
+  const bloquesDelHero = homepage.blocks.filter((b) => b.type === 'search');
+  const bloquesDebajo = homepage.blocks.filter((b) => b.type !== 'search');
+
   return (
     <>
       {banners.length > 0 && (
@@ -61,13 +76,8 @@ export default async function HomePage() {
             </p>
             <HomeHero config={homepage} />
 
-            {/* RP.2 — el buscador y sus chips ya vienen de la configuración.
-                TRANSITORIO: el renderizador va DENTRO de la banda del hero
-                porque los dos únicos tipos que existen hoy (`search`, `cta`)
-                viven ahí en la portada actual. En cuanto RP.4 traiga bloques que
-                NO son del hero (rejilla, pasos), esto sale de la <section> al
-                sitio que fija §5.1: hero primero, bloques después. */}
-            <HomeBlockRenderer blocks={homepage.blocks} categories={categories} />
+            {/* El buscador y sus chips vienen de la configuración desde RP.2. */}
+            <HomeBlockRenderer blocks={bloquesDelHero} categories={categories} />
 
             {/* Sigue a mano: el bloque `cta` ya existe y renderiza, pero el botón
                 compartido es `size="lg"` (el del blog) y este es `size="sm"`.
@@ -121,81 +131,15 @@ export default async function HomePage() {
           )}
         </section>
 
-        {/* Confianza / cómo funciona — atiende a las dos audiencias por igual. */}
-        <section className="border-t py-12">
-          <h2 className="mb-8 text-center text-xl font-semibold">Cómo funciona</h2>
-          <div className="grid gap-10 md:grid-cols-2 md:gap-16">
-            <div>
-              <h3 className="mb-5 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                <SearchIcon className="h-4 w-4" /> Para compradores
-              </h3>
-              <ol className="space-y-5">
-                <TrustStep n={1} title="Busca lo que necesitas">
-                  Usa el buscador o explora por categorías hasta encontrarlo.
-                </TrustStep>
-                <TrustStep n={2} title="Contacta con el vendedor">
-                  Pregunta tus dudas por mensajería interna, sin dar tu teléfono.
-                </TrustStep>
-                <TrustStep n={3} title="Queda y valora">
-                  Cierra el trato en persona y deja tu opinión al vendedor.
-                </TrustStep>
-              </ol>
-              <Button asChild variant="link" className="mt-2 h-auto p-0">
-                <Link href="/busqueda">Buscar ahora →</Link>
-              </Button>
-            </div>
-
-            <div>
-              <h3 className="mb-5 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                <Upload className="h-4 w-4" /> Para vendedores
-              </h3>
-              <ol className="space-y-5">
-                <TrustStep n={1} title="Publica gratis">
-                  Sube fotos y describe tu artículo en un par de minutos.
-                </TrustStep>
-                <TrustStep n={2} title="Gestiona tus mensajes">
-                  Responde a los interesados desde tu bandeja de mensajes.
-                </TrustStep>
-                <TrustStep n={3} title="Destaca tu anuncio (opcional)">
-                  Dale más visibilidad si quieres vender más rápido.
-                </TrustStep>
-              </ol>
-              <Button asChild variant="link" className="mt-2 h-auto p-0">
-                <Link href="/publicar">Publicar anuncio →</Link>
-              </Button>
-            </div>
-          </div>
-
-          <div className="mt-10 flex flex-wrap items-center justify-center gap-x-8 gap-y-3 border-t pt-8 text-sm text-muted-foreground">
-            <span className="flex items-center gap-2">
-              <ShieldCheck className="h-4 w-4" /> Anuncios moderados
-            </span>
-            <span className="flex items-center gap-2">
-              <MessageCircle className="h-4 w-4" /> Mensajería sin compartir tu teléfono
-            </span>
-            <span className="flex items-center gap-2">
-              <Star className="h-4 w-4" /> Valoraciones entre usuarios
-            </span>
-            <span className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4" /> Publicar es gratis
-            </span>
-          </div>
-        </section>
+        {/* RP.4 — "Cómo funciona" y las cuatro señales de confianza ya no se
+            escriben aquí: son los bloques `steps` y `grid` de la configuración.
+            Junto a ellos se pinta cualquier otro bloque que el admin añada. */}
+        {bloquesDebajo.length > 0 && (
+          <section className="border-t py-12">
+            <HomeBlockRenderer blocks={bloquesDebajo} categories={categories} />
+          </section>
+        )}
       </div>
     </>
-  );
-}
-
-function TrustStep({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
-  return (
-    <li className="flex gap-4">
-      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
-        {n}
-      </span>
-      <div>
-        <p className="font-medium leading-snug">{title}</p>
-        <p className="text-sm text-muted-foreground">{children}</p>
-      </div>
-    </li>
   );
 }

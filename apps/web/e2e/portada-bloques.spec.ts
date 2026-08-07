@@ -15,16 +15,10 @@
 
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 import { adminApiToken, authedPatch } from './helpers/api';
+import { PORTADA_SEMILLA, restaurarPortada } from './helpers/portada';
 
-const TITULO = 'Compra y vende de segunda mano';
-
-// Lo que siembra prisma/seed-test.ts — se restaura al terminar.
-const DEFAULTS = {
-  heroStaticTitle: TITULO,
-  heroRotatingOptions: [],
-  heroRotationMs: 3000,
-  blocks: [{ id: 'seed-search', type: 'search', showPopularCategories: true, popularCount: 6 }],
-};
+// La semilla viene de helpers/portada.ts (fuente única, ver allí el porqué).
+const TITULO = PORTADA_SEMILLA.heroStaticTitle;
 
 async function setBlocks(request: APIRequestContext, blocks: unknown[]): Promise<void> {
   const res = await authedPatch(request, '/admin/homepage', adminApiToken(), {
@@ -62,7 +56,7 @@ async function esperarPortada(page: Page, cumple: (page: Page) => Promise<boolea
 
 test.describe('Portada — motor de bloques', () => {
   test.afterAll(async ({ request }) => {
-    await setBlocks(request, DEFAULTS.blocks);
+    await restaurarPortada(request);
   });
 
   test.describe('bloque `search`', () => {
@@ -150,6 +144,94 @@ test.describe('Portada — motor de bloques', () => {
       const html = await (await request.get('http://localhost:3000/')).text();
       expect(html).toContain('Primero interno');
       expect(html).toContain('Segundo externo');
+    });
+  });
+
+  test.describe('bloques `grid` y `steps` (RP.4)', () => {
+    test.beforeAll(async ({ browser, request }) => {
+      await setBlocks(request, [
+        {
+          id: 'b-steps',
+          type: 'steps',
+          title: 'Así funciona esto',
+          columns: [
+            {
+              audienceTitle: 'Si compras',
+              icon: 'search',
+              steps: [
+                { title: 'Primer paso', description: 'Explicación del primero.' },
+                { title: 'Segundo paso', description: 'Explicación del segundo.' },
+              ],
+              cta: { label: 'Ir a buscar', href: '/busqueda' },
+            },
+            {
+              audienceTitle: 'Si vendes',
+              icon: 'upload',
+              steps: [{ title: 'Paso único', description: 'Explicación única.' }],
+            },
+          ],
+        },
+        {
+          id: 'b-grid',
+          type: 'grid',
+          title: 'Por qué fiarte',
+          columns: 4,
+          items: [
+            { media: { kind: 'icon', name: 'shield-check' }, title: 'Celda con icono' },
+            { title: 'Celda sin enlace' },
+            { title: 'Celda con enlace', href: '/busqueda' },
+          ],
+        },
+      ]);
+      const warmup = await browser.newPage();
+      await esperarPortada(warmup, async (p) => (await p.getByText('Así funciona esto').count()) > 0);
+      await warmup.close();
+    });
+
+    test('los dos bloques viajan enteros en el HTML servido (SSR puro)', async ({ request }) => {
+      const html = await (await request.get('http://localhost:3000/')).text();
+      // Pasos: título, audiencias, pasos y el enlace de cierre.
+      expect(html).toContain('Así funciona esto');
+      expect(html).toContain('Si compras');
+      expect(html).toContain('Si vendes');
+      expect(html).toContain('Explicación del primero.');
+      expect(html).toContain('Ir a buscar');
+      // Rejilla: título y las tres celdas.
+      expect(html).toContain('Por qué fiarte');
+      expect(html).toContain('Celda con icono');
+      expect(html).toContain('Celda sin enlace');
+    });
+
+    test('los pasos se numeran por su ORDEN, no por un campo', async ({ page }) => {
+      await page.goto('/');
+      const columna = page.locator('ol').filter({ hasText: 'Primer paso' });
+      await expect(columna).toContainText('1');
+      await expect(columna).toContainText('2');
+    });
+
+    test('una celda CON enlace es un enlace; una SIN enlace, no', async ({ page }) => {
+      await page.goto('/');
+      await expect(page.getByRole('link', { name: 'Celda con enlace' })).toHaveAttribute(
+        'href',
+        '/busqueda',
+      );
+      // "Celda sin enlace" existe como texto pero no como enlace: las señales de
+      // confianza no navegan a ningún sitio y no deben pintar un <a> vacío.
+      await expect(page.getByText('Celda sin enlace')).toBeVisible();
+      await expect(page.getByRole('link', { name: 'Celda sin enlace' })).toHaveCount(0);
+    });
+
+    test('el icono de la allowlist se pinta como SVG', async ({ page }) => {
+      await page.goto('/');
+      const celda = page.locator('div', { hasText: /^Celda con icono$/ }).last();
+      await expect(celda.locator('svg')).toHaveCount(1);
+    });
+
+    test('las columnas configuradas llegan a la clase del grid', async ({ page }) => {
+      await page.goto('/');
+      // columns: 4 → clase estática, nunca interpolada (Tailwind purgaría una
+      // clase que no vea escrita en el código).
+      await expect(page.locator('.sm\\:grid-cols-4').first()).toBeVisible();
     });
   });
 

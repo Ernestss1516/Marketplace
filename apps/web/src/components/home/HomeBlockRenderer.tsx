@@ -2,6 +2,8 @@ import type { HomeBlock } from '@/types/home-blocks';
 import type { Category } from '@/types';
 import { CtaHomeBlockRenderer } from './blocks/CtaHomeBlockRenderer';
 import { SearchHomeBlockRenderer } from './blocks/SearchHomeBlockRenderer';
+import { GridHomeBlockRenderer } from './blocks/GridHomeBlockRenderer';
+import { StepsHomeBlockRenderer } from './blocks/StepsHomeBlockRenderer';
 
 /**
  * Despachador del motor de bloques de PORTADA. Molde literal de
@@ -14,15 +16,15 @@ import { SearchHomeBlockRenderer } from './blocks/SearchHomeBlockRenderer';
  *  2. **`switch` exhaustivo con `assertUnreachable`.** El compilador ES la
  *     garantía de que el esquema y el renderizador no divergen.
  *
- * SOBRE EL PUNTO 2 Y LOS 5 TIPOS QUE FALTAN: el `switch` cubre exactamente los
- * tipos que hoy tiene la unión `HomeBlock` (`cta` y `search`), y eso es
- * deliberado — NO se dejan `case` vacíos para los otros cinco. Un `case` stub
- * significa "tipo ya tratado" y desactivaría justo la garantía que se busca. El
- * mecanismo correcto es el inverso: cuando RP.4 añada `grid` a la unión, ESTE
- * fichero deja de compilar (`assertUnreachable` recibe un `HomeGridBlock` donde
- * espera `never`) hasta que alguien escriba su `case`. Un tipo no registrado
- * tampoco puede llegar aquí desde la BD: el discriminador del backend lo rechaza
- * con 400 al guardar (ValidHomeBlocksArray).
+ * SOBRE EL PUNTO 2 Y LOS TIPOS QUE FALTAN: el `switch` cubre exactamente los
+ * tipos que hoy tiene la unión `HomeBlock`, y eso es deliberado — NO se dejan
+ * `case` vacíos para los que vendrán. Un `case` stub significa "tipo ya tratado"
+ * y desactivaría justo la garantía que se busca. El mecanismo va al revés, y ya
+ * se ha visto funcionar: al registrar `grid` y `steps` en RP.4, este fichero
+ * dejó de compilar (`assertUnreachable` recibía un `HomeGridBlock` donde espera
+ * `never`) hasta que se escribieron sus `case`. Un tipo no registrado tampoco
+ * puede llegar aquí desde la BD: el discriminador del backend lo rechaza con 400
+ * al guardar (ValidHomeBlocksArray).
  *
  * Ningún bloque conoce su índice, y por eso el hero NO pasa por aquí: es campo
  * propio de la config (docs/diseno-portada.md §2.3).
@@ -39,6 +41,10 @@ function renderBlock(block: HomeBlock, categories?: Category[]) {
       return <CtaHomeBlockRenderer block={block} />;
     case 'search':
       return <SearchHomeBlockRenderer block={block} categories={categories} />;
+    case 'grid':
+      return <GridHomeBlockRenderer block={block} />;
+    case 'steps':
+      return <StepsHomeBlockRenderer block={block} />;
     default:
       return assertUnreachable(block);
   }

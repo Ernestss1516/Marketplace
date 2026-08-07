@@ -40,17 +40,94 @@ export interface HomeSearchBlock extends BaseHomeBlock {
 }
 
 /**
- * RP.1 registra dos tipos. Los cinco restantes entran con su DTO, su
- * renderizador y su editor en la misma ráfaga cada uno (docs/diseno-portada.md §8):
- *   RP.4  grid, steps
+ * ALLOWLIST CERRADA de iconos. Espejo de HOME_ICON_NAMES del backend
+ * (modules/homepage/dto/blocks/home-icons.ts): los dos ficheros crecen a la vez.
+ *
+ * Cerrada y no un nombre libre de lucide porque resolver el icono en runtime
+ * rompería el tree-shaking y arrastraría la librería entera al bundle de la ruta
+ * más visitada del sitio (docs/diseno-portada.md §4.3). El mapa
+ * nombre→componente vive en components/home/home-icons.tsx.
+ */
+export const HOME_ICON_NAMES = [
+  'shield-check',
+  'message-circle',
+  'star',
+  'sparkles',
+  'search',
+  'upload',
+  'heart',
+  'tag',
+  'truck',
+  'wallet',
+  'users',
+  'thumbs-up',
+] as const;
+
+export type HomeIconName = (typeof HOME_ICON_NAMES)[number];
+
+/**
+ * Media de una celda de rejilla: unión discriminada por `kind`.
+ * `image` obliga a `alt` (accesibilidad y SEO); `icon` a un nombre de la lista.
+ */
+export type HomeGridMedia =
+  | { kind: 'image'; url: string; alt: string }
+  | { kind: 'icon'; name: HomeIconName };
+
+/** Columnas admitidas: las cinco que el renderizador tiene como clases estáticas. */
+export const GRID_COLUMNS = [1, 2, 3, 4, 6] as const;
+export type GridColumns = (typeof GRID_COLUMNS)[number];
+
+export interface HomeGridCell {
+  media?: HomeGridMedia;
+  title: string;
+  description?: string;
+  /** Sin href, la celda se pinta como <div>: las señales de confianza no enlazan. */
+  href?: string;
+}
+
+/** Rejilla de tarjetas. Cubre también las señales de confianza (icono + texto). */
+export interface HomeGridBlock extends BaseHomeBlock {
+  type: 'grid';
+  title?: string;
+  columns: GridColumns;
+  items: HomeGridCell[];
+}
+
+export interface HomeStepItem {
+  title: string;
+  description: string;
+}
+
+/**
+ * Una columna de pasos con su audiencia. Es la desviación respecto al `steps`
+ * del blog, que es una secuencia única: la portada tiene dos públicos a la vez.
+ */
+export interface HomeStepsColumn {
+  audienceTitle: string;
+  icon?: HomeIconName;
+  steps: HomeStepItem[];
+  cta?: { label: string; href: string };
+}
+
+export interface HomeStepsBlock extends BaseHomeBlock {
+  type: 'steps';
+  title?: string;
+  columns: HomeStepsColumn[];
+}
+
+/**
+ * Tipos registrados. Los que faltan entran con su DTO, su renderizador y su
+ * editor en la misma ráfaga cada uno (docs/diseno-portada.md §8):
+ *   RP.1  cta, search
+ *   RP.4  grid, steps          ← registrados
  *   RP.5  listings, categoryCarousel
  *   RP.6  searchTable
  *
- * Al añadirse aquí, el `switch` exhaustivo de `HomeBlockRenderer` (RP.2) deja
- * de compilar hasta que el tipo tiene su `case` — el compilador ES la garantía
- * de que esquema y renderizador nunca divergen, igual que en el blog.
+ * Al añadir un tipo aquí, los `switch` exhaustivos de `HomeBlockRenderer` (RP.2)
+ * y `HomeBlockEditorRow` (RP.3) dejan de compilar hasta que tiene renderizador Y
+ * editor. El compilador ES la garantía de que nada nazca a medias.
  */
-export type HomeBlock = HomeCtaBlock | HomeSearchBlock;
+export type HomeBlock = HomeCtaBlock | HomeSearchBlock | HomeGridBlock | HomeStepsBlock;
 
 /**
  * Configuración completa de la portada, tal como la sirve `GET /homepage`.

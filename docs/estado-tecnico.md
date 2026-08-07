@@ -10867,7 +10867,8 @@ RP.1 entregó, además de su alcance de backend, la rodaja de RP.2 que cubre el 
 | `HomeBlockRenderer` + renderizadores `cta` y `search` | ✔ RP.2 |
 | `SmartLink` / `CtaButton` en `components/shared/` | ✔ RP.2 |
 | Editor `/admin/portada` (hero + bloques + preview) | ✔ RP.3 |
-| `grid`, `steps` · `listings`, `categoryCarousel` · `searchTable` | RP.4 · RP.5 · RP.6 |
+| `grid` y `steps` + allowlist de iconos + upload de imagen | ✔ RP.4 |
+| `listings`, `categoryCarousel` · `searchTable` | RP.5 · RP.6 |
 
 ### La fila única, y por qué NO es una `Setting`
 
@@ -11046,6 +11047,96 @@ pantalla: MODERATOR y EDITOR acaban en `/`.
 
 `admin-roles.spec.ts` pasa de 19 a 20 entradas de `AdminNav` — cambio deliberado, el mismo que
 hizo RN.4 al añadir "Navegación".
+
+### RP.4 — `grid` y `steps`, y la barrera del compilador funcionando
+
+**Agrupados por NATURALEZA, no por dificultad** (§8): los dos son SSR puro y no consultan nada
+externo. El carrusel, que necesita island y árbol de categorías, va en RP.5 con `listings`.
+
+**La barrera se vio funcionar.** Al añadir los dos tipos a la unión `HomeBlock`, el build se cayó
+con **cinco** errores, exactamente en los cinco sitios que hay que completar: los dos
+`assertUnreachable` (renderizador y editor), `HOME_BLOCK_TYPE_META`, `createDefaultHomeBlock` y
+`homeBlockHasContent`. Ninguno se puede eludir con un `case` vacío: el `Record<HomeBlockType, …>`
+y los `switch` sobre `never` no lo permiten. Es la garantía que RP.2 y RP.3 montaron, cobrada.
+
+**La allowlist de iconos es cerrada por una razón de bundle, no de gusto.** Un nombre libre de
+lucide obligaría a resolver el icono en runtime y arrastraría la librería entera al bundle de la
+ruta más visitada. Doce nombres, un `Record` estático en `components/home/home-icons.tsx` (que
+además es exhaustivo: añadir un nombre a la lista sin su icono no compila) y `@IsIn` en el DTO.
+El editor lo pinta como una **rejilla de iconos donde se pulsa**, no como un campo de texto.
+
+**El discriminador anidado `image | icon` no es cosmético.** Son clases separadas, así que
+`{ kind: 'icon', url: '…' }` se rechaza con 400 — con un objeto de campos opcionales habría
+pasado y se habría guardado basura. Hay test.
+
+**Las columnas son un conjunto {1,2,3,4,6}, no un rango**, porque el renderizador las mapea a
+clases ESTÁTICAS de Tailwind. Un 5 no "casi funciona": no existiría la clase, porque Tailwind
+purga lo que no ve escrito.
+
+### La trampa de las dos allowlists: verificada de verdad (§7)
+
+No basta con que el backend acepte la imagen; hay que ver que **se pinta**. Comprobado subiendo
+una por el editor contra el build de producción:
+
+```
+S3_PUBLIC_URL = http://localhost:9000/marketplace   → hostname `localhost`
+remotePatterns incluye { protocol: 'http', hostname: 'localhost' }   ✔ cubierto
+URL devuelta por el upload: http://localhost:9000/marketplace/homepage/0af4…png
+en la portada:  complete: true,  naturalWidth > 0
+```
+
+`naturalWidth > 0` es la prueba que importa: el navegador **descargó** el fichero, no es un roto
+ni un hueco. (`isSafeSrc` compara hostname, no puerto, por eso `:9000` no estorba.)
+
+Además, en la rejilla una imagen descartada por `isSafeSrc` **no borra la celda**: se pierde la
+imagen y quedan el texto y el enlace. Es la diferencia deliberada con el bloque `image` del blog,
+que desaparece entero — en un artículo una imagen menos se tolera; en una rejilla, un hueco
+rompe la maquetación.
+
+### El backfill, ahora con una señal exacta: `updatedById`
+
+RP.2 lo condicionaba a "el array está vacío". Esa heurística ya no valía —tras RP.2 la fila tiene
+un bloque— y además nunca supo distinguir "recién sembrada" de "un admin la vació a propósito".
+
+La condición es ahora **`updatedById === null`**: el seed la deja a null y `HomepageService.update`
+SIEMPRE escribe el id de quien guarda, así que es una señal exacta de *"esta portada no la ha
+tocado nunca un admin"*. Comprobado en las dos direcciones: con la fila editada, el seed informa
+"editada por un admin, intacta" y no toca nada; puesta a null, escribe los tres bloques de la
+semilla y la segunda pasada es idempotente.
+
+Hace falta en CADA ráfaga que pase algo de la portada a bloque: la página deja de pintarlo a mano
+y, sin backfill, una instalación anterior se quedaría sin ese trozo.
+
+### El andamio transitorio de la página (desaparece en RP.6)
+
+El array de bloques es plano, pero dos secciones siguen escritas en `(home)/page.tsx` —Categorías
+y Recién publicados, hasta RP.5— y van EN MEDIO: entre el buscador y "Cómo funciona". Con una sola
+llamada al renderizador no hay forma de intercalarlas sin reordenar la portada.
+
+Así que la **página** reparte en dos: los bloques `search` se pintan en la banda del hero, el resto
+debajo de lo que aún está a mano. Se reparte por `search` y nada más — cualquier otro tipo va
+abajo, que es donde lo pondría el admin. **El motor no se entera**: ningún bloque conoce su índice
+y los `switch` siguen igual de homogéneos. Es maquetación de una página en transición, y RP.6 la
+borra al no quedar nada escrito a mano.
+
+### La semilla de test, con FUENTE ÚNICA (`e2e/helpers/portada.ts`)
+
+Los tres specs de portada mutan una fila estática compartida con toda la batería y la restauran
+al terminar. Cada uno llevaba **su propia copia** de la semilla, y la copia se quedó atrás en
+cuanto la semilla creció en RP.4: "restauraban" una portada **sin `steps` ni `grid`**, así que
+todo lo que corriese después medía una página distinta de la que el seed promete.
+
+Ahora la semilla vive en `e2e/helpers/portada.ts` y los tres la importan. Si cambia, cambia en
+`seed-test.ts` y ahí, a la vez.
+
+Dos tests hubo que reorientar por el mismo motivo:
+
+- El que contaba filas del editor usaba un número ABSOLUTO (`toHaveCount(2)`), que caduca en
+  silencio con cada ráfaga. Pasa a contar en relativo (`alEmpezar + 1`).
+- El que comprobaba el orden afirmaba que un `cta` subido al principio precede al BUSCADOR.
+  Con el andamio transitorio eso ya no puede ser cierto —el buscador se pinta en la banda del
+  hero y el resto debajo—, así que ahora compara contra el bloque de pasos, que se pinta en el
+  mismo grupo. Sigue probando lo mismo: entre los bloques que van juntos, el orden del array manda.
 
 ### El trade-off del rotativo, ya medido en el preview (PENDIENTE DE DECIDIR)
 

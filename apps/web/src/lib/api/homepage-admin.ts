@@ -22,6 +22,23 @@ export function getAdminHomepage(token: string): Promise<HomepageConfig> {
   return apiFetch<HomepageConfig>('/admin/homepage', { token });
 }
 
+/**
+ * Sube una imagen para un bloque de portada. Endpoint PROPIO de portada
+ * (`POST /admin/homepage/upload-image`, RP.1) y no el del blog: aquel admite
+ * EDITOR/MODERATOR y la portada es configuración de ADMIN — que el rol de subir
+ * coincida con el de poder usar lo subido. Devuelve la URL de nuestro propio
+ * almacenamiento, que es la única que `@IsOwnStorageUrl` acepta al guardar.
+ */
+export async function uploadHomepageImage(file: File, token: string): Promise<{ url: string }> {
+  const formData = new FormData();
+  formData.append('file', file);
+  return apiFetch<{ url: string }>('/admin/homepage/upload-image', {
+    method: 'POST',
+    token,
+    body: formData,
+  });
+}
+
 export function updateHomepage(
   token: string,
   payload: UpdateHomepagePayload,

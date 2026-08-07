@@ -4,18 +4,24 @@ import { ArrayMaxSize, IsArray, ValidateNested } from 'class-validator';
 import { BaseHomeBlockDto } from './base-home-block.dto';
 import { CtaHomeBlockDto } from './cta-block.dto';
 import { SearchHomeBlockDto } from './search-block.dto';
+import { GridHomeBlockDto } from './grid-block.dto';
+import { StepsHomeBlockDto } from './steps-block.dto';
 
-export type HomeBlockDto = CtaHomeBlockDto | SearchHomeBlockDto;
+export type HomeBlockDto =
+  | CtaHomeBlockDto
+  | SearchHomeBlockDto
+  | GridHomeBlockDto
+  | StepsHomeBlockDto;
 
 /**
  * Los 7 tipos que tendrá el motor de portada, en el orden en que las ráfagas
  * los incorporan (docs/diseno-portada.md §2.4 y §8). Esta lista es DOCUMENTAL:
  * la fuente de verdad de lo que el backend acepta es `subTypes`, más abajo.
  *
- *   RP.1 (esta)  cta, search
- *   RP.4         grid, steps
- *   RP.5         listings, categoryCarousel
- *   RP.6         searchTable
+ *   RP.1  cta, search
+ *   RP.4  grid, steps          ← registrados
+ *   RP.5  listings, categoryCarousel
+ *   RP.6  searchTable
  *
  * Un tipo aún no registrado se rechaza con 400 por el discriminador, que es el
  * comportamiento correcto: nada puede guardarse en `blocks` sin un DTO que lo
@@ -58,6 +64,8 @@ export function ValidHomeBlocksArray(): PropertyDecorator {
         subTypes: [
           { value: CtaHomeBlockDto, name: 'cta' },
           { value: SearchHomeBlockDto, name: 'search' },
+          { value: GridHomeBlockDto, name: 'grid' },
+          { value: StepsHomeBlockDto, name: 'steps' },
         ],
       },
       keepDiscriminatorProperty: true,

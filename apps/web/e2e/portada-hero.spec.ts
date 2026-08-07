@@ -29,21 +29,18 @@
 
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 import { adminApiToken, authedPatch } from './helpers/api';
+import { PORTADA_SEMILLA } from './helpers/portada';
 
 const STATIC_TITLE = 'Compra y vende';
 const OPTIONS = ['coches', 'bicicletas', 'muebles'];
 const SUBTITLE = 'Miles de anuncios cerca de ti';
 const ROTATION_MS = 2000;
 
-// Lo que siembra prisma/seed-test.ts. Se restaura al terminar — y tiene que
-// coincidir EXACTAMENTE, incluido el bloque `search`: restaurar con `blocks: []`
-// dejaría la portada sin buscador para todo lo que corra después.
-const DEFAULTS = {
-  heroStaticTitle: 'Compra y vende de segunda mano',
-  heroRotatingOptions: [],
-  heroRotationMs: 3000,
-  blocks: [{ id: 'seed-search', type: 'search', showPopularCategories: true, popularCount: 6 }],
-};
+// Lo que siembra prisma/seed-test.ts, desde su FUENTE ÚNICA (helpers/portada.ts).
+// Tiene que coincidir exactamente: restaurar de menos deja la portada mutilada
+// para todo lo que corra después. Con una copia local aquí se quedaría atrás en
+// cuanto la semilla crezca — que es justo lo que pasó en RP.4.
+const DEFAULTS = PORTADA_SEMILLA;
 
 // CERO logins: el token lo obtiene globalSetup UNA vez para toda la corrida
 // (ver `adminApiToken` en helpers/api.ts). Este fichero llegó a memoizar su

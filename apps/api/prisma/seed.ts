@@ -631,8 +631,72 @@ async function seedBumpPacks() {
 //
 // upsert con `update: {}` — NUNCA pisa lo que un admin haya guardado, mismo
 // criterio que el `skipDuplicates` de seedSettings().
+// Los bloques que reproducen la portada tal como estaba escrita a mano. Cada
+// ráfaga añade los suyos según van existiendo los tipos:
+//   RP.2  search  — el buscador y sus chips "Populares"
+//   RP.4  steps   — "Cómo funciona" (las dos audiencias, tal cual)
+//         grid    — la fila de cuatro señales de confianza
 const HOMEPAGE_SEED_BLOCKS = [
   { id: 'seed-search', type: 'search', showPopularCategories: true, popularCount: 6 },
+  {
+    id: 'seed-steps',
+    type: 'steps',
+    title: 'Cómo funciona',
+    columns: [
+      {
+        audienceTitle: 'Para compradores',
+        icon: 'search',
+        steps: [
+          {
+            title: 'Busca lo que necesitas',
+            description: 'Usa el buscador o explora por categorías hasta encontrarlo.',
+          },
+          {
+            title: 'Contacta con el vendedor',
+            description: 'Pregunta tus dudas por mensajería interna, sin dar tu teléfono.',
+          },
+          {
+            title: 'Queda y valora',
+            description: 'Cierra el trato en persona y deja tu opinión al vendedor.',
+          },
+        ],
+        cta: { label: 'Buscar ahora →', href: '/busqueda' },
+      },
+      {
+        audienceTitle: 'Para vendedores',
+        icon: 'upload',
+        steps: [
+          {
+            title: 'Publica gratis',
+            description: 'Sube fotos y describe tu artículo en un par de minutos.',
+          },
+          {
+            title: 'Gestiona tus mensajes',
+            description: 'Responde a los interesados desde tu bandeja de mensajes.',
+          },
+          {
+            title: 'Destaca tu anuncio (opcional)',
+            description: 'Dale más visibilidad si quieres vender más rápido.',
+          },
+        ],
+        cta: { label: 'Publicar anuncio →', href: '/publicar' },
+      },
+    ],
+  },
+  {
+    id: 'seed-trust',
+    type: 'grid',
+    columns: 4,
+    items: [
+      { media: { kind: 'icon', name: 'shield-check' }, title: 'Anuncios moderados' },
+      {
+        media: { kind: 'icon', name: 'message-circle' },
+        title: 'Mensajería sin compartir tu teléfono',
+      },
+      { media: { kind: 'icon', name: 'star' }, title: 'Valoraciones entre usuarios' },
+      { media: { kind: 'icon', name: 'sparkles' }, title: 'Publicar es gratis' },
+    ],
+  },
 ];
 
 async function seedHomepageConfig() {
@@ -653,26 +717,31 @@ async function seedHomepageConfig() {
     return;
   }
 
-  // BACKFILL de RP.2, acotado a propósito: una instalación que venga de RP.1
-  // tiene la fila con `blocks: []`, y desde RP.2 la página YA NO pinta el
-  // buscador a mano — sin esto, actualizar dejaría la portada sin buscador.
+  // BACKFILL del camino de actualización, y hace falta en CADA ráfaga que pase
+  // algo de la portada a bloque: la página deja de pintarlo a mano, así que una
+  // instalación anterior se quedaría sin ese trozo. Pasó en RP.2 (el buscador) y
+  // vuelve a pasar en RP.4 ("Cómo funciona" y las señales de confianza).
   //
-  // Solo actúa si el array está VACÍO. En cuanto un admin ha configurado algo,
-  // esto no lo toca: un array vacío es lo único que no puede ser una decisión
-  // suya que merezca respetarse (una portada sin un solo bloque no es una
-  // portada). Mismo espíritu que el `skipDuplicates` de seedSettings: rellenar
-  // lo que falta, nunca pisar lo que hay.
-  const blocks = existing.blocks;
-  if (Array.isArray(blocks) && blocks.length === 0) {
+  // LA CONDICIÓN ES `updatedById === null`, no "el array está vacío" como en
+  // RP.2. Es una señal EXACTA de "esta portada no la ha tocado nunca un admin":
+  // el seed la deja a null y HomepageService.update SIEMPRE escribe el id de
+  // quien guarda. La heurística del array vacío ya no valdría —tras RP.2 la
+  // fila tiene un bloque— y además nunca supo distinguir "recién sembrada" de
+  // "un admin la vació a propósito".
+  //
+  // En cuanto alguien ha guardado UNA vez desde el backoffice, esto no vuelve a
+  // tocar nada, aunque falten bloques de la semilla: eso ya es una decisión
+  // suya. Mismo espíritu que el `skipDuplicates` de seedSettings.
+  if (existing.updatedById === null) {
     await prisma.homepageConfig.update({
       where: { id: 'singleton' },
       data: { blocks: HOMEPAGE_SEED_BLOCKS },
     });
-    console.log('  ✓ homepage config (backfill del bloque `search` sobre una portada vacía)');
+    console.log('  ✓ homepage config (bloques de la semilla al día; nunca editada por un admin)');
     return;
   }
 
-  console.log('  ✓ homepage config ya configurada, intacta');
+  console.log('  ✓ homepage config editada por un admin, intacta');
 }
 
 async function main() {

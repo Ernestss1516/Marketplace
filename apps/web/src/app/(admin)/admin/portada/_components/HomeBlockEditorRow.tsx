@@ -6,6 +6,8 @@ import type { HomeBlock } from '@/types/home-blocks';
 import { HOME_BLOCK_TYPE_META, homeBlockHasContent } from './homeBlockDefaults';
 import { CtaHomeBlockEditor } from './editors/CtaHomeBlockEditor';
 import { SearchHomeBlockEditor } from './editors/SearchHomeBlockEditor';
+import { GridHomeBlockEditor } from './editors/GridHomeBlockEditor';
+import { StepsHomeBlockEditor } from './editors/StepsHomeBlockEditor';
 
 function assertUnreachable(block: never): never {
   throw new Error(`Tipo de bloque de portada no soportado: ${JSON.stringify(block)}`);
@@ -21,6 +23,7 @@ function assertUnreachable(block: never): never {
 function renderEditor(
   block: HomeBlock,
   onChange: (block: HomeBlock) => void,
+  token?: string,
   disabled?: boolean,
 ) {
   switch (block.type) {
@@ -40,6 +43,23 @@ function renderEditor(
           disabled={disabled}
         />
       );
+    case 'grid':
+      return (
+        <GridHomeBlockEditor
+          block={block}
+          onChange={(patch) => onChange({ ...block, ...patch })}
+          token={token}
+          disabled={disabled}
+        />
+      );
+    case 'steps':
+      return (
+        <StepsHomeBlockEditor
+          block={block}
+          onChange={(patch) => onChange({ ...block, ...patch })}
+          disabled={disabled}
+        />
+      );
     default:
       return assertUnreachable(block);
   }
@@ -53,6 +73,7 @@ export function HomeBlockEditorRow({
   onMoveUp,
   onMoveDown,
   onDelete,
+  token,
   disabled,
 }: {
   block: HomeBlock;
@@ -62,6 +83,7 @@ export function HomeBlockEditorRow({
   onMoveUp: () => void;
   onMoveDown: () => void;
   onDelete: () => void;
+  token?: string;
   disabled?: boolean;
 }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -124,7 +146,7 @@ export function HomeBlockEditorRow({
         </div>
       </div>
 
-      <div className="p-3">{renderEditor(block, onChange, disabled)}</div>
+      <div className="p-3">{renderEditor(block, onChange, token, disabled)}</div>
     </div>
   );
 }
