@@ -299,12 +299,12 @@ describe('Portada configurable — RP.1 (e2e)', () => {
     await patch(body({ blocks: [{ id: 'b1', type: 'search', popularCount: 99 }] })).expect(400);
   });
 
-  it('tipo de bloque aún no registrado (listings, RP.5) → 400', async () => {
+  it('tipo de bloque aún no registrado (searchTable, RP.6) → 400', async () => {
     // El discriminador solo conoce los tipos con DTO. Nada entra en `blocks`
-    // sin una clase que lo valide campo a campo. `grid` ocupaba este hueco hasta
-    // que RP.4 lo registró; se cambió a uno que de verdad siga sin existir, o el
-    // test pasaría por el motivo equivocado.
-    await patch(body({ blocks: [{ id: 'b1', type: 'listings', limit: 8 }] })).expect(400);
+    // sin una clase que lo valide campo a campo. Este hueco lo ocupó `grid`
+    // hasta RP.4 y `listings` hasta RP.5: hay que moverlo a un tipo que de
+    // verdad siga sin existir, o el test pasaría por el motivo equivocado.
+    await patch(body({ blocks: [{ id: 'b1', type: 'searchTable', tabs: [] }] })).expect(400);
   });
 
   it('tipo de bloque inexistente → 400', async () => {
@@ -485,6 +485,95 @@ describe('Portada configurable — RP.1 (e2e)', () => {
         ],
       }),
     ).expect(400);
+  });
+
+  // ── RP.5: listings y categoryCarousel ──────────────────────────────────────
+
+  it('listings SIN categoría → 200 (recientes de todo el sitio)', async () => {
+    // La diferencia de fondo con el bloque homónimo del blog, que lo exige.
+    const res = await patch(
+      body({ blocks: [{ id: 'l1', type: 'listings', limit: 8, sort: 'recent' }] }),
+    ).expect(200);
+    expect(res.body.blocks[0].categorySlug).toBeUndefined();
+  });
+
+  it('listings CON una categoría que existe → 200', async () => {
+    await patch(
+      body({ blocks: [{ id: 'l1', type: 'listings', categorySlug: 'coches', limit: 4 }] }),
+    ).expect(200);
+  });
+
+  it('listings con una categoría inexistente → 400 (regla cruzada del servicio)', async () => {
+    await patch(
+      body({ blocks: [{ id: 'l1', type: 'listings', categorySlug: 'no-existe', limit: 4 }] }),
+    ).expect(400);
+  });
+
+  it('listings con un límite fuera del conjunto → 400', async () => {
+    await patch(body({ blocks: [{ id: 'l1', type: 'listings', limit: 7 }] })).expect(400);
+  });
+
+  it('más de 4 bloques listings → 400 (cada uno es una consulta a Meilisearch)', async () => {
+    const cinco = [1, 2, 3, 4, 5].map((n) => ({ id: `l${n}`, type: 'listings', limit: 4 }));
+    await patch(body({ blocks: cinco })).expect(400);
+  });
+
+  const ITEM_CARRUSEL = { categorySlug: 'coches', imageUrl: OWN_IMAGE_URL, alt: 'Coches' };
+
+  it('carrusel válido → 200', async () => {
+    const res = await patch(
+      body({ blocks: [{ id: 'c1', type: 'categoryCarousel', items: [ITEM_CARRUSEL] }] }),
+    ).expect(200);
+    expect(res.body.blocks[0].items[0].categorySlug).toBe('coches');
+  });
+
+  it('carrusel con `label` propio → 200 (acorta el nombre sin tocar Category)', async () => {
+    const res = await patch(
+      body({
+        blocks: [
+          { id: 'c1', type: 'categoryCarousel', items: [{ ...ITEM_CARRUSEL, label: 'De ocasión' }] },
+        ],
+      }),
+    ).expect(200);
+    expect(res.body.blocks[0].items[0].label).toBe('De ocasión');
+  });
+
+  it('carrusel con una categoría inexistente → 400', async () => {
+    await patch(
+      body({
+        blocks: [
+          { id: 'c1', type: 'categoryCarousel', items: [{ ...ITEM_CARRUSEL, categorySlug: 'no-existe' }] },
+        ],
+      }),
+    ).expect(400);
+  });
+
+  it('carrusel con imagen externa → 400 (upload-only, no Category.iconUrl)', async () => {
+    await patch(
+      body({
+        blocks: [
+          {
+            id: 'c1',
+            type: 'categoryCarousel',
+            items: [{ ...ITEM_CARRUSEL, imageUrl: 'https://evil.example/x.png' }],
+          },
+        ],
+      }),
+    ).expect(400);
+  });
+
+  it('carrusel sin alt → 400', async () => {
+    await patch(
+      body({
+        blocks: [
+          { id: 'c1', type: 'categoryCarousel', items: [{ categorySlug: 'coches', imageUrl: OWN_IMAGE_URL }] },
+        ],
+      }),
+    ).expect(400);
+  });
+
+  it('carrusel sin items → 400', async () => {
+    await patch(body({ blocks: [{ id: 'c1', type: 'categoryCarousel', items: [] }] })).expect(400);
   });
 
   // ── Bloques: reglas cruzadas del servicio ──────────────────────────────────

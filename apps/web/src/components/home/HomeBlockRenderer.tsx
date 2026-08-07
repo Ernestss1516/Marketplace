@@ -1,9 +1,13 @@
 import type { HomeBlock } from '@/types/home-blocks';
 import type { Category } from '@/types';
+import type { SearchResponse } from '@/lib/api/busqueda';
+import type { CardAttributeMap } from '@/components/anuncios/CardAttributesContext';
 import { CtaHomeBlockRenderer } from './blocks/CtaHomeBlockRenderer';
 import { SearchHomeBlockRenderer } from './blocks/SearchHomeBlockRenderer';
 import { GridHomeBlockRenderer } from './blocks/GridHomeBlockRenderer';
 import { StepsHomeBlockRenderer } from './blocks/StepsHomeBlockRenderer';
+import { ListingsHomeBlockRenderer } from './blocks/ListingsHomeBlockRenderer';
+import { CategoryCarouselHomeBlockRenderer } from './blocks/CategoryCarouselHomeBlockRenderer';
 
 /**
  * Despachador del motor de bloques de PORTADA. Molde literal de
@@ -33,36 +37,56 @@ function assertUnreachable(block: never): never {
   throw new Error(`Tipo de bloque de portada no soportado: ${JSON.stringify(block)}`);
 }
 
-// `categories`: árbol cargado UNA vez por la página. Lo consume hoy el bloque
-// `search`; en RP.5 lo consumirán también `listings` y `categoryCarousel`.
-function renderBlock(block: HomeBlock, categories?: Category[]) {
+/**
+ * Todo lo que los bloques necesitan y no pueden pedirse ellos mismos, cargado
+ * UNA vez por la página:
+ *  - `categories`: el árbol. Lo usan `search`, `categoryCarousel` y el enlace
+ *    "Ver todos" de `listings`.
+ *  - `listingsData`: resultados de `search()` YA resueltos, uno por bloque
+ *    `listings` (clave = id del bloque). Ver lib/home-blocks/resolve-listings.ts.
+ *  - `cardAttributeMap`: se calcula una vez con buildCardAttributeMap y lo
+ *    consume el provider de atributos de las tarjetas.
+ */
+interface HomeBlockRendererProps {
+  blocks: HomeBlock[];
+  categories?: Category[];
+  listingsData?: Record<string, SearchResponse>;
+  cardAttributeMap?: CardAttributeMap;
+}
+
+function renderBlock(block: HomeBlock, props: Omit<HomeBlockRendererProps, 'blocks'>) {
   switch (block.type) {
     case 'cta':
       return <CtaHomeBlockRenderer block={block} />;
     case 'search':
-      return <SearchHomeBlockRenderer block={block} categories={categories} />;
+      return <SearchHomeBlockRenderer block={block} categories={props.categories} />;
     case 'grid':
       return <GridHomeBlockRenderer block={block} />;
     case 'steps':
       return <StepsHomeBlockRenderer block={block} />;
+    case 'listings':
+      return (
+        <ListingsHomeBlockRenderer
+          block={block}
+          data={props.listingsData?.[block.id]}
+          categories={props.categories}
+          cardAttributeMap={props.cardAttributeMap}
+        />
+      );
+    case 'categoryCarousel':
+      return <CategoryCarouselHomeBlockRenderer block={block} categories={props.categories} />;
     default:
       return assertUnreachable(block);
   }
 }
 
-export function HomeBlockRenderer({
-  blocks,
-  categories,
-}: {
-  blocks: HomeBlock[];
-  categories?: Category[];
-}) {
+export function HomeBlockRenderer({ blocks, ...props }: HomeBlockRendererProps) {
   // Espaciado vertical uniforme: los renderizadores individuales no se ocupan
   // del ritmo entre bloques. Mismo contenedor que BlockRenderer.tsx:89-93.
   return (
-    <div className="space-y-8">
+    <div className="space-y-12">
       {blocks.map((block) => (
-        <div key={block.id}>{renderBlock(block, categories)}</div>
+        <div key={block.id}>{renderBlock(block, props)}</div>
       ))}
     </div>
   );

@@ -115,19 +115,61 @@ export interface HomeStepsBlock extends BaseHomeBlock {
   columns: HomeStepsColumn[];
 }
 
+export const LISTINGS_LIMITS = [4, 6, 8, 12] as const;
+export type ListingsLimit = (typeof LISTINGS_LIMITS)[number];
+export type ListingsSort = 'recent' | 'featured';
+
+/**
+ * Bloque DINÁMICO: no guarda contenido, guarda una consulta que se resuelve
+ * contra `search()` antes del render.
+ *
+ * `categorySlug` es OPCIONAL, y esa es la diferencia de fondo con el bloque
+ * homónimo del blog: ausente = los recientes de TODO el sitio, que es lo que la
+ * portada hacía escrito a mano (docs/diseno-portada.md §4.6).
+ */
+export interface HomeListingsBlock extends BaseHomeBlock {
+  type: 'listings';
+  title?: string;
+  categorySlug?: string;
+  limit: ListingsLimit;
+  sort?: ListingsSort;
+  showAllLink?: boolean;
+}
+
+export interface HomeCategoryCarouselItem {
+  categorySlug: string;
+  /** Imagen PROPIA del bloque (upload), nunca `Category.iconUrl`. */
+  imageUrl: string;
+  alt: string;
+  /** Texto visible; ausente = el nombre de la categoría. */
+  label?: string;
+}
+
+export interface HomeCategoryCarouselBlock extends BaseHomeBlock {
+  type: 'categoryCarousel';
+  title?: string;
+  items: HomeCategoryCarouselItem[];
+}
+
 /**
  * Tipos registrados. Los que faltan entran con su DTO, su renderizador y su
  * editor en la misma ráfaga cada uno (docs/diseno-portada.md §8):
  *   RP.1  cta, search
- *   RP.4  grid, steps          ← registrados
- *   RP.5  listings, categoryCarousel
+ *   RP.4  grid, steps                 ← registrados
+ *   RP.5  listings, categoryCarousel  ← registrados
  *   RP.6  searchTable
  *
  * Al añadir un tipo aquí, los `switch` exhaustivos de `HomeBlockRenderer` (RP.2)
  * y `HomeBlockEditorRow` (RP.3) dejan de compilar hasta que tiene renderizador Y
  * editor. El compilador ES la garantía de que nada nazca a medias.
  */
-export type HomeBlock = HomeCtaBlock | HomeSearchBlock | HomeGridBlock | HomeStepsBlock;
+export type HomeBlock =
+  | HomeCtaBlock
+  | HomeSearchBlock
+  | HomeGridBlock
+  | HomeStepsBlock
+  | HomeListingsBlock
+  | HomeCategoryCarouselBlock;
 
 /**
  * Configuración completa de la portada, tal como la sirve `GET /homepage`.

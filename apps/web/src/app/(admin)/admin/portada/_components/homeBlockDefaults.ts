@@ -1,4 +1,12 @@
-import { LayoutGrid, ListOrdered, MousePointerClick, Search, type LucideIcon } from 'lucide-react';
+import {
+  GalleryHorizontal,
+  LayoutGrid,
+  ListOrdered,
+  MousePointerClick,
+  Search,
+  ShoppingBag,
+  type LucideIcon,
+} from 'lucide-react';
 import { generateId } from '@/lib/utils';
 import type { HomeBlock } from '@/types/home-blocks';
 
@@ -37,6 +45,16 @@ export const HOME_BLOCK_TYPE_META: Record<
     description: 'Cómo funciona: una columna por público, con sus pasos numerados',
     icon: ListOrdered,
   },
+  listings: {
+    label: 'Anuncios',
+    description: 'Los anuncios más recientes, de todo el sitio o de una categoría',
+    icon: ShoppingBag,
+  },
+  categoryCarousel: {
+    label: 'Carrusel de categorías',
+    description: 'Una fila de categorías con su foto, que se desplaza de lado',
+    icon: GalleryHorizontal,
+  },
 };
 
 /**
@@ -44,7 +62,14 @@ export const HOME_BLOCK_TYPE_META: Record<
  * alfabético (ayuda a un admin no técnico a no sentirse abrumado). Mismo
  * criterio que BLOCK_TYPE_ORDER del blog.
  */
-export const HOME_BLOCK_TYPE_ORDER: HomeBlockType[] = ['search', 'cta', 'grid', 'steps'];
+export const HOME_BLOCK_TYPE_ORDER: HomeBlockType[] = [
+  'search',
+  'listings',
+  'categoryCarousel',
+  'cta',
+  'grid',
+  'steps',
+];
 
 /**
  * Valores por defecto al añadir un bloque. Arrancan VÁLIDOS donde el backend lo
@@ -70,6 +95,12 @@ export function createDefaultHomeBlock(type: HomeBlockType): HomeBlock {
         type,
         columns: [{ audienceTitle: '', steps: [{ title: '', description: '' }] }],
       };
+    case 'listings':
+      // Sin `categorySlug`: "de todo el sitio" es el caso principal en la
+      // portada, así que es lo que trae un bloque recién añadido.
+      return { id, type, limit: 8, sort: 'recent', showAllLink: true };
+    case 'categoryCarousel':
+      return { id, type, items: [{ categorySlug: '', imageUrl: '', alt: '' }] };
   }
 }
 
@@ -92,5 +123,11 @@ export function homeBlockHasContent(block: HomeBlock): boolean {
           col.audienceTitle.trim() ||
           col.steps.some((s) => s.title.trim() || s.description.trim()),
       );
+    case 'listings':
+      // No guarda contenido, guarda una consulta: quitarlo no pierde nada que el
+      // admin haya escrito, salvo el título que le pusiera.
+      return (block.title ?? '').trim().length > 0;
+    case 'categoryCarousel':
+      return block.items.some((it) => it.categorySlug.trim() || it.imageUrl.trim());
   }
 }

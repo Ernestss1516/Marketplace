@@ -631,13 +631,28 @@ async function seedBumpPacks() {
 //
 // upsert con `update: {}` — NUNCA pisa lo que un admin haya guardado, mismo
 // criterio que el `skipDuplicates` de seedSettings().
-// Los bloques que reproducen la portada tal como estaba escrita a mano. Cada
-// ráfaga añade los suyos según van existiendo los tipos:
-//   RP.2  search  — el buscador y sus chips "Populares"
-//   RP.4  steps   — "Cómo funciona" (las dos audiencias, tal cual)
-//         grid    — la fila de cuatro señales de confianza
+// Los bloques que reproducen la portada tal como estaba escrita a mano, EN EL
+// MISMO ORDEN. Cada ráfaga añade los suyos según van existiendo los tipos:
+//   RP.2  search   — el buscador y sus chips "Populares"
+//   RP.5  listings — "Recién publicados" (de todo el sitio, sin categoría)
+//   RP.4  steps    — "Cómo funciona" (las dos audiencias, tal cual)
+//         grid     — la fila de cuatro señales de confianza
+//
+// El carrusel de categorías NO se siembra: sustituiría a la rejilla escrita a
+// mano, pero cada categoría necesita una FOTO SUBIDA que nadie ha subido todavía
+// (`imageUrl` es @IsOwnStorageUrl, no admite una URL inventada). Lo monta el
+// admin desde /admin/portada — el bloque, su editor y su upload están hechos y
+// probados. Ver la nota en docs/estado-tecnico.md.
 const HOMEPAGE_SEED_BLOCKS = [
   { id: 'seed-search', type: 'search', showPopularCategories: true, popularCount: 6 },
+  {
+    id: 'seed-listings',
+    type: 'listings',
+    title: 'Recién publicados',
+    limit: 8,
+    sort: 'recent',
+    showAllLink: true,
+  },
   {
     id: 'seed-steps',
     type: 'steps',

@@ -24,6 +24,10 @@ export const HOMEPAGE_CACHE_TAG = 'homepage-config';
  */
 const SINGLETON_ID = 'singleton';
 
+/** Tope de bloques `listings` por portada: cada uno es una consulta a
+ *  Meilisearch en cada render. Mismo número que el blog. */
+const MAX_LISTINGS_BLOCKS = 4;
+
 /**
  * Config servida cuando la fila no existe (base sin sembrar, entorno recién
  * levantado). NO se escribe: se devuelve. Un `GET /homepage` nunca es 404 ni
@@ -85,7 +89,7 @@ export class HomepageService {
 
     const heroRotatingOptions = (dto.heroRotatingOptions ?? []).map((o) => o.trim()).filter(Boolean);
     const blocks = dto.blocks ?? [];
-    this.assertBlocksValid(blocks);
+    await this.assertBlocksValid(blocks);
 
     const before = await this.prisma.homepageConfig.findUnique({ where: { id: SINGLETON_ID } });
 
@@ -161,12 +165,8 @@ export class HomepageService {
   // decorador de campo — mismo criterio que BlogService.assertListingsBlocksValid
   // (blog.service.ts:389-395).
   //
-  // RP.1 solo puede comprobar lo que depende del array, porque los dos tipos
-  // implementados (cta, search) no referencian nada externo. Entran después:
-  //   RP.5 — todo `categorySlug` (listings, categoryCarousel) existe en Category
-  //   RP.5 — máximo 4 bloques `listings` (uno = una consulta a Meilisearch)
-  //   RP.6 — máximo 1 bloque `searchTable`
-  private assertBlocksValid(blocks: HomeBlockDto[]): void {
+  // Pendiente para RP.6: máximo 1 bloque `searchTable`.
+  private async assertBlocksValid(blocks: HomeBlockDto[]): Promise<void> {
     // Ids duplicados: el array se reordena y se edita por id en el editor, y
     // React los usa como key. Dos bloques con el mismo id producen ediciones
     // que saltan de un bloque a otro. El motor del blog no lo comprueba; aquí
@@ -184,6 +184,41 @@ export class HomepageService {
     const searchBlocks = blocks.filter((b) => b.type === 'search');
     if (searchBlocks.length > 1) {
       throw new BadRequestException('Solo puede haber un bloque de buscador en la portada');
+    }
+
+    // Guardarraíl: cada bloque `listings` es una consulta a Meilisearch en CADA
+    // render de la portada. Se limita el NÚMERO de bloques, no el tamaño de cada
+    // consulta (de eso ya se ocupa `limit` con su @IsIn). Mismo criterio y mismo
+    // número que MAX_LISTINGS_BLOCKS_PER_PAGE del blog.
+    const listingsBlocks = blocks.filter((b) => b.type === 'listings');
+    if (listingsBlocks.length > MAX_LISTINGS_BLOCKS) {
+      throw new BadRequestException(
+        `Máximo ${MAX_LISTINGS_BLOCKS} bloques de anuncios en la portada`,
+      );
+    }
+
+    // Toda categoría referenciada tiene que existir. Depende de estado EXTERNO
+    // (la tabla Category), así que no cabe en un decorador — molde
+    // BlogService.assertListingsBlocksValid. UNA sola consulta para todos los
+    // slugs del array, vengan del bloque que vengan.
+    const slugs = new Set<string>();
+    for (const block of blocks) {
+      if (block.type === 'listings' && block.categorySlug) slugs.add(block.categorySlug);
+      if (block.type === 'categoryCarousel') {
+        for (const item of block.items) slugs.add(item.categorySlug);
+      }
+    }
+
+    if (slugs.size > 0) {
+      const found = await this.prisma.category.findMany({
+        where: { slug: { in: [...slugs] } },
+        select: { slug: true },
+      });
+      const foundSlugs = new Set(found.map((c) => c.slug));
+      const missing = [...slugs].filter((s) => !foundSlugs.has(s));
+      if (missing.length > 0) {
+        throw new BadRequestException(`Categoría(s) no encontrada(s): ${missing.join(', ')}`);
+      }
     }
   }
 }

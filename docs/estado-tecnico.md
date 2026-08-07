@@ -10868,7 +10868,8 @@ RP.1 entregó, además de su alcance de backend, la rodaja de RP.2 que cubre el 
 | `SmartLink` / `CtaButton` en `components/shared/` | ✔ RP.2 |
 | Editor `/admin/portada` (hero + bloques + preview) | ✔ RP.3 |
 | `grid` y `steps` + allowlist de iconos + upload de imagen | ✔ RP.4 |
-| `listings`, `categoryCarousel` · `searchTable` | RP.5 · RP.6 |
+| `listings` y `categoryCarousel` (los dinámicos) | ✔ RP.5 |
+| `searchTable` + limpieza final de `(home)/page.tsx` | RP.6 |
 
 ### La fila única, y por qué NO es una `Setting`
 
@@ -11118,6 +11119,82 @@ debajo de lo que aún está a mano. Se reparte por `search` y nada más — cual
 abajo, que es donde lo pondría el admin. **El motor no se entera**: ningún bloque conoce su índice
 y los `switch` siguen igual de homogéneos. Es maquetación de una página en transición, y RP.6 la
 borra al no quedar nada escrito a mano.
+
+### RP.5 — `listings` y `categoryCarousel`, los dos dinámicos
+
+**`listings` recupera los dos providers, y esa es la razón de existir de la desviación.** El
+bloque homónimo del BLOG renuncia a ellos a propósito
+([`ListingsBlockRenderer.tsx:24-27`](../apps/web/src/components/blocks/ListingsBlockRenderer.tsx#L24-L27)):
+sus tarjetas van sin corazón de favorito y sin la línea de atributos por categoría. En la portada
+eso habría sido una **regresión visible**, porque la home escrita a mano sí los tenía. Aquí el
+renderizador envuelve la rejilla en `CardAttributesProvider` + `FavoritesGridProvider`.
+
+Y **no rompe el SSR**: los dos providers son `'use client'`, pero reciben los `ListingCard` como
+`children` creados en un Server Component, así que las tarjetas se renderizan en servidor y su
+HTML viaja en la respuesta; el cliente solo monta el contexto alrededor. Hay test que lo
+comprueba en el navegador (corazón presente) y sobre el HTML crudo (las tarjetas, servidas).
+
+**`categorySlug` es OPCIONAL**, al revés que en el blog: ausente = los recientes de todo el sitio,
+que es el caso principal de una portada y lo que hacía la versión escrita a mano. El editor lo
+ofrece como *"De todo el sitio"* y es lo que trae un bloque recién añadido.
+
+**Los datos se resuelven antes del render.** `lib/home-blocks/resolve-listings.ts` —copia del
+PATRÓN del blog, no de su código: la firma de aquel lleva un `Block[]` y eso es justo lo que la
+regla de §4.0 prohíbe cruzar— resuelve TODOS los bloques `listings` en un `Promise.all` y el
+renderizador recibe `data` ya hecha. Es lo que mantiene síncrono a `HomeBlockRenderer` (y por
+tanto compartible con el preview del editor) y lo que evita el waterfall.
+
+**El carrusel sirve TODAS sus categorías en el HTML**, no solo las visibles: son enlaces internos
+y un crawler tiene que verlos. El island (`CarouselScroller`) solo hace `scrollBy`; la
+funcionalidad vive en el CSS (`overflow-x-auto`), así que sin JS se sigue arrastrando. Medido: a
+900 px de ancho el contenido (828 px) desborda el contenedor (736 px) y la flecha mueve
+`scrollLeft` 0 → 92 → 0. Las flechas van con `aria-hidden` y `tabIndex={-1}` a propósito: no
+añaden nada que no se pueda hacer ya tabulando por los propios enlaces, y anunciarlas solo metería
+dos paradas de foco sin destino.
+
+La imagen es **propia del bloque** (upload + `@IsOwnStorageUrl`), nunca `Category.iconUrl`. Si no
+pasa `isSafeSrc`, el ítem **degrada a la inicial en un círculo** —lo mismo que hace `CategoryGrid`
+sin icono— en vez de dejar un hueco; mismo criterio que la rejilla de RP.4. Y un slug colgado (una
+categoría borrada) se **omite**: no hay FK que lo proteja, así que el renderizador aplica la
+doctrina "se acepta al escribir, se oculta al leer" del nav.
+
+### ⚠ Divergencia de §8: `CategoryGrid` NO se ha retirado (y por qué no se puede)
+
+§8 pide retirar en RP.5 tanto "Recién publicados" como `CategoryGrid`. Solo se ha retirado el
+primero, y no por descuido: **el diseño choca consigo mismo**.
+
+- §4.2 y la decisión 9 exigen que cada categoría del carrusel lleve una **foto propia subida**
+  (`imageUrl` con `@IsOwnStorageUrl`). Es lo que separa el carrusel de la rejilla actual, que usa
+  el `iconUrl` de 48 px.
+- Una semilla **no puede subir ficheros**: `@IsOwnStorageUrl` rechaza cualquier URL inventada, y
+  en una instalación nueva no hay nada en el bucket.
+
+Retirar la rejilla sin poder sembrar el carrusel dejaría la portada **sin la sección de
+categorías**. Así que la rejilla sigue escrita a mano, con la nota en el código, y el admin la
+sustituye desde `/admin/portada` en cuanto tenga las fotos — el bloque, su editor y su upload
+están hechos y probados. Es el único trozo de la portada que no puede migrar solo.
+
+### Lo que cuesta ahora renderizar la portada, y qué pasa si la API falla
+
+Desde RP.5 la semilla incluye un bloque `listings`, así que **cada render de la portada implica
+una consulta a Meilisearch**. Está acotado por el `revalidate: 180` que `resolveHomeListingsData`
+pasa a `search()` —solo el primer render de cada ventana de tres minutos la paga— y por el tope
+de 4 bloques `listings` que valida el servicio. Pero es carga nueva en la ruta más visitada y
+conviene saberlo.
+
+Y el fallback tiene una consecuencia que hay que tener presente: si `getCachedHomepageConfig()`
+falla, la página cae a `FALLBACK_HOMEPAGE_CONFIG`, que trae `blocks: []`. Es decir, **la portada
+se sirve entera pero SIN NINGÚN bloque**: titular, cabecera y pie sí; buscador y secciones no.
+Es deliberado —mejor una portada mínima que un 500—, y solo puede darse en la ventana en que la
+caché no tiene valor (justo tras invalidarse por un guardado) Y la API no responde a la vez.
+
+Se observó exactamente eso en una corrida completa de la batería: `buscador-sugerencias` falló
+entero porque la portada llegó sin bloques, con el `<h1>` del fallback. No se pudo reproducir en
+tres intentos dirigidos —el spec solo (11/11), con todos sus predecesores (67/67) y después de
+`portada-hero` (19/19)—, y la corrida en la que ocurrió fue la más lenta registrada (18,2 min),
+así que apunta a la API sin responder bajo saturación de la máquina, no a un defecto de lógica.
+Queda anotado por si reaparece: el síntoma a buscar es **portada sin ningún bloque**, y lo que
+hay que mirar entonces es la salud de la API, no el motor.
 
 ### La semilla de test, con FUENTE ÚNICA (`e2e/helpers/portada.ts`)
 

@@ -14,6 +14,8 @@
 // login (adminApiToken lo obtiene globalSetup una vez para toda la corrida).
 
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
+import * as fs from 'fs';
+import * as path from 'path';
 import { adminApiToken, authedPatch } from './helpers/api';
 import { PORTADA_SEMILLA, restaurarPortada } from './helpers/portada';
 
@@ -232,6 +234,134 @@ test.describe('Portada — motor de bloques', () => {
       // columns: 4 → clase estática, nunca interpolada (Tailwind purgaría una
       // clase que no vea escrita en el código).
       await expect(page.locator('.sm\\:grid-cols-4').first()).toBeVisible();
+    });
+  });
+
+  test.describe('bloques `listings` y `categoryCarousel` (RP.5)', () => {
+    test.beforeAll(async ({ browser, request }) => {
+      // El catálogo del seed de test: se usan sus slugs para el carrusel, y la
+      // foto se sube por el endpoint de portada (una URL inventada la rechaza
+      // @IsOwnStorageUrl).
+      const subida = await request.post('http://localhost:3001/api/admin/homepage/upload-image', {
+        headers: { Authorization: `Bearer ${adminApiToken()}` },
+        multipart: {
+          file: {
+            name: 'test-image.png',
+            mimeType: 'image/png',
+            buffer: fs.readFileSync(path.join(__dirname, 'fixtures', 'test-image.png')),
+          },
+        },
+      });
+      expect(subida.status(), await subida.text()).toBe(201);
+      const { url } = (await subida.json()) as { url: string };
+
+      await setBlocks(request, [
+        {
+          id: 'b-listings',
+          type: 'listings',
+          title: 'Lo último del sitio',
+          // SIN categorySlug: los recientes de TODO el sitio. Es el caso que el
+          // bloque del blog no sabe expresar.
+          limit: 8,
+          sort: 'recent',
+          showAllLink: true,
+        },
+        {
+          id: 'b-carousel',
+          type: 'categoryCarousel',
+          title: 'Explora por categoría',
+          items: [
+            { categorySlug: 'vehiculos', imageUrl: url, alt: 'Foto de vehículos' },
+            { categorySlug: 'coches', imageUrl: url, alt: 'Foto de coches', label: 'Coches de ocasión' },
+            { categorySlug: 'electronica', imageUrl: url, alt: 'Foto de electrónica' },
+          ],
+        },
+      ]);
+
+      const warmup = await browser.newPage();
+      await esperarPortada(warmup, async (p) => (await p.getByText('Explora por categoría').count()) > 0);
+      await warmup.close();
+    });
+
+    test('el carrusel sirve TODAS sus categorías en el HTML, no solo las visibles', async ({
+      request,
+    }) => {
+      // La propiedad central del bloque: son enlaces internos y un crawler tiene
+      // que verlos todos. Petición cruda, sin ejecutar una línea de JS.
+      const html = await (await request.get('http://localhost:3000/')).text();
+      expect(html).toContain('Explora por categoría');
+      expect(html).toContain('/vehiculos');
+      expect(html).toContain('/vehiculos/coches'); // URL anidada, vía categoryPath
+      expect(html).toContain('/electronica');
+      expect(html).toContain('Coches de ocasión'); // `label` sustituye al nombre
+    });
+
+    test('cada categoría enlaza a su URL canónica y su foto se descarga', async ({ page }) => {
+      await page.goto('/');
+      const carrusel = page.getByTestId('carousel-scroller');
+      await expect(carrusel.locator('a')).toHaveCount(3);
+
+      // Nunca se construye `/${slug}` a mano: una hija va anidada bajo su padre.
+      await expect(carrusel.getByRole('link', { name: /Coches de ocasión/ })).toHaveAttribute(
+        'href',
+        '/vehiculos/coches',
+      );
+
+      // La imagen SE PINTA de verdad: naturalWidth > 0 significa que el
+      // navegador la descargó (la trampa de las dos allowlists, §7).
+      const img = carrusel.locator('img').first();
+      await expect(img).toBeVisible();
+      expect(await img.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0);
+    });
+
+    test('el island solo desplaza: sin JS el contenido sigue estando', async ({ page }) => {
+      await page.goto('/');
+      const carrusel = page.getByTestId('carousel-scroller');
+      // El contenedor scrollea por CSS (overflow-x-auto): la funcionalidad vive
+      // ahí, las flechas son una comodidad.
+      await expect(carrusel).toHaveCSS('overflow-x', 'auto');
+    });
+
+    test('listings SIN categoría trae anuncios de todo el sitio, en el HTML', async ({
+      page,
+      request,
+    }) => {
+      const html = await (await request.get('http://localhost:3000/')).text();
+      expect(html).toContain('Lo último del sitio');
+
+      await page.goto('/');
+      const tarjetas = page.locator('a[href^="/anuncio/"]');
+      expect(await tarjetas.count()).toBeGreaterThan(0);
+    });
+
+    test('las tarjetas conservan corazón de favorito Y línea de atributos', async ({ page }) => {
+      // ESTA ES LA COMPROBACIÓN ANTI-REGRESIÓN de la decisión 8.
+      //
+      // El bloque `listings` del BLOG renuncia a los dos providers a propósito:
+      // sus tarjetas van sin corazón y sin la línea de atributos. Si el de
+      // portada hiciera lo mismo, la home PERDERÍA algo que hoy tiene. Aquí se
+      // comprueba que no.
+      await page.goto('/');
+      const tarjeta = page.locator('a[href^="/anuncio/"]').first();
+      await expect(tarjeta).toBeVisible();
+
+      // Corazón → viene de FavoritesGridProvider.
+      await expect(
+        tarjeta.getByRole('button', { name: /favoritos/i }),
+      ).toHaveCount(1);
+
+      // Y las tarjetas se renderizan en SERVIDOR pese a que los providers son
+      // client components: llegan como children de un Server Component.
+      const html = await (await page.request.get('http://localhost:3000/')).text();
+      expect(html).toContain('/anuncio/');
+    });
+
+    test('"Ver todos" sin categoría lleva a la búsqueda por fecha', async ({ page }) => {
+      await page.goto('/');
+      await expect(page.getByRole('link', { name: 'Ver todos' })).toHaveAttribute(
+        'href',
+        '/busqueda?sort=publishedAt:desc',
+      );
     });
   });
 

@@ -87,6 +87,14 @@ function validate(values: FormState): string | null {
       }
     }
 
+    if (block.type === 'categoryCarousel') {
+      for (const item of block.items) {
+        if (!item.categorySlug) return 'Hay una categoría del carrusel sin elegir.';
+        if (!item.imageUrl) return 'Hay una categoría del carrusel a la que le falta la foto.';
+        if (!item.alt.trim()) return 'Hay una foto del carrusel sin texto alternativo.';
+      }
+    }
+
     if (block.type === 'steps') {
       for (const column of block.columns) {
         if (!column.audienceTitle.trim()) return 'Hay una columna de pasos sin público.';

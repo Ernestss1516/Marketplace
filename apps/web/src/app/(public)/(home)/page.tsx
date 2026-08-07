@@ -1,18 +1,13 @@
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { CategoryGrid } from '@/components/categorias/CategoryGrid';
-import { ListingCard } from '@/components/anuncios/ListingCard';
-import { FavoritesGridProvider } from '@/components/anuncios/FavoritesGridContext';
-import { CardAttributesProvider } from '@/components/anuncios/CardAttributesContext';
-import { isSponsoredAdHit } from '@/components/anuncios/SponsoredCard';
 import { BannerList } from '@/components/banners/BannerList';
 import { HomeHero } from '@/components/home/HomeHero';
 import { HomeBlockRenderer } from '@/components/home/HomeBlockRenderer';
 import { getCategories } from '@/lib/api/categorias';
-import { search, type SearchResponse } from '@/lib/api/busqueda';
-import type { ListingSummary } from '@/types';
 import { getActiveBanners } from '@/lib/api/banners';
 import { getCachedHomepageConfig, FALLBACK_HOMEPAGE_CONFIG } from '@/lib/api/homepage';
+import { resolveHomeListingsData } from '@/lib/home-blocks/resolve-listings';
 import { buildCardAttributeMap } from '@/lib/card-attributes';
 
 
@@ -22,34 +17,36 @@ export default async function HomePage() {
   // hardcodeado y lo sustituyen las ráfagas siguientes: el buscador y sus
   // adornos en RP.2, "Cómo funciona" y las señales de confianza en RP.4, las
   // categorías y los anuncios recientes en RP.5.
-  const [homepage, categories, recentResult, banners] = await Promise.all([
+  const [homepage, categories, banners] = await Promise.all([
     getCachedHomepageConfig().catch(() => FALLBACK_HOMEPAGE_CONFIG),
     getCategories().catch(() => [] as Awaited<ReturnType<typeof getCategories>>),
-    search({ sort: 'publishedAt:desc', hitsPerPage: 8 }).catch(
-      (): SearchResponse => ({ hits: [], totalHits: 0, page: 1, hitsPerPage: 8 }),
-    ),
     getActiveBanners('HOME').catch(() => []),
   ]);
 
-  // Nunca pasa `category`, así que SearchController nunca inyecta un patrocinado
-  // aquí — el filtro es una guarda de tipos defensiva, no una necesidad funcional.
-  const recent = recentResult.hits.filter((h): h is ListingSummary => !isSponsoredAdHit(h));
+  // Los bloques dinámicos se resuelven ANTES del render y en paralelo entre sí
+  // (Promise.all dentro), de modo que `HomeBlockRenderer` sigue siendo síncrono y
+  // no hay waterfall. Va después del Promise.all de arriba porque necesita
+  // `homepage.blocks` para saber qué pedir.
+  const listingsData = await resolveHomeListingsData(homepage.blocks).catch(() => ({}));
 
-  // ANDAMIO TRANSITORIO — desaparece en RP.6, cuando ya no quede nada a mano.
+  // ANDAMIO TRANSITORIO — desaparece en RP.6.
   //
-  // El array de bloques es PLANO y ordenado, pero dos secciones de la portada
-  // siguen escritas en este fichero (Categorías y Recién publicados, hasta RP.5)
-  // y en la página van EN MEDIO: entre el buscador y "Cómo funciona". Con una
-  // sola llamada al renderizador no hay forma de intercalarlas sin reordenar la
-  // portada, así que la PÁGINA —no el motor— reparte en dos.
+  // Ya no queda nada intercalado: desde RP.5, Categorías y Recién publicados son
+  // bloques. Lo único que este reparto sigue haciendo es mantener el BUSCADOR
+  // dentro de la banda del hero, que es donde está en la portada actual; el resto
+  // de bloques se pintan debajo, en el orden del array.
   //
-  // Se reparte por `search` y nada más: es el único bloque que hoy vive dentro de
-  // la banda del hero. Cualquier otro tipo, incluido un `cta`, se pinta abajo con
-  // el resto, que es donde lo pondría el admin. Ningún bloque conoce su índice y
-  // el `switch` con assertUnreachable sigue igual de homogéneo — esto es
-  // maquetación de una página en transición, no una regla del motor.
+  // RP.6 lo retira junto con el eyebrow y el botón que aún se escriben a mano, y
+  // la página queda como fija §5.1: hero y, debajo, todos los bloques.
+  //
+  // El motor no se entera: ningún bloque conoce su índice y los `switch` con
+  // assertUnreachable siguen igual de homogéneos.
   const bloquesDelHero = homepage.blocks.filter((b) => b.type === 'search');
   const bloquesDebajo = homepage.blocks.filter((b) => b.type !== 'search');
+
+  // Se calcula UNA vez para toda la página y baja por props hasta el provider de
+  // atributos de las tarjetas — no una vez por bloque.
+  const cardAttributeMap = buildCardAttributeMap(categories);
 
   return (
     <>
@@ -94,7 +91,16 @@ export default async function HomePage() {
       </section>
 
       <div className="container mx-auto px-4 pb-16">
-        {/* Categorías */}
+        {/* SIGUE ESCRITO A MANO, y es una divergencia consciente de §8.
+            §8 pide retirar esta rejilla en RP.5 porque el bloque
+            `categoryCarousel` la sustituye. El bloque está hecho, con su editor y
+            su upload — pero cada categoría necesita una FOTO SUBIDA
+            (`imageUrl` es @IsOwnStorageUrl, no admite una URL inventada), y una
+            semilla no puede subir ficheros. Retirar esto sin poder sembrar el
+            carrusel dejaría la portada SIN la sección de categorías, que es
+            precisamente lo que ninguna ráfaga debe hacer.
+            Lo cambia el admin desde /admin/portada en cuanto tenga las fotos; en
+            ese momento esta sección se borra. Ver docs/estado-tecnico.md. */}
         {categories.length > 0 && (
           <section className="py-12">
             <h2 className="mb-4 text-xl font-semibold">Categorías</h2>
@@ -102,42 +108,17 @@ export default async function HomePage() {
           </section>
         )}
 
-        {/* Recién publicados — vía Meilisearch (search), no el listado Postgres: así los
-            anuncios con boostScore muestran su badge "Destacado" de forma natural. Desde
-            la política de ordenación C (RÁFAGA 1) boostScore ya no reordena la lista, así
-            que esto son de verdad los más recientes — antes un destacado antiguo podía
-            colarse por delante de un anuncio genuinamente nuevo. */}
-        <section className="py-12">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-xl font-semibold">Recién publicados</h2>
-            <Link href="/busqueda?sort=publishedAt:desc" className="text-sm font-medium text-primary hover:underline">
-              Ver todos
-            </Link>
-          </div>
-          {recent.length > 0 ? (
-            <CardAttributesProvider cardAttributeMap={buildCardAttributeMap(categories)}>
-              <FavoritesGridProvider listingIds={recent.map((l) => l.id)}>
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-                  {recent.map((listing) => (
-                    <ListingCard key={listing.id} listing={listing} />
-                  ))}
-                </div>
-              </FavoritesGridProvider>
-            </CardAttributesProvider>
-          ) : (
-            <p className="py-8 text-center text-muted-foreground">
-              Aún no hay anuncios publicados.
-            </p>
-          )}
-        </section>
-
-        {/* RP.4 — "Cómo funciona" y las cuatro señales de confianza ya no se
-            escriben aquí: son los bloques `steps` y `grid` de la configuración.
-            Junto a ellos se pinta cualquier otro bloque que el admin añada. */}
+        {/* RP.5 — "Recién publicados" ya no se escribe aquí: es el bloque
+            `listings` de la configuración, con sus dos providers recuperados. */}
         {bloquesDebajo.length > 0 && (
-          <section className="border-t py-12">
-            <HomeBlockRenderer blocks={bloquesDebajo} categories={categories} />
-          </section>
+          <div className="py-12">
+            <HomeBlockRenderer
+              blocks={bloquesDebajo}
+              categories={categories}
+              listingsData={listingsData}
+              cardAttributeMap={cardAttributeMap}
+            />
+          </div>
         )}
       </div>
     </>

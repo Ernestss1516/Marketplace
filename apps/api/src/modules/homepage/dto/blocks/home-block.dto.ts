@@ -6,12 +6,16 @@ import { CtaHomeBlockDto } from './cta-block.dto';
 import { SearchHomeBlockDto } from './search-block.dto';
 import { GridHomeBlockDto } from './grid-block.dto';
 import { StepsHomeBlockDto } from './steps-block.dto';
+import { ListingsHomeBlockDto } from './listings-block.dto';
+import { CategoryCarouselHomeBlockDto } from './category-carousel-block.dto';
 
 export type HomeBlockDto =
   | CtaHomeBlockDto
   | SearchHomeBlockDto
   | GridHomeBlockDto
-  | StepsHomeBlockDto;
+  | StepsHomeBlockDto
+  | ListingsHomeBlockDto
+  | CategoryCarouselHomeBlockDto;
 
 /**
  * Los 7 tipos que tendrá el motor de portada, en el orden en que las ráfagas
@@ -20,7 +24,7 @@ export type HomeBlockDto =
  *
  *   RP.1  cta, search
  *   RP.4  grid, steps          ← registrados
- *   RP.5  listings, categoryCarousel
+ *   RP.5  listings, categoryCarousel  ← registrados
  *   RP.6  searchTable
  *
  * Un tipo aún no registrado se rechaza con 400 por el discriminador, que es el
@@ -66,6 +70,8 @@ export function ValidHomeBlocksArray(): PropertyDecorator {
           { value: SearchHomeBlockDto, name: 'search' },
           { value: GridHomeBlockDto, name: 'grid' },
           { value: StepsHomeBlockDto, name: 'steps' },
+          { value: ListingsHomeBlockDto, name: 'listings' },
+          { value: CategoryCarouselHomeBlockDto, name: 'categoryCarousel' },
         ],
       },
       keepDiscriminatorProperty: true,

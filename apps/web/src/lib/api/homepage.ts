@@ -10,6 +10,13 @@ import { apiFetch } from './client';
  * llevar contenido: una lista vacía se puede no pintar, un titular no.
  *
  * Reproduce el <h1> que la home pintaba a mano antes de RP.1.
+ *
+ * CONSECUENCIA QUE CONVIENE TENER PRESENTE: `blocks: []` significa que, si la
+ * llamada falla, la portada se sirve ENTERA sin bloques — con su titular, su
+ * cabecera y su pie, pero sin buscador ni secciones. Es deliberado (mejor una
+ * portada mínima que un 500), pero solo puede ocurrir en la ventana en que la
+ * caché NO tiene valor —justo tras invalidarse por un guardado— Y la API no
+ * responde a la vez. Con un valor cacheado, un fallo de la API no se nota.
  */
 export const FALLBACK_HOMEPAGE_CONFIG: HomepageConfig = {
   heroStaticTitle: 'Compra y vende de segunda mano',

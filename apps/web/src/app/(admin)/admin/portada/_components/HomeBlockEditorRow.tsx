@@ -8,6 +8,8 @@ import { CtaHomeBlockEditor } from './editors/CtaHomeBlockEditor';
 import { SearchHomeBlockEditor } from './editors/SearchHomeBlockEditor';
 import { GridHomeBlockEditor } from './editors/GridHomeBlockEditor';
 import { StepsHomeBlockEditor } from './editors/StepsHomeBlockEditor';
+import { ListingsHomeBlockEditor } from './editors/ListingsHomeBlockEditor';
+import { CategoryCarouselHomeBlockEditor } from './editors/CategoryCarouselHomeBlockEditor';
 
 function assertUnreachable(block: never): never {
   throw new Error(`Tipo de bloque de portada no soportado: ${JSON.stringify(block)}`);
@@ -57,6 +59,23 @@ function renderEditor(
         <StepsHomeBlockEditor
           block={block}
           onChange={(patch) => onChange({ ...block, ...patch })}
+          disabled={disabled}
+        />
+      );
+    case 'listings':
+      return (
+        <ListingsHomeBlockEditor
+          block={block}
+          onChange={(patch) => onChange({ ...block, ...patch })}
+          disabled={disabled}
+        />
+      );
+    case 'categoryCarousel':
+      return (
+        <CategoryCarouselHomeBlockEditor
+          block={block}
+          onChange={(patch) => onChange({ ...block, ...patch })}
+          token={token}
           disabled={disabled}
         />
       );

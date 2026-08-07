@@ -341,6 +341,14 @@ async function seedHomepageConfig() {
     blocks: [
       { id: 'seed-search', type: 'search', showPopularCategories: true, popularCount: 6 },
       {
+        id: 'seed-listings',
+        type: 'listings',
+        title: 'Recién publicados',
+        limit: 8,
+        sort: 'recent',
+        showAllLink: true,
+      },
+      {
         id: 'seed-steps',
         type: 'steps',
         title: 'Cómo funciona',
