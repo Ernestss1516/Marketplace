@@ -1,0 +1,83 @@
+'use client';
+
+import { useState } from 'react';
+import { Plus } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import {
+  HOME_BLOCK_TYPE_META,
+  HOME_BLOCK_TYPE_ORDER,
+  type HomeBlockType,
+} from './homeBlockDefaults';
+
+/**
+ * Panel de tarjetas, no un `<select>` compacto: cada tipo necesita espacio para
+ * su nombre Y su descripción en lenguaje claro — es el requisito de "usable por
+ * un admin no técnico", que un desplegable de una línea no puede transmitir.
+ * Molde `BlockTypePicker.tsx` del blog.
+ *
+ * Hoy ofrece dos tipos. Los cinco restantes aparecerán aquí solos, sin tocar
+ * este fichero, en cuanto se registren en HOME_BLOCK_TYPE_ORDER (RP.4-RP.6).
+ */
+export function HomeBlockTypePicker({
+  onPick,
+  disabled,
+}: {
+  onPick: (type: HomeBlockType) => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+
+  if (!open) {
+    return (
+      <Button
+        type="button"
+        variant="outline"
+        onClick={() => setOpen(true)}
+        disabled={disabled}
+        data-testid="home-add-block"
+      >
+        <Plus className="mr-1 h-4 w-4" />
+        Añadir bloque
+      </Button>
+    );
+  }
+
+  return (
+    <div className="rounded-md border bg-muted/10 p-3" data-testid="home-block-type-picker">
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-sm font-medium">¿Qué quieres añadir?</p>
+        <button
+          type="button"
+          onClick={() => setOpen(false)}
+          className="text-xs text-muted-foreground hover:text-foreground"
+        >
+          Cancelar
+        </button>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {HOME_BLOCK_TYPE_ORDER.map((type) => {
+          const meta = HOME_BLOCK_TYPE_META[type];
+          const Icon = meta.icon;
+          return (
+            <button
+              key={type}
+              type="button"
+              onClick={() => {
+                onPick(type);
+                setOpen(false);
+              }}
+              className="flex items-start gap-2 rounded-md border bg-background p-3 text-left transition-colors hover:bg-muted/50"
+              data-testid={`home-block-type-${type}`}
+            >
+              <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+              <span>
+                <span className="block text-sm font-medium">{meta.label}</span>
+                <span className="block text-xs text-muted-foreground">{meta.description}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}

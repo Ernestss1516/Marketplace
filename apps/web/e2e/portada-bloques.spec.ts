@@ -133,9 +133,17 @@ test.describe('Portada — motor de bloques', () => {
 
     test('la POSICIÓN en el array es el orden del DOM', async ({ page }) => {
       await page.goto('/');
-      const primero = await page.getByRole('link', { name: 'Primero interno' }).boundingBox();
-      const segundo = await page.getByRole('link', { name: 'Segundo externo' }).boundingBox();
-      expect(primero!.y).toBeLessThan(segundo!.y);
+      // Orden en el DOM, no coordenadas: `boundingBox()` no auto-espera y
+      // devuelve null si el elemento aún no está pintado. Y el orden del DOM es
+      // literalmente lo que este test afirma.
+      const enOrden = await page.evaluate(() => {
+        const enlaces = [...document.querySelectorAll('a')];
+        const a = enlaces.find((el) => el.textContent?.includes('Primero interno'));
+        const b = enlaces.find((el) => el.textContent?.includes('Segundo externo'));
+        if (!a || !b) return null;
+        return Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+      });
+      expect(enOrden).toBe(true);
     });
 
     test('los cta también están en el HTML servido (SSR puro, cero JS)', async ({ request }) => {

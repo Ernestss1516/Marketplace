@@ -10866,7 +10866,7 @@ RP.1 entregó, además de su alcance de backend, la rodaja de RP.2 que cubre el 
 | Hero SSR con rotativo CSS, a11y y `prefers-reduced-motion` | ✔ RP.1 |
 | `HomeBlockRenderer` + renderizadores `cta` y `search` | ✔ RP.2 |
 | `SmartLink` / `CtaButton` en `components/shared/` | ✔ RP.2 |
-| Editor `/admin/portada` | RP.3 |
+| Editor `/admin/portada` (hero + bloques + preview) | ✔ RP.3 |
 | `grid`, `steps` · `listings`, `categoryCarousel` · `searchTable` | RP.4 · RP.5 · RP.6 |
 
 ### La fila única, y por qué NO es una `Setting`
@@ -11007,6 +11007,66 @@ nada. El array vacío es lo único que no puede ser una decisión del admin que 
 espíritu que el `skipDuplicates` de `seedSettings`: rellenar lo que falta, nunca pisar lo que hay.
 Comprobado idempotente: la segunda pasada informa "ya configurada, intacta".
 
+### RP.3 — el editor `/admin/portada`
+
+Va ANTES que los cinco tipos caros a propósito: a partir de aquí **ningún tipo puede nacer sin
+forma de configurarlo**, y el compilador lo impone — el `switch` de `HomeBlockEditorRow` es
+exhaustivo igual que el del renderizador, así que registrar `grid` en la unión rompe el build
+hasta que tenga renderizador **y** editor.
+
+**Dos zonas, y la separación no es de maquetación.** El hero es campo propio de la config, no un
+bloque, y en el editor se ve: no se puede mover ni quitar. Los bloques sí. Es la misma decisión
+que mantiene homogéneo el motor (§2.3 del diseño), hecha visible en la UI.
+
+**Un solo botón de guardar** que manda la config entera — los bloques no son filas, son un Json
+de una fila; mismo contrato que el submit de `PostForm`. Tras guardar, el estado se repuebla con
+**lo que devolvió el servidor**, no con lo que se envió: si el backend normalizó algo (recortes,
+opciones vacías descartadas), lo que el admin ve es lo que quedó guardado de verdad.
+
+**El tope de 6 palabras rotativas es una BARRERA de UI, no un aviso.** Al llegar a 6 el botón
+"Añadir palabra" se deshabilita y el `title` explica el motivo real: la animación es CSS y solo
+hay reglas `@keyframes` para 2…6. Con una séptima no habría clase que aplicar y el titular se
+quedaría **congelado en la primera palabra** — un fallo silencioso, que es la peor clase. El
+backend valida lo mismo; la barrera evita que el admin lo descubra por un 400.
+
+**El preview es obligatorio** porque la portada no tiene borrador: guardar es publicar. Reusa
+`HomeHero` y `HomeBlockRenderer`, los MISMOS componentes del sitio público —por eso no puede
+mentir—, y por eso `HomeBlockRenderer` es síncrono. Dos detalles que costaron pensarlos:
+
+- La `key` del hero se deriva de `nº de palabras : velocidad`. Al cambiar cualquiera de las dos,
+  el nodo se remonta y **el ciclo arranca de cero**; sin eso CSS reanudaría la animación a mitad
+  y el preview no correspondería a lo configurado.
+- Las opciones vacías se filtran antes de previsualizar, igual que hace el servicio al guardar.
+  Con una vacía de por medio la clase sería la de N+1 y el preview mentiría.
+
+**Rol: solo ADMIN**, como footer y nav (las tres son configuración del sitio; Blog y Páginas
+abren a EDITOR porque son contenido). No hizo falta tocar el middleware: `ROLE_ALLOWED_PATHS` es
+una **allowlist**, así que una ruta nueva bajo `/admin` es ADMIN-only por defecto. Verificado en
+pantalla: MODERATOR y EDITOR acaban en `/`.
+
+`admin-roles.spec.ts` pasa de 19 a 20 entradas de `AdminNav` — cambio deliberado, el mismo que
+hizo RN.4 al añadir "Navegación".
+
+### El trade-off del rotativo, ya medido en el preview (PENDIENTE DE DECIDIR)
+
+RP.1 lo anotó y dejó la decisión para cuando hubiera preview. Ya lo hay, y esto es lo que se ve
+con palabras de anchura dispar (`coches` / `motocicletas` / `bicis`):
+
+- La caja del rotativo mide **181 px**, lo que ocupa la palabra más larga, y **no cambia** al
+  rotar — es la propiedad que evita el salto de layout, y funciona.
+- Con la palabra más larga el titular se lee perfecto: *"Compra y vende motocicletas"*.
+- Con una corta, la palabra queda **centrada** dentro de esos 181 px y aparece un hueco visible:
+  *"Compra y vende␣␣␣␣coches"*.
+
+La palanca es una línea: `justify-items: start` en `.hero-rot`. Comparado en el navegador, con
+esa línea el titular se lee con espaciado normal (*"Compra y vende coches"*) a cambio de que la
+frase entera quede ligeramente descentrada, porque la caja sigue reservando el ancho de la
+palabra más larga.
+
+**No se ha cambiado.** Es una decisión de producto entre dos defectos pequeños: hueco visible
+frente a frase algo descentrada. Recomendación: `justify-items: start`, porque el hueco se lee
+como un error de escritura y el descentrado no.
+
 ### `getByRole` no sirve para sondear si una página ya se actualizó
 
 El spec del motor de bloques salía rojo en un sitio muy concreto: el `beforeAll` que espera a que
@@ -11023,6 +11083,14 @@ Regla que queda: en un predicado de espera, `waitUntil: 'load'` y locators PLANO
 `locator`, `getByPlaceholder`). `getByRole` en los tests sí, donde `expect()` reintenta hasta que
 el elemento está pintado — que es exactamente lo que allí faltaba. Y una espera de AUSENCIA debe
 exigir además algo presente (el `<h1>`), o daría por buena una página que no ha renderizado nada.
+
+**La misma trampa por otra puerta (RP.3): `boundingBox()`.** Dos tests comparaban posiciones
+verticales para afirmar "este bloque va antes que aquel". `boundingBox()` devuelve `null` si el
+elemento aún no está pintado y —a diferencia de `expect()`— **no auto-espera**, así que en la
+batería completa reventaban con `Cannot read properties of null`. Se sustituyó por
+`compareDocumentPosition`: el ORDEN EN EL DOM es además literalmente la propiedad bajo prueba (la
+posición en el array es el orden, no hay campo `order`), así que el test quedó más directo y sin
+depender del layout.
 
 ### La fila semilla reproduce la portada anterior
 

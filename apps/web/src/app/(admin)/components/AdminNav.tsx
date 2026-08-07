@@ -21,6 +21,9 @@ const NAV_ITEMS: { href: string; label: string; roles: string[] }[] = [
   { href: '/admin/footer',      label: 'Footer',       roles: ['ADMIN'] },
   // RN.4 — junto a Footer: son las dos navegaciones configurables del sitio.
   { href: '/admin/nav',         label: 'Navegación',   roles: ['ADMIN'] },
+  // RP.3 — junto a Footer y Navegación: las tres son CONFIGURACIÓN del sitio
+  // (solo ADMIN), no contenido como Blog/Páginas (que sí abren a EDITOR).
+  { href: '/admin/portada',     label: 'Portada',      roles: ['ADMIN'] },
   { href: '/admin/campaigns',   label: 'Campañas',     roles: ['ADMIN'] },
   { href: '/admin/cupones',     label: 'Cupones',      roles: ['ADMIN'] },
   { href: '/admin/banners',     label: 'Banners',      roles: ['ADMIN'] },
