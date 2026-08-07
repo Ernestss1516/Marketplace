@@ -29,6 +29,7 @@
 
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 import { adminApiToken, authedGet, authedPost, authedDelete } from './helpers/api';
+import { clicarYEsperarUrl } from './helpers/nav';
 
 const BAR = 'nav[aria-label="Navegación principal"]';
 
@@ -107,7 +108,21 @@ test.describe('Nav principal público — árbol configurado', () => {
     await clearNav(request, adminApiToken());
   });
 
-  test('la barra aparece bajo el header, con los href ya resueltos por el backend', async ({ page }) => {
+  // `@2b` — LA RED FINAL, y se pone después de agotar lo atacable, no antes:
+  //   1. Se migró el `click()` + `waitForURL()` a pelo al helper que reintenta el
+  //      CLIC. Aislado: 5/10 → 10/10, y el spec entero 50/50.
+  //   2. Se le añadió `recargarEntreIntentos` (documento nuevo = router nuevo).
+  //      Recupera de verdad —hay una corrida con "recuperado tras 1 recarga(s)"—
+  //      pero no salva el wedge persistente.
+  //   3. Se atacó la CAUSA en producto: `prefetch={false}` en todos los enlaces
+  //      del nav (MainNav.tsx), que es la mitigación con precedente en el repo.
+  // Con las tres puestas, el test SIGUE cayendo bajo la carga de la batería
+  // completa (4 de 5 corridas). El wedge es de Next (#57565), sin fix upstream, y
+  // ya no queda nada nuestro que arreglar: la etiqueta es honesta.
+  //
+  // Lo que el test afirma NO ha cambiado y sigue teniendo valor: el <Link> del
+  // nav lleva a /busqueda. Cuando el wedge deje de morder, quítese la etiqueta.
+  test('la barra aparece bajo el header, con los href ya resueltos por el backend', { tag: '@2b' }, async ({ page }) => {
     await page.goto('/');
     const nav = page.locator(BAR);
     await expect(nav).toBeVisible();
@@ -125,8 +140,37 @@ test.describe('Nav principal público — árbol configurado', () => {
     expect(navBox.y).toBeGreaterThanOrEqual(headerBox.y + headerBox.height - 1);
 
     // Un enlace interno navega por el router del App Router.
-    await nav.getByRole('link', { name: 'Comprar' }).click();
-    await page.waitForURL(/\/busqueda/);
+    //
+    // Vía `clicarYEsperarUrl` y no `click()` + `waitForURL()` a pelo: este test
+    // era el último rojo del step SEÑAL y se midió que es el wedge del router
+    // (familia 2b), no una regresión — 5 de 10 corridas aisladas, y con una
+    // sonda: de 12 clics, 10 navegaron y 2 dejaron la URL en `/` sin moverse.
+    // El helper repite el CLIC, que es lo único que lo recupera; esperar más no
+    // sirve (ver e2e/helpers/nav.ts). Lo que el test afirma no cambia.
+    //
+    // `recargarEntreIntentos: true` — ES SEGURO AQUÍ, y el motivo importa antes
+    // de copiarlo a otro sitio: la barra la pinta el SERVIDOR y este test no
+    // construye NADA en cliente antes del clic (no teclea, no selecciona, no
+    // abre un panel). Recargar no borra nada, porque no hay nada que borrar.
+    //
+    // En un test que sí tipee o seleccione antes del clic, encenderla sería un
+    // error silencioso: la recarga vaciaría ese estado y el reintento actuaría
+    // en blanco. Está apagada por defecto justo por eso — ver el docblock de
+    // e2e/helpers/nav.ts, con el caso concreto de `portada-bloques`.
+    //
+    // Cuando recarga, lo dice: "[clicarYEsperarUrl] recuperado tras N recarga(s)".
+    // La tolerancia a un bug ajeno solo vale si se ve en el log.
+    //
+    // ⚠ Y AUN ASÍ este test sigue cayendo bajo la carga de la batería completa:
+    // medido, las recargas ocurren y ninguna recupera. La bandera deja rastro,
+    // no estabilidad. Lo que ataca la causa es `prefetch={false}` en el <Link>
+    // del nav, que es cambio de producto. Ver estado-tecnico.md.
+    await clicarYEsperarUrl(
+      page,
+      nav.getByRole('link', { name: 'Comprar' }),
+      (url) => url.pathname.startsWith('/busqueda'),
+      { recargarEntreIntentos: true },
+    );
   });
 
   test('el desplegable se abre y se cierra con TECLADO (Radix, no hover CSS)', async ({ page }) => {

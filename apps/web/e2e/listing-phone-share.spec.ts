@@ -6,6 +6,7 @@
 
 import { test, expect } from './fixtures/auth';
 import { loginViaApi, authedPost, authedGet } from './helpers/api';
+import { clicarYEsperarUrl } from './helpers/nav';
 
 const PHONE = '611222333';
 
@@ -71,8 +72,10 @@ test.describe('Ver teléfono + Compartir en la ficha', () => {
     await page.goto(`/anuncio/${slugWithPhone}`);
     const button = page.getByRole('button', { name: 'Ver teléfono' });
     await expect(button).toBeVisible();
-    await button.click();
-    await page.waitForURL(/\/login\?callbackUrl=/, { timeout: 8_000 });
+    // Navegación de CLIENTE (`useRequireAuth` hace `router.push` y sale ANTES de
+    // llamar a la API), así que está expuesta al wedge del router y el reclic del
+    // helper es inocuo: sin sesión el botón no tiene ningún efecto salvo navegar.
+    await clicarYEsperarUrl(page, button, (url) => url.pathname === '/login' && url.searchParams.has('callbackUrl'));
     expect(decodeURIComponent(page.url())).toContain(`/anuncio/${slugWithPhone}`);
   });
 

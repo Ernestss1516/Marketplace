@@ -34,10 +34,13 @@ export function NavDropdown({ node }: { node: NavNode }) {
 
   return (
     <div className="flex shrink-0 items-center">
+      {/* prefetch={false} — misma mitigación del wedge del router que el resto
+          de la barra; el porqué y el alcance, en MainNav.tsx. */}
       {hasOwnLink && (
         <SmartLink
           href={node.href!}
           external={node.external}
+          prefetch={false}
           className="rounded-md py-2 pl-3 pr-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
         >
           {node.label}
@@ -77,7 +80,12 @@ export function NavDropdown({ node }: { node: NavNode }) {
               segundo nivel sin destino. */}
           {node.children.map((child, idx) => (
             <DropdownMenuItem key={`${child.href}-${idx}`} asChild>
-              <SmartLink href={child.href!} external={child.external} className={CHILD_CLS}>
+              <SmartLink
+                href={child.href!}
+                external={child.external}
+                prefetch={false}
+                className={CHILD_CLS}
+              >
                 {child.label}
               </SmartLink>
             </DropdownMenuItem>

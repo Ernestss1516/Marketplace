@@ -7,6 +7,7 @@
 
 import { test, expect } from './fixtures/auth';
 import type { Page } from '@playwright/test';
+import { clicarYEsperarUrl } from './helpers/nav';
 
 /**
  * Espera a que el footer PÚBLICO refleje un cambio hecho en el backoffice.
@@ -188,8 +189,13 @@ test.describe('Admin — /admin/footer', () => {
     // Despublicar la página — el ítem del footer sigue existiendo pero se omite del público.
     await page.goto('/admin/paginas');
     await page.waitForLoadState('networkidle');
-    await page.getByRole('link', { name: pageTitle }).click();
-    await page.waitForURL(/\/admin\/paginas\/.+\/editar/);
+    // Clic sobre un <Link> del listado → navegación de cliente: por el helper,
+    // que repite el clic si el router se queda wedged (e2e/helpers/nav.ts).
+    await clicarYEsperarUrl(
+      page,
+      page.getByRole('link', { name: pageTitle }),
+      (url) => /\/admin\/paginas\/.+\/editar/.test(url.pathname),
+    );
     await page.getByRole('button', { name: /despublicar/i }).click();
     await page.waitForTimeout(500);
 

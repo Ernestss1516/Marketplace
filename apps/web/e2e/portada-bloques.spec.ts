@@ -18,6 +18,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { adminApiToken, authedPatch } from './helpers/api';
 import { PORTADA_SEMILLA, restaurarPortada } from './helpers/portada';
+import { clicarYEsperarUrl } from './helpers/nav';
 
 // La semilla viene de helpers/portada.ts (fuente única, ver allí el porqué).
 const TITULO = PORTADA_SEMILLA.heroStaticTitle;
@@ -88,8 +89,14 @@ test.describe('Portada — motor de bloques', () => {
     test('el buscador funciona: navega a /busqueda con el texto', async ({ page }) => {
       await page.goto('/');
       await page.getByPlaceholder('¿Qué estás buscando?').fill('bicicleta');
-      await page.getByRole('button', { name: 'Buscar' }).click();
-      await page.waitForURL(/\/busqueda\?.*q=bicicleta/);
+      // `SearchBar` navega con `router.push` (SearchBar.tsx:91), o sea navegación
+      // de cliente expuesta al wedge del router. Repetir una búsqueda no tiene
+      // efecto colateral, así que el reclic del helper es seguro.
+      await clicarYEsperarUrl(
+        page,
+        page.getByRole('button', { name: 'Buscar' }),
+        (url) => url.pathname === '/busqueda' && url.searchParams.get('q') === 'bicicleta',
+      );
     });
 
     test('los chips "Populares" respetan el tope configurado', async ({ page }) => {

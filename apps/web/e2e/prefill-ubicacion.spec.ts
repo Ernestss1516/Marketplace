@@ -6,6 +6,7 @@
 //   3. Editar un anuncio existente → muestra la ubicación DEL ANUNCIO, no la del perfil.
 
 import { test, expect } from './fixtures/auth';
+import { clicarYEsperarUrl } from './helpers/nav';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -112,16 +113,10 @@ test.describe('RL5.1-A — Prefill de ubicación del perfil', () => {
       .filter({ hasText: 'Anuncio RF.11 E2E' });
     const editLink = listingCard.getByRole('link', { name: /editar/i });
 
-    // Retry-the-click: same intermittent Next.js App Router click-navigation
-    // race under `next start` mitigated in flujo-critico.spec.ts and
-    // busqueda-mapa.spec.ts (see docs/estado-tecnico.md, "Nota de proceso — CI
-    // flaky Playwright") — the click registers but the transition occasionally
-    // never commits, with no console/page error. Retrying the click itself is
-    // the reliable mitigation, not just retrying the wait.
-    await expect(async () => {
-      await editLink.click();
-      await page.waitForURL('**/editar**', { timeout: 5_000 });
-    }).toPass({ timeout: 20_000 });
+    // Retry-the-click contra el wedge del router. Este bloque estaba escrito a
+    // mano aquí y en wizard-herencia; ahora los dos usan `clicarYEsperarUrl`,
+    // que es el mismo patrón en un sitio y además añade `waitUntil: 'commit'`.
+    await clicarYEsperarUrl(page, editLink, (url) => url.pathname.endsWith('/editar'));
 
     // EditarWizard starts at Fotos; advance through steps to Ubicación.
     await expect(page.getByRole('heading', { name: 'Fotos' })).toBeVisible({ timeout: 8_000 });

@@ -12,6 +12,7 @@
 // pro-e2e@example.com must have an active PRO_SUBSCRIPTION entitlement (seeded by seed-playwright.ts).
 
 import { test, expect } from './fixtures/auth';
+import { clicarYEsperarUrl } from './helpers/nav';
 
 test.describe('/planes — página de precios', () => {
   test('renderiza sin sesión y muestra planes Free y Pro', async ({ browser }) => {
@@ -45,9 +46,18 @@ test.describe('/planes — página de precios', () => {
     await page.goto('/planes');
     await expect(page.getByRole('button', { name: /Hazte Pro/i }).first()).toBeVisible();
 
-    await page.getByRole('button', { name: /Hazte Pro/i }).first().click();
-
-    await page.waitForURL(/\/login/, { timeout: 5_000 });
+    // SIN sesión, `useRequireAuth` hace `router.push('/login')` y sale ANTES de
+    // llamar a `createCheckout`: es navegación de cliente pura, expuesta al wedge
+    // del router, y repetir el clic no tiene ningún efecto colateral.
+    //
+    // (El test de aquí abajo, el del 401, NO se migra: allí sí hay sesión, la
+    // llamada a la API sale y el redirect viene del signOut. Reclicarlo repetiría
+    // la petición — ver la clasificación en docs/estado-tecnico.md.)
+    await clicarYEsperarUrl(
+      page,
+      page.getByRole('button', { name: /Hazte Pro/i }).first(),
+      (url) => url.pathname.startsWith('/login'),
+    );
     expect(page.url()).toContain('/login');
 
     await ctx.close();

@@ -5,6 +5,30 @@ import { NavDropdown } from './NavDropdown';
 const LINK_CLS =
   'shrink-0 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground';
 
+/**
+ * `prefetch={false}` EN TODOS LOS ENLACES DEL NAV — mitigación del bug del App
+ * Router de Next 15 (vercel/next.js#57565, sin fix upstream), la misma que ya
+ * llevan las tarjetas de anuncio (ListingCard.tsx) y por el mismo motivo.
+ *
+ * La barra se pinta en TODAS las páginas públicas, así que en cada carga dispara
+ * una ráfaga de prefetches concurrentes —uno por destino del árbol— que puede
+ * dejar el router cliente **wedged**: a partir de ahí los clics no navegan. No es
+ * un problema de test: **un usuario con el router wedged tampoco navega**, y el
+ * único remedio a mano es recargar. Medido en `nav-publico.spec.ts`, que clica un
+ * enlace de esta barra: 5 de cada 10 veces no conmutaba.
+ *
+ * ALCANCE: todos los enlaces del nav, no solo el que el test clica. El wedge no
+ * distingue destinos —lo dispara la ráfaga de precargas concurrentes, no un href
+ * concreto—, y dejar la mitad prefetchando sería quedarse con el problema y
+ * perder la mitad del beneficio.
+ *
+ * COSTE: el primer clic sobre un enlace del nav carga su destino sin precarga.
+ * En una barra de 4-6 entradas el prefetch-on-viewport rinde poco de todos modos
+ * (se precargan destinos que el usuario no visita), así que es el mismo trato
+ * barato que se aceptó en las tarjetas.
+ */
+const NAV_PREFETCH = false;
+
 /** Nodo raíz sin hijos: un enlace suelto. Mismo reparto external/interno que
  *  Footer.tsx — literalmente el mismo componente desde RP.2. `external` va
  *  explícito porque lo resuelve el backend (NavItemType), no el href.
@@ -12,7 +36,12 @@ const LINK_CLS =
  *  desplegable, no como enlace. */
 function TopLevelLink({ node }: { node: NavNode }) {
   return (
-    <SmartLink href={node.href!} external={node.external} className={LINK_CLS}>
+    <SmartLink
+      href={node.href!}
+      external={node.external}
+      prefetch={NAV_PREFETCH}
+      className={LINK_CLS}
+    >
       {node.label}
     </SmartLink>
   );

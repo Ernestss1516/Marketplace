@@ -37,10 +37,20 @@ type SmartLinkProps = Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'href'> & {
   href: string;
   /** Omitido = se deriva del href con `isExternalHref`. */
   external?: boolean;
+  /**
+   * Se reenvía al `<Link>` interno; en la rama externa no aplica (un `<a>` no
+   * precarga). Declarado EXPLÍCITAMENTE y no colado por `rest` porque `prefetch`
+   * no es un atributo de `<a>`: sin esta línea, TypeScript lo rechaza.
+   *
+   * Existe para poder apagar la precarga donde el bug del router de Next 15
+   * (#57565) muerde — ver el comentario de MainNav.tsx. Por defecto se deja como
+   * lo deje Next, que es lo que quiere el resto de consumidores.
+   */
+  prefetch?: boolean;
 };
 
 export const SmartLink = forwardRef<HTMLAnchorElement, SmartLinkProps>(function SmartLink(
-  { href, external, children, ...rest },
+  { href, external, prefetch, children, ...rest },
   ref,
 ) {
   if (external ?? isExternalHref(href)) {
@@ -52,7 +62,7 @@ export const SmartLink = forwardRef<HTMLAnchorElement, SmartLinkProps>(function 
   }
 
   return (
-    <Link ref={ref} href={href} {...rest}>
+    <Link ref={ref} href={href} prefetch={prefetch} {...rest}>
       {children}
     </Link>
   );

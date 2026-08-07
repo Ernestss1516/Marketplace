@@ -16,7 +16,23 @@
 // listing-phone-share.spec.ts — más rápido y estable que pasar por el wizard.
 
 import { test, expect } from './fixtures/auth';
+import type { Locator, Page } from '@playwright/test';
 import { loginViaApi, authedPost, authedGet } from './helpers/api';
+import { clicarYEsperarUrl } from './helpers/nav';
+
+/**
+ * Abrir una conversación desde la lista. Es un `<a href="/mensajes/{id}">`, o
+ * sea una navegación de CLIENTE del App Router, y por tanto expuesta al wedge
+ * del router (familia 2b): el clic se registra, la RSC payload responde 200 y la
+ * transición no conmuta. `clicarYEsperarUrl` lo recupera repitiendo el CLIC —
+ * esperar más no sirve, ver e2e/helpers/nav.ts.
+ *
+ * Reabrir la misma conversación es idempotente (solo navega), así que el
+ * reintento es seguro. Lo que cada test comprueba después no cambia.
+ */
+async function abrirConversacion(page: Page, enlace: Locator): Promise<void> {
+  await clicarYEsperarUrl(page, enlace, (url) => /^\/mensajes\/.+/.test(url.pathname));
+}
 
 test.describe('Mensajería unificada (bandeja + chat)', () => {
   let sellerToken: string;
@@ -120,8 +136,7 @@ test.describe('Mensajería unificada (bandeja + chat)', () => {
     await expect(rowLink).toContainText(listingTitle);
 
     // ── 2. Abrir la conversación → fetchEligibility dispara "Valorar" ──────
-    await rowLink.click();
-    await sellerPage.waitForURL('**/mensajes/**');
+    await abrirConversacion(sellerPage, rowLink);
     await expect(
       sellerPage.getByRole('button', { name: 'Valorar' }),
     ).toBeVisible({ timeout: 10_000 });
@@ -134,8 +149,7 @@ test.describe('Mensajería unificada (bandeja + chat)', () => {
     await sellerPage.getByRole('link', { name: 'Mensajes' }).click();
     await expect(sellerPage).toHaveURL(/\/mensajes$/);
     await expect(sellerPage.getByText('Selecciona una conversación')).toBeVisible();
-    await rowLink.click();
-    await sellerPage.waitForURL('**/mensajes/**');
+    await abrirConversacion(sellerPage, rowLink);
     await expect(
       sellerPage.getByRole('button', { name: 'Valorar' }),
     ).toBeVisible({ timeout: 10_000 });
@@ -148,8 +162,7 @@ test.describe('Mensajería unificada (bandeja + chat)', () => {
     // que este segundo ciclo distingue.
     await sellerPage.getByRole('link', { name: 'Mensajes' }).click();
     await expect(sellerPage).toHaveURL(/\/mensajes$/);
-    await rowLink.click();
-    await sellerPage.waitForURL('**/mensajes/**');
+    await abrirConversacion(sellerPage, rowLink);
     await expect(
       sellerPage.getByRole('button', { name: 'Valorar' }),
     ).toBeVisible({ timeout: 10_000 });
@@ -162,8 +175,7 @@ test.describe('Mensajería unificada (bandeja + chat)', () => {
 
     await sellerPage.getByRole('link', { name: 'Mensajes' }).click();
     await expect(sellerPage).toHaveURL(/\/mensajes$/);
-    await sellerPage.getByText(listingTitle).first().click();
-    await sellerPage.waitForURL('**/mensajes/**');
+    await abrirConversacion(sellerPage, sellerPage.getByText(listingTitle).first());
     await expect(
       sellerPage.getByRole('button', { name: 'Valorar' }),
     ).toBeVisible({ timeout: 10_000 });
@@ -241,8 +253,7 @@ test.describe('Mensajería unificada (bandeja + chat)', () => {
     await expect(sellerPage.getByText('4', { exact: true })).toBeVisible({ timeout: 10_000 });
 
     // Al reabrir, el badge se pone a 0 sin esperar ningún round-trip visible.
-    await rowLink.click();
-    await sellerPage.waitForURL('**/mensajes/**');
+    await abrirConversacion(sellerPage, rowLink);
     await expect(sellerPage.getByText('cuatro', { exact: true }).last()).toBeVisible();
 
     // ── 7. Móvil: una sola columna + back nativo ────────────────────────────
@@ -251,8 +262,7 @@ test.describe('Mensajería unificada (bandeja + chat)', () => {
     // En móvil sin selección: la lista se ve, el chat no.
     await expect(sellerPage.getByRole('heading', { name: 'Mensajes' })).toBeVisible();
     await expect(rowLink).toBeVisible({ timeout: 15_000 });
-    await rowLink.click();
-    await sellerPage.waitForURL('**/mensajes/**');
+    await abrirConversacion(sellerPage, rowLink);
     await expect(sellerPage.getByRole('button', { name: 'Valorar' })).toBeVisible();
     // La lista no debe verse a la vez que el chat en móvil.
     await expect(sellerPage.getByRole('heading', { name: 'Mensajes' })).toBeHidden();

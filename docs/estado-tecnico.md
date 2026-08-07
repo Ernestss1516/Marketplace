@@ -10315,6 +10315,141 @@ solo da señal fiable en modo producción/CI. Correrla contra `next dev` en loca
 no-determinismo que NO es una regresión**, y tratarlo como tal lleva a perseguir fantasmas.
 Si hay que medir en local, `next build && next start`; si no, leer la corrida del CI.
 
+### Barrido de `click()` + `waitForURL()` a pelo — y el criterio que lo acota
+
+El último rojo del step SEÑAL era `nav-publico.spec.ts:110`. **Diagnosticado antes de tocarlo**, y
+el diagnóstico importa porque el mensaje de Playwright despista:
+
+- **Aislado, `--repeat-each=10 --retries=0`: 5 de 10 verdes.** Intermitente, no determinista → no
+  era regresión de nada. Fallaron las repeticiones 0, 1, 2, 6 y 7; sin patrón monótono.
+- **Con una sonda que mide `page.url()` a mano tras el clic, 12 intentos:** 10 navegaron a
+  `/busqueda` (y `waitForURL` por defecto habría pasado), **2 dejaron la URL en `/` sin moverse**,
+  y **0** casos de "navegó pero falta el evento `load`".
+
+Ese último cero descarta la hipótesis intuitiva. El error dice `waiting for navigation until "load"`
+y parece señalar al `waitUntil`, pero **no es el `waitUntil`**: cuando el router conmuta, el estado
+`load` ya está satisfecho (una navegación de cliente no reemplaza el documento) y la espera por
+defecto resuelve. Cuando falla, **la URL no cambia nunca**: es el wedge de 2b, sin más.
+
+La diferencia real con los tests que no caen es **el reintento del CLIC**, que es lo que ya decía el
+docblock de `helpers/nav.ts`. Tras migrar: **10 de 10 verdes**, y los tiempos enseñan el mecanismo —
+7 corridas en ~0,6 s (el clic conmutó a la primera) y **3 en ~5,7 s**, que son tres wedges reales
+recuperados por el segundo clic. El wedge no desapareció; se recupera. El spec entero repetido 10
+veces: **50 de 50**.
+
+### Los dos wedges, y por qué `nav-publico` lleva `recargarEntreIntentos`
+
+El reclic no cubre todos los casos, y la diferencia se midió:
+
+- **Wedge RECUPERABLE.** El segundo clic conmuta. Es la mayoría: en aislado, 7 de 10 a la primera
+  y 3 a la segunda. Lo cubre el helper tal cual.
+- **Wedge PERSISTENTE.** Una vez el router cliente entra en ese estado, **clicar otra vez sobre ESE
+  MISMO documento no lo saca**: bajo la carga de la batería completa se vio agotarse el presupuesto
+  entero —6 intentos, 30 s— sobre la misma página, y el test cayó en 2 de 3 corridas.
+
+La hipótesis era que de ese segundo estado se sale con un **documento nuevo**, que trae un router
+nuevo. Eso es `recargarEntreIntentos`: con la bandera puesta, cada reintento recarga antes de volver
+a clicar.
+
+**La recarga recupera, pero no es la cura.** Las dos mitades del dato:
+
+- **Sí recupera.** Se ha visto imprimir `[clicarYEsperarUrl] recuperado tras 1 recarga(s)` en una
+  corrida real (`nav-publico` aislado, repetición 5 de 10, 6,5 s frente a los ~0,6 s normales).
+- **Y aun así no basta.** Cuatro baterías completas tras la migración y antes de tocar el producto:
+  con la bandera, roja y roja; sin ella, roja y verde. En una de ellas el log no salió ni una vez —
+  las recargas ocurrieron y ninguna sirvió: contra el wedge persistente, un documento nuevo tampoco
+  saca.
+
+O sea: la bandera es una **red útil con rastro**, no el arreglo. Lo que ataca la causa es lo de
+abajo.
+
+**Encendida solo en `nav-publico`, y el motivo es la seguridad, no el gusto.** La barra la pinta el
+servidor y ese test no construye nada en cliente antes del clic, así que recargar no borra nada.
+**Va apagada por defecto** porque en un test que teclee o seleccione antes del clic la recarga
+vaciaría ese estado y el reintento actuaría en blanco — caso concreto: en `portada-bloques` el clic
+sobre "Buscar" viene después de teclear "bicicleta"; con la bandera puesta el segundo intento
+buscaría con la consulta vacía y el test pasaría a afirmar algo que no es. Está escrito en los dos
+sitios (el docblock del helper y el punto de encendido) para que nadie lo copie a ciegas.
+
+**La tolerancia es OBSERVABLE, y esa es la condición que la hace aceptable.** Cada recuperación
+imprime `[clicarYEsperarUrl] recuperado tras N recarga(s)` —molde de `[waitForCard] found after N
+reload(s)`—, así que "el test pasa" se lee siempre como "pasó, y recargó N veces". Si el wedge pasa
+de ocasional a constante, el log lo delata en vez de un verde mudo escondiendo un router roto.
+`e2e/helpers-nav.spec.ts` clava esa propiedad con dobles: que recarga, que cuenta bien y que lo
+dice. Sin ese guard, alguien podría quitar el `console.log` y nadie se enteraría.
+
+### Se atacó la causa en PRODUCTO: `prefetch={false}` en todo el nav
+
+`MainNav` se pinta en **todas** las páginas públicas, así que en cada carga dispara una ráfaga de
+prefetches concurrentes —uno por destino del árbol— que es el disparador conocido del wedge. La
+mitigación es la misma que ya llevan las tarjetas de anuncio (`ListingCard.tsx`), y **no es un
+parche de test: un usuario con el router wedged tampoco navega**, y su único remedio es recargar.
+
+**Alcance: TODOS los enlaces del nav**, no solo el que el test clica (`TopLevelLink`, el enlace
+propio del desplegable y sus hijos). El wedge no distingue destinos —lo dispara la ráfaga, no un
+href concreto—, y dejar la mitad prefetchando sería quedarse con el problema y perder la mitad del
+beneficio. Coste: el primer clic sobre una entrada del nav carga su destino sin precarga; en una
+barra de 4-6 entradas el prefetch-on-viewport rinde poco de todos modos. `SmartLink` gana un prop
+`prefetch` opcional para poder pasarlo (no cuela por `rest`: no es atributo de `<a>`).
+
+**Y hay que decir lo que la medida NO muestra:** en los números de esta investigación
+`prefetch={false}` **no produjo una mejora medible sobre el test**. El salto de 5/10 a 10/10 en
+aislado ya lo había dado la migración al helper, antes de tocar el producto; y la batería completa
+siguió cayendo con el cambio puesto. Se mantiene por su valor de PRODUCTO —el bug de usuario es
+real y la mitigación tiene precedente—, no porque se le pueda atribuir el verde de ningún test.
+
+### Y aun así queda residuo: `nav-publico:110` pasa a `@2b`
+
+Con las tres palancas puestas —helper que reclica, recarga entre intentos y `prefetch={false}`— el
+test **sigue cayendo en 4 de 5 baterías completas**, mientras en aislado da 10/10 y 50/50. El wedge
+es de Next (#57565), sin fix upstream, y no queda nada nuestro que arreglar.
+
+Por eso —y solo por eso, después de agotar lo atacable y no antes— el test se etiqueta `@2b`. Es lo
+que le correspondía desde el principio: está fuera del grupo tolerado por omisión histórica (el
+helper y la familia `@2b` nacieron en `8903dac`; el spec no se tocaba desde `0e2b6d8`, 26 commits
+después, y aquel commit no lo revisó). **Lo que el test afirma no ha cambiado** —el `<Link>` del nav
+lleva a `/busqueda`— y sigue corriendo: cae en el grupo tolerado, no en el señal. Cuando el wedge
+deje de morder, quítese la etiqueta.
+
+⚠ **Dos medidas que se descartaron por ser artefacto de la sonda, no del producto.** Un script
+independiente que recreaba los ítems del nav en cada vuelta dio 9/9 y 0/8 sin navegar, y estuvo a
+punto de leerse como "el wedge es determinista". No lo era: recrear el nav invalida su caché, obliga
+a recargar la home y esos abortos envenenaban el prefetch — algo que el test real no hace nunca. La
+lección: **cuando la sonda y el test discrepan, gana el test**; una sonda que monta su propio
+escenario puede estar midiendo su propio escenario.
+
+**El criterio del barrido: el helper REPITE el clic, así que solo es seguro donde el clic es
+idempotente.** Ese es el filtro que hay que aplicar, y no está en el vector: reclicar
+"Publicar ahora" publicaría dos anuncios, y reclicar "Guardar borrador" crearía dos páginas. De los
+66 `waitForURL` de la batería:
+
+| Clase | Sitios | Qué se hizo |
+|---|---|---|
+| Clic sobre `<Link>` o `router.push` **sin efecto colateral** | 14 | **Migrados** a `clicarYEsperarUrl` |
+| `page.goto()` + redirect de middleware | 11 | No: no hay clic; es navegación de documento |
+| Clic que dispara una **acción async** con efecto (publicar, guardar, enviar, login, checkout) | 30 | **No: el reintento duplicaría el efecto** |
+| Clic dentro de un desplegable que **se cierra al pulsar** | 4 | No: en el reintento el locator ya no existe |
+| `press('Enter')` | 2 | No: el helper clica un locator, no teclea |
+| El propio helper | 2 | — |
+| Ya con `waitUntil: 'commit'` sobre `selectOption`/`blur` | 3 | No: no es un clic |
+
+Los 14 migrados: `nav-publico` (el enlace del nav), `footer-admin` (enlace del listado admin),
+`mensajeria-unificada` (6 aperturas de conversación, unificadas en `abrirConversacion`),
+`portada-bloques` (el botón del buscador — `SearchBar` navega con `router.push` y repetir una
+búsqueda no tiene efecto), `listing-phone-share` y `planes` (los dos con guardia `useRequireAuth`,
+que hace `router.push` y **sale antes** de llamar a la API), y `prefill-ubicacion` +
+`wizard-herencia`, que ya escribían el patrón A MANO con el mismo razonamiento duplicado en un
+comentario largo: ahora pasan por el helper y además ganan el `waitUntil: 'commit'`.
+
+Dos casos que parecen candidatos y **no lo son**, por si vuelven a mirarse:
+
+- `planes.spec.ts` tiene dos "Hazte Pro". El de **sin sesión** se migró; el del **401** no: allí sí
+  hay sesión, la llamada a la API sale y el redirect viene del `signOut`. Reclicar repetiría la
+  petición.
+- `mis-creditos.spec.ts:212` es lo mismo — `useApiAction` maneja el 401 con `signOut` + redirect.
+
+Ninguna aserción cambió en ningún test: solo el mecanismo de clic-y-espera.
+
 ### FOLLOW-UPS de la saga (no urgentes, anotados)
 
 - **Encoger el conjunto tolerado — ahora con DATO, no con estimación.** 23 de 271 (~8,5 %) es
