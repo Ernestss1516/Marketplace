@@ -11582,6 +11582,52 @@ motor de CSS, así que `portada-hero.spec.ts` las mide donde ocurren:
 
 ---
 
+## El reloj del guard de reapertura de tickets (RESUELTO — era una bomba de relojería)
+
+`tickets-cron.e2e-spec.ts › "dentro de la ventana configurada, la reapertura SIGUE
+funcionando"` pasó a rojo **permanente** el 2026-08-08 a las 05:00 UTC. No era flaky
+(10 corridas aisladas, 10 rojos) ni un fallo de la ventana configurable.
+
+**Asimetría de reloj.** `TicketsScheduleService.runTicketAutoClose(now)` recibía el
+instante inyectado; `TicketsService.assertWithinReopenWindow` leía `Date.now()`. El spec
+ancla todo a un `AHORA` fijo (`2026-07-29T05:00Z`) vía `resolvedHaceDias`, así que el
+escenario y su juez vivían en instantes distintos: el test estuvo verde **por coincidencia
+de calendario** hasta que el reloj real cruzó el deadline anclado a esa fecha. Con
+`setVentana(30)` y un ticket de 20 días, el deadline caía en `2026-08-08T05:00Z` — a partir
+de ahí, rojo para siempre, con el desfase creciendo un día por día.
+
+La ventana configurable **funcionaba**: el mensaje de error decía «30 días», que es
+exactamente lo configurado (el default de código es 14, no 30). Medido: el `Setting` se lee,
+gobierna guard y cron, y respeta el valor en los dos sentidos.
+
+**Arreglo de causa, no de números:** `replyAsUser` acepta ahora el mismo `now` que
+`runTicketAutoClose`, con default `new Date()`. `assertWithinReopenWindow` lo exige como
+parámetro **obligatorio** —sin default cómodo— para que ningún llamador futuro vuelva a
+colar el reloj real sin querer; la decisión vive en la puerta pública. Producción no cambia:
+`TicketsController` sigue llamando con cuatro argumentos.
+
+**El segundo test también estaba roto, en verde.** «EL MISMO Setting gobierna el guard de
+reapertura (T8)» esperaba un rechazo, y la deriva del reloj real se lo daba **sin mirar la
+ventana**: habría pasado igual con la ventana ignorada. Verificado con una mutación temporal
+(el guard forzado a ignorar el `Setting` y usar el default 14):
+
+| Test | Bajo la mutación | Lectura |
+|---|---|---|
+| «EL MISMO Setting gobierna…» con reloj compartido | ✕ falla | recuperó la sensibilidad |
+| «dentro de la ventana configurada…» | ✕ falla | también mide la ventana |
+| su forma VIEJA (reloj real, sin `now`) | ✓ pasa | **era verde en falso**, confirmado |
+
+**Verificado**: 10/10 corridas aisladas en verde, ya sin dependencia del reloj real (no hay
+fecha de caducidad futura). Batería API completa 1559/1559.
+
+**Anotado, NO tocado** (fuera del alcance de este arreglo): el comentario de
+`tickets-schedule.service.ts` afirma que en el instante exacto del vencimiento el usuario ya
+no puede reabrir, pero el guard rechaza con `now > deadline` — en ese tick exacto **sí** deja
+reabrir mientras el cron ya cierra (`resolvedAt <= cutoff`, inclusivo). Es una ventana de un
+instante y ningún test cubre esa frontera del guard.
+
+---
+
 ## Un token de admin para toda la batería Playwright (RESUELTO)
 
 Cierra el defecto que destapó RP.1: la batería agotaba el límite de `/auth/admin-login` a media
