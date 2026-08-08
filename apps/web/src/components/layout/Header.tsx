@@ -21,22 +21,29 @@ export default async function Header() {
 
   return (
     <header className="sticky top-0 z-50 border-b bg-background">
-      <div className="container mx-auto flex h-16 items-center justify-between px-4">
-        <Link href="/" className="text-xl font-bold tracking-tight">
+      {/* UXV.2 — los `shrink-0`, el `gap` escalonado y el rótulo corto de «Publicar» son
+          la cabecera cabiendo en 375 px. Antes, con `gap-6` fijo y sin `whitespace-nowrap`,
+          el logo y «Buscar» se tocaban y «Publicar anuncio» partía en dos líneas. Se
+          notaba poco mientras la cabecera solo existía en la zona pública; al montarla
+          también en la de cuenta (A1) pasaba a verse en veinte pantallas más. */}
+      <div className="container mx-auto flex h-16 items-center justify-between gap-3 px-4">
+        <Link href="/" className="shrink-0 text-xl font-bold tracking-tight">
           {SITE_NAME}
         </Link>
-        <nav className="flex items-center gap-6 text-sm">
+        <nav className="flex items-center gap-3 text-sm sm:gap-6">
           <Link
             href="/busqueda"
-            className="text-muted-foreground transition-colors hover:text-foreground"
+            className="shrink-0 whitespace-nowrap text-muted-foreground transition-colors hover:text-foreground"
           >
             Buscar
           </Link>
           <Link
             href="/publicar"
-            className="font-medium text-primary transition-colors hover:text-primary/80"
+            className="shrink-0 whitespace-nowrap font-medium text-primary transition-colors hover:text-primary/80"
           >
-            Publicar anuncio
+            {/* Mismo destino y mismo enlace: solo cambia cuánto texto cabe. */}
+            <span className="sm:hidden">Publicar</span>
+            <span className="hidden sm:inline">Publicar anuncio</span>
           </Link>
           <HeaderAuthNav initialUnreadCount={initialUnreadCount} avatarUrl={avatarUrl} />
         </nav>

@@ -63,9 +63,13 @@ export default async function MisAnunciosPage() {
         </div>
       )}
 
-      <div className="mb-6 flex items-center justify-between">
+      {/* UXV.2 (A3) — `flex-wrap` + `gap-3`: en 375 px el título y los dos botones no
+          caben en una fila, y sin permitir el salto empujaban el ancho del documento a
+          480 px (barra de scroll horizontal en TODA la página, no solo aquí). Es la
+          única pantalla de la zona que desbordaba; medido en las dieciséis. */}
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">Mis anuncios</h1>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button asChild variant="outline">
             <Link href="/mis-anuncios/estadisticas">
               <BarChart3 className="mr-2 h-4 w-4" />

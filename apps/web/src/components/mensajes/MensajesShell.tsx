@@ -27,6 +27,20 @@ interface Props {
  * una sola a la vez — la lista si no hay selección, `children` (el chat) si
  * la hay. Al ser rutas reales (no estado de cliente), el botón atrás nativo
  * del navegador ya hace lo correcto sin código adicional.
+ *
+ * ALTURA (UXV.2): `14rem` → `18rem`, exactamente los 4rem de la cabecera de sitio que
+ * la zona de cuenta no tenía y ahora sí. Sin ese ajuste el panel sobresalía del viewport
+ * y el chat quedaba cortado por abajo.
+ *
+ * SIGUE SIENDO UNA CONSTANTE COSIDA AL SHELL, y conviene saberlo: 18rem es la suma a
+ * mano de lo que hay por encima. Se intentó sustituirla por `flex-1 min-h-0` sobre una
+ * columna con altura real, que sería inmune a futuros cambios del shell, y NO funciona
+ * aquí: el contenedor de la zona crece con su contenido (tiene que hacerlo, o las
+ * pantallas largas —«mis anuncios» con muchas tarjetas— se cortarían), así que la altura
+ * del panel resulta circular y se resuelve al tamaño del contenido, desbordando el
+ * viewport. Medido, no supuesto. La holgura que ya traía el 14rem original absorbe la
+ * barra de móvil y las migas de `/mensajes/[id]`; `shell-cuenta.spec.ts` fija que el
+ * panel no se salga del viewport, así que si el shell vuelve a crecer, salta ahí.
  */
 export function MensajesShell({ initialConversations, token, userId, children }: Props) {
   const pathname = usePathname();
@@ -43,7 +57,7 @@ export function MensajesShell({ initialConversations, token, userId, children }:
   if (initialConversations.length === 0) {
     return (
       <MessagingSocketProvider token={token}>
-        <div className="h-[calc(100vh-14rem)] overflow-hidden rounded-lg border">
+        <div className="h-[calc(100vh-18rem)] overflow-hidden rounded-lg border">
           <ConversationList initialConversations={[]} userId={userId} selectedId={null} />
         </div>
       </MessagingSocketProvider>
@@ -52,7 +66,7 @@ export function MensajesShell({ initialConversations, token, userId, children }:
 
   return (
     <MessagingSocketProvider token={token}>
-      <div className="grid h-[calc(100vh-14rem)] overflow-hidden rounded-lg border md:grid-cols-[22rem_1fr]">
+      <div className="grid h-[calc(100vh-18rem)] overflow-hidden rounded-lg border md:grid-cols-[22rem_1fr]">
         <div
           className={cn(
             'overflow-y-auto md:block md:border-r',
