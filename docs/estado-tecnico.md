@@ -11708,6 +11708,80 @@ El login público (`/auth/login`, tope 150/IP/15min) se midió en la misma corri
 
 ---
 
+## UXV.1 — los dos bugs de la zona de gestión del vendedor (A2 y A7)
+
+Primera tanda de [`diseno-ux-vendedor.md`](diseno-ux-vendedor.md). **No es rediseño**: son
+dos defectos, separados a propósito del rediseño de UX que viene después (UXV.2–UXV.6).
+Los hallazgos vienen de [`auditoria-ux-vendedor.md`](auditoria-ux-vendedor.md).
+
+### A2 — el cooldown del bump tenía TRES verdades
+
+`BillingService.bump` rechazaba por debajo de **3600 s**; `MyListingCard` deshabilitaba el
+botón durante **24 h** (derivando `bumpedAt + 24h` en el cliente); `ListingOwnerActions`
+(ficha pública, vista del dueño) **no bloqueaba nada** y dejaba contestar al 429. El botón de
+la tarjeta quedaba muerto 23 horas de más —con un tooltip de fecha inventada— y las dos
+superficies de propietario se contradecían.
+
+**Fuente única:** `modules/billing/bump-cooldown.ts` — `BUMP_COOLDOWN_SECONDS` (la aplica
+`bump()`) y `nextBumpAt(bumpedAt)`, que deriva el instante en que el anuncio vuelve a ser
+bumpeable. Ese instante VIAJA ya resuelto y el frontend no recalcula ninguna ventana:
+
+| Payload | Superficie | Frescura |
+|---|---|---|
+| `GET /users/me/listings` (`findMine`) | tarjeta de `/mis-anuncios` | Postgres, siempre fresco; enriquecido junto a `featuredUntil` |
+| `GET /listings/:slug` (`findBySlug`) | ficha pública (`ListingOwnerActions`) | derivado FUERA del blob cacheado (como `featuredUntil`), así que los payloads guardados antes del despliegue también lo llevan |
+
+En el front, `lib/bump-cooldown.ts` (`resolveBumpCooldown` + `bumpCooldownTitle`) es el único
+lector: las dos superficies pasan por él, así que no pueden volver a contar cosas distintas.
+Una fecha ilegible **no** bloquea el botón (nunca dejar al usuario sin poder bumpear).
+
+**Efecto lateral necesario:** `bump()` ahora **invalida la ficha cacheada**
+(`listing:${slug}`, TTL 5 min), que hasta hoy solo invalidaban `update`/`delete`. Sin eso, el
+blob viviría 5 minutos con un `bumpedAt` viejo y la ficha diría "puedes bumpear" mientras la
+tarjeta dice lo contrario — la discrepancia entre superficies que A2 cierra. El formato de la
+clave se movió a `infra/redis/cache-keys.ts` porque ahora la escribe `ListingsService` y la
+borra `BillingService`, y ninguno puede importar del otro sin invertir la dirección
+`ListingsModule → BillingModule`.
+
+**Lo que NO entra:** unificar el **coste** mostrado entre las dos superficies (la tarjeta dice
+«Bump N cr.» con cuota/saldo/descuento; la ficha, «Subir al inicio (bump)» sin coste). Exige
+`catalog` + `wallet` + `pro-status` en una página SSR/ISR pública y duplicar la lógica de las
+tres monedas — es el componente compartido de acciones de propietario de **UXV.4**, no un
+arreglo de bug.
+
+**Verificado**: `test/uxv1-bump-cooldown.e2e-spec.ts` (la ventana es la real y no 24 h; las
+dos superficies devuelven el MISMO `nextBumpAt`; el campo y el guard nunca discrepan —futuro
+⇒ 429, pasado ⇒ 200—; tras bumpear la ficha refleja el cooldown nuevo de inmediato) +
+`components/anuncios/bump-cooldown-surfaces.test.tsx` (los dos componentes reales, mismo
+estado ante la misma entrada).
+
+### A7 — la página de éxito de compra nunca resolvía
+
+`/mis-creditos/exito` dejaba un `Loader2` girando **para siempre**: sin estado terminal, el
+usuario tenía que pulsar «Actualizar saldo» a mano y comparar cifras. Se replica el molde de
+`(public)/planes/exito` (detectar la condición terminal → ✔ → salidas), añadiendo el sondeo
+que planes/exito promete en su copy pero no hace.
+
+- **Condición terminal**: existe un apunte `PACK_PURCHASE` —de créditos o de bumps— con
+  `createdAt` dentro de los últimos 15 min. No sirve comparar contra el saldo de la primera
+  lectura: el redirect del TPV y el webhook llegan casi a la vez y en orden no garantizado, así
+  que si el webhook fue rápido nunca veríamos "subir" nada. *Limitación conocida:* dos compras
+  del mismo usuario en menos de 15 min hacen que la segunda resuelva con el apunte de la
+  primera — ✔ prematuro, nunca un dato falso (los saldos mostrados son reales).
+- **Sondeo acotado**: cada 3 s, hasta 60 s. Al agotarse hay un estado terminal de espera (deja
+  de girar, explica que el pago sigue en curso y ofrece comprobar a mano), no un spinner eterno.
+- **Salidas**: botones «Ver mi saldo» / «Ir a mis anuncios», no un enlace de texto suelto.
+
+**Alcance**: solo el arreglo mecánico. A dónde debe volver quien llegó aquí desde un bump o un
+destacado bloqueado por falta de saldo es **flujo**, y se diseña en UXV.3.
+
+**Verificado**: `e2e/mis-creditos.spec.ts` — las dos pruebas de esta página fijaban el
+comportamiento roto (botón manual + enlace de texto) y ahora fijan el arreglo: resuelve a
+confirmado sin pulsar nada, y mientras el webhook no llega vuelve a preguntar por su cuenta sin
+afirmar un éxito que no ha ocurrido.
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.

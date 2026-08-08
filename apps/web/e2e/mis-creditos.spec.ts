@@ -219,14 +219,64 @@ test.describe('/mis-creditos — con sesión (sellerContext)', () => {
 
 test.describe('/mis-creditos/exito', () => {
   // /mis-creditos/exito ES un Client Component → page.route intercepta getWallet()
+  //
+  // UXV.1 (A7) — esta página tenía un spinner que NO terminaba nunca: no había estado
+  // terminal, así que el usuario tenía que pulsar "Actualizar saldo" a mano y comparar
+  // cifras para saber si su compra había entrado. Las pruebas de antes fijaban ese
+  // comportamiento (botón manual + enlace de texto); ahora fijan el arreglo: la página
+  // sondea sola y RESUELVE.
 
-  test('muestra "procesando" y botón "Actualizar saldo" sin asumir créditos acreditados', async ({
+  /** El historial de bumps se consulta junto al wallet — se fija vacío para que la
+   *  condición terminal dependa solo de lo que cada prueba quiere probar. */
+  async function stubBumpLedger(page: import('@playwright/test').Page) {
+    await page.route('**/billing/bump-ledger**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ bumpBalance: 0, items: [], total: 0, page: 1, perPage: 20, totalPages: 0 }),
+      });
+    });
+  }
+
+  test('resuelve a confirmado en cuanto el webhook ha acreditado — sin pulsar nada', async ({
     sellerContext,
   }) => {
     const page = await sellerContext.newPage();
+    await stubBumpLedger(page);
 
-    // This page calls getWallet() client-side → page.route works here
+    // Compra ya acreditada: hay un PACK_PURCHASE reciente en el historial.
     await page.route('**/billing/wallet**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(MOCK_WALLET_WITH_BALANCE),
+      });
+    });
+
+    await page.goto('/mis-creditos/exito');
+
+    // Estado TERMINAL, sin intervención del usuario.
+    await expect(page.getByTestId('compra-confirmada')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('heading', { name: /saldo añadido/i })).toBeVisible();
+    await expect(page.getByText('150 créditos', { exact: false })).toBeVisible();
+
+    // Salidas de verdad (botones), no un enlace de texto suelto.
+    await expect(page.getByRole('link', { name: /ver mi saldo/i })).toBeVisible();
+    await expect(page.getByRole('link', { name: /ir a mis anuncios/i })).toBeVisible();
+
+    // Y el spinner ya no está.
+    await expect(page.getByText(/estamos confirmando tu pago/i)).not.toBeVisible();
+  });
+
+  test('mientras el webhook no llega, sondea sola y NO afirma que el saldo esté acreditado', async ({
+    sellerContext,
+  }) => {
+    const page = await sellerContext.newPage();
+    await stubBumpLedger(page);
+
+    let callCount = 0;
+    await page.route('**/billing/wallet**', async (route) => {
+      callCount++;
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -239,46 +289,15 @@ test.describe('/mis-creditos/exito', () => {
     await expect(
       page.getByRole('heading', { name: /gracias por tu compra/i }),
     ).toBeVisible({ timeout: 10_000 });
+    // No se anuncia un éxito que no ha ocurrido.
+    await expect(page.getByTestId('compra-confirmada')).not.toBeVisible();
 
-    // "Actualizar saldo" button present
-    await expect(page.getByRole('button', { name: /actualizar saldo/i })).toBeVisible();
-
-    // Link back to wallet — el enlace real dice "Ir a mi saldo" (mismo desajuste
-    // de rótulo que el <h1> de /mis-creditos: la página habla de "saldo", el nav
-    // de "créditos").
-    await expect(page.getByRole('link', { name: /ir a mi saldo/i })).toBeVisible();
-
-    // No error state visible
-    await expect(page.getByText(/error/i)).not.toBeVisible();
-  });
-
-  test('"Actualizar saldo" re-consulta el wallet y muestra el saldo', async ({
-    sellerContext,
-  }) => {
-    const page = await sellerContext.newPage();
-
-    let callCount = 0;
-    await page.route('**/billing/wallet**', async (route) => {
-      callCount++;
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(callCount === 1 ? MOCK_WALLET_EMPTY : MOCK_WALLET_WITH_BALANCE),
-      });
-    });
-
-    await page.goto('/mis-creditos/exito');
-    await expect(page.getByRole('button', { name: /actualizar saldo/i })).toBeVisible({ timeout: 10_000 });
-
+    // EL ARREGLO: vuelve a preguntar por su cuenta. Antes esto solo pasaba al pulsar
+    // "Actualizar saldo", y sin pulsarlo el spinner giraba indefinidamente.
     const callsBefore = callCount;
-    await page.getByRole('button', { name: /actualizar saldo/i }).click();
+    await expect.poll(() => callCount, { timeout: 15_000 }).toBeGreaterThan(callsBefore);
 
-    // Wallet must have been re-queried
-    await page.waitForTimeout(500);
-    expect(callCount).toBeGreaterThan(callsBefore);
-
-    // Updated balance visible after the second call
-    await expect(page.getByText('150 créditos', { exact: false })).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText(/error/i)).not.toBeVisible();
   });
 });
 

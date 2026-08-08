@@ -32,6 +32,7 @@ import { bumpListing } from '@/lib/api/billing';
 import { toUserMessage, isCreditError, isCooldownError, formatRetryAfter, toBumpMessage } from '@/lib/api/client';
 import { useApiAction } from '@/lib/api/use-api-action';
 import { useRequireAuth } from '@/hooks/use-require-auth';
+import { resolveBumpCooldown, bumpCooldownTitle } from '@/lib/bump-cooldown';
 import { DestacadoDialog } from './DestacadoDialog';
 import { CloseDealDialog } from './CloseDealDialog';
 import type { BumpPricing, ListingSummary } from '@/types';
@@ -87,11 +88,13 @@ export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) 
   const location = [listing.city, listing.province].filter(Boolean).join(', ');
   const editHref = `/mis-anuncios/${listing.id}/editar`;
 
-  // Bump cooldown: 24 hours since last bump
-  const bumpCooldownUntil = listing.bumpedAt
-    ? new Date(new Date(listing.bumpedAt).getTime() + 24 * 60 * 60 * 1000)
-    : null;
-  const bumpOnCooldown = bumpCooldownUntil != null && bumpCooldownUntil > new Date();
+  // UXV.1 (A2) — el cooldown lo dice la API (`nextBumpAt`), no esta tarjeta. Antes aquí
+  // se calculaba `bumpedAt + 24h` mientras el backend solo rechaza dentro de 1 h: el
+  // botón quedaba muerto 23 horas de más, con un tooltip de fecha inventada. La ficha
+  // pública (ListingOwnerActions) pasa por esta misma función y el mismo campo.
+  const { active: bumpOnCooldown, until: bumpCooldownUntil } = resolveBumpCooldown(
+    listing.nextBumpAt,
+  );
 
   async function runAction(key: string, fn: () => Promise<unknown>) {
     setBusy(key);
@@ -398,10 +401,7 @@ export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) 
               }}
               title={
                 bumpOnCooldown && bumpCooldownUntil
-                  ? `Disponible el ${new Intl.DateTimeFormat('es-ES', {
-                      dateStyle: 'medium',
-                      timeStyle: 'short',
-                    }).format(bumpCooldownUntil)}`
+                  ? bumpCooldownTitle(bumpCooldownUntil)
                   : undefined
               }
               data-testid="btn-bump"

@@ -87,7 +87,8 @@ La versión anterior se leía como referencia vigente y llevaba tiempo sin serlo
 - **`PATCH /users/me`** *(auth)* — Actualiza nombre, teléfono, bio, ubicación, avatar y datos
   fiscales.
 - **`GET /users/me/listings`** *(auth)* — Mis anuncios (todos los estados), paginados. Acepta
-  `?status=`.
+  `?status=`. Cada ítem lleva, además del resumen público, los campos de gestión que solo ve el
+  propietario: `featuredUntil`, `favoritesCount` y **`nextBumpAt`** (ver «Promoción»).
 - **`GET /users/search`** *(auth)* — Buscador de usuarios. Lo usa el backoffice para elegir
   destinatario al abrir un ticket con un usuario concreto (flujo (b)).
 - **`GET /users/:slug`** — Perfil público del vendedor (nombre, bio, ubicación, fecha de
@@ -204,7 +205,16 @@ un camino, y a la vez el registro que habilita valorar.
 - **`POST /listings/:id/bump`** *(auth, propietario)* — Sube el anuncio actualizando `bumpedAt`.
   Cooldown de 1 h → `429` con `Retry-After`. Se paga con la cuota gratuita mensual de Pro si
   queda, y si no con créditos, en una transacción atómica. Los fallos `402`/`403`/`400` **no**
-  consumen el cooldown.
+  consumen el cooldown. Invalida la caché de la ficha (`listing:${slug}`) al terminar, para que
+  `nextBumpAt` no quede viejo 5 min.
+
+> **`nextBumpAt` — la ventana de cooldown es del backend, el frontend no la deriva (UXV.1/A2).**
+> `GET /users/me/listings` (tarjeta de «mis anuncios») y `GET /listings/:slug` (ficha, vista del
+> dueño) devuelven `nextBumpAt`: el instante en que el anuncio vuelve a ser bumpeable, derivado
+> de `bumpedAt` + `BUMP_COOLDOWN_SECONDS` (`modules/billing/bump-cooldown.ts`, la misma constante
+> que aplica el guard del `429`). `null` = nunca bumpeado. El cliente **solo lo compara con el
+> reloj**: cuando cada superficie calculaba su propia ventana, la tarjeta bloqueaba 24 h contra
+> la 1 h real del backend.
 - **`GET /listings/:id/phone`** *(auth)* — Devuelve el teléfono publicado del anuncio.
   Rate limit **30/h por usuario y 60/h por IP**; `404` si el anuncio no está `ACTIVE` o no tiene
   teléfono.
@@ -219,7 +229,9 @@ un camino, y a la vez el registro que habilita valorar.
 
 - **`GET /listings`** — Anuncios recientes (solo `ACTIVE`), paginados.
 - **`GET /listings/:slug`** — Ficha pública (solo `ACTIVE`). Servida con caché Redis de 5 min.
-  Sin el teléfono (ver arriba).
+  Sin el teléfono (ver arriba). `featuredUntil` y `nextBumpAt` se calculan **fuera** del blob
+  cacheado, así que son siempre frescos (y los payloads guardados antes del despliegue también
+  los llevan).
 - **`GET /listings/mine/:id`** *(auth, propietario)* — Ficha completa para precargar el wizard de
   edición. Incluye `featuredUntil` y `bumpedAt`, que el propietario necesita y el payload público
   no lleva.
