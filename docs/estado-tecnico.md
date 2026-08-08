@@ -11582,6 +11582,83 @@ motor de CSS, así que `portada-hero.spec.ts` las mide donde ocurren:
 
 ---
 
+## UXV.2 — el SHELL de la zona de cuenta
+
+Segunda tanda de [`diseno-ux-vendedor.md`](diseno-ux-vendedor.md). Ataca la raíz de cinco
+hallazgos a la vez porque los cinco salían del MISMO fichero:
+[`(account)/layout.tsx`](../apps/web/src/app/(account)/layout.tsx), que eran 34 líneas
+—`<div flex><aside w-56><main>`— sin cabecera, sin responsive y sin estado.
+
+### Qué cierra
+
+| # | Antes | Ahora |
+|---|---|---|
+| **A1** | `<Header/>` se montaba en UN solo sitio de `apps/web`, el layout público. Desde `/mis-anuncios` no había ninguna vía de UI para volver a la portada. | La misma `Header` se monta también en `(account)`: logo, buscador, campana y avatar en las veinte pantallas. |
+| **A3** | El `<aside>` no tenía un solo breakpoint: en 375 px se llevaba 224 px y dejaba ~87 px de contenido. | `hidden md:block` + drawer. El `<main>` ocupa el ancho completo en móvil. |
+| **M1** | Nueve `<Link>` idénticos, sin `usePathname` ni `aria-current`; sin migas en toda la zona. | Estado activo (criterio de `AdminNav`) + migas derivadas del pathname. |
+| **M2** | Estadísticas, Datos de facturación, Mis tickets y Planes no estaban en la navegación de su propia zona. | Trece entradas en cuatro grupos (SHELL-D4). |
+| **M3** | Desde `/perfil/suscripcion` → «Ver planes» el shell desaparecía sin camino de vuelta. | `/planes` sigue pública (SHELL-D3) con retorno explícito **solo para quien tiene sesión**. |
+
+### Decisiones aplicadas
+
+- **SHELL-D1 — se REUSA la `Header` pública**, no una cabecera propia. Se pagan sus dos
+  fetches (no leídas + avatar) también en cuenta; a cambio el usuario recupera la campana
+  y el buscador, que era parte del desconcierto de A1. Un segundo componente de cabecera
+  es lo que produjo los tres shells incompatibles. **Sin `Footer`**: la zona es una
+  herramienta de trabajo.
+- **SHELL-D2 — drawer**, sobre `@radix-ui/react-dialog` (ya instalado, cero dependencias
+  nuevas). No se reusa `DialogContent` porque aquel centra un cuadro y esto es un panel
+  anclado al borde: mismo primitivo, distinta geometría.
+- **SHELL-D3 — `/planes` se queda en `(public)`**, con `VolverACuenta` en su layout (así
+  lo heredan también `exito` y `cancelado`, que es donde quedarse varado molesta más).
+- **SHELL-D4** — cuatro grupos por TAREA, no por forma de la URL: por eso «Datos de
+  facturación», que cuelga de `/perfil`, vive con los pagos.
+- **Transversal del nav dinámico: NO se toca.** `MainNav` sigue siendo solo de `(public)`
+  — es la decisión #1 de [`diseno-nav-dinamico.md`](diseno-nav-dinamico.md), tomada con
+  criterio. `NavPageType` no gana tipos de cuenta; queda documentado como deliberado.
+
+### Fuente única: `config/account-nav.ts`
+
+Las tres superficies —`<aside>` de escritorio, drawer de móvil y migas— salen de la misma
+tabla. Es lo que impide que el menú diga una cosa y las migas otra. Las migas se resuelven
+**en el shell** a partir del pathname, no en cada página: repartirlas por veinte ficheros
+las condenaría a divergir del menú, que es el defecto que esta ráfaga cierra. En las
+raíces de sección no se pintan (el menú ya marca dónde estás); aparecen en el tercer nivel,
+que es donde el menú no llega.
+
+### Dos cosas que se midieron y no se supusieron
+
+**El desbordamiento horizontal en 375 px era de UNA pantalla, no de la zona.** Sondeadas
+las dieciséis rutas: solo `/mis-anuncios` empujaba el documento a 480 px, por la fila
+`h1 + [Ver estadísticas] [Publicar anuncio]` sin `flex-wrap`. Es un `flex-wrap`, no lógica.
+
+**La altura de `MensajesShell` NO se pudo desacoplar del shell.** El `h-[calc(100vh-14rem)]`
+pasa a `18rem` (los 4rem de la cabecera nueva). Se intentó sustituirlo por `flex-1 min-h-0`
+sobre una columna con altura real —que sería inmune a futuros cambios del shell— y **no
+funciona**: el contenedor de la zona tiene que crecer con su contenido (si no, «mis
+anuncios» con muchas tarjetas se cortaría), así que la altura del panel resulta circular y
+se resuelve al tamaño del contenido, desbordando el viewport 47 px. Medido. La constante
+sigue cosida al shell; lo que la protege es que `shell-cuenta.spec.ts` falla si el panel
+se sale del viewport.
+
+### Efecto colateral asumido: la cabecera en móvil
+
+`Header` se apelotonaba en 375 px (logo y «Buscar» pegados, «Publicar anuncio» partido en
+dos líneas). Es un defecto **preexistente de la zona pública**, pero al montar la cabecera
+en cuenta pasaba a verse en veinte pantallas más, así que se arregla aquí: `gap`
+escalonado, `shrink-0`, `whitespace-nowrap` y rótulo corto («Publicar») por debajo de `sm`.
+Ningún destino desaparece.
+
+**Verificado en navegador real** (`e2e/shell-cuenta.spec.ts`, 15 pruebas): logo → portada
+desde las dieciséis rutas y navegación real al pulsarlo; en 375 px el `<main>` mide >300 px
+y no hay scroll horizontal; el drawer abre, lista las trece entradas, navega y se cierra;
+`aria-current` único y en la entrada correcta (una subruta marca SU entrada, no la del
+padre); migas en tercer nivel y ausentes en las raíces; el viaje cuenta → planes → cuenta;
+el anónimo NO ve el retorno; y las dieciséis rutas responden con shell completo, contenido
+propio y cero errores de JS.
+
+---
+
 ## El reloj del guard de reapertura de tickets (RESUELTO — era una bomba de relojería)
 
 `tickets-cron.e2e-spec.ts › "dentro de la ventana configurada, la reapertura SIGUE

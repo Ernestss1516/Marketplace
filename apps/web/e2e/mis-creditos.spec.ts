@@ -119,14 +119,20 @@ test.describe('/mis-creditos — con sesión (sellerContext)', () => {
     await expect(page.getByText('€', { exact: false }).first()).toBeVisible();
   });
 
-  test('el sidebar incluye "Mis créditos" como enlace de navegación', async ({ sellerContext }) => {
+  // UXV.2 — el menú de la cuenta rotula esta entrada «Mi saldo», no «Mis créditos»
+  // (SHELL-D4): es el mismo rótulo que el <h1> y el <title> de la propia página, así que
+  // el desajuste nav ↔ página que anotaba el comentario de arriba ya no existe (queda
+  // solo la URL histórica /mis-creditos, que es lo que cierra B1 en UXV.6).
+  // Lo que la prueba afirma no cambia: que la cartera es alcanzable desde el menú.
+  test('el menú de la cuenta lleva a la cartera («Mi saldo»)', async ({ sellerContext }) => {
     const page = await sellerContext.newPage();
 
     await page.goto('/mis-creditos');
 
-    await expect(
-      page.getByRole('link', { name: 'Mis créditos' }),
-    ).toBeVisible({ timeout: 10_000 });
+    const menu = page.getByRole('navigation', { name: /secciones de mi cuenta/i });
+    const entrada = menu.getByRole('link', { name: 'Mi saldo', exact: true });
+    await expect(entrada).toBeVisible({ timeout: 10_000 });
+    await expect(entrada).toHaveAttribute('href', '/mis-creditos');
   });
 
   // PackList.tsx es un Client Component → page.route intercepta POST /billing/checkout/credits-pack

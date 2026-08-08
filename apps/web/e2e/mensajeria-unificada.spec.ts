@@ -146,7 +146,16 @@ test.describe('Mensajería unificada (bandeja + chat)', () => {
     // invalidando justo lo que queremos probar: que /mensajes/layout.tsx
     // persiste entre selecciones). El enlace "Mensajes" del menú de cuenta
     // es un <Link> normal → navegación de cliente de Next.js.
-    await sellerPage.getByRole('link', { name: 'Mensajes' }).click();
+    //
+    // UXV.2 — se acota al MENÚ. Desde que el shell de cuenta pinta migas, en
+    // /mensajes/[id] hay un segundo enlace a /mensajes (la miga de la sección) y
+    // `getByRole('link', { name: 'Mensajes' })` casaba con los dos. El que esta prueba
+    // quiere es el del menú: es el que hace la navegación de cliente cuyo efecto sobre
+    // el layout se está midiendo.
+    await sellerPage
+      .getByRole('navigation', { name: /secciones de mi cuenta/i })
+      .getByRole('link', { name: 'Mensajes' })
+      .click();
     await expect(sellerPage).toHaveURL(/\/mensajes$/);
     await expect(sellerPage.getByText('Selecciona una conversación')).toBeVisible();
     await abrirConversacion(sellerPage, rowLink);
@@ -160,7 +169,12 @@ test.describe('Mensajería unificada (bandeja + chat)', () => {
     // inicial: monta→desmonta→monta), el contador ya está fijo tras la
     // primera carga y NO crece con más cambios de conversación — eso es lo
     // que este segundo ciclo distingue.
-    await sellerPage.getByRole('link', { name: 'Mensajes' }).click();
+    // Mismo motivo que arriba: acotado al menú, que desde UXV.2 no es el único enlace
+    // a /mensajes en esta pantalla.
+    await sellerPage
+      .getByRole('navigation', { name: /secciones de mi cuenta/i })
+      .getByRole('link', { name: 'Mensajes' })
+      .click();
     await expect(sellerPage).toHaveURL(/\/mensajes$/);
     await abrirConversacion(sellerPage, rowLink);
     await expect(
@@ -173,7 +187,10 @@ test.describe('Mensajería unificada (bandeja + chat)', () => {
     const wsCountAfterFirstSwitch = sellerWsCount;
     expect(wsCountAfterFirstSwitch).toBeLessThanOrEqual(2);
 
-    await sellerPage.getByRole('link', { name: 'Mensajes' }).click();
+    await sellerPage
+      .getByRole('navigation', { name: /secciones de mi cuenta/i })
+      .getByRole('link', { name: 'Mensajes' })
+      .click();
     await expect(sellerPage).toHaveURL(/\/mensajes$/);
     await abrirConversacion(sellerPage, sellerPage.getByText(listingTitle).first());
     await expect(
@@ -246,7 +263,10 @@ test.describe('Mensajería unificada (bandeja + chat)', () => {
     // ── 6. Badge: conversación NO abierta se actualiza vía socket ──────────
     // El seller vuelve a la bandeja (deja de tener la conversación "abierta")
     // y el buyer manda un mensaje más — debe aparecer un badge sin recargar.
-    await sellerPage.getByRole('link', { name: 'Mensajes' }).click();
+    await sellerPage
+      .getByRole('navigation', { name: /secciones de mi cuenta/i })
+      .getByRole('link', { name: 'Mensajes' })
+      .click();
     await expect(sellerPage).toHaveURL(/\/mensajes$/);
     await input.fill('cuatro');
     await input.press('Enter');
