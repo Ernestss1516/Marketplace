@@ -27,7 +27,19 @@ describe('Tickets — cron de auto-cierre (R8) e2e', () => {
   let staff: StaffActor;
 
   const DIA = 24 * 60 * 60 * 1000;
-  /** "Ahora" fijo para todos los cálculos: la lógica nunca llama a new Date(). */
+  /**
+   * "Ahora" fijo para todos los cálculos.
+   *
+   * RELOJ COMPARTIDO — y hay que pasárselo a TODO lo que evalúe la ventana, no solo
+   * al cron. `resolvedHaceDias` ancla `resolvedAt` a esta fecha; si algo la evaluara
+   * con el reloj REAL, el escenario y su juez vivirían en instantes distintos y el
+   * veredicto dependería del calendario del día en que se ejecute la batería. No es
+   * hipotético: el guard de reapertura usaba `Date.now()` y este spec estuvo verde
+   * por coincidencia hasta que el reloj real cruzó un deadline anclado aquí
+   * (2026-08-08T05:00Z), momento desde el que quedó en rojo permanente. Por eso
+   * `TicketsService.replyAsUser` acepta ahora el mismo `now` que
+   * `runTicketAutoClose`, y los tests que atraviesan el guard se lo pasan.
+   */
   const AHORA = new Date('2026-07-29T05:00:00.000Z');
 
   beforeAll(async () => {
@@ -266,9 +278,12 @@ describe('Tickets — cron de auto-cierre (R8) e2e', () => {
       await setVentana(7);
       const ticket = await resolvedHaceDias(10);
 
-      await expect(tickets.replyAsUser(ticket.id, userId, 'Quiero reabrirlo')).rejects.toMatchObject(
-        { response: { code: 'REOPEN_WINDOW_EXPIRED' } },
-      );
+      // AHORA al guard, igual que al cron dos líneas más abajo: 10 días > ventana
+      // de 7 ⇒ rechaza. Con el reloj real esto pasaba SOLO, sin mirar la ventana
+      // (ver la nota de reloj compartido arriba), así que la aserción no medía nada.
+      await expect(
+        tickets.replyAsUser(ticket.id, userId, 'Quiero reabrirlo', [], AHORA),
+      ).rejects.toMatchObject({ response: { code: 'REOPEN_WINDOW_EXPIRED' } });
 
       expect((await schedule.runTicketAutoClose(AHORA)).closed).toBe(1);
     });
@@ -277,7 +292,13 @@ describe('Tickets — cron de auto-cierre (R8) e2e', () => {
       await setVentana(30);
       const ticket = await resolvedHaceDias(20); // fuera del default 14, dentro de 30
 
-      const { ticket: reabierto } = await tickets.replyAsUser(ticket.id, userId, 'Sigue fallando');
+      const { ticket: reabierto } = await tickets.replyAsUser(
+        ticket.id,
+        userId,
+        'Sigue fallando',
+        [],
+        AHORA,
+      );
       expect(reabierto.status).toBe('IN_PROGRESS');
 
       // Y ya no es candidato: dejó de estar RESOLVED.
