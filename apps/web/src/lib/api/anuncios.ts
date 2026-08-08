@@ -85,13 +85,23 @@ export function getListingsBySellerSlug(
   );
 }
 
+/**
+ * UXV.4 (B3) — `counts` es NUEVO: cuántos anuncios hay en cada estado, más `all` (todos
+ * menos archivados, la misma regla que la vista por defecto). Lo usa `MisAnunciosClient`
+ * para que las pestañas de filtro dejen de estar mudas. Es opcional en el tipo porque un
+ * backend anterior al despliegue no lo manda y las pestañas deben seguir pintándose.
+ */
+export type MyListingsResponse = PaginatedResponse<ListingSummary> & {
+  counts?: Record<string, number>;
+};
+
 export function getMyListings(
   token: string,
   opts?: { status?: string; page?: number },
-): Promise<PaginatedResponse<ListingSummary>> {
+): Promise<MyListingsResponse> {
   const params = new URLSearchParams({ page: String(opts?.page ?? 1) });
   if (opts?.status) params.set('status', opts.status);
-  return apiFetch<PaginatedResponse<ListingSummary>>(`/users/me/listings?${params}`, { token });
+  return apiFetch<MyListingsResponse>(`/users/me/listings?${params}`, { token });
 }
 
 export function createListing(

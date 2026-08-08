@@ -24,7 +24,7 @@ export default async function MisAnunciosPage() {
 
   const token = session.user.accessToken;
 
-  const [{ items }, proStatus, catalog, wallet, banners] = await Promise.all([
+  const [{ items, counts }, proStatus, catalog, wallet, banners] = await Promise.all([
     getMyListings(token),
     getProStatus(token).catch(
       (): ProStatus => ({
@@ -88,6 +88,7 @@ export default async function MisAnunciosPage() {
       <MisAnunciosClient
         initialListings={items}
         initialProStatus={proStatus}
+        initialCounts={counts}
         token={token}
         bumpPricing={bumpPricing}
       />

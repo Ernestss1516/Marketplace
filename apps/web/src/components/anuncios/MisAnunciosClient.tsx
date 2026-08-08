@@ -29,6 +29,8 @@ interface Props {
   initialProStatus: ProStatus;
   token: string;
   bumpPricing: BumpPricing;
+  /** UXV.4 (B3) — recuento por estado, servido por la misma llamada que los anuncios. */
+  initialCounts?: Record<string, number>;
 }
 
 export function MisAnunciosClient({
@@ -36,8 +38,10 @@ export function MisAnunciosClient({
   initialProStatus,
   token,
   bumpPricing: initialBumpPricing,
+  initialCounts,
 }: Props) {
   const [listings, setListings] = useState<ListingSummary[]>(initialListings);
+  const [counts, setCounts] = useState<Record<string, number> | undefined>(initialCounts);
   const [proStatus, setProStatus] = useState<ProStatus>(initialProStatus);
   const [bumpPricing, setBumpPricing] = useState<BumpPricing>(initialBumpPricing);
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
@@ -48,6 +52,9 @@ export function MisAnunciosClient({
       startTransition(async () => {
         const result = await getMyListings(token, status ? { status } : undefined);
         setListings(result.items);
+        // Los recuentos vienen con CADA respuesta, así que se refrescan solos tras
+        // publicar, pausar o archivar: si no, las pestañas quedarían mintiendo.
+        if (result.counts) setCounts(result.counts);
       });
     },
     [token],
@@ -98,20 +105,37 @@ export function MisAnunciosClient({
 
       {/* Filter tabs */}
       <div className="flex flex-wrap gap-2 border-b pb-4">
-        {FILTERS.map((f) => (
-          <button
-            key={String(f.value)}
-            onClick={() => handleFilterChange(f.value)}
-            className={[
-              'rounded-full px-4 py-1.5 text-sm font-medium transition-colors',
-              activeFilter === f.value
-                ? 'bg-primary text-primary-foreground'
-                : 'bg-muted text-muted-foreground hover:bg-muted/70',
-            ].join(' ')}
-          >
-            {f.label}
-          </button>
-        ))}
+        {FILTERS.map((f) => {
+          // UXV.4 (B3) — nueve pestañas mudas obligaban a pincharlas una a una para saber
+          // qué había detrás. `undefined` (backend viejo o dato ausente) NO pinta un 0:
+          // un cero falso es peor que no decir nada.
+          const n = counts?.[f.value ?? 'all'];
+          return (
+            <button
+              key={String(f.value)}
+              onClick={() => handleFilterChange(f.value)}
+              aria-current={activeFilter === f.value ? 'true' : undefined}
+              className={[
+                'rounded-full px-4 py-1.5 text-sm font-medium transition-colors',
+                activeFilter === f.value
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-muted text-muted-foreground hover:bg-muted/70',
+              ].join(' ')}
+            >
+              {f.label}
+              {n !== undefined && (
+                <span
+                  className={[
+                    'ml-1.5 tabular-nums',
+                    activeFilter === f.value ? 'opacity-80' : 'opacity-60',
+                  ].join(' ')}
+                >
+                  {n}
+                </span>
+              )}
+            </button>
+          );
+        })}
         {isPending && <Loader2 className="h-5 w-5 animate-spin self-center text-muted-foreground" />}
       </div>
 

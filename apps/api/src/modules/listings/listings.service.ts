@@ -998,7 +998,7 @@ export class ListingsService {
       // Solo aparece cuando se pide explícitamente status=ARCHIVED.
       ...(status !== undefined ? { status } : { status: { not: 'ARCHIVED' as const } }),
     };
-    const [rows, total] = await this.prisma.$transaction([
+    const [rows, total, statusGroups] = await this.prisma.$transaction([
       this.prisma.listing.findMany({
         where,
         select: SELECT_SUMMARY,
@@ -1007,6 +1007,24 @@ export class ListingsService {
         take: perPage,
       }),
       this.prisma.listing.count({ where }),
+      // UXV.4 (B3) — cuántos anuncios hay en CADA estado, para que las pestañas de
+      // /mis-anuncios dejen de estar mudas: hoy hay que pincharlas una a una para
+      // descubrir qué contienen. Es un groupBy sobre `sellerId` (indexado) que
+      // devuelve nueve filas como mucho, y va en la MISMA transacción que ya se
+      // hacía: ni una ida y vuelta más a Postgres.
+      //
+      // OJO: sin el `where` de arriba a propósito. Los recuentos son de TODOS los
+      // estados, no del filtro activo — si siguieran el filtro, la pestaña
+      // seleccionada sería la única con número.
+      //
+      // `orderBy` es obligatorio en `groupBy` de Prisma; el orden da igual (se vuelca a
+      // un mapa), pero sin él no compila.
+      this.prisma.listing.groupBy({
+        by: ['status'],
+        where: { sellerId: userId },
+        _count: { _all: true },
+        orderBy: { status: 'asc' },
+      }),
     ]);
 
     // Batch query for active FEATURED_LISTING entitlements — one query for all listings, no N+1.
@@ -1043,7 +1061,24 @@ export class ListingsService {
       }
     }
 
+    // UXV.4 (B3) — recuentos por estado + el de «Todos», que NO es la suma: la vista por
+    // defecto excluye ARCHIVED (misma regla que el `where` de arriba), así que sumarlo
+    // todo daría un número que no cuadra con lo que la pestaña enseña.
+    // El array de `$transaction` pierde la inferencia fina de Prisma sobre `_count`, así
+    // que se reafirma la forma que la propia consulta pide (`_count: { _all: true }`).
+    const grupos = statusGroups as { status: ListingStatus; _count: { _all: number } }[];
+    const countsByStatus = Object.fromEntries(
+      grupos.map((g) => [g.status, g._count._all]),
+    ) as Record<string, number>;
+    const counts = {
+      ...countsByStatus,
+      all: grupos
+        .filter((g) => g.status !== 'ARCHIVED')
+        .reduce((sum, g) => sum + g._count._all, 0),
+    };
+
     return {
+      counts,
       items: rows.map((r) => ({
         ...this.toSummary(r),
         featuredUntil: featuredMap.get(r.id) ?? null,

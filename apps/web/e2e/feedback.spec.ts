@@ -6,6 +6,7 @@
 // comprar créditos pueda volver a lo que iba a hacer (A7-flujo).
 
 import { test, expect } from './fixtures/auth';
+import { abrirDestacar, subirDesdeDialogo } from './helpers/promocion';
 
 /**
  * Sonner monta DOS cosas distintas y conviene no confundirlas:
@@ -58,9 +59,7 @@ test.describe('UXV.3 (M5) — destacar deja de completarse en silencio', () => {
     );
 
     await page.goto('/mis-anuncios');
-    await page.getByTestId('btn-destacar').first().click();
-
-    await expect(page.getByRole('dialog')).toBeVisible({ timeout: 15_000 });
+    await abrirDestacar(page);
     await page.getByRole('button', { name: /destacar con créditos/i }).click();
 
     // ANTES: el diálogo se cerraba y no se decía absolutamente nada, mientras el bump —en
@@ -83,7 +82,7 @@ test.describe('UXV.3 (M5) — destacar deja de completarse en silencio', () => {
     );
 
     await page.goto('/mis-anuncios');
-    await page.getByTestId('btn-bump').first().click();
+    await subirDesdeDialogo(page);
 
     await expect(toast(page)).toContainText(/bump aplicado/i, { timeout: 15_000 });
     await expect(toast(page)).toContainText(/5 créditos/i);
@@ -106,7 +105,7 @@ test.describe('UXV.3 (M5) — destacar deja de completarse en silencio', () => {
     );
 
     await page.goto('/mis-anuncios');
-    await page.getByTestId('btn-bump').first().click();
+    await subirDesdeDialogo(page);
 
     // Regla de reparto FEEDBACK-D2: el error con contexto no se va al toast.
     await expect(page.getByText(/no tienes créditos suficientes/i)).toBeVisible({ timeout: 15_000 });
@@ -129,7 +128,7 @@ test.describe('UXV.3 (A7-flujo) — quien sale a comprar puede volver a lo que i
     );
 
     await page.goto('/mis-anuncios');
-    await page.getByTestId('btn-bump').first().click();
+    await subirDesdeDialogo(page);
 
     const enlace = page.getByRole('link', { name: /comprar créditos/i });
     await expect(enlace).toBeVisible({ timeout: 15_000 });

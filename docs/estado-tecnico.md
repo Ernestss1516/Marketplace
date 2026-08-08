@@ -11582,6 +11582,100 @@ motor de CSS, así que `portada-hero.spec.ts` las mide donde ocurren:
 
 ---
 
+## UXV.4 — LA TARJETA: jerarquía, y las dos superficies reconciliadas
+
+Cuarta tanda de [`diseno-ux-vendedor.md`](diseno-ux-vendedor.md). Ataca el reparto del
+espacio de `MyListingCard`, que era una fila `flex-wrap` con **hasta doce botones**
+`variant="outline" size="sm"`: promocionar (ingreso), gestionar el ciclo de vida y
+DESTRUIR de forma irreversible, todos con el mismo peso. En móvil, tres o cuatro filas de
+botones por anuncio.
+
+### La jerarquía (A6, TARJETA-D1)
+
+```
+[ Promocionar ]   Editar · Ver anuncio · <la acción de estado que toca>        ⋯
+   primaria              secundarias (≤3)                                   menú
+```
+
+**Ninguna acción se ha perdido**: las mismas once, repartidas por peso. Lo que descarga la
+fila es que la acción de estado sea **UNA según el estado** —un `ACTIVE` ofrece Pausar; un
+`PAUSED`, Reactivar; un `DRAFT`, Publicar— en vez de todas a la vez. Archivar y Eliminar
+salen de la fila al «⋯», **conservando su `AlertDialog`**: el menú no relaja ninguna
+confirmación, solo deja de dar a lo irreversible el mismo peso que a lo cotidiano.
+
+Qué va en cada nivel lo decide [`use-listing-actions.tsx`](../apps/web/src/components/anuncios/owner/use-listing-actions.tsx),
+no la tarjeta: es la misma lista que consume la ficha, y dos inventarios mantenidos por
+separado son lo que hizo divergir las dos superficies.
+
+### Promocionar (TARJETA-D2), con el matiz que importa
+
+Destacar y Bump eran dos botones sueltos y el usuario tenía que deducir en qué se
+diferencian dos productos que se parecen. Ahora hay un punto de entrada y un diálogo con
+los dos, su explicación y su precio.
+
+**Pero el bump GRATIS sigue a un clic.** Cuando hay cuota Pro o saldo de bumps no hay nada
+que elegir ni que cobrar, así que meterlo tras un diálogo sería cobrar un paso por nada. El
+control primario es un **botón partido**:
+
+```
+[ Subir gratis │ ▾ ]      ▾ → «Destacar anuncio…»
+```
+
+y cuando el bump cuesta o está en cooldown, un botón único «Promocionar» que abre el
+diálogo. En cooldown el primario **no se apaga**: destacar no depende del cooldown, y
+apagarlo quitaría una capacidad.
+
+### El enganche del bump automático, preparado sin diseñarlo
+
+Dos sitios, y los dos existen ya con contenido real (no son huecos vacíos):
+
+| Qué necesitará el bump-auto | Dónde entra |
+|---|---|
+| **Su punto de entrada** | El `▾` del botón partido, junto a «Destacar anuncio…». |
+| **Su configuración** | Un `Producto` más en el selector del diálogo, con su bloque debajo donde hoy están duración y método de pago. |
+| **Su estado** | [`PromotionStatus`](../apps/web/src/components/anuncios/owner/PromotionStatus.tsx): «Próximo bump: …» es UNA LÍNEA MÁS. Antes `featuredUntil` era un caso suelto entre los datos del anuncio; ahora es una ZONA que ya pinta dos líneas y admite N. |
+
+Nada de eso se implementa aquí.
+
+### Las dos superficies, reconciliadas (transversal 2)
+
+`ListingOwnerActions` decía «Subir al inicio (bump)» donde la tarjeta decía «Bump 5 cr.»,
+sin coste, sin tener en cuenta el saldo ni la cuota Pro. **UXV.1 unificó el dato del
+cooldown; esto unifica lo que se le cuenta al usuario**: las dos montan el mismo
+`PromocionarControl` con el mismo `BumpPricing`, así que comparten rótulo, coste, orden de
+consumo de las monedas y feedback. Lo único que cambia es la forma (columna vs fila), que
+es lo que parametriza `contexto`.
+
+**Lo que UXV.1 dejó fuera y aquí sí entra: el coste en la ficha.** Se resuelve con
+[`useBumpPricing`](../apps/web/src/hooks/use-bump-pricing.ts), que pide catálogo, saldo y
+pro-status **desde el cliente y solo si quien mira es el dueño** — una ficha la ven sobre
+todo visitantes anónimos, y no deben disparar nada. Por eso no rompe el SSR/ISR de la
+página, que es la razón por la que UXV.1 lo aplazó.
+
+**Lo que NO se trae a la ficha**: el ciclo de vida (pausar, archivar, eliminar…). La ficha
+es donde el vendedor se ve como lo ve un comprador; duplicar allí un menú de once acciones
+volvería a repartir la gestión en dos sitios.
+
+### A5, M10 y B3
+
+- **A5** — «Ver anuncio» en la tarjeta. El `slug` ya viajaba en `ListingSummary` y no se
+  usaba: el vendedor no podía ver su propio anuncio publicado sin buscarlo a mano. Solo en
+  los estados con página pública (`ACTIVE`/`RESERVED`); en un borrador no hay destino.
+- **M10** — «Ver estadísticas» abre las de ESE anuncio (`?anuncio=<id>`), en vez de la
+  pantalla global donde había que buscarlo en un `<Select>` de N. Un id ajeno no está en la
+  lista y cae al primero: el comportamiento de siempre.
+- **B3** — las nueve pestañas de filtro dicen cuántos anuncios contienen. El dato es un
+  `groupBy` por estado sobre `sellerId` (indexado, nueve filas como mucho) **dentro de la
+  transacción que `findMine` ya hacía**: ni una ida y vuelta más. `all` no es la suma —
+  excluye `ARCHIVED`, la misma regla que la vista por defecto. Sin el dato (backend viejo)
+  **no se pinta un 0**: un cero falso es peor que no decir nada.
+
+**Verificado**: `e2e/tarjeta.spec.ts` (11 pruebas en navegador real, incluidas «ninguna
+acción se perdió» y el bump gratis a un clic) + `bump-cooldown-surfaces.test.tsx`
+reescrito a la estructura nueva sin perder lo que probaba.
+
+---
+
 ## UXV.3 — FEEDBACK: el canal que la aplicación no tenía
 
 Tercera tanda de [`diseno-ux-vendedor.md`](diseno-ux-vendedor.md). Tres pantallas
