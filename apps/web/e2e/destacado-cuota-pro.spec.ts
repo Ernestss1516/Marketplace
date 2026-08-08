@@ -11,6 +11,7 @@
 
 import { test, expect } from './fixtures/auth';
 import type { Page } from '@playwright/test';
+import { abrirDestacar } from './helpers/promocion';
 
 const MOCK_CATALOG = {
   products: [
@@ -68,11 +69,10 @@ test.describe('DestacadoDialog — selector de vía (Pro con cuota disponible)',
     await mockCatalogWalletAndStatus(page, PRO_STATUS_WITH_QUOTA);
 
     await page.goto('/mis-anuncios');
-    const btnDestacar = page.getByTestId('btn-destacar').first();
-    await expect(btnDestacar).toBeVisible({ timeout: 10_000 });
-    await btnDestacar.click();
+    await expect(page.getByTestId('btn-promocionar').first()).toBeVisible({ timeout: 10_000 });
+    await abrirDestacar(page);
 
-    await expect(page.getByRole('dialog').getByText('Destacar anuncio')).toBeVisible();
+    await expect(page.getByRole('dialog').getByText('Promocionar anuncio')).toBeVisible();
 
     // The "how to feature" selector with both products, clearly distinguished.
     await expect(page.getByText(/destacar gratis — 7 días/i)).toBeVisible();
@@ -95,7 +95,7 @@ test.describe('DestacadoDialog — selector de vía (Pro con cuota disponible)',
     await mockCatalogWalletAndStatus(page, PRO_STATUS_WITH_QUOTA);
 
     await page.goto('/mis-anuncios');
-    await page.getByTestId('btn-destacar').first().click();
+    await abrirDestacar(page);
     await expect(page.getByRole('dialog')).toBeVisible({ timeout: 5_000 });
 
     await page.getByText(/destacar con créditos o tarjeta/i).click();
@@ -124,7 +124,7 @@ test.describe('DestacadoDialog — selector de vía (Pro con cuota disponible)',
     });
 
     await page.goto('/mis-anuncios');
-    await page.getByTestId('btn-destacar').first().click();
+    await abrirDestacar(page);
     await expect(page.getByRole('dialog')).toBeVisible({ timeout: 5_000 });
 
     await page.getByRole('button', { name: /^destacar gratis$/i }).click();
@@ -143,7 +143,7 @@ test.describe('DestacadoDialog — selector de vía (Pro con cuota disponible)',
     await mockCatalogWalletAndStatus(page, PRO_STATUS_LAST_ONE);
 
     await page.goto('/mis-anuncios');
-    await page.getByTestId('btn-destacar').first().click();
+    await abrirDestacar(page);
     await expect(page.getByRole('dialog')).toBeVisible({ timeout: 5_000 });
 
     await expect(page.getByText(/este es tu último destacado gratis de este mes/i)).toBeVisible();
@@ -168,7 +168,7 @@ test.describe('DestacadoDialog — selector de vía (Pro con cuota disponible)',
     });
 
     await page.goto('/mis-anuncios');
-    await page.getByTestId('btn-destacar').first().click();
+    await abrirDestacar(page);
     await expect(page.getByRole('dialog')).toBeVisible({ timeout: 5_000 });
 
     await page.getByRole('button', { name: /^destacar gratis$/i }).click();
@@ -191,7 +191,7 @@ test.describe('DestacadoDialog — selector de vía (Pro con cuota disponible)',
     await mockCatalogWalletAndStatus(page, PRO_STATUS_EXHAUSTED);
 
     await page.goto('/mis-anuncios');
-    await page.getByTestId('btn-destacar').first().click();
+    await abrirDestacar(page);
     await expect(page.getByRole('dialog')).toBeVisible({ timeout: 5_000 });
 
     await expect(page.getByText(/destacar gratis/i)).not.toBeVisible();
@@ -216,7 +216,7 @@ test.describe('DestacadoDialog — usuario no-Pro (sin cambios)', () => {
     await mockProStatus(page, { isPro: false, limit: 0, used: 0, remaining: 0 });
 
     await page.goto('/mis-anuncios');
-    await page.getByTestId('btn-destacar').first().click();
+    await abrirDestacar(page);
     await expect(page.getByRole('dialog')).toBeVisible({ timeout: 5_000 });
 
     await expect(page.getByText('Cómo destacar')).not.toBeVisible();
@@ -261,7 +261,7 @@ test.describe('Visibilidad de la cuota Pro fuera del dialog', () => {
     const page = await sellerContext.newPage();
     await page.goto('/mis-anuncios');
 
-    await expect(page.getByTestId('btn-destacar').first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId('btn-promocionar').first()).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId('quota-reminder')).not.toBeVisible();
   });
 });

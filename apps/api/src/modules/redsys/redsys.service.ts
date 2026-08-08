@@ -20,6 +20,7 @@ import { CheckoutCreditsPackDto } from './dto/checkout-credits-pack.dto';
 import { CheckoutBumpPackDto } from './dto/checkout-bump-pack.dto';
 import { CheckoutFeaturedPayDto } from './dto/checkout-featured-pay.dto';
 import { redsysTaxBreakdown, type RedsysFormData } from './redsys.types';
+import { withReturnTo } from './return-to';
 
 /** Returns true when the error is a Prisma unique constraint violation (P2002). */
 function isP2002(err: unknown): boolean {
@@ -175,7 +176,16 @@ export class RedsysService {
         `campaignBonus=${campaignBonusAmount ?? 'none'}`,
     );
 
-    return { redsysFormData: this.buildForm(dsOrder, amountCents) };
+    // UXV.3 (A7-flujo) — la URL de éxito lleva de dónde venía el usuario, cuando venía de
+    // una acción que no pudo pagar. `withReturnTo` descarta cualquier destino fuera de la
+    // allowlist, así que aquí no hay que ramificar ni desconfiar del valor.
+    return {
+      redsysFormData: this.buildForm(
+        dsOrder,
+        amountCents,
+        withReturnTo(`${this.appUrl}/mis-creditos/exito`, dto.returnTo),
+      ),
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -268,7 +278,16 @@ export class RedsysService {
         `campaignBonus=${campaignBonusBumpAmount ?? 'none'}`,
     );
 
-    return { redsysFormData: this.buildForm(dsOrder, amountCents) };
+    // UXV.3 (A7-flujo) — la URL de éxito lleva de dónde venía el usuario, cuando venía de
+    // una acción que no pudo pagar. `withReturnTo` descarta cualquier destino fuera de la
+    // allowlist, así que aquí no hay que ramificar ni desconfiar del valor.
+    return {
+      redsysFormData: this.buildForm(
+        dsOrder,
+        amountCents,
+        withReturnTo(`${this.appUrl}/mis-creditos/exito`, dto.returnTo),
+      ),
+    };
   }
 
   /**

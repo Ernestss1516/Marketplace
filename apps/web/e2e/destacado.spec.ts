@@ -20,6 +20,7 @@
 //   - La concesión del entitlement FEATURED_LISTING
 
 import { test, expect } from './fixtures/auth';
+import { abrirDestacar, subirDesdeDialogo } from './helpers/promocion';
 
 // ── Mock data ──────────────────────────────────────────────────────────────────
 
@@ -115,20 +116,20 @@ test.describe('DestacadoDialog — desde /mis-anuncios', () => {
     await mockCatalogAndWallet(page, MOCK_WALLET_ENOUGH);
 
     await page.goto('/mis-anuncios');
-    const btnDestacate = page.getByTestId('btn-destacar').first();
-    await expect(btnDestacate).toBeVisible({ timeout: 10_000 });
+    // UXV.4 — el punto de entrada es «Promocionar»; «Destacar» es un producto dentro.
+    await expect(page.getByTestId('btn-promocionar').first()).toBeVisible({ timeout: 10_000 });
+    await abrirDestacar(page);
 
-    await btnDestacate.click();
-
-    // Dialog title
-    await expect(page.getByRole('dialog').getByText('Destacar anuncio')).toBeVisible();
+    await expect(page.getByRole('dialog').getByText('Promocionar anuncio')).toBeVisible();
 
     // Duration options (mocked catalog has 7d and 14d)
     await expect(page.getByText('7 días')).toBeVisible();
     await expect(page.getByText('14 días')).toBeVisible();
 
     // Payment method options
-    await expect(page.getByLabel('Créditos')).toBeVisible();
+    // UXV.4 — acotado al método de PAGO: en el diálogo nuevo el producto «Subir al inicio»
+    // también menciona créditos (su coste), así que un getByLabel('Créditos') casaría con dos.
+    await expect(page.locator('label[for="pay-credits"]')).toBeVisible();
     await expect(page.getByLabel('Tarjeta bancaria')).toBeVisible();
 
     // Credit cost shown (30 cr for 7d)
@@ -148,7 +149,7 @@ test.describe('DestacadoDialog — desde /mis-anuncios', () => {
     });
 
     await page.goto('/mis-anuncios');
-    await page.getByTestId('btn-destacar').first().click();
+    await abrirDestacar(page);
     await expect(page.getByRole('dialog')).toBeVisible({ timeout: 5_000 });
 
     // Credits method is pre-selected — click submit
@@ -170,7 +171,7 @@ test.describe('DestacadoDialog — desde /mis-anuncios', () => {
     await mockCatalogAndWallet(page, MOCK_WALLET_EMPTY);
 
     await page.goto('/mis-anuncios');
-    await page.getByTestId('btn-destacar').first().click();
+    await abrirDestacar(page);
     await expect(page.getByRole('dialog')).toBeVisible({ timeout: 5_000 });
 
     // Submit button disabled for credits path
@@ -203,7 +204,7 @@ test.describe('DestacadoDialog — desde /mis-anuncios', () => {
     });
 
     await page.goto('/mis-anuncios');
-    await page.getByTestId('btn-destacar').first().click();
+    await abrirDestacar(page);
     await expect(page.getByRole('dialog')).toBeVisible({ timeout: 5_000 });
 
     // Select "Tarjeta bancaria" payment method
@@ -240,12 +241,11 @@ test.describe('Bump — desde /mis-anuncios', () => {
     });
 
     await page.goto('/mis-anuncios');
-    const bumpBtn = page.getByTestId('btn-bump').first();
-    await expect(bumpBtn).toBeVisible({ timeout: 10_000 });
-
-    // Bump button should NOT be in cooldown state (listing was just seeded)
-    await expect(bumpBtn).toBeEnabled();
-    await bumpBtn.click();
+    // UXV.4 — el vendedor de la semilla no tiene cuota ni saldo, así que subir CUESTA y el
+    // control primario abre el diálogo en vez de ejecutar (el atajo de un clic es solo
+    // para el bump gratis). El anuncio está recién sembrado: sin cooldown.
+    await expect(page.getByTestId('btn-promocionar').first()).toBeVisible({ timeout: 10_000 });
+    await subirDesdeDialogo(page);
 
     await expect.poll(() => bumpCalled, { timeout: 5_000 }).toBe(true);
   });
@@ -264,7 +264,7 @@ test.describe('Bump — desde /mis-anuncios', () => {
     });
 
     await page.goto('/mis-anuncios');
-    await page.getByTestId('btn-bump').first().click();
+    await subirDesdeDialogo(page);
 
     // Must NOT show generic error
     await expect(page.getByText('Ha ocurrido un error')).not.toBeVisible({ timeout: 3_000 });
@@ -295,7 +295,7 @@ test.describe('Bump — desde /mis-anuncios', () => {
     });
 
     await page.goto('/mis-anuncios');
-    await page.getByTestId('btn-bump').first().click();
+    await subirDesdeDialogo(page);
 
     // Must NOT show generic error
     await expect(page.getByText(/ha ocurrido un error/i)).not.toBeVisible({ timeout: 3_000 });
@@ -359,13 +359,10 @@ test.describe('ListingOwnerActions — ficha del anuncio', () => {
 
     await page.goto(`/anuncio/${LISTING_SLUG}`);
 
-    await expect(
-      page.getByTestId('owner-btn-destacar'),
-    ).toBeVisible({ timeout: 10_000 });
-
-    await expect(
-      page.getByTestId('owner-btn-bump'),
-    ).toBeVisible();
+    // UXV.4 — la ficha y la tarjeta comparten ya el MISMO control: un solo «Promocionar»
+    // que agrupa subir y destacar, con el mismo coste y el mismo cooldown. Antes eran dos
+    // botones cuyos rótulos ni siquiera coincidían con los de la tarjeta.
+    await expect(page.getByTestId('btn-promocionar')).toBeVisible({ timeout: 10_000 });
   });
 
   test('el comprador NO ve los botones de owner (slug diferente)', async ({
@@ -381,8 +378,7 @@ test.describe('ListingOwnerActions — ficha del anuncio', () => {
     ).toBeVisible({ timeout: 10_000 });
 
     // Owner actions must not be visible
-    await expect(page.getByTestId('owner-btn-destacar')).not.toBeVisible();
-    await expect(page.getByTestId('owner-btn-bump')).not.toBeVisible();
+    await expect(page.getByTestId('btn-promocionar')).not.toBeVisible();
   });
 
   test('usuario no autenticado NO ve los botones de owner', async ({ browser }) => {
@@ -395,7 +391,7 @@ test.describe('ListingOwnerActions — ficha del anuncio', () => {
       page.getByRole('button', { name: /contactar/i }),
     ).toBeVisible({ timeout: 10_000 });
 
-    await expect(page.getByTestId('owner-btn-destacar')).not.toBeVisible();
+    await expect(page.getByTestId('btn-promocionar')).not.toBeVisible();
 
     await ctx.close();
   });
@@ -408,12 +404,12 @@ test.describe('ListingOwnerActions — ficha del anuncio', () => {
 
     await page.goto(`/anuncio/${LISTING_SLUG}`);
 
-    await expect(page.getByTestId('owner-btn-destacar')).toBeVisible({ timeout: 10_000 });
-    await page.getByTestId('owner-btn-destacar').click();
+    // UXV.4 — desde la ficha se abre el MISMO diálogo que desde la tarjeta, con los mismos
+    // productos: es la reconciliación de las dos superficies.
+    await expect(page.getByTestId('btn-promocionar')).toBeVisible({ timeout: 10_000 });
+    await abrirDestacar(page);
 
-    await expect(
-      page.getByRole('dialog').getByText('Destacar anuncio'),
-    ).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByRole('dialog').getByText('Promocionar anuncio')).toBeVisible();
 
     await expect(page.getByText('7 días')).toBeVisible();
   });

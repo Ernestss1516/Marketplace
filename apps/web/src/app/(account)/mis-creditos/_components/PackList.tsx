@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { Coins, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -23,6 +24,11 @@ export function PackList({ packs }: Props) {
   const { data: session, status } = useSession();
   const { run } = useApiAction();
   const { requireAuth, loginUrl } = useRequireAuth();
+  // UXV.3 (A7-flujo) — la intención con la que el usuario llegó a la cartera, puesta en
+  // la URL por quien le trajo (la tarjeta o el diálogo de destacar). Viaja al backend,
+  // que la valida y la cuelga de la URL de vuelta del TPV: es la única forma de que
+  // sobreviva al salto a Redsys.
+  const volver = useSearchParams().get('volver') ?? undefined;
 
   const [loadingPackId, setLoadingPackId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +49,7 @@ export function PackList({ packs }: Props) {
     setError(null);
 
     await run(
-      () => createPackCheckout(session!.user.accessToken!, creditPackId),
+      () => createPackCheckout(session!.user.accessToken!, creditPackId, volver),
       {
         onSuccess: ({ redsysFormData: data }) => {
           setRedsysFormData(data);
@@ -57,19 +63,21 @@ export function PackList({ packs }: Props) {
     );
   }
 
-  // Once we have form data, render the auto-submitting form (user is redirected to TPV)
-  if (redsysFormData) {
-    return (
-      <div className="flex flex-col items-center gap-4 py-8 text-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <p className="text-muted-foreground">Redirigiendo al TPV…</p>
-        <RedsysRedirectForm formData={redsysFormData} />
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-4">
+      {/* UXV.3 (B4) — el aviso de redirección va ENCIMA de los packs, no EN LUGAR de
+          ellos. Antes esta rama hacía `return` y sustituía la sección entera por un
+          spinner: media página se quedaba en blanco mientras el resto seguía ahí, y el
+          usuario perdía de vista lo que acababa de comprar justo en el instante de pagar.
+          El formulario se autoenvía igual — lo único que cambia es que la página no se
+          desarma debajo. */}
+      {redsysFormData && (
+        <div className="flex items-center justify-center gap-3 rounded-lg border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin text-primary" />
+          Redirigiendo al TPV…
+          <RedsysRedirectForm formData={redsysFormData} />
+        </div>
+      )}
       <div className="grid gap-4 sm:grid-cols-3">
         {packItems.map(({ product, price }) => {
           const isLoading = loadingPackId === price.creditPackId;

@@ -1,27 +1,27 @@
 /**
- * UXV.1 (A2) — las DOS superficies de propietario leen el mismo cooldown.
+ * UXV.1 (A2) + UXV.4 — las DOS superficies de propietario dicen lo mismo.
  *
- * El defecto no era solo que la tarjeta se inventara 24 horas: era que había tres
- * cálculos distintos de "¿puedo bumpear ya?" (backend 1 h, `MyListingCard` 24 h,
- * `ListingOwnerActions` ninguno) y ninguno coincidía. El e2e
- * `uxv1-bump-cooldown.e2e-spec.ts` fija el lado del backend (una ventana, servida como
- * `nextBumpAt` en los dos payloads). Aquí se fija el lado del frontend: dadas las MISMAS
- * condiciones, las dos superficies muestran el MISMO estado.
+ * El defecto original (A2) era que había tres cálculos distintos de «¿puedo bumpear ya?».
+ * UXV.1 lo cerró con `nextBumpAt`, servido por la API, y este fichero fija que las dos
+ * superficies lo respetan igual.
  *
- * Se renderizan los dos componentes REALES, no una función suelta: lo que se afirma es
- * que ninguno de los dos vuelve a derivar la ventana por su cuenta — el fallo original
- * era precisamente una derivación local que nadie comparaba con la otra.
+ * UXV.4 amplía la afirmación y cambia la FORMA de comprobarla, porque cambió la interfaz:
+ * ya no hay un botón «Bump» que se deshabilita, sino un control «Promocionar» que fusiona
+ * subir y destacar (TARJETA-D2). En cooldown ese control NO se apaga —destacar sigue
+ * siendo posible—, así que lo que se compara ahora es lo que las dos CUENTAN: el rótulo
+ * del control y la línea de estado promocional. Sigue midiendo lo mismo: que ninguna de
+ * las dos se invente su propia versión de la ventana.
  */
 
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, within } from '@testing-library/react';
 import { MyListingCard } from './MyListingCard';
 import { ListingOwnerActions } from './ListingOwnerActions';
 import { resolveBumpCooldown } from '@/lib/bump-cooldown';
+import { resolveBumpOffer, promocionarLabel } from './owner/promocion';
 import type { BumpPricing, ListingSummary } from '@/types';
 
 const SELLER_SLUG = 'vendedor-uxv1';
 
-// La ficha decide si eres el dueño comparando `session.user.slug` con el del vendedor.
 jest.mock('next-auth/react', () => ({
   useSession: () => ({
     data: { user: { slug: SELLER_SLUG, accessToken: 'token-de-prueba' } },
@@ -31,19 +31,37 @@ jest.mock('next-auth/react', () => ({
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: jest.fn(), push: jest.fn() }),
-  usePathname: () => '/mis-anuncios',
+  usePathname: () => '/anuncio/anuncio-de-prueba',
   useSearchParams: () => new URLSearchParams(),
 }));
 
-// Ninguna llamada de red debe ocurrir: los tests no pulsan nada, solo miran el estado
-// inicial que cada superficie deriva de `nextBumpAt`.
+/**
+ * La ficha pide precios por su cuenta (`useBumpPricing`), porque es SSR pública y no puede
+ * recibirlos del servidor como sí hace /mis-anuncios. Se resuelven con los MISMOS valores
+ * que se le pasan a la tarjeta: si las dos partieran de datos distintos, la comparación no
+ * probaría nada.
+ */
+const PRICING_LIBRE: BumpPricing = {
+  bumpCreditCost: 5,
+  bumpBalance: 0,
+  bumpQuota: { limit: 0, used: 0, remaining: 0 },
+};
+
 jest.mock('@/lib/api/billing', () => ({
   bumpListing: jest.fn(),
-  getCatalog: jest.fn(),
-  getWallet: jest.fn(),
-  getProStatus: jest.fn(),
   featuredByCredits: jest.fn(),
   createFeaturedCheckout: jest.fn(),
+  getCatalog: jest.fn(() => Promise.resolve({ products: [], bumpCreditCost: 5 })),
+  getWallet: jest.fn(() => Promise.resolve({ balance: 0, bumpBalance: 0 })),
+  getProStatus: jest.fn(() =>
+    Promise.resolve({
+      isPro: false,
+      limit: 0,
+      used: 0,
+      remaining: 0,
+      bumpQuota: { limit: 0, used: 0, remaining: 0 },
+    }),
+  ),
 }));
 
 jest.mock('@/lib/api/anuncios', () => ({
@@ -55,12 +73,6 @@ jest.mock('@/lib/api/anuncios', () => ({
   reactivateListing: jest.fn(),
   archiveListing: jest.fn(),
 }));
-
-const BUMP_PRICING: BumpPricing = {
-  bumpCreditCost: 5,
-  bumpBalance: 0,
-  bumpQuota: { limit: 0, used: 0, remaining: 0 },
-};
 
 function listing(nextBumpAt: string | null): ListingSummary {
   return {
@@ -76,18 +88,24 @@ function listing(nextBumpAt: string | null): ListingSummary {
   } as ListingSummary;
 }
 
-/** El botón de bump de cada superficie, por su testid de producción. */
-function renderBothSurfaces(nextBumpAt: string | null) {
-  const { container: cardContainer } = render(
+/** Renderiza la tarjeta y devuelve su control primario y su zona de estado. */
+function renderTarjeta(nextBumpAt: string | null, pricing: BumpPricing = PRICING_LIBRE) {
+  const { container } = render(
     <MyListingCard
       listing={listing(nextBumpAt)}
       token="token-de-prueba"
       onAction={jest.fn()}
-      bumpPricing={BUMP_PRICING}
+      bumpPricing={pricing}
     />,
   );
-  const cardButton = cardContainer.querySelector('[data-testid="btn-bump"]');
+  return {
+    primario: container.querySelector('[data-testid="btn-promocionar"]') as HTMLButtonElement,
+    estado: container.querySelector('[data-testid="estado-promocion"]'),
+  };
+}
 
+/** Renderiza la ficha. Espera a que resuelva `useBumpPricing`. */
+async function renderFicha(nextBumpAt: string | null) {
   render(
     <ListingOwnerActions
       listingId="listing-1"
@@ -96,56 +114,101 @@ function renderBothSurfaces(nextBumpAt: string | null) {
       nextBumpAt={nextBumpAt}
     />,
   );
-  const fichaButton = screen.getByTestId('owner-btn-bump');
-
-  return { cardButton: cardButton as HTMLButtonElement, fichaButton };
+  const primario = await screen.findByTestId('btn-promocionar');
+  return {
+    primario: primario as HTMLButtonElement,
+    estado: screen.queryByTestId('estado-promocion'),
+  };
 }
 
-const IN_FUTURE = () => new Date(Date.now() + 30 * 60_000).toISOString(); // dentro de 30 min
-const IN_PAST = () => new Date(Date.now() - 30 * 60_000).toISOString(); // hace 30 min
+const EN_FUTURO = () => new Date(Date.now() + 30 * 60_000).toISOString();
+const EN_PASADO = () => new Date(Date.now() - 30 * 60_000).toISOString();
 
 afterEach(cleanup);
 
-describe('UXV.1 (A2) — tarjeta y ficha muestran el mismo estado de cooldown', () => {
-  it('cooldown ACTIVO: las dos deshabilitan el botón', () => {
-    const { cardButton, fichaButton } = renderBothSurfaces(IN_FUTURE());
+describe('UXV.1/UXV.4 — tarjeta y ficha cuentan el mismo cooldown', () => {
+  it('cooldown ACTIVO: las dos lo anuncian, con la misma fecha', async () => {
+    const nextBumpAt = EN_FUTURO();
 
-    expect(cardButton).toBeDisabled();
-    expect(fichaButton).toBeDisabled();
-    // Y las dos lo explican en el title, con la fecha que viene de la API.
-    expect(cardButton.getAttribute('title')).toMatch(/^Disponible el /);
-    expect(fichaButton.getAttribute('title')).toBe(cardButton.getAttribute('title'));
+    const tarjeta = renderTarjeta(nextBumpAt);
+    expect(tarjeta.estado).not.toBeNull();
+    const textoTarjeta = within(tarjeta.estado! as HTMLElement).getByText(/podrás volver a subirlo/i)
+      .textContent;
+
+    cleanup();
+
+    const ficha = await renderFicha(nextBumpAt);
+    expect(ficha.estado).not.toBeNull();
+    const textoFicha = within(ficha.estado! as HTMLElement).getByText(/podrás volver a subirlo/i).textContent;
+
+    expect(textoFicha).toBe(textoTarjeta);
   });
 
-  it('cooldown PASADO: las dos habilitan el botón', () => {
-    const { cardButton, fichaButton } = renderBothSurfaces(IN_PAST());
+  it('cooldown ACTIVO: el control primario NO se apaga — destacar sigue siendo posible', async () => {
+    const nextBumpAt = EN_FUTURO();
 
-    expect(cardButton).toBeEnabled();
-    expect(fichaButton).toBeEnabled();
+    // Es el cambio de UXV.4 respecto a UXV.1: antes el botón «Bump» se deshabilitaba;
+    // ahora «Promocionar» sigue vivo porque el destacado no depende del cooldown.
+    const tarjeta = renderTarjeta(nextBumpAt);
+    expect(tarjeta.primario).toBeEnabled();
+    expect(tarjeta.primario).toHaveTextContent(/promocionar/i);
+    cleanup();
+
+    const ficha = await renderFicha(nextBumpAt);
+    expect(ficha.primario).toBeEnabled();
+    expect(ficha.primario).toHaveTextContent(/promocionar/i);
   });
 
-  it('sin bump previo (nextBumpAt null): las dos habilitan el botón', () => {
-    const { cardButton, fichaButton } = renderBothSurfaces(null);
+  it('cooldown PASADO: ninguna de las dos anuncia espera', async () => {
+    const nextBumpAt = EN_PASADO();
 
-    expect(cardButton).toBeEnabled();
-    expect(fichaButton).toBeEnabled();
+    const tarjeta = renderTarjeta(nextBumpAt);
+    expect(tarjeta.estado).toBeNull();
+    cleanup();
+
+    const ficha = await renderFicha(nextBumpAt);
+    expect(ficha.estado).toBeNull();
+  });
+
+  it('sin bump previo: las dos ofrecen promocionar sin espera', async () => {
+    const tarjeta = renderTarjeta(null);
+    expect(tarjeta.primario).toBeEnabled();
+    expect(tarjeta.estado).toBeNull();
+    cleanup();
+
+    const ficha = await renderFicha(null);
+    expect(ficha.primario).toBeEnabled();
+    expect(ficha.estado).toBeNull();
   });
 
   /**
-   * EL BUG, fijado explícitamente. Con la regla vieja de la tarjeta (`bumpedAt + 24h`),
-   * un anuncio bumpeado hace 2 horas seguía deshabilitado 22 horas más aunque el backend
-   * lo hubiera aceptado. Aquí la API ya dice que la ventana pasó, y las dos superficies
-   * lo respetan.
+   * EL BUG ORIGINAL, fijado. Con la regla vieja de la tarjeta (`bumpedAt + 24h`), un
+   * anuncio bumpeado hace 2 horas seguía bloqueado 22 horas más aunque el backend lo
+   * aceptara. Aquí la API ya dice que la ventana pasó y ninguna de las dos anuncia espera.
    */
-  it('bumpeado hace 2 h (fuera de la ventana real de 1 h): ninguna de las dos bloquea', () => {
+  it('bumpeado hace 2 h (fuera de la ventana real de 1 h): ninguna de las dos hace esperar', async () => {
     const bumpedAt = new Date(Date.now() - 2 * 60 * 60_000);
-    // Lo que hoy sirve el backend: bumpedAt + 1 h → ya pasó.
     const nextBumpAt = new Date(bumpedAt.getTime() + 60 * 60_000).toISOString();
 
-    const { cardButton, fichaButton } = renderBothSurfaces(nextBumpAt);
+    const tarjeta = renderTarjeta(nextBumpAt);
+    expect(tarjeta.estado).toBeNull();
+    cleanup();
 
-    expect(cardButton).toBeEnabled();
-    expect(fichaButton).toBeEnabled();
+    const ficha = await renderFicha(nextBumpAt);
+    expect(ficha.estado).toBeNull();
+  });
+});
+
+describe('UXV.4 — el rótulo del control primario sale de la misma función', () => {
+  it('con bump gratis disponible es «Subir gratis» (un clic); si no, «Promocionar»', () => {
+    const conCuota: BumpPricing = {
+      ...PRICING_LIBRE,
+      bumpQuota: { limit: 3, used: 0, remaining: 3 },
+    };
+    expect(promocionarLabel(resolveBumpOffer(conCuota, null))).toBe('Subir gratis');
+    expect(promocionarLabel(resolveBumpOffer(PRICING_LIBRE, null))).toBe('Promocionar');
+    // En cooldown no hay «gratis a un clic» que ofrecer, aunque haya cuota.
+    expect(promocionarLabel(resolveBumpOffer(conCuota, EN_FUTURO()))).toBe('Promocionar');
   });
 });
 

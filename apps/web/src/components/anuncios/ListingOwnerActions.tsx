@@ -1,17 +1,12 @@
 'use client';
 
-import React, { useState } from 'react';
-import Link from 'next/link';
 import { useSession } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
-import { Loader2, Star, TrendingUp } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { bumpListing } from '@/lib/api/billing';
-import { isCreditError, isCooldownError, formatRetryAfter, toBumpMessage } from '@/lib/api/client';
-import { useApiAction } from '@/lib/api/use-api-action';
-import { useRequireAuth } from '@/hooks/use-require-auth';
-import { resolveBumpCooldown, bumpCooldownTitle } from '@/lib/bump-cooldown';
-import { DestacadoDialog } from './DestacadoDialog';
+import { usePathname, useRouter } from 'next/navigation';
+import { Loader2 } from 'lucide-react';
+import { PromocionarControl } from './owner/PromocionarControl';
+import { PromotionStatus } from './owner/PromotionStatus';
+import { useBumpPricing } from '@/hooks/use-bump-pricing';
+import { canPromote } from './owner/promocion';
 import type { ListingStatus } from '@/types';
 
 interface Props {
@@ -19,12 +14,28 @@ interface Props {
   sellerSlug: string;
   listingStatus: ListingStatus;
   featuredUntil?: string | null;
-  /** UXV.1 (A2) — mismo campo y misma fuente que consume la tarjeta de /mis-anuncios.
-   *  Antes esta superficie no bloqueaba nada y dejaba que contestase el 429: correcto,
-   *  pero incoherente con una tarjeta que bloqueaba 24 h. Ahora las dos leen esto. */
+  /** UXV.1 (A2) — mismo campo y misma fuente que consume la tarjeta de /mis-anuncios. */
   nextBumpAt?: string | null;
 }
 
+/**
+ * UXV.4 — las acciones del propietario EN LA FICHA, reconciliadas con las de la tarjeta.
+ *
+ * EL DEFECTO (transversal 2 de la auditoría): esta superficie y `MyListingCard` hacían lo
+ * mismo de forma distinta. «Subir al inicio (bump)» aquí vs «Bump 5 cr.» allí; el coste
+ * visible en una y no en la otra; el saldo y la cuota Pro tenidos en cuenta allí e
+ * ignorados aquí. El mismo usuario veía dos productos según por dónde entrase.
+ *
+ * AHORA las dos montan `PromocionarControl` con el mismo `BumpPricing`, así que comparten
+ * rótulo, coste, orden de consumo de las monedas, cooldown (UXV.1) y feedback (UXV.3).
+ * Lo único que cambia entre ellas es la FORMA: aquí una columna a ancho completo, allí una
+ * fila compacta — que es lo que `contexto` parametriza.
+ *
+ * LO QUE NO SE TRAE DE LA TARJETA: el ciclo de vida (pausar, archivar, eliminar…). La
+ * ficha es donde el vendedor se ve a sí mismo como lo ve un comprador; gestionar el
+ * anuncio es lo que hace en `/mis-anuncios`, y duplicar aquí un menú de once acciones
+ * volvería a repartir la gestión en dos sitios.
+ */
 export function ListingOwnerActions({
   listingId,
   sellerSlug,
@@ -33,102 +44,41 @@ export function ListingOwnerActions({
   nextBumpAt,
 }: Props) {
   const { data: session } = useSession();
-  const { run } = useApiAction();
   const router = useRouter();
-  const { loginUrl } = useRequireAuth();
-
-  const [bumpBusy, setBumpBusy] = useState(false);
-  const [bumpError, setBumpError] = useState<React.ReactNode | null>(null);
-  const [destacadoOpen, setDestacadoOpen] = useState(false);
+  const pathname = usePathname();
 
   const token = session?.user.accessToken;
+  const esDuenyo = Boolean(session && session.user.slug === sellerSlug);
 
-  // Only render for the authenticated owner of this listing
-  if (!session || session.user.slug !== sellerSlug || listingStatus !== 'ACTIVE') {
-    return null;
-  }
+  // Solo se piden precios si quien mira es el dueño: una ficha la ven sobre todo
+  // visitantes anónimos, y no deben disparar tres llamadas por nada.
+  const bumpPricing = useBumpPricing(token, esDuenyo && canPromote(listingStatus));
 
-  // UXV.1 (A2) — misma lectura que la tarjeta de /mis-anuncios, del mismo campo.
-  const { active: bumpOnCooldown, until: bumpCooldownUntil } = resolveBumpCooldown(nextBumpAt);
-
-  async function handleBump() {
-    if (!token) return;
-    setBumpBusy(true);
-    setBumpError(null);
-    await run(
-      () => bumpListing(token!, listingId),
-      {
-        onSuccess: () => { router.refresh(); },
-        onError: (err) => {
-          if (isCreditError(err)) {
-            setBumpError(
-              <>
-                No tienes créditos suficientes para hacer bump.{' '}
-                <Link href="/mis-creditos" className="underline hover:text-foreground">
-                  Comprar créditos
-                </Link>
-              </>,
-            );
-          } else if (isCooldownError(err)) {
-            setBumpError(
-              `Ya has subido este anuncio, espera ${formatRetryAfter(err.retryAfter)}.`,
-            );
-          } else {
-            setBumpError(toBumpMessage(err));
-          }
-        },
-        callbackUrl: loginUrl,
-      },
-    );
-    setBumpBusy(false);
-  }
+  if (!esDuenyo || !canPromote(listingStatus) || !token) return null;
 
   return (
     <div className="space-y-2">
       <p className="text-xs font-medium text-muted-foreground">Mis opciones</p>
 
-      {!featuredUntil && (
-        <Button
-          variant="outline"
-          size="sm"
-          className="w-full justify-start"
-          onClick={() => setDestacadoOpen(true)}
-          data-testid="owner-btn-destacar"
-        >
-          <Star className="mr-2 h-4 w-4" />
-          Destacar anuncio
-        </Button>
-      )}
+      <PromotionStatus featuredUntil={featuredUntil} nextBumpAt={nextBumpAt} />
 
-      <Button
-        variant="outline"
-        size="sm"
-        className="w-full justify-start"
-        disabled={bumpBusy || bumpOnCooldown}
-        onClick={handleBump}
-        title={
-          bumpOnCooldown && bumpCooldownUntil ? bumpCooldownTitle(bumpCooldownUntil) : undefined
-        }
-        data-testid="owner-btn-bump"
-      >
-        {bumpBusy ? (
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-        ) : (
-          <TrendingUp className="mr-2 h-4 w-4" />
-        )}
-        {bumpOnCooldown ? 'Subir al inicio (espera)' : 'Subir al inicio (bump)'}
-      </Button>
-
-      {bumpError && <p className="text-xs text-destructive">{bumpError}</p>}
-
-      {destacadoOpen && token && (
-        <DestacadoDialog
-          listing={{ id: listingId }}
+      {bumpPricing ? (
+        <PromocionarControl
+          listing={{ id: listingId, status: listingStatus, nextBumpAt }}
           token={token}
-          open={destacadoOpen}
-          onOpenChange={setDestacadoOpen}
-          onSuccess={() => { setDestacadoOpen(false); router.refresh(); }}
+          bumpPricing={bumpPricing}
+          onDone={() => router.refresh()}
+          returnTo={pathname}
+          contexto="ficha"
         />
+      ) : (
+        // Mientras llegan los precios NO se pinta un botón sin coste: enseñar
+        // «Promocionar» y que al pulsarlo cambie el precio debajo es exactamente la
+        // incoherencia que esta ráfaga cierra.
+        <div className="flex h-9 w-full items-center justify-center rounded-md border text-xs text-muted-foreground">
+          <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" aria-hidden />
+          Cargando opciones…
+        </div>
       )}
     </div>
   );

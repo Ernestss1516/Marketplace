@@ -260,13 +260,22 @@ export function getWallet(token: string, page = 1): Promise<WalletResponse> {
   return apiFetch<WalletResponse>(`/billing/wallet?page=${page}&perPage=20`, { token });
 }
 
+/**
+ * UXV.3 (A7-flujo) — `returnTo` es la ruta a la que devolver al usuario tras la compra,
+ * cuando salió a comprar desde una acción que no pudo pagar. Viaja hasta la URL de éxito
+ * que el TPV usa al volver, porque el backend es quien la construye y la firma; el
+ * frontend no puede conservarla por su cuenta a través del salto a Redsys. El backend
+ * valida el destino contra una allowlist, así que mandar cualquier otra cosa no consigue
+ * nada más que perder el retorno.
+ */
 export function createPackCheckout(
   token: string,
   packId: string,
+  returnTo?: string,
 ): Promise<{ redsysFormData: RedsysFormData }> {
   return apiFetch<{ redsysFormData: RedsysFormData }>('/billing/checkout/credits-pack', {
     method: 'POST',
-    body: JSON.stringify({ packId }),
+    body: JSON.stringify({ packId, ...(returnTo && { returnTo }) }),
     token,
   });
 }
@@ -275,10 +284,11 @@ export function createPackCheckout(
 export function createBumpPackCheckout(
   token: string,
   packId: string,
+  returnTo?: string,
 ): Promise<{ redsysFormData: RedsysFormData }> {
   return apiFetch<{ redsysFormData: RedsysFormData }>('/billing/checkout/bump-pack', {
     method: 'POST',
-    body: JSON.stringify({ packId }),
+    body: JSON.stringify({ packId, ...(returnTo && { returnTo }) }),
     token,
   });
 }

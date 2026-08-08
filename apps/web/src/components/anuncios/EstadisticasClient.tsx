@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { Eye, Heart, Lock, TrendingUp } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -38,7 +39,16 @@ function formatDay(iso: string): string {
 }
 
 export function EstadisticasClient({ listings, proStatus, token }: Props) {
-  const [selectedId, setSelectedId] = useState<string | undefined>(listings[0]?.id);
+  /**
+   * UXV.4 (M10) — el anuncio puede venir en la URL (`?anuncio=<id>`), que es como llega
+   * quien pulsa «Ver estadísticas» en una tarjeta concreta. Antes esta pantalla solo se
+   * abría en global y había que volver a buscar el anuncio en un `<Select>` de N.
+   * Un id que no es del usuario simplemente no está en la lista → se cae al primero, que
+   * es el comportamiento de siempre.
+   */
+  const pedido = useSearchParams().get('anuncio');
+  const inicial = listings.some((l) => l.id === pedido) ? pedido! : listings[0]?.id;
+  const [selectedId, setSelectedId] = useState<string | undefined>(inicial);
   const [stats, setStats] = useState<ListingStats | null>(null);
   const [summary, setSummary] = useState<ListingStatsSummary | null>(null);
 

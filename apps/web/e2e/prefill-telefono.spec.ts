@@ -78,15 +78,11 @@ test.describe('Prefill de teléfono del perfil en el wizard', () => {
 
     const page = await sellerContext.newPage();
     await page.goto(`/mis-anuncios/${draft.id}/editar`);
-    await expect(page.getByRole('heading', { name: 'Fotos' })).toBeVisible({ timeout: 8_000 });
-
-    for (let i = 0; i < 4; i++) {
-      const heading = await page.locator('h2').first().textContent({ timeout: 5_000 }).catch(() => '');
-      if (heading?.includes('Ubicación')) break;
-      await page.getByRole('button', { name: 'Siguiente' }).click();
-      await page.waitForTimeout(400);
-    }
-    await expect(page.getByRole('heading', { name: 'Ubicación' })).toBeVisible({ timeout: 5_000 });
+    // UXV.5 — la edición ya no es un wizard: Fotos y Ubicación están en pantalla a la vez,
+    // así que lo que antes eran hasta cuatro clics en «Siguiente» es ahora una espera al
+    // render. Es, literalmente, el arreglo de A4.
+    await expect(page.getByRole('heading', { name: 'Fotos' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('heading', { name: 'Ubicación' })).toBeVisible({ timeout: 10_000 });
 
     // Muestra el teléfono DEL ANUNCIO (677555666), NO el del perfil (699111222/688333444).
     await expect(page.locator('#phone')).toHaveValue('677555666');

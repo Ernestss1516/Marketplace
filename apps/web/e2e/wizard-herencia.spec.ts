@@ -193,14 +193,11 @@ test.describe('RC5.4 — Wizard: herencia de atributos', () => {
     // mano aquí y en prefill-ubicacion; ahora los dos usan `clicarYEsperarUrl`.
     await clicarYEsperarUrl(page, editLink, (url) => url.pathname.endsWith('/editar'));
 
-    // ── Part 3: navigate to Atributos step in EditarWizard ────────────────────
-    // EditarWizard starts at Fotos step
-    await expect(page.getByRole('heading', { name: 'Fotos' })).toBeVisible({ timeout: 8_000 });
-    await page.getByRole('button', { name: 'Siguiente' }).click();
-
+    // ── Part 3: los atributos en el EDITOR ────────────────────────────────────
+    // UXV.5 — ya no hay pasos que recorrer: Fotos, Datos y Atributos están todas en
+    // pantalla desde que abre el editor. Antes hacían falta dos clics en «Siguiente».
+    await expect(page.getByRole('heading', { name: 'Fotos' })).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole('heading', { name: 'Datos del anuncio' })).toBeVisible();
-    await page.getByRole('button', { name: 'Siguiente' }).click();
-
     await expect(page.getByRole('heading', { name: 'Atributos' })).toBeVisible();
 
     // ── Verify pre-filled values (inherited fields carry the saved values) ─────
