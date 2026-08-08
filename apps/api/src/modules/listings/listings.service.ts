@@ -14,6 +14,7 @@ import { Queue } from 'bullmq';
 import { randomBytes } from 'node:crypto';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { RedisService } from '../../infra/redis/redis.service';
+import { listingCacheKey } from '../../infra/redis/cache-keys';
 import { RateLimitService } from '../../infra/redis/rate-limit.service';
 import {
   PHONE_REVEAL_LIMIT_IP_PER_HOUR,
@@ -27,6 +28,10 @@ import { NOTIFICATION_JOB, SendReviewRequestEmailData } from '../../infra/queue/
 import { isP2002 } from '../../common/prisma/is-p2002';
 import { ExpirationService } from '../expiration/expiration.service';
 import { EntitlementService } from '../billing/entitlement.service';
+// UXV.1 (A2) — la ventana de cooldown del bump se define en billing (que es quien la
+// aplica) y se sirve YA RESUELTA desde aquí. La dirección del import respeta la
+// dependencia existente ListingsModule → BillingModule.
+import { nextBumpAt } from '../billing/bump-cooldown';
 import { BadWordService } from '../moderation/bad-word.service';
 import { ListingActivationService } from '../listing-activation/listing-activation.service';
 import { MessagingService } from '../messaging/messaging.service';
@@ -58,7 +63,10 @@ const SELECT_CONTACT = { id: true, name: true, slug: true, avatarUrl: true } as 
 const MAX_SLUG_ATTEMPTS = 5;
 
 const CACHE_TTL = 60 * 5;
-const cacheKey = (slug: string) => `listing:${slug}`;
+// UXV.1 (A2) — el formato de la clave se movió a infra/redis/cache-keys.ts: ahora
+// esta caché también la invalida BillingService.bump, y ninguno de los dos módulos
+// puede importar del otro sin invertir la dirección ListingsModule → BillingModule.
+const cacheKey = listingCacheKey;
 
 const LISTING_INCLUDE = {
   // A1 (URLs anidadas) — `parent` es NUEVO: el breadcrumb de la ficha
@@ -890,6 +898,15 @@ export class ListingsService {
     return {
       ...listingData,
       featuredUntil: featuredEntitlement?.expiresAt ?? null,
+      // UXV.1 (A2) — la MISMA ventana que consume la tarjeta en /mis-anuncios, para
+      // que las dos superficies de propietario no puedan discrepar. Se deriva aquí,
+      // fuera del blob cacheado (igual que featuredUntil arriba): así los payloads
+      // guardados antes de este despliegue también lo llevan. `bumpedAt` sale de la
+      // caché como string ISO y `nextBumpAt` acepta ambas formas.
+      //
+      // La frescura del dato la garantiza BillingService.bump, que ahora borra esta
+      // clave al bumpear — sin eso el blob viviría 5 min con un bumpedAt viejo.
+      nextBumpAt: nextBumpAt((listingData as { bumpedAt?: Date | string | null }).bumpedAt),
       seller: { ...seller, ratingAverage: sellerRating.average, ratingCount: sellerRating.count },
     };
   }
@@ -1031,6 +1048,11 @@ export class ListingsService {
         ...this.toSummary(r),
         featuredUntil: featuredMap.get(r.id) ?? null,
         favoritesCount: favoritesCountMap.get(r.id) ?? 0,
+        // UXV.1 (A2) — enriquecido SOLO en la vista del propietario, junto a
+        // featuredUntil y por el mismo motivo: es estado de gestión, no de catálogo.
+        // Derivado en el servidor para que la tarjeta no tenga que conocer la
+        // ventana (antes se inventaba 24 h; la real es 1 h).
+        nextBumpAt: nextBumpAt(r.bumpedAt),
       })),
       total,
       page,

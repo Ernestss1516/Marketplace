@@ -23,9 +23,12 @@ import {
   TransactionStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
+import { RedisService } from '../../infra/redis/redis.service';
+import { listingCacheKey } from '../../infra/redis/cache-keys';
 import { QUEUE_INDEXING } from '../../infra/queue/queue.constants';
 import { CampaignsService } from '../campaigns/campaigns.service';
 import { EntitlementService } from './entitlement.service';
+import { BUMP_COOLDOWN_SECONDS } from './bump-cooldown';
 import { CheckoutDto } from './dto/checkout.dto';
 import { FeaturedByCreditsDto } from './dto/featured-by-credits.dto';
 import { TransactionsQueryDto } from './dto/transactions-query.dto';
@@ -59,6 +62,10 @@ export class BillingService {
     private readonly entitlements: EntitlementService,
     private readonly campaigns: CampaignsService,
     private readonly config: ConfigService,
+    // UXV.1 (A2) — solo para invalidar la ficha cacheada tras un bump; ver el
+    // comentario al final de bump(). RedisModule es @Global, así que no hace
+    // falta importarlo en BillingModule.
+    private readonly redis: RedisService,
     @InjectQueue(QUEUE_INDEXING) private readonly indexingQueue: Queue,
   ) {
     this.appUrl = config.get<string>('appUrl', 'http://localhost:3000');
@@ -538,7 +545,9 @@ export class BillingService {
   ): Promise<{ bumpedAt: Date; paidWith: 'PRO_QUOTA' | 'BUMP_BALANCE' | 'CREDITS'; cost: number }> {
     const listing = await this.prisma.listing.findUnique({
       where: { id: listingId },
-      select: { id: true, status: true, sellerId: true, bumpedAt: true },
+      // UXV.1 (A2) — `slug` es NUEVO: hace falta para invalidar la ficha cacheada
+      // al terminar (ver el final de este método).
+      select: { id: true, slug: true, status: true, sellerId: true, bumpedAt: true },
     });
     if (!listing) throw new NotFoundException('Listing not found');
     if (listing.sellerId !== userId) throw new ForbiddenException('Not your listing');
@@ -546,16 +555,21 @@ export class BillingService {
       throw new BadRequestException('Only ACTIVE listings can be bumped');
     }
 
-    // Cooldown check: if bumpedAt is within the last hour, reject. (Deuda
+    // Cooldown check: rechaza si el último bump cae dentro de la ventana. (Deuda
     // menor preexistente, no de esta ráfaga: esta comprobación lee bumpedAt
     // FUERA de la transacción, así que dos peticiones concurrentes sobre el
     // mismo listing podrían ambas pasarla antes de que ninguna confirme su
     // propio UPDATE — inventariada, no se toca aquí.)
+    //
+    // UXV.1 (A2): la ventana ya no es un literal aquí. Es la MISMA constante que
+    // se usa para derivar el `nextBumpAt` que viaja al frontend (ver
+    // bump-cooldown.ts), así que lo que el botón muestra y lo que este guard
+    // aplica no pueden separarse.
     const now = new Date();
     if (listing.bumpedAt) {
       const elapsedSeconds = (now.getTime() - listing.bumpedAt.getTime()) / 1000;
-      if (elapsedSeconds < 3600) {
-        const retryAfter = Math.ceil(3600 - elapsedSeconds);
+      if (elapsedSeconds < BUMP_COOLDOWN_SECONDS) {
+        const retryAfter = Math.ceil(BUMP_COOLDOWN_SECONDS - elapsedSeconds);
         throw new HttpException(
           { message: 'Cooldown active — wait before bumping again', retryAfter },
           HttpStatus.TOO_MANY_REQUESTS,
@@ -664,6 +678,15 @@ export class BillingService {
 
     // After TX commits: enqueue reindexing so Meilisearch picks up new sortDate
     await this.indexingQueue.add('index', { listingId });
+
+    // UXV.1 (A2) — invalidar la ficha cacheada. `findBySlug` guarda el anuncio
+    // entero en Redis 5 min, `bumpedAt` incluido, y de `bumpedAt` se deriva ahora
+    // el `nextBumpAt` que la ficha usa para deshabilitar el botón. Sin esto, tras
+    // bumpear desde la ficha el `router.refresh()` seguiría leyendo el blob viejo
+    // y la ficha diría "puedes bumpear" mientras la tarjeta dice lo contrario —
+    // exactamente la discrepancia entre superficies que A2 cierra. Mismo criterio
+    // que ya aplican update/delete en ListingsService.
+    await this.redis.client.del(listingCacheKey(listing.slug));
 
     this.logger.log(`Bump: listingId=${listingId}, userId=${userId}, paidWith=${paidWith}, cost=${cost}`);
     return { bumpedAt, paidWith, cost };

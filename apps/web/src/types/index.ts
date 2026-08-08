@@ -224,6 +224,13 @@ export interface ListingSummary {
   publishedAt?: string;
   expiresAt?: string;
   bumpedAt?: string;
+  /** UXV.1 (A2) — instante en que el anuncio vuelve a ser bumpeable, DERIVADO EN EL
+   *  BACKEND a partir de `bumpedAt` y de la ventana real (ver `bump-cooldown.ts` en la
+   *  API). El frontend solo lo compara contra `Date.now()`: no vuelve a calcular la
+   *  ventana, que es lo que hacía divergir a la tarjeta (24 h) del backend (1 h).
+   *  Solo lo sirve la vista del propietario (`findMine`), como `featuredUntil`; en los
+   *  listados públicos y en los hits de Meilisearch no viene. `null` = nunca bumpeado. */
+  nextBumpAt?: string | null;
   featuredUntil?: string | null;
   categorySlug?: string;
   attributes?: Record<string, unknown>;
@@ -309,6 +316,11 @@ export interface Listing {
   publishedAt?: string;
   viewCount: number;
   featuredUntil?: string | null;
+  /** UXV.1 (A2) — misma fuente y mismo significado que en `ListingSummary`: la ficha y
+   *  la tarjeta de /mis-anuncios consumen el MISMO instante, derivado en el backend, en
+   *  vez de calcular cada una su ventana. Se sirve fuera del blob cacheado en Redis
+   *  (como `featuredUntil`), y `bump` invalida esa caché para que no quede viejo. */
+  nextBumpAt?: string | null;
   /** true cuando el anuncio tiene teléfono publicado — el número en sí nunca viaja aquí (ver GET /listings/:id/phone). */
   hasPhone: boolean;
 }

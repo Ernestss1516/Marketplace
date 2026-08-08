@@ -10,6 +10,7 @@ import { bumpListing } from '@/lib/api/billing';
 import { isCreditError, isCooldownError, formatRetryAfter, toBumpMessage } from '@/lib/api/client';
 import { useApiAction } from '@/lib/api/use-api-action';
 import { useRequireAuth } from '@/hooks/use-require-auth';
+import { resolveBumpCooldown, bumpCooldownTitle } from '@/lib/bump-cooldown';
 import { DestacadoDialog } from './DestacadoDialog';
 import type { ListingStatus } from '@/types';
 
@@ -18,6 +19,10 @@ interface Props {
   sellerSlug: string;
   listingStatus: ListingStatus;
   featuredUntil?: string | null;
+  /** UXV.1 (A2) — mismo campo y misma fuente que consume la tarjeta de /mis-anuncios.
+   *  Antes esta superficie no bloqueaba nada y dejaba que contestase el 429: correcto,
+   *  pero incoherente con una tarjeta que bloqueaba 24 h. Ahora las dos leen esto. */
+  nextBumpAt?: string | null;
 }
 
 export function ListingOwnerActions({
@@ -25,6 +30,7 @@ export function ListingOwnerActions({
   sellerSlug,
   listingStatus,
   featuredUntil,
+  nextBumpAt,
 }: Props) {
   const { data: session } = useSession();
   const { run } = useApiAction();
@@ -41,6 +47,9 @@ export function ListingOwnerActions({
   if (!session || session.user.slug !== sellerSlug || listingStatus !== 'ACTIVE') {
     return null;
   }
+
+  // UXV.1 (A2) — misma lectura que la tarjeta de /mis-anuncios, del mismo campo.
+  const { active: bumpOnCooldown, until: bumpCooldownUntil } = resolveBumpCooldown(nextBumpAt);
 
   async function handleBump() {
     if (!token) return;
@@ -95,8 +104,11 @@ export function ListingOwnerActions({
         variant="outline"
         size="sm"
         className="w-full justify-start"
-        disabled={bumpBusy}
+        disabled={bumpBusy || bumpOnCooldown}
         onClick={handleBump}
+        title={
+          bumpOnCooldown && bumpCooldownUntil ? bumpCooldownTitle(bumpCooldownUntil) : undefined
+        }
         data-testid="owner-btn-bump"
       >
         {bumpBusy ? (
@@ -104,7 +116,7 @@ export function ListingOwnerActions({
         ) : (
           <TrendingUp className="mr-2 h-4 w-4" />
         )}
-        Subir al inicio (bump)
+        {bumpOnCooldown ? 'Subir al inicio (espera)' : 'Subir al inicio (bump)'}
       </Button>
 
       {bumpError && <p className="text-xs text-destructive">{bumpError}</p>}
