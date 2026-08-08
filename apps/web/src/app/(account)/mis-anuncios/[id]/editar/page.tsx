@@ -2,7 +2,8 @@ import { redirect, notFound } from 'next/navigation';
 import { auth } from '@/lib/auth';
 import { getMyListingById } from '@/lib/api/anuncios';
 import { getCategoryBySlug } from '@/lib/api/categorias';
-import { EditarWizard, type EditarWizardData } from '@/components/publicar/EditarWizard';
+import { EditarForm, type EditarFormData } from '@/components/publicar/EditarForm';
+import { getProStatus, type ProStatus } from '@/lib/api/billing';
 // Desde '@/lib/price-unit' (módulo sin 'use client'), NO desde steps/StepDatos:
 // esta página es un Server Component y llamar a una función de un módulo de
 // cliente durante el render del servidor reventaba la página en producción.
@@ -39,9 +40,18 @@ export default async function EditarAnuncioPage({
     notFound();
   }
 
-  const category = await getCategoryBySlug(listing.category.slug);
+  /**
+   * UXV.5 — `getProStatus` es NUEVO en esta página: hasta ahora el editor no tenía forma
+   * de saber si quien edita es Pro, y eso es el prerequisito duro del VÍDEO PRO (proyecto
+   * 3). Se pide en paralelo con la categoría, así que no añade latencia perceptible, y
+   * falla en silencio: que no se sepa el plan no puede impedir editar un anuncio.
+   */
+  const [category, proStatus] = await Promise.all([
+    getCategoryBySlug(listing.category.slug),
+    getProStatus(token).catch((): ProStatus | null => null),
+  ]);
 
-  const initialData: EditarWizardData = {
+  const initialData: EditarFormData = {
     // Category — locked, not changeable from this wizard
     categoryId: category.id,
     categorySlug: category.slug,
@@ -100,7 +110,12 @@ export default async function EditarAnuncioPage({
   return (
     <div>
       <h1 className="mb-6 text-2xl font-bold">Editar anuncio</h1>
-      <EditarWizard listingId={id} token={token} initialData={initialData} />
+      <EditarForm
+        listingId={id}
+        token={token}
+        initialData={initialData}
+        proStatus={proStatus}
+      />
     </div>
   );
 }

@@ -30,15 +30,13 @@ async function goToUbicacionStep(page: import('@playwright/test').Page) {
   await expect(page.getByRole('heading', { name: 'Ubicación' })).toBeVisible();
 }
 
-/** Click Siguiente until the Ubicación step heading is visible (max 4 clicks). */
-async function advanceToUbicacionInEditWizard(page: import('@playwright/test').Page) {
-  for (let i = 0; i < 4; i++) {
-    const heading = await page.locator('h2').first().textContent({ timeout: 5_000 }).catch(() => '');
-    if (heading?.includes('Ubicación')) return;
-    await page.getByRole('button', { name: 'Siguiente' }).click();
-    await page.waitForTimeout(400);
-  }
-  await expect(page.getByRole('heading', { name: 'Ubicación' })).toBeVisible({ timeout: 5_000 });
+/**
+ * UXV.5 — la EDICIÓN ya no es un wizard: las cinco secciones están en pantalla desde el
+ * principio, así que no hay nada que «avanzar». Lo que antes eran hasta cuatro clics en
+ * «Siguiente» es ahora una espera al render — que es, literalmente, el arreglo de A4.
+ */
+async function esperarSeccionUbicacion(page: import('@playwright/test').Page) {
+  await expect(page.getByRole('heading', { name: 'Ubicación' })).toBeVisible({ timeout: 10_000 });
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -118,9 +116,9 @@ test.describe('RL5.1-A — Prefill de ubicación del perfil', () => {
     // que es el mismo patrón en un sitio y además añade `waitUntil: 'commit'`.
     await clicarYEsperarUrl(page, editLink, (url) => url.pathname.endsWith('/editar'));
 
-    // EditarWizard starts at Fotos; advance through steps to Ubicación.
-    await expect(page.getByRole('heading', { name: 'Fotos' })).toBeVisible({ timeout: 8_000 });
-    await advanceToUbicacionInEditWizard(page);
+    // UXV.5 — el editor abre con TODO a la vista: Fotos y Ubicación coexisten.
+    await expect(page.getByRole('heading', { name: 'Fotos' })).toBeVisible({ timeout: 10_000 });
+    await esperarSeccionUbicacion(page);
 
     // Verify the edit wizard shows the LISTING's location (Madrid), not the profile's (Sabadell).
     await expect(page.locator('#city')).toHaveValue('Madrid');

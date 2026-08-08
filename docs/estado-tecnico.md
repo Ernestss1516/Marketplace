@@ -11582,6 +11582,73 @@ motor de CSS, así que `portada-hero.spec.ts` las mide donde ocurren:
 
 ---
 
+## UXV.5 — EL EDITOR: editar deja de ser un alta
+
+Quinta tanda de [`diseno-ux-vendedor.md`](diseno-ux-vendedor.md). La edición reusaba el
+wizard del alta: `StepIndicator` no era clicable y «Guardar cambios» **solo existía en el
+último paso**, así que corregir una errata del título obligaba a pulsar «Siguiente» cuatro
+veces —validando de paso todo lo que hubiera por medio— antes de poder guardar. Y no había
+ni «Cancelar» ni aviso: salir descartaba en silencio.
+
+### EDITOR-D1 — secciones, no wizard
+
+`EditarWizard` → [`EditarForm`](../apps/web/src/components/publicar/EditarForm.tsx): una
+página con las cinco secciones apiladas, un índice que lleva a cada una y **una barra de
+guardado fija**. Los cinco `Step*` **se reusan tal cual** — ya eran componentes de
+presentación que reciben `data`/`onChange`/`errors` y pintan su propio `<h2>`. No se ha
+reescrito ninguno.
+
+**Publicar sigue siendo un wizard, y es deliberado.** Son dos tareas distintas: el alta
+guía porque el usuario no sabe qué falta; la edición no, porque sabe exactamente a qué
+viene. Que compartieran UI era el defecto, no la virtud. Hay una prueba que falla si el
+alta se convierte en el editor por accidente.
+
+**La validación no se ha relajado.** Cada sección conserva sus reglas; lo único que cambia
+es cuándo corren: antes al pulsar «Siguiente» de ese paso, ahora **todas al guardar**, con
+salto automático a la primera sección con errores. Guardar envía el anuncio completo, así
+que validar solo lo que el usuario abrió habría dejado que el backend rechazara lo demás.
+
+### Salir sin guardar
+
+[`useUnsavedChanges`](../apps/web/src/hooks/use-unsaved-changes.ts) cubre las dos formas de
+irse: `beforeunload` (cerrar pestaña, recargar, salir del sitio) y **interceptación del
+clic en fase de captura** para la navegación interna.
+
+Es clic y no «evento de router» porque **el App Router no expone eventos de navegación**
+(`router.events` era del Pages Router). No hay un punto oficial donde frenar una transición
+en curso; lo que sí se puede es atajar el clic antes de que empiece.
+
+Esto pasó de molestia a necesidad por UXV.2: el menú de la cuenta está ahora **siempre a la
+vista**, a un clic de perder el trabajo. Hay una prueba que ejercita justo ese caso.
+
+### El seam del VÍDEO PRO (proyecto 3)
+
+Dos piezas, y las dos existen ya:
+
+| Qué necesitará el vídeo | Dónde está |
+|---|---|
+| **Saber si el usuario es Pro** | La página de editar llama ahora a `getProStatus` —no lo hacía— y lo pasa a `EditarForm`. Falla en silencio: no saber el plan no puede impedir editar. |
+| **Un sitio donde ponerse** | `resolveEditSections(data, proStatus)`. Hoy devuelve las mismas cinco secciones con o sin `proStatus`, y **eso es correcto**: el vídeo no existe. Lo que fija la prueba es que el CABLEADO existe, para que el proyecto 3 no tenga que abrirlo por tres ficheros. |
+| **El molde del gate** | [`EstadisticasClient.tsx:164-176`](../apps/web/src/components/anuncios/EstadisticasClient.tsx#L164-L176) — card punteada + `Lock` + «Hazte Pro» → `/planes`. Identificado, no replicado aún. |
+
+Es el mismo criterio que UXV.4 con el bump automático: la superficie preparada, la función
+sin implementar.
+
+### Nota de entorno
+
+`jest.setup.ts` añade un stub de `Element.prototype.scrollIntoView`: jsdom no la implementa
+(no tiene layout). El editor la usa para llevar al usuario a la primera sección con
+errores, y sin el stub cualquier prueba que validara reventaba con un `TypeError` que no
+decía nada del fallo real. Es una carencia del ENTORNO, así que se rellena ahí y no se
+ensucia el componente con un `?.` defensivo.
+
+**Verificado**: `e2e/editor.spec.ts` (7 pruebas en navegador real) + `EditarForm.test.tsx`
+(14, heredando las seis de RP.3 sin relajar ninguna). `prefill-ubicacion` y
+`wizard-herencia` migrados: lo que eran hasta cuatro clics en «Siguiente» es ahora una
+espera al render.
+
+---
+
 ## UXV.4 — LA TARJETA: jerarquía, y las dos superficies reconciliadas
 
 Cuarta tanda de [`diseno-ux-vendedor.md`](diseno-ux-vendedor.md). Ataca el reparto del
