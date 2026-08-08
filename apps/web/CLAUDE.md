@@ -27,6 +27,17 @@ lógica se consume desde la API de NestJS a través de `lib/api/`.
 - Mantener `sitemap.ts`, `robots.ts` y los metadatos de las fichas al día (SEO).
 - No usar localStorage/sessionStorage para estado crítico; preferir estado de
   servidor o de React.
+- **Feedback de acciones (UXV.3): hay UN canal, no se improvisa otro.** El
+  `<Toaster/>` (sonner) se monta una vez en el layout raíz. Para avisar del éxito de
+  una acción se pasa `successMessage` a `run()` de `useApiAction`, que emite el toast
+  — no se añaden `<p>` verdes ni banners propios. Reparto:
+  - éxito de una acción puntual (bump, destacado, guardado, cupón, factura) → **toast**;
+  - error de validación de un campo → **inline, junto al campo**;
+  - error con acción de recuperación (saldo insuficiente + «Comprar créditos») →
+    **inline, donde está el botón** (el toast se lo llevaría fuera de contexto);
+  - estado persistente (saldo, cuota Pro, datos fiscales incompletos) → **en la página**.
+- **Acción irreversible ⇒ `AlertDialog` antes y aviso después.** Molde:
+  Archivar/Eliminar en `MyListingCard` y «Solicitar factura» en `FacturasPanel`.
 
 ## Comandos
 - `dev` — servidor de desarrollo

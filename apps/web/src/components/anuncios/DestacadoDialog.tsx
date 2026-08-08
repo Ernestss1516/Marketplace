@@ -39,15 +39,34 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess: () => void;
+  /**
+   * UXV.3 (A7-flujo) — a dónde volver si el usuario sale de aquí a comprar créditos por
+   * no tener saldo. Lo pasa quien monta el diálogo, que es el único que sabe desde qué
+   * pantalla se abrió. Sin él, el enlace lleva a la cartera sin más y la página de éxito
+   * cae en sus salidas genéricas.
+   */
+  returnTo?: string;
 }
 
 type PayMethod = 'credits' | 'card';
 /** H8.5b — which product the user is choosing: free quota grant vs. paid (credits/card). */
 type FeatureMethod = 'quota' | 'paid';
 
-export function DestacadoDialog({ listing, token, open, onOpenChange, onSuccess }: Props) {
+export function DestacadoDialog({
+  listing,
+  token,
+  open,
+  onOpenChange,
+  onSuccess,
+  returnTo,
+}: Props) {
   const { run } = useApiAction();
   const { loginUrl } = useRequireAuth();
+
+  /** UXV.3 — la cartera, con la intención colgada si la hay (ver `returnTo`). */
+  const comprarCreditosHref = returnTo
+    ? `/mis-creditos?volver=${encodeURIComponent(returnTo)}`
+    : '/mis-creditos';
 
   const [featuredPrices, setFeaturedPrices] = useState<CatalogPrice[]>([]);
   const [walletBalance, setWalletBalance] = useState<number>(0);
@@ -102,6 +121,11 @@ export function DestacadoDialog({ listing, token, open, onOpenChange, onSuccess 
       await run(
         () => featuredByCredits(token, { listingId: listing.id, useQuota: true }),
         {
+          // UXV.3 (M5) — hasta ahora destacar terminaba EN SILENCIO: se cerraba el
+          // diálogo y se refrescaba, sin decir nada. El bump, en la misma tarjeta, sí
+          // confirmaba y hasta distinguía con qué moneda se había pagado. Dos operaciones
+          // gemelas con feedback opuesto. Aquí también se dice con qué se pagó.
+          successMessage: `Anuncio destacado ${proStatus?.quotaDurationDays ?? 7} días con tu cuota Pro.`,
           onSuccess: () => {
             onOpenChange(false);
             onSuccess();
@@ -140,6 +164,9 @@ export function DestacadoDialog({ listing, token, open, onOpenChange, onSuccess 
             priceId: selectedPrice.priceId,
           }),
         {
+          // UXV.3 (M5) — mismo criterio que la rama de cuota: se nombra la duración Y lo
+          // que ha costado, como hace el bump.
+          successMessage: `Anuncio destacado ${selectedPrice.durationDays} días. Se han descontado ${creditCost} créditos.`,
           onSuccess: () => {
             onOpenChange(false);
             onSuccess();
@@ -149,7 +176,7 @@ export function DestacadoDialog({ listing, token, open, onOpenChange, onSuccess 
               setError(
                 <>
                   No tienes créditos suficientes.{' '}
-                  <Link href="/mis-creditos" className="underline hover:text-foreground">
+                  <Link href={comprarCreditosHref} className="underline hover:text-foreground">
                     Comprar créditos
                   </Link>
                 </>,
@@ -362,7 +389,7 @@ export function DestacadoDialog({ listing, token, open, onOpenChange, onSuccess 
                   {payMethod === 'credits' && !canPayByCredits && creditCost > 0 && (
                     <p className="mt-2 text-xs text-muted-foreground">
                       Necesitas {creditCost - walletBalance} créditos más.{' '}
-                      <Link href="/mis-creditos" className="underline hover:text-foreground">
+                      <Link href={comprarCreditosHref} className="underline hover:text-foreground">
                         Comprar créditos
                       </Link>
                     </p>

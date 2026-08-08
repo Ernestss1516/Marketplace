@@ -11582,6 +11582,81 @@ motor de CSS, así que `portada-hero.spec.ts` las mide donde ocurren:
 
 ---
 
+## UXV.3 — FEEDBACK: el canal que la aplicación no tenía
+
+Tercera tanda de [`diseno-ux-vendedor.md`](diseno-ux-vendedor.md). Tres pantallas
+terminaban en silencio, y no por descuido de cada una: **no había dónde avisar**. La raíz
+(M6) es que `useApiAction` solo tenía canal de error y no existía ningún toast en el
+proyecto, así que cada pantalla se inventó el suyo — un `<p>` verde aquí, un
+`router.refresh()` mudo allá, y en tres sitios nada.
+
+### La infraestructura, primero (M6)
+
+- **`sonner`** (FEEDBACK-D1), envuelto en [`components/ui/sonner.tsx`](../apps/web/src/components/ui/sonner.tsx)
+  para fijar posición, duración y colores en UN sitio. Montado **una vez en el layout
+  raíz** y **fuera de `AuthProvider`**: un toast no depende de la sesión y tiene que poder
+  salir también en pantallas anónimas. Verificado en las tres zonas (pública, cuenta,
+  backoffice).
+- **Canal de éxito en `useApiAction`**: `successMessage` (texto o función del resultado) y
+  `errorMessage` opcional. **Sin esas opciones el comportamiento es exactamente el de
+  antes** — quien no las pasa no ve ningún toast. El aviso se emite ANTES de `onSuccess`,
+  que suele cerrar un diálogo o navegar.
+- **Regla de reparto (FEEDBACK-D2), aplicada y no solo escrita**: al toast van los éxitos
+  de acciones puntuales; **se quedan inline** los errores que llevan enganchada una acción
+  de recuperación (saldo insuficiente + «Comprar créditos») y el estado persistente. Hay
+  una prueba que fija justo eso, para que el toast no se coma lo que no le toca.
+
+### Los tres arreglos que la consumen
+
+**M5 — destacar deja de completarse en silencio.** Las dos vías (cuota Pro y créditos)
+confirman diciendo duración y con qué se pagó. Y **el bump migra al mismo canal**: era el
+único sitio que ya avisaba, con un `<p>` verde propio; dejarlo inline mientras destacar usa
+toast habría conservado la incoherencia de M5 al revés. Su ERROR sigue inline, a propósito.
+
+**M7 — la factura se confirma antes y se anuncia después.** Emitir una `Invoice` es
+irreversible por construcción (triggers de BD rechazan UPDATE/DELETE sobre las ISSUED y sus
+líneas) y se disparaba con **un clic sin preguntar**, mientras archivar un anuncio sí
+preguntaba. Ahora hay `AlertDialog` —mismo molde que archivar— que dice cuántas líneas, qué
+total y que no se podrá anular; y un toast al emitir. Además, cuando el botón está
+deshabilitado se dice **por qué** (se usa el `reason` que ya servía
+`GET /billing/eligibility`), en vez de dejar un botón muerto.
+
+**A7-flujo — quien sale a comprar puede volver a lo que iba a hacer.** UXV.1 arregló que la
+página de éxito resolviera; esto arregla a dónde lleva. La intención viaja así:
+
+```
+tarjeta/ficha  →  /mis-creditos?volver=/anuncio/<slug>
+                        ↓ (PackList la reenvía en el checkout)
+                  POST /billing/checkout/credits-pack { returnTo }
+                        ↓ (el backend la valida y la cuelga de DS_MERCHANT_URLOK)
+                  TPV Redsys
+                        ↓
+                  /mis-creditos/exito?volver=...   →  botón «Volver a terminar»
+```
+
+Tiene que dar ese rodeo por el backend porque **lo único que sobrevive al salto al TPV es
+lo que se firma en el formulario**, y `DS_MERCHANT_URLOK` lo construye el servidor. El
+destino apunta a la FICHA del anuncio, no al listado: allí `ListingOwnerActions` tiene
+Destacar y Bump de ese anuncio a un clic.
+
+**El `returnTo` es superficie de seguridad, no un detalle de UX**, y se trata como tal
+([`redsys/return-to.ts`](../apps/api/src/modules/redsys/return-to.ts)): llega del cliente y
+acaba dentro de una petición de pago firmada. La validación es una **allowlist de formas
+exactas**, no un `startsWith('/')` — que dejaría pasar `//evil.com`, que el navegador trata
+como URL absoluta protocol-relative (redirección abierta de manual). Un destino inválido se
+descarta en silencio y **nunca tumba el cobro**. 21 pruebas unitarias fijan los rechazos
+(protocol-relative, `javascript:`, `data:`, travesía, querystring inyectada, rutas internas
+no contempladas…). La página de éxito vuelve a comprobarlo antes de usarlo como `href`: no
+debe ser el eslabón que confía por costumbre.
+
+**B4** — comprar un pack ya no sustituye la sección por un spinner: el aviso de redirección
+va ENCIMA de los packs, no en su lugar.
+
+**Verificado**: `e2e/feedback.spec.ts` (9 pruebas en navegador real) + `return-to.spec.ts`
+(21) + batería completa.
+
+---
+
 ## UXV.2 — el SHELL de la zona de cuenta
 
 Segunda tanda de [`diseno-ux-vendedor.md`](diseno-ux-vendedor.md). Ataca la raíz de cinco

@@ -4,8 +4,20 @@ import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Download, FileText, LifeBuoy, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { requestInvoice, type Facturable, type InvoiceDto, type InvoiceEligibility } from '@/lib/api/facturacion';
 import { toUserMessage } from '@/lib/api/client';
 
@@ -29,17 +41,46 @@ export function FacturasPanel({ token, eligibility, facturables, invoices }: Pro
   const [error, setError] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
+  /**
+   * UXV.3 (M7) — emitir una factura es IRREVERSIBLE: la base de datos tiene triggers que
+   * rechazan cualquier UPDATE/DELETE sobre una `Invoice` ISSUED y sobre sus líneas. Hasta
+   * ahora se disparaba con UN clic, sin confirmar nada —mientras archivar un anuncio sí
+   * lo pedía— y al terminar solo hacía `router.refresh()`, sin señal ninguna de que se
+   * hubiera emitido. Ahora confirma antes (`AlertDialog`, el mismo molde de archivar) y
+   * avisa después.
+   */
   function handleRequest() {
     setError(null);
     startTransition(async () => {
       try {
         await requestInvoice(token);
+        toast.success(
+          `Factura emitida con ${facturables.length} línea${facturables.length === 1 ? '' : 's'}. Ya puedes descargarla.`,
+        );
         router.refresh();
       } catch (e) {
         setError(toUserMessage(e));
       }
     });
   }
+
+  /**
+   * Por qué NO se puede pedir factura ahora mismo. El botón se deshabilitaba con
+   * `!eligibility.canRequest` sin decir nada: con los datos fiscales completos y sin
+   * movimientos, o fuera de la ventana de autoservicio, quedaba un botón muerto y ninguna
+   * explicación. `reason` la trae el backend (`GET /billing/eligibility`).
+   */
+  const motivoNoDisponible = (() => {
+    if (eligibility.canRequest) return null;
+    switch (eligibility.reason) {
+      case 'MISSING_FISCAL_DATA':
+        return 'Completa tus datos fiscales, arriba, para poder emitir la factura.';
+      case 'NO_INVOICEABLE_MOVEMENTS':
+        return 'No hay movimientos pendientes de facturar en el periodo vigente.';
+      default:
+        return 'Ahora mismo no se puede emitir la factura. Si crees que es un error, abre un ticket de soporte.';
+    }
+  })();
 
   async function handleDownload(inv: InvoiceDto) {
     setDownloadingId(inv.id);
@@ -96,16 +137,54 @@ export function FacturasPanel({ token, eligibility, facturables, invoices }: Pro
               ))}
             </ul>
 
-            <div className="mt-4 flex items-center gap-4">
-              <Button onClick={handleRequest} disabled={isPending || !eligibility.canRequest}>
-                {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Solicitar factura
-              </Button>
+            <div className="mt-4 flex flex-wrap items-center gap-4">
+              {/* UXV.3 (M7) — mismo molde de confirmación que Archivar/Eliminar en
+                  MyListingCard. Una factura emitida no se puede tocar ni borrar (lo
+                  imponen triggers en la base de datos), así que merece al menos la misma
+                  pregunta que archivar un anuncio. */}
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button disabled={isPending || !eligibility.canRequest}>
+                    {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Solicitar factura
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>¿Emitir la factura?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Se emitirá una factura con {facturables.length} línea
+                      {facturables.length === 1 ? '' : 's'}, a nombre de tus datos fiscales
+                      actuales y por un total de {facturables[0]?.currency ? '' : ''}
+                      {facturables
+                        .reduce((sum, f) => sum + Number(f.amountGross), 0)
+                        .toFixed(2)}{' '}
+                      {facturables[0]?.currency ?? 'EUR'}. Una factura emitida{' '}
+                      <strong>no se puede modificar ni anular</strong>, y esos movimientos
+                      dejarán de estar disponibles para futuras facturas.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel disabled={isPending}>Cancelar</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleRequest} disabled={isPending}>
+                      Emitir factura
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+
               <p className="text-xs text-muted-foreground">
                 Se emitirá una factura con {facturables.length} línea
                 {facturables.length === 1 ? '' : 's'}.
               </p>
             </div>
+
+            {/* UXV.3 (M7) — un botón deshabilitado sin explicación es un callejón. */}
+            {motivoNoDisponible && (
+              <p className="mt-2 text-xs text-muted-foreground" data-testid="motivo-no-facturable">
+                {motivoNoDisponible}
+              </p>
+            )}
           </>
         )}
         {error && <p className="mt-3 text-sm text-destructive">{error}</p>}

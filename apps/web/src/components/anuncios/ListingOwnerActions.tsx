@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { Loader2, Star, TrendingUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { bumpListing } from '@/lib/api/billing';
@@ -35,6 +35,7 @@ export function ListingOwnerActions({
   const { data: session } = useSession();
   const { run } = useApiAction();
   const router = useRouter();
+  const pathname = usePathname();
   const { loginUrl } = useRequireAuth();
 
   const [bumpBusy, setBumpBusy] = useState(false);
@@ -51,6 +52,11 @@ export function ListingOwnerActions({
   // UXV.1 (A2) — misma lectura que la tarjeta de /mis-anuncios, del mismo campo.
   const { active: bumpOnCooldown, until: bumpCooldownUntil } = resolveBumpCooldown(nextBumpAt);
 
+  // UXV.3 (A7-flujo) — desde la ficha, el sitio al que volver tras comprar créditos es
+  // ESTA misma ficha: aquí están Destacar y Bump de este anuncio a un clic. Se toma del
+  // pathname y no de props porque el componente ya vive en la ruta de destino.
+  const comprarCreditosHref = `/mis-creditos?volver=${encodeURIComponent(pathname)}`;
+
   async function handleBump() {
     if (!token) return;
     setBumpBusy(true);
@@ -64,7 +70,7 @@ export function ListingOwnerActions({
             setBumpError(
               <>
                 No tienes créditos suficientes para hacer bump.{' '}
-                <Link href="/mis-creditos" className="underline hover:text-foreground">
+                <Link href={comprarCreditosHref} className="underline hover:text-foreground">
                   Comprar créditos
                 </Link>
               </>,
@@ -128,6 +134,7 @@ export function ListingOwnerActions({
           open={destacadoOpen}
           onOpenChange={setDestacadoOpen}
           onSuccess={() => { setDestacadoOpen(false); router.refresh(); }}
+          returnTo={pathname}
         />
       )}
     </div>

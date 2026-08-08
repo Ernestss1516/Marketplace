@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { CheckCircle, Loader2, RefreshCw, Coins, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -25,9 +26,12 @@ import { getWallet, getBumpLedger } from '@/lib/api/billing';
  * Lo que planes/exito NO hace —y aquí sí— es sondear solo: su copy promete que la
  * página se actualiza sola y en realidad solo comprueba al montar.
  *
- * ALCANCE: esto es la corrección mecánica (resolver + salir). A dónde debe volver el
- * usuario cuando llegó aquí desde un bump o un destacado bloqueado por falta de saldo
- * es flujo, y se diseña en UXV.3 (ver docs/diseno-ux-vendedor.md).
+ * UXV.3 (A7-flujo) — y aquí está ese flujo. Quien llega porque no le llegaba el saldo
+ * para bumpear o destacar UN anuncio concreto ya no aterriza en una hoja suelta: la
+ * intención viajó en `?volver=`, colgada por el backend de la URL de vuelta del TPV (ver
+ * `redsys/return-to.ts`, que la valida contra una allowlist), y la salida principal deja
+ * de ser genérica para llevarle a terminar lo que iba a hacer. Sin intención —el usuario
+ * entró a la cartera por su cuenta— las salidas son las de siempre.
  */
 
 /** Cada cuánto se vuelve a preguntar por el saldo mientras el webhook no ha llegado. */
@@ -57,6 +61,17 @@ export default function MisCreditosExitoPage() {
 
   const token = session?.user.accessToken;
   const startedAt = useRef<number>(Date.now());
+
+  /**
+   * UXV.3 (A7-flujo) — a dónde volver a terminar. Lo puso el BACKEND en la URL de éxito
+   * al construir el formulario del TPV, después de validarlo contra su allowlist, así que
+   * aquí no puede llegar un destino externo. Aun así se exige que empiece por `/` antes de
+   * usarlo como `href`: esta página no debe ser el eslabón que confíe por costumbre.
+   */
+  const volverParam = useSearchParams().get('volver');
+  const volver = volverParam && volverParam.startsWith('/') && !volverParam.startsWith('//')
+    ? volverParam
+    : null;
 
   /**
    * Una pasada: lee los dos saldos y los dos historiales y decide si la compra ya está
@@ -149,14 +164,31 @@ export default function MisCreditosExitoPage() {
 
   // Salidas comunes a todos los estados resueltos — botones, no un enlace de texto
   // suelto (molde planes/exito).
+  //
+  // UXV.3 (A7-flujo) — con intención de vuelta, ESA es la salida principal: el usuario no
+  // vino a la cartera a mirar el saldo, vino porque no podía pagar una acción. Las otras
+  // dos siguen ahí, degradadas a secundarias. Sin intención, mandan las de siempre.
   const exits = (
     <div className="flex flex-wrap justify-center gap-3">
-      <Button asChild>
-        <Link href="/mis-creditos">Ver mi saldo</Link>
-      </Button>
-      <Button variant="outline" asChild>
-        <Link href="/mis-anuncios">Ir a mis anuncios</Link>
-      </Button>
+      {volver ? (
+        <>
+          <Button asChild data-testid="volver-a-la-accion">
+            <Link href={volver}>Volver a terminar</Link>
+          </Button>
+          <Button variant="outline" asChild>
+            <Link href="/mis-creditos">Ver mi saldo</Link>
+          </Button>
+        </>
+      ) : (
+        <>
+          <Button asChild>
+            <Link href="/mis-creditos">Ver mi saldo</Link>
+          </Button>
+          <Button variant="outline" asChild>
+            <Link href="/mis-anuncios">Ir a mis anuncios</Link>
+          </Button>
+        </>
+      )}
     </div>
   );
 

@@ -81,12 +81,21 @@ export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) 
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [bumpError, setBumpError] = useState<React.ReactNode | null>(null);
-  const [bumpConfirmation, setBumpConfirmation] = useState<string | null>(null);
   const [destacadoOpen, setDestacadoOpen] = useState(false);
   const [dealDialogOpen, setDealDialogOpen] = useState(false);
 
   const location = [listing.city, listing.province].filter(Boolean).join(', ');
   const editHref = `/mis-anuncios/${listing.id}/editar`;
+
+  /**
+   * UXV.3 (A7-flujo) — si el usuario sale de aquí a comprar créditos porque no le llegaba
+   * el saldo, esto es a dónde debe volver: la FICHA de este anuncio, no el listado. En la
+   * ficha, `ListingOwnerActions` tiene Destacar y Bump de ESTE anuncio a un clic; en
+   * `/mis-anuncios` habría que volver a buscar la tarjeta entre todas. Solo los ACTIVE
+   * tienen página pública, así que el resto cae al listado.
+   */
+  const returnTo = listing.status === 'ACTIVE' ? `/anuncio/${listing.slug}` : '/mis-anuncios';
+  const comprarCreditosHref = `/mis-creditos?volver=${encodeURIComponent(returnTo)}`;
 
   // UXV.1 (A2) — el cooldown lo dice la API (`nextBumpAt`), no esta tarjeta. Antes aquí
   // se calculaba `bumpedAt + 24h` mientras el backend solo rechaza dentro de 1 h: el
@@ -194,6 +203,7 @@ export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) 
           open={destacadoOpen}
           onOpenChange={setDestacadoOpen}
           onSuccess={onAction}
+          returnTo={returnTo}
         />
       )}
 
@@ -210,12 +220,11 @@ export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) 
       {/* Actions */}
       <CardContent className="border-t px-4 pb-4 pt-3">
         {error && <p className="mb-2 text-xs text-destructive">{error}</p>}
+        {/* UXV.3 — el error del bump se queda AQUÍ, inline, a propósito: lleva enganchado
+            el enlace para comprar créditos, o sea una acción de recuperación anclada al
+            sitio (regla de reparto FEEDBACK-D2). Lo que se fue al toast es la
+            CONFIRMACIÓN, que es un evento y no tiene nada que el usuario deba hacer. */}
         {bumpError && <p className="mb-2 text-xs text-destructive">{bumpError}</p>}
-        {bumpConfirmation && (
-          <p className="mb-2 text-xs text-green-700" data-testid="bump-confirmation">
-            {bumpConfirmation}
-          </p>
-        )}
 
         <div className="flex flex-wrap gap-2">
           {/* Editar — available for DRAFT, ACTIVE, RESERVED, PAUSED (ciclo de
@@ -359,21 +368,22 @@ export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) 
               onClick={async () => {
                 setBusy('bump');
                 setBumpError(null);
-                setBumpConfirmation(null);
                 await run(
                   () => bumpListing(token, listing.id),
                   {
-                    onSuccess: (result) => {
+                    // UXV.3 — el bump era el ÚNICO sitio de la zona que ya confirmaba, y
+                    // lo hacía con un <p> verde propio. Pasa al canal común: si se quedara
+                    // inline mientras destacar usa toast, la incoherencia que M5 denuncia
+                    // seguiría ahí, solo que del revés. El mensaje no cambia — sigue
+                    // distinguiendo con cuál de las tres monedas se pagó.
+                    successMessage: (result) =>
+                      result.paidWith === 'PRO_QUOTA'
+                        ? 'Bump aplicado. Gratis, con tu cuota mensual Pro.'
+                        : result.paidWith === 'BUMP_BALANCE'
+                          ? 'Bump aplicado. Gratis, de tu saldo de bumps.'
+                          : `Bump aplicado. Se han descontado ${result.cost} créditos.`,
+                    onSuccess: () => {
                       setBusy(null);
-                      // Monetización ráfaga 2/3 — confirmación clara de qué
-                      // moneda se gastó, distinguiendo las tres.
-                      setBumpConfirmation(
-                        result.paidWith === 'PRO_QUOTA'
-                          ? 'Bump gratis usado (cuota mensual Pro).'
-                          : result.paidWith === 'BUMP_BALANCE'
-                            ? 'Bump gratis usado (saldo de bumps).'
-                            : `Se han descontado ${result.cost} créditos.`,
-                      );
                       onAction();
                     },
                     onError: (err) => {
@@ -381,7 +391,7 @@ export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) 
                         setBumpError(
                           <>
                             No tienes créditos suficientes para hacer bump.{' '}
-                            <Link href="/mis-creditos" className="underline hover:text-foreground">
+                            <Link href={comprarCreditosHref} className="underline hover:text-foreground">
                               Comprar créditos
                             </Link>
                           </>,
