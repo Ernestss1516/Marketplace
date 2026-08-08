@@ -782,6 +782,15 @@ export class TicketsService {
     userId: string,
     body: string,
     files: Express.Multer.File[] = [],
+    /**
+     * Instante contra el que se evalúa la ventana de reapertura (T8). Mismo
+     * mecanismo que `TicketsScheduleService.runTicketAutoClose(now)`, que es su
+     * gemelo: los dos leen la MISMA ventana, así que los dos tienen que poder
+     * evaluarla contra el MISMO reloj o un test no puede montar un escenario
+     * coherente. En producción nadie lo pasa —el controlador llama con cuatro
+     * argumentos— y el default es el reloj real: el comportamiento no cambia.
+     */
+    now: Date = new Date(),
   ): Promise<TicketWithMessage> {
     const existing = await this.loadOwnedTicket(ticketId, userId);
     if (!TicketsService.USER_REPLYABLE.includes(existing.status)) {
@@ -791,7 +800,7 @@ export class TicketsService {
     }
 
     const reopening = existing.status === 'RESOLVED';
-    if (reopening) await this.assertWithinReopenWindow(existing.resolvedAt);
+    if (reopening) await this.assertWithinReopenWindow(existing.resolvedAt, now);
 
     const nextStatus: TicketStatus =
       existing.status === 'WAITING_USER' || reopening ? 'IN_PROGRESS' : existing.status;
@@ -1203,13 +1212,22 @@ export class TicketsService {
    * incoherente, la opción segura es no reabrir. El cron de T9 hace lo simétrico
    * — tampoco lo cierra — y además deja un warning para que la anomalía salga a
    * la luz en vez de barrerse.
+   *
+   * `now` ES OBLIGATORIO, y no `= new Date()` aquí dentro. El guard leía
+   * `Date.now()` mientras su gemelo, `TicketsScheduleService.runTicketAutoClose`,
+   * recibía el instante inyectado: esa asimetría hacía el guard INTESTABLE contra
+   * un escenario con fechas fijas, y dejó `tickets-cron.e2e-spec.ts` en rojo
+   * permanente el día que el reloj real cruzó un deadline anclado a una fecha fija
+   * del test. Exigirlo (en vez de darle un default cómodo) es lo que impide que
+   * un llamador futuro vuelva a colar el reloj real sin querer; el default vive
+   * en la puerta de entrada pública (`replyAsUser`), que es quien decide.
    */
-  private async assertWithinReopenWindow(resolvedAt: Date | null): Promise<void> {
+  private async assertWithinReopenWindow(resolvedAt: Date | null, now: Date): Promise<void> {
     const windowDays = await this.getReopenWindowDays();
     const deadline = resolvedAt
       ? resolvedAt.getTime() + windowDays * 24 * 60 * 60 * 1000
       : 0;
-    if (Date.now() > deadline) {
+    if (now.getTime() > deadline) {
       throw new BadRequestException({
         code: 'REOPEN_WINDOW_EXPIRED',
         message: `El ticket está cerrado (la ventana de reapertura de ${windowDays} días ha expirado). Abre uno nuevo.`,
