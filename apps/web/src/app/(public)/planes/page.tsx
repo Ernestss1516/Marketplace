@@ -35,7 +35,11 @@ const FREE_FEATURES_FALLBACK = [
 ];
 
 const PRO_FEATURES_FALLBACK = [
-  'Más anuncios activos',
+  // «Más anuncios activos» ESTABA AQUÍ y se ha quitado: es exactamente el tipo de
+  // afirmación fija que la configuración puede desmentir. Los dos límites (gratuito y Pro)
+  // son ajustes de admin y pueden cruzarse. Este respaldo solo entra cuando la API no
+  // responde, y entonces no se conoce el valor de NINGUNO de los dos — así que no se
+  // promete. Cuando el catálogo sí responde, `proBenefits` trae la línea ya comparada.
   'Destacados y bumps gratis cada mes',
   'Estadísticas avanzadas de tus anuncios',
   'Soporte prioritario',
