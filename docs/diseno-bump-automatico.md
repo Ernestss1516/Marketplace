@@ -111,6 +111,14 @@ exactamente el molde de [`Invoice.idempotencyKey @unique`](../apps/api/prisma/sc
 **Resultados** (`BumpRunOutcome`): `APPLIED`, `SKIPPED_COOLDOWN`, `SKIPPED_LISTING_INACTIVE`,
 `FAILED_NO_FUNDS`, `FAILED_ERROR`.
 
+> **Definición canónica de `slot` (implementada en la ráfaga 2).** `slot` es el valor que
+> `BumpSchedule.nextRunAt` **tenía cuando el turno se reclamó**, copiado tal cual: no se
+> recalcula, no se trunca y no se deriva de `now()`. Así dos instancias que procesan el mismo
+> turno leen la misma fila, computan la misma `slot` y colisionan en la clave única. La
+> definición vive junto a la columna, en el comentario de `BumpRun.slot` en `schema.prisma`,
+> para que no pueda separarse de lo que la base guarda. **La ráfaga 3 debe tomarla ANTES de
+> avanzar `nextRunAt`.**
+
 **Lo que esta tabla resuelve además de la idempotencia** — el hueco B.4 de la auditoría:
 hoy `BumpLedgerType` ([schema.prisma:197-226](../apps/api/prisma/schema.prisma#L197)) y `CreditLedger.referenceType` (`'Listing'` en los tres caminos: [:651](../apps/api/src/modules/billing/billing.service.ts#L651), [:675](../apps/api/src/modules/billing/billing.service.ts#L675), [:701](../apps/api/src/modules/billing/billing.service.ts#L701)) **no distinguen un bump automático de uno manual**. Sin `BumpRun`, el usuario ve créditos gastados y no puede reconstruir por qué.
 
