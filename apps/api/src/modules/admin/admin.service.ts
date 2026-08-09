@@ -92,6 +92,11 @@ const SETTING_KEYS = [
   'bumpAutoEnabled',
   // D3 — tope de programaciones ACTIVAS por usuario. Sin fila, DEFAULT_MAX_SCHEDULES_PER_USER.
   'maxBumpSchedulesPerUser',
+  // Vídeo Pro (proyecto 3) — interruptor de toda la feature. Al revés que `bumpAutoEnabled`,
+  // SIN FILA ESTÁ APAGADA: el vídeo cuesta almacenamiento y ancho de banda desde el primero,
+  // así que encenderlo debe ser un acto explícito. Apagarlo oculta la opción y los vídeos
+  // ya subidos, pero NO borra nada — mismo criterio que el flag del bump automático.
+  'videoEnabled',
 ] as const;
 type SettingKey = (typeof SETTING_KEYS)[number];
 

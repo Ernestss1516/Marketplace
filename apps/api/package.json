@@ -30,7 +30,8 @@
     "seed:playwright": "ts-node -P tsconfig.scripts.json prisma/seed-playwright.ts"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1072.0",
+    "@aws-sdk/client-s3": "^3.1106.0",
+    "@aws-sdk/s3-request-presigner": "^3.1106.0",
     "@nestjs/bullmq": "^10.2.3",
     "@nestjs/common": "^10.4.15",
     "@nestjs/config": "^3.3.0",
