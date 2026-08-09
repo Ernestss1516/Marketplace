@@ -113,6 +113,10 @@ const SELECT_SUMMARY = {
   viewCount: true,
   category: { select: { slug: true } },
   images: { orderBy: { order: 'asc' as const }, take: 1, select: { url: true } },
+  // Vídeo Pro — se selecciona la URL SOLO para derivar `hasVideo`; la URL en sí NUNCA
+  // sale en el resumen de tarjeta. Es lo que garantiza el cero-bytes-de-vídeo en listas por
+  // construcción y no por disciplina: sin dirección, no hay nada que descargar.
+  videoUrl: true,
   // Escaparate RÁFAGA 4 — necesario para enriquecer la card con la media
   // verificada del vendedor en lote (ver enrichWithSellerRating), no para
   // mostrarlo tal cual.
@@ -137,6 +141,7 @@ type SummaryDbRow = {
   viewCount: number;
   category: { slug: string };
   images: { url: string }[];
+  videoUrl: string | null;
   sellerId: string;
 };
 
@@ -1139,9 +1144,13 @@ export class ListingsService {
     });
   }
 
-  private toSummary({ images, bumpedAt, attributes, category, ...rest }: SummaryDbRow) {
+  private toSummary({ images, bumpedAt, attributes, category, videoUrl, ...rest }: SummaryDbRow) {
     return {
       ...rest,
+      // SOLO EL BOOLEANO. `videoUrl` se desestructura fuera a propósito, para que no pueda
+      // colarse en `...rest`: una tarjeta que recibiera la dirección podría descargar el
+      // vídeo, y el cero-bytes-en-listas dejaría de ser una garantía estructural.
+      hasVideo: videoUrl != null,
       thumbnailUrl: images[0]?.url ?? undefined,
       bumpedAt: bumpedAt?.toISOString() ?? undefined,
       categorySlug: category.slug,

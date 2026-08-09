@@ -37,6 +37,7 @@ export function ListingCard({
         <CardPhotoCarousel
           images={photos}
           title={listing.title}
+          hasVideo={listing.hasVideo}
           sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
           priority={priority}
         >

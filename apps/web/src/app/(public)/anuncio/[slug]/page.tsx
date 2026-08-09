@@ -151,7 +151,12 @@ export default async function AnuncioPage({
         <div className="grid gap-8 md:grid-cols-[1fr_320px]">
           {/* ── Left column ── */}
           <div className="space-y-6">
-            <ListingGallery images={listing.images} title={listing.title} />
+            <ListingGallery
+              images={listing.images}
+              title={listing.title}
+              videoUrl={listing.videoUrl}
+              videoPosterUrl={listing.videoPosterUrl}
+            />
 
             {/* Title + status + price */}
             <div>

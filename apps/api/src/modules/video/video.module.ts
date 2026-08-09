@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { BullModule } from '@nestjs/bullmq';
+import { QUEUE_INDEXING, retryQueue } from '../../infra/queue/queue.constants';
 import { BillingModule } from '../billing/billing.module';
 import { VideoService } from './video.service';
 import { VideoController } from './video.controller';
@@ -15,7 +17,7 @@ import { VideoController } from './video.controller';
  * por `EntitlementService`, que es quien sabe si un usuario es Pro.
  */
 @Module({
-  imports: [BillingModule],
+  imports: [BillingModule, BullModule.registerQueue(retryQueue(QUEUE_INDEXING))],
   controllers: [VideoController],
   providers: [VideoService],
   exports: [VideoService],

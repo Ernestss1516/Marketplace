@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Image from 'next/image';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Play } from 'lucide-react';
 import { PhotoLightbox } from './PhotoLightbox';
 
 interface CardPhotoCarouselProps {
@@ -13,6 +13,15 @@ interface CardPhotoCarouselProps {
   aspectClassName?: string;
   sizes: string;
   priority?: boolean;
+  /**
+   * Vídeo Pro — SOLO un booleano, nunca la URL.
+   *
+   * Es lo que permite pintar el indicador sin descargar un byte de vídeo: sin la dirección,
+   * no hay nada que pedir. Que el contrato de este componente sea un booleano y no una URL
+   * es la garantía estructural del cero-bytes-en-listas — la disciplina se olvida, un tipo
+   * no.
+   */
+  hasVideo?: boolean;
   /** Overlay badges (Destacado, favorito) — rendered by the caller, absolutely
    * positioned inside this component's `relative` container. */
   children?: React.ReactNode;
@@ -36,6 +45,7 @@ export function CardPhotoCarousel({
   aspectClassName = 'aspect-square',
   sizes,
   priority = false,
+  hasVideo = false,
   children,
 }: CardPhotoCarouselProps) {
   const [index, setIndex] = useState(0);
@@ -82,6 +92,28 @@ export function CardPhotoCarousel({
           priority={priority && index === 0}
         />
       </button>
+
+      {/*
+        Vídeo Pro — EL INDICADOR, y NADA MÁS.
+
+        No hay `<video>`, ni `preload`, ni un póster que sustituya a la foto: en una lista se
+        pintan del orden de veinte a cuarenta tarjetas, y montar veinte elementos de vídeo
+        —aunque fuera solo para leer metadatos— son veinte descargas antes de que el usuario
+        decida nada. Un vídeo web pesa uno o dos órdenes de magnitud más que una de estas
+        fotos, ya redimensionadas a 800 px.
+
+        Esto es un SVG del bundle sobre la foto de siempre: cero peticiones. Y la garantía no
+        depende de recordarlo, porque a este componente solo le llega un booleano.
+      */}
+      {hasVideo && (
+        <span
+          className="pointer-events-none absolute bottom-2 right-2 z-10 flex items-center gap-1 rounded-full bg-black/65 px-2 py-0.5 text-[11px] font-medium text-white"
+          data-testid="card-tiene-video"
+        >
+          <Play className="h-3 w-3 fill-current" aria-hidden />
+          Vídeo
+        </span>
+      )}
 
       {images.length > 1 && (
         <>

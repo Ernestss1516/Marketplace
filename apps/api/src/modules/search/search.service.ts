@@ -37,6 +37,14 @@ export interface ListingDocument {
    * the image bytes themselves), and the frontend only ever mounts an <Image> for the
    * one currently visible — so this does NOT mean the browser fetches every photo. */
   images: string[];
+  /**
+   * Vídeo Pro — SOLO el booleano, nunca la URL.
+   *
+   * La tarjeta lo usa para pintar un icono. Si el documento llevara la dirección, una lista
+   * podría acabar descargando vídeo, que es exactamente el riesgo que el diseño evita: en
+   * listas no se descarga un byte de vídeo, y eso se garantiza no dando la dirección.
+   */
+  hasVideo: boolean;
   sellerId: string;
   /** Public seller fields — stored in the index so the map panel avoids a per-selection fetch. */
   sellerName: string;
@@ -515,6 +523,7 @@ export class SearchService implements OnModuleInit {
       thumbnailUrl: thumbnail?.url ?? null,
       // Already ordered by `order asc` via INDEX_INCLUDE.images.orderBy.
       images: listing.images.map((img) => img.url),
+      hasVideo: listing.videoUrl != null,
       sellerId: listing.sellerId,
       sellerName: listing.seller.name,
       sellerSlug: listing.seller.slug,

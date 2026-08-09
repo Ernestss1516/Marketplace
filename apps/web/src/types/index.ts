@@ -232,6 +232,10 @@ export interface ListingSummary {
    *  Solo lo sirve la vista del propietario (`findMine`), como `featuredUntil`; en los
    *  listados públicos y en los hits de Meilisearch no viene. `null` = nunca bumpeado. */
   nextBumpAt?: string | null;
+  /** Vídeo Pro — SOLO el booleano; la URL del vídeo NUNCA viaja a una lista, para que una
+   *  tarjeta no pueda descargarlo. Lo sirven tanto Meilisearch como los payloads de
+   *  Postgres. */
+  hasVideo?: boolean;
   /** Bump automático — la programación de este anuncio, si la tiene. Igual que `nextBumpAt`,
    *  SOLO la sirve la vista de propietario (`findMine`): que un vendedor programe bumps es
    *  asunto suyo y no viaja en ningún payload público. `null` = no tiene programación. */
@@ -328,6 +332,10 @@ export interface Listing {
   nextBumpAt?: string | null;
   /** true cuando el anuncio tiene teléfono publicado — el número en sí nunca viaja aquí (ver GET /listings/:id/phone). */
   hasPhone: boolean;
+  /** Vídeo Pro — aquí SÍ viaja la URL: la ficha es donde el vídeo se ve. En las listas
+   *  solo viaja `hasVideo`, para que una tarjeta no pueda descargarlo. */
+  videoUrl?: string | null;
+  videoPosterUrl?: string | null;
 }
 
 // ── H8 Bloque C — estadísticas de anuncios ──────────────────────────────────
