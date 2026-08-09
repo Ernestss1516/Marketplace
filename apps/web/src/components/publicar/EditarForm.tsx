@@ -19,6 +19,7 @@ import { StepDatos, type DatosData, priceTypeFromMode } from './steps/StepDatos'
 import { StepAtributos } from './steps/StepAtributos';
 import { StepTags } from './steps/StepTags';
 import { StepUbicacion, type UbicacionData } from './steps/StepUbicacion';
+import { StepVideo, type VideoState } from './steps/StepVideo';
 import { updateListing } from '@/lib/api/anuncios';
 import { toUserMessage } from '@/lib/api/client';
 import { useApiAction } from '@/lib/api/use-api-action';
@@ -26,6 +27,7 @@ import { useRequireAuth } from '@/hooks/use-require-auth';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import { filterSchemaByType, resolveLinkedOptions } from '@/lib/attribute-schema';
 import type { ProStatus } from '@/lib/api/billing';
+import type { VideoConfig } from '@/lib/api/video';
 import type { AttributeSchema, Condition, PriceUnit, TagRef } from '@/types';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -48,7 +50,7 @@ export interface EditarFormData extends DatosData, UbicacionData {
   tags: string[];
 }
 
-type SectionId = 'fotos' | 'datos' | 'atributos' | 'tags' | 'ubicacion';
+type SectionId = 'fotos' | 'video' | 'datos' | 'atributos' | 'tags' | 'ubicacion';
 
 interface Section {
   id: SectionId;
@@ -57,6 +59,7 @@ interface Section {
 
 const ALL_SECTIONS: Section[] = [
   { id: 'fotos', label: 'Fotos' },
+  { id: 'video', label: 'Vídeo' },
   { id: 'datos', label: 'Datos' },
   { id: 'atributos', label: 'Atributos' },
   { id: 'tags', label: 'Etiquetas' },
@@ -71,18 +74,24 @@ const ALL_SECTIONS: Section[] = [
  * Se replica en vez de importarse porque aquí son SECCIONES y allí PASOS, y a partir de
  * esta ráfaga los dos flujos divergen a propósito.
  *
- * `proStatus` ENTRA AQUÍ Y HOY NO CAMBIA NADA, y es deliberado: es el seam por el que el
- * VÍDEO PRO (proyecto 3) añadirá su sección gateada — `if (proStatus?.isPro) …`, o mejor,
- * la sección siempre presente y el gate dentro con el molde de `EstadisticasClient`
- * (card punteada + Lock + «Hazte Pro»). Que el parámetro exista y esté probado es lo que
- * evita que ese proyecto tenga que cablear `proStatus` de cero por tres ficheros.
+ * EL SEAM DEL VÍDEO PRO, YA USADO. `proStatus` se cableó hasta aquí en UXV.5 para que ese
+ * proyecto no tuviera que atravesar la página, el formulario y la sección antes de escribir
+ * una línea de vídeo. Ahora se cobra: la sección de vídeo aparece SIEMPRE que la feature
+ * esté encendida, y el gate Pro va DENTRO de ella (molde `EstadisticasClient`: candado y
+ * «Hazte Pro»). Esconderla a un no-Pro dejaría invisible el beneficio justo a quien hay que
+ * convencer — la lección de UXV.6.
+ *
+ * EL FLAG ES OTRA COSA QUE EL GATE, y por eso decide aquí y no dentro de la sección: apagado,
+ * la feature no existe para nadie, ni para un Pro. `videoConfig` ausente = sin datos = no se
+ * ofrece, que es el comportamiento correcto también cuando la API no responde.
  */
 export function resolveEditSections(
   data: Pick<EditarFormData, 'attributeSchema' | 'availableTags'>,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- seam del vídeo PRO, ver arriba
   proStatus?: ProStatus | null,
+  videoConfig?: { enabled: boolean } | null,
 ): Section[] {
   let secciones = ALL_SECTIONS;
+  if (!videoConfig?.enabled) secciones = secciones.filter((s) => s.id !== 'video');
   if (data.attributeSchema.length === 0) secciones = secciones.filter((s) => s.id !== 'atributos');
   if (data.availableTags.length === 0) secciones = secciones.filter((s) => s.id !== 'tags');
   return secciones;
@@ -184,11 +193,14 @@ interface Props {
   token: string;
   initialData: EditarFormData;
   /**
-   * UXV.5 — cableado hasta aquí, aunque hoy no cambie nada de lo que se ve. Es el
-   * prerequisito del VÍDEO PRO: sin esto, ese proyecto tendría que empezar por atravesar
-   * la página, el formulario y la sección antes de poder escribir una línea de vídeo.
+   * UXV.5 lo cableó hasta aquí antes de que hiciera falta; el vídeo Pro lo usa para decidir
+   * si la sección de vídeo se muestra activa o con su candado.
    */
   proStatus?: ProStatus | null;
+  /** Vídeo Pro — configuración vigente. Ausente o apagada: la sección no existe. */
+  videoConfig?: VideoConfig | null;
+  /** El vídeo que el anuncio ya tiene, si tiene. */
+  initialVideo?: VideoState;
 }
 
 /**
@@ -208,7 +220,14 @@ interface Props {
  * Los cinco `Step*` se reusan TAL CUAL: ya eran componentes de presentación que reciben
  * `data`/`onChange`/`errors` y pintan su propio `<h2>`. No se ha reescrito ninguno.
  */
-export function EditarForm({ listingId, token, initialData, proStatus }: Props) {
+export function EditarForm({
+  listingId,
+  token,
+  initialData,
+  proStatus,
+  videoConfig,
+  initialVideo,
+}: Props) {
   const router = useRouter();
   const { run } = useApiAction();
   const { loginUrl } = useRequireAuth();
@@ -222,8 +241,17 @@ export function EditarForm({ listingId, token, initialData, proStatus }: Props) 
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
+  // El vídeo NO forma parte de : se guarda por su propio flujo (subida prefirmada +
+  // confirmación), no con «Guardar cambios». Mezclarlo haría que el aviso de cambios sin
+  // guardar mintiera — un vídeo ya subido no es un cambio pendiente.
+  const [video, setVideo] = useState<VideoState>(
+    initialVideo ?? { videoUrl: null, videoPosterUrl: null },
+  );
 
-  const secciones = useMemo(() => resolveEditSections(data, proStatus), [data, proStatus]);
+  const secciones = useMemo(
+    () => resolveEditSections(data, proStatus, videoConfig),
+    [data, proStatus, videoConfig],
+  );
   const refs = useRef<Partial<Record<SectionId, HTMLElement | null>>>({});
 
   const guard = useUnsavedChanges(dirty);
@@ -363,6 +391,17 @@ export function EditarForm({ listingId, token, initialData, proStatus }: Props) 
           >
             {s.id === 'fotos' && (
               <StepFotos images={data.images} token={token} onChange={updateImages} errors={errors} />
+            )}
+
+            {s.id === 'video' && videoConfig && (
+              <StepVideo
+                listingId={listingId}
+                token={token}
+                config={videoConfig}
+                isPro={Boolean(proStatus?.isPro)}
+                video={video}
+                onChange={setVideo}
+              />
             )}
 
             {s.id === 'datos' && (

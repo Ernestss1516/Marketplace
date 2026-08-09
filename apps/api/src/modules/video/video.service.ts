@@ -22,6 +22,7 @@ import {
   VIDEO_ENABLED_SETTING,
   VIDEO_KEY_PREFIX,
   VIDEO_LIMITS,
+  type VideoLimits,
   VIDEO_UPLOAD_URL_TTL_SECONDS,
 } from './video-limits';
 import { PresignVideoDto } from './dto/presign-video.dto';
@@ -54,9 +55,15 @@ export class VideoService {
     private readonly entitlements: EntitlementService,
   ) {}
 
-  /** Los límites vigentes, para que el cliente valide antes de empezar a subir. */
-  getLimits() {
-    return VIDEO_LIMITS;
+  /**
+   * La configuración vigente: si la feature está encendida y con qué límites.
+   *
+   * `enabled` viaja aquí para que el editor no tenga que preguntar por otro sitio si la
+   * sección existe. Es lo mismo que el guard aplica al firmar, así que interfaz y servidor
+   * no pueden discrepar: si esto dice `false`, firmar también fallaría.
+   */
+  async getConfig(): Promise<VideoLimits & { enabled: boolean }> {
+    return { enabled: await this.isEnabled(), ...VIDEO_LIMITS };
   }
 
   // ---------------------------------------------------------------------------
@@ -204,12 +211,16 @@ export class VideoService {
    * la feature cuesta almacenamiento y ancho de banda desde el primer vídeo, así que lo
    * prudente es que encenderla sea un acto explícito.
    */
-  private async assertEnabled(): Promise<void> {
+  private async isEnabled(): Promise<boolean> {
     const ajuste = await this.prisma.setting.findUnique({
       where: { key: VIDEO_ENABLED_SETTING },
       select: { value: true },
     });
-    if (ajuste?.value !== true) {
+    return ajuste?.value === true;
+  }
+
+  private async assertEnabled(): Promise<void> {
+    if (!(await this.isEnabled())) {
       throw new BadRequestException({
         code: 'VIDEO_DISABLED',
         message: 'El vídeo en anuncios no está disponible ahora mismo.',

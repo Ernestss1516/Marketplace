@@ -368,17 +368,34 @@ describe('Vídeo Pro — infraestructura (e2e)', () => {
 
   // ── 5. Los límites publicados ──────────────────────────────────────────────
 
-  it('la API publica los límites para que el cliente valide antes de subir 50 MB en balde', async () => {
+  it('la API publica su configuración para que el cliente valide antes de subir 50 MB en balde', async () => {
     const res = await request(app.getHttpServer())
-      .get('/api/video/limits')
+      .get('/api/video/config')
       .set('Authorization', `Bearer ${proToken}`)
       .expect(200);
 
     expect(res.body).toEqual({
+      // `enabled` viaja con los límites para que el editor no tenga que preguntar en otro
+      // sitio si la sección existe. Es el MISMO guard que se aplica al firmar, así que
+      // interfaz y servidor no pueden discrepar.
+      enabled: true,
       maxBytes: MAX_VIDEO_BYTES,
       maxDurationSeconds: MAX_VIDEO_DURATION_SECONDS,
       allowedMimeTypes: ['video/mp4'],
     });
+  });
+
+  it('y con la feature apagada lo dice, en vez de dejar al editor adivinar', async () => {
+    await encender(false);
+    try {
+      const res = await request(app.getHttpServer())
+        .get('/api/video/config')
+        .set('Authorization', `Bearer ${proToken}`)
+        .expect(200);
+      expect(res.body.enabled).toBe(false);
+    } finally {
+      await encender(true);
+    }
   });
 
   // ── 6. Requisito de oro ────────────────────────────────────────────────────
