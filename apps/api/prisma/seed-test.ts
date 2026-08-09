@@ -87,6 +87,11 @@ async function seedSettings() {
     { key: 'bumpCreditCost', value: 5 },
     { key: 'proExtraCreditsPercent', value: 20 },
     { key: 'bumpAutoEnabled', value: true },
+    // Vídeo Pro — encendido SOLO en la semilla de test, para que las baterías puedan
+    // ejercitar la feature. En producción el ajuste no se siembra: sin fila está APAGADA, y
+    // encenderla debe ser un acto explícito porque cuesta almacenamiento desde el primer
+    // vídeo. Los casos de «apagada» se prueban apagándola dentro del propio test.
+    { key: 'videoEnabled', value: true },
     { key: 'freeActiveListingLimit', value: 5 },
     { key: 'proActiveListingLimit', value: 20 },
     { key: 'proMonthlyFeaturedQuota', value: 4 },

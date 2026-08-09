@@ -4,6 +4,7 @@ import { getMyListingById } from '@/lib/api/anuncios';
 import { getCategoryBySlug } from '@/lib/api/categorias';
 import { EditarForm, type EditarFormData } from '@/components/publicar/EditarForm';
 import { getProStatus, type ProStatus } from '@/lib/api/billing';
+import { getVideoConfig, type VideoConfig } from '@/lib/api/video';
 // Desde '@/lib/price-unit' (módulo sin 'use client'), NO desde steps/StepDatos:
 // esta página es un Server Component y llamar a una función de un módulo de
 // cliente durante el render del servidor reventaba la página en producción.
@@ -46,9 +47,12 @@ export default async function EditarAnuncioPage({
    * 3). Se pide en paralelo con la categoría, así que no añade latencia perceptible, y
    * falla en silencio: que no se sepa el plan no puede impedir editar un anuncio.
    */
-  const [category, proStatus] = await Promise.all([
+  const [category, proStatus, videoConfig] = await Promise.all([
     getCategoryBySlug(listing.category.slug),
     getProStatus(token).catch((): ProStatus | null => null),
+    // Vídeo Pro — si la API no responde, la sección NO se ofrece. Fallar hacia «no existe»
+    // es lo correcto: peor sería enseñar una subida que luego no se podría completar.
+    getVideoConfig(token).catch((): VideoConfig | null => null),
   ]);
 
   const initialData: EditarFormData = {
@@ -115,6 +119,11 @@ export default async function EditarAnuncioPage({
         token={token}
         initialData={initialData}
         proStatus={proStatus}
+        videoConfig={videoConfig}
+        initialVideo={{
+          videoUrl: listing.videoUrl ?? null,
+          videoPosterUrl: listing.videoPosterUrl ?? null,
+        }}
       />
     </div>
   );

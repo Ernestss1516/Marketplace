@@ -21,10 +21,10 @@ import { ConfirmVideoDto } from './dto/confirm-video.dto';
 export class VideoController {
   constructor(private readonly video: VideoService) {}
 
-  /** Los límites vigentes, para validar en el cliente ANTES de subir 50 MB para nada. */
-  @Get('limits')
-  limits() {
-    return this.video.getLimits();
+  /** La configuración vigente: si está encendida y con qué límites. La usa el editor. */
+  @Get('config')
+  config() {
+    return this.video.getConfig();
   }
 
   @Post('upload-url')

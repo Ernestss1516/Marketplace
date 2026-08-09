@@ -449,6 +449,9 @@ export interface MyListing {
   condition?: Condition;
   status: ListingStatus;
   attributes: Record<string, unknown>;
+  /** Vídeo Pro — solo en la vista de PROPIETARIO; la URL nunca viaja a las listas. */
+  videoUrl?: string | null;
+  videoPosterUrl?: string | null;
   /** B2 — tags asignados al anuncio, ya aplanados a TagRef[] por el backend.
    *  Opcional: la ficha se cachea en Redis 5 min, así que justo tras desplegar
    *  habrá payloads sin él (mismo precedente que `category.parent` en A1). */
