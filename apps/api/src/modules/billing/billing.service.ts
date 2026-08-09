@@ -986,15 +986,29 @@ export class BillingService {
     const extraCreditos = settingMap['proExtraCreditsPercent'] ?? 20;
     const extraBumps = settingMap['proExtraBumpsPercent'] ?? 20;
 
-    // La comparación con el plano gratuito solo se enseña si de verdad es una MEJORA. Con
-    // un `freeActiveListingLimit` alto (o igual), «Hasta 20 (en el plan gratuito, 100)» se
-    // lee como un error — y de hecho delataba que la tarjeta Gratis, hardcodeada, decía un
-    // número distinto del ajuste real.
-    const beneficios = [
-      pro > libres
-        ? `Hasta ${pro} anuncios activos (en el plan gratuito, ${libres})`
-        : `Hasta ${pro} anuncios activos`,
-    ];
+    const beneficios: string[] = [];
+
+    /**
+     * El límite de anuncios se anuncia SOLO si el plan Pro da más que el gratuito.
+     *
+     * UXV.6 derivó el NÚMERO pero seguía listando la línea SIEMPRE, y eso es afirmar un
+     * beneficio sin comprobar que lo sea. Con la configuración sembrada (gratuito 5, Pro 20)
+     * la frase es cierta; pero los dos límites son ajustes de admin editables desde
+     * /admin/ajustes y pueden cruzarse en cualquier momento. En cuanto alguien suba el
+     * límite gratuito por encima del Pro —una operación perfectamente legítima— la página
+     * de precios pasaría a vender «Hasta 20 anuncios activos» como ventaja de pagar
+     * mientras el plan gratuito da más. El defecto no es que hoy mienta: es que nada
+     * impedía que empezara a mentir sin que nadie tocase este archivo.
+     *
+     * Compararlos aquí es la única forma de que la lista no pueda mentir NUNCA. Mismo
+     * criterio que las cuotas de abajo: lo que el ajuste no concede, no se promete.
+     *
+     * Los VALORES no se tocan — son decisión de negocio. Lo que cambia es que la lista
+     * diga la verdad sobre ellos.
+     */
+    if (pro > libres) {
+      beneficios.push(`Hasta ${pro} anuncios activos (en el plan gratuito, ${libres})`);
+    }
 
     // Cada uno solo se promete si el ajuste lo concede de verdad: una cuota a 0 no es un
     // beneficio, y anunciarla sería volver a la lista que mentía.
