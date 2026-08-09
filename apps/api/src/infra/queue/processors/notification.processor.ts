@@ -12,6 +12,7 @@ import {
   SendContactReplyData,
   SendResetEmailData,
   SendReviewRequestEmailData,
+  SendBumpAutoPausedData,
   SendListingModeratedData,
   SendTicketMessageData,
   SendTicketResolvedData,
@@ -56,6 +57,8 @@ export class NotificationProcessor extends WorkerHost {
           return this.sendTicketResolved(job.data as SendTicketResolvedData);
         case NOTIFICATION_JOB.SEND_LISTING_MODERATED:
           return this.sendListingModerated(job.data as SendListingModeratedData);
+        case NOTIFICATION_JOB.SEND_BUMP_AUTO_PAUSED:
+          return this.sendBumpAutoPaused(job.data as SendBumpAutoPausedData);
         default:
           this.logger.warn(`Unknown notification job: ${job.name}`);
       }
@@ -174,6 +177,35 @@ export class NotificationProcessor extends WorkerHost {
   }
 
   /** Al usuario — su ticket se ha resuelto. Explica la ventana de reapertura. */
+  /**
+   * Bump automático parado. Va por email además de in-app (D6) porque el usuario puede tardar
+   * días en abrir la web y, mientras tanto, su anuncio no se está subiendo — que es
+   * justamente lo que había contratado.
+   */
+  private async sendBumpAutoPaused(data: SendBumpAutoPausedData): Promise<void> {
+    const link = `${this.appUrl}/mis-anuncios`;
+    const [motivo, salida] =
+      data.reason === 'NO_FUNDS'
+        ? [
+            'te has quedado sin saldo para seguir subiéndolo',
+            `Recarga créditos o bumps y vuelve a activarla cuando quieras:\n${this.appUrl}/mis-creditos`,
+          ]
+        : [
+            'el anuncio ya no está activo',
+            `Si vuelves a activarlo, la programación se reanuda sola:\n${link}`,
+          ];
+
+    await this.resend.emails.send({
+      from: this.from,
+      to: data.email,
+      subject: `Hemos pausado los bumps programados de «${data.listingTitle}»`,
+      text:
+        `Hola ${data.name},\n\nHemos pausado la subida automática de «${data.listingTitle}» porque ${motivo}.\n\n` +
+        `No se te ha cobrado nada por este intento.\n\n${salida}\n\n${this.noReply}`,
+    });
+    this.logger.log(`Bump auto paused email sent to ${data.email} (${data.reason})`);
+  }
+
   private async sendTicketResolved(data: SendTicketResolvedData): Promise<void> {
     const link = `${this.appUrl}/mis-tickets/${data.ticketId}`;
     await this.resend.emails.send({

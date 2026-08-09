@@ -84,6 +84,12 @@ const SETTING_KEYS = [
   // al crear/editar un anuncio es B2. Sin sembrar: "sin configurar" cae a
   // DEFAULT_MAX_TAGS_PER_LISTING (5), mismo patrón que ticketAutoCloseWindowDays.
   'maxTagsPerListing',
+  // Bump automático (D7) — interruptor de emergencia. Es la primera feature que gasta
+  // dinero de los usuarios de forma DESATENDIDA: un fallo se multiplica por cada
+  // programación activa, y sin este ajuste la única salida sería desplegar. Apagarlo
+  // detiene el cron pero NO toca las programaciones: al reencender siguen donde estaban.
+  // Sin fila, encendido (ver BUMP_AUTO_ENABLED_SETTING).
+  'bumpAutoEnabled',
 ] as const;
 type SettingKey = (typeof SETTING_KEYS)[number];
 

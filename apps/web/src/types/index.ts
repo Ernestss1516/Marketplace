@@ -659,6 +659,14 @@ export interface ReviewModeratedData {
   targetName: string;
 }
 
+/** Bump automático — la programación se paró; `reason` decide el texto y la salida. */
+export interface BumpAutoPausedData {
+  scheduleId: string;
+  listingId: string;
+  listingTitle: string;
+  reason: 'NO_FUNDS' | 'LISTING_INACTIVE';
+}
+
 interface NotificationBase {
   id: string;
   userId: string;
@@ -680,7 +688,8 @@ export type NotificationItem =
   | (NotificationBase & { type: 'TICKET_STAFF_NEW'; data: TicketStaffNewData })
   | (NotificationBase & { type: 'REPORT_RESOLVED'; data: ReportResolvedData })
   | (NotificationBase & { type: 'LISTING_MODERATED'; data: ListingModeratedData })
-  | (NotificationBase & { type: 'REVIEW_MODERATED'; data: ReviewModeratedData });
+  | (NotificationBase & { type: 'REVIEW_MODERATED'; data: ReviewModeratedData })
+  | (NotificationBase & { type: 'BUMP_AUTO_PAUSED'; data: BumpAutoPausedData });
 
 export interface NotificationsResponse {
   items: NotificationItem[];

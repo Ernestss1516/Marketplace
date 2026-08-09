@@ -13,6 +13,7 @@ import {
   ReportResolvedData,
   ListingModeratedData,
   ReviewModeratedData,
+  BumpAutoPausedData,
 } from './notification.types';
 
 type DataByType = {
@@ -26,6 +27,7 @@ type DataByType = {
   REPORT_RESOLVED: ReportResolvedData;
   LISTING_MODERATED: ListingModeratedData;
   REVIEW_MODERATED: ReviewModeratedData;
+  BUMP_AUTO_PAUSED: BumpAutoPausedData;
 };
 
 @Injectable()

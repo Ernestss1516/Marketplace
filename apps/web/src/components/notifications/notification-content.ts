@@ -73,6 +73,20 @@ export function getNotificationContent(n: NotificationItem): { text: string; hre
         text: `Hemos retirado tu valoración de ${n.data.rating}★ sobre ${n.data.targetName}${n.data.listingTitle ? ` (${n.data.listingTitle})` : ''} por incumplir las normas.`,
         href: '/notificaciones',
       };
+    // Bump automático — la programación se ha parado y hace falta algo del usuario. La
+    // salida depende de la razón: recargar saldo no es lo mismo que reactivar el anuncio,
+    // así que cada una lleva a un sitio distinto. Sin este `case` el aviso se pintaría como
+    // «Nueva notificación» y sería un callejón.
+    case 'BUMP_AUTO_PAUSED':
+      return n.data.reason === 'NO_FUNDS'
+        ? {
+            text: `Hemos pausado los bumps programados de «${n.data.listingTitle}»: te has quedado sin saldo. No se te ha cobrado nada.`,
+            href: '/mis-creditos',
+          }
+        : {
+            text: `Hemos pausado los bumps programados de «${n.data.listingTitle}» porque el anuncio ya no está activo. Se reanudarán si vuelves a activarlo.`,
+            href: '/mis-anuncios',
+          };
     default:
       return { text: 'Nueva notificación', href: '/notificaciones' };
   }

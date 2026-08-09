@@ -14,7 +14,12 @@ export type NotificationType =
   // sin una palabra. Tampoco requieren migración: `type` es String.
   | 'REPORT_RESOLVED'
   | 'LISTING_MODERATED'
-  | 'REVIEW_MODERATED';
+  | 'REVIEW_MODERATED'
+  // Bump automático (proyecto 2) — tampoco requiere migración: `type` es String.
+  // SOLO se avisa de INCIDENCIAS (D6): un bump aplicado no notifica, porque es lo que el
+  // usuario contrató y avisar de cada uno inundaría la campana. Lo que sí exige enterarse
+  // es que la programación DEJÓ de correr, que es lo que este tipo cuenta.
+  | 'BUMP_AUTO_PAUSED';
 
 /** Self-contained snapshot stored in Notification.data — see schema.prisma comment. */
 export interface AlertMatchData {
@@ -120,6 +125,22 @@ export interface ListingModeratedData {
   action: 'REJECTED' | 'DEACTIVATED' | 'RESTORED';
   /** Motivo que escribió el moderador, si lo puso. */
   reason: string | null;
+}
+
+/**
+ * Bump automático — la programación de un anuncio se ha PARADO y hace falta que el usuario
+ * haga algo. Mismo criterio que el resto: snapshot AUTOCONTENIDO con el título YA RESUELTO,
+ * para que el aviso siga siendo legible aunque el anuncio se borre después.
+ *
+ * `reason` decide cómo se redacta y qué salida se ofrece: recargar saldo no es lo mismo que
+ * reactivar el anuncio. Por eso la razón viaja en el aviso y no solo en el estado.
+ */
+export interface BumpAutoPausedData {
+  scheduleId: string;
+  listingId: string;
+  /** Título CONGELADO — sobrevive al borrado del anuncio. */
+  listingTitle: string;
+  reason: 'NO_FUNDS' | 'LISTING_INACTIVE';
 }
 
 /** Al AUTOR de una valoración: se ha retirado. El borrado es físico e irreversible. */
