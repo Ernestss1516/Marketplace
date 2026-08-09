@@ -235,7 +235,12 @@ test.describe('Visibilidad de la cuota Pro fuera del dialog', () => {
 
     await expect(page.getByText('Plan Pro', { exact: true })).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText(/destacados gratis:/i)).toBeVisible();
-    await expect(page.getByText(/\d+ de \d+ restantes este mes/i)).toBeVisible();
+    // UXV.6 (M12) — la cuota de BUMPS se muestra ahora con la misma forma («N de M
+    // restantes este mes»), así que hay dos en la página. Se acota a la fila de
+    // destacados, que es de la que va esta prueba.
+    await expect(page.getByText(/destacados gratis:/i).locator('..')).toContainText(
+      /\d+ de \d+ restantes este mes/i,
+    );
     await expect(page.getByText(/se renueva:/i)).toBeVisible();
   });
 

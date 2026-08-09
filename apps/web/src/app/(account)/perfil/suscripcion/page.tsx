@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import type { Metadata } from 'next';
-import { Crown, Package, Star } from 'lucide-react';
+import { Crown, Package, Star, TrendingUp } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -119,6 +119,17 @@ export default async function SuscripcionPage() {
                     <span className="text-muted-foreground">Destacados gratis: </span>
                     <span className="font-medium">
                       {proStatus.remaining} de {proStatus.limit} restantes este mes
+                    </span>
+                  </div>
+                  {/* UXV.6 (M12) — la cuota de BUMPS es un beneficio Pro igual que la de
+                      destacados, y aquí no aparecía: el único sitio donde se veía era
+                      incrustada en el texto del botón de la tarjeta. */}
+                  <div className="flex items-center gap-2">
+                    <TrendingUp className="h-4 w-4 text-amber-500" />
+                    <span className="text-muted-foreground">Bumps gratis: </span>
+                    <span className="font-medium">
+                      {proStatus.bumpQuota.remaining} de {proStatus.bumpQuota.limit} restantes
+                      este mes
                     </span>
                   </div>
                   {proStatus.periodEnd && (

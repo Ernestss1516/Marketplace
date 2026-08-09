@@ -1,120 +1,36 @@
 import { redirect } from 'next/navigation';
 import type { Metadata } from 'next';
-import { Coins, TrendingDown, TrendingUp, Zap } from 'lucide-react';
+import { Coins, Zap } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Separator } from '@/components/ui/separator';
 import { auth } from '@/lib/auth';
 import {
   getWallet,
   getCatalog,
   getBumpLedger,
   getProStatus,
-  type WalletItem,
-  type CreditLedgerType,
-  type BumpLedgerItem,
-  type BumpLedgerType,
   type ProStatus,
 } from '@/lib/api/billing';
 import { PackList } from './_components/PackList';
 import { BumpPackList } from './_components/BumpPackList';
 import { RedeemCouponForm } from './_components/RedeemCouponForm';
+import { HistorialCreditos, HistorialBumps } from './_components/Historiales';
 import { buildLoginUrl } from '@/lib/auth/callback-url';
 
-// Monetización ráfaga 4 — la URL se queda /mis-creditos (histórica), pero el
-// título pasa a algo más general: la página ahora cubre dos monedas
-// (créditos y bumps), no solo una. Cosmético, no afecta a rutas ni lógica.
+/**
+ * Monetización ráfaga 4 — el título pasa a algo más general: la página cubre DOS monedas
+ * (créditos y bumps), no solo una.
+ *
+ * UXV.6 (B1) — el monedero tenía tres nombres: «Mis créditos» en el menú, «Mi saldo» en el
+ * título y `/mis-creditos` en la URL. Los dos VISIBLES ya se unificaron en UXV.2 (el menú
+ * pasó a «Mi saldo», que es lo que dicen también el `<title>` y el `<h1>`).
+ *
+ * LA URL SE QUEDA, y es una decisión, no un olvido: renombrarla rompería los enlaces que
+ * ya existen —los correos de compra, los tickets de soporte con la ruta escrita, cualquier
+ * marcador del usuario— y obligaría a mantener un redirect permanente, todo a cambio de
+ * una coherencia que el usuario no ve. El nombre visible es lo que se lee; la ruta es
+ * historia.
+ */
 export const metadata: Metadata = { title: 'Mi saldo' };
-
-const LEDGER_LABELS: Record<CreditLedgerType, string> = {
-  PACK_PURCHASE: 'Compra de pack',
-  FEATURED_DEBIT: 'Destacado',
-  BUMP_DEBIT: 'Bump',
-  ADMIN_CREDIT: 'Crédito manual',
-  ADMIN_DEBIT: 'Ajuste',
-  PRO_BONUS: 'Bonus Pro',
-  CAMPAIGN_BONUS: 'Bonus campaña',
-  COUPON_REDEEM: 'Cupón canjeado',
-};
-
-/** Monetización ráfaga 2/4 — etiquetas del historial de bumps (moneda separada). */
-const BUMP_LEDGER_LABELS: Record<BumpLedgerType, string> = {
-  COUPON_REDEEM: 'Cupón canjeado',
-  BUMP_DEBIT: 'Bump',
-  ADMIN_CREDIT: 'Crédito manual',
-  ADMIN_DEBIT: 'Ajuste',
-  PACK_PURCHASE: 'Compra de pack',
-  PRO_BONUS: 'Bonus Pro',
-  CAMPAIGN_BONUS: 'Bonus campaña',
-};
-
-function LedgerRow({ item }: { item: WalletItem }) {
-  const isCredit = item.amount > 0;
-  const label = LEDGER_LABELS[item.type] ?? item.type;
-  const date = new Date(item.createdAt).toLocaleDateString('es-ES', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
-
-  return (
-    <div className="flex items-center justify-between py-3">
-      <div className="flex items-center gap-3">
-        {isCredit ? (
-          <TrendingUp className="h-4 w-4 shrink-0 text-green-600" />
-        ) : (
-          <TrendingDown className="h-4 w-4 shrink-0 text-muted-foreground" />
-        )}
-        <div>
-          <p className="text-sm font-medium">{label}</p>
-          <p className="text-xs text-muted-foreground">{date}</p>
-        </div>
-      </div>
-      <span
-        className={`text-sm font-semibold tabular-nums ${
-          isCredit ? 'text-green-600' : 'text-foreground'
-        }`}
-      >
-        {isCredit ? '+' : ''}{item.amount} cr.
-      </span>
-    </div>
-  );
-}
-
-/** Monetización ráfaga 2 — fila del historial de bumps. Mismo look que LedgerRow,
- * lista separada (ver diseno-facturacion.md §17: decisión explícita, no fusionar
- * dos ledgers paginados de modelos distintos por ahora). */
-function BumpLedgerRow({ item }: { item: BumpLedgerItem }) {
-  const isCredit = item.amount > 0;
-  const label = BUMP_LEDGER_LABELS[item.type] ?? item.type;
-  const date = new Date(item.createdAt).toLocaleDateString('es-ES', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
-
-  return (
-    <div className="flex items-center justify-between py-3">
-      <div className="flex items-center gap-3">
-        {isCredit ? (
-          <TrendingUp className="h-4 w-4 shrink-0 text-green-600" />
-        ) : (
-          <TrendingDown className="h-4 w-4 shrink-0 text-muted-foreground" />
-        )}
-        <div>
-          <p className="text-sm font-medium">{label}</p>
-          <p className="text-xs text-muted-foreground">{date}</p>
-        </div>
-      </div>
-      <span
-        className={`text-sm font-semibold tabular-nums ${
-          isCredit ? 'text-green-600' : 'text-foreground'
-        }`}
-      >
-        {isCredit ? '+' : ''}{item.amount} bump{Math.abs(item.amount) === 1 ? '' : 's'}
-      </span>
-    </div>
-  );
-}
 
 export default async function MisCreditosPage() {
   const session = await auth();
@@ -197,31 +113,25 @@ export default async function MisCreditosPage() {
 
         {packProducts.length > 0 && (
           <div>
-            <h3 className="mb-4 text-lg font-semibold">Comprar créditos</h3>
+            <h3 id="comprar" className="mb-4 text-lg font-semibold">Comprar créditos</h3>
             <PackList packs={packProducts} />
           </div>
         )}
 
         <div>
           <h3 className="mb-4 text-lg font-semibold">Historial de créditos</h3>
-          {wallet.items.length === 0 ? (
-            <Card className="border-dashed">
-              <CardContent className="py-10 text-center text-sm text-muted-foreground">
-                No hay movimientos todavía. Compra un pack para empezar.
-              </CardContent>
-            </Card>
-          ) : (
-            <Card>
-              <CardContent className="pt-4">
-                {wallet.items.map((item, idx) => (
-                  <div key={item.id}>
-                    <LedgerRow item={item} />
-                    {idx < wallet.items.length - 1 && <Separator />}
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          )}
+          {/* UXV.6 (M9) — paginado: la API devolvía `totalPages` desde el principio y esta
+              pantalla pintaba solo los veinte primeros, sin decir que había más. */}
+          <HistorialCreditos
+            token={token}
+            inicial={{
+              items: wallet.items,
+              total: wallet.total,
+              page: wallet.page,
+              perPage: wallet.perPage,
+              totalPages: wallet.totalPages,
+            }}
+          />
         </div>
       </section>
 
@@ -266,24 +176,28 @@ export default async function MisCreditosPage() {
           </div>
         )}
 
-        {/* Historial de bumps, lista separada (ver comentario de diseño en
-            BumpLedgerRow). Solo se muestra si hay algo que mostrar, para no
-            añadir ruido a quien nunca ha tenido bumps. */}
-        {bumpLedger.items.length > 0 && (
-          <div>
-            <h3 className="mb-4 text-lg font-semibold">Historial de bumps</h3>
-            <Card>
-              <CardContent className="pt-4">
-                {bumpLedger.items.map((item, idx) => (
-                  <div key={item.id}>
-                    <BumpLedgerRow item={item} />
-                    {idx < bumpLedger.items.length - 1 && <Separator />}
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          </div>
-        )}
+        {/*
+          Historial de bumps, lista separada (decisión de diseño: no fusionar dos ledgers
+          paginados de modelos distintos — ver diseno-facturacion.md §17).
+
+          UXV.6 (B5) — se muestra SIEMPRE, también vacío. Antes la sección entera
+          desaparecía cuando no había movimientos, «para no añadir ruido»: el efecto real
+          era que quien nunca había tenido bumps no llegaba a enterarse de que existían.
+          Y UXV.6 (M9) — paginado, igual que el de créditos.
+        */}
+        <div>
+          <h3 className="mb-4 text-lg font-semibold">Historial de bumps</h3>
+          <HistorialBumps
+            token={token}
+            inicial={{
+              items: bumpLedger.items,
+              total: bumpLedger.total,
+              page: bumpLedger.page,
+              perPage: bumpLedger.perPage,
+              totalPages: bumpLedger.totalPages,
+            }}
+          />
+        </div>
       </section>
     </div>
   );

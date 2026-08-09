@@ -26,8 +26,19 @@ export default function DestacadoExitoPage() {
         una vez que confirmemos el pago con el banco.
       </p>
 
+      {/* UXV.6 (M11) — «contacta con soporte» ENLAZA a soporte. Decía eso mismo sin enlace
+          y sin decir dónde, mientras la tarjeta de anuncio y el panel de facturas ya
+          llevaban a `/mis-tickets/nuevo` con un clic. */}
       <p className="max-w-sm text-sm text-muted-foreground">
-        Si no ves el cambio en 5 minutos, contacta con soporte.
+        Si no ves el cambio en 5 minutos,{' '}
+        <Link
+          href="/mis-tickets/nuevo"
+          className="underline hover:text-foreground"
+          prefetch={false}
+        >
+          abre un ticket de soporte
+        </Link>
+        .
       </p>
 
       <Button asChild>

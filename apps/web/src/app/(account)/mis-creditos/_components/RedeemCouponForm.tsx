@@ -98,12 +98,19 @@ export function RedeemCouponForm({ token }: Props) {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {success ? (
+        {/*
+          UXV.6 (M8) — el resultado se enseña ENCIMA del formulario, no EN LUGAR de él.
+          Antes era `success ? <mensaje> : <formulario>` y `success` no se limpiaba nunca:
+          tras canjear un código el formulario desaparecía para siempre y había que
+          recargar la página para canjear un segundo. Quien recibe dos cupones —o se
+          equivoca al teclear el primero y acierta al segundo— es un caso normal.
+        */}
+        {success && (
           <p className="text-sm font-medium text-green-600" data-testid="coupon-success">
             {success}
           </p>
-        ) : (
-          <>
+        )}
+        <>
             <div className="flex gap-2">
               <Input
                 value={code}
@@ -179,8 +186,7 @@ export function RedeemCouponForm({ token }: Props) {
                 {error}
               </p>
             )}
-          </>
-        )}
+        </>
       </CardContent>
     </Card>
   );
