@@ -550,6 +550,12 @@ export class BillingService {
    * Atomic: wallet debit + ledger entry + Listing.bumpedAt in a single Postgres TX.
    * Failed attempts (insufficient credits, cooldown, not ACTIVE) do NOT update bumpedAt.
    *
+   * CAPA 1 (bump automático, ráfaga 1) — EL ORDEN DENTRO DE LA TRANSACCIÓN IMPORTA:
+   * primero se RECLAMA el turno (UPDATE condicional sobre `bumpedAt`, paso 0) y solo
+   * después se cobra. Antes era al revés —cobrar y marcar al final— y eso dejaba una
+   * ventana en la que dos ejecuciones concurrentes cobraban las dos. El contrato de cara
+   * afuera no cambió con ese arreglo: mismo 429 con `retryAfter`, mismo `nextBumpAt`.
+   *
    * Monetización ráfaga 3 — PRIORIDAD DE CONSUMO EN 3 NIVELES, todos dentro de
    * la MISMA $transaction, encadenados:
    *   1) Cuota mensual Pro (gratis, se pierde si no se usa este periodo —
@@ -579,34 +585,17 @@ export class BillingService {
       where: { id: listingId },
       // UXV.1 (A2) — `slug` es NUEVO: hace falta para invalidar la ficha cacheada
       // al terminar (ver el final de este método).
-      select: { id: true, slug: true, status: true, sellerId: true, bumpedAt: true },
+      //
+      // CAPA 1 — `bumpedAt` YA NO SE SELECCIONA AQUÍ, y su ausencia es la señal: el
+      // cooldown dejó de comprobarse leyendo la fila antes de la transacción. Ahora se
+      // comprueba RECLAMÁNDOLA dentro (ver el paso 0). Si alguien vuelve a leerlo aquí
+      // para "adelantar" el rechazo, habrá dos verdades sobre la ventana otra vez.
+      select: { id: true, slug: true, status: true, sellerId: true },
     });
     if (!listing) throw new NotFoundException('Listing not found');
     if (listing.sellerId !== userId) throw new ForbiddenException('Not your listing');
     if (listing.status !== ListingStatus.ACTIVE) {
       throw new BadRequestException('Only ACTIVE listings can be bumped');
-    }
-
-    // Cooldown check: rechaza si el último bump cae dentro de la ventana. (Deuda
-    // menor preexistente, no de esta ráfaga: esta comprobación lee bumpedAt
-    // FUERA de la transacción, así que dos peticiones concurrentes sobre el
-    // mismo listing podrían ambas pasarla antes de que ninguna confirme su
-    // propio UPDATE — inventariada, no se toca aquí.)
-    //
-    // UXV.1 (A2): la ventana ya no es un literal aquí. Es la MISMA constante que
-    // se usa para derivar el `nextBumpAt` que viaja al frontend (ver
-    // bump-cooldown.ts), así que lo que el botón muestra y lo que este guard
-    // aplica no pueden separarse.
-    const now = new Date();
-    if (listing.bumpedAt) {
-      const elapsedSeconds = (now.getTime() - listing.bumpedAt.getTime()) / 1000;
-      if (elapsedSeconds < BUMP_COOLDOWN_SECONDS) {
-        const retryAfter = Math.ceil(BUMP_COOLDOWN_SECONDS - elapsedSeconds);
-        throw new HttpException(
-          { message: 'Cooldown active — wait before bumping again', retryAfter },
-          HttpStatus.TOO_MANY_REQUESTS,
-        );
-      }
     }
 
     const bumpCostSetting = await this.prisma.setting.findUnique({
@@ -622,8 +611,67 @@ export class BillingService {
       : baseCost;
 
     const bumpedAt = new Date();
+    const cooldownCutoff = new Date(bumpedAt.getTime() - BUMP_COOLDOWN_SECONDS * 1000);
 
     const { paidWith, cost } = await this.prisma.$transaction(async (tx) => {
+      // 0) RECLAMAR EL TURNO — antes de cobrar, y de forma atómica.
+      //
+      // EL DEFECTO QUE CIERRA (deuda preexistente del bump MANUAL, no del bump
+      // automático): hasta aquí el cooldown se comprobaba LEYENDO `bumpedAt` fuera de
+      // la transacción, y el UPDATE que lo marcaba era la ÚLTIMA sentencia de las tres
+      // ramas de abajo. Es decir: se cobraba primero y se marcaba después. Dos
+      // ejecuciones concurrentes sobre el mismo anuncio podían leer ambas «no está en
+      // cooldown» antes de que ninguna confirmara su UPDATE, y COBRAR LAS DOS.
+      //
+      // Con clics humanos hace falta una simultaneidad casi imposible. Con el scheduler
+      // del bump automático (proyecto 2) corriendo en N instancias es el caso NORMAL, no
+      // el raro — por eso este arreglo va antes y por separado.
+      //
+      // EL ARREGLO: se invierte el orden. Este UPDATE condicional escribe `bumpedAt`
+      // SOLO si la ventana ya venció, y devuelve cuántas filas tocó. Una fila = el turno
+      // es nuestro y se puede cobrar. Cero filas = otro lo reclamó (o nunca venció) y no
+      // se cobra nada.
+      //
+      // POR QUÉ ES CORRECTO, y no un truco: bajo READ COMMITTED —el nivel por defecto de
+      // PostgreSQL; este repo no fija `isolationLevel` en ninguna $transaction— un UPDATE
+      // sobre una fila que otra transacción está modificando ESPERA a que esa confirme y
+      // entonces REEVALÚA su WHERE contra la versión nueva. El segundo ve el `bumpedAt`
+      // recién escrito, la condición falla, y toca 0 filas. No queda ventana entre la
+      // comprobación y la escritura porque son la MISMA sentencia.
+      //
+      // NO ES UN PATRÓN NUEVO AQUÍ: es exactamente el idioma con el que este servicio ya
+      // mueve dinero — `UPDATE "Wallet" SET balance = balance - N WHERE balance >= N` y
+      // «si afectó 0 filas, error», en los tres sitios donde se cobra. Lo que cambia es
+      // que el cooldown pasa a protegerse igual que el saldo.
+      //
+      // Y va DENTRO de la misma transacción que el cobro a propósito: si el cobro falla
+      // (402), esto revierte con él. Nunca queda un `bumpedAt` marcado sin cobro, ni un
+      // cobro sin `bumpedAt`.
+      const claimed = await tx.$executeRaw`
+        UPDATE "Listing" SET "bumpedAt" = ${bumpedAt}
+        WHERE id = ${listingId}
+          AND ("bumpedAt" IS NULL OR "bumpedAt" <= ${cooldownCutoff})
+      `;
+
+      if (claimed === 0) {
+        // Mismo rechazo que siempre: 429 con `retryAfter`. El contrato no cambia — lo
+        // único distinto es que ahora el dato se relee aquí (camino de error, barato)
+        // en vez de venir del `select` de arriba.
+        const rows = await tx.$queryRaw<{ bumpedAt: Date | null }[]>`
+          SELECT "bumpedAt" FROM "Listing" WHERE id = ${listingId}
+        `;
+        // El anuncio existía al entrar; si ya no está, la causa no es el cooldown.
+        if (rows.length === 0) throw new NotFoundException('Listing not found');
+
+        const last = rows[0].bumpedAt;
+        const elapsedSeconds = last ? (bumpedAt.getTime() - last.getTime()) / 1000 : 0;
+        const retryAfter = Math.ceil(BUMP_COOLDOWN_SECONDS - elapsedSeconds);
+        throw new HttpException(
+          { message: 'Cooldown active — wait before bumping again', retryAfter },
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+
       // 1) Cuota mensual Pro — se pierde si no se usa este periodo, así que
       // se gasta primero. hasAvailableBumpQuota bloquea (FOR UPDATE) la fila
       // Subscription del usuario hasta que esta tx confirme o revierta.
@@ -652,7 +700,8 @@ export class BillingService {
             referenceId: listingId,
           },
         });
-        await tx.listing.update({ where: { id: listingId }, data: { bumpedAt } });
+        // `bumpedAt` ya quedó escrito en el paso 0 (el reclamo). Marcarlo aquí otra vez
+        // sería volver a "cobrar primero, marcar después", que es justo lo que se cierra.
         return { paidWith: 'PRO_QUOTA' as const, cost: 0 };
       }
 
@@ -676,7 +725,6 @@ export class BillingService {
             referenceId: listingId,
           },
         });
-        await tx.listing.update({ where: { id: listingId }, data: { bumpedAt } });
         return { paidWith: 'BUMP_BALANCE' as const, cost: 0 };
       }
 
@@ -704,7 +752,6 @@ export class BillingService {
         },
       });
 
-      await tx.listing.update({ where: { id: listingId }, data: { bumpedAt } });
       return { paidWith: 'CREDITS' as const, cost: creditCost };
     });
 
