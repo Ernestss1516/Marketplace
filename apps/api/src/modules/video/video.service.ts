@@ -14,6 +14,9 @@ import { RedisService } from '../../infra/redis/redis.service';
 import { R2Service } from '../../infra/r2/r2.service';
 import { listingCacheKey } from '../../infra/redis/cache-keys';
 import { isOwnStorageUrl } from '../../common/validators/safe-url';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
+import { QUEUE_INDEXING } from '../../infra/queue/queue.constants';
 import { EntitlementService } from '../billing/entitlement.service';
 import {
   ALLOWED_VIDEO_MIME_TYPES,
@@ -53,6 +56,7 @@ export class VideoService {
     private readonly r2: R2Service,
     private readonly redis: RedisService,
     private readonly entitlements: EntitlementService,
+    @InjectQueue(QUEUE_INDEXING) private readonly indexingQueue: Queue,
   ) {}
 
   /**
@@ -171,7 +175,7 @@ export class VideoService {
     });
 
     if (anterior) await this.deleteObjectByUrl(anterior);
-    await this.invalidateFicha(actualizado.slug);
+    await this.refrescarSuperficies(actualizado.slug, listingId);
 
     this.logger.log(`Vídeo confirmado para listing=${listingId} (${objeto.contentLength} B)`);
     return { ...actualizado, hasVideo: true };
@@ -195,7 +199,7 @@ export class VideoService {
       },
     });
     await this.deleteObjectByUrl(listing.videoUrl);
-    await this.invalidateFicha(listing.slug);
+    await this.refrescarSuperficies(listing.slug, listingId);
 
     return { hasVideo: false };
   }
@@ -278,5 +282,23 @@ export class VideoService {
    */
   private invalidateFicha(slug: string) {
     return this.redis.client.del(listingCacheKey(slug));
+  }
+
+  /**
+   * Refresca lo que las LISTAS ven de este anuncio.
+   *
+   * Las tarjetas de búsqueda no salen de Postgres: salen del documento indexado, que lleva
+   * `hasVideo`. Sin reindexar, un vídeo recién subido no pondría el icono en los resultados
+   * —y uno recién quitado lo seguiría mostrando— hasta la próxima vez que el anuncio se
+   * tocara por cualquier otro motivo. Mismo gesto que hace `bump` al cambiar `bumpedAt`.
+   */
+  private reindex(listingId: string) {
+    return this.indexingQueue.add('index', { listingId });
+  }
+
+  /** Los dos efectos que un cambio de vídeo tiene fuera del anuncio, siempre juntos. */
+  private async refrescarSuperficies(slug: string, listingId: string): Promise<void> {
+    await this.invalidateFicha(slug);
+    await this.reindex(listingId);
   }
 }
