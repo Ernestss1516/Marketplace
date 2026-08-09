@@ -596,6 +596,27 @@ model Listing {
 
   viewCount Int @default(0)
 
+  // --- Vídeo Pro (proyecto 3) ---
+  //
+  // CAMPOS EN Listing Y NO UNA TABLA APARTE: es UN vídeo por anuncio (decisión confirmada),
+  // así que una tabla sería una relación de más. `ListingImage` no servía: no tiene duración
+  // ni póster, y su ciclo de vida es otro (varias por anuncio, con orden).
+  //
+  // `hasVideo` NO es una columna: se deriva de `videoUrl != null`. Guardar el booleano
+  // aparte crearía dos verdades que pueden desincronizarse — y es justamente el booleano
+  // (nunca la URL) lo que viajará a las tarjetas de las listas.
+  /// URL en nuestro propio almacenamiento. Validada con `isOwnStorageUrl` al guardarse,
+  /// porque un `<video src>` no pasa por `remotePatterns` de next/image.
+  videoUrl             String?
+  /// Frame de portada, capturado por el cliente al subir. Sin él, el reproductor sería un
+  /// rectángulo negro; si faltara, la ficha cae a la foto de portada del anuncio.
+  videoPosterUrl       String?
+  /// Duración DECLARADA por el cliente, en segundos. Ver la frontera anotada en
+  /// `video-limits.ts`: el tamaño es infranqueable, la duración es un límite de producto.
+  videoDurationSeconds Int?
+  /// Cuándo se confirmó la subida. Informativo y útil para moderación.
+  videoUploadedAt      DateTime?
+
   publishedAt DateTime?
   expiresAt   DateTime?
   bumpedAt    DateTime?

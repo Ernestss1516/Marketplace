@@ -51,7 +51,23 @@ export function isAbsoluteHttpUrl(value: string): boolean {
 export function isOwnStorageUrl(value: string): boolean {
   const publicUrl = process.env.S3_PUBLIC_URL;
   if (!publicUrl) return false;
-  return value.startsWith(publicUrl);
+
+  /**
+   * La comparación exige FRONTERA, no solo prefijo.
+   *
+   * Con un `startsWith` pelado —como estaba— un `S3_PUBLIC_URL` de
+   * `https://cdn.ejemplo.com` habría aceptado `https://cdn.ejemplo.com.atacante.net/x`:
+   * empieza igual, y sin embargo es un dominio ajeno. Nunca llegó a explotarse porque las
+   * URLs que se validan las produce siempre `R2Service.getPublicUrl`, pero eso es una
+   * casualidad del flujo, no una garantía de la comprobación.
+   *
+   * Se cierra ahora, al añadir el vídeo, porque un `<video src>` NO pasa por
+   * `remotePatterns` de next/image —a diferencia de las imágenes— y esta función pasa a ser
+   * la ÚNICA restricción de origen que tiene. Endurecerla no cambia nada legítimo: toda URL
+   * propia es `${publicUrl}/${key}`, que sigue pasando.
+   */
+  const base = publicUrl.replace(/\/$/, '');
+  return value === base || value.startsWith(`${base}/`);
 }
 
 /** Decorador class-validator para `isSafeContentUrl` — ver el comentario de esa función. */

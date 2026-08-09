@@ -37,6 +37,7 @@ import { SponsoredAdsModule } from './modules/sponsored-ads/sponsored-ads.module
 import { ContactModule } from './modules/contact/contact.module';
 import { InvoicingModule } from './modules/invoicing/invoicing.module';
 import { BumpScheduleModule } from './modules/bump-schedule/bump-schedule.module';
+import { VideoModule } from './modules/video/video.module';
 import { TicketsModule } from './modules/tickets/tickets.module';
 import { TagsModule } from './modules/tags/tags.module';
 
@@ -97,6 +98,7 @@ import { TagsModule } from './modules/tags/tags.module';
     ContactModule,
     InvoicingModule,
     BumpScheduleModule,
+    VideoModule,
     TicketsModule,
     TagsModule,
   ],
