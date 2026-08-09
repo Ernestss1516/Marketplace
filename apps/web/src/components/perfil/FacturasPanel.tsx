@@ -115,12 +115,21 @@ export function FacturasPanel({ token, eligibility, facturables, invoices }: Pro
           Cobros de la plataforma pendientes de facturar en el periodo vigente.
         </p>
 
+        {/* UXV.6 (B5) — «(arriba)» no es una salida: el usuario tenía que buscar el
+            formulario por su cuenta. Ahora es un enlace que lleva a él. */}
         {!eligibility.hasFiscalData ? (
           <div className="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
-            Completa tus datos fiscales (arriba) para poder solicitar facturas.
+            Para poder solicitar facturas necesitas tus datos fiscales completos.{' '}
+            <a href="#datos-fiscales" className="font-medium underline">
+              Completarlos ahora
+            </a>
+            .
           </div>
         ) : facturables.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No tienes movimientos facturables ahora mismo.</p>
+          <p className="text-sm text-muted-foreground">
+            No tienes movimientos facturables ahora mismo. Aparecerán aquí en cuanto compres
+            créditos, bumps, un destacado o la suscripción Pro.
+          </p>
         ) : (
           <>
             <ul className="divide-y rounded-lg border">
@@ -196,7 +205,11 @@ export function FacturasPanel({ token, eligibility, facturables, invoices }: Pro
       <section>
         <h2 className="mb-4 text-lg font-semibold">Mis facturas</h2>
         {invoices.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Todavía no has emitido ninguna factura.</p>
+          // UXV.6 (B5) — dice además QUÉ hacer para tener una, en vez de constatar el vacío.
+          <p className="text-sm text-muted-foreground">
+            Todavía no has emitido ninguna factura. Cuando tengas movimientos facturables,
+            podrás emitirla desde el bloque de arriba.
+          </p>
         ) : (
           <ul className="divide-y rounded-lg border">
             {invoices.map((inv) => (

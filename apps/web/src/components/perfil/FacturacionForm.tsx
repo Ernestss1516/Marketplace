@@ -89,7 +89,9 @@ export function FacturacionForm({ initialUser, token }: Props) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5">
+    // UXV.6 (B5) — `id` + `scroll-mt`: destino del enlace «Completarlos ahora» del panel
+    // de facturas, que antes decía «(arriba)» y dejaba al usuario buscándolo.
+    <form id="datos-fiscales" onSubmit={handleSubmit} className="scroll-mt-24 space-y-5">
       <p className="text-sm text-muted-foreground">
         Estos datos se usan para emitir tus facturas. Se guardan en cada factura tal como estén en
         el momento de emitirla: si los cambias después, las facturas ya emitidas conservan los datos

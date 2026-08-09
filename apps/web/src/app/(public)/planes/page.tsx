@@ -9,7 +9,7 @@ import {
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { getCatalog, type CatalogPrice } from '@/lib/api/billing';
+import { getCatalog, type CatalogPrice, type CatalogResponse } from '@/lib/api/billing';
 import { CheckoutButton } from './_components/CheckoutButton';
 import Link from 'next/link';
 
@@ -18,19 +18,26 @@ export const metadata: Metadata = {
   description: 'Elige el plan que mejor se adapta a tus necesidades.',
 };
 
-const FREE_FEATURES = [
-  'Hasta 5 anuncios activos',
+/**
+ * UXV.6 (M4) — lo que ve un Pro sale AHORA del catálogo (`catalog.proBenefits`), derivado
+ * en el backend de los `Setting` que de verdad conceden cada ventaja. La lista que había
+ * aquí escrita a mano prometía «estadísticas» y «soporte prioritario» y **callaba los dos
+ * beneficios que más se notan**: los destacados gratis al mes y la cuota de bumps. Un admin
+ * podía cambiar esas cuotas y la página de precios seguía diciendo lo mismo.
+ *
+ * Esto es solo el respaldo para cuando el catálogo no responde: lo mínimo cierto que se
+ * puede afirmar sin conocer los ajustes.
+ */
+const FREE_FEATURES_FALLBACK = [
   'Fotos incluidas',
   'Mensajería con compradores',
   'Perfil público',
 ];
 
-const PRO_FEATURES = [
-  'Hasta 20 anuncios activos',
-  'Fotos incluidas',
-  'Mensajería con compradores',
-  'Perfil público',
-  'Estadísticas de tus anuncios',
+const PRO_FEATURES_FALLBACK = [
+  'Más anuncios activos',
+  'Destacados y bumps gratis cada mes',
+  'Estadísticas avanzadas de tus anuncios',
   'Soporte prioritario',
 ];
 
@@ -46,7 +53,13 @@ function monthlyEquivalent(price: CatalogPrice): string {
 }
 
 export default async function PlanesPage() {
-  const catalog = await getCatalog().catch(() => ({ products: [], bumpCreditCost: 5 }));
+  const catalog = await getCatalog().catch(
+    (): CatalogResponse => ({ products: [], bumpCreditCost: 5, proExtraBumpsPercent: 20 }),
+  );
+
+  // UXV.6 (M4) — derivados del catálogo; el respaldo solo entra si la API no responde.
+  const proFeatures = catalog.proBenefits?.length ? catalog.proBenefits : PRO_FEATURES_FALLBACK;
+  const freeFeatures = catalog.freeBenefits?.length ? catalog.freeBenefits : FREE_FEATURES_FALLBACK;
 
   const proProduct = catalog.products.find((p) => p.type === 'RECURRING');
   const monthlyPrice = proProduct?.prices.find((p) => p.interval === 'MONTH');
@@ -71,7 +84,7 @@ export default async function PlanesPage() {
           </CardHeader>
           <CardContent className="flex-1">
             <ul className="space-y-2">
-              {FREE_FEATURES.map((f) => (
+              {freeFeatures.map((f) => (
                 <li key={f} className="flex items-start gap-2 text-sm">
                   <Check className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                   {f}
@@ -102,7 +115,7 @@ export default async function PlanesPage() {
             </CardHeader>
             <CardContent className="flex-1">
               <ul className="space-y-2">
-                {PRO_FEATURES.map((f) => (
+                {proFeatures.map((f) => (
                   <li key={f} className="flex items-start gap-2 text-sm">
                     <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                     {f}
@@ -142,7 +155,7 @@ export default async function PlanesPage() {
             </CardHeader>
             <CardContent className="flex-1">
               <ul className="space-y-2">
-                {PRO_FEATURES.map((f) => (
+                {proFeatures.map((f) => (
                   <li key={f} className="flex items-start gap-2 text-sm">
                     <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                     {f}

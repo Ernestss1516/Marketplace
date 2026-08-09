@@ -57,12 +57,6 @@ export default async function MisAnunciosPage() {
 
   return (
     <div>
-      {banners.length > 0 && (
-        <div className="mb-6">
-          <BannerList banners={banners} />
-        </div>
-      )}
-
       {/* UXV.2 (A3) — `flex-wrap` + `gap-3`: en 375 px el título y los dos botones no
           caben en una fila, y sin permitir el salto empujaban el ancho del documento a
           480 px (barra de scroll horizontal en TODA la página, no solo aquí). Es la
@@ -84,6 +78,19 @@ export default async function MisAnunciosPage() {
           </Button>
         </div>
       </div>
+
+      {/*
+        UXV.6 (B6) — el banner promocional va DEBAJO de la cabecera, no encima.
+        Estaba por delante del `<h1>`, así que lo primero que veía el vendedor al entrar en
+        SU pantalla de gestión era publicidad, y sus anuncios quedaban empujados hacia
+        abajo. Sigue estando —es un slot de negocio—, pero después de que la página diga
+        qué es y ofrezca sus acciones.
+      */}
+      {banners.length > 0 && (
+        <div className="mb-6">
+          <BannerList banners={banners} />
+        </div>
+      )}
 
       <MisAnunciosClient
         initialListings={items}

@@ -153,6 +153,15 @@ export interface CatalogResponse {
    * de bumps antes de comprar. Lo que de verdad se acredita se congela en el
    * checkout; esto nunca es lo que se cobra. */
   proExtraBumpsPercent: number;
+  /**
+   * UXV.6 (M4) — los beneficios de Pro, derivados en el backend de los `Setting` que de
+   * verdad los conceden. Antes esta lista vivía escrita a mano en `/planes` y prometía
+   * cosas distintas de las que la app hacía. Opcional en el tipo porque un backend
+   * anterior al despliegue no lo manda: la página cae entonces a una lista mínima.
+   */
+  proBenefits?: string[];
+  /** UXV.6 (M4) — igual, para la tarjeta del plan gratuito. */
+  freeBenefits?: string[];
 }
 
 // ---------------------------------------------------------------------------

@@ -11582,6 +11582,71 @@ motor de CSS, así que `portada-hero.spec.ts` las mide donde ocurren:
 
 ---
 
+## UXV.6 — PULIDO: los ocho remates que cierran la zona de vendedor
+
+Última tanda de [`diseno-ux-vendedor.md`](diseno-ux-vendedor.md). No tiene raíz común: es lo
+que queda cuando las cuatro raíces están cerradas, agrupado por superficie.
+
+### M4 — el casi-bug: dos cobros por el mismo plan
+
+`/planes` enseñaba «Hazte Pro» **también a un suscriptor**, y pulsarlo creaba una SEGUNDA
+suscripción de Stripe sobre la misma cuenta. Nadie lo impedía: ni la interfaz ni el
+servidor.
+
+**El arreglo está en el backend**, no en el botón: `createCheckoutSession` rechaza ahora con
+`ALREADY_SUBSCRIBED` si hay una suscripción `ACTIVE` o `CANCELING`. Esconder el botón
+habría dejado el agujero abierto a cualquier POST directo, y lo que estaba en juego era
+cobrar dos veces. En la interfaz, ese usuario ve «Ya eres Pro» + «Gestionar mi suscripción».
+
+**El guard no atrapa a nadie**: `CANCELED` y `PAST_DUE` **no** bloquean —en el segundo el
+cobro falló y hay que poder rehacerlo—, y hay una prueba por cada estado.
+
+### M4 — la lista de beneficios, derivada
+
+Estaba escrita a mano en el componente y desincronizada de lo que la app hace: prometía
+«estadísticas» y «soporte prioritario» y **callaba los dos beneficios que más se notan**,
+los destacados gratis al mes y la cuota de bumps. Un admin podía subir `proMonthlyBumpQuota`
+y la página de precios seguía diciendo lo mismo.
+
+Ahora sale de `GET /billing/catalog`, compuesta de los `Setting` que de verdad conceden cada
+ventaja. **Cada línea solo se promete si el ajuste la concede** (una cuota a 0 no se
+anuncia): la lista no puede volver a mentir.
+
+**AQUÍ SE CONECTA EL VÍDEO PRO (proyecto 3)**: cuando exista su flag de admin será una
+entrada condicional más de `buildProBenefits`, y `/planes` la mostrará sin enterarse.
+
+**Lo que destapó al derivarla**: la tarjeta «Gratis» tenía el mismo defecto —decía «Hasta 5
+anuncios activos» mientras `freeActiveListingLimit` valía otra cosa— y la comparación entre
+las dos lo dejó a la vista. Se derivó también (`freeBenefits`). **Ojo, dato de negocio, no
+de código**: en la BD de test `freeActiveListingLimit` = 100 y `proActiveListingLimit` = 20,
+o sea el plan gratuito permite MÁS que el Pro. La lista hardcodeada lo tapaba; ahora se ve.
+Conviene revisar esos ajustes en producción.
+
+### El resto
+
+| # | Antes | Ahora |
+|---|---|---|
+| **M12** | `isPro && remaining > 0`: al gastar el último destacado el aviso desaparecía y «no soy Pro» y «ya la gasté» se veían igual. La cuota de bumps no salía en ninguna parte. | Las DOS cuotas, también agotadas, en `/mis-anuncios` y en `/perfil/suscripcion`. |
+| **M9** | La API devolvía `totalPages` desde el principio y la página pintaba 20 apuntes sin decir que había más. | `HistorialPaginado`, genérico para las dos monedas. Un fallo de red no vacía lo que el usuario mira. |
+| **M8** | `success ? <mensaje> : <formulario>` y `success` no se limpiaba: un cupón por carga de página. | El resultado va ENCIMA del formulario, que sigue ahí. |
+| **M11** | «contacta con soporte», sin enlace y sin decir dónde. | Enlaza a `/mis-tickets/nuevo`, como ya hacían la tarjeta y el panel de facturas. |
+| **B1** | Tres nombres: menú, título y URL. | Los dos VISIBLES ya se unificaron en UXV.2. **La URL se queda**, y es decisión: renombrarla rompe enlaces de correos, tickets y marcadores a cambio de una coherencia que el usuario no ve. |
+| **B5** | «(arriba)» sin enlace; el historial de bumps vacío no se renderizaba; facturas con una línea de texto. | Cada vacío dice qué pasa y ofrece salida. El de bumps existe aunque esté vacío: ocultarlo escondía que la función existe. |
+| **B6** | El banner iba por delante del `<h1>`: lo primero en la pantalla de gestión era publicidad. | Debajo de la cabecera. Sigue estando — es un slot de negocio. |
+
+### Dos pruebas que NO son e2e, y por qué
+
+La paginación (M9) y la cuota agotada (M12) se prueban en jsdom, no en Playwright:
+`/mis-creditos` y `/mis-anuncios` son Server Components y su render inicial lo resuelve el
+servidor, así que `page.route` no puede fabricar ni un historial de tres páginas ni una
+cuota a cero sin consumirla de verdad. Los componentes sí reciben ese estado por props. Es
+la misma limitación que ya documentaba la cabecera de `e2e/mis-creditos.spec.ts`.
+
+**Verificado**: `test/uxv6-pro-guard.e2e-spec.ts` (5), `e2e/pulido.spec.ts` (9),
+`HistorialPaginado.test.tsx` (6), `quota-reminder.test.tsx` (5).
+
+---
+
 ## UXV.5 — EL EDITOR: editar deja de ser un alta
 
 Quinta tanda de [`diseno-ux-vendedor.md`](diseno-ux-vendedor.md). La edición reusaba el

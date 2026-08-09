@@ -35,6 +35,7 @@ describe('BillingService.createCheckoutSession — Stripe destacado cerrado', ()
   let prisma: {
     price: { findUnique: jest.Mock };
     user: { findUniqueOrThrow: jest.Mock; update: jest.Mock };
+    subscription: { findFirst: jest.Mock };
   };
 
   beforeEach(async () => {
@@ -44,6 +45,11 @@ describe('BillingService.createCheckoutSession — Stripe destacado cerrado', ()
     prisma = {
       price: { findUnique: jest.fn() },
       user: { findUniqueOrThrow: jest.fn(), update: jest.fn() },
+      // UXV.6 (M4) — el guard de suscripción duplicada consulta si ya hay una vigente
+      // antes de llamar a Stripe. `null` = este usuario no la tiene, que es la premisa de
+      // los casos de aquí. El guard en sí se ejercita en test/uxv6-pro-guard.e2e-spec.ts,
+      // contra la base de datos real.
+      subscription: { findFirst: jest.fn().mockResolvedValue(null) },
     };
 
     const moduleRef = await Test.createTestingModule({

@@ -95,8 +95,9 @@ test.describe('/mis-creditos — con sesión (sellerContext)', () => {
     // "créditos" label visible in the balance display
     await expect(page.getByText('créditos', { exact: false }).first()).toBeVisible();
 
-    // Empty history message
-    await expect(page.getByText(/no hay movimientos/i)).toBeVisible();
+    // UXV.6 (B5) — el vacío ya no solo constata: dice QUÉ son los créditos y ofrece la
+    // salida para conseguirlos. Lo que se afirma sigue siendo «el historial está vacío».
+    await expect(page.getByText(/todavía no tienes movimientos de créditos/i)).toBeVisible();
   });
 
   test('muestra packs del catálogo con créditos y precio (datos reales del seed)', async ({
@@ -109,8 +110,9 @@ test.describe('/mis-creditos — con sesión (sellerContext)', () => {
     // Catalog packs are seeded in seed-test.ts (Pack Básico, Estándar, Max)
     await expect(page.getByText('Pack Básico')).toBeVisible({ timeout: 10_000 });
 
-    // Section heading
-    await expect(page.getByText('Comprar créditos')).toBeVisible();
+    // Acotado al ENCABEZADO: desde UXV.6 el estado vacío del historial lleva un enlace con
+    // ese mismo rótulo, así que un getByText suelto casa con dos.
+    await expect(page.getByRole('heading', { name: 'Comprar créditos' })).toBeVisible();
 
     // At least one "Comprar" button
     await expect(page.getByRole('button', { name: 'Comprar' }).first()).toBeVisible();

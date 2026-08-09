@@ -107,6 +107,38 @@ export class BillingService {
       );
     }
 
+    /**
+     * UXV.6 (M4) — NO se abre un segundo checkout a quien ya es Pro.
+     *
+     * Antes no había nada que lo impidiera, ni aquí ni en la interfaz: `/planes` enseñaba
+     * «Hazte Pro» también a un suscriptor, y pulsarlo creaba una segunda suscripción de
+     * Stripe sobre la misma cuenta. Dos cobros recurrentes por el mismo plan.
+     *
+     * El guard va EN EL SERVIDOR y no solo en el botón a propósito: esconder el botón deja
+     * el agujero abierto a cualquier POST directo, y lo que está en juego es cobrar dos
+     * veces.
+     *
+     * `PAST_DUE` NO bloquea: ahí el cobro falló y la suscripción está en el aire, así que
+     * impedir rehacerla dejaría al usuario sin salida. `CANCELING` sí bloquea — sigue
+     * siendo Pro hasta el fin del periodo, y suscribirse otra vez solaparía dos cobros.
+     */
+    const suscripcionVigente = await this.prisma.subscription.findFirst({
+      where: {
+        userId,
+        status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.CANCELING] },
+      },
+      select: { id: true, status: true },
+    });
+    if (suscripcionVigente) {
+      throw new BadRequestException({
+        code: 'ALREADY_SUBSCRIBED',
+        message:
+          suscripcionVigente.status === SubscriptionStatus.CANCELING
+            ? 'Tu plan Pro sigue activo hasta el final del periodo. No hace falta volver a suscribirse.'
+            : 'Ya tienes un plan Pro activo.',
+      });
+    }
+
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
       select: { id: true, email: true, name: true, stripeCustomerId: true },
@@ -805,6 +837,13 @@ export class BillingService {
               'featuredCreditCost30d',
               'bumpCreditCost',
               'proExtraBumpsPercent',
+              // UXV.6 (M4) — los que componen la lista de beneficios Pro de /planes.
+              'freeActiveListingLimit',
+              'proActiveListingLimit',
+              'proMonthlyFeaturedQuota',
+              'proQuotaFeaturedDurationDays',
+              'proMonthlyBumpQuota',
+              'proExtraCreditsPercent',
             ],
           },
         },
@@ -898,7 +937,82 @@ export class BillingService {
         bumpDiscountPercent,
       }),
       proExtraBumpsPercent,
+      freeBenefits: this.buildFreeBenefits(settingMap),
+      proBenefits: this.buildProBenefits(settingMap),
     };
+  }
+
+  /**
+   * UXV.6 (M4) — la tarjeta «Gratis» tenía el MISMO defecto que la de Pro: decía «Hasta 5
+   * anuncios activos» escrito a mano mientras `freeActiveListingLimit` valía otra cosa.
+   * Se descubrió al derivar la de Pro, porque la comparación entre las dos dejó el
+   * desajuste a la vista.
+   */
+  private buildFreeBenefits(settingMap: Record<string, number>): string[] {
+    const libres = settingMap['freeActiveListingLimit'] ?? 5;
+    return [
+      `Hasta ${libres} anuncios activos`,
+      'Fotos incluidas',
+      'Mensajería con compradores',
+      'Perfil público',
+    ];
+  }
+
+  /**
+   * UXV.6 (M4) — los beneficios de Pro, DERIVADOS de los `Setting` que de verdad los
+   * conceden.
+   *
+   * EL DEFECTO: `/planes` llevaba la lista escrita a mano en el propio componente, y estaba
+   * desincronizada de lo que la aplicación hace. Prometía «estadísticas» y «soporte
+   * prioritario» y **callaba los dos beneficios que más se notan** —los destacados gratis
+   * al mes y la cuota de bumps—, que el usuario sí ve funcionar en `/mis-anuncios`. Un
+   * admin podía subir `proMonthlyBumpQuota` de 5 a 20 y la página de precios seguía sin
+   * mencionarlo.
+   *
+   * Ahora sale de aquí, del mismo sitio del que salen las cuotas reales. Cambiar un ajuste
+   * cambia la promesa, sin tocar código.
+   *
+   * AQUÍ SE CONECTARÁ EL VÍDEO PRO (proyecto 3): cuando exista su flag de admin, será una
+   * entrada condicional más de esta lista — `...(settingMap['proVideoEnabled'] ? [...] : [])`
+   * — y `/planes` la mostrará sin enterarse. Ese es todo el enganche; el vídeo no se
+   * implementa aquí.
+   */
+  private buildProBenefits(settingMap: Record<string, number>): string[] {
+    const libres = settingMap['freeActiveListingLimit'] ?? 5;
+    const pro = settingMap['proActiveListingLimit'] ?? 20;
+    const destacados = settingMap['proMonthlyFeaturedQuota'] ?? 4;
+    const duracion = settingMap['proQuotaFeaturedDurationDays'] ?? 7;
+    const bumps = settingMap['proMonthlyBumpQuota'] ?? 5;
+    const extraCreditos = settingMap['proExtraCreditsPercent'] ?? 20;
+    const extraBumps = settingMap['proExtraBumpsPercent'] ?? 20;
+
+    // La comparación con el plano gratuito solo se enseña si de verdad es una MEJORA. Con
+    // un `freeActiveListingLimit` alto (o igual), «Hasta 20 (en el plan gratuito, 100)» se
+    // lee como un error — y de hecho delataba que la tarjeta Gratis, hardcodeada, decía un
+    // número distinto del ajuste real.
+    const beneficios = [
+      pro > libres
+        ? `Hasta ${pro} anuncios activos (en el plan gratuito, ${libres})`
+        : `Hasta ${pro} anuncios activos`,
+    ];
+
+    // Cada uno solo se promete si el ajuste lo concede de verdad: una cuota a 0 no es un
+    // beneficio, y anunciarla sería volver a la lista que mentía.
+    if (destacados > 0) {
+      beneficios.push(
+        `${destacados} destacados gratis al mes, de ${duracion} días cada uno`,
+      );
+    }
+    if (bumps > 0) beneficios.push(`${bumps} bumps gratis al mes para subir tus anuncios`);
+    if (extraCreditos > 0) beneficios.push(`${extraCreditos}% de créditos extra en cada pack`);
+    if (extraBumps > 0) beneficios.push(`${extraBumps}% de bumps extra en cada pack`);
+
+    // Estas dos no salen de un Setting: son comportamiento del código (ver
+    // EstadisticasClient, que gatea las gráficas por isPro) y política de soporte.
+    beneficios.push('Estadísticas avanzadas: vistas por día, ratio de me gusta y agregados');
+    beneficios.push('Soporte prioritario');
+
+    return beneficios;
   }
 
   // ---------------------------------------------------------------------------

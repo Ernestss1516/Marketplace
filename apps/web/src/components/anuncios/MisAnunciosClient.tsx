@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useTransition } from 'react';
 import Link from 'next/link';
-import { Loader2, PlusCircle, Star } from 'lucide-react';
+import { Loader2, PlusCircle, Star, TrendingUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MyListingCard } from './MyListingCard';
 import { getMyListings } from '@/lib/api/anuncios';
@@ -91,15 +91,32 @@ export function MisAnunciosClient({
 
   return (
     <div className="space-y-6">
-      {/* H8.5b — Pro quota reminder, visible without opening the destacar dialog */}
-      {proStatus.isPro && proStatus.remaining > 0 && (
+      {/*
+        H8.5b — recordatorio de cuota Pro, sin tener que abrir el diálogo de destacar.
+        UXV.6 (M12) — se enseña TAMBIÉN agotada, y con LAS DOS cuotas.
+
+        Antes la condición era `isPro && remaining > 0`: al gastar el último destacado el
+        aviso desaparecía, y desde fuera «no soy Pro» y «ya la gasté» se veían exactamente
+        igual — ninguna de las dos decía nada. Y la cuota de BUMPS no se veía en ninguna
+        parte salvo incrustada en el texto de un botón.
+      */}
+      {proStatus.isPro && (
         <div
-          className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800"
+          className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800"
           data-testid="quota-reminder"
         >
-          <Star className="h-4 w-4 shrink-0" />
-          Te quedan {proStatus.remaining} destacado{proStatus.remaining === 1 ? '' : 's'} gratis
-          este mes.
+          <span className="flex items-center gap-2">
+            <Star className="h-4 w-4 shrink-0" aria-hidden />
+            {proStatus.remaining > 0
+              ? `Te quedan ${proStatus.remaining} destacado${proStatus.remaining === 1 ? '' : 's'} gratis este mes.`
+              : 'Has usado tus destacados gratis de este mes.'}
+          </span>
+          <span className="flex items-center gap-2">
+            <TrendingUp className="h-4 w-4 shrink-0" aria-hidden />
+            {proStatus.bumpQuota.remaining > 0
+              ? `Y ${proStatus.bumpQuota.remaining} bump${proStatus.bumpQuota.remaining === 1 ? '' : 's'} gratis.`
+              : 'Y ningún bump gratis disponible.'}
+          </span>
         </div>
       )}
 
