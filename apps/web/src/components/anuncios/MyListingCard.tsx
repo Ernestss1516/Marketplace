@@ -145,6 +145,7 @@ export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) 
           <PromotionStatus
             featuredUntil={listing.featuredUntil}
             nextBumpAt={listing.nextBumpAt}
+            bumpSchedule={listing.bumpSchedule}
             className="mt-0.5"
           />
 

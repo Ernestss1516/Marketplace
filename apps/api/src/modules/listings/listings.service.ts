@@ -1032,6 +1032,10 @@ export class ListingsService {
     // H8 Bloque C2 — cifras básicas de estadísticas (vistas + me gusta) por anuncio,
     // igual patrón: una sola query batch, no N+1 por card.
     const favoritesCountMap = new Map<string, number>();
+    const bumpScheduleMap = new Map<
+      string,
+      { id: string; status: string; nextRunAt: Date; intervalDays: number; hourOfDay: number }
+    >();
     if (rows.length > 0) {
       const now = new Date();
       const ids = rows.map((r) => r.id);
@@ -1059,6 +1063,18 @@ export class ListingsService {
       for (const g of favoriteGroups) {
         favoritesCountMap.set(g.listingId, g._count._all);
       }
+
+      // Bump automático — la programación de cada anuncio, en UNA consulta para todos
+      // (mismo criterio batch que featuredUntil y los favoritos: nada de N+1 por tarjeta).
+      //
+      // VIAJA SOLO EN EL PAYLOAD DE PROPIETARIO, nunca en el público de la ficha: que un
+      // vendedor tenga bumps programados es asunto suyo, y además la ficha se sirve desde
+      // un blob cacheado 5 min donde este estado se quedaría viejo enseguida.
+      const programaciones = await this.prisma.bumpSchedule.findMany({
+        where: { listingId: { in: ids } },
+        select: { id: true, listingId: true, status: true, nextRunAt: true, intervalDays: true, hourOfDay: true },
+      });
+      for (const p of programaciones) bumpScheduleMap.set(p.listingId, p);
     }
 
     // UXV.4 (B3) — recuentos por estado + el de «Todos», que NO es la suma: la vista por
@@ -1088,6 +1104,8 @@ export class ListingsService {
         // Derivado en el servidor para que la tarjeta no tenga que conocer la
         // ventana (antes se inventaba 24 h; la real es 1 h).
         nextBumpAt: nextBumpAt(r.bumpedAt),
+        // null cuando el anuncio no tiene bumps programados, que es el caso normal.
+        bumpSchedule: bumpScheduleMap.get(r.id) ?? null,
       })),
       total,
       page,

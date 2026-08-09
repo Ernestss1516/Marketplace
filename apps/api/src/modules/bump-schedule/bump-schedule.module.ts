@@ -10,6 +10,8 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { BumpScheduleService } from './bump-schedule.service';
 import { BumpAutoProcessor } from './bump-auto.processor';
 import { BumpAutoNotificationsService } from './bump-auto-notifications.service';
+import { BumpScheduleCrudService } from './bump-schedule-crud.service';
+import { BumpScheduleController } from './bump-schedule.controller';
 
 /**
  * Bump automático — el MOTOR (ráfaga 3): el cron que reclama turnos y el processor que los
@@ -32,7 +34,13 @@ import { BumpAutoNotificationsService } from './bump-auto-notifications.service'
     BillingModule,
     NotificationsModule,
   ],
-  providers: [BumpScheduleService, BumpAutoProcessor, BumpAutoNotificationsService],
-  exports: [BumpScheduleService],
+  controllers: [BumpScheduleController],
+  providers: [
+    BumpScheduleService,
+    BumpAutoProcessor,
+    BumpAutoNotificationsService,
+    BumpScheduleCrudService,
+  ],
+  exports: [BumpScheduleService, BumpScheduleCrudService],
 })
 export class BumpScheduleModule {}
