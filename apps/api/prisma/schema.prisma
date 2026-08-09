@@ -374,6 +374,8 @@ model User {
   alerts              Alert[]
   contactReplies      ContactReply[]       @relation("ContactReplyAdmin")
   invoices            Invoice[]
+  /// Bump automático — las programaciones de este usuario (tope por usuario, D3).
+  bumpSchedules       BumpSchedule[]
 
   // Atención al usuario R1 — cinco papeles distintos sobre el mismo hilo, cada uno
   // con su @relation nombrada: el usuario DUEÑO del ticket (owner-scope), quien lo
@@ -619,6 +621,8 @@ model Listing {
   tickets       Ticket[]
   /// B1 — tags que este anuncio TIENE. Un anuncio sin tags simplemente no tiene filas.
   tags          ListingTag[]
+  /// Bump automático — a lo sumo UNA programación por anuncio (@@unique en BumpSchedule).
+  bumpSchedule  BumpSchedule?
 
   // Índices para los filtros y ordenaciones más frecuentes (rendimiento de listados).
   @@index([categoryId, status])
@@ -1455,6 +1459,179 @@ model BumpLedger {
   @@index([walletId])
   @@index([createdAt])
   @@index([referenceType, referenceId])
+}
+
+// ============================================================================
+//  BUMP AUTOMÁTICO (proyecto 2) — programación y ejecuciones
+//
+//  Ver docs/diseno-bump-automatico.md. Estas dos tablas son SOLO el modelo: el
+//  scheduler que las lee y escribe llega en la ráfaga siguiente.
+//
+//  NO TOCAN NADA DE LO EXISTENTE. En particular NO son el libro mayor: el
+//  invariante `wallet.bumpBalance == SUM(BumpLedger.amount)` sigue siendo cosa
+//  exclusiva de BumpLedger. BumpRun es un registro de EJECUCIÓN que apunta al
+//  mismo hecho desde fuera, y por eso puede existir sin que se cobrara nada
+//  (un turno saltado por cooldown también deja fila).
+// ============================================================================
+
+/// Por qué una programación no está corriendo. Enum y no un `paused: boolean`
+/// porque LA RAZÓN DETERMINA LA SALIDA: «recarga créditos» y «reactiva tu
+/// anuncio» son mensajes distintos, y la reanudación automática de D9 solo puede
+/// existir si consta que la pausa fue por esa causa concreta. Misma lección que
+/// `motivoNoDisponible` en FacturasPanel (UXV.3/M7): un estado bloqueado sin
+/// razón visible es un callejón.
+enum BumpScheduleStatus {
+  /// Corriendo: el cron la considerará en cuanto venza `nextRunAt`.
+  ACTIVE
+  /// La paró el usuario.
+  PAUSED_BY_USER
+  /// D2 — se agotaron las TRES bolsas (cuota Pro, saldo de bumps y créditos).
+  /// Reanudación MANUAL: los créditos son una bolsa común y recargarlos para
+  /// otra cosa no debe reactivar gasto que el usuario no ha vuelto a pedir.
+  PAUSED_NO_FUNDS
+  /// D9 — el anuncio dejó de estar ACTIVE (vendido, archivado, caducado,
+  /// moderado). Reanudación AUTOMÁTICA al volver a ACTIVE: ahí el gesto del
+  /// usuario apunta al mismo objeto que la programación.
+  PAUSED_LISTING_INACTIVE
+}
+
+/// Cómo acabó un turno. `SKIPPED_*` = no se intentó cobrar; `FAILED_*` = se
+/// intentó y no pudo. La distinción importa porque solo los FAILED pausan.
+enum BumpRunOutcome {
+  /// Se aplicó el bump. `paidWith` y `cost` dicen con qué se pagó.
+  APPLIED
+  /// D5 — había un bump reciente (normalmente manual) dentro de la ventana de
+  /// cooldown. El turno se pierde, SIN cobro y sin aviso: el usuario acaba de
+  /// bumpear a mano, no necesita que le cuenten que por eso no se bumpeó otra vez.
+  SKIPPED_COOLDOWN
+  /// El anuncio no estaba ACTIVE al ejecutar (D9).
+  SKIPPED_LISTING_INACTIVE
+  /// D2 — sin nada con que pagar.
+  FAILED_NO_FUNDS
+  /// Cualquier otro error. No debería ocurrir; consta para poder investigarlo.
+  FAILED_ERROR
+}
+
+/// La INTENCIÓN del usuario: «este anuncio, cada tantos días, a tal hora».
+///
+/// D1 (frecuencia) se materializa en `intervalDays` + `hourOfDay`: «cada 7 días a
+/// las 9:00» ya es un viernes recurrente sin necesidad de modelar días de la
+/// semana. NO hay campo `weekday` porque D1 se confirmó como «cada N días», ni
+/// `frozenCreditCost` porque D10 se confirmó como «cobrar el precio vigente», ni
+/// `fundingPolicy` porque D11 se confirmó como «mismo orden que el manual». Los
+/// tres son campos que el diseño dejó marcados como condicionales y que las
+/// decisiones confirmadas NO piden: no existen a propósito.
+model BumpSchedule {
+  id String @id @default(cuid())
+
+  listingId String
+  listing   Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  /// El dueño del bolsillo. Redundante con `listing.sellerId` a propósito: el
+  /// tope por usuario (D3) se comprueba en cada alta y hacerlo con un JOIN a
+  /// Listing en un camino caliente es peor que una columna. Además lo que se
+  /// cobra es la cartera del USUARIO, así que las consultas de dinero no deberían
+  /// depender de una relación del anuncio.
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// D1 — cada cuántos días. Mínimo 1: aunque el cooldown (1 h) permita 24 bumps
+  /// diarios, eso es gasto desatendido que nadie configura a conciencia. El
+  /// cooldown protege la plataforma; este mínimo protege al usuario. El rango
+  /// (1..30) lo valida el DTO en la ráfaga de negocio, no la base.
+  intervalDays Int
+
+  /// D4 — hora del día, 0..23, en HORA PENINSULAR (Europe/Madrid), declarada y
+  /// mostrada como tal. No hay zona horaria por usuario: `User` no tiene ese
+  /// campo y un marketplace español no justifica su coste. Con cron horario «las
+  /// 9:00» significa «en la pasada de las 9:00», y la UI lo redacta como franja.
+  hourOfDay Int
+
+  status BumpScheduleStatus @default(ACTIVE)
+
+  /// EL INSTANTE DEL PRÓXIMO TURNO. Columna materializada, no cálculo: es lo que
+  /// el cron consulta e indexa y —sobre todo— es el ancla del reclamo de la CAPA
+  /// 2. Un valor calculado no se puede reclamar, y de este valor sale la `slot`
+  /// (ver BumpRun.slot).
+  nextRunAt DateTime
+
+  /// Último intento, se cobrara o no. Informativo; la verdad de cada turno está
+  /// en BumpRun.
+  lastRunAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  runs BumpRun[]
+
+  /// D3 — UNA programación por anuncio. No es cosmético: dos programaciones sobre
+  /// el mismo anuncio competirían por el mismo cooldown y una de las dos no haría
+  /// nada nunca. Lo impide la base, no una comprobación que se pueda olvidar.
+  @@unique([listingId])
+  /// LA consulta del cron: `status = ACTIVE AND nextRunAt <= now`. Sin este
+  /// índice, cada pasada horaria recorre la tabla entera.
+  @@index([status, nextRunAt])
+  @@index([userId])
+}
+
+/// Un TURNO de una programación, se haya cobrado o no.
+///
+/// ES EL CORAZÓN DE LA IDEMPOTENCIA (CAPA 2) y, de paso, cierra el hueco B.4 de
+/// la auditoría: hoy ni `BumpLedgerType` ni `CreditLedger.referenceType`
+/// distinguen un bump automático de uno manual, así que sin esta tabla el usuario
+/// vería créditos gastados sin poder reconstruir por qué. Se consigue SIN tocar
+/// el ledger: esto es un registro paralelo, no un apunte contable.
+model BumpRun {
+  id String @id @default(cuid())
+
+  scheduleId String
+  schedule   BumpSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  /// EL INSTANTE PREVISTO DEL TURNO — nunca el de ejecución.
+  ///
+  /// DEFINICIÓN CANÓNICA, de la que depende que la idempotencia funcione: `slot`
+  /// es el valor que `BumpSchedule.nextRunAt` TENÍA cuando el turno se reclamó,
+  /// copiado tal cual. No se recalcula, no se trunca, no se deriva de `now()`.
+  ///
+  /// Por qué así y no de otra forma: dos instancias del cron que procesan el mismo
+  /// turno leen la MISMA fila y por tanto el MISMO `nextRunAt`, así que computan
+  /// la misma `slot` y colisionan en la clave única de abajo. Si `slot` saliera de
+  /// la hora de ejecución, dos instancias separadas por milisegundos producirían
+  /// valores distintos, no colisionarían, y el guard no guardaría nada.
+  ///
+  /// Corolario para el scheduler (ráfaga siguiente): la `slot` se toma ANTES de
+  /// avanzar `nextRunAt`, y se copia; el turno recuperado tarde (servidor caído)
+  /// conserva su instante previsto original, que es lo que lo hace reproducible.
+  slot DateTime
+
+  outcome BumpRunOutcome
+
+  /// Con qué se pagó, tal cual lo devuelve `BillingService.bump`: PRO_QUOTA |
+  /// BUMP_BALANCE | CREDITS. Null si no se llegó a cobrar. String y no enum
+  /// porque el valor lo produce el servicio de cobro, no este modelo: duplicarlo
+  /// como enum crearía dos listas que pueden divergir.
+  paidWith String?
+
+  /// Créditos cobrados. 0 cuando fue gratis (cuota Pro o saldo de bumps), null
+  /// cuando no se cobró nada. D10 — se guarda lo REALMENTE cobrado en ese turno,
+  /// porque el precio se lee en vivo y puede haber cambiado desde que se programó.
+  cost Int?
+
+  /// Motivo legible cuando no se aplicó. Para soporte y para la vista de
+  /// «Bumps programados»; nunca para decidir nada en código.
+  detail String?
+
+  /// Cuándo se ejecutó DE VERDAD (distinto de `slot` si la pasada se retrasó).
+  createdAt DateTime @default(now())
+
+  /// EL GUARD FUERTE DE LA CAPA 2. Dos procesos que intenten el mismo turno no
+  /// pueden crear dos filas: el segundo choca contra esta restricción. Es el molde
+  /// de `Invoice.idempotencyKey @unique`, que existe por la misma razón (emitir dos
+  /// veces es grave) y con el mismo criterio: el guard que de verdad no se puede
+  /// esquivar vive en la BASE, no en el código.
+  @@unique([scheduleId, slot])
+  /// Historial de una programación, del turno más reciente hacia atrás.
+  @@index([scheduleId, createdAt])
 }
 
 /// Campaña promocional gestionada desde el backoffice (H8 Bloque D). El MOTOR es
