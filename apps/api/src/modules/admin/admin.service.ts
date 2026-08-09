@@ -90,6 +90,8 @@ const SETTING_KEYS = [
   // detiene el cron pero NO toca las programaciones: al reencender siguen donde estaban.
   // Sin fila, encendido (ver BUMP_AUTO_ENABLED_SETTING).
   'bumpAutoEnabled',
+  // D3 — tope de programaciones ACTIVAS por usuario. Sin fila, DEFAULT_MAX_SCHEDULES_PER_USER.
+  'maxBumpSchedulesPerUser',
 ] as const;
 type SettingKey = (typeof SETTING_KEYS)[number];
 
@@ -113,6 +115,8 @@ const POSITIVE_INT_SETTING_KEYS: readonly string[] = [
   'ticketAutoCloseWindowDays',
   // B1 — un tope de 0 dejaría el sistema de tags muerto: nadie podría poner ninguno.
   'maxTagsPerListing',
+  // D3 — un tope de 0 dejaría la feature muerta: nadie podría programar nada.
+  'maxBumpSchedulesPerUser',
 ];
 
 // Keys whose value is a percentage: integer in [0, 100]. 0 is valid (disables

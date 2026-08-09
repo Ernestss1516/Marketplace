@@ -14,6 +14,8 @@ import { PackList } from './_components/PackList';
 import { BumpPackList } from './_components/BumpPackList';
 import { RedeemCouponForm } from './_components/RedeemCouponForm';
 import { HistorialCreditos, HistorialBumps } from './_components/Historiales';
+import { BumpsProgramados } from './_components/BumpsProgramados';
+import { getBumpSchedules } from '@/lib/api/bump-schedules';
 import { buildLoginUrl } from '@/lib/auth/callback-url';
 
 /**
@@ -38,7 +40,7 @@ export default async function MisCreditosPage() {
 
   const token = session.user.accessToken;
 
-  const [wallet, catalog, bumpLedger, proStatus] = await Promise.all([
+  const [wallet, catalog, bumpLedger, proStatus, programaciones] = await Promise.all([
     getWallet(token).catch(() => ({
       balance: 0,
       bumpBalance: 0,
@@ -69,6 +71,9 @@ export default async function MisCreditosPage() {
         bumpQuota: { limit: 0, used: 0, remaining: 0 },
       }),
     ),
+    // Bump automático — las programaciones del usuario. Si la API falla, la sección se
+    // pinta vacía en vez de tumbar la página: el saldo y los packs siguen siendo útiles.
+    getBumpSchedules(token).catch(() => ({ items: [], total: 0 })),
   ]);
 
   const packProducts = catalog.products.filter(
@@ -185,6 +190,17 @@ export default async function MisCreditosPage() {
           era que quien nunca había tenido bumps no llegaba a enterarse de que existían.
           Y UXV.6 (M9) — paginado, igual que el de créditos.
         */}
+        {/*
+          Bump automático — la gestión vive junto al saldo de bumps, que es donde el usuario
+          viene cuando la pregunta es de dinero. Se muestra SIEMPRE, también vacía: mismo
+          criterio que el historial de abajo, porque ocultarla dejaría la función invisible
+          para quien no la ha usado nunca.
+        */}
+        <div>
+          <h3 className="mb-4 text-lg font-semibold">Bumps programados</h3>
+          <BumpsProgramados token={token} inicial={programaciones.items} />
+        </div>
+
         <div>
           <h3 className="mb-4 text-lg font-semibold">Historial de bumps</h3>
           <HistorialBumps

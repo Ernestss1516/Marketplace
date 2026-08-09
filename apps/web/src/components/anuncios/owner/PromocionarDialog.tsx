@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import React from 'react';
 import Link from 'next/link';
-import { Loader2, Star, CreditCard, Coins, TrendingUp } from 'lucide-react';
+import { CalendarClock, Loader2, Star, CreditCard, Coins, TrendingUp } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -25,6 +25,7 @@ import {
   formatRetryAfter,
   toBumpMessage,
   toFeaturedByCreditsMessage,
+  toUserMessage,
 } from '@/lib/api/client';
 import {
   getCatalog,
@@ -40,6 +41,13 @@ import {
 import { RedsysRedirectForm } from '@/app/(account)/mis-creditos/_components/RedsysRedirectForm';
 import { bumpCooldownTitle } from '@/lib/bump-cooldown';
 import { bumpCostLabel, resolveBumpOffer } from './promocion';
+import {
+  cadenciaLabel,
+  createBumpSchedule,
+  fechaHoraPeninsular,
+  updateBumpSchedule,
+  type BumpScheduleSummary,
+} from '@/lib/api/bump-schedules';
 import type { BumpPricing } from '@/types';
 
 /**
@@ -63,7 +71,17 @@ import type { BumpPricing } from '@/types';
  * tomar.
  */
 
-type Producto = 'bump' | 'destacado';
+/**
+ * Bump automático (D8) — «programar» entra como un producto MÁS del selector, que es
+ * exactamente donde UXV.4 previó que entraría.
+ *
+ * Y ESO RESUELVE SOLO EL HALLAZGO DE LA AUDITORÍA: el menú `▾` de `PromocionarControl` solo
+ * se pinta cuando el bump sale gratis, así que colgar ahí la configuración habría dejado
+ * fuera justo a quien más querría programar —el que paga—. Pero el usuario de pago SÍ llega
+ * a este diálogo, por el botón único «Promocionar». El problema no era que faltara una
+ * entrada: era depender del `▾` como entrada única.
+ */
+type Producto = 'bump' | 'destacado' | 'programar';
 type PayMethod = 'credits' | 'card';
 /** H8.5b — vía del destacado: cuota gratuita de Pro vs. pagado (créditos/tarjeta). */
 type FeatureMethod = 'quota' | 'paid';
@@ -80,6 +98,8 @@ interface Props {
   nextBumpAt?: string | null;
   /** Producto preseleccionado al abrir. */
   productoInicial?: Producto;
+  /** Bump automático — la programación vigente del anuncio, si ya tiene una. */
+  bumpSchedule?: BumpScheduleSummary | null;
   /**
    * UXV.3 (A7-flujo) — a dónde volver si el usuario sale de aquí a comprar créditos.
    */
@@ -95,6 +115,7 @@ export function PromocionarDialog({
   bumpPricing,
   nextBumpAt,
   productoInicial = 'bump',
+  bumpSchedule,
   returnTo,
 }: Props) {
   const { run } = useApiAction();
@@ -111,6 +132,12 @@ export function PromocionarDialog({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<React.ReactNode | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // Bump automático — la cadencia que se está configurando. Los valores por defecto salen de
+  // la programación existente si la hay (editar) o de un arranque razonable: cada 3 días a
+  // las 9:00, que es media mañana entre semana.
+  const [intervalDays, setIntervalDays] = useState<number>(bumpSchedule?.intervalDays ?? 3);
+  const [hourOfDay, setHourOfDay] = useState<number>(bumpSchedule?.hourOfDay ?? 9);
 
   const [selectedPriceId, setSelectedPriceId] = useState<string>('');
   const [payMethod, setPayMethod] = useState<PayMethod>('credits');
@@ -152,6 +179,37 @@ export function PromocionarDialog({
   const creditCost = selectedPrice?.creditCost ?? 0;
   const canPayByCredits = walletBalance >= creditCost;
   const showPaidOptions = !canUseQuota || featureMethod === 'paid';
+
+  // ── Bump automático ───────────────────────────────────────────────────────
+  /**
+   * Crea la programación, o guarda la cadencia si el anuncio ya la tenía. El feedback va por
+   * el canal único de UXV.3 (toast), como el resto de acciones puntuales de este diálogo.
+   */
+  async function submitProgramar() {
+    setBusy(true);
+    setError(null);
+    await run(
+      () =>
+        bumpSchedule
+          ? updateBumpSchedule(token, bumpSchedule.id, { intervalDays, hourOfDay })
+          : createBumpSchedule(token, { listingId: listing.id, intervalDays, hourOfDay }),
+      {
+        successMessage: (s) =>
+          `Bumps programados ${cadenciaLabel(s.intervalDays, s.hourOfDay)}. ` +
+          `El primero, ${fechaHoraPeninsular(s.nextRunAt)}.`,
+        onSuccess: () => {
+          onOpenChange(false);
+          onSuccess();
+        },
+        // Inline y no toast: el error trae contexto sobre lo que se está configurando, y
+        // sacarlo del diálogo se lo llevaría fuera de donde el usuario está mirando
+        // (regla FEEDBACK-D2 de UXV.3).
+        onError: (err) => setError(toUserMessage(err)),
+        callbackUrl: loginUrl,
+      },
+    );
+    setBusy(false);
+  }
 
   // ── Bump ──────────────────────────────────────────────────────────────────
   async function submitBump() {
@@ -353,7 +411,79 @@ export function PromocionarDialog({
                   </span>
                 </Label>
               </div>
+              {/* D8 — el bump automático, como un producto más. */}
+              <div className="flex items-start space-x-3 rounded-md border p-3 has-[button[data-state=checked]]:border-primary">
+                <RadioGroupItem value="programar" id="promo-programar" className="mt-1" />
+                <Label htmlFor="promo-programar" className="flex-1 cursor-pointer">
+                  <span className="flex items-center gap-1.5 font-medium">
+                    <CalendarClock className="h-4 w-4" aria-hidden />
+                    {bumpSchedule ? 'Editar bumps programados' : 'Programar bumps'}
+                  </span>
+                  <span className="mt-0.5 block text-xs text-muted-foreground">
+                    {bumpSchedule
+                      ? cadenciaLabel(bumpSchedule.intervalDays, bumpSchedule.hourOfDay)
+                      : 'Que se suba solo cada cierto tiempo, mientras tengas saldo.'}
+                  </span>
+                </Label>
+              </div>
             </RadioGroup>
+
+            {/* ── Configuración del bump automático ──────────────────────────── */}
+            {producto === 'programar' && (
+              <div className="space-y-4 rounded-md border p-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="programar-intervalo">Cada cuánto</Label>
+                  <select
+                    id="programar-intervalo"
+                    className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                    value={intervalDays}
+                    onChange={(e) => setIntervalDays(Number(e.target.value))}
+                    data-testid="programar-intervalo"
+                  >
+                    {/* Desde 1 día: el mínimo NO es la hora que permitiría el cooldown.
+                        24 bumps al día serían ~120 créditos diarios sin que nadie lo pida. */}
+                    {[1, 2, 3, 5, 7, 14, 30].map((d) => (
+                      <option key={d} value={d}>
+                        {d === 1 ? 'Todos los días' : `Cada ${d} días`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="programar-hora">A qué hora</Label>
+                  <select
+                    id="programar-hora"
+                    className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                    value={hourOfDay}
+                    onChange={(e) => setHourOfDay(Number(e.target.value))}
+                    data-testid="programar-hora"
+                  >
+                    {Array.from({ length: 24 }, (_, h) => (
+                      <option key={h} value={h}>
+                        {`Sobre las ${String(h).padStart(2, '0')}:00`}
+                      </option>
+                    ))}
+                  </select>
+                  {/* D4 — la zona se dice, no se supone: el sistema programa en hora
+                      peninsular. Y «sobre las» porque la pasada es horaria: prometer el
+                      minuto exacto sería prometer una precisión que no existe. */}
+                  <p className="text-xs text-muted-foreground">
+                    Hora peninsular. Se aplicará dentro de esa hora, no al minuto exacto.
+                  </p>
+                </div>
+
+                {/* D10 — el precio se lee EN VIVO al ejecutar cada turno. Decirlo aquí es la
+                    contrapartida de no congelarlo: congelarlo crearía una segunda verdad del
+                    precio y dejaría al usuario fuera de las rebajas de campaña. */}
+                <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+                  Cada subida cuesta lo mismo que una manual —ahora,{' '}
+                  <strong>{bumpCostLabel(bumpPricing, bumpOffer)}</strong>— y se cobra al
+                  aplicarse, así que el precio puede variar si cambia. Si te quedas sin saldo,
+                  se pausa y te avisamos: no se cobra nada a medias.
+                </p>
+              </div>
+            )}
 
             {/* ── Configuración del destacado (idéntica a la de antes) ───────── */}
             {producto === 'destacado' && (
@@ -545,7 +675,16 @@ export function PromocionarDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancelar
           </Button>
-          {producto === 'bump' ? (
+          {producto === 'programar' ? (
+            <Button onClick={submitProgramar} disabled={busy || loading} data-testid="promo-confirmar-programar">
+              {busy ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <CalendarClock className="mr-2 h-4 w-4" />
+              )}
+              {bumpSchedule ? 'Guardar cambios' : 'Programar'}
+            </Button>
+          ) : producto === 'bump' ? (
             <Button onClick={submitBump} disabled={busy || loading || bumpDisabled} data-testid="promo-confirmar-bump">
               {busy ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />

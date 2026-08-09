@@ -1,4 +1,5 @@
 import type { Block } from './blocks';
+import type { BumpScheduleSummary } from '@/lib/api/bump-schedules';
 
 // Enums — mirror the Prisma schema
 export type PriceType = 'FIXED' | 'FREE' | 'NEGOTIABLE';
@@ -231,6 +232,10 @@ export interface ListingSummary {
    *  Solo lo sirve la vista del propietario (`findMine`), como `featuredUntil`; en los
    *  listados públicos y en los hits de Meilisearch no viene. `null` = nunca bumpeado. */
   nextBumpAt?: string | null;
+  /** Bump automático — la programación de este anuncio, si la tiene. Igual que `nextBumpAt`,
+   *  SOLO la sirve la vista de propietario (`findMine`): que un vendedor programe bumps es
+   *  asunto suyo y no viaja en ningún payload público. `null` = no tiene programación. */
+  bumpSchedule?: BumpScheduleSummary | null;
   featuredUntil?: string | null;
   categorySlug?: string;
   attributes?: Record<string, unknown>;

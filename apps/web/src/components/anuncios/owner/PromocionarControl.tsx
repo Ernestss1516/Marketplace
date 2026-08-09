@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import React from 'react';
 import Link from 'next/link';
-import { ChevronDown, Loader2, Megaphone, Star, TrendingUp } from 'lucide-react';
+import { CalendarClock, ChevronDown, Loader2, Megaphone, Star, TrendingUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -18,6 +18,7 @@ import { useRequireAuth } from '@/hooks/use-require-auth';
 import { bumpCooldownTitle } from '@/lib/bump-cooldown';
 import { PromocionarDialog } from './PromocionarDialog';
 import { bumpCostLabel, promocionarLabel, resolveBumpOffer } from './promocion';
+import type { BumpScheduleSummary } from '@/lib/api/bump-schedules';
 import type { BumpPricing, ListingSummary } from '@/types';
 
 /**
@@ -34,13 +35,20 @@ import type { BumpPricing, ListingSummary } from '@/types';
  * y cuando el bump cuesta o está en cooldown, un botón único «Promocionar» que abre el
  * diálogo, donde los dos productos están con su precio.
  *
- * EL SITIO DEL BUMP AUTOMÁTICO (proyecto 2) ES ESE MENÚ ▾. Está ahí precisamente para que
- * «Programar bumps…» sea una entrada más, junto a «Destacar anuncio…», sin volver a tocar
- * la jerarquía de la tarjeta. No se implementa nada de eso aquí.
+ * EL BUMP AUTOMÁTICO YA ESTÁ: «Programar bumps…» es una entrada más del ▾, junto a
+ * «Destacar anuncio…», sin haber tocado la jerarquía de la tarjeta —que es para lo que se
+ * dejó ese menú—. Pero el ▾ es un ATAJO, no la puerta: solo se pinta cuando el bump sale
+ * gratis (`unClic`), y quien paga es justamente el que más querría programar. Su camino es
+ * el botón único «Promocionar», que abre el mismo diálogo donde vive la configuración
+ * (D8). Depender solo del ▾ era el hallazgo de la auditoría; tener dos caminos lo cierra.
  */
 
 interface Props {
-  listing: Pick<ListingSummary, 'id' | 'status'> & { nextBumpAt?: string | null };
+  listing: Pick<ListingSummary, 'id' | 'status'> & {
+    nextBumpAt?: string | null;
+    /** Bump automático — para poder abrir el diálogo en modo editar si ya tiene una. */
+    bumpSchedule?: BumpScheduleSummary | null;
+  };
   token: string;
   bumpPricing: BumpPricing;
   onDone: () => void;
@@ -63,7 +71,7 @@ export function PromocionarControl({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<React.ReactNode | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [productoInicial, setProductoInicial] = useState<'bump' | 'destacado'>('bump');
+  const [productoInicial, setProductoInicial] = useState<'bump' | 'destacado' | 'programar'>('bump');
 
   const offer = resolveBumpOffer(bumpPricing, listing.nextBumpAt);
   const unClic = offer.free && !offer.onCooldown;
@@ -107,7 +115,7 @@ export function PromocionarControl({
     setBusy(false);
   }
 
-  function abrirDialogo(producto: 'bump' | 'destacado') {
+  function abrirDialogo(producto: 'bump' | 'destacado' | 'programar') {
     setProductoInicial(producto);
     setDialogOpen(true);
   }
@@ -148,6 +156,12 @@ export function PromocionarControl({
                 <Star className="mr-2 h-4 w-4" />
                 Destacar anuncio…
               </DropdownMenuItem>
+              {/* D8 — atajo, NO puerta única: la configuración vive en el diálogo,
+                  al que también llega quien paga por su botón «Promocionar». */}
+              <DropdownMenuItem onSelect={() => abrirDialogo('programar')}>
+                <CalendarClock className="mr-2 h-4 w-4" />
+                {listing.bumpSchedule ? 'Editar bumps programados…' : 'Programar bumps…'}
+              </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => abrirDialogo('bump')}>
                 <Megaphone className="mr-2 h-4 w-4" />
                 Ver todas las opciones…
@@ -185,6 +199,7 @@ export function PromocionarControl({
           onSuccess={onDone}
           bumpPricing={bumpPricing}
           nextBumpAt={listing.nextBumpAt}
+          bumpSchedule={listing.bumpSchedule}
           productoInicial={productoInicial}
           returnTo={returnTo}
         />
