@@ -11,6 +11,8 @@ export const NOTIFICATION_JOB = {
   SEND_TICKET_RESOLVED: 'send-ticket-resolved',
   // Moderación (§14.5)
   SEND_LISTING_MODERATED: 'send-listing-moderated',
+  // Bump automático (proyecto 2)
+  SEND_BUMP_AUTO_PAUSED: 'send-bump-auto-paused',
 } as const;
 
 export interface SendVerificationEmailData {
@@ -127,4 +129,18 @@ export interface SendTicketResolvedData {
   subject: string;
   /** Días de la ventana de reapertura, para que el copy no repita el número a mano. */
   reopenWindowDays: number;
+}
+
+/**
+ * Bump automático — la programación de un anuncio se ha parado (D6: solo incidencias).
+ * El email lleva la razón porque la salida que se ofrece depende de ella: recargar saldo no
+ * es lo mismo que reactivar el anuncio.
+ */
+export interface SendBumpAutoPausedData {
+  email: string;
+  name: string;
+  listingId: string;
+  /** Título congelado, igual que en la notificación in-app. */
+  listingTitle: string;
+  reason: 'NO_FUNDS' | 'LISTING_INACTIVE';
 }

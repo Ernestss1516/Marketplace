@@ -86,6 +86,7 @@ async function seedSettings() {
     { key: 'featuredCreditCost30d', value: 100 },
     { key: 'bumpCreditCost', value: 5 },
     { key: 'proExtraCreditsPercent', value: 20 },
+    { key: 'bumpAutoEnabled', value: true },
     { key: 'freeActiveListingLimit', value: 5 },
     { key: 'proActiveListingLimit', value: 20 },
     { key: 'proMonthlyFeaturedQuota', value: 4 },

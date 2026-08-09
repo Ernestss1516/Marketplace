@@ -5,6 +5,10 @@ export const QUEUE_BILLING = 'billing';
 export const QUEUE_REDSYS = 'redsys';
 export const QUEUE_ALERT_MATCHING = 'alert-matching';
 export const QUEUE_INVOICING = 'invoicing';
+/// Bump automático (proyecto 2) — un job por TURNO ya reclamado. Cola propia y no
+/// QUEUE_BILLING para que un pico de turnos programados no retrase los cobros de
+/// checkout, que sí esperan a un usuario delante de la pantalla.
+export const QUEUE_BUMP_AUTO = 'bump-auto';
 
 // Each module that injects a queue calls its own BullModule.registerQueue({name})
 // — @nestjs/bullmq creates a SEPARATE Queue (producer) instance per module

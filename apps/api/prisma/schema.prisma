@@ -1604,7 +1604,17 @@ model BumpRun {
   /// conserva su instante previsto original, que es lo que lo hace reproducible.
   slot DateTime
 
-  outcome BumpRunOutcome
+  /// NULL = turno RECLAMADO pero todavía sin desenlace.
+  ///
+  /// La fila se crea ANTES de cobrar —ese es el reclamo, y es lo que impide que dos
+  /// instancias cobren el mismo turno— así que en el instante del INSERT el resultado
+  /// aún no existe. El scheduler lo rellena después con lo que devolvió
+  /// `BillingService.bump`.
+  ///
+  /// Un NULL que sobrevive a la pasada significa que el proceso murió entre reclamar y
+  /// resolver: el turno se perdió (nunca se cobró dos veces, que es lo que importa) y
+  /// queda la constancia de que ocurrió, en vez de un silencio.
+  outcome BumpRunOutcome?
 
   /// Con qué se pagó, tal cual lo devuelve `BillingService.bump`: PRO_QUOTA |
   /// BUMP_BALANCE | CREDITS. Null si no se llegó a cobrar. String y no enum

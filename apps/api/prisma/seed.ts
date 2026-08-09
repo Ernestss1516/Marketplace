@@ -452,6 +452,8 @@ async function seedSettings() {
       { key: 'badWordList', value: [] },
       { key: 'listingExpiryDays', value: 60 },
       { key: 'contactRequiresVerification', value: true },
+      // Bump automático (D7) — interruptor de emergencia; ver SETTING_KEYS.
+      { key: 'bumpAutoEnabled', value: true },
       // RF.4: costes de créditos — configurables desde el backoffice sin despliegue.
       { key: 'featuredCreditCost7d', value: 30 },
       { key: 'featuredCreditCost14d', value: 50 },
