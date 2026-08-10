@@ -1,7 +1,7 @@
 # Pendientes reales del proyecto
 
 > Lo que queda por **CONSTRUIR** (no documentación desfasada). Verificado contra código el
-> 2026-08-04, rama `main`, commit `ff333ab`.
+> 2026-08-09, rama `main`, commit `842ea24`.
 > Para el estado de lo IMPLEMENTADO, ver `estado-tecnico.md`.
 
 Este documento nació de la auditoría de documentación de 2026-08-04, al separar dos cosas que
@@ -181,7 +181,17 @@ la tabla `ListingImage`.
 **Nota de alcance al retomarlo:** los adjuntos de ticket tienen exactamente la misma deuda
 (`TicketAttachment` → objeto en R2), y hoy no puede materializarse porque no existe ningún
 endpoint que borre tickets, mensajes ni usuarios. Si se añade cualquiera de los tres, hay que
-borrar también del bucket. Conviene resolver las dos con el mismo mecanismo.
+borrar también del bucket.
+
+**TERCERA FUENTE (2026-08-09) — el vídeo Pro.** La subida de vídeo es en dos tiempos: el
+navegador sube directo a R2 con una URL prefirmada y **después** confirma, que es cuando el
+anuncio queda enlazado. Una subida interrumpida entre ambos pasos —red caída, pestaña cerrada—
+deja un objeto en el bucket que **nadie referencia**. Es deliberado por el lado de la
+corrección: un huérfano no se muestra en ninguna parte, y `VideoService` **sí** borra el vídeo
+anterior al sustituirlo y al quitarlo (`deleteObjectByUrl`). Lo que falta es la recolección de
+los que nunca llegaron a confirmarse, y pesan bastante más que una foto (hasta 50 MB cada uno).
+
+Conviene resolver las **tres** con el mismo mecanismo.
 
 #### Página de tag del blog con URL propia — deuda que el Hito 7.2 declaraba cerrar y no cerró `[DEUDA]`
 
@@ -220,6 +230,91 @@ Huecos concretos ya anotados en `estado-tecnico.md`:
 - **Familia `@2b`** (carrera de navegación del App Router): bug de producto conocido y
   caracterizado, hoy aislado del veredicto del CI con `continue-on-error`. Está **tolerado, no
   resuelto**.
+- **El camino feliz del vídeo Pro no se ejercita en navegador** (2026-08-09). Ver el punto propio más abajo.
+
+#### `Setting` decorativos: ajustes de admin que no lee nadie `[DEUDA]`
+
+**Caso confirmado: `listingExpiryDays`.** Está sembrado con valor 60
+([seed.ts](../apps/api/prisma/seed.ts), [seed-test.ts](../apps/api/prisma/seed-test.ts)),
+whitelisted para edición ([admin.service.ts](../apps/api/src/modules/admin/admin.service.ts))
+y **editable desde el backoffice**
+([ajustes/page.tsx](../apps/web/src/app/(admin)/admin/ajustes/page.tsx)) — pero la caducidad
+real sale de la constante `EXPIRY_DAYS = 60`
+([expiration.service.ts:9,50-52](../apps/api/src/modules/expiration/expiration.service.ts)).
+Verificado buscando `listingExpiryDays` en todo `apps/api/src` y `apps/web/src`: **ninguna
+lectura**, solo la whitelist y la interfaz. Un admin puede cambiarlo, ver que se guarda, y no
+cambiar nada.
+
+**Es la misma clase de defecto que ya se ha cerrado dos veces**, y por eso se anota como patrón y
+no como caso suelto:
+
+- UXV.6/M4 — la lista de beneficios Pro de `/planes` estaba escrita a mano y **callaba** los dos beneficios que más se notan (destacados y bumps gratis), mientras un admin cambiaba esas cuotas sin efecto en la página.
+- `fix-planes` — la línea de «anuncios activos» se emitía siempre, sin comparar los dos límites configurables que la sostienen.
+
+**Propuesta, sin comprometer nada:** una auditoría acotada de «qué `Setting` de
+`SETTING_KEYS` se leen de verdad y cuáles son decorativos». Es mecánica —una búsqueda por clave—
+y el resultado permite decidir por cada uno si se cablea o se retira del backoffice. Dejar un
+ajuste que no hace nada es peor que no tenerlo: promete un control que no existe.
+
+#### Aviso al admin cuando la configuración de límites es incoherente `[DEUDA]`
+
+`freeActiveListingLimit` y `proActiveListingLimit` son ajustes de admin y **pueden cruzarse**:
+nada impide dejar el plan gratuito con más anuncios activos que el Pro.
+
+`fix-planes` cerró la consecuencia visible —la página de precios ya no anuncia como ventaja algo
+que el plan gratuito da mejor: la línea se omite si `pro <= libres`— pero **la barrera estructural
+se dejó fuera a propósito**, porque el encargo era que la lista dijera la verdad sobre la
+configuración, no cambiar los valores ni impedir configuraciones.
+
+**Lo que falta:** que el backoffice avise al guardar («con este valor, el plan Pro ofrece menos
+anuncios que el gratuito»). No debería *impedirlo* —puede ser deliberado y transitorio— sino
+hacerlo visible en el momento de decidirlo. Hoy el único síntoma es una línea que desaparece de
+`/planes`, y eso no lo ve quien está tocando el ajuste.
+
+#### El camino feliz del vídeo Pro no se ejercita en navegador `[DEUDA de cobertura]`
+
+**Qué NO está cubierto:** elegir un MP4 real en el editor, que el navegador lo decodifique, leer
+su duración, capturar el póster y completar la subida. **La razón es concreta y no es pereza:**
+no hay fixture de vídeo en el repo y el proyecto **no trae `ffmpeg`** —esa fue precisamente la
+decisión de diseño que evitó la pieza más cara—, así que no hay forma honesta de generar uno.
+
+**Qué SÍ está cubierto**, y es la mayor parte:
+
+- La coreografía completa a nivel HTTP (`video-infra.e2e-spec.ts`, 20 casos), incluido un `PUT` **real** contra el almacenamiento y la comprobación de que un cuerpo mayor que el firmado se rechaza.
+- El gate Pro y el flag (10 casos unitarios).
+- Los estados y el **rechazo temprano** en pantalla (`video-editor.spec.ts`, 7 casos, escritorio y móvil): un PNG y un fichero de 51 MB se rechazan **sin que salga la petición de firma**.
+- Lo que se pinta en cada superficie (`video-visualizacion.test.tsx`, 9 casos).
+
+**Al retomarlo:** basta con añadir un MP4 mínimo (unos pocos KB, un frame) como fixture de test.
+No requiere ffmpeg en el proyecto —solo el fichero, generado una vez fuera— y con él la batería
+podría cubrir el tramo que falta. Queda anotado en la cabecera de la propia batería.
+
+#### El límite de DURACIÓN del vídeo es blando `[DEUDA menor / conocido]`
+
+El servidor valida la duración **declarada** por el cliente; el navegador mide la **real** antes
+de subir. Ninguna de las dos es infalible sola: la del cliente la salta un cliente manipulado, y
+la del servidor confía en el número.
+
+**Un cliente modificado podría subir cinco minutos a bajo bitrate dentro de los 50 MB.** El daño
+está acotado por el tamaño —que sí es infranqueable, porque viaja dentro de la firma y lo impone
+el almacenamiento—, así que **lo que se escapa es un límite de PRODUCTO, no de coste ni de
+seguridad**: el usuario tendría un vídeo más largo en su propio anuncio.
+
+Cerrarlo del todo exigiría parsear las cajas MP4 del fichero subido o traer `ffmpeg`, y ninguna
+de las dos vale lo que cuesta para eso. Está documentado en
+[`video-limits.ts`](../apps/api/src/modules/video/video-limits.ts), junto a la constante, y no
+enterrado en un commit.
+
+#### Tres rojos de e2e sin evidencia (nota, no deuda)
+
+En la primera tirada de la batería e2e de API de la ráfaga de UI del bump automático salieron **3
+tests en rojo**. La salida se perdió —el propio comando la recortó con `tail`— así que **no se
+observó qué suite era ni por qué falló**.
+
+La repetición completa salió limpia (mismos 101 suites / 1627 tests) y el spec nuevo de esa
+ráfaga pasó 17/17 en tres ejecuciones seguidas. **No se atribuye a nada**: lo más probable es
+inestabilidad de orden, pero no hay evidencia. Se anota para que, si vuelven a aparecer tres
+rojos en esa batería, exista el precedente y no se dé por nuevo.
 
 ---
 
@@ -280,7 +375,11 @@ antes o justo después del primer despliegue de esta feature. **No se puede cerr
 | 6 | Rate limit por IP sin verificar | `[SEGURIDAD]` | §1 |
 | 1 | Despliegue (nunca desplegado) | `[DEUDA]` | — |
 | 4.2 | `conversation:read` en tiempo real | `[DEUDA]` | — |
-| 4.2 | `DELETE /media` + huérfanas | `[DEUDA]` | — |
+| 4.2 | `DELETE /media` + huérfanas (imágenes + adjuntos + **vídeo**) | `[DEUDA]` | — |
+| 4.2 | `Setting` decorativos (`listingExpiryDays` confirmado; patrón) | `[DEUDA]` | — |
+| 4.2 | Aviso al admin si `proActiveListingLimit <= freeActiveListingLimit` | `[DEUDA]` | — |
+| 4.2 | Camino feliz del vídeo sin cubrir en navegador (falta fixture MP4) | `[DEUDA]` | — |
+| 4.2 | Límite de duración del vídeo blando (sin ffmpeg) | `[DEUDA]` | — |
 | 4.2 | Página de tag del blog (SEO) | `[DEUDA]` | — |
 | 4.2 | Paginación home/categorías | `[DEUDA]` | — |
 | 4.2 | `allowedDevOrigins` | `[DEUDA]` | — |

@@ -1,6 +1,13 @@
 # Estado técnico del proyecto — Marketplace
 
-> Fecha: 2026-08-04 · Rama: `main` · Último commit: ff333ab — cierre de la saga del CI.
+> Fecha: 2026-08-09 · Rama: `main` · Último commit: 842ea24 — cierre del vídeo Pro.
+>
+> **Tres proyectos cerrados desde el ancla anterior** (2026-08-04, `ff333ab`): la **zona de
+> gestión del vendedor** (UXV.1–UXV.6, documentada en sus propias secciones más abajo, más la
+> ráfaga `fix-planes`), el **bump automático** y el **vídeo Pro**. Los dos últimos son features
+> nuevas de punta a punta —modelo, backend y superficies— y tienen sección propia al final del
+> §2. La zona de vendedor ya se iba documentando ráfaga a ráfaga, así que aquí solo se añadió lo
+> que faltaba.
 > Plan vigente: `docs/Hoja_de_ruta_rafagas_Hito5-9.docx` (Hitos 5–9). Hitos 5–8 cerrados (incluye el
 > bloque de blog — rol EDITOR, editor de markdown, páginas informativas, footer — y el Hito 8
 > ampliado completo: H8.1–H8.6 + Bloques C/D/E). **Hito 9: la fase 9.3 (deuda transversal) está
@@ -75,6 +82,9 @@ qué decisiones se tomaron respecto al diseño original y qué queda pendiente.
 | **InvoicingModule (RF.13)** | ✅ Completo a nivel de PLATAFORMA (R1–R5) · **falta conectar un proveedor homologado real** (usa StubInvoicingProvider = NO VÁLIDO FISCALMENTE) | **EMISIÓN de facturas fiscales — capa SEPARADA de cobros.** La emisión VÁLIDA se DELEGA en un proveedor homologado externo (aún sin elegir) tras el puerto `InvoicingProvider`; el sistema NO afirma conformidad fiscal por sí mismo. **R1 (modelo)**: campos fiscales en `User` (`fiscalTaxId/fiscalName/fiscalEntityType/fiscalAddress/…`, congelables), `Setting fiscalIssuer` (emisor), modelos `Invoice` (append-only) + `InvoiceLine` (relación 1:N con `Transaction` vía `InvoiceLine.transactionId @unique` = guard duro anti-doble-facturación; `Invoice.idempotencyKey @unique` = guard de la emisión automática); validador de formato NIF/DNI/NIE/CIF (`common/validators/spanish-tax-id.ts`) en back y front; formulario `/perfil/facturacion`. **R2 (puerto + stub + inmutabilidad)**: interfaz `InvoicingProvider.emitInvoice(input) → { number, pdf, verifactu, providerRef }` con token DI `INVOICING_PROVIDER` (seleccionado por `config invoicing.provider` / env `INVOICING_PROVIDER`, hoy solo `stub`). `StubInvoicingProvider` — **NO emite facturas válidas**: número de prueba `DEV-YYYY-NNNNNN` (contador local), PDF (pdf-lib, dependencia nueva) sellado «NO VÁLIDO FISCALMENTE», verifactu ficticio, idempotente por `idempotencyKey`. **Guard de INMUTABILIDAD a nivel de BD** (migración `20260727000001_invoice_immutability_guard`): triggers Postgres que RECHAZAN cualquier UPDATE/DELETE de una `Invoice` ISSUED y cualquier INSERT/UPDATE/DELETE de sus `InvoiceLine` (solo se permite el latch DRAFT→ISSUED). Ejercido con SQL directo en `test/invoice-immutability.e2e-spec.ts` (incluye sanity-check desactivando el trigger). **R3 (elegibilidad + emisión manual)**: `InvoicingService` + `InvoicingController` (bajo `/billing`, owner-scoped). `getFacturables` = Transactions `SUCCEEDED`, gateway plataforma (STRIPE/REDSYS), **sin `InvoiceLine`** (relación `invoiceLine: { is: null }`), dentro de la **ventana** (`Setting fiscalSelfServiceWindow`, meses, default 6 provisional — plazo exacto pendiente del asesor), con **concepto derivado** (subscriptionId→Pro, baseCreditAmount→pack créditos, baseBumpAmount→pack bumps, listingId→destacado, si no `Price.product.name`). `getEligibility` = datos fiscales completos + ≥1 facturable (con motivo si false). `requestInvoice` (`POST /billing/facturas`): valida elegibilidad → crea `Invoice` DRAFT **congelando** emisor (`Setting fiscalIssuer`) + receptor (User fiscal) + totales + líneas (snapshot) → `provider.emitInvoice(idempotencyKey=invoice.id)` → **PDF a R2 PRIVADO** (`facturas/<id>.pdf`) → latch DRAFT→ISSUED. Manual usa `idempotencyKey` null (el guard real es `InvoiceLine.transactionId @unique`; el cron de R4 usará `userId:periodKey`); doble-submit concurrente → P2002 → devuelve la existente; secuencial → 409 (nada facturable). Si el proveedor/R2 fallan, se **borra el DRAFT** (no-ISSUED → el trigger permite DELETE) liberando las Transactions. Endpoints: `GET /billing/facturables`, `GET /billing/eligibility`, `POST /billing/facturas`, `GET /billing/my-invoices`, `GET /billing/invoices/:id/pdf` (descarga **autenticada** vía `StreamableFile` + `R2.download`, solo el dueño → 403 si no). Front: `/perfil/facturacion` muestra facturables + "Solicitar factura" + lista de facturas con descarga (blob con token). **Verificado e2e** (`test/invoicing-manual.e2e-spec.ts`): flujo completo (facturables→ISSUED N líneas→facturados), idempotencia (2º POST no duplica), sin datos fiscales→400, sin facturables→409, descarga dueño 200 / ajeno 403, **congelación** (cambiar NIF tras emitir no altera la factura). **R4 (cron automático + cola idempotente)**: `InvoicingScheduleService` — `@Cron('0 4 * * *')` fino → `runScheduledInvoicing(today)` público/testeable (molde `entitlement-expiration`). **OPCIÓN A** (confirmada con el asesor: periodicidad TRIMESTRAL, configurable en caliente vía `Setting fiscalInvoicingPeriodicity`, también soporta MONTHLY): el cron se despierta A DIARIO y, en vez de "¿hoy es día 1?", pregunta "¿hay periodos cerrados sin facturar?" comparando la marca `Setting fiscalInvoicingLastPeriod` con el periodo cerrado más reciente (`period.ts`: `previousClosedPeriodKey`/`periodsToProcess`) → **RECUPERACIÓN**: si el servidor estuvo caído en uno o varios cierres, al arrancar detecta y emite todos los pendientes en orden. Para cada periodo pendiente selecciona usuarios con facturables de ese rango (`periodRange`); los elegibles (datos fiscales completos, helper `hasCompleteFiscalData`) → **encola** un job `emit-period {userId, periodKey}` en `QUEUE_INVOICING` (`retryQueue`, `jobId` estable); los que tienen movimientos pero **sin datos fiscales** → aviso in-app `INVOICING_PENDING_FISCAL_DATA` (sus Transactions siguen facturables para emisión manual R3 — BORDE si la ventana cierra sin datos: decisión de negocio, marcada). Trabajo pesado NUNCA inline. `InvoiceProcessor` (`WorkerHost`) invoca `InvoicingService.emitForPeriod(userId, periodKey)` — reutiliza el núcleo `emitInvoiceCore` de R3. **Idempotencia triple** (documentos fiscales): (1) `idempotencyKey=userId:periodKey` @unique → job reintentado no duplica, corta si ya ISSUED; (2) `InvoiceLine.transactionId` @unique; (3) `idempotencyKey=invoice.id` al proveedor. Fallo proveedor/R2 → rollback del DRAFT (libera Transactions) → el job reintenta (retryQueue). **Verificado**: `period.spec.ts` (decisión pura: día-emisión/no-toca/recuperación mono y multi-periodo/config MONTHLY) + `test/invoicing-cron.e2e-spec.ts` (chain cron→cola→processor→factura; día que no toca; recuperación; idempotencia doble disparo y nivel emisión; sin datos fiscales→notifica+no factura; configurable MONTHLY; rollback en fallo del proveedor con reintento, app con provider sobrescrito). **R5 (panel admin)**: `AdminInvoicingController` (`@Controller('admin')`, `@Roles(ADMIN)` + `RolesGuard`) + `AdminInvoicingService`. `GET /admin/invoices` (paginado; filtros status/origin/periodKey/userId/userQuery email-nombre/rango issuedAt; orden issuedAt desc) — TODAS las facturas de TODOS los usuarios. `GET /admin/invoices/:id` (detalle con líneas + emisor/receptor congelados + verifactu/providerRef). `GET /admin/invoices/:id/pdf` (descarga admin de CUALQUIER factura vía `StreamableFile` — contraste con el owner-scope del usuario en R3). **Configuración del emisor**: `GET /admin/fiscal-issuer` (lee `Setting fiscalIssuer`), `PUT /admin/fiscal-issuer` — valida taxId con el mismo validador NIF/CIF + campos obligatorios (400 si inválido/incompleto), guarda el Setting y registra `AuditLog FISCAL_ISSUER_UPDATE` (before/after, dato sensible). **NO retroactivo**: el emisor se congela en cada factura al emitir; cambiarlo solo afecta a las futuras (la UI lo avisa explícitamente). Front: `/admin/facturas` (tabla+filtros+descarga, aviso si el emisor no está configurado) + `/admin/facturas/emisor` (formulario con validación en vivo y aviso de no-retroactividad); entrada "Facturas" en `AdminNav`. **Verificado** (`test/admin-invoicing.e2e-spec.ts`): listado multi-usuario, filtros (origin+periodKey), permisos (USER/MODERATOR→403, sin auth→401), descarga admin de factura ajena→200 (vs. usuario→403), PUT emisor válido→200+Setting+AuditLog / NIF inválido→400 / campo ausente→400, y **NO-RETROACTIVIDAD** (cambiar el emisor no altera las ya emitidas; solo las nuevas). **ÚLTIMO PASO PENDIENTE (fuera de estos hitos, decisión de Ernest con su asesor):** elegir y conectar un **proveedor homologado real** — una clase que implemente `InvoicingProvider` + un `case` en `InvoicingModule` + config de credenciales/env. Hasta entonces el sistema de emisión está COMPLETO a nivel de plataforma pero usa el `StubInvoicingProvider`: los PDF van marcados **NO VÁLIDOS FISCALMENTE** y NO se factura de verdad. |
 | **Contact** | ✅ Completo (RC.1+RC.2) | Formulario público de contacto — endpoint sin autenticación, superficie de ataque nueva; **5 defensas** (ver «RC.1 — Formulario de contacto público» en §2). `GET /contacto/token` (token firmado del time-trap), `GET /contacto/motivos` (**RC.2** — motivos activos, ordenados), `POST /contacto` (público; honeypot y time-trap fallidos → `200` silencioso sin persistir; rate limit superado → `429`). Modelos `ContactMessage` (sin columna de IP — decisión RGPD; `motivoId` FK a `ContactReason`) + `ContactReply` (historial 1:N) + **`ContactReason`** (RC.2 — motivo configurable por el admin, sustituye al enum `ContactMotivo`; sin DELETE, solo desactivación). `AdminContactMessagesController` (`@Roles(ADMIN)`, molde de `BannersService`: listado paginado+filtros por estado/motivoId, detalle con auto `NUEVO→LEIDO`, `PATCH :id/estado` **libre entre cualquier par de estados** + AuditLog, `POST :id/responder` — crea `ContactReply`, encola email, `→RESPONDIDO`; sin DELETE). `AdminContactReasonsController` (RC.2 — CRUD + reorder de motivos, guard: no se puede desactivar el último activo). Notifica a los admins por fan-out: una `Notification` `CONTACT_MESSAGE` (segundo tipo de B1, confirma que el modelo era extensible sin migración; snapshot guarda el nombre del motivo ya resuelto) + un email `SEND_CONTACT_NOTIFICATION` por cada `User role=ADMIN`. Ver «RC.2» en §2 para el detalle de la migración enum→datos. |
 | **Tickets (atención al usuario)** | ✅ Completo — sin incrementos pendientes | Canal bidireccional usuario↔administración con máquina de estados; **la conversación in-app es la fuente de verdad**, la notificación y el email solo avisan. Modelos `Ticket` / `TicketMessage` / `TicketAttachment` + enums `TicketStatus`/`TicketOrigin`/`TicketAuthorSide` + `ContactReasonScope`; migración `add_ticketing` (aditiva). `TicketsController` (usuario, owner-scoped: crear con enlace validado, listar, topics, hilo con cursor, responder/reabrir, cerrar) + `AdminTicketsController` (`@Roles(MODERATOR, ADMIN)`: bandeja con filtros, take, responder **o nota interna**, resolve, close, reassign, flujo (b) y `from-report/:reportId` para el flujo (c)) + `TicketNotificationsService` (3 tipos de `Notification` + 3 jobs de Resend; fan-out in-app al staff pero **un solo email** a `Setting.supportEmail`) + `TicketsScheduleService` (cron 05:00 de auto-cierre, ventana `Setting.ticketAutoCloseWindowDays` default 14). Los tres flujos: (a) usuario→admin, (b) admin→usuario, (c) desde un `Report` **sin modificarlo**. **INVARIANTE DE PRIVACIDAD**: las notas internas (`TicketMessage.internal`) no salen nunca por ninguna ruta de usuario — **siete superficies** (hilo, contador, DTO, avisos, `lastMessageAt`, adjuntos y el canal de tiempo real), ver «Sistema de atención al usuario (tickets) — ESTADO CONSOLIDADO» en §2, que es la referencia completa y la lista que hereda cualquier canal nuevo. Adjuntos con **molde FACTURA** (R2 privado + descarga autenticada, sin URL pública) y **tiempo real** (salas `ticket:<id>` y `staff` en `MessagingGateway`, con su CORS ya restringido a `APP_URL`). |
+
+| **BumpScheduleModule (bump automático)** | ✅ Completo | Programar bumps que se aplican solos. `BumpScheduleService` = el cron (`@Cron('10 * * * *')`, zona `Europe/Madrid` declarada, reloj inyectado en `runDueSchedules(now)`); `BumpAutoProcessor` = el consumidor de `QUEUE_BUMP_AUTO` que cobra vía `BillingService.bump` y traduce el resultado a política; `BumpScheduleCrudService` + `BumpScheduleController` (`/bump-schedules`, owner-scoped) = la cara de usuario; `BumpAutoNotificationsService` = los avisos de incidencia (in-app + email). `next-run.ts` es una función pura con los dos cambios de hora cubiertos. Ajustes: `bumpAutoEnabled` (sembrado a `true`, interruptor de emergencia) y `maxBumpSchedulesPerUser` (sin sembrar, default 10). Ver «Bump automático» en §2 |
+| **VideoModule (vídeo Pro)** | ✅ Completo | Subida de vídeo por el vendedor, **sin que los bytes pasen por la API**: `POST /video/upload-url` valida y firma una URL de subida (`R2Service.presignUpload`), el navegador hace el `PUT` directo al almacenamiento y `POST /video/listings/:id/confirm` comprueba con `HEAD` lo que aterrizó antes de enlazarlo. `GET /video/config` publica límites y el flag. Módulo propio y NO dentro de `MediaModule`: ese es el camino de imágenes, con su `memoryStorage` y su cola de miniaturas, y no se toca. Ajuste `videoEnabled` **sin sembrar en producción = apagada**. Ver «Vídeo Pro» en §2 |
 
 ### Frontend (`apps/web` — puerto 3000)
 
@@ -12157,6 +12167,271 @@ destacado bloqueado por falta de saldo es **flujo**, y se diseña en UXV.3.
 comportamiento roto (botón manual + enlace de texto) y ahora fijan el arreglo: resuelve a
 confirmado sin pulsar nada, y mientras el webhook no llega vuelve a preguntar por su cuenta sin
 afirmar un éxito que no ha ocurrido.
+
+---
+
+## `fix-planes` — la línea de «anuncios activos» de /planes DERIVA de los dos límites
+
+Remate posterior a UXV.6, sobre la lista de beneficios Pro que aquella ráfaga había hecho
+derivar de los `Setting`.
+
+**El defecto no era que mintiera: era que nada impedía que empezara a mentir.** UXV.6 derivó el
+NÚMERO de la línea («Hasta N anuncios activos») pero seguía **listándola siempre**. Con la
+configuración sembrada (gratuito 5, Pro 20) la frase es cierta, así que el fallo no se veía;
+pero `freeActiveListingLimit` y `proActiveListingLimit` se editan desde `/admin/ajustes` y
+pueden cruzarse. El día que el límite gratuito supere al Pro, la página de precios vendería
+como ventaja algo que el plan gratuito da mejor, **sin que nadie hubiera tocado el código**.
+
+**El arreglo** ([billing.service.ts](../apps/api/src/modules/billing/billing.service.ts),
+`buildProBenefits`): la línea se emite solo si `pro > libres`, y entonces con los dos números
+(«Hasta 20 anuncios activos (en el plan gratuito, 5)»). Es el mismo criterio que ya usaban las
+cuotas de destacados y bumps —`if (destacados > 0)`, `if (bumps > 0)`—: lo que el ajuste no
+concede, no se promete. **Los valores no se tocaron**, son decisión de negocio.
+
+En [`planes/page.tsx`](../apps/web/src/app/(public)/planes/page.tsx) se retiró además «Más
+anuncios activos» del respaldo estático: ese texto solo entra cuando la API no responde, y
+entonces no se conoce el valor de ninguno de los dos límites.
+
+**Verificado por mutación** (`test/planes-limite-anuncios.e2e-spec.ts`, 6 casos): con Pro=200 y
+gratuito=5 la línea aparece con ambos números; con 100/20 se omite; con los dos iguales también;
+y 30→31 demuestra que el número **sigue al ajuste** en vez de ser un texto que casualmente
+encaje. Los `Setting` se restauran al terminar.
+
+**Lo que este arreglo NO hace, a propósito:** avisar al admin de que su configuración es
+incoherente. Está anotado en `pendientes.md`.
+
+---
+
+## Bump automático — programar bumps que se aplican solos
+
+Proyecto completo en cuatro ráfagas, cada una verificable sola. La superficie de entrada la
+había dejado preparada UXV.4 (el menú `▾` de `PromocionarControl`) y el hueco de estado, UXV.5.
+
+### CAPA 1 — el reclamo atómico del cooldown (arreglo de BASE del bump manual)
+
+Fue **la primera ráfaga y fue sola**, porque es deuda preexistente del bump manual y se valida
+con los tests que ya existían.
+
+**El defecto**, anotado en el propio código desde UXV.1: `BillingService.bump` comprobaba el
+cooldown **leyendo `bumpedAt` fuera de la transacción**, y el `UPDATE` que lo marcaba era la
+**última** sentencia de las tres ramas de cobro. Se cobraba primero y se marcaba después, así
+que dos ejecuciones concurrentes podían leer ambas «no está en cooldown» antes de que ninguna
+confirmara su escritura, y **cobrar las dos**. Con clics humanos hace falta una simultaneidad
+casi imposible; con un scheduler en N instancias es el caso normal.
+
+**El arreglo**: se invierte el orden. Un `UPDATE` condicional escribe `bumpedAt` **solo si la
+ventana venció** y devuelve cuántas filas tocó — una fila, el turno es nuestro y se cobra; cero
+filas, `429`. Va **dentro de la misma transacción** que el cobro: si el cobro falla, el reclamo
+revierte con él, así que nunca queda un `bumpedAt` marcado sin cobro ni un cobro sin marcar.
+
+**No es un patrón nuevo**: es el idioma con el que ese servicio ya mueve dinero
+(`UPDATE "Wallet" SET balance = balance - N WHERE balance >= N` + «si afectó 0 filas, error»).
+Correcto bajo `READ COMMITTED` —el nivel por defecto; el repo no fija `isolationLevel` en
+ninguna `$transaction`— porque un `UPDATE` sobre una fila que otra transacción está modificando
+espera a que confirme y **reevalúa su `WHERE` contra la versión nueva**. No queda ventana entre
+comprobar y escribir porque son la misma sentencia.
+
+`bumpedAt` salió también del `select` previo, y su ausencia es la señal: si alguien vuelve a
+leerlo ahí para adelantar el rechazo, habrá dos verdades sobre la ventana otra vez.
+
+**El contrato no cambió**, y esa es la prueba de que el arreglo es interno: los 6 casos de
+`uxv1-bump-cooldown.e2e-spec.ts` pasan **sin tocarlos**. `capa1-bump-reclamo-atomico.e2e-spec.ts`
+(8 casos) prueba lo nuevo, y está escrito para fallar contra el código anterior: verificado
+revirtiendo el servicio — **4 rojos, los cuatro de concurrencia; 4 verdes, los secuenciales**.
+
+### El modelo — `BumpSchedule` + `BumpRun`
+
+Dos tablas (migraciones `add_bump_schedule` y `bump_run_outcome_nullable`).
+
+**`BumpSchedule`** — la intención: `listingId` + `userId` (ambos `Cascade`), `intervalDays`,
+`hourOfDay`, `status`, `nextRunAt`, `lastRunAt`. `@@unique([listingId])` porque dos
+programaciones sobre el mismo anuncio competirían por el mismo cooldown y una no haría nada
+nunca; `@@index([status, nextRunAt])` es *la* consulta del cron. `status` es enum y no un
+`paused: boolean` porque **la razón determina la salida**: «recarga créditos» y «reactiva tu
+anuncio» son mensajes distintos, y la reanudación automática de D9 solo puede existir si consta
+que la pausa fue por esa causa.
+
+**`BumpRun`** — un turno, se haya cobrado o no. `@@unique([scheduleId, slot])` es el guard de
+idempotencia, molde de `Invoice.idempotencyKey`: **el guard que no se puede esquivar vive en la
+base, no en el código**.
+
+**La definición de `slot`, de la que depende todo**: es el valor que `nextRunAt` **tenía cuando
+el turno se reclamó**, copiado tal cual — ni recalculado, ni truncado, ni derivado de `now()`.
+Así dos instancias leen la misma fila, computan la misma `slot` y colisionan. Vive en el
+comentario de la columna, para que no pueda separarse de lo que la base guarda. **Verificado por
+mutación**: al hacerla no determinista fallan exactamente los dos tests que dependen de ella.
+
+`outcome` es **nullable** (`NULL` = reclamado sin desenlace) porque el orden «reclamar antes de
+cobrar» exige que la fila exista antes de conocer el resultado. Un `NULL` que sobrevive significa
+que el proceso murió a mitad: el turno se perdió, pero nunca se cobró dos veces.
+
+**`BumpRun` NO es el libro mayor**: es un registro paralelo que apunta al mismo hecho. Cierra de
+paso el hueco de que ni `BumpLedgerType` ni `CreditLedger.referenceType` distinguen un bump
+automático de uno manual, y lo hace **sin tocar el ledger**: el invariante
+`wallet.bumpBalance == SUM(BumpLedger.amount)` queda intacto (hay test que escribe tres turnos y
+comprueba que el monedero no se mueve).
+
+### El scheduler
+
+`BumpScheduleService`, molde `InvoicingScheduleService`: el `@Cron` es fino y delega en
+`runDueSchedules(now)`, **que recibe la fecha**. Es la lección del cron de tickets, y aquí no es
+opcional: los casos que hay que poder verificar —el turno en la frontera, dos instancias en el
+mismo segundo, la pasada que llega tarde— son exactamente los que no se pueden provocar
+esperando al reloj.
+
+**Minuto 10, no 0**: los cuatro `@Cron` que ya existían corren todos en minuto 0 (02:00–05:00), y
+un cron horario en minuto 0 se solaparía con ellos cuatro veces al día sin necesidad.
+
+**El orden de una pasada, que es donde vive la garantía**: seleccionar (`status = ACTIVE AND
+nextRunAt <= now`) → **tomar la slot** → **reclamar** creando el `BumpRun` (`P2002` = otro se lo
+quedó, se aborta sin ruido) → **encolar** con `jobId` estable `bump-auto-{scheduleId}-{slot}`.
+Reclamar antes de cobrar es lo que hace que quien no consigue insertar la fila no llegue a cobrar
+nunca.
+
+**Tope de 500 turnos por pasada**, con `truncated` en el resultado y en el log: no es un recorte
+silencioso, y lo que sobra sale en la pasada siguiente porque la selección es por estado.
+
+**Cola propia** (`QUEUE_BUMP_AUTO`, vía `retryQueue`) y no `QUEUE_BILLING`, para que un pico de
+turnos programados no retrase los cobros de checkout, que sí tienen a alguien esperando.
+
+`BumpAutoProcessor.runTurn(data, now)` también recibe el reloj, por la misma razón: el avance de
+`nextRunAt` se ancla **al turno previsto y no a `now`**, que es la propiedad anti-deriva —si una
+pasada llega tarde, «cada 3 días a las 9:00» sigue siendo a las 9:00— y lo que hace el cálculo
+determinista entre instancias. `computeNextRunAt` es una función pura con 13 casos, **incluidos
+los dos cambios de hora**, y no acumula turnos atrasados: tras cuatro días caído devuelve el
+primer turno **futuro**, no cuatro cobros encadenados.
+
+**Por qué no puede cobrar dos veces**, con tres guardas independientes: la clave única del turno
+(base de datos), el `jobId` estable (cola) y el reclamo atómico del cooldown de la CAPA 1
+(transacción). La tercera es la que convierte la garantía en propiedad del sistema: aunque las
+dos primeras fallaran, un segundo cobro dentro de la hora es imposible.
+
+### Las políticas (decisiones confirmadas)
+
+Once decisiones de producto se confirmaron en bloque; las que dejan huella en el código:
+
+| # | Decisión | Cómo se materializa |
+|---|---|---|
+| **D1** | Cada N días (1–30) + hora del día; mínimo **1 día** para lo automático | `intervalDays` + `hourOfDay`. El cooldown permite 24 bumps diarios (~120 créditos/día): el cooldown protege la plataforma, este mínimo al usuario |
+| **D2** | Sin saldo → **pausar y avisar**; reanudación **manual** | `PAUSED_NO_FUNDS` + aviso. Manual a propósito: los créditos son bolsa común y recargarlos para otra cosa no debe reactivar un gasto que nadie ha vuelto a pedir |
+| **D3** | Para todos con saldo · **una** por anuncio · tope por usuario configurable | `@@unique([listingId])` → 409; `maxBumpSchedulesPerUser` |
+| **D4** | Hora **peninsular declarada**, sin zona por usuario | `timeZone: 'Europe/Madrid'` explícito en el `@Cron`; la UI dice «sobre las HH:00, hora peninsular» porque la pasada es horaria |
+| **D5** | Colisión con el bump manual → **saltar el turno** | `429` → `SKIPPED_COOLDOWN`, sin cobro y sin aviso; el calendario NO se recalcula desde el bump manual |
+| **D6** | **Solo incidencias** notifican (in-app + email) | Un bump aplicado no avisa; la trazabilidad vive en `BumpRun`, visible en `/mis-creditos` |
+| **D7** | Flag de admin; apagarlo **no toca** las programaciones | `bumpAutoEnabled`, sembrado a `true` |
+| **D9** | Anuncio no `ACTIVE` → pausar y avisar, **reanudar solo** al volver | `PAUSED_LISTING_INACTIVE`. Asimetría deliberada con D2: reactivar *ese* anuncio apunta al mismo objeto que la programación |
+| **D10** | **Precio vigente**, no congelado | Congelarlo crearía una segunda verdad del precio y dejaría al usuario fuera de las rebajas de campaña. `BumpRun.cost` deja constancia de lo cobrado |
+| **D11** | **Mismo orden de cobro** que el manual | La cuota Pro se pierde si no se usa; reservarla haría que caduque mientras el usuario paga créditos por lo mismo |
+
+### La UI
+
+**Configurar (D8)**: «Programar bumps» es un tercer producto de `PromocionarDialog`, donde UXV.4
+escribió que entraría. El menú `▾` gana su entrada como **atajo, no como puerta**: solo se pinta
+cuando el bump sale gratis, y quien paga —el que más querría programar— llega por el botón único
+«Promocionar», que abre el mismo diálogo. El hallazgo de la auditoría no era que faltara una
+entrada, era depender del `▾` como entrada única.
+
+**Ver**: `PromotionStatus` ocupa el hueco que UXV.4 dejó comentado. Una pausa **se ve y dice por
+qué**, con su salida cuando la hay: sin saldo → «Recargar»; anuncio inactivo → lo dice y **no**
+ofrece recargar, porque no arreglaría nada. Es el defecto que UXV.6/M12 cerró con la cuota Pro.
+
+**Gestionar**: «Bumps programados» en `/mis-creditos`, junto al saldo —donde el usuario viene
+cuando la pregunta es de dinero— y **sin añadir una decimocuarta entrada** al menú que UXV.2
+costó reducir a trece. Pausar, reanudar, cancelar con confirmación, e historial de turnos que
+incluye **los que no cobraron**: uno que solo enseñara los cobros no explicaría los huecos.
+
+**La programación viaja solo en el payload de propietario**, nunca en la ficha pública: es asunto
+del vendedor, y la ficha se sirve de un blob cacheado donde ese estado envejecería. Hay test que
+lo fija en ambas direcciones.
+
+---
+
+## Vídeo Pro — vídeo propio en el anuncio, como ventaja del plan Pro
+
+Proyecto completo en tres ráfagas. **Decisión estructurante: fichero propio, no embed.** El
+bloque `video` del CMS (`VideoBlockRenderer`, YouTube/Vimeo) es contenido editorial del
+administrador y no sirve de molde de datos: exigiría al vendedor tener cuenta en un tercero.
+
+### La infraestructura — los bytes NUNCA pasan por la API
+
+El camino de imágenes usa `memoryStorage()`: el fichero entero vive en la RAM del proceso.
+Inocuo con 10 MB; inaceptable con decenas de megas y varios vendedores a la vez.
+
+**Subida directa navegador→R2 con URL prefirmada.** `R2Service.presignUpload` (dependencia nueva
+`@aws-sdk/s3-request-presigner`; hubo que alinear `@aws-sdk/client-s3` a la misma línea porque
+pnpm traía dos versiones de `@smithy/types` y `tsc` no compilaba). En dos tiempos:
+
+1. **Firmar** — `POST /video/upload-url` comprueba flag, Pro, propiedad y estado del anuncio, y los límites; solo entonces emite el permiso.
+2. **Confirmar** — `POST /video/listings/:id/confirm` hace `HEAD` contra el almacenamiento para distinguir «dijo que subió» de «subió», y solo entonces enlaza.
+
+Entre ambos no hay estado guardado: **una subida abandonada deja un objeto huérfano que no se
+muestra en ninguna parte** porque nadie lo referencia (ver `pendientes.md` §4.2).
+
+**El tamaño es una garantía, no una comprobación**: viaja dentro de la firma (`ContentLength`),
+así que un `PUT` con un cuerpo de otro tamaño lo rechaza el **almacenamiento**. Hay test que
+declara 1 KB, intenta colar 1 MB por la misma URL y comprueba que no aterriza nada.
+
+**Límites** en `video-limits.ts`, constante propia: **≤60 s, ≤50 MB, solo `video/mp4`**.
+`MAX_FILE_SIZE` de las fotos sigue en 10 MB — subirlo en bloque las habría dejado sin techo. Solo
+MP4 no es capricho: **es lo que hace innecesaria la transcodificación**, porque un móvil actual
+graba exactamente en ese formato y todos los navegadores lo reproducen. **No hay `ffmpeg` en el
+proyecto**, y es deliberado.
+
+**El póster lo captura el cliente** (`<canvas>` sobre un frame) y se sube por el camino de
+imágenes. Coherente con lo anterior: si no se trae ffmpeg para transcodificar, no tiene sentido
+traerlo para un frame. Es manipulable —la misma capacidad que ya tiene para subir una foto
+engañosa— y si falla, la ficha cae a la foto de portada.
+
+**Endurecimiento de `isOwnStorageUrl`**: comparaba con `startsWith` **sin frontera**, así que con
+`S3_PUBLIC_URL = https://cdn.ejemplo.com` habría aceptado `https://cdn.ejemplo.com.atacante.net`.
+Nunca se explotó porque las URLs las produce siempre `getPublicUrl`, pero eso es casualidad del
+flujo y no garantía de la comprobación. Se cerró **al añadir el vídeo** porque un `<video src>`
+**no pasa por `remotePatterns`** de `next/image`, a diferencia de las imágenes: esta función pasa
+a ser su única restricción de origen. Verificado por mutación (9 casos en `safe-url.spec.ts`).
+
+### La edición
+
+La sección **Vídeo** entra en `EditarForm` por el seam que UXV.5 dejó escrito —`proStatus` se
+cableó hasta ahí antes de que hiciera falta, precisamente para esto—.
+
+**Gate y flag son cosas distintas y deciden en sitios distintos.** El **gate Pro se ve**, dentro
+de la sección: candado y «Hazte Pro» a `/planes`, porque esconderlo dejaría invisible el
+beneficio a quien hay que convencer. El **flag** decide en `resolveEditSections`: apagado, la
+sección no existe para nadie; y **sin configuración (la API no respondió) tampoco** — se falla
+hacia «no existe», porque ofrecer una subida que luego no se podría completar sería peor.
+
+**La coreografía**: leer la duración real en el navegador → capturar el póster → firmar → `PUT`
+directo → confirmar. El anuncio queda marcado con vídeo en el último paso, **después** de una
+subida completa. `XMLHttpRequest` y no `fetch` para el `PUT`, porque `fetch` no informa del
+progreso de subida y en decenas de megas desde el móvil una barra que no se mueve es
+indistinguible de una aplicación colgada.
+
+El vídeo **no forma parte de `data` del formulario**: se guarda por su propio flujo, no con
+«Guardar cambios». Mezclarlo haría que el aviso de cambios sin guardar mintiera.
+
+### La visualización — cero bytes de vídeo en las listas
+
+**El riesgo central de la auditoría era reproducir vídeo en listas**, y se evita por
+construcción, no por disciplina:
+
+- **Backend**: `toSummary` desestructura `videoUrl` **fuera** del resto para que no pueda colarse, y solo emite `hasVideo`. El documento de Meilisearch —de donde salen las tarjetas de búsqueda— lleva el booleano, nunca la dirección. Hay un test que hace un **barrido del JSON completo** del payload de lista buscando `listing-videos/`.
+- **Frontend**: `CardPhotoCarousel` recibe **un booleano**, no una URL. Un test comprueba que en una tarjeta **no se monta ningún `<video>` ni `<source>`**: sin elemento no hay `preload`, ni metadatos, ni petición. El indicador es un SVG del bundle con `pointer-events-none`.
+
+Un solo componente gobierna las once listas; `ListingGallery`, la ficha.
+
+**La ficha no pide el `.mp4` hasta que se pulsa play**: el reproductor entra como una miniatura
+más de la galería —**después** de la portada, que es la que el vendedor eligió y la que se ve en
+las listas— con `preload="none"`, `poster` y sin `autoplay`. El coste de que un anuncio tenga
+vídeo es **una imagen más** hasta que alguien decide verlo. La ficha es la página de SEO y
+conversión y la mayoría solo mira fotos.
+
+**Al cambiar el vídeo se invalida la ficha cacheada Y se reindexa** (`refrescarSuperficies`).
+Solo lo primero habría dejado el icono de búsqueda viejo hasta que el anuncio se tocara por
+cualquier otro motivo.
+
+**`videoEnabled` está APAGADO sin fila**, al revés que `bumpAutoEnabled`: el vídeo cuesta
+almacenamiento y ancho de banda desde el primer fichero, así que encenderlo debe ser un acto
+explícito. Solo se siembra en `seed-test.ts`, para que las baterías puedan ejercitarlo.
 
 ---
 
