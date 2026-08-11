@@ -6,6 +6,7 @@ import { INDEXING_CONCURRENCY, QUEUE_ALERT_MATCHING, QUEUE_INDEXING } from '../q
 import { PrismaService } from '../../prisma/prisma.service';
 import { SearchService, INDEX_INCLUDE } from '../../../modules/search/search.service';
 import { GeocodingService } from '../../../modules/geocoding/geocoding.service';
+import { CategoryTreeService } from '../../../modules/categories/category-tree.service';
 
 @Processor(QUEUE_INDEXING, { concurrency: INDEXING_CONCURRENCY })
 export class IndexingProcessor extends WorkerHost {
@@ -15,12 +16,15 @@ export class IndexingProcessor extends WorkerHost {
     private readonly prisma: PrismaService,
     private readonly search: SearchService,
     private readonly geocoding: GeocodingService,
+    private readonly categoryTree: CategoryTreeService,
     @InjectQueue(QUEUE_ALERT_MATCHING) private readonly matchingQueue: Queue,
   ) {
     super();
   }
 
-  async process(job: Job<{ listingId?: string; triggerAlertMatch?: boolean }>): Promise<void> {
+  async process(
+    job: Job<{ listingId?: string; triggerAlertMatch?: boolean; categoryId?: string }>,
+  ): Promise<void> {
     try {
       switch (job.name) {
         case 'index': {
@@ -57,6 +61,12 @@ export class IndexingProcessor extends WorkerHost {
         // attributeSchema. Sin listingId; encolado desde AdminService.
         case 'refresh-filterable-attributes':
           return this.search.refreshFilterableAttributes();
+        // PROFUNDIDAD N — RÁFAGA 2. Reindexa los anuncios de una categoría y de
+        // toda su descendencia, porque `categoryPath` depende de la jerarquía
+        // que hay POR ENCIMA del anuncio. Se encola al crear una categoría a
+        // profundidad ≥3 (para 1-2 niveles el path no cambia, ver AdminService).
+        case 'reindex-category-subtree':
+          return this.handleReindexCategorySubtree(job.data.categoryId!);
         default:
           this.logger.warn(`Unknown indexing job: ${job.name}`);
       }
@@ -94,6 +104,30 @@ export class IndexingProcessor extends WorkerHost {
   private async handleRemove(listingId: string): Promise<void> {
     await this.search.removeListing(listingId);
     this.logger.debug(`Listing ${listingId} removed from index.`);
+  }
+
+  /**
+   * PROFUNDIDAD N — RÁFAGA 2. Reescribe los documentos de una subcadena para que
+   * su `categoryPath` refleje la jerarquía actual.
+   *
+   * El árbol se invalida ANTES de leer: este job corre después de que
+   * AdminService haya escrito la categoría, y en otro proceso la foto memoizada
+   * podría ser anterior a ese cambio — que es justamente lo que este job viene a
+   * propagar.
+   */
+  private async handleReindexCategorySubtree(categoryId: string): Promise<void> {
+    this.categoryTree.invalidate();
+    const categoryIds = [categoryId, ...(await this.categoryTree.getDescendantIds(categoryId))];
+
+    const listings = await this.prisma.listing.findMany({
+      where: { categoryId: { in: categoryIds }, status: 'ACTIVE' },
+      include: INDEX_INCLUDE,
+    });
+
+    const escritos = await this.search.reindexCategorySubtree(categoryIds, listings);
+    this.logger.log(
+      `Reindexado de subcadena ${categoryId}: ${escritos} documento(s) en ${categoryIds.length} categoría(s).`,
+    );
   }
 
   private async handleGeocode(listingId: string): Promise<void> {

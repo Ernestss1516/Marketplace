@@ -27,6 +27,20 @@ import {
 import { TagsEditorPanel } from '@/components/admin/TagsEditorPanel';
 import type { AttributeSchema, ListingTypePolicy, ListingViewMode, PriceUnit } from '@/types';
 
+/**
+ * PROFUNDIDAD N — RÁFAGA 2. Espejo de `CATEGORY_MAX_DEPTH` (api,
+ * category.types.ts), duplicado aquí por el mismo motivo que
+ * `countAttributesByType` en AttributeSchemaEditor: no hay paquete compartido
+ * entre api y web.
+ *
+ * Aquí sólo decide si una fila OFRECE crear una subcategoría. La guarda de
+ * verdad es `assertMaxDepth` en el backend, que rechaza con 400 cualquier
+ * llamada directa a la API — si estos dos números divergieran, lo peor que
+ * pasaría es que el panel ofreciera un botón cuyo POST falla, nunca que se cree
+ * una categoría más honda de lo permitido.
+ */
+const CATEGORY_MAX_DEPTH = 4;
+
 // ─── Form values (name/slug/iconUrl/allowedListingType/allowedViews/defaultView —
 // schema is managed separately; order se ordena SOLO con las flechas ↑↓) ──
 
@@ -69,6 +83,45 @@ const PRICE_UNIT_OPTIONS: { value: PriceUnit; label: string }[] = [
   { value: 'PER_UNIT', label: 'Por unidad' },
   { value: 'PER_SESSION', label: 'Por sesión' },
 ];
+
+// ─── PROFUNDIDAD N — RÁFAGA 2: recorridos del árbol ───────────────────────────
+//
+// El panel modelaba 2 niveles a mano (un bucle de raíces con un bucle de hijas
+// dentro, `moveRoot`/`moveChild` por separado, y «lo heredado» igualado al
+// schema propio del padre porque el padre siempre era una raíz). Estos tres
+// helpers sustituyen esas asunciones; el resto del fichero los usa.
+
+/** Busca un nodo en cualquier nivel del árbol. */
+function buscarEnArbol(arbol: AdminCategory[], id: string): AdminCategory | undefined {
+  for (const nodo of arbol) {
+    if (nodo.id === id) return nodo;
+    const encontrado = buscarEnArbol(nodo.children ?? [], id);
+    if (encontrado) return encontrado;
+  }
+  return undefined;
+}
+
+/** Cadena raíz→nodo (incluido). `[]` si el id no está en el árbol. */
+function cadenaHasta(arbol: AdminCategory[], id: string): AdminCategory[] {
+  for (const nodo of arbol) {
+    if (nodo.id === id) return [nodo];
+    const resto = cadenaHasta(nodo.children ?? [], id);
+    if (resto.length > 0) return [nodo, ...resto];
+  }
+  return [];
+}
+
+/**
+ * Fusiona un schema propio sobre lo heredado, con la misma regla que
+ * `resolveEffectiveSchema` del backend: hereda lo que no redefine, y lo propio
+ * gana por `name`. Se pliega sobre la cadena para obtener el efectivo a
+ * cualquier profundidad.
+ */
+function mergeEffectiveSchema(propio: AttributeSchema[], heredado: AttributeSchema[]): AttributeSchema[] {
+  if (heredado.length === 0) return propio;
+  const propios = new Set(propio.map((f) => f.name));
+  return [...heredado.filter((f) => !propios.has(f.name)), ...propio];
+}
 
 function toForm(cat: AdminCategoryChild): CategoryFormValues {
   return {
@@ -658,20 +711,29 @@ export default function AdminCategoriasPage() {
     setEditingId(null);
 
     if (parentId) {
-      const parent = categories.find((c) => c.id === parentId);
-      if (parent) {
-        setCreateParentName(parent.name);
-        // Parent is a root category → its effective schema = its own schema
-        setCreateInherited(parseAttributeSchema(parent.attributeSchema as unknown[]) as AttributeSchema[]);
+      // PROFUNDIDAD N — RÁFAGA 2. Lo heredado es el PLIEGUE de la cadena del
+      // padre, no su schema propio. Antes se hardcodeaba «el padre es una raíz →
+      // su efectivo es el suyo», cierto solo mientras el árbol tuviera 2
+      // niveles: al crear bajo un nivel 3, el admin veía un «heredarás X» FALSO
+      // que omitía todo lo del abuelo.
+      const cadena = cadenaHasta(categories, parentId);
+      const padre = cadena.at(-1);
+      if (padre) {
+        setCreateParentName(padre.name);
+        setCreateInherited(
+          cadena.reduce<AttributeSchema[]>(
+            (acc, nodo) =>
+              mergeEffectiveSchema(parseAttributeSchema(nodo.attributeSchema as unknown[]) as AttributeSchema[], acc),
+            [],
+          ),
+        );
       }
     }
   }
 
   /** Nace al final de su nivel (raíces, o hijos del padre elegido) — nunca colisiona. */
   function nextOrderFor(parentId: string | null): number {
-    const siblings = parentId
-      ? categories.find((c) => c.id === parentId)?.children ?? []
-      : categories;
+    const siblings = parentId ? buscarEnArbol(categories, parentId)?.children ?? [] : categories;
     if (siblings.length === 0) return 0;
     return Math.max(...siblings.map((c) => c.order)) + 1;
   }
@@ -723,20 +785,28 @@ export default function AdminCategoriasPage() {
 
   // ── Reorder ─────────────────────────────────────────────────────────────────
 
-  async function moveRoot(catId: string, dir: 'up' | 'down') {
-    const sorted = [...categories].sort((a, b) => a.order - b.order);
+  /**
+   * PROFUNDIDAD N — RÁFAGA 2. UNA sola función de reordenar, para cualquier
+   * nivel. Antes eran dos (`moveRoot` y `moveChild`) porque los únicos dos
+   * niveles posibles tenían formas distintas de llegar a los hermanos.
+   *
+   * Reordenar es siempre lo mismo: intercambiar el `order` de dos HERMANOS. Los
+   * hermanos son las raíces si el nodo es raíz, y los `children` de su padre si
+   * no. `siblings` llega ya resuelto desde el render, que es quien recorre el
+   * árbol.
+   */
+  async function moveEntreHermanos(
+    siblings: AdminCategory[],
+    catId: string,
+    dir: 'up' | 'down',
+  ) {
+    const sorted = [...siblings].sort((a, b) => a.order - b.order);
     const idx = sorted.findIndex((c) => c.id === catId);
     const neighborIdx = dir === 'up' ? idx - 1 : idx + 1;
-    if (neighborIdx < 0 || neighborIdx >= sorted.length) return;
+    if (idx < 0 || neighborIdx < 0 || neighborIdx >= sorted.length) return;
 
     const aOrder = sorted[idx].order;
     const bOrder = sorted[neighborIdx].order;
-    const swapped = sorted.map((c) => {
-      if (c.id === sorted[idx].id) return { ...c, order: bOrder };
-      if (c.id === sorted[neighborIdx].id) return { ...c, order: aOrder };
-      return c;
-    });
-    setCategories(swapped.sort((a, b) => a.order - b.order));
 
     if (reordering) return;
     setReordering(true);
@@ -745,43 +815,10 @@ export default function AdminCategoriasPage() {
         { id: sorted[idx].id, order: bOrder },
         { id: sorted[neighborIdx].id, order: aOrder },
       ]);
-    } catch {
+      // Se recarga en vez de mutar el estado a mano: con N niveles el nodo puede
+      // estar a cualquier profundidad, y reconstruir el árbol en el cliente sólo
+      // para adelantar el repintado duplicaría la lógica del servidor.
       await fetchCategories();
-    } finally {
-      setReordering(false);
-    }
-  }
-
-  async function moveChild(parentId: string, childId: string, dir: 'up' | 'down') {
-    const parent = categories.find((c) => c.id === parentId);
-    if (!parent) return;
-    const sorted = [...parent.children].sort((a, b) => a.order - b.order);
-    const idx = sorted.findIndex((c) => c.id === childId);
-    const neighborIdx = dir === 'up' ? idx - 1 : idx + 1;
-    if (neighborIdx < 0 || neighborIdx >= sorted.length) return;
-
-    const aOrder = sorted[idx].order;
-    const bOrder = sorted[neighborIdx].order;
-    const updatedChildren = sorted.map((c) => {
-      if (c.id === sorted[idx].id) return { ...c, order: bOrder };
-      if (c.id === sorted[neighborIdx].id) return { ...c, order: aOrder };
-      return c;
-    });
-    setCategories((prev) =>
-      prev.map((c) =>
-        c.id === parentId
-          ? { ...c, children: updatedChildren.sort((a, b) => a.order - b.order) }
-          : c,
-      ),
-    );
-
-    if (reordering) return;
-    setReordering(true);
-    try {
-      await reorderAdminCategories(token!, [
-        { id: sorted[idx].id, order: bOrder },
-        { id: sorted[neighborIdx].id, order: aOrder },
-      ]);
     } catch {
       await fetchCategories();
     } finally {
@@ -790,6 +827,114 @@ export default function AdminCategoriasPage() {
   }
 
   // ── Render ──────────────────────────────────────────────────────────────────
+
+  /**
+   * PROFUNDIDAD N — RÁFAGA 2. Pinta un nivel del árbol y se llama a sí misma
+   * para el siguiente. `nivel` empieza en 1 (raíces) y sirve para dos cosas:
+   * la sangría (antes un booleano `indent`, que sólo sabía distinguir dos
+   * niveles) y decidir si esta fila puede tener hijos.
+   *
+   * El botón «Nueva subcategoría» aparece SÓLO si `nivel < CATEGORY_MAX_DEPTH`.
+   * Así el tope se ve donde se actúa: en el último nivel el botón simplemente no
+   * está, en vez de ofrecer una acción que el backend rechazaría con un 400
+   * (`assertMaxDepth` sigue siendo la guarda de verdad, para las llamadas
+   * directas a la API).
+   */
+  function renderNivel(nodos: AdminCategory[], nivel: number) {
+    const ordenados = [...nodos].sort((a, b) => a.order - b.order);
+    return ordenados.map((cat, idx) => (
+      <div
+        key={cat.id}
+        className={nivel === 1 ? 'rounded-md border bg-background p-3' : 'mt-2 space-y-1'}
+      >
+        <CategoryRow
+          cat={cat}
+          isFirst={idx === 0}
+          isLast={idx === ordenados.length - 1}
+          onMoveUp={() => moveEntreHermanos(ordenados, cat.id, 'up')}
+          onMoveDown={() => moveEntreHermanos(ordenados, cat.id, 'down')}
+          onEdit={() => {
+            // El padre inmediato, para el aviso de herencia del panel de edición.
+            const cadena = cadenaHasta(categories, cat.id);
+            const padre = cadena.at(-2);
+            startEdit(cat, padre ? { slug: padre.slug, name: padre.name } : undefined);
+          }}
+          onDelete={() => handleDelete(cat.id, cat.name)}
+          isEditing={editingId === cat.id}
+          isDeleting={deletingId === cat.id}
+          deleteError={deleteErrors[cat.id] ?? null}
+          editForm={editForm}
+          onEditChange={(v) => setEditForm((prev) => ({ ...prev, ...v }))}
+          onEditSave={handleEditSave}
+          onEditCancel={() => setEditingId(null)}
+          editSaving={editSaving}
+          editError={editError}
+          // Los hijos DIRECTOS, para el aviso de «esto rompería a una
+          // subcategoría». Ahora los recibe cualquier fila, no sólo una raíz.
+          schemaPanel={editingId === cat.id ? buildSchemaPanel(cat, cat.children) : null}
+          tagsPanel={
+            editingId === cat.id && token
+              ? { categoryId: cat.id, categoryName: cat.name, token }
+              : null
+          }
+          indent={nivel > 1}
+        />
+
+        {/* Descendientes: la misma función, un nivel más abajo. */}
+        {(cat.children?.length ?? 0) > 0 && (
+          <div className="mt-2 space-y-1">{renderNivel(cat.children, nivel + 1)}</div>
+        )}
+
+        {/* Formulario de creación colgando de ESTA fila */}
+        {createParentId === cat.id && (
+          <div className="mt-2 ml-6 pl-4 border-l">
+            <CategoryForm
+              title={`Nueva subcategoría de "${cat.name}"`}
+              values={createForm}
+              onChange={(v) => setCreateForm((prev) => ({ ...prev, ...v }))}
+              onSave={handleCreateSave}
+              onCancel={() => setCreateParentId(undefined)}
+              saving={createSaving}
+              error={createError}
+            />
+            <div className="mt-2 rounded-md border bg-muted/10 p-4">
+              <p className="mb-3 text-sm font-medium">Atributos</p>
+              {createInherited.length > 0 && (
+                <p className="mb-2 text-xs text-muted-foreground">
+                  La subcategoría heredará los atributos de <strong>{createParentName}</strong> y
+                  de sus categorías superiores. Aquí defines solo los suyos propios.
+                </p>
+              )}
+              <AttributeSchemaEditor
+                key={`create-${cat.id}`}
+                ownSchema={createOwnSchema}
+                inheritedFields={createInherited}
+                parentName={createParentName}
+                searchableKeys={searchableKeys}
+                onChange={setCreateOwnSchema}
+                onHasActiveEdit={setCreateSchemaHasActiveEdit}
+                disabled={createSaving}
+              />
+            </div>
+          </div>
+        )}
+
+        {nivel < CATEGORY_MAX_DEPTH && (
+          <div className="mt-2 ml-6">
+            <button
+              onClick={() =>
+                createParentId === cat.id ? setCreateParentId(undefined) : openCreate(cat.id)
+              }
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Plus className="h-3 w-3" />
+              Nueva subcategoría
+            </button>
+          </div>
+        )}
+      </div>
+    ));
+  }
 
   if (!token) {
     return (
@@ -887,123 +1032,12 @@ export default function AdminCategoriasPage() {
         </p>
       )}
 
-      {/* Category tree */}
-      <div className="space-y-3">
-        {categories.map((cat, catIdx) => (
-          <div key={cat.id} className="rounded-md border bg-background p-3">
-            {/* Parent row */}
-            <CategoryRow
-              cat={cat}
-              isFirst={catIdx === 0}
-              isLast={catIdx === categories.length - 1}
-              onMoveUp={() => moveRoot(cat.id, 'up')}
-              onMoveDown={() => moveRoot(cat.id, 'down')}
-              onEdit={() => startEdit(cat)}
-              onDelete={() => handleDelete(cat.id, cat.name)}
-              isEditing={editingId === cat.id}
-              isDeleting={deletingId === cat.id}
-              deleteError={deleteErrors[cat.id] ?? null}
-              editForm={editForm}
-              onEditChange={(v) => setEditForm((prev) => ({ ...prev, ...v }))}
-              onEditSave={handleEditSave}
-              onEditCancel={() => setEditingId(null)}
-              editSaving={editSaving}
-              editError={editError}
-              schemaPanel={editingId === cat.id ? buildSchemaPanel(cat, cat.children) : null}
-              tagsPanel={
-                editingId === cat.id && token
-                  ? { categoryId: cat.id, categoryName: cat.name, token }
-                  : null
-              }
-              indent={false}
-            />
-
-            {/* Children */}
-            {cat.children.length > 0 && (
-              <div className="mt-2 space-y-1">
-                {cat.children
-                  .slice()
-                  .sort((a, b) => a.order - b.order)
-                  .map((child, childIdx) => (
-                    <CategoryRow
-                      key={child.id}
-                      cat={child}
-                      isFirst={childIdx === 0}
-                      isLast={childIdx === cat.children.length - 1}
-                      onMoveUp={() => moveChild(cat.id, child.id, 'up')}
-                      onMoveDown={() => moveChild(cat.id, child.id, 'down')}
-                      onEdit={() => startEdit(child, { slug: cat.slug, name: cat.name })}
-                      onDelete={() => handleDelete(child.id, child.name)}
-                      isEditing={editingId === child.id}
-                      isDeleting={deletingId === child.id}
-                      deleteError={deleteErrors[child.id] ?? null}
-                      editForm={editForm}
-                      onEditChange={(v) => setEditForm((prev) => ({ ...prev, ...v }))}
-                      onEditSave={handleEditSave}
-                      onEditCancel={() => setEditingId(null)}
-                      editSaving={editSaving}
-                      editError={editError}
-                      schemaPanel={editingId === child.id ? buildSchemaPanel(child) : null}
-                      tagsPanel={
-                        editingId === child.id && token
-                          ? { categoryId: child.id, categoryName: child.name, token }
-                          : null
-                      }
-                      indent
-                    />
-                  ))}
-              </div>
-            )}
-
-            {/* Subcategory create form */}
-            {createParentId === cat.id && (
-              <div className="mt-2 ml-6 pl-4 border-l">
-                <CategoryForm
-                  title={`Nueva subcategoría de "${cat.name}"`}
-                  values={createForm}
-                  onChange={(v) => setCreateForm((prev) => ({ ...prev, ...v }))}
-                  onSave={handleCreateSave}
-                  onCancel={() => setCreateParentId(undefined)}
-                  saving={createSaving}
-                  error={createError}
-                />
-                <div className="mt-2 rounded-md border bg-muted/10 p-4">
-                  <p className="mb-3 text-sm font-medium">Atributos</p>
-                  {createInherited.length > 0 && (
-                    <p className="mb-2 text-xs text-muted-foreground">
-                      La subcategoría heredará los atributos de <strong>{createParentName}</strong>.
-                      Aquí defines solo los suyos propios.
-                    </p>
-                  )}
-                  <AttributeSchemaEditor
-                    key={`create-${cat.id}`}
-                    ownSchema={createOwnSchema}
-                    inheritedFields={createInherited}
-                    parentName={createParentName}
-                    searchableKeys={searchableKeys}
-                    onChange={setCreateOwnSchema}
-                    onHasActiveEdit={setCreateSchemaHasActiveEdit}
-                    disabled={createSaving}
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Add subcategory button */}
-            <div className="mt-2 ml-6">
-              <button
-                onClick={() =>
-                  createParentId === cat.id ? setCreateParentId(undefined) : openCreate(cat.id)
-                }
-                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <Plus className="h-3 w-3" />
-                Nueva subcategoría
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
+      {/* PROFUNDIDAD N — RÁFAGA 2. Árbol RECURSIVO.
+          Antes eran dos bucles anidados escritos a mano (raíces → hijas), que es
+          el 2-niveles cableado en el JSX: una categoría de nivel 3 no se
+          pintaba. `renderNivel` se llama a sí misma, así que sirve cualquier
+          profundidad; el tope de CREACIÓN lo pone `CATEGORY_MAX_DEPTH`. */}
+      <div className="space-y-3">{renderNivel(categories, 1)}</div>
     </div>
   );
 }

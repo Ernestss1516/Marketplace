@@ -31,6 +31,18 @@ function buildService(prismaOverrides: Record<string, unknown> = {}) {
   };
   const auditLog = { log: jest.fn().mockResolvedValue(undefined) };
   const indexingQueue = { add: jest.fn().mockResolvedValue(undefined) };
+  // PROFUNDIDAD N — RÁFAGA 2: mantenimiento de fixture por cambio de MECANISMO.
+  // Los guards «hacia abajo» ya no preguntan a Prisma por los hijos directos
+  // (`where: { parentId }`): piden los DESCENDIENTES al único lector de la
+  // jerarquía. Lo que este spec comprueba —que el chequeo caro sólo corre cuando
+  // la política CAMBIA de verdad— no cambia; cambia dónde se observa.
+  const categoryTree = {
+    invalidate: jest.fn(),
+    getDescendantIds: jest.fn().mockResolvedValue([]),
+    getChildren: jest.fn().mockResolvedValue([]),
+    getAncestorChain: jest.fn().mockResolvedValue([]),
+    getDepth: jest.fn().mockResolvedValue(1),
+  };
 
   const service = new AdminService(
     prisma as unknown as PrismaService,
@@ -38,14 +50,11 @@ function buildService(prismaOverrides: Record<string, unknown> = {}) {
     {} as MeilisearchService,
     auditLog as unknown as AuditLogService,
     {} as FilterableAttributesResolver,
-    // PROFUNDIDAD N — RÁFAGA 1: mantenimiento de fixture por cambio de FIRMA.
-    // Este spec ejercita los guards de política, que no recorren la jerarquía;
-    // `invalidate` es lo único que AdminService le pide en estos caminos.
-    { invalidate: jest.fn() } as unknown as CategoryTreeService,
+    categoryTree as unknown as CategoryTreeService,
     indexingQueue as never,
   );
 
-  return { service, prisma, auditLog, indexingQueue };
+  return { service, prisma, auditLog, indexingQueue, categoryTree };
 }
 
 describe('AdminService — refresco en caliente encolado solo cuando cambia attributeSchema', () => {
@@ -98,43 +107,38 @@ describe('AdminService — refresco en caliente encolado solo cuando cambia attr
 
 describe('AdminService — el chequeo "hacia abajo" solo consulta hijos/anuncios si la política REALMENTE cambia', () => {
   it('editar name/schema sin allowedListingType → NO consulta listing.count (el chequeo de política no corre)', async () => {
-    const { service, prisma } = buildService();
+    const { service, prisma, categoryTree } = buildService();
 
     await service.updateCategory('cat-1', 'actor-1', {
       name: 'Renombrada',
       attributeSchema: [{ name: 'brand', label: 'Marca', type: 'text', filterable: true, required: false }],
     });
 
-    // category.findMany SÍ se llama ahora — no por el chequeo de política (que este
-    // test verifica que no corre), sino por assertCardAttributeChangeDoesNotBreakChildren
+    // Los descendientes SÍ se piden — no por el chequeo de política (que este test
+    // verifica que no corre), sino por assertCardAttributeChangeDoesNotBreakChildren
     // (ATRIBUTOS EN CARD, bug 2): editar attributeSchema siempre comprueba si el
-    // cambio rompería el tope de card de alguna hija existente. Ambos chequeos
-    // llaman a category.findMany por razones distintas; listing.count sigue siendo
+    // cambio rompería el tope de card de algún descendiente. Los dos chequeos
+    // recorren la descendencia por razones distintas; `listing.count` sigue siendo
     // exclusivo del chequeo de política, y por eso sigue sin llamarse aquí.
-    expect(prisma.category.findMany).toHaveBeenCalledWith({
-      where: { parentId: 'cat-1' },
-      select: { id: true, name: true, attributeSchema: true },
-    });
+    expect(categoryTree.getDescendantIds).toHaveBeenCalledWith('cat-1');
     expect(prisma.listing.count).not.toHaveBeenCalled();
   });
 
-  it('enviar allowedListingType IGUAL al ya persistido (BOTH → BOTH) → NO consulta children ni listing.count', async () => {
-    const { service, prisma } = buildService(); // findUnique mock persiste allowedListingType: 'BOTH'
+  it('enviar allowedListingType IGUAL al ya persistido (BOTH → BOTH) → NO consulta descendientes ni listing.count', async () => {
+    const { service, prisma, categoryTree } = buildService(); // findUnique mock persiste allowedListingType: 'BOTH'
 
     await service.updateCategory('cat-1', 'actor-1', { allowedListingType: 'BOTH' });
 
-    expect(prisma.category.findMany).not.toHaveBeenCalled();
+    expect(categoryTree.getDescendantIds).not.toHaveBeenCalled();
     expect(prisma.listing.count).not.toHaveBeenCalled();
   });
 
-  it('cambiar la política de verdad (BOTH → PRODUCT_ONLY) → SÍ consulta children y listing.count', async () => {
-    const { service, prisma } = buildService();
+  it('cambiar la política de verdad (BOTH → PRODUCT_ONLY) → SÍ consulta descendientes y listing.count', async () => {
+    const { service, prisma, categoryTree } = buildService();
 
     await service.updateCategory('cat-1', 'actor-1', { allowedListingType: 'PRODUCT_ONLY' });
 
-    expect(prisma.category.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { parentId: 'cat-1' } }),
-    );
+    expect(categoryTree.getDescendantIds).toHaveBeenCalledWith('cat-1');
     expect(prisma.listing.count).toHaveBeenCalled();
   });
 

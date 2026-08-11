@@ -59,35 +59,76 @@ export function CategorySelect({
       aria-label="Categoría"
     >
       <option value="">Todas las categorías</option>
-      {categories.map((cat) =>
-        cat.children && cat.children.length > 0 ? (
-          <optgroup key={cat.slug} label={cat.name}>
-            <option value={cat.slug}>Todo en {cat.name}</option>
-            {cat.children.map((child) => (
-              <option key={child.slug} value={child.slug}>{child.name}</option>
-            ))}
-          </optgroup>
-        ) : (
-          <option key={cat.slug} value={cat.slug}>{cat.name}</option>
-        ),
-      )}
+      {aplanar(categories).map(({ slug, etiqueta }) => (
+        <option key={slug} value={slug}>
+          {etiqueta}
+        </option>
+      ))}
     </select>
   );
 }
 
+/** Separador del path aplanado. Contenido de cara al usuario. */
+const SEPARADOR = ' › ';
+
+/**
+ * PROFUNDIDAD N — RÁFAGA 2. Aplana el árbol a una lista de opciones con el PATH
+ * completo como etiqueta: «Vehículos › Coches › Deportivos».
+ *
+ * POR QUÉ ASÍ Y NO CON `<optgroup>` ANIDADOS: el estándar HTML **no permite
+ * anidar optgroup**, así que un `<select>` nativo expresa como mucho DOS niveles
+ * de agrupación. No es una limitación del componente: con 4 niveles no hay
+ * forma de representarlo agrupando.
+ *
+ * Y por qué path aplanado y no un navegador por niveles (como `StepCategoria`
+ * del wizard, que sí lo es): son casos de uso distintos. Publicar es ELEGIR una
+ * categoría explorando; filtrar aquí es SALTAR a una que ya conoces, y para eso
+ * una lista plana —buscable con el teclado del navegador, con toda la
+ * profundidad visible de un vistazo— gana a navegar tres niveles.
+ *
+ * El orden es el del árbol (cada rama entera antes de la siguiente), así que las
+ * categorías de 2 niveles se siguen leyendo exactamente igual que antes.
+ */
+function aplanar(
+  nodos: Category[],
+  prefijo: string[] = [],
+): Array<{ slug: string; etiqueta: string }> {
+  return nodos.flatMap((cat) => {
+    const ruta = [...prefijo, cat.name];
+    return [
+      { slug: cat.slug, etiqueta: ruta.join(SEPARADOR) },
+      ...aplanar(cat.children ?? [], ruta),
+    ];
+  });
+}
+
 /** Localiza la categoría destino en el árbol y devuelve lo que necesita el carry:
- *  su slug, el del padre (para la URL canónica) y su política de tipo (para `condition`). */
+ *  su slug, el del padre (para la URL canónica) y su política de tipo (para `condition`).
+ *
+ *  PROFUNDIDAD N — RÁFAGA 2: la búsqueda es recursiva. `parentSlug` sigue siendo
+ *  el del padre INMEDIATO: es lo que `categoryPath()` consume hoy, y las URLs
+ *  profundas son RÁFAGA 3. */
 function findTarget(tree: Category[], slug: string) {
-  for (const root of tree) {
-    if (root.slug === slug) {
-      return { slug: root.slug, parentSlug: null, allowedListingType: root.allowedListingType };
-    }
-    const child = (root.children ?? []).find((c) => c.slug === slug);
-    if (child) {
-      return { slug: child.slug, parentSlug: root.slug, allowedListingType: child.allowedListingType };
-    }
+  const cadena = cadenaHasta(tree, slug);
+  if (cadena.length === 0) {
+    // Slug fuera del árbol: no debería pasar (las opciones salen del propio árbol).
+    // Se navega igual, sin padre — el middleware canonicaliza si hace falta.
+    return { slug, parentSlug: null, allowedListingType: undefined };
   }
-  // Slug fuera del árbol: no debería pasar (las opciones salen del propio árbol).
-  // Se navega igual, sin padre — el middleware canonicaliza si hace falta.
-  return { slug, parentSlug: null, allowedListingType: undefined };
+  const destino = cadena[cadena.length - 1];
+  return {
+    slug: destino.slug,
+    parentSlug: cadena.at(-2)?.slug ?? null,
+    allowedListingType: destino.allowedListingType,
+  };
+}
+
+/** Cadena raíz→categoría (incluida). `[]` si el slug no está en el árbol. */
+function cadenaHasta(nodos: Category[], slug: string): Category[] {
+  for (const cat of nodos) {
+    if (cat.slug === slug) return [cat];
+    const resto = cadenaHasta(cat.children ?? [], slug);
+    if (resto.length > 0) return [cat, ...resto];
+  }
+  return [];
 }

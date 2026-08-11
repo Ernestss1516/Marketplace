@@ -3,6 +3,11 @@ import type { Index } from 'meilisearch';
 import type { Listing, ListingImage, Entitlement } from '@prisma/client';
 import { MeilisearchService } from '../../infra/meilisearch/meilisearch.service';
 import { FilterableAttributesResolver } from './filterable-attributes.resolver';
+import {
+  CategoryTreeService,
+  ancestorChainIn,
+  type CategoryNode,
+} from '../categories/category-tree.service';
 
 export const LISTINGS_INDEX = process.env.MEILI_INDEX_NAME ?? 'listings';
 
@@ -284,6 +289,9 @@ export class SearchService implements OnModuleInit {
   constructor(
     private readonly meili: MeilisearchService,
     private readonly attributesResolver: FilterableAttributesResolver,
+    // PROFUNDIDAD N — RÁFAGA 2: `categoryPath` se construye desde la CADENA de
+    // ancestros, no desde el `parent` de un nivel del include.
+    private readonly categoryTree: CategoryTreeService,
   ) {
     this.index = this.meili.client.index<ListingDocument>(LISTINGS_INDEX);
   }
@@ -355,7 +363,9 @@ export class SearchService implements OnModuleInit {
     // Without it, addDocuments() is fire-and-forget: the BullMQ job completes but
     // Meilisearch may not have processed the task yet, causing tests (and real
     // users) to see a stale index for a brief but unpredictable window.
-    const task = await this.index.addDocuments([this.toDocument(listing)]);
+    const task = await this.index.addDocuments([
+      this.toDocument(listing, await this.categoryTree.getFreshSnapshot()),
+    ]);
     await this.meili.client.waitForTask(task.taskUid);
   }
 
@@ -379,11 +389,47 @@ export class SearchService implements OnModuleInit {
    * Used by the reindex command and, in the future, by admin-triggered reindexing.
    */
   async reindexAll(listings: ListingWithRelations[]): Promise<void> {
+    // Una sola foto del árbol para todo el lote: `categoryPath` de N niveles
+    // necesita la jerarquía, y pedirla por anuncio sería una consulta por
+    // documento en el camino de `pnpm reindex`.
+    const arbol = await this.categoryTree.getFreshSnapshot();
     const docs = listings
       .filter((l) => l.status === 'ACTIVE')
-      .map((l) => this.toDocument(l));
+      .map((l) => this.toDocument(l, arbol));
     if (docs.length === 0) return;
     await this.index.addDocuments(docs);
+  }
+
+  /**
+   * PROFUNDIDAD N — RÁFAGA 2. Reindexa los anuncios de una categoría y de TODOS
+   * sus descendientes.
+   *
+   * POR QUÉ EXISTE Y CUÁNDO SE USA. `categoryPath` es la cadena de ancestros del
+   * anuncio, así que cambia cuando cambia la jerarquía por encima de él. Para el
+   * árbol que ya existe (1-2 niveles) el path calculado con la cadena es
+   * BYTE-IDÉNTICO al que se venía escribiendo, así que desplegar esta ráfaga no
+   * obliga a reindexar nada. Lo que sí lo obliga es crear una categoría a
+   * profundidad ≥3: a partir de ahí hay documentos cuyo path tiene más de dos
+   * elementos.
+   *
+   * ACOTADO A LA SUBCADENA, no global: reindexar el catálogo entero por crear
+   * una subcategoría sería desproporcionado, y los anuncios de otras ramas no
+   * han cambiado de path.
+   *
+   * Devuelve cuántos documentos se han reescrito (0 = no había nada que tocar).
+   */
+  async reindexCategorySubtree(categoryIds: string[], listings: ListingWithRelations[]): Promise<number> {
+    if (categoryIds.length === 0 || listings.length === 0) return 0;
+    const arbol = await this.categoryTree.getFreshSnapshot();
+    const docs = listings
+      .filter((l) => l.status === 'ACTIVE')
+      .map((l) => this.toDocument(l, arbol));
+    if (docs.length === 0) return 0;
+    // waitForTask por el mismo motivo que en indexListing: sin él, quien
+    // dispara el reindexado no sabe cuándo los documentos son consultables.
+    const task = await this.index.addDocuments(docs);
+    await this.meili.client.waitForTask(task.taskUid);
+    return docs.length;
   }
 
   // --------------------------------------------------------------------------
@@ -489,7 +535,15 @@ export class SearchService implements OnModuleInit {
     return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   }
 
-  private toDocument(listing: ListingWithRelations): ListingDocument {
+  /**
+   * `arbol` es la foto de la jerarquía desde la que se construye `categoryPath`.
+   * Se pasa como parámetro en vez de pedirla aquí para que un lote (reindexAll,
+   * reindexCategorySubtree) la resuelva UNA vez y no una por documento.
+   */
+  private toDocument(
+    listing: ListingWithRelations,
+    arbol: ReadonlyMap<string, CategoryNode>,
+  ): ListingDocument {
     const attributes = (listing.attributes as Record<string, unknown>) ?? {};
     const thumbnail = listing.images.find((img) => img.order === 0) ?? listing.images[0];
 
@@ -510,10 +564,24 @@ export class SearchService implements OnModuleInit {
       categoryId: listing.category.id,
       categorySlug: listing.category.slug,
       categoryName: listing.category.name,
-      categoryPath: [
-        listing.category.slug,
-        ...(listing.category.parent ? [listing.category.parent.slug] : []),
-      ],
+      // PROFUNDIDAD N — RÁFAGA 2. La cadena COMPLETA de ancestros, de la hoja
+      // hacia la raíz. Antes era un literal de 1-2 elementos construido desde el
+      // `parent` del include, que sólo llegaba un nivel.
+      //
+      // BYTE-IDÉNTICO PARA LO QUE YA EXISTE: para una hoja de nivel 2 la cadena
+      // es [raíz, hoja] y esto produce [hoja, raíz] — exactamente lo de antes;
+      // para una raíz, [raíz]. Por eso desplegar esto no obliga a reindexar.
+      //
+      // Se invierte AQUÍ, de forma visible, porque `getAncestorChain` sirve
+      // siempre raíz→hoja (el orden en el que se pliega la herencia) y este
+      // campo se ha leído siempre en el orden contrario.
+      //
+      // El FILTRO no cambia: `categoryPath = "slug"` es contención en array en
+      // Meilisearch, así que filtrar por un ancestro sigue trayendo toda su
+      // descendencia sea cual sea la profundidad.
+      categoryPath: ancestorChainIn(arbol, listing.category.id)
+        .map((n) => n.slug)
+        .reverse(),
       province: listing.province,
       city: listing.city,
       ...(listing.latitude != null && listing.longitude != null

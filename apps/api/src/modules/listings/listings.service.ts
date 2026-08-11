@@ -948,14 +948,24 @@ export class ListingsService {
     // por `categoryPath = slug`, y categoryPath es [slugHoja, slugPadre], así que
     // navegar el padre SÍ agrega las hijas.
     //
-    // El OR de aquí es el equivalente en Postgres de ese categoryPath, con el mismo
-    // supuesto de 2 niveles (hoja → padre) que todo lo demás. Para una categoría hoja
-    // la segunda rama no casa con nada y el resultado es idéntico al de antes.
+    // PROFUNDIDAD N — RÁFAGA 2. El equivalente en Postgres de ese categoryPath.
+    // Era un `OR: [{slug}, {parent: {slug}}]` de DOS niveles; ahora es la
+    // categoría más TODOS sus descendientes, a cualquier profundidad. Sin esto,
+    // con Meilisearch caído una raíz mostraría los anuncios de sus hijas pero no
+    // los de sus nietas — el fallback volvería a no reproducir lo que reemplaza,
+    // que es justo el bug que este OR vino a cerrar en su día.
+    //
+    // Para un árbol de 2 niveles el resultado es idéntico al anterior: los
+    // descendientes de una raíz son exactamente sus hijas.
+    const cadena = await this.categoryTree.getAncestorChainBySlug(categorySlug);
+    const objetivo = cadena[cadena.length - 1];
+    const categoryIds = objetivo
+      ? [objetivo.id, ...(await this.categoryTree.getDescendantIds(objetivo.id))]
+      : [];
     const where = {
       status: 'ACTIVE' as const,
-      category: {
-        OR: [{ slug: categorySlug }, { parent: { slug: categorySlug } }],
-      },
+      // Slug desconocido → lista vacía, igual que antes (el OR no casaba con nada).
+      categoryId: { in: categoryIds },
     };
     const [rows, total] = await this.prisma.$transaction([
       this.prisma.listing.findMany({
