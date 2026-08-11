@@ -6,9 +6,10 @@ import { MeilisearchModule } from '../../infra/meilisearch/meilisearch.module';
 import { SponsoredAdsModule } from '../sponsored-ads/sponsored-ads.module';
 import { ReviewsModule } from '../reviews/reviews.module';
 import { TagsModule } from '../tags/tags.module';
+import { CategoryTreeModule } from '../categories/category-tree.module';
 
 @Module({
-  imports: [MeilisearchModule, SponsoredAdsModule, ReviewsModule, TagsModule],
+  imports: [MeilisearchModule, SponsoredAdsModule, ReviewsModule, TagsModule, CategoryTreeModule],
   controllers: [SearchController],
   providers: [SearchService, FilterableAttributesResolver],
   exports: [SearchService, FilterableAttributesResolver],

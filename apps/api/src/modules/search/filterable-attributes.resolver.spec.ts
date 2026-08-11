@@ -1,21 +1,60 @@
 import { Logger } from '@nestjs/common';
 import { FilterableAttributesResolver } from './filterable-attributes.resolver';
+import { CategoryTreeService } from '../categories/category-tree.service';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 
-function makeResolver(categories: Array<{ attributeSchema: unknown }>) {
+/**
+ * PROFUNDIDAD N — RÁFAGA 1. Mantenimiento de FIXTURE por cambio de FIRMA:
+ * el resolver ya no consulta Prisma, sino que pide la jerarquía a
+ * `CategoryTreeService` (el único lector). Se le da un `CategoryTreeService`
+ * REAL sobre el mismo Prisma mockeado, en vez de mockear el árbol: así estas
+ * pruebas siguen ejerciendo la resolución de verdad —incluida la cadena— y no
+ * un doble que podría diverger de ella. **Ninguna aserción cambia.**
+ *
+ * Las filas del mock pasan de `{ slug, parent: { slug } }` a `{ id, parentId }`
+ * por el mismo motivo: es lo que selecciona el lector.
+ */
+function makeTree(rows: Array<Record<string, unknown>>) {
   const prisma = {
-    category: { findMany: jest.fn().mockResolvedValue(categories) },
+    category: { findMany: jest.fn().mockResolvedValue(rows) },
   } as unknown as PrismaService;
-  return { resolver: new FilterableAttributesResolver(prisma), prisma };
+  return { tree: new CategoryTreeService(prisma), prisma };
+}
+
+function makeResolver(categories: Array<{ attributeSchema: unknown }>) {
+  const { tree, prisma } = makeTree(
+    categories.map((c, i) => ({
+      id: `c${i}`,
+      slug: `c${i}`,
+      name: `c${i}`,
+      parentId: null,
+      allowedViews: [],
+      defaultView: null,
+      allowedPriceUnits: [],
+      allowedListingType: 'BOTH',
+      ...c,
+    })),
+  );
+  return { resolver: new FilterableAttributesResolver(tree), prisma };
 }
 
 function makeResolverWithSlugs(
   categories: Array<{ slug: string; parent?: { slug: string } | null; attributeSchema: unknown }>,
 ) {
-  const prisma = {
-    category: { findMany: jest.fn().mockResolvedValue(categories) },
-  } as unknown as PrismaService;
-  return { resolver: new FilterableAttributesResolver(prisma), prisma };
+  const { tree, prisma } = makeTree(
+    categories.map((c) => ({
+      id: c.slug,
+      slug: c.slug,
+      name: c.slug,
+      parentId: c.parent?.slug ?? null,
+      allowedViews: [],
+      defaultView: null,
+      allowedPriceUnits: [],
+      allowedListingType: 'BOTH',
+      attributeSchema: c.attributeSchema,
+    })),
+  );
+  return { resolver: new FilterableAttributesResolver(tree), prisma };
 }
 
 describe('FilterableAttributesResolver', () => {

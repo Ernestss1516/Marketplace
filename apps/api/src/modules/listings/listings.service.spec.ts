@@ -11,6 +11,7 @@ import type { MessagingService } from '../messaging/messaging.service';
 import type { NotificationsService } from '../notifications/notifications.service';
 import type { ReviewsService } from '../reviews/reviews.service';
 import type { TagsService } from '../tags/tags.service';
+import type { CategoryTreeService } from '../categories/category-tree.service';
 import type { CreateListingDto } from './dto/create-listing.dto';
 
 function p2002(): Prisma.PrismaClientKnownRequestError {
@@ -71,6 +72,26 @@ describe('ListingsService.create — reintento de slug ante P2002', () => {
       // B2 — este spec va del reintento de slug, no de los tags: el dto no los lleva,
       // así que basta con que la resolución devuelva la lista vacía.
       { resolveTagsForListing: jest.fn().mockResolvedValue([]) } as unknown as TagsService,
+      // PROFUNDIDAD N — RÁFAGA 1: mantenimiento de fixture por cambio de FIRMA.
+      // create() ya no consulta la categoría por Prisma: pide su CADENA de
+      // ancestros al único lector. Este spec va del reintento de slug ante un
+      // P2002, así que basta una cadena de un nodo con la misma forma que antes
+      // devolvía el `findUnique` mockeado. Ninguna aserción cambia.
+      {
+        getAncestorChain: jest.fn().mockResolvedValue([
+          {
+            id: 'cat-1',
+            slug: 'bicicletas',
+            name: 'Bicicletas',
+            parentId: null,
+            attributeSchema: [],
+            allowedListingType: 'BOTH',
+            allowedViews: [],
+            defaultView: null,
+            allowedPriceUnits: [],
+          },
+        ]),
+      } as unknown as CategoryTreeService,
     );
     errorSpy = jest.spyOn((service as unknown as { logger: { error: (...a: unknown[]) => void } }).logger, 'error');
   });

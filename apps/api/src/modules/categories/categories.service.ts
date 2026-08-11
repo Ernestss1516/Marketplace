@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { TagsService } from '../tags/tags.service';
 import { resolveEffectiveTags } from '../tags/tag.types';
+import { CategoryTreeService } from './category-tree.service';
 import {
   AttributeField,
   resolveEffectiveSchema,
@@ -10,13 +11,16 @@ import {
   resolveEffectivePriceUnits,
   resolveShowLabel,
   resolveShowUnit,
+  type EffectiveViews,
 } from './category.types';
+import type { ListingTypePolicy, PriceUnit } from '@prisma/client';
 
 @Injectable()
 export class CategoriesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tagsService: TagsService,
+    private readonly tree: CategoryTreeService,
   ) {}
 
   async findTree() {
@@ -55,8 +59,14 @@ export class CategoriesService {
       },
     });
 
-    return roots.map((root) => {
-      const rootSchema = (root.attributeSchema as unknown as AttributeField[]) ?? [];
+    // PROFUNDIDAD N — RÁFAGA 1. La FORMA de esta respuesta sigue siendo de 2
+    // niveles (raíces + `children`) y eso se generaliza en la RÁFAGA 3, que es
+    // la que enseña el árbol completo al frontend. Lo que sí se generaliza aquí
+    // es la HERENCIA: cada nodo resuelve plegando su cadena completa, no
+    // fusionando con su padre. Para un árbol de 2 niveles las dos cosas dan el
+    // mismo resultado — por eso esta ráfaga no cambia nada observable.
+    return Promise.all(roots.map(async (root) => {
+      const rootSchema = await this.efectivoSchema(root.id);
       const toAttrDef = (f: AttributeField) => ({
         key: f.name,
         label: f.label,
@@ -92,11 +102,10 @@ export class CategoriesService {
         // anuncio concreto que renderiza — antes se perdía aquí y ninguna card lo filtraba.
         ...(f.appliesTo !== undefined ? { appliesTo: f.appliesTo } : {}),
       });
-      // A2 — política EFECTIVA, misma resolución en dos pasos que findBySlug: la raíz
-      // resuelve contra 'BOTH' (no tiene padre) y la hija contra el efectivo de la raíz.
-      // El frontend la usa para decidir si `condition` sobrevive al cambiar de categoría
-      // (un servicio no tiene estado de conservación) — ver lib/filter-carry.ts.
-      const rootPolicy = resolveEffectivePolicy(root.allowedListingType, 'BOTH');
+      // A2 — política EFECTIVA. El frontend la usa para decidir si `condition`
+      // sobrevive al cambiar de categoría (un servicio no tiene estado de
+      // conservación) — ver lib/filter-carry.ts.
+      const rootPolicy = await this.efectivaPolitica(root.id);
       return {
         id: root.id,
         name: root.name,
@@ -110,9 +119,8 @@ export class CategoriesService {
         allAttributes: rootSchema.map(toAttrDef),
         // B3 — una raíz no hereda de nadie: sus efectivos son los suyos.
         tags: root.tags.map((t) => t.tag),
-        children: root.children.map((child) => {
-          const childSchema = (child.attributeSchema as unknown as AttributeField[]) ?? [];
-          const effective = resolveEffectiveSchema(childSchema, rootSchema);
+        children: await Promise.all(root.children.map(async (child) => {
+          const effective = await this.efectivoSchema(child.id);
           return {
             id: child.id,
             name: child.name,
@@ -124,7 +132,7 @@ export class CategoriesService {
             // cuenta y podrían divergir. Las raíces NO lo llevan (ausente = raíz).
             parentSlug: root.slug,
             iconUrl: child.iconUrl,
-            allowedListingType: resolveEffectivePolicy(child.allowedListingType, rootPolicy),
+            allowedListingType: await this.efectivaPolitica(child.id),
             cardAttributes: effective.filter((f) => f.cardAttribute).map(toAttrDef),
             wideCardAttributes: effective.filter((f) => f.wideCardAttribute).map(toAttrDef),
             allAttributes: effective.map(toAttrDef),
@@ -132,14 +140,77 @@ export class CategoriesService {
             // resolución (y el mismo orden: propios primero) que
             // `TagsService.effectiveTagsForCategory`. Se resuelve aquí y no en el
             // cliente para que la herencia tenga un solo sitio donde vivir.
+            //
+            // PROFUNDIDAD N — RÁFAGA 1: esta es la ÚNICA resolución que aquí
+            // sigue siendo de un salto, y NO es un olvido. La FORMA de esta
+            // respuesta es de 2 niveles (raíces + `children`), así que los
+            // únicos nodos que devuelve son de nivel 1 y 2 — y para ellos «los
+            // del padre» ES la cadena entera. Cuando la RÁFAGA 3 haga el árbol
+            // recursivo, esto pasa a plegarse como los demás; hasta entonces un
+            // nivel 3 no se devuelve en absoluto, así que no puede devolverse
+            // mal. Los tags no viajan en `CategoryNode` (viven en tablas
+            // aparte), por eso no sale del mismo pliegue que el schema.
             tags: resolveEffectiveTags(
               child.tags.map((t) => t.tag),
               root.tags.map((t) => t.tag),
             ),
           };
-        }),
+        })),
       };
-    });
+    }));
+  }
+
+  // ---------------------------------------------------------------------------
+  // PROFUNDIDAD N — RÁFAGA 1: los pliegues
+  //
+  // Las 5 funciones de resolución son REDUCTORES `(propio, efectivoDelPadre) →
+  // efectivo`. Sus cuerpos NO cambian con N niveles: lo que cambia es que en vez
+  // de invocarlas UNA vez (padre → hijo) se PLIEGAN sobre la cadena raíz→hoja
+  // que da `CategoryTreeService`.
+  //
+  // Con un árbol de 2 niveles el pliegue da EXACTAMENTE el mismo resultado que
+  // la resolución en dos pasos que había antes (la cadena de una raíz es
+  // `[raíz]`, la de una hija `[raíz, hija]`) — por eso esta ráfaga no cambia
+  // nada observable. Con 4 niveles, el bisnieto hereda del abuelo.
+  //
+  // El patrón anterior —resolver el padre contra `null` y luego el hijo contra
+  // el efectivo del padre, escrito a mano en cada llamante— DESAPARECE. Si
+  // sobreviviera en algún sitio, ese sitio heredaría de un solo nivel sin dar
+  // ningún error: es exactamente el riesgo R1, y por eso los pliegues viven
+  // aquí y no repartidos.
+  // ---------------------------------------------------------------------------
+
+  private async efectivoSchema(categoryId: string): Promise<AttributeField[]> {
+    const cadena = await this.tree.getAncestorChain(categoryId);
+    return cadena.reduce<AttributeField[]>(
+      (acc, nodo) => resolveEffectiveSchema(nodo.attributeSchema, acc),
+      [],
+    );
+  }
+
+  private async efectivaPolitica(categoryId: string): Promise<ListingTypePolicy> {
+    const cadena = await this.tree.getAncestorChain(categoryId);
+    return cadena.reduce<ListingTypePolicy>(
+      (acc, nodo) => resolveEffectivePolicy(nodo.allowedListingType, acc),
+      'BOTH',
+    );
+  }
+
+  private async efectivasVistas(categoryId: string): Promise<EffectiveViews> {
+    const cadena = await this.tree.getAncestorChain(categoryId);
+    return cadena.reduce<EffectiveViews | null>(
+      (acc, nodo) =>
+        resolveEffectiveViews({ allowedViews: nodo.allowedViews, defaultView: nodo.defaultView }, acc),
+      null,
+    ) as EffectiveViews;
+  }
+
+  private async efectivosFormatosPrecio(categoryId: string): Promise<PriceUnit[]> {
+    const cadena = await this.tree.getAncestorChain(categoryId);
+    return cadena.reduce<PriceUnit[] | null>(
+      (acc, nodo) => resolveEffectivePriceUnits(nodo.allowedPriceUnits, acc),
+      null,
+    ) as PriceUnit[];
   }
 
   async findBySlug(slug: string) {
@@ -173,9 +244,15 @@ export class CategoriesService {
     });
     if (!category) throw new NotFoundException('Category not found');
 
-    const own = (category.attributeSchema as unknown as AttributeField[]) ?? [];
-    const parentSchema = (category.parent?.attributeSchema as unknown as AttributeField[]) ?? [];
-    const effectiveSchema = resolveEffectiveSchema(own, parentSchema);
+    // PROFUNDIDAD N — RÁFAGA 1. Los cuatro efectivos salen del PLIEGUE de la
+    // cadena completa. Antes eran: schema fusionado con el del padre, y
+    // vistas/formatos resueltos «en dos pasos» a mano (el padre contra `null`,
+    // el hijo contra el efectivo del padre). Ese two-step era el 2-niveles
+    // escrito a mano y desaparece aquí.
+    const effectiveSchema = await this.efectivoSchema(category.id);
+    const effectiveViews = await this.efectivasVistas(category.id);
+    const effectivePriceUnits = await this.efectivosFormatosPrecio(category.id);
+    const effectivePolicy = await this.efectivaPolitica(category.id);
 
     const toAttrDef = (f: AttributeField) => ({
       key: f.name,
@@ -185,30 +262,6 @@ export class CategoriesService {
       showUnit: resolveShowUnit(f),
       ...(f.appliesTo !== undefined ? { appliesTo: f.appliesTo } : {}),
     });
-
-    // RÁFAGA 2 — vistas: el padre resuelve primero contra `null` (2 niveles, sin abuelo),
-    // luego el hijo resuelve contra el efectivo del padre. Mismo patrón que allowedListingType.
-    const parentEffectiveViews = category.parent
-      ? resolveEffectiveViews(
-          { allowedViews: category.parent.allowedViews, defaultView: category.parent.defaultView },
-          null,
-        )
-      : null;
-    const effectiveViews = resolveEffectiveViews(
-      { allowedViews: category.allowedViews, defaultView: category.defaultView },
-      parentEffectiveViews,
-    );
-
-    // RP.1 — formatos de precio: misma resolución en dos pasos que las vistas.
-    // El padre resuelve primero contra `null` (2 niveles, sin abuelo) para que un
-    // padre sin config propia caiga al default global en vez de tapar al hijo.
-    const parentEffectivePriceUnits = category.parent
-      ? resolveEffectivePriceUnits(category.parent.allowedPriceUnits, null)
-      : null;
-    const effectivePriceUnits = resolveEffectivePriceUnits(
-      category.allowedPriceUnits,
-      parentEffectivePriceUnits,
-    );
 
     return {
       id: category.id,
@@ -226,10 +279,7 @@ export class CategoriesService {
       wideCardAttributes: effectiveSchema.filter((f) => f.wideCardAttribute).map(toAttrDef),
       // RÁFAGA 3 (wizard): política efectiva para que el wizard sepa si debe
       // preguntar el tipo (BOTH) o fijarlo sin preguntar (PRODUCT_ONLY/SERVICE_ONLY).
-      allowedListingType: resolveEffectivePolicy(
-        category.allowedListingType,
-        category.parent?.allowedListingType ?? 'BOTH',
-      ),
+      allowedListingType: effectivePolicy,
       // RÁFAGA 2: vistas efectivamente ofrecidas por esta categoría + su default.
       allowedViews: effectiveViews.allowedViews,
       defaultView: effectiveViews.defaultView,

@@ -4,6 +4,7 @@ import { AdminCategoryTagsController, AdminTagsController } from './admin-tags.c
 import { TagsController } from './tags.controller';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { MeilisearchModule } from '../../infra/meilisearch/meilisearch.module';
+import { CategoryTreeModule } from '../categories/category-tree.module';
 
 /**
  * B1 — sistema de tags. Los endpoints PÚBLICOS de tags viven en `CategoriesController`
@@ -12,7 +13,7 @@ import { MeilisearchModule } from '../../infra/meilisearch/meilisearch.module';
  * quedan el servicio y los controladores de administración.
  */
 @Module({
-  imports: [AuditLogModule, MeilisearchModule],
+  imports: [AuditLogModule, MeilisearchModule, CategoryTreeModule],
   controllers: [TagsController, AdminTagsController, AdminCategoryTagsController],
   providers: [TagsService],
   exports: [TagsService],

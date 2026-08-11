@@ -33,7 +33,13 @@ import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { ReorderCategoriesDto } from './dto/reorder-categories.dto';
 import { UpdateSettingDto } from './dto/update-setting.dto';
-import { AttributeField, resolveEffectiveSchema, countAttributesByType } from '../categories/category.types';
+import {
+  AttributeField,
+  resolveEffectiveSchema,
+  countAttributesByType,
+  CATEGORY_MAX_DEPTH,
+} from '../categories/category.types';
+import { CategoryTreeService } from '../categories/category-tree.service';
 import { FilterableAttributesResolver } from '../search/filterable-attributes.resolver';
 import { DEFAULT_MAX_TAGS_PER_LISTING } from '../tags/tag.types';
 import { TICKET_REOPEN_WINDOW_DAYS } from '../tickets/tickets.constants';
@@ -182,6 +188,8 @@ export class AdminService {
     private readonly meili: MeilisearchService,
     private readonly auditLog: AuditLogService,
     private readonly attributesResolver: FilterableAttributesResolver,
+    // PROFUNDIDAD N — RÁFAGA 1: el único lector de la jerarquía.
+    private readonly categoryTree: CategoryTreeService,
     @InjectQueue(QUEUE_INDEXING) private readonly indexingQueue: Queue,
   ) {}
 
@@ -578,14 +586,10 @@ export class AdminService {
     flag: 'cardAttribute' | 'wideCardAttribute',
     limit: number,
   ): Promise<void> {
-    let parentSchema: AttributeField[] = [];
-    if (parentId) {
-      const parent = await this.prisma.category.findUnique({
-        where: { id: parentId },
-        select: { attributeSchema: true },
-      });
-      if (parent) parentSchema = (parent.attributeSchema as unknown as AttributeField[]) ?? [];
-    }
+    // PROFUNDIDAD N — RÁFAGA 1: el heredado es el PLIEGUE de la cadena del
+    // padre, no su schema propio. Sin esto, una categoría de nivel 3 validaría
+    // su tope de card sin contar los atributos del abuelo.
+    const parentSchema = parentId ? await this.efectivoDe(parentId) : [];
     const effective = resolveEffectiveSchema(ownSchema, parentSchema);
     const counts = countAttributesByType(effective, flag);
     const exceeded = (['PRODUCT', 'SERVICE'] as const).find((type) => counts[type] > limit);
@@ -603,6 +607,20 @@ export class AdminService {
     parentId: string | null | undefined,
   ): Promise<void> {
     await this.validateCardAttributeLimitByType(ownSchema, parentId, 'cardAttribute', 2);
+  }
+
+  /**
+   * PROFUNDIDAD N — RÁFAGA 1. Schema efectivo de una categoría YA PERSISTIDA:
+   * el pliegue de su cadena. Se usa donde antes se leía el `attributeSchema`
+   * propio del padre y se daba por hecho que era su efectivo (cierto solo
+   * mientras el padre fuera siempre una raíz).
+   */
+  private async efectivoDe(categoryId: string): Promise<AttributeField[]> {
+    const cadena = await this.categoryTree.getAncestorChain(categoryId);
+    return cadena.reduce<AttributeField[]>(
+      (acc, nodo) => resolveEffectiveSchema(nodo.attributeSchema, acc),
+      [],
+    );
   }
 
   /**
@@ -873,32 +891,37 @@ export class AdminService {
   }
 
   /**
-   * Guarda de profundidad (auditoría de herencia de atributos, decisión: opción A,
-   * la barata). `Category.parentId` es una auto-relación sin límite de
-   * profundidad en el modelo — pero TODA la resolución de herencia
-   * (resolveEffectiveSchema y cada consumidor: findTree, findBySlug, el wizard,
-   * FilterableAttributesResolver…) asume exactamente 2 niveles (hoja → padre).
-   * Antes de esta guarda, un POST con parentId = una categoría que YA tiene
-   * padre creaba un nieto que desaparecía por completo de GET /categories
-   * (findTree solo recorre raíces + un nivel de hijos) y perdía los atributos
-   * del ABUELO en GET /categories/:slug (findBySlug solo fusiona 1 nivel hacia
-   * arriba) — en silencio, sin error. La UI del admin ya lo impedía
-   * estructuralmente (el botón "Nueva subcategoría" no existe en una fila de
-   * hijo); esta guarda cierra el mismo hueco para cualquier llamada directa a
-   * la API. Si el negocio necesita 3+ niveles algún día, la alternativa (opción
-   * B: generalizar resolveEffectiveSchema a N niveles) se implementa a
-   * conciencia entonces — no dejando el modelo permitir hoy lo que la lógica no
-   * resuelve.
+   * PROFUNDIDAD N — RÁFAGA 1. Guarda de profundidad. SUSTITUYE a
+   * `assertParentIsRoot`, que exigía que el padre fuera raíz porque toda la
+   * resolución de herencia asumía 2 niveles. Ahora la herencia se pliega sobre
+   * la cadena completa (ver `CategoryTreeService`), así que lo que queda no es
+   * una limitación de la lógica sino un TOPE DE PRODUCTO: `CATEGORY_MAX_DEPTH`.
+   *
+   * NO SE BORRA LA GUARDA, SE CAMBIA. Sin tope, el árbol admitiría cualquier
+   * profundidad y volvería el problema que `assertParentIsRoot` cerró: nodos que
+   * ningún consumidor sabe enseñar. Hoy el frontend modela los niveles con rutas
+   * explícitas, así que una categoría más profunda que `CATEGORY_MAX_DEPTH` no
+   * tendría URL.
+   *
+   * UNA SOLA REGLA, a diferencia de `NavService.assertMaxDepth` (el molde), que
+   * necesita dos: allí un nodo se puede MOVER de padre y arrastraría a sus hijos
+   * por debajo del tope. Aquí el padre se fija al crear y es inmutable
+   * (`UpdateCategoryDto` no admite `parentId` — decisión formalizada, ver su
+   * comentario), así que comprobar en la creación basta para siempre.
    */
-  private async assertParentIsRoot(parentId: string | null | undefined): Promise<void> {
-    if (!parentId) return;
-    const parent = await this.prisma.category.findUnique({
-      where: { id: parentId },
-      select: { parentId: true, name: true },
-    });
-    if (parent?.parentId) {
+  private async assertMaxDepth(parentId: string | null | undefined): Promise<void> {
+    if (!parentId) return; // Nace como raíz: profundidad 1, siempre cabe.
+
+    const cadena = await this.categoryTree.getAncestorChain(parentId);
+    if (cadena.length === 0) {
+      throw new BadRequestException('La categoría padre no existe');
+    }
+    // La nueva colgaría un nivel por debajo del padre.
+    if (cadena.length + 1 > CATEGORY_MAX_DEPTH) {
+      const padre = cadena[cadena.length - 1];
       throw new BadRequestException(
-        `No se puede crear: "${parent.name}" ya es una subcategoría — el árbol de categorías admite solo 2 niveles (padre → hija).`,
+        `No se puede crear: "${padre.name}" ya está en el nivel ${cadena.length} y el árbol de ` +
+          `categorías admite ${CATEGORY_MAX_DEPTH} niveles como máximo.`,
       );
     }
   }
@@ -923,7 +946,7 @@ export class AdminService {
   }
 
   async createCategory(actorId: string, dto: CreateCategoryDto, ip?: string) {
-    await this.assertParentIsRoot(dto.parentId);
+    await this.assertMaxDepth(dto.parentId);
     this.assertRootSlugNotReserved(dto.slug, !dto.parentId);
     if (dto.attributeSchema) {
       await this.validateCardAttributeLimit(dto.attributeSchema as AttributeField[], dto.parentId);
@@ -963,6 +986,14 @@ export class AdminService {
           }),
         },
       });
+
+      // PROFUNDIDAD N — RÁFAGA 1. El árbol memoizado acaba de quedarse viejo:
+      // hay una categoría más. Se invalida AQUÍ, síncronamente, y no solo por el
+      // job de abajo, porque el job es asíncrono y la propia respuesta de este
+      // POST (o la lectura inmediatamente siguiente en este mismo proceso) ya
+      // debe ver la categoría nueva. Antes esto no hacía falta porque cada
+      // consulta leía la jerarquía de Postgres cada vez.
+      this.categoryTree.invalidate();
 
       await this.auditLog.log({
         action: 'CATEGORY_CREATE',
@@ -1081,6 +1112,11 @@ export class AdminService {
         },
       });
 
+      // PROFUNDIDAD N — RÁFAGA 1: mismo motivo que en createCategory. Aquí
+      // además puede haber cambiado el `attributeSchema`, que es justo lo que
+      // las 5 resoluciones pliegan.
+      this.categoryTree.invalidate();
+
       await this.auditLog.log({
         action: 'CATEGORY_EDIT',
         actorId,
@@ -1183,6 +1219,9 @@ export class AdminService {
     }
 
     await this.prisma.category.delete({ where: { id } });
+
+    // PROFUNDIDAD N — RÁFAGA 1: mismo motivo que create/update.
+    this.categoryTree.invalidate();
 
     await this.auditLog.log({
       action: 'CATEGORY_DELETE',

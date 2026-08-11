@@ -667,12 +667,24 @@ describe('RC5 — Categorías y atributos (e2e)', () => {
     await prisma.category.delete({ where: { id: res.body.id } });
   });
 
-  // ── AUDITORÍA DE FILTROS — guarda de profundidad (opción A, la barata): el
-  // árbol de categorías admite solo 2 niveles (padre → hija). Antes de esta
-  // guarda, un POST con parentId = una categoría que YA tiene padre (un nieto)
-  // se aceptaba sin más y desaparecía en silencio de GET /categories.
+  // ── GUARDA DE PROFUNDIDAD.
+  //
+  // REGLA ACTUALIZADA (PROFUNDIDAD N — RÁFAGA 1). Este caso comprobaba que un
+  // NIETO se rechazaba con 400, porque la guarda de entonces
+  // (`assertParentIsRoot`) exigía que el padre fuera raíz: toda la resolución de
+  // herencia sólo sabía subir UN nivel, así que un nieto perdía en silencio los
+  // atributos del abuelo y desaparecía de GET /categories.
+  //
+  // Esa limitación ya no existe: la herencia se pliega sobre la cadena completa
+  // (`CategoryTreeService`), y la guarda pasó a ser un TOPE DE PRODUCTO,
+  // `CATEGORY_MAX_DEPTH = 4`. Un nieto (nivel 3) es ahora legítimo, y lo que se
+  // rechaza es pasarse del tope.
+  //
+  // El caso NO se borra —la guarda sigue existiendo y hay que vigilarla—, se
+  // reescribe contra la regla nueva. La cobertura de la herencia profunda vive
+  // en `category-depth.e2e-spec.ts`, con su fixture de 4 niveles.
 
-  it('POST /admin/categories con parentId = una categoría que YA tiene padre (nieto) → 400', async () => {
+  it('POST /admin/categories con parentId = una categoría que YA tiene padre (nieto) → 201: el tope es 4, no 2', async () => {
     const res = await request(app.getHttpServer())
       .post('/api/admin/categories')
       .set('Authorization', `Bearer ${adminToken}`)
@@ -682,9 +694,37 @@ describe('RC5 — Categorías y atributos (e2e)', () => {
         parentId: catChildId, // rc5-ordenadores-test, que a su vez cuelga de rc5-tech-parent
         order: 99,
       })
+      .expect(201);
+
+    expect(res.body.parentId).toBe(catChildId);
+    await prisma.category.delete({ where: { id: res.body.id } });
+  });
+
+  it('POST /admin/categories pasándose de CATEGORY_MAX_DEPTH → 400 con el tope en el mensaje', async () => {
+    // catChildId está en el nivel 2, así que hay que bajar dos más para superar
+    // el tope: nivel 3 y 4 se aceptan; el 5 no.
+    const nivel3 = await request(app.getHttpServer())
+      .post('/api/admin/categories')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ name: 'RC5 N3', slug: 'rc5-n3-test', parentId: catChildId, order: 99 })
+      .expect(201);
+
+    const nivel4 = await request(app.getHttpServer())
+      .post('/api/admin/categories')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ name: 'RC5 N4', slug: 'rc5-n4-test', parentId: nivel3.body.id, order: 99 })
+      .expect(201);
+
+    const res = await request(app.getHttpServer())
+      .post('/api/admin/categories')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ name: 'RC5 N5', slug: 'rc5-n5-test', parentId: nivel4.body.id, order: 99 })
       .expect(400);
 
-    expect(res.body.message).toMatch(/2 niveles|subcategoría/i);
+    expect(res.body.message).toMatch(/4 niveles/i);
+
+    await prisma.category.delete({ where: { id: nivel4.body.id } });
+    await prisma.category.delete({ where: { id: nivel3.body.id } });
   });
 
   it('POST /admin/categories con parentId = una categoría RAÍZ (sin padre) → 201, sin cambios', async () => {

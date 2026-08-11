@@ -19,6 +19,7 @@ import {
 } from './tag.types';
 import { MeilisearchService } from '../../infra/meilisearch/meilisearch.service';
 import { LISTINGS_INDEX } from '../search/search.service';
+import { CategoryTreeService } from '../categories/category-tree.service';
 import { CreateTagDto } from './dto/create-tag.dto';
 import { UpdateTagDto } from './dto/update-tag.dto';
 import { ReorderTagsDto } from './dto/reorder-tags.dto';
@@ -62,6 +63,10 @@ export class TagsService {
     // directamente y no SearchService: `SearchModule` ya importa `TagsModule` (B3), así
     // que depender de él al revés cerraría el ciclo.
     private readonly meili: MeilisearchService,
+    // PROFUNDIDAD N — RÁFAGA 1: el único lector de la jerarquía. Es un módulo
+    // HOJA (no importa nada de dominio), así que TagsModule puede importarlo sin
+    // el problema de ciclo que impide depender de SearchModule.
+    private readonly tree: CategoryTreeService,
   ) {}
 
   // ===========================================================================
@@ -81,23 +86,28 @@ export class TagsService {
     const cached = await this.redis.client.get(cacheKey);
     if (cached) return JSON.parse(cached) as TagRef[];
 
-    const category = await this.prisma.category.findUnique({
-      where: { slug: categorySlug },
-      select: { id: true, parentId: true },
-    });
-    if (!category) throw new NotFoundException('Category not found');
+    // PROFUNDIDAD N — RÁFAGA 1: la cadena completa, no `[propia, padre]`.
+    const cadena = await this.tree.getAncestorChainBySlug(categorySlug);
+    if (cadena.length === 0) throw new NotFoundException('Category not found');
 
-    const ids = [category.id, ...(category.parentId ? [category.parentId] : [])];
+    const ids = cadena.map((n) => n.id);
     const filas = await this.prisma.categoryTag.findMany({
       where: { categoryId: { in: ids }, tag: { activo: true } },
       orderBy: [{ orden: 'asc' }, { tag: { name: 'asc' } }],
       select: { categoryId: true, tag: { select: TAG_REF_SELECT } },
     });
 
-    const efectivos = resolveEffectiveTags(
-      filas.filter((f) => f.categoryId === category.id).map((f) => f.tag),
-      filas.filter((f) => f.categoryId !== category.id).map((f) => f.tag),
-    );
+    // El PLIEGUE va de la HOJA hacia la raíz: `resolveEffectiveTags(propios,
+    // heredados)` pone los propios primero, así que empezando por la hoja el
+    // resultado queda hoja → padre → abuelo → raíz. Es decir: lo más específico
+    // primero, que es exactamente la generalización de la regla de 2 niveles
+    // («al etiquetar un anuncio de Coches, lo propio de coches es más relevante
+    // que lo genérico de Vehículos»). Ojo: es el ÚNICO pliegue que va al revés
+    // que los otros cuatro, y por eso se invierte la cadena aquí de forma visible.
+    const porCategoria = (id: string) => filas.filter((f) => f.categoryId === id).map((f) => f.tag);
+    const efectivos = [...cadena]
+      .reverse()
+      .reduce<TagRef[]>((acc, nodo) => resolveEffectiveTags(acc, porCategoria(nodo.id)), []);
 
     await this.redis.client.set(cacheKey, JSON.stringify(efectivos), 'EX', CACHE_TTL_SECONDS);
     return efectivos;
@@ -198,16 +208,12 @@ export class TagsService {
 
     let ambito: { categoryId: { in: string[] } } | undefined;
     if (categorySlug) {
-      const category = await this.prisma.category.findUnique({
-        where: { slug: categorySlug },
-        select: { id: true, parentId: true },
-      });
+      // PROFUNDIDAD N — RÁFAGA 1: el ámbito es la cadena completa.
+      const cadena = await this.tree.getAncestorChainBySlug(categorySlug);
       // Categoría inexistente: sin ámbito no hay nada que sugerir. Devolver el
       // catálogo global sería sugerir tags que el destino no ofrece.
-      if (!category) return [];
-      ambito = {
-        categoryId: { in: [category.id, ...(category.parentId ? [category.parentId] : [])] },
-      };
+      if (cadena.length === 0) return [];
+      ambito = { categoryId: { in: cadena.map((n) => n.id) } };
     }
 
     return this.prisma.tag.findMany({
@@ -470,14 +476,20 @@ export class TagsService {
    * desde aquí — se tocan en el padre.
    */
   async categoryTags(categoryId: string): Promise<{ own: TagRef[]; inherited: TagRef[] }> {
-    const category = await this.prisma.category.findUnique({
-      where: { id: categoryId },
-      select: { id: true, parentId: true },
-    });
-    if (!category) throw new NotFoundException('Categoría no encontrada');
+    // PROFUNDIDAD N — RÁFAGA 1: «heredados» son los de TODOS los ancestros, no
+    // solo los del padre. Si no, el panel de una categoría de nivel 3 diría que
+    // no hereda nada del abuelo cuando sí lo hace.
+    const cadena = await this.tree.getAncestorChain(categoryId);
+    if (cadena.length === 0) throw new NotFoundException('Categoría no encontrada');
 
-    const own = await this.tagsOfCategory(category.id);
-    const inherited = category.parentId ? await this.tagsOfCategory(category.parentId) : [];
+    const own = await this.tagsOfCategory(categoryId);
+    const ancestros = cadena.slice(0, -1);
+    const heredadosPorNivel = await Promise.all(ancestros.map((n) => this.tagsOfCategory(n.id)));
+    // Mismo orden que `effectiveTagsForCategory`: del ancestro más cercano al
+    // más lejano, sin repetir.
+    const inherited = [...heredadosPorNivel]
+      .reverse()
+      .reduce<TagRef[]>((acc, nivel) => resolveEffectiveTags(acc, nivel), []);
 
     // Un tag asignado a la vez al padre y a la hija es "propio": el admin lo puede
     // quitar desde aquí. Se descuenta de heredados para no mostrarlo dos veces.

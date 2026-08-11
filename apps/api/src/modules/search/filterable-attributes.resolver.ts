@@ -1,6 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { PrismaService } from '../../infra/prisma/prisma.service';
 import { resolveEffectiveSchema, type AttributeField } from '../categories/category.types';
+import {
+  CategoryTreeService,
+  ancestorChainIn,
+  descendantIdsIn,
+} from '../categories/category-tree.service';
 
 // Query-string / document-field names already claimed by the fixed search
 // filters (SearchQueryDto's core fields plus Meilisearch's always-filterable
@@ -22,12 +26,6 @@ const RESERVED_ATTRIBUTE_NAMES = new Set([
   'tags', 'tagNames',
 ]);
 
-interface CategoryAttrEntry {
-  slug: string;
-  parentSlug: string | null;
-  schema: AttributeField[];
-}
-
 /**
  * Resolves which category-attribute names are valid filters, derived from
  * `Category.attributeSchema` instead of a hardcoded list. Replaces the
@@ -48,9 +46,16 @@ interface CategoryAttrEntry {
 @Injectable()
 export class FilterableAttributesResolver {
   private readonly logger = new Logger(FilterableAttributesResolver.name);
-  private cache: Promise<CategoryAttrEntry[]> | null = null;
 
-  constructor(private readonly prisma: PrismaService) {}
+  /**
+   * PROFUNDIDAD N — RÁFAGA 1. La caché del árbol que este resolver tenía en
+   * propiedad (`loadCategories` + su `cache`) se ha movido a
+   * `CategoryTreeService`, que es ahora el único que recorre la jerarquía. Aquí
+   * queda solo lo que este resolver sabe hacer: decidir qué atributos son
+   * filtrables. Una caché, un invalidador — no dos copias del mismo árbol que
+   * puedan quedar frías en momentos distintos.
+   */
+  constructor(private readonly tree: CategoryTreeService) {}
 
   /**
    * Flat union of filterable attribute names across every category (parents
@@ -58,8 +63,8 @@ export class FilterableAttributesResolver {
    * system", not "which schema applies to one category".
    */
   async getAttributeTypes(): Promise<ReadonlyMap<string, AttributeField['type']>> {
-    const categories = await this.loadCategories();
-    return this.toMap(categories.flatMap((c) => c.schema));
+    const categories = [...(await this.tree.getSnapshot()).values()];
+    return this.toMap(categories.flatMap((c) => c.attributeSchema));
   }
 
   /**
@@ -103,8 +108,8 @@ export class FilterableAttributesResolver {
    * counterpart to getAttributeTypes(), for the same reason getAllAttributeNamesForCategory
    * is the unrestricted counterpart to getAttributeTypesForCategory. */
   async getAllAttributeNames(): Promise<ReadonlySet<string>> {
-    const categories = await this.loadCategories();
-    return new Set(categories.flatMap((c) => c.schema).map((f) => f.name));
+    const categories = [...(await this.tree.getSnapshot()).values()];
+    return new Set(categories.flatMap((c) => c.attributeSchema).map((f) => f.name));
   }
 
   /**
@@ -113,18 +118,43 @@ export class FilterableAttributesResolver {
    * which differ only in whether the result is then filtered by `filterable`.
    * See getAttributeTypesForCategory's original doc comment for the LEAF vs
    * PARENT merge rule (still accurate, just moved here).
+   *
+   * PROFUNDIDAD N — RÁFAGA 1. Este método subía UN nivel y bajaba UN nivel; los
+   * dos lados se generalizan, y por motivos distintos:
+   *
+   *  · HACIA ARRIBA: el efectivo de la categoría es el PLIEGUE de toda su
+   *    cadena (`resolveEffectiveSchema` sobre raíz→hoja), no la fusión con su
+   *    padre. Un bisnieto debe poder filtrar por un atributo del abuelo.
+   *
+   *  · HACIA ABAJO: la unión es con TODOS los descendientes, no solo con las
+   *    hijas directas — navegar una categoría filtra por `categoryPath = slug`,
+   *    que en Meilisearch mezcla los anuncios de toda la subcadena. Con 2
+   *    niveles «hijas» y «descendientes» eran lo mismo; con N, quedarse en las
+   *    hijas dejaría un atributo de bisnieto fuera de los filtros válidos y la
+   *    búsqueda lo rechazaría con 400 — el mismo bug que la RÁFAGA 1 de filtros
+   *    ya arregló una vez en su versión de 2 niveles.
    */
   private async mergeSchemasForCategory(categorySlug: string): Promise<AttributeField[]> {
-    const categories = await this.loadCategories();
-    const bySlug = new Map(categories.map((c) => [c.slug, c]));
-    const target = bySlug.get(categorySlug);
-    if (!target) return [];
+    // Foto MEMOIZADA (no fresca): esto corre en la ruta caliente de la búsqueda,
+    // una vez por petición con `category`. Es la misma frescura que tenía este
+    // resolver antes de la ráfaga, y las funciones de cadena son puras, así que
+    // se aplican sobre la foto sin consultar nada.
+    const snapshot = await this.tree.getSnapshot();
+    const objetivo = [...snapshot.values()].find((n) => n.slug === categorySlug);
+    if (!objetivo) return [];
 
-    const children = categories.filter((c) => c.parentSlug === categorySlug);
-    const schemasToMerge: AttributeField[][] =
-      children.length > 0
-        ? [target.schema, ...children.map((child) => resolveEffectiveSchema(child.schema, target.schema))]
-        : [resolveEffectiveSchema(target.schema, bySlug.get(target.parentSlug ?? '')?.schema ?? [])];
+    const plegar = (id: string) =>
+      ancestorChainIn(snapshot, id).reduce<AttributeField[]>(
+        (acc, nodo) => resolveEffectiveSchema(nodo.attributeSchema, acc),
+        [],
+      );
+
+    // Hacia arriba: el pliegue de la cadena entera.
+    // Hacia abajo: cada descendiente, con su propio efectivo ya plegado.
+    const schemasToMerge: AttributeField[][] = [
+      plegar(objetivo.id),
+      ...descendantIdsIn(snapshot, objetivo.id).map(plegar),
+    ];
 
     // De-dupe by name across the merged schemas — first occurrence wins (mirrors toMap's conflict rule).
     const merged = new Map<string, AttributeField>();
@@ -143,24 +173,14 @@ export class FilterableAttributesResolver {
    * process. Only invalidates the in-memory cache of the process that runs
    * it — a multi-instance deployment would need pub/sub to reach every
    * instance — out of scope here.
+   *
+   * PROFUNDIDAD N — RÁFAGA 1: delega en `CategoryTreeService`, que es quien
+   * tiene ahora el árbol memoizado. El camino de invalidación NO cambia (sigue
+   * siendo el job `refresh-filterable-attributes` → `SearchService`
+   * → aquí): solo cambia dónde acaba.
    */
   invalidate(): void {
-    this.cache = null;
-  }
-
-  private async loadCategories(): Promise<CategoryAttrEntry[]> {
-    if (!this.cache) {
-      this.cache = this.prisma.category
-        .findMany({ select: { slug: true, attributeSchema: true, parent: { select: { slug: true } } } })
-        .then((rows) =>
-          rows.map((r) => ({
-            slug: r.slug,
-            parentSlug: r.parent?.slug ?? null,
-            schema: (r.attributeSchema as unknown as AttributeField[]) ?? [],
-          })),
-        );
-    }
-    return this.cache;
+    this.tree.invalidate();
   }
 
   private toMap(fields: AttributeField[]): Map<string, AttributeField['type']> {

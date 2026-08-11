@@ -48,6 +48,7 @@ import {
   resolveEffectivePriceUnits,
   isPriceUnitAllowed,
 } from '../categories/category.types';
+import { CategoryTreeService, type CategoryNode } from '../categories/category-tree.service';
 import type { ListingTypePolicy, PriceUnit } from '@prisma/client';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { UpdateListingDto } from './dto/update-listing.dto';
@@ -166,29 +167,21 @@ export class ListingsService {
     // los tags los valida el suyo (viven en tablas propias, con herencia de categoría
     // y un tope configurable).
     private readonly tags: TagsService,
+    // PROFUNDIDAD N — RÁFAGA 1: el único lector de la jerarquía. Sustituye a los
+    // `parent: { select: … }` de un nivel que había en create() y update().
+    private readonly categoryTree: CategoryTreeService,
   ) {}
 
   async create(sellerId: string, dto: CreateListingDto): Promise<Listing> {
-    const category = await this.prisma.category.findUnique({
-      where: { id: dto.categoryId },
-      select: {
-        // B2 — el slug hace falta para los tags: TagsService cachea el set efectivo
-        // POR SLUG (B1), así que pedirlo aquí reutiliza esa caché en vez de abrir un
-        // segundo camino de resolución por id.
-        slug: true,
-        attributeSchema: true,
-        allowedListingType: true,
-        allowedPriceUnits: true,
-        parent: {
-          select: { attributeSchema: true, allowedListingType: true, allowedPriceUnits: true },
-        },
-      },
-    });
-    if (!category) throw new NotFoundException('Category not found');
-    const effectiveSchema = resolveEffectiveSchema(
-      (category.attributeSchema as unknown as AttributeField[]) ?? [],
-      (category.parent?.attributeSchema as unknown as AttributeField[]) ?? [],
-    );
+    // PROFUNDIDAD N — RÁFAGA 1: la cadena raíz→hoja sustituye a la consulta con
+    // `parent` de un nivel. `[]` = la categoría no existe.
+    // B2 — el slug (de la hoja) hace falta para los tags: TagsService cachea el
+    // set efectivo POR SLUG, así que se reutiliza esa caché en vez de abrir un
+    // segundo camino de resolución por id.
+    const cadena = await this.categoryTree.getAncestorChain(dto.categoryId);
+    if (cadena.length === 0) throw new NotFoundException('Category not found');
+    const category = cadena[cadena.length - 1];
+    const effectiveSchema = this.plegarSchema(cadena);
     // required se exige solo entre los campos aplicables al tipo del anuncio —
     // igual que el wizard, que nunca envía un campo appliesTo-restringido al
     // otro tipo. Sin este filtro, un required de un tipo bloquearía SIEMPRE
@@ -198,20 +191,12 @@ export class ListingsService {
     this.validateRequired(dto.attributes ?? {}, applicableSchema);
     this.validateAttributeValues(dto.attributes ?? {}, applicableSchema);
     this.validateLinkedSelects(dto.attributes ?? {}, applicableSchema);
-    this.validateListingTypeAllowed(
-      dto.type,
-      category.allowedListingType,
-      category.parent?.allowedListingType,
-    );
+    this.validateListingTypeAllowed(dto.type, cadena);
     // priceUnit es opcional en el DTO: ausente equivale a ONE_TIME (el default de
     // la columna), así que se valida ese mismo valor — una categoría que NO
     // permita ONE_TIME rechaza igual un alta que lo omita que una que lo mande.
     const priceUnit: PriceUnit = dto.priceUnit ?? 'ONE_TIME';
-    this.validatePriceUnitAllowed(
-      priceUnit,
-      category.allowedPriceUnits,
-      category.parent?.allowedPriceUnits,
-    );
+    this.validatePriceUnitAllowed(priceUnit, cadena);
 
     // B2 — los tags se validan COMPLETO en create, igual que los atributos: no hay
     // "existing" con el que calcular un delta. Se resuelven a ids ANTES de crear nada,
@@ -282,25 +267,13 @@ export class ListingsService {
 
     if (needsCategory) {
       const catId = dto.categoryId ?? existing.categoryId;
-      const category = await this.prisma.category.findUnique({
-        where: { id: catId },
-        select: {
-          slug: true,
-          attributeSchema: true,
-          allowedListingType: true,
-          allowedPriceUnits: true,
-          parent: {
-            select: { attributeSchema: true, allowedListingType: true, allowedPriceUnits: true },
-          },
-        },
-      });
-      if (!category) throw new NotFoundException('Category not found');
+      // PROFUNDIDAD N — RÁFAGA 1: misma sustitución que en create().
+      const cadena = await this.categoryTree.getAncestorChain(catId);
+      if (cadena.length === 0) throw new NotFoundException('Category not found');
+      const category = cadena[cadena.length - 1];
 
       if (dto.categoryId !== undefined || dto.attributes !== undefined) {
-        const effectiveSchema = resolveEffectiveSchema(
-          (category.attributeSchema as unknown as AttributeField[]) ?? [],
-          (category.parent?.attributeSchema as unknown as AttributeField[]) ?? [],
-        );
+        const effectiveSchema = this.plegarSchema(cadena);
         const mergedAttrs = {
           ...(existing.attributes as Record<string, unknown>),
           ...(dto.attributes ?? {}),
@@ -326,11 +299,7 @@ export class ListingsService {
         // type is immutable (not on UpdateListingDto) — but categoryId can still change,
         // so a listing's fixed type must stay allowed by whatever category it moves into.
         if (dto.categoryId !== undefined) {
-          this.validateListingTypeAllowed(
-            existing.type,
-            category.allowedListingType,
-            category.parent?.allowedListingType,
-          );
+          this.validateListingTypeAllowed(existing.type, cadena);
         }
       }
 
@@ -340,11 +309,7 @@ export class ListingsService {
       // edición que no toca ninguna de las dos cosas nunca falla, aunque un admin
       // haya restringido la categoría después de publicar el anuncio.
       if (dto.priceUnit !== undefined || dto.categoryId !== undefined) {
-        this.validatePriceUnitAllowed(
-          dto.priceUnit ?? existing.priceUnit,
-          category.allowedPriceUnits,
-          category.parent?.allowedPriceUnits,
-        );
+        this.validatePriceUnitAllowed(dto.priceUnit ?? existing.priceUnit, cadena);
       }
 
       // B2 — TAGS. Mismo grandfathering que los dos bloques de arriba, con una
@@ -1511,16 +1476,34 @@ export class ListingsService {
   }
 
   /**
-   * Validates a listing's type against its category's effective ListingTypePolicy
-   * (own + parent, same 2-level depth as resolveEffectiveSchema). Every existing
-   * category defaults to BOTH, so this is a no-op until an admin restricts one.
+   * PROFUNDIDAD N — RÁFAGA 1. Los tres pliegues que esta clase necesita.
+   *
+   * Los cuerpos de `resolveEffectiveSchema`/`resolveEffectivePolicy`/
+   * `resolveEffectivePriceUnits` NO cambian: son reductores
+   * `(propio, efectivoDelPadre) → efectivo`, y aquí simplemente se aplican sobre
+   * la cadena raíz→hoja en vez de una sola vez contra el padre.
+   *
+   * Para 2 niveles el resultado es idéntico al anterior (la cadena de una hija es
+   * `[raíz, hija]`, que es exactamente lo que se fusionaba a mano). Para 4, el
+   * bisnieto hereda del abuelo — que es todo el objetivo.
    */
-  private validateListingTypeAllowed(
-    type: Listing['type'],
-    ownPolicy: ListingTypePolicy,
-    parentPolicy: ListingTypePolicy | undefined,
-  ): void {
-    const effective = resolveEffectivePolicy(ownPolicy, parentPolicy ?? 'BOTH');
+  private plegarSchema(cadena: CategoryNode[]): AttributeField[] {
+    return cadena.reduce<AttributeField[]>(
+      (acc, nodo) => resolveEffectiveSchema(nodo.attributeSchema, acc),
+      [],
+    );
+  }
+
+  /**
+   * Validates a listing's type against its category's effective ListingTypePolicy
+   * (the fold of its whole ancestor chain). Every existing category defaults to
+   * BOTH, so this is a no-op until an admin restricts one.
+   */
+  private validateListingTypeAllowed(type: Listing['type'], cadena: CategoryNode[]): void {
+    const effective = cadena.reduce<ListingTypePolicy>(
+      (acc, nodo) => resolveEffectivePolicy(nodo.allowedListingType, acc),
+      'BOTH',
+    );
     if (!isListingTypeAllowed(effective, type)) {
       throw new UnprocessableEntityException(
         `Esta categoría no admite anuncios de tipo ${type}.`,
@@ -1530,25 +1513,23 @@ export class ListingsService {
 
   /**
    * Validates a listing's price format against its category's effective list of
-   * allowed formats (own + parent, same 2-level depth as resolveEffectiveSchema).
-   * Every existing category defaults to `[]` = not configured, which resolves to
+   * allowed formats (the fold of its whole ancestor chain). Every existing
+   * category defaults to `[]` = not configured, which resolves to
    * DEFAULT_ALLOWED_PRICE_UNITS (`[ONE_TIME]`) — and every existing listing is
    * ONE_TIME — so this is a no-op until an admin configures a category.
    *
-   * The parent is resolved against `null` first (not against the child's own
-   * list): `resolveEffectivePriceUnits` is an override, so feeding the child's
-   * value in as the parent's fallback would make an unconfigured parent shadow
-   * the global default. Same two-step shape used by findBySlug for allowedViews.
+   * PROFUNDIDAD N — RÁFAGA 1: el pliegue con semilla `null` reproduce
+   * exactamente el «two-step» que había aquí (resolver el padre contra `null` y
+   * luego el hijo contra ese resultado), y lo extiende a N. La semilla es `null`
+   * y no la lista propia por el mismo motivo de antes: `resolveEffectivePriceUnits`
+   * es un override, así que meter la lista del hijo como fallback del padre haría
+   * que un ancestro sin configurar tapara el default global.
    */
-  private validatePriceUnitAllowed(
-    unit: PriceUnit,
-    ownAllowed: PriceUnit[],
-    parentAllowed: PriceUnit[] | undefined,
-  ): void {
-    const effective = resolveEffectivePriceUnits(
-      ownAllowed,
-      parentAllowed ? resolveEffectivePriceUnits(parentAllowed, null) : null,
-    );
+  private validatePriceUnitAllowed(unit: PriceUnit, cadena: CategoryNode[]): void {
+    const effective = cadena.reduce<PriceUnit[] | null>(
+      (acc, nodo) => resolveEffectivePriceUnits(nodo.allowedPriceUnits, acc),
+      null,
+    ) as PriceUnit[];
     if (!isPriceUnitAllowed(effective, unit)) {
       throw new UnprocessableEntityException(
         `Esta categoría no admite el formato de precio ${unit}.`,

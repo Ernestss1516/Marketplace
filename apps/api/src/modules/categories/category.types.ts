@@ -1,5 +1,42 @@
 import type { ListingType, ListingTypePolicy, ListingViewMode, PriceUnit } from '@prisma/client';
 
+/**
+ * Tope de profundidad del árbol de categorías, contando la raíz como nivel 1:
+ * raíz → hija → nieta → bisnieta.
+ *
+ * ÚNICO SITIO donde vive el número. Lo usan la guarda de creación
+ * (`AdminService.assertMaxDepth`) y el backoffice (para decidir si una fila
+ * ofrece «Nueva subcategoría»). Ninguna resolución de herencia lo mira: todas
+ * recorren la cadena que les da `CategoryTreeService`, sea cual sea su largo —
+ * el tope acota lo que se puede CREAR, no lo que se sabe RESOLVER.
+ *
+ * POR QUÉ UNA CONSTANTE Y NO UN `Setting`:
+ *
+ *  1. La profundidad es una decisión de modelo, no un parámetro de operación.
+ *     Los Setting de este repo son cosas que se tocan (cuotas, precios,
+ *     interruptores de feature); esto se toca una vez cada varios años.
+ *
+ *  2. Un ajuste que el admin puede mover pero que el resto del sistema no
+ *     respeta es peor que no tenerlo. En este repo ya hay DOS ajustes muertos
+ *     —`listingExpiryDays` y `contactRequiresVerification`: declarados,
+ *     sembrados, editables y con cero lectores (ver docs/mapa-categorias-y-ciclo-vida.md
+ *     §4.4)—. Un tope de profundidad decorativo sería el tercero, y este sí
+ *     tendría consecuencias.
+ *
+ *  3. BAJARLO NO ES SEGURO: las categorías que ya existan por debajo del tope
+ *     nuevo quedarían sin forma de editarse ni de mostrarse. Un valor que no se
+ *     puede bajar sin migrar datos no debe ofrecerse como editable.
+ *
+ * Mismo criterio (no el mismo nombre — `NAV_MAX_DEPTH` es de OTRO árbol, el del
+ * menú, y vale 2) que `nav.types.ts`.
+ *
+ * SUBIRLO exige además añadir la ruta correspondiente en `apps/web`
+ * (`[categoria]/[subcategoria]/…`): el frontend modela los niveles con rutas
+ * explícitas a propósito, para que una URL profunda inexistente siga dando un
+ * 404 REAL del router y no un 404 blando. Ver docs/diseno-profundidad-categorias.md §D.1.
+ */
+export const CATEGORY_MAX_DEPTH = 4;
+
 export interface AttributeField {
   name: string;
   label: string;

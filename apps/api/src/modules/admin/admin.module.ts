@@ -4,6 +4,7 @@ import { QUEUE_INDEXING, retryQueue } from '../../infra/queue/queue.constants';
 import { MeilisearchModule } from '../../infra/meilisearch/meilisearch.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { SearchModule } from '../search/search.module';
+import { CategoryTreeModule } from '../categories/category-tree.module';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { AdminBillingController } from './admin-billing.controller';
@@ -15,6 +16,7 @@ import { AdminBillingService } from './admin-billing.service';
     MeilisearchModule,
     AuditLogModule,
     SearchModule,
+    CategoryTreeModule,
   ],
   controllers: [AdminController, AdminBillingController],
   providers: [AdminService, AdminBillingService],

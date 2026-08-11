@@ -8,6 +8,7 @@ import type { RedisService } from '../../infra/redis/redis.service';
 import type { MeilisearchService } from '../../infra/meilisearch/meilisearch.service';
 import type { AuditLogService } from '../audit-log/audit-log.service';
 import type { FilterableAttributesResolver } from '../search/filterable-attributes.resolver';
+import type { CategoryTreeService } from '../categories/category-tree.service';
 
 function buildService(prismaOverrides: Record<string, unknown> = {}) {
   const prisma = {
@@ -37,6 +38,10 @@ function buildService(prismaOverrides: Record<string, unknown> = {}) {
     {} as MeilisearchService,
     auditLog as unknown as AuditLogService,
     {} as FilterableAttributesResolver,
+    // PROFUNDIDAD N — RÁFAGA 1: mantenimiento de fixture por cambio de FIRMA.
+    // Este spec ejercita los guards de política, que no recorren la jerarquía;
+    // `invalidate` es lo único que AdminService le pide en estos caminos.
+    { invalidate: jest.fn() } as unknown as CategoryTreeService,
     indexingQueue as never,
   );
 
