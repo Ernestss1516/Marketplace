@@ -140,6 +140,11 @@ export interface Category {
    *  `GET /categories` en cada hija para que `categoryPath()` construya la URL
    *  canónica sin recorrer el árbol al revés. */
   parentSlug?: string;
+  /** PROFUNDIDAD N — RÁFAGA 3: la CADENA de ancestros (raíz → padre inmediato),
+   *  `[]` en las raíces. Sustituye a `parentSlug` como fuente de la URL canónica;
+   *  `parentSlug` se conserva porque hay payloads cacheados que sólo lo traen y
+   *  para 1-2 niveles ambos dan la misma URL. */
+  ancestorSlugs?: string[];
   /** A2 — política EFECTIVA (propia + heredada), resuelta por el backend en el árbol.
    *  La usa el cambio de categoría para decidir si `condition` sobrevive al destino. */
   allowedListingType?: ListingTypePolicy;
@@ -158,8 +163,14 @@ export interface Category {
 
 export interface CategoryWithSchema extends Category {
   /** A1 — categoría padre (o null si es raíz). La emite `GET /categories/:slug`.
-   *  Alimenta el breadcrumb (Inicio > Vehículos > Coches) y la URL canónica. */
+   *  Alimenta el breadcrumb (Inicio > Vehículos > Coches) y la URL canónica.
+   *  PROFUNDIDAD N — RÁFAGA 3: se conserva junto a `ancestors` para no romper los
+   *  payloads cacheados; para 1-2 niveles las dos formas dan lo mismo. */
   parent?: { slug: string; name: string } | null;
+  /** PROFUNDIDAD N — RÁFAGA 3: la CADENA completa de ancestros (raíz → padre
+   *  inmediato), `[]` si es raíz. Alimenta la miga de N escalones y la URL
+   *  canónica de cualquier profundidad. */
+  ancestors?: { slug: string; name: string }[];
   attributeSchema: AttributeSchema[];
   /** Política efectiva (propia + heredada del padre) — RÁFAGA 3 (wizard). */
   allowedListingType: ListingTypePolicy;

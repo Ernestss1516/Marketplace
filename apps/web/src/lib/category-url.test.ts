@@ -36,18 +36,39 @@ describe('categoryPathWithQuery', () => {
   });
 });
 
+/**
+ * PROFUNDIDAD N — RÁFAGA 3: FORMA ACTUALIZADA, misma intención.
+ *
+ * `findCategoryUrlParts` devolvía `parentSlug` (un solo nivel, que era todo lo
+ * que podía haber). Ahora devuelve `ancestorSlugs`, la CADENA — es lo único que
+ * permite construir la URL de una categoría de nivel 3 o 4. Lo que estos casos
+ * verifican (que resuelve raíces, hijas y slugs desconocidos, y que el resultado
+ * lo consume `categoryPath`) no cambia.
+ */
 describe('findCategoryUrlParts', () => {
-  it('resuelve una raíz como sin padre', () => {
-    expect(findCategoryUrlParts(tree, 'vehiculos')).toEqual({ slug: 'vehiculos', parentSlug: null });
+  it('resuelve una raíz como sin ancestros', () => {
+    expect(findCategoryUrlParts(tree, 'vehiculos')).toEqual({
+      slug: 'vehiculos',
+      ancestorSlugs: [],
+    });
   });
 
-  it('resuelve una hija con su padre', () => {
-    expect(findCategoryUrlParts(tree, 'coches')).toEqual({ slug: 'coches', parentSlug: 'vehiculos' });
-    expect(findCategoryUrlParts(tree, 'pisos')).toEqual({ slug: 'pisos', parentSlug: 'inmuebles' });
+  it('resuelve una hija con su cadena de ancestros', () => {
+    expect(findCategoryUrlParts(tree, 'coches')).toEqual({
+      slug: 'coches',
+      ancestorSlugs: ['vehiculos'],
+    });
+    expect(findCategoryUrlParts(tree, 'pisos')).toEqual({
+      slug: 'pisos',
+      ancestorSlugs: ['inmuebles'],
+    });
   });
 
   it('tolera una raíz sin `children`', () => {
-    expect(findCategoryUrlParts(tree, 'sin-hijas')).toEqual({ slug: 'sin-hijas', parentSlug: null });
+    expect(findCategoryUrlParts(tree, 'sin-hijas')).toEqual({
+      slug: 'sin-hijas',
+      ancestorSlugs: [],
+    });
   });
 
   it('devuelve null para un slug que no está en el árbol', () => {
@@ -57,5 +78,30 @@ describe('findCategoryUrlParts', () => {
   it('el resultado es directamente consumible por categoryPath', () => {
     const parts = findCategoryUrlParts(tree, 'motos')!;
     expect(categoryPath(parts)).toBe('/vehiculos/motos');
+  });
+
+  // Lo que sólo se puede comprobar con más de 2 niveles.
+  it('resuelve una categoría de nivel 4 con sus tres ancestros', () => {
+    const hondo = [
+      {
+        slug: 'vehiculos',
+        children: [
+          { slug: 'coches', children: [{ slug: 'deportivos', children: [{ slug: 'clasicos' }] }] },
+        ],
+      },
+    ];
+    expect(findCategoryUrlParts(hondo, 'clasicos')).toEqual({
+      slug: 'clasicos',
+      ancestorSlugs: ['vehiculos', 'coches', 'deportivos'],
+    });
+    expect(categoryPath(findCategoryUrlParts(hondo, 'clasicos')!)).toBe(
+      '/vehiculos/coches/deportivos/clasicos',
+    );
+  });
+
+  it('la forma ANTERIOR (`parentSlug`) sigue produciendo la misma URL', () => {
+    // Lo que garantiza que un payload cacheado sin `ancestorSlugs` no rompa.
+    expect(categoryPath({ slug: 'coches', parentSlug: 'vehiculos' })).toBe('/vehiculos/coches');
+    expect(categoryPath({ slug: 'vehiculos', parentSlug: null })).toBe('/vehiculos');
   });
 });

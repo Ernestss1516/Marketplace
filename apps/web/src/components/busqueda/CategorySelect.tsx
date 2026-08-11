@@ -2,6 +2,7 @@
 
 import { useRouter, useSearchParams } from 'next/navigation';
 import { categoryPathWithQuery } from '@/lib/category-url';
+import { cadenaHasta } from '@/lib/category-tree';
 import { carryFilters, effectiveTagSlugsFor, filterableAttributeNamesFor } from '@/lib/filter-carry';
 import type { Category } from '@/types';
 
@@ -118,17 +119,10 @@ function findTarget(tree: Category[], slug: string) {
   const destino = cadena[cadena.length - 1];
   return {
     slug: destino.slug,
-    parentSlug: cadena.at(-2)?.slug ?? null,
+    // PROFUNDIDAD N — RÁFAGA 3: la CADENA entera, para que la URL de destino sea
+    // la canónica a cualquier profundidad. Antes bastaba el padre inmediato
+    // porque no había nada más hondo.
+    ancestorSlugs: cadena.slice(0, -1).map((c) => c.slug),
     allowedListingType: destino.allowedListingType,
   };
-}
-
-/** Cadena raíz→categoría (incluida). `[]` si el slug no está en el árbol. */
-function cadenaHasta(nodos: Category[], slug: string): Category[] {
-  for (const cat of nodos) {
-    if (cat.slug === slug) return [cat];
-    const resto = cadenaHasta(cat.children ?? [], slug);
-    if (resto.length > 0) return [cat, ...resto];
-  }
-  return [];
 }

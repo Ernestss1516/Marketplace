@@ -71,9 +71,23 @@ describe('resolveCategoryRedirect — qué NO toca', () => {
     expect(await resolveCategoryRedirect('/mis-anuncios/coches')).toBeNull();
   });
 
-  it('≥3 segmentos: ni se mira (el árbol es de 2 niveles)', async () => {
-    expect(await resolveCategoryRedirect('/a/b/coches')).toBeNull();
-    expect(await resolveCategoryRedirect('/a/b/c/d')).toBeNull();
+  /**
+   * PROFUNDIDAD N — RÁFAGA 3: REGLA ACTUALIZADA. Este caso decía que ≥3
+   * segmentos «ni se miran, el árbol es de 2 niveles». Ya no: el árbol admite
+   * hasta CATEGORY_MAX_DEPTH (4), así que 3 y 4 segmentos SÍ son rutas de
+   * categoría candidatas y hay que resolverlas.
+   *
+   * Lo que se conserva es el corte por arriba, que es lo que este caso protegía
+   * de verdad: pasado el tope no se consulta nada. Sube de 2 a 4.
+   */
+  it('un padre incoherente de 3 segmentos SÍ se canonicaliza (el árbol llega a 4 niveles)', async () => {
+    // Manda el último segmento: `coches` es hija de `vehiculos`, así que la
+    // ruta pedida no es la suya y se redirige a la canónica.
+    expect(await resolveCategoryRedirect('/a/b/coches')).toBe('/vehiculos/coches');
+  });
+
+  it('pasado el tope de segmentos no se consulta nada', async () => {
+    expect(await resolveCategoryRedirect('/a/b/c/d/e')).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

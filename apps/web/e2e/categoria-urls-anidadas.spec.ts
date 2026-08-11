@@ -132,30 +132,59 @@ test.describe('A1 — URLs anidadas de categoría', () => {
   });
 
   // ── 404s ───────────────────────────────────────────────────────────────────
-  test('≥3 segmentos sigue dando un 404 REAL del router — no lo absorbe la ruta de categoría', async ({ request }) => {
-    // Esta es la razón de modelar 2 rutas explícitas ([categoria] y
-    // [categoria]/[subcategoria]) en vez de un catch-all [...ruta]: el catch-all
-    // habría capturado también estas rutas y las habría convertido en un 404
-    // BLANDO (200 + UI de 404, por el streaming que impone app/loading.tsx) —
-    // una regresión de SEO justo en la ráfaga que viene a arreglar el SEO.
-    //
-    // El caso fuerte es /a/b/coches: el último segmento ES una categoría válida.
-    // Si la ruta de categoría lo capturara, respondería 308 a /vehiculos/coches.
-    // Un 404 demuestra que no casa con ninguna ruta, igual que antes de A1.
-    expect((await raw(request, '/a/b/coches')).status()).toBe(404);
-    expect((await raw(request, '/a/b/c/d')).status()).toBe(404);
+  /**
+   * PROFUNDIDAD N — RÁFAGA 3: REGLA ACTUALIZADA, garantía REFORZADA.
+   *
+   * Este caso comprobaba que ≥3 segmentos daban un 404 real «porque no casan con
+   * ninguna ruta»: con el árbol de 2 niveles sólo existían las rutas de 1 y 2
+   * segmentos. Ahora existen las de 3 y 4, así que esas URLs SÍ casan — y el 404
+   * real ya no lo da el router, lo da la guarda del middleware
+   * (`isUnknownCategoryPath`), que corre ANTES de renderizar.
+   *
+   * Lo que se verifica es exactamente lo mismo, y es lo que de verdad importa:
+   * **una URL que no es una categoría responde 404 DE VERDAD, no 200**. Sigue
+   * siendo la razón de no usar un catch-all: en el componente `notFound()` sólo
+   * puede producir un 404 blando (200 + UI), por el `app/loading.tsx` de la raíz.
+   *
+   * El caso fuerte sigue siendo /a/b/coches: el último segmento ES una categoría
+   * válida, así que aquí la ruta SÍ casa y hay que canonicalizar — y por eso el
+   * 308 de abajo, en vez del 404 que daba antes.
+   */
+  test('una cadena de segmentos que no es ninguna categoría da 404 REAL (no un 200 blando)', async ({ request }) => {
+    // El último segmento no es ninguna categoría → no es una URL de categoría.
+    for (const ruta of ['/a/b/c', '/a/b/c/d', '/no-existe', '/vehiculos/no-existe']) {
+      const res = await raw(request, ruta);
+      expect(res.status(), `${ruta} debe dar 404 real`).toBe(404);
+    }
   });
 
-  test('un slug de categoría inexistente pinta el 404 (comportamiento heredado, sin cambios)', async ({ page }) => {
-    // OJO — estado PRE-EXISTENTE, medido contra la rama base antes de tocar nada:
-    // un slug desconocido devuelve 200 con la UI de 404 (404 "blando"), porque
-    // `app/loading.tsx` en la raíz hace que Next mande la cabecera antes de que la
-    // página llame a notFound(). Ya era así con la ruta /[categoria] anterior, así
-    // que A1 no lo introduce ni lo empeora. Se afirma lo que de verdad se garantiza
-    // —que el usuario ve la página de "no encontrada"— en vez de codificar como
-    // deseado un estado que no lo es. Arreglarlo exige tocar el loading global:
-    // fuera del alcance de A1, anotado para decidir aparte.
-    await page.goto('/xxx-no-existe');
+  test('más segmentos que el tope de profundidad: 404 del router, como siempre', async ({ request }) => {
+    // Cinco segmentos no casan con ninguna ruta (hay una carpeta por nivel, y el
+    // tope es 4). Es el cable "ruidoso" de los segmentos fijos: subir el tope sin
+    // añadir la carpeta se ve al primer intento.
+    expect((await raw(request, '/a/b/c/d/e')).status()).toBe(404);
+  });
+
+  test('un padre incoherente de 3 segmentos se canonicaliza con 308 (manda el último segmento)', async ({ request }) => {
+    const res = await raw(request, '/a/b/coches');
+    expect(res.status()).toBe(308);
+    expect(res.headers()['location']).toBe('/vehiculos/coches');
+  });
+
+  test('un slug de categoría inexistente pinta el 404 — y ahora con status 404 de verdad', async ({ page }) => {
+    // MEJORA DE LA RÁFAGA 3 (profundidad N). Este caso documentaba un 404
+    // BLANDO: hasta ahora un slug desconocido devolvía 200 con la UI de 404,
+    // porque `app/loading.tsx` en la raíz hace que Next mande la cabecera antes
+    // de que la página llame a `notFound()`. Se dejó anotado como «un estado que
+    // no es el deseado», fuera del alcance de aquella ráfaga.
+    //
+    // La guarda del middleware que la profundidad N necesitaba —para que las
+    // rutas nuevas de nivel 3 y 4 no convirtieran `/a/b/c` en un 200— lo cierra
+    // de paso: el middleware corre antes de renderizar, así que puede fijar el
+    // status. Se conserva la aserción de UI y se añade la del status, que es la
+    // que antes no se podía hacer.
+    const res = await page.goto('/xxx-no-existe');
+    expect(res?.status()).toBe(404);
     await expect(page.getByRole('heading', { name: '404' })).toBeVisible();
 
     await page.goto('/vehiculos/xxx-no-existe');

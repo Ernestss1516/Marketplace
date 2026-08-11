@@ -7,6 +7,7 @@ import type {
 import type { Category } from '@/types';
 import { PROVINCIAS } from '@/lib/provincias';
 import { categoryPath, categoryPathWithQuery, findCategoryUrlParts } from '@/lib/category-url';
+import { recorrerArbol } from '@/lib/category-tree';
 import { SearchTabs } from './SearchTabs';
 
 /**
@@ -67,14 +68,23 @@ function enlacesDe(tab: SearchTableTab, categories: Category[]): { href: string;
   if (tab.kind === 'categories') {
     const raices = categories.map((c) => ({ href: categoryPath(c), texto: c.name }));
     if (!tab.includeChildren) return raices;
-    // Con hijas, cada una bajo su padre: "Vehículos › Coches", y su URL anidada.
-    return categories.flatMap((root) => [
-      { href: categoryPath(root), texto: root.name },
-      ...(root.children ?? []).map((child) => ({
-        href: categoryPath({ slug: child.slug, parentSlug: root.slug }),
-        texto: `${root.name} › ${child.name}`,
-      })),
-    ]);
+    // PROFUNDIDAD N — RÁFAGA 3: recorrido recursivo. Cada descendiente con su
+    // path completo («Vehículos › Coches › Deportivos») y su URL anidada. Antes
+    // bajaba un solo nivel, así que una tabla con `includeChildren` no llegaba a
+    // enseñar nada por debajo de la hija.
+    const bajar = (
+      nodos: Category[],
+      ancestorSlugs: string[],
+      ancestorNames: string[],
+    ): { href: string; texto: string }[] =>
+      nodos.flatMap((cat) => [
+        {
+          href: categoryPath({ slug: cat.slug, ancestorSlugs }),
+          texto: [...ancestorNames, cat.name].join(' › '),
+        },
+        ...bajar(cat.children ?? [], [...ancestorSlugs, cat.slug], [...ancestorNames, cat.name]),
+      ]);
+    return bajar(categories, [], []);
   }
 
   // combos: pares categoría+provincia configurados por el admin.
@@ -93,7 +103,7 @@ function enlacesDe(tab: SearchTableTab, categories: Category[]): { href: string;
       if (!(PROVINCIAS as readonly string[]).includes(combo.province)) return null;
 
       const categoria = categories
-        .flatMap((c) => [c, ...(c.children ?? [])])
+        .flatMap((c) => recorrerArbol([c]))
         .find((c) => c.slug === combo.categorySlug);
 
       return {
