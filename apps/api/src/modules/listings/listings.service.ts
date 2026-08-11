@@ -635,6 +635,34 @@ export class ListingsService {
    * claro de "no acepto más clientes" para un servicio), puede repetirse.
    * Sustituye a markAsSold(): la guarda de estado (antes ausente — un DRAFT
    * podía marcarse SOLD directo) aplica igual a ambos tipos.
+   *
+   * RÁFAGA (A2) — POR QUÉ AQUÍ NO SE COMPRUEBA LA CUOTA. DECISIÓN CONSCIENTE,
+   * PENDIENTE DE REVISAR.
+   *
+   * Un SERVICIO en RESERVED vuelve a ACTIVE al cerrar el trato, así que este es
+   * técnicamente un camino a ACTIVE. Y hay un hueco real detrás: `RESERVED` no
+   * cuenta para la cuota (`checkActiveListingLimit` cuenta solo `status: ACTIVE`),
+   * de modo que reservar LIBERA plaza y volver de la reserva la recupera sin
+   * mirar si el cupo se llenó mientras tanto.
+   *
+   * No se cierra aquí, por dos razones:
+   *
+   *  1. Bloquear esto sería DESTRUCTIVO y sin salida. Cerrar un trato registra
+   *     un hecho que YA ocurrió (un cliente atendido), y con él nacen el `Deal`,
+   *     el enlace a la conversación y los avisos de valoración a las dos partes.
+   *     Un 403 aquí no «pospone» nada: pierde el registro, y el vendedor no
+   *     tiene forma de arreglarlo salvo despublicar otro anuncio.
+   *
+   *  2. La causa raíz no está en este método, sino en QUÉ CUENTA la cuota. El
+   *     arreglo correcto es que `RESERVED` cuente como plaza ocupada — pero eso
+   *     cambia el comportamiento de `publish`/`renew`/`reactivate` para todo el
+   *     mundo (un vendedor con 5 activos y 1 reservado hoy puede publicar; con
+   *     ese cambio, no), y esta ráfaga tiene el compromiso explícito de dejar
+   *     esos tres caminos idénticos.
+   *
+   * Queda PINNED por un test (listing-status-machine.e2e-spec.ts) para que
+   * quien cambie el criterio lo vea romperse a propósito y no por accidente.
+   * Ver docs/auditoria-puerta-validacion.md §1.5.
    */
   async closeDeal(id: string, sellerId: string, dto: CloseDealDto): Promise<{ listing: Listing; deal: Deal | null }> {
     const existing = await this.assertOwnership(id, sellerId);
@@ -750,11 +778,31 @@ export class ListingsService {
       throw new ForbiddenException('El plazo de 72 horas para deshacer este trato ha expirado');
     }
 
+    // RÁFAGA (A2) — este era uno de los caminos de VENDEDOR que llegaban a
+    // ACTIVE saltándose la cuota: un PRODUCT vuelve de SOLD a ACTIVE y ocupa
+    // plaza otra vez. Con el cupo lleno, vender → deshacer daba un activo de más.
+    //
+    // CONDICIONAL, no incondicional: solo se comprueba cuando la vuelta a ACTIVE
+    // va a ocurrir de verdad (mismo criterio que el `data` de abajo). Un SERVICE
+    // —o un PRODUCT que ya no esté en SOLD— no cambia de estado al deshacer el
+    // trato, así que exigirle cuota bloquearía por nada una operación que no
+    // ocupa ninguna plaza nueva.
+    //
+    // ANTES de abrir la transacción: `checkActiveListingLimit` hace su propio
+    // count y lanza; dejarlo dentro solo alargaría la transacción para acabar
+    // haciéndole rollback.
+    const volveraAActivo = existing.type === 'PRODUCT' && existing.status === 'SOLD';
+    if (volveraAActivo) {
+      await this.checkActiveListingLimit(sellerId);
+    }
+
     const [, listing] = await this.prisma.$transaction([
       this.prisma.deal.delete({ where: { id: dealId } }),
       this.prisma.listing.update({
         where: { id },
-        data: existing.type === 'PRODUCT' && existing.status === 'SOLD' ? { status: 'ACTIVE' } : {},
+        // Misma condición que el guard de cuota de arriba, en una sola variable:
+        // si divergieran, se cobraría plaza sin ocuparla (o al revés).
+        data: volveraAActivo ? { status: 'ACTIVE' } : {},
       }),
     ]);
 
@@ -1508,6 +1556,30 @@ export class ListingsService {
     }
   }
 
+  /**
+   * RF.7 — la cuota de anuncios activos del plan (free/pro, desde Setting).
+   *
+   * QUIÉN LA COMPRUEBA (RÁFAGA A2). Todos los caminos de VENDEDOR que dejan un
+   * anuncio en ACTIVE: `publish`, `renew`, `reactivate` y —nuevo en esta
+   * ráfaga— `undoDeal`. Antes, deshacer un trato devolvía un PRODUCT de SOLD a
+   * ACTIVE sin mirar la cuota: un vendedor en el tope podía vender, deshacer y
+   * quedarse con un activo de más, indefinidamente.
+   *
+   * QUIÉN NO, Y ES DELIBERADO — POLÍTICA DE STAFF, PENDIENTE DE DECISIÓN.
+   * `ModerationService.approveListing`, `ModerationService.restoreListing` y
+   * `AdminService.changeListingStatus` NO la comprueban. Eso ya era así antes de
+   * esta ráfaga, pero de FACTO y sin declararlo en ningún sitio; queda escrito
+   * aquí para que sea una política y no un olvido.
+   *
+   * Se mantiene sin cambios A PROPÓSITO: cerrarla tiene una consecuencia real
+   * que hay que querer, no heredar — si el vendedor llena su cupo mientras su
+   * anuncio espera revisión, el moderador ya NO podría aprobarlo, y el trabajo
+   * de staff quedaría rehén de la cuota de un tercero. Es una decisión de
+   * producto (¿el staff puede exceder el plan del vendedor?), no un bug, y va
+   * con la puerta de validación — ver docs/auditoria-puerta-validacion.md, D3.
+   *
+   * `closeDeal` tampoco la comprueba; el porqué está en su propio método.
+   */
   private async checkActiveListingLimit(userId: string): Promise<void> {
     const isPro = await this.entitlementService.isProActive(userId);
     const settingKey = isPro ? 'proActiveListingLimit' : 'freeActiveListingLimit';

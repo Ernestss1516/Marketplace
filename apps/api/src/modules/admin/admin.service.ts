@@ -37,6 +37,12 @@ import { AttributeField, resolveEffectiveSchema, countAttributesByType } from '.
 import { FilterableAttributesResolver } from '../search/filterable-attributes.resolver';
 import { DEFAULT_MAX_TAGS_PER_LISTING } from '../tags/tag.types';
 import { TICKET_REOPEN_WINDOW_DAYS } from '../tickets/tickets.constants';
+// RÁFAGA (A1) — la máquina de estados vive en un fichero PURO de listings (mismo
+// molde que category.types.ts) porque AdminModule no importa ListingsModule.
+import {
+  isLegalTransition,
+  describeIllegalTransition,
+} from '../listings/listing-status.transitions';
 
 const cacheKey = (slug: string) => `listing:${slug}`;
 
@@ -263,6 +269,23 @@ export class AdminService {
       where: { id: listingId },
     });
     if (!listing) throw new NotFoundException('Anuncio no encontrado');
+
+    // RÁFAGA (A1) — LA MÁQUINA DE ESTADOS. Este era el ÚNICO escritor de estado
+    // sin guarda alguna: `@IsEnum(ListingStatus)` en el DTO valida que el valor
+    // exista en el enum, no que el SALTO tenga sentido, así que cualquier estado
+    // valía desde cualquier estado (incluido resucitar un ARCHIVED, que el
+    // schema declara irreversible). Ver listing-status.transitions.ts.
+    //
+    // TOPOLOGÍA, NO VALIDEZ: comprueba que el salto es legal, NO que el anuncio
+    // merezca estar activo (cuota, categoría, atributos) — eso es la futura
+    // puerta de validación y no entra en esta ráfaga.
+    //
+    // La cuota NO se comprueba aquí a propósito: staff sigue exento, igual que
+    // antes de esta ráfaga (ver la nota de política en checkActiveListingLimit,
+    // listings.service.ts). Cambiar eso es una decisión pendiente, no un arreglo.
+    if (!isLegalTransition(listing.status, dto.status)) {
+      throw new BadRequestException(describeIllegalTransition(listing.status, dto.status));
+    }
 
     const before = { status: listing.status };
 
