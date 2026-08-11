@@ -1,4 +1,5 @@
 import type { AttributeSchema, Category } from '@/types';
+import { conDescendientes, recorrerArbol } from '@/lib/category-tree';
 
 /**
  * A3 — QUÉ FILTROS DE ATRIBUTO PINTA EL PANEL, y con qué forma.
@@ -78,10 +79,11 @@ function desdeSchema(f: AttributeSchema): AttributeFieldView {
  * legítimo.
  */
 export function filterableFieldsForTree(tree: Category[]): AttributeFieldView[] {
-  const todos = tree.flatMap((raiz) => [
-    ...(raiz.allAttributes ?? []),
-    ...(raiz.children ?? []).flatMap((hija) => hija.allAttributes ?? []),
-  ]);
+  // PROFUNDIDAD N — RÁFAGA 3: TODO el árbol, no «raíces + un nivel». Sin
+  // categoría que acote, un atributo de cualquier profundidad es un filtro
+  // legítimo; con el recorrido de dos niveles, los de nivel 3-4 desaparecían del
+  // panel de /busqueda.
+  const todos = recorrerArbol(tree).flatMap((cat) => cat.allAttributes ?? []);
   return dedupe(todos.filter((a) => a.filterable).map(desdeArbol));
 }
 
@@ -89,11 +91,15 @@ export function filterableFieldsForTree(tree: Category[]): AttributeFieldView[] 
  * Filtros de UNA CATEGORÍA.
  *
  * `schema` es el efectivo (propio + heredado) que devuelve `GET /categories/:slug`, así
- * que para una HOJA ya está todo. Para una RAÍZ hace falta además la unión con lo
- * filtrable de sus hijas, replicando la regla del backend
- * (`getAttributeTypesForCategory` para padres): navegar una raíz filtra por
- * `categoryPath = raíz`, que mezcla los anuncios de las hijas, así que un atributo de
- * hija —"combustible" mirando /vehiculos— es un filtro legítimo ahí.
+ * que para una HOJA ya está todo. Para una categoría CON DESCENDENCIA hace falta además
+ * la unión con lo filtrable de toda ella, replicando la regla del backend
+ * (`getAttributeTypesForCategory`): navegarla filtra por `categoryPath = slug`, que
+ * mezcla los anuncios de toda la subcadena, así que un atributo de un descendiente
+ * —"combustible" mirando /vehiculos— es un filtro legítimo ahí.
+ *
+ * PROFUNDIDAD N — RÁFAGA 3: eran «las hijas»; ahora son TODOS los descendientes. Con 2
+ * niveles las dos cosas coincidían; con 4, mirando una raíz se perdían los atributos de
+ * nietos y bisnietos, y el panel ofrecía menos filtros de los que la búsqueda acepta.
  *
  * `tree` puede venir vacío (fallo de la API): entonces solo se usa el schema, que es lo
  * que ya se tenía.
@@ -105,12 +111,12 @@ export function filterableFieldsForCategory(
 ): AttributeFieldView[] {
   const propios = schema.filter((f) => f.filterable).map(desdeSchema);
 
-  const raiz = tree.find((c) => c.slug === categorySlug);
-  const deHijas = (raiz?.children ?? []).flatMap((hija) =>
-    (hija.allAttributes ?? []).filter((a) => a.filterable).map(desdeArbol),
-  );
+  // `slice(1)` — el primero es la propia categoría, que ya viene en `schema`.
+  const deDescendientes = conDescendientes(tree, categorySlug)
+    .slice(1)
+    .flatMap((d) => (d.allAttributes ?? []).filter((a) => a.filterable).map(desdeArbol));
 
-  // Los propios primero: si una hija redefine un atributo del padre, manda la
+  // Los propios primero: si un descendiente redefine un atributo del ancestro, manda la
   // definición de la categoría que se está mirando.
-  return dedupe([...propios, ...deHijas]);
+  return dedupe([...propios, ...deDescendientes]);
 }

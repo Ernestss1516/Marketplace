@@ -52,6 +52,25 @@ function str(v: string | string[] | undefined): string | undefined {
 }
 
 /**
+ * PROFUNDIDAD N — RÁFAGA 3. La cadena de ancestros de una categoría, de la raíz
+ * al padre inmediato.
+ *
+ * Acepta las DOS formas de la respuesta a propósito: `ancestors` (la nueva, con
+ * la cadena entera) y `parent` (la anterior, un solo nivel). No es cortesía: la
+ * ficha de anuncio se cachea 5 min en Redis, así que justo tras desplegar hay
+ * respuestas servidas SIN el campo nuevo — y para una categoría de 1-2 niveles,
+ * que es lo único que existe hasta que un admin cree algo más hondo, las dos
+ * formas dan exactamente la misma URL. Se degrada, no revienta.
+ */
+function ancestorSlugsDe(cat: {
+  ancestors?: { slug: string }[] | null;
+  parent?: { slug: string } | null;
+}): string[] {
+  if (cat.ancestors && cat.ancestors.length > 0) return cat.ancestors.map((a) => a.slug);
+  return cat.parent ? [cat.parent.slug] : [];
+}
+
+/**
  * A1 — metadatos compartidos por las dos rutas de categoría (1 y 2 segmentos).
  * `canonical` explícita: los redirects ya evitan que la URL vieja se indexe, pero
  * el canonical protege además de las variantes con query params que un crawler
@@ -69,7 +88,7 @@ export async function categoryMetadata(slug: string, q?: string): Promise<Metada
         ? `Resultados de "${q}" en ${cat.name}.`
         : `Anuncios de segunda mano de ${cat.name}. Compra y vende en nuestro marketplace.`,
       alternates: {
-        canonical: `${SITE_URL}${categoryPath({ slug: cat.slug, parentSlug: cat.parent?.slug })}`,
+        canonical: `${SITE_URL}${categoryPath({ slug: cat.slug, ancestorSlugs: ancestorSlugsDe(cat) })}`,
       },
     };
   } catch {
@@ -105,7 +124,7 @@ async function resolveCanonicalCategory(
     throw err;
   }
 
-  const canonical = categoryPath({ slug: category.slug, parentSlug: category.parent?.slug });
+  const canonical = categoryPath({ slug: category.slug, ancestorSlugs: ancestorSlugsDe(category) });
   const requested = `/${segments.join('/')}`;
   if (requested !== canonical) {
     // La query se preserva SIEMPRE: una URL vieja indexada con filtros
@@ -117,7 +136,7 @@ async function resolveCanonicalCategory(
       if (v) params.set(key, v);
     }
     permanentRedirect(
-      categoryPathWithQuery({ slug: category.slug, parentSlug: category.parent?.slug }, params),
+      categoryPathWithQuery({ slug: category.slug, ancestorSlugs: ancestorSlugsDe(category) }, params),
     );
   }
 
@@ -125,16 +144,20 @@ async function resolveCanonicalCategory(
 }
 
 /**
- * Listado de una categoría. Lo comparten las DOS rutas que pueden servirlo:
- * `/[categoria]` (raíz) y `/[categoria]/[subcategoria]` (hija).
+ * Listado de una categoría. Lo comparten las CUATRO rutas que pueden servirlo,
+ * una por nivel: `/[categoria]` … `/[categoria]/[subcategoria]/[nivel3]/[nivel4]`.
  *
- * Son dos rutas explícitas y no un catch-all `[...ruta]` a propósito: el árbol
- * tiene EXACTAMENTE 2 niveles (assertParentIsRoot), y un catch-all en la raíz
- * capturaría además cualquier ruta profunda inexistente (/a/b/c/d), que hoy
- * devuelve un 404 REAL del router. Con el catch-all pasaría a ser un 404 blando
- * (200 + UI de 404, por el streaming que impone app/loading.tsx) — una regresión
- * de SEO justo en la ráfaga que viene a arreglar el SEO. Modelando los 2 niveles
- * tal cual, lo que no es una categoría sigue sin casar con ninguna ruta.
+ * SEGMENTOS FIJOS Y NO UN CATCH-ALL `[...ruta]` (PROFUNDIDAD N — RÁFAGA 3). Un
+ * catch-all capturaría además cualquier ruta profunda inexistente, y aquí
+ * `notFound()` NO produce un 404 real: `app/loading.tsx` en la raíz hace que Next
+ * mande la cabecera 200 antes de ejecutar esta página, así que saldría un 404
+ * BLANDO (200 + UI de 404) — una regresión de SEO. Está medido en este repo, y es
+ * el mismo mecanismo por el que el 308 vive en el middleware.
+ *
+ * Con una carpeta por nivel, cinco segmentos siguen sin casar con ninguna ruta y
+ * mueren en el 404 real del router. Y para las cadenas FALSAS que sí casan
+ * (`/a/b/c`), el 404 real lo garantiza `isUnknownCategoryPath` en el middleware,
+ * que corre antes de renderizar.
  */
 export async function CategoryListingPage({
   segments,
@@ -148,8 +171,12 @@ export async function CategoryListingPage({
   // Resuelve la categoría y garantiza que esta URL es la canónica (o redirige).
   const category = await resolveCanonicalCategory(segments, raw);
   const categoria = category.slug;
-  const parentSlug = category.parent?.slug ?? null;
-  const basePath = categoryPath({ slug: categoria, parentSlug });
+  // PROFUNDIDAD N — RÁFAGA 3: la CADENA de ancestros sustituye al padre suelto.
+  // `ancestorSlugsDe` acepta las dos formas (la nueva `ancestors` y el `parent`
+  // heredado), así que una respuesta cacheada sin el campo nuevo sigue dando una
+  // URL válida en vez de romper.
+  const ancestorSlugs = ancestorSlugsDe(category);
+  const basePath = categoryPath({ slug: categoria, ancestorSlugs });
 
   // A2 — `q` como filtro de primera: parseado explícito, igual que en /busqueda.
   const q = str(raw.q);
@@ -292,7 +319,7 @@ export async function CategoryListingPage({
       if (v) params.set(key, v);
     }
     if (target !== category.defaultView) params.set('view', VIEW_PARAM[target]);
-    return categoryPathWithQuery({ slug: categoria, parentSlug }, params);
+    return categoryPathWithQuery({ slug: categoria, ancestorSlugs }, params);
   }
 
   function pageUrl(p: number): string {
@@ -304,7 +331,7 @@ export async function CategoryListingPage({
       }
     }
     params.set('page', String(p));
-    return categoryPathWithQuery({ slug: categoria, parentSlug }, params);
+    return categoryPathWithQuery({ slug: categoria, ancestorSlugs }, params);
   }
 
   const currentFilters = {
@@ -368,10 +395,22 @@ export async function CategoryListingPage({
   // A1 — la miga refleja el árbol: Inicio > Vehículos > Coches (o Inicio > Vehículos
   // en una raíz). El JSON-LD se genera de la MISMA lista que la miga visible, no de
   // una copia paralela que pueda divergir de lo que ve el usuario.
+  // PROFUNDIDAD N — RÁFAGA 3: la miga es la CADENA COMPLETA
+  // (Inicio > Vehículos > Coches > Deportivos > Clásicos), no el padre y ya. Cada
+  // escalón lleva SU propia URL canónica, que es la de sus propios ancestros —
+  // de ahí el `slice(0, i)`.
+  //
+  // Para una categoría de 1-2 niveles esto produce exactamente la miga de antes.
+  // El JSON-LD sigue saliendo de ESTA misma lista, no de una copia paralela.
+  const ancestorsChain = category.ancestors ?? (category.parent ? [category.parent] : []);
   const trail = [
-    ...(category.parent
-      ? [{ name: category.parent.name, path: categoryPath({ slug: category.parent.slug }) }]
-      : []),
+    ...ancestorsChain.map((ancestro, i) => ({
+      name: ancestro.name,
+      path: categoryPath({
+        slug: ancestro.slug,
+        ancestorSlugs: ancestorsChain.slice(0, i).map((a) => a.slug),
+      }),
+    })),
     { name: category.name, path: basePath },
   ];
 

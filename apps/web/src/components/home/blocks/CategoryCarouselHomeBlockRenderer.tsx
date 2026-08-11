@@ -2,6 +2,7 @@ import Link from 'next/link';
 import type { HomeCategoryCarouselBlock } from '@/types/home-blocks';
 import type { Category } from '@/types';
 import { categoryPath, findCategoryUrlParts } from '@/lib/category-url';
+import { recorrerArbol } from '@/lib/category-tree';
 import { isSafeSrc } from '@/lib/image-domains';
 import { CarouselScroller } from './CarouselScroller';
 
@@ -34,7 +35,7 @@ export function CategoryCarouselHomeBlockRenderer({
       const urlParts = findCategoryUrlParts(categories, item.categorySlug);
       if (!urlParts) return null; // slug colgado → fuera, sin romper la fila
       const categoria = categories
-        .flatMap((c) => [c, ...(c.children ?? [])])
+        .flatMap((c) => recorrerArbol([c]))
         .find((c) => c.slug === item.categorySlug);
       return {
         ...item,

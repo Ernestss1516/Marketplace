@@ -1,7 +1,12 @@
 import NextAuth from 'next-auth';
+import { NextResponse } from 'next/server';
 import { authConfig } from '@/lib/auth/auth.config';
 import { buildLoginUrl } from '@/lib/auth/callback-url';
-import { resolveCategoryRedirect, resolveSearchCategoryRedirect } from '@/lib/category-canonical';
+import {
+  isUnknownCategoryPath,
+  resolveCategoryRedirect,
+  resolveSearchCategoryRedirect,
+} from '@/lib/category-canonical';
 
 const { auth } = NextAuth(authConfig);
 
@@ -70,6 +75,22 @@ export default auth(async (req) => {
   const fromSearch = await resolveSearchCategoryRedirect(pathname, req.nextUrl.searchParams);
   if (fromSearch) {
     return Response.redirect(new URL(fromSearch, req.url), PERMANENT_REDIRECT);
+  }
+
+  // PROFUNDIDAD N — RÁFAGA 3. Un 404 REAL para las rutas que ahora CASAN con una
+  // ruta de categoría (1..4 segmentos) pero no son ninguna categoría.
+  //
+  // Antes de esta ráfaga sólo existían las rutas de 1 y 2 segmentos, así que
+  // `/a/b/c` no casaba con nada y el router daba un 404 de verdad. Con las rutas
+  // de nivel 3 y 4 eso deja de ser cierto, y en el componente `notFound()` sólo
+  // puede producir un 404 BLANDO (200 + UI) por el `app/loading.tsx` de la raíz
+  // — el mismo motivo por el que el 308 vive aquí y no en la página.
+  //
+  // `rewrite` y no un `Response(null, {status: 404})`: así el usuario sigue
+  // viendo la página de 404 con su diseño, y el crawler recibe el 404 de verdad.
+  // El destino no casa con ninguna ruta a propósito.
+  if (await isUnknownCategoryPath(pathname)) {
+    return NextResponse.rewrite(new URL('/_categoria-inexistente', req.url), { status: 404 });
   }
 
   const isAccountRoute = accountPrefixes.some((p) => pathname.startsWith(p));

@@ -42,9 +42,16 @@ const RESERVED_FIRST_SEGMENTS: ReadonlySet<string> = new Set([
   'admin', 'api', '_next',
 ]);
 
-/** El árbol es de 2 niveles (assertParentIsRoot), así que ninguna URL de
- *  categoría legítima pasa de dos segmentos. */
-const MAX_CATEGORY_SEGMENTS = 2;
+/**
+ * PROFUNDIDAD N — RÁFAGA 3. Espejo de `CATEGORY_MAX_DEPTH` (api,
+ * category.types.ts): ninguna URL de categoría legítima tiene más segmentos que
+ * niveles admite el árbol. Duplicado aquí por lo mismo que el resto de espejos
+ * api↔web: no hay paquete compartido.
+ *
+ * Subirlo exige además añadir la ruta correspondiente en `app/(public)` — ver la
+ * nota de la constante en el backend.
+ */
+const MAX_CATEGORY_SEGMENTS = 4;
 
 /** TTL del mapa en memoria. Corto: un admin que mueve una categoría de padre ve
  *  el redirect nuevo en menos de un minuto, y el coste es UNA petición por minuto
@@ -53,25 +60,31 @@ const MAP_TTL_MS = 60_000;
 
 interface CategoryNode {
   slug: string;
-  children?: { slug: string }[];
+  children?: CategoryNode[];
 }
 
-/** slug → slug del padre (null si es raíz). */
-type ParentMap = ReadonlyMap<string, string | null>;
+/**
+ * slug → CADENA de ancestros (de la raíz al padre inmediato). `[]` = raíz.
+ *
+ * PROFUNDIDAD N — RÁFAGA 3: era `slug → slug del padre`. Guardar la cadena
+ * entera es lo que permite reconstruir la URL canónica de cualquier nivel sin
+ * volver a recorrer el árbol.
+ */
+type AncestorMap = ReadonlyMap<string, string[]>;
 
-let cached: { at: number; map: ParentMap } | null = null;
-let inFlight: Promise<ParentMap | null> | null = null;
+let cached: { at: number; map: AncestorMap } | null = null;
+let inFlight: Promise<AncestorMap | null> | null = null;
 
 /**
- * Mapa slug→padre, memoizado en el módulo. Devuelve `null` si no se pudo
- * obtener: quien llama debe entonces NO redirigir (fail-open — la página sigue
- * sirviéndose, solo que en una URL no canónica, que es infinitamente mejor que
- * un 500 en toda la navegación por un fallo de la API).
+ * Mapa slug→cadena de ancestros, memoizado en el módulo. Devuelve `null` si no
+ * se pudo obtener: quien llama debe entonces NO redirigir (fail-open — la página
+ * sigue sirviéndose, solo que en una URL no canónica, que es infinitamente mejor
+ * que un 500 en toda la navegación por un fallo de la API).
  *
  * `inFlight` deduplica: una ráfaga de peticiones con el mapa frío dispara UNA
  * sola llamada, no una por petición.
  */
-async function getParentMap(now: number): Promise<ParentMap | null> {
+async function getAncestorMap(now: number): Promise<AncestorMap | null> {
   if (cached && now - cached.at < MAP_TTL_MS) return cached.map;
   if (inFlight) return inFlight;
 
@@ -80,11 +93,17 @@ async function getParentMap(now: number): Promise<ParentMap | null> {
       const res = await fetch(`${API_URL}/categories`, { cache: 'no-store' });
       if (!res.ok) return null;
       const tree = (await res.json()) as CategoryNode[];
-      const map = new Map<string, string | null>();
-      for (const root of tree) {
-        map.set(root.slug, null);
-        for (const child of root.children ?? []) map.set(child.slug, root.slug);
-      }
+      const map = new Map<string, string[]>();
+      // PROFUNDIDAD N — RÁFAGA 3: recorrido recursivo. Era un doble bucle
+      // (raíces → hijas), que dejaba fuera del mapa cualquier categoría más
+      // profunda: su URL no se habría podido canonicalizar nunca.
+      const recorrer = (nodos: CategoryNode[], ancestros: string[]) => {
+        for (const nodo of nodos) {
+          map.set(nodo.slug, ancestros);
+          recorrer(nodo.children ?? [], [...ancestros, nodo.slug]);
+        }
+      };
+      recorrer(tree, []);
       cached = { at: now, map };
       return map;
     } catch {
@@ -116,14 +135,53 @@ export async function resolveCategoryRedirect(
   if (segments.length === 0 || segments.length > MAX_CATEGORY_SEGMENTS) return null;
   if (RESERVED_FIRST_SEGMENTS.has(segments[0])) return null;
 
-  const map = await getParentMap(now);
+  const map = await getAncestorMap(now);
   if (!map) return null;
 
   const leaf = segments[segments.length - 1];
   if (!map.has(leaf)) return null; // no es una categoría: que la página decida (404)
 
-  const canonical = categoryPath({ slug: leaf, parentSlug: map.get(leaf) });
+  const canonical = categoryPath({ slug: leaf, ancestorSlugs: map.get(leaf) });
   return canonical === pathname ? null : canonical;
+}
+
+/**
+ * PROFUNDIDAD N — RÁFAGA 3. ¿Esta ruta CASA con una ruta de categoría pero NO es
+ * una categoría? Es decir: ¿hay que producir un 404 REAL antes de renderizar?
+ *
+ * POR QUÉ HACE FALTA, Y POR QUÉ AQUÍ. Hasta esta ráfaga sólo existían las rutas
+ * de 1 y 2 segmentos, así que `/a/b/c` no casaba con ninguna y el ROUTER daba un
+ * 404 de verdad. Al añadir las rutas de nivel 3 y 4, esas URLs pasan a casar y
+ * llegan al componente — y ahí `notFound()` NO produce un 404 real: `app/loading.tsx`
+ * en la raíz hace que Next mande la cabecera 200 antes de ejecutar la página, así
+ * que sale un 404 BLANDO (200 + UI de 404). Está medido en este repo, y es el
+ * mismo mecanismo por el que el 308 tuvo que mudarse al middleware.
+ *
+ * Un 200 donde debería haber un 404 es una regresión de SEO — exactamente la que
+ * el trabajo de URLs anidadas vino a evitar desde el otro lado. El middleware
+ * corre ANTES de renderizar nada, así que es el único sitio donde la respuesta
+ * todavía se puede fijar.
+ *
+ * LA REGLA es la misma que la del 308 y no depende de la profundidad: **manda el
+ * último segmento**. Si es una categoría conocida, `resolveCategoryRedirect` ya
+ * se ocupa (sirve o redirige a la canónica). Si NO lo es, esta ruta no es una
+ * categoría y debe morir con un 404 de verdad.
+ *
+ * FAIL-OPEN: sin mapa (API caída o frío) devuelve `false` — se prefiere servir un
+ * 404 blando a 404-ear una categoría legítima por un fallo de red.
+ */
+export async function isUnknownCategoryPath(
+  pathname: string,
+  now = Date.now(),
+): Promise<boolean> {
+  const segments = pathname.split('/').filter(Boolean);
+  if (segments.length === 0 || segments.length > MAX_CATEGORY_SEGMENTS) return false;
+  if (RESERVED_FIRST_SEGMENTS.has(segments[0])) return false;
+
+  const map = await getAncestorMap(now);
+  if (!map) return false;
+
+  return !map.has(segments[segments.length - 1]);
 }
 
 /**
@@ -152,7 +210,7 @@ export async function resolveSearchCategoryRedirect(
   const slug = search.get('category');
   if (!slug) return null;
 
-  const map = await getParentMap(now);
+  const map = await getAncestorMap(now);
   // Sin mapa no se redirige: /busqueda?category= sigue funcionando como siempre
   // (el backend acepta el param), que es el fallo seguro.
   if (!map || !map.has(slug)) return null;
@@ -161,7 +219,7 @@ export async function resolveSearchCategoryRedirect(
   rest.delete('category');
   const query = rest.toString();
 
-  return categoryPath({ slug, parentSlug: map.get(slug) }) + (query ? `?${query}` : '');
+  return categoryPath({ slug, ancestorSlugs: map.get(slug) }) + (query ? `?${query}` : '');
 }
 
 /** Solo para tests: vacía la memoización entre casos. */

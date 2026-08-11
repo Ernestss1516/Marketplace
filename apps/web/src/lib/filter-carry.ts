@@ -1,4 +1,5 @@
 import type { Category, ListingTypePolicy } from '@/types';
+import { conDescendientes } from '@/lib/category-tree';
 
 /**
  * A2 — QUÉ FILTROS SOBREVIVEN AL CAMBIAR DE CATEGORÍA.
@@ -89,29 +90,21 @@ export function filterableAttributeNamesFor(
 ): ReadonlySet<string> | null {
   if (targetSlug === null) return null;
 
+  // PROFUNDIDAD N — RÁFAGA 3: la categoría destino y TODOS sus descendientes, a
+  // cualquier profundidad. Era «la categoría, y si es raíz también sus hijas»:
+  // con 2 niveles eso ERA la descendencia entera, con 4 ya no. Navegar una
+  // categoría agrega en Meilisearch los anuncios de toda su subcadena
+  // (`categoryPath` es contención en array), así que un atributo de un bisnieto
+  // es un filtro legítimo mirando a la raíz.
+  //
+  // Slug desconocido → `conDescendientes` devuelve `[]` y no se arrastra ningún
+  // atributo. Conservador a propósito: perder un filtro es recuperable, un 400 no.
   const names = new Set<string>();
-  const add = (cat: Category | undefined) => {
-    for (const attr of cat?.allAttributes ?? []) {
+  for (const cat of conDescendientes(tree, targetSlug)) {
+    for (const attr of cat.allAttributes ?? []) {
       if (attr.filterable) names.add(attr.key);
     }
-  };
-
-  for (const root of tree) {
-    if (root.slug === targetSlug) {
-      add(root);
-      // Raíz: además, todo lo filtrable de sus hijas.
-      for (const child of root.children ?? []) add(child);
-      return names;
-    }
-    const child = (root.children ?? []).find((c) => c.slug === targetSlug);
-    if (child) {
-      add(child);
-      return names;
-    }
   }
-
-  // Slug desconocido: sin información para decidir, no se arrastra ningún atributo.
-  // Conservador a propósito — perder un filtro es recuperable, un 400 no.
   return names;
 }
 
@@ -136,25 +129,13 @@ export function effectiveTagSlugsFor(
 ): ReadonlySet<string> | null {
   if (targetSlug === null) return null;
 
-  const slugs = new Set<string>();
-  const add = (cat: Category | undefined) => {
-    for (const tag of cat?.tags ?? []) slugs.add(tag.slug);
-  };
-
-  for (const root of tree) {
-    if (root.slug === targetSlug) {
-      add(root);
-      for (const child of root.children ?? []) add(child);
-      return slugs;
-    }
-    const child = (root.children ?? []).find((c) => c.slug === targetSlug);
-    if (child) {
-      add(child);
-      return slugs;
-    }
-  }
-
+  // PROFUNDIDAD N — RÁFAGA 3: mismo cambio y mismo motivo que en
+  // `filterableAttributeNamesFor` — toda la descendencia, no sólo las hijas.
   // Slug desconocido: mismo criterio conservador que con los atributos.
+  const slugs = new Set<string>();
+  for (const cat of conDescendientes(tree, targetSlug)) {
+    for (const tag of cat.tags ?? []) slugs.add(tag.slug);
+  }
   return slugs;
 }
 

@@ -1,4 +1,5 @@
 import type { Category, TagRef } from '@/types';
+import { conDescendientes, recorrerArbol } from '@/lib/category-tree';
 
 /**
  * B3 — QUÉ ETIQUETAS OFRECE el panel de filtros en cada ámbito.
@@ -35,29 +36,25 @@ function unir(...listas: (TagRef[] | undefined)[]): TagRef[] {
  * sería ofrecer un callejón sin salida garantizado.
  */
 export function availableTagsForTree(categories: Category[]): TagRef[] {
-  return unir(
-    ...categories.flatMap((root) => [root.tags, ...(root.children ?? []).map((c) => c.tags)]),
-  );
+  // PROFUNDIDAD N — RÁFAGA 3: todo el árbol, no «raíces + un nivel».
+  return unir(...recorrerArbol(categories).map((cat) => cat.tags));
 }
 
 /**
  * Una categoría concreta. Misma regla que `filterableFieldsForCategory` y que
  * `getAttributeTypesForCategory` en el backend:
- *  - HOJA: sus tags efectivos (propios + heredados del padre, ya resueltos).
- *  - RAÍZ: los suyos ∪ los de sus hijas, porque navegar una raíz agrega los anuncios de
- *    las hijas (`categoryPath = raíz`), así que un tag de hija es un filtro legítimo ahí.
+ *  - HOJA: sus tags efectivos (propios + heredados de sus ancestros, ya resueltos).
+ *  - CON DESCENDENCIA: los suyos ∪ los de TODA ella, porque navegarla agrega los
+ *    anuncios de toda la subcadena (`categoryPath = slug`), así que un tag de un
+ *    descendiente es un filtro legítimo ahí.
+ *
+ * PROFUNDIDAD N — RÁFAGA 3: eran «las hijas»; ahora es la descendencia entera. Mismo
+ * cambio y mismo motivo que en `filterableFieldsForCategory`.
  */
 export function availableTagsForCategory(
   categories: Category[],
   slug: string,
 ): TagRef[] {
-  for (const root of categories) {
-    if (root.slug === slug) {
-      return unir(root.tags, ...(root.children ?? []).map((c) => c.tags));
-    }
-    const child = (root.children ?? []).find((c) => c.slug === slug);
-    if (child) return unir(child.tags);
-  }
-  // Slug desconocido: sin datos para ofrecer nada. La sección no se pinta.
-  return [];
+  // Slug desconocido → `[]`: sin datos para ofrecer nada, la sección no se pinta.
+  return unir(...conDescendientes(categories, slug).map((cat) => cat.tags));
 }

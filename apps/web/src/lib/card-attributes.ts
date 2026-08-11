@@ -1,4 +1,5 @@
 import type { Category, AttributeSchema, CardAttributeDef, ListingType } from '@/types';
+import { recorrerArbol } from '@/lib/category-tree';
 import type { CardAttributeMap } from '@/components/anuncios/CardAttributesContext';
 
 // RÁFAGA 3 — mismas reglas de default que resolveShowLabel/resolveShowUnit en
@@ -44,11 +45,11 @@ export function filterDefsByListingType(
  */
 export function buildCardAttributeMap(categories: Category[]): CardAttributeMap {
   const map: CardAttributeMap = {};
-  for (const cat of categories) {
+  // PROFUNDIDAD N — RÁFAGA 3: recorrido recursivo. Era «raíces + un nivel de
+  // hijas», así que las cards de una categoría de nivel 3-4 se quedaban sin sus
+  // atributos destacados — en silencio, porque el mapa simplemente no la tenía.
+  for (const cat of recorrerArbol(categories)) {
     if (cat.cardAttributes?.length) map[cat.slug] = cat.cardAttributes;
-    for (const child of cat.children ?? []) {
-      if (child.cardAttributes?.length) map[child.slug] = child.cardAttributes;
-    }
   }
   return map;
 }
@@ -61,13 +62,9 @@ export function buildCardAttributeMap(categories: Category[]): CardAttributeMap 
  */
 export function buildFullAttributeMap(categories: Category[]): CardAttributeMap {
   const map: CardAttributeMap = {};
-  for (const cat of categories) {
+  for (const cat of recorrerArbol(categories)) {
     const attrs = cat.allAttributes ?? cat.cardAttributes;
     if (attrs?.length) map[cat.slug] = attrs;
-    for (const child of cat.children ?? []) {
-      const childAttrs = child.allAttributes ?? child.cardAttributes;
-      if (childAttrs?.length) map[child.slug] = childAttrs;
-    }
   }
   return map;
 }
@@ -98,11 +95,8 @@ export function buildCardAttributeMapFromSchema(
  */
 export function buildWideCardAttributeMap(categories: Category[]): CardAttributeMap {
   const map: CardAttributeMap = {};
-  for (const cat of categories) {
+  for (const cat of recorrerArbol(categories)) {
     if (cat.wideCardAttributes?.length) map[cat.slug] = cat.wideCardAttributes;
-    for (const child of cat.children ?? []) {
-      if (child.wideCardAttributes?.length) map[child.slug] = child.wideCardAttributes;
-    }
   }
   return map;
 }

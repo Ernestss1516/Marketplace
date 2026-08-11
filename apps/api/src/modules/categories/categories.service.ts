@@ -23,15 +23,27 @@ export class CategoriesService {
     private readonly tree: CategoryTreeService,
   ) {}
 
+  /**
+   * El árbol público de categorías, RECURSIVO (PROFUNDIDAD N — RÁFAGA 3).
+   *
+   * Antes devolvía raíces + un nivel de `children` con un `select` anidado a
+   * mano: una categoría de nivel 3 no llegaba al frontend, así que no tenía URL,
+   * ni entraba en el sitemap, ni aparecía en ningún selector. Ahora se traen
+   * todas las filas de una vez (decenas) y el árbol se monta en memoria.
+   *
+   * LA FORMA DE LA RESPUESTA NO CAMBIA para lo que ya existía: mismos campos,
+   * mismo `children` anidado, mismo orden. Lo nuevo es que los hijos también
+   * pueden tener hijos, y que cada nodo lleva `ancestorSlugs`.
+   */
   async findTree() {
-    const roots = await this.prisma.category.findMany({
-      where: { parentId: null },
+    const filas = await this.prisma.category.findMany({
       orderBy: { order: 'asc' },
       select: {
         id: true,
         name: true,
         slug: true,
         iconUrl: true,
+        parentId: true,
         attributeSchema: true,
         // A2 — necesario para resolver la política efectiva de cada nodo (abajo).
         allowedListingType: true,
@@ -44,29 +56,37 @@ export class CategoriesService {
           orderBy: { orden: 'asc' },
           select: { tag: { select: { id: true, slug: true, name: true } } },
         },
-        children: {
-          orderBy: { order: 'asc' },
-          select: {
-            id: true, name: true, slug: true, iconUrl: true, attributeSchema: true,
-            allowedListingType: true,
-            tags: {
-              where: { tag: { activo: true } },
-              orderBy: { orden: 'asc' },
-              select: { tag: { select: { id: true, slug: true, name: true } } },
-            },
-          },
-        },
       },
     });
 
-    // PROFUNDIDAD N — RÁFAGA 1. La FORMA de esta respuesta sigue siendo de 2
-    // niveles (raíces + `children`) y eso se generaliza en la RÁFAGA 3, que es
-    // la que enseña el árbol completo al frontend. Lo que sí se generaliza aquí
-    // es la HERENCIA: cada nodo resuelve plegando su cadena completa, no
-    // fusionando con su padre. Para un árbol de 2 niveles las dos cosas dan el
-    // mismo resultado — por eso esta ráfaga no cambia nada observable.
-    return Promise.all(roots.map(async (root) => {
-      const rootSchema = await this.efectivoSchema(root.id);
+    const hijosDe = new Map<string | null, typeof filas>();
+    for (const fila of filas) {
+      const lista = hijosDe.get(fila.parentId);
+      if (lista) lista.push(fila);
+      else hijosDe.set(fila.parentId, [fila]);
+    }
+
+    // PROFUNDIDAD N — RÁFAGA 3. Los efectivos se PLIEGAN EN LA RECURSIÓN, no se
+    // piden por nodo.
+    //
+    // Es la misma operación que `efectivoSchema`/`efectivaPolitica`, pero
+    // aprovechando que aquí se baja por el árbol: el efectivo del padre ya está
+    // calculado cuando toca el hijo, así que cada nivel sólo aplica su propio
+    // reductor sobre él. Pedírselo al lector por nodo costaría UNA CONSULTA POR
+    // CATEGORÍA en el endpoint más caliente del frontend (lo consumen la portada,
+    // la búsqueda y toda página de categoría) — y `findTree` ahora devuelve el
+    // árbol entero, no dos niveles, así que ese coste crecía con el catálogo.
+    // Aquí el total es UNA consulta, la de arriba.
+    const montar = async (
+      nodo: (typeof filas)[number],
+      ancestorSlugs: string[],
+      tagsHeredados: { id: string; slug: string; name: string }[],
+      schemaHeredado: AttributeField[],
+      politicaHeredada: ListingTypePolicy,
+    ): Promise<Record<string, unknown>> => {
+      const propio = (nodo.attributeSchema as unknown as AttributeField[]) ?? [];
+      const effective = resolveEffectiveSchema(propio, schemaHeredado);
+      const politica = resolveEffectivePolicy(nodo.allowedListingType, politicaHeredada);
       const toAttrDef = (f: AttributeField) => ({
         key: f.name,
         label: f.label,
@@ -102,62 +122,52 @@ export class CategoriesService {
         // anuncio concreto que renderiza — antes se perdía aquí y ninguna card lo filtraba.
         ...(f.appliesTo !== undefined ? { appliesTo: f.appliesTo } : {}),
       });
-      // A2 — política EFECTIVA. El frontend la usa para decidir si `condition`
-      // sobrevive al cambiar de categoría (un servicio no tiene estado de
-      // conservación) — ver lib/filter-carry.ts.
-      const rootPolicy = await this.efectivaPolitica(root.id);
+      // B3 — tags EFECTIVOS: los propios MÁS los que vienen de arriba, con la
+      // misma resolución (y el mismo orden: propios primero) que
+      // `TagsService.effectiveTagsForCategory`. Se resuelve aquí y no en el
+      // cliente para que la herencia tenga un solo sitio donde vivir.
+      //
+      // PROFUNDIDAD N — RÁFAGA 3: `tagsHeredados` baja YA PLEGADO por la
+      // recursión, así que un bisnieto acumula los de sus tres ancestros. Antes
+      // era una fusión de un salto — correcta entonces porque este endpoint sólo
+      // devolvía dos niveles, y por eso se anotó como pendiente de esta ráfaga.
+      const tagsPropios = nodo.tags.map((t) => t.tag);
+      const tagsEfectivos = resolveEffectiveTags(tagsPropios, tagsHeredados);
+
       return {
-        id: root.id,
-        name: root.name,
-        slug: root.slug,
-        iconUrl: root.iconUrl,
-        allowedListingType: rootPolicy,
-        cardAttributes: rootSchema.filter((f) => f.cardAttribute).map(toAttrDef),
+        id: nodo.id,
+        name: nodo.name,
+        slug: nodo.slug,
+        iconUrl: nodo.iconUrl,
+        // A1 (URLs anidadas) — el slug del padre viaja en el propio nodo para que
+        // ningún consumidor tenga que recorrer el árbol al revés buscando quién lo
+        // tiene como hijo. Las raíces NO lo llevan (ausente = raíz).
+        //
+        // PROFUNDIDAD N — RÁFAGA 3: se conserva JUNTO a `ancestorSlugs`, no se
+        // sustituye. `categoryPath()` acepta las dos formas a propósito, para que
+        // los consumidores migren de uno en uno y para que un payload cacheado
+        // sin el campo nuevo siga produciendo una URL válida.
+        ...(ancestorSlugs.length > 0 ? { parentSlug: ancestorSlugs[ancestorSlugs.length - 1] } : {}),
+        // La CADENA completa, de la raíz al padre inmediato. `[]` = raíz.
+        ancestorSlugs,
+        allowedListingType: politica,
+        cardAttributes: effective.filter((f) => f.cardAttribute).map(toAttrDef),
         // RÁFAGA 2 (vista ampliada): hasta 6 atributos relevantes para la card ancha,
         // independiente de cardAttributes (que sigue limitado a 2 para la card compacta).
-        wideCardAttributes: rootSchema.filter((f) => f.wideCardAttribute).map(toAttrDef),
-        allAttributes: rootSchema.map(toAttrDef),
-        // B3 — una raíz no hereda de nadie: sus efectivos son los suyos.
-        tags: root.tags.map((t) => t.tag),
-        children: await Promise.all(root.children.map(async (child) => {
-          const effective = await this.efectivoSchema(child.id);
-          return {
-            id: child.id,
-            name: child.name,
-            slug: child.slug,
-            // A1 (URLs anidadas) — el slug del padre viaja en la propia hija para que
-            // ningún consumidor tenga que recorrer el árbol al revés buscando quién la
-            // tiene como hija. `categoryPath()` del frontend lo lee directamente; sin
-            // esto, cada generador de URL (11 de ellos) resolvería el padre por su
-            // cuenta y podrían divergir. Las raíces NO lo llevan (ausente = raíz).
-            parentSlug: root.slug,
-            iconUrl: child.iconUrl,
-            allowedListingType: await this.efectivaPolitica(child.id),
-            cardAttributes: effective.filter((f) => f.cardAttribute).map(toAttrDef),
-            wideCardAttributes: effective.filter((f) => f.wideCardAttribute).map(toAttrDef),
-            allAttributes: effective.map(toAttrDef),
-            // B3 — efectivos de la hija: los suyos MÁS los del padre, con la misma
-            // resolución (y el mismo orden: propios primero) que
-            // `TagsService.effectiveTagsForCategory`. Se resuelve aquí y no en el
-            // cliente para que la herencia tenga un solo sitio donde vivir.
-            //
-            // PROFUNDIDAD N — RÁFAGA 1: esta es la ÚNICA resolución que aquí
-            // sigue siendo de un salto, y NO es un olvido. La FORMA de esta
-            // respuesta es de 2 niveles (raíces + `children`), así que los
-            // únicos nodos que devuelve son de nivel 1 y 2 — y para ellos «los
-            // del padre» ES la cadena entera. Cuando la RÁFAGA 3 haga el árbol
-            // recursivo, esto pasa a plegarse como los demás; hasta entonces un
-            // nivel 3 no se devuelve en absoluto, así que no puede devolverse
-            // mal. Los tags no viajan en `CategoryNode` (viven en tablas
-            // aparte), por eso no sale del mismo pliegue que el schema.
-            tags: resolveEffectiveTags(
-              child.tags.map((t) => t.tag),
-              root.tags.map((t) => t.tag),
-            ),
-          };
-        })),
+        wideCardAttributes: effective.filter((f) => f.wideCardAttribute).map(toAttrDef),
+        allAttributes: effective.map(toAttrDef),
+        tags: tagsEfectivos,
+        children: await Promise.all(
+          (hijosDe.get(nodo.id) ?? []).map((hijo) =>
+            montar(hijo, [...ancestorSlugs, nodo.slug], tagsEfectivos, effective, politica),
+          ),
+        ),
       };
-    }));
+    };
+
+    return Promise.all(
+      (hijosDe.get(null) ?? []).map((raiz) => montar(raiz, [], [], [], 'BOTH')),
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -249,6 +259,7 @@ export class CategoriesService {
     // vistas/formatos resueltos «en dos pasos» a mano (el padre contra `null`,
     // el hijo contra el efectivo del padre). Ese two-step era el 2-niveles
     // escrito a mano y desaparece aquí.
+    const cadena = await this.tree.getAncestorChain(category.id);
     const effectiveSchema = await this.efectivoSchema(category.id);
     const effectiveViews = await this.efectivasVistas(category.id);
     const effectivePriceUnits = await this.efectivosFormatosPrecio(category.id);
@@ -267,12 +278,24 @@ export class CategoriesService {
       id: category.id,
       name: category.name,
       slug: category.slug,
-      // A1 (URLs anidadas): la categoría padre, o null si esta es raíz. Alimenta el
-      // breadcrumb (Inicio > Vehículos > Coches), la URL canónica y `categoryPath()`.
-      // Aditivo: ningún consumidor anterior lo lee.
+      // A1 (URLs anidadas): la categoría padre, o null si esta es raíz.
+      //
+      // PROFUNDIDAD N — RÁFAGA 3: se CONSERVA junto a `ancestors`, no se
+      // sustituye. La ficha de anuncio se cachea 5 min en Redis, así que tras
+      // desplegar hay respuestas servidas sin el campo nuevo; y hay consumidores
+      // que sólo necesitan el padre inmediato. Quitarlo habría roto los dos.
       parent: category.parent
         ? { slug: category.parent.slug, name: category.parent.name }
         : null,
+      // PROFUNDIDAD N — RÁFAGA 3. La CADENA de ancestros, de la raíz al padre
+      // inmediato (sin incluir esta categoría). `[]` = es raíz.
+      //
+      // Alimenta las tres cosas que con 2 niveles se derivaban del `parent`: la
+      // URL canónica (/vehiculos/coches/deportivos), la miga completa y el path
+      // aplanado del selector. Viaja resuelto desde aquí por el mismo motivo por
+      // el que `parentSlug` viaja en cada hija del árbol: para que ningún
+      // consumidor tenga que recorrer la jerarquía al revés.
+      ancestors: cadena.slice(0, -1).map((n) => ({ slug: n.slug, name: n.name })),
       // backward-compat: same field name; now returns the merged effective schema
       attributeSchema: effectiveSchema,
       // RÁFAGA 2 (vista ampliada en /[categoria])

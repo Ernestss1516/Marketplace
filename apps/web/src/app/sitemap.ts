@@ -99,18 +99,24 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // Sin `lastModified`: Category no tiene columna de fecha, y una fecha inventada
   // (new Date()) le diría al crawler que TODAS cambian en cada build, que es peor
   // señal que no dar ninguna.
-  const categoryEntries: MetadataRoute.Sitemap = categories.flatMap((root) => [
-    {
-      url: `${SITE_URL}${categoryPath(root)}`,
-      changeFrequency: 'daily' as const,
-      priority: 0.8,
-    },
-    ...(root.children ?? []).map((child) => ({
-      url: `${SITE_URL}${categoryPath({ slug: child.slug, parentSlug: root.slug })}`,
-      changeFrequency: 'daily' as const,
-      priority: 0.8,
-    })),
-  ]);
+  // PROFUNDIDAD N — RÁFAGA 3: recorrido recursivo. Era `raíces + un nivel de
+  // hijas`, así que una categoría de nivel 3 o 4 no habría entrado NUNCA en el
+  // sitemap: existiría, se podría navegar, y ningún buscador la descubriría.
+  // Para las de 1-2 niveles produce exactamente las mismas URLs que antes.
+  const recorrer = (
+    nodos: typeof categories,
+    ancestorSlugs: string[],
+  ): MetadataRoute.Sitemap =>
+    nodos.flatMap((cat) => [
+      {
+        url: `${SITE_URL}${categoryPath({ slug: cat.slug, ancestorSlugs })}`,
+        changeFrequency: 'daily' as const,
+        priority: 0.8,
+      },
+      ...recorrer((cat.children ?? []) as typeof categories, [...ancestorSlugs, cat.slug]),
+    ]);
+
+  const categoryEntries: MetadataRoute.Sitemap = recorrer(categories, []);
 
   return [
     {
