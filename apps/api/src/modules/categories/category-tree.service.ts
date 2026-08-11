@@ -169,11 +169,25 @@ export class CategoryTreeService {
   /**
    * Foto MEMOIZADA del árbol. La usa `FilterableAttributesResolver`, que está en
    * la ruta caliente de la búsqueda y ya funcionaba así antes de esta ráfaga.
-   * Quien necesite frescura usa los métodos de arriba.
+   * Quien necesite frescura usa los métodos de arriba o `getFreshSnapshot`.
    */
   async getSnapshot(): Promise<ReadonlyMap<string, CategoryNode>> {
     if (!this.cache) this.cache = this.loadFresh();
     return this.cache;
+  }
+
+  /**
+   * Foto FRESCA para un lote. La usa el INDEXADO (`categoryPath`).
+   *
+   * Por qué el indexado no puede ir con la memoizada: un documento indexado con
+   * un `categoryPath` incompleto se vuelve INENCONTRABLE —el filtro por
+   * categoría es contención en ese array—, y a diferencia de una lectura no se
+   * corrige solo: queda escrito así en Meilisearch hasta el siguiente
+   * reindexado. Una consulta por trabajo de cola es un precio irrelevante al
+   * lado de eso, y el indexado nunca está en la ruta caliente de lectura.
+   */
+  async getFreshSnapshot(): Promise<ReadonlyMap<string, CategoryNode>> {
+    return this.loadFresh();
   }
 
   /**

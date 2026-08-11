@@ -16,6 +16,7 @@ import { AlertMatchingProcessor } from './processors/alert-matching.processor';
 import { GeocodingModule } from '../../modules/geocoding/geocoding.module';
 import { SearchModule } from '../../modules/search/search.module';
 import { AlertsModule } from '../../modules/alerts/alerts.module';
+import { CategoryTreeModule } from '../../modules/categories/category-tree.module';
 import { parseRedisConnection } from '../redis/redis-connection';
 
 // PrismaModule is @Global(), so PrismaService is available without importing PrismaModule here.
@@ -50,6 +51,9 @@ import { parseRedisConnection } from '../redis/redis-connection';
     GeocodingModule,
     SearchModule,
     AlertsModule,
+    // PROFUNDIDAD N — RÁFAGA 2: IndexingProcessor resuelve la subcadena a
+    // reindexar (`reindex-category-subtree`) con el único lector de la jerarquía.
+    CategoryTreeModule,
   ],
   providers: [ImageProcessor, IndexingProcessor, NotificationProcessor, AlertMatchingProcessor],
   exports: [BullModule],

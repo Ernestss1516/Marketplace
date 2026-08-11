@@ -534,9 +534,24 @@ export class AdminService {
   // Categories (R7.5)
   // ===========================================================================
 
-  getCategories() {
-    return this.prisma.category.findMany({
-      where: { parentId: null },
+  /**
+   * PROFUNDIDAD N — RÁFAGA 2. El árbol del backoffice, RECURSIVO.
+   *
+   * Antes eran raíces + un nivel de `children` con un `select` anidado a mano, y
+   * eso hacía que una categoría de nivel 3 fuese INVISIBLE en el panel: existía
+   * en la base y no salía por ningún sitio. Ahora se traen todas las filas de
+   * una vez (decenas) y el árbol se monta en memoria a cualquier profundidad.
+   *
+   * La respuesta conserva la MISMA FORMA que antes —`children` anidados,
+   * ordenados por `order`— así que un árbol de 2 niveles se sirve exactamente
+   * igual que se servía; lo único nuevo es que ahora los hijos también pueden
+   * tener hijos.
+   *
+   * Sigue devolviendo los valores CRUDOS (propios de cada categoría), no los
+   * efectivos: el admin edita lo que esta categoría configura, no lo que hereda.
+   */
+  async getCategories() {
+    const filas = await this.prisma.category.findMany({
       orderBy: { order: 'asc' },
       select: {
         id: true,
@@ -544,32 +559,29 @@ export class AdminService {
         slug: true,
         iconUrl: true,
         order: true,
+        parentId: true,
         attributeSchema: true,
         allowedListingType: true,
         allowedViews: true,
         defaultView: true,
-        // RP.2 — valor CRUDO (propio de la categoría), no el efectivo: el admin
-        // edita lo que esta categoría configura, no lo que hereda. Mismo
-        // criterio que allowedListingType y allowedViews en este árbol; el
-        // resuelto solo lo sirve el findBySlug público, para el wizard.
         allowedPriceUnits: true,
-        children: {
-          orderBy: { order: 'asc' },
-          select: {
-            id: true,
-            name: true,
-            slug: true,
-            iconUrl: true,
-            order: true,
-            attributeSchema: true,
-            allowedListingType: true,
-            allowedViews: true,
-            defaultView: true,
-            allowedPriceUnits: true,
-          },
-        },
       },
     });
+
+    type Fila = (typeof filas)[number];
+    type Nodo = Fila & { children: Nodo[] };
+
+    const porPadre = new Map<string | null, Fila[]>();
+    for (const fila of filas) {
+      const lista = porPadre.get(fila.parentId);
+      if (lista) lista.push(fila);
+      else porPadre.set(fila.parentId, [fila]);
+    }
+
+    const montar = (parentId: string | null): Nodo[] =>
+      (porPadre.get(parentId) ?? []).map((fila) => ({ ...fila, children: montar(fila.id) }));
+
+    return montar(null);
   }
 
   /**
@@ -645,22 +657,23 @@ export class AdminService {
     categoryId: string | null,
     parentId: string | null | undefined,
   ): Promise<void> {
+    // PROFUNDIDAD N — RÁFAGA 2. El ámbito era «padre + hijas directas»; ahora es
+    // la CADENA DE ANCESTROS completa + TODOS los descendientes. Es el ámbito
+    // que ve el parser al resolver una categoría, y con N niveles ese ámbito
+    // llega hasta el bisabuelo y hasta el bisnieto: un `km` numérico en la raíz
+    // y un atributo llamado `km_min` en un bisnieto chocarían igual que a un
+    // nivel de distancia.
     const vecinos: AttributeField[] = [];
 
     if (parentId) {
-      const parent = await this.prisma.category.findUnique({
-        where: { id: parentId },
-        select: { attributeSchema: true },
-      });
-      if (parent) vecinos.push(...((parent.attributeSchema as unknown as AttributeField[]) ?? []));
+      for (const ancestro of await this.categoryTree.getAncestorChain(parentId)) {
+        vecinos.push(...ancestro.attributeSchema);
+      }
     }
     if (categoryId) {
-      const hijas = await this.prisma.category.findMany({
-        where: { parentId: categoryId },
-        select: { attributeSchema: true },
-      });
-      for (const hija of hijas) {
-        vecinos.push(...((hija.attributeSchema as unknown as AttributeField[]) ?? []));
+      for (const id of await this.categoryTree.getDescendantIds(categoryId)) {
+        const nodo = (await this.categoryTree.getAncestorChain(id)).at(-1);
+        if (nodo) vecinos.push(...nodo.attributeSchema);
       }
     }
 
@@ -714,20 +727,21 @@ export class AdminService {
     categoryId: string,
     newOwnSchema: AttributeField[],
   ): Promise<void> {
-    const children = await this.prisma.category.findMany({
-      where: { parentId: categoryId },
-      select: { id: true, name: true, attributeSchema: true },
-    });
-    if (children.length === 0) return;
+    // PROFUNDIDAD N — RÁFAGA 2: DESCENDIENTES, no hijos directos. El tope es una
+    // propiedad del schema EFECTIVO, y el efectivo de un bisnieto incluye lo que
+    // ponga la raíz. Mirando sólo a las hijas, editar la raíz podía dejar a una
+    // nieta con 4 cardAttribute sin que nadie avisara — el mismo defecto que
+    // este guard cerró en su día, un nivel más abajo.
+    const descendantIds = await this.categoryTree.getDescendantIds(categoryId);
+    if (descendantIds.length === 0) return;
 
     const checks: Array<{ flag: 'cardAttribute' | 'wideCardAttribute'; limit: number }> = [
       { flag: 'cardAttribute', limit: 2 },
       { flag: 'wideCardAttribute', limit: 6 },
     ];
 
-    for (const child of children) {
-      const childSchema = (child.attributeSchema as unknown as AttributeField[]) ?? [];
-      const effective = resolveEffectiveSchema(childSchema, newOwnSchema);
+    for (const child of await this.descendientesConSchema(categoryId, newOwnSchema)) {
+      const effective = child.efectivo;
       for (const { flag, limit } of checks) {
         const counts = countAttributesByType(effective, flag);
         const exceeded = (['PRODUCT', 'SERVICE'] as const).find((type) => counts[type] > limit);
@@ -740,6 +754,33 @@ export class AdminService {
         }
       }
     }
+  }
+
+  /**
+   * PROFUNDIDAD N — RÁFAGA 2. Cada descendiente de `categoryId` con su schema
+   * EFECTIVO recalculado como si `newOwnSchema` ya estuviera guardado.
+   *
+   * Se pliega la cadena entera (no se fusiona con el padre): el efectivo de un
+   * bisnieto depende de los cuatro niveles. Para el nodo que se está editando se
+   * usa el schema NUEVO —el que trae el DTO— y no el persistido, que es todo el
+   * sentido de este guard: comprobar el cambio ANTES de escribirlo.
+   */
+  private async descendientesConSchema(
+    categoryId: string,
+    newOwnSchema: AttributeField[],
+  ): Promise<Array<{ name: string; efectivo: AttributeField[] }>> {
+    const descendantIds = await this.categoryTree.getDescendantIds(categoryId);
+    const salida: Array<{ name: string; efectivo: AttributeField[] }> = [];
+    for (const id of descendantIds) {
+      const cadena = await this.categoryTree.getAncestorChain(id);
+      const efectivo = cadena.reduce<AttributeField[]>(
+        (acc, nodo) =>
+          resolveEffectiveSchema(nodo.id === categoryId ? newOwnSchema : nodo.attributeSchema, acc),
+        [],
+      );
+      salida.push({ name: cadena[cadena.length - 1].name, efectivo });
+    }
+    return salida;
   }
 
   /**
@@ -806,11 +847,21 @@ export class AdminService {
   ): Promise<void> {
     if (newPolicy === 'BOTH') return;
 
+    // PROFUNDIDAD N — RÁFAGA 2: DESCENDIENTES, no hijos directos. Con 2 niveles
+    // eran lo mismo; con N, restringir una raíz a PRODUCT_ONLY no veía a una
+    // NIETA configurada como SERVICE_ONLY, ni los anuncios de servicio colgados
+    // de ella. La contradicción se guardaba y aparecía después, sin aviso.
+    const descendantIds = await this.categoryTree.getDescendantIds(categoryId);
     const children = await this.prisma.category.findMany({
-      where: { parentId: categoryId },
+      where: { id: { in: descendantIds } },
       select: { id: true, name: true, allowedListingType: true },
     });
 
+    // La política SÍ es jerárquica (a diferencia de los formatos de precio): un
+    // descendiente sólo puede RESTRINGIR dentro de lo que permite su ancestro,
+    // nunca contradecirlo. Por eso aquí no hay corte por override — cualquier
+    // descendiente con una política incompatible es una contradicción, esté al
+    // nivel que esté.
     const contradictingChild = children.find(
       (c) => c.allowedListingType !== 'BOTH' && c.allowedListingType !== newPolicy,
     );
@@ -820,11 +871,11 @@ export class AdminService {
       );
     }
 
-    // Incluye la propia categoría y TODOS sus hijos: un hijo BOTH hereda la
-    // nueva restricción del padre, así que sus anuncios del tipo prohibido
+    // Incluye la propia categoría y TODOS sus descendientes: uno BOTH hereda la
+    // nueva restricción del ancestro, así que sus anuncios del tipo prohibido
     // quedarían igual de incoherentes que los de la propia categoría.
     const forbiddenType = newPolicy === 'PRODUCT_ONLY' ? 'SERVICE' : 'PRODUCT';
-    const categoryIds = [categoryId, ...children.map((c) => c.id)];
+    const categoryIds = [categoryId, ...descendantIds];
     const count = await this.prisma.listing.count({
       where: { categoryId: { in: categoryIds }, type: forbiddenType },
     });
@@ -869,16 +920,17 @@ export class AdminService {
     // heredar del padre o al default global), nunca dejar un anuncio fuera.
     if (newUnits.length === 0) return;
 
-    // Solo las hijas SIN config propia heredan este cambio; las que tienen la
-    // suya son inmunes por el override total — sus anuncios no se ven afectados.
-    const children = await this.prisma.category.findMany({
-      where: { parentId: categoryId },
-      select: { id: true, allowedPriceUnits: true },
-    });
-    const affectedIds = [
-      categoryId,
-      ...children.filter((c) => c.allowedPriceUnits.length === 0).map((c) => c.id),
-    ];
+    // PROFUNDIDAD N — RÁFAGA 2. Descendientes, PERO NO TODOS: la herencia de
+    // formatos es un OVERRIDE TOTAL, así que la propagación se CORTA en el
+    // primer descendiente que define los suyos. Ese nodo y toda su rama son
+    // inmunes al cambio de un ancestro.
+    //
+    // Con 2 niveles esto era «las hijas sin config propia». Generalizarlo a un
+    // barrido ciego de descendientes sería INCORRECTO en las dos direcciones:
+    // bloquearía cambios legítimos por culpa de anuncios que no se ven
+    // afectados, y con nietos bajo un padre sin config seguiría sin ver a los
+    // que sí lo están.
+    const affectedIds = [categoryId, ...(await this.descendientesQueHeredanFormatos(categoryId))];
 
     const count = await this.prisma.listing.count({
       where: { categoryId: { in: affectedIds }, priceUnit: { notIn: newUnits } },
@@ -888,6 +940,33 @@ export class AdminService {
         `No se puede cambiar los formatos de precio: ${count} anuncio(s) usan un formato que quedaría fuera de los permitidos.`,
       );
     }
+  }
+
+  /**
+   * PROFUNDIDAD N — RÁFAGA 2. Los descendientes que REALMENTE heredan los
+   * formatos de precio de `categoryId`: se recorre hacia abajo y la rama se
+   * corta en cuanto un nodo define `allowedPriceUnits` propios.
+   *
+   * Ejemplo de por qué el corte importa: Inmobiliaria [ONE_TIME] → Alquiler
+   * [PER_MONTH] → Pisos [] → Áticos []. Cambiar los formatos de Inmobiliaria
+   * NO afecta a Pisos ni a Áticos: los dos heredan de Alquiler, que tiene los
+   * suyos. Un barrido ciego de descendientes los contaría y bloquearía el
+   * cambio sin motivo.
+   */
+  private async descendientesQueHeredanFormatos(categoryId: string): Promise<string[]> {
+    const afectados: string[] = [];
+    const pendientes = [categoryId];
+    while (pendientes.length > 0) {
+      const actual = pendientes.pop()!;
+      for (const hijo of await this.categoryTree.getChildren(actual)) {
+        // Config propia = override total = la rama entera queda fuera del
+        // alcance de este cambio, no sólo este nodo.
+        if (hijo.allowedPriceUnits.length > 0) continue;
+        afectados.push(hijo.id);
+        pendientes.push(hijo.id);
+      }
+    }
+    return afectados;
   }
 
   /**
@@ -994,6 +1073,25 @@ export class AdminService {
       // debe ver la categoría nueva. Antes esto no hacía falta porque cada
       // consulta leía la jerarquía de Postgres cada vez.
       this.categoryTree.invalidate();
+
+      // PROFUNDIDAD N — RÁFAGA 2. REINDEXADO ACOTADO. `categoryPath` es la
+      // cadena de ancestros del anuncio, así que colgar una categoría nueva por
+      // debajo del segundo nivel alarga el path de todo lo que cuelgue de ella.
+      //
+      // SÓLO a partir del nivel 3: para 1-2 niveles el path calculado con la
+      // cadena es byte-idéntico al que ya está escrito, así que no hay nada que
+      // reescribir y no se paga nada. Y sólo la SUBCADENA afectada, nunca el
+      // catálogo entero: los anuncios de otras ramas no han cambiado de path.
+      //
+      // Va a la cola (CLAUDE.md: el trabajo pesado nunca inline en el HTTP).
+      // Una categoría recién creada no tiene anuncios todavía; esto cubre el
+      // caso real de crear un nivel bajo una rama que YA los tiene por debajo.
+      if (dto.parentId) {
+        const profundidad = await this.categoryTree.getDepth(created.id);
+        if (profundidad >= 3) {
+          await this.indexingQueue.add('reindex-category-subtree', { categoryId: created.id });
+        }
+      }
 
       await this.auditLog.log({
         action: 'CATEGORY_CREATE',

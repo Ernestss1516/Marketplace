@@ -49,12 +49,37 @@ function fakeListing(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/**
+ * PROFUNDIDAD N — RÁFAGA 2: mantenimiento de fixture por cambio de FIRMA.
+ * `toDocument` recibe ahora la foto del árbol desde la que construye
+ * `categoryPath` (antes lo sacaba de `listing.category.parent`, que sólo llegaba
+ * un nivel). Se le pasa un árbol de UN nodo, equivalente a la categoría raíz que
+ * este fixture ya usaba. Ninguna aserción cambia — este spec va del ORDEN de las
+ * claves, no de la jerarquía.
+ */
+const ARBOL_DE_UN_NODO = new Map([
+  [
+    'cat-1',
+    {
+      id: 'cat-1',
+      slug: 'coches',
+      name: 'Coches',
+      parentId: null,
+      attributeSchema: [],
+      allowedListingType: 'BOTH' as const,
+      allowedViews: [],
+      defaultView: null,
+      allowedPriceUnits: [],
+    },
+  ],
+]);
+
 /** `toDocument` es privado: se invoca por su nombre, que es lo que se está probando. */
 function toDocument(listing: unknown): Record<string, unknown> {
   const service = Object.create(SearchService.prototype) as {
-    toDocument: (l: unknown) => Record<string, unknown>;
+    toDocument: (l: unknown, arbol: unknown) => Record<string, unknown>;
   };
-  return service.toDocument(listing);
+  return service.toDocument(listing, ARBOL_DE_UN_NODO);
 }
 
 describe('SearchService.toDocument — los campos core ganan a los atributos', () => {

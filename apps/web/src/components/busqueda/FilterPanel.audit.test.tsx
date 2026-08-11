@@ -60,15 +60,28 @@ describe('BUG A / A2 — selector de categoría', () => {
     expect(screen.queryByText('Categoría')).not.toBeInTheDocument();
   });
 
-  it('con árbol → "Todas las categorías" + cada raíz y cada hija', () => {
+  /**
+   * PROFUNDIDAD N — RÁFAGA 2: ESTRUCTURA ACTUALIZADA, misma intención.
+   *
+   * Este caso comprobaba la forma de `<optgroup>`: un grupo por raíz con una
+   * opción «Todo en Vehículos» dentro. Esa forma se sustituyó porque **el
+   * estándar HTML no permite anidar `<optgroup>`**, así que un `<select>` nativo
+   * sólo puede agrupar DOS niveles y no hay manera de representar cuatro.
+   *
+   * Ahora cada categoría es una `<option>` plana cuya etiqueta es su PATH
+   * completo («Vehículos › Coches»). Lo que este caso verifica —que están la
+   * opción global, las raíces y las hijas de cualquier rama— no cambia; cambia
+   * cómo se llaman las opciones.
+   */
+  it('con árbol → "Todas las categorías" + cada categoría con su path completo', () => {
     render(<FilterPanel {...BASE_PROPS} categories={TREE} />);
     expect(screen.getByText('Categoría')).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'Todas las categorías' })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'Todo en Vehículos' })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'Coches' })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'Motos' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Vehículos' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Vehículos › Coches' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Vehículos › Motos' })).toBeInTheDocument();
     // A2 — lo que antes era inalcanzable desde aquí: otra rama del árbol.
-    expect(screen.getByRole('option', { name: 'Pisos' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Inmobiliaria › Pisos' })).toBeInTheDocument();
   });
 
   it('elegir una hija navega a /{padre}/{hija} — la URL canónica, no la plana', () => {

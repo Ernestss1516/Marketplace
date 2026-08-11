@@ -211,8 +211,13 @@ export interface AdminCategoryChild {
   allowedPriceUnits: PriceUnit[];
 }
 
+/**
+ * PROFUNDIDAD N — RÁFAGA 2: el tipo es RECURSIVO. Antes un hijo no podía tener
+ * hijos (`children: AdminCategoryChild[]`), que era el árbol de 2 niveles
+ * escrito en el tipo. `GET /admin/categories` ya devuelve el árbol completo.
+ */
 export interface AdminCategory extends AdminCategoryChild {
-  children: AdminCategoryChild[];
+  children: AdminCategory[];
 }
 
 export interface CategoryMutationDto {

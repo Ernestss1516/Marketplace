@@ -33,6 +33,7 @@ describe('Profundidad N — herencia sobre 4 niveles (e2e)', () => {
   let treeService: CategoryTreeService;
   let adminToken: string;
   let sellerToken: string;
+  let sellerId: string;
 
   beforeAll(async () => {
     prisma = new PrismaClient();
@@ -60,7 +61,7 @@ describe('Profundidad N — herencia sobre 4 niveles (e2e)', () => {
         role: 'ADMIN',
       },
     });
-    await prisma.user.create({
+    const seller = await prisma.user.create({
       data: {
         email: 'prof-seller@example.com',
         name: 'Prof Seller',
@@ -69,6 +70,7 @@ describe('Profundidad N — herencia sobre 4 niveles (e2e)', () => {
         emailVerified: true,
       },
     });
+    sellerId = seller.id;
 
     const [a, s] = await Promise.all([
       request(app.getHttpServer())
@@ -308,6 +310,254 @@ describe('Profundidad N — herencia sobre 4 niveles (e2e)', () => {
       });
       expect(enBd.name).toBe('Bisnieto renombrado');
       expect(enBd.parentId).toBe(tree.nivel3.id);
+    });
+  });
+
+  // ===========================================================================
+  // RÁFAGA 2 — las 4 guardas cuentan DESCENDIENTES, no hijos directos
+  // ===========================================================================
+
+  describe('Guardas a descendientes (RÁFAGA 2)', () => {
+    /**
+     * Con 2 niveles «hijos directos» y «descendientes» eran lo mismo, así que
+     * estas guardas funcionaban. Con 4 niveles dejan de serlo: el contradictorio
+     * está a DOS niveles de la categoría que se edita, donde la versión anterior
+     * no miraba. Es la mutación de esta ráfaga: revertir una guarda a
+     * `where: { parentId }` hace fallar su caso.
+     */
+    it('[G1] política: un BISNIETO contradictorio bloquea el cambio en la RAÍZ', async () => {
+      const t = await createDeepCategoryTree(prisma, 'g1');
+      // La raíz del fixture nace PRODUCT_ONLY, y el guard sólo corre cuando la
+      // política CAMBIA de verdad respecto a la persistida (optimización que ya
+      // existía). Se abre a BOTH para que el PATCH de abajo sea un cambio real.
+      await prisma.category.update({
+        where: { id: t.raiz.id },
+        data: { allowedListingType: 'BOTH' },
+      });
+      // El bisnieto se declara SERVICE_ONLY; la raíz intenta pasar a PRODUCT_ONLY.
+      await prisma.category.update({
+        where: { id: t.bisnieto.id },
+        data: { allowedListingType: 'SERVICE_ONLY' },
+      });
+      treeService.invalidate();
+
+      const res = await request(app.getHttpServer())
+        .patch(`/api/admin/categories/${t.raiz.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ allowedListingType: 'PRODUCT_ONLY' })
+        .expect(400);
+      expect(res.body.message).toContain('SERVICE_ONLY');
+    });
+
+    it('[G2] política: un anuncio del tipo prohibido en un BISNIETO bloquea el cambio', async () => {
+      const t = await createDeepCategoryTree(prisma, 'g2');
+      // La raíz nace PRODUCT_ONLY; se abre para poder colgar un servicio abajo.
+      await prisma.category.update({
+        where: { id: t.raiz.id },
+        data: { allowedListingType: 'BOTH' },
+      });
+      await prisma.listing.create({
+        data: {
+          title: 'Servicio en el bisnieto',
+          slug: `servicio-bisnieto-${t.sufijo}`,
+          description: 'Anuncio de servicio colgado a cuatro niveles',
+          price: 10,
+          type: 'SERVICE',
+          priceType: 'FIXED',
+          priceUnit: 'PER_MONTH',
+          status: 'DRAFT',
+          sellerId,
+          categoryId: t.bisnieto.id,
+        },
+      });
+      treeService.invalidate();
+
+      const res = await request(app.getHttpServer())
+        .patch(`/api/admin/categories/${t.raiz.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ allowedListingType: 'PRODUCT_ONLY' })
+        .expect(400);
+      expect(res.body.message).toContain('SERVICE');
+    });
+
+    it('[G3] formatos de precio: un anuncio en un BISNIETO que hereda bloquea el cambio', async () => {
+      const t = await createDeepCategoryTree(prisma, 'g3');
+      // Se quita la config del nivel 2 para que la herencia llegue sin cortes
+      // desde la raíz hasta el bisnieto.
+      await prisma.category.update({
+        where: { id: t.nivel2.id },
+        data: { allowedPriceUnits: [] },
+      });
+      await prisma.category.update({
+        where: { id: t.raiz.id },
+        data: { allowedPriceUnits: ['PER_MONTH', 'ONE_TIME'] },
+      });
+      await prisma.listing.create({
+        data: {
+          title: 'Anuncio PER_MONTH en el bisnieto',
+          slug: `permonth-bisnieto-${t.sufijo}`,
+          description: 'Su formato dejaría de estar permitido',
+          price: 10,
+          type: 'PRODUCT',
+          condition: 'GOOD',
+          priceType: 'FIXED',
+          priceUnit: 'PER_MONTH',
+          status: 'DRAFT',
+          sellerId,
+          categoryId: t.bisnieto.id,
+        },
+      });
+      treeService.invalidate();
+
+      const res = await request(app.getHttpServer())
+        .patch(`/api/admin/categories/${t.raiz.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ allowedPriceUnits: ['ONE_TIME'] })
+        .expect(400);
+      expect(res.body.message).toContain('formato');
+    });
+
+    it('[G3b] EL CORTE POR OVERRIDE: un descendiente tras un nodo configurado NO cuenta', async () => {
+      // Es el matiz que distingue esta guarda de un barrido ciego. El nivel 2
+      // define sus propios formatos, así que el bisnieto hereda de ÉL, no de la
+      // raíz: cambiar la raíz no puede dejarlo fuera y no debe bloquearse.
+      const t = await createDeepCategoryTree(prisma, 'g3b');
+      // (el fixture ya deja nivel2 con allowedPriceUnits: ['PER_MONTH'])
+      await prisma.listing.create({
+        data: {
+          title: 'Anuncio PER_MONTH bajo un override',
+          slug: `override-bisnieto-${t.sufijo}`,
+          description: 'Hereda del nivel 2, no de la raíz',
+          price: 10,
+          type: 'PRODUCT',
+          condition: 'GOOD',
+          priceType: 'FIXED',
+          priceUnit: 'PER_MONTH',
+          status: 'DRAFT',
+          sellerId,
+          categoryId: t.bisnieto.id,
+        },
+      });
+      treeService.invalidate();
+
+      // Restringir la RAÍZ a ONE_TIME debe PASAR: la rama del nivel 2 es inmune.
+      await request(app.getHttpServer())
+        .patch(`/api/admin/categories/${t.raiz.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ allowedPriceUnits: ['ONE_TIME'] })
+        .expect(200);
+    });
+
+    it('[G4] tope de card: editar la RAÍZ mirando el efectivo del BISNIETO', async () => {
+      const t = await createDeepCategoryTree(prisma, 'g4');
+      // El bisnieto ya tiene 1 cardAttribute propio; la raíz añade 2 más → 3.
+      await prisma.category.update({
+        where: { id: t.bisnieto.id },
+        data: {
+          attributeSchema: [
+            { name: 'bn1', label: 'BN1', type: 'text', filterable: false, required: false, cardAttribute: true },
+          ] as never,
+        },
+      });
+      treeService.invalidate();
+
+      const res = await request(app.getHttpServer())
+        .patch(`/api/admin/categories/${t.raiz.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          attributeSchema: [
+            { name: 'r1', label: 'R1', type: 'text', filterable: false, required: false, cardAttribute: true },
+            { name: 'r2', label: 'R2', type: 'text', filterable: false, required: false, cardAttribute: true },
+          ],
+        })
+        .expect(400);
+      expect(res.body.message).toContain('cardAttribute');
+    });
+
+    it('[G5] colisión _min/_max: el ámbito llega hasta el BISNIETO', async () => {
+      const t = await createDeepCategoryTree(prisma, 'g5');
+      await prisma.category.update({
+        where: { id: t.bisnieto.id },
+        data: {
+          attributeSchema: [
+            { name: 'km_min', label: 'Km mín', type: 'text', filterable: false, required: false },
+          ] as never,
+        },
+      });
+      treeService.invalidate();
+
+      // Un `km` NUMÉRICO en la raíz choca con el `km_min` del bisnieto.
+      const res = await request(app.getHttpServer())
+        .patch(`/api/admin/categories/${t.raiz.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          attributeSchema: [
+            { name: 'km', label: 'Km', type: 'number', filterable: true, required: false },
+          ],
+        })
+        .expect(400);
+      expect(res.body.message).toContain('km_min');
+    });
+  });
+
+  // ===========================================================================
+  // RÁFAGA 2 — categoryPath e índice
+  // ===========================================================================
+
+  describe('categoryPath a N niveles', () => {
+    it('el árbol del admin devuelve los 4 niveles anidados (un nieto ya no es invisible)', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/api/admin/categories')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      type Nodo = { id: string; children: Nodo[] };
+      const buscar = (nodos: Nodo[], id: string): Nodo | undefined => {
+        for (const n of nodos) {
+          if (n.id === id) return n;
+          const hit = buscar(n.children ?? [], id);
+          if (hit) return hit;
+        }
+        return undefined;
+      };
+
+      const raiz = buscar(res.body as Nodo[], tree.raiz.id);
+      expect(raiz).toBeDefined();
+      const n2 = buscar(raiz!.children, tree.nivel2.id);
+      const n3 = buscar(n2!.children, tree.nivel3.id);
+      expect(buscar(n3!.children, tree.bisnieto.id)).toBeDefined();
+    });
+
+    it('el fallback de Postgres agrega los anuncios de TODA la descendencia', async () => {
+      // `GET /categories/:slug/listings` es el camino que se usa cuando
+      // Meilisearch no responde. Antes hacía `OR: [{slug}, {parent:{slug}}]`, así
+      // que pidiendo la raíz no habría visto un anuncio del nivel 4.
+      const t = await createDeepCategoryTree(prisma, 'fb');
+      await prisma.listing.create({
+        data: {
+          title: 'Anuncio hondo para el fallback',
+          slug: `fallback-hondo-${t.sufijo}`,
+          description: 'Cuelga del nivel 4',
+          price: 10,
+          type: 'PRODUCT',
+          condition: 'GOOD',
+          priceType: 'FIXED',
+          priceUnit: 'PER_MONTH',
+          status: 'ACTIVE',
+          publishedAt: new Date(),
+          expiresAt: new Date(Date.now() + 60 * 86_400_000),
+          sellerId,
+          categoryId: t.bisnieto.id,
+        },
+      });
+      treeService.invalidate();
+
+      const res = await request(app.getHttpServer())
+        .get(`/api/categories/${t.raiz.slug}/listings`)
+        .expect(200);
+      expect(res.body.items.map((i: { slug: string }) => i.slug)).toContain(
+        `fallback-hondo-${t.sufijo}`,
+      );
     });
   });
 
