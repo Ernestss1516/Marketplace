@@ -9,6 +9,7 @@ import type { MeilisearchService } from '../../infra/meilisearch/meilisearch.ser
 import type { AuditLogService } from '../audit-log/audit-log.service';
 import type { FilterableAttributesResolver } from '../search/filterable-attributes.resolver';
 import type { CategoryTreeService } from '../categories/category-tree.service';
+import type { ListingGateService } from '../listing-gate/listing-gate.service';
 
 function buildService(prismaOverrides: Record<string, unknown> = {}) {
   const prisma = {
@@ -51,6 +52,9 @@ function buildService(prismaOverrides: Record<string, unknown> = {}) {
     auditLog as unknown as AuditLogService,
     {} as FilterableAttributesResolver,
     categoryTree as unknown as CategoryTreeService,
+    // PUERTA — mantenimiento de fixture por cambio de FIRMA. Este spec ejercita
+    // los guards de política de CATEGORÍA, que no tocan la puerta.
+    { assertCanBecomeActive: jest.fn() } as unknown as ListingGateService,
     indexingQueue as never,
   );
 

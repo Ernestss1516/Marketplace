@@ -1,5 +1,21 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api';
 
+/**
+ * PUERTA DE VALIDACIÓN — un motivo de rechazo, accionable.
+ *
+ * La puerta puede rechazar por varias reglas a la vez (le falta un atributo
+ * requerido Y está en el tope de su plan), y el usuario necesita verlas todas de
+ * una vez: descubrirlas de una en una —corregir, reintentar, descubrir la
+ * siguiente— convierte un aviso en un juego de adivinanzas.
+ */
+export interface ApiErrorReason {
+  /** Código estable, para poder ramificar sin mirar el texto. */
+  code: string;
+  message: string;
+  /** El campo concreto al que apunta, cuando lo hay. */
+  field?: string;
+}
+
 export class ApiError extends Error {
   constructor(
     public readonly statusCode: number,
@@ -7,6 +23,12 @@ export class ApiError extends Error {
     public readonly error?: string,
     public readonly retryAfter?: number,
     public readonly code?: string,
+    /**
+     * ADITIVO: sólo lo traen los rechazos de la puerta. Todo lo demás lo deja
+     * vacío, y quien sólo lee `message`/`code` —es decir, todo el cliente
+     * anterior a la puerta— sigue funcionando exactamente igual.
+     */
+    public readonly reasons: ApiErrorReason[] = [],
   ) {
     super(message);
     this.name = 'ApiError';
@@ -155,6 +177,8 @@ export async function apiFetch<T>(path: string, options: FetchOptions = {}): Pro
       body.error ? String(body.error) : undefined,
       response.status === 429 && typeof body.retryAfter === 'number' ? body.retryAfter : undefined,
       typeof body.code === 'string' ? body.code : undefined,
+      // PUERTA — aditivo: si el backend no manda `reasons`, queda [] y nada cambia.
+      Array.isArray(body.reasons) ? (body.reasons as ApiErrorReason[]) : [],
     );
   }
 

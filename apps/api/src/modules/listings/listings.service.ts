@@ -49,6 +49,7 @@ import {
   isPriceUnitAllowed,
 } from '../categories/category.types';
 import { CategoryTreeService, type CategoryNode } from '../categories/category-tree.service';
+import { ListingGateService } from '../listing-gate/listing-gate.service';
 import type { ListingTypePolicy, PriceUnit } from '@prisma/client';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { UpdateListingDto } from './dto/update-listing.dto';
@@ -170,6 +171,11 @@ export class ListingsService {
     // PROFUNDIDAD N — RÁFAGA 1: el único lector de la jerarquía. Sustituye a los
     // `parent: { select: … }` de un nivel que había en create() y update().
     private readonly categoryTree: CategoryTreeService,
+    // PUERTA — el punto único que valida ANTES de escribir ACTIVE. Es el hermano
+    // PREVIO de ListingActivationService (que corre después). Sustituye al
+    // `checkActiveListingLimit` privado que vivía aquí: era inalcanzable desde
+    // Moderation y Admin, y por eso la cuota se escapaba por varios caminos.
+    private readonly gate: ListingGateService,
   ) {}
 
   async create(sellerId: string, dto: CreateListingDto): Promise<Listing> {
@@ -433,9 +439,12 @@ export class ListingsService {
       // Silent fallback — publication continues normally.
     }
 
-    // RF.7: enforce active listing limit before activating.
+    // PUERTA — la cuota de RF.7 y todo lo que venga después. Sólo si de verdad
+    // va a quedar ACTIVE: un PENDING_REVIEW no ocupa plaza.
     if (targetStatus === 'ACTIVE') {
-      await this.checkActiveListingLimit(userId);
+      await this.gate.assertCanBecomeActive(existing, {
+        actor: 'seller', transition: 'publish', actorId: userId,
+      });
     }
 
     const publishedAt = existing.publishedAt ?? new Date();
@@ -466,9 +475,11 @@ export class ListingsService {
       );
     }
 
-    // RF.7: renewing brings the listing back to ACTIVE — counts against the limit
-    // the same as publishing (Opción A). A slot is a slot regardless of origin.
-    await this.checkActiveListingLimit(userId);
+    // PUERTA — renovar devuelve el anuncio al mercado y cuenta igual que publicar
+    // (Opción A de RF.7): una plaza es una plaza, venga de donde venga.
+    await this.gate.assertCanBecomeActive(existing, {
+      actor: 'seller', transition: 'renew', actorId: userId,
+    });
 
     const now = new Date();
     const listing = await this.prisma.listing.update({
@@ -543,7 +554,9 @@ export class ListingsService {
       throw new BadRequestException('Solo se pueden reactivar anuncios en estado PAUSED');
     }
 
-    await this.checkActiveListingLimit(userId);
+    await this.gate.assertCanBecomeActive(existing, {
+      actor: 'seller', transition: 'reactivate', actorId: userId,
+    });
 
     const now = new Date();
     const listing = await this.prisma.listing.update({
@@ -606,7 +619,7 @@ export class ListingsService {
    *
    * Un SERVICIO en RESERVED vuelve a ACTIVE al cerrar el trato, así que este es
    * técnicamente un camino a ACTIVE. Y hay un hueco real detrás: `RESERVED` no
-   * cuenta para la cuota (`checkActiveListingLimit` cuenta solo `status: ACTIVE`),
+   * cuenta para la cuota (`ActiveListingLimitRule` cuenta solo `status: ACTIVE`),
    * de modo que reservar LIBERA plaza y volver de la reserva la recupera sin
    * mirar si el cupo se llenó mientras tanto.
    *
@@ -753,12 +766,13 @@ export class ListingsService {
     // trato, así que exigirle cuota bloquearía por nada una operación que no
     // ocupa ninguna plaza nueva.
     //
-    // ANTES de abrir la transacción: `checkActiveListingLimit` hace su propio
-    // count y lanza; dejarlo dentro solo alargaría la transacción para acabar
-    // haciéndole rollback.
+    // ANTES de abrir la transacción: la puerta consulta y lanza; dejarla dentro
+    // solo alargaría la transacción para acabar haciéndole rollback.
     const volveraAActivo = existing.type === 'PRODUCT' && existing.status === 'SOLD';
     if (volveraAActivo) {
-      await this.checkActiveListingLimit(sellerId);
+      await this.gate.assertCanBecomeActive(existing, {
+        actor: 'seller', transition: 'undoDeal', actorId: sellerId,
+      });
     }
 
     const [, listing] = await this.prisma.$transaction([
@@ -1543,49 +1557,6 @@ export class ListingsService {
     if (!isPriceUnitAllowed(effective, unit)) {
       throw new UnprocessableEntityException(
         `Esta categoría no admite el formato de precio ${unit}.`,
-      );
-    }
-  }
-
-  /**
-   * RF.7 — la cuota de anuncios activos del plan (free/pro, desde Setting).
-   *
-   * QUIÉN LA COMPRUEBA (RÁFAGA A2). Todos los caminos de VENDEDOR que dejan un
-   * anuncio en ACTIVE: `publish`, `renew`, `reactivate` y —nuevo en esta
-   * ráfaga— `undoDeal`. Antes, deshacer un trato devolvía un PRODUCT de SOLD a
-   * ACTIVE sin mirar la cuota: un vendedor en el tope podía vender, deshacer y
-   * quedarse con un activo de más, indefinidamente.
-   *
-   * QUIÉN NO, Y ES DELIBERADO — POLÍTICA DE STAFF, PENDIENTE DE DECISIÓN.
-   * `ModerationService.approveListing`, `ModerationService.restoreListing` y
-   * `AdminService.changeListingStatus` NO la comprueban. Eso ya era así antes de
-   * esta ráfaga, pero de FACTO y sin declararlo en ningún sitio; queda escrito
-   * aquí para que sea una política y no un olvido.
-   *
-   * Se mantiene sin cambios A PROPÓSITO: cerrarla tiene una consecuencia real
-   * que hay que querer, no heredar — si el vendedor llena su cupo mientras su
-   * anuncio espera revisión, el moderador ya NO podría aprobarlo, y el trabajo
-   * de staff quedaría rehén de la cuota de un tercero. Es una decisión de
-   * producto (¿el staff puede exceder el plan del vendedor?), no un bug, y va
-   * con la puerta de validación — ver docs/auditoria-puerta-validacion.md, D3.
-   *
-   * `closeDeal` tampoco la comprueba; el porqué está en su propio método.
-   */
-  private async checkActiveListingLimit(userId: string): Promise<void> {
-    const isPro = await this.entitlementService.isProActive(userId);
-    const settingKey = isPro ? 'proActiveListingLimit' : 'freeActiveListingLimit';
-    const defaultLimit = isPro ? 20 : 5;
-
-    const setting = await this.prisma.setting.findUnique({ where: { key: settingKey } });
-    const limit = setting ? Number(setting.value) : defaultLimit;
-
-    const activeCount = await this.prisma.listing.count({
-      where: { sellerId: userId, status: 'ACTIVE' },
-    });
-
-    if (activeCount >= limit) {
-      throw new ForbiddenException(
-        `Has alcanzado el límite de ${limit} anuncios activos de tu plan`,
       );
     }
   }
