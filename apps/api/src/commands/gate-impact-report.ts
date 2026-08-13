@@ -17,13 +17,17 @@
  * niveles daría un número FALSO ahora que el árbol admite 4: un anuncio de una
  * categoría profunda parecería incumplir atributos que en realidad hereda.
  *
- * ⚠ LO ÚNICO REPLICADO, Y POR QUÉ. Los tres validadores de atributos
- * (`validateRequired`, `validateAttributeValues`, `validateLinkedSelects`) son
- * `private` de `ListingsService`, que es un servicio de Nest con media docena de
- * dependencias; instanciarlo aquí traería colas, Redis y Meilisearch a un script
- * de lectura. Se replican abajo campo por campo, y CADA UNO CITA la línea del
- * original. Si alguien cambia el original y no esto, el número deja de ser el
- * real — el riesgo queda anotado en la salida del propio informe.
+ * ✅ YA NO REPLICA NADA (puerta, ráfaga 2). Los tres validadores de atributos
+ * eran `private` de `ListingsService` —un servicio de Nest con doce
+ * dependencias, imposible de instanciar en un script de lectura sin arrastrar
+ * colas, Redis y Meilisearch—, así que este comando los REPLICABA campo por
+ * campo, con el riesgo anotado: si alguien tocaba el original y no la copia, el
+ * número dejaba de ser el real.
+ *
+ * La ráfaga 2 de la puerta los extrajo a `categories/attribute-validation.ts`,
+ * un fichero puro. Este comando, el alta/edición y la puerta leen ahora EL MISMO
+ * código, y las tres funciones de abajo son adaptadores de tres líneas que sólo
+ * traducen la forma del resultado a la que este informe cuenta.
  *
  * USO (desde apps/api/):
  *   pnpm gate-impact-report
@@ -34,9 +38,13 @@ import { PrismaClient, type ListingType } from '@prisma/client';
 import {
   resolveEffectiveSchema,
   filterSchemaByType,
-  resolveLinkedOptions,
   type AttributeField,
 } from '../modules/categories/category.types';
+import {
+  missingRequiredNames,
+  invalidValueIssues,
+  linkedSelectIssues,
+} from '../modules/categories/attribute-validation';
 import { ancestorChainIn, type CategoryNode } from '../modules/categories/category-tree.service';
 
 const prisma = new PrismaClient();
@@ -66,71 +74,40 @@ function anotar(h: Hallazgo, listingId: string): void {
 }
 
 // ---------------------------------------------------------------------------
-// Réplica de los validadores privados de ListingsService.
+// Adaptadores sobre los validadores COMPARTIDOS (attribute-validation.ts).
+//
+// El informe cuenta por NOMBRE de atributo; los validadores devuelven issues con
+// su mensaje. Eso es todo lo que traducen estas tres funciones — la lógica de
+// qué incumple es la misma que aplica el alta y la que aplica la puerta.
 // ---------------------------------------------------------------------------
 
-/** Réplica de `ListingsService.validateRequired` (listings.service.ts). */
+/** Requeridos que faltan, por nombre. */
 function requeridosQueFaltan(
   attributes: Record<string, unknown>,
   schema: AttributeField[],
 ): string[] {
-  return schema
-    .filter((f) => f.required && !Object.prototype.hasOwnProperty.call(attributes, f.name))
-    .map((f) => f.name);
+  return missingRequiredNames(attributes, schema);
 }
 
 /**
- * Réplica de la parte de VALORES de `ListingsService.validateAttributeValues`
- * (la de claves desconocidas se mide aparte, como «huérfanos», porque cada
- * sub-caso puede querer una política distinta).
+ * Valores inválidos (opción/tipo), por nombre. Las claves desconocidas NO entran
+ * aquí: se miden aparte como «huérfanos», porque cada sub-caso puede querer una
+ * política distinta.
  */
 function valoresInvalidos(
   attributes: Record<string, unknown>,
   schema: AttributeField[],
 ): string[] {
-  const malos: string[] = [];
-  for (const field of schema) {
-    if (field.dependsOn) continue; // los vinculados los mide `vinculadosInvalidos`
-    if (!(field.name in attributes)) continue;
-    const value = attributes[field.name];
-    if (value === null || value === undefined || value === '') continue;
-
-    if (field.type === 'select') {
-      if (!(field.options ?? []).includes(String(value))) malos.push(field.name);
-    } else if (field.type === 'number') {
-      const n = typeof value === 'number' ? value : Number(value);
-      if (typeof value === 'boolean' || value === '' || Number.isNaN(n)) malos.push(field.name);
-    } else if (field.type === 'boolean') {
-      if (typeof value !== 'boolean' && value !== 'true' && value !== 'false') {
-        malos.push(field.name);
-      }
-    }
-    // text: cualquier string vale, igual que en producción.
-  }
-  return malos;
+  return invalidValueIssues(attributes, schema).map((i) => i.field);
 }
 
-/** Réplica de `ListingsService.validateLinkedSelects` (sin `deltaKeys`: aquí se
- *  valida el bag completo, que es lo que haría una puerta estricta). */
+/** Selects vinculados inválidos, por nombre. Sin `deltaKeys`: aquí se valida el
+ *  bag completo, que es lo que hace la puerta al revalidar a fondo. */
 function vinculadosInvalidos(
   attributes: Record<string, unknown>,
   schema: AttributeField[],
 ): string[] {
-  const malos: string[] = [];
-  for (const field of schema) {
-    if (!field.dependsOn) continue;
-    const rawValue = attributes[field.name];
-    if (rawValue === undefined || rawValue === null || rawValue === '') continue;
-    const parentRaw = attributes[field.dependsOn];
-    if (parentRaw === undefined || parentRaw === null || parentRaw === '') {
-      malos.push(field.name);
-      continue;
-    }
-    if (!resolveLinkedOptions(field, String(parentRaw)).includes(String(rawValue))) {
-      malos.push(field.name);
-    }
-  }
-  return malos;
+  return linkedSelectIssues(attributes, schema).map((i) => i.field);
 }
 
 // ---------------------------------------------------------------------------

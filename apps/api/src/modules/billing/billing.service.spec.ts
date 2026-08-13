@@ -16,6 +16,7 @@ import { ProductType } from '@prisma/client';
 import { BillingService } from './billing.service';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { RedisService } from '../../infra/redis/redis.service';
+import { ListingGateService } from '../listing-gate/listing-gate.service';
 import { EntitlementService } from './entitlement.service';
 import { CampaignsService } from '../campaigns/campaigns.service';
 import { QUEUE_INDEXING } from '../../infra/queue/queue.constants';
@@ -62,6 +63,10 @@ describe('BillingService.createCheckoutSession — Stripe destacado cerrado', ()
         // Este spec no ejercita bump (solo el checkout de Stripe), pero la dependencia
         // tiene que resolverse para que el módulo compile.
         { provide: RedisService, useValue: { client: { del: jest.fn() } } },
+        // PUERTA ráfaga 2 — el freno de `needsRevalidation` en bump/destacado.
+        // Mismo caso que RedisService: este spec sólo ejercita el checkout de
+        // Stripe, pero la dependencia tiene que resolverse.
+        { provide: ListingGateService, useValue: { assertCanBePromotedById: jest.fn() } },
         {
           provide: ConfigService,
           useValue: {

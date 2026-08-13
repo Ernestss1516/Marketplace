@@ -2705,6 +2705,42 @@ que acordarse de llamarlo. Ese método ya no existe.
 Ambos settings son editables desde `PATCH /admin/settings/:key` sin redeploy; el efecto es
 inmediato en la siguiente request de publish/renew.
 
+### `needsRevalidation` — marcar sin expulsar (puerta, ráfaga 2)
+
+Un cambio en el `attributeSchema` de una categoría puede dejar fuera de norma a anuncios ya
+publicados sin que su dueño toque nada (renombrar un atributo, exigir uno nuevo, quitar opciones a
+un `select`). Hasta esta ráfaga eso era **silencioso**: no pasaba absolutamente nada.
+
+**La política: se MARCA, no se expulsa.** El anuncio sigue `ACTIVE`, sigue en el índice y sigue
+siendo editable; lo que gana es un aviso para su dueño en «Mis anuncios» **con los motivos
+concretos**, y —cuando la regla esté encendida— un freno en su siguiente transición.
+
+- **El flag.** `Listing.needsRevalidation Boolean @default(false)` + índice. Migración aditiva, sin
+  backfill.
+- **El marcado.** `PATCH /admin/categories/:id` con `attributeSchema` encola `mark-stale` en
+  `QUEUE_REVALIDATION` (cola propia, no la de indexado). El worker recorre **la categoría y toda su
+  descendencia** —el schema se hereda— en lotes de 500, revalida con el schema efectivo N y marca a
+  los que fallan, excluyendo `ARCHIVED` y `SOLD`.
+- **No toca la búsqueda**, y son tres hechos verificados: un `listing.update` nunca reindexa por sí
+  solo (el reindexado es siempre un `indexingQueue.add` explícito), el flag no entra en
+  `ListingDocument`, y el anuncio sigue `ACTIVE` y por tanto en el índice. Hay un test que lo fija.
+- **El freno** lo aplica `AttributeRevalidationRule`, que **nace apagada**
+  (`Setting.attributeRevalidationEnabled`, sin fila = apagada, molde `videoEnabled`). Se enciende
+  con el número de `pnpm gate-impact-report` delante.
+- **La limpieza.** La puerta, al pasar, retira el flag de un anuncio que ya cumple; y editar
+  también, porque editar es la vía de salida y por eso **nunca** se frena.
+
+Qué depende de `enabled` y qué no está en la tabla de coherencia de
+`docs/diseno-puerta-validacion.md` (addendum de implementación) y en la cabecera de
+`RevalidationService`.
+
+**Los tres validadores de atributos son ahora compartidos.** Vivían como `private` de
+`ListingsService` y el comando de medición tuvo que replicarlos; están en
+`categories/attribute-validation.ts` (fichero puro), junto con `applicableSchemaFor` —el par
+«plegar la herencia + filtrar por tipo»—. El alta/edición, la puerta y M2 leen el mismo código; lo
+único que cada uno pone es cómo falla (el alta lanza al primer problema con su 422 de siempre, la
+puerta devuelve todos los motivos, la medición sólo cuenta).
+
 ### `revokedAt` en Entitlement: patrón de expiración idempotente (RF.7-B.1)
 
 El campo `Entitlement.revokedAt DateTime?` se añade para marcar entitlements procesados por

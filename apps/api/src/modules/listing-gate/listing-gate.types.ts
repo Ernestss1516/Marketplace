@@ -44,6 +44,21 @@ export type GateTransition =
   | 'bump'
   | 'featured';
 
+/**
+ * LO QUE LA PUERTA LEE DE UN ANUNCIO, y nada más.
+ *
+ * No es `Listing` entero a propósito: así queda escrito qué campos necesita
+ * cualquier camino que quiera pasar por aquí, y `BillingService.bump` —que lee
+ * la fila con un `select` corto y deliberado— puede llamar a la puerta añadiendo
+ * exactamente estas columnas en vez de traerse el anuncio completo. Un `Listing`
+ * de Prisma encaja aquí por estructura, así que los siete caminos de la ráfaga 1
+ * siguen pasándolo tal cual.
+ */
+export type GateListing = Pick<
+  Listing,
+  'id' | 'sellerId' | 'categoryId' | 'type' | 'status' | 'attributes' | 'needsRevalidation'
+>;
+
 export interface GateContext {
   actor: GateActor;
   transition: GateTransition;
@@ -87,8 +102,31 @@ export interface ListingGateRule {
   readonly group: GateRuleGroup;
   /** ¿Corre esta regla en esta transición y para este actor? */
   appliesTo(context: GateContext): boolean;
-  /** El motivo si no se cumple; `null` si todo bien. */
-  check(listing: Listing, context: GateContext): Promise<GateReason | null>;
+  /**
+   * EL INTERRUPTOR POR REGLA. Ausente = encendida siempre, que es lo que quiere
+   * la cuota: lleva años aplicándose y apagarla sería un incidente, no una
+   * opción.
+   *
+   * Existe porque una regla NUEVA no puede nacer encendida sobre anuncios ya
+   * publicados sin saber a cuántos frena — la de atributos nace apagada y se
+   * enciende con el número de `pnpm gate-impact-report` delante. Es asíncrono a
+   * propósito: el molde verificado del repo (`videoEnabled`, `bumpAutoEnabled`)
+   * es una fila de `Setting`, editable desde el backoffice sin desplegar.
+   *
+   * ⚠ Con su LECTOR o no nace: aquí ya hay dos ajustes muertos
+   * (`listingExpiryDays`, `contactRequiresVerification`), y un interruptor que
+   * nadie lee es peor que no tenerlo.
+   */
+  isEnabled?(): Promise<boolean>;
+  /**
+   * Los motivos si no se cumple; `null` (o lista vacía) si todo bien.
+   *
+   * VARIOS, no uno: una regla puede encontrar tres atributos mal en el mismo
+   * anuncio, y el vendedor necesita verlos todos de una vez (decisión D-motivos).
+   * Devolver un único `GateReason` sigue valiendo — es lo que hace la cuota, que
+   * o falla por una cosa o no falla.
+   */
+  check(listing: GateListing, context: GateContext): Promise<GateReason | GateReason[] | null>;
 }
 
 /** Token de DI de la lista de reglas. Ver `ListingGateModule`. */

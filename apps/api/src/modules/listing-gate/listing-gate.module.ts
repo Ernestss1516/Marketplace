@@ -1,7 +1,14 @@
 import { Module } from '@nestjs/common';
+import { BullModule } from '@nestjs/bullmq';
+import { QUEUE_REVALIDATION, retryQueue } from '../../infra/queue/queue.constants';
+import { CategoryTreeModule } from '../categories/category-tree.module';
 import { ListingGateService } from './listing-gate.service';
 import { ProStatusService } from './pro-status.service';
+import { AttributeCheckService } from './attribute-check.service';
+import { RevalidationService } from './revalidation.service';
+import { RevalidationProcessor } from './revalidation.processor';
 import { ActiveListingLimitRule } from './rules/active-listing-limit.rule';
+import { AttributeRevalidationRule } from './rules/attribute-revalidation.rule';
 import { LISTING_GATE_RULES, type ListingGateRule } from './listing-gate.types';
 
 /**
@@ -25,26 +32,38 @@ import { LISTING_GATE_RULES, type ListingGateRule } from './listing-gate.types';
  *     siempre falla y comprobar que TODOS los caminos pasan por la puerta — la
  *     barrera estructural que sustituye a «acuérdate de llamarla».
  *
- * SIN `enabled` TODAVÍA, y es deliberado. El diseño lo prevé para que la regla de
- * atributos (ráfaga 2) pueda nacer apagada, pero pone su propia condición: «cada
- * `enabled` nace con su lector o no nace» —este repo ya arrastra dos ajustes
- * muertos (`listingExpiryDays`, `contactRequiresVerification`)—. La cuota no lo
- * necesita: nace encendida y encendida se queda. El interruptor llega con la
- * primera regla que tenga algo que apagar.
+ * `enabled` LLEGÓ EN LA RÁFAGA 2, con la primera regla que tenía algo que apagar:
+ * la de atributos nace APAGADA y se enciende con el número de M2 delante. La
+ * cuota no lo implementa, así que está siempre encendida — que es lo correcto
+ * para una regla que lleva años aplicándose.
  */
 @Module({
+  imports: [
+    // RÁFAGA 2 — la regla de atributos necesita la CADENA de categorías para
+    // plegar el schema efectivo. `CategoryTreeModule` es hoja igual que éste, así
+    // que importarlo no reabre ningún ciclo.
+    CategoryTreeModule,
+    BullModule.registerQueue(retryQueue(QUEUE_REVALIDATION)),
+  ],
   providers: [
     ProStatusService,
+    AttributeCheckService,
+    RevalidationService,
+    RevalidationProcessor,
     ActiveListingLimitRule,
+    AttributeRevalidationRule,
     ListingGateService,
     {
       provide: LISTING_GATE_RULES,
-      inject: [ActiveListingLimitRule],
+      inject: [ActiveListingLimitRule, AttributeRevalidationRule],
       // El orden dentro de un grupo es el de esta lista. Entre grupos manda
       // `GateRuleGroup` (entrada antes que contenido), no esto.
-      useFactory: (activeLimit: ActiveListingLimitRule): ListingGateRule[] => [activeLimit],
+      useFactory: (
+        activeLimit: ActiveListingLimitRule,
+        attributes: AttributeRevalidationRule,
+      ): ListingGateRule[] => [activeLimit, attributes],
     },
   ],
-  exports: [ListingGateService, ProStatusService],
+  exports: [ListingGateService, ProStatusService, RevalidationService, AttributeCheckService],
 })
 export class ListingGateModule {}

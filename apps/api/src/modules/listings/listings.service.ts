@@ -40,16 +40,24 @@ import { ReviewsService } from '../reviews/reviews.service';
 import { TagsService } from '../tags/tags.service';
 import {
   AttributeField,
-  resolveEffectiveSchema,
   resolveEffectivePolicy,
-  resolveLinkedOptions,
-  filterSchemaByType,
   isListingTypeAllowed,
   resolveEffectivePriceUnits,
   isPriceUnitAllowed,
 } from '../categories/category.types';
+// PUERTA — RÁFAGA 2: el QUÉ de los tres validadores, ahora compartido con la
+// puerta y con el comando de medición. Ver la nota sobre los envoltorios abajo.
+import {
+  applicableSchemaFor,
+  missingRequiredNames,
+  unknownAttributeKeys,
+  invalidValueIssues,
+  linkedSelectIssues,
+} from '../categories/attribute-validation';
 import { CategoryTreeService, type CategoryNode } from '../categories/category-tree.service';
 import { ListingGateService } from '../listing-gate/listing-gate.service';
+import { RevalidationService } from '../listing-gate/revalidation.service';
+import { AttributeCheckService } from '../listing-gate/attribute-check.service';
 import type { ListingTypePolicy, PriceUnit } from '@prisma/client';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { UpdateListingDto } from './dto/update-listing.dto';
@@ -176,6 +184,14 @@ export class ListingsService {
     // `checkActiveListingLimit` privado que vivía aquí: era inalcanzable desde
     // Moderation y Admin, y por eso la cuota se escapaba por varios caminos.
     private readonly gate: ListingGateService,
+    // PUERTA — RÁFAGA 2: sólo para LIMPIAR el aviso cuando el vendedor corrige
+    // su anuncio editándolo. Marcar no se hace nunca desde aquí.
+    private readonly revalidation: RevalidationService,
+    // PUERTA — RÁFAGA 2: los MOTIVOS que se le enseñan al vendedor en «Mis
+    // anuncios». Es el mismo comprobador que usa la regla que frena, y eso no es
+    // un detalle: si el aviso listara otros motivos que los que bloquean, sería
+    // peor que no avisar.
+    private readonly attributeCheck: AttributeCheckService,
   ) {}
 
   async create(sellerId: string, dto: CreateListingDto): Promise<Listing> {
@@ -187,12 +203,12 @@ export class ListingsService {
     const cadena = await this.categoryTree.getAncestorChain(dto.categoryId);
     if (cadena.length === 0) throw new NotFoundException('Category not found');
     const category = cadena[cadena.length - 1];
-    const effectiveSchema = this.plegarSchema(cadena);
+    // El pliegue de la herencia + el filtro por tipo, en el orden de siempre.
     // required se exige solo entre los campos aplicables al tipo del anuncio —
     // igual que el wizard, que nunca envía un campo appliesTo-restringido al
     // otro tipo. Sin este filtro, un required de un tipo bloquearía SIEMPRE
     // los anuncios del tipo contrario (RÁFAGA 5, bug real encontrado en verificación).
-    const applicableSchema = filterSchemaByType(effectiveSchema, dto.type);
+    const applicableSchema = applicableSchemaFor(cadena, dto.type);
     // create() valida COMPLETO — no hay "existing" con el que calcular un delta.
     this.validateRequired(dto.attributes ?? {}, applicableSchema);
     this.validateAttributeValues(dto.attributes ?? {}, applicableSchema);
@@ -279,13 +295,12 @@ export class ListingsService {
       const category = cadena[cadena.length - 1];
 
       if (dto.categoryId !== undefined || dto.attributes !== undefined) {
-        const effectiveSchema = this.plegarSchema(cadena);
         const mergedAttrs = {
           ...(existing.attributes as Record<string, unknown>),
           ...(dto.attributes ?? {}),
         };
         // type es inmutable — se filtra por el tipo YA fijado del anuncio, igual que en create().
-        const applicableSchema = filterSchemaByType(effectiveSchema, existing.type);
+        const applicableSchema = applicableSchemaFor(cadena, existing.type);
         // required se exige siempre sobre el bag COMPLETO (invariante de completitud
         // del anuncio, no depende de qué campo tocó esta edición en concreto).
         this.validateRequired(mergedAttrs, applicableSchema);
@@ -401,6 +416,21 @@ export class ListingsService {
       if (imageIds.length) {
         await this.linkImages(id, userId, imageIds);
       }
+    }
+
+    // PUERTA — RÁFAGA 2. EDITAR LIMPIA, PERO NUNCA FRENA.
+    //
+    // Es la asimetría más importante de todo el mecanismo. Editar es LA VÍA DE
+    // SALIDA de un anuncio marcado: frenar aquí dejaría al vendedor encerrado —
+    // no puede publicar porque no cumple, y no puede arreglarlo porque no le
+    // dejan editar—. Así que la edición no pasa por la puerta; lo que hace es
+    // preguntar, ya guardado, si el anuncio volvió a cumplir, y en ese caso
+    // retirar el aviso él solo.
+    //
+    // Se le pasa `listing`, que es la fila RECIÉN escrita: preguntárselo a la
+    // versión anterior diría que no cumple justo después de haberlo arreglado.
+    if (listing.needsRevalidation) {
+      await this.revalidation.clearIfCompliant(listing);
     }
 
     // Clear cache immediately, then enqueue exactly one indexing-affecting job.
@@ -1043,7 +1073,14 @@ export class ListingsService {
     const [rows, total, statusGroups] = await this.prisma.$transaction([
       this.prisma.listing.findMany({
         where,
-        select: SELECT_SUMMARY,
+        // PUERTA RÁFAGA 2 — `needsRevalidation` se añade AQUÍ y no dentro de
+        // SELECT_SUMMARY: ese select lo comparten las rutas públicas (portada,
+        // categorías, búsqueda), y que un anuncio esté pendiente de revalidar es
+        // asunto de su dueño, no del catálogo. Mismo criterio que `bumpSchedule`.
+        // `categoryId` va con él: es lo que necesita el comprobador para plegar la
+        // cadena y decir QUÉ hay que corregir (SELECT_SUMMARY sólo trae el slug
+        // de la categoría, que sirve para el enlace pero no para la jerarquía).
+        select: { ...SELECT_SUMMARY, needsRevalidation: true, categoryId: true },
         orderBy: { updatedAt: 'desc' },
         skip: (page - 1) * perPage,
         take: perPage,
@@ -1135,10 +1172,23 @@ export class ListingsService {
         .reduce((sum, g) => sum + g._count._all, 0),
     };
 
+    // PUERTA RÁFAGA 2 — EL AVISO. Los motivos SÓLO de los anuncios marcados, y en
+    // UNA consulta para todos ellos (`issuesForMany`), no una por tarjeta.
+    //
+    // Se calculan en vivo en vez de guardarlos junto al flag porque el schema
+    // puede haber cambiado otra vez desde el marcado: unos motivos congelados
+    // mandarían al vendedor a corregir algo que ya no es el problema. El coste
+    // sólo lo pagan los marcados, que son la excepción — si no hay ninguno, no se
+    // hace ni una consulta.
+    const marcados = rows.filter((r) => r.needsRevalidation);
+    const motivos = await this.attributeCheck.issuesForMany(marcados);
+
     return {
       counts,
       items: rows.map((r) => ({
         ...this.toSummary(r),
+        needsRevalidation: r.needsRevalidation,
+        revalidationReasons: motivos.get(r.id) ?? [],
         featuredUntil: featuredMap.get(r.id) ?? null,
         favoritesCount: favoritesCountMap.get(r.id) ?? 0,
         // UXV.1 (A2) — enriquecido SOLO en la vista del propietario, junto a
@@ -1361,13 +1411,24 @@ export class ListingsService {
     });
   }
 
+  /*
+   * PUERTA — RÁFAGA 2. Los tres validadores de atributos son ahora ENVOLTORIOS.
+   *
+   * El QUÉ se comprueba vive en `categories/attribute-validation.ts`, un fichero
+   * puro que comparten este servicio, la puerta y el comando de medición — cerrar
+   * esa duplicación era la deuda que M2 anotó al tener que replicarlos.
+   *
+   * Lo que se queda aquí es el CÓMO SE FALLA, y se queda porque es distinto en
+   * cada consumidor: aquí se lanza al primer problema con un 422 y un texto
+   * concreto; la puerta los devuelve todos como `reasons`; la medición sólo
+   * cuenta. Los mensajes de abajo son LETRA POR LETRA los de antes: son texto que
+   * el vendedor ya ve y que hay tests fijando.
+   */
   private validateRequired(
     attributes: Record<string, unknown>,
     schema: AttributeField[],
   ): void {
-    const missing = schema
-      .filter((f) => f.required && !Object.prototype.hasOwnProperty.call(attributes, f.name))
-      .map((f) => f.name);
+    const missing = missingRequiredNames(attributes, schema);
     if (missing.length) {
       throw new UnprocessableEntityException(
         `Atributos requeridos faltantes: ${missing.join(', ')}`,
@@ -1390,39 +1451,17 @@ export class ListingsService {
     attributes: Record<string, unknown>,
     schema: AttributeField[],
   ): void {
-    const byName = new Map(schema.map((f) => [f.name, f]));
-
-    const unknown = Object.keys(attributes).filter((k) => !byName.has(k));
+    const unknown = unknownAttributeKeys(attributes, schema);
     if (unknown.length) {
       throw new UnprocessableEntityException(
         `Atributos no reconocidos: ${unknown.join(', ')}`,
       );
     }
 
-    for (const field of schema) {
-      if (field.dependsOn) continue; // vinculados: los valida validateLinkedSelects
-      if (!(field.name in attributes)) continue;
-      const value = attributes[field.name];
-      if (value === null || value === undefined || value === '') continue;
-
-      if (field.type === 'select') {
-        if (!(field.options ?? []).includes(String(value))) {
-          throw new UnprocessableEntityException(
-            `"${value}" no es una opción válida de "${field.label}".`,
-          );
-        }
-      } else if (field.type === 'number') {
-        const n = typeof value === 'number' ? value : Number(value);
-        if (typeof value === 'boolean' || value === '' || Number.isNaN(n)) {
-          throw new UnprocessableEntityException(`"${field.label}" debe ser un número.`);
-        }
-      } else if (field.type === 'boolean') {
-        if (typeof value !== 'boolean' && value !== 'true' && value !== 'false') {
-          throw new UnprocessableEntityException(`"${field.label}" debe ser verdadero/falso.`);
-        }
-      }
-      // text: cualquier string vale, sin refuerzo adicional.
-    }
+    // El primero, no todos: aquí se lanza, y quien edita corrige de uno en uno.
+    // El orden lo fija el schema, igual que el bucle que había aquí.
+    const [primero] = invalidValueIssues(attributes, schema);
+    if (primero) throw new UnprocessableEntityException(primero.message);
   }
 
   /**
@@ -1473,50 +1512,27 @@ export class ListingsService {
     schema: AttributeField[],
     deltaKeys?: Set<string>,
   ): void {
-    for (const field of schema) {
-      if (!field.dependsOn) continue;
-      if (deltaKeys && !deltaKeys.has(field.name) && !deltaKeys.has(field.dependsOn)) continue;
-
-      const rawValue = attributes[field.name];
-      if (rawValue === undefined || rawValue === null || rawValue === '') continue;
-      const value = String(rawValue);
-
-      const parentRaw = attributes[field.dependsOn];
-      if (parentRaw === undefined || parentRaw === null || parentRaw === '') {
-        const parentLabel =
-          schema.find((f) => f.name === field.dependsOn)?.label ?? field.dependsOn;
-        throw new UnprocessableEntityException(
-          `"${field.label}" requiere seleccionar primero "${parentLabel}".`,
-        );
-      }
-
-      const validOptions = resolveLinkedOptions(field, String(parentRaw));
-      if (!validOptions.includes(value)) {
-        throw new UnprocessableEntityException(
-          `"${value}" no es una opción válida de "${field.label}" para el valor elegido.`,
-        );
-      }
-    }
+    const [primero] = linkedSelectIssues(attributes, schema, deltaKeys);
+    if (primero) throw new UnprocessableEntityException(primero.message);
   }
 
   /**
-   * PROFUNDIDAD N — RÁFAGA 1. Los tres pliegues que esta clase necesita.
+   * PROFUNDIDAD N — RÁFAGA 1. Los pliegues que esta clase necesita.
    *
-   * Los cuerpos de `resolveEffectiveSchema`/`resolveEffectivePolicy`/
-   * `resolveEffectivePriceUnits` NO cambian: son reductores
-   * `(propio, efectivoDelPadre) → efectivo`, y aquí simplemente se aplican sobre
-   * la cadena raíz→hoja en vez de una sola vez contra el padre.
+   * Los cuerpos de `resolveEffectivePolicy`/`resolveEffectivePriceUnits` NO
+   * cambian: son reductores `(propio, efectivoDelPadre) → efectivo`, y aquí
+   * simplemente se aplican sobre la cadena raíz→hoja en vez de una sola vez
+   * contra el padre.
    *
    * Para 2 niveles el resultado es idéntico al anterior (la cadena de una hija es
    * `[raíz, hija]`, que es exactamente lo que se fusionaba a mano). Para 4, el
    * bisnieto hereda del abuelo — que es todo el objetivo.
+   *
+   * PUERTA — RÁFAGA 2: el del SCHEMA ya no está aquí. Se fue a
+   * `applicableSchemaFor` (attribute-validation.ts) porque la puerta necesita
+   * exactamente el mismo par «plegar + filtrar por tipo», y dos implementaciones
+   * de eso divergirían en silencio — que es el riesgo R1 otra vez.
    */
-  private plegarSchema(cadena: CategoryNode[]): AttributeField[] {
-    return cadena.reduce<AttributeField[]>(
-      (acc, nodo) => resolveEffectiveSchema(nodo.attributeSchema, acc),
-      [],
-    );
-  }
 
   /**
    * Validates a listing's type against its category's effective ListingTypePolicy
