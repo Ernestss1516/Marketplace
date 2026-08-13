@@ -190,14 +190,21 @@ const RANKING_RULES = [
 
 /**
  * Shared Prisma include for fetching a listing ready to index.
- * Exported so the indexing processor and the reindex command use the exact
- * same include — if one loaded `parent` and the other didn't, documents would
- * differ depending on the indexing path.
+ * Exported so the indexing processor and the reindex command use el mismo
+ * include — si uno cargara algo que el otro no, un mismo anuncio tendría
+ * documentos distintos según por qué camino se indexara.
  *
- * NOTE: `parent` covers a 2-level hierarchy (leaf → parent).
- * If the category tree ever grows to 3+ levels the include must walk further
- * up the chain (parent.parent…) and `toDocument` must build the full ancestor
- * array instead of checking only one level.
+ * PROFUNDIDAD N — YA NO CARGA `parent`, y su ausencia es la señal. Este include
+ * traía el padre para que `toDocument` construyera `categoryPath`, con una nota
+ * que avisaba de que sólo cubría dos niveles y de que a partir de tres habría que
+ * subir por la cadena. Eso ya pasó: `categoryPath` se construye desde
+ * `CategoryTreeService`, que resuelve la cadena entera. El `parent` se quedó aquí
+ * sin que nadie lo leyera —un JOIN en cada indexado para nada— y su nota había
+ * pasado de aviso útil a afirmación falsa.
+ *
+ * Si alguien vuelve a necesitar la jerarquía al indexar, la pide al servicio de
+ * árbol; no la reintroduzca aquí, o habrá otra vez dos formas de responder a la
+ * misma pregunta.
  */
 export const INDEX_INCLUDE = {
   category: {
@@ -205,7 +212,6 @@ export const INDEX_INCLUDE = {
       id: true,
       slug: true,
       name: true,
-      parent: { select: { slug: true } },
     },
   },
   images: { orderBy: { order: 'asc' as const } },
@@ -226,7 +232,7 @@ export const INDEX_INCLUDE = {
 } as const;
 
 type ListingWithRelations = Listing & {
-  category: { id: string; slug: string; name: string; parent: { slug: string } | null };
+  category: { id: string; slug: string; name: string };
   images: ListingImage[];
   entitlements: Pick<Entitlement, 'expiresAt'>[];
   seller: { name: string; slug: string; avatarUrl: string | null };

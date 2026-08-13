@@ -94,10 +94,14 @@ export function resolveLinkedOptions(
 }
 
 /**
- * Merges parent and child attribute schemas.
- * Child attributes override parent attributes with the same name.
- * Inherited attributes (parent-only) appear first; child's own appear after.
- * Depth is capped at 2 levels (leaf → parent), matching categoryPath and INDEX_INCLUDE.
+ * Merges an inherited attribute schema with a category's own.
+ * Own attributes override inherited ones with the same name.
+ * Inherited attributes appear first; the category's own appear after.
+ *
+ * REDUCTOR, NO UN LÍMITE DE DOS NIVELES. Toma dos listas ya resueltas, así que
+ * los llamantes lo PLIEGAN sobre la cadena de ancestros (raíz→hoja) y con eso
+ * resuelve cualquier profundidad: `cadena.reduce((acc, n) => resolveEffectiveSchema(n.propio, acc), [])`.
+ * El tope del árbol es `CATEGORY_MAX_DEPTH`, no una limitación de esta función.
  */
 export function resolveEffectiveSchema(
   own: AttributeField[],
@@ -153,8 +157,11 @@ export function countAttributesByType(
  * create/update) must reject before it is ever persisted — this function
  * never throws; defensively it keeps the parent's value (never widening past
  * what an ancestor forbids), mirroring the "leaf can only narrow, never
- * contradict" rule. Same 2-level depth assumption as resolveEffectiveSchema
- * (leaf → parent only, no grandparent).
+ * contradict" rule. REDUCTOR, igual que resolveEffectiveSchema: se PLIEGA sobre
+ * la cadena de ancestros, así que una restricción del bisabuelo alcanza al
+ * bisnieto. La guarda que rechaza la contradicción al escribir es
+ * AdminService.assertPolicyConsistentWithAncestors, que compara contra lo
+ * HEREDADO (no contra el valor propio del padre).
  */
 export function resolveEffectivePolicy(
   own: ListingTypePolicy,
@@ -212,8 +219,9 @@ export interface EffectiveViews {
  * REPLACES the parent's (no per-view merging, unlike attribute schemas): a
  * category either defines its whole menu or inherits the parent's whole menu.
  * Falls back to DEFAULT_EFFECTIVE_VIEWS when neither this category nor its
- * parent configures anything. Same 2-level depth assumption as
- * resolveEffectiveSchema/resolveEffectivePolicy (leaf → parent only).
+ * ancestor configures anything. REDUCTOR, igual que resolveEffectiveSchema: se
+ * pliega sobre la cadena, así que gana el primer ancestro configurado mirando
+ * desde la hoja hacia arriba, esté al nivel que esté.
  */
 export function resolveEffectiveViews(
   own: { allowedViews: ListingViewMode[]; defaultView: ListingViewMode | null },
@@ -249,8 +257,9 @@ export const DEFAULT_ALLOWED_PRICE_UNITS: PriceUnit[] = ['ONE_TIME'];
  * something the parent does not is legitimate here, not a contradiction, so
  * there is no parent-consistency guard to mirror either.
  *
- * Same 2-level depth assumption as resolveEffectiveSchema/resolveEffectiveViews
- * (leaf → parent only, no grandparent — enforced by assertParentIsRoot).
+ * REDUCTOR, igual que resolveEffectiveSchema/resolveEffectiveViews: se pliega
+ * sobre la cadena de ancestros. El tope del árbol es CATEGORY_MAX_DEPTH, y quien
+ * lo aplica al crear es AdminService.assertMaxDepth.
  */
 export function resolveEffectivePriceUnits(
   own: PriceUnit[],

@@ -533,7 +533,7 @@ Ninguno sin ráfaga. Numeración del mapa §1.9.
 | 15 | `INDEX_INCLUDE` | **2** |
 | 16 | Construcción de `categoryPath` (el filtro no se toca) | **2** |
 | 17 | Fallback Postgres | **2** |
-| 18 | `sponsored-ads.service.ts` | **2** |
+| 18 | `sponsored-ads.service.ts` | **2** → ⚠️ **no se ejecutó en la 2; cerrado en la ráfaga de huecos** (ver abajo) |
 | 19 | `tags.service.ts` (×3, + invalidar caché Redis por slug) | **1** (resolución) + **2** (caché) |
 | 20 | `getCategories` admin · las 2 guardas de política/precios | **2** |
 | 21 | `category-url.ts` | **3** |
@@ -572,3 +572,30 @@ este proyecto** por `app/loading.tsx` → segmentos fijos.
 
 **El riesgo SEO es cero** mientras `parentId` sea inmutable, y este diseño lo formaliza en tres
 sitios en vez de dejarlo como una ausencia.
+
+---
+
+# Addendum — Los huecos que quedaron abiertos (ráfaga posterior)
+
+Las tres ráfagas se dieron por completas con **tres huecos silenciosos** que sólo se vieron después,
+al leer el código para la medición M2. Ninguno daba error: los tres eran incoherencias calladas, de
+la misma familia que R1. Se cerraron en una ráfaga aparte.
+
+**Cómo se escaparon, que es lo que importa para la próxima vez:** el cruce de completitud se hizo
+comprobando que cada punto estuviera *asignado* a una ráfaga, no que estuviera *ejecutado*. Una
+tabla de asignaciones no es una lista de verificación.
+
+| Hueco | Qué pasaba | Por qué se escapó |
+|---|---|---|
+| **Patrocinados en 2 niveles** (punto 18) | Un patrocinado de una raíz no aparecía al navegar un nivel 3-4 | Estaba en la tabla como «ráfaga 2» y nunca se ejecutó. El grep de cierre lo vio y se dio por asignado |
+| **Caché de patrocinados** (no listado) | `invalidateCacheForCategory` sólo invalidaba hijas directas: nietas y bisnietas servían el valor viejo hasta el TTL | Consecuencia del anterior, en el mismo fichero. No estaba en la tabla |
+| **`assertPolicyConsistentWithParent`** (no listado) | Comparaba contra el valor PROPIO del padre, no contra el efectivo: `raíz PRODUCT_ONLY → hija BOTH → nieta SERVICE_ONLY` se aceptaba y la declaración se ignoraba en silencio | §E.2/§E.3 sólo cubrieron las guardas «hacia abajo». Esta mira hacia los ancestros y no se contempló |
+
+**La lección de método:** el diseño clasificó las guardas por *dirección* («hacia arriba» y «hacia
+abajo») pero sólo auditó una. Cuando una jerarquía cambia de profundidad, **las dos direcciones
+cambian**, y ninguna avisa cuando se queda corta.
+
+También se corrigieron seis comentarios que afirmaban un tope de 2 niveles ya inexistente —dos de
+ellos citando `assertParentIsRoot`, una función borrada en la ráfaga 1— y se eliminó
+`INDEX_INCLUDE.category.parent`, que desde la ráfaga 2 era un JOIN en cada indexado que ya no leía
+nadie.

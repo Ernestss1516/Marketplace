@@ -26,8 +26,10 @@ export interface TagRef {
  * antes de preguntar por lo específico), aquí es de SUGERENCIA (al etiquetar un anuncio
  * de "Coches", lo propio de coches es más relevante que lo genérico de "Vehículos").
  *
- * Mismo supuesto de 2 niveles (hoja → padre, sin abuelo) que todo lo demás, garantizado
- * por `assertParentIsRoot`.
+ * REDUCTOR, igual que las resoluciones de category.types.ts: se PLIEGA sobre la cadena de
+ * ancestros —de la hoja hacia la raíz, porque aquí manda lo más específico—, así que un
+ * bisnieto acumula los tags de sus tres ancestros. El tope del árbol es
+ * `CATEGORY_MAX_DEPTH`, y quien lo aplica al crear es `AdminService.assertMaxDepth`.
  *
  * NOTA: no filtra por `activo`. Eso se hace en la consulta (`where: { activo: true }`),
  * que es donde el índice `[activo, orden]` puede trabajar; esta función es pura y solo

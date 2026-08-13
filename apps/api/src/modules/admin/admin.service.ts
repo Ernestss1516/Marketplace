@@ -36,6 +36,7 @@ import { UpdateSettingDto } from './dto/update-setting.dto';
 import {
   AttributeField,
   resolveEffectiveSchema,
+  resolveEffectivePolicy,
   countAttributesByType,
   CATEGORY_MAX_DEPTH,
 } from '../categories/category.types';
@@ -813,26 +814,57 @@ export class AdminService {
   }
 
   /**
-   * Hacia arriba: una política propia no puede contradecir la del padre ya
-   * persistido. Árbol de 2 niveles (parentId inmutable) — la política del
-   * padre es su valor propio, sin resolución recursiva. Guard explícito que
-   * LANZA; no reutiliza resolveEffectivePolicy (esa función es defensiva y
-   * nunca lanza, pensada para la lectura en tiempo de creación de anuncios).
+   * Hacia arriba: una política propia no puede CONTRADECIR la que se hereda.
+   *
+   * PROFUNDIDAD N — HUECO CERRADO. Esto comparaba contra
+   * `parent.allowedListingType`, el valor PROPIO del padre. Con dos niveles eso
+   * era correcto porque el padre siempre era una raíz y su valor propio ERA su
+   * efectivo. Con cuatro deja de serlo, y el fallo es silencioso:
+   *
+   *   raíz PRODUCT_ONLY → hija BOTH → nieta que declara SERVICE_ONLY
+   *
+   * La guarda miraba a la hija (BOTH, no contradice) y dejaba pasar. Después
+   * `resolveEffectivePolicy` —defensiva a propósito, nunca lanza— conserva la del
+   * ancestro. Resultado: el admin guarda SERVICE_ONLY, el panel se lo muestra, y
+   * el sistema se comporta como PRODUCT_ONLY. Sin ningún aviso. Ejercido antes de
+   * escribir esto.
+   *
+   * CONTRADECIR vs REFINAR — la distinción que decide qué se rechaza:
+   *   · REFINAR (se permite): lo heredado es BOTH y el nodo restringe a un tipo.
+   *     Es el caso normal y su declaración SÍ manda.
+   *   · REPETIR (se permite): declara lo mismo que ya hereda. Redundante, inocuo.
+   *   · CONTRADECIR (se rechaza): lo heredado restringe a un tipo y el nodo
+   *     declara el CONTRARIO. Su declaración no se puede cumplir, así que
+   *     aceptarla sería guardar una mentira.
+   * Es exactamente la misma condición de antes; lo único que cambia es contra QUÉ
+   * se compara — y por eso con 1-2 niveles el comportamiento es idéntico.
+   *
+   * Guard explícito que LANZA; no reutiliza `resolveEffectivePolicy` para decidir
+   * (esa es defensiva y nunca lanza, pensada para la lectura), pero sí para
+   * calcular lo heredado, que es justo lo que hay que mirar.
    */
-  private async assertPolicyConsistentWithParent(
+  private async assertPolicyConsistentWithAncestors(
     own: ListingTypePolicy,
     parentId: string | null | undefined,
   ): Promise<void> {
     if (!parentId || own === 'BOTH') return;
-    const parent = await this.prisma.category.findUnique({
-      where: { id: parentId },
-      select: { allowedListingType: true },
-    });
-    if (parent && parent.allowedListingType !== 'BOTH' && parent.allowedListingType !== own) {
-      throw new BadRequestException(
-        `La política "${own}" contradice la política del padre ("${parent.allowedListingType}").`,
-      );
-    }
+
+    const cadena = await this.categoryTree.getAncestorChain(parentId);
+    const heredada = cadena.reduce<ListingTypePolicy>(
+      (acc, nodo) => resolveEffectivePolicy(nodo.allowedListingType, acc),
+      'BOTH',
+    );
+    if (heredada === 'BOTH' || heredada === own) return;
+
+    // Se nombra el ancestro que IMPONE la política, no el padre inmediato: con
+    // varios niveles, «contradice a tu padre» sería falso y llevaría a mirar el
+    // sitio equivocado.
+    const culpable = [...cadena].reverse().find((n) => n.allowedListingType === heredada);
+    throw new BadRequestException(
+      `La política "${own}" contradice la política heredada ("${heredada}")` +
+        (culpable ? ` de "${culpable.name}"` : '') +
+        '. Una subcategoría puede restringir lo que hereda, pero no contradecirlo.',
+    );
   }
 
   /**
@@ -1038,7 +1070,7 @@ export class AdminService {
       );
     }
     if (dto.allowedListingType !== undefined) {
-      await this.assertPolicyConsistentWithParent(dto.allowedListingType, dto.parentId);
+      await this.assertPolicyConsistentWithAncestors(dto.allowedListingType, dto.parentId);
     }
     this.validateViewsConfig(dto.allowedViews ?? [], dto.defaultView ?? null);
     try {
@@ -1150,7 +1182,7 @@ export class AdminService {
     }
 
     if (dto.allowedListingType !== undefined) {
-      await this.assertPolicyConsistentWithParent(dto.allowedListingType, category.parentId);
+      await this.assertPolicyConsistentWithAncestors(dto.allowedListingType, category.parentId);
       // Solo se consulta hijos/anuncios (coste extra) cuando la política REALMENTE
       // cambia respecto a la ya persistida — editar nombre/schema sin tocar la
       // política no paga este coste.

@@ -100,25 +100,38 @@ export default async function AnuncioPage({
   const statusLabel = STATUS_LABELS[listing.status];
   const location = [listing.city, listing.province].filter(Boolean).join(', ');
 
-  // A1 (URLs anidadas) — el padre de la categoría, para la miga completa
-  // (Inicio > Vehículos > Coches > Título) y la URL canónica de la categoría.
-  // Se prefiere el de `getCategoryBySlug` (siempre fresco) sobre el del propio
-  // anuncio, que viaja dentro del blob cacheado 5 min en Redis y puede faltar
-  // justo tras desplegar. Si ninguno lo trae, la miga cae a 2 niveles y el
-  // enlace a la URL plana (que redirige) — se degrada, nunca rompe.
-  const categoryParent =
-    (categoryResult.status === 'fulfilled' ? categoryResult.value.parent : undefined) ??
-    listing.category.parent ??
-    null;
+  // A1 (URLs anidadas) — los ancestros de la categoría, para la miga completa
+  // (Inicio > Vehículos > Coches > Deportivos > Título) y su URL canónica.
+  //
+  // PROFUNDIDAD N: se usa la CADENA (`ancestors`), no el padre suelto. Con el
+  // padre solo, un anuncio de una categoría de nivel 4 enseñaba una miga a la
+  // que le faltaban dos escalones y enlazaba a `/nivel3/nivel4` — una URL no
+  // canónica que el middleware acaba redirigiendo. No rompía; mentía.
+  //
+  // La preferencia de fuentes no cambia: primero `getCategoryBySlug` (siempre
+  // fresco), luego el `parent` que viaja en el blob del anuncio cacheado 5 min en
+  // Redis —que puede faltar justo tras desplegar—, y si ninguno lo trae, se
+  // degrada a la URL plana, que redirige. Nunca rompe.
+  const categoriaFresca = categoryResult.status === 'fulfilled' ? categoryResult.value : undefined;
+  const ancestros =
+    categoriaFresca?.ancestors ??
+    (categoriaFresca?.parent ? [categoriaFresca.parent] : undefined) ??
+    (listing.category.parent ? [listing.category.parent] : []);
+
   const categoryHref = categoryPath({
     slug: listing.category.slug,
-    parentSlug: categoryParent?.slug,
+    ancestorSlugs: ancestros.map((a) => a.slug),
   });
 
   const breadcrumbTrail = [
-    ...(categoryParent
-      ? [{ name: categoryParent.name, path: categoryPath({ slug: categoryParent.slug }) }]
-      : []),
+    // Cada escalón con SU propia URL canónica: la de sus propios ancestros.
+    ...ancestros.map((ancestro, i) => ({
+      name: ancestro.name,
+      path: categoryPath({
+        slug: ancestro.slug,
+        ancestorSlugs: ancestros.slice(0, i).map((a) => a.slug),
+      }),
+    })),
     { name: listing.category.name, path: categoryHref },
     { name: listing.title, path: `/anuncio/${listing.slug}` },
   ];

@@ -9,6 +9,7 @@ import { MIME_TO_EXT } from '../media/media.service';
 import { CreateSponsoredAdDto } from './dto/create-sponsored-ad.dto';
 import { UpdateSponsoredAdDto } from './dto/update-sponsored-ad.dto';
 import { ListSponsoredAdsDto } from './dto/list-sponsored-ads.dto';
+import { CategoryTreeService, descendantIdsIn } from '../categories/category-tree.service';
 
 type SponsoredAdStatus = 'upcoming' | 'live' | 'ended';
 
@@ -33,6 +34,9 @@ export class SponsoredAdsService {
     private readonly redis: RedisService,
     private readonly r2: R2Service,
     private readonly auditLog: AuditLogService,
+    // PROFUNDIDAD N — el único lector de la jerarquía. Este servicio subía y
+    // bajaba UN nivel por su cuenta; ver findActiveAd e invalidateCacheForCategory.
+    private readonly categoryTree: CategoryTreeService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -47,25 +51,32 @@ export class SponsoredAdsService {
       return cached === 'null' ? null : (JSON.parse(cached) as SponsoredAdPublic);
     }
 
-    const category = await this.prisma.category.findUnique({
-      where: { slug: categorySlug },
-      select: { id: true, parentId: true },
-    });
-
-    const ad = category ? await this.findActiveAd(category.id, category.parentId) : null;
+    // PROFUNDIDAD N: la CADENA de ancestros, no `[propia, padre]`. `[]` = el
+    // slug no es ninguna categoría.
+    const cadena = await this.categoryTree.getAncestorChainBySlug(categorySlug);
+    const ad = cadena.length > 0 ? await this.findActiveAd(cadena.map((c) => c.id)) : null;
 
     await this.redis.client.set(cacheKey, ad ? JSON.stringify(ad) : 'null', 'EX', CACHE_TTL_SECONDS);
     return ad;
   }
 
   /**
-   * "Categoría o hijas" (2 niveles, mismo límite que categoryPath en
-   * search.service.ts): un patrocinado vinculado a la categoría buscada O a su
-   * padre es candidato. No al revés — un patrocinado de una hoja no aparece al
-   * buscar por el padre.
+   * "La categoría o cualquiera de sus ANCESTROS": un patrocinado vinculado a la
+   * categoría buscada, o a cualquier categoría por encima de ella, es candidato.
+   * No al revés — un patrocinado de una hoja no aparece al buscar por un ancestro.
+   *
+   * PROFUNDIDAD N — HUECO CERRADO. Esto miraba `[propia, padre]`: dos niveles.
+   * Con el árbol a cuatro, un patrocinado configurado en una raíz NO aparecía al
+   * navegar una categoría de nivel 3 o 4 — sin error, simplemente no se mostraba.
+   * Es el mismo criterio que `categoryPath` en search.service.ts, que ya agrega
+   * toda la subcadena: el patrocinado tenía que seguirlo y se quedó atrás.
+   *
+   * EL DESEMPATE NO CAMBIA: sigue mandando el `order` que fija el admin, y a
+   * igualdad el más reciente. No se prioriza el ancestro más cercano porque eso
+   * sería una regla nueva, no la generalización de la que había. Para un árbol
+   * de 1-2 niveles el conjunto de candidatos es idéntico al de antes.
    */
-  private async findActiveAd(categoryId: string, parentId: string | null): Promise<SponsoredAdPublic | null> {
-    const categoryIds = parentId ? [categoryId, parentId] : [categoryId];
+  private async findActiveAd(categoryIds: string[]): Promise<SponsoredAdPublic | null> {
     const now = new Date();
     return this.prisma.sponsoredAd.findFirst({
       where: {
@@ -83,17 +94,32 @@ export class SponsoredAdsService {
 
   /**
    * Invalida el/los slug(s) de categoría afectados por una mutación de
-   * SponsoredAd: el propio slug siempre, y el de cada hijo si la categoría
-   * tiene hijos (porque un patrocinado del padre es candidato en sus búsquedas).
+   * SponsoredAd: el propio slug siempre, y el de TODOS sus descendientes —
+   * porque un patrocinado de un ancestro es candidato en las búsquedas de
+   * cualquiera de ellos (ver `findActiveAd`).
+   *
+   * PROFUNDIDAD N — MISMO HUECO QUE `findActiveAd`, un nivel más abajo. Esto
+   * invalidaba sólo las hijas DIRECTAS, así que tras tocar un patrocinado de una
+   * raíz, sus nietas y bisnietas seguían sirviendo el valor viejo hasta que
+   * expirara el TTL de 5 minutos. Los dos lados tienen que recorrer la misma
+   * jerarquía o la caché contradice a la consulta.
    */
   private async invalidateCacheForCategory(categoryId: string): Promise<void> {
-    const category = await this.prisma.category.findUnique({
-      where: { id: categoryId },
-      select: { slug: true, children: { select: { slug: true } } },
-    });
-    if (!category) return;
+    // UNA foto fresca para las dos cosas (la propia y sus descendientes): mezclar
+    // una lectura fresca con la memoizada podría dejar fuera un slug recién
+    // creado, que es justo el que más falta hace invalidar.
+    const arbol = await this.categoryTree.getFreshSnapshot();
+    const propia = arbol.get(categoryId);
+    if (!propia) return;
 
-    const keys = [category.slug, ...category.children.map((c) => c.slug)].map((s) => CACHE_PREFIX + s);
+    const slugs = [
+      propia.slug,
+      ...descendantIdsIn(arbol, categoryId)
+        .map((id) => arbol.get(id)?.slug)
+        .filter((s): s is string => Boolean(s)),
+    ];
+
+    const keys = slugs.map((s) => CACHE_PREFIX + s);
     if (keys.length) await this.redis.client.del(...keys);
   }
 
