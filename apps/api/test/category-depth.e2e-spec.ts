@@ -25,6 +25,7 @@ import { createTestApp } from './helpers/create-app';
 import { cleanDb } from './helpers/db';
 import { createDeepCategoryTree, type DeepCategoryTree } from './helpers/deep-category-tree';
 import { CategoryTreeService } from 'src/modules/categories/category-tree.service';
+import { SponsoredAdsService } from 'src/modules/sponsored-ads/sponsored-ads.service';
 
 describe('Profundidad N — herencia sobre 4 niveles (e2e)', () => {
   let app: INestApplication;
@@ -558,6 +559,147 @@ describe('Profundidad N — herencia sobre 4 niveles (e2e)', () => {
       expect(res.body.items.map((i: { slug: string }) => i.slug)).toContain(
         `fallback-hondo-${t.sufijo}`,
       );
+    });
+  });
+
+  // ===========================================================================
+  // HUECOS que M2 destapó — cerrados aquí
+  // ===========================================================================
+
+  /**
+   * HUECO 1 — los patrocinados miraban `[propia, padre]`: dos niveles. Un
+   * patrocinado configurado en una raíz NO aparecía al navegar una categoría de
+   * nivel 3 o 4, sin error alguno.
+   *
+   * Mutación: volver a `[categoryId, parentId]` hace fallar el primer caso y no
+   * el segundo — que es lo que demuestra que mide la profundidad.
+   */
+  describe('[H1] Patrocinados a N niveles', () => {
+    it('un patrocinado en la RAÍZ aparece al navegar el nivel 4', async () => {
+      const t = await createDeepCategoryTree(prisma, 'h1');
+      treeService.invalidate();
+      await prisma.sponsoredAd.create({
+        data: {
+          categoryId: t.raiz.id,
+          title: 'Patrocinado de la raíz',
+          description: 'Debe verse en toda su descendencia',
+          imageUrl: 'https://example.com/x.jpg',
+          targetUrl: 'https://example.com',
+          active: true,
+        },
+      });
+
+      const ads = app.get(SponsoredAdsService);
+      const enBisnieto = await ads.resolveForSearch(t.bisnieto.slug);
+      expect(enBisnieto).not.toBeNull();
+      expect(enBisnieto!.title).toBe('Patrocinado de la raíz');
+    });
+
+    it('sigue sin subir: un patrocinado de la HOJA no aparece en su ancestro', async () => {
+      // La regla es «la categoría o sus ancestros», nunca al revés. Esto no
+      // cambia con la profundidad y se fija para que el arreglo no la invierta.
+      const t = await createDeepCategoryTree(prisma, 'h1b');
+      treeService.invalidate();
+      await prisma.sponsoredAd.create({
+        data: {
+          categoryId: t.bisnieto.id,
+          title: 'Patrocinado de la hoja',
+          description: 'No debe subir',
+          imageUrl: 'https://example.com/x.jpg',
+          targetUrl: 'https://example.com',
+          active: true,
+        },
+      });
+
+      const ads = app.get(SponsoredAdsService);
+      expect(await ads.resolveForSearch(t.raiz.slug)).toBeNull();
+    });
+  });
+
+  /**
+   * HUECO 2 — la guarda de política comparaba contra el valor PROPIO del padre.
+   * Con `raíz PRODUCT_ONLY → hija BOTH → nieta SERVICE_ONLY`, la hija no
+   * contradice nada, así que dejaba pasar; y luego `resolveEffectivePolicy`
+   * conserva la del ancestro. El admin guardaba SERVICE_ONLY y el sistema se
+   * comportaba como PRODUCT_ONLY, sin ningún aviso.
+   *
+   * Mutación: comparar contra `parent.allowedListingType` hace fallar el caso de
+   * la contradicción y no los de refinar/repetir.
+   */
+  describe('[H2] La política se compara contra lo HEREDADO, no contra el padre', () => {
+    /** raíz PRODUCT_ONLY → hija BOTH; devuelve la hija, bajo la que se creará. */
+    async function cadenaConAncestroRestringido(etiqueta: string) {
+      const t = await createDeepCategoryTree(prisma, etiqueta);
+      // El fixture ya deja la raíz en PRODUCT_ONLY y los descendientes en BOTH.
+      treeService.invalidate();
+      return t;
+    }
+
+    it('CONTRADECIR lo heredado se rechaza, aunque el padre inmediato sea BOTH', async () => {
+      const t = await cadenaConAncestroRestringido('h2a');
+      const res = await request(app.getHttpServer())
+        .post('/api/admin/categories')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          name: 'Contradice al abuelo',
+          slug: `contradice-${t.sufijo}`,
+          parentId: t.nivel2.id, // su padre es BOTH; el ABUELO es PRODUCT_ONLY
+          allowedListingType: 'SERVICE_ONLY',
+        })
+        .expect(400);
+      expect(res.body.message).toContain('heredada');
+      expect(res.body.message).toContain('PRODUCT_ONLY');
+    });
+
+    it('REPETIR lo heredado se permite (redundante pero coherente)', async () => {
+      const t = await cadenaConAncestroRestringido('h2b');
+      await request(app.getHttpServer())
+        .post('/api/admin/categories')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          name: 'Repite al abuelo',
+          slug: `repite-${t.sufijo}`,
+          parentId: t.nivel2.id,
+          allowedListingType: 'PRODUCT_ONLY',
+        })
+        .expect(201);
+    });
+
+    it('REFINAR lo heredado se permite: bajo un ancestro BOTH se puede restringir', async () => {
+      const t = await cadenaConAncestroRestringido('h2c');
+      // Se abre la raíz para que lo heredado sea BOTH y restringir sea legítimo.
+      await prisma.category.update({
+        where: { id: t.raiz.id },
+        data: { allowedListingType: 'BOTH' },
+      });
+      treeService.invalidate();
+
+      await request(app.getHttpServer())
+        .post('/api/admin/categories')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          name: 'Refina',
+          slug: `refina-${t.sufijo}`,
+          parentId: t.nivel2.id,
+          allowedListingType: 'SERVICE_ONLY',
+        })
+        .expect(201);
+    });
+
+    it('el mensaje nombra al ancestro que IMPONE la política, no al padre', async () => {
+      const t = await cadenaConAncestroRestringido('h2d');
+      const res = await request(app.getHttpServer())
+        .post('/api/admin/categories')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          name: 'Contradice otra vez',
+          slug: `contradice2-${t.sufijo}`,
+          parentId: t.nivel3.id, // dos niveles por debajo del que restringe
+          allowedListingType: 'SERVICE_ONLY',
+        })
+        .expect(400);
+      // Mirar al padre inmediato sería mirar el sitio equivocado.
+      expect(res.body.message).toContain(`Raíz ${t.sufijo}`);
     });
   });
 
