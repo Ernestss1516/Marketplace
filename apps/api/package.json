@@ -27,6 +27,7 @@
     "contact-reason-backfill": "ts-node -P tsconfig.scripts.json src/commands/contact-reason-backfill.ts",
     "seed-blocks-demo": "ts-node -P tsconfig.scripts.json src/commands/seed-blocks-demo.ts",
     "sync-stripe-catalog": "ts-node -P tsconfig.scripts.json src/commands/sync-stripe-catalog.ts",
+    "gate-impact-report": "ts-node -P tsconfig.scripts.json src/commands/gate-impact-report.ts",
     "seed:playwright": "ts-node -P tsconfig.scripts.json prisma/seed-playwright.ts"
   },
   "dependencies": {
