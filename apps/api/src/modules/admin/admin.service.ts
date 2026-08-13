@@ -41,6 +41,7 @@ import {
   CATEGORY_MAX_DEPTH,
 } from '../categories/category.types';
 import { CategoryTreeService } from '../categories/category-tree.service';
+import { ListingGateService } from '../listing-gate/listing-gate.service';
 import { FilterableAttributesResolver } from '../search/filterable-attributes.resolver';
 import { DEFAULT_MAX_TAGS_PER_LISTING } from '../tags/tag.types';
 import { TICKET_REOPEN_WINDOW_DAYS } from '../tickets/tickets.constants';
@@ -191,6 +192,7 @@ export class AdminService {
     private readonly attributesResolver: FilterableAttributesResolver,
     // PROFUNDIDAD N — RÁFAGA 1: el único lector de la jerarquía.
     private readonly categoryTree: CategoryTreeService,
+    private readonly gate: ListingGateService,
     @InjectQueue(QUEUE_INDEXING) private readonly indexingQueue: Queue,
   ) {}
 
@@ -294,6 +296,22 @@ export class AdminService {
     // listings.service.ts). Cambiar eso es una decisión pendiente, no un arreglo.
     if (!isLegalTransition(listing.status, dto.status)) {
       throw new BadRequestException(describeIllegalTransition(listing.status, dto.status));
+    }
+
+    // PUERTA — sólo cuando el destino es ACTIVE (los demás destinos sacan del
+    // mercado y no hay nada que validar). Acción de STAFF: la regla de cuota
+    // declara que no le aplica, así que un admin puede seguir activando por
+    // encima del cupo del vendedor — ver ActiveListingLimitRule.appliesTo.
+    //
+    // ORTOGONAL a la máquina de estados de arriba: aquélla responde «¿es legal
+    // ir de X a Y?» (topología) y ésta «¿merece estar activo?» (validez). Se
+    // componen: un ARCHIVED → ACTIVE muere antes, sin llegar aquí.
+    if (dto.status === ListingStatus.ACTIVE) {
+      await this.gate.assertCanBecomeActive(listing, {
+        actor: 'staff',
+        transition: 'adminStatus',
+        actorId,
+      });
     }
 
     const before = { status: listing.status };

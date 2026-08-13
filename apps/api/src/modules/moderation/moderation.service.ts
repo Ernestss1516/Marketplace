@@ -13,6 +13,7 @@ import { AuditLogService } from '../audit-log/audit-log.service';
 import { ExpirationService } from '../expiration/expiration.service';
 import { QUEUE_INDEXING } from '../../infra/queue/queue.constants';
 import { ListingActivationService } from '../listing-activation/listing-activation.service';
+import { ListingGateService } from '../listing-gate/listing-gate.service';
 import { ModerationNotificationsService } from './moderation-notifications.service';
 import { CreateReportDto } from './dto/create-report.dto';
 import { ListReportsQueryDto } from './dto/list-reports-query.dto';
@@ -27,6 +28,7 @@ export class ModerationService {
     private readonly auditLog: AuditLogService,
     @InjectQueue(QUEUE_INDEXING) private readonly indexingQueue: Queue,
     private readonly activation: ListingActivationService,
+    private readonly gate: ListingGateService,
     // §14.5 — los avisos. Servicio APARTE: la lógica de moderación (transiciones
     // de Report, guards, acciones sobre el anuncio) no cambia; solo gana un
     // efecto posterior, siempre después de que la acción haya persistido.
@@ -230,6 +232,15 @@ export class ModerationService {
       );
     }
 
+    // PUERTA — acción de STAFF. Pasa por la puerta como cualquier otro camino
+    // a ACTIVE; lo que cambia es el contexto: la regla de cuota declara que no
+    // aplica a staff (ver ActiveListingLimitRule.appliesTo), así que un moderador
+    // sigue pudiendo activar por encima del cupo del vendedor. Lo que antes era
+    // una ausencia de facto es ahora una línea declarativa.
+    await this.gate.assertCanBecomeActive(listing, {
+      actor: 'staff', transition: 'approve', actorId,
+    });
+
     const before = { status: listing.status };
     const publishedAt = listing.publishedAt ?? new Date();
 
@@ -345,6 +356,12 @@ export class ModerationService {
         'Solo se pueden restaurar anuncios en estado REJECTED',
       );
     }
+
+    // PUERTA — acción de STAFF, igual que en approveListing (ver allí el porqué
+    // de que la cuota no le aplique).
+    await this.gate.assertCanBecomeActive(listing, {
+      actor: 'staff', transition: 'restore', actorId,
+    });
 
     const before = { status: listing.status };
     const publishedAt = listing.publishedAt ?? new Date();

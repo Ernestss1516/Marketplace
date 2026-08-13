@@ -12,6 +12,7 @@ import type { NotificationsService } from '../notifications/notifications.servic
 import type { ReviewsService } from '../reviews/reviews.service';
 import type { TagsService } from '../tags/tags.service';
 import type { CategoryTreeService } from '../categories/category-tree.service';
+import type { ListingGateService } from '../listing-gate/listing-gate.service';
 import type { CreateListingDto } from './dto/create-listing.dto';
 
 function p2002(): Prisma.PrismaClientKnownRequestError {
@@ -92,6 +93,10 @@ describe('ListingsService.create — reintento de slug ante P2002', () => {
           },
         ]),
       } as unknown as CategoryTreeService,
+      // PUERTA — mantenimiento de fixture por cambio de FIRMA. Este spec va del
+      // reintento de slug ante un P2002 en create(), que no pasa por la puerta
+      // (crear deja el anuncio en DRAFT).
+      { assertCanBecomeActive: jest.fn() } as unknown as ListingGateService,
     );
     errorSpy = jest.spyOn((service as unknown as { logger: { error: (...a: unknown[]) => void } }).logger, 'error');
   });

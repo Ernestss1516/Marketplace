@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { BumpLedgerType, EntitlementType, FeaturedOrigin, Prisma } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
+import { ProStatusService } from '../listing-gate/pro-status.service';
 
 function activeFilter() {
   const now = new Date();
@@ -47,18 +48,24 @@ export interface FeaturedQuotaStatus {
 
 @Injectable()
 export class EntitlementService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly proStatus: ProStatusService,
+  ) {}
 
   /**
    * Returns true if the user has an active PRO_SUBSCRIPTION entitlement.
    * Active = revokedAt IS NULL AND (expiresAt IS NULL OR expiresAt > now()).
+   *
+   * PUERTA — RÁFAGA 1: la consulta se mudó a `ProStatusService`, un sitio neutral
+   * del que la puerta también puede tirar sin que `ListingGateModule` importe
+   * `BillingModule` (sería un ciclo). Este método SE QUEDA porque es la puerta de
+   * entrada que usan `BillingService` y `ListingsService`; lo que no se queda es
+   * una segunda copia de la consulta, que podría divergir en silencio de la que
+   * usa la cuota de anuncios activos.
    */
   async isProActive(userId: string): Promise<boolean> {
-    const row = await this.prisma.entitlement.findFirst({
-      where: { userId, type: EntitlementType.PRO_SUBSCRIPTION, ...activeFilter() },
-      select: { id: true },
-    });
-    return row !== null;
+    return this.proStatus.isProActive(userId);
   }
 
   /**

@@ -2678,17 +2678,29 @@ línea de defensa real.
 
 ### Límites de anuncios activos por plan y configuración en caliente (RF.7-A)
 
-`ListingsService.checkActiveListingLimit()` consulta `EntitlementService.isProActive()` para
-determinar el plan del usuario, lee la clave `freeActiveListingLimit` o `proActiveListingLimit`
-de la tabla `Setting` (con valor por defecto como fallback si la key no existe aún) y cuenta
-los anuncios ACTIVE del vendedor con `prisma.listing.count`. Si el conteo ≥ límite, lanza
-`403 ForbiddenException` con el número de límite en el mensaje (para que el frontend pueda
-mostrarlo sin hardcodear el valor).
+`ActiveListingLimitRule` — una regla de la **puerta de validación**
+(`apps/api/src/modules/listing-gate/`, diseño en `docs/diseno-puerta-validacion.md`) — consulta
+`ProStatusService.isProActive()` para determinar el plan del usuario, lee la clave
+`freeActiveListingLimit` o `proActiveListingLimit` de la tabla `Setting` (con valor por defecto
+como fallback si la key no existe aún) y cuenta los anuncios ACTIVE del vendedor con
+`prisma.listing.count`. Si el conteo ≥ límite, la puerta responde `403` con el número de límite
+en el mensaje (para que el frontend pueda mostrarlo sin hardcodear el valor).
 
-La comprobación se aplica en `publish()` (solo cuando el estado destino es ACTIVE, es decir,
-sin BadWord) **y** en `renew()`. Un usuario free con 5 activos no puede renovar un EXPIRED
-hasta liberar una plaza — comportamiento correcto: la renovación convierte un EXPIRED en ACTIVE
+**Dónde se aplica.** Ya no la "llama" nadie: la heredan todos los caminos que pasan por la
+puerta, es decir, los cuatro de vendedor —`publish()` (solo cuando el estado destino es ACTIVE,
+es decir, sin BadWord), `renew()`, `reactivate()` y `undoDeal()`—. Un usuario free con 5 activos
+no puede renovar un EXPIRED hasta liberar una plaza: la renovación convierte un EXPIRED en ACTIVE
 y cuenta contra el límite igual que una publicación nueva.
+
+**Staff está exento**, y desde la puerta es una decisión declarada (`appliesTo` devuelve `false`
+para `actor: 'staff'`) en vez de la ausencia de facto que era antes: `approveListing`,
+`restoreListing` y `changeListingStatus` pasan por la puerta pero esta regla no les aplica, para
+que el trabajo de moderación no quede rehén de la cuota de un tercero. Tampoco aplica a
+`bump`/`featured`, que operan sobre un anuncio que ya está ACTIVE y ya ocupa plaza.
+
+Hasta la ráfaga 1 de la puerta esto vivía en `ListingsService.checkActiveListingLimit()`, un
+método **privado**: Moderation y Admin no podían usarlo ni queriendo, y cada camino nuevo tenía
+que acordarse de llamarlo. Ese método ya no existe.
 
 Ambos settings son editables desde `PATCH /admin/settings/:key` sin redeploy; el efecto es
 inmediato en la siguiente request de publish/renew.

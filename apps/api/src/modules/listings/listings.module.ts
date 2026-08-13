@@ -9,6 +9,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { ReviewsModule } from '../reviews/reviews.module';
 import { TagsModule } from '../tags/tags.module';
 import { CategoryTreeModule } from '../categories/category-tree.module';
+import { ListingGateModule } from '../listing-gate/listing-gate.module';
 import { ListingsController } from './listings.controller';
 import { ListingsService } from './listings.service';
 
@@ -25,6 +26,7 @@ import { ListingsService } from './listings.service';
     ReviewsModule,
     TagsModule,
     CategoryTreeModule,
+    ListingGateModule,
   ],
   controllers: [ListingsController],
   providers: [ListingsService],

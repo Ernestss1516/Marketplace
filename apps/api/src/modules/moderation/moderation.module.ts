@@ -7,6 +7,7 @@ import {
 } from '../../infra/queue/queue.constants';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { ListingActivationModule } from '../listing-activation/listing-activation.module';
+import { ListingGateModule } from '../listing-gate/listing-gate.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { ModerationController } from './moderation.controller';
 import { ModerationService } from './moderation.service';
@@ -23,6 +24,7 @@ import { BadWordService } from './bad-word.service';
     BullModule.registerQueue(retryQueue(QUEUE_NOTIFICATIONS)),
     AuditLogModule,
     ListingActivationModule,
+    ListingGateModule,
     NotificationsModule,
   ],
   controllers: [ModerationController],
