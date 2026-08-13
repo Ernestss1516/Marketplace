@@ -84,8 +84,8 @@ let inFlight: Promise<AncestorMap | null> | null = null;
  * `inFlight` deduplica: una ráfaga de peticiones con el mapa frío dispara UNA
  * sola llamada, no una por petición.
  */
-async function getAncestorMap(now: number): Promise<AncestorMap | null> {
-  if (cached && now - cached.at < MAP_TTL_MS) return cached.map;
+async function getAncestorMap(now: number, forzarRecarga = false): Promise<AncestorMap | null> {
+  if (!forzarRecarga && cached && now - cached.at < MAP_TTL_MS) return cached.map;
   if (inFlight) return inFlight;
 
   inFlight = (async () => {
@@ -146,42 +146,61 @@ export async function resolveCategoryRedirect(
 }
 
 /**
- * PROFUNDIDAD N — RÁFAGA 3. ¿Esta ruta CASA con una ruta de categoría pero NO es
- * una categoría? Es decir: ¿hay que producir un 404 REAL antes de renderizar?
+ * A partir de cuántos segmentos actúa la guarda de 404. Ver `isUnknownCategoryPath`.
+ */
+const PROFUNDIDAD_MINIMA_PARA_GUARDA = 3;
+
+/**
+ * PROFUNDIDAD N — RÁFAGA 3. ¿Esta ruta CASA con una ruta de categoría NUEVA pero
+ * NO es una categoría? Es decir: ¿hay que producir un 404 REAL antes de renderizar?
  *
- * POR QUÉ HACE FALTA, Y POR QUÉ AQUÍ. Hasta esta ráfaga sólo existían las rutas
- * de 1 y 2 segmentos, así que `/a/b/c` no casaba con ninguna y el ROUTER daba un
- * 404 de verdad. Al añadir las rutas de nivel 3 y 4, esas URLs pasan a casar y
- * llegan al componente — y ahí `notFound()` NO produce un 404 real: `app/loading.tsx`
- * en la raíz hace que Next mande la cabecera 200 antes de ejecutar la página, así
- * que sale un 404 BLANDO (200 + UI de 404). Está medido en este repo, y es el
- * mismo mecanismo por el que el 308 tuvo que mudarse al middleware.
+ * POR QUÉ HACE FALTA. Hasta esta ráfaga sólo existían las rutas de 1 y 2
+ * segmentos, así que `/a/b/c` no casaba con ninguna y el ROUTER daba un 404 de
+ * verdad. Al añadir las rutas de nivel 3 y 4, esas URLs pasan a casar y llegan al
+ * componente — y ahí `notFound()` NO produce un 404 real: `app/loading.tsx` en la
+ * raíz hace que Next mande la cabecera 200 antes de ejecutar la página, así que
+ * sale un 404 BLANDO (200 + UI de 404). Está medido en este repo, y es el mismo
+ * mecanismo por el que el 308 tuvo que mudarse al middleware.
  *
- * Un 200 donde debería haber un 404 es una regresión de SEO — exactamente la que
- * el trabajo de URLs anidadas vino a evitar desde el otro lado. El middleware
- * corre ANTES de renderizar nada, así que es el único sitio donde la respuesta
- * todavía se puede fijar.
+ * SÓLO A PARTIR DE 3 SEGMENTOS, y esto es una corrección deliberada. La primera
+ * versión aplicaba la guarda desde 1 segmento «de propina», para cerrar de paso
+ * el 404 blando que ya existía en `/xxx-no-existe`. Eso CAMBIABA el
+ * comportamiento de rutas que esta ráfaga no debía tocar, y rompió el criterio de
+ * cierre del trabajo de URLs anidadas (`/inmuebles` respondió 404 en CI: ver
+ * abajo). La guarda existe para tapar la regresión que introducen las rutas
+ * nuevas, no para mejorar lo que ya estaba: 1 y 2 segmentos se comportan
+ * EXACTAMENTE como antes. El 404 blando de una raíz inexistente sigue anotado
+ * como deuda aparte, igual que estaba.
  *
- * LA REGLA es la misma que la del 308 y no depende de la profundidad: **manda el
- * último segmento**. Si es una categoría conocida, `resolveCategoryRedirect` ya
- * se ocupa (sirve o redirige a la canónica). Si NO lo es, esta ruta no es una
- * categoría y debe morir con un 404 de verdad.
+ * LA AUSENCIA EN LA CACHÉ NO ES PRUEBA DE INEXISTENCIA. `getAncestorMap` es una
+ * FOTO con TTL de un minuto: una categoría creada después de la foto no está en
+ * ella y no por eso deja de existir. Fue justo lo que falló en CI —una categoría
+ * que la propia batería acababa de crear respondió 404—, así que antes de afirmar
+ * que una ruta no existe se RECARGA el mapa y se vuelve a mirar. Un 404 es una
+ * afirmación fuerte y destructiva: se paga una petición por confirmarla.
  *
- * FAIL-OPEN: sin mapa (API caída o frío) devuelve `false` — se prefiere servir un
- * 404 blando a 404-ear una categoría legítima por un fallo de red.
+ * FAIL-OPEN: sin mapa (API caída) devuelve `false` — se prefiere servir un 404
+ * blando a 404-ear una categoría legítima por un fallo de red.
  */
 export async function isUnknownCategoryPath(
   pathname: string,
   now = Date.now(),
 ): Promise<boolean> {
   const segments = pathname.split('/').filter(Boolean);
-  if (segments.length === 0 || segments.length > MAX_CATEGORY_SEGMENTS) return false;
+  if (segments.length < PROFUNDIDAD_MINIMA_PARA_GUARDA) return false;
+  if (segments.length > MAX_CATEGORY_SEGMENTS) return false;
   if (RESERVED_FIRST_SEGMENTS.has(segments[0])) return false;
+
+  const leaf = segments[segments.length - 1];
 
   const map = await getAncestorMap(now);
   if (!map) return false;
+  if (map.has(leaf)) return false;
 
-  return !map.has(segments[segments.length - 1]);
+  // No está en la foto. Puede que no exista... o que sea MÁS NUEVA que la foto.
+  const fresco = await getAncestorMap(now, true);
+  if (!fresco) return false;
+  return !fresco.has(leaf);
 }
 
 /**
