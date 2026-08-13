@@ -23,7 +23,7 @@ import { MeilisearchService } from '../../infra/meilisearch/meilisearch.service'
 import { isP2002 } from '../../common/prisma/is-p2002';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { ExpirationService } from '../expiration/expiration.service';
-import { QUEUE_INDEXING } from '../../infra/queue/queue.constants';
+import { QUEUE_INDEXING, QUEUE_REVALIDATION } from '../../infra/queue/queue.constants';
 import { ListAdminListingsDto } from './dto/list-admin-listings.dto';
 import { ChangeListingStatusDto } from './dto/change-listing-status.dto';
 import { ListAdminUsersDto } from './dto/list-admin-users.dto';
@@ -42,6 +42,7 @@ import {
 } from '../categories/category.types';
 import { CategoryTreeService } from '../categories/category-tree.service';
 import { ListingGateService } from '../listing-gate/listing-gate.service';
+import { MARK_STALE_JOB } from '../listing-gate/revalidation.processor';
 import { FilterableAttributesResolver } from '../search/filterable-attributes.resolver';
 import { DEFAULT_MAX_TAGS_PER_LISTING } from '../tags/tag.types';
 import { TICKET_REOPEN_WINDOW_DAYS } from '../tickets/tickets.constants';
@@ -111,6 +112,13 @@ const SETTING_KEYS = [
   // así que encenderlo debe ser un acto explícito. Apagarlo oculta la opción y los vídeos
   // ya subidos, pero NO borra nada — mismo criterio que el flag del bump automático.
   'videoEnabled',
+  // PUERTA ráfaga 2 — el interruptor de la regla de atributos. SIN FILA, APAGADA,
+  // igual que `videoEnabled` y por un motivo parecido: es la única regla que puede
+  // frenar a anuncios publicados hace años sin que su dueño haya tocado nada, así
+  // que encenderla tiene que ser un acto explícito y con el número de
+  // `pnpm gate-impact-report` delante. Mientras está apagada el mecanismo sigue
+  // marcando y avisando, que es lo que hace que encenderla no sea a ciegas.
+  'attributeRevalidationEnabled',
 ] as const;
 type SettingKey = (typeof SETTING_KEYS)[number];
 
@@ -194,6 +202,9 @@ export class AdminService {
     private readonly categoryTree: CategoryTreeService,
     private readonly gate: ListingGateService,
     @InjectQueue(QUEUE_INDEXING) private readonly indexingQueue: Queue,
+    // PUERTA — RÁFAGA 2: el marcado por cambio de schema. Cola aparte del
+    // indexado a propósito (ver QUEUE_REVALIDATION).
+    @InjectQueue(QUEUE_REVALIDATION) private readonly revalidationQueue: Queue,
   ) {}
 
   // ===========================================================================
@@ -1277,6 +1288,20 @@ export class AdminService {
 
       if (dto.attributeSchema !== undefined) {
         await this.indexingQueue.add('refresh-filterable-attributes', {});
+
+        // PUERTA — RÁFAGA 2. EL DISPARADOR DEL MARCADO.
+        //
+        // Éste es el caso que el mapa (§3.1) documentó como SILENCIOSO y que
+        // ninguna guarda cubre: renombrar un atributo, borrarlo, marcarlo como
+        // requerido o quitarle opciones a un select deja anuncios ya publicados
+        // fuera de norma y hoy no pasa absolutamente nada. Las otras guardas
+        // (tipo, formatos de precio) siguen RECHAZANDO el cambio como siempre —
+        // convertirlas en marcado es decisión de otro proyecto, no de éste.
+        //
+        // Se revisa TODA LA DESCENDENCIA, no sólo esta categoría: el schema se
+        // hereda, así que tocar una raíz cambia el efectivo de sus bisnietos.
+        // A la cola, por lo mismo que el resto del trabajo pesado.
+        await this.revalidationQueue.add(MARK_STALE_JOB, { categoryId: id });
       }
 
       return updated;

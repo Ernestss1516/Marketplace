@@ -356,6 +356,35 @@ la puerta · el contrato `reasons` (backend + `ApiError`/`apiFetch`).
 - **Criterio de cierre:** la prueba de cobertura (una regla que siempre falla rechaza en **todos**
   los caminos de vendedor), la cuota sigue dando 403 con su mensaje, y staff sigue pasando.
 
+## Addendum de implementación — la coherencia `enabled` / flag (ráfaga 2, cerrada)
+
+El diseño dejaba una pregunta sin resolver que sólo aparece al implementar: **si la regla de
+atributos nace apagada, ¿se marca igual?** Resuelta así, y el reparto está escrito en el código
+(`RevalidationService`, cabecera):
+
+| pieza | ¿mira `enabled`? | por qué |
+|---|---|---|
+| **Marcar** (`needsRevalidation = true` al cambiar el schema) | **NO** | El flag describe un HECHO, no una política: «esta categoría cambió y este anuncio ya no encaja». Marcar no le quita nada a nadie — sigue ACTIVE, en el índice y editable. Si esperara a `enabled`, el día que se encienda la regla no habría ni un anuncio marcado ni forma de saber cuáles, y el aviso llegaría DESPUÉS del frenazo. |
+| **Avisar** en «Mis anuncios» | **NO** | Es información, no restricción (mitigación M6). |
+| **Frenar** | **SÍ** | Es lo único que le quita capacidad al vendedor, y es lo que M2 tiene que dimensionar. Apagada no frena a nadie: ni marcado ni sin marcar. |
+| **Limpiar** el flag | **NO** | Si dependiera de `enabled`, el aviso se quedaría pegado en anuncios ya corregidos y, al encender, se frenaría a gente que cumple. Limpiar sólo retira un aviso. |
+
+Resumido: **apagada, el mecanismo observa y avisa con fidelidad, pero no bloquea.** Encenderlo es
+una fila en `Setting` (`attributeRevalidationEnabled`, molde `videoEnabled`: sin fila, apagada),
+y para entonces ya hay anuncios marcados, vendedores avisados y un número real que medir.
+
+**Tres decisiones más que el diseño no anticipaba**, todas verificadas contra el código:
+
+1. **Editar nunca frena; sólo limpia.** Es la vía de salida del vendedor: frenar la edición de un
+   anuncio marcado lo dejaría encerrado (no puede publicar porque no cumple, no puede arreglarlo
+   porque no le dejan editar). `update()` no pasa por la puerta — pregunta, ya guardado, si el
+   anuncio volvió a cumplir, y retira el aviso.
+2. **En `bump`/`featured` la regla sólo mira a los MARCADOS.** Promocionar no es publicar: revalidar
+   ahí el universo entero convertiría la regla en un peaje sobre las acciones que generan ingreso.
+3. **`grantFeaturedListingTx` NO se frena.** Corre también desde el webhook de pago, con el dinero
+   ya cobrado; bloquear allí sería quedarse el pago sin entregar el destacado. El freno va antes de
+   cobrar, en `featuredByCredits`.
+
 ## Ráfaga 2 — Atributos y `needsRevalidation`
 
 Extraer los tres validadores a un módulo puro (y que M2 deje de replicarlos) · la regla B.2 · el

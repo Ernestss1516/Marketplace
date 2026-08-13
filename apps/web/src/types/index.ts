@@ -215,6 +215,16 @@ export interface SponsoredAdHit {
 
 // ── Listings ─────────────────────────────────────────────────────────────────
 
+/** PUERTA ráfaga 2 — un motivo por el que un anuncio necesita revalidarse. */
+export interface RevalidationReason {
+  /** Código estable (`ATTRIBUTE_REQUIRED_MISSING`, `ATTRIBUTE_VALUE_INVALID`…). */
+  code: string;
+  /** Texto listo para enseñar, ya en español. */
+  message: string;
+  /** El atributo al que apunta, para que el editor pueda señalarlo. */
+  field: string;
+}
+
 export interface ListingSummary {
   id: string;
   title: string;
@@ -251,6 +261,16 @@ export interface ListingSummary {
    *  SOLO la sirve la vista de propietario (`findMine`): que un vendedor programe bumps es
    *  asunto suyo y no viaja en ningún payload público. `null` = no tiene programación. */
   bumpSchedule?: BumpScheduleSummary | null;
+  /** PUERTA ráfaga 2 — el anuncio dejó de cumplir la configuración de su categoría
+   *  (un administrador la cambió por debajo). SIGUE ACTIVO Y VISIBLE: esto no es un
+   *  estado del ciclo de vida, es un aviso para su dueño. Como `bumpSchedule`, sólo
+   *  viaja en la vista de propietario (`findMine`) — nunca en los listados públicos
+   *  ni en los hits de Meilisearch. */
+  needsRevalidation?: boolean;
+  /** Qué hay que corregir, ya calculado por la API. Sólo viene relleno cuando
+   *  `needsRevalidation` es true. Sin esto el aviso podría anunciar el problema pero
+   *  no llevar a la solución. */
+  revalidationReasons?: RevalidationReason[];
   featuredUntil?: string | null;
   categorySlug?: string;
   attributes?: Record<string, unknown>;

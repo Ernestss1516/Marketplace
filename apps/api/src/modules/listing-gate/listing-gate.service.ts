@@ -1,13 +1,15 @@
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
-import type { Listing } from '@prisma/client';
 import {
   LISTING_GATE_RULES,
   type GateContext,
+  type GateListing,
   type GateReason,
   type GateRuleGroup,
   type ListingGateRule,
 } from './listing-gate.types';
+import { PrismaService } from '../../infra/prisma/prisma.service';
 import { ListingGateException } from './listing-gate.exception';
+import { RevalidationService } from './revalidation.service';
 
 /** Orden de evaluación: lo barato primero. Ver `GateRuleGroup`. */
 const ORDEN_DE_GRUPOS: GateRuleGroup[] = ['entrada', 'contenido'];
@@ -47,6 +49,8 @@ const ORDEN_DE_GRUPOS: GateRuleGroup[] = ['entrada', 'contenido'];
 export class ListingGateService {
   constructor(
     @Inject(LISTING_GATE_RULES) private readonly rules: ListingGateRule[],
+    private readonly revalidation: RevalidationService,
+    private readonly prisma: PrismaService,
   ) {}
 
   /**
@@ -59,24 +63,84 @@ export class ListingGateService {
    * y no se paga una resolución de categoría para un anuncio que ya falló por
    * algo barato.
    */
-  async assertCanBecomeActive(listing: Listing, context: GateContext): Promise<void> {
+  async assertCanBecomeActive(listing: GateListing, context: GateContext): Promise<void> {
+    await this.evaluar(listing, context);
+  }
+
+  /**
+   * PUERTA — RÁFAGA 2. La otra pregunta: «¿se puede PROMOCIONAR este anuncio?».
+   *
+   * Misma puerta y mismas reglas; lo que cambia es la pregunta, y por eso tiene
+   * su propio nombre. `bump` y `featured` no llevan a ACTIVE —el anuncio ya lo
+   * está— así que llamarlas `assertCanBecomeActive` habría sido mentir en el
+   * punto de uso. Las reglas distinguen por `context.transition`: la cuota no se
+   * aplica (no se ocupa plaza nueva) y la de atributos sólo mira a los anuncios
+   * ya marcados con `needsRevalidation`.
+   */
+  async assertCanBePromoted(listing: GateListing, context: GateContext): Promise<void> {
+    await this.evaluar(listing, context);
+  }
+
+  /**
+   * Igual, pero cargando el anuncio por id.
+   *
+   * Existe por `BillingService`: sus dos caminos leen la fila con `select` cortos
+   * y muy razonados (el de `bump` documenta por qué NO trae `bumpedAt`), y
+   * ampliarlos para la puerta invitaría a que el día de mañana alguien añada un
+   * camino nuevo con un `select` al que le falte un campo. Aquí la puerta pide lo
+   * que necesita y nadie más tiene que saberlo.
+   *
+   * Un anuncio inexistente NO lanza: quien llama ya tiene su propio 404 y le toca
+   * antes que a la puerta.
+   */
+  async assertCanBePromotedById(listingId: string, context: GateContext): Promise<void> {
+    const listing = await this.prisma.listing.findUnique({
+      where: { id: listingId },
+      select: {
+        id: true,
+        sellerId: true,
+        categoryId: true,
+        type: true,
+        status: true,
+        attributes: true,
+        needsRevalidation: true,
+      },
+    });
+    if (!listing) return;
+    await this.evaluar(listing, context);
+  }
+
+  private async evaluar(listing: GateListing, context: GateContext): Promise<void> {
     for (const grupo of ORDEN_DE_GRUPOS) {
       const reasons = await this.evaluarGrupo(grupo, listing, context);
       if (reasons.length > 0) throw this.construirRechazo(reasons);
+    }
+
+    // PASÓ. Si venía marcado, ya no lo está: la puerta acaba de comprobar que
+    // cumple. Va DESPUÉS de las reglas y no dentro de ninguna porque no es una
+    // validación — es la contrapartida del marcado, y tiene que ocurrir aunque
+    // la regla de atributos esté apagada (ver `RevalidationService`, la tabla de
+    // coherencia con `enabled`). Aquí, y no en cada camino, para que ningún
+    // camino tenga que acordarse.
+    if (listing.needsRevalidation) {
+      await this.revalidation.clearIfCompliant(listing);
     }
   }
 
   private async evaluarGrupo(
     grupo: GateRuleGroup,
-    listing: Listing,
+    listing: GateListing,
     context: GateContext,
   ): Promise<GateReason[]> {
     const reasons: GateReason[] = [];
     for (const rule of this.rules) {
       if (rule.group !== grupo) continue;
       if (!rule.appliesTo(context)) continue;
+      // El interruptor, ANTES de `check`: una regla apagada no consulta nada.
+      if (rule.isEnabled && !(await rule.isEnabled())) continue;
       const reason = await rule.check(listing, context);
-      if (reason) reasons.push(reason);
+      if (Array.isArray(reason)) reasons.push(...reason);
+      else if (reason) reasons.push(reason);
     }
     return reasons;
   }

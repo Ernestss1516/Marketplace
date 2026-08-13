@@ -28,6 +28,7 @@ import { listingCacheKey } from '../../infra/redis/cache-keys';
 import { QUEUE_INDEXING } from '../../infra/queue/queue.constants';
 import { CampaignsService } from '../campaigns/campaigns.service';
 import { EntitlementService } from './entitlement.service';
+import { ListingGateService } from '../listing-gate/listing-gate.service';
 import { BUMP_COOLDOWN_SECONDS } from './bump-cooldown';
 import { CheckoutDto } from './dto/checkout.dto';
 import { FeaturedByCreditsDto } from './dto/featured-by-credits.dto';
@@ -66,6 +67,10 @@ export class BillingService {
     // comentario al final de bump(). RedisModule es @Global, así que no hace
     // falta importarlo en BillingModule.
     private readonly redis: RedisService,
+    // PUERTA — RÁFAGA 2: el freno de `needsRevalidation` en bump y destacado.
+    // `ListingGateModule` es hoja, así que esta dirección (Billing → puerta) no
+    // crea ningún ciclo — es la misma por la que ya llega `ProStatusService`.
+    private readonly gate: ListingGateService,
     @InjectQueue(QUEUE_INDEXING) private readonly indexingQueue: Queue,
   ) {
     this.appUrl = config.get<string>('appUrl', 'http://localhost:3000');
@@ -430,6 +435,20 @@ export class BillingService {
     const { listingId } = dto;
     const now = new Date();
 
+    // PUERTA — RÁFAGA 2. El camino 10, con el mismo criterio que `bump`: sólo el
+    // freno de `needsRevalidation`, y ANTES de abrir la transacción (las dos
+    // ramas de abajo abren la suya; llamar a la puerta dentro mezclaría dos
+    // clientes de Prisma sobre la misma fila, que es como se fabrica un
+    // interbloqueo).
+    //
+    // NO SE FRENA `grantFeaturedListingTx`, y es deliberado: ése corre también
+    // desde el webhook de pago, cuando el dinero YA está cobrado. Bloquear allí
+    // sería quedarse el pago sin entregar el destacado — lo peor de los dos
+    // mundos. El sitio de frenar es aquí, antes de cobrar.
+    await this.gate.assertCanBePromotedById(listingId, {
+      actor: 'seller', transition: 'featured', actorId: userId,
+    });
+
     if (dto.useQuota) {
       const durationDays = await this.getQuotaFeaturedDurationDays();
       const expiresAt = new Date(now);
@@ -597,6 +616,14 @@ export class BillingService {
     if (listing.status !== ListingStatus.ACTIVE) {
       throw new BadRequestException('Only ACTIVE listings can be bumped');
     }
+
+    // PUERTA — RÁFAGA 2. El camino 9 del diseño, y sólo el freno de
+    // `needsRevalidation`: la regla de atributos, en `bump`, no revalida el
+    // universo entero — únicamente a los anuncios ya marcados. Aquí, ANTES de la
+    // transacción del cobro: rechazar después sería cobrar y devolver.
+    await this.gate.assertCanBePromotedById(listingId, {
+      actor: 'seller', transition: 'bump', actorId: userId,
+    });
 
     const bumpCostSetting = await this.prisma.setting.findUnique({
       where: { key: 'bumpCreditCost' },

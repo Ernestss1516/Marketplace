@@ -9,6 +9,13 @@ export const QUEUE_INVOICING = 'invoicing';
 /// QUEUE_BILLING para que un pico de turnos programados no retrase los cobros de
 /// checkout, que sí esperan a un usuario delante de la pantalla.
 export const QUEUE_BUMP_AUTO = 'bump-auto';
+/// Puerta ráfaga 2 — revalidar y marcar anuncios tras cambiar el schema de una
+/// categoría. Cola propia y NO QUEUE_INDEXING, aunque el disparador sea el mismo
+/// PATCH: este trabajo no indexa nada (marcar no toca Meilisearch, a propósito) y
+/// puede recorrer decenas de miles de anuncios de un árbol entero. Mezclarlo con
+/// el indexado dejaría a las fichas recién publicadas esperando detrás de un
+/// barrido de mantenimiento.
+export const QUEUE_REVALIDATION = 'revalidation';
 
 // Each module that injects a queue calls its own BullModule.registerQueue({name})
 // — @nestjs/bullmq creates a SEPARATE Queue (producer) instance per module

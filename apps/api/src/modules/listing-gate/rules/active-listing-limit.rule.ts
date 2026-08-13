@@ -1,8 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import type { Listing } from '@prisma/client';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { ProStatusService } from '../pro-status.service';
-import type { GateContext, GateReason, ListingGateRule } from '../listing-gate.types';
+import type { GateContext, GateListing, GateReason, ListingGateRule } from '../listing-gate.types';
 
 /** Topes por defecto cuando el Setting no tiene fila. Los mismos de siempre. */
 const DEFAULT_FREE_LIMIT = 5;
@@ -51,7 +50,7 @@ export class ActiveListingLimitRule implements ListingGateRule {
     return context.transition !== 'bump' && context.transition !== 'featured';
   }
 
-  async check(listing: Listing): Promise<GateReason | null> {
+  async check(listing: GateListing): Promise<GateReason | null> {
     const isPro = await this.proStatus.isProActive(listing.sellerId);
     const settingKey = isPro ? 'proActiveListingLimit' : 'freeActiveListingLimit';
     const defaultLimit = isPro ? DEFAULT_PRO_LIMIT : DEFAULT_FREE_LIMIT;

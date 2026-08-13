@@ -617,6 +617,20 @@ model Listing {
   /// Cuándo se confirmó la subida. Informativo y útil para moderación.
   videoUploadedAt      DateTime?
 
+  /// PUERTA DE VALIDACIÓN (ráfaga 2) — «este anuncio dejó de cumplir la
+  /// configuración de su categoría». Lo pone un cambio de `attributeSchema` que
+  /// invalida anuncios ya publicados; lo quita la puerta en cuanto el anuncio
+  /// vuelve a cumplir.
+  ///
+  /// MARCA, NO EXPULSA: el anuncio sigue ACTIVE, sigue en el índice y sigue
+  /// siendo editable — el flag no entra en `ListingDocument` ni dispara
+  /// reindexado. Es información para el vendedor y una señal para la puerta, no
+  /// un estado del ciclo de vida (ése es `status`, y son ejes ortogonales).
+  ///
+  /// Aditivo: nace `false` para todo lo existente, sin backfill. El índice está
+  /// para poder listar los marcados sin recorrer la tabla.
+  needsRevalidation Boolean @default(false)
+
   publishedAt DateTime?
   expiresAt   DateTime?
   bumpedAt    DateTime?
@@ -651,6 +665,8 @@ model Listing {
   @@index([sellerId])
   @@index([price])
   @@index([province, city])
+  /// Puerta ráfaga 2 — para listar los marcados sin recorrer la tabla entera.
+  @@index([needsRevalidation])
 }
 
 model ListingImage {

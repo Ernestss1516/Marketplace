@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Eye, Heart, Loader2 } from 'lucide-react';
+import { AlertTriangle, Eye, Heart, Loader2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -138,6 +138,37 @@ export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) 
                 new Date(listing.expiresAt),
               )}
             </p>
+          )}
+
+          {/*
+            PUERTA ráfaga 2 — EL AVISO DE REVALIDACIÓN.
+            Va aquí, en la propia tarjeta, y no en un banner de la página: el
+            problema es de ESTE anuncio y de ningún otro. Y LLEVA A LA SOLUCIÓN —
+            los motivos concretos y el botón de editar—, que es lo que separa un
+            aviso útil de uno que sólo preocupa (mitigación M6).
+            No cambia el `Badge` de estado: el anuncio sigue activo, y decir lo
+            contrario sería mentir sobre lo que ve el comprador.
+          */}
+          {listing.needsRevalidation && (
+            <div
+              className="mt-1 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs dark:border-amber-800 dark:bg-amber-950"
+              data-testid={`revalidation-notice-${listing.id}`}
+            >
+              <p className="flex items-center gap-1 font-medium text-amber-900 dark:text-amber-200">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                Este anuncio necesita una actualización
+              </p>
+              {listing.revalidationReasons && listing.revalidationReasons.length > 0 && (
+                <ul className="mt-1 list-disc pl-5 text-amber-800 dark:text-amber-300">
+                  {listing.revalidationReasons.map((r) => (
+                    <li key={`${r.code}-${r.field}`}>{r.message}</li>
+                  ))}
+                </ul>
+              )}
+              <p className="mt-1 text-amber-800 dark:text-amber-300">
+                Sigue publicado y visible. Edítalo para corregirlo.
+              </p>
+            </div>
           )}
 
           {/* UXV.4 — ZONA de estado promocional (antes, una línea suelta de featuredUntil).

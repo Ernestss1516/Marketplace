@@ -56,6 +56,9 @@ function buildService(prismaOverrides: Record<string, unknown> = {}) {
     // los guards de política de CATEGORÍA, que no tocan la puerta.
     { assertCanBecomeActive: jest.fn() } as unknown as ListingGateService,
     indexingQueue as never,
+    // PUERTA ráfaga 2 — la cola del marcado. Estos casos no llegan a encolar
+    // (ninguno cambia el `attributeSchema`), pero el constructor la exige.
+    { add: jest.fn().mockResolvedValue(undefined) } as never,
   );
 
   return { service, prisma, auditLog, indexingQueue, categoryTree };
