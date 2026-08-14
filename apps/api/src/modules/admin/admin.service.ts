@@ -52,6 +52,7 @@ import {
   FREE_TOTAL_LIMIT_SETTING,
   PRO_ACTIVE_LIMIT_SETTING,
   PRO_TOTAL_LIMIT_SETTING,
+  TOTAL_LIMIT_RULE_ENABLED_SETTING,
 } from '../listing-gate/listing-limits';
 import { FilterableAttributesResolver } from '../search/filterable-attributes.resolver';
 import { DEFAULT_MAX_TAGS_PER_LISTING } from '../tags/tag.types';
@@ -202,6 +203,13 @@ const SETTING_DEFAULTS: Readonly<Record<string, unknown>> = {
   maxTagsPerListing: DEFAULT_MAX_TAGS_PER_LISTING,
   ticketAutoCloseWindowDays: TICKET_REOPEN_WINDOW_DAYS,
   supportEmail: null,
+  // PUERTA regla #1 — las tres nacen sin fila. Sin esto, el backoffice pintaría
+  // un hueco donde debería verse el tope que se está aplicando de verdad, y sería
+  // imposible saber desde la UI si la regla está encendida o apagada.
+  [FREE_TOTAL_LIMIT_SETTING]: DEFAULT_FREE_TOTAL_LIMIT,
+  [PRO_TOTAL_LIMIT_SETTING]: DEFAULT_PRO_TOTAL_LIMIT,
+  // Apagada, que es como nace. Mismo criterio que `videoEnabled`.
+  [TOTAL_LIMIT_RULE_ENABLED_SETTING]: false,
 };
 
 // A1 (URLs anidadas) — segmentos de primer nivel que YA ocupan rutas estáticas del

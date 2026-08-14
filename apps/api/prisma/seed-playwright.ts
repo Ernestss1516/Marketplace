@@ -198,6 +198,32 @@ async function main() {
     update: { value: 100 },
   });
 
+  // ── Y los topes TOTALES, por encima de los de activos ───────────────────────
+  //
+  // NO ES DECORACIÓN: desde la regla #1 de la puerta hay una invariante,
+  // `total > activos`, que `AdminService.updateSetting` comprueba en las dos
+  // direcciones. Con los totales sin configurar (defaults 10 y 40) y el límite
+  // de activos subido a 100 aquí arriba, el entorno de Playwright quedaba
+  // INCOHERENTE, y se notó de la peor manera posible: `admin-ajustes-numeric`
+  // baja el límite de activos a 7, y al RESTAURARLO a 100 el backend lo
+  // rechazaba con un 400 correcto. La spec dejaba el límite en 7 y toda spec
+  // posterior que publicara más de siete anuncios moría con un
+  // ACTIVE_LIMIT_REACHED que no tenía nada que ver con lo que probaba.
+  //
+  // La guarda hacía lo que debe; lo que faltaba era que este entorno fuera
+  // coherente. Se suben los dos topes MUY por encima de los de activos, por el
+  // mismo motivo que el de arriba: aquí no se prueban los límites.
+  for (const [key, value] of [
+    ['freeTotalListingLimit', 500],
+    ['proTotalListingLimit', 500],
+  ] as const) {
+    await prisma.setting.upsert({
+      where: { key },
+      create: { key, value },
+      update: { value },
+    });
+  }
+
   // ── Emisor fiscal ───────────────────────────────────────────────────────────
   // Sin este Setting, POST /billing/facturas responde 400 ISSUER_NOT_CONFIGURED
   // (ver InvoicingService.getFrozenIssuer) y `tickets-admin.spec.ts` moría antes

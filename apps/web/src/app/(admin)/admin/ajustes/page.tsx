@@ -282,6 +282,67 @@ function ContactVerificationEditor({
   );
 }
 
+/**
+ * Interruptor genérico para un ajuste booleano.
+ *
+ * `ContactVerificationEditor` hace lo mismo pero con su clave y su texto
+ * incrustados; no se refactoriza para no tocar un ajuste que ya funciona y que
+ * tiene sus propias pruebas. Éste nace parametrizado porque va a haber más
+ * interruptores: la puerta de validación estrena uno por regla nueva.
+ */
+function BooleanSettingEditor({
+  setting,
+  token,
+  onSaved,
+  settingKey,
+  label,
+  helpText,
+}: {
+  setting: AdminSetting;
+  token: string;
+  onSaved: () => void;
+  settingKey: string;
+  label: string;
+  helpText: string;
+}) {
+  const [checked, setChecked] = useState(() => setting.value === true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+
+  async function handleSave() {
+    setSaving(true);
+    setError(null);
+    setSuccess(false);
+    try {
+      await updateAdminSetting(token, settingKey, checked);
+      setSuccess(true);
+      onSaved();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Error al guardar');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <label className="flex cursor-pointer items-center gap-3">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(e) => { setChecked(e.target.checked); setSuccess(false); }}
+          disabled={saving}
+          className="h-4 w-4 rounded border-input"
+        />
+        <span className="text-sm">{label}</span>
+      </label>
+      <p className="text-xs text-muted-foreground">{helpText}</p>
+      <SaveRow saving={saving} success={success} error={error} onSave={handleSave} />
+    </div>
+  );
+}
+
 // ─── Shared save row ──────────────────────────────────────────────────────────
 
 function SaveRow({
@@ -335,6 +396,9 @@ const SETTING_TITLES: Record<string, string> = {
   contactRequiresVerification: 'Verificación para contacto',
   freeActiveListingLimit: 'Límite de anuncios activos (Free)',
   proActiveListingLimit: 'Límite de anuncios activos (Pro)',
+  freeTotalListingLimit: 'Límite TOTAL de anuncios (Free)',
+  proTotalListingLimit: 'Límite TOTAL de anuncios (Pro)',
+  totalListingLimitEnabled: 'Aplicar el límite total de anuncios',
   proMonthlyFeaturedQuota: 'Cuota mensual de destacados (Pro)',
   proQuotaFeaturedDurationDays: 'Duración del destacado por cuota (Pro)',
   proExtraCreditsPercent: 'Bonus de créditos al comprar packs (Pro)',
@@ -356,6 +420,12 @@ const SETTING_DESCRIPTIONS: Record<string, string> = {
     'Número máximo de anuncios en estado ACTIVE que puede tener simultáneamente un usuario con plan Free.',
   proActiveListingLimit:
     'Número máximo de anuncios en estado ACTIVE que puede tener simultáneamente un usuario con plan Pro.',
+  freeTotalListingLimit:
+    'Cuántos anuncios puede TENER en total un usuario Free, estén publicados o no: cuenta borradores, en revisión, activos, reservados, pausados, caducados y rechazados. NO cuentan los archivados ni los vendidos, así que archivar o marcar como vendido libera hueco. Es distinto del límite de activos: aquel limita el escaparate y este la acumulación. Tiene que ser mayor que el de activos — el backend rechaza el cambio si no lo es.',
+  proTotalListingLimit:
+    'Lo mismo para un usuario Pro. Tiene que ser mayor que el límite de activos de Pro.',
+  totalListingLimitEnabled:
+    'Mientras esté apagado, los dos límites totales de arriba NO se aplican: se pueden configurar y dejar preparados sin que nadie se vea frenado. Al encenderlo, un usuario que ya esté por encima de su tope NO pierde ningún anuncio; simplemente no podrá crear otro hasta bajar archivando o vendiendo. El freno actúa al CREAR, no al publicar.',
   proMonthlyFeaturedQuota:
     'Destacados gratuitos que un usuario Pro puede usar cada mes. Se renuevan en el aniversario del ciclo de su suscripción; los no usados no se acumulan al mes siguiente.',
   proQuotaFeaturedDurationDays:
@@ -483,6 +553,13 @@ export default function AdminAjustesPage() {
     'contactRequiresVerification',
     'freeActiveListingLimit',
     'proActiveListingLimit',
+    // Puerta regla #1 — van JUSTO DEBAJO de los de activos: son su pareja, y hay
+    // una invariante entre ellos (`total > activos`) que el backend comprueba en
+    // las dos direcciones. Separarlos en la página invitaría a editar uno sin
+    // mirar el otro.
+    'freeTotalListingLimit',
+    'proTotalListingLimit',
+    'totalListingLimitEnabled',
     'proMonthlyFeaturedQuota',
     'proQuotaFeaturedDurationDays',
     'proExtraCreditsPercent',
@@ -578,6 +655,38 @@ export default function AdminAjustesPage() {
                   label="Anuncios activos simultáneos (Pro)"
                   helpText="Al superar este límite, los anuncios más antiguos pasan a borrador al publicar uno nuevo."
                   min={1}
+                />
+              )}
+              {key === 'freeTotalListingLimit' && (
+                <NumberSettingEditor
+                  setting={setting}
+                  token={token}
+                  onSaved={() => handleSaved(key)}
+                  settingKey="freeTotalListingLimit"
+                  label="Anuncios en total (Free)"
+                  helpText="Cuenta todo menos archivados y vendidos. Debe ser mayor que el límite de activos de Free."
+                  min={1}
+                />
+              )}
+              {key === 'proTotalListingLimit' && (
+                <NumberSettingEditor
+                  setting={setting}
+                  token={token}
+                  onSaved={() => handleSaved(key)}
+                  settingKey="proTotalListingLimit"
+                  label="Anuncios en total (Pro)"
+                  helpText="Cuenta todo menos archivados y vendidos. Debe ser mayor que el límite de activos de Pro."
+                  min={1}
+                />
+              )}
+              {key === 'totalListingLimitEnabled' && (
+                <BooleanSettingEditor
+                  setting={setting}
+                  token={token}
+                  onSaved={() => handleSaved(key)}
+                  settingKey="totalListingLimitEnabled"
+                  label="Aplicar el límite total al crear un anuncio"
+                  helpText="Apagado, los topes de arriba no frenan a nadie. Encenderlo no expulsa ni oculta nada: sólo impide crear anuncios nuevos a quien esté en su tope."
                 />
               )}
               {key === 'proMonthlyFeaturedQuota' && (

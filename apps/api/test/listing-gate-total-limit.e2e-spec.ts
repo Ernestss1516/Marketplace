@@ -324,5 +324,39 @@ describe('Puerta — regla #1: el límite TOTAL de anuncios (e2e)', () => {
         .send({ value: 12 })
         .expect(200);
     });
+
+    it('subiendo ANTES el total, subir los activos sí se acepta', async () => {
+      // REGRESIÓN. Este es el orden que la guarda impone, y no es un detalle
+      // teórico: el CI lo encontró de la peor manera. El entorno de Playwright
+      // sube el límite de activos a 100 para que los tests puedan publicar sin
+      // topar, pero dejaba los totales sin configurar (default 10). Una spec
+      // bajaba activos a 7 y, al RESTAURARLO a 100, el backend lo rechazaba —
+      // correctamente—. La spec dejaba el límite en 7 y toda spec posterior que
+      // publicara más de siete anuncios moría con un ACTIVE_LIMIT_REACHED que no
+      // tenía nada que ver con lo que probaba.
+      //
+      // La guarda estaba bien; lo que faltaba era subir primero el total. Queda
+      // fijado aquí para que el orden correcto sea algo que se pueda leer.
+      await request(app.getHttpServer())
+        .patch(`/api/admin/settings/${FREE_TOTAL_LIMIT_SETTING}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ value: 500 })
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .patch(`/api/admin/settings/${FREE_ACTIVE_LIMIT_SETTING}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ value: 100 })
+        .expect(200);
+
+      // Se restaura el de activos a mano: es una clave COMPARTIDA con otras
+      // suites y `cleanDb` no toca `Setting` (el `afterEach` sólo limpia las
+      // claves nuevas, que son de esta ráfaga).
+      await request(app.getHttpServer())
+        .patch(`/api/admin/settings/${FREE_ACTIVE_LIMIT_SETTING}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ value: 5 })
+        .expect(200);
+    });
   });
 });
