@@ -95,10 +95,14 @@ describe('ListingsService.create — reintento de slug ante P2002', () => {
           },
         ]),
       } as unknown as CategoryTreeService,
-      // PUERTA — mantenimiento de fixture por cambio de FIRMA. Este spec va del
-      // reintento de slug ante un P2002 en create(), que no pasa por la puerta
-      // (crear deja el anuncio en DRAFT).
-      { assertCanBecomeActive: jest.fn() } as unknown as ListingGateService,
+      // PUERTA — mantenimiento de fixture. `create()` SÍ pasa por la puerta desde
+      // la regla del límite total (`assertCanCreate`), aunque no por la parte que
+      // valida transiciones a ACTIVE (crear deja el anuncio en DRAFT). Este spec
+      // va del reintento de slug ante un P2002, así que la puerta deja pasar.
+      {
+        assertCanBecomeActive: jest.fn(),
+        assertCanCreate: jest.fn(),
+      } as unknown as ListingGateService,
       // PUERTA RÁFAGA 2 — mantenimiento de fixture por cambio de FIRMA. create()
       // no limpia ningún aviso: un anuncio recién creado nace sin marcar.
       { clearIfCompliant: jest.fn() } as unknown as RevalidationService,

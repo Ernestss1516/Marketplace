@@ -110,6 +110,34 @@ export class ListingGateService {
     await this.evaluar(listing, context);
   }
 
+  /**
+   * REGLA #1 (límite total) — LA PUERTA, ANTES DE QUE EL ANUNCIO EXISTA.
+   *
+   * Es la tercera pregunta de la puerta, y la única que no recibe un anuncio:
+   * «¿puede este vendedor tener uno más?». Sólo la contestan las reglas que
+   * implementan `checkBeforeCreate`; las demás ni se consultan, así que crear un
+   * borrador sigue sin pagar la cuota de activos ni la revalidación de atributos
+   * — que es exactamente como estaba antes de esta regla.
+   *
+   * Mismos grupos y mismo corto-circuito que las otras dos entradas, para que el
+   * orden de evaluación no dependa de por dónde se entre.
+   */
+  async assertCanCreate(sellerId: string, context: GateContext): Promise<void> {
+    for (const grupo of ORDEN_DE_GRUPOS) {
+      const reasons: GateReason[] = [];
+      for (const rule of this.rules) {
+        if (rule.group !== grupo) continue;
+        if (!rule.checkBeforeCreate) continue;
+        if (!rule.appliesTo(context)) continue;
+        if (rule.isEnabled && !(await rule.isEnabled())) continue;
+        const reason = await rule.checkBeforeCreate(sellerId, context);
+        if (Array.isArray(reason)) reasons.push(...reason);
+        else if (reason) reasons.push(reason);
+      }
+      if (reasons.length > 0) throw this.construirRechazo(reasons);
+    }
+  }
+
   private async evaluar(listing: GateListing, context: GateContext): Promise<void> {
     for (const grupo of ORDEN_DE_GRUPOS) {
       const reasons = await this.evaluarGrupo(grupo, listing, context);
@@ -135,6 +163,9 @@ export class ListingGateService {
     const reasons: GateReason[] = [];
     for (const rule of this.rules) {
       if (rule.group !== grupo) continue;
+      // Una regla que sólo limita la ENTRADA (`checkBeforeCreate`) no tiene nada
+      // que decir sobre un anuncio que ya existe.
+      if (!rule.check) continue;
       if (!rule.appliesTo(context)) continue;
       // El interruptor, ANTES de `check`: una regla apagada no consulta nada.
       if (rule.isEnabled && !(await rule.isEnabled())) continue;
@@ -172,4 +203,9 @@ export class ListingGateService {
  */
 const ESTADO_POR_CODIGO: Record<string, HttpStatus> = {
   ACTIVE_LIMIT_REACHED: HttpStatus.FORBIDDEN, // era ForbiddenException en checkActiveListingLimit
+  // Regla #1 — MISMO 403 que la cuota de activos, y a propósito: son la misma
+  // familia («tu plan no te deja»), y el cliente ya sabe distinguirlas por
+  // `code`. Darle un 422 sugeriría que el problema está en lo que se envía, y no
+  // lo está: el anuncio es correcto, lo que se ha llenado es el plan.
+  TOTAL_LIMIT_REACHED: HttpStatus.FORBIDDEN,
 };

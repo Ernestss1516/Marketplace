@@ -403,6 +403,49 @@ Límite total, correo verificado, fotos, moderación previa. Cada una es **una e
 y cada una debería **medirse con M2 justo antes de encenderse** — no una vez y para siempre: lo que
 decide la política es el número del día que se enciende.
 
+### Addendum — el molde real, medido con la regla #1 (límite total, cerrada)
+
+La primera regla nueva confirmó la parte fácil y corrigió una suposición.
+
+**Lo que se cumplió.** Enchufarla fueron cuatro cosas y ninguna tocó a las reglas existentes: el
+fichero de la regla, una línea en la lista de `ListingGateModule`, sus claves en `SETTING_KEYS`, y
+su interruptor con lector. La cuota de activos y la de atributos no cambiaron ni de comportamiento
+ni de firma.
+
+**Lo que no se cumplió, y por qué.** El diseño decía «no se toca la puerta». Fue cierto para las
+reglas sobre anuncios **que ya existen** — que es de lo que hablaba el diseño— pero **no** para
+ésta: el límite total pregunta «¿puedes tener uno más?», y eso no se puede preguntar sobre el
+anuncio que todavía no hay. Hizo falta que `ListingGateService` creciera:
+
+- una tercera entrada, `assertCanCreate(sellerId, context)`;
+- un gancho opcional en la regla, `checkBeforeCreate`, hermano de `check`;
+- la transición `create`;
+- una fila en el mapa de códigos HTTP (`TOTAL_LIMIT_REACHED` → 403, la misma familia que la cuota).
+
+La alternativa —fabricar un anuncio de mentira con `id: ''` para reutilizar `check`— se descartó
+porque habría hecho correr TODAS las reglas al crear: la cuota de activos habría bloqueado guardar
+un borrador. Los dos ganchos son opcionales, así que una regla que no implementa uno no se evalúa
+en ese momento y ninguna regla anterior cambia.
+
+**La lección para las tres que faltan:** una regla sobre un anuncio existente se enchufa sin tocar
+la puerta; una regla sobre lo que aún no existe hace crecer la puerta una vez, y sólo una — la
+segunda ya encuentra el gancho hecho. De las tres pendientes, correo verificado y fotos son de
+entrada (usan `checkBeforeCreate` o `check` según dónde se decida cobrarlas) y moderación previa es
+sobre anuncio existente.
+
+**Tres decisiones de la regla #1 que sientan precedente:**
+
+1. **Cada límite cobra donde se consume lo que limita.** El total cuenta EXISTENCIAS, así que cobra
+   al crear; la cuota de activos cuenta ESCAPARATE, así que cobra al activar. Publicar un borrador
+   no paga el total (ya contaba); crear no paga la cuota de activos (un `DRAFT` no ocupa plaza).
+2. **Un tope necesita una salida, y la salida va en el mensaje.** `ARCHIVED` y `SOLD` no cuentan —los
+   dos son terminales, así que el hueco no se recupera dos veces— y el texto del rechazo dice
+   exactamente eso: «archiva o marca como vendido alguno».
+3. **Los límites que se relacionan viven juntos** (`listing-gate/listing-limits.ts`) y su invariante
+   (`total > activos`) se comprueba en las dos direcciones al editar el ajuste, además de un test
+   sobre los valores por defecto. El precedente es la cicatriz de `/planes`, donde el límite
+   gratuito podía superar al Pro y nadie se enteraba.
+
 ## Lo que este plan NO hace
 
 No implementa ninguna regla nueva, no cambia ninguna guarda de admin, no toca la máquina de

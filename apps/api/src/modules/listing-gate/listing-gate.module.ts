@@ -8,6 +8,7 @@ import { AttributeCheckService } from './attribute-check.service';
 import { RevalidationService } from './revalidation.service';
 import { RevalidationProcessor } from './revalidation.processor';
 import { ActiveListingLimitRule } from './rules/active-listing-limit.rule';
+import { TotalListingLimitRule } from './rules/total-listing-limit.rule';
 import { AttributeRevalidationRule } from './rules/attribute-revalidation.rule';
 import { LISTING_GATE_RULES, type ListingGateRule } from './listing-gate.types';
 
@@ -51,17 +52,19 @@ import { LISTING_GATE_RULES, type ListingGateRule } from './listing-gate.types';
     RevalidationService,
     RevalidationProcessor,
     ActiveListingLimitRule,
+    TotalListingLimitRule,
     AttributeRevalidationRule,
     ListingGateService,
     {
       provide: LISTING_GATE_RULES,
-      inject: [ActiveListingLimitRule, AttributeRevalidationRule],
+      inject: [ActiveListingLimitRule, TotalListingLimitRule, AttributeRevalidationRule],
       // El orden dentro de un grupo es el de esta lista. Entre grupos manda
       // `GateRuleGroup` (entrada antes que contenido), no esto.
       useFactory: (
         activeLimit: ActiveListingLimitRule,
+        totalLimit: TotalListingLimitRule,
         attributes: AttributeRevalidationRule,
-      ): ListingGateRule[] => [activeLimit, attributes],
+      ): ListingGateRule[] => [activeLimit, totalLimit, attributes],
     },
   ],
   exports: [ListingGateService, ProStatusService, RevalidationService, AttributeCheckService],
