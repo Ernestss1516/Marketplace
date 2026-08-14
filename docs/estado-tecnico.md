@@ -2705,6 +2705,30 @@ que acordarse de llamarlo. Ese método ya no existe.
 Ambos settings son editables desde `PATCH /admin/settings/:key` sin redeploy; el efecto es
 inmediato en la siguiente request de publish/renew.
 
+### Límite TOTAL de anuncios (puerta, regla #1) — nace APAGADO
+
+Segundo límite, **regla aparte** de la de activos y con universo distinto: cuenta todo lo que el
+vendedor todavía «tiene» —`DRAFT`, `PENDING_REVIEW`, `ACTIVE`, `RESERVED`, `PAUSED`, `EXPIRED`,
+`REJECTED`— y deja fuera `ARCHIVED` y `SOLD`. El de activos limita el **escaparate**; éste, la
+**acumulación**.
+
+- **Topes:** `freeTotalListingLimit` / `proTotalListingLimit`, por defecto **el doble** de los de
+  activos (10 y 40). Editables desde el backoffice, con lector real en la regla.
+- **Invariante `total > activos`**, comprobada en las dos direcciones al editar cualquiera de las
+  cuatro claves (`AdminService.assertLimitesCoherentes`) y también sobre los valores por defecto en
+  `listing-limits.spec.ts`. Un total ≤ activos prometería plazas de escaparate imposibles de crear.
+- **Cobra al CREAR, no al publicar.** El tope limita cuántos anuncios existen y un `DRAFT` ya
+  existe; publicarlo no añade ninguno. Publicar lo frena la otra regla, la de activos.
+- **Es un límite de ENTRADA: no marca ni expulsa nada.** Un vendedor por encima del tope conserva
+  todo; sólo no puede sumar otro hasta bajar archivando o vendiendo — la salida va escrita en el
+  mensaje del rechazo (403, `TOTAL_LIMIT_REACHED`).
+- **Staff exento** (`appliesTo`), coherente con la cuota de activos. Hoy es inalcanzable desde HTTP
+  —no hay alta de staff— y está fijado en un test unitario, no e2e.
+- **Nace apagada:** `Setting.totalListingLimitEnabled`, sin fila = apagada.
+
+Los cuatro topes y la lista de estados que cuentan viven juntos en
+`listing-gate/listing-limits.ts`, porque su relación es una invariante.
+
 ### `needsRevalidation` — marcar sin expulsar (puerta, ráfaga 2)
 
 Un cambio en el `attributeSchema` de una categoría puede dejar fuera de norma a anuncios ya

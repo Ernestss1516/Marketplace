@@ -195,6 +195,20 @@ export class ListingsService {
   ) {}
 
   async create(sellerId: string, dto: CreateListingDto): Promise<Listing> {
+    // PUERTA — REGLA #1 (límite total). LA ÚNICA COMPROBACIÓN DE LA PUERTA QUE NO
+    // RECIBE UN ANUNCIO: pregunta si este vendedor puede tener uno más, y el que
+    // lo pregunta es justo el que todavía no existe.
+    //
+    // LO PRIMERO DE TODO, antes incluso de resolver la categoría: si el vendedor
+    // está en su tope, no tiene sentido pagar consultas para validar un anuncio
+    // que no se va a crear.
+    //
+    // NO cambia nada mientras la regla esté apagada, que es como nace: sin la
+    // fila de `Setting`, esta llamada no consulta ni una tabla.
+    await this.gate.assertCanCreate(sellerId, {
+      actor: 'seller', transition: 'create', actorId: sellerId,
+    });
+
     // PROFUNDIDAD N — RÁFAGA 1: la cadena raíz→hoja sustituye a la consulta con
     // `parent` de un nivel. `[]` = la categoría no existe.
     // B2 — el slug (de la hoja) hace falta para los tags: TagsService cachea el

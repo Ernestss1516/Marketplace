@@ -1,11 +1,21 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { ProStatusService } from '../pro-status.service';
+import {
+  DEFAULT_FREE_ACTIVE_LIMIT,
+  DEFAULT_PRO_ACTIVE_LIMIT,
+  FREE_ACTIVE_LIMIT_SETTING,
+  PRO_ACTIVE_LIMIT_SETTING,
+} from '../listing-limits';
 import type { GateContext, GateListing, GateReason, ListingGateRule } from '../listing-gate.types';
 
-/** Topes por defecto cuando el Setting no tiene fila. Los mismos de siempre. */
-const DEFAULT_FREE_LIMIT = 5;
-const DEFAULT_PRO_LIMIT = 20;
+/**
+ * Los topes por defecto y sus claves salen de `listing-limits.ts` — los MISMOS
+ * números de siempre (5 y 20), sólo que ahora viven al lado de los del límite
+ * total. Están juntos porque su relación es una invariante (total > activos) y
+ * hay una guarda de admin que la comprueba: con los números en dos ficheros,
+ * cambiar uno y olvidar el otro no daría ningún error.
+ */
 
 /**
  * RF.7 — LA CUOTA DE ANUNCIOS ACTIVOS DEL PLAN, ahora como regla de la puerta.
@@ -52,8 +62,8 @@ export class ActiveListingLimitRule implements ListingGateRule {
 
   async check(listing: GateListing): Promise<GateReason | null> {
     const isPro = await this.proStatus.isProActive(listing.sellerId);
-    const settingKey = isPro ? 'proActiveListingLimit' : 'freeActiveListingLimit';
-    const defaultLimit = isPro ? DEFAULT_PRO_LIMIT : DEFAULT_FREE_LIMIT;
+    const settingKey = isPro ? PRO_ACTIVE_LIMIT_SETTING : FREE_ACTIVE_LIMIT_SETTING;
+    const defaultLimit = isPro ? DEFAULT_PRO_ACTIVE_LIMIT : DEFAULT_FREE_ACTIVE_LIMIT;
 
     const setting = await this.prisma.setting.findUnique({ where: { key: settingKey } });
     const limit = setting ? Number(setting.value) : defaultLimit;

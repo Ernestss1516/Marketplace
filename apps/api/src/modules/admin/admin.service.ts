@@ -43,6 +43,17 @@ import {
 import { CategoryTreeService } from '../categories/category-tree.service';
 import { ListingGateService } from '../listing-gate/listing-gate.service';
 import { MARK_STALE_JOB } from '../listing-gate/revalidation.processor';
+import {
+  DEFAULT_FREE_ACTIVE_LIMIT,
+  DEFAULT_FREE_TOTAL_LIMIT,
+  DEFAULT_PRO_ACTIVE_LIMIT,
+  DEFAULT_PRO_TOTAL_LIMIT,
+  FREE_ACTIVE_LIMIT_SETTING,
+  FREE_TOTAL_LIMIT_SETTING,
+  PRO_ACTIVE_LIMIT_SETTING,
+  PRO_TOTAL_LIMIT_SETTING,
+  TOTAL_LIMIT_RULE_ENABLED_SETTING,
+} from '../listing-gate/listing-limits';
 import { FilterableAttributesResolver } from '../search/filterable-attributes.resolver';
 import { DEFAULT_MAX_TAGS_PER_LISTING } from '../tags/tag.types';
 import { TICKET_REOPEN_WINDOW_DAYS } from '../tickets/tickets.constants';
@@ -66,6 +77,14 @@ const SETTING_KEYS = [
   // RF.7: active listing limits per plan
   'freeActiveListingLimit',
   'proActiveListingLimit',
+  // PUERTA regla #1 — topes TOTALES por plan (todo menos ARCHIVED y SOLD). Otra
+  // regla, otro universo: los de arriba limitan el escaparate, éstos la
+  // acumulación. Ver `listing-gate/listing-limits.ts`.
+  'freeTotalListingLimit',
+  'proTotalListingLimit',
+  // PUERTA regla #1 — su interruptor. SIN FILA, APAGADA: es política NUEVA, y
+  // encenderla sin saber a cuánta gente frena es justo lo que M2 evita.
+  'totalListingLimitEnabled',
   // H8.1: monthly free-featured quota granted to Pro subscribers
   'proMonthlyFeaturedQuota',
   // H8.5a: fixed duration of a featured grant paid from the quota
@@ -144,7 +163,28 @@ const POSITIVE_INT_SETTING_KEYS: readonly string[] = [
   'maxTagsPerListing',
   // D3 — un tope de 0 dejaría la feature muerta: nadie podría programar nada.
   'maxBumpSchedulesPerUser',
+  // PUERTA regla #1 — un tope total de 0 impediría crear ningún anuncio.
+  //
+  // Los dos de ACTIVOS no están en esta lista y NO se añaden aquí: llevan años
+  // aceptando cualquier valor y endurecerlos ahora cambiaría el comportamiento de
+  // una clave existente, que es justo lo que estas ráfagas no hacen. Queda
+  // anotado como asimetría conocida.
+  'freeTotalListingLimit',
+  'proTotalListingLimit',
 ];
+
+/**
+ * PUERTA regla #1 — los defaults de las cuatro claves de límite, para poder
+ * comparar contra el valor EFECTIVO del otro cuando no tiene fila. Salen de
+ * `listing-gate/listing-limits.ts`, que es donde los leen las reglas: si se
+ * copiaran aquí, la guarda podría validar contra números que ya no se aplican.
+ */
+const DEFAULTS_DE_LIMITE: Record<string, number> = {
+  [FREE_ACTIVE_LIMIT_SETTING]: DEFAULT_FREE_ACTIVE_LIMIT,
+  [PRO_ACTIVE_LIMIT_SETTING]: DEFAULT_PRO_ACTIVE_LIMIT,
+  [FREE_TOTAL_LIMIT_SETTING]: DEFAULT_FREE_TOTAL_LIMIT,
+  [PRO_TOTAL_LIMIT_SETTING]: DEFAULT_PRO_TOTAL_LIMIT,
+};
 
 // Keys whose value is a percentage: integer in [0, 100]. 0 is valid (disables
 // the Pro bonus without removing the key); >100 would gift more credits than
@@ -163,6 +203,13 @@ const SETTING_DEFAULTS: Readonly<Record<string, unknown>> = {
   maxTagsPerListing: DEFAULT_MAX_TAGS_PER_LISTING,
   ticketAutoCloseWindowDays: TICKET_REOPEN_WINDOW_DAYS,
   supportEmail: null,
+  // PUERTA regla #1 — las tres nacen sin fila. Sin esto, el backoffice pintaría
+  // un hueco donde debería verse el tope que se está aplicando de verdad, y sería
+  // imposible saber desde la UI si la regla está encendida o apagada.
+  [FREE_TOTAL_LIMIT_SETTING]: DEFAULT_FREE_TOTAL_LIMIT,
+  [PRO_TOTAL_LIMIT_SETTING]: DEFAULT_PRO_TOTAL_LIMIT,
+  // Apagada, que es como nace. Mismo criterio que `videoEnabled`.
+  [TOTAL_LIMIT_RULE_ENABLED_SETTING]: false,
 };
 
 // A1 (URLs anidadas) — segmentos de primer nivel que YA ocupan rutas estáticas del
@@ -1442,6 +1489,58 @@ export class AdminService {
     );
   }
 
+  /**
+   * PUERTA regla #1 — LA INVARIANTE ENTRE LOS DOS LÍMITES: el tope TOTAL tiene
+   * que ser mayor que el de ACTIVOS, en cada plan.
+   *
+   * Si no lo fuera, el sistema se contradice: el tope de activos prometería
+   * plazas de escaparate que el tope total impide siquiera crear. No es una
+   * hipótesis remota — este repo ya tiene la cicatriz del caso gemelo, cuando
+   * `freeActiveListingLimit` podía superar al de Pro y /planes acababa vendiendo
+   * como ventaja algo que el plan gratuito daba mejor (ver
+   * `planes-limite-anuncios.e2e-spec.ts`). Aquello se descubrió a posteriori;
+   * esto se cierra al escribirlo.
+   *
+   * SE COMPRUEBA EN LAS DOS DIRECCIONES —al subir el de activos y al bajar el
+   * total— porque la incoherencia se puede fabricar por cualquiera de los dos
+   * lados, y una guarda que sólo mira uno es media guarda.
+   *
+   * Contra el valor EFECTIVO del otro (su fila, o su default si no la tiene): es
+   * el que va a aplicarse de verdad, y comparar contra «no configurado» dejaría
+   * pasar cruces reales.
+   */
+  private async assertLimitesCoherentes(key: string, valor: unknown): Promise<void> {
+    const PAREJAS: Record<string, { activos: string; total: string; plan: string }> = {
+      [FREE_ACTIVE_LIMIT_SETTING]: { activos: FREE_ACTIVE_LIMIT_SETTING, total: FREE_TOTAL_LIMIT_SETTING, plan: 'gratuito' },
+      [FREE_TOTAL_LIMIT_SETTING]: { activos: FREE_ACTIVE_LIMIT_SETTING, total: FREE_TOTAL_LIMIT_SETTING, plan: 'gratuito' },
+      [PRO_ACTIVE_LIMIT_SETTING]: { activos: PRO_ACTIVE_LIMIT_SETTING, total: PRO_TOTAL_LIMIT_SETTING, plan: 'Pro' },
+      [PRO_TOTAL_LIMIT_SETTING]: { activos: PRO_ACTIVE_LIMIT_SETTING, total: PRO_TOTAL_LIMIT_SETTING, plan: 'Pro' },
+    };
+    const pareja = PAREJAS[key];
+    if (!pareja) return;
+
+    const nuevo = Number(valor);
+    // Un valor no numérico no es cosa de esta guarda: lo rechaza (o lo tolera) la
+    // validación de tipo que corre justo antes.
+    if (!Number.isFinite(nuevo)) return;
+
+    const esElTotal = key === pareja.total;
+    const otraClave = esElTotal ? pareja.activos : pareja.total;
+    const otraFila = await this.prisma.setting.findUnique({ where: { key: otraClave } });
+    const porDefecto = DEFAULTS_DE_LIMITE[otraClave];
+    const otro = otraFila ? Number(otraFila.value) : porDefecto;
+
+    const activos = esElTotal ? otro : nuevo;
+    const total = esElTotal ? nuevo : otro;
+    if (total > activos) return;
+
+    throw new BadRequestException(
+      `El tope TOTAL del plan ${pareja.plan} (${total}) tiene que ser mayor que el de anuncios ` +
+        `activos (${activos}): si no, el plan promete plazas de escaparate que no se pueden ` +
+        'llegar a crear.',
+    );
+  }
+
   async updateSetting(
     key: string,
     actorId: string,
@@ -1462,6 +1561,8 @@ export class AdminService {
         );
       }
     }
+
+    await this.assertLimitesCoherentes(key, dto.value);
 
     if (PERCENT_SETTING_KEYS.includes(key)) {
       const value = dto.value;

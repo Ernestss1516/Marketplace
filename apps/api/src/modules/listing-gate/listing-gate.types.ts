@@ -33,6 +33,13 @@ export type GateActor = 'seller' | 'staff';
  *    en `ListingsService.closeDeal` y en docs/diseno-puerta-validacion.md.
  */
 export type GateTransition =
+  /**
+   * REGLA #1 (límite total) — la única transición sobre algo que TODAVÍA NO
+   * EXISTE. No lleva a ACTIVE ni cambia ningún estado: crea el anuncio en
+   * `DRAFT`. Entró con el límite total, que es el primer límite que cuenta
+   * EXISTENCIAS en vez de estados.
+   */
+  | 'create'
   | 'publish'
   | 'renew'
   | 'reactivate'
@@ -95,6 +102,22 @@ export type GateRuleGroup = 'entrada' | 'contenido';
 /**
  * Una regla. Añadir una regla nueva = añadir una entrada a la lista del módulo;
  * no se toca la puerta ni ninguno de los caminos que la llaman.
+ *
+ * DOS PREGUNTAS, DOS GANCHOS, Y UNA REGLA IMPLEMENTA EL QUE LE TOQUE:
+ *
+ *  · `check(listing, …)` — sobre un anuncio QUE YA EXISTE. Es el gancho de los
+ *    diez caminos del diseño.
+ *  · `checkBeforeCreate(sellerId, …)` — ANTES de que exista: no hay anuncio que
+ *    pasar, sólo el vendedor que lo va a crear.
+ *
+ * El segundo lo trajo el LÍMITE TOTAL, que es el primer límite sobre EXISTENCIAS
+ * y no sobre estados: su pregunta («¿puedes tener uno más?») no se puede hacer
+ * sobre un anuncio, porque el anuncio en cuestión es justo el que todavía no hay.
+ * La alternativa —inventar un anuncio de mentira con `id: ''` para poder usar
+ * `check`— habría hecho que TODAS las reglas existentes empezaran a correr al
+ * crear, con lo que la cuota de activos bloquearía guardar un borrador. Los dos
+ * ganchos son opcionales y una regla que no implementa uno simplemente no se
+ * evalúa en ese momento; así, ninguna regla anterior cambia de comportamiento.
  */
 export interface ListingGateRule {
   /** Identifica la regla en logs y en pruebas. No es el `code` del motivo. */
@@ -126,7 +149,19 @@ export interface ListingGateRule {
    * Devolver un único `GateReason` sigue valiendo — es lo que hace la cuota, que
    * o falla por una cosa o no falla.
    */
-  check(listing: GateListing, context: GateContext): Promise<GateReason | GateReason[] | null>;
+  check?(listing: GateListing, context: GateContext): Promise<GateReason | GateReason[] | null>;
+  /**
+   * La misma pregunta, ANTES de que el anuncio exista. Sólo la implementan las
+   * reglas que limitan la ENTRADA (hoy: el límite total).
+   *
+   * Recibe el vendedor y no un anuncio porque no hay ninguno todavía. Quien
+   * necesite mirar el contenido de lo que se va a crear no debería vivir aquí:
+   * eso ya lo valida `create()` contra el schema de la categoría.
+   */
+  checkBeforeCreate?(
+    sellerId: string,
+    context: GateContext,
+  ): Promise<GateReason | GateReason[] | null>;
 }
 
 /** Token de DI de la lista de reglas. Ver `ListingGateModule`. */
