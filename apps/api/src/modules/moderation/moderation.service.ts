@@ -265,6 +265,17 @@ export class ModerationService {
       ip,
     });
 
+    // MODERACIÓN M2 — EL AVISO QUE FALTABA. Aprobar era la única de las cuatro
+    // acciones de moderación que no decía nada al vendedor: rechazar, desactivar
+    // y restaurar sí avisaban desde §14.5. Mientras a `PENDING_REVIEW` sólo se
+    // llegaba por palabra prohibida el silencio era un detalle; con la moderación
+    // previa, pasar por revisión es el caso normal, y no avisar deja al vendedor
+    // sin saber si su anuncio sigue en la cola o ya se está viendo.
+    //
+    // TRAS persistir y con la fila PREVIA, igual que las otras tres: de ahí salen
+    // `sellerId` y `title` sin una consulta extra.
+    await this.notify.listingModerated(listing, 'APPROVED', actorId);
+
     return updated;
   }
 

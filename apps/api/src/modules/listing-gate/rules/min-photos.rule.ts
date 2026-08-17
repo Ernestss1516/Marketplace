@@ -22,19 +22,29 @@ import type { GateContext, GateListing, GateReason, ListingGateRule } from '../l
  *    igual que un atributo requerido que falta. La regla de atributos rechaza con
  *    422 y sus motivos; ésta hace lo mismo, y por lo mismo.
  *
- * SÓLO AL PUBLICAR, y esto tiene una consecuencia que conviene aceptar a ojos
- * abiertos: renovar o reactivar NO lo miran. Un anuncio de hace dos años sin
- * fotos se sigue pudiendo renovar. Es deliberado — es el mismo principio que el
- * límite total: una regla nueva no se aplica hacia atrás sobre lo que alguien ya
- * publicó cuando no se le exigía.
+ * AL PUBLICAR Y AL APROBAR — ES UNA REGLA DEL ANUNCIO (moderación M2).
  *
- * ⚠ HUECO CONOCIDO Y ACEPTADO: un anuncio con palabras filtradas va a
- * `PENDING_REVIEW` en vez de a ACTIVE, y `publish` no llama a la puerta en ese
- * caso (no ocupa plaza todavía). Si luego un moderador lo aprueba, llega a ACTIVE
- * sin pasar por aquí. Cerrarlo exigiría aplicar la regla también a `approve`, y
- * eso dejaría al moderador atrapado: no puede añadirle fotos a un anuncio ajeno,
- * así que no podría ni aprobarlo ni desatascarlo. Se prefiere el hueco —estrecho
- * y con un humano mirando— a bloquear la moderación.
+ * Renovar y reactivar siguen sin mirarla: un anuncio de hace dos años sin fotos
+ * se puede renovar igual, porque una regla nueva no se aplica hacia atrás sobre
+ * lo que alguien publicó cuando no se le exigía.
+ *
+ * Pero `approve` SÍ, y eso corrige lo que esta misma cabecera daba por bueno
+ * hasta M2. El argumento de entonces era que aplicarla al aprobar dejaría al
+ * moderador atrapado —no puede añadirle fotos a un anuncio ajeno— y con la
+ * moderación previa en marcha ese argumento se cae por dos sitios:
+ *
+ *  1. **El hueco deja de ser estrecho.** Antes a `PENDING_REVIEW` sólo se llegaba
+ *     por palabra prohibida; ahora es el camino principal de ramas enteras del
+ *     catálogo. Un anuncio sin fotos aprobado por revisión saldría publicado
+ *     saltándose exactamente el listón que la revisión existe para aplicar.
+ *  2. **El moderador ya no está atrapado**, porque tiene una tercera salida:
+ *     devolver el anuncio a borrador (`PENDING_REVIEW → DRAFT`) para que su dueño
+ *     lo complete. No tiene que elegir entre aprobar algo inválido y dejarlo en
+ *     la cola para siempre.
+ *
+ * LA LÍNEA, ENUNCIADA: en `approve` aplican las reglas sobre el ANUNCIO —lo que
+ * el moderador está mirando— y no las del VENDEDOR (cuota, correo), que él no
+ * puede arreglar y que sí lo dejarían rehén de un tercero.
  *
  * GRUPO `entrada` — BARATA: un `count` sobre `ListingImage`, con índice por
  * `listingId`.
@@ -53,7 +63,12 @@ export class MinPhotosRule implements ListingGateRule {
   ) {}
 
   appliesTo(context: GateContext): boolean {
-    return context.actor === 'seller' && context.transition === 'publish';
+    // Los DOS momentos en los que un anuncio llega al mercado por primera vez.
+    // Ver la cabecera: es una regla del ANUNCIO, y las dos veces hay alguien
+    // —el vendedor o el moderador— que puede actuar sobre lo que falta.
+    const publicaElVendedor = context.actor === 'seller' && context.transition === 'publish';
+    const apruebaElStaff = context.actor === 'staff' && context.transition === 'approve';
+    return publicaElVendedor || apruebaElStaff;
   }
 
   isEnabled(): Promise<boolean> {

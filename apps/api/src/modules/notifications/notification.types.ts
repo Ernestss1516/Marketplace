@@ -122,7 +122,8 @@ export interface ListingModeratedData {
   listingId: string;
   /** Título CONGELADO — el aviso sobrevive al borrado del anuncio. */
   listingTitle: string;
-  action: 'REJECTED' | 'DEACTIVATED' | 'RESTORED';
+  /** `APPROVED` entró con la moderación previa (M2): pasó la revisión y ya está publicado. */
+  action: 'APPROVED' | 'REJECTED' | 'DEACTIVATED' | 'RESTORED';
   /** Motivo que escribió el moderador, si lo puso. */
   reason: string | null;
 }

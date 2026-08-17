@@ -147,7 +147,7 @@ export class ModerationNotificationsService {
    */
   async listingModerated(
     listing: Pick<Listing, 'id' | 'title' | 'sellerId'>,
-    action: 'REJECTED' | 'DEACTIVATED' | 'RESTORED',
+    action: 'APPROVED' | 'REJECTED' | 'DEACTIVATED' | 'RESTORED',
     actorId: string,
     reason?: string,
   ) {

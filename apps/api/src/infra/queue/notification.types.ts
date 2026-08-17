@@ -117,7 +117,7 @@ export interface SendListingModeratedData {
   email: string;
   name: string;
   listingTitle: string;
-  action: 'REJECTED' | 'DEACTIVATED' | 'RESTORED';
+  action: 'APPROVED' | 'REJECTED' | 'DEACTIVATED' | 'RESTORED';
   reason: string | null;
 }
 

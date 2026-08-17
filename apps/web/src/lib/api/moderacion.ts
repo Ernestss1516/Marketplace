@@ -104,3 +104,29 @@ export function createReport(token: string, dto: CreateReportDto): Promise<Repor
     token,
   });
 }
+
+/**
+ * MODERACIÓN M2 — aprobar y rechazar, por los endpoints CORRECTOS.
+ *
+ * Hasta M2 el backoffice hacía las dos cosas con el cambio de estado GENÉRICO de
+ * `/admin/listings/:id/status`, que esquivaba justo lo que estos dos endpoints
+ * añaden: `approve` registra `LISTING_APPROVE` y avisa al vendedor de que su
+ * anuncio ya está publicado; `reject` registra `LISTING_REJECT` con el motivo y
+ * avisa de que no ha pasado. Por la vía genérica ninguna de las dos cosas
+ * ocurría, y nadie lo notaba porque el anuncio SÍ cambiaba de estado.
+ */
+export function approveListing(listingId: string, token: string): Promise<unknown> {
+  return apiFetch(`/moderation/listings/${listingId}/approve`, { method: 'POST', token });
+}
+
+export function rejectListing(
+  listingId: string,
+  token: string,
+  reason?: string,
+): Promise<unknown> {
+  return apiFetch(`/moderation/listings/${listingId}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+    token,
+  });
+}
