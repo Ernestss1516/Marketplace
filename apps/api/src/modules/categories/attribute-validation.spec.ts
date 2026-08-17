@@ -43,6 +43,9 @@ const nodo = (id: string, parentId: string | null, schema: AttributeField[]): Ca
   allowedViews: [],
   defaultView: null,
   allowedPriceUnits: [],
+  // MODERACIÓN M1 — mantenimiento de fixture: `CategoryNode` ganó un campo. Este
+  // spec va de atributos, que no lo miran.
+  requiresReview: false,
 });
 
 describe('attribute-validation — los detectores, uno a uno', () => {

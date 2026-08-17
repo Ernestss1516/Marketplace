@@ -434,6 +434,21 @@ model Category {
   /// en las filas ya existentes al aplicar la migración.
   allowedListingType ListingTypePolicy @default(BOTH)
 
+  /// MODERACIÓN PREVIA (M1) — los anuncios de esta categoría pasan por revisión
+  /// antes de publicarse.
+  ///
+  /// SE HEREDA HACIA ABAJO Y NO SE PUEDE AFLOJAR: si CUALQUIER ancestro lo tiene
+  /// a true, todos sus descendientes lo tienen, y un descendiente con `false` NO
+  /// lo anula. Es un pliegue MONÓTONO (un OR sobre la cadena raíz→hoja), a
+  /// diferencia de `allowedViews`/`allowedPriceUnits`, que son override. El
+  /// porqué es la asimetría del error: equivocarse marcando de más cuesta revisar
+  /// trabajo que no hacía falta —y se ve, porque la cola crece—; equivocarse
+  /// aflojando cuesta publicar sin revisar, y eso no lo ve nadie.
+  ///
+  /// Aditivo: nace `false` en todas, así que al aplicar la migración no cambia
+  /// nada. Ver `resolveEffectiveRequiresReview` en category.types.ts.
+  requiresReview Boolean @default(false)
+
   /// Vistas de resultados que esta categoría permite ofrecer al usuario en
   /// /[categoria] (RÁFAGA 2). [] = "no configurado" — hereda del padre, o si
   /// tampoco el padre configura nada, cae al default global (las 3, con LISTA

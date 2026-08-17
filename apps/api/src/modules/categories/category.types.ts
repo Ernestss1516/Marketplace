@@ -173,6 +173,37 @@ export function resolveEffectivePolicy(
 }
 
 /**
+ * MODERACIÓN PREVIA (M1) — ¿los anuncios de esta categoría pasan por revisión?
+ *
+ * ES UN OR, Y ESO LO DICE TODO: el pliegue es MONÓTONO. Una vez que un ancestro
+ * dice «revisar», ningún descendiente puede desdecirlo — no hay valor que se
+ * pueda poner abajo para que el resultado vuelva a ser `false`. Un descendiente
+ * sólo puede AÑADIR revisión a una rama que no la tenía.
+ *
+ * ES LA DIFERENCIA CON LAS OTRAS CUATRO RESOLUCIONES, y es deliberada:
+ * `allowedViews` y `allowedPriceUnits` son override (el hijo manda),
+ * `attributeSchema` es fusión y `allowedListingType` es restricción con
+ * contradicción prohibida. Aquí no hay override posible.
+ *
+ * POR QUÉ, en una frase: los dos errores no cuestan lo mismo. Marcar de más
+ * cuesta revisar trabajo que no hacía falta, y se ve —la cola crece—. Aflojar de
+ * menos cuesta publicar sin revisar lo que se había decidido revisar, y eso no lo
+ * ve nadie hasta que hay un problema. Cuando el error tiene consecuencias
+ * asimétricas, el diseño se inclina al lado barato.
+ *
+ * REDUCTOR, igual que las demás: se pliega sobre la cadena raíz→hoja, así que la
+ * marca del bisabuelo alcanza al bisnieto. Que suba por TODA la cadena y no sólo
+ * un nivel es el riesgo R1 de la profundidad, y por eso el fixture de 4 niveles
+ * tiene un caso para ello.
+ */
+export function resolveEffectiveRequiresReview(
+  own: boolean,
+  parentEffective: boolean,
+): boolean {
+  return own || parentEffective;
+}
+
+/**
  * Resolves whether the attribute's label should be shown alongside its value
  * in cards (RÁFAGA 3). Absent `showLabel` defaults to `!field.unit` — this is
  * the exact rule that was hardcoded in the frontend before this ráfaga

@@ -13,6 +13,8 @@ import { ModerationController } from './moderation.controller';
 import { ModerationService } from './moderation.service';
 import { ModerationNotificationsService } from './moderation-notifications.service';
 import { BadWordService } from './bad-word.service';
+import { PreModerationService } from './pre-moderation.service';
+import { CategoryTreeModule } from '../categories/category-tree.module';
 
 @Module({
   imports: [
@@ -25,10 +27,13 @@ import { BadWordService } from './bad-word.service';
     AuditLogModule,
     ListingActivationModule,
     ListingGateModule,
+    // M1 — el disparador necesita la CADENA de categorías para el pliegue
+    // monótono. `CategoryTreeModule` es hoja: importarlo no crea ciclo.
+    CategoryTreeModule,
     NotificationsModule,
   ],
   controllers: [ModerationController],
-  providers: [ModerationService, ModerationNotificationsService, BadWordService],
-  exports: [ModerationService, BadWordService],
+  providers: [ModerationService, ModerationNotificationsService, BadWordService, PreModerationService],
+  exports: [ModerationService, BadWordService, PreModerationService],
 })
 export class ModerationModule {}
