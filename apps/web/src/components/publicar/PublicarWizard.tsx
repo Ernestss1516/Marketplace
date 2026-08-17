@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronLeft, Clock } from 'lucide-react';
+import { ChevronLeft, Clock, MailWarning } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { StepIndicator } from './StepIndicator';
 import { StepCategoria } from './steps/StepCategoria';
@@ -236,6 +236,8 @@ export function PublicarWizard({ token, categories, initialLocation, initialPhon
   const [submitState, setSubmitState] = useState<'idle' | 'saving' | 'publishing'>('idle');
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [pendingReview, setPendingReview] = useState(false);
+  /** PUERTA regla #2 — el aviso cuando el anuncio se queda en borrador. */
+  const [publishBlocked, setPublishBlocked] = useState<string | null>(null);
 
   // Skip 'atributos' sin schema y 'tags' sin tags efectivos (ver resolveActiveSteps).
   const activeSteps = resolveActiveSteps(ALL_STEPS, data);
@@ -370,6 +372,18 @@ export function PublicarWizard({ token, categories, initialLocation, initialPhon
             setSubmitState('idle');
             return;
           }
+          // PUERTA regla #2 — el anuncio se guardó pero NO llegó al mercado
+          // (hoy: correo sin verificar). Mismo tratamiento que la revisión: se
+          // le dice al usuario qué ha pasado y qué hacer, en vez de llevarlo a
+          // una ficha que no existe públicamente.
+          if (published.status === 'DRAFT') {
+            setPublishBlocked(
+              published.publishBlocked?.message ??
+                'Tu anuncio se ha guardado como borrador y todavía no está publicado.',
+            );
+            setSubmitState('idle');
+            return;
+          }
           router.push(`/anuncio/${draft.slug}`);
         } else {
           router.push('/mis-anuncios');
@@ -467,7 +481,33 @@ export function PublicarWizard({ token, categories, initialLocation, initialPhon
           />
         )}
 
-        {currentStepId === 'previsualizacion' && !pendingReview && (
+        {/*
+          PUERTA regla #2 — el anuncio EXISTE y está guardado; lo único que falta
+          es un paso del usuario. Por eso el aviso no es rojo ni habla de error:
+          dice qué ha pasado, dónde está su trabajo y cómo desbloquearlo.
+        */}
+        {currentStepId === 'previsualizacion' && publishBlocked && (
+          <div
+            className="flex flex-col items-center gap-4 py-8 text-center"
+            data-testid="publicar-bloqueado"
+          >
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-amber-100">
+              <MailWarning className="h-8 w-8 text-amber-600" />
+            </div>
+            <div className="space-y-1">
+              <h2 className="text-lg font-semibold">Guardado como borrador</h2>
+              <p className="max-w-sm text-sm text-muted-foreground">{publishBlocked}</p>
+            </div>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <Button onClick={() => router.push('/verificar-email')}>Verificar mi correo</Button>
+              <Button variant="outline" onClick={() => router.push('/mis-anuncios')}>
+                Ver mis anuncios
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {currentStepId === 'previsualizacion' && !pendingReview && !publishBlocked && (
           <StepPrevisualizacion
             data={data}
             submitState={submitState}

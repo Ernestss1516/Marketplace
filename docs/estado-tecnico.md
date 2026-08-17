@@ -2705,6 +2705,28 @@ que acordarse de llamarlo. Ese método ya no existe.
 Ambos settings son editables desde `PATCH /admin/settings/:key` sin redeploy; el efecto es
 inmediato en la siguiente request de publish/renew.
 
+### Correo verificado para publicar (puerta, regla #2) — nace APAGADA, y DEGRADA
+
+`User.emailVerified` existía desde el principio pero **no era puerta en ningún sitio**. Esta regla
+lo convierte en condición de **publicación**, y con un desenlace que la puerta no tenía:
+
+- **Degrada, no rechaza.** Al publicar sin el correo verificado el anuncio **se queda en `DRAFT`
+  exactamente como estaba** —sin `publishedAt`, sin `expiresAt`, sin un campo tocado— y la respuesta
+  es `200` con un campo aditivo `publishBlocked: { code, message }`. No se pierde nada y no hay
+  ningún estado a medias que limpiar: la publicación no llega a ocurrir.
+- **Sólo al PUBLICAR.** Crear y editar siguen libres: quien se acaba de registrar puede redactar su
+  anuncio entero y guardarlo. Renovar, reactivar y las acciones de staff no la miran — un anuncio
+  que ya estuvo en el mercado no se retira por esto.
+- **Dónde vive la degradación:** en `ListingsService.publish`, no en la puerta. La puerta sigue
+  siendo binaria; el camino que sabe degradar reconoce ese motivo con `unicoMotivo()` y sólo cuando
+  es el **único** del rechazo. El razonamiento completo está en `docs/diseno-puerta-validacion.md`
+  (addendum de la regla #2) y en la cabecera de `publish`.
+- **El aviso es accionable** y lo escribe el backend: sale en el wizard de publicación y en la
+  tarjeta de «Mis anuncios», inline y con enlace a `/verificar-email`. Cuando el anuncio no se
+  publica, el toast de éxito **no** se emite.
+- **Nace apagada:** `Setting.emailVerifiedToPublishEnabled`, sin fila = apagada, editable desde el
+  backoffice.
+
 ### Límite TOTAL de anuncios (puerta, regla #1) — nace APAGADO
 
 Segundo límite, **regla aparte** de la de activos y con universo distinto: cuenta todo lo que el

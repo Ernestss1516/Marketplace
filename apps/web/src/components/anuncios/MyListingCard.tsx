@@ -66,7 +66,7 @@ interface Props {
 export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) {
   const [dealDialogOpen, setDealDialogOpen] = useState(false);
 
-  const { secundarias, menu, busy, error } = useListingActions({
+  const { secundarias, menu, busy, error, aviso } = useListingActions({
     listing,
     token,
     onDone: onAction,
@@ -210,6 +210,26 @@ export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) 
       {/* Acciones */}
       <CardContent className="border-t px-4 pb-4 pt-3">
         {error && <p className="mb-2 text-xs text-destructive">{error}</p>}
+
+        {/*
+          PUERTA regla #2 — la acción salió bien pero el anuncio se quedó en
+          borrador. NO va en el canal de error (no ha fallado nada ni se ha
+          perdido nada) ni en el de éxito (no se ha publicado). Va INLINE, junto
+          al botón que lo provocó, porque lleva una acción de recuperación
+          anclada — es el mismo reparto que fija el CLAUDE.md de apps/web para
+          «saldo insuficiente + comprar créditos».
+        */}
+        {aviso && (
+          <div
+            className="mb-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-200"
+            data-testid={`publish-blocked-${listing.id}`}
+          >
+            <p>{aviso}</p>
+            <Link href="/verificar-email" className="mt-1 inline-block font-medium underline">
+              Verificar ahora
+            </Link>
+          </div>
+        )}
 
         {/*
           `flex-wrap` con el menú empujado a la derecha por `ml-auto`: en escritorio es una
