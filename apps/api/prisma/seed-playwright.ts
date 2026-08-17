@@ -325,7 +325,25 @@ async function main() {
     update: { passwordHash, emailVerified: true, role: 'USER' },
   });
 
-  console.log('Playwright seed: admin-e2e + moderator-e2e + editor-e2e + role-target-e2e OK');
+  // MODERACIÓN M4 — target for the /admin/usuarios "requires review" toggle test.
+  // Its own user (not role-target-e2e) so two specs never fight over the same row,
+  // and `requiresReview` is reset to false on seed so the test is idempotent.
+  await prisma.user.upsert({
+    where: { email: 'review-target-e2e@example.com' },
+    create: {
+      email: 'review-target-e2e@example.com',
+      passwordHash,
+      name: 'Review Target E2E',
+      slug: 'review-target-e2e',
+      emailVerified: true,
+      role: 'USER',
+    },
+    update: { passwordHash, emailVerified: true, requiresReview: false },
+  });
+
+  console.log(
+    'Playwright seed: admin-e2e + moderator-e2e + editor-e2e + role-target-e2e + review-target-e2e OK',
+  );
 
   // ── Test report for moderator E2E tests ───────────────────────────────────────
   // The report is always reset to PENDING so the moderator action test is repeatable.

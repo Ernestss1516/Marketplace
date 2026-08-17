@@ -2705,6 +2705,49 @@ que acordarse de llamarlo. Ese método ya no existe.
 Ambos settings son editables desde `PATCH /admin/settings/:key` sin redeploy; el efecto es
 inmediato en la siguiente request de publish/renew.
 
+### Moderación previa — el nivel usuario y la confianza (M4) — nace APAGADO
+
+Cierra el disparador de tres niveles. `User.requiresReview` (aditivo, `false` para todos) es el
+tercer término, y el **más específico**: marca a un vendedor concreto para que sus anuncios pasen
+por revisión aunque plataforma y categoría estén apagadas.
+
+**La fórmula completa**, que es toda la decisión de M4:
+
+```
+requiereRevisión =
+     usuario.requiresReview                        ← específica: nada la afloja
+  OR categoría-o-ancestro.requiresReview           ← específica: nada la afloja
+  OR (plataforma AND NOT (trusted Y exención))     ← genérica: se puede eximir
+```
+
+**Qué es `trusted` HOY (verificado antes de decidir, no supuesto):** una insignia **puramente
+cosmética**. La escribe `PATCH /admin/users/:id/trusted` y sólo se lee para pintarla (SellerCard,
+perfil del vendedor, columna de `/admin/usuarios`). **Ninguna regla, guard o límite la consulta.**
+
+Por eso la exención **no** se implementó como «trusted exime y ya»: iría detrás su propio
+interruptor, `preModerationTrustedExempt`, que **nace apagado**. Convertir una insignia decorativa
+en un salto de moderación de golpe eximiría, con efecto retroactivo, a vendedores marcados hace
+meses por gente que no estaba decidiendo eso. Y un administrador que enciende «revisar todos los
+anuncios» debe obtener exactamente eso mientras no diga lo contrario.
+
+**La específica gana a la confianza.** Marcar un vendedor o una rama del catálogo es señalar algo
+puntual que alguien ha mirado; «reviso a todo el mundo» es una red genérica. Que la confianza
+levante la red es razonable; que anule una señal puesta a dedo sería sustituir la decisión más
+informada por la menos informada. Un vendedor puede ser de confianza **y** estar marcado a la vez
+—son ejes independientes, no opuestos— y entonces manda la marca.
+
+**Con varios niveles activos gana el más específico** al nombrar el motivo (`USER` → `CATEGORY` →
+`PLATFORM`), invirtiendo el orden de M1: al moderador le dice mucho más «este vendedor está
+marcado» que «revisamos todo», que ya lo sabe.
+
+**Backoffice:** columna propia «Revisión» en `/admin/usuarios` (ADMIN-only, `PATCH
+/admin/users/:id/requires-review`, con registro en `AuditLog`), **al lado** de «Confianza» y no
+dentro de ella: verlas juntas es justo lo que evita leer «de confianza» como «exento». El
+interruptor de la exención vive en `/admin/ajustes`.
+
+**Sigue sin persistirse `reviewReason`** (§2.4 del documento de diseño): la cola aún no puede decir
+*por qué* está un anuncio en revisión. Queda fuera de M4 a propósito.
+
 ### Moderación previa — la cola del moderador (M3)
 
 `/admin/moderacion` — una pantalla propia que lista **sólo** los `PENDING_REVIEW`, los que llevan

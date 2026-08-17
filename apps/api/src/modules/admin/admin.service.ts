@@ -29,6 +29,7 @@ import { ChangeListingStatusDto } from './dto/change-listing-status.dto';
 import { ListAdminUsersDto } from './dto/list-admin-users.dto';
 import { ChangeUserRoleDto } from './dto/change-user-role.dto';
 import { SetUserTrustedDto } from './dto/set-user-trusted.dto';
+import { SetUserRequiresReviewDto } from './dto/set-user-requires-review.dto';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { ReorderCategoriesDto } from './dto/reorder-categories.dto';
@@ -43,7 +44,10 @@ import {
 import { CategoryTreeService } from '../categories/category-tree.service';
 import { ListingGateService } from '../listing-gate/listing-gate.service';
 import { MARK_STALE_JOB } from '../listing-gate/revalidation.processor';
-import { PRE_MODERATION_ALL_SETTING } from '../moderation/pre-moderation.service';
+import {
+  PRE_MODERATION_ALL_SETTING,
+  PRE_MODERATION_TRUSTED_EXEMPT_SETTING,
+} from '../moderation/pre-moderation.service';
 import { EMAIL_VERIFIED_RULE_ENABLED_SETTING } from '../listing-gate/rules/email-verified.rule';
 import {
   DEFAULT_MAX_PHOTOS,
@@ -160,6 +164,10 @@ const SETTING_KEYS = [
   // es un ajuste global sino una marca por categoría (`Category.requiresReview`),
   // y por eso no aparece aquí.
   'preModerationAllListings',
+  // MODERACIÓN M4 — ¿la confianza exime de la revisión de PLATAFORMA? SIN FILA,
+  // NO: encenderlo es decidir que una insignia que hoy es cosmética pase a tener
+  // consecuencias. Nunca exime de las marcas específicas (categoría o usuario).
+  'preModerationTrustedExempt',
 ] as const;
 type SettingKey = (typeof SETTING_KEYS)[number];
 
@@ -238,6 +246,7 @@ const SETTING_DEFAULTS: Readonly<Record<string, unknown>> = {
   [TOTAL_LIMIT_RULE_ENABLED_SETTING]: false,
   // MODERACIÓN M1 — apagado, que es como nace.
   [PRE_MODERATION_ALL_SETTING]: false,
+  [PRE_MODERATION_TRUSTED_EXEMPT_SETTING]: false,
   [EMAIL_VERIFIED_RULE_ENABLED_SETTING]: false,
   // PUERTA regla #3. El máximo enseña 15 —el mismo que llevaba clavado el DTO—
   // para que el backoffice no pinte un hueco donde hay un tope aplicándose.
@@ -479,6 +488,9 @@ export class AdminService {
           province: true,
           createdAt: true,
           trusted: true,
+          // MODERACIÓN M4 — el backoffice tiene que poder VER quién está marcado,
+          // no sólo marcarlo.
+          requiresReview: true,
           _count: { select: { listings: true } },
         },
       }),
@@ -506,6 +518,7 @@ export class AdminService {
         postalCode: true,
         createdAt: true,
         trusted: true,
+        requiresReview: true,
         updatedAt: true,
         listings: {
           orderBy: { createdAt: 'desc' },
@@ -637,6 +650,52 @@ export class AdminService {
       resourceId: targetId,
       before,
       after: { trusted: dto.trusted },
+      ip,
+    });
+
+    return updated;
+  }
+
+  /**
+   * MODERACIÓN M4 — marca a un vendedor para que sus anuncios pasen por revisión.
+   *
+   * Molde exacto de `setUserTrusted`, incluido el registro en el histórico: quién
+   * marcó a quién y cuándo es justo lo que hay que poder reconstruir de una
+   * decisión así.
+   *
+   * NO es «lo contrario de trusted», y por eso son dos campos y dos endpoints: un
+   * vendedor puede estar marcado y ser de confianza a la vez, y en ese caso se
+   * revisa igual (la marca es específica; la confianza sólo levanta la red
+   * genérica de plataforma, y sólo si esa exención está encendida — ver
+   * `PreModerationService`).
+   */
+  async setUserRequiresReview(
+    targetId: string,
+    actorId: string,
+    dto: SetUserRequiresReviewDto,
+    ip?: string,
+  ) {
+    const user = await this.prisma.user.findUnique({ where: { id: targetId } });
+    if (!user) throw new NotFoundException('Usuario no encontrado');
+
+    const before = { requiresReview: user.requiresReview };
+
+    const updated = await this.prisma.user.update({
+      where: { id: targetId },
+      data: { requiresReview: dto.requiresReview },
+      select: {
+        id: true, name: true, email: true, slug: true, role: true, status: true,
+        trusted: true, requiresReview: true,
+      },
+    });
+
+    await this.auditLog.log({
+      action: dto.requiresReview ? 'USER_REQUIRE_REVIEW' : 'USER_UNREQUIRE_REVIEW',
+      actorId,
+      resourceType: 'User',
+      resourceId: targetId,
+      before,
+      after: { requiresReview: dto.requiresReview },
       ip,
     });
 

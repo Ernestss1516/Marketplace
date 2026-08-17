@@ -320,6 +320,14 @@ model User {
   /// H8 Bloque E — "Vendedor de confianza": confianza otorgada por la plataforma (ADMIN-only).
   /// Independiente de Pro (isProActive): un usuario puede ser Pro, de confianza, ambos o ninguno.
   trusted             Boolean    @default(false)
+  /// MODERACIÓN PREVIA (M4) — los anuncios de este vendedor pasan por revisión
+  /// antes de publicarse. Es el tercer nivel del disparador, y el MÁS ESPECÍFICO:
+  /// ninguna confianza lo afloja.
+  ///
+  /// ES LO CONTRARIO DE `trusted`, no su ausencia: un usuario puede ser de
+  /// confianza y estar marcado a la vez (la marca gana), o no ser ninguna de las
+  /// dos cosas, que es el caso normal. Aditivo: nace `false` para todos.
+  requiresReview      Boolean    @default(false)
 
   // Ubicación para mostrar y prefiltrar
   city       String?

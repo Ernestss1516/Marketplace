@@ -23,6 +23,7 @@ import { ChangeListingStatusDto } from './dto/change-listing-status.dto';
 import { ListAdminUsersDto } from './dto/list-admin-users.dto';
 import { ChangeUserRoleDto } from './dto/change-user-role.dto';
 import { SetUserTrustedDto } from './dto/set-user-trusted.dto';
+import { SetUserRequiresReviewDto } from './dto/set-user-requires-review.dto';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { ReorderCategoriesDto } from './dto/reorder-categories.dto';
@@ -154,6 +155,20 @@ export class AdminController {
     @Ip() ip: string,
   ) {
     return this.adminService.setUserTrusted(id, user.userId, dto, ip);
+  }
+
+  // MODERACIÓN M4 — marcar a un vendedor para revisión previa. ADMIN-only, mismo
+  // criterio que la confianza: decidir que alguien pasa por revisión es política
+  // de plataforma, no una acción de moderación del día a día.
+  @Patch('users/:id/requires-review')
+  @HttpCode(HttpStatus.OK)
+  setUserRequiresReview(
+    @Param('id') id: string,
+    @Body() dto: SetUserRequiresReviewDto,
+    @CurrentUser() user: JwtUser,
+    @Ip() ip: string,
+  ) {
+    return this.adminService.setUserRequiresReview(id, user.userId, dto, ip);
   }
 
   // ─── Categories ───────────────────────────────────────────────────────────
