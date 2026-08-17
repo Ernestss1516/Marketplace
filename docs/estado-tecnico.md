@@ -2705,6 +2705,36 @@ que acordarse de llamarlo. Ese método ya no existe.
 Ambos settings son editables desde `PATCH /admin/settings/:key` sin redeploy; el efecto es
 inmediato en la siguiente request de publish/renew.
 
+### Moderación previa — el disparador (M1) — nace APAGADO
+
+El **cuarto desenlace** de una publicación: además de pasar, rechazar, marcar
+(`needsRevalidation`) y degradar a borrador, ahora se puede **desviar** a `PENDING_REVIEW`. No
+valida ni rechaza nada — cambia el **destino**. Al vendedor no se le pide nada: su anuncio está
+bien, sólo tiene que esperar.
+
+- **Dónde vive:** `PreModerationService`, consultado por `ListingsService.publish` justo donde ya
+  se calculaba `targetStatus`. **La puerta no se toca**: desviar es elegir destino, no validar.
+- **Dos niveles, en `OR` sin exenciones** (el tercero, usuario, es M4):
+  - **Plataforma** — `Setting.preModerationAllListings`, sin fila = apagado, con casilla en el
+    backoffice.
+  - **Categoría** — `Category.requiresReview`, migración aditiva, editable por
+    `PATCH /admin/categories/:id`.
+- **La herencia es un pliegue MONÓTONO** (`resolveEffectiveRequiresReview`, un `OR` sobre la cadena
+  raíz→hoja): si cualquier ancestro exige revisión, todos sus descendientes también, y **ninguno
+  puede aflojarlo**. Es la única de las seis resoluciones que no admite override, y la razón es la
+  asimetría del error: marcar de más cuesta revisar trabajo que no hacía falta —y se ve, porque la
+  cola crece—; aflojar de menos cuesta publicar sin revisar, y eso no lo ve nadie.
+- **Fail-closed**, al revés que `BadWordService`: si la decisión falla, el anuncio va a revisión. La
+  diferencia no es de gusto — el filtro es una heurística (perderla no rompe ninguna promesa) y
+  esto es una política explícita que alguien encendió.
+- **Convive con el filtro de palabras** sin pisarlo: cualquiera de los dos manda a revisión, y que
+  el otro también lo pida no cambia nada.
+- **Apagado no hace nada:** sin ajuste y sin categorías marcadas, publicar se comporta exactamente
+  como antes.
+
+**Lo que M1 NO hace:** aprobar/rechazar desde una UI (M3), el aviso al vendedor y que aprobar pase
+la puerta entera (M2), y el nivel de usuario (M4). Ver `docs/auditoria-y-diseno-moderacion.md`.
+
 ### Límites de fotos (puerta, regla #3) — el máximo se muda, el mínimo nace APAGADO
 
 Son dos cosas distintas con distinto riesgo, y conviene no confundirlas:

@@ -171,6 +171,10 @@ async function main(): Promise<void> {
     select: {
       id: true, slug: true, name: true, parentId: true, attributeSchema: true,
       allowedListingType: true, allowedViews: true, defaultView: true, allowedPriceUnits: true,
+      // M1 — no lo mide ninguna regla de este informe, pero `CategoryNode` lo
+      // exige: el árbol que se arma aquí tiene que tener la MISMA forma que el
+      // de producción, o el pliegue mediría sobre un árbol distinto.
+      requiresReview: true,
     },
   });
   const arbol = new Map<string, CategoryNode>(

@@ -403,6 +403,7 @@ const SETTING_TITLES: Record<string, string> = {
   maxPhotosPerListing: 'Máximo de fotos por anuncio',
   minPhotosPerListing: 'Mínimo de fotos para publicar',
   minPhotosRuleEnabled: 'Exigir el mínimo de fotos',
+  preModerationAllListings: 'Revisar TODOS los anuncios antes de publicarlos',
   proMonthlyFeaturedQuota: 'Cuota mensual de destacados (Pro)',
   proQuotaFeaturedDurationDays: 'Duración del destacado por cuota (Pro)',
   proExtraCreditsPercent: 'Bonus de créditos al comprar packs (Pro)',
@@ -434,6 +435,8 @@ const SETTING_DESCRIPTIONS: Record<string, string> = {
     'Cuántas fotos hacen falta como mínimo para PUBLICAR. Sólo se aplica si el interruptor de abajo está encendido. No puede superar al máximo — el backend rechaza esa combinación, porque dejaría el sistema pidiendo algo imposible.',
   minPhotosRuleEnabled:
     'El asistente de publicación lleva desde siempre diciendo «se necesita al menos 1 foto» y deshabilitando su botón sin ellas, pero el servidor no lo exigía: por «Mis anuncios» o por la API se podía publicar un anuncio sin ninguna. Encender esto alinea el servidor con lo que la interfaz ya promete. Sólo afecta a PUBLICAR: crear y editar borradores sin fotos sigue permitido, y los anuncios ya publicados no se tocan (renovar y reactivar tampoco lo miran).',
+  preModerationAllListings:
+    'MODERACIÓN PREVIA, nivel plataforma. Encendido, TODO anuncio nuevo queda «en revisión» al publicarse y no se ve en el marketplace hasta que un moderador lo apruebe. ⚠ Es el más exigente de los tres niveles: a partir del clic, cada anuncio espera a un humano, así que enciéndelo sólo si hay alguien vaciando la cola. Para acotarlo a una parte del catálogo, marca «requiere revisión» en una categoría: se aplica a ella y a TODOS sus descendientes. Los anuncios ya publicados no se tocan.',
   emailVerifiedToPublishEnabled:
     'Mientras esté apagado, un usuario con el correo sin verificar publica como siempre. Al encenderlo, NO se rechaza nada ni se pierde ningún anuncio: quien intente publicar sin haber verificado su correo se encuentra el anuncio guardado como BORRADOR y un aviso con el enlace para verificar. Crear y redactar siguen siendo libres — sólo se frena el paso al mercado, y en cuanto verifique podrá publicarlo. No afecta a los anuncios que ya están publicados.',
   totalListingLimitEnabled:
@@ -576,6 +579,7 @@ export default function AdminAjustesPage() {
     'maxPhotosPerListing',
     'minPhotosPerListing',
     'minPhotosRuleEnabled',
+    'preModerationAllListings',
     'proMonthlyFeaturedQuota',
     'proQuotaFeaturedDurationDays',
     'proExtraCreditsPercent',
@@ -737,6 +741,16 @@ export default function AdminAjustesPage() {
                   settingKey="minPhotosRuleEnabled"
                   label="Exigir el mínimo de fotos al publicar"
                   helpText="Apagado, el mínimo es sólo una recomendación de la interfaz. Encendido, el servidor lo exige de verdad — pero sólo al publicar."
+                />
+              )}
+              {key === 'preModerationAllListings' && (
+                <BooleanSettingEditor
+                  setting={setting}
+                  token={token}
+                  onSaved={() => handleSaved(key)}
+                  settingKey="preModerationAllListings"
+                  label="Revisar todos los anuncios antes de publicarlos"
+                  helpText="Encendido, cada anuncio nuevo espera a que un moderador lo apruebe. Para acotarlo a una rama del catálogo, usa la marca de la categoría."
                 />
               )}
               {key === 'emailVerifiedToPublishEnabled' && (

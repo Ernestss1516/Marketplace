@@ -1,4 +1,4 @@
-import { IsArray, IsEnum, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { IsArray, IsBoolean, IsEnum, IsInt, IsOptional, IsString, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ListingTypePolicy, ListingViewMode, PriceUnit } from '@prisma/client';
 
@@ -54,6 +54,15 @@ export class UpdateCategoryDto {
   @IsOptional()
   @IsEnum(ListingTypePolicy)
   allowedListingType?: ListingTypePolicy;
+
+  /**
+   * MODERACIÓN PREVIA M1 — ver `CreateCategoryDto`. Desmarcar una categoría NO
+   * exime a sus descendientes si algún ancestro sigue marcado: el pliegue es
+   * monótono a propósito.
+   */
+  @IsOptional()
+  @IsBoolean()
+  requiresReview?: boolean;
 
   /** RÁFAGA 2 — [] = "quitar la config propia" (vuelve a heredar/default global). */
   @IsOptional()

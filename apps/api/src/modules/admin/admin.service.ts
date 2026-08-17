@@ -43,6 +43,7 @@ import {
 import { CategoryTreeService } from '../categories/category-tree.service';
 import { ListingGateService } from '../listing-gate/listing-gate.service';
 import { MARK_STALE_JOB } from '../listing-gate/revalidation.processor';
+import { PRE_MODERATION_ALL_SETTING } from '../moderation/pre-moderation.service';
 import { EMAIL_VERIFIED_RULE_ENABLED_SETTING } from '../listing-gate/rules/email-verified.rule';
 import {
   DEFAULT_MAX_PHOTOS,
@@ -154,6 +155,11 @@ const SETTING_KEYS = [
   // `pnpm gate-impact-report` delante. Mientras está apagada el mecanismo sigue
   // marcando y avisando, que es lo que hace que encenderla no sea a ciegas.
   'attributeRevalidationEnabled',
+  // MODERACIÓN PREVIA M1 — nivel PLATAFORMA. Sin fila, APAGADO: nada va a
+  // revisión por esta vía hasta que alguien lo encienda. El nivel CATEGORÍA no
+  // es un ajuste global sino una marca por categoría (`Category.requiresReview`),
+  // y por eso no aparece aquí.
+  'preModerationAllListings',
 ] as const;
 type SettingKey = (typeof SETTING_KEYS)[number];
 
@@ -230,6 +236,8 @@ const SETTING_DEFAULTS: Readonly<Record<string, unknown>> = {
   [PRO_TOTAL_LIMIT_SETTING]: DEFAULT_PRO_TOTAL_LIMIT,
   // Apagada, que es como nace. Mismo criterio que `videoEnabled`.
   [TOTAL_LIMIT_RULE_ENABLED_SETTING]: false,
+  // MODERACIÓN M1 — apagado, que es como nace.
+  [PRE_MODERATION_ALL_SETTING]: false,
   [EMAIL_VERIFIED_RULE_ENABLED_SETTING]: false,
   // PUERTA regla #3. El máximo enseña 15 —el mismo que llevaba clavado el DTO—
   // para que el backoffice no pinte un hueco donde hay un tope aplicándose.
@@ -1189,6 +1197,9 @@ export class AdminService {
           ...(dto.allowedListingType !== undefined && {
             allowedListingType: dto.allowedListingType,
           }),
+          // MODERACIÓN M1 — la marca de revisión de esta categoría. Se hereda
+          // monótona hacia los descendientes; ver resolveEffectiveRequiresReview.
+          ...(dto.requiresReview !== undefined && { requiresReview: dto.requiresReview }),
           ...(dto.allowedViews !== undefined && { allowedViews: dto.allowedViews }),
           ...(dto.defaultView !== undefined && { defaultView: dto.defaultView }),
           // RP.2 — sin guard anti-huérfanos aquí: una categoría recién creada no
@@ -1336,6 +1347,9 @@ export class AdminService {
           ...(dto.allowedListingType !== undefined && {
             allowedListingType: dto.allowedListingType,
           }),
+          // MODERACIÓN M1 — la marca de revisión de esta categoría. Se hereda
+          // monótona hacia los descendientes; ver resolveEffectiveRequiresReview.
+          ...(dto.requiresReview !== undefined && { requiresReview: dto.requiresReview }),
           ...(dto.allowedViews !== undefined && { allowedViews: dto.allowedViews }),
           ...(defaultViewToWrite !== undefined && { defaultView: defaultViewToWrite }),
           ...(dto.allowedPriceUnits !== undefined && {

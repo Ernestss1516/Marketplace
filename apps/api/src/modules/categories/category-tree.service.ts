@@ -112,6 +112,8 @@ export interface CategoryNode {
   allowedViews: ListingViewMode[];
   defaultView: ListingViewMode | null;
   allowedPriceUnits: PriceUnit[];
+  /** MODERACIÓN PREVIA (M1) — marca propia; el pliegue monótono la hereda. */
+  requiresReview: boolean;
 }
 
 @Injectable()
@@ -219,6 +221,7 @@ export class CategoryTreeService {
           allowedViews: true,
           defaultView: true,
           allowedPriceUnits: true,
+          requiresReview: true,
         },
       })
       .then(

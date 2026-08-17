@@ -260,6 +260,22 @@ describe('Alert matching (e2e) — B3', () => {
     });
 
     it('reintentar matchListing() para el mismo anuncio no duplica el match ni la notificación', async () => {
+      // Se espera al ESTADO DEFINITIVO de la primera pasada antes de medir.
+      //
+      // Sin esto, `beforeNotifs` podía leerse mientras el aviso de la pasada del
+      // `beforeAll` seguía en vuelo: salía 0, llegaba entre las dos lecturas, y
+      // el test fallaba con un «esperaba 0, recibí 1» que no tiene nada que ver
+      // con la deduplicación que prueba. Ocurrió una vez en la batería completa y
+      // no se reprodujo al correr la suite sola — el síntoma clásico de medir una
+      // presencia en vez de un estado (ver `helpers/async-state.ts`).
+      await pollUntil(
+        async () =>
+          (await notifications.findByUser(buyer.id, 1, 50)).items.some(
+            (n) => (n.data as { alertId: string }).alertId === alertId,
+          ),
+        15_000,
+      );
+
       const beforeMatches = await prisma.alertMatch.count({ where: { alertId, listingId } });
       const beforeNotifs = (await notifications.findByUser(buyer.id, 1, 50)).items.filter(
         (n) => (n.data as { alertId: string }).alertId === alertId,

@@ -33,6 +33,7 @@ import { EntitlementService } from '../billing/entitlement.service';
 // dependencia existente ListingsModule → BillingModule.
 import { nextBumpAt } from '../billing/bump-cooldown';
 import { BadWordService } from '../moderation/bad-word.service';
+import { PreModerationService } from '../moderation/pre-moderation.service';
 import { ListingActivationService } from '../listing-activation/listing-activation.service';
 import { MessagingService } from '../messaging/messaging.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -170,6 +171,8 @@ export class ListingsService {
     @InjectQueue(QUEUE_INDEXING) private readonly indexingQueue: Queue,
     @InjectQueue(QUEUE_NOTIFICATIONS) private readonly notificationQueue: Queue,
     private readonly badWordService: BadWordService,
+    // MODERACIÓN PREVIA (M1) — decide si el anuncio se desvía a revisión.
+    private readonly preModeration: PreModerationService,
     private readonly entitlementService: EntitlementService,
     private readonly activation: ListingActivationService,
     private readonly messaging: MessagingService,
@@ -524,6 +527,30 @@ export class ListingsService {
       if (flagged) targetStatus = 'PENDING_REVIEW';
     } catch (_err) {
       // Silent fallback — publication continues normally.
+    }
+
+    // MODERACIÓN PREVIA (M1) — EL CUARTO DESENLACE: DESVIAR.
+    //
+    // No valida ni rechaza: cambia el DESTINO. El anuncio está bien; lo que pasa
+    // es que alguien decidió que esta rama (o la plataforma entera) se revisa
+    // antes de publicar. Por eso no es una regla de la puerta —no produce nada
+    // que el vendedor pueda corregir— sino una decisión sobre a dónde va.
+    //
+    // AQUÍ, JUNTO AL FILTRO DE PALABRAS, porque son la misma clase de decisión y
+    // este sitio ya existía: `targetStatus` lleva desde siempre pudiendo ser
+    // PENDING_REVIEW. Los dos CONVIVEN sin pisarse — cualquiera de los dos manda
+    // el anuncio a revisión, y que el otro también lo pida no cambia nada.
+    //
+    // La diferencia está en el fallo, y es deliberada: el filtro es fail-OPEN
+    // (arriba, con su try/catch que sigue adelante) porque es una heurística;
+    // esto es fail-CLOSED (dentro del servicio) porque es una política explícita.
+    // Ver `PreModerationService`.
+    //
+    // APAGADO NO HACE NADA: sin el ajuste de plataforma y sin ninguna categoría
+    // marcada, `reviewTriggerFor` devuelve `null` y este bloque no toca
+    // `targetStatus`.
+    if (targetStatus === 'ACTIVE' && (await this.preModeration.reviewTriggerFor(existing))) {
+      targetStatus = 'PENDING_REVIEW';
     }
 
     // PUERTA — la cuota de RF.7 y todo lo que venga después. Sólo si de verdad
