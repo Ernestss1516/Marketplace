@@ -115,10 +115,27 @@ export function createListing(
   });
 }
 
+/**
+ * PUERTA regla #2 — publicar tiene ahora TRES desenlaces, no dos:
+ *
+ *  · `ACTIVE` — publicado.
+ *  · `PENDING_REVIEW` — a revisión por el filtro de palabras (ya existía).
+ *  · `DRAFT` + `publishBlocked` — NO se publicó y NO se tocó nada: el anuncio
+ *    sigue tal cual estaba. Hoy sólo lo produce el correo sin verificar.
+ *
+ * El motivo viaja desde el backend en vez de escribirlo aquí: el texto es de
+ * negocio y esta capa es presentación (ver el CLAUDE.md de apps/web).
+ */
 export function publishListing(
   id: string,
   token: string,
-): Promise<{ id: string; slug: string; status: 'ACTIVE' | 'PENDING_REVIEW'; publishedAt: string }> {
+): Promise<{
+  id: string;
+  slug: string;
+  status: 'ACTIVE' | 'PENDING_REVIEW' | 'DRAFT';
+  publishedAt: string;
+  publishBlocked?: { code: string; message: string; field?: string };
+}> {
   return apiFetch(`/listings/${id}/publish`, { method: 'POST', token });
 }
 

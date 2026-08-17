@@ -90,10 +90,25 @@ export function useListingActions({ listing, token, onDone }: Options) {
   const { loginUrl } = useRequireAuth();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * PUERTA regla #2 — el aviso cuando la acción SALE BIEN pero no hace lo que el
+   * usuario esperaba: publicar sin el correo verificado deja el anuncio en
+   * borrador. No es `error` (la petición devolvió 200 y no se ha perdido nada) ni
+   * es éxito (no se ha publicado), así que necesita su propio canal.
+   */
+  const [aviso, setAviso] = useState<string | null>(null);
 
-  async function ejecutar(key: string, fn: () => Promise<unknown>, successMessage: string) {
+  async function ejecutar<T>(
+    key: string,
+    fn: () => Promise<T>,
+    // Acepta una FUNCIÓN del resultado, no sólo un texto: es lo que permite que
+    // el mismo botón anuncie «publicado» o no anuncie nada según lo que devuelva
+    // el backend. El hook ya lo soportaba (`Message<T>`); aquí sólo se deja pasar.
+    successMessage: string | ((result: T) => string | null),
+  ) {
     setBusy(key);
     setError(null);
+    setAviso(null);
     await run(fn, {
       // UXV.3 — canal común. Antes estas siete acciones se completaban en absoluto
       // silencio: el listado se refrescaba y el usuario deducía por el badge si había
@@ -138,7 +153,21 @@ export function useListingActions({ listing, token, onDone }: Options) {
       label: 'Publicar',
       icon: Send,
       run: () =>
-        ejecutar('publish', () => publishListing(listing.id, token), 'Anuncio publicado.'),
+        ejecutar(
+          'publish',
+          async () => {
+            const res = await publishListing(listing.id, token);
+            // PUERTA regla #2 — el anuncio se quedó en borrador. El aviso lo
+            // escribe el backend, que es quien sabe por qué.
+            if (res.status === 'DRAFT' && res.publishBlocked) {
+              setAviso(res.publishBlocked.message);
+            }
+            return res;
+          },
+          // Sin toast cuando no se publicó: anunciar «Anuncio publicado» sobre un
+          // borrador sería mentirle al vendedor con el canal de éxito.
+          (res) => (res.status === 'DRAFT' ? null : 'Anuncio publicado.'),
+        ),
     });
   } else if (status === 'ACTIVE') {
     secundarias.push({
@@ -253,5 +282,5 @@ export function useListingActions({ listing, token, onDone }: Options) {
     run: () => ejecutar('delete', () => deleteListing(listing.id, token), 'Anuncio eliminado.'),
   });
 
-  return { secundarias, menu, busy, error };
+  return { secundarias, menu, busy, error, aviso };
 }

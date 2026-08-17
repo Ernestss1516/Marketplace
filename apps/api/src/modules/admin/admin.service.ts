@@ -43,6 +43,7 @@ import {
 import { CategoryTreeService } from '../categories/category-tree.service';
 import { ListingGateService } from '../listing-gate/listing-gate.service';
 import { MARK_STALE_JOB } from '../listing-gate/revalidation.processor';
+import { EMAIL_VERIFIED_RULE_ENABLED_SETTING } from '../listing-gate/rules/email-verified.rule';
 import {
   DEFAULT_FREE_ACTIVE_LIMIT,
   DEFAULT_FREE_TOTAL_LIMIT,
@@ -85,6 +86,9 @@ const SETTING_KEYS = [
   // PUERTA regla #1 — su interruptor. SIN FILA, APAGADA: es política NUEVA, y
   // encenderla sin saber a cuánta gente frena es justo lo que M2 evita.
   'totalListingLimitEnabled',
+  // PUERTA regla #2 — correo verificado para publicar. SIN FILA, APAGADA. No
+  // rechaza nada: deja el anuncio en borrador con un aviso.
+  'emailVerifiedToPublishEnabled',
   // H8.1: monthly free-featured quota granted to Pro subscribers
   'proMonthlyFeaturedQuota',
   // H8.5a: fixed duration of a featured grant paid from the quota
@@ -210,6 +214,7 @@ const SETTING_DEFAULTS: Readonly<Record<string, unknown>> = {
   [PRO_TOTAL_LIMIT_SETTING]: DEFAULT_PRO_TOTAL_LIMIT,
   // Apagada, que es como nace. Mismo criterio que `videoEnabled`.
   [TOTAL_LIMIT_RULE_ENABLED_SETTING]: false,
+  [EMAIL_VERIFIED_RULE_ENABLED_SETTING]: false,
 };
 
 // A1 (URLs anidadas) — segmentos de primer nivel que YA ocupan rutas estáticas del

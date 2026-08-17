@@ -427,7 +427,7 @@ porque habría hecho correr TODAS las reglas al crear: la cuota de activos habr�
 un borrador. Los dos ganchos son opcionales, así que una regla que no implementa uno no se evalúa
 en ese momento y ninguna regla anterior cambia.
 
-**La lección para las tres que faltan:** una regla sobre un anuncio existente se enchufa sin tocar
+**La lección para las tres que faltan (escrita antes de la #2):** una regla sobre un anuncio existente se enchufa sin tocar
 la puerta; una regla sobre lo que aún no existe hace crecer la puerta una vez, y sólo una — la
 segunda ya encuentra el gancho hecho. De las tres pendientes, correo verificado y fotos son de
 entrada (usan `checkBeforeCreate` o `check` según dónde se decida cobrarlas) y moderación previa es
@@ -445,6 +445,43 @@ sobre anuncio existente.
    (`total > activos`) se comprueba en las dos direcciones al editar el ajuste, además de un test
    sobre los valores por defecto. El precedente es la cicatriz de `/planes`, donde el límite
    gratuito podía superar al Pro y nadie se enteraba.
+
+### Addendum — la regla #2 (correo verificado) y el TERCER desenlace
+
+La regla #1 ya obligó a la puerta a crecer una vez, para poder preguntar por un anuncio que aún no
+existe. La #2 trajo la otra pregunta pendiente: **qué hacer cuando el «no» no es un error.**
+
+Publicar sin el correo verificado no es un fallo del anuncio —está perfecto— sino un paso que le
+falta a su dueño. Rechazarlo con un 4xx le dejaría preguntándose dónde ha quedado su trabajo. Así
+que el desenlace es un tercero: **el anuncio se queda en `DRAFT`, sin tocar un solo campo, y viaja
+un aviso con la salida.**
+
+**Dónde vive ese tercer desenlace — se evaluaron las dos opciones:**
+
+| | (a) Tercer veredicto en la puerta | (b) El camino lo interpreta ← **elegida** |
+|---|---|---|
+| Contrato de la puerta | deja de ser binario | **intacto** |
+| Quién se entera | los **diez** caminos | sólo `publish` |
+| Coste | nueve caminos aprenden a manejar un veredicto que nunca reciben | un `try/catch` en `publish` |
+
+Se eligió **(b)**, y lo que la hace segura no es una cuestión de estilo: la regla declara
+`appliesTo` = sólo `publish`, así que el motivo `EMAIL_NOT_VERIFIED` **no puede aparecer en ningún
+otro camino**. Ninguno de los otros nueve necesita saber que existe. Con (a) todos habrían tenido
+que decidir qué hacen con algo que no les llega nunca.
+
+El coste de (b) es usar una excepción como decisión, y se acota con `unicoMotivo(err, code)`: sólo
+degrada si ese es el **único** motivo del rechazo. Si el vendedor además está en el tope de su plan,
+el rechazo se propaga entero con los dos motivos — degradar en silencio le escondería el segundo,
+verificaría el correo y volvería a chocar.
+
+**Dos invariantes que sostienen todo esto, y que están fijadas en tests unitarios** porque
+ampliarlas rompería la degradación sin que nada fallara a la vista: la lista de transiciones de
+`appliesTo`, y que el reconocimiento del motivo sea exacto.
+
+**Para las dos reglas que faltan:** ya hay molde para los tres desenlaces —pasar, rechazar y
+degradar—. «Fotos requeridas» es la candidata natural a reutilizar la degradación (el anuncio existe
+y sólo le falta algo al usuario); «moderación previa» no, porque ahí el destino ya tiene su propio
+estado (`PENDING_REVIEW`) y el camino de publicación ya sabe llegar a él.
 
 ## Lo que este plan NO hace
 

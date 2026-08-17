@@ -399,6 +399,7 @@ const SETTING_TITLES: Record<string, string> = {
   freeTotalListingLimit: 'Límite TOTAL de anuncios (Free)',
   proTotalListingLimit: 'Límite TOTAL de anuncios (Pro)',
   totalListingLimitEnabled: 'Aplicar el límite total de anuncios',
+  emailVerifiedToPublishEnabled: 'Exigir correo verificado para publicar',
   proMonthlyFeaturedQuota: 'Cuota mensual de destacados (Pro)',
   proQuotaFeaturedDurationDays: 'Duración del destacado por cuota (Pro)',
   proExtraCreditsPercent: 'Bonus de créditos al comprar packs (Pro)',
@@ -424,6 +425,8 @@ const SETTING_DESCRIPTIONS: Record<string, string> = {
     'Cuántos anuncios puede TENER en total un usuario Free, estén publicados o no: cuenta borradores, en revisión, activos, reservados, pausados, caducados y rechazados. NO cuentan los archivados ni los vendidos, así que archivar o marcar como vendido libera hueco. Es distinto del límite de activos: aquel limita el escaparate y este la acumulación. Tiene que ser mayor que el de activos — el backend rechaza el cambio si no lo es.',
   proTotalListingLimit:
     'Lo mismo para un usuario Pro. Tiene que ser mayor que el límite de activos de Pro.',
+  emailVerifiedToPublishEnabled:
+    'Mientras esté apagado, un usuario con el correo sin verificar publica como siempre. Al encenderlo, NO se rechaza nada ni se pierde ningún anuncio: quien intente publicar sin haber verificado su correo se encuentra el anuncio guardado como BORRADOR y un aviso con el enlace para verificar. Crear y redactar siguen siendo libres — sólo se frena el paso al mercado, y en cuanto verifique podrá publicarlo. No afecta a los anuncios que ya están publicados.',
   totalListingLimitEnabled:
     'Mientras esté apagado, los dos límites totales de arriba NO se aplican: se pueden configurar y dejar preparados sin que nadie se vea frenado. Al encenderlo, un usuario que ya esté por encima de su tope NO pierde ningún anuncio; simplemente no podrá crear otro hasta bajar archivando o vendiendo. El freno actúa al CREAR, no al publicar.',
   proMonthlyFeaturedQuota:
@@ -560,6 +563,7 @@ export default function AdminAjustesPage() {
     'freeTotalListingLimit',
     'proTotalListingLimit',
     'totalListingLimitEnabled',
+    'emailVerifiedToPublishEnabled',
     'proMonthlyFeaturedQuota',
     'proQuotaFeaturedDurationDays',
     'proExtraCreditsPercent',
@@ -687,6 +691,16 @@ export default function AdminAjustesPage() {
                   settingKey="totalListingLimitEnabled"
                   label="Aplicar el límite total al crear un anuncio"
                   helpText="Apagado, los topes de arriba no frenan a nadie. Encenderlo no expulsa ni oculta nada: sólo impide crear anuncios nuevos a quien esté en su tope."
+                />
+              )}
+              {key === 'emailVerifiedToPublishEnabled' && (
+                <BooleanSettingEditor
+                  setting={setting}
+                  token={token}
+                  onSaved={() => handleSaved(key)}
+                  settingKey="emailVerifiedToPublishEnabled"
+                  label="Exigir el correo verificado para publicar"
+                  helpText="No rechaza: el anuncio se queda en borrador con un aviso y su enlace para verificar. Crear y redactar siguen libres."
                 />
               )}
               {key === 'proMonthlyFeaturedQuota' && (

@@ -34,3 +34,25 @@ export class ListingGateException extends HttpException {
     super({ message, code, reasons }, status);
   }
 }
+
+/**
+ * ¿El rechazo se debe EXACTAMENTE a este motivo y a ningún otro?
+ *
+ * PARA QUÉ EXISTE — la regla #2 (correo verificado). La puerta es BINARIA: pasa o
+ * lanza. Pero hay un rechazo que el camino `publish` no quiere convertir en
+ * error, sino en «te lo dejo en borrador y te aviso». En vez de darle a la puerta
+ * un tercer veredicto que sólo usaría una regla, el camino que sabe degradar
+ * reconoce aquí su motivo. Ver `ListingsService.publish`.
+ *
+ * «Y A NINGÚN OTRO» ES LA MITAD IMPORTANTE. Si el vendedor no ha verificado el
+ * correo Y ADEMÁS está en el tope de su plan, degradar en silencio le ocultaría
+ * el segundo problema: se quedaría mirando el aviso del correo, lo arreglaría y
+ * volvería a chocar. Con dos motivos esto devuelve `null`, el rechazo se propaga
+ * entero y el vendedor ve las dos cosas a la vez — que es justo lo que la
+ * decisión D-motivos buscaba.
+ */
+export function unicoMotivo(err: unknown, code: string): GateReason | null {
+  if (!(err instanceof ListingGateException)) return null;
+  if (err.reasons.length !== 1) return null;
+  return err.reasons[0].code === code ? err.reasons[0] : null;
+}

@@ -57,6 +57,9 @@ import {
 import { CategoryTreeService, type CategoryNode } from '../categories/category-tree.service';
 import { ListingGateService } from '../listing-gate/listing-gate.service';
 import { RevalidationService } from '../listing-gate/revalidation.service';
+import { unicoMotivo } from '../listing-gate/listing-gate.exception';
+import { EMAIL_NOT_VERIFIED_CODE } from '../listing-gate/rules/email-verified.rule';
+import type { GateReason } from '../listing-gate/listing-gate.types';
 import { AttributeCheckService } from '../listing-gate/attribute-check.service';
 import type { ListingTypePolicy, PriceUnit } from '@prisma/client';
 import { CreateListingDto } from './dto/create-listing.dto';
@@ -464,7 +467,43 @@ export class ListingsService {
     return listing;
   }
 
-  async publish(id: string, userId: string): Promise<Listing> {
+  /**
+   * REGLA #2 — LA DEGRADACIÓN, Y POR QUÉ VIVE AQUÍ Y NO EN LA PUERTA.
+   *
+   * Publicar sin el correo verificado no es un error del vendedor: su anuncio
+   * está bien, sólo le falta un paso a él. Así que no se rechaza —se deja el
+   * anuncio EXACTAMENTE como estaba, en DRAFT, sin tocar un solo campo— y se le
+   * dice qué hacer. Es un tercer resultado: ni «publicado» ni «error».
+   *
+   * SE EVALUARON DOS SITIOS PARA ESE TERCER RESULTADO:
+   *
+   *  (a) Que la puerta tuviera tres veredictos (pasa / rechaza / degrada). Más
+   *      potente, pero cambia el contrato de la puerta —hoy binario— para los
+   *      diez caminos que la llaman, y sólo UNA regla lo usaría. Los otros nueve
+   *      caminos tendrían que aprender a manejar un veredicto que nunca van a
+   *      recibir.
+   *
+   *  (b) Que la puerta siga siendo binaria y que sea ESTE camino, el único que
+   *      sabe degradar, quien reconozca ese motivo concreto. ← ELEGIDA.
+   *
+   * Se eligió (b), y la razón que la hace segura no es de estilo: la regla
+   * declara `appliesTo` = sólo `publish`, así que el motivo `EMAIL_NOT_VERIFIED`
+   * NO PUEDE aparecer en ningún otro camino. Ninguno de los otros nueve necesita
+   * saber que existe. Con (a), en cambio, todos habrían tenido que decidir qué
+   * hacen con un veredicto que no les llega nunca.
+   *
+   * El coste de (b) es este try/catch, que usa una excepción como decisión. Se
+   * acota con `unicoMotivo`: si hay CUALQUIER otro motivo —o más de uno—, el
+   * rechazo se propaga tal cual. Sólo el caso exacto se convierte en degradación.
+   *
+   * `publishBlocked` es ADITIVO: quien sólo mire `status` ve un DRAFT y ya sabe
+   * que no se publicó — que es justo como el frontend distingue hoy un
+   * PENDING_REVIEW de un ACTIVE.
+   */
+  async publish(
+    id: string,
+    userId: string,
+  ): Promise<Listing & { publishBlocked?: GateReason }> {
     const existing = await this.assertOwnership(id, userId);
     if (existing.status !== 'DRAFT') {
       throw new BadRequestException('Solo se pueden publicar anuncios en estado DRAFT');
@@ -486,9 +525,20 @@ export class ListingsService {
     // PUERTA — la cuota de RF.7 y todo lo que venga después. Sólo si de verdad
     // va a quedar ACTIVE: un PENDING_REVIEW no ocupa plaza.
     if (targetStatus === 'ACTIVE') {
-      await this.gate.assertCanBecomeActive(existing, {
-        actor: 'seller', transition: 'publish', actorId: userId,
-      });
+      try {
+        await this.gate.assertCanBecomeActive(existing, {
+          actor: 'seller', transition: 'publish', actorId: userId,
+        });
+      } catch (err) {
+        const correoSinVerificar = unicoMotivo(err, EMAIL_NOT_VERIFIED_CODE);
+        if (!correoSinVerificar) throw err;
+
+        // DEGRADACIÓN. Se devuelve el anuncio SIN ESCRIBIR NADA: sigue en DRAFT,
+        // sin `publishedAt` y sin `expiresAt`. No es que se revierta la
+        // publicación — es que no llega a ocurrir, así que no hay ninguna huella
+        // de un intento fallido que limpiar después.
+        return { ...existing, publishBlocked: correoSinVerificar };
+      }
     }
 
     const publishedAt = existing.publishedAt ?? new Date();
