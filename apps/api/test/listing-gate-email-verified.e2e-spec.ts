@@ -26,6 +26,13 @@ import {
   EMAIL_VERIFIED_RULE_ENABLED_SETTING,
 } from 'src/modules/listing-gate/rules/email-verified.rule';
 
+/**
+ * El tope de activos que usa el último caso. Se fija y se restaura, porque es un
+ * ajuste GLOBAL que otras suites tocan (ver la nota dentro del caso).
+ */
+const LIMITE_ACTIVOS = 'freeActiveListingLimit';
+const TOPE_ACTIVOS = 2;
+
 describe('Puerta — regla #2: correo verificado para publicar (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaClient;
@@ -67,6 +74,13 @@ describe('Puerta — regla #2: correo verificado para publicar (e2e)', () => {
 
   afterEach(async () => {
     await prisma.setting.deleteMany({ where: { key: EMAIL_VERIFIED_RULE_ENABLED_SETTING } });
+    // El tope vuelve al 5 que siembra el seed — se RESTAURA en vez de borrarse,
+    // para dejar la fila como estaba y no cambiarle el terreno a nadie.
+    await prisma.setting.upsert({
+      where: { key: LIMITE_ACTIVOS },
+      create: { key: LIMITE_ACTIVOS, value: 5 },
+      update: { value: 5 },
+    });
     await prisma.listing.deleteMany({ where: { sellerId: { in: [sinVerificarId, verificadoId] } } });
     // El correo vuelve a su estado de partida: un caso lo verifica a mitad.
     await prisma.user.update({ where: { id: sinVerificarId }, data: { emailVerified: false } });
@@ -243,7 +257,22 @@ describe('Puerta — regla #2: correo verificado para publicar (e2e)', () => {
   it('si además está en el tope de activos, el rechazo se propaga ENTERO', async () => {
     // Dos problemas a la vez. Degradar en silencio le escondería el segundo: el
     // vendedor verificaría el correo y volvería a chocar contra la cuota.
-    for (let i = 0; i < 5; i++) {
+    //
+    // EL TOPE SE FIJA AQUÍ, no se da por supuesto. Antes este caso creaba cinco
+    // activos confiando en que `freeActiveListingLimit` valiera 5, que es lo que
+    // siembra el seed; pero CUATRO suites más lo suben a 500 para poder publicar
+    // sin topar y lo restauran en su `afterAll`. Si alguna no llega a restaurarlo
+    // —o si el orden de Jest cambia al añadir una suite nueva—, la cuota no salta
+    // y este caso falla con un «200 en vez de 403» que no tiene nada que ver con
+    // lo que prueba. Se vio ocurrir una vez y no volver a reproducirse: fijar el
+    // valor es más barato que volver a investigarlo.
+    await prisma.setting.upsert({
+      where: { key: LIMITE_ACTIVOS },
+      create: { key: LIMITE_ACTIVOS, value: TOPE_ACTIVOS },
+      update: { value: TOPE_ACTIVOS },
+    });
+
+    for (let i = 0; i < TOPE_ACTIVOS; i++) {
       await prisma.listing.create({
         data: {
           title: `Activo ${i}`,

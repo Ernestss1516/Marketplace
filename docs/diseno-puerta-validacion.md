@@ -483,6 +483,31 @@ degradar—. «Fotos requeridas» es la candidata natural a reutilizar la degrad
 y sólo le falta algo al usuario); «moderación previa» no, porque ahí el destino ya tiene su propio
 estado (`PENDING_REVIEW`) y el camino de publicación ya sabe llegar a él.
 
+### Addendum — la regla #3 (fotos): cuándo una «regla nueva» no lo es
+
+La tercera trajo una distinción que las dos anteriores no habían necesitado: **dentro de un mismo
+proyecto puede haber una regla nueva y una migración, y no se tratan igual.**
+
+- **El máximo de fotos ya se aplicaba** (`@ArrayMaxSize(15)`). Moverlo a un `Setting` no cambia el
+  comportamiento de nadie, así que **no lleva interruptor**: apagarlo sería apagar algo que lleva
+  años en producción. Lo que sí exige es la disciplina del *único lector*, porque el número estaba
+  en tres ficheros.
+- **El mínimo no se aplicaba nunca** —lo prometía la interfaz y el servidor no— así que es regla
+  nueva y **nace apagada**, como las otras dos.
+
+**Regla práctica:** el interruptor no lo decide que el código sea nuevo, sino que **cambie lo que
+le pasa a alguien**. Mover un número de sitio no cambia nada; empezar a exigirlo, sí.
+
+**La otra decisión —rechazar o degradar—** quedó con un criterio que ya se puede enunciar: se
+degrada cuando el impedimento está **fuera** del anuncio (el correo del vendedor, que se arregla en
+otra pantalla) y se rechaza cuando está **dentro** (faltan fotos, falta un atributo: se arregla
+editando el propio anuncio, y el 422 con su motivo es el idioma que el editor ya entiende).
+
+**Y una consecuencia de tener decoradores:** `@ArrayMaxSize`, `@Min` y compañía se evalúan al
+cargar la clase, cuando no hay base de datos. **Ningún tope configurable puede vivir en un
+decorador.** El repo ya lo había aprendido con `maxTagsPerListing`; queda anotado aquí porque las
+reglas que faltan se lo van a encontrar otra vez.
+
 ## Lo que este plan NO hace
 
 No implementa ninguna regla nueva, no cambia ninguna guarda de admin, no toca la máquina de

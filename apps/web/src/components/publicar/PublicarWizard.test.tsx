@@ -79,6 +79,7 @@ function renderWizard() {
       token="test-token"
       categories={[CAT_BOTH, CAT_PRODUCT_ONLY]}
       initialLocation={{ city: 'Madrid', province: 'Madrid' }}
+        photoLimits={{ max: 15, min: 1, minEnforced: false }}
     />,
   );
 }
@@ -290,6 +291,7 @@ function renderWizardWith(categories: Category[]) {
       token="test-token"
       categories={categories}
       initialLocation={{ city: 'Madrid', province: 'Madrid' }}
+        photoLimits={{ max: 15, min: 1, minEnforced: false }}
     />,
   );
 }

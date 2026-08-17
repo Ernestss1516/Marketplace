@@ -223,3 +223,22 @@ export function renewListing(
 ): Promise<{ id: string; status: 'ACTIVE'; expiresAt: string }> {
   return apiFetch(`/listings/${id}/renew`, { method: 'POST', token });
 }
+
+/**
+ * PUERTA regla #3 — los topes de fotos VIGENTES, servidos por el backend.
+ *
+ * El cliente los pregunta en vez de llevar su propia copia del número: hasta esta
+ * ráfaga el 15 vivía en tres sitios (los dos DTOs y una constante de React) y esa
+ * es exactamente la forma en la que los números divergen. Molde de
+ * `getVideoConfig`.
+ */
+export interface PhotoLimits {
+  max: number;
+  min: number;
+  /** Si el mínimo se está exigiendo de verdad o es sólo una recomendación. */
+  minEnforced: boolean;
+}
+
+export function getPhotoLimits(): Promise<PhotoLimits> {
+  return apiFetch<PhotoLimits>('/listings/photo-limits');
+}

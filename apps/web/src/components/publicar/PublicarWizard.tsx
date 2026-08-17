@@ -17,7 +17,7 @@ import { StepAtributos } from './steps/StepAtributos';
 import { StepTags } from './steps/StepTags';
 import { StepUbicacion, type UbicacionData } from './steps/StepUbicacion';
 import { StepPrevisualizacion } from './steps/StepPrevisualizacion';
-import { createListing, publishListing } from '@/lib/api/anuncios';
+import { createListing, publishListing, type PhotoLimits } from '@/lib/api/anuncios';
 import { toUserMessage } from '@/lib/api/client';
 import { useApiAction } from '@/lib/api/use-api-action';
 import { useRequireAuth } from '@/hooks/use-require-auth';
@@ -188,6 +188,8 @@ interface PublicarWizardProps {
   categories: Category[];
   initialLocation?: { city?: string; province?: string; postalCode?: string };
   initialPhone?: string;
+  /** PUERTA regla #3 — topes de fotos vigentes, del backend (no una copia local). */
+  photoLimits: PhotoLimits;
 }
 
 const INITIAL_DATA: WizardData = {
@@ -220,7 +222,7 @@ const INITIAL_DATA: WizardData = {
   phone: '',
 };
 
-export function PublicarWizard({ token, categories, initialLocation, initialPhone }: PublicarWizardProps) {
+export function PublicarWizard({ token, categories, initialLocation, initialPhone, photoLimits }: PublicarWizardProps) {
   const router = useRouter();
   const { run } = useApiAction();
   const { loginUrl } = useRequireAuth();
@@ -433,6 +435,9 @@ export function PublicarWizard({ token, categories, initialLocation, initialPhon
             token={token}
             onChange={updateImages}
             errors={errors}
+            maxPhotos={photoLimits.max}
+            minPhotos={photoLimits.min}
+            minEnforced={photoLimits.minEnforced}
           />
         )}
 
@@ -514,6 +519,8 @@ export function PublicarWizard({ token, categories, initialLocation, initialPhon
             submitError={submitError}
             onSaveDraft={() => handleSubmit('draft')}
             onPublish={() => handleSubmit('publish')}
+            minPhotos={photoLimits.min}
+            minEnforced={photoLimits.minEnforced}
           />
         )}
 

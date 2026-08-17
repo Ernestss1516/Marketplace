@@ -19,15 +19,24 @@ interface StepFotosProps {
   token: string;
   onChange: (updater: UploadedImage[] | ((prev: UploadedImage[]) => UploadedImage[])) => void;
   errors: Record<string, string>;
+  /**
+   * PUERTA regla #3 — el tope VIGENTE, servido por la API. Antes era un
+   * `MAX_PHOTOS = 15` aquí mismo: la tercera copia del mismo número, junto a los
+   * dos DTOs del backend. Ahora baja como prop desde la página, que lo pide a
+   * `GET /listings/photo-limits`, para que la interfaz no pueda prometer un tope
+   * distinto del que el servidor aplica.
+   */
+  maxPhotos: number;
+  /** El mínimo vigente y si se está exigiendo de verdad (ver la nota de abajo). */
+  minPhotos: number;
+  minEnforced: boolean;
 }
 
-const MAX_PHOTOS = 15;
-
-export function StepFotos({ images, token, onChange, errors }: StepFotosProps) {
+export function StepFotos({ images, token, onChange, errors, maxPhotos, minPhotos, minEnforced }: StepFotosProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const validImages = images.filter((img) => !img.error);
-  const remaining = MAX_PHOTOS - validImages.length;
+  const remaining = maxPhotos - validImages.length;
 
   async function handleFiles(fileList: FileList) {
     const files = Array.from(fileList).slice(0, remaining);
@@ -132,8 +141,17 @@ export function StepFotos({ images, token, onChange, errors }: StepFotosProps) {
       <div>
         <h2 className="text-lg font-semibold">Fotos</h2>
         <p className="text-sm text-muted-foreground">
-          Añade hasta {MAX_PHOTOS} fotos. La primera será la portada. Para publicar se
-          necesita al menos 1 foto.
+          {/*
+            PUERTA regla #3 — los dos números salen del servidor. El mínimo se
+            enuncia distinto según se esté exigiendo de verdad o no: mientras el
+            interruptor está apagado es una recomendación, y prometer un bloqueo
+            que no existe es la misma mentira que llevaba años en esta frase, sólo
+            que al revés.
+          */}
+          Añade hasta {maxPhotos} fotos. La primera será la portada.{' '}
+          {minEnforced
+            ? `Para publicar ${minPhotos === 1 ? 'se necesita al menos 1 foto' : `se necesitan al menos ${minPhotos} fotos`}.`
+            : `Para publicar, recomendamos ${minPhotos === 1 ? 'al menos 1 foto' : `al menos ${minPhotos} fotos`}.`}
         </p>
       </div>
 
@@ -163,7 +181,7 @@ export function StepFotos({ images, token, onChange, errors }: StepFotosProps) {
           >
             <ImagePlus className="h-8 w-8" />
             <span className="text-sm font-medium">
-              Añadir fotos ({validImages.length}/{MAX_PHOTOS})
+              Añadir fotos ({validImages.length}/{maxPhotos})
             </span>
             <span className="text-xs">Haz clic para seleccionar</span>
           </button>

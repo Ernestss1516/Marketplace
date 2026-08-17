@@ -45,6 +45,7 @@ import {
   invalidValueIssues,
   linkedSelectIssues,
 } from '../modules/categories/attribute-validation';
+import { DEFAULT_MAX_PHOTOS } from '../modules/listing-gate/photo-limits';
 import { ancestorChainIn, type CategoryNode } from '../modules/categories/category-tree.service';
 
 const prisma = new PrismaClient();
@@ -52,8 +53,14 @@ const prisma = new PrismaClient();
 /** Cuántos IDs de ejemplo se listan por cada regla que falla. */
 const MAX_EJEMPLOS = 5;
 
-/** Topes candidatos para el límite de fotos (hoy: @ArrayMaxSize(15) en el DTO). */
-const TOPE_FOTOS = 15;
+/**
+ * Tope de fotos con el que se mide. Sale de la MISMA constante que aplica la
+ * regla #3 (antes era un 15 copiado aquí, cuando el tope vivía en un
+ * `@ArrayMaxSize(15)` del DTO). Si un administrador ha cambiado el `Setting`, el
+ * número real puede ser otro — este informe mide contra el DEFECTO, que es lo
+ * que se quiere para decidir si encender algo.
+ */
+const TOPE_FOTOS = DEFAULT_MAX_PHOTOS;
 
 /** Topes candidatos para el límite TOTAL de anuncios (la regla nueva de Ernest). */
 const TOPES_TOTAL_CANDIDATOS = [5, 10, 20, 50];

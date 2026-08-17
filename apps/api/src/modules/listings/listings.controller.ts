@@ -19,6 +19,7 @@ import { JwtAuthGuard, OptionalJwtAuthGuard } from '../../common/guards';
 import { CurrentUser } from '../../common/decorators';
 import { JwtUser } from '../auth/auth.types';
 import { ListingsService } from './listings.service';
+import { PhotoLimitsService } from '../listing-gate/photo-limits.service';
 import { BillingService } from '../billing/billing.service';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { UpdateListingDto } from './dto/update-listing.dto';
@@ -32,6 +33,7 @@ export class ListingsController {
   constructor(
     private readonly listingsService: ListingsService,
     private readonly billingService: BillingService,
+    private readonly photoLimitsService: PhotoLimitsService,
   ) {}
 
   @Post()
@@ -170,6 +172,21 @@ export class ListingsController {
   @Get()
   findRecent(@Query() query: RecentListingsQueryDto) {
     return this.listingsService.findRecent(query.page, query.perPage);
+  }
+
+  /**
+   * PUERTA regla #3 — los topes de fotos vigentes. Molde exacto de
+   * `GET /video/config`: el cliente los PREGUNTA en vez de llevar su propia copia
+   * del número, así que interfaz y servidor no pueden discrepar. `minEnforced`
+   * viaja con ellos para que el asistente sepa si el mínimo se está exigiendo de
+   * verdad o sigue siendo sólo una recomendación.
+   *
+   * Va ANTES de `@Get(':slug')` a propósito: NestJS resuelve por orden de
+   * declaración y si no, la ruta paramétrica se la tragaría.
+   */
+  @Get('photo-limits')
+  photoLimits() {
+    return this.photoLimitsService.getConfig();
   }
 
   // Authenticated owner-only access — registered before :slug to take priority.

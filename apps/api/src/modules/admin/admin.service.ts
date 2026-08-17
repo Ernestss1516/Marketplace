@@ -45,6 +45,13 @@ import { ListingGateService } from '../listing-gate/listing-gate.service';
 import { MARK_STALE_JOB } from '../listing-gate/revalidation.processor';
 import { EMAIL_VERIFIED_RULE_ENABLED_SETTING } from '../listing-gate/rules/email-verified.rule';
 import {
+  DEFAULT_MAX_PHOTOS,
+  DEFAULT_MIN_PHOTOS,
+  MAX_PHOTOS_SETTING,
+  MIN_PHOTOS_RULE_ENABLED_SETTING,
+  MIN_PHOTOS_SETTING,
+} from '../listing-gate/photo-limits';
+import {
   DEFAULT_FREE_ACTIVE_LIMIT,
   DEFAULT_FREE_TOTAL_LIMIT,
   DEFAULT_PRO_ACTIVE_LIMIT,
@@ -89,6 +96,11 @@ const SETTING_KEYS = [
   // PUERTA regla #2 — correo verificado para publicar. SIN FILA, APAGADA. No
   // rechaza nada: deja el anuncio en borrador con un aviso.
   'emailVerifiedToPublishEnabled',
+  // PUERTA regla #3 — topes de fotos. El MÁXIMO sólo se muda de constante a
+  // ajuste (15 sigue siendo 15); el MÍNIMO es nuevo y por eso trae interruptor.
+  'maxPhotosPerListing',
+  'minPhotosPerListing',
+  'minPhotosRuleEnabled',
   // H8.1: monthly free-featured quota granted to Pro subscribers
   'proMonthlyFeaturedQuota',
   // H8.5a: fixed duration of a featured grant paid from the quota
@@ -175,6 +187,10 @@ const POSITIVE_INT_SETTING_KEYS: readonly string[] = [
   // anotado como asimetría conocida.
   'freeTotalListingLimit',
   'proTotalListingLimit',
+  // PUERTA regla #3 — un máximo de 0 dejaría los anuncios sin fotos, y un mínimo
+  // de 0 sería no tener mínimo (para eso está el interruptor).
+  'maxPhotosPerListing',
+  'minPhotosPerListing',
 ];
 
 /**
@@ -215,6 +231,11 @@ const SETTING_DEFAULTS: Readonly<Record<string, unknown>> = {
   // Apagada, que es como nace. Mismo criterio que `videoEnabled`.
   [TOTAL_LIMIT_RULE_ENABLED_SETTING]: false,
   [EMAIL_VERIFIED_RULE_ENABLED_SETTING]: false,
+  // PUERTA regla #3. El máximo enseña 15 —el mismo que llevaba clavado el DTO—
+  // para que el backoffice no pinte un hueco donde hay un tope aplicándose.
+  [MAX_PHOTOS_SETTING]: DEFAULT_MAX_PHOTOS,
+  [MIN_PHOTOS_SETTING]: DEFAULT_MIN_PHOTOS,
+  [MIN_PHOTOS_RULE_ENABLED_SETTING]: false,
 };
 
 // A1 (URLs anidadas) — segmentos de primer nivel que YA ocupan rutas estáticas del
@@ -1546,6 +1567,46 @@ export class AdminService {
     );
   }
 
+  /**
+   * PUERTA regla #3 — LA INVARIANTE DE LAS FOTOS: el mínimo no puede superar al
+   * máximo.
+   *
+   * Un mínimo de 5 con un máximo de 3 dejaría el sistema pidiendo algo imposible:
+   * ningún anuncio podría publicarse jamás, y el vendedor recibiría un «añade al
+   * menos 5 fotos» del que no hay salida porque el propio sistema le impide subir
+   * más de 3. Mismo criterio que la invariante `total > activos` de la regla #1,
+   * con una diferencia: aquí IGUALES SÍ VALEN (min 3 y max 3 significa
+   * «exactamente tres fotos», que es una configuración legítima).
+   *
+   * Se comprueba en las dos direcciones, al subir el mínimo y al bajar el máximo,
+   * porque la incoherencia se fabrica igual de fácil por cualquiera de los dos
+   * lados. Y contra el valor EFECTIVO del otro —su fila o su defecto—, que es el
+   * que se va a aplicar de verdad.
+   */
+  private async assertFotosCoherentes(key: string, valor: unknown): Promise<void> {
+    if (key !== MAX_PHOTOS_SETTING && key !== MIN_PHOTOS_SETTING) return;
+
+    const nuevo = Number(valor);
+    if (!Number.isFinite(nuevo)) return;
+
+    const esElMaximo = key === MAX_PHOTOS_SETTING;
+    const otraClave = esElMaximo ? MIN_PHOTOS_SETTING : MAX_PHOTOS_SETTING;
+    const otraFila = await this.prisma.setting.findUnique({ where: { key: otraClave } });
+    const otroValor = Number(otraFila?.value);
+    const otro = Number.isFinite(otroValor) && otroValor > 0
+      ? otroValor
+      : (esElMaximo ? DEFAULT_MIN_PHOTOS : DEFAULT_MAX_PHOTOS);
+
+    const min = esElMaximo ? otro : nuevo;
+    const max = esElMaximo ? nuevo : otro;
+    if (min <= max) return;
+
+    throw new BadRequestException(
+      `El mínimo de fotos (${min}) no puede superar al máximo (${max}): ningún anuncio ` +
+        'podría publicarse, porque el propio sistema impediría subir las que se le exigen.',
+    );
+  }
+
   async updateSetting(
     key: string,
     actorId: string,
@@ -1568,6 +1629,7 @@ export class AdminService {
     }
 
     await this.assertLimitesCoherentes(key, dto.value);
+    await this.assertFotosCoherentes(key, dto.value);
 
     if (PERCENT_SETTING_KEYS.includes(key)) {
       const value = dto.value;

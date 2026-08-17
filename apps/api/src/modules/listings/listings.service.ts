@@ -61,6 +61,7 @@ import { unicoMotivo } from '../listing-gate/listing-gate.exception';
 import { EMAIL_NOT_VERIFIED_CODE } from '../listing-gate/rules/email-verified.rule';
 import type { GateReason } from '../listing-gate/listing-gate.types';
 import { AttributeCheckService } from '../listing-gate/attribute-check.service';
+import { PhotoLimitsService } from '../listing-gate/photo-limits.service';
 import type { ListingTypePolicy, PriceUnit } from '@prisma/client';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { UpdateListingDto } from './dto/update-listing.dto';
@@ -195,6 +196,9 @@ export class ListingsService {
     // un detalle: si el aviso listara otros motivos que los que bloquean, sería
     // peor que no avisar.
     private readonly attributeCheck: AttributeCheckService,
+    // PUERTA regla #3 — el ÚNICO lector del tope de fotos (antes, un 15 clavado
+    // en los dos DTOs y en React).
+    private readonly photoLimits: PhotoLimitsService,
   ) {}
 
   async create(sellerId: string, dto: CreateListingDto): Promise<Listing> {
@@ -1641,11 +1645,31 @@ export class ListingsService {
     }
   }
 
+  /**
+   * PUERTA regla #3 — EL TOPE DE FOTOS SE APLICA AQUÍ, y no en el DTO.
+   *
+   * Éste es el único sitio por el que unas fotos acaban colgando de un anuncio,
+   * lo llamen `create()` o `update()`, así que es donde el tope no se puede
+   * olvidar. En `update()` la lista SUSTITUYE a la anterior, de modo que
+   * `imageIds.length` es el número final en los dos caminos.
+   *
+   * El número sale de `PhotoLimitsService` —un `Setting`, con 15 por defecto— en
+   * vez del `@ArrayMaxSize(15)` que había en los dos DTOs. Quince sigue siendo
+   * quince: lo único que cambia es que ahora hay UN sitio donde vive el número y
+   * se puede tocar sin desplegar.
+   */
   private async linkImages(
     listingId: string,
     userId: string,
     imageIds: string[],
   ): Promise<void> {
+    const max = await this.photoLimits.getMax();
+    if (imageIds.length > max) {
+      throw new UnprocessableEntityException(
+        `Un anuncio admite como máximo ${max} fotos (has enviado ${imageIds.length}).`,
+      );
+    }
+
     const images = await this.prisma.listingImage.findMany({
       where: { id: { in: imageIds } },
       select: { id: true, uploadedById: true, listingId: true },

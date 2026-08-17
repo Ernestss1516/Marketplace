@@ -20,7 +20,7 @@ import { StepAtributos } from './steps/StepAtributos';
 import { StepTags } from './steps/StepTags';
 import { StepUbicacion, type UbicacionData } from './steps/StepUbicacion';
 import { StepVideo, type VideoState } from './steps/StepVideo';
-import { updateListing } from '@/lib/api/anuncios';
+import { updateListing, type PhotoLimits } from '@/lib/api/anuncios';
 import { toUserMessage } from '@/lib/api/client';
 import { useApiAction } from '@/lib/api/use-api-action';
 import { useRequireAuth } from '@/hooks/use-require-auth';
@@ -199,6 +199,8 @@ interface Props {
   proStatus?: ProStatus | null;
   /** Vídeo Pro — configuración vigente. Ausente o apagada: la sección no existe. */
   videoConfig?: VideoConfig | null;
+  /** PUERTA regla #3 — topes de fotos vigentes, del backend. Mismo molde que videoConfig. */
+  photoLimits: PhotoLimits;
   /** El vídeo que el anuncio ya tiene, si tiene. */
   initialVideo?: VideoState;
 }
@@ -227,6 +229,7 @@ export function EditarForm({
   proStatus,
   videoConfig,
   initialVideo,
+  photoLimits,
 }: Props) {
   const router = useRouter();
   const { run } = useApiAction();
@@ -390,7 +393,15 @@ export function EditarForm({
             className="scroll-mt-24 rounded-xl border bg-card p-6 shadow-sm"
           >
             {s.id === 'fotos' && (
-              <StepFotos images={data.images} token={token} onChange={updateImages} errors={errors} />
+              <StepFotos
+                images={data.images}
+                token={token}
+                onChange={updateImages}
+                errors={errors}
+                maxPhotos={photoLimits.max}
+                minPhotos={photoLimits.min}
+                minEnforced={photoLimits.minEnforced}
+              />
             )}
 
             {s.id === 'video' && videoConfig && (

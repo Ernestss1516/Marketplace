@@ -10,6 +10,8 @@ import { RevalidationProcessor } from './revalidation.processor';
 import { ActiveListingLimitRule } from './rules/active-listing-limit.rule';
 import { TotalListingLimitRule } from './rules/total-listing-limit.rule';
 import { EmailVerifiedRule } from './rules/email-verified.rule';
+import { MinPhotosRule } from './rules/min-photos.rule';
+import { PhotoLimitsService } from './photo-limits.service';
 import { AttributeRevalidationRule } from './rules/attribute-revalidation.rule';
 import { LISTING_GATE_RULES, type ListingGateRule } from './listing-gate.types';
 
@@ -55,21 +57,36 @@ import { LISTING_GATE_RULES, type ListingGateRule } from './listing-gate.types';
     ActiveListingLimitRule,
     TotalListingLimitRule,
     EmailVerifiedRule,
+    PhotoLimitsService,
+    MinPhotosRule,
     AttributeRevalidationRule,
     ListingGateService,
     {
       provide: LISTING_GATE_RULES,
-      inject: [ActiveListingLimitRule, TotalListingLimitRule, EmailVerifiedRule, AttributeRevalidationRule],
+      inject: [
+        ActiveListingLimitRule,
+        TotalListingLimitRule,
+        EmailVerifiedRule,
+        MinPhotosRule,
+        AttributeRevalidationRule,
+      ],
       // El orden dentro de un grupo es el de esta lista. Entre grupos manda
       // `GateRuleGroup` (entrada antes que contenido), no esto.
       useFactory: (
         activeLimit: ActiveListingLimitRule,
         totalLimit: TotalListingLimitRule,
         emailVerified: EmailVerifiedRule,
+        minPhotos: MinPhotosRule,
         attributes: AttributeRevalidationRule,
-      ): ListingGateRule[] => [activeLimit, totalLimit, emailVerified, attributes],
+      ): ListingGateRule[] => [activeLimit, totalLimit, emailVerified, minPhotos, attributes],
     },
   ],
-  exports: [ListingGateService, ProStatusService, RevalidationService, AttributeCheckService],
+  exports: [
+    ListingGateService,
+    ProStatusService,
+    RevalidationService,
+    AttributeCheckService,
+    PhotoLimitsService,
+  ],
 })
 export class ListingGateModule {}

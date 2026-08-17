@@ -15,6 +15,7 @@ import type { CategoryTreeService } from '../categories/category-tree.service';
 import type { ListingGateService } from '../listing-gate/listing-gate.service';
 import type { RevalidationService } from '../listing-gate/revalidation.service';
 import type { AttributeCheckService } from '../listing-gate/attribute-check.service';
+import type { PhotoLimitsService } from '../listing-gate/photo-limits.service';
 import type { CreateListingDto } from './dto/create-listing.dto';
 
 function p2002(): Prisma.PrismaClientKnownRequestError {
@@ -107,6 +108,9 @@ describe('ListingsService.create — reintento de slug ante P2002', () => {
       // no limpia ningún aviso: un anuncio recién creado nace sin marcar.
       { clearIfCompliant: jest.fn() } as unknown as RevalidationService,
       { issuesForMany: jest.fn().mockResolvedValue(new Map()) } as unknown as AttributeCheckService,
+      // PUERTA regla #3 — mantenimiento de fixture por cambio de FIRMA. Este spec
+      // no manda `imageIds`, así que el tope no llega a consultarse.
+      { getMax: jest.fn().mockResolvedValue(15) } as unknown as PhotoLimitsService,
     );
     errorSpy = jest.spyOn((service as unknown as { logger: { error: (...a: unknown[]) => void } }).logger, 'error');
   });
