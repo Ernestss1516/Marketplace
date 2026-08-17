@@ -1,5 +1,4 @@
 import {
-  ArrayMaxSize,
   IsArray,
   IsEnum,
   IsNotEmpty,
@@ -103,9 +102,14 @@ export class CreateListingDto {
   @Matches(LISTING_PHONE_REGEX, { message: 'Teléfono no válido' })
   phone?: string;
 
+  /// PUERTA regla #3 — sin `@ArrayMaxSize` a propósito, exactamente por lo mismo
+  /// que `tags`: el tope es configurable (`maxPhotosPerListing`) y un decorador
+  /// se evalúa al cargar la clase, cuando todavía no hay Setting que consultar.
+  /// Clavar aquí el 15 crearía un segundo sitio donde vive el mismo número. El
+  /// tope lo aplica `ListingsService` contra `PhotoLimitsService`, que es el
+  /// único lector.
   @IsOptional()
   @IsArray()
-  @ArrayMaxSize(15)
   @IsString({ each: true })
   imageIds?: string[];
 }

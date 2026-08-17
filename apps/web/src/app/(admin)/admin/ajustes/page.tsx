@@ -400,6 +400,9 @@ const SETTING_TITLES: Record<string, string> = {
   proTotalListingLimit: 'Límite TOTAL de anuncios (Pro)',
   totalListingLimitEnabled: 'Aplicar el límite total de anuncios',
   emailVerifiedToPublishEnabled: 'Exigir correo verificado para publicar',
+  maxPhotosPerListing: 'Máximo de fotos por anuncio',
+  minPhotosPerListing: 'Mínimo de fotos para publicar',
+  minPhotosRuleEnabled: 'Exigir el mínimo de fotos',
   proMonthlyFeaturedQuota: 'Cuota mensual de destacados (Pro)',
   proQuotaFeaturedDurationDays: 'Duración del destacado por cuota (Pro)',
   proExtraCreditsPercent: 'Bonus de créditos al comprar packs (Pro)',
@@ -425,6 +428,12 @@ const SETTING_DESCRIPTIONS: Record<string, string> = {
     'Cuántos anuncios puede TENER en total un usuario Free, estén publicados o no: cuenta borradores, en revisión, activos, reservados, pausados, caducados y rechazados. NO cuentan los archivados ni los vendidos, así que archivar o marcar como vendido libera hueco. Es distinto del límite de activos: aquel limita el escaparate y este la acumulación. Tiene que ser mayor que el de activos — el backend rechaza el cambio si no lo es.',
   proTotalListingLimit:
     'Lo mismo para un usuario Pro. Tiene que ser mayor que el límite de activos de Pro.',
+  maxPhotosPerListing:
+    'Cuántas fotos admite como máximo un anuncio. Antes era un número fijo en el código (15); ahora se puede cambiar sin desplegar. Bajarlo NO toca los anuncios ya publicados con más fotos: sólo impide guardar tantas a partir de ahora.',
+  minPhotosPerListing:
+    'Cuántas fotos hacen falta como mínimo para PUBLICAR. Sólo se aplica si el interruptor de abajo está encendido. No puede superar al máximo — el backend rechaza esa combinación, porque dejaría el sistema pidiendo algo imposible.',
+  minPhotosRuleEnabled:
+    'El asistente de publicación lleva desde siempre diciendo «se necesita al menos 1 foto» y deshabilitando su botón sin ellas, pero el servidor no lo exigía: por «Mis anuncios» o por la API se podía publicar un anuncio sin ninguna. Encender esto alinea el servidor con lo que la interfaz ya promete. Sólo afecta a PUBLICAR: crear y editar borradores sin fotos sigue permitido, y los anuncios ya publicados no se tocan (renovar y reactivar tampoco lo miran).',
   emailVerifiedToPublishEnabled:
     'Mientras esté apagado, un usuario con el correo sin verificar publica como siempre. Al encenderlo, NO se rechaza nada ni se pierde ningún anuncio: quien intente publicar sin haber verificado su correo se encuentra el anuncio guardado como BORRADOR y un aviso con el enlace para verificar. Crear y redactar siguen siendo libres — sólo se frena el paso al mercado, y en cuanto verifique podrá publicarlo. No afecta a los anuncios que ya están publicados.',
   totalListingLimitEnabled:
@@ -564,6 +573,9 @@ export default function AdminAjustesPage() {
     'proTotalListingLimit',
     'totalListingLimitEnabled',
     'emailVerifiedToPublishEnabled',
+    'maxPhotosPerListing',
+    'minPhotosPerListing',
+    'minPhotosRuleEnabled',
     'proMonthlyFeaturedQuota',
     'proQuotaFeaturedDurationDays',
     'proExtraCreditsPercent',
@@ -691,6 +703,40 @@ export default function AdminAjustesPage() {
                   settingKey="totalListingLimitEnabled"
                   label="Aplicar el límite total al crear un anuncio"
                   helpText="Apagado, los topes de arriba no frenan a nadie. Encenderlo no expulsa ni oculta nada: sólo impide crear anuncios nuevos a quien esté en su tope."
+                />
+              )}
+              {key === 'maxPhotosPerListing' && (
+                <NumberSettingEditor
+                  setting={setting}
+                  token={token}
+                  onSaved={() => handleSaved(key)}
+                  settingKey="maxPhotosPerListing"
+                  label="Fotos como máximo por anuncio"
+                  helpText="Bajarlo no quita fotos a los anuncios que ya las tienen."
+                  min={1}
+                  suffix="fotos"
+                />
+              )}
+              {key === 'minPhotosPerListing' && (
+                <NumberSettingEditor
+                  setting={setting}
+                  token={token}
+                  onSaved={() => handleSaved(key)}
+                  settingKey="minPhotosPerListing"
+                  label="Fotos como mínimo para publicar"
+                  helpText="Sólo se aplica con el interruptor de abajo encendido. No puede superar al máximo."
+                  min={1}
+                  suffix="fotos"
+                />
+              )}
+              {key === 'minPhotosRuleEnabled' && (
+                <BooleanSettingEditor
+                  setting={setting}
+                  token={token}
+                  onSaved={() => handleSaved(key)}
+                  settingKey="minPhotosRuleEnabled"
+                  label="Exigir el mínimo de fotos al publicar"
+                  helpText="Apagado, el mínimo es sólo una recomendación de la interfaz. Encendido, el servidor lo exige de verdad — pero sólo al publicar."
                 />
               )}
               {key === 'emailVerifiedToPublishEnabled' && (

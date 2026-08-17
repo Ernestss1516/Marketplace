@@ -2705,6 +2705,40 @@ que acordarse de llamarlo. Ese método ya no existe.
 Ambos settings son editables desde `PATCH /admin/settings/:key` sin redeploy; el efecto es
 inmediato en la siguiente request de publish/renew.
 
+### Límites de fotos (puerta, regla #3) — el máximo se muda, el mínimo nace APAGADO
+
+Son dos cosas distintas con distinto riesgo, y conviene no confundirlas:
+
+**El MÁXIMO es una migración transparente.** Eran los mismos 15 de siempre, pero clavados en
+**tres** sitios: `@ArrayMaxSize(15)` en `CreateListingDto` y en `UpdateListingDto`, más un
+`MAX_PHOTOS = 15` en React. Ahora sale de `maxPhotosPerListing` (defecto 15) y lo aplica
+`ListingsService.linkImages` —el único punto por el que unas fotos acaban colgando de un anuncio,
+lo llamen `create()` o `update()`—. Quince sigue siendo quince; lo único que cambia es que hay un
+solo sitio donde vive el número y se puede tocar sin desplegar.
+
+Los decoradores **no pueden** leer un `Setting` (se evalúan al cargar la clase), así que los dos
+DTOs se quedan sin `@ArrayMaxSize`, exactamente como ya hacía el campo `tags` con
+`maxTagsPerListing`. El frontend tampoco lleva copia: la pide a `GET /listings/photo-limits`
+(molde de `GET /video/config`), y las páginas de publicar y editar se la pasan a los pasos.
+
+**El MÍNIMO es una regla nueva y nace apagada** (`minPhotosRuleEnabled`, sin fila = apagada). El
+asistente lleva desde siempre diciendo «se necesita al menos 1 foto» y deshabilitando su botón,
+pero el servidor no lo exigía: por «Mis anuncios» o por la API se publicaba un anuncio sin
+ninguna. Encenderla alinea el servidor con lo que la interfaz ya promete.
+
+- **Rechaza, no degrada** (422 + motivo con `field: 'imageIds'`), al revés que la regla #2: faltar
+  fotos es un problema DENTRO del anuncio y se arregla editándolo, igual que un atributo requerido
+  que falta. La degradación es para cuando el impedimento está fuera del anuncio.
+- **Sólo al publicar.** Renovar y reactivar no la miran: no se aplica hacia atrás sobre anuncios
+  que se publicaron cuando no se exigía. Crear y editar borradores sin fotos sigue permitido.
+- **Hueco conocido y aceptado:** un anuncio con palabras filtradas va a `PENDING_REVIEW` sin pasar
+  por la puerta, y si un moderador lo aprueba llega a ACTIVE sin este control. Cerrarlo exigiría
+  aplicar la regla a `approve`, y eso dejaría al moderador atrapado (no puede añadir fotos a un
+  anuncio ajeno).
+- **Invariante `min ≤ max`**, comprobada en las dos direcciones al editar cualquiera de las dos
+  claves. Iguales sí valen: min 3 y max 3 significa «exactamente tres fotos». Un mínimo mayor que
+  el máximo dejaría el sistema pidiendo algo que él mismo impide subir.
+
 ### Correo verificado para publicar (puerta, regla #2) — nace APAGADA, y DEGRADA
 
 `User.emailVerified` existía desde el principio pero **no era puerta en ningún sitio**. Esta regla

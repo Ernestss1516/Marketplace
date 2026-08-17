@@ -11,6 +11,15 @@ interface StepPrevisualizacionProps {
   submitError: string | null;
   onSaveDraft: () => void;
   onPublish: () => void;
+  /**
+   * PUERTA regla #3 — cuántas fotos exige el servidor AHORA MISMO, y si las
+   * exige. Con la regla apagada el listón sigue siendo una foto, que es lo que
+   * este asistente lleva pidiendo desde siempre; con ella encendida, bloquea
+   * exactamente lo que el backend va a rechazar en vez de dejar pulsar para
+   * recibir un 422.
+   */
+  minPhotos: number;
+  minEnforced: boolean;
 }
 
 const CONDITION_LABELS: Record<string, string> = {
@@ -35,10 +44,16 @@ export function StepPrevisualizacion({
   submitError,
   onSaveDraft,
   onPublish,
+  minPhotos,
+  minEnforced,
 }: StepPrevisualizacionProps) {
   const validImages = data.images.filter((img) => img.id && !img.error);
   const isSubmitting = submitState !== 'idle';
-  const canPublish = validImages.length >= 1;
+  // Apagada, el listón sigue siendo UNA foto: es lo que este asistente lleva
+  // pidiendo desde siempre y lo que no debe cambiar mientras la regla no se
+  // encienda.
+  const fotosNecesarias = minEnforced ? minPhotos : 1;
+  const canPublish = validImages.length >= fotosNecesarias;
 
   return (
     <div className="space-y-6">
@@ -143,11 +158,13 @@ export function StepPrevisualizacion({
       </div>
 
       {/* Publish warning if no photos */}
-      {validImages.length === 0 && (
+      {validImages.length < fotosNecesarias && (
         <p className="flex items-center gap-1.5 text-sm text-amber-600">
           <AlertCircle className="h-4 w-4 shrink-0" />
-          Para publicar necesitas al menos 1 foto. Puedes guardar como borrador y añadirla
-          después.
+          {fotosNecesarias === 1
+            ? 'Para publicar necesitas al menos 1 foto.'
+            : `Para publicar necesitas al menos ${fotosNecesarias} fotos.`}{' '}
+          Puedes guardar como borrador y añadirlas después.
         </p>
       )}
 

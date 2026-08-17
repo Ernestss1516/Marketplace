@@ -61,7 +61,12 @@ function buildInitialData(overrides: Partial<EditarFormData> = {}): EditarFormDa
 
 function renderEditar(overrides: Partial<EditarFormData> = {}) {
   return render(
-    <EditarForm listingId="listing-1" token="test-token" initialData={buildInitialData(overrides)} />,
+    <EditarForm
+      listingId="listing-1"
+      token="test-token"
+      initialData={buildInitialData(overrides)}
+      photoLimits={{ max: 15, min: 1, minEnforced: false }}
+    />,
   );
 }
 

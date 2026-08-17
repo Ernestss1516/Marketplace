@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { auth } from '@/lib/auth';
 import { getCategories } from '@/lib/api/categorias';
+import { getPhotoLimits } from '@/lib/api/anuncios';
 import { getMe } from '@/lib/api/usuarios';
 import { PublicarWizard } from '@/components/publicar/PublicarWizard';
 import { buildLoginUrl } from '@/lib/auth/callback-url';
@@ -12,9 +13,12 @@ export default async function PublicarPage() {
   if (!session?.user.accessToken) redirect(buildLoginUrl('/publicar'));
 
   const token = session.user.accessToken;
-  const [categories, me] = await Promise.all([
+  const [categories, me, photoLimits] = await Promise.all([
     getCategories(),
     getMe(token).catch(() => ({})),
+    // PUERTA regla #3 — el tope de fotos lo dice el servidor, no una constante del
+    // asistente. Se pide aquí, junto al resto de datos de la página.
+    getPhotoLimits(),
   ]);
 
   return (
@@ -29,6 +33,7 @@ export default async function PublicarPage() {
           postalCode: ('postalCode' in me && me.postalCode) ? me.postalCode : '',
         }}
         initialPhone={('phone' in me && me.phone) ? me.phone : ''}
+        photoLimits={photoLimits}
       />
     </div>
   );
