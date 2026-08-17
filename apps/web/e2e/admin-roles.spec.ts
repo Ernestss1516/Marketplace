@@ -2,8 +2,8 @@
 //
 // Tests:
 //   ADMIN
-//     1. /admin carga (dashboard) → el nav muestra los 19 ítems que ve un ADMIN
-//        (la cuenta sale de NAV_ITEMS en AdminNav.tsx: son 19 y todos incluyen ADMIN)
+//     1. /admin carga (dashboard) → el nav muestra los 21 ítems que ve un ADMIN
+//        (la cuenta sale de NAV_ITEMS en AdminNav.tsx: son 21 y todos incluyen ADMIN)
 //   MODERATOR — rutas aún bloqueadas (ADMIN-only)
 //     2. /admin → redirige a /
 //     3. /admin/ajustes → redirige a /
@@ -14,7 +14,7 @@
 //     7. /admin/usuarios → carga correctamente (RR5.1-ext)
 //     8. /admin/blog → carga correctamente (RR5.1-ext)
 //     8b. /admin/paginas → carga correctamente (BLOG-PAGINAS)
-//     9. AdminNav muestra exactamente 6 ítems (Anuncios, Usuarios, Reportes, Tickets, Blog, Páginas)
+//     9. AdminNav muestra exactamente 7 ítems (+ Cola de revisión, MODERACIÓN M3)
 //    10. MODERATOR no ve el botón "Banear" en /admin/usuarios
 //    11. MODERATOR no ve el botón "Eliminar" en /admin/blog
 //    12. MODERATOR desestima un reporte → funciona (sin 403)
@@ -58,7 +58,7 @@ async function loginAs(browser: Browser, email: string) {
 }
 
 test.describe('Backoffice — ADMIN acceso total', () => {
-  test('ADMIN carga /admin y el nav muestra los 19 ítems', async ({ adminContext }) => {
+  test('ADMIN carga /admin y el nav muestra los 21 ítems', async ({ adminContext }) => {
     const page = await adminContext.newPage();
 
     await page.goto('/admin');
@@ -68,7 +68,7 @@ test.describe('Backoffice — ADMIN acceso total', () => {
     expect(page.url()).toContain('/admin');
     expect(page.url()).not.toContain('/login');
 
-    // El número sale de NAV_ITEMS en AdminNav.tsx: hoy son 20 entradas y TODAS
+    // El número sale de NAV_ITEMS en AdminNav.tsx: hoy son 21 entradas y TODAS
     // incluyen 'ADMIN' en sus roles, así que un ADMIN las ve todas. El último en
     // sumarse fue "Portada" (RP.3, el configurador de la home).
     //
@@ -85,7 +85,7 @@ test.describe('Backoffice — ADMIN acceso total', () => {
     const nav = page.getByTestId('admin-nav');
     await expect(nav).toBeVisible();
     const links = nav.getByRole('link');
-    await expect(links).toHaveCount(20);
+    await expect(links).toHaveCount(21);
 
     // Spot-check some labels
     await expect(nav.getByRole('link', { name: 'Dashboard' })).toBeVisible();
@@ -172,7 +172,7 @@ test.describe('Backoffice — MODERATOR acceso restringido', () => {
 
   // ── AdminNav ───────────────────────────────────────────────────────────────
 
-  test('AdminNav muestra 6 ítems para el MODERATOR (Anuncios, Usuarios, Reportes, Tickets, Blog, Páginas)', async ({ moderatorContext }) => {
+  test('AdminNav muestra 7 ítems para el MODERATOR (Anuncios, Cola de revisión, Usuarios, Reportes, Tickets, Blog, Páginas)', async ({ moderatorContext }) => {
     const page = await moderatorContext.newPage();
     await page.goto('/admin/reportes');
     await page.waitForLoadState('networkidle');
@@ -180,12 +180,13 @@ test.describe('Backoffice — MODERATOR acceso restringido', () => {
     const nav = page.getByTestId('admin-nav');
     await expect(nav).toBeVisible();
 
-    // Exactly 6 nav links visible (R7 de atención al usuario añade Tickets)
+    // Exactly 7 nav links visible (R7 añadió Tickets; MODERACIÓN M3, la cola)
     const links = nav.getByRole('link');
-    await expect(links).toHaveCount(6);
+    await expect(links).toHaveCount(7);
 
-    // All 6 must be present
+    // All 7 must be present
     await expect(nav.getByRole('link', { name: 'Anuncios' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Cola de revisión' })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'Usuarios' })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'Reportes' })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'Tickets' })).toBeVisible();

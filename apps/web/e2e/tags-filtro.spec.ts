@@ -160,10 +160,17 @@ test.describe('B3 — sección Etiquetas del panel', () => {
     const chip = page.getByTestId('ficha-tags').getByRole('link', { name: 'Único dueño' });
     await expect(chip).toBeVisible();
 
+    // El clic depende SÓLO de lo que pinta el servidor —un enlace de la ficha—,
+    // así que aquí la recarga entre intentos es segura: no hay estado de cliente
+    // que perder. Es el criterio que el propio helper documenta, y a este spec le
+    // faltaba: cayó en CI con los seis intentos agotados sobre el mismo documento
+    // (wedge PERSISTENTE de la familia 2b, Next #57565), que es justo lo que la
+    // bandera existe para rescatar.
     await clicarYEsperarUrl(
       page,
       chip,
       (url) => url.pathname === COCHES && url.searchParams.get('tags') === 'unico-dueno',
+      { recargarEntreIntentos: true },
     );
   });
 });
