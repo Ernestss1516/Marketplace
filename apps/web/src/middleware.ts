@@ -37,7 +37,7 @@ const ADMIN_LOGIN_PATH = '/admin/login';
 const ROLE_ALLOWED_PATHS: Record<string, string[]> = {
   // '/admin/tickets' (atención al usuario R7) va junto a la entrada de AdminNav:
   // sin el path la sección es inaccesible; sin el ítem del nav, invisible.
-  MODERATOR: ['/admin/reportes', '/admin/anuncios', '/admin/usuarios', '/admin/blog', '/admin/paginas', '/admin/tickets'],
+  MODERATOR: ['/admin/reportes', '/admin/anuncios', '/admin/moderacion', '/admin/usuarios', '/admin/blog', '/admin/paginas', '/admin/tickets'],
   EDITOR: ['/admin/blog', '/admin/paginas'],
 };
 

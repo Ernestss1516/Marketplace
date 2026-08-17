@@ -57,11 +57,14 @@ export interface PaginatedAdminListings {
 
 export function getAdminListings(
   token: string,
-  params?: { status?: string; page?: number; perPage?: number },
+  params?: { status?: string; page?: number; perPage?: number; order?: 'recent' | 'oldest' },
 ): Promise<PaginatedAdminListings> {
   const qs = new URLSearchParams({ page: String(params?.page ?? 1) });
   if (params?.status) qs.set('status', params.status);
   if (params?.perPage) qs.set('perPage', String(params.perPage));
+  // MODERACIÓN M3 — la cola pide `oldest` (lo que lleva más esperando, primero).
+  // Sin el parámetro, el orden es el de siempre.
+  if (params?.order) qs.set('order', params.order);
   return apiFetch<PaginatedAdminListings>(`/admin/listings?${qs}`, { token });
 }
 

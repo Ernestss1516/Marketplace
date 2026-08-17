@@ -8,6 +8,10 @@ import { cn } from '@/lib/utils';
 const NAV_ITEMS: { href: string; label: string; roles: string[] }[] = [
   { href: '/admin',             label: 'Dashboard',    roles: ['ADMIN'] },
   { href: '/admin/anuncios',    label: 'Anuncios',     roles: ['ADMIN', 'MODERATOR'] },
+  // MODERACIÓN M3 — la cola va junto a Anuncios: es trabajo PENDIENTE, no una
+  // vista de consulta. Antes su sitio era filtrar «En revisión» en Anuncios, y de
+  // ahí salía que el moderador despachara con el selector de estado genérico.
+  { href: '/admin/moderacion',  label: 'Cola de revisión', roles: ['ADMIN', 'MODERATOR'] },
   { href: '/admin/usuarios',    label: 'Usuarios',     roles: ['ADMIN', 'MODERATOR'] },
   { href: '/admin/reportes',    label: 'Reportes',     roles: ['ADMIN', 'MODERATOR'] },
   { href: '/admin/tickets',     label: 'Tickets',      roles: ['ADMIN', 'MODERATOR'] },

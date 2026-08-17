@@ -2705,6 +2705,38 @@ que acordarse de llamarlo. Ese método ya no existe.
 Ambos settings son editables desde `PATCH /admin/settings/:key` sin redeploy; el efecto es
 inmediato en la siguiente request de publish/renew.
 
+### Moderación previa — la cola del moderador (M3)
+
+`/admin/moderacion` — una pantalla propia que lista **sólo** los `PENDING_REVIEW`, los que llevan
+más tiempo esperando primero. Visible para `ADMIN` y `MODERATOR` (mismo criterio que
+`/admin/reportes`), y en el `middleware` para que un usuario sin rol no entre.
+
+**Por qué una pantalla propia y no un filtro de `/admin/anuncios`.** La cola *de facto* era ese
+filtro, y de ahí salía el defecto que M2 cerró: el moderador despachaba con el selector de estado
+genérico, que esquivaba el registro y los avisos. Una lista genérica invita a tratar la moderación
+como «cambiar un campo»; una cola invita a despacharla.
+
+**Tres acciones, ninguna más** — las tres salidas de `PENDING_REVIEW`: aprobar, rechazar (con
+motivo) y devolver a borrador (con motivo). A qué endpoint va cada una lo decide
+`elegirAccionDeEstado`, la **misma función pura de M2**, reutilizada: la decisión no se repite en
+la cola.
+
+**La pantalla no tiene lógica de moderación.** Si un anuncio puede aprobarse lo dice la puerta; los
+avisos los manda el backend; el texto del rechazo lo escribe el backend. Aquí sólo se pinta y se
+llama.
+
+**Aprobar puede fallar, y ése es el caso que la cola existe para manejar.** Desde M2, aprobar
+comprueba las reglas del anuncio: uno sin fotos —con esa regla encendida— no se aprueba. La cola
+muestra el motivo **en la fila**, el anuncio **se queda**, y el aviso apunta a la salida que le
+queda al moderador: devolvérselo al vendedor.
+
+**Un solo cambio en el backend:** `GET /admin/listings` acepta `order=oldest` (opcional; sin él, el
+orden es el de siempre). Una cola que enseña lo más nuevo primero entierra al que lleva más tiempo
+esperando.
+
+**Lo que la cola todavía no puede decir:** *por qué* está un anuncio en revisión. `reviewReason`
+está diseñado (§2.4 del documento) pero no se persiste todavía.
+
 ### Moderación previa — aprobar pasa la puerta y avisa (M2)
 
 Cierra los tres hallazgos de la auditoría (`docs/auditoria-y-diseno-moderacion.md`, §1.5 y §1.6).
