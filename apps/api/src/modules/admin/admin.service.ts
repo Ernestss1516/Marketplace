@@ -293,7 +293,7 @@ export class AdminService {
   // ===========================================================================
 
   async listListings(query: ListAdminListingsDto) {
-    const { status, categoryId, sellerId, page = 1, perPage = 24 } = query;
+    const { status, categoryId, sellerId, page = 1, perPage = 24, order } = query;
     const where: Prisma.ListingWhereInput = {
       ...(status && { status }),
       ...(categoryId && { categoryId }),
@@ -302,7 +302,9 @@ export class AdminService {
     const [items, total] = await this.prisma.$transaction([
       this.prisma.listing.findMany({
         where,
-        orderBy: { updatedAt: 'desc' },
+        // MODERACIÓN M3 — `oldest` sólo lo pide la cola de revisión; sin el
+        // parámetro el orden es EXACTAMENTE el de siempre.
+        orderBy: order === 'oldest' ? { updatedAt: 'asc' } : { updatedAt: 'desc' },
         skip: (page - 1) * perPage,
         take: perPage,
         select: {
