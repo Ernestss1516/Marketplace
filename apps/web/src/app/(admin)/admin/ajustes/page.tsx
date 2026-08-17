@@ -404,6 +404,7 @@ const SETTING_TITLES: Record<string, string> = {
   minPhotosPerListing: 'Mínimo de fotos para publicar',
   minPhotosRuleEnabled: 'Exigir el mínimo de fotos',
   preModerationAllListings: 'Revisar TODOS los anuncios antes de publicarlos',
+  preModerationTrustedExempt: 'Los vendedores de confianza se saltan la revisión general',
   proMonthlyFeaturedQuota: 'Cuota mensual de destacados (Pro)',
   proQuotaFeaturedDurationDays: 'Duración del destacado por cuota (Pro)',
   proExtraCreditsPercent: 'Bonus de créditos al comprar packs (Pro)',
@@ -435,6 +436,8 @@ const SETTING_DESCRIPTIONS: Record<string, string> = {
     'Cuántas fotos hacen falta como mínimo para PUBLICAR. Sólo se aplica si el interruptor de abajo está encendido. No puede superar al máximo — el backend rechaza esa combinación, porque dejaría el sistema pidiendo algo imposible.',
   minPhotosRuleEnabled:
     'El asistente de publicación lleva desde siempre diciendo «se necesita al menos 1 foto» y deshabilitando su botón sin ellas, pero el servidor no lo exigía: por «Mis anuncios» o por la API se podía publicar un anuncio sin ninguna. Encender esto alinea el servidor con lo que la interfaz ya promete. Sólo afecta a PUBLICAR: crear y editar borradores sin fotos sigue permitido, y los anuncios ya publicados no se tocan (renovar y reactivar tampoco lo miran).',
+  preModerationTrustedExempt:
+    'Sólo tiene efecto con la revisión de plataforma encendida. Apagado (por defecto), «revisar todos» significa TODOS, incluidos los vendedores con la insignia de confianza. Encendido, esa insignia pasa a eximir de la revisión GENERAL — y ojo: hoy la insignia es puramente decorativa, así que al encender esto los vendedores marcados hace meses quedan exentos sin que nadie lo haya decidido para ellos. NUNCA exime de las marcas específicas: una categoría que exige revisión, o un vendedor marcado para revisión, se revisan igual.',
   preModerationAllListings:
     'MODERACIÓN PREVIA, nivel plataforma. Encendido, TODO anuncio nuevo queda «en revisión» al publicarse y no se ve en el marketplace hasta que un moderador lo apruebe. ⚠ Es el más exigente de los tres niveles: a partir del clic, cada anuncio espera a un humano, así que enciéndelo sólo si hay alguien vaciando la cola. Para acotarlo a una parte del catálogo, marca «requiere revisión» en una categoría: se aplica a ella y a TODOS sus descendientes. Los anuncios ya publicados no se tocan.',
   emailVerifiedToPublishEnabled:
@@ -580,6 +583,7 @@ export default function AdminAjustesPage() {
     'minPhotosPerListing',
     'minPhotosRuleEnabled',
     'preModerationAllListings',
+    'preModerationTrustedExempt',
     'proMonthlyFeaturedQuota',
     'proQuotaFeaturedDurationDays',
     'proExtraCreditsPercent',
@@ -741,6 +745,16 @@ export default function AdminAjustesPage() {
                   settingKey="minPhotosRuleEnabled"
                   label="Exigir el mínimo de fotos al publicar"
                   helpText="Apagado, el mínimo es sólo una recomendación de la interfaz. Encendido, el servidor lo exige de verdad — pero sólo al publicar."
+                />
+              )}
+              {key === 'preModerationTrustedExempt' && (
+                <BooleanSettingEditor
+                  setting={setting}
+                  token={token}
+                  onSaved={() => handleSaved(key)}
+                  settingKey="preModerationTrustedExempt"
+                  label="La insignia de confianza exime de la revisión general"
+                  helpText="Sólo afecta a la revisión de plataforma. Nunca exime de una categoría marcada ni de un vendedor marcado."
                 />
               )}
               {key === 'preModerationAllListings' && (

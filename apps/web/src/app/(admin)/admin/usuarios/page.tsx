@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSession } from 'next-auth/react';
-import { AlertCircle, BadgeCheck, ChevronDown, ChevronRight, Loader2, Search } from 'lucide-react';
+import { AlertCircle, BadgeCheck, ChevronDown, ChevronRight, Loader2, Search, ShieldAlert } from 'lucide-react';
 import {
   getAdminUsers,
   getAdminUser,
@@ -11,6 +11,7 @@ import {
   banUser,
   reinstateUser,
   setUserTrusted,
+  setUserRequiresReview,
   changeUserRole,
   type AdminUser,
   type AdminUserDetail,
@@ -396,6 +397,10 @@ export default function AdminUsuariosPage() {
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Rol</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Estado</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Confianza</th>
+              {/* MODERACIÓN M4 — columna propia y no un estado de «Confianza»:
+                  son ejes independientes, y verlos juntos es justo lo que evita
+                  leer «de confianza» como «exento». */}
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Revisión</th>
               <th className="px-4 py-3 text-center font-medium text-muted-foreground">Anuncios</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Registro</th>
               <th className="px-4 py-3 text-right font-medium text-muted-foreground">Acciones</th>
@@ -501,6 +506,53 @@ export default function AdminUsuariosPage() {
                           )}
                         </div>
                       </td>
+
+                      {/* MODERACIÓN M4 — marcar a un vendedor para revisión previa. */}
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          {user.requiresReview ? (
+                            <Badge
+                              variant="outline"
+                              className="gap-1 border-amber-300 bg-amber-50 text-amber-800"
+                              data-testid={`user-requires-review-${user.id}`}
+                            >
+                              <ShieldAlert className="h-3 w-3" />
+                              En revisión
+                            </Badge>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                          {/* El texto es «Revisar»/«No revisar» y no «Marcar»/«Quitar»
+                              como en Confianza: dos botones con el mismo nombre en
+                              una misma fila son ambiguos para quien la lee —y para
+                              quien la localiza por su nombre accesible. */}
+                          {currentUserIsAdmin && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 px-2 text-xs"
+                              disabled={isPending}
+                              data-testid={`toggle-requires-review-${user.id}`}
+                              onClick={() =>
+                                handleAction(
+                                  () =>
+                                    setUserRequiresReview(token, user.id, !user.requiresReview),
+                                  user.id,
+                                )
+                              }
+                            >
+                              {isPending ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : user.requiresReview ? (
+                                'No revisar'
+                              ) : (
+                                'Revisar'
+                              )}
+                            </Button>
+                          )}
+                        </div>
+                      </td>
+
                       <td className="px-4 py-3 text-center tabular-nums">
                         {user._count.listings}
                       </td>

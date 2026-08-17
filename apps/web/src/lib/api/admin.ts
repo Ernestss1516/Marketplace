@@ -96,6 +96,9 @@ export interface AdminUser {
   createdAt: string;
   /** H8 Bloque E — "Vendedor de confianza", independiente de Pro. */
   trusted: boolean;
+  /** MODERACIÓN M4 — sus anuncios pasan por revisión previa. Eje INDEPENDIENTE
+   *  de `trusted`: se puede estar marcado y ser de confianza a la vez. */
+  requiresReview?: boolean;
   _count: { listings: number };
 }
 
@@ -180,6 +183,25 @@ export function setUserTrusted(token: string, id: string, trusted: boolean): Pro
   return apiFetch(`/admin/users/${id}/trusted`, {
     method: 'PATCH',
     body: JSON.stringify({ trusted }),
+    token,
+  });
+}
+
+/**
+ * MODERACIÓN M4 — marca a un vendedor para que sus anuncios pasen por revisión.
+ * ADMIN-only, molde de `setUserTrusted`.
+ *
+ * NO es lo contrario de la confianza: son ejes independientes. Un vendedor puede
+ * estar marcado y ser de confianza a la vez, y en ese caso se revisa.
+ */
+export function setUserRequiresReview(
+  token: string,
+  id: string,
+  requiresReview: boolean,
+): Promise<unknown> {
+  return apiFetch(`/admin/users/${id}/requires-review`, {
+    method: 'PATCH',
+    body: JSON.stringify({ requiresReview }),
     token,
   });
 }
