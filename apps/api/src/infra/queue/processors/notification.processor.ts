@@ -233,6 +233,16 @@ export class NotificationProcessor extends WorkerHost {
     const motivo = data.reason ? `\n\nMotivo indicado: ${data.reason}` : '';
 
     const copy = {
+      // MODERACIÓN M2 — el aviso que faltaba. Hasta aquí, un anuncio aprobado se
+      // publicaba sin que a su dueño le llegara nada: con la moderación previa
+      // encendida, pasar por revisión deja de ser la excepción y el silencio se
+      // convierte en «mi anuncio lleva días sin aparecer… ¿o ya está?».
+      APPROVED: {
+        subject: `Tu anuncio "${data.listingTitle}" ya está publicado`,
+        cuerpo:
+          `Hemos revisado tu anuncio «${data.listingTitle}» y ya está publicado en el ` +
+          `marketplace.\n\nPuedes verlo aquí:\n${link}`,
+      },
       REJECTED: {
         subject: `Tu anuncio "${data.listingTitle}" no ha pasado la revisión`,
         cuerpo:

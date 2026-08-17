@@ -9,6 +9,8 @@ import {
   changeListingStatus,
   type AdminListing,
 } from '@/lib/api/admin';
+import { approveListing, rejectListing } from '@/lib/api/moderacion';
+import { elegirAccionDeEstado } from './moderacion-routing';
 import { ApiError } from '@/lib/api/client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -70,6 +72,8 @@ export default function AdminAnunciosPage() {
 
   // Inline status-change form
   const [editingId, setEditingId] = useState<string | null>(null);
+  /** MODERACIÓN M2 — estado de PARTIDA del anuncio que se está editando. */
+  const [editingStatus, setEditingStatus] = useState('');
   const [newStatus, setNewStatus] = useState('ACTIVE');
   const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
@@ -108,6 +112,9 @@ export default function AdminAnunciosPage() {
 
   function startEdit(listing: AdminListing) {
     setEditingId(listing.id);
+    // MODERACIÓN M2 — el estado de PARTIDA, no sólo el destino: es lo que decide
+    // si este cambio es una acción de moderación o un cambio de estado normal.
+    setEditingStatus(listing.status);
     setNewStatus(listing.status);
     setReason('');
   }
@@ -116,7 +123,16 @@ export default function AdminAnunciosPage() {
     if (!token || !editingId || saving) return;
     setSaving(true);
     try {
-      await changeListingStatus(token, editingId, newStatus, reason || undefined);
+      // MODERACIÓN M2 — aprobar y rechazar van por SU endpoint, que es el que
+      // registra y avisa al vendedor. Ver `moderacion-routing.ts`.
+      const accion = elegirAccionDeEstado(editingStatus, newStatus);
+      if (accion === 'approve') {
+        await approveListing(editingId, token);
+      } else if (accion === 'reject') {
+        await rejectListing(editingId, token, reason || undefined);
+      } else {
+        await changeListingStatus(token, editingId, newStatus, reason || undefined);
+      }
       setEditingId(null);
       await fetchListings(page, statusFilter);
     } catch (err) {

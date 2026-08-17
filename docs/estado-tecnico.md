@@ -2705,6 +2705,37 @@ que acordarse de llamarlo. Ese método ya no existe.
 Ambos settings son editables desde `PATCH /admin/settings/:key` sin redeploy; el efecto es
 inmediato en la siguiente request de publish/renew.
 
+### Moderación previa — aprobar pasa la puerta y avisa (M2)
+
+Cierra los tres hallazgos de la auditoría (`docs/auditoria-y-diseno-moderacion.md`, §1.5 y §1.6).
+
+**1 · Aprobar comprueba las reglas del ANUNCIO, no las del VENDEDOR.** La línea, enunciada:
+
+| Regla | ¿Aplica en `approve`? | Por qué |
+|---|---|---|
+| Atributos (`needsRevalidation`) | **Sí** (ya lo hacía) | Propiedad del anuncio |
+| Mínimo de fotos | **Sí** (nuevo en M2) | Propiedad del anuncio; el moderador la está mirando |
+| Correo verificado | No | Propiedad del vendedor: se arregla en otra pantalla |
+| Cuota de activos | No | Propiedad del vendedor (decisión D3) |
+| Límite total | No | Es de creación; el anuncio ya existe |
+
+Aplicar las del vendedor dejaría el trabajo de moderación **rehén de un tercero**. Aplicar las del
+anuncio es posible porque el moderador tiene una tercera salida: **devolverlo a borrador**
+(`PENDING_REVIEW → DRAFT`), que sigue yendo por el cambio de estado genérico.
+
+**2 · La desalineación de caminos, cerrada.** El backoffice cambiaba *todos* los estados con
+`PATCH /admin/listings/:id/status`. Funcionaba —el anuncio cambiaba de estado— y por eso nadie
+notaba que se saltaba lo único que distingue una acción de moderación: el registro
+`LISTING_APPROVE` y el aviso al vendedor. Ahora, salir de `PENDING_REVIEW` hacia `ACTIVE` o
+`REJECTED` va por `approveListing`/`rejectListing`; todo lo demás sigue por el genérico. La
+decisión vive en `elegirAccionDeEstado` (función pura, con su spec) porque es la clase de cosa que
+se rompe en una refactorización sin que nada falle a la vista.
+
+**3 · Aprobar avisa.** Era la única de las cuatro acciones de moderación que no decía nada al
+vendedor. Ahora emite `listingModerated(..., 'APPROVED')` — aviso in-app y email — con el mismo
+molde que las otras tres. `rejectListing` **no cambia**: ya hacía lo correcto (→ `REJECTED`,
+registro con motivo y aviso), y ahora el backoffice por fin lo usa.
+
 ### Moderación previa — el disparador (M1) — nace APAGADO
 
 El **cuarto desenlace** de una publicación: además de pasar, rechazar, marcar
