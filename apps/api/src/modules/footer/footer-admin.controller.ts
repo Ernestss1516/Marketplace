@@ -14,7 +14,7 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { JwtAuthGuard, RolesGuard } from '../../common/guards';
-import { CurrentUser, Roles } from '../../common/decorators';
+import { CurrentUser, MinRole } from '../../common/decorators';
 import { JwtUser } from '../auth/auth.types';
 import { FooterService } from './footer.service';
 import { CreateFooterColumnDto } from './dto/create-footer-column.dto';
@@ -28,7 +28,7 @@ import { ReorderFooterItemsDto } from './dto/reorder-footer-items.dto';
 @ApiBearerAuth('access-token')
 @Controller('admin/footer')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN)
+@MinRole(Role.ADMIN)
 export class FooterAdminController {
   constructor(private readonly footerService: FooterService) {}
 

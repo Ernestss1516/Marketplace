@@ -15,7 +15,7 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { JwtAuthGuard, RolesGuard } from '../../common/guards';
-import { CurrentUser, Roles } from '../../common/decorators';
+import { CurrentUser, MinRole } from '../../common/decorators';
 import { JwtUser } from '../auth/auth.types';
 import { AdminService } from './admin.service';
 import { ListAdminListingsDto } from './dto/list-admin-listings.dto';
@@ -34,7 +34,7 @@ import { UpdateSettingDto } from './dto/update-setting.dto';
 @ApiBearerAuth('access-token')
 @Controller('admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN)
+@MinRole(Role.ADMIN)
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
@@ -48,20 +48,20 @@ export class AdminController {
   // ─── Listings ─────────────────────────────────────────────────────────────
 
   @Get('listings')
-  @Roles(Role.MODERATOR, Role.ADMIN)
+  @MinRole(Role.MODERATOR)
   listListings(@Query() query: ListAdminListingsDto) {
     return this.adminService.listListings(query);
   }
 
   @Get('listings/:id')
-  @Roles(Role.MODERATOR, Role.ADMIN)
+  @MinRole(Role.MODERATOR)
   getListingById(@Param('id') id: string) {
     return this.adminService.getListingById(id);
   }
 
   @Patch('listings/:id/status')
   @HttpCode(HttpStatus.OK)
-  @Roles(Role.MODERATOR, Role.ADMIN)
+  @MinRole(Role.MODERATOR)
   changeListingStatus(
     @Param('id') id: string,
     @Body() dto: ChangeListingStatusDto,
@@ -74,20 +74,20 @@ export class AdminController {
   // ─── Users ────────────────────────────────────────────────────────────────
 
   @Get('users')
-  @Roles(Role.MODERATOR, Role.ADMIN)
+  @MinRole(Role.MODERATOR)
   listUsers(@Query() query: ListAdminUsersDto) {
     return this.adminService.listUsers(query);
   }
 
   @Get('users/:id')
-  @Roles(Role.MODERATOR, Role.ADMIN)
+  @MinRole(Role.MODERATOR)
   getUserById(@Param('id') id: string) {
     return this.adminService.getUserById(id);
   }
 
   @Patch('users/:id/suspend')
   @HttpCode(HttpStatus.OK)
-  @Roles(Role.MODERATOR, Role.ADMIN)
+  @MinRole(Role.MODERATOR)
   suspendUser(
     @Param('id') id: string,
     @CurrentUser() user: JwtUser,
@@ -100,7 +100,7 @@ export class AdminController {
   // Does not apply to BANNED users — use reinstateUser (ADMIN-only) for that.
   @Patch('users/:id/unsuspend')
   @HttpCode(HttpStatus.OK)
-  @Roles(Role.MODERATOR, Role.ADMIN)
+  @MinRole(Role.MODERATOR)
   unsuspendUser(
     @Param('id') id: string,
     @CurrentUser() user: JwtUser,
@@ -109,7 +109,7 @@ export class AdminController {
     return this.adminService.unsuspendUser(id, user.userId, ip);
   }
 
-  // Permanent ban — ADMIN-only (inherits class-level @Roles(ADMIN)).
+  // Permanent ban — ADMIN-only (inherits class-level @MinRole(ADMIN)).
   @Patch('users/:id/ban')
   @HttpCode(HttpStatus.OK)
   banUser(
@@ -120,7 +120,7 @@ export class AdminController {
     return this.adminService.banUser(id, user.userId, ip);
   }
 
-  // Reverses a BAN (BANNED → ACTIVE) — ADMIN-only (inherits class-level @Roles(ADMIN)).
+  // Reverses a BAN (BANNED → ACTIVE) — ADMIN-only (inherits class-level @MinRole(ADMIN)).
   @Patch('users/:id/reinstate')
   @HttpCode(HttpStatus.OK)
   reinstateUser(
@@ -131,7 +131,7 @@ export class AdminController {
     return this.adminService.reinstateUser(id, user.userId, ip);
   }
 
-  // Role change — ADMIN-only (inherits class-level @Roles(ADMIN)). INNEGOCIABLE.
+  // Role change — ADMIN-only (inherits class-level @MinRole(ADMIN)). INNEGOCIABLE.
   @Patch('users/:id/role')
   @HttpCode(HttpStatus.OK)
   changeUserRole(
@@ -143,7 +143,7 @@ export class AdminController {
     return this.adminService.changeUserRole(id, user.userId, dto, ip);
   }
 
-  // H8 Bloque E — "Vendedor de confianza": ADMIN-only (inherits class-level @Roles(ADMIN)).
+  // H8 Bloque E — "Vendedor de confianza": ADMIN-only (inherits class-level @MinRole(ADMIN)).
   // Otorgar confianza es decisión de plataforma, no moderación — a diferencia de
   // suspender, que MODERATOR también puede hacer.
   @Patch('users/:id/trusted')

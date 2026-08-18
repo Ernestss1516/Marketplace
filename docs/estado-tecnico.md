@@ -2705,6 +2705,72 @@ que acordarse de llamarlo. Ese método ya no existe.
 Ambos settings son editables desde `PATCH /admin/settings/:key` sin redeploy; el efecto es
 inmediato en la siguiente request de publish/renew.
 
+### Roles — RÁFAGA 1: la escalera y la fuente única (el MECANISMO, inventario congelado)
+
+Primera de las tres ráfagas del cuerpo de roles (diseño: `docs/diseno-roles.md`; auditoría:
+`docs/auditoria-backoffice-administracion.md` §Bloque 1). **Cambia CÓMO se decide el acceso al
+backoffice, no QUÉ acceso hay:** el reparto es idéntico al de antes, sección por sección y rol
+por rol. La prueba es que los 29 casos de `admin-roles.spec.ts` —incluidos los tres que pinzan
+las cuentas del nav en **21 / 7 / 2**— siguen en verde **sin haber tocado el fichero**.
+
+**El defecto que cierra.** El acceso se decidía en tres listas mantenidas a mano que podían
+divergir —y divergían—: `ROLE_ALLOWED_PATHS` (middleware), `NAV_ITEMS` (AdminNav) y los `@Roles`
+de los controladores. El comentario del propio middleware admitía el acoplamiento («sin el path
+la sección es inaccesible; sin el ítem del nav, invisible») y la divergencia estaba
+materializada: `/admin/motivos-contacto` existía, era alcanzable y no salía en el nav.
+
+- **La escalera** (`apps/api/src/common/roles/role-hierarchy.ts`, canónica; espejo en
+  `apps/web/src/config/roles.ts`). `Role` es un enum PLANO, así que «MODERATOR o superior» se
+  escribía enumerando —`@Roles(Role.EDITOR, Role.MODERATOR, Role.ADMIN)` aparecía siete veces
+  solo en `blog-admin.controller.ts`—. El problema no era la verbosidad: **olvidar un rol en una
+  de esas listas no rompe nada visible**. `ROLE_ORDER` + `atLeast`/`rolesFrom` lo declaran una
+  vez. Fichero puro sin DI, molde `listing-status.transitions.ts`.
+- **`@MinRole` es azúcar sobre `@Roles`, no un guard nuevo.** Escribe la misma metadata
+  (`ROLES_KEY`) con la misma forma, expandida por `rolesFrom`. **`RolesGuard` no se ha tocado.**
+  `min-role.decorator.spec.ts` pinza las tres equivalencias sobre la metadata real, que es lo
+  que hace del cambio una refactorización con equivalencia comprobada.
+- **Sobrevive UN `@Roles`**, en `moderation.controller.ts` (`USER, MODERATOR, ADMIN` para
+  denunciar): se salta EDITOR a propósito, así que es un CONJUNTO y no un piso. Anotado in situ
+  para que nadie lo «arregle» y le regale el endpoint a EDITOR.
+- **La fuente única** (`apps/web/src/config/backoffice-sections.ts`, molde `config/account-nav.ts`):
+  22 secciones con `id`, `route`, `label`, `minRole`. `ROLE_ALLOWED_PATHS` y `NAV_ITEMS`
+  **desaparecen**; middleware y nav derivan de ahí y usan la MISMA regla de pertenencia
+  (`matchesSection`), antes escrita por separado en cada sitio.
+- **El backend NO deriva del mapa, y es deliberado:** sección y endpoint no son 1:1 (`/admin/usuarios`
+  es una sección con ocho endpoints y dos pisos; blog y páginas son dos secciones con un
+  controlador). Derivarlo aplanaría la granularidad fina que M4 diseñó a propósito.
+- **Dos arreglos que caen de la derivación.** (1) La coincidencia pasa de `startsWith` a
+  **segmento**: `/admin/anuncios-borrador` ya no casa con la sección `anuncios` (hallazgo R4,
+  bomba de relojería, no fallo activo). (2) `/admin` lleva `exact: true` — es sección Y raíz de
+  todas las demás, y sin el flag se tragaba cualquier subruta; mismo caso especial y mismo nombre
+  que `exact` en `ACCOUNT_NAV`. **Lo encontró el propio test estructural**, no una revisión.
+- **La anomalía R3 se conserva, ahora DECLARADA.** Inventario congelado incluye conservar los
+  defectos: `motivos-contacto` sigue siendo alcanzable por ADMIN y ausente del nav, pero vía un
+  `hiddenFromNav: true` visible en una fila, en vez de por la ausencia de una fila en una segunda
+  lista. La ráfaga 2 lo borra quitando el flag.
+- **ÚNICA diferencia deliberada de comportamiento:** una ruta bajo `/admin` que no casa con
+  ninguna sección se deniega ahora a **todos, incluido ADMIN** (antes ADMIN llegaba a la página y
+  recibía el 404 de Next). Sólo afecta a URLs que no corresponden a ninguna sección —verificado
+  que ningún enlace interno ni ningún e2e visita una— y es lo que hace que una sección nueva sin
+  fila en el mapa sea inaccesible para todo el mundo (molestia inmediata) en vez de accesible
+  sólo para ADMIN y ausente del nav, que es exactamente cómo `motivos-contacto` pasó desapercibido.
+
+**Las barreras** (lo que impide que la fuente única vuelva a divergir):
+
+| Test | Qué falla si… |
+|---|---|
+| `config/backoffice-sections.test.ts` | el nav y el middleware discrepan; una ruta real de `(admin)/admin/` no tiene fila (se lee del **disco**, no de una lista); el acceso derivado difiere del que daban las dos listas borradas (transcritas ahí para eso) |
+| `config/roles.mirror.test.ts` | el espejo `ROLE_ORDER` del web diverge del canónico del api (lo **lee del fuente**) |
+| `common/roles/admin-controllers.contract.spec.ts` | un controlador bajo `/admin` no monta `RolesGuard`, no declara piso de clase o algún handler no resuelve piso; o hay metadata de roles sin guard (que no protege nada); o un piso queda vacío (que `RolesGuard` interpreta como «sin restricción» — fail-OPEN). Los controladores se descubren **del disco** |
+| `common/roles/role-hierarchy.spec.ts` | `ROLE_ORDER` no cubre el enum `Role` de Prisma, se reordena o deja de ser transitiva |
+
+Mutación verificada: divergir el espejo → 8 rojos; romper el fail-closed del gate → 1 rojo;
+quitar una sección del mapa → 3 rojos; quitar `RolesGuard` de un controlador admin → 2 rojos.
+
+**Pendiente (no entra aquí):** el delta de secciones (EDITOR 7 / MODERATOR 19 / ADMIN 22) y la
+enmienda a M4 son la **ráfaga 2**; la frescura del rol en el frontend (`tokenVersion` en
+`changeUserRole` + manejador de 401 en el backoffice) es la **ráfaga 3**.
+
 ### Moderación previa — el control de categoría en el backoffice (M5)
 
 **El motor sin interruptor.** M1 dejó el nivel CATEGORÍA completo por dentro —columna, pliegue

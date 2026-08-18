@@ -2,7 +2,7 @@ import { Body, Controller, Get, Ip, Param, Patch, Post, Query, UseGuards } from 
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { JwtAuthGuard, RolesGuard } from '../../common/guards';
-import { CurrentUser, Roles } from '../../common/decorators';
+import { CurrentUser, MinRole } from '../../common/decorators';
 import { JwtUser } from '../auth/auth.types';
 import { CampaignsService } from './campaigns.service';
 import { CreateCampaignDto } from './dto/create-campaign.dto';
@@ -14,7 +14,7 @@ import { ListCampaignsDto } from './dto/list-campaigns.dto';
 @ApiBearerAuth('access-token')
 @Controller('admin/campaigns')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN)
+@MinRole(Role.ADMIN)
 export class CampaignsController {
   constructor(private readonly campaignsService: CampaignsService) {}
 

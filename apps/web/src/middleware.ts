@@ -7,6 +7,7 @@ import {
   resolveCategoryRedirect,
   resolveSearchCategoryRedirect,
 } from '@/lib/category-canonical';
+import { ADMIN_LOGIN_PATH, ADMIN_ROOT, canAccessAdminPath } from '@/config/backoffice-sections';
 
 const { auth } = NextAuth(authConfig);
 
@@ -22,24 +23,17 @@ const accountPrefixes = [
   '/mis-tickets',
 ];
 
-const adminPrefixes = ['/admin'];
-
-// /admin/login es la puerta de entrada al panel — NO puede caer bajo el guard
-// de /admin/* (exige rol ADMIN + sesión), o nadie podría llegar a ella nunca
-// (bucle: para entrar necesitas estar ya dentro). Excluida explícitamente de
-// isAdminRoute; su propia página/endpoint controlan el acceso (ver
-// AuthService.adminLogin — rechaza tras validar credenciales, nunca antes).
-const ADMIN_LOGIN_PATH = '/admin/login';
-
-// Paths within /admin/ that each restricted role may access.
-// ADMIN always has full access. Any role not listed here is always blocked.
-// Add/extend entries here when a section is opened to a role.
-const ROLE_ALLOWED_PATHS: Record<string, string[]> = {
-  // '/admin/tickets' (atención al usuario R7) va junto a la entrada de AdminNav:
-  // sin el path la sección es inaccesible; sin el ítem del nav, invisible.
-  MODERATOR: ['/admin/reportes', '/admin/anuncios', '/admin/moderacion', '/admin/usuarios', '/admin/blog', '/admin/paginas', '/admin/tickets'],
-  EDITOR: ['/admin/blog', '/admin/paginas'],
-};
+// ROLES RÁFAGA 1 — `ROLE_ALLOWED_PATHS` VIVÍA AQUÍ Y HA DESAPARECIDO.
+//
+// Era una de las tres listas a mano que decidían el acceso al backoffice, y la
+// que obligaba a recordar la otra: su propio comentario decía «sin el path la
+// sección es inaccesible; sin el ítem del nav, invisible». Ahora las rutas, el
+// piso de rol y las etiquetas del nav salen de UN sitio —`config/backoffice-
+// sections.ts`— y este fichero solo pregunta.
+//
+// `ADMIN_LOGIN_PATH` y `ADMIN_ROOT` también salen de allí: la exclusión de
+// `/admin/login` del gate es una propiedad del mapa (no es una sección), no de
+// este middleware.
 
 // A1 (URLs anidadas) — código del redirect permanente de categoría. 308 y no 301:
 // es la decisión aprobada (P1); Google los consolida igual y el 308 preserva el
@@ -95,7 +89,8 @@ export default auth(async (req) => {
 
   const isAccountRoute = accountPrefixes.some((p) => pathname.startsWith(p));
   const isAdminRoute =
-    pathname !== ADMIN_LOGIN_PATH && adminPrefixes.some((p) => pathname.startsWith(p));
+    pathname !== ADMIN_LOGIN_PATH &&
+    (pathname === ADMIN_ROOT || pathname.startsWith(`${ADMIN_ROOT}/`));
 
   if ((isAccountRoute || isAdminRoute) && !session) {
     // RÁFAGA 4 — el punto de entrada más frecuente a /login (nav directa,
@@ -104,14 +99,17 @@ export default auth(async (req) => {
     return Response.redirect(new URL(buildLoginUrl(pathname + search), req.url));
   }
 
-  if (isAdminRoute) {
-    const role = session?.user.role;
-    if (role === 'ADMIN') {
-      // Full access — continue
-    } else {
-      const allowed = ROLE_ALLOWED_PATHS[role ?? '']?.some((p) => pathname.startsWith(p));
-      if (!allowed) return Response.redirect(new URL('/', req.url));
-    }
+  // ROLES RÁFAGA 1 — el gate del backoffice, DERIVADO del mapa de secciones.
+  //
+  // ADMIN deja de ser un caso especial: antes había una rama `if (role ===
+  // 'ADMIN')` con acceso total y otra para «los demás». Con la escalera, ADMIN
+  // pasa por la MISMA comparación que EDITOR y MODERATOR (`atLeast` lo resuelve),
+  // así que hay una sola ruta de decisión en vez de dos.
+  //
+  // `canAccessAdminPath` es fail-closed ante una ruta sin sección — ver su
+  // comentario en config/backoffice-sections.ts.
+  if (isAdminRoute && !canAccessAdminPath(session?.user.role, pathname)) {
+    return Response.redirect(new URL('/', req.url));
   }
 });
 

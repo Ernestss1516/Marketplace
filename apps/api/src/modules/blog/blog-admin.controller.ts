@@ -21,7 +21,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { Role } from '@prisma/client';
 import { JwtAuthGuard, RolesGuard } from '../../common/guards';
-import { CurrentUser, Roles } from '../../common/decorators';
+import { CurrentUser, MinRole } from '../../common/decorators';
 import { JwtUser } from '../auth/auth.types';
 import { BlogService } from './blog.service';
 import { ALLOWED_MIME_TYPES, MAX_FILE_SIZE } from '../media/media.service';
@@ -33,24 +33,24 @@ import { ListAdminPostsDto } from './dto/list-admin-posts.dto';
 @ApiBearerAuth('access-token')
 @Controller('admin/blog')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN)
+@MinRole(Role.ADMIN)
 export class BlogAdminController {
   constructor(private readonly blogService: BlogService) {}
 
   @Get()
-  @Roles(Role.EDITOR, Role.MODERATOR, Role.ADMIN)
+  @MinRole(Role.EDITOR)
   findAll(@Query() dto: ListAdminPostsDto) {
     return this.blogService.adminFindAll(dto);
   }
 
   @Get(':id')
-  @Roles(Role.EDITOR, Role.MODERATOR, Role.ADMIN)
+  @MinRole(Role.EDITOR)
   findById(@Param('id') id: string) {
     return this.blogService.adminFindById(id);
   }
 
   @Post()
-  @Roles(Role.EDITOR, Role.MODERATOR, Role.ADMIN)
+  @MinRole(Role.EDITOR)
   create(
     @Body() dto: CreatePostDto,
     @CurrentUser() user: JwtUser,
@@ -66,7 +66,7 @@ export class BlogAdminController {
   // declara junto al resto de rutas sin `:id` por consistencia con el resto
   // del codebase.
   @Post('upload-image')
-  @Roles(Role.EDITOR, Role.MODERATOR, Role.ADMIN)
+  @MinRole(Role.EDITOR)
   @ApiConsumes('multipart/form-data')
   @ApiBody({ schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } }, required: ['file'] } })
   @UseInterceptors(
@@ -89,7 +89,7 @@ export class BlogAdminController {
 
   @Patch(':id')
   @HttpCode(HttpStatus.OK)
-  @Roles(Role.EDITOR, Role.MODERATOR, Role.ADMIN)
+  @MinRole(Role.EDITOR)
   update(
     @Param('id') id: string,
     @Body() dto: UpdatePostDto,
@@ -101,7 +101,7 @@ export class BlogAdminController {
 
   @Post(':id/publish')
   @HttpCode(HttpStatus.OK)
-  @Roles(Role.EDITOR, Role.MODERATOR, Role.ADMIN)
+  @MinRole(Role.EDITOR)
   publish(
     @Param('id') id: string,
     @CurrentUser() user: JwtUser,
@@ -112,7 +112,7 @@ export class BlogAdminController {
 
   @Post(':id/unpublish')
   @HttpCode(HttpStatus.OK)
-  @Roles(Role.EDITOR, Role.MODERATOR, Role.ADMIN)
+  @MinRole(Role.EDITOR)
   unpublish(
     @Param('id') id: string,
     @CurrentUser() user: JwtUser,
@@ -121,7 +121,7 @@ export class BlogAdminController {
     return this.blogService.adminUnpublish(id, user.userId, ip);
   }
 
-  // Permanent deletion — ADMIN-only (inherits class-level @Roles(ADMIN)).
+  // Permanent deletion — ADMIN-only (inherits class-level @MinRole(ADMIN)).
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(

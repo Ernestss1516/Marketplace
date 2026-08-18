@@ -15,7 +15,7 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { JwtAuthGuard, RolesGuard } from '../../common/guards';
-import { CurrentUser, Roles } from '../../common/decorators';
+import { CurrentUser, MinRole } from '../../common/decorators';
 import { JwtUser } from '../auth/auth.types';
 import { TagsService } from './tags.service';
 import { CreateTagDto } from './dto/create-tag.dto';
@@ -32,7 +32,7 @@ import { SetCategoryTagsDto } from './dto/set-category-tags.dto';
 @ApiBearerAuth('access-token')
 @Controller('admin/tags')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN)
+@MinRole(Role.ADMIN)
 export class AdminTagsController {
   constructor(private readonly tagsService: TagsService) {}
 
@@ -88,7 +88,7 @@ export class AdminTagsController {
 @ApiBearerAuth('access-token')
 @Controller('admin/categories/:id/tags')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN)
+@MinRole(Role.ADMIN)
 export class AdminCategoryTagsController {
   constructor(private readonly tagsService: TagsService) {}
 

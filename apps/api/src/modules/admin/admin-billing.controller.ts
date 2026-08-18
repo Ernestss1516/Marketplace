@@ -14,7 +14,7 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { JwtAuthGuard, RolesGuard } from '../../common/guards';
-import { CurrentUser, Roles } from '../../common/decorators';
+import { CurrentUser, MinRole } from '../../common/decorators';
 import { JwtUser } from '../auth/auth.types';
 import { AdminBillingService } from './admin-billing.service';
 import { ListAdminTransactionsDto } from './dto/list-admin-transactions.dto';
@@ -28,7 +28,7 @@ import { UpdateBumpPackDto } from './dto/update-bump-pack.dto';
 @ApiBearerAuth('access-token')
 @Controller('admin/billing')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN)
+@MinRole(Role.ADMIN)
 export class AdminBillingController {
   constructor(private readonly adminBillingService: AdminBillingService) {}
 

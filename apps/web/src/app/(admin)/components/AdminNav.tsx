@@ -4,55 +4,44 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { cn } from '@/lib/utils';
+import { matchesSection, navSectionsFor } from '@/config/backoffice-sections';
 
-const NAV_ITEMS: { href: string; label: string; roles: string[] }[] = [
-  { href: '/admin',             label: 'Dashboard',    roles: ['ADMIN'] },
-  { href: '/admin/anuncios',    label: 'Anuncios',     roles: ['ADMIN', 'MODERATOR'] },
-  // MODERACIÓN M3 — la cola va junto a Anuncios: es trabajo PENDIENTE, no una
-  // vista de consulta. Antes su sitio era filtrar «En revisión» en Anuncios, y de
-  // ahí salía que el moderador despachara con el selector de estado genérico.
-  { href: '/admin/moderacion',  label: 'Cola de revisión', roles: ['ADMIN', 'MODERATOR'] },
-  { href: '/admin/usuarios',    label: 'Usuarios',     roles: ['ADMIN', 'MODERATOR'] },
-  { href: '/admin/reportes',    label: 'Reportes',     roles: ['ADMIN', 'MODERATOR'] },
-  { href: '/admin/tickets',     label: 'Tickets',      roles: ['ADMIN', 'MODERATOR'] },
-  { href: '/admin/facturacion', label: 'Facturación',  roles: ['ADMIN'] },
-  { href: '/admin/facturas',    label: 'Facturas',     roles: ['ADMIN'] },
-  { href: '/admin/categorias',  label: 'Categorías',   roles: ['ADMIN'] },
-  // B1 — el catálogo de tags es config del vocabulario, junto a Categorías.
-  { href: '/admin/tags',        label: 'Tags',         roles: ['ADMIN'] },
-  { href: '/admin/blog',        label: 'Blog',         roles: ['ADMIN', 'MODERATOR', 'EDITOR'] },
-  { href: '/admin/paginas',     label: 'Páginas',      roles: ['ADMIN', 'MODERATOR', 'EDITOR'] },
-  { href: '/admin/footer',      label: 'Footer',       roles: ['ADMIN'] },
-  // RN.4 — junto a Footer: son las dos navegaciones configurables del sitio.
-  { href: '/admin/nav',         label: 'Navegación',   roles: ['ADMIN'] },
-  // RP.3 — junto a Footer y Navegación: las tres son CONFIGURACIÓN del sitio
-  // (solo ADMIN), no contenido como Blog/Páginas (que sí abren a EDITOR).
-  { href: '/admin/portada',     label: 'Portada',      roles: ['ADMIN'] },
-  { href: '/admin/campaigns',   label: 'Campañas',     roles: ['ADMIN'] },
-  { href: '/admin/cupones',     label: 'Cupones',      roles: ['ADMIN'] },
-  { href: '/admin/banners',     label: 'Banners',      roles: ['ADMIN'] },
-  { href: '/admin/sponsored-ads', label: 'Patrocinados', roles: ['ADMIN'] },
-  { href: '/admin/mensajes-contacto', label: 'Mensajes de contacto', roles: ['ADMIN'] },
-  { href: '/admin/ajustes',     label: 'Ajustes',      roles: ['ADMIN'] },
-];
-
+/**
+ * ROLES RÁFAGA 1 — `NAV_ITEMS` VIVÍA AQUÍ Y HA DESAPARECIDO.
+ *
+ * Era la segunda de las tres listas a mano: 21 ítems con su `roles: string[]`
+ * enumerado uno a uno, que había que mantener en paralelo con
+ * `ROLE_ALLOWED_PATHS` del middleware. Cuando las dos discrepaban salía uno de
+ * los dos defectos que la auditoría documentó: una sección visible que redirige
+ * (ítem sin path) o una sección alcanzable que nadie encuentra (path sin ítem —
+ * el caso real de `/admin/motivos-contacto`).
+ *
+ * Ahora este componente **solo pinta**: qué secciones existen, cómo se llaman, en
+ * qué orden van y qué rol las ve sale de `config/backoffice-sections.ts`, el mismo
+ * fichero del que deriva el middleware. Es imposible que el nav y el gate
+ * discrepen porque leen la misma fila.
+ *
+ * Molde: `config/account-nav.ts` + el `<aside>` de la zona de cuenta (UXV.2).
+ */
 export function AdminNav() {
   const pathname = usePathname();
   const { data: session } = useSession();
-  const role = session?.user.role ?? '';
 
-  const visibleItems = NAV_ITEMS.filter((item) => item.roles.includes(role));
+  const visibleSections = navSectionsFor(session?.user.role);
 
   return (
     <nav className="flex flex-col gap-1" data-testid="admin-nav">
-      {visibleItems.map((item) => {
-        const isActive =
-          item.href === '/admin' ? pathname === '/admin' : pathname.startsWith(item.href);
+      {visibleSections.map((section) => {
+        // El resaltado usa la MISMA regla de pertenencia que el gate. Antes eran
+        // dos comparaciones escritas por separado —el `item.href === '/admin' ?
+        // … : startsWith(…)` de aquí y el `startsWith` del middleware— que podían
+        // discrepar; el caso especial de `/admin` vive ahora en el mapa (`exact`).
+        const isActive = matchesSection(pathname, section);
 
         return (
           <Link
-            key={item.href}
-            href={item.href}
+            key={section.id}
+            href={section.route}
             className={cn(
               'rounded-md px-3 py-2 text-sm transition-colors',
               isActive
@@ -60,7 +49,7 @@ export function AdminNav() {
                 : 'hover:bg-muted text-foreground',
             )}
           >
-            {item.label}
+            {section.label}
           </Link>
         );
       })}

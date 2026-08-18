@@ -2,7 +2,7 @@ import { Body, Controller, Get, HttpCode, HttpStatus, Ip, Param, Patch, Post, Us
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { JwtAuthGuard, RolesGuard } from '../../common/guards';
-import { CurrentUser, Roles } from '../../common/decorators';
+import { CurrentUser, MinRole } from '../../common/decorators';
 import { JwtUser } from '../auth/auth.types';
 import { ContactReasonsService } from './contact-reasons.service';
 import { CreateContactReasonDto } from './dto/create-contact-reason.dto';
@@ -13,7 +13,7 @@ import { ReorderContactReasonsDto } from './dto/reorder-contact-reasons.dto';
 @ApiBearerAuth('access-token')
 @Controller('admin/contact-reasons')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN)
+@MinRole(Role.ADMIN)
 export class AdminContactReasonsController {
   constructor(private readonly contactReasonsService: ContactReasonsService) {}
 
