@@ -234,6 +234,14 @@ export interface AdminCategoryChild {
   /** RP.2 — también PROPIO, no el efectivo: el admin edita lo que esta categoría
    *  configura, no lo que hereda. [] = "no configurado". */
   allowedPriceUnits: PriceUnit[];
+  /**
+   * MODERACIÓN M1/M5 — los anuncios de esta categoría pasan por revisión previa.
+   * También es el valor PROPIO, pero a diferencia de los demás su herencia es
+   * MONÓTONA, no override: si CUALQUIER ancestro lo tiene a `true`, esta
+   * categoría se revisa aunque el suyo sea `false`, y no hay forma de aflojarlo
+   * desde aquí. El panel pliega la cadena para no enseñar un `false` que miente.
+   */
+  requiresReview: boolean;
 }
 
 /**
@@ -256,6 +264,9 @@ export interface CategoryMutationDto {
   allowedViews?: ListingViewMode[];
   defaultView?: ListingViewMode;
   allowedPriceUnits?: PriceUnit[];
+  /** MODERACIÓN M1/M5 — el DTO del backend ya lo aceptaba (create y update); lo
+   *  que faltaba era que el cliente pudiera mandarlo. */
+  requiresReview?: boolean;
 }
 
 export function getSearchableKeys(token: string): Promise<{ keys: string[] }> {

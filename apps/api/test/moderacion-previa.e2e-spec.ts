@@ -266,6 +266,34 @@ describe('Moderación previa M1 — el disparador (e2e)', () => {
         .expect(200);
       expect((await publicar(await seedDraft(movilesId)).expect(200)).body.status).toBe('ACTIVE');
     });
+
+    it('M5 — el backoffice puede LEER la marca: GET /admin/categories la devuelve', async () => {
+      // La escritura existía desde M1, pero el árbol del panel no traía el campo:
+      // el admin podía encender la marca y no volver a verla nunca. Sin esto, la
+      // casilla del backoffice se pintaría siempre desmarcada al reabrir.
+      await marcarCategoria(arbol.raiz.id);
+
+      const res = await request(app.getHttpServer())
+        .get('/api/admin/categories')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      type Nodo = { id: string; requiresReview?: boolean; children: Nodo[] };
+      const buscar = (nodos: Nodo[], id: string): Nodo | undefined => {
+        for (const n of nodos) {
+          if (n.id === id) return n;
+          const hallado = buscar(n.children ?? [], id);
+          if (hallado) return hallado;
+        }
+        return undefined;
+      };
+
+      expect(buscar(res.body as Nodo[], arbol.raiz.id)?.requiresReview).toBe(true);
+      // El valor es el PROPIO, no el efectivo — igual que el resto de campos del
+      // árbol admin. El bisnieto hereda la revisión (lo prueban los casos de
+      // arriba), pero su columna sigue en `false` y el pliegue lo hace el cliente.
+      expect(buscar(res.body as Nodo[], arbol.bisnieto.id)?.requiresReview).toBe(false);
+    });
   });
 
   // ===========================================================================

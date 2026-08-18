@@ -55,11 +55,22 @@ interface CategoryFormValues {
   defaultView: ListingViewMode | '';
   /** RP.2 — [] = "no configurado" (hereda del padre / default global: solo pago único). */
   allowedPriceUnits: PriceUnit[];
+  /**
+   * MODERACIÓN M5 — el valor PROPIO de esta categoría, NUNCA el efectivo.
+   *
+   * Que el formulario guarde aquí lo propio y no lo que se ve es deliberado: si
+   * una hija hereda la marca de un ancestro, la casilla se pinta marcada (ver
+   * `CategoryForm`) pero este campo sigue en `false`, así que guardar la
+   * categoría NO le escribe una marca propia que nadie pidió. Lo que se muestra
+   * y lo que se persiste son dos cosas distintas, y sólo aquí es así porque sólo
+   * aquí la herencia es monótona.
+   */
+  requiresReview: boolean;
 }
 
 const EMPTY_FORM: CategoryFormValues = {
   name: '', slug: '', iconUrl: '', allowedListingType: 'BOTH',
-  allowedViews: [], defaultView: '', allowedPriceUnits: [],
+  allowedViews: [], defaultView: '', allowedPriceUnits: [], requiresReview: false,
 };
 
 const POLICY_OPTIONS: { value: ListingTypePolicy; label: string }[] = [
@@ -123,6 +134,28 @@ function mergeEffectiveSchema(propio: AttributeSchema[], heredado: AttributeSche
   return [...heredado.filter((f) => !propios.has(f.name)), ...propio];
 }
 
+/**
+ * MODERACIÓN M5 — el ancestro que IMPONE la revisión previa, o `null`.
+ *
+ * Es el mismo patrón que `mergeEffectiveSchema` sobre `cadenaHasta`, pero con un
+ * OR en vez de una fusión: `resolveEffectiveRequiresReview` del backend pliega
+ * la cadena raíz→hoja y un descendiente no puede aflojar lo que marcó un
+ * ancestro. Sin este pliegue en el cliente, la casilla enseñaría el `false`
+ * propio de una hija cuya rama SÍ se revisa — mentiría, y encima el desmarcado
+ * "para asegurarse" no haría nada, porque el backend ignora el aflojamiento.
+ *
+ * Se nombra el ancestro MÁS ALTO de los marcados, no el más cercano: es el
+ * origen de la imposición y la respuesta estable a «¿por qué se revisa esto?».
+ * Un ancestro intermedio puede estar pintado como marcado sin tener marca
+ * propia (la hereda a su vez), y nombrarlo apuntaría al sitio equivocado.
+ *
+ * La cadena que se pasa NO incluye a la categoría cuya casilla se pinta: lo
+ * propio se muestra por separado y sí es editable.
+ */
+function ancestroQueImponeRevision(cadenaDeAncestros: AdminCategory[]): string | null {
+  return cadenaDeAncestros.find((nodo) => nodo.requiresReview)?.name ?? null;
+}
+
 function toForm(cat: AdminCategoryChild): CategoryFormValues {
   return {
     name: cat.name,
@@ -132,6 +165,7 @@ function toForm(cat: AdminCategoryChild): CategoryFormValues {
     allowedViews: cat.allowedViews ?? [],
     defaultView: cat.defaultView ?? '',
     allowedPriceUnits: cat.allowedPriceUnits ?? [],
+    requiresReview: cat.requiresReview ?? false,
   };
 }
 
@@ -146,6 +180,7 @@ function CategoryForm({
   onCancel,
   saving,
   error,
+  inheritedReviewFrom,
 }: {
   title: string;
   values: CategoryFormValues;
@@ -154,7 +189,21 @@ function CategoryForm({
   onCancel: () => void;
   saving: boolean;
   error: string | null;
+  /**
+   * MODERACIÓN M5 — nombre del ancestro que ya impone la revisión, o null si
+   * ninguno lo hace. Lo calcula quien pinta el formulario, plegando la cadena
+   * con `ancestroQueImponeRevision`.
+   */
+  inheritedReviewFrom?: string | null;
 }) {
+  // La casilla muestra el estado EFECTIVO (propio OR heredado), que es lo que de
+  // verdad le pasa a un anuncio de esta categoría. `values.requiresReview` sigue
+  // siendo lo propio: se ve una cosa y se guarda otra sólo cuando hay herencia,
+  // y en ese caso la casilla está deshabilitada, así que el admin no puede
+  // cambiar nada que no se le esté enseñando.
+  const revisionHeredada = Boolean(inheritedReviewFrom);
+  const revisionEfectiva = revisionHeredada || values.requiresReview;
+
   return (
     <div className="rounded-md border bg-muted/20 p-4">
       <p className="mb-3 text-sm font-medium">{title}</p>
@@ -287,6 +336,34 @@ function CategoryForm({
             </select>
           </div>
         )}
+        {/* MODERACIÓN M5 — el tercer nivel del disparador que faltaba en el
+            backoffice. Separado con una línea porque no es presentación como el
+            resto del formulario: decide si un anuncio se publica o espera. */}
+        <div className="flex flex-col gap-1 sm:col-span-2 border-t pt-3">
+          <label className="text-xs font-medium text-muted-foreground">Moderación previa</label>
+          <label className={`flex items-center gap-1.5 text-sm ${revisionHeredada ? '' : 'cursor-pointer'}`}>
+            <input
+              type="checkbox"
+              checked={revisionEfectiva}
+              disabled={saving || revisionHeredada}
+              onChange={(e) => onChange({ requiresReview: e.target.checked })}
+              className="h-3.5 w-3.5 rounded"
+              data-testid="requires-review-checkbox"
+            />
+            Revisar los anuncios de esta categoría antes de publicarlos
+          </label>
+          {revisionHeredada ? (
+            <p className="text-xs text-amber-600" data-testid="requires-review-inherited">
+              Heredado de <strong>{inheritedReviewFrom}</strong> — no se puede desactivar aquí.
+              Para dejar de revisar esta rama, quita la marca en{' '}
+              <strong>{inheritedReviewFrom}</strong>.
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Se aplica también a todas sus subcategorías, y ninguna podrá desactivarlo.
+            </p>
+          )}
+        </div>
       </div>
       {error && (
         <div className="mt-2 flex items-center gap-2 text-xs text-destructive">
@@ -431,6 +508,7 @@ function CategoryRow({
   schemaPanel,
   tagsPanel,
   indent,
+  inheritedReviewFrom,
 }: {
   cat: AdminCategoryChild;
   isFirst: boolean;
@@ -452,6 +530,8 @@ function CategoryRow({
   /** B1 — panel de tags, hermano del de atributos. Null cuando no se está editando. */
   tagsPanel: { categoryId: string; categoryName: string; token: string } | null;
   indent: boolean;
+  /** M5 — ancestro que ya impone la revisión previa a esta fila, o null. */
+  inheritedReviewFrom: string | null;
 }) {
   return (
     <div className={indent ? 'ml-6 border-l pl-4' : ''}>
@@ -523,6 +603,7 @@ function CategoryRow({
             onCancel={onEditCancel}
             saving={editSaving}
             error={editError}
+            inheritedReviewFrom={inheritedReviewFrom}
           />
           {schemaPanel && <SchemaEditorPanel {...schemaPanel} />}
           {tagsPanel && <TagsEditorPanel {...tagsPanel} />}
@@ -672,6 +753,10 @@ export default function AdminCategoriasPage() {
         allowedViews: editForm.allowedViews,
         ...(editForm.defaultView && { defaultView: editForm.defaultView }),
         allowedPriceUnits: editForm.allowedPriceUnits,
+        // M5 — lo PROPIO, no lo efectivo: si la marca venía heredada la casilla
+        // estaba deshabilitada y esto sigue siendo `false`, así que guardar la
+        // categoría no le inventa una marca propia.
+        requiresReview: editForm.requiresReview,
       });
       setEditingId(null);
       await fetchCategories();
@@ -754,6 +839,7 @@ export default function AdminCategoriasPage() {
         allowedViews: createForm.allowedViews,
         ...(createForm.defaultView && { defaultView: createForm.defaultView }),
         allowedPriceUnits: createForm.allowedPriceUnits,
+        requiresReview: createForm.requiresReview,
         attributeSchema: serializeAttributeSchema(createOwnSchema, searchableKeys),
       });
       setCreateParentId(undefined);
@@ -878,6 +964,11 @@ export default function AdminCategoriasPage() {
               : null
           }
           indent={nivel > 1}
+          // M5 — la cadena SIN la propia categoría: lo suyo es editable, lo de
+          // sus ancestros no. `.slice(0, -1)` quita el último, que es ella misma.
+          inheritedReviewFrom={ancestroQueImponeRevision(
+            cadenaHasta(categories, cat.id).slice(0, -1),
+          )}
         />
 
         {/* Descendientes: la misma función, un nivel más abajo. */}
@@ -896,6 +987,9 @@ export default function AdminCategoriasPage() {
               onCancel={() => setCreateParentId(undefined)}
               saving={createSaving}
               error={createError}
+              // M5 — aquí la cadena va ENTERA: `cat` es el futuro padre, así que
+              // su propia marca ya es herencia para la subcategoría que se crea.
+              inheritedReviewFrom={ancestroQueImponeRevision(cadenaHasta(categories, cat.id))}
             />
             <div className="mt-2 rounded-md border bg-muted/10 p-4">
               <p className="mb-3 text-sm font-medium">Atributos</p>

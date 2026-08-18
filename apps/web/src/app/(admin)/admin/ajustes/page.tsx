@@ -764,7 +764,7 @@ export default function AdminAjustesPage() {
                   onSaved={() => handleSaved(key)}
                   settingKey="preModerationAllListings"
                   label="Revisar todos los anuncios antes de publicarlos"
-                  helpText="Encendido, cada anuncio nuevo espera a que un moderador lo apruebe. Para acotarlo a una rama del catálogo, usa la marca de la categoría."
+                  helpText="Encendido, cada anuncio nuevo espera a que un moderador lo apruebe. Para acotarlo a una rama del catálogo, marca la categoría en Categorías (la marca alcanza a todas sus subcategorías)."
                 />
               )}
               {key === 'emailVerifiedToPublishEnabled' && (
