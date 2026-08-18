@@ -2705,6 +2705,38 @@ que acordarse de llamarlo. Ese método ya no existe.
 Ambos settings son editables desde `PATCH /admin/settings/:key` sin redeploy; el efecto es
 inmediato en la siguiente request de publish/renew.
 
+### Moderación previa — el control de categoría en el backoffice (M5)
+
+**El motor sin interruptor.** M1 dejó el nivel CATEGORÍA completo por dentro —columna, pliegue
+monótono, endpoint y tests— y sin **ninguna** forma de encenderlo desde el panel: el `CategoryForm`
+de `/admin/categorias` no tenía casilla, el cliente de API no mandaba el campo, y `getCategories()`
+ni siquiera lo traía. Los otros dos niveles sí tenían control (casilla en `/admin/ajustes`, botones
+en `/admin/usuarios`), y el `helpText` de la casilla de plataforma ya remitía a «usa la marca de la
+categoría» — a un control que no existía. M5 lo construye. **La escritura del backend no se toca:**
+el DTO y `updateCategory` aceptaban `requiresReview` desde M1 y siguen igual.
+
+- **La lectura de vuelta** (una línea): `requiresReview` entra en el `select` de `getCategories()`.
+  Sin ella el panel podía encender la marca y no volver a verla nunca.
+- **La casilla muestra el estado EFECTIVO, no el propio**, y ahí está todo el diseño. Este campo es
+  el único de la pantalla cuya herencia es **monótona** y no override: una hija de una rama marcada
+  tiene `requiresReview: false` propio y **aun así se revisa**. Una casilla ingenua la pintaría
+  desmarcada —el admin leería «esta rama publica directa», que es falso— y si la desmarcase «para
+  asegurarse» no pasaría nada, porque el backend ignora el aflojamiento. Mentiría dos veces.
+- **Cuando la marca viene heredada:** casilla marcada y **deshabilitada**, con «Heredado de *X* — no
+  se puede desactivar aquí», nombrando el ancestro **más alto** de los marcados (el origen de la
+  imposición; un ancestro intermedio puede estar pintado como marcado sin tener marca propia).
+  Cuando no la hay, la casilla es editable y avisa de que marcarla alcanza a toda la descendencia.
+- **Se ve una cosa y se guarda otra, a propósito:** `CategoryFormValues.requiresReview` mantiene
+  siempre el valor **propio**, así que guardar una hija con la marca heredada **no** le escribe una
+  marca propia que nadie pidió. Sólo puede divergir cuando la casilla está deshabilitada.
+- **El pliegue se calcula en el cliente**, sin endpoint nuevo: `GET /admin/categories` ya devuelve el
+  árbol entero y `ancestroQueImponeRevision` recorre la cadena con el `cadenaHasta` que ya usaba el
+  schema heredado — mismo patrón, un `OR` en vez de una fusión. Alcanza al nivel 4, no sólo al padre
+  (R1 de la profundidad, ahora también en la UI).
+
+Con esto **los tres niveles del disparador tienen control en el backoffice**: plataforma en
+`/admin/ajustes`, categoría en `/admin/categorias`, usuario en `/admin/usuarios`.
+
 ### Moderación previa — el nivel usuario y la confianza (M4) — nace APAGADO
 
 Cierra el disparador de tres niveles. `User.requiresReview` (aditivo, `false` para todos) es el
@@ -2824,7 +2856,8 @@ bien, sólo tiene que esperar.
   - **Plataforma** — `Setting.preModerationAllListings`, sin fila = apagado, con casilla en el
     backoffice.
   - **Categoría** — `Category.requiresReview`, migración aditiva, editable por
-    `PATCH /admin/categories/:id`.
+    `PATCH /admin/categories/:id` (con casilla propia en `/admin/categorias` desde M5; M1 dejó el
+    endpoint sin control en el panel).
 - **La herencia es un pliegue MONÓTONO** (`resolveEffectiveRequiresReview`, un `OR` sobre la cadena
   raíz→hoja): si cualquier ancestro exige revisión, todos sus descendientes también, y **ninguno
   puede aflojarlo**. Es la única de las seis resoluciones que no admite override, y la razón es la

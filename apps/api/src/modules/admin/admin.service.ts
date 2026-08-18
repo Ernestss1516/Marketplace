@@ -737,6 +737,12 @@ export class AdminService {
         allowedViews: true,
         defaultView: true,
         allowedPriceUnits: true,
+        // MODERACIÓN M1/M5 — la marca de revisión. La ESCRITURA ya existía desde
+        // M1 (DTO + updateCategory); sin este campo aquí el backoffice podía
+        // encenderla y no volver a verla nunca: el panel no sabía cuál estaba
+        // marcada, ni podía avisar de la herencia monótona a los descendientes.
+        // Es el valor PROPIO, como el resto (el pliegue lo hace el cliente).
+        requiresReview: true,
       },
     });
 
