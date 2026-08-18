@@ -18,7 +18,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { Role } from '@prisma/client';
 import { JwtAuthGuard, RolesGuard } from '../../common/guards';
-import { CurrentUser, Roles } from '../../common/decorators';
+import { CurrentUser, MinRole } from '../../common/decorators';
 import { JwtUser } from '../auth/auth.types';
 import { ALLOWED_MIME_TYPES, MAX_FILE_SIZE } from '../media/media.service';
 import { SponsoredAdsService } from './sponsored-ads.service';
@@ -30,7 +30,7 @@ import { ListSponsoredAdsDto } from './dto/list-sponsored-ads.dto';
 @ApiBearerAuth('access-token')
 @Controller('admin/sponsored-ads')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN)
+@MinRole(Role.ADMIN)
 export class AdminSponsoredAdsController {
   constructor(private readonly sponsoredAdsService: SponsoredAdsService) {}
 

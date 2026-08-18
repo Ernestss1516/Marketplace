@@ -18,7 +18,7 @@ import { memoryStorage } from 'multer';
 import { ApiBearerAuth, ApiBody, ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { JwtAuthGuard, RolesGuard } from '../../common/guards';
-import { CurrentUser, Roles } from '../../common/decorators';
+import { CurrentUser, MinRole } from '../../common/decorators';
 import { ALLOWED_MIME_TYPES, MAX_FILE_SIZE } from '../media/media.service';
 import { JwtUser } from '../auth/auth.types';
 import { HomepageService } from './homepage.service';
@@ -37,7 +37,7 @@ import { UpdateHomepageDto } from './dto/update-homepage.dto';
 @ApiBearerAuth('access-token')
 @Controller('admin/homepage')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN)
+@MinRole(Role.ADMIN)
 export class HomepageAdminController {
   constructor(private readonly homepageService: HomepageService) {}
 

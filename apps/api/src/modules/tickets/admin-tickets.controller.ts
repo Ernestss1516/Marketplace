@@ -25,7 +25,7 @@ import { FilesInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { Role } from '@prisma/client';
 import { JwtAuthGuard, RolesGuard } from '../../common/guards';
-import { CurrentUser, Roles } from '../../common/decorators';
+import { CurrentUser, MinRole } from '../../common/decorators';
 import { JwtUser } from '../auth/auth.types';
 import { TicketsService } from './tickets.service';
 import {
@@ -47,7 +47,7 @@ import { SendStaffMessageDto } from './dto/send-staff-message.dto';
  * Atención al usuario R3 — API de STAFF. Bandeja, transiciones y los flujos
  * (b) admin→usuario y (c) contactar-al-reportado.
  *
- * `@Roles(MODERATOR, ADMIN)` a nivel de clase, molde `ModerationController`.
+ * `@MinRole(MODERATOR)` a nivel de clase, molde `ModerationController`.
  * Controlador SEPARADO del de usuario (mismo reparto que ContactModule): las dos
  * superficies tienen guards, DTOs y payloads distintos, y mezclarlas sería el
  * camino más corto a servir una por la puerta de la otra.
@@ -65,7 +65,7 @@ import { SendStaffMessageDto } from './dto/send-staff-message.dto';
 @ApiBearerAuth('access-token')
 @Controller('admin/tickets')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.MODERATOR, Role.ADMIN)
+@MinRole(Role.MODERATOR)
 export class AdminTicketsController {
   constructor(
     private readonly tickets: TicketsService,

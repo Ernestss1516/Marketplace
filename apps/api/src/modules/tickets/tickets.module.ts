@@ -19,7 +19,7 @@ import { AdminTicketsController } from './admin-tickets.controller';
  * DOS controladores separados, no uno con rutas mezcladas — mismo reparto que
  * `ContactModule` (público + `AdminContactMessagesController`):
  *   · `TicketsController` (`/tickets`) — owner-scoped, solo el dueño del hilo.
- *   · `AdminTicketsController` (`/admin/tickets`) — `@Roles(MODERATOR, ADMIN)`.
+ *   · `AdminTicketsController` (`/admin/tickets`) — `@MinRole(MODERATOR)`.
  * Sus payloads difieren en lo esencial (el de staff incluye las notas internas y
  * los datos del usuario); tenerlos en clases distintas es lo que impide servir
  * uno por la puerta del otro.

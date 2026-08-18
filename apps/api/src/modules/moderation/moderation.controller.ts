@@ -15,7 +15,7 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { JwtAuthGuard, RolesGuard } from '../../common/guards';
-import { CurrentUser, Roles } from '../../common/decorators';
+import { CurrentUser, MinRole, Roles } from '../../common/decorators';
 import { JwtUser } from '../auth/auth.types';
 import { ModerationService } from './moderation.service';
 import { CreateReportDto } from './dto/create-report.dto';
@@ -26,13 +26,22 @@ import { ModerationActionDto } from './dto/moderation-action.dto';
 @ApiBearerAuth('access-token')
 @Controller('moderation')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.MODERATOR, Role.ADMIN)
+@MinRole(Role.MODERATOR)
 export class ModerationController {
   constructor(private readonly moderationService: ModerationService) {}
 
   // ─── Reports ──────────────────────────────────────────────────────────────
 
   // Any authenticated user can file a report — override class-level roles.
+  //
+  // ROLES RÁFAGA 1 — EL ÚNICO `@Roles` QUE QUEDA EN TODO EL PROYECTO, y no es un
+  // olvido de la migración a `@MinRole`: este conjunto SE SALTA `EDITOR` a
+  // propósito, así que no es un piso de la escalera («USER o superior» incluiría
+  // EDITOR) sino un CONJUNTO. Escribirlo como `@MinRole(Role.USER)` cambiaría el
+  // acceso — le daría el endpoint a EDITOR, que hoy no lo tiene.
+  //
+  // Es el caso que justifica que `@Roles` sobreviva junto a `@MinRole`: pisos con
+  // `@MinRole`, conjuntos con `@Roles`. Ver min-role.decorator.ts.
   @Post('reports')
   @Roles(Role.USER, Role.MODERATOR, Role.ADMIN)
   @HttpCode(HttpStatus.CREATED)

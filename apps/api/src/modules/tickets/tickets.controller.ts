@@ -49,7 +49,7 @@ import { TicketThreadQueryDto } from './dto/ticket-thread-query.dto';
  * hay parámetro donde colar el de otra persona.
  *
  * La API de STAFF (bandeja, tomar, resolver, cerrar, abrir hilo) es R3 y vivirá
- * en su propio controlador bajo `/admin/tickets`, con `@Roles(MODERATOR, ADMIN)`.
+ * en su propio controlador bajo `/admin/tickets`, con `@MinRole(MODERATOR)`.
  */
 @ApiTags('Tickets')
 @ApiBearerAuth('access-token')

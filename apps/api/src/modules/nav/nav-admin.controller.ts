@@ -14,7 +14,7 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { JwtAuthGuard, RolesGuard } from '../../common/guards';
-import { CurrentUser, Roles } from '../../common/decorators';
+import { CurrentUser, MinRole } from '../../common/decorators';
 import { JwtUser } from '../auth/auth.types';
 import { NavService } from './nav.service';
 import { CreateNavItemDto } from './dto/create-nav-item.dto';
@@ -25,7 +25,7 @@ import { ReorderNavItemsDto } from './dto/reorder-nav-items.dto';
 @ApiBearerAuth('access-token')
 @Controller('admin/nav')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN)
+@MinRole(Role.ADMIN)
 export class NavAdminController {
   constructor(private readonly navService: NavService) {}
 

@@ -14,7 +14,7 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { JwtAuthGuard, RolesGuard } from '../../common/guards';
-import { CurrentUser, Roles } from '../../common/decorators';
+import { CurrentUser, MinRole } from '../../common/decorators';
 import { JwtUser } from '../auth/auth.types';
 import { AdminInvoicingService } from './admin-invoicing.service';
 import { ListAdminInvoicesDto } from './dto/list-admin-invoices.dto';
@@ -29,7 +29,7 @@ import { UpdateFiscalIssuerDto } from './dto/update-fiscal-issuer.dto';
 @ApiBearerAuth('access-token')
 @Controller('admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN)
+@MinRole(Role.ADMIN)
 export class AdminInvoicingController {
   constructor(private readonly admin: AdminInvoicingService) {}
 
