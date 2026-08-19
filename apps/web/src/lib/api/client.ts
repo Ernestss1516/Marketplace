@@ -1,6 +1,18 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api';
 
 /**
+ * ROLES R3 — evento de navegador que `apiFetch` emite cuando una petición
+ * AUTENTICADA recibe un 401, es decir: «la credencial que llevaba esta petición
+ * ya no vale». Lo produce un `tokenVersion` incrementado en el backend — un
+ * cambio de contraseña, un reset, o (desde R3) un cambio de rol.
+ *
+ * Es una SEÑAL, no una acción: quien decide qué hacer con ella es cada zona de
+ * la app. Hoy sólo la escucha `AdminSessionGuard`, en el shell de `(admin)`,
+ * porque el área de cuenta ya tiene su propio traductor (`useApiAction`).
+ */
+export const AUTH_EXPIRED_EVENT = 'marketplace:auth-expired';
+
+/**
  * PUERTA DE VALIDACIÓN — un motivo de rechazo, accionable.
  *
  * La puerta puede rechazar por varias reglas a la vez (le falta un atributo
@@ -170,6 +182,26 @@ export async function apiFetch<T>(path: string, options: FetchOptions = {}): Pro
   const response = await fetch(`${API_URL}${path}`, { ...init, headers });
 
   if (!response.ok) {
+    // ROLES R3 — AVISO DE SESIÓN CADUCADA, en el único sitio por el que pasan
+    // TODAS las peticiones del cliente.
+    //
+    // No cambia nada para quien llama: se sigue lanzando el mismo `ApiError`, con
+    // los mismos campos. Lo que se añade es una SEÑAL para quien quiera
+    // escucharla — hoy, `AdminSessionGuard` en el shell de `(admin)`, que la
+    // traduce en `signOut` + vuelta al login.
+    //
+    // POR QUÉ UN EVENTO Y NO UN `signOut()` AQUÍ MISMO: `apiFetch` también corre
+    // en Server Components (la ficha, el editor, el perfil), donde `signOut` de
+    // next-auth/react no existe y ni siquiera hay navegador. El guard de
+    // `typeof window` mantiene ese camino intacto.
+    //
+    // SÓLO CON `token`: un 401 sin credencial es «no has iniciado sesión», no
+    // «tu sesión ha caducado». Sacar a alguien de una pantalla por un endpoint
+    // anónimo que devolvió 401 sería un cierre de sesión sin causa.
+    if (response.status === 401 && token && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent(AUTH_EXPIRED_EVENT));
+    }
+
     const body = await response.json().catch(() => ({})) as Record<string, unknown>;
     throw new ApiError(
       response.status,

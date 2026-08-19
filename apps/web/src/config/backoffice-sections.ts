@@ -161,6 +161,29 @@ export const ADMIN_LOGIN_PATH = '/admin/login';
 export const ADMIN_ROOT = '/admin';
 
 /**
+ * ROLES R3 — LA PUERTA QUE LE TOCA A CADA ROL para volver a entrar.
+ *
+ * El backoffice tiene DOS puertas y no son intercambiables, porque el backend lo
+ * impone en los dos sentidos: `AuthService.login` rechaza a un ADMIN con
+ * `ADMIN_MUST_USE_ADMIN_LOGIN`, y `AuthService.adminLogin` rechaza a quien no lo
+ * sea con `ADMIN_LOGIN_NOT_ADMIN`. Mandar a alguien a la puerta equivocada es un
+ * callejón sin salida.
+ *
+ * VIVE AQUÍ porque hasta R3 la regla estaba escrita a mano en `AdminUserBar`, y
+ * R3 necesitaba la misma decisión en un segundo sitio (`AdminSessionGuard`). Dos
+ * copias de una regla de acceso es exactamente el defecto que este cuerpo vino a
+ * cerrar, así que se extrae a la primera ocasión en vez de a la tercera.
+ *
+ * NOTA: con el reparto de R2 un MODERATOR gestiona 19 secciones y sigue entrando
+ * por la puerta pública. Si `/admin/login` debe abrirse a EDITOR+ es una decisión
+ * de producto pendiente (docs/diseno-roles.md §7.1, D-1); mientras no se tome,
+ * esta función refleja el comportamiento real del backend y no lo adelanta.
+ */
+export function backofficeLoginPathFor(role: string | null | undefined): string {
+  return role === 'ADMIN' ? ADMIN_LOGIN_PATH : '/login';
+}
+
+/**
  * La sección a la que pertenece una ruta, o `null` si no pertenece a ninguna.
  *
  * COINCIDENCIA POR SEGMENTO, NO POR PREFIJO — y esto es un arreglo, no un detalle

@@ -303,6 +303,143 @@ describe('RÁFAGA 3 — Auth security (e2e)', () => {
         .set('Authorization', `Bearer ${token}`)
         .expect(200);
     });
+
+    // ROLES R3 — LA OTRA MITAD, y la que faltaba.
+    //
+    // El caso de arriba escribe el rol DIRECTAMENTE en la BD, así que sólo prueba
+    // que el BACKEND lo lee fresco — cosa que siempre funcionó. El defecto vivía
+    // en el frontend: su copia del rol se escribe una única vez, en el login, y
+    // nadie la invalidaba. Por eso a un degradado el middleware le seguía abriendo
+    // el backoffice mientras la API le respondía 403 a todo.
+    //
+    // La solución es el molde de la contraseña: `changeUserRole` incrementa
+    // `tokenVersion`, igual que `resetPassword` justo arriba en este fichero. Este
+    // test afirma el MISMO desenlace —el token viejo pasa de valer a dar 401— para
+    // que quede pinzado que las dos causas de invalidación se comportan igual.
+    it('cambiar el rol POR EL ENDPOINT invalida las sesiones del afectado, igual que un reset de contraseña', async () => {
+      const [admin, target] = await Promise.all([
+        prisma.user.create({
+          data: {
+            email: 'r3-admin@example.com',
+            name: 'R3 Admin',
+            slug: 'r3-admin',
+            passwordHash: await hash('Test1234!'),
+            emailVerified: true,
+            role: 'ADMIN',
+          },
+        }),
+        prisma.user.create({
+          data: {
+            email: 'r3-target@example.com',
+            name: 'R3 Target',
+            slug: 'r3-target',
+            passwordHash: await hash('Test1234!'),
+            emailVerified: true,
+            role: 'MODERATOR',
+          },
+        }),
+      ]);
+
+      const adminToken = (
+        await request(app.getHttpServer())
+          .post('/api/auth/admin-login')
+          .set('X-Forwarded-For', freshIp())
+          .send({ email: admin.email, password: 'Test1234!' })
+      ).body.accessToken as string;
+
+      const targetToken = (await loginRaw(app, target.email, 'Test1234!', freshIp())).body
+        .accessToken as string;
+      const versionAntes = (
+        await prisma.user.findUniqueOrThrow({
+          where: { id: target.id },
+          select: { tokenVersion: true },
+        })
+      ).tokenVersion;
+
+      // Ancla: el token del afectado vale ANTES del cambio.
+      await request(app.getHttpServer())
+        .get('/api/users/me')
+        .set('Authorization', `Bearer ${targetToken}`)
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .patch(`/api/admin/users/${target.id}/role`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ role: 'USER' })
+        .expect(200);
+
+      expect(
+        (
+          await prisma.user.findUniqueOrThrow({
+            where: { id: target.id },
+            select: { tokenVersion: true },
+          })
+        ).tokenVersion,
+      ).toBe(versionAntes + 1);
+
+      // 401 y no 403: la sesión ha MUERTO, no es que le falte permiso. Esa
+      // distinción es la que hace que el frontend sepa mandarlo a re-loguearse
+      // (`isAuthError` sólo mira el 401; el 403 se queda en la pantalla).
+      await request(app.getHttpServer())
+        .get('/api/users/me')
+        .set('Authorization', `Bearer ${targetToken}`)
+        .expect(401);
+
+      // Y al volver a entrar, el rol nuevo — el círculo entero.
+      const relogin = await loginRaw(app, target.email, 'Test1234!', freshIp());
+      expect(relogin.status).toBe(200);
+      expect(relogin.body.user.role).toBe('USER');
+      await request(app.getHttpServer())
+        .get('/api/moderation/reports')
+        .set('Authorization', `Bearer ${relogin.body.accessToken as string}`)
+        .expect(403);
+    });
+
+    it('el cambio de rol NO toca las sesiones de nadie más', async () => {
+      // El incremento es por fila. Sin esto, una implementación que subiera
+      // `tokenVersion` de más (un updateMany mal filtrado) echaría a todo el
+      // mundo y el test de arriba seguiría en verde.
+      const [admin, target, testigo] = await Promise.all([
+        prisma.user.create({
+          data: {
+            email: 'r3b-admin@example.com', name: 'R3b Admin', slug: 'r3b-admin',
+            passwordHash: await hash('Test1234!'), emailVerified: true, role: 'ADMIN',
+          },
+        }),
+        prisma.user.create({
+          data: {
+            email: 'r3b-target@example.com', name: 'R3b Target', slug: 'r3b-target',
+            passwordHash: await hash('Test1234!'), emailVerified: true, role: 'EDITOR',
+          },
+        }),
+        prisma.user.create({
+          data: {
+            email: 'r3b-testigo@example.com', name: 'R3b Testigo', slug: 'r3b-testigo',
+            passwordHash: await hash('Test1234!'), emailVerified: true, role: 'MODERATOR',
+          },
+        }),
+      ]);
+
+      const adminToken = (
+        await request(app.getHttpServer())
+          .post('/api/auth/admin-login')
+          .set('X-Forwarded-For', freshIp())
+          .send({ email: admin.email, password: 'Test1234!' })
+      ).body.accessToken as string;
+      const tokenTestigo = (await loginRaw(app, testigo.email, 'Test1234!', freshIp())).body
+        .accessToken as string;
+
+      await request(app.getHttpServer())
+        .patch(`/api/admin/users/${target.id}/role`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ role: 'USER' })
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .get('/api/users/me')
+        .set('Authorization', `Bearer ${tokenTestigo}`)
+        .expect(200);
+    });
   });
 
   // ── Change password ───────────────────────────────────────────────────────
