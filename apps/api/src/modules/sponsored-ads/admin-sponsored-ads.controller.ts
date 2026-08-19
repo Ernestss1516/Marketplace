@@ -30,7 +30,7 @@ import { ListSponsoredAdsDto } from './dto/list-sponsored-ads.dto';
 @ApiBearerAuth('access-token')
 @Controller('admin/sponsored-ads')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@MinRole(Role.ADMIN)
+@MinRole(Role.MODERATOR)
 export class AdminSponsoredAdsController {
   constructor(private readonly sponsoredAdsService: SponsoredAdsService) {}
 

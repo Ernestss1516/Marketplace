@@ -2705,6 +2705,95 @@ que acordarse de llamarlo. Ese método ya no existe.
 Ambos settings son editables desde `PATCH /admin/settings/:key` sin redeploy; el efecto es
 inmediato en la siguiente request de publish/renew.
 
+### Roles — RÁFAGA 2: el reparto (EDITOR 7 / MODERATOR 19 / ADMIN 22) + la enmienda a M4
+
+Segunda de las tres ráfagas del cuerpo de roles. La R1 dejó el mecanismo probado con el
+inventario intacto; ésta cambia **el contenido**, no el mecanismo.
+
+**Un cambio, tres capas.** Middleware y nav derivan de `config/backoffice-sections.ts` desde
+R1, así que repartir doce secciones fue cambiar doce `minRole` en un fichero. No hubo que tocar
+ni el middleware ni `AdminNav`: es la fuente única demostrando para qué sirve. Y los tests
+estructurales de R1 (que nav y middleware no discrepen, que toda ruta real tenga fila, que el
+espejo no diverja) siguieron verdes mientras se reescribía el bloque de inventario entero —
+la prueba de que mecanismo y contenido están de verdad separados.
+
+| Rol | Secciones | Qué gana en R2 |
+|---|---|---|
+| **EDITOR** | 7 | dashboard, portada, footer, navegación, banners (+ blog y páginas, que ya tenía) |
+| **MODERATOR** | 19 | lo de EDITOR + categorías, tags, campañas, cupones, patrocinados, mensajes y motivos de contacto |
+| **ADMIN** | 22 | sin cambios: mantiene facturación, facturas y ajustes en exclusiva |
+| **USER** | 0 | sin cambios — el suelo no se mueve, y se afirma en test por eso mismo |
+
+**Criterios revisados a propósito, no por descuido.** El comentario de RP.3 decía que portada,
+footer y navegación son «CONFIGURACIÓN del sitio, no contenido como Blog/Páginas (que sí abren
+a EDITOR)». Ese criterio queda enmendado: las tres son la superficie **editorial** del sitio
+público —qué se enseña y cómo se navega—, que es el mismo oficio que el blog. Configuración de
+plataforma es lo que sigue en ADMIN. Dos matices que no son simétricos:
+
+- **Banners → EDITOR, patrocinados → MODERATOR.** Un banner es pieza de la portada; un
+  patrocinado es inventario **vendido** a un anunciante, y tocarlo es tocar lo que alguien pagó.
+- **Las dos secciones de contacto bajan JUNTAS**, y no por simetría: `/admin/mensajes-contacto`
+  importa el cliente de `admin-contact-reasons`, así que bajar una sola dejaría la otra
+  cargando rota. Es INV-1, verificado en los imports.
+
+**INV-1 — el invariante de carga, y por qué el mapa no basta.** Abrir la ruta a un rol lo
+decide el mapa; que la página se PINTE depende de que los endpoints que llama admitan el mismo
+piso. Sección y endpoint no son 1:1, así que esto no se deriva: se comprueba cargando. Tres
+puntos exigieron trabajo explícito en el backend, y sin ellos la sección habría cargado y
+fallado con 403 —el peor de los dos mundos, porque el nav promete algo que no se puede usar:
+
+1. **`GET /admin/stats`** heredaba ADMIN de la clase mientras el dashboard bajaba a EDITOR.
+2. **Los 7 métodos de categorías de `AdminController`** heredaban ADMIN en silencio (nadie
+   había escrito «categorías es ADMIN»; nadie había escrito nada). Se verificó que la pantalla
+   usa exactamente esos 7 endpoints, uno por uno.
+3. **Las DOS clases de `admin-tags.controller.ts`** (`AdminTagsController` y
+   `AdminCategoryTagsController`, en el mismo fichero).
+
+El bloque `INV-1` de `admin-roles.spec.ts` abre las doce secciones que bajaron con su rol nuevo
+y exige que no aparezca ningún error de autorización en la pantalla.
+
+**La enmienda a M4 — `Category.requiresReview` pasa a MODERATOR+.** Abrir `/admin/categorias` a
+MODERATOR abre con ella la casilla de revisión previa que M5 puso en el formulario, y el
+criterio de M4 se partía por la mitad: un moderador podría marcar **una rama entera del
+catálogo** pero no a **un solo vendedor** — el permiso más amplio por debajo del más estrecho.
+
+La enmienda no toca la fórmula ni la herencia monótona; cambia **el eje del reparto**. No es
+«específico vs. genérico» (la marca de categoría es tan específica como la de usuario, y por eso
+ninguna la afloja la confianza) sino **una rama del catálogo vs. una persona**. Reparto vigente:
+
+| Nivel del disparador | Quién lo enciende |
+|---|---|
+| PLATAFORMA (todos los anuncios) | ADMIN — `/admin/ajustes` |
+| USUARIO (esta persona) | ADMIN — `PATCH /admin/users/:id/requires-review` |
+| CATEGORÍA (esta rama) | **MODERATOR** — `PATCH /admin/categories/:id` |
+
+Enmendados los **cuatro** sitios donde vivía el argumento viejo, porque en este repo las
+decisiones viven en los comentarios y cambiar el `@MinRole` sin acotarlos deja una
+contradicción que se revierte sola: el comentario de `updateCategory`, el de
+`setUserRequiresReview` (acotado explícitamente a las personas), la cabecera de
+`pre-moderation.service.ts` y `docs/auditoria-y-diseno-moderacion.md` (niveles 2 y 3).
+
+**R3 cerrado.** `/admin/motivos-contacto` gana por fin su ítem de nav — no por un parche, sino
+porque con el nav derivado del mapa, tener fila ES tener ítem. `hiddenFromNav` desaparece: era
+el andamio con el que R1 declaró la anomalía mientras el inventario estaba congelado, y ya no
+queda ninguna sección oculta. `navSectionsFor` y `canAccessAdminPath` se reducen a la misma
+condición, que es lo que hace imposible por construcción repetir el defecto.
+
+**Tests de inventario actualizados al hecho nuevo, sin bajar el listón.** Las cuentas pasan de
+21/7/2 a 22/19/7, pero el test no cuenta sólo: `backoffice-sections.test.ts` transcribe la
+tabla acordada a mano —no la deriva del mapa, que sería `mapa === mapa`— y compara sección por
+sección; y los e2e enumeran las 12 y las 7 etiquetas por nombre. Un conteo correcto con la
+sección equivocada dentro no pasaría. Tres specs más afirmaban los gates viejos y se han
+actualizado con la razón escrita: `portada-admin`, `nav-admin` y `admin-categorias`.
+
+**Deuda anotada:** `AdminController` sirve ahora cinco secciones con **tres** pisos distintos
+(stats→EDITOR, listings/users/categories→MODERATOR, settings→ADMIN). Partirlo en tres
+controladores es lo limpio y está recomendado en `docs/diseno-roles.md` §4.4; mueve 22 rutas de
+sitio, así que no entra en la ráfaga que reparte el inventario.
+
+**Pendiente:** la frescura del rol en el frontend (`tokenVersion` en `changeUserRole` + el
+manejador de 401 que no existe en ninguno de los 74 ficheros del backoffice) es la **ráfaga 3**.
+
 ### Roles — RÁFAGA 1: la escalera y la fuente única (el MECANISMO, inventario congelado)
 
 Primera de las tres ráfagas del cuerpo de roles (diseño: `docs/diseno-roles.md`; auditoría:

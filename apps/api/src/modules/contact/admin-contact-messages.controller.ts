@@ -13,7 +13,7 @@ import { ReplyContactMessageDto } from './dto/reply-contact-message.dto';
 @ApiBearerAuth('access-token')
 @Controller('admin/contact-messages')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@MinRole(Role.ADMIN)
+@MinRole(Role.MODERATOR)
 export class AdminContactMessagesController {
   constructor(private readonly contactService: ContactService) {}
 

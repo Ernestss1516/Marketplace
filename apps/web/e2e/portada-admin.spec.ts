@@ -306,20 +306,37 @@ test.describe('Editor de portada — gate de rol', () => {
     await page.close();
   });
 
-  test('un MODERATOR no entra: la portada es configuración, no contenido', async ({
-    moderatorContext,
-  }) => {
-    const page = await moderatorContext.newPage();
-    await page.goto('/admin/portada');
-    await expect(page).toHaveURL(/^http:\/\/localhost:3000\/$/);
-    await page.close();
-  });
+  // ROLES R2 — CRITERIO REVISADO. Estos dos tests afirmaban lo contrario: que la
+  // portada era «configuración, no contenido» y por eso ADMIN-only. El reparto
+  // nuevo la lee al revés y con razón: decidir qué se enseña en la home es el
+  // mismo oficio que escribir el blog, y quien lo hace es el EDITOR. Lo que sí
+  // es configuración de plataforma —y sigue en ADMIN— son facturación, facturas
+  // y ajustes. Ver docs/diseno-roles.md §4.2.
 
-  test('un EDITOR tampoco entra (sí edita el blog, pero no la portada)', async ({
+  test('un EDITOR entra: la portada es su oficio (qué se enseña en la home)', async ({
     editorContext,
   }) => {
     const page = await editorContext.newPage();
     await page.goto('/admin/portada');
+    await expect(page.getByTestId('admin-nav').getByRole('link', { name: 'Portada' })).toBeVisible();
+    expect(page.url()).toContain('/admin/portada');
+    await page.close();
+  });
+
+  test('un MODERATOR también entra (la escalera: hereda todo lo de EDITOR)', async ({
+    moderatorContext,
+  }) => {
+    const page = await moderatorContext.newPage();
+    await page.goto('/admin/portada');
+    expect(page.url()).toContain('/admin/portada');
+    await page.close();
+  });
+
+  test('pero un EDITOR sigue sin entrar en los ajustes del sitio', async ({ editorContext }) => {
+    // El contrapunto, para que este fichero no quede afirmando sólo aperturas: la
+    // frontera existe y está donde la puso el reparto.
+    const page = await editorContext.newPage();
+    await page.goto('/admin/ajustes');
     await expect(page).toHaveURL(/^http:\/\/localhost:3000\/$/);
     await page.close();
   });

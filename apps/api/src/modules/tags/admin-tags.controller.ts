@@ -32,7 +32,7 @@ import { SetCategoryTagsDto } from './dto/set-category-tags.dto';
 @ApiBearerAuth('access-token')
 @Controller('admin/tags')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@MinRole(Role.ADMIN)
+@MinRole(Role.MODERATOR)
 export class AdminTagsController {
   constructor(private readonly tagsService: TagsService) {}
 
@@ -88,7 +88,7 @@ export class AdminTagsController {
 @ApiBearerAuth('access-token')
 @Controller('admin/categories/:id/tags')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@MinRole(Role.ADMIN)
+@MinRole(Role.MODERATOR)
 export class AdminCategoryTagsController {
   constructor(private readonly tagsService: TagsService) {}
 

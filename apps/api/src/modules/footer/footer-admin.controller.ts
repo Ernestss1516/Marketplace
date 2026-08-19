@@ -28,7 +28,7 @@ import { ReorderFooterItemsDto } from './dto/reorder-footer-items.dto';
 @ApiBearerAuth('access-token')
 @Controller('admin/footer')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@MinRole(Role.ADMIN)
+@MinRole(Role.EDITOR)
 export class FooterAdminController {
   constructor(private readonly footerService: FooterService) {}
 

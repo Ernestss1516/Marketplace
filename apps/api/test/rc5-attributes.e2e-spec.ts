@@ -764,10 +764,24 @@ describe('RC5 — Categorías y atributos (e2e)', () => {
       .expect(401);
   });
 
-  it('GET /admin/categories/searchable-keys como MODERATOR → 403', async () => {
-    await request(app.getHttpServer())
+  // ROLES R2 — este caso afirmaba `MODERATOR → 403`. El catálogo baja a MODERATOR
+  // con la sección `/admin/categorias` (es la materia prima del trabajo de
+  // moderar), y este endpoint es uno de los siete que la pantalla necesita para
+  // pintarse: si siguiera en ADMIN, un moderador entraría y el editor de
+  // atributos saldría vacío. La frontera sigue existiendo, un piso más abajo.
+  it('GET /admin/categories/searchable-keys como MODERATOR → 200', async () => {
+    const res = await request(app.getHttpServer())
       .get('/api/admin/categories/searchable-keys')
       .set('Authorization', `Bearer ${moderatorToken}`)
+      .expect(200);
+
+    expect(res.body.keys).toBeInstanceOf(Array);
+  });
+
+  it('GET /admin/categories/searchable-keys como USER → 403', async () => {
+    await request(app.getHttpServer())
+      .get('/api/admin/categories/searchable-keys')
+      .set('Authorization', `Bearer ${sellerToken}`)
       .expect(403);
   });
 });

@@ -562,20 +562,26 @@ describe('Moderation (e2e)', () => {
       .expect(404);
   });
 
-  // ── Role boundaries: ADMIN-only endpoints — unchanged, MODERATOR blocked ─────
+  // ── Frontera de rol (ROLES R2) ───────────────────────────────────────────────
+  //
+  // Estos tres casos eran «los tres endpoints ADMIN-only que un MODERATOR no
+  // toca». Con el reparto de R2 sólo queda uno, y el contraste es MÁS útil que
+  // antes porque los tres siguen viviendo en el MISMO controlador con el mismo
+  // `@MinRole(ADMIN)` de clase: lo que los separa son los overrides por método,
+  // que es exactamente lo que hay que poder ver roto.
 
-  it('MODERATOR → GET /admin/stats → 403', async () => {
+  it('MODERATOR → GET /admin/stats → 200 (el dashboard es EDITOR+ desde R2)', async () => {
     await request(app.getHttpServer())
       .get('/api/admin/stats')
       .set('Authorization', `Bearer ${moderatorToken}`)
-      .expect(403);
+      .expect(200);
   });
 
-  it('MODERATOR → GET /admin/categories → 403', async () => {
+  it('MODERATOR → GET /admin/categories → 200 (el catálogo baja con la moderación)', async () => {
     await request(app.getHttpServer())
       .get('/api/admin/categories')
       .set('Authorization', `Bearer ${moderatorToken}`)
-      .expect(403);
+      .expect(200);
   });
 
   it('MODERATOR → GET /admin/settings → 403', async () => {

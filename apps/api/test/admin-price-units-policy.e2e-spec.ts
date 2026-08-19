@@ -217,15 +217,22 @@ describe('Admin — escritura de allowedPriceUnits y guard anti-huérfanos (e2e)
         .expect(403);
     });
 
-    it('MODERATOR → 403 (gestionar categorías es solo de ADMIN)', async () => {
+    // ROLES R2 — este caso decía «MODERATOR → 403 (gestionar categorías es solo
+    // de ADMIN)». Ya no: el catálogo baja a MODERATOR con la sección
+    // `/admin/categorias`. Se conserva el contraste invirtiéndolo — el moderador
+    // SÍ puede, y el suelo (sin auth, USER) sigue donde estaba.
+    it('MODERATOR → 200 (el catálogo es trabajo de moderación desde R2)', async () => {
       await request(app.getHttpServer())
         .patch(`/api/admin/categories/${catId}`)
         .set('Authorization', `Bearer ${moderatorToken}`)
-        .send({ allowedPriceUnits: ['PER_DAY'] })
-        .expect(403);
+        .send({ allowedPriceUnits: ['PER_HOUR'] })
+        .expect(200);
     });
 
     it('ninguno de los intentos rechazados cambió nada', async () => {
+      // Los rechazados son «sin auth» y «USER». El PATCH del MODERATOR de arriba
+      // reescribe el mismo valor a propósito (PER_HOUR), para que este invariante
+      // siga midiendo lo que medía: que un 403 no escribe.
       const saved = await prisma.category.findUnique({ where: { id: catId } });
       expect(saved?.allowedPriceUnits).toEqual(['PER_HOUR']);
     });

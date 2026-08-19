@@ -338,13 +338,22 @@ describe('Tags — modelo, herencia y CRUD admin (B1, e2e)', () => {
 
   // ── Frontera de rol ─────────────────────────────────────────────────────────
 
-  it('ADMIN-only: un MODERATOR recibe 403 en todos los endpoints admin de tags', async () => {
+  // ROLES R2 — este caso afirmaba que un MODERATOR recibía 403 en TODOS los
+  // endpoints admin de tags. El vocabulario baja con el catálogo: es la materia
+  // prima del trabajo de moderar. Se comprueban los CUATRO endpoints, que además
+  // viven en DOS clases distintas del mismo fichero (`AdminTagsController` y
+  // `AdminCategoryTagsController`) — bajar solo una era un fallo fácil de cometer
+  // y este test es el que lo atrapa.
+  it('MODERATOR entra en los cuatro endpoints admin de tags (las dos clases)', async () => {
     const mod = { Authorization: `Bearer ${moderatorToken}` };
-    await request(app.getHttpServer()).get('/api/admin/tags').set(mod).expect(403);
-    await request(app.getHttpServer()).post('/api/admin/tags').set(mod).send({ name: 'X' }).expect(403);
-    await request(app.getHttpServer()).get(`/api/admin/categories/${padreId}/tags`).set(mod).expect(403);
+    await request(app.getHttpServer()).get('/api/admin/tags').set(mod).expect(200);
+    await request(app.getHttpServer()).get(`/api/admin/categories/${padreId}/tags`).set(mod).expect(200);
     await request(app.getHttpServer())
-      .put(`/api/admin/categories/${padreId}/tags`).set(mod).send({ tagIds: [] }).expect(403);
+      .put(`/api/admin/categories/${padreId}/tags`).set(mod).send({ tagIds: [] }).expect(200);
+    // El POST se deja para el final: crea estado y el nombre va con marca de
+    // tiempo para no chocar con los tags que sembraron los casos anteriores.
+    await request(app.getHttpServer())
+      .post('/api/admin/tags').set(mod).send({ name: `B1 Mod Tag ${Date.now()}` }).expect(201);
   });
 
   it('sin token, 401', async () => {

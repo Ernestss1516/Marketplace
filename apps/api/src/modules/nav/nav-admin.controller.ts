@@ -25,7 +25,7 @@ import { ReorderNavItemsDto } from './dto/reorder-nav-items.dto';
 @ApiBearerAuth('access-token')
 @Controller('admin/nav')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@MinRole(Role.ADMIN)
+@MinRole(Role.EDITOR)
 export class NavAdminController {
   constructor(private readonly navService: NavService) {}
 

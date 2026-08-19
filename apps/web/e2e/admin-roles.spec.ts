@@ -1,35 +1,37 @@
-// RR5.1 / RR5.1-ext / BLOG-EDITOR — Playwright E2E: separación de roles ADMIN / MODERATOR / EDITOR.
+// ROLES — Playwright E2E: el REPARTO del backoffice entre EDITOR / MODERATOR / ADMIN.
 //
-// Tests:
-//   ADMIN
-//     1. /admin carga (dashboard) → el nav muestra los 21 ítems que ve un ADMIN
-//        (la cuenta sale de NAV_ITEMS en AdminNav.tsx: son 21 y todos incluyen ADMIN)
-//   MODERATOR — rutas aún bloqueadas (ADMIN-only)
-//     2. /admin → redirige a /
-//     3. /admin/ajustes → redirige a /
-//     4. /admin/facturacion → redirige a /
-//   MODERATOR — rutas abiertas en RR5.1-ext
-//     5. /admin/reportes → carga correctamente
-//     6. /admin/anuncios → carga correctamente (RR5.1-ext)
-//     7. /admin/usuarios → carga correctamente (RR5.1-ext)
-//     8. /admin/blog → carga correctamente (RR5.1-ext)
-//     8b. /admin/paginas → carga correctamente (BLOG-PAGINAS)
-//     9. AdminNav muestra exactamente 7 ítems (+ Cola de revisión, MODERACIÓN M3)
-//    10. MODERATOR no ve el botón "Banear" en /admin/usuarios
-//    11. MODERATOR no ve el botón "Eliminar" en /admin/blog
-//    12. MODERATOR desestima un reporte → funciona (sin 403)
-//   EDITOR — rol nuevo, acotado exclusivamente al blog (contenido reversible)
-//    13. /admin/blog → carga correctamente
-//    14. /admin/blog/nuevo → carga correctamente
-//    14b. /admin/paginas → carga correctamente (BLOG-PAGINAS)
-//    15. /admin → redirige a /
-//    16-22. /admin/{usuarios,facturacion,categorias,reportes,cupones,banners,ajustes,anuncios} → redirige a /
-//    23. AdminNav muestra exactamente 2 ítems (Blog, Páginas)
-//    24. EDITOR no ve el botón "Eliminar" en /admin/blog (borrado físico ADMIN-only)
-//   BLOG-ADMIN-ROLE-UI — selector de asignación de rol en /admin/usuarios
-//    25. ADMIN cambia el rol de role-target-e2e USER→EDITOR→MODERATOR→USER; cada cambio
-//        se refleja en el selector Y en el acceso real del usuario tras re-login
-//    26. El selector de rol no existe para usuarios ADMIN (solo el badge)
+// ─── EL REPARTO QUE ESTE FICHERO PINZA (ráfaga R2) ────────────────────────────
+//
+//   EDITOR (7)      dashboard, blog, páginas, portada, footer, navegación, banners
+//                   — contenido y presentación del sitio público.
+//   MODERATOR (19)  lo de EDITOR + anuncios, cola de revisión, usuarios, reportes,
+//                   tickets, categorías, tags, campañas, cupones, patrocinados,
+//                   mensajes de contacto, motivos de contacto.
+//   ADMIN (22)      todo + facturación, facturas, ajustes.
+//   USER            nada.
+//
+// LA FUENTE DE VERDAD ES `src/config/backoffice-sections.ts`, un solo fichero del
+// que derivan el middleware y el nav (ráfaga R1). Este fichero comprueba el
+// resultado en el navegador; el reparto sección por sección lo pinza además
+// `backoffice-sections.test.ts`, que compara el mapa contra la tabla acordada.
+//
+// POR QUÉ SE CUENTAN LOS ÍTEMS, sabiendo que es frágil. Un conteo exacto se rompe
+// al añadir una sección aunque el backoffice esté perfecto — el comentario que
+// vivía aquí ya lo advertía y proponía comprobar sólo presencia. Se conserva el
+// conteo a propósito: es lo único que detecta una sección que se COLARA en el nav
+// de un rol que no debe verla, y ese es justamente el fallo que un reparto en tres
+// pisos puede introducir sin que nadie lo note. La fragilidad es el precio, y el
+// arreglo cuando se añada una sección es una línea.
+//
+// ─── INVARIANTE DE CARGA (INV-1) ──────────────────────────────────────────────
+//
+// Abrir una sección a un rol NO basta: los endpoints que esa sección llama para
+// pintarse tienen que admitir el mismo piso, o la página carga y falla con 403 —
+// el peor de los dos mundos, porque el nav promete algo que no se puede usar. No
+// es comprobable de forma declarativa (nadie declara qué llama cada pantalla), así
+// que se comprueba por COMPORTAMIENTO: el bloque «INV-1» de abajo abre cada
+// sección que ha bajado de piso con su rol nuevo y exige que no aparezca ningún
+// error de autorización.
 //
 // Prerequisites:
 //   global-setup seeds admin-e2e@example.com (ADMIN), moderator-e2e@example.com (MODERATOR)
@@ -58,7 +60,7 @@ async function loginAs(browser: Browser, email: string) {
 }
 
 test.describe('Backoffice — ADMIN acceso total', () => {
-  test('ADMIN carga /admin y el nav muestra los 21 ítems', async ({ adminContext }) => {
+  test('ADMIN carga /admin y el nav muestra las 22 secciones', async ({ adminContext }) => {
     const page = await adminContext.newPage();
 
     await page.goto('/admin');
@@ -68,45 +70,31 @@ test.describe('Backoffice — ADMIN acceso total', () => {
     expect(page.url()).toContain('/admin');
     expect(page.url()).not.toContain('/login');
 
-    // El número sale de NAV_ITEMS en AdminNav.tsx: hoy son 21 entradas y TODAS
-    // incluyen 'ADMIN' en sus roles, así que un ADMIN las ve todas. El último en
-    // sumarse fue "Portada" (RP.3, el configurador de la home).
-    //
-    // Este comentario venía diciendo 14 mientras la aserción decía 17: el conteo se
-    // fue actualizando a trompicones y el comentario se quedó atrás, así que ya no
-    // se lista aquí qué ráfaga añadió cada ítem — esa lista es justo lo que se
-    // desincroniza. La fuente de verdad es NAV_ITEMS.
-    //
-    // OJO: un conteo EXACTO es frágil por diseño — se rompe cada vez que se añade
-    // una sección al backoffice, aunque el backoffice esté perfectamente. Ver la
-    // propuesta de cambiar a comprobar PRESENCIA de ítems clave en la nota de
-    // familia 1 (docs/estado-tecnico.md); no se cambia aquí porque eso altera lo
-    // que el test prueba, y esa es una decisión de producto, no de saneamiento.
+    // 22 = todas las filas de BACKOFFICE_SECTIONS. Eran 21 hasta R2, y la que
+    // faltaba no es nueva: `/admin/motivos-contacto` existía y era alcanzable,
+    // pero nadie le había puesto entrada en `NAV_ITEMS` (hallazgo R3 de la
+    // auditoría). Con el nav derivado del mapa, tener fila ES tener ítem.
     const nav = page.getByTestId('admin-nav');
     await expect(nav).toBeVisible();
     const links = nav.getByRole('link');
-    await expect(links).toHaveCount(21);
+    await expect(links).toHaveCount(22);
 
-    // Spot-check some labels
-    await expect(nav.getByRole('link', { name: 'Dashboard' })).toBeVisible();
-    await expect(nav.getByRole('link', { name: 'Reportes' })).toBeVisible();
+    // Un ADMIN ve lo suyo Y lo de los otros dos pisos.
     await expect(nav.getByRole('link', { name: 'Ajustes' })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'Facturación' })).toBeVisible();
-    await expect(nav.getByRole('link', { name: 'Cupones' })).toBeVisible();
-    await expect(nav.getByRole('link', { name: 'Banners' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Facturas' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Motivos de contacto' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Dashboard' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Reportes' })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'Patrocinados' })).toBeVisible();
   });
 });
 
 test.describe('Backoffice — MODERATOR acceso restringido', () => {
-  // ── Rutas bloqueadas (ADMIN-only) ──────────────────────────────────────────
-
-  test('MODERATOR → /admin redirige a /', async ({ moderatorContext }) => {
-    const page = await moderatorContext.newPage();
-    await page.goto('/admin');
-    await page.waitForURL((url) => !url.pathname.startsWith('/admin'), { timeout: 8_000 });
-    expect(page.url()).not.toContain('/admin');
-  });
+  // ── Rutas bloqueadas: sólo quedan las TRES de ADMIN ────────────────────────
+  //
+  // Hasta R2 aquí también estaba `/admin` (el dashboard), que ahora es EDITOR+ y
+  // por tanto carga para un MODERATOR — ver el bloque INV-1.
 
   test('MODERATOR → /admin/ajustes redirige a /', async ({ moderatorContext }) => {
     const page = await moderatorContext.newPage();
@@ -122,7 +110,14 @@ test.describe('Backoffice — MODERATOR acceso restringido', () => {
     expect(page.url()).not.toContain('/admin');
   });
 
-  // ── Rutas abiertas en RR5.1-ext ───────────────────────────────────────────
+  test('MODERATOR → /admin/facturas redirige a /', async ({ moderatorContext }) => {
+    const page = await moderatorContext.newPage();
+    await page.goto('/admin/facturas');
+    await page.waitForURL((url) => !url.pathname.startsWith('/admin'), { timeout: 8_000 });
+    expect(page.url()).not.toContain('/admin');
+  });
+
+  // ── Rutas abiertas ────────────────────────────────────────────────────────
 
   test('MODERATOR → /admin/reportes carga correctamente', async ({ moderatorContext }) => {
     const page = await moderatorContext.newPage();
@@ -172,7 +167,7 @@ test.describe('Backoffice — MODERATOR acceso restringido', () => {
 
   // ── AdminNav ───────────────────────────────────────────────────────────────
 
-  test('AdminNav muestra 7 ítems para el MODERATOR (Anuncios, Cola de revisión, Usuarios, Reportes, Tickets, Blog, Páginas)', async ({ moderatorContext }) => {
+  test('AdminNav muestra las 19 secciones del MODERATOR, y ninguna de las 3 de ADMIN', async ({ moderatorContext }) => {
     const page = await moderatorContext.newPage();
     await page.goto('/admin/reportes');
     await page.waitForLoadState('networkidle');
@@ -180,24 +175,46 @@ test.describe('Backoffice — MODERATOR acceso restringido', () => {
     const nav = page.getByTestId('admin-nav');
     await expect(nav).toBeVisible();
 
-    // Exactly 7 nav links visible (R7 añadió Tickets; MODERACIÓN M3, la cola)
+    // 19 = 22 totales − las 3 de ADMIN. Eran 7 hasta R2.
     const links = nav.getByRole('link');
-    await expect(links).toHaveCount(7);
+    await expect(links).toHaveCount(19);
 
-    // All 7 must be present
-    await expect(nav.getByRole('link', { name: 'Anuncios' })).toBeVisible();
-    await expect(nav.getByRole('link', { name: 'Cola de revisión' })).toBeVisible();
-    await expect(nav.getByRole('link', { name: 'Usuarios' })).toBeVisible();
-    await expect(nav.getByRole('link', { name: 'Reportes' })).toBeVisible();
-    await expect(nav.getByRole('link', { name: 'Tickets' })).toBeVisible();
-    await expect(nav.getByRole('link', { name: 'Blog' })).toBeVisible();
-    await expect(nav.getByRole('link', { name: 'Páginas' })).toBeVisible();
+    // Las 12 que gana en R2, una por una: sin esto, el conteo de 19 pasaría igual
+    // aunque la sección equivocada se hubiera colado en el reparto.
+    for (const label of [
+      'Dashboard',
+      'Portada',
+      'Footer',
+      'Navegación',
+      'Banners',
+      'Categorías',
+      'Tags',
+      'Campañas',
+      'Cupones',
+      'Patrocinados',
+      'Mensajes de contacto',
+      'Motivos de contacto',
+    ]) {
+      await expect(nav.getByRole('link', { name: label, exact: true })).toBeVisible();
+    }
 
-    // ADMIN-only sections must NOT be rendered
-    await expect(nav.getByRole('link', { name: 'Dashboard' })).not.toBeVisible();
+    // Y las 7 que ya tenía siguen ahí.
+    for (const label of [
+      'Anuncios',
+      'Cola de revisión',
+      'Usuarios',
+      'Reportes',
+      'Tickets',
+      'Blog',
+      'Páginas',
+    ]) {
+      await expect(nav.getByRole('link', { name: label, exact: true })).toBeVisible();
+    }
+
+    // Las 3 de ADMIN NO se pintan: el dinero y la configuración de plataforma.
     await expect(nav.getByRole('link', { name: 'Ajustes' })).not.toBeVisible();
     await expect(nav.getByRole('link', { name: 'Facturación' })).not.toBeVisible();
-    await expect(nav.getByRole('link', { name: 'Categorías' })).not.toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Facturas' })).not.toBeVisible();
   });
 
   // ── Botones ADMIN-only no visibles para MODERATOR ─────────────────────────
@@ -252,7 +269,12 @@ test.describe('Backoffice — MODERATOR acceso restringido', () => {
   });
 });
 
-test.describe('Backoffice — EDITOR acotado exclusivamente al blog', () => {
+test.describe('Backoffice — EDITOR: contenido y presentación del sitio', () => {
+  // R2 — el EDITOR deja de estar acotado al blog. Su oficio pasa a ser toda la
+  // superficie editorial del sitio público: qué se enseña (portada, banners) y
+  // cómo se navega (footer, navegación), además del contenido (blog, páginas) y
+  // el dashboard. Lo que NO toca sigue siendo todo lo de moderar y el dinero.
+
   // ── Rutas abiertas ───────────────────────────────────────────────────────────
 
   test('EDITOR → /admin/blog carga correctamente', async ({ editorContext }) => {
@@ -282,14 +304,10 @@ test.describe('Backoffice — EDITOR acotado exclusivamente al blog', () => {
     expect(page.url()).not.toContain('/login');
   });
 
-  // ── Rutas bloqueadas — TODO lo que no es blog ─────────────────────────────────
-
-  test('EDITOR → /admin redirige a /', async ({ editorContext }) => {
-    const page = await editorContext.newPage();
-    await page.goto('/admin');
-    await page.waitForURL((url) => !url.pathname.startsWith('/admin'), { timeout: 8_000 });
-    expect(page.url()).not.toContain('/admin');
-  });
+  // ── Rutas bloqueadas — lo de moderar y lo de ADMIN ────────────────────────────
+  //
+  // `/admin` y `/admin/banners` SALEN de esta lista en R2: el dashboard y los
+  // banners pasan a EDITOR. Los siete que quedan son de MODERATOR o de ADMIN.
 
   const BLOCKED_PATHS = [
     '/admin/usuarios',
@@ -297,7 +315,6 @@ test.describe('Backoffice — EDITOR acotado exclusivamente al blog', () => {
     '/admin/categorias',
     '/admin/reportes',
     '/admin/cupones',
-    '/admin/banners',
     '/admin/ajustes',
     '/admin/anuncios',
   ];
@@ -313,7 +330,7 @@ test.describe('Backoffice — EDITOR acotado exclusivamente al blog', () => {
 
   // ── AdminNav ───────────────────────────────────────────────────────────────
 
-  test('AdminNav muestra exactamente 2 ítems para EDITOR (Blog, Páginas)', async ({ editorContext }) => {
+  test('AdminNav muestra las 7 secciones del EDITOR, y ninguna más', async ({ editorContext }) => {
     const page = await editorContext.newPage();
     await page.goto('/admin/blog');
     await page.waitForLoadState('networkidle');
@@ -322,22 +339,30 @@ test.describe('Backoffice — EDITOR acotado exclusivamente al blog', () => {
     await expect(nav).toBeVisible();
 
     const links = nav.getByRole('link');
-    await expect(links).toHaveCount(2);
-    await expect(nav.getByRole('link', { name: 'Blog' })).toBeVisible();
-    await expect(nav.getByRole('link', { name: 'Páginas' })).toBeVisible();
+    await expect(links).toHaveCount(7);
 
-    // Ningún otro ítem debe renderizarse
-    await expect(nav.getByRole('link', { name: 'Dashboard' })).not.toBeVisible();
+    for (const label of [
+      'Dashboard',
+      'Blog',
+      'Páginas',
+      'Portada',
+      'Footer',
+      'Navegación',
+      'Banners',
+    ]) {
+      await expect(nav.getByRole('link', { name: label, exact: true })).toBeVisible();
+    }
+
+    // Nada de moderar ni de ADMIN.
     await expect(nav.getByRole('link', { name: 'Anuncios' })).not.toBeVisible();
     await expect(nav.getByRole('link', { name: 'Usuarios' })).not.toBeVisible();
     await expect(nav.getByRole('link', { name: 'Reportes' })).not.toBeVisible();
-    // R7 — Tickets es de ADMIN+MODERATOR; el EDITOR no debe verlo.
     await expect(nav.getByRole('link', { name: 'Tickets' })).not.toBeVisible();
-    await expect(nav.getByRole('link', { name: 'Facturación' })).not.toBeVisible();
     await expect(nav.getByRole('link', { name: 'Categorías' })).not.toBeVisible();
-    await expect(nav.getByRole('link', { name: 'Cupones' })).not.toBeVisible();
-    await expect(nav.getByRole('link', { name: 'Banners' })).not.toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Patrocinados' })).not.toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Facturación' })).not.toBeVisible();
     await expect(nav.getByRole('link', { name: 'Ajustes' })).not.toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Cupones' })).not.toBeVisible();
   });
 
   // ── Botón ADMIN-only no visible para EDITOR ───────────────────────────────────
@@ -349,6 +374,113 @@ test.describe('Backoffice — EDITOR acotado exclusivamente al blog', () => {
     await page.waitForTimeout(1_000);
 
     await expect(page.getByRole('button', { name: 'Eliminar' })).not.toBeVisible();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INV-1 — LAS SECCIONES QUE BAJARON CARGAN DE VERDAD CON SU ROL NUEVO
+//
+// Es la mitad del reparto que el mapa NO puede garantizar por sí solo. Abrir la
+// ruta a un rol lo decide `backoffice-sections.ts`; que la página se pinte
+// depende de que los endpoints que llama admitan ese mismo piso, y sección y
+// endpoint no son 1:1 (una sección puede llamar a varios, y un controlador puede
+// servir a varias secciones). Por eso esto se comprueba cargando, no leyendo.
+//
+// Lo que se afirma es doble: que NO redirige (el mapa) y que la pantalla no
+// muestra un error de autorización (los @MinRole del backend). Sin la segunda
+// mitad, un 403 dejaría al usuario en una sección que el nav le prometió — el
+// caso concreto que este bloque existe para atrapar es `GET /admin/stats`, que
+// heredaba ADMIN mientras el dashboard bajaba a EDITOR.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Un error de autorización visible en la pantalla, venga como venga pintado. */
+async function sinErrorDeAutorizacion(page: import('@playwright/test').Page) {
+  const texto = (await page.locator('body').innerText()).toLowerCase();
+  expect(texto).not.toContain('error 403');
+  expect(texto).not.toContain('error 401');
+  expect(texto).not.toContain('forbidden');
+  expect(texto).not.toContain('unauthorized');
+}
+
+test.describe('INV-1 — las secciones que bajaron cargan sin 403', () => {
+  // Las 5 que bajan hasta EDITOR (el dashboard es la que obligó a bajar
+  // `GET /admin/stats`; las otras cuatro, la clase entera de su controlador).
+  const PARA_EDITOR = ['/admin', '/admin/portada', '/admin/footer', '/admin/nav', '/admin/banners'];
+
+  for (const ruta of PARA_EDITOR) {
+    test(`EDITOR carga ${ruta} sin error de autorización`, async ({ editorContext }) => {
+      const page = await editorContext.newPage();
+      await page.goto(ruta);
+      await page.waitForLoadState('networkidle');
+      expect(page.url()).toContain(ruta);
+      await sinErrorDeAutorizacion(page);
+    });
+  }
+
+  // Las 7 que bajan hasta MODERATOR. `categorias` y `tags` son las que obligaron
+  // a tocar los 7 métodos de AdminController y las 2 clases de admin-tags.
+  const PARA_MODERATOR = [
+    '/admin/categorias',
+    '/admin/tags',
+    '/admin/campaigns',
+    '/admin/cupones',
+    '/admin/sponsored-ads',
+    '/admin/mensajes-contacto',
+    '/admin/motivos-contacto',
+  ];
+
+  for (const ruta of PARA_MODERATOR) {
+    test(`MODERATOR carga ${ruta} sin error de autorización`, async ({ moderatorContext }) => {
+      const page = await moderatorContext.newPage();
+      await page.goto(ruta);
+      await page.waitForLoadState('networkidle');
+      expect(page.url()).toContain(ruta);
+      await sinErrorDeAutorizacion(page);
+    });
+  }
+
+  // Y el dashboard con el rol intermedio: hereda el piso de EDITOR por la escalera.
+  test('MODERATOR carga /admin (dashboard) sin error de autorización', async ({ moderatorContext }) => {
+    const page = await moderatorContext.newPage();
+    await page.goto('/admin');
+    await page.waitForLoadState('networkidle');
+    expect(page.url()).toContain('/admin');
+    await sinErrorDeAutorizacion(page);
+  });
+});
+
+test.describe('ENMIENDA A M4 — la marca de revisión de una categoría es del MODERATOR', () => {
+  // El eje de la enmienda: una RAMA del catálogo la decide quien modera; una
+  // PERSONA sigue siendo ADMIN. Ver docs/diseno-roles.md §5 y el comentario largo
+  // de `updateCategory` en admin.controller.ts.
+
+  test('un MODERATOR abre /admin/categorias y ve el control de revisión previa', async ({
+    moderatorContext,
+  }) => {
+    const page = await moderatorContext.newPage();
+    await page.goto('/admin/categorias');
+    await page.waitForLoadState('networkidle');
+
+    expect(page.url()).toContain('/admin/categorias');
+    await sinErrorDeAutorizacion(page);
+
+    // El árbol se pinta con GET /admin/categories, que ha bajado a MODERATOR: si
+    // siguiera en ADMIN esto estaría vacío y la pantalla mostraría el error.
+    await expect(page.getByRole('heading', { name: /categor/i }).first()).toBeVisible();
+  });
+
+  test('un MODERATOR NO puede marcar a un VENDEDOR para revisión (sigue siendo ADMIN)', async ({
+    moderatorContext,
+  }) => {
+    // La otra mitad de la enmienda, y la que evita que se lea como «moderación
+    // puede con todo»: el botón de /admin/usuarios sigue oculto para MODERATOR.
+    const page = await moderatorContext.newPage();
+    await page.goto('/admin/usuarios');
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1_000);
+
+    await expect(page.getByRole('button', { name: 'Revisar' })).not.toBeVisible();
+    await expect(page.getByRole('button', { name: 'No revisar' })).not.toBeVisible();
   });
 });
 

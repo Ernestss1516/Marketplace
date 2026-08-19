@@ -220,16 +220,19 @@ describe('H8 Bloque D fase 1 — Campaigns (e2e)', () => {
         .expect(403);
     });
 
-    it('GET /api/admin/campaigns como MODERATOR → 403 (ADMIN-only, no moderation)', async () => {
+    // ROLES R2 — estos dos decían «ADMIN-only, no moderation». Las campañas bajan
+    // a MODERATOR con el resto del catálogo comercial (cupones, patrocinados).
+    // Sigue habiendo frontera: USER y sin-token, arriba en este mismo bloque.
+    it('GET /api/admin/campaigns como MODERATOR → 200', async () => {
       await request(app.getHttpServer())
         .get('/api/admin/campaigns')
         .set('Authorization', `Bearer ${moderatorToken}`)
-        .expect(403);
+        .expect(200);
     });
 
-    it('POST /api/admin/campaigns como MODERATOR → 403', async () => {
+    it('POST /api/admin/campaigns como MODERATOR → 201', async () => {
       const { startsAt, endsAt } = farFutureWindow(0);
-      await request(app.getHttpServer())
+      const res = await request(app.getHttpServer())
         .post('/api/admin/campaigns')
         .set('Authorization', `Bearer ${moderatorToken}`)
         .send({
@@ -239,7 +242,13 @@ describe('H8 Bloque D fase 1 — Campaigns (e2e)', () => {
           endsAt,
           params: { kind: 'PERCENT', value: 10 },
         })
-        .expect(403);
+        .expect(201);
+
+      // IMPRESCINDIBLE limpiarla: usa la MISMA ventana `farFutureWindow(0)` que
+      // el caso «crea una campaña CREDIT_BONUS válida» de abajo, y dos campañas
+      // solapadas del mismo tipo se rechazan. Mientras este POST daba 403 no
+      // dejaba estado; ahora sí.
+      await prisma.campaign.delete({ where: { id: res.body.id as string } });
     });
   });
 

@@ -89,12 +89,20 @@ describe('Footer nav (e2e)', () => {
     await request(app.getHttpServer()).get('/api/admin/footer').expect(401);
   });
 
-  it('EDITOR (no ADMIN) → POST /api/admin/footer/columns → 403', async () => {
-    await request(app.getHttpServer())
+  // ROLES R2 — este caso afirmaba `EDITOR → 403`. El footer baja a EDITOR con el
+  // resto de la superficie editorial del sitio público (portada, navegación,
+  // banners): decidir qué enlaces ve el visitante es el mismo oficio que escribir
+  // lo que lee. El suelo sigue donde estaba — sin token, 401, justo arriba.
+  it('EDITOR → POST /api/admin/footer/columns → 201 (el footer es su oficio desde R2)', async () => {
+    const res = await request(app.getHttpServer())
       .post('/api/admin/footer/columns')
       .set('Authorization', `Bearer ${editorToken}`)
-      .send({ name: 'Legal' })
-      .expect(403);
+      .send({ name: 'Legal (editor)' })
+      .expect(201);
+
+    // Se limpia aquí mismo: el resto del fichero cuenta columnas y este caso no
+    // debe dejar estado que descuadre los CRUD de abajo.
+    await prisma.footerColumn.delete({ where: { id: res.body.id as string } });
   });
 
   // ── CRUD de columnas ─────────────────────────────────────────────────────
