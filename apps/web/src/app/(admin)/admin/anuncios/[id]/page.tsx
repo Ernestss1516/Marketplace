@@ -603,6 +603,17 @@ export default function AdminFichaAnuncioPage() {
                 valor={data.seller.requiresReview ? 'Sí' : 'No'}
               />
             </div>
+            {/* FICHA F2 — «enséñame todo lo suyo», que es el paso siguiente a
+                encontrar un mal actor. El filtro por vendedor existía en el
+                backend desde siempre y no había forma de invocarlo; ahora es un
+                enlace, porque los filtros viven en la URL. */}
+            <Link
+              href={`/admin/anuncios?sellerId=${data.seller.id}`}
+              className="mt-2 inline-block text-xs text-muted-foreground hover:underline"
+              data-testid="ficha-ver-anuncios-vendedor"
+            >
+              Ver todos sus anuncios →
+            </Link>
           </Seccion>
 
           {/* ── 7. Comercial ───────────────────────────────────────────────── */}

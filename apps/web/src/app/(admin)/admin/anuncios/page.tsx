@@ -1,15 +1,21 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import {
+  getAdminCategories,
   getAdminListings,
   changeListingStatus,
   deleteAdminListing,
+  type AdminCategory,
   type AdminListing,
+  type AdminListingsFilters,
 } from '@/lib/api/admin';
+import { FiltrosAnuncios } from './_components/FiltrosAnuncios';
+import { aQueryString, conFiltro, leerFiltros } from './filtros-url';
 import { approveListing, rejectListing } from '@/lib/api/moderacion';
 import { elegirAccionDeEstado } from './moderacion-routing';
 import {
@@ -35,23 +41,16 @@ import {
 
 const PER_PAGE = 20;
 
-const STATUS_FILTERS: { label: string; value: string | undefined }[] = [
-  { label: 'Todos', value: undefined },
-  { label: 'Activos', value: 'ACTIVE' },
-  { label: 'En revisión', value: 'PENDING_REVIEW' },
-  { label: 'Rechazados', value: 'REJECTED' },
-  { label: 'Borrador', value: 'DRAFT' },
-  { label: 'Caducados', value: 'EXPIRED' },
-  // BORRADO B2 — el archivo tiene que ser NAVEGABLE, porque es de donde se
-  // elimina. Antes no había filtro: los archivados sólo salían en «Todos», y
-  // encima sin etiqueta (ver STATUS_LABELS), pintando el enum crudo.
-  { label: 'Archivados', value: 'ARCHIVED' },
-];
-
 // FICHA F1 — las etiquetas, variantes, destinos y formateadores se extraen a
 // `listing-status.ts` porque la ficha necesita EXACTAMENTE los mismos. Copiarlos
 // habría reabierto el defecto que B2 cerró aquí (un estado sin etiqueta pinta el
 // enum crudo), sólo que en una pantalla nueva.
+//
+// FICHA F2 — la tira de botones de estado ÚNICO (`STATUS_FILTERS`) desaparece:
+// la sustituyen los chips múltiples de `FiltrosAnuncios`, que hacen todo lo que
+// hacía aquélla y además responden a las preguntas que son CONJUNTOS
+// («borrador o pendiente»). Los nueve estados están, incluido `ARCHIVED` —que
+// B2 tuvo que añadir a mano— porque la lista sale del enum y no de una copia.
 
 export default function AdminAnunciosPage() {
   const { data: session } = useSession();
@@ -62,10 +61,21 @@ export default function AdminAnunciosPage() {
   // la UI no le prometa al moderador un botón que le va a responder 403.
   const puedeEliminar = session?.user.role === 'ADMIN';
 
+  // FICHA F2 — LOS FILTROS VIVEN EN LA URL. Así una búsqueda se comparte, la
+  // vuelta atrás del navegador devuelve a lo que estabas mirando (antes volvías
+  // a la lista en blanco), y otra pantalla puede enlazar a un filtro concreto —
+  // que es justo lo que hace la ficha con «ver todo lo de este vendedor».
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const filtros = useMemo(
+    () => leerFiltros(new URLSearchParams(searchParams.toString())),
+    [searchParams],
+  );
+  const page = filtros.page ?? 1;
+
   const [listings, setListings] = useState<AdminListing[]>([]);
   const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
-  const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
+  const [categorias, setCategorias] = useState<AdminCategory[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -80,12 +90,12 @@ export default function AdminAnunciosPage() {
   const [aEliminar, setAEliminar] = useState<AdminListing | null>(null);
 
   const fetchListings = useCallback(
-    async (p: number, status?: string) => {
+    async (f: AdminListingsFilters) => {
       if (!token) return;
       setLoading(true);
       setError(null);
       try {
-        const data = await getAdminListings(token, { status, page: p, perPage: PER_PAGE });
+        const data = await getAdminListings(token, { ...f, perPage: PER_PAGE });
         setListings(data.items);
         setTotal(data.total);
       } catch (err) {
@@ -102,13 +112,30 @@ export default function AdminAnunciosPage() {
   );
 
   useEffect(() => {
-    fetchListings(page, statusFilter);
-  }, [fetchListings, page, statusFilter]);
+    void fetchListings(filtros);
+  }, [fetchListings, filtros]);
 
-  function handleFilter(status?: string) {
-    setStatusFilter(status);
-    setPage(1);
+  // El selector de categoría necesita el árbol completo; se pide una vez.
+  useEffect(() => {
+    if (!token) return;
+    getAdminCategories(token)
+      .then(setCategorias)
+      .catch(() => setCategorias([]));
+  }, [token]);
+
+  /** Navegar es lo que dispara la recarga: el estado real está en la URL. */
+  function aplicar(filtrosNuevos: AdminListingsFilters) {
     setEditingId(null);
+    const qs = aQueryString(filtrosNuevos);
+    router.push(qs ? `/admin/anuncios?${qs}` : '/admin/anuncios');
+  }
+
+  function cambiarFiltro(cambio: Partial<AdminListingsFilters>) {
+    aplicar(conFiltro(filtros, cambio));
+  }
+
+  function irAPagina(p: number) {
+    aplicar({ ...filtros, page: p });
   }
 
   function startEdit(listing: AdminListing) {
@@ -135,7 +162,7 @@ export default function AdminAnunciosPage() {
         await changeListingStatus(token, editingId, newStatus, reason || undefined);
       }
       setEditingId(null);
-      await fetchListings(page, statusFilter);
+      await fetchListings(filtros);
     } catch (err) {
       const msg =
         err instanceof ApiError
@@ -159,7 +186,7 @@ export default function AdminAnunciosPage() {
     try {
       await deleteAdminListing(token, aEliminar.id);
       setAEliminar(null);
-      await fetchListings(page, statusFilter);
+      await fetchListings(filtros);
     } catch (err) {
       const msg =
         err instanceof ApiError
@@ -189,23 +216,13 @@ export default function AdminAnunciosPage() {
         <span className="text-sm text-muted-foreground">{total} en total</span>
       </div>
 
-      {/* Status filter chips */}
-      <div className="mb-4 flex flex-wrap gap-2">
-        {STATUS_FILTERS.map((f) => (
-          <button
-            key={String(f.value)}
-            onClick={() => handleFilter(f.value)}
-            className={[
-              'rounded-full px-3 py-1 text-sm font-medium transition-colors',
-              statusFilter === f.value
-                ? 'bg-primary text-primary-foreground'
-                : 'bg-muted text-muted-foreground hover:bg-muted/80',
-            ].join(' ')}
-          >
-            {f.label}
-          </button>
-        ))}
-      </div>
+      <FiltrosAnuncios
+        filtros={filtros}
+        categorias={categorias}
+        total={total}
+        onCambiar={cambiarFiltro}
+        onLimpiar={() => aplicar({})}
+      />
 
       {/* Error */}
       {error && (
@@ -382,7 +399,7 @@ export default function AdminAnunciosPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            onClick={() => irAPagina(Math.max(1, page - 1))}
             disabled={page === 1 || loading}
           >
             Anterior
@@ -393,7 +410,7 @@ export default function AdminAnunciosPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            onClick={() => irAPagina(Math.min(totalPages, page + 1))}
             disabled={page === totalPages || loading}
           >
             Siguiente

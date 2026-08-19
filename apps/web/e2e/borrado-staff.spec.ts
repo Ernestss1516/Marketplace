@@ -19,11 +19,27 @@ import { test, expect } from './fixtures/auth';
 
 const ARCHIVADO = 'Anuncio Archivado E2E';
 
-/** Filtra la lista del backoffice por estado y devuelve la fila del anuncio. */
+/**
+ * Filtra la lista del backoffice por estado y devuelve la fila del anuncio.
+ *
+ * FICHA F2 — cambia CÓMO se filtra, no qué garantiza este spec. La tira de
+ * botones de estado único («Archivados») la sustituyen los chips múltiples de
+ * `FiltrosAnuncios`, así que aquí se pulsa el chip por su `data-testid` en vez
+ * de por su texto. Todas las aserciones de B2 siguen siendo las mismas.
+ *
+ * Y se espera a la RESPUESTA, no a `networkidle`: los filtros navegan y la lista
+ * se recarga con un `fetch` del cliente, que `networkidle` puede no cubrir — el
+ * mismo defecto que se encontró mutando el spec de F2.
+ */
 async function filaArchivada(page: import('@playwright/test').Page) {
   await page.goto('/admin/anuncios', { waitUntil: 'domcontentloaded' });
-  await page.getByRole('button', { name: 'Archivados' }).click();
-  await page.waitForLoadState('networkidle');
+  await Promise.all([
+    page.waitForResponse(
+      (r) => r.url().includes('/admin/listings') && !/\/admin\/listings\//.test(r.url()),
+      { timeout: 20_000 },
+    ),
+    page.getByTestId('filtro-estado-ARCHIVED').click(),
+  ]);
   return page.locator('tr', { hasText: ARCHIVADO });
 }
 
@@ -63,8 +79,14 @@ test.describe('Borrado B2 — el staff elimina desde /admin/anuncios', () => {
     // La otra mitad de la regla: el botón no está por rol, está por rol Y estado.
     const page = await adminContext.newPage();
     await page.goto('/admin/anuncios', { waitUntil: 'domcontentloaded' });
-    await page.getByRole('button', { name: 'Activos' }).click();
-    await page.waitForLoadState('networkidle');
+    // FICHA F2 — el chip de estado, igual que en `filaArchivada`.
+    await Promise.all([
+      page.waitForResponse(
+        (r) => r.url().includes('/admin/listings') && !/\/admin\/listings\//.test(r.url()),
+        { timeout: 20_000 },
+      ),
+      page.getByTestId('filtro-estado-ACTIVE').click(),
+    ]);
 
     const filaActiva = page.locator('tbody tr').first();
     await expect(filaActiva).toBeVisible({ timeout: 15_000 });
