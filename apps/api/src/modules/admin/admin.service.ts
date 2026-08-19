@@ -48,6 +48,9 @@ import {
   CATEGORY_MAX_DEPTH,
 } from '../categories/category.types';
 import { CategoryTreeService } from '../categories/category-tree.service';
+// FICHA F1 — las señales de moderación de la ficha.
+import { PreModerationService } from '../moderation/pre-moderation.service';
+import { BadWordService } from '../moderation/bad-word.service';
 import { ListingGateService } from '../listing-gate/listing-gate.service';
 import { MARK_STALE_JOB } from '../listing-gate/revalidation.processor';
 import {
@@ -304,6 +307,11 @@ export class AdminService {
     // BORRADO B3 — retirar del bucket lo que se queda sin dueño al eliminar.
     @InjectQueue(QUEUE_MEDIA_CLEANUP) private readonly mediaCleanupQueue: Queue,
     private readonly r2: R2Service,
+    // FICHA F1 — las señales de moderación de la ficha. AL FINAL DE LA LISTA a
+    // propósito: insertar un parámetro en medio rompe todos los specs que
+    // construyen el servicio a mano (pasó en B3 y costó dos arreglos).
+    private readonly preModeration: PreModerationService,
+    private readonly badWords: BadWordService,
   ) {}
 
   // ===========================================================================
@@ -351,6 +359,21 @@ export class AdminService {
     return { items, total, page, perPage };
   }
 
+  /**
+   * FICHA F1 (P4) — EL DETALLE QUE ALIMENTA `/admin/anuncios/{id}`.
+   *
+   * POR QUÉ ESTA AMPLIACIÓN ES SEGURA: hasta F1 este endpoint estaba construido,
+   * protegido y **sin un solo consumidor** — el cliente web tenía funciones para
+   * listar, cambiar estado y eliminar, ninguna para el detalle. Todo lo que se
+   * añade aquí es aditivo sobre una respuesta que nadie leía.
+   *
+   * LO QUE ARREGLA, que es más que «enseñar más campos»: la cola de revisión
+   * enlazaba cada anuncio a `/anuncio/{slug}`, y la página pública lanza 404 para
+   * todo lo que no sea ACTIVE. Como la cola contiene por construcción sólo
+   * PENDING_REVIEW, ese enlace estaba roto SIEMPRE y no existe vista previa de
+   * staff: el moderador aprobaba y rechazaba sin ver la descripción ni las fotos.
+   * Esta respuesta es lo que hace que pueda verlas.
+   */
   async getListingById(id: string) {
     const listing = await this.prisma.listing.findUnique({
       where: { id },
@@ -366,6 +389,11 @@ export class AdminService {
             status: true,
             role: true,
             createdAt: true,
+            // F1 — las dos marcas del vendedor que el moderador necesita ver
+            // junto al anuncio: `requiresReview` explica una cola, `trusted`
+            // matiza. Son ejes independientes (ver PreModerationService).
+            trusted: true,
+            requiresReview: true,
           },
         },
         reports: {
@@ -375,11 +403,87 @@ export class AdminService {
             reporter: { select: { id: true, name: true, slug: true } },
           },
         },
-        _count: { select: { conversations: true } },
+        // F1 — los registros que B1 hizo SOBREVIVIR al borrado del anuncio. Que
+        // sobrevivan y no se puedan ver desde ningún sitio sería media pieza.
+        reviews: {
+          orderBy: { createdAt: 'desc' },
+          take: 10,
+          select: {
+            id: true,
+            rating: true,
+            comment: true,
+            createdAt: true,
+            author: { select: { id: true, name: true, slug: true } },
+          },
+        },
+        tickets: {
+          orderBy: { createdAt: 'desc' },
+          take: 10,
+          select: {
+            id: true,
+            subject: true,
+            status: true,
+            createdAt: true,
+          },
+        },
+        // `Deal` no tiene estado: existir ES el hecho («este anuncio se cerró con
+        // este comprador»). Por eso se muestra el comprador y la fecha, y nada más.
+        deals: {
+          orderBy: { createdAt: 'desc' },
+          take: 10,
+          select: {
+            id: true,
+            createdAt: true,
+            buyer: { select: { id: true, name: true, slug: true } },
+          },
+        },
+        // F1 — la programación de bump. `bumpedAt` ya venía; lo que faltaba era
+        // saber si HAY una programación viva, que es lo que explica por qué un
+        // anuncio sube solo.
+        bumpSchedule: true,
+        _count: {
+          select: {
+            conversations: true,
+            reports: true,
+            reviews: true,
+            tickets: true,
+            deals: true,
+            favorites: true,
+            viewsDaily: true,
+          },
+        },
       },
     });
     if (!listing) throw new NotFoundException('Anuncio no encontrado');
-    return listing;
+
+    // Las tres piezas que no salen de la fila y se piden en paralelo: la RUTA de
+    // la categoría (un moderador necesita «Motor › Coches › Berlinas», no
+    // «Berlinas»), las señales de moderación y el historial.
+    const [categoryPath, señales, palabraProhibida, historial] = await Promise.all([
+      this.categoryTree.getAncestorChain(listing.categoryId),
+      this.preModeration.reviewSignalsFor(listing),
+      // Molde `publish()`: el filtro de palabras es FAIL-OPEN por contrato — si
+      // falla, no bloquea. Aquí el coste de un fallo es aún menor (una señal que
+      // no se pinta), así que se mantiene el mismo criterio y no se propaga.
+      this.badWords
+        .hasBadWords(listing.title, listing.description)
+        .catch(() => false),
+      this.auditLog.listForResource('Listing', listing.id),
+    ]);
+
+    return {
+      ...listing,
+      categoryPath: categoryPath.map((c) => ({ id: c.id, name: c.name, slug: c.slug })),
+      /**
+       * SEÑALES, NO «EL MOTIVO». Son cuatro caminos distintos hacia
+       * PENDING_REVIEW —la palabra prohibida se comprueba primero en `publish()`,
+       * y los tres niveles después— y ninguno se persiste al disparar. Así que
+       * esto es lo que está encendido AHORA, que no tiene por qué ser lo que
+       * mandó el anuncio a la cola. La ficha lo dice con esas palabras.
+       */
+      moderationSignals: { ...señales, palabraProhibida },
+      historial,
+    };
   }
 
   async changeListingStatus(

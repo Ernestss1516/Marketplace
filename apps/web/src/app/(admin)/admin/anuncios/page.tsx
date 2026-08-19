@@ -12,6 +12,13 @@ import {
 } from '@/lib/api/admin';
 import { approveListing, rejectListing } from '@/lib/api/moderacion';
 import { elegirAccionDeEstado } from './moderacion-routing';
+import {
+  STATUS_LABELS,
+  STATUS_VARIANTS,
+  TARGET_STATUSES,
+  formatDate,
+  formatPrice,
+} from './listing-status';
 import { ApiError } from '@/lib/api/client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -41,51 +48,10 @@ const STATUS_FILTERS: { label: string; value: string | undefined }[] = [
   { label: 'Archivados', value: 'ARCHIVED' },
 ];
 
-const STATUS_LABELS: Record<string, string> = {
-  ACTIVE: 'Activo',
-  PENDING_REVIEW: 'En revisión',
-  REJECTED: 'Rechazado',
-  DRAFT: 'Borrador',
-  EXPIRED: 'Caducado',
-  RESERVED: 'Reservado',
-  SOLD: 'Vendido',
-  // Faltaban las dos: una fila PAUSED o ARCHIVED enseñaba el valor del enum.
-  PAUSED: 'Pausado',
-  ARCHIVED: 'Archivado',
-};
-
-const STATUS_VARIANTS: Record<string, 'default' | 'secondary' | 'outline' | 'destructive'> = {
-  ACTIVE: 'default',
-  PENDING_REVIEW: 'secondary',
-  REJECTED: 'destructive',
-  DRAFT: 'outline',
-  EXPIRED: 'outline',
-  RESERVED: 'secondary',
-  SOLD: 'outline',
-  PAUSED: 'outline',
-  ARCHIVED: 'outline',
-};
-
-// BORRADO B2 — `ARCHIVED` entra como destino: archivar es el paso PREVIO
-// obligatorio para eliminar, y hasta ahora el staff no podía hacerlo desde aquí
-// (la transición ACTIVE→ARCHIVED siempre fue legal, pero el selector no la
-// ofrecía, así que sólo era alcanzable por API).
-//
-// Es irreversible —ARCHIVED es terminal— y el selector no puede confirmarlo por
-// sí solo, así que la máquina de estados es quien lo protege: desde ARCHIVED no
-// sale ninguna transición.
-const TARGET_STATUSES = ['ACTIVE', 'PENDING_REVIEW', 'REJECTED', 'DRAFT', 'ARCHIVED'];
-
-function formatPrice(price: number, currency: string, priceType: string) {
-  if (priceType === 'FREE') return 'Gratis';
-  if (priceType === 'NEGOTIABLE') return 'A convenir';
-  return new Intl.NumberFormat('es-ES', { style: 'currency', currency }).format(price);
-}
-
-function formatDate(iso: string | null) {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit' });
-}
+// FICHA F1 — las etiquetas, variantes, destinos y formateadores se extraen a
+// `listing-status.ts` porque la ficha necesita EXACTAMENTE los mismos. Copiarlos
+// habría reabierto el defecto que B2 cerró aquí (un estado sin etiqueta pinta el
+// enum crudo), sólo que en una pantalla nueva.
 
 export default function AdminAnunciosPage() {
   const { data: session } = useSession();
@@ -285,10 +251,14 @@ export default function AdminAnunciosPage() {
                   <tr key={listing.id} className="hover:bg-muted/20">
                     <td className="px-4 py-3">
                       <div className="max-w-[240px]">
+                        {/* FICHA F1 — el título lleva a la FICHA, no a la página
+                            pública. Esta lista tiene filtros de Borrador y
+                            Archivados, así que el enlace anterior daba 404 en
+                            todas esas filas: la pública sólo sirve ACTIVE. */}
                         <Link
-                          href={`/anuncio/${listing.slug}`}
-                          target="_blank"
+                          href={`/admin/anuncios/${listing.id}`}
                           className="font-medium hover:underline line-clamp-1"
+                          data-testid={`anuncio-enlace-${listing.id}`}
                         >
                           {listing.title}
                         </Link>

@@ -13216,6 +13216,86 @@ explícito. Solo se siembra en `seed-test.ts`, para que las baterías puedan eje
 
 ---
 
+## Ficha de anuncio F1 (P4) — el moderador por fin ve lo que modera
+
+Diseño: `docs/diseno-ficha-anuncio.md`, plan F1. Primer cuerpo de administración,
+sobre roles (R1-R4) y borrado (B1-B3).
+
+### El defecto que cierra, que no era «falta una pantalla»
+
+La cola de revisión enlazaba cada anuncio a `/anuncio/{slug}` — la página
+**pública**, que lanza 404 para todo lo que no sea `ACTIVE` (`listings.service.ts`
+→ `findBySlug`, y `notFound()` en el frontal). Y la cola contiene, por
+construcción (M3), **sólo `PENDING_REVIEW`**.
+
+Es decir: **ese enlace estaba roto el 100 % de las veces**, y no existía ninguna
+ruta de vista previa para staff. El moderador aprobaba y rechazaba con el título,
+el vendedor, la categoría y la fecha que caben en la fila de la cola. Sin ver la
+descripción, ni las fotos, ni el precio, ni los atributos.
+
+`/admin/reportes` y la propia lista `/admin/anuncios` tenían el mismo enlace y el
+mismo agujero — la lista tiene filtros de Borrador y Archivados, así que ahí
+también daba 404. **Las tres apuntan ahora a la ficha.**
+
+### La ficha — `/admin/anuncios/[id]`
+
+Ruta propia, no panel desplegable como el de `/admin/usuarios`: sin URL no se
+puede arreglar un enlace roto, que era la mitad del valor.
+
+**Hereda `MODERATOR` sin tocar el mapa de secciones.** `matchesSection` casa por
+segmento (`pathname.startsWith(`${route}/`)`), así que `/admin/anuncios/{id}`
+pertenece ya a la sección `anuncios`. Añadirle fila propia habría creado una
+segunda verdad sobre el mismo permiso — justo lo que la fuente única de R1 evita.
+Hay un test de navegador que lo fija, para que nadie lo «arregle» añadiéndola.
+
+**Las acciones NO reimplementan el routing de M2.** Llaman a
+`elegirAccionDeEstado`, la función pura que decide si un cambio de estado es una
+acción de moderación (con su registro y su aviso al vendedor) o un cambio
+genérico. Escribir dos `if` en la ficha habría reabierto exactamente el defecto
+que M2 cerró: aprobar sin que el vendedor se entere. Eliminar sigue siendo
+ADMIN-only y sólo sobre `ARCHIVED` (B2).
+
+### El endpoint, ampliado sin riesgo
+
+`GET /admin/listings/:id` estaba construido, protegido y **sin un solo
+consumidor**. Todo lo añadido es aditivo sobre una respuesta que nadie leía:
+valoraciones, tickets, tratos, `bumpSchedule`, los recuentos completos, la
+**ruta** de la categoría (`getAncestorChain` — «Motor › Coches › Berlinas», no
+«Berlinas»), las señales de moderación y el historial.
+
+### Dos piezas que no existían
+
+**La lectura de la auditoría.** `AuditLogService` sólo escribía: `AuditLog`
+acumulaba el historial de cada recurso y no había **ningún** endpoint que lo
+devolviera. Se añade `listForResource`, **acotada al recurso** y sin el campo
+`ip` — que no es historia del anuncio sino rastro de seguridad de una persona, y
+auditar personas es otra pantalla con otro rol.
+
+**Las señales de moderación.** `Listing` no tiene ningún campo que diga por qué
+entró en la cola: `requiresReview` vive en `User` y en `Category`, y el filtro de
+palabras no deja marca. Son **cuatro** caminos hacia `PENDING_REVIEW` y ninguno
+se persiste al dispararse. Así que la ficha muestra **las cuatro por separado** y
+dice con esas palabras que es *lo que está encendido ahora*, no el motivo.
+`PreModerationService.reviewSignalsFor` reusa los mismos tres privados que
+`reviewTriggerFor` —que corta en el primero que dice que sí— para que la fórmula
+no se bifurque.
+
+### Verificación
+
+`test/ficha-anuncio.e2e-spec.ts` (22) y `e2e/ficha-anuncio.spec.ts` (5). La
+barrera es literal: un moderador abre un `PENDING_REVIEW` desde la cola y **lee
+su descripción y ve sus fotos**. Mutando el enlace de vuelta a `/anuncio/{slug}`,
+cae; mutando la acción para que se salte `elegirAccionDeEstado`, cae el test de
+que aprobar desde la ficha registra `LISTING_APPROVE`.
+
+### Sitio dejado
+
+**P1** (etiqueta interna) va en la cabecera, junto al estado. **P3a** (editar)
+activará el modo edición sobre las secciones de campos editables — que la ficha
+esté partida en secciones independientes es lo que lo permite sin reescribirla.
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.

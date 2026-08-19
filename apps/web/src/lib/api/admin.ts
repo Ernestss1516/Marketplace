@@ -55,6 +55,117 @@ export interface PaginatedAdminListings {
   perPage: number;
 }
 
+/**
+ * FICHA F1 (P4) — el detalle que pinta `/admin/anuncios/{id}`.
+ *
+ * El endpoint existía, estaba protegido con MODERATOR y **no lo llamaba nadie**:
+ * este cliente tenía listar, cambiar estado y eliminar, y ninguna función para
+ * el detalle. Ésta es esa función.
+ */
+export interface AdminListingDetail {
+  id: string;
+  title: string;
+  slug: string;
+  description: string;
+  status: string;
+  price: number;
+  currency: string;
+  type: string;
+  condition: string | null;
+  priceType: string;
+  priceUnit: string;
+  attributes: Record<string, unknown>;
+  city: string | null;
+  province: string | null;
+  postalCode: string | null;
+  phone: string | null;
+  viewCount: number;
+  videoUrl: string | null;
+  videoPosterUrl: string | null;
+  videoDurationSeconds: number | null;
+  videoUploadedAt: string | null;
+  needsRevalidation: boolean;
+  publishedAt: string | null;
+  expiresAt: string | null;
+  bumpedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  category: { id: string; name: string; slug: string; attributeSchema: AttributeSchema[] };
+  /** La cadena de ancestros: «Motor › Coches › Berlinas», no «Berlinas». */
+  categoryPath: { id: string; name: string; slug: string }[];
+  seller: {
+    id: string;
+    name: string | null;
+    email: string;
+    slug: string | null;
+    status: string;
+    role: string;
+    createdAt: string;
+    trusted: boolean;
+    requiresReview: boolean;
+  };
+  images: { id: string; url: string; alt: string | null }[];
+  reports: {
+    id: string;
+    reason: string;
+    status: string;
+    createdAt: string;
+    reporter: { id: string; name: string | null; slug: string | null } | null;
+  }[];
+  reviews: {
+    id: string;
+    rating: number;
+    comment: string | null;
+    createdAt: string;
+    author: { id: string; name: string | null; slug: string | null };
+  }[];
+  tickets: { id: string; subject: string; status: string; createdAt: string }[];
+  deals: {
+    id: string;
+    createdAt: string;
+    buyer: { id: string; name: string | null; slug: string | null };
+  }[];
+  bumpSchedule: {
+    id: string;
+    status: string;
+    intervalDays: number;
+    hourOfDay: number;
+    nextRunAt: string;
+    lastRunAt: string | null;
+  } | null;
+  _count: {
+    conversations: number;
+    reports: number;
+    reviews: number;
+    tickets: number;
+    deals: number;
+    favorites: number;
+    viewsDaily: number;
+  };
+  /**
+   * Lo que está encendido AHORA — no el motivo por el que el anuncio entró en la
+   * cola, que no se persiste en ningún sitio. La ficha lo dice con esas palabras.
+   */
+  moderationSignals: {
+    usuario: boolean;
+    categoria: boolean;
+    plataforma: boolean;
+    palabraProhibida: boolean;
+  };
+  historial: {
+    id: string;
+    action: string;
+    before: Record<string, unknown> | null;
+    after: Record<string, unknown> | null;
+    createdAt: string;
+    actor: { id: string; name: string | null; slug: string | null } | null;
+  }[];
+}
+
+export function getAdminListing(token: string, id: string): Promise<AdminListingDetail> {
+  return apiFetch<AdminListingDetail>(`/admin/listings/${id}`, { token });
+}
+
 export function getAdminListings(
   token: string,
   params?: { status?: string; page?: number; perPage?: number; order?: 'recent' | 'oldest' },

@@ -11,6 +11,10 @@ import { AuditLogModule } from '../audit-log/audit-log.module';
 import { SearchModule } from '../search/search.module';
 import { CategoryTreeModule } from '../categories/category-tree.module';
 import { ListingGateModule } from '../listing-gate/listing-gate.module';
+// FICHA F1 — las señales de moderación de la ficha salen de las MISMAS reglas
+// que deciden si un anuncio va a la cola. `ModerationModule` ya exporta las dos
+// piezas y no importa a `AdminModule`: no hay ciclo.
+import { ModerationModule } from '../moderation/moderation.module';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { AdminBillingController } from './admin-billing.controller';
@@ -28,6 +32,7 @@ import { AdminBillingService } from './admin-billing.service';
     SearchModule,
     CategoryTreeModule,
     ListingGateModule,
+    ModerationModule,
   ],
   controllers: [AdminController, AdminBillingController],
   providers: [AdminService, AdminBillingService],

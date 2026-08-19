@@ -200,10 +200,18 @@ export default function AdminModeracionPage() {
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
+                    {/* FICHA F1 — EL ENLACE QUE ESTABA ROTO SIEMPRE. Apuntaba a
+                        `/anuncio/{slug}`, la página PÚBLICA, que lanza 404 para
+                        todo lo que no sea ACTIVE; y esta cola contiene, por
+                        construcción, SÓLO PENDING_REVIEW. Es decir: el 100 % de
+                        las veces. Sin vista previa de staff, el moderador
+                        aprobaba y rechazaba sin haber visto la descripción ni
+                        las fotos. Ahora lleva a la ficha del backoffice, que
+                        muestra cualquier estado. */}
                     <Link
-                      href={`/anuncio/${listing.slug}`}
-                      target="_blank"
+                      href={`/admin/anuncios/${listing.id}`}
                       className="font-medium hover:underline"
+                      data-testid={`cola-enlace-${listing.id}`}
                     >
                       {listing.title}
                     </Link>
