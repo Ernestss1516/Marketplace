@@ -192,8 +192,25 @@ test.describe('Admin — /admin/nav', () => {
     const labels = async () => page.locator(NODE).evaluateAll((ns) => ns.map((n) => n.getAttribute('data-label')));
     expect(await labels()).toEqual(['Primero', 'Segundo']);
 
+    // FLAKE ARREGLADO — el reordenado se pinta OPTIMISTA: `move()` hace `setRoots`
+    // ANTES de `await reorderNavItems` (ver la página). Así que el sondeo de abajo
+    // pasa en cuanto React repinta, con el PATCH todavía en vuelo. Si el
+    // `page.reload()` llegaba en ese hueco, la navegación ABORTABA la petición: el
+    // servidor no recibía el reordenado nunca y el árbol volvía —para siempre, no
+    // durante un rato— en el orden viejo. En local no se ve; en un runner cargado
+    // sí (rojo en CI el 2026-08-19, verde en la corrida gemela de main — la firma
+    // exacta de una carrera).
+    //
+    // Se espera la RESPUESTA del PATCH, no un plazo: es la única señal de que el
+    // servidor ya lo tiene. El sondeo optimista se conserva porque prueba otra
+    // cosa —que la UI no espera al servidor para responder al clic—, y son dos
+    // afirmaciones distintas que conviene no fundir.
+    const guardado = page.waitForResponse(
+      (res) => res.url().includes('/admin/nav/items/reorder') && res.request().method() === 'PATCH',
+    );
     await nodo(page, 'Segundo').getByRole('button', { name: 'Subir Segundo' }).click();
     await expect.poll(labels).toEqual(['Segundo', 'Primero']);
+    expect((await guardado).ok()).toBe(true);
 
     // Persiste: no era solo el pintado optimista. Se sondea porque tras el
     // reload el árbol se carga por fetch — leerlo al instante da la lista vacía.
