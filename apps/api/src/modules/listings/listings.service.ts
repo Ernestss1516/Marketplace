@@ -985,9 +985,49 @@ export class ListingsService {
     return { phone: listing.phone };
   }
 
-  async remove(id: string, userId: string): Promise<void> {
+  /**
+   * BORRADO B2 — DESCARTAR UN BORRADOR. Sustituye a `remove()`, que era el borrado
+   * del dueño desde CUALQUIER estado.
+   *
+   * LA POLÍTICA, y por qué esta operación existe. El dueño deja de poder eliminar:
+   * lo que puede hacer con un anuncio publicado es ARCHIVARLO (irreversible, no
+   * destructivo), y destruirlo es cosa del staff y sólo sobre archivados. La razón
+   * es concreta y no teórica: mientras borrar fue del dueño, el denunciado podía
+   * llevarse por delante la denuncia y el vendedor el hilo de mensajes que probaba
+   * lo que dijo (B1 cerró ese daño; B2 cierra la puerta).
+   *
+   * PERO QUITARLO SIN MÁS DEJABA UN CALLEJÓN SIN SALIDA, y es el hallazgo que
+   * obligó a diseñar esto: un `DRAFT` **cuenta para el tope total**
+   * (`ESTADOS_QUE_CUENTAN_AL_TOTAL`) y **no es archivable** (`ARCHIVABLE_STATUSES`
+   * excluye «nada publicado aún»). Un usuario con tres borradores abandonados se
+   * habría quedado tres plazas de su cupo ocupadas para siempre, sin ninguna acción
+   * a su alcance.
+   *
+   * POR QUÉ SE LLAMA DISTINTO Y NO ES UNA EXCEPCIÓN A LA POLÍTICA. La política
+   * protege la HISTORIA PÚBLICA. Un `DRAFT` no tiene ninguna: no está en el índice,
+   * nadie lo ha marcado como favorito, no tiene conversaciones, ni denuncias, ni
+   * valoraciones, ni tratos — no ha existido para nadie más que su autor.
+   * Descartarlo no destruye nada que otra persona pueda echar en falta. Es una
+   * operación distinta de «eliminar un anuncio», y por eso tiene otro nombre aquí y
+   * en la interfaz: para que nadie la lea como el borrado de antes con la puerta
+   * entornada. Ver docs/diseno-borrado.md §1.2 (D-1).
+   *
+   * `PENDING_REVIEW` NO entra: ahí hay un moderador con trabajo encolado, y
+   * retirarlo por debajo es una decisión de la cola de moderación (D-2).
+   */
+  async discardDraft(id: string, userId: string): Promise<void> {
     const existing = await this.assertOwnership(id, userId);
+
+    if (existing.status !== 'DRAFT') {
+      throw new BadRequestException(
+        'Solo se pueden descartar borradores. Un anuncio publicado se archiva, y eliminarlo es cosa del equipo.',
+      );
+    }
+
     await this.prisma.listing.delete({ where: { id } });
+    // Se conservan los dos efectos del borrado anterior aunque un DRAFT no esté
+    // ni cacheado ni indexado (sólo se indexan los ACTIVE): son idempotentes y
+    // baratos, y quitarlos sería confiar en que esas dos reglas no cambien nunca.
     await this.redis.client.del(cacheKey(existing.slug));
     await this.indexingQueue.add('remove', { listingId: id });
   }

@@ -1080,6 +1080,8 @@ model AuditLog {
 
   /// Convención SCREAMING_SNAKE_CASE:
   /// LISTING_DEACTIVATE | LISTING_RESTORE | LISTING_APPROVE | LISTING_REJECT
+  /// LISTING_DELETE (borrado B2 — irreversible; su `before` es lo ÚNICO que
+  ///   sobrevive al anuncio, así que lleva identidad, dueño y recuentos)
   /// USER_SUSPEND | USER_BAN | USER_REINSTATE | USER_ROLE_CHANGE
   /// REPORT_RESOLVE | REPORT_DISMISS
   /// CATEGORY_CREATE | CATEGORY_EDIT | CATEGORY_DELETE | CATEGORY_REORDER

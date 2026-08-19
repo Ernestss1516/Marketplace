@@ -20,7 +20,7 @@ import {
 import {
   publishListing,
   reserveListing,
-  deleteListing,
+  discardDraft,
   renewListing,
   pauseListing,
   reactivateListing,
@@ -46,7 +46,10 @@ import type { ListingSummary } from '@/types';
  *    no todas). Que sea una sola según el estado es lo que descarga la fila: un ACTIVE
  *    ofrece Pausar; un PAUSED, Reactivar; un DRAFT, Publicar. Nunca las tres.
  *  - **menú**: lo poco frecuente (Reservar, cerrar trato, Renovar, Estadísticas, ayuda) y
- *    lo DESTRUCTIVO (Archivar, Eliminar), que conserva su `AlertDialog`.
+ *    lo DESTRUCTIVO (Archivar y —sólo sobre un borrador— Descartar), que conserva su
+ *    `AlertDialog`. **BORRADO B2**: aquí había un «Eliminar» sin condición de estado; el
+ *    dueño ya no elimina anuncios. Archivar es la salida de lo publicado; eliminar es del
+ *    staff y sólo sobre archivados. Ver docs/diseno-borrado.md §1.
  *
  * NINGUNA ACCIÓN SE PIERDE: las mismas once de antes, repartidas. Lo único que cambia es
  * cuánto pesa cada una.
@@ -269,18 +272,35 @@ export function useListingActions({ listing, token, onDone }: Options) {
     });
   }
 
-  menu.push({
-    key: 'delete',
-    label: 'Eliminar',
-    icon: Trash2,
-    destructive: true,
-    confirm: {
-      title: '¿Eliminar este anuncio?',
-      description: `Se eliminará «${listing.title}» de forma permanente. Esta acción no se puede deshacer.`,
-      cta: 'Eliminar',
-    },
-    run: () => ejecutar('delete', () => deleteListing(listing.id, token), 'Anuncio eliminado.'),
-  });
+  // BORRADO B2 — «ELIMINAR» DESAPARECE DEL MENÚ DEL DUEÑO, y en su lugar queda
+  // «Descartar», sólo sobre un BORRADOR.
+  //
+  // Antes esta entrada se añadía SIN CONDICIÓN: el dueño podía destruir un anuncio
+  // desde cualquier estado, y con él las denuncias y las conversaciones que
+  // colgaban (B1 cerró ese daño; esto cierra la puerta). Para un anuncio publicado
+  // la salida es ARCHIVAR, que ya está arriba y no destruye nada.
+  //
+  // Se conserva la salida para el BORRADOR porque, si no, no habría ninguna: un
+  // DRAFT cuenta para el tope de anuncios y no es archivable, así que el usuario se
+  // quedaría con borradores abandonados ocupando su cupo para siempre. Y no es una
+  // excepción a la política: un borrador no ha existido para nadie más que su
+  // autor —no está indexado, ni tiene favoritos, ni mensajes, ni denuncias—, así
+  // que descartarlo no destruye historia de nadie. Por eso se llama distinto.
+  if (status === 'DRAFT') {
+    menu.push({
+      key: 'discard',
+      label: 'Descartar borrador',
+      icon: Trash2,
+      destructive: true,
+      confirm: {
+        title: '¿Descartar este borrador?',
+        description: `Se descartará «${listing.title}». Como nunca llegó a publicarse, no queda nada de él. Esta acción no se puede deshacer.`,
+        cta: 'Descartar',
+      },
+      run: () =>
+        ejecutar('discard', () => discardDraft(listing.id, token), 'Borrador descartado.'),
+    });
+  }
 
   return { secundarias, menu, busy, error, aviso };
 }

@@ -439,10 +439,16 @@ describe('Reviews (e2e)', () => {
       const countBefore = before.body.count as number;
       const averageBefore = before.body.average as number;
 
-      await request(app.getHttpServer())
-        .delete(`/api/listings/${deletableListingId}`)
-        .set('Authorization', `Bearer ${sellerToken}`)
-        .expect(204);
+      // BORRADO B2 — se borra por Prisma, no por el endpoint del dueño.
+      //
+      // Ese endpoint ya no destruye anuncios publicados: el dueño archiva, y
+      // eliminar es de ADMIN y sólo sobre archivados. Lo que este caso comprueba
+      // no es QUIÉN puede borrar —eso lo cubre `borrado-politica.e2e-spec.ts`—
+      // sino qué le pasa a la RESEÑA cuando el anuncio desaparece, que es
+      // comportamiento del schema. Montar un admin aquí sólo para llegar al
+      // borrado sería arrastrar la política de permisos a una suite de reseñas.
+      // Mismo criterio que `borrado-inventario.e2e-spec.ts`.
+      await prisma.listing.delete({ where: { id: deletableListingId } });
 
       const review = await prisma.review.findUnique({ where: { id: survivorReviewId } });
       expect(review).not.toBeNull();

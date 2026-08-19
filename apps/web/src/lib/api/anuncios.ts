@@ -213,7 +213,15 @@ export function getListingContacts(id: string, token: string): Promise<ListingCo
   return apiFetch<ListingContact[]>(`/listings/${id}/contacts`, { token });
 }
 
-export function deleteListing(id: string, token: string): Promise<void> {
+/**
+ * BORRADO B2 — DESCARTA UN BORRADOR. Antes se llamaba `deleteListing` y valía
+ * para cualquier estado; ahora el backend sólo admite `DRAFT`.
+ *
+ * El nombre cambia con la operación a propósito: el dueño ya no elimina anuncios
+ * —archiva—, y lo único que puede destruir es algo que nunca llegó a existir para
+ * nadie más. Ver docs/diseno-borrado.md §1.2.
+ */
+export function discardDraft(id: string, token: string): Promise<void> {
   return apiFetch(`/listings/${id}`, { method: 'DELETE', token });
 }
 
