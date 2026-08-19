@@ -37,7 +37,7 @@ import { UpdateHomepageDto } from './dto/update-homepage.dto';
 @ApiBearerAuth('access-token')
 @Controller('admin/homepage')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@MinRole(Role.ADMIN)
+@MinRole(Role.EDITOR)
 export class HomepageAdminController {
   constructor(private readonly homepageService: HomepageService) {}
 

@@ -98,12 +98,19 @@ describe('Nav principal (e2e)', () => {
     await request(server()).get('/api/admin/nav').expect(401);
   });
 
-  it('EDITOR (no ADMIN) → POST /api/admin/nav/items → 403', async () => {
-    await request(server())
+  // ROLES R2 — este caso afirmaba `EDITOR → 403`. La navegación del sitio público
+  // baja a EDITOR junto al footer, la portada y los banners: configurar por dónde
+  // se mueve el visitante es el mismo oficio que escribir lo que lee. El suelo no
+  // se mueve — «sin token → 401», justo arriba.
+  it('EDITOR → POST /api/admin/nav/items → 201 (el nav público es su oficio desde R2)', async () => {
+    const res = await request(server())
       .post('/api/admin/nav/items')
       .set('Authorization', `Bearer ${editorToken}`)
-      .send({ label: 'Ayuda' })
-      .expect(403);
+      .send({ label: 'Ayuda (editor)' })
+      .expect(201);
+
+    // Se limpia: el resto del fichero cuenta y ordena nodos del árbol.
+    await prisma.navItem.delete({ where: { id: res.body.id as string } });
   });
 
   it('GET /api/nav es público (sin token) pero exige un pageType válido', async () => {

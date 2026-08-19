@@ -14,7 +14,7 @@ import { ListCampaignsDto } from './dto/list-campaigns.dto';
 @ApiBearerAuth('access-token')
 @Controller('admin/campaigns')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@MinRole(Role.ADMIN)
+@MinRole(Role.MODERATOR)
 export class CampaignsController {
   constructor(private readonly campaignsService: CampaignsService) {}
 

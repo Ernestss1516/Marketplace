@@ -196,9 +196,25 @@ test.describe('Admin — /admin/categorias (ADMIN)', () => {
   });
 });
 
-test.describe('Admin — /admin/categorias (MODERATOR bloqueado)', () => {
-  test('MODERATOR → /admin/categorias redirige a /', async ({ moderatorContext }) => {
+test.describe('Admin — /admin/categorias (gate de rol)', () => {
+  // ROLES R2 — este test afirmaba que el MODERATOR quedaba fuera. El catálogo es
+  // la materia prima del trabajo de moderar, así que baja con él. Y con la
+  // sección viaja la casilla `requiresReview` de la categoría: la ENMIENDA A M4
+  // (docs/diseno-roles.md §5) dice que marcar una RAMA la decide quien modera,
+  // mientras que marcar a una PERSONA sigue siendo de ADMIN.
+
+  test('MODERATOR → /admin/categorias entra y el árbol se pinta', async ({ moderatorContext }) => {
     const page = await moderatorContext.newPage();
+    await page.goto('/admin/categorias');
+    await page.waitForLoadState('networkidle');
+    expect(page.url()).toContain('/admin/categorias');
+    // Si `GET /admin/categories` no hubiera bajado con la sección, la ruta
+    // cargaría igual y el árbol saldría vacío: es el invariante INV-1.
+    await expect(page.getByRole('heading', { name: /categor/i }).first()).toBeVisible();
+  });
+
+  test('EDITOR → /admin/categorias sigue redirigiendo a /', async ({ editorContext }) => {
+    const page = await editorContext.newPage();
     await page.goto('/admin/categorias');
     await page.waitForURL((url) => !url.pathname.startsWith('/admin'), { timeout: 8_000 });
     expect(page.url()).not.toContain('/admin');

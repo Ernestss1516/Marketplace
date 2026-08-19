@@ -116,20 +116,28 @@ describe('H8 Bloque D fase 4 — Banners (e2e)', () => {
         .expect(403);
     });
 
-    it('GET /api/admin/banners como MODERATOR → 403 (ADMIN-only, como campañas/cupones)', async () => {
+    // ROLES R2 — estos dos casos decían «ADMIN-only, como campañas/cupones». Ya
+    // no se agrupan así: los banners bajan hasta EDITOR (son pieza de la portada)
+    // mientras que campañas y cupones se quedan en MODERATOR. Un MODERATOR
+    // satisface el piso de EDITOR por la escalera, así que entra.
+    it('GET /api/admin/banners como MODERATOR → 200 (el piso es EDITOR desde R2)', async () => {
       await request(app.getHttpServer())
         .get('/api/admin/banners')
         .set('Authorization', `Bearer ${moderatorToken}`)
-        .expect(403);
+        .expect(200);
     });
 
-    it('POST /api/admin/banners como MODERATOR → 403', async () => {
+    it('POST /api/admin/banners como MODERATOR → 201', async () => {
       const w = window(0);
-      await request(app.getHttpServer())
+      const res = await request(app.getHttpServer())
         .post('/api/admin/banners')
         .set('Authorization', `Bearer ${moderatorToken}`)
-        .send({ title: 'x', text: 'x', placements: ['HOME'], ...w })
-        .expect(403);
+        .send({ title: 'mod', text: 'mod', placements: ['HOME'], ...w })
+        .expect(201);
+
+      // Se limpia por Prisma (no hay endpoint de borrado de banners): los casos
+      // de abajo cuentan banners activos por placement y este no debe descuadrarlos.
+      await prisma.banner.delete({ where: { id: res.body.id as string } });
     });
 
     it('GET /api/banners (público) sin auth → 200', async () => {

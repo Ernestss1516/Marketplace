@@ -252,6 +252,26 @@ cuánto tarda un moderador (§1.7), encenderlo es una apuesta.
 
 ### Nivel 2 — Categoría, con herencia N
 
+> **ENMIENDA (roles, ráfaga R2 — 2026-08-19): este nivel lo decide el MODERATOR, no el ADMIN.**
+>
+> Cuando se escribió esto, todo el control de moderación previa era ADMIN-only, y M4 lo
+> justificó para el nivel usuario con un criterio que arrastraba también a éste: «decidir que
+> alguien pasa por revisión es política de plataforma, no una acción de moderación del día a
+> día». Al abrir `/admin/categorias` a MODERATOR ese criterio se partía por la mitad: un
+> moderador podría marcar **una rama entera del catálogo** —N vendedores, presentes y
+> futuros— pero no a **un solo vendedor**. El permiso más amplio quedaba por debajo del más
+> estrecho.
+>
+> La enmienda no cambia la fórmula ni la herencia; cambia **el eje con el que se reparte el
+> permiso**. No es «específico vs. genérico» —la marca de categoría es tan específica como la
+> de usuario, y por eso ninguna de las dos la afloja la confianza— sino **una rama del
+> catálogo vs. una persona**. Configurar qué entra en la propia cola de trabajo es moderar;
+> señalar a alguien tiene efectos sobre esa persona y se audita nominalmente.
+>
+> Reparto vigente: PLATAFORMA → ADMIN (`/admin/ajustes`) · USUARIO → ADMIN
+> (`PATCH /admin/users/:id/requires-review`) · **CATEGORÍA → MODERATOR**
+> (`PATCH /admin/categories/:id`). Ver `docs/diseno-roles.md` §5.
+
 Un campo nuevo en `Category`: `requiresReview Boolean @default(false)`. Migración aditiva.
 
 **La herencia es un pliegue MONÓTONO, y ésta es la decisión de diseño con más filo del bloque:**
@@ -278,6 +298,10 @@ nuevo no entra en ese fixture, la herencia puede estar rota y ningún test lo ve
 R1 de la profundidad, y ya se materializó una vez.
 
 ### Nivel 3 — Usuario («para más adelante»)
+
+> **Sigue siendo ADMIN-only tras la enmienda R2** (ver Nivel 2). El argumento de M4 vale
+> intacto AQUÍ: apunta a una persona, tiene efecto reputacional y se audita nominalmente. Lo
+> que se acotó fue su alcance — dejó de arrastrar también al nivel categoría.
 
 Un campo en `User`: `requiresReview Boolean @default(false)`. **El hueco está diseñado y el molde
 existe**: `User.trusted` (`schema.prisma:322`) es su imagen especular —confianza otorgada por la

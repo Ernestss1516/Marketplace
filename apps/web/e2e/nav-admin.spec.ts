@@ -72,25 +72,36 @@ async function borrar(page: Page, label: string): Promise<string> {
 }
 
 test.describe('Admin — /admin/nav', () => {
-  test('MODERATOR y EDITOR no pueden entrar; ADMIN sí', async ({
+  // ROLES R2 — este test afirmaba que MODERATOR y EDITOR quedaban fuera. La
+  // navegación del sitio público pasa a EDITOR+ con el resto de la superficie
+  // editorial (portada, footer, banners): configurar por dónde se mueve el
+  // visitante es el mismo oficio que escribir lo que lee.
+  test('EDITOR, MODERATOR y ADMIN entran; un USER no', async ({
     moderatorContext,
     editorContext,
     adminContext,
+    browser,
   }) => {
-    for (const ctx of [moderatorContext, editorContext]) {
+    for (const ctx of [editorContext, moderatorContext, adminContext]) {
       const page = await ctx.newPage();
       await page.goto('/admin/nav');
       await page.waitForLoadState('networkidle');
-      // El middleware manda fuera de /admin a quien no tenga el rol.
-      expect(page.url()).not.toContain('/admin/nav');
+      expect(page.url()).toContain('/admin/nav');
+      await expect(page.getByRole('heading', { name: 'Navegación' })).toBeVisible();
+      // Y la sección aparece en el nav del backoffice.
+      await expect(
+        page.getByTestId('admin-nav').getByRole('link', { name: 'Navegación' }),
+      ).toBeVisible();
       await page.close();
     }
 
-    const page = await adminContext.newPage();
+    // El suelo no se mueve: sin sesión, el middleware manda a /login.
+    const anon = await browser.newContext();
+    const page = await anon.newPage();
     await page.goto('/admin/nav');
-    await expect(page.getByRole('heading', { name: 'Navegación' })).toBeVisible();
-    // Y la sección aparece en el nav del backoffice.
-    await expect(page.getByTestId('admin-nav').getByRole('link', { name: 'Navegación' })).toBeVisible();
+    await page.waitForLoadState('networkidle');
+    expect(page.url()).toContain('/login');
+    await anon.close();
   });
 
   test('crea un menú raíz con destino y un submenú anidado bajo él', async ({ adminContext }) => {

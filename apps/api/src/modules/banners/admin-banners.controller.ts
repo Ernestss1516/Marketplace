@@ -13,7 +13,7 @@ import { ListBannersDto } from './dto/list-banners.dto';
 @ApiBearerAuth('access-token')
 @Controller('admin/banners')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@MinRole(Role.ADMIN)
+@MinRole(Role.EDITOR)
 export class AdminBannersController {
   constructor(private readonly bannersService: BannersService) {}
 

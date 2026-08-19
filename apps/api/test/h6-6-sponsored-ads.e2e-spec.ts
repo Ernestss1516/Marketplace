@@ -182,11 +182,14 @@ describe('H6.6 Bloque C — Sponsored Ads (e2e)', () => {
         .expect(403);
     });
 
-    it('GET /api/admin/sponsored-ads como MODERATOR → 403 (ADMIN-only)', async () => {
+    // ROLES R2 — los patrocinados bajan a MODERATOR. Ojo al matiz frente a los
+    // banners, que bajan hasta EDITOR: un patrocinado es inventario VENDIDO a un
+    // anunciante, así que baja un piso menos. El suelo (USER) no se mueve.
+    it('GET /api/admin/sponsored-ads como MODERATOR → 200', async () => {
       await request(app.getHttpServer())
         .get('/api/admin/sponsored-ads')
         .set('Authorization', `Bearer ${moderatorToken}`)
-        .expect(403);
+        .expect(200);
     });
 
     it('POST /api/admin/sponsored-ads/upload-image como USER → 403', async () => {
@@ -266,7 +269,9 @@ describe('H6.6 Bloque C — Sponsored Ads (e2e)', () => {
       await createAd(adminToken, { startsAt: w.endsAt, endsAt: w.startsAt }).expect(400);
     });
 
-    it('como MODERATOR → 403', async () => {
+    // ROLES R2 — antes 403 (ADMIN-only); ahora el moderador gestiona la sección
+    // y puede crear un patrocinado.
+    it('como MODERATOR → 201', async () => {
       await request(app.getHttpServer())
         .post('/api/admin/sponsored-ads')
         .set('Authorization', `Bearer ${moderatorToken}`)
@@ -277,7 +282,7 @@ describe('H6.6 Bloque C — Sponsored Ads (e2e)', () => {
           targetUrl: 'https://example.com',
           categoryId: vehiculosId,
         })
-        .expect(403);
+        .expect(201);
     });
   });
 

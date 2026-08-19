@@ -14,7 +14,7 @@ import { ListCouponsDto } from './dto/list-coupons.dto';
 @ApiBearerAuth('access-token')
 @Controller('admin/coupons')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@MinRole(Role.ADMIN)
+@MinRole(Role.MODERATOR)
 export class AdminCouponsController {
   constructor(private readonly couponsService: CouponsService) {}
 

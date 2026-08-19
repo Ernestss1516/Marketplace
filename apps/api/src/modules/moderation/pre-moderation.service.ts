@@ -64,6 +64,19 @@ export type ReviewTrigger = 'USER' | 'CATEGORY' | 'PLATFORM';
  *   · CATEGORÍA  — la marca `requiresReview`, heredada MONÓTONA por la cadena.
  *   · PLATAFORMA — un `Setting` global. Todo anuncio a revisión.
  *
+ * QUIÉN ENCIENDE CADA NIVEL (roles, ráfaga R2). El eje de la fórmula —«específica
+ * vs. genérica»— gobierna la EXENCIÓN por confianza, y no hay que confundirlo con
+ * el eje que gobierna el PERMISO, que es otro: **una persona vs. una rama del
+ * catálogo**. Por eso los dos niveles específicos NO los decide el mismo rol:
+ *
+ *   · PLATAFORMA → ADMIN (vive en `/admin/ajustes`).
+ *   · USUARIO    → ADMIN. Señalar a alguien tiene efectos sobre esa persona y se
+ *                  audita nominalmente (`PATCH /admin/users/:id/requires-review`).
+ *   · CATEGORÍA  → MODERATOR. Decidir qué ramas entran en la propia cola de
+ *                  trabajo es moderar (`PATCH /admin/categories/:id`).
+ *
+ * La asimetría es deliberada: ver docs/diseno-roles.md §5 antes de «arreglarla».
+ *
  * LA FÓRMULA COMPLETA (M4):
  *
  *     requiereRevisión =

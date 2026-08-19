@@ -109,16 +109,19 @@ describe('H8 Bloque D fase 3b — Admin coupons CRUD (e2e)', () => {
         .expect(403);
     });
 
-    it('GET /api/admin/coupons como MODERATOR → 403 (ADMIN-only, como campañas)', async () => {
+    // ROLES R2 — los cupones bajan a MODERATOR, igual que las campañas (el
+    // comentario de al lado sigue valiendo: los dos van juntos, sólo que ahora
+    // un piso más abajo). La frontera con USER y con «sin token» no se mueve.
+    it('GET /api/admin/coupons como MODERATOR → 200', async () => {
       await request(app.getHttpServer())
         .get('/api/admin/coupons')
         .set('Authorization', `Bearer ${moderatorToken}`)
-        .expect(403);
+        .expect(200);
     });
 
-    it('POST /api/admin/coupons como MODERATOR → 403', async () => {
+    it('POST /api/admin/coupons como MODERATOR → 201', async () => {
       const w = window(0);
-      await request(app.getHttpServer())
+      const res = await request(app.getHttpServer())
         .post('/api/admin/coupons')
         .set('Authorization', `Bearer ${moderatorToken}`)
         .send({
@@ -127,7 +130,10 @@ describe('H8 Bloque D fase 3b — Admin coupons CRUD (e2e)', () => {
           creditAmount: 10,
           ...w,
         })
-        .expect(403);
+        .expect(201);
+
+      // Se limpia: los casos de abajo listan y cuentan cupones.
+      await prisma.coupon.delete({ where: { id: res.body.id as string } });
     });
   });
 

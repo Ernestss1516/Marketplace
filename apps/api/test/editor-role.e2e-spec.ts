@@ -1,9 +1,14 @@
-// BLOG — rol EDITOR: batería de seguridad (matriz negativa + positiva).
+// Rol EDITOR: batería de seguridad (matriz negativa + positiva).
 //
-// EDITOR gestiona el blog (contenido reversible: crear/editar/publicar/despublicar)
-// y NADA más. Este archivo verifica que las 3 capas de permisos lo excluyen
-// coherentemente de todo lo que no es blog:
-//   - Capa backend (RolesGuard + @Roles()): matriz negativa de este archivo.
+// ROLES R2 — EL ALCANCE HA CAMBIADO. Este fichero decía «EDITOR gestiona el blog
+// y NADA más», y era cierto hasta el reparto de R2. Ahora su oficio es toda la
+// superficie EDITORIAL del sitio público —dashboard, blog, páginas, portada,
+// footer, navegación y banners—, y lo que sigue vetado es el trabajo de moderar
+// (anuncios, usuarios, categorías, reportes, cupones, campañas, patrocinados) y
+// lo de ADMIN (facturación, facturas, ajustes). Ver docs/diseno-roles.md §4.2.
+//
+// Las 3 capas siguen comprobándose por separado:
+//   - Capa backend (RolesGuard + @MinRole()): las matrices de este archivo.
 //   - Capa middleware / AdminNav: cubierto en apps/web/e2e/admin-roles.spec.ts.
 //
 // RolesGuard corta la petición ANTES de llegar al pipe de validación de DTO o al
@@ -98,11 +103,20 @@ describe('Rol EDITOR (e2e)', () => {
     await prisma.$disconnect();
   });
 
-  // ── Matriz negativa: EDITOR → 403 en todo lo que no es blog ──────────────────
+  // ── Matriz negativa: EDITOR → 403 en el trabajo de moderar y en el de ADMIN ──
+  //
+  // ROLES R2 — el alcance del EDITOR deja de ser «solo el blog». Su oficio pasa a
+  // ser toda la superficie EDITORIAL del sitio público (dashboard, blog, páginas,
+  // portada, footer, navegación, banners), y lo que sigue vetado es el trabajo de
+  // moderar (anuncios, usuarios, categorías, reportes, cupones, campañas) y lo de
+  // ADMIN (facturación, facturas, ajustes).
+  //
+  // Cuatro entradas SALEN de esta lista y pasan a la matriz positiva de abajo:
+  // `GET /admin/stats` y los tres de `/admin/banners`. No se borran — se mueven,
+  // que es lo que mantiene el listón: se sigue afirmando qué pasa con ellas.
 
   const NEGATIVE_MATRIX: { method: 'get' | 'post' | 'patch' | 'delete'; path: string; label: string }[] = [
-    // admin — dashboard / listings / users
-    { method: 'get', path: '/api/admin/stats', label: 'GET /admin/stats' },
+    // admin — listings / users
     { method: 'get', path: '/api/admin/listings', label: 'GET /admin/listings' },
     { method: 'get', path: `/api/admin/listings/${DUMMY_ID}`, label: 'GET /admin/listings/:id' },
     { method: 'patch', path: `/api/admin/listings/${DUMMY_ID}/status`, label: 'PATCH /admin/listings/:id/status' },
@@ -130,10 +144,6 @@ describe('Rol EDITOR (e2e)', () => {
     { method: 'get', path: '/api/admin/billing/wallets', label: 'GET /admin/billing/wallets' },
     { method: 'get', path: `/api/admin/billing/users/${DUMMY_ID}`, label: 'GET /admin/billing/users/:userId' },
     { method: 'post', path: `/api/admin/billing/users/${DUMMY_ID}/credits`, label: 'POST /admin/billing/users/:userId/credits' },
-    // admin — banners
-    { method: 'get', path: '/api/admin/banners', label: 'GET /admin/banners' },
-    { method: 'post', path: '/api/admin/banners', label: 'POST /admin/banners' },
-    { method: 'patch', path: `/api/admin/banners/${DUMMY_ID}`, label: 'PATCH /admin/banners/:id' },
     // admin — coupons
     { method: 'get', path: '/api/admin/coupons', label: 'GET /admin/coupons' },
     { method: 'post', path: '/api/admin/coupons', label: 'POST /admin/coupons' },
@@ -168,6 +178,59 @@ describe('Rol EDITOR (e2e)', () => {
         .expect(403);
     });
   }
+
+  // ── Matriz positiva de R2: las secciones que el EDITOR gana ─────────────────
+  //
+  // El espejo de las cuatro entradas que salieron de la matriz negativa, más las
+  // tres secciones editoriales que nunca estuvieron afirmadas aquí (portada,
+  // footer, navegación). Todas son GET: basta con probar el ACCESO, que es lo que
+  // el reparto cambia; el CRUD de cada una lo cubre su propio fichero e2e.
+  //
+  // Esta matriz es además la mitad de INV-1 del lado del backend: si alguno de
+  // estos siguiera en ADMIN, la sección cargaría en el navegador y la pantalla
+  // saldría vacía o con un 403.
+
+  const POSITIVE_MATRIX_R2: { path: string; label: string }[] = [
+    { path: '/api/admin/stats', label: 'GET /admin/stats (dashboard)' },
+    { path: '/api/admin/banners', label: 'GET /admin/banners' },
+    { path: '/api/admin/homepage', label: 'GET /admin/homepage (portada)' },
+    { path: '/api/admin/footer', label: 'GET /admin/footer' },
+    { path: '/api/admin/nav', label: 'GET /admin/nav (navegación)' },
+  ];
+
+  for (const { path, label } of POSITIVE_MATRIX_R2) {
+    it(`EDITOR → 200 en ${label}`, async () => {
+      await request(app.getHttpServer())
+        .get(path)
+        .set('Authorization', `Bearer ${editorToken}`)
+        .expect(200);
+    });
+  }
+
+  it('EDITOR → 201 en POST /admin/banners, y 200 al editarlo (no es solo lectura)', async () => {
+    // El acceso de lectura no basta para decir que la sección es suya: se
+    // comprueba que también escribe, que es lo que hace en la pantalla.
+    const ahora = Date.now();
+    const res = await request(app.getHttpServer())
+      .post('/api/admin/banners')
+      .set('Authorization', `Bearer ${editorToken}`)
+      .send({
+        title: 'Editor R2',
+        text: 'Editor R2',
+        placements: ['HOME'],
+        startsAt: new Date(ahora + 86_400_000).toISOString(),
+        endsAt: new Date(ahora + 172_800_000).toISOString(),
+      })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .patch(`/api/admin/banners/${res.body.id as string}`)
+      .set('Authorization', `Bearer ${editorToken}`)
+      .send({ title: 'Editor R2 (editado)' })
+      .expect(200);
+
+    await prisma.banner.delete({ where: { id: res.body.id as string } });
+  });
 
   // ── Matriz positiva: EDITOR gestiona el blog de punta a punta ────────────────
 

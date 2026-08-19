@@ -13,7 +13,7 @@ import { ReorderContactReasonsDto } from './dto/reorder-contact-reasons.dto';
 @ApiBearerAuth('access-token')
 @Controller('admin/contact-reasons')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@MinRole(Role.ADMIN)
+@MinRole(Role.MODERATOR)
 export class AdminContactReasonsController {
   constructor(private readonly contactReasonsService: ContactReasonsService) {}
 

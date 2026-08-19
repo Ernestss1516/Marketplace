@@ -11,148 +11,181 @@ import {
 import { ROLE_ORDER } from './roles';
 
 /**
- * ROLES RÁFAGA 1 — T1 del plan de verificación (docs/diseno-roles.md §6.1):
- * **la barrera de la fuente única**.
+ * ROLES — T1 del plan de verificación (docs/diseno-roles.md §6.1): **la barrera de
+ * la fuente única**.
  *
  * Dos cosas distintas se afirman aquí, y conviene no confundirlas:
  *
- *  · **Que el refactor no cambió el acceso** (§«inventario congelado»). Se pinza
- *    reproduciendo LITERALMENTE las dos listas que se han borrado —el
- *    `ROLE_ALLOWED_PATHS` del middleware y los `roles[]` de `NAV_ITEMS`, tal como
- *    estaban antes de esta ráfaga— y comprobando que la derivación nueva decide
- *    exactamente lo mismo para las 4 × 22 combinaciones de rol y sección. Esto es
- *    la red de seguridad del refactor a nivel unitario; los 22 e2e de
- *    `admin-roles.spec.ts` son la misma red a nivel de navegador.
+ *  · **EL REPARTO** (ráfaga 2): que cada rol ve EXACTAMENTE las secciones de la
+ *    tabla, ni una más ni una menos. Se pinza con la lista literal por rol, no con
+ *    el número: un test que solo cuente 19 pasaría igual con la sección
+ *    equivocada dentro.
  *
- *  · **Que la fuente única se respeta** — que nav y middleware no pueden
+ *  · **EL MECANISMO** (ráfaga 1, ya probado): que nav y middleware no pueden
  *    discrepar, que ninguna ruta real se queda fuera del mapa, y que la
- *    coincidencia es por segmento. Eso es lo que seguirá protegiendo cuando la
- *    ráfaga 2 cambie el inventario.
+ *    coincidencia es por segmento. Ese bloque NO cambia al cambiar el reparto —
+ *    que siguiera verde mientras esta cabecera se reescribía entera es la prueba
+ *    de que el mecanismo y el contenido están de verdad separados.
+ *
+ * El bloque de «inventario congelado» de la ráfaga 1 —que transcribía el
+ * `ROLE_ALLOWED_PATHS` y los `NAV_ITEMS` borrados para demostrar que el refactor
+ * no movía nada— ha cumplido su función y se retira: su punto de comparación era
+ * el reparto viejo, que es justo lo que esta ráfaga cambia a propósito.
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
-// EL INVENTARIO DE ANTES DEL REFACTOR, transcrito literalmente.
-// NO se toca al cambiar el reparto: en la ráfaga 2, el bloque «inventario
-// congelado» de abajo se retira entero y se sustituye por el reparto nuevo. Su
-// trabajo es exclusivamente demostrar que ESTA ráfaga no movió nada.
+// EL REPARTO ESPERADO — la tabla de docs/diseno-roles.md §4.2, transcrita.
+//
+// Se escribe aquí ENTERA y a mano, en vez de derivarla de BACKOFFICE_SECTIONS,
+// porque un test que lea el mismo dato que comprueba no comprueba nada: sería
+// `mapa === mapa`. Esta lista es la INTENCIÓN (lo que se acordó); el mapa es la
+// implementación. Cuando el reparto cambie de verdad habrá que tocar las dos, y
+// eso es exactamente lo que se quiere de un cambio de política de acceso.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** `ROLE_ALLOWED_PATHS` de `middleware.ts`, tal cual estaba. ADMIN tenía acceso total aparte. */
-const ROLE_ALLOWED_PATHS_ANTES: Record<string, string[]> = {
-  MODERATOR: [
-    '/admin/reportes',
-    '/admin/anuncios',
-    '/admin/moderacion',
-    '/admin/usuarios',
-    '/admin/blog',
-    '/admin/paginas',
-    '/admin/tickets',
-  ],
-  EDITOR: ['/admin/blog', '/admin/paginas'],
+/** id → piso mínimo acordado. 22 secciones: 7 EDITOR, 12 MODERATOR, 3 ADMIN. */
+const REPARTO_ESPERADO: Record<string, 'EDITOR' | 'MODERATOR' | 'ADMIN'> = {
+  // EDITOR — contenido y presentación del sitio público (7 en total)
+  dashboard: 'EDITOR',
+  blog: 'EDITOR',
+  paginas: 'EDITOR',
+  portada: 'EDITOR',
+  footer: 'EDITOR',
+  nav: 'EDITOR',
+  banners: 'EDITOR',
+  // MODERATOR — el trabajo de moderar y el catálogo (12 propias, 19 acumuladas)
+  anuncios: 'MODERATOR',
+  'cola-revision': 'MODERATOR',
+  usuarios: 'MODERATOR',
+  reportes: 'MODERATOR',
+  tickets: 'MODERATOR',
+  categorias: 'MODERATOR',
+  tags: 'MODERATOR',
+  campanas: 'MODERATOR',
+  cupones: 'MODERATOR',
+  patrocinados: 'MODERATOR',
+  'mensajes-contacto': 'MODERATOR',
+  'motivos-contacto': 'MODERATOR',
+  // ADMIN — el dinero y la configuración de plataforma (3 propias, 22 acumuladas)
+  facturacion: 'ADMIN',
+  facturas: 'ADMIN',
+  ajustes: 'ADMIN',
 };
-
-/** La decisión de acceso del middleware ANTIGUO, reimplementada tal cual. */
-function accesoAntiguo(role: string, pathname: string): boolean {
-  if (role === 'ADMIN') return true;
-  return ROLE_ALLOWED_PATHS_ANTES[role]?.some((p) => pathname.startsWith(p)) ?? false;
-}
-
-/** `NAV_ITEMS` de `AdminNav.tsx`, tal cual estaba: 21 ítems con sus roles enumerados. */
-const NAV_ITEMS_ANTES: { href: string; label: string; roles: string[] }[] = [
-  { href: '/admin', label: 'Dashboard', roles: ['ADMIN'] },
-  { href: '/admin/anuncios', label: 'Anuncios', roles: ['ADMIN', 'MODERATOR'] },
-  { href: '/admin/moderacion', label: 'Cola de revisión', roles: ['ADMIN', 'MODERATOR'] },
-  { href: '/admin/usuarios', label: 'Usuarios', roles: ['ADMIN', 'MODERATOR'] },
-  { href: '/admin/reportes', label: 'Reportes', roles: ['ADMIN', 'MODERATOR'] },
-  { href: '/admin/tickets', label: 'Tickets', roles: ['ADMIN', 'MODERATOR'] },
-  { href: '/admin/facturacion', label: 'Facturación', roles: ['ADMIN'] },
-  { href: '/admin/facturas', label: 'Facturas', roles: ['ADMIN'] },
-  { href: '/admin/categorias', label: 'Categorías', roles: ['ADMIN'] },
-  { href: '/admin/tags', label: 'Tags', roles: ['ADMIN'] },
-  { href: '/admin/blog', label: 'Blog', roles: ['ADMIN', 'MODERATOR', 'EDITOR'] },
-  { href: '/admin/paginas', label: 'Páginas', roles: ['ADMIN', 'MODERATOR', 'EDITOR'] },
-  { href: '/admin/footer', label: 'Footer', roles: ['ADMIN'] },
-  { href: '/admin/nav', label: 'Navegación', roles: ['ADMIN'] },
-  { href: '/admin/portada', label: 'Portada', roles: ['ADMIN'] },
-  { href: '/admin/campaigns', label: 'Campañas', roles: ['ADMIN'] },
-  { href: '/admin/cupones', label: 'Cupones', roles: ['ADMIN'] },
-  { href: '/admin/banners', label: 'Banners', roles: ['ADMIN'] },
-  { href: '/admin/sponsored-ads', label: 'Patrocinados', roles: ['ADMIN'] },
-  { href: '/admin/mensajes-contacto', label: 'Mensajes de contacto', roles: ['ADMIN'] },
-  { href: '/admin/ajustes', label: 'Ajustes', roles: ['ADMIN'] },
-];
 
 const ROLES_STAFF = ['EDITOR', 'MODERATOR', 'ADMIN'] as const;
 
-describe('INVENTARIO CONGELADO — la derivación decide lo mismo que las listas borradas', () => {
-  it.each(ROLE_ORDER.map((r) => [r]))(
-    '%s: el acceso a las 22 secciones es idéntico al del middleware antiguo',
-    (role) => {
-      for (const section of BACKOFFICE_SECTIONS) {
-        expect({ role, route: section.route, acceso: canAccessAdminPath(role, section.route) }).toEqual({
-          role,
-          route: section.route,
-          acceso: accesoAntiguo(role, section.route),
-        });
-      }
-    },
-  );
+/** Las secciones que un rol debe ver, según el reparto acordado y la escalera. */
+function seccionesEsperadas(role: 'EDITOR' | 'MODERATOR' | 'ADMIN'): string[] {
+  const nivel = { EDITOR: 0, MODERATOR: 1, ADMIN: 2 };
+  return Object.entries(REPARTO_ESPERADO)
+    .filter(([, min]) => nivel[role] >= nivel[min])
+    .map(([id]) => id);
+}
 
-  it.each(ROLE_ORDER.map((r) => [r]))(
-    '%s: el acceso a las SUBRUTAS reales es idéntico al del middleware antiguo',
-    (role) => {
-      // Las subrutas son donde el cambio de `startsWith` a coincidencia por
-      // segmento podría haber movido algo. Se comprueban las que existen de verdad.
-      const subrutas = [
-        '/admin/blog/nuevo',
-        '/admin/blog/abc/editar',
-        '/admin/paginas/nueva',
-        '/admin/paginas/abc/editar',
-        '/admin/tickets/nuevo',
-        '/admin/tickets/abc',
-        '/admin/facturacion/usuarios/abc',
-        '/admin/facturas/emisor',
-        '/admin/mensajes-contacto/abc',
-      ];
-      for (const ruta of subrutas) {
-        expect({ role, ruta, acceso: canAccessAdminPath(role, ruta) }).toEqual({
-          role,
-          ruta,
-          acceso: accesoAntiguo(role, ruta),
-        });
-      }
-    },
-  );
-
-  it.each(ROLES_STAFF.map((r) => [r]))(
-    '%s: el nav muestra exactamente los mismos ítems, en el mismo orden y con las mismas etiquetas',
-    (role) => {
-      const ahora = navSectionsFor(role).map((s) => ({ href: s.route, label: s.label }));
-      const antes = NAV_ITEMS_ANTES.filter((i) => i.roles.includes(role)).map((i) => ({
-        href: i.href,
-        label: i.label,
-      }));
-      expect(ahora).toEqual(antes);
-    },
-  );
-
-  it('las cuentas del nav son las que pinzan los tres e2e: ADMIN 21 / MODERATOR 7 / EDITOR 2', () => {
-    // Si esta línea cambia en esta ráfaga, el refactor alteró el inventario y hay
-    // un error. La ráfaga 2 la sustituirá por 22 / 19 / 7 a propósito.
-    expect(navSectionsFor('ADMIN')).toHaveLength(21);
-    expect(navSectionsFor('MODERATOR')).toHaveLength(7);
-    expect(navSectionsFor('EDITOR')).toHaveLength(2);
-    expect(navSectionsFor('USER')).toHaveLength(0);
-    expect(navSectionsFor(null)).toHaveLength(0);
+describe('EL REPARTO — cada rol ve exactamente lo suyo', () => {
+  it('el mapa declara el piso acordado para las 22 secciones, una por una', () => {
+    const real = Object.fromEntries(BACKOFFICE_SECTIONS.map((s) => [s.id, s.minRole]));
+    expect(real).toEqual(REPARTO_ESPERADO);
+    expect(BACKOFFICE_SECTIONS).toHaveLength(22);
   });
 
-  it('la anomalía R3 se conserva declarada: motivos-contacto es alcanzable por ADMIN y no sale en el nav', () => {
-    // Inventario congelado incluye conservar los defectos. Lo que cambia es que
-    // ahora está DECLARADO (`hiddenFromNav`) en vez de ser la ausencia de una fila.
-    expect(canAccessAdminPath('ADMIN', '/admin/motivos-contacto')).toBe(true);
-    expect(navSectionsFor('ADMIN').some((s) => s.id === 'motivos-contacto')).toBe(false);
-    expect(accesoAntiguo('ADMIN', '/admin/motivos-contacto')).toBe(true);
-    expect(NAV_ITEMS_ANTES.some((i) => i.href === '/admin/motivos-contacto')).toBe(false);
+  it.each(ROLES_STAFF.map((r) => [r]))(
+    '%s ve EXACTAMENTE su lista de secciones (no solo el número)',
+    (role) => {
+      expect(navSectionsFor(role).map((s) => s.id).sort()).toEqual(seccionesEsperadas(role).sort());
+    },
+  );
+
+  it('las cuentas resultantes son EDITOR 7 / MODERATOR 19 / ADMIN 22', () => {
+    // Son las que pinzan los tres e2e de admin-roles.spec.ts. Antes de esta ráfaga
+    // eran 2 / 7 / 21; el cambio es el objeto de la ráfaga, no un efecto lateral.
+    expect(navSectionsFor('EDITOR')).toHaveLength(7);
+    expect(navSectionsFor('MODERATOR')).toHaveLength(19);
+    expect(navSectionsFor('ADMIN')).toHaveLength(22);
+  });
+
+  it('USER sigue sin acceso a NADA del backoffice', () => {
+    // No cambia en esta ráfaga y por eso mismo se afirma: repartir hacia abajo es
+    // justo el movimiento que podría llevarse por delante el suelo.
+    expect(navSectionsFor('USER')).toHaveLength(0);
+    expect(navSectionsFor(null)).toHaveLength(0);
+    for (const section of BACKOFFICE_SECTIONS) {
+      expect(canAccessAdminPath('USER', section.route)).toBe(false);
+    }
+  });
+
+  it('EDITOR no llega a lo de MODERATOR ni a lo de ADMIN', () => {
+    for (const id of ['anuncios', 'usuarios', 'categorias', 'cupones', 'patrocinados']) {
+      const s = BACKOFFICE_SECTIONS.find((x) => x.id === id)!;
+      expect(canAccessAdminPath('EDITOR', s.route)).toBe(false);
+    }
+    for (const id of ['facturacion', 'facturas', 'ajustes']) {
+      const s = BACKOFFICE_SECTIONS.find((x) => x.id === id)!;
+      expect(canAccessAdminPath('EDITOR', s.route)).toBe(false);
+    }
+  });
+
+  it('MODERATOR llega a lo de EDITOR y a lo suyo, pero NO al dinero ni a los ajustes', () => {
+    for (const id of ['dashboard', 'portada', 'footer', 'nav', 'banners', 'categorias', 'tags']) {
+      const s = BACKOFFICE_SECTIONS.find((x) => x.id === id)!;
+      expect(canAccessAdminPath('MODERATOR', s.route)).toBe(true);
+    }
+    for (const id of ['facturacion', 'facturas', 'ajustes']) {
+      const s = BACKOFFICE_SECTIONS.find((x) => x.id === id)!;
+      expect(canAccessAdminPath('MODERATOR', s.route)).toBe(false);
+    }
+  });
+
+  it.each(ROLE_ORDER.map((r) => [r]))(
+    '%s: las subrutas reales heredan el piso de su sección',
+    (role) => {
+      const subrutas: [string, string][] = [
+        ['/admin/blog/nuevo', 'blog'],
+        ['/admin/blog/abc/editar', 'blog'],
+        ['/admin/paginas/nueva', 'paginas'],
+        ['/admin/paginas/abc/editar', 'paginas'],
+        ['/admin/tickets/nuevo', 'tickets'],
+        ['/admin/tickets/abc', 'tickets'],
+        ['/admin/facturacion/usuarios/abc', 'facturacion'],
+        ['/admin/facturas/emisor', 'facturas'],
+        ['/admin/mensajes-contacto/abc', 'mensajes-contacto'],
+      ];
+      for (const [ruta, seccionId] of subrutas) {
+        const seccion = BACKOFFICE_SECTIONS.find((s) => s.id === seccionId)!;
+        expect({ ruta, acceso: canAccessAdminPath(role, ruta) }).toEqual({
+          ruta,
+          acceso: canAccessAdminPath(role, seccion.route),
+        });
+      }
+    },
+  );
+
+  it('R3 CERRADO: motivos-contacto ya tiene ítem de nav, y no queda ninguna sección oculta', () => {
+    // La ráfaga 1 conservó la anomalía declarándola (`hiddenFromNav`); ésta la
+    // borra. Que el nav de un rol sea EXACTAMENTE lo que puede abrir es ahora una
+    // propiedad, no una coincidencia — ver el test de la barrera más abajo.
+    expect(navSectionsFor('MODERATOR').some((s) => s.id === 'motivos-contacto')).toBe(true);
+    expect(canAccessAdminPath('MODERATOR', '/admin/motivos-contacto')).toBe(true);
+    expect(navSectionsFor('ADMIN')).toHaveLength(BACKOFFICE_SECTIONS.length);
+  });
+
+  it('las dos secciones de contacto comparten piso (la de mensajes usa los endpoints de motivos)', () => {
+    // INV-1 declarado como test: bajarlas por separado dejaría /admin/mensajes-
+    // contacto cargando rota. Ver docs/diseno-roles.md §4.3.
+    const mensajes = BACKOFFICE_SECTIONS.find((s) => s.id === 'mensajes-contacto')!;
+    const motivos = BACKOFFICE_SECTIONS.find((s) => s.id === 'motivos-contacto')!;
+    expect(motivos.minRole).toBe(mensajes.minRole);
+  });
+
+  it('footer y nav no pueden exigir menos que blog (dependen de sus endpoints)', () => {
+    // La otra dependencia cruzada verificada: las dos pantallas usan
+    // `/admin/blog*` para elegir la página de destino de un enlace.
+    const nivel = { USER: 0, EDITOR: 1, MODERATOR: 2, ADMIN: 3 } as const;
+    const blog = BACKOFFICE_SECTIONS.find((s) => s.id === 'blog')!;
+    for (const id of ['footer', 'nav']) {
+      const s = BACKOFFICE_SECTIONS.find((x) => x.id === id)!;
+      expect(nivel[s.minRole]).toBeGreaterThanOrEqual(nivel[blog.minRole]);
+    }
   });
 });
 
@@ -167,12 +200,15 @@ describe('LA BARRERA — nav y middleware no pueden discrepar', () => {
   );
 
   it.each(ROLE_ORDER.map((r) => [r]))(
-    '%s: toda sección accesible sale en el nav, salvo las declaradas ocultas',
+    '%s: toda sección accesible sale en el nav — ya no hay excepciones',
     (role) => {
+      // En la ráfaga 1 esta aserción llevaba un «salvo las declaradas ocultas»
+      // por `hiddenFromNav`. Con R3 cerrado, el nav y el acceso son la MISMA
+      // condición y la excepción desaparece: es la forma más fuerte del test.
       const enNav = new Set(navSectionsFor(role).map((s) => s.id));
       for (const section of BACKOFFICE_SECTIONS) {
         if (!canAccessAdminPath(role, section.route)) continue;
-        expect(enNav.has(section.id) || section.hiddenFromNav === true).toBe(true);
+        expect(enNav.has(section.id)).toBe(true);
       }
     },
   );

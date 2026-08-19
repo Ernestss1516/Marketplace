@@ -40,7 +40,17 @@ export class AdminController {
 
   // ─── Stats dashboard ──────────────────────────────────────────────────────
 
+  // ROLES R2 — el dashboard es la sección de piso más bajo del backoffice
+  // (EDITOR), así que su endpoint TIENE que bajar con ella: es el invariante
+  // INV-1 («los endpoints que una sección necesita para cargar tienen piso ≤ el
+  // de la sección»). Sin este override, un EDITOR entraría en /admin y la página
+  // fallaría con 403 — el peor de los dos mundos, porque el nav le prometió una
+  // sección que no puede usar.
+  //
+  // Lo que devuelve son AGREGADOS (contadores de anuncios, usuarios, reportes,
+  // conversaciones y el estado del índice), no datos de ninguna persona.
   @Get('stats')
+  @MinRole(Role.EDITOR)
   getStats() {
     return this.adminService.getStats();
   }
@@ -157,9 +167,20 @@ export class AdminController {
     return this.adminService.setUserTrusted(id, user.userId, dto, ip);
   }
 
-  // MODERACIÓN M4 — marcar a un vendedor para revisión previa. ADMIN-only, mismo
-  // criterio que la confianza: decidir que alguien pasa por revisión es política
-  // de plataforma, no una acción de moderación del día a día.
+  // MODERACIÓN M4 — marcar a un VENDEDOR para revisión previa. ADMIN-only, mismo
+  // criterio que la confianza: señalar a una persona tiene efectos sobre ella y se
+  // audita nominalmente, así que no es trabajo de moderación del día a día.
+  //
+  // ENMENDADO EN ROLES R2 — ACOTACIÓN IMPORTANTE. Este argumento vale para ESTE
+  // endpoint y NO para el nivel CATEGORÍA. M4 los separó como «específico vs.
+  // genérico», y por ese eje los dos niveles específicos —usuario y categoría—
+  // caían del mismo lado. El eje correcto es otro: **una persona vs. una rama del
+  // catálogo**. Marcar una rama es configurar la propia cola de trabajo, que es
+  // moderar; por eso `PATCH /admin/categories/:id` es MODERATOR desde R2 y esto
+  // sigue siendo ADMIN.
+  //
+  // Quien venga a «arreglar» la asimetría igualando los dos, que lea antes
+  // docs/diseno-roles.md §5: es deliberada.
   @Patch('users/:id/requires-review')
   @HttpCode(HttpStatus.OK)
   setUserRequiresReview(
@@ -175,19 +196,36 @@ export class AdminController {
   // IMPORTANT: static routes (@Get('categories/searchable-keys'),
   // @Patch('categories/reorder')) must be declared BEFORE param routes
   // (@Patch('categories/:id')) so the literal segment is not captured as :id.
+  //
+  // ROLES R2 — LOS SIETE MÉTODOS BAJAN A MODERATOR, y hace falta decirlo en los
+  // siete: heredaban ADMIN de la clase, y esa herencia era silenciosa (nadie
+  // había escrito «categorías es ADMIN», simplemente nadie escribió nada). El
+  // catálogo es la materia prima del trabajo de moderar, así que va con la
+  // sección `/admin/categorias`, que ahora es MODERATOR.
+  //
+  // CON ELLOS VIAJA `requiresReview` — ver la nota extensa en `updateCategory`.
+  //
+  // Deuda anotada: este controlador sirve CINCO secciones con TRES pisos
+  // distintos (stats→EDITOR, listings/users/categories→MODERATOR,
+  // settings→ADMIN). Partirlo en tres controladores es lo limpio y está
+  // recomendado en docs/diseno-roles.md §4.4 (Decisión 3.1); mueve 22 rutas de
+  // sitio, así que no entra en la misma ráfaga que reparte el inventario.
 
   @Get('categories/searchable-keys')
+  @MinRole(Role.MODERATOR)
   async getSearchableAttributeKeys() {
     return this.adminService.getSearchableAttributeKeys();
   }
 
   @Get('categories')
+  @MinRole(Role.MODERATOR)
   getCategories() {
     return this.adminService.getCategories();
   }
 
   @Post('categories')
   @HttpCode(HttpStatus.CREATED)
+  @MinRole(Role.MODERATOR)
   createCategory(
     @Body() dto: CreateCategoryDto,
     @CurrentUser() user: JwtUser,
@@ -198,6 +236,7 @@ export class AdminController {
 
   @Patch('categories/reorder')
   @HttpCode(HttpStatus.OK)
+  @MinRole(Role.MODERATOR)
   reorderCategories(
     @Body() dto: ReorderCategoriesDto,
     @CurrentUser() user: JwtUser,
@@ -207,12 +246,31 @@ export class AdminController {
   }
 
   @Get('categories/:id/attribute-usage')
+  @MinRole(Role.MODERATOR)
   getAttributeUsage(@Param('id') id: string, @Query() query: AttributeUsageDto) {
     return this.adminService.getAttributeUsage(id, query.key);
   }
 
+  // ENMIENDA A M4 (ráfaga R2) — este endpoint es el que escribe
+  // `Category.requiresReview`, el nivel CATEGORÍA del disparador de moderación
+  // previa, y al bajar a MODERATOR cambia quién decide qué ramas se revisan.
+  //
+  // M4 argumentó que marcar para revisión es «política de plataforma, no una
+  // acción de moderación del día a día», y por eso dejó ADMIN-only el nivel
+  // USUARIO. Ese argumento SIGUE EN PIE para las personas y no se toca (ver
+  // `setUserRequiresReview` más arriba). Lo que se corrige es el eje con el que
+  // se separó: no es «específico vs. genérico» —la marca de categoría es tan
+  // específica como la de usuario— sino **una rama del catálogo vs. una
+  // persona**.
+  //
+  // Y por ese eje, la categoría es del moderador: configurar qué entra en la
+  // propia cola de trabajo es moderar. Señalar a un vendedor concreto tiene
+  // efectos sobre esa persona y se audita nominalmente, así que sigue arriba.
+  // Reparto resultante: PLATAFORMA→ADMIN (/admin/ajustes), USUARIO→ADMIN,
+  // CATEGORÍA→MODERATOR. Ver docs/diseno-roles.md §5.
   @Patch('categories/:id')
   @HttpCode(HttpStatus.OK)
+  @MinRole(Role.MODERATOR)
   updateCategory(
     @Param('id') id: string,
     @Body() dto: UpdateCategoryDto,
@@ -224,6 +282,7 @@ export class AdminController {
 
   @Delete('categories/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @MinRole(Role.MODERATOR)
   deleteCategory(
     @Param('id') id: string,
     @CurrentUser() user: JwtUser,
@@ -233,6 +292,11 @@ export class AdminController {
   }
 
   // ─── Settings ─────────────────────────────────────────────────────────────
+  //
+  // ROLES R2 — SIGUEN EN ADMIN, y ahora es una decisión y no una herencia. Aquí
+  // vive el interruptor de plataforma de la moderación previa
+  // (`preModerationAllListings` y su exención por confianza): «reviso a todo el
+  // mundo» es política, no trabajo de moderación.
 
   @Get('settings')
   getSettings() {
