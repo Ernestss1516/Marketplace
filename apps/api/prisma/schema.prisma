@@ -837,9 +837,33 @@ model ListingViewDaily {
 // ============================================================================
 
 model Conversation {
-  id        String  @id @default(cuid())
-  listingId String
-  listing   Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  id String @id @default(cuid())
+
+  // BORRADO B1 — nullable + `SetNull`, ANTES obligatorio + `Cascade`.
+  //
+  // LA CABECERA DE ESTE BLOQUE DICE «conversación POR ANUNCIO», y con `Cascade` era
+  // coherente: la conversación era del anuncio y moría con él. El criterio cambia
+  // por tres razones, en orden de peso (docs/diseno-borrado.md §2.5):
+  //
+  //  1. LOS MENSAJES SON DE DOS PERSONAS, no del anuncio. Llevan acuerdos,
+  //     direcciones, teléfonos y —cuando algo va mal— la prueba de lo que se dijo.
+  //     Que el vendedor pueda destruir el hilo del comprador borrando su propio
+  //     anuncio es el MISMO abuso que cerraba el `SetNull` de `Report`, con otro
+  //     nombre.
+  //  2. HABÍA UNA INCOHERENCIA DENTRO DEL PROPIO MODELO: `Deal.conversationId` es
+  //     `SetNull` y distingue «interacción verificable» de «afirmado por el
+  //     vendedor». Con `Cascade` aquí, borrar el anuncio ponía ese campo a `null` y
+  //     degradaba en silencio la evidencia de un trato que sí ocurrió.
+  //  3. `archive()` presume de NO destruir conversaciones. Si `archive → delete`
+  //     acababa destruyéndolas igual, la promesa duraba lo que tardara el staff en
+  //     pasar por ahí.
+  listingId String?
+  listing   Listing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  /// Snapshot del título, tomado AL CREAR la conversación. Molde
+  /// `Review.listingTitle`. Es lo que permite que la bandeja siga siendo legible
+  /// cuando el anuncio ya no está: se pinta el título, sin enlace y sin miniatura
+  /// (la miniatura no puede sobrevivir — sus objetos de R2 se borran con el anuncio).
+  listingTitle String?
   buyerId   String
   buyer     User    @relation("BuyerConversations", fields: [buyerId], references: [id])
   sellerId  String
@@ -852,6 +876,13 @@ model Conversation {
   deals    Deal[]
 
   // Una sola conversación por (anuncio, comprador).
+  //
+  // BORRADO B1 — CON `listingId` NULLABLE ESTA RESTRICCIÓN SE RELAJA, y se acepta a
+  // propósito: en Postgres los NULL no colisionan entre sí, así que varias
+  // conversaciones huérfanas del mismo par comprador/vendedor pueden coexistir. Es
+  // correcto — son hilos históricos de anuncios DISTINTOS, y la unicidad sólo tiene
+  // sentido mientras el anuncio existe (que es cuando `startConversation` la
+  // consulta, siempre con un id real).
   @@unique([listingId, buyerId])
   @@index([buyerId])
   @@index([sellerId])
@@ -986,8 +1017,31 @@ model Report {
   reporter   User   @relation("Reporter", fields: [reporterId], references: [id])
 
   // Una denuncia apunta a un anuncio o a un usuario (al menos uno).
+  //
+  // BORRADO B1 — `SetNull`, ANTES `Cascade`. La denuncia SOBREVIVE al borrado del
+  // anuncio, y el cambio no es cosmético: mientras fue `Cascade`, **el denunciado
+  // podía destruir la denuncia borrando su propio anuncio** —resuelta o no—, y hoy
+  // borrar es precisamente del dueño. Se perdía la evidencia de moderación por la
+  // vía más fácil que existe.
+  //
+  // No era una decisión, era el valor por defecto que nadie revisó: la relación de
+  // al lado —`Review.listingId`— sí la tomó, y dice lo contrario con su razón
+  // escrita («la reputación no es borrable por el vendedor»). La denuncia merece
+  // exactamente el mismo argumento y le había tocado el valor opuesto.
+  //
+  // Ver docs/diseno-borrado.md §2.4.
   listingId      String?
-  listing        Listing? @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  listing        Listing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  /// Snapshot del título del anuncio denunciado, tomado AL CREAR la denuncia.
+  /// Molde exacto de `Review.listingTitle` / `Deal.listingTitle` / `Ticket.linkedLabel`.
+  /// Sin él, el `SetNull` de arriba dejaría la denuncia sin contexto legible: la cola
+  /// de moderación mostraría un reporte de «algo» que ya no se puede nombrar.
+  ///
+  /// SE ESCRIBE AL CREAR, NO AL BORRAR, y eso es deliberado (diseño §3.3): rellenarlo
+  /// en el borrado convertiría un DELETE en una escritura de N filas dentro de la
+  /// transacción, y sería un camino que sólo se ejecuta ahí — es decir, que sólo se
+  /// prueba ahí.
+  listingTitle   String?
   reportedUserId String?
   reportedUser   User?    @relation("ReportedUser", fields: [reportedUserId], references: [id])
 

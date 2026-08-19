@@ -46,12 +46,18 @@ export class ModerationService {
       );
     }
 
+    // BORRADO B1 — se trae también el TÍTULO, no sólo el id. La comprobación de
+    // existencia ya estaba; el título es el snapshot que mantiene legible la
+    // denuncia si el anuncio desaparece después (`Report.listingTitle`). Se toma
+    // AQUÍ, al crear, y no en el borrado: ver la nota del campo en el schema.
+    let listingTitle: string | undefined;
     if (dto.listingId) {
       const listing = await this.prisma.listing.findUnique({
         where: { id: dto.listingId },
-        select: { id: true },
+        select: { id: true, title: true },
       });
       if (!listing) throw new NotFoundException('Anuncio no encontrado');
+      listingTitle = listing.title;
     }
 
     if (dto.reportedUserId) {
@@ -75,6 +81,7 @@ export class ModerationService {
       description: dto.description,
       reporterId,
       listingId: dto.listingId,
+      listingTitle,
       reportedUserId: dto.reportedUserId,
       reviewId: dto.reviewId,
     };

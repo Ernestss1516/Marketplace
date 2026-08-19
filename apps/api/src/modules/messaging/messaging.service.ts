@@ -30,6 +30,53 @@ const SELECT_LISTING_STUB = {
   },
 } as const;
 
+/** La forma del anuncio dentro de una conversación. `id` y `slug` son nulos cuando el anuncio ya no existe. */
+export interface ListingStubDto {
+  id: string | null;
+  title: string;
+  slug: string | null;
+  thumbnailUrl: string | null;
+}
+
+/**
+ * BORRADO B1 — EL ANUNCIO DE UNA CONVERSACIÓN PUEDE HABER DESAPARECIDO.
+ *
+ * Desde B1 `Conversation.listingId` es `SetNull`: el hilo sobrevive al borrado del
+ * anuncio (los mensajes son de dos personas, no del anuncio — ver el schema). Eso
+ * obliga a que la bandeja sepa pintar una conversación huérfana, y esta función es
+ * el único sitio donde se decide cómo.
+ *
+ * SE DEVUELVE UN OBJETO, NUNCA `null`, y con el TÍTULO siempre puesto: el hilo se
+ * sigue reconociendo por el anuncio del que hablaba. Lo que se pierde es lo que no
+ * puede sobrevivir:
+ *
+ *  · `id`/`slug` a `null` → el cliente no puede enlazar a una ficha que no existe,
+ *    y el tipo se lo dice en vez de dejarle construir un enlace roto.
+ *  · `thumbnailUrl` a `null` → la miniatura vivía en R2 y se borra con el anuncio.
+ *
+ * `title` cae al snapshot `listingTitle`, y de ahí al genérico sólo si la
+ * conversación es anterior a la migración de B1 y su anuncio ya se había borrado.
+ */
+function toListingStub(
+  listing: { id: string; title: string; slug: string; images: { url: string }[] } | null,
+  snapshotTitle: string | null,
+): ListingStubDto {
+  if (listing) {
+    return {
+      id: listing.id,
+      title: listing.title,
+      slug: listing.slug,
+      thumbnailUrl: listing.images[0]?.url ?? null,
+    };
+  }
+  return {
+    id: null,
+    title: snapshotTitle ?? 'Anuncio eliminado',
+    slug: null,
+    thumbnailUrl: null,
+  };
+}
+
 @Injectable()
 export class MessagingService {
   constructor(private readonly prisma: PrismaService) {}
@@ -55,12 +102,7 @@ export class MessagingService {
         id: conv.id,
         lastMessageAt: conv.lastMessageAt,
         unreadCount: conv.messages.length,
-        listing: {
-          id: conv.listing.id,
-          title: conv.listing.title,
-          slug: conv.listing.slug,
-          thumbnailUrl: conv.listing.images[0]?.url ?? null,
-        },
+        listing: toListingStub(conv.listing, conv.listingTitle),
         otherUser: conv.buyerId === userId ? conv.seller : conv.buyer,
       })),
     };
@@ -83,9 +125,12 @@ export class MessagingService {
   }
 
   async startConversation(buyerId: string, dto: CreateConversationDto) {
+    // BORRADO B1 — se trae también el TÍTULO: es el snapshot que mantiene la
+    // bandeja legible si el anuncio desaparece después (`Conversation.listingTitle`).
+    // Se toma al crear, no en el borrado — ver la nota del campo en el schema.
     const listing = await this.prisma.listing.findUnique({
       where: { id: dto.listingId },
-      select: { id: true, sellerId: true, status: true },
+      select: { id: true, sellerId: true, status: true, title: true },
     });
     if (!listing) throw new NotFoundException('Anuncio no encontrado');
     if (listing.sellerId === buyerId) {
@@ -105,6 +150,7 @@ export class MessagingService {
     return this.prisma.conversation.create({
       data: {
         listingId: dto.listingId,
+        listingTitle: listing.title,
         buyerId,
         sellerId: listing.sellerId,
         lastMessageAt: new Date(),
@@ -161,12 +207,7 @@ export class MessagingService {
 
     return {
       id: conv.id,
-      listing: {
-        id: conv.listing.id,
-        title: conv.listing.title,
-        slug: conv.listing.slug,
-        thumbnailUrl: conv.listing.images[0]?.url ?? null,
-      },
+      listing: toListingStub(conv.listing, conv.listingTitle),
       otherUser: conv.buyerId === userId ? conv.seller : conv.buyer,
       messages,
       nextCursor,
