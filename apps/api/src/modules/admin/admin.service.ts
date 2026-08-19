@@ -604,9 +604,38 @@ export class AdminService {
 
     const before = { role: user.role };
 
+    // ROLES R3 — CAMBIAR EL ROL INVALIDA LAS SESIONES DEL AFECTADO.
+    //
+    // EL DEFECTO QUE CIERRA. El backend ya leía el rol FRESCO de la BD en cada
+    // petición (`JwtStrategy.validate`), así que la API nunca estuvo mal. Lo que
+    // estaba caducado era la COPIA del rol que el frontend guarda en la cookie de
+    // NextAuth, que sólo se escribe en el login (`auth.config.ts`, callback `jwt`:
+    // `if (user) { token.role = ... }`). Resultado: a un degradado el middleware
+    // le seguía abriendo el backoffice con su rol viejo y la API le respondía 403
+    // a todo — veía el panel y no funcionaba nada.
+    //
+    // EL MOLDE ES EL DE LA CONTRASEÑA, y se replica sin variantes: el mismo
+    // `{ increment: 1 }` sobre el mismo campo que usan `resetPassword`,
+    // `changePassword` y `setPassword` (auth.service.ts). `JwtStrategy` compara
+    // `tokenVersion` contra la BD en cada request, así que todo JWT emitido antes
+    // de esta línea muere al instante.
+    //
+    // POR QUÉ NO SE DEVUELVE UN TOKEN FRESCO, y no es una omisión. El molde tiene
+    // dos variantes según quién es el afectado:
+    //   · `changePassword`/`setPassword` — el afectado ES el llamante, así que se
+    //     le devuelve un `accessToken` nuevo «para que el propio llamante no se
+    //     quede desconectado»; mueren sólo sus OTRAS sesiones.
+    //   · `resetPassword` — el afectado NO es el llamante (llega con un token de
+    //     correo), así que no hay sesión que rescatar: mueren todas.
+    // Un cambio de rol lo hace un ADMIN sobre OTRA persona, que no está en esta
+    // petición: cae en la segunda variante. Mueren todas sus sesiones y su próxima
+    // acción es un 401 → re-login → cookie nueva con el rol nuevo.
+    //
+    // El 401 lo traduce a re-login `AdminSessionGuard` en el shell de `(admin)`;
+    // sin él esto daría una pantalla de «Error 401» en vez de una vuelta al login.
     const updated = await this.prisma.user.update({
       where: { id: targetId },
-      data: { role: dto.role },
+      data: { role: dto.role, tokenVersion: { increment: 1 } },
       select: { id: true, name: true, email: true, slug: true, role: true, status: true },
     });
 

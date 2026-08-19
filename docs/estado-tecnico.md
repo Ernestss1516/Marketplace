@@ -2705,6 +2705,81 @@ que acordarse de llamarlo. Ese método ya no existe.
 Ambos settings son editables desde `PATCH /admin/settings/:key` sin redeploy; el efecto es
 inmediato en la siguiente request de publish/renew.
 
+### Roles — RÁFAGA 3: la frescura del token y el manejo del 401 — **CUERPO DE ROLES CERRADO**
+
+Última de las tres ráfagas. Cierra el hallazgo **R1** de la auditoría, que era independiente
+del mapa: no va de quién ve qué, sino de **cuándo se entera el frontend**.
+
+**El defecto, con su asimetría.** El backend nunca estuvo mal: `JwtStrategy.validate` lee
+`role` **fresco de la BD en cada petición**, con un comentario que lo justifica. Lo caducado
+era la copia del rol en la cookie de NextAuth, que `auth.config.ts` escribe **una sola vez**,
+en el login (`if (user) { token.role = ... }`), y que nada invalidaba. Resultado concreto: a
+un degradado el middleware le seguía abriendo el backoffice con el rol viejo mientras la API
+le respondía 403 a todo — **veía el panel y no le funcionaba nada**, el peor de los dos mundos.
+
+**El molde replicado, y su variante correcta.** `tokenVersion` ya existía y lo usan las tres
+funciones de contraseña. Pero el molde tiene **dos** variantes según quién es el afectado:
+
+| Función | ¿El afectado es el llamante? | Qué hace |
+|---|---|---|
+| `changePassword` / `setPassword` | **Sí** | incrementa `tokenVersion` **y devuelve un `accessToken` fresco** «para que el propio llamante no se quede desconectado»; mueren sólo sus otras sesiones |
+| `resetPassword` | **No** (llega con un token de correo) | incrementa y ya: mueren **todas** |
+| **`changeUserRole` (R3)** | **No** — lo hace un ADMIN sobre otra persona | incrementa y ya: mueren **todas**. Misma variante que `resetPassword` |
+
+No devolver un token fresco no es una omisión: la persona afectada **no está en la petición**,
+así que no hay sesión que rescatar. Es un `{ increment: 1 }` sobre el mismo campo, en el
+único escritor de `User.role` que existe.
+
+**La dependencia que hacía la mitad peor que nada.** Invalidar el token produce un 401 en la
+siguiente petición, y **el backoffice no sabía traducirlo**. El único traductor 401→`signOut`
+del proyecto es `useApiAction`, y está verificado que **0 de los 74 ficheros `.tsx` de
+`(admin)` lo usan**: llaman a `apiFetch` con su `try/catch` y pintan el error crudo. Sin
+cerrar eso, R3 habría dejado al degradado mirando un «Error 401: Session invalidated» en cada
+panel, sin salida salvo borrar la cookie a mano. Las dos mitades van juntas.
+
+**La vía elegida: una señal en el único punto de paso, un oyente en el shell.**
+
+- `apiFetch` emite `AUTH_EXPIRED_EVENT` cuando una petición **autenticada** recibe un 401, y
+  **sigue lanzando el mismo `ApiError`** — para quien llama no cambia nada. Dos guardas
+  importan: `typeof window !== 'undefined'`, porque `apiFetch` también corre en Server
+  Components donde `signOut` no existe; y `token` presente, porque un 401 sin credencial es
+  «no has iniciado sesión», no «tu sesión ha caducado» — sacar a alguien por eso sería un
+  cierre sin causa.
+- `AdminSessionGuard`, montado una vez en `(admin)/layout.tsx`, lo convierte en `signOut` +
+  vuelta al login con la ruta actual como `callbackUrl`. Cubre las 22 secciones **y las que
+  vengan** sin tocar ninguna. Lleva cerrojo (`useRef`) porque una pantalla lanza varias
+  peticiones a la vez y todas devolverían 401: sin él se encadenarían varios `signOut`.
+- **No se migran las 74 pantallas a `useApiAction`.** Es la limpieza correcta y queda como
+  deuda, pero es un cambio de 74 ficheros con riesgo repartido; lo que este cuerpo necesitaba
+  es UNA salida garantizada para el 401.
+
+**Una regla duplicada, extraída a la primera ocasión.** El backoffice tiene dos puertas y el
+backend las impone en ambos sentidos (`login` rechaza a ADMIN con `ADMIN_MUST_USE_ADMIN_LOGIN`;
+`adminLogin` rechaza a quien no lo sea). Esa regla vivía escrita a mano en `AdminUserBar`, y
+`AdminSessionGuard` necesitaba exactamente la misma decisión: se extrae a
+`backofficeLoginPathFor()` en vez de crear la segunda copia. Es el defecto que este cuerpo
+vino a cerrar, aplicado a sí mismo.
+
+**El círculo completo, verificado de punta a punta:** un ADMIN cambia el rol de alguien que
+**ya está dentro** del backoffice → sus sesiones mueren → su siguiente acción da 401 → vuelve
+al login (no a una pantalla de error) → al re-entrar tiene el rol nuevo y el middleware lo
+saca de donde ya no le toca. El e2e que lo pinza es nuevo: el que existía se re-logueaba tras
+cada cambio, así que nunca ejercitaba el caso que importaba.
+
+Mutación verificada: quitar el `{ increment: 1 }` → cae el test de invalidación; quitar
+`<AdminSessionGuard />` → la víctima se queda en `/admin/anuncios` mirando el error y cae el
+e2e del flujo. Y un segundo test afirma que el incremento **no toca las sesiones de nadie
+más** — sin él, un `updateMany` mal filtrado echaría a todo el mundo y el primero seguiría
+verde.
+
+**Intacto:** el mapa de permisos de R1-R2, las tres funciones de contraseña (se reusa su
+molde, no se tocan), `RolesGuard` y `JwtStrategy`.
+
+**Decisión abierta que esta ráfaga hace más visible** (`docs/diseno-roles.md` §7.1, D-1): con
+19 secciones, un MODERATOR sigue entrando por la puerta pública porque `/admin/login` es
+ADMIN-only. `backofficeLoginPathFor` refleja el comportamiento real del backend y no lo
+adelanta; abrir esa puerta a EDITOR+ es decisión de producto.
+
 ### Roles — RÁFAGA 2: el reparto (EDITOR 7 / MODERATOR 19 / ADMIN 22) + la enmienda a M4
 
 Segunda de las tres ráfagas del cuerpo de roles. La R1 dejó el mecanismo probado con el

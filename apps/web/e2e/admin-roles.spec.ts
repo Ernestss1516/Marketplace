@@ -538,6 +538,76 @@ test.describe('Asignación de roles desde /admin/usuarios', () => {
     await userPage.close();
   });
 
+  // ───────────────────────────────────────────────────────────────────────────
+  // ROLES R3 — EL CÍRCULO COMPLETO, con una sesión YA ABIERTA.
+  //
+  // El test de arriba vuelve a loguearse después de cada cambio de rol, así que
+  // nunca ejercita el caso que importaba: alguien que YA ESTÁ dentro del
+  // backoffice cuando le cambian el rol. Ése era el defecto R1 de la auditoría —
+  // el frontend guarda el rol en la cookie y sólo lo escribe al iniciar sesión,
+  // así que el middleware seguía abriéndole el panel con el rol viejo mientras la
+  // API le respondía 403 a todo: veía el backoffice y no le funcionaba nada.
+  //
+  // Se afirman las DOS mitades de la ráfaga, porque una sin la otra es peor que
+  // ninguna: que la sesión muera (backend, `tokenVersion`) y que eso se convierta
+  // en una vuelta al login y NO en una pantalla de «Error 401» (frontend,
+  // `AdminSessionGuard`). Antes de R3 no había ni una ni otra.
+  // ───────────────────────────────────────────────────────────────────────────
+  test('cambiar el rol a alguien que está DENTRO del backoffice lo devuelve al login, no a un Error 401', async ({
+    adminContext,
+    browser,
+  }) => {
+    const adminPage = await adminContext.newPage();
+    await adminPage.goto('/admin/usuarios', { waitUntil: 'domcontentloaded' });
+
+    const searchInput = adminPage.getByPlaceholder(/buscar por nombre o email/i);
+    await expect(searchInput).toBeVisible({ timeout: 15_000 });
+    await searchInput.fill('Role Target E2E');
+    await adminPage.getByRole('button', { name: 'Buscar' }).click();
+
+    const row = adminPage.locator('tr', { hasText: 'Role Target E2E' });
+    await expect(row).toBeVisible({ timeout: 10_000 });
+    const roleSelect = row.locator('select');
+    await expect(roleSelect).toBeVisible();
+
+    // 1) Se le da un rol con backoffice y entra de verdad.
+    await roleSelect.selectOption('MODERATOR');
+    await expect(roleSelect).toHaveValue('MODERATOR', { timeout: 5_000 });
+
+    const victimaPage = await loginAs(browser, 'role-target-e2e@example.com');
+    await victimaPage.goto('/admin/anuncios', { waitUntil: 'domcontentloaded' });
+    await victimaPage.waitForLoadState('networkidle');
+    expect(victimaPage.url()).toContain('/admin/anuncios');
+
+    // 2) El ADMIN se lo quita mientras la otra sesión sigue abierta.
+    await roleSelect.selectOption('USER');
+    await expect(roleSelect).toHaveValue('USER', { timeout: 5_000 });
+
+    // 3) La siguiente acción de la víctima en el backoffice. Su cookie todavía
+    //    dice MODERATOR, así que el middleware la deja pasar; lo que ya no vale
+    //    es su accessToken, y la primera llamada a la API devuelve 401.
+    await victimaPage.reload({ waitUntil: 'domcontentloaded' });
+
+    // 4) El desenlace contratado: vuelve al login, con la ruta que pedía como
+    //    callbackUrl. Sin AdminSessionGuard se quedaría en /admin/anuncios
+    //    mirando el texto del error.
+    await victimaPage.waitForURL((url) => url.pathname === '/login', { timeout: 20_000 });
+    expect(victimaPage.url()).toContain('callbackUrl');
+
+    // 5) Y no ha visto en ningún momento el error crudo.
+    const texto = (await victimaPage.locator('body').innerText()).toLowerCase();
+    expect(texto).not.toContain('error 401');
+    expect(texto).not.toContain('session invalidated');
+
+    // 6) Al volver a entrar, el rol es el NUEVO: el backoffice ya no es suyo.
+    await victimaPage.close();
+    const relogueada = await loginAs(browser, 'role-target-e2e@example.com');
+    await relogueada.goto('/admin/anuncios', { waitUntil: 'domcontentloaded' });
+    await relogueada.waitForURL((url) => !url.pathname.startsWith('/admin'), { timeout: 8_000 });
+    expect(relogueada.url()).not.toContain('/admin');
+    await relogueada.close();
+  });
+
   test('el selector de rol no existe para usuarios ADMIN (solo el badge)', async ({ adminContext }) => {
     const page = await adminContext.newPage();
     await page.goto('/admin/usuarios', { waitUntil: 'domcontentloaded' });
