@@ -116,6 +116,11 @@ describe('ListingsService.create — reintento de slug ante P2002', () => {
       // PUERTA regla #3 — mantenimiento de fixture por cambio de FIRMA. Este spec
       // no manda `imageIds`, así que el tope no llega a consultarse.
       { getMax: jest.fn().mockResolvedValue(15) } as unknown as PhotoLimitsService,
+      // BORRADO B3 — mantenimiento de fixture por cambio de FIRMA. Este spec va
+      // del reintento de slug en create(), que no borra nada: ni la cola de
+      // limpieza ni R2 llegan a usarse.
+      { add: jest.fn().mockResolvedValue(undefined) } as never,
+      { getPublicUrl: () => 'https://cdn.test/' } as never,
     );
     errorSpy = jest.spyOn((service as unknown as { logger: { error: (...a: unknown[]) => void } }).logger, 'error');
   });

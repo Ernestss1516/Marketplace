@@ -2705,6 +2705,65 @@ que acordarse de llamarlo. Ese método ya no existe.
 Ambos settings son editables desde `PATCH /admin/settings/:key` sin redeploy; el efecto es
 inmediato en la siguiente request de publish/renew.
 
+### Borrado — RÁFAGA B3: la limpieza de R2
+
+Tercera de las cuatro. B1 salvó los registros, B2 fijó quién puede destruir; B3 se lleva del
+bucket lo que se queda sin dueño.
+
+**El defecto, y era mayor de lo que la auditoría estimó.** Borrar un anuncio dejaba sus
+ficheros en R2 **para siempre**: la fila de `ListingImage` desaparecía por cascada y el objeto
+se quedaba. Y no era **un** objeto por imagen sino **DOS** — el original, cuya URL sí está en
+`ListingImage.url`, y una miniatura que `ImageProcessor` genera con una clave **derivada y no
+persistida en ninguna columna**. Quien limpiara mirando sólo la base de datos habría borrado
+la mitad de la basura.
+
+**Lo primero fue sacar esa regla a un sitio único** (`infra/r2/media-keys.ts`), que ahora
+importan los dos lados: quien crea la miniatura y quien la borra. Dos copias de una regla que
+nadie comprueba es cómo se dejan huérfanas todas las miniaturas nuevas **en silencio** — sin
+error, sin log, sólo un bucket que engorda. Mismo movimiento, y mismo motivo, que
+`infra/redis/cache-keys.ts` con la clave de la ficha.
+
+**La cola recibe CLAVES, no un `listingId`**, y no es un detalle de estilo: cuando el trabajo
+se ejecuta, el anuncio ya no existe y no habría forma de averiguar qué ficheros eran suyos.
+Las claves se calculan **antes** del borrado, en la misma consulta que ya cargaba la fila.
+Diseñada así, la cola sirve también para la deuda de `docs/pendientes.md` —adjuntos de ticket,
+vídeos sin confirmar—, que no tienen anuncio ninguno.
+
+**Cola propia (`media-cleanup`), no dentro de `indexing`,** aunque el disparador sea el mismo
+borrado: sacar el documento de Meilisearch mantiene la **búsqueda** correcta, mientras que
+borrar de R2 sólo ahorra almacenamiento. Mezclarlas dejaría a las fichas recién publicadas
+esperando detrás de un barrido que a nadie le corre prisa.
+
+**El procesador aguanta lo que R2 le haga.** Un fallo suelto no impide borrar el resto — «no
+dejar limpiar no debe romper nada», el criterio que ya usaba `VideoService.deleteObjectByUrl`.
+Pero si **no puede borrar ninguna**, se propaga para que BullMQ lo reintente y quede en
+Sentry: un bucket que rechaza todo no es un fichero rebelde, es una credencial caducada.
+
+**El borrador también limpia.** El wizard sube las fotos **antes** de publicar, así que
+descartar un borrador sin limpiar era la fuente de huérfanas más vieja del proyecto — la que
+`pendientes.md` describe como «las imágenes de wizards abandonados quedan huérfanas para
+siempre».
+
+**Una trampa que el propio repo tenía documentada, y que aun así mordió.** El primer test
+pasaba en el camino del staff y fallaba en el del borrador **sin que la implementación tuviera
+nada malo**: `@nestjs/bullmq` crea una instancia de `Queue` **por cada `registerQueue()` del
+mismo nombre**, así que espiar `app.get(getQueueToken(...))` sólo cubría una de las dos. Está
+avisado en `queue.constants.ts` —el helper `retryQueue` existe justo por eso— y el test ahora
+espía la instancia que inyecta cada servicio, con el porqué escrito.
+
+Mutación verificada: quitar la miniatura de las claves → 3 rojos en unitarios y 2 en e2e;
+quitar el enganche del borrador → 1.
+
+**Coherencia intermedia.** B3 no cambia ningún permiso ni ninguna cascada: sólo añade la
+limpieza detrás del borrado, sin poder tumbarlo. Si la cola fallara, el sistema queda
+exactamente como estaba antes de B3 — con basura en el bucket, que es de donde venimos.
+
+Verificación: tsc api+web · jest api 420 + 12 nuevos de `media-keys` · api e2e 1854/1854 (117
+suites).
+
+**Queda B4 (opcional, D-5):** recolectar los huérfanos **ya acumulados**. Es la deuda de
+`pendientes.md`, no P5, y con B3 hecha es un comando que reutiliza esta misma cola.
+
 ### Borrado — RÁFAGA B2: la política de permisos (el dueño archiva, el staff elimina)
 
 Segunda de las cuatro. B1 hizo que borrar dejara de destruir evidencia; B2 **cierra la

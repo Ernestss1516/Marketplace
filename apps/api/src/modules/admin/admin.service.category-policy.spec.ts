@@ -59,6 +59,11 @@ function buildService(prismaOverrides: Record<string, unknown> = {}) {
     // PUERTA ráfaga 2 — la cola del marcado. Estos casos no llegan a encolar
     // (ninguno cambia el `attributeSchema`), pero el constructor la exige.
     { add: jest.fn().mockResolvedValue(undefined) } as never,
+    // BORRADO B3 — la cola de limpieza de R2 y el propio R2. Mismo mantenimiento
+    // de fixture por cambio de firma: estos casos son de categorías y no borran
+    // ningún anuncio, pero el constructor las exige.
+    { add: jest.fn().mockResolvedValue(undefined) } as never,
+    { getPublicUrl: () => 'https://cdn.test/' } as never,
   );
 
   return { service, prisma, auditLog, indexingQueue, categoryTree };

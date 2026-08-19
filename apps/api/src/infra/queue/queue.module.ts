@@ -6,6 +6,7 @@ import {
   QUEUE_BILLING,
   QUEUE_IMAGE,
   QUEUE_INDEXING,
+  QUEUE_MEDIA_CLEANUP,
   QUEUE_NOTIFICATIONS,
   retryQueue,
 } from './queue.constants';
@@ -13,6 +14,7 @@ import { ImageProcessor } from './processors/image.processor';
 import { IndexingProcessor } from './processors/indexing.processor';
 import { NotificationProcessor } from './processors/notification.processor';
 import { AlertMatchingProcessor } from './processors/alert-matching.processor';
+import { MediaCleanupProcessor } from './processors/media-cleanup.processor';
 import { GeocodingModule } from '../../modules/geocoding/geocoding.module';
 import { SearchModule } from '../../modules/search/search.module';
 import { AlertsModule } from '../../modules/alerts/alerts.module';
@@ -47,6 +49,9 @@ import { parseRedisConnection } from '../redis/redis-connection';
       // never back up the queue that keeps the search index fresh. Retry is
       // safe because AlertMatchingService is idempotent (AlertMatch @@unique).
       retryQueue(QUEUE_ALERT_MATCHING),
+      // BORRADO B3 — limpieza de R2. Con reintento como el resto: un fallo de red
+      // contra el bucket es exactamente el caso que el reintento resuelve solo.
+      retryQueue(QUEUE_MEDIA_CLEANUP),
     ),
     GeocodingModule,
     SearchModule,
@@ -55,7 +60,13 @@ import { parseRedisConnection } from '../redis/redis-connection';
     // reindexar (`reindex-category-subtree`) con el único lector de la jerarquía.
     CategoryTreeModule,
   ],
-  providers: [ImageProcessor, IndexingProcessor, NotificationProcessor, AlertMatchingProcessor],
+  providers: [
+    ImageProcessor,
+    IndexingProcessor,
+    NotificationProcessor,
+    AlertMatchingProcessor,
+    MediaCleanupProcessor,
+  ],
   exports: [BullModule],
 })
 export class QueueModule {}

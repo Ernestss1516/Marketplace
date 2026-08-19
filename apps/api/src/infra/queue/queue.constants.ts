@@ -16,6 +16,21 @@ export const QUEUE_BUMP_AUTO = 'bump-auto';
 /// el indexado dejaría a las fichas recién publicadas esperando detrás de un
 /// barrido de mantenimiento.
 export const QUEUE_REVALIDATION = 'revalidation';
+/// BORRADO B3 — limpiar del bucket los ficheros de algo que ya no existe.
+///
+/// COLA PROPIA, y no dentro de QUEUE_INDEXING aunque el disparador sea el mismo
+/// borrado: son dos naturalezas distintas. Sacar el documento de Meilisearch
+/// mantiene la BÚSQUEDA correcta —si se retrasa, el anuncio sigue apareciendo—,
+/// mientras que borrar de R2 sólo ahorra almacenamiento: un fichero que sobra no
+/// se ve en ninguna parte. Mezclarlos dejaría a las fichas recién publicadas
+/// esperando detrás de un barrido de limpieza que a nadie le corre prisa.
+///
+/// Y hay una razón de forma: este trabajo NO recibe un `listingId` sino claves ya
+/// resueltas (ver `media-keys.ts`), porque cuando se ejecuta el anuncio ya no
+/// existe. Eso lo hace reutilizable para la deuda de huérfanas de
+/// `docs/pendientes.md` — adjuntos de ticket, vídeos sin confirmar—, que no tienen
+/// anuncio ninguno.
+export const QUEUE_MEDIA_CLEANUP = 'media-cleanup';
 
 // Each module that injects a queue calls its own BullModule.registerQueue({name})
 // — @nestjs/bullmq creates a SEPARATE Queue (producer) instance per module

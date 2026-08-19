@@ -23,7 +23,13 @@ import { MeilisearchService } from '../../infra/meilisearch/meilisearch.service'
 import { isP2002 } from '../../common/prisma/is-p2002';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { ExpirationService } from '../expiration/expiration.service';
-import { QUEUE_INDEXING, QUEUE_REVALIDATION } from '../../infra/queue/queue.constants';
+import {
+  QUEUE_INDEXING,
+  QUEUE_MEDIA_CLEANUP,
+  QUEUE_REVALIDATION,
+} from '../../infra/queue/queue.constants';
+import { R2Service } from '../../infra/r2/r2.service';
+import { listingMediaKeys } from '../../infra/r2/media-keys';
 import { ListAdminListingsDto } from './dto/list-admin-listings.dto';
 import { ChangeListingStatusDto } from './dto/change-listing-status.dto';
 import { ListAdminUsersDto } from './dto/list-admin-users.dto';
@@ -295,6 +301,9 @@ export class AdminService {
     // PUERTA — RÁFAGA 2: el marcado por cambio de schema. Cola aparte del
     // indexado a propósito (ver QUEUE_REVALIDATION).
     @InjectQueue(QUEUE_REVALIDATION) private readonly revalidationQueue: Queue,
+    // BORRADO B3 — retirar del bucket lo que se queda sin dueño al eliminar.
+    @InjectQueue(QUEUE_MEDIA_CLEANUP) private readonly mediaCleanupQueue: Queue,
+    private readonly r2: R2Service,
   ) {}
 
   // ===========================================================================
@@ -492,6 +501,13 @@ export class AdminService {
         status: true,
         sellerId: true,
         categoryId: true,
+        // BORRADO B3 — las URLs de los ficheros, AQUÍ y no después: cuando el
+        // trabajo de limpieza se ejecute, la fila ya no existirá y no habría de
+        // dónde sacarlas. Es el mismo motivo por el que la cola recibe claves y
+        // no un `listingId` (ver `media-keys.ts`).
+        videoUrl: true,
+        videoPosterUrl: true,
+        images: { select: { url: true } },
         _count: { select: { images: true, conversations: true, reports: true } },
       },
     });
@@ -532,6 +548,25 @@ export class AdminService {
     // cambien nunca.
     await this.redis.client.del(cacheKey(listing.slug));
     await this.indexingQueue.add('remove', { listingId });
+
+    // BORRADO B3 — los ficheros del bucket. Va DESPUÉS del borrado y no puede
+    // tumbarlo: si esto falla, sobra un fichero que nadie ve; si el borrado
+    // fallara por esto, se perdería una decisión que alguien tomó.
+    //
+    // Se envían las CLAVES, no el id: el anuncio ya no existe. Y son dos por
+    // imagen —original y miniatura—, que es la mitad que se quedaba fuera cuando
+    // se miraba sólo lo que hay en la base de datos.
+    const keys = listingMediaKeys(
+      {
+        imageUrls: listing.images.map((i) => i.url),
+        videoUrl: listing.videoUrl,
+        videoPosterUrl: listing.videoPosterUrl,
+      },
+      this.r2.getPublicUrl(''),
+    );
+    if (keys.length > 0) {
+      await this.mediaCleanupQueue.add('purge', { keys, origen: `listing:${listingId}` });
+    }
   }
 
   // ===========================================================================
