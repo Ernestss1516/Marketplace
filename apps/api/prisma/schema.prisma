@@ -690,6 +690,19 @@ model Listing {
   @@index([province, city])
   /// Puerta ráfaga 2 — para listar los marcados sin recorrer la tabla entera.
   @@index([needsRevalidation])
+
+  /// FICHA F2 (P6) — EL ÍNDICE QUE FALTABA, y faltaba en la consulta más caliente
+  /// del backoffice: la lista de `/admin/anuncios` ordena por `updatedAt` y no
+  /// había NINGÚN índice sobre esa columna. `[status, publishedAt]` sirve para
+  /// filtrar por estado, pero no para ordenar por `updatedAt`: Postgres tenía que
+  /// ordenar el resultado a mano. Con pocos miles de filas da igual; al crecer, la
+  /// primera pantalla que se degrada es la principal.
+  ///
+  /// Van los DOS porque son dos consultas distintas: con filtro de estado —el
+  /// caso de la cola de revisión y de los filtros— manda el compuesto; sin él
+  /// —la vista «Todos», que es la de entrada— manda el simple.
+  @@index([status, updatedAt])
+  @@index([updatedAt])
 }
 
 model ListingImage {

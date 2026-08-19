@@ -289,6 +289,30 @@ const RESERVED_ROOT_SLUGS: ReadonlySet<string> = new Set([
   'admin', 'api', '_next', 'favicon.ico', 'robots.txt', 'sitemap.xml',
 ]);
 
+/**
+ * FICHA F2 (P6) — los órdenes de la lista del backoffice, en un solo sitio.
+ *
+ * `recent` y `oldest` son EXACTAMENTE lo que eran antes de F2 (`updatedAt` desc
+ * y asc): la cola de revisión de M3 pide `oldest` y no puede notar este cambio.
+ * El resto son ejes nuevos, y cada uno responde a una pregunta concreta — no hay
+ * uno por columna. Ver docs/diseno-ficha-anuncio.md §2.4.
+ */
+const ORDER_BY: Record<string, Prisma.ListingOrderByWithRelationInput> = {
+  // «Qué se ha movido» — el de siempre, y el que se aplica sin parámetro.
+  recent: { updatedAt: 'desc' },
+  // La cola: lo que lleva más tiempo esperando, primero.
+  oldest: { updatedAt: 'asc' },
+  // «Lo último que entró» / «lo más viejo que sigue vivo».
+  'created-desc': { createdAt: 'desc' },
+  'created-asc': { createdAt: 'asc' },
+  // Se combinan con el resto de filtros para cazar precios absurdos (el 1 € de
+  // estafa, el 999.999 € de prueba).
+  'price-desc': { price: 'desc' },
+  'price-asc': { price: 'asc' },
+  // Lo más denunciado primero — el orden natural de la bandeja de problemas.
+  'reports-desc': { reports: { _count: 'desc' } },
+};
+
 @Injectable()
 export class AdminService {
   constructor(
@@ -318,19 +342,99 @@ export class AdminService {
   // Listings (R7.4)
   // ===========================================================================
 
+  /**
+   * FICHA F2 (P6) — la lista con la que el moderador encuentra CUALQUIER anuncio.
+   *
+   * Los ejes se COMBINAN: todo lo que llega se acumula en el mismo `where`, así
+   * que «los borradores de este vendedor en esta rama» es una consulta y no tres
+   * pasadas a ojo. Y los cinco ejes que el diseño dejó para después —precio,
+   * provincia, tipo, condición, vídeo— entran añadiendo una línea aquí y un
+   * campo al DTO: la forma no cambia. Igual que el filtro por etiqueta interna
+   * cuando exista P1.
+   */
   async listListings(query: ListAdminListingsDto) {
-    const { status, categoryId, sellerId, page = 1, perPage = 24, order } = query;
+    const {
+      q,
+      status,
+      statuses,
+      categoryId,
+      sellerId,
+      hasReports,
+      needsRevalidation,
+      createdFrom,
+      createdTo,
+      updatedFrom,
+      updatedTo,
+      page = 1,
+      perPage = 24,
+      order,
+    } = query;
+
+    // LA PROFUNDIDAD N, y es la barrera de esta ráfaga. Filtrar por «Motor» tiene
+    // que devolver el anuncio que cuelga de «Motor › Coches › Berlinas»: los
+    // anuncios viven en las HOJAS, así que un filtro exacto por una categoría
+    // intermedia devuelve cero y parece que no hay nada. Molde exacto de los
+    // otros cinco sitios que ya recorren la descendencia (`listings.service.ts`,
+    // `revalidation.service.ts`, `indexing.processor.ts`).
+    const categoryIds = categoryId
+      ? [categoryId, ...(await this.categoryTree.getDescendantIds(categoryId))]
+      : undefined;
+
+    // `statuses` gana a `status` cuando vienen los dos: es el más específico y
+    // sólo puede haberlo puesto alguien a propósito. Sin `statuses`, `status`
+    // sigue comportándose EXACTAMENTE igual que antes de F2 — que es lo que la
+    // cola de revisión (M3) depende de que no cambie.
+    const estados = statuses?.length ? { status: { in: statuses } } : status ? { status } : {};
+
     const where: Prisma.ListingWhereInput = {
-      ...(status && { status }),
-      ...(categoryId && { categoryId }),
+      ...estados,
+      ...(categoryIds && { categoryId: { in: categoryIds } }),
       ...(sellerId && { sellerId }),
+      // `some: {}` = «tiene al menos una denuncia». El `false` es la pregunta
+      // contraria y también es útil («qué está limpio»), así que se distingue de
+      // «sin filtro» en vez de colapsarse.
+      ...(hasReports !== undefined && {
+        reports: hasReports ? { some: {} } : { none: {} },
+      }),
+      ...(needsRevalidation !== undefined && { needsRevalidation }),
+      ...((createdFrom || createdTo) && {
+        createdAt: {
+          ...(createdFrom && { gte: new Date(createdFrom) }),
+          ...(createdTo && { lte: new Date(createdTo) }),
+        },
+      }),
+      ...((updatedFrom || updatedTo) && {
+        updatedAt: {
+          ...(updatedFrom && { gte: new Date(updatedFrom) }),
+          ...(updatedTo && { lte: new Date(updatedTo) }),
+        },
+      }),
+      // El texto casa por CONTENIDO y por IDENTIDAD: «me han pasado este
+      // anuncio» llega tanto como nombre cuanto como enlace pegado, y buscar el
+      // slug de una URL tenía que funcionar sin recortarla a mano.
+      //
+      // EL COSTE, DICHO DE ANTEMANO: `contains` insensible es `ILIKE '%x%'`, y un
+      // comodín por delante NO usa un índice B-tree — es un recorrido. Se acepta
+      // a propósito con el volumen actual, y el umbral está escrito para no
+      // descubrirlo en producción: pasadas las ~100.000 filas, o si la lista
+      // supera los ~300 ms, la salida es un índice GIN con `pg_trgm` sobre
+      // `title`, que no obliga a cambiar esta consulta. Mandar el texto a Meili
+      // NO es la salida: sólo indexa ACTIVE, que es justo lo que aquí no sirve.
+      // Ver docs/diseno-ficha-anuncio.md §3.3.
+      ...(q?.trim() && {
+        OR: [
+          { title: { contains: q.trim(), mode: 'insensitive' as const } },
+          { description: { contains: q.trim(), mode: 'insensitive' as const } },
+          { slug: { contains: q.trim(), mode: 'insensitive' as const } },
+          { id: q.trim() },
+        ],
+      }),
     };
+
     const [items, total] = await this.prisma.$transaction([
       this.prisma.listing.findMany({
         where,
-        // MODERACIÓN M3 — `oldest` sólo lo pide la cola de revisión; sin el
-        // parámetro el orden es EXACTAMENTE el de siempre.
-        orderBy: order === 'oldest' ? { updatedAt: 'asc' } : { updatedAt: 'desc' },
+        orderBy: ORDER_BY[order ?? 'recent'],
         skip: (page - 1) * perPage,
         take: perPage,
         select: {

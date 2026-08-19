@@ -13296,6 +13296,89 @@ esté partida en secciones independientes es lo que lo permite sin reescribirla.
 
 ---
 
+## Ficha de anuncio F2 (P6) — el backoffice encuentra cualquier anuncio
+
+Diseño: `docs/diseno-ficha-anuncio.md`, plan F2. Cierra el cuerpo de la ficha
+(P4 + P6).
+
+### Los ejes salen de las tareas, no de las columnas
+
+Un filtro por columna produce treinta controles y ninguna respuesta. El conjunto
+entregado es el **núcleo acordado (D-2)** más fechas y `needsRevalidation`:
+
+| Eje | Qué desbloquea | Estado antes de F2 |
+|---|---|---|
+| **Texto libre** (`q`) | «Me han pasado este anuncio» | **No existía.** Se paginaba a mano |
+| **Estados múltiples** (`statuses`) | «Borrador o pendiente», «todo menos archivado» | Sólo uno |
+| **Vendedor** (`sellerId`) | «Enséñame todo lo suyo» | Construido y **sin usar** |
+| **Categoría + descendientes** | «Qué se publica en esta rama» | Construido, **exacto**, sin usar |
+| **Tiene denuncias** (`hasReports`) | La bandeja de problemas | No existía |
+| **Fechas** (`createdFrom/To`, `updatedFrom/To`) | «Qué entró esta semana» | No existía |
+| **`needsRevalidation`** | «Qué dejó de cumplir su categoría» | Columna indexada, filtro sin exponer |
+
+El texto casa por título, descripción, **slug e id**: el anuncio llega tanto como
+nombre cuanto como enlace pegado. Todos los ejes se **combinan** en el mismo
+`where`. Los cinco que el diseño dejó fuera —precio, provincia, tipo, condición,
+vídeo— y el futuro filtro por etiqueta interna (P1) entran con un campo en el DTO
+y una línea en el `where`: la forma no cambia.
+
+### La profundidad N, que es la barrera
+
+Los anuncios cuelgan de las **hojas**. Un filtro exacto por una categoría
+intermedia devuelve cero y el moderador lee «esta rama está vacía». `categoryId`
+resuelve ahora `[id, ...getDescendantIds(id)]` —el mismo molde que ya usan
+`listings.service.ts`, `revalidation.service.ts` e `indexing.processor.ts`—, así
+que filtrar por la abuela devuelve el anuncio de la nieta, y **sólo** ese subárbol.
+
+### Postgres, no Meilisearch, y no es una preferencia
+
+Meili indexa **sólo `ACTIVE`**. El backoffice vive de los otros ocho estados, así
+que el dato no está ahí: no es que fuera peor idea, es imposible. De regalo, la
+moderación deja de depender de que el índice esté sano. Hay un test por cada
+estado no público que lo fija.
+
+### El índice que faltaba
+
+La lista ordena por `updatedAt` desde siempre —y la cola de M3 depende de ese
+orden invertido— y **no había ningún índice sobre esa columna**. Medido con
+`EXPLAIN`: sin los índices nuevos el plan lleva un nodo **`Sort`**; con ellos, el
+orden lo da el índice y el `Sort` desaparece. Van dos porque son dos consultas:
+`[status, updatedAt]` para la vista filtrada, `[updatedAt]` para «Todos», que es
+la de entrada.
+
+### Los filtros viven en la URL
+
+Así una búsqueda se comparte, la vuelta atrás devuelve a lo que estabas mirando
+—antes se volvía a la lista en blanco— y otra pantalla puede enlazar a un filtro:
+la ficha lo usa para «ver todos sus anuncios». La traducción está en
+`filtros-url.ts`, función pura y probada (molde `moderacion-routing.ts`), con una
+regla que la gobierna: **lo que está por defecto no se escribe**, para que
+`/admin/anuncios` no sea un churro de parámetros vacíos.
+
+### Compatibilidad
+
+`status` y `order=oldest` conservan su significado exacto: `/admin/moderacion`
+llama al mismo endpoint y no puede notar F2. `statuses` se añade **al lado** de
+`status` (y gana si vienen los dos); `order` gana valores sin que cambien los
+suyos. Hay un test de navegador que comprueba que la cola sigue funcionando.
+
+### Verificación
+
+`test/ficha-filtros.e2e-spec.ts` (32), `filtros-url.test.ts` (16) y
+`e2e/admin-filtros-anuncios.spec.ts` (6).
+
+**Un aprendizaje de método que quedó en el código.** La primera versión del spec
+de navegador usaba `waitForLoadState('networkidle')` tras cada filtro, y una
+mutación reveló que **pasaba por el motivo equivocado**: los filtros navegan y la
+lista se recarga con un `fetch` del cliente, así que la aserción corría contra el
+render anterior, con los anuncios de la consulta previa todavía en pantalla. Se
+arregló con `filtrarYEsperar` (espera la respuesta real, molde del flake de
+`nav-admin`), un control en otra rama del catálogo para la barrera, y afirmando
+sobre `aria-pressed` en vez de sobre qué filas hay pintadas. Con eso, las
+mutaciones matan sus tests en los dos intentos, no en uno de cada dos.
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.

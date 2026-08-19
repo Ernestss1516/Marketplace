@@ -166,12 +166,64 @@ export function getAdminListing(token: string, id: string): Promise<AdminListing
   return apiFetch<AdminListingDetail>(`/admin/listings/${id}`, { token });
 }
 
+/**
+ * FICHA F2 (P6) — los ejes con los que el backoffice encuentra un anuncio.
+ *
+ * `status` y `order` conservan su significado EXACTO: la cola de revisión (M3)
+ * llama con `status=PENDING_REVIEW&order=oldest` y no puede notar F2.
+ *
+ * Los cinco ejes que el diseño dejó para después —precio, provincia, tipo,
+ * condición, vídeo— y el filtro por etiqueta interna (P1) entran añadiendo un
+ * campo aquí y una línea en el `where` del backend. La forma no cambia.
+ */
+export type AdminListingsOrder =
+  | 'recent'
+  | 'oldest'
+  | 'created-desc'
+  | 'created-asc'
+  | 'price-desc'
+  | 'price-asc'
+  | 'reports-desc';
+
+export interface AdminListingsFilters {
+  /** Texto libre: título, descripción, slug o id pegado. */
+  q?: string;
+  /** Estado único — el que usa la cola de M3. */
+  status?: string;
+  /** Varios estados a la vez; si viene, gana sobre `status`. */
+  statuses?: string[];
+  /** Incluye SIEMPRE los descendientes de la categoría, a cualquier profundidad. */
+  categoryId?: string;
+  sellerId?: string;
+  hasReports?: boolean;
+  needsRevalidation?: boolean;
+  createdFrom?: string;
+  createdTo?: string;
+  updatedFrom?: string;
+  updatedTo?: string;
+  order?: AdminListingsOrder;
+  page?: number;
+  perPage?: number;
+}
+
 export function getAdminListings(
   token: string,
-  params?: { status?: string; page?: number; perPage?: number; order?: 'recent' | 'oldest' },
+  params?: AdminListingsFilters,
 ): Promise<PaginatedAdminListings> {
   const qs = new URLSearchParams({ page: String(params?.page ?? 1) });
+  if (params?.q) qs.set('q', params.q);
   if (params?.status) qs.set('status', params.status);
+  if (params?.statuses?.length) qs.set('statuses', params.statuses.join(','));
+  if (params?.categoryId) qs.set('categoryId', params.categoryId);
+  if (params?.sellerId) qs.set('sellerId', params.sellerId);
+  if (params?.hasReports !== undefined) qs.set('hasReports', String(params.hasReports));
+  if (params?.needsRevalidation !== undefined) {
+    qs.set('needsRevalidation', String(params.needsRevalidation));
+  }
+  if (params?.createdFrom) qs.set('createdFrom', params.createdFrom);
+  if (params?.createdTo) qs.set('createdTo', params.createdTo);
+  if (params?.updatedFrom) qs.set('updatedFrom', params.updatedFrom);
+  if (params?.updatedTo) qs.set('updatedTo', params.updatedTo);
   if (params?.perPage) qs.set('perPage', String(params.perPage));
   // MODERACIÓN M3 — la cola pide `oldest` (lo que lleva más esperando, primero).
   // Sin el parámetro, el orden es el de siempre.
