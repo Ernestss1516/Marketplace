@@ -81,6 +81,15 @@ export function changeListingStatus(
   });
 }
 
+/**
+ * BORRADO B2 — LA ÚNICA VÍA QUE DESTRUYE UN ANUNCIO. ADMIN-only, y el backend
+ * sólo la admite sobre `ARCHIVED`: para eliminar algo vivo hay que archivarlo
+ * primero, en dos pasos deliberados.
+ */
+export function deleteAdminListing(token: string, id: string): Promise<void> {
+  return apiFetch(`/admin/listings/${id}`, { method: 'DELETE', token });
+}
+
 // ─── Users ────────────────────────────────────────────────────────────────────
 
 export interface AdminUser {

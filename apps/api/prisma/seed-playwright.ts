@@ -160,6 +160,34 @@ async function main() {
     if (deactivated > 0) {
       console.log(`Playwright seed: reset ${deactivated} accumulated active listings to EXPIRED`);
     }
+
+    // BORRADO B2 — un anuncio ARCHIVADO, que es el único estado desde el que el
+    // staff puede eliminar. Tiene el suyo propio y no se reutiliza ninguno de los
+    // otros a propósito: el test lo BORRA, y llevarse por delante
+    // `listing-rf11-e2e` (destacado, bump, prefill) dejaría media batería sin
+    // fixture. El `upsert` lo repone en cada run, así que el test puede destruirlo
+    // sin dejar la base peor de como la encontró.
+    //
+    // ARCHIVED no cuenta para la cuota de activos, así que tampoco interfiere con
+    // el reseteo de arriba.
+    await prisma.listing.upsert({
+      where: { slug: 'listing-archivado-e2e' },
+      create: {
+        title: 'Anuncio Archivado E2E',
+        slug: 'listing-archivado-e2e',
+        description: 'Anuncio archivado para probar el borrado de staff (B2).',
+        price: 30,
+        currency: 'EUR',
+        priceType: 'FIXED',
+        type: 'PRODUCT',
+        condition: 'GOOD',
+        status: 'ARCHIVED',
+        sellerId: sellerUser.id,
+        categoryId: category.id,
+      },
+      update: { status: 'ARCHIVED' },
+    });
+    console.log('Playwright seed: listing-archivado-e2e OK');
   }
 
   // ── ACTIVE listing for pro-e2e (needed by H8.5b spec: destacar por cuota) ────

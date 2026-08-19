@@ -48,7 +48,7 @@ jest.mock('@/lib/api/billing', () => ({
 jest.mock('@/lib/api/anuncios', () => ({
   publishListing: jest.fn(),
   reserveListing: jest.fn(),
-  deleteListing: jest.fn(),
+  discardDraft: jest.fn(),
   renewListing: jest.fn(),
   pauseListing: jest.fn(),
   reactivateListing: jest.fn(),

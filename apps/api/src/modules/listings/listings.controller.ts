@@ -136,11 +136,23 @@ export class ListingsController {
     return this.listingsService.renew(id, user.userId);
   }
 
+  /**
+   * BORRADO B2 — DESCARTAR UN BORRADOR, no «eliminar un anuncio».
+   *
+   * La ruta se mantiene (`DELETE /listings/:id`) porque sigue siendo un borrado
+   * desde el punto de vista de HTTP, pero **lo que admite se ha estrechado a
+   * `DRAFT`**: el dueño ya no puede destruir nada que haya llegado a existir para
+   * otra persona. Eliminar un anuncio publicado es del staff y sólo sobre
+   * archivados (`DELETE /admin/listings/:id`).
+   *
+   * Un intento sobre cualquier otro estado responde 400 con la salida escrita
+   * —archivar—, no un 403 mudo: el vendedor tiene algo que hacer.
+   */
   @Delete(':id')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.NO_CONTENT)
-  remove(@Param('id') id: string, @CurrentUser() user: JwtUser) {
-    return this.listingsService.remove(id, user.userId);
+  discardDraft(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+    return this.listingsService.discardDraft(id, user.userId);
   }
 
   // ---------------------------------------------------------------------------

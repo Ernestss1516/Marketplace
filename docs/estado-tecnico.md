@@ -2705,6 +2705,70 @@ que acordarse de llamarlo. Ese método ya no existe.
 Ambos settings son editables desde `PATCH /admin/settings/:key` sin redeploy; el efecto es
 inmediato en la siguiente request de publish/renew.
 
+### Borrado — RÁFAGA B2: la política de permisos (el dueño archiva, el staff elimina)
+
+Segunda de las cuatro. B1 hizo que borrar dejara de destruir evidencia; B2 **cierra la
+puerta**: cambia quién puede destruir un anuncio y desde dónde.
+
+**Estaba al revés de lo que debía.** Borraba el **dueño**, desde **cualquier estado**, y el
+staff **no podía**. Ahora:
+
+| | Antes | Ahora |
+|---|---|---|
+| Dueño | eliminaba desde cualquier estado | **archiva**; sólo puede **descartar** un `DRAFT` |
+| Staff | no podía | **elimina**, y sólo un `ARCHIVED` (ADMIN-only) |
+
+**Los dos pasos son la salvaguarda, no una molestia.** Para destruir un anuncio vivo hay que
+archivarlo primero. Eso separa «sacarlo del mercado» —reversible en sus efectos, no
+destructivo— de «destruirlo», y obliga a decidir las dos cosas por separado.
+
+**«Descartar» no es una excepción a la política, y por eso se llama distinto.** Quitar el
+borrado sin más dejaba un **callejón sin salida**: un `DRAFT` cuenta para el tope total
+(`ESTADOS_QUE_CUENTAN_AL_TOTAL`) y **no es archivable**, así que un usuario con borradores
+abandonados se habría quedado con plazas de su cupo ocupadas para siempre. La política
+protege la HISTORIA PÚBLICA, y un borrador no tiene ninguna: no está indexado, ni tiene
+favoritos, ni mensajes, ni denuncias — no ha existido para nadie más que su autor.
+`PENDING_REVIEW` **no** entra: ahí hay un moderador con trabajo encolado (D-2).
+
+**Eliminar no es una transición de estado**: destruye la fila, así que no toca
+`LISTING_STATUS_TRANSITIONS`. Lo que sí lleva es su guarda de estado propia, como los doce
+escritores de estado que ya la tenían. `ARCHIVED` sigue siendo terminal, y hay test que lo
+afirma.
+
+**ADMIN-only, dentro de una sección que es MODERATOR.** Es la única acción **irreversible**
+sobre un anuncio — aprobar, rechazar, desactivar, restaurar y cambiar de estado se deshacen.
+El moderador ya archiva, que es el trabajo del día a día. Mismo criterio que el borrado
+físico de un post del blog, ADMIN-only con el resto del blog abierto a EDITOR.
+
+**`AuditLog` con `LISTING_DELETE`**, y su `before` es lo **único** que sobrevive al anuncio:
+lleva identidad, dueño, categoría y los recuentos de lo que colgaba. No el anuncio entero —
+el registro de auditoría no es una papelera.
+
+**UI.** «Eliminar» sale del menú del dueño; en su lugar, «Descartar borrador», sólo en
+`DRAFT`. En `/admin/anuncios` entran `ARCHIVED` como filtro, como etiqueta y como destino del
+selector —archivar **siempre fue una transición legal**, pero no había quien la ofreciera, así
+que sólo era alcanzable por API—, más el botón de eliminar con su `AlertDialog`, que dice
+explícitamente qué sobrevive y qué no. De paso aparecieron dos etiquetas que faltaban:
+`PAUSED` y `ARCHIVED` pintaban el **valor crudo del enum**.
+
+**Lo que la batería completa destapó, y un test aislado no habría visto.** Tres casos de
+`listings.e2e-spec.ts` usaban el borrado del dueño **como limpieza** para liberar cuota de
+activos, con su comentario explicándolo. Al cerrar esa vía dejaban anuncios ACTIVE detrás y
+los tests siguientes fallaban con 403 por cupo — a varios casos de distancia de la causa. La
+sustitución correcta no es borrar por Prisma sino **archivar**: sirve igual (`ARCHIVED` es el
+único estado que no cuenta para el cupo) y es el camino que seguiría un vendedor real.
+
+Los otros dos tests tocados cambian de **camino, no de propiedad**: el de «sale del índice al
+borrar» ahora publica → archiva → elimina como ADMIN (prueba más que antes), y el de reseñas
+borra por Prisma con su razón escrita — lo que comprueba es qué le pasa a la reseña, no quién
+puede borrar.
+
+Mutación verificada: quitar la guarda de `ARCHIVED` → caen 6; devolver al dueño el borrado
+desde cualquier estado → caen 7; abrir el borrado a MODERATOR → cae su caso.
+
+**Pendiente de B3:** los objetos de R2 (imágenes, miniaturas y vídeo) todavía no se limpian.
+Es basura, no corrupción —la BD queda consistente—, y por eso el diseño lo separa (§3.1).
+
 ### Borrado — RÁFAGA B1: los registros dejan de morir (`Report` y `Conversation`)
 
 Primera de las cuatro del cuerpo de borrado (diseño: `docs/diseno-borrado.md`). **Va primera

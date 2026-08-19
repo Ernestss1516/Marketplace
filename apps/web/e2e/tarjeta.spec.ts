@@ -10,7 +10,14 @@ import type { Page } from '@playwright/test';
 import { test, expect } from './fixtures/auth';
 import { abrirPromocionar } from './helpers/promocion';
 
-/** Las once acciones que la tarjeta ofrecía antes, repartidas ahora en tres niveles. */
+/**
+ * Las acciones que la tarjeta ofrecía antes, repartidas ahora en tres niveles.
+ *
+ * BORRADO B2 — «Eliminar» SALE de esta lista: el dueño ya no destruye anuncios.
+ * Para un ACTIVE la salida destructiva es «Archivar», que sigue aquí. Lo único
+ * que el dueño puede destruir es un borrador, y eso se llama «Descartar
+ * borrador» y sólo aparece en `DRAFT` — se comprueba en su propio caso abajo.
+ */
 const EN_MENU_ACTIVE = [
   'Reservar',
   'Marcar vendido',
@@ -18,7 +25,6 @@ const EN_MENU_ACTIVE = [
   'Ver estadísticas',
   '¿Necesitas ayuda?',
   'Archivar',
-  'Eliminar',
 ];
 
 const tarjeta = (page: Page) => page.locator('[data-testid^="listing-card-"]').first();
@@ -45,6 +51,8 @@ test.describe('UXV.4 (A6) — la tarjeta tiene jerarquía, no una parrilla', () 
     await expect(card.getByRole('button', { name: 'Publicar' })).toHaveCount(0);
 
     // Lo destructivo NO está en la fila.
+    // BORRADO B2 — «Eliminar» ya no existe para el dueño en ningún sitio, así
+    // que esta aserción pasa de «no está en la fila» a «no está, y punto».
     await expect(card.getByRole('button', { name: 'Eliminar' })).toHaveCount(0);
     await expect(card.getByRole('button', { name: 'Archivar' })).toHaveCount(0);
 
@@ -73,11 +81,15 @@ test.describe('UXV.4 (A6) — la tarjeta tiene jerarquía, no una parrilla', () 
   }) => {
     const page = await sellerContext.newPage();
 
-    let borrado = false;
-    await page.route('**/listings/*', async (route) => {
-      if (route.request().method() === 'DELETE') {
-        borrado = true;
-        await route.fulfill({ status: 204, body: '' });
+    // BORRADO B2 — se prueba con «Archivar», no con «Eliminar»: el dueño ya no
+    // puede eliminar, y archivar es ahora SU acción irreversible (ARCHIVED es
+    // terminal). La propiedad bajo prueba no cambia — que el menú no relaja la
+    // confirmación de lo irreversible— sólo cuál es esa acción.
+    let ejecutado = false;
+    await page.route('**/listings/*/archive', async (route) => {
+      if (route.request().method() === 'POST') {
+        ejecutado = true;
+        await route.fulfill({ status: 200, body: '{}' });
         return;
       }
       await route.fallback();
@@ -85,16 +97,16 @@ test.describe('UXV.4 (A6) — la tarjeta tiene jerarquía, no una parrilla', () 
 
     await page.goto('/mis-anuncios');
     await tarjeta(page).getByTestId('btn-mas-acciones').click();
-    await page.getByRole('menuitem', { name: 'Eliminar' }).click();
+    await page.getByRole('menuitem', { name: 'Archivar' }).click();
 
     const dialogo = page.getByRole('alertdialog');
     await expect(dialogo).toBeVisible({ timeout: 10_000 });
     await expect(dialogo).toContainText(/no se puede deshacer/i);
-    expect(borrado).toBe(false);
+    expect(ejecutado).toBe(false);
 
     await dialogo.getByRole('button', { name: 'Cancelar' }).click();
     await expect(dialogo).not.toBeVisible();
-    expect(borrado).toBe(false);
+    expect(ejecutado).toBe(false);
   });
 
   test('en móvil la tarjeta no es una parrilla de botones', async ({ sellerContext }) => {

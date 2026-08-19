@@ -7,6 +7,7 @@ import { AlertCircle, Loader2 } from 'lucide-react';
 import {
   getAdminListings,
   changeListingStatus,
+  deleteAdminListing,
   type AdminListing,
 } from '@/lib/api/admin';
 import { approveListing, rejectListing } from '@/lib/api/moderacion';
@@ -14,6 +15,16 @@ import { elegirAccionDeEstado } from './moderacion-routing';
 import { ApiError } from '@/lib/api/client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 const PER_PAGE = 20;
 
@@ -24,6 +35,10 @@ const STATUS_FILTERS: { label: string; value: string | undefined }[] = [
   { label: 'Rechazados', value: 'REJECTED' },
   { label: 'Borrador', value: 'DRAFT' },
   { label: 'Caducados', value: 'EXPIRED' },
+  // BORRADO B2 — el archivo tiene que ser NAVEGABLE, porque es de donde se
+  // elimina. Antes no había filtro: los archivados sólo salían en «Todos», y
+  // encima sin etiqueta (ver STATUS_LABELS), pintando el enum crudo.
+  { label: 'Archivados', value: 'ARCHIVED' },
 ];
 
 const STATUS_LABELS: Record<string, string> = {
@@ -34,6 +49,9 @@ const STATUS_LABELS: Record<string, string> = {
   EXPIRED: 'Caducado',
   RESERVED: 'Reservado',
   SOLD: 'Vendido',
+  // Faltaban las dos: una fila PAUSED o ARCHIVED enseñaba el valor del enum.
+  PAUSED: 'Pausado',
+  ARCHIVED: 'Archivado',
 };
 
 const STATUS_VARIANTS: Record<string, 'default' | 'secondary' | 'outline' | 'destructive'> = {
@@ -44,9 +62,19 @@ const STATUS_VARIANTS: Record<string, 'default' | 'secondary' | 'outline' | 'des
   EXPIRED: 'outline',
   RESERVED: 'secondary',
   SOLD: 'outline',
+  PAUSED: 'outline',
+  ARCHIVED: 'outline',
 };
 
-const TARGET_STATUSES = ['ACTIVE', 'PENDING_REVIEW', 'REJECTED', 'DRAFT'];
+// BORRADO B2 — `ARCHIVED` entra como destino: archivar es el paso PREVIO
+// obligatorio para eliminar, y hasta ahora el staff no podía hacerlo desde aquí
+// (la transición ACTIVE→ARCHIVED siempre fue legal, pero el selector no la
+// ofrecía, así que sólo era alcanzable por API).
+//
+// Es irreversible —ARCHIVED es terminal— y el selector no puede confirmarlo por
+// sí solo, así que la máquina de estados es quien lo protege: desde ARCHIVED no
+// sale ninguna transición.
+const TARGET_STATUSES = ['ACTIVE', 'PENDING_REVIEW', 'REJECTED', 'DRAFT', 'ARCHIVED'];
 
 function formatPrice(price: number, currency: string, priceType: string) {
   if (priceType === 'FREE') return 'Gratis';
@@ -62,6 +90,11 @@ function formatDate(iso: string | null) {
 export default function AdminAnunciosPage() {
   const { data: session } = useSession();
   const token = (session?.user as { accessToken?: string } | undefined)?.accessToken;
+  // BORRADO B2 — eliminar es ADMIN-only dentro de una sección MODERATOR: es la
+  // ÚNICA acción irreversible sobre un anuncio (aprobar, rechazar, desactivar y
+  // restaurar se deshacen). El backend lo impone con @MinRole(ADMIN); esto es que
+  // la UI no le prometa al moderador un botón que le va a responder 403.
+  const puedeEliminar = session?.user.role === 'ADMIN';
 
   const [listings, setListings] = useState<AdminListing[]>([]);
   const [total, setTotal] = useState(0);
@@ -77,6 +110,8 @@ export default function AdminAnunciosPage() {
   const [newStatus, setNewStatus] = useState('ACTIVE');
   const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
+  /** BORRADO B2 — la fila pendiente de confirmar su eliminación, o null. */
+  const [aEliminar, setAEliminar] = useState<AdminListing | null>(null);
 
   const fetchListings = useCallback(
     async (p: number, status?: string) => {
@@ -140,6 +175,30 @@ export default function AdminAnunciosPage() {
         err instanceof ApiError
           ? `Error ${err.statusCode}: ${err.message}`
           : 'Error al cambiar el estado';
+      alert(msg);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /**
+   * BORRADO B2 — eliminar de verdad. Sólo llega aquí un ADMIN y sólo desde una
+   * fila ARCHIVED (el backend lo vuelve a comprobar: esto es ergonomía, no la
+   * salvaguarda). Se confirma antes con `AlertDialog`, que es la regla del
+   * proyecto para lo irreversible.
+   */
+  async function handleDelete() {
+    if (!token || !aEliminar || saving) return;
+    setSaving(true);
+    try {
+      await deleteAdminListing(token, aEliminar.id);
+      setAEliminar(null);
+      await fetchListings(page, statusFilter);
+    } catch (err) {
+      const msg =
+        err instanceof ApiError
+          ? `Error ${err.statusCode}: ${err.message}`
+          : 'Error al eliminar el anuncio';
       alert(msg);
     } finally {
       setSaving(false);
@@ -261,15 +320,34 @@ export default function AdminAnunciosPage() {
                       {formatDate(listing.publishedAt)}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() =>
-                          editingId === listing.id ? setEditingId(null) : startEdit(listing)
-                        }
-                      >
-                        {editingId === listing.id ? 'Cancelar' : 'Cambiar estado'}
-                      </Button>
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            editingId === listing.id ? setEditingId(null) : startEdit(listing)
+                          }
+                        >
+                          {editingId === listing.id ? 'Cancelar' : 'Cambiar estado'}
+                        </Button>
+                        {/* BORRADO B2 — sólo un ADMIN, y sólo sobre un ARCHIVED.
+                            Las dos condiciones son las mismas que impone el
+                            backend: aquí no se protege nada, se evita prometer
+                            un botón que iba a responder 400 o 403. Para
+                            eliminar algo vivo hay que archivarlo antes, con el
+                            selector de al lado — y ese segundo paso ES la
+                            salvaguarda. */}
+                        {puedeEliminar && listing.status === 'ARCHIVED' && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => setAEliminar(listing)}
+                          >
+                            Eliminar
+                          </Button>
+                        )}
+                      </div>
                     </td>
                   </tr>
 
@@ -352,6 +430,32 @@ export default function AdminAnunciosPage() {
           </Button>
         </div>
       )}
+
+      {/* BORRADO B2 — confirmación de lo irreversible. Regla del proyecto:
+          «acción irreversible ⇒ AlertDialog antes y aviso después». La
+          descripción dice QUÉ sobrevive y qué no, porque es la única
+          oportunidad de que quien pulsa sepa lo que está destruyendo. */}
+      <AlertDialog open={aEliminar !== null} onOpenChange={(o) => !o && setAEliminar(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar este anuncio archivado?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se eliminará «{aEliminar?.title}» de forma permanente, con sus fotos, sus
+              favoritos y sus estadísticas. Las denuncias, las conversaciones, los tratos
+              y las valoraciones se conservan. Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => void handleDelete()}
+            >
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

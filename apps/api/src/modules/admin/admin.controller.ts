@@ -81,6 +81,26 @@ export class AdminController {
     return this.adminService.changeListingStatus(id, user.userId, dto, ip);
   }
 
+  // BORRADO B2 — la única vía que destruye un anuncio.
+  //
+  // ADMIN-ONLY, y es una excepción deliberada dentro de una sección que es
+  // MODERATOR: todas las demás acciones sobre un anuncio son REVERSIBLES —
+  // aprobar, rechazar, desactivar, restaurar, cambiar de estado— y ésta no.
+  // El moderador ya archiva, que es el trabajo del día a día; destruir es otra
+  // decisión. Mismo criterio que el borrado físico de un post del blog, que es
+  // ADMIN-only mientras el resto del blog está abierto a EDITOR.
+  // Ver docs/diseno-borrado.md §6.1 (D-4).
+  @Delete('listings/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @MinRole(Role.ADMIN)
+  deleteListing(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtUser,
+    @Ip() ip: string,
+  ) {
+    return this.adminService.deleteListing(id, user.userId, ip);
+  }
+
   // ─── Users ────────────────────────────────────────────────────────────────
 
   @Get('users')

@@ -128,7 +128,9 @@ export function OwnerActionsMenu({ actions, onDialog, disabled, label }: Props) 
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction
               className={
-                pendiente?.key === 'delete'
+                // BORRADO B2 — la clave era 'delete'; el borrado del dueño ya no
+                // existe y en su lugar está 'discard' (descartar un borrador).
+                pendiente?.key === 'discard'
                   ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
                   : undefined
               }

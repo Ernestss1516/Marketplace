@@ -14,6 +14,7 @@ describe('Listings (e2e)', () => {
 
   let sellerToken: string;
   let buyerToken: string;
+  let adminToken: string;
   let sellerUserId: string;
   let buyerUserId: string;
   let secondBuyerUserId: string;
@@ -84,6 +85,19 @@ describe('Listings (e2e)', () => {
       },
     });
 
+    // BORRADO B2 — destruir un anuncio pasa a ser de ADMIN, así que el test que
+    // comprueba que sale del índice necesita uno.
+    await prisma.user.create({
+      data: {
+        email: 'admin-listings@example.com',
+        name: 'Admin Listings Test',
+        slug: 'admin-listings-test',
+        passwordHash: await bcrypt.hash('Test1234!', 4),
+        emailVerified: true,
+        role: 'ADMIN',
+      },
+    });
+
     const sellerLoginRes = await request(app.getHttpServer())
       .post('/api/auth/login')
       .send({ email: 'seller@example.com', password: 'Test1234!' });
@@ -95,6 +109,13 @@ describe('Listings (e2e)', () => {
       .send({ email: 'buyer@example.com', password: 'Test1234!' });
     buyerToken = buyerLoginRes.body.accessToken as string;
     buyerUserId = buyerLoginRes.body.user.id as string;
+
+    // Un ADMIN entra por su propia puerta (`/auth/admin-login`); el `/login`
+    // público lo rechaza a propósito.
+    const adminLoginRes = await request(app.getHttpServer())
+      .post('/api/auth/admin-login')
+      .send({ email: 'admin-listings@example.com', password: 'Test1234!' });
+    adminToken = adminLoginRes.body.accessToken as string;
 
     const buyer2LoginRes = await request(app.getHttpServer())
       .post('/api/auth/login')
@@ -334,10 +355,15 @@ describe('Listings (e2e)', () => {
     // point of this ráfaga), which would otherwise eat into sellerToken's
     // shared active-listing quota (freeActiveListingLimit=5) for the rest of
     // this file's tests.
+    //
+    // BORRADO B2 — SE ARCHIVA, no se borra: el dueño ya no puede destruir un
+    // anuncio publicado. Sirve exactamente igual para lo que esta limpieza
+    // necesita —ARCHIVED es el único estado que NO cuenta para el cupo— y
+    // además es el camino que seguiría un vendedor de verdad.
     await request(app.getHttpServer())
-      .delete(`/api/listings/${draftRes.body.id}`)
+      .post(`/api/listings/${draftRes.body.id}/archive`)
       .set('Authorization', `Bearer ${sellerToken}`)
-      .expect(204);
+      .expect(200);
   });
 
   it('POST /api/listings/:id/deals (SERVICIO, sin comprador) → 400', async () => {
@@ -359,11 +385,11 @@ describe('Listings (e2e)', () => {
       .expect(400);
 
     // Cleanup — rejected but the listing itself was published (ACTIVE); see
-    // note above on the shared active-listing quota.
+    // note above on the shared active-listing quota. B2: se archiva.
     await request(app.getHttpServer())
-      .delete(`/api/listings/${draftRes.body.id}`)
+      .post(`/api/listings/${draftRes.body.id}/archive`)
       .set('Authorization', `Bearer ${sellerToken}`)
-      .expect(204);
+      .expect(200);
   });
 
   it('POST /api/listings/:id/deals sobre un DRAFT → 400 (guarda de estado)', async () => {
@@ -412,14 +438,23 @@ describe('Listings (e2e)', () => {
     expect(dealsAfter.body).toHaveLength(0);
 
     // Cleanup — undo left this PRODUCT back at ACTIVE; see note above on the
-    // shared active-listing quota.
+    // shared active-listing quota. B2: se archiva.
     await request(app.getHttpServer())
-      .delete(`/api/listings/${draftRes.body.id}`)
+      .post(`/api/listings/${draftRes.body.id}/archive`)
       .set('Authorization', `Bearer ${sellerToken}`)
-      .expect(204);
+      .expect(200);
   });
 
-  it('DELETE /api/listings/:id → 204 y retirado del índice', async () => {
+  // BORRADO B2 — ESTE CASO CAMBIA DE CAMINO, NO DE PROPIEDAD.
+  //
+  // Comprobaba que un anuncio publicado sale del índice al borrarlo, y que lo
+  // borraba su dueño con `DELETE /listings/:id`. Eso último ya no existe: el dueño
+  // archiva, y destruir es de ADMIN y sólo sobre archivados.
+  //
+  // La propiedad que importa —que destruir un anuncio lo retira de Meilisearch—
+  // sigue afirmándose, y ahora por el camino REAL de producción: publicar →
+  // archivar → eliminar. De paso queda pinzado el recorrido de los dos pasos.
+  it('archivar + eliminar (staff) → 204 y retirado del índice', async () => {
     const draftRes = await request(app.getHttpServer())
       .post('/api/listings')
       .set('Authorization', `Bearer ${sellerToken}`)
@@ -433,12 +468,19 @@ describe('Listings (e2e)', () => {
 
     await waitForIndex(meili, process.env.MEILI_INDEX_NAME!, draftRes.body.id as string);
 
+    // Paso 1 — el dueño archiva. Sale del mercado sin destruir nada.
     await request(app.getHttpServer())
-      .delete(`/api/listings/${draftRes.body.id}`)
+      .post(`/api/listings/${draftRes.body.id}/archive`)
       .set('Authorization', `Bearer ${sellerToken}`)
+      .expect(200);
+
+    // Paso 2 — el staff elimina. Es la única vía que destruye la fila.
+    await request(app.getHttpServer())
+      .delete(`/api/admin/listings/${draftRes.body.id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
       .expect(204);
 
-    // DELETE enqueues a 'remove' job; the worker calls removeListing directly
+    // El borrado encola un job 'remove'; el worker llama a removeListing.
     await waitForRemoval(meili, process.env.MEILI_INDEX_NAME!, draftRes.body.id as string);
   });
 

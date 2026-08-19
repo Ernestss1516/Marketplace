@@ -454,6 +454,86 @@ export class AdminService {
     return updated;
   }
 
+  /**
+   * BORRADO B2 — LA ÚNICA VÍA QUE DESTRUYE UN ANUNCIO. Es de staff, es
+   * irreversible, y sólo funciona sobre `ARCHIVED`.
+   *
+   * LOS DOS PASOS SON LA SALVAGUARDA, no una molestia: para eliminar un anuncio
+   * vivo hay que archivarlo primero. Eso separa «sacarlo del mercado» —reversible
+   * en sus efectos, no destructivo— de «destruirlo», y obliga a que las dos cosas
+   * se decidan por separado. Un borrado directo desde ACTIVE convertiría un clic
+   * mal dado en una pérdida de datos.
+   *
+   * NO ES UNA TRANSICIÓN DE ESTADO, y por eso no pasa por `isLegalTransition`:
+   * destruye la fila, no la mueve. Lo que sí hace es comprobar el estado de
+   * partida con su propio `if`, igual que los doce escritores de estado que ya
+   * llevan su guarda (`archive`, `publish`, `reserve`, `reactivate`…).
+   *
+   * QUÉ SE LLEVA Y QUÉ NO. Lo decide el schema, relación por relación, y está
+   * fijado en `borrado-inventario.e2e-spec.ts`: mueren las imágenes, los tags, los
+   * favoritos, las vistas y la programación de bumps (son del anuncio);
+   * sobreviven las denuncias, las conversaciones, los tratos, las valoraciones,
+   * los tickets y los registros contables (son constancia de algo que pasó).
+   * Desde B1 con su título guardado, para que sigan siendo legibles.
+   *
+   * PENDIENTE DE B3: los objetos en R2 (imágenes, miniaturas y vídeo) todavía no
+   * se limpian. Es basura, no corrupción — la BD queda consistente— y por eso el
+   * diseño lo separa en su propia ráfaga (§3.1).
+   */
+  async deleteListing(listingId: string, actorId: string, ip?: string): Promise<void> {
+    // Se carga ANTES de borrar, y con lo que hará falta después: una vez borrada la
+    // fila no hay de dónde sacar nada. Molde `ModerationService.deleteReview`.
+    const listing = await this.prisma.listing.findUnique({
+      where: { id: listingId },
+      select: {
+        id: true,
+        title: true,
+        slug: true,
+        status: true,
+        sellerId: true,
+        categoryId: true,
+        _count: { select: { images: true, conversations: true, reports: true } },
+      },
+    });
+    if (!listing) throw new NotFoundException('Anuncio no encontrado');
+
+    if (listing.status !== ListingStatus.ARCHIVED) {
+      throw new BadRequestException(
+        'Solo se puede eliminar un anuncio archivado. Archívalo primero: eliminar es irreversible.',
+      );
+    }
+
+    await this.prisma.listing.delete({ where: { id: listingId } });
+
+    // EL REGISTRO ES LO ÚNICO QUE SOBREVIVE AL BORRADO, así que `before` tiene que
+    // permitir reconstruir QUÉ se destruyó — no el anuncio entero (el AuditLog no
+    // es una papelera), pero sí lo suficiente para responder «¿qué era esto?»:
+    // su identidad, su dueño, y el tamaño de lo que colgaba.
+    await this.auditLog.log({
+      action: 'LISTING_DELETE',
+      actorId,
+      resourceType: 'Listing',
+      resourceId: listingId,
+      before: {
+        title: listing.title,
+        slug: listing.slug,
+        status: listing.status,
+        sellerId: listing.sellerId,
+        categoryId: listing.categoryId,
+        counts: listing._count,
+      },
+      ip,
+    });
+
+    // Fuera de la transacción y sin poder tumbar el borrado: la fila ya no está y
+    // eso es lo correcto. Reintentar una limpieza es trivial; resucitar un anuncio
+    // no. Un ARCHIVED no está ni cacheado ni indexado, pero los dos gestos son
+    // idempotentes y baratos, y omitirlos sería confiar en que esas reglas no
+    // cambien nunca.
+    await this.redis.client.del(cacheKey(listing.slug));
+    await this.indexingQueue.add('remove', { listingId });
+  }
+
   // ===========================================================================
   // Users (R7.4)
   // ===========================================================================
