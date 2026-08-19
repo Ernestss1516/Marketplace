@@ -89,16 +89,33 @@ export class ModerationNotificationsService {
     label: string;
     listingSlug: string | null;
   }> {
-    if (report.listingId) {
-      const listing = await this.prisma.listing.findUnique({
-        where: { id: report.listingId },
-        select: { title: true, slug: true },
-      });
+    // BORRADO B1 — SE MIRA TAMBIÉN EL SNAPSHOT, no sólo la FK.
+    //
+    // Antes de B1, `Report.listingId` era `Cascade`: si el anuncio se borraba, la
+    // denuncia se iba con él y esta rama nunca veía un anuncio ausente (su fallback
+    // era código defensivo, y así estaba documentado en el e2e de avisos).
+    //
+    // Con `SetNull`, la denuncia SOBREVIVE y su `listingId` queda a `null`. Mirar
+    // sólo la FK haría que una denuncia de anuncio cayera por las tres ramas hasta
+    // el genérico del final: un `warn` de «sin entidad denunciada» para un caso
+    // normal, un `targetType: USER` que es falso, y el snapshot —creado justamente
+    // para esto— desaprovechado.
+    //
+    // Mismo patrón que la rama de `REVIEW` de aquí abajo, que ya cae a
+    // `review.listingTitle` por la misma razón.
+    if (report.listingId || report.listingTitle) {
+      const listing = report.listingId
+        ? await this.prisma.listing.findUnique({
+            where: { id: report.listingId },
+            select: { title: true, slug: true },
+          })
+        : null;
       // El anuncio pudo borrarse entre la denuncia y su resolución: el aviso
-      // sigue teniendo sentido, solo que sin enlace.
+      // sigue teniendo sentido, solo que sin enlace. El genérico queda para las
+      // denuncias anteriores a B1, que no llevan snapshot.
       return {
         type: 'LISTING',
-        label: listing?.title ?? 'un anuncio que ya no está disponible',
+        label: listing?.title ?? report.listingTitle ?? 'un anuncio que ya no está disponible',
         listingSlug: listing?.slug ?? null,
       };
     }

@@ -61,6 +61,11 @@ export function ChatClient({ initialData, token, userId }: Props) {
   const { latestMessage, joinConversation } = useMessagingSocketContext();
 
   async function fetchEligibility() {
+    // BORRADO B1 — sin anuncio no hay nada que valorar. Una valoración se ancla a
+    // (autor, objetivo, anuncio), así que con el anuncio borrado la pregunta «¿puede
+    // valorar?» no tiene respuesta: se deja `eligibility` en null y el botón no se
+    // pinta. El hilo sigue leyéndose entero, que es lo que B1 preserva.
+    if (listingId === null) return;
     // Non-critical check — auth errors sign out; other errors silently ignored
     await run(
       () => getEligibility(listingId, targetId, token),
@@ -171,12 +176,23 @@ export function ChatClient({ initialData, token, userId }: Props) {
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="truncate font-semibold leading-tight">{targetName}</p>
-              <Link
-                href={`/anuncio/${initialData.listing.slug}`}
-                className="text-xs text-muted-foreground hover:underline"
-              >
-                {initialData.listing.title}
-              </Link>
+              {/* BORRADO B1 — el anuncio puede ya no existir. El título se sigue
+                  mostrando (viene del snapshot) porque es lo que identifica el
+                  hilo; lo que desaparece es el enlace, que llevaría a un 404.
+                  TypeScript no lo habría atrapado: `${null}` en una plantilla es
+                  un string válido y habría producido `/anuncio/null`. */}
+              {initialData.listing.slug ? (
+                <Link
+                  href={`/anuncio/${initialData.listing.slug}`}
+                  className="text-xs text-muted-foreground hover:underline"
+                >
+                  {initialData.listing.title}
+                </Link>
+              ) : (
+                <p className="truncate text-xs text-muted-foreground">
+                  {initialData.listing.title}
+                </p>
+              )}
             </div>
 
             {/* Review action */}
@@ -303,18 +319,24 @@ export function ChatClient({ initialData, token, userId }: Props) {
         </form>
       </div>
 
-      {/* Review modal — rendered outside the chat box to avoid z-index issues */}
-      <ReviewModal
-        open={reviewModalOpen}
-        onOpenChange={setReviewModalOpen}
-        existingReviewId={canEdit ? (eligibility?.existingReview?.id ?? null) : null}
-        targetName={targetName}
-        listingId={listingId}
-        targetId={targetId}
-        token={token}
-        onSuccess={() => void fetchEligibility()}
-        wouldBeVerified={eligibility?.wouldBeVerified}
-      />
+      {/* Review modal — rendered outside the chat box to avoid z-index issues.
+          BORRADO B1: sin anuncio no se monta. No es sólo por el tipo — `eligibility`
+          se queda en null cuando no hay anuncio (ver fetchEligibility), así que el
+          botón que lo abre tampoco aparece; esta guarda es la que hace que eso no
+          dependa de que las dos condiciones sigan de acuerdo. */}
+      {listingId !== null && (
+        <ReviewModal
+          open={reviewModalOpen}
+          onOpenChange={setReviewModalOpen}
+          existingReviewId={canEdit ? (eligibility?.existingReview?.id ?? null) : null}
+          targetName={targetName}
+          listingId={listingId}
+          targetId={targetId}
+          token={token}
+          onSuccess={() => void fetchEligibility()}
+          wouldBeVerified={eligibility?.wouldBeVerified}
+        />
+      )}
     </>
   );
 }

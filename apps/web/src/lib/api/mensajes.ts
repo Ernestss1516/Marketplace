@@ -9,7 +9,19 @@ export interface OtherUser {
 
 export interface ConversationSummary {
   id: string;
-  listing: { id: string; title: string; slug: string; thumbnailUrl?: string | null };
+  /**
+   * BORRADO B1 — `id` y `slug` son NULOS cuando el anuncio ya no existe.
+   *
+   * La conversación sobrevive al borrado del anuncio (los mensajes son de dos
+   * personas, no del anuncio), así que la bandeja tiene que saber pintar un hilo
+   * huérfano. `title` SIEMPRE viene —del anuncio vivo o del snapshot que el
+   * backend guardó al crear la conversación—, y es lo que permite reconocerlo;
+   * lo que desaparece es el enlace a la ficha y la miniatura.
+   *
+   * Que sean `null` y no `string` es deliberado: obliga a quien pinta a decidir
+   * qué hace, en vez de dejarle construir un `/anuncio/undefined`.
+   */
+  listing: { id: string | null; title: string; slug: string | null; thumbnailUrl?: string | null };
   otherUser: OtherUser;
   lastMessageAt: string;
   unreadCount: number;

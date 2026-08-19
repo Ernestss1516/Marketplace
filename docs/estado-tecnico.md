@@ -2705,6 +2705,76 @@ que acordarse de llamarlo. Ese método ya no existe.
 Ambos settings son editables desde `PATCH /admin/settings/:key` sin redeploy; el efecto es
 inmediato en la siguiente request de publish/renew.
 
+### Borrado — RÁFAGA B1: los registros dejan de morir (`Report` y `Conversation`)
+
+Primera de las cuatro del cuerpo de borrado (diseño: `docs/diseno-borrado.md`). **Va primera
+porque arregla una pérdida de datos que ocurría HOY**, con el borrado actual — el del dueño,
+desde cualquier estado.
+
+**El defecto.** `Report.listingId` y `Conversation.listingId` eran `onDelete: Cascade`: borrar
+un anuncio **destruía sus denuncias y sus conversaciones enteras**, mensajes incluidos. Y
+como borrar es del dueño, eso significaba que **el denunciado podía destruir la denuncia y el
+vendedor el hilo que probaba lo que dijo**, por la vía más fácil que existe.
+
+No era una decisión: era el valor por defecto que nadie revisó. La relación de al lado
+—`Review.listingId`— sí la tomó, y dice lo contrario con su razón escrita («la reputación no
+es borrable por el vendedor»).
+
+**El cambio.** Los dos pasan a `SetNull` + una columna de contexto (`listingTitle`), que es el
+patrón que el repo ya había elegido **tres** veces para lo mismo: `Review.listingTitle`,
+`Deal.listingTitle` y `Ticket.linkedLabel`. `Conversation.listingId` se vuelve nullable, lo
+que relaja `@@unique([listingId, buyerId])` — aceptado a propósito: en Postgres los NULL no
+colisionan, y los hilos huérfanos son históricos de anuncios distintos.
+
+**El snapshot se escribe al CREAR, no al borrar** (diseño §3.3): rellenarlo en el borrado
+convertiría un DELETE en una escritura de N filas dentro de la transacción, y sería un camino
+que sólo se ejecuta ahí — es decir, que sólo se prueba ahí. Los dos puntos de creación ya
+cargaban el anuncio; sólo había que pedir el título. La migración **rellena las filas
+existentes** en la misma pasada, que es el único momento en que los anuncios todavía están
+ahí para copiarlos.
+
+**Un fallo real que B1 introducía, y que la batería completa destapó.**
+`ModerationNotificationsService.resolveReportTarget` ramificaba sobre `report.listingId`. Con
+`SetNull` ese campo queda a `null`, así que una denuncia **de anuncio** caía por las tres
+ramas hasta el genérico del final: un `warn` de «sin entidad denunciada» para un caso normal,
+un `targetType: USER` que es falso, y el snapshot recién creado desaprovechado. Ahora ramifica
+también sobre el snapshot — el mismo patrón que la rama de `REVIEW` de esa misma función ya
+usaba con `review.listingTitle`.
+
+Lo revelador es lo que había escrito alrededor: el e2e que falló decía que el fallback «un
+anuncio que ya no está disponible» era **«defensivo, no una ruta viva»**. Lo era porque el
+`Cascade` lo hacía imposible. B1 lo convierte en la ruta normal.
+
+**La bandeja tolera un hilo sin anuncio.** Un único helper (`toListingStub`) decide cómo se
+degrada: `title` **siempre** —del anuncio vivo o del snapshot—, `id`/`slug` a `null` para que
+el cliente no pueda construir un enlace roto, y `thumbnailUrl` a `null` porque la miniatura
+vivía en R2 y se borra con el anuncio. El tipo del cliente los declara nullables, y eso obligó
+a decidir en los dos sitios que los usaban. **Un tercero no lo habría cazado el compilador:**
+el enlace era `` `/anuncio/${slug}` ``, y `${null}` es un string válido — habría producido
+`/anuncio/null` en silencio.
+
+**La barrera: `borrado-inventario.e2e-spec.ts`.** Crea un anuncio con las **trece** relaciones
+pobladas, lo borra, y comprueba una por una cuáles murieron y cuáles sobrevivieron. Existe
+porque un `onDelete` **no falla ruidosamente** cuando alguien lo cambia: deja de guardar
+cosas, en silencio. Así llegó `Report` a ser `Cascade`. Lleva además una red sobre sí mismo
+(el recuento de relaciones cubiertas), para que una relación nueva no se quede sin afirmar.
+
+Mutación verificada, revirtiendo las FK en la BD de test: `Report` a `Cascade` → cae su caso;
+`Conversation` a `Cascade` → caen **tres**, y ahí se ve el efecto de segundo salto que
+justificaba el cambio — se lleva `Message` por delante y degrada `Deal.conversationId`, el
+campo que distingue «interacción verificable» de «afirmado por el vendedor».
+
+**Coherencia intermedia.** B1 toca el mecanismo, no los permisos: sigue borrando el dueño
+desde cualquier estado, pero ahora sin destruir denuncias ni conversaciones. `main` queda
+estrictamente mejor y es desplegable por sí solo; nada depende de B2 para tener sentido.
+
+Verificación: tsc api+web · lint · jest api 420 · jest web 529 · api e2e 1824/1824 (115
+suites) · playwright en condiciones de CI.
+
+**Siguiente — B2:** la política de permisos (quitar el borrado al dueño + «descartar» para
+borradores; `DELETE /admin/listings/:id` para staff con guarda de `ARCHIVED`, `AuditLog` y
+`@MinRole`; los dos cambios de UI).
+
 ### Roles — RÁFAGA 4 (remate): `/admin/login` abierta a EDITOR+
 
 Cierra la decisión **D-1** que el diseño dejó abierta (`docs/diseno-roles.md` §7.1). R3 fue

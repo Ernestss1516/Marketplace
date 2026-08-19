@@ -163,24 +163,66 @@ describe('Moderación — avisos al denunciante y al vendedor (§14.5) e2e', () 
       expect((delUsuario!.data as { targetLabel: string }).targetLabel).toBe(nombreVendedor);
     });
 
-    it('si el anuncio denunciado se borra, la denuncia se va con él y no hay aviso huérfano', async () => {
-      // Report.listingId es onDelete: Cascade (schema preexistente), así que
-      // borrar el anuncio se lleva la denuncia por delante: ya no hay nada que
-      // resolver ni de qué avisar. El fallback "un anuncio que ya no está
-      // disponible" de resolveReportTarget es defensivo, no una ruta viva —
-      // queda documentado aquí para que nadie lo lea como un caso real.
+    // BORRADO B1 — ESTE CASO SE HA INVERTIDO A PROPÓSITO.
+    //
+    // Decía: «si el anuncio denunciado se borra, la denuncia se va con él y no hay
+    // aviso huérfano», porque `Report.listingId` era `Cascade`. Y remataba que el
+    // fallback de `resolveReportTarget` era «defensivo, no una ruta viva».
+    //
+    // B1 cambia ese `Cascade` por `SetNull`: mientras estuvo, **el denunciado podía
+    // destruir la denuncia borrando su propio anuncio** —y borrar es, hoy, lo único
+    // que el dueño puede hacer—. La denuncia ahora sobrevive, se puede resolver, y
+    // el aviso al denunciante nombra el anuncio por el snapshot que se guardó al
+    // crearla. Lo que era una ruta muerta pasa a ser la ruta normal.
+    it('si el anuncio denunciado se borra, la DENUNCIA SOBREVIVE y su resolución sigue avisando', async () => {
       const anuncio = await crearAnuncio(vendedor, 'Anuncio efímero', 'ACTIVE');
       const report = await prisma.report.create({
-        data: { reason: 'SPAM', reporterId: denunciante, listingId: anuncio.id },
+        data: {
+          reason: 'SPAM',
+          reporterId: denunciante,
+          listingId: anuncio.id,
+          listingTitle: 'Anuncio efímero',
+        },
       });
 
       await prisma.listing.delete({ where: { id: anuncio.id } });
 
-      expect(await prisma.report.findUnique({ where: { id: report.id } })).toBeNull();
-      await expect(moderation.resolveReport(report.id, moderador)).rejects.toThrow(
-        'Reporte no encontrado',
-      );
-      expect(await notifs(denunciante)).toHaveLength(0);
+      // Sobrevive, sin anuncio pero con su contexto.
+      const tras = await prisma.report.findUnique({ where: { id: report.id } });
+      expect(tras).not.toBeNull();
+      expect(tras!.listingId).toBeNull();
+
+      // Y se puede despachar: es el punto entero de preservarla.
+      await moderation.resolveReport(report.id, moderador);
+
+      const avisos = await notifs(denunciante, 'REPORT_RESOLVED');
+      expect(avisos).toHaveLength(1);
+      const data = avisos[0].data as { targetType: string; targetLabel: string; listingSlug: string | null };
+      // Sigue siendo una denuncia DE ANUNCIO — sin el snapshot caería al genérico
+      // «el contenido denunciado» con targetType USER, que sería falso.
+      expect(data.targetType).toBe('LISTING');
+      expect(data.targetLabel).toBe('Anuncio efímero');
+      // Sin enlace: la ficha ya no existe.
+      expect(data.listingSlug).toBeNull();
+    });
+
+    it('una denuncia ANTERIOR a B1 (sin snapshot) degrada al genérico, no revienta', async () => {
+      // Las denuncias creadas antes de la migración de B1 cuyo anuncio ya se había
+      // borrado no tienen título que enseñar. El aviso sigue saliendo, con la
+      // etiqueta genérica — que es para lo que ese fallback existía.
+      const anuncio = await crearAnuncio(vendedor, 'Anuncio sin snapshot', 'ACTIVE');
+      const report = await prisma.report.create({
+        data: { reason: 'SPAM', reporterId: denunciante, listingId: anuncio.id },
+      });
+      await prisma.listing.delete({ where: { id: anuncio.id } });
+
+      await moderation.resolveReport(report.id, moderador);
+
+      const avisos = await notifs(denunciante, 'REPORT_RESOLVED');
+      expect(avisos).toHaveLength(1);
+      const data = avisos[0].data as { targetType: string; targetLabel: string };
+      expect(data.targetType).toBe('USER');
+      expect(data.targetLabel).toBe('el contenido denunciado');
     });
 
     it('NO se avisa al denunciante por email: solo campana', async () => {
