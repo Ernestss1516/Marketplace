@@ -6,7 +6,7 @@ import { signIn } from 'next-auth/react';
 import { resolveCallbackUrl } from '@/lib/auth/callback-url';
 
 // Deliberadamente fuera de (admin) y (public): no hereda el chrome del
-// backoffice (AdminNav/AdminUserBar, exige rol ADMIN) ni el del sitio
+// backoffice (AdminNav/AdminUserBar, exige rol de staff) ni el del sitio
 // público (Header/Footer). Estilo propio, sobrio — es la puerta de entrada,
 // no puede depender de nada que a su vez dependa de estar ya autenticado.
 // Sin botón de Google: el backend ya rechaza el login social para ADMIN
@@ -33,6 +33,11 @@ export default function AdminLoginPage() {
     // cuenta bloqueada, suspendida...); ambos casos, igual que en /login,
     // solo distinguen DESPUÉS de que Auth.js ya intentó validar la
     // contraseña en el backend.
+    //
+    // ROLES R4 — esta puerta ya NO es solo de ADMIN: la usan EDITOR, MODERATOR y
+    // ADMIN. El código `admin_login_not_admin` conserva su nombre (es un
+    // identificador estable que viaja desde el backend hasta aquí), pero desde R4
+    // significa «no eres del equipo del backoffice» — sólo lo recibe un USER.
     const result = await signIn('admin-credentials', {
       email: data.get('email'),
       password: data.get('password'),
@@ -40,7 +45,7 @@ export default function AdminLoginPage() {
     });
 
     if (result?.code === 'admin_login_not_admin') {
-      setError('Esta entrada es solo para administración.');
+      setError('Esta entrada es solo para el equipo del backoffice.');
     } else if (result?.error) {
       setError('Email o contraseña incorrectos.');
     } else {

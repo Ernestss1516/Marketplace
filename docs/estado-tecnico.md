@@ -2705,7 +2705,58 @@ que acordarse de llamarlo. Ese método ya no existe.
 Ambos settings son editables desde `PATCH /admin/settings/:key` sin redeploy; el efecto es
 inmediato en la siguiente request de publish/renew.
 
-### Roles — RÁFAGA 3: la frescura del token y el manejo del 401 — **CUERPO DE ROLES CERRADO**
+### Roles — RÁFAGA 4 (remate): `/admin/login` abierta a EDITOR+
+
+Cierra la decisión **D-1** que el diseño dejó abierta (`docs/diseno-roles.md` §7.1). R3 fue
+disciplinada y **no la adelantó**: `backofficeLoginPathFor` reflejaba el comportamiento real
+del backend (ADMIN-only) en vez de fingir un cambio que aún no estaba hecho. Aquí se hace.
+
+**El cambio:** `AuthService.adminLogin` pasa de `user.role !== Role.ADMIN` a
+`!atLeast(user.role, Role.EDITOR)` — con la escalera de R1, no enumerando roles. Un EDITOR o
+un MODERATOR pueden autenticarse por la puerta del panel; un USER, no.
+
+**Por qué ahora.** La puerta nació ADMIN-only cuando el backoffice era de facto cosa de
+administradores: un EDITOR tenía dos secciones y un MODERATOR siete. Con el reparto de R2 un
+MODERATOR gestiona **19** y un EDITOR **7**, así que obligarles a la puerta pública era
+pedirles que recordaran que su panel tiene una puerta que no es la suya.
+
+**Abre la AUTENTICACIÓN, no la autorización.** Es la distinción que sostiene el cambio: entrar
+por `/admin/login` no concede nada. El reparto de R1/R2 sigue decidiendo, y el middleware lo
+aplica igual venga de donde venga. Pinzado en las dos capas: un EDITOR con token emitido por
+esta puerta recibe **403** en `/admin/categories` (MODERATOR) y en `/admin/settings` (ADMIN),
+y en el navegador el middleware lo saca de `/admin/anuncios`.
+
+**La asimetría que se conserva, y de la que depende R3.** Un ADMIN sólo puede entrar por
+`/admin/login` (`login()` lo rechaza con `ADMIN_MUST_USE_ADMIN_LOGIN`); un EDITOR o MODERATOR
+pueden usar **las dos** puertas. Son dos reglas distintas y abrir la segunda no toca la
+primera.
+
+**`backofficeLoginPathFor` NO cambia, y esa es la parte no obvia.** Lo natural tras abrir la
+puerta sería devolver a EDITOR+ a `/admin/login`. **Sería un error, y crearía un callejón sin
+salida justo en el flujo que R3 construyó:** esa función se llama con el rol de la sesión que
+MUERE, y el caso principal es precisamente que ese rol esté caducado —a alguien le quitan el
+rol, `AdminSessionGuard` lo expulsa y su cookie todavía dice MODERATOR—. Mandarlo a la puerta
+del panel lo dejaría ante una puerta que su cuenta, ya degradada a USER, rechaza.
+
+La pregunta que responde no es «¿qué puerta prefiere este rol?» sino **«¿qué puerta lo va a
+admitir seguro?»**: `/login` admite a EDITOR, MODERATOR **y** USER; sólo el ADMIN necesita
+obligatoriamente la otra, y un ADMIN nunca queda con el rol caducado hacia abajo porque
+`changeUserRole` se niega a tocarlo. Que EDITOR+ pueda usar las dos puertas es justo lo que
+hace segura la elección.
+
+**El código de error conserva su nombre.** `ADMIN_LOGIN_NOT_ADMIN` significa desde R4 «no eres
+del equipo del backoffice». No se renombra: es un identificador estable encadenado hasta el
+navegador (backend → `lib/auth/index.ts`, que lanza un `AdminOnlyError` con su propio `code`
+en minúsculas → `/admin/login`), y renombrarlo son cinco sitios y una convención de Auth.js
+por un nombre. Lo que sí se actualiza es el **mensaje**, que es lo que lee una persona.
+
+Mutación verificada: abrir la puerta a USER (`atLeast(USER)`) → cae el test del suelo; dejarla
+en ADMIN estricto → caen los tres casos de EDITOR/MODERATOR.
+
+**Con esto el cuerpo de roles queda cerrado del todo:** R1 el mecanismo, R2 el reparto, R3 la
+frescura y el 401, R4 la puerta.
+
+### Roles — RÁFAGA 3: la frescura del token y el manejo del 401
 
 Última de las tres ráfagas. Cierra el hallazgo **R1** de la auditoría, que era independiente
 del mapa: no va de quién ve qué, sino de **cuándo se entera el frontend**.
@@ -4810,6 +4861,16 @@ para un Nivel 2 a evaluar después.
   un dominio externo.
 
 ### RÁFAGA 5 — `/admin/login` separada (superficie de login administrativa independiente)
+
+> **ENMIENDA (roles R4 — 2026-08-19): esta puerta ya NO es ADMIN-only.** `adminLogin` pasó de
+> exigir `role === ADMIN` a `atLeast(role, EDITOR)`, así que la usan EDITOR, MODERATOR y ADMIN;
+> un USER sigue fuera. Todo lo que este bloque describe sigue vigente —la superficie separada,
+> el rechazo por rol SIEMPRE después de validar la contraseña, el mecanismo de `code`— salvo
+> **quién** pasa el filtro. La otra mitad NO cambió: un ADMIN sigue sin poder entrar por el
+> `/login` público, así que la asimetría descrita abajo se conserva. El código
+> `ADMIN_LOGIN_NOT_ADMIN` conserva su nombre por ser un identificador estable, y significa
+> ahora «no eres del equipo del backoffice». Ver la entrada «Roles — RÁFAGA 4» de este mismo
+> documento y `docs/diseno-roles.md` §7.1 (D-1).
 
 Motivado por una decisión de diseño explícita: un `ADMIN` ya no puede entrar por el `/login`
 público en absoluto — solo por `/admin/login`, una página propia sin Google y con estilo
