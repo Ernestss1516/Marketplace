@@ -459,7 +459,7 @@ en una migración futura vuelve a destruir denuncias en silencio.
 | **D-2** | ¿Puede el usuario retirar un `PENDING_REVIEW`? Hoy no, y con D-1(b) tampoco | **Dejarlo fuera de este cuerpo.** Hay trabajo de un moderador encolado; retirarlo por debajo es una decisión de la cola de moderación, no del borrado |
 | **D-3** | ¿`Conversation` PRESERVA (recomendado) o sigue Cascade? | **Preservar** (§2.5). Es el argumento más fuerte del documento y también el cambio más caro |
 | **D-4** | ¿Eliminar es de MODERATOR o de ADMIN? | **ADMIN.** Es la única acción **irreversible y destructiva** del backoffice sobre un anuncio; el resto son reversibles. Con el reparto de R2 un MODERATOR ya archiva, que es la parte del trabajo diario. Precedente exacto: el borrado físico de un post del blog es ADMIN-only teniendo el resto abierto a EDITOR |
-| **D-5** | ¿Se recolectan los huérfanos de R2 ya existentes (B4)? | **Sí, pero aparte.** Es la deuda de `pendientes.md`, y mezclarla con P5 confunde «evitar basura nueva» con «limpiar la vieja» |
+| **D-5** | ¿Se recolectan los huérfanos de R2 ya existentes (B4)? | ~~**Sí, pero aparte.**~~ → **RESUELTA (2026-08-19): no se construye.** La recomendación original de separarlo de P5 se mantiene y era correcta; lo que cambió es el veredicto sobre el barrido en sí, tras medir el estado real. Ver **§7** |
 
 ### 6.2 Riesgos
 
@@ -479,7 +479,205 @@ en una migración futura vuelve a destruir denuncias en silencio.
 - No toca el borrado de usuarios, posts, categorías ni ninguna otra entidad.
 - No convierte `remove()` en una transición de estado.
 - No añade una papelera ni un «deshacer»: eliminar es irreversible **a propósito**.
-- No arregla `Report.reviewId` (riesgo 5) ni recolecta los huérfanos ya existentes (D-5).
+- No arregla `Report.reviewId` (riesgo 5) ni recolecta los huérfanos ya existentes
+  (D-5 — evaluado y **descartado** en §7: el barrido no se construye).
+
+---
+
+## 7. B4 — Evaluación: ¿recolectar los huérfanos ya acumulados?
+
+> Añadido el 2026-08-19, con B1, B2 y B3 ya en `main`. Esto es una **evaluación**,
+> no un diseño de implementación: la pregunta es si conviene construir el barrido
+> retroactivo ahora. **Veredicto: no (opción B).** El razonamiento y la evidencia,
+> abajo. La deuda queda anotada en §7.7 con lo aprendido.
+
+### 7.1 Cómo se midió
+
+Un script de **solo lectura** (ni un `DELETE`, ni un `PUT`, ni un encolado) que
+hace dos cosas y las cruza:
+
+1. **Lista el bucket entero** por la API de S3 (`ListObjectsV2` paginado), con
+   clave, tamaño y fecha de cada objeto.
+2. **Recoge las referencias de la base de datos** sin enumerar columnas a mano.
+   Convierte **cada fila de cada tabla** a texto (`SELECT row_to_json(t)::text`)
+   y busca claves ahí dentro con una expresión regular sobre los ocho prefijos
+   conocidos.
+
+El punto 2 es deliberado y es la mitad del hallazgo. Una lista de columnas
+escrita a mano es exactamente el mecanismo que produce el falso positivo que
+este documento acaba recomendando evitar; escanear la fila completa mete dentro
+del cruce las referencias que viven **dentro de columnas `Json` opacas**
+(`Post.blocks`, `HomepageConfig.blocks`, `Setting.value`, `AuditLog.before/after`).
+A las miniaturas, que **no están en ninguna columna**, se les aplica la misma
+derivación que usa la limpieza real (`thumbKeyFor`, de B3).
+
+### 7.2 El resultado bruto
+
+Bucket `marketplace` de desarrollo, **8081 objetos, 33,2 MB**:
+
+| Prefijo | Objetos | Huérfanos | % | Tamaño huérfano | Rango de fechas |
+|---|---|---|---|---|---|
+| `media/` | 1975 | 1964 | 99 % | 16,4 MB | 2026-07-22 … 2026-08-19 |
+| `facturas/` | 1815 | 1815 | **100 %** | 5,5 MB | 2026-07-27 … 2026-08-19 |
+| `tickets/` | 2940 | 2939 | 100 % | 0,2 MB | 2026-07-29 … 2026-08-19 |
+| `blocks/` | 429 | 428 | 100 % | 0,1 MB | 2026-07-26 … 2026-08-19 |
+| `sponsored/` | 423 | 423 | **100 %** | 0,1 MB | 2026-07-26 … 2026-08-19 |
+| `listing-videos/` | 230 | 230 | 100 % | <0,1 MB | 2026-08-09 … 2026-08-19 |
+| `avatars/` | 213 | 213 | 100 % | <0,1 MB | 2026-07-26 … 2026-08-19 |
+| `homepage/` | 56 | 52 | 93 % | <0,1 MB | 2026-08-07 … 2026-08-19 |
+| **TOTAL** | **8081** | **8064** | **99,8 %** | **22,2 MB** (67 %) | |
+
+La base de datos referencia **17 claves distintas** (+11 miniaturas derivadas =
+28 con dueño). Y un dato que conviene retener: **0 referencias rotas**. La base
+de datos no apunta ni una sola vez a un fichero que no exista, lo que dice que
+las rutas de borrado que ya hay (B3, `VideoService`, los rollbacks de factura y
+adjunto) **no están borrando de más**.
+
+### 7.3 Por qué ese 99,8 % no responde a la pregunta
+
+Sería fácil leer la tabla como «hay muchísima basura, hagamos el barrido». Es la
+lectura equivocada, y la propia tabla lo demuestra:
+
+- **1815 PDFs de factura en el bucket. `Invoice` tiene 0 filas.**
+- **423 imágenes de patrocinado. `SponsoredAd` tiene 0 filas.**
+- 2940 objetos de ticket. `TicketAttachment` tiene 1 fila.
+
+Ningún escenario de producción produce eso. La base de datos de desarrollo está
+en estado de semilla (4 usuarios, 6 anuncios, 11 imágenes); el bucket **no se
+reinicia** cuando la base sí, así que lleva un mes acumulando lo que subieron el
+seed y cada corrida de e2e. El rango de fechas —del 22 de julio al 19 de agosto—
+es literalmente la ventana de desarrollo.
+
+Dicho de otro modo: **lo medido no es «la basura vieja de la plataforma», es
+escombro de test en un bucket desechable.** Y no hay una versión de producción
+con la que contrastarlo, porque **no hay producción**: `pendientes.md` mantiene
+«Preparación de producción» en `[DEUDA]`. La basura acumulada de la que hablaba
+D-5 **no existe todavía en ningún sitio donde importe**.
+
+### 7.4 El hallazgo colateral: el bucket de tests está desconectado
+
+Buscando por qué el bucket de desarrollo tenía 8000 objetos apareció la causa, y
+merece arreglo propio:
+
+[`docker-compose.yml:66`](../docker-compose.yml#L66) declara la intención en un
+comentario y crea el bucket:
+
+```
+# - "marketplace"      → bucket de desarrollo
+# - "marketplace-test" → bucket de tests (Playwright + backend e2e con S3_BUCKET=marketplace-test)
+```
+
+Pero [`apps/api/.env.test:20`](../apps/api/.env.test#L20) dice
+`S3_BUCKET="marketplace"`. El fichero que cargan **las dos** suites
+(`test/load-env.ts` para Jest e2e, `playwright.config.ts:10` para el navegador)
+apunta al bucket de desarrollo. `marketplace-test` existe, está anunciado, tiene
+permisos configurados y está **vacío** (4 KB).
+
+El aislamiento se diseñó y nunca se conectó. Es un cable suelto de una línea, y
+es la razón entera del 99,8 %.
+
+### 7.5 El barrido no atacaría la deuda que dice atacar
+
+La deuda de [`pendientes.md`](./pendientes.md#L172) nombra tres fuentes: las
+imágenes de wizards abandonados, los adjuntos de ticket y los vídeos sin
+confirmar. Cruzando esa lista con lo que un barrido «bucket menos base de datos»
+puede ver:
+
+| Fuente | ¿La ve un barrido por claves? | Por qué |
+|---|---|---|
+| Imágenes de wizard abandonado | **No** | `POST /media/upload` **crea fila** `ListingImage` con `listingId = null`. El fichero **sí tiene referencia**: el barrido lo da por vivo y lo salta |
+| Adjuntos de ticket | **No** | `TicketAttachment.key` es una fila. Misma razón |
+| Vídeos sin confirmar | Sí | Se suben con URL prefirmada y nunca llegan a fila. Huérfano real de clave |
+| Avatar sustituido | Sí | `uploadAvatar` **nunca borra el anterior** ([`media.service.ts:47`](../apps/api/src/modules/media/media.service.ts#L47)); `User.avatarUrl` se pisa y la clave vieja queda suelta |
+| `blocks/`, `homepage/`, `sponsored/` | Sí | Suben directo a R2 sin fila propia; quitar el bloque del `Json` deja el fichero suelto |
+
+Dos consecuencias, y las dos apuntan al mismo sitio:
+
+**Primera:** de las tres fuentes que la deuda nombra, el barrido sólo ve una. Las
+dos grandes son basura **con fila**, y detectarlas es una consulta a la base de
+datos (`ListingImage WHERE listingId IS NULL AND createdAt < umbral`), no un
+recorrido del bucket. Son dos trabajos distintos que D-5 mete en el mismo saco.
+
+**Segunda, y es la que decide:** las tres que el barrido **sí** ve —vídeos,
+avatares, bloques— tienen la **fuente todavía abierta**. B3 cerró el borrado de
+anuncios; no tocó ninguna de esas. Barrer ahora es pasar la fregona con el grifo
+abierto: la basura vuelve a acumularse el mismo día, y el barrido pasa de
+«limpieza única» a «tarea periódica», que es otro coste y otra decisión.
+
+### 7.6 El riesgo de falso positivo, demostrado
+
+El marco decía que el falso positivo es catastrófico e irreversible. Con el
+estado real delante, no hay que argumentarlo en abstracto: **la base de datos de
+hoy ya contiene el caso.**
+
+**El caso real.** `Post.coverUrl` apunta a
+`media/3ad780bb3d62ce1eff2e8ded699248b9.webp`. Ese objeto:
+
+- está bajo el prefijo `media/`, el de las imágenes de anuncio;
+- tiene fila `ListingImage` con **`listingId = null`**;
+- y está **vivo**: es la portada del blog, publicada.
+
+Es **indistinguible, campo por campo, de una imagen de wizard abandonado** —que
+es justo la clase que la deuda manda recolectar. La regla de detección más
+natural para esa deuda (*`ListingImage` sin anuncio y con cierta antigüedad →
+huérfana*) **borraría la portada del blog**. Y no es una casualidad del seed: es
+estructural. `PostForm.tsx` (portada) y `MarkdownEditor.tsx` (imágenes del
+cuerpo) suben las dos por `uploadMedia` → `POST /media/upload`, así que **toda**
+la imaginería editorial del blog vive como `ListingImage` huérfana bajo `media/`.
+
+Y otros tres vectores que el propio método de medición tuvo que esquivar:
+
+| # | Vector | Qué borraría | Cómo se esquiva |
+|---|---|---|---|
+| 1 | **Referencias dentro de `Json`** | 8 de las 17 referencias vivas están dentro de `HomepageConfig.blocks` y 2 dentro de `Post.blocks`. Una consulta de propiedad que enumere columnas y olvide un campo de bloques **borra la portada de la home** | Escanear la fila completa (`row_to_json`), no una lista de columnas |
+| 2 | **Claves derivadas** | 11 de las 28 claves con dueño son `-thumb.webp` y **no están en ninguna columna**. Olvidar la derivación borra **todas** las miniaturas vivas | Reusar `thumbKeyFor` de `media-keys.ts` |
+| 3 | **Claves desnudas, sin URL** | `Invoice.pdfKey` guarda la clave cruda, no la URL pública. Un barrido que case sólo contra el prefijo de `S3_PUBLIC_URL` no la ve y **borra PDFs fiscales**, que son documentos de conservación obligatoria | Casar también claves sin prefijo |
+| 4 | **Propiedad entre prefijos** | `media/` no es exclusivo de anuncios: contiene portadas de blog. Acotar el barrido por prefijo asumiendo dueño único es falso | No asumir que prefijo = dueño |
+
+Cuatro vectores en una base de código de este tamaño, y uno de ellos ya
+materializado en la base de datos actual. La asimetría del enunciado se sostiene
+sola: perder la portada del blog o un PDF fiscal es irreversible; dejar 22 MB de
+escombro no le hace nada a nadie.
+
+### 7.7 Veredicto: **opción B — esperar, como deuda de bajo impacto**
+
+Los tres ejes del marco, con la evidencia:
+
+| Eje | Lectura |
+|---|---|
+| **Coste de no hacerlo** | **Nulo hoy.** La basura medida es escombro de test en un bucket local desechable. En producción no hay nada acumulado porque no hay producción. Y no crece por el lado de los anuncios: B3 cerró esa fuente |
+| **Riesgo de hacerlo** | **Alto y demostrado.** Cuatro vectores de falso positivo, uno ya presente: la regla de detección obvia para la deuda principal borra la portada del blog. El coste es irreversible (imagen editorial, PDF fiscal) |
+| **Esfuerzo** | **Alto y mal invertido.** Un barrido seguro necesita dry-run, cuarentena, umbral de antigüedad y una consulta de propiedad exhaustiva. Y al terminar sólo cubriría las clases cuya **fuente sigue abierta**, así que habría que volver a pasarlo |
+
+El cuerpo de borrado se cierra con **B1 + B2 + B3**. B4 no se construye.
+
+**Lo que sí conviene hacer, que es barato y no es un barrido** (tres cosas
+separadas, ninguna parte de P5):
+
+1. **Conectar el bucket de tests** — `apps/api/.env.test` a `marketplace-test`.
+   Una línea. Cierra la fuente real del 99,8 % y devuelve significado al
+   contenido del bucket de desarrollo, que hoy no se puede leer.
+2. **Vaciar el bucket de desarrollo cuando apetezca** — `mc rb --force` y dejar
+   que `createbuckets` lo recree. Riesgo cero: es local y desechable. No necesita
+   dry-run, ni cuarentena, ni código. No confundir esto con B4.
+3. **Antes de producción, cerrar las fuentes que quedan**, que es prevención al
+   estilo de B3 y no recolección: el avatar sustituido, las imágenes de
+   `blocks/`/`homepage/`/`sponsored/` al quitar el bloque, y el vídeo nunca
+   confirmado. Con la fuente cerrada, la basura nueva no aparece — y entonces la
+   vieja es un conjunto **finito y conocido**, que es cuando un barrido empieza a
+   tener sentido.
+
+**Lo aprendido, para quien retome esto.** Si algún día hay que barrer de verdad,
+lo que hace falta no es el barrido: es la **consulta de propiedad**. Y esa
+consulta tiene que (a) escanear la fila entera, no columnas elegidas, porque hay
+dueños dentro de `Json`; (b) derivar las miniaturas con `thumbKeyFor`, porque no
+están persistidas; (c) casar claves desnudas además de URLs, por `Invoice.pdfKey`;
+y (d) no suponer que un prefijo tiene un solo dueño. Encima de eso van las
+salvaguardas de siempre —dry-run revisado a mano, cuarentena por movimiento a un
+prefijo aparte antes de borrar nada, y umbral de antigüedad para no pisar una
+subida en curso—, pero las salvaguardas sólo limitan el daño de una consulta de
+propiedad incompleta; no la arreglan. **La regla que queda: ante la duda, un
+huérfano de más es mejor que un fichero vivo de menos.**
 
 ---
 

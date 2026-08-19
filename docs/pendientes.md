@@ -193,6 +193,52 @@ los que nunca llegaron a confirmarse, y pesan bastante más que una foto (hasta 
 
 Conviene resolver las **tres** con el mismo mecanismo.
 
+**ACTUALIZACIÓN (2026-08-19) — evaluado en `diseno-borrado.md` §7, veredicto: NO barrer.**
+
+Lo que **ya está cerrado** por B3: al eliminar un anuncio (staff) y al descartar un borrador
+(dueño) se encolan sus ficheros de R2 —originales, **miniaturas derivadas** y vídeo con su
+póster— en la cola `media-cleanup`. La fuente de huérfanos *por borrado de anuncio* ya no
+existe.
+
+Lo que **sigue abierto**, y son dos problemas distintos que esta entrada mezclaba:
+
+- **Basura CON fila** (imágenes de wizard abandonado, adjuntos de ticket): el fichero **sí**
+  está referenciado, así que un barrido «bucket menos base de datos» no la ve. Se detecta con
+  una consulta (`ListingImage WHERE listingId IS NULL AND createdAt < umbral`), no recorriendo
+  el bucket. **Ojo, y es lo importante:** esa consulta, tal cual, **borraría la portada del
+  blog**. Toda la imaginería del blog sube por `POST /media/upload` (`PostForm.tsx`,
+  `MarkdownEditor.tsx`) y vive como `ListingImage` con `listingId = null` bajo `media/` —
+  indistinguible de un wizard abandonado. Verificado en la base de datos actual.
+- **Basura SIN fila** (vídeo sin confirmar, y dos fuentes más que no estaban en esta lista):
+  el **avatar sustituido** (`media.service.ts:47` sube el nuevo y nunca borra el viejo) y las
+  imágenes de `blocks/`, `homepage/` y `sponsored/`, que suben directo a R2 sin fila propia y
+  quedan sueltas al quitar el bloque del `Json`.
+
+**Por qué no se barre ahora:** no hay basura de producción que recoger (no hay producción), el
+riesgo de falso positivo está demostrado y es irreversible, y las clases que un barrido sí
+vería tienen la **fuente todavía abierta** —limpiarlas hoy es fregar con el grifo abierto—.
+El orden correcto es **cerrar primero las fuentes** (prevención, como B3) y sólo después
+plantearse recoger un conjunto ya finito. Detalle completo y las salvaguardas que necesitaría
+un barrido seguro, en `diseno-borrado.md` §7.6–§7.7.
+
+#### El bucket de tests está declarado pero no conectado `[DEUDA]` — hallazgo de la evaluación B4
+
+[docker-compose.yml:66](../docker-compose.yml#L66) anuncia y crea `marketplace-test` como
+«bucket de tests (Playwright + backend e2e con `S3_BUCKET=marketplace-test`)», pero
+[apps/api/.env.test:20](../apps/api/.env.test#L20) dice `S3_BUCKET="marketplace"`. Ese fichero
+lo cargan **las dos** suites (`test/load-env.ts` y `playwright.config.ts:10`), así que todos
+los tests escriben en el bucket de **desarrollo**. `marketplace-test` está vacío.
+
+**Efecto medido:** 8081 objetos en el bucket de desarrollo, de los cuales **8064 (99,8 %) sin
+dueño** — entre ellos 1815 PDFs de factura con la tabla `Invoice` a 0 filas, y 423 imágenes de
+patrocinado con `SponsoredAd` a 0. No es basura de la plataforma: es un mes de corridas de e2e
+sobre una base de datos que sí se reinicia y un bucket que no.
+
+**Arreglo:** una línea en `.env.test`. Es barato y devuelve significado al contenido del bucket
+de desarrollo, que hoy no se puede leer para nada. El bucket de desarrollo puede vaciarse a
+mano cuando se quiera (`mc rb --force` y dejar que `createbuckets` lo recree): es local y
+desechable, y eso **no** es el barrido descartado arriba.
+
 #### Página de tag del blog con URL propia — deuda que el Hito 7.2 declaraba cerrar y no cerró `[DEUDA]`
 
 `apps/web/src/app/(public)/blog/` contiene solo `[slug]/` y `page.tsx`. El filtrado por etiqueta
@@ -375,7 +421,8 @@ antes o justo después del primer despliegue de esta feature. **No se puede cerr
 | 6 | Rate limit por IP sin verificar | `[SEGURIDAD]` | §1 |
 | 1 | Despliegue (nunca desplegado) | `[DEUDA]` | — |
 | 4.2 | `conversation:read` en tiempo real | `[DEUDA]` | — |
-| 4.2 | `DELETE /media` + huérfanas (imágenes + adjuntos + **vídeo**) | `[DEUDA]` | — |
+| 4.2 | Cerrar las **fuentes** de huérfanas que quedan (avatar sustituido, `blocks`/`homepage`/`sponsored`, vídeo sin confirmar) — el barrido retroactivo se evaluó y se **descartó** (`diseno-borrado.md` §7) | `[DEUDA]` | — |
+| 4.2 | Conectar `.env.test` al bucket `marketplace-test` (una línea) | `[DEUDA]` | — |
 | 4.2 | `Setting` decorativos (`listingExpiryDays` confirmado; patrón) | `[DEUDA]` | — |
 | 4.2 | Aviso al admin si `proActiveListingLimit <= freeActiveListingLimit` | `[DEUDA]` | — |
 | 4.2 | Camino feliz del vídeo sin cubrir en navegador (falta fixture MP4) | `[DEUDA]` | — |
