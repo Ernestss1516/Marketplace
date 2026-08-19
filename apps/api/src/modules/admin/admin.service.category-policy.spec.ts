@@ -64,6 +64,11 @@ function buildService(prismaOverrides: Record<string, unknown> = {}) {
     // ningún anuncio, pero el constructor las exige.
     { add: jest.fn().mockResolvedValue(undefined) } as never,
     { getPublicUrl: () => 'https://cdn.test/' } as never,
+    // FICHA F1 — mantenimiento de fixture por cambio de FIRMA. Estos casos son de
+    // política de categorías y no pasan por `getListingById`, que es el único
+    // sitio donde se consultan las señales de moderación.
+    { reviewSignalsFor: jest.fn() } as never,
+    { hasBadWords: jest.fn() } as never,
   );
 
   return { service, prisma, auditLog, indexingQueue, categoryTree };

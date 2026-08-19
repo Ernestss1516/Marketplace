@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { AlertCircle, BadgeCheck, ChevronDown, ChevronRight, Loader2, Search, ShieldAlert } from 'lucide-react';
 import {
@@ -223,13 +224,24 @@ export default function AdminUsuariosPage() {
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
   const [roleFilter, setRoleFilter] = useState<string | undefined>(undefined);
-  const [q, setQ] = useState('');
-  const [inputQ, setInputQ] = useState('');
+  // FICHA F1 — LLEGADA DESDE LA FICHA DE ANUNCIO. La ficha enlaza al vendedor
+  // con `?q={email}&destacado={id}`: el email es único, así que la búsqueda lo
+  // encuentra siempre —no depende de en qué página de la lista caiga— y
+  // `destacado` deja su detalle ya desplegado.
+  //
+  // Es un enlace de ida, no P2. Cuando exista la ficha de usuario, se redirige
+  // ahí sin tocar la ficha de anuncio. Ver docs/diseno-ficha-anuncio.md §6 (D-5).
+  const searchParams = useSearchParams();
+  const qInicial = searchParams.get('q') ?? '';
+  const destacadoInicial = searchParams.get('destacado');
+
+  const [q, setQ] = useState(qInicial);
+  const [inputQ, setInputQ] = useState(qInicial);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Expanded detail row
-  const [detailId, setDetailId] = useState<string | null>(null);
+  const [detailId, setDetailId] = useState<string | null>(destacadoInicial);
 
   // Action in-flight
   const [pendingId, setPendingId] = useState<string | null>(null);

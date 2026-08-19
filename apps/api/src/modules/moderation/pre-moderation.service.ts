@@ -42,6 +42,18 @@ export const PRE_MODERATION_TRUSTED_EXEMPT_SETTING = 'preModerationTrustedExempt
 export type ReviewTrigger = 'USER' | 'CATEGORY' | 'PLATFORM';
 
 /**
+ * FICHA F1 — los tres niveles evaluados de forma independiente, para enseñarlos.
+ * `plataforma` ya lleva aplicada la exención por confianza, igual que la ve la
+ * decisión real: es lo que el nivel de plataforma *concluye*, no el interruptor
+ * en bruto.
+ */
+export interface ReviewSignals {
+  usuario: boolean;
+  categoria: boolean;
+  plataforma: boolean;
+}
+
+/**
  * MODERACIÓN PREVIA — EL DISPARADOR (ráfaga M1).
  *
  * Responde a UNA pregunta: **¿este anuncio tiene que pasar por revisión antes de
@@ -141,6 +153,37 @@ export class PreModerationService {
       );
       return 'PLATFORM';
     }
+  }
+
+  /**
+   * FICHA F1 — LOS TRES NIVELES POR SEPARADO, sin quedarse con el ganador.
+   *
+   * `reviewTriggerFor` corta en el primero que dice que sí, porque para DECIDIR
+   * basta con eso. La ficha del backoffice tiene otra pregunta: el moderador que
+   * abre un anuncio en cola quiere ver **qué está encendido**, y «USER» a secas
+   * le oculta que además la categoría está marcada — información que cambia lo
+   * que hará después (desmarcar al vendedor no sacaría el anuncio de la cola).
+   *
+   * SON LAS MISMAS REGLAS, NO UNA COPIA: llama a los mismos tres privados. Si la
+   * fórmula cambia, cambia para los dos a la vez. Escribir aquí una segunda
+   * versión «parecida» sería exactamente la clase de divergencia silenciosa que
+   * este proyecto ya ha pagado una vez (la clave de la miniatura, B3).
+   *
+   * NO PRETENDE SER «EL MOTIVO». `Listing` no guarda por qué entró en revisión
+   * —ni existe la columna— así que esto es lo que está encendido AHORA, no lo que
+   * estaba encendido cuando el anuncio entró en la cola. La ficha lo presenta
+   * como señales, no como causa. Ver docs/diseno-ficha-anuncio.md §1.3.
+   */
+  async reviewSignalsFor(listing: {
+    categoryId: string;
+    sellerId: string;
+  }): Promise<ReviewSignals> {
+    const [usuario, categoria, plataforma] = await Promise.all([
+      this.usuarioRequiereRevision(listing.sellerId),
+      this.categoriaRequiereRevision(listing.categoryId),
+      this.plataformaRevisaTodo(listing.sellerId),
+    ]);
+    return { usuario, categoria, plataforma };
   }
 
   /**

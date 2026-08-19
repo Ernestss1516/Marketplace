@@ -198,10 +198,14 @@ export default function AdminReportesPage() {
                     <td className="p-3">
                       {r.listing ? (
                         <>
+                          {/* FICHA F1 — ANTES APUNTABA A `/anuncio/{slug}`, la
+                              página PÚBLICA, que lanza 404 para todo lo que no
+                              sea ACTIVE. Un anuncio denunciado suele estar ya
+                              desactivado, así que el moderador llegaba a un 404
+                              justo cuando necesitaba ver la prueba. La ficha del
+                              backoffice muestra CUALQUIER estado. */}
                           <a
-                            href={`/anuncio/${r.listing.slug}`}
-                            target="_blank"
-                            rel="noreferrer"
+                            href={`/admin/anuncios/${r.listing.id}`}
                             className="text-blue-600 hover:underline"
                           >
                             {r.listing.title}
