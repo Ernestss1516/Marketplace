@@ -484,6 +484,96 @@ test.describe('ENMIENDA A M4 — la marca de revisión de una categoría es del 
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ROLES R4 — LA PUERTA DEL BACKOFFICE, abierta a EDITOR+.
+//
+// `/admin/login` nació ADMIN-only, cuando el backoffice era de facto cosa de
+// administradores. Con el reparto de R2 un MODERATOR gestiona 19 secciones y un
+// EDITOR siete, así que obligarles a entrar por la puerta pública era pedirles
+// que recordaran que su panel tiene una puerta que no es la suya.
+//
+// Se afirma lo que la puerta abre y —sobre todo— lo que NO: entrar por aquí es
+// AUTENTICARSE, no ganar permisos. Si se confundieran, esta puerta sería un
+// atajo para saltarse el reparto de R1/R2.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Entra por la puerta del backoffice (no por la pública) y devuelve la página. */
+async function loginPorLaPuertaDelPanel(browser: Browser, email: string) {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto('/admin/login');
+  await page.getByLabel('Email').fill(email);
+  await page.getByLabel('Contraseña').fill('Test1234!');
+  await page.getByRole('button', { name: 'Entrar' }).click();
+  return page;
+}
+
+test.describe('La puerta /admin/login', () => {
+  test('un EDITOR entra por /admin/login y aterriza en sus secciones', async ({ browser }) => {
+    const page = await loginPorLaPuertaDelPanel(browser, 'editor-e2e@example.com');
+
+    // El destino por defecto de esta puerta es `/admin`, que desde R2 es EDITOR+.
+    await page.waitForURL((url) => url.pathname.startsWith('/admin') && url.pathname !== '/admin/login', {
+      timeout: 15_000,
+    });
+    await page.waitForLoadState('networkidle');
+
+    // Y ve exactamente las suyas: 7, ni una más.
+    await expect(page.getByTestId('admin-nav').getByRole('link')).toHaveCount(7);
+    await page.close();
+  });
+
+  test('un MODERATOR entra por /admin/login y ve sus 19 secciones', async ({ browser }) => {
+    const page = await loginPorLaPuertaDelPanel(browser, 'moderator-e2e@example.com');
+    await page.waitForURL((url) => url.pathname.startsWith('/admin') && url.pathname !== '/admin/login', {
+      timeout: 15_000,
+    });
+    await page.waitForLoadState('networkidle');
+
+    await expect(page.getByTestId('admin-nav').getByRole('link')).toHaveCount(19);
+    await page.close();
+  });
+
+  test('un ADMIN sigue entrando por su puerta de siempre, con las 22', async ({ browser }) => {
+    const page = await loginPorLaPuertaDelPanel(browser, 'admin-e2e@example.com');
+    await page.waitForURL((url) => url.pathname.startsWith('/admin') && url.pathname !== '/admin/login', {
+      timeout: 15_000,
+    });
+    await page.waitForLoadState('networkidle');
+
+    await expect(page.getByTestId('admin-nav').getByRole('link')).toHaveCount(22);
+    await page.close();
+  });
+
+  test('un USER NO entra: la puerta se abrió a EDITOR+, no a todo el mundo', async ({ browser }) => {
+    // `seller-e2e` es una cuenta de vendedor corriente (rol USER).
+    const page = await loginPorLaPuertaDelPanel(browser, 'seller-e2e@example.com');
+
+    await expect(
+      page.getByText('Esta entrada es solo para el equipo del backoffice.'),
+    ).toBeVisible({ timeout: 15_000 });
+    // Y sigue en la puerta: no ha entrado a ninguna parte.
+    expect(page.url()).toContain('/admin/login');
+    await page.close();
+  });
+
+  test('entrar por la puerta del panel NO da permisos: el EDITOR sigue frenado en lo de MODERATOR', async ({
+    browser,
+  }) => {
+    // La mitad que importa. R4 abre la autenticación; el reparto de R1/R2 sigue
+    // siendo quien decide, y el middleware lo aplica igual venga de donde venga.
+    const page = await loginPorLaPuertaDelPanel(browser, 'editor-e2e@example.com');
+    await page.waitForURL((url) => url.pathname.startsWith('/admin') && url.pathname !== '/admin/login', {
+      timeout: 15_000,
+    });
+
+    await page.goto('/admin/anuncios', { waitUntil: 'domcontentloaded' });
+    await page.waitForURL((url) => !url.pathname.startsWith('/admin'), { timeout: 8_000 });
+    expect(page.url()).not.toContain('/admin');
+    await page.close();
+  });
+});
+
 test.describe('Asignación de roles desde /admin/usuarios', () => {
   test('ADMIN cambia el rol de un usuario (USER → EDITOR → MODERATOR → USER) y el acceso real cambia en consecuencia', async ({
     adminContext,

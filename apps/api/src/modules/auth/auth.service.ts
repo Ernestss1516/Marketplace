@@ -16,6 +16,7 @@ import { randomBytes } from 'crypto';
 import { OAuth2Client } from 'google-auth-library';
 import { Role, UserStatus } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
+import { atLeast } from '../../common/roles/role-hierarchy';
 import { RateLimitService } from '../../infra/redis/rate-limit.service';
 import { QUEUE_NOTIFICATIONS } from '../../infra/queue/queue.constants';
 import {
@@ -161,9 +162,27 @@ export class AuthService {
     };
   }
 
-  /** Puerta separada para el panel de administración — decidido: los ADMIN
-   * SOLO pueden entrar por aquí (login() los rechaza, ver arriba). Un límite
-   * de IP más estricto que el público: es la puerta del panel. */
+  /**
+   * Puerta separada para el backoffice. Un límite de IP más estricto que el
+   * público: es la puerta del panel.
+   *
+   * ROLES R4 — ABIERTA A EDITOR+, ya no sólo a ADMIN. Nació ADMIN-only cuando el
+   * backoffice era, de facto, cosa de administradores: un EDITOR tenía dos
+   * secciones y un MODERATOR siete. Con el reparto de R2 un MODERATOR gestiona
+   * DIECINUEVE secciones y un EDITOR siete, así que obligarles a entrar por la
+   * puerta pública era pedirles que recordaran que su panel tiene una puerta que
+   * no es la suya.
+   *
+   * LA ASIMETRÍA QUE SE CONSERVA, y no es un descuido: un ADMIN sólo puede entrar
+   * por AQUÍ (`login()` lo rechaza arriba), mientras que un EDITOR o un MODERATOR
+   * pueden entrar por las DOS. Son dos reglas distintas: la de arriba protege a
+   * las cuentas de administración de la puerta pública; ésta decide quién puede
+   * usar la del panel. Abrir la segunda no toca la primera.
+   *
+   * EL PISO SE EXPRESA CON LA ESCALERA (`atLeast`), no enumerando roles. Es lo que
+   * R1 construyó justamente para que abrir una puerta un piso no consista en
+   * acordarse de añadir un valor a una lista.
+   */
   async adminLogin(dto: LoginDto, ip: string) {
     const ipLimit = await this.rateLimit.checkAndIncrement(
       `auth:admin-login:ip:${ip}`,
@@ -174,11 +193,18 @@ export class AuthService {
 
     const user = await this.validateCredentials(dto);
 
-    // Mismo principio que arriba: el rechazo de "no eres admin" ocurre
-    // DESPUÉS de validar la contraseña — nunca antes.
-    if (user.role !== Role.ADMIN) {
+    // Mismo principio que arriba: el rechazo por rol ocurre DESPUÉS de validar
+    // la contraseña — nunca antes.
+    //
+    // EL CÓDIGO SE LLAMA `ADMIN_LOGIN_NOT_ADMIN` Y SE CONSERVA aunque desde R4
+    // signifique «no eres staff». No es descuido: es un identificador estable
+    // encadenado hasta el navegador —lo lee `lib/auth/index.ts`, que lanza un
+    // `AdminOnlyError` con su propio `code` en minúsculas, que a su vez lee
+    // `/admin/login`—. Renombrarlo son cinco sitios y una convención de Auth.js
+    // por un nombre; el MENSAJE, que es lo que lee una persona, sí se actualiza.
+    if (!atLeast(user.role, Role.EDITOR)) {
       throw new ForbiddenException({
-        message: 'Esta entrada es solo para administración.',
+        message: 'Esta entrada es solo para el equipo del backoffice.',
         code: 'ADMIN_LOGIN_NOT_ADMIN',
       });
     }

@@ -163,21 +163,36 @@ export const ADMIN_ROOT = '/admin';
 /**
  * ROLES R3 — LA PUERTA QUE LE TOCA A CADA ROL para volver a entrar.
  *
- * El backoffice tiene DOS puertas y no son intercambiables, porque el backend lo
- * impone en los dos sentidos: `AuthService.login` rechaza a un ADMIN con
- * `ADMIN_MUST_USE_ADMIN_LOGIN`, y `AuthService.adminLogin` rechaza a quien no lo
- * sea con `ADMIN_LOGIN_NOT_ADMIN`. Mandar a alguien a la puerta equivocada es un
- * callejón sin salida.
- *
  * VIVE AQUÍ porque hasta R3 la regla estaba escrita a mano en `AdminUserBar`, y
  * R3 necesitaba la misma decisión en un segundo sitio (`AdminSessionGuard`). Dos
  * copias de una regla de acceso es exactamente el defecto que este cuerpo vino a
  * cerrar, así que se extrae a la primera ocasión en vez de a la tercera.
  *
- * NOTA: con el reparto de R2 un MODERATOR gestiona 19 secciones y sigue entrando
- * por la puerta pública. Si `/admin/login` debe abrirse a EDITOR+ es una decisión
- * de producto pendiente (docs/diseno-roles.md §7.1, D-1); mientras no se tome,
- * esta función refleja el comportamiento real del backend y no lo adelanta.
+ * ─── R4: LA PUERTA SE ABRIÓ A EDITOR+, Y ESTA FUNCIÓN NO CAMBIA ───────────────
+ *
+ * Parece que debería: si ahora un MODERATOR puede entrar por `/admin/login`, lo
+ * natural sería devolvérselo. **Sería un error, y crearía un callejón sin salida
+ * justo en el flujo que R3 construyó.**
+ *
+ * El motivo es que esta función se llama con el rol de la sesión que MUERE, que
+ * puede estar caducado — de hecho el caso principal es exactamente ése: a alguien
+ * le quitan el rol, `AdminSessionGuard` lo expulsa, y su cookie todavía dice
+ * MODERATOR. Si le devolviéramos `/admin/login`, aterrizaría en una puerta que su
+ * cuenta —ya degradada a USER— rechaza, sin nada que hacer allí.
+ *
+ * Así que la pregunta que responde NO es «¿qué puerta prefiere este rol?» sino
+ * **«¿qué puerta lo va a admitir seguro?»**, y con las reglas del backend la
+ * respuesta es estable:
+ *
+ *   · ADMIN → `/admin/login` OBLIGATORIO: `AuthService.login` lo rechaza con
+ *     `ADMIN_MUST_USE_ADMIN_LOGIN`, y un ADMIN no puede ser degradado
+ *     (`changeUserRole` se niega a tocarlo), así que su rol nunca queda caducado
+ *     hacia abajo. Es el único caso en el que la puerta del panel es la segura.
+ *   · Cualquier otro → `/login`, que admite a EDITOR, MODERATOR **y** USER. Es la
+ *     única que sigue valiendo si el rol de la cookie ya no es cierto.
+ *
+ * Que EDITOR y MODERATOR puedan usar las DOS puertas es justo lo que hace segura
+ * esta elección: mandarles a la pública nunca falla.
  */
 export function backofficeLoginPathFor(role: string | null | undefined): string {
   return role === 'ADMIN' ? ADMIN_LOGIN_PATH : '/login';

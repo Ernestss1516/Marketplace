@@ -151,7 +151,114 @@ describe('AUTH — /admin/login separada (e2e)', () => {
         .expect(200);
     });
 
-    it('usuario NO-admin con contraseña correcta → 403 ADMIN_LOGIN_NOT_ADMIN, tras validar la contraseña (no antes)', async () => {
+    // ── ROLES R4 — la puerta se abre a EDITOR+ ────────────────────────────────
+    //
+    // Nació ADMIN-only, cuando el backoffice era de facto cosa de administradores.
+    // Con el reparto de R2 un MODERATOR gestiona 19 secciones y un EDITOR siete,
+    // así que obligarles a la puerta pública era pedirles que recordaran que su
+    // panel tiene una puerta que no es la suya.
+    //
+    // Se comprueban los DOS roles por separado y no sólo «uno de staff»: el piso
+    // se declara con `atLeast(EDITOR)`, y un error de un escalón (poner MODERATOR)
+    // dejaría fuera al EDITOR sin que un test de MODERATOR se enterara.
+    for (const rol of ['EDITOR', 'MODERATOR'] as const) {
+      it(`un ${rol} entra por /admin/login y su token vale en el backoffice`, async () => {
+        const email = `r4-${rol.toLowerCase()}@example.com`;
+        await prisma.user.create({
+          data: {
+            email,
+            name: `R4 ${rol}`,
+            slug: `r4-${rol.toLowerCase()}`,
+            passwordHash: await hash('Test1234!'),
+            emailVerified: true,
+            role: rol,
+          },
+        });
+
+        const res = await request(app.getHttpServer())
+          .post('/api/auth/admin-login')
+          .set('X-Forwarded-For', freshIp())
+          .send({ email, password: 'Test1234!' });
+
+        expect(res.status).toBe(200);
+        expect(res.body.user).toMatchObject({ email, role: rol });
+        expect(res.body.accessToken).toBeDefined();
+
+        // El token sirve de verdad: `/admin/stats` es la sección de piso más bajo
+        // del backoffice (EDITOR+ desde R2), así que los dos roles la alcanzan.
+        await request(app.getHttpServer())
+          .get('/api/admin/stats')
+          .set('Authorization', `Bearer ${res.body.accessToken as string}`)
+          .expect(200);
+      });
+    }
+
+    it('la puerta abierta NO da permisos: un EDITOR con token de /admin/login sigue sin llegar a lo de MODERATOR ni a lo de ADMIN', async () => {
+      // R4 abre la AUTENTICACIÓN, no la autorización. Si esto se confundiera,
+      // entrar por la puerta del panel sería un atajo para saltarse el reparto.
+      const email = 'r4-editor-limites@example.com';
+      await prisma.user.create({
+        data: {
+          email,
+          name: 'R4 Editor Limites',
+          slug: 'r4-editor-limites',
+          passwordHash: await hash('Test1234!'),
+          emailVerified: true,
+          role: 'EDITOR',
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .post('/api/auth/admin-login')
+        .set('X-Forwarded-For', freshIp())
+        .send({ email, password: 'Test1234!' })
+        .expect(200);
+      const token = res.body.accessToken as string;
+
+      // De MODERATOR: el catálogo.
+      await request(app.getHttpServer())
+        .get('/api/admin/categories')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(403);
+      // De ADMIN: los ajustes.
+      await request(app.getHttpServer())
+        .get('/api/admin/settings')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(403);
+    });
+
+    it('un ADMIN sigue SIN poder entrar por la puerta pública (la asimetría se conserva)', async () => {
+      // R4 abre `/admin/login` a EDITOR+, pero NO toca la regla de `login()`: son
+      // dos decisiones distintas. Un EDITOR/MODERATOR puede usar las dos puertas;
+      // un ADMIN, sólo la del panel. De esa asimetría depende que
+      // `backofficeLoginPathFor` pueda mandar a todo el mundo a `/login` salvo al
+      // ADMIN — ver su comentario.
+      const email = 'r4-admin-publico@example.com';
+      await prisma.user.create({
+        data: {
+          email,
+          name: 'R4 Admin Publico',
+          slug: 'r4-admin-publico',
+          passwordHash: await hash('Test1234!'),
+          emailVerified: true,
+          role: 'ADMIN',
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .post('/api/auth/login')
+        .set('X-Forwarded-For', freshIp())
+        .send({ email, password: 'Test1234!' });
+
+      expect(res.status).toBe(403);
+      expect(res.body.code).toBe('ADMIN_MUST_USE_ADMIN_LOGIN');
+    });
+
+    // ROLES R4 — este caso SIGUE VALIENDO y es el suelo del cambio: la puerta se
+    // abrió a EDITOR+, así que un USER —que no llega a ese piso— sigue fuera. El
+    // nombre del código conserva `NOT_ADMIN` por ser un identificador estable que
+    // viaja hasta el navegador; lo que significa desde R4 es «no eres del equipo».
+    it('un USER con contraseña correcta → 403 ADMIN_LOGIN_NOT_ADMIN, tras validar la contraseña (no antes)', async () => {
       await prisma.user.create({
         data: {
           email: 'not-admin-tries@example.com',
