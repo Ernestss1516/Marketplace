@@ -23,7 +23,13 @@ import {
 } from './listing-phone.constants';
 import { EntitlementType, Prisma } from '@prisma/client';
 import type { Deal, Listing, ListingStatus, ListingType, PriceType } from '@prisma/client';
-import { QUEUE_INDEXING, QUEUE_NOTIFICATIONS } from '../../infra/queue/queue.constants';
+import {
+  QUEUE_INDEXING,
+  QUEUE_MEDIA_CLEANUP,
+  QUEUE_NOTIFICATIONS,
+} from '../../infra/queue/queue.constants';
+import { R2Service } from '../../infra/r2/r2.service';
+import { listingMediaKeys } from '../../infra/r2/media-keys';
 import { NOTIFICATION_JOB, SendReviewRequestEmailData } from '../../infra/queue/notification.types';
 import { isP2002 } from '../../common/prisma/is-p2002';
 import { ExpirationService } from '../expiration/expiration.service';
@@ -202,6 +208,11 @@ export class ListingsService {
     // PUERTA regla #3 — el ÚNICO lector del tope de fotos (antes, un 15 clavado
     // en los dos DTOs y en React).
     private readonly photoLimits: PhotoLimitsService,
+    // BORRADO B3 — limpiar del bucket las fotos de un borrador descartado. Van
+    // AL FINAL a propósito: insertar parámetros en medio obliga a recontar
+    // posiciones en cada spec que construya el servicio a mano, y aquí hay dos.
+    @InjectQueue(QUEUE_MEDIA_CLEANUP) private readonly mediaCleanupQueue: Queue,
+    private readonly r2: R2Service,
   ) {}
 
   async create(sellerId: string, dto: CreateListingDto): Promise<Listing> {
@@ -1024,12 +1035,38 @@ export class ListingsService {
       );
     }
 
+    // BORRADO B3 — un borrador SÍ puede tener ficheros: el wizard sube las fotos
+    // (y el vídeo) antes de publicar, así que descartarlo sin limpiar es
+    // exactamente la fuente de huérfanas que `docs/pendientes.md` ya describía
+    // («las imágenes de wizards abandonados quedan huérfanas para siempre»).
+    // Se leen ANTES del borrado — después no habría de dónde.
+    const media = await this.prisma.listing.findUnique({
+      where: { id },
+      select: {
+        videoUrl: true,
+        videoPosterUrl: true,
+        images: { select: { url: true } },
+      },
+    });
+
     await this.prisma.listing.delete({ where: { id } });
     // Se conservan los dos efectos del borrado anterior aunque un DRAFT no esté
     // ni cacheado ni indexado (sólo se indexan los ACTIVE): son idempotentes y
     // baratos, y quitarlos sería confiar en que esas dos reglas no cambien nunca.
     await this.redis.client.del(cacheKey(existing.slug));
     await this.indexingQueue.add('remove', { listingId: id });
+
+    const keys = listingMediaKeys(
+      {
+        imageUrls: media?.images.map((i) => i.url) ?? [],
+        videoUrl: media?.videoUrl,
+        videoPosterUrl: media?.videoPosterUrl,
+      },
+      this.r2.getPublicUrl(''),
+    );
+    if (keys.length > 0) {
+      await this.mediaCleanupQueue.add('purge', { keys, origen: `draft:${id}` });
+    }
   }
 
   async findBySlug(slug: string) {

@@ -4,6 +4,7 @@ import { Job } from 'bullmq';
 import sharp from 'sharp';
 import { QUEUE_IMAGE } from '../queue.constants';
 import { R2Service } from '../../r2/r2.service';
+import { thumbKeyFor } from '../../r2/media-keys';
 import { PrismaService } from '../../prisma/prisma.service';
 
 interface ImageJobData {
@@ -32,7 +33,12 @@ export class ImageProcessor extends WorkerHost {
         .webp({ quality: 82 })
         .toBuffer();
 
-      const thumbKey = r2Key.replace(/\.[^.]+$/, '-thumb.webp');
+      // BORRADO B3 — la regla de la clave de la miniatura se movió a
+      // `media-keys.ts`. Vivía aquí, y la limpieza de R2 necesitaba EXACTAMENTE
+      // la misma para encontrar lo que este procesador crea: dos copias de una
+      // regla que nadie más comprueba es cómo se dejan huérfanas todas las
+      // miniaturas nuevas sin que salte nada. Misma razón que `cache-keys.ts`.
+      const thumbKey = thumbKeyFor(r2Key);
       await this.r2.upload(thumbKey, thumb, 'image/webp');
 
       await this.prisma.listingImage.update({
