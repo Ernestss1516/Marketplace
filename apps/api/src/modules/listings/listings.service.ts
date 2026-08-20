@@ -73,6 +73,8 @@ import type { ListingTypePolicy, PriceUnit } from '@prisma/client';
 // ETIQUETA INTERNA (P1) — la única transición automática del triaje, en un
 // fichero puro para poder probar sus tres ramas sin montar el servicio.
 import { triageAfterOwnerEdit } from './listing-triage';
+// P3a — las validaciones de campos, compartidas con el camino del staff.
+import { ListingEditValidationService } from './listing-edit-validation.service';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { UpdateListingDto } from './dto/update-listing.dto';
 import { MyListingsQueryDto } from './dto/my-listings-query.dto';
@@ -216,6 +218,9 @@ export class ListingsService {
     // posiciones en cada spec que construya el servicio a mano, y aquí hay dos.
     @InjectQueue(QUEUE_MEDIA_CLEANUP) private readonly mediaCleanupQueue: Queue,
     private readonly r2: R2Service,
+    // P3a — las reglas de los campos, ahora compartidas con el camino del staff.
+    // AL FINAL, por la misma razón que las dos de arriba.
+    private readonly editValidation: ListingEditValidationService,
   ) {}
 
   async create(sellerId: string, dto: CreateListingDto): Promise<Listing> {
@@ -248,15 +253,15 @@ export class ListingsService {
     // los anuncios del tipo contrario (RÁFAGA 5, bug real encontrado en verificación).
     const applicableSchema = applicableSchemaFor(cadena, dto.type);
     // create() valida COMPLETO — no hay "existing" con el que calcular un delta.
-    this.validateRequired(dto.attributes ?? {}, applicableSchema);
-    this.validateAttributeValues(dto.attributes ?? {}, applicableSchema);
-    this.validateLinkedSelects(dto.attributes ?? {}, applicableSchema);
-    this.validateListingTypeAllowed(dto.type, cadena);
+    this.editValidation.validateRequired(dto.attributes ?? {}, applicableSchema);
+    this.editValidation.validateAttributeValues(dto.attributes ?? {}, applicableSchema);
+    this.editValidation.validateLinkedSelects(dto.attributes ?? {}, applicableSchema);
+    this.editValidation.validateListingTypeAllowed(dto.type, cadena);
     // priceUnit es opcional en el DTO: ausente equivale a ONE_TIME (el default de
     // la columna), así que se valida ese mismo valor — una categoría que NO
     // permita ONE_TIME rechaza igual un alta que lo omita que una que lo mande.
     const priceUnit: PriceUnit = dto.priceUnit ?? 'ONE_TIME';
-    this.validatePriceUnitAllowed(priceUnit, cadena);
+    this.editValidation.validatePriceUnitAllowed(priceUnit, cadena);
 
     // B2 — los tags se validan COMPLETO en create, igual que los atributos: no hay
     // "existing" con el que calcular un delta. Se resuelven a ids ANTES de crear nada,
@@ -306,99 +311,23 @@ export class ListingsService {
   async update(id: string, userId: string, dto: UpdateListingDto): Promise<Listing> {
     const existing = await this.assertOwnership(id, userId);
 
-    // La categoría (propia + padre) la necesitan DOS validaciones con
-    // disparadores distintos: la de atributos/tipo (categoryId o attributes) y
-    // la de formato de precio (priceUnit o categoryId, RP.1). Se resuelve una
-    // sola vez aquí para no consultar dos veces la misma fila en un PATCH que
-    // toque ambas cosas — y, sobre todo, para que cada bloque conserve su
-    // propio disparador: un PATCH de solo `priceUnit` NO debe reejecutar
-    // validateRequired sobre los atributos (rompería anuncios antiguos con el
-    // bag incompleto, justo el grandfathering que este método ya protege).
-    const needsCategory =
-      dto.categoryId !== undefined ||
-      dto.attributes !== undefined ||
-      dto.priceUnit !== undefined ||
-      // B2 — los tags son la CUARTA validación con disparador propio.
-      dto.tags !== undefined;
-
-    // B2 — se resuelve dentro del bloque de categoría y se aplica al final, junto al
-    // resto de campos. `undefined` = no tocar los tags (grandfathering).
-    let tagIds: string[] | undefined;
-
-    if (needsCategory) {
-      const catId = dto.categoryId ?? existing.categoryId;
-      // PROFUNDIDAD N — RÁFAGA 1: misma sustitución que en create().
-      const cadena = await this.categoryTree.getAncestorChain(catId);
-      if (cadena.length === 0) throw new NotFoundException('Category not found');
-      const category = cadena[cadena.length - 1];
-
-      if (dto.categoryId !== undefined || dto.attributes !== undefined) {
-        const mergedAttrs = {
-          ...(existing.attributes as Record<string, unknown>),
-          ...(dto.attributes ?? {}),
-        };
-        // type es inmutable — se filtra por el tipo YA fijado del anuncio, igual que en create().
-        const applicableSchema = applicableSchemaFor(cadena, existing.type);
-        // required se exige siempre sobre el bag COMPLETO (invariante de completitud
-        // del anuncio, no depende de qué campo tocó esta edición en concreto).
-        this.validateRequired(mergedAttrs, applicableSchema);
-        // El resto (opciones/tipo/claves desconocidas + el guard de vinculados) se
-        // acota al DELTA: valores ya guardados que el usuario ni toca se toleran
-        // (grandfathering por construcción) — así una edición trivial (p. ej. solo
-        // el precio) de un anuncio con datos sucios preexistentes no rompe.
-        const delta = this.computeAttributesDelta(
-          (existing.attributes as Record<string, unknown>) ?? {},
-          dto.attributes ?? {},
-        );
-        const deltaAttrs: Record<string, unknown> = {};
-        for (const key of delta) deltaAttrs[key] = mergedAttrs[key];
-        this.validateAttributeValues(deltaAttrs, applicableSchema);
-        this.validateLinkedSelects(mergedAttrs, applicableSchema, delta);
-
-        // type is immutable (not on UpdateListingDto) — but categoryId can still change,
-        // so a listing's fixed type must stay allowed by whatever category it moves into.
-        if (dto.categoryId !== undefined) {
-          this.validateListingTypeAllowed(existing.type, cadena);
-        }
-      }
-
-      // Formato de precio (RP.1) — mismo grandfathering que validateListingTypeAllowed:
-      // solo se revalida si el usuario TOCA el formato, o si el anuncio se mueve a
-      // otra categoría (donde su formato ya fijado debe seguir siendo válido). Una
-      // edición que no toca ninguna de las dos cosas nunca falla, aunque un admin
-      // haya restringido la categoría después de publicar el anuncio.
-      if (dto.priceUnit !== undefined || dto.categoryId !== undefined) {
-        this.validatePriceUnitAllowed(dto.priceUnit ?? existing.priceUnit, cadena);
-      }
-
-      // B2 — TAGS. Mismo grandfathering que los dos bloques de arriba, con una
-      // asimetría deliberada entre los dos disparadores:
-      //
-      //  · `dto.tags` presente → el usuario ELIGIÓ estos tags: se validan estrictos
-      //    contra la nueva categoría y el tope vigente. Un tag ajeno o pasarse del
-      //    tope es un 422, porque el usuario puede corregirlo.
-      //
-      //  · solo cambia `categoryId` → el usuario NO eligió romper nada, movió el
-      //    anuncio. Los tags que la categoría destino no ofrece se PODAN en silencio
-      //    y la edición pasa. Rechazarla obligaría a limpiar tags a mano antes de
-      //    poder mover un anuncio, que es exactamente el tipo de fricción que el
-      //    grandfathering de los atributos ya evita.
-      //
-      // Un PATCH que no toca ni `tags` ni `categoryId` no entra aquí: un anuncio con 8
-      // tags y un tope nuevo de 5 sigue editándose sin problema.
-      if (dto.tags !== undefined) {
-        tagIds = await this.tags.resolveTagsForListing(dto.tags, category.slug);
-      } else if (dto.categoryId !== undefined) {
-        const actuales = await this.prisma.listingTag.findMany({
-          where: { listingId: id },
-          select: { tagId: true },
-        });
-        tagIds = await this.tags.pruneTagsForCategory(
-          actuales.map((t) => t.tagId),
-          category.slug,
-        );
-      }
-    }
+    // P3a — LAS VALIDACIONES DE LOS CAMPOS VIVEN FUERA, y las comparte el camino
+    // del STAFF (`AdminService.updateListing`). Eran ocho reglas con
+    // grandfathering fino —required sobre el bag completo pero el resto sólo
+    // sobre el delta, tags estrictos si se eligen y podados si sólo se mueve de
+    // categoría—; copiarlas para el backoffice habría dejado divergir justo la
+    // copia que menos se ejerce. Lo que se movió es DÓNDE viven: el bloque está
+    // en `ListingEditValidationService.validarEdicion` tal cual estaba aquí, con
+    // sus mismos disparadores y sus mismos mensajes.
+    //
+    // LO QUE NO SE MOVIÓ, y es la línea que separa los dos caminos: la guarda de
+    // propiedad (`assertOwnership`, arriba) y la anotación del triaje (abajo). La
+    // primera dice QUIÉN puede editar; la segunda afirma que editó EL DUEÑO.
+    const tagIds = await this.editValidation.validarEdicion({
+      listingId: id,
+      existing,
+      dto,
+    });
 
     const { imageIds, ...fields } = dto;
 
@@ -1605,109 +1534,9 @@ export class ListingsService {
   }
 
   /*
-   * PUERTA — RÁFAGA 2. Los tres validadores de atributos son ahora ENVOLTORIOS.
-   *
-   * El QUÉ se comprueba vive en `categories/attribute-validation.ts`, un fichero
-   * puro que comparten este servicio, la puerta y el comando de medición — cerrar
-   * esa duplicación era la deuda que M2 anotó al tener que replicarlos.
-   *
-   * Lo que se queda aquí es el CÓMO SE FALLA, y se queda porque es distinto en
-   * cada consumidor: aquí se lanza al primer problema con un 422 y un texto
-   * concreto; la puerta los devuelve todos como `reasons`; la medición sólo
-   * cuenta. Los mensajes de abajo son LETRA POR LETRA los de antes: son texto que
-   * el vendedor ya ve y que hay tests fijando.
-   */
-  private validateRequired(
-    attributes: Record<string, unknown>,
-    schema: AttributeField[],
-  ): void {
-    const missing = missingRequiredNames(attributes, schema);
-    if (missing.length) {
-      throw new UnprocessableEntityException(
-        `Atributos requeridos faltantes: ${missing.join(', ')}`,
-      );
-    }
-  }
 
-  /**
-   * Refuerzo de validación (cierra la asimetría con validateLinkedSelects,
-   * que ya valida sus valores desde R5): claves desconocidas, opciones de
-   * select PLANO, y tipo de dato. Los selects vinculados (`dependsOn`) se
-   * saltan aquí — los valida `validateLinkedSelects`. Presencia/required-ness
-   * es trabajo de `validateRequired`, no de esta función.
-   *
-   * `attributes` puede ser el bag completo (create) o solo el delta (update)
-   * — el caller decide qué subconjunto pasar; esta función valida lo que
-   * recibe sin distinguir el origen.
-   */
-  private validateAttributeValues(
-    attributes: Record<string, unknown>,
-    schema: AttributeField[],
-  ): void {
-    const unknown = unknownAttributeKeys(attributes, schema);
-    if (unknown.length) {
-      throw new UnprocessableEntityException(
-        `Atributos no reconocidos: ${unknown.join(', ')}`,
-      );
-    }
 
-    // El primero, no todos: aquí se lanza, y quien edita corrige de uno en uno.
-    // El orden lo fija el schema, igual que el bucle que había aquí.
-    const [primero] = invalidValueIssues(attributes, schema);
-    if (primero) throw new UnprocessableEntityException(primero.message);
-  }
 
-  /**
-   * Una clave cuenta como "delta" (cambiada en ESTA petición) si su valor en
-   * el payload entrante difiere del ya guardado, o es una clave nueva. Una
-   * clave reenviada con el MISMO valor no es delta — así update() puede
-   * recibir el bag completo (como hace EditarWizard, incondicionalmente) sin
-   * que eso re-valide datos preexistentes que el usuario ni toca.
-   * JSON.stringify en vez de `===`: los 4 tipos de atributo son siempre
-   * primitivos planos, nunca objetos/arrays anidados, así que es suficiente
-   * y cubre null/undefined sin casos especiales.
-   */
-  private computeAttributesDelta(
-    existingAttrs: Record<string, unknown>,
-    incomingAttrs: Record<string, unknown>,
-  ): Set<string> {
-    const changed = new Set<string>();
-    for (const [key, value] of Object.entries(incomingAttrs)) {
-      if (
-        !Object.prototype.hasOwnProperty.call(existingAttrs, key) ||
-        JSON.stringify(existingAttrs[key]) !== JSON.stringify(value)
-      ) {
-        changed.add(key);
-      }
-    }
-    return changed;
-  }
-
-  /**
-   * Enforces linked selects (`AttributeField.dependsOn` / `optionsByParent`):
-   * a dependent field's value must belong to its parent's currently-chosen
-   * value. Deliberately asymmetric with `validateAttributeValues` — plain
-   * attributes not present in the schema are tolerated, but a *linked* field
-   * with a value must resolve against its parent within the SAME payload.
-   * Only fields that actually carry a value are checked; presence/required-ness
-   * is `validateRequired`'s job.
-   *
-   * `deltaKeys` — solo en update(): si ni el campo ni su padre (`dependsOn`)
-   * cambiaron en esta petición, el par no se re-valida, aunque ya fuera
-   * inválido (grandfathering, igual que `validateAttributeValues`). Ausente
-   * en create() — ahí se valida siempre, no hay "existing" con el que
-   * comparar. `attributes` sigue siendo el bag COMPLETO (fusionado) en
-   * ambos casos: se necesita para resolver el valor ACTUAL del padre,
-   * aunque no haya cambiado en esta petición.
-   */
-  private validateLinkedSelects(
-    attributes: Record<string, unknown>,
-    schema: AttributeField[],
-    deltaKeys?: Set<string>,
-  ): void {
-    const [primero] = linkedSelectIssues(attributes, schema, deltaKeys);
-    if (primero) throw new UnprocessableEntityException(primero.message);
-  }
 
   /**
    * PROFUNDIDAD N — RÁFAGA 1. Los pliegues que esta clase necesita.
@@ -1727,48 +1556,7 @@ export class ListingsService {
    * de eso divergirían en silencio — que es el riesgo R1 otra vez.
    */
 
-  /**
-   * Validates a listing's type against its category's effective ListingTypePolicy
-   * (the fold of its whole ancestor chain). Every existing category defaults to
-   * BOTH, so this is a no-op until an admin restricts one.
-   */
-  private validateListingTypeAllowed(type: Listing['type'], cadena: CategoryNode[]): void {
-    const effective = cadena.reduce<ListingTypePolicy>(
-      (acc, nodo) => resolveEffectivePolicy(nodo.allowedListingType, acc),
-      'BOTH',
-    );
-    if (!isListingTypeAllowed(effective, type)) {
-      throw new UnprocessableEntityException(
-        `Esta categoría no admite anuncios de tipo ${type}.`,
-      );
-    }
-  }
 
-  /**
-   * Validates a listing's price format against its category's effective list of
-   * allowed formats (the fold of its whole ancestor chain). Every existing
-   * category defaults to `[]` = not configured, which resolves to
-   * DEFAULT_ALLOWED_PRICE_UNITS (`[ONE_TIME]`) — and every existing listing is
-   * ONE_TIME — so this is a no-op until an admin configures a category.
-   *
-   * PROFUNDIDAD N — RÁFAGA 1: el pliegue con semilla `null` reproduce
-   * exactamente el «two-step» que había aquí (resolver el padre contra `null` y
-   * luego el hijo contra ese resultado), y lo extiende a N. La semilla es `null`
-   * y no la lista propia por el mismo motivo de antes: `resolveEffectivePriceUnits`
-   * es un override, así que meter la lista del hijo como fallback del padre haría
-   * que un ancestro sin configurar tapara el default global.
-   */
-  private validatePriceUnitAllowed(unit: PriceUnit, cadena: CategoryNode[]): void {
-    const effective = cadena.reduce<PriceUnit[] | null>(
-      (acc, nodo) => resolveEffectivePriceUnits(nodo.allowedPriceUnits, acc),
-      null,
-    ) as PriceUnit[];
-    if (!isPriceUnitAllowed(effective, unit)) {
-      throw new UnprocessableEntityException(
-        `Esta categoría no admite el formato de precio ${unit}.`,
-      );
-    }
-  }
 
   /**
    * PUERTA regla #3 — EL TOPE DE FOTOS SE APLICA AQUÍ, y no en el DTO.

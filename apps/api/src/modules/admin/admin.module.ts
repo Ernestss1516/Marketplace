@@ -15,6 +15,7 @@ import { ListingGateModule } from '../listing-gate/listing-gate.module';
 // que deciden si un anuncio va a la cola. `ModerationModule` ya exporta las dos
 // piezas y no importa a `AdminModule`: no hay ciclo.
 import { ModerationModule } from '../moderation/moderation.module';
+import { ListingEditValidationModule } from '../listings/listing-edit-validation.module';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { AdminBillingController } from './admin-billing.controller';
@@ -33,6 +34,10 @@ import { AdminBillingService } from './admin-billing.service';
     CategoryTreeModule,
     ListingGateModule,
     ModerationModule,
+    // P3a — las reglas de los campos, las MISMAS que usa el camino del dueño.
+    // Módulo neutral y ligero a propósito: `AdminModule` no importa
+    // `ListingsModule`, y hacerlo arrastraría medio dominio.
+    ListingEditValidationModule,
   ],
   controllers: [AdminController, AdminBillingController],
   providers: [AdminService, AdminBillingService],

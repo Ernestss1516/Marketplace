@@ -268,6 +268,43 @@ export function setListingTriage(
   });
 }
 
+/**
+ * P3a — el staff edita los CAMPOS de un anuncio ajeno.
+ *
+ * RUTA HERMANA de `changeListingStatus` y `setListingTriage`, no la misma: los
+ * tres tocan ejes distintos del anuncio. Ésta **no mueve el triaje** —`EDITED`
+ * afirma que editó el DUEÑO— y **no cambia el estado**, que tiene su propia vía
+ * con su registro y su aviso (M2).
+ *
+ * `reason` es obligatorio: va al `AuditLog`, y sin él una edición de staff sería
+ * indistinguible de una del dueño.
+ */
+export function updateAdminListing(
+  token: string,
+  id: string,
+  cambio: {
+    reason: string;
+    title?: string;
+    description?: string;
+    price?: number;
+    priceType?: string;
+    priceUnit?: string;
+    categoryId?: string;
+    attributes?: Record<string, unknown>;
+    tags?: string[];
+    imageIds?: string[];
+    city?: string;
+    province?: string;
+    postalCode?: string;
+  },
+): Promise<unknown> {
+  return apiFetch(`/admin/listings/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(cambio),
+    token,
+  });
+}
+
 export function changeListingStatus(
   token: string,
   id: string,
