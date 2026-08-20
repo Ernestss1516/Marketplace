@@ -413,6 +413,46 @@ antes o justo después del primer despliegue de esta feature. **No se puede cerr
 
 ---
 
+## 7. P3b — cambiar el propietario de un anuncio `[DEUDA]` — evaluado y pospuesto
+
+Evaluado en [`diseno-editar-anuncio.md`](./diseno-editar-anuncio.md) §2, con las
+**ocho relaciones que llevan la identidad del dueño** miradas una a una.
+**Veredicto: no se construye ahora.**
+
+**Por qué.** La operación consiste, casi entera, en decidir cuándo NO se puede
+hacer: de las ocho, **una** se reasigna (`ListingImage.uploadedById`), **tres**
+bloquean (bump programado —el cron cobra al usuario de la programación—,
+destacado vigente, y la cuota del usuario destino) y **cinco** no se mueven nunca
+porque describen hechos entre personas (compras, cobros, tratos, valoraciones,
+tickets). Y no hay ninguna señal de que haga falta: el caso típico —una cuenta
+duplicada— se resuelve más barato republicando el anuncio con el dueño correcto.
+
+**Si algún día se pide**, ese §2 es el mapa: las cuatro comprobaciones previas, el
+conflicto irresoluble y las cinco relaciones intocables.
+
+### El hallazgo que sí conviene retener, aunque P3b no se haga
+
+**Tres invariantes del dominio viven SÓLO en la aplicación, no en la base de
+datos:**
+
+| Invariante | Dónde se impone |
+|---|---|
+| No contactar con tu propio anuncio | `messaging.service.ts:136` |
+| No valorarte a ti mismo | `reviews.service.ts:52` |
+| No registrar un trato contigo mismo | `listings.service.ts:810` |
+
+`Deal` ni siquiera tiene un `@@unique` sobre el par: lo impide el servicio. Es
+decir, **la base aceptaría filas que el resto del código da por imposibles**, y la
+bandeja depende de que no existan — resuelve con quién hablas con
+`conv.buyerId === userId ? conv.seller : conv.buyer` (`messaging.service.ts:106`).
+
+Hoy no es un problema: ninguna ruta puede crear esas filas. Es lo que hay que
+saber **antes de escribir cualquier operación que mueva identidades entre las dos
+puntas de una relación** — cambiar el dueño de un anuncio, fusionar dos cuentas,
+importar datos. La restricción que más duele **no está en el esquema**.
+
+---
+
 ## Resumen por prioridad
 
 | # | Pendiente | Etiqueta | Bloqueado por |
@@ -432,6 +472,7 @@ antes o justo después del primer despliegue de esta feature. **No se puede cerr
 | 4.2 | `allowedDevOrigins` | `[DEUDA]` | — |
 | 4.2 | Preparación de producción (MapTiler, Resend, Sentry, reindex) | `[DEUDA]` | §1 |
 | 4.2 | Cierre de huecos de cobertura e2e | `[DEUDA]` | — |
+| 7 | P3b — cambiar el propietario de un anuncio (evaluado y **pospuesto**; `diseno-editar-anuncio.md` §2) | `[DEUDA]` | — |
 | 2 | Hito 9.1 — Navegación | `[DEUDA]` | — |
 | 3 | Hito 9.2 — Interfaz y estilo | `[DEUDA]` | — |
 | 5 | Facturación fiscal real | `[BLOQUEADO-EXTERNO]` | proveedor homologado |
