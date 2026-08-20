@@ -121,6 +121,18 @@ describe('ListingsService.create — reintento de slug ante P2002', () => {
       // limpieza ni R2 llegan a usarse.
       { add: jest.fn().mockResolvedValue(undefined) } as never,
       { getPublicUrl: () => 'https://cdn.test/' } as never,
+      // P3a — mantenimiento de fixture por cambio de FIRMA. Las validaciones de
+      // campos se extrajeron a su propio servicio para compartirlas con el camino
+      // del staff. Este spec va del reintento de slug ante un P2002, así que las
+      // validaciones dejan pasar: `create()` llama a los cuatro validadores y a
+      // ninguno le importa un dto sin atributos.
+      {
+        validateRequired: jest.fn(),
+        validateAttributeValues: jest.fn(),
+        validateLinkedSelects: jest.fn(),
+        validateListingTypeAllowed: jest.fn(),
+        validatePriceUnitAllowed: jest.fn(),
+      } as never,
     );
     errorSpy = jest.spyOn((service as unknown as { logger: { error: (...a: unknown[]) => void } }).logger, 'error');
   });

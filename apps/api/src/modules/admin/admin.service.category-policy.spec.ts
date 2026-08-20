@@ -73,6 +73,9 @@ function buildService(prismaOverrides: Record<string, unknown> = {}) {
     // casos son de política de categorías; «¿es Pro?» sólo se consulta en la
     // ficha de usuario.
     { isProActive: jest.fn() } as never,
+    // P3a — mantenimiento de fixture por cambio de FIRMA. Estos casos son de
+    // política de categorías y no editan campos de ningún anuncio.
+    { validarEdicion: jest.fn() } as never,
   );
 
   return { service, prisma, auditLog, indexingQueue, categoryTree };

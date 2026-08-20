@@ -56,6 +56,9 @@ import {
   isManualTriageTarget,
 } from '../listings/listing-triage';
 import { SetListingTriageDto } from './dto/set-listing-triage.dto';
+// P3a — la edición de campos por el staff.
+import { UpdateAdminListingDto } from './dto/update-admin-listing.dto';
+import { ListingEditValidationService } from '../listings/listing-edit-validation.service';
 import { PreModerationService } from '../moderation/pre-moderation.service';
 import { BadWordService } from '../moderation/bad-word.service';
 import { ListingGateService } from '../listing-gate/listing-gate.service';
@@ -348,6 +351,8 @@ export class AdminService {
     // FICHA DE USUARIO U3 — el HECHO de ser Pro para la ficha de usuario. Es el
     // dueño único de esa pregunta (ver su cabecera); aquí sólo se consulta.
     private readonly proStatus: ProStatusService,
+    // P3a — las reglas de los campos, las MISMAS que usa el camino del dueño.
+    private readonly editValidation: ListingEditValidationService,
   ) {}
 
   // ===========================================================================
@@ -681,6 +686,113 @@ export class AdminService {
     }
 
     return updated;
+  }
+
+  /**
+   * P3a — EL STAFF EDITA LOS CAMPOS DE UN ANUNCIO AJENO.
+   *
+   * CAMINO PROPIO, Y NO UN `update()` CON BANDERA. La edición del dueño empieza
+   * con `assertOwnership` —que le devolvería un 403 a un moderador— y termina
+   * anotando `REVIEWED → EDITED` dentro de su propia escritura. Reutilizarla
+   * exigiría un parámetro `esStaff` que apagara las dos cosas, y entonces **la
+   * guarda de propiedad pasaría a depender de un booleano**: el sitio donde más
+   * caro sale equivocarse.
+   *
+   * LO QUE SÍ SE COMPARTE SON LAS REGLAS. `ListingEditValidationService` es el
+   * mismo objeto que usa el dueño, extraído para eso. El staff **no se salta
+   * ninguna validación**: dejarle escribir un anuncio inválido «porque es de
+   * confianza» produce una fila que el propio sistema marca acto seguido con
+   * `needsRevalidation`, y el aviso le cae al VENDEDOR por un cambio que no hizo.
+   *
+   * LO QUE NO HACE, y es el cuidado que atraviesa P3:
+   *
+   *   · **No toca `triage`.** `EDITED` afirma «el DUEÑO cambió algo tras la
+   *     revisión»; dispararlo desde aquí mandaría al staff a revisar su propio
+   *     cambio y vaciaría de sentido la única señal que P1 construyó.
+   *   · **No toca `status`.** Cambiar de estado tiene su vía, que registra y
+   *     avisa (M2). Ésta es de campos.
+   *   · **No re-modera.** El filtro de palabras existe para lo que escribe un
+   *     vendedor; pasarle el texto que acaba de escribir un moderador sería
+   *     pedirle a la máquina que revise a quien la opera.
+   *
+   * Ver docs/diseno-editar-anuncio.md §1.
+   */
+  async updateListing(
+    listingId: string,
+    actorId: string,
+    dto: UpdateAdminListingDto,
+    ip?: string,
+  ) {
+    const existing = await this.prisma.listing.findUnique({ where: { id: listingId } });
+    if (!existing) throw new NotFoundException('Anuncio no encontrado');
+
+    const { reason, imageIds, ...fields } = dto;
+
+    // LAS MISMAS REGLAS QUE EL DUEÑO, desde el mismo sitio.
+    const tagIds = await this.editValidation.validarEdicion({
+      listingId,
+      existing,
+      dto: fields,
+    });
+
+    // El `before` guarda SÓLO los campos que esta edición toca: un snapshot de la
+    // fila entera enterraría el cambio real entre treinta columnas iguales.
+    const before: Record<string, unknown> = {};
+    for (const clave of Object.keys(fields) as (keyof typeof fields)[]) {
+      before[clave] = (existing as unknown as Record<string, unknown>)[clave];
+    }
+
+    const listing = await this.prisma.listing.update({
+      where: { id: listingId },
+      data: {
+        ...(fields.title !== undefined && { title: fields.title }),
+        ...(fields.description !== undefined && { description: fields.description }),
+        ...(fields.price !== undefined && { price: fields.price }),
+        ...(fields.priceType !== undefined && { priceType: fields.priceType }),
+        ...(fields.priceUnit !== undefined && { priceUnit: fields.priceUnit }),
+        ...(fields.categoryId !== undefined && { categoryId: fields.categoryId }),
+        ...(fields.attributes !== undefined && { attributes: fields.attributes as object }),
+        ...(fields.city !== undefined && { city: fields.city }),
+        ...(fields.province !== undefined && { province: fields.province }),
+        ...(fields.postalCode !== undefined && { postalCode: fields.postalCode }),
+        // Reemplazo COMPLETO del set, en la misma escritura — molde de B2.
+        ...(tagIds !== undefined && {
+          tags: { deleteMany: {}, create: tagIds.map((tagId) => ({ tagId })) },
+        }),
+        // AQUÍ NO HAY `triage`. Es la diferencia entera con el camino del dueño.
+      },
+    });
+
+    if (imageIds !== undefined) {
+      await this.prisma.listingImage.updateMany({
+        where: { listingId, id: { notIn: imageIds } },
+        data: { listingId: null, order: 0 },
+      });
+      if (imageIds.length) {
+        await this.prisma.listingImage.updateMany({
+          where: { id: { in: imageIds } },
+          data: { listingId },
+        });
+      }
+    }
+
+    await this.auditLog.log({
+      action: 'LISTING_EDIT',
+      actorId,
+      resourceType: 'Listing',
+      resourceId: listingId,
+      before: before as Prisma.InputJsonValue,
+      after: { ...fields, reason } as Prisma.InputJsonValue,
+      ip,
+    });
+
+    // Los mismos efectos que la edición del dueño: la ficha cacheada y el índice
+    // no pueden quedarse con el contenido viejo por venir el cambio de otra
+    // puerta.
+    await this.redis.client.del(cacheKey(existing.slug));
+    await this.indexingQueue.add('index', { listingId });
+
+    return listing;
   }
 
   async changeListingStatus(

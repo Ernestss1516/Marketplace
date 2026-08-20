@@ -13735,6 +13735,69 @@ la ruta vieja tumba el suyo.
 
 ---
 
+## P3a — editar un anuncio desde el backoffice · **los seis puntos, cerrados**
+
+Diseño: `docs/diseno-editar-anuncio.md` §1. P3b (cambiar el propietario) quedó
+evaluado y **pospuesto** con su análisis escrito (§2 y `pendientes.md` §7).
+
+### Camino propio, y el código lo pedía de dos formas
+
+`ListingsService.update()` empieza con `assertOwnership` —403 a un moderador— y
+termina anotando `REVIEWED → EDITED` **dentro de su propia escritura**.
+Reutilizarla exigía un parámetro `esStaff` que apagara las dos cosas, y entonces
+**la guarda de propiedad pasaría a depender de un booleano**: el sitio donde más
+caro sale equivocarse.
+
+`AdminService.updateListing` (MODERATOR) es ese camino propio. Editar es
+reversible —el texto anterior queda en `AuditLog.before`— así que no entra en la
+excepción de B2, que reserva ADMIN para lo irreversible.
+
+### Las reglas se EXTRAEN, no se copian
+
+`ListingEditValidationService` tiene el bloque de validación de una edición
+**movido tal cual estaba**: required sobre el bag completo pero el resto sólo
+sobre el delta, tipo y formato de precio con sus disparadores, tags estrictos si
+se eligen y podados si sólo se mueve de categoría. Ocho reglas con grandfathering
+fino; dos copias divergirían, y la que divergiría sin que nadie lo notara es la
+del backoffice.
+
+Vive en **su propio módulo ligero** porque `AdminModule` no importa
+`ListingsModule` y hacerlo arrastraría billing, mensajería, moderación y
+notificaciones para usar seis validaciones. Molde: `CategoryTreeModule`.
+
+**El camino del dueño queda byte-idéntico**: sus 12 suites (165 tests) pasan sin
+tocarlas. Se conservó incluso el `as PriceUnit[]` sobre un posible `null` —
+«byte-idéntico» significa no mejorar de paso lo que no se vino a tocar.
+
+### Lo que la edición de staff NO hace
+
+No toca `triage` (§la barrera), no toca `status` —eso tiene su vía, que registra
+y avisa (M2)— y no re-modera: el filtro de palabras existe para lo que escribe un
+vendedor, y pasarle el texto de un moderador sería pedirle a la máquina que revise
+a quien la opera. El DTO tampoco admite `sellerId` ni `slug`.
+
+Y **valida igual que el dueño**: dejarle saltarse la validación «porque es de
+confianza» produce una fila que el sistema marca acto seguido con
+`needsRevalidation`, y el aviso le cae al VENDEDOR por un cambio que no hizo.
+
+### La barrera se mide en LAS DOS DIRECCIONES
+
+1. el staff edita un `REVIEWED` → el campo cambia y el triaje **no** se mueve;
+2. el DUEÑO edita ese mismo anuncio → **sí** pasa a `EDITED`.
+
+La segunda no es adorno, y la mutación lo demostró: **desactivar la transición
+para todo el mundo mata sólo (2)**. Con (1) a solas, ese cambio habría pasado en
+verde con la única señal que P1 construyó ya muerta.
+
+### Verificación
+
+`test/admin-editar-anuncio.e2e-spec.ts` (19) y `e2e/admin-editar-anuncio.spec.ts`
+(6). Mutaciones: que el camino de staff dispare `EDITED` tumba 3; desactivar
+`EDITED` para todos tumba **sólo** la dirección (2); que el staff se salte las
+validaciones tumba 2.
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.

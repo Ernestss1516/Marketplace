@@ -20,6 +20,7 @@ import { JwtUser } from '../auth/auth.types';
 import { AdminService } from './admin.service';
 import { ListAdminListingsDto } from './dto/list-admin-listings.dto';
 import { SetListingTriageDto } from './dto/set-listing-triage.dto';
+import { UpdateAdminListingDto } from './dto/update-admin-listing.dto';
 import { ChangeListingStatusDto } from './dto/change-listing-status.dto';
 import { ListAdminUsersDto } from './dto/list-admin-users.dto';
 import { ChangeUserRoleDto } from './dto/change-user-role.dto';
@@ -68,6 +69,29 @@ export class AdminController {
   @MinRole(Role.MODERATOR)
   getListingById(@Param('id') id: string) {
     return this.adminService.getListingById(id);
+  }
+
+  /**
+   * P3a — el staff edita los CAMPOS de un anuncio ajeno.
+   *
+   * MODERATOR, no ADMIN: editar es reversible —el texto anterior queda en
+   * `AuditLog.before`— y es trabajo de moderación diario. La regla que fijó B2
+   * reserva ADMIN para lo IRREVERSIBLE (eliminar) y para el dinero; esto no es ni
+   * lo uno ni lo otro.
+   *
+   * Ruta hermana de `status` y `triage`, no la misma: los tres tocan ejes
+   * distintos del anuncio y compartir endpoint invitaría a mezclarlos.
+   */
+  @Patch('listings/:id')
+  @HttpCode(HttpStatus.OK)
+  @MinRole(Role.MODERATOR)
+  updateListing(
+    @Param('id') id: string,
+    @Body() dto: UpdateAdminListingDto,
+    @CurrentUser() user: JwtUser,
+    @Ip() ip: string,
+  ) {
+    return this.adminService.updateListing(id, user.userId, dto, ip);
   }
 
   /**

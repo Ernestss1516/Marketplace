@@ -37,6 +37,7 @@ import {
   deleteAdminListing,
   getAdminListing,
   setListingTriage,
+  updateAdminListing,
   type AdminListingDetail,
 } from '@/lib/api/admin';
 import {
@@ -80,6 +81,9 @@ const ACCION_LABELS: Record<string, string> = {
   // automática (REVIEWED→EDITED al editar el dueño) no deja registro, y su
   // «cuándo» se pinta en la insignia con `updatedAt`.
   LISTING_TRIAGE_CHANGE: 'Etiqueta interna',
+  // P3a — el staff corrigió campos del anuncio. Se nombra distinto de un cambio
+  // del dueño a propósito: el vendedor tiene que poder ver quién le tocó qué.
+  LISTING_EDIT: 'Edición del equipo',
 };
 
 function Seccion({
@@ -134,6 +138,13 @@ export default function AdminFichaAnuncioPage() {
   const [motivo, setMotivo] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [confirmarBorrado, setConfirmarBorrado] = useState(false);
+
+  // P3a — el modo edición de la sección «El anuncio».
+  const [editando, setEditando] = useState(false);
+  const [edTitulo, setEdTitulo] = useState('');
+  const [edDescripcion, setEdDescripcion] = useState('');
+  const [edPrecio, setEdPrecio] = useState('');
+  const [edMotivo, setEdMotivo] = useState('');
 
   const cargar = useCallback(async () => {
     if (!token) return;
@@ -204,6 +215,43 @@ export default function AdminFichaAnuncioPage() {
         err instanceof ApiError
           ? `Error ${err.statusCode}: ${err.message}`
           : 'Error al cambiar la etiqueta interna',
+      );
+    } finally {
+      setGuardando(false);
+    }
+  }
+
+  /**
+   * P3a — EL MODO EDICIÓN DE UNA SECCIÓN.
+   *
+   * Va por `PATCH /admin/listings/:id`, que es el camino del STAFF: valida lo
+   * mismo que el del dueño y **no mueve el triaje**. No pasa por
+   * `elegirAccionDeEstado` porque no cambia de estado — son ejes distintos.
+   */
+  function abrirEdicion() {
+    if (!data) return;
+    setEdTitulo(data.title);
+    setEdDescripcion(data.description);
+    setEdPrecio(String(data.price));
+    setEdMotivo('');
+    setEditando(true);
+  }
+
+  async function guardarEdicion() {
+    if (!token || !data || guardando) return;
+    setGuardando(true);
+    try {
+      await updateAdminListing(token, data.id, {
+        title: edTitulo,
+        description: edDescripcion,
+        price: Number(edPrecio),
+        reason: edMotivo.trim(),
+      });
+      setEditando(false);
+      await cargar();
+    } catch (err) {
+      alert(
+        err instanceof ApiError ? `Error ${err.statusCode}: ${err.message}` : 'Error al guardar',
       );
     } finally {
       setGuardando(false);
@@ -452,13 +500,105 @@ export default function AdminFichaAnuncioPage() {
               <p className="mb-4 text-xs text-muted-foreground">Sin fotos.</p>
             )}
 
-            <h3 className="mb-1 text-xs font-medium text-muted-foreground">Descripción</h3>
-            <p
-              className="whitespace-pre-wrap text-sm leading-relaxed"
-              data-testid="ficha-descripcion"
-            >
-              {data.description}
-            </p>
+            {/* P3a — EL MODO EDICIÓN, POR SECCIÓN.
+                F1 partió la ficha en secciones independientes exactamente para
+                esto: quien viene a corregir un título no debe encontrarse un
+                formulario de veinte campos. Se edita una sección, se guarda y el
+                resto de la ficha ni se entera. */}
+            {editando ? (
+              <div className="space-y-2" data-testid="ficha-form-anuncio">
+                <div>
+                  <label htmlFor="ed-titulo" className="mb-1 block text-xs text-muted-foreground">
+                    Título
+                  </label>
+                  <input
+                    id="ed-titulo"
+                    value={edTitulo}
+                    onChange={(e) => setEdTitulo(e.target.value)}
+                    className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                    data-testid="ficha-edit-titulo"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="ed-desc" className="mb-1 block text-xs text-muted-foreground">
+                    Descripción
+                  </label>
+                  <textarea
+                    id="ed-desc"
+                    value={edDescripcion}
+                    onChange={(e) => setEdDescripcion(e.target.value)}
+                    rows={6}
+                    className="w-full rounded-md border bg-background p-2 text-sm"
+                    data-testid="ficha-edit-descripcion"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="ed-precio" className="mb-1 block text-xs text-muted-foreground">
+                    Precio
+                  </label>
+                  <input
+                    id="ed-precio"
+                    type="number"
+                    min={0}
+                    value={edPrecio}
+                    onChange={(e) => setEdPrecio(e.target.value)}
+                    className="h-9 w-40 rounded-md border bg-background px-2 text-sm"
+                    data-testid="ficha-edit-precio"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="ed-motivo" className="mb-1 block text-xs text-muted-foreground">
+                    Motivo del cambio (queda en el historial)
+                  </label>
+                  <input
+                    id="ed-motivo"
+                    value={edMotivo}
+                    onChange={(e) => setEdMotivo(e.target.value)}
+                    className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                    data-testid="ficha-edit-motivo"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    disabled={guardando || edMotivo.trim().length < 5}
+                    onClick={() => void guardarEdicion()}
+                    data-testid="ficha-edit-guardar"
+                  >
+                    {guardando ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Guardar'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={guardando}
+                    onClick={() => setEditando(false)}
+                    data-testid="ficha-edit-cancelar"
+                  >
+                    Cancelar
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <h3 className="text-xs font-medium text-muted-foreground">Descripción</h3>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => abrirEdicion()}
+                    data-testid="ficha-edit-abrir"
+                  >
+                    Editar
+                  </Button>
+                </div>
+                <p
+                  className="whitespace-pre-wrap text-sm leading-relaxed"
+                  data-testid="ficha-descripcion"
+                >
+                  {data.description}
+                </p>
+              </>
+            )}
 
             {data.videoUrl && (
               <div className="mt-4">

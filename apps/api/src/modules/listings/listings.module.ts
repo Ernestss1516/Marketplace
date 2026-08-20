@@ -17,9 +17,12 @@ import { CategoryTreeModule } from '../categories/category-tree.module';
 import { ListingGateModule } from '../listing-gate/listing-gate.module';
 import { ListingsController } from './listings.controller';
 import { ListingsService } from './listings.service';
+import { ListingEditValidationModule } from './listing-edit-validation.module';
 
 @Module({
   imports: [
+    // P3a — las reglas de los campos, compartidas con AdminModule.
+    ListingEditValidationModule,
     BullModule.registerQueue(retryQueue(QUEUE_INDEXING)),
     // Re-registrado aquí (mismo patrón que ContactModule/AlertsModule para QUEUE_NOTIFICATIONS)
     BullModule.registerQueue(retryQueue(QUEUE_NOTIFICATIONS)),
