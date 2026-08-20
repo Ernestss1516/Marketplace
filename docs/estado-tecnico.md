@@ -13379,6 +13379,88 @@ mutaciones matan sus tests en los dos intentos, no en uno de cada dos.
 
 ---
 
+## Etiqueta interna E1 (P1) — el triaje del staff, como eje propio
+
+Diseño: `docs/diseno-etiqueta-interna.md`, plan E1. Segundo cuerpo de
+administración. **E1 es sólo backend**: la interfaz y el filtro son E2.
+
+### El modelo: dos ejes, porque el análisis dio dos
+
+Puestos en una tabla de «¿pueden ser verdad a la vez?», los cuatro conceptos del
+enunciado se parten solos: **nuevo, revisado y editado se excluyen** entre sí;
+**en observación convive con los tres**.
+
+```
+triage   ListingTriage @default(NEW)     // NEW | REVIEWED | EDITED
+watched  Boolean       @default(false)
+```
+
+Ni una tabla de etiquetas —podría escribir «nuevo Y revisado», que no significa
+nada— ni un enum único, que habría obligado a valores combinados
+(`REVIEWED_WATCHED`, `NEW_WATCHED`…): los valores se multiplicarían en vez de
+sumarse, que es la señal clásica de dos ejes metidos en uno.
+
+Se llama `triage` y no `reviewState` a propósito: cualquier cosa llamada «review»
+acabaría confundida con `PENDING_REVIEW`, que es justo el eje del que hay que
+mantenerla separada.
+
+### «Nace NEW» es un `@default`, no código
+
+`create()` tampoco escribe `status`: se apoya en su `@default(DRAFT)`. Esto es lo
+mismo, y de paso da a **todas las filas existentes** el valor correcto sin
+backfill. Se descartó sembrar `REVIEWED` en los que tuvieran un `LISTING_APPROVE`:
+aprobar es dejar publicar, triar es decidir dónde mira el staff.
+
+### La transición automática, con su guarda
+
+Una sola: **`REVIEWED → EDITED`** cuando el dueño edita. `NEW` se queda `NEW` y
+`EDITED` se queda `EDITED`. La guarda es la mitad de la regla — marcar «editado»
+algo que nadie había mirado destruiría el dato útil («sigue sin revisar») para
+poner uno vacío.
+
+**Por qué importa más de lo que parecía.** Verificado en `update()`: la edición
+del dueño no cambia `status`, no vuelve a pasar por el filtro de palabras y no
+consulta la moderación previa —los dos sólo corren en `publish()`—, y lo único
+que hace con `needsRevalidation` es **quitarlo**. Es decir: **hoy el dueño de un
+`ACTIVE` puede reescribirlo entero sin que se entere nadie.** `EDITED` es la
+única señal que el staff va a recibir.
+
+La regla vive en `listing-triage.ts`, fichero **puro y sin DI** (molde:
+`listing-status.transitions.ts`), porque la necesitan `ListingsService` y
+`AdminService`, y `AdminModule` no importa `ListingsModule`. Ese fichero **no
+importa `ListingStatus`**, y hay un test que lo comprueba sobre el código —no
+sobre los comentarios, que sí lo nombran para explicar de qué hay que separarlo.
+
+### La traza: sólo lo manual
+
+`PATCH /admin/listings/:id/triage` (MODERATOR+, ruta hermana de `status` y no la
+misma) escribe `LISTING_TRIAGE_CHANGE` en `AuditLog` con el actor real. La
+transición automática **no genera registro**, y no por comodidad:
+
+- no lleva ningún dato que el anuncio no tenga ya —el «quién» es el dueño por
+  definición, el «cuándo» es `updatedAt`—;
+- `AuditLog.actorId` es **NOT NULL con FK a `User`**, y las 65 escrituras del
+  proyecto pasan una persona: no existe actor «sistema»;
+- y es lo que ya hace `needsRevalidation`, que se marca sin traza.
+
+`EDITED` **no se puede poner a mano**: afirma un hecho que sólo el sistema puede
+saber. A mano sólo `NEW` y `REVIEWED` — `NEW` sigue siendo alcanzable para poder
+deshacer un «revisado» puesto por error, que es también por lo que este cuerpo es
+MODERATOR y no ADMIN.
+
+### Verificación
+
+`test/etiqueta-interna.e2e-spec.ts` (20) y `listing-triage.spec.ts` (9). Las
+mutaciones: quitar la guarda tumba «NEW se queda NEW» (en los dos niveles); hacer
+que la etiqueta escriba `status` tumba los dos tests de ortogonalidad; auditar la
+transición automática tumba «lo automático no genera registro».
+
+`watched` lleva índice (booleano de `true` raro, molde `needsRevalidation`).
+`triage` **no**, a propósito: F2 dejó el precedente de medir con `EXPLAIN` antes
+de añadir un índice, y la consulta que lo usaría existe en E2.
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.
