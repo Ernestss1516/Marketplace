@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { AlertCircle, BadgeCheck, ChevronDown, ChevronRight, Loader2, Search, ShieldAlert } from 'lucide-react';
 import {
@@ -446,7 +447,17 @@ export default function AdminUsuariosPage() {
                     <tr key={user.id} className="hover:bg-muted/20">
                       <td className="px-4 py-3">
                         <div>
-                          <p className="font-medium">{user.name}</p>
+                          {/* FICHA DE USUARIO U3 — el nombre lleva a la ficha,
+                              igual que el título de un anuncio lleva a la suya.
+                              El panel desplegable se conserva para el vistazo
+                              rápido sin salir de la lista. */}
+                          <Link
+                            href={`/admin/usuarios/${user.id}`}
+                            className="font-medium hover:underline"
+                            data-testid={`usuario-enlace-${user.id}`}
+                          >
+                            {user.name}
+                          </Link>
                           <p className="text-xs text-muted-foreground">{user.email}</p>
                         </div>
                       </td>

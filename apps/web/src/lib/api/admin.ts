@@ -343,6 +343,45 @@ export interface AdminUserDetail extends Omit<AdminUser, '_count'> {
     createdAt: string;
     reporter: { id: string; name: string; slug: string } | null;
   }>;
+  /**
+   * FICHA DE USUARIO U3 — el HECHO de ser Pro, y sólo el hecho.
+   *
+   * Se sirve a MODERATOR porque es información PÚBLICA (la insignia Pro está en
+   * el perfil de cualquier vendedor). La procedencia, el vencimiento y el saldo
+   * NO están aquí: describen una relación comercial y viven en el detalle de
+   * facturación, que es ADMIN. Ver D-3.
+   */
+  isPro: boolean;
+  /** Los reportes que ESTE usuario ha hecho — el otro lado de `reportsReceived`. */
+  reportsMade: Array<{
+    id: string;
+    reason: string;
+    status: string;
+    createdAt: string;
+    listingId: string | null;
+    reportedUserId: string | null;
+  }>;
+  reviewsReceived: Array<{
+    id: string;
+    rating: number;
+    comment: string | null;
+    createdAt: string;
+    author: { id: string; name: string | null; slug: string | null };
+  }>;
+  reviewsAuthored: Array<{
+    id: string;
+    rating: number;
+    comment: string | null;
+    createdAt: string;
+    target: { id: string; name: string | null; slug: string | null };
+  }>;
+  tickets: Array<{ id: string; subject: string; status: string; createdAt: string }>;
+  _count: {
+    listings: number;
+    reviewsReceived: number;
+    reportsMade: number;
+    tickets: number;
+  };
   auditLogs: Array<{
     id: string;
     action: string;

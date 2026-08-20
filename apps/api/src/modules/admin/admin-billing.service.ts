@@ -106,7 +106,24 @@ export class AdminBillingService {
         select: {
           id: true,
           balance: true,
+          // FICHA DE USUARIO U3 — la otra moneda. El monedero tiene DOS saldos
+          // (créditos y bumps) y esta pantalla sólo enseñaba uno; con el débito
+          // y la concesión de bumps de U2, no verlo sería actuar a ciegas.
+          bumpBalance: true,
           updatedAt: true,
+          bumpEntries: {
+            orderBy: { createdAt: 'desc' },
+            take: 20,
+            select: {
+              id: true,
+              type: true,
+              amount: true,
+              referenceType: true,
+              referenceId: true,
+              note: true,
+              createdAt: true,
+            },
+          },
           entries: {
             orderBy: { createdAt: 'desc' },
             take: 20,
@@ -137,6 +154,10 @@ export class AdminBillingService {
           expiresAt: true,
           revokedAt: true,
           createdAt: true,
+          // FICHA DE USUARIO U3 — LA PROCEDENCIA, que se DERIVA de aquí: con
+          // suscripción es de pago, sin ella es una concesión del staff. No hay
+          // columna `source` porque sería una segunda verdad (U2).
+          subscriptionId: true,
         },
       }),
       this.prisma.transaction.findMany({

@@ -13668,6 +13668,73 @@ suelo tumba cuatro; bajar una acción a MODERATOR tumba el suyo.
 
 ---
 
+## Ficha de usuario U3 (P2) — la ficha completa · **P2 cerrado**
+
+Diseño: `docs/diseno-ficha-usuario.md`, plan U3. Hace visible y usable lo que U1
+y U2 dejaron por debajo.
+
+### El gate del dinero, que es real y no cosmético
+
+**El reparto que había que conservar:** `/admin/usuarios` era MODERATOR y
+`/admin/facturacion` ADMIN. Juntar las dos vistas en una ficha no debía ensanchar
+de rebote quién ve saldos y pagos.
+
+La ficha `/admin/usuarios/[id]` es **MODERATOR** (heredado por segmento, sin fila
+nueva en el mapa) y el **bloque de dinero es ADMIN**. El gate está en el backend,
+no en la pantalla:
+
+- `GET /admin/users/:id` —lo que alimenta el resto de la ficha— **no lleva
+  dinero**, y nunca lo llevó;
+- `GET /admin/billing/users/:id` —el que sí— es ADMIN-only por el `@MinRole` de
+  la clase de su controlador.
+
+Para un MODERATOR el componente **ni se monta**, así que esa petición no llega a
+hacerse; y si se hiciera a mano, sería un 403. Hay un test de API que busca el
+saldo **en la respuesta entera serializada** —no campo a campo—, para que añadir
+el monedero a ese endpoint «porque hace falta en la ficha» se note aunque se meta
+anidado. Y uno de navegador que vigila las peticiones del propio navegador.
+
+**El HECHO de ser Pro sí lo ve un MODERATOR**, y es deliberado: la insignia Pro
+está en el perfil público de cualquier vendedor, así que ocultarla no protegería
+nada. Lo que no ve es la **procedencia**, el vencimiento ni el saldo, que sí
+describen una relación comercial.
+
+### Ver todo
+
+Datos, anuncios (**con enlace a la ficha de cada uno** — el círculo con F1),
+valoraciones dadas y recibidas, reportes recibidos **y hechos** —que no se
+mostraban y son los que delatan a un denunciante compulsivo—, tickets, e
+historial de `AuditLog`.
+
+### Las acciones de U2, con su procedencia
+
+El bloque de dinero enseña el Pro **con su procedencia derivada**: «Pro de pago»
+o «Pro concedido por el equipo», con su vencimiento. Si sólo hay manual, dice
+**sin cuota mensual** con esas palabras en vez de un cero confuso (D-1).
+
+**Revocar sólo aparece si hay un Pro manual.** Para un cliente de pago el botón
+no existe — coherente con la guarda de U2, que rechazaría la operación.
+
+Dar y quitar créditos y bumps, con motivo obligatorio. Y cuando el suelo actúa, la
+ficha **lo dice**: «se descontaron N: era todo el saldo disponible», en vez de
+fingir que quitó lo pedido.
+
+### El enlace de F1, re-apuntado
+
+`/admin/usuarios?q={email}&destacado={id}` → `/admin/usuarios/{id}`. Lo que F1
+prometió se cumplió: **una línea**, sin rediseñar nada de la ficha de anuncio.
+
+### Verificación
+
+`test/usuario-ficha-gate.e2e-spec.ts` (7) y `e2e/ficha-usuario.spec.ts` (7).
+Mutaciones: renderizar el dinero para MODERATOR tumba la barrera en los dos
+intentos; ofrecer revocar sin Pro manual tumba su test; devolver el enlace de F1 a
+la ruta vieja tumba el suyo.
+
+**Con esto P2 (la ficha de usuario) queda cerrado.**
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.
