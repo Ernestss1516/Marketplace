@@ -185,6 +185,16 @@ export interface ProStatus {
   quotaDurationDays?: number;
   /** Monetización ráfaga 3 — cuota mensual de bumps gratis, mismo periodo. */
   bumpQuota: BumpQuotaStatus;
+  /**
+   * FICHA DE USUARIO — U1: de dónde sale el periodo de la cuota mensual.
+   * `NONE` = no hay ciclo de facturación, así que la cuota mensual no aplica —
+   * lo que NO significa que el usuario no sea Pro (eso lo dice `isPro`).
+   *
+   * OPCIONAL en el frontend a propósito: es aditivo, y ninguna pantalla lo
+   * necesita todavía. Se declara para que exista el concepto en este lado y para
+   * que quien pinte la cuota pueda distinguir «cero de cuatro» de «no aplica».
+   */
+  quotaSource?: 'SUBSCRIPTION' | 'NONE';
 }
 
 /** Single point the frontend consults for "how many free featured grants are left this month?" */

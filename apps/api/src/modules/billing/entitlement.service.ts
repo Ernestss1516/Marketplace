@@ -11,6 +11,38 @@ function activeFilter() {
   };
 }
 
+/**
+ * FICHA DE USUARIO — U1: EL ENTITLEMENT QUE LLEVA PERIODO DE FACTURACIÓN.
+ *
+ * LAS DOS PREGUNTAS QUE ESTE FICHERO CONFUNDÍA. «¿Es Pro?» la responde el
+ * `Entitlement` y ya tiene dueño único (`ProStatusService.isProActive`).
+ * «¿De qué periodo cuelga la cuota MENSUAL?» la responde la `Subscription`, y es
+ * otra pregunta: la cuota es un COUNT desde `currentPeriodStart`, así que sin
+ * ciclo de facturación no hay nada desde donde contar.
+ *
+ * Las tres funciones de cuota buscaban «el entitlement PRO vigente más reciente»
+ * y luego comprobaban si tenía `subscriptionId`. Con un solo entitlement daba
+ * igual; con dos deja de darlo, y ahí está el defecto que U1 cierra:
+ *
+ *   **un Pro CONCEDIDO A MANO a alguien que YA PAGA es más nuevo, no tiene
+ *   suscripción, y taparía la cuota mensual que ese cliente está pagando.**
+ *
+ * Se arregla pidiendo desde el principio lo único que sirve para la cuota: un
+ * entitlement PRO vigente **con suscripción**. Entre varios de pago sigue ganando
+ * el más reciente, así que para un cliente de pago puro el resultado es
+ * exactamente el de antes.
+ *
+ * Ver docs/diseno-ficha-usuario.md §0.4 y §1.4.
+ */
+function proConPeriodoFilter(userId: string): Prisma.EntitlementWhereInput {
+  return {
+    userId,
+    type: EntitlementType.PRO_SUBSCRIPTION,
+    subscriptionId: { not: null },
+    ...activeFilter(),
+  };
+}
+
 const DEFAULT_PRO_MONTHLY_FEATURED_QUOTA = 4;
 const DEFAULT_PRO_QUOTA_FEATURED_DURATION_DAYS = 7;
 /** Monetización ráfaga 3 — mismo default que la cuota de destacados. */
@@ -44,6 +76,24 @@ export interface FeaturedQuotaStatus {
   quotaDurationDays?: number;
   /** Monetización ráfaga 3 — cuota mensual de bumps gratis, mismo periodo. */
   bumpQuota: BumpQuotaStatus;
+  /**
+   * FICHA DE USUARIO — U1: DE DÓNDE SALE EL PERIODO DE LA CUOTA MENSUAL.
+   *
+   * `SUBSCRIPTION` — de un ciclo de facturación real. `NONE` — no hay ciclo, así
+   * que la cuota mensual **no aplica**. Y «no aplica» NO significa «no es Pro»:
+   * son las dos preguntas que este fichero confundía, y el campo existe para que
+   * no se puedan volver a confundir.
+   *
+   * Antes de U1 la ausencia de periodo se decía devolviendo `isPro: false`, que
+   * es mentira sobre un Pro concedido a mano: tiene todas las capacidades (sus
+   * cuotas de anuncios, el vídeo, la insignia) y lo único que no tiene son las
+   * gratuidades mensuales, porque cuelgan de un ciclo que nadie está pagando.
+   *
+   * Es un campo ADITIVO: para un cliente de pago vale siempre `SUBSCRIPTION` y
+   * nada de lo que ya leía el frontend cambia. Y deja sitio a un tercer valor si
+   * algún día se decide que una concesión manual sí traiga cuota (D-1).
+   */
+  quotaSource: 'SUBSCRIPTION' | 'NONE';
 }
 
 @Injectable()
@@ -110,19 +160,26 @@ export class EntitlementService {
    */
   async getFeaturedQuotaStatus(userId: string): Promise<FeaturedQuotaStatus> {
     const proEntitlement = await this.prisma.entitlement.findFirst({
-      where: { userId, type: EntitlementType.PRO_SUBSCRIPTION, ...activeFilter() },
+      // U1 — se pide directamente el que LLEVA PERIODO. Antes se cogía el más
+      // reciente y se comprobaba después si tenía suscripción, que es lo que
+      // dejaba a un Pro manual tapar la cuota de un cliente de pago.
+      where: proConPeriodoFilter(userId),
       select: {
         subscription: { select: { currentPeriodStart: true, currentPeriodEnd: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
 
-    // No entitlement, or (should not happen — ensureProEntitlement always links a
-    // Subscription) one without a linked Subscription: no period to derive the
-    // quota from, so no quota applies.
+    // SIN PERIODO. Aquí estaba el defecto: se devolvía `isPro: false`, es decir,
+    // se decía «no es Pro» cuando lo que pasa es «no hay ciclo de facturación».
+    // Ahora se pregunta por el HECHO a su dueño único y se responde cada cosa por
+    // su nombre. El coste de esa consulta sólo lo paga este camino: un cliente de
+    // pago encuentra su periodo arriba y no llega hasta aquí.
     if (!proEntitlement?.subscription) {
+      const esPro = await this.proStatus.isProActive(userId);
       return {
-        isPro: false,
+        isPro: esPro,
+        quotaSource: 'NONE',
         limit: 0,
         used: 0,
         remaining: 0,
@@ -170,6 +227,7 @@ export class EntitlementService {
 
     return {
       isPro: true,
+      quotaSource: 'SUBSCRIPTION',
       limit,
       used,
       remaining: Math.max(0, limit - used),
@@ -204,10 +262,15 @@ export class EntitlementService {
    */
   async hasAvailableFeaturedQuota(tx: Prisma.TransactionClient, userId: string): Promise<boolean> {
     const proEntitlement = await tx.entitlement.findFirst({
-      where: { userId, type: EntitlementType.PRO_SUBSCRIPTION, ...activeFilter() },
+      // U1 — el que LLEVA PERIODO, no el más reciente (ver `proConPeriodoFilter`).
+      where: proConPeriodoFilter(userId),
       select: { subscriptionId: true },
       orderBy: { createdAt: 'desc' },
     });
+    // Sin periodo NO HAY CUOTA MENSUAL, y aquí ese `false` es la respuesta
+    // correcta y completa: esta función responde «¿queda cuota?», no «¿es Pro?».
+    // Lo que cambia con U1 es que ahora nunca se llega aquí por haber elegido el
+    // entitlement equivocado.
     if (!proEntitlement?.subscriptionId) return false;
 
     const rows = await tx.$queryRaw<{ currentPeriodStart: Date }[]>`
@@ -249,7 +312,8 @@ export class EntitlementService {
    */
   async hasAvailableBumpQuota(tx: Prisma.TransactionClient, userId: string): Promise<boolean> {
     const proEntitlement = await tx.entitlement.findFirst({
-      where: { userId, type: EntitlementType.PRO_SUBSCRIPTION, ...activeFilter() },
+      // U1 — el que LLEVA PERIODO, igual que su hermana de destacados.
+      where: proConPeriodoFilter(userId),
       select: { subscriptionId: true },
       orderBy: { createdAt: 'desc' },
     });
