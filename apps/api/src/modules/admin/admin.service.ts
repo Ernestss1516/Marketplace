@@ -368,6 +368,8 @@ export class AdminService {
       sellerId,
       hasReports,
       needsRevalidation,
+      triage,
+      watched,
       createdFrom,
       createdTo,
       updatedFrom,
@@ -404,6 +406,11 @@ export class AdminService {
         reports: hasReports ? { some: {} } : { none: {} },
       }),
       ...(needsRevalidation !== undefined && { needsRevalidation }),
+      // ETIQUETA INTERNA (P1, E2) — los dos ejes del triaje, cada uno por su
+      // cuenta y combinables con todo lo demás. Son literalmente las dos líneas
+      // que F2 prometió que costaría añadir un eje nuevo.
+      ...(triage?.length && { triage: { in: triage } }),
+      ...(watched !== undefined && { watched }),
       ...((createdFrom || createdTo) && {
         createdAt: {
           ...(createdFrom && { gte: new Date(createdFrom) }),
@@ -455,6 +462,10 @@ export class AdminService {
           publishedAt: true,
           createdAt: true,
           updatedAt: true,
+          // ETIQUETA INTERNA (P1, E2) — para pintar la insignia en la lista sin
+          // tener que entrar en cada ficha.
+          triage: true,
+          watched: true,
           category: { select: { id: true, name: true, slug: true } },
           seller: { select: { id: true, name: true, slug: true, email: true } },
           images: {

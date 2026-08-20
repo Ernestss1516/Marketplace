@@ -36,8 +36,15 @@ import {
   changeListingStatus,
   deleteAdminListing,
   getAdminListing,
+  setListingTriage,
   type AdminListingDetail,
 } from '@/lib/api/admin';
+import {
+  TRIAGE_LABELS,
+  TRIAGE_MANUAL_VALUES,
+  etiquetaDeTriage,
+  varianteDeTriage,
+} from '../listing-triage';
 import { approveListing, rejectListing } from '@/lib/api/moderacion';
 import { elegirAccionDeEstado } from '../moderacion-routing';
 import {
@@ -69,6 +76,10 @@ const ACCION_LABELS: Record<string, string> = {
   LISTING_DEACTIVATE: 'Desactivado',
   LISTING_RESTORE: 'Restaurado',
   LISTING_DELETE: 'Eliminado',
+  // ETIQUETA INTERNA (P1) — sólo los cambios MANUALES llegan aquí. La transición
+  // automática (REVIEWED→EDITED al editar el dueño) no deja registro, y su
+  // «cuándo» se pinta en la insignia con `updatedAt`.
+  LISTING_TRIAGE_CHANGE: 'Etiqueta interna',
 };
 
 function Seccion({
@@ -175,6 +186,30 @@ export default function AdminFichaAnuncioPage() {
     }
   }
 
+  /**
+   * ETIQUETA INTERNA (P1, E2) — el cambio manual, por SU endpoint.
+   *
+   * No pasa por `elegirAccionDeEstado` ni por `changeListingStatus`: no es un
+   * cambio de estado. Que sea una función aparte es lo que mantiene los dos ejes
+   * separados también en el código de la pantalla.
+   */
+  async function cambiarTriaje(cambio: { triage?: string; watched?: boolean }) {
+    if (!token || !data || guardando) return;
+    setGuardando(true);
+    try {
+      await setListingTriage(token, data.id, cambio);
+      await cargar();
+    } catch (err) {
+      alert(
+        err instanceof ApiError
+          ? `Error ${err.statusCode}: ${err.message}`
+          : 'Error al cambiar la etiqueta interna',
+      );
+    } finally {
+      setGuardando(false);
+    }
+  }
+
   async function eliminar() {
     if (!token || !data) return;
     setGuardando(true);
@@ -245,6 +280,33 @@ export default function AdminFichaAnuncioPage() {
                 {etiquetaDeEstado(data.status)}
               </Badge>
               {data.needsRevalidation && <Badge variant="destructive">Requiere revalidación</Badge>}
+            </div>
+
+            {/* ETIQUETA INTERNA (P1, E2) — EL SITIO QUE F1 RESERVÓ, ya ocupado.
+                En su PROPIA línea, debajo del estado: van juntas porque se
+                consultan juntas, pero separadas porque son ejes distintos —
+                `status` dice qué le pasa al anuncio, esto dice cómo lo lleva el
+                staff. Que se vean distintas es parte del diseño. */}
+            <div className="mt-2 flex flex-wrap items-center gap-2" data-testid="ficha-triage">
+              <span className="text-xs text-muted-foreground">Etiqueta interna:</span>
+              <Badge variant={varianteDeTriage(data.triage)}>
+                {etiquetaDeTriage(data.triage)}
+              </Badge>
+              {/* EL «CUÁNDO» DE `EDITED`, y por qué sale de `updatedAt`: la
+                  transición automática no deja registro en AuditLog (E1), así
+                  que el historial tendría un salto. `updatedAt` es el dato
+                  exacto de cuándo el dueño lo cambió — se pinta eso en vez de
+                  inventar una fila de historial. */}
+              {data.triage === 'EDITED' && (
+                <span className="text-xs text-muted-foreground" data-testid="ficha-triage-cuando">
+                  el {formatDateTime(data.updatedAt)}
+                </span>
+              )}
+              {data.watched && (
+                <Badge variant="secondary" data-testid="ficha-watched">
+                  En observación
+                </Badge>
+              )}
             </div>
             <p className="mt-1 text-lg font-medium" data-testid="ficha-precio">
               {formatPrice(data.price, data.currency, data.priceType)}
@@ -327,6 +389,38 @@ export default function AdminFichaAnuncioPage() {
             data-testid="ficha-aplicar-estado"
           >
             {guardando ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Aplicar'}
+          </Button>
+        </div>
+
+        {/* ETIQUETA INTERNA (P1, E2) — LOS CONTROLES MANUALES.
+            Fila propia, separada de los de estado por un borde: cambiar el
+            estado del anuncio y anotar el triaje son acciones de ejes distintos
+            y no deben leerse como variantes de la misma.
+            `EDITED` NO ES UNA OPCIÓN: afirma un hecho que sólo el sistema puede
+            saber, y el backend lo rechaza con 400 — la UI no ofrece un botón
+            que va a fallar. */}
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3">
+          <span className="text-xs text-muted-foreground">Marcar como:</span>
+          {TRIAGE_MANUAL_VALUES.map((t) => (
+            <Button
+              key={t}
+              size="sm"
+              variant={data.triage === t ? 'default' : 'outline'}
+              disabled={guardando || data.triage === t}
+              onClick={() => void cambiarTriaje({ triage: t })}
+              data-testid={`ficha-marcar-${t}`}
+            >
+              {TRIAGE_LABELS[t]}
+            </Button>
+          ))}
+          <Button
+            size="sm"
+            variant={data.watched ? 'default' : 'outline'}
+            disabled={guardando}
+            onClick={() => void cambiarTriaje({ watched: !data.watched })}
+            data-testid="ficha-alternar-watched"
+          >
+            {data.watched ? 'Quitar de observación' : 'Poner en observación'}
           </Button>
         </div>
       </header>

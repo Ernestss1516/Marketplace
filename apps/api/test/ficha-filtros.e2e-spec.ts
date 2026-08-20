@@ -349,6 +349,97 @@ describe('Ficha F2 — filtros y ordenación del backoffice (e2e)', () => {
     });
   });
 
+  // ── ETIQUETA INTERNA (P1, E2) ─────────────────────────────────────────────
+
+  describe('etiqueta interna — el sexto eje, en el marco de F2', () => {
+    it('LA BARRERA: filtrar por un triaje devuelve SÓLO los que lo tienen', async () => {
+      await crearAnuncio({ titulo: 'F2 Es editado', status: 'ACTIVE' });
+      await prisma.listing.updateMany({
+        where: { title: 'F2 Es editado' },
+        data: { triage: 'EDITED' },
+      });
+      await crearAnuncio({ titulo: 'F2 Es nuevo' });
+      await crearAnuncio({ titulo: 'F2 Es revisado' });
+      await prisma.listing.updateMany({
+        where: { title: 'F2 Es revisado' },
+        data: { triage: 'REVIEWED' },
+      });
+
+      const { titulos } = await listar('triage=EDITED');
+
+      expect(titulos).toEqual(['F2 Es editado']);
+    });
+
+    it('el triaje admite VARIOS: «sin revisar» son NEW y EDITED a la vez', async () => {
+      await crearAnuncio({ titulo: 'F2 T nuevo' });
+      const editado = await crearAnuncio({ titulo: 'F2 T editado' });
+      const revisado = await crearAnuncio({ titulo: 'F2 T revisado' });
+      await prisma.listing.update({ where: { id: editado.id }, data: { triage: 'EDITED' } });
+      await prisma.listing.update({ where: { id: revisado.id }, data: { triage: 'REVIEWED' } });
+
+      const { titulos } = await listar('triage=NEW,EDITED');
+
+      expect(titulos.sort()).toEqual(['F2 T editado', 'F2 T nuevo']);
+    });
+
+    it('`watched=true` deja sólo los vigilados', async () => {
+      const vigilado = await crearAnuncio({ titulo: 'F2 Vigilado' });
+      await crearAnuncio({ titulo: 'F2 Tranquilo' });
+      await prisma.listing.update({ where: { id: vigilado.id }, data: { watched: true } });
+
+      const { titulos } = await listar('watched=true');
+
+      expect(titulos).toEqual(['F2 Vigilado']);
+    });
+
+    it('`watched=false` es la pregunta contraria, no «sin filtro»', async () => {
+      const vigilado = await crearAnuncio({ titulo: 'F2 W si' });
+      await crearAnuncio({ titulo: 'F2 W no' });
+      await prisma.listing.update({ where: { id: vigilado.id }, data: { watched: true } });
+
+      const { titulos } = await listar('watched=false');
+
+      expect(titulos).toEqual(['F2 W no']);
+    });
+
+    it('LOS DOS EJES SON INDEPENDIENTES: se combinan entre sí', async () => {
+      // «Los revisados que además vigilamos» — que la pregunta se pueda hacer es
+      // toda la razón de que sean dos columnas y no un enum con valores fundidos.
+      const diana = await crearAnuncio({ titulo: 'F2 Revisado y vigilado' });
+      const soloRevisado = await crearAnuncio({ titulo: 'F2 Sólo revisado' });
+      const soloVigilado = await crearAnuncio({ titulo: 'F2 Sólo vigilado' });
+      await prisma.listing.update({
+        where: { id: diana.id },
+        data: { triage: 'REVIEWED', watched: true },
+      });
+      await prisma.listing.update({ where: { id: soloRevisado.id }, data: { triage: 'REVIEWED' } });
+      await prisma.listing.update({ where: { id: soloVigilado.id }, data: { watched: true } });
+
+      const { titulos } = await listar('triage=REVIEWED&watched=true');
+
+      expect(titulos).toEqual(['F2 Revisado y vigilado']);
+    });
+
+    it('se combina con los ejes de F2: EDITED + un vendedor concreto', async () => {
+      const diana = await crearAnuncio({ titulo: 'F2 Editado de B', sellerId: sellerBId });
+      const otro = await crearAnuncio({ titulo: 'F2 Editado de A', sellerId: sellerAId });
+      await prisma.listing.updateMany({
+        where: { id: { in: [diana.id, otro.id] } },
+        data: { triage: 'EDITED' },
+      });
+
+      const { titulos } = await listar(`triage=EDITED&sellerId=${sellerBId}`);
+
+      expect(titulos).toEqual(['F2 Editado de B']);
+    });
+
+    it('un triaje inventado da 400, no una lista silenciosamente vacía', async () => {
+      const { status } = await listar('triage=NOEXISTE');
+
+      expect(status).toBe(400);
+    });
+  });
+
   describe('rangos de fecha', () => {
     it('`createdFrom` deja fuera lo anterior', async () => {
       await crearAnuncio({ titulo: 'F2 Viejo', createdAt: new Date('2020-01-01') });
