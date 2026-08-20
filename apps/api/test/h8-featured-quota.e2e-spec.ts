@@ -198,6 +198,11 @@ describe('H8.2 — GET /billing/pro-status (cuota mensual de destacados Pro)', (
       remaining: 0,
       // Monetización ráfaga 3 — campo hermano añadido a pro-status.
       bumpQuota: { limit: 0, used: 0, remaining: 0 },
+      // FICHA DE USUARIO U1 — de dónde sale el periodo de la cuota. Para un
+      // no-Pro es `NONE` por la razón obvia (no hay ciclo), y el `toEqual` se
+      // mantiene ESTRICTO a propósito: es la aserción que obliga a que cualquier
+      // campo nuevo de esta respuesta pase por aquí.
+      quotaSource: 'NONE',
     });
   });
 

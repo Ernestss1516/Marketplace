@@ -13534,6 +13534,70 @@ las dos insignias en una tumba dos.
 
 ---
 
+## Ficha de usuario U1 (P2) — «es Pro» deja de depender de tener suscripción
+
+Diseño: `docs/diseno-ficha-usuario.md`, plan U1. **No construye el Pro manual**:
+es el arreglo transversal que lo hace posible sin romper nada — el mismo papel
+que B1 en el cuerpo de borrado.
+
+### El defecto, reformulado por el inventario
+
+La auditoría hablaba de «dos fuentes de verdad de *es Pro*». El grep exhaustivo
+dijo otra cosa: **los siete lectores del hecho pasan todos por `isProActive` y
+leen el `Entitlement`**. Lo acoplado a `Subscription` son **tres funciones de un
+solo fichero**, y leen ese mismo `Entitlement`: piden la suscripción por el
+**periodo** desde el que contar la cuota mensual.
+
+> El defecto real: la cuota necesita un periodo, el único que el sistema sabe
+> producir viene de la suscripción de pago, y el código expresaba **«no hay
+> periodo» como «no es Pro»**.
+
+### El peligro que el inventario destapó
+
+Las tres funciones buscaban «el entitlement PRO vigente **más reciente**» y
+comprobaban después si tenía suscripción. Con un solo entitlement da igual; con
+dos, no:
+
+**Un Pro concedido a mano a alguien que YA PAGA es más nuevo y no tiene
+suscripción, así que ganaba el `orderBy` y dejaba a cero la cuota mensual que ese
+cliente está pagando.** Construir el Pro manual sin esto habría metido una
+regresión en el único camino que genera ingresos. Por eso U1 va sola y primero.
+
+### El arreglo
+
+`proConPeriodoFilter` — un criterio único que pide desde el principio lo único
+que sirve para la cuota: un entitlement PRO vigente **con suscripción**. Entre
+varios de pago sigue ganando el más reciente, así que **para un cliente de pago
+puro el resultado es idéntico al de antes**.
+
+Y `getFeaturedQuotaStatus` separa las dos preguntas: el hecho lo responde
+`isProActive` (su dueño único), y la ausencia de ciclo se dice con su nombre en un
+campo nuevo, `quotaSource: 'SUBSCRIPTION' | 'NONE'`. Es aditivo —para un cliente
+de pago vale siempre `SUBSCRIPTION`— y deja sitio a un tercer valor si algún día
+se decide que una concesión manual traiga cuota (D-1).
+
+La consulta extra de `isProActive` sólo la paga el camino sin periodo: un cliente
+de pago encuentra su periodo antes y no llega ahí.
+
+### Verificación
+
+`test/pro-sin-periodo.e2e-spec.ts` (10). La barrera: un cliente de pago con un
+Pro manual encima conserva su cuota íntegra —el límite, lo consumido y la
+**reserva atómica** de las otras dos funciones—. Y un Pro sólo manual es Pro para
+los lectores del hecho, con la cuota mensual declarada **no aplicable** en vez de
+un `isPro: false` que era mentira.
+
+Mutaciones: revertir el filtro del periodo tumba los tres tests de la barrera;
+devolver `isPro: false` sin periodo tumba el del Pro manual.
+
+**Un test existente cambió, y conviene decir por qué no es una rebaja.**
+`h8-featured-quota` afirma la respuesta completa con un `toEqual` estricto, así
+que el campo nuevo la rompió. Se le añade `quotaSource` **manteniendo el
+`toEqual`**: esa aserción es justo lo que obliga a que cualquier campo nuevo de
+esta respuesta pase por una revisión.
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.
