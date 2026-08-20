@@ -72,6 +72,25 @@ enum ListingStatus {
 }
 
 /// Un anuncio puede ofrecer un producto o un servicio.
+/// ETIQUETA INTERNA (P1) — el CICLO del triaje del staff. Tres valores que se
+/// EXCLUYEN entre sí, que es justo lo que lo hace un enum y no una tabla de
+/// etiquetas: «nuevo Y revisado a la vez» no significa nada y no debe poder
+/// escribirse. (Lo que sí es multivaluado son las etiquetas públicas, y por eso
+/// `ListingTag` sí es una tabla.)
+enum ListingTriage {
+  /// Nadie del staff lo ha mirado. Es el estado de partida de todo anuncio.
+  NEW
+
+  /// Alguien del staff lo miró y lo dio por bueno. Sólo se llega a mano.
+  REVIEWED
+
+  /// Lo que el staff dio por bueno HA CAMBIADO: el dueño lo editó después de la
+  /// revisión, así que aquel juicio caducó. Se llega SÓLO automáticamente y SÓLO
+  /// desde REVIEWED — editar algo que nadie había mirado no produce información
+  /// nueva, y marcarlo destruiría el dato útil («sigue sin revisar»).
+  EDITED
+}
+
 enum ListingType {
   PRODUCT
   SERVICE
@@ -640,6 +659,33 @@ model Listing {
   /// Cuándo se confirmó la subida. Informativo y útil para moderación.
   videoUploadedAt      DateTime?
 
+  /// ETIQUETA INTERNA (P1, ráfaga E1) — EL TRIAJE DEL STAFF.
+  ///
+  /// EJE INDEPENDIENTE DE `status`, igual que `needsRevalidation` — y aquí la
+  /// separación es el diseño entero, no un detalle. `status` dice qué le pasa al
+  /// anuncio (lo ve el mundo); esto dice cómo lo lleva el staff. Un anuncio puede
+  /// estar ACTIVE y EDITED, o PENDING_REVIEW y NEW: son preguntas distintas y hay
+  /// que poder responder a las dos a la vez. La etiqueta NUNCA gobierna `status`
+  /// ni al revés.
+  ///
+  /// SE LLAMA `triage` Y NO `reviewState` a propósito: cualquier cosa llamada
+  /// «review» acabaría confundida con `PENDING_REVIEW`, que es justo el eje del
+  /// que hay que mantenerla separada.
+  ///
+  /// NACE `NEW` POR DEFECTO, SIN CÓDIGO. `create()` tampoco escribe `status`: se
+  /// apoya en su `@default(DRAFT)`. Y el default da el valor correcto a todas las
+  /// filas existentes sin backfill — nadie ha triado nada todavía.
+  triage ListingTriage @default(NEW)
+
+  /// ETIQUETA INTERNA (P1) — «el staff vigila este anuncio».
+  ///
+  /// ORTOGONAL AL TRIAJE, no un valor suyo: se puede estar REVIEWED y en
+  /// observación a la vez, o NEW y en observación. Meterlo dentro del enum
+  /// obligaría a valores combinados (REVIEWED_WATCHED, NEW_WATCHED…) y los
+  /// valores se multiplicarían en vez de sumarse — la señal clásica de dos ejes
+  /// metidos en uno. Mismo reparto que `status` vs `needsRevalidation`.
+  watched Boolean @default(false)
+
   /// PUERTA DE VALIDACIÓN (ráfaga 2) — «este anuncio dejó de cumplir la
   /// configuración de su categoría». Lo pone un cambio de `attributeSchema` que
   /// invalida anuncios ya publicados; lo quita la puerta en cuanto el anuncio
@@ -690,6 +736,17 @@ model Listing {
   @@index([province, city])
   /// Puerta ráfaga 2 — para listar los marcados sin recorrer la tabla entera.
   @@index([needsRevalidation])
+
+  /// ETIQUETA INTERNA (P1) — para listar los vigilados sin recorrer la tabla
+  /// entera. Mismo criterio y misma forma que `needsRevalidation`: un booleano
+  /// cuyo `true` es raro, con una consulta propia detrás («enséñame lo que
+  /// estamos vigilando»).
+  ///
+  /// `triage` NO lleva índice todavía a propósito: son tres valores repartidos,
+  /// y el índice útil sería el compuesto con el orden de la lista. F2 dejó dicho
+  /// —y demostrado con EXPLAIN— que eso se mide antes de añadirlo; se decide en
+  /// E2, que es donde la consulta existe.
+  @@index([watched])
 
   /// FICHA F2 (P6) — EL ÍNDICE QUE FALTABA, y faltaba en la consulta más caliente
   /// del backoffice: la lista de `/admin/anuncios` ordena por `updatedAt` y no
@@ -1095,6 +1152,10 @@ model AuditLog {
   /// LISTING_DEACTIVATE | LISTING_RESTORE | LISTING_APPROVE | LISTING_REJECT
   /// LISTING_DELETE (borrado B2 — irreversible; su `before` es lo ÚNICO que
   ///   sobrevive al anuncio, así que lleva identidad, dueño y recuentos)
+  /// LISTING_TRIAGE_CHANGE (etiqueta interna P1 — la anotación del staff. SÓLO
+  ///   los cambios MANUALES: la transición automática REVIEWED→EDITED no genera
+  ///   registro porque no lleva ningún dato que el anuncio no tenga ya, y porque
+  ///   `actorId` exige una persona)
   /// USER_SUSPEND | USER_BAN | USER_REINSTATE | USER_ROLE_CHANGE
   /// REPORT_RESOLVE | REPORT_DISMISS
   /// CATEGORY_CREATE | CATEGORY_EDIT | CATEGORY_DELETE | CATEGORY_REORDER

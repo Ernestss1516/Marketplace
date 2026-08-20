@@ -49,6 +49,13 @@ import {
 } from '../categories/category.types';
 import { CategoryTreeService } from '../categories/category-tree.service';
 // FICHA F1 — las señales de moderación de la ficha.
+// ETIQUETA INTERNA (P1) — las reglas del triaje, en su fichero puro (no importa
+// nada de `ListingStatus`: son ejes distintos).
+import {
+  describeIllegalManualTriage,
+  isManualTriageTarget,
+} from '../listings/listing-triage';
+import { SetListingTriageDto } from './dto/set-listing-triage.dto';
 import { PreModerationService } from '../moderation/pre-moderation.service';
 import { BadWordService } from '../moderation/bad-word.service';
 import { ListingGateService } from '../listing-gate/listing-gate.service';
@@ -588,6 +595,76 @@ export class AdminService {
       moderationSignals: { ...señales, palabraProhibida },
       historial,
     };
+  }
+
+  /**
+   * ETIQUETA INTERNA (P1) — EL CAMBIO MANUAL DEL TRIAJE Y DE LA OBSERVACIÓN.
+   *
+   * LO QUE ESTE MÉTODO NO HACE, y es lo importante: **no toca `status` ni
+   * `needsRevalidation`**. La etiqueta es un eje del staff que corre en paralelo
+   * al estado del anuncio; poner «revisado» no publica nada y quitar la
+   * observación no despublica nada. La ortogonalidad no es una propiedad que
+   * emerja sola: es que aquí no se escribe nada más que estas dos columnas.
+   *
+   * SÓLO SE AUDITA ESTO, lo manual. La transición automática (`REVIEWED →
+   * EDITED`, cuando el dueño edita) NO genera registro, y no por comodidad: no
+   * lleva ningún dato que el anuncio no tenga ya —el «quién» es el dueño por
+   * definición y el «cuándo» es `updatedAt`— y además `AuditLog.actorId` es NOT
+   * NULL con FK a `User`, así que no existe un actor «sistema» que ponerle. Es el
+   * mismo criterio que ya sigue `needsRevalidation`, que se marca sin traza.
+   * Ver docs/diseno-etiqueta-interna.md §3.
+   */
+  async setListingTriage(
+    listingId: string,
+    actorId: string,
+    dto: SetListingTriageDto,
+    ip?: string,
+  ) {
+    if (dto.triage === undefined && dto.watched === undefined) {
+      throw new BadRequestException('Nada que cambiar: manda `triage`, `watched` o ambos.');
+    }
+    if (dto.triage !== undefined && !isManualTriageTarget(dto.triage)) {
+      throw new BadRequestException(describeIllegalManualTriage(dto.triage));
+    }
+
+    const listing = await this.prisma.listing.findUnique({
+      where: { id: listingId },
+      select: { id: true, triage: true, watched: true },
+    });
+    if (!listing) throw new NotFoundException('Anuncio no encontrado');
+
+    const before = { triage: listing.triage, watched: listing.watched };
+    const after = {
+      triage: dto.triage ?? listing.triage,
+      watched: dto.watched ?? listing.watched,
+    };
+
+    // Omitir un campo NO lo pisa: los dos ejes se editan juntos y se guardan por
+    // separado.
+    const updated = await this.prisma.listing.update({
+      where: { id: listingId },
+      data: {
+        ...(dto.triage !== undefined && { triage: dto.triage }),
+        ...(dto.watched !== undefined && { watched: dto.watched }),
+      },
+      select: { id: true, triage: true, watched: true },
+    });
+
+    // Sin cambio real, sin registro: un doble clic no debe ensuciar el historial
+    // con una fila que dice que nada pasó.
+    if (before.triage !== after.triage || before.watched !== after.watched) {
+      await this.auditLog.log({
+        action: 'LISTING_TRIAGE_CHANGE',
+        actorId,
+        resourceType: 'Listing',
+        resourceId: listingId,
+        before,
+        after,
+        ip,
+      });
+    }
+
+    return updated;
   }
 
   async changeListingStatus(

@@ -70,6 +70,9 @@ import type { GateReason } from '../listing-gate/listing-gate.types';
 import { AttributeCheckService } from '../listing-gate/attribute-check.service';
 import { PhotoLimitsService } from '../listing-gate/photo-limits.service';
 import type { ListingTypePolicy, PriceUnit } from '@prisma/client';
+// ETIQUETA INTERNA (P1) — la única transición automática del triaje, en un
+// fichero puro para poder probar sus tres ramas sin montar el servicio.
+import { triageAfterOwnerEdit } from './listing-triage';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { UpdateListingDto } from './dto/update-listing.dto';
 import { MyListingsQueryDto } from './dto/my-listings-query.dto';
@@ -440,6 +443,24 @@ export class ListingsService {
           },
         }),
         ...coordUpdate,
+        // ETIQUETA INTERNA (P1) — LA ANOTACIÓN, AL LADO DEL MECANISMO Y SIN
+        // MEZCLARSE CON ÉL.
+        //
+        // El mismo evento —el dueño edita— mueve DOS ejes que no se leen entre sí:
+        //
+        //   · el MECANISMO: qué le pasa al anuncio. Es lo que hace el resto de
+        //     este `data` y el `clearIfCompliant` de abajo. Destinatario: el
+        //     vendedor y la puerta.
+        //   · la ANOTACIÓN: cómo lo ve el staff. Es esta línea. Destinatario: el
+        //     moderador.
+        //
+        // Va DENTRO de la misma escritura por atomicidad —o se guardan el
+        // contenido y su etiqueta, o ninguno de los dos—, no porque el mecanismo
+        // decida la etiqueta: quien decide es `triageAfterOwnerEdit`, que sólo
+        // mira el triaje anterior y no sabe qué es un `status`.
+        //
+        // NO TOCA `status` NI `needsRevalidation`, ni ellos tocan a ésta.
+        triage: triageAfterOwnerEdit(existing.triage),
       },
     });
 

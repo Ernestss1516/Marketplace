@@ -19,6 +19,7 @@ import { CurrentUser, MinRole } from '../../common/decorators';
 import { JwtUser } from '../auth/auth.types';
 import { AdminService } from './admin.service';
 import { ListAdminListingsDto } from './dto/list-admin-listings.dto';
+import { SetListingTriageDto } from './dto/set-listing-triage.dto';
 import { ChangeListingStatusDto } from './dto/change-listing-status.dto';
 import { ListAdminUsersDto } from './dto/list-admin-users.dto';
 import { ChangeUserRoleDto } from './dto/change-user-role.dto';
@@ -67,6 +68,29 @@ export class AdminController {
   @MinRole(Role.MODERATOR)
   getListingById(@Param('id') id: string) {
     return this.adminService.getListingById(id);
+  }
+
+  /**
+   * ETIQUETA INTERNA (P1) — la anotación del staff sobre un anuncio.
+   *
+   * MODERATOR+, como el resto de la sección: es trabajo de moderación diario y
+   * TODO lo que hace es reversible —una etiqueta que se pone y se quita—, así que
+   * no entra en la excepción de B2, que reserva ADMIN para lo irreversible.
+   *
+   * Ruta hermana de `status`, NO la misma: cambiar el estado y anotar el triaje
+   * son cosas distintas sobre ejes distintos, y compartir endpoint invitaría a
+   * mezclarlas.
+   */
+  @Patch('listings/:id/triage')
+  @HttpCode(HttpStatus.OK)
+  @MinRole(Role.MODERATOR)
+  setListingTriage(
+    @Param('id') id: string,
+    @Body() dto: SetListingTriageDto,
+    @CurrentUser() user: JwtUser,
+    @Ip() ip: string,
+  ) {
+    return this.adminService.setListingTriage(id, user.userId, dto, ip);
   }
 
   @Patch('listings/:id/status')
