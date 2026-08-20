@@ -59,6 +59,8 @@ import { SetListingTriageDto } from './dto/set-listing-triage.dto';
 import { PreModerationService } from '../moderation/pre-moderation.service';
 import { BadWordService } from '../moderation/bad-word.service';
 import { ListingGateService } from '../listing-gate/listing-gate.service';
+// FICHA DE USUARIO U3 — el dueño único de «¿es Pro?».
+import { ProStatusService } from '../listing-gate/pro-status.service';
 import { MARK_STALE_JOB } from '../listing-gate/revalidation.processor';
 import {
   PRE_MODERATION_ALL_SETTING,
@@ -343,6 +345,9 @@ export class AdminService {
     // construyen el servicio a mano (pasó en B3 y costó dos arreglos).
     private readonly preModeration: PreModerationService,
     private readonly badWords: BadWordService,
+    // FICHA DE USUARIO U3 — el HECHO de ser Pro para la ficha de usuario. Es el
+    // dueño único de esa pregunta (ver su cabecera); aquí sólo se consulta.
+    private readonly proStatus: ProStatusService,
   ) {}
 
   // ===========================================================================
@@ -953,9 +958,68 @@ export class AdminService {
             reporter: { select: { id: true, name: true, slug: true } },
           },
         },
+        // FICHA DE USUARIO U3 — «ver todo». Los reportes que ESTE usuario ha
+        // hecho no se mostraban, y dicen tanto como los recibidos: un denunciante
+        // compulsivo sólo se ve mirando este lado.
+        reportsMade: {
+          orderBy: { createdAt: 'desc' },
+          take: 10,
+          select: {
+            id: true,
+            reason: true,
+            status: true,
+            createdAt: true,
+            listingId: true,
+            reportedUserId: true,
+          },
+        },
+        reviewsReceived: {
+          orderBy: { createdAt: 'desc' },
+          take: 10,
+          select: {
+            id: true,
+            rating: true,
+            comment: true,
+            createdAt: true,
+            author: { select: { id: true, name: true, slug: true } },
+          },
+        },
+        reviewsAuthored: {
+          orderBy: { createdAt: 'desc' },
+          take: 10,
+          select: {
+            id: true,
+            rating: true,
+            comment: true,
+            createdAt: true,
+            target: { select: { id: true, name: true, slug: true } },
+          },
+        },
+        tickets: {
+          orderBy: { createdAt: 'desc' },
+          take: 10,
+          select: { id: true, subject: true, status: true, createdAt: true },
+        },
+        _count: {
+          select: { listings: true, reviewsReceived: true, reportsMade: true, tickets: true },
+        },
       },
     });
     if (!user) throw new NotFoundException('Usuario no encontrado');
+
+    /**
+     * FICHA DE USUARIO U3 — el HECHO de ser Pro, y sólo el hecho.
+     *
+     * Se sirve a MODERATOR a propósito: es **información pública** —la insignia
+     * Pro está en el perfil público de cualquier vendedor— y al moderador le sirve
+     * para entender a quién tiene delante.
+     *
+     * Lo que NO se sirve aquí es la PROCEDENCIA (pagó / se lo dieron), el
+     * vencimiento y el saldo: eso describe una relación comercial y vive en
+     * `GET /admin/billing/users/:id`, que es ADMIN. El reparto no es cosmético —
+     * el dato no sale por esta puerta. Ver docs/diseno-ficha-usuario.md §7 (D-3).
+     */
+    const isPro = await this.proStatus.isProActive(id);
 
     // AuditLogs where this user is the subject (actions taken against them).
     const auditLogs = await this.prisma.auditLog.findMany({
@@ -967,7 +1031,7 @@ export class AdminService {
       },
     });
 
-    return { ...user, auditLogs };
+    return { ...user, isPro, auditLogs };
   }
 
   async suspendUser(targetId: string, actorId: string, ip?: string) {

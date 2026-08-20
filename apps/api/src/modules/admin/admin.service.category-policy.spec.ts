@@ -69,6 +69,10 @@ function buildService(prismaOverrides: Record<string, unknown> = {}) {
     // sitio donde se consultan las señales de moderación.
     { reviewSignalsFor: jest.fn() } as never,
     { hasBadWords: jest.fn() } as never,
+    // FICHA DE USUARIO U3 — mantenimiento de fixture por cambio de FIRMA. Estos
+    // casos son de política de categorías; «¿es Pro?» sólo se consulta en la
+    // ficha de usuario.
+    { isProActive: jest.fn() } as never,
   );
 
   return { service, prisma, auditLog, indexingQueue, categoryTree };

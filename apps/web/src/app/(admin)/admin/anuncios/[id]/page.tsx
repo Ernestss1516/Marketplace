@@ -669,17 +669,18 @@ export default function AdminFichaAnuncioPage() {
           </Seccion>
 
           {/* ── 5. El vendedor ─────────────────────────────────────────────
-              El enlace apunta a `/admin/usuarios?q={email}&destacado={id}`: el
-              email es único, así que la lista lo encuentra siempre —sin depender
-              de en qué página caiga— y lo abre ya desplegado. Cuando exista P2
-              (la ficha de usuario), se redirige ahí sin tocar esta pantalla. */}
+              P2/U3 — YA REDIRIGIDO. Apuntaba a `/admin/usuarios?q={email}&destacado={id}`
+              porque la ficha de usuario no existía y había que abrir su panel
+              dentro de la lista. Ahora existe como ruta propia y el enlace va
+              directo. Lo que F1 prometió se cumplió: no hubo que rediseñar nada
+              de esta pantalla, sólo cambiar el destino. */}
           <Seccion titulo="Vendedor">
             <div className="divide-y">
               <Dato
                 etiqueta="Nombre"
                 valor={
                   <Link
-                    href={`/admin/usuarios?q=${encodeURIComponent(data.seller.email)}&destacado=${data.seller.id}`}
+                    href={`/admin/usuarios/${data.seller.id}`}
                     className="hover:underline"
                     data-testid="ficha-enlace-vendedor"
                   >
