@@ -42,6 +42,10 @@ export interface AdminListing {
   publishedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /** ETIQUETA INTERNA (P1) — el triaje del staff. Eje independiente de `status`. */
+  triage: string;
+  /** ETIQUETA INTERNA (P1) — «el staff lo vigila». Ortogonal al triaje. */
+  watched: boolean;
   category: { id: string; name: string; slug: string };
   seller: { id: string; name: string; slug: string; email: string };
   images: { url: string }[];
@@ -85,6 +89,10 @@ export interface AdminListingDetail {
   videoDurationSeconds: number | null;
   videoUploadedAt: string | null;
   needsRevalidation: boolean;
+  /** ETIQUETA INTERNA (P1) — el triaje del staff. NO es el estado del anuncio. */
+  triage: string;
+  /** ETIQUETA INTERNA (P1) — «el staff lo vigila». Ortogonal al triaje. */
+  watched: boolean;
   publishedAt: string | null;
   expiresAt: string | null;
   bumpedAt: string | null;
@@ -197,6 +205,10 @@ export interface AdminListingsFilters {
   sellerId?: string;
   hasReports?: boolean;
   needsRevalidation?: boolean;
+  /** ETIQUETA INTERNA (P1, E2) — triaje múltiple; molde de `statuses`. */
+  triage?: string[];
+  /** ETIQUETA INTERNA (P1, E2) — tres posiciones; molde de `hasReports`. */
+  watched?: boolean;
   createdFrom?: string;
   createdTo?: string;
   updatedFrom?: string;
@@ -220,6 +232,8 @@ export function getAdminListings(
   if (params?.needsRevalidation !== undefined) {
     qs.set('needsRevalidation', String(params.needsRevalidation));
   }
+  if (params?.triage?.length) qs.set('triage', params.triage.join(','));
+  if (params?.watched !== undefined) qs.set('watched', String(params.watched));
   if (params?.createdFrom) qs.set('createdFrom', params.createdFrom);
   if (params?.createdTo) qs.set('createdTo', params.createdTo);
   if (params?.updatedFrom) qs.set('updatedFrom', params.updatedFrom);
@@ -229,6 +243,29 @@ export function getAdminListings(
   // Sin el parámetro, el orden es el de siempre.
   if (params?.order) qs.set('order', params.order);
   return apiFetch<PaginatedAdminListings>(`/admin/listings?${qs}`, { token });
+}
+
+/**
+ * ETIQUETA INTERNA (P1) — el cambio MANUAL del triaje y de la observación.
+ *
+ * RUTA HERMANA de `changeListingStatus`, no la misma: anotar el triaje y cambiar
+ * el estado son cosas distintas sobre ejes distintos, y compartir función
+ * invitaría a mezclarlas.
+ *
+ * `triage` sólo admite `NEW` o `REVIEWED`: `EDITED` afirma un hecho que sólo el
+ * sistema puede saber, y el backend lo rechaza con 400. Omitir un campo NO lo
+ * pisa — los dos ejes se editan juntos y se guardan por separado.
+ */
+export function setListingTriage(
+  token: string,
+  id: string,
+  cambio: { triage?: string; watched?: boolean },
+): Promise<{ id: string; triage: string; watched: boolean }> {
+  return apiFetch(`/admin/listings/${id}/triage`, {
+    method: 'PATCH',
+    body: JSON.stringify(cambio),
+    token,
+  });
 }
 
 export function changeListingStatus(

@@ -25,11 +25,26 @@ describe('leerFiltros', () => {
       sellerId: undefined,
       hasReports: undefined,
       needsRevalidation: undefined,
+      triage: undefined,
+      watched: undefined,
       createdFrom: undefined,
       createdTo: undefined,
       order: undefined,
       page: 1,
     });
+  });
+
+  it('parte `triage` por comas, igual que `statuses`', () => {
+    // ETIQUETA INTERNA (P1, E2) — el eje nuevo entra con la MISMA forma que los
+    // de F2. Que no haya tenido que inventarse otra es lo que quería decir
+    // «ampliable sin rediseño».
+    expect(leer('triage=EDITED,NEW').triage).toEqual(['EDITED', 'NEW']);
+  });
+
+  it('`watched` distingue las tres posiciones', () => {
+    expect(leer('watched=true').watched).toBe(true);
+    expect(leer('watched=false').watched).toBe(false);
+    expect(leer('').watched).toBeUndefined();
   });
 
   it('parte `statuses` por comas', () => {
@@ -88,6 +103,8 @@ describe('aQueryString', () => {
       sellerId: 'user-1',
       hasReports: true,
       needsRevalidation: false,
+      triage: ['EDITED', 'NEW'],
+      watched: true,
       createdFrom: '2026-01-01T00:00:00.000Z',
       createdTo: '2026-06-01T00:00:00.000Z',
       order: 'price-desc' as const,
@@ -110,6 +127,8 @@ describe('hayFiltros', () => {
     expect(hayFiltros({ statuses: ['DRAFT'] })).toBe(true);
     expect(hayFiltros({ sellerId: 'u1' })).toBe(true);
     expect(hayFiltros({ hasReports: false })).toBe(true);
+    expect(hayFiltros({ triage: ['EDITED'] })).toBe(true);
+    expect(hayFiltros({ watched: false })).toBe(true);
   });
 
   it('un texto de sólo espacios no cuenta', () => {

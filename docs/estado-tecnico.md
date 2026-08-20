@@ -13461,6 +13461,79 @@ de añadir un índice, y la consulta que lo usaría existe en E2.
 
 ---
 
+## Etiqueta interna E2 (P1) — la etiqueta se ve y se usa · **P1 cerrado**
+
+Diseño: `docs/diseno-etiqueta-interna.md`, plan E2. Sobre E1 (el backend) y la
+ficha (F1 dejó la cabecera, F2 el marco de filtros).
+
+### Los sitios reservados, ocupados
+
+**La cabecera de la ficha** muestra las dos insignias en su propia línea, debajo
+del estado: juntas porque se consultan juntas, separadas porque son ejes
+distintos. **La lista** las pinta debajo del estado y no al lado — en una fila
+estrecha, dos insignias pegadas se leen como una sola.
+
+**El «cuándo» de `EDITED`.** La transición automática no deja registro (E1), así
+que el historial tendría un salto. Se tapa donde corresponde: la insignia se
+pinta con `updatedAt` («Editado el …»), que es el dato exacto de cuándo el dueño
+lo cambió, en vez de inventar una fila de historial.
+
+### Los controles, y lo que deliberadamente no ofrecen
+
+Fila propia separada por un borde de los controles de estado: anotar el triaje y
+cambiar el estado son acciones de ejes distintos y no deben leerse como variantes
+de la misma. Sólo **Nuevo** y **Revisado** — `EDITED` **no se ofrece**: afirma un
+hecho que sólo el sistema puede saber, el backend lo rechaza con 400, y la UI no
+promete un botón que va a fallar. Hay un test que lo fija.
+
+### El filtro: lo que F2 prometió, comprobado
+
+F2 dejó escrito que un eje nuevo entra «con un campo en el DTO y una línea en el
+`where`». P1 es el primero que lo ejerce, y así fue: un campo en
+`ListAdminListingsDto`, dos líneas en el `where`, dos claves en `filtros-url.ts`
+y unos chips en `FiltrosAnuncios.tsx`. **Ninguna de las cuatro piezas cambió de
+forma.** El triaje es múltiple (molde de `statuses`) porque «sin revisar» son
+`NEW` **y** `EDITED` a la vez; `watched` tiene tres posiciones (molde de
+`hasReports`). Se combinan entre sí y con los seis ejes de F2.
+
+### El índice de `triage`: medido, y NO añadido
+
+F2 dejó el precedente de medir con `EXPLAIN` antes de indexar. La medición:
+
+| Consulta | Plan |
+|---|---|
+| `triage IN (…)` + orden por defecto | `Index Scan Backward` sobre `Listing_updatedAt_idx`, triaje como `Filter`. **Sin `Sort`** |
+| `triage` + `status` | `Index Scan` sobre `Listing_status_updatedAt_idx`, triaje como `Filter` |
+| `watched = true` + orden | `Index Scan` sobre `Listing_watched_idx` + un `Sort` pequeño |
+
+**No se añade `[triage, updatedAt]`**, y el motivo es el coste, no la pereza: es
+un índice que **toda escritura de anuncio ensucia**, porque `updatedAt` cambia
+siempre. Los de F2 lo justificaban sirviendo la consulta por defecto, que corre
+en cada carga de pantalla; éste sólo corre cuando alguien filtra a mano. Además la
+consulta frecuente (`NEW`+`EDITED`, la cola de trabajo) casa con una fracción
+grande de la tabla, donde recorrer por `updatedAt` y filtrar es lo correcto.
+
+**El umbral, escrito para no descubrirlo en producción:** si `triage=EDITED` a
+solas (valor raro) sobre una tabla grande empieza a recorrer mucho antes de
+llenar la página, entonces sí toca `[triage, updatedAt]`. `watched` ya tiene su
+índice de E1 y su `Sort` es de un conjunto pequeño por construcción — es una
+lista de vigilancia, no un estado masivo.
+
+*(Nota honesta: con el volumen actual las estimaciones del planificador son
+pequeñas; lo que estas mediciones fijan es la FORMA del plan —qué índice es
+utilizable y si aparece un `Sort`—, que es estructural y no depende del volumen.)*
+
+### Verificación
+
+`ficha-filtros.e2e-spec.ts` (+7, total 40), `filtros-url.test.ts` (+2, total 18) y
+`e2e/etiqueta-interna.spec.ts` (7). Las mutaciones: que el filtro ignore los ejes
+tumba 5 tests; ofrecer `EDITED` a mano tumba su test en los dos intentos; fundir
+las dos insignias en una tumba dos.
+
+**Con esto P1 (la etiqueta interna) queda cerrado.**
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.

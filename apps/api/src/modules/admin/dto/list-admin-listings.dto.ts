@@ -8,7 +8,7 @@ import {
   Min,
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
-import { ListingStatus } from '@prisma/client';
+import { ListingStatus, ListingTriage } from '@prisma/client';
 
 /**
  * FICHA F2 (P6) — LOS EJES CON LOS QUE EL BACKOFFICE ENCUENTRA UN ANUNCIO.
@@ -88,6 +88,39 @@ export class ListAdminListingsDto {
   @IsOptional()
   @IsString()
   sellerId?: string;
+
+  /**
+   * ETIQUETA INTERNA (P1, E2) — el triaje del staff, MÚLTIPLE:
+   * `?triage=EDITED,NEW`.
+   *
+   * Es el primer eje que ejerce lo que F2 dejó prometido —«los ejes nuevos entran
+   * con un campo aquí y una línea en el `where`»— y por eso copia el molde de
+   * `statuses` en vez de inventarse otra forma.
+   *
+   * Múltiple porque las preguntas son conjuntos: «lo que está sin revisar» son
+   * `NEW` **y** `EDITED` a la vez, que es justo la cola de trabajo del moderador.
+   */
+  @IsOptional()
+  @Transform(({ value }) =>
+    typeof value === 'string'
+      ? value.split(',').map((s) => s.trim()).filter(Boolean)
+      : value,
+  )
+  @IsEnum(ListingTriage, { each: true })
+  triage?: ListingTriage[];
+
+  /**
+   * ETIQUETA INTERNA (P1, E2) — «el staff lo vigila». Tres posiciones, molde de
+   * `hasReports`: sin el parámetro no filtra, y `false` es la pregunta contraria
+   * («qué NO estamos vigilando»), no «me da igual».
+   *
+   * EJE INDEPENDIENTE de `triage`, igual que en el modelo: «los revisados que
+   * además vigilamos» se pide combinando los dos.
+   */
+  @IsOptional()
+  @Transform(({ value }) => (value === undefined ? undefined : value === 'true' || value === true))
+  @IsBoolean()
+  watched?: boolean;
 
   /**
    * `true` = sólo anuncios CON denuncias. La bandeja de problemas del moderador.

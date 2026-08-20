@@ -25,6 +25,7 @@ import {
   formatDate,
   formatPrice,
 } from './listing-status';
+import { etiquetaDeTriage, varianteDeTriage } from './listing-triage';
 import { ApiError } from '@/lib/api/client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -299,6 +300,25 @@ export default function AdminAnunciosPage() {
                       <Badge variant={STATUS_VARIANTS[listing.status] ?? 'outline'}>
                         {STATUS_LABELS[listing.status] ?? listing.status}
                       </Badge>
+                      {/* ETIQUETA INTERNA (P1, E2) — DEBAJO del estado y no al
+                          lado: son ejes distintos, y en una fila estrecha dos
+                          insignias pegadas se leen como una sola. */}
+                      <div
+                        className="mt-1 flex flex-wrap gap-1"
+                        data-testid={`anuncio-triage-${listing.id}`}
+                      >
+                        <Badge
+                          variant={varianteDeTriage(listing.triage)}
+                          className="text-[10px]"
+                        >
+                          {etiquetaDeTriage(listing.triage)}
+                        </Badge>
+                        {listing.watched && (
+                          <Badge variant="secondary" className="text-[10px]">
+                            En observación
+                          </Badge>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums">
                       {formatPrice(listing.price, listing.currency, listing.priceType)}

@@ -43,19 +43,25 @@ export const ORDEN_POR_DEFECTO: AdminListingsOrder = 'recent';
  */
 export function leerFiltros(params: URLSearchParams): AdminListingsFilters {
   const orden = params.get('order');
-  const estados = params
-    .get('statuses')
-    ?.split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
+  const lista = (clave: string) => {
+    const v = params
+      .get(clave)
+      ?.split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return v?.length ? v : undefined;
+  };
 
   return {
     q: params.get('q') || undefined,
-    statuses: estados?.length ? estados : undefined,
+    statuses: lista('statuses'),
     categoryId: params.get('categoryId') || undefined,
     sellerId: params.get('sellerId') || undefined,
     hasReports: leerBooleano(params.get('hasReports')),
     needsRevalidation: leerBooleano(params.get('needsRevalidation')),
+    // ETIQUETA INTERNA (P1, E2) — el sexto eje, con la misma forma que los demás.
+    triage: lista('triage'),
+    watched: leerBooleano(params.get('watched')),
     createdFrom: params.get('createdFrom') || undefined,
     createdTo: params.get('createdTo') || undefined,
     order:
@@ -97,6 +103,8 @@ export function aQueryString(filtros: AdminListingsFilters): string {
   if (filtros.needsRevalidation !== undefined) {
     qs.set('needsRevalidation', String(filtros.needsRevalidation));
   }
+  if (filtros.triage?.length) qs.set('triage', filtros.triage.join(','));
+  if (filtros.watched !== undefined) qs.set('watched', String(filtros.watched));
   if (filtros.createdFrom) qs.set('createdFrom', filtros.createdFrom);
   if (filtros.createdTo) qs.set('createdTo', filtros.createdTo);
   if (filtros.order && filtros.order !== ORDEN_POR_DEFECTO) qs.set('order', filtros.order);
@@ -117,6 +125,8 @@ export function hayFiltros(filtros: AdminListingsFilters): boolean {
       filtros.sellerId ||
       filtros.hasReports !== undefined ||
       filtros.needsRevalidation !== undefined ||
+      filtros.triage?.length ||
+      filtros.watched !== undefined ||
       filtros.createdFrom ||
       filtros.createdTo,
   );

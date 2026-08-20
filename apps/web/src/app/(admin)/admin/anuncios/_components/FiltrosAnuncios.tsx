@@ -10,10 +10,14 @@
  * está denunciado», «qué dejó de cumplir su categoría», «qué entró esta semana».
  * Ver docs/diseno-ficha-anuncio.md §2.2.
  *
- * SITIO RESERVADO PARA P1: el filtro por etiqueta interna entra como un chip más
- * en la fila de conmutadores, y su parámetro como un campo más en `filtros-url.ts`
- * y en el `where` del backend. Ni este componente ni el mapeo de la URL cambian
- * de forma para admitirlo — que es lo que quería decir «ampliable sin rediseño».
+ * EL SITIO QUE F2 RESERVÓ, YA OCUPADO (P1/E2). La etiqueta interna entró
+ * exactamente como se prometió: un campo en el DTO, una línea en el `where`, un
+ * par de claves en `filtros-url.ts` y unos chips aquí. Ni este componente ni el
+ * mapeo de la URL cambiaron de forma para admitirla — que es lo que quería decir
+ * «ampliable sin rediseño», comprobado en vez de afirmado.
+ *
+ * Va en SU PROPIA FILA, separada de los chips de estado: son ejes distintos, y
+ * mezclarlos en la misma tira invitaría a leerlos como una sola cosa.
  */
 
 import { useEffect, useState } from 'react';
@@ -22,6 +26,7 @@ import type { AdminCategory, AdminListingsFilters, AdminListingsOrder } from '@/
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { STATUS_LABELS } from '../listing-status';
+import { TRIAGE_LABELS, TRIAGE_VALUES, type Triage } from '../listing-triage';
 import { ORDENES, hayFiltros } from '../filtros-url';
 
 /** Los nueve estados, en el orden en que un moderador los piensa. */
@@ -67,12 +72,20 @@ export function FiltrosAnuncios({
   useEffect(() => setTexto(filtros.q ?? ''), [filtros.q]);
 
   const estados = filtros.statuses ?? [];
+  const triaje = filtros.triage ?? [];
 
   function alternarEstado(estado: string) {
     const siguiente = estados.includes(estado)
       ? estados.filter((e) => e !== estado)
       : [...estados, estado];
     onCambiar({ statuses: siguiente.length ? siguiente : undefined });
+  }
+
+  function alternarTriaje(valor: Triage) {
+    const siguiente = triaje.includes(valor)
+      ? triaje.filter((t) => t !== valor)
+      : [...triaje, valor];
+    onCambiar({ triage: siguiente.length ? siguiente : undefined });
   }
 
   /** Los conmutadores de tres posiciones: sin filtro → sí → no → sin filtro. */
@@ -147,6 +160,47 @@ export function FiltrosAnuncios({
             </button>
           );
         })}
+      </div>
+
+      {/* ETIQUETA INTERNA (P1, E2) — el triaje del staff, MÚLTIPLE y en su propia
+          fila. Va separado de los chips de estado a propósito: son ejes
+          distintos, y ponerlos en la misma tira invitaría a leerlos como una
+          sola cosa. «Sin revisar» son `Nuevo` y `Editado` a la vez, que es la
+          cola de trabajo real y por eso el filtro admite varios. */}
+      <div className="flex flex-wrap items-center gap-1">
+        <span className="mr-1 text-xs text-muted-foreground">Etiqueta interna:</span>
+        {TRIAGE_VALUES.map((t) => {
+          const activo = triaje.includes(t);
+          return (
+            <button
+              key={t}
+              type="button"
+              onClick={() => alternarTriaje(t)}
+              className={`rounded-full border px-2.5 py-0.5 text-xs transition-colors ${
+                activo
+                  ? 'border-primary bg-primary text-primary-foreground'
+                  : 'bg-background hover:bg-muted'
+              }`}
+              aria-pressed={activo}
+              data-testid={`filtro-triage-${t}`}
+            >
+              {TRIAGE_LABELS[t]}
+            </button>
+          );
+        })}
+        <Button
+          size="sm"
+          variant={filtros.watched === undefined ? 'outline' : 'default'}
+          className="ml-2 h-6 px-2 text-xs"
+          onClick={() => onCambiar({ watched: alternarTerciario(filtros.watched) })}
+          data-testid="filtro-watched"
+        >
+          {filtros.watched === undefined
+            ? 'Observación: todas'
+            : filtros.watched
+              ? 'En observación'
+              : 'Sin observar'}
+        </Button>
       </div>
 
       <div className="flex flex-wrap items-end gap-2">
