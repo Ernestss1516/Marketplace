@@ -1165,6 +1165,11 @@ model AuditLog {
   /// CONTACT_REASON_CREATE | CONTACT_REASON_EDIT | CONTACT_REASON_ACTIVATE |
   /// CONTACT_REASON_DEACTIVATE | CONTACT_REASON_REORDER
   /// PRICE_UPDATE | CREDIT_PACK_UPDATE
+  /// PRO_GRANT | PRO_REVOKE (ficha de usuario U2 — Pro concedido a mano, sin
+  ///   suscripción y con vencimiento obligatorio)
+  /// ADMIN_BUMP_GRANT | ADMIN_CREDIT_DEBIT | ADMIN_BUMP_DEBIT (U2 — dar bumps y
+  ///   quitar saldo; el `after` lleva lo PEDIDO y lo realmente descontado, para
+  ///   que el suelo en cero se vea en vez de esconderse)
   action String
 
   actorId String

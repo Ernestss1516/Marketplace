@@ -13598,6 +13598,76 @@ esta respuesta pase por una revisión.
 
 ---
 
+## Ficha de usuario U2 (P2) — las acciones de staff sobre un usuario
+
+Diseño: `docs/diseno-ficha-usuario.md`, plan U2. Sobre U1, que dejó la lógica de
+cuota preparada. **Backend**: la ficha que las usa es U3.
+
+### El Pro concedido a mano
+
+`POST /admin/billing/users/:id/pro` — **es la misma fila que un Pro de pago**,
+con `subscriptionId` en `null`. No hay modelo nuevo ni columna que diga «esto es
+manual»: la procedencia **se deriva** de ahí, porque el único creador del Pro de
+pago (`ensureProEntitlement`) siempre enlaza una `Subscription`. Una columna
+`source` sería una segunda verdad — mismo criterio que `hasVideo`.
+
+`expiresAt` **obligatorio**, y no por limitación: el modelo admite Pro perpetuo y
+por eso el endpoint no lo ofrece. Una fecha pasada se rechaza.
+
+**Qué concede y qué no.** Las capacidades de Pro (cuotas de anuncios, vídeo,
+insignia), no las gratuidades mensuales: la cuota es un COUNT desde el inicio de
+un ciclo de facturación y aquí no hay ciclo. U1 ya lo garantiza —`isPro: true`
+con `quotaSource: 'NONE'`— y esto es la decisión D-1.
+
+**Y no crea `Subscription`**, así que el flujo de pago queda intacto: el usuario
+puede suscribirse de verdad después. Ésa fue la razón de descartar la suscripción
+sintética, y hay un test que lo fija.
+
+`POST .../pro/revoke` pone `revokedAt` —no borra— y **sólo sobre los manuales**:
+el `subscriptionId: null` del `where` es la guarda. Revocar el entitlement de
+quien está pagando le retiraría lo comprado sin cancelar su cobro, y eso es
+facturación, no soporte.
+
+### Bumps y el débito de saldo
+
+**Dar bumps** era el hueco: dar créditos existía desde siempre y
+`BumpLedgerType.ADMIN_CREDIT` llevaba en el enum sin que nadie lo escribiera. Es
+el molde de `grantCredits` sobre la otra moneda.
+
+**Quitar saldo** (D-2, aprobada) con tres salvaguardas: motivo obligatorio,
+`AuditLog`, y **suelo en cero** — se descuenta lo que hay, no lo que se pide.
+Quitar 100 de un saldo de 30 deja 0 y **apunta −30**, porque el invariante es
+`wallet.balance == SUM(ledger.amount)` y un −100 lo rompería. El registro guarda
+**lo pedido y lo descontado**, para que el suelo se vea en vez de esconderse.
+Sobre un saldo ya a cero se rechaza: un apunte que no mueve nada es ruido.
+
+**Lo que no puede prometer, dicho donde se usa:** el monedero es un escalar sin
+lotes, así que el saldo restante no sabe de dónde vino cada unidad. «Quitar sólo
+lo regalado» no es implementable sin rediseñarlo, y el débito toca el saldo total.
+
+### Un detalle que se conserva del molde
+
+El motivo va al `AuditLog`, **nunca al `note` del apunte** — el `note` lo lee el
+usuario en `/mis-creditos` y el motivo es una anotación interna del staff. La
+separación ya estaba en `grantCredits`; hay un test que impide que se pierda.
+
+### Permisos
+
+Todas ADMIN, por el `@MinRole(Role.ADMIN)` **de la clase** del controlador, donde
+ya vivía `grantCredits`. Dar o quitar valor no es moderar.
+
+### Verificación
+
+`test/usuario-acciones.e2e-spec.ts` (27). Barrera 1: el Pro manual es Pro sin
+cuota, caduca solo y se revoca. Barrera 2: **conceder Pro manual por el endpoint
+real a un cliente que ya paga deja su cuota intacta** — U1 lo demostró con un
+entitlement fabricado; aquí es el flujo de verdad.
+
+Mutaciones: quitar la obligatoriedad de `expiresAt` tumba su test; quitar el
+suelo tumba cuatro; bajar una acción a MODERATOR tumba el suyo.
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.

@@ -1,10 +1,15 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { CreditLedgerType, Prisma } from '@prisma/client';
+import { BumpLedgerType, CreditLedgerType, EntitlementType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { ListAdminTransactionsDto } from './dto/list-admin-transactions.dto';
 import { ListAdminWalletsDto } from './dto/list-admin-wallets.dto';
 import { CreditGrantDto } from './dto/credit-grant.dto';
+// FICHA DE USUARIO — U2: las acciones de staff sobre un usuario.
+import { GrantProDto } from './dto/grant-pro.dto';
+import { RevokeProDto } from './dto/revoke-pro.dto';
+import { BumpGrantDto } from './dto/bump-grant.dto';
+import { BalanceDebitDto } from './dto/balance-debit.dto';
 import { UpdatePriceDto } from './dto/update-price.dto';
 import { UpdateCreditPackDto } from './dto/update-credit-pack.dto';
 import { UpdateBumpPackDto } from './dto/update-bump-pack.dto';
@@ -152,6 +157,149 @@ export class AdminBillingService {
     return { user, wallet, entitlements, transactions };
   }
 
+  // ===========================================================================
+  // FICHA DE USUARIO — U2: el Pro concedido a mano
+  // ===========================================================================
+
+  /**
+   * CONCEDER PRO SIN QUE EL USUARIO PAGUE.
+   *
+   * ES LA MISMA FILA QUE UN PRO DE PAGO, con una diferencia: **`subscriptionId`
+   * en null**. No hace falta ni un modelo nuevo ni una columna que diga «esto es
+   * manual» — la procedencia SE DERIVA de ahí, porque el único creador del Pro de
+   * pago (`ensureProEntitlement`) siempre enlaza una `Subscription`. Una columna
+   * `source` sería una segunda verdad que puede desincronizarse de la primera;
+   * mismo criterio que `hasVideo`, que tampoco es columna porque se deriva de
+   * `videoUrl != null`.
+   *
+   * QUÉ CONCEDE Y QUÉ NO. Concede las CAPACIDADES de Pro —cuotas de anuncios,
+   * vídeo, insignia—, no las gratuidades mensuales: la cuota de destacados y
+   * bumps es un COUNT desde el inicio de un ciclo de facturación, y aquí no hay
+   * ciclo porque nadie está pagando. U1 dejó eso resuelto: este entitlement da
+   * `isPro: true` con `quotaSource: 'NONE'` (decisión D-1).
+   *
+   * Y NO TAPA LA CUOTA DE UN CLIENTE DE PAGO. Si el usuario ya tenía un Pro
+   * pagado, los dos entitlements coexisten y la cuota sigue contándose sobre el
+   * de pago — lo garantiza `proConPeriodoFilter` (U1), que pide el que LLEVA
+   * periodo en vez del más reciente. Sin ese arreglo, esta función habría dejado
+   * a cero la cuota de clientes que pagan.
+   *
+   * NO CREA `Subscription`, así que el flujo de pago real queda intacto: el
+   * usuario puede suscribirse de verdad cuando quiera (la guarda
+   * `ALREADY_SUBSCRIBED` mira `Subscription`, no entitlements).
+   */
+  async grantPro(
+    userId: string,
+    actorId: string,
+    dto: GrantProDto,
+    ip?: string,
+  ): Promise<{ id: string; expiresAt: Date }> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+    if (!user) throw new NotFoundException('Usuario no encontrado');
+
+    const expiresAt = new Date(dto.expiresAt);
+    if (expiresAt.getTime() <= Date.now()) {
+      throw new BadRequestException('La fecha de vencimiento tiene que ser futura.');
+    }
+
+    const entitlement = await this.prisma.$transaction(async (tx) => {
+      const creado = await tx.entitlement.create({
+        data: {
+          userId,
+          type: EntitlementType.PRO_SUBSCRIPTION,
+          // La marca de que es manual. No hay columna `source`: esto ES la
+          // procedencia.
+          subscriptionId: null,
+          expiresAt,
+        },
+        select: { id: true, expiresAt: true },
+      });
+
+      await this.auditLog.log(
+        {
+          action: 'PRO_GRANT',
+          actorId,
+          resourceType: 'User',
+          resourceId: userId,
+          // Sin `before`: no había nada que sustituir — el molde ya lo contempla
+          // («Null si no aplica», schema.prisma).
+          after: {
+            entitlementId: creado.id,
+            expiresAt: expiresAt.toISOString(),
+            reason: dto.reason,
+          } as Prisma.InputJsonValue,
+          ip,
+        },
+        tx,
+      );
+
+      return creado;
+    });
+
+    return { id: entitlement.id, expiresAt: entitlement.expiresAt! };
+  }
+
+  /**
+   * RETIRAR EL PRO CONCEDIDO A MANO.
+   *
+   * SÓLO LOS MANUALES, y la guarda es el `subscriptionId: null` del `where`:
+   * revocar el entitlement de alguien que está PAGANDO le quitaría lo que compró
+   * sin tocar su suscripción —seguiría cobrándosele— y ésa es una operación de
+   * facturación, no de soporte. Si hay que cancelar un plan de pago, se cancela
+   * el plan.
+   *
+   * `revokedAt` en vez de borrar: que se concedió es parte de la historia, y
+   * `activeFilter` ya excluye lo revocado, así que deja de ser Pro en el acto.
+   */
+  async revokePro(
+    userId: string,
+    actorId: string,
+    dto: RevokeProDto,
+    ip?: string,
+  ): Promise<{ revoked: number }> {
+    const manuales = await this.prisma.entitlement.findMany({
+      where: {
+        userId,
+        type: EntitlementType.PRO_SUBSCRIPTION,
+        subscriptionId: null,
+        revokedAt: null,
+      },
+      select: { id: true, expiresAt: true },
+    });
+    if (manuales.length === 0) {
+      throw new NotFoundException('Este usuario no tiene ningún Pro concedido a mano.');
+    }
+
+    const now = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      await tx.entitlement.updateMany({
+        where: { id: { in: manuales.map((m) => m.id) } },
+        data: { revokedAt: now },
+      });
+
+      await this.auditLog.log(
+        {
+          action: 'PRO_REVOKE',
+          actorId,
+          resourceType: 'User',
+          resourceId: userId,
+          before: {
+            entitlementIds: manuales.map((m) => m.id),
+            expiresAt: manuales.map((m) => m.expiresAt?.toISOString() ?? null),
+          } as Prisma.InputJsonValue,
+          after: { revokedAt: now.toISOString(), reason: dto.reason } as Prisma.InputJsonValue,
+          ip,
+        },
+        tx,
+      );
+    });
+
+    return { revoked: manuales.length };
+  }
+
   async grantCredits(
     userId: string,
     actorId: string,
@@ -211,6 +359,169 @@ export class AdminBillingService {
     });
 
     return { balance: newBalance, creditedAmount: dto.amount };
+  }
+
+  /**
+   * FICHA DE USUARIO — U2: DAR BUMPS.
+   *
+   * El hueco que quedaba: dar créditos existía desde siempre y dar bumps no,
+   * aunque `BumpLedgerType.ADMIN_CREDIT` llevaba en el enum sin que nadie lo
+   * escribiera. Es el molde de `grantCredits` sobre la otra moneda —los bumps son
+   * un saldo aparte, intransferible y sólo válido para bumps—, no un caso
+   * especial suyo.
+   *
+   * EL MOTIVO VA AL `AuditLog`, NO AL `note`, igual que en `grantCredits`, y la
+   * separación es deliberada: el `note` lo LEE EL USUARIO en su historial de
+   * `/mis-creditos`; el motivo es una anotación interna del staff.
+   */
+  async grantBumps(
+    userId: string,
+    actorId: string,
+    dto: BumpGrantDto,
+    ip?: string,
+  ): Promise<{ bumpBalance: number; creditedAmount: number }> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+    if (!user) throw new NotFoundException('Usuario no encontrado');
+
+    const { newBalance } = await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.wallet.findUnique({
+        where: { userId },
+        select: { bumpBalance: true },
+      });
+      const oldBalance = existing?.bumpBalance ?? 0;
+
+      const wallet = await tx.wallet.upsert({
+        where: { userId },
+        create: { userId, bumpBalance: dto.amount },
+        update: { bumpBalance: { increment: dto.amount } },
+        select: { id: true, bumpBalance: true },
+      });
+
+      await tx.bumpLedger.create({
+        data: {
+          walletId: wallet.id,
+          type: BumpLedgerType.ADMIN_CREDIT,
+          amount: dto.amount,
+          note: 'Bumps añadidos por el equipo',
+          referenceType: 'User',
+          referenceId: userId,
+        },
+      });
+
+      await this.auditLog.log(
+        {
+          action: 'ADMIN_BUMP_GRANT',
+          actorId,
+          resourceType: 'Wallet',
+          resourceId: userId,
+          before: { bumpBalance: oldBalance } as Prisma.InputJsonValue,
+          after: {
+            bumpBalance: wallet.bumpBalance,
+            amount: dto.amount,
+            reason: dto.reason,
+          } as Prisma.InputJsonValue,
+          ip,
+        },
+        tx,
+      );
+
+      return { newBalance: wallet.bumpBalance };
+    });
+
+    return { bumpBalance: newBalance, creditedAmount: dto.amount };
+  }
+
+  /**
+   * FICHA DE USUARIO — U2: QUITAR SALDO (D-2 aprobada).
+   *
+   * SUELO EN CERO, Y NO ES UN DETALLE. Se descuenta lo que hay, no lo que se
+   * pide: quitar 100 de un saldo de 30 deja 0, no −70. Un saldo negativo rompería
+   * el invariante `wallet.balance == SUM(CreditLedger.amount)` en cuanto el
+   * usuario comprara, y dejaría a alguien debiendo créditos a la plataforma, que
+   * es un concepto que este producto no tiene. Por eso el ledger registra **lo
+   * realmente descontado**, no lo pedido.
+   *
+   * NO DISTINGUE COMPRADO DE REGALADO, y hay que decirlo aquí porque es donde se
+   * usa: el monedero es un escalar sin lotes, así que el saldo restante no sabe
+   * de dónde vino cada unidad. «Quitar sólo lo que se regaló» no es
+   * implementable sin rediseñar el monedero. Ver docs/diseno-ficha-usuario.md §3.3.
+   *
+   * Quitar de un saldo que ya está a cero se rechaza en vez de registrar un
+   * movimiento de cero: un apunte contable que no mueve nada es ruido.
+   */
+  async debitBalance(
+    userId: string,
+    actorId: string,
+    dto: BalanceDebitDto,
+    moneda: 'CREDITS' | 'BUMPS',
+    ip?: string,
+  ): Promise<{ balance: number; debitedAmount: number }> {
+    const wallet = await this.prisma.wallet.findUnique({
+      where: { userId },
+      select: { id: true, balance: true, bumpBalance: true },
+    });
+    if (!wallet) throw new NotFoundException('Este usuario no tiene monedero.');
+
+    const esCreditos = moneda === 'CREDITS';
+    const saldoActual = esCreditos ? wallet.balance : wallet.bumpBalance;
+    if (saldoActual <= 0) {
+      throw new BadRequestException('El saldo ya está a cero: no hay nada que quitar.');
+    }
+
+    // El suelo: se descuenta lo que hay, no lo que se pide.
+    const descontado = Math.min(dto.amount, saldoActual);
+    const nuevoSaldo = saldoActual - descontado;
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.wallet.update({
+        where: { id: wallet.id },
+        data: esCreditos ? { balance: nuevoSaldo } : { bumpBalance: nuevoSaldo },
+      });
+
+      const datosApunte = {
+        walletId: wallet.id,
+        // NEGATIVO, como el resto de salidas del ledger: el invariante es que el
+        // saldo es la SUMA de los apuntes.
+        amount: -descontado,
+        note: 'Ajuste del equipo',
+        referenceType: 'User',
+        referenceId: userId,
+      };
+      if (esCreditos) {
+        await tx.creditLedger.create({
+          data: { ...datosApunte, type: CreditLedgerType.ADMIN_DEBIT },
+        });
+      } else {
+        await tx.bumpLedger.create({
+          data: { ...datosApunte, type: BumpLedgerType.ADMIN_DEBIT },
+        });
+      }
+
+      await this.auditLog.log(
+        {
+          action: esCreditos ? 'ADMIN_CREDIT_DEBIT' : 'ADMIN_BUMP_DEBIT',
+          actorId,
+          resourceType: 'Wallet',
+          resourceId: userId,
+          before: { balance: saldoActual } as Prisma.InputJsonValue,
+          after: {
+            balance: nuevoSaldo,
+            // Los DOS: lo que se pidió y lo que realmente se pudo quitar. Si el
+            // suelo actuó, el registro lo enseña en vez de esconderlo.
+            requested: dto.amount,
+            debited: descontado,
+            reason: dto.reason,
+          } as Prisma.InputJsonValue,
+          ip,
+        },
+        tx,
+      );
+    });
+
+    return { balance: nuevoSaldo, debitedAmount: descontado };
   }
 
   // ===========================================================================
