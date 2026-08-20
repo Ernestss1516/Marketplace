@@ -20,6 +20,11 @@ import { AdminBillingService } from './admin-billing.service';
 import { ListAdminTransactionsDto } from './dto/list-admin-transactions.dto';
 import { ListAdminWalletsDto } from './dto/list-admin-wallets.dto';
 import { CreditGrantDto } from './dto/credit-grant.dto';
+// FICHA DE USUARIO — U2.
+import { GrantProDto } from './dto/grant-pro.dto';
+import { RevokeProDto } from './dto/revoke-pro.dto';
+import { BumpGrantDto } from './dto/bump-grant.dto';
+import { BalanceDebitDto } from './dto/balance-debit.dto';
 import { UpdatePriceDto } from './dto/update-price.dto';
 import { UpdateCreditPackDto } from './dto/update-credit-pack.dto';
 import { UpdateBumpPackDto } from './dto/update-bump-pack.dto';
@@ -56,6 +61,73 @@ export class AdminBillingController {
     @Ip() ip: string,
   ) {
     return this.adminBillingService.grantCredits(userId, user.userId, dto, ip);
+  }
+
+  // ─── Ficha de usuario U2: las acciones de staff ────────────────────────────
+  //
+  // TODAS son ADMIN por el `@MinRole(Role.ADMIN)` de la CLASE, no por una
+  // anotación propia: dar Pro, dar saldo y quitarlo son la misma clase de acción
+  // que `grantCredits` —regalar o retirar algo que vale dinero— y viven donde ya
+  // vivía esa. Un MODERATOR modera; esto no es moderar.
+
+  @Post('users/:userId/pro')
+  @HttpCode(HttpStatus.OK)
+  grantPro(
+    @Param('userId') userId: string,
+    @Body() dto: GrantProDto,
+    @CurrentUser() user: JwtUser,
+    @Ip() ip: string,
+  ) {
+    return this.adminBillingService.grantPro(userId, user.userId, dto, ip);
+  }
+
+  @Post('users/:userId/pro/revoke')
+  @HttpCode(HttpStatus.OK)
+  revokePro(
+    @Param('userId') userId: string,
+    @Body() dto: RevokeProDto,
+    @CurrentUser() user: JwtUser,
+    @Ip() ip: string,
+  ) {
+    return this.adminBillingService.revokePro(userId, user.userId, dto, ip);
+  }
+
+  @Post('users/:userId/bumps')
+  @HttpCode(HttpStatus.OK)
+  grantBumps(
+    @Param('userId') userId: string,
+    @Body() dto: BumpGrantDto,
+    @CurrentUser() user: JwtUser,
+    @Ip() ip: string,
+  ) {
+    return this.adminBillingService.grantBumps(userId, user.userId, dto, ip);
+  }
+
+  /**
+   * Quitar saldo. Rutas SEPARADAS por moneda, hermanas de las de dar: créditos y
+   * bumps son saldos distintos y mezclarlos en un endpoint con un parámetro
+   * «moneda» invitaría a equivocarse justo en la operación que resta.
+   */
+  @Post('users/:userId/credits/debit')
+  @HttpCode(HttpStatus.OK)
+  debitCredits(
+    @Param('userId') userId: string,
+    @Body() dto: BalanceDebitDto,
+    @CurrentUser() user: JwtUser,
+    @Ip() ip: string,
+  ) {
+    return this.adminBillingService.debitBalance(userId, user.userId, dto, 'CREDITS', ip);
+  }
+
+  @Post('users/:userId/bumps/debit')
+  @HttpCode(HttpStatus.OK)
+  debitBumps(
+    @Param('userId') userId: string,
+    @Body() dto: BalanceDebitDto,
+    @CurrentUser() user: JwtUser,
+    @Ip() ip: string,
+  ) {
+    return this.adminBillingService.debitBalance(userId, user.userId, dto, 'BUMPS', ip);
   }
 
   @Get('prices')
