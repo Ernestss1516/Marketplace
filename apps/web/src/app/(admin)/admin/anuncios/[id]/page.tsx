@@ -59,6 +59,7 @@ import { getCategoryBySlug } from '@/lib/api/categorias';
 import { attributeErrors, buildAttributes, filterSchemaByType } from '@/lib/attribute-schema';
 import { StepAtributos } from '@/components/publicar/steps/StepAtributos';
 import { ValoracionFila } from '@/components/admin/ValoracionFila';
+import { DatoIp } from '@/components/admin/DatoIp';
 import type { AttributeSchema, ListingType } from '@/types';
 import { ApiError } from '@/lib/api/client';
 import { Badge } from '@/components/ui/badge';
@@ -1019,6 +1020,13 @@ export default function AdminFichaAnuncioPage() {
               <Dato etiqueta="Caduca" valor={formatDateTime(data.expiresAt)} />
               <Dato etiqueta="Último cambio" valor={formatDateTime(data.updatedAt)} />
               <Dato etiqueta="Último bump" valor={formatDateTime(data.bumpedAt)} />
+              {/* ÚLTIMA IP (5b) — la última vez que EL DUEÑO gestionó el anuncio, que es
+                  otra pregunta que «Último cambio»: ése lo mueve también el staff. */}
+              <Dato
+                etiqueta="Última gestión del dueño"
+                valor={formatDateTime(data.lastOwnerInteractionAt)}
+              />
+              <Dato etiqueta="IP del dueño" valor={<DatoIp ip={data.lastOwnerIp} />} />
               <Dato
                 etiqueta="Bump programado"
                 valor={

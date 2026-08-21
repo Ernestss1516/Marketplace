@@ -329,6 +329,33 @@ const ORDER_BY: Record<string, Prisma.ListingOrderByWithRelationInput> = {
   'reports-desc': { reports: { _count: 'desc' } },
 };
 
+/**
+ * ÚLTIMA IP (5b) — LOS ÓRDENES DE LA LISTA DE USUARIOS. Molde `ORDER_BY` de F2, TRAÍDO:
+ * aquél es de `Listing` y no vale para `User`. Esta lista no tenía eje ninguno.
+ *
+ * ─── `nulls: 'last'`, Y NO ES UN DETALLE ──────────────────────────────────────
+ *
+ * `lastLoginAt` nace NULL para todo el mundo —el dato no existía antes de 5a y no hay
+ * backfill posible— y **Postgres pone los NULL PRIMERO en un `ORDER BY ... DESC`**. Sin
+ * esto, «ordenar por última conexión» pondría arriba exactamente a quien NUNCA ha entrado:
+ * lo contrario de lo que el moderador ha pedido, y el tipo de cosa que se ve una vez en
+ * producción y se atribuye a otra causa.
+ *
+ * Va en los DOS órdenes de última conexión: en `asc` los NULL van últimos por defecto,
+ * pero escribirlo en uno y no en el otro dejaría la regla a medias y a merced de que
+ * alguien cambie el sentido.
+ */
+const USER_ORDER_BY: Record<string, Prisma.UserOrderByWithRelationInput> = {
+  // EL DE ENTRADA (5b): «quién ha estado aquí hace menos». Es el orden en que un
+  // moderador piensa una lista de personas cuando investiga.
+  'last-login-desc': { lastLoginAt: { sort: 'desc', nulls: 'last' } },
+  // «Quién lleva más tiempo sin aparecer», con los que nunca entraron al final igual.
+  'last-login-asc': { lastLoginAt: { sort: 'asc', nulls: 'last' } },
+  // El de siempre hasta 5b, conservado: quien quiera el alta lo sigue teniendo.
+  recent: { createdAt: 'desc' },
+  oldest: { createdAt: 'asc' },
+};
+
 @Injectable()
 export class AdminService {
   constructor(
@@ -386,6 +413,7 @@ export class AdminService {
       needsRevalidation,
       triage,
       watched,
+      ip,
       createdFrom,
       createdTo,
       updatedFrom,
@@ -422,6 +450,8 @@ export class AdminService {
         reports: hasReports ? { some: {} } : { none: {} },
       }),
       ...(needsRevalidation !== undefined && { needsRevalidation }),
+      // ÚLTIMA IP (5b) — la línea que F2 prometió. Exacta, no `contains`.
+      ...(ip && { lastOwnerIp: ip }),
       // ETIQUETA INTERNA (P1, E2) — los dos ejes del triaje, cada uno por su
       // cuenta y combinables con todo lo demás. Son literalmente las dos líneas
       // que F2 prometió que costaría añadir un eje nuevo.
@@ -1014,10 +1044,14 @@ export class AdminService {
   // ===========================================================================
 
   async listUsers(query: ListAdminUsersDto) {
-    const { status, role, q, page = 1, perPage = 24 } = query;
+    const { status, role, q, ip, order, page = 1, perPage = 24 } = query;
     const where: Prisma.UserWhereInput = {
       ...(status && { status }),
       ...(role && { role }),
+      // ÚLTIMA IP (5b) — coincidencia EXACTA. Ver el doc-comment del DTO: un `contains`
+      // sobre «10.0.0.1» traería «110.0.0.10», y en una investigación de multicuenta eso
+      // no es un falso positivo cualquiera — es señalar a quien no es.
+      ...(ip && { lastLoginIp: ip }),
       ...(q && {
         OR: [
           { name: { contains: q, mode: 'insensitive' } },
@@ -1028,7 +1062,7 @@ export class AdminService {
     const [items, total] = await this.prisma.$transaction([
       this.prisma.user.findMany({
         where,
-        orderBy: { createdAt: 'desc' },
+        orderBy: USER_ORDER_BY[order ?? 'last-login-desc'],
         skip: (page - 1) * perPage,
         take: perPage,
         select: {
@@ -1046,6 +1080,11 @@ export class AdminService {
           // MODERACIÓN M4 — el backoffice tiene que poder VER quién está marcado,
           // no sólo marcarlo.
           requiresReview: true,
+          // ÚLTIMA IP (5b) — el dato que 5a captura, servido a MODERATOR por decisión
+          // escrita (`docs/diseno-ultima-ip.md` §6): dato personal, finalidad única de
+          // moderación antifraude, sólo la ÚLTIMA y nunca un historial.
+          lastLoginAt: true,
+          lastLoginIp: true,
           _count: { select: { listings: true } },
         },
       }),
@@ -1075,6 +1114,11 @@ export class AdminService {
         trusted: true,
         requiresReview: true,
         updatedAt: true,
+        // ÚLTIMA IP (5b) — el dato de 5a en la ficha. MODERATOR+, por decisión escrita.
+        // Es la IP DEL USUARIO (su último inicio de sesión), no la de `AuditLog`, que es
+        // del staff y que 5a sacó de esta misma respuesta. Son dos datos con dos sujetos.
+        lastLoginAt: true,
+        lastLoginIp: true,
         listings: {
           orderBy: { createdAt: 'desc' },
           take: 10,

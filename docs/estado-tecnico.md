@@ -14370,6 +14370,99 @@ que el 200 sólo se explica por el `try/catch` que se está probando.
 
 ---
 
+## Retoques del backoffice — PUNTO 5b: ver la última IP · **el punto 5, cerrado**
+
+Diseño: `docs/diseno-ultima-ip.md` §4. Sobre 5a, que capturó el dato.
+
+### El orden: se TRAE el marco de F2, y los NULL al final
+
+`/admin/usuarios` **no tenía eje de orden ninguno** — `listUsers` llevaba
+`orderBy: { createdAt: 'desc' }` clavado. El marco de F2 (mapa de órdenes + `order` en el
+DTO) se trae; no se extiende, porque el suyo es de `Listing`. El orden **por defecto** pasa
+a ser la última conexión.
+
+**Y `nulls: 'last'`, que no es un detalle.** `lastLoginAt` nace NULL para todo el mundo y
+**Postgres pone los NULL PRIMERO en un `ORDER BY … DESC`**: sin eso, «ordenar por última
+conexión» pondría arriba exactamente a quien nunca ha entrado. Es el tipo de fallo que se
+ve una vez en producción y se atribuye a otra causa.
+
+### El índice: tres mediciones, y una de ellas cambia la decisión
+
+`EXPLAIN ANALYZE` sobre 20.000 usuarios (70 % con `lastLoginAt`, 30 % que nunca entraron):
+
+| Índice | Plan | Tiempo |
+|---|---|---|
+| ninguno | `Seq Scan` + `Sort` (top-N) | ~3,3 ms |
+| `(lastLoginAt DESC)` | `Seq Scan` + `Sort` (top-N) | ~3,3 ms — **NO sirve** |
+| `(lastLoginAt DESC NULLS LAST)` | `Index Scan`, **sin `Sort`** | ~0,03 ms |
+
+El de en medio es **justo el que generaría `@@index([lastLoginAt(sort: Desc)])`**: un índice
+`DESC` lleva `NULLS FIRST` por defecto y la consulta pide `NULLS LAST`, así que el
+planificador no puede usarlo para ordenar. Declararlo en el esquema habría dado **la falsa
+sensación de estar cubierto**.
+
+Se justifica por el criterio de **F2** (sirve el orden por defecto, el que corre en cada
+carga), aunque con un coste dicho: 5a hace que `lastLoginAt` cambie en cada login, así que
+este índice se ensucia en cada login. **Los filtros por IP, en cambio, NO se indexan**, por
+el criterio de **E2**: medidos en ~1,7 ms, sólo corren cuando alguien investiga a mano, y el
+índice se ensuciaría igual. El umbral queda escrito en la migración.
+
+### El peligro de estar fuera del esquema, comprobado — y convertido en ruido
+
+Prisma no sabe expresar `NULLS LAST`, así que el índice va en SQL a mano. **Se ejecutó
+`prisma migrate dev --create-only` para ver qué pasa**, y genera:
+
+```sql
+-- DropIndex
+DROP INDEX "User_lastLoginAt_desc_nulls_last_idx";
+```
+
+Un índice que la siguiente migración borra en silencio deja la pantalla recorriendo la
+tabla entera sin que nadie se entere. Por eso hay una **barrera anti-drift** que afirma que
+el índice existe, **que tiene la forma correcta** (`DESC NULLS LAST` — un `DESC` a secas no
+sirve) y que el plan del orden por defecto no lleva `Sort`. La pérdida silenciosa se
+convierte en un rojo de CI.
+
+*(Detalle operativo: una vez borrado, `migrate deploy` NO lo repone —la migración consta
+aplicada—, así que en local hay que recrearlo a mano. En CI da igual: la base nace de cero.)*
+
+### Los filtros y lo que se ve
+
+Filtro por IP en usuarios (`lastLoginIp`) y en anuncios (`lastOwnerIp`), **coincidencia
+exacta y no `contains`**: una IP es un identificador, y buscar «10.0.0.7» con `contains`
+traería «110.0.0.70» — en una investigación de multicuenta eso no es un falso positivo
+cualquiera, es señalar a quien no es. En la lista de usuarios va en un **eje propio**, no
+dentro del buscador de texto: mezclarlos obligaría a que `q` adivinara si lo escrito parece
+una IP, y adivinar es lo que un filtro de investigación no debe hacer.
+
+Se muestran la última conexión con hora (lista y ficha), la IP, y en la ficha de anuncio la
+**«Última gestión del dueño»** — que es otra pregunta que «Último cambio», porque ése lo
+mueve también el staff. Quien nunca ha entrado dice **«Nunca»**, no «—»: es una respuesta, y
+en una lista ordenada por esa columna es además la explicación de por qué está al final.
+
+### El aviso RC.1, donde está el dato
+
+`DatoIp` pinta la IP con un aviso: mientras la topología del proxy no esté verificada
+(`pendientes.md` §6), **podría estar falsificada por el cliente**. Va pegado al dato y no en
+una leyenda al pie, porque quien lo lee para decidir algo tiene que ver ahí mismo hasta
+dónde puede fiarse. Una IP que puede mentir y se presenta como certeza invita a concluir.
+
+### Verificación
+
+`test/ultima-ip-orden.e2e-spec.ts` (9). **Backend completo: 127 suites, 2033 tests.**
+
+Mutaciones, las tres verificadas:
+
+| Mutación | Cae |
+|---|---|
+| Quitar `nulls: 'last'` | «quien NUNCA entró va al FINAL» |
+| El filtro de IP ignora el valor | Los 3 tests de filtrado |
+| **Borrar el índice** (lo que hace `migrate dev`) | La barrera anti-drift y la del plan sin `Sort` |
+
+**Con esto el punto 5 queda cerrado.**
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.
