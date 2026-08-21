@@ -55,6 +55,10 @@ import {
   formatDateTime,
   formatPrice,
 } from '../listing-status';
+import { getCategoryBySlug } from '@/lib/api/categorias';
+import { attributeErrors, buildAttributes, filterSchemaByType } from '@/lib/attribute-schema';
+import { StepAtributos } from '@/components/publicar/steps/StepAtributos';
+import type { AttributeSchema, ListingType } from '@/types';
 import { ApiError } from '@/lib/api/client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -145,6 +149,34 @@ export default function AdminFichaAnuncioPage() {
   const [edDescripcion, setEdDescripcion] = useState('');
   const [edPrecio, setEdPrecio] = useState('');
   const [edMotivo, setEdMotivo] = useState('');
+  // 2a — los atributos, como cadenas (es lo que `StepAtributos` maneja, igual que
+  // en el wizard del dueño; la conversión a su tipo la hace el backend al validar).
+  const [edAtributos, setEdAtributos] = useState<Record<string, string>>({});
+
+  /**
+   * 2a — EL SCHEMA EFECTIVO DE LA CATEGORÍA, y no es un detalle de comodidad.
+   *
+   * `GET /admin/listings/:id` incluye `category: true`, o sea la FILA CRUDA: su
+   * `attributeSchema` es **sólo el propio de la hoja**, sin los heredados. La validación
+   * del backend, en cambio, corre contra el EFECTIVO —`applicableSchemaFor` sobre la
+   * cadena entera de ancestros—, así que las dos no hablaban del mismo conjunto.
+   *
+   * Consecuencias, las dos verificadas:
+   *
+   *   · **de lectura**: la sección «Atributos» de esta ficha lleva desde F1 mostrando
+   *     de menos. Un anuncio en «Motor › Coches › Berlinas» no enseñaba lo declarado en
+   *     «Coches»;
+   *   · **de escritura, y es la grave**: `attributes` se guarda por REEMPLAZO COMPLETO
+   *     del jsonb (`admin.service.ts:754`), mientras que la validación se hace sobre el
+   *     bag MEZCLADO (`existing` + delta). Un formulario construido con el schema de la
+   *     hoja mandaría un bag incompleto: la validación lo daría por bueno —porque mezcla
+   *     con lo que ya había— y la escritura BORRARÍA los heredados. En silencio.
+   *
+   * Se resuelve con el mismo par de llamadas que hace el editor del dueño
+   * (`mis-anuncios/[id]/editar`): el anuncio, y después `GET /categories/:slug`, que sí
+   * devuelve el efectivo ya plegado (`efectivoSchema`). Molde reusado, backend intacto.
+   */
+  const [schemaEfectivo, setSchemaEfectivo] = useState<AttributeSchema[]>([]);
 
   const cargar = useCallback(async () => {
     if (!token) return;
@@ -154,6 +186,16 @@ export default function AdminFichaAnuncioPage() {
       const d = await getAdminListing(token, params.id);
       setData(d);
       setNuevoEstado(d.status);
+      // El efectivo, del endpoint público de categorías — ver `schemaEfectivo`. Va
+      // DESPUÉS y con su propio `catch`: si falla, la ficha se pinta igual con lo que
+      // trae el anuncio; lo único que se pierde es poder editar los atributos, y eso es
+      // mejor que una pantalla en blanco por una llamada secundaria.
+      try {
+        const cat = await getCategoryBySlug(d.category.slug);
+        setSchemaEfectivo(cat.attributeSchema ?? []);
+      } catch {
+        setSchemaEfectivo([]);
+      }
     } catch (err) {
       setError(
         err instanceof ApiError ? `Error ${err.statusCode}: ${err.message}` : 'Error al cargar',
@@ -166,6 +208,38 @@ export default function AdminFichaAnuncioPage() {
   useEffect(() => {
     void cargar();
   }, [cargar]);
+
+  /**
+   * Los atributos que el staff puede tocar: el efectivo de la cadena, filtrado por el
+   * TIPO del anuncio. Mismo par de funciones que el wizard del dueño, y en el mismo
+   * orden — `applicableSchemaFor` del backend es exactamente esto (pliegue + filtro),
+   * así que el formulario ofrece ni más ni menos que lo que la validación va a exigir.
+   *
+   * `type` es inmutable en los dos caminos de edición, así que este conjunto no cambia
+   * mientras la ficha está abierta.
+   */
+  const atributosEditables = data
+    ? filterSchemaByType(schemaEfectivo, data.type as ListingType)
+    : [];
+
+  /**
+   * Los errores de cliente de los atributos — la MISMA función que frena al dueño.
+   *
+   * NO es «validar dos veces por si acaso». Es lo que cierra un hueco real que el
+   * backend tiene hoy: valida `attributes` sobre el bag MEZCLADO (lo guardado + lo que
+   * llega) pero lo ESCRIBE por reemplazo completo, así que **vaciar un atributo
+   * REQUERIDO se cuela** — el formulario no lo manda, la validación lo recupera de lo
+   * guardado y lo da por bueno, y la escritura lo borra. El anuncio queda inválido en
+   * silencio y el aviso de `needsRevalidation` le llega al VENDEDOR, que es exactamente
+   * lo que P3a existe para evitar.
+   *
+   * El camino del dueño tiene el mismo hueco y sólo está a salvo porque su formulario
+   * frena antes (`validateSection`). Que el backoffice frene en el MISMO sitio es lo
+   * que hace cierta la promesa de P3a — «valida igual que el dueño» — mientras el hueco
+   * del backend se cierra por su cuenta (anotado en `estado-tecnico.md`).
+   */
+  const erroresAtributos = editando ? attributeErrors(edAtributos, atributosEditables) : {};
+  const hayErroresAtributos = Object.keys(erroresAtributos).length > 0;
 
   async function cambiarEstado() {
     if (!token || !data || guardando || nuevoEstado === data.status) return;
@@ -234,6 +308,14 @@ export default function AdminFichaAnuncioPage() {
     setEdDescripcion(data.description);
     setEdPrecio(String(data.price));
     setEdMotivo('');
+    // 2a — el bag ENTERO, no sólo lo que tenga valor: el formulario tiene que poder
+    // devolver todas las claves del schema efectivo (ver `guardarEdicion`).
+    const actuales: Record<string, string> = {};
+    for (const campo of atributosEditables) {
+      const v = data.attributes?.[campo.name];
+      actuales[campo.name] = v === undefined || v === null ? '' : String(v);
+    }
+    setEdAtributos(actuales);
     setEditando(true);
   }
 
@@ -246,6 +328,13 @@ export default function AdminFichaAnuncioPage() {
         description: edDescripcion,
         price: Number(edPrecio),
         reason: edMotivo.trim(),
+        // 2a — SÓLO si hay schema que editar. Y siempre el bag COMPLETO: el backend
+        // guarda `attributes` por reemplazo del jsonb entero, así que mandar un
+        // subconjunto borraría el resto — y la validación no lo vería, porque valida
+        // sobre la mezcla con lo ya guardado. Ver el comentario de `schemaEfectivo`.
+        ...(atributosEditables.length > 0 && {
+          attributes: buildAttributes(edAtributos, atributosEditables),
+        }),
       });
       setEditando(false);
       await cargar();
@@ -546,7 +635,30 @@ export default function AdminFichaAnuncioPage() {
                     data-testid="ficha-edit-precio"
                   />
                 </div>
-                <div>
+
+                {/* 2a — LOS ATRIBUTOS, con el mismo componente que el wizard del dueño.
+                    No se reimplementa nada: los selects vinculados, el reseteo del hijo
+                    al cambiar el padre y las unidades salen de `StepAtributos`.
+
+                    Y la VALIDACIÓN no está aquí: la hace el backend, con la cadena de
+                    ancestros entera (`applicableSchemaFor`) y el grandfathering fino
+                    de P3a. Duplicarla en la pantalla sería la segunda copia que acaba
+                    divergiendo — y la del backoffice es la que nadie prueba. */}
+                {atributosEditables.length > 0 && (
+                  <div className="border-t pt-3" data-testid="ficha-edit-atributos">
+                    <StepAtributos
+                      schema={atributosEditables}
+                      values={edAtributos}
+                      onChange={setEdAtributos}
+                      // Sin errores de cliente: los que hay vienen del backend y se
+                      // muestran donde ya se muestran los demás fallos de guardado.
+                      errors={erroresAtributos}
+                      showHeading={false}
+                    />
+                  </div>
+                )}
+
+                <div className="border-t pt-3">
                   <label htmlFor="ed-motivo" className="mb-1 block text-xs text-muted-foreground">
                     Motivo del cambio (queda en el historial)
                   </label>
@@ -561,7 +673,7 @@ export default function AdminFichaAnuncioPage() {
                 <div className="flex gap-2">
                   <Button
                     size="sm"
-                    disabled={guardando || edMotivo.trim().length < 5}
+                    disabled={guardando || edMotivo.trim().length < 5 || hayErroresAtributos}
                     onClick={() => void guardarEdicion()}
                     data-testid="ficha-edit-guardar"
                   >
@@ -618,11 +730,17 @@ export default function AdminFichaAnuncioPage() {
               </div>
             )}
 
-            {data.category.attributeSchema?.length > 0 && (
-              <div className="mt-4">
+            {/* 2a — SE PINTA EL EFECTIVO, no el de la hoja. Antes salía
+                `data.category.attributeSchema`, que es la fila cruda de la categoría: un
+                anuncio en «Motor › Coches › Berlinas» no enseñaba lo declarado en
+                «Coches». Es un arreglo de LECTURA que venía de F1, y entra aquí porque
+                sería incoherente que el formulario ofreciera seis atributos y la vista
+                de al lado enseñara tres. */}
+            {atributosEditables.length > 0 && !editando && (
+              <div className="mt-4" data-testid="ficha-atributos">
                 <h3 className="mb-1 text-xs font-medium text-muted-foreground">Atributos</h3>
                 <div className="divide-y">
-                  {data.category.attributeSchema.map((attr) => {
+                  {atributosEditables.map((attr) => {
                     const valor = data.attributes?.[attr.name];
                     return (
                       <Dato

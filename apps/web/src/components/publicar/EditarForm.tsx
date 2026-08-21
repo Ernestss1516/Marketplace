@@ -25,7 +25,7 @@ import { toUserMessage } from '@/lib/api/client';
 import { useApiAction } from '@/lib/api/use-api-action';
 import { useRequireAuth } from '@/hooks/use-require-auth';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
-import { filterSchemaByType, resolveLinkedOptions } from '@/lib/attribute-schema';
+import { attributeErrors, buildAttributes, filterSchemaByType } from '@/lib/attribute-schema';
 import type { ProStatus } from '@/lib/api/billing';
 import type { VideoConfig } from '@/lib/api/video';
 import type { AttributeSchema, Condition, PriceUnit, TagRef } from '@/types';
@@ -99,21 +99,6 @@ export function resolveEditSections(
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function buildAttributes(
-  values: Record<string, string>,
-  schema: AttributeSchema[],
-): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
-  for (const field of schema) {
-    const val = values[field.name];
-    if (val === undefined || val === '') continue;
-    if (field.type === 'number') result[field.name] = Number(val);
-    else if (field.type === 'boolean') result[field.name] = val === 'true';
-    else result[field.name] = val;
-  }
-  return result;
-}
-
 /**
  * La validación de cada sección, IDÉNTICA a la que tenía cada paso del wizard. Lo único
  * que cambia es cuándo se ejecuta: antes al pulsar «Siguiente» de ese paso, ahora todas al
@@ -149,21 +134,11 @@ function validateSection(id: SectionId, data: EditarFormData): Record<string, st
   }
 
   if (id === 'atributos') {
-    for (const field of filterSchemaByType(data.attributeSchema, data.type)) {
-      if (field.required) {
-        const val = data.attributes[field.name];
-        if (!val || val === '') errors[field.name] = `${field.label} es obligatorio.`;
-      }
-      if (field.dependsOn) {
-        const val = data.attributes[field.name];
-        if (val) {
-          const parentVal = data.attributes[field.dependsOn];
-          if (!resolveLinkedOptions(field, parentVal).includes(val)) {
-            errors[field.name] = `${field.label} no es válido para el valor elegido.`;
-          }
-        }
-      }
-    }
+    // Sólo los campos que aplican al tipo del anuncio pueden bloquear el guardado.
+    Object.assign(
+      errors,
+      attributeErrors(data.attributes, filterSchemaByType(data.attributeSchema, data.type)),
+    );
   }
 
   if (id === 'tags') {

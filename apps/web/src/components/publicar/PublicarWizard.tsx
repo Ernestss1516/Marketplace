@@ -21,7 +21,7 @@ import { createListing, publishListing, type PhotoLimits } from '@/lib/api/anunc
 import { toUserMessage } from '@/lib/api/client';
 import { useApiAction } from '@/lib/api/use-api-action';
 import { useRequireAuth } from '@/hooks/use-require-auth';
-import { filterSchemaByType, resolveLinkedOptions } from '@/lib/attribute-schema';
+import { attributeErrors, buildAttributes, filterSchemaByType } from '@/lib/attribute-schema';
 import type { Category, AttributeSchema, ListingType, ListingTypePolicy, Condition, PriceUnit, TagRef } from '@/types';
 
 // ── Shared state shape ────────────────────────────────────────────────────────
@@ -117,27 +117,10 @@ function validateStep(id: StepId, data: WizardData): Record<string, string> {
   if (id === 'atributos') {
     // Solo los campos que aplican al tipo elegido pueden bloquear el avance —
     // un requerido de PRODUCT no debe exigirse a un anuncio SERVICE.
-    for (const field of filterSchemaByType(data.attributeSchema, data.type)) {
-      if (field.required) {
-        const val = data.attributes[field.name];
-        if (!val || val === '') {
-          errors[field.name] = `${field.label} es obligatorio.`;
-        }
-      }
-      // Selects vinculados: si el campo tiene valor, debe ser una opción
-      // válida para el valor actual de su padre (la UI ya lo impide en el
-      // caso normal — deshabilitado hasta elegir el padre, opciones acotadas
-      // — pero el estado puede quedar obsoleto tras idas y venidas).
-      if (field.dependsOn) {
-        const val = data.attributes[field.name];
-        if (val) {
-          const parentVal = data.attributes[field.dependsOn];
-          if (!resolveLinkedOptions(field, parentVal).includes(val)) {
-            errors[field.name] = `${field.label} no es válido para el valor elegido.`;
-          }
-        }
-      }
-    }
+    Object.assign(
+      errors,
+      attributeErrors(data.attributes, filterSchemaByType(data.attributeSchema, data.type)),
+    );
   }
 
   if (id === 'tags') {
@@ -165,21 +148,6 @@ function validateStep(id: StepId, data: WizardData): Record<string, string> {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-function buildAttributes(
-  values: Record<string, string>,
-  schema: AttributeSchema[],
-): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
-  for (const field of schema) {
-    const val = values[field.name];
-    if (val === undefined || val === '') continue;
-    if (field.type === 'number') result[field.name] = Number(val);
-    else if (field.type === 'boolean') result[field.name] = val === 'true';
-    else result[field.name] = val;
-  }
-  return result;
-}
 
 // ── Component ─────────────────────────────────────────────────────────────────
 

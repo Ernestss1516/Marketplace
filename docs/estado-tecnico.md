@@ -14041,6 +14041,84 @@ compiten — el usuario es `Ticket.userId` y el anuncio es `Ticket.listingId`—
 
 ---
 
+## Retoques del backoffice — PUNTO 2a: el staff edita los atributos (cerrado)
+
+Decisión: `docs/diseno-editar-anuncio.md` §5. Continuación de P3a (§1 de ese documento).
+
+### La decisión decía «UI casi pura». Casi
+
+El backend, en efecto, no se toca: el DTO admite `attributes`, `AdminService.updateListing`
+los escribe y `ListingEditValidationService` —el mismo objeto que usa el dueño— ya valida
+con la cadena de ancestros entera. Todo eso se confirmó.
+
+**Lo que la decisión no había mirado es de dónde saca la ficha el schema.**
+`GET /admin/listings/:id` incluye `category: true`, o sea la fila cruda de la categoría
+HOJA: su `attributeSchema` son **sólo los atributos propios**. La validación corre contra
+el EFECTIVO. Las dos no hablaban del mismo conjunto, y de ahí salen dos cosas:
+
+- **De lectura, y venía de F1:** la sección «Atributos» mostraba de menos. Un anuncio en
+  «Vehículos › Coches» enseñaba «Marca» y se callaba «Año» y «Kilómetros», declarados en
+  el padre.
+- **De escritura, y es la grave:** `attributes` se guarda por **reemplazo completo** del
+  jsonb, mientras la validación se hace sobre el bag **mezclado** (`existing` + delta). Un
+  formulario construido con el schema de la hoja habría mandado `{brand}` a secas: la
+  validación lo daría por bueno —porque mezcla con lo guardado— y la escritura borraría
+  `year` y `km`. En silencio, dejando el anuncio inválido y con el aviso de
+  `needsRevalidation` cayéndole al VENDEDOR.
+
+**El arreglo, sin tocar el backend:** la ficha pide `GET /categories/:slug` —que sí
+devuelve el efectivo plegado— con el mismo par de llamadas que hace el editor del dueño
+(`mis-anuncios/[id]/editar`). El formulario manda siempre el bag completo, y la vista de
+sólo lectura pasa a pintar el mismo conjunto: sería incoherente ofrecer seis atributos
+para editar y enseñar tres al lado.
+
+### El hueco del backend que esto EXPONE y no cierra
+
+La asimetría **mezclar-al-validar / reemplazar-al-escribir** sigue ahí, y **afecta igual
+al camino del dueño**: vaciar un atributo REQUERIDO se cuela por los dos lados —el
+formulario no manda un valor vacío, la validación lo recupera de lo guardado y lo aprueba,
+y la escritura lo borra—. El dueño sólo está a salvo porque su formulario frena antes.
+
+Así que el backoffice frena **en el mismo sitio y con la misma función**, que es lo que
+hace cierta la promesa de P3a («valida igual que el dueño»). **El hueco del backend queda
+anotado como defecto propio, no tapado**: lo correcto es validar contra el bag que se va a
+escribir, o escribir el mezclado, y eso es un arreglo del backend con sus propias
+barreras.
+
+### Dos reglas extraídas, no una tercera copia
+
+`buildAttributes` y la validación de atributos estaban escritas **palabra por palabra** en
+`PublicarWizard.tsx` y en `EditarForm.tsx`. Al aparecer el tercer consumidor se extraen a
+`lib/attribute-schema.ts` —junto a `filterSchemaByType`, con la que siempre van
+emparejadas— en vez de escribir la tercera copia. Es el molde de P3a con las validaciones
+del backend, y el mismo motivo: la copia que divergiría sin que nadie lo notara es la del
+backoffice. Que el freno del staff y el del dueño salgan de la MISMA función es lo que
+hace cierta la promesa por construcción, no por coincidencia.
+
+`StepAtributos` gana un `showHeading` (por defecto `true`, el wizard no se entera): en la
+ficha el componente va dentro de una sección que ya se titula «Atributos».
+
+### Verificación
+
+`admin-editar-anuncio.spec.ts` (+3, total 9). Se apoya en el árbol que la semilla de test
+declara a propósito: **Vehículos** (`year`, `km`, los dos REQUIRED) → **Coches** (`brand`).
+
+**La barrera afirma contra la BASE, no contra la pantalla:** tras editar «Marca», se
+consulta el anuncio por la API y se comprueba que `year` y `km` siguen guardados. Es lo
+único que ve el borrado silencioso.
+
+Mutaciones, las dos verificadas:
+
+| Mutación | Cae |
+|---|---|
+| Usar el schema de la HOJA en vez del efectivo | 3 de los propios (+1 colateral). El test de los heredados recibe `"AtributosMarcaSeat"` — un atributo de tres |
+| Mandar sólo los atributos CAMBIADOS en vez del bag completo | **Exactamente la barrera**, con `Expected: 2020 / Received: undefined`: `year` borrado de la base. Todo lo demás pasa, y la pantalla se ve perfecta |
+
+La segunda es el error natural que cualquiera cometería —«¿para qué mandar lo que no he
+tocado?»— y es la razón de que la barrera mire la base de datos.
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.
