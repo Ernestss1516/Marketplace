@@ -30,6 +30,10 @@ import {
 } from '../../infra/queue/queue.constants';
 import { R2Service } from '../../infra/r2/r2.service';
 import { listingMediaKeys } from '../../infra/r2/media-keys';
+import {
+  ListingImagesService,
+  type ImagenRetirada,
+} from '../listings/listing-images.service';
 import { ListAdminListingsDto } from './dto/list-admin-listings.dto';
 import { ChangeListingStatusDto } from './dto/change-listing-status.dto';
 import { ListAdminUsersDto } from './dto/list-admin-users.dto';
@@ -353,6 +357,8 @@ export class AdminService {
     private readonly proStatus: ProStatusService,
     // P3a — las reglas de los campos, las MISMAS que usa el camino del dueño.
     private readonly editValidation: ListingEditValidationService,
+    // 2b — las FOTOS, también las mismas. Al final, por la nota de arriba.
+    private readonly listingImages: ListingImagesService,
   ) {}
 
   // ===========================================================================
@@ -763,17 +769,24 @@ export class AdminService {
       },
     });
 
+    // 2b — LAS FOTOS, POR EL MISMO SITIO QUE EL DUEÑO.
+    //
+    // Lo que había aquí eran dos `updateMany` a pelo que NO escribían el `order`
+    // (reordenar respondía 200 sin mover nada), NO aplicaban el tope ni comprobaban
+    // existencia ni propiedad —contra la promesa de P3a—, y cuyo `where: { id: { in:
+    // imageIds } }` no acotaba a este anuncio: un id ajeno se llevaba la foto de otro.
+    // `ListingImagesService.sync` es el camino único, con las tres validaciones, el
+    // orden, el aislamiento entre anuncios y la limpieza de R2.
+    let fotosRetiradas: ImagenRetirada[] = [];
     if (imageIds !== undefined) {
-      await this.prisma.listingImage.updateMany({
-        where: { listingId, id: { notIn: imageIds } },
-        data: { listingId: null, order: 0 },
+      const { retiradas } = await this.listingImages.sync({
+        listingId,
+        // EL DUEÑO DEL ANUNCIO, no el moderador: las fotos que se enganchen tienen que
+        // ser del vendedor igual que si las hubiera puesto él.
+        sellerId: existing.sellerId,
+        imageIds,
       });
-      if (imageIds.length) {
-        await this.prisma.listingImage.updateMany({
-          where: { id: { in: imageIds } },
-          data: { listingId },
-        });
-      }
+      fotosRetiradas = retiradas;
     }
 
     await this.auditLog.log({
@@ -782,7 +795,21 @@ export class AdminService {
       resourceType: 'Listing',
       resourceId: listingId,
       before: before as Prisma.InputJsonValue,
-      after: { ...fields, reason } as Prisma.InputJsonValue,
+      after: {
+        ...fields,
+        reason,
+        // 2b (§5.4b) — QUÉ FOTOS SE QUITARON, con su URL.
+        //
+        // `imageIds` se destructura fuera de `fields`, así que hasta ahora las fotos no
+        // entraban ni en el `before` ni en el `after`. Mientras quitar una foto era
+        // reversible —la fila sobrevivía desvinculada— daba igual; desde que el fichero
+        // se borra de R2, un error del staff es IRRECUPERABLE, y sin esto sería además
+        // INVISIBLE. No devuelve la foto: hace que se pueda saber cuál era.
+        ...(imageIds !== undefined && {
+          imageIds,
+          imagenesRetiradas: fotosRetiradas,
+        }),
+      } as unknown as Prisma.InputJsonValue,
       ip,
     });
 

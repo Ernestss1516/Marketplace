@@ -18,11 +18,13 @@ import { ListingGateModule } from '../listing-gate/listing-gate.module';
 import { ListingsController } from './listings.controller';
 import { ListingsService } from './listings.service';
 import { ListingEditValidationModule } from './listing-edit-validation.module';
+import { ListingImagesModule } from './listing-images.module';
 
 @Module({
   imports: [
     // P3a — las reglas de los campos, compartidas con AdminModule.
     ListingEditValidationModule,
+    ListingImagesModule,
     BullModule.registerQueue(retryQueue(QUEUE_INDEXING)),
     // Re-registrado aquí (mismo patrón que ContactModule/AlertsModule para QUEUE_NOTIFICATIONS)
     BullModule.registerQueue(retryQueue(QUEUE_NOTIFICATIONS)),

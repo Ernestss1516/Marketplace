@@ -16,6 +16,7 @@ import { ListingGateModule } from '../listing-gate/listing-gate.module';
 // piezas y no importa a `AdminModule`: no hay ciclo.
 import { ModerationModule } from '../moderation/moderation.module';
 import { ListingEditValidationModule } from '../listings/listing-edit-validation.module';
+import { ListingImagesModule } from '../listings/listing-images.module';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { AdminBillingController } from './admin-billing.controller';
@@ -38,6 +39,7 @@ import { AdminBillingService } from './admin-billing.service';
     // Módulo neutral y ligero a propósito: `AdminModule` no importa
     // `ListingsModule`, y hacerlo arrastraría medio dominio.
     ListingEditValidationModule,
+    ListingImagesModule,
   ],
   controllers: [AdminController, AdminBillingController],
   providers: [AdminService, AdminBillingService],
