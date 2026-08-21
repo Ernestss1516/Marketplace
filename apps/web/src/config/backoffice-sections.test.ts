@@ -3,8 +3,10 @@ import { join } from 'path';
 import {
   ADMIN_LOGIN_PATH,
   ADMIN_ROOT,
+  BACKOFFICE_GROUPS,
   BACKOFFICE_SECTIONS,
   canAccessAdminPath,
+  navGroupsFor,
   navSectionsFor,
   sectionForPath,
 } from './backoffice-sections';
@@ -212,6 +214,92 @@ describe('LA BARRERA — nav y middleware no pueden discrepar', () => {
       }
     },
   );
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LOS GRUPOS (punto 3) — agrupar es ADITIVO, y esto es lo que lo demuestra
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Los dos bloques de arriba miden `navSectionsFor`, que esta ráfaga NO toca. Siguen
+// siendo el invariante de R1/R2 y siguen verdes sin una línea nueva. Lo que hace falta
+// probar es lo único que cambia: que la vista agrupada dice EXACTAMENTE lo mismo.
+describe('LA BARRERA DE LOS GRUPOS — agrupar no pierde, no añade y no reordena', () => {
+  const aplanar = (role: string | null) => [
+    ...navGroupsFor(role).root,
+    ...navGroupsFor(role).groups.flatMap((g) => g.items),
+  ];
+
+  it.each(ROLE_ORDER.map((r) => [r]))(
+    '%s: aplanar la barra agrupada devuelve `navSectionsFor`, en ids Y en orden',
+    (role) => {
+      // ÉSTE ES EL TEST DEL CUERPO. Mata las tres formas de romperlo a la vez:
+      //
+      //  · que `navGroupsFor` vuelva a filtrar por rol por su cuenta (habría DOS
+      //    reglas de visibilidad, y los invariantes de arriba pasarían a vigilar una
+      //    función que ya no alimenta al nav — R1 reencarnado);
+      //  · que una sección se quede sin grupo o con un grupo que no existe (se caería
+      //    del nav en silencio — R3 en versión suave);
+      //  · que una fila se cuele fuera del bloque de su grupo en el mapa (el nav se
+      //    leería en un orden distinto del declarado).
+      expect(aplanar(role).map((s) => s.id)).toEqual(navSectionsFor(role).map((s) => s.id));
+    },
+  );
+
+  it('cada sección declara su grupo, y sólo la RAÍZ va suelta', () => {
+    // `group` es `| null` explícito y no `group?:` justamente para que esto no pueda
+    // pasar por descuido; el test cierra el círculo por si alguien escribe `null`
+    // «para salir del paso» en una sección que sí tiene grupo.
+    const sueltas = BACKOFFICE_SECTIONS.filter((s) => s.group === null);
+    expect(sueltas.map((s) => s.id)).toEqual(['dashboard']);
+    expect(sueltas[0].route).toBe(ADMIN_ROOT);
+  });
+
+  it('todo grupo declarado en una sección existe en BACKOFFICE_GROUPS', () => {
+    const declarados = new Set(BACKOFFICE_GROUPS.map((g) => g.id));
+    for (const section of BACKOFFICE_SECTIONS) {
+      if (section.group === null) continue;
+      expect(declarados.has(section.group)).toBe(true);
+    }
+  });
+
+  it('no sobra ningún grupo: los seis tienen al menos una sección', () => {
+    // Un grupo sin secciones es un título que nunca se pinta — o peor, la señal de que
+    // alguien movió su contenido y olvidó la fila.
+    for (const grupo of BACKOFFICE_GROUPS) {
+      expect(BACKOFFICE_SECTIONS.some((s) => s.group === grupo.id)).toBe(true);
+    }
+  });
+
+  it('un grupo VACÍO para un rol no se devuelve (un EDITOR no ve «Moderación»)', () => {
+    const editor = navGroupsFor('EDITOR');
+    expect(editor.groups.map((g) => g.id)).toEqual(['contenido', 'promocion']);
+    // Y la raíz sí, porque el dashboard es EDITOR+.
+    expect(editor.root.map((s) => s.id)).toEqual(['dashboard']);
+  });
+
+  it('3c: «Motivos de contacto» NO es de primer nivel, PERO sigue en el nav', () => {
+    // Las dos mitades juntas, a propósito: la primera sola permitiría ocultarla y la
+    // segunda sola permitiría dejarla donde estaba. Sólo las dos describen lo acordado.
+    //
+    // Y la prueba de que esto NO revierte R2: el aserto de abajo es el mismo que el de
+    // «R3 CERRADO», sobre la misma función, sin tocarlo.
+    const motivos = BACKOFFICE_SECTIONS.find((s) => s.id === 'motivos-contacto')!;
+    expect(motivos.group).toBe('atencion');
+    expect(navSectionsFor('MODERATOR').some((s) => s.id === 'motivos-contacto')).toBe(true);
+
+    const nav = navGroupsFor('MODERATOR');
+    expect(nav.root.some((s) => s.id === 'motivos-contacto')).toBe(false);
+    const atencion = nav.groups.find((g) => g.id === 'atencion')!;
+    expect(atencion.items.map((s) => s.id)).toEqual([
+      'tickets',
+      'mensajes-contacto',
+      'motivos-contacto',
+    ]);
+  });
+
+  it('3a: la raíz se llama «Resumen»', () => {
+    expect(BACKOFFICE_SECTIONS.find((s) => s.id === 'dashboard')!.label).toBe('Resumen');
+  });
 });
 
 describe('el mapa cubre TODAS las rutas reales del backoffice', () => {

@@ -84,7 +84,9 @@ test.describe('Backoffice — ADMIN acceso total', () => {
     await expect(nav.getByRole('link', { name: 'Facturación' })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'Facturas' })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'Motivos de contacto' })).toBeVisible();
-    await expect(nav.getByRole('link', { name: 'Dashboard' })).toBeVisible();
+    // PUNTO 3a — se llamaba «Dashboard». El hecho cambió a propósito: la pantalla son
+    // agregados y ahora lo dice. Es LA ÚNICA aserción de este cuerpo que se toca.
+    await expect(nav.getByRole('link', { name: 'Resumen' })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'Reportes' })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'Patrocinados' })).toBeVisible();
   });
@@ -182,7 +184,7 @@ test.describe('Backoffice — MODERATOR acceso restringido', () => {
     // Las 12 que gana en R2, una por una: sin esto, el conteo de 19 pasaría igual
     // aunque la sección equivocada se hubiera colado en el reparto.
     for (const label of [
-      'Dashboard',
+      'Resumen',
       'Portada',
       'Footer',
       'Navegación',
@@ -342,7 +344,7 @@ test.describe('Backoffice — EDITOR: contenido y presentación del sitio', () =
     await expect(links).toHaveCount(7);
 
     for (const label of [
-      'Dashboard',
+      'Resumen',
       'Blog',
       'Páginas',
       'Portada',

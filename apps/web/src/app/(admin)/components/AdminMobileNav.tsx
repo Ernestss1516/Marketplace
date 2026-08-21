@@ -1,0 +1,86 @@
+'use client';
+
+import { useState } from 'react';
+import { usePathname } from 'next/navigation';
+import * as DialogPrimitive from '@radix-ui/react-dialog';
+import { Menu, X } from 'lucide-react';
+import { AdminNav } from './AdminNav';
+import { sectionForPath } from '@/config/backoffice-sections';
+
+/**
+ * PUNTO 3 (A3) — EL MENÚ DEL BACKOFFICE EN MÓVIL.
+ *
+ * EL DEFECTO QUE CIERRA, que es LITERALMENTE el A3 que UXV.2 ya cerró en la zona de
+ * cuenta y que aquí seguía sin arreglar: el `<aside className="w-56 shrink-0">` del
+ * shell no tenía un solo breakpoint, así que en 375 px se llevaba 224 px y dejaba —con
+ * el `p-8` del `<main>` restando 64 más— unos 87 px útiles. El backoffice era
+ * inusable en el dispositivo desde el que más se moderan cosas fuera de la oficina.
+ *
+ * DRAWER Y NO BARRA INFERIOR, mismo argumento que SHELL-D2 y más fuerte todavía: en
+ * una barra inferior entran cuatro o cinco destinos de VEINTIDÓS, y el resto acabaría
+ * detrás de un «Más» — que es el defecto R3 con otro nombre.
+ *
+ * Se monta sobre `@radix-ui/react-dialog`, YA instalado y ya usado por
+ * `components/ui/dialog.tsx` y por `AccountMobileBar` — cero dependencias nuevas. No
+ * se reusa `DialogContent` porque aquel centra un cuadro (`left-1/2 top-1/2
+ * translate`) y esto es un panel anclado al borde: mismo primitivo, distinta
+ * geometría. Overlay y animaciones sí copian las suyas.
+ *
+ * DÓNDE VIVE EL DISPARADOR, y es la única divergencia con el molde: `AccountMobileBar`
+ * mete su botón dentro del `<main>` porque la zona de cuenta no tiene cabecera propia.
+ * El backoffice **sí la tiene** (`layout.tsx`), así que el botón va ahí, donde el
+ * usuario ya mira para orientarse.
+ */
+export function AdminMobileNav() {
+  const [open, setOpen] = useState(false);
+  const pathname = usePathname();
+  const section = sectionForPath(pathname);
+
+  return (
+    <DialogPrimitive.Root open={open} onOpenChange={setOpen}>
+      <div className="flex items-center gap-2 md:hidden">
+        <DialogPrimitive.Trigger
+          className="flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm font-medium transition-colors hover:bg-muted"
+          aria-label="Abrir el menú del backoffice"
+        >
+          <Menu className="h-4 w-4" aria-hidden />
+        </DialogPrimitive.Trigger>
+        {/* Dónde estás, sin abrir nada: en móvil el menú está plegado, así que el
+            estado activo del propio menú no basta para orientar. */}
+        {section && (
+          <span className="max-w-[45vw] truncate text-sm text-muted-foreground">
+            {section.label}
+          </span>
+        )}
+      </div>
+
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/80 data-[state=closed]:animate-out data-[state=open]:animate-in data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+        <DialogPrimitive.Content
+          className="fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] overflow-y-auto border-r bg-background p-4 shadow-lg duration-200 data-[state=closed]:animate-out data-[state=open]:animate-in data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left"
+          aria-label="Menú del backoffice"
+        >
+          <div className="mb-4 flex items-center justify-between">
+            <DialogPrimitive.Title className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Backoffice
+            </DialogPrimitive.Title>
+            <DialogPrimitive.Close
+              className="rounded-sm opacity-70 transition-opacity hover:opacity-100"
+              aria-label="Cerrar el menú"
+            >
+              <X className="h-4 w-4" aria-hidden />
+            </DialogPrimitive.Close>
+          </div>
+          {/* Radix exige una descripción (o declararla ausente) o avisa por consola. */}
+          <DialogPrimitive.Description className="sr-only">
+            Navegación entre las secciones del backoffice.
+          </DialogPrimitive.Description>
+
+          {/* Cerrar al navegar: sin esto el panel se queda abierto encima de la página
+              nueva y hay que cerrarlo a mano en cada salto. */}
+          <AdminNav onNavigate={() => setOpen(false)} />
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
+  );
+}
