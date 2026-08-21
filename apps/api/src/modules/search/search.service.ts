@@ -322,7 +322,7 @@ export class SearchService implements OnModuleInit {
       await this.meili.client
         .createIndex(LISTINGS_INDEX, { primaryKey: 'id' })
         .catch(() => undefined); // index already exists — that's fine
-      await this.index.updateSettings({
+      const task = await this.index.updateSettings({
         searchableAttributes: SEARCHABLE_ATTRIBUTES,
         filterableAttributes,
         sortableAttributes: SORTABLE_ATTRIBUTES,
@@ -332,6 +332,22 @@ export class SearchService implements OnModuleInit {
           minWordSizeForTypos: { oneTypo: 4, twoTypos: 8 },
         },
       });
+      // `waitForTask`, POR EL MISMO MOTIVO QUE EN `indexListing` — y este método era el
+      // ÚNICO de la clase que no lo hacía. `updateSettings` NO aplica los ajustes: los
+      // ENCOLA y devuelve un `taskUid`, así que el `await` de arriba sólo espera a que
+      // Meilisearch acepte el encargo, no a que lo cumpla.
+      //
+      // EL FALLO QUE ESTO CIERRA, y no era teórico: entre este `await` y que Meili
+      // procesara la tarea había una ventana en la que el índice todavía no conocía los
+      // `filterableAttributes` recién calculados. Una búsqueda que facetara por uno de
+      // ellos respondía `Invalid facet distribution, attribute X is not filterable` → 500.
+      // En local Meili está ocioso y gana la carrera; en un runner cargado la pierde, y
+      // `search-dynamic-attributes.e2e-spec.ts` —que crea su categoría con un atributo
+      // boolean y consulta justo después de `app.init()`— puso `main` en rojo.
+      //
+      // La prueba de que era eso: los dos errores de aquella ejecución listaban conjuntos
+      // DISTINTOS de atributos filtrables. Meili estaba a media actualización.
+      await this.meili.client.waitForTask(task.taskUid);
       this.logger.log('Meilisearch index settings applied.');
     } catch (err) {
       this.logger.error('Failed to configure Meilisearch index', err);

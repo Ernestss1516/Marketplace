@@ -278,6 +278,18 @@ Huecos concretos ya anotados en `estado-tecnico.md`:
 
 - **`queue-retry › "Retry real"` es flaky** por timing de indexación de Meilisearch (los 14
   estructurales de esa suite sí son fiables). Preexistente.
+- ~~**`search-dynamic-attributes` es flaky** por los ajustes del índice de Meilisearch.~~
+  **CERRADO (2026-08-22).** Puso `main` en rojo una vez y la causa era concreta:
+  `updateSettings` **no aplica** los ajustes, los **encola** y devuelve un `taskUid`, así que
+  el `await` sólo esperaba a que Meili aceptara el encargo. `applyFilterableAttributes` era el
+  ÚNICO método de `SearchService` sin `waitForTask` — sus tres hermanos ya lo hacían, con la
+  razón escrita. Arreglado con esa línea, y con una barrera que **le pone cola a Meili a
+  propósito** para que la carrera sea reproducible: sin ese lastre el test pasaba igual con el
+  arreglo revertido (5 de 5), o sea que habría sido decorativo.
+  *(Quedan dos hermanos con la misma forma y sin tocar, señalados aquí para no perderlos:
+  `SearchService.removeListing` —`deleteDocument` sin esperar, mismo flake en potencia para un
+  «ya no está en la búsqueda»— y `reindexAll` —`addDocuments` sin esperar, sólo afecta al
+  comando offline `pnpm reindex`—.)*
 - **`admin-roles.spec.ts` afirma el número exacto de ítems del nav** — frágil por diseño, y llegó
   a estar desactualizado en 2 sin que nadie lo notara. Al tocar `AdminNav`, actualizar las tres
   cuentas.
