@@ -30,24 +30,26 @@ import { getAdminUser, type AdminUserDetail } from '@/lib/api/admin';
 import { ApiError } from '@/lib/api/client';
 import { Badge } from '@/components/ui/badge';
 import { BloqueDinero } from './_components/BloqueDinero';
-
-const ESTADO_LABELS: Record<string, string> = {
-  ACTIVE: 'Activo',
-  SUSPENDED: 'Suspendido',
-  BANNED: 'Baneado',
-};
+// TRADUCCIONES — los cinco campos de esta ficha que pintaban el enum crudo. Sus
+// propios `ESTADO_LABELS` y `ROL_LABELS` estaban aquí inline y han subido a
+// `../../etiquetas` SIN cambiar de texto: lo que gana la ficha es alcanzar el resto
+// del vocabulario (motivos y estados de denuncia, estado de ticket, acciones de la
+// auditoría y los estados de anuncio, que ya tenían dueño en `listing-status.ts`).
+import {
+  ACCION_LABELS,
+  ESTADO_REPORTE_LABELS,
+  ESTADO_USUARIO_LABELS,
+  MOTIVO_REPORTE_LABELS,
+  ROL_LABELS,
+  etiqueta,
+  etiquetaDeEstado,
+  ticketStatusLabel,
+} from '../../etiquetas';
 
 const ESTADO_VARIANTS: Record<string, 'default' | 'secondary' | 'destructive'> = {
   ACTIVE: 'default',
   SUSPENDED: 'secondary',
   BANNED: 'destructive',
-};
-
-const ROL_LABELS: Record<string, string> = {
-  USER: 'Usuario',
-  MODERATOR: 'Moderador',
-  EDITOR: 'Editor',
-  ADMIN: 'Administrador',
 };
 
 function formatDateTime(iso: string | null): string {
@@ -169,9 +171,9 @@ export default function AdminFichaUsuarioPage() {
             {data.name ?? '—'}
           </h1>
           <Badge variant={ESTADO_VARIANTS[data.status] ?? 'secondary'} data-testid="usuario-estado">
-            {ESTADO_LABELS[data.status] ?? data.status}
+            {etiqueta(ESTADO_USUARIO_LABELS, data.status)}
           </Badge>
-          <Badge variant="outline">{ROL_LABELS[data.role] ?? data.role}</Badge>
+          <Badge variant="outline">{etiqueta(ROL_LABELS, data.role)}</Badge>
           {/* El HECHO de ser Pro es información pública, así que también la ve un
               MODERATOR. La procedencia y el vencimiento están en el bloque de
               dinero, que es ADMIN. */}
@@ -202,8 +204,12 @@ export default function AdminFichaUsuarioPage() {
                     >
                       {l.title}
                     </Link>
+                    {/* La MISMA etiqueta que la lista `/admin/anuncios` y que la
+                        cabecera de la ficha de anuncio: sale de `listing-status.ts`,
+                        que ya era su dueño único. Esta ficha simplemente no lo
+                        importaba. */}
                     <Badge variant="outline" className="shrink-0 text-[10px]">
-                      {l.status}
+                      {etiquetaDeEstado(l.status)}
                     </Badge>
                   </li>
                 ))}
@@ -261,9 +267,11 @@ export default function AdminFichaUsuarioPage() {
                   {data.reportsReceived.map((r) => (
                     <li key={r.id} className="flex items-center gap-2 text-sm">
                       <Badge variant="outline" className="text-[10px]">
-                        {r.reason}
+                        {etiqueta(MOTIVO_REPORTE_LABELS, r.reason)}
                       </Badge>
-                      <span className="text-xs text-muted-foreground">{r.status}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {etiqueta(ESTADO_REPORTE_LABELS, r.status)}
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -284,9 +292,11 @@ export default function AdminFichaUsuarioPage() {
                   {data.reportsMade.map((r) => (
                     <li key={r.id} className="flex items-center gap-2 text-sm">
                       <Badge variant="outline" className="text-[10px]">
-                        {r.reason}
+                        {etiqueta(MOTIVO_REPORTE_LABELS, r.reason)}
                       </Badge>
-                      <span className="text-xs text-muted-foreground">{r.status}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {etiqueta(ESTADO_REPORTE_LABELS, r.status)}
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -304,7 +314,7 @@ export default function AdminFichaUsuarioPage() {
                         {t.subject}
                       </Link>{' '}
                       <Badge variant="outline" className="text-[10px]">
-                        {t.status}
+                        {ticketStatusLabel(t.status)}
                       </Badge>
                     </li>
                   ))}
@@ -324,7 +334,10 @@ export default function AdminFichaUsuarioPage() {
               <ul className="space-y-2">
                 {data.auditLogs.map((h) => (
                   <li key={h.id} className="border-l-2 pl-3 text-sm">
-                    <span className="font-medium">{h.action}</span>{' '}
+                    {/* El MISMO vocabulario que el historial de la ficha de anuncio.
+                        Vivía allí con sólo las `LISTING_*`; ahora incluye también las
+                        `USER_*` y las de Pro, que son justo las que esta ficha lee. */}
+                    <span className="font-medium">{etiqueta(ACCION_LABELS, h.action)}</span>{' '}
                     <span className="text-xs text-muted-foreground">
                       {formatDateTime(h.createdAt)}
                     </span>

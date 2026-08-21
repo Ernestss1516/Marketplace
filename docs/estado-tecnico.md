@@ -13798,6 +13798,89 @@ validaciones tumba 2.
 
 ---
 
+## Retoques del backoffice — PUNTO 4: las fichas, en español (cerrado)
+
+Auditoría: `docs/auditoria-retoques-backoffice.md` §4. Primer punto del lote de
+siete. **Presentación pura: cero backend, cero migración, ningún valor tocado.**
+
+### Lo que estaba en inglés, y eran catorce campos, no doce
+
+El resumen de la auditoría dijo «12 sitios»; su propia tabla de detalle lista
+**catorce**, que son **dieciséis puntos de render** (los dos bloques de denuncias de
+la ficha de usuario —recibidas y hechas— repiten motivo y estado). Se corrigen los
+catorce: nueve en la ficha de anuncio (tipo, condición, los dos ejes del precio,
+motivo y estado de denuncia, estado de ticket, estado y rol del vendedor, estado del
+bump programado) y cinco en la de usuario (estado de cada anuncio, motivo y estado de
+denuncia, estado de ticket y acción del historial).
+
+### Ninguna etiqueta se ha inventado, y ésa es la mitad del trabajo
+
+`admin/etiquetas.ts` copia **literalmente** las etiquetas que el repo ya usaba en la
+pantalla donde cada enum se lee de cara al usuario, y el comentario de cada mapa dice
+de cuál: `Condition` de la ficha pública, `PriceUnit` del wizard de publicar,
+`ReportReason`/`ReportStatus` de `/admin/reportes`. Sólo `BumpScheduleStatus` es
+nueva —no se pintaba en español en ninguna parte—, y sigue el criterio de
+`estadoProgramacion`.
+
+**Y no se abre la tercera copia.** `ReportReason` ya estaba escrito a mano DOS veces
+—`/admin/reportes` y `/admin/usuarios`— y **ya había divergido**: a la copia de la
+lista de usuarios le falta `FAKE_REVIEW`, así que una denuncia de valoración se
+pintaba «FAKE_REVIEW» en una pantalla y «Valoración falsa» en la otra. Meter un
+tercer mapa dentro de cada ficha habría repetido el defecto que `listing-status.ts`
+documenta haber pagado ya una vez.
+
+Los dos vocabularios que ya tenían dueño **no se copian, se re-exportan**:
+`STATUS_LABELS`/`etiquetaDeEstado` siguen viviendo en `anuncios/listing-status.ts`
+(la lista y el panel de filtros ya los importan de allí) y `ticketStatusLabel` en
+`TicketStatusBadge`, que la bandeja `/admin/tickets` y la zona de cuenta comparten.
+Hay un test que comprueba que es **el mismo objeto**, no una copia con las mismas
+palabras.
+
+### Dos arreglos que vinieron de paso
+
+- **`ACCION_LABELS` sube de la ficha de anuncio al vocabulario común.** Mientras fue
+  una constante local sólo con las `LISTING_*`, la ficha de usuario no podía usarla —
+  y por eso pintaba `USER_ROLE_CHANGE` en crudo. Ahora cubre también las `USER_*`, las
+  de Pro y las del monedero.
+- **`ticketStatusLabel` deja de poder reventar la ficha.** Indexaba sin `?.` sobre un
+  `TicketStatus`, pero los tipos de `lib/api/admin.ts` declaran `status: string`: un
+  valor futuro del backend habría tumbado la pantalla entera con un TypeError. Pasa a
+  `(status: string)` con caída al valor crudo — la regla de `listing-status.ts`.
+
+### Lo que NO cambia
+
+**Ningún valor.** El enum sigue siendo `NEW`/`ACTIVE`/`PROHIBITED_ITEM` en Postgres,
+en la API y en los parámetros de la URL; los filtros, los `aria-pressed` y los `PATCH`
+no se enteran. Y **ninguna etiqueta ya visible cambia de texto**: `ESTADO_LABELS` y
+`ROL_LABELS` se mudan de la ficha de usuario al módulo común **sin tocar una letra**,
+para que este cuerpo sólo altere los catorce campos que estaban en inglés.
+
+*(Divergencia PREEXISTENTE que se deja anotada y no se toca: la lista
+`/admin/usuarios` dice `ADMIN: 'Admin'` y la ficha `'Administrador'`. Unificarla es un
+cambio de esa pantalla, fuera del alcance de este punto.)*
+
+### Verificación
+
+`etiquetas.test.ts` (54). Cuatro bloques, porque hay cuatro formas de romperlo: que
+el vocabulario se quede corto, que una «traducción» sea el propio valor crudo, que la
+caída deje un campo en blanco, y que una ficha deje de llamar al vocabulario.
+
+El cuarto **lee el fuente de las dos fichas** —mismo criterio que
+`backoffice-sections.test.ts` buscando las rutas en disco— porque son componentes de
+página con `useSession`, `useParams` y fetch: montarlas para comprobar catorce cadenas
+costaría más que el cuerpo entero. Cada cadena prohibida es, literalmente, cómo estaba
+escrito ese campo antes.
+
+Mutaciones, las tres verificadas: revertir un sitio (`{h.action}`) tumba su test;
+`PRODUCT: 'PRODUCT'` tumba «ninguna etiqueta es el propio valor crudo»; cambiar la
+caída a `?? ''` tumba «un valor desconocido se pinta CRUDO, no vacío».
+
+**Hallazgo que se deja para después:** el desplegable de estado de la bandeja
+`/admin/tickets` (`page.tsx:146`) también pinta el enum crudo. No es una ficha, así
+que queda fuera de este punto — y ya tiene el arreglo a mano (`ticketStatusLabel`).
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.
