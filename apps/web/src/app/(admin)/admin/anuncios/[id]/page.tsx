@@ -58,6 +58,7 @@ import {
 import { getCategoryBySlug } from '@/lib/api/categorias';
 import { attributeErrors, buildAttributes, filterSchemaByType } from '@/lib/attribute-schema';
 import { StepAtributos } from '@/components/publicar/steps/StepAtributos';
+import { ValoracionFila } from '@/components/admin/ValoracionFila';
 import type { AttributeSchema, ListingType } from '@/types';
 import { ApiError } from '@/lib/api/client';
 import { Badge } from '@/components/ui/badge';
@@ -821,13 +822,20 @@ export default function AdminFichaAnuncioPage() {
               {data.reviews.length === 0 ? (
                 <Vacio>Sin valoraciones.</Vacio>
               ) : (
+                // 7a — la MISMA fila que la ficha de usuario. Esta pintaba estrellas,
+                // nombre y comentario pero se callaba la fecha, y las cinco estrellas no
+                // se veían. Tener dos maneras de enseñar lo mismo en el mismo backoffice
+                // es como acaban divergiendo.
                 <ul className="space-y-2" data-testid="ficha-valoraciones">
                   {data.reviews.map((v) => (
-                    <li key={v.id} className="text-sm">
-                      <span className="font-medium">{'★'.repeat(v.rating)}</span>{' '}
-                      <span className="text-muted-foreground">{v.author.name ?? '—'}</span>
-                      {v.comment && <p className="text-xs text-muted-foreground">{v.comment}</p>}
-                    </li>
+                    <ValoracionFila
+                      key={v.id}
+                      rating={v.rating}
+                      comment={v.comment}
+                      createdAt={v.createdAt}
+                      persona={v.author}
+                      relacion="recibida"
+                    />
                   ))}
                 </ul>
               )}

@@ -30,6 +30,7 @@ import { getAdminUser, type AdminUserDetail } from '@/lib/api/admin';
 import { ApiError } from '@/lib/api/client';
 import { Badge } from '@/components/ui/badge';
 import { BloqueDinero } from './_components/BloqueDinero';
+import { ValoracionFila } from '@/components/admin/ValoracionFila';
 // TRADUCCIONES — los cinco campos de esta ficha que pintaban el enum crudo. Sus
 // propios `ESTADO_LABELS` y `ROL_LABELS` estaban aquí inline y han subido a
 // `../../etiquetas` SIN cambiar de texto: lo que gana la ficha es alcanzar el resto
@@ -233,14 +234,25 @@ export default function AdminFichaUsuarioPage() {
               {data.reviewsReceived.length === 0 ? (
                 <Vacio>Sin valoraciones.</Vacio>
               ) : (
-                <ul className="space-y-1">
+                <ul className="space-y-2">
                   {data.reviewsReceived.map((v) => (
-                    <li key={v.id} className="text-sm">
-                      <span className="font-medium">{'★'.repeat(v.rating)}</span>{' '}
-                      <span className="text-muted-foreground">{v.author.name ?? '—'}</span>
-                    </li>
+                    <ValoracionFila
+                      key={v.id}
+                      rating={v.rating}
+                      comment={v.comment}
+                      createdAt={v.createdAt}
+                      persona={v.author}
+                      relacion="recibida"
+                    />
                   ))}
                 </ul>
+              )}
+              {/* La API sirve las 10 más recientes. Decirlo evita que un contador de 40
+                  con diez filas debajo se lea como que faltan treinta por cargar. */}
+              {data._count.reviewsReceived > data.reviewsReceived.length && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Se muestran las {data.reviewsReceived.length} más recientes.
+                </p>
               )}
             </Seccion>
 
@@ -248,15 +260,23 @@ export default function AdminFichaUsuarioPage() {
               {data.reviewsAuthored.length === 0 ? (
                 <Vacio>No ha valorado a nadie.</Vacio>
               ) : (
-                <ul className="space-y-1">
+                <ul className="space-y-2">
                   {data.reviewsAuthored.map((v) => (
-                    <li key={v.id} className="text-sm">
-                      <span className="font-medium">{'★'.repeat(v.rating)}</span>{' '}
-                      <span className="text-muted-foreground">a {v.target.name ?? '—'}</span>
-                    </li>
+                    <ValoracionFila
+                      key={v.id}
+                      rating={v.rating}
+                      comment={v.comment}
+                      createdAt={v.createdAt}
+                      persona={v.target}
+                      relacion="dada"
+                    />
                   ))}
                 </ul>
               )}
+              {/* SIN CONTADOR, y no por descuido: `_count` del backend trae
+                  `reviewsReceived` pero no `reviewsAuthored`, así que aquí no hay número
+                  fiable. Poner `length` diría «(10)» habiendo cuarenta. Añadirlo es tocar
+                  la respuesta, y 7a es sólo pintar lo que ya llega. */}
             </Seccion>
 
             <Seccion titulo="Reportes recibidos" testId="usuario-reportes-recibidos">
