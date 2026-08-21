@@ -373,6 +373,27 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// ÚLTIMA IP (5a) — el último inicio de sesión, y desde dónde.
+  ///
+  /// SE PERSISTE Y NO SE DERIVA, y no es una preferencia: **el login no escribe ni una
+  /// fila de `AuditLog`** (cero apariciones en `auth.service.ts`), así que no hay nada de
+  /// donde derivarlo. La IP que el login recibe se usaba sólo para el rate limit y se
+  /// tiraba. Y aunque existiera el registro, ordenar N usuarios por su último inicio
+  /// sobre una tabla de eventos exige un `MAX()` por usuario que no se indexa como se
+  /// indexa una columna — y ordenar es la mitad de este punto.
+  ///
+  /// Lo escriben los TRES caminos de login (correo, panel y Google), y **fail-open**: si
+  /// anotarlo falla, se entra igual. Es el camino más caliente de la aplicación.
+  ///
+  /// Sólo la ÚLTIMA, nunca un historial: es la versión mínima que responde la pregunta
+  /// antifraude y la que menos se parece a un registro de movimientos.
+  ///
+  /// Privacidad: dato personal, visible a MODERATOR+ por decisión escrita. NO cubre
+  /// `AuditLog.ip`, que es la IP del STAFF y es otro sujeto. Ver
+  /// `docs/diseno-ultima-ip.md` §3 y §6.
+  lastLoginAt DateTime?
+  lastLoginIp String?
+
   // --- Relaciones ---
   listings            Listing[]
   favorites           Favorite[]
@@ -705,6 +726,29 @@ model Listing {
   bumpedAt    DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+
+  /// ÚLTIMA IP (5a) — la última vez que EL DUEÑO gestionó este anuncio, y desde dónde.
+  ///
+  /// «Gestionar» es actuar sobre él: crear, editar, publicar, reservar, pausar,
+  /// reactivar, archivar, renovar, subir (bump) y cerrar o deshacer un trato. **VER NO
+  /// CUENTA** —abrir la ficha, mirar las estadísticas o pedir un teléfono no son gestión—
+  /// y **el STAFF tampoco**: si un moderador editara y esto se moviera, el dato diría «el
+  /// vendedor estuvo aquí» cuando quien estuvo fue el moderador. Peor que no tenerlo.
+  ///
+  /// POR QUÉ NO SIRVE `updatedAt`, que era la tentación evidente: lo mueve CUALQUIER
+  /// escritura de la fila, y hoy lo mueven la edición de staff (P3a/2a/2b), el cambio de
+  /// estado de staff, la etiqueta interna, el borrado de `needsRevalidation` y la
+  /// transición automática REVIEWED→EDITED. Responde «¿cuándo cambió esta fila?»; esto
+  /// responde «¿cuándo actuó su dueño?».
+  ///
+  /// Nace NULL y no hay backfill: el dato no existía. Se escribe desde
+  /// `ListingsController` —el controlador del dueño— y por eso el cron del bump
+  /// automático, que no pasa por ningún controlador, no puede tocarlo.
+  ///
+  /// Privacidad: dato personal, visible a MODERATOR+ por decisión escrita. Ver
+  /// `docs/diseno-ultima-ip.md` §6.
+  lastOwnerInteractionAt DateTime?
+  lastOwnerIp            String?
 
   // --- Relaciones ---
   sellerId   String

@@ -76,6 +76,7 @@ import { triageAfterOwnerEdit } from './listing-triage';
 // P3a — las validaciones de campos, compartidas con el camino del staff.
 import { ListingEditValidationService } from './listing-edit-validation.service';
 import { ListingImagesService } from './listing-images.service';
+import { ListingOwnerActivityService } from './listing-owner-activity.service';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { UpdateListingDto } from './dto/update-listing.dto';
 import { MyListingsQueryDto } from './dto/my-listings-query.dto';

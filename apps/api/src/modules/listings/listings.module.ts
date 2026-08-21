@@ -19,6 +19,7 @@ import { ListingsController } from './listings.controller';
 import { ListingsService } from './listings.service';
 import { ListingEditValidationModule } from './listing-edit-validation.module';
 import { ListingImagesModule } from './listing-images.module';
+import { ListingOwnerActivityService } from './listing-owner-activity.service';
 
 @Module({
   imports: [
@@ -41,7 +42,7 @@ import { ListingImagesModule } from './listing-images.module';
     ListingGateModule,
   ],
   controllers: [ListingsController],
-  providers: [ListingsService],
+  providers: [ListingsService, ListingOwnerActivityService],
   exports: [ListingsService],
 })
 export class ListingsModule {}

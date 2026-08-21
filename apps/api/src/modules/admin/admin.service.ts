@@ -1160,15 +1160,30 @@ export class AdminService {
      */
     const isPro = await this.proStatus.isProActive(id);
 
-    // AuditLogs where this user is the subject (actions taken against them).
-    const auditLogs = await this.prisma.auditLog.findMany({
-      where: { resourceType: 'User', resourceId: id },
-      orderBy: { createdAt: 'desc' },
-      take: 20,
-      include: {
-        actor: { select: { id: true, name: true, slug: true } },
-      },
-    });
+    /**
+     * ÚLTIMA IP (5a) — AQUÍ SE ARREGLA UNA FUGA, Y NO ERA LA QUE PARECÍA.
+     *
+     * Esto era un `findMany` propio con `include: { actor }`. Un `include` sin `select`
+     * devuelve TODOS los escalares, así que la respuesta llevaba `AuditLog.ip` — mientras
+     * `AuditLogService.listForResource` (F1) la excluye con su razón escrita. Dos
+     * lectores del mismo historial diciendo cosas distintas.
+     *
+     * **Y el sujeto de esa IP no es quien se está mirando.** Este `where` pide las
+     * acciones en las que el usuario es el OBJETO («actions taken against them»), y
+     * `AuditLog.actorId` es quien las EJECUTÓ: siempre staff —es NOT NULL con FK a `User`
+     * y «no existe actor sistema» (E1)—. O sea que lo que se filtraba era **la IP del
+     * MODERADOR que suspendió, cambió el rol o concedió un Pro**, servida a cualquier
+     * otro moderador que abriera la ficha.
+     *
+     * Por eso la decisión de privacidad de 5a NO la cubre y esto se ARREGLA en vez de
+     * bendecirse: `User.lastLoginIp` es del usuario investigado y su finalidad es
+     * antifraude; `AuditLog.ip` es del staff y es rastro de seguridad interno — «auditar
+     * personas es otra pantalla con otro rol», que es exactamente lo que F1 escribió.
+     *
+     * El arreglo es usar SU función, no copiar su `select`: un solo lector del historial
+     * para las dos fichas. Ver `docs/diseno-ultima-ip.md` §3.
+     */
+    const auditLogs = await this.auditLog.listForResource('User', id, 20);
 
     return { ...user, isPro, auditLogs };
   }

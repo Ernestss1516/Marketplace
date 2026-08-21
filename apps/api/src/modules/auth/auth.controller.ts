@@ -57,8 +57,10 @@ export class AuthController {
 
   @Post('social/google')
   @HttpCode(HttpStatus.OK)
-  async socialGoogle(@Body() dto: SocialLoginDto) {
-    return this.authService.loginWithGoogle(dto);
+  // ÚLTIMA IP (5a) — el `@Ip()` es NUEVO: era el único de los tres caminos de login que
+  // no la recibía, y sin él quien entra sólo con Google no habría tenido IP nunca.
+  async socialGoogle(@Body() dto: SocialLoginDto, @Ip() ip: string) {
+    return this.authService.loginWithGoogle(dto, ip);
   }
 
   @Post('change-password')
