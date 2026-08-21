@@ -273,6 +273,186 @@ validaciones del dueño y **sin tocar `triage`**; `LISTING_EDIT` en `AuditLog` c
 
 ---
 
+## 5. DECISIÓN — 2a y 2b: atributos e imágenes (la continuación de P3a)
+
+> Esto no es un cuerpo: es la **decisión escrita antes de teclear** que la auditoría del
+> lote de retoques marcó como requisito del punto 2
+> (`auditoria-retoques-backoffice.md` §2). Todo lo de abajo está verificado contra el
+> código; los números de línea son de `main` a fecha de escribirlo.
+
+### 5.1 — 2a (atributos) es UI. Confirmado
+
+| Lo que hace falta | ¿Existe? | Dónde |
+|---|---|---|
+| El DTO admite `attributes` | **Sí** | `update-admin-listing.dto.ts:70-72` |
+| El servicio los escribe | **Sí** | `admin.service.ts:754` |
+| Se validan por categoría **con profundidad N** | **Sí** | `validarEdicion` → `getAncestorChain` + `applicableSchemaFor(cadena, type)`, `listing-edit-validation.service.ts:98-130` |
+| Con el grandfathering fino | **Sí** | `required` sobre el bag COMPLETO, el resto sólo sobre el DELTA (`:111-123`) |
+| Es el MISMO objeto que usa el dueño | **Sí** | `AdminService.updateListing` llama a `this.editValidation.validarEdicion` (`admin.service.ts:732-736`) |
+
+**No hay nada que reusar: ya está reusado.** 2a se reduce a activar el modo edición
+sobre la sección «Atributos» de la ficha, con el molde de `StepAtributos`
+(`components/publicar/steps/StepAtributos.tsx`, que ya resuelve `filterSchemaByType` y
+las dependencias entre campos). Sigue por `AdminService.updateListing`, así que hereda
+gratis los tres cuidados de P3a: **no toca `triage`** (no dispara `EDITED`), no toca
+`status`, y escribe `LISTING_EDIT` en `AuditLog` con su `before`/`after` y su motivo.
+
+### 5.2 — 2b (imágenes): las tres cosas, verificadas
+
+El bloque entero, tal cual está hoy (`admin.service.ts:766-777`):
+
+```ts
+if (imageIds !== undefined) {
+  await this.prisma.listingImage.updateMany({
+    where: { listingId, id: { notIn: imageIds } },
+    data: { listingId: null, order: 0 },
+  });
+  if (imageIds.length) {
+    await this.prisma.listingImage.updateMany({
+      where: { id: { in: imageIds } },   // ← sin `listingId`, sin `uploadedById`
+      data: { listingId },               // ← sin `order`
+    });
+  }
+}
+```
+
+Frente al camino del dueño (`listings.service.ts:396-404` → `linkImages:1574-1619`):
+
+| | Dueño | Staff |
+|---|---|---|
+| Escribe el `order` por posición | **Sí** (`:1611-1618`) | **NO** |
+| Aplica el tope de fotos (`PhotoLimitsService`) | **Sí** (`:1579-1584`) | **NO** |
+| Comprueba que las imágenes existen | **Sí** (`:1591-1596`) | **NO** |
+| Comprueba que no son de otro anuncio | **Sí** (`:1604-1608`) | **NO** |
+
+Traducido a las tres cosas que 2b arregla:
+
+1. **Reordenar no hace nada.** La petición responde 200 y el orden no se mueve. Es un
+   *silencio*, no un error: la peor forma de fallo.
+2. **Se salta tres validaciones**, contradiciendo la promesa escrita de P3a —«valida
+   igual que el dueño»— y el riesgo 2 de §4. Con el mínimo de fotos activo
+   (`minPhotosRuleEnabled`), el staff puede dejar un anuncio por debajo del mínimo, y
+   el aviso de `needsRevalidation` **le cae al vendedor por un cambio que no hizo**.
+   Además, el segundo `updateMany` **no filtra por `listingId`**: un `imageIds` con el
+   id de una foto ajena **se la lleva de su anuncio**. Hoy nadie lo puede provocar
+   desde la interfaz porque la UI nunca manda `imageIds` — es una bomba armada
+   esperando a que 2b encienda el mecanismo, y el arreglo entra en la misma ráfaga.
+3. **La limpieza de R2 no existe en ningún camino.** Grep exhaustivo de
+   `mediaCleanupQueue`: los dos únicos llamadores son el borrado del anuncio entero
+   (`admin.service.ts:972-981`, B2/B3) y su equivalente del dueño
+   (`listings.service.ts:1009`). Quitar una foto —por cualquiera de los dos caminos—
+   deja **la fila `ListingImage` y sus DOS objetos de R2** (original + miniatura)
+   huérfanos para siempre. El backoffice no rompe el cuidado de B3: **hoy ya está roto
+   en el camino del dueño**.
+
+### 5.3 — La decisión de R2: **un desvinculador COMPARTIDO**
+
+**Elegida.** Un único punto —«quitar estas fotos de este anuncio»— que **los dos
+caminos usan**: borra las filas y encola sus claves en la cola de B3, resueltas con
+`listingMediaKeys` (`infra/r2/media-keys.ts`), que es la única copia de la regla
+`original → miniatura`.
+
+Es el movimiento de P3a con las validaciones, por el mismo motivo: **se extrae, no se
+copia.**
+
+**Por qué no las otras dos:**
+
+- **Limpiar sólo en el camino de staff.** Produce dos comportamientos distintos para la
+  misma acción —el staff limpia, el dueño no— y deja abierta la fuente principal, que
+  es la del dueño. Es exactamente la divergencia que este proyecto lleva cinco cuerpos
+  cerrando.
+- **Recolectar aparte (un barrido).** Es **B4, evaluado y descartado** con veredicto
+  escrito (`diseno-borrado.md` §7, D-5). El motivo del descarte es concreto y sigue
+  vigente: la consulta natural del barrido —`ListingImage WHERE listingId IS NULL AND
+  createdAt < umbral`— **borraría la portada del blog**, porque toda la imaginería del
+  blog sube por `POST /media/upload` y vive como `ListingImage` con `listingId = null`,
+  indistinguible de un wizard abandonado (`pendientes.md`, verificado sobre la base
+  real).
+
+> **Y el mismo argumento que mató el barrido es el que hace SEGURO al desvinculador.**
+> La ambigüedad de B4 nace de mirar filas por su estado (`listingId IS NULL`) sin saber
+> de dónde vienen. El desvinculador no adivina nada: actúa sobre **las filas concretas
+> que acaban de salir de un anuncio conocido**, en la misma operación que las saca. Una
+> imagen del blog nunca estuvo enlazada a un anuncio, así que no puede aparecer ahí.
+
+Y encaja con el orden que `pendientes.md` declara correcto: **«cerrar primero las
+fuentes (prevención, como B3) y sólo después plantearse recoger»**. Esto cierra una
+fuente.
+
+**Hallazgo de esta decisión:** esa fuente —quitar una foto de un anuncio ya
+publicado— **no está en el inventario de deuda**. `pendientes.md` lista wizard
+abandonado, adjuntos de ticket, vídeo sin confirmar, avatar sustituido y las imágenes
+de `blocks`/`homepage`/`sponsored`. Ésta es una sexta, y la única que se dispara en la
+operación normal de un anuncio vivo. Al cerrarla hay que **añadirla y tacharla** en esa
+lista, o el inventario seguirá estando incompleto en la dirección contraria.
+
+### 5.4 — Dos consecuencias que hay que decidir con ella
+
+**(a) Se BORRA la fila, no se desvincula.** Purgar R2 dejando la fila produciría algo
+peor que hoy: una fila apuntando a un objeto que ya no existe. Verificado que es seguro:
+nada más en el esquema referencia `ListingImage` (sólo las relaciones `Listing.images` y
+`User.uploadedImages`), y **ningún test afirma el comportamiento actual de
+desvincular** (0 coincidencias de `listingId: null` en las suites del backend).
+
+El coste, dicho: **quitar una foto pasa a ser irreversible al guardar.** Hoy la fila
+sobrevive y podría re-enlazarse por id; ninguna interfaz lo ofrece, así que no hay
+regresión práctica — pero sí un cambio de naturaleza que conviene escribir.
+
+**(b) El `AuditLog` no registra qué fotos se quitaron, y con (a) eso pasa a importar.**
+En `updateListing`, `imageIds` se destructura FUERA de `fields`
+(`admin.service.ts:729`) y el `before` se construye sólo sobre `fields`
+(`:740-743`): **las fotos no entran ni en el `before` ni en el `after`**. Mientras
+quitar era reversible daba igual; en cuanto el fichero se borra de R2, un error del
+staff es irrecuperable **y además invisible**. 2b tiene que meter `imageIds` en el
+registro — es una línea, y sin ella la acción destructiva no deja rastro.
+
+*(Exposición que NO empeora y se anota: si dos filas compartieran `url` —`media-keys.ts`
+lo contempla al deduplicar—, borrar una purgaría el objeto de la otra. `MediaService`
+genera una clave aleatoria por subida, así que hoy no ocurre; es la misma exposición
+que ya tiene el borrado de B3 y no se agranda aquí.)*
+
+### 5.5 — El plan: **dos ráfagas**
+
+No una. Comparten pantalla, pero no comparten naturaleza ni riesgo:
+
+- **2a — atributos.** Sólo frontend sobre un backend ya construido y ya validado.
+  Riesgo: ninguno estructural.
+- **2b — imágenes.** Toca el camino del dueño (el desvinculador compartido), arregla un
+  fallo de aislamiento entre anuncios, y estrena borrado real de ficheros. Riesgo: el
+  más alto de lo que llevamos del lote.
+
+Juntarlas metería un arreglo de seguridad y un borrado destructivo en la misma revisión
+que un formulario, que es justo donde se cuela lo que nadie mira. Y 2a entrega valor el
+primer día sin esperar a las decisiones de 2b.
+
+### 5.6 — Las barreras
+
+**2a**
+1. El staff edita un atributo → cambia, **y el triaje no se mueve** (`REVIEWED` sigue
+   `REVIEWED`).
+2. El staff **no se salta** la validación: un atributo requerido que falta se rechaza,
+   igual que al dueño; y la validación usa la cadena de ancestros, no sólo el padre.
+3. Queda en `AuditLog` con actor, motivo y valor anterior.
+
+**2b**
+4. **Reordenar mueve de verdad**: mandar `[c,a,b]` deja ese orden al releer. *(Hoy esta
+   barrera falla.)*
+5. **El tope y el mínimo de fotos aplican al staff** igual que al dueño.
+6. **Aislamiento entre anuncios**: mandar el `imageId` de OTRO anuncio se rechaza y —lo
+   que de verdad se mide— **el otro anuncio conserva su foto**. Es el fallo de
+   seguridad; la aserción va sobre la víctima, no sobre el código de error.
+7. **Quitar una foto encola sus DOS claves** (original + miniatura) y **borra la fila**,
+   por el camino del staff **y por el del dueño** — la misma barrera ejercida dos veces,
+   que es lo único que demuestra que el desvinculador es de verdad compartido.
+8. El `AuditLog` de una edición que quita fotos **dice cuáles**.
+
+**Mutaciones que deben matar:** que el desvinculador no escriba `order` → cae (4); que
+el `updateMany` pierda el filtro por `listingId` → cae (6); que sólo uno de los dos
+caminos limpie → cae la mitad de (7); que se purgue R2 sin borrar la fila → queda una
+fila apuntando a nada, y (7) debe comprobar las dos cosas.
+
+---
+
 ## Apéndice — inventario verificado
 
 | Qué | Dónde | Dato |
