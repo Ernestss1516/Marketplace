@@ -68,23 +68,23 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-
-/** Etiquetas de las acciones registradas en la auditoría. */
-const ACCION_LABELS: Record<string, string> = {
-  LISTING_STATUS_CHANGE: 'Cambio de estado',
-  LISTING_APPROVE: 'Aprobado',
-  LISTING_REJECT: 'Rechazado',
-  LISTING_DEACTIVATE: 'Desactivado',
-  LISTING_RESTORE: 'Restaurado',
-  LISTING_DELETE: 'Eliminado',
-  // ETIQUETA INTERNA (P1) — sólo los cambios MANUALES llegan aquí. La transición
-  // automática (REVIEWED→EDITED al editar el dueño) no deja registro, y su
-  // «cuándo» se pinta en la insignia con `updatedAt`.
-  LISTING_TRIAGE_CHANGE: 'Etiqueta interna',
-  // P3a — el staff corrigió campos del anuncio. Se nombra distinto de un cambio
-  // del dueño a propósito: el vendedor tiene que poder ver quién le tocó qué.
-  LISTING_EDIT: 'Edición del equipo',
-};
+// TRADUCCIONES — los nueve campos de esta ficha que pintaban el enum crudo. El
+// vocabulario vive en `../etiquetas` porque la ficha de usuario lee la mitad de él;
+// `ACCION_LABELS` estaba aquí y ha subido allí por esa razón. Ver su cabecera.
+import {
+  ACCION_LABELS,
+  CONDICION_LABELS,
+  ESTADO_BUMP_LABELS,
+  ESTADO_REPORTE_LABELS,
+  ESTADO_USUARIO_LABELS,
+  MOTIVO_REPORTE_LABELS,
+  ROL_LABELS,
+  TIPO_ANUNCIO_LABELS,
+  TIPO_PRECIO_LABELS,
+  UNIDAD_PRECIO_LABELS,
+  etiqueta,
+  ticketStatusLabel,
+} from '../../etiquetas';
 
 function Seccion({
   titulo,
@@ -648,9 +648,21 @@ export default function AdminFichaAnuncioPage() {
                 }
               />
               <Dato etiqueta="Teléfono publicado" valor={data.phone ?? '—'} />
-              <Dato etiqueta="Tipo" valor={data.type} />
-              <Dato etiqueta="Estado del artículo" valor={data.condition ?? '—'} />
-              <Dato etiqueta="Formato de precio" valor={`${data.priceType} · ${data.priceUnit}`} />
+              <Dato etiqueta="Tipo" valor={etiqueta(TIPO_ANUNCIO_LABELS, data.type)} />
+              <Dato
+                etiqueta="Estado del artículo"
+                valor={etiqueta(CONDICION_LABELS, data.condition)}
+              />
+              {/* Los dos ejes del precio siguen leyéndose juntos y en el mismo orden
+                  —«¿hay importe y es firme?» · «¿por qué unidad?»—, sólo que ahora en
+                  español. Ver el doc-comment de `PriceUnit` en schema.prisma. */}
+              <Dato
+                etiqueta="Formato de precio"
+                valor={`${etiqueta(TIPO_PRECIO_LABELS, data.priceType)} · ${etiqueta(
+                  UNIDAD_PRECIO_LABELS,
+                  data.priceUnit,
+                )}`}
+              />
             </div>
           </Seccion>
 
@@ -663,8 +675,12 @@ export default function AdminFichaAnuncioPage() {
                 {data.reports.map((r) => (
                   <li key={r.id} className="rounded-md border p-2 text-sm">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="font-medium">{r.reason}</span>
-                      <Badge variant="outline">{r.status}</Badge>
+                      <span className="font-medium">
+                        {etiqueta(MOTIVO_REPORTE_LABELS, r.reason)}
+                      </span>
+                      <Badge variant="outline">
+                        {etiqueta(ESTADO_REPORTE_LABELS, r.status)}
+                      </Badge>
                     </div>
                     <p className="mt-0.5 text-xs text-muted-foreground">
                       {r.reporter?.name ?? 'Anónimo'} · {formatDateTime(r.createdAt)}
@@ -709,7 +725,11 @@ export default function AdminFichaAnuncioPage() {
                       <Link href={`/admin/tickets/${t.id}`} className="hover:underline">
                         {t.subject}
                       </Link>{' '}
-                      <Badge variant="outline">{t.status}</Badge>
+                      {/* La etiqueta sale del MISMO sitio que la insignia de color de
+                          la bandeja `/admin/tickets` y de la zona de cuenta
+                          (`TicketStatusBadge`). Aquí se usa sólo el texto: la insignia
+                          de esta línea ya tiene su variante y su sitio. */}
+                      <Badge variant="outline">{ticketStatusLabel(t.status)}</Badge>
                     </li>
                   ))}
                 </ul>
@@ -755,7 +775,7 @@ export default function AdminFichaAnuncioPage() {
                     <li key={h.id} className="border-l-2 pl-3 text-sm">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-medium">
-                          {ACCION_LABELS[h.action] ?? h.action}
+                          {etiqueta(ACCION_LABELS, h.action)}
                         </span>
                         <span className="text-xs text-muted-foreground">
                           {formatDateTime(h.createdAt)}
@@ -829,8 +849,8 @@ export default function AdminFichaAnuncioPage() {
                 }
               />
               <Dato etiqueta="Email" valor={data.seller.email} />
-              <Dato etiqueta="Estado" valor={data.seller.status} />
-              <Dato etiqueta="Rol" valor={data.seller.role} />
+              <Dato etiqueta="Estado" valor={etiqueta(ESTADO_USUARIO_LABELS, data.seller.status)} />
+              <Dato etiqueta="Rol" valor={etiqueta(ROL_LABELS, data.seller.role)} />
               <Dato etiqueta="Alta" valor={formatDateTime(data.seller.createdAt)} />
               <Dato etiqueta="De confianza" valor={data.seller.trusted ? 'Sí' : 'No'} />
               <Dato
@@ -863,7 +883,9 @@ export default function AdminFichaAnuncioPage() {
                 etiqueta="Bump programado"
                 valor={
                   data.bumpSchedule
-                    ? `${data.bumpSchedule.status} · cada ${data.bumpSchedule.intervalDays} d`
+                    ? `${etiqueta(ESTADO_BUMP_LABELS, data.bumpSchedule.status)} · cada ${
+                        data.bumpSchedule.intervalDays
+                      } d`
                     : 'No'
                 }
               />

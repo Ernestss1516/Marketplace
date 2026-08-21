@@ -17,8 +17,19 @@ const STATUS_META: Record<TicketStatus, { label: string; className: string }> = 
   CLOSED: { label: 'Cerrado', className: 'bg-muted text-muted-foreground hover:bg-muted' },
 };
 
-export function ticketStatusLabel(status: TicketStatus): string {
-  return STATUS_META[status].label;
+/**
+ * La etiqueta suelta, para donde no cabe la insignia de color: las dos fichas del
+ * backoffice pintan el estado dentro de un `<Badge variant="outline">` que ya tenían.
+ *
+ * ACEPTA `string`, NO `TicketStatus`, y devuelve el valor crudo si no lo conoce. Los
+ * tipos de `lib/api/admin.ts` declaran `status: string` —la ficha recibe lo que diga
+ * el backend, no un enum estrechado en el cliente—, y un `STATUS_META[x].label` sobre
+ * un valor futuro reventaría la ficha entera con un TypeError. Es la misma regla que
+ * `etiquetaDeEstado` en `listing-status.ts`: el enum crudo es el último recurso
+ * VISIBLE, nunca un fallo.
+ */
+export function ticketStatusLabel(status: string): string {
+  return STATUS_META[status as TicketStatus]?.label ?? status;
 }
 
 export function TicketStatusBadge({
