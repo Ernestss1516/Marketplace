@@ -96,6 +96,9 @@ export interface AdminListingDetail {
   publishedAt: string | null;
   expiresAt: string | null;
   bumpedAt: string | null;
+  /** ÚLTIMA IP (5b) — la última gestión de su DUEÑO. Otra pregunta que `updatedAt`. */
+  lastOwnerInteractionAt: string | null;
+  lastOwnerIp: string | null;
   createdAt: string;
   updatedAt: string;
   category: { id: string; name: string; slug: string; attributeSchema: AttributeSchema[] };
@@ -209,6 +212,9 @@ export interface AdminListingsFilters {
   triage?: string[];
   /** ETIQUETA INTERNA (P1, E2) — tres posiciones; molde de `hasReports`. */
   watched?: boolean;
+  /** ÚLTIMA IP (5b) — la IP desde la que su DUEÑO lo gestionó por última vez. Cruza con
+   *  el filtro por IP de usuarios: «qué anuncios se han tocado desde aquí». */
+  ip?: string;
   createdFrom?: string;
   createdTo?: string;
   updatedFrom?: string;
@@ -234,6 +240,7 @@ export function getAdminListings(
   }
   if (params?.triage?.length) qs.set('triage', params.triage.join(','));
   if (params?.watched !== undefined) qs.set('watched', String(params.watched));
+  if (params?.ip) qs.set('ip', params.ip);
   if (params?.createdFrom) qs.set('createdFrom', params.createdFrom);
   if (params?.createdTo) qs.set('createdTo', params.createdTo);
   if (params?.updatedFrom) qs.set('updatedFrom', params.updatedFrom);
@@ -345,6 +352,15 @@ export interface AdminUser {
   /** MODERACIÓN M4 — sus anuncios pasan por revisión previa. Eje INDEPENDIENTE
    *  de `trusted`: se puede estar marcado y ser de confianza a la vez. */
   requiresReview?: boolean;
+  /**
+   * ÚLTIMA IP (5b) — el último inicio de sesión y desde dónde. MODERATOR+, por decisión
+   * escrita (`docs/diseno-ultima-ip.md` §6): dato personal, finalidad única de moderación
+   * antifraude, sólo la ÚLTIMA y nunca un historial.
+   *
+   * NULL para quien nunca ha entrado — el dato no existía antes de 5a y no hay backfill.
+   */
+  lastLoginAt?: string | null;
+  lastLoginIp?: string | null;
   _count: { listings: number };
 }
 
@@ -429,14 +445,33 @@ export interface AdminUserDetail extends Omit<AdminUser, '_count'> {
   }>;
 }
 
+/**
+ * ÚLTIMA IP (5b) — `ip` y `order` son NUEVOS.
+ *
+ * Esta lista **no tenía eje de orden ninguno** (el backend llevaba `createdAt desc`
+ * clavado). El marco de F2 se TRAE aquí; no se extiende, porque el suyo es de anuncios.
+ * El orden por defecto pasa a ser la última conexión, así que no se manda cuando es ése:
+ * la regla de `filtros-url.ts` —«lo que está por defecto no se escribe»— vale igual.
+ */
+export type AdminUsersOrder = 'last-login-desc' | 'last-login-asc' | 'recent' | 'oldest';
+
 export function getAdminUsers(
   token: string,
-  params?: { status?: string; role?: string; q?: string; page?: number },
+  params?: {
+    status?: string;
+    role?: string;
+    q?: string;
+    ip?: string;
+    order?: AdminUsersOrder;
+    page?: number;
+  },
 ): Promise<PaginatedAdminUsers> {
   const qs = new URLSearchParams({ page: String(params?.page ?? 1) });
   if (params?.status) qs.set('status', params.status);
   if (params?.role) qs.set('role', params.role);
   if (params?.q) qs.set('q', params.q);
+  if (params?.ip) qs.set('ip', params.ip);
+  if (params?.order) qs.set('order', params.order);
   return apiFetch<PaginatedAdminUsers>(`/admin/users?${qs}`, { token });
 }
 

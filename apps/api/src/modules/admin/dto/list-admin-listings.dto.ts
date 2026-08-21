@@ -141,6 +141,19 @@ export class ListAdminListingsDto {
   @IsBoolean()
   needsRevalidation?: boolean;
 
+  /**
+   * ÚLTIMA IP (5b) — la IP desde la que su DUEÑO gestionó el anuncio por última vez
+   * (5a). Cruza con el filtro por IP de usuarios: «qué anuncios se han tocado desde
+   * aquí».
+   *
+   * F2 dejó escrito que un eje nuevo entra «con un campo en el DTO y una línea en el
+   * `where`»; P1 fue el primero en ejercerlo y éste es el segundo, sin que la forma haya
+   * cambiado. Coincidencia EXACTA, por el mismo motivo que en usuarios.
+   */
+  @IsOptional()
+  @IsString()
+  ip?: string;
+
   // Rangos de fecha. Molde de nombres: `ListAdminTransactionsDto.dateFrom/dateTo`.
   @IsOptional()
   @IsISO8601()

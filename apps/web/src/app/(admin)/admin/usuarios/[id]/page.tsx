@@ -31,6 +31,7 @@ import { ApiError } from '@/lib/api/client';
 import { Badge } from '@/components/ui/badge';
 import { BloqueDinero } from './_components/BloqueDinero';
 import { ValoracionFila } from '@/components/admin/ValoracionFila';
+import { DatoIp } from '@/components/admin/DatoIp';
 // TRADUCCIONES — los cinco campos de esta ficha que pintaban el enum crudo. Sus
 // propios `ESTADO_LABELS` y `ROL_LABELS` estaban aquí inline y han subido a
 // `../../etiquetas` SIN cambiar de texto: lo que gana la ficha es alcanzar el resto
@@ -394,6 +395,23 @@ export default function AdminFichaUsuarioPage() {
               <Dato etiqueta="Email verificado" valor={data.emailVerified ? 'Sí' : 'No'} />
               <Dato etiqueta="Alta" valor={formatDateTime(data.createdAt)} />
               <Dato etiqueta="Último cambio" valor={formatDateTime(data.updatedAt)} />
+              {/* ÚLTIMA IP (5b) — el dato que 5a captura. «Nunca» y no «—»: que una
+                  cuenta no haya entrado JAMÁS es una respuesta, no una casilla vacía. */}
+              <Dato
+                etiqueta="Última conexión"
+                valor={
+                  data.lastLoginAt ? (
+                    <span data-testid="usuario-ultima-conexion">
+                      {formatDateTime(data.lastLoginAt)}
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground" data-testid="usuario-ultima-conexion">
+                      Nunca
+                    </span>
+                  )
+                }
+              />
+              <Dato etiqueta="IP del último inicio" valor={<DatoIp ip={data.lastLoginIp} />} />
             </div>
           </Seccion>
 

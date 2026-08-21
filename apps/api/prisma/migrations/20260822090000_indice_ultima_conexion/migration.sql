@@ -1,0 +1,43 @@
+-- ============================================================================
+--  ÚLTIMA IP (5b) — EL ÍNDICE DEL ORDEN POR DEFECTO DE /admin/usuarios
+-- ============================================================================
+-- SQL A MANO, y no por gusto: Prisma NO sabe expresar `NULLS LAST` en `@@index`,
+-- y ese detalle es exactamente lo que decide si el índice sirve. Medido con
+-- EXPLAIN ANALYZE sobre 20.000 usuarios (70 % con lastLoginAt, 30 % que nunca
+-- entraron):
+--
+--   · sin índice                           → Seq Scan + Sort (top-N)   ~3,3 ms
+--   · índice (lastLoginAt DESC)            → Seq Scan + Sort (top-N)   ~3,3 ms  <- NO sirve
+--   · índice (lastLoginAt DESC NULLS LAST) → Index Scan, SIN Sort      ~0,03 ms
+--
+-- El de en medio es justo el que generaria `@@index([lastLoginAt(sort: Desc)])`:
+-- un indice DESC lleva NULLS FIRST por defecto y la consulta pide NULLS LAST, asi
+-- que el planificador no puede usarlo para ordenar. Declararlo en el esquema
+-- habria dado la falsa sensacion de estar cubierto.
+--
+-- POR QUE SE JUSTIFICA (precedente F2, no E2): sirve el ORDEN POR DEFECTO de la
+-- pantalla, el que corre en cada carga — que es el criterio con el que F2 si
+-- anadio los suyos. E2 declino el de `triage` porque solo corria al filtrar a mano.
+--
+-- EL COSTE, DICHO: 5a hace que `lastLoginAt` cambie en CADA inicio de sesion, asi
+-- que este indice se ensucia en cada login. Es el mismo argumento con el que E2
+-- rechazo `[triage, updatedAt]`, y aqui se acepta porque el reparto es el
+-- contrario: un login por sesion frente a una lectura en cada carga de la pantalla
+-- de un moderador, y esa lectura sin indice recorre la tabla ENTERA.
+--
+-- AVISO — EL PELIGRO DE ESTAR FUERA DEL ESQUEMA, COMPROBADO: `prisma migrate dev`
+-- ve este indice como DRIFT y genera un `DROP INDEX` en la siguiente migracion. Se
+-- verifico ejecutandolo. Por eso hay una BARRERA que afirma que el indice existe y
+-- que el plan del orden por defecto no lleva `Sort`
+-- (`test/ultima-ip-orden.e2e-spec.ts`): si una migracion futura lo borra, CI se
+-- pone en rojo en vez de degradar la pantalla en silencio. Al regenerar
+-- migraciones, CONSERVAR este fichero.
+--
+-- LOS FILTROS POR IP NO SE INDEXAN, y es la decision contraria por el criterio de
+-- E2: medido, un filtro exacto por `lastLoginIp` sobre 20k recorre la tabla en
+-- ~1,7 ms, y solo corre cuando alguien investiga a mano — mientras que el indice
+-- lo ensuciaria cada login. El umbral, escrito para no descubrirlo en produccion:
+-- si la tabla de usuarios pasa de unos cientos de miles y las investigaciones por
+-- IP se vuelven rutina, entonces si toca `(lastLoginIp)` y `(lastOwnerIp)`.
+CREATE INDEX "User_lastLoginAt_desc_nulls_last_idx"
+  ON "User" ("lastLoginAt" DESC NULLS LAST);

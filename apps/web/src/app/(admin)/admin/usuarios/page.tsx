@@ -20,6 +20,7 @@ import {
 } from '@/lib/api/admin';
 import { ApiError } from '@/lib/api/client';
 import { Badge } from '@/components/ui/badge';
+import { DatoIp } from '@/components/admin/DatoIp';
 import { Button } from '@/components/ui/button';
 
 const PER_PAGE = 20;
@@ -76,6 +77,17 @@ function formatDate(iso: string) {
     day: '2-digit',
     month: '2-digit',
     year: '2-digit',
+  });
+}
+
+/** Con hora — la última conexión necesita el «cuándo» exacto, no sólo el día. */
+function formatDateTime(iso: string) {
+  return new Date(iso).toLocaleString('es-ES', {
+    day: '2-digit',
+    month: '2-digit',
+    year: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
   });
 }
 
@@ -238,6 +250,11 @@ export default function AdminUsuariosPage() {
 
   const [q, setQ] = useState(qInicial);
   const [inputQ, setInputQ] = useState(qInicial);
+  // ÚLTIMA IP (5b) — el filtro por IP vive en la URL, molde de F2: así una búsqueda de
+  // multicuenta se comparte con un compañero y la vuelta atrás no la pierde.
+  const ipInicial = searchParams.get('ip') ?? '';
+  const [ip, setIp] = useState(ipInicial);
+  const [inputIp, setInputIp] = useState(ipInicial);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -250,12 +267,20 @@ export default function AdminUsuariosPage() {
   const searchRef = useRef<HTMLInputElement>(null);
 
   const fetchUsers = useCallback(
-    async (p: number, status?: string, role?: string, search?: string) => {
+    async (p: number, status?: string, role?: string, search?: string, ipFiltro?: string) => {
       if (!token) return;
       setLoading(true);
       setError(null);
       try {
-        const data = await getAdminUsers(token, { status, role, q: search, page: p });
+        // Sin `order`: el de por defecto del backend es ya la última conexión (5b), y la
+        // regla de `filtros-url.ts` dice que lo que está por defecto no se escribe.
+        const data = await getAdminUsers(token, {
+          status,
+          role,
+          q: search,
+          ip: ipFiltro || undefined,
+          page: p,
+        });
         setUsers(data.items);
         setTotal(data.total);
       } catch (err) {
@@ -272,8 +297,8 @@ export default function AdminUsuariosPage() {
   );
 
   useEffect(() => {
-    fetchUsers(page, statusFilter, roleFilter, q);
-  }, [fetchUsers, page, statusFilter, roleFilter, q]);
+    fetchUsers(page, statusFilter, roleFilter, q, ip);
+  }, [fetchUsers, page, statusFilter, roleFilter, q, ip]);
 
   function handleFilter(type: 'status' | 'role', value?: string) {
     if (type === 'status') setStatusFilter(value);
@@ -296,7 +321,7 @@ export default function AdminUsuariosPage() {
     setPendingId(userId);
     try {
       await action();
-      await fetchUsers(page, statusFilter, roleFilter, q);
+      await fetchUsers(page, statusFilter, roleFilter, q, ip);
       if (detailId === userId) setDetailId(null);
     } catch (err) {
       const msg =
@@ -357,6 +382,48 @@ export default function AdminUsuariosPage() {
             Limpiar
           </Button>
         )}
+
+        {/* ÚLTIMA IP (5b) — EJE PROPIO, no metido en el buscador de texto. Buscar «por
+            lo que sea» y buscar «exactamente esta IP» son dos preguntas distintas:
+            mezclarlas obligaría a que el `q` decidiera por su cuenta si lo que le han
+            escrito parece una IP, y adivinar es justo lo que un filtro de investigación
+            no debe hacer. */}
+        <div className="flex items-center gap-2 border-l pl-2">
+          <input
+            value={inputIp}
+            onChange={(e) => setInputIp(e.target.value)}
+            placeholder="IP exacta…"
+            aria-label="Filtrar por IP del último inicio de sesión"
+            className="w-36 rounded-md border bg-background px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            data-testid="filtro-ip"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setIp(inputIp.trim());
+              setPage(1);
+              setDetailId(null);
+            }}
+          >
+            Filtrar
+          </Button>
+          {ip && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setInputIp('');
+                setIp('');
+                setPage(1);
+              }}
+            >
+              Quitar IP
+            </Button>
+          )}
+        </div>
       </form>
 
       {/* Filters */}
@@ -415,6 +482,11 @@ export default function AdminUsuariosPage() {
                   leer «de confianza» como «exento». */}
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Revisión</th>
               <th className="px-4 py-3 text-center font-medium text-muted-foreground">Anuncios</th>
+              {/* ÚLTIMA IP (5b) — la lista se ORDENA por esta columna por defecto, así
+                  que tiene que verse: una lista ordenada por algo invisible desorienta. */}
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Última conexión
+              </th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Registro</th>
               <th className="px-4 py-3 text-right font-medium text-muted-foreground">Acciones</th>
             </tr>
@@ -578,6 +650,19 @@ export default function AdminUsuariosPage() {
 
                       <td className="px-4 py-3 text-center tabular-nums">
                         {user._count.listings}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {user.lastLoginAt ? (
+                          <span className="inline-flex flex-col gap-0.5">
+                            <span>{formatDateTime(user.lastLoginAt)}</span>
+                            <DatoIp ip={user.lastLoginIp} />
+                          </span>
+                        ) : (
+                          // «Nunca» y no «—»: que una cuenta no haya entrado JAMÁS es una
+                          // respuesta, y en una lista ordenada por esta columna es
+                          // además la explicación de por qué está al final.
+                          <span className="italic">Nunca</span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">
                         {formatDate(user.createdAt)}
