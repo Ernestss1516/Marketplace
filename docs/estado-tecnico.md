@@ -13881,6 +13881,100 @@ que queda fuera de este punto — y ya tiene el arreglo a mano (`ticketStatusLab
 
 ---
 
+## Retoques del backoffice — PUNTO 3: la barra, reorganizada (cerrado)
+
+Diseño: `docs/diseno-nav-backoffice.md`. Una sola ráfaga con los tres subpuntos —3a
+renombrar, 3b grupos y móvil, 3c Motivos fuera del primer nivel—, porque son un solo
+problema: la barra lateral. **Cero backend, cero migración, ningún permiso movido.**
+
+### El molde ya estaba escrito, y el defecto también
+
+`backoffice-sections.ts:27` declaraba desde R1 que su molde era `config/account-nav.ts`
+(UXV.2). Leído hoy, ese fichero **ya tenía grupos y drawer de móvil**. Y el defecto que
+UXV.2 cerró en la zona de cuenta —**A3**: «el `<aside>` no llevaba un solo breakpoint,
+en 375 px se quedaba con 224 px y dejaba ~87 px de contenido»— seguía **intacto** en el
+backoffice, con sus dos mitades:
+
+- `<aside className="w-56 shrink-0 …">` sin un breakpoint → `hidden md:block`;
+- `<main className="flex-1 p-8">` sin `min-w-0` → las tablas de `/admin/anuncios` y
+  `/admin/facturas` desbordaban y el `<body>` scrolleaba en horizontal.
+
+Así que el punto 3 no diseñó nada: **copió UXV.2**, que resolvió esto para trece
+entradas, a un sitio que tiene veintidós.
+
+### La pieza que sostiene el cambio
+
+```
+navGroupsFor(role) = agrupar( navSectionsFor(role) )
+```
+
+`navSectionsFor` **no cambia** —misma firma, mismo resultado plano—, y por eso los
+cuatro invariantes de R1/R2 siguen midiendo lo que de verdad se pinta. Si `navGroupsFor`
+volviera a filtrar por rol por su cuenta habría **dos reglas de visibilidad**: los
+invariantes seguirían vigilando una función que ya no alimenta al nav, y bastaría que
+discreparan para que una sección accesible desapareciera del menú con todo en verde. Es
+el defecto de R1 reencarnado un piso más arriba, y la barrera nueva existe para eso.
+
+**El modelo:** `group: BackofficeGroupId | null` **explícito** en cada fila (con
+`group?:` opcional, olvidarlo dejaría la sección fuera de todos los grupos —o sea, fuera
+del nav—, que es R3 por descuido) y `BACKOFFICE_GROUPS` con **sólo título y orden**: no
+enumera secciones, así que no puede contradecir al mapa sobre la membresía.
+
+Seis grupos por tarea: Moderación (4) · Atención al usuario (3) · Catálogo (2) ·
+Contenido (5) · Promoción (4) · Plataforma (3), con «Resumen» suelto arriba. Un grupo
+vacío para un rol **no se devuelve**: un EDITOR no ve un título «Moderación» hueco.
+
+### 3c — sin revertir R2
+
+`hiddenFromNav` existió y R2 lo borró a conciencia, dejando en su lugar una propiedad:
+`navSectionsFor` y `canAccessAdminPath` se reducen a la misma condición. **Agrupar no la
+toca.** «Motivos de contacto» pasa a ser el tercer ítem de «Atención al usuario» —junto a
+la hermana con la que comparte piso por INV-1 y desde cuya pantalla ya se llegaba—, deja
+de ocupar una fila de primer nivel y **sigue en `navSectionsFor` y en el DOM**.
+
+> Bajar de nivel no es desaparecer. R2 prohibió lo segundo.
+
+### Los grupos nacen ABIERTOS
+
+Plegar es un acto del usuario, nunca el estado de fábrica, y no es estética: un menú que
+esconde destinos por defecto produce lo mismo que R3 —una sección alcanzable que nadie
+encuentra— para quien no sepa que hay que abrir el grupo. En el código se guardan **los
+plegados, no los abiertos**, así que el conjunto vacío significa «todo visible» y un
+grupo nuevo nace abierto sin que nadie tenga que acordarse.
+
+### Verificación
+
+`backoffice-sections.test.ts` (+8, total 70) y `e2e/nav-backoffice.spec.ts` (6).
+
+La barrera central: **aplanar la barra agrupada devuelve `navSectionsFor`, en ids y en
+orden, para los cuatro roles** — agrupar es demostrablemente no destructivo. Y la de 3c
+lleva las dos mitades juntas a propósito: la primera sola permitiría ocultarla, la
+segunda sola permitiría dejarla donde estaba.
+
+Mutaciones, las tres verificadas:
+
+| Mutación | Cae |
+|---|---|
+| `navGroupsFor` re-filtra por rol (R1 reencarnado) | 3, entre ellos la barrera `flatMap` |
+| Una sección con `group: null` que no es la raíz (R3 suave) | 4, entre ellos la barrera de 3c |
+| Sacar una sección del nav (`hiddenFromNav` de vuelta) | **7**, incluidos `R3 CERRADO` y «toda sección accesible sale en el nav» — **que esta ráfaga no toca** |
+
+La tercera es la prueba de que R2 sigue siendo portante: sus invariantes matan
+exactamente lo que R2 prohibió, sin una línea nueva.
+
+**Los once asertos del nav: diez verdes sin tocarlos.** El único que cambia es
+`admin-roles.spec.ts:88`, «Dashboard» → «Resumen» — es de 3a, no de 3c. Los cuatro
+conteos (7/19/22 y el de la cabecera) y el link «Navegación» de `nav-admin.spec.ts`
+sobreviven **porque los grupos nacen abiertos**: con todo desplegado siguen renderizados
+los 22 `<Link>`.
+
+*(El comentario «EL ORDEN… conservado literalmente para que el refactor no mueva ni un
+ítem de sitio» era una restricción de R1 —un refactor no debe mover nada— y esta ráfaga
+es la que viene a reorganizar: se reescribe. Facturación y Facturas bajan al final con
+Ajustes; Portada sube junto a Blog.)*
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.

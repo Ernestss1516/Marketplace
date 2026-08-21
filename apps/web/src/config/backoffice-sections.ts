@@ -51,7 +51,33 @@ import { atLeast, type Role } from './roles';
  * anomalía R3 mientras el inventario estaba congelado. `/admin/motivos-contacto`
  * baja a MODERATOR y **gana por fin su ítem de nav**, así que ya no hay ninguna
  * sección oculta y el concepto sobra.
+ *
+ * ─── LOS GRUPOS (punto 3 del lote de retoques) ────────────────────────────────
+ *
+ * Veintidós entradas planas no son navegación. Se agrupan **por tarea**, con el molde
+ * de `account-nav.ts` —el mismo que cita la cabecera— que ya lo hizo para trece con la
+ * razón escrita: «agrupadas se leen de un vistazo».
+ *
+ * **AGRUPAR NO ES OCULTAR, y esto es lo que permite hacerlo sin tocar R2.** El flag
+ * borrado arriba producía secciones ALCANZABLES QUE NO ESTABAN EN EL NAV; un grupo
+ * produce secciones que están en el nav, en el segundo nivel. `/admin/motivos-contacto`
+ * —el caso que motivó todo esto— deja de ocupar una fila de primer nivel y sigue,
+ * literalmente, en `navSectionsFor` y en el DOM. Los invariantes de R2 se comprueban
+ * sobre `navSectionsFor`, que esta ráfaga **no toca**: siguen verdes sin una sola
+ * línea nueva. Ver `docs/diseno-nav-backoffice.md` §5.
+ *
+ * No hay, ni debe haber, ninguna forma de que una sección accesible se quede fuera del
+ * nav: `group` es obligatorio y `navGroupsFor` deriva de `navSectionsFor` (ver los dos).
  */
+
+/** Los seis grupos de la barra. Ver `BACKOFFICE_GROUPS` para el orden y los títulos. */
+export type BackofficeGroupId =
+  | 'moderacion'
+  | 'atencion'
+  | 'catalogo'
+  | 'contenido'
+  | 'promocion'
+  | 'plataforma';
 
 export interface BackofficeSection {
   /**
@@ -65,6 +91,23 @@ export interface BackofficeSection {
   label: string;
   /** El piso de la escalera: este rol o superior. */
   minRole: Role;
+  /**
+   * El grupo de la barra al que pertenece, o `null` para la RAÍZ (`/admin`), que va
+   * suelta encima de todos porque es la raíz de las demás y no un hermano suyo.
+   *
+   * **EXPLÍCITO, no opcional (`group?:`), y no es una preferencia de estilo.** Con
+   * opcional, olvidar el campo al añadir una sección la dejaría fuera de todos los
+   * grupos, y una sección que no cae en ningún grupo es una sección que el nav no
+   * pinta: **el defecto R3 otra vez**, por descuido en vez de por diseño. Con
+   * `| null`, TypeScript obliga a escribir la decisión, y un test fija que sólo la
+   * raíz la toma.
+   *
+   * **La pertenencia vive AQUÍ, en la fila, nunca en el grupo.** Un `BACKOFFICE_GROUPS`
+   * que enumerase ids de sección sería una segunda lista de membresía capaz de
+   * contradecir a ésta — que es exactamente la clase de defecto (dos listas a mano que
+   * divergen) que R1 vino a cerrar.
+   */
+  group: BackofficeGroupId | null;
   /**
    * Ruta «raíz de sección»: casa SOLO con coincidencia exacta, nunca con sus
    * subrutas. Lo necesita `/admin` (el dashboard), que además de ser una sección
@@ -81,71 +124,117 @@ export interface BackofficeSection {
 }
 
 /**
- * EL ORDEN DE ESTA LISTA ES EL ORDEN DE LA BARRA LATERAL. Es el mismo que tenía
- * `NAV_ITEMS`, conservado literalmente para que el refactor no mueva ni un ítem de
- * sitio. Los agrupamientos que documentaban los comentarios de `NAV_ITEMS` se
- * conservan también, porque explican POR QUÉ el orden es éste.
+ * LOS GRUPOS DE LA BARRA — sólo su ORDEN y su TÍTULO.
+ *
+ * **Deliberadamente NO enumera secciones.** Quién pertenece a qué vive en el campo
+ * `group` de cada fila, y por eso esta lista no puede contradecir al mapa: no sabe
+ * nada de membresía. Ver el doc-comment de `BackofficeSection.group`.
+ *
+ * El criterio es la TAREA, no el rol ni la forma de la URL — molde de `ACCOUNT_NAV`
+ * (SHELL-D4). Que «Plataforma» coincida con las tres secciones ADMIN es consecuencia,
+ * no criterio: el propio reparto de R2 ya las piensa juntas («todo + el dinero y la
+ * configuración»).
+ */
+export const BACKOFFICE_GROUPS: readonly { id: BackofficeGroupId; title: string }[] = [
+  { id: 'moderacion', title: 'Moderación' },
+  { id: 'atencion', title: 'Atención al usuario' },
+  { id: 'catalogo', title: 'Catálogo' },
+  { id: 'contenido', title: 'Contenido' },
+  { id: 'promocion', title: 'Promoción' },
+  { id: 'plataforma', title: 'Plataforma' },
+] as const;
+
+/**
+ * EL ORDEN DE ESTA LISTA SIGUE SIENDO EL ORDEN DE LA BARRA LATERAL, y ahora está
+ * AGRUPADO: la raíz primero y después los seis grupos, cada uno con sus secciones
+ * seguidas y en el orden de `BACKOFFICE_GROUPS`.
+ *
+ * *(El comentario anterior decía que el orden se conservaba «literalmente para que el
+ * refactor no mueva ni un ítem de sitio». Era una restricción de R1 —un refactor no
+ * debe mover nada— y ésta es justamente la ráfaga que viene a reorganizar, así que
+ * Facturación y Facturas bajan al final con Ajustes y Portada sube junto a Blog.)*
+ *
+ * **QUE ESTÉN SEGUIDAS ES UN INVARIANTE, no una casualidad estética.** `navGroupsFor`
+ * recorre los grupos en su orden y toma de cada uno las secciones en el orden de este
+ * mapa; si una fila se colara fuera de su bloque, el nav agrupado dejaría de leerse en
+ * el mismo orden que `navSectionsFor`. No hace falta recordarlo: el test
+ * «agrupar no pierde, no añade y no reordena» lo comprueba, y cae si se rompe.
  */
 export const BACKOFFICE_SECTIONS: readonly BackofficeSection[] = [
+  // ── La raíz, fuera de todo grupo ────────────────────────────────────────────
   // R2 — el dashboard baja a EDITOR. Son AGREGADOS (activos, en revisión, usuarios
   // totales, cola, estado del índice), no datos de nadie en concreto: recortarlo
   // por rol exigiría un `getStats` de forma variable para proteger cifras que no
   // son sensibles. Ver docs/diseno-roles.md §4.5 (D-2).
-  { id: 'dashboard', route: '/admin', label: 'Dashboard', minRole: 'EDITOR', exact: true },
+  //
+  // Se llama «Resumen» y no «Dashboard» (3a): la pantalla son esos agregados, y así
+  // lo dice. «Inicio» competía con la portada pública, que es EL inicio del producto,
+  // y la cabecera del shell ya dice «Backoffice» — el primer ítem no repite dónde estás.
+  { id: 'dashboard', route: '/admin', label: 'Resumen', minRole: 'EDITOR', exact: true, group: null },
 
-  { id: 'anuncios', route: '/admin/anuncios', label: 'Anuncios', minRole: 'MODERATOR' },
+  // ── Moderación ─────────────────────────────────────────────────────────────
+  { id: 'anuncios', route: '/admin/anuncios', label: 'Anuncios', minRole: 'MODERATOR', group: 'moderacion' },
   // MODERACIÓN M3 — la cola va junto a Anuncios: es trabajo PENDIENTE, no una
   // vista de consulta. Antes su sitio era filtrar «En revisión» en Anuncios, y de
   // ahí salía que el moderador despachara con el selector de estado genérico.
-  { id: 'cola-revision', route: '/admin/moderacion', label: 'Cola de revisión', minRole: 'MODERATOR' },
-  { id: 'usuarios', route: '/admin/usuarios', label: 'Usuarios', minRole: 'MODERATOR' },
-  { id: 'reportes', route: '/admin/reportes', label: 'Reportes', minRole: 'MODERATOR' },
-  { id: 'tickets', route: '/admin/tickets', label: 'Tickets', minRole: 'MODERATOR' },
+  { id: 'cola-revision', route: '/admin/moderacion', label: 'Cola de revisión', minRole: 'MODERATOR', group: 'moderacion' },
+  // Usuarios va aquí y NO en Atención: desde esta sección se suspende, se banea y se
+  // marca para revisión previa. Es el trabajo de moderar, no el de atender.
+  { id: 'usuarios', route: '/admin/usuarios', label: 'Usuarios', minRole: 'MODERATOR', group: 'moderacion' },
+  { id: 'reportes', route: '/admin/reportes', label: 'Reportes', minRole: 'MODERATOR', group: 'moderacion' },
 
-  { id: 'facturacion', route: '/admin/facturacion', label: 'Facturación', minRole: 'ADMIN' },
-  { id: 'facturas', route: '/admin/facturas', label: 'Facturas', minRole: 'ADMIN' },
+  // ── Atención al usuario ────────────────────────────────────────────────────
+  { id: 'tickets', route: '/admin/tickets', label: 'Tickets', minRole: 'MODERATOR', group: 'atencion' },
+  // R2 — las DOS de contacto bajan JUNTAS, y no por simetría: la pantalla de
+  // mensajes importa el cliente de motivos (`admin-contact-reasons`), así que
+  // bajar una sola dejaría la otra cargando rota. Es INV-1, verificado en los
+  // imports (docs/diseno-roles.md §4.3).
+  { id: 'mensajes-contacto', route: '/admin/mensajes-contacto', label: 'Mensajes de contacto', minRole: 'MODERATOR', group: 'atencion' },
+  // 3c — AQUÍ, y no en el primer nivel. Es la sección del hallazgo R3: existía, era
+  // alcanzable y no tenía ítem de nav; R2 se lo dio. Este grupo la baja de nivel SIN
+  // quitárselo — sigue en `navSectionsFor` y en el DOM, junto a la hermana con la que
+  // comparte piso y desde cuya pantalla ya se llega. Bajar de nivel no es desaparecer.
+  { id: 'motivos-contacto', route: '/admin/motivos-contacto', label: 'Motivos de contacto', minRole: 'MODERATOR', group: 'atencion' },
 
+  // ── Catálogo ───────────────────────────────────────────────────────────────
   // R2 — el catálogo (categorías y tags) baja a MODERATOR: es la materia prima del
   // trabajo de moderar, no configuración de plataforma. Con `categorias` viaja la
   // casilla `requiresReview` de la categoría — ver la enmienda a M4 en
   // docs/diseno-roles.md §5 y el comentario de `updateCategory`.
-  { id: 'categorias', route: '/admin/categorias', label: 'Categorías', minRole: 'MODERATOR' },
+  { id: 'categorias', route: '/admin/categorias', label: 'Categorías', minRole: 'MODERATOR', group: 'catalogo' },
   // B1 — el catálogo de tags es config del vocabulario, junto a Categorías.
-  { id: 'tags', route: '/admin/tags', label: 'Tags', minRole: 'MODERATOR' },
+  { id: 'tags', route: '/admin/tags', label: 'Tags', minRole: 'MODERATOR', group: 'catalogo' },
 
-  { id: 'blog', route: '/admin/blog', label: 'Blog', minRole: 'EDITOR' },
-  { id: 'paginas', route: '/admin/paginas', label: 'Páginas', minRole: 'EDITOR' },
-
+  // ── Contenido ──────────────────────────────────────────────────────────────
   // R2 — Footer, Navegación y Portada bajan a EDITOR. El comentario de RP.3 decía
   // que las tres son «CONFIGURACIÓN del sitio, no contenido como Blog/Páginas (que
   // sí abren a EDITOR)», y ese criterio queda REVISADO: las tres son la superficie
   // editorial del sitio público —qué se enseña y cómo se navega—, que es el mismo
   // oficio que el blog. Configuración de plataforma es lo que sigue en ADMIN:
   // facturación, facturas y ajustes.
-  { id: 'footer', route: '/admin/footer', label: 'Footer', minRole: 'EDITOR' },
+  { id: 'blog', route: '/admin/blog', label: 'Blog', minRole: 'EDITOR', group: 'contenido' },
+  { id: 'paginas', route: '/admin/paginas', label: 'Páginas', minRole: 'EDITOR', group: 'contenido' },
+  { id: 'portada', route: '/admin/portada', label: 'Portada', minRole: 'EDITOR', group: 'contenido' },
+  { id: 'footer', route: '/admin/footer', label: 'Footer', minRole: 'EDITOR', group: 'contenido' },
   // RN.4 — junto a Footer: son las dos navegaciones configurables del sitio.
-  { id: 'nav', route: '/admin/nav', label: 'Navegación', minRole: 'EDITOR' },
-  { id: 'portada', route: '/admin/portada', label: 'Portada', minRole: 'EDITOR' },
+  { id: 'nav', route: '/admin/nav', label: 'Navegación', minRole: 'EDITOR', group: 'contenido' },
 
-  { id: 'campanas', route: '/admin/campaigns', label: 'Campañas', minRole: 'MODERATOR' },
-  { id: 'cupones', route: '/admin/cupones', label: 'Cupones', minRole: 'MODERATOR' },
+  // ── Promoción ──────────────────────────────────────────────────────────────
+  { id: 'campanas', route: '/admin/campaigns', label: 'Campañas', minRole: 'MODERATOR', group: 'promocion' },
+  { id: 'cupones', route: '/admin/cupones', label: 'Cupones', minRole: 'MODERATOR', group: 'promocion' },
   // R2 — las dos bajan, pero NO al mismo piso, y la distinción es deliberada:
   // un banner es pieza de la portada (mismo oficio que el resto de EDITOR),
   // mientras que un patrocinado es inventario VENDIDO a un anunciante — tocarlo
   // es tocar lo que alguien ha pagado, así que baja sólo hasta MODERATOR.
-  { id: 'banners', route: '/admin/banners', label: 'Banners', minRole: 'EDITOR' },
-  { id: 'patrocinados', route: '/admin/sponsored-ads', label: 'Patrocinados', minRole: 'MODERATOR' },
+  { id: 'banners', route: '/admin/banners', label: 'Banners', minRole: 'EDITOR', group: 'promocion' },
+  { id: 'patrocinados', route: '/admin/sponsored-ads', label: 'Patrocinados', minRole: 'MODERATOR', group: 'promocion' },
 
-  // R2 — las DOS de contacto bajan JUNTAS, y no por simetría: la pantalla de
-  // mensajes importa el cliente de motivos (`admin-contact-reasons`), así que
-  // bajar una sola dejaría la otra cargando rota. Es INV-1, verificado en los
-  // imports (docs/diseno-roles.md §4.3).
-  { id: 'mensajes-contacto', route: '/admin/mensajes-contacto', label: 'Mensajes de contacto', minRole: 'MODERATOR' },
-  // Y aquí muere el hallazgo R3: esta sección existía, era alcanzable y NO tenía
-  // ítem de nav. Con el nav derivado del mapa, darle una fila se lo da.
-  { id: 'motivos-contacto', route: '/admin/motivos-contacto', label: 'Motivos de contacto', minRole: 'MODERATOR' },
-
-  { id: 'ajustes', route: '/admin/ajustes', label: 'Ajustes', minRole: 'ADMIN' },
+  // ── Plataforma ─────────────────────────────────────────────────────────────
+  // Las tres que R2 dejó en ADMIN, y el propio reparto ya las nombra juntas: «todo
+  // + el dinero y la configuración». Agrupar por tarea las junta igual.
+  { id: 'facturacion', route: '/admin/facturacion', label: 'Facturación', minRole: 'ADMIN', group: 'plataforma' },
+  { id: 'facturas', route: '/admin/facturas', label: 'Facturas', minRole: 'ADMIN', group: 'plataforma' },
+  { id: 'ajustes', route: '/admin/ajustes', label: 'Ajustes', minRole: 'ADMIN', group: 'plataforma' },
 ] as const;
 
 /**
@@ -259,4 +348,49 @@ export function canAccessAdminPath(role: string | null | undefined, pathname: st
  */
 export function navSectionsFor(role: string | null | undefined): BackofficeSection[] {
   return BACKOFFICE_SECTIONS.filter((section) => atLeast(role, section.minRole));
+}
+
+/** Un grupo de la barra, ya resuelto para un rol: su título y las secciones que ve. */
+export interface BackofficeNavGroup {
+  id: BackofficeGroupId;
+  title: string;
+  items: BackofficeSection[];
+}
+
+/** Lo que la barra pinta: la raíz suelta arriba, y debajo los grupos con contenido. */
+export interface BackofficeNav {
+  /** Las secciones sin grupo (hoy sólo `/admin`), encima de todos los grupos. */
+  root: BackofficeSection[];
+  groups: BackofficeNavGroup[];
+}
+
+/**
+ * LA BARRA AGRUPADA — y **se implementa SOBRE `navSectionsFor`, nunca en paralelo**.
+ *
+ * Ésa es la línea que sostiene todo el cambio, y no es estilo. Si esta función volviera
+ * a filtrar por rol por su cuenta —un `atLeast` más, aquí— habría **dos reglas de
+ * visibilidad**: los invariantes de R1/R2 seguirían midiendo `navSectionsFor` mientras
+ * el nav se pintaría desde otra, y bastaría que discreparan para que una sección
+ * accesible desapareciera del menú con todos los tests en verde. Es el defecto de R1
+ * reencarnado un piso más arriba.
+ *
+ * Aquí no se decide NADA sobre quién ve qué: se recibe la lista ya filtrada y sólo se
+ * reparte. Hay un test que lo fija por comportamiento —aplanar esto devuelve
+ * exactamente `navSectionsFor`, en ids y en orden, para los cuatro roles—, así que
+ * agrupar es demostrablemente no destructivo: no pierde, no añade y no reordena.
+ *
+ * **Los grupos vacíos NO se devuelven.** Un EDITOR ve siete secciones y ninguna de
+ * moderación; un título «Moderación» sin nada debajo sería ruido que además sugiere
+ * que hay algo ahí que no puede abrir.
+ */
+export function navGroupsFor(role: string | null | undefined): BackofficeNav {
+  const visibles = navSectionsFor(role);
+  return {
+    root: visibles.filter((section) => section.group === null),
+    groups: BACKOFFICE_GROUPS.map((grupo) => ({
+      id: grupo.id,
+      title: grupo.title,
+      items: visibles.filter((section) => section.group === grupo.id),
+    })).filter((grupo) => grupo.items.length > 0),
+  };
 }
