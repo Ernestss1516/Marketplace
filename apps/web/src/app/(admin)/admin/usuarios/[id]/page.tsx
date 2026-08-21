@@ -320,6 +320,17 @@ export default function AdminFichaUsuarioPage() {
                   ))}
                 </ul>
               )}
+              {/* PUNTO 1 — abrir un hilo CON ESTE USUARIO. Sin anuncio enlazado: desde
+                  aquí el hilo va de la persona, no de una cosa suya. Si va de un
+                  anuncio concreto, el botón está en la ficha de ese anuncio, que es
+                  además donde el guard puede garantizar la pareja. */}
+              <Link
+                href={`/admin/tickets/nuevo?userId=${data.id}`}
+                className="mt-3 inline-flex h-8 items-center rounded-md border px-3 text-xs font-medium transition-colors hover:bg-muted"
+                data-testid="usuario-abrir-ticket"
+              >
+                Abrir ticket con este usuario
+              </Link>
             </Seccion>
           </div>
 
