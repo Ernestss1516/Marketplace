@@ -20,6 +20,7 @@ import { CurrentUser } from '../../common/decorators';
 import { JwtUser } from '../auth/auth.types';
 import { ListingsService } from './listings.service';
 import { PhotoLimitsService } from '../listing-gate/photo-limits.service';
+import { ListingOwnerActivityService } from './listing-owner-activity.service';
 import { BillingService } from '../billing/billing.service';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { UpdateListingDto } from './dto/update-listing.dto';
@@ -34,13 +35,40 @@ export class ListingsController {
     private readonly listingsService: ListingsService,
     private readonly billingService: BillingService,
     private readonly photoLimitsService: PhotoLimitsService,
+    // ÚLTIMA IP (5a) — ver `gestion()` justo debajo.
+    private readonly ownerActivity: ListingOwnerActivityService,
   ) {}
+
+  /**
+   * ÚLTIMA IP (5a) — ENVOLTORIO DE «EL DUEÑO HA GESTIONADO SU ANUNCIO».
+   *
+   * Ejecuta la acción y, **si sale bien**, anota quién y desde dónde. Si la acción lanza,
+   * el `await` propaga y no se anota nada: no hubo gestión que registrar.
+   *
+   * VIVE EN EL CONTROLADOR, y ésa es la decisión de diseño entera. Aquí es donde el
+   * `@Ip()` está disponible y —más importante— donde la frontera dueño/staff es
+   * ESTRUCTURAL: las acciones de staff viven en `AdminController`, que no conoce este
+   * servicio, y el cron del bump automático no pasa por ningún controlador. Las dos
+   * exclusiones que el dato necesita no dependen de que nadie se acuerde de nada.
+   *
+   * Los `GET` de esta clase NO lo usan: ver el propio anuncio, sus estadísticas o sus
+   * contactos no es gestionarlo, y contarlo convertiría este campo en un rastro de
+   * navegación — justo lo que la decisión de privacidad dice que no es.
+   */
+  private async gestion<T>(listingId: string, ip: string, accion: Promise<T>): Promise<T> {
+    const resultado = await accion;
+    await this.ownerActivity.touch(listingId, ip);
+    return resultado;
+  }
 
   @Post()
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.CREATED)
-  create(@CurrentUser() user: JwtUser, @Body() dto: CreateListingDto) {
-    return this.listingsService.create(user.userId, dto);
+  async create(@CurrentUser() user: JwtUser, @Body() dto: CreateListingDto, @Ip() ip: string) {
+    // El id sale del resultado, así que éste no puede usar `gestion()`.
+    const listing = await this.listingsService.create(user.userId, dto);
+    await this.ownerActivity.touch(listing.id, ip);
+    return listing;
   }
 
   @Patch(':id')
@@ -49,22 +77,23 @@ export class ListingsController {
     @Param('id') id: string,
     @CurrentUser() user: JwtUser,
     @Body() dto: UpdateListingDto,
+    @Ip() ip: string,
   ) {
-    return this.listingsService.update(id, user.userId, dto);
+    return this.gestion(id, ip, this.listingsService.update(id, user.userId, dto));
   }
 
   @Post(':id/publish')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
-  publish(@Param('id') id: string, @CurrentUser() user: JwtUser) {
-    return this.listingsService.publish(id, user.userId);
+  publish(@Param('id') id: string, @CurrentUser() user: JwtUser, @Ip() ip: string) {
+    return this.gestion(id, ip, this.listingsService.publish(id, user.userId));
   }
 
   @Post(':id/reserve')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
-  reserve(@Param('id') id: string, @CurrentUser() user: JwtUser) {
-    return this.listingsService.reserve(id, user.userId);
+  reserve(@Param('id') id: string, @CurrentUser() user: JwtUser, @Ip() ip: string) {
+    return this.gestion(id, ip, this.listingsService.reserve(id, user.userId));
   }
 
   // ---------------------------------------------------------------------------
@@ -75,22 +104,22 @@ export class ListingsController {
   @Post(':id/pause')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
-  pause(@Param('id') id: string, @CurrentUser() user: JwtUser) {
-    return this.listingsService.pause(id, user.userId);
+  pause(@Param('id') id: string, @CurrentUser() user: JwtUser, @Ip() ip: string) {
+    return this.gestion(id, ip, this.listingsService.pause(id, user.userId));
   }
 
   @Post(':id/reactivate')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
-  reactivate(@Param('id') id: string, @CurrentUser() user: JwtUser) {
-    return this.listingsService.reactivate(id, user.userId);
+  reactivate(@Param('id') id: string, @CurrentUser() user: JwtUser, @Ip() ip: string) {
+    return this.gestion(id, ip, this.listingsService.reactivate(id, user.userId));
   }
 
   @Post(':id/archive')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
-  archive(@Param('id') id: string, @CurrentUser() user: JwtUser) {
-    return this.listingsService.archive(id, user.userId);
+  archive(@Param('id') id: string, @CurrentUser() user: JwtUser, @Ip() ip: string) {
+    return this.gestion(id, ip, this.listingsService.archive(id, user.userId));
   }
 
   // ---------------------------------------------------------------------------
@@ -101,8 +130,13 @@ export class ListingsController {
   @Post(':id/deals')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.CREATED)
-  closeDeal(@Param('id') id: string, @CurrentUser() user: JwtUser, @Body() dto: CloseDealDto) {
-    return this.listingsService.closeDeal(id, user.userId, dto);
+  closeDeal(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtUser,
+    @Body() dto: CloseDealDto,
+    @Ip() ip: string,
+  ) {
+    return this.gestion(id, ip, this.listingsService.closeDeal(id, user.userId, dto));
   }
 
   @Get(':id/deals')
@@ -118,8 +152,9 @@ export class ListingsController {
     @Param('id') id: string,
     @Param('dealId') dealId: string,
     @CurrentUser() user: JwtUser,
+    @Ip() ip: string,
   ) {
-    return this.listingsService.undoDeal(id, dealId, user.userId);
+    return this.gestion(id, ip, this.listingsService.undoDeal(id, dealId, user.userId));
   }
 
   // Contactos del anuncio — quick-pick del selector de comprador/cliente.
@@ -132,8 +167,8 @@ export class ListingsController {
   @Post(':id/renew')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
-  renew(@Param('id') id: string, @CurrentUser() user: JwtUser) {
-    return this.listingsService.renew(id, user.userId);
+  renew(@Param('id') id: string, @CurrentUser() user: JwtUser, @Ip() ip: string) {
+    return this.gestion(id, ip, this.listingsService.renew(id, user.userId));
   }
 
   /**
@@ -162,8 +197,12 @@ export class ListingsController {
   @Post(':id/bump')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
-  bump(@Param('id') id: string, @CurrentUser() user: JwtUser) {
-    return this.billingService.bump(id, user.userId);
+  // ÚLTIMA IP (5a) — el bump MANUAL sí anota; el AUTOMÁTICO no puede, porque
+  // `bump-auto.processor` llama a `BillingService.bump` directamente y no pasa por aquí.
+  // Es la diferencia correcta: el dueño programó aquel bump hace semanas, no está
+  // actuando ahora.
+  bump(@Param('id') id: string, @CurrentUser() user: JwtUser, @Ip() ip: string) {
+    return this.gestion(id, ip, this.billingService.bump(id, user.userId));
   }
 
   // "Ver teléfono" — requiere login. El teléfono NUNCA viaja en GET /:slug

@@ -5,6 +5,7 @@ import {
   HttpException,
   HttpStatus,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -84,6 +85,7 @@ function tooManyRequests(retryAfter: number): never {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
   private readonly googleClient = new OAuth2Client();
 
   constructor(
@@ -156,6 +158,7 @@ export class AuthService {
     }
 
     const accessToken = this.signToken(user);
+    await this.anotarInicioDeSesion(user.id, ip);
     return {
       accessToken,
       user: { id: user.id, name: user.name, email: user.email, slug: user.slug, role: user.role, emailVerified: user.emailVerified },
@@ -210,10 +213,39 @@ export class AuthService {
     }
 
     const accessToken = this.signToken(user);
+    await this.anotarInicioDeSesion(user.id, ip);
     return {
       accessToken,
       user: { id: user.id, name: user.name, email: user.email, slug: user.slug, role: user.role, emailVerified: user.emailVerified },
     };
+  }
+
+  /**
+   * ÚLTIMA IP (5a) — ANOTA EL INICIO DE SESIÓN. Lo llaman los TRES caminos.
+   *
+   * **FAIL-OPEN, y es la parte importante.** Éste es el camino más caliente y menos
+   * perdonable de la aplicación: si la escritura falla —la base va lenta, la fila está
+   * bloqueada—, se entra igual. Un dato de moderación que no se pudo anotar es una
+   * casilla vacía; un login que no funciona porque no se pudo anotar es una avería.
+   * Mismo criterio que `BadWordService`, que declara por contrato no poder bloquear el
+   * flujo que vigila.
+   *
+   * VA DESPUÉS DE FIRMAR EL TOKEN, nunca dentro de la validación de credenciales: no
+   * tiene nada que decir sobre si alguien puede entrar.
+   *
+   * La IP llega del `@Ip()` del controlador, que resuelve `req.ip` con el `trust proxy`
+   * de `main.ts`. Mismo molde que `AuditLog` y que los rate limits — no se lee
+   * `x-forwarded-for` a mano en ninguna parte del proyecto, y esto no lo estrena.
+   */
+  private async anotarInicioDeSesion(userId: string, ip: string): Promise<void> {
+    try {
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { lastLoginAt: new Date(), lastLoginIp: ip },
+      });
+    } catch (err) {
+      this.logger.warn(`No se pudo anotar el inicio de sesión de ${userId}: ${String(err)}`);
+    }
   }
 
   /**
@@ -370,7 +402,13 @@ export class AuthService {
     return { ok: true };
   }
 
-  async loginWithGoogle(dto: SocialLoginDto) {
+  /**
+   * ÚLTIMA IP (5a) — `ip` ES NUEVO EN ESTA FIRMA, y el hueco que cierra importa: el
+   * controlador llamaba a este método SIN `@Ip()`, así que quien entra sólo con Google
+   * habría tenido «última IP» perpetuamente vacía. Y una cuenta social es de las más
+   * baratas de crear, o sea justo la que más interesa a una investigación antifraude.
+   */
+  async loginWithGoogle(dto: SocialLoginDto, ip: string) {
     let payload: { sub?: string; email?: string; email_verified?: boolean; name?: string; picture?: string } | undefined;
     try {
       const ticket = await this.googleClient.verifyIdToken({
@@ -411,6 +449,7 @@ export class AuthService {
     }
 
     const accessToken = this.signToken(user);
+    await this.anotarInicioDeSesion(user.id, ip);
     return {
       accessToken,
       user: { id: user.id, name: user.name, email: user.email, slug: user.slug, role: user.role, emailVerified: user.emailVerified },

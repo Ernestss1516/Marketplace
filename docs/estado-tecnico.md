@@ -14271,6 +14271,105 @@ devolver una ficha a las estrellas a mano tumba su mitad de la barrera de fuente
 
 ---
 
+## Retoques del backoffice — PUNTO 5a: el dato de la última IP (cerrado)
+
+Diseño: `docs/diseno-ultima-ip.md`. 5a es **el dato**; verlo —orden, filtros, fecha/hora—
+es 5b. Todo backend.
+
+### El modelo: persistir, y no es preferencia
+
+`User.lastLoginAt/lastLoginIp` y `Listing.lastOwnerInteractionAt/lastOwnerIp`. Nacen NULL,
+sin backfill: el dato no existía. **Derivar era imposible** — el login no escribe ni una
+fila de `AuditLog` (cero apariciones de `auditLog` en `auth.service.ts`), así que la IP que
+recibía se usaba sólo para el rate limit y se tiraba.
+
+**Y `Listing.updatedAt` no valía**, que era la tentación evidente: lo mueven la edición de
+staff (P3a/2a/2b), el cambio de estado de staff, la etiqueta interna, el borrado de
+`needsRevalidation` y la transición automática `REVIEWED→EDITED`. Responde «¿cuándo cambió
+esta fila?»; esto responde «¿cuándo actuó su DUEÑO?».
+
+### La captura del anuncio: en el CONTROLADOR, y por eso las exclusiones son estructurales
+
+El diseño proponía un `touch` en los servicios. Al montarlo apareció algo mejor: **los once
+endpoints de gestión del dueño viven en un solo controlador**, que es además donde `@Ip()`
+está disponible. Enganchando ahí, las dos exclusiones que el dato necesita dejan de ser
+disciplina y pasan a ser **estructura**:
+
+- **El staff no puede escribirla.** Sus acciones viven en `AdminController`, que no conoce
+  `ListingOwnerActivityService`. No hay que acordarse de no llamarlo: no está a mano. Si un
+  moderador la moviera, el dato afirmaría que el vendedor estuvo aquí cuando quien estuvo
+  fue el moderador — **un dato que miente es peor que uno que falta**.
+- **El cron del bump automático tampoco.** `bump-auto.processor` llama a
+  `BillingService.bump` directamente; no pasa por ningún controlador. Y es correcto: el
+  dueño programó ese bump hace semanas, no está actuando ahora.
+
+Un envoltorio `gestion(id, ip, accion)` de tres líneas deja cada endpoint en un cambio de
+una línea, y **los `GET` simplemente no lo usan**: ver el propio anuncio, sus estadísticas
+o sus contactos no es gestionarlo, y contarlo convertiría el campo en un rastro de
+navegación — justo lo que la decisión de privacidad dice que no es.
+
+### La captura del login: los tres caminos, y el que no recibía la IP
+
+`anotarInicioDeSesion` privado, llamado por `login`, `adminLogin` y `loginWithGoogle`,
+**después de firmar el token** y **fail-open**: si la escritura falla, se entra igual. Es el
+camino más caliente de la aplicación; mismo criterio que el contrato de `BadWordService`.
+
+**`loginWithGoogle` gana el parámetro `ip` y su endpoint el `@Ip()`**, que no tenía. Sin
+eso, quien entra sólo con Google habría tenido «última IP» perpetuamente vacía — y una
+cuenta social es de las más baratas de crear, o sea la que más interesa a una investigación
+antifraude.
+
+### La fuga que se ARREGLA, y no era la que parecía
+
+La auditoría anotó que `GET /admin/users/:id` servía `AuditLog.ip` por un `include` sin
+`select`, contra la exclusión explícita de F1. Cierto. Lo que faltaba era **de quién es esa
+IP**: el `where` pide las acciones en las que el usuario es el OBJETO («actions taken
+against them») y `actorId` es quien las EJECUTÓ — siempre staff.
+
+> **Lo que se filtraba era la IP del MODERADOR que suspendió o cambió el rol, servida a
+> cualquier otro moderador que abriera la ficha. La fuga no exponía al investigado:
+> exponía al investigador.**
+
+Por eso la decisión de privacidad de 5a **no la cubre** y esto se arregla en vez de
+bendecirse: `User.lastLoginIp` es del usuario y su finalidad es antifraude; `AuditLog.ip`
+es del staff y es rastro de seguridad interno — «auditar personas es otra pantalla con otro
+rol», que es exactamente lo que F1 escribió. El arreglo usa **su función**
+(`listForResource`), no una copia de su `select`: un solo lector del historial para las dos
+fichas.
+
+### Verificación
+
+`test/ultima-ip.e2e-spec.ts` (12). **Backend completo: 126 suites, 2024 tests.**
+
+Las barreras afirman sobre la BASE, y la del anuncio se mide **en las dos direcciones**
+(molde literal de P3a con `EDITED`): el dueño gestiona → se escribe; el staff edita ese
+mismo anuncio → no se mueve. Con sólo la primera, un `touch` en el camino compartido
+pasaría. Y la de la fuga **comprueba primero que la fila de `AuditLog` existe y tiene
+`ip`** antes de buscarla en la respuesta entera serializada: sin eso pasaría igual si
+simplemente no hubiera registros.
+
+Mutaciones, las tres verificadas:
+
+| Mutación | Cae |
+|---|---|
+| El staff escribe la IP del dueño | «el STAFF edita ese mismo anuncio → NO se mueve» |
+| Quitar el `@Ip()` del login social y pasar `''` | «el CONTROLADOR se la pasa de verdad» |
+| Dejar la fuga (vuelve el `include`) | «no devuelve la IP del MODERADOR» |
+
+**La segunda existe porque el intento de mutación destapó que la barrera era débil:**
+comprobaba la firma del servicio, no el cableado — quitar el `@Ip()` y pasar `''` compila.
+Se añadió una comprobación sobre el fuente del endpoint, con su razón escrita (el login
+social no es ejercitable de extremo a extremo: no se puede firmar un token de Google en un
+test).
+
+**Un cuidado de método que quedó en el código.** El test de fail-open mockeaba
+`prisma.user.update` entero, y `validateCredentials` usa ESE MISMO método para resetear
+`failedLoginAttempts` en cada login correcto: el mock global tumbaba el login antes de
+llegar a lo que el caso mide. Ahora falla **sólo cuando el `data` lleva `lastLoginIp`**, así
+que el 200 sólo se explica por el `try/catch` que se está probando.
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.
