@@ -75,6 +75,7 @@ import type { ListingTypePolicy, PriceUnit } from '@prisma/client';
 import { triageAfterOwnerEdit } from './listing-triage';
 // P3a — las validaciones de campos, compartidas con el camino del staff.
 import { ListingEditValidationService } from './listing-edit-validation.service';
+import { ListingImagesService } from './listing-images.service';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { UpdateListingDto } from './dto/update-listing.dto';
 import { MyListingsQueryDto } from './dto/my-listings-query.dto';
@@ -221,6 +222,8 @@ export class ListingsService {
     // P3a — las reglas de los campos, ahora compartidas con el camino del staff.
     // AL FINAL, por la misma razón que las dos de arriba.
     private readonly editValidation: ListingEditValidationService,
+    // 2b — las FOTOS, también compartidas con el camino del staff. Al final, ídem.
+    private readonly listingImages: ListingImagesService,
   ) {}
 
   async create(sellerId: string, dto: CreateListingDto): Promise<Listing> {
@@ -296,7 +299,11 @@ export class ListingsService {
     });
 
     if (dto.imageIds?.length) {
-      await this.linkImages(listing.id, sellerId, dto.imageIds);
+      await this.listingImages.sync({
+        listingId: listing.id,
+        sellerId,
+        imageIds: dto.imageIds,
+      });
     }
 
     // Geocode in background via BullMQ — coordinates are not needed to publish.
@@ -394,13 +401,12 @@ export class ListingsService {
     });
 
     if (imageIds !== undefined) {
-      await this.prisma.listingImage.updateMany({
-        where: { listingId: id, id: { notIn: imageIds } },
-        data: { listingId: null, order: 0 },
-      });
-      if (imageIds.length) {
-        await this.linkImages(id, userId, imageIds);
-      }
+      // 2b — UN SOLO SITIO, compartido con el camino del staff. Lo que había aquí
+      // —desvincular las que salen (`listingId: null`) y enlazar las que quedan— dejaba
+      // la fila y sus DOS objetos de R2 huérfanos para siempre. Era la sexta fuente de
+      // huérfanas, y la única que se dispara editando un anuncio vivo. Ahora salir es
+      // BORRARSE, con su limpieza encolada. Ver `ListingImagesService`.
+      await this.listingImages.sync({ listingId: id, sellerId: userId, imageIds });
     }
 
     // PUERTA — RÁFAGA 2. EDITAR LIMPIA, PERO NUNCA FRENA.
@@ -1558,63 +1564,10 @@ export class ListingsService {
 
 
 
-  /**
-   * PUERTA regla #3 — EL TOPE DE FOTOS SE APLICA AQUÍ, y no en el DTO.
-   *
-   * Éste es el único sitio por el que unas fotos acaban colgando de un anuncio,
-   * lo llamen `create()` o `update()`, así que es donde el tope no se puede
-   * olvidar. En `update()` la lista SUSTITUYE a la anterior, de modo que
-   * `imageIds.length` es el número final en los dos caminos.
-   *
-   * El número sale de `PhotoLimitsService` —un `Setting`, con 15 por defecto— en
-   * vez del `@ArrayMaxSize(15)` que había en los dos DTOs. Quince sigue siendo
-   * quince: lo único que cambia es que ahora hay UN sitio donde vive el número y
-   * se puede tocar sin desplegar.
-   */
-  private async linkImages(
-    listingId: string,
-    userId: string,
-    imageIds: string[],
-  ): Promise<void> {
-    const max = await this.photoLimits.getMax();
-    if (imageIds.length > max) {
-      throw new UnprocessableEntityException(
-        `Un anuncio admite como máximo ${max} fotos (has enviado ${imageIds.length}).`,
-      );
-    }
-
-    const images = await this.prisma.listingImage.findMany({
-      where: { id: { in: imageIds } },
-      select: { id: true, uploadedById: true, listingId: true },
-    });
-
-    const notFound = imageIds.filter((imgId) => !images.some((img) => img.id === imgId));
-    if (notFound.length) {
-      throw new UnprocessableEntityException(
-        `Imágenes no encontradas: ${notFound.join(', ')}`,
-      );
-    }
-
-    for (const img of images) {
-      if (img.uploadedById !== userId) {
-        throw new UnprocessableEntityException(
-          `La imagen ${img.id} no pertenece al usuario`,
-        );
-      }
-      if (img.listingId !== null && img.listingId !== listingId) {
-        throw new UnprocessableEntityException(
-          `La imagen ${img.id} ya está vinculada a otro anuncio`,
-        );
-      }
-    }
-
-    await Promise.all(
-      imageIds.map((imgId, order) =>
-        this.prisma.listingImage.update({
-          where: { id: imgId },
-          data: { listingId, order },
-        }),
-      ),
-    );
-  }
+  // 2b — `linkImages` VIVÍA AQUÍ Y HA DESAPARECIDO. Era la mitad buena de dos
+  // implementaciones de «pon estas fotos en este anuncio»: ésta validaba tope,
+  // existencia y propiedad y escribía el `order`; la del staff (P3a) no hacía nada
+  // de eso. Ahora las dos llaman a `ListingImagesService.sync`, que además borra la
+  // fila y encola la limpieza de R2 al quitar una foto — la fuga que este camino
+  // también tenía. Ver `listing-images.service.ts`.
 }

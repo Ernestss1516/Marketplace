@@ -200,6 +200,18 @@ Lo que **ya está cerrado** por B3: al eliminar un anuncio (staff) y al descarta
 póster— en la cola `media-cleanup`. La fuente de huérfanos *por borrado de anuncio* ya no
 existe.
 
+**~~SEXTA FUENTE (2026-08-21) — quitar una foto de un anuncio VIVO.~~ CERRADA por 2b, en la
+misma ráfaga que la descubrió.** No estaba en esta lista, y era la única que se disparaba en
+la **operación normal**: editar un anuncio quitando una foto la desvinculaba (`listingId:
+null`) y ahí moría — la fila quedaba suelta y sus **dos** objetos de R2 sin dueño. Por los
+DOS caminos, el del dueño y el del staff. Ahora quitar una foto la **borra** y encola sus
+claves, desde `ListingImagesService`, que es el único sitio por el que unas fotos entran o
+salen de un anuncio. Ver `diseno-editar-anuncio.md` §5.3.
+
+*(Y no la habría visto un barrido: la fila desvinculada era indistinguible de un wizard
+abandonado — el mismo problema que ya condenaba a B4. Cerrar la fuente sí funcionaba,
+porque actúa sobre las filas que acaban de salir de un anuncio conocido.)*
+
 Lo que **sigue abierto**, y son dos problemas distintos que esta entrada mezclaba:
 
 - **Basura CON fila** (imágenes de wizard abandonado, adjuntos de ticket): el fichero **sí**

@@ -76,6 +76,8 @@ function buildService(prismaOverrides: Record<string, unknown> = {}) {
     // P3a — mantenimiento de fixture por cambio de FIRMA. Estos casos son de
     // política de categorías y no editan campos de ningún anuncio.
     { validarEdicion: jest.fn() } as never,
+    // 2b — ídem con las fotos: estos casos no tocan ninguna.
+    { sync: jest.fn() } as never,
   );
 
   return { service, prisma, auditLog, indexingQueue, categoryTree };

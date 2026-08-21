@@ -14119,6 +14119,103 @@ tocado?»— y es la razón de que la barrera mire la base de datos.
 
 ---
 
+## Retoques del backoffice — PUNTO 2b: las imágenes · **el punto 2, cerrado**
+
+Decisión: `docs/diseno-editar-anuncio.md` §5. Ráfaga aparte de 2a **a propósito**: lleva un
+arreglo de seguridad y estrena borrado real de ficheros, y eso no viaja de polizón en la
+misma revisión que un formulario.
+
+### `ListingImagesService` — un solo sitio, y el molde es P3a
+
+Había DOS implementaciones de «pon estas fotos en este anuncio». La del dueño
+(`linkImages`) validaba tope, existencia y propiedad y escribía el `order`; la del staff
+era un `updateMany` a pelo que **no hacía nada de eso**. Se extrae en vez de arreglarse dos
+veces — el movimiento de P3a con las validaciones, y por el mismo motivo: la copia que
+divergiría sin que nadie lo notara es la del backoffice. `linkImages` desaparece; los
+**tres** llamadores (`create`, `update` del dueño y el camino de staff) pasan por aquí.
+
+**La regla de enlazabilidad, una sola y SIN BANDERAS:** una imagen entra si **ya está en
+este anuncio**, o si **está suelta y la subió su vendedor**. Con eso se cubren los dos
+caminos sin un `esStaff` que encienda y apague comprobaciones — el parámetro-bandera que
+P3a evitó porque hace que una guarda dependa de un booleano.
+
+### Las cuatro cosas
+
+1. **El `order` se escribe.** Reordenar desde el backoffice respondía 200 y no movía nada.
+2. **Las tres validaciones** —tope, existencia, propiedad— aplican también al staff, y la
+   propiedad se mide contra el **vendedor del anuncio**, no contra el moderador que
+   ejecuta.
+3. **Aislamiento entre anuncios.** El `where: { id: { in: imageIds } }` que había no
+   acotaba: un id ajeno se llevaba la foto de otro anuncio. Nadie podía provocarlo porque
+   la interfaz nunca mandaba `imageIds` — era una bomba armada esperando a que 2b
+   encendiera el mecanismo, y por eso el arreglo entra en la misma ráfaga.
+4. **El desvinculador comparte camino con el dueño**, así que quitar una foto **borra la
+   fila** y encola sus **dos** claves (original + miniatura) en la cola de B3.
+
+### La sexta fuente de huérfanas, cerrada — y no estaba inventariada
+
+Quitar una foto de un anuncio vivo dejaba la fila desvinculada y sus dos objetos de R2 sin
+dueño, **por los dos caminos**. `pendientes.md` no la listaba: era la única que se dispara
+en la operación normal. Queda añadida y tachada allí.
+
+**Y no la habría visto un barrido.** La fila desvinculada era indistinguible de un wizard
+abandonado, que es el problema que ya condenó a B4 (su consulta borraría la portada del
+blog). Cerrar la fuente sí funciona, porque actúa sobre las filas que **acaban de salir de
+un anuncio conocido** en la misma operación que las saca.
+
+### Las dos consecuencias, y una diferencia de conducta que hay que decir
+
+**(a)** Se borra la fila. Purgar R2 dejándola daría algo peor que antes: una fila apuntando
+a un fichero inexistente. Coste asumido: **quitar una foto es irreversible al guardar**.
+
+**(b)** El `AuditLog` registra qué fotos se quitaron, **con su URL**. `imageIds` se
+destructura fuera de `fields`, así que no entraba ni en el `before` ni en el `after`.
+Mientras quitar era reversible daba igual; desde que el fichero se borra, un error del
+staff es irrecuperable — sin esto sería además invisible. No devuelve la foto: hace que se
+pueda saber cuál era.
+
+**(c) Un matiz DELIBERADO respecto a `linkImages`**, y la única diferencia de conducta en el
+camino del dueño además de la limpieza: la propiedad se comprueba **sólo sobre las que
+entran**. `uploadedById` es nullable con `SetNull`, así que borrar la cuenta de quien subió
+una foto dejaba ese campo a `null` y la comprobación vieja —aplicada a todas— tumbaba una
+edición legítima de un anuncio antiguo. Reafirmar el subidor de una foto que YA es de este
+anuncio no autoriza nada nuevo; sólo podía fallar.
+
+### Verificación
+
+`test/imagenes-anuncio.e2e-spec.ts` (13). **Backend completo: 125 suites, 2012 tests.**
+
+Las barreras afirman contra el EFECTO: el `order` se lee **de la base**, no del 200; la de
+seguridad mide que **la víctima conserva su foto**, no el código de error; y la de R2 va
+**dos veces, staff y dueño** — con una sola, «limpiar sólo en staff» pasaría, que es
+exactamente lo que §5.3 descartó. Dos tests más existen para que las otras no pasen por el
+motivo equivocado: «no se encola nada si no sale ninguna foto» y «una edición que no toca
+las fotos no ensucia el registro».
+
+*(Detalle que confirma la extracción: `borrado-limpieza-r2.e2e-spec.ts` necesita **un espía
+por servicio** porque `AdminModule` y `ListingsModule` registran cada uno su cola. Ésta
+necesita **uno solo**.)*
+
+Mutaciones, las cuatro verificadas:
+
+| Mutación | Cae |
+|---|---|
+| El `order` no se escribe | Las 2 barreras de orden |
+| Sin la validación de propiedad/otro-anuncio | Las 3 de validación |
+| El `AuditLog` no registra las fotos | Exactamente la de la traza |
+| El desvinculador sólo en staff | Exactamente «LA BARRERA (R2, DUEÑO)» |
+
+**Un límite de cobertura, dicho:** quitar el `OR: [{ listingId: null }, { listingId }]` del
+`updateMany` **no mata ningún test**, porque la validación rechaza el id ajeno antes de
+llegar ahí. Ese `where` es una segunda línea **inalcanzable mientras la validación esté
+puesta** — la mutación sin validación lo demuestra al revés: la víctima conserva su foto
+igualmente porque el `where` no casa con ella. Se mantiene por eso, y consta que ningún
+test lo cubre por separado.
+
+**Con esto el punto 2 (editar) queda cerrado.**
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.

@@ -133,6 +133,10 @@ describe('ListingsService.create — reintento de slug ante P2002', () => {
         validateListingTypeAllowed: jest.fn(),
         validatePriceUnitAllowed: jest.fn(),
       } as never,
+      // 2b — mantenimiento de fixture por cambio de FIRMA. Este spec va del
+      // reintento de slug; `create()` sólo sincroniza fotos si vienen `imageIds`,
+      // y aquí no vienen.
+      { sync: jest.fn() } as never,
     );
     errorSpy = jest.spyOn((service as unknown as { logger: { error: (...a: unknown[]) => void } }).logger, 'error');
   });
