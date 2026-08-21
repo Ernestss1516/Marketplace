@@ -19,6 +19,13 @@ interface StepAtributosProps {
   values: Record<string, string>;
   onChange: (values: Record<string, string>) => void;
   errors: Record<string, string>;
+  /**
+   * 2a — el modo edición del backoffice monta este mismo componente DENTRO de una
+   * sección que ya se titula «Atributos», así que su cabecera sobraría y se leería como
+   * dos títulos seguidos. Por defecto se pinta, que es lo que el wizard necesita: la
+   * única superficie que la quita es la que ya la tiene puesta encima.
+   */
+  showHeading?: boolean;
 }
 
 function FieldError({ message }: { message?: string }) {
@@ -31,7 +38,13 @@ function FieldError({ message }: { message?: string }) {
   );
 }
 
-export function StepAtributos({ schema, values, onChange, errors }: StepAtributosProps) {
+export function StepAtributos({
+  schema,
+  values,
+  onChange,
+  errors,
+  showHeading = true,
+}: StepAtributosProps) {
   if (schema.length === 0) {
     return (
       <div className="space-y-2 py-4 text-center text-sm text-muted-foreground">
@@ -59,12 +72,14 @@ export function StepAtributos({ schema, values, onChange, errors }: StepAtributo
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold">Atributos</h2>
-        <p className="text-sm text-muted-foreground">
-          Completa los detalles específicos de esta categoría.
-        </p>
-      </div>
+      {showHeading && (
+        <div>
+          <h2 className="text-lg font-semibold">Atributos</h2>
+          <p className="text-sm text-muted-foreground">
+            Completa los detalles específicos de esta categoría.
+          </p>
+        </div>
+      )}
 
       {schema.map((field) => {
         const id = `attr-${field.name}`;
