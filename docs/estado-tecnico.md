@@ -14216,6 +14216,61 @@ test lo cubre por separado.
 
 ---
 
+## Retoques del backoffice — PUNTO 7a: las valoraciones, bien vistas (cerrado)
+
+Auditoría: `docs/auditoria-retoques-backoffice.md` §7, mitad **7a**. **Cero backend**: el
+dato ya viajaba. 7b —editar y eliminar como staff— es otra cosa y necesita su diseño.
+
+### El defecto no era que faltara el dato
+
+`GET /admin/users/:id` sirve `comment`, `createdAt` y la contraparte de cada valoración,
+dadas y recibidas; `GET /admin/listings/:id` lo mismo para las del anuncio. **Las dos
+fichas se lo callaban**: la de usuario pintaba estrellas y un nombre, la de anuncio ni la
+fecha. Un moderador no podía juzgar una valoración —que es justo lo que 7b le va a pedir—
+sin salir a otra pantalla.
+
+### `ValoracionFila`, compartida desde el primer uso
+
+Molde: la tarjeta pública (`components/valoraciones/ReviewsSection.tsx`). Se conserva su
+ORDEN de lectura —quién, cuántas estrellas, cuándo, y debajo el texto— para que staff y
+visitante lean lo mismo; lo que no se copia es su peso visual, porque aquí son filas de un
+panel y no tarjetas de una página.
+
+Va a `components/admin/` y **la usan las DOS fichas**: la de anuncio tenía el mismo
+problema en menor grado, y dejar dos maneras de enseñar lo mismo en el mismo backoffice es
+como acaban divergiendo (`listing-status.ts` lo documenta habiéndolo pagado ya).
+
+Dos detalles que se ganan de paso:
+
+- **Las cinco estrellas, siempre** (`★★★☆☆`). `'★'.repeat(rating)` a secas obliga a contar
+  puntas para saber si son tres de cinco o tres de tres. El número exacto va en el `title`.
+- **La contraparte enlaza a SU ficha del backoffice**, no al perfil público: quien lee esto
+  está moderando, y lo siguiente que va a querer es su ficha.
+
+### Lo que NO se muestra, y no es olvido
+
+`verified`, `editedAt` y `listingTitle` **no vienen en el `select`** de ninguna de las dos
+fichas. Enseñarlos es ampliar la respuesta del backend, y 7a es sólo pintar lo que ya
+llega. *(`verified` es el que más va a echarse de menos en 7b: decide si la valoración
+cuenta para la media.)*
+
+Y **«Valoraciones dadas» sigue sin contador**: `_count` trae `reviewsReceived` pero no
+`reviewsAuthored`, así que no hay número fiable — poner `length` diría «(10)» habiendo
+cuarenta. Donde sí hay contador y la lista está recortada (`take: 10`), la ficha lo dice
+con esas palabras en vez de dejar un 40 con diez filas debajo.
+
+### Verificación
+
+`ValoracionFila.test.tsx` (12). Se prueba el COMPONENTE, que es presentación pura, y no las
+fichas montadas: son páginas con `useSession`, `useParams` y fetch, y lo que hay que fijar
+son cuatro cadenas. El último bloque comprueba **sobre el fuente** que las dos fichas lo
+importan y ya no pintan `'★'.repeat(v.rating)` a mano — molde de `etiquetas.test.ts`.
+
+Mutaciones, las dos verificadas: no pintar el comentario tumba «EL COMENTARIO se ve»;
+devolver una ficha a las estrellas a mano tumba su mitad de la barrera de fuente.
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.
