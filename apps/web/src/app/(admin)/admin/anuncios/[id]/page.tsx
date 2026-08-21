@@ -734,6 +734,20 @@ export default function AdminFichaAnuncioPage() {
                   ))}
                 </ul>
               )}
+              {/* PUNTO 1 — abrir un hilo SOBRE ESTE ANUNCIO. Sólo viaja el id del
+                  anuncio: el destinatario (su vendedor) y el título los resuelve la
+                  pantalla de destino contra el servidor. Ver su cabecera. */}
+              <Button
+                size="sm"
+                variant="outline"
+                className="mt-3"
+                asChild
+                data-testid="ficha-abrir-ticket"
+              >
+                <Link href={`/admin/tickets/nuevo?listingId=${data.id}`}>
+                  Abrir ticket sobre este anuncio
+                </Link>
+              </Button>
             </Seccion>
 
             <Seccion titulo="Tratos" contador={data._count.deals}>

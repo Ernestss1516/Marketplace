@@ -80,9 +80,26 @@ export function reassignTicket(
   });
 }
 
-/** FLUJO (b) — abrir un hilo con un usuario concreto. */
+/**
+ * FLUJO (b) — abrir un hilo con un usuario concreto.
+ *
+ * `listingId` es el enlace opcional al anuncio del que va el hilo (punto 1 del lote de
+ * retoques). **No lleva `linkedLabel`, y no es un olvido**: el título del anuncio lo
+ * deriva el SERVIDOR en `assertLinkable`. Si se aceptara del cliente, el snapshot que
+ * el usuario lee en su ticket podría mentir sobre a qué apunta.
+ *
+ * Y el servidor valida el enlace **contra el destinatario del hilo**, no contra el
+ * agente: `listingId` sólo se acepta si ese anuncio es de `userId`. La UI no burla ese
+ * guard, lo respeta por construcción — deriva el destinatario del propio anuncio.
+ */
 export function createStaffTicket(
-  payload: { userId: string; subject: string; body: string; topicId?: string },
+  payload: {
+    userId: string;
+    subject: string;
+    body: string;
+    topicId?: string;
+    listingId?: string;
+  },
   token: string,
 ): Promise<TicketRow> {
   return apiFetch('/admin/tickets', { method: 'POST', body: JSON.stringify(payload), token });

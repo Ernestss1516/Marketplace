@@ -13975,6 +13975,72 @@ Ajustes; Portada sube junto a Blog.)*
 
 ---
 
+## Retoques del backoffice — PUNTO 1: abrir tickets desde las fichas (cerrado)
+
+Auditoría: `docs/auditoria-retoques-backoffice.md` §1. **El backend no se toca**: el
+modelo (`Ticket.listingId` + `linkedLabel`), el guard (`assertLinkable`) y el endpoint
+(`POST /admin/tickets`, MODERATOR) ya estaban construidos y probados. Esto es UI y
+navegación con parámetros.
+
+### La coherencia, resuelta haciéndola NO REPRESENTABLE
+
+`assertLinkable` valida el enlace **contra el destinatario del hilo, no contra el
+agente** — porque `linkedLabel` se le sirve a él, y enlazar ahí el anuncio de un tercero
+sería filtrarle un dato ajeno. Así que «anuncio X» y «usuario Y» sólo son legales juntos
+si X es de Y.
+
+La UI no esquiva ese guard: **la URL lleva un solo parámetro, y el otro dato sale de
+él.**
+
+| Desde | URL | Destinatario |
+|---|---|---|
+| Ficha de anuncio (F1) | `?listingId=…` | **derivado**: el vendedor de ese anuncio |
+| Ficha de usuario (U3) | `?userId=…` | ese usuario, sin enlace |
+
+Con una sola entrada de la que sale la otra no hay dos campos que puedan discrepar. Y
+mientras haya anuncio enlazado **no se ofrece «Cambiar» destinatario**: un botón que
+produce un 422 seguro es un botón que no debe existir. Se cambia quitando antes el
+anuncio — en ese orden, porque mientras haya anuncio la pareja la fija él.
+
+### Nada de lo que se pinta sale de la URL
+
+El nombre del destinatario y el título del anuncio se piden al servidor
+(`GET /admin/users/:id` y `GET /admin/listings/:id`, los dos MODERATOR — el mismo piso
+que la sección `tickets`, así que no se ensancha nada). Un `?userName=` en la barra de
+direcciones podría mentirle al agente sobre a quién le escribe: es el mismo criterio por
+el que el backend deriva `linkedLabel` en vez de aceptarlo del cliente.
+
+El prellenado además **falla hacia la pantalla de siempre**: si el anuncio no se puede
+resolver, queda el buscador de usuario con el aviso puesto. Un prellenado roto no debe
+impedir abrir un ticket a mano.
+
+### Verificación
+
+`e2e/tickets-desde-fichas.spec.ts` (3).
+
+**El círculo es la barrera del vínculo.** Además de leer `linkedLabel` en el ticket, la
+spec vuelve a la ficha del anuncio y comprueba que el ticket sale en su sección
+«Tickets» — que se sirve de la relación `Ticket.listingId`. Eso no se puede fingir con
+una etiqueta: prueba que el vínculo llegó a Postgres.
+
+Mutaciones, las dos verificadas:
+
+| Mutación | Cae |
+|---|---|
+| Destinatario incoherente (el agente en vez del vendedor) | La barrera entera: `assertLinkable` responde 422 y no se llega al detalle del ticket |
+| No mandar `listingId` | La barrera en «Relacionado» — el `linkedLabel` que deriva el servidor |
+
+La primera es la que importa: demuestra que **quien sostiene la coherencia es el guard
+del backend**, no la pantalla. La UI sólo se ocupa de no proponer una pareja imposible.
+
+**Lo que la auditoría corrigió del enunciado, confirmado al construirlo:** el enunciado
+pedía vincular «usuario **y/o** anuncio», y el código admite **un solo enlace**
+(`MULTIPLE_LINKED_ENTITIES`, 422). No hizo falta levantarlo: usuario y anuncio no
+compiten — el usuario es `Ticket.userId` y el anuncio es `Ticket.listingId`—, así que el
+«y» del enunciado se cumple con el modelo tal cual está.
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.
