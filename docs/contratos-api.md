@@ -751,7 +751,13 @@ Gestión en «Backoffice → Cupones».
 cualquier usuario autenticado.
 
 - **`POST /moderation/reports`** *(auth, cualquier rol)* — Crear un reporte. `ReportReason`
-  incluye `FAKE_REVIEW` para reportar valoraciones.
+  incluye `FAKE_REVIEW` para reportar valoraciones. **Toma el snapshot de lo denunciado al
+  crear**: `listingTitle` del anuncio, y `reviewComment` / `reviewAuthorName` de la
+  valoración.
+
+> `Report.listingId` y `Report.reviewId` son **`SetNull` con snapshot congelado**: la denuncia
+> sobrevive al borrado del anuncio *y* a la desaparición de la valoración, y sigue diciendo de
+> qué iba. Ver `docs/diseno-borrado.md` §2.4 y §3.3.
 - **`GET /moderation/reports`** *(MODERATOR+)* — Cola de reportes, con filtros de estado/motivo y
   paginación.
 - **`GET /moderation/reports/:id`** *(MODERATOR+)* — Detalle.

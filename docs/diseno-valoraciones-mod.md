@@ -181,6 +181,13 @@ denuncia sobrevive apuntando a una fila que existe. El riesgo 5 de B1 **se evita
   arreglar `Report.reviewId → SetNull` **antes**. Queda anotado en `pendientes.md` junto al
   riesgo 5 original, que deja de estar «fuera de alcance» y pasa a «evitado, no resuelto».
 
+> **YA ARREGLADO (2026-08-22), en su propia ráfaga.** `Report.reviewId` es `SetNull` +
+> snapshot (`reviewComment` / `reviewAuthorName`, escritos al **crear** la denuncia), con
+> backfill: molde de B1, `diseno-borrado.md` §2.4/§3.3. El riesgo 5 pasa de «evitado, no
+> resuelto» a **resuelto**, y un borrado físico futuro ya no destruiría denuncias. Lo de
+> arriba se conserva porque es el porqué de la retirada lógica, que sigue siendo lo correcto
+> por otra razón: retirar es reversible.
+
 *(Segundo salto, ya sano: `Ticket.reviewId` es `SetNull` con `linkedLabel` conservado
 —`schema.prisma:2557-2570`—, así que un hilo que hablaba de la valoración sobrevive y sigue
 siendo legible.)*

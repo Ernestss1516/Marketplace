@@ -110,6 +110,7 @@ de UI» explícitamente marcado como *«no una brecha funcional»*. Esta fase es
 | Playwright corriendo en CI | [ci.yml](../.github/workflows/ci.yml) — steps de señal (`--grep-invert @2b`) y `@2b` separados |
 | La saga del CI | Cerrada y verificada **en el runner**: corrida `30930395538`, SHA `e4df671` |
 | **CI sin unit tests del backend** | [ci.yml](../.github/workflows/ci.yml) — paso `Backend unit — Jest`. Verde en local **antes** de añadirlo (17/17 suites, 164/164 tests) y confirmado **en el runner**: corrida `31028999515`, SHA `b0c5916`, step `success` en 15 s |
+| **`Report.reviewId` en `Cascade`** — 7b lo neutralizó, esto lo **RESUELVE** | [schema.prisma](../apps/api/prisma/schema.prisma) — `SetNull` + snapshot (`reviewComment` / `reviewAuthorName`), tomado **al CREAR** la denuncia (molde B1, `diseno-borrado.md` §2.4/§3.3), con backfill en [`20260822230000_report_sobrevive_borrado_valoracion`](../apps/api/prisma/migrations/20260822230000_report_sobrevive_borrado_valoracion/migration.sql). Barrera en [`borrado-denuncia-valoracion.e2e-spec.ts`](../apps/api/test/borrado-denuncia-valoracion.e2e-spec.ts): borrar la valoración deja la denuncia viva y legible. Cierra el riesgo 5 de B1 |
 
 ### 4.2 Abierto
 
@@ -375,21 +376,6 @@ de las dos vale lo que cuesta para eso. Está documentado en
 [`video-limits.ts`](../apps/api/src/modules/video/video-limits.ts), junto a la constante, y no
 enterrado en un commit.
 
-#### `Report.reviewId` sigue en `Cascade` — 7b lo NEUTRALIZÓ, no lo resolvió `[DEUDA]`
-
-[apps/api/prisma/schema.prisma](../apps/api/prisma/schema.prisma) — borrar una `Review` sigue
-destruyendo la denuncia que la señalaba. 7b apagó el fuego quitando de en medio el **único** camino
-que borraba en vivo (`DELETE /moderation/reviews/:id` → retirada lógica), así que con la fila
-siempre viva la regla **no se dispara nunca**. Pero la regla sigue ahí.
-
-**La trampa está armada para el siguiente**: cualquiera que añada un borrado real de valoraciones
-—una purga por RGPD, un `deleteMany` de mantenimiento, un borrado en cascada de usuario— vuelve a
-destruir denuncias sin enterarse, y en silencio. `Report.reviewId` tiene que pasar a `SetNull`
-**ANTES** de que exista cualquier supresión real, no después.
-
-Es exactamente el mismo cuidado que B1 aplicó a `Report`/`Conversation` frente al borrado de
-anuncios; a esta relación no le llegó el turno porque «iba de reseñas».
-
 #### Tres rojos de e2e sin evidencia (nota, no deuda)
 
 En la primera tirada de la batería e2e de API de la ráfaga de UI del bump automático salieron **3
@@ -499,7 +485,6 @@ importar datos. La restricción que más duele **no está en el esquema**.
 | 4.2 | `app.enableCors()` sin argumentos | `[SEGURIDAD]` | — |
 | 6 | Rate limit por IP sin verificar | `[SEGURIDAD]` | §1 |
 | 1 | Despliegue (nunca desplegado) | `[DEUDA]` | — |
-| 4.2 | `Report.reviewId` en `Cascade` — 7b lo neutralizó, no lo resolvió. **A `SetNull` ANTES de cualquier borrado real de valoraciones** | `[DEUDA]` | — |
 | 4.2 | `conversation:read` en tiempo real | `[DEUDA]` | — |
 | 4.2 | Cerrar las **fuentes** de huérfanas que quedan (avatar sustituido, `blocks`/`homepage`/`sponsored`, vídeo sin confirmar) — el barrido retroactivo se evaluó y se **descartó** (`diseno-borrado.md` §7) | `[DEUDA]` | — |
 | 4.2 | Conectar `.env.test` al bucket `marketplace-test` (una línea) | `[DEUDA]` | — |

@@ -19,13 +19,13 @@
 > ráfaga cuentan cada paso y su porqué; el mapa cuenta cómo funciona el conjunto y dónde está
 > cada pieza.
 >
-> ⚠ **DEUDA PRIORITARIA — `Report.reviewId` sigue en `Cascade`** (verificado en
-> `schema.prisma:1361`). El punto 7b lo **NEUTRALIZÓ** quitando de en medio el único camino
-> que borraba una `Review` en vivo —hoy se retira lógicamente, así que la regla no se dispara
-> nunca— pero **no lo resolvió**. Tiene que pasar a `SetNull` **ANTES** de que exista cualquier
-> borrado real de valoraciones (una purga por RGPD, un `deleteMany` de mantenimiento, un
-> borrado en cascada de usuario): si no, volverá a destruir en silencio las denuncias que las
-> señalaban. Está anotado en `docs/pendientes.md` §4.2 y en su resumen por prioridad.
+> ✅ **RESUELTA la deuda que encabezaba este ancla — `Report.reviewId` ya es `SetNull` +
+> snapshot** (ver «`Report.reviewId` — de `Cascade` a `SetNull` + snapshot» más abajo). El
+> punto 7b la había **neutralizado** (quitó el único camino que borraba una `Review` en vivo,
+> así que la regla no llegaba a dispararse) pero no resuelta. Ahora la denuncia **sobrevive**
+> a la desaparición de la valoración, con `reviewComment` / `reviewAuthorName` capturados **al
+> crear** la denuncia — molde de B1 (`diseno-borrado.md` §2.4/§3.3), con backfill. Un borrado
+> real futuro (purga RGPD, `deleteMany`, cascada de usuario) ya no destruye evidencia.
 
 > **Ancla previa** — se conserva entera; las anclas se acumulan y no se borra la historia.
 > Fecha: 2026-08-09 · Rama: `main` · Último commit: 842ea24 — cierre del vídeo Pro.
@@ -1421,7 +1421,8 @@ por defecto) e `items`. El promedio no se almacena; se recalcula en cada petici�
 (volúmenes bajos en el MVP; cacheable en Redis cuando crezca).
 
 **Moderación de reseñas:** `ReportReason` extendido con `FAKE_REVIEW` y
-`Report.reviewId` (FK nullable con CASCADE). El flujo de moderación existente
+`Report.reviewId` (FK nullable; nació con `CASCADE`, **hoy `SetNull` + snapshot** — ver la
+sección «`Report.reviewId` — de `Cascade` a `SetNull` + snapshot»). El flujo de moderación existente
 (`ModerationService`) cubre también las valoraciones sin ningún cambio en ese módulo.
 
 ### `@tailwindcss/typography`: import ESM, no `require()` (Fase B)
@@ -7006,8 +7007,9 @@ hay forma) y quedan con `listingTitle` `NULL`.
   "Sobre: {listingTitle} (anuncio ya no disponible)" cuando `listingId` es `NULL`, o
   "Anuncio ya no disponible" si tampoco hay `listingTitle`; nunca intenta enlazar a
   `/anuncio/[slug]` de un anuncio borrado.
-- **Moderación**: `Report.reviewId` sigue en `onDelete: Cascade` sin cambios — borrar
-  una reseña (vía moderación) sigue borrando sus denuncias asociadas.
+- **Moderación**: `Report.reviewId` seguía en `onDelete: Cascade` sin cambios — borrar
+  una reseña (vía moderación) borraba sus denuncias asociadas. *(Cerrado después: hoy es
+  `SetNull` + snapshot; ver su sección al final del §2.)*
 
 Tests: `reviews.e2e-spec.ts`, bloque «borrado de anuncio: la reseña sobrevive (H7)» —
 crear reseña copia `listingTitle`; borrar el anuncio deja `listingId` `NULL` y
@@ -14511,8 +14513,10 @@ eliminar** — miré `reviews.controller.ts` y el endpoint vivía en `moderation
 
 `Review.retiredAt` / `retiredById` / `retiredReason`, molde `Entitlement.revokedAt`. Con la
 fila viva el `Cascade` **no se dispara nunca**: la denuncia sobrevive apuntando a algo que
-existe y `resolveReport` la encuentra. Queda **NEUTRALIZADO, no resuelto** — si algún día
-hace falta supresión real, `Report.reviewId` tiene que pasar a `SetNull` **antes**.
+existe y `resolveReport` la encuentra. Quedó **NEUTRALIZADO, no resuelto** — si algún día
+hacía falta supresión real, `Report.reviewId` tenía que pasar a `SetNull` **antes**. *(Ya
+se hizo, en su propia sección más abajo: `SetNull` + snapshot. Esta retirada lógica sigue
+siendo lo correcto igualmente, por reversible.)*
 
 Es **MODERATOR** por B2: retirar es reversible, y `restoreReview` la devuelve entera.
 
@@ -15388,12 +15392,66 @@ Toda en `docs/pendientes.md`:
   cuáles son texto libre antes de mirarlas. Es una pregunta de catálogo, no de detección.
 - **`waitForTask` en `SearchService.removeListing` y `reindexAll`** — los dos hermanos del
   flake de Meilisearch que ya se cerró en `indexListing`.
-- Y la que encabeza este documento: **`Report.reviewId` en `Cascade`**.
+- ~~Y la que encabeza este documento: **`Report.reviewId` en `Cascade`**.~~ **Cerrada**: es
+  `SetNull` + snapshot (sección propia más abajo).
 
 **Estado real del banco de pruebas: vacío.** Los contadores están a cero y **nadie ha
 ascendido nada**, que es exactamente donde debe quedar hasta que alguien mire. Lo primero al
 retomar esto es dejar correr las listas unas semanas y abrir la de teléfonos antes de ascender
 ningún detector.
+
+---
+
+## `Report.reviewId` — de `Cascade` a `SetNull` + snapshot · **cierra el riesgo 5 de B1**
+
+Diseño: `docs/diseno-borrado.md` §2.4 (el molde) y §3.3 (por qué el snapshot se escribe al
+crear). Migración: `20260822230000_report_sobrevive_borrado_valoracion`.
+
+### Qué pasaba
+
+Borrar una `Review` destruía por `Cascade` la denuncia que la señalaba. Es **la misma avería
+que arregló B1** en la otra arista (`Report.listingId`, donde el denunciado podía destruir la
+denuncia borrando su propio anuncio); a esta relación no le llegó el turno porque «iba de
+reseñas», y quedó anotada como **riesgo 5, fuera de alcance**.
+
+7b la **neutralizó sin resolverla**: retiró el único camino que borraba valoraciones en vivo
+—`DELETE /moderation/reviews/:id` pasó a retirada lógica—, así que con la fila siempre viva la
+regla no llegaba a dispararse. **Pero la regla seguía escrita**, armada para el siguiente que
+añadiera una supresión real: una purga por RGPD, un `deleteMany` de mantenimiento, un borrado
+en cascada de usuario. Habría vuelto a destruir denuncias sin enterarse, y en silencio.
+
+### Qué se hizo — el molde de B1, sin inventar nada
+
+- **`Report.reviewId` → `onDelete: SetNull`** (ya era nullable: una denuncia puede apuntar a
+  un anuncio o a un usuario en vez de a una valoración).
+- **Snapshot: `Report.reviewComment` + `Report.reviewAuthorName`**, nullables, molde exacto de
+  `Report.listingTitle` / `Review.listingTitle` / `Deal.listingTitle` / `Ticket.linkedLabel`.
+  El criterio del contenido es el de B1 —lo mínimo para que la denuncia siga siendo legible
+  sin lo denunciado—: de una reseña, **qué se dijo y quién lo dijo**. (`reviewComment` puede
+  ser `null` legítimamente: `Review.comment` es opcional, hay reseñas de sólo estrellas.)
+- **Se escribe AL CREAR la denuncia**, en `ModerationService.createReport`, que ya hacía
+  exactamente esto con el título del anuncio: la consulta de existencia se trae también
+  `comment` y `author.name`. Nunca en el borrado (§3.3): eso sería una escritura de N filas
+  dentro de la transacción y un camino que sólo se ejecuta —y sólo se prueba— ahí.
+- **Backfill en la migración**, mientras las valoraciones todavía existen para copiarlas:
+  `UPDATE "Report" … FROM "Review" JOIN "User"`, una pasada, sólo sobre las filas sin snapshot.
+
+### La barrera
+
+`apps/api/test/borrado-denuncia-valoracion.e2e-spec.ts` (6 tests). El borrado se hace **a
+pelo** (`prisma.review.delete`) a propósito: no existe ningún endpoint que borre valoraciones,
+y lo que se fija es la **acción referencial del schema**, no la conducta de una ruta. Es la
+única forma de probar hoy una barrera que protege de mañana.
+
+Afirma: el snapshot ya está escrito **con la valoración viva**; borrarla deja la denuncia viva
+con `reviewId` a `null` y el snapshot intacto (más motivo, autor y estado); la cola de
+moderación sigue sirviendo la denuncia huérfana sin romperse (`include: { review }` a `null`);
+una reseña sin comentario deja al menos el autor; el backfill rellena las filas anteriores; y
+**la denuncia sobre un ANUNCIO sigue exactamente como la dejó B1** — esto sólo añade la arista
+de la reseña.
+
+Mutación comprobada: con `reviewId` de vuelta en `Cascade` caen 4 de 6; sin capturar el
+snapshot al crear caen otros 4 (la denuncia sobrevive **vacía**, que es sobrevivir sin sentido).
 
 ---
 
