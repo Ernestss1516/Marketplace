@@ -14556,6 +14556,73 @@ bloqueo), que necesita diseño propio.
 
 ---
 
+## Punto 6 — RÁFAGA 0: el motor de detección, extraído (sin cambiar conducta)
+
+Diseño: `docs/diseno-listas-bloqueo.md` §2 y §5.1.
+
+Preparación estructural para los dos modos y los detectores nuevos. **Cero funcionalidad
+nueva y cero cambio de conducta observable.**
+
+`BadWordService` **deja de existir** —no se ha dejado una fachada con el nombre viejo al
+lado; dos nombres para lo mismo es como acaban divergiendo— y su cuerpo pasa a ser el
+detector `WORD`:
+
+```
+detection/detection.types.ts          Detector, Detection, DetectionMode, DEFAULT_DETECTION_MODES
+detection/detectors/word.detector.ts  el cuerpo de BadWordService, intacto
+detection/detection.engine.ts         corre los detectores y aplica su modo
+```
+
+Un detector **no sabe qué pasa después**: devuelve hallazgos y el modo lo aplica el motor.
+Es lo que permitirá que ascender un patrón de avisar a bloquear sea cambiar un valor.
+
+**Lo que ya está y hoy tiene un solo valor útil**: `DetectorId` es sólo `WORD`; el modo
+`WARN` existe y el motor ya ramifica por él, pero ningún detector lo usa. **Lo que NO está,
+a propósito**: leer los modos de `Setting['detectionModes']` — una lectura nueva a la base
+de datos no es conducta byte-idéntica. Es la ráfaga B.
+
+### Byte-idéntico: qué lo demuestra
+
+**Cero ficheros de e2e tocados.** Los tests del filtro de palabras
+(`moderacion-previa.e2e-spec.ts` §4, `admin.e2e-spec.ts`) pasan **sin editarlos**, y ésa es
+la barrera principal: si hubiera habido que tocarlos, la extracción habría cambiado la
+conducta. Sólo se ajustaron dos fixtures de constructor por cambio de firma
+(`listings.service.spec.ts`, `admin.service.category-policy.spec.ts`), que es mantenimiento
+que este repo ya tiene tipificado.
+
+`moderationSignals.palabraProhibida` **sigue siendo el mismo booleano** en la respuesta de
+`GET /admin/listings/:id`, y se deriva preguntando explícitamente por el detector `WORD` —
+no por `blocking`— para que siga significando «palabra prohibida» cuando la ráfaga A añada
+detectores.
+
+La única diferencia de cálculo: antes se tokenizaban título y descripción **juntos** y ahora
+por separado, para poder decir en qué campo apareció. El conjunto de tokens es el mismo
+porque el separador era un espacio y el espacio ya partía; hay un test que lo clava en el
+borde (`dine` + `ro` no forman `dinero`).
+
+### El fail-open sigue roto, y hay un test que lo afirma
+
+`detection.engine.spec.ts` (16) incluye tres tests que **exigen el defecto**: `192.168.1.1` y
+`dinero facil` en `badWordList` no casan nunca, porque el tokenizador parte por lo no
+alfanumérico. No se arregla aquí: arreglarlo endurece en silencio un detector que está en
+modo `BLOCK`, y tiene su propia ráfaga que empieza por enseñarle al admin qué entradas suyas
+no casan (§5.4 del diseño).
+
+> **Cuando la ráfaga C llegue, esos tres tests TIENEN que caerse.** Es su función: marcar el
+> sitio exacto donde el arreglo se notará, para que llegue por decisión y no por accidente.
+
+Mutaciones, las dos verificadas:
+
+| Mutación | Cae |
+|---|---|
+| `WORD` a modo `WARN` (la extracción degrada el filtro en silencio) | «el filtro sigue mandando a revisión por su cuenta», en `moderacion-previa.e2e-spec.ts` — **un test que no se tocó** |
+| Concatenar los campos sin separador | Los 3 tests de frontera y de campo del spec nuevo |
+
+**Siguiente**: ráfaga A — el modo avisar, los detectores IP/teléfono naciendo en avisar, la
+integración con P1 y correr al editar. El banco de pruebas.
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.

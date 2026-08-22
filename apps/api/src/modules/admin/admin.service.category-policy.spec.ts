@@ -68,7 +68,10 @@ function buildService(prismaOverrides: Record<string, unknown> = {}) {
     // política de categorías y no pasan por `getListingById`, que es el único
     // sitio donde se consultan las señales de moderación.
     { reviewSignalsFor: jest.fn() } as never,
-    { hasBadWords: jest.fn() } as never,
+    // PUNTO 6 · RÁFAGA 0 — mantenimiento de fixture por cambio de FIRMA: el motor de
+    // detección en el sitio que ocupaba `BadWordService`. Mismo motivo que el de arriba —
+    // estos casos no pasan por `getListingById`, así que nunca se llama.
+    { run: jest.fn() } as never,
     // FICHA DE USUARIO U3 — mantenimiento de fixture por cambio de FIRMA. Estos
     // casos son de política de categorías; «¿es Pro?» sólo se consulta en la
     // ficha de usuario.

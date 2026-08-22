@@ -38,7 +38,7 @@ import { EntitlementService } from '../billing/entitlement.service';
 // aplica) y se sirve YA RESUELTA desde aquí. La dirección del import respeta la
 // dependencia existente ListingsModule → BillingModule.
 import { nextBumpAt } from '../billing/bump-cooldown';
-import { BadWordService } from '../moderation/bad-word.service';
+import { DetectionEngine } from '../moderation/detection/detection.engine';
 import { PreModerationService } from '../moderation/pre-moderation.service';
 import { ListingActivationService } from '../listing-activation/listing-activation.service';
 import { MessagingService } from '../messaging/messaging.service';
@@ -183,7 +183,9 @@ export class ListingsService {
     private readonly rateLimit: RateLimitService,
     @InjectQueue(QUEUE_INDEXING) private readonly indexingQueue: Queue,
     @InjectQueue(QUEUE_NOTIFICATIONS) private readonly notificationQueue: Queue,
-    private readonly badWordService: BadWordService,
+    // PUNTO 6 · RÁFAGA 0 — el motor de detección, en la posición que ocupaba
+    // `BadWordService`. Mismo sitio en la firma para no mover el resto.
+    private readonly detection: DetectionEngine,
     // MODERACIÓN PREVIA (M1) — decide si el anuncio se desvía a revisión.
     private readonly preModeration: PreModerationService,
     private readonly entitlementService: EntitlementService,
@@ -486,13 +488,23 @@ export class ListingsService {
 
     // Content filter — if the list is empty or service fails, targetStatus stays
     // ACTIVE. Moderation is a helper layer and must never block publication.
+    //
+    // PUNTO 6 · RÁFAGA 0 — LO MISMO QUE ANTES, POR OTRO SITIO. Era
+    // `badWordService.hasBadWords(title, description)` devolviendo un booleano; ahora es el
+    // motor, que corre sus detectores y dice si alguno de los que BLOQUEAN encontró algo.
+    // Con un único detector (`WORD`) y en modo `BLOCK` —que es lo que hace desde siempre—,
+    // `blocking` vale exactamente lo que valía `flagged`.
+    //
+    // El try/catch se conserva aunque `run()` prometa no lanzar: es el cinturón que ya
+    // estaba puesto, y quitarlo en la misma ráfaga que mueve el cuerpo sería cambiar dos
+    // cosas a la vez sobre el camino que no puede fallar.
     let targetStatus: 'ACTIVE' | 'PENDING_REVIEW' = 'ACTIVE';
     try {
-      const flagged = await this.badWordService.hasBadWords(
-        existing.title,
-        existing.description,
-      );
-      if (flagged) targetStatus = 'PENDING_REVIEW';
+      const { blocking } = await this.detection.run({
+        title: existing.title,
+        description: existing.description,
+      });
+      if (blocking) targetStatus = 'PENDING_REVIEW';
     } catch (_err) {
       // Silent fallback — publication continues normally.
     }

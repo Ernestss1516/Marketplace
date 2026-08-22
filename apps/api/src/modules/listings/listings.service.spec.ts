@@ -4,7 +4,7 @@ import { ListingsService } from './listings.service';
 import type { PrismaService } from '../../infra/prisma/prisma.service';
 import type { RedisService } from '../../infra/redis/redis.service';
 import type { RateLimitService } from '../../infra/redis/rate-limit.service';
-import type { BadWordService } from '../moderation/bad-word.service';
+import type { DetectionEngine } from '../moderation/detection/detection.engine';
 import type { PreModerationService } from '../moderation/pre-moderation.service';
 import type { EntitlementService } from '../billing/entitlement.service';
 import type { ListingActivationService } from '../listing-activation/listing-activation.service';
@@ -68,7 +68,7 @@ describe('ListingsService.create — reintento de slug ante P2002', () => {
       {} as RateLimitService,
       indexingQueue as never,
       { add: jest.fn().mockResolvedValue(undefined) } as never,
-      {} as BadWordService,
+      {} as DetectionEngine,
       // MODERACIÓN M1 — mantenimiento de fixture por cambio de FIRMA. Este spec
       // va del reintento de slug en create(), que no pasa por publish() y por
       // tanto no consulta el disparador.
