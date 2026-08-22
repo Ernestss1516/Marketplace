@@ -499,16 +499,17 @@ describe('Moderation (e2e)', () => {
     expect((log!.after as { status: string }).status).toBe('ACTIVE');
   });
 
-  // ── Review deletion ─────────────────────────────────────────────────────────
+  // ── Retirada de valoraciones (7b — antes era borrado físico) ────────────────
 
-  it('DELETE /api/moderation/reviews/:id como USER normal → 403', async () => {
+  it('POST /api/moderation/reviews/:id/retire como USER normal → 403', async () => {
     await request(app.getHttpServer())
-      .delete(`/api/moderation/reviews/${sharedReviewId}`)
+      .post(`/api/moderation/reviews/${sharedReviewId}/retire`)
       .set('Authorization', `Bearer ${userToken}`)
+      .send({ reason: 'Intento de un usuario sin permisos' })
       .expect(403);
   });
 
-  it('DELETE /api/moderation/reviews/:id como MODERATOR → 204 + review borrada de DB + AuditLog REVIEW_DELETE', async () => {
+  it('POST /api/moderation/reviews/:id/retire como MODERATOR → 200 + la fila SIGUE ahí, retirada + AuditLog REVIEW_RETIRE', async () => {
     // Use a fresh listing to avoid the @@unique([authorId, targetId, listingId]) constraint
     const freshListing = await prisma.listing.create({
       data: {
@@ -536,17 +537,24 @@ describe('Moderation (e2e)', () => {
     });
 
     await request(app.getHttpServer())
-      .delete(`/api/moderation/reviews/${review.id}`)
+      .post(`/api/moderation/reviews/${review.id}/retire`)
       .set('Authorization', `Bearer ${moderatorToken}`)
-      .expect(204);
+      .send({ reason: 'Insultos al vendedor' })
+      .expect(200);
 
-    // Verify gone from DB
-    const deleted = await prisma.review.findUnique({ where: { id: review.id } });
-    expect(deleted).toBeNull();
+    // 7b — INVERTIDO. Este test decía `expect(deleted).toBeNull()`: el endpoint viejo
+    // BORRABA la fila, y con ella se iba por `Cascade` la denuncia que la había motivado.
+    const retirada = await prisma.review.findUniqueOrThrow({ where: { id: review.id } });
+    expect(retirada.retiredAt).toBeInstanceOf(Date);
+    expect(retirada.retiredById).toBe(moderatorId);
+    expect(retirada.retiredReason).toBe('Insultos al vendedor');
+    // El contenido NO se toca al retirar: el registro de qué se dijo es justamente lo
+    // que hay que conservar para poder revisar la decisión.
+    expect(retirada.rating).toBe(1);
 
     // Verify AuditLog
     const log = await prisma.auditLog.findFirst({
-      where: { resourceId: review.id, action: 'REVIEW_DELETE' },
+      where: { resourceId: review.id, action: 'REVIEW_RETIRE' },
     });
     expect(log).not.toBeNull();
     expect(log!.resourceType).toBe('Review');
@@ -555,10 +563,11 @@ describe('Moderation (e2e)', () => {
     expect((log!.before as { comment: string }).comment).toBe('Reseña que será borrada por el moderador');
   });
 
-  it('DELETE /api/moderation/reviews/:id inexistente → 404', async () => {
+  it('POST /api/moderation/reviews/:id/retire inexistente → 404', async () => {
     await request(app.getHttpServer())
-      .delete('/api/moderation/reviews/id-que-no-existe')
+      .post('/api/moderation/reviews/id-que-no-existe/retire')
       .set('Authorization', `Bearer ${moderatorToken}`)
+      .send({ reason: 'Da igual, no existe' })
       .expect(404);
   });
 

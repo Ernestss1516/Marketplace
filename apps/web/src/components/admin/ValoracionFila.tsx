@@ -18,6 +18,12 @@ import Link from 'next/link';
  * vienen en el `select` de ninguna de las dos fichas. Enseñarlos es ampliar la respuesta
  * del backend, y 7a es sólo pintar lo que ya llega.
  *
+ * 7b LEVANTA ESA LIMITACIÓN PARA DOS DE LOS TRES. `verified` y el estado de retirada ya
+ * viajan, porque moderar sin ellos es moderar a ciegas: `verified` dice si esa valoración
+ * CUENTA para la media —retirar una que no cuenta no cambia la reputación de nadie— y
+ * `retiredAt` dice si el trabajo ya está hecho. `editedAt` y `listingTitle` siguen sin
+ * venir; la limitación de 7a sigue en pie para ellos.
+ *
  * COMPONENTE COMPARTIDO desde el primer uso: las dos fichas enseñan lo mismo y tenerlo
  * dos veces es como acaban divergiendo (`listing-status.ts` lo documenta habiéndolo
  * pagado ya).
@@ -28,6 +34,10 @@ export function ValoracionFila({
   createdAt,
   persona,
   relacion,
+  verified,
+  retiredAt,
+  retiredReason,
+  acciones,
 }: {
   rating: number;
   comment: string | null;
@@ -35,9 +45,26 @@ export function ValoracionFila({
   /** El OTRO lado: quien la escribió (`recibida`) o quien la recibió (`dada`). */
   persona: { id: string; name: string | null };
   relacion: 'recibida' | 'dada';
+  /** 7b — cuenta para la media (`true`) o es opinión sin trato verificable (`false`). */
+  verified?: boolean;
+  /** 7b — `null` = vigente. Con fecha, la fila se pinta apagada y tachada. */
+  retiredAt?: string | null;
+  retiredReason?: string | null;
+  /**
+   * 7b — los botones, INYECTADOS. La fila se queda presentacional (la pinta también la
+   * ficha de anuncio, que no tiene por qué traer el cableado de moderación), y quien
+   * quiera acciones pasa su propio bloque.
+   */
+  acciones?: React.ReactNode;
 }) {
+  const retirada = !!retiredAt;
   return (
-    <li className="space-y-0.5 border-l-2 py-1 pl-3 text-sm">
+    <li
+      className={`space-y-0.5 border-l-2 py-1 pl-3 text-sm ${
+        retirada ? 'border-amber-400 opacity-60' : ''
+      }`}
+      data-testid={retirada ? 'valoracion-retirada' : 'valoracion-vigente'}
+    >
       <div className="flex flex-wrap items-baseline gap-x-2">
         {/* Las cinco SIEMPRE, en claro y en oscuro: `'★'.repeat(rating)` a secas obliga a
             contar puntas para saber si son tres de cinco o tres de tres. */}
@@ -54,8 +81,39 @@ export function ValoracionFila({
           </Link>
         </span>
         <span className="text-xs text-muted-foreground">· {formatearFecha(createdAt)}</span>
+        {/* Sólo cuando NO cuenta: marcar las verificadas sería ruido en la mayoría de las
+            filas. Lo que el moderador necesita saber es cuándo su decisión no moverá la
+            media. `verified === false` explícito, no `!verified`: sin el campo (la ficha
+            de anuncio antes de 7b) no se afirma nada. */}
+        {verified === false && (
+          <span className="text-xs text-muted-foreground" title="No cuenta para la media">
+            · sin trato verificado
+          </span>
+        )}
+        {retirada && (
+          <span
+            className="rounded bg-amber-100 px-1.5 text-xs text-amber-800"
+            title={retiredReason ?? undefined}
+          >
+            Retirada
+          </span>
+        )}
       </div>
-      {comment && <p className="text-xs leading-relaxed text-muted-foreground">{comment}</p>}
+      {comment && (
+        <p
+          className={`text-xs leading-relaxed text-muted-foreground ${
+            retirada ? 'line-through' : ''
+          }`}
+        >
+          {comment}
+        </p>
+      )}
+      {/* El motivo, en claro y no sólo en el `title` del distintivo: es el registro de por
+          qué alguien del equipo la retiró, y quien la va a restaurar tiene que leerlo. */}
+      {retirada && retiredReason && (
+        <p className="text-xs text-amber-700">Motivo: {retiredReason}</p>
+      )}
+      {acciones && <div className="flex flex-wrap gap-2 pt-1">{acciones}</div>}
     </li>
   );
 }

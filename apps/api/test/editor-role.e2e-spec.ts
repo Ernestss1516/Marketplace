@@ -162,7 +162,12 @@ describe('Rol EDITOR (e2e)', () => {
     { method: 'post', path: `/api/moderation/listings/${DUMMY_ID}/reject`, label: 'POST /moderation/listings/:id/reject' },
     { method: 'post', path: `/api/moderation/listings/${DUMMY_ID}/deactivate`, label: 'POST /moderation/listings/:id/deactivate' },
     { method: 'post', path: `/api/moderation/listings/${DUMMY_ID}/restore`, label: 'POST /moderation/listings/:id/restore' },
-    { method: 'delete', path: `/api/moderation/reviews/${DUMMY_ID}`, label: 'DELETE /moderation/reviews/:id' },
+    // 7b — las TRES rutas que sustituyen al `DELETE /moderation/reviews/:id` de antes.
+    // Las tres, no una: la matriz negativa es la que garantiza que ampliar la moderación
+    // de valoraciones no le abre ninguna puerta nueva al EDITOR.
+    { method: 'post', path: `/api/moderation/reviews/${DUMMY_ID}/retire`, label: 'POST /moderation/reviews/:id/retire' },
+    { method: 'post', path: `/api/moderation/reviews/${DUMMY_ID}/restore`, label: 'POST /moderation/reviews/:id/restore' },
+    { method: 'patch', path: `/api/moderation/reviews/${DUMMY_ID}`, label: 'PATCH /moderation/reviews/:id (editar)' },
     // moderation — crear reporte: abierto a USER/MODERATOR/ADMIN, pero NO a EDITOR
     { method: 'post', path: '/api/moderation/reports', label: 'POST /moderation/reports (crear reporte)' },
     // blog — borrado físico: EDITOR gestiona contenido reversible, no irreversible

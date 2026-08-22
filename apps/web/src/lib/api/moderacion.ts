@@ -28,6 +28,8 @@ export interface Report {
     id: string;
     rating: number;
     comment: string | null;
+    /** 7b — `null` = sigue publicada. Con fecha, ya la retiró alguien: no se ofrece retirar otra vez. */
+    retiredAt: string | null;
     author: { name: string; slug: string };
     target: { name: string; slug: string };
   } | null;
@@ -90,9 +92,41 @@ export function deactivateListing(
   });
 }
 
-export function deleteReview(reviewId: string, token: string): Promise<void> {
-  return apiFetch<void>(`/moderation/reviews/${reviewId}`, {
-    method: 'DELETE',
+/**
+ * 7b — RETIRAR sustituye a `deleteReview`, que hacía `DELETE` y borraba la fila.
+ *
+ * No es un renombrado: el endpoint viejo ya no existe en el backend. Su borrado físico
+ * se llevaba por `Cascade` la denuncia que había motivado la retirada, y el propio flujo
+ * de esta pantalla acababa en 404 al intentar resolver un reporte que él mismo había
+ * destruido dos líneas antes.
+ */
+export function retireReview(
+  reviewId: string,
+  token: string,
+  reason: string,
+): Promise<unknown> {
+  return apiFetch(`/moderation/reviews/${reviewId}/retire`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+    token,
+  });
+}
+
+export function restoreReview(reviewId: string, token: string): Promise<unknown> {
+  return apiFetch(`/moderation/reviews/${reviewId}/restore`, {
+    method: 'POST',
+    token,
+  });
+}
+
+export function moderateReview(
+  reviewId: string,
+  token: string,
+  dto: { rating?: number; comment?: string; reason: string },
+): Promise<unknown> {
+  return apiFetch(`/moderation/reviews/${reviewId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(dto),
     token,
   });
 }

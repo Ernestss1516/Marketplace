@@ -14463,6 +14463,99 @@ Mutaciones, las tres verificadas:
 
 ---
 
+## Retoques del backoffice — PUNTO 7b: retirar valoraciones · **el punto 7, cerrado**
+
+Diseño: `docs/diseno-valoraciones-mod.md`.
+
+### Lo que ardía
+
+`DELETE /moderation/reviews/:id` existía y **borraba la fila**. `Report.reviewId` es
+`Cascade`, así que cada uso **destruía la denuncia que había motivado la retirada**. Y el
+botón de `/admin/reportes` llamaba a borrar y acto seguido a `resolveReport` sobre el
+reporte que él mismo acababa de destruir: **404 el 100 % de las veces**, con el trabajo ya
+hecho. B1 lo dejó anotado como «riesgo 5, fuera de alcance porque va de reseñas»; esto va
+de reseñas.
+
+Corrección a la auditoría: dijo que «editar/eliminar de staff no existe». **Era falso para
+eliminar** — miré `reviews.controller.ts` y el endpoint vivía en `moderation.controller.ts`.
+
+### La decisión: retirada lógica
+
+`Review.retiredAt` / `retiredById` / `retiredReason`, molde `Entitlement.revokedAt`. Con la
+fila viva el `Cascade` **no se dispara nunca**: la denuncia sobrevive apuntando a algo que
+existe y `resolveReport` la encuentra. Queda **NEUTRALIZADO, no resuelto** — si algún día
+hace falta supresión real, `Report.reviewId` tiene que pasar a `SetNull` **antes**.
+
+Es **MODERATOR** por B2: retirar es reversible, y `restoreReview` la devuelve entera.
+
+### Los 14 lectores
+
+Los **7 públicos excluyen** las retiradas vía la constante `VIGENTES` de
+`reviews.service.ts` — constante y no `retiredAt: null` escrito cinco veces, porque
+`getRatingSummaries` vive setenta líneas más abajo y es el que más fácil se olvida: lo
+consumen la búsqueda, la portada y la ficha pública, así que olvidarlo daría al vendedor
+**dos reputaciones distintas** sin ninguna pantalla que las enfrente.
+
+Los de **staff no excluyen**: enseñan las retiradas **marcadas**, porque es quien tiene que
+poder restaurarlas. Retirar no es esconderle la valoración a quien la modera.
+
+**La excepción deliberada: `getEligibility` NO filtra.** Una retirada sigue ocupando su
+`@@unique([authorId, targetId, listingId])`, así que decirle a su autor que puede volver a
+valorar sería mentirle —el `create` reventaría con un P2002— y además invitaría a repetir lo
+que se acaba de retirar.
+
+### Editar (moderación explícita)
+
+`PATCH /moderation/reviews/:id`, motivo obligatorio. **No toca `editedAt`** (significa «el
+AUTOR la editó» y el frontal pinta «Editada» con él — mismo cuidado que P1 con `EDITED`),
+**no toca `verified`** (congelado al crear) y **no recalcula ninguna media**: no hay ninguna,
+se calculan al vuelo en cada lectura.
+
+Sin `AlertDialog`, y a propósito: la regla lo pide para lo irreversible, y retirar dejó de
+serlo. El freno es el motivo obligatorio (≥5, molde P3a), no un segundo clic.
+
+### Verificación
+
+`test/valoraciones-retirada.e2e-spec.ts` (7) + `ValoracionFila.test.tsx` (16, cuatro nuevos).
+`moderation.e2e-spec.ts`, `reviews.e2e-spec.ts`, `editor-role.e2e-spec.ts` y
+`moderation-notifications.e2e-spec.ts` reescritos al endpoint nuevo — con **una aserción
+invertida en cada uno de los dos últimos**: donde decían «la fila ya no existe» ahora dicen
+«la fila sobrevive, retirada». Esa inversión es el cambio.
+
+Mutaciones, las tres verificadas:
+
+| Mutación | Cae |
+|---|---|
+| `getRatingSummaries` sin `VIGENTES` | Barrera 1, **sólo en la estrella de la ficha** — el perfil seguía verde |
+| Retirar borra la fila (físico) | Barrera 2: la denuncia muere por `Cascade` |
+| Editar toca `editedAt` | Barrera 3: el staff firmaría como si fuera el autor |
+
+### El drift de 5b, que se cobró una pieza (y la barrera que faltaba)
+
+La primera pasada de CI se cayó en **P3018 / 42704** antes de correr un solo test:
+`prisma migrate dev` había escrito `DROP INDEX "User_lastLoginAt_desc_nulls_last_idx"` en la
+migración de 7b y no se leyó el SQL generado. Es el índice raw de 5b —Prisma no sabe
+expresar `NULLS LAST` en un `@@index`, así que lo lee como drift y propone tirarlo en **cada**
+migración nueva—, y la propia migración de 5b lo dejaba avisado.
+
+En local colaba: el índice existía, el `DROP` funcionaba y la pérdida era **silenciosa** (se
+comprobó: había desaparecido de `marketplace` y de `marketplace_test`). En base limpia
+reventaba, porque `20260822090000_indice_ultima_conexion` ordena **después** de la de 7b: se
+tiraba un índice que aún no se había creado.
+
+Las dos barreras anti-drift de 5b miran la **base de datos**, y en una base de test que ya
+tiene el índice aplicado no ven un `DROP` escrito en un fichero. Se añade la tercera, que
+mira los **ficheros**: `LA BARRERA DE ORIGEN` recorre las 70 migraciones y falla si alguna
+línea no comentada borra ese índice. El aviso llevaba escrito desde 5b — un comentario no
+frena a quien está mirando otro fichero.
+
+**REGLA**: al generar una migración, leer el SQL y borrar ese `DROP INDEX`.
+
+**Con esto el punto 7 queda cerrado.** Del lote sólo queda el **punto 6** (listas de
+bloqueo), que necesita diseño propio.
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.

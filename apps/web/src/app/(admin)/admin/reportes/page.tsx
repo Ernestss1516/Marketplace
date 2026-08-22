@@ -10,7 +10,7 @@ import {
   resolveReport,
   dismissReport,
   deactivateListing,
-  deleteReview,
+  retireReview,
   type Report,
   type ReportStatus,
 } from '@/lib/api/moderacion';
@@ -302,13 +302,24 @@ export default function AdminReportesPage() {
                             {isPending ? '…' : 'Retirar anuncio'}
                           </button>
                         )}
-                        {r.review && isOpen && (
+                        {/* 7b — AQUÍ ARDÍA. Este botón llamaba a `deleteReview`, que borraba
+                            la fila; el `Cascade` de `Report.reviewId` se llevaba por delante
+                            ESTA MISMA denuncia, y el `resolveReport` de la línea siguiente
+                            respondía 404 sobre un reporte que acababa de destruir. El
+                            moderador veía un error tras una acción que sí había surtido
+                            efecto. Retirar es lógico: la fila vive, la denuncia sobrevive y
+                            el `resolveReport` encuentra su reporte. */}
+                        {r.review && isOpen && !r.review.retiredAt && (
                           <button
                             disabled={isPending}
                             onClick={() =>
                               handleAction(
                                 async () => {
-                                  await deleteReview(r.review!.id, token);
+                                  await retireReview(
+                                    r.review!.id,
+                                    token,
+                                    `Retirada por denuncia ${r.id}`,
+                                  );
                                   await resolveReport(r.id, token);
                                 },
                                 r.id,
@@ -316,8 +327,13 @@ export default function AdminReportesPage() {
                             }
                             className="rounded bg-red-600 px-2 py-1 text-xs text-white hover:bg-red-700 disabled:opacity-50"
                           >
-                            {isPending ? '…' : 'Eliminar reseña'}
+                            {isPending ? '…' : 'Retirar valoración'}
                           </button>
+                        )}
+                        {r.review?.retiredAt && (
+                          <span className="rounded bg-amber-100 px-2 py-1 text-xs text-amber-800">
+                            Valoración retirada
+                          </span>
                         )}
 
                         {/* Atención al usuario R7 — FLUJO (c). Abre un hilo con el

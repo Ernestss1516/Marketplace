@@ -105,7 +105,10 @@ export class ModerationService {
           reporter: { select: { id: true, name: true, slug: true } },
           reportedUser: { select: { id: true, name: true, slug: true } },
           listing: { select: { id: true, title: true, slug: true, status: true } },
-          review: { select: { id: true, rating: true, comment: true, author: { select: { name: true, slug: true } }, target: { select: { name: true, slug: true } } } },
+          // 7b — `retiredAt` viaja porque la cola tiene que distinguir «denuncia sobre una
+          // valoración que sigue publicada» de «ya retirada, esto es un duplicado». Sin él,
+          // el botón ofrecería retirar algo ya retirado y el servidor devolvería un 409.
+          review: { select: { id: true, rating: true, comment: true, retiredAt: true, author: { select: { name: true, slug: true } }, target: { select: { name: true, slug: true } } } },
           resolvedBy: { select: { id: true, name: true } },
           // Atención al usuario R7 — hilos ya abiertos con el usuario reportado
           // desde esta denuncia (flujo c). SOLO LECTURA y solo dos campos: la
@@ -417,27 +420,135 @@ export class ModerationService {
   // Review moderation actions
   // ---------------------------------------------------------------------------
 
-  async deleteReview(reviewId: string, actorId: string, ip?: string) {
+  /**
+   * 7b — RETIRAR UNA VALORACIÓN. Sustituye a `deleteReview`, que borraba la fila.
+   *
+   * ─── QUÉ FUEGO APAGA ─────────────────────────────────────────────────────────
+   *
+   * El borrado era FÍSICO, y `Report.reviewId` es `Cascade`: cada uso **destruía la
+   * denuncia que había motivado la retirada**. Y el flujo de la cola de denuncias
+   * —borrar y acto seguido resolver el reporte— acababa llamando a `resolveReport` sobre
+   * un reporte que ya no existía, o sea con un `NotFoundException` en la cara del
+   * moderador. **Estaba roto el 100 % de las veces**, igual que el enlace de la cola de
+   * revisión que arregló F1.
+   *
+   * B1 dejó ese defecto anotado como «riesgo 5, fuera de alcance porque va de reseñas».
+   * Esto es «va de reseñas».
+   *
+   * Con la fila viva, el `Cascade` **no se dispara nunca**: la denuncia sobrevive
+   * apuntando a una fila que existe, y `resolveReport` la encuentra. Queda NEUTRALIZADO,
+   * no resuelto — si algún día hace falta supresión real, hay que pasar
+   * `Report.reviewId` a `SetNull` ANTES.
+   *
+   * REVERSIBLE, y por eso MODERATOR (criterio B2: ADMIN sólo para lo irreversible).
+   * `restoreReview` la devuelve entera — a la media y al perfil.
+   */
+  async retireReview(reviewId: string, actorId: string, reason: string, ip?: string) {
     const review = await this.prisma.review.findUnique({ where: { id: reviewId } });
     if (!review) throw new NotFoundException('Valoración no encontrada');
+    if (review.retiredAt) {
+      throw new BadRequestException('Esta valoración ya está retirada');
+    }
 
-    const before = { rating: review.rating, comment: review.comment };
-
-    await this.prisma.review.delete({ where: { id: reviewId } });
+    const updated = await this.prisma.review.update({
+      where: { id: reviewId },
+      data: { retiredAt: new Date(), retiredById: actorId, retiredReason: reason },
+    });
 
     await this.auditLog.log({
-      action: 'REVIEW_DELETE',
+      action: 'REVIEW_RETIRE',
       actorId,
       resourceType: 'Review',
       resourceId: reviewId,
-      before,
+      before: { rating: review.rating, comment: review.comment, retiredAt: null },
+      after: { retiredAt: updated.retiredAt, reason },
       ip,
     });
 
-    // §14.5 — TRAS persistir. El borrado es FÍSICO: el aviso se construye con la
-    // fila `review` que se cargó ANTES de borrarla, porque después no habría de
-    // dónde sacar el dato.
+    // §14.5 — TRAS persistir. El autor se entera, igual que se enteraba con el borrado:
+    // que el equipo retire una opinión firmada por alguien sin decírselo no es defendible.
     await this.notify.reviewModerated(review, actorId);
+    return updated;
   }
 
+  /** 7b — deshacer una retirada. La valoración vuelve a la media y al perfil. */
+  async restoreReview(reviewId: string, actorId: string, ip?: string) {
+    const review = await this.prisma.review.findUnique({ where: { id: reviewId } });
+    if (!review) throw new NotFoundException('Valoración no encontrada');
+    if (!review.retiredAt) {
+      throw new BadRequestException('Esta valoración no está retirada');
+    }
+
+    const updated = await this.prisma.review.update({
+      where: { id: reviewId },
+      data: { retiredAt: null, retiredById: null, retiredReason: null },
+    });
+
+    await this.auditLog.log({
+      action: 'REVIEW_RESTORE',
+      actorId,
+      resourceType: 'Review',
+      resourceId: reviewId,
+      before: { retiredAt: review.retiredAt, reason: review.retiredReason },
+      after: { retiredAt: null },
+      ip,
+    });
+
+    return updated;
+  }
+
+  /**
+   * 7b — EDITAR el texto o las estrellas de una valoración ajena.
+   *
+   * ES MODERACIÓN EXPLÍCITA, y de ahí las tres cosas que NO hace:
+   *
+   *   · **No toca `editedAt`.** Ese campo significa «el AUTOR la editó» y el frontal
+   *     pinta «Editada» con él. Usarlo aquí diría que el autor cambió de opinión —
+   *     mentiría al lector sobre quién escribió lo que está leyendo. Es el mismo cuidado
+   *     que P1 tuvo con `EDITED`: una señal que afirma un hecho sólo la escribe quien
+   *     puede saber que ocurrió.
+   *   · **No toca `verified`.** Está congelado al crear y «NUNCA recalculado (ni por
+   *     `edit()`, ni por ningún otro endpoint)» — `schema.prisma`.
+   *   · **No recalcula ninguna media.** No hay ninguna: `average`, `count` y
+   *     `distribution` se calculan al vuelo en cada lectura, así que cambiar 1★ por 3★ se
+   *     refleja solo. Nada que desincronizar.
+   *
+   * RETIRAR ES LA VÍA PREFERENTE para lo abusivo. Esto se reserva para recortar lo
+   * problemático de una valoración mayormente válida — y por eso el motivo es obligatorio.
+   */
+  async editReview(
+    reviewId: string,
+    actorId: string,
+    input: { rating?: number; comment?: string | null; reason: string },
+    ip?: string,
+  ) {
+    const review = await this.prisma.review.findUnique({ where: { id: reviewId } });
+    if (!review) throw new NotFoundException('Valoración no encontrada');
+    if (input.rating === undefined && input.comment === undefined) {
+      throw new BadRequestException('Nada que cambiar: manda `rating`, `comment` o ambos.');
+    }
+
+    const updated = await this.prisma.review.update({
+      where: { id: reviewId },
+      data: {
+        ...(input.rating !== undefined && { rating: input.rating }),
+        ...(input.comment !== undefined && { comment: input.comment }),
+        // AQUÍ NO HAY `editedAt` NI `verified`. Es la diferencia entera con `edit()`,
+        // el camino del autor.
+      },
+    });
+
+    await this.auditLog.log({
+      action: 'REVIEW_EDIT',
+      actorId,
+      resourceType: 'Review',
+      resourceId: reviewId,
+      before: { rating: review.rating, comment: review.comment },
+      after: { rating: updated.rating, comment: updated.comment, reason: input.reason },
+      ip,
+    });
+
+    await this.notify.reviewModerated(review, actorId);
+    return updated;
+  }
 }

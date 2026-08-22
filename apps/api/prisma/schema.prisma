@@ -401,6 +401,8 @@ model User {
   sellerConvos        Conversation[]       @relation("SellerConversations")
   messages            Message[]
   reviewsAuthored     Review[]             @relation("ReviewAuthor")
+  /// 7b — las valoraciones que este miembro del staff ha retirado.
+  reviewsRetired      Review[]             @relation("ReviewRetiredBy")
   reviewsReceived     Review[]             @relation("ReviewTarget")
   dealsAsSeller       Deal[]               @relation("DealSeller")
   dealsAsBuyer        Deal[]               @relation("DealBuyer")
@@ -1103,6 +1105,41 @@ model Review {
   /// (bajo el gate viejo de Conversation) cuentan como contaban, sin backfill.
   verified Boolean @default(true)
 
+  /// 7b — RETIRADA POR EL EQUIPO. `null` = vigente.
+  ///
+  /// RETIRADA LÓGICA Y NO BORRADO, y no es una preferencia de estilo: hasta 7b existía
+  /// `DELETE /moderation/reviews/:id`, que borraba la fila **físicamente**. Como
+  /// `Report.reviewId` es `Cascade` (ver ese modelo), cada uso destruía **la propia
+  /// denuncia que había motivado la retirada** — y el flujo de la cola de denuncias, que
+  /// borra y acto seguido resuelve el reporte, acababa con un 404 sobre un reporte que ya
+  /// no existía. B1 dejó anotado ese defecto como «riesgo 5, fuera de alcance porque va de
+  /// reseñas»: 7b es «va de reseñas».
+  ///
+  /// Con la fila viva, el `Cascade` no se dispara nunca y la denuncia sobrevive. **Queda
+  /// NEUTRALIZADO, no resuelto:** si algún día hace falta supresión real (RGPD), hay que
+  /// pasar `Report.reviewId` a `SetNull` ANTES.
+  ///
+  /// Molde: `Entitlement.revokedAt` — el registro sobrevive y deja de contar. Y
+  /// `ContactReason.activo`, que lo dice con palabras: «no hay endpoint DELETE; se
+  /// desactiva».
+  ///
+  /// QUÉ IMPLICA ESTAR RETIRADA: no se ve en el perfil público y NO cuenta para la media
+  /// (`average`, `count`, `distribution` ni `getRatingSummaries`). El STAFF sí la ve,
+  /// marcada, para poder restaurarla — retirar es reversible, y por eso es MODERATOR y no
+  /// ADMIN (criterio B2: ADMIN sólo para lo irreversible).
+  ///
+  /// Y SIGUE OCUPANDO su `@@unique([authorId, targetId, listingId])`, a propósito: su
+  /// autor no puede escribir otra sobre el mismo anuncio. Retirar es «esto no debió
+  /// publicarse»; dejar reescribirla invitaría a repetirla.
+  retiredAt     DateTime?
+  /// Quién la retiró. SetNull: que se borre la cuenta del moderador no puede resucitar
+  /// una valoración retirada (molde `Report.resolvedById`).
+  retiredById   String?
+  retiredBy     User?     @relation("ReviewRetiredBy", fields: [retiredById], references: [id], onDelete: SetNull)
+  /// Por qué. Obligatorio en el DTO — molde del `reason` de P3a: sin él, una retirada
+  /// sería indistinguible de otra y no habría cómo revisarla.
+  retiredReason String?   @db.Text
+
   reports Report[]
   tickets Ticket[]
 
@@ -1114,6 +1151,9 @@ model Review {
   // review. Ver ReviewsService.getEligibility/create.
   @@unique([authorId, targetId, listingId])
   @@index([targetId])
+  /// 7b — molde `Entitlement.@@index([revokedAt])`: los SIETE lectores públicos filtran
+  /// por `retiredAt: null`, y una retirada es rara por construcción.
+  @@index([retiredAt])
   @@index([listingId])
 }
 

@@ -13,6 +13,8 @@
  *     CI. Ver el comentario de `20260822090000_indice_ultima_conexion/migration.sql`.
  */
 
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { INestApplication } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
@@ -221,5 +223,39 @@ describe('Última IP 5b — orden, filtros e índice (e2e)', () => {
     const texto = plan.map((f) => f['QUERY PLAN']).join('\n');
     expect(texto).toContain('User_lastLoginAt_desc_nulls_last_idx');
     expect(texto).not.toContain('Sort');
+  });
+
+  /**
+   * LA BARRERA QUE FALTABA, y se paga con el defecto que la trajo.
+   *
+   * Las dos de arriba miran la BASE DE DATOS, y en una base de test que ya tiene el índice
+   * aplicado pasan aunque una migración nueva lleve escrito el `DROP`. Es exactamente lo que
+   * ocurrió en 7b: `prisma migrate dev` metió `DROP INDEX "User_lastLoginAt_desc_nulls_last_idx"`
+   * en `20260822000838_retirada_valoraciones`, y ninguna de las dos lo vio —el índice se
+   * había perdido en local y sólo reventó en CI, sobre una base limpia, con un P3018: esa
+   * migración ordena ANTES que la que crea el índice, así que tiraba algo que aún no existía.
+   *
+   * Ésta mira los FICHEROS, que es donde vive el defecto. El aviso ya estaba escrito en la
+   * migración de 5b; un comentario no frena a nadie que no lo esté leyendo, y quien genera
+   * una migración está mirando otro fichero.
+   */
+  it('LA BARRERA DE ORIGEN: ninguna migración BORRA el índice de la última conexión', () => {
+    const dir = join(__dirname, '..', 'prisma', 'migrations');
+    const nombres = readdirSync(dir).filter((n) => statSync(join(dir, n)).isDirectory());
+    // Red del propio test: si el glob deja de encontrar migraciones, esto no puede pasar
+    // en verde afirmando que ha revisado sesenta y tantas.
+    expect(nombres.length).toBeGreaterThan(50);
+
+    const culpables = nombres.filter((n) => {
+      const sql = readFileSync(join(dir, n, 'migration.sql'), 'utf8');
+      // Se descartan las líneas comentadas: la migración de 7b conserva el `DROP` citado
+      // dentro de un comentario, precisamente para explicar por qué no debe estar ahí.
+      return sql
+        .split('\n')
+        .filter((l) => !l.trimStart().startsWith('--'))
+        .some((l) => l.includes('DROP INDEX') && l.includes('User_lastLoginAt_desc_nulls_last_idx'));
+    });
+
+    expect(culpables).toEqual([]);
   });
 });

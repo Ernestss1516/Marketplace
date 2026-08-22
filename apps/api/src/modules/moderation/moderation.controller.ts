@@ -21,6 +21,7 @@ import { ModerationService } from './moderation.service';
 import { CreateReportDto } from './dto/create-report.dto';
 import { ListReportsQueryDto } from './dto/list-reports-query.dto';
 import { ModerationActionDto } from './dto/moderation-action.dto';
+import { ModerateReviewDto, RetireReviewDto } from './dto/retire-review.dto';
 
 @ApiTags('Moderation')
 @ApiBearerAuth('access-token')
@@ -134,13 +135,48 @@ export class ModerationController {
 
   // ─── Review moderation actions ─────────────────────────────────────────────
 
-  @Delete('reviews/:id')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  deleteReview(
+  /**
+   * 7b — RETIRAR. Sustituye a `DELETE reviews/:id`, que BORRABA la fila.
+   *
+   * La ruta vieja se ha eliminado, no dejado al lado: mientras existiera, el riesgo
+   * seguiría vivo y habría dos vías para lo mismo. Su borrado físico destruía por
+   * `Cascade` la denuncia que motivaba la retirada, y el flujo de la cola de denuncias
+   * acababa con un 404 sobre un reporte que él mismo acababa de destruir.
+   */
+  @Post('reviews/:id/retire')
+  @HttpCode(HttpStatus.OK)
+  retireReview(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtUser,
+    @Body() dto: RetireReviewDto,
+    @Ip() ip: string,
+  ) {
+    return this.moderationService.retireReview(id, user.userId, dto.reason, ip);
+  }
+
+  @Post('reviews/:id/restore')
+  @HttpCode(HttpStatus.OK)
+  restoreReview(
     @Param('id') id: string,
     @CurrentUser() user: JwtUser,
     @Ip() ip: string,
   ) {
-    return this.moderationService.deleteReview(id, user.userId, ip);
+    return this.moderationService.restoreReview(id, user.userId, ip);
+  }
+
+  @Patch('reviews/:id')
+  @HttpCode(HttpStatus.OK)
+  moderateReview(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtUser,
+    @Body() dto: ModerateReviewDto,
+    @Ip() ip: string,
+  ) {
+    return this.moderationService.editReview(
+      id,
+      user.userId,
+      { rating: dto.rating, comment: dto.comment, reason: dto.reason },
+      ip,
+    );
   }
 }
