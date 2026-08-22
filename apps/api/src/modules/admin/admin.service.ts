@@ -71,6 +71,7 @@ import {
   parseDetectionModes,
   type DetectorId,
 } from '../moderation/detection/detection.types';
+import { normalizarTelefono } from '../moderation/detection/phone-format';
 import { ListingGateService } from '../listing-gate/listing-gate.service';
 // FICHA DE USUARIO U3 — el dueño único de «¿es Pro?».
 import { ProStatusService } from '../listing-gate/pro-status.service';
@@ -112,6 +113,13 @@ const cacheKey = (slug: string) => `listing:${slug}`;
 
 // Mirrors the constant in SearchService — must stay in sync with MEILI_INDEX_NAME env.
 const LISTINGS_INDEX = process.env.MEILI_INDEX_NAME ?? 'listings';
+
+/**
+ * Un valor que `normalizarTelefono` NO PUEDE devolver nunca: su salida es siempre nueve
+ * dígitos o `null`. Sirve para que buscar algo que no es un teléfono devuelva vacío en vez
+ * de colarse como `phoneNormalized: null`, que preguntaría lo contrario.
+ */
+const TELEFONO_IMPOSIBLE = 'no-es-un-telefono';
 
 // Keys the admin is allowed to update via PATCH /admin/settings/:key.
 const SETTING_KEYS = [
@@ -433,6 +441,9 @@ export class AdminService {
       needsRevalidation,
       hasDetections,
       detector,
+      phone,
+      province,
+      city,
       triage,
       watched,
       ip,
@@ -501,6 +512,27 @@ export class AdminService {
       }),
       // ÚLTIMA IP (5b) — la línea que F2 prometió. Exacta, no `contains`.
       ...(ip && { lastOwnerIp: ip }),
+      // EL TELÉFONO — contra la columna CANÓNICA, con la entrada del moderador normalizada
+      // por la misma función. Es lo que hace que `654 123 456` encuentre un anuncio guardado
+      // como `+34654123456`.
+      //
+      // SI LO QUE ESCRIBE NO ES UN TELÉFONO ESPAÑOL, `normalizarTelefono` devuelve `null`, y
+      // filtrar por `phoneNormalized: null` significaría «los anuncios SIN teléfono válido»
+      // — la pregunta CONTRARIA a la que se hizo, y respondida con una lista larga que
+      // parece un acierto. Se usa un valor imposible para que la respuesta sea VACÍO, que es
+      // lo correcto para «enséñame los que tienen ESE teléfono» cuando eso no es un teléfono.
+      ...(phone?.trim() && {
+        phoneNormalized: normalizarTelefono(phone) ?? TELEFONO_IMPOSIBLE,
+      }),
+      // PROVINCIA Y MUNICIPIO — parámetros propios, nunca dentro de `q`: «de Toledo» y
+      // «menciona Toledo» son preguntas distintas (ver el DTO). `contains` insensible
+      // porque son texto libre del vendedor.
+      ...(province?.trim() && {
+        province: { contains: province.trim(), mode: 'insensitive' as const },
+      }),
+      ...(city?.trim() && {
+        city: { contains: city.trim(), mode: 'insensitive' as const },
+      }),
       // ETIQUETA INTERNA (P1, E2) — los dos ejes del triaje, cada uno por su
       // cuenta y combinables con todo lo demás. Son literalmente las dos líneas
       // que F2 prometió que costaría añadir un eje nuevo.

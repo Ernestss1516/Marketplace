@@ -242,6 +242,20 @@ export interface AdminListingsFilters {
   /** ÚLTIMA IP (5b) — la IP desde la que su DUEÑO lo gestionó por última vez. Cruza con
    *  el filtro por IP de usuarios: «qué anuncios se han tocado desde aquí». */
   ip?: string;
+  /**
+   * El TELÉFONO publicado del anuncio, buscado en CUALQUIER formato: se compara la forma
+   * canónica de los dos lados, así que «654 123 456» encuentra al que lo guardó como
+   * «+34654123456». Parámetro propio y no dentro del buscador de texto, por lo mismo que la
+   * IP: un identificador se busca entero o no se busca.
+   */
+  phone?: string;
+  /**
+   * PROVINCIA y MUNICIPIO. Parámetros propios: «anuncios DE Toledo» y «anuncios que
+   * MENCIONAN Toledo» son preguntas distintas, y meterlos en el buscador de texto las
+   * mezclaría sin dejar pedir sólo una.
+   */
+  province?: string;
+  city?: string;
   createdFrom?: string;
   createdTo?: string;
   updatedFrom?: string;
@@ -272,6 +286,9 @@ export function getAdminListings(
   }
   if (params?.detector) qs.set('detector', params.detector);
   if (params?.ip) qs.set('ip', params.ip);
+  if (params?.phone) qs.set('phone', params.phone);
+  if (params?.province) qs.set('province', params.province);
+  if (params?.city) qs.set('city', params.city);
   if (params?.createdFrom) qs.set('createdFrom', params.createdFrom);
   if (params?.createdTo) qs.set('createdTo', params.createdTo);
   if (params?.updatedFrom) qs.set('updatedFrom', params.updatedFrom);

@@ -43,6 +43,55 @@ const ESTADOS = [
   'ARCHIVED',
 ];
 
+/**
+ * Un campo de texto que sólo filtra al CONFIRMAR (Intro o al salir del campo).
+ *
+ * Molde del buscador de texto de arriba, y por su mismo motivo: un filtro por cada tecla
+ * dispararía una consulta por letra contra Postgres. Se extrae porque son tres campos con
+ * exactamente el mismo comportamiento, y tenerlo tres veces es como acaban divergiendo.
+ */
+function CampoAlConfirmar({
+  id,
+  etiqueta,
+  placeholder,
+  valor,
+  onConfirmar,
+  ayuda,
+}: {
+  id: string;
+  etiqueta: string;
+  placeholder: string;
+  valor: string;
+  onConfirmar: (valor: string) => void;
+  ayuda?: string;
+}) {
+  const [texto, setTexto] = useState(valor);
+  // Se resincroniza cuando el filtro cambia desde fuera —«Limpiar», o una URL compartida—:
+  // sin esto el campo se quedaría con lo que había escrito y mentiría sobre lo que filtra.
+  useEffect(() => setTexto(valor), [valor]);
+
+  return (
+    <div>
+      <label htmlFor={id} className="mb-1 block text-xs text-muted-foreground">
+        {etiqueta}
+      </label>
+      <input
+        id={id}
+        value={texto}
+        placeholder={placeholder}
+        title={ayuda}
+        onChange={(e) => setTexto(e.target.value)}
+        onBlur={() => texto !== valor && onConfirmar(texto.trim())}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') onConfirmar(texto.trim());
+        }}
+        className="h-9 w-[10rem] rounded-md border bg-background px-2 text-sm"
+        data-testid={id}
+      />
+    </div>
+  );
+}
+
 /** Aplana el árbol a opciones con sangría, para poder elegir CUALQUIER nivel. */
 function opcionesDeCategoria(
   categorias: AdminCategory[],
@@ -226,6 +275,40 @@ export function FiltrosAnuncios({
             ))}
           </select>
         </div>
+
+        {/* TELÉFONO, PROVINCIA Y MUNICIPIO — tres campos SUELTOS, no dentro del buscador
+            de texto de arriba, y es una decisión:
+
+              · «anuncios DE Toledo» y «anuncios que MENCIONAN Toledo» son preguntas
+                distintas. Con la provincia dentro del buscador no habría forma de pedir
+                sólo una de las dos.
+              · el teléfono es un identificador: se busca ENTERO. Es el mismo criterio que
+                mantiene la última IP fuera del buscador desde 5b.
+
+            Se escriben en local y se mandan al confirmar, molde del buscador de texto: un
+            filtro por cada tecla dispararía una consulta por letra contra Postgres. */}
+        <CampoAlConfirmar
+          id="filtro-telefono"
+          etiqueta="Teléfono"
+          placeholder="654 123 456"
+          valor={filtros.phone ?? ''}
+          onConfirmar={(v) => onCambiar({ phone: v || undefined })}
+          ayuda="En cualquier formato: con espacios, guiones o +34."
+        />
+        <CampoAlConfirmar
+          id="filtro-provincia"
+          etiqueta="Provincia"
+          placeholder="Toledo"
+          valor={filtros.province ?? ''}
+          onConfirmar={(v) => onCambiar({ province: v || undefined })}
+        />
+        <CampoAlConfirmar
+          id="filtro-municipio"
+          etiqueta="Municipio"
+          placeholder="Illescas"
+          valor={filtros.city ?? ''}
+          onConfirmar={(v) => onCambiar({ city: v || undefined })}
+        />
 
         <div>
           <label htmlFor="filtro-creado-desde" className="mb-1 block text-xs text-muted-foreground">

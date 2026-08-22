@@ -67,6 +67,12 @@ export function leerFiltros(params: URLSearchParams): AdminListingsFilters {
     // es lo que F2 prometió, y van tres ejes seguidos sin que la forma cambie.
     hasDetections: leerBooleano(params.get('hasDetections')),
     detector: leerDetector(params.get('detector')),
+    // Teléfono, provincia y municipio: tres ejes más con la misma forma. Van SUELTOS y no
+    // dentro de `q` — «de Toledo» y «menciona Toledo» son preguntas distintas, y un
+    // identificador como el teléfono se busca entero (igual que la IP).
+    phone: params.get('phone') || undefined,
+    province: params.get('province') || undefined,
+    city: params.get('city') || undefined,
     createdFrom: params.get('createdFrom') || undefined,
     createdTo: params.get('createdTo') || undefined,
     order:
@@ -129,6 +135,9 @@ export function aQueryString(filtros: AdminListingsFilters): string {
     qs.set('hasDetections', String(filtros.hasDetections));
   }
   if (filtros.detector) qs.set('detector', filtros.detector);
+  if (filtros.phone?.trim()) qs.set('phone', filtros.phone.trim());
+  if (filtros.province?.trim()) qs.set('province', filtros.province.trim());
+  if (filtros.city?.trim()) qs.set('city', filtros.city.trim());
   if (filtros.createdFrom) qs.set('createdFrom', filtros.createdFrom);
   if (filtros.createdTo) qs.set('createdTo', filtros.createdTo);
   if (filtros.order && filtros.order !== ORDEN_POR_DEFECTO) qs.set('order', filtros.order);
@@ -153,6 +162,9 @@ export function hayFiltros(filtros: AdminListingsFilters): boolean {
       filtros.watched !== undefined ||
       filtros.hasDetections !== undefined ||
       filtros.detector ||
+      filtros.phone?.trim() ||
+      filtros.province?.trim() ||
+      filtros.city?.trim() ||
       filtros.createdFrom ||
       filtros.createdTo,
   );

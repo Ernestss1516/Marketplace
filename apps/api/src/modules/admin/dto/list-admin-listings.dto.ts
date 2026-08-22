@@ -181,6 +181,43 @@ export class ListAdminListingsDto {
   @IsString()
   ip?: string;
 
+  /**
+   * EL TELÉFONO PUBLICADO del anuncio (`Listing.phone`), buscado **en cualquier formato**.
+   *
+   * Se compara contra `phoneNormalized`, la forma canónica, después de normalizar también lo
+   * que escribe el moderador. Así `654 123 456` en el buscador encuentra el anuncio que lo
+   * guardó como `+34654123456`, que es la única forma de que esto sirva para algo: ni el
+   * vendedor ni el moderador tienen por qué teclearlo igual.
+   *
+   * NO va dentro del `OR` de `q`, y no es una preferencia: `q` es `contains` sobre texto, y
+   * un teléfono buscado con `contains` casaría trozos de otros números. Es el mismo criterio
+   * que mantiene la IP fuera de `q` — un identificador se busca entero o no se busca.
+   */
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  /**
+   * PROVINCIA y MUNICIPIO del anuncio (`Listing.province` / `Listing.city`).
+   *
+   * PARÁMETROS PROPIOS Y NO DENTRO DE `q`, y es la decisión de este bloque: «anuncios **DE**
+   * Toledo» y «anuncios que **MENCIONAN** Toledo» son preguntas distintas. Metiendo `city` en
+   * el buscador de texto, buscar una palabra que además es un topónimo devolvería un
+   * revoltijo de las dos y no habría forma de pedir sólo una.
+   *
+   * `contains` insensible y no igualdad exacta: los dos campos son **texto libre que teclea
+   * el vendedor**, así que exacto fallaría con cualquier variante. Y parcial es además más
+   * útil — «Alcalá» trae Alcalá de Henares y Alcalá de Guadaíra, que es lo que quiere quien
+   * lo escribe.
+   */
+  @IsOptional()
+  @IsString()
+  province?: string;
+
+  @IsOptional()
+  @IsString()
+  city?: string;
+
   // Rangos de fecha. Molde de nombres: `ListAdminTransactionsDto.dateFrom/dateTo`.
   @IsOptional()
   @IsISO8601()
