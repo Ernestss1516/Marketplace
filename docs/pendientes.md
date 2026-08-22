@@ -56,6 +56,15 @@ Es el pendiente más antiguo del proyecto y el único que bloquea a varios de lo
 5. **Workflow de despliegue** en GitHub Actions, encadenado al `ci.yml` que ya existe y funciona.
 6. **Semilla y reindexado inicial.** Tras el primer despliegue: `seed` (árbol de categorías,
    admin, settings) y `pnpm --filter @marketplace/api reindex` para poblar Meilisearch.
+7. **Las dos reglas de ciclo de vida del bucket** (huérfanas H2 — ver
+   [`diseno-huerfanas-sin-fila.md`](./diseno-huerfanas-sin-fila.md) §9.5): caducar a **1 día**
+   lo que quede bajo `listing-videos/tmp/` y bajo `avatars/tmp/`. Es lo que recoge las subidas
+   que nunca llegaron a confirmarse —un vídeo abandonado pesa hasta 50 MB—, y es **seguro por
+   construcción**: bajo `tmp/` no vive nada confirmado, porque confirmar copia el objeto fuera.
+   Un día es el suelo (la expiración se expresa en días enteros) y sobra: la URL prefirmada dura
+   10 minutos. **No se puede probar en CI** —una caducidad se mide en días—, así que depende de
+   que se aplique aquí; hasta entonces la basura se acumula confinada a esos dos prefijos, que
+   se pueden vaciar a mano sin riesgo.
 
 **Consecuencia de no tenerlo:** hay comportamiento que solo se puede validar en un entorno real y
 que hoy está sin validar — §4 (preparación de producción), §6 (rate limit por IP) y la
@@ -235,10 +244,13 @@ Lo que **sigue abierto**, y son dos problemas distintos que esta entrada mezclab
     entero (`ownUrlsDeep`/`releasedUrls` en `media-keys.ts`) → comprobación de que no queda otro
     dueño → cola `media-cleanup` de B3. Tres de las cinco fugas, sin tocar infraestructura.
     Barreras en `apps/api/test/huerfanas-h1.e2e-spec.ts`.
-  - **H2 «lo que nunca se confirma» — ABIERTA:** el vídeo sin confirmar y el avatar subido y
-    nunca guardado. Necesitan prefijo efímero (`tmp/`), copia al confirmar y una regla de
-    caducidad en el bucket — que es **configuración**, y entra con la preparación de producción
-    (§1).
+  - **H2 «lo que nunca se confirma» — DISEÑADA (2026-08-23, §9 del diseño), sin implementar:**
+    el vídeo sin confirmar y el avatar subido y nunca guardado. Prefijo efímero **arriba**
+    (`listing-videos/tmp/<listingId>/…`, `avatars/tmp/<userId>/…` — los filtros de ciclo de vida
+    son prefijos literales, sin comodines), copia al confirmar y `R2Service.copy`, que hoy no
+    existe. La **regla de caducidad es configuración del bucket**, no código: entra en §1 abajo,
+    y hasta que se aplique la basura se acumula igual pero **confinada** a dos prefijos donde
+    nada vivo puede estar.
 
 **Por qué no se barre ahora:** no hay basura de producción que recoger (no hay producción), el
 riesgo de falso positivo está demostrado y es irreversible, y las clases que un barrido sí

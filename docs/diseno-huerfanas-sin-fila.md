@@ -205,6 +205,10 @@ días**. Tal cual, no vale.
    URL prefirmada dura 10 minutos, `VIDEO_UPLOAD_URL_TTL_SECONDS`). El almacenamiento lo hace
    solo, sin código y sin cola.
 
+> **Corregido en §9.2**: el `tmp/` va **arriba** (`listing-videos/tmp/<listingId>/…`), no en
+> medio. Los filtros de una regla de ciclo de vida son prefijos literales, sin comodines, y
+> con el `tmp/` detrás del `listingId` no hay prefijo que los capture. Lo demás se mantiene.
+
 Por qué `tmp/` **dentro** del prefijo y no un prefijo hermano: los vídeos **ya confirmados**
 siguen donde están, así que la regla nace sin poder tocarlos y **no hace falta migración
 ninguna** de las filas existentes. Ese es todo el motivo, y es el que descarta la variante de
@@ -280,7 +284,8 @@ externa, molde Google) **no** se encola nunca; y una URL que sigue referenciada 
 documento** no se encola. Mutación que las mata: quitar el diff y encolar todas las URLs del
 «antes» — la barrera de «no la nueva» cae.
 
-**H2 — lo que nunca se confirma** (vídeo; y el avatar 1b encima del mismo patrón). Prefijo
+**H2 — lo que nunca se confirma** (vídeo; y el avatar 1b encima del mismo patrón) — **detalle
+completo en §9**, escrito aparte cuando llegó su turno. Prefijo
 `tmp/`, copia al confirmar, borrado del temporal, y la regla de ciclo de vida documentada en la
 preparación de producción.
 
@@ -321,3 +326,174 @@ Con H1 y H2 aplicadas, las cinco fuentes sin fila quedan cerradas y la basura si
 crecer**. Lo que quede en el bucket pasa a ser un conjunto **finito y anterior a una fecha
 conocida** — y ése es el estado en el que, si algún día se quiere recoger, el barrido deja de
 ser una apuesta. Con las salvaguardas de §7.7 igualmente, que no dejan de hacer falta.
+
+---
+
+## 9. H2 al detalle — «lo que nunca se confirma»
+
+> Escrito el 2026-08-23, con H1 ya en `main`. Diseño; cero código. Cierra las **dos fugas que
+> quedan**: el vídeo subido y nunca confirmado y el avatar subido y nunca guardado. Las dos
+> tienen la misma forma —un objeto que espera una confirmación que puede no llegar—, así que
+> comparten mecanismo. Todo lo de aquí está verificado contra el código.
+
+### 9.1 La doble naturaleza, y por qué hay que separarla
+
+H2 no cabe entero en una ráfaga de código, y conviene decirlo antes que nada:
+
+| | **CÓDIGO** — entra en la ráfaga, se prueba en CI | **INFRAESTRUCTURA** — se documenta, no se prueba |
+|---|---|---|
+| Qué | Firmar/subir bajo `tmp/`, **copiar fuera** al confirmar, y que la fila guarde la URL definitiva | La regla de ciclo de vida que caduca lo que se quedó en `tmp/` |
+| Dónde vive | `VideoService`, `MediaService`, `UsersService`, `R2Service` | Configuración del bucket (R2 en producción) |
+| Cómo se verifica | Barreras e2e reales contra MinIO — `video-infra.e2e-spec.ts` ya sube de verdad y usa `r2.head` | No se verifica en CI: **una caducidad se mide en días** y ninguna suite espera un día |
+
+**La ráfaga de código deja la regla LISTA, no aplicada.** Con `tmp/` en su sitio, lo no
+confirmado queda **confinado e identificable**; la recolección ocurre el día que el bucket
+tenga la regla. Hasta entonces la basura sigue apareciendo — pero ya no mezclada con lo vivo,
+que es la diferencia entre «hay que pensarlo» y «hay que borrar ese prefijo».
+
+### 9.2 La trampa, y la restricción que decide la forma de la clave
+
+**Verificado:** confirmar **no mueve el objeto**. La clave se genera al firmar
+([`video.service.ts:99`](../apps/api/src/modules/video/video.service.ts#L99)) y
+`confirmUpload` sólo escribe la URL en la fila
+([`video.service.ts:154-177`](../apps/api/src/modules/video/video.service.ts#L154-L177)). El
+vídeo vivo y el abandonado comparten prefijo, son indistinguibles, y una regla sobre
+`listing-videos/` borraría los vivos. De ahí que haya que **copiar** al confirmar: no existe
+un «renombrar» en almacenamiento de objetos.
+
+**Y hay una segunda restricción, que corrige la forma que este documento insinuaba en §4.2:**
+los filtros de una regla de ciclo de vida son **prefijos literales, sin comodines**. Con la
+clave puesta como `listing-videos/<listingId>/tmp/<uuid>.mp4`, el `tmp/` queda **en medio** y
+no hay prefijo que lo capture — habría que escribir una regla por anuncio. El `tmp/` tiene que
+ir **arriba**:
+
+```
+  Al firmar   listing-videos/tmp/<listingId>/<uuid>.mp4     ← lo cubre la regla
+  Al confirmar listing-videos/<listingId>/<uuid>.mp4        ← donde ya viven los confirmados
+  Avatar       avatars/tmp/<userId>/<hex><ext>  →  avatars/<hex><ext>
+```
+
+Que el destino sea **el prefijo de siempre** es lo que evita migrar nada: los vídeos y avatares
+ya confirmados están fuera de `tmp/` desde el primer día, así que la regla nace sin poder
+tocarlos.
+
+### 9.3 Bloque 1 — el vídeo
+
+Lo que cambia, en el servicio que ya existe:
+
+1. `createUploadUrl` firma contra `listing-videos/tmp/<listingId>/<uuid>.mp4`.
+2. La comprobación de pertenencia de `confirmUpload`
+   ([`video.service.ts:133`](../apps/api/src/modules/video/video.service.ts#L133)) pasa a
+   exigir ese prefijo — **se mueve, no se quita**: es lo que impide confirmar en tu anuncio la
+   subida de otro.
+3. Confirmar, en este orden: `head` de lo subido (lo que ya hace) → **copiar** a la clave
+   definitiva → escribir la fila con la URL definitiva → **borrar el temporal**.
+
+Tres detalles que el orden obliga a decidir:
+
+- **El borrado del temporal es de cortesía.** Si falla, la regla lo caduca igual. Criterio de
+  `deleteObjectByUrl`: «no dejar limpiar no debe romper nada».
+- **Si la escritura de la fila falla después de copiar**, queda un objeto en el prefijo
+  definitivo que nadie referencia — y ése **no** lo cubre la regla. Hay que compensarlo:
+  borrar la copia y propagar el error. Es el único fallo nuevo que introduce la copia, y por
+  eso se escribe aquí en vez de descubrirse luego.
+- **Confirmar dos veces** (doble clic, reintento de red) encontraría el temporal ya borrado y
+  hoy respondería «No encontramos el vídeo subido». Con la copia, la respuesta correcta es
+  mirar el destino: si ya existe, la confirmación **ya ocurrió** y se responde como tal.
+
+**Coste:** una `CopyObject` de hasta 50 MB por vídeo confirmado, **del lado del
+almacenamiento** — los bytes no pasan por la API, igual que no pasan al subir. Es una vez por
+vídeo, no por reproducción.
+
+**Lo que NO cambia:** sustituir y quitar el vídeo siguen borrando el anterior, y B3 sigue
+llevándose vídeo y póster al borrar el anuncio. El cliente tampoco se entera: `StepVideo`
+devuelve al confirmar **la misma `key` que el servidor le dio**
+([`StepVideo.tsx:121-138`](../apps/web/src/components/publicar/steps/StepVideo.tsx#L121-L138)),
+así que el cambio de prefijo es transparente. Y `remotePatterns` de Next filtra por **host**,
+no por ruta.
+
+### 9.4 Bloque 2 — el avatar 1b
+
+Aquí no hay firma: sube la propia API
+([`uploadAvatar`](../apps/api/src/modules/media/media.service.ts#L47) con `memoryStorage`), y
+la confirmación es **guardar el perfil**. El resto es idéntico:
+
+1. `uploadAvatar` sube a `avatars/tmp/<userId>/<hex><ext>`. Necesita el usuario, que **ya lo
+   recibe y hoy ignora** (el parámetro está como `_user` en
+   [`media.controller.ts:66`](../apps/api/src/modules/media/media.controller.ts#L66)).
+2. `updateMe`, si el `avatarUrl` que llega es nuestro y está bajo `avatars/tmp/`: copiar al
+   definitivo, guardar **la URL definitiva**, borrar el temporal.
+3. Y el `<userId>` de la clave no es decorativo: es lo que permite rechazar la URL temporal
+   **de otro usuario**, igual que el vídeo rechaza la clave de otro anuncio. Hoy no hay nada
+   que lo impida, porque `UpdateMeDto.avatarUrl` es un `@IsString()` pelado.
+
+**Coherencia con H1 (1a), comprobada:** son mecanismos disjuntos y en el orden correcto no se
+pisan. H1 compara el avatar **anterior** con el **nuevo ya definitivo** y encola el viejo; una
+URL temporal nunca llega a guardarse, así que nunca entra en ese diff. Y el `count` de dueños
+de H1 sigue protegiendo al avatar compartido: la copia crea una clave nueva por guardado, así
+que dos usuarios sólo comparten avatar si alguien pega la URL del otro a mano — que es
+exactamente el caso que H1 ya cubre.
+
+*(Se evaluó una alternativa más simple para el avatar: que el perfil suba el fichero al
+guardar y desaparezca el endpoint intermedio. Cierra la fuga de raíz, pero cambia el contrato
+del formulario —hoy sube al elegir la foto, para poder previsualizarla— por una fuga que el
+mismo mecanismo del vídeo ya cierra. Descartada.)*
+
+### 9.5 Bloque 3 — la regla, y qué pasa hasta que exista
+
+- **Dos reglas, una por prefijo**: `listing-videos/tmp/` y `avatars/tmp/`. Caducar a **1 día**
+  — la expiración de una regla de ciclo de vida se expresa en **días enteros**, así que un día
+  es el suelo, y sobra: la URL prefirmada dura 10 minutos
+  ([`VIDEO_UPLOAD_URL_TTL_SECONDS`](../apps/api/src/modules/video/video-limits.ts#L47)) y una
+  subida legítima confirma en segundos.
+- **Dónde se documenta**: [`pendientes.md`](./pendientes.md) §1, «Preparación de producción»,
+  con el resto de la configuración de R2. Conviene confirmar la superficie exacta (panel o
+  API) al aplicarla; lo que este diseño fija es **qué** debe caducar y **por qué es seguro**:
+  bajo `tmp/` no vive nada confirmado, por construcción.
+- **Mientras no exista**, la basura se acumula igual pero **confinada**: dos prefijos donde
+  nada de lo vivo puede estar, así que vaciarlos a mano es una operación trivial y segura —
+  justo lo contrario del barrido que §7 descartó, que necesitaba adivinar de quién era cada
+  objeto.
+- **En local no se pone nada**: el bucket de desarrollo es desechable (§7.7, punto 2).
+
+### 9.6 Lo que hay que añadir, y las barreras
+
+**Lo único que falta en la infraestructura del repo:** `R2Service` **no sabe copiar**
+—verificado: tiene `upload`, `download`, `delete`, `head`, `getPublicUrl` y `presignUpload`—,
+así que la ráfaga añade un `copy(origen, destino)` sobre `CopyObjectCommand`, en el mismo
+sitio y con el mismo estilo que el resto.
+
+**Barreras testeables** (molde `video-infra.e2e-spec.ts`, que ya sube de verdad contra MinIO y
+comprueba con `r2.head`):
+
+- Firmar deja la clave **dentro** de `tmp/`; confirmar deja el objeto **fuera** de `tmp/`
+  (`head(definitivo)` existe) y el temporal **ya no está** (`head(tmp)` es `null`).
+- La fila guarda una URL **sin `tmp/`** — que es la condición que hace segura la regla: si
+  esto se rompiera, la regla borraría vídeos vivos.
+- Confirmar la clave temporal **de otro anuncio** (o el avatar temporal de otro usuario) se
+  rechaza.
+- Confirmar dos veces no rompe: la segunda responde como confirmación ya hecha.
+- Y lo de H1 sigue en pie: sustituir el avatar encola el viejo, sustituir el vídeo borra el
+  anterior.
+
+**La barrera que no se puede escribir**: que un objeto abandonado en `tmp/` desaparezca solo.
+Depende de una regla configurada en el bucket y se mide en días. Queda documentada, y la
+prueba de arriba —«lo confirmado no está en `tmp/`»— es la que hace que activarla sea seguro.
+
+### 9.7 El plan
+
+**Una ráfaga, no dos.** Vídeo y avatar comparten el mecanismo entero (prefijo temporal, copia
+al confirmar, compensación, idempotencia) y el `R2Service.copy` que hay que añadir; separarlos
+significaría escribir dos veces la misma discusión. La regla va **documentada en la misma
+ráfaga**, no aplicada.
+
+Con H1 (ya cerrada) y H2, **las cinco fugas sin fila quedan cerradas**: tres en código, y dos
+confinadas en `tmp/` a la espera de una regla que es una línea de configuración. Y entonces —y
+sólo entonces— lo que quede en el bucket es un conjunto finito y anterior a una fecha conocida.
+
+### 9.8 Lo que H2 sigue sin tocar
+
+El **póster** del vídeo: sube por `POST /media/upload`, así que **tiene fila** (`ListingImage`
+con `listingId = null`). Es basura con fila, la clase que §0 deja fuera a propósito. Sigue
+anotado en §7 y no entra aquí.
+
