@@ -7,6 +7,8 @@ import {
   type Detector,
   type DetectorId,
 } from './detection.types';
+import { IpDetector } from './detectors/ip.detector';
+import { PhoneDetector } from './detectors/phone.detector';
 import { WordDetector } from './detectors/word.detector';
 
 /**
@@ -62,10 +64,16 @@ export class DetectionEngine {
   private readonly logger = new Logger(DetectionEngine.name);
   private readonly detectors: readonly Detector[];
 
-  constructor(wordDetector: WordDetector) {
-    // Ráfaga A añade aquí `IpDetector` y `PhoneDetector`. Nada más cambia: el bucle de
-    // abajo ya los corre y el modo ya decide qué hacen.
-    this.detectors = [wordDetector];
+  constructor(
+    wordDetector: WordDetector,
+    ipDetector: IpDetector,
+    phoneDetector: PhoneDetector,
+  ) {
+    // RÁFAGA A — los dos detectores nuevos entran AQUÍ Y NADA MÁS. El bucle de abajo ya los
+    // corría y el modo ya decidía qué hacen; que añadirlos sea una línea es la prueba de
+    // que la ráfaga 0 dejó la forma bien. Nacen en `WARN` (ver `DEFAULT_DETECTION_MODES`),
+    // así que `blocking` no cambia de valor para ningún anuncio que ya existiera.
+    this.detectors = [wordDetector, ipDetector, phoneDetector];
   }
 
   /**

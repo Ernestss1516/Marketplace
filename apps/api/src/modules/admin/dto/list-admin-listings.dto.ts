@@ -8,7 +8,7 @@ import {
   Min,
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
-import { ListingStatus, ListingTriage } from '@prisma/client';
+import { DetectorId, ListingStatus, ListingTriage } from '@prisma/client';
 
 /**
  * FICHA F2 (P6) — LOS EJES CON LOS QUE EL BACKOFFICE ENCUENTRA UN ANUNCIO.
@@ -140,6 +140,33 @@ export class ListAdminListingsDto {
   @Transform(({ value }) => (value === undefined ? undefined : value === 'true' || value === true))
   @IsBoolean()
   needsRevalidation?: boolean;
+
+  /**
+   * PUNTO 6 · RÁFAGA A — «el motor encontró algo en el texto». Molde exacto de
+   * `hasReports`: tres posiciones, y `false` es la pregunta contraria, no «me da igual».
+   *
+   * ES EL EJE PROPIO DEL AVISO, independiente de `triage` y de `watched`. «Los revisados
+   * que además tienen avisos» se pide combinando los tres, igual que P1 previó.
+   *
+   * SIN ESTE FILTRO EL MODO AVISAR NO SIRVE PARA NADA: un aviso que sólo se ve abriendo
+   * fichas de una en una es un aviso que nadie lee. Es la mitad de por qué las detecciones
+   * se persisten en vez de derivarse al vuelo como la señal de F1.
+   */
+  @IsOptional()
+  @Transform(({ value }) => (value === undefined ? undefined : value === 'true' || value === true))
+  @IsBoolean()
+  hasDetections?: boolean;
+
+  /**
+   * PUNTO 6 · RÁFAGA A — «enséñame los anuncios donde disparó ESTE detector».
+   *
+   * Es lo que convierte la lista en el BANCO DE PRUEBAS: el staff filtra por `PHONE`, abre
+   * veinte anuncios y ve con sus ojos cuántos eran ruido antes de decidir si ese detector se
+   * ha ganado bloquear (ráfaga B). No hay forma honesta de sacar esa medida de un contador.
+   */
+  @IsOptional()
+  @IsEnum(DetectorId)
+  detector?: DetectorId;
 
   /**
    * ÚLTIMA IP (5b) — la IP desde la que su DUEÑO gestionó el anuncio por última vez

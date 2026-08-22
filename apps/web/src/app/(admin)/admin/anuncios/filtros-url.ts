@@ -62,6 +62,11 @@ export function leerFiltros(params: URLSearchParams): AdminListingsFilters {
     // ETIQUETA INTERNA (P1, E2) — el sexto eje, con la misma forma que los demás.
     triage: lista('triage'),
     watched: leerBooleano(params.get('watched')),
+    // PUNTO 6 · RÁFAGA A — el séptimo eje, con la misma forma que los demás. Que entre
+    // otra vez «con un campo en el DTO, una línea en el `where` y un par de claves aquí»
+    // es lo que F2 prometió, y van tres ejes seguidos sin que la forma cambie.
+    hasDetections: leerBooleano(params.get('hasDetections')),
+    detector: leerDetector(params.get('detector')),
     createdFrom: params.get('createdFrom') || undefined,
     createdTo: params.get('createdTo') || undefined,
     order:
@@ -81,6 +86,21 @@ function leerBooleano(valor: string | null): boolean | undefined {
   if (valor === 'true') return true;
   if (valor === 'false') return false;
   return undefined;
+}
+
+/**
+ * PUNTO 6 · RÁFAGA A — un detector desconocido se IGNORA, no rompe la pantalla.
+ *
+ * Mismo criterio que el resto del módulo («todo lo desconocido se ignora en silencio»): una
+ * URL compartida puede venir de una versión anterior, o de una posterior con un detector que
+ * aquí todavía no existe. Mandarlo tal cual al backend sería un 400 por un enlace pegado.
+ */
+const DETECTORES = new Set(['WORD', 'IP', 'PHONE']);
+
+function leerDetector(valor: string | null): AdminListingsFilters['detector'] {
+  return valor && DETECTORES.has(valor)
+    ? (valor as AdminListingsFilters['detector'])
+    : undefined;
 }
 
 function leerPagina(valor: string | null): number {
@@ -105,6 +125,10 @@ export function aQueryString(filtros: AdminListingsFilters): string {
   }
   if (filtros.triage?.length) qs.set('triage', filtros.triage.join(','));
   if (filtros.watched !== undefined) qs.set('watched', String(filtros.watched));
+  if (filtros.hasDetections !== undefined) {
+    qs.set('hasDetections', String(filtros.hasDetections));
+  }
+  if (filtros.detector) qs.set('detector', filtros.detector);
   if (filtros.createdFrom) qs.set('createdFrom', filtros.createdFrom);
   if (filtros.createdTo) qs.set('createdTo', filtros.createdTo);
   if (filtros.order && filtros.order !== ORDEN_POR_DEFECTO) qs.set('order', filtros.order);
@@ -127,6 +151,8 @@ export function hayFiltros(filtros: AdminListingsFilters): boolean {
       filtros.needsRevalidation !== undefined ||
       filtros.triage?.length ||
       filtros.watched !== undefined ||
+      filtros.hasDetections !== undefined ||
+      filtros.detector ||
       filtros.createdFrom ||
       filtros.createdTo,
   );

@@ -16,6 +16,9 @@ import { ModerationNotificationsService } from './moderation-notifications.servi
 // No se ha dejado una fachada con el nombre viejo al lado, porque dos nombres para lo
 // mismo es como acaban divergiendo (`listing-status.ts` lo documenta habiéndolo pagado).
 import { DetectionEngine } from './detection/detection.engine';
+import { ListingDetectionsService } from './detection/listing-detections.service';
+import { IpDetector } from './detection/detectors/ip.detector';
+import { PhoneDetector } from './detection/detectors/phone.detector';
 import { WordDetector } from './detection/detectors/word.detector';
 import { PreModerationService } from './pre-moderation.service';
 import { CategoryTreeModule } from '../categories/category-tree.module';
@@ -40,12 +43,24 @@ import { CategoryTreeModule } from '../categories/category-tree.module';
   providers: [
     ModerationService,
     ModerationNotificationsService,
-    // El detector se provee para que el motor lo reciba por DI; NO se exporta. Fuera de
-    // aquí sólo se conoce el motor: quien consuma detección no elige detectores.
+    // Los detectores se proveen para que el motor los reciba por DI; NO se exportan. Fuera
+    // de aquí sólo se conoce el motor: quien consuma detección no elige detectores.
     WordDetector,
+    IpDetector,
+    PhoneDetector,
     DetectionEngine,
+    ListingDetectionsService,
     PreModerationService,
   ],
-  exports: [ModerationService, DetectionEngine, PreModerationService],
+  // RÁFAGA A — se exportan LOS DOS, y no es redundante: `DetectionEngine` es detección pura
+  // sobre texto (la usa la ficha F1, que sólo quiere una señal y no debe escribir nada), y
+  // `ListingDetectionsService` es la pasada que además persiste (la usan publicar y editar).
+  // Quien sólo lee no puede escribir sin querer.
+  exports: [
+    ModerationService,
+    DetectionEngine,
+    ListingDetectionsService,
+    PreModerationService,
+  ],
 })
 export class ModerationModule {}
