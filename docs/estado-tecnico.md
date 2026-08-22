@@ -1,5 +1,33 @@
 # Estado técnico del proyecto — Marketplace
 
+> Fecha: 2026-08-22 · Rama: `main` · Último commit: 2b3c9f1 — cierre de las listas de IP/teléfono.
+>
+> **Dos cuerpos de trabajo cerrados desde el ancla anterior** (2026-08-09, `842ea24`):
+>
+> 1. **El LOTE DE SIETE RETOQUES DEL BACKOFFICE** (puntos 1–7, cada uno con su sección propia
+>    más abajo): abrir tickets desde las fichas, editar atributos e imágenes desde el
+>    backoffice, reorganizar la navegación en grupos —incluido el móvil— sin revertir R2, las
+>    fichas en español, la última IP (el dato y verlo), ver y moderar valoraciones con
+>    **retirada lógica**, y el **motor de detección con dos modos** (punto 6, ráfagas 0/A/B/C).
+> 2. **EL CAMBIO DE LISTAS IP/TELÉFONO + EL FILTRO AMPLIADO** (secciones «Filtro de
+>    /admin/anuncios», «A1» y «A2»): los detectores de IP y teléfono pasan de heurística a
+>    **listas de coincidencia editables**, y el buscador de `/admin/anuncios` gana teléfono,
+>    provincia y municipio.
+>
+> **Para retomar el subsistema de moderación automática, empezar por «Subsistema de detección
+> y listas — MAPA CONSOLIDADO»** (§2, justo después de la sección «A2»): las secciones por
+> ráfaga cuentan cada paso y su porqué; el mapa cuenta cómo funciona el conjunto y dónde está
+> cada pieza.
+>
+> ⚠ **DEUDA PRIORITARIA — `Report.reviewId` sigue en `Cascade`** (verificado en
+> `schema.prisma:1361`). El punto 7b lo **NEUTRALIZÓ** quitando de en medio el único camino
+> que borraba una `Review` en vivo —hoy se retira lógicamente, así que la regla no se dispara
+> nunca— pero **no lo resolvió**. Tiene que pasar a `SetNull` **ANTES** de que exista cualquier
+> borrado real de valoraciones (una purga por RGPD, un `deleteMany` de mantenimiento, un
+> borrado en cascada de usuario): si no, volverá a destruir en silencio las denuncias que las
+> señalaban. Está anotado en `docs/pendientes.md` §4.2 y en su resumen por prioridad.
+
+> **Ancla previa** — se conserva entera; las anclas se acumulan y no se borra la historia.
 > Fecha: 2026-08-09 · Rama: `main` · Último commit: 842ea24 — cierre del vídeo Pro.
 >
 > **Tres proyectos cerrados desde el ancla anterior** (2026-08-04, `ff333ab`): la **zona de
@@ -15133,6 +15161,239 @@ con `phone:` daba **falsos positivos** con las lecturas (el `DetectableText` de 
 > desactivada. Las dos se comprobaron mutando, no leyendo.
 
 **Con esto queda cerrado el cambio de listas IP/teléfono y el filtro ampliado.**
+
+---
+
+## Subsistema de detección y listas — MAPA CONSOLIDADO
+
+> Las secciones de arriba (ráfagas 0/A/B/C del punto 6, «Filtro de /admin/anuncios», «A1» y
+> «A2») cuentan **cada paso y su porqué**. Ésta cuenta **cómo funciona el conjunto y dónde
+> está cada pieza**. Si retomas esto, empieza aquí.
+
+### Qué es
+
+Un **motor de detección con dos modos**. La separación que lo ordena todo:
+
+- Un **detector** encuentra cosas en el texto y devuelve hallazgos. **No sabe qué pasa
+  después**: no conoce `ListingStatus` y no decide bloquear.
+- El **modo** —uno por detector, guardado en un `Setting`— decide la consecuencia:
+  - `WARN` deja la detección visible para el staff y **no toca el estado**;
+  - `BLOCK` deja la misma detección **y** manda el anuncio a `PENDING_REVIEW`.
+
+`BLOCK` es `WARN` más una consecuencia, así que **ascender un detector es cambiar un valor**,
+no reescribir nada — y degradarlo no pierde el rastro.
+
+**La lista de IPs NO es un detector.** No mira el texto: compara la última IP conocida
+(`User.lastLoginIp`, `Listing.lastOwnerIp`, del punto 5) contra una lista, y se resuelve al
+vuelo. Vive aparte por eso.
+
+### Los detectores
+
+| Detector | Nace | Campos que mira | Pregunta que responde |
+|---|---|---|---|
+| `WORD` | `BLOCK` | título, descripción | ¿aparece una palabra o frase de `badWordList`? |
+| `PHONE` | `WARN` | título, descripción | ¿hay un teléfono **fuera** del campo que la plataforma da? → **evasión** |
+| `PHONE_LIST` | `WARN` | título, descripción **y el campo `Listing.phone`** | ¿es uno de los teléfonos de `flaggedPhones`? → **reincidencia** |
+| *(lista de IPs)* | sólo avisa | `User.lastLoginIp`, `Listing.lastOwnerIp` | ¿opera desde una IP de `flaggedIps`? |
+
+Los modos de nacimiento están en `DEFAULT_DETECTION_MODES`
+(`apps/api/src/modules/moderation/detection/detection.types.ts`).
+
+**`PHONE` y `PHONE_LIST` conviven porque son dos preguntas distintas.** Uno persigue que el
+número esté fuera de su sitio —`Listing.phone` existe y se sirve tras `JwtAuthGuard`, así que
+escribirlo en la descripción esquiva esa puerta—; el otro, que ESE número concreto esté
+marcado. Retirar el heurístico habría matado la detección de evasión, que es el único caso de
+uso que el punto 6 llegó a justificar desde el dominio.
+
+**Y de ahí la asimetría de campos**: `PHONE_LIST` mira además el campo `phone` —un número
+marcado lo está esté donde esté— y `PHONE` **no** —un teléfono en su propio campo no esquiva
+nada, y avisar de eso sería avisar de que el vendedor usó el canal correcto—.
+
+**El detector de IP sobre TEXTO se retiró en A1**, con sus filas limpiadas en la migración. No
+respondía a ninguna pregunta que alguien hiciera: una IP en una descripción suele ser producto
+—el anuncio de router que documenta su `192.168.1.1`— y no señal. **Decisión de propósito,
+tomada sin datos**: el banco de pruebas nunca llegó a medirlo. Es lo único irreversible.
+
+### Los nombres, y por qué son ésos
+
+| Clave de `Setting` | Qué guarda |
+|---|---|
+| `badWordList` | palabras y frases prohibidas (`string[]`) |
+| `detectionModes` | el modo de cada detector (`{ WORD, PHONE, PHONE_LIST }`) |
+| `flaggedIps` | IPs bajo vigilancia (`string[]`) |
+| `flaggedPhones` | teléfonos bajo vigilancia (`string[]`) |
+
+> **Se llaman `flaggedIps` y `flaggedPhones`, NO `blockedIps`/`blockedPhones`**, y es
+> deliberado: las dos listas nacen en `WARN`, así que **marcan y no bloquean**. Una clave
+> llamada «blocked» que sólo avisa es una promesa incumplida esperando a que alguien la
+> descubra el día que importe. Es el mismo cuidado que impidió que el aviso viviera en
+> `watched` y que el contador se llame «tasa de acierto».
+
+### Dónde vive el código
+
+Todo bajo `apps/api/src/modules/moderation/detection/`:
+
+| Fichero | Qué es |
+|---|---|
+| `detection.types.ts` | `Detector`, `Detection`, `DetectableText`, `DetectionMode`, `DEFAULT_DETECTION_MODES`, `parseDetectionModes` |
+| `detection.engine.ts` | `DetectionEngine` — corre los detectores, lee los modos y calcula `blocking` |
+| `listing-detections.service.ts` | la pasada sobre un anuncio: detectar **y persistir** (reemplazo entero) |
+| `phone-format.ts` | **la regla del teléfono, en un solo sitio** |
+| `detectors/word.detector.ts` | `WORD` |
+| `detectors/phone.detector.ts` | `PHONE` (evasión) |
+| `detectors/phone-list.detector.ts` | `PHONE_LIST` (reincidencia) |
+
+Y fuera de ahí: `apps/api/src/modules/admin/flagged-ips.ts` — la lista de IPs, que **no tiene
+detector**: `parseFlaggedIps` + `ipMarcada` (igualdad exacta), y la comparación se resuelve
+como `última_ip IN flaggedIps` al vuelo.
+
+> **`phone-format.ts` reúne el patrón que RECONOCE un teléfono en texto libre y el
+> normalizador que lo CANONIZA** (nueve dígitos, sin prefijo ni separadores). Son dos caras de
+> la misma regla y separarlas es como divergen. Lo comparten **`PHONE`, `PHONE_LIST` y la
+> columna de búsqueda del filtro** — `PHONE_LIST` lo reusa, no lo duplica. Hay una barrera que
+> lo afirma: *todo lo que el patrón reconoce, el normalizador lo canoniza a nueve dígitos*.
+
+### Dónde se configura y dónde se ve
+
+| Superficie | Qué | Quién |
+|---|---|---|
+| `/admin/ajustes` | las cuatro listas y los modos de los detectores | ADMIN (piso de clase de `AdminController`) |
+| `GET /admin/detection/stats` | por detector: su modo, en cuántos **anuncios** dispara y cuántos **hallazgos** hay | ADMIN |
+| `/admin/anuncios?detector=…&hasDetections=…` | el **banco de pruebas**: abrir los que disparan y mirarlos | MODERATOR |
+| Ficha del anuncio (F1) | las detecciones con su **fragmento** y su regla, separadas de `moderationSignals` | MODERATOR |
+| Ficha del anuncio y del usuario | el distintivo **«IP marcada»**, junto al dato de la IP y su aviso RC.1 | MODERATOR |
+
+> **El contador NO es una tasa de acierto, y hay una barrera que lo impide**: el payload no
+> puede llevar ninguna clave que case con `/rate|ratio|percent|accuracy|falsePositive|
+> precision/i` (`deteccion-ascenso.e2e-spec.ts`). Medir falsos positivos exige un veredicto
+> humano por hallazgo, que no existe. Un porcentaje convencería más de lo que mide: quien lee
+> «97 % de acierto» asciende sin mirar; quien lee «dispara en 340 anuncios» abre la lista.
+
+### Persistir o derivar — la decisión está tomada en los dos sentidos
+
+**Las detecciones de TEXTO se persisten** en la tabla `ListingDetection`, y se **reemplazan
+enteras** en cada pasada (`deleteMany` + `createMany` en transacción, molde del reemplazo de
+tags de B2). Se persisten porque el modo avisar necesita **listarse** —no se puede reescanear
+la tabla de anuncios entera en cada carga— y se reemplazan para que nunca se queden obsoletas:
+el dueño quita el teléfono y la detección desaparece sola.
+
+**La coincidencia de IP se DERIVA**, sin tabla espejo (no existe ningún `UserDetection`; se ha
+verificado). Y la razón **no es el rendimiento**:
+
+> **RECTIFICABILIDAD.** Quitar una IP de la lista **des-marca al instante todo el histórico**.
+> Con filas persistidas habría que barrerlas, y hasta entonces el backoffice seguiría
+> señalando gente por una regla que ya nadie mantiene. En una lista de vigilancia eso es la
+> diferencia entre poder deshacer un error y no poder.
+
+Coste aceptado: no queda histórico por sujeto. `AuditLog` sí registra los cambios de la lista.
+
+### Dónde corre
+
+Tres puntos, todos vía `ListingDetectionsService.refresh(...)`:
+
+| Camino | Refresca detecciones | ¿Puede mover `status`? |
+|---|---|---|
+| `ListingsService.publish()` | sí | **sí** — es donde se decide el destino |
+| `ListingsService.update()` (el DUEÑO) | sí | **sí**, sólo si el detector está en `BLOCK` |
+| `AdminService.updateListing()` (el STAFF) | sí | **NO, nunca** |
+
+> **El staff RE-EJECUTA los detectores pero no mueve el estado**, y las dos mitades importan.
+> Una detección **afirma qué hay en el texto, no quién lo escribió** —a diferencia de
+> `EDITED`, que sí afirma un hecho sobre el dueño—, así que si el moderador acaba de quitar un
+> teléfono, la detección tiene que morir. Pero un cambio de estado es una **consecuencia sobre
+> el vendedor**, y un moderador que edita para LIMPIAR un anuncio no puede despublicarlo con
+> su propia mano.
+
+Corre **inline, no en BullMQ**: son tres expresiones regulares sobre dos campos de texto, y
+encolarlo rompería la corrección —un anuncio en `BLOCK` se publicaría ACTIVE y se
+despublicaría segundos después—.
+
+### El ciclo bloquear → salir
+
+Para cualquier detector en `BLOCK`:
+
+1. El dueño edita metiendo algo que dispara → el anuncio pasa a `PENDING_REVIEW`. **La edición
+   se guarda igual**: no se rechaza, se re-enruta.
+2. El dueño edita quitándolo → **sale**, vuelve a ACTIVE.
+
+**El paso 2 es la barrera crítica de todo el subsistema.** `publish()` sólo admite DRAFT y de
+`PENDING_REVIEW` sólo sacaba un moderador aprobando: sin salida, cada falso positivo sería una
+espera indefinida por algo que el vendedor arregla solo.
+
+**La salida re-evalúa TODAS las políticas** (`PreModerationService.reviewTriggerFor`): si la
+plataforma revisa todo, o la categoría o el vendedor están marcados, **quitar el teléfono no
+lo saca**. Sólo se libera lo que se bloqueó por el contenido. Y pasa por el `gate`: volver al
+escaparate ocupa plaza.
+
+**La lista de IPs nunca entra en este ciclo** — sólo avisa. Dos razones independientes: el
+`touch` de 5a se dispara con gestiones que no tocan el contenido (un bump), y la IP **puede
+estar falsificada** mientras RC.1 siga abierto. Bloquear por un dato que sabemos que puede
+mentir es justo lo que RC.1 pide no hacer.
+
+Y en el usuario **tampoco**: no existe `PENDING_REVIEW` para personas, y `User.requiresReview`
+lo pone una persona y se audita con nombre — el sistema no tiene actor con el que escribirlo
+(`AuditLog.actorId` es NOT NULL con FK a `User`). **La máquina señala; la persona marca.**
+
+### El fail-open de `WORD`, cerrado con orden
+
+El tokenizador partía el texto por todo lo que no fuera `[a-z0-9]` y comparaba cada entrada
+entera contra un token, así que **sólo funcionaban las entradas de una palabra**: `dinero
+facil` o `100%-garantizado` casaban cero veces, y la pantalla las guardaba prometiendo que
+filtraban.
+
+Se arregló **en la ráfaga C, la última**, y con un orden que importa: primero **enseñar**
+—marcar en la pantalla las entradas que no filtraban— y después **endurecer**. Porque `WORD`
+está en `BLOCK` y desde la ráfaga B bloquear actúa **también al editar**: entradas inertes
+desde hace meses podían sacar del escaparate anuncios ya publicados en cuanto su dueño los
+tocara.
+
+**Alcance**: palabras y frases. Las IPs tienen su lista y los teléfonos su detector; una
+entrada de la lista de palabras es una **cadena literal** que alguien tecleó, no un patrón.
+
+### El filtro de `/admin/anuncios`
+
+**Ocho campos de búsqueda**, en dos grupos:
+
+- por `q` (`contains` insensible): **título, descripción, slug e identificador**;
+- como **parámetros propios**: `phone`, `province`, `city` y `ip`.
+
+> **Corrección**: el encargo hablaba de «siete ejes». Son **ocho campos** de búsqueda —el
+> `id` viaja dentro de `q` y es fácil no contarlo—, y además el filtro tiene bastantes más
+> ejes que no son de búsqueda: estado, categoría, vendedor, triaje, vigilado, denuncias,
+> revalidación, detecciones, detector, IP marcada y rangos de fecha.
+
+Dos decisiones que no se pueden tocar sin romper algo:
+
+- **La IP va aparte de `q`, y es EXACTA.** Un `contains` sobre `10.0.0.1` traería
+  `110.0.0.10`, y en una investigación de multicuenta eso es **señalar a quien no es**. Hay
+  barrera desde 5b y otra que la reafirma desde el otro lado.
+- **Provincia y municipio, aparte de `q`.** «Anuncios **DE** Toledo» y «anuncios que
+  **MENCIONAN** Toledo» son preguntas distintas.
+
+El teléfono se busca contra **`Listing.phoneNormalized`** —columna canónica, derivada, con
+backfill en su migración— y no contra `Listing.phone`, que guarda lo que tecleó el vendedor y
+es lo que ve el comprador. Los dos campos se emiten **siempre juntos** (`camposDeTelefono`),
+con una barrera de fuente que lo vigila: escribir sólo el visible deja un anuncio con teléfono
+que el buscador no encuentra, y el fallo es **invisible**.
+
+### La deuda del subsistema
+
+Toda en `docs/pendientes.md`:
+
+- **Veredictos por detección** — lo único que convertiría el contador en una tasa de falsos
+  positivos de verdad. Sin ellos, ascender se decide mirando la lista, no un número.
+- **Avisar al VENDEDOR, no sólo al staff** («tienes un campo para el teléfono»). Es la
+  respuesta que el propio dominio sugiere y probablemente reduce el problema más que bloquear.
+- **`attributes` sin escanear** — es un `jsonb` con claves arbitrarias, y hay que decidir
+  cuáles son texto libre antes de mirarlas. Es una pregunta de catálogo, no de detección.
+- **`waitForTask` en `SearchService.removeListing` y `reindexAll`** — los dos hermanos del
+  flake de Meilisearch que ya se cerró en `indexListing`.
+- Y la que encabeza este documento: **`Report.reviewId` en `Cascade`**.
+
+**Estado real del banco de pruebas: vacío.** Los contadores están a cero y **nadie ha
+ascendido nada**, que es exactamente donde debe quedar hasta que alguien mire. Lo primero al
+retomar esto es dejar correr las listas unas semanas y abrir la de teléfonos antes de ascender
+ningún detector.
 
 ---
 
