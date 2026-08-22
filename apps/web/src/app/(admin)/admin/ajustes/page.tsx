@@ -17,7 +17,7 @@ import { PriceListEditor } from './_components/PriceListEditor';
 // PUNTO 6 — el MISMO vocabulario que la ficha y los filtros. Tres pantallas nombrando los
 // detectores por su cuenta es como acaban divergiendo (lo documenta el punto 4).
 import { DETECTOR_LABELS } from '../etiquetas';
-import { entradasQueEmpiezanAFiltrar } from './entradas-inertes';
+import { entradasQueEmpiezanAFiltrar, esTelefonoEs } from './entradas-inertes';
 
 // ─── Helpers for badWordList ───────────────────────────────────────────────────
 
@@ -227,6 +227,98 @@ function FlaggedIpsEditor({
           <strong>Marcar una IP no bloquea nada:</strong> los anuncios y los usuarios que
           vengan de ella quedan señalados para el equipo, y nadie los despublica ni los
           suspende. Quitarla de aquí los des-señala al instante.
+        </p>
+      </div>
+      <SaveRow saving={saving} success={success} error={error} onSave={handleSave} />
+    </div>
+  );
+}
+
+/**
+ * A2 — LA LISTA DE TELÉFONOS MARCADOS.
+ *
+ * Molde de `FlaggedIpsEditor` y de `BadWordListEditor`: una por línea, guardado entero. Se
+ * copia la forma porque es la misma tarea, y un admin que ya sabe usar una no aprende otra.
+ *
+ * MARCA LOS QUE NO CASARÁN NUNCA, molde de la ráfaga C: un número mal escrito se guarda
+ * igual —y debe guardarse, para que quien lo escribió lo reconozca y lo corrija— pero **no
+ * filtra nada**. Sin este aviso se quedaría ahí para siempre pareciendo que vigila algo, que
+ * es exactamente el fail-open que la ráfaga C acaba de cerrar en la lista de palabras.
+ */
+function FlaggedPhonesEditor({
+  setting,
+  token,
+  onSaved,
+}: {
+  setting: AdminSetting;
+  token: string;
+  onSaved: () => void;
+}) {
+  const [text, setText] = useState(() => toWordListText(setting.value));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+
+  const entradas = fromWordListText(text);
+  const invalidas = entradas.filter((e) => !esTelefonoEs(e));
+
+  async function handleSave() {
+    setSaving(true);
+    setError(null);
+    setSuccess(false);
+    try {
+      await updateAdminSetting(token, 'flaggedPhones', entradas);
+      setSuccess(true);
+      onSaved();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Error al guardar');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      {invalidas.length > 0 && (
+        <div
+          className="rounded-md border border-amber-400 bg-amber-50 p-3 text-xs text-amber-900"
+          data-testid="aviso-telefonos-invalidos"
+        >
+          <p className="font-medium">
+            {invalidas.length === 1
+              ? 'Esta entrada no es un teléfono español y no marcará nunca:'
+              : `Estas ${invalidas.length} entradas no son teléfonos españoles y no marcarán nunca:`}
+          </p>
+          <ul className="mt-1 list-inside list-disc font-mono">
+            {invalidas.map((e) => (
+              <li key={e}>{e}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <div className="flex flex-col gap-1">
+        <label className="text-xs font-medium text-muted-foreground">
+          Teléfonos marcados{' '}
+          <span className="font-normal">— uno por línea, en cualquier formato</span>
+        </label>
+        <textarea
+          value={text}
+          onChange={(e) => {
+            setText(e.target.value);
+            setSuccess(false);
+          }}
+          rows={6}
+          className="resize-y rounded-md border bg-background px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          placeholder={'654 123 456\n+34 600 111 222'}
+          disabled={saving}
+        />
+        <p className="text-xs text-muted-foreground">
+          {entradas.length} {entradas.length === 1 ? 'teléfono marcado' : 'teléfonos marcados'}.
+          Da igual cómo lo escribas: <strong>654 123 456</strong> encuentra al anuncio que lo
+          puso como <strong>+34654123456</strong>. Se busca en el título, en la descripción{' '}
+          <strong>y en el campo de teléfono del anuncio</strong> — un número marcado lo está
+          esté donde esté. <strong>Hoy sólo marca:</strong> el anuncio no se despublica. Se
+          puede cambiar a «Bloquear» más abajo.
         </p>
       </div>
       <SaveRow saving={saving} success={success} error={error} onSave={handleSave} />
@@ -653,6 +745,7 @@ const SETTING_TITLES: Record<string, string> = {
   preModerationTrustedExempt: 'Los vendedores de confianza se saltan la revisión general',
   detectionModes: 'Qué hace cada detector de contenido',
   flaggedIps: 'IPs marcadas para vigilancia',
+  flaggedPhones: 'Teléfonos marcados',
   proMonthlyFeaturedQuota: 'Cuota mensual de destacados (Pro)',
   proQuotaFeaturedDurationDays: 'Duración del destacado por cuota (Pro)',
   proExtraCreditsPercent: 'Bonus de créditos al comprar packs (Pro)',
@@ -688,6 +781,8 @@ const SETTING_DESCRIPTIONS: Record<string, string> = {
     'Sólo tiene efecto con la revisión de plataforma encendida. Apagado (por defecto), «revisar todos» significa TODOS, incluidos los vendedores con la insignia de confianza. Encendido, esa insignia pasa a eximir de la revisión GENERAL — y ojo: hoy la insignia es puramente decorativa, así que al encender esto los vendedores marcados hace meses quedan exentos sin que nadie lo haya decidido para ellos. NUNCA exime de las marcas específicas: una categoría que exige revisión, o un vendedor marcado para revisión, se revisan igual.',
   preModerationAllListings:
     'MODERACIÓN PREVIA, nivel plataforma. Encendido, TODO anuncio nuevo queda «en revisión» al publicarse y no se ve en el marketplace hasta que un moderador lo apruebe. ⚠ Es el más exigente de los tres niveles: a partir del clic, cada anuncio espera a un humano, así que enciéndelo sólo si hay alguien vaciando la cola. Para acotarlo a una parte del catálogo, marca «requiere revisión» en una categoría: se aplica a ella y a TODOS sus descendientes. Los anuncios ya publicados no se tocan.',
+  flaggedPhones:
+    'Teléfonos bajo vigilancia. Cuando un anuncio contiene uno de estos números —en el título, en la descripción O en su campo de teléfono— el equipo lo ve señalado. Da igual el formato: «654 123 456» encuentra al que lo escribió como «+34654123456». ⚠ Hoy sólo MARCA, no despublica; se puede cambiar a «Bloquear» en el ajuste de detectores, más abajo. Ojo con la diferencia entre los dos avisos de teléfono: «Teléfono en el texto» salta con CUALQUIER número escrito fuera de su campo (es evasión, y se equivoca a menudo — cualquier referencia de nueve dígitos lo parece), mientras que éste salta sólo con los que hayas puesto aquí.',
   flaggedIps:
     'Direcciones IP bajo vigilancia. Cuando la ÚLTIMA conexión de un usuario, o la última gestión de un anuncio, viene de una de estas IPs, el equipo lo ve señalado en las fichas y puede filtrar por ello en las listas. ⚠ Marcar una IP NO bloquea a nadie: no despublica anuncios ni suspende cuentas, sólo señala para que alguien lo mire. Se decidió así por dos motivos: la IP que se anota puede estar falsificada mientras no se verifique la topología del proxy, y además se anota en CADA gestión del dueño (también al subir un anuncio, que no toca el contenido). Quitar una IP de la lista des-señala al instante todo lo que marcaba, sin dejar rastro que limpiar.',
   detectionModes:
@@ -842,6 +937,8 @@ export default function AdminAjustesPage() {
     // A1 — junto a los detectores: es la otra mitad de «qué vigila la plataforma», sólo que
     // esta mira la última IP en vez del texto.
     'flaggedIps',
+    // A2 — junto a la de IPs: son las dos listas de vigilancia, y se leen juntas.
+    'flaggedPhones',
     'proMonthlyFeaturedQuota',
     'proQuotaFeaturedDurationDays',
     'proExtraCreditsPercent',
@@ -1023,6 +1120,13 @@ export default function AdminAjustesPage() {
                   settingKey="preModerationAllListings"
                   label="Revisar todos los anuncios antes de publicarlos"
                   helpText="Encendido, cada anuncio nuevo espera a que un moderador lo apruebe. Para acotarlo a una rama del catálogo, marca la categoría en Categorías (la marca alcanza a todas sus subcategorías)."
+                />
+              )}
+              {key === 'flaggedPhones' && (
+                <FlaggedPhonesEditor
+                  setting={setting}
+                  token={token}
+                  onSaved={() => handleSaved(key)}
                 />
               )}
               {key === 'flaggedIps' && (

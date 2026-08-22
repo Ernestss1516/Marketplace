@@ -103,7 +103,7 @@ function leerBooleano(valor: string | null): boolean | undefined {
  * URL compartida puede venir de una versión anterior, o de una posterior con un detector que
  * aquí todavía no existe. Mandarlo tal cual al backend sería un 400 por un enlace pegado.
  */
-const DETECTORES = new Set(['WORD', 'PHONE']);
+const DETECTORES = new Set(['WORD', 'PHONE', 'PHONE_LIST']);
 
 function leerDetector(valor: string | null): AdminListingsFilters['detector'] {
   return valor && DETECTORES.has(valor)

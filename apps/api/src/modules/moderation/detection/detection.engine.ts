@@ -12,6 +12,7 @@ import {
   type DetectorId,
 } from './detection.types';
 import { PhoneDetector } from './detectors/phone.detector';
+import { PhoneListDetector } from './detectors/phone-list.detector';
 import { WordDetector } from './detectors/word.detector';
 
 /**
@@ -71,6 +72,7 @@ export class DetectionEngine {
     private readonly prisma: PrismaService,
     wordDetector: WordDetector,
     phoneDetector: PhoneDetector,
+    phoneListDetector: PhoneListDetector,
   ) {
     // A1 — AQUÍ ESTABA `ipDetector`, y sale por la misma puerta por la que entró: una línea.
     // Que retirar un detector cueste lo mismo que añadirlo es la prueba de que la forma de
@@ -81,7 +83,7 @@ export class DetectionEngine {
     // que sí hacía falta —«esta IP concreta es fraudulenta»— se mira en `lastOwnerIp` y
     // `lastLoginIp`, no en el texto, y ni siquiera necesita un detector: es
     // `columna IN (lista)`. Ver `Setting['flaggedIps']`.
-    this.detectors = [wordDetector, phoneDetector];
+    this.detectors = [wordDetector, phoneDetector, phoneListDetector];
   }
 
   /**

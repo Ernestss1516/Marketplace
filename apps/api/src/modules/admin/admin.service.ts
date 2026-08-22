@@ -230,6 +230,19 @@ const SETTING_KEYS = [
    * ADMIN, como `detectionModes`: quién entra en una lista de vigilancia es política.
    */
   'flaggedIps',
+  /**
+   * A2 — TELÉFONOS MARCADOS. Un `string[]`, molde `badWordList` y `flaggedIps`.
+   *
+   * **`flaggedPhones` y no `blockedPhones`**, por lo mismo que su hermana: el detector nace
+   * en `WARN`, así que hoy marca y no bloquea. Un nombre no promete lo que no hace — y si
+   * algún día asciende, el nombre sigue siendo cierto («marcados» describe la lista, no la
+   * consecuencia).
+   *
+   * Se guardan TAL COMO SE ESCRIBEN y se canonizan al comparar: es la lección de la ráfaga C
+   * —`rule` tiene que ser reconocible— y además es lo que deja sobrevivir a las entradas mal
+   * escritas para poder señalarlas en la pantalla.
+   */
+  'flaggedPhones',
 ] as const;
 type SettingKey = (typeof SETTING_KEYS)[number];
 
@@ -1051,6 +1064,11 @@ export class AdminService {
     await this.detections.refresh(listingId, {
       title: fields.title ?? existing.title,
       description: fields.description ?? existing.description,
+      // A2 — el teléfono, SIEMPRE el de la fila: el camino del staff no puede editarlo
+      // (`UpdateAdminListingDto` no lo lleva), así que no hay delta que mezclar. Se pasa
+      // igualmente para que la pasada del staff refresque también las detecciones del campo
+      // — si no, quitar un teléfono marcado del texto dejaría viva la del campo.
+      phone: existing.phone,
     });
 
     // Los mismos efectos que la edición del dueño: la ficha cacheada y el índice

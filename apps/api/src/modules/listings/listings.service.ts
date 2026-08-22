@@ -460,6 +460,9 @@ export class ListingsService {
     const { blocking } = await this.detections.refresh(listing.id, {
       title: listing.title,
       description: listing.description,
+      // A2 — el campo del teléfono entra en lo escaneado. Sólo lo mira `PHONE_LIST`: un
+      // número marcado lo está esté donde esté. La fila RECIÉN escrita, igual que el resto.
+      phone: listing.phone,
     });
     const trasEditar = await this.aplicarConsecuenciaDeLaEdicion(listing, blocking, userId);
 
@@ -632,6 +635,7 @@ export class ListingsService {
       const { blocking } = await this.detections.refresh(existing.id, {
         title: existing.title,
         description: existing.description,
+        phone: existing.phone,
       });
       if (blocking) targetStatus = 'PENDING_REVIEW';
     } catch (_err) {

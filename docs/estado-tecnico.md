@@ -15066,6 +15066,76 @@ texto y sobre el campo `phone`).
 
 ---
 
+## A2 — La lista de teléfonos marcados (`PHONE_LIST`) · **el cambio de listas, cerrado**
+
+Diseño: `docs/diseno-listas-ip-telefono.md` §A.2.
+
+### Conviven, y por eso hay dos detectores
+
+- `PHONE` (heurístico) — **«hay un teléfono FUERA de su sitio»**. Evasión de la puerta de
+  `GET /listings/:id/phone`. Dispara con cualquiera, así que tiene falsos positivos y sigue
+  avisando.
+- `PHONE_LIST` — **«ESE número está marcado»**. Reincidencia. Su criterio no es una
+  heurística: es una lista que alguien escribió a mano.
+
+Retirar el heurístico habría matado la detección de evasión, que es el único caso de uso que
+el punto 6 llegó a justificar desde el dominio. Y convivir sale barato porque el mecanismo de
+dos modos ya estaba.
+
+### El reconocedor se reusa: lo único que cambia es el criterio de disparo
+
+`phone-format.ts` ya tenía el patrón y el normalizador juntos, con su barrera de que no
+divergen. `PHONE_LIST` los usa tal cual. La lista se canoniza una vez por pasada y se compara
+contra lo reconocido, así que **`654 123 456` en la lista encuentra `+34654123456` en el
+anuncio** — ni el admin ni el vendedor tienen por qué escribirlo igual.
+
+### La asimetría de campos
+
+`PHONE_LIST` mira **título, descripción y `Listing.phone`**; el heurístico sólo los dos
+primeros. Es la definición de cada uno: un número marcado lo está **esté donde esté**, y un
+teléfono en su propio campo —servido tras `JwtAuthGuard`— **no esquiva nada**. Si el
+heurístico lo mirara, avisaría de que el vendedor usó el canal correcto.
+
+`DetectableText` gana `phone`, **en crudo y no ya canonizado**: el motor es detección pura
+sobre texto y no debe depender de qué columnas tenga una tabla.
+
+### Nace avisando, y el nombre lo dice
+
+`PHONE_LIST: 'WARN'` **no por el patrón** —que es exacto— sino por **la lista**: un número
+marcado por error, o un dedazo al copiarlo, bloquearía a quien no toca. Y el ajuste se llama
+`flaggedPhones`, no `blockedPhones`, por lo mismo que su hermana de A1.
+
+Se guardan **tal como se escriben** y se canonizan al comparar (lección de la ráfaga C:
+`rule` tiene que ser reconocible), lo que además deja sobrevivir a las entradas mal escritas
+para poder **señalarlas en la pantalla** — el molde de las entradas inertes.
+
+### Verificación
+
+`test/deteccion-telefonos-marcados.e2e-spec.ts` (13) · `detection.engine.spec.ts` (58, de 48)
+· `entradas-inertes.test.ts` (29, de 16).
+
+Mutaciones, las tres verificadas:
+
+| Mutación | Cae |
+|---|---|
+| `PHONE_LIST` ignora el campo `phone` | La barrera de la asimetría (unitaria y e2e) |
+| Comparar sin canonizar la lista | La barrera de los formatos |
+| Nacer en `BLOCK` | «nace avisando» + los dos de modos por defecto |
+
+**La barrera de fuente de la ráfaga anterior tuvo que rehacerse dos veces**, y se deja
+escrito en el propio test por qué: acotarla a `prisma.listing.create(` la dejó **sin
+dientes** —el alta escribe por `createWithUniqueSlug`— y la mutación pasó; mirar toda línea
+con `phone:` daba **falsos positivos** con las lecturas (el `DetectableText` de A2 y el
+`return` de `getPhone`). La forma que aguanta vigila el patrón de una escritura:
+`phone: dto.` / `phone: fields.`.
+
+> Una barrera que no cae con su propia mutación no vale nada; una que grita sin motivo acaba
+> desactivada. Las dos se comprobaron mutando, no leyendo.
+
+**Con esto queda cerrado el cambio de listas IP/teléfono y el filtro ampliado.**
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.

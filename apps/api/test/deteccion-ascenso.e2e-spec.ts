@@ -357,9 +357,10 @@ describe('Punto 6 ráfaga B — el ascenso (e2e)', () => {
     // TODOS SIEMPRE, también los que no han disparado nunca: un detector ausente se leería
     // como «no existe» en vez de como «no ha encontrado nada».
     //
-    // A1 — eran TRES; `IP` (el de texto) se retiró, así que este test tuvo que cambiar de
-    // número. Que cambiar el conjunto de detectores obligue a venir aquí es lo que se quería.
-    expect(filas.map((f) => f.detector).sort()).toEqual(['PHONE', 'WORD']);
+    // A1 retiró `IP` (el de texto) y A2 añadió `PHONE_LIST`, así que este test ha cambiado de
+    // conjunto dos veces. Que tocar los detectores obligue a venir aquí es lo que se quería:
+    // ninguno entra ni sale sin que alguien lo decida.
+    expect(filas.map((f) => f.detector).sort()).toEqual(['PHONE', 'PHONE_LIST', 'WORD']);
     expect(filas.find((f) => f.detector === 'PHONE')?.mode).toBe('BLOCK');
     expect(filas.find((f) => f.detector === 'PHONE')!.listings).toBeGreaterThan(0);
 

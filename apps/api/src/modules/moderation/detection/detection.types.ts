@@ -61,6 +61,20 @@ export type DetectionMode = 'WARN' | 'BLOCK';
 export interface DetectableText {
   title: string;
   description: string;
+  /**
+   * A2 — el campo `Listing.phone`, TAL COMO LO ESCRIBIÓ EL VENDEDOR.
+   *
+   * Se pasa en crudo y NO ya normalizado (aunque exista `Listing.phoneNormalized`): el motor
+   * es detección pura sobre texto y no debe depender de qué columnas tenga una tabla. Quien
+   * lo necesite canónico lo canoniza con `phone-format.ts`, que es la única regla.
+   *
+   * OPCIONAL a propósito: hay llamadas que sólo preguntan por el texto —la señal en vivo de
+   * la ficha F1— y no tienen por qué traerlo. Sin él, los detectores que lo miran no
+   * encuentran nada ahí, que es lo correcto.
+   *
+   * **Sólo lo mira `PHONE_LIST`.** Ver `DetectionField.PHONE` en `schema.prisma`.
+   */
+  phone?: string | null;
 }
 
 /** Un hallazgo. La ráfaga A lo persiste en `ListingDetection`, reemplazado entero. */
@@ -114,6 +128,16 @@ export interface Detector {
 export const DEFAULT_DETECTION_MODES: Readonly<Record<DetectorId, DetectionMode>> = {
   WORD: 'BLOCK',
   PHONE: 'WARN',
+  /**
+   * A2 — `PHONE_LIST` nace AVISANDO, **y no por el patrón**: su criterio es exacto, no una
+   * heurística. Lo que puede fallar aquí es **la lista**, y falla de una forma que el
+   * detector no puede detectar: un número marcado por error, o un dedazo al copiarlo,
+   * bloquearía a quien no toca.
+   *
+   * Nacer en `WARN` cuesta un clic para ascenderlo —el mecanismo de la ráfaga B ya está— y
+   * hace que ese clic lo dé alguien que ha visto la lista funcionando unas semanas.
+   */
+  PHONE_LIST: 'WARN',
 };
 
 /** RÁFAGA B — la clave donde el admin guarda el ascenso. Sin fila, los de nacimiento. */
