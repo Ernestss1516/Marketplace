@@ -262,6 +262,14 @@ tocarlo, pero lo nuevo va por la cola.)
 
 ## 6. El plan — dos ráfagas
 
+> **H1 IMPLEMENTADA (2026-08-23).** Tal cual está descrita abajo, con una decisión de forma que
+> el diseño no fijaba: el patrón **se escribe una sola vez** (`MediaCleanupService`, en un módulo
+> neutral que importan los cuatro llamantes) en vez de repetirse cuatro veces — y así la cola se
+> registra una vez, que además evita la trampa de «una `Queue` por `registerQueue()`». La
+> comprobación de dueño de §3.3 creció con `ListingImage` (la frontera con la basura CON FILA) y
+> con las **claves desnudas** de `Invoice.pdfKey` / `TicketAttachment.key` (vector 3 de §7.6).
+> Detalle en `estado-tecnico.md`, sección «Huérfanas sin fila — RÁFAGA H1». **H2 sigue abierta.**
+
 **H1 — lo que se suelta** (avatar sustituido, bloques de blog y portada, patrocinado). Un solo
 patrón repetido cuatro veces, con el helper compartido en `media-keys.ts` y la cola de B3.
 

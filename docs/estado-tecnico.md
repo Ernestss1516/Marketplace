@@ -15455,6 +15455,75 @@ snapshot al crear caen otros 4 (la denuncia sobrevive **vacía**, que es sobrevi
 
 ---
 
+## Huérfanas sin fila — RÁFAGA H1: «lo que se suelta»
+
+Diseño: `docs/diseno-huerfanas-sin-fila.md`. Cierra **3 de las 5** fugas sin fila; las otras
+dos (avatar subido y nunca guardado, vídeo sin confirmar) son H2 y necesitan prefijo efímero
+con caducidad.
+
+### Qué se soltaba
+
+Cuatro operaciones dejaban ficheros en el bucket **sin nada que los referenciara**, porque la
+referencia vivía en una columna o dentro de un `Json` y al pisarla no quedaba rastro:
+sustituir el avatar, editar o borrar un post (imágenes de bloque), guardar la portada sin un
+bloque, y cambiar la imagen de un patrocinado.
+
+### El patrón, escrito una vez
+
+`MediaCleanupService` ([`media-cleanup.service.ts`](../apps/api/src/modules/media-cleanup/media-cleanup.service.ts)),
+en un módulo neutral que importan los cuatro llamantes (molde `ListingImagesModule` de 2b):
+
+1. **Diff de URLs propias entre el «antes» y el «después»** — `ownUrlsDeep` / `releasedUrls`
+   en [`media-keys.ts`](../apps/api/src/infra/r2/media-keys.ts), que es donde ya vive la regla
+   de la miniatura. **No enumera campos**: recorre el valor entero. Las imágenes de bloque
+   viven en campos con nombres distintos según el tipo (`imageUrl` en el carrusel de portada,
+   `url` en la rejilla y en los bloques de imagen del blog), así que una lista escrita a mano
+   se queda corta en cuanto alguien añade un tipo — **y se queda corta en silencio**. Es el
+   mismo movimiento que el `row_to_json` del script que midió el bucket (`diseno-borrado.md`
+   §7.1).
+2. **Comprobación de que no queda otro dueño** antes de tocar nada: `ListingImage` (la
+   frontera con la basura CON FILA — toda la imaginería del blog la tiene), `User.avatarUrl`,
+   `SponsoredAd.imageUrl`, `Post.coverUrl`/`blocks`, `HomepageConfig.blocks`, el vídeo de un
+   anuncio, y por CLAVE DESNUDA `Invoice.pdfKey` y `TicketAttachment.key` (vector 3 de §7.6).
+   Si la consulta falla, **no se borra**: regla de oro de §7.7.
+3. **Encolar en `media-cleanup`, la cola de B3** — nunca borrar en línea: R2 es I/O externa y
+   no entra en la transacción. Un objeto que no se borra es basura reintentable; una edición
+   perdida porque el bucket no respondía sería el trabajo de una persona.
+
+Se llama **después** de escribir, y por dos motivos: el de B3 (que un fallo de limpieza no
+tumbe la operación) y uno propio — la comprobación de dueño necesita el estado nuevo ya
+escrito, o la propia fila se contaría a sí misma como «otro dueño» y no se borraría nunca nada.
+
+### Los cuatro sitios
+
+| Superficie | Dónde | Qué suelta |
+|---|---|---|
+| Avatar | [`users.service.ts`](../apps/api/src/modules/users/users.service.ts) `updateMe` | El avatar anterior. **Única consulta que H1 añade**: las otras tres ya leían su estado previo |
+| Blog | [`blog.service.ts`](../apps/api/src/modules/blog/blog.service.ts) `adminUpdate` y `adminDelete` | Las imágenes de `blocks/` que salen del `Json` (borrar el post las suelta todas) |
+| Portada | [`homepage.service.ts`](../apps/api/src/modules/homepage/homepage.service.ts) `update` | Las de `homepage/` que salen del `Json` (el cuerpo es un reemplazo completo) |
+| Patrocinado | [`sponsored-ads.service.ts`](../apps/api/src/modules/sponsored-ads/sponsored-ads.service.ts) `update` | La imagen sustituida. **Desactivar no suelta nada** —la fila conserva su `imageUrl`—, y no hay borrado en esa superficie |
+
+### El avatar: el guardarraíl es un `count`, no un validador
+
+Poner `@IsOwnStorageUrl` en `UpdateMeDto.avatarUrl` habría roto los avatares de **Google**,
+que son URLs externas legítimas. Lo que protege es otra cosa: una URL ajena no produce clave
+(`keyFromPublicUrl` → `null`) y por tanto no se puede borrar; y como hoy **dos usuarios pueden
+compartir avatar** —el campo es un `@IsString()` pelado, así que cualquiera puede guardar como
+suyo el de otro—, antes de borrar se comprueba que no lo use nadie más.
+
+### Barreras
+
+`apps/api/test/huerfanas-h1.e2e-spec.ts` (13) + el diff en
+`src/infra/r2/media-keys.spec.ts` (unitario). Se **espía la cola, no el bucket**, molde de
+`borrado-limpieza-r2.e2e-spec.ts`: el contrato es justamente que la escritura no dependa de R2.
+
+Mutaciones comprobadas: enumerar campos en vez de recorrer el valor entero → caen la del campo
+anidado y la del avatar; quitar el `count` → un avatar compartido se borra y su dueño se queda
+sin foto; borrar en línea en vez de encolar → caen 7 de 13, incluida la que afirma que en toda
+la suite no se ha borrado nada de R2.
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.

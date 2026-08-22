@@ -1,4 +1,10 @@
-import { keyFromPublicUrl, listingMediaKeys, thumbKeyFor } from './media-keys';
+import {
+  keyFromPublicUrl,
+  listingMediaKeys,
+  ownUrlsDeep,
+  releasedUrls,
+  thumbKeyFor,
+} from './media-keys';
 
 /**
  * BORRADO B3 — la regla de las claves de R2, pinzada.
@@ -109,5 +115,81 @@ describe('listingMediaKeys', () => {
     expect(
       listingMediaKeys({ imageUrls: [], videoUrl: null, videoPosterUrl: null }, prefijo),
     ).toEqual([]);
+  });
+});
+
+/**
+ * HUÉRFANAS H1 — el diff que decide qué se soltó.
+ *
+ * LO QUE ESTE BLOQUE PROTEGE es la decisión de **no enumerar campos**. Las
+ * imágenes de bloque viven dentro de un `Json` en campos con nombres distintos
+ * según el tipo de bloque (`imageUrl` en el carrusel de la portada, `url` en la
+ * rejilla y en los bloques de imagen del blog…), así que una lista escrita a mano
+ * se queda corta en cuanto alguien añade un tipo nuevo — y se queda corta **en
+ * silencio**: nadie ve el fichero que dejó de limpiarse. Los casos de nombre raro
+ * y de anidamiento profundo son exactamente esa mutación.
+ */
+describe('ownUrlsDeep', () => {
+  const prefijo = 'https://cdn.example.com/';
+
+  it('encuentra la URL viva donde sea, con el nombre de campo que sea', () => {
+    const bloques = [
+      { id: 'a', type: 'image', url: `${prefijo}blocks/a.jpg` },
+      { id: 'b', type: 'category-carousel', items: [{ imageUrl: `${prefijo}homepage/b.png` }] },
+      { id: 'c', type: 'grid', items: [{ media: { kind: 'image', url: `${prefijo}blocks/c.webp` } }] },
+      { id: 'd', type: 'text', html: '<p>sin imágenes</p>' },
+    ];
+
+    expect(ownUrlsDeep(bloques, prefijo).sort()).toEqual([
+      `${prefijo}blocks/a.jpg`,
+      `${prefijo}blocks/c.webp`,
+      `${prefijo}homepage/b.png`,
+    ]);
+  });
+
+  it('ignora lo AJENO — un avatar de Google no es nuestro y no se toca', () => {
+    const valor = {
+      avatarUrl: 'https://lh3.googleusercontent.com/foto',
+      enlace: 'https://ejemplo.com/pagina',
+      propia: `${prefijo}avatars/x.jpg`,
+    };
+
+    expect(ownUrlsDeep(valor, prefijo)).toEqual([`${prefijo}avatars/x.jpg`]);
+  });
+
+  it('deduplica y tolera null/undefined/números sin romperse', () => {
+    const url = `${prefijo}blocks/a.jpg`;
+    expect(ownUrlsDeep([{ url }, { otro: url }, null, undefined, 3, true], prefijo)).toEqual([url]);
+    expect(ownUrlsDeep(null, prefijo)).toEqual([]);
+  });
+});
+
+describe('releasedUrls', () => {
+  const prefijo = 'https://cdn.example.com/';
+  const a = `${prefijo}blocks/a.jpg`;
+  const b = `${prefijo}blocks/b.jpg`;
+
+  it('devuelve lo que estaba y ya no está', () => {
+    expect(releasedUrls([{ url: a }, { url: b }], [{ url: b }], prefijo)).toEqual([a]);
+  });
+
+  it('añadir una imagen no suelta nada', () => {
+    expect(releasedUrls([{ url: a }], [{ url: a }, { url: b }], prefijo)).toEqual([]);
+  });
+
+  it('editar sin tocar las imágenes no suelta nada', () => {
+    expect(
+      releasedUrls([{ url: a, texto: 'antes' }], [{ url: a, texto: 'después' }], prefijo),
+    ).toEqual([]);
+  });
+
+  it('la misma imagen en DOS bloques y se quita uno: no se suelta', () => {
+    // El diff es entre conjuntos, y por eso este caso sale gratis: si la URL sigue
+    // en cualquier parte del «después», no está en la diferencia.
+    expect(releasedUrls([{ url: a }, { pie: a }], [{ url: a }], prefijo)).toEqual([]);
+  });
+
+  it('borrar el documento entero suelta todas las suyas', () => {
+    expect(releasedUrls([{ url: a }, { url: b }], null, prefijo).sort()).toEqual([a, b]);
   });
 });

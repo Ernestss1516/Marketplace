@@ -5,6 +5,7 @@ import { PrismaService } from '../../infra/prisma/prisma.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { RevalidateService } from '../../common/revalidate/revalidate.service';
 import { R2Service } from '../../infra/r2/r2.service';
+import { MediaCleanupService } from '../media-cleanup/media-cleanup.service';
 import { MIME_TO_EXT } from '../media/media.service';
 import { UpdateHomepageDto } from './dto/update-homepage.dto';
 import { HomeBlockDto } from './dto/blocks';
@@ -55,6 +56,7 @@ export class HomepageService {
     private readonly auditLog: AuditLogService,
     private readonly revalidateService: RevalidateService,
     private readonly r2: R2Service,
+    private readonly mediaCleanup: MediaCleanupService,
   ) {}
 
   // ── Lectura ───────────────────────────────────────────────────────────────
@@ -132,6 +134,18 @@ export class HomepageService {
         blockCount: blocks.length,
       },
       ip,
+    });
+
+    // HUÉRFANAS H1 — las imágenes que se han quedado FUERA de los bloques. Suben por
+    // `uploadImage` a `homepage/` y no tienen fila propia: al guardar la portada sin
+    // un bloque, su imagen quedaba suelta en el bucket. El cuerpo es un REEMPLAZO
+    // COMPLETO, así que el diff entre el `Json` de antes y el de ahora es exactamente
+    // «lo que ha salido». `before` ya estaba leído para el AuditLog: ninguna consulta
+    // nueva.
+    await this.mediaCleanup.purgeReleased({
+      before: before?.blocks ?? null,
+      after: updated.blocks,
+      origen: 'homepage',
     });
 
     // Sin excepción, igual que NavService y FooterService: toda mutación

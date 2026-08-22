@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { EntitlementService } from '../billing/entitlement.service';
+import { MediaCleanupService } from '../media-cleanup/media-cleanup.service';
 import { UpdateMeDto } from './dto/update-me.dto';
 
 const PRIVATE_PROFILE_SELECT = {
@@ -32,6 +33,7 @@ export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly entitlements: EntitlementService,
+    private readonly mediaCleanup: MediaCleanupService,
   ) {}
 
   async findById(id: string) {
@@ -43,12 +45,37 @@ export class UsersService {
     return user;
   }
 
-  updateMe(id: string, dto: UpdateMeDto) {
-    return this.prisma.user.update({
+  /**
+   * HUÉRFANAS H1 — EL AVATAR SUSTITUIDO (fuga 1a).
+   *
+   * Esto pisaba `avatarUrl` sin mirar lo que había, así que **cada cambio de foto
+   * dejaba la anterior en el bucket para siempre**. Es el único sitio que escribe el
+   * avatar de una cuenta ya creada: el otro escritor (`AuthService`, alta por Google)
+   * sólo lo pone al crear, y un login posterior no lo repisa.
+   *
+   * La lectura del valor anterior es la única consulta que H1 añade en todo el
+   * cuerpo — las otras tres superficies ya leían su estado previo. La limpieza va
+   * DESPUÉS del `update` y no puede tumbarlo: ver `MediaCleanupService`.
+   */
+  async updateMe(id: string, dto: UpdateMeDto) {
+    const antes = await this.prisma.user.findUnique({
+      where: { id },
+      select: { avatarUrl: true },
+    });
+
+    const actualizado = await this.prisma.user.update({
       where: { id },
       data: dto,
       select: PRIVATE_PROFILE_SELECT,
     });
+
+    await this.mediaCleanup.purgeReleased({
+      before: { avatarUrl: antes?.avatarUrl ?? null },
+      after: { avatarUrl: actualizado.avatarUrl },
+      origen: `user:${id}`,
+    });
+
+    return actualizado;
   }
 
   /**
