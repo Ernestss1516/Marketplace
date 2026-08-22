@@ -88,3 +88,78 @@ export function listingMediaKeys(
 
   return [...keys];
 }
+
+/**
+ * Profundidad máxima al recorrer un valor. Los bloques reales tienen 3 o 4 niveles;
+ * esto sólo impide que un dato inesperado (o una estructura cíclica que Prisma no
+ * puede producir pero un futuro `JSON.parse` sí) haga desbordar la pila.
+ */
+const MAX_PROFUNDIDAD = 12;
+
+/**
+ * HUÉRFANAS SIN FILA (H1) — TODAS las URLs NUESTRAS que un valor referencia, mire
+ * donde mire.
+ *
+ * NO ENUMERA CAMPOS, Y ÉSA ES TODA LA IDEA. Las imágenes de bloque viven dentro de
+ * `Json` en campos con **nombres distintos según el tipo de bloque** (`imageUrl` en
+ * el carrusel de categorías de la portada, `url` en la rejilla y en los bloques
+ * `image` / `image-text` / `profile` del blog…). Una lista de campos escrita a mano
+ * se queda corta el día que alguien añade un tipo de bloque nuevo, **y se queda
+ * corta en silencio**: nadie ve el fichero que dejó de limpiarse.
+ *
+ * Es el mismo movimiento que hizo el script que midió el bucket (`diseno-borrado.md`
+ * §7.1): convertir la fila entera a texto y buscar ahí dentro, en vez de elegir
+ * columnas. Y es la contrapartida del vector 1 de §7.6 —dueños escondidos dentro de
+ * `Json`—, sólo que aplicada al revés: allí para no borrar de más, aquí para no
+ * dejar de ver lo que se soltó.
+ *
+ * Sólo devuelve URLs **propias** (`keyFromPublicUrl` ≠ `null`). Una URL ajena —un
+ * avatar de Google, un enlace externo— no es nuestra y no se toca. Deduplicado.
+ */
+export function ownUrlsDeep(value: unknown, publicUrlPrefix: string): string[] {
+  const urls = new Set<string>();
+
+  const recorrer = (nodo: unknown, profundidad: number): void => {
+    if (profundidad > MAX_PROFUNDIDAD || nodo === null || nodo === undefined) return;
+
+    if (typeof nodo === 'string') {
+      if (keyFromPublicUrl(nodo, publicUrlPrefix)) urls.add(nodo);
+      return;
+    }
+
+    if (Array.isArray(nodo)) {
+      for (const item of nodo) recorrer(item, profundidad + 1);
+      return;
+    }
+
+    if (typeof nodo === 'object') {
+      for (const item of Object.values(nodo as Record<string, unknown>)) {
+        recorrer(item, profundidad + 1);
+      }
+    }
+  };
+
+  recorrer(value, 0);
+  return [...urls];
+}
+
+/**
+ * Las URLs propias que **estaban y ya no están**: lo que la operación acaba de
+ * soltar.
+ *
+ * El diff es entre conjuntos, así que el caso «la misma imagen aparece en dos
+ * bloques y sólo se quita uno» se resuelve solo: si sigue en cualquier parte del
+ * «después», no está en la diferencia. Lo que este cálculo NO puede saber es si la
+ * URL sigue referenciada **desde otro documento** — eso se comprueba contra la base
+ * de datos antes de borrar nada (`MediaCleanupService`).
+ */
+export function releasedUrls(
+  before: unknown,
+  after: unknown,
+  publicUrlPrefix: string,
+): string[] {
+  const antes = ownUrlsDeep(before, publicUrlPrefix);
+  if (antes.length === 0) return [];
+  const despues = new Set(ownUrlsDeep(after, publicUrlPrefix));
+  return antes.filter((url) => !despues.has(url));
+}

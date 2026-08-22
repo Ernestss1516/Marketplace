@@ -5,6 +5,7 @@ import { PrismaService } from '../../infra/prisma/prisma.service';
 import { RedisService } from '../../infra/redis/redis.service';
 import { R2Service } from '../../infra/r2/r2.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
+import { MediaCleanupService } from '../media-cleanup/media-cleanup.service';
 import { MIME_TO_EXT } from '../media/media.service';
 import { CreateSponsoredAdDto } from './dto/create-sponsored-ad.dto';
 import { UpdateSponsoredAdDto } from './dto/update-sponsored-ad.dto';
@@ -37,6 +38,7 @@ export class SponsoredAdsService {
     // PROFUNDIDAD N — el único lector de la jerarquía. Este servicio subía y
     // bajaba UN nivel por su cuenta; ver findActiveAd e invalidateCacheForCategory.
     private readonly categoryTree: CategoryTreeService,
+    private readonly mediaCleanup: MediaCleanupService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -260,6 +262,19 @@ export class SponsoredAdsService {
     if (updated.categoryId !== existing.categoryId) {
       await this.invalidateCacheForCategory(updated.categoryId);
     }
+
+    // HUÉRFANAS H1 — la imagen SUSTITUIDA. Sube por `uploadImage` a `sponsored/` y no
+    // tiene fila propia: cambiarla dejaba la anterior suelta en el bucket. `existing`
+    // ya estaba leído, así que no hay consulta nueva.
+    //
+    // Es la ÚNICA fuga de esta superficie, y no por casualidad: aquí no hay borrado,
+    // sólo desactivar (`active: false`), y desactivar no suelta ningún fichero — la
+    // fila sigue ahí con su `imageUrl`, así que el diff sale vacío por construcción.
+    await this.mediaCleanup.purgeReleased({
+      before: { imageUrl: existing.imageUrl },
+      after: { imageUrl: updated.imageUrl },
+      origen: `sponsored-ad:${id}`,
+    });
 
     return updated;
   }

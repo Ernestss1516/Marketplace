@@ -226,13 +226,19 @@ Lo que **sigue abierto**, y son dos problemas distintos que esta entrada mezclab
   el **avatar sustituido** (`media.service.ts:47` sube el nuevo y nunca borra el viejo) y las
   imágenes de `blocks/`, `homepage/` y `sponsored/`, que suben directo a R2 sin fila propia y
   quedan sueltas al quitar el bloque del `Json`.
-  **DISEÑADO (2026-08-22) — [`diseno-huerfanas-sin-fila.md`](./diseno-huerfanas-sin-fila.md)**,
-  pendiente de implementar en dos ráfagas: H1 «lo que se suelta» (diff de URLs propias entre el
-  antes y el después de la operación → cola `media-cleanup` de B3) y H2 «lo que nunca se
-  confirma» (prefijo efímero con regla de caducidad). Al verificarlo salieron **cinco** fugas y
-  no tres —el avatar son dos: la sustitución y la subida que nunca se guarda— y una trampa:
-  confirmar un vídeo **no lo mueve de prefijo**, así que la regla de caducidad «obvia» habría
-  borrado los vídeos vivos.
+  **DISEÑADO (2026-08-22) — [`diseno-huerfanas-sin-fila.md`](./diseno-huerfanas-sin-fila.md)**.
+  Al verificarlo salieron **cinco** fugas y no tres —el avatar son dos: la sustitución y la
+  subida que nunca se guarda— y una trampa: confirmar un vídeo **no lo mueve de prefijo**, así
+  que la regla de caducidad «obvia» habría borrado los vídeos vivos.
+  - **~~H1 «lo que se suelta»~~ — CERRADA (2026-08-23).** Avatar sustituido, imágenes de bloque
+    del blog y de la portada, e imagen de patrocinado: diff de URLs propias sobre el valor
+    entero (`ownUrlsDeep`/`releasedUrls` en `media-keys.ts`) → comprobación de que no queda otro
+    dueño → cola `media-cleanup` de B3. Tres de las cinco fugas, sin tocar infraestructura.
+    Barreras en `apps/api/test/huerfanas-h1.e2e-spec.ts`.
+  - **H2 «lo que nunca se confirma» — ABIERTA:** el vídeo sin confirmar y el avatar subido y
+    nunca guardado. Necesitan prefijo efímero (`tmp/`), copia al confirmar y una regla de
+    caducidad en el bucket — que es **configuración**, y entra con la preparación de producción
+    (§1).
 
 **Por qué no se barre ahora:** no hay basura de producción que recoger (no hay producción), el
 riesgo de falso positivo está demostrado y es irreversible, y las clases que un barrido sí

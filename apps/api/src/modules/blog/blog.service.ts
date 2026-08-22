@@ -10,6 +10,7 @@ import { PrismaService } from '../../infra/prisma/prisma.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { RevalidateService } from '../../common/revalidate/revalidate.service';
 import { R2Service } from '../../infra/r2/r2.service';
+import { MediaCleanupService } from '../media-cleanup/media-cleanup.service';
 import { MIME_TO_EXT } from '../media/media.service';
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
@@ -30,6 +31,7 @@ export class BlogService {
     private readonly auditLog: AuditLogService,
     private readonly revalidateService: RevalidateService,
     private readonly r2: R2Service,
+    private readonly mediaCleanup: MediaCleanupService,
   ) {}
 
   // Molde sponsored-ads (SponsoredAdsService.uploadImage): sube directo a R2,
@@ -229,6 +231,22 @@ export class BlogService {
       ip,
     });
 
+    // HUÉRFANAS H1 — las imágenes que se han quedado FUERA de los bloques. Suben por
+    // `uploadBlockImage` a `blocks/` y no tienen fila propia: quitarlas del `Json` las
+    // dejaba sueltas en el bucket. El «antes» ya estaba leído (`adminFindById`), así
+    // que esto no añade ninguna consulta.
+    //
+    // Se pasan los DOS campos que pueden llevar media —el `Json` entero y la portada—
+    // sin mirar dentro: qué campo de qué tipo de bloque lleva la URL es cosa de
+    // `ownUrlsDeep`, y enumerarlo aquí sería el falso positivo del §7.6 al revés.
+    // (La portada suele ser una imagen de `media/`, que SÍ tiene fila; el servicio la
+    // reconoce y no la toca.)
+    await this.mediaCleanup.purgeReleased({
+      before: { blocks: post.blocks, coverUrl: post.coverUrl },
+      after: { blocks: updated.blocks, coverUrl: updated.coverUrl },
+      origen: `post:${id}`,
+    });
+
     // Nota: el footer ya no depende de ningún campo de Post (label/orden/
     // columna viven en FooterItem) y el slug es inmutable mientras la PAGE
     // está publicada (guardado arriba) — así que un adminUpdate normal nunca
@@ -357,6 +375,14 @@ export class BlogService {
       resourceId: id,
       before,
       ip,
+    });
+
+    // HUÉRFANAS H1 — borrar el post suelta TODAS sus imágenes de bloque a la vez: el
+    // «después» es que no queda nada. Mismo camino que la edición, con `after: null`.
+    await this.mediaCleanup.purgeReleased({
+      before: { blocks: post.blocks, coverUrl: post.coverUrl },
+      after: null,
+      origen: `post:${id}`,
     });
 
     if (wasPublished) {
