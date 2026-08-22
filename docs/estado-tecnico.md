@@ -14797,6 +14797,93 @@ tests que hoy exigen el defecto tienen que caerse allí.
 
 ---
 
+## Punto 6 — RÁFAGA C: el fail-open del tokenizador · **el punto 6 y el LOTE, cerrados**
+
+Diseño: `docs/diseno-listas-bloqueo.md` §0.1 y §5.4.
+
+### Lo que estaba roto
+
+El detector de palabras partía el texto en tokens alfanuméricos y comparaba **cada entrada
+entera contra un token completo**. Sólo funcionaban las entradas de UNA palabra: `dinero
+facil`, `100%-garantizado` o cualquier cosa con un espacio o un símbolo **casaba cero
+veces**, y la pantalla de ajustes la guardaba prometiendo que filtraba.
+
+### El arreglo
+
+Se comparan **formas colapsadas**: normalizar, reducir todo lo no-`[a-z0-9]` a un espacio, y
+poner **un espacio de guarda a cada lado**. El emparejamiento es `includes` sobre esas formas.
+
+Los espacios de guarda son la pieza que importa: conservan la semántica de **palabra entera**
+que el tokenizador daba gratis. Sin ellos esto sería un `contains` a secas y «estafa»
+empezaría a casar dentro de «estafador» — en el detector que **bloquea**. De regalo, la
+puntuación deja de tener que coincidir en los dos lados.
+
+Y una entrada que se queda en nada al normalizar (`---`) se descarta: su forma colapsada
+sería un espacio suelto, que está dentro de **cualquier** texto. Con `WORD` en `BLOCK`, eso
+habría mandado a revisión el marketplace entero. Tiene barrera.
+
+### El alcance: `192.168.1.1` en la lista ahora casa, y no pisa al detector de IPs
+
+Es la pregunta que había que responder bien, y la respuesta separa una **lista** de un
+**patrón**:
+
+- El detector `IP` es una **heurística**: dispara con cualquier IP, incluidas las legítimas
+  (el anuncio de router). Por eso nació avisando y por eso su ascenso se mide.
+- Una entrada de la lista es una **cadena literal que alguien tecleó**. Que case significa
+  «bloquea ESE texto», que es lo que pidió quien la escribió.
+
+Excluir «las entradas que parezcan una IP» exigiría adivinar si `192.168.1.1` es una IP o una
+referencia con puntos — y adivinar es lo que produce fail-opens. Hay barrera de las dos
+mitades: con la lista vacía, una IP la ve **sólo** el detector de IPs, y no bloquea.
+
+### Enseñar antes que arreglar
+
+El arreglo endurece un detector en `BLOCK`, y desde la ráfaga B **bloquear actúa también al
+editar**: entradas inertes desde hace meses pueden sacar del escaparate anuncios ya
+publicados en cuanto su dueño los toque.
+
+`entradas-inertes.ts` clasifica cuáles son ésas y la pantalla de ajustes **las lista una a
+una** con lo que va a pasar. La descripción del ajuste, que prometía lo que no cumplía, se ha
+reescrito.
+
+> **Desviación del diseño, dicha:** §5.4 planteaba el aviso y el arreglo como **dos
+> despliegues** —enseñar, que el admin revise, y luego endurecer—. Aquí van en la misma
+> ráfaga, así que el aviso no es «esto no funciona» sino **«esto empieza a funcionar ahora,
+> revísalo»**. Es la lectura honesta de lo que ocurre en un solo despliegue. Separarlo de
+> verdad exigiría marcar entrada por entrada cuáles están confirmadas, y eso convierte
+> `badWordList` de `string[]` en objetos — una migración por una capacidad que nadie ha
+> pedido (§6.2 del diseño ya lo descartó).
+
+### Los tres tests del defecto, caídos por decisión
+
+Los que afirmaban que `dinero facil` y `192.168.1.1` **no** casaban están sustituidos por sus
+contrarios, sobre los mismos casos y con los mismos textos, para que el diff enseñe el cambio
+en vez de esconderlo. Ésa era su función desde la ráfaga 0.
+
+### Verificación
+
+`detection.engine.spec.ts` (52, de 47) · `deteccion-avisos.e2e-spec.ts` (15, de 11) ·
+`entradas-inertes.test.ts` (16, nuevo).
+
+Mutaciones, las tres verificadas:
+
+| Mutación | Cae |
+|---|---|
+| El emparejamiento vuelve a comparar contra tokens sueltos | Las 4 del arreglo + 2 e2e |
+| Quitar los espacios de guarda (un `contains` a secas) | Las 3 de «palabra entera» + 1 e2e |
+| Arreglar **sin avisar** al admin | La barrera del aviso en `entradas-inertes.test.ts` |
+
+**Un byte nulo, y lo que enseñó.** Durante la implementación se coló un `\0` en lugar del
+espacio separador de `colapsar`. El detector dejó de encontrar **nada** y el fichero pasó a
+ser binario para `file`. Lo cazó la batería completa, no la suite del cambio — y obligó a
+**repetir las dos primeras mutaciones**, porque una mutación medida sobre una base rota no es
+evidencia de nada. Queda anotado por eso: cuando una mutación tumbe más tests de los que su
+hipótesis predice, la sospecha correcta es la base, no la mutación.
+
+**Con esto el punto 6 queda cerrado, y con él el LOTE DE RETOQUES entero** (los siete puntos).
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.
