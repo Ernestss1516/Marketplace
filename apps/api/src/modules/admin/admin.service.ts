@@ -66,6 +66,11 @@ import { ListingEditValidationService } from '../listings/listing-edit-validatio
 import { PreModerationService } from '../moderation/pre-moderation.service';
 import { DetectionEngine } from '../moderation/detection/detection.engine';
 import { ListingDetectionsService } from '../moderation/detection/listing-detections.service';
+import {
+  DETECTION_MODES_SETTING,
+  parseDetectionModes,
+  type DetectorId,
+} from '../moderation/detection/detection.types';
 import { ListingGateService } from '../listing-gate/listing-gate.service';
 // FICHA DE USUARIO U3 — el dueño único de «¿es Pro?».
 import { ProStatusService } from '../listing-gate/pro-status.service';
@@ -194,6 +199,15 @@ const SETTING_KEYS = [
   // NO: encenderlo es decidir que una insignia que hoy es cosmética pase a tener
   // consecuencias. Nunca exime de las marcas específicas (categoría o usuario).
   'preModerationTrustedExempt',
+  // PUNTO 6 · RÁFAGA B — EL ASCENSO. `{ WORD, IP, PHONE } → 'WARN' | 'BLOCK'`.
+  //
+  // Sin fila, los modos son los de nacimiento: `WORD` bloquea (lo hace desde siempre) e
+  // `IP`/`PHONE` avisan. Ascender un detector es CAMBIAR ESTE VALOR — no se reescribe
+  // ningún detector, que es para lo que la ráfaga 0 dejó la forma.
+  //
+  // ADMIN, mismo criterio que `preModerationAllListings`: elegir qué ramas entran en la
+  // cola es moderar; decidir que a partir de ahora un patrón despublica es una política.
+  'detectionModes',
 ] as const;
 type SettingKey = (typeof SETTING_KEYS)[number];
 
@@ -2391,6 +2405,65 @@ export class AdminService {
    * Aditivo: las filas reales salen exactamente igual que antes (mismos campos,
    * mismo orden por clave); lo nuevo son las entradas sintéticas y el flag.
    */
+  /**
+   * PUNTO 6 · RÁFAGA B — EL CONTADOR CON EL QUE SE DECIDE UN ASCENSO.
+   *
+   * ─── LO QUE ES, Y LO QUE NO ES ───────────────────────────────────────────────────────
+   *
+   * Devuelve, por detector, su modo y DOS RECUENTOS EN BRUTO:
+   *
+   *   · `listings`   — cuántos anuncios tienen al menos una detección suya. Es la magnitud
+   *                    que corresponde a la decisión: «a cuántos anuncios afectaría
+   *                    ascender esto».
+   *   · `detections` — cuántos hallazgos en total. Un detector que dispara 50 veces sobre 3
+   *                    anuncios no es lo mismo que 50 sobre 50, y con un solo número no se
+   *                    distingue.
+   *
+   * **NINGUNO DE LOS DOS ES UNA TASA DE FALSOS POSITIVOS, y llamarlo así sería mentir.**
+   * Medirla exige que alguien juzgue cada detección —«esto era un teléfono de verdad» /
+   * «esto era una referencia»—, y eso es un veredicto por hallazgo: otro modelo, propuesto
+   * como opcional y fuera de esta ráfaga.
+   *
+   * Lo que este contador da de verdad es una MAGNITUD y una puerta al banco de pruebas: el
+   * admin ve que `PHONE` dispara en 340 anuncios, filtra la lista por ese detector, abre
+   * veinte y ve con sus ojos cuántos eran ruido. Es poco y es honesto. Un porcentaje con
+   * decimales sacado de un recuento convencería más de lo que mide, que es exactamente el
+   * fallo que un dato de moderación no puede permitirse.
+   *
+   * NO SE DEVUELVE NINGÚN PORCENTAJE, y no por olvido: no hay ninguno que calcular sin
+   * inventarse el denominador.
+   */
+  async getDetectionStats() {
+    const [porDetector, anuncios, modosAjuste] = await Promise.all([
+      this.prisma.listingDetection.groupBy({ by: ['detector'], _count: { _all: true } }),
+      // `distinct` sobre `listingId` — «anuncios con al menos una», no «hallazgos».
+      this.prisma.listingDetection.findMany({
+        distinct: ['listingId', 'detector'],
+        select: { detector: true },
+      }),
+      this.prisma.setting.findUnique({
+        where: { key: DETECTION_MODES_SETTING },
+        select: { value: true },
+      }),
+    ]);
+
+    const modos = parseDetectionModes(modosAjuste?.value);
+    const hallazgos = new Map(porDetector.map((f) => [f.detector, f._count._all]));
+    const conAnuncios = new Map<string, number>();
+    for (const fila of anuncios) {
+      conAnuncios.set(fila.detector, (conAnuncios.get(fila.detector) ?? 0) + 1);
+    }
+
+    // Los TRES siempre, también los que no han disparado nunca: un detector ausente de la
+    // lista se leería como «no existe» en vez de como «no ha encontrado nada».
+    return (Object.keys(modos) as DetectorId[]).map((detector) => ({
+      detector,
+      mode: modos[detector],
+      listings: conAnuncios.get(detector) ?? 0,
+      detections: hallazgos.get(detector) ?? 0,
+    }));
+  }
+
   async getSettings() {
     const filas = await this.prisma.setting.findMany({ orderBy: { key: 'asc' } });
     const conFila = new Set(filas.map((f) => f.key));

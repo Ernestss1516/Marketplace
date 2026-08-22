@@ -28,20 +28,31 @@
  */
 
 import { DetectionEngine } from './detection.engine';
+import { DETECTION_MODES_SETTING, parseDetectionModes } from './detection.types';
 import { WordDetector, BAD_WORD_LIST_SETTING } from './detectors/word.detector';
 import { IpDetector } from './detectors/ip.detector';
 import { PhoneDetector } from './detectors/phone.detector';
 import type { PrismaService } from '../../../infra/prisma/prisma.service';
 
-function conLista(words: unknown, opciones: { revienta?: boolean } = {}) {
+function conLista(
+  words: unknown,
+  opciones: { revienta?: boolean; modos?: unknown; modosRevientan?: boolean } = {},
+) {
   const findUnique = jest.fn(async ({ where }: { where: { key: string } }) => {
+    // RÁFAGA B — el mismo `setting.findUnique` sirve las dos claves. Que el detector de
+    // palabras reviente NO puede impedir leer los modos (ni al revés): son dos lecturas
+    // con dueños distintos, y el `opciones.revienta` sólo tumba la de la lista.
+    if (where.key === DETECTION_MODES_SETTING) {
+      if (opciones.modosRevientan) throw new Error('no se pueden leer los modos');
+      return opciones.modos === undefined ? null : { key: where.key, value: opciones.modos };
+    }
     if (opciones.revienta) throw new Error('la base de datos no está');
     if (where.key !== BAD_WORD_LIST_SETTING) return null;
     return words === undefined ? null : { key: where.key, value: words };
   });
   const prisma = { setting: { findUnique } } as unknown as PrismaService;
   const detector = new WordDetector(prisma);
-  const motor = new DetectionEngine(detector, new IpDetector(), new PhoneDetector());
+  const motor = new DetectionEngine(prisma, detector, new IpDetector(), new PhoneDetector());
   return { motor, detector, findUnique };
 }
 
@@ -179,12 +190,19 @@ describe('el contrato de fallo — fail-open, acotado por detector', () => {
 });
 
 describe('la estructura del motor', () => {
-  it('el motor pregunta por la clave del ajuste UNA vez por pasada', async () => {
+  it('la lista de palabras se lee UNA vez por pasada', async () => {
     // Una lectura por detector que la necesite, no una por palabra de la lista — y los
     // detectores de patrón no leen nada.
+    //
+    // Se cuenta SÓLO la clave de la lista: desde la ráfaga B el motor lee además los modos,
+    // que es la lectura que la ráfaga 0 se negó a hacer para no cambiar la conducta. Contar
+    // todas las llamadas mezclaría dos cosas distintas.
     const { motor, findUnique } = conLista(['estafa']);
     await motor.run(TEXTO('estafa', 'estafa'));
-    expect(findUnique).toHaveBeenCalledTimes(1);
+    const lecturasDeLaLista = findUnique.mock.calls.filter(
+      ([arg]) => (arg as { where: { key: string } }).where.key === BAD_WORD_LIST_SETTING,
+    );
+    expect(lecturasDeLaLista).toHaveLength(1);
   });
 
   it('hay TRES detectores, y son WORD, IP y PHONE', async () => {
@@ -348,5 +366,82 @@ describe('RÁFAGA A — un detector caído no arrastra a los demás', () => {
 
     expect(new Set(detections.map((d) => d.detector))).toEqual(new Set(['IP', 'PHONE']));
     expect(blocking).toBe(false);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────────────────
+// RÁFAGA B — el ascenso: cambiar el MODO, no el detector
+// ───────────────────────────────────────────────────────────────────────────────────────
+
+describe('RÁFAGA B — ascender un detector es cambiar un valor', () => {
+  const TEXTO_CON_TELEFONO = TEXTO('Vendo bici', 'llámame al 654123456');
+
+  it('EL MISMO TEXTO Y EL MISMO DETECTOR: avisa o bloquea según el ajuste', async () => {
+    // LA BARRERA DEL ASCENSO. Las dos mitades en una prueba porque lo que hay que demostrar
+    // no es que bloquee, sino que **es el mismo camino de código** con otro valor: si
+    // ascender exigiera otra rama, otro detector o un despliegue, el diseño estaría mal.
+    const avisando = conLista([], { modos: { PHONE: 'WARN' } });
+    const a = await avisando.motor.run(TEXTO_CON_TELEFONO);
+    expect(a.detections.map((d) => d.detector)).toEqual(['PHONE']);
+    expect(a.blocking).toBe(false);
+
+    const bloqueando = conLista([], { modos: { PHONE: 'BLOCK' } });
+    const b = await bloqueando.motor.run(TEXTO_CON_TELEFONO);
+    // MISMAS DETECCIONES: bloquear es avisar MÁS una consecuencia, no otra cosa. Por eso
+    // degradar de vuelta no pierde nada.
+    expect(b.detections).toEqual(a.detections);
+    expect(b.blocking).toBe(true);
+  });
+
+  it('sin ajuste, los modos son los de nacimiento', async () => {
+    const { motor } = conLista([], { modos: undefined });
+    const { blocking } = await motor.run(TEXTO_CON_TELEFONO);
+    expect(blocking).toBe(false);
+  });
+
+  it('degradar `WORD` a AVISAR también se respeta — el ajuste manda en los tres', async () => {
+    const { motor } = conLista(['estafa'], { modos: { WORD: 'WARN' } });
+    const { detections, blocking } = await motor.run(TEXTO('Vendo estafa'));
+    expect(detections.map((d) => d.detector)).toEqual(['WORD']);
+    expect(blocking).toBe(false);
+  });
+
+  it('los modos se leen UNA vez por pasada', async () => {
+    const { motor, findUnique } = conLista([], { modos: { PHONE: 'BLOCK' } });
+    await motor.run(TEXTO_CON_TELEFONO);
+    const lecturasDeModos = findUnique.mock.calls.filter(
+      ([arg]) => (arg as { where: { key: string } }).where.key === DETECTION_MODES_SETTING,
+    );
+    expect(lecturasDeModos).toHaveLength(1);
+  });
+});
+
+describe('RÁFAGA B — un ajuste roto NO puede apagar el filtro que sí bloquea', () => {
+  // Es la decisión que más importa de `parseDetectionModes`, y por eso tiene tests propios:
+  // si un `detectionModes` a medio escribir tumbara el objeto entero, un error de tecleo
+  // APAGARÍA EL FILTRO DE PALABRAS EN SILENCIO. Cada clave cae a su defecto por separado.
+
+  it.each([
+    ['null', null],
+    ['un array', ['WORD']],
+    ['una cadena', 'BLOCK'],
+    ['un objeto vacío', {}],
+    ['un valor mal escrito', { WORD: 'bloquear' }],
+    ['una clave que no existe', { NOPE: 'WARN' }],
+  ])('con %s, WORD sigue bloqueando', (_caso, valor) => {
+    expect(parseDetectionModes(valor).WORD).toBe('BLOCK');
+  });
+
+  it('un valor basura en IP no cambia lo que hace WORD', () => {
+    const modos = parseDetectionModes({ WORD: 'BLOCK', IP: 'BLOQUEAR_YA' });
+    expect(modos).toEqual({ WORD: 'BLOCK', IP: 'WARN', PHONE: 'WARN' });
+  });
+
+  it('si la lectura del ajuste REVIENTA, se cae a los modos de nacimiento (no a «nadie bloquea»)', async () => {
+    // La dirección del fail-open importa: caer a «todo en WARN» apagaría el filtro de
+    // palabras cada vez que la base tosiera, y nadie lo notaría.
+    const { motor } = conLista(['estafa'], { modosRevientan: true });
+    const { blocking } = await motor.run(TEXTO('Vendo estafa'));
+    expect(blocking).toBe(true);
   });
 });

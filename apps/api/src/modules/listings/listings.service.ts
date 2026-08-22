@@ -448,10 +448,11 @@ export class ListingsService {
     // el bloque de arriba). Editar es la vía de salida de un anuncio marcado; si pudiera
     // fallar por tener un teléfono, quien ya lo tuviera no podría quitarlo. `refresh` se
     // traga sus propios fallos, y el `void` deja escrito que aquí no se mira el resultado.
-    void (await this.detections.refresh(listing.id, {
+    const { blocking } = await this.detections.refresh(listing.id, {
       title: listing.title,
       description: listing.description,
-    }));
+    });
+    const trasEditar = await this.aplicarConsecuenciaDeLaEdicion(listing, blocking, userId);
 
     // Clear cache immediately, then enqueue exactly one indexing-affecting job.
     // When the address changed without explicit coords, the 'geocode' job
@@ -467,6 +468,94 @@ export class ListingsService {
     } else {
       await this.indexingQueue.add('index', { listingId: id });
     }
+    // `SearchService.indexListing` decide por el estado, así que el mismo trabajo saca del
+    // índice un anuncio que acaba de irse a revisión y mete el que acaba de salir de ella.
+    return trasEditar;
+  }
+
+  /**
+   * PUNTO 6 · RÁFAGA B — LA CONSECUENCIA DE EDITAR, EN LOS DOS SENTIDOS.
+   *
+   * ─── EL CAMBIO DE COMPORTAMIENTO, DICHO SIN ADORNOS ─────────────────────────────────
+   *
+   * Hasta la ráfaga A, editar un ACTIVE **no podía cambiar su estado**: la detección corría
+   * y sólo dejaba avisos. Desde aquí, **con un detector en `BLOCK`, meter un teléfono en
+   * un anuncio publicado lo devuelve a la cola de revisión**. Su anuncio desaparece del
+   * escaparate a media vida, por una edición. Es nuevo para el vendedor.
+   *
+   * Por eso llega en su propia ráfaga y detrás de un interruptor: `IP` y `PHONE` nacieron
+   * avisando y sólo bloquean si un ADMIN los asciende viendo cuánto disparan.
+   *
+   * ─── Y LA PUERTA DE SALIDA, QUE ES LA MITAD QUE HACE QUE ESTO NO SEA UNA TRAMPA ─────
+   *
+   * Bloquear sin salida es encerrar: «no se publica porque no cumple, y no puede arreglarlo
+   * porque ya no le deja». `publish()` sólo admite DRAFT, y de `PENDING_REVIEW` sólo salía
+   * un moderador aprobando. Con un detector bloqueando al editar, eso convertiría cada
+   * falso positivo en una espera indefinida por algo que el vendedor puede arreglar solo.
+   *
+   * Así que la simetría es obligatoria: **editar un `PENDING_REVIEW` que ya no dispara nada
+   * lo devuelve a ACTIVE**. Molde exacto de `clearIfCompliant` —«editar limpia»—, y con su
+   * misma pregunta: no «¿por qué entró?» sino «¿queda algún motivo AHORA?».
+   *
+   * ─── LO QUE NO LIBERA, Y ES DELIBERADO ──────────────────────────────────────────────
+   *
+   * Se consulta también `reviewTriggerFor`. Si la plataforma revisa todo, o la categoría o
+   * el vendedor están marcados, **el anuncio se queda en la cola por mucho que el texto
+   * quede limpio**: eso son POLÍTICAS que alguien encendió a mano, y quitar un teléfono no
+   * las satisface. Sólo se libera lo que se bloqueó por el contenido.
+   *
+   * ALCANCE: sólo `ACTIVE ⇄ PENDING_REVIEW`. Un `RESERVED` tiene una negociación abierta y
+   * un `PAUSED`/`DRAFT` no está en el escaparate — moverlos por una edición sería tocar
+   * ciclos de vida que este punto no viene a tocar.
+   *
+   * NUNCA LANZA. «Editar limpia, pero nunca frena»: si la puerta rechaza la reactivación
+   * —cuota, por ejemplo— el anuncio se queda donde estaba y la edición se guarda igual.
+   */
+  private async aplicarConsecuenciaDeLaEdicion(
+    listing: Listing,
+    blocking: boolean,
+    userId: string,
+  ): Promise<Listing> {
+    try {
+      if (listing.status === 'ACTIVE' && blocking) {
+        return await this.prisma.listing.update({
+          where: { id: listing.id },
+          // `expiresAt` NO se toca: el anuncio no ha caducado, está en revisión. Al volver
+          // conserva el plazo que le quedaba en vez de estrenar uno.
+          data: { status: 'PENDING_REVIEW' },
+        });
+      }
+
+      if (listing.status === 'PENDING_REVIEW' && !blocking) {
+        if (await this.preModeration.reviewTriggerFor(listing)) return listing;
+
+        // LA PUERTA, IGUAL QUE AL PUBLICAR: volver al escaparate ocupa plaza, así que se
+        // comprueba la cuota. Si la rechaza, se queda en revisión — sin lanzar.
+        await this.gate.assertCanBecomeActive(listing, {
+          actor: 'seller', transition: 'publish', actorId: userId,
+        });
+
+        const publishedAt = listing.publishedAt ?? new Date();
+        const liberado = await this.prisma.listing.update({
+          where: { id: listing.id },
+          data: {
+            status: 'ACTIVE',
+            publishedAt,
+            // Molde de `approveListing`: el plazo se cuenta desde la publicación, no desde
+            // ahora, para que pasar por la cola no regale caducidad.
+            expiresAt: ExpirationService.expiresAt(publishedAt),
+          },
+        });
+        await this.activation.listingBecameActive(liberado.slug, liberado.id);
+        return liberado;
+      }
+    } catch (err) {
+      this.logger.error(
+        `No se ha podido aplicar la consecuencia de la edición al anuncio ${listing.id} — se conserva su estado`,
+        err,
+      );
+    }
+
     return listing;
   }
 

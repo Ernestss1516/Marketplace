@@ -1,8 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { PrismaService } from '../../../infra/prisma/prisma.service';
 import {
   DEFAULT_DETECTION_MODES,
+  DETECTION_MODES_SETTING,
+  parseDetectionModes,
   type DetectableText,
   type Detection,
+  type DetectionMode,
   type DetectionRunResult,
   type Detector,
   type DetectorId,
@@ -65,6 +69,7 @@ export class DetectionEngine {
   private readonly detectors: readonly Detector[];
 
   constructor(
+    private readonly prisma: PrismaService,
     wordDetector: WordDetector,
     ipDetector: IpDetector,
     phoneDetector: PhoneDetector,
@@ -86,6 +91,11 @@ export class DetectionEngine {
     const detections: Detection[] = [];
     let blocking = false;
 
+    // RÁFAGA B — LOS MODOS, UNA VEZ POR PASADA y no uno por detector. Es la lectura que la
+    // ráfaga 0 se negó a hacer para no cambiar la conducta; ahora sí, porque el ascenso es
+    // precisamente lo que esta ráfaga construye.
+    const modes = await this.loadModes();
+
     for (const detector of this.detectors) {
       let encontradas: Detection[];
       try {
@@ -101,22 +111,39 @@ export class DetectionEngine {
 
       if (!encontradas.length) continue;
       detections.push(...encontradas);
-      if (this.modeOf(detector.id) === 'BLOCK') blocking = true;
+      if (modes[detector.id] === 'BLOCK') blocking = true;
     }
 
     return { detections, blocking };
   }
 
   /**
-   * El modo de un detector.
+   * RÁFAGA B — el ascenso, leído.
    *
-   * HOY UNA CONSTANTE, y a propósito: leerlo de `Setting['detectionModes']` sería una
-   * consulta a base de datos NUEVA, y una consulta nueva no es conducta byte-idéntica.
-   * Hacerlo configurable —y con ello el ascenso de avisar a bloquear— es la ráfaga B.
+   * FAIL-OPEN HACIA EL DEFECTO, no hacia «no bloquea nadie»: si el ajuste falta o la
+   * consulta revienta, se usan los modos de NACIMIENTO —`WORD` bloquea, `IP`/`PHONE`
+   * avisan—. La diferencia importa: caer a «todo en WARN» apagaría el filtro de palabras
+   * cada vez que la base de datos tosiera, y eso es un fallo invisible que nadie notaría.
+   * Caer al defecto conserva la conducta que había antes de que existiera el ajuste.
    *
-   * Vive en un método y no en línea para que ese cambio sea un cuerpo, no una búsqueda.
+   * SIN CACHÉ, a propósito. Es un `findUnique` por clave primaria —el mismo coste que la
+   * lectura de la lista de palabras que ya se hacía— y cachearlo significaría que ascender
+   * o degradar un detector tardara en surtir efecto. Un interruptor de moderación que no
+   * responde al momento es peor que uno que cuesta una consulta.
    */
-  private modeOf(id: DetectorId) {
-    return DEFAULT_DETECTION_MODES[id];
+  private async loadModes(): Promise<Record<DetectorId, DetectionMode>> {
+    try {
+      const ajuste = await this.prisma.setting.findUnique({
+        where: { key: DETECTION_MODES_SETTING },
+        select: { value: true },
+      });
+      return parseDetectionModes(ajuste?.value);
+    } catch (err) {
+      this.logger.error(
+        'No se han podido leer los modos de detección — se usan los de nacimiento',
+        err,
+      );
+      return { ...DEFAULT_DETECTION_MODES };
+    }
   }
 }

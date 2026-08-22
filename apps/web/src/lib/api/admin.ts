@@ -715,3 +715,22 @@ export function updateAdminSetting(
     token,
   });
 }
+
+/**
+ * PUNTO 6 · RÁFAGA B — cuánto está disparando cada detector, y en qué modo está.
+ *
+ * SON RECUENTOS EN BRUTO, no una tasa de acierto: `listings` es a cuántos anuncios afectaría
+ * ascender el detector y `detections` cuántos hallazgos hay en total. No hay ningún
+ * porcentaje porque no se puede calcular sin un veredicto humano por hallazgo, que no
+ * existe. Ver `docs/diseno-listas-bloqueo.md` §2.4.
+ */
+export interface DetectionStat {
+  detector: 'WORD' | 'IP' | 'PHONE';
+  mode: 'WARN' | 'BLOCK';
+  listings: number;
+  detections: number;
+}
+
+export function getDetectionStats(token: string): Promise<DetectionStat[]> {
+  return apiFetch<DetectionStat[]>('/admin/detection/stats', { token });
+}
