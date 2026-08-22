@@ -157,3 +157,48 @@ describe('conFiltro', () => {
     });
   });
 });
+
+// ─── Los tres ejes nuevos: teléfono, provincia y municipio ────────────────────
+//
+// Entran con la misma forma que los seis anteriores —una clave al leer, una al escribir y
+// una línea en `hayFiltros`—, que es lo que F2 prometió que costaría añadir un eje. Van
+// SUELTOS y no dentro de `q`: «de Toledo» y «menciona Toledo» son preguntas distintas, y un
+// teléfono es un identificador que se busca entero (igual que la IP desde 5b).
+
+describe('teléfono, provincia y municipio en la URL', () => {
+  it('se leen los tres', () => {
+    const f = leerFiltros(
+      new URLSearchParams('phone=654123456&province=Toledo&city=Illescas'),
+    );
+    expect(f.phone).toBe('654123456');
+    expect(f.province).toBe('Toledo');
+    expect(f.city).toBe('Illescas');
+  });
+
+  it('y se escriben, recortados', () => {
+    const qs = aQueryString({ phone: '  654 123 456 ', province: 'Toledo', city: '' });
+    const params = new URLSearchParams(qs);
+    expect(params.get('phone')).toBe('654 123 456');
+    expect(params.get('province')).toBe('Toledo');
+    // Vacío es «sin filtro»: no ensucia la URL.
+    expect(params.has('city')).toBe(false);
+  });
+
+  it('ida y vuelta: lo que se escribe se vuelve a leer igual', () => {
+    const original = { phone: '654123456', province: 'Toledo', city: 'Illescas' };
+    const vuelta = leerFiltros(new URLSearchParams(aQueryString(original)));
+    expect(vuelta).toMatchObject(original);
+  });
+
+  it('cualquiera de los tres enciende «Limpiar»', () => {
+    expect(hayFiltros({ phone: '654123456' })).toBe(true);
+    expect(hayFiltros({ province: 'Toledo' })).toBe(true);
+    expect(hayFiltros({ city: 'Illescas' })).toBe(true);
+    // Sólo espacios no es un filtro.
+    expect(hayFiltros({ city: '   ' })).toBe(false);
+  });
+
+  it('una URL sin ellos sigue saliendo limpia', () => {
+    expect(aQueryString({})).toBe('');
+  });
+});

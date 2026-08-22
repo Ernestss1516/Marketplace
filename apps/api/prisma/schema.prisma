@@ -655,6 +655,23 @@ model Listing {
   /// si lo publica. Nunca viaja en el payload público de la ficha (ver findBySlug) —
   /// solo se sirve tras autenticación en GET /listings/:id/phone.
   phone String?
+
+  /// FILTRO DEL BACKOFFICE — el MISMO teléfono, en su forma canónica (nueve dígitos, sin
+  /// prefijo ni separadores). Derivado de `phone`, nunca escrito a mano.
+  ///
+  /// EXISTE PORQUE `phone` GUARDA LO QUE TECLEÓ EL VENDEDOR: «654 123 456», «+34
+  /// 654-12-34-56», «654123456». Buscar por teléfono contra esa columna falla en cuanto los
+  /// formatos no coinciden, y no se puede normalizar en SQL sin una columna donde ponerlo.
+  ///
+  /// **`phone` NO SE TOCA, y ésa es la decisión**: es lo que se le enseña al comprador. Si
+  /// se normalizara en su sitio, el vendedor escribiría su número con espacios y se le
+  /// pintaría pegado — se perdería un dato de presentación para ganar uno de búsqueda. Una
+  /// columna derivada cuesta menos que eso.
+  ///
+  /// `null` cuando no hay teléfono O cuando lo que hay no es un teléfono español válido:
+  /// canonizar a medias haría casar cosas que no son el mismo número. La regla vive en
+  /// `detection/phone-format.ts`, junto al patrón que lo reconoce en texto.
+  phoneNormalized String?
   // NOTA PostGIS: para búsquedas por radio eficientes ("anuncios a 10 km") se
   // añade en una migración SQL una columna geography(Point, 4326) con índice GiST,
   // poblada desde latitude/longitude. Prisma la trata como campo no gestionado.

@@ -39,6 +39,7 @@ import { EntitlementService } from '../billing/entitlement.service';
 // dependencia existente ListingsModule → BillingModule.
 import { nextBumpAt } from '../billing/bump-cooldown';
 import { ListingDetectionsService } from '../moderation/detection/listing-detections.service';
+import { camposDeTelefono } from '../moderation/detection/phone-format';
 import { PreModerationService } from '../moderation/pre-moderation.service';
 import { ListingActivationService } from '../listing-activation/listing-activation.service';
 import { MessagingService } from '../messaging/messaging.service';
@@ -289,7 +290,13 @@ export class ListingsService {
       postalCode: dto.postalCode,
       latitude: dto.latitude ?? null,
       longitude: dto.longitude ?? null,
-      phone: dto.phone,
+      // FILTRO DEL BACKOFFICE — los DOS campos SIEMPRE JUNTOS. `phone` es lo que tecleó el
+      // vendedor y es lo que se le enseña al comprador; `phoneNormalized` es lo mismo en su
+      // forma canónica, y es lo único con lo que se puede buscar. Escribir uno sin el otro
+      // deja un anuncio con teléfono que el buscador no encuentra — invisible, porque la
+      // pantalla del vendedor sigue viéndose bien. `camposDeTelefono()` los emite a la vez
+      // para que no se puedan separar por descuido.
+      ...camposDeTelefono(dto.phone),
       sellerId,
       categoryId: dto.categoryId,
       // B2 — escritura ATÓMICA con el anuncio: un create anidado de Prisma va en la
@@ -370,7 +377,9 @@ export class ListingsService {
         ...(fields.city !== undefined && { city: fields.city }),
         ...(fields.province !== undefined && { province: fields.province }),
         ...(fields.postalCode !== undefined && { postalCode: fields.postalCode }),
-        ...(fields.phone !== undefined && { phone: fields.phone }),
+        // Los dos juntos, igual que en el alta. `undefined` (el PATCH no tocó el teléfono)
+        // no emite ninguno de los dos, así que el par nunca se desparea.
+        ...(fields.phone !== undefined && camposDeTelefono(fields.phone)),
         // B2 — reemplazo COMPLETO del set, en la MISMA transacción implícita que el
         // resto de la fila: deleteMany + create anidados no pueden dejar un anuncio
         // sin tags a medio camino. `tagIds === undefined` (el PATCH no los tocó) no

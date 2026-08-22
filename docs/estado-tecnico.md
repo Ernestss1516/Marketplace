@@ -14884,6 +14884,98 @@ hipótesis predice, la sospecha correcta es la base, no la mutación.
 
 ---
 
+## Filtro de `/admin/anuncios` — teléfono, municipio y provincia
+
+Diseño: `docs/diseno-listas-ip-telefono.md` parte B. Va **antes** que las listas de bloqueo a
+propósito: sin poder buscar por teléfono, los números de esa lista tendrían que salir de
+mirar denuncias a mano.
+
+### De los seis campos pedidos, cuatro ya filtraban
+
+`q` ya casaba **título, descripción, slug e id**, y la última IP ya tenía su parámetro propio
+y **exacto**. Sólo faltaban tres. Los cuatro previos **no se han tocado**, y hay una barrera
+que lo afirma.
+
+### La IP sigue fuera del buscador de texto
+
+Es la trampa que este trabajo podía introducir «de regalo» al ampliar `q`. La barrera de 5b
+—`contains` sobre `10.0.0.1` traería `110.0.0.10`, que es **señalar a quien no es**— se
+reafirma ahora desde el otro lado: buscar una IP por `q` **no encuentra nada**, y su
+parámetro propio sigue siendo exacto.
+
+### El teléfono: una columna canónica, no la visible
+
+`Listing.phone` guarda **lo que tecleó el vendedor** (`654 123 456`, `+34 654-12-34-56`), y
+es lo que se le enseña al comprador. Buscar contra esa columna falla en cuanto los formatos
+no coinciden.
+
+Se añade `Listing.phoneNormalized` —nueve dígitos, sin prefijo ni separadores—, derivada y
+**nunca escrita a mano**. `phone` no se toca: normalizarla en su sitio habría perdido un dato
+de presentación para ganar uno de búsqueda.
+
+**Los dos campos se emiten SIEMPRE juntos** (`camposDeTelefono`), y hay una barrera que lee
+el fuente para que nadie los desparee: escribir sólo el visible deja un anuncio **con
+teléfono que el buscador no encuentra**, y el fallo es invisible — la pantalla del vendedor
+se ve perfecta y el moderador concluye que ese número no está en la plataforma.
+
+**Con backfill en la migración.** Sin él la columna nace vacía y el filtro sólo encontraría
+lo creado después del despliegue: un filtro a medio poblar miente peor que uno que no existe.
+
+### La regla del teléfono, en un solo sitio
+
+`detection/phone-format.ts` reúne el **patrón** que reconoce un teléfono en texto (venía de
+`PhoneDetector`) y el **normalizador** que lo canoniza. Son dos caras de la misma regla y
+separarlas es como divergen. Hay una barrera que lo afirma: **todo lo que el patrón reconoce,
+el normalizador lo canoniza a nueve dígitos**.
+
+Nota: existe además `LISTING_PHONE_REGEX`, la **validación de entrada** del DTO, deliberadamente
+permisiva (admite prefijos internacionales). Es otro trabajo — un `+44…` se guarda y se enseña,
+pero su `phoneNormalized` es `null` porque no es un teléfono español.
+
+### Municipio y provincia: parámetros propios
+
+Existen como columnas. Van **sueltos y no dentro de `q`**: «anuncios **DE** Toledo» y
+«anuncios que **MENCIONAN** Toledo» son preguntas distintas, y mezclarlas impediría pedir
+sólo una. `contains` insensible y no igualdad, porque son texto libre del vendedor y parcial
+es más útil («Alcalá» trae las dos Alcalás).
+
+### Medido, y una corrección al diseño
+
+Con **80.000 anuncios sintéticos** (26.666 con teléfono):
+
+| Consulta | Plan | Tiempo |
+|---|---|---|
+| `phoneNormalized = …` + `ORDER BY updatedAt LIMIT 24` | Seq Scan | **8,1 ms** |
+| `province ILIKE … AND city ILIKE …` + orden y límite | Index Scan Backward `Listing_updatedAt_idx` | **0,06 ms** |
+
+**Sin índice sobre `phoneNormalized`**: 8 ms contra el umbral de ~300 ms que este backoffice
+tiene escrito para su consulta más caliente — 37 veces menos. Es el criterio con el que F2 lo
+añadió tras medir y E2 decidió no añadirlo tras medir. Crece lineal (~100 ms al millón) y la
+salida está escrita en la migración.
+
+> **Corrección al diseño**: dijo que provincia/municipio entrarían «sobre un índice que ya
+> está puesto» (`@@index([province, city])`). **No es el que usa**: con el `ORDER BY updatedAt
+> DESC LIMIT 24` del listado, el planificador prefiere recorrer `Listing_updatedAt_idx` hacia
+> atrás y filtrar, parando pronto. Sale a 0,06 ms, así que el resultado es aún mejor de lo
+> previsto — pero por otro camino del que dije.
+
+### Verificación
+
+`test/filtro-anuncios-ampliado.e2e-spec.ts` (11) · `phone-format.spec.ts` (17, nuevo) ·
+`filtros-url.test.ts` (23, de 18).
+
+Mutaciones, las tres verificadas:
+
+| Mutación | Cae |
+|---|---|
+| `province` busca también en la descripción | «DE Toledo ≠ MENCIONA Toledo» |
+| Comparar sin normalizar lo que teclea el moderador | Barrera 1: los cuatro formatos |
+| Escribir `phone` sin su columna canónica | La barrera de fuente + el alta por API |
+
+**Siguiente**: la lista de IPs (derivada sobre la última IP, sin tabla) y la de teléfonos.
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.
