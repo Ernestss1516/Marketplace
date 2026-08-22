@@ -64,7 +64,7 @@ import { SetListingTriageDto } from './dto/set-listing-triage.dto';
 import { UpdateAdminListingDto } from './dto/update-admin-listing.dto';
 import { ListingEditValidationService } from '../listings/listing-edit-validation.service';
 import { PreModerationService } from '../moderation/pre-moderation.service';
-import { BadWordService } from '../moderation/bad-word.service';
+import { DetectionEngine } from '../moderation/detection/detection.engine';
 import { ListingGateService } from '../listing-gate/listing-gate.service';
 // FICHA DE USUARIO U3 — el dueño único de «¿es Pro?».
 import { ProStatusService } from '../listing-gate/pro-status.service';
@@ -378,7 +378,7 @@ export class AdminService {
     // propósito: insertar un parámetro en medio rompe todos los specs que
     // construyen el servicio a mano (pasó en B3 y costó dos arreglos).
     private readonly preModeration: PreModerationService,
-    private readonly badWords: BadWordService,
+    private readonly detection: DetectionEngine,
     // FICHA DE USUARIO U3 — el HECHO de ser Pro para la ficha de usuario. Es el
     // dueño único de esa pregunta (ver su cabecera); aquí sólo se consulta.
     private readonly proStatus: ProStatusService,
@@ -642,8 +642,15 @@ export class AdminService {
       // Molde `publish()`: el filtro de palabras es FAIL-OPEN por contrato — si
       // falla, no bloquea. Aquí el coste de un fallo es aún menor (una señal que
       // no se pinta), así que se mantiene el mismo criterio y no se propaga.
-      this.badWords
-        .hasBadWords(listing.title, listing.description)
+      // PUNTO 6 · RÁFAGA 0 — el motor en lugar de `hasBadWords`. La señal que viaja al
+      // frontal SIGUE SIENDO EL MISMO BOOLEANO (`moderationSignals.palabraProhibida`): la
+      // respuesta de este endpoint no cambia de forma, que es media barrera de la ráfaga.
+      // Se pregunta explícitamente por el detector `WORD` y no por `blocking`, porque la
+      // señal se llama «palabra prohibida» y tiene que seguir significando eso cuando la
+      // ráfaga A añada detectores.
+      this.detection
+        .run({ title: listing.title, description: listing.description })
+        .then((r) => r.detections.some((d) => d.detector === 'WORD'))
         .catch(() => false),
       this.auditLog.listForResource('Listing', listing.id),
     ]);

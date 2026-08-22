@@ -12,7 +12,11 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { ModerationController } from './moderation.controller';
 import { ModerationService } from './moderation.service';
 import { ModerationNotificationsService } from './moderation-notifications.service';
-import { BadWordService } from './bad-word.service';
+// PUNTO 6 · RÁFAGA 0 — `BadWordService` ya no existe: es el detector `WORD` del motor.
+// No se ha dejado una fachada con el nombre viejo al lado, porque dos nombres para lo
+// mismo es como acaban divergiendo (`listing-status.ts` lo documenta habiéndolo pagado).
+import { DetectionEngine } from './detection/detection.engine';
+import { WordDetector } from './detection/detectors/word.detector';
 import { PreModerationService } from './pre-moderation.service';
 import { CategoryTreeModule } from '../categories/category-tree.module';
 
@@ -33,7 +37,15 @@ import { CategoryTreeModule } from '../categories/category-tree.module';
     NotificationsModule,
   ],
   controllers: [ModerationController],
-  providers: [ModerationService, ModerationNotificationsService, BadWordService, PreModerationService],
-  exports: [ModerationService, BadWordService, PreModerationService],
+  providers: [
+    ModerationService,
+    ModerationNotificationsService,
+    // El detector se provee para que el motor lo reciba por DI; NO se exporta. Fuera de
+    // aquí sólo se conoce el motor: quien consuma detección no elige detectores.
+    WordDetector,
+    DetectionEngine,
+    PreModerationService,
+  ],
+  exports: [ModerationService, DetectionEngine, PreModerationService],
 })
 export class ModerationModule {}

@@ -1,0 +1,189 @@
+/**
+ * PUNTO 6 · RÁFAGA 0 — LA BARRERA DE LA EXTRACCIÓN: la conducta NO cambia.
+ *
+ * La barrera principal de esta ráfaga son los tests que YA existen (`moderacion-previa`,
+ * `admin`): si hubiera que editarlos, la extracción habría cambiado la conducta. Este
+ * fichero es la otra mitad, y hace algo que aquéllos no pueden:
+ *
+ *  1. **CLAVA la semántica exacta del emparejamiento**, incluida la parte que está mal. El
+ *     tokenizador parte por lo no alfanumérico, así que sólo casan las entradas de UNA
+ *     palabra: `192.168.1.1` y `dinero facil` **no casan nunca**. Eso es fail-open y es un
+ *     fallo vivo, pero la ráfaga 0 NO lo arregla —arreglarlo endurece en silencio un
+ *     detector que está en modo BLOQUEAR—, así que aquí se AFIRMA que sigue roto.
+ *
+ *     Suena raro escribir un test que exige un defecto. No lo es: lo que fija es que la
+ *     extracción no lo tocó, y cuando la ráfaga C lo arregle, **este test tiene que caerse**.
+ *     Caerse ahí será la señal de que el arreglo llegó, no un accidente. Ver §5.4 del diseño.
+ *
+ *  2. **Cubre la única diferencia de cálculo de la extracción**: antes se tokenizaban título
+ *     y descripción JUNTOS (`${title} ${description}`) y ahora por separado, para poder
+ *     decir en qué campo apareció. El conjunto de tokens es el mismo porque el separador era
+ *     un espacio y el espacio ya partía; el test lo demuestra en el borde.
+ *
+ *  3. **El fail-open del contrato**, que `BadWordService` declaraba por escrito y ahora vive
+ *     acotado por detector.
+ *
+ * Se prueba con un Prisma de mentira porque el cuerpo es puro salvo UNA lectura, y montar
+ * base de datos para comprobar un tokenizador cuesta más que lo que prueba.
+ */
+
+import { DetectionEngine } from './detection.engine';
+import { WordDetector, BAD_WORD_LIST_SETTING } from './detectors/word.detector';
+import type { PrismaService } from '../../../infra/prisma/prisma.service';
+
+function conLista(words: unknown, opciones: { revienta?: boolean } = {}) {
+  const findUnique = jest.fn(async ({ where }: { where: { key: string } }) => {
+    if (opciones.revienta) throw new Error('la base de datos no está');
+    if (where.key !== BAD_WORD_LIST_SETTING) return null;
+    return words === undefined ? null : { key: where.key, value: words };
+  });
+  const prisma = { setting: { findUnique } } as unknown as PrismaService;
+  const detector = new WordDetector(prisma);
+  return { motor: new DetectionEngine(detector), detector, findUnique };
+}
+
+const TEXTO = (title: string, description = '') => ({ title, description });
+
+describe('el detector de palabras casa igual que antes de la extracción', () => {
+  it('una palabra suelta de la lista casa, en el título', async () => {
+    const { motor } = conLista(['estafa']);
+    const { detections, blocking } = await motor.run(TEXTO('Vendo estafa segura', 'nada'));
+
+    expect(detections).toHaveLength(1);
+    expect(detections[0]).toEqual({
+      detector: 'WORD',
+      field: 'TITLE',
+      match: 'estafa',
+      rule: 'estafa',
+    });
+    // `WORD` está en BLOCK, que es lo que hace desde siempre: `blocking` es lo que antes
+    // devolvía `hasBadWords`, y es lo que `publish()` convierte en PENDING_REVIEW.
+    expect(blocking).toBe(true);
+  });
+
+  it('y en la descripción', async () => {
+    const { motor } = conLista(['estafa']);
+    const { detections } = await motor.run(TEXTO('Un título limpio', 'esto es una estafa'));
+    expect(detections.map((d) => d.field)).toEqual(['DESCRIPTION']);
+  });
+
+  it('sin acentos y sin mayúsculas: la normalización es la de siempre', async () => {
+    const { motor } = conLista(['estafa']);
+    const { blocking } = await motor.run(TEXTO('ESTÁFA en mayúsculas'));
+    expect(blocking).toBe(true);
+  });
+
+  it('lo que no está en la lista no casa', async () => {
+    const { motor } = conLista(['estafa']);
+    const { detections, blocking } = await motor.run(TEXTO('Bicicleta de montaña', 'Como nueva'));
+    expect(detections).toEqual([]);
+    expect(blocking).toBe(false);
+  });
+
+  it('casa la palabra ENTERA, no un trozo', async () => {
+    // `tokens.has(w)` es igualdad exacta contra un token: «estafa» no casa dentro de
+    // «estafador». Es la semántica actual y se conserva tal cual.
+    const { motor } = conLista(['estafa']);
+    const { blocking } = await motor.run(TEXTO('Vendo cosas, no soy estafador'));
+    expect(blocking).toBe(false);
+  });
+});
+
+describe('EL FAIL-OPEN QUE LA RÁFAGA 0 NO ARREGLA (y afirma que sigue ahí)', () => {
+  // Cuando la ráfaga C arregle el emparejamiento multi-palabra, ESTOS DOS TESTS TIENEN QUE
+  // CAERSE. Es su función: marcar el sitio exacto donde el arreglo se notará.
+
+  it('una IP en la lista de palabras NO detecta nada — el tokenizador la parte', async () => {
+    const { motor } = conLista(['192.168.1.1']);
+    const { detections, blocking } = await motor.run(
+      TEXTO('Router configurado', 'entra en 192.168.1.1 para configurarlo'),
+    );
+
+    // El texto SÍ contiene la IP; la entrada de la lista se normaliza a «192.168.1.1» y se
+    // compara contra los tokens {192, 168, 1}, así que no casa jamás. El admin escribió
+    // una regla, la pantalla se la guardó, y no filtra nada.
+    expect(detections).toEqual([]);
+    expect(blocking).toBe(false);
+  });
+
+  it('una entrada de DOS palabras tampoco casa nunca', async () => {
+    const { motor } = conLista(['dinero facil']);
+    const { blocking } = await motor.run(TEXTO('Gana dinero facil desde casa'));
+    expect(blocking).toBe(false);
+  });
+
+  it('pero sus trozos sueltos sí, que es lo que hace el fallo invisible', async () => {
+    // Quien escribió «dinero facil» y vio que «algo» se filtraba pudo creer que funcionaba:
+    // lo que casó fue otra entrada, no la suya.
+    const { motor } = conLista(['dinero facil', 'dinero']);
+    const { detections } = await motor.run(TEXTO('Gana dinero facil desde casa'));
+    expect(detections.map((d) => d.rule)).toEqual(['dinero']);
+  });
+});
+
+describe('la única diferencia de cálculo: tokenizar por campo', () => {
+  it('un token NO puede cruzar la frontera entre título y descripción', async () => {
+    // Antes se tokenizaba `${title} ${description}` junto, con un ESPACIO en medio — y el
+    // espacio ya era separador. Así que «dine» + «ro» no formaban «dinero» ni entonces ni
+    // ahora. Es la propiedad que hace que partir por campos dé el mismo conjunto de tokens.
+    const { motor } = conLista(['dinero']);
+    const { blocking } = await motor.run(TEXTO('dine', 'ro'));
+    expect(blocking).toBe(false);
+  });
+
+  it('la misma palabra en los dos campos deja UNA detección por campo', async () => {
+    const { motor } = conLista(['estafa']);
+    const { detections } = await motor.run(TEXTO('estafa', 'estafa'));
+    expect(detections.map((d) => d.field)).toEqual(['TITLE', 'DESCRIPTION']);
+  });
+});
+
+describe('el contrato de fallo — fail-open, acotado por detector', () => {
+  it('sin fila de ajuste no se detecta nada y no se lanza', async () => {
+    const { motor } = conLista(undefined);
+    await expect(motor.run(TEXTO('lo que sea'))).resolves.toEqual({
+      detections: [],
+      blocking: false,
+    });
+  });
+
+  it('con la lista vacía tampoco', async () => {
+    const { motor } = conLista([]);
+    const { blocking } = await motor.run(TEXTO('lo que sea'));
+    expect(blocking).toBe(false);
+  });
+
+  it('con entradas en blanco tampoco (se filtran tras normalizar)', async () => {
+    const { motor } = conLista(['   ', '']);
+    const { blocking } = await motor.run(TEXTO('lo que sea'));
+    expect(blocking).toBe(false);
+  });
+
+  it('SI LA CONSULTA REVIENTA, el motor NO lanza y no bloquea', async () => {
+    // Es el contrato escrito que `BadWordService` declaraba: moderar no puede frenar
+    // publicar. `publish()` sigue teniendo además su propio try/catch, pero no lo necesita.
+    const { motor } = conLista(['estafa'], { revienta: true });
+    await expect(motor.run(TEXTO('estafa'))).resolves.toEqual({
+      detections: [],
+      blocking: false,
+    });
+  });
+});
+
+describe('la estructura que la ráfaga 0 deja lista', () => {
+  it('el motor pregunta por la clave del ajuste UNA vez por pasada', async () => {
+    // Con más detectores esto seguirá siendo una lectura por detector que la necesite, no
+    // una por palabra de la lista.
+    const { motor, findUnique } = conLista(['estafa']);
+    await motor.run(TEXTO('estafa', 'estafa'));
+    expect(findUnique).toHaveBeenCalledTimes(1);
+  });
+
+  it('hoy sólo hay un detector, y es `WORD`', async () => {
+    // Cuando la ráfaga A añada IP y PHONE este test cambia de número. Está para que ese
+    // cambio sea explícito y no se cuelen detectores sin que nadie lo decida.
+    const { motor } = conLista(['estafa']);
+    const { detections } = await motor.run(TEXTO('estafa'));
+    expect(new Set(detections.map((d) => d.detector))).toEqual(new Set(['WORD']));
+  });
+});
