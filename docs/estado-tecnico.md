@@ -14976,6 +14976,96 @@ Mutaciones, las tres verificadas:
 
 ---
 
+## A1 — La lista de IPs marcadas, y la retirada del detector de IP sobre texto
+
+Diseño: `docs/diseno-listas-ip-telefono.md` §A.
+
+### Se llama `flaggedIps`, no `blockedIps`
+
+El diseño la nombró `blockedIps` —y ese nombre lo escribí yo—, pero **esta lista no bloquea
+nada**: marca. Una clave llamada «blocked» que sólo avisa es una promesa incumplida esperando
+a que alguien la descubra el día que importe. Es el mismo cuidado que hizo que el aviso del
+punto 6 no viviera en `watched` y que el contador no se llame «tasa de acierto».
+
+### Sólo avisa, y por dos razones independientes
+
+1. **La IP puede estar falsificada** mientras RC.1 siga abierto (`pendientes.md` §6).
+   Bloquear por un dato que sabemos que puede mentir es justo lo que RC.1 pide no hacer.
+2. **El momento no encaja**: `lastOwnerIp` lo escribe el `touch` de 5a en **cada** gestión del
+   dueño —bump, pausa, renovación—, no sólo al tocar el contenido.
+
+**En el usuario, además, no habría dónde.** No existe `PENDING_REVIEW` para personas.
+`requiresReview` sí, pero **lo pone una persona** y se audita con nombre: si el sistema lo
+escribiera, un moderador que lo quitara se lo encontraría puesto otra vez en el siguiente
+login — y `AuditLog.actorId` es NOT NULL con FK a `User`, así que no hay actor «sistema».
+Es la lección de P1 otra vez. **La máquina señala; la persona marca.**
+
+### Derivado, no persistido — y la razón no es el rendimiento
+
+La coincidencia es `columna IN (lista)`, que Postgres resuelve directo. No hay `UserDetection`
+ni filas que mantener.
+
+> Lo que decide es la **RECTIFICABILIDAD**: quitar una IP de la lista **des-marca al instante,
+> en todo el histórico**. Con filas persistidas habría que barrerlas, y hasta entonces el
+> backoffice seguiría señalando gente por una regla que ya nadie mantiene. En una lista de
+> vigilancia eso es la diferencia entre poder deshacer un error y no poder.
+
+Coste aceptado: no queda histórico por sujeto. `AuditLog` sí registra los cambios del ajuste.
+
+### El detector de IP sobre texto, retirado
+
+Buscaba IPv4 en el título y la descripción. **No respondía a ninguna pregunta que alguien
+hiciera**: una IP en una descripción suele ser producto —el anuncio de router que documenta
+su `192.168.1.1`— y no señal. El de teléfonos sí tiene un caso de uso escrito; éste no.
+
+Se borró el detector, se quitó `IP` del enum `DetectorId` **y se limpiaron sus filas en la
+migración** — dejarlas morir por el reemplazo entero habría conservado para siempre las de los
+anuncios que nadie toque, y una fila de un detector inexistente es basura que confunde.
+
+La migración va **escrita a mano**: Postgres no tiene `ALTER TYPE … DROP VALUE`, y la única
+salida que Prisma propone es un `reset` de la base entera. El orden importa — borrar filas
+primero, recrear el tipo después.
+
+**Decidido sin datos, a propósito**: el banco de pruebas nunca llegó a medirlo. Es lo único
+irreversible de A1, y medir algo que no responde a ninguna pregunta no habría cambiado la
+decisión.
+
+`Setting['detectionModes']` **no se reescribe**: una clave `IP` sobrante es inerte porque
+`parseDetectionModes` recorre los detectores que existen. Tocar un ajuste que un admin puso a
+mano, para quitarle una línea que ya no hace nada, sería cambiarle la configuración sin motivo.
+
+### Un fallo evitado, y un acumulador que lo impide repetir
+
+`ipFlagged` e `ip` filtran la **misma columna**; `hasDetections` y `detector`, la **misma
+relación**. Como claves sueltas de un objeto literal se pisan **sin error**. Ahora todas van
+a un único `condicionesAND`, así que el eje que venga después empuja a la lista en vez de
+reescribir una clave.
+
+Y el `false` **no es `notIn` a secas**: en SQL `NULL NOT IN (…)` es NULL, así que habría
+excluido a todo el que no tiene IP anotada — que es justamente quien no viene de una marcada.
+Va con un `OR` sobre el nulo, y tiene barrera.
+
+### Verificación
+
+`test/deteccion-ips-marcadas.e2e-spec.ts` (11) · `filtros-url.test.ts` (29, de 23).
+
+Cuatro tests de A/B que afirmaban sobre el detector retirado se actualizaron con su motivo al
+lado; uno de ellos usaba **como caso** el anuncio de router con su IP, que es exactamente el
+falso positivo por el que el detector se fue.
+
+Mutaciones, las tres verificadas:
+
+| Mutación | Cae |
+|---|---|
+| Coincidencia por `contains` | «10.0.0.5 no señala a 110.0.0.50» |
+| La lista además bloquea | Barrera 1: «no les pasa nada más» |
+| Recordar el veredicto (persistirlo) | Barrera 2: ya no des-marca al instante |
+
+**Siguiente**: A2 — la lista de teléfonos (`PHONE_LIST` reusando `phone-format.ts`, sobre
+texto y sobre el campo `phone`).
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.

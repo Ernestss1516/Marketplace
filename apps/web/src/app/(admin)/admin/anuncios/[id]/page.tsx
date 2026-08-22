@@ -1077,7 +1077,10 @@ export default function AdminFichaAnuncioPage() {
                 etiqueta="Última gestión del dueño"
                 valor={formatDateTime(data.lastOwnerInteractionAt)}
               />
-              <Dato etiqueta="IP del dueño" valor={<DatoIp ip={data.lastOwnerIp} />} />
+              <Dato
+                etiqueta="IP del dueño"
+                valor={<DatoIp ip={data.lastOwnerIp} marcada={data.ipFlagged} />}
+              />
               <Dato
                 etiqueta="Bump programado"
                 valor={

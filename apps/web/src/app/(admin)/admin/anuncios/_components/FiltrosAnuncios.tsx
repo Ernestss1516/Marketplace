@@ -395,6 +395,22 @@ export function FiltrosAnuncios({
               ? 'Con avisos'
               : 'Sin avisos'}
         </Button>
+        {/* A1 — «viene de una IP marcada». Es un eje PROPIO y no otro detector: no mira el
+            texto sino la última gestión del dueño, y no lo resuelve el motor sino una
+            comparación contra la lista de vigilancia. Tres posiciones, molde de
+            `hasReports`. */}
+        <Button
+          size="sm"
+          variant={filtros.ipFlagged === undefined ? 'outline' : 'default'}
+          onClick={() => onCambiar({ ipFlagged: alternarTerciario(filtros.ipFlagged) })}
+          data-testid="filtro-ip-marcada"
+        >
+          {filtros.ipFlagged === undefined
+            ? 'IP marcada: todas'
+            : filtros.ipFlagged
+              ? 'Desde IP marcada'
+              : 'Desde IP no marcada'}
+        </Button>
         <div>
           <label htmlFor="filtro-detector" className="mb-1 block text-xs text-muted-foreground">
             Detector

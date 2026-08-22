@@ -445,7 +445,10 @@ export default function AdminFichaUsuarioPage() {
                   )
                 }
               />
-              <Dato etiqueta="IP del último inicio" valor={<DatoIp ip={data.lastLoginIp} />} />
+              <Dato
+                etiqueta="IP del último inicio"
+                valor={<DatoIp ip={data.lastLoginIp} marcada={data.ipFlagged} />}
+              />
             </div>
           </Seccion>
 

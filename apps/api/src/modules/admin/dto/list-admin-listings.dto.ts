@@ -198,6 +198,21 @@ export class ListAdminListingsDto {
   phone?: string;
 
   /**
+   * A1 — «la última IP de su dueño está en la lista de marcadas».
+   *
+   * Es el eje que hace que la lista de IPs sirva para algo: sin él, el aviso sólo se vería
+   * abriendo fichas de una en una. Molde de `hasReports`: tres posiciones, y `false` es la
+   * pregunta contraria.
+   *
+   * Se resuelve DERIVANDO —`lastOwnerIp IN (lista)`— y no contra ninguna tabla, así que
+   * quitar una IP de la lista deja de traer sus anuncios **al instante**.
+   */
+  @IsOptional()
+  @Transform(({ value }) => (value === undefined ? undefined : value === 'true' || value === true))
+  @IsBoolean()
+  ipFlagged?: boolean;
+
+  /**
    * PROVINCIA y MUNICIPIO del anuncio (`Listing.province` / `Listing.city`).
    *
    * PARÁMETROS PROPIOS Y NO DENTRO DE `q`, y es la decisión de este bloque: «anuncios **DE**

@@ -17,7 +17,6 @@ import { ModerationNotificationsService } from './moderation-notifications.servi
 // mismo es como acaban divergiendo (`listing-status.ts` lo documenta habiéndolo pagado).
 import { DetectionEngine } from './detection/detection.engine';
 import { ListingDetectionsService } from './detection/listing-detections.service';
-import { IpDetector } from './detection/detectors/ip.detector';
 import { PhoneDetector } from './detection/detectors/phone.detector';
 import { WordDetector } from './detection/detectors/word.detector';
 import { PreModerationService } from './pre-moderation.service';
@@ -46,7 +45,6 @@ import { CategoryTreeModule } from '../categories/category-tree.module';
     // Los detectores se proveen para que el motor los reciba por DI; NO se exportan. Fuera
     // de aquí sólo se conoce el motor: quien consuma detección no elige detectores.
     WordDetector,
-    IpDetector,
     PhoneDetector,
     DetectionEngine,
     ListingDetectionsService,

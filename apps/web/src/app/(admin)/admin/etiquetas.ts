@@ -216,8 +216,11 @@ export const ACCION_LABELS: Record<string, string> = {
 // Llamarlo «Teléfono» leería como si publicarlo estuviera prohibido, y no lo está.
 export const DETECTOR_LABELS: Record<string, string> = {
   WORD: 'Palabra de la lista',
-  IP: 'Dirección IP',
   PHONE: 'Teléfono en el texto',
+  // A1 — «IP: Dirección IP» estaba aquí. El detector de IPs sobre TEXTO se retiró: una IP en
+  // una descripción suele ser producto (el router que documenta la suya), no señal. Lo que
+  // sustituye a aquello no es un detector sino la lista de IPs marcadas, que mira la ÚLTIMA
+  // IP y tiene su propio distintivo — no pasa por este vocabulario.
 };
 
 export const DETECTION_FIELD_LABELS: Record<string, string> = {

@@ -98,19 +98,21 @@ export interface Detector {
  * `WARN` habría apagado en silencio un filtro que alguien configuró — el error contrario al
  * que esta ráfaga viene a evitar.
  *
- * `IP` E `PHONE` NACEN EN `WARN`, y ésa es la decisión entera de la ráfaga A. No es
- * prudencia genérica: los dos tienen falsos positivos REALES y nombrados —quien vende un
- * router y escribe «configuración en 192.168.1.1» tiene un anuncio impecable; cualquier
- * referencia de nueve dígitos que empiece por 6-9 parece un teléfono— y **no hay ni un dato**
- * sobre con qué frecuencia se equivocan. Un detector que se equivoca en las dos direcciones
- * no puede nacer sacando anuncios del escaparate.
+ * `PHONE` NACE EN `WARN`, y ésa fue la decisión entera de la ráfaga A. No es prudencia
+ * genérica: tiene falsos positivos REALES y nombrados —cualquier referencia de nueve dígitos
+ * que empiece por 6-9 parece un teléfono— y **no hay ni un dato** sobre con qué frecuencia se
+ * equivoca. Un detector que se equivoca en las dos direcciones no puede nacer sacando
+ * anuncios del escaparate.
+ *
+ * A1 — `IP` YA NO ESTÁ: el detector de IPs sobre texto se retiró (ver el enum en
+ * `schema.prisma`). Una clave `IP` sobrante en el ajuste guardado es inerte, porque este
+ * `Record` recorre los detectores que EXISTEN.
  *
  * Que el `Record` sea sobre `DetectorId` (el enum de Prisma) obliga a declarar el modo de
  * cada detector nuevo: no se puede añadir uno y olvidarse de decidir qué hace.
  */
 export const DEFAULT_DETECTION_MODES: Readonly<Record<DetectorId, DetectionMode>> = {
   WORD: 'BLOCK',
-  IP: 'WARN',
   PHONE: 'WARN',
 };
 
