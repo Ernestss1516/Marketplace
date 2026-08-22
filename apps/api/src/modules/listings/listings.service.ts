@@ -38,7 +38,7 @@ import { EntitlementService } from '../billing/entitlement.service';
 // aplica) y se sirve YA RESUELTA desde aquí. La dirección del import respeta la
 // dependencia existente ListingsModule → BillingModule.
 import { nextBumpAt } from '../billing/bump-cooldown';
-import { DetectionEngine } from '../moderation/detection/detection.engine';
+import { ListingDetectionsService } from '../moderation/detection/listing-detections.service';
 import { PreModerationService } from '../moderation/pre-moderation.service';
 import { ListingActivationService } from '../listing-activation/listing-activation.service';
 import { MessagingService } from '../messaging/messaging.service';
@@ -183,9 +183,9 @@ export class ListingsService {
     private readonly rateLimit: RateLimitService,
     @InjectQueue(QUEUE_INDEXING) private readonly indexingQueue: Queue,
     @InjectQueue(QUEUE_NOTIFICATIONS) private readonly notificationQueue: Queue,
-    // PUNTO 6 · RÁFAGA 0 — el motor de detección, en la posición que ocupaba
-    // `BadWordService`. Mismo sitio en la firma para no mover el resto.
-    private readonly detection: DetectionEngine,
+    // PUNTO 6 — la pasada de detección que además PERSISTE lo encontrado. Ocupa el sitio
+    // que tenía `BadWordService` en la firma, para no mover el resto.
+    private readonly detections: ListingDetectionsService,
     // MODERACIÓN PREVIA (M1) — decide si el anuncio se desvía a revisión.
     private readonly preModeration: PreModerationService,
     private readonly entitlementService: EntitlementService,
@@ -427,6 +427,32 @@ export class ListingsService {
       await this.revalidation.clearIfCompliant(listing);
     }
 
+    // PUNTO 6 · RÁFAGA A — EL HUECO QUE P1 DEJÓ ANOTADO, CERRADO.
+    //
+    // `listing-triage.ts` lo dice con todas las letras: hasta ahora la edición del dueño no
+    // cambiaba `status`, no volvía a pasar por el filtro de palabras y no consultaba la
+    // moderación previa —los cuatro caminos corrían sólo en `publish()`—, así que **un
+    // anuncio ACTIVE se podía reescribir entero sin que se enterara nadie**. El triaje era
+    // la única señal que el staff recibía.
+    //
+    // POR QUÉ ESTO ES INOFENSIVO HOY, y es la razón de que la ráfaga A lo cierre y no la B:
+    // aquí NO se toca `status`. Los detectores nuevos están en `WARN` y el de palabras
+    // gobierna `publish()`, no esto. Lo único que ocurre es que las detecciones se ponen al
+    // día, así que **el cambio estructural (que editar se mire) llega separado del
+    // arriesgado (que editar despublique)**, que es la ráfaga B y llega con datos delante.
+    //
+    // Se le pasa `listing`, la fila RECIÉN escrita —igual que a `clearIfCompliant`—: mirar
+    // la versión anterior detectaría el teléfono que el vendedor acaba de quitar.
+    //
+    // NO LANZA NUNCA, y no es una precaución de más: «editar limpia, pero nunca frena» (ver
+    // el bloque de arriba). Editar es la vía de salida de un anuncio marcado; si pudiera
+    // fallar por tener un teléfono, quien ya lo tuviera no podría quitarlo. `refresh` se
+    // traga sus propios fallos, y el `void` deja escrito que aquí no se mira el resultado.
+    void (await this.detections.refresh(listing.id, {
+      title: listing.title,
+      description: listing.description,
+    }));
+
     // Clear cache immediately, then enqueue exactly one indexing-affecting job.
     // When the address changed without explicit coords, the 'geocode' job
     // reindexes itself once it has resolved (or given up on) the new
@@ -498,9 +524,14 @@ export class ListingsService {
     // El try/catch se conserva aunque `run()` prometa no lanzar: es el cinturón que ya
     // estaba puesto, y quitarlo en la misma ráfaga que mueve el cuerpo sería cambiar dos
     // cosas a la vez sobre el camino que no puede fallar.
+    //
+    // RÁFAGA A — la pasada además GUARDA lo encontrado (`refresh`). `blocking` sigue
+    // valiendo exactamente lo mismo que antes: los detectores nuevos nacen en `WARN`, así
+    // que dejan detecciones y no tocan el destino. Lo único que cambia para el vendedor es
+    // que un moderador puede ver qué hay en su texto.
     let targetStatus: 'ACTIVE' | 'PENDING_REVIEW' = 'ACTIVE';
     try {
-      const { blocking } = await this.detection.run({
+      const { blocking } = await this.detections.refresh(existing.id, {
         title: existing.title,
         description: existing.description,
       });

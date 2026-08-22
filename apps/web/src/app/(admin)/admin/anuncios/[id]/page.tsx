@@ -82,6 +82,8 @@ import {
   CONDICION_LABELS,
   ESTADO_BUMP_LABELS,
   ESTADO_REPORTE_LABELS,
+  DETECTION_FIELD_LABELS,
+  DETECTOR_LABELS,
   ESTADO_USUARIO_LABELS,
   MOTIVO_REPORTE_LABELS,
   ROL_LABELS,
@@ -973,6 +975,48 @@ export default function AdminFichaAnuncioPage() {
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
               Lo que está encendido ahora — no necesariamente lo que envió el anuncio a la cola.
+            </p>
+          </Seccion>
+
+          {/* ── 3b. Lo que el motor encontró en el texto (punto 6, ráfaga A) ──
+              SECCIÓN PROPIA Y NO UNA FILA MÁS EN «Señales», y la razón no es de
+              maquetación: su GARANTÍA es distinta. Las señales son lo que está
+              encendido AHORA y ninguna se persiste al dispararse; estas
+              detecciones SÍ son el resultado de la última pasada real sobre este
+              texto, porque se reemplazan enteras cada vez que alguien lo escribe.
+              Mezclarlas haría que la ficha prometiera de las señales algo que no
+              puede cumplir. */}
+          <Seccion titulo="Detectado en el texto">
+            {data.detections.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                El motor no ha encontrado nada en el título ni en la descripción.
+              </p>
+            ) : (
+              <ul className="space-y-2" data-testid="ficha-detecciones">
+                {data.detections.map((d) => (
+                  <li key={d.id} className="border-l-2 border-amber-400 pl-3 text-sm">
+                    <div className="flex flex-wrap items-baseline gap-x-2">
+                      <span className="font-medium">
+                        {etiqueta(DETECTOR_LABELS, d.detector)}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        en el {etiqueta(DETECTION_FIELD_LABELS, d.field)}
+                      </span>
+                    </div>
+                    {/* EL FRAGMENTO, no un «Sí». Una IP en un anuncio de router es
+                        legítima y en uno de bicicletas no, y esa diferencia sólo se
+                        ve leyendo QUÉ se encontró. Es la regla de F1: enseñar el
+                        dato, no fingir. */}
+                    <p className="break-all font-mono text-xs text-muted-foreground">
+                      {d.match}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="mt-2 text-xs text-muted-foreground">
+              Encontrar algo <strong>no</strong> despublica el anuncio: hoy estos avisos sólo
+              marcan, para poder medir cuánto se equivocan.
             </p>
           </Seccion>
 

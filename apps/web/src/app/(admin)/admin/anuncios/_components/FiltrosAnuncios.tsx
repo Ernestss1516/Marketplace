@@ -28,6 +28,7 @@ import { Button } from '@/components/ui/button';
 import { STATUS_LABELS } from '../listing-status';
 import { TRIAGE_LABELS, TRIAGE_VALUES, type Triage } from '../listing-triage';
 import { ORDENES, hayFiltros } from '../filtros-url';
+import { DETECTOR_LABELS } from '../../etiquetas';
 
 /** Los nueve estados, en el orden en que un moderador los piensa. */
 const ESTADOS = [
@@ -289,6 +290,51 @@ export function FiltrosAnuncios({
               ? 'Requieren revalidación'
               : 'Conformes'}
         </Button>
+
+        {/* PUNTO 6 · RÁFAGA A — EL EJE PROPIO DEL AVISO, y el que convierte esta lista
+            en el banco de pruebas. Sin poder listar por detector, el modo avisar sería
+            un aviso que sólo se ve abriendo fichas de una en una: nadie lo leería, y no
+            habría forma de medir cuánto se equivoca un detector antes de dejarle
+            bloquear. Es la mitad de por qué las detecciones se persisten.
+
+            Molde de `hasReports`: tres posiciones, porque «sin avisos» también es una
+            pregunta. Y es INDEPENDIENTE de los dos ejes de P1 que hay más arriba —
+            «los revisados que además tienen un teléfono» se pide combinando los tres. */}
+        <Button
+          size="sm"
+          variant={filtros.hasDetections === undefined ? 'outline' : 'default'}
+          onClick={() => onCambiar({ hasDetections: alternarTerciario(filtros.hasDetections) })}
+          data-testid="filtro-detecciones"
+        >
+          {filtros.hasDetections === undefined
+            ? 'Avisos: todos'
+            : filtros.hasDetections
+              ? 'Con avisos'
+              : 'Sin avisos'}
+        </Button>
+        <div>
+          <label htmlFor="filtro-detector" className="mb-1 block text-xs text-muted-foreground">
+            Detector
+          </label>
+          <select
+            id="filtro-detector"
+            value={filtros.detector ?? ''}
+            onChange={(e) =>
+              onCambiar({
+                detector: (e.target.value || undefined) as AdminListingsFilters['detector'],
+              })
+            }
+            className="h-9 rounded-md border bg-background px-2 text-sm"
+            data-testid="filtro-detector"
+          >
+            <option value="">Cualquiera</option>
+            {Object.entries(DETECTOR_LABELS).map(([valor, texto]) => (
+              <option key={valor} value={valor}>
+                {texto}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 border-t pt-2">

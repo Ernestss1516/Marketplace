@@ -14623,6 +14623,103 @@ integración con P1 y correr al editar. El banco de pruebas.
 
 ---
 
+## Punto 6 — RÁFAGA A: el modo AVISAR (el banco de pruebas)
+
+Diseño: `docs/diseno-listas-bloqueo.md`.
+
+Los detectores de **IP** y **teléfono**, la tabla `ListingDetection`, el aviso como **eje
+propio** de P1, y la detección corriendo **al publicar Y al editar**.
+
+### Los detectores nuevos miran el texto CRUDO
+
+Ni normalizan ni tokenizan. Es la corrección central del punto: meter `192.168.1.1` en
+`badWordList` **casa cero veces** —el tokenizador la parte en `192`, `168`, `1`— y nadie lo
+ve fallar. Hay una barrera que afirma las dos mitades sobre el mismo texto: la lista de
+palabras no la ve, su detector sí.
+
+**Los dos nacen en `WARN`**, y no por prudencia genérica: sus falsos positivos son reales y
+están nombrados en los tests.
+
+> Quien vende un router y escribe «configuración en 192.168.1.1» tiene un anuncio impecable.
+> Cualquier referencia de nueve dígitos que empiece por 6-9 parece un teléfono.
+
+**El de teléfonos es anti-EVASIÓN, no anti-teléfono.** `Listing.phone` existe y
+`GET /listings/:id/phone` lo sirve tras `JwtAuthGuard`: la plataforma **ya ofrece el canal**.
+Lo que el detector señala es que el vendedor esquiva esa puerta escribiendo el número donde
+lo ve cualquiera sin identificarse. Sale del dominio, no de la prudencia.
+
+Se dejó escrito un **solape entre detectores** descubierto al escribir los tests:
+`999.999.999.999` no es una IP (el rango la rechaza) pero PHONE ve nueve dígitos que empiezan
+por 9 y la da por un fijo. No se «arregla» estrechando el patrón para esquivar una anécdota
+sin datos de frecuencia — es exactamente lo que el modo avisar existe para no tener que hacer.
+
+**Un fallo real corregido durante la implementación**: la primera guarda del detector de IPs
+rechazaba «un punto cualquiera» detrás, así que **«…entrando en 192.168.1.1.» no detectaba
+nada** — el caso más común de todos. Lo que hay que rechazar es un punto *seguido de dígito*.
+
+### `ListingDetection` — persistida para ser LISTABLE, reemplazada para no pudrirse
+
+F1 deriva `palabraProhibida` al vuelo, que es honesto y nunca se queda obsoleto, pero **no es
+listable**: «enséñame todo lo que tiene una detección» obligaría a recorrer la tabla entera
+ejecutando detectores fila a fila. Y un aviso que no se puede listar es un aviso que nadie lee.
+
+El riesgo de persistir se cierra por construcción: **reemplazo entero en cada pasada** (molde
+de tags de B2). El dueño quita el teléfono y la detección desaparece sola.
+
+`Cascade`, y **no contradice a B1**: aquélla protegió `Report`/`Conversation`/`Review` porque
+describen hechos entre personas; una detección es un derivado del texto, recalculable, sin
+significado fuera de él.
+
+### El eje propio, y por qué no cabía en P1
+
+**No `watched`**: significa «el staff decidió vigilar esto», y si el sistema lo escribiera un
+moderador que la quita se la encontraría puesta otra vez — además de que `AuditLog.actorId`
+es NOT NULL con FK a `User` y no hay actor «sistema». **No `triage`**: detectar no es haber
+mirado; un cuarto valor excluyente destruiría un `REVIEWED` con un hallazgo automático.
+
+Son **tres preguntas compatibles** y hacen falta las tres: «¿lo han mirado?», «¿lo
+vigilamos?», «¿qué encontró el sistema?».
+
+### El hueco de editar, cerrado en el modo en que no puede hacer daño
+
+`listing-triage.ts` lo dejó escrito: «un anuncio ACTIVE se puede reescribir entero sin que se
+entere nadie». Ahora la detección corre también al editar. **Con todo en AVISAR, eso sólo
+marca**: el cambio estructural (que editar se mire) llega separado del arriesgado (que editar
+despublique), que es la ráfaga B.
+
+Y respeta «editar limpia, pero nunca frena»: **la detección jamás rechaza una edición**.
+Editar es la vía de salida — si pudiera fallar por tener un teléfono, quien ya lo tuviera no
+podría quitarlo.
+
+**El staff edita**: las detecciones se **refrescan**, el `status` **no se mueve**. Una
+detección es un hecho sobre el texto —la refresca quien lo escriba—; un cambio de estado es
+una consecuencia sobre el vendedor —sólo la dispara él—. Sin lo primero, el moderador que
+quita el teléfono dejaría viva la detección que acaba de resolver.
+
+### Verificación
+
+`test/deteccion-avisos.e2e-spec.ts` (11) + `detection.engine.spec.ts` (35, de 16).
+
+Mutaciones, las cuatro verificadas:
+
+| Mutación | Cae |
+|---|---|
+| Los detectores nacen en `BLOCK` | Barrera 1: el anuncio se despublica |
+| El aviso escribe `watched` | Barrera 2: funde ejes |
+| No correr al editar | Barreras 2, 3 y 4 (6 tests) |
+| Acumular en vez de reemplazar | Barrera 4 y la del staff: hallazgos obsoletos |
+
+**Y un fallo evitado en el `where`**: `hasDetections` y `detector` filtran la MISMA relación,
+así que como dos campos sueltos el segundo pisaba al primero **sin error** —
+`?hasDetections=false&detector=PHONE` habría respondido «los que tienen teléfono» a quien
+preguntó por los que no tienen nada. Van en `AND`, con su barrera.
+
+**Siguiente**: ráfaga B (el ascenso avisar→bloquear, leer los modos de `Setting`, extender
+bloquear con datos delante) y ráfaga C (arreglar el fail-open del tokenizador — los tres
+tests que lo exigen se caen).
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.

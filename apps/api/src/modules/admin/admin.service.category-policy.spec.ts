@@ -72,6 +72,9 @@ function buildService(prismaOverrides: Record<string, unknown> = {}) {
     // detección en el sitio que ocupaba `BadWordService`. Mismo motivo que el de arriba —
     // estos casos no pasan por `getListingById`, así que nunca se llama.
     { run: jest.fn() } as never,
+    // RÁFAGA A — y la pasada que además persiste, que sólo usa `updateListing`. Estos
+    // casos son de política de categorías, así que tampoco se llama.
+    { refresh: jest.fn() } as never,
     // FICHA DE USUARIO U3 — mantenimiento de fixture por cambio de FIRMA. Estos
     // casos son de política de categorías; «¿es Pro?» sólo se consulta en la
     // ficha de usuario.

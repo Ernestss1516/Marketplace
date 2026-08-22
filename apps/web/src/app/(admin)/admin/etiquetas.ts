@@ -206,3 +206,21 @@ export const ACCION_LABELS: Record<string, string> = {
   ADMIN_BUMP_GRANT: 'Bumps concedidos',
   ADMIN_BUMP_DEBIT: 'Bumps retirados',
 };
+
+// ── Detección de contenido (punto 6) ──────────────────────────────────────────
+//
+// Los nombres dicen QUÉ SE BUSCA, no cómo. «Palabra de la lista» y no «WORD»; y
+// sobre todo «Teléfono en el texto» y no «Teléfono» a secas: el anuncio TIENE un
+// campo de teléfono legítimo (`Listing.phone`, servido tras login), así que lo que
+// el aviso señala no es que haya un teléfono sino que está FUERA de su sitio.
+// Llamarlo «Teléfono» leería como si publicarlo estuviera prohibido, y no lo está.
+export const DETECTOR_LABELS: Record<string, string> = {
+  WORD: 'Palabra de la lista',
+  IP: 'Dirección IP',
+  PHONE: 'Teléfono en el texto',
+};
+
+export const DETECTION_FIELD_LABELS: Record<string, string> = {
+  TITLE: 'título',
+  DESCRIPTION: 'descripción',
+};

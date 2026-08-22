@@ -65,6 +65,7 @@ import { UpdateAdminListingDto } from './dto/update-admin-listing.dto';
 import { ListingEditValidationService } from '../listings/listing-edit-validation.service';
 import { PreModerationService } from '../moderation/pre-moderation.service';
 import { DetectionEngine } from '../moderation/detection/detection.engine';
+import { ListingDetectionsService } from '../moderation/detection/listing-detections.service';
 import { ListingGateService } from '../listing-gate/listing-gate.service';
 // FICHA DE USUARIO U3 — el dueño único de «¿es Pro?».
 import { ProStatusService } from '../listing-gate/pro-status.service';
@@ -378,7 +379,12 @@ export class AdminService {
     // propósito: insertar un parámetro en medio rompe todos los specs que
     // construyen el servicio a mano (pasó en B3 y costó dos arreglos).
     private readonly preModeration: PreModerationService,
+    // PUNTO 6 — LOS DOS, y no es redundancia. `DetectionEngine` es detección PURA sobre
+    // texto: la ficha la usa para la señal en vivo y no debe poder escribir nada.
+    // `ListingDetectionsService` es la pasada que además persiste, y sólo la usa el camino
+    // que edita. Quien sólo lee no puede escribir sin querer.
     private readonly detection: DetectionEngine,
+    private readonly detections: ListingDetectionsService,
     // FICHA DE USUARIO U3 — el HECHO de ser Pro para la ficha de usuario. Es el
     // dueño único de esa pregunta (ver su cabecera); aquí sólo se consulta.
     private readonly proStatus: ProStatusService,
@@ -411,6 +417,8 @@ export class AdminService {
       sellerId,
       hasReports,
       needsRevalidation,
+      hasDetections,
+      detector,
       triage,
       watched,
       ip,
@@ -450,6 +458,33 @@ export class AdminService {
         reports: hasReports ? { some: {} } : { none: {} },
       }),
       ...(needsRevalidation !== undefined && { needsRevalidation }),
+      // PUNTO 6 · RÁFAGA A — EL EJE PROPIO DEL AVISO. Dos líneas, molde literal de
+      // `hasReports`: la relación con `some`/`none`, y el `false` como pregunta contraria.
+      //
+      // `hasDetections` pregunta «¿el motor encontró algo?»; `detector` acota a cuál. Se
+      // pueden combinar entre sí y con todo lo demás —incluidos `triage` y `watched`, que
+      // siguen siendo ejes independientes—: «los revisados que además tienen un teléfono»
+      // es `?triage=REVIEWED&detector=PHONE`, y ninguno de los tres sabe de los otros.
+      //
+      // POR RELACIÓN Y SIN BOOLEANO DENORMALIZADO en `Listing`: se apoya en el índice de
+      // `ListingDetection.listingId`. Si resulta caro se mide con EXPLAIN ANALYZE y ENTONCES
+      // se decide, que es el criterio con el que F2 añadió un índice y E2 decidió no
+      // añadirlo. Denormalizar antes de medir inventa un problema y crea una segunda verdad.
+      //
+      // VAN EN `AND` Y NO COMO DOS CAMPOS SUELTOS, y esto es un fallo evitado, no estilo:
+      // los dos filtran la MISMA relación, así que dos `detections:` en el mismo objeto se
+      // pisan — el segundo gana y el primero desaparece **sin error**. `?hasDetections=false
+      // &detector=PHONE` habría respondido «los que tienen teléfono» a quien preguntó por
+      // los que no tienen nada. Con `AND` la contradicción devuelve vacío, que es la
+      // respuesta correcta a una pregunta contradictoria.
+      ...((hasDetections !== undefined || detector) && {
+        AND: [
+          ...(hasDetections !== undefined
+            ? [{ detections: hasDetections ? { some: {} } : { none: {} } }]
+            : []),
+          ...(detector ? [{ detections: { some: { detector } } }] : []),
+        ],
+      }),
       // ÚLTIMA IP (5b) — la línea que F2 prometió. Exacta, no `contains`.
       ...(ip && { lastOwnerIp: ip }),
       // ETIQUETA INTERNA (P1, E2) — los dos ejes del triaje, cada uno por su
@@ -618,6 +653,17 @@ export class AdminService {
         // saber si HAY una programación viva, que es lo que explica por qué un
         // anuncio sube solo.
         bumpSchedule: true,
+        // PUNTO 6 · RÁFAGA A — LO QUE EL MOTOR ENCONTRÓ, con su fragmento.
+        //
+        // Se sirve el hallazgo entero y no un booleano porque el moderador tiene que poder
+        // JUZGARLO, que es todo el propósito del modo avisar: una IP en un anuncio de router
+        // es legítima y una en uno de bicicletas no, y esa diferencia sólo se ve leyendo qué
+        // se encontró y dónde. Es la misma regla que rige F1 desde el principio — enseñar el
+        // dato, no fingir.
+        detections: {
+          orderBy: [{ detector: 'asc' }, { field: 'asc' }],
+          select: { id: true, detector: true, field: true, match: true, rule: true },
+        },
         _count: {
           select: {
             conversations: true,
@@ -664,6 +710,18 @@ export class AdminService {
        * y los tres niveles después— y ninguno se persiste al disparar. Así que
        * esto es lo que está encendido AHORA, que no tiene por qué ser lo que
        * mandó el anuncio a la cola. La ficha lo dice con esas palabras.
+       */
+      /**
+       * PUNTO 6 · RÁFAGA A — `detections` viaja al lado de `moderationSignals`, NO dentro.
+       *
+       * Y separadas a propósito, porque **su garantía es distinta** y mezclarlas haría que
+       * la ficha prometiera de las señales algo que no puede cumplir:
+       *
+       *   · `moderationSignals` son lo que está encendido AHORA, y ninguno se persiste al
+       *     disparar (ver el comentario de arriba). No dicen por qué el anuncio entró en la
+       *     cola.
+       *   · `detections` SÍ son el resultado de la última pasada real sobre ESTE texto,
+       *     porque se reemplazan enteras cada vez que alguien lo escribe.
        */
       moderationSignals: { ...señales, palabraProhibida },
       historial,
@@ -857,6 +915,35 @@ export class AdminService {
         }),
       } as unknown as Prisma.InputJsonValue,
       ip,
+    });
+
+    // PUNTO 6 · RÁFAGA A — LAS DETECCIONES SE REFRESCAN, EL `status` NO SE TOCA.
+    //
+    // Es la separación que hace limpia la integración, y conviene leerla entera porque las
+    // dos mitades tiran en sentidos contrarios:
+    //
+    //   · Una DETECCIÓN es un hecho sobre el TEXTO ACTUAL. La refresca quien escriba el
+    //     texto, sea quien sea. Si el moderador acaba de quitar el teléfono, la detección
+    //     TIENE QUE MORIR — dejarla viva sería exactamente el flag podrido contra el que
+    //     existe el reemplazo entero, y encima puesto por quien vino a arreglarlo.
+    //   · Un cambio de `status` es una CONSECUENCIA SOBRE EL VENDEDOR. Ésa sólo la dispara
+    //     el vendedor. Un moderador que edita para LIMPIAR un anuncio no puede provocar de
+    //     su propia mano que se despublique.
+    //
+    // Dos cosas, dos dueños. Es la misma separación que P3a hizo con `EDITED` (que afirma un
+    // hecho sobre el dueño, y por eso el camino del staff no lo escribe — ver arriba, «AQUÍ
+    // NO HAY triage») y que 5a hizo con la IP de gestión. La diferencia con aquéllas es que
+    // una detección **no afirma nada sobre quién escribió el texto**: dice qué hay en él.
+    //
+    // En la ráfaga A esto no se nota —nadie cambia `status` al editar—, pero se construye
+    // ahora para que la ráfaga B, que sí lo hará, no tenga que decidirlo con prisa.
+    //
+    // `fields.title ?? existing.title`: la edición es un PATCH, así que un campo ausente
+    // conserva el valor viejo. Escanear `fields.description` a secas dejaría de ver la
+    // descripción entera cada vez que alguien tocara sólo el precio.
+    await this.detections.refresh(listingId, {
+      title: fields.title ?? existing.title,
+      description: fields.description ?? existing.description,
     });
 
     // Los mismos efectos que la edición del dueño: la ficha cacheada y el índice

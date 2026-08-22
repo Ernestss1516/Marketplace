@@ -93,6 +93,21 @@ export interface AdminListingDetail {
   triage: string;
   /** ETIQUETA INTERNA (P1) — «el staff lo vigila». Ortogonal al triaje. */
   watched: boolean;
+  /**
+   * PUNTO 6 · RÁFAGA A — lo que el motor encontró en el texto. El TERCER eje, ortogonal a
+   * `triage` y a `watched`: son tres preguntas compatibles («¿lo han mirado?», «¿lo
+   * vigilamos?», «¿qué encontró el sistema?»).
+   *
+   * Viaja el FRAGMENTO y no un booleano porque el moderador tiene que poder juzgarlo: una
+   * IP en un anuncio de router es legítima y en uno de bicicletas no.
+   */
+  detections: {
+    id: string;
+    detector: 'WORD' | 'IP' | 'PHONE';
+    field: 'TITLE' | 'DESCRIPTION';
+    match: string;
+    rule: string | null;
+  }[];
   publishedAt: string | null;
   expiresAt: string | null;
   bumpedAt: string | null;
@@ -217,6 +232,13 @@ export interface AdminListingsFilters {
   triage?: string[];
   /** ETIQUETA INTERNA (P1, E2) — tres posiciones; molde de `hasReports`. */
   watched?: boolean;
+  /**
+   * PUNTO 6 · RÁFAGA A — el EJE PROPIO del aviso, independiente de `triage` y `watched`.
+   * `hasDetections`: ¿el motor encontró algo? `detector`: ¿cuál disparó?
+   * Combinarlos es lo que hace de la lista el banco de pruebas del modo avisar.
+   */
+  hasDetections?: boolean;
+  detector?: 'WORD' | 'IP' | 'PHONE';
   /** ÚLTIMA IP (5b) — la IP desde la que su DUEÑO lo gestionó por última vez. Cruza con
    *  el filtro por IP de usuarios: «qué anuncios se han tocado desde aquí». */
   ip?: string;
@@ -245,6 +267,10 @@ export function getAdminListings(
   }
   if (params?.triage?.length) qs.set('triage', params.triage.join(','));
   if (params?.watched !== undefined) qs.set('watched', String(params.watched));
+  if (params?.hasDetections !== undefined) {
+    qs.set('hasDetections', String(params.hasDetections));
+  }
+  if (params?.detector) qs.set('detector', params.detector);
   if (params?.ip) qs.set('ip', params.ip);
   if (params?.createdFrom) qs.set('createdFrom', params.createdFrom);
   if (params?.createdTo) qs.set('createdTo', params.createdTo);

@@ -26,8 +26,17 @@
  * Ver `docs/diseno-listas-bloqueo.md` §2 y §5.1.
  */
 
-/** Qué detector encontró algo. Ráfaga A añade `IP` y `PHONE`. */
-export type DetectorId = 'WORD';
+/**
+ * Qué detector encontró algo.
+ *
+ * RÁFAGA A — pasa de ser una unión escrita a mano a ser **el enum de Prisma**. No es
+ * cosmético: desde que las detecciones se persisten, la base de datos es quien manda sobre
+ * los valores posibles, y tener aquí una segunda lista que se pudiera desincronizar de la
+ * columna es exactamente la divergencia silenciosa que este proyecto ya ha pagado.
+ */
+import type { DetectorId, DetectionField } from '@prisma/client';
+
+export type { DetectorId, DetectionField };
 
 /**
  * Qué le pasa al anuncio cuando este detector encuentra algo.
@@ -41,8 +50,12 @@ export type DetectorId = 'WORD';
  */
 export type DetectionMode = 'WARN' | 'BLOCK';
 
-/** En qué campo se encontró. Hoy los dos que `BadWordService` ya miraba, ni uno más. */
-export type DetectionField = 'TITLE' | 'DESCRIPTION';
+/**
+ * En qué campo se encontró. Los mismos dos que `BadWordService` ya miraba, ni uno más:
+ * ampliar los campos escaneados es una decisión de producto, no del motor.
+ *
+ * También el enum de Prisma, por el mismo motivo que `DetectorId` (re-exportado arriba).
+ */
 
 /** El texto de un anuncio que se somete a los detectores. */
 export interface DetectableText {
@@ -50,7 +63,7 @@ export interface DetectableText {
   description: string;
 }
 
-/** Un hallazgo. Todavía no se persiste — la tabla `ListingDetection` es la ráfaga A. */
+/** Un hallazgo. La ráfaga A lo persiste en `ListingDetection`, reemplazado entero. */
 export interface Detection {
   detector: DetectorId;
   field: DetectionField;
@@ -84,9 +97,21 @@ export interface Detector {
  * hace desde que existe (`publish()` lo manda a `PENDING_REVIEW`). Escribirlo aquí como
  * `WARN` habría apagado en silencio un filtro que alguien configuró — el error contrario al
  * que esta ráfaga viene a evitar.
+ *
+ * `IP` E `PHONE` NACEN EN `WARN`, y ésa es la decisión entera de la ráfaga A. No es
+ * prudencia genérica: los dos tienen falsos positivos REALES y nombrados —quien vende un
+ * router y escribe «configuración en 192.168.1.1» tiene un anuncio impecable; cualquier
+ * referencia de nueve dígitos que empiece por 6-9 parece un teléfono— y **no hay ni un dato**
+ * sobre con qué frecuencia se equivocan. Un detector que se equivoca en las dos direcciones
+ * no puede nacer sacando anuncios del escaparate.
+ *
+ * Que el `Record` sea sobre `DetectorId` (el enum de Prisma) obliga a declarar el modo de
+ * cada detector nuevo: no se puede añadir uno y olvidarse de decidir qué hace.
  */
 export const DEFAULT_DETECTION_MODES: Readonly<Record<DetectorId, DetectionMode>> = {
   WORD: 'BLOCK',
+  IP: 'WARN',
+  PHONE: 'WARN',
 };
 
 /** El resultado de una pasada del motor sobre un texto. */

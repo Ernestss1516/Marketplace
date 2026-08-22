@@ -773,6 +773,9 @@ model Listing {
   tags          ListingTag[]
   /// Bump automático — a lo sumo UNA programación por anuncio (@@unique en BumpSchedule).
   bumpSchedule  BumpSchedule?
+  /// PUNTO 6 · RÁFAGA A — lo que el motor encontró en el texto de este anuncio.
+  /// El EJE PROPIO del aviso: no es `triage` ni `watched`. Ver `ListingDetection`.
+  detections    ListingDetection[]
 
   // Índices para los filtros y ordenaciones más frecuentes (rendimiento de listados).
   @@index([categoryId, status])
@@ -806,6 +809,105 @@ model Listing {
   /// —la vista «Todos», que es la de entrada— manda el simple.
   @@index([status, updatedAt])
   @@index([updatedAt])
+}
+
+/// PUNTO 6 · RÁFAGA A — qué detector encontró qué.
+enum DetectorId {
+  /// La lista de palabras prohibidas. Bloquea desde siempre.
+  WORD
+
+  /// IPv4 en el texto. Nace AVISANDO.
+  IP
+
+  /// Teléfono español en el texto. Nace AVISANDO.
+  PHONE
+}
+
+/// En qué campo del anuncio apareció. Los mismos dos que el filtro de palabras ya miraba.
+enum DetectionField {
+  TITLE
+  DESCRIPTION
+}
+
+/// PUNTO 6 · RÁFAGA A — UN HALLAZGO DEL MOTOR DE DETECCIÓN.
+///
+/// ES EL EJE PROPIO DEL AVISO, y por eso es una tabla y no una columna en `Listing`:
+///
+///   · NO es `watched`. Ése significa «el staff decidió vigilar esto», se pone a mano y se
+///     audita con nombre. Si el sistema lo escribiera, un moderador que quite la vigilancia
+///     se la encontraría puesta otra vez en la siguiente edición — y además no hay a quién
+///     apuntarle el cambio: `AuditLog.actorId` es NOT NULL con FK a `User`, que es la misma
+///     razón por la que la transición automática de P1 no se audita.
+///   · NO es `triage`. Ése responde «¿alguien del staff lo ha mirado?». Que una expresión
+///     regular encuentre un teléfono no es haberlo mirado, ni es que el dueño lo haya
+///     editado. Meterlo ahí obligaría a un cuarto valor excluyente, y entonces un anuncio
+///     `REVIEWED` que dispara un detector dejaría de ser `REVIEWED`: el juicio de una
+///     persona destruido por un hallazgo automático.
+///
+/// Son TRES preguntas compatibles —«¿lo han mirado?», «¿lo vigilamos?», «¿qué encontró el
+/// sistema?»— y hacen falta las tres a la vez. Un anuncio puede ser `REVIEWED`, no vigilado
+/// y tener una detección de teléfono: significa que un humano lo dio por bueno SABIENDO que
+/// hay un teléfono. Ver `docs/diseno-listas-bloqueo.md` §3.
+///
+/// ─── POR QUÉ PERSISTIDA, SI F1 DERIVA SU SEÑAL AL VUELO ─────────────────────────────
+///
+/// La ficha calcula `palabraProhibida` en cada lectura y no la guarda, que es honesto y
+/// nunca se queda obsoleto. Pero **no es listable**: la pregunta que hace útil el modo
+/// avisar es «enséñame TODO lo que tiene una detección», y responderla al vuelo obliga a
+/// recorrer la tabla de anuncios entera ejecutando los detectores fila a fila. Un aviso que
+/// no se puede listar es un aviso que nadie lee.
+///
+/// ─── Y POR QUÉ NO SE QUEDA OBSOLETA ─────────────────────────────────────────────────
+///
+/// **Se reemplazan ENTERAS en cada pasada**: borrar las de ese anuncio e insertar las del
+/// texto actual. Molde del reemplazo completo de tags de B2. Nunca hay detecciones viejas:
+/// siempre son el producto de la última pasada sobre el texto que hay ahora. El dueño quita
+/// el teléfono y la detección desaparece sola, sin que nadie tenga que acordarse — que es
+/// como se pudren los flags puestos a mano.
+///
+/// ─── `Cascade`, Y POR QUÉ NO CONTRADICE A B1 ────────────────────────────────────────
+///
+/// B1 protegió `Report`, `Conversation` y `Review` del borrado del anuncio porque describen
+/// HECHOS ENTRE PERSONAS y tienen valor propio. Una detección no: es un DERIVADO del texto,
+/// recalculable, sin significado fuera de él. Muerto el anuncio, no dice nada.
+///
+/// ─── EL DATO PERSONAL, DICHO A LA CARA ──────────────────────────────────────────────
+///
+/// Una detección de teléfono guarda un teléfono. Se hace, y por tres razones:
+///   1. NO es una divulgación nueva: ese número está en la DESCRIPCIÓN PÚBLICA del anuncio,
+///      legible sin identificarse — que es justamente el problema que el detector señala.
+///      Esto es un índice a texto ya público, no un secreto extraído.
+///   2. Sin el fragmento no se puede juzgar, y juzgar es todo el propósito del modo avisar.
+///   3. Muere con el anuncio (`Cascade`) y se reemplaza en cada edición: no sobrevive al
+///      texto del que salió.
+/// Acceso MODERATOR+, heredado del segmento donde se enseña. Misma decisión consciente que
+/// 5a tomó con la IP, anotada igual.
+model ListingDetection {
+  id String @id @default(cuid())
+
+  listingId String
+  listing   Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  detector DetectorId
+  field    DetectionField
+
+  /// El fragmento encontrado. Para `WORD`, el token normalizado que casó.
+  match String
+
+  /// Qué regla casó: la entrada de la lista para `WORD`; `null` en los de patrón, donde el
+  /// propio `detector` ya lo dice todo.
+  rule String?
+
+  createdAt DateTime @default(now())
+
+  /// El filtro «enséñame lo que tiene avisos» de `/admin/anuncios` se resuelve por relación
+  /// contra este índice. SIN desnormalizar un booleano en `Listing` todavía: si resulta
+  /// caro se mide con EXPLAIN ANALYZE y entonces se decide, que es el criterio con el que
+  /// F2 añadió un índice y E2 decidió no añadirlo. Denormalizar antes de medir se inventa
+  /// un problema y crea una segunda verdad que mantener.
+  @@index([listingId])
+  /// Para el filtro por detector — el que convierte la lista en el banco de pruebas.
+  @@index([detector])
 }
 
 model ListingImage {
