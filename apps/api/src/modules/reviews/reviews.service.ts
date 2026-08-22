@@ -13,6 +13,25 @@ import { UpdateReviewDto } from './dto/update-review.dto';
 
 const EDIT_WINDOW_MS = 72 * 60 * 60 * 1000;
 
+/**
+ * 7b — «LAS QUE SIGUEN CONTANDO», en un solo sitio.
+ *
+ * Una valoración retirada por el equipo sobrevive como fila —para que la denuncia que la
+ * motivó no muera con ella y para poder restaurarla— pero **deja de existir para el
+ * público**: ni en el perfil, ni en la media, ni en la estrella de las tarjetas.
+ *
+ * VIVE COMO CONSTANTE Y NO ESCRITO A MANO EN CADA `where` porque son CINCO lectores
+ * públicos en este fichero y uno de ellos (`getRatingSummaries`) está setenta líneas más
+ * abajo, lejos de los otros cuatro. Escribir `retiredAt: null` cinco veces es cinco
+ * ocasiones de olvidarlo una, y el olvido no se ve: la pantalla funciona, sólo que la
+ * reputación de alguien sigue arrastrando lo que el equipo retiró.
+ *
+ * LO QUE **NO** LO LLEVA, y es deliberado: los lectores del BACKOFFICE. Un moderador tiene
+ * que ver las retiradas —marcadas— para poder restaurarlas; retirar no es esconderle la
+ * valoración a quien la modera. Ver el inventario en `docs/diseno-valoraciones-mod.md` §2.
+ */
+const VIGENTES = { retiredAt: null } as const;
+
 const SELECT_AUTHOR = {
   id: true,
   name: true,
@@ -91,6 +110,12 @@ export class ReviewsService {
 
     const [deals, existing] = await Promise.all([
       this.findDealsBetween(authorId, listingId, targetId),
+      // 7b — SIN `VIGENTES`, y es el único lector «público» que no lo lleva. Una
+      // valoración retirada SIGUE OCUPANDO su `@@unique([authorId, targetId, listingId])`,
+      // así que su autor no puede escribir otra sobre el mismo anuncio — y decirle que sí
+      // puede sería mentirle: el `create` reventaría con un P2002. Además es lo correcto:
+      // retirar significa «esto no debió publicarse», y dejar reescribirla invitaría a
+      // repetirla. Ver `docs/diseno-valoraciones-mod.md` §2.
       this.prisma.review.findUnique({
         where: { authorId_targetId_listingId: { authorId, targetId, listingId } },
         select: { id: true, createdAt: true },
@@ -116,14 +141,17 @@ export class ReviewsService {
     const targetId = user.id;
     const take = limit + 1;
 
-    let whereWithCursor: Prisma.ReviewWhereInput = { targetId };
+    let whereWithCursor: Prisma.ReviewWhereInput = { targetId, ...VIGENTES };
     if (cursor) {
       const pivot = await this.prisma.review.findUnique({
         where: { id: cursor },
         select: { createdAt: true },
       });
+      // El pivote se busca SIN filtrar por retirada a propósito: si una valoración se
+      // retira mientras alguien pagina, su cursor sigue siendo un ancla válida en el
+      // tiempo. Lo que no puede es aparecer en `items`, y de eso se encarga `VIGENTES`.
       if (pivot) {
-        whereWithCursor = { targetId, createdAt: { lt: pivot.createdAt } };
+        whereWithCursor = { targetId, ...VIGENTES, createdAt: { lt: pivot.createdAt } };
       }
     }
 
@@ -140,16 +168,16 @@ export class ReviewsService {
         include: { author: { select: SELECT_AUTHOR } },
       }),
       this.prisma.review.aggregate({
-        where: { targetId, verified: true },
+        where: { targetId, verified: true, ...VIGENTES },
         _avg: { rating: true },
         _count: { rating: true },
       }),
       this.prisma.review.groupBy({
         by: ['rating'],
-        where: { targetId, verified: true },
+        where: { targetId, verified: true, ...VIGENTES },
         _count: true,
       }),
-      this.prisma.review.count({ where: { targetId, verified: false } }),
+      this.prisma.review.count({ where: { targetId, verified: false, ...VIGENTES } }),
     ]);
 
     const hasMore = raw.length > limit;
@@ -224,7 +252,12 @@ export class ReviewsService {
 
     const rows = await this.prisma.review.groupBy({
       by: ['targetId'],
-      where: { targetId: { in: userIds }, verified: true },
+      // 7b — `VIGENTES` AQUÍ ES EL QUE MÁS FÁCIL SE OLVIDA, y el que más daño haría: este
+      // método vive lejos de `listForUser` y lo consumen la BÚSQUEDA, la PORTADA y la
+      // ficha pública. Sin él, una valoración retirada seguiría pesando en la estrella
+      // que ve un comprador en cada tarjeta, mientras el perfil del vendedor —que sí
+      // filtra— diría otra cosa. Dos verdades sobre la misma reputación.
+      where: { targetId: { in: userIds }, verified: true, ...VIGENTES },
       _avg: { rating: true },
       _count: { rating: true },
     });

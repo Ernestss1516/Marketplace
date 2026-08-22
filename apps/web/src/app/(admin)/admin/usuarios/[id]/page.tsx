@@ -31,6 +31,7 @@ import { ApiError } from '@/lib/api/client';
 import { Badge } from '@/components/ui/badge';
 import { BloqueDinero } from './_components/BloqueDinero';
 import { ValoracionFila } from '@/components/admin/ValoracionFila';
+import { AccionesValoracion } from '@/components/admin/AccionesValoracion';
 import { DatoIp } from '@/components/admin/DatoIp';
 // TRADUCCIONES — los cinco campos de esta ficha que pintaban el enum crudo. Sus
 // propios `ESTADO_LABELS` y `ROL_LABELS` estaban aquí inline y han subido a
@@ -244,6 +245,24 @@ export default function AdminFichaUsuarioPage() {
                       createdAt={v.createdAt}
                       persona={v.author}
                       relacion="recibida"
+                      verified={v.verified}
+                      retiredAt={v.retiredAt}
+                      retiredReason={v.retiredReason}
+                      // 7b — las acciones sólo aquí y en «dadas», no en la ficha de
+                      // anuncio: se modera la valoración desde la ficha de la PERSONA,
+                      // que es donde el moderador está mirando su reputación.
+                      acciones={
+                        token && (
+                          <AccionesValoracion
+                            reviewId={v.id}
+                            retirada={!!v.retiredAt}
+                            rating={v.rating}
+                            comment={v.comment}
+                            token={token}
+                            onHecho={cargar}
+                          />
+                        )
+                      }
                     />
                   ))}
                 </ul>
@@ -270,6 +289,21 @@ export default function AdminFichaUsuarioPage() {
                       createdAt={v.createdAt}
                       persona={v.target}
                       relacion="dada"
+                      verified={v.verified}
+                      retiredAt={v.retiredAt}
+                      retiredReason={v.retiredReason}
+                      acciones={
+                        token && (
+                          <AccionesValoracion
+                            reviewId={v.id}
+                            retirada={!!v.retiredAt}
+                            rating={v.rating}
+                            comment={v.comment}
+                            token={token}
+                            onHecho={cargar}
+                          />
+                        )
+                      }
                     />
                   ))}
                 </ul>

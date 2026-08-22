@@ -836,6 +836,13 @@ export default function AdminFichaAnuncioPage() {
                       createdAt={v.createdAt}
                       persona={v.author}
                       relacion="recibida"
+                      // 7b — MARCADAS pero SIN botones. Aquí las retiradas se ven (el
+                      // staff no excluye) para que la ficha del anuncio no mienta sobre
+                      // cuántas valoraciones tuvo; moderarlas se hace desde la ficha de
+                      // la persona, que es donde está la reputación en juego.
+                      verified={v.verified}
+                      retiredAt={v.retiredAt}
+                      retiredReason={v.retiredReason}
                     />
                   ))}
                 </ul>

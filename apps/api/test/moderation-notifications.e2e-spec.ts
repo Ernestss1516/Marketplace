@@ -298,15 +298,20 @@ describe('Moderación — avisos al denunciante y al vendedor (§14.5) e2e', () 
   // ===========================================================================
 
   describe('el autor de una valoración se entera de que se ha retirado', () => {
-    it('deleteReview → REVIEW_MODERATED al AUTOR, con datos de la fila ya borrada', async () => {
+    it('retireReview → REVIEW_MODERATED al AUTOR, y la fila SOBREVIVE', async () => {
       const review = await prisma.review.create({
         data: { rating: 1, authorId: denunciante, targetId: vendedor, listingTitle: 'Mesa de roble' },
       });
 
-      await moderation.deleteReview(review.id, moderador);
+      await moderation.retireReview(review.id, moderador, 'Insultos');
 
-      // La fila ya no existe: el aviso se construyó con lo que se cargó antes.
-      expect(await prisma.review.findUnique({ where: { id: review.id } })).toBeNull();
+      // 7b — ESTA ASERCIÓN ESTÁ INVERTIDA A PROPÓSITO. Hasta 7b decía `toBeNull()`: el
+      // borrado era FÍSICO, y con él se llevaba por `Cascade` la denuncia que lo había
+      // motivado. Ahora la fila vive retirada, así que el `Cascade` no se dispara y la
+      // denuncia sobrevive. El aviso al autor no cambia.
+      const despues = await prisma.review.findUniqueOrThrow({ where: { id: review.id } });
+      expect(despues.retiredAt).toBeInstanceOf(Date);
+      expect(despues.retiredReason).toBe('Insultos');
 
       const [aviso] = await notifs(denunciante, 'REVIEW_MODERATED');
       const data = aviso.data as Record<string, unknown>;
@@ -322,7 +327,7 @@ describe('Moderación — avisos al denunciante y al vendedor (§14.5) e2e', () 
         data: { rating: 2, authorId: denunciante, targetId: vendedor, listingTitle: null },
       });
 
-      await moderation.deleteReview(review.id, moderador);
+      await moderation.retireReview(review.id, moderador, 'Contenido fuera de normas');
 
       expect(addSpy).not.toHaveBeenCalled();
     });

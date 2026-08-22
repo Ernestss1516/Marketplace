@@ -576,11 +576,20 @@ export class AdminService {
         reviews: {
           orderBy: { createdAt: 'desc' },
           take: 10,
+          // 7b — SIN filtrar por `retiredAt`, a propósito: el staff ve las retiradas
+          // (marcadas) porque es quien tiene que poder restaurarlas. Retirar no es
+          // esconderle la valoración a quien la modera.
           select: {
             id: true,
             rating: true,
             comment: true,
             createdAt: true,
+            // 7a dejó anotado que `verified` no viajaba, y es el campo que dice si esa
+            // valoración CUENTA para la media: retirar una `verified: false` no cambia
+            // la reputación de nadie, y el moderador necesita saberlo antes de decidir.
+            verified: true,
+            retiredAt: true,
+            retiredReason: true,
             author: { select: { id: true, name: true, slug: true } },
           },
         },
@@ -1156,6 +1165,9 @@ export class AdminService {
             reportedUserId: true,
           },
         },
+        // 7b — las dos SIN filtrar por `retiredAt`: el staff ve las retiradas, marcadas,
+        // porque es quien puede restaurarlas. Y con `verified`, que es el campo que dice
+        // si esa valoración cuenta para la media (la nota que dejó 7a).
         reviewsReceived: {
           orderBy: { createdAt: 'desc' },
           take: 10,
@@ -1164,6 +1176,9 @@ export class AdminService {
             rating: true,
             comment: true,
             createdAt: true,
+            verified: true,
+            retiredAt: true,
+            retiredReason: true,
             author: { select: { id: true, name: true, slug: true } },
           },
         },
@@ -1175,6 +1190,9 @@ export class AdminService {
             rating: true,
             comment: true,
             createdAt: true,
+            verified: true,
+            retiredAt: true,
+            retiredReason: true,
             target: { select: { id: true, name: true, slug: true } },
           },
         },

@@ -93,6 +93,43 @@ describe('las estrellas dicen cuántas de CINCO', () => {
   });
 });
 
+// 7b — LA RETIRADA SE VE, y se distingue de una vigente sin leer el comentario.
+//
+// El staff NO excluye las retiradas (las excluye el público), así que la lista mezcla las
+// dos. Si se pintaran idénticas, el moderador no sabría si el trabajo ya está hecho —y
+// volvería a retirar una retirada, o restauraría creyendo que retira.
+describe('7b — una valoración retirada se lee como retirada', () => {
+  it('lleva el distintivo, el motivo y el comentario tachado', () => {
+    const { container } = pintar({
+      retiredAt: '2026-04-01T09:00:00.000Z',
+      retiredReason: 'Insultos',
+    });
+    expect(screen.getByText('Retirada')).toBeInTheDocument();
+    // El motivo EN CLARO, no sólo en el `title`: quien la va a restaurar tiene que
+    // poder leer por qué la retiraron sin pasar el ratón por encima.
+    expect(screen.getByText('Motivo: Insultos')).toBeInTheDocument();
+    expect(container.querySelector('.line-through')).not.toBeNull();
+  });
+
+  it('una vigente no lleva nada de eso', () => {
+    const { container } = pintar({ retiredAt: null });
+    expect(screen.queryByText('Retirada')).not.toBeInTheDocument();
+    expect(container.querySelector('.line-through')).toBeNull();
+  });
+
+  it('`verified: false` avisa de que esa valoración NO cuenta para la media', () => {
+    // El dato que decide si retirarla cambia algo. `verified === false` explícito y no
+    // `!verified`: sin el campo no se afirma nada.
+    const { container } = pintar({ verified: false });
+    expect(container.textContent).toContain('sin trato verificado');
+  });
+
+  it('sin el campo `verified` no se afirma nada (la ficha que aún no lo manda)', () => {
+    const { container } = pintar();
+    expect(container.textContent).not.toContain('sin trato verificado');
+  });
+});
+
 describe('LA BARRERA — las DOS fichas usan esta fila', () => {
   // Se lee el fuente por el mismo motivo que en `etiquetas.test.ts`: montar dos páginas
   // con sesión y fetch para comprobar que importan un componente costaría más que el

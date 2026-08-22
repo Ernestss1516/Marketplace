@@ -128,6 +128,11 @@ export interface AdminListingDetail {
     rating: number;
     comment: string | null;
     createdAt: string;
+    /** 7b — si cuenta o no para la media. Retirar una que no cuenta no cambia la reputación de nadie. */
+    verified: boolean;
+    /** 7b — `null` = vigente. Los lectores de staff NO excluyen las retiradas: las enseñan marcadas. */
+    retiredAt: string | null;
+    retiredReason: string | null;
     author: { id: string; name: string | null; slug: string | null };
   }[];
   tickets: { id: string; subject: string; status: string; createdAt: string }[];
@@ -414,11 +419,15 @@ export interface AdminUserDetail extends Omit<AdminUser, '_count'> {
     listingId: string | null;
     reportedUserId: string | null;
   }>;
+  /** 7b — `verified`/`retiredAt`/`retiredReason` en las dos: ver `AdminListingDetail.reviews`. */
   reviewsReceived: Array<{
     id: string;
     rating: number;
     comment: string | null;
     createdAt: string;
+    verified: boolean;
+    retiredAt: string | null;
+    retiredReason: string | null;
     author: { id: string; name: string | null; slug: string | null };
   }>;
   reviewsAuthored: Array<{
@@ -426,6 +435,9 @@ export interface AdminUserDetail extends Omit<AdminUser, '_count'> {
     rating: number;
     comment: string | null;
     createdAt: string;
+    verified: boolean;
+    retiredAt: string | null;
+    retiredReason: string | null;
     target: { id: string; name: string | null; slug: string | null };
   }>;
   tickets: Array<{ id: string; subject: string; status: string; createdAt: string }>;

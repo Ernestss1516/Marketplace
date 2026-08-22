@@ -358,15 +358,16 @@ describe('Reviews (e2e)', () => {
       .expect(404);
   });
 
-  // ── moderación: borrar reseña (solo MODERATOR/ADMIN) ─────────────────────────
+  // ── moderación: retirar reseña (solo MODERATOR/ADMIN) ────────────────────────
 
-  it('DELETE /api/moderation/reviews/:id como USER normal → 403', async () => {
+  it('POST /api/moderation/reviews/:id/retire como USER normal → 403', async () => {
     const review = await prisma.review.findFirst({ where: { targetId: sellerId } });
     if (!review) return; // skip if no reviews exist
 
     await request(app.getHttpServer())
-      .delete(`/api/moderation/reviews/${review.id}`)
+      .post(`/api/moderation/reviews/${review.id}/retire`)
       .set('Authorization', `Bearer ${buyerToken}`)
+      .send({ reason: 'El valorado quiere quitarse una mala valoración' })
       .expect(403);
   });
 
