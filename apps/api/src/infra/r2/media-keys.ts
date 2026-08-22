@@ -90,6 +90,36 @@ export function listingMediaKeys(
 }
 
 /**
+ * HUÉRFANAS H2 — el segmento que marca «esto todavía no está confirmado».
+ *
+ * VA ARRIBA, JUSTO DEBAJO DE LA RAÍZ, y no es una preferencia de estilo: los filtros de una
+ * regla de ciclo de vida son **prefijos literales, sin comodines**. Con la forma
+ * `listing-videos/<listingId>/tmp/…` el `tmp` queda detrás de un id variable y no hay
+ * prefijo que lo capture — haría falta una regla por anuncio. Con `listing-videos/tmp/…`
+ * basta UNA por raíz.
+ *
+ * Ver `docs/diseno-huerfanas-sin-fila.md` §9.2.
+ */
+export const PENDING_SEGMENT = 'tmp';
+
+/**
+ * El prefijo bajo el que vive lo que espera confirmación de un dueño concreto:
+ * `<raiz>/tmp/<dueño>/`.
+ *
+ * EL DUEÑO ESTÁ EN LA CLAVE A PROPÓSITO: es lo que permite rechazar la confirmación de una
+ * subida ajena sin guardar ningún estado entre firmar y confirmar. El vídeo ya lo hacía con
+ * el `listingId`; el avatar gana lo mismo con el `userId`.
+ */
+export function pendingPrefix(raiz: string, dueñoId: string): string {
+  return `${raiz}/${PENDING_SEGMENT}/${dueñoId}/`;
+}
+
+/** ¿Esta clave está esperando confirmación bajo esa raíz? */
+export function isPendingKey(key: string, raiz: string): boolean {
+  return key.startsWith(`${raiz}/${PENDING_SEGMENT}/`);
+}
+
+/**
  * Profundidad máxima al recorrer un valor. Los bloques reales tienen 3 o 4 niveles;
  * esto sólo impide que un dato inesperado (o una estructura cíclica que Prisma no
  * puede producir pero un futuro `JSON.parse` sí) haga desbordar la pila.

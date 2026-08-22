@@ -155,7 +155,9 @@ describe('Vídeo Pro — infraestructura (e2e)', () => {
       const res = await pedirUrl(proToken, cuerpoValido(listing.id, { sizeBytes: contenido.length })).expect(201);
 
       expect(res.body.uploadUrl).toContain(VIDEO_KEY_PREFIX);
-      expect(res.body.key).toContain(`${VIDEO_KEY_PREFIX}/${listing.id}/`);
+      // HUÉRFANAS H2 — se firma contra el prefijo TEMPORAL; el definitivo se gana al
+      // confirmar. Ver `huerfanas-h2.e2e-spec.ts`.
+      expect(res.body.key).toContain(`${VIDEO_KEY_PREFIX}/tmp/${listing.id}/`);
       expect(res.body.requiredHeaders['Content-Type']).toBe('video/mp4');
 
       // EL PUT VA CONTRA EL ALMACENAMIENTO, no contra la API: ni una ruta de este servidor
@@ -270,6 +272,10 @@ describe('Vídeo Pro — infraestructura (e2e)', () => {
   // ── 4. Confirmar ───────────────────────────────────────────────────────────
 
   describe('confirmar la subida', () => {
+    /** La clave donde el vídeo acaba tras confirmarse: la misma, sin el `tmp/` (H2). */
+    const claveDefinitiva = (temporal: string) =>
+      temporal.replace(`${VIDEO_KEY_PREFIX}/tmp/`, `${VIDEO_KEY_PREFIX}/`);
+
     async function subirDeVerdad(listingId: string) {
       const contenido = Buffer.from('mp4 de prueba');
       const res = await pedirUrl(proToken, cuerpoValido(listingId, { sizeBytes: contenido.length })).expect(201);
@@ -307,8 +313,10 @@ describe('Vídeo Pro — infraestructura (e2e)', () => {
 
     it('no se puede confirmar un objeto que nunca se subió', async () => {
       const listing = await crearAnuncio('fantasma');
+      // Clave con la forma correcta (temporal, de ESTE anuncio) para que el 400 venga de
+      // que el objeto no existe y no de la comprobación de pertenencia.
       await confirmar(listing.id, {
-        key: `${VIDEO_KEY_PREFIX}/${listing.id}/no-existe.mp4`,
+        key: `${VIDEO_KEY_PREFIX}/tmp/${listing.id}/no-existe.mp4`,
         durationSeconds: 10,
       }).expect(400);
     });
@@ -341,8 +349,12 @@ describe('Vídeo Pro — infraestructura (e2e)', () => {
       await confirmar(listing.id, { key: segunda, durationSeconds: 10 }).expect(201);
 
       // Un vídeo por anuncio: el viejo ya no se puede ver, así que no debe seguir ocupando.
-      expect(await r2.head(primera)).toBeNull();
-      expect(await r2.head(segunda)).not.toBeNull();
+      //
+      // SE MIRAN LAS CLAVES DEFINITIVAS (H2), no las temporales: desde que confirmar copia
+      // el objeto fuera de `tmp/`, la temporal está vacía SIEMPRE —la borra la propia
+      // confirmación—, así que preguntar por ella daría verde sin probar nada.
+      expect(await r2.head(claveDefinitiva(primera))).toBeNull();
+      expect(await r2.head(claveDefinitiva(segunda))).not.toBeNull();
     });
 
     it('quitar el vídeo lo desenlaza y lo borra', async () => {
@@ -362,7 +374,9 @@ describe('Vídeo Pro — infraestructura (e2e)', () => {
       expect(guardado.videoUrl).toBeNull();
       expect(guardado.videoPosterUrl).toBeNull();
       expect(guardado.videoDurationSeconds).toBeNull();
-      expect(await r2.head(key)).toBeNull();
+      // La definitiva, por lo mismo que arriba: la temporal ya no existe desde que se
+      // confirmó, así que preguntar por ella no probaría que quitar borra nada.
+      expect(await r2.head(claveDefinitiva(key))).toBeNull();
     });
   });
 

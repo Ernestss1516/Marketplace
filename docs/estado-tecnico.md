@@ -15524,6 +15524,83 @@ la suite no se ha borrado nada de R2.
 
 ---
 
+## Huérfanas sin fila — RÁFAGA H2: «lo que nunca se confirma»
+
+Diseño: `docs/diseno-huerfanas-sin-fila.md` §9. Con H1, **las cinco fugas sin fila quedan
+cerradas**: tres en código y dos confinadas a `tmp/` a la espera de una regla de ciclo de vida
+del bucket, que es **configuración de despliegue** (`pendientes.md` §1, paso 7).
+
+### Qué se soltaba
+
+Dos operaciones que **no llegaban a completarse**: el vídeo entre firmar la subida y
+confirmarla (hasta 50 MB) y el avatar entre subirlo y guardar el perfil. No hay una «operación
+de quitar» donde actuar —el huérfano nace de una confirmación que nunca llegó—, así que el
+mecanismo de H1 no servía.
+
+### El mecanismo: nacer en `tmp/`, salir al confirmar
+
+| | Antes | Ahora |
+|---|---|---|
+| Vídeo | `listing-videos/<listingId>/<uuid>.mp4` desde que se firma | Se firma en `listing-videos/tmp/<listingId>/…`; confirmar **copia** a `listing-videos/<listingId>/…` |
+| Avatar | `avatars/<hex><ext>` al subir | Se sube a `avatars/tmp/<userId>/…`; guardar el perfil **copia** a `avatars/<hex><ext>` |
+
+**El `tmp` va ARRIBA, y no es estilo:** los filtros de una regla de ciclo de vida son
+**prefijos literales, sin comodines**. Con `listing-videos/<listingId>/tmp/…` el segmento
+queda detrás de un id variable y no hay prefijo que lo capture — haría falta una regla por
+anuncio. La forma vive en un solo sitio: `pendingPrefix` / `isPendingKey` en
+[`media-keys.ts`](../apps/api/src/infra/r2/media-keys.ts).
+
+**El destino es el prefijo de siempre**, así que los vídeos y avatares confirmados antes de H2
+siguen donde estaban: **no migra ninguna fila**, y la regla nace sin poder tocarlos.
+
+**`R2Service.copy`** ([`r2.service.ts`](../apps/api/src/infra/r2/r2.service.ts)) es lo único
+nuevo de infraestructura: no había forma de mover un objeto (no existe «renombrar»), y
+`CopyObject` se resuelve **dentro del almacenamiento** — un vídeo de 50 MB no pasa por la RAM
+de la API, igual que no pasa al subirse.
+
+### Las tres decisiones de orden
+
+1. **Borrar el temporal tras copiar es cortesía.** Si falla, la regla lo caduca — «no dejar
+   limpiar no debe romper nada».
+2. **Si la fila falla DESPUÉS de copiar, la copia se deshace.** Es el único fallo nuevo que
+   introduce la copia: la copia queda en el prefijo definitivo, donde nadie la referencia y
+   **donde la regla no llega**. Compensar es lo que impide convertir un error transitorio en
+   una huérfana permanente.
+3. **Confirmar dos veces es idempotente.** La segunda confirmación llega con el temporal ya
+   borrado; se mira el destino y, si está, se rehacen las mismas escrituras. De paso,
+   `anterior !== videoUrl` pasa a importar: sin esa comparación, la reconfirmación borraría el
+   objeto que acaba de confirmar.
+
+### El avatar: el `userId` en la clave
+
+`uploadAvatar` recibía el usuario y lo ignoraba (`_user`). Ahora va en la clave temporal, que
+es lo que permite a `updateMe` **rechazar la URL temporal de otro** sin guardar estado entre
+subir y guardar — mismo criterio que el vídeo con el `listingId`, y hace falta porque
+`UpdateMeDto.avatarUrl` es un `@IsString()` pelado. Y no choca con H1: el diff del avatar
+sustituido compara contra la URL **ya definitiva**, así que una temporal no entra nunca en él.
+
+### La regla de ciclo de vida — documentada, no aplicada
+
+Caducar a **1 día** lo que quede bajo `listing-videos/tmp/` y `avatars/tmp/`. **No se prueba
+en CI** —una caducidad se mide en días, y es configuración del bucket, no código—. Lo que sí
+se prueba es **la condición que la hace segura**: que lo confirmado no se queda en `tmp/`.
+Mientras no exista, la basura se acumula igual pero **confinada** a dos prefijos donde nada
+vivo puede estar.
+
+### Barreras
+
+`apps/api/test/huerfanas-h2.e2e-spec.ts` (8), contra MinIO de verdad con `r2.head` — molde
+`video-infra.e2e-spec.ts`: aquí lo que se afirma es **dónde acaba el objeto**, así que espiar
+llamadas no valdría. Se ajustaron además tres aserciones de `video-infra` que con `tmp/`
+habrían pasado sin probar nada (preguntaban por la clave temporal, que ahora se borra al
+confirmar).
+
+Mutaciones comprobadas: no copiar → el confirmado se queda en `tmp/` (la regla lo borraría) y
+caen 2; no compensar → queda una huérfana en el destino; no mirar el destino → la segunda
+confirmación falla sobre un vídeo perfectamente guardado.
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.
