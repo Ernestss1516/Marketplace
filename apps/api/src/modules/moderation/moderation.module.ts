@@ -18,6 +18,7 @@ import { ModerationNotificationsService } from './moderation-notifications.servi
 import { DetectionEngine } from './detection/detection.engine';
 import { ListingDetectionsService } from './detection/listing-detections.service';
 import { PhoneDetector } from './detection/detectors/phone.detector';
+import { PhoneListDetector } from './detection/detectors/phone-list.detector';
 import { WordDetector } from './detection/detectors/word.detector';
 import { PreModerationService } from './pre-moderation.service';
 import { CategoryTreeModule } from '../categories/category-tree.module';
@@ -46,6 +47,7 @@ import { CategoryTreeModule } from '../categories/category-tree.module';
     // de aquí sólo se conoce el motor: quien consuma detección no elige detectores.
     WordDetector,
     PhoneDetector,
+    PhoneListDetector,
     DetectionEngine,
     ListingDetectionsService,
     PreModerationService,

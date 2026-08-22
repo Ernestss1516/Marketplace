@@ -10,7 +10,7 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { entradasQueEmpiezanAFiltrar, eraInerte } from './entradas-inertes';
+import { entradasQueEmpiezanAFiltrar, eraInerte, esTelefonoEs } from './entradas-inertes';
 
 describe('qué entradas NO casaban con el emparejamiento viejo', () => {
   it.each([
@@ -75,5 +75,41 @@ describe('LA BARRERA — la pantalla pinta el aviso de verdad', () => {
 
   it('la pantalla se lee (red del propio test)', () => {
     expect(AJUSTES.length).toBeGreaterThan(1000);
+  });
+});
+
+// ─── A2 — los teléfonos que no marcarán nunca ─────────────────────────────────
+
+describe('qué entradas de `flaggedPhones` no casan nunca', () => {
+  it.each([
+    ['654123456', 'móvil, ya canónico'],
+    ['654 123 456', 'con espacios'],
+    ['654-12-34-56', 'con guiones'],
+    ['+34 654 123 456', 'con prefijo'],
+    ['0034654123456', 'con 00 34'],
+    ['912345678', 'un fijo'],
+  ])('«%s» (%s) SÍ es un teléfono español', (entrada) => {
+    expect(esTelefonoEs(entrada)).toBe(true);
+  });
+
+  it.each([
+    ['12345', 'demasiado corto'],
+    ['123456789', 'no empieza por 6-9'],
+    ['65412345678', 'demasiado largo'],
+    ['no soy un teléfono', 'sin dígitos'],
+    ['+44 20 7946 0958', 'de otro país'],
+    ['', 'vacío'],
+  ])('«%s» (%s) NO lo es, y la pantalla lo marca', (entrada) => {
+    // Se guarda igual —para que quien la escribió la reconozca y la corrija— pero no filtra
+    // nada. Sin el aviso se quedaría ahí para siempre pareciendo que vigila algo.
+    expect(esTelefonoEs(entrada)).toBe(false);
+  });
+
+  it('LA BARRERA: la pantalla usa la regla y tiene dónde pintarla', () => {
+    // Mismo motivo que en las palabras: el módulo podría quedarse escrito, probado y sin
+    // llamar por nadie, que es la peor forma de fallar — verde y sin efecto.
+    const AJUSTES = readFileSync(join(__dirname, 'page.tsx'), 'utf8');
+    expect(AJUSTES).toContain('esTelefonoEs(');
+    expect(AJUSTES).toContain('aviso-telefonos-invalidos');
   });
 });

@@ -836,6 +836,18 @@ enum DetectorId {
   /// Teléfono español en el texto. Avisa: es anti-EVASIÓN del campo `Listing.phone`.
   PHONE
 
+  /// A2 — un teléfono de la lista de marcados (`Setting['flaggedPhones']`).
+  ///
+  /// CONVIVE con `PHONE` y no lo sustituye, porque responden preguntas distintas:
+  ///   · `PHONE`      — «hay un teléfono FUERA de su sitio». Evasión de la puerta de
+  ///                    `GET /listings/:id/phone`. Heurística: dispara con cualquiera.
+  ///   · `PHONE_LIST` — «ESTE número está marcado». Reincidencia. Su criterio no es una
+  ///                    heurística: es una lista que alguien escribió a mano.
+  ///
+  /// Comparten el reconocedor (`detection/phone-format.ts`); lo único que cambia es el
+  /// criterio de disparo — y los campos que miran (ver `DetectionField.PHONE`).
+  PHONE_LIST
+
   /// A1 — AQUÍ ESTUVO `IP`, y se retiró.
   ///
   /// Buscaba IPv4 en el título y la descripción. Se quitó porque **no respondía a ninguna
@@ -853,10 +865,18 @@ enum DetectorId {
   /// irreversible de A1. Ver `docs/diseno-listas-ip-telefono.md` §A.2.
 }
 
-/// En qué campo del anuncio apareció. Los mismos dos que el filtro de palabras ya miraba.
+/// En qué campo del anuncio apareció.
 enum DetectionField {
   TITLE
   DESCRIPTION
+
+  /// A2 — el campo `Listing.phone`, el sitio LEGÍTIMO del teléfono.
+  ///
+  /// **Sólo lo mira `PHONE_LIST`, y la asimetría es deliberada**: un número marcado lo está
+  /// esté donde esté, mientras que `PHONE` persigue EVASIÓN — y un teléfono en su propio
+  /// campo, servido tras `JwtAuthGuard`, no esquiva nada. Si `PHONE` lo mirara, avisaría de
+  /// que el vendedor usó el canal correcto.
+  PHONE
 }
 
 /// PUNTO 6 · RÁFAGA A — UN HALLAZGO DEL MOTOR DE DETECCIÓN.

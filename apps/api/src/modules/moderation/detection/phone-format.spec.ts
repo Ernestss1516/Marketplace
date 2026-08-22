@@ -94,12 +94,32 @@ describe('LA BARRERA — los dos campos no se pueden desparear', () => {
     );
     expect(fuente.length).toBeGreaterThan(1000); // red del propio test
 
-    // Ninguna línea escribe la clave `phone:` a pelo dentro de un `data`. La única forma de
-    // que aparezca es a través del emisor compartido.
-    const sueltas = fuente
+    // LO QUE SE VIGILA ES LA FORMA DE UNA ESCRITURA: el teléfono que se guarda viene SIEMPRE
+    // de la entrada del usuario — `dto.phone` al crear, `fields.phone` al editar—, y ésas son
+    // las dos únicas fuentes posibles. Una escritura futura vendría igual de un DTO.
+    //
+    // DOS INTENTOS ANTERIORES FALLARON, y se dejan escritos porque explican esta forma:
+    //
+    //   · acotar a `prisma.listing.create(` dejó la barrera SIN DIENTES —el alta no escribe
+    //     por ahí sino por `createWithUniqueSlug`, que recibe el `data` ya construido—, y la
+    //     mutación pasó. Una barrera que no cae con su propia mutación no vale nada;
+    //   · mirar TODA línea con `phone:` daba falsos positivos con las LECTURAS: el argumento
+    //     `DetectableText` del motor (A2) y el `return { phone }` de `getPhone`. Una barrera
+    //     que grita sin motivo acaba desactivada, que es como mueren.
+    //
+    // Lo que NO cubre, y conviene saberlo: una escritura que copiara el teléfono de otra
+    // variable (`phone: otroAnuncio.phone`). No es el fallo probable —el probable es volver a
+    // guardar lo que llega del DTO— y cubrirlo exigiría analizar el fichero de verdad.
+    const escriturasDesdeElDto = fuente
       .split('\n')
-      .filter((l) => /^\s*(\.\.\.\(.*)?phone:\s/.test(l) && !l.includes('camposDeTelefono'));
-    expect(sueltas).toEqual([]);
-    expect(fuente).toContain('camposDeTelefono(');
+      .filter((l) => /phone:\s*(dto|fields)\./.test(l));
+
+    expect(escriturasDesdeElDto).toEqual([]);
+    // Y el emisor compartido se usa en LOS DOS caminos. Se afirma sobre las llamadas
+    // concretas y no sobre cuántas veces aparece el nombre: contar ocurrencias también
+    // cuenta las de los comentarios, y un test que se rompe al escribir un comentario es un
+    // test que acaba borrado.
+    expect(fuente).toContain('camposDeTelefono(dto.phone)');
+    expect(fuente).toContain('camposDeTelefono(fields.phone)');
   });
 });

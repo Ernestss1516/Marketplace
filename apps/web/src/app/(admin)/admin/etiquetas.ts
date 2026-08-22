@@ -216,7 +216,12 @@ export const ACCION_LABELS: Record<string, string> = {
 // Llamarlo «Teléfono» leería como si publicarlo estuviera prohibido, y no lo está.
 export const DETECTOR_LABELS: Record<string, string> = {
   WORD: 'Palabra de la lista',
+  // Los dos de teléfono se nombran por la PREGUNTA que responde cada uno, no por el
+  // mecanismo: el moderador ve los dos avisos juntos sobre el mismo número y tiene que
+  // entender de un vistazo que uno dice «está fuera de su sitio» y el otro «ese número ya
+  // nos sonaba». Llamarlos «Teléfono» y «Teléfono (lista)» los haría indistinguibles.
   PHONE: 'Teléfono en el texto',
+  PHONE_LIST: 'Teléfono marcado',
   // A1 — «IP: Dirección IP» estaba aquí. El detector de IPs sobre TEXTO se retiró: una IP en
   // una descripción suele ser producto (el router que documenta la suya), no señal. Lo que
   // sustituye a aquello no es un detector sino la lista de IPs marcadas, que mira la ÚLTIMA
@@ -226,4 +231,7 @@ export const DETECTOR_LABELS: Record<string, string> = {
 export const DETECTION_FIELD_LABELS: Record<string, string> = {
   TITLE: 'título',
   DESCRIPTION: 'descripción',
+  // A2 — el campo propio del teléfono. Se dice «campo de teléfono» y no sólo «teléfono»
+  // para que se lea distinto del detector: uno es DÓNDE apareció, el otro QUÉ es.
+  PHONE: 'campo de teléfono',
 };

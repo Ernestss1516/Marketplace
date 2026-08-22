@@ -31,11 +31,17 @@ import { DetectionEngine } from './detection.engine';
 import { DETECTION_MODES_SETTING, parseDetectionModes } from './detection.types';
 import { WordDetector, BAD_WORD_LIST_SETTING } from './detectors/word.detector';
 import { PhoneDetector } from './detectors/phone.detector';
+import { PhoneListDetector, FLAGGED_PHONES_SETTING } from './detectors/phone-list.detector';
 import type { PrismaService } from '../../../infra/prisma/prisma.service';
 
 function conLista(
   words: unknown,
-  opciones: { revienta?: boolean; modos?: unknown; modosRevientan?: boolean } = {},
+  opciones: {
+    revienta?: boolean;
+    modos?: unknown;
+    modosRevientan?: boolean;
+    telefonos?: unknown;
+  } = {},
 ) {
   const findUnique = jest.fn(async ({ where }: { where: { key: string } }) => {
     // RÁFAGA B — el mismo `setting.findUnique` sirve las dos claves. Que el detector de
@@ -45,13 +51,24 @@ function conLista(
       if (opciones.modosRevientan) throw new Error('no se pueden leer los modos');
       return opciones.modos === undefined ? null : { key: where.key, value: opciones.modos };
     }
+    // A2 — la lista de teléfonos marcados, su propia clave.
+    if (where.key === FLAGGED_PHONES_SETTING) {
+      return opciones.telefonos === undefined
+        ? null
+        : { key: where.key, value: opciones.telefonos };
+    }
     if (opciones.revienta) throw new Error('la base de datos no está');
     if (where.key !== BAD_WORD_LIST_SETTING) return null;
     return words === undefined ? null : { key: where.key, value: words };
   });
   const prisma = { setting: { findUnique } } as unknown as PrismaService;
   const detector = new WordDetector(prisma);
-  const motor = new DetectionEngine(prisma, detector, new PhoneDetector());
+  const motor = new DetectionEngine(
+    prisma,
+    detector,
+    new PhoneDetector(),
+    new PhoneListDetector(prisma),
+  );
   return { motor, detector, findUnique };
 }
 
@@ -442,7 +459,7 @@ describe('RÁFAGA B — un ajuste roto NO puede apagar el filtro que sí bloquea
 
   it('un valor basura en PHONE no cambia lo que hace WORD', () => {
     const modos = parseDetectionModes({ WORD: 'BLOCK', PHONE: 'BLOQUEAR_YA' });
-    expect(modos).toEqual({ WORD: 'BLOCK', PHONE: 'WARN' });
+    expect(modos).toEqual({ WORD: 'BLOCK', PHONE: 'WARN', PHONE_LIST: 'WARN' });
   });
 
   it('una clave `IP` sobrante de antes de A1 es INERTE, no rompe nada', () => {
@@ -453,6 +470,8 @@ describe('RÁFAGA B — un ajuste roto NO puede apagar el filtro que sí bloquea
     expect(parseDetectionModes({ WORD: 'BLOCK', IP: 'BLOCK', PHONE: 'WARN' })).toEqual({
       WORD: 'BLOCK',
       PHONE: 'WARN',
+      // A2 — sin declarar en el ajuste, cae a su modo de nacimiento.
+      PHONE_LIST: 'WARN',
     });
   });
 
@@ -462,5 +481,124 @@ describe('RÁFAGA B — un ajuste roto NO puede apagar el filtro que sí bloquea
     const { motor } = conLista(['estafa'], { modosRevientan: true });
     const { blocking } = await motor.run(TEXTO('Vendo estafa'));
     expect(blocking).toBe(true);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────────────────
+// A2 — la lista de teléfonos marcados
+// ───────────────────────────────────────────────────────────────────────────────────────
+
+describe('A2 — PHONE_LIST casa un número marcado en cualquier formato', () => {
+  it('LA BARRERA: el reconocedor es el mismo, así que los formatos dan igual', () => {
+    // La lista lleva UNA forma; el anuncio puede llevar otra. Casan porque los dos lados se
+    // canonizan con la misma función — la que también usa el detector heurístico y la
+    // columna de búsqueda. Escribir aquí un segundo patrón «parecido» habría producido el
+    // clásico: uno que encuentra una cosa y otro que encuentra otra.
+    const casos: [string, string][] = [
+      ['654123456', 'llama al 654 123 456'],
+      ['654 123 456', 'llama al 654123456'],
+      ['+34 654 123 456', 'mi numero: 654-12-34-56'],
+      ['0034654123456', 'tel 654.123.456'],
+    ];
+    return Promise.all(
+      casos.map(async ([enLaLista, enElAnuncio]) => {
+        const { motor } = conLista([], { telefonos: [enLaLista] });
+        const { detections } = await motor.run(TEXTO('Bici', enElAnuncio));
+        const deLista = detections.filter((d) => d.detector === 'PHONE_LIST');
+        expect(deLista).toHaveLength(1);
+        // `rule` devuelve la entrada TAL COMO LA ESCRIBIÓ el admin: quien lea el aviso
+        // tiene que reconocer su propia regla para poder corregirla.
+        expect(deLista[0].rule).toBe(enLaLista);
+      }),
+    );
+  });
+
+  it('un número que NO está en la lista no la dispara', async () => {
+    const { motor } = conLista([], { telefonos: ['654123456'] });
+    const { detections } = await motor.run(TEXTO('Bici', 'llama al 611222333'));
+    expect(detections.filter((d) => d.detector === 'PHONE_LIST')).toEqual([]);
+    // Pero el HEURÍSTICO sí avisa: hay un teléfono fuera de su sitio, esté marcado o no.
+    expect(detections.map((d) => d.detector)).toEqual(['PHONE']);
+  });
+
+  it('CONVIVENCIA: un número marcado dispara LOS DOS, distinguibles', async () => {
+    // Las dos preguntas a la vez sobre el mismo número: «hay un teléfono fuera de su sitio»
+    // (evasión) y «ese número está marcado» (reincidencia). El staff ve las dos.
+    const { motor } = conLista([], { telefonos: ['654123456'] });
+    const { detections } = await motor.run(TEXTO('Bici', 'llama al 654123456'));
+    expect(detections.map((d) => d.detector).sort()).toEqual(['PHONE', 'PHONE_LIST']);
+  });
+
+  it('NACE EN WARN: marca y no bloquea', async () => {
+    const { motor } = conLista([], { telefonos: ['654123456'] });
+    const { blocking } = await motor.run(TEXTO('Bici', 'llama al 654123456'));
+    expect(blocking).toBe(false);
+  });
+
+  it('y asciende cambiando el ajuste, como cualquier otro', async () => {
+    const { motor } = conLista([], {
+      telefonos: ['654123456'],
+      modos: { PHONE_LIST: 'BLOCK' },
+    });
+    const { detections, blocking } = await motor.run(TEXTO('Bici', 'llama al 654123456'));
+    expect(blocking).toBe(true);
+    // Bloquear es avisar MÁS una consecuencia: el rastro es el mismo.
+    expect(detections.filter((d) => d.detector === 'PHONE_LIST')).toHaveLength(1);
+  });
+
+  it('sin lista, o con la lista vacía, no encuentra nada', async () => {
+    for (const telefonos of [undefined, []]) {
+      const { motor } = conLista([], { telefonos });
+      const { detections } = await motor.run(TEXTO('Bici', 'llama al 654123456'));
+      expect(detections.filter((d) => d.detector === 'PHONE_LIST')).toEqual([]);
+    }
+  });
+
+  it('una entrada que no es un teléfono se descarta y no rompe la lista', async () => {
+    // Se descarta EN SILENCIO aquí; la pantalla de ajustes es la que la señala. Lo que no
+    // puede es impedir que el resto de la lista funcione.
+    const { motor } = conLista([], { telefonos: ['no-soy-un-telefono', '654123456'] });
+    const { detections } = await motor.run(TEXTO('Bici', 'llama al 654123456'));
+    expect(detections.filter((d) => d.detector === 'PHONE_LIST')).toHaveLength(1);
+  });
+});
+
+describe('A2 — LA ASIMETRÍA DE CAMPOS', () => {
+  it('el campo `phone` lo mira PHONE_LIST y NO el heurístico', async () => {
+    // LA BARRERA DE LA ASIMETRÍA, y las dos mitades importan:
+    //   · un número marcado lo está esté donde esté — también en su campo legítimo;
+    //   · un teléfono en su propio campo NO esquiva nada, así que el heurístico —que
+    //     persigue evasión— no tiene nada que decir ahí. Si lo mirara, avisaría de que el
+    //     vendedor usó el canal correcto.
+    const { motor } = conLista([], { telefonos: ['654123456'] });
+    const { detections } = await motor.run({
+      title: 'Bici',
+      description: 'Sin datos de contacto en el texto.',
+      phone: '654 123 456',
+    });
+
+    expect(detections).toHaveLength(1);
+    expect(detections[0]).toMatchObject({
+      detector: 'PHONE_LIST',
+      field: 'PHONE',
+      rule: '654123456',
+    });
+  });
+
+  it('un teléfono NO marcado en su campo no dispara NADA', async () => {
+    // La otra mitad de la asimetría: el heurístico sigue sin mirar ahí.
+    const { motor } = conLista([], { telefonos: ['611222333'] });
+    const { detections } = await motor.run({
+      title: 'Bici',
+      description: 'Sin datos de contacto.',
+      phone: '654123456',
+    });
+    expect(detections).toEqual([]);
+  });
+
+  it('sin campo `phone` no pasa nada — es opcional', async () => {
+    const { motor } = conLista([], { telefonos: ['654123456'] });
+    const { detections } = await motor.run(TEXTO('Bici', 'sin nada'));
+    expect(detections).toEqual([]);
   });
 });

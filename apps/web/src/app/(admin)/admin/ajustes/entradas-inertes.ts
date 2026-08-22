@@ -55,3 +55,25 @@ export function eraInerte(entrada: string): boolean {
 export function entradasQueEmpiezanAFiltrar(entradas: string[]): string[] {
   return entradas.filter((e) => e.trim() && eraInerte(e));
 }
+
+/**
+ * A2 — ¿esta entrada de `flaggedPhones` es un teléfono español?
+ *
+ * Si no lo es, **no casará nunca**: el detector la descarta al canonizar la lista. Se guarda
+ * igual —para que quien la escribió la reconozca y la corrija— y la pantalla la señala, mismo
+ * criterio que `eraInerte` para las palabras.
+ *
+ * ES UNA COPIA DE LA REGLA, y aquí importa por qué es SEGURA serlo: esto sólo decide si se
+ * pinta un aviso. **La canonización de verdad —la que decide si un número casa— vive en el
+ * backend** (`detection/phone-format.ts`) y es la única que se aplica. Si las dos divergieran,
+ * el peor caso es un distintivo de más o de menos, nunca una coincidencia equivocada.
+ *
+ * Misma forma canónica que allí: nueve dígitos empezando por 6-9, admitiendo prefijo `+34` /
+ * `0034` y separadores.
+ */
+export function esTelefonoEs(entrada: string): boolean {
+  const digitos = entrada.replace(/\D/g, '');
+  const nueve =
+    digitos.length === 9 ? digitos : /^(?:00)?34\d{9}$/.test(digitos) ? digitos.slice(-9) : '';
+  return /^[6-9]\d{8}$/.test(nueve);
+}

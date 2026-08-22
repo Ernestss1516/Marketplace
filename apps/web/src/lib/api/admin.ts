@@ -113,7 +113,7 @@ export interface AdminListingDetail {
    */
   detections: {
     id: string;
-    detector: 'WORD' | 'PHONE';
+    detector: 'WORD' | 'PHONE' | 'PHONE_LIST';
     field: 'TITLE' | 'DESCRIPTION';
     match: string;
     rule: string | null;
@@ -250,7 +250,7 @@ export interface AdminListingsFilters {
    * Combinarlos es lo que hace de la lista el banco de pruebas del modo avisar.
    */
   hasDetections?: boolean;
-  detector?: 'WORD' | 'PHONE';
+  detector?: 'WORD' | 'PHONE' | 'PHONE_LIST';
   /** A1 — «su ultima IP de gestion esta en la lista de vigilancia». Derivado, sin tabla. */
   ipFlagged?: boolean;
   /** ÚLTIMA IP (5b) — la IP desde la que su DUEÑO lo gestionó por última vez. Cruza con
@@ -774,7 +774,7 @@ export function updateAdminSetting(
  * existe. Ver `docs/diseno-listas-bloqueo.md` §2.4.
  */
 export interface DetectionStat {
-  detector: 'WORD' | 'PHONE';
+  detector: 'WORD' | 'PHONE' | 'PHONE_LIST';
   mode: 'WARN' | 'BLOCK';
   listings: number;
   detections: number;
