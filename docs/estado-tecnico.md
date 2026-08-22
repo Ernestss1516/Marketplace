@@ -14530,6 +14530,27 @@ Mutaciones, las tres verificadas:
 | Retirar borra la fila (físico) | Barrera 2: la denuncia muere por `Cascade` |
 | Editar toca `editedAt` | Barrera 3: el staff firmaría como si fuera el autor |
 
+### El drift de 5b, que se cobró una pieza (y la barrera que faltaba)
+
+La primera pasada de CI se cayó en **P3018 / 42704** antes de correr un solo test:
+`prisma migrate dev` había escrito `DROP INDEX "User_lastLoginAt_desc_nulls_last_idx"` en la
+migración de 7b y no se leyó el SQL generado. Es el índice raw de 5b —Prisma no sabe
+expresar `NULLS LAST` en un `@@index`, así que lo lee como drift y propone tirarlo en **cada**
+migración nueva—, y la propia migración de 5b lo dejaba avisado.
+
+En local colaba: el índice existía, el `DROP` funcionaba y la pérdida era **silenciosa** (se
+comprobó: había desaparecido de `marketplace` y de `marketplace_test`). En base limpia
+reventaba, porque `20260822090000_indice_ultima_conexion` ordena **después** de la de 7b: se
+tiraba un índice que aún no se había creado.
+
+Las dos barreras anti-drift de 5b miran la **base de datos**, y en una base de test que ya
+tiene el índice aplicado no ven un `DROP` escrito en un fichero. Se añade la tercera, que
+mira los **ficheros**: `LA BARRERA DE ORIGEN` recorre las 70 migraciones y falla si alguna
+línea no comentada borra ese índice. El aviso llevaba escrito desde 5b — un comentario no
+frena a quien está mirando otro fichero.
+
+**REGLA**: al generar una migración, leer el SQL y borrar ese `DROP INDEX`.
+
 **Con esto el punto 7 queda cerrado.** Del lote sólo queda el **punto 6** (listas de
 bloqueo), que necesita diseño propio.
 
