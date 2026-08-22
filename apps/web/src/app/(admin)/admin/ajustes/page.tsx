@@ -17,6 +17,7 @@ import { PriceListEditor } from './_components/PriceListEditor';
 // PUNTO 6 — el MISMO vocabulario que la ficha y los filtros. Tres pantallas nombrando los
 // detectores por su cuenta es como acaban divergiendo (lo documenta el punto 4).
 import { DETECTOR_LABELS } from '../etiquetas';
+import { entradasQueEmpiezanAFiltrar } from './entradas-inertes';
 
 // ─── Helpers for badWordList ───────────────────────────────────────────────────
 
@@ -169,9 +170,43 @@ function BadWordListEditor({
   }
 
   const wordCount = fromWordListText(text).length;
+  // PUNTO 6 · RÁFAGA C — las que hasta ahora NO FILTRABAN NADA y empiezan a hacerlo.
+  const empiezanAFiltrar = entradasQueEmpiezanAFiltrar(fromWordListText(text));
 
   return (
     <div className="space-y-3">
+      {/* EL AVISO QUE TIENE QUE LLEGAR ANTES QUE LA COLA DE MODERACIÓN.
+          Estas entradas llevaban meses inertes —el emparejamiento viejo las partía y no
+          casaban nunca— y esta misma pantalla se las guardó prometiendo que filtraban.
+          Ahora funcionan. Y como el detector de palabras está en BLOQUEAR y desde la
+          ráfaga B bloquear actúa TAMBIÉN AL EDITAR, una entrada olvidada puede sacar del
+          escaparate un anuncio ya publicado en cuanto su dueño lo toque.
+          Por eso se señalan una a una, en vez de dejar que el admin lo descubra por el
+          efecto. Ver docs/diseno-listas-bloqueo.md §5.4. */}
+      {empiezanAFiltrar.length > 0 && (
+        <div
+          className="rounded-md border border-amber-400 bg-amber-50 p-3 text-xs text-amber-900"
+          data-testid="aviso-entradas-inertes"
+        >
+          <p className="font-medium">
+            {empiezanAFiltrar.length === 1
+              ? 'Esta entrada no filtraba nada y ahora sí:'
+              : `Estas ${empiezanAFiltrar.length} entradas no filtraban nada y ahora sí:`}
+          </p>
+          <ul className="mt-1 list-inside list-disc font-mono">
+            {empiezanAFiltrar.map((e) => (
+              <li key={e}>{e}</li>
+            ))}
+          </ul>
+          <p className="mt-2">
+            Llevan sin funcionar desde que se escribieron: el filtro sólo sabía comparar
+            palabras sueltas, así que cualquier entrada con espacios o símbolos no casaba
+            nunca. <strong>A partir de ahora sí casan.</strong> Como este filtro manda los
+            anuncios a revisión —y también cuando su dueño los edita—, revísalas antes de
+            seguir: corrige las que estén mal escritas y borra las que ya no quieras.
+          </p>
+        </div>
+      )}
       <div className="flex flex-col gap-1">
         <label className="text-xs font-medium text-muted-foreground">
           Palabras prohibidas{' '}
@@ -533,7 +568,7 @@ const SETTING_TITLES: Record<string, string> = {
 
 const SETTING_DESCRIPTIONS: Record<string, string> = {
   badWordList:
-    'Palabras que activan la revisión manual de un anuncio al publicarse. Si una palabra de esta lista aparece en el título o descripción, el anuncio pasa a estado "En revisión" en lugar de publicarse directamente.',
+    'Palabras o frases que activan la revisión manual de un anuncio. Si alguna aparece en el título o la descripción, el anuncio pasa a "En revisión" en lugar de publicarse directamente — y desde ahora eso vale también cuando su dueño EDITA un anuncio ya publicado, que puede volver a la cola. Se casan palabras enteras: «estafa» no salta con «estafador». Se admiten frases con espacios y entradas con símbolos, y la puntuación no tiene que coincidir: «100%-garantizado» encuentra «100 % garantizado». Ojo: para IPs y teléfonos no hace falta escribir nada aquí — tienen sus propios detectores, más abajo.',
   listingExpiryDays:
     'Número de días desde la publicación hasta que un anuncio activo caduca automáticamente.',
   contactRequiresVerification:

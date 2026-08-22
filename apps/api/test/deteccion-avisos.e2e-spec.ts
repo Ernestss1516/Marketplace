@@ -34,6 +34,7 @@ import { createTestApp } from './helpers/create-app';
 import { cleanDb } from './helpers/db';
 
 const BAD_WORDS = 'badWordList';
+const CUOTA_ACTIVOS = 'freeActiveListingLimit';
 
 describe('Punto 6 ráfaga A — el modo avisar (e2e)', () => {
   let app: INestApplication;
@@ -44,6 +45,7 @@ describe('Punto 6 ráfaga A — el modo avisar (e2e)', () => {
   let adminToken: string;
   let categoryId: string;
   let badWordsOriginal: unknown;
+  let cuotaOriginal: unknown;
 
   const server = () => app.getHttpServer();
 
@@ -91,6 +93,18 @@ describe('Punto 6 ráfaga A — el modo avisar (e2e)', () => {
     badWordsOriginal =
       (await prisma.setting.findUnique({ where: { key: BAD_WORDS } }))?.value ?? null;
 
+    // El mismo vendedor publica en casi todos los casos de este fichero, así que acaba
+    // topando con la CUOTA DE ACTIVOS y `publish()` responde 403 — un fallo de fixture que
+    // no dice nada de la detección. Se le da sitio y se restaura al final, igual que con
+    // la lista de palabras.
+    cuotaOriginal =
+      (await prisma.setting.findUnique({ where: { key: CUOTA_ACTIVOS } }))?.value ?? null;
+    await prisma.setting.upsert({
+      where: { key: CUOTA_ACTIVOS },
+      create: { key: CUOTA_ACTIVOS, value: 500 as never },
+      update: { value: 500 as never },
+    });
+
     const passwordHash = await bcrypt.hash('Test1234!', 10);
     const [seller] = await Promise.all([
       prisma.user.create({
@@ -127,14 +141,19 @@ describe('Punto 6 ráfaga A — el modo avisar (e2e)', () => {
   }, 60_000);
 
   afterAll(async () => {
-    if (badWordsOriginal === null) {
-      await prisma.setting.deleteMany({ where: { key: BAD_WORDS } });
-    } else {
-      await prisma.setting.upsert({
-        where: { key: BAD_WORDS },
-        create: { key: BAD_WORDS, value: badWordsOriginal as never },
-        update: { value: badWordsOriginal as never },
-      });
+    for (const [key, valor] of [
+      [BAD_WORDS, badWordsOriginal],
+      [CUOTA_ACTIVOS, cuotaOriginal],
+    ] as const) {
+      if (valor === null) {
+        await prisma.setting.deleteMany({ where: { key } });
+      } else {
+        await prisma.setting.upsert({
+          where: { key },
+          create: { key, value: valor as never },
+          update: { value: valor as never },
+        });
+      }
     }
     await app.close();
     await prisma.$disconnect();
@@ -338,6 +357,79 @@ describe('Punto 6 ráfaga A — el modo avisar (e2e)', () => {
       .send({ description: 'Sin datos de contacto.' })
       .expect(200);
     expect(await detecciones(anuncio.id)).toEqual([]);
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // RÁFAGA C — el fail-open del emparejamiento, cerrado
+  // ───────────────────────────────────────────────────────────────────────────
+
+  it('RÁFAGA C: una FRASE en la lista ya filtra — antes casaba cero veces', async () => {
+    // LA BARRERA DEL ARREGLO, extremo a extremo. Hasta ahora el tokenizador partía el texto
+    // en palabras sueltas y comparaba la entrada ENTERA contra cada una, así que «dinero
+    // facil» no casaba jamás: la pantalla de ajustes la guardaba y prometía que filtraba.
+    await fijarPalabras(['dinero facil']);
+    const anuncio = await crearAnuncio('Trabajo desde casa', 'Gana dinero facil en un mes.');
+
+    await request(server())
+      .post(`/api/listings/${anuncio.id}/publish`)
+      .set('Authorization', `Bearer ${sellerToken}`)
+      .expect(200);
+
+    // `WORD` está en BLOQUEAR desde siempre: lo que cambia no es el modo, es que la entrada
+    // por fin sirve para algo.
+    expect((await estado(anuncio.id)).status).toBe('PENDING_REVIEW');
+    expect((await detecciones(anuncio.id)).map((d) => [d.detector, d.rule])).toEqual([
+      ['WORD', 'dinero facil'],
+    ]);
+    await fijarPalabras([]);
+  });
+
+  it('y la puntuación deja de tener que coincidir', async () => {
+    // Quien escribe la regla no puede adivinar cómo puntuará el vendedor. Las dos formas
+    // colapsan igual, así que casan.
+    await fijarPalabras(['100%-garantizado']);
+    const anuncio = await crearAnuncio('Reloj', 'Vendo con 100 % garantizado de fábrica.');
+
+    await request(server())
+      .post(`/api/listings/${anuncio.id}/publish`)
+      .set('Authorization', `Bearer ${sellerToken}`)
+      .expect(200);
+
+    expect((await estado(anuncio.id)).status).toBe('PENDING_REVIEW');
+    await fijarPalabras([]);
+  });
+
+  it('LO QUE NO SE LLEVA POR DELANTE: «estafa» sigue sin saltar con «estafador»', async () => {
+    // La semántica de palabra entera la daba gratis el tokenizador, y un `contains` a secas
+    // la habría destruido — en el detector que BLOQUEA. Se afirma también aquí, y no sólo en
+    // el unitario, porque el precio de perderla es que medio diccionario despublique.
+    await fijarPalabras(['estafa']);
+    const anuncio = await crearAnuncio('Muebles', 'Vendo cosas, no soy estafador.');
+
+    await request(server())
+      .post(`/api/listings/${anuncio.id}/publish`)
+      .set('Authorization', `Bearer ${sellerToken}`)
+      .expect(200);
+
+    expect((await estado(anuncio.id)).status).toBe('ACTIVE');
+    expect(await detecciones(anuncio.id)).toEqual([]);
+    await fijarPalabras([]);
+  });
+
+  it('una entrada de puro símbolo NO bloquea el marketplace entero', async () => {
+    // El fallo de manual que el arreglo podía introducir: «---» colapsa a un espacio suelto,
+    // y un espacio está dentro de CUALQUIER texto. Con `WORD` en BLOQUEAR, eso habría
+    // mandado a revisión todos los anuncios de la plataforma.
+    await fijarPalabras(['---']);
+    const anuncio = await crearAnuncio('Un anuncio', 'Perfectamente normal, sin nada raro.');
+
+    await request(server())
+      .post(`/api/listings/${anuncio.id}/publish`)
+      .set('Authorization', `Bearer ${sellerToken}`)
+      .expect(200);
+
+    expect((await estado(anuncio.id)).status).toBe('ACTIVE');
+    await fijarPalabras([]);
   });
 
   // ───────────────────────────────────────────────────────────────────────────

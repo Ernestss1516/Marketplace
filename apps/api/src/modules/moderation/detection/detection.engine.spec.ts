@@ -103,40 +103,87 @@ describe('el detector de palabras casa igual que antes de la extracción', () =>
   });
 });
 
-describe('EL FAIL-OPEN QUE LA RÁFAGA 0 NO ARREGLA (y afirma que sigue ahí)', () => {
-  // Cuando la ráfaga C arregle el emparejamiento multi-palabra, ESTOS DOS TESTS TIENEN QUE
-  // CAERSE. Es su función: marcar el sitio exacto donde el arreglo se notará.
+describe('RÁFAGA C — EL FAIL-OPEN, CERRADO (aquí estaban los tres tests que exigían el defecto)', () => {
+  // ESTOS TRES TESTS AFIRMABAN LO CONTRARIO, y su caída era su función: marcaban el sitio
+  // exacto donde el arreglo se notaría, para que llegara POR DECISIÓN y no por accidente.
+  // Ahora afirman la conducta nueva, en los mismos casos y con los mismos textos, para que
+  // el diff enseñe el cambio en vez de esconderlo.
 
-  it('una IP en la lista de palabras NO detecta nada — el tokenizador la parte', async () => {
+  it('una entrada de DOS PALABRAS ya casa — era el fail-open', async () => {
+    // Antes: los tokens del texto eran {gana, dinero, facil, desde, casa} y la entrada se
+    // comparaba ENTERA contra cada uno, así que «dinero facil» no casaba jamás.
+    const { motor } = conLista(['dinero facil']);
+    const { detections, blocking } = await motor.run(TEXTO('Gana dinero facil desde casa'));
+
+    expect(detections).toHaveLength(1);
+    expect(detections[0]).toMatchObject({ detector: 'WORD', rule: 'dinero facil' });
+    // Y `WORD` sigue en BLOCK: eso no cambia, lo que cambia es que ahora la entrada sirve.
+    expect(blocking).toBe(true);
+  });
+
+  it('y con símbolos: la puntuación deja de importar en los DOS lados', async () => {
+    // Ni el admin tiene que adivinar cómo puntuará el vendedor, ni al revés.
+    const { motor } = conLista(['100%-garantizado']);
+    const { detections } = await motor.run(TEXTO('Vendo con 100 % garantizado de fábrica'));
+    expect(detections.map((d) => d.rule)).toEqual(['100%-garantizado']);
+  });
+
+  it('una IP puesta en la lista TAMBIÉN casa, y no pisa al detector de IPs', async () => {
+    // La distinción que hay que tener clara: una entrada de la lista es una CADENA LITERAL
+    // que alguien tecleó —«bloquea ESE texto»—, y el detector `IP` es una HEURÍSTICA que
+    // dispara con cualquier IP, legítimas incluidas. Por eso uno bloquea y el otro avisa.
+    //
+    // Excluir «las entradas que parezcan una IP» exigiría adivinar si `192.168.1.1` es una
+    // IP o una referencia con puntos, y adivinar es lo que produce fail-opens.
     const { motor } = conLista(['192.168.1.1']);
-    const { detections, blocking } = await motor.run(
+    const { detections } = await motor.run(
       TEXTO('Router configurado', 'entra en 192.168.1.1 para configurarlo'),
     );
 
-    // El texto SÍ contiene la IP; la entrada de la lista se normaliza a «192.168.1.1» y se
-    // compara contra los tokens {192, 168, 1}, así que no casa jamás. El admin escribió
-    // una regla, la pantalla se la guardó, y no filtra nada.
-    //
-    // Se filtra por `WORD` porque desde la ráfaga A **el detector de IPs SÍ la encuentra**
-    // (ver «LA BARRERA DEL PUNTO 6»). Ése es justamente el arreglo: no se enseña a la lista
-    // de palabras a ver IPs, se le da a las IPs su propio detector. Lo que este test fija es
-    // que la lista sigue sin poder — y por eso sigue sin bloquear.
-    expect(detections.filter((d) => d.detector === 'WORD')).toEqual([]);
+    // Los DOS detectores la ven, cada uno por su motivo y cada uno con su modo.
+    expect(detections.map((d) => d.detector).sort()).toEqual(['IP', 'WORD']);
+  });
+
+  it('SIN entrada en la lista, una IP la ve SÓLO el detector de IPs — y no bloquea', async () => {
+    // La otra mitad, y la que demuestra que el arreglo no ha convertido la lista de palabras
+    // en un detector de patrones: sin que nadie escriba nada, `WORD` no encuentra ninguna IP.
+    const { motor } = conLista([]);
+    const { detections, blocking } = await motor.run(TEXTO('Router', 'entra en 192.168.1.1'));
+    expect(detections.map((d) => d.detector)).toEqual(['IP']);
+    expect(blocking).toBe(false);
+  });
+});
+
+describe('RÁFAGA C — lo que el arreglo NO se lleva por delante', () => {
+  it('PALABRA ENTERA: «estafa» sigue sin casar dentro de «estafador»', async () => {
+    // Es la propiedad que el tokenizador daba gratis y que un `contains` a secas habría
+    // destruido. Los espacios de guarda de `colapsar` son exactamente esto: sin ellos, el
+    // detector que BLOQUEA empezaría a disparar con medio diccionario.
+    const { motor } = conLista(['estafa']);
+    const { blocking } = await motor.run(TEXTO('Vendo cosas, no soy estafador'));
     expect(blocking).toBe(false);
   });
 
-  it('una entrada de DOS palabras tampoco casa nunca', async () => {
-    const { motor } = conLista(['dinero facil']);
-    const { blocking } = await motor.run(TEXTO('Gana dinero facil desde casa'));
+  it('ni al principio ni al final de otra palabra', async () => {
+    const { motor } = conLista(['casa']);
+    const { detections } = await motor.run(TEXTO('Vendo una casaca y un casarón'));
+    expect(detections).toEqual([]);
+  });
+
+  it('una entrada que se queda EN NADA al normalizar no casa con todo', async () => {
+    // El fallo de manual que este arreglo podía introducir: «---» colapsa a un espacio
+    // suelto, y un espacio está dentro de CUALQUIER texto. Una entrada así habría
+    // bloqueado el marketplace entero.
+    const { motor } = conLista(['---', '  ', '!!!']);
+    const { detections, blocking } = await motor.run(TEXTO('Un anuncio perfectamente normal'));
+    expect(detections).toEqual([]);
     expect(blocking).toBe(false);
   });
 
-  it('pero sus trozos sueltos sí, que es lo que hace el fallo invisible', async () => {
-    // Quien escribió «dinero facil» y vio que «algo» se filtraba pudo creer que funcionaba:
-    // lo que casó fue otra entrada, no la suya.
-    const { motor } = conLista(['dinero facil', 'dinero']);
-    const { detections } = await motor.run(TEXTO('Gana dinero facil desde casa'));
-    expect(detections.map((d) => d.rule)).toEqual(['dinero']);
+  it('los espacios de más dentro de una entrada no la rompen', async () => {
+    const { motor } = conLista(['dinero    facil']);
+    const { blocking } = await motor.run(TEXTO('Gana dinero facil'));
+    expect(blocking).toBe(true);
   });
 });
 
@@ -223,11 +270,15 @@ describe('la estructura del motor', () => {
 // ───────────────────────────────────────────────────────────────────────────────────────
 
 describe('RÁFAGA A — el detector de IPs mira el texto CRUDO', () => {
-  it('LA BARRERA DEL PUNTO 6: la IP que la lista de palabras no puede ver, SÍ la ve', async () => {
-    // Es la afirmación exacta que justifica que existan detectores propios. La misma IP,
-    // el mismo texto: puesta en `badWordList` no casa nunca (ver el bloque del fail-open);
-    // con su detector, se detecta ENTERA — sin partir por los puntos.
-    const { motor } = conLista(['192.168.1.1']);
+  it('LA BARRERA DEL PUNTO 6: SIN que nadie escriba una regla, la IP se detecta', async () => {
+    // Es la afirmación que justifica que existan detectores propios: nadie puede mantener
+    // una lista con las IPs que a alguien se le ocurra escribir. El detector las reconoce
+    // como PATRÓN, sobre el texto crudo y sin partir por los puntos.
+    //
+    // (Hasta la ráfaga C este test usaba una entrada en `badWordList` para enseñar que la
+    // lista NO podía verla. Ahora sí puede —el fail-open está cerrado—, así que la barrera
+    // se afirma en su forma fuerte: con la lista VACÍA.)
+    const { motor } = conLista([]);
     const { detections } = await motor.run(
       TEXTO('Router', 'configuración en 192.168.1.1 para entrar'),
     );
