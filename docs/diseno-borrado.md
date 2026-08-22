@@ -676,6 +676,13 @@ separadas, ninguna parte de P5):
    confirmado. Con la fuente cerrada, la basura nueva no aparece — y entonces la
    vieja es un conjunto **finito y conocido**, que es cuando un barrido empieza a
    tener sentido.
+   → **Diseñado (2026-08-22) en [`diseno-huerfanas-sin-fila.md`](./diseno-huerfanas-sin-fila.md)**:
+   inventario verificado de los ocho prefijos, las **cinco** fugas sin fila que resultaron ser
+   (el avatar son dos: la sustitución y la subida que nunca se guarda), y dos mecanismos —diff
+   de URLs propias hacia `media-cleanup` para lo que se suelta, prefijo efímero con caducidad
+   para lo que no llega a confirmarse—. Ojo con lo que ese documento verificó y aquí se daba
+   por otra cosa: **confirmar un vídeo NO lo saca de su prefijo**, así que una regla de ciclo
+   de vida sobre `listing-videos/` borraría los vivos.
 
 **Lo aprendido, para quien retome esto.** Si algún día hay que barrer de verdad,
 lo que hace falta no es el barrido: es la **consulta de propiedad**. Y esa

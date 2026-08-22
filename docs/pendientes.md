@@ -226,6 +226,13 @@ Lo que **sigue abierto**, y son dos problemas distintos que esta entrada mezclab
   el **avatar sustituido** (`media.service.ts:47` sube el nuevo y nunca borra el viejo) y las
   imágenes de `blocks/`, `homepage/` y `sponsored/`, que suben directo a R2 sin fila propia y
   quedan sueltas al quitar el bloque del `Json`.
+  **DISEÑADO (2026-08-22) — [`diseno-huerfanas-sin-fila.md`](./diseno-huerfanas-sin-fila.md)**,
+  pendiente de implementar en dos ráfagas: H1 «lo que se suelta» (diff de URLs propias entre el
+  antes y el después de la operación → cola `media-cleanup` de B3) y H2 «lo que nunca se
+  confirma» (prefijo efímero con regla de caducidad). Al verificarlo salieron **cinco** fugas y
+  no tres —el avatar son dos: la sustitución y la subida que nunca se guarda— y una trampa:
+  confirmar un vídeo **no lo mueve de prefijo**, así que la regla de caducidad «obvia» habría
+  borrado los vídeos vivos.
 
 **Por qué no se barre ahora:** no hay basura de producción que recoger (no hay producción), el
 riesgo de falso positivo está demostrado y es irreversible, y las clases que un barrido sí
