@@ -25,12 +25,43 @@ import { AlertTriangle } from 'lucide-react';
  * dueño del anuncio** — nunca la de `AuditLog`, que es la del staff y que 5a sacó de
  * estas respuestas precisamente porque es otro sujeto.
  */
-export function DatoIp({ ip }: { ip: string | null | undefined }) {
+export function DatoIp({
+  ip,
+  marcada,
+}: {
+  ip: string | null | undefined;
+  /**
+   * A1 — «esta IP está en la lista de vigilancia» (`Setting['flaggedIps']`).
+   *
+   * VIENE DEL SERVIDOR YA RESUELTO y no se calcula aquí: la lista no viaja al frontal, y el
+   * backoffice no tiene por qué saber qué IPs vigila el equipo para pintar un distintivo.
+   *
+   * VIVE EN ESTE COMPONENTE, con el dato, porque las DOS fichas —la del anuncio y la del
+   * usuario— lo pintan igual y ya comparten esta pieza. Ponerlo dos veces fuera es como
+   * acaban divergiendo.
+   */
+  marcada?: boolean;
+}) {
   if (!ip) return <span className="text-muted-foreground">—</span>;
 
   return (
     <span className="inline-flex items-center gap-1.5" data-testid="dato-ip">
       <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{ip}</code>
+      {/* MARCA, NO BLOQUEA, y el texto lo dice: nada le ha pasado a este anuncio ni a este
+          usuario por estar aquí. Que el distintivo prometiera una consecuencia que no
+          existe sería el mismo error que llamar «bloqueadas» a la lista. */}
+      {marcada && (
+        <span
+          title={
+            'Esta IP está en la lista de vigilancia. Es una señal para el equipo: no ' +
+            'despublica el anuncio ni suspende la cuenta.'
+          }
+          className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-900"
+          data-testid="ip-marcada"
+        >
+          IP marcada
+        </span>
+      )}
       {/* El «por qué» viaja CON el dato, no en una leyenda aparte: quien lo lee para
           decidir algo tiene que ver aquí mismo hasta dónde puede fiarse. El `title` va en
           el `<span>` y no en el icono porque los de lucide no aceptan `title`. */}

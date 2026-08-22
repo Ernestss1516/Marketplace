@@ -30,7 +30,6 @@
 import { DetectionEngine } from './detection.engine';
 import { DETECTION_MODES_SETTING, parseDetectionModes } from './detection.types';
 import { WordDetector, BAD_WORD_LIST_SETTING } from './detectors/word.detector';
-import { IpDetector } from './detectors/ip.detector';
 import { PhoneDetector } from './detectors/phone.detector';
 import type { PrismaService } from '../../../infra/prisma/prisma.service';
 
@@ -52,7 +51,7 @@ function conLista(
   });
   const prisma = { setting: { findUnique } } as unknown as PrismaService;
   const detector = new WordDetector(prisma);
-  const motor = new DetectionEngine(prisma, detector, new IpDetector(), new PhoneDetector());
+  const motor = new DetectionEngine(prisma, detector, new PhoneDetector());
   return { motor, detector, findUnique };
 }
 
@@ -128,28 +127,29 @@ describe('RÁFAGA C — EL FAIL-OPEN, CERRADO (aquí estaban los tres tests que 
     expect(detections.map((d) => d.rule)).toEqual(['100%-garantizado']);
   });
 
-  it('una IP puesta en la lista TAMBIÉN casa, y no pisa al detector de IPs', async () => {
+  it('una IP puesta A MANO en la lista casa — es una cadena literal, no un patrón', async () => {
     // La distinción que hay que tener clara: una entrada de la lista es una CADENA LITERAL
-    // que alguien tecleó —«bloquea ESE texto»—, y el detector `IP` es una HEURÍSTICA que
-    // dispara con cualquier IP, legítimas incluidas. Por eso uno bloquea y el otro avisa.
+    // que alguien tecleó —«bloquea ESE texto»—. Excluir «las entradas que parezcan una IP»
+    // exigiría adivinar si `192.168.1.1` es una IP o una referencia con puntos, y adivinar
+    // es lo que produce fail-opens.
     //
-    // Excluir «las entradas que parezcan una IP» exigiría adivinar si `192.168.1.1` es una
-    // IP o una referencia con puntos, y adivinar es lo que produce fail-opens.
+    // (A1 — hasta A1 la afirmación era «y NO pisa al detector de IPs», porque los dos la
+    // veían. Ese detector se retiró, así que ahora sólo queda la lista.)
     const { motor } = conLista(['192.168.1.1']);
     const { detections } = await motor.run(
       TEXTO('Router configurado', 'entra en 192.168.1.1 para configurarlo'),
     );
 
-    // Los DOS detectores la ven, cada uno por su motivo y cada uno con su modo.
-    expect(detections.map((d) => d.detector).sort()).toEqual(['IP', 'WORD']);
+    expect(detections.map((d) => d.detector)).toEqual(['WORD']);
   });
 
-  it('SIN entrada en la lista, una IP la ve SÓLO el detector de IPs — y no bloquea', async () => {
-    // La otra mitad, y la que demuestra que el arreglo no ha convertido la lista de palabras
-    // en un detector de patrones: sin que nadie escriba nada, `WORD` no encuentra ninguna IP.
+  it('SIN entrada en la lista, una IP en el texto no la ve NADIE', async () => {
+    // La otra mitad. Demuestra dos cosas a la vez: que el arreglo de la ráfaga C no convirtió
+    // la lista de palabras en un detector de patrones, y que el detector de IPs está retirado
+    // de verdad.
     const { motor } = conLista([]);
     const { detections, blocking } = await motor.run(TEXTO('Router', 'entra en 192.168.1.1'));
-    expect(detections.map((d) => d.detector)).toEqual(['IP']);
+    expect(detections).toEqual([]);
     expect(blocking).toBe(false);
   });
 });
@@ -252,16 +252,15 @@ describe('la estructura del motor', () => {
     expect(lecturasDeLaLista).toHaveLength(1);
   });
 
-  it('hay TRES detectores, y son WORD, IP y PHONE', async () => {
-    // Está para que añadir un detector sea explícito y no se cuele ninguno sin que nadie
-    // lo decida. Cuando cambie el número, alguien tuvo que venir aquí.
+  it('hay DOS detectores, y son WORD y PHONE', async () => {
+    // Está para que añadir —o quitar— un detector sea explícito y no se cuele sin que nadie
+    // lo decida. Eran tres hasta A1, que retiró el de IPs sobre texto; el propio texto de
+    // este test tuvo que cambiar, que es justo lo que se quería.
     const { motor } = conLista(['estafa']);
     const { detections } = await motor.run(
       TEXTO('estafa', 'llama al 654123456 o entra en 192.168.1.1'),
     );
-    expect(new Set(detections.map((d) => d.detector))).toEqual(
-      new Set(['WORD', 'IP', 'PHONE']),
-    );
+    expect(new Set(detections.map((d) => d.detector))).toEqual(new Set(['WORD', 'PHONE']));
   });
 });
 
@@ -269,82 +268,39 @@ describe('la estructura del motor', () => {
 // RÁFAGA A — los dos detectores nuevos
 // ───────────────────────────────────────────────────────────────────────────────────────
 
-describe('RÁFAGA A — el detector de IPs mira el texto CRUDO', () => {
-  it('LA BARRERA DEL PUNTO 6: SIN que nadie escriba una regla, la IP se detecta', async () => {
-    // Es la afirmación que justifica que existan detectores propios: nadie puede mantener
-    // una lista con las IPs que a alguien se le ocurra escribir. El detector las reconoce
-    // como PATRÓN, sobre el texto crudo y sin partir por los puntos.
-    //
-    // (Hasta la ráfaga C este test usaba una entrada en `badWordList` para enseñar que la
-    // lista NO podía verla. Ahora sí puede —el fail-open está cerrado—, así que la barrera
-    // se afirma en su forma fuerte: con la lista VACÍA.)
+describe('A1 — EL DETECTOR DE IPs SOBRE TEXTO, RETIRADO', () => {
+  // AQUÍ VIVÍAN SIETE TESTS del detector de IPv4 en el título y la descripción. Se han
+  // borrado con él, y este bloque queda para que la retirada sea EXPLÍCITA en el diff en
+  // vez de una ausencia que nadie note.
+  //
+  // POR QUÉ SE RETIRÓ: no respondía a ninguna pregunta que alguien hiciera. Una IP en la
+  // descripción de un anuncio suele ser PRODUCTO —quien vende un router y documenta su
+  // 192.168.1.1— y no señal. El detector de teléfonos sí tiene un caso de uso escrito
+  // (esquivar la puerta de GET /listings/:id/phone); éste no tenía equivalente.
+  //
+  // Lo que sí hacía falta —«esta IP concreta es fraudulenta»— se mira en `lastOwnerIp` y
+  // `lastLoginIp`, y ni siquiera necesita un detector: es «columna IN (lista)», derivado
+  // en cada lectura. Ver `flagged-ips.ts` y `deteccion-ips-marcadas.e2e-spec.ts`.
+  //
+  // SE DECIDIÓ SIN DATOS, a propósito: el banco de pruebas nunca llegó a medirlo. Es lo
+  // único irreversible de A1.
+
+  it('una IP escrita en el texto YA NO genera ninguna detección', async () => {
     const { motor } = conLista([]);
-    const { detections } = await motor.run(
-      TEXTO('Router', 'configuración en 192.168.1.1 para entrar'),
+    const { detections, blocking } = await motor.run(
+      TEXTO('Router', 'Se configura entrando en 192.168.1.1.'),
     );
-
-    expect(detections).toHaveLength(1);
-    expect(detections[0]).toMatchObject({
-      detector: 'IP',
-      field: 'DESCRIPTION',
-      match: '192.168.1.1',
-      rule: null,
-    });
-    // Y NO BLOQUEA: nace avisando. El anuncio no se va a revisión por esto.
-    expect((await motor.run(TEXTO('192.168.1.1'))).blocking).toBe(false);
-  });
-
-  it('valida los octetos: 999.999.999.999 no es una IP', async () => {
-    // Sin la validación de rango el detector sería aún más ruidoso de lo que ya es.
-    const { motor } = conLista([]);
-    const { detections } = await motor.run(TEXTO('ref 999.999.999.999'));
-    expect(detections.filter((d) => d.detector === 'IP')).toEqual([]);
-  });
-
-  it('LOS DETECTORES SE SOLAPAN, y se deja escrito en vez de disimularlo', async () => {
-    // Descubierto escribiendo el test de arriba: `999.999.999.999` no es una IP —el rango lo
-    // rechaza— pero el detector de TELÉFONOS ve nueve dígitos que empiezan por 9 con puntos
-    // en medio y lo da por un fijo. Es un falso positivo real de PHONE.
-    //
-    // NO SE «ARREGLA» quitándole el punto a los separadores del teléfono: hay quien escribe
-    // «654.123.456», y estrechar un patrón para esquivar UNA anécdota, sin un solo dato de
-    // frecuencia, es exactamente lo que el modo avisar existe para no tener que hacer. Se
-    // anota, se mide avisando, y con datos delante se decide. Ver §2.2 del diseño.
-    const { motor } = conLista([]);
-    const { detections, blocking } = await motor.run(TEXTO('ref 999.999.999.999'));
-    expect(detections.map((d) => d.detector)).toEqual(['PHONE']);
+    expect(detections).toEqual([]);
     expect(blocking).toBe(false);
   });
 
-  it('no se inventa un acierto dentro de una tirada más larga', async () => {
-    const { motor } = conLista([]);
-    const { detections } = await motor.run(TEXTO('version 10.1.2.3.4 del firmware'));
-    expect(detections).toEqual([]);
-  });
-
-  it('LA IP AL FINAL DE UNA FRASE, con su punto — el caso más común de todos', async () => {
-    // Este test nació de un fallo real: la primera versión de la guarda rechazaba «un punto
-    // cualquiera» detrás, así que «…entrando en 192.168.1.1.» no detectaba NADA. Un detector
-    // de IPs que no ve las IPs escritas al final de una oración no sirve para leer
-    // descripciones, que es lo único que hace.
-    const { motor } = conLista([]);
-    const { detections } = await motor.run(TEXTO('Router', 'Se configura entrando en 192.168.1.1.'));
-    expect(detections.map((d) => d.match)).toEqual(['192.168.1.1']);
-  });
-
-  it('y el último octeto de dos dígitos no se corta', async () => {
-    const { motor } = conLista([]);
-    const { detections } = await motor.run(TEXTO('192.168.1.10'));
-    expect(detections.map((d) => d.match)).toEqual(['192.168.1.10']);
-  });
-
-  it('encuentra varias, y en los dos campos', async () => {
-    const { motor } = conLista([]);
-    const { detections } = await motor.run(TEXTO('8.8.8.8', 'y también 1.1.1.1'));
-    expect(detections.map((d) => [d.field, d.match])).toEqual([
-      ['TITLE', '8.8.8.8'],
-      ['DESCRIPTION', '1.1.1.1'],
-    ]);
+  it('pero puesta A MANO en la lista de palabras sigue casando — eso es otra cosa', async () => {
+    // La distinción que la ráfaga C dejó escrita: una entrada de la lista es una CADENA
+    // LITERAL que alguien tecleó («bloquea ESE texto»). Lo que se ha retirado es la
+    // HEURÍSTICA que disparaba con cualquier IP, legítimas incluidas.
+    const { motor } = conLista(['192.168.1.1']);
+    const { detections } = await motor.run(TEXTO('Router', 'entra en 192.168.1.1'));
+    expect(detections.map((d) => d.detector)).toEqual(['WORD']);
   });
 });
 
@@ -406,7 +362,7 @@ describe('RÁFAGA A — el detector de teléfonos', () => {
 });
 
 describe('RÁFAGA A — un detector caído no arrastra a los demás', () => {
-  it('si el de palabras revienta, IP y PHONE siguen encontrando', async () => {
+  it('si el de palabras revienta, PHONE sigue encontrando', async () => {
     // Con un solo detector «falla el detector» y «falla el motor» eran lo mismo. Ahora no,
     // y es la mitad de por qué el fallo se acota por detector: un patrón mal formado no
     // puede apagar el filtro que sí bloquea, ni al revés.
@@ -415,7 +371,8 @@ describe('RÁFAGA A — un detector caído no arrastra a los demás', () => {
       TEXTO('Router', 'entra en 192.168.1.1 o llama al 654123456'),
     );
 
-    expect(new Set(detections.map((d) => d.detector))).toEqual(new Set(['IP', 'PHONE']));
+    // La IP del texto ya no la ve nadie (A1); el teléfono sí, pese al detector caído.
+    expect(detections.map((d) => d.detector)).toEqual(['PHONE']);
     expect(blocking).toBe(false);
   });
 });
@@ -483,9 +440,20 @@ describe('RÁFAGA B — un ajuste roto NO puede apagar el filtro que sí bloquea
     expect(parseDetectionModes(valor).WORD).toBe('BLOCK');
   });
 
-  it('un valor basura en IP no cambia lo que hace WORD', () => {
-    const modos = parseDetectionModes({ WORD: 'BLOCK', IP: 'BLOQUEAR_YA' });
-    expect(modos).toEqual({ WORD: 'BLOCK', IP: 'WARN', PHONE: 'WARN' });
+  it('un valor basura en PHONE no cambia lo que hace WORD', () => {
+    const modos = parseDetectionModes({ WORD: 'BLOCK', PHONE: 'BLOQUEAR_YA' });
+    expect(modos).toEqual({ WORD: 'BLOCK', PHONE: 'WARN' });
+  });
+
+  it('una clave `IP` sobrante de antes de A1 es INERTE, no rompe nada', () => {
+    // La migración de A1 NO reescribió `detectionModes`: tocar un ajuste que un admin puso a
+    // mano, para quitarle una línea que ya no hace nada, sería cambiarle la configuración
+    // sin motivo. `parseDetectionModes` recorre los detectores que EXISTEN, así que la clave
+    // vieja simplemente se descarta.
+    expect(parseDetectionModes({ WORD: 'BLOCK', IP: 'BLOCK', PHONE: 'WARN' })).toEqual({
+      WORD: 'BLOCK',
+      PHONE: 'WARN',
+    });
   });
 
   it('si la lectura del ajuste REVIENTA, se cae a los modos de nacimiento (no a «nadie bloquea»)', async () => {

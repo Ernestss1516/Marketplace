@@ -202,3 +202,51 @@ describe('teléfono, provincia y municipio en la URL', () => {
     expect(aQueryString({})).toBe('');
   });
 });
+
+// ─── A1 — «viene de una IP marcada» ───────────────────────────────────────────
+//
+// Un eje más con la misma forma. NO es otro detector: no mira el texto sino la última
+// gestión del dueño, y lo resuelve una comparación contra la lista de vigilancia.
+
+describe('el eje de la IP marcada en la URL', () => {
+  it('se lee en sus tres posiciones', () => {
+    expect(leerFiltros(new URLSearchParams('ipFlagged=true')).ipFlagged).toBe(true);
+    expect(leerFiltros(new URLSearchParams('ipFlagged=false')).ipFlagged).toBe(false);
+    // Sin el parámetro es «me da igual», que no es lo mismo que `false`.
+    expect(leerFiltros(new URLSearchParams('')).ipFlagged).toBeUndefined();
+  });
+
+  it('ida y vuelta, en las dos posiciones', () => {
+    for (const valor of [true, false]) {
+      const vuelta = leerFiltros(new URLSearchParams(aQueryString({ ipFlagged: valor })));
+      expect(vuelta.ipFlagged).toBe(valor);
+    }
+  });
+
+  it('sin filtro no ensucia la URL', () => {
+    expect(aQueryString({ ipFlagged: undefined })).toBe('');
+  });
+
+  it('enciende «Limpiar», también en `false`', () => {
+    expect(hayFiltros({ ipFlagged: true })).toBe(true);
+    // `false` acota igual que `true` («los que NO vienen de una marcada»), así que también
+    // es un filtro puesto: no ofrecer limpiarlo dejaría la lista acotada sin salida visible.
+    expect(hayFiltros({ ipFlagged: false })).toBe(true);
+  });
+});
+
+// ─── A1 — el detector de IPs sobre texto, retirado ────────────────────────────
+
+describe('el detector `IP` ya no se acepta en la URL', () => {
+  it('`?detector=IP` se ignora en silencio, como cualquier valor desconocido', () => {
+    // Se retiró en A1. Una URL guardada o compartida de antes no puede romper la pantalla ni
+    // mandarle al backend un valor que su enum ya no admite — sería un 400 por un enlace
+    // pegado. Mismo criterio que el resto del módulo.
+    expect(leerFiltros(new URLSearchParams('detector=IP')).detector).toBeUndefined();
+  });
+
+  it('y los que quedan sí se leen', () => {
+    expect(leerFiltros(new URLSearchParams('detector=PHONE')).detector).toBe('PHONE');
+    expect(leerFiltros(new URLSearchParams('detector=WORD')).detector).toBe('WORD');
+  });
+});

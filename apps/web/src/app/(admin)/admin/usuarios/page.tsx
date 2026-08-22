@@ -655,7 +655,7 @@ export default function AdminUsuariosPage() {
                         {user.lastLoginAt ? (
                           <span className="inline-flex flex-col gap-0.5">
                             <span>{formatDateTime(user.lastLoginAt)}</span>
-                            <DatoIp ip={user.lastLoginIp} />
+                            <DatoIp ip={user.lastLoginIp} marcada={user.ipFlagged} />
                           </span>
                         ) : (
                           // «Nunca» y no «—»: que una cuenta no haya entrado JAMÁS es una

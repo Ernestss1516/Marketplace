@@ -11,7 +11,6 @@ import {
   type Detector,
   type DetectorId,
 } from './detection.types';
-import { IpDetector } from './detectors/ip.detector';
 import { PhoneDetector } from './detectors/phone.detector';
 import { WordDetector } from './detectors/word.detector';
 
@@ -71,14 +70,18 @@ export class DetectionEngine {
   constructor(
     private readonly prisma: PrismaService,
     wordDetector: WordDetector,
-    ipDetector: IpDetector,
     phoneDetector: PhoneDetector,
   ) {
-    // RÁFAGA A — los dos detectores nuevos entran AQUÍ Y NADA MÁS. El bucle de abajo ya los
-    // corría y el modo ya decidía qué hacen; que añadirlos sea una línea es la prueba de
-    // que la ráfaga 0 dejó la forma bien. Nacen en `WARN` (ver `DEFAULT_DETECTION_MODES`),
-    // así que `blocking` no cambia de valor para ningún anuncio que ya existiera.
-    this.detectors = [wordDetector, ipDetector, phoneDetector];
+    // A1 — AQUÍ ESTABA `ipDetector`, y sale por la misma puerta por la que entró: una línea.
+    // Que retirar un detector cueste lo mismo que añadirlo es la prueba de que la forma de
+    // la ráfaga 0 era la correcta — el motor no sabe qué buscan sus detectores.
+    //
+    // Buscaba IPv4 en el texto y no respondía a ninguna pregunta que alguien hiciera: una IP
+    // en una descripción suele ser producto (el router que documenta su `192.168.1.1`). Lo
+    // que sí hacía falta —«esta IP concreta es fraudulenta»— se mira en `lastOwnerIp` y
+    // `lastLoginIp`, no en el texto, y ni siquiera necesita un detector: es
+    // `columna IN (lista)`. Ver `Setting['flaggedIps']`.
+    this.detectors = [wordDetector, phoneDetector];
   }
 
   /**

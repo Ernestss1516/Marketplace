@@ -171,7 +171,7 @@ describe('Punto 6 ráfaga A — el modo avisar (e2e)', () => {
   // BARRERA 1 — avisan, no bloquean
   // ───────────────────────────────────────────────────────────────────────────
 
-  it('BARRERA 1: publicar con teléfono e IP → gana avisos y queda ACTIVE', async () => {
+  it('BARRERA 1: publicar con un teléfono → gana aviso y queda ACTIVE', async () => {
     await fijarPalabras([]);
     const anuncio = await crearAnuncio(
       'Router de segunda mano',
@@ -184,10 +184,13 @@ describe('Punto 6 ráfaga A — el modo avisar (e2e)', () => {
       .expect(200);
 
     // LAS DOS MITADES EN LA MISMA PRUEBA, y hace falta que sean las dos: con sólo la
-    // primera, unos detectores que además despublicaran pasarían el test.
+    // primera, un detector que además despublicara pasaría el test.
+    //
+    // A1 — EL TEXTO NO HA CAMBIADO, y sigue teniendo su `192.168.1.1`: lo que cambió es que
+    // ya no la ve nadie. El detector de IPs sobre texto se retiró porque disparaba justo con
+    // este caso —un anuncio de ROUTER que documenta su IP— y eso era producto, no señal.
     const filas = await detecciones(anuncio.id);
     expect(filas.map((d) => [d.detector, d.field, d.match])).toEqual([
-      ['IP', 'DESCRIPTION', '192.168.1.1'],
       ['PHONE', 'DESCRIPTION', '654123456'],
     ]);
     expect((await estado(anuncio.id)).status).toBe('ACTIVE');
@@ -336,20 +339,23 @@ describe('Punto 6 ráfaga A — el modo avisar (e2e)', () => {
     await request(server())
       .patch(`/api/listings/${anuncio.id}`)
       .set('Authorization', `Bearer ${sellerToken}`)
-      .send({ description: 'Llama al 654123456 o entra en 10.0.0.1.' })
+      .send({ description: 'Llama al 654123456 o al 912345678.' })
       .expect(200);
-    expect((await detecciones(anuncio.id)).map((d) => d.detector)).toEqual(['IP', 'PHONE']);
+    // A1 — la segunda detección era una IP en el texto, y ese detector se retiró. Se usa un
+    // segundo teléfono para que la prueba siga midiendo lo suyo: que el reemplazo quita LO
+    // QUE SE FUE y conserva lo que sigue.
+    expect(await detecciones(anuncio.id)).toHaveLength(2);
 
     await request(server())
       .patch(`/api/listings/${anuncio.id}`)
       .set('Authorization', `Bearer ${sellerToken}`)
-      .send({ description: 'Entra en 10.0.0.1 para verlo.' })
+      .send({ description: 'Llama al 912345678 para verlo.' })
       .expect(200);
 
-    // El teléfono se fue con el texto. NO se acumula: una tabla que dice que hay un teléfono
-    // donde ya no lo hay le hace perder el tiempo al moderador y le enseña a desconfiar del
-    // aviso — que es peor que no avisar.
-    expect((await detecciones(anuncio.id)).map((d) => d.detector)).toEqual(['IP']);
+    // Uno se fue con el texto. NO se acumula: una tabla que dice que hay un teléfono donde ya
+    // no lo hay le hace perder el tiempo al moderador y le enseña a desconfiar del aviso —
+    // que es peor que no avisar.
+    expect((await detecciones(anuncio.id)).map((d) => d.match)).toEqual(['912345678']);
 
     await request(server())
       .patch(`/api/listings/${anuncio.id}`)
@@ -438,11 +444,11 @@ describe('Punto 6 ráfaga A — el modo avisar (e2e)', () => {
 
   it('la ficha del anuncio sirve las detecciones con su fragmento, para poder juzgarlas', async () => {
     await fijarPalabras([]);
-    const anuncio = await crearAnuncio('Router TP-Link', 'Se accede en 192.168.1.1.', 'ACTIVE');
+    const anuncio = await crearAnuncio('Bici de carretera', 'Dudas al 654 123 456.', 'ACTIVE');
     await request(server())
       .patch(`/api/listings/${anuncio.id}`)
       .set('Authorization', `Bearer ${sellerToken}`)
-      .send({ description: 'Se accede en 192.168.1.1.' })
+      .send({ description: 'Dudas al 654 123 456.' })
       .expect(200);
 
     const res = await request(server())
@@ -450,10 +456,17 @@ describe('Punto 6 ráfaga A — el modo avisar (e2e)', () => {
       .set('Authorization', `Bearer ${adminToken}`)
       .expect(200);
 
-    // El fragmento, no un booleano: una IP en un anuncio de router es legítima y en uno de
-    // bicicletas no, y esa diferencia sólo se ve leyendo QUÉ se encontró. Molde de F1.
+    // El fragmento, no un booleano: el moderador tiene que poder juzgar QUÉ se encontró y
+    // dónde. Molde de F1 — enseñar el dato, no fingir.
+    //
+    // (A1 — el caso de este test era una IP en un anuncio de router. Se cambió a un teléfono
+    // porque ese detector se retiró, y precisamente por ese ejemplo: era producto, no señal.)
     expect(res.body.detections).toEqual([
-      expect.objectContaining({ detector: 'IP', field: 'DESCRIPTION', match: '192.168.1.1' }),
+      expect.objectContaining({
+        detector: 'PHONE',
+        field: 'DESCRIPTION',
+        match: '654 123 456',
+      }),
     ]);
     // Y `moderationSignals` sigue existiendo, con su forma de siempre y por separado: su
     // garantía es otra (son señales de AHORA, no la causa de nada).

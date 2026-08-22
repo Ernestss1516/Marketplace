@@ -833,11 +833,24 @@ enum DetectorId {
   /// La lista de palabras prohibidas. Bloquea desde siempre.
   WORD
 
-  /// IPv4 en el texto. Nace AVISANDO.
-  IP
-
-  /// Teléfono español en el texto. Nace AVISANDO.
+  /// Teléfono español en el texto. Avisa: es anti-EVASIÓN del campo `Listing.phone`.
   PHONE
+
+  /// A1 — AQUÍ ESTUVO `IP`, y se retiró.
+  ///
+  /// Buscaba IPv4 en el título y la descripción. Se quitó porque **no respondía a ninguna
+  /// pregunta que alguien hiciera**: una IP en el texto de un anuncio suele ser PRODUCTO
+  /// —quien vende un router y documenta su `192.168.1.1`— y no señal. El de teléfonos sí
+  /// tiene un caso de uso escrito (esquivar la puerta de `GET /listings/:id/phone`); éste
+  /// no tenía equivalente.
+  ///
+  /// Lo que sí hacía falta —«esta IP concreta es fraudulenta»— no se mira en el texto sino
+  /// en `User.lastLoginIp` / `Listing.lastOwnerIp`, y **no necesita detector ni tabla**: es
+  /// `columna IN (lista)`, derivado en cada lectura. Ver `Setting['flaggedIps']`.
+  ///
+  /// Se decidió SIN DATOS, a propósito: el banco de pruebas nunca llegó a medirlo, y medir
+  /// algo que no responde a ninguna pregunta no habría cambiado la decisión. Es lo único
+  /// irreversible de A1. Ver `docs/diseno-listas-ip-telefono.md` §A.2.
 }
 
 /// En qué campo del anuncio apareció. Los mismos dos que el filtro de palabras ya miraba.

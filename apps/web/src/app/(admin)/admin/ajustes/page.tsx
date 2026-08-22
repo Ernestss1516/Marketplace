@@ -138,6 +138,102 @@ function DetectionModesEditor({
   );
 }
 
+/**
+ * A1 — LA LISTA DE IPs MARCADAS.
+ *
+ * Molde literal de `BadWordListEditor`: una por línea, texto plano, guardado entero. Se copia
+ * la forma porque es la misma tarea —mantener una lista corta a mano— y un admin que ya sabe
+ * usar una no tiene que aprender otra.
+ *
+ * LO QUE EL TEXTO TIENE QUE DEJAR CLARO, y por eso está: **esto no bloquea nada**. Marca. Una
+ * lista llamada «bloqueadas» que sólo avisa es una promesa incumplida esperando a que alguien
+ * la descubra el día que importe.
+ */
+function FlaggedIpsEditor({
+  setting,
+  token,
+  onSaved,
+}: {
+  setting: AdminSetting;
+  token: string;
+  onSaved: () => void;
+}) {
+  const [text, setText] = useState(() => toWordListText(setting.value));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+
+  const entradas = fromWordListText(text);
+  // Una entrada que no es una IPv4 válida no casará NUNCA: se marca, mismo criterio que las
+  // entradas inertes de la lista de palabras (ráfaga C). Un octeto fuera de rango o un dedazo
+  // se quedaría ahí para siempre pareciendo que vigila algo.
+  const invalidas = entradas.filter(
+    (e) =>
+      !/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.test(e) ||
+      e.split('.').some((o) => Number(o) > 255 || (o.length > 1 && o.startsWith('0'))),
+  );
+
+  async function handleSave() {
+    setSaving(true);
+    setError(null);
+    setSuccess(false);
+    try {
+      await updateAdminSetting(token, 'flaggedIps', entradas);
+      setSuccess(true);
+      onSaved();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Error al guardar');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      {invalidas.length > 0 && (
+        <div
+          className="rounded-md border border-amber-400 bg-amber-50 p-3 text-xs text-amber-900"
+          data-testid="aviso-ips-invalidas"
+        >
+          <p className="font-medium">
+            {invalidas.length === 1
+              ? 'Esta entrada no es una dirección IPv4 y no marcará nunca:'
+              : `Estas ${invalidas.length} entradas no son direcciones IPv4 y no marcarán nunca:`}
+          </p>
+          <ul className="mt-1 list-inside list-disc font-mono">
+            {invalidas.map((e) => (
+              <li key={e}>{e}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <div className="flex flex-col gap-1">
+        <label className="text-xs font-medium text-muted-foreground">
+          IPs marcadas <span className="font-normal">— una por línea</span>
+        </label>
+        <textarea
+          value={text}
+          onChange={(e) => {
+            setText(e.target.value);
+            setSuccess(false);
+          }}
+          rows={6}
+          className="resize-y rounded-md border bg-background px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          placeholder={'10.0.0.5\n203.0.113.9'}
+          disabled={saving}
+        />
+        <p className="text-xs text-muted-foreground">
+          {entradas.length} {entradas.length === 1 ? 'IP marcada' : 'IPs marcadas'}.{' '}
+          <strong>Marcar una IP no bloquea nada:</strong> los anuncios y los usuarios que
+          vengan de ella quedan señalados para el equipo, y nadie los despublica ni los
+          suspende. Quitarla de aquí los des-señala al instante.
+        </p>
+      </div>
+      <SaveRow saving={saving} success={success} error={error} onSave={handleSave} />
+    </div>
+  );
+}
+
 // ─── Individual setting editors ───────────────────────────────────────────────
 
 function BadWordListEditor({
@@ -556,6 +652,7 @@ const SETTING_TITLES: Record<string, string> = {
   preModerationAllListings: 'Revisar TODOS los anuncios antes de publicarlos',
   preModerationTrustedExempt: 'Los vendedores de confianza se saltan la revisión general',
   detectionModes: 'Qué hace cada detector de contenido',
+  flaggedIps: 'IPs marcadas para vigilancia',
   proMonthlyFeaturedQuota: 'Cuota mensual de destacados (Pro)',
   proQuotaFeaturedDurationDays: 'Duración del destacado por cuota (Pro)',
   proExtraCreditsPercent: 'Bonus de créditos al comprar packs (Pro)',
@@ -591,8 +688,10 @@ const SETTING_DESCRIPTIONS: Record<string, string> = {
     'Sólo tiene efecto con la revisión de plataforma encendida. Apagado (por defecto), «revisar todos» significa TODOS, incluidos los vendedores con la insignia de confianza. Encendido, esa insignia pasa a eximir de la revisión GENERAL — y ojo: hoy la insignia es puramente decorativa, así que al encender esto los vendedores marcados hace meses quedan exentos sin que nadie lo haya decidido para ellos. NUNCA exime de las marcas específicas: una categoría que exige revisión, o un vendedor marcado para revisión, se revisan igual.',
   preModerationAllListings:
     'MODERACIÓN PREVIA, nivel plataforma. Encendido, TODO anuncio nuevo queda «en revisión» al publicarse y no se ve en el marketplace hasta que un moderador lo apruebe. ⚠ Es el más exigente de los tres niveles: a partir del clic, cada anuncio espera a un humano, así que enciéndelo sólo si hay alguien vaciando la cola. Para acotarlo a una parte del catálogo, marca «requiere revisión» en una categoría: se aplica a ella y a TODOS sus descendientes. Los anuncios ya publicados no se tocan.',
+  flaggedIps:
+    'Direcciones IP bajo vigilancia. Cuando la ÚLTIMA conexión de un usuario, o la última gestión de un anuncio, viene de una de estas IPs, el equipo lo ve señalado en las fichas y puede filtrar por ello en las listas. ⚠ Marcar una IP NO bloquea a nadie: no despublica anuncios ni suspende cuentas, sólo señala para que alguien lo mire. Se decidió así por dos motivos: la IP que se anota puede estar falsificada mientras no se verifique la topología del proxy, y además se anota en CADA gestión del dueño (también al subir un anuncio, que no toca el contenido). Quitar una IP de la lista des-señala al instante todo lo que marcaba, sin dejar rastro que limpiar.',
   detectionModes:
-    'El motor busca tres cosas en el título y la descripción de cada anuncio: palabras de la lista de arriba, direcciones IP y teléfonos escritos en el texto. Aquí se decide qué pasa cuando encuentra algo. ⚠ Poner un detector en «Bloquear» tiene consecuencias para los vendedores: el anuncio pasa a «En revisión» al publicarse Y al editarse, así que uno ya publicado puede volver a la cola por una edición. Antes de ascender un detector, mira en cuántos anuncios está disparando y abre unos cuantos: los de IP y teléfono se equivocan (una IP es legítima en un anuncio de router, y cualquier referencia de nueve dígitos parece un teléfono). Ojo también con el teléfono: el anuncio TIENE un campo propio para publicarlo, que sólo se ve tras iniciar sesión — lo que este detector marca es que está escrito fuera de su sitio, no que publicarlo esté prohibido.',
+    'El motor busca dos cosas en el título y la descripción de cada anuncio: palabras de la lista de arriba y teléfonos escritos en el texto (el detector de direcciones IP en el texto se retiró — las IPs se vigilan por su propia lista, más abajo, y sobre la última conexión en vez del texto). Aquí se decide qué pasa cuando encuentra algo. ⚠ Poner un detector en «Bloquear» tiene consecuencias para los vendedores: el anuncio pasa a «En revisión» al publicarse Y al editarse, así que uno ya publicado puede volver a la cola por una edición. Antes de ascender un detector, mira en cuántos anuncios está disparando y abre unos cuantos: los de IP y teléfono se equivocan (una IP es legítima en un anuncio de router, y cualquier referencia de nueve dígitos parece un teléfono). Ojo también con el teléfono: el anuncio TIENE un campo propio para publicarlo, que sólo se ve tras iniciar sesión — lo que este detector marca es que está escrito fuera de su sitio, no que publicarlo esté prohibido.',
   emailVerifiedToPublishEnabled:
     'Mientras esté apagado, un usuario con el correo sin verificar publica como siempre. Al encenderlo, NO se rechaza nada ni se pierde ningún anuncio: quien intente publicar sin haber verificado su correo se encuentra el anuncio guardado como BORRADOR y un aviso con el enlace para verificar. Crear y redactar siguen siendo libres — sólo se frena el paso al mercado, y en cuanto verifique podrá publicarlo. No afecta a los anuncios que ya están publicados.',
   totalListingLimitEnabled:
@@ -740,6 +839,9 @@ export default function AdminAjustesPage() {
     // PUNTO 6 · RÁFAGA B — el ascenso, junto a la moderación previa: son la misma clase de
     // decisión (qué manda un anuncio a la cola) y se leen mejor una detrás de otra.
     'detectionModes',
+    // A1 — junto a los detectores: es la otra mitad de «qué vigila la plataforma», sólo que
+    // esta mira la última IP en vez del texto.
+    'flaggedIps',
     'proMonthlyFeaturedQuota',
     'proQuotaFeaturedDurationDays',
     'proExtraCreditsPercent',
@@ -921,6 +1023,13 @@ export default function AdminAjustesPage() {
                   settingKey="preModerationAllListings"
                   label="Revisar todos los anuncios antes de publicarlos"
                   helpText="Encendido, cada anuncio nuevo espera a que un moderador lo apruebe. Para acotarlo a una rama del catálogo, marca la categoría en Categorías (la marca alcanza a todas sus subcategorías)."
+                />
+              )}
+              {key === 'flaggedIps' && (
+                <FlaggedIpsEditor
+                  setting={setting}
+                  token={token}
+                  onSaved={() => handleSaved(key)}
                 />
               )}
               {key === 'detectionModes' && (

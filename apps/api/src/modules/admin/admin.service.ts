@@ -72,6 +72,7 @@ import {
   type DetectorId,
 } from '../moderation/detection/detection.types';
 import { normalizarTelefono } from '../moderation/detection/phone-format';
+import { FLAGGED_IPS_SETTING, ipMarcada, parseFlaggedIps } from './flagged-ips';
 import { ListingGateService } from '../listing-gate/listing-gate.service';
 // FICHA DE USUARIO U3 — el dueño único de «¿es Pro?».
 import { ProStatusService } from '../listing-gate/pro-status.service';
@@ -216,6 +217,19 @@ const SETTING_KEYS = [
   // ADMIN, mismo criterio que `preModerationAllListings`: elegir qué ramas entran en la
   // cola es moderar; decidir que a partir de ahora un patrón despublica es una política.
   'detectionModes',
+  /**
+   * A1 — IPs MARCADAS. Un `string[]`, molde `badWordList`.
+   *
+   * **SE LLAMA `flaggedIps` Y NO `blockedIps`, Y ES DELIBERADO.** Hoy esta lista **no
+   * bloquea nada**: cuando la última IP de un usuario o de un anuncio coincide con una de
+   * aquí, el staff ve un aviso y decide. Llamarla «blocked» prometería una consecuencia que
+   * no existe, y dentro de seis meses alguien leería la clave y daría por hecho que corta el
+   * paso. Es el mismo cuidado que hizo que el aviso del punto 6 no viviera en `watched` y
+   * que el contador no se llame «tasa de acierto».
+   *
+   * ADMIN, como `detectionModes`: quién entra en una lista de vigilancia es política.
+   */
+  'flaggedIps',
 ] as const;
 type SettingKey = (typeof SETTING_KEYS)[number];
 
@@ -441,6 +455,7 @@ export class AdminService {
       needsRevalidation,
       hasDetections,
       detector,
+      ipFlagged,
       phone,
       province,
       city,
@@ -472,7 +487,42 @@ export class AdminService {
     // cola de revisión (M3) depende de que no cambie.
     const estados = statuses?.length ? { status: { in: statuses } } : status ? { status } : {};
 
+    /**
+     * LAS CONDICIONES QUE VAN EN `AND`, EN UN SOLO SITIO.
+     *
+     * Un objeto literal sólo admite una clave `AND`, así que dos ejes que la necesiten se
+     * pisan **sin error** — el que gana es el último y el otro desaparece en silencio. Ya
+     * casi pasa dos veces: `hasDetections`+`detector` filtran la misma RELACIÓN, e
+     * `ipFlagged`+`ip` la misma COLUMNA.
+     *
+     * Acumularlas aquí hace que el problema no se pueda repetir: el eje que venga después
+     * empuja a la lista, no reescribe una clave.
+     */
+    const condicionesAND: Prisma.ListingWhereInput[] = [];
+
+    if (hasDetections !== undefined) {
+      condicionesAND.push({ detections: hasDetections ? { some: {} } : { none: {} } });
+    }
+    if (detector) condicionesAND.push({ detections: { some: { detector } } });
+
+    // A1 — «su dueño lo gestionó desde una IP marcada». La lista se resuelve a un `IN` aquí
+    // mismo, sin tabla espejo, así que quitar una del ajuste deja de traer sus anuncios AL
+    // INSTANTE.
+    //
+    // EL `false` NO ES `notIn` A SECAS: en SQL `NULL NOT IN (…)` es NULL, así que excluiría
+    // **todos los anuncios sin IP anotada** — y un anuncio sin IP es justamente uno que no
+    // viene de ninguna marcada. De ahí el `OR` con el nulo.
+    if (ipFlagged !== undefined) {
+      const marcadas = [...(await this.leerIpsMarcadas())];
+      condicionesAND.push(
+        ipFlagged
+          ? { lastOwnerIp: { in: marcadas } }
+          : { OR: [{ lastOwnerIp: null }, { lastOwnerIp: { notIn: marcadas } }] },
+      );
+    }
+
     const where: Prisma.ListingWhereInput = {
+      ...(condicionesAND.length > 0 && { AND: condicionesAND }),
       ...estados,
       ...(categoryIds && { categoryId: { in: categoryIds } }),
       ...(sellerId && { sellerId }),
@@ -496,22 +546,12 @@ export class AdminService {
       // se decide, que es el criterio con el que F2 añadió un índice y E2 decidió no
       // añadirlo. Denormalizar antes de medir inventa un problema y crea una segunda verdad.
       //
-      // VAN EN `AND` Y NO COMO DOS CAMPOS SUELTOS, y esto es un fallo evitado, no estilo:
-      // los dos filtran la MISMA relación, así que dos `detections:` en el mismo objeto se
-      // pisan — el segundo gana y el primero desaparece **sin error**. `?hasDetections=false
-      // &detector=PHONE` habría respondido «los que tienen teléfono» a quien preguntó por
-      // los que no tienen nada. Con `AND` la contradicción devuelve vacío, que es la
-      // respuesta correcta a una pregunta contradictoria.
-      ...((hasDetections !== undefined || detector) && {
-        AND: [
-          ...(hasDetections !== undefined
-            ? [{ detections: hasDetections ? { some: {} } : { none: {} } }]
-            : []),
-          ...(detector ? [{ detections: { some: { detector } } }] : []),
-        ],
-      }),
+      // (Los dos van en `condicionesAND`, arriba: filtran la misma relación y como dos
+      // campos sueltos se pisarían sin error — `?hasDetections=false&detector=PHONE` habría
+      // respondido «los que tienen teléfono» a quien preguntó por los que no tienen nada.)
       // ÚLTIMA IP (5b) — la línea que F2 prometió. Exacta, no `contains`.
       ...(ip && { lastOwnerIp: ip }),
+      // (`ipFlagged` va en `condicionesAND`, arriba: filtra la misma COLUMNA que `ip`.)
       // EL TELÉFONO — contra la columna CANÓNICA, con la entrada del moderador normalizada
       // por la misma función. Es lo que hace que `654 123 456` encuentre un anuncio guardado
       // como `+34654123456`.
@@ -593,6 +633,9 @@ export class AdminService {
           // tener que entrar en cada ficha.
           triage: true,
           watched: true,
+          // A1 — hace falta para derivar `ipFlagged`. No se sirve en crudo: la lista no
+          // enseña IPs, sólo si la de este anuncio está marcada.
+          lastOwnerIp: true,
           category: { select: { id: true, name: true, slug: true } },
           seller: { select: { id: true, name: true, slug: true, email: true } },
           images: {
@@ -605,7 +648,20 @@ export class AdminService {
       }),
       this.prisma.listing.count({ where }),
     ]);
-    return { items, total, page, perPage };
+
+    // A1 — el aviso, DERIVADO. Una lectura del ajuste por petición y una comparación en
+    // memoria sobre la página que ya se ha traído; no hay tabla que consultar ni que
+    // mantener. `lastOwnerIp` sale del objeto: la lista enseña si está marcada, no cuál es.
+    const marcadas = await this.leerIpsMarcadas();
+    return {
+      items: items.map(({ lastOwnerIp, ...l }) => ({
+        ...l,
+        ipFlagged: ipMarcada(lastOwnerIp, marcadas),
+      })),
+      total,
+      page,
+      perPage,
+    };
   }
 
   /**
@@ -747,8 +803,13 @@ export class AdminService {
       this.auditLog.listForResource('Listing', listing.id),
     ]);
 
+    // A1 — el aviso de la IP, derivado en el momento de leer la ficha. Aquí `lastOwnerIp` SÍ
+    // se sigue sirviendo —5b la enseña con su aviso RC.1— y esto sólo dice si está marcada.
+    const ipFlagged = ipMarcada(listing.lastOwnerIp, await this.leerIpsMarcadas());
+
     return {
       ...listing,
+      ipFlagged,
       categoryPath: categoryPath.map((c) => ({ id: c.id, name: c.name, slug: c.slug })),
       /**
        * SEÑALES, NO «EL MOTIVO». Son cuatro caminos distintos hacia
@@ -1193,8 +1254,24 @@ export class AdminService {
   // ===========================================================================
 
   async listUsers(query: ListAdminUsersDto) {
-    const { status, role, q, ip, order, page = 1, perPage = 24 } = query;
+    const { status, role, q, ip, ipFlagged, order, page = 1, perPage = 24 } = query;
+
+    // A1 — mismo acumulador que en anuncios y por lo mismo: `ipFlagged` e `ip` filtran la
+    // MISMA columna, y como dos claves sueltas la segunda pisaría a la primera sin error.
+    const condicionesAND: Prisma.UserWhereInput[] = [];
+    if (ipFlagged !== undefined) {
+      const marcadas = [...(await this.leerIpsMarcadas())];
+      // El `false` con `OR` sobre el nulo: `NULL NOT IN (…)` es NULL en SQL, y excluiría a
+      // todo el que nunca ha entrado — que es justamente quien no viene de una IP marcada.
+      condicionesAND.push(
+        ipFlagged
+          ? { lastLoginIp: { in: marcadas } }
+          : { OR: [{ lastLoginIp: null }, { lastLoginIp: { notIn: marcadas } }] },
+      );
+    }
+
     const where: Prisma.UserWhereInput = {
+      ...(condicionesAND.length > 0 && { AND: condicionesAND }),
       ...(status && { status }),
       ...(role && { role }),
       // ÚLTIMA IP (5b) — coincidencia EXACTA. Ver el doc-comment del DTO: un `contains`
@@ -1239,7 +1316,17 @@ export class AdminService {
       }),
       this.prisma.user.count({ where }),
     ]);
-    return { items, total, page, perPage };
+
+    // A1 — igual que en anuncios, y con la MISMA función: la regla es una. Aquí `lastLoginIp`
+    // sí se sigue sirviendo —5b lo enseña en la lista, con su aviso RC.1— así que sólo se
+    // añade el derivado al lado.
+    const marcadas = await this.leerIpsMarcadas();
+    return {
+      items: items.map((u) => ({ ...u, ipFlagged: ipMarcada(u.lastLoginIp, marcadas) })),
+      total,
+      page,
+      perPage,
+    };
   }
 
   async getUserById(id: string) {
@@ -1387,7 +1474,14 @@ export class AdminService {
      */
     const auditLogs = await this.auditLog.listForResource('User', id, 20);
 
-    return { ...user, isPro, auditLogs };
+    // A1 — el aviso, DERIVADO igual que en el anuncio y con la misma función. Sólo señala:
+    // NO se toca `requiresReview`, que es una decisión de una persona y se audita con nombre.
+    return {
+      ...user,
+      isPro,
+      auditLogs,
+      ipFlagged: ipMarcada(user.lastLoginIp, await this.leerIpsMarcadas()),
+    };
   }
 
   async suspendUser(targetId: string, actorId: string, ip?: string) {
@@ -2465,6 +2559,29 @@ export class AdminService {
    * NO SE DEVUELVE NINGÚN PORCENTAJE, y no por olvido: no hay ninguno que calcular sin
    * inventarse el denominador.
    */
+  /**
+   * A1 — las IPs marcadas, leídas del ajuste.
+   *
+   * FAIL-OPEN hacia el CONJUNTO VACÍO: si el ajuste falta o la consulta revienta, no se marca
+   * a nadie. Es la dirección correcta — un fallo de lectura no puede empezar a señalar gente,
+   * y el precio de callarse es un aviso que no sale.
+   *
+   * Sin caché: es un `findUnique` por clave primaria, y una lista de vigilancia que tarda en
+   * responder a un cambio es peor que una que cuesta una consulta. Mismo criterio que los
+   * modos de detección.
+   */
+  private async leerIpsMarcadas(): Promise<Set<string>> {
+    try {
+      const ajuste = await this.prisma.setting.findUnique({
+        where: { key: FLAGGED_IPS_SETTING },
+        select: { value: true },
+      });
+      return parseFlaggedIps(ajuste?.value);
+    } catch {
+      return new Set();
+    }
+  }
+
   async getDetectionStats() {
     const [porDetector, anuncios, modosAjuste] = await Promise.all([
       this.prisma.listingDetection.groupBy({ by: ['detector'], _count: { _all: true } }),

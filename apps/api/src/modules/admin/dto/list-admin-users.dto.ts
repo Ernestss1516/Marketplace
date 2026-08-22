@@ -1,5 +1,5 @@
-import { IsEnum, IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
-import { Type } from 'class-transformer';
+import { IsBoolean, IsEnum, IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
 import { Role, UserStatus } from '@prisma/client';
 
 /**
@@ -40,6 +40,21 @@ export class ListAdminUsersDto {
   @IsOptional()
   @IsString()
   ip?: string;
+
+  /**
+   * A1 — «su última conexión fue desde una IP marcada».
+   *
+   * Distinto de `ip`, que pregunta por UNA concreta: esto pregunta por la lista entera, que
+   * es la forma de revisar de golpe a todo el que entró desde algún sitio vigilado.
+   *
+   * DERIVADO —`lastLoginIp IN (lista)`— y no contra ninguna tabla espejo: quitar una IP de
+   * la lista deja de traer a su gente **al instante**, en todo el histórico. Es la propiedad
+   * que hace que una lista de vigilancia se pueda rectificar.
+   */
+  @IsOptional()
+  @Transform(({ value }) => (value === undefined ? undefined : value === 'true' || value === true))
+  @IsBoolean()
+  ipFlagged?: boolean;
 
   @IsOptional()
   @IsIn(['last-login-desc', 'last-login-asc', 'recent', 'oldest'])

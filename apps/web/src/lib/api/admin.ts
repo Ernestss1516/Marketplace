@@ -46,6 +46,16 @@ export interface AdminListing {
   triage: string;
   /** ETIQUETA INTERNA (P1) — «el staff lo vigila». Ortogonal al triaje. */
   watched: boolean;
+  /**
+   * A1 — su última IP de gestión está en la lista de vigilancia.
+   *
+   * Lo resuelve el SERVIDOR y llega ya derivado: la lista de IPs no viaja al frontal, y el
+   * backoffice no tiene por qué saber qué vigila el equipo para pintar un distintivo. La
+   * lista tampoco sirve la IP en crudo — dice SI está marcada, no CUÁL es.
+   *
+   * Es una señal: no despublica el anuncio ni le hace nada.
+   */
+  ipFlagged: boolean;
   category: { id: string; name: string; slug: string };
   seller: { id: string; name: string; slug: string; email: string };
   images: { url: string }[];
@@ -103,7 +113,7 @@ export interface AdminListingDetail {
    */
   detections: {
     id: string;
-    detector: 'WORD' | 'IP' | 'PHONE';
+    detector: 'WORD' | 'PHONE';
     field: 'TITLE' | 'DESCRIPTION';
     match: string;
     rule: string | null;
@@ -114,6 +124,8 @@ export interface AdminListingDetail {
   /** ÚLTIMA IP (5b) — la última gestión de su DUEÑO. Otra pregunta que `updatedAt`. */
   lastOwnerInteractionAt: string | null;
   lastOwnerIp: string | null;
+  /** A1 — esa IP está en la lista de vigilancia. Derivado por el servidor; sólo señala. */
+  ipFlagged: boolean;
   createdAt: string;
   updatedAt: string;
   category: { id: string; name: string; slug: string; attributeSchema: AttributeSchema[] };
@@ -238,7 +250,9 @@ export interface AdminListingsFilters {
    * Combinarlos es lo que hace de la lista el banco de pruebas del modo avisar.
    */
   hasDetections?: boolean;
-  detector?: 'WORD' | 'IP' | 'PHONE';
+  detector?: 'WORD' | 'PHONE';
+  /** A1 — «su ultima IP de gestion esta en la lista de vigilancia». Derivado, sin tabla. */
+  ipFlagged?: boolean;
   /** ÚLTIMA IP (5b) — la IP desde la que su DUEÑO lo gestionó por última vez. Cruza con
    *  el filtro por IP de usuarios: «qué anuncios se han tocado desde aquí». */
   ip?: string;
@@ -285,6 +299,7 @@ export function getAdminListings(
     qs.set('hasDetections', String(params.hasDetections));
   }
   if (params?.detector) qs.set('detector', params.detector);
+  if (params?.ipFlagged !== undefined) qs.set('ipFlagged', String(params.ipFlagged));
   if (params?.ip) qs.set('ip', params.ip);
   if (params?.phone) qs.set('phone', params.phone);
   if (params?.province) qs.set('province', params.province);
@@ -409,6 +424,16 @@ export interface AdminUser {
    */
   lastLoginAt?: string | null;
   lastLoginIp?: string | null;
+  /**
+   * A1 — esa IP está en la lista de vigilancia. Derivado por el servidor.
+   *
+   * SÓLO SEÑALA: no suspende la cuenta ni le pone `requiresReview`, que es una decisión de
+   * una persona y se audita con su nombre. La máquina señala; la persona marca.
+   *
+   * Va en `AdminUser` y no en el detalle porque `AdminUserDetail` lo extiende: una sola
+   * declaración cubre la lista y la ficha.
+   */
+  ipFlagged?: boolean;
   _count: { listings: number };
 }
 
@@ -517,6 +542,12 @@ export function getAdminUsers(
     role?: string;
     q?: string;
     ip?: string;
+    /**
+     * A1 — «su última conexión fue desde una IP marcada». Distinto de `ip`, que pregunta por
+     * UNA concreta: esto pregunta por la lista entera, que es la forma de revisar de golpe a
+     * todo el que entró desde algún sitio vigilado.
+     */
+    ipFlagged?: boolean;
     order?: AdminUsersOrder;
     page?: number;
   },
@@ -526,6 +557,7 @@ export function getAdminUsers(
   if (params?.role) qs.set('role', params.role);
   if (params?.q) qs.set('q', params.q);
   if (params?.ip) qs.set('ip', params.ip);
+  if (params?.ipFlagged !== undefined) qs.set('ipFlagged', String(params.ipFlagged));
   if (params?.order) qs.set('order', params.order);
   return apiFetch<PaginatedAdminUsers>(`/admin/users?${qs}`, { token });
 }
@@ -742,7 +774,7 @@ export function updateAdminSetting(
  * existe. Ver `docs/diseno-listas-bloqueo.md` §2.4.
  */
 export interface DetectionStat {
-  detector: 'WORD' | 'IP' | 'PHONE';
+  detector: 'WORD' | 'PHONE';
   mode: 'WARN' | 'BLOCK';
   listings: number;
   detections: number;

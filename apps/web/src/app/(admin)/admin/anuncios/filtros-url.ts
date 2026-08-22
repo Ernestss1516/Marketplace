@@ -67,6 +67,8 @@ export function leerFiltros(params: URLSearchParams): AdminListingsFilters {
     // es lo que F2 prometió, y van tres ejes seguidos sin que la forma cambie.
     hasDetections: leerBooleano(params.get('hasDetections')),
     detector: leerDetector(params.get('detector')),
+    // A1 — «viene de una IP marcada». Otro eje con la misma forma; no es un detector.
+    ipFlagged: leerBooleano(params.get('ipFlagged')),
     // Teléfono, provincia y municipio: tres ejes más con la misma forma. Van SUELTOS y no
     // dentro de `q` — «de Toledo» y «menciona Toledo» son preguntas distintas, y un
     // identificador como el teléfono se busca entero (igual que la IP).
@@ -101,7 +103,7 @@ function leerBooleano(valor: string | null): boolean | undefined {
  * URL compartida puede venir de una versión anterior, o de una posterior con un detector que
  * aquí todavía no existe. Mandarlo tal cual al backend sería un 400 por un enlace pegado.
  */
-const DETECTORES = new Set(['WORD', 'IP', 'PHONE']);
+const DETECTORES = new Set(['WORD', 'PHONE']);
 
 function leerDetector(valor: string | null): AdminListingsFilters['detector'] {
   return valor && DETECTORES.has(valor)
@@ -135,6 +137,7 @@ export function aQueryString(filtros: AdminListingsFilters): string {
     qs.set('hasDetections', String(filtros.hasDetections));
   }
   if (filtros.detector) qs.set('detector', filtros.detector);
+  if (filtros.ipFlagged !== undefined) qs.set('ipFlagged', String(filtros.ipFlagged));
   if (filtros.phone?.trim()) qs.set('phone', filtros.phone.trim());
   if (filtros.province?.trim()) qs.set('province', filtros.province.trim());
   if (filtros.city?.trim()) qs.set('city', filtros.city.trim());
@@ -162,6 +165,7 @@ export function hayFiltros(filtros: AdminListingsFilters): boolean {
       filtros.watched !== undefined ||
       filtros.hasDetections !== undefined ||
       filtros.detector ||
+      filtros.ipFlagged !== undefined ||
       filtros.phone?.trim() ||
       filtros.province?.trim() ||
       filtros.city?.trim() ||
