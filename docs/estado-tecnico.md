@@ -14720,6 +14720,83 @@ tests que lo exigen se caen).
 
 ---
 
+## Punto 6 — RÁFAGA B: el ascenso (avisar → bloquear)
+
+Diseño: `docs/diseno-listas-bloqueo.md` §2.4 y §4.
+
+Los modos se leen de `Setting['detectionModes']` (ADMIN, molde
+`preModerationAllListings`), hay un contador por detector, y `BLOCK` es efectivo para
+IP/PHONE. **Ascender es cambiar un valor**, no un camino de código: hay una barrera con el
+mismo anuncio y el mismo detector en los dos modos.
+
+### El cambio de comportamiento, anunciado
+
+> Hasta la ráfaga A, **editar un ACTIVE no podía cambiar su estado**. Desde aquí, con un
+> detector en `BLOCK`, **meter un teléfono en un anuncio publicado lo devuelve a la cola de
+> revisión**: desaparece del escaparate a media vida, por una edición.
+
+`expiresAt` **no se toca** al bloquear: el anuncio no ha caducado, está en revisión.
+
+### La puerta de salida — la mitad que hace que esto no sea una trampa
+
+`publish()` sólo admite DRAFT y de `PENDING_REVIEW` sólo sacaba un moderador aprobando. Con
+un detector bloqueando al editar, eso convertiría **cada falso positivo en una espera
+indefinida por algo que el vendedor arregla solo**. Así que la simetría es obligatoria:
+**editar un `PENDING_REVIEW` que ya no dispara nada lo devuelve a ACTIVE**. Molde de
+`clearIfCompliant`, y con su misma pregunta: no «¿por qué entró?» sino «¿queda algún motivo
+AHORA?» — que es además la única que se puede hacer, porque el motivo **no se persiste**.
+
+**Lo que NO libera**: `reviewTriggerFor` se consulta igual. Si la plataforma revisa todo, o
+la categoría o el vendedor están marcados, el anuncio se queda en la cola por limpio que
+quede el texto — eso son políticas que alguien encendió a mano. Y la puerta pasa por el
+`gate`: volver al escaparate ocupa plaza.
+
+**Efecto colateral, dicho porque es un cambio real**: la salida no puede ser específica de un
+detector —el motivo no se guarda—, así que **un anuncio encolado por una palabra prohibida
+que el vendedor quita ahora se libera solo**, donde antes esperaba a un moderador. `WORD`
+sigue bloqueando exactamente igual; lo que cambia es que ahora hay salida. Tiene su barrera.
+
+### El contador, y lo que deliberadamente no es
+
+`GET /admin/detection/stats` devuelve por detector su modo y **dos recuentos en bruto**:
+`listings` (a cuántos anuncios afectaría ascenderlo) y `detections` (cuántos hallazgos —
+50 sobre 3 anuncios no es lo mismo que 50 sobre 50).
+
+> **Ninguno es una tasa de falsos positivos, y llamarlo así sería mentir.** Medirla exige un
+> veredicto humano por hallazgo, que no existe. Un porcentaje aquí convencería más de lo que
+> mide: quien lee «97 % de acierto» asciende sin mirar; quien lee «dispara en 340 anuncios»
+> abre la lista. Por eso el enlace al banco de pruebas está pegado al número.
+
+Hay una barrera que **afirma la ausencia**: el payload no puede tener ninguna clave que case
+con `/rate|ratio|percent|accuracy|falsePositive|precision/i`.
+
+### El fail-open, en la dirección correcta
+
+`parseDetectionModes` valida **clave a clave y cae al defecto por separado**. Si un
+`detectionModes` a medio escribir tumbara el objeto entero, un error de tecleo **apagaría el
+filtro de palabras en silencio**. Y si la lectura revienta se cae a los modos de nacimiento
+—`WORD` bloquea—, no a «nadie bloquea».
+
+Sin caché: es un `findUnique` por clave primaria, y un interruptor de moderación que tarda en
+surtir efecto es peor que uno que cuesta una consulta.
+
+### Verificación
+
+`test/deteccion-ascenso.e2e-spec.ts` (12) + `detection.engine.spec.ts` (47, de 35).
+
+Mutaciones, las tres verificadas:
+
+| Mutación | Cae |
+|---|---|
+| Bloquear **sin puerta de salida** | Barrera 2 (la crítica) y 3 más: la trampa |
+| Ignorar el `Setting` y usar siempre los modos de nacimiento | 7 tests: el ascenso no surte efecto |
+| Añadir un `falsePositiveRate` al contador | Barrera 4: la afirmación de honestidad |
+
+**Siguiente**: ráfaga C — el fail-open del tokenizador. Cierra el punto 6 y el lote. Los tres
+tests que hoy exigen el defecto tienen que caerse allí.
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.

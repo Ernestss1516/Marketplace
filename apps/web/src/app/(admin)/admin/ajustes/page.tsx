@@ -1,12 +1,22 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
+import Link from 'next/link';
 import { AlertCircle, Check, Loader2 } from 'lucide-react';
-import { getAdminSettings, updateAdminSetting, type AdminSetting } from '@/lib/api/admin';
+import {
+  getAdminSettings,
+  getDetectionStats,
+  updateAdminSetting,
+  type AdminSetting,
+  type DetectionStat,
+} from '@/lib/api/admin';
 import { ApiError } from '@/lib/api/client';
 import { Button } from '@/components/ui/button';
 import { PriceListEditor } from './_components/PriceListEditor';
+// PUNTO 6 — el MISMO vocabulario que la ficha y los filtros. Tres pantallas nombrando los
+// detectores por su cuenta es como acaban divergiendo (lo documenta el punto 4).
+import { DETECTOR_LABELS } from '../etiquetas';
 
 // ─── Helpers for badWordList ───────────────────────────────────────────────────
 
@@ -20,6 +30,111 @@ function fromWordListText(text: string): string[] {
     .split('\n')
     .map((w) => w.trim().toLowerCase())
     .filter(Boolean);
+}
+
+// ─── PUNTO 6 · RÁFAGA B — el ascenso de un detector ───────────────────────────
+
+/**
+ * EL ASCENSO: pasar un detector de AVISAR a BLOQUEAR.
+ *
+ * Lo que enseña al lado de cada interruptor es un RECUENTO EN BRUTO —en cuántos anuncios
+ * está disparando ahora mismo— porque es el único dato honesto que hay.
+ *
+ * **NO es una tasa de acierto, y el texto lo dice con esas palabras.** Medir falsos
+ * positivos exige que alguien juzgue cada hallazgo, y eso no existe todavía. Un porcentaje
+ * aquí convencería más de lo que mide, que es lo peor que puede hacer un dato de moderación:
+ * un admin que lee «97 % de acierto» asciende sin mirar; uno que lee «dispara en 340
+ * anuncios» abre la lista y mira. El enlace al banco de pruebas está justo debajo por eso.
+ */
+function DetectionModesEditor({
+  setting,
+  token,
+  onSaved,
+}: {
+  setting: AdminSetting;
+  token: string;
+  onSaved: () => void;
+}) {
+  const [stats, setStats] = useState<DetectionStat[] | null>(null);
+  const [saving, setSaving] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const cargar = useCallback(async () => {
+    try {
+      setStats(await getDetectionStats(token));
+    } catch {
+      setStats(null);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    void cargar();
+  }, [cargar]);
+
+  const modos = (setting.value ?? {}) as Record<string, string>;
+
+  async function cambiar(detector: string, modo: 'WARN' | 'BLOCK') {
+    setSaving(detector);
+    setError(null);
+    try {
+      // Se manda el objeto COMPLETO: `Setting.value` se guarda por reemplazo, así que
+      // enviar una sola clave borraría el modo de los otros dos detectores.
+      await updateAdminSetting(token, 'detectionModes', { ...modos, [detector]: modo });
+      onSaved();
+      await cargar();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se ha podido guardar');
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      {(stats ?? []).map((s) => (
+        <div key={s.detector} className="rounded-md border p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="text-sm font-medium">{DETECTOR_LABELS[s.detector] ?? s.detector}</p>
+              <p className="text-xs text-muted-foreground">
+                {s.detections === 0
+                  ? 'No ha encontrado nada todavía.'
+                  : `Está disparando en ${s.listings} anuncio${s.listings === 1 ? '' : 's'} (${s.detections} hallazgo${s.detections === 1 ? '' : 's'}).`}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <select
+                value={s.mode}
+                disabled={saving === s.detector}
+                onChange={(e) => void cambiar(s.detector, e.target.value as 'WARN' | 'BLOCK')}
+                className="h-9 rounded-md border bg-background px-2 text-sm"
+                aria-label={`Modo de ${DETECTOR_LABELS[s.detector] ?? s.detector}`}
+                data-testid={`modo-${s.detector}`}
+              >
+                <option value="WARN">Avisar (no despublica)</option>
+                <option value="BLOCK">Bloquear (manda a revisión)</option>
+              </select>
+              <Link
+                href={`/admin/anuncios?detector=${s.detector}`}
+                className="text-xs text-blue-700 hover:underline"
+              >
+                Ver cuáles
+              </Link>
+            </div>
+          </div>
+        </div>
+      ))}
+      {error && <p className="text-xs text-destructive">{error}</p>}
+      <p className="text-xs text-muted-foreground">
+        Los números son <strong>recuentos de disparos</strong>, no una tasa de acierto: para
+        saber cuántos son falsas alarmas hay que abrir la lista y mirarlos. En{' '}
+        <strong>Avisar</strong> el anuncio no se toca y sólo queda marcado para el equipo; en{' '}
+        <strong>Bloquear</strong> pasa a «En revisión» al publicarse <em>y también al
+        editarse</em> — un anuncio ya publicado puede volver a la cola. El vendedor sale
+        solo: en cuanto edita y quita lo que lo disparó, vuelve a publicarse.
+      </p>
+    </div>
+  );
 }
 
 // ─── Individual setting editors ───────────────────────────────────────────────
@@ -405,6 +520,7 @@ const SETTING_TITLES: Record<string, string> = {
   minPhotosRuleEnabled: 'Exigir el mínimo de fotos',
   preModerationAllListings: 'Revisar TODOS los anuncios antes de publicarlos',
   preModerationTrustedExempt: 'Los vendedores de confianza se saltan la revisión general',
+  detectionModes: 'Qué hace cada detector de contenido',
   proMonthlyFeaturedQuota: 'Cuota mensual de destacados (Pro)',
   proQuotaFeaturedDurationDays: 'Duración del destacado por cuota (Pro)',
   proExtraCreditsPercent: 'Bonus de créditos al comprar packs (Pro)',
@@ -440,6 +556,8 @@ const SETTING_DESCRIPTIONS: Record<string, string> = {
     'Sólo tiene efecto con la revisión de plataforma encendida. Apagado (por defecto), «revisar todos» significa TODOS, incluidos los vendedores con la insignia de confianza. Encendido, esa insignia pasa a eximir de la revisión GENERAL — y ojo: hoy la insignia es puramente decorativa, así que al encender esto los vendedores marcados hace meses quedan exentos sin que nadie lo haya decidido para ellos. NUNCA exime de las marcas específicas: una categoría que exige revisión, o un vendedor marcado para revisión, se revisan igual.',
   preModerationAllListings:
     'MODERACIÓN PREVIA, nivel plataforma. Encendido, TODO anuncio nuevo queda «en revisión» al publicarse y no se ve en el marketplace hasta que un moderador lo apruebe. ⚠ Es el más exigente de los tres niveles: a partir del clic, cada anuncio espera a un humano, así que enciéndelo sólo si hay alguien vaciando la cola. Para acotarlo a una parte del catálogo, marca «requiere revisión» en una categoría: se aplica a ella y a TODOS sus descendientes. Los anuncios ya publicados no se tocan.',
+  detectionModes:
+    'El motor busca tres cosas en el título y la descripción de cada anuncio: palabras de la lista de arriba, direcciones IP y teléfonos escritos en el texto. Aquí se decide qué pasa cuando encuentra algo. ⚠ Poner un detector en «Bloquear» tiene consecuencias para los vendedores: el anuncio pasa a «En revisión» al publicarse Y al editarse, así que uno ya publicado puede volver a la cola por una edición. Antes de ascender un detector, mira en cuántos anuncios está disparando y abre unos cuantos: los de IP y teléfono se equivocan (una IP es legítima en un anuncio de router, y cualquier referencia de nueve dígitos parece un teléfono). Ojo también con el teléfono: el anuncio TIENE un campo propio para publicarlo, que sólo se ve tras iniciar sesión — lo que este detector marca es que está escrito fuera de su sitio, no que publicarlo esté prohibido.',
   emailVerifiedToPublishEnabled:
     'Mientras esté apagado, un usuario con el correo sin verificar publica como siempre. Al encenderlo, NO se rechaza nada ni se pierde ningún anuncio: quien intente publicar sin haber verificado su correo se encuentra el anuncio guardado como BORRADOR y un aviso con el enlace para verificar. Crear y redactar siguen siendo libres — sólo se frena el paso al mercado, y en cuanto verifique podrá publicarlo. No afecta a los anuncios que ya están publicados.',
   totalListingLimitEnabled:
@@ -584,6 +702,9 @@ export default function AdminAjustesPage() {
     'minPhotosRuleEnabled',
     'preModerationAllListings',
     'preModerationTrustedExempt',
+    // PUNTO 6 · RÁFAGA B — el ascenso, junto a la moderación previa: son la misma clase de
+    // decisión (qué manda un anuncio a la cola) y se leen mejor una detrás de otra.
+    'detectionModes',
     'proMonthlyFeaturedQuota',
     'proQuotaFeaturedDurationDays',
     'proExtraCreditsPercent',
@@ -765,6 +886,13 @@ export default function AdminAjustesPage() {
                   settingKey="preModerationAllListings"
                   label="Revisar todos los anuncios antes de publicarlos"
                   helpText="Encendido, cada anuncio nuevo espera a que un moderador lo apruebe. Para acotarlo a una rama del catálogo, marca la categoría en Categorías (la marca alcanza a todas sus subcategorías)."
+                />
+              )}
+              {key === 'detectionModes' && (
+                <DetectionModesEditor
+                  setting={setting}
+                  token={token}
+                  onSaved={() => handleSaved(key)}
                 />
               )}
               {key === 'emailVerifiedToPublishEnabled' && (

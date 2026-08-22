@@ -114,6 +114,32 @@ export const DEFAULT_DETECTION_MODES: Readonly<Record<DetectorId, DetectionMode>
   PHONE: 'WARN',
 };
 
+/** RÁFAGA B — la clave donde el admin guarda el ascenso. Sin fila, los de nacimiento. */
+export const DETECTION_MODES_SETTING = 'detectionModes';
+
+/**
+ * RÁFAGA B — LEER LOS MODOS DE UN VALOR QUE VIENE DE FUERA, clave a clave.
+ *
+ * El `Setting` es un `Json` que edita una persona, así que puede llegar cualquier cosa:
+ * `null`, un array, una clave con un valor mal escrito, un detector que ya no existe.
+ *
+ * **CADA CLAVE SE VALIDA POR SEPARADO Y CAE A SU DEFECTO**, y ésa es la decisión que
+ * importa: si un `detectionModes` a medio escribir tumbara el objeto entero, un error de
+ * tecleo **apagaría el filtro de palabras en silencio** — que es exactamente el fallo que
+ * la ráfaga 0 se negó a cometer. Un valor basura en `IP` no puede cambiar lo que hace
+ * `WORD`.
+ */
+export function parseDetectionModes(raw: unknown): Record<DetectorId, DetectionMode> {
+  const modes = { ...DEFAULT_DETECTION_MODES };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return modes;
+
+  for (const id of Object.keys(modes) as DetectorId[]) {
+    const valor = (raw as Record<string, unknown>)[id];
+    if (valor === 'WARN' || valor === 'BLOCK') modes[id] = valor;
+  }
+  return modes;
+}
+
 /** El resultado de una pasada del motor sobre un texto. */
 export interface DetectionRunResult {
   /** Todo lo encontrado, de todos los detectores. */

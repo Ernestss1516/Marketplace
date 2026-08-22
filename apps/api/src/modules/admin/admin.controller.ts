@@ -371,6 +371,18 @@ export class AdminController {
     return this.adminService.getSettings();
   }
 
+  /**
+   * PUNTO 6 · RÁFAGA B — CUÁNTO ESTÁ DISPARANDO CADA DETECTOR.
+   *
+   * Vive junto a los ajustes, y ADMIN por el piso de clase, porque es el dato que se mira
+   * justo antes de tocar `detectionModes`: «si asciendo esto a bloquear, ¿a cuántos anuncios
+   * afecta?».
+   */
+  @Get('detection/stats')
+  getDetectionStats() {
+    return this.adminService.getDetectionStats();
+  }
+
   @Patch('settings/:key')
   @HttpCode(HttpStatus.OK)
   updateSetting(
