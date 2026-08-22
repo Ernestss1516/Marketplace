@@ -68,12 +68,21 @@ export class ModerationService {
       if (!user) throw new NotFoundException('Usuario no encontrado');
     }
 
+    // Mismo molde que el título del anuncio, en la otra arista: se trae también el
+    // COMENTARIO y el NOMBRE DE SU AUTOR, no sólo el id. Es el snapshot que mantiene
+    // legible la denuncia si la valoración desaparece después (`Report.reviewComment`
+    // / `reviewAuthorName`), ahora que `reviewId` es `SetNull` y ya no la arrastra.
+    // Se toma AQUÍ, al crear, y no en el borrado: ver la nota del campo en el schema.
+    let reviewComment: string | null | undefined;
+    let reviewAuthorName: string | null | undefined;
     if (dto.reviewId) {
       const review = await this.prisma.review.findUnique({
         where: { id: dto.reviewId },
-        select: { id: true },
+        select: { id: true, comment: true, author: { select: { name: true } } },
       });
       if (!review) throw new NotFoundException('Valoración no encontrada');
+      reviewComment = review.comment;
+      reviewAuthorName = review.author.name;
     }
 
     const data = {
@@ -84,6 +93,8 @@ export class ModerationService {
       listingTitle,
       reportedUserId: dto.reportedUserId,
       reviewId: dto.reviewId,
+      reviewComment,
+      reviewAuthorName,
     };
     return this.prisma.report.create({ data });
   }
@@ -425,7 +436,7 @@ export class ModerationService {
    *
    * ─── QUÉ FUEGO APAGA ─────────────────────────────────────────────────────────
    *
-   * El borrado era FÍSICO, y `Report.reviewId` es `Cascade`: cada uso **destruía la
+   * El borrado era FÍSICO, y `Report.reviewId` era `Cascade`: cada uso **destruía la
    * denuncia que había motivado la retirada**. Y el flujo de la cola de denuncias
    * —borrar y acto seguido resolver el reporte— acababa llamando a `resolveReport` sobre
    * un reporte que ya no existía, o sea con un `NotFoundException` en la cara del
@@ -435,10 +446,12 @@ export class ModerationService {
    * B1 dejó ese defecto anotado como «riesgo 5, fuera de alcance porque va de reseñas».
    * Esto es «va de reseñas».
    *
-   * Con la fila viva, el `Cascade` **no se dispara nunca**: la denuncia sobrevive
-   * apuntando a una fila que existe, y `resolveReport` la encuentra. Queda NEUTRALIZADO,
-   * no resuelto — si algún día hace falta supresión real, hay que pasar
-   * `Report.reviewId` a `SetNull` ANTES.
+   * Con la fila viva, el `Cascade` **no se disparaba nunca**: la denuncia sobrevive
+   * apuntando a una fila que existe, y `resolveReport` la encuentra. Eso lo dejaba
+   * NEUTRALIZADO, no resuelto; **ya está resuelto aparte**: `Report.reviewId` es
+   * `SetNull` + snapshot (`reviewComment` / `reviewAuthorName`), así que una supresión
+   * real futura tampoco destruiría la denuncia. La retirada lógica sigue siendo lo
+   * correcto igualmente, por lo de arriba (es reversible; borrar no).
    *
    * REVERSIBLE, y por eso MODERATOR (criterio B2: ADMIN sólo para lo irreversible).
    * `restoreReview` la devuelve entera — a la media y al perfil.

@@ -1267,9 +1267,11 @@ model Review {
   /// no existía. B1 dejó anotado ese defecto como «riesgo 5, fuera de alcance porque va de
   /// reseñas»: 7b es «va de reseñas».
   ///
-  /// Con la fila viva, el `Cascade` no se dispara nunca y la denuncia sobrevive. **Queda
-  /// NEUTRALIZADO, no resuelto:** si algún día hace falta supresión real (RGPD), hay que
-  /// pasar `Report.reviewId` a `SetNull` ANTES.
+  /// Con la fila viva, el `Cascade` no se disparaba nunca y la denuncia sobrevivía, pero
+  /// eso lo dejaba NEUTRALIZADO, no resuelto. **YA ESTÁ RESUELTO:** `Report.reviewId` es
+  /// `SetNull` + snapshot (`reviewComment` / `reviewAuthorName`), así que una supresión
+  /// real futura (RGPD, `deleteMany`, cascada de usuario) deja la denuncia viva y legible.
+  /// Esta retirada lógica sigue siendo lo correcto igualmente, por lo de arriba.
   ///
   /// Molde: `Entitlement.revokedAt` — el registro sobrevive y deja de contar. Y
   /// `ContactReason.activo`, que lo dice con palabras: «no hay endpoint DELETE; se
@@ -1357,8 +1359,33 @@ model Report {
   resolvedAt   DateTime?
 
   // Una denuncia puede apuntar a una valoración (además de a listing o user)
-  reviewId String?
-  review   Review? @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  //
+  // `SetNull`, ANTES `Cascade` — mismo molde que `listingId` arriba (§2.4), aplicado
+  // a la otra arista del MISMO defecto. B1 lo dejó anotado como «riesgo 5, fuera de
+  // alcance porque va de reseñas», y 7b lo NEUTRALIZÓ sin resolverlo: quitó el único
+  // camino que borraba valoraciones en vivo (`DELETE /moderation/reviews/:id` pasó a
+  // retirada lógica), así que con la fila siempre viva el `Cascade` no llegaba a
+  // dispararse. Pero la regla seguía ahí, armada para el siguiente: una purga RGPD, un
+  // `deleteMany` de mantenimiento o una cascada de usuario volvían a destruir denuncias
+  // en silencio. Ahora la denuncia sobrevive a la desaparición de la valoración.
+  reviewId         String?
+  review           Review? @relation(fields: [reviewId], references: [id], onDelete: SetNull)
+  /// Snapshot de la valoración denunciada, tomado AL CREAR la denuncia. Molde exacto de
+  /// `listingTitle` (arriba) / `Review.listingTitle` / `Deal.listingTitle`.
+  ///
+  /// SIN ESTO, EL `SetNull` DE ARRIBA DEJARÍA UNA DENUNCIA VACÍA: sobreviviría la fila,
+  /// pero el moderador no podría saber QUÉ se denunció. Con el comentario y el nombre
+  /// de su autor la cola sigue siendo legible sin la valoración: qué se dijo y quién lo
+  /// dijo, que es lo que se denuncia de una reseña.
+  ///
+  /// SE ESCRIBE AL CREAR, NO AL BORRAR, y es deliberado (diseño §3.3): rellenarlo en el
+  /// borrado sería una escritura de N filas dentro de la transacción, y un camino que
+  /// sólo se ejecuta ahí — es decir, que sólo se prueba ahí.
+  ///
+  /// `reviewComment` puede ser null aun con valoración: una reseña puede ser sólo
+  /// estrellas (`Review.comment` es opcional).
+  reviewComment    String? @db.Text
+  reviewAuthorName String?
 
   createdAt DateTime @default(now())
 

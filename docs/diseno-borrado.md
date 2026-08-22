@@ -232,6 +232,15 @@ valoración sí destruye sus denuncias** — y eso lo hace el staff desde `/admi
 el mismo defecto en otra arista. **No entra en este cuerpo** (va de borrar reseñas, no
 anuncios), pero queda anotado en §6.2 para no perderlo.
 
+> **CERRADO DESPUÉS (2026-08-22), con este mismo molde.** 7b sólo lo neutralizó —retiró el
+> único camino que borraba valoraciones en vivo, así que el `Cascade` dejó de dispararse sin
+> dejar de existir—. Ya es `SetNull` + snapshot: `Report.reviewComment` y
+> `Report.reviewAuthorName`, escritos **al crear la denuncia** (§3.3), con backfill en la
+> migración `20260822230000_report_sobrevive_borrado_valoracion` y barrera en
+> `apps/api/test/borrado-denuncia-valoracion.e2e-spec.ts`. El criterio del snapshot es el
+> mismo que el del título: lo mínimo para que la denuncia siga siendo legible sin lo
+> denunciado — **qué se dijo y quién lo dijo**.
+
 ### 2.5 `Conversation` — la decisión más difícil
 
 `Conversation.listingId` es **obligatorio** y `Cascade`, y la cabecera del modelo declara la
@@ -469,7 +478,7 @@ en una migración futura vuelve a destruir denuncias en silencio.
 | 2 | La regla de la clave de miniatura queda en **dos** sitios y diverge → basura silenciosa | Extraerla a un helper único (molde `cache-keys.ts`) es parte de B3, no un extra |
 | 3 | La bandeja revienta con `conv.listing === null` (verificado en `messaging.service.ts`) | Entra en B1, en la misma ráfaga que hace nullable la FK |
 | 4 | `@@unique([listingId, buyerId])` se relaja con `NULL` | Aceptado a propósito (§2.5): los hilos huérfanos son históricos |
-| 5 | **`Report.reviewId` sigue en `Cascade`**: borrar una valoración destruye sus denuncias | Fuera de alcance (va de reseñas), **pero es el mismo defecto**. Anotado aquí para no perderlo |
+| 5 | ~~**`Report.reviewId` sigue en `Cascade`**: borrar una valoración destruye sus denuncias~~ → **RESUELTO (2026-08-22)** | Fue fuera de alcance (va de reseñas), y 7b sólo lo **neutralizó** (quitó el único borrado en vivo). Ya está **cerrado con el molde de §2.4/§3.3**: `SetNull` + snapshot `reviewComment`/`reviewAuthorName` al crear, con backfill (migración `20260822230000_report_sobrevive_borrado_valoracion`) y barrera en `borrado-denuncia-valoracion.e2e-spec.ts` |
 | 6 | Las `Notification` de alerta quedan con enlace a un anuncio muerto (404) | Decisión ya tomada y escrita en el schema. Si molesta, es cosa de la vista de notificaciones, no del borrado |
 | 7 | Un borrado que falla tras la transacción deja objetos en R2 | Por diseño (§3.1): basura reintentable, no corrupción |
 | 8 | El snapshot no cubre lo anterior a la migración | Backfill recomendado en B1, mientras los anuncios aún existen |
@@ -479,7 +488,8 @@ en una migración futura vuelve a destruir denuncias en silencio.
 - No toca el borrado de usuarios, posts, categorías ni ninguna otra entidad.
 - No convierte `remove()` en una transición de estado.
 - No añade una papelera ni un «deshacer»: eliminar es irreversible **a propósito**.
-- No arregla `Report.reviewId` (riesgo 5) ni recolecta los huérfanos ya existentes
+- No arregla `Report.reviewId` (riesgo 5 — **cerrado después, aparte**: ver §2.4 y §6.2) ni
+  recolecta los huérfanos ya existentes
   (D-5 — evaluado y **descartado** en §7: el barrido no se construye).
 
 ---
