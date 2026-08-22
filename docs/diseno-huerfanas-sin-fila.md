@@ -331,6 +331,13 @@ ser una apuesta. Con las salvaguardas de §7.7 igualmente, que no dejan de hacer
 
 ## 9. H2 al detalle — «lo que nunca se confirma»
 
+> **IMPLEMENTADA (2026-08-23), tal cual está diseñada aquí** — salvo un detalle que la
+> implementación tuvo que añadir: en una confirmación repetida la fila ya apunta al vídeo
+> recién confirmado, así que el borrado del anterior necesita comparar (`anterior !== nueva`) o
+> borraría lo que acaba de guardar. La **regla de ciclo de vida sigue sin aplicar**: es
+> configuración del despliegue (`pendientes.md` §1, paso 7). Detalle en `estado-tecnico.md`,
+> sección «Huérfanas sin fila — RÁFAGA H2».
+>
 > Escrito el 2026-08-23, con H1 ya en `main`. Diseño; cero código. Cierra las **dos fugas que
 > quedan**: el vídeo subido y nunca confirmado y el avatar subido y nunca guardado. Las dos
 > tienen la misma forma —un objeto que espera una confirmación que puede no llegar—, así que

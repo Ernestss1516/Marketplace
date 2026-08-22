@@ -6,6 +6,7 @@ import {
   GetObjectCommand,
   DeleteObjectCommand,
   HeadObjectCommand,
+  CopyObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Readable } from 'stream';
@@ -52,6 +53,32 @@ export class R2Service implements OnModuleInit {
 
   async delete(key: string): Promise<void> {
     await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
+  }
+
+  /**
+   * HUÉRFANAS H2 — COPIAR UN OBJETO DENTRO DEL BUCKET, del lado del almacenamiento.
+   *
+   * POR QUÉ EXISTE. No hay «renombrar» en un almacén de objetos, y H2 necesita mover lo
+   * subido fuera del prefijo temporal al confirmarlo: mientras el objeto siga en `tmp/`, la
+   * regla de ciclo de vida lo caducaría aunque estuviera enlazado. Copiar y borrar el
+   * origen es la única forma de moverlo.
+   *
+   * LOS BYTES NO PASAN POR LA API: `CopyObject` se resuelve dentro del almacenamiento,
+   * igual que la subida prefirmada. Un vídeo de 50 MB se copia sin tocar la RAM de este
+   * proceso — que es la razón entera de que el vídeo se suba prefirmado.
+   *
+   * `CopySource` lleva el bucket delante y **codificado**: una clave con caracteres que no
+   * son seguros en una URL —hoy no las hay, todas son hex o cuid— rompería la petición en
+   * silencio, y el fallo sería «no encuentro el origen».
+   */
+  async copy(sourceKey: string, destinationKey: string): Promise<void> {
+    await this.client.send(
+      new CopyObjectCommand({
+        Bucket: this.bucket,
+        CopySource: encodeURI(`${this.bucket}/${sourceKey}`),
+        Key: destinationKey,
+      }),
+    );
   }
 
   getPublicUrl(key: string): string {

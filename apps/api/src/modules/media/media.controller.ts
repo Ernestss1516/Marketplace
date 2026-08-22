@@ -63,10 +63,13 @@ export class MediaController {
     }),
   )
   uploadAvatar(
-    @CurrentUser() _user: JwtUser,
+    // HUÉRFANAS H2 — el usuario ya llegaba aquí y se ignoraba (`_user`). Ahora va a la
+    // clave temporal (`avatars/tmp/<userId>/…`), que es lo que permite rechazar después la
+    // subida de otro. Ver `MediaService.uploadAvatar`.
+    @CurrentUser() user: JwtUser,
     @UploadedFile() file: Express.Multer.File,
   ) {
     if (!file) throw new BadRequestException('No file provided');
-    return this.mediaService.uploadAvatar(file);
+    return this.mediaService.uploadAvatar(user.userId, file);
   }
 }

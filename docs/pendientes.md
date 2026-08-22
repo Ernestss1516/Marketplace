@@ -56,7 +56,8 @@ Es el pendiente más antiguo del proyecto y el único que bloquea a varios de lo
 5. **Workflow de despliegue** en GitHub Actions, encadenado al `ci.yml` que ya existe y funciona.
 6. **Semilla y reindexado inicial.** Tras el primer despliegue: `seed` (árbol de categorías,
    admin, settings) y `pnpm --filter @marketplace/api reindex` para poblar Meilisearch.
-7. **Las dos reglas de ciclo de vida del bucket** (huérfanas H2 — ver
+7. **Las dos reglas de ciclo de vida del bucket** (huérfanas H2 — **el código ya está puesto
+   desde el 2026-08-23**: lo no confirmado vive bajo `tmp/` y lo confirmado sale de ahí; ver
    [`diseno-huerfanas-sin-fila.md`](./diseno-huerfanas-sin-fila.md) §9.5): caducar a **1 día**
    lo que quede bajo `listing-videos/tmp/` y bajo `avatars/tmp/`. Es lo que recoge las subidas
    que nunca llegaron a confirmarse —un vídeo abandonado pesa hasta 50 MB—, y es **seguro por
@@ -244,13 +245,17 @@ Lo que **sigue abierto**, y son dos problemas distintos que esta entrada mezclab
     entero (`ownUrlsDeep`/`releasedUrls` en `media-keys.ts`) → comprobación de que no queda otro
     dueño → cola `media-cleanup` de B3. Tres de las cinco fugas, sin tocar infraestructura.
     Barreras en `apps/api/test/huerfanas-h1.e2e-spec.ts`.
-  - **H2 «lo que nunca se confirma» — DISEÑADA (2026-08-23, §9 del diseño), sin implementar:**
-    el vídeo sin confirmar y el avatar subido y nunca guardado. Prefijo efímero **arriba**
-    (`listing-videos/tmp/<listingId>/…`, `avatars/tmp/<userId>/…` — los filtros de ciclo de vida
-    son prefijos literales, sin comodines), copia al confirmar y `R2Service.copy`, que hoy no
-    existe. La **regla de caducidad es configuración del bucket**, no código: entra en §1 abajo,
-    y hasta que se aplique la basura se acumula igual pero **confinada** a dos prefijos donde
-    nada vivo puede estar.
+  - **~~H2 «lo que nunca se confirma»~~ — CERRADA EN CÓDIGO (2026-08-23).** El vídeo se firma
+    bajo `listing-videos/tmp/<listingId>/…` y el avatar se sube a `avatars/tmp/<userId>/…`;
+    confirmar (o guardar el perfil) **copia** el objeto al prefijo de siempre con
+    `R2Service.copy`, así que lo confirmado nunca se queda en `tmp/` y los ya confirmados **no
+    migran**. Con las tres decisiones de orden: compensar si la fila falla tras copiar, borrado
+    del temporal como cortesía, y confirmación idempotente. Barreras en
+    `apps/api/test/huerfanas-h2.e2e-spec.ts` (contra MinIO, con `r2.head`).
+    **Falta la mitad que no es código:** la regla de ciclo de vida sobre los dos prefijos
+    `tmp/` — paso 7 de §1. Hasta que se aplique en el despliegue, la basura se acumula igual
+    pero **confinada** a dos prefijos donde nada vivo puede estar (y por eso vaciarlos a mano
+    es seguro).
 
 **Por qué no se barre ahora:** no hay basura de producción que recoger (no hay producción), el
 riesgo de falso positivo está demostrado y es irreversible, y las clases que un barrido sí

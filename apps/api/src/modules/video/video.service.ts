@@ -13,6 +13,7 @@ import { PrismaService } from '../../infra/prisma/prisma.service';
 import { RedisService } from '../../infra/redis/redis.service';
 import { R2Service } from '../../infra/r2/r2.service';
 import { listingCacheKey } from '../../infra/redis/cache-keys';
+import { pendingPrefix } from '../../infra/r2/media-keys';
 import { isOwnStorageUrl } from '../../common/validators/safe-url';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -96,7 +97,16 @@ export class VideoService {
       );
     }
 
-    const key = `${VIDEO_KEY_PREFIX}/${dto.listingId}/${randomUUID()}.mp4`;
+    // HUÉRFANAS H2 — SE FIRMA CONTRA EL PREFIJO TEMPORAL. El objeto nace en
+    // `listing-videos/tmp/<listingId>/…` y sólo sale de ahí al confirmarse (`confirmUpload`
+    // lo copia al definitivo). Lo que se quede aquí es una subida abandonada, y una regla
+    // de ciclo de vida sobre ese prefijo la caduca sin que haga falta código de
+    // recolección — que es todo el motivo de que el `tmp` esté ARRIBA y no detrás del
+    // `listingId`: un filtro de ciclo de vida es un prefijo literal, sin comodines.
+    //
+    // Antes se firmaba directamente contra el definitivo, así que el vídeo vivo y el
+    // abandonado eran indistinguibles y ninguna regla podía tocar uno sin tocar el otro.
+    const key = `${pendingPrefix(VIDEO_KEY_PREFIX, dto.listingId)}${randomUUID()}.mp4`;
 
     // El tamaño declarado entra en la FIRMA. A partir de aquí el límite deja de depender de
     // que el cliente diga la verdad: si sube un cuerpo de otro tamaño, el almacenamiento
@@ -128,30 +138,51 @@ export class VideoService {
     await this.assertPro(userId);
     const listing = await this.assertOwnActiveListing(userId, listingId);
 
-    // La clave tiene que pertenecer a ESTE anuncio. Sin esto, alguien podría confirmar en su
-    // anuncio un objeto subido para otro.
-    if (!dto.key.startsWith(`${VIDEO_KEY_PREFIX}/${listingId}/`)) {
+    // La clave tiene que ser la TEMPORAL de ESTE anuncio. Sin esto, alguien podría confirmar
+    // en su anuncio un objeto subido para otro. La comprobación no se relaja con H2: se
+    // mueve al prefijo temporal, que es donde `createUploadUrl` firma ahora.
+    const prefijoTemporal = pendingPrefix(VIDEO_KEY_PREFIX, listingId);
+    if (!dto.key.startsWith(prefijoTemporal)) {
       throw new BadRequestException('Esa subida no corresponde a este anuncio.');
     }
 
+    // El destino: la MISMA clave sin el `tmp/`, o sea el prefijo de siempre. Que el destino
+    // no cambie es lo que deja fuera de la regla de caducidad a los vídeos ya confirmados
+    // antes de H2, sin migrar ni una fila.
+    const claveDefinitiva = `${VIDEO_KEY_PREFIX}/${listingId}/${dto.key.slice(prefijoTemporal.length)}`;
+
     // Comprobar contra el almacenamiento distingue «dijo que subió» de «subió». Y detecta la
     // confirmación de un objeto que nunca llegó (subida cancelada, red caída).
-    const objeto = await this.r2.head(dto.key);
+    //
+    // CONFIRMAR DOS VECES (doble clic, reintento de red) llega aquí con el temporal ya
+    // borrado por la primera confirmación. Sin mirar el destino, la respuesta sería «no
+    // encontramos el vídeo subido» sobre un vídeo que está perfectamente guardado. Se mira,
+    // y si ya está en su sitio la confirmación es idempotente: se rehacen las mismas
+    // escrituras y no se copia nada.
+    const enTemporal = await this.r2.head(dto.key);
+    const yaConfirmado = enTemporal === null;
+    const objeto = enTemporal ?? (await this.r2.head(claveDefinitiva));
     if (!objeto) {
       throw new BadRequestException('No encontramos el vídeo subido. Vuelve a intentarlo.');
     }
+
+    const claveInspeccionada = yaConfirmado ? claveDefinitiva : dto.key;
     if (objeto.contentLength > MAX_VIDEO_BYTES) {
       // No debería ocurrir —la firma lo impide— pero comprobarlo aquí es lo que hace que la
       // garantía no dependa de una sola capa.
-      await this.r2.delete(dto.key).catch(() => undefined);
+      await this.r2.delete(claveInspeccionada).catch(() => undefined);
       throw new PayloadTooLargeException('El vídeo subido supera el tamaño permitido.');
     }
     if (objeto.contentType && !(ALLOWED_VIDEO_MIME_TYPES as readonly string[]).includes(objeto.contentType)) {
-      await this.r2.delete(dto.key).catch(() => undefined);
+      await this.r2.delete(claveInspeccionada).catch(() => undefined);
       throw new UnsupportedMediaTypeException('El vídeo subido no es MP4.');
     }
 
-    const videoUrl = this.r2.getPublicUrl(dto.key);
+    // LA COPIA, del lado del almacenamiento: los bytes no pasan por la API. A partir de
+    // aquí el vídeo vive fuera de `tmp/` y la regla de caducidad ya no puede tocarlo.
+    if (!yaConfirmado) await this.r2.copy(dto.key, claveDefinitiva);
+
+    const videoUrl = this.r2.getPublicUrl(claveDefinitiva);
     // Cinturón y tirantes: la URL la construimos nosotros, así que esto no puede fallar. Que
     // esté escrito es lo que impide que un cambio futuro en `getPublicUrl` deje entrar una
     // dirección ajena sin que nadie se entere.
@@ -163,18 +194,44 @@ export class VideoService {
     // quedaría pagando sitio sin que nadie pueda verlo nunca más.
     const anterior = listing.videoUrl;
 
-    const actualizado = await this.prisma.listing.update({
-      where: { id: listingId },
-      data: {
-        videoUrl,
-        videoPosterUrl: dto.posterUrl ?? null,
-        videoDurationSeconds: dto.durationSeconds,
-        videoUploadedAt: new Date(),
-      },
-      select: { id: true, slug: true, videoUrl: true, videoPosterUrl: true, videoUploadedAt: true },
-    });
+    let actualizado;
+    try {
+      actualizado = await this.prisma.listing.update({
+        where: { id: listingId },
+        data: {
+          videoUrl,
+          videoPosterUrl: dto.posterUrl ?? null,
+          videoDurationSeconds: dto.durationSeconds,
+          videoUploadedAt: new Date(),
+        },
+        select: { id: true, slug: true, videoUrl: true, videoPosterUrl: true, videoUploadedAt: true },
+      });
+    } catch (err) {
+      // COMPENSACIÓN — el único fallo nuevo que introduce la copia. Si la fila no se
+      // escribe, la copia se queda en el prefijo DEFINITIVO, donde nadie la referencia y
+      // donde la regla de caducidad NO llega (sólo mira `tmp/`). Sería una huérfana
+      // permanente, así que se deshace aquí. El original sigue en `tmp/` y lo caducará la
+      // regla, así que reintentar la subida no pierde nada.
+      if (!yaConfirmado) {
+        await this.r2.delete(claveDefinitiva).catch((e) => {
+          this.logger.warn(`No se pudo deshacer la copia ${claveDefinitiva}: ${String(e)}`);
+        });
+      }
+      throw err;
+    }
 
-    if (anterior) await this.deleteObjectByUrl(anterior);
+    // CORTESÍA, no corrección: el temporal ya no hace falta. Si el borrado falla, la regla
+    // de caducidad lo recogerá — «no dejar limpiar no debe romper nada».
+    if (!yaConfirmado) {
+      await this.r2.delete(dto.key).catch((e) => {
+        this.logger.warn(`No se pudo borrar el temporal ${dto.key}: ${String(e)}`);
+      });
+    }
+
+    // `anterior !== videoUrl` importa desde H2: en una confirmación repetida la fila ya
+    // apunta al vídeo que se acaba de confirmar, y sin esta comparación se borraría el
+    // objeto recién guardado.
+    if (anterior && anterior !== videoUrl) await this.deleteObjectByUrl(anterior);
     await this.refrescarSuperficies(actualizado.slug, listingId);
 
     this.logger.log(`Vídeo confirmado para listing=${listingId} (${objeto.contentLength} B)`);
