@@ -1,0 +1,23 @@
+# FINALES DE LÍNEA — los .sql de las migraciones, siempre LF.
+#
+# POR QUÉ, Y QUÉ **NO** ARREGLA ESTO. Prisma normaliza CRLF→LF antes de calcular
+# el checksum que guarda en `_prisma_migrations`, así que un checkout con CRLF
+# (`core.autocrlf=true`, que es lo que hay en las máquinas Windows del proyecto)
+# NO rompe `migrate status` por sí solo. Esta regla no existe para eso.
+#
+# Existe para que el fichero en disco sea BYTE A BYTE el mismo en todas las
+# máquinas y en el CI. Cualquier herramienta que hashee el contenido crudo —un
+# `sha256sum` a mano para comparar contra la columna `checksum`, un diff entre
+# dos checkouts, una firma— da el mismo resultado en Windows que en Linux. Sin
+# esto, el hash crudo local y el de CI difieren y parece un cambio de SQL que no
+# existe.
+#
+# LO QUE SÍ ROMPE EL CHECKSUM y ningún .gitattributes puede evitar: **editar un
+# `migration.sql` DESPUÉS de haberlo aplicado**, aunque sólo se toquen
+# comentarios. Le pasó a `20260822163307_filtro_telefono_normalizado`: se aplicó
+# con el SQL que generó `migrate dev` y luego se le quitó a mano el `DROP INDEX`
+# y se le añadió la cabecera que lo explica. El SQL aplicado y el fichero
+# commiteado ya no coincidían. La regla es de disciplina, no de configuración:
+# una migración aplicada es inmutable; si hay que retocarla, hay que reconciliar
+# también su `checksum` en `_prisma_migrations`.
+apps/api/prisma/migrations/**/*.sql text eol=lf
