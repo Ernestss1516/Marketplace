@@ -60,7 +60,7 @@ async function loginAs(browser: Browser, email: string) {
 }
 
 test.describe('Backoffice — ADMIN acceso total', () => {
-  test('ADMIN carga /admin y el nav muestra las 22 secciones', async ({ adminContext }) => {
+  test('ADMIN carga /admin y el nav muestra las 23 secciones', async ({ adminContext }) => {
     const page = await adminContext.newPage();
 
     await page.goto('/admin');
@@ -77,7 +77,7 @@ test.describe('Backoffice — ADMIN acceso total', () => {
     const nav = page.getByTestId('admin-nav');
     await expect(nav).toBeVisible();
     const links = nav.getByRole('link');
-    await expect(links).toHaveCount(22);
+    await expect(links).toHaveCount(23);
 
     // Un ADMIN ve lo suyo Y lo de los otros dos pisos.
     await expect(nav.getByRole('link', { name: 'Ajustes' })).toBeVisible();
@@ -130,6 +130,18 @@ test.describe('Backoffice — MODERATOR acceso restringido', () => {
     await expect(page.getByRole('heading', { name: 'Reportes y denuncias' })).toBeVisible();
   });
 
+  // ESTADÍSTICAS B1 — la mitad POSITIVA de la barrera del piso. La negativa (un EDITOR
+  // rebotado) está en BLOCKED_PATHS, más abajo. Las dos hacen falta: una sección que no
+  // se abre para nadie también «pasa» la mitad negativa.
+  test('MODERATOR → /admin/estadisticas carga correctamente', async ({ moderatorContext }) => {
+    const page = await moderatorContext.newPage();
+    await page.goto('/admin/estadisticas');
+    await page.waitForLoadState('networkidle');
+
+    expect(page.url()).toContain('/admin/estadisticas');
+    await expect(page.getByRole('heading', { name: 'Estadísticas' })).toBeVisible();
+  });
+
   test('MODERATOR → /admin/anuncios carga correctamente [RR5.1-ext]', async ({ moderatorContext }) => {
     const page = await moderatorContext.newPage();
     await page.goto('/admin/anuncios');
@@ -177,14 +189,17 @@ test.describe('Backoffice — MODERATOR acceso restringido', () => {
     const nav = page.getByTestId('admin-nav');
     await expect(nav).toBeVisible();
 
-    // 19 = 22 totales − las 3 de ADMIN. Eran 7 hasta R2.
+    // 20 = 23 totales − las 3 de ADMIN. Eran 7 hasta R2, y 19 hasta que
+    // «Estadísticas» (B1) entró con piso MODERATOR.
     const links = nav.getByRole('link');
-    await expect(links).toHaveCount(19);
+    await expect(links).toHaveCount(20);
 
-    // Las 12 que gana en R2, una por una: sin esto, el conteo de 19 pasaría igual
-    // aunque la sección equivocada se hubiera colado en el reparto.
+    // Las 12 que gana en R2 —más «Estadísticas», que B1 añade con piso MODERATOR—, una
+    // por una: sin esto, el conteo pasaría igual aunque la sección equivocada se hubiera
+    // colado en el reparto.
     for (const label of [
       'Resumen',
+      'Estadísticas',
       'Portada',
       'Footer',
       'Navegación',
@@ -319,6 +334,10 @@ test.describe('Backoffice — EDITOR: contenido y presentación del sitio', () =
     '/admin/cupones',
     '/admin/ajustes',
     '/admin/anuncios',
+    // ESTADÍSTICAS B1 — la mitad negativa de la barrera. La sección vive en el grupo
+    // «Plataforma» pero su piso es MODERATOR, así que un EDITOR —que sí entra en el
+    // dashboard, y cuyo `GET /admin/stats` es EDITOR— NO llega a la telemetría.
+    '/admin/estadisticas',
   ];
 
   for (const blockedPath of BLOCKED_PATHS) {
@@ -532,18 +551,18 @@ test.describe('La puerta /admin/login', () => {
     });
     await page.waitForLoadState('networkidle');
 
-    await expect(page.getByTestId('admin-nav').getByRole('link')).toHaveCount(19);
+    await expect(page.getByTestId('admin-nav').getByRole('link')).toHaveCount(20);
     await page.close();
   });
 
-  test('un ADMIN sigue entrando por su puerta de siempre, con las 22', async ({ browser }) => {
+  test('un ADMIN sigue entrando por su puerta de siempre, con las 23', async ({ browser }) => {
     const page = await loginPorLaPuertaDelPanel(browser, 'admin-e2e@example.com');
     await page.waitForURL((url) => url.pathname.startsWith('/admin') && url.pathname !== '/admin/login', {
       timeout: 15_000,
     });
     await page.waitForLoadState('networkidle');
 
-    await expect(page.getByTestId('admin-nav').getByRole('link')).toHaveCount(22);
+    await expect(page.getByTestId('admin-nav').getByRole('link')).toHaveCount(23);
     await page.close();
   });
 

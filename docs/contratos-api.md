@@ -263,6 +263,28 @@ un camino, y a la vez el registro que habilita valorar.
 
 ---
 
+## Admin — estadísticas (B1)
+
+Controlador **propio** (`admin/stats`) con piso **MODERATOR**, separado del `GET /admin/stats`
+del dashboard, que es EDITOR y **no se amplía**: aquél mide inventario, éstos miden tráfico
+(ver `docs/diseno-estadisticas.md` §3.5). Sólo LEEN `ListingViewDaily` y
+`ListingImpressionDaily` — no hay ningún contador nuevo.
+
+- **`GET /admin/stats/listings/:id?days=`** *(MODERATOR)* — Actividad de un anuncio:
+  `dailyViews` y `dailyImpressions` (series SUELTAS, no fusionadas — el componente de
+  gráfica las une), totales, `favoritesCount`, y `ctr` / `likeRatio` con el mismo
+  tratamiento de muestra pequeña que ve el vendedor Pro. **Sin gate Pro**: aquí decide el
+  rol, no el plan del vendedor.
+- **`GET /admin/stats/users/:id?days=`** *(MODERATOR)* — Lo mismo agregado sobre **todos**
+  los anuncios del usuario (cualquier estado, no sólo `ACTIVE`), más `listingCount`,
+  `mostViewed` y `mostListed`. La suma es un `GROUP BY date` sobre las mismas tablas
+  diarias: **no hay tabla de agregado por usuario**.
+
+`days` ∈ **{7, 30, 90}**, por defecto 30. Cualquier otro valor es `400` — no es un rango
+libre: cada valor es una agregación distinta y el techo acota el coste por construcción.
+
+---
+
 ## Search (búsqueda)
 
 - **`GET /search`** — Búsqueda de texto completo resuelta por Meilisearch. Devuelve datos

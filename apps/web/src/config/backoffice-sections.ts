@@ -232,6 +232,25 @@ export const BACKOFFICE_SECTIONS: readonly BackofficeSection[] = [
   // ── Plataforma ─────────────────────────────────────────────────────────────
   // Las tres que R2 dejó en ADMIN, y el propio reparto ya las nombra juntas: «todo
   // + el dinero y la configuración». Agrupar por tarea las junta igual.
+  //
+  // ESTADÍSTICAS B1 — LA PRIMERA FILA `MODERATOR` DE ESTE GRUPO, y no es una anomalía:
+  // el criterio de los grupos es LA TAREA, no el rol. Está escrito arriba con todas las
+  // letras — «Que "Plataforma" coincida con las tres secciones ADMIN es CONSECUENCIA, no
+  // criterio»— y el encargo llama a esto, literalmente, «monitoreo de PLATAFORMA».
+  //
+  // Un MODERATOR verá el grupo con un solo ítem dentro y un ADMIN con cuatro, que es
+  // exactamente lo que `navGroupsFor` hace sin ninguna regla nueva: filtra por rol
+  // apoyándose en `navSectionsFor` y reparte lo que queda.
+  //
+  // VA LA PRIMERA DEL BLOQUE porque es la de piso más bajo. Y va SEGUIDA de las otras
+  // tres, que es un invariante con test («agrupar no pierde, no añade y no reordena»),
+  // no una preferencia estética.
+  //
+  // SIN ESTA FILA LA RUTA NO EXISTE PARA NADIE, ni siquiera para ADMIN:
+  // `canAccessAdminPath` es fail-closed ante una ruta sin sección. Es deliberado (ver su
+  // doc-comment) y es la razón de que esta línea sea el paso 1 de la ráfaga y no el
+  // último.
+  { id: 'estadisticas', route: '/admin/estadisticas', label: 'Estadísticas', minRole: 'MODERATOR', group: 'plataforma' },
   { id: 'facturacion', route: '/admin/facturacion', label: 'Facturación', minRole: 'ADMIN', group: 'plataforma' },
   { id: 'facturas', route: '/admin/facturas', label: 'Facturas', minRole: 'ADMIN', group: 'plataforma' },
   { id: 'ajustes', route: '/admin/ajustes', label: 'Ajustes', minRole: 'ADMIN', group: 'plataforma' },

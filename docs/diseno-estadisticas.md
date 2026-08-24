@@ -619,12 +619,14 @@ cuatro `<Dato>` de hoy son el resumen numérico al que le falta la serie.
 **Endpoint:** `GET /admin/stats/listings/:id?days=30` → `{ viewCount, impressionCount,
 favoritesCount, daily: [{ date, views, impressions }] }`.
 
-**La serie llega FUSIONADA desde el backend**, no como dos arrays: es una decisión deliberada
-y distinta de lo que hace el endpoint del Pro (que devuelve `dailyViews` suelto por historia).
-Fusionar en SQL/servicio y rellenar los huecos con 0 evita que **cada** consumidor del
-backoffice —anuncio, usuario, categoría, plataforma— repita el mismo `zip` de series en el
-cliente. El del Pro **no se toca**: cambiarle la forma a un contrato en producción por
-simetría no compensa (§4.2).
+~~**La serie llega FUSIONADA desde el backend**, no como dos arrays~~ — **REVISADO AL
+IMPLEMENTAR B1.** Esta decisión se tomó antes de que existiera `StatsChart`, y A2 la dejó
+obsoleta: el componente recibe las series POR SEPARADO y las fusiona él, rellenando los
+huecos con 0 (que era el motivo de querer fusionarlas en el servidor — que ningún consumidor
+repita ese `zip`). Con la fusión ya centralizada en el componente, devolverla fusionada
+obligaría a cada consumidor a **partirla otra vez** para poder pintarla. Así que B1 sirve
+`dailyViews` y `dailyImpressions` sueltos —la forma en que salen de las dos tablas, y la que
+el componente espera— y B2 seguirá igual. El del Pro **no se toca** de todos modos (§4.2).
 
 ## 3.2 B.2 — Las estadísticas de un usuario
 

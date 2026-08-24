@@ -21,6 +21,8 @@ import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { AdminBillingController } from './admin-billing.controller';
 import { AdminBillingService } from './admin-billing.service';
+import { AdminStatsController } from './admin-stats.controller';
+import { AdminStatsService } from './admin-stats.service';
 
 @Module({
   imports: [
@@ -41,8 +43,11 @@ import { AdminBillingService } from './admin-billing.service';
     ListingEditValidationModule,
     ListingImagesModule,
   ],
-  controllers: [AdminController, AdminBillingController],
-  providers: [AdminService, AdminBillingService],
+  // B1 — `AdminStatsController` NO necesita importar `ListingsModule`: lo único que
+  // comparte con él son funciones PURAS (`computeCtr`, `ratioWithMinSample`), que se
+  // importan como cualquier utilidad y no arrastran DI ni medio dominio detrás.
+  controllers: [AdminController, AdminBillingController, AdminStatsController],
+  providers: [AdminService, AdminBillingService, AdminStatsService],
   exports: [AdminService],
 })
 export class AdminModule {}

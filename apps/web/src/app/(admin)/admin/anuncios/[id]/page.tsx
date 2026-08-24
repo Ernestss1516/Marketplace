@@ -60,6 +60,9 @@ import { attributeErrors, buildAttributes, filterSchemaByType } from '@/lib/attr
 import { StepAtributos } from '@/components/publicar/steps/StepAtributos';
 import { ValoracionFila } from '@/components/admin/ValoracionFila';
 import { DatoIp } from '@/components/admin/DatoIp';
+import { ActivityPanel } from '@/components/stats/ActivityPanel';
+import { useActividad } from '@/components/stats/useActividad';
+import { getActividadAnuncio } from '@/lib/api/admin-stats';
 import type { AttributeSchema, ListingType } from '@/types';
 import { ApiError } from '@/lib/api/client';
 import { Badge } from '@/components/ui/badge';
@@ -141,6 +144,21 @@ export default function AdminFichaAnuncioPage() {
   const [data, setData] = useState<AdminListingDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // ESTADÍSTICAS B1 — la actividad va en SU PROPIA petición, no dentro del detalle.
+  // Dos motivos: la ficha ya carga bastante y la serie diaria sólo se necesita al mirar
+  // la sección de abajo; y el selector de ventana (7/30/90) recarga sólo esto, sin
+  // volver a pedir el anuncio entero cada vez que el staff cambia de rango.
+  const {
+    actividad,
+    days,
+    setDays,
+    loading: cargandoActividad,
+    error: errorActividad,
+  } = useActividad(
+    (rango, tk) => getActividadAnuncio(params.id, rango, tk),
+    token,
+  );
 
   const [nuevoEstado, setNuevoEstado] = useState('');
   const [motivo, setMotivo] = useState('');
@@ -903,12 +921,27 @@ export default function AdminFichaAnuncioPage() {
               )}
             </Seccion>
 
+            {/* ESTADÍSTICAS B1 — la sección «Actividad» tenía cuatro cifras sueltas y le
+                faltaba la serie: «días con vistas» era el sustituto pobre de una gráfica.
+                Ahora los cuatro datos se quedan (con «Veces listado» de compañero) y
+                debajo va la cronología, con el MISMO componente que ve el vendedor Pro. */}
             <Seccion titulo="Actividad">
               <div className="divide-y">
                 <Dato etiqueta="Vistas" valor={data.viewCount} />
+                <Dato etiqueta="Veces listado" valor={actividad?.impressionCount ?? '—'} />
                 <Dato etiqueta="Días con vistas" valor={data._count.viewsDaily} />
                 <Dato etiqueta="Favoritos" valor={data._count.favorites} />
                 <Dato etiqueta="Conversaciones" valor={data._count.conversations} />
+              </div>
+              <div className="mt-4">
+                <ActivityPanel
+                  testId="actividad-anuncio"
+                  actividad={actividad}
+                  days={days}
+                  onDaysChange={setDays}
+                  loading={cargandoActividad}
+                  error={errorActividad}
+                />
               </div>
             </Seccion>
           </div>

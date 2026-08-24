@@ -42,9 +42,10 @@ test.describe('3a + 3b — la barra agrupada, en escritorio', () => {
       await expect(cabecera).toHaveAttribute('aria-expanded', 'true');
     }
 
-    // Y con todo abierto siguen estando las 22, que es lo que mantiene verdes los
-    // cuatro conteos de `admin-roles.spec.ts` sin tocarlos.
-    await expect(nav.getByRole('link')).toHaveCount(22);
+    // Y con todo abierto siguen estando todas —23 desde que «Estadísticas» (B1) entró en
+    // el grupo «Plataforma»—, que es lo que mantiene coherentes los cuatro conteos de
+    // `admin-roles.spec.ts`.
+    await expect(nav.getByRole('link')).toHaveCount(23);
 
     // 3a — la raíz, fuera de todo grupo y con su nombre nuevo.
     await expect(nav.getByRole('link', { name: 'Resumen' })).toBeVisible();
@@ -175,7 +176,7 @@ test.describe('3b (A3) — en móvil el backoffice se puede usar', () => {
     for (const grupo of GRUPOS) {
       await expect(panel.getByRole('button', { name: grupo })).toBeVisible();
     }
-    await expect(panel.getByRole('link')).toHaveCount(22);
+    await expect(panel.getByRole('link')).toHaveCount(23);
     await expect(panel.getByRole('link', { name: 'Motivos de contacto' })).toBeVisible();
 
     await panel.getByRole('link', { name: 'Reportes' }).click();
