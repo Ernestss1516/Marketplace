@@ -2,8 +2,9 @@
 
 import { useState } from 'react';
 import Image from 'next/image';
-import { ChevronLeft, ChevronRight, Play } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { PhotoLightbox } from './PhotoLightbox';
+import { VideoIndicator } from './VideoIndicator';
 
 interface CardPhotoCarouselProps {
   images: string[];
@@ -94,26 +95,15 @@ export function CardPhotoCarousel({
       </button>
 
       {/*
-        Vídeo Pro — EL INDICADOR, y NADA MÁS.
+        Vídeo Pro — EL INDICADOR, y NADA MÁS. El marcado vive en `VideoIndicator` desde que
+        otras tres superficies (Mis anuncios y las dos del mapa) tuvieron que pintarlo
+        también: no pasan por este carrusel, y copiar el `<span>` tres veces habría sido
+        crear tres sitios donde el icono, el texto o el testid pueden separarse.
 
-        No hay `<video>`, ni `preload`, ni un póster que sustituya a la foto: en una lista se
-        pintan del orden de veinte a cuarenta tarjetas, y montar veinte elementos de vídeo
-        —aunque fuera solo para leer metadatos— son veinte descargas antes de que el usuario
-        decida nada. Un vídeo web pesa uno o dos órdenes de magnitud más que una de estas
-        fotos, ya redimensionadas a 800 px.
-
-        Esto es un SVG del bundle sobre la foto de siempre: cero peticiones. Y la garantía no
-        depende de recordarlo, porque a este componente solo le llega un booleano.
+        Lo que NO cambia es la garantía: a este componente solo le llega un booleano, así
+        que no hay `<video>` ni dirección que descargar. Ver VideoIndicator.tsx.
       */}
-      {hasVideo && (
-        <span
-          className="pointer-events-none absolute bottom-2 right-2 z-10 flex items-center gap-1 rounded-full bg-black/65 px-2 py-0.5 text-[11px] font-medium text-white"
-          data-testid="card-tiene-video"
-        >
-          <Play className="h-3 w-3 fill-current" aria-hidden />
-          Vídeo
-        </span>
-      )}
+      {hasVideo && <VideoIndicator />}
 
       {images.length > 1 && (
         <>

@@ -635,13 +635,13 @@ Ordenada por **(daño real) ÷ (coste de cerrarlo)**. Cada uno con su ubicación
 | # | Hueco | Dónde | Por qué primero |
 |---|---|---|---|
 | **1** | **No hay interruptor de `videoEnabled` en el backoffice** — la clave está en el whitelist del backend pero no en la lista que pinta la página de ajustes, y la semilla de producción no la crea | [`ajustes/page.tsx:914`](../apps/web/src/app/(admin)/admin/ajustes/page.tsx#L914) vs. [`admin.service.ts:194`](../apps/api/src/modules/admin/admin.service.ts#L194); [`seed.ts:452`](../apps/api/prisma/seed.ts#L452) | Toda la feature es inalcanzable. Es una entrada en un array |
-| **2** | **El vídeo no se anuncia en `/planes`** — el enganche está escrito, comentado y sin conectar | [`billing.service.ts:1049`](../apps/api/src/modules/billing/billing.service.ts#L1049) | Se paga por algo que la página de precios no menciona. Son tres líneas |
+| ~~**2**~~ | ~~**El vídeo no se anuncia en `/planes`**~~ — **CERRADO** (2026-08-24, rama `feat-video-visible`). El enganche comentado llevaba el flag EQUIVOCADO (`proVideoEnabled`; el real es `videoEnabled`), así que copiarlo tal cual habría fallado en silencio. La línea se emite ahora sólo si la feature está encendida, con la duración que el servidor valida de verdad | [`billing.service.ts`](../apps/api/src/modules/billing/billing.service.ts) · [`planes-anuncia-video.e2e-spec.ts`](../apps/api/test/planes-anuncia-video.e2e-spec.ts) | — |
 
 ### Altos — el beneficio existe pero no se ve donde importa
 
 | # | Hueco | Dónde |
 |---|---|---|
-| **3** | **`/mis-anuncios` no marca qué anuncios llevan vídeo**, aunque `hasVideo` sí llega en el payload | [`MyListingCard.tsx:88`](../apps/web/src/components/anuncios/MyListingCard.tsx#L88) |
+| ~~**3**~~ | ~~**`/mis-anuncios` no marca qué anuncios llevan vídeo**~~ — **CERRADO** (2026-08-24): el indicador se extrajo a [`VideoIndicator`](../apps/web/src/components/anuncios/VideoIndicator.tsx) y esta tarjeta lo pinta | [`mis-anuncios-indicador-video.test.tsx`](../apps/web/src/components/anuncios/mis-anuncios-indicador-video.test.tsx) |
 | ~~**4**~~ | ~~**`/favoritos` no puede pintar el indicador**: es la única lista que no pasa por `toSummary`~~ — **CERRADO** (2026-08-24, rama `fix-fuga-favoritos`): al arreglar la fuga de privacidad por la raíz, `/favorites` pasa a servir `toSummary` y gana `hasVideo`; `ListingCard` ya lo consumía, así que el indicador se pinta solo. Ver «Hallazgo colateral» | [`listing-summary.ts`](../apps/api/src/modules/listings/listing-summary.ts) |
 | **5** | **El Pro manual ve una página de suscripción vacía** — sin vencimiento, sin procedencia, sin explicación | [`perfil/suscripcion/page.tsx:81`](../apps/web/src/app/(account)/perfil/suscripcion/page.tsx#L81) |
 | **6** | **El Pro manual no puede pasarse a Pro de pago**: la UI lo bloquea, el backend lo permitiría | [`CheckoutButton.tsx:75`](../apps/web/src/app/(public)/planes/_components/CheckoutButton.tsx#L75) |
@@ -660,7 +660,7 @@ Ordenada por **(daño real) ÷ (coste de cerrarlo)**. Cada uno con su ubicación
 
 | # | Hueco | Nota |
 |---|---|---|
-| **12** | Las dos tarjetas del **mapa** no pintan el indicador (marcado propio, no `CardPhotoCarousel`) | `MapView.tsx` |
+| ~~**12**~~ | ~~Las dos tarjetas del **mapa** no pintan el indicador~~ — **CERRADO** (2026-08-24). Vivían dentro de `MapView` (importa `maplibre-gl`), así que ninguna prueba podía alcanzarlas: se extrajeron a `MapCards.tsx` y ahora tienen barrera propia | [`MapCards.test.tsx`](../apps/web/src/components/busqueda/MapCards.test.tsx) |
 | **13** | El **listado** de `/admin/anuncios` no marca qué anuncios llevan vídeo | solo la ficha lo muestra |
 | **14** | El reproductor del backoffice **no** lleva `preload="none"`, a diferencia del de la ficha | divergencia, probablemente deliberada |
 | **15** | «**Soporte prioritario**» se promete sin ningún mecanismo en código | política manual |

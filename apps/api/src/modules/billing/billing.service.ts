@@ -34,6 +34,10 @@ import { CheckoutDto } from './dto/checkout.dto';
 import { FeaturedByCreditsDto } from './dto/featured-by-credits.dto';
 import { TransactionsQueryDto } from './dto/transactions-query.dto';
 import { WalletQueryDto } from './dto/wallet-query.dto';
+// El interruptor del vídeo y su límite de duración: /planes anuncia la ventaja SÓLO si está
+// encendida, y con el mismo número que el servidor valida al subir. Fichero de constantes
+// sin dependencias, así que no acopla BillingModule con VideoModule.
+import { MAX_VIDEO_DURATION_SECONDS, VIDEO_ENABLED_SETTING } from '../video/video-limits';
 
 // ---------------------------------------------------------------------------
 // Shared interface for granting a featured listing entitlement.
@@ -918,6 +922,9 @@ export class BillingService {
               'proQuotaFeaturedDurationDays',
               'proMonthlyBumpQuota',
               'proExtraCreditsPercent',
+              // El interruptor del vídeo Pro: decide si /planes lo anuncia (ver
+              // buildProBenefits). Booleano, así que NO se lee por `settingMap`.
+              VIDEO_ENABLED_SETTING,
             ],
           },
         },
@@ -925,6 +932,10 @@ export class BillingService {
     ]);
 
     const settingMap = Object.fromEntries(settings.map((s) => [s.key, Number(s.value)]));
+    // `=== true` y no la coerción numérica de `settingMap`: es exactamente como lo lee
+    // `VideoService.isEnabled`, y sin fila (o con cualquier otro valor) queda apagado.
+    const videoActivo =
+      settings.find((s) => s.key === VIDEO_ENABLED_SETTING)?.value === true;
     const featuredCreditCostByDays: Record<number, number> = {
       7: settingMap['featuredCreditCost7d'] ?? 30,
       14: settingMap['featuredCreditCost14d'] ?? 50,
@@ -1012,7 +1023,7 @@ export class BillingService {
       }),
       proExtraBumpsPercent,
       freeBenefits: this.buildFreeBenefits(settingMap),
-      proBenefits: this.buildProBenefits(settingMap),
+      proBenefits: this.buildProBenefits(settingMap, videoActivo),
     };
   }
 
@@ -1046,12 +1057,19 @@ export class BillingService {
    * Ahora sale de aquí, del mismo sitio del que salen las cuotas reales. Cambiar un ajuste
    * cambia la promesa, sin tocar código.
    *
-   * AQUÍ SE CONECTARÁ EL VÍDEO PRO (proyecto 3): cuando exista su flag de admin, será una
-   * entrada condicional más de esta lista — `...(settingMap['proVideoEnabled'] ? [...] : [])`
-   * — y `/planes` la mostrará sin enterarse. Ese es todo el enganche; el vídeo no se
-   * implementa aquí.
+   * EL VÍDEO PRO, YA CONECTADO — y el enganche que este comentario dejó escrito llevaba el
+   * NOMBRE EQUIVOCADO. Decía `settingMap['proVideoEnabled']`, y el flag real es
+   * `videoEnabled`: de haberlo copiado tal cual, la línea no habría salido nunca y el fallo
+   * habría sido invisible (una clave inexistente es `undefined`, o sea «apagado»).
+   *
+   * Y NO ENTRA POR `settingMap`, que es un `Record<string, number>` construido con
+   * `Number(s.value)`. Un booleano ahí dentro sobrevive de milagro —`Number(true)` es 1—
+   * pero la pregunta «¿está encendido el vídeo?» se responde en todo el proyecto con
+   * `value === true` (`VideoService.isEnabled`). Se lee igual aquí, y por eso llega como
+   * parámetro aparte: si la página de precios y el guard de subida usaran criterios
+   * distintos, podrían discrepar sobre la misma fila.
    */
-  private buildProBenefits(settingMap: Record<string, number>): string[] {
+  private buildProBenefits(settingMap: Record<string, number>, videoActivo: boolean): string[] {
     const libres = settingMap['freeActiveListingLimit'] ?? 5;
     const pro = settingMap['proActiveListingLimit'] ?? 20;
     const destacados = settingMap['proMonthlyFeaturedQuota'] ?? 4;
@@ -1082,6 +1100,21 @@ export class BillingService {
      */
     if (pro > libres) {
       beneficios.push(`Hasta ${pro} anuncios activos (en el plan gratuito, ${libres})`);
+    }
+
+    // EL VÍDEO, SÓLO SI ESTÁ ENCENDIDO — mismo criterio que las cuotas de abajo: lo que no
+    // se concede, no se promete. Con la feature apagada la sección de vídeo no existe para
+    // nadie (ni siquiera para un Pro), así que anunciarla sería vender lo que el editor no
+    // ofrece. En cuanto un administrador la enciende en /admin/ajustes, la línea aparece
+    // aquí sola, sin desplegar nada.
+    //
+    // Los 60 segundos salen de `MAX_VIDEO_DURATION_SECONDS`, no escritos a mano: es el mismo
+    // número que el servidor aplica al validar la subida, y prometer otro sería la clase de
+    // desajuste que esta función entera vino a cerrar.
+    if (videoActivo) {
+      beneficios.push(
+        `Vídeo en tus anuncios: hasta ${MAX_VIDEO_DURATION_SECONDS} segundos enseñando el artículo`,
+      );
     }
 
     // Cada uno solo se promete si el ajuste lo concede de verdad: una cuota a 0 no es un
