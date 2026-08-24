@@ -3,17 +3,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Eye, Heart, TrendingUp } from 'lucide-react';
-import {
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-} from 'recharts';
+import { Eye, Heart, Search, TrendingUp } from 'lucide-react';
 import { ProGate } from '@/components/pro/ProGate';
+import { StatsChart, STATS_COLORS } from '@/components/stats/StatsChart';
+import { CtrLine } from '@/components/stats/CtrLine';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import {
   Select,
@@ -30,12 +23,6 @@ interface Props {
   listings: ListingSummary[];
   proStatus: ProStatus;
   token: string;
-}
-
-function formatDay(iso: string): string {
-  return new Intl.DateTimeFormat('es-ES', { day: '2-digit', month: '2-digit' }).format(
-    new Date(iso),
-  );
 }
 
 export function EstadisticasClient({ listings, proStatus, token }: Props) {
@@ -109,6 +96,16 @@ export function EstadisticasClient({ listings, proStatus, token }: Props) {
             <Heart className="h-4 w-4 text-muted-foreground" />
             <strong>{stats.favoritesCount}</strong> me gusta
           </span>
+          {/* A2 — «veces listado» va EN ESTA MISMA FILA y no en una tarjeta aparte: es la
+              tercera cifra de la misma pregunta («¿cómo le va a mi anuncio?») y el
+              vendedor la busca donde ya mira. Solo llega para Pro, así que la fila crece
+              sola sin ninguna condición de plan escrita aquí. */}
+          {stats.impressionCount !== undefined && (
+            <span className="flex items-center gap-1.5" data-testid="stats-impressions">
+              <Search className="h-4 w-4 text-muted-foreground" />
+              <strong>{stats.impressionCount}</strong> veces listado
+            </span>
+          )}
         </div>
       )}
 
@@ -121,29 +118,41 @@ export function EstadisticasClient({ listings, proStatus, token }: Props) {
             </p>
           )}
 
-          <Card data-testid="stats-chart">
+          <StatsChart
+            testId="stats-chart"
+            title="Visitas y veces listado, por día"
+            description="Últimos 30 días"
+            emptyMessage="Aún no hay datos suficientes para este anuncio."
+            series={[
+              {
+                key: 'views',
+                label: 'Visitas',
+                color: STATS_COLORS.views,
+                data: stats?.dailyViews ?? [],
+              },
+              {
+                key: 'impressions',
+                label: 'Veces listado',
+                color: STATS_COLORS.impressions,
+                data: stats?.dailyImpressions ?? [],
+              },
+            ]}
+          />
+
+          {/* QUÉ ES «VECES LISTADO», dicho donde el vendedor lo lee y con las palabras que
+              la métrica significa de verdad. Ni «impresiones» (jerga) ni «visualizaciones»
+              (mentira: aparecer en una lista no es que alguien lo haya mirado). */}
+          <Card data-testid="stats-ctr">
             <CardHeader>
-              <CardTitle className="text-base">Vistas por día</CardTitle>
-              <CardDescription>Últimos 30 días</CardDescription>
+              <CardTitle className="text-base">Qué te dicen estos números</CardTitle>
+              <CardDescription>
+                <strong>Veces listado</strong> es cuántas veces tu anuncio ha aparecido en una
+                página de resultados de búsqueda. <strong>Visitas</strong> es cuántas veces
+                alguien ha entrado a verlo.
+              </CardDescription>
             </CardHeader>
-            <CardContent>
-              {stats?.dailyViews && stats.dailyViews.length > 0 ? (
-                <div className="h-64 w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={stats.dailyViews}>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                      <XAxis dataKey="date" tickFormatter={formatDay} fontSize={12} />
-                      <YAxis allowDecimals={false} fontSize={12} />
-                      <Tooltip labelFormatter={(label) => formatDay(String(label))} />
-                      <Line type="monotone" dataKey="count" name="Vistas" stroke="#2563eb" />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Aún no hay datos suficientes para este anuncio.
-                </p>
-              )}
+            <CardContent className="space-y-1 text-sm">
+              <CtrLine ctr={stats?.ctr} />
             </CardContent>
           </Card>
 
@@ -174,8 +183,8 @@ export function EstadisticasClient({ listings, proStatus, token }: Props) {
         // El otro gate que ya estaba bien hecho, ahora sobre el molde común. Mismo testid
         // y mismo texto: lo que cambia es que la forma sale de un solo sitio.
         <ProGate testId="stats-upgrade-cta" titulo="Estadísticas avanzadas (gráficas, tendencias)">
-          Disponibles con Pro: vistas por día, ratio de me gusta y el agregado de todos tus
-          anuncios.
+          Disponibles con Pro: vistas por día, <strong>veces listado</strong> (cuántas veces sales
+          en los resultados de búsqueda), ratio de me gusta y el agregado de todos tus anuncios.
         </ProGate>
       )}
     </div>

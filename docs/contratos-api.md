@@ -241,8 +241,18 @@ un camino, y a la vez el registro que habilita valorar.
   cacheado.
 - **`GET /listings/mine/stats/summary`** *(auth)* — Resumen de estadísticas de todos mis
   anuncios.
-- **`GET /listings/mine/:id/stats`** *(auth, propietario)* — Estadísticas de un anuncio
-  (visitas, contactos, rendimiento del destacado).
+- **`GET /listings/mine/:id/stats`** *(auth, propietario)* — Estadísticas de un anuncio.
+  **Respuesta de forma variable según el plan**, no un 403 en la parte Pro: todo dueño
+  recibe `{ viewCount, favoritesCount }`; si es Pro, además `dailyViews`,
+  `dailyImpressions` («veces listado», A2), `impressionCount`, `likeRatio` y `ctr`.
+  - **`ctr`** es `{ value, views, impressions, minImpressions }`. `value: null` **no es un
+    error**: significa que aún no hay apariciones suficientes (`minImpressions`, hoy 100)
+    para que el porcentaje signifique algo — la interfaz debe decir cuántas faltan, nunca
+    pintar un porcentaje sobre una muestra menor. `views`/`impressions` son los de la
+    **ventana comparable** (desde el primer día con apariciones), no los totales del
+    anuncio: dividir los dos totales daría cifras absurdas mientras `viewCount` acumule
+    desde antes de que existieran las impresiones. `value > 1` es legítimo — el anuncio
+    recibe visitas por vías que no son la búsqueda.
 
 ---
 

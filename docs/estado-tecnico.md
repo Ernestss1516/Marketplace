@@ -15684,6 +15684,77 @@ minutos, y la exposición es la misma que `viewCount` ya tiene desde H8.C1.
 
 ---
 
+## Estadísticas A2 — el vendedor Pro lee las «veces listado» y el CTR
+
+Primera LECTORA de lo que A1 captura. Aditiva de punta a punta: ni una pantalla nueva, ni
+un campo menos para quien ya tenía algo.
+
+**El endpoint.** `GET /listings/mine/:id/stats` (rama Pro) añade `impressionCount` (el
+total, en el mismo `select` que ya leía la fila — sin consulta extra), `dailyImpressions`
+(30 días, mismo rango y mismo orden que `dailyViews`, las dos consultas en `Promise.all`) y
+`ctr`. **La rama no-Pro no cambia ni un campo**, y el test lo fija con un `toEqual` sobre el
+objeto entero en vez de una lista de `not.toBeDefined()`: así, el día que alguien añada un
+campo Pro sin mirar el gate, cae.
+
+**El CTR, y los dos errores que evita** (`listing-ctr.ts`, función pura con su spec):
+
+1. **NO es `viewCount / impressionCount`.** Los dos totales miden ventanas distintas:
+   `viewCount` acumula desde H8.C1 y `impressionCount` empezó el día del despliegue de A1.
+   Un anuncio con 3.000 visitas de un año y 120 apariciones de ayer daría un 2.500% — y no
+   es un caso raro, es el estado de TODO el catálogo el día del despliegue. El CTR suma las
+   dos series diarias sobre la **ventana comparable**: desde el primer día con
+   apariciones. Se corrige solo a los 30 días de tener A1 en marcha.
+2. **Umbral de muestra: `CTR_MIN_IMPRESSIONS = 100`.** Por debajo, `value` es `null` y la
+   interfaz dice cuántas faltan en vez de un porcentaje. «2 de 3 = 67%» es ruido: la
+   siguiente aparición lo mueve veinte puntos. 100 es donde el número deja de ser absurdo,
+   **no donde se vuelve preciso** — con un CTR observado del 5%, el intervalo de Wilson al
+   95% va de ~1,2% a ~10,3%. Es alcanzable: una página de resultados sirve hasta 24
+   apariciones, así que un anuncio con tráfico cruza las 100 en horas; cuando no las cruza,
+   la ausencia del dato también informa.
+
+Un CTR **mayor que 1 no se recorta**: significa que el tráfico llega por otras vías (enlace
+directo, favoritos, el perfil del vendedor, un bloque de portada — que a propósito no
+cuenta impresiones). `CtrLine` lo dice con esas palabras en vez de pintar «300%».
+
+**La gráfica, EXTRAÍDA** a `components/stats/StatsChart.tsx`, con `CtrLine.tsx` al lado.
+No es higiene: B1 pintará estas mismas dos series para cualquier anuncio, para el conjunto
+de un usuario y para el de una categoría, y con la gráfica dentro del panel del vendedor
+habría tenido que duplicarla. Recibe las series **por separado** (que es como llegan del
+backend: dos tablas, dos consultas) y las fusiona por fecha rellenando con **0** los días
+que le faltan a una —un hueco haría que recharts interpolara un segmento recto, que se lee
+como «ese día hubo apariciones intermedias»—. `mergeSeries` está exportada aparte y tiene
+su propio test: `ResponsiveContainer` mide 0×0 en jsdom, así que probar el SVG no
+comprobaría nada. `STATS_COLORS` fija el par azul/naranja en un solo sitio para que A2 y B1
+no diverjan.
+
+**El texto.** «Veces listado», nunca «impresiones» (jerga) ni «visualizaciones» (mentira:
+aparecer en una lista no es que alguien lo haya mirado). La tarjeta «Qué te dicen estos
+números» explica las dos métricas donde el vendedor las lee, y el `ProGate` del no-Pro
+menciona ahora la ventaja por su nombre.
+
+**Tests.** `listing-ctr.spec.ts` (10, la regla pura) · `estadisticas-a2-pro-veces-listado.e2e-spec.ts`
+(10) · `StatsChart.test.tsx` + `CtrLine.test.tsx` (14) · `h8-c2-listing-stats.spec.ts`
+ampliado (Playwright: la cifra, la tarjeta del CTR y que el free no ve ninguna de las dos).
+
+Mutaciones comprobadas, rojas: CTR sin umbral → el «67% sobre 3 apariciones» reaparece y
+caen 2; CTR de los totales → la ventana comparable deja de filtrar las visitas viejas;
+`impressionCount` en la rama no-Pro → cae la barrera del gate.
+
+**Asimetría anotada, que el encargo daba por resuelta al revés.** El encargo justificaba no
+excluir al dueño diciendo que «viewCount ya cuenta las visitas del dueño»: **no las cuenta**
+— `trackView` lo excluye explícitamente (`listings.service.ts:1508-1509`). La decisión (no
+meter auth en la ruta caliente de búsqueda) se mantiene, pero la consecuencia es real y
+conviene tenerla presente: un vendedor que busca mucho en su propia categoría **infla su
+denominador sin tocar el numerador**, así que su CTR sale sesgado a la baja. El umbral de
+100 y la redacción («de las veces que apareces») lo amortiguan, no lo eliminan.
+
+**Deuda gemela, no tocada por estar fuera del encargo:** `likeRatio`
+(`favoritesCount / viewCount`) tiene EXACTAMENTE el mismo defecto de muestra pequeña y se
+pinta sin umbral en el mismo panel — «un 100% de quienes lo ven lo guardan» sobre una sola
+visita. Aplicarle el tratamiento de `CtrLine` es una línea; queda propuesto, no hecho.
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.
