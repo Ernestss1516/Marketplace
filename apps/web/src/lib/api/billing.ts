@@ -140,6 +140,13 @@ export interface MyEntitlement {
   expiresAt: string | null;
   revokedAt: string | null;
   listingId: string | null;
+  /**
+   * PARIDAD DEL PRO MANUAL — la PROCEDENCIA, que el payload ya traía y este tipo callaba.
+   * `null` = concedido por el equipo; con valor = viene de una suscripción de pago. Es la
+   * marca que distingue los dos Pro (no hay columna `source`: esto ES la procedencia), y la
+   * necesita `/perfil/suscripcion` para saber qué contarle a cada uno.
+   */
+  subscriptionId: string | null;
 }
 
 export interface CatalogResponse {
@@ -195,6 +202,25 @@ export interface ProStatus {
    * que quien pinte la cuota pueda distinguir «cero de cuatro» de «no aplica».
    */
   quotaSource?: 'SUBSCRIPTION' | 'NONE';
+  /**
+   * PARIDAD DEL PRO MANUAL — EL EJE QUE ESTE LADO NO TENÍA.
+   *
+   * «¿Tiene una suscripción de pago viva?». Distinto de `isPro`, que sólo dice si hay un
+   * entitlement Pro vigente — y un Pro CONCEDIDO por el equipo es Pro **sin** suscripción.
+   * Fundir las dos preguntas en `isPro` es de donde salían los dos huecos de §1.5: la
+   * página de suscripción dejaba en blanco al Pro manual y `/planes` le impedía pagar.
+   *
+   * QUIÉN PREGUNTA QUÉ, y no da igual:
+   *   · «¿puede comprar el plan?» → `hasActiveSubscription` (lo mismo que mira el guard
+   *     del checkout en el servidor).
+   *   · «¿tiene las ventajas Pro?» → `isPro`.
+   *
+   * OPCIONAL como `quotaSource`, y con la misma consecuencia deliberada: cuando falta
+   * —payload de un despliegue anterior, o el respaldo de un `.catch()`— se trata como
+   * `false`, o sea NO se bloquea la compra. Es la política que el botón ya tenía escrita:
+   * ante la duda decide el servidor, que es quien puede hacerlo sin equivocarse.
+   */
+  hasActiveSubscription?: boolean;
 }
 
 /** Single point the frontend consults for "how many free featured grants are left this month?" */
