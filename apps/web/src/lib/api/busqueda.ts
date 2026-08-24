@@ -46,9 +46,19 @@ export interface SearchResponse {
 // bloque `listings` (Ráfaga 3) para pasar un revalidate corto propio sin
 // afectar a los demás llamadores (home, /busqueda, /[categoria]), que no lo
 // pasan y siguen con el comportamiento de caché por defecto de esa página.
+//
+// `headers`: ESTADÍSTICAS A1 — la identidad del visitante que el BFF reenvía a Nest
+// para el dedup de impresiones (ver `lib/visitor.ts`). Sólo la pasan las superficies
+// que sirven RESULTADOS DE BÚSQUEDA (`/busqueda`, `/[categoria]`); los bloques
+// curados de portada y blog no la pasan a propósito — no son resultados de una
+// búsqueda de nadie, y además van por caché de fetch, así que casi nunca llegan al
+// backend. Ver docs/diseno-estadisticas.md §2.1.
 export function search(
   params: SearchParams,
-  fetchOptions?: { next?: { revalidate?: number; tags?: string[] } },
+  fetchOptions?: {
+    next?: { revalidate?: number; tags?: string[] };
+    headers?: Record<string, string>;
+  },
 ): Promise<SearchResponse> {
   const query = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
