@@ -245,6 +245,13 @@ un camino, y a la vez el registro que habilita valorar.
   **Respuesta de forma variable según el plan**, no un 403 en la parte Pro: todo dueño
   recibe `{ viewCount, favoritesCount }`; si es Pro, además `dailyViews`,
   `dailyImpressions` («veces listado», A2), `impressionCount`, `likeRatio` y `ctr`.
+  - **Los DOS ratios llevan el mismo tratamiento de muestra pequeña**, y por tanto la
+    misma forma: `ctr` y `likeRatio` son objetos con un `value` que puede ser `null`
+    («aún no hay muestra»), los dos conteos y el umbral. Nunca deben pintarse como
+    porcentaje sin comprobar `value`.
+  - **`likeRatio`** es `{ value, favorites, views, minViews }` — me gusta ÷ visitas, sobre
+    los TOTALES del anuncio. `minViews` es hoy **30**, mucho más bajo que el umbral del
+    CTR porque una visita exige un clic y una aparición no (ver `sample-threshold.ts`).
   - **`ctr`** es `{ value, views, impressions, minImpressions }`. `value: null` **no es un
     error**: significa que aún no hay apariciones suficientes (`minImpressions`, hoy 100)
     para que el porcentaje signifique algo — la interfaz debe decir cuántas faltan, nunca

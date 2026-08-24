@@ -15,6 +15,7 @@ import * as bcrypt from 'bcrypt';
 import * as request from 'supertest';
 import { createTestApp } from './helpers/create-app';
 import { cleanDb } from './helpers/db';
+import { LIKE_RATIO_MIN_VIEWS } from 'src/modules/listings/sample-threshold';
 
 describe('H8.C1 — tracking de vistas + stats (e2e)', () => {
   let app: INestApplication;
@@ -246,10 +247,43 @@ describe('H8.C1 — tracking de vistas + stats (e2e)', () => {
 
       expect(res.body.viewCount).toBe(1);
       expect(res.body.favoritesCount).toBe(1);
-      expect(res.body.likeRatio).toBe(1);
+      // ESTA ASERCIÓN DECÍA `toBe(1)`, es decir: FIJABA el defecto. Con una visita y un
+      // me gusta, el panel publicaba «un 100% de quienes lo ven lo guardan en favoritos»
+      // —la traducción literal de un único suceso— y este test se aseguraba de que
+      // siguiera haciéndolo. Ahora el ratio calla por debajo del mínimo de visitas y los
+      // conteos viajan igual, para poder decir cuántas faltan. Ver `sample-threshold.ts`.
+      expect(res.body.likeRatio.value).toBeNull();
+      expect(res.body.likeRatio.favorites).toBe(1);
+      expect(res.body.likeRatio.views).toBe(1);
+      expect(res.body.likeRatio.minViews).toBe(LIKE_RATIO_MIN_VIEWS);
       expect(Array.isArray(res.body.dailyViews)).toBe(true);
       expect(res.body.dailyViews).toHaveLength(1);
       expect(res.body.dailyViews[0].count).toBe(1);
+    });
+
+    it('con visitas suficientes SÍ se publica el ratio', async () => {
+      // La otra mitad de la barrera: el tratamiento de muestra pequeña no puede ser
+      // «no enseñarlo nunca». Cruzado el umbral, el número sale.
+      const { user: seller, token: sellerToken } = await createUser('stats-ratio-owner');
+      await makePro(seller.id);
+      const { token: visitorToken } = await createUser('stats-ratio-visitor');
+      const listing = await createActiveListing(seller.id, 'stats-ratio');
+
+      await request(app.getHttpServer())
+        .post(`/api/favorites/${listing.id}`)
+        .set('Authorization', `Bearer ${visitorToken}`)
+        .expect(200);
+      // Las visitas se ponen directamente: lo que se prueba es la LECTURA del ratio, y
+      // dar 40 visitas reales exigiría 40 visitantes distintos por el dedup de trackView.
+      await prisma.listing.update({ where: { id: listing.id }, data: { viewCount: 40 } });
+
+      const res = await request(app.getHttpServer())
+        .get(`/api/listings/mine/${listing.id}/stats`)
+        .set('Authorization', `Bearer ${sellerToken}`)
+        .expect(200);
+
+      expect(res.body.likeRatio.value).toBeCloseTo(1 / 40);
+      expect(res.body.likeRatio.views).toBe(40);
     });
 
     it('NO dueño → 403', async () => {

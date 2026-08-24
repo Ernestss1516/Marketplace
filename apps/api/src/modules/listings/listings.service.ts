@@ -53,6 +53,7 @@ import {
 } from './listing-summary';
 import { ListingDetectionsService } from '../moderation/detection/listing-detections.service';
 import { computeCtr } from './listing-ctr';
+import { LIKE_RATIO_MIN_VIEWS, ratioWithMinSample } from './sample-threshold';
 import { camposDeTelefono } from '../moderation/detection/phone-format';
 import { PreModerationService } from '../moderation/pre-moderation.service';
 import { ListingActivationService } from '../listing-activation/listing-activation.service';
@@ -1583,7 +1584,17 @@ export class ListingsService implements OnModuleInit {
       favoritesCount,
       dailyViews: dailyRows,
       dailyImpressions: dailyImpressionRows,
-      likeRatio: listing.viewCount > 0 ? favoritesCount / listing.viewCount : 0,
+      // MISMA FORMA QUE `ctr`, y por el mismo motivo: era un porcentaje rotundo sobre una
+      // muestra que podía ser de UNA visita («un 100% de quienes lo ven lo guardan»). El
+      // cociente no estaba mal calculado; lo que estaba mal era publicarlo sin mirar el
+      // tamaño de la muestra. Ver `sample-threshold.ts`, que es donde vive la regla
+      // —compartida con el CTR— y donde se justifica por qué el umbral es 30 y no 100.
+      likeRatio: {
+        value: ratioWithMinSample(favoritesCount, listing.viewCount, LIKE_RATIO_MIN_VIEWS),
+        favorites: favoritesCount,
+        views: listing.viewCount,
+        minViews: LIKE_RATIO_MIN_VIEWS,
+      },
       // NO es `viewCount / impressionCount`: los dos totales miden ventanas distintas y
       // ese cociente da cifras absurdas durante meses. Ver `listing-ctr.ts`, que además
       // decide cuándo el número es publicable y cuándo es ruido.

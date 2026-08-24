@@ -15748,10 +15748,59 @@ conviene tenerla presente: un vendedor que busca mucho en su propia categoría *
 denominador sin tocar el numerador**, así que su CTR sale sesgado a la baja. El umbral de
 100 y la redacción («de las veces que apareces») lo amortiguan, no lo eliminan.
 
-**Deuda gemela, no tocada por estar fuera del encargo:** `likeRatio`
-(`favoritesCount / viewCount`) tiene EXACTAMENTE el mismo defecto de muestra pequeña y se
-pinta sin umbral en el mismo panel — «un 100% de quienes lo ven lo guardan» sobre una sola
-visita. Aplicarle el tratamiento de `CtrLine` es una línea; queda propuesto, no hecho.
+**Deuda gemela, CERRADA en el fleco siguiente** (ver la sección de abajo): `likeRatio`
+tenía exactamente el mismo defecto de muestra pequeña, sin umbral y en el mismo panel.
+
+---
+
+## Fleco — el ratio de me gusta, con el tratamiento de muestra pequeña
+
+Cierra la incoherencia que dejó A2: el CTR ya sabía callarse con pocas apariciones, y tres
+centímetros más arriba, **en el mismo panel**, el ratio de me gusta seguía afirmando «un
+100% de quienes lo ven lo guardan en favoritos» sobre una sola visita. No era un fallo de
+cálculo —el cociente era 1— sino de **publicación**: el porcentaje era la traducción de un
+único suceso y se leía como una propiedad del anuncio.
+
+**Un solo tratamiento, dos usos.** La regla sale a `sample-threshold.ts`
+(`ratioWithMinSample`), que usan `computeCtr` y el `likeRatio` del servicio; y el
+tratamiento visual sale de `CtrLine` a **`RatioLine`**, del que `CtrLine` y el nuevo
+`LikeRatioLine` son envoltorios delgados que solo aportan PALABRAS. Lo que ya no puede
+divergir: cuándo no hay porcentaje, cómo se formatea (`Intl` con un decimal — `Math.round`
+convertía un 0,4% real en «0 %») y que los conteos acompañen siempre al número. Lo que sí
+difiere, y por eso cada ratio conserva su envoltorio: «de cada tantas veces que apareces» y
+«de quienes lo ven» son frases distintas, y unificarlas habría dado una redacción genérica
+peor que las dos.
+
+**El umbral: 30 visitas, y NO 100 como el CTR.** Los dos denominadores no son magnitudes
+comparables: una aparición es barata —cada página de resultados reparte hasta 24— mientras
+que una visita exige un clic. Con un CTR de pocos puntos, 100 visitas equivalen a varios
+miles de apariciones, así que copiar el número habría escondido el ratio a casi todo el
+catálogo: otra forma de no informar. 30 sale del mismo criterio que el 100 del CTR —el punto
+donde el ratio deja de ser el eco de un único suceso—: con 30 visitas un «me gusta» más
+mueve el resultado ~3,3 puntos; con 10, lo mueve 10; con 1, lo mueve de 0% a 100%, que es
+justo el número que se estaba publicando. Es un umbral de **decencia, no de precisión**.
+
+**Cambio de contrato, deliberado:** `likeRatio` pasa de `number` a
+`{ value, favorites, views, minViews }` — la misma forma que `ctr`, con sus nombres de
+dominio. `value: null` significa «aún no hay visitas suficientes», no cero. Al ser un
+objeto, no se puede formatear como porcentaje por descuido.
+
+**Presentación:** los dos ratios pasan a vivir juntos en la tarjeta «Qué te dicen estos
+números», debajo de la gráfica. El de me gusta estaba suelto encima de ella.
+
+**Lo que más dice de este fleco:** la aserción `expect(res.body.likeRatio).toBe(1)` de
+`h8-c1-listing-stats.e2e-spec.ts:249` **fijaba el defecto** — un test del repo se aseguraba
+de que el panel siguiera publicando el 100% sobre una visita. Ahora comprueba que calla, y
+tiene al lado el caso contrario (cruzado el umbral, el número sale), porque «tratar la
+muestra pequeña» no puede degenerar en «no enseñarlo nunca».
+
+**Tests.** `sample-threshold.spec.ts` (8, incluidos dos que comparan los DOS umbrales entre
+sí) · `LikeRatioLine.test.tsx` (5, uno de ellos comprueba que las dos redacciones comparten
+las frases del caso «sin muestra» y solo cambian el sustantivo y el número) ·
+`h8-c1-listing-stats.e2e-spec.ts` actualizado.
+
+Mutación comprobada: `ratioWithMinSample` ignorando el umbral → caen 2 unitarios y la e2e
+falla con `Received: 1`, que es literalmente el «100%» de vuelta.
 
 ---
 

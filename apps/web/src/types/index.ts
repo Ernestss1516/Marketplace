@@ -388,6 +388,21 @@ export interface ListingCtr {
   minImpressions: number;
 }
 
+/**
+ * El ratio de me gusta, con LA MISMA forma que `ListingCtr` y por la misma razón: era un
+ * porcentaje rotundo sobre una muestra que podía ser de una sola visita. `value: null`
+ * significa «aún no hay visitas suficientes», no cero.
+ *
+ * A diferencia del CTR, sus dos números son los TOTALES del anuncio (los me gusta también
+ * son de toda su vida), no los de una ventana.
+ */
+export interface ListingLikeRatio {
+  value: number | null;
+  favorites: number;
+  views: number;
+  minViews: number;
+}
+
 /** GET /listings/mine/:id/stats — enriquecido con dailyViews/likeRatio solo si el dueño es Pro. */
 export interface ListingStats {
   viewCount: number;
@@ -397,7 +412,7 @@ export interface ListingStats {
   dailyViews?: { date: string; count: number }[];
   /** A2 — la serie diaria de «veces listado». Solo Pro. */
   dailyImpressions?: { date: string; count: number }[];
-  likeRatio?: number;
+  likeRatio?: ListingLikeRatio;
   /** A2 — solo Pro. */
   ctr?: ListingCtr;
 }

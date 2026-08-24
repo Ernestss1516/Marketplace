@@ -27,21 +27,13 @@
  * apariciones faltan, en vez de enseñar un porcentaje rotundo.
  */
 
-/**
- * EL UMBRAL. 100 apariciones.
- *
- * No es redondo por casualidad, pero tampoco es un número mágico: es donde el porcentaje
- * **deja de ser absurdo**, no donde se vuelve preciso. Con 100 apariciones y un CTR
- * observado del 5%, el intervalo de confianza del 95% (Wilson) va de ~1,2% a ~10,3%:
- * sigue siendo ancho, pero el número ya no salta de 0% a 33% con cada búsqueda que pasa,
- * que es lo que ocurre por debajo de la veintena.
- *
- * Y es alcanzable: una sola página de resultados sirve hasta 24 apariciones, así que un
- * anuncio en una categoría con tráfico cruza las 100 en cuestión de horas. Cuando NO las
- * cruza, la ausencia del dato también informa: ese anuncio no está saliendo en las
- * búsquedas de nadie.
- */
-export const CTR_MIN_IMPRESSIONS = 100;
+// EL UMBRAL y la regla de publicación viven en `sample-threshold.ts`, junto al del ratio
+// de me gusta: son la MISMA decisión de negocio aplicada a dos cocientes, y tenerlos
+// juntos es lo que permite comparar los dos números y razonar por qué no son iguales.
+// Se re-exporta porque este módulo es la puerta natural de todo lo relativo al CTR.
+import { CTR_MIN_IMPRESSIONS, ratioWithMinSample } from './sample-threshold';
+
+export { CTR_MIN_IMPRESSIONS };
 
 export interface DailyPoint {
   date: Date;
@@ -93,7 +85,8 @@ export function computeCtr(
 
   return {
     ...base,
-    value: impressions >= CTR_MIN_IMPRESSIONS ? views / impressions : null,
+    // La regla de «¿esto se puede publicar?» es compartida con el ratio de me gusta.
+    value: ratioWithMinSample(views, impressions, CTR_MIN_IMPRESSIONS),
     views,
     impressions,
   };
