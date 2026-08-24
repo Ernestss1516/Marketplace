@@ -411,6 +411,8 @@ describe('H8.2 — GET /billing/pro-status (cuota mensual de destacados Pro)', (
       const quotaListing = await createActiveListing(user.id, 'unify-quota');
 
       const jobsBefore = await indexingQueue.getJobs(['waiting', 'active', 'completed', 'delayed']);
+      // Los IDs, no el NÚMERO. Ver la aserción de abajo.
+      const idsBefore = new Set(jobsBefore.map((j) => j.id));
 
       await destacar(token, quotaListing.id, { useQuota: true }).expect(201);
 
@@ -424,7 +426,20 @@ describe('H8.2 — GET /billing/pro-status (cuota mensual de destacados Pro)', (
       );
       const jobsAfterQuota = await indexingQueue.getJobs(['waiting', 'active', 'completed', 'delayed']);
       expect(jobsAfterQuota.some((j) => j.data?.listingId === quotaListing.id)).toBe(true);
-      expect(jobsAfterQuota.length).toBeGreaterThan(jobsBefore.length);
+      // «HA APARECIDO UN JOB NUEVO», por IDENTIDAD y no por conteo.
+      //
+      // Esto decía `jobsAfterQuota.length > jobsBefore.length`, y era una CARRERA: los
+      // jobs llevan `removeOnComplete: true` (queue.constants.ts), así que el worker puede
+      // completar y BORRAR uno de los viejos entre las dos lecturas. Cuando eso pasa, el
+      // total se queda igual aunque el job nuevo esté ahí —y el fallo era desconcertante:
+      // «esperaba > 1, recibido 1» con la aserción de la línea anterior en verde.
+      //
+      // Cazado en CI el 2026-08-25 (rama de los flecos del vídeo, que no toca ni la cola
+      // ni la facturación: lo único que hizo fue añadir una suite y correr el reloj).
+      // El conteo nunca fue lo que se quería afirmar: la rama de créditos, doce líneas más
+      // abajo, ni siquiera lo comprueba. Comparar IDs dice lo mismo sin depender de
+      // cuántos sobrevivan.
+      expect(jobsAfterQuota.some((j) => !idsBefore.has(j.id))).toBe(true);
 
       // ── Rama créditos ───────────────────────────────────────────────────────
       grantSpy.mockClear();

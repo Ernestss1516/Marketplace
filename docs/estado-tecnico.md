@@ -16068,6 +16068,35 @@ Mutación comprobada: servir `videoUrl` en la lista en vez de borrarlo → la UR
 payload y cae el requisito de oro. Las otras dos («montar `<video>` en el listado», «el aviso
 sin el gate») están cubiertas por los tests del componente.
 
+**Nota de proceso — un rojo de CI que NO era de esta rama, y la carrera que escondía.**
+
+El primer CI de estos flecos salió rojo en `h8-featured-quota.e2e-spec.ts:427`, un conteo de
+jobs de BullMQ que no toca nada del vídeo. **No se aceptó como «preexistente» sin causa
+raíz** (misma lección que la nota de proceso de H8.C2), y la causa apareció entera:
+
+```ts
+const jobsBefore  = await indexingQueue.getJobs([...'completed'...]);
+await destacar(...);                       // encola el reindexado
+const jobsAfterQuota = await indexingQueue.getJobs([...]);
+expect(jobsAfterQuota.some((j) => j.data?.listingId === quotaListing.id)).toBe(true);  // ✅
+expect(jobsAfterQuota.length).toBeGreaterThan(jobsBefore.length);                      // ❌ 1 > 1
+```
+
+Los jobs llevan **`removeOnComplete: true`** (`queue.constants.ts:45`), así que el worker
+puede **completar y BORRAR** uno de los viejos entre las dos lecturas: el total se queda
+igual aunque el job nuevo esté ahí. De ahí el fallo desconcertante —«esperaba > 1, recibido
+1»— con la aserción de la línea anterior **en verde**, que es justamente la que demuestra lo
+que el test dice demostrar.
+
+El conteo nunca fue lo que se quería afirmar: **la rama de créditos, doce líneas más abajo,
+ni siquiera lo comprueba**. Se sustituye por identidad —«hay un job cuyo id no estaba
+antes»—, que dice lo mismo sin depender de cuántos sobrevivan. Comprobado que la aserción
+nueva sigue mordiendo: quitando el `indexingQueue.add` de la rama de cuota
+(`billing.service.ts:494`), el test cae.
+
+Esta rama no lo causó: lo **destapó**. Añadir una suite corre el reloj y cambia cuándo el
+worker despacha lo que tiene pendiente. La carrera llevaba ahí desde que se escribió.
+
 ---
 
 ## 4. Documentación de la API y el diseño
