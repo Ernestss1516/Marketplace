@@ -7,6 +7,7 @@ import { Eye, Heart, Search, TrendingUp } from 'lucide-react';
 import { ProGate } from '@/components/pro/ProGate';
 import { StatsChart, STATS_COLORS } from '@/components/stats/StatsChart';
 import { CtrLine } from '@/components/stats/CtrLine';
+import { LikeRatioLine } from '@/components/stats/LikeRatioLine';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import {
   Select,
@@ -111,13 +112,6 @@ export function EstadisticasClient({ listings, proStatus, token }: Props) {
 
       {proStatus.isPro ? (
         <>
-          {stats?.likeRatio !== undefined && (
-            <p className="text-sm text-muted-foreground" data-testid="stats-like-ratio">
-              Un <strong>{Math.round(stats.likeRatio * 100)}%</strong> de quienes lo ven lo guardan
-              en favoritos.
-            </p>
-          )}
-
           <StatsChart
             testId="stats-chart"
             title="Visitas y veces listado, por día"
@@ -151,8 +145,14 @@ export function EstadisticasClient({ listings, proStatus, token }: Props) {
                 alguien ha entrado a verlo.
               </CardDescription>
             </CardHeader>
+            {/* LOS DOS RATIOS, JUNTOS Y CON EL MISMO CRITERIO. El de me gusta vivía suelto
+                encima de la gráfica y afirmaba «un 100% de quienes lo ven lo guardan» sobre
+                una sola visita, a tres centímetros de un CTR que ya sabía callarse. Aquí
+                los dos dicen lo mismo cuando no tienen muestra, porque comparten el
+                tratamiento (`RatioLine`) — no porque alguien los haya escrito parecido. */}
             <CardContent className="space-y-1 text-sm">
               <CtrLine ctr={stats?.ctr} />
+              <LikeRatioLine likeRatio={stats?.likeRatio} />
             </CardContent>
           </Card>
 
