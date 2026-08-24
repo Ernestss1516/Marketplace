@@ -15804,6 +15804,111 @@ falla con `Received: 1`, que es literalmente el «100%» de vuelta.
 
 ---
 
+## Estadísticas B1 — el backoffice: la sección, el anuncio y el usuario
+
+El staff lee la telemetría que A capturó. **Sin una sola escritura nueva**: no hay tabla
+propia, ni contador, ni caché — `AdminStatsService` sólo consulta `ListingViewDaily` y
+`ListingImpressionDaily`, las mismas dos tablas que llenan `trackView` (H8.C1) y el volcado
+de impresiones (A1), y las mismas que sirve el panel del vendedor Pro (A2). Una captura,
+dos audiencias.
+
+**La sección.** Fila nueva en `backoffice-sections.ts`: `/admin/estadisticas`, grupo
+«Plataforma», piso **MODERATOR**. Es la primera fila MODERATOR de un grupo cuyas otras tres
+son ADMIN, y no es una anomalía: el criterio de los grupos es la TAREA y está escrito en el
+propio fichero («que "Plataforma" coincida con las tres secciones ADMIN es consecuencia, no
+criterio»). Sin la fila, `canAccessAdminPath` —fail-closed— deja la ruta inaccesible **para
+todos, incluido ADMIN**; y el test inverso exige que toda fila tenga página en disco. Las
+dos direcciones están cubiertas, y las dos caen si se quita una de las dos mitades.
+
+La página de la sección es, de momento, un índice: lleva a donde vive hoy la actividad
+(ficha de anuncio y ficha de usuario) y dice que el monitoreo por categoría y el pulso de
+plataforma llegan en B2. **Deliberadamente sin cifras inventadas**: rellenar el hueco con
+datos a medias habría sido peor que señalar dónde está cada cosa.
+
+**El controlador.** `AdminStatsController`, montado en `admin/stats`, `@MinRole(MODERATOR)`
+a nivel de clase. **Nuevo y no un `@Get` más en `AdminController`**, por una razón de
+acceso: `GET /admin/stats` (el dashboard) es **EDITOR** por un override razonado, y colgar
+de ahí la telemetría dejaba dos salidas y las dos malas — abrirla a EDITOR, o devolver una
+respuesta de forma variable según el rol, que `diseno-roles.md` §4.5 (D-2) ya rechazó. Son
+además cosas distintas: el dashboard mide INVENTARIO y esto mide TRÁFICO. No colisiona con
+la ruta existente (`admin/stats` exacta vs `admin/stats/listings/:id`), y empieza a pagar la
+deuda de partir el controlador de 22 rutas **sin mover ninguna**.
+`admin-controllers.contract.spec.ts` lo descubre del disco y le exige `RolesGuard` + piso de
+clase sin tocar el test.
+
+**La ventana es un enum cerrado (7/30/90)**, no un rango libre: cada valor es una agregación
+distinta, y un número abierto convierte un endpoint de lectura en «pídeme 3.650 días sobre
+todos los anuncios de un vendedor». El techo de 90 encaja con la retención de 180 días.
+
+**Las agregaciones son consultas, no tablas.** «La actividad de un usuario» es un
+`GROUP BY date` sobre las mismas filas diarias filtradas por `listing.sellerId`. No hay
+`UserActivityDaily` y no la habrá: una tabla de agregado por eje sería una segunda fuente de
+verdad capaz de desviarse, y habría que mantener una por cada eje (usuario, categoría,
+plataforma).
+
+### El coste, medido
+
+Dataset sintético en `marketplace_test`: **5.000 anuncios de 50 vendedores × 90 días =
+450.000 filas** en cada tabla diaria; el vendedor consultado tiene 100 anuncios.
+
+| Consulta | Plan elegido | Tiempo |
+|---|---|---|
+| Vendedor, ventana **90 días** | Parallel Seq Scan + Hash Join | **21,9 ms** |
+| La misma, forzando índice (`enable_seqscan=off`) | Nested Loop + índice por `listingId` | **3,0 ms** |
+| Vendedor, ventana **7 días** | Nested Loop + `(listingId, date)` **por decisión del planificador** | **1,3 ms** |
+| Ídem sobre impresiones | Nested Loop + `(listingId, date)` | **0,7 ms** |
+
+**No hace falta ningún índice nuevo, y esto no es una suposición.** El índice correcto —el
+único compuesto `(listingId, date)`, que existe en las dos tablas desde su creación— **lo
+elige el planificador solo** en cuanto el filtro de fecha tiene alguna selectividad (fila 3).
+En la ventana de 90 días prefiere el seq scan porque en este dataset sintético el 100 % de
+las filas cae dentro de la ventana, así que la fecha no descarta nada; y a 450.000 filas
+recorrer la tabla entera le sale barato. Es una decisión de coste a tamaño pequeño, no un
+índice que falte: al crecer la tabla, el coste del seq scan sube linealmente mientras el del
+plan por índice se queda donde está.
+
+El peor caso medido —21,9 ms— es una pantalla de backoffice que abren unas pocas personas.
+Y está **acotado por la purga de 180 días**: con 20.000 anuncios activos, la tabla no pasa
+de ~3,6 M de filas (8× la medida), lo que deja el peor caso en el orden de las décimas de
+segundo aun con el plan malo.
+
+### Lo que se reusa, y lo que no se duplicó
+
+La gráfica es `StatsChart` y los ratios son `CtrLine`/`LikeRatioLine` — **los mismos
+componentes que ve el vendedor Pro**, que es exactamente para lo que A2 los extrajo.
+`ActivityPanel` los compone y añade lo único que el backoffice necesita y el vendedor no: el
+selector de ventana. `useActividad` centraliza el ciclo (ventana, carga, error, descarte de
+la respuesta obsoleta al pulsar 7 → 30 → 90 rápido) para las dos fichas, y B2 lo hereda.
+
+**Y no hay gate Pro**: el vendedor paga por su gráfica, el staff no. Aquí gobierna el piso de
+rol. Pero **sí hay el mismo tratamiento de muestra pequeña**: un «100 %» sobre tres
+apariciones engaña igual a quien modera, y aquí encima se usa para decidir sobre anuncios
+ajenos.
+
+**Dónde aterriza cada cosa.** En `/admin/anuncios/[id]`, dentro de la «Actividad» que ya
+existía —los cuatro datos sueltos se quedan, ganan «Veces listado» y debajo va la serie que
+les faltaba («días con vistas» era su sustituto pobre)—. En `/admin/usuarios/[id]`, una
+sección «Actividad» **nueva**: esa ficha tenía anuncios, valoraciones, reportes y tickets,
+todo inventario y relación, ni una cifra de tráfico. Va la primera, con los totales, la serie
+agregada y sus anuncios más visto y más listado enlazados a la ficha del anuncio.
+
+**Tests.** `estadisticas-b1-backoffice.e2e-spec.ts` (17: la matriz de roles completa, las
+dos series, los ratios, la ventana, los 404 y el usuario sin anuncios) ·
+`backoffice-sections.test.ts` actualizado (23 secciones: 7/20/23) · `admin-roles.spec.ts` y
+`nav-backoffice.spec.ts` con los conteos nuevos, «Estadísticas» en la lista del MODERATOR,
+la ruta en `BLOCKED_PATHS` del EDITOR y una carga positiva para MODERATOR.
+
+Mutaciones comprobadas, rojas: quitar la fila del mapa → 5 tests, entre ellos
+«/admin/estadisticas tiene una sección declarada»; bajar el controlador a EDITOR → cae
+«EDITOR NO entra, aunque SÍ pueda ver el dashboard».
+
+**Desviación anotada respecto al diseño (§3.1).** El diseño decía que la serie llegaría
+FUSIONADA desde el backend. Se sirve **por separado** (`dailyViews` / `dailyImpressions`)
+porque `StatsChart` —que ya existe desde A2— fusiona internamente: devolverla fusionada
+obligaría a cada consumidor a partirla otra vez para poder pintarla. B2 seguirá esta forma.
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.

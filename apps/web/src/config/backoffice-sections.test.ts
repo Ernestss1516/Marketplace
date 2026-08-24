@@ -45,7 +45,7 @@ import { ROLE_ORDER } from './roles';
 // eso es exactamente lo que se quiere de un cambio de política de acceso.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** id → piso mínimo acordado. 22 secciones: 7 EDITOR, 12 MODERATOR, 3 ADMIN. */
+/** id → piso mínimo acordado. 23 secciones: 7 EDITOR, 13 MODERATOR, 3 ADMIN. */
 const REPARTO_ESPERADO: Record<string, 'EDITOR' | 'MODERATOR' | 'ADMIN'> = {
   // EDITOR — contenido y presentación del sitio público (7 en total)
   dashboard: 'EDITOR',
@@ -55,7 +55,12 @@ const REPARTO_ESPERADO: Record<string, 'EDITOR' | 'MODERATOR' | 'ADMIN'> = {
   footer: 'EDITOR',
   nav: 'EDITOR',
   banners: 'EDITOR',
-  // MODERATOR — el trabajo de moderar y el catálogo (12 propias, 19 acumuladas)
+  // MODERATOR — el trabajo de moderar y el catálogo (13 propias, 20 acumuladas)
+  // ESTADÍSTICAS B1 — vive en el grupo «Plataforma» (donde están las tres ADMIN) pero su
+  // PISO es MODERATOR: el grupo se decide por tarea y el piso por quién debe entrar. El
+  // encargo pedía «moderadores y administradores», y encaja con que `/admin/anuncios` y
+  // `/admin/usuarios` —las dos pantallas donde aterrizan estos datos— ya sean MODERATOR.
+  estadisticas: 'MODERATOR',
   anuncios: 'MODERATOR',
   'cola-revision': 'MODERATOR',
   usuarios: 'MODERATOR',
@@ -68,7 +73,7 @@ const REPARTO_ESPERADO: Record<string, 'EDITOR' | 'MODERATOR' | 'ADMIN'> = {
   patrocinados: 'MODERATOR',
   'mensajes-contacto': 'MODERATOR',
   'motivos-contacto': 'MODERATOR',
-  // ADMIN — el dinero y la configuración de plataforma (3 propias, 22 acumuladas)
+  // ADMIN — el dinero y la configuración de plataforma (3 propias, 23 acumuladas)
   facturacion: 'ADMIN',
   facturas: 'ADMIN',
   ajustes: 'ADMIN',
@@ -85,10 +90,10 @@ function seccionesEsperadas(role: 'EDITOR' | 'MODERATOR' | 'ADMIN'): string[] {
 }
 
 describe('EL REPARTO — cada rol ve exactamente lo suyo', () => {
-  it('el mapa declara el piso acordado para las 22 secciones, una por una', () => {
+  it('el mapa declara el piso acordado para las 23 secciones, una por una', () => {
     const real = Object.fromEntries(BACKOFFICE_SECTIONS.map((s) => [s.id, s.minRole]));
     expect(real).toEqual(REPARTO_ESPERADO);
-    expect(BACKOFFICE_SECTIONS).toHaveLength(22);
+    expect(BACKOFFICE_SECTIONS).toHaveLength(23);
   });
 
   it.each(ROLES_STAFF.map((r) => [r]))(
@@ -98,12 +103,14 @@ describe('EL REPARTO — cada rol ve exactamente lo suyo', () => {
     },
   );
 
-  it('las cuentas resultantes son EDITOR 7 / MODERATOR 19 / ADMIN 22', () => {
+  it('las cuentas resultantes son EDITOR 7 / MODERATOR 20 / ADMIN 23', () => {
     // Son las que pinzan los tres e2e de admin-roles.spec.ts. Antes de esta ráfaga
     // eran 2 / 7 / 21; el cambio es el objeto de la ráfaga, no un efecto lateral.
+    // ESTADÍSTICAS B1 suma UNA a MODERATOR y ADMIN (19→20, 22→23) y ninguna a EDITOR:
+    // la telemetría no baja al piso del dashboard (ver `AdminStatsController`).
     expect(navSectionsFor('EDITOR')).toHaveLength(7);
-    expect(navSectionsFor('MODERATOR')).toHaveLength(19);
-    expect(navSectionsFor('ADMIN')).toHaveLength(22);
+    expect(navSectionsFor('MODERATOR')).toHaveLength(20);
+    expect(navSectionsFor('ADMIN')).toHaveLength(23);
   });
 
   it('USER sigue sin acceso a NADA del backoffice', () => {

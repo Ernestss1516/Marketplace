@@ -33,6 +33,9 @@ import { BloqueDinero } from './_components/BloqueDinero';
 import { ValoracionFila } from '@/components/admin/ValoracionFila';
 import { AccionesValoracion } from '@/components/admin/AccionesValoracion';
 import { DatoIp } from '@/components/admin/DatoIp';
+import { ActivityPanel } from '@/components/stats/ActivityPanel';
+import { useActividad } from '@/components/stats/useActividad';
+import { getActividadUsuario } from '@/lib/api/admin-stats';
 // TRADUCCIONES — los cinco campos de esta ficha que pintaban el enum crudo. Sus
 // propios `ESTADO_LABELS` y `ROL_LABELS` estaban aquí inline y han subido a
 // `../../etiquetas` SIN cambiar de texto: lo que gana la ficha es alcanzar el resto
@@ -113,6 +116,18 @@ export default function AdminFichaUsuarioPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // ESTADÍSTICAS B1 — la actividad del CONJUNTO de sus anuncios. Petición propia, igual
+  // que en la ficha de anuncio: el selector de ventana no debe recargar la ficha entera.
+  // NO es ADMIN-only como el bloque de dinero: la telemetría es MODERATOR, el mismo piso
+  // que la sección desde la que se llega.
+  const {
+    actividad,
+    days,
+    setDays,
+    loading: cargandoActividad,
+    error: errorActividad,
+  } = useActividad((rango, tk) => getActividadUsuario(params.id, rango, tk), token);
+
   const cargar = useCallback(async () => {
     if (!token) return;
     setLoading(true);
@@ -191,6 +206,73 @@ export default function AdminFichaUsuarioPage() {
 
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
+          {/* ESTADÍSTICAS B1 — SECCIÓN NUEVA. Esta ficha tenía anuncios, valoraciones,
+              reportes y tickets: todo contadores de inventario y de relación, ni una sola
+              cifra de TRÁFICO. «Monitorear el conjunto de anuncios» de alguien empieza
+              por poder verlo, y va lo primero porque es la pregunta con la que el staff
+              abre esta pantalla.
+
+              Los totales son de TODOS sus anuncios, en cualquier estado — no sólo los
+              ACTIVE: un anuncio archivado que acumuló 40.000 visitas la semana pasada es
+              exactamente lo que se está buscando. */}
+          <Seccion titulo="Actividad" testId="usuario-actividad">
+            <ActivityPanel
+              testId="actividad-usuario"
+              actividad={actividad}
+              days={days}
+              onDaysChange={setDays}
+              loading={cargandoActividad}
+              error={errorActividad}
+            >
+              {actividad && (
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                  <span>
+                    <strong>{actividad.viewCount.toLocaleString('es-ES')}</strong> visitas
+                  </span>
+                  <span>
+                    <strong>{actividad.impressionCount.toLocaleString('es-ES')}</strong> veces
+                    listado
+                  </span>
+                  <span className="text-muted-foreground">
+                    en {actividad.listingCount}{' '}
+                    {actividad.listingCount === 1 ? 'anuncio' : 'anuncios'}
+                  </span>
+                </div>
+              )}
+            </ActivityPanel>
+
+            {/* Enlaces a la ficha del anuncio (B.1): lo que convierte esta pantalla en un
+                punto de partida y no en un callejón. */}
+            {actividad && (actividad.mostViewed || actividad.mostListed) && (
+              <div className="mt-3 space-y-1 text-sm">
+                {actividad.mostViewed && (
+                  <div className="flex justify-between gap-4">
+                    <span className="text-muted-foreground">Su anuncio más visto</span>
+                    <Link
+                      href={`/admin/anuncios/${actividad.mostViewed.id}`}
+                      className="line-clamp-1 text-right font-medium hover:underline"
+                      data-testid="usuario-mas-visto"
+                    >
+                      {actividad.mostViewed.title} ({actividad.mostViewed.viewCount})
+                    </Link>
+                  </div>
+                )}
+                {actividad.mostListed && (
+                  <div className="flex justify-between gap-4">
+                    <span className="text-muted-foreground">Su anuncio más listado</span>
+                    <Link
+                      href={`/admin/anuncios/${actividad.mostListed.id}`}
+                      className="line-clamp-1 text-right font-medium hover:underline"
+                      data-testid="usuario-mas-listado"
+                    >
+                      {actividad.mostListed.title} ({actividad.mostListed.impressionCount})
+                    </Link>
+                  </div>
+                )}
+              </div>
+            )}
+          </Seccion>
+
           <Seccion titulo="Anuncios" contador={data._count.listings} testId="usuario-anuncios">
             {data.listings.length === 0 ? (
               <Vacio>Sin anuncios.</Vacio>
