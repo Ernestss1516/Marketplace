@@ -19,6 +19,9 @@ import { JwtAuthGuard, OptionalJwtAuthGuard } from '../../common/guards';
 import { CurrentUser } from '../../common/decorators';
 import { JwtUser } from '../auth/auth.types';
 import { ListingsService } from './listings.service';
+// FUGA DE PRIVACIDAD — la lista blanca del dueño, aplicada a la SALIDA de las acciones del
+// ciclo de vida. Ver `gestionDeAnuncio()` más abajo y listing-summary.ts.
+import { toOwnerResponse } from './listing-summary';
 import { PhotoLimitsService } from '../listing-gate/photo-limits.service';
 import { ListingOwnerActivityService } from './listing-owner-activity.service';
 import { BillingService } from '../billing/billing.service';
@@ -61,6 +64,37 @@ export class ListingsController {
     return resultado;
   }
 
+  /**
+   * LO MISMO, PERO ADEMÁS APLICA LA LISTA BLANCA DEL DUEÑO A LA RESPUESTA.
+   *
+   * POR QUÉ EXISTE Y POR QUÉ ES UN SEGUNDO ENVOLTORIO Y NO UN AÑADIDO AL DE ARRIBA.
+   *
+   * Las nueve acciones del ciclo de vida (editar, publicar, reservar, pausar, reactivar,
+   * archivar, renovar, cerrar y deshacer un trato) devolvían al cliente la FILA CRUDA que
+   * acababan de escribir: con `phoneNormalized`, `lastOwnerIp`, `lastOwnerInteractionAt`,
+   * `triage` y `watched` dentro. La fuga de la ficha pública era la misma, en su versión
+   * grave; ésta es la versión de dueño, y `triage`/`watched` son el problema: son notas del
+   * EQUIPO sobre este anuncio, y quien las veía era justamente la persona sobre la que se
+   * han tomado.
+   *
+   * NO se estrecha el `select` de esas nueve operaciones: su lógica interna —la puerta de
+   * validación, la moderación previa, el reindexado— lee campos que el cliente no debe ver.
+   * Arreglar la salida no puede costar romper el motor, así que la lista blanca se aplica
+   * al SALIR (`toOwnerResponse`, que proyecta sobre las claves de `LISTING_OWNER_SELECT`).
+   *
+   * Y `bump` sigue usando `gestion()` a secas, que es la razón de que sean dos envoltorios:
+   * no devuelve un anuncio sino `{bumpedAt, paidWith, cost}`, y proyectarlo sobre las claves
+   * de un anuncio le habría comido `paidWith` y `cost`. Un único envoltorio que «sanea todo»
+   * habría roto esa respuesta en silencio.
+   */
+  private async gestionDeAnuncio<T extends object>(
+    listingId: string,
+    ip: string,
+    accion: Promise<T>,
+  ) {
+    return toOwnerResponse(await this.gestion(listingId, ip, accion));
+  }
+
   @Post()
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.CREATED)
@@ -68,7 +102,9 @@ export class ListingsController {
     // El id sale del resultado, así que éste no puede usar `gestion()`.
     const listing = await this.listingsService.create(user.userId, dto);
     await this.ownerActivity.touch(listing.id, ip);
-    return listing;
+    // La misma lista blanca que las nueve de abajo: un anuncio recién creado también nace
+    // con `triage`, `watched` y `phoneNormalized` puestos.
+    return toOwnerResponse(listing);
   }
 
   @Patch(':id')
@@ -79,21 +115,21 @@ export class ListingsController {
     @Body() dto: UpdateListingDto,
     @Ip() ip: string,
   ) {
-    return this.gestion(id, ip, this.listingsService.update(id, user.userId, dto));
+    return this.gestionDeAnuncio(id, ip, this.listingsService.update(id, user.userId, dto));
   }
 
   @Post(':id/publish')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   publish(@Param('id') id: string, @CurrentUser() user: JwtUser, @Ip() ip: string) {
-    return this.gestion(id, ip, this.listingsService.publish(id, user.userId));
+    return this.gestionDeAnuncio(id, ip, this.listingsService.publish(id, user.userId));
   }
 
   @Post(':id/reserve')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   reserve(@Param('id') id: string, @CurrentUser() user: JwtUser, @Ip() ip: string) {
-    return this.gestion(id, ip, this.listingsService.reserve(id, user.userId));
+    return this.gestionDeAnuncio(id, ip, this.listingsService.reserve(id, user.userId));
   }
 
   // ---------------------------------------------------------------------------
@@ -105,21 +141,21 @@ export class ListingsController {
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   pause(@Param('id') id: string, @CurrentUser() user: JwtUser, @Ip() ip: string) {
-    return this.gestion(id, ip, this.listingsService.pause(id, user.userId));
+    return this.gestionDeAnuncio(id, ip, this.listingsService.pause(id, user.userId));
   }
 
   @Post(':id/reactivate')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   reactivate(@Param('id') id: string, @CurrentUser() user: JwtUser, @Ip() ip: string) {
-    return this.gestion(id, ip, this.listingsService.reactivate(id, user.userId));
+    return this.gestionDeAnuncio(id, ip, this.listingsService.reactivate(id, user.userId));
   }
 
   @Post(':id/archive')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   archive(@Param('id') id: string, @CurrentUser() user: JwtUser, @Ip() ip: string) {
-    return this.gestion(id, ip, this.listingsService.archive(id, user.userId));
+    return this.gestionDeAnuncio(id, ip, this.listingsService.archive(id, user.userId));
   }
 
   // ---------------------------------------------------------------------------
@@ -136,7 +172,7 @@ export class ListingsController {
     @Body() dto: CloseDealDto,
     @Ip() ip: string,
   ) {
-    return this.gestion(id, ip, this.listingsService.closeDeal(id, user.userId, dto));
+    return this.gestionDeAnuncio(id, ip, this.listingsService.closeDeal(id, user.userId, dto));
   }
 
   @Get(':id/deals')
@@ -154,7 +190,7 @@ export class ListingsController {
     @CurrentUser() user: JwtUser,
     @Ip() ip: string,
   ) {
-    return this.gestion(id, ip, this.listingsService.undoDeal(id, dealId, user.userId));
+    return this.gestionDeAnuncio(id, ip, this.listingsService.undoDeal(id, dealId, user.userId));
   }
 
   // Contactos del anuncio — quick-pick del selector de comprador/cliente.
@@ -168,7 +204,7 @@ export class ListingsController {
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   renew(@Param('id') id: string, @CurrentUser() user: JwtUser, @Ip() ip: string) {
-    return this.gestion(id, ip, this.listingsService.renew(id, user.userId));
+    return this.gestionDeAnuncio(id, ip, this.listingsService.renew(id, user.userId));
   }
 
   /**

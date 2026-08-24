@@ -624,10 +624,11 @@ que se está prometiendo.
 
 Ordenada por **(daño real) ÷ (coste de cerrarlo)**. Cada uno con su ubicación.
 
-> **ANTES QUE TODO LO DE ESTA LISTA — privacidad.** El «Hallazgo colateral» (fuga de `phone`
-> por `GET /favorites`) está **cerrado**. El «Hallazgo NUEVO» que apareció al cerrarlo —la
-> ficha PÚBLICA sirviendo `phoneNormalized` y `lastOwnerIp`— **no lo está**, y es más grave
-> porque no pide autenticación. Los dos están al final de este documento.
+> **Privacidad: las dos fugas están CERRADAS** (24-08-2026). El «Hallazgo colateral» (`phone`
+> por `GET /favorites`) y el «Hallazgo NUEVO y MÁS GRAVE» (`phoneNormalized` y `lastOwnerIp`
+> por la ficha pública, sin sesión) se arreglaron por la raíz, en ese orden, antes de tocar
+> nada de Pro. Los dos están al final de este documento. **El siguiente en la lista es el
+> hueco #1: encender el vídeo.**
 
 ### Bloqueantes — el vídeo Pro hoy no existe para un cliente
 
@@ -701,9 +702,9 @@ teléfono.
 
 ---
 
-## Hallazgo NUEVO y MÁS GRAVE — la ficha PÚBLICA filtra el teléfono y la IP del vendedor
+## Hallazgo NUEVO y MÁS GRAVE — **CERRADO** (2026-08-24, rama `fix-fuga-ficha-publica`)
 
-**Sin arreglar. Descubierto al cerrar el anterior, y es peor: no requiere autenticación.**
+**Descubierto al cerrar el anterior, y era peor: no requería autenticación.**
 
 `GET /api/listings/:slug` usa `include: LISTING_INCLUDE` y sólo descarta dos campos
 (`const { phone, tags, ...publicListing } = listing`,
@@ -734,9 +735,26 @@ Por qué es más grave que el de favoritos:
   que arreglarlo exige invalidar (o esperar el TTL de 5 min).
 - `triage` y `watched` son **etiquetas internas de moderación** expuestas al denunciado.
 
-El arreglo es el mismo movimiento que acaba de hacerse en favoritos: `LISTING_INCLUDE` debería
-ser una **lista blanca** (`select`) en vez de un `include` con dos exclusiones. **Recomendación:
-hacerlo antes que encender el vídeo.**
+**Cómo se cerró.** El mismo movimiento que en favoritos, y la fuga era más ancha de lo que
+parecía: al medirla endpoint por endpoint resultó vivir en **siete** rutas, no en dos. Además
+de la ficha pública, las nueve acciones del ciclo de vida del dueño (editar, publicar,
+reservar, pausar, reactivar, archivar, renovar, cerrar y deshacer un trato) y `POST /listings`
+devolvían la fila cruda que acababan de escribir, con `triage` y `watched` dentro — notas del
+equipo servidas a la persona sobre la que se han tomado.
+
+`LISTING_INCLUDE` desaparece y lo sustituyen dos listas blancas en
+[`listing-summary.ts`](../apps/api/src/modules/listings/listing-summary.ts), junto a la de la
+tarjeta: `LISTING_PUBLIC_SELECT` (visitante) y `LISTING_OWNER_SELECT` (dueño: su teléfono sí,
+las notas del equipo no). Las acciones del ciclo de vida NO estrechan su `select` —su lógica
+interna lee campos que el cliente no debe ver— sino que aplican la lista blanca al SALIR, en
+un único envoltorio del controlador (`gestionDeAnuncio`). La caché de fichas se purga sola al
+arrancar (`ListingsService.onModuleInit`), así que un blob guardado con la forma vieja no
+sobrevive al despliegue.
+
+El barrido vive ahora en
+[`privacidad-payloads.e2e-spec.ts`](../apps/api/test/privacidad-payloads.e2e-spec.ts): la
+matriz entera de superficies × campos prohibidos, con asercion doble (por nombre y por valor)
+y un requisito de oro que recorre las seis puertas que sirven anuncios.
 
 ---
 
