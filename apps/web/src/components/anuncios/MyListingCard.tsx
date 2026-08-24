@@ -8,6 +8,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { formatListingPrice } from './listing-card-shared';
+import { VideoIndicator } from './VideoIndicator';
 import { PromocionarControl } from './owner/PromocionarControl';
 import { PromotionStatus } from './owner/PromotionStatus';
 import { OwnerActionsMenu } from './owner/OwnerActionsMenu';
@@ -98,6 +99,18 @@ export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) 
               Sin foto
             </div>
           )}
+          {/*
+            EL INDICADOR QUE LE FALTABA JUSTO A QUIEN MÁS LE IMPORTA. `hasVideo` llegaba en
+            el payload desde siempre (findMine → toSummary; el e2e lo comprueba contra
+            /users/me/listings), pero esta tarjeta no pasa por `CardPhotoCarousel` —pinta su
+            propia miniatura— así que era la única superficie donde el dato estaba y no se
+            usaba: un vendedor Pro no podía ver desde su panel a cuáles de sus anuncios les
+            había puesto vídeo. Mismo componente que el resto, sin URL y sin `<video>`.
+
+            `bottom-1 right-1` y no `bottom-2 right-2`: la miniatura aquí mide 96 px, no el
+            ancho de una tarjeta de parrilla.
+          */}
+          {listing.hasVideo && <VideoIndicator className="bottom-1 right-1" />}
         </div>
 
         {/* Info */}

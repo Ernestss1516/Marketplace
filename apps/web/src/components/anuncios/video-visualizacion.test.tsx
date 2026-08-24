@@ -9,6 +9,7 @@
 import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import { CardPhotoCarousel } from './CardPhotoCarousel';
 import { ListingGallery } from './ListingGallery';
+import { VideoIndicator } from './VideoIndicator';
 
 afterEach(cleanup);
 
@@ -45,6 +46,55 @@ describe('CardPhotoCarousel — el indicador de vídeo en las listas', () => {
     expect(screen.getByTestId('card-tiene-video').className).toContain('pointer-events-none');
   });
 });
+
+/**
+ * UN SOLO INDICADOR PARA LAS CUATRO SUPERFICIES.
+ *
+ * El `<span>` vivía escrito a mano dentro de `CardPhotoCarousel`, así que las superficies
+ * que NO pasan por ese carrusel —la tarjeta de «Mis anuncios» y las dos del mapa— no tenían
+ * indicador aunque recibían `hasVideo`. Copiarlo tres veces habría creado tres sitios donde
+ * el icono, el texto o el `data-testid` pueden separarse; se extrajo a `VideoIndicator`.
+ *
+ * Lo que estos casos fijan es lo que la extracción NO puede perder por el camino.
+ */
+describe('VideoIndicator — el indicador compartido', () => {
+  it('dice «Vídeo» y lleva el testid que las cuatro superficies comparten', () => {
+    render(<VideoIndicator />);
+    const indicador = screen.getByTestId('card-tiene-video');
+    expect(indicador).toHaveTextContent('Vídeo');
+    expect(indicador.className).toContain('pointer-events-none');
+  });
+
+  it('CERO BYTES: tampoco aquí se monta nada que descargue vídeo', () => {
+    // La garantía, comprobada en el componente y no sólo en sus llamantes: sea cual sea la
+    // superficie que lo use, esto no puede pedir un fichero porque no recibe ninguna
+    // dirección — su contrato entero son dos props de presentación.
+    const { container } = render(<VideoIndicator />);
+    expect(container.querySelector('video')).toBeNull();
+    expect(container.querySelector('source')).toBeNull();
+    expect(container.querySelector('img')).toBeNull();
+  });
+
+  it('en compacto pierde el texto pero NO el nombre accesible ni el testid', () => {
+    // La miniatura del mapa mide 56 px y la píldora con la palabra se saldría. Que el texto
+    // desaparezca no puede dejar el indicador mudo para un lector de pantalla.
+    render(<VideoIndicator compact />);
+    const indicador = screen.getByTestId('card-tiene-video');
+    expect(indicador).not.toHaveTextContent('Vídeo');
+    expect(indicador).toHaveAttribute('aria-label', 'Tiene vídeo');
+  });
+
+  it('la posición es del que lo coloca, la apariencia es suya', () => {
+    // Cada superficie tiene su miniatura y su tamaño, así que la posición se pasa; lo que
+    // NO se pasa —ni se puede cambiar desde fuera— es qué dice y cómo se identifica.
+    render(<VideoIndicator className="bottom-1 right-1" />);
+    expect(screen.getByTestId('card-tiene-video').className).toContain('bottom-1 right-1');
+  });
+});
+
+// La tarjeta de «Mis anuncios» necesita media docena de mocks (sesión, router, sonner, dos
+// clientes de API), así que su barrera vive aparte para no arrastrarlos a este fichero, que
+// prueba componentes puros: `mis-anuncios-indicador-video.test.tsx`.
 
 describe('ListingGallery — el reproductor de la ficha', () => {
   const propio = 'http://localhost:9000/marketplace';
