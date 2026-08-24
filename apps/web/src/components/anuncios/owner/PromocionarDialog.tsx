@@ -35,10 +35,12 @@ import {
   createFeaturedCheckout,
   bumpListing,
   type CatalogPrice,
+  type CatalogResponse,
   type ProStatus,
   type RedsysFormData,
 } from '@/lib/api/billing';
 import { RedsysRedirectForm } from '@/app/(account)/mis-creditos/_components/RedsysRedirectForm';
+import { ProHint } from '@/components/pro/ProGate';
 import { bumpCooldownTitle } from '@/lib/bump-cooldown';
 import { bumpCostLabel, resolveBumpOffer } from './promocion';
 import {
@@ -129,6 +131,8 @@ export function PromocionarDialog({
   const [featuredPrices, setFeaturedPrices] = useState<CatalogPrice[]>([]);
   const [walletBalance, setWalletBalance] = useState<number>(0);
   const [proStatus, setProStatus] = useState<ProStatus | null>(null);
+  // E-6 — la cuota configurada, para contarle a un no-Pro lo que se pierde con su cifra real.
+  const [cuotaDestacados, setCuotaDestacados] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<React.ReactNode | null>(null);
   const [busy, setBusy] = useState(false);
@@ -154,7 +158,9 @@ export function PromocionarDialog({
     setProducto(productoInicial);
 
     Promise.all([
-      getCatalog().catch(() => ({ products: [], bumpCreditCost: 5 })),
+      getCatalog().catch(
+        (): CatalogResponse => ({ products: [], bumpCreditCost: 5, proExtraBumpsPercent: 20 }),
+      ),
       getWallet(token).catch(() => null),
       getProStatus(token).catch(() => null),
     ]).then(([catalog, wallet, status]) => {
@@ -167,6 +173,7 @@ export function PromocionarDialog({
       setWalletBalance(wallet?.balance ?? 0);
       if (prices.length > 0) setSelectedPriceId(prices[0].priceId);
       setProStatus(status);
+      setCuotaDestacados(catalog.proMonthlyFeaturedQuota ?? 0);
       // Default to the free quota when eligible — never overrides a later manual choice,
       // this only runs once when the dialog's data finishes loading.
       setFeatureMethod(status?.isPro && status.remaining > 0 ? 'quota' : 'paid');
@@ -536,6 +543,25 @@ export function PromocionarDialog({
                         )}
 
                         <Separator className="mt-6" />
+                      </div>
+                    )}
+
+                    {/*
+                      E-6 — AQUÍ ES DONDE MÁS DUELE NO SABERLO. Un no-Pro abría este diálogo
+                      y veía SÓLO el precio: ninguna señal de que una suscripción Pro incluye
+                      varios destacados gratis al mes. La opción «Destacar gratis» de arriba
+                      sólo existe si ya hay cuota, así que el beneficio estaba invisible justo
+                      para quien hay que convencer.
+
+                      «SUSCRIBIÉNDOTE» y no «con Pro»: la cuota cuelga del ciclo de
+                      facturación, y un Pro concedido por el equipo no la tiene (D-1).
+                    */}
+                    {!canUseQuota && !proStatus?.isPro && cuotaDestacados > 0 && (
+                      <div className="rounded-md border border-dashed p-3">
+                        <ProHint testId="promocionar-quota-upsell">
+                          Suscribiéndote a Pro tendrías {cuotaDestacados} destacado
+                          {cuotaDestacados === 1 ? '' : 's'} gratis cada mes.
+                        </ProHint>
                       </div>
                     )}
 

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Eye, Heart, Lock, TrendingUp } from 'lucide-react';
+import { Eye, Heart, TrendingUp } from 'lucide-react';
 import {
   ResponsiveContainer,
   LineChart,
@@ -13,8 +13,8 @@ import {
   CartesianGrid,
   Tooltip,
 } from 'recharts';
+import { ProGate } from '@/components/pro/ProGate';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import {
   Select,
   SelectContent,
@@ -171,19 +171,12 @@ export function EstadisticasClient({ listings, proStatus, token }: Props) {
           </Card>
         </>
       ) : (
-        <Card className="border-dashed" data-testid="stats-upgrade-cta">
-          <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
-            <Lock className="h-8 w-8 text-muted-foreground" />
-            <p className="font-medium">Estadísticas avanzadas (gráficas, tendencias)</p>
-            <p className="text-sm text-muted-foreground">
-              Disponibles con Pro: vistas por día, ratio de me gusta y el agregado de todos tus
-              anuncios.
-            </p>
-            <Button asChild>
-              <Link href="/planes">Hazte Pro</Link>
-            </Button>
-          </CardContent>
-        </Card>
+        // El otro gate que ya estaba bien hecho, ahora sobre el molde común. Mismo testid
+        // y mismo texto: lo que cambia es que la forma sale de un solo sitio.
+        <ProGate testId="stats-upgrade-cta" titulo="Estadísticas avanzadas (gráficas, tendencias)">
+          Disponibles con Pro: vistas por día, ratio de me gusta y el agregado de todos tus
+          anuncios.
+        </ProGate>
       )}
     </div>
   );

@@ -56,6 +56,32 @@ export function toUserMessage(_err: unknown): string {
 }
 
 /**
+ * E-3 — EL MENSAJE DE LA PUERTA, QUE NUNCA LLEGABA A NADIE.
+ *
+ * `toUserMessage` devuelve un texto genérico a propósito: no se le enseña al usuario lo que
+ * diga un error cualquiera del servidor. Pero los rechazos de la PUERTA de validación son
+ * otra cosa — están **escritos para el usuario**, en español y con la salida dentro («Archiva
+ * o marca como vendido alguno para poder crear otro»). Y se perdían todos: quien topaba su
+ * límite de anuncios leía «Ha ocurrido un error. Inténtalo de nuevo.».
+ *
+ * `reasons` es la marca segura de esa clase de error: sólo la rellena la puerta
+ * (`construirRechazo`), así que esto no abre la puerta a filtrar mensajes internos de
+ * cualquier otro fallo. Mismo precedente que `publishBlocked.message`, que ya se pinta tal
+ * cual desde el backend.
+ *
+ * Devuelve `null` cuando no es un rechazo de la puerta — el llamante cae a `toUserMessage`.
+ */
+export function toGateMessage(err: unknown): string | null {
+  if (!(err instanceof ApiError) || err.reasons.length === 0) return null;
+  return err.reasons.map((r) => r.message).join(' ');
+}
+
+/** True si el rechazo es «has llenado tu cupo de anuncios activos». */
+export function isActiveLimitError(err: unknown): boolean {
+  return err instanceof ApiError && err.reasons.some((r) => r.code === 'ACTIVE_LIMIT_REACHED');
+}
+
+/**
  * True when the error signals a stale/missing JWT (HTTP 401).
  * Client components should call signOut() and redirect to /login when this is true.
  * 403 is intentionally excluded — it means "authenticated but not allowed" (business rule)

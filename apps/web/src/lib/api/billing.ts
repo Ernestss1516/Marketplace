@@ -107,6 +107,18 @@ export interface CatalogPrice {
   /** Monetización ráfaga 4 — solo presentes en Prices de packs de bumps directos. */
   bumpAmount?: number;
   bumpPackId?: string;
+  /**
+   * E-4/E-5 — LO QUE UN PRO SE LLEVA DE REGALO CON ESTE PACK, calculado en el servidor.
+   *
+   * Presente en los dos tipos de pack (créditos y bumps), cada uno con su ajuste. Se sirve
+   * ya resuelto a propósito: la lista lo pintaba antes repitiendo la fórmula
+   * (`Math.ceil(x * pct / 100)`), una segunda copia que podía separarse de la que de verdad
+   * cobra el checkout. Ahora la lista **enseña el número que el servidor va a congelar**.
+   *
+   * NO depende de quién pregunta: es el regalo del pack, no del usuario. Un Pro lo ve como
+   * lo suyo; a un no-Pro se le enseña como lo que se está perdiendo.
+   */
+  proBonusAmount?: number;
 }
 
 export interface CatalogProduct {
@@ -160,6 +172,18 @@ export interface CatalogResponse {
    * de bumps antes de comprar. Lo que de verdad se acredita se congela en el
    * checkout; esto nunca es lo que se cobra. */
   proExtraBumpsPercent: number;
+  /**
+   * E-5 — el hermano de créditos, que el catálogo no publicaba. Sin él, la lista de packs
+   * de créditos no tenía con qué contarle a un no-Pro qué se pierde. Opcional porque un
+   * backend anterior a este cambio no lo manda.
+   */
+  proExtraCreditsPercent?: number;
+  /**
+   * E-6 — las cuotas mensuales en número, para que quien avise a un no-Pro diga la cifra
+   * configurada y no una escrita a mano. Opcionales: un backend anterior no las manda.
+   */
+  proMonthlyFeaturedQuota?: number;
+  proMonthlyBumpQuota?: number;
   /**
    * UXV.6 (M4) — los beneficios de Pro, derivados en el backend de los `Setting` que de
    * verdad los conceden. Antes esta lista vivía escrita a mano en `/planes` y prometía

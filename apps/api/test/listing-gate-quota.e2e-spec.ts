@@ -244,9 +244,19 @@ describe('Puerta — la cuota de activos, centralizada (e2e)', () => {
       .set('Authorization', `Bearer ${sellerToken}`)
       .expect(403);
 
-    // Texto VERBATIM del `checkActiveListingLimit` que se borró: es lo que ve el
-    // usuario, y lo que un cliente antiguo sigue leyendo sin enterarse del cambio.
-    expect(res.body.message).toBe(`Has alcanzado el límite de ${FREE_LIMIT} anuncios activos de tu plan`);
+    // El texto era VERBATIM el del `checkActiveListingLimit` que se borró, y esa era la
+    // afirmación correcta MIENTRAS lo único que se hacía era mudar la regla de sitio.
+    //
+    // E-3 lo cambia A PROPÓSITO: el mensaje se quedaba en «de tu plan» —insinuando que hay
+    // otro plan sin decir cuál ni cuánto da— justo en el momento en que un vendedor
+    // gratuito descubre que le hace falta más sitio. Ahora ofrece la salida.
+    //
+    // Lo que este caso sigue fijando es lo que NO cambió: la primera frase es la de
+    // siempre, el `code` es el de siempre, y `reasons` sigue siendo aditivo.
+    expect(res.body.message).toContain(
+      `Has alcanzado el límite de ${FREE_LIMIT} anuncios activos de tu plan`,
+    );
+    expect(res.body.message).toMatch(/con pro puedes tener hasta \d+/i);
     expect(res.body.code).toBe('ACTIVE_LIMIT_REACHED');
 
     // `reasons` es puro añadido. Con un solo motivo, su mensaje ES el `message`

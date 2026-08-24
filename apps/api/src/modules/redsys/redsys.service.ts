@@ -21,6 +21,7 @@ import { CheckoutBumpPackDto } from './dto/checkout-bump-pack.dto';
 import { CheckoutFeaturedPayDto } from './dto/checkout-featured-pay.dto';
 import { redsysTaxBreakdown, type RedsysFormData } from './redsys.types';
 import { withReturnTo } from './return-to';
+import { proBonusAmount } from '../billing/pro-bonus';
 
 /** Returns true when the error is a Prisma unique constraint violation (P2002). */
 function isP2002(err: unknown): boolean {
@@ -307,7 +308,10 @@ export class RedsysService {
     if (!isPro) return null;
     const pctSetting = await this.prisma.setting.findUnique({ where: { key: settingKey } });
     const pct = pctSetting ? Number(pctSetting.value) : defaultPct;
-    return Math.ceil((baseAmount * pct) / 100);
+    // La fórmula (y su redondeo a favor del usuario) vive en `pro-bonus.ts` porque el
+    // CATÁLOGO también la necesita para previsualizar el regalo antes de comprar. Con una
+    // copia en cada sitio, la lista podría prometer un número y esto acreditar otro.
+    return proBonusAmount(baseAmount, pct);
   }
 
   // ---------------------------------------------------------------------------

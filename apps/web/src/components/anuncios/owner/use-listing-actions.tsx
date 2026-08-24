@@ -26,7 +26,7 @@ import {
   reactivateListing,
   archiveListing,
 } from '@/lib/api/anuncios';
-import { toUserMessage } from '@/lib/api/client';
+import { isActiveLimitError, toGateMessage, toUserMessage } from '@/lib/api/client';
 import { useApiAction } from '@/lib/api/use-api-action';
 import { useRequireAuth } from '@/hooks/use-require-auth';
 import type { ListingSummary } from '@/types';
@@ -100,6 +100,9 @@ export function useListingActions({ listing, token, onDone }: Options) {
    * es éxito (no se ha publicado), así que necesita su propio canal.
    */
   const [aviso, setAviso] = useState<string | null>(null);
+  /** E-3 — el error de arriba es el cupo de anuncios activos, así que hay una salida que
+   *  ofrecer: subir de plan. La decide el backend por el CÓDIGO, no por el texto. */
+  const [limiteAlcanzado, setLimiteAlcanzado] = useState(false);
 
   async function ejecutar<T>(
     key: string,
@@ -112,13 +115,22 @@ export function useListingActions({ listing, token, onDone }: Options) {
     setBusy(key);
     setError(null);
     setAviso(null);
+    setLimiteAlcanzado(false);
     await run(fn, {
       // UXV.3 — canal común. Antes estas siete acciones se completaban en absoluto
       // silencio: el listado se refrescaba y el usuario deducía por el badge si había
       // pasado algo.
       successMessage,
       onSuccess: () => onDone(),
-      onError: (err) => setError(toUserMessage(err)),
+      onError: (err) => {
+        // E-3 — LOS MENSAJES DE LA PUERTA, QUE ANTES SE PERDÍAN. Están escritos para el
+        // usuario y llevan la salida dentro; `toUserMessage` los sustituía por «Ha ocurrido
+        // un error». El genérico sigue siendo el default para todo lo demás.
+        setError(toGateMessage(err) ?? toUserMessage(err));
+        // Y si lo que topó es el cupo de anuncios activos, la tarjeta ofrece además la
+        // salida que el texto no puede llevar: un enlace.
+        setLimiteAlcanzado(isActiveLimitError(err));
+      },
       callbackUrl: loginUrl,
     });
     setBusy(null);
@@ -302,5 +314,5 @@ export function useListingActions({ listing, token, onDone }: Options) {
     });
   }
 
-  return { secundarias, menu, busy, error, aviso };
+  return { secundarias, menu, busy, error, aviso, limiteAlcanzado };
 }

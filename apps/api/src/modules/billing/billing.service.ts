@@ -31,6 +31,13 @@ import { EntitlementService } from './entitlement.service';
 import { ListingGateService } from '../listing-gate/listing-gate.service';
 import { BUMP_COOLDOWN_SECONDS } from './bump-cooldown';
 import { suscripcionVigenteFilter } from './subscription-vigente';
+// E-4/E-5 — la fórmula del bonus Pro, compartida con el checkout que lo congela.
+import {
+  DEFAULT_PRO_EXTRA_PERCENT,
+  PRO_EXTRA_BUMPS_SETTING,
+  PRO_EXTRA_CREDITS_SETTING,
+  proBonusAmount,
+} from './pro-bonus';
 import { CheckoutDto } from './dto/checkout.dto';
 import { FeaturedByCreditsDto } from './dto/featured-by-credits.dto';
 import { TransactionsQueryDto } from './dto/transactions-query.dto';
@@ -948,7 +955,12 @@ export class BillingService {
     // bonus Pro de un pack de bumps antes de comprar ("+N de regalo"). Es solo
     // una vista previa: lo que de verdad se acredita se congela en el
     // checkout (RedsysService.computeProBonus), esto nunca se usa para cobrar.
-    const proExtraBumpsPercent = settingMap['proExtraBumpsPercent'] ?? 20;
+    const proExtraBumpsPercent =
+      settingMap[PRO_EXTRA_BUMPS_SETTING] ?? DEFAULT_PRO_EXTRA_PERCENT;
+    // E-5 — hermano del de arriba. Los dos alimentan `proBonusAmount` por pack y viajan
+    // en el catálogo para que la lista pueda enseñar el regalo antes de comprar.
+    const proExtraCreditsPercent =
+      settingMap[PRO_EXTRA_CREDITS_SETTING] ?? DEFAULT_PRO_EXTRA_PERCENT;
 
     // H8 Bloque D fase 2 — descuentos de campaña activos ahora mismo (a lo sumo
     // uno por acción). El catálogo es público y sin caché por request, así que
@@ -1003,6 +1015,19 @@ export class BillingService {
                   creditAmount: price.creditPack.creditAmount,
                   creditPackId: price.creditPack.id,
                   packName: price.creditPack.name,
+                  // E-5 — LO QUE UN PRO SE LLEVA DE REGALO CON ESTE PACK, ya calculado.
+                  //
+                  // Se sirve para que la lista pueda ENSEÑARLO antes de comprar: a un Pro
+                  // como su regalo, a un no-Pro como lo que se está perdiendo. El número no
+                  // depende de quién pregunta —sólo del pack y del ajuste—, así que el
+                  // catálogo puede seguir siendo público y decir la verdad a los dos.
+                  //
+                  // Sale de la MISMA función que congela el checkout (`proBonusAmount`), y
+                  // ése es el punto: es lo que impide prometer un número y acreditar otro.
+                  proBonusAmount: proBonusAmount(
+                    price.creditPack.creditAmount,
+                    proExtraCreditsPercent,
+                  ),
                 }
               : {}),
             // Monetización ráfaga 4 — packs de bumps DIRECTOS (acreditan
@@ -1013,6 +1038,10 @@ export class BillingService {
                   bumpAmount: price.bumpPack.bumpAmount,
                   bumpPackId: price.bumpPack.id,
                   packName: price.bumpPack.name,
+                  // E-4 — igual que en los packs de créditos, y con su propio ajuste. La
+                  // lista lo calculaba por su cuenta repitiendo la fórmula: una segunda
+                  // copia que podía separarse de la que cobra.
+                  proBonusAmount: proBonusAmount(price.bumpPack.bumpAmount, proExtraBumpsPercent),
                 }
               : {}),
           };
@@ -1024,6 +1053,21 @@ export class BillingService {
         bumpDiscountPercent,
       }),
       proExtraBumpsPercent,
+      // E-5 — el porcentaje de CRÉDITOS no se publicaba, así que la lista de packs no
+      // tenía con qué contarle a un no-Pro lo que se pierde. Su hermano de bumps ya salía
+      // desde la ráfaga 4; la asimetría era del catálogo, no de la interfaz.
+      proExtraCreditsPercent,
+      /**
+       * E-6 — LAS CUOTAS MENSUALES, EN NÚMEROS Y NO SÓLO DENTRO DE UNA FRASE.
+       *
+       * `buildProBenefits` ya las usaba para redactar sus líneas de /planes, pero eran
+       * texto: ninguna otra pantalla podía decir «N destacados gratis» sin volver a
+       * inventarse el número. Se publican para que el aviso al no-Pro —en /mis-anuncios y
+       * en el diálogo de promocionar— diga la cifra REAL y configurada, no una escrita a
+       * mano que un ajuste pueda desmentir.
+       */
+      proMonthlyFeaturedQuota: settingMap['proMonthlyFeaturedQuota'] ?? 4,
+      proMonthlyBumpQuota: settingMap['proMonthlyBumpQuota'] ?? 4,
       freeBenefits: this.buildFreeBenefits(settingMap),
       proBenefits: this.buildProBenefits(settingMap, videoActivo),
     };

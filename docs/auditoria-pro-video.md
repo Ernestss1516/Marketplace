@@ -572,6 +572,19 @@ avanzadas: vistas por día, ratio de me gusta y agregados» se emite siempre.
 
 ### 4.2 Los gates en uso — dos bien hechos, el resto ausentes
 
+> **§4.2 CERRADA** (2026-08-24, rama `feat-gates-pro`). Los cinco sitios mudos (E-3 a E-6)
+> cuentan ya el beneficio en el punto de fricción y con enlace a `/planes`. El molde de los
+> dos gates que estaban bien hechos se extrajo a
+> [`ProGate.tsx`](../apps/web/src/components/pro/ProGate.tsx) —`ProGate` para la pantalla
+> bloqueada, `ProHint` para la pista de una línea— y ahora los siete usan el mismo, así que
+> la próxima ventaja Pro no volverá a inventarse su forma.
+>
+> Dos hallazgos que aparecieron al arreglarlo y que la auditoría no había visto:
+> **los mensajes de la puerta no llegaban a nadie** (`toUserMessage` los sustituía todos por
+> «Ha ocurrido un error», así que ni el texto que sí existía se leía), y **la previsualización
+> del bonus repetía la fórmula del checkout** — dos copias que podían prometer un número y
+> acreditar otro.
+
 El molde correcto —**el gate se VE, no se esconde**— está aplicado en dos sitios:
 
 | Beneficio | Gate | Estado |
@@ -655,14 +668,14 @@ Ordenada por **(daño real) ÷ (coste de cerrarlo)**. Cada uno con su ubicación
 | ~~**4**~~ | ~~**`/favoritos` no puede pintar el indicador**: es la única lista que no pasa por `toSummary`~~ — **CERRADO** (2026-08-24, rama `fix-fuga-favoritos`): al arreglar la fuga de privacidad por la raíz, `/favorites` pasa a servir `toSummary` y gana `hasVideo`; `ListingCard` ya lo consumía, así que el indicador se pinta solo. Ver «Hallazgo colateral» | [`listing-summary.ts`](../apps/api/src/modules/listings/listing-summary.ts) |
 | ~~**5**~~ | ~~**El Pro manual ve una página de suscripción vacía**~~ — **CERRADO** (2026-08-24): la página tenía dos ramas y el caso se caía por el hueco; ahora las tres se deciden en [`plan-actual.ts`](../apps/web/src/app/(account)/perfil/suscripcion/_components/plan-actual.ts) | [`plan-actual.test.tsx`](../apps/web/src/app/(account)/perfil/suscripcion/_components/plan-actual.test.tsx) |
 | ~~**6**~~ | ~~**El Pro manual no puede pasarse a Pro de pago**~~ — **CERRADO** (2026-08-24): el botón miraba `isPro` y ahora mira `hasActiveSubscription`, calculado con el MISMO predicado que el guard del checkout | [`CheckoutButton.test.tsx`](../apps/web/src/app/(public)/planes/_components/CheckoutButton.test.tsx) · [`pro-manual-paridad.e2e-spec.ts`](../apps/api/test/pro-manual-paridad.e2e-spec.ts) |
-| **7** | **El límite de anuncios no explica ni enlaza a `/planes`** en el momento exacto en que duele | [`active-listing-limit.rule.ts:80`](../apps/api/src/modules/listing-gate/rules/active-listing-limit.rule.ts#L80) |
+| ~~**7**~~ | ~~**El límite de anuncios no explica ni enlaza a `/planes`**~~ — **CERRADO** (2026-08-24, rama `feat-gates-pro`): el mensaje dice ahora cuánto da Pro (sólo a un no-Pro, y sólo si de verdad da más), y la tarjeta añade el enlace. De paso, los mensajes de la puerta ya LLEGAN al usuario: `toUserMessage` los sustituía todos por «Ha ocurrido un error» | [`gates-pro-explican.e2e-spec.ts`](../apps/api/test/gates-pro-explican.e2e-spec.ts) |
 
 ### Medios — descubrimiento y conversión
 
 | # | Hueco | Dónde |
 |---|---|---|
-| **8** | **El bonus de packs solo se le enseña a quien ya es Pro** (bumps), y a nadie en créditos | [`BumpPackList.tsx:86`](../apps/web/src/app/(account)/mis-creditos/_components/BumpPackList.tsx#L86), [`PackList.tsx`](../apps/web/src/app/(account)/mis-creditos/_components/PackList.tsx) |
-| **9** | **Las cuotas gratis no se anuncian a quien no las tiene** (el diálogo de promocionar es el sitio natural) | [`MisAnunciosClient.tsx:103`](../apps/web/src/components/anuncios/MisAnunciosClient.tsx#L103), [`PromocionarDialog.tsx`](../apps/web/src/components/anuncios/owner/PromocionarDialog.tsx) |
+| ~~**8**~~ | ~~**El bonus de packs solo se le enseña a quien ya es Pro**~~ — **CERRADO** (2026-08-24): las dos monedas simétricas, y el número lo sirve el catálogo con la MISMA función que congela el checkout ([`pro-bonus.ts`](../apps/api/src/modules/billing/pro-bonus.ts)) — se acabó la fórmula duplicada | [`gates-pro.test.tsx`](../apps/web/src/components/pro/gates-pro.test.tsx) |
+| ~~**9**~~ | ~~**Las cuotas gratis no se anuncian a quien no las tiene**~~ — **CERRADO** (2026-08-24): se anuncian en /mis-anuncios y en el diálogo de promocionar, con la cifra configurada y el texto honesto con D-1 («suscribiéndote», porque un Pro concedido no tiene cuota). De paso, a un Pro manual ya no se le dice «has usado tus destacados gratis» sobre unos que nunca tuvo | [`gates-pro.test.tsx`](../apps/web/src/components/pro/gates-pro.test.tsx) |
 | **10** | **`hasVideo` no es filtrable** en Meilisearch: no hay «solo con vídeo» ni puede haberlo | [`search.service.ts:101`](../apps/api/src/modules/search/search.service.ts#L101) |
 | **11** | **Nada avisa de que el vídeo se añade al editar, no al publicar** (coherente con el backend, invisible para el vendedor) | [`PublicarWizard.tsx`](../apps/web/src/components/publicar/PublicarWizard.tsx) vs. [`EditarForm.tsx:383`](../apps/web/src/components/publicar/EditarForm.tsx#L383) |
 

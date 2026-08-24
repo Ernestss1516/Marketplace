@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Loader2, PlusCircle, Star, TrendingUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MyListingCard } from './MyListingCard';
+import { ProHint } from '@/components/pro/ProGate';
 import { getMyListings } from '@/lib/api/anuncios';
 import { getProStatus, getWallet, type ProStatus } from '@/lib/api/billing';
 import type { BumpPricing, ListingSummary } from '@/types';
@@ -31,6 +32,13 @@ interface Props {
   bumpPricing: BumpPricing;
   /** UXV.4 (B3) — recuento por estado, servido por la misma llamada que los anuncios. */
   initialCounts?: Record<string, number>;
+  /**
+   * E-6 — las cuotas mensuales que concede una suscripción Pro, tal y como están
+   * configuradas. Sirven para contarle a un NO-Pro lo que se está perdiendo; un Pro ya ve
+   * su recuento real. Opcionales: sin ellas, el aviso simplemente no se pinta.
+   */
+  cuotaDestacados?: number;
+  cuotaBumps?: number;
 }
 
 export function MisAnunciosClient({
@@ -39,6 +47,8 @@ export function MisAnunciosClient({
   token,
   bumpPricing: initialBumpPricing,
   initialCounts,
+  cuotaDestacados = 0,
+  cuotaBumps = 0,
 }: Props) {
   const [listings, setListings] = useState<ListingSummary[]>(initialListings);
   const [counts, setCounts] = useState<Record<string, number> | undefined>(initialCounts);
@@ -46,6 +56,15 @@ export function MisAnunciosClient({
   const [bumpPricing, setBumpPricing] = useState<BumpPricing>(initialBumpPricing);
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  /**
+   * TENER CUOTA NO ES LO MISMO QUE SER PRO (decisión D-1). Un Pro CONCEDIDO por el equipo
+   * tiene todas las capacidades pero NO las gratuidades mensuales, porque cuelgan de un
+   * ciclo de facturación que nadie está pagando — y el backend lo dice con su nombre en
+   * `quotaSource`. Con el `isPro` de antes, a ese usuario se le enseñaba «Has usado tus
+   * destacados gratis de este mes» sobre unos destacados que nunca tuvo.
+   */
+  const tieneCuota = proStatus.isPro && proStatus.quotaSource !== 'NONE';
 
   const refetch = useCallback(
     (status: string | null) => {
@@ -100,7 +119,7 @@ export function MisAnunciosClient({
         igual — ninguna de las dos decía nada. Y la cuota de BUMPS no se veía en ninguna
         parte salvo incrustada en el texto de un botón.
       */}
-      {proStatus.isPro && (
+      {tieneCuota && (
         <div
           className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800"
           data-testid="quota-reminder"
@@ -118,6 +137,25 @@ export function MisAnunciosClient({
               : 'Y ningún bump gratis disponible.'}
           </span>
         </div>
+      )}
+
+      {/*
+        E-6 — LA VENTAJA QUE SÓLO SE LE CONTABA A QUIEN YA LA TENÍA.
+        El aviso de arriba vive dentro de un `isPro`, así que un vendedor gratuito no veía
+        NINGUNA señal de que Pro incluye destacados y bumps gratis cada mes — que es, según
+        la propia lista de /planes, «el beneficio que más se nota».
+
+        «SUSCRIBIÉNDOTE» Y NO «CON PRO», y la palabra importa: la cuota mensual cuelga del
+        ciclo de facturación de una suscripción, así que un Pro CONCEDIDO por el equipo no
+        la tiene (decisión D-1). Prometerle «con Pro» sería mentirle a quien acabe siendo
+        Pro por esa vía.
+      */}
+      {!proStatus.isPro && cuotaDestacados > 0 && (
+        <ProHint testId="quota-upsell">
+          Suscribiéndote a Pro tendrías {cuotaDestacados} destacado
+          {cuotaDestacados === 1 ? '' : 's'} y {cuotaBumps} bump{cuotaBumps === 1 ? '' : 's'}{' '}
+          gratis cada mes.
+        </ProHint>
       )}
 
       {/* Filter tabs */}
