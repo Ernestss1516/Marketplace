@@ -59,9 +59,15 @@ test.describe('/mis-anuncios/estadisticas — gating Pro vs free', () => {
 
     await expect(page.getByTestId('stats-chart')).not.toBeVisible();
     await expect(page.getByTestId('stats-summary')).not.toBeVisible();
+
+    // A2 — «veces listado» y el CTR son Pro, igual que la gráfica: el free no los ve ni
+    // en la fila de cifras básicas (donde sí ve vistas y me gusta).
+    await expect(page.getByTestId('stats-impressions')).not.toBeVisible();
+    await expect(page.getByTestId('stats-ctr')).not.toBeVisible();
+    await expect(page.getByTestId('stats-upgrade-cta')).toContainText('veces listado');
   });
 
-  test('usuario PRO ve la gráfica de vistas, el ratio y el agregado — sin CTA de upgrade', async ({
+  test('usuario PRO ve la gráfica, el ratio, el agregado y las «veces listado» — sin CTA de upgrade', async ({
     proContext,
   }) => {
     const page = await proContext.newPage();
@@ -70,8 +76,16 @@ test.describe('/mis-anuncios/estadisticas — gating Pro vs free', () => {
 
     await expect(page.getByTestId('stats-listing-select')).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId('stats-basic')).toBeVisible();
+    // `stats-chart` lo pinta ahora el StatsChart EXTRAÍDO (components/stats/) — que es lo
+    // que hace estructural la barrera de la extracción: el componente reusable es el que
+    // se ve en la aplicación real, no una copia que el vendedor conserve por su cuenta.
     await expect(page.getByTestId('stats-chart')).toBeVisible();
     await expect(page.getByTestId('stats-summary')).toBeVisible();
+
+    // A2 — la cifra en la fila básica y la tarjeta que EXPLICA qué es cada número.
+    await expect(page.getByTestId('stats-impressions')).toContainText('veces listado');
+    await expect(page.getByTestId('stats-ctr')).toBeVisible();
+    await expect(page.getByTestId('stats-ctr')).toContainText('página de resultados');
 
     await expect(page.getByTestId('stats-upgrade-cta')).not.toBeVisible();
   });

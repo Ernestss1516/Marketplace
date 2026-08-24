@@ -52,6 +52,7 @@ import {
   toSummary,
 } from './listing-summary';
 import { ListingDetectionsService } from '../moderation/detection/listing-detections.service';
+import { computeCtr } from './listing-ctr';
 import { camposDeTelefono } from '../moderation/detection/phone-format';
 import { PreModerationService } from '../moderation/pre-moderation.service';
 import { ListingActivationService } from '../listing-activation/listing-activation.service';
@@ -1539,7 +1540,9 @@ export class ListingsService implements OnModuleInit {
   async getMineStats(id: string, userId: string) {
     const listing = await this.prisma.listing.findUnique({
       where: { id },
-      select: { id: true, sellerId: true, viewCount: true },
+      // A2 — `impressionCount` (el total de «veces listado») viaja en el MISMO select:
+      // ya se estaba leyendo la fila, así que el dato sale sin una consulta más.
+      select: { id: true, sellerId: true, viewCount: true, impressionCount: true },
     });
     if (!listing) throw new NotFoundException('Anuncio no encontrado');
     if (listing.sellerId !== userId) {
@@ -1549,6 +1552,9 @@ export class ListingsService implements OnModuleInit {
     const favoritesCount = await this.prisma.favorite.count({ where: { listingId: id } });
     const isPro = await this.entitlementService.isProActive(userId);
     if (!isPro) {
+      // EL GATE PRO, INTACTO. La forma básica no cambia ni un campo con A2: «veces
+      // listado» es una ventaja Pro igual que la gráfica, así que ni el total ni la
+      // serie ni el CTR asoman por aquí.
       return { viewCount: listing.viewCount, favoritesCount };
     }
 
@@ -1556,17 +1562,32 @@ export class ListingsService implements OnModuleInit {
     since.setUTCDate(since.getUTCDate() - 30);
     since.setUTCHours(0, 0, 0, 0);
 
-    const dailyRows = await this.prisma.listingViewDaily.findMany({
-      where: { listingId: id, date: { gte: since } },
-      orderBy: { date: 'asc' },
-      select: { date: true, count: true },
-    });
+    // Las dos series, EN PARALELO: son dos consultas independientes sobre dos tablas
+    // gemelas, y encadenarlas sumaría una ida y vuelta a una pantalla que ya espera.
+    const [dailyRows, dailyImpressionRows] = await Promise.all([
+      this.prisma.listingViewDaily.findMany({
+        where: { listingId: id, date: { gte: since } },
+        orderBy: { date: 'asc' },
+        select: { date: true, count: true },
+      }),
+      this.prisma.listingImpressionDaily.findMany({
+        where: { listingId: id, date: { gte: since } },
+        orderBy: { date: 'asc' },
+        select: { date: true, count: true },
+      }),
+    ]);
 
     return {
       viewCount: listing.viewCount,
+      impressionCount: listing.impressionCount,
       favoritesCount,
       dailyViews: dailyRows,
+      dailyImpressions: dailyImpressionRows,
       likeRatio: listing.viewCount > 0 ? favoritesCount / listing.viewCount : 0,
+      // NO es `viewCount / impressionCount`: los dos totales miden ventanas distintas y
+      // ese cociente da cifras absurdas durante meses. Ver `listing-ctr.ts`, que además
+      // decide cuándo el número es publicable y cuándo es ruido.
+      ctr: computeCtr(dailyRows, dailyImpressionRows),
     };
   }
 

@@ -371,12 +371,35 @@ export interface Listing {
 
 // ── H8 Bloque C — estadísticas de anuncios ──────────────────────────────────
 
+/**
+ * A2 — el CTR («de cada N veces que apareces, cuántas personas entran»), tal y como lo
+ * sirve el backend. El VALOR puede ser `null`, y no es un fallo: significa que aún no hay
+ * apariciones suficientes para que el porcentaje signifique algo. Los conteos viajan
+ * igualmente para poder decir «llevas 37 de las 100 que hacen falta».
+ *
+ * `views`/`impressions` NO son los totales del anuncio: son los de la ventana comparable
+ * (desde el primer día con apariciones). Ver `listing-ctr.ts` en el backend, que es donde
+ * vive la regla — aquí solo se pinta.
+ */
+export interface ListingCtr {
+  value: number | null;
+  views: number;
+  impressions: number;
+  minImpressions: number;
+}
+
 /** GET /listings/mine/:id/stats — enriquecido con dailyViews/likeRatio solo si el dueño es Pro. */
 export interface ListingStats {
   viewCount: number;
   favoritesCount: number;
+  /** A2 — «veces listado». Solo Pro. */
+  impressionCount?: number;
   dailyViews?: { date: string; count: number }[];
+  /** A2 — la serie diaria de «veces listado». Solo Pro. */
+  dailyImpressions?: { date: string; count: number }[];
   likeRatio?: number;
+  /** A2 — solo Pro. */
+  ctr?: ListingCtr;
 }
 
 /** GET /listings/mine/stats/summary — solo Pro (403 si no). */
