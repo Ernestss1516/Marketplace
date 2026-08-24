@@ -15601,6 +15601,89 @@ confirmación falla sobre un vídeo perfectamente guardado.
 
 ---
 
+## Estadísticas A1 — la captura de «veces listado» (impresiones de búsqueda)
+
+Primera ráfaga de `docs/diseno-estadisticas.md` (parte A). Captura SOLO: nadie lee todavía lo
+que se escribe — A2 (el vendedor Pro) y B1/B2 (el backoffice) leerán estas mismas tablas.
+
+**Qué cuenta.** Una impresión = la aparición de un anuncio en el conjunto de resultados de UNA
+respuesta servida por `GET /search`. Se cuenta el CONJUNTO, no el multiconjunto: `hits ∪
+featured` deduplicado por id — el bloque «Promocionados» ya se repite dentro de `hits` a
+propósito (política de ordenación C), así que sumar las dos listas daría dos impresiones al
+mismo anuncio en la misma respuesta. El patrocinado no cuenta: `SponsoredAd` no es un `Listing`.
+
+**Dónde se cuenta, y por qué ahí.** En `SearchController`, **no** en `SearchService`. No es una
+preferencia de capa: `SearchService.search()` lo llaman también las alertas
+(`alerts.service.ts:55` y `:128`, `alert-matching.service.ts:64`, esta última una consulta por
+anuncio y alerta dentro de un worker). Contar en el servicio convertiría cada barrido de alertas
+en una lluvia de impresiones que ningún usuario ha visto.
+
+**Cómo, sin tocar la ruta caliente** (`ImpressionsService`):
+
+- La petición hace **un `SET NX` de dedup + un pipeline de `HINCRBY`**, y nada más. Cero
+  escrituras a Postgres. `recordServedResults` devuelve `void` —no una promesa— y difiere todo
+  con `setImmediate`: quien llama **no puede** esperarlo aunque quiera, y ni el hashing corre en
+  la pila de la petición. Fail-open: Redis caído ⇒ `warn` y la búsqueda responde igual.
+- **No hay cola BullMQ**, y es deliberado: encolar es *también* una escritura en Redis (BullMQ
+  vive sobre Redis), así que cambiar 24 `upsert` por 1 escritura + un job + un worker es más caro
+  que cambiarlos por 1 escritura y punto. La cola aportaría reintentos, que aquí no hacen falta.
+- **Dedup por BÚSQUEDA, no por anuncio**: una clave (`imp:dedup:{visitante}:{huella de la
+  query}`, TTL 1800 s — el mismo `VIEW_DEDUP_TTL_SECONDS` de las vistas) en vez de 24. El coste
+  aceptado es que un anuncio que sale en dos búsquedas distintas del mismo visitante cuente dos
+  veces, que es correcto: son dos apariciones.
+- **Acumulador**: hash `imp:bucket:{YYYY-MM-DD}` (fecha UTC, igual que `ListingViewDaily`). La
+  fecha va en el NOMBRE de la clave para que un volcado que cruce la medianoche escriba lo de
+  ayer con la fecha de ayer.
+- **Volcado**: `@Cron('*/15 * * * *')` → `RENAME` del cubo a
+  `imp:bucket:{fecha}:draining:{token aleatorio}` (atómico: los `HINCRBY` en vuelo crean un cubo
+  nuevo y no se pierde ni un incremento), `HGETALL`, escritura en lotes de 500 y `DEL`. Un cubo
+  renombrado que sobreviva a un fallo lo recoge el `SCAN` del ciclo siguiente (comparte prefijo
+  con el vivo). La escritura es SQL en crudo con `Prisma.join` —dos sentencias por lote en una
+  transacción, no un round-trip por anuncio— y lleva un **`JOIN "Listing"`** para que un anuncio
+  borrado durante la ventana de 15 minutos no reviente el lote entero por la clave foránea.
+
+**La identidad del visitante la reenvía el BFF** (`apps/web/src/lib/visitor.ts`). `/busqueda` y
+`/[categoria]` son Server Components: la llamada a `GET /search` la hace el servidor de Next, así
+que Nest ve siempre la misma IP. Sin `x-visitor-hash` todos los visitantes colapsarían en uno y
+el dedup mataría todas las impresiones menos la primera. Las superficies CACHEADAS (bloques
+`listings` de portada y blog, `revalidate: 180`) **no** reenvían la cabecera a propósito: no son
+resultados de una búsqueda de nadie.
+
+**Modelo.** `ListingImpressionDaily` (`{listingId, date, count}`, `@@unique([listingId, date])`,
+más `@@index([date])` que pedirá B.4) y `Listing.impressionCount` como total O(1) — molde exacto
+de `ListingViewDaily`/`viewCount`. Tabla APARTE y no una columna más en la de vistas: las vistas
+se escriben una a una desde la petición y las impresiones en lote desde un cron; compartir fila
+volvería a meter la contención que todo esto existe para evitar.
+
+**Retención.** `purgeOldDailyRows` (`@Cron('0 6 * * *')`) borra el detalle de más de 180 días de
+las DOS tablas. Cierra de paso la deuda de H8.C1: `ListingViewDaily` no se purgaba nunca —
+aguantaba porque sus filas son escasas, mientras que la de impresiones tiende a una por
+(anuncio activo × día). Los totales no se tocan: purgar no borra el número redondo.
+
+**Tests.** `impressions.service.spec.ts` (23, sin infraestructura: la forma del contador — que
+no se pueda esperar, que no rompa la búsqueda, cuántas operaciones hace, el drenaje con mocks) y
+`estadisticas-a1-impresiones.e2e-spec.ts` (16, contra Redis/Postgres/Meili reales) +
+`visitor.test.ts` en el web (9).
+
+Mutaciones comprobadas, las tres rojas:
+1. el controlador ignora `x-visitor-hash` (usa la IP de Next) → 6 casos caen, tres de ellos por
+   timeout: hasta el centinela de orden se dedupea, que es exactamente el síntoma de que todos
+   los visitantes han colapsado en uno;
+2. contar en `SearchService.search()` en vez del controlador → la barrera 4 cae con la fila que
+   el barrido de alertas no debería haber creado;
+3. recolectar los ids DESPUÉS de inyectar el patrocinado y sin el filtro `__sponsored` → el id
+   del patrocinado aparece en el acumulador.
+
+**Fuera de alcance, anotado.** El diseño (§2.1) excluye también al DUEÑO buscando sus propios
+anuncios, y eso **no se implementa aquí**: `GET /search` es anónimo —el BFF nunca manda token—,
+así que excluirlo exigiría o un guard de auth en la ruta caliente (que trae la consulta de
+`tokenVersion` de `JwtStrategy` consigo) o creerse un id de usuario sin autenticar en una
+cabecera. Ninguna de las dos compensa para una métrica de vanidad: el dedup por búsqueda ya
+acota a un vendedor que se busca a sí mismo a una impresión por búsqueda distinta cada 30
+minutos, y la exposición es la misma que `viewCount` ya tiene desde H8.C1.
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.

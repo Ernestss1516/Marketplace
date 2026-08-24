@@ -678,6 +678,17 @@ model Listing {
 
   viewCount Int @default(0)
 
+  /// ESTADÍSTICAS A1 — «veces listado»: cuántas veces este anuncio ha aparecido en una
+  /// respuesta de búsqueda servida a un usuario. Hermano exacto de `viewCount` y con el
+  /// mismo reparto: el TOTAL vive aquí y la granularidad temporal en
+  /// `ListingImpressionDaily` (ver el comentario de ese modelo).
+  ///
+  /// NUNCA se escribe desde la petición de búsqueda: lo escribe el volcado periódico
+  /// del acumulador de Redis (`ImpressionsService.flushImpressions`), en lote. Escribir
+  /// aquí por impresión pondría 24 UPDATE por búsqueda sobre las filas más leídas del
+  /// producto — ver docs/diseno-estadisticas.md §2.2.
+  impressionCount Int @default(0)
+
   // --- Vídeo Pro (proyecto 3) ---
   //
   // CAMPOS EN Listing Y NO UNA TABLA APARTE: es UN vídeo por anuncio (decisión confirmada),
@@ -784,6 +795,7 @@ model Listing {
   entitlements  Entitlement[]
   transactions  Transaction[]
   viewsDaily    ListingViewDaily[]
+  impressionsDaily ListingImpressionDaily[]
   alertMatches  AlertMatch[]
   tickets       Ticket[]
   /// B1 — tags que este anuncio TIENE. Un anuncio sin tags simplemente no tiene filas.
@@ -1098,6 +1110,34 @@ model ListingViewDaily {
 
   @@unique([listingId, date])
   @@index([listingId])
+}
+
+/// ESTADÍSTICAS A1 — agregado diario de IMPRESIONES («veces listado»): cuántas veces el
+/// anuncio apareció en una respuesta de búsqueda SERVIDA A UN USUARIO. Molde exacto de
+/// `ListingViewDaily`: el total vive en `Listing.impressionCount` y esta tabla solo
+/// aporta la granularidad temporal.
+///
+/// TABLA APARTE Y NO UNA COLUMNA MÁS EN `ListingViewDaily`, y la razón no es de forma
+/// sino de RITMO DE ESCRITURA. Las vistas las escribe `trackView` **una a una y dentro
+/// de la petición**; las impresiones las escribe el volcado **en lote y desde un cron**.
+/// Compartir fila pondría a competir a los dos por el mismo registro, reintroduciendo
+/// por la puerta de atrás la contención que todo el diseño de A1 existe para evitar. Y
+/// son dos densidades distintas: una fila de vistas solo existe los días en que alguien
+/// entró en la ficha; una de impresiones existe casi todos los días que el anuncio esté
+/// activo. Ver docs/diseno-estadisticas.md §2.5.
+///
+/// `@@index([date])` es lo ÚNICO que se añade sobre el molde: lo pedirá el monitoreo de
+/// plataforma (B.4), que agrega por fecha sin filtrar por anuncio.
+model ListingImpressionDaily {
+  id        String   @id @default(cuid())
+  listingId String
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  date      DateTime @db.Date
+  count     Int      @default(0)
+
+  @@unique([listingId, date])
+  @@index([listingId])
+  @@index([date])
 }
 
 // ============================================================================

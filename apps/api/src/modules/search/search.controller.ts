@@ -1,4 +1,4 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Headers, Ip, Query } from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { SearchService, type SearchParams } from './search.service';
 import { FilterableAttributesResolver } from './filterable-attributes.resolver';
@@ -6,6 +6,7 @@ import { parseSearchQuery } from './search-query.parser';
 import { SponsoredAdsService } from '../sponsored-ads/sponsored-ads.service';
 import { ReviewsService } from '../reviews/reviews.service';
 import { TagsService } from '../tags/tags.service';
+import { ImpressionsService } from '../impressions/impressions.service';
 
 // Posición fija de inserción entre los hits, convención documentada en H6.1.
 const SPONSORED_AD_POSITION = 3;
@@ -25,6 +26,17 @@ export class SearchController {
     private readonly reviewsService: ReviewsService,
     // B3 — el catálogo de tags activos, para descartar slugs viejos de la query.
     private readonly tagsService: TagsService,
+    // ESTADÍSTICAS A1 — el contador de «veces listado».
+    //
+    // VIVE AQUÍ, EN EL CONTROLADOR, Y NO EN `SearchService`. No es una preferencia de
+    // capa: `SearchService.search()` lo llaman TAMBIÉN las alertas
+    // (`alerts.service.ts:55` y `:128`, `alert-matching.service.ts:64` — una consulta
+    // por anuncio y alerta, dentro de un worker). Contar ahí convertiría cada barrido de
+    // alertas en una lluvia de impresiones que ningún usuario ha visto nunca.
+    //
+    // Este controlador es el único sitio por el que pasa una petición de búsqueda de una
+    // PERSONA, que es la definición de la métrica.
+    private readonly impressions: ImpressionsService,
   ) {}
 
   @Get()
@@ -45,7 +57,16 @@ export class SearchController {
     description:
       '{ hits: ResumenAnuncio[], featured: ResumenAnuncio[], totalHits: number, page: number, hitsPerPage: number, facets?: Record<string, Record<string, number>> }',
   })
-  async search(@Query() rawQuery: Record<string, unknown>) {
+  async search(
+    @Query() rawQuery: Record<string, unknown>,
+    // A1 — la identidad del visitante REENVIADA por el BFF. `/busqueda` y
+    // `/[categoria]` son Server Components: sin esta cabecera, la IP que ve Nest es la
+    // del servidor de Next y TODOS los visitantes serían el mismo. Ver
+    // `ImpressionsService.resolveVisitorKey` y `apps/web/src/lib/visitor.ts`.
+    @Headers('x-visitor-hash') visitorHash: string | undefined,
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent: string | undefined,
+  ) {
     const { dto, attributes, attributeRanges, attributeTypes } = await parseSearchQuery(rawQuery, (categorySlug) =>
       categorySlug
         ? this.attributesResolver.getAttributeTypesForCategory(categorySlug)
@@ -159,6 +180,39 @@ export class SearchController {
     // que casi nunca cambian).
     hits = await this.enrichWithSellerRating(hits);
     featured = await this.enrichWithSellerRating(featured);
+
+    // ── ESTADÍSTICAS A1 — «VECES LISTADO» ───────────────────────────────────────
+    //
+    // EL CONJUNTO SERVIDO, deduplicado por id: `hits` ∪ `featured`. La unión y no la
+    // suma porque el bloque «Promocionados» SE REPITE dentro de `hits` a propósito
+    // (ver el comentario de arriba): contarlos por separado daría dos impresiones al
+    // mismo anuncio en la misma respuesta, que por definición es una.
+    //
+    // SE CALCULA AQUÍ, ANTES DE INYECTAR EL PATROCINADO, y eso es lo que hace que «el
+    // patrocinado no cuenta» sea estructural en vez de una condición que alguien pueda
+    // borrar: cuando se construye este conjunto, el patrocinado todavía no está en
+    // `hits`. El filtro de `__sponsored` es el segundo cinturón, por si un día se
+    // reordena este bloque. (Y hay un tercero, en el volcado: `SponsoredAd` no es un
+    // `Listing`, así que su id no casaría con el `JOIN "Listing"`.)
+    const servedListingIds = [
+      ...new Set(
+        [...hits, ...featured]
+          .filter((hit) => hit.__sponsored !== true)
+          .map((hit) => hit.id)
+          .filter((id): id is string => typeof id === 'string'),
+      ),
+    ];
+
+    // SIN `await`, Y NO SE PUEDE PONER: `recordServedResults` devuelve `void`. La
+    // búsqueda no espera al contador ni paga su latencia; si Redis está caído, la
+    // impresión se pierde y la búsqueda responde igual (fail-open).
+    this.impressions.recordServedResults({
+      listingIds: servedListingIds,
+      forwardedVisitorHash: visitorHash,
+      ip,
+      userAgent,
+      query: rawQuery,
+    });
 
     // H6.6 — patrocinados: solo página 1, solo con categoría, un único hueco.
     // Rompe conscientemente el invariante "búsqueda no toca Postgres", mitigado

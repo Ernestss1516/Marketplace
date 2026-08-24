@@ -40,6 +40,7 @@ import { BumpScheduleModule } from './modules/bump-schedule/bump-schedule.module
 import { VideoModule } from './modules/video/video.module';
 import { TicketsModule } from './modules/tickets/tickets.module';
 import { TagsModule } from './modules/tags/tags.module';
+import { ImpressionsModule } from './modules/impressions/impressions.module';
 
 @Module({
   imports: [
@@ -101,6 +102,10 @@ import { TagsModule } from './modules/tags/tags.module';
     VideoModule,
     TicketsModule,
     TagsModule,
+    // A1 — SearchModule ya lo importa (es su controlador quien cuenta). Se registra
+    // también aquí para que el `@Cron` del volcado exista aunque un día la búsqueda
+    // deje de ser su único productor.
+    ImpressionsModule,
   ],
 })
 export class AppModule {}

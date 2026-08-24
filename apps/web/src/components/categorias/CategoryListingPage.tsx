@@ -24,6 +24,7 @@ import { filterableFieldsForCategory } from '@/lib/filterable-fields';
 import { availableTagsForCategory } from '@/lib/available-tags';
 import { breadcrumbJsonLd } from '@/lib/breadcrumb-json-ld';
 import { resolveCurrentView, VIEW_PARAM } from '@/lib/view-mode';
+import { visitorHeaders } from '@/lib/visitor';
 import { SITE_URL } from '@/config';
 import type { AlertCriteria, CategoryWithSchema, ListingSummary, ListingViewMode } from '@/types';
 
@@ -271,6 +272,11 @@ export async function CategoryListingPage({
   // Meilisearch outage, when the page still renders the Postgres-fallback grid.
   const categoriesPromise = getCategories().catch(() => []);
 
+  // A1 — la identidad del visitante, para el dedup de «veces listado». Mismo trato que
+  // en `/busqueda`: esta superficie SÍ sirve resultados de búsqueda, así que reenvía la
+  // cabecera. Ver `lib/visitor.ts`.
+  const visitor = await visitorHeaders();
+
   try {
     const result = await search({
       category: categoria,
@@ -288,7 +294,7 @@ export async function CategoryListingPage({
       page,
       hitsPerPage: hitsPerFetch,
       ...attributes,
-    });
+    }, { headers: visitor });
     hits = result.hits;
     featured = result.featured ?? [];
     total = result.totalHits;

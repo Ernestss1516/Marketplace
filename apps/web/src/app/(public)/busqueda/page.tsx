@@ -19,6 +19,7 @@ import { buildCardAttributeMap, buildFullAttributeMap, buildWideCardAttributeMap
 import { filterableFieldsForTree } from '@/lib/filterable-fields';
 import { availableTagsForTree } from '@/lib/available-tags';
 import { resolveCurrentView, VIEW_PARAM } from '@/lib/view-mode';
+import { visitorHeaders } from '@/lib/visitor';
 import type { AlertCriteria, ListingSummary, ListingViewMode } from '@/types';
 
 const KNOWN_PARAMS = new Set([
@@ -129,6 +130,12 @@ export default async function BusquedaPage({
     }
   }
 
+  // A1 — la identidad del visitante, para el dedup de «veces listado». Se resuelve
+  // antes de la búsqueda porque es su cabecera; cuesta leer las cabeceras de la
+  // petición y un sha256. Esta página YA es dinámica (lee `searchParams`), así que
+  // `headers()` no le quita ninguna caché que tuviera.
+  const visitor = await visitorHeaders();
+
   const [categoriesResult, searchResult] = await Promise.allSettled([
     getCategories(),
     search({
@@ -147,7 +154,7 @@ export default async function BusquedaPage({
       page,
       hitsPerPage: hitsPerFetch,
       ...attributes,
-    }),
+    }, { headers: visitor }),
   ]);
 
   const categories = categoriesResult.status === 'fulfilled' ? categoriesResult.value : [];

@@ -292,6 +292,14 @@ por distancia ascendente.
 > consulta Postgres para intercalar un **anuncio patrocinado**, mitigado con caché Redis por
 > categoría (TTL 5 min). Ver «Sponsored ads».
 
+**Cabecera `x-visitor-hash`** *(opcional, la manda el BFF)* — la identidad del visitante, para
+deduplicar las impresiones de «veces listado» (estadísticas A1). `/busqueda` y `/[categoria]` son
+Server Components, así que sin ella la API vería siempre la IP del servidor de Next y todos los
+visitantes serían el mismo. Su ausencia **no cambia la respuesta**: sólo hace que se cuente de
+menos. Contar una impresión no añade ninguna escritura a Postgres ni latencia a esta ruta — se
+acumula en Redis fuera de la respuesta y un cron lo vuelca cada 15 min (ver
+`docs/diseno-estadisticas.md` parte A).
+
 ---
 
 ## Media (imágenes)
