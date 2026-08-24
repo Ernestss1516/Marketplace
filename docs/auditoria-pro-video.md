@@ -355,7 +355,7 @@ llevan vídeo** — que es justo la persona a la que más le interesa saberlo.
 **V-3 · Las dos tarjetas del mapa** son marcado propio (`<img>` a pelo) y tampoco lo pintan.
 Menos grave, pero es el mismo defecto: tarjetas que no reutilizan `CardPhotoCarousel`.
 
-**V-4 · `hasVideo` no es filtrable en la búsqueda.** Está en el documento indexado pero **no**
+**V-4 · `hasVideo` no era filtrable en la búsqueda** — **CERRADO** (2026-08-24, rama `feat-filtro-video`): está en `CORE_FILTERABLE_ATTRIBUTES` y `/busqueda` tiene su casilla «Solo con vídeo». Está en el documento indexado pero **no**
 en `CORE_FILTERABLE_ATTRIBUTES`
 ([`search.service.ts:101`](../apps/api/src/modules/search/search.service.ts#L101)). No existe
 un filtro «solo con vídeo» ni puede existir sin tocar los ajustes del índice. Para un beneficio
@@ -676,7 +676,7 @@ Ordenada por **(daño real) ÷ (coste de cerrarlo)**. Cada uno con su ubicación
 |---|---|---|
 | ~~**8**~~ | ~~**El bonus de packs solo se le enseña a quien ya es Pro**~~ — **CERRADO** (2026-08-24): las dos monedas simétricas, y el número lo sirve el catálogo con la MISMA función que congela el checkout ([`pro-bonus.ts`](../apps/api/src/modules/billing/pro-bonus.ts)) — se acabó la fórmula duplicada | [`gates-pro.test.tsx`](../apps/web/src/components/pro/gates-pro.test.tsx) |
 | ~~**9**~~ | ~~**Las cuotas gratis no se anuncian a quien no las tiene**~~ — **CERRADO** (2026-08-24): se anuncian en /mis-anuncios y en el diálogo de promocionar, con la cifra configurada y el texto honesto con D-1 («suscribiéndote», porque un Pro concedido no tiene cuota). De paso, a un Pro manual ya no se le dice «has usado tus destacados gratis» sobre unos que nunca tuvo | [`gates-pro.test.tsx`](../apps/web/src/components/pro/gates-pro.test.tsx) |
-| **10** | **`hasVideo` no es filtrable** en Meilisearch: no hay «solo con vídeo» ni puede haberlo | [`search.service.ts:101`](../apps/api/src/modules/search/search.service.ts#L101) |
+| ~~**10**~~ | ~~**`hasVideo` no es filtrable** en Meilisearch~~ — **CERRADO** (2026-08-24): filtro OPCIONAL (`?conVideo=true`) con casilla en el panel; comprobado contra el índice REAL, no contra la constante. De paso quedó una barrera ESTRUCTURAL del `waitForTask` de los settings: era una carrera que ningún e2e podía cazar (en local Meili la gana siempre) | [`busqueda-filtro-video.e2e-spec.ts`](../apps/api/test/busqueda-filtro-video.e2e-spec.ts) · [`search.service.settings.spec.ts`](../apps/api/src/modules/search/search.service.settings.spec.ts) |
 | **11** | **Nada avisa de que el vídeo se añade al editar, no al publicar** (coherente con el backend, invisible para el vendedor) | [`PublicarWizard.tsx`](../apps/web/src/components/publicar/PublicarWizard.tsx) vs. [`EditarForm.tsx:383`](../apps/web/src/components/publicar/EditarForm.tsx#L383) |
 
 ### Bajos — conocidos, acotados o cosméticos
