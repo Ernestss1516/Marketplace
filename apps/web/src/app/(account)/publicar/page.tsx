@@ -3,6 +3,7 @@ import { auth } from '@/lib/auth';
 import { getCategories } from '@/lib/api/categorias';
 import { getPhotoLimits } from '@/lib/api/anuncios';
 import { getMe } from '@/lib/api/usuarios';
+import { getProStatus, type ProStatus } from '@/lib/api/billing';
 import { PublicarWizard } from '@/components/publicar/PublicarWizard';
 import { buildLoginUrl } from '@/lib/auth/callback-url';
 
@@ -13,12 +14,17 @@ export default async function PublicarPage() {
   if (!session?.user.accessToken) redirect(buildLoginUrl('/publicar'));
 
   const token = session.user.accessToken;
-  const [categories, me, photoLimits] = await Promise.all([
+  const [categories, me, photoLimits, proStatus] = await Promise.all([
     getCategories(),
     getMe(token).catch(() => ({})),
     // PUERTA regla #3 — el tope de fotos lo dice el servidor, no una constante del
     // asistente. Se pide aquí, junto al resto de datos de la página.
     getPhotoLimits(),
+    // VÍDEO #11 — el asistente necesita saber si quien publica es Pro para decirle lo que
+    // le toca: al Pro, que su vídeo se añade editando; al que no lo es, que existe. Se
+    // pide como en `/mis-anuncios` y en el editor, y se degrada a «no Pro» si falla — un
+    // aviso perdido no puede tumbar la publicación.
+    getProStatus(token).catch(() => ({ isPro: false }) as ProStatus),
   ]);
 
   return (
@@ -34,6 +40,7 @@ export default async function PublicarPage() {
         }}
         initialPhone={('phone' in me && me.phone) ? me.phone : ''}
         photoLimits={photoLimits}
+        isPro={proStatus.isPro}
       />
     </div>
   );

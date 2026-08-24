@@ -502,6 +502,7 @@ export class AdminService {
       city,
       triage,
       watched,
+      conVideo,
       ip,
       createdFrom,
       createdTo,
@@ -619,6 +620,12 @@ export class AdminService {
       // que F2 prometió que costaría añadir un eje nuevo.
       ...(triage?.length && { triage: { in: triage } }),
       ...(watched !== undefined && { watched }),
+      // VÍDEO #13 — el eje del vídeo, otras dos líneas. Va contra `videoUrl` porque
+      // `hasVideo` no es columna: es la derivación, y la misma que hace `toSummary`
+      // (`videoUrl != null`). Aquí no se puede reusar el `conVideo` de la búsqueda —
+      // aquél filtra en Meilisearch, que sólo indexa ACTIVE, y el moderador trabaja
+      // sobre todo con los otros ocho estados (ver la cabecera del DTO).
+      ...(conVideo !== undefined && { videoUrl: conVideo ? { not: null } : null }),
       ...((createdFrom || createdTo) && {
         createdAt: {
           ...(createdFrom && { gte: new Date(createdFrom) }),
@@ -677,6 +684,8 @@ export class AdminService {
           // A1 — hace falta para derivar `ipFlagged`. No se sirve en crudo: la lista no
           // enseña IPs, sólo si la de este anuncio está marcada.
           lastOwnerIp: true,
+          // VÍDEO #13 — mismo trato exacto: se lee para derivar `hasVideo` y no se sirve.
+          videoUrl: true,
           category: { select: { id: true, name: true, slug: true } },
           seller: { select: { id: true, name: true, slug: true, email: true } },
           images: {
@@ -695,9 +704,15 @@ export class AdminService {
     // mantener. `lastOwnerIp` sale del objeto: la lista enseña si está marcada, no cuál es.
     const marcadas = await this.leerIpsMarcadas();
     return {
-      items: items.map(({ lastOwnerIp, ...l }) => ({
+      // VÍDEO #13 — `videoUrl` entra en el `select` y SALE del objeto, igual que
+      // `lastOwnerIp`: la lista dice SI hay vídeo, nunca dónde está. No es celo de más, es
+      // el contrato de cero bytes en listas — con la dirección en el payload, la siguiente
+      // persona que toque esta tabla puede montar un `<video>` sin darse cuenta de que
+      // está sirviendo veinticinco descargas por página. Sin dirección no hay tentación.
+      items: items.map(({ lastOwnerIp, videoUrl, ...l }) => ({
         ...l,
         ipFlagged: ipMarcada(lastOwnerIp, marcadas),
+        hasVideo: videoUrl != null,
       })),
       total,
       page,

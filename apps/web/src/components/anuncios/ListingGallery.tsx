@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Image from 'next/image';
 import { Play } from 'lucide-react';
 import { isSafeSrc } from '@/lib/image-domains';
+import { VideoPlayer } from './VideoPlayer';
 import type { ListingImage } from '@/types';
 
 interface Props {
@@ -53,24 +54,16 @@ export function ListingGallery({ images, title, videoUrl, videoPosterUrl }: Prop
       <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-muted">
         {mostrandoVideo ? (
           /*
-            `preload="none"` — LA DECISIÓN DE RENDIMIENTO DE ESTA PANTALLA.
-
-            «Un anuncio» no es «cargar el vídeo al abrir». La ficha es la página de SEO y de
-            conversión, y la mayoría de quienes llegan solo miran fotos: descargar megabytes
-            antes de que nadie pulse nada penalizaría a todos para servir a unos pocos.
-
-            Con esto, el coste de que un anuncio tenga vídeo es UNA IMAGEN MÁS —el póster—
-            hasta que el usuario decide verlo. `controls` sin `autoPlay`: reproducir es
-            siempre un acto suyo.
+            El reproductor vive en `VideoPlayer`, compartido con el del backoffice. Con el
+            `<video>` escrito a mano aquí y otro allí, los dos habían divergido en
+            `preload` y en la validación de origen — ver la cabecera de ese fichero. Lo
+            único propio de ESTA pantalla es el póster: si el vídeo no trae uno, sirve la
+            primera foto del anuncio, que es lo que el usuario acaba de ver en la lista.
           */
-          <video
+          <VideoPlayer
             src={video}
             poster={poster ?? images[0]?.url}
-            controls
-            preload="none"
-            playsInline
             className="h-full w-full object-contain"
-            data-testid="ficha-video"
           />
         ) : (
           <Image
