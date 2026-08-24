@@ -1,5 +1,8 @@
 import { PrismaClient, Prisma, Role, ProductType, PriceInterval } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+// ENCENDER EL VÍDEO — la lista de ajustes vive aparte para que un test pueda mirarla sin
+// ejecutar la semilla entera (este fichero tiene un `main()` en la raíz).
+import { SEED_SETTINGS } from './seed-settings';
 
 const prisma = new PrismaClient();
 
@@ -448,36 +451,7 @@ async function seedSettings() {
   // createMany + skipDuplicates: only inserts keys that don't exist yet.
   // Values that an admin has already changed via the backoffice are NEVER overwritten.
   const { count } = await prisma.setting.createMany({
-    data: [
-      { key: 'badWordList', value: [] },
-      { key: 'listingExpiryDays', value: 60 },
-      { key: 'contactRequiresVerification', value: true },
-      // Bump automático (D7) — interruptor de emergencia; ver SETTING_KEYS.
-      { key: 'bumpAutoEnabled', value: true },
-      // RF.4: costes de créditos — configurables desde el backoffice sin despliegue.
-      { key: 'featuredCreditCost7d', value: 30 },
-      { key: 'featuredCreditCost14d', value: 50 },
-      { key: 'featuredCreditCost30d', value: 100 },
-      { key: 'bumpCreditCost', value: 5 },
-      // RF.7: límites de anuncios activos por plan — configurables sin despliegue.
-      { key: 'freeActiveListingLimit', value: 5 },
-      { key: 'proActiveListingLimit', value: 20 },
-      // RF.10 Bonus Pro: porcentaje de créditos extra para usuarios Pro al comprar un pack.
-      { key: 'proExtraCreditsPercent', value: 20 },
-      // H8.1: destacados gratis/mes que otorga la cuota de Pro (reseteo derivado, sin cron).
-      { key: 'proMonthlyFeaturedQuota', value: 4 },
-      // H8.5a: fixed duration of a featured grant paid from the quota (the user
-      // chooses duration only when paying with credits).
-      { key: 'proQuotaFeaturedDurationDays', value: 7 },
-      // Monetización ráfaga 3: bumps gratis/mes que otorga la cuota de Pro —
-      // mismo periodo que proMonthlyFeaturedQuota (misma Subscription), reseteo
-      // derivado, sin cron.
-      { key: 'proMonthlyBumpQuota', value: 4 },
-      // Monetización ráfaga 4: bonus de bumps extra para Pro al comprar un
-      // BumpPack — Setting propia, NO se reutiliza proExtraCreditsPercent
-      // (son beneficios distintos, calibrables por separado).
-      { key: 'proExtraBumpsPercent', value: 20 },
-    ],
+    data: SEED_SETTINGS,
     skipDuplicates: true,
   });
   if (count > 0) {
