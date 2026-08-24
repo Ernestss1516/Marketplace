@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { BumpLedgerType, EntitlementType, FeaturedOrigin, Prisma } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { ProStatusService } from '../listing-gate/pro-status.service';
+import { suscripcionVigenteFilter } from './subscription-vigente';
 
 function activeFilter() {
   const now = new Date();
@@ -94,6 +95,28 @@ export interface FeaturedQuotaStatus {
    * algún día se decide que una concesión manual sí traiga cuota (D-1).
    */
   quotaSource: 'SUBSCRIPTION' | 'NONE';
+  /**
+   * PARIDAD DEL PRO MANUAL — EL SEGUNDO EJE, que la interfaz no tenía.
+   *
+   * «¿Tiene una suscripción de pago viva?», que NO es «¿es Pro?». El frontend fundía las
+   * dos en `isPro` y de ahí salían los dos huecos de §1.5:
+   *
+   *   · `/perfil/suscripcion` sólo pintaba contenido si había `Subscription`, así que un Pro
+   *     manual —Pro sin suscripción— se quedaba con la cabecera «Plan Pro» y nada debajo.
+   *   · `/planes` deshabilitaba el botón con «Ya eres Pro» mirando `isPro`, así que un Pro
+   *     manual NO podía convertirse en cliente de pago… aunque el servidor sí le dejaba (el
+   *     guard `ALREADY_SUBSCRIBED` mira `Subscription`, y él no tiene ninguna).
+   *
+   * Se calcula con el MISMO predicado que ese guard (`suscripcionVigenteFilter`), y ése es
+   * el punto: el botón ofrece exactamente lo que el checkout acepta. Con dos copias del
+   * criterio, la interfaz podría volver a ofrecer lo que el servidor rechaza.
+   *
+   * NO se deriva de `quotaSource`, aunque se le parezca: `quotaSource` mira si el
+   * ENTITLEMENT cuelga de una suscripción, y una `PAST_DUE` daría `SUBSCRIPTION` mientras el
+   * guard —que la deja pasar a propósito— permitiría rehacer el pago. Serían dos respuestas
+   * distintas a la misma pregunta.
+   */
+  hasActiveSubscription: boolean;
 }
 
 @Injectable()
@@ -159,16 +182,26 @@ export class EntitlementService {
    * residuales para el mismo usuario.
    */
   async getFeaturedQuotaStatus(userId: string): Promise<FeaturedQuotaStatus> {
-    const proEntitlement = await this.prisma.entitlement.findFirst({
-      // U1 — se pide directamente el que LLEVA PERIODO. Antes se cogía el más
-      // reciente y se comprobaba después si tenía suscripción, que es lo que
-      // dejaba a un Pro manual tapar la cuota de un cliente de pago.
-      where: proConPeriodoFilter(userId),
-      select: {
-        subscription: { select: { currentPeriodStart: true, currentPeriodEnd: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    const [proEntitlement, suscripcionVigente] = await Promise.all([
+      this.prisma.entitlement.findFirst({
+        // U1 — se pide directamente el que LLEVA PERIODO. Antes se cogía el más
+        // reciente y se comprobaba después si tenía suscripción, que es lo que
+        // dejaba a un Pro manual tapar la cuota de un cliente de pago.
+        where: proConPeriodoFilter(userId),
+        select: {
+          subscription: { select: { currentPeriodStart: true, currentPeriodEnd: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      // PARIDAD DEL PRO MANUAL — el segundo eje, con el MISMO predicado que el guard del
+      // checkout. En paralelo con la de arriba: no dependen la una de la otra, así que
+      // añadir el eje no añade latencia (`Subscription` tiene índice por `userId`).
+      this.prisma.subscription.findFirst({
+        where: suscripcionVigenteFilter(userId),
+        select: { id: true },
+      }),
+    ]);
+    const hasActiveSubscription = suscripcionVigente !== null;
 
     // SIN PERIODO. Aquí estaba el defecto: se devolvía `isPro: false`, es decir,
     // se decía «no es Pro» cuando lo que pasa es «no hay ciclo de facturación».
@@ -180,6 +213,7 @@ export class EntitlementService {
       return {
         isPro: esPro,
         quotaSource: 'NONE',
+        hasActiveSubscription,
         limit: 0,
         used: 0,
         remaining: 0,
@@ -228,6 +262,7 @@ export class EntitlementService {
     return {
       isPro: true,
       quotaSource: 'SUBSCRIPTION',
+      hasActiveSubscription,
       limit,
       used,
       remaining: Math.max(0, limit - used),

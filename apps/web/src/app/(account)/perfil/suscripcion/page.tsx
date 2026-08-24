@@ -9,6 +9,8 @@ import { Separator } from '@/components/ui/separator';
 import { auth } from '@/lib/auth';
 import { getMySubscriptions, getMyEntitlements, getProStatus, type ProStatus } from '@/lib/api/billing';
 import { SuscripcionActions } from './_components/SuscripcionActions';
+import { PlanConcedido } from './_components/PlanConcedido';
+import { resolverPlan } from './_components/plan-actual';
 import { buildLoginUrl } from '@/lib/auth/callback-url';
 
 export const metadata: Metadata = { title: 'Mi suscripción' };
@@ -47,11 +49,20 @@ export default async function SuscripcionPage() {
     ),
   ]);
 
-  const isPro = entitlements.some(
-    (e) => e.type === 'PRO_SUBSCRIPTION' && !e.revokedAt,
-  );
+  const isPro = entitlements.some((e) => e.type === 'PRO_SUBSCRIPTION' && !e.revokedAt);
 
-  const activeSubscription = subscriptions[0] ?? null;
+  /**
+   * PARIDAD DEL PRO MANUAL (§1.5, H-1) — LAS TRES RAMAS, DECIDIDAS EN UN SOLO SITIO.
+   *
+   * Esta página tenía dos condiciones sueltas en el marcado: «hay suscripción» y «ni
+   * suscripción ni Pro». Entre ellas quedaba un hueco por el que se caía un caso real —el
+   * Pro CONCEDIDO por el equipo, que es Pro **sin** suscripción—, y un hueco entre dos `&&`
+   * no se ve leyendo el JSX. Ahora la decisión tiene nombre y tipo: ver plan-actual.ts.
+   */
+  const plan = resolverPlan(subscriptions, entitlements);
+  // Las tres ramas del marcado leen de `plan` y de nadie más: con dos fuentes de verdad
+  // podría volver a abrirse un hueco entre ellas, que es exactamente lo que pasó.
+  const activeSubscription = plan.tipo === 'DE_PAGO' ? plan.suscripcion : null;
 
   return (
     <div className="space-y-8">
@@ -153,10 +164,14 @@ export default async function SuscripcionPage() {
             ) : null}
           </CardContent>
         )}
+
+        {/* La tercera rama. Ver plan-actual.ts y PlanConcedido.tsx. */}
+        {plan.tipo === 'CONCEDIDO' && <PlanConcedido expiresAt={plan.expiresAt} />}
+
       </Card>
 
       {/* No active plan */}
-      {!activeSubscription && !isPro && (
+      {plan.tipo === 'GRATUITO' && (
         <Card className="border-dashed">
           <CardContent className="flex flex-col items-center gap-4 py-10 text-center">
             <Package className="h-10 w-10 text-muted-foreground" />

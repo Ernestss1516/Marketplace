@@ -169,7 +169,7 @@ Cubierto por tests e2e: [`usuario-acciones.e2e-spec.ts`](../apps/api/test/usuari
 
 ### 1.5 Los dos huecos de paridad que sí existen — y los dos están en la interfaz
 
-**H-1 · `/perfil/suscripcion` deja al Pro manual con una tarjeta vacía.**
+**H-1 · `/perfil/suscripcion` dejaba al Pro manual con una tarjeta vacía** — **CERRADO** (2026-08-24, rama `fix-paridad-pro-manual`).
 [`page.tsx:81`](../apps/web/src/app/(account)/perfil/suscripcion/page.tsx#L81) — **todo** el
 `CardContent` está condicionado a `activeSubscription`. Un Pro manual ve la cabecera «Plan
 Pro · Acceso a todas las funciones Pro» y **nada más**: ni hasta cuándo lo tiene, ni de dónde
@@ -177,7 +177,7 @@ sale, ni por qué no ve cuota. El backoffice sí se lo dice al admin; al usuario
 `isPro` es true, tampoco entra la tarjeta «No tienes ningún plan activo» (línea 159), así que
 la página se queda literalmente en blanco por debajo del título.
 
-**H-2 · `/planes` impide al Pro manual convertirse en Pro de pago.**
+**H-2 · `/planes` impedía al Pro manual convertirse en Pro de pago** — **CERRADO** (2026-08-24).
 [`CheckoutButton.tsx:75`](../apps/web/src/app/(public)/planes/_components/CheckoutButton.tsx#L75)
 — si `getProStatus().isPro` es true pinta «Ya eres Pro» **deshabilitado** y enlaza a
 «Gestionar mi suscripción», que para un Pro manual es la página vacía de H-1. Pero el backend
@@ -194,6 +194,16 @@ deseable: el que tuvo Pro de regalo y quiere pagarlo.
 > Las dos únicas asimetrías son (a) las **cuotas mensuales**, deliberada y documentada, y (b)
 > **dos huecos de interfaz** (H-1, H-2) que dejan al Pro manual sin información y sin salida
 > hacia el pago.
+
+> **§1 CERRADA** (2026-08-24, rama `fix-paridad-pro-manual`). Los dos huecos de interfaz
+> tenían la misma causa: el frontend fundía «es Pro» (un `Entitlement`) y «tiene suscripción
+> de pago» (una `Subscription`) en un solo `isPro`. El backend nunca los confundió, pero sólo
+> publicaba uno de los dos ejes. `GET /billing/pro-status` sirve ahora también
+> `hasActiveSubscription`, calculado con el MISMO predicado que el guard del checkout
+> ([`subscription-vigente.ts`](../apps/api/src/modules/billing/subscription-vigente.ts)) —
+> así la interfaz ofrece exactamente lo que el servidor acepta.
+>
+> Queda en pie sólo la asimetría (a), que es una decisión de producto, no un defecto.
 
 ---
 
@@ -643,8 +653,8 @@ Ordenada por **(daño real) ÷ (coste de cerrarlo)**. Cada uno con su ubicación
 |---|---|---|
 | ~~**3**~~ | ~~**`/mis-anuncios` no marca qué anuncios llevan vídeo**~~ — **CERRADO** (2026-08-24): el indicador se extrajo a [`VideoIndicator`](../apps/web/src/components/anuncios/VideoIndicator.tsx) y esta tarjeta lo pinta | [`mis-anuncios-indicador-video.test.tsx`](../apps/web/src/components/anuncios/mis-anuncios-indicador-video.test.tsx) |
 | ~~**4**~~ | ~~**`/favoritos` no puede pintar el indicador**: es la única lista que no pasa por `toSummary`~~ — **CERRADO** (2026-08-24, rama `fix-fuga-favoritos`): al arreglar la fuga de privacidad por la raíz, `/favorites` pasa a servir `toSummary` y gana `hasVideo`; `ListingCard` ya lo consumía, así que el indicador se pinta solo. Ver «Hallazgo colateral» | [`listing-summary.ts`](../apps/api/src/modules/listings/listing-summary.ts) |
-| **5** | **El Pro manual ve una página de suscripción vacía** — sin vencimiento, sin procedencia, sin explicación | [`perfil/suscripcion/page.tsx:81`](../apps/web/src/app/(account)/perfil/suscripcion/page.tsx#L81) |
-| **6** | **El Pro manual no puede pasarse a Pro de pago**: la UI lo bloquea, el backend lo permitiría | [`CheckoutButton.tsx:75`](../apps/web/src/app/(public)/planes/_components/CheckoutButton.tsx#L75) |
+| ~~**5**~~ | ~~**El Pro manual ve una página de suscripción vacía**~~ — **CERRADO** (2026-08-24): la página tenía dos ramas y el caso se caía por el hueco; ahora las tres se deciden en [`plan-actual.ts`](../apps/web/src/app/(account)/perfil/suscripcion/_components/plan-actual.ts) | [`plan-actual.test.tsx`](../apps/web/src/app/(account)/perfil/suscripcion/_components/plan-actual.test.tsx) |
+| ~~**6**~~ | ~~**El Pro manual no puede pasarse a Pro de pago**~~ — **CERRADO** (2026-08-24): el botón miraba `isPro` y ahora mira `hasActiveSubscription`, calculado con el MISMO predicado que el guard del checkout | [`CheckoutButton.test.tsx`](../apps/web/src/app/(public)/planes/_components/CheckoutButton.test.tsx) · [`pro-manual-paridad.e2e-spec.ts`](../apps/api/test/pro-manual-paridad.e2e-spec.ts) |
 | **7** | **El límite de anuncios no explica ni enlaza a `/planes`** en el momento exacto en que duele | [`active-listing-limit.rule.ts:80`](../apps/api/src/modules/listing-gate/rules/active-listing-limit.rule.ts#L80) |
 
 ### Medios — descubrimiento y conversión

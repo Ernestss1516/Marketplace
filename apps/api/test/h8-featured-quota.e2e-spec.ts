@@ -203,6 +203,11 @@ describe('H8.2 — GET /billing/pro-status (cuota mensual de destacados Pro)', (
       // mantiene ESTRICTO a propósito: es la aserción que obliga a que cualquier
       // campo nuevo de esta respuesta pase por aquí.
       quotaSource: 'NONE',
+      // PARIDAD DEL PRO MANUAL (§1.5) — el segundo eje, y este `toEqual` hizo justo lo que
+      // su comentario promete: obligó a que el campo nuevo se declarara aquí. «¿Tiene
+      // suscripción de pago?» es otra pregunta que «¿es Pro?», y para un no-Pro las dos
+      // son `false` — que coincidan aquí no las convierte en la misma.
+      hasActiveSubscription: false,
     });
   });
 

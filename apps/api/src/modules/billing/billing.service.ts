@@ -30,6 +30,7 @@ import { CampaignsService } from '../campaigns/campaigns.service';
 import { EntitlementService } from './entitlement.service';
 import { ListingGateService } from '../listing-gate/listing-gate.service';
 import { BUMP_COOLDOWN_SECONDS } from './bump-cooldown';
+import { suscripcionVigenteFilter } from './subscription-vigente';
 import { CheckoutDto } from './dto/checkout.dto';
 import { FeaturedByCreditsDto } from './dto/featured-by-credits.dto';
 import { TransactionsQueryDto } from './dto/transactions-query.dto';
@@ -132,10 +133,11 @@ export class BillingService {
      * siendo Pro hasta el fin del periodo, y suscribirse otra vez solaparía dos cobros.
      */
     const suscripcionVigente = await this.prisma.subscription.findFirst({
-      where: {
-        userId,
-        status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.CANCELING] },
-      },
+      // El predicado se comparte con `GET /billing/pro-status`, que es de donde la interfaz
+      // saca si enseña «Ya eres Pro» o «Hazte Pro». Con una copia en cada sitio, el botón
+      // podía ofrecer un checkout que este guard rechaza — o esconder uno que aceptaría, que
+      // es lo que le pasaba a un Pro concedido a mano. Ver subscription-vigente.ts.
+      where: suscripcionVigenteFilter(userId),
       select: { id: true, status: true },
     });
     if (suscripcionVigente) {

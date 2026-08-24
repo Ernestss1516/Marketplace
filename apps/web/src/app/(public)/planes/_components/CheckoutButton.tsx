@@ -28,6 +28,18 @@ interface Props {
  * eso habría dejado el agujero abierto a cualquier POST directo. Lo de aquí es lo que
  * evita que el usuario llegue siquiera a intentarlo, y que si lo intenta entienda por qué
  * no puede.
+ *
+ * PARIDAD DEL PRO MANUAL (§1.5, H-2) — Y EL BOTÓN MIRABA EL EJE EQUIVOCADO.
+ *
+ * Bloqueaba con `isPro`, que es «¿tiene las ventajas Pro?». La pregunta que decide si
+ * alguien puede comprar el plan es otra: «¿ya tiene una suscripción de pago?». Para un
+ * cliente de pago las dos coinciden y por eso no se notaba; para un Pro CONCEDIDO por el
+ * equipo —Pro sin suscripción— no coinciden en absoluto, y el botón le decía «Ya eres Pro»
+ * mientras el servidor **sí** le habría dejado suscribirse.
+ *
+ * Perdía justo el caso más deseable: el que tuvo Pro de regalo y quiere pagarlo. Ahora se
+ * lee `hasActiveSubscription`, que el backend calcula con el MISMO predicado que su guard —
+ * así el botón ofrece exactamente lo que el checkout acepta, ni más ni menos.
  */
 export function CheckoutButton({ priceId, label = 'Hazte Pro' }: Props) {
   const { data: session, status } = useSession();
@@ -35,7 +47,8 @@ export function CheckoutButton({ priceId, label = 'Hazte Pro' }: Props) {
   const { requireAuth, loginUrl } = useRequireAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [yaEsPro, setYaEsPro] = useState<boolean | null>(null);
+  /** «Ya paga el plan», NO «ya es Pro» — ver la cabecera. */
+  const [yaSuscrito, setYaSuscrito] = useState<boolean | null>(null);
 
   const token = session?.user.accessToken;
 
@@ -43,15 +56,17 @@ export function CheckoutButton({ priceId, label = 'Hazte Pro' }: Props) {
   // sin cuenta, que no debe disparar nada.
   useEffect(() => {
     if (!token) {
-      setYaEsPro(false);
+      setYaSuscrito(false);
       return;
     }
     let cancelado = false;
     getProStatus(token)
-      .then((s) => !cancelado && setYaEsPro(s.isPro))
+      // `hasActiveSubscription`, NO `isPro`. Y con `?? false` por lo mismo que el `catch` de
+      // abajo: si el backend es anterior a este campo, se deja pasar y decide el servidor.
+      .then((s) => !cancelado && setYaSuscrito(s.hasActiveSubscription ?? false))
       // Ante la duda NO se bloquea la compra: el backend sigue siendo quien decide, y
       // dejar sin suscribirse a alguien que sí puede sería peor que enseñarle el botón.
-      .catch(() => !cancelado && setYaEsPro(false));
+      .catch(() => !cancelado && setYaSuscrito(false));
     return () => {
       cancelado = true;
     };
@@ -73,7 +88,7 @@ export function CheckoutButton({ priceId, label = 'Hazte Pro' }: Props) {
     );
   }
 
-  if (yaEsPro) {
+  if (yaSuscrito) {
     return (
       <div className="w-full space-y-2" data-testid="ya-eres-pro">
         <Button className="w-full" variant="outline" disabled>
@@ -94,7 +109,7 @@ export function CheckoutButton({ priceId, label = 'Hazte Pro' }: Props) {
       <Button
         className="w-full"
         onClick={handleClick}
-        disabled={loading || status === 'loading' || yaEsPro === null}
+        disabled={loading || status === 'loading' || yaSuscrito === null}
       >
         {loading ? 'Redirigiendo a Stripe…' : label}
       </Button>
