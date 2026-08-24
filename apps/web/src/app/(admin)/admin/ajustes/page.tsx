@@ -752,6 +752,12 @@ const SETTING_TITLES: Record<string, string> = {
   proMonthlyBumpQuota: 'Cuota mensual de bumps (Pro)',
   proExtraBumpsPercent: 'Bonus de bumps al comprar packs de bumps (Pro)',
   maxTagsPerListing: 'Máximo de tags por anuncio',
+  // ENCENDER EL VÍDEO — los cuatro interruptores que el backend ya aceptaba y esta página
+  // no pintaba. Ver docs/auditoria-pro-video.md §2.0.
+  videoEnabled: 'Vídeo en los anuncios (ventaja Pro)',
+  attributeRevalidationEnabled: 'Marcar los anuncios que dejan de cumplir su categoría',
+  bumpAutoEnabled: 'Bump automático (programaciones)',
+  maxBumpSchedulesPerUser: 'Máximo de programaciones de bump por usuario',
   supportEmail: 'Buzón de soporte',
   ticketAutoCloseWindowDays: 'Ventana de reapertura y cierre de tickets',
 };
@@ -803,6 +809,14 @@ const SETTING_DESCRIPTIONS: Record<string, string> = {
     'Porcentaje de bumps extra que recibe un usuario Pro al comprar un pack de bumps, sobre el mismo precio que paga cualquier usuario. Setting independiente del bonus de créditos (proExtraCreditsPercent) — beneficios distintos, calibrables por separado. Se congela en cada compra: cambiar este valor no afecta a compras ya realizadas.',
   maxTagsPerListing:
     'Cuántas etiquetas puede llevar como máximo un anuncio. Los tags se configuran por categoría (catálogo en Tags, asignación en Categorías) y el usuario elige entre los que su categoría ofrece; este número es el tope de cuántos puede marcar. Subirlo no afecta a los anuncios ya publicados con menos.',
+  videoEnabled:
+    'Permite a los vendedores Pro añadir un vídeo corto a sus anuncios (MP4, máximo 60 segundos y 50 MB). ⚠ Nace APAGADO a propósito, y encenderlo es una decisión de coste: desde el primer vídeo la plataforma paga almacenamiento y ancho de banda cada vez que alguien le da al play. Mientras esté apagado, la sección de vídeo no existe para nadie —ni siquiera para un Pro— y el servidor rechaza cualquier subida. Apagarlo después NO borra nada: los vídeos ya subidos dejan de ofrecerse, y vuelven si se reenciende.',
+  attributeRevalidationEnabled:
+    'Cuando un administrador cambia los atributos de una categoría, los anuncios que ya estaban publicados pueden dejar de cumplirla. Encendido, esos anuncios quedan MARCADOS y su dueño ve qué tiene que corregir. ⚠ Es la única regla capaz de señalar anuncios publicados hace años sin que su dueño haya tocado nada, así que antes de encenderla conviene mirar a cuántos afecta con `pnpm gate-impact-report`. Apagada, el mecanismo sigue marcando y avisando por dentro — que es lo que hace que encenderla no sea a ciegas.',
+  bumpAutoEnabled:
+    'Interruptor de emergencia del bump automático. Encendido (por defecto), el cron ejecuta las programaciones de bump que los usuarios hayan dejado puestas. ⚠ Es la única función que gasta dinero de los usuarios de forma DESATENDIDA, así que este interruptor existe para poder pararla sin desplegar. Apagarlo detiene el cron pero NO borra ninguna programación: al reencender, siguen donde estaban.',
+  maxBumpSchedulesPerUser:
+    'Cuántas programaciones de bump ACTIVAS puede tener a la vez un mismo usuario. Bajarlo no cancela las que ya existan: sólo impide crear más a quien esté en su tope.',
   supportEmail:
     'Dirección única a la que llegan los avisos por correo de los tickets de soporte. No es un reparto por administrador: es un buzón compartido. Si se deja vacío, el aviso in-app al staff se sigue creando y solo se omite el correo.',
   ticketAutoCloseWindowDays:
@@ -929,6 +943,9 @@ export default function AdminAjustesPage() {
     'maxPhotosPerListing',
     'minPhotosPerListing',
     'minPhotosRuleEnabled',
+    // ENCENDER EL VÍDEO — cierra el grupo de reglas de la puerta, que es donde se lee:
+    // las otras tres de arriba también deciden qué frena a un anuncio.
+    'attributeRevalidationEnabled',
     'preModerationAllListings',
     'preModerationTrustedExempt',
     // PUNTO 6 · RÁFAGA B — el ascenso, junto a la moderación previa: son la misma clase de
@@ -944,6 +961,12 @@ export default function AdminAjustesPage() {
     'proExtraCreditsPercent',
     'proMonthlyBumpQuota',
     'proExtraBumpsPercent',
+    // ENCENDER EL VÍDEO — el interruptor de la feature, junto al resto de ventajas de Pro
+    // porque es una de ellas y ahí es donde un administrador va a buscarlo.
+    'videoEnabled',
+    // Y el par del bump automático, que se lee junto: el interruptor y su tope.
+    'bumpAutoEnabled',
+    'maxBumpSchedulesPerUser',
     'supportEmail',
     'ticketAutoCloseWindowDays',
   ] as const;
@@ -1235,6 +1258,52 @@ export default function AdminAjustesPage() {
                   helpText="Debe ser al menos 1: una ventana de 0 cerraría al instante todo lo que se resuelva."
                   min={1}
                   suffix="días"
+                />
+              )}
+
+              {/* ENCENDER EL VÍDEO — los cuatro que faltaban. El circuito del backend
+                  (whitelist, GET/PATCH, el guard `assertEnabled`) ya estaba entero desde su
+                  ráfaga: lo único que faltaba era esto, la interfaz para darle al
+                  interruptor. Ver docs/auditoria-pro-video.md §2.0. */}
+              {key === 'videoEnabled' && (
+                <BooleanSettingEditor
+                  setting={setting}
+                  token={token}
+                  onSaved={() => handleSaved(key)}
+                  settingKey="videoEnabled"
+                  label="Permitir vídeo en los anuncios de vendedores Pro"
+                  helpText="Al encenderlo, la sección «Vídeo» aparece en el editor de anuncios: para un Pro, con el botón de subir; para el resto, con el candado y el enlace a los planes. Apagado, no existe para nadie y el servidor rechaza cualquier subida."
+                />
+              )}
+              {key === 'attributeRevalidationEnabled' && (
+                <BooleanSettingEditor
+                  setting={setting}
+                  token={token}
+                  onSaved={() => handleSaved(key)}
+                  settingKey="attributeRevalidationEnabled"
+                  label="Marcar los anuncios que dejan de cumplir la configuración de su categoría"
+                  helpText="Los anuncios marcados SIGUEN ACTIVOS y visibles: es un aviso para su dueño, no un estado del ciclo de vida."
+                />
+              )}
+              {key === 'bumpAutoEnabled' && (
+                <BooleanSettingEditor
+                  setting={setting}
+                  token={token}
+                  onSaved={() => handleSaved(key)}
+                  settingKey="bumpAutoEnabled"
+                  label="Ejecutar las programaciones de bump automático"
+                  helpText="Apagarlo detiene el cron al instante y no borra ninguna programación. Es el freno de mano de la única función que gasta saldo de los usuarios sin que estén delante."
+                />
+              )}
+              {key === 'maxBumpSchedulesPerUser' && (
+                <NumberSettingEditor
+                  setting={setting}
+                  token={token}
+                  onSaved={() => handleSaved(key)}
+                  settingKey="maxBumpSchedulesPerUser"
+                  label="Programaciones activas por usuario"
+                  helpText="Bajarlo no cancela las programaciones existentes: sólo impide crear más a quien ya esté en su tope."
+                  min={1}
                 />
               )}
             </div>

@@ -103,6 +103,15 @@ import {
 import { FilterableAttributesResolver } from '../search/filterable-attributes.resolver';
 import { DEFAULT_MAX_TAGS_PER_LISTING } from '../tags/tag.types';
 import { TICKET_REOPEN_WINDOW_DAYS } from '../tickets/tickets.constants';
+// ENCENDER EL VÍDEO — los cuatro interruptores que el whitelist ya aceptaba pero que
+// `SETTING_DEFAULTS` no conocía. Ver el comentario de sus entradas más abajo.
+import { VIDEO_ENABLED_SETTING } from '../video/video-limits';
+import { ATTRIBUTE_RULE_ENABLED_SETTING } from '../listing-gate/rules/attribute-revalidation.rule';
+import { BUMP_AUTO_ENABLED_SETTING } from '../bump-schedule/bump-schedule.service';
+import {
+  DEFAULT_MAX_SCHEDULES_PER_USER,
+  MAX_SCHEDULES_SETTING,
+} from '../bump-schedule/bump-schedule-crud.service';
 // RÁFAGA (A1) — la máquina de estados vive en un fichero PURO de listings (mismo
 // molde que category.types.ts) porque AdminModule no importa ListingsModule.
 import {
@@ -328,6 +337,25 @@ const SETTING_DEFAULTS: Readonly<Record<string, unknown>> = {
   [MAX_PHOTOS_SETTING]: DEFAULT_MAX_PHOTOS,
   [MIN_PHOTOS_SETTING]: DEFAULT_MIN_PHOTOS,
   [MIN_PHOTOS_RULE_ENABLED_SETTING]: false,
+  /**
+   * ENCENDER EL VÍDEO — LOS CUATRO QUE FALTABAN, Y UNO DE ELLOS MENTÍA.
+   *
+   * Estas cuatro claves llevaban tiempo en el whitelist (`SETTING_KEYS`), así que
+   * `GET /admin/settings` las devolvía… con `value: null`, porque no estaban aquí. Para tres
+   * de ellas el `null` casualmente se pinta como «apagado», que es lo correcto. Para
+   * `bumpAutoEnabled` NO: sin fila está ENCENDIDO, así que el backoffice habría enseñado un
+   * interruptor apagado mientras el cron bumpeaba de verdad. Un ajuste que miente sobre lo
+   * que está pasando es peor que uno que no se ve.
+   *
+   * Cada valor de aquí es el que se aplica DE VERDAD cuando no hay fila — el mismo que lee
+   * su servicio. Ver docs/auditoria-pro-video.md §2.0.
+   */
+  [VIDEO_ENABLED_SETTING]: false,
+  [ATTRIBUTE_RULE_ENABLED_SETTING]: false,
+  // Sin fila, ENCENDIDO (ver BUMP_AUTO_ENABLED_SETTING) — el único de los cuatro que no
+  // nace apagado, y justo el que el `null` pintaba al revés.
+  [BUMP_AUTO_ENABLED_SETTING]: true,
+  [MAX_SCHEDULES_SETTING]: DEFAULT_MAX_SCHEDULES_PER_USER,
 };
 
 // A1 (URLs anidadas) — segmentos de primer nivel que YA ocupan rutas estáticas del
