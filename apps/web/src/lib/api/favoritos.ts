@@ -24,22 +24,19 @@ export function removeFavorite(listingId: string, token: string): Promise<void> 
   return apiFetch<void>(`/favorites/${listingId}`, { method: 'DELETE', token });
 }
 
-/** Maps a raw favorites response to a frontend-consumable shape, resolving thumbnailUrl and categorySlug. */
+/**
+ * Desenvuelve el anuncio de cada favorito. Y ya no hace nada más, que es el resultado
+ * visible del arreglo de la fuga: la API servía la FILA CRUDA del anuncio (con `phone`
+ * dentro) y aquí se remendaba a mano `thumbnailUrl` y `categorySlug` a partir de las
+ * relaciones en bruto. Ahora `/favorites` pasa por el mismo `toSummary` que las otras diez
+ * listas, así que lo que llega **ya es** un `ListingSummary` — con `thumbnailUrl`,
+ * `categorySlug`, `hasVideo` y la media del vendedor ya resueltos en el servidor.
+ *
+ * Que este mapeo se haya quedado en una línea NO es cosmético: mientras el frontend
+ * reconstruía la forma segura, la insegura viajaba entera por la red.
+ */
 function normalize(data: FavoritesResponse): { items: ListingSummary[]; total: number; page: number; pages: number } {
-  return {
-    ...data,
-    items: data.items.map((fav) => {
-      // Drop the raw `images` (Postgres ListingImage[]-shaped) before spreading — it's
-      // incompatible with ListingSummary.images (Meilisearch string[] carousel URLs).
-      // Favorites don't get the carousel (out of RÁFAGA 2 scope); thumbnailUrl still works.
-      const { images: rawImages, category, ...rest } = fav.listing;
-      return {
-        ...rest,
-        thumbnailUrl: rawImages[0]?.url,
-        categorySlug: category?.slug,
-      };
-    }),
-  };
+  return { ...data, items: data.items.map((fav) => fav.listing) };
 }
 
 export async function getMyFavorites(

@@ -22,7 +22,7 @@ import {
   PHONE_REVEAL_WINDOW_SECONDS,
 } from './listing-phone.constants';
 import { EntitlementType, Prisma } from '@prisma/client';
-import type { Deal, Listing, ListingStatus, ListingType, PriceType } from '@prisma/client';
+import type { Deal, Listing, ListingStatus } from '@prisma/client';
 import {
   QUEUE_INDEXING,
   QUEUE_MEDIA_CLEANUP,
@@ -38,6 +38,10 @@ import { EntitlementService } from '../billing/entitlement.service';
 // aplica) y se sirve YA RESUELTA desde aquí. La dirección del import respeta la
 // dependencia existente ListingsModule → BillingModule.
 import { nextBumpAt } from '../billing/bump-cooldown';
+// FUGA DE FAVORITOS — «lo que una tarjeta puede ver» ya no es privado de este servicio: era
+// justamente lo que la undécima lista (`GET /favorites`) no podía reutilizar, y por eso servía
+// la fila cruda con `phone` dentro. Ver listing-summary.ts.
+import { SELECT_SUMMARY, attachSellerRatings, toSummary } from './listing-summary';
 import { ListingDetectionsService } from '../moderation/detection/listing-detections.service';
 import { camposDeTelefono } from '../moderation/detection/phone-format';
 import { PreModerationService } from '../moderation/pre-moderation.service';
@@ -118,60 +122,6 @@ const LISTING_INCLUDE = {
     orderBy: { tag: { orden: 'asc' as const } },
     select: { tag: { select: { id: true, slug: true, name: true } } },
   },
-};
-
-const SELECT_SUMMARY = {
-  id: true,
-  title: true,
-  slug: true,
-  price: true,
-  currency: true,
-  priceType: true,
-  // ATRIBUTOS EN CARD — respetar producto/servicio: sin `type` aquí, el fallback a
-  // Postgres (findByCategory y demás usos de SELECT_SUMMARY) no podía filtrar los
-  // atributos de card por tipo de anuncio — a diferencia del documento de Meilisearch,
-  // que ya indexaba `type` desde antes (ver toDocument() en search.service.ts).
-  type: true,
-  city: true,
-  province: true,
-  status: true,
-  publishedAt: true,
-  expiresAt: true,
-  bumpedAt: true,
-  attributes: true,
-  viewCount: true,
-  category: { select: { slug: true } },
-  images: { orderBy: { order: 'asc' as const }, take: 1, select: { url: true } },
-  // Vídeo Pro — se selecciona la URL SOLO para derivar `hasVideo`; la URL en sí NUNCA
-  // sale en el resumen de tarjeta. Es lo que garantiza el cero-bytes-de-vídeo en listas por
-  // construcción y no por disciplina: sin dirección, no hay nada que descargar.
-  videoUrl: true,
-  // Escaparate RÁFAGA 4 — necesario para enriquecer la card con la media
-  // verificada del vendedor en lote (ver enrichWithSellerRating), no para
-  // mostrarlo tal cual.
-  sellerId: true,
-} as const;
-
-type SummaryDbRow = {
-  id: string;
-  title: string;
-  slug: string;
-  price: Prisma.Decimal;
-  currency: string;
-  priceType: PriceType;
-  type: ListingType;
-  city: string | null;
-  province: string | null;
-  status: ListingStatus;
-  publishedAt: Date | null;
-  expiresAt: Date | null;
-  bumpedAt: Date | null;
-  attributes: Prisma.JsonValue;
-  viewCount: number;
-  category: { slug: string };
-  images: { url: string }[];
-  videoUrl: string | null;
-  sellerId: string;
 };
 
 @Injectable()
@@ -1295,7 +1245,7 @@ export class ListingsService {
       }),
       this.prisma.listing.count({ where }),
     ]);
-    const items = await this.enrichWithSellerRating(rows.map((r) => this.toSummary(r)));
+    const items = await attachSellerRatings(this.reviews, rows.map((r) => toSummary(r)));
     return { items, total, page, perPage };
   }
 
@@ -1314,7 +1264,7 @@ export class ListingsService {
     // Todas las cards de esta página pertenecen al MISMO vendedor — una sola
     // fila en el batch de todos modos (el helper ya dedup por sellerId), no
     // hace falta un camino especial.
-    const items = await this.enrichWithSellerRating(rows.map((r) => this.toSummary(r)));
+    const items = await attachSellerRatings(this.reviews, rows.map((r) => toSummary(r)));
     return { items, total, page, perPage };
   }
 
@@ -1330,7 +1280,7 @@ export class ListingsService {
       }),
       this.prisma.listing.count({ where }),
     ]);
-    const items = await this.enrichWithSellerRating(rows.map((r) => this.toSummary(r)));
+    const items = await attachSellerRatings(this.reviews, rows.map((r) => toSummary(r)));
     return { items, total, page, perPage };
   }
 
@@ -1460,7 +1410,7 @@ export class ListingsService {
     return {
       counts,
       items: rows.map((r) => ({
-        ...this.toSummary(r),
+        ...toSummary(r),
         needsRevalidation: r.needsRevalidation,
         revalidationReasons: motivos.get(r.id) ?? [],
         featuredUntil: featuredMap.get(r.id) ?? null,
@@ -1482,42 +1432,6 @@ export class ListingsService {
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
-
-  /**
-   * Escaparate RÁFAGA 4 — enriquece una página de summaries con la media
-   * verificada de sus vendedores, en UNA sola consulta agrupada por los
-   * sellerId distintos de esa página (nunca N+1 por listing). Medido: ver
-   * ReviewsService.getRatingSummaries. `average: null` (0 verificadas) es la
-   * señal de "Nuevo" que consume el frontend — no se convierte a 0 aquí.
-   */
-  private async enrichWithSellerRating<T extends { sellerId: string }>(
-    items: T[],
-  ): Promise<(T & { sellerRatingAverage: number | null; sellerRatingCount: number })[]> {
-    const sellerIds = [...new Set(items.map((i) => i.sellerId))];
-    const ratings = await this.reviews.getRatingSummaries(sellerIds);
-    return items.map((item) => {
-      const rating = ratings.get(item.sellerId);
-      return {
-        ...item,
-        sellerRatingAverage: rating?.average ?? null,
-        sellerRatingCount: rating?.count ?? 0,
-      };
-    });
-  }
-
-  private toSummary({ images, bumpedAt, attributes, category, videoUrl, ...rest }: SummaryDbRow) {
-    return {
-      ...rest,
-      // SOLO EL BOOLEANO. `videoUrl` se desestructura fuera a propósito, para que no pueda
-      // colarse en `...rest`: una tarjeta que recibiera la dirección podría descargar el
-      // vídeo, y el cero-bytes-en-listas dejaría de ser una garantía estructural.
-      hasVideo: videoUrl != null,
-      thumbnailUrl: images[0]?.url ?? undefined,
-      bumpedAt: bumpedAt?.toISOString() ?? undefined,
-      categorySlug: category.slug,
-      attributes: (attributes as Record<string, unknown>) ?? {},
-    };
-  }
 
   private async assertOwnership(id: string, userId: string): Promise<Listing> {
     const listing = await this.prisma.listing.findUnique({ where: { id } });

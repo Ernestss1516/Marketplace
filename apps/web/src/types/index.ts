@@ -537,21 +537,16 @@ export interface CloseDealResult {
 
 // ── Favorites ────────────────────────────────────────────────────────────────
 
-// Omits the base `images?: string[]` (Meilisearch carousel URLs, RÁFAGA 2): the favorites
-// API (Postgres) returns full ListingImage-like objects under the same JSON key, an
-// incompatible shape. `normalize()` in lib/api/favoritos.ts reads this to derive
-// `thumbnailUrl` and does NOT carry it over into the ListingSummary-typed result.
-export interface FavoriteListingData extends Omit<ListingSummary, 'images'> {
-  images: { url: string }[];
-  /** Raw nested relation returned by the favorites API (used in normalize() to extract categorySlug). */
-  category?: { slug: string };
-}
-
+// FUGA DE FAVORITOS — este tipo describía la FILA CRUDA del anuncio que `/favorites`
+// devolvía (relaciones anidadas en bruto, y con ellas `phone`, `lastOwnerIp`, `triage`…).
+// La API ya no la sirve: `/favorites` pasa por el mismo `toSummary` que las otras diez
+// listas, así que `listing` es un `ListingSummary` a secas. Sin `FavoriteListingData` no
+// hay una segunda forma de anuncio que el frontend pueda volver a asumir.
 export interface FavoriteItem {
   id: string;
   listingId: string;
   createdAt: string;
-  listing: FavoriteListingData;
+  listing: ListingSummary;
 }
 
 export interface FavoritesResponse {
