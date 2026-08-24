@@ -122,6 +122,145 @@ describe('Vídeo Pro — la visualización: qué llega a cada superficie (e2e)',
     });
   });
 
+  // ── 1-bis. FAVORITOS: la lista que este barrido NO cubría ──────────────────
+  //
+  // POR QUÉ ESTE BLOQUE EXISTE. El barrido de arriba corría contra
+  // `/users/me/listings` y sólo contra ella, así que dejaba fuera la ÚNICA lista que no
+  // pasaba por `toSummary`: `GET /favorites`, que servía la fila cruda del anuncio. Ahí se
+  // colaban la URL del vídeo y —lo grave— el TELÉFONO publicado, que la ficha pública
+  // descarta explícitamente y que sólo debe salir por `GET /listings/:id/phone`, autenticado
+  // y con límite por hora. Un test que barre una puerta y no la de al lado no protege la
+  // casa: la fuga vivió justo en la puerta sin barrer.
+  //
+  // Ver docs/auditoria-pro-video.md, «Hallazgo colateral».
+  describe('los payloads de FAVORITOS', () => {
+    /** Campos que NUNCA deben salir en una tarjeta. Los cinco salían antes del arreglo. */
+    const CAMPOS_PROHIBIDOS = [
+      'phone',
+      'phoneNormalized',
+      'lastOwnerIp',
+      'triage',
+      'watched',
+      'videoUrl',
+      'videoPosterUrl',
+    ] as const;
+
+    const TELEFONO = '600111222';
+
+    async function marcarFavorito(listingId: string) {
+      await request(app.getHttpServer())
+        .post(`/api/favorites/${listingId}`)
+        .set('Authorization', `Bearer ${sellerToken}`)
+        .expect(200);
+    }
+
+    it('NO filtran el teléfono del anuncio (la fuga que cerró este arreglo)', async () => {
+      const anuncio = await crearAnuncio('fav-phone', false);
+      await prisma.listing.update({
+        where: { id: anuncio.id },
+        data: { phone: TELEFONO, phoneNormalized: TELEFONO, lastOwnerIp: '203.0.113.9' },
+      });
+      await marcarFavorito(anuncio.id);
+
+      const res = await request(app.getHttpServer())
+        .get('/api/favorites')
+        .set('Authorization', `Bearer ${sellerToken}`)
+        .expect(200);
+
+      const favorito = res.body.items.find(
+        (f: { listingId: string }) => f.listingId === anuncio.id,
+      );
+      expect(favorito).toBeDefined();
+      expect(favorito.listing.phone).toBeUndefined();
+
+      // Y el barrido, que es lo que impide que vuelva por otro campo: ni el número ni la IP
+      // aparecen en NINGÚN punto del JSON, se llame como se llame el campo que los lleve.
+      const json = JSON.stringify(res.body);
+      expect(json).not.toContain(TELEFONO);
+      expect(json).not.toContain('203.0.113.9');
+    });
+
+    it('tienen la forma SEGURA de tarjeta: ni un campo interno de la fila cruda', async () => {
+      const anuncio = await crearAnuncio('fav-forma', true);
+      await marcarFavorito(anuncio.id);
+
+      const res = await request(app.getHttpServer())
+        .get('/api/favorites')
+        .set('Authorization', `Bearer ${sellerToken}`)
+        .expect(200);
+
+      const tarjeta = res.body.items.find(
+        (f: { listingId: string }) => f.listingId === anuncio.id,
+      ).listing;
+
+      // La lista blanca funcionando: lo que no está en SELECT_SUMMARY no existe en el
+      // payload. Comprobar la AUSENCIA de cada campo (y no sólo el barrido de valores) es lo
+      // que caza un `include` crudo que volviera con los campos a null.
+      for (const campo of CAMPOS_PROHIBIDOS) {
+        expect(tarjeta[campo]).toBeUndefined();
+      }
+      // Y lo que sí debe estar: los mismos campos que sirven las otras diez listas.
+      for (const campo of ['id', 'title', 'slug', 'price', 'status', 'categorySlug']) {
+        expect(tarjeta[campo]).toBeDefined();
+      }
+    });
+
+    it('y el barrido de la URL del vídeo cubre AHORA también esta puerta', async () => {
+      const anuncio = await crearAnuncio('fav-barrido', true);
+      await marcarFavorito(anuncio.id);
+
+      const res = await request(app.getHttpServer())
+        .get('/api/favorites')
+        .set('Authorization', `Bearer ${sellerToken}`)
+        .expect(200);
+
+      expect(JSON.stringify(res.body)).not.toContain('listing-videos/');
+    });
+
+    it('GANADO DE PASO: favoritos ya recibe hasVideo (hueco #4 de la auditoría)', async () => {
+      const conVideo = await crearAnuncio('fav-con', true);
+      const sinVideo = await crearAnuncio('fav-sin', false);
+      await marcarFavorito(conVideo.id);
+      await marcarFavorito(sinVideo.id);
+
+      const res = await request(app.getHttpServer())
+        .get('/api/favorites')
+        .set('Authorization', `Bearer ${sellerToken}`)
+        .expect(200);
+
+      const buscar = (id: string) =>
+        res.body.items.find((f: { listingId: string }) => f.listingId === id).listing;
+
+      // Pasar por `toSummary` no sólo quita lo que sobra: trae lo que faltaba. La tarjeta de
+      // favoritos ya puede pintar el indicador de vídeo, como el resto de las listas.
+      expect(buscar(conVideo.id).hasVideo).toBe(true);
+      expect(buscar(sinVideo.id).hasVideo).toBe(false);
+    });
+
+    it('POST /favorites/:id devuelve la MISMA forma segura que la lista', async () => {
+      // La otra puerta al mismo dato. Tenía el mismo `include` crudo, así que arreglar sólo
+      // el GET habría dejado la fuga viva en el POST.
+      const anuncio = await crearAnuncio('fav-post', true);
+      await prisma.listing.update({
+        where: { id: anuncio.id },
+        data: { phone: TELEFONO, phoneNormalized: TELEFONO },
+      });
+
+      const res = await request(app.getHttpServer())
+        .post(`/api/favorites/${anuncio.id}`)
+        .set('Authorization', `Bearer ${sellerToken}`)
+        .expect(200);
+
+      expect(res.body.listing.id).toBe(anuncio.id);
+      expect(res.body.listing.hasVideo).toBe(true);
+      for (const campo of CAMPOS_PROHIBIDOS) {
+        expect(res.body.listing[campo]).toBeUndefined();
+      }
+      expect(JSON.stringify(res.body)).not.toContain(TELEFONO);
+      expect(JSON.stringify(res.body)).not.toContain('listing-videos/');
+    });
+  });
+
   // ── 2. El documento indexado ───────────────────────────────────────────────
 
   describe('Meilisearch — de donde salen las tarjetas de búsqueda', () => {
