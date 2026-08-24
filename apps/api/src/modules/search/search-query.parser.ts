@@ -9,6 +9,11 @@ import type { AttributeField } from '../categories/category.types';
 export const CORE_SEARCH_QUERY_KEYS = new Set([
   'q', 'category', 'type', 'condition', 'priceType', 'priceUnit', 'minPrice', 'maxPrice',
   'province', 'city', 'sort', 'page', 'hitsPerPage', 'lat', 'lng', 'radius',
+  // V-4 — «solo con vídeo». Reservado aquí para que NO se trate como atributo de
+  // categoría: `hasVideo` es global (cualquier anuncio puede tenerlo), no pertenece a
+  // ninguna categoría, así que la validación scoped-por-categoría no le aplica — el
+  // mismo caso que `tags`.
+  'conVideo',
   // B2 lo reservó (para que no se tratara como atributo de categoría) y B3 lo activó:
   // ahora `SearchQueryDto.tags` existe, así que en vez de chocar con
   // `forbidNonWhitelisted` se parsea como CSV.

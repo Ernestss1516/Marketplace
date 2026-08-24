@@ -25,6 +25,9 @@ const KNOWN_PARAMS = new Set([
   'q', 'category', 'type', 'condition', 'priceType',
   'minPrice', 'maxPrice', 'province', 'city', 'sort', 'page', 'hitsPerPage',
   'lat', 'lng', 'radius',
+  // V-4 — «solo con vídeo». Reservado para que NO se reenvíe como atributo de categoría:
+  // `hasVideo` es global, no pertenece a ninguna categoría.
+  'conVideo',
   'view', // lista | ampliada | mapa — view switcher, must NOT be forwarded as an attribute filter
 ]);
 
@@ -68,6 +71,8 @@ export default async function BusquedaPage({
   const category = str(raw.category);
   const province = str(raw.province);
   const city = str(raw.city);
+  // V-4 — sólo cuenta como activo el `true` literal; cualquier otra cosa es no filtrar.
+  const conVideo = str(raw.conVideo) === 'true' ? 'true' : undefined;
 
   const viewRaw = str(raw.view);
   const currentView = resolveCurrentView(viewRaw, ALL_VIEWS, DEFAULT_VIEW);
@@ -136,6 +141,7 @@ export default async function BusquedaPage({
       ...(maxPrice !== undefined && !isNaN(maxPrice) && { maxPrice }),
       ...(province && { province }),
       ...(city && { city }),
+      ...(conVideo && { conVideo: true }),
       ...(sortForApi && { sort: sortForApi }),
       ...(proximityActive && { lat, lng, radius }),
       page,
@@ -197,6 +203,7 @@ export default async function BusquedaPage({
     lat: latStr,
     lng: lngStr,
     radius: radiusStr,
+    conVideo,
     attributes,
   };
 

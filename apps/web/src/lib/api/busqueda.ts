@@ -19,7 +19,14 @@ export interface SearchParams {
   sort?: 'price:asc' | 'price:desc' | 'publishedAt:desc' | 'sortDate:desc';
   page?: number;
   hitsPerPage?: number;
-  [key: string]: string | number | undefined;
+  /**
+   * V-4 — «solo con vídeo». Se serializa como `?conVideo=true`, y el backend sólo lo
+   * acepta así: cualquier otro valor queda en «no filtrar». Por eso aquí se pasa
+   * `undefined` en vez de `false` cuando está desactivado — mandar `conVideo=false`
+   * ensuciaría la URL con un parámetro que no hace nada.
+   */
+  conVideo?: boolean;
+  [key: string]: string | number | boolean | undefined;
 }
 
 export interface SearchResponse {

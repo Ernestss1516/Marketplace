@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
-import { ChevronDown, MapPin, SlidersHorizontal, X } from 'lucide-react';
+import { ChevronDown, MapPin, Play, SlidersHorizontal, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { PROVINCIAS } from '@/lib/provincias';
@@ -99,6 +99,8 @@ interface CurrentFilters {
   lat?: string;
   lng?: string;
   radius?: string;
+  /** V-4 — «solo con vídeo». Presente sólo cuando está activo (`'true'`). */
+  conVideo?: string;
   attributes?: Record<string, string>;
 }
 
@@ -670,6 +672,34 @@ export function FilterPanel({
           </select>
         </div>
       )}
+
+      {/*
+        V-4 — «SOLO CON VÍDEO». El indicador de vídeo ya se veía en las tarjetas, pero no
+        había forma de PEDIR sólo ésas: `hasVideo` se indexaba y Meilisearch se negaba a
+        filtrar por él, así que la ventaja Pro que más se nota era invisible al buscar.
+
+        UNA CASILLA Y NO UN `<select>` de tres estados: «con vídeo o sin él» es la búsqueda
+        de siempre, no una tercera opción que merezca un hueco. Marcarla ACOTA; desmarcarla
+        quita el parámetro de la URL y devuelve la búsqueda exacta de antes.
+
+        Sigue el contrato del booleano: filtra por `hasVideo`, nunca toca la dirección del
+        vídeo (que no viaja a ninguna lista).
+      */}
+      <div>
+        <label className="flex cursor-pointer items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={currentFilters.conVideo === 'true'}
+            onChange={(e) => update({ conVideo: e.target.checked ? 'true' : undefined })}
+            className="h-4 w-4 rounded border-input"
+            data-testid="filtro-con-video"
+          />
+          <span className="flex items-center gap-1.5">
+            <Play className="h-3.5 w-3.5 fill-current text-muted-foreground" aria-hidden />
+            Solo con vídeo
+          </span>
+        </label>
+      </div>
 
       {/* Price range */}
       <div>

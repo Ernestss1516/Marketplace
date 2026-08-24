@@ -100,6 +100,9 @@ export class SearchController {
       maxPrice: dto.maxPrice,
       province: dto.province,
       city: dto.city,
+      // V-4 — sólo viaja si se pidió. `undefined` no añade cláusula, así que una búsqueda
+      // sin el filtro es byte a byte la de siempre.
+      ...(dto.conVideo ? { onlyWithVideo: true } : {}),
       ...(Object.keys(attributes).length > 0 ? { attributes } : {}),
       // A4 — rangos numéricos (km_min/km_max). Van aparte de `attributes` porque son
       // filtros de intervalo, no de igualdad; el service emite >= / <= con ellos.

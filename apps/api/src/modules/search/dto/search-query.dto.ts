@@ -2,6 +2,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { PriceUnit } from '@prisma/client';
 import {
   IsArray,
+  IsBoolean,
   IsEnum,
   IsIn,
   IsInt,
@@ -87,6 +88,20 @@ export class SearchQueryDto {
   @IsNumber()
   @Min(0)
   maxPrice?: number;
+
+  /**
+   * V-4 — «solo con vídeo».
+   *
+   * Un query param llega SIEMPRE como cadena, y `'false'` es una cadena verdadera: sin
+   * este `Transform`, `?conVideo=false` acotaría la búsqueda al revés de lo que pide. Se
+   * acepta sólo `'true'`/`'1'` y cualquier otra cosa queda en `undefined`, que es «no
+   * filtrar» — el filtro es opcional en el sentido fuerte.
+   */
+  @ApiPropertyOptional({ description: 'Solo anuncios con vídeo (V-4)', type: Boolean })
+  @IsOptional()
+  @Transform(({ value }) => (value === 'true' || value === '1' || value === true ? true : undefined))
+  @IsBoolean()
+  conVideo?: boolean;
 
   @ApiPropertyOptional({ description: 'Provincia' })
   @IsOptional()

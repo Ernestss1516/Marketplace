@@ -45,6 +45,8 @@ const KNOWN_PARAMS = new Set([
   'page', 'sort', 'type', 'condition', 'priceType',
   'minPrice', 'maxPrice', 'province', 'city',
   'lat', 'lng', 'radius', 'view',
+  // V-4 — «solo con vídeo»: global, no un atributo de esta categoría.
+  'conVideo',
 ]);
 
 function str(v: string | string[] | undefined): string | undefined {
@@ -208,6 +210,8 @@ export async function CategoryListingPage({
   const maxPrice = maxPriceStr ? Number(maxPriceStr) : undefined;
   const province = str(raw.province);
   const city = str(raw.city);
+  // V-4 — sólo el `true` literal cuenta; cualquier otra cosa es no filtrar.
+  const conVideo = str(raw.conVideo) === 'true' ? 'true' : undefined;
 
   const latStr = str(raw.lat);
   const lngStr = str(raw.lng);
@@ -278,6 +282,7 @@ export async function CategoryListingPage({
       ...(maxPrice !== undefined && !isNaN(maxPrice) && { maxPrice }),
       ...(province && { province }),
       ...(city && { city }),
+      ...(conVideo && { conVideo: true }),
       ...(sortForApi && { sort: sortForApi }),
       ...(proximityActive && { lat, lng, radius }),
       page,

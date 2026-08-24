@@ -120,6 +120,21 @@ const CORE_FILTERABLE_ATTRIBUTES = [
   // B2 — filtrable SIEMPRE, como priceUnit: declararlo aquí no filtra nada por sí
   // solo, solo habilita que se PUEDA. `tagNames` NO está: es searchable y nada más.
   'tags',
+  /**
+   * V-4 — «SOLO CON VÍDEO». El documento llevaba `hasVideo` desde la ráfaga de
+   * visualización, pero no estaba aquí: Meilisearch lo indexaba y se negaba a filtrar por
+   * él. Para una ventaja Pro que se vende como diferenciador, era una vía de
+   * descubrimiento cerrada — el comprador veía el indicador en las tarjetas y no tenía
+   * forma de pedir sólo ésas.
+   *
+   * Declararlo aquí no filtra nada por sí solo: habilita que se PUEDA (mismo criterio que
+   * `priceUnit` y `tags`). El filtro es opcional y sólo se aplica si alguien lo pide.
+   *
+   * Y SIGUE SIENDO EL BOOLEANO, nunca la dirección: `toDocument` indexa
+   * `hasVideo: videoUrl != null` y la URL no entra en el documento. Poder filtrar no
+   * cambia el cero-bytes-de-vídeo-en-listas.
+   */
+  'hasVideo',
 ];
 
 const SORTABLE_ATTRIBUTES = [
@@ -278,6 +293,13 @@ export interface SearchParams {
   /** Restricts to boostScore=1 — used by SearchController to resolve the "Promocionados"
    * block (política de ordenación C) with the exact same filters as the main query. */
   onlyBoosted?: boolean;
+  /**
+   * V-4 — «solo con vídeo». OPCIONAL en el sentido fuerte: `undefined` no añade ninguna
+   * cláusula, así que una búsqueda que no lo pida devuelve exactamente lo que devolvía.
+   * Sólo `true` acota; `false` se trata como no pedirlo — «con vídeo o sin él» es la
+   * búsqueda de siempre, no un filtro que valga la pena poder expresar.
+   */
+  onlyWithVideo?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -476,6 +498,10 @@ export class SearchService implements OnModuleInit {
     if (params.maxPrice != null) filters.push(`price <= ${params.maxPrice}`);
     if (params.listingId) filters.push(`id = "${this.escape(params.listingId)}"`);
     if (params.onlyBoosted) filters.push('boostScore = 1');
+    // V-4 — sólo si se pide. Un `false` no emite `hasVideo = false`: eso sería un filtro
+    // distinto («solo SIN vídeo») que nadie ha pedido y que acotaría una búsqueda que el
+    // usuario cree completa.
+    if (params.onlyWithVideo) filters.push('hasVideo = true');
 
     for (const [key, value] of Object.entries(params.attributes ?? {})) {
       filters.push(
