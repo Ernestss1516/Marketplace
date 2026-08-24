@@ -66,3 +66,68 @@ export function getActividadUsuario(
     cache: 'no-store',
   });
 }
+
+// ── B2 — categoría y pulso de plataforma ────────────────────────────────────
+
+export interface ActividadCategoria extends ActividadBase {
+  name: string;
+  slug: string;
+  /** Si los números incluyen las subcategorías. Por defecto sí — ver el backend. */
+  subtree: boolean;
+  /** Cuántas subcategorías se están sumando, para poder decirlo. */
+  descendantCount: number;
+  listingCount: number;
+  mostViewed: { id: string; title: string; viewCount: number } | null;
+  mostListed: { id: string; title: string; impressionCount: number } | null;
+}
+
+export interface FilaPulso {
+  id: string;
+  name: string;
+  slug: string;
+  activeListings: number;
+  views: number;
+  impressions: number;
+  /** `null` = aún no hay apariciones suficientes para un porcentaje honesto. */
+  ctr: number | null;
+  ctrMinImpressions: number;
+  /** `null` = el periodo anterior fue cero; no hay variación que calcular. */
+  viewsDelta: number | null;
+  impressionsDelta: number | null;
+}
+
+export interface PulsoPlataforma {
+  days: RangoEstadisticas;
+  totals: {
+    views: number;
+    impressions: number;
+    activeListings: number;
+    ctr: number | null;
+    ctrMinImpressions: number;
+  };
+  dailyViews: SerieDiaria[];
+  dailyImpressions: SerieDiaria[];
+  categories: Array<FilaPulso & { children: FilaPulso[] }>;
+}
+
+export function getActividadCategoria(
+  id: string,
+  days: RangoEstadisticas,
+  token: string,
+  subtree = true,
+): Promise<ActividadCategoria> {
+  return apiFetch<ActividadCategoria>(
+    `/admin/stats/categories/${id}?days=${days}&subtree=${subtree}`,
+    { token, cache: 'no-store' },
+  );
+}
+
+export function getPulsoPlataforma(
+  days: RangoEstadisticas,
+  token: string,
+): Promise<PulsoPlataforma> {
+  return apiFetch<PulsoPlataforma>(`/admin/stats/platform?days=${days}`, {
+    token,
+    cache: 'no-store',
+  });
+}

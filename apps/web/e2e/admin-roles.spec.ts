@@ -142,6 +142,36 @@ test.describe('Backoffice — MODERATOR acceso restringido', () => {
     await expect(page.getByRole('heading', { name: 'Estadísticas' })).toBeVisible();
   });
 
+  // ESTADÍSTICAS B2 — la pantalla nueva de la ráfaga. Los 28 e2e de backend prueban que
+  // los DATOS son correctos; esto prueba que la pantalla los pinta y que se puede navegar
+  // de la tabla a la ficha de categoría. Es la única superficie nueva de B2.
+  test('MODERATOR → el pulso de plataforma se pinta y lleva a la ficha de categoría', async ({
+    moderatorContext,
+  }) => {
+    const page = await moderatorContext.newPage();
+    await page.goto('/admin/estadisticas');
+    await page.waitForLoadState('networkidle');
+
+    const pulso = page.getByTestId('pulso-plataforma');
+    await expect(pulso).toBeVisible({ timeout: 10_000 });
+    // La gráfica es el StatsChart de siempre, no una copia para el backoffice.
+    await expect(page.getByTestId('pulso-chart')).toBeVisible();
+
+    // El seed de Playwright deja «vehiculos» (raíz) con «coches» debajo.
+    const raiz = page.getByTestId('pulso-fila-vehiculos');
+    await expect(raiz).toBeVisible();
+
+    // Desplegar no pide nada al servidor: el desglose viene en la misma respuesta.
+    await raiz.getByRole('button', { name: /Desplegar/ }).click();
+    await expect(page.getByTestId('pulso-fila-coches')).toBeVisible();
+
+    // Y de la tabla a la ficha de la categoría, que es lo que hace que esto no sea un
+    // callejón: se ve un número raro y se entra a mirarlo.
+    await page.getByTestId('pulso-enlace-vehiculos').click();
+    await page.waitForURL(/\/admin\/estadisticas\/categorias\//, { timeout: 15_000 });
+    await expect(page.getByTestId('actividad-categoria')).toBeVisible({ timeout: 10_000 });
+  });
+
   test('MODERATOR → /admin/anuncios carga correctamente [RR5.1-ext]', async ({ moderatorContext }) => {
     const page = await moderatorContext.newPage();
     await page.goto('/admin/anuncios');

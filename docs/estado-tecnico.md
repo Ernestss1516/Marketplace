@@ -15909,6 +15909,104 @@ obligaría a cada consumidor a partirla otra vez para poder pintarla. B2 seguir�
 
 ---
 
+## Estadísticas B2 — categoría y pulso de plataforma · **el encargo, CERRADO**
+
+Llena la página que B1 dejó como índice. Con esto el encargo entero está entregado: el
+vendedor Pro ve sus «veces listado» y su CTR, y el staff monitorea anuncios, usuarios,
+categorías y plataforma. **Sigue sin haber ni una escritura nueva**: todo son consultas
+sobre las dos tablas diarias de A.
+
+### La jerarquía, que es LA decisión de esta ráfaga
+
+`Listing.categoryId` apunta **siempre a la hoja** donde se publicó. Así que una categoría
+raíz sin plegar da casi cero, y el staff leería «Electrónica no mueve nada» cuando lo que
+pasa es que sus anuncios cuelgan de «Móviles». **Por eso se agrega el SUBÁRBOL por
+defecto**, con la misma foto memoizada del árbol que usa la búsqueda
+(`CategoryTreeService`), no con una consulta recursiva propia.
+
+Pero las **dos cifras existen**: `?subtree=false` da la categoría exacta, y la ficha lleva
+un interruptor. Cada una responde una pregunta distinta —«¿cuánto mueve esta rama?» y
+«¿cuánto mueve esta categoría concreta?»— y enseñar sólo una miente en la mitad de los
+casos. Hay un test que fija justo eso: la raíz con subárbol suma 520 visitas y sin él, 0.
+
+### El pulso: UNA agregación por tabla, no cuatro rondas
+
+La pantalla necesita cuatro cosas —totales por categoría del periodo, los del periodo
+ANTERIOR (la delta), la serie diaria del sitio y el desglose por hijas—. Se piden con **una
+sola agregación por tabla** sobre una ventana del **doble** de ancho, agrupada por
+`(categoría, fecha)`; las cuatro salen plegando en memoria. El resultado es diminuto:
+categorías × días (decenas × 60), no anuncios × días.
+
+Es **SQL en crudo** (`$queryRaw`) porque `categoryId` no es columna de las tablas diarias
+sino de `Listing`, y el `groupBy` de Prisma sólo agrupa por columnas del propio modelo; la
+alternativa —agrupar por `listingId` y plegar en JS— traería cientos de miles de filas para
+producir cincuenta. El nombre de tabla va por `Prisma.raw` y es una unión de dos literales
+de tipo: ningún valor de la petición llega ahí, y la fecha sí va parametrizada.
+
+El pliegue por jerarquía suma cada fila **a su categoría y a todos sus ancestros** — mismo
+criterio que `categoryPath` en la búsqueda.
+
+### El coste, medido
+
+Mismo dataset sintético que B1 (5.000 anuncios, 450.000 filas por tabla):
+
+| Consulta | Plan | Tiempo |
+|---|---|---|
+| Pulso, ventana 30d (⇒ 60 días de datos, 305 k filas) | Parallel Seq Scan + Hash Join → 64 filas | **37 ms** |
+| Pulso, ventana 7d (⇒ 14 días), **vistas** (sin índice de fecha) | Parallel Seq Scan | **18,4 ms** |
+| Ídem, **impresiones** (CON `@@index([date])`) | Parallel Bitmap Index Scan | **18,0 ms** |
+
+**Dos conclusiones, las dos accionadas:**
+
+1. **El seq scan es aquí el plan CORRECTO**, no un índice que falte: esta consulta no
+   filtra por ninguna entidad, toca de verdad casi toda la ventana. Escala linealmente con
+   las filas de la ventana, y la retención de 180 días la acota: con 20.000 anuncios
+   activos, la ventana más ancha (90 días ⇒ 180 de datos) son ~3,6 M de filas ≈ **medio
+   segundo** para una pantalla que abren unas pocas personas. El plan B —cachear en Redis
+   con TTL de 5-10 min, molde `SponsoredAdsService`— sigue anotado y **no se pre-optimiza**.
+2. **`@@index([date])` NO se gana el sueldo, y por eso no se añade el simétrico a
+   `ListingViewDaily`.** Con la ventana estrecha, la tabla que lo tiene usa un bitmap index
+   scan y la que no hace un seq scan… y tardan **lo mismo** (18,0 vs 18,4 ms): el coste está
+   en el hash join y la agregación, no en el escaneo. Añadirlo habría sido pagar escritura
+   en cada volcado a cambio de un 2 %.
+
+### La pantalla
+
+`/admin/estadisticas` deja de ser un índice: cuatro KPI del sitio, la gráfica global
+(`StatsChart`, el mismo componente de siempre) y **la tabla por categoría raíz, ordenable y
+desplegable** — el desglose de hijas viene en la misma respuesta, así que desplegar no pide
+nada al servidor. Cada fila enlaza a `/admin/estadisticas/categorias/[id]`, ruta propia
+(colgada de la sección, hereda su piso por segmento sin fila nueva en el mapa) porque un
+panel dentro de una tabla no se puede enlazar — el mismo criterio que las fichas de anuncio
+y usuario.
+
+El **CTR es la columna con más señal**: una categoría con muchas veces-listado y pocas
+visitas es una categoría cuyos resultados no convencen. Lleva el mismo tratamiento de
+muestra pequeña que el resto del producto — con pocas apariciones se pinta un guion con su
+explicación en el `title`, no un porcentaje. Y la **delta convierte la tabla en un aviso**:
+`null` cuando el periodo anterior fue cero, porque «infinito %» no es una variación y un
+0 % diría que no ha cambiado nada cuando ha cambiado todo.
+
+`useActividad` gana `extraKey` para el interruptor del subárbol, que es una dependencia de
+recarga que no es la ventana. Sin él habría hecho falta remontar el componente con un `key`
+—recargar un dato tirando la pantalla— o un `setDays(days)` que React ignora por ser el
+mismo valor.
+
+**Tests.** `estadisticas-b1-backoffice.e2e-spec.ts` pasa de 17 a **28**: el piso de rol de
+los dos endpoints nuevos, la suma por categoría, la jerarquía en las dos direcciones, la
+fila por raíz con hijas desglosadas, el orden por actividad, los totales con su serie, el
+CTR con muestra pequeña, la delta nula y la ventana. Y un Playwright nuevo en
+`admin-roles.spec.ts` para la única superficie NUEVA de la ráfaga: el MODERATOR abre el
+pulso, ve la gráfica, despliega una raíz y entra en la ficha de categoría — los 28 e2e
+prueban los datos, no que la pantalla los pinte.
+
+Mutaciones comprobadas, las tres rojas: servir el pulso **sin plegar la jerarquía** → la
+raíz cae a 0 y caen 2 tests; devolver la serie **fusionada** (`daily` en vez de las dos
+sueltas) → cae el de los totales; y la de «tabla de agregado en vez de consulta» no es
+ejercitable porque es estructural — esa tabla no existe.
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.
