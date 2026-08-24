@@ -1,9 +1,9 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import Link from 'next/link';
-import { Film, Loader2, Lock, Trash2, Upload } from 'lucide-react';
+import { Film, Loader2, Trash2, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { ProGate } from '@/components/pro/ProGate';
 import { useApiAction } from '@/lib/api/use-api-action';
 import {
   captureVideoPoster,
@@ -63,17 +63,13 @@ export function StepVideo({ listingId, token, config, isPro, video, onChange }: 
     return (
       <div>
         <Cabecera />
-        <div
-          className="mt-4 flex flex-col items-center gap-3 rounded-lg border border-dashed p-6 text-center"
-          data-testid="video-gate-pro"
-        >
-          <Lock className="h-6 w-6 text-muted-foreground" aria-hidden />
-          <p className="text-sm text-muted-foreground">
+        {/* El marcado se mudó a `ProGate`: éste era uno de los dos únicos gates bien hechos
+            de toda la aplicación, y ahora es el molde que usan los cinco que no lo estaban.
+            Mismo testid y mismo texto — lo que cambia es de dónde sale la forma. */}
+        <div className="mt-4">
+          <ProGate testId="video-gate-pro">
             Añadir un vídeo a tus anuncios es una ventaja del plan Pro.
-          </p>
-          <Button asChild size="sm">
-            <Link href="/planes">Hazte Pro</Link>
-          </Button>
+          </ProGate>
         </div>
       </div>
     );

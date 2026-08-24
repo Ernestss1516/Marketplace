@@ -10,6 +10,7 @@ import { createBumpPackCheckout, type CatalogProduct, type RedsysFormData } from
 import { toUserMessage } from '@/lib/api/client';
 import { useApiAction } from '@/lib/api/use-api-action';
 import { useRequireAuth } from '@/hooks/use-require-auth';
+import { ProHint } from '@/components/pro/ProGate';
 import { RedsysRedirectForm } from './RedsysRedirectForm';
 
 interface Props {
@@ -83,7 +84,12 @@ export function BumpPackList({ packs, isPro, proExtraBumpsPercent }: Props) {
           const isLoading = loadingPackId === price.bumpPackId;
           const displayName = price.packName ?? product.name;
           const bumpAmount = price.bumpAmount ?? 0;
-          const bonusPreview = isPro ? Math.ceil((bumpAmount * proExtraBumpsPercent) / 100) : 0;
+          // E-4 — ANTES: `isPro ? Math.ceil((bumpAmount * pct) / 100) : 0`. Dos defectos en
+          // una línea. El `: 0` escondía el beneficio justo a quien había que convencer, y
+          // el `Math.ceil` era una SEGUNDA copia de la fórmula que congela el checkout: dos
+          // sitios que pueden separarse y prometer un número distinto del que se acredita.
+          // Ahora el número lo da el servidor, y es el mismo para los dos.
+          const bonus = price.proBonusAmount ?? 0;
 
           return (
             <Card key={price.priceId} className="flex flex-col">
@@ -104,11 +110,20 @@ export function BumpPackList({ packs, isPro, proExtraBumpsPercent }: Props) {
                 <p className="mt-1 text-sm text-muted-foreground">
                   {formatPrice(price.amount, price.currency)}
                 </p>
-                {bonusPreview > 0 && (
-                  <p className="mt-1 text-xs font-medium text-amber-600">
-                    + {bonusPreview} de regalo por ser Pro
-                  </p>
-                )}
+                {/* Simétrico con los packs de créditos: mismo reparto, mismo origen del
+                    número. Antes esta lista lo hacía a medias y la de créditos, nada. */}
+                {bonus > 0 &&
+                  (isPro ? (
+                    <p className="mt-1 text-xs font-medium text-amber-600" data-testid="pack-bonus-pro">
+                      + {bonus} de regalo por ser Pro
+                    </p>
+                  ) : (
+                    <div className="mt-1">
+                      <ProHint testId="pack-bonus-hint">
+                        Con Pro te llevarías {bonus} bumps más (+{proExtraBumpsPercent}%).
+                      </ProHint>
+                    </div>
+                  ))}
               </CardContent>
               <CardFooter>
                 <Button

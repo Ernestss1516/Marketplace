@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { formatListingPrice } from './listing-card-shared';
 import { VideoIndicator } from './VideoIndicator';
+import { ProHint } from '@/components/pro/ProGate';
 import { PromocionarControl } from './owner/PromocionarControl';
 import { PromotionStatus } from './owner/PromotionStatus';
 import { OwnerActionsMenu } from './owner/OwnerActionsMenu';
@@ -67,7 +68,7 @@ interface Props {
 export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) {
   const [dealDialogOpen, setDealDialogOpen] = useState(false);
 
-  const { secundarias, menu, busy, error, aviso } = useListingActions({
+  const { secundarias, menu, busy, error, aviso, limiteAlcanzado } = useListingActions({
     listing,
     token,
     onDone: onAction,
@@ -223,6 +224,24 @@ export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) 
       {/* Acciones */}
       <CardContent className="border-t px-4 pb-4 pt-3">
         {error && <p className="mb-2 text-xs text-destructive">{error}</p>}
+
+        {/*
+          E-3 — LA SALIDA, donde antes sólo había un muro. Al topar el cupo de anuncios
+          activos, el mensaje del backend ya dice que Pro sube el límite (y con qué número);
+          esto añade lo que un texto no puede llevar: el enlace para hacerlo.
+
+          Sólo cuando el rechazo ES ese (`limiteAlcanzado`, decidido por el CÓDIGO del error,
+          no por su texto). Y la pista no se le enseña a un Pro que agota sus 20: el backend
+          no le pone el «con Pro puedes tener hasta N», porque venderle Pro otra vez no es
+          una salida para él.
+        */}
+        {limiteAlcanzado && (
+          <div className="mb-2">
+            <ProHint testId="limite-activos-upsell" cta="Ver planes">
+              Sube de plan para publicar más anuncios a la vez.
+            </ProHint>
+          </div>
+        )}
 
         {/*
           PUERTA regla #2 — la acción salió bien pero el anuncio se quedó en

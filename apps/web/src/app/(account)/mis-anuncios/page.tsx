@@ -98,6 +98,9 @@ export default async function MisAnunciosPage() {
         initialCounts={counts}
         token={token}
         bumpPricing={bumpPricing}
+        // E-6 — las cifras configuradas, para que el aviso al no-Pro diga las de verdad.
+        cuotaDestacados={catalog.proMonthlyFeaturedQuota}
+        cuotaBumps={catalog.proMonthlyBumpQuota}
       />
     </div>
   );

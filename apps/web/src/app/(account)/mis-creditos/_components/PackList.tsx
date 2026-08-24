@@ -10,17 +10,26 @@ import { createPackCheckout, type CatalogProduct, type RedsysFormData } from '@/
 import { toUserMessage } from '@/lib/api/client';
 import { useApiAction } from '@/lib/api/use-api-action';
 import { useRequireAuth } from '@/hooks/use-require-auth';
+import { ProHint } from '@/components/pro/ProGate';
 import { RedsysRedirectForm } from './RedsysRedirectForm';
 
 interface Props {
   packs: CatalogProduct[];
+  /**
+   * E-5 — esta lista no recibía NADA sobre Pro, así que el bonus de créditos no se
+   * previsualizaba para nadie: ni el Pro veía su +20% antes de pagar, ni el no-Pro sabía
+   * que existía. Se aplicaba al cobrar y se descubría después.
+   */
+  isPro: boolean;
+  /** Para contarle al no-Pro cuánto se pierde en porcentaje, no sólo en unidades. */
+  proExtraCreditsPercent?: number;
 }
 
 function formatPrice(amount: number, currency: string): string {
   return new Intl.NumberFormat('es-ES', { style: 'currency', currency }).format(amount);
 }
 
-export function PackList({ packs }: Props) {
+export function PackList({ packs, isPro, proExtraCreditsPercent }: Props) {
   const { data: session, status } = useSession();
   const { run } = useApiAction();
   const { requireAuth, loginUrl } = useRequireAuth();
@@ -82,6 +91,9 @@ export function PackList({ packs }: Props) {
         {packItems.map(({ product, price }) => {
           const isLoading = loadingPackId === price.creditPackId;
           const displayName = price.packName ?? product.name;
+          // Ya calculado por el servidor. No se recalcula aquí: repetir la fórmula es cómo
+          // se llega a prometer un número y acreditar otro.
+          const bonus = price.proBonusAmount ?? 0;
 
           return (
             <Card key={price.priceId} className="flex flex-col">
@@ -102,6 +114,28 @@ export function PackList({ packs }: Props) {
                 <p className="mt-1 text-sm text-muted-foreground">
                   {formatPrice(price.amount, price.currency)}
                 </p>
+
+                {/*
+                  E-5 — EL REGALO, ANTES DE PAGAR Y PARA LOS DOS.
+                  El número sale del servidor (`proBonusAmount`), que lo calcula con la
+                  MISMA función que congela el checkout: lo que se enseña aquí es
+                  exactamente lo que se va a acreditar, no una estimación paralela.
+                */}
+                {bonus > 0 &&
+                  (isPro ? (
+                    <p className="mt-1 text-xs font-medium text-amber-600" data-testid="pack-bonus-pro">
+                      + {bonus} de regalo por ser Pro
+                    </p>
+                  ) : (
+                    // El gate que convierte: no se le esconde el beneficio a quien hay que
+                    // convencer. No bloquea la compra — la acompaña.
+                    <div className="mt-1">
+                      <ProHint testId="pack-bonus-hint">
+                        Con Pro te llevarías {bonus} créditos más
+                        {proExtraCreditsPercent ? ` (+${proExtraCreditsPercent}%)` : ''}.
+                      </ProHint>
+                    </div>
+                  ))}
               </CardContent>
               <CardFooter>
                 <Button

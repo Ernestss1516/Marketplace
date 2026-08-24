@@ -8,6 +8,7 @@ import {
   getCatalog,
   getBumpLedger,
   getProStatus,
+  type CatalogResponse,
   type ProStatus,
 } from '@/lib/api/billing';
 import { PackList } from './_components/PackList';
@@ -50,7 +51,9 @@ export default async function MisCreditosPage() {
       perPage: 20,
       totalPages: 0,
     })),
-    getCatalog().catch(() => ({ products: [], bumpCreditCost: 5, proExtraBumpsPercent: 20 })),
+    getCatalog().catch(
+      (): CatalogResponse => ({ products: [], bumpCreditCost: 5, proExtraBumpsPercent: 20 }),
+    ),
     // Monetización ráfaga 2 — historial de bumps, lista separada de créditos.
     getBumpLedger(token).catch(() => ({
       bumpBalance: 0,
@@ -119,7 +122,13 @@ export default async function MisCreditosPage() {
         {packProducts.length > 0 && (
           <div>
             <h3 id="comprar" className="mb-4 text-lg font-semibold">Comprar créditos</h3>
-            <PackList packs={packProducts} />
+            {/* E-5 — `proStatus` ya se pedía en esta página (lo usaba la lista de bumps);
+                lo que faltaba era pasárselo también a ésta, que no sabía nada de Pro. */}
+            <PackList
+              packs={packProducts}
+              isPro={proStatus.isPro}
+              proExtraCreditsPercent={catalog.proExtraCreditsPercent}
+            />
           </div>
         )}
 

@@ -73,6 +73,40 @@ export class ActiveListingLimitRule implements ListingGateRule {
     });
     if (activeCount < limit) return null;
 
+    /**
+     * E-3 — EL MENSAJE DICE LA SALIDA, Y AQUÍ ES DONDE SE PUEDE DECIR.
+     *
+     * Era «Has alcanzado el límite de N anuncios activos de tu plan» y se quedaba ahí. «De
+     * tu plan» insinúa que hay otro, pero no lo dice: es el momento EXACTO en que un
+     * vendedor gratuito descubre que le hace falta más sitio, y era el momento en que menos
+     * se le contaba. (Su hermana, la regla del tope TOTAL, sí dice la salida — archivar o
+     * marcar como vendido.)
+     *
+     * ESTA REGLA ES EL ÚNICO SITIO QUE SABE LAS TRES COSAS a la vez: que se topó, con qué
+     * límite, y si quien topó es Pro. Ponerlo en el frontend habría exigido llevarle los
+     * dos límites y el plan.
+     *
+     * Y SÓLO PARA UN NO-PRO: a un Pro que agota sus 20 no se le vende Pro otra vez. Ahí el
+     * mensaje se queda como estaba, que es la respuesta correcta para él.
+     */
+    if (!isPro) {
+      const proSetting = await this.prisma.setting.findUnique({
+        where: { key: PRO_ACTIVE_LIMIT_SETTING },
+      });
+      const proLimit = proSetting ? Number(proSetting.value) : DEFAULT_PRO_ACTIVE_LIMIT;
+      // Sólo se promete si de verdad es más: los dos límites son ajustes de admin y pueden
+      // cruzarse. Mismo criterio que `buildProBenefits` en /planes — lo que la
+      // configuración no concede, no se anuncia.
+      if (proLimit > limit) {
+        return {
+          code: 'ACTIVE_LIMIT_REACHED',
+          message:
+            `Has alcanzado el límite de ${limit} anuncios activos de tu plan. ` +
+            `Con Pro puedes tener hasta ${proLimit}.`,
+        };
+      }
+    }
+
     return {
       code: 'ACTIVE_LIMIT_REACHED',
       // Mensaje IDÉNTICO al que daba `checkActiveListingLimit`: es texto que ya
