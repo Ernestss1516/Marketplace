@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsIn, IsOptional } from 'class-validator';
+import { IsBoolean, IsIn, IsOptional } from 'class-validator';
 
 /**
  * ESTADÍSTICAS B1 — la ventana temporal que pide el backoffice.
@@ -25,4 +25,20 @@ export class StatsRangeDto {
   @Transform(({ value }) => (value === undefined ? undefined : Number(value)))
   @IsIn(STATS_RANGE_DAYS as unknown as number[])
   days?: StatsRangeDays;
+}
+
+/**
+ * B.3 — la ventana MÁS la decisión de jerarquía.
+ *
+ * `subtree` nace en `true` porque `Listing.categoryId` apunta siempre a la hoja: sin
+ * plegar, una categoría raíz daría casi cero y el staff leería «Vehículos no mueve nada»
+ * cuando lo que pasa es que sus anuncios están en «Coches». Poder pedir `false` es lo que
+ * permite responder la otra pregunta —«¿cuánto mueve esta categoría concreta?»— sin un
+ * endpoint más.
+ */
+export class CategoryStatsDto extends StatsRangeDto {
+  @IsOptional()
+  @Transform(({ value }) => value !== 'false')
+  @IsBoolean()
+  subtree?: boolean;
 }

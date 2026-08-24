@@ -335,4 +335,134 @@ describe('Estadísticas B1 — el backoffice lee la actividad (e2e)', () => {
       await pedir('users/no-existe-b1', moderatorToken).expect(404);
     });
   });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // B2 — BARRERA 4: la categoría, y la jerarquía
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe('B2 — la actividad de una categoría', () => {
+    it('el piso de rol es el mismo: MODERATOR sí, EDITOR no', async () => {
+      await pedir(`categories/${categoryId}`, moderatorToken).expect(200);
+      await pedir(`categories/${categoryId}`, editorToken).expect(403);
+      await pedir(`categories/${categoryId}`).expect(401);
+    });
+
+    it('suma los anuncios de la categoría, con la misma forma que el usuario', async () => {
+      const res = await pedir(`categories/${categoryId}?days=90`, moderatorToken).expect(200);
+
+      expect(res.body.listingCount).toBe(2);
+      expect(res.body.viewCount).toBe(520);
+      expect(res.body.impressionCount).toBe(1100);
+      expect(res.body.dailyViews.length).toBeGreaterThan(0);
+      expect(res.body.ctr).toBeDefined();
+      expect(res.body.likeRatio).toBeDefined();
+      expect(res.body.mostViewed.id).toBe(anuncioArchivado);
+    });
+
+    it('LA JERARQUÍA: la RAÍZ suma su subárbol, y sin plegar daría casi cero', async () => {
+      // `Listing.categoryId` apunta siempre a la HOJA. Los anuncios de esta suite están
+      // en «moviles», hija de «electronica». Sin plegar, la raíz diría que no mueve nada
+      // —y el staff leería que «Electrónica» está muerta cuando su hija es la que tira.
+      const raiz = await prisma.category.findUniqueOrThrow({ where: { slug: 'electronica' } });
+
+      const conSubarbol = await pedir(`categories/${raiz.id}`, moderatorToken).expect(200);
+      expect(conSubarbol.body.subtree).toBe(true);
+      expect(conSubarbol.body.descendantCount).toBeGreaterThan(0);
+      expect(conSubarbol.body.listingCount).toBe(2);
+      expect(conSubarbol.body.viewCount).toBe(520);
+
+      const soloElla = await pedir(`categories/${raiz.id}?subtree=false`, moderatorToken).expect(200);
+      expect(soloElla.body.subtree).toBe(false);
+      expect(soloElla.body.listingCount).toBe(0);
+      expect(soloElla.body.viewCount).toBe(0);
+    });
+
+    it('una categoría que no existe → 404', async () => {
+      await pedir('categories/no-existe-b2', moderatorToken).expect(404);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // B2 — BARRERA 5: el pulso de la plataforma
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe('B2 — el monitoreo de plataforma', () => {
+    it('el piso de rol es el mismo: MODERATOR sí, EDITOR no', async () => {
+      await pedir('platform', moderatorToken).expect(200);
+      await pedir('platform', editorToken).expect(403);
+      await pedir('platform').expect(401);
+    });
+
+    it('una fila por categoría RAÍZ, con sus hijas desglosadas', async () => {
+      const res = await pedir('platform?days=90', moderatorToken).expect(200);
+
+      const electronica = res.body.categories.find(
+        (c: { slug: string }) => c.slug === 'electronica',
+      );
+      expect(electronica).toBeDefined();
+      // La raíz enseña lo que mueve su RAMA, no su casi-cero propio.
+      expect(electronica.views).toBe(520);
+      expect(electronica.impressions).toBe(1100);
+
+      // Y el desglose sale sin una consulta más.
+      const moviles = electronica.children.find((c: { slug: string }) => c.slug === 'moviles');
+      expect(moviles.views).toBe(520);
+      expect(moviles.activeListings).toBe(1); // el archivado no cuenta como activo
+    });
+
+    it('ordena por actividad: «cuál genera más» es la primera fila', async () => {
+      const res = await pedir('platform?days=90', moderatorToken).expect(200);
+      const vistas = res.body.categories.map((c: { views: number }) => c.views);
+
+      expect([...vistas].sort((a: number, b: number) => b - a)).toEqual(vistas);
+      expect(res.body.categories[0].slug).toBe('electronica');
+    });
+
+    it('los totales del sitio y su serie diaria vienen con la tabla', async () => {
+      const res = await pedir('platform?days=90', moderatorToken).expect(200);
+
+      expect(res.body.totals.views).toBe(520);
+      expect(res.body.totals.impressions).toBe(1100);
+      expect(res.body.totals.activeListings).toBeGreaterThan(0);
+      // Series SUELTAS, no fusionadas — StatsChart las une (§3.1, revisado en B1).
+      expect(Array.isArray(res.body.dailyViews)).toBe(true);
+      expect(Array.isArray(res.body.dailyImpressions)).toBe(true);
+      expect(res.body.dailyViews.some((f: { count: number }) => f.count > 0)).toBe(true);
+    });
+
+    it('el CTR por categoría lleva el tratamiento de muestra pequeña', async () => {
+      const res = await pedir('platform?days=90', moderatorToken).expect(200);
+      const electronica = res.body.categories.find(
+        (c: { slug: string }) => c.slug === 'electronica',
+      );
+
+      // 1.100 apariciones ≥ el umbral → hay CTR.
+      expect(electronica.ctr).toBeCloseTo(520 / 1100);
+      expect(electronica.ctrMinImpressions).toBe(CTR_MIN_IMPRESSIONS);
+
+      // Una categoría sin apariciones no inventa un 0 %: no hay muestra.
+      const vacia = res.body.categories.find((c: { impressions: number }) => c.impressions === 0);
+      if (vacia) expect(vacia.ctr).toBeNull();
+    });
+
+    it('la delta compara contra el periodo ANTERIOR, y calla si aquél fue cero', async () => {
+      // En esta suite no hay actividad en el periodo anterior de ninguna ventana, así que
+      // la delta debe ser `null` — no un 0 % («no ha cambiado nada») ni un infinito.
+      const res = await pedir('platform?days=7', moderatorToken).expect(200);
+      const electronica = res.body.categories.find(
+        (c: { slug: string }) => c.slug === 'electronica',
+      );
+
+      expect(electronica.viewsDelta).toBeNull();
+    });
+
+    it('la ventana acota igual que en el resto de la sección', async () => {
+      const siete = await pedir('platform?days=7', moderatorToken).expect(200);
+      const noventa = await pedir('platform?days=90', moderatorToken).expect(200);
+
+      // Las visitas de hace 40 días (el archivado) sólo entran en la ventana larga.
+      expect(siete.body.totals.views).toBeLessThan(noventa.body.totals.views);
+      await pedir('platform?days=3650', moderatorToken).expect(400);
+    });
+  });
 });

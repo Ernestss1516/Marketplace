@@ -4,7 +4,7 @@ import { Role } from '@prisma/client';
 import { JwtAuthGuard, RolesGuard } from '../../common/guards';
 import { MinRole } from '../../common/decorators';
 import { AdminStatsService } from './admin-stats.service';
-import { StatsRangeDto } from './dto/stats-range.dto';
+import { CategoryStatsDto, StatsRangeDto } from './dto/stats-range.dto';
 
 /**
  * ESTADÍSTICAS B1 — la telemetría agregada, para MODERATOR y ADMIN.
@@ -30,8 +30,10 @@ import { StatsRangeDto } from './dto/stats-range.dto';
  *
  * ─── LA RUTA NO COLISIONA CON `GET /admin/stats` ─────────────────────────────────
  *
- * Aquél es la ruta EXACTA `admin/stats`; éste monta `admin/stats/listings/:id` y
- * `admin/stats/users/:id`. Nest las distingue por path completo, no por prefijo.
+ * Aquél es la ruta EXACTA `admin/stats`; éste monta `admin/stats/listings/:id`,
+ * `.../users/:id`, `.../categories/:id` y `.../platform`. Nest las distingue por path
+ * completo, no por prefijo, y ninguna de las cuatro es ambigua con otra: `platform` es un
+ * segmento literal y las demás son de dos segmentos con prefijo distinto.
  *
  * ─── EL PISO ─────────────────────────────────────────────────────────────────────
  *
@@ -74,5 +76,31 @@ export class AdminStatsController {
   })
   user(@Param('id') id: string, @Query() query: StatsRangeDto) {
     return this.stats.userActivity(id, query.days ?? 30);
+  }
+
+  @Get('categories/:id')
+  @ApiOperation({
+    summary: 'Actividad del conjunto de anuncios de una categoría (B.3)',
+    description:
+      'Como la de un usuario, agregando por categoría. Por defecto suma el SUBÁRBOL ' +
+      '(`subtree=false` para la categoría exacta): `Listing.categoryId` apunta siempre a ' +
+      'la hoja, así que una raíz sin plegar daría casi cero. Devuelve además cuántas ' +
+      'subcategorías se están sumando.',
+  })
+  category(@Param('id') id: string, @Query() query: CategoryStatsDto) {
+    return this.stats.categoryActivity(id, query.days ?? 30, query.subtree ?? true);
+  }
+
+  @Get('platform')
+  @ApiOperation({
+    summary: 'El pulso de la plataforma, por categoría (B.4)',
+    description:
+      'Una fila por categoría raíz —con sus hijas desglosadas— con anuncios activos, ' +
+      'visitas, veces listado, CTR y la variación contra el periodo anterior; más los ' +
+      'totales del sitio y su serie diaria. Todo sale de UNA agregación por tabla sobre ' +
+      'una ventana del doble de ancho: el desglose y la delta se pliegan en memoria.',
+  })
+  platform(@Query() query: StatsRangeDto) {
+    return this.stats.platformPulse(query.days ?? 30);
   }
 }

@@ -280,6 +280,19 @@ del dashboard, que es EDITOR y **no se amplía**: aquél mide inventario, éstos
   `mostViewed` y `mostListed`. La suma es un `GROUP BY date` sobre las mismas tablas
   diarias: **no hay tabla de agregado por usuario**.
 
+- **`GET /admin/stats/categories/:id?days=&subtree=`** *(MODERATOR)* — Lo mismo agregado
+  sobre los anuncios de una categoría. **`subtree` es `true` por defecto**, y no es un
+  detalle: `Listing.categoryId` apunta siempre a la HOJA, así que una raíz sin plegar
+  daría casi cero. Con `subtree=false` da la categoría exacta. Devuelve además
+  `descendantCount` (cuántas subcategorías se están sumando).
+- **`GET /admin/stats/platform?days=`** *(MODERATOR)* — El pulso del sitio: `totals`,
+  las dos series diarias globales y `categories` — una entrada por categoría **raíz**, con
+  `children` desglosadas, y en cada una `activeListings`, `views`, `impressions`, `ctr`
+  (con su `ctrMinImpressions`; `null` = sin muestra) y `viewsDelta`/`impressionsDelta`
+  contra el periodo anterior (`null` cuando aquél fue cero — «infinito %» no es una
+  variación). Todo sale de **una** agregación por tabla sobre una ventana del doble de
+  ancho; el desglose y la delta se pliegan en memoria.
+
 `days` ∈ **{7, 30, 90}**, por defecto 30. Cualquier otro valor es `400` — no es un rango
 libre: cada valor es una agregación distinta y el techo acota el coste por construcción.
 
