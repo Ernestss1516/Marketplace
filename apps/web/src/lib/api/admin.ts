@@ -56,6 +56,15 @@ export interface AdminListing {
    * Es una señal: no despublica el anuncio ni le hace nada.
    */
   ipFlagged: boolean;
+  /**
+   * VÍDEO #13 — «este anuncio lleva vídeo». El HECHO, nunca la dirección.
+   *
+   * Lo deriva el servidor de `videoUrl`, que NO viaja: la lista no monta ningún `<video>`
+   * y no podría aunque alguien lo intentara. Es el mismo contrato de cero bytes que ya
+   * cumplen las tarjetas públicas, sostenido desde el payload y no desde la disciplina de
+   * quien pinta.
+   */
+  hasVideo: boolean;
   category: { id: string; name: string; slug: string };
   seller: { id: string; name: string; slug: string; email: string };
   images: { url: string }[];
@@ -244,6 +253,8 @@ export interface AdminListingsFilters {
   triage?: string[];
   /** ETIQUETA INTERNA (P1, E2) — tres posiciones; molde de `hasReports`. */
   watched?: boolean;
+  /** VÍDEO #13 — «sólo los que llevan vídeo». Tres posiciones, molde de `watched`. */
+  conVideo?: boolean;
   /**
    * PUNTO 6 · RÁFAGA A — el EJE PROPIO del aviso, independiente de `triage` y `watched`.
    * `hasDetections`: ¿el motor encontró algo? `detector`: ¿cuál disparó?
@@ -295,6 +306,7 @@ export function getAdminListings(
   }
   if (params?.triage?.length) qs.set('triage', params.triage.join(','));
   if (params?.watched !== undefined) qs.set('watched', String(params.watched));
+  if (params?.conVideo !== undefined) qs.set('conVideo', String(params.conVideo));
   if (params?.hasDetections !== undefined) {
     qs.set('hasDetections', String(params.hasDetections));
   }

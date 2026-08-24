@@ -80,6 +80,7 @@ function renderWizard() {
       categories={[CAT_BOTH, CAT_PRODUCT_ONLY]}
       initialLocation={{ city: 'Madrid', province: 'Madrid' }}
         photoLimits={{ max: 15, min: 1, minEnforced: false }}
+        isPro={false}
     />,
   );
 }
@@ -292,6 +293,7 @@ function renderWizardWith(categories: Category[]) {
       categories={categories}
       initialLocation={{ city: 'Madrid', province: 'Madrid' }}
         photoLimits={{ max: 15, min: 1, minEnforced: false }}
+        isPro={false}
     />,
   );
 }

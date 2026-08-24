@@ -123,6 +123,24 @@ export class ListAdminListingsDto {
   watched?: boolean;
 
   /**
+   * VÍDEO #13 — «sólo los que llevan vídeo». Mismas tres posiciones.
+   *
+   * Es el eje que la auditoría echaba en falta: sin él, un moderador no puede priorizar
+   * ni acotar por vídeo desde la cola, y el vídeo es justo lo que más cuesta revisar (hay
+   * que verlo, no leerlo). Con el indicador solo se VE de fila en fila; con el filtro se
+   * despacha el lote entero.
+   *
+   * NO reusa el `conVideo` de `/search` aunque se llame igual, y no puede: aquél filtra en
+   * Meilisearch, que **sólo indexa ACTIVE**, y el trabajo del moderador está sobre todo en
+   * los otros ocho estados (ver la cabecera de esta clase). Comparten el nombre porque son
+   * la misma pregunta del usuario, no la misma implementación.
+   */
+  @IsOptional()
+  @Transform(({ value }) => (value === undefined ? undefined : value === 'true' || value === true))
+  @IsBoolean()
+  conVideo?: boolean;
+
+  /**
    * `true` = sólo anuncios CON denuncias. La bandeja de problemas del moderador.
    * `false` = sólo los que no tienen ninguna. Sin el parámetro, no filtra.
    *

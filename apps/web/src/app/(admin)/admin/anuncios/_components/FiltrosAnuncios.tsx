@@ -251,6 +251,26 @@ export function FiltrosAnuncios({
               ? 'En observación'
               : 'Sin observar'}
         </Button>
+        {/* VÍDEO #13 — el eje del vídeo, con el MISMO molde tri-estado que sus vecinos:
+            sin el filtro no acota, `true` es «sólo con vídeo» y `false` es la pregunta
+            contraria («qué NO lleva vídeo»), no «me da igual».
+
+            Es la mitad que le faltaba al indicador: con la píldora se ve el vídeo fila a
+            fila, y con esto se despacha el lote entero — que es lo que la auditoría pedía
+            («priorizar o filtrar por eso desde la cola»). */}
+        <Button
+          size="sm"
+          variant={filtros.conVideo === undefined ? 'outline' : 'default'}
+          className="h-6 px-2 text-xs"
+          onClick={() => onCambiar({ conVideo: alternarTerciario(filtros.conVideo) })}
+          data-testid="filtro-con-video"
+        >
+          {filtros.conVideo === undefined
+            ? 'Vídeo: todos'
+            : filtros.conVideo
+              ? 'Con vídeo'
+              : 'Sin vídeo'}
+        </Button>
       </div>
 
       <div className="flex flex-wrap items-end gap-2">

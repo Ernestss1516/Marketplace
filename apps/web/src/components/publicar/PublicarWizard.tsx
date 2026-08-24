@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { StepIndicator } from './StepIndicator';
 import { StepCategoria } from './steps/StepCategoria';
 import { StepFotos, type UploadedImage } from './steps/StepFotos';
+import { AvisoVideo } from './AvisoVideo';
 import {
   StepDatos,
   type DatosData,
@@ -158,6 +159,14 @@ interface PublicarWizardProps {
   initialPhone?: string;
   /** PUERTA regla #3 — topes de fotos vigentes, del backend (no una copia local). */
   photoLimits: PhotoLimits;
+  /**
+   * VÍDEO #11 — para decidir QUÉ aviso de vídeo se le da a quien publica.
+   *
+   * No enciende ninguna función del asistente: el vídeo NO se puede subir aquí y no es un
+   * descuido (ver el aviso, más abajo). Sirve sólo para elegir entre «podrás añadirlo
+   * editando» y «con Pro podrías».
+   */
+  isPro: boolean;
 }
 
 const INITIAL_DATA: WizardData = {
@@ -190,7 +199,7 @@ const INITIAL_DATA: WizardData = {
   phone: '',
 };
 
-export function PublicarWizard({ token, categories, initialLocation, initialPhone, photoLimits }: PublicarWizardProps) {
+export function PublicarWizard({ token, categories, initialLocation, initialPhone, photoLimits, isPro }: PublicarWizardProps) {
   const router = useRouter();
   const { run } = useApiAction();
   const { loginUrl } = useRequireAuth();
@@ -398,15 +407,18 @@ export function PublicarWizard({ token, categories, initialLocation, initialPhon
         )}
 
         {currentStepId === 'fotos' && (
-          <StepFotos
-            images={data.images}
-            token={token}
-            onChange={updateImages}
-            errors={errors}
-            maxPhotos={photoLimits.max}
-            minPhotos={photoLimits.min}
-            minEnforced={photoLimits.minEnforced}
-          />
+          <>
+            <StepFotos
+              images={data.images}
+              token={token}
+              onChange={updateImages}
+              errors={errors}
+              maxPhotos={photoLimits.max}
+              minPhotos={photoLimits.min}
+              minEnforced={photoLimits.minEnforced}
+            />
+            <AvisoVideo isPro={isPro} />
+          </>
         )}
 
         {currentStepId === 'datos' && (

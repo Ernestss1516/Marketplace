@@ -16007,6 +16007,69 @@ ejercitable porque es estructural — esa tabla no existe.
 
 ---
 
+## Flecos del vídeo (#11, #13, #14) — **el frente del vídeo, cerrado**
+
+Los tres últimos huecos de `docs/auditoria-pro-video.md`. Todo lo demás del vídeo ya
+estaba: encendible, visible, anunciado, filtrable y con estadísticas.
+
+**#13 — el listado del backoffice marca (y filtra) el vídeo.** La tabla de
+`/admin/anuncios` no decía qué anuncios llevan vídeo, así que sólo se sabía entrando en la
+ficha de una en una — y el vídeo es lo más caro de moderar, porque hay que verlo.
+
+- Se pinta el **MISMO** `VideoIndicator`, en una variante `inline` nueva. La tabla no tiene
+  foto sobre la que superponer la píldora, pero escribir un cuarto `<span>` a mano era
+  exactamente el defecto que la extracción de ese componente vino a cerrar (había tres
+  copias, y por eso tres superficies se quedaron sin indicador). Es una posición más del
+  mismo indicador, igual que `compact` es un tamaño más.
+- **Y con filtro**, que era la otra mitad: `?conVideo=` tri-estado, molde de `watched`. Con
+  el indicador se ve el vídeo fila a fila; con el filtro se despacha el lote, que es lo que
+  el hueco pedía («priorizar o filtrar desde la cola»). **No reusa el `conVideo` de
+  `/search`** aunque se llame igual: aquél filtra en Meilisearch, que **sólo indexa
+  ACTIVE**, y el moderador trabaja sobre todo con los otros ocho estados.
+- El servidor sirve **`hasVideo` derivado y borra `videoUrl` del payload** — molde exacto de
+  `ipFlagged`/`lastOwnerIp`, en la misma función. No es celo: con la dirección en el JSON,
+  la siguiente persona que toque la tabla puede montar un `<video>` sin darse cuenta de que
+  sirve veinticinco descargas por página. **Sin dirección no hay tentación**, y el test lo
+  comprueba sobre el JSON entero, no campo a campo.
+
+**#14 — un solo reproductor, y la divergencia que importaba no era el `preload`.** La
+auditoría anotó la diferencia como «probablemente deliberada»; al mirarla de cerca **no lo
+era**. El argumento a favor de precargar en el backoffice («el moderador ha ido ahí a
+mirar») no se sostiene: esa ficha se abre para cambiar el estado, leer denuncias o mirar la
+IP, y el vídeo es una de esas veces. Se extrajo **`VideoPlayer`**, que usan la ficha pública
+y la del backoffice.
+
+Y al unificarlas apareció lo serio: la ficha pública validaba el origen con `isSafeSrc` y
+**el backoffice pintaba `data.videoUrl` en crudo**. Un `<video src>` **no pasa por
+`remotePatterns` de `next/image`**, así que esa comprobación es su única barrera de dominio
+en el cliente — y el backoffice se la estaba saltando. Ahora la lleva por construcción, y
+una dirección ajena no monta nada en vez de pintar un reproductor roto.
+
+**#11 — el asistente avisa de que el vídeo se añade editando.** Un vendedor Pro publicaba
+sin ver el vídeo por ninguna parte y nada le decía que podía añadirlo después: una ventaja
+que se cobra quedaba invisible justo cuando alguien decide cómo va a enseñar lo que vende.
+
+**El paso NO se añade al asistente, y la razón es de modelo, no de esfuerzo**: `StepVideo`
+sube el fichero contra un `listingId`, y en el asistente el anuncio **todavía no existe** —se
+crea al final—. Meterlo ahí exigiría una subida en dos tiempos (guardar en un limbo y
+adoptar al crear) con su propia clase de huérfanas. El backend estaba construido de forma
+coherente; lo único que faltaba era decirlo. Así que se dice, en el paso de Fotos, **con dos
+voces**: al Pro, **dónde** —información, y deliberadamente **sin** enlace a `/planes`, porque
+un CTA a quien ya paga sugiere que le falta algo que ya tiene—; al que no lo es, la ventaja
+con su salida, vía `ProHint` (sin candado: aquí no hay nada bloqueado, puede publicar ahora
+mismo).
+
+**Tests.** `video-flecos.test.tsx` (10: el indicador es el mismo en las dos posiciones, el
+`preload` y la validación de origen del reproductor, y las dos voces del aviso) ·
+`video-fleco-listado-admin.e2e-spec.ts` (5: `hasVideo`, el filtro en sus tres posiciones y
+—la de oro— que la URL no viaja).
+
+Mutación comprobada: servir `videoUrl` en la lista en vez de borrarlo → la URL aparece en el
+payload y cae el requisito de oro. Las otras dos («montar `<video>` en el listado», «el aviso
+sin el gate») están cubiertas por los tests del componente.
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.

@@ -62,6 +62,8 @@ export function leerFiltros(params: URLSearchParams): AdminListingsFilters {
     // ETIQUETA INTERNA (P1, E2) — el sexto eje, con la misma forma que los demás.
     triage: lista('triage'),
     watched: leerBooleano(params.get('watched')),
+    // VÍDEO #13 — el octavo eje, y otra vez sin que la forma cambie.
+    conVideo: leerBooleano(params.get('conVideo')),
     // PUNTO 6 · RÁFAGA A — el séptimo eje, con la misma forma que los demás. Que entre
     // otra vez «con un campo en el DTO, una línea en el `where` y un par de claves aquí»
     // es lo que F2 prometió, y van tres ejes seguidos sin que la forma cambie.
@@ -133,6 +135,7 @@ export function aQueryString(filtros: AdminListingsFilters): string {
   }
   if (filtros.triage?.length) qs.set('triage', filtros.triage.join(','));
   if (filtros.watched !== undefined) qs.set('watched', String(filtros.watched));
+  if (filtros.conVideo !== undefined) qs.set('conVideo', String(filtros.conVideo));
   if (filtros.hasDetections !== undefined) {
     qs.set('hasDetections', String(filtros.hasDetections));
   }
@@ -163,6 +166,7 @@ export function hayFiltros(filtros: AdminListingsFilters): boolean {
       filtros.needsRevalidation !== undefined ||
       filtros.triage?.length ||
       filtros.watched !== undefined ||
+      filtros.conVideo !== undefined ||
       filtros.hasDetections !== undefined ||
       filtros.detector ||
       filtros.ipFlagged !== undefined ||

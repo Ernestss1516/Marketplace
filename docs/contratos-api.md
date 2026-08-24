@@ -263,6 +263,16 @@ un camino, y a la vez el registro que habilita valorar.
 
 ---
 
+> **`GET /admin/listings` y el vídeo (#13).** Cada ítem trae **`hasVideo`** (booleano
+> derivado) y **nunca `videoUrl`** — la lista dice SI hay vídeo, jamás dónde está. Es el
+> mismo trato exacto que `ipFlagged` recibe con `lastOwnerIp`, y sostiene el contrato de
+> cero bytes desde el payload: sin dirección, ninguna tabla puede montar un `<video>`. Se
+> filtra con **`?conVideo=`** (tri-estado: ausente no acota, `false` es «los que NO llevan»).
+> Va a Postgres y no reusa el `conVideo` de `/search`, que filtra en Meilisearch — allí solo
+> hay ACTIVE, y el moderador trabaja sobre todo con los otros ocho estados.
+
+---
+
 ## Admin — estadísticas (B1)
 
 Controlador **propio** (`admin/stats`) con piso **MODERATOR**, separado del `GET /admin/stats`

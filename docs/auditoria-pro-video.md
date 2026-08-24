@@ -376,12 +376,18 @@ La hipótesis del encargo («probablemente NO lo muestra») es **falsa**. Verifi
   ([`admin/moderacion/page.tsx:212`](../apps/web/src/app/(admin)/admin/moderacion/page.tsx#L212)),
   así que **el moderador sí puede ver el vídeo que modera**.
 
-Dos matices menores, no huecos:
-- El reproductor del backoffice **no** lleva `preload="none"` (a diferencia del de la ficha).
-  Es una decisión razonable —una sola ficha, y el moderador ha ido ahí a mirar— pero es una
-  divergencia entre los dos reproductores que conviene conocer.
-- El **listado** de `/admin/anuncios` no marca qué anuncios llevan vídeo, así que un moderador
-  no puede priorizar ni filtrar por eso desde la cola.
+Dos matices menores, no huecos — **los dos CERRADOS el 2026-08-25** (huecos #13 y #14):
+- ~~El reproductor del backoffice **no** lleva `preload="none"`~~. Se dijo aquí que era «una
+  decisión razonable —una sola ficha, y el moderador ha ido ahí a mirar—», y al implementarlo
+  **esa lectura no se sostuvo**: la ficha del backoffice se abre para cambiar el estado, leer
+  denuncias o mirar la IP, y el vídeo es una de esas veces. Precargar megabytes en cada
+  apertura para servir a unas pocas es el mismo cálculo que la ficha pública ya resolvió al
+  revés. Hoy hay UN `VideoPlayer` para las dos, así que no hay dónde volver a separarlas —y
+  de paso el backoffice ganó la validación de origen que le faltaba, que era la divergencia
+  seria y no el `preload`.
+- ~~El **listado** de `/admin/anuncios` no marca qué anuncios llevan vídeo~~. Ahora lo marca
+  con el mismo indicador, y además **se puede filtrar**: sin el filtro se ve fila a fila,
+  con él se despacha el lote.
 
 ### 2.5 Patrocinados — no comparten nada con el vídeo, y la razón importa
 
@@ -677,15 +683,15 @@ Ordenada por **(daño real) ÷ (coste de cerrarlo)**. Cada uno con su ubicación
 | ~~**8**~~ | ~~**El bonus de packs solo se le enseña a quien ya es Pro**~~ — **CERRADO** (2026-08-24): las dos monedas simétricas, y el número lo sirve el catálogo con la MISMA función que congela el checkout ([`pro-bonus.ts`](../apps/api/src/modules/billing/pro-bonus.ts)) — se acabó la fórmula duplicada | [`gates-pro.test.tsx`](../apps/web/src/components/pro/gates-pro.test.tsx) |
 | ~~**9**~~ | ~~**Las cuotas gratis no se anuncian a quien no las tiene**~~ — **CERRADO** (2026-08-24): se anuncian en /mis-anuncios y en el diálogo de promocionar, con la cifra configurada y el texto honesto con D-1 («suscribiéndote», porque un Pro concedido no tiene cuota). De paso, a un Pro manual ya no se le dice «has usado tus destacados gratis» sobre unos que nunca tuvo | [`gates-pro.test.tsx`](../apps/web/src/components/pro/gates-pro.test.tsx) |
 | ~~**10**~~ | ~~**`hasVideo` no es filtrable** en Meilisearch~~ — **CERRADO** (2026-08-24): filtro OPCIONAL (`?conVideo=true`) con casilla en el panel; comprobado contra el índice REAL, no contra la constante. De paso quedó una barrera ESTRUCTURAL del `waitForTask` de los settings: era una carrera que ningún e2e podía cazar (en local Meili la gana siempre) | [`busqueda-filtro-video.e2e-spec.ts`](../apps/api/test/busqueda-filtro-video.e2e-spec.ts) · [`search.service.settings.spec.ts`](../apps/api/src/modules/search/search.service.settings.spec.ts) |
-| **11** | **Nada avisa de que el vídeo se añade al editar, no al publicar** (coherente con el backend, invisible para el vendedor) | [`PublicarWizard.tsx`](../apps/web/src/components/publicar/PublicarWizard.tsx) vs. [`EditarForm.tsx:383`](../apps/web/src/components/publicar/EditarForm.tsx#L383) |
+| ~~**11**~~ | ~~**Nada avisa de que el vídeo se añade al editar, no al publicar**~~ — **CERRADO** (2026-08-25): el asistente lo dice en el paso de Fotos, y con dos voces — al Pro **dónde** (información, sin enlace a `/planes`: a quien ya paga, un CTA sugiere que le falta algo); al que no lo es, la ventaja con su salida (`ProHint`). **El paso de vídeo NO se añade al asistente, y no por pereza**: `StepVideo` sube contra un `listingId` y en el asistente el anuncio aún no existe — meterlo exigiría una subida en dos tiempos con su propia clase de huérfanas. El backend era coherente; lo que faltaba era decirlo | [`AvisoVideo.tsx`](../apps/web/src/components/publicar/AvisoVideo.tsx) · [`video-flecos.test.tsx`](../apps/web/src/components/anuncios/video-flecos.test.tsx) |
 
 ### Bajos — conocidos, acotados o cosméticos
 
 | # | Hueco | Nota |
 |---|---|---|
 | ~~**12**~~ | ~~Las dos tarjetas del **mapa** no pintan el indicador~~ — **CERRADO** (2026-08-24). Vivían dentro de `MapView` (importa `maplibre-gl`), así que ninguna prueba podía alcanzarlas: se extrajeron a `MapCards.tsx` y ahora tienen barrera propia | [`MapCards.test.tsx`](../apps/web/src/components/busqueda/MapCards.test.tsx) |
-| **13** | El **listado** de `/admin/anuncios` no marca qué anuncios llevan vídeo | solo la ficha lo muestra |
-| **14** | El reproductor del backoffice **no** lleva `preload="none"`, a diferencia del de la ficha | divergencia, probablemente deliberada |
+| ~~**13**~~ | ~~El **listado** de `/admin/anuncios` no marca qué anuncios llevan vídeo~~ — **CERRADO** (2026-08-25): el MISMO `VideoIndicator`, en variante `inline` (la tabla no tiene foto sobre la que superponerlo, y escribir un cuarto `<span>` a mano era el defecto que la extracción cerró). **Y con filtro**: `?conVideo=` tri-estado, porque con la píldora se ve el vídeo fila a fila y con el filtro se despacha el lote — que es lo que pedía el hueco («priorizar o filtrar desde la cola»). No reusa el `conVideo` de `/search`: aquél filtra en Meili, que sólo indexa ACTIVE. El servidor sirve `hasVideo` derivado y **borra `videoUrl` del payload**, molde exacto de `ipFlagged` | [`video-fleco-listado-admin.e2e-spec.ts`](../apps/api/test/video-fleco-listado-admin.e2e-spec.ts) |
+| ~~**14**~~ | ~~El reproductor del backoffice **no** lleva `preload="none"`~~ — **CERRADO** (2026-08-25), y la divergencia **no era deliberada**: al mirarla de cerca, el argumento a favor de precargar («el moderador ha ido ahí a mirar») no se sostiene, porque esa ficha se abre para mil cosas y el vídeo es una. Se extrajo `VideoPlayer`, que usan las dos superficies. **La divergencia que de verdad importaba era la otra**: la ficha pública validaba el origen con `isSafeSrc` y el backoffice pintaba la URL en crudo — y un `<video src>` no pasa por `remotePatterns`, así que era su única barrera de dominio en el cliente | [`video-flecos.test.tsx`](../apps/web/src/components/anuncios/video-flecos.test.tsx) |
 | **15** | «**Soporte prioritario**» se promete sin ningún mecanismo en código | política manual |
 | **16** | La **duración** se valida declarada, no medida (sin `ffmpeg`) | frontera **aceptada y escrita**, no un hueco |
 

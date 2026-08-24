@@ -60,6 +60,7 @@ import { attributeErrors, buildAttributes, filterSchemaByType } from '@/lib/attr
 import { StepAtributos } from '@/components/publicar/steps/StepAtributos';
 import { ValoracionFila } from '@/components/admin/ValoracionFila';
 import { DatoIp } from '@/components/admin/DatoIp';
+import { VideoPlayer } from '@/components/anuncios/VideoPlayer';
 import { ActivityPanel } from '@/components/stats/ActivityPanel';
 import { useActividad } from '@/components/stats/useActividad';
 import { getActividadAnuncio } from '@/lib/api/admin-stats';
@@ -737,13 +738,17 @@ export default function AdminFichaAnuncioPage() {
             {data.videoUrl && (
               <div className="mt-4">
                 <h3 className="mb-1 text-xs font-medium text-muted-foreground">Vídeo</h3>
-                {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-                <video
+                {/* FLECO #14 — el MISMO reproductor que la ficha pública, no un `<video>`
+                    escrito a mano aquí. Los dos habían divergido en `preload` (éste no lo
+                    llevaba, así que precargaba el vídeo en CADA apertura de la ficha, se
+                    viniera a verlo o a cambiar el estado) y en la validación de origen
+                    (éste pintaba la URL en crudo, y un `<video src>` no pasa por
+                    `remotePatterns`). Con el componente compartido no hay dónde volver a
+                    separarlas. */}
+                <VideoPlayer
                   src={data.videoUrl}
-                  poster={data.videoPosterUrl ?? undefined}
-                  controls
+                  poster={data.videoPosterUrl}
                   className="max-h-64 rounded-md"
-                  data-testid="ficha-video"
                 />
                 <p className="mt-1 text-xs text-muted-foreground">
                   {data.videoDurationSeconds ?? '—'} s · subido{' '}

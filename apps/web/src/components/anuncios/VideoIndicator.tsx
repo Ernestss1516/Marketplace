@@ -30,17 +30,38 @@ export function VideoIndicator({
    * `data-testid`: lo que cambia es cuánto espacio ocupa, no qué dice.
    */
   compact = false,
+  /**
+   * FLECO #13 — EN LÍNEA, no superpuesto.
+   *
+   * Todas las superficies anteriores pintan el indicador SOBRE una foto, así que era
+   * `absolute` sin discusión. La tabla de `/admin/anuncios` no tiene foto: es texto, y
+   * una píldora flotante dentro de una celda quedaría colgando de la nada.
+   *
+   * La salida NO era escribir un cuarto `<span>` a mano en el backoffice — que es
+   * exactamente el defecto que la extracción de este componente vino a cerrar (había tres
+   * copias y por eso tres superficies se quedaron sin indicador). Es una posición más del
+   * MISMO indicador, con el mismo icono, el mismo texto y el mismo `data-testid`: lo que
+   * cambia es dónde se apoya, igual que `compact` cambia cuánto ocupa.
+   */
+  inline = false,
 }: {
   className?: string;
   compact?: boolean;
+  inline?: boolean;
 }) {
   return (
     <span
       // `pointer-events-none`: la tarjeta entera sigue siendo un enlace al anuncio, y el
       // indicador no puede robarle el clic.
-      className={`pointer-events-none absolute z-10 flex items-center gap-1 rounded-full bg-black/65 text-white ${
-        compact ? 'p-1' : 'px-2 py-0.5 text-[11px] font-medium'
-      } ${className}`}
+      className={`pointer-events-none items-center gap-1 rounded-full ${
+        inline
+          ? // `inline-flex` y no `flex`: en la celda de una tabla convive con el texto de
+            // al lado, y un `flex` a secas lo empujaría a su propia línea.
+            'inline-flex bg-muted px-1.5 py-0.5 text-[10px] font-medium text-foreground/80'
+          : `flex absolute z-10 bg-black/65 text-white ${
+              compact ? 'p-1' : 'px-2 py-0.5 text-[11px] font-medium'
+            } ${className}`
+      }`}
       data-testid="card-tiene-video"
       // Con la píldora, el texto ya lo dice. En compacto no hay texto, así que el nombre
       // accesible tiene que venir de aquí o el indicador no existiría para un lector.

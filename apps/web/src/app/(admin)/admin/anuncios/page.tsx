@@ -15,6 +15,7 @@ import {
   type AdminListingsFilters,
 } from '@/lib/api/admin';
 import { FiltrosAnuncios } from './_components/FiltrosAnuncios';
+import { VideoIndicator } from '@/components/anuncios/VideoIndicator';
 import { aQueryString, conFiltro, leerFiltros } from './filtros-url';
 import { approveListing, rejectListing } from '@/lib/api/moderacion';
 import { elegirAccionDeEstado } from './moderacion-routing';
@@ -285,6 +286,19 @@ export default function AdminAnunciosPage() {
                           {listing._count.reports > 0 && (
                             <span className="ml-2 text-destructive font-medium">
                               {listing._count.reports} reporte(s)
+                            </span>
+                          )}
+                          {/* VÍDEO #13 — el MISMO indicador que las tarjetas públicas,
+                              en su variante en línea. Aquí no hay foto sobre la que
+                              superponerlo, pero sí hay una razón para que esté: el vídeo
+                              es lo más caro de moderar (hay que verlo), y hasta ahora
+                              sólo se sabía entrando en la ficha de una en una.
+
+                              Llega `hasVideo`, nunca la URL: la lista no monta ningún
+                              `<video>` y no podría aunque quisiera. */}
+                          {listing.hasVideo && (
+                            <span className="ml-2 align-middle">
+                              <VideoIndicator inline />
                             </span>
                           )}
                         </span>
