@@ -7,6 +7,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  OnModuleInit,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
@@ -14,7 +15,7 @@ import { Queue } from 'bullmq';
 import { randomBytes } from 'node:crypto';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { RedisService } from '../../infra/redis/redis.service';
-import { listingCacheKey } from '../../infra/redis/cache-keys';
+import { LISTING_CACHE_PATTERN, listingCacheKey } from '../../infra/redis/cache-keys';
 import { RateLimitService } from '../../infra/redis/rate-limit.service';
 import {
   PHONE_REVEAL_LIMIT_IP_PER_HOUR,
@@ -41,7 +42,15 @@ import { nextBumpAt } from '../billing/bump-cooldown';
 // FUGA DE FAVORITOS — «lo que una tarjeta puede ver» ya no es privado de este servicio: era
 // justamente lo que la undécima lista (`GET /favorites`) no podía reutilizar, y por eso servía
 // la fila cruda con `phone` dentro. Ver listing-summary.ts.
-import { SELECT_SUMMARY, attachSellerRatings, toSummary } from './listing-summary';
+import {
+  LISTING_OWNER_SELECT,
+  LISTING_PUBLIC_SELECT,
+  SELECT_SUMMARY,
+  attachSellerRatings,
+  toOwnerListing,
+  toPublicListing,
+  toSummary,
+} from './listing-summary';
 import { ListingDetectionsService } from '../moderation/detection/listing-detections.service';
 import { camposDeTelefono } from '../moderation/detection/phone-format';
 import { PreModerationService } from '../moderation/pre-moderation.service';
@@ -101,32 +110,61 @@ const CACHE_TTL = 60 * 5;
 // puede importar del otro sin invertir la dirección ListingsModule → BillingModule.
 const cacheKey = listingCacheKey;
 
-const LISTING_INCLUDE = {
-  // A1 (URLs anidadas) — `parent` es NUEVO: el breadcrumb de la ficha
-  // (Inicio > Vehículos > Coches > Título) y el enlace a la categoría necesitan el
-  // padre para construir la URL canónica. Aditivo en el payload.
-  // NOTA: findBySlug cachea el resultado en Redis 5 min, así que justo tras
-  // desplegar habrá fichas servidas desde caché SIN `category.parent`. El frontend
-  // lo trata como opcional (categoryPath() cae a la URL plana y el breadcrumb a 2
-  // niveles) — se autocorrige solo al expirar la caché, sin invalidación manual.
-  category: {
-    select: { id: true, slug: true, name: true, parent: { select: { slug: true, name: true } } },
-  },
-  images: { orderBy: { order: 'asc' as const } },
-  // trusted: H8 Bloque E — "Vendedor de confianza" en la ficha del anuncio (SellerCard).
-  seller: { select: { id: true, name: true, slug: true, avatarUrl: true, trusted: true } },
-  // B2 — tags para pintarlos en la ficha. Ordenados por el `orden` del CATÁLOGO
-  // (ListingTag no tiene orden propio): así el mismo par de tags sale igual en todas
-  // las fichas, en vez de en el orden accidental de inserción.
-  tags: {
-    orderBy: { tag: { orden: 'asc' as const } },
-    select: { tag: { select: { id: true, slug: true, name: true } } },
-  },
-};
+/**
+ * FUGA DE LA FICHA PÚBLICA — AQUÍ ESTABA `LISTING_INCLUDE`, y aquí ya no está.
+ *
+ * Era un `include` con las cuatro relaciones y ningún `select` de escalares, o sea la FILA
+ * ENTERA. La defensa era un destructuring de DOS campos (`phone`, `tags`) sobre un payload
+ * de cuarenta, en el endpoint más expuesto que tiene la plataforma. Salían por ahí, sin
+ * sesión: `phoneNormalized` (el MISMO teléfono que `phone` acababa de filtrar, por la
+ * columna hermana), `lastOwnerIp`, `lastOwnerInteractionAt`, `triage`, `watched` y
+ * `needsRevalidation`.
+ *
+ * Lo sustituyen DOS listas blancas explícitas —`LISTING_PUBLIC_SELECT` (visitante) y
+ * `LISTING_OWNER_SELECT` (dueño)— en `listing-summary.ts`, junto a la de la tarjeta. Ver
+ * docs/auditoria-pro-video.md, «Hallazgo NUEVO y MÁS GRAVE».
+ */
 
 @Injectable()
-export class ListingsService {
+export class ListingsService implements OnModuleInit {
   private readonly logger = new Logger(ListingsService.name);
+
+  /**
+   * PURGA DE LAS FICHAS CACHEADAS AL ARRANCAR.
+   *
+   * Estrechar la consulta no arregla lo que Redis ya tiene escrito. Los blobs guardados
+   * antes de este cambio llevan dentro `phoneNormalized`, `lastOwnerIp`, `triage` y
+   * `watched`, y `findBySlug` los sirve TAL CUAL cuando hay acierto de caché — así que sin
+   * esto la fuga habría seguido viva hasta cinco minutos después del despliegue, sobre
+   * fichas que son justo las más visitadas (las que están en caché son las que alguien
+   * acaba de pedir).
+   *
+   * SE HACE SOLO, y no es un paso documentado del despliegue: un paso manual es un paso que
+   * alguien olvida, y este hay que darlo en CADA despliegue que estreche el payload
+   * público, no solo en éste.
+   *
+   * ES BARATO: el TTL de la ficha son 5 minutos, así que la caché que se tira es la de los
+   * últimos cinco minutos y se repuebla a demanda. `scanStream` (cursor) y no `KEYS`
+   * (bloqueante) para no parar Redis mientras recorre el espacio de claves.
+   *
+   * Si el borrado falla, se registra y se sigue: arrancar la API importa más que la purga,
+   * y el TTL acaba haciendo el trabajo de todas formas.
+   */
+  async onModuleInit(): Promise<void> {
+    try {
+      let borradas = 0;
+      const stream = this.redis.client.scanStream({ match: LISTING_CACHE_PATTERN, count: 100 });
+      for await (const claves of stream as AsyncIterable<string[]>) {
+        if (claves.length === 0) continue;
+        borradas += await this.redis.client.del(...claves);
+      }
+      if (borradas > 0) {
+        this.logger.log(`Caché de fichas purgada al arrancar: ${borradas} claves`);
+      }
+    } catch (err) {
+      this.logger.warn(`No se pudo purgar la caché de fichas al arrancar: ${String(err)}`);
+    }
+  }
 
   constructor(
     private readonly prisma: PrismaService,
@@ -996,7 +1034,9 @@ export class ListingsService {
   async findMineById(id: string, userId: string) {
     const listing = await this.prisma.listing.findUnique({
       where: { id },
-      include: LISTING_INCLUDE,
+      // Lista blanca del DUEÑO: su teléfono sí (el editor lo edita), las etiquetas de
+      // moderación y el rastro de IP no. Ver LISTING_OWNER_SELECT.
+      select: LISTING_OWNER_SELECT,
     });
     if (!listing) throw new NotFoundException('Anuncio no encontrado');
     if (listing.sellerId !== userId) {
@@ -1006,8 +1046,7 @@ export class ListingsService {
     // almacenamiento, y el wizard de edición espera la misma forma (TagRef[]) que la
     // ficha pública. Si una devolviera `{tag:{…}}` y la otra no, el front tendría que
     // saber por qué endpoint llegó cada anuncio.
-    const { tags, ...resto } = listing;
-    return { ...resto, tags: tags.map((t) => t.tag) };
+    return toOwnerListing(listing);
   }
 
   /**
@@ -1130,30 +1169,32 @@ export class ListingsService {
     } else {
       const listing = await this.prisma.listing.findUnique({
         where: { slug },
-        include: LISTING_INCLUDE,
+        // PRIVACIDAD — CRÍTICO, Y AHORA POR CONSTRUCCIÓN.
+        //
+        // Esto era `include: LISTING_INCLUDE` —la fila entera— con un destructuring de dos
+        // campos como única defensa, y la defensa no bastaba: quitaba `phone` y dejaba
+        // salir `phoneNormalized`, que es el MISMO número. Salían además `lastOwnerIp`,
+        // `lastOwnerInteractionAt`, `triage` y `watched`, en un endpoint sin sesión.
+        //
+        // Ahora la ficha pide una LISTA BLANCA. Lo que no está enumerada ahí no se
+        // selecciona, así que no puede salir ni acabar en el blob de Redis — hoy ni cuando
+        // `Listing` gane una columna nueva. Ver LISTING_PUBLIC_SELECT.
+        select: LISTING_PUBLIC_SELECT,
       });
       if (!listing || listing.status !== 'ACTIVE') {
         throw new NotFoundException('Anuncio no encontrado');
       }
-      // PRIVACIDAD — CRÍTICO: phone se descarta aquí, antes de cachear y de
-      // devolver nada. No hay una capa de serialización posterior que lo
-      // filtre — este destructuring ES el único punto donde se garantiza que
-      // el teléfono nunca viaja en el payload público de la ficha (ni en
-      // Redis ni en la respuesta). hasPhone es lo único que se expone, para
-      // pintar el botón "Ver teléfono" sin revelar el número.
-      // B2 — `tags` se APLANA aquí, antes de cachear: la ficha quiere TagRef[], no la
-      // tabla puente. Este es el mismo punto donde `phone` ya se descarta, así que la
-      // forma pública del payload se decide en un solo sitio.
+      // `toPublicListing` cambia el teléfono por `hasPhone` (para pintar el botón "Ver
+      // teléfono" sin revelar el número) y aplana los tags a TagRef[].
       //
-      // OJO con la caché: los blobs guardados antes de B2 no llevan `tags`. Se
-      // autocorrige al expirar (5 min) y el frontend lo trata como opcional — mismo
-      // precedente que `category.parent` en A1.
-      const { phone, tags, ...publicListing } = listing;
-      const listingToCache = {
-        ...publicListing,
-        hasPhone: Boolean(phone),
-        tags: tags.map((t) => t.tag),
-      };
+      // SE CACHEA EL RESULTADO DE LA PROYECCIÓN, no la fila: el blob de Redis no puede
+      // contener nada que esta función no emita. Es lo que hace que la garantía valga
+      // también para las fichas servidas desde caché.
+      //
+      // OJO con la caché: los blobs guardados antes de este cambio llevan los campos
+      // viejos. Los purga `purgarFichasCacheadas()` al arrancar; sin eso tardarían hasta
+      // 5 minutos (el TTL) en desaparecer.
+      const listingToCache = toPublicListing(listing);
       await this.redis.client.setex(cacheKey(slug), CACHE_TTL, JSON.stringify(listingToCache));
       listingData = listingToCache;
     }

@@ -12,3 +12,14 @@
 
 /** Ficha pública de un anuncio (`ListingsService.findBySlug`, TTL 5 min). */
 export const listingCacheKey = (slug: string) => `listing:${slug}`;
+
+/**
+ * TODAS las fichas cacheadas, para purgarlas de golpe.
+ *
+ * Existe por la fuga de la ficha pública: al estrechar el payload a una lista blanca, los
+ * blobs ya guardados seguían llevando `phoneNormalized`, `lastOwnerIp`, `triage` y
+ * `watched`. Arreglar la consulta no arregla lo que Redis ya tiene escrito, así que el
+ * arreglo incluye purgar — y el patrón vive junto al formato de la clave porque es la MISMA
+ * decisión: si mañana cambia el prefijo, las dos cosas cambian a la vez.
+ */
+export const LISTING_CACHE_PATTERN = 'listing:*';
