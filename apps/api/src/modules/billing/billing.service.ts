@@ -1174,10 +1174,26 @@ export class BillingService {
     if (extraCreditos > 0) beneficios.push(`${extraCreditos}% de créditos extra en cada pack`);
     if (extraBumps > 0) beneficios.push(`${extraBumps}% de bumps extra en cada pack`);
 
-    // Estas dos no salen de un Setting: son comportamiento del código (ver
-    // EstadisticasClient, que gatea las gráficas por isPro) y política de soporte.
+    // Estas dos no salen de un Setting: son comportamiento del código. La primera la gatea
+    // `EstadisticasClient` por `isPro`; la segunda la cumple la MARCA de la bandeja de
+    // tickets (#15) — ver abajo.
     beneficios.push('Estadísticas avanzadas: vistas por día, ratio de me gusta y agregados');
-    beneficios.push('Soporte prioritario');
+    // #15 — EL TEXTO DICE LO QUE EL SISTEMA HACE, y ni una palabra más.
+    //
+    // Decía «Soporte prioritario» a secas, y la auditoría (§4.4) lo cazó: el módulo de
+    // tickets no consultaba `isProActive` en ningún punto, así que **no había marca, ni
+    // prioridad, ni orden, ni SLA**. Era una promesa que sólo podía cumplir una persona
+    // acordándose.
+    //
+    // Ahora hay mecanismo: los tickets de un Pro llegan MARCADOS a la bandeja del staff, y
+    // el staff puede aislar esa cola con un filtro. Eso es exactamente lo que dice esta
+    // línea — «destaca», no «te respondemos en X horas».
+    //
+    // NO SE PROMETE UN PLAZO A PROPÓSITO. Un SLA es operativa —depende de cuánta gente
+    // haya y de cuántos tickets entren—, y el código no puede garantizarlo: escribirlo
+    // aquí sería volver al punto de partida con más letra. Marcar sí se puede garantizar,
+    // y es lo que se anuncia.
+    beneficios.push('Soporte prioritario: tus consultas destacan en la bandeja de nuestro equipo');
 
     return beneficios;
   }

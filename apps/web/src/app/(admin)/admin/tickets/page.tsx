@@ -69,6 +69,8 @@ export default function AdminTicketsPage() {
   const [origin, setOrigin] = useState<string>(TODOS);
   const [assignedTo, setAssignedTo] = useState<string>(TODOS);
   const [topicId, setTopicId] = useState<string>(TODOS);
+  /** #15 — la cola del soporte prioritario, aislable. */
+  const [soloPro, setSoloPro] = useState(false);
   const [topics, setTopics] = useState<TicketTopic[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -85,6 +87,7 @@ export default function AdminTicketsPage() {
         ...(origin !== TODOS && { origin: origin as TicketOrigin }),
         ...(assignedTo !== TODOS && { assignedTo }),
         ...(topicId !== TODOS && { topicId }),
+        ...(soloPro && { soloPro: true }),
       });
       setItems(data.items);
       setTotal(data.total);
@@ -98,7 +101,7 @@ export default function AdminTicketsPage() {
     } finally {
       setLoading(false);
     }
-  }, [token, page, status, origin, assignedTo, topicId]);
+  }, [token, page, status, origin, assignedTo, topicId, soloPro]);
 
   useEffect(() => {
     void fetchTickets();
@@ -194,6 +197,25 @@ export default function AdminTicketsPage() {
           </select>
         )}
 
+        {/* #15 — LA COLA DEL SOPORTE PRIORITARIO, aislable.
+            Un botón y no un `select` de tres posiciones como los de al lado: «los tickets
+            de los que NO son Pro» no es una pregunta que nadie se haga —el resto de la
+            bandeja ya es eso—, así que sobra la tercera opción. */}
+        <button
+          type="button"
+          onClick={() => {
+            setSoloPro((v) => !v);
+            setPage(1);
+          }}
+          aria-pressed={soloPro}
+          data-testid="filtro-solo-pro"
+          className={`h-9 rounded-md border px-3 text-sm transition-colors ${
+            soloPro ? 'border-foreground/20 bg-muted font-medium' : 'text-muted-foreground hover:bg-muted/50'
+          }`}
+        >
+          Solo Pro
+        </button>
+
         <span className="ml-auto text-sm text-muted-foreground">{total} tickets</span>
       </div>
 
@@ -244,7 +266,23 @@ export default function AdminTicketsPage() {
                     </div>
                   </td>
                   <td className="px-4 py-2">
-                    <div>{t.user.name}</div>
+                    <div className="flex items-center gap-1.5">
+                      <span>{t.user.name}</span>
+                      {/* #15 — «SOPORTE PRIORITARIO», HECHO VISIBLE. Va junto al NOMBRE y no
+                          al asunto porque es una propiedad de la PERSONA, no del ticket: lo
+                          que dice es «este cliente paga Pro», y por eso su consulta destaca.
+                          Refleja si es Pro AHORA, no si lo era al abrirlo. */}
+                      {t.userIsPro && (
+                        <Badge
+                          variant="secondary"
+                          className="h-4 px-1.5 text-[10px]"
+                          data-testid="ticket-autor-pro"
+                          title="Cliente Pro — soporte prioritario"
+                        >
+                          Pro
+                        </Badge>
+                      )}
+                    </div>
                     <div className="text-xs text-muted-foreground">{t.user.email}</div>
                   </td>
                   <td className="px-4 py-2">

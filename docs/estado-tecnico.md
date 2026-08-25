@@ -16099,6 +16099,59 @@ worker despacha lo que tiene pendiente. La carrera llevaba ahí desde que se esc
 
 ---
 
+## #15 — «Soporte prioritario»: de promesa a mecanismo
+
+`/planes` lo anunciaba incondicionalmente y **el módulo de tickets no consultaba
+`isProActive` en ningún punto**: ni marca, ni prioridad, ni orden, ni SLA. Era una promesa
+que sólo podía cumplir una persona acordándose (auditoría §4.4).
+
+**Lo que ahora hace el sistema:** la bandeja del staff **marca** los tickets de clientes
+Pro con una insignia junto al nombre, y esa cola **se puede aislar** con un filtro
+(`?soloPro=true`).
+
+**«Es Pro AHORA», no «era Pro al abrir el ticket».** Es una decisión, no el camino fácil: el
+soporte prioritario es una ventaja de quien **está pagando cuando pide ayuda**. Quien
+canceló la semana pasada deja de destacar; quien se hizo Pro hoy destaca en su ticket de
+ayer. Congelarlo al abrir habría exigido una columna en `Ticket` y habría dejado marcados a
+ex-clientes para siempre. Hay dos tests sobre esto: un entitlement caducado no marca, y
+revocar el Pro apaga la marca de sus tickets viejos.
+
+**MARCAR NO ES REORDENAR, y ahí está la línea que separa esto de un SLA.** El orden por
+defecto sigue siendo `lastMessageAt desc`: el sistema **señala**, y quien prioriza sigue
+siendo una persona. El test lo fija con el ticket del Pro colocado como el más antiguo de
+los tres — si la marca reordenara, subiría; debe quedarse el último.
+
+**Sin N+1.** Una página son 25 tickets, y preguntar `isProActive` por autor serían 25
+viajes a la base para pintar una insignia, en la pantalla que el staff tiene abierta todo el
+día. `ProStatusService` gana `proActiveAmong(ids)` —un `IN` con `distinct`— y el test cuenta
+las lecturas reales de `Entitlement` mientras se sirve la bandeja: **1**, no 30. La mutación
+(volver al `isProActive` dentro del `map`) da exactamente 30.
+
+**Una sola definición de «es Pro».** El filtro necesita un `where` de Prisma, así que el
+predicado sale a `proActiveEntitlementWhere()` y lo usan los tres sitios: `isProActive`,
+`proActiveAmong` y el `where` de la bandeja. Escribirlo a mano en el filtro habría creado
+una segunda definición capaz de separarse — que es justo lo que el doc-comment de
+`ProStatusService` dice que no puede pasar.
+
+**Dónde vive la dependencia.** `TicketsModule` importa `ListingGateModule`, que es **módulo
+hoja** (no importa ningún módulo de dominio) y ya exportaba `ProStatusService`: no hay
+ciclo. Es exactamente el motivo por el que ese servicio vive fuera de `BillingModule`.
+
+**Y el texto de `/planes`, ajustado a lo que el mecanismo cumple:** «Soporte prioritario:
+tus consultas destacan en la bandeja de nuestro equipo». **Sin plazo, a propósito** — un SLA
+depende de cuánta gente haya y de cuántos tickets entren, y el código no puede garantizarlo:
+escribirlo sería volver al punto de partida con más letra. Se corrigió también la lista de
+respaldo del frontend, que decía «Soporte prioritario» a secas y sólo se pinta cuando la API
+no responde: prometer de más en la rama de error es el mismo defecto, escondido.
+
+**Tests.** `pro-marca-tickets.e2e-spec.ts` (8): la marca y sus dos casos de estado, el
+filtro, el orden intacto, el texto sin SLA y el conteo de consultas.
+
+Mutaciones comprobadas: `isProActive` en el `map` → 30 lecturas en vez de 1; marcar sin
+mirar el estado → caen 4 tests.
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.

@@ -22,6 +22,8 @@ export function getAdminTickets(
   if (filters.status) params.set('status', filters.status);
   if (filters.origin) params.set('origin', filters.origin);
   if (filters.topicId) params.set('topicId', filters.topicId);
+  // #15 — sólo se manda cuando está activo: sin el parámetro, la bandeja no acota.
+  if (filters.soloPro) params.set('soloPro', 'true');
   if (filters.assignedTo) params.set('assignedTo', filters.assignedTo);
   params.set('page', String(filters.page ?? 1));
   params.set('perPage', String(filters.perPage ?? 25));

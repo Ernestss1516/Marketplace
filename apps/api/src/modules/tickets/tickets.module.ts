@@ -5,6 +5,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { ContactModule } from '../contact/contact.module';
 import { MessagingModule } from '../messaging/messaging.module';
 import { QUEUE_NOTIFICATIONS, retryQueue } from '../../infra/queue/queue.constants';
+import { ListingGateModule } from '../listing-gate/listing-gate.module';
 import { TicketsService } from './tickets.service';
 import { TicketNotificationsService } from './ticket-notifications.service';
 import { TicketAttachmentsService } from './ticket-attachments.service';
@@ -48,6 +49,10 @@ import { AdminTicketsController } from './admin-tickets.controller';
     // `retryQueue()` se quedaría en attempts:1 en silencio. `queue-retry.e2e-spec.ts`
     // grepea el código y rompe la suite si alguien lo olvida.
     BullModule.registerQueue(retryQueue(QUEUE_NOTIFICATIONS)),
+    // #15 — de aquí sale `ProStatusService`, el ÚNICO dueño de «¿es Pro?». Módulo HOJA
+    // (no importa ningún módulo de dominio), así que no puede crear un ciclo: es
+    // justamente el motivo de que ese servicio viva ahí y no dentro de `BillingModule`.
+    ListingGateModule,
   ],
   controllers: [TicketsController, AdminTicketsController],
   // R5 — `TicketAttachmentsService` no necesita importar nada: R2Module es @Global

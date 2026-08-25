@@ -14,6 +14,7 @@ import { AuditLogService } from '../audit-log/audit-log.service';
 import { TicketNotificationsService } from './ticket-notifications.service';
 import { PreparedAttachment, TicketAttachmentsService } from './ticket-attachments.service';
 import { assertCanHandleTicket } from './tickets.guards';
+import { ProStatusService, proActiveEntitlementWhere } from '../listing-gate/pro-status.service';
 import { MessagingGateway } from '../messaging/messaging.gateway';
 import {
   ASSIGNED_TO_ME,
@@ -107,6 +108,10 @@ export class TicketsService {
     private readonly notify: TicketNotificationsService,
     private readonly attachments: TicketAttachmentsService,
     private readonly realtime: MessagingGateway,
+    // #15 — «¿es Pro?», de su ÚNICO dueño. `ListingGateModule` es hoja (no importa ningún
+    // módulo de dominio), así que importarlo no puede crear un ciclo: es exactamente para
+    // esto que `ProStatusService` vive fuera de `BillingModule`.
+    private readonly proStatus: ProStatusService,
   ) {}
 
   /**
@@ -476,7 +481,7 @@ export class TicketsService {
    * quien no tiene acceso a facturación, además de producir 403 al hacer clic.
    */
   async listForStaff(actor: StaffActor, filters: StaffTicketFilters = {}) {
-    const { status, origin, topicId, assignedTo, page = 1, perPage = 25 } = filters;
+    const { status, origin, topicId, assignedTo, soloPro, page = 1, perPage = 25 } = filters;
 
     const where: Prisma.TicketWhereInput = {
       ...(status && { status }),
@@ -484,6 +489,10 @@ export class TicketsService {
       ...(topicId && { topicId }),
       ...this.assignedFilter(actor, assignedTo),
       ...(actor.role === 'ADMIN' ? {} : { invoiceId: null }),
+      // #15 — «sólo los de clientes Pro». Se filtra EN LA BASE, con el MISMO predicado
+      // que responde «¿es Pro?» en todo el proyecto (`proActiveEntitlementWhere`), no con
+      // una condición escrita aquí que pudiera separarse de aquélla.
+      ...(soloPro && { user: { entitlements: { some: proActiveEntitlementWhere() } } }),
     };
 
     const [items, total] = await this.prisma.$transaction([
@@ -506,6 +515,25 @@ export class TicketsService {
       this.prisma.ticket.count({ where }),
     ]);
 
+    /**
+     * #15 — «SOPORTE PRIORITARIO», HECHO REAL: quién de estos autores es Pro.
+     *
+     * UNA consulta para la página entera, no una por ticket. Con 25 por página, preguntar
+     * `isProActive` en el `map` serían 25 viajes a la base para pintar una insignia — el
+     * N+1 clásico, y en la pantalla que el staff tiene abierta todo el día.
+     *
+     * ES «PRO AHORA», NO «ERA PRO AL ABRIR EL TICKET», y es una decisión, no el camino
+     * fácil: el soporte prioritario es una ventaja de quien **está pagando cuando pide
+     * ayuda**. Si alguien canceló la semana pasada, su ticket ya no destaca; si se ha
+     * hecho Pro hoy, su ticket de ayer sí. Congelarlo al abrir habría exigido una columna
+     * y habría dejado marcados a ex-clientes para siempre.
+     *
+     * LO QUE ESTO **NO** ES: un SLA. No reordena la cola ni promete un plazo — el orden
+     * por defecto sigue siendo `lastMessageAt desc`. Marca, para que el staff pueda
+     * priorizar; priorizar lo sigue haciendo una persona.
+     */
+    const proIds = await this.proStatus.proActiveAmong(items.map((t) => t.userId));
+
     return {
       items: items.map((t) => ({
         id: t.id,
@@ -514,6 +542,8 @@ export class TicketsService {
         origin: t.origin,
         topic: t.topic,
         user: t.user,
+        /** #15 — el autor es Pro AHORA. Lo pinta la bandeja como insignia. */
+        userIsPro: proIds.has(t.userId),
         assignedTo: t.assignedTo,
         linkedLabel: t.linkedLabel,
         hasInvoice: t.invoiceId !== null,

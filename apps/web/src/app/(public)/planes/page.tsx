@@ -42,7 +42,11 @@ const PRO_FEATURES_FALLBACK = [
   // promete. Cuando el catálogo sí responde, `proBenefits` trae la línea ya comparada.
   'Destacados y bumps gratis cada mes',
   'Estadísticas avanzadas de tus anuncios',
-  'Soporte prioritario',
+  // #15 — el MISMO texto acotado que sirve el catálogo. Este respaldo sólo entra cuando la
+  // API no responde, pero prometer aquí más de lo que el sistema hace sería el defecto de
+  // §4.4 otra vez, escondido en la rama de error: lo que se garantiza es que la consulta
+  // DESTACA en la bandeja del staff, no un plazo de respuesta.
+  'Soporte prioritario: tus consultas destacan para nuestro equipo',
 ];
 
 function formatPrice(amount: number, currency: string): string {

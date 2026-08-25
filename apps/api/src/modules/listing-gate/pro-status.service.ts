@@ -40,6 +40,25 @@ function activeFilter(): Prisma.EntitlementWhereInput {
   return { revokedAt: null, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] };
 }
 
+/**
+ * «ES PRO AHORA», como CONDICIÓN DE CONSULTA — para quien necesita filtrar en la base en
+ * vez de preguntar por un usuario suelto.
+ *
+ * Se exporta porque `#15` (la marca de Pro en la bandeja de tickets) necesita un
+ * `where` de Prisma —«dame los tickets cuyo autor es Pro»— y resolverlo trayendo los
+ * tickets y preguntando uno a uno sería el N+1 que esa ráfaga existe para evitar. Sin
+ * esto, quien filtre acabaría escribiendo su propia versión del predicado, y **dos
+ * definiciones de «es Pro» que se separan es exactamente lo que el doc-comment de arriba
+ * dice que no puede pasar**: la cuota y el precio del plan empezarían a decir cosas
+ * distintas del mismo usuario.
+ *
+ * Devuelve la condición sobre `Entitlement`; quien la use la enchufa donde le toque
+ * (`user: { entitlements: { some: proActiveEntitlementWhere() } }`).
+ */
+export function proActiveEntitlementWhere(): Prisma.EntitlementWhereInput {
+  return { type: EntitlementType.PRO_SUBSCRIPTION, ...activeFilter() };
+}
+
 @Injectable()
 export class ProStatusService {
   constructor(private readonly prisma: PrismaService) {}
@@ -50,9 +69,33 @@ export class ProStatusService {
    */
   async isProActive(userId: string): Promise<boolean> {
     const row = await this.prisma.entitlement.findFirst({
-      where: { userId, type: EntitlementType.PRO_SUBSCRIPTION, ...activeFilter() },
+      where: { userId, ...proActiveEntitlementWhere() },
       select: { id: true },
     });
     return row !== null;
+  }
+
+  /**
+   * La MISMA pregunta, para muchos usuarios y en UNA consulta.
+   *
+   * Existe por el N+1 de la bandeja de tickets (#15): una página son 25 tickets, y
+   * preguntar `isProActive` por cada autor son 25 viajes a la base para pintar una
+   * insignia. Con `IN` es uno.
+   *
+   * Devuelve el conjunto de los que SÍ son Pro; quien pregunte por uno que no esté
+   * simplemente no lo encuentra. `distinct` porque un usuario puede tener más de un
+   * entitlement vigente (uno de pago y otro concedido a mano conviven — es el caso que
+   * documenta `entitlement.service.ts`), y aquí sólo interesa el hecho.
+   */
+  async proActiveAmong(userIds: readonly string[]): Promise<Set<string>> {
+    const unicos = [...new Set(userIds)];
+    if (unicos.length === 0) return new Set();
+
+    const filas = await this.prisma.entitlement.findMany({
+      where: { userId: { in: unicos }, ...proActiveEntitlementWhere() },
+      select: { userId: true },
+      distinct: ['userId'],
+    });
+    return new Set(filas.map((f) => f.userId));
   }
 }

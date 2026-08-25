@@ -273,6 +273,14 @@ un camino, y a la vez el registro que habilita valorar.
 
 ---
 
+> **`GET /admin/tickets` y el «soporte prioritario» (#15).** Cada ítem trae **`userIsPro`**
+> — el autor es cliente Pro **AHORA**, no cuando abrió el ticket—, y la bandeja lo pinta
+> como insignia. Se filtra con **`?soloPro=true`** para aislar esa cola. **No reordena
+> nada**: el orden sigue siendo `lastMessageAt desc`. El sistema marca; priorizar lo hace
+> una persona, y por eso `/planes` promete que la consulta «destaca», nunca un plazo.
+
+---
+
 ## Admin — estadísticas (B1)
 
 Controlador **propio** (`admin/stats`) con piso **MODERATOR**, separado del `GET /admin/stats`
