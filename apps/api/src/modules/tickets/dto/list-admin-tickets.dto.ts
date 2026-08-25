@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 import { TicketOrigin, TicketStatus } from '@prisma/client';
 
 /**
@@ -31,6 +31,19 @@ export class ListAdminTicketsDto {
   @IsOptional()
   @IsString()
   assignedTo?: string;
+
+  /**
+   * #15 — «sólo los de clientes Pro». La cola del soporte prioritario, aislable.
+   *
+   * BOOLEANO SIMPLE, no tri-estado como los filtros de `/admin/anuncios`: allí «los que NO
+   * están en observación» es una pregunta que alguien se hace; «los tickets de los que NO
+   * son Pro» no lo es — el resto de la bandeja YA es eso. Sin el parámetro, no acota.
+   */
+  @ApiPropertyOptional({ description: 'Sólo tickets de clientes Pro' })
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  soloPro?: boolean;
 
   @ApiPropertyOptional({ default: 1, minimum: 1 })
   @IsOptional()

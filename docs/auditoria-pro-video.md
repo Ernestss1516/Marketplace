@@ -637,7 +637,15 @@ Justo es reconocerlo: en el backoffice, la asimetría de la cuota **se explica c
 equipo no lo tiene», `BloqueDinero`, `data-testid="pro-sin-cuota"`). Al **admin** se le cuenta.
 Al **usuario** no se le cuenta nada (H-1, §1.5).
 
-### 4.4 Una promesa sin mecanismo
+### 4.4 Una promesa sin mecanismo — **CERRADA** (2026-08-25)
+
+> **Ya hay mecanismo.** Los tickets de un cliente Pro llegan **marcados** a la bandeja del
+> staff, que además puede **aislar esa cola** con un filtro; y el texto de `/planes` se
+> ajustó a lo que eso cumple —«tus consultas destacan»— en vez de a un plazo que nadie
+> puede garantizar en código. Sigue sin haber SLA **a propósito**: marcar se puede
+> garantizar, responder en X horas depende de cuánta gente haya. Lo de abajo queda como
+> estaba el día de la auditoría.
+
 
 «**Soporte prioritario**» se anuncia en `/planes` incondicionalmente
 ([`billing.service.ts:1101`](../apps/api/src/modules/billing/billing.service.ts#L1101)), y el
@@ -692,7 +700,7 @@ Ordenada por **(daño real) ÷ (coste de cerrarlo)**. Cada uno con su ubicación
 | ~~**12**~~ | ~~Las dos tarjetas del **mapa** no pintan el indicador~~ — **CERRADO** (2026-08-24). Vivían dentro de `MapView` (importa `maplibre-gl`), así que ninguna prueba podía alcanzarlas: se extrajeron a `MapCards.tsx` y ahora tienen barrera propia | [`MapCards.test.tsx`](../apps/web/src/components/busqueda/MapCards.test.tsx) |
 | ~~**13**~~ | ~~El **listado** de `/admin/anuncios` no marca qué anuncios llevan vídeo~~ — **CERRADO** (2026-08-25): el MISMO `VideoIndicator`, en variante `inline` (la tabla no tiene foto sobre la que superponerlo, y escribir un cuarto `<span>` a mano era el defecto que la extracción cerró). **Y con filtro**: `?conVideo=` tri-estado, porque con la píldora se ve el vídeo fila a fila y con el filtro se despacha el lote — que es lo que pedía el hueco («priorizar o filtrar desde la cola»). No reusa el `conVideo` de `/search`: aquél filtra en Meili, que sólo indexa ACTIVE. El servidor sirve `hasVideo` derivado y **borra `videoUrl` del payload**, molde exacto de `ipFlagged` | [`video-fleco-listado-admin.e2e-spec.ts`](../apps/api/test/video-fleco-listado-admin.e2e-spec.ts) |
 | ~~**14**~~ | ~~El reproductor del backoffice **no** lleva `preload="none"`~~ — **CERRADO** (2026-08-25), y la divergencia **no era deliberada**: al mirarla de cerca, el argumento a favor de precargar («el moderador ha ido ahí a mirar») no se sostiene, porque esa ficha se abre para mil cosas y el vídeo es una. Se extrajo `VideoPlayer`, que usan las dos superficies. **La divergencia que de verdad importaba era la otra**: la ficha pública validaba el origen con `isSafeSrc` y el backoffice pintaba la URL en crudo — y un `<video src>` no pasa por `remotePatterns`, así que era su única barrera de dominio en el cliente | [`video-flecos.test.tsx`](../apps/web/src/components/anuncios/video-flecos.test.tsx) |
-| **15** | «**Soporte prioritario**» se promete sin ningún mecanismo en código | política manual |
+| ~~**15**~~ | ~~«**Soporte prioritario**» se promete sin ningún mecanismo en código~~ — **CERRADO** (2026-08-25): la bandeja del staff MARCA los tickets de clientes Pro y esa cola se puede aislar con un filtro. La marca refleja «es Pro **AHORA**», no «lo era al abrir»: quien dejó de pagar deja de destacar, y quien se hizo Pro hoy destaca en su ticket de ayer. **Marcar NO es reordenar** —el orden por defecto sigue siendo `lastMessageAt desc`—, y el texto de `/planes` se ajustó a lo que el mecanismo cumple: «tus consultas destacan», nunca un plazo. Un SLA es operativa (depende de cuánta gente haya) y el código no puede garantizarlo | [`pro-marca-tickets.e2e-spec.ts`](../apps/api/test/pro-marca-tickets.e2e-spec.ts) |
 | **16** | La **duración** se valida declarada, no medida (sin `ffmpeg`) | frontera **aceptada y escrita**, no un hueco |
 
 ### Decisiones de producto pendientes (no son bugs)

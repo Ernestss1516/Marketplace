@@ -29,6 +29,12 @@ export interface StaffTicketFilters {
    * pueden valer literalmente "me" ni "none".
    */
   assignedTo?: string;
+  /**
+   * #15 — sólo los tickets de clientes Pro AHORA. Es la cola del «soporte prioritario»:
+   * el staff puede aislarla cuando quiere despacharla, sin que el sistema reordene nada
+   * por su cuenta.
+   */
+  soloPro?: boolean;
   page?: number;
   perPage?: number;
 }

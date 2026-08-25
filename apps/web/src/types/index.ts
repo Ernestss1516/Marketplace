@@ -980,6 +980,13 @@ export interface AdminTicketListItem {
   origin: TicketOrigin;
   topic: TicketTopic | null;
   user: TicketUserStub;
+  /**
+   * #15 — el autor es cliente Pro AHORA (no «lo era al abrir el ticket»).
+   *
+   * Es lo que hace real el «soporte prioritario» que anuncia `/planes`: la bandeja lo
+   * marca para que el staff pueda priorizarlo. NO reordena la cola ni promete un plazo.
+   */
+  userIsPro: boolean;
   assignedTo: { id: string; name: string } | null;
   linkedLabel: string | null;
   /** true si el ticket lleva factura enlazada (solo ADMIN puede gestionarlo). */
@@ -1032,6 +1039,8 @@ export interface AdminTicketFilters {
   origin?: TicketOrigin;
   topicId?: string;
   assignedTo?: string;
+  /** #15 — sólo los tickets de clientes Pro. La cola del soporte prioritario, aislable. */
+  soloPro?: boolean;
   page?: number;
   perPage?: number;
 }
