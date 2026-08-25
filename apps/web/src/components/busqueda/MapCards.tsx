@@ -5,6 +5,7 @@ import { X } from 'lucide-react';
 import type { ListingSummary } from '@/types';
 import type { CardAttributeMap } from '@/components/anuncios/CardAttributesContext';
 import { VideoIndicator } from '@/components/anuncios/VideoIndicator';
+import { FeaturedBadge } from '@/components/anuncios/FeaturedBadge';
 import { filterDefsByListingType } from '@/lib/card-attributes';
 
 /**
@@ -111,6 +112,10 @@ export function FloatingCard({ listing, pos, containerW, onClose }: FloatingCard
                 —se saldría de la miniatura—. Mismo componente y mismo testid; lo que
                 cambia es cuánto ocupa, no qué dice. */}
             {listing.hasVideo && <VideoIndicator compact className="bottom-0.5 right-0.5" />}
+            {/* Y la etiqueta de destacado, por el MISMO motivo y con el mismo criterio: en
+                56 px sólo cabe la estrella. Sin esto, un anuncio por el que alguien ha
+                pagado era indistinguible de cualquier otro en la vista de mapa. */}
+            {listing.boostScore === 1 && <FeaturedBadge compact className="left-0.5 top-0.5" />}
           </span>
         )}
         <div className="min-w-0">
@@ -163,8 +168,9 @@ export function SelectedListingPanel({
               className="h-[100px] w-[130px] rounded-lg object-cover"
               loading="lazy"
             />
-            {/* Aquí SÍ cabe la píldora completa: 130×100 px. */}
+            {/* Aquí SÍ cabe la píldora completa: 130×100 px. Vale para las dos. */}
             {listing.hasVideo && <VideoIndicator className="bottom-1 right-1" />}
+            {listing.boostScore === 1 && <FeaturedBadge className="left-1 top-1" />}
           </span>
         )}
 

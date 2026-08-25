@@ -14,9 +14,19 @@ export const LISTINGS_BLOCK_REVALIDATE_SECONDS = 180;
 
 function mapSort(sort: ListingsBlockSort | undefined): 'publishedAt:desc' | 'sortDate:desc' {
   // 'recent' (o sin especificar) -> cronológico, igual que la portada.
-  // 'featured' -> sortDate:desc (max(publishedAt,bumpedAt)) favorece
-  // reimpulsados. boostScore:desc sigue siendo la rankingRule que manda
-  // primero en ambos casos (RF.8) — el badge "Destacado" no depende de esto.
+  // 'featured' -> sortDate:desc, o sea `max(publishedAt, bumpedAt)`: los recién publicados y
+  // los recién reimpulsados.
+  //
+  // ESTE ORDEN NO PRIVILEGIA A LOS DESTACADOS, Y AQUÍ SE AFIRMABA LO CONTRARIO (con un «(RF.8)»
+  // que le daba autoridad). Era verdad cuando se escribió; la Política de ordenación C
+  // (RÁFAGA 1) sacó `boostScore` de `rankingRules` y no pasó por este fichero, así que el
+  // comentario se quedó afirmando en presente algo que había dejado de ser cierto — y la
+  // opción, con un nombre que ya no cumplía.
+  //
+  // La etiqueta que ve el admin es ahora «Recientes o reimpulsados». El VALOR sigue siendo
+  // 'featured' a propósito: está persistido en el JSON de los bloques ya publicados y
+  // renombrarlo obligaría a migrar contenido para no ganar nada.
+  // Ver docs/diseno-rotacion-destacados.md §10.2.
   return sort === 'featured' ? 'sortDate:desc' : 'publishedAt:desc';
 }
 

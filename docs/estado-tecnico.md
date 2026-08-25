@@ -239,6 +239,7 @@ enlaces ancla — funcionan en GitHub y en la vista previa de Markdown de VS Cod
 - [Política de ordenación C: boostScore deja de particionar la lista (RÁFAGA 1, 2026-07-13)](#política-de-ordenación-c-boostscore-deja-de-particionar-la-lista-ráfaga-1-2026-07-13)
 - [Rotación de destacados — R1: las marcas de tiempo del destacado en el índice (2026-08-25)](#rotación-de-destacados--r1-las-marcas-de-tiempo-del-destacado-en-el-índice-2026-08-25)
 - [Rotación de destacados — R2: el bloque «Promocionados» se turna por ventanas (2026-08-25)](#rotación-de-destacados--r2-el-bloque-promocionados-se-turna-por-ventanas-2026-08-25)
+- [Rotación de destacados — R3: la honestidad (la promesa, la etiqueta y el badge del mapa) (2026-08-25)](#rotación-de-destacados--r3-la-honestidad-la-promesa-la-etiqueta-y-el-badge-del-mapa-2026-08-25)
 - [Filtros: validación de atributos por categoría (RÁFAGA 1 — fix del leak cross-categoría)](#filtros-validación-de-atributos-por-categoría-ráfaga-1--fix-del-leak-cross-categoría)
 - [Provincia: select cerrado en FilterPanel (RÁFAGA 1 — cierra la inconsistencia con la portada)](#provincia-select-cerrado-en-filterpanel-ráfaga-1--cierra-la-inconsistencia-con-la-portada)
 - [`/[categoria]/[subcategoria]` — ruta muerta eliminada (RÁFAGA 1)](#categoriasubcategoria--ruta-muerta-eliminada-ráfaga-1)
@@ -3753,6 +3754,62 @@ sustituto no vive ahí sino en el spec de R2, con el reloj gobernado; R1 se qued
 > excluye los documentos que no lleven `featuredExpiresAt`, así que desplegar R2 sobre un índice
 > anterior a R1 **deja el bloque vacío en todo el sitio**. `pnpm --filter @marketplace/api reindex`
 > primero, R2 después.
+
+### Rotación de destacados — R3: la honestidad (la promesa, la etiqueta y el badge del mapa) (2026-08-25)
+
+**Cierra la rotación.** R1 puso el dato, R2 repartió la vitrina, y R3 hace que **lo que se dice
+coincida con lo que se entrega**. Tres correcciones que sólo se podían hacer *después* de R2:
+antes, la frase honesta habría prometido un turno que no existía.
+
+**§10.1 — la frase del diálogo de compra** (`PromocionarDialog.tsx`). Decía «tu anuncio aparece
+resaltado y **en el bloque de promocionados durante varios días**»: una promesa **incondicional**
+de un producto **de pago** que era **falsa para la mayoría** —con el bloque congelado, quien
+destacaba un anuncio antiguo no aparecía ni uno solo de los días que pagaba—. Con R2 se vuelve
+casi cierta, pero «aparece en el bloque» seguiría sugiriendo **permanencia**, y lo que se entrega
+es un **turno**. Ahora dice:
+
+> «Tu anuncio lleva la etiqueta «Destacado» en todos los resultados y entra en el turno del
+> bloque «Promocionados» de su categoría: va alternándose con los demás destacados mientras dure
+> el periodo.»
+
+**Dos mitades, cada una literalmente verdad**: el badge SÍ es permanente (va en todos los
+resultados); el bloque es rotatorio. Nada de «siempre», nada de «el primero». Vive en una
+constante con nombre (`PROMESA_DESTACADO`) y no suelta en el JSX, porque es una frase que un test
+vigila. **Los toasts de éxito no se tocaron**: no prometen el bloque. **Pendiente y a propósito
+fuera**: enseñar la cifra real («hay 12 destacados en Coches; saldrías unas 8 h al día»), que
+necesita un endpoint de conteo.
+
+**§10.2 — «Destacados primero» en portada y blog.** La opción dejó de destacar nada con la
+Política de ordenación C (que sacó `boostScore` de `rankingRules`): traduce a `sortDate:desc`, o
+sea recién publicados y recién reimpulsados. Y los dos resolutores lo justificaban con un
+comentario que **afirmaba en presente** que `boostScore:desc` seguía siendo la primera ranking
+rule — cierto cuando se escribió, falso desde RÁFAGA 1, que actualizó `/busqueda` y
+`/[categoria]` y no pasó por ahí. **La etiqueta pasa a decir lo que hace: «Recientes o
+reimpulsados»**, y los dos comentarios quedan corregidos. **El VALOR guardado sigue siendo
+`'featured'`**, y eso es deliberado: está persistido en el JSON de los bloques ya publicados y
+renombrarlo obligaría a migrar contenido para no ganar nada. Un test lo fija. *(Hacer que esa
+opción destaque de verdad reusando la rotación es otra ráfaga: expone `onlyBoosted` en la API
+pública y hay que decidir cómo convive el ciclo con el `revalidate: 180`.)*
+
+**§10.3 — el badge «Destacado» en el mapa.** `MapCards` no lo pintaba: en vista mapa un destacado
+era **indistinguible** de cualquier otro anuncio, y hay categorías cuya vista por defecto ES el
+mapa — el producto pagado no se veía por ninguna parte. **Es literalmente el mismo hueco que tuvo
+el indicador de vídeo en esas dos mismas tarjetas**, y se cierra igual: el `<Badge>` escrito a
+mano en `ListingCard` y copiado en `ListingCardWide` se extrae a **`FeaturedBadge`**, con variante
+`compact` (en la miniatura flotante de 56 px sólo cabe la estrella; en el panel de 130×100 cabe la
+píldora entera). Las **cuatro** superficies usan ahora el mismo componente, el mismo criterio
+(`boostScore === 1`) y el mismo `data-testid` — un solo sitio donde cambiarlo, en vez de cuatro
+copias que divergen. En compacto el nombre accesible viaja en `aria-label`, como en
+`VideoIndicator`.
+
+**Barreras (12 pruebas):** la frase promete turno y **no** permanencia, y sus dos mitades se
+afirman por separado; las etiquetas ya no dicen «Destacados primero» pero el valor `'featured'`
+sigue ahí; las cuatro superficies pintan la etiqueta con `boostScore === 1` y ninguna sin él; la
+miniatura de 56 px la pinta **compacta** y el panel entera.
+
+**Mutaciones comprobadas:** volver a la frase de permanencia → caen 2; renombrar el valor
+`'featured'` → cae la barrera de la migración; pintar la etiqueta completa en los 56 px → cae la
+del compacto.
 
 ### Filtros: validación de atributos por categoría (RÁFAGA 1 — fix del leak cross-categoría)
 

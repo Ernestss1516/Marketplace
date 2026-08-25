@@ -11,10 +11,22 @@ import type { HomeBlock, HomeListingsBlock, ListingsSort } from '@/types/home-bl
 export const LISTINGS_REVALIDATE_SECONDS = 180;
 
 function mapSort(sort: ListingsSort | undefined): 'publishedAt:desc' | 'sortDate:desc' {
-  // 'recent' (o sin especificar) -> cronológico, igual que la portada escrita a
-  // mano. 'featured' -> sortDate:desc (max(publishedAt, bumpedAt)), que favorece
-  // los reimpulsados. boostScore:desc sigue siendo la primera rankingRule de
-  // Meilisearch en ambos casos: el badge "Destacado" no depende de esto.
+  // 'recent' (o sin especificar) -> cronológico, igual que la portada escrita a mano.
+  // 'featured' -> sortDate:desc, o sea `max(publishedAt, bumpedAt)`: los recién publicados y
+  // los recién reimpulsados.
+  //
+  // ESTE ORDEN NO PRIVILEGIA A LOS DESTACADOS, Y AQUÍ SE AFIRMABA LO CONTRARIO. El comentario
+  // que vivía en estas líneas decía que `boostScore:desc` seguía siendo la primera ranking
+  // rule de Meilisearch — y cuando se escribió era verdad, así que la opción hacía lo que su
+  // nombre prometía. La Política de ordenación C (RÁFAGA 1) sacó `boostScore` de
+  // `rankingRules` para que el pago dejara de particionar las listas, actualizó `/busqueda` y
+  // `/[categoria]`... y no pasó por aquí. El comentario se quedó afirmando en presente algo
+  // que había dejado de ser cierto, y la opción, con un nombre que ya no cumplía.
+  //
+  // Por eso la etiqueta que ve el admin es ahora «Recientes o reimpulsados», que es lo que
+  // esto hace. El VALOR sigue siendo 'featured' a propósito: está persistido en el JSON de
+  // los bloques ya publicados y renombrarlo obligaría a migrar contenido para no ganar nada.
+  // Ver docs/diseno-rotacion-destacados.md §10.2.
   return sort === 'featured' ? 'sortDate:desc' : 'publishedAt:desc';
 }
 

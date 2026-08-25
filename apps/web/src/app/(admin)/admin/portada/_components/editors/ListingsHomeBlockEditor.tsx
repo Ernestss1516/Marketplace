@@ -25,9 +25,14 @@ function flattenCategories(categories: Category[]): { slug: string; label: strin
   return out;
 }
 
-const SORT_OPTIONS: { value: ListingsSort; label: string }[] = [
+// La etiqueta dice lo que la opción HACE. Se llamaba «Destacados primero» y desde la Política
+// de ordenación C (RÁFAGA 1) no destaca nada: ordena por `max(publishedAt, bumpedAt)`, es
+// decir, recién publicados y recién reimpulsados. El VALOR sigue siendo 'featured' porque está
+// persistido en los bloques ya publicados; renombrarlo obligaría a migrar contenido para no
+// ganar nada. Ver lib/home-blocks/resolve-listings.ts y docs/diseno-rotacion-destacados.md §10.2.
+export const SORT_OPTIONS: { value: ListingsSort; label: string }[] = [
   { value: 'recent', label: 'Los más recientes' },
-  { value: 'featured', label: 'Destacados primero' },
+  { value: 'featured', label: 'Recientes o reimpulsados' },
 ];
 
 /** Valor del <select> que significa "sin filtrar por categoría". */

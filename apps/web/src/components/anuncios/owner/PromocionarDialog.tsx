@@ -83,6 +83,31 @@ import type { BumpPricing } from '@/types';
  * a este diálogo, por el botón único «Promocionar». El problema no era que faltara una
  * entrada: era depender del `▾` como entrada única.
  */
+/**
+ * LO QUE SE PROMETE AL COBRAR, Y LA PROMESA ES LO QUE SE ENTREGA.
+ *
+ * Aquí decía «tu anuncio aparece resaltado y en el bloque de promocionados durante varios
+ * días»: una promesa INCONDICIONAL que era FALSA para la mayoría, porque el bloque estaba
+ * congelado en los cuatro de `publishedAt` más reciente y quien destacaba un anuncio antiguo
+ * no aparecía ni uno solo de los días que pagaba (auditoría, hallazgo H5).
+ *
+ * La rotación (R2) lo hizo cierto, pero «aparece en el bloque» seguiría sugiriendo
+ * PERMANENCIA, y lo que se entrega es un TURNO. De ahí las dos mitades, cada una literalmente
+ * verdad: la etiqueta SÍ es permanente —va en todos los resultados, siempre—, y el bloque es
+ * rotatorio.
+ *
+ * Nada de «siempre», nada de «el primero». Está en una constante con nombre, y no suelta en el
+ * JSX, porque es la frase que un test vigila: ver honestidad-promesa.test.tsx.
+ *
+ * PENDIENTE, y a propósito fuera de aquí: enseñar la cifra real («ahora mismo hay 12
+ * destacados en Coches; tu anuncio saldría unas 8 h al día»). Necesita un endpoint de conteo
+ * — ráfaga posterior, §11 del diseño.
+ */
+export const PROMESA_DESTACADO =
+  'Tu anuncio lleva la etiqueta «Destacado» en todos los resultados y entra en el turno del ' +
+  'bloque «Promocionados» de su categoría: va alternándose con los demás destacados mientras ' +
+  'dure el periodo.';
+
 type Producto = 'bump' | 'destacado' | 'programar';
 type PayMethod = 'credits' | 'card';
 /** H8.5b — vía del destacado: cuota gratuita de Pro vs. pagado (créditos/tarjeta). */
@@ -412,9 +437,25 @@ export function PromocionarDialog({
                     <Star className="h-4 w-4" aria-hidden />
                     Destacar
                   </span>
+                  {/*
+                    LA PROMESA ES LO QUE SE ENTREGA, Y ANTES NO LO ERA. Aquí decía «tu
+                    anuncio aparece resaltado y en el bloque de promocionados durante varios
+                    días»: una promesa INCONDICIONAL que era FALSA para la mayoría, porque el
+                    bloque estaba congelado en los cuatro de `publishedAt` más reciente y
+                    quien destacaba un anuncio antiguo no aparecía ni un solo día de los que
+                    pagaba (auditoría, hallazgo H5).
+
+                    La rotación (R2) lo hizo cierto, pero «aparece en el bloque» seguiría
+                    sugiriendo PERMANENCIA, y lo que se entrega es un TURNO. De ahí las dos
+                    mitades, cada una literalmente verdad: la etiqueta SÍ es permanente (va en
+                    todos los resultados, siempre), y el bloque es rotatorio.
+
+                    Nada de «siempre», nada de «el primero». Enseñar además la cifra real
+                    —cuántos destacados hay ahora en esa categoría y cuánta vitrina sale por
+                    anuncio— es la siguiente ráfaga: necesita un endpoint de conteo.
+                  */}
                   <span className="mt-0.5 block text-xs text-muted-foreground">
-                    Tu anuncio aparece resaltado y en el bloque de promocionados durante
-                    varios días.
+                    {PROMESA_DESTACADO}
                   </span>
                 </Label>
               </div>
