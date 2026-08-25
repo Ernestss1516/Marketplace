@@ -16,6 +16,72 @@ const SPONSORED_AD_POSITION = 3;
 // en la página 7 de resultados.
 const FEATURED_BLOCK_SIZE = 4;
 
+/**
+ * ROTACIÓN — R2. EL ORDEN DEL ANILLO. Es PROPIO del bloque y no el que haya pedido el
+ * usuario, y ésa es la decisión que hace posible el turno (diseño D5).
+ *
+ * Con el orden del usuario, la partición en grupos cambiaría con cada ordenación distinta y
+ * con cada edición de precio; y bajo el orden por defecto de una categoría
+ * (`publishedAt:desc`, y `publishedAt` es INMUTABLE) volveríamos exactamente al problema de
+ * origen: los mismos cuatro para siempre. Un turno necesita un orden estable y propio.
+ *
+ * LO QUE ESTO CUESTA, DICHO CLARO: el bloque ya NO va ordenado como la lista. Buscando por
+ * «precio: menor a mayor», la vitrina puede enseñar un coche de 30.000 € encima de una lista
+ * que empieza en 500 €. Es el precio de que la vitrina sea un TURNO y no un ranking.
+ *
+ * LO QUE NO CAMBIA: el bloque sigue respetando TODOS los filtros (`baseParams` entero). Lo
+ * que cambia es el ORDEN dentro del bloque, nunca QUÉ anuncios son elegibles.
+ */
+const FEATURED_RING_SORT = 'featuredStartsAt:asc' as const;
+
+/**
+ * ROTACIÓN — R2. La duración de la ventana: cada cuánto cambia el turno.
+ *
+ * 15 MINUTOS (diseño D1) es el equilibrio entre las dos cosas que se pelean: más corta
+ * reparte antes (el ciclo con N=50 dura 3 h 15 en vez de 13 h) pero hace que el bloque cambie
+ * mientras alguien navega; más larga es más estable pero condena a los últimos del anillo a
+ * esperar. Quince minutos es más que una sesión de navegación típica, así que el visitante
+ * corriente ve UN bloque estable de principio a fin.
+ *
+ * SE PUEDE AJUSTAR POR ENTORNO, no por `Setting`: la búsqueda no toca Postgres
+ * (`apps/api/CLAUDE.md`), así que leer un ajuste de base de datos en la ruta más caliente del
+ * sitio está descartado. Mismo molde que `MEILI_INDEX_NAME` en search.service.ts.
+ *
+ * LA GUARDA NO ES PARANOIA: un `FEATURED_ROTATION_WINDOW_MINUTES=0` (o un valor con una coma
+ * mal puesta) daría una ventana de cero segundos y `Math.floor(x / 0) = Infinity`, y de ahí
+ * `Infinity % grupos = NaN`: el bloque se quedaría vacío en todo el sitio por un typo en un
+ * `.env`. Ante cualquier valor que no sea un número positivo, se usa el de por defecto.
+ */
+const VENTANA_POR_DEFECTO_MINUTOS = 15;
+const ventanaPedida = Number(process.env.FEATURED_ROTATION_WINDOW_MINUTES);
+export const FEATURED_ROTATION_WINDOW_SECONDS =
+  (Number.isFinite(ventanaPedida) && ventanaPedida > 0 ? ventanaPedida : VENTANA_POR_DEFECTO_MINUTOS) * 60;
+
+/**
+ * ROTACIÓN — R2. Qué grupo del anillo le toca a la ventana en curso (1-indexado, como las
+ * páginas de Meilisearch).
+ *
+ * EL CURSOR ES EL RELOJ, Y NO HAY MÁS ESTADO QUE ESE. La ventana se deriva del epoch UTC
+ * (`floor(ahora / duración)`), así que dos instancias del backend calculan el mismo turno sin
+ * hablar entre ellas, no hay contador que resetear, no hay cron, y dada una hora y un número
+ * de grupos la salida es única — es decir, reproducible cuando haya que depurarla.
+ *
+ * EL `+ 1` NO ES COSMÉTICO: las páginas de Meilisearch empiezan en 1. Sin él, una de cada
+ * `grupos` ventanas pediría la página 0 y el bloque saldría vacío o desalineado.
+ *
+ * Con `grupos <= 1` no hay nada que rotar (todos los destacados caben en el bloque) y la
+ * respuesta es siempre la página 1 — el caso mayoritario del sitio.
+ */
+export function grupoDeLaVentana(
+  ahoraMs: number,
+  grupos: number,
+  ventanaSegundos: number = FEATURED_ROTATION_WINDOW_SECONDS,
+): number {
+  if (!Number.isFinite(grupos) || grupos <= 1) return 1;
+  const ventana = Math.floor(ahoraMs / 1000 / ventanaSegundos);
+  return (ventana % grupos) + 1;
+}
+
 @ApiTags('Search')
 @Controller('search')
 export class SearchController {
@@ -51,7 +117,11 @@ export class SearchController {
       'reconocido (ni core ni atributo filtrable de esa categoría) es rechazado con 400. ' +
       'La respuesta separa `hits` (resultados en el orden pedido, boostScore NUNCA los ' +
       'reordena) de `featured` (hasta 4 destacados que además cumplen los mismos filtros, ' +
-      'solo en página 1 — bloque "Promocionados"; política de ordenación C).',
+      'solo en página 1 — bloque "Promocionados"; política de ordenación C). ' +
+      'El bloque ROTA: los destacados vigentes se turnan por ventanas de 15 min, así que ' +
+      'dos peticiones en ventanas distintas devuelven grupos distintos y con el tiempo salen ' +
+      'todos. Su orden es propio (por fecha de concesión), no el `sort` pedido — los FILTROS ' +
+      'sí se respetan enteros.',
   })
   @ApiOkResponse({
     description:
@@ -152,22 +222,56 @@ export class SearchController {
 
     let hits = result.hits.map((hit) => this.normalizeHit(hit, allAttributeNames));
 
-    // Bloque "Promocionados" (política de ordenación C, RÁFAGA 1): los destacados
-    // que además cumplen los filtros actuales, en una consulta APARTE con los
-    // mismos filtros + boostScore=1 — mismo molde que el patrocinado de arriba.
-    // Solo página 1. NO se restan de `hits`/`totalHits`: siguen apareciendo también
-    // en su posición natural dentro de la lista (se repiten a propósito — el bloque
-    // es la vitrina de pago, la lista es la lista real; ver auditoría RÁFAGA 0).
+    // ── BLOQUE "PROMOCIONADOS" — EL TURNO DE ESTA VENTANA (ROTACIÓN R2) ─────────
+    //
+    // Los destacados que además cumplen los filtros actuales, en una consulta APARTE con los
+    // mismos filtros + boostScore=1 — mismo molde que el patrocinado de abajo. Solo página 1.
+    // NO se restan de `hits`/`totalHits`: siguen apareciendo también en su posición natural
+    // dentro de la lista (se repiten a propósito — el bloque es la vitrina de pago, la lista
+    // es la lista real; ver auditoría RÁFAGA 0).
+    //
+    // LO QUE R2 CAMBIA, Y POR QUÉ. Hasta aquí el bloque eran «los 4 primeros del orden
+    // pedido», y con el orden por defecto de una categoría esa clave es `publishedAt`, que no
+    // cambia nunca: el bloque estaba CONGELADO. Quien destacaba un anuncio antiguo caía bajo
+    // el corte desde el primer segundo del periodo que había pagado y no aparecía jamás —con
+    // 50 destacados en una categoría, 46 no veían la vitrina nunca (auditoría, hallazgo H5).
+    //
+    // Ahora el conjunto se recorre por TURNOS: se ordena por el anillo (FEATURED_RING_SORT),
+    // se parte en grupos de 4, y la ventana del reloj dice qué grupo sale. Cada destacado sale
+    // un grupo por ciclo, sin excepción; su cuota es 4/N del tiempo, que es toda la que puede
+    // haber cuando hay 4 huecos y N candidatos.
+    //
+    // EL COSTE: DOS consultas como mucho, y la segunda SÓLO cuando hay más de 4 destacados
+    // compitiendo —es decir, sólo donde el problema existe—. Con N ≤ 4 (el caso mayoritario
+    // del sitio) esto cuesta exactamente lo que costaba antes: una.
     let featured: Array<Record<string, unknown>> = [];
     if ((dto.page ?? 1) === 1) {
-      const featuredResult = await this.searchService.search({
+      // UN solo instante para las dos cosas que dependen del reloj (la vigencia y la
+      // ventana). Leerlo dos veces abriría la puerta a que una petición comprobase la
+      // vigencia en una ventana y pidiera el turno de la siguiente.
+      const ahoraMs = Date.now();
+
+      const anillo: SearchParams = {
         ...baseParams,
-        sort: dto.sort,
         onlyBoosted: true,
-        page: 1,
+        // El caducado no ocupa turno aunque el cron de las 03:00 no haya pasado todavía.
+        boostedActiveAt: Math.floor(ahoraMs / 1000),
+        // El orden del anillo, NO `dto.sort` — ver FEATURED_RING_SORT.
+        sort: FEATURED_RING_SORT,
         hitsPerPage: FEATURED_BLOCK_SIZE,
-      });
-      featured = featuredResult.hits.map((hit) => this.normalizeHit(hit, allAttributeNames));
+      };
+
+      // Consulta A: el primer grupo y, de paso, cuántos grupos tiene el ciclo. `totalPages`
+      // viene del conteo exhaustivo que Meilisearch hace en modo `page`/`hitsPerPage`.
+      const grupoInicial = await this.searchService.search({ ...anillo, page: 1 });
+      const grupos = grupoInicial.totalPages ?? 1;
+      const turno = grupoDeLaVentana(ahoraMs, grupos);
+
+      // Consulta B: sólo si el turno NO es el grupo que ya tenemos en la mano.
+      const grupoDelTurno =
+        turno === 1 ? grupoInicial : await this.searchService.search({ ...anillo, page: turno });
+
+      featured = grupoDelTurno.hits.map((hit) => this.normalizeHit(hit, allAttributeNames));
     }
 
     // Escaparate RÁFAGA 4 — media VERIFICADA del vendedor, en una sola consulta

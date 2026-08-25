@@ -387,7 +387,12 @@ export interface SearchParams {
    */
   attributeFacetNames?: string[];
   geo?: { lat: number; lng: number; radiusMeters: number };
-  sort?: 'price:asc' | 'price:desc' | 'publishedAt:desc' | 'sortDate:desc';
+  /**
+   * `featuredStartsAt:asc` NO es una ordenación que un usuario pueda pedir — el DTO público
+   * sigue admitiendo sólo las cuatro de siempre. Es el ORDEN DEL ANILLO de rotación (R2),
+   * interno al bloque «Promocionados»: ver FEATURED_RING_SORT en search.controller.ts.
+   */
+  sort?: 'price:asc' | 'price:desc' | 'publishedAt:desc' | 'sortDate:desc' | 'featuredStartsAt:asc';
   page?: number;
   hitsPerPage?: number;
   /** Confirms "is this specific listing in these results?" (B3 alert-matching Fase 2)
@@ -396,6 +401,28 @@ export interface SearchParams {
   /** Restricts to boostScore=1 — used by SearchController to resolve the "Promocionados"
    * block (política de ordenación C) with the exact same filters as the main query. */
   onlyBoosted?: boolean;
+  /**
+   * ROTACIÓN — R2. Instante (segundos UNIX) contra el que se comprueba que el periodo de
+   * destacado SIGUE VIVO: emite `featuredExpiresAt IS NULL OR featuredExpiresAt > N`.
+   *
+   * POR QUÉ NO BASTA `boostScore = 1`. `boostScore` se congela al indexar y sólo baja a 0
+   * cuando el cron de las 03:00 revoca y reencola — hasta ~23 h después de que el periodo
+   * venza. Sin esta comprobación un destacado ya caducado seguiría ocupando un turno del
+   * anillo durante casi un día, y ese turno se lo quita a alguien que SÍ está pagando. Con
+   * ella sale de la rotación en la ventana siguiente. El cron no sobra: sigue siendo quien
+   * revoca y quien apaga el badge; lo que deja de depender de él es la vitrina.
+   *
+   * EL RELOJ LLEGA COMO PARÁMETRO, y es deliberado: `search()` tiene que seguir siendo pura
+   * —mismas entradas, mismas salidas— porque la llaman también las alertas
+   * (`alerts.service.ts`, `alert-matching.service.ts`, dentro de un worker), y un resultado
+   * que dependiera del reloj rompería el emparejamiento. Quien tiene reloj es el controlador.
+   *
+   * `IS NULL` cubre el destacado SIN CADUCIDAD (`Entitlement.expiresAt` nulo, previsto en el
+   * esquema para créditos manuales de soporte), que no debe caerse de la rotación por no
+   * tener fecha de fin. No hace falta distinguirlo de "no destacado": `boostScore = 1` va
+   * siempre delante en esta misma consulta.
+   */
+  boostedActiveAt?: number;
   /**
    * V-4 — «solo con vídeo». OPCIONAL en el sentido fuerte: `undefined` no añade ninguna
    * cláusula, así que una búsqueda que no lo pida devuelve exactamente lo que devolvía.
@@ -604,6 +631,14 @@ export class SearchService implements OnModuleInit {
     if (params.maxPrice != null) filters.push(`price <= ${params.maxPrice}`);
     if (params.listingId) filters.push(`id = "${this.escape(params.listingId)}"`);
     if (params.onlyBoosted) filters.push('boostScore = 1');
+    // ROTACIÓN — R2. La vigencia del periodo, contra el reloj que trae el llamador (ver
+    // `boostedActiveAt`). Entre paréntesis porque cada elemento de `filters` se combina con
+    // AND: sin ellos, el OR se comería la conjunción con el resto de cláusulas.
+    if (params.boostedActiveAt != null) {
+      filters.push(
+        `(featuredExpiresAt IS NULL OR featuredExpiresAt > ${Math.floor(params.boostedActiveAt)})`,
+      );
+    }
     // V-4 — sólo si se pide. Un `false` no emite `hasVideo = false`: eso sería un filtro
     // distinto («solo SIN vídeo») que nadie ha pedido y que acotaría una búsqueda que el
     // usuario cree completa.
