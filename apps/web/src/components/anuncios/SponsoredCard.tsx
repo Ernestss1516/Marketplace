@@ -1,6 +1,6 @@
 import Image from 'next/image';
 import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+import { PublicidadBadge } from './PublicidadBadge';
 import type { SponsoredAdHit } from '@/types';
 import type { SearchHit } from '@/lib/api/busqueda';
 
@@ -29,10 +29,10 @@ export function SponsoredCard({ ad }: { ad: SponsoredAdHit }) {
             sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
           />
           {/* Estilo neutro (gris), deliberadamente distinto del ámbar "Destacado"
-              de ListingCard — no debe confundirse con un anuncio real destacado. */}
-          <Badge className="absolute left-2 top-2 bg-slate-600 text-white hover:bg-slate-600">
-            Publicidad
-          </Badge>
+              de ListingCard — no debe confundirse con un anuncio real destacado.
+              P2B: la etiqueta se comparte ahora con el bloque «Promocionados», que hasta
+              entonces no decía que fuera publicidad. Una palabra, no dos. */}
+          <PublicidadBadge />
         </div>
         <CardContent className="p-3">
           <p className="mb-1 line-clamp-2 text-sm font-medium leading-snug">{ad.title}</p>
