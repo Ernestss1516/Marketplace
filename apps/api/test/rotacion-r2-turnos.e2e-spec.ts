@@ -41,7 +41,7 @@ import { SearchService, INDEX_INCLUDE } from 'src/modules/search/search.service'
 import {
   grupoDeLaVentana,
   FEATURED_ROTATION_WINDOW_SECONDS,
-} from 'src/modules/search/search.controller';
+} from 'src/modules/search/featured-rotation';
 
 const INDEX_NAME = process.env.MEILI_INDEX_NAME ?? 'listings_test';
 const TAM_BLOQUE = 4;

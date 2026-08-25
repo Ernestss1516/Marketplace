@@ -257,6 +257,37 @@ export function getCatalog(): Promise<CatalogResponse> {
 }
 
 /**
+ * R4 — CON CUÁNTOS COMPETIRÍA Y CUÁNTO SALDRÍA, para decírselo al vendedor ANTES de cobrarle.
+ *
+ * La cuota la calcula el SERVIDOR, no el frontend, y no es un detalle de reparto de capas: la
+ * fórmula es la misma con la que la rotación parte el anillo, y depende del tamaño del bloque y
+ * de la ventana, que viven en el backend (la ventana es incluso ajustable por entorno).
+ * Calcularla aquí sería una segunda copia condenada a divergir en cuanto se toque cualquiera de
+ * las dos. Aquí sólo se pinta.
+ */
+export interface FeaturedCompetition {
+  categoria: { name: string; slug: string } | null;
+  /** Destacados vigentes que YA hay en esa categoría, sin contar el anuncio que pregunta. */
+  vigentes: number;
+  cuota: {
+    /** `vigentes + 1`: el reparto que habría CON este anuncio dentro. */
+    candidatos: number;
+    grupos: number;
+    /** `true` cuando caben todos en el bloque y no hay turnos que esperar. */
+    siempre: boolean;
+    minutosDeVitrinaAlDia: number;
+    cicloMinutos: number;
+  };
+}
+
+export function getFeaturedCompetition(
+  listingId: string,
+  token: string,
+): Promise<FeaturedCompetition> {
+  return apiFetch<FeaturedCompetition>(`/billing/featured-competition/${listingId}`, { token });
+}
+
+/**
  * H8.5a/b — the caller chooses the path:
  *   - useQuota: true  → free grant from the Pro monthly quota, fixed duration; priceId ignored.
  *   - useQuota: false/omitted → pays with credits, duration chosen via priceId (required then).

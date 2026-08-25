@@ -1,8 +1,12 @@
-import { Injectable } from '@nestjs/common';
-import { BumpLedgerType, EntitlementType, FeaturedOrigin, Prisma } from '@prisma/client';
+import { ForbiddenException, Injectable } from '@nestjs/common';
+import { BumpLedgerType, EntitlementType, FeaturedOrigin, ListingStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { ProStatusService } from '../listing-gate/pro-status.service';
 import { suscripcionVigenteFilter } from './subscription-vigente';
+// R4 — LA MISMA aritmética que reparte los turnos, no una copia: si la ventana cambia, la
+// cifra que se le enseña al vendedor cambia con ella. Es una función pura, sin Nest ni
+// Meilisearch, así que importarla no acopla este módulo al de búsqueda.
+import { cuotaDeVitrina } from '../search/featured-rotation';
 
 function activeFilter() {
   const now = new Date();
@@ -157,6 +161,65 @@ export class EntitlementService {
       select: { id: true },
     });
     return row !== null;
+  }
+
+  /**
+   * R4 — LA CIFRA QUE VE EL VENDEDOR ANTES DE PAGAR.
+   *
+   * Cuántos destacados vigentes tiene ya la categoría de este anuncio y, con ese dato, cuánta
+   * vitrina le tocaría si comprara ahora. La frase de R3 dice que su anuncio «se irá
+   * alternando»; esto dice CON CUÁNTOS y CUÁNTO — es la diferencia entre una promesa honesta y
+   * una promesa que además informa la decisión de compra.
+   *
+   * LA CATEGORÍA ES LA DEL ANUNCIO (la hoja), y es una decisión, no un descuido: un destacado
+   * compite además en las búsquedas de sus ancestros y en la global, donde el anillo es mayor y
+   * su cuota menor. Contar la hoja responde al escenario principal —quien navega «Coches» ve el
+   * bloque de «Coches»— y no promete de más: la cifra que se enseña es la de SU categoría, que
+   * es la mejor de las suyas, y se dice como tal.
+   *
+   * LA VIGENCIA ES LA MISMA QUE LA DE LA ROTACIÓN: `activeFilter()` (no revocado y sin caducar)
+   * es el predicado del que sale `boostScore` al indexar. Contar caducados inflaría N y le
+   * enseñaría al vendedor una categoría más competida de lo que está — mentir a la baja también
+   * es mentir.
+   *
+   * SE CUENTAN ANUNCIOS, NO ENTITLEMENTS, y por eso el `count` va sobre `listing`: si un anuncio
+   * arrastrara dos concesiones vivas contaría dos veces, y en el bloque ocupa un hueco.
+   */
+  async getFeaturedCompetition(userId: string, listingId: string) {
+    const listing = await this.prisma.listing.findUnique({
+      where: { id: listingId },
+      select: {
+        sellerId: true,
+        categoryId: true,
+        category: { select: { name: true, slug: true } },
+      },
+    });
+    if (!listing || listing.sellerId !== userId) {
+      throw new ForbiddenException('Listing does not exist or does not belong to you');
+    }
+
+    const vigentes = await this.prisma.listing.count({
+      where: {
+        categoryId: listing.categoryId,
+        status: ListingStatus.ACTIVE,
+        // EXCLUIDO EL PROPIO ANUNCIO: si ya estuviera destacado estaría entre los vigentes, y
+        // sumarle uno más abajo lo contaría dos veces.
+        id: { not: listingId },
+        entitlements: {
+          some: { type: EntitlementType.FEATURED_LISTING, ...activeFilter() },
+        },
+      },
+    });
+
+    return {
+      categoria: listing.category,
+      vigentes,
+      // `+ 1` — EL QUE PREGUNTA. Todavía no está entre los vigentes, así que calcular con los
+      // que ya hay le prometería una cuota que deja de ser cierta en el mismo instante en que
+      // pague. Con cuatro destacados en su categoría, la cuenta ingenua diría «saldrás siempre»
+      // y la verdad es que pasarían a ser cinco y saldría media jornada.
+      cuota: cuotaDeVitrina(vigentes + 1),
+    };
   }
 
   /** Returns all active entitlements for a user (for the /my-entitlements endpoint). */
