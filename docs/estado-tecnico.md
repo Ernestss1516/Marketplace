@@ -240,6 +240,7 @@ enlaces ancla — funcionan en GitHub y en la vista previa de Markdown de VS Cod
 - [Rotación de destacados — R1: las marcas de tiempo del destacado en el índice (2026-08-25)](#rotación-de-destacados--r1-las-marcas-de-tiempo-del-destacado-en-el-índice-2026-08-25)
 - [Rotación de destacados — R2: el bloque «Promocionados» se turna por ventanas (2026-08-25)](#rotación-de-destacados--r2-el-bloque-promocionados-se-turna-por-ventanas-2026-08-25)
 - [Rotación de destacados — R3: la honestidad (la promesa, la etiqueta y el badge del mapa) (2026-08-25)](#rotación-de-destacados--r3-la-honestidad-la-promesa-la-etiqueta-y-el-badge-del-mapa-2026-08-25)
+- [Rotación de destacados — R4: la cifra real en el diálogo de compra (2026-08-25)](#rotación-de-destacados--r4-la-cifra-real-en-el-diálogo-de-compra-2026-08-25)
 - [Filtros: validación de atributos por categoría (RÁFAGA 1 — fix del leak cross-categoría)](#filtros-validación-de-atributos-por-categoría-ráfaga-1--fix-del-leak-cross-categoría)
 - [Provincia: select cerrado en FilterPanel (RÁFAGA 1 — cierra la inconsistencia con la portada)](#provincia-select-cerrado-en-filterpanel-ráfaga-1--cierra-la-inconsistencia-con-la-portada)
 - [`/[categoria]/[subcategoria]` — ruta muerta eliminada (RÁFAGA 1)](#categoriasubcategoria--ruta-muerta-eliminada-ráfaga-1)
@@ -3810,6 +3811,65 @@ miniatura de 56 px la pinta **compacta** y el panel entera.
 **Mutaciones comprobadas:** volver a la frase de permanencia → caen 2; renombrar el valor
 `'featured'` → cae la barrera de la migración; pintar la etiqueta completa en los 56 px → cae la
 del compacto.
+
+### Rotación de destacados — R4: la cifra real en el diálogo de compra (2026-08-25)
+
+**De «rotas» a «rotas ESTO».** R3 dejó la promesa honesta pero **genérica** («va alternándose con
+los demás destacados»). R4 la hace **concreta**: al elegir destacar, el vendedor lee *«Ahora
+mismo hay 11 anuncios destacados en Coches: tu anuncio se turnaría con ellos y saldría unas 8 h
+al día»*. Es la diferencia entre no mentir y **ayudar a decidir** — ve el mercado real antes de
+pagar.
+
+**La aritmética es UNA, compartida** (`modules/search/featured-rotation.ts`, nuevo). Las
+constantes del anillo (tamaño del bloque, ventana) y `grupoDeLaVentana` vivían dentro de
+`search.controller.ts` porque era su único consumidor; dejaron de serlo. Ahora hay un módulo de
+aritmética pura —sin Nest, sin Meilisearch, sin base de datos— del que tiran **la rotación y la
+cifra**: `cuotaDeVitrina(candidatos)` devuelve grupos, si sale siempre, minutos de vitrina al día
+y duración del ciclo. **Si mañana se toca la ventana o el tamaño del bloque, la promesa cambia
+con el reparto** en vez de quedarse mintiendo — que es exactamente lo que le pasó a «Destacados
+primero» y costó una ráfaga arreglar. Un unitario reproduce la **tabla del §2 del diseño**
+(12 → 3 grupos → 8 h; 50 → 13 → ~1 h 51; 200 → 50 → ~29 min) y ata el ciclo a la constante, no a
+un 15 escrito a mano.
+
+**`GET /billing/featured-competition/:listingId`** (`EntitlementService.getFeaturedCompetition`).
+Un `count` sobre Postgres, en el diálogo de compra — **no** en la ruta caliente de búsqueda, así
+que el invariante de `apps/api/CLAUDE.md` no entra en juego. Pide sesión y ser el dueño, mismo
+criterio que conceder un destacado: es un paso del flujo de compra de **ese** anuncio.
+
+- **Cuenta anuncios, no entitlements** (el `count` va sobre `listing`): un anuncio con dos
+  concesiones vivas contaría dos veces, y en el bloque ocupa un hueco.
+- **La vigencia es la misma que la de la rotación**: `activeFilter()` —no revocado, sin caducar—,
+  que es el predicado del que sale `boostScore` al indexar. Contar caducados le pintaría una
+  categoría más competida de lo que está: **mentir a la baja también es mentir**.
+- **La categoría es la del anuncio (la hoja)**, y es una decisión: un destacado compite además en
+  las búsquedas de sus ancestros y en la global, donde el anillo es mayor y su cuota menor.
+  Contar la hoja responde al escenario principal —quien navega «Coches» ve el bloque de
+  «Coches»— y la cifra se enseña como lo que es, la de **su** categoría.
+
+**EL QUE PREGUNTA CUENTA, y no es un detalle de redondeo.** La cuota se calcula con
+`vigentes + 1`: quien está a punto de comprar todavía no está entre los vigentes, así que
+calcular con los que ya hay le prometería una cuota que **deja de ser cierta en el mismo instante
+en que pague**. Con **cuatro** destacados en su categoría, la cuenta ingenua diría «saldrás
+siempre» y la verdad es que pasarían a ser cinco y saldría media jornada. Con 12 sería 8 h en vez
+de las 6 h reales: un 25 % de más. Hay un test dedicado a ese umbral.
+
+**La cifra es un EXTRA, no un requisito.** La carga va en el mismo `Promise.all` que el resto del
+diálogo, con `.catch(() => null)`, y el render está guardado: si el conteo falla, no se pinta nada
+y la compra sigue su curso con la promesa de R3, que es cierta sin la cifra. **Un número
+orientativo no puede impedir vender.**
+
+**«Unas» y «ahora mismo» no son muletillas**: la cifra cambia en cuanto alguien más destaque en
+esa categoría, y prometerla al minuto sería prometer una precisión que no existe — el mismo
+criterio que ya se aplicó al «sobre las HH:00» del bump programado.
+
+**Barreras (13 pruebas nuevas):** el conteo mira su categoría y aplica la tabla del §2; caducados,
+revocados y anuncios no activos **no** cuentan (los permanentes, sí); el propio anuncio no se
+cuenta dos veces; la categoría vacía dice «siempre»; **el umbral de los cuatro**; sin sesión 401 y
+sobre un anuncio ajeno 403; el texto dice cuántos y cuánto, con singular y duraciones legibles; y
+el diálogo aguanta en pie sin la cifra.
+
+**Mutaciones comprobadas:** quitar el `.catch` → cae el fail-open; contar caducados y revocados →
+cae la vigencia; calcular la cuota sin incluir al comprador → caen 4, entre ellas la del umbral.
 
 ### Filtros: validación de atributos por categoría (RÁFAGA 1 — fix del leak cross-categoría)
 

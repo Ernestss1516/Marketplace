@@ -18,7 +18,13 @@
  *  · rotar con `grupos <= 1` → coste y baile donde no hay competencia.
  */
 
-import { grupoDeLaVentana, FEATURED_ROTATION_WINDOW_SECONDS } from './search.controller';
+import {
+  grupoDeLaVentana,
+  cuotaDeVitrina,
+  FEATURED_BLOCK_SIZE,
+  FEATURED_ROTATION_WINDOW_MINUTES,
+  FEATURED_ROTATION_WINDOW_SECONDS,
+} from './featured-rotation';
 
 const VENTANA = 900; // 15 min en segundos — el valor por defecto, fijado aquí a propósito
 const ms = (segundos: number) => segundos * 1000;
@@ -104,5 +110,69 @@ describe('grupoDeLaVentana — el cursor es el reloj', () => {
     const visitados = new Set<number>();
     for (let v = 0; v < grupos; v++) visitados.add(grupoDeLaVentana(ms(v * HORA), grupos, HORA));
     expect(visitados.size).toBe(grupos);
+  });
+});
+
+/**
+ * R4 — LA CIFRA QUE SE LE ENSEÑA AL VENDEDOR ANTES DE COBRARLE.
+ *
+ * Sale de ESTA función, la misma que define los grupos del anillo, y no de una copia: es lo que
+ * garantiza que si mañana se toca la ventana o el tamaño del bloque, la promesa cambie con el
+ * reparto en vez de quedarse mintiendo (que es exactamente lo que le pasó a «Destacados
+ * primero» y costó una ráfaga entera arreglar).
+ */
+describe('cuotaDeVitrina — lo que le toca a cada uno, calculado y no copiado', () => {
+  it('REPRODUCE LA TABLA DEL DISEÑO (§2), que es lo que se dice en voz alta al vender', () => {
+    // Si alguna de estas cifras cambia sin querer, la frase del diálogo de compra empieza a
+    // prometer otra cosa. Por eso la tabla está aquí y no sólo en el documento.
+    const esperado: [number, number, number][] = [
+      // [candidatos, grupos, minutos de vitrina al día]
+      [4, 1, 1440], // caben todos: 24 h
+      [8, 2, 720], // 12 h
+      [12, 3, 480], // 8 h
+      [20, 5, 288], // 4 h 48
+      [50, 13, Math.round(1440 / 13)], // ~1 h 51
+      [100, 25, 57.6],
+      [200, 50, 28.8],
+    ];
+
+    for (const [candidatos, grupos, minutos] of esperado) {
+      const cuota = cuotaDeVitrina(candidatos);
+      expect(cuota.grupos).toBe(grupos);
+      expect(Math.round(cuota.minutosDeVitrinaAlDia)).toBe(Math.round(minutos));
+    }
+  });
+
+  it('mientras quepan todos en el bloque, «siempre» — y ni un candidato más', () => {
+    for (let n = 1; n <= FEATURED_BLOCK_SIZE; n++) {
+      expect(cuotaDeVitrina(n).siempre).toBe(true);
+      expect(cuotaDeVitrina(n).minutosDeVitrinaAlDia).toBe(1440); // las 24 h
+    }
+    // El primero que sobra ya reparte: cinco candidatos son dos grupos, media jornada cada uno.
+    expect(cuotaDeVitrina(FEATURED_BLOCK_SIZE + 1).siempre).toBe(false);
+    expect(cuotaDeVitrina(FEATURED_BLOCK_SIZE + 1).minutosDeVitrinaAlDia).toBe(720);
+  });
+
+  it('el ciclo dura lo que dice la ventana — las dos cifras salen de la misma constante', () => {
+    // LA BARRERA DE LA COPIA: si alguien duplicara la fórmula con un 15 escrito a mano, esto
+    // seguiría verde… hasta que se cambiara la ventana. Se ata a la constante, no al número.
+    expect(cuotaDeVitrina(12).cicloMinutos).toBe(3 * FEATURED_ROTATION_WINDOW_MINUTES);
+    expect(FEATURED_ROTATION_WINDOW_SECONDS).toBe(FEATURED_ROTATION_WINDOW_MINUTES * 60);
+  });
+
+  it('con otra ventana o otro bloque, la cuota cambia con ellos', () => {
+    // La razón de ser del módulo compartido, comprobada: la aritmética es función de las dos
+    // constantes, no de unos números clavados.
+    expect(cuotaDeVitrina(12, 4, 60).cicloMinutos).toBe(180); // ventana de 1 h → ciclo de 3 h
+    expect(cuotaDeVitrina(12, 6).grupos).toBe(2); // bloque de 6 → dos grupos, no tres
+    expect(cuotaDeVitrina(12, 6).minutosDeVitrinaAlDia).toBe(720);
+  });
+
+  it('cero o números absurdos no rompen la cuenta', () => {
+    // `candidatos` llega de un COUNT + 1, así que nunca debería ser 0; pero una división por
+    // cero en la frase que se le enseña a quien va a pagar no es un sitio donde improvisar.
+    expect(cuotaDeVitrina(0).siempre).toBe(true);
+    expect(cuotaDeVitrina(-3).siempre).toBe(true);
+    expect(cuotaDeVitrina(1.7).grupos).toBe(1);
   });
 });

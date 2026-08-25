@@ -95,6 +95,22 @@ export class BillingController {
     return this.billing.featuredByCredits(user.userId, dto);
   }
 
+  /**
+   * R4 — LO QUE EL VENDEDOR VE ANTES DE PAGAR: con cuántos destacados competiría su anuncio en
+   * su categoría, y cuánta vitrina le tocaría con ese reparto.
+   *
+   * NO ES LA RUTA CALIENTE: lo llama el diálogo de promocionar, una vez al abrirlo. Un `count`
+   * sobre Postgres aquí no tiene nada que ver con el invariante de la búsqueda.
+   *
+   * Requiere sesión y ser el dueño (lo comprueba el servicio, mismo criterio que conceder un
+   * destacado): es un paso del flujo de compra de ESE anuncio.
+   */
+  @Get('featured-competition/:listingId')
+  @UseGuards(JwtAuthGuard)
+  getFeaturedCompetition(@CurrentUser() user: JwtUser, @Param('listingId') listingId: string) {
+    return this.entitlements.getFeaturedCompetition(user.userId, listingId);
+  }
+
   // ---------------------------------------------------------------------------
   // RF.6: Wallet
   // ---------------------------------------------------------------------------

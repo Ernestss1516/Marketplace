@@ -358,6 +358,13 @@ por distancia ascendente.
 > particionaba en vez de desempatar y un destacado de 333 € ganaba a uno de 7 € ordenando por
 > precio ascendente.
 
+> **`GET /billing/featured-competition/:listingId` (R4)** — lo que el diálogo de compra le
+> enseña al vendedor antes de cobrarle: `{ categoria, vigentes, cuota }`, donde `vigentes` son
+> los destacados vivos que YA hay en la categoría del anuncio (sin contarlo a él) y `cuota` es
+> el reparto que habría **con él dentro** (`candidatos = vigentes + 1`): `grupos`, `siempre`,
+> `minutosDeVitrinaAlDia`, `cicloMinutos`. La calcula el servidor con la MISMA aritmética que
+> reparte los turnos, no el frontend. Requiere sesión y ser el dueño del anuncio.
+
 > **Rotación R2 — el bloque `featured` SE TURNA.** Ya no son «los 4 primeros del orden pedido»
 > sino el grupo que le toca a la ventana de 15 min en curso: los destacados vigentes se reparten
 > en grupos de 4 por fecha de concesión y van saliendo por turnos, de modo que **dos peticiones

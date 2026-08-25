@@ -31,6 +31,8 @@ import {
   getCatalog,
   getWallet,
   getProStatus,
+  getFeaturedCompetition,
+  type FeaturedCompetition,
   featuredByCredits,
   createFeaturedCheckout,
   bumpListing,
@@ -99,14 +101,53 @@ import type { BumpPricing } from '@/types';
  * Nada de «siempre», nada de «el primero». Está en una constante con nombre, y no suelta en el
  * JSX, porque es la frase que un test vigila: ver honestidad-promesa.test.tsx.
  *
- * PENDIENTE, y a propósito fuera de aquí: enseñar la cifra real («ahora mismo hay 12
- * destacados en Coches; tu anuncio saldría unas 8 h al día»). Necesita un endpoint de conteo
- * — ráfaga posterior, §11 del diseño.
+ * ES LA MITAD GENÉRICA de lo que se le dice al vendedor. La concreta —con cuántos competiría y
+ * cuánto saldría— la pone `textoDeCompetencia` (R4) aquí abajo, en el bloque de configuración
+ * del destacado. Ésta vale siempre; aquélla puede faltar si el conteo falla.
  */
 export const PROMESA_DESTACADO =
   'Tu anuncio lleva la etiqueta «Destacado» en todos los resultados y entra en el turno del ' +
   'bloque «Promocionados» de su categoría: va alternándose con los demás destacados mientras ' +
   'dure el periodo.';
+
+/**
+ * R4 — LA CIFRA, DICHA EN CASTELLANO. Sólo formatea: todo el cálculo llega hecho del servidor,
+ * con la misma fórmula que reparte los turnos (ver `cuotaDeVitrina` en la API).
+ *
+ * DOS MENSAJES PORQUE HAY DOS SITUACIONES DISTINTAS, y confundirlas sería justo el tipo de
+ * imprecisión que esta ráfaga viene a quitar: mientras quepan todos en el bloque no hay turnos
+ * que esperar —y se dice «siempre», que es verdad—; en cuanto sobra alguien, hay reparto, y
+ * entonces se dice cuánto toca.
+ *
+ * «UNAS» Y «AHORA MISMO» NO SON MULETILLAS: la cifra es de este instante y cambia en cuanto
+ * alguien más destaque en esa categoría. Prometerla al minuto sería prometer una precisión que
+ * no existe — el mismo criterio que ya se aplicó al «sobre las HH:00» del bump programado.
+ */
+export function textoDeCompetencia(c: FeaturedCompetition): string {
+  const donde = c.categoria ? `en ${c.categoria.name}` : 'en su categoría';
+  const hay =
+    c.vigentes === 0
+      ? `Ahora mismo no hay ningún anuncio destacado ${donde}`
+      : `Ahora mismo hay ${c.vigentes} anuncio${c.vigentes === 1 ? '' : 's'} destacado${
+          c.vigentes === 1 ? '' : 's'
+        } ${donde}`;
+
+  if (c.cuota.siempre) {
+    return `${hay}: con el tuyo seguirían cabiendo todos en el bloque «Promocionados», así que saldría siempre.`;
+  }
+  return `${hay}: tu anuncio se turnaría con ellos y saldría unas ${formatearDuracion(
+    c.cuota.minutosDeVitrinaAlDia,
+  )} al día.`;
+}
+
+/** 480 → «8 h»; 111 → «1 h 50 min»; 29 → «29 min». Redondeado, que es como se lee. */
+function formatearDuracion(minutos: number): string {
+  const total = Math.round(minutos);
+  if (total < 60) return `${total} min`;
+  const horas = Math.floor(total / 60);
+  const resto = total % 60;
+  return resto === 0 ? `${horas} h` : `${horas} h ${resto} min`;
+}
 
 type Producto = 'bump' | 'destacado' | 'programar';
 type PayMethod = 'credits' | 'card';
@@ -158,6 +199,9 @@ export function PromocionarDialog({
   const [proStatus, setProStatus] = useState<ProStatus | null>(null);
   // E-6 — la cuota configurada, para contarle a un no-Pro lo que se pierde con su cifra real.
   const [cuotaDestacados, setCuotaDestacados] = useState(0);
+  // R4 — con cuántos competiría y cuánto saldría. `null` = no se pudo contar (o aún no):
+  // la cifra es un extra y su ausencia no bloquea nada.
+  const [competencia, setCompetencia] = useState<FeaturedCompetition | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<React.ReactNode | null>(null);
   const [busy, setBusy] = useState(false);
@@ -188,7 +232,10 @@ export function PromocionarDialog({
       ),
       getWallet(token).catch(() => null),
       getProStatus(token).catch(() => null),
-    ]).then(([catalog, wallet, status]) => {
+      // FAIL-OPEN: si el conteo falla, la compra sigue con la promesa de R3, que es cierta
+      // igualmente. Una cifra orientativa no puede impedir vender.
+      getFeaturedCompetition(listing.id, token).catch(() => null),
+    ]).then(([catalog, wallet, status, comp]) => {
       const prices = catalog.products
         .flatMap((p) => p.prices)
         .filter((pr): pr is CatalogPrice => pr.durationDays != null && pr.creditAmount == null)
@@ -198,13 +245,19 @@ export function PromocionarDialog({
       setWalletBalance(wallet?.balance ?? 0);
       if (prices.length > 0) setSelectedPriceId(prices[0].priceId);
       setProStatus(status);
+      setCompetencia(comp);
       setCuotaDestacados(catalog.proMonthlyFeaturedQuota ?? 0);
       // Default to the free quota when eligible — never overrides a later manual choice,
       // this only runs once when the dialog's data finishes loading.
       setFeatureMethod(status?.isPro && status.remaining > 0 ? 'quota' : 'paid');
       setLoading(false);
     });
-  }, [open, token, productoInicial]);
+    // `listing.id` ENTRA EN LAS DEPENDENCIAS con R4, y no es para callar al linter: desde que
+    // la carga incluye el conteo de competencia, este efecto depende del anuncio concreto. Si
+    // el diálogo se reutilizara para otro anuncio sin desmontarse, sin esta dependencia
+    // seguiría enseñando la cifra del anterior — un número creíble y equivocado delante de
+    // quien va a pagar, que es peor que no enseñar ninguno.
+  }, [open, token, productoInicial, listing.id]);
 
   const canUseQuota = Boolean(proStatus?.isPro && (proStatus?.remaining ?? 0) > 0);
   const selectedPrice = featuredPrices.find((p) => p.priceId === selectedPriceId);
@@ -537,6 +590,27 @@ export function PromocionarDialog({
             {producto === 'destacado' && (
               <>
                 <Separator />
+
+                {/*
+                  R4 — LA CIFRA REAL, aquí y no en la etiqueta de la opción: éste es el momento
+                  de la decisión, cuando ya está eligiendo cuántos días y con qué paga.
+
+                  La frase de R3 (arriba, en la opción) es honesta pero GENÉRICA: «va
+                  alternándose». Esto la hace CONCRETA — con cuántos se alterna y cuánto sale—,
+                  que es la diferencia entre no mentir y ayudar a decidir.
+
+                  ES UN EXTRA, NO UN REQUISITO: si el conteo falla, `competencia` se queda a
+                  null y aquí no se pinta nada. La compra sigue su curso con la promesa de R3,
+                  que sigue siendo cierta. Un número orientativo no puede impedir vender.
+                */}
+                {competencia && (
+                  <p
+                    className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground"
+                    data-testid="destacado-competencia"
+                  >
+                    {textoDeCompetencia(competencia)}
+                  </p>
+                )}
 
                 {featuredPrices.length === 0 ? (
                   <p className="py-2 text-center text-sm text-muted-foreground">

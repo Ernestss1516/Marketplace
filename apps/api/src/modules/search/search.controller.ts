@@ -7,14 +7,16 @@ import { SponsoredAdsService } from '../sponsored-ads/sponsored-ads.service';
 import { ReviewsService } from '../reviews/reviews.service';
 import { TagsService } from '../tags/tags.service';
 import { ImpressionsService } from '../impressions/impressions.service';
+import { FEATURED_BLOCK_SIZE, grupoDeLaVentana } from './featured-rotation';
 
 // Posición fija de inserción entre los hits, convención documentada en H6.1.
 const SPONSORED_AD_POSITION = 3;
 
-// Tamaño del bloque "Promocionados" (política de ordenación C, RÁFAGA 1). Solo
-// página 1 — igual que los patrocinados, un bloque de promoción no tiene sentido
-// en la página 7 de resultados.
-const FEATURED_BLOCK_SIZE = 4;
+// Tamaño del bloque "Promocionados" (política de ordenación C, RÁFAGA 1). Solo página 1 —
+// igual que los patrocinados, un bloque de promoción no tiene sentido en la página 7 de
+// resultados. Vive en `featured-rotation` junto al resto de la aritmética del anillo: desde R4
+// también lo usa el diálogo de compra para decirle al vendedor cuánta vitrina le tocaría, y esa
+// cifra tiene que salir de la MISMA fórmula que reparte los turnos.
 
 /**
  * ROTACIÓN — R2. EL ORDEN DEL ANILLO. Es PROPIO del bloque y no el que haya pedido el
@@ -33,54 +35,6 @@ const FEATURED_BLOCK_SIZE = 4;
  * que cambia es el ORDEN dentro del bloque, nunca QUÉ anuncios son elegibles.
  */
 const FEATURED_RING_SORT = 'featuredStartsAt:asc' as const;
-
-/**
- * ROTACIÓN — R2. La duración de la ventana: cada cuánto cambia el turno.
- *
- * 15 MINUTOS (diseño D1) es el equilibrio entre las dos cosas que se pelean: más corta
- * reparte antes (el ciclo con N=50 dura 3 h 15 en vez de 13 h) pero hace que el bloque cambie
- * mientras alguien navega; más larga es más estable pero condena a los últimos del anillo a
- * esperar. Quince minutos es más que una sesión de navegación típica, así que el visitante
- * corriente ve UN bloque estable de principio a fin.
- *
- * SE PUEDE AJUSTAR POR ENTORNO, no por `Setting`: la búsqueda no toca Postgres
- * (`apps/api/CLAUDE.md`), así que leer un ajuste de base de datos en la ruta más caliente del
- * sitio está descartado. Mismo molde que `MEILI_INDEX_NAME` en search.service.ts.
- *
- * LA GUARDA NO ES PARANOIA: un `FEATURED_ROTATION_WINDOW_MINUTES=0` (o un valor con una coma
- * mal puesta) daría una ventana de cero segundos y `Math.floor(x / 0) = Infinity`, y de ahí
- * `Infinity % grupos = NaN`: el bloque se quedaría vacío en todo el sitio por un typo en un
- * `.env`. Ante cualquier valor que no sea un número positivo, se usa el de por defecto.
- */
-const VENTANA_POR_DEFECTO_MINUTOS = 15;
-const ventanaPedida = Number(process.env.FEATURED_ROTATION_WINDOW_MINUTES);
-export const FEATURED_ROTATION_WINDOW_SECONDS =
-  (Number.isFinite(ventanaPedida) && ventanaPedida > 0 ? ventanaPedida : VENTANA_POR_DEFECTO_MINUTOS) * 60;
-
-/**
- * ROTACIÓN — R2. Qué grupo del anillo le toca a la ventana en curso (1-indexado, como las
- * páginas de Meilisearch).
- *
- * EL CURSOR ES EL RELOJ, Y NO HAY MÁS ESTADO QUE ESE. La ventana se deriva del epoch UTC
- * (`floor(ahora / duración)`), así que dos instancias del backend calculan el mismo turno sin
- * hablar entre ellas, no hay contador que resetear, no hay cron, y dada una hora y un número
- * de grupos la salida es única — es decir, reproducible cuando haya que depurarla.
- *
- * EL `+ 1` NO ES COSMÉTICO: las páginas de Meilisearch empiezan en 1. Sin él, una de cada
- * `grupos` ventanas pediría la página 0 y el bloque saldría vacío o desalineado.
- *
- * Con `grupos <= 1` no hay nada que rotar (todos los destacados caben en el bloque) y la
- * respuesta es siempre la página 1 — el caso mayoritario del sitio.
- */
-export function grupoDeLaVentana(
-  ahoraMs: number,
-  grupos: number,
-  ventanaSegundos: number = FEATURED_ROTATION_WINDOW_SECONDS,
-): number {
-  if (!Number.isFinite(grupos) || grupos <= 1) return 1;
-  const ventana = Math.floor(ahoraMs / 1000 / ventanaSegundos);
-  return (ventana % grupos) + 1;
-}
 
 @ApiTags('Search')
 @Controller('search')
