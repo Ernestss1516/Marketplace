@@ -429,6 +429,15 @@ identificarse como tal—. Se diagnostica, no se resuelve aquí.
 debería cubrir los dos bloques a la vez, o el sitio acabará con dos vocabularios distintos para
 lo mismo.
 
+> **CORRECCIÓN (2026-08-25, al implementar P2B).** Esa nota de deslinde **se equivocaba**, y ella
+> misma avisaba de por qué: no se había auditado. `SponsoredCard` **sí** identificaba su
+> contenido como **«Publicidad»** desde H6.6 —un badge gris, deliberadamente distinto del ámbar
+> «Destacado»—. El problema era sólo del bloque de destacados. La consecuencia práctica fue
+> buena: la palabra no hubo que elegirla, ya estaba en la casa, y P2B se limitó a usar la misma
+> en las dos superficies mediante un componente compartido. **El hallazgo H3 sigue siendo válido
+> tal cual está enunciado** para el bloque «Promocionados»; lo que no era cierto es que el
+> patrocinado estuviera igual de mudo.
+
 ---
 
 ## 6. Hallazgos priorizados (daño ÷ coste)

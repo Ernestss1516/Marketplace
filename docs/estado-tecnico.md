@@ -241,6 +241,7 @@ enlaces ancla — funcionan en GitHub y en la vista previa de Markdown de VS Cod
 - [Rotación de destacados — R2: el bloque «Promocionados» se turna por ventanas (2026-08-25)](#rotación-de-destacados--r2-el-bloque-promocionados-se-turna-por-ventanas-2026-08-25)
 - [Rotación de destacados — R3: la honestidad (la promesa, la etiqueta y el badge del mapa) (2026-08-25)](#rotación-de-destacados--r3-la-honestidad-la-promesa-la-etiqueta-y-el-badge-del-mapa-2026-08-25)
 - [Rotación de destacados — R4: la cifra real en el diálogo de compra (2026-08-25)](#rotación-de-destacados--r4-la-cifra-real-en-el-diálogo-de-compra-2026-08-25)
+- [P2B — el bloque «Promocionados» ya dice que es publicidad de pago (2026-08-25)](#p2b--el-bloque-promocionados-ya-dice-que-es-publicidad-de-pago-2026-08-25)
 - [Filtros: validación de atributos por categoría (RÁFAGA 1 — fix del leak cross-categoría)](#filtros-validación-de-atributos-por-categoría-ráfaga-1--fix-del-leak-cross-categoría)
 - [Provincia: select cerrado en FilterPanel (RÁFAGA 1 — cierra la inconsistencia con la portada)](#provincia-select-cerrado-en-filterpanel-ráfaga-1--cierra-la-inconsistencia-con-la-portada)
 - [`/[categoria]/[subcategoria]` — ruta muerta eliminada (RÁFAGA 1)](#categoriasubcategoria--ruta-muerta-eliminada-ráfaga-1)
@@ -3870,6 +3871,57 @@ el diálogo aguanta en pie sin la cifra.
 
 **Mutaciones comprobadas:** quitar el `.catch` → cae el fail-open; contar caducados y revocados →
 cae la vigencia; calcular la cuota sin incluir al comprador → caen 4, entre ellas la del umbral.
+
+### P2B — el bloque «Promocionados» ya dice que es publicidad de pago (2026-08-25)
+
+**El otro lado del mercado.** R3 y R4 cerraron la honestidad con el **vendedor** (sabe que compra
+un turno, y con cuántos competiría). Esto la cierra con el **comprador**: lo que ve arriba es
+publicidad, no relevancia.
+
+**El defecto.** `FeaturedBlock` era un icono, la palabra «Promocionados» y la rejilla. Y
+«Promocionados» **no dice lo que pasa**: se puede leer como «rebajados», «recomendados por la
+plataforma» o «los mejores de la categoría». La lectura correcta —el vendedor ha pagado por estar
+ahí— no estaba escrita en ninguna parte. El `aria-label` («Anuncios promocionados») informaba a
+un lector de pantalla igual de poco. Deuda inventariada en la auditoría RÁFAGA 0, confirmada en
+`auditoria-destacados-busqueda.md` §5.
+
+**R2 lo volvió más necesario, no menos:** desde que el bloque se turna, su contenido **tampoco
+sigue el orden que el visitante pidió**. Alguien que ordena por «precio: menor a mayor» y ve
+cuatro anuncios arriba puede creer razonablemente que son los más baratos. No lo son: son los que
+pagaron y a los que les tocaba turno.
+
+**Lo que se añade — dos señales, porque son dos preguntas.** La etiqueta **«Publicidad»** dice
+*qué es esto*; la línea debajo —«Estos vendedores han pagado por aparecer aquí. No es un orden por
+relevancia.»— dice *por qué está ahí* y desmonta la suposición de ranking. El `aria-label` pasa a
+**«Publicidad — anuncios promocionados»**, con la palabra por delante: quien navega por secciones
+oye el rótulo antes que el contenido. Discreto a propósito: una etiqueta pequeña y una línea de
+texto menor — hace falta que se pueda saber, no que el aviso tape lo que anuncia.
+
+**LA PALABRA NO SE INVENTÓ: YA EXISTÍA.** Al auditar el deslinde apareció que `SponsoredCard`
+**ya decía «Publicidad»** desde H6.6 (badge gris neutro, deliberadamente distinto del ámbar
+«Destacado» para que un patrocinado no se confunda con un anuncio real). La nota de la auditoría
+—«el bloque de patrocinados tiene el mismo problema»— era una suposición, y ella misma advertía
+de que no lo había comprobado. **No lo tiene.** Así que la decisión de vocabulario se resolvió con
+un hecho en vez de con gusto: el sitio ya tenía su palabra para esto, y el bloque de destacados
+pasa a usarla en lugar de estrenar otra.
+
+**Un componente, `PublicidadBadge`**, compartido por las dos superficies, con variante `inline`
+(sobre una foto va superpuesta; en la cabecera de una sección, en línea — el mismo criterio que
+el `inline` de `VideoIndicator`). Si cada bloque escribiera su cadena, el sitio acabaría llamando
+«publicidad» a una cosa y «promocionado» a la misma, y el visitante tendría que deducir que son
+lo mismo. **Es distinto de `FeaturedBadge` a propósito**: aquél identifica *qué anuncio* ha
+pagado (ámbar, sobre la tarjeta); éste, que *un espacio* es publicidad (gris neutro).
+
+**Barreras (9 pruebas):** el bloque lleva la etiqueta y explica quién paga **y** que no es un
+orden por relevancia; ninguna de las lecturas falsas («recomendados», «los mejores»,
+«rebajados») aparece en el texto; el nombre accesible **empieza** por «Publicidad» y ya no es el
+rótulo viejo; patrocinado y destacados usan literalmente la misma etiqueta; el aviso es `text-xs`
+y atenuado, no un cartel; las tarjetas se siguen pintando; y sin destacados no hay bloque —ni
+aviso de publicidad sobre nada—.
+
+**Mutaciones comprobadas:** quitar la señal → caen 3; volver al `aria-label` viejo → cae la de
+accesibilidad; cambiar la palabra en un solo sitio → cae la del vocabulario (y el Playwright de
+H6.6, que ya vigilaba «Publicidad» en la tarjeta patrocinada).
 
 ### Filtros: validación de atributos por categoría (RÁFAGA 1 — fix del leak cross-categoría)
 
