@@ -358,6 +358,13 @@ por distancia ascendente.
 > particionaba en vez de desempatar y un destacado de 333 € ganaba a uno de 7 € ordenando por
 > precio ascendente.
 
+> **Rotación R1 — dos campos nuevos en cada hit.** `featuredStartsAt` y `featuredExpiresAt`
+> (**segundos UNIX**, `null` si el anuncio no está destacado) viajan en `hits` y en `featured`
+> como ya lo hacían `boostScore` o `_geo`. Son la base de la rotación del bloque
+> (`docs/diseno-rotacion-destacados.md`) y **hoy no cambian ningún comportamiento**. Ojo al
+> nombre: **no son `featuredUntil`**, que es otra cosa —un ISO string que sólo sirve la vista del
+> propietario— y por eso se llaman distinto.
+
 > **Excepción a «la búsqueda no toca Postgres»:** en página 1 con `category`, el controlador sí
 > consulta Postgres para intercalar un **anuncio patrocinado**, mitigado con caché Redis por
 > categoría (TTL 5 min). Ver «Sponsored ads».

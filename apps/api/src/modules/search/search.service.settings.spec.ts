@@ -67,6 +67,37 @@ describe('SearchService — aplicar los ajustes del índice', () => {
     expect(llamadas).toEqual(['updateSettings', 'waitForTask:42']);
   });
 
+  it('ROTACIÓN R1 — las marcas del destacado van cada una donde R2 las usa', async () => {
+    // `featuredExpiresAt` FILTRABLE (R2 descarta con él los periodos vencidos) y
+    // `featuredStartsAt` ORDENABLE (R2 ordena el anillo de rotación por él). Declarar un
+    // campo en la constante no sirve de nada si no llega al índice; y cambiarlo de lista
+    // dejaría a R2 con un `Invalid facet distribution` o un `not sortable` en producción.
+    const { service, updateSettings } = servicioConDobles();
+
+    await service.applyFilterableAttributes();
+
+    const settings = updateSettings.mock.calls[0][0] as {
+      filterableAttributes: string[];
+      sortableAttributes: string[];
+    };
+    expect(settings.filterableAttributes).toContain('featuredExpiresAt');
+    expect(settings.sortableAttributes).toContain('featuredStartsAt');
+  });
+
+  it('ROTACIÓN R1 — `maxTotalHits` se fija, y muy por encima del techo de 1000', async () => {
+    // El techo por defecto de Meilisearch (1000) cortaría el anillo de R2: el destacado que
+    // cayera más allá de la posición 1000 no saldría nunca. Es el corte que la rotación
+    // viene a eliminar, así que se fija en la misma ráfaga que crea los campos.
+    const { service, updateSettings } = servicioConDobles();
+
+    await service.applyFilterableAttributes();
+
+    const settings = updateSettings.mock.calls[0][0] as {
+      pagination?: { maxTotalHits?: number };
+    };
+    expect(settings.pagination?.maxTotalHits).toBeGreaterThan(1000);
+  });
+
   it('V-4 — `hasVideo` viaja en los filtrables que se le mandan a Meilisearch', async () => {
     // La otra mitad del hueco: declararlo en la constante no sirve de nada si no llega al
     // índice. El e2e lo comprueba contra Meilisearch de verdad; esto lo fija aquí también,
