@@ -30,6 +30,9 @@ const KNOWN_PARAMS = new Set([
   // `hasVideo` es global, no pertenece a ninguna categoría.
   'conVideo',
   'view', // lista | ampliada | mapa — view switcher, must NOT be forwarded as an attribute filter
+  // H9 — lo decide el BFF según la vista, no la URL: si alguien lo escribiera a mano no debe
+  // colarse en el saco de atributos de categoría.
+  'skipFeatured',
 ]);
 
 const VALID_SORTS = ['price:asc', 'price:desc', 'publishedAt:desc'] as const;
@@ -151,6 +154,11 @@ export default async function BusquedaPage({
       ...(conVideo && { conVideo: true }),
       ...(sortForApi && { sort: sortForApi }),
       ...(proximityActive && { lat, lng, radius }),
+      // H9 — el mapa no pinta el bloque «Promocionados», así que no pide que se resuelva.
+      // Hace falta decirlo: el mapa fuerza `page=1` (abajo, para traer todos los marcadores),
+      // que es justo la condición con la que el backend lo resolvía — una consulta a
+      // Meilisearch por carga de mapa que nadie llegaba a ver.
+      ...(isMapView && { skipFeatured: true }),
       page,
       hitsPerPage: hitsPerFetch,
       ...attributes,

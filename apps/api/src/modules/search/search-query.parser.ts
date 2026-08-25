@@ -23,6 +23,12 @@ export const CORE_SEARCH_QUERY_KEYS = new Set([
   // categoría (de ahí el 400 anti-leak cross-categoría de RÁFAGA 1), pero un tag es
   // vocabulario GLOBAL — `?tags=diesel` sin categoría es una búsqueda legítima.
   'tags',
+  // H9 — «no resuelvas el bloque, que no lo voy a pintar». No es un atributo de categoría
+  // (no pertenece a ninguna, ni filtra nada): es una instrucción del cliente sobre QUÉ
+  // TRABAJO hacer. Sin estar aquí caería en el saco de atributos y la petición moriría con un
+  // 400, aunque el campo estuviera declarado en el DTO — el DTO y esta lista son dos puertas
+  // distintas, y hay que pasar por las dos.
+  'skipFeatured',
 ]);
 
 /**

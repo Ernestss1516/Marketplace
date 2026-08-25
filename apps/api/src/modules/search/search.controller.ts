@@ -198,8 +198,11 @@ export class SearchController {
     // EL COSTE: DOS consultas como mucho, y la segunda SÓLO cuando hay más de 4 destacados
     // compitiendo —es decir, sólo donde el problema existe—. Con N ≤ 4 (el caso mayoritario
     // del sitio) esto cuesta exactamente lo que costaba antes: una.
+    // H9 — `skipFeatured`: quien avisa de que no va a pintar el bloque no paga por resolverlo.
+    // Es el caso de la vista MAPA, que fuerza `page=1` para traer todos los marcadores y por
+    // eso caía dentro de esta condición aunque no monte `FeaturedBlock`. Ver el DTO.
     let featured: Array<Record<string, unknown>> = [];
-    if ((dto.page ?? 1) === 1) {
+    if ((dto.page ?? 1) === 1 && !dto.skipFeatured) {
       // UN solo instante para las dos cosas que dependen del reloj (la vigencia y la
       // ventana). Leerlo dos veces abriría la puerta a que una petición comprobase la
       // vigencia en una ventana y pidiera el turno de la siguiente.

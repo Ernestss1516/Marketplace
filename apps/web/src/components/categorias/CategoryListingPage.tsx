@@ -46,6 +46,9 @@ const KNOWN_PARAMS = new Set([
   'page', 'sort', 'type', 'condition', 'priceType',
   'minPrice', 'maxPrice', 'province', 'city',
   'lat', 'lng', 'radius', 'view',
+  // H9 — lo decide el BFF según la vista, no la URL: si alguien lo escribiera a mano no debe
+  // colarse en el saco de atributos de categoría.
+  'skipFeatured',
   // V-4 — «solo con vídeo»: global, no un atributo de esta categoría.
   'conVideo',
 ]);
@@ -291,6 +294,10 @@ export async function CategoryListingPage({
       ...(conVideo && { conVideo: true }),
       ...(sortForApi && { sort: sortForApi }),
       ...(proximityActive && { lat, lng, radius }),
+      // H9 — igual que en `/busqueda`: en mapa no se pinta el bloque, así que no se pide.
+      // El mapa fuerza `page=1` para traer todos los marcadores, que es la condición con la
+      // que el backend lo resolvía.
+      ...(isMapView && { skipFeatured: true }),
       page,
       hitsPerPage: hitsPerFetch,
       ...attributes,

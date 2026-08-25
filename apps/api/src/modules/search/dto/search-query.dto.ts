@@ -103,6 +103,38 @@ export class SearchQueryDto {
   @IsBoolean()
   conVideo?: boolean;
 
+  /**
+   * H9 — «no me sirvas el bloque, que no lo voy a pintar».
+   *
+   * POR QUÉ EXISTE. En vista MAPA las dos páginas montan el mapa SIN `FeaturedBlock`, pero el
+   * mapa fuerza `page=1` para traer todos los marcadores de una vez — y `page===1` es
+   * justamente la condición con la que el controlador resuelve el bloque. Resultado: cada
+   * carga de mapa pagaba una consulta a Meilisearch (dos desde R2, si hay más de cuatro
+   * destacados compitiendo) para devolver cuatro anuncios que nadie llega a ver.
+   *
+   * POR QUÉ UN PARÁMETRO Y NO DEDUCIRLO. El backend no recibe hoy ninguna señal de la vista:
+   * `view` está deliberadamente FUERA de lo que el front reenvía (está en `KNOWN_PARAMS` de
+   * las dos páginas precisamente para que no viaje como filtro de atributo). Se evaluó
+   * deducirlo del `hitsPerPage: 200` que manda el mapa, y se descartó: sería adivinar la
+   * intención a partir de un parámetro que significa otra cosa, y le quitaría el bloque en
+   * silencio a cualquier cliente que un día pidiera 200 resultados en modo lista.
+   *
+   * OPT-OUT, NO OPT-IN, y esto es lo que mantiene el contrato compatible: quien no lo manda
+   * —cualquier cliente de hoy— sigue recibiendo el bloque exactamente igual. Sólo quien dice
+   * explícitamente que no lo va a pintar se ahorra la consulta.
+   *
+   * Mismo `Transform` que `conVideo` y por el mismo motivo: un query param llega siempre como
+   * cadena, y `'false'` es una cadena verdadera.
+   */
+  @ApiPropertyOptional({
+    description: 'No resolver el bloque «Promocionados» (quien pide esto no lo va a pintar — H9)',
+    type: Boolean,
+  })
+  @IsOptional()
+  @Transform(({ value }) => (value === 'true' || value === '1' || value === true ? true : undefined))
+  @IsBoolean()
+  skipFeatured?: boolean;
+
   @ApiPropertyOptional({ description: 'Provincia' })
   @IsOptional()
   @IsString()
