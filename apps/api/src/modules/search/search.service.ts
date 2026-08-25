@@ -61,6 +61,35 @@ export interface ListingDocument {
   publishedAt: number;
   /** 1 if listing has an active (non-revoked, non-expired) FEATURED_LISTING entitlement; 0 otherwise. */
   boostScore: 0 | 1;
+  /**
+   * ROTACIÓN DE DESTACADOS — R1. Las dos marcas de tiempo del destacado VIGENTE, en
+   * segundos UNIX (la misma unidad que `publishedAt`; `sortDate` va en ms por su propia
+   * historia). `null` cuando el anuncio no está destacado.
+   *
+   * POR QUÉ EXISTEN, aunque hoy no las lea nadie: `boostScore` es un binario, y con un
+   * binario no se puede repartir una vitrina de 4 huecos entre N destacados — no hay con
+   * qué ordenar el turno ni con qué saber si el periodo sigue vivo. Son la base de R2
+   * (ver docs/diseno-rotacion-destacados.md §4): R2 ordenará el anillo de rotación por
+   * `featuredStartsAt:asc` y descartará los caducados con `featuredExpiresAt`.
+   *
+   * `featuredStartsAt` ES LA FECHA DE CONCESIÓN, no la de publicación, y esa es toda la
+   * diferencia: `publishedAt` es inmutable y deja fuera para siempre al que destaca un
+   * anuncio antiguo. Además tiene una propiedad que ninguna otra clave tiene: como una
+   * concesión nueva siempre trae el `startsAt` más grande, ENTRA AL FINAL DEL ANILLO Y NO
+   * REORDENA A NADIE.
+   *
+   * SE ESCRIBEN SIEMPRE, con `null` cuando no hay destacado — nunca se omiten. En
+   * Meilisearch `campo IS NULL` casa con los nulos explícitos, pero un atributo AUSENTE
+   * necesita `NOT campo EXISTS`: omitirlos obligaría a R2 a escribir un filtro distinto
+   * (y a que el bloque se vaciara con cualquier documento antiguo).
+   *
+   * `featuredExpiresAt: null` es AMBIGUO a propósito — significa «sin destacado» y también
+   * «destacado sin caducidad» (`Entitlement.expiresAt` nulo, previsto en el esquema para
+   * créditos manuales de soporte). No hace falta distinguirlos: quien pregunte por la
+   * vigencia lo hará con `boostScore = 1` delante, que ya separa los dos casos.
+   */
+  featuredStartsAt: number | null;
+  featuredExpiresAt: number | null;
   /** B2 — slugs de los tags del anuncio. Filtrable y facetable: es lo que viajará en
    *  `?tags=` y lo que alimenta la faceta. El FILTRO en sí es B3; B2 solo indexa. */
   tags: string[];
@@ -117,6 +146,18 @@ const CORE_FILTERABLE_ATTRIBUTES = [
   // Filterable (not just sortable) so the controller can query "only boosted"
   // for the promoted block (RÁFAGA 1 — política de ordenación C).
   'boostScore',
+  /**
+   * ROTACIÓN — R1. Filtrable porque R2 descartará con él los destacados cuyo periodo ya
+   * venció: hoy eso lo hace el cron de las 03:00 bajando `boostScore` a 0, con hasta ~23 h
+   * de retraso, durante las cuales un destacado caducado ocuparía un turno que le
+   * corresponde a alguien que sí está pagando.
+   *
+   * Su pareja `featuredStartsAt` NO está aquí, sino en `SORTABLE_ATTRIBUTES`: R2 la usa
+   * para ORDENAR el anillo, nunca para filtrar. Declarar de más no es gratis (cada
+   * atributo filtrable es estructura que Meilisearch construye y mantiene), así que cada
+   * uno va sólo donde se usa.
+   */
+  'featuredExpiresAt',
   // B2 — filtrable SIEMPRE, como priceUnit: declararlo aquí no filtra nada por sí
   // solo, solo habilita que se PUEDA. `tagNames` NO está: es searchable y nada más.
   'tags',
@@ -142,7 +183,30 @@ const SORTABLE_ATTRIBUTES = [
   'publishedAt',
   'sortDate',
   '_geo', // enables _geoPoint(...):asc sorting; only useful when listings carry coordinates
+  // ROTACIÓN — R1. El orden del anillo de rotación de R2 (`featuredStartsAt:asc`): un
+  // orden ESTABLE, propio del bloque, que no depende de lo que el usuario haya pedido
+  // ordenar. Ver el comentario del campo en ListingDocument.
+  'featuredStartsAt',
 ];
+
+/**
+ * ROTACIÓN — R1. Techo de resultados que Meilisearch acepta paginar y contar.
+ *
+ * MEILISEARCH LO FIJA EN 1000 SI NADIE DICE LO CONTRARIO, y hasta ahora nadie lo decía.
+ * Para R2 eso no es un ajuste fino sino un corte: el anillo de rotación se recorre
+ * paginando de 4 en 4 sobre el conjunto de destacados, así que con el techo por defecto el
+ * destacado que cayera más allá de la posición 1000 no saldría NUNCA — el mismo daño que
+ * la rotación viene a reparar, sólo que más arriba y más difícil de ver.
+ *
+ * 10.000 es holgura deliberada: diez veces el techo por defecto, y muy por encima de
+ * cualquier número plausible de destacados vigentes a la vez, para no tener que volver aquí.
+ *
+ * EFECTO COLATERAL, y conviene saberlo: `totalHits` también se saturaba en 1000. Una
+ * búsqueda que casara con 4.000 anuncios decía "1.000". A partir de aquí dice 4.000, y la
+ * paginación llega hasta donde de verdad hay resultados. Es una corrección, no una
+ * regresión, pero es lo ÚNICO que un usuario puede notar de esta ráfaga.
+ */
+const MAX_TOTAL_HITS = 10_000;
 
 // Native (non-category-attribute) facets, always requested for guided navigation.
 // The category-attribute part of the facet list is NOT hardcoded here — it used to
@@ -232,9 +296,14 @@ export const INDEX_INCLUDE = {
   images: { orderBy: { order: 'asc' as const } },
   // Only non-revoked FEATURED_LISTING entitlements; expiresAt is checked in toDocument()
   // because new Date() must be evaluated at index time, not at module-load time.
+  //
+  // ROTACIÓN — R1: `startsAt` se suma al `select`, y ES TODO LO QUE CUESTA tener la fecha
+  // de concesión en el índice. La relación ya se cargaba (es de donde sale `boostScore`
+  // desde RF.8): pedir una columna más de unas filas que ya viajan no añade ninguna
+  // consulta al indexado — que era la condición para que R2 no salga caro.
   entitlements: {
     where: { type: 'FEATURED_LISTING' as const, revokedAt: null },
-    select: { expiresAt: true },
+    select: { startsAt: true, expiresAt: true },
   },
   // Public seller fields stored in the index so the map panel can display them
   // without a per-selection API fetch.
@@ -249,10 +318,44 @@ export const INDEX_INCLUDE = {
 type ListingWithRelations = Listing & {
   category: { id: string; slug: string; name: string };
   images: ListingImage[];
-  entitlements: Pick<Entitlement, 'expiresAt'>[];
+  entitlements: Pick<Entitlement, 'startsAt' | 'expiresAt'>[];
   seller: { name: string; slug: string; avatarUrl: string | null };
   tags: { tag: { slug: string; name: string } }[];
 };
+
+/**
+ * ROTACIÓN — R1. El destacado VIGENTE de un anuncio en un instante dado, o `null`.
+ *
+ * Vigente = el mismo predicado que decidía `boostScore` desde RF.8: no caducado, con
+ * `expiresAt` nulo entendido como "sin caducidad". Los revocados no llegan hasta aquí — los
+ * descarta `INDEX_INCLUDE` en el `where` de la relación.
+ *
+ * POR QUÉ ELIGE Y NO SE QUEDA CON EL PRIMERO. `grantFeaturedListingTx` impide conceder un
+ * destacado a un anuncio que ya tenga un periodo activo, así que en la práctica hay uno o
+ * ninguno. Pero "en la práctica" no es "por construcción": si alguna vez hubiera dos
+ * candidatos (una concesión manual, datos viejos), quedarse con el primero haría que el
+ * documento dependiera del orden en que Postgres devolviera las filas, que nadie fija. Gana
+ * el que mantiene destacado el anuncio MÁS TIEMPO — la lectura honesta de "hasta cuándo
+ * está pagado esto" — y así el documento es el mismo se lea como se lea la tabla.
+ */
+export function featuredVigente<T extends { startsAt: Date; expiresAt: Date | null }>(
+  entitlements: readonly T[],
+  now: Date,
+): T | null {
+  let elegido: T | null = null;
+  for (const candidato of entitlements) {
+    if (candidato.expiresAt != null && candidato.expiresAt <= now) continue; // caducado
+    if (elegido === null) {
+      elegido = candidato;
+      continue;
+    }
+    if (elegido.expiresAt == null) continue; // el que ya tenemos no caduca: imbatible
+    if (candidato.expiresAt == null || candidato.expiresAt > elegido.expiresAt) {
+      elegido = candidato;
+    }
+  }
+  return elegido;
+}
 
 export interface SearchParams {
   q?: string;
@@ -349,6 +452,9 @@ export class SearchService implements OnModuleInit {
         filterableAttributes,
         sortableAttributes: SORTABLE_ATTRIBUTES,
         rankingRules: RANKING_RULES,
+        // ROTACIÓN — R1. Ver MAX_TOTAL_HITS: sin fijarlo, el anillo de R2 se cortaría en
+        // los primeros 1000 destacados.
+        pagination: { maxTotalHits: MAX_TOTAL_HITS },
         typoTolerance: {
           enabled: true,
           minWordSizeForTypos: { oneTypo: 4, twoTypos: 8 },
@@ -594,6 +700,13 @@ export class SearchService implements OnModuleInit {
   ): ListingDocument {
     const attributes = (listing.attributes as Record<string, unknown>) ?? {};
     const thumbnail = listing.images.find((img) => img.order === 0) ?? listing.images[0];
+    // ROTACIÓN — R1. UNA sola resolución del destacado vigente para los tres campos que
+    // dependen de él (`boostScore` y las dos marcas de tiempo). Antes esto era un `.some()`
+    // dentro de `boostScore`; ahora que del mismo entitlement salen tres campos, tenerlo
+    // resuelto una vez es lo que garantiza que los tres cuenten la MISMA historia (un
+    // documento con `boostScore: 1` y `featuredStartsAt: null` sería incoherente por
+    // construcción, y R2 lo leería como un anuncio imposible de colocar en el anillo).
+    const destacado = featuredVigente(listing.entitlements, new Date());
 
     // Variable attributes are spread FIRST so that no category attribute can
     // overwrite the core fields below (guards against seeds that reuse reserved
@@ -656,11 +769,14 @@ export class SearchService implements OnModuleInit {
       // 1 if a non-revoked, non-expired FEATURED_LISTING entitlement exists; 0 otherwise.
       // expiresAt=null means the entitlement never expires (permanent featured).
       // Evaluated at index time; decays to 0 when the B.1 expiration cron re-indexes (~daily).
-      boostScore: listing.entitlements.some(
-        (e) => e.expiresAt == null || e.expiresAt > new Date(),
-      )
-        ? 1
-        : 0,
+      boostScore: destacado ? 1 : 0,
+      // ROTACIÓN — R1. Del MISMO entitlement que acaba de decidir `boostScore`, en segundos
+      // UNIX. `null` cuando no hay destacado; y también cuando lo hay pero no caduca (ver
+      // el comentario del campo en ListingDocument).
+      featuredStartsAt: destacado ? Math.floor(destacado.startsAt.getTime() / 1000) : null,
+      featuredExpiresAt: destacado?.expiresAt
+        ? Math.floor(destacado.expiresAt.getTime() / 1000)
+        : null,
       // B2 — DESPUÉS del `...attributes`, como todo campo core: un atributo de
       // categoría que se llamara `tags` no puede pisarlos. Que además no PUEDA
       // llamarse así lo garantiza RESERVED_ATTRIBUTE_NAMES; esto es la segunda

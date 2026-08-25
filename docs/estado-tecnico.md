@@ -237,6 +237,7 @@ enlaces ancla — funcionan en GitHub y en la vista previa de Markdown de VS Cod
 - [`revokedAt` en Entitlement: patrón de expiración idempotente (RF.7-B.1)](#revokedat-en-entitlement-patrón-de-expiración-idempotente-rf7-b1)
 - [boostScore y sortDate en Meilisearch (RF.8)](#boostscore-y-sortdate-en-meilisearch-rf8)
 - [Política de ordenación C: boostScore deja de particionar la lista (RÁFAGA 1, 2026-07-13)](#política-de-ordenación-c-boostscore-deja-de-particionar-la-lista-ráfaga-1-2026-07-13)
+- [Rotación de destacados — R1: las marcas de tiempo del destacado en el índice (2026-08-25)](#rotación-de-destacados--r1-las-marcas-de-tiempo-del-destacado-en-el-índice-2026-08-25)
 - [Filtros: validación de atributos por categoría (RÁFAGA 1 — fix del leak cross-categoría)](#filtros-validación-de-atributos-por-categoría-ráfaga-1--fix-del-leak-cross-categoría)
 - [Provincia: select cerrado en FilterPanel (RÁFAGA 1 — cierra la inconsistencia con la portada)](#provincia-select-cerrado-en-filterpanel-ráfaga-1--cierra-la-inconsistencia-con-la-portada)
 - [`/[categoria]/[subcategoria]` — ruta muerta eliminada (RÁFAGA 1)](#categoriasubcategoria--ruta-muerta-eliminada-ráfaga-1)
@@ -3595,6 +3596,75 @@ destacado).
 enlace junto al selector "Ordenar por" que explique que el pago influye en qué aparece en el
 bloque "Promocionados". El badge "Destacado" (H6.3) identifica el anuncio, pero no explica el
 mecanismo. Inventariado en la auditoría RÁFAGA 0, no forma parte del alcance de esta ráfaga.
+
+### Rotación de destacados — R1: las marcas de tiempo del destacado en el índice (2026-08-25)
+
+**Qué problema abre esto.** La Política de ordenación C (arriba) resolvió el ORDEN —la lista ya
+no la particiona `boostScore`— pero no el REPARTO. La auditoría
+`docs/auditoria-destacados-busqueda.md` lo midió contra el código: el bloque «Promocionados» son
+«los 4 primeros del orden pedido», y en la superficie más transitada (una categoría con el orden
+por defecto, `publishedAt:desc`) esa clave es **inmutable**, así que el bloque está **congelado**.
+Quien destaca un anuncio antiguo cae bajo el corte desde el primer segundo del periodo que ha
+pagado, y no aparece nunca. Con 50 destacados en una categoría, 46 no ven la vitrina jamás.
+Decisión de Ernest: **rotación temporal**, diseñada en `docs/diseno-rotacion-destacados.md`.
+
+**Qué hace R1 — y qué NO hace.** R1 es sólo la base: pone en el documento de Meilisearch el dato
+que hoy no existe, porque **con un binario no se puede repartir una vitrina**. `boostScore` dice
+«sí o no», y para dar turnos hacen falta dos cosas más: con qué ordenar el turno y cómo saber si
+el periodo sigue vivo. **R1 no cambia el comportamiento de nada** — el bloque sigue siendo los 4
+truncados hasta R2.
+
+- **`featuredStartsAt`** y **`featuredExpiresAt`** en `ListingDocument`, en **segundos UNIX**
+  (la unidad de `publishedAt`; `sortDate` va en ms por su propia historia), del **entitlement
+  vigente** en el momento de indexar. `null` cuando no hay destacado.
+- **`featuredStartsAt` es la fecha de CONCESIÓN, no la de publicación**, y ahí está el arreglo de
+  fondo: `publishedAt` deja fuera para siempre al que destaca un anuncio viejo. Además tiene una
+  propiedad que ninguna otra clave tiene — como una concesión nueva trae siempre el `startsAt`
+  más grande, **entra al final del anillo y no reordena a nadie**; con `publishedAt` o con una
+  clave aleatoria, cada alta redistribuiría los grupos de todos.
+- **Los nombres NO son `featuredUntil`, y es deliberado.** `ListingSummary.featuredUntil` ya
+  existe en el frontend como **ISO string** de la vista del propietario
+  (`apps/web/src/types/index.ts`), y `normalizeHit` hace *spread* del documento entero: un
+  homónimo numérico habría aterrizado en la misma propiedad con otro tipo, en silencio.
+  Comprobado por mutación (ver abajo).
+- **Se escriben SIEMPRE, con `null`, nunca se omiten.** En Meilisearch `campo IS NULL` casa con
+  los nulos explícitos, pero un atributo **ausente** necesita `NOT campo EXISTS`. Omitirlos
+  obligaría a R2 a otro filtro y vaciaría el bloque ante cualquier documento antiguo. El tipo
+  (`number | null`, no opcional) hace que omitirlos sea un error de compilación.
+- **`featuredExpiresAt` filtrable, `featuredStartsAt` ordenable** — cada uno sólo donde R2 lo
+  usa, no los dos en las dos listas: un atributo filtrable es estructura que Meilisearch
+  construye y mantiene.
+- **`pagination.maxTotalHits` fijado a 10.000.** Nunca se había fijado, así que regía el **techo
+  por defecto de Meilisearch: 1000**. Para R2 eso no es un ajuste fino sino un corte: el anillo se
+  recorre paginando de 4 en 4, y el destacado más allá de la posición 1000 no saldría **nunca** —
+  el mismo daño que la rotación viene a reparar. **Efecto colateral, y es lo ÚNICO observable de
+  esta ráfaga:** `totalHits` también se saturaba en 1000; una búsqueda con 4.000 resultados decía
+  «1.000» y ahora dice 4.000.
+
+**El dato NO cuesta una consulta.** `INDEX_INCLUDE` ya cargaba los `FEATURED_LISTING` no
+revocados (es de donde sale `boostScore` desde RF.8): R1 añade `startsAt` al `select`, una columna
+más de unas filas que ya viajaban. El e2e lo comprueba contando las lecturas **reales** de
+`Entitlement` mientras se indexa (molde del #15): **0**. Si alguien resolviera la concesión por su
+cuenta, el reindexado masivo pasaría a costar una consulta por anuncio.
+
+**Un solo entitlement decide los tres campos.** `featuredVigente()` (exportada) resuelve el
+destacado vigente una vez, y de ahí salen `boostScore` y las dos fechas — un documento con
+`boostScore: 1` y `featuredStartsAt: null` sería incoherente por construcción, y R2 lo leería como
+un anuncio imposible de colocar en el anillo. Cuando hay varios candidatos (concesión manual,
+datos viejos) **gana el que dura más**, no el primero: quedarse con el primero haría depender el
+documento del orden en que Postgres devuelva las filas, que nadie fija.
+
+**Hace falta reindexar al desplegar** (`pnpm --filter @marketplace/api reindex`), como con
+`images` en RÁFAGA 2: los documentos ya indexados no tienen los campos nuevos. R1 **no** activa
+ningún filtro sobre ellos, así que mientras tanto no se rompe nada — pero **R2 no puede aterrizar
+antes del reindexado**: su filtro de vigencia excluye los documentos que no lleven el campo, y
+dejaría el bloque vacío en todo el sitio.
+
+**Mutaciones comprobadas:** omitir los campos en vez de emitir `null` → error de compilación, y
+si además se ensancha el tipo caen 4 unitarios; quitar `pagination` → cae el unitario de ajustes;
+llamar al campo `featuredUntil` → el e2e lo caza (el hit devolvía un número donde el contrato del
+propietario espera un ISO). El `waitForTask` de `updateSettings` sigue protegido por su propio
+unitario (el flake de `search-dynamic-attributes`).
 
 ### Filtros: validación de atributos por categoría (RÁFAGA 1 — fix del leak cross-categoría)
 
