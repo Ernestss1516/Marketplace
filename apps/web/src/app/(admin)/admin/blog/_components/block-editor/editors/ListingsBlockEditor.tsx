@@ -20,9 +20,12 @@ function flattenCategories(categories: Category[]): { slug: string; label: strin
   return out;
 }
 
-const SORT_OPTIONS: { value: ListingsBlockSort; label: string }[] = [
+// La etiqueta dice lo que la opción HACE — se llamaba «Destacados primero» y desde la Política
+// de ordenación C no destaca nada. El VALOR sigue siendo 'featured' (está persistido en los
+// bloques ya publicados). Ver lib/blocks/resolve-listings.ts y el §10.2 del diseño.
+export const SORT_OPTIONS: { value: ListingsBlockSort; label: string }[] = [
   { value: 'recent', label: 'Más recientes' },
-  { value: 'featured', label: 'Destacados primero' },
+  { value: 'featured', label: 'Recientes o reimpulsados' },
 ];
 
 // Primer bloque DINÁMICO: no guarda contenido, guarda una consulta

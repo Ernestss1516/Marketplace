@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+import { FeaturedBadge } from './FeaturedBadge';
 import { FavoriteCardButton } from './FavoriteCardButton';
 import { CardPhotoCarousel } from './CardPhotoCarousel';
 import { CardAttrsDisplay } from './CardAttributesContext';
@@ -41,11 +41,7 @@ export function ListingCard({
           sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
           priority={priority}
         >
-          {listing.boostScore === 1 && (
-            <Badge className="absolute left-2 top-2 bg-amber-500 text-white hover:bg-amber-500">
-              Destacado
-            </Badge>
-          )}
+          {listing.boostScore === 1 && <FeaturedBadge />}
           <FavoriteCardButton listingId={listing.id} />
         </CardPhotoCarousel>
         <CardContent className="p-3">
