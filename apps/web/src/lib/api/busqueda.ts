@@ -26,6 +26,19 @@ export interface SearchParams {
    * ensuciaría la URL con un parámetro que no hace nada.
    */
   conVideo?: boolean;
+  /**
+   * H9 — «no me sirvas el bloque «Promocionados», que no lo voy a pintar».
+   *
+   * Lo manda la VISTA MAPA, y sólo ella: el mapa no monta `FeaturedBlock`, pero fuerza
+   * `page=1` para traer todos los marcadores de una vez, que es justo la condición con la que
+   * el backend resuelve el bloque. Sin esto, cada carga de mapa pagaba una consulta a
+   * Meilisearch —dos desde la rotación, si hay más de cuatro destacados compitiendo— para
+   * devolver cuatro anuncios que nadie llega a ver.
+   *
+   * Se pasa `undefined` en vez de `false` cuando no aplica, mismo criterio que `conVideo`:
+   * mandar `skipFeatured=false` ensuciaría la URL con un parámetro que no hace nada.
+   */
+  skipFeatured?: boolean;
   [key: string]: string | number | boolean | undefined;
 }
 

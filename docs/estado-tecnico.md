@@ -242,6 +242,7 @@ enlaces ancla — funcionan en GitHub y en la vista previa de Markdown de VS Cod
 - [Rotación de destacados — R3: la honestidad (la promesa, la etiqueta y el badge del mapa) (2026-08-25)](#rotación-de-destacados--r3-la-honestidad-la-promesa-la-etiqueta-y-el-badge-del-mapa-2026-08-25)
 - [Rotación de destacados — R4: la cifra real en el diálogo de compra (2026-08-25)](#rotación-de-destacados--r4-la-cifra-real-en-el-diálogo-de-compra-2026-08-25)
 - [P2B — el bloque «Promocionados» ya dice que es publicidad de pago (2026-08-25)](#p2b--el-bloque-promocionados-ya-dice-que-es-publicidad-de-pago-2026-08-25)
+- [H9 — la vista mapa deja de pagar la consulta del bloque (2026-08-25)](#h9--la-vista-mapa-deja-de-pagar-la-consulta-del-bloque-2026-08-25)
 - [Filtros: validación de atributos por categoría (RÁFAGA 1 — fix del leak cross-categoría)](#filtros-validación-de-atributos-por-categoría-ráfaga-1--fix-del-leak-cross-categoría)
 - [Provincia: select cerrado en FilterPanel (RÁFAGA 1 — cierra la inconsistencia con la portada)](#provincia-select-cerrado-en-filterpanel-ráfaga-1--cierra-la-inconsistencia-con-la-portada)
 - [`/[categoria]/[subcategoria]` — ruta muerta eliminada (RÁFAGA 1)](#categoriasubcategoria--ruta-muerta-eliminada-ráfaga-1)
@@ -3922,6 +3923,51 @@ aviso de publicidad sobre nada—.
 **Mutaciones comprobadas:** quitar la señal → caen 3; volver al `aria-label` viejo → cae la de
 accesibilidad; cambiar la palabra en un solo sitio → cae la del vocabulario (y el Playwright de
 H6.6, que ya vigilaba «Publicidad» en la tarjeta patrocinada).
+
+### H9 — la vista mapa deja de pagar la consulta del bloque (2026-08-25)
+
+**El último fleco de los destacados, y era de coste, no de pantalla.** En vista mapa las dos
+páginas montan el mapa **sin** `FeaturedBlock`, pero el mapa fuerza `page=1` para traer todos
+los marcadores de una vez — y `page === 1` era justamente la condición con la que el controlador
+resolvía el bloque. Cada carga de mapa pagaba una consulta a Meilisearch (**dos** desde la
+rotación, si hay más de cuatro destacados compitiendo) para devolver cuatro anuncios que nadie
+llegaba a ver.
+
+**No había señal de mapa que reusar, y se comprobó antes de añadir nada.** `view` está
+deliberadamente **fuera** de lo que el front reenvía: está en el `KNOWN_PARAMS` de las dos
+páginas precisamente para que no viaje como filtro de atributo. Se evaluó **deducirlo del
+`hitsPerPage: 200`** que manda el mapa y se descartó: sería adivinar la intención a partir de un
+parámetro que significa otra cosa, y le quitaría el bloque en silencio a cualquier cliente que un
+día pidiera 200 resultados en modo lista.
+
+**`skipFeatured`, opt-out y no opt-in.** Quien no lo manda —cualquier cliente de hoy— sigue
+recibiendo el bloque exactamente igual; sólo quien declara que no lo va a pintar se ahorra la
+consulta. Mismo `Transform` que `conVideo` y por el mismo motivo: un query param llega siempre
+como cadena y `'false'` es una cadena verdadera, así que sin él `?skipFeatured=false` habría
+hecho lo contrario de lo que pide.
+
+**DOS PUERTAS, NO UNA.** Declararlo en `SearchQueryDto` no basta: `parseSearchQuery` reparte los
+query params entre «core» y «atributo de categoría» con `CORE_SEARCH_QUERY_KEYS`, y lo que no
+está en esa lista se valida como atributo y muere con un **400**. Salió en el primer intento —
+los tests fallaron con «expected 200, got 400»— y es el mismo camino que ya recorrieron
+`conVideo` y `tags`. Hay que pasar por las dos.
+
+**El front lo manda sólo en mapa** (`...(isMapView && { skipFeatured: true })`, en `/busqueda` y
+en `CategoryListingPage`), y va también en sus `KNOWN_PARAMS`: lo decide el BFF según la vista,
+no la URL — si alguien lo escribiera a mano no debe colarse en el saco de atributos.
+
+**Barreras (7 pruebas), midiendo CONSULTAS y no respuestas.** El síntoma de este defecto era
+invisible desde fuera —el `featured` sobrante lo ignoraba el frontend en silencio—, así que un
+test que mirase el cuerpo de la respuesta habría pasado en verde con el defecto dentro. Se espía
+`SearchService.search` mientras se sirve la petición (molde de #15): con `skipFeatured`, **una**
+consulta; sin él, dos o más. Y el resto de la respuesta que el mapa sí necesita —los marcadores y
+el conteo— intacto.
+
+**Mutaciones comprobadas:** ignorar el parámetro en el controlador → caen las dos de la barrera 1;
+saltarse el bloque siempre → caen cuatro, entre ellas la del cliente que no manda nada.
+
+> Con esto los destacados quedan **sin deuda conocida**: reparto justo (R1+R2), honestidad con el
+> vendedor (R3+R4), transparencia con el comprador (P2B) y sin consultas desperdiciadas (H9).
 
 ### Filtros: validación de atributos por categoría (RÁFAGA 1 — fix del leak cross-categoría)
 

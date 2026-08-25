@@ -358,6 +358,12 @@ por distancia ascendente.
 > particionaba en vez de desempatar y un destacado de 333 € ganaba a uno de 7 € ordenando por
 > precio ascendente.
 
+> **`skipFeatured` (H9)** — opcional, `true` para que la respuesta NO resuelva el bloque
+> `featured` (llega `[]`). Lo manda quien sabe que no lo va a pintar: hoy, la **vista mapa**,
+> que no monta el bloque pero fuerza `page=1` y por eso lo pagaba igual. Es un **opt-out**: quien
+> no lo manda recibe el bloque como siempre, y sólo el `true` explícito cuenta
+> (`?skipFeatured=false` no salta nada).
+
 > **`GET /billing/featured-competition/:listingId` (R4)** — lo que el diálogo de compra le
 > enseña al vendedor antes de cobrarle: `{ categoria, vigentes, cuota }`, donde `vigentes` son
 > los destacados vivos que YA hay en la categoría del anuncio (sin contarlo a él) y `cuota` es
