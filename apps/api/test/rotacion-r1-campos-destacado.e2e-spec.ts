@@ -20,9 +20,12 @@
  *     ordenará por `featuredStartsAt` y filtrará por `featuredExpiresAt`, y si no están en
  *     los ajustes del índice Meilisearch responde 400. Se comprueba leyendo los ajustes Y
  *     lanzando la consulta EXACTA que R2 va a lanzar.
- *  4. NADA CAMBIA TODAVÍA. El bloque «Promocionados» sigue siendo «los 4 primeros del orden
- *     pedido», estables entre peticiones. Cuando R2 aterrice, este test es el que hay que
- *     cambiar a mano — y esa es su función: que la rotación no pueda colarse por accidente.
+ *  4. EL BLOQUE SE ALIMENTA DE ESTOS CAMPOS. Cuando se escribió esta ráfaga, aquí se fijaba
+ *     que el bloque seguía CONGELADO («los 4 primeros del orden pedido»), con el aviso de que
+ *     R2 vendría a cambiarlo a mano. R2 llegó: el reparto por turnos y sus garantías se
+ *     comprueban en `rotacion-r2-turnos.e2e-spec.ts`, y aquí queda lo que es de R1 — que el
+ *     conteo no se contamina y que los campos viajan en la respuesta con nombres que no
+ *     pisan el `featuredUntil` del propietario.
  */
 
 import { INestApplication } from '@nestjs/common';
@@ -291,19 +294,14 @@ describe('ROTACIÓN R1 — las marcas del destacado en el índice (e2e)', () => 
   // BARRERA 4 — R1 no cambia lo que ve nadie
   // ═══════════════════════════════════════════════════════════════════════════
 
-  describe('BARRERA 4 — el bloque «Promocionados» sigue exactamente como estaba', () => {
-    const IDS: string[] = [];
-
+  describe('BARRERA 4 — el bloque, y lo que R1 le aporta', () => {
     beforeAll(async () => {
-      // Cinco destacados que compiten por cuatro huecos: el escenario que R2 vendrá a
-      // arreglar y que aquí sirve para fijar que TODAVÍA NO está arreglado.
+      // Cinco destacados que compiten por cuatro huecos.
       const base = Date.now() - 60_000;
       for (let i = 0; i < 5; i++) {
         const anuncio = await crearAnuncio('RotaR1Vitrina Telefono', new Date(base + i * 1_000));
         await destacar(
           anuncio.id,
-          // Concesiones en orden INVERSO a la publicación: si el bloque rotara por
-          // `featuredStartsAt` (R2), el excluido sería otro. Hoy manda la publicación.
           new Date(base - i * 1_000),
           new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         );
@@ -315,7 +313,6 @@ describe('ROTACIÓN R1 — las marcas del destacado en el índice (e2e)', () => 
           (d) => d.boostScore === 1,
           { description: `a que el destacado ${i} de la vitrina se indexe` },
         );
-        IDS.push(anuncio.id);
       }
     }, 90_000);
 
@@ -327,18 +324,18 @@ describe('ROTACIÓN R1 — las marcas del destacado en el índice (e2e)', () => 
       return (res.body.featured as { id: string }[]).map((h) => h.id);
     }
 
-    it('siguen siendo los 4 primeros del orden pedido — el más antiguo se queda fuera', async () => {
-      const featured = await vitrina();
-
-      expect(featured).toHaveLength(4);
-      // Sin `sort` explícito el desempate es `sortDate:desc`: entran los 4 publicados más
-      // tarde y el primero (IDS[0]) se queda sin vitrina. ESTE es el reparto injusto que R2
-      // sustituirá — cuando lo haga, este test cambia a mano y a propósito.
-      expect(featured).toEqual([IDS[4], IDS[3], IDS[2], IDS[1]]);
-      expect(featured).not.toContain(IDS[0]);
-    }, 30_000);
-
-    it('dos peticiones seguidas devuelven los MISMOS 4: en R1 todavía no hay rotación', async () => {
+    /**
+     * AQUÍ VIVÍA «siguen siendo los 4 primeros del orden pedido — el más antiguo se queda
+     * fuera», que fijaba el reparto CONGELADO y avisaba de que R2 lo cambiaría a mano y a
+     * propósito. R2 llegó y lo cambió: el bloque ya no son los 4 primeros de nada, sino el
+     * grupo que le toca a esta ventana, y en un ciclo salen los cinco.
+     *
+     * No se sustituye por su versión rotada AQUÍ: eso es exactamente lo que comprueba
+     * `rotacion-r2-turnos.e2e-spec.ts`, con el reloj gobernado y un oráculo independiente.
+     * Este fichero se queda con lo que es suyo — que los campos de R1 llegan al índice y
+     * alimentan el bloque — y no duplica las garantías del turno.
+     */
+    it('dentro de una misma ventana el bloque es estable entre peticiones', async () => {
       const primera = await vitrina();
       const segunda = await vitrina();
 

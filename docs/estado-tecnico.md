@@ -238,6 +238,7 @@ enlaces ancla — funcionan en GitHub y en la vista previa de Markdown de VS Cod
 - [boostScore y sortDate en Meilisearch (RF.8)](#boostscore-y-sortdate-en-meilisearch-rf8)
 - [Política de ordenación C: boostScore deja de particionar la lista (RÁFAGA 1, 2026-07-13)](#política-de-ordenación-c-boostscore-deja-de-particionar-la-lista-ráfaga-1-2026-07-13)
 - [Rotación de destacados — R1: las marcas de tiempo del destacado en el índice (2026-08-25)](#rotación-de-destacados--r1-las-marcas-de-tiempo-del-destacado-en-el-índice-2026-08-25)
+- [Rotación de destacados — R2: el bloque «Promocionados» se turna por ventanas (2026-08-25)](#rotación-de-destacados--r2-el-bloque-promocionados-se-turna-por-ventanas-2026-08-25)
 - [Filtros: validación de atributos por categoría (RÁFAGA 1 — fix del leak cross-categoría)](#filtros-validación-de-atributos-por-categoría-ráfaga-1--fix-del-leak-cross-categoría)
 - [Provincia: select cerrado en FilterPanel (RÁFAGA 1 — cierra la inconsistencia con la portada)](#provincia-select-cerrado-en-filterpanel-ráfaga-1--cierra-la-inconsistencia-con-la-portada)
 - [`/[categoria]/[subcategoria]` — ruta muerta eliminada (RÁFAGA 1)](#categoriasubcategoria--ruta-muerta-eliminada-ráfaga-1)
@@ -3665,6 +3666,93 @@ si además se ensancha el tipo caen 4 unitarios; quitar `pagination` → cae el 
 llamar al campo `featuredUntil` → el e2e lo caza (el hit devolvía un número donde el contrato del
 propietario espera un ISO). El `waitForTask` de `updateSettings` sigue protegido por su propio
 unitario (el flake de `search-dynamic-attributes`).
+
+### Rotación de destacados — R2: el bloque «Promocionados» se turna por ventanas (2026-08-25)
+
+**Lo que cierra.** R1 puso el dato en el índice; R2 lo usa. El bloque era «los 4 primeros del
+orden pedido» y, bajo el orden por defecto de una categoría, esa clave es `publishedAt`, que no
+cambia nunca: **estaba congelado**. Quien destacaba un anuncio antiguo caía bajo el corte desde
+el primer segundo del periodo pagado y no aparecía jamás; con 50 destacados en una categoría, 46
+no veían la vitrina nunca (auditoría, hallazgo H5). Ahora **se turnan**.
+
+**El algoritmo (`search.controller.ts`, la rama del bloque):**
+1. `W = floor(ahora / 900)` — la ventana, derivada del **epoch UTC**. Sin contador, sin cron,
+   sin fila: dos instancias calculan el mismo turno sin hablarse, y dada una hora la salida es
+   única (reproducible al depurar).
+2. **Consulta A**: los mismos filtros de siempre + `boostScore = 1` + **vigencia** +
+   `featuredStartsAt:asc`, página 1, 4 por página. Trae el primer grupo **y** `totalPages` (los
+   grupos del ciclo).
+3. Si hay **un solo grupo (N ≤ 4)** → fin. Es el caso mayoritario del sitio y **cuesta lo que
+   costaba**: una consulta.
+4. Si no: `p = (W mod grupos) + 1`. El `+1` no es cosmético — las páginas de Meilisearch
+   empiezan en 1, y sin él una de cada `grupos` ventanas pediría la página 0.
+5. **Consulta B** sólo si `p ≠ 1` (si el turno es el grupo 1, ya está servido).
+
+**Coste: dos consultas como máximo, y la segunda sólo cuando hay más de 4 compitiendo** — es
+decir, sólo donde el problema existe.
+
+**El orden del anillo es PROPIO (`FEATURED_RING_SORT`), no el `sort` del usuario**, y es la
+decisión que hace posible el turno: con el orden del usuario, la partición en grupos cambiaría
+con cada ordenación y con cada edición de precio, y bajo el orden por defecto volveríamos al
+bloque congelado. **Lo que esto cuesta, dicho:** el bloque ya no va ordenado como la lista —
+buscando por «precio: menor a mayor», la vitrina puede enseñar un coche de 30.000 € encima de
+una lista que empieza en 500 €. Es el precio de que la vitrina sea un TURNO y no un ranking.
+**Lo que no cambia: el bloque sigue respetando TODOS los filtros.** Cambia el orden, nunca qué
+anuncios son elegibles.
+
+**La vigencia (`boostedActiveAt` → `featuredExpiresAt IS NULL OR > N`)**: un periodo vencido
+deja de ocupar turno **en la ventana siguiente**, sin esperar al cron de las 03:00 — hasta ahora
+un caducado podía robar un hueco casi un día, y ese hueco es de alguien que sí está pagando. El
+cron sigue revocando y apagando el badge; lo que deja de depender de él es la vitrina. El reloj
+**llega como parámetro** porque `SearchService.search()` tiene que seguir siendo pura: la llaman
+también las alertas desde un worker.
+
+**La ventana: 15 min**, ajustable por `FEATURED_ROTATION_WINDOW_MINUTES` (entorno, **no**
+`Setting` — la búsqueda no toca Postgres). Con guarda: un `0` o un valor mal escrito daría
+`floor(x/0) = Infinity` y de ahí `NaN`, vaciando el bloque en todo el sitio por un typo en un
+`.env`; ante cualquier valor que no sea un número positivo se usa el de por defecto.
+
+**El grupo parcial se acepta** (diseño D3): con N=9 hay 3 grupos (4+4+1), así que una ventana de
+cada tres va menos llena. El reparto sigue siendo un grupo por anuncio y por ciclo, y esa ventana
+es la de los recién llegados —que entran por el final del anillo—, así que salen con menos
+competencia. **Sin dedup por vendedor** (D4): quien paga 10 destacados recibe 10 turnos, equidad
+por euro; y Meili v1.10 no tiene `distinct` por consulta.
+
+**La cuota, para poder decirla en voz alta:** cada destacado sale **4/N del tiempo**, en turnos
+de una ventana, con un ciclo de `ceil(N/4)` ventanas. Con N=50: ~1 h 50 al día y ciclo de 3 h 15.
+La espera máxima de un recién llegado es un ciclo. Es la aritmética que R3 tendrá que reflejar en
+la frase del diálogo de compra.
+
+**Barreras (6, en `test/rotacion-r2-turnos.e2e-spec.ts` + `featured-rotation.spec.ts`).** El e2e
+gobierna el reloj (`Date.now` suplantado y restaurado siempre) y compara contra un **oráculo
+independiente**: lo que el bloque debería traer se le pregunta a Meilisearch directamente, sin
+pasar por el controlador. Se comprueban: ventanas consecutivas → grupos distintos y **disjuntos**;
+un ciclo completo saca a los nueve; N ≤ 4 no rota **ni lanza la segunda consulta**; el anuncio de
+hace tres meses destacado hoy **sale en su turno**; el caducado **no ocupa turno** aunque
+`boostScore` siga a 1; cambiar el `sort` **no** reordena el anillo pero los filtros sí se
+respetan; y ni la lista ni `totalHits` se enteran. El unitario fija la aritmética: el ciclo visita
+cada grupo **exactamente una vez**, el turno no se mueve dentro de la ventana, y nunca sale una
+página 0.
+
+**Los EMPATES, comprobados y no supuestos.** `featuredStartsAt` va en segundos, así que varias
+concesiones del mismo vendedor —o un cupón aplicado en lote— caen en el mismo segundo con
+facilidad. Si con la clave empatada la paginación de Meilisearch no fuese estable, un anuncio
+podría salir en dos grupos o en ninguno, y la promesa «un turno por ciclo» sería falsa **justo
+para quien compra varios a la vez**. Verificado con seis destacados de `featuredStartsAt`
+idéntico: un ciclo los saca a los seis, exactamente una vez cada uno. El desempate lo resuelven
+las reglas de Meilisearch de forma determinista para un índice dado.
+
+**Mutaciones comprobadas:** `dto.sort` en vez del anillo → cae la barrera 5; sin vigencia → cae
+la 4; `W mod grupos` sin `+1` → caen 4 unitarios; lanzar siempre la consulta B → caen las dos del
+coste.
+
+**Se cambió a mano un test de R1**, como estaba anunciado: el que fijaba el bloque congelado. Su
+sustituto no vive ahí sino en el spec de R2, con el reloj gobernado; R1 se queda con lo suyo.
+
+> **CONDICIÓN DE DESPLIEGUE — NO SE PUEDE ACTIVAR SIN REINDEXAR ANTES.** El filtro de vigencia
+> excluye los documentos que no lleven `featuredExpiresAt`, así que desplegar R2 sobre un índice
+> anterior a R1 **deja el bloque vacío en todo el sitio**. `pnpm --filter @marketplace/api reindex`
+> primero, R2 después.
 
 ### Filtros: validación de atributos por categoría (RÁFAGA 1 — fix del leak cross-categoría)
 

@@ -358,6 +358,16 @@ por distancia ascendente.
 > particionaba en vez de desempatar y un destacado de 333 € ganaba a uno de 7 € ordenando por
 > precio ascendente.
 
+> **Rotación R2 — el bloque `featured` SE TURNA.** Ya no son «los 4 primeros del orden pedido»
+> sino el grupo que le toca a la ventana de 15 min en curso: los destacados vigentes se reparten
+> en grupos de 4 por fecha de concesión y van saliendo por turnos, de modo que **dos peticiones
+> en ventanas distintas devuelven grupos distintos** y en un ciclo (`ceil(N/4)` ventanas) han
+> salido todos. Dentro de una misma ventana el bloque es estable. Dos consecuencias del
+> contrato: (1) el bloque tiene **orden propio** y NO sigue el `sort` pedido —los **filtros** sí
+> se respetan enteros—; (2) un destacado cuyo periodo ha vencido desaparece del bloque de
+> inmediato, aunque su `boostScore` siga a 1 hasta que pase el cron. `hits`, `totalHits` y la
+> política de ordenación C no cambian.
+
 > **Rotación R1 — dos campos nuevos en cada hit.** `featuredStartsAt` y `featuredExpiresAt`
 > (**segundos UNIX**, `null` si el anuncio no está destacado) viajan en `hits` y en `featured`
 > como ya lo hacían `boostScore` o `_geo`. Son la base de la rotación del bloque
