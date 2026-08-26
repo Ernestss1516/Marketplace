@@ -82,9 +82,16 @@ export class AccountArchiveService {
   ) {
     const user = await this.prisma.user.findUnique({
       where: { id: targetId },
-      select: { id: true, status: true, name: true, email: true, role: true },
+      select: { id: true, status: true, name: true, email: true, role: true, isSystem: true },
     });
     if (!user) throw new NotFoundException('Usuario no encontrado');
+
+    // BORRADO DE CUENTAS C5 — la cuenta «Equipo» no es una persona: no tiene nada
+    // que archivar, y esconderla dejaría sin firma los artículos que hereda de
+    // los editores eliminados. La misma guarda que impide vaciarla.
+    if (user.isSystem) {
+      throw new BadRequestException('La cuenta del equipo no se puede archivar.');
+    }
 
     if (!isLegalUserStatusTransition(user.status, UserStatus.ARCHIVED)) {
       throw new BadRequestException(

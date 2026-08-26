@@ -120,8 +120,8 @@ export class BillingProcessor extends WorkerHost {
       // Entra por la misma cola para heredar sus reintentos, y se distingue por
       // `job.name`, que es lo que este `process` ya miraba.
       if (job.name === BILLING_JOB.CANCEL_SUBSCRIPTIONS) {
-        const { userId } = job.data as CancelSubscriptionsJobData;
-        const canceladas = await this.billing.cancelActiveSubscriptionsFor(userId);
+        const { userId, immediate } = job.data as CancelSubscriptionsJobData;
+        const canceladas = await this.billing.cancelActiveSubscriptionsFor(userId, immediate);
         this.logger.log(
           `Cuenta archivada ${userId}: ${canceladas} suscripción(es) marcadas para no renovar`,
         );

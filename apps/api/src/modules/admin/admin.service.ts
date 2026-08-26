@@ -2,12 +2,16 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  Logger,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import {
+  ArchiveReason,
+  BumpLedgerType,
+  CreditLedgerType,
   ListingStatus,
   ListingTypePolicy,
   ListingViewMode,
@@ -25,6 +29,8 @@ import { AuditLogService } from '../audit-log/audit-log.service';
 import { ExpirationService } from '../expiration/expiration.service';
 import {
   QUEUE_INDEXING,
+  QUEUE_ACCOUNT_CLEANUP,
+  QUEUE_BILLING,
   QUEUE_MEDIA_CLEANUP,
   QUEUE_REVALIDATION,
 } from '../../infra/queue/queue.constants';
@@ -46,6 +52,10 @@ import { UpdateCategoryDto } from './dto/update-category.dto';
 import { ReorderCategoriesDto } from './dto/reorder-categories.dto';
 import { UpdateSettingDto } from './dto/update-setting.dto';
 import { DEFAULT_SUSPENSION_DAYS_SETTING } from '../users/suspension.constants';
+import { EQUIPO_CREATE_DATA, EQUIPO_SLUG } from '../users/system-account';
+import { BILLING_JOB } from '../billing/billing.types';
+import { ACCOUNT_CLEANUP_JOB } from './account-cleanup.types';
+import { keyFromPublicUrl } from '../../infra/r2/media-keys';
 import {
   AttributeField,
   resolveEffectiveSchema,
@@ -471,7 +481,15 @@ export class AdminService {
     private readonly editValidation: ListingEditValidationService,
     // 2b — las FOTOS, también las mismas. Al final, por la nota de arriba.
     private readonly listingImages: ListingImagesService,
+    // BORRADO DE CUENTAS C5 — AL FINAL, por la misma nota: las dos colas del
+    // vaciado de una cuenta. La de facturación cancela la suscripción en la
+    // pasarela (inmediata, a diferencia del archivado); la de limpieza borra sus
+    // anuncios, uno por trabajo.
+    @InjectQueue(QUEUE_BILLING) private readonly billingQueue: Queue,
+    @InjectQueue(QUEUE_ACCOUNT_CLEANUP) private readonly accountCleanupQueue: Queue,
   ) {}
+
+  private readonly logger = new Logger(AdminService.name);
 
   // ===========================================================================
   // Listings (R7.4)
@@ -1309,6 +1327,369 @@ export class AdminService {
     );
     if (keys.length > 0) {
       await this.mediaCleanupQueue.add('purge', { keys, origen: `listing:${listingId}` });
+    }
+  }
+
+  // ===========================================================================
+  // BORRADO DE CUENTAS C5 — eliminar definitivamente
+  // ===========================================================================
+
+  /**
+   * VACIAR LA FILA DE PERSONA. **No es `prisma.user.delete()`**, y no puede
+   * serlo: doce `RESTRICT`, dos libros mayores y el trigger de inmutabilidad
+   * fiscal lo bloquean — y **deben** bloquearlo, porque lo que cuelga de una
+   * cuenta no es todo suyo.
+   *
+   * ── LA IDEA QUE HACE ESTO BARATO ────────────────────────────────────────────
+   *
+   * Casi todo lo que enseña el nombre de alguien lo pide **por la relación** con
+   * `User`, y con los mismos cuatro campos: `SELECT_USER_STUB` (mensajería) y
+   * `SELECT_AUTHOR` (valoraciones) son idénticos. Así que sobrescribir `name`,
+   * `slug` y `avatarUrl` en UNA fila anonimiza la bandeja del comprador, la
+   * valoración del tercero y la cola de moderación **sin tocar un solo lector**.
+   *
+   * Lo que NO se propaga es lo que no cuelga de `User` —el teléfono publicado de
+   * un anuncio, los nombres congelados en snapshots— y por eso se friega a mano
+   * en los pasos 3.2 y 3.3. Es el hueco fácil de olvidar del cuerpo entero.
+   *
+   * Ver docs/diseno-borrado-cuentas.md §6.
+   */
+  async deleteAccount(targetId: string, actorId: string, ip?: string) {
+    // ── PASO 1 · CARGAR ANTES ────────────────────────────────────────────────
+    // Molde `deleteListing`: después de vaciar la fila no habrá de dónde sacar la
+    // identidad real, y es justo lo que el registro de auditoría necesita.
+    const user = await this.prisma.user.findUnique({
+      where: { id: targetId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        slug: true,
+        role: true,
+        status: true,
+        isSystem: true,
+        avatarUrl: true,
+        lastLoginIp: true,
+        archiveReason: true,
+        archivedAt: true,
+        _count: {
+          select: {
+            listings: true,
+            posts: true,
+            reviewsAuthored: true,
+            reviewsReceived: true,
+            invoices: true,
+            transactions: true,
+          },
+        },
+      },
+    });
+    if (!user) throw new NotFoundException('Usuario no encontrado');
+
+    // ── PASO 2 · LAS GUARDAS, EN CAPAS (§6.2) ────────────────────────────────
+
+    // Los DOS PASOS son la salvaguarda, igual que en anuncios: para vaciar una
+    // cuenta hay que archivarla primero. Separa «cerrarla» de «vaciarla».
+    if (user.status !== UserStatus.ARCHIVED) {
+      throw new BadRequestException(
+        'Solo se puede eliminar una cuenta archivada. Archívala primero: eliminar es irreversible.',
+      );
+    }
+
+    // Una cuenta de sistema no es una persona y no tiene nada que olvidar. Si se
+    // pudiera vaciar, el blog perdería a su autor de respaldo y la siguiente
+    // eliminación de un editor se quedaría sin destino.
+    if (user.isSystem) {
+      throw new BadRequestException('La cuenta del equipo no se puede eliminar.');
+    }
+
+    // Vaciar a un miembro del staff convertiría su rastro en «Usuario eliminado
+    // aprobó este anuncio», degradando justo el registro que `AuditLog.actorId`
+    // existe para sostener. Hay que degradar el rol primero — el backoffice ya
+    // sabe hacerlo.
+    if (user.role !== Role.USER) {
+      throw new BadRequestException(
+        'Solo se pueden eliminar cuentas con rol Usuario. Degrada el rol antes de eliminar.',
+      );
+    }
+
+    // ── PASO 3 · LA TRANSACCIÓN ──────────────────────────────────────────────
+
+    const equipo = user._count.posts > 0 ? await this.asegurarCuentaEquipo() : null;
+    const ahora = new Date();
+
+    await this.prisma.$transaction(async (tx) => {
+      // 3.1 — Los escalares de `User`. La tabla de §6.3, exacta.
+      await tx.user.update({
+        where: { id: targetId },
+        data: {
+          name: 'Usuario eliminado',
+          // LIBERA el correo real: quien se fue puede volver a registrarse con él.
+          // `.invalid` es el TLD que RFC 2606 reserva para que NO exista, así que
+          // ningún mensaje saldrá nunca hacia esta dirección ni por accidente.
+          email: `deleted-${targetId}@deleted.invalid`,
+          // Libera el slug real. Y de paso rompe el enlace: `/vendedor/<slug>` ya
+          // no lleva a ninguna parte.
+          slug: `usuario-eliminado-${targetId}`,
+          phone: null,
+          avatarUrl: null,
+          bio: null,
+          city: null,
+          province: null,
+          postalCode: null,
+          // Un secreto no sobrevive a su dueño.
+          passwordHash: null,
+          // Mata cualquier sesión residual, sin depender del gate.
+          tokenVersion: { increment: 1 },
+          lastLoginAt: null,
+          lastLoginIp: null,
+          // Los ocho fiscales: las facturas los llevan CONGELADOS dentro
+          // (`receiverTaxId`, `receiverName`…), así que borrarlos de aquí no daña
+          // la conservación fiscal. La factura sigue siendo legible sin la persona.
+          fiscalTaxId: null,
+          fiscalName: null,
+          fiscalEntityType: null,
+          fiscalAddress: null,
+          fiscalCity: null,
+          fiscalPostalCode: null,
+          fiscalProvince: null,
+          fiscalCountry: null,
+          // `stripeCustomerId` SE CONSERVA a propósito: es el puntero que ata los
+          // cobros que sí se conservan a la pasarela. Sin él, una transacción
+          // guardada dejaría de poder reconciliarse.
+          status: UserStatus.DELETED,
+          deletedAt: ahora,
+        },
+      });
+
+      // 3.2 — Los snapshots congelados que la propagación NO alcanza.
+      // `Report.reviewAuthorName` guarda el nombre de quien escribió la
+      // valoración denunciada: es una copia, no una relación, y sobreviviría al
+      // vaciado diciendo el nombre real.
+      await tx.report.updateMany({
+        where: { review: { authorId: targetId } },
+        data: { reviewAuthorName: 'Usuario eliminado' },
+      });
+
+      // 3.3 — EL HUECO FÁCIL DE OLVIDAR. El teléfono PUBLICADO es un campo del
+      // ANUNCIO, no del perfil: no cuelga de `User` y no se anonimiza solo. Igual
+      // la IP de la última gestión.
+      await tx.listing.updateMany({
+        where: { sellerId: targetId },
+        data: { phone: null, phoneNormalized: null, lastOwnerIp: null },
+      });
+
+      // 3.4 — Cerrar lo que queda vivo.
+
+      // Los artículos, a Equipo (P-2): son contenido del SITIO. Va antes que la
+      // guarda «sin Post», que queda como red por si algo se escapara.
+      if (equipo) {
+        await tx.post.updateMany({ where: { authorId: targetId }, data: { authorId: equipo.id } });
+      }
+
+      // Revocar, no borrar: lo dice el propio modelo («la revocación es el
+      // mecanismo de cierre»).
+      await tx.entitlement.updateMany({
+        where: { userId: targetId, revokedAt: null },
+        data: { revokedAt: ahora },
+      });
+
+      // Lo estrictamente suyo, que no significa nada para nadie más.
+      await tx.alert.deleteMany({ where: { userId: targetId } });
+      await tx.favorite.deleteMany({ where: { userId: targetId } });
+      await tx.notification.deleteMany({ where: { userId: targetId } });
+      await tx.account.deleteMany({ where: { userId: targetId } });
+      await tx.verificationToken.deleteMany({ where: { userId: targetId } });
+      await tx.passwordResetToken.deleteMany({ where: { userId: targetId } });
+      await tx.bumpSchedule.deleteMany({ where: { userId: targetId } });
+
+      // El saldo se pierde (P-1) — pero NO se borra el libro: se cierra con un
+      // asiento, que es la única forma de dejarlo a cero sin romper el invariante
+      // `wallet.balance == SUM(ledger.amount)`.
+      const wallet = await tx.wallet.findUnique({
+        where: { userId: targetId },
+        select: { id: true, balance: true, bumpBalance: true },
+      });
+      if (wallet && (wallet.balance > 0 || wallet.bumpBalance > 0)) {
+        if (wallet.balance > 0) {
+          await tx.creditLedger.create({
+            data: {
+              walletId: wallet.id,
+              type: CreditLedgerType.ADMIN_DEBIT,
+              amount: -wallet.balance,
+              referenceType: 'User',
+              referenceId: targetId,
+              note: 'Cierre de cuenta',
+            },
+          });
+        }
+        if (wallet.bumpBalance > 0) {
+          await tx.bumpLedger.create({
+            data: {
+              walletId: wallet.id,
+              type: BumpLedgerType.ADMIN_DEBIT,
+              amount: -wallet.bumpBalance,
+              referenceType: 'User',
+              referenceId: targetId,
+              note: 'Cierre de cuenta',
+            },
+          });
+        }
+        await tx.wallet.update({
+          where: { id: wallet.id },
+          data: { balance: 0, bumpBalance: 0 },
+        });
+      }
+    });
+
+    // ── PASO 4 · EL REGISTRO, LO ÚNICO QUE SOBREVIVE ─────────────────────────
+    // Lo justo para responder «¿quién era esto?»: identidad, contexto del cierre
+    // y el tamaño de lo que colgaba. No la fila entera — el AuditLog no es una
+    // papelera.
+    await this.auditLog.log({
+      action: 'USER_DELETE',
+      actorId,
+      resourceType: 'User',
+      resourceId: targetId,
+      before: {
+        name: user.name,
+        email: user.email,
+        slug: user.slug,
+        archiveReason: user.archiveReason,
+        archivedAt: user.archivedAt,
+        // La IP se conserva AQUÍ y sólo cuando el cierre lo decidió la plataforma
+        // (§3.5 D-g): en ese caso suele haber una investigación detrás, y ésta es
+        // la superficie MODERATOR+ que ya es la suya. A quien pidió irse no se le
+        // guarda.
+        ...(user.archiveReason === ArchiveReason.STAFF_ACTION
+          ? { lastLoginIp: user.lastLoginIp }
+          : {}),
+        counts: user._count,
+      },
+      after: { status: UserStatus.DELETED, postsReasignados: user._count.posts },
+      ip,
+    });
+
+    // ── PASO 5 · EFECTOS EXTERNOS ────────────────────────────────────────────
+    // Fuera de la transacción y sin poder tumbarla: si algo de aquí falla, la
+    // cuenta YA está vaciada y eso es lo correcto. Reintentar una limpieza es
+    // trivial; resucitar a una persona, no.
+    await this.efectosExternosDelBorrado(targetId, user.avatarUrl);
+
+    return { id: targetId, status: UserStatus.DELETED, postsReasignados: user._count.posts };
+  }
+
+  /**
+   * BORRADO DE CUENTAS C5 — un anuncio de una cuenta ya vaciada.
+   *
+   * DOS LÍNEAS, Y LA PRIMERA ES LA QUE HAY QUE JUSTIFICAR. `deleteListing` sólo
+   * acepta `ARCHIVED` —su salvaguarda de los dos pasos, que NO se toca—, así que
+   * aquí se archiva antes. Eso salta la tabla de transiciones para los `DRAFT` y
+   * `PENDING_REVIEW`, que no pueden llegar a `ARCHIVED` por el camino normal.
+   *
+   * Se admite, y por un motivo concreto: esa prohibición existe porque archivar
+   * significa «conservar para siempre» y un borrador no tiene nada que conservar.
+   * Aquí `ARCHIVED` no es un destino, es un estado que dura milisegundos antes de
+   * que la fila desaparezca — y el dueño al que la máquina de estados protege ya
+   * no existe. La alternativa era duplicar la limpieza de `discardDraft` dentro de
+   * `AdminService`, porque `AdminModule` NO importa `ListingsModule` a propósito
+   * («arrastraría medio dominio»); duplicar el borrado para evitar una línea
+   * explicada sería el peor de los dos tratos.
+   *
+   * Lo demás es `deleteListing` ENTERO, sin una línea nueva.
+   */
+  async eliminarAnuncioDeCuentaVaciada(listingId: string, actorId: string): Promise<void> {
+    const listing = await this.prisma.listing.findUnique({
+      where: { id: listingId },
+      select: { status: true },
+    });
+    if (!listing) return; // Ya no está: el trabajo se reintentó tras un éxito.
+
+    if (listing.status !== ListingStatus.ARCHIVED) {
+      await this.prisma.listing.update({
+        where: { id: listingId },
+        data: { status: ListingStatus.ARCHIVED },
+      });
+    }
+    await this.deleteListing(listingId, actorId);
+  }
+
+  /**
+   * La cuenta «Equipo», creada si no está.
+   *
+   * PEREZOSA Y NO SÓLO SEMBRADA: `cleanDb` de los e2e hace `TRUNCATE "User"
+   * CASCADE`, así que una operación que dependiera del seed funcionaría en unas
+   * suites y fallaría en otras. `upsert` sobre el `slug` (único) la hace atómica
+   * e idempotente, y `update: {}` garantiza que si ya existe **no se toca**.
+   */
+  private async asegurarCuentaEquipo() {
+    const existente = await this.prisma.user.findFirst({
+      where: { isSystem: true },
+      select: { id: true },
+    });
+    if (existente) return existente;
+
+    return this.prisma.user.upsert({
+      where: { slug: EQUIPO_SLUG },
+      create: EQUIPO_CREATE_DATA,
+      update: {},
+      select: { id: true },
+    });
+  }
+
+  /**
+   * Lo que vive fuera de Postgres. Cada gesto es independiente y ninguno puede
+   * tumbar a los demás ni al vaciado que ya ocurrió.
+   */
+  private async efectosExternosDelBorrado(targetId: string, avatarUrl: string | null) {
+    // 1. La pasarela, INMEDIATA (§6.5) — al eliminar ya no hay vuelta, así que no
+    //    tiene sentido esperar al final del periodo como hace el archivado. Por
+    //    cola: un fallo transitorio de Stripe en línea se perdería en un `catch` y
+    //    el usuario seguiría pagando.
+    try {
+      await this.billingQueue.add(BILLING_JOB.CANCEL_SUBSCRIPTIONS, {
+        userId: targetId,
+        immediate: true,
+      });
+    } catch (err) {
+      this.logger.error(`No se pudo encolar la cancelación de ${targetId}: ${String(err)}`);
+    }
+
+    // 2. Los anuncios, por la vía que YA EXISTE. Cero lógica destructiva nueva:
+    //    `deleteListing` se lleva la cascada, los `SetNull` con los snapshots de
+    //    B1 —conversaciones, denuncias, tratos, valoraciones y tickets sobreviven
+    //    LEGIBLES—, su AuditLog, Redis, Meilisearch y R2 con sus miniaturas.
+    //    Va por cola, un trabajo por anuncio: un vendedor con doscientos anuncios
+    //    no puede tener la petición abierta mientras se borran uno a uno.
+    const anuncios = await this.prisma.listing.findMany({
+      where: { sellerId: targetId },
+      select: { id: true, status: true },
+    });
+    for (const anuncio of anuncios) {
+      try {
+        await this.accountCleanupQueue.add(ACCOUNT_CLEANUP_JOB.DELETE_LISTING, {
+          listingId: anuncio.id,
+          actorId: targetId,
+        });
+      } catch (err) {
+        this.logger.error(`No se pudo encolar el borrado de ${anuncio.id}: ${String(err)}`);
+      }
+    }
+
+    // 3. R2: el avatar y los adjuntos de sus tickets. `facturas/` NO SE TOCA —
+    //    son documentos de conservación obligatoria.
+    const claves: string[] = [];
+    if (avatarUrl) {
+      const clave = keyFromPublicUrl(avatarUrl, this.r2.getPublicUrl(''));
+      if (clave) claves.push(clave);
+    }
+    const adjuntos = await this.prisma.ticketAttachment.findMany({
+      where: { message: { authorId: targetId } },
+      select: { key: true },
+    });
+    claves.push(...adjuntos.map((a) => a.key));
+    if (claves.length > 0) {
+      await this.mediaCleanupQueue.add('purge', { keys: claves, origen: `user:${targetId}` });
     }
   }
 
