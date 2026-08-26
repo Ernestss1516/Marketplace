@@ -33,6 +33,7 @@ import { R2Service } from '../../infra/r2/r2.service';
 import { listingMediaKeys } from '../../infra/r2/media-keys';
 import { NOTIFICATION_JOB, SendReviewRequestEmailData } from '../../infra/queue/notification.types';
 import { isP2002 } from '../../common/prisma/is-p2002';
+import { CUENTA_EN_ESCAPARATE } from '../users/account-visibility';
 import { ExpirationService } from '../expiration/expiration.service';
 import { EntitlementService } from '../billing/entitlement.service';
 // UXV.1 (A2) — la ventana de cooldown del bump se define en billing (que es quien la
@@ -1293,7 +1294,30 @@ export class ListingsService implements OnModuleInit {
   }
 
   async findBySellerSlug(sellerSlug: string, page = 1, perPage = 24) {
-    const where = { status: 'ACTIVE' as const, seller: { slug: sellerSlug } };
+    /**
+     * BORRADO DE CUENTAS C3 — el vendedor se resuelve APARTE, y con dos efectos.
+     *
+     * 1. **La cuenta oculta deja de tener escaparate.** Antes este `where` sólo
+     *    miraba `status: 'ACTIVE'` del ANUNCIO; el estado del vendedor no entraba.
+     *
+     * 2. **Un slug desconocido pasa a dar 404, y es un cambio deliberado.** Antes
+     *    devolvía 200 con la lista vacía, y eso era justo lo que habría convertido
+     *    este endpoint en un delator: si el oculto diera 404 y el inexistente
+     *    200-vacío, **el 404 confirmaría que la cuenta existe**. Los dos hermanos
+     *    de este endpoint —`GET /users/:slug` y `GET /users/:slug/reviews`— ya
+     *    daban 404 sobre un slug desconocido; era éste el que discrepaba.
+     *
+     * Cuesta una consulta más. Es un listado público de un vendedor, no una ruta
+     * caliente, y a cambio el filtro por `sellerId` va por su índice en vez de por
+     * un join contra `User`.
+     */
+    const seller = await this.prisma.user.findFirst({
+      where: { slug: sellerSlug, ...CUENTA_EN_ESCAPARATE },
+      select: { id: true },
+    });
+    if (!seller) throw new NotFoundException('Usuario no encontrado');
+
+    const where = { status: 'ACTIVE' as const, sellerId: seller.id };
     const [rows, total] = await this.prisma.$transaction([
       this.prisma.listing.findMany({
         where,

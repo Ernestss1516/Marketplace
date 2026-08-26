@@ -16808,6 +16808,93 @@ Mutaciones, las tres verificadas:
 
 ---
 
+## Borrado de cuentas — C3: el gate de visibilidad
+
+Diseño: `docs/diseno-borrado-cuentas.md` §5. **La capa nueva**: hasta aquí, ninguna
+superficie pública miraba `User.status`.
+
+### La regla
+
+> **Una cuenta oculta desaparece del ESCAPARATE, no de TU HISTORIAL.**
+>
+> **Descubrimiento** —dónde te encuentran: perfil, buscador de usuarios, anuncios
+> del vendedor, índice, matching de alertas— **se cierra**.
+> **Relación** —dónde ya tienen trato contigo: el hilo, la valoración que
+> recibieron, el trato, la denuncia— **se conserva**.
+
+La línea va ahí porque ocultar el historial **no protegería a nadie**: el comprador
+ya leyó esos mensajes. Lo único que conseguiría es **destruir el lado del otro**,
+que es lo que el principio rector prohíbe.
+
+### El predicado, una constante
+
+`CUENTA_EN_ESCAPARATE = { status: { in: [ACTIVE, SUSPENDED] } }` en
+`modules/users/account-visibility.ts`. Molde `VIGENTES`: una constante y no el
+filtro escrito cinco veces, porque **el olvido no se ve** — y aquí falla hacia el
+lado peligroso: la superficie que se quede sin filtro sigue sirviendo a quien pidió
+irse.
+
+**`SUSPENDED` sí se ve, y es deliberado**: la suspensión es temporal (con C4
+caducará sola), y esconder/mostrar significaría sacar y meter en el índice todos sus
+anuncios por una sanción de días. `BANNED`, `ARCHIVED` y `DELETED` no caducan.
+
+### Las cuatro superficies
+
+| Superficie | Qué cambia |
+|---|---|
+| `GET /users/:slug` | `findFirst` con el predicado **dentro del `where`** → 404 |
+| `GET /users/:slug/listings` | El vendedor se resuelve aparte con el predicado → 404 |
+| `GET /users/:slug/reviews` | Ídem, en el `findUnique` que ya hacía por slug |
+| `GET /users/search` | El predicado en el `where` |
+| Alert matching | La condición de C2 (`notIn` escrito a mano) pasa a la constante |
+| Índice de Meilisearch | **Nada**: los anuncios ya salieron al pausarse (C2) |
+
+**El gate va DENTRO del `where`, no en un `if` posterior**, y ésa es la diferencia
+entre «no se sirve» y «no se puede distinguir». Con un `if (oculto) throw 404` el
+resultado sería el mismo, pero la propiedad que importa dependería de que nadie
+tocara ese `if`. Aquí la consulta simplemente no lo encuentra, y sale el 404 de
+siempre. Por lo mismo no se inventa una ficha de «cuenta no disponible»: eso
+**confirmaría que existe**.
+
+**Un cambio de conducta deliberado:** `GET /users/:slug/listings` devolvía **200 con
+lista vacía** para un slug desconocido. Ahora da 404. Era necesario: si el oculto
+diera 404 y el inexistente 200-vacío, **el 404 sería el delator**. Además alinea el
+endpoint con sus dos hermanos, que ya daban 404. Ningún consumidor del web lo usa
+(el perfil es quien dispara el `notFound()` de la página).
+
+**Se arregla de paso un hueco que venía de mucho antes:** un usuario `BANNED`
+llevaba desde siempre con su perfil, sus valoraciones y su presencia en el buscador
+públicos.
+
+### El residuo consciente
+
+Un `BANNED` con anuncios `ACTIVE` **sigue teniendo ficha de anuncio**: banear no ata
+el ciclo de vida de los anuncios, y `findBySlug` de anuncio sólo exige que el
+anuncio esté `ACTIVE`. Un `ARCHIVED` no tiene el problema porque el archivado los
+pausa (C2). Anotado, no resuelto: atar el ban al ciclo de los anuncios es otra
+decisión (diseño §10).
+
+### Verificación
+
+`test/borrado-cuentas-c3.e2e-spec.ts` (16).
+
+| Barrera | Qué fija |
+|---|---|
+| 1 | Perfil, anuncios y valoraciones de `ARCHIVED`/`BANNED`/`DELETED` → 404 — **y un slug inexistente responde exactamente igual** (mismo status y mismo mensaje) en las tres |
+| 2 | El buscador no devuelve a `ARCHIVED` ni `BANNED`; sí a `ACTIVE` y `SUSPENDED` |
+| 3 | **El comprador sigue viendo el hilo entero** (con los mensajes de quien se fue) y **la valoración que recibió**, que además sigue contando para su media |
+| 4 | Un `SUSPENDED` conserva perfil, anuncios y valoraciones |
+
+Mutaciones, las tres verificadas:
+
+| Mutación | Cae |
+|---|---|
+| Meter `ARCHIVED` en el escaparate | Barreras 1 y 2 — 5 tests |
+| Quitar el predicado de UNA superficie (el defecto de las cinco copias) | Barrera 2 + la del baneado |
+| Filtrar el historial por el estado del autor | Barrera 3 — se destruye el lado del otro |
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.
