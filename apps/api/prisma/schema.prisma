@@ -102,6 +102,27 @@ enum ArchiveReason {
   STAFF_ACTION
 }
 
+/// BORRADO DE CUENTAS C6 — el ciclo de vida de una exportación de datos.
+///
+/// CUATRO VALORES Y NO TRES: `FAILED` existe porque el trabajo es de cola y puede
+/// morir después de agotar los reintentos. Sin él, una exportación rota se
+/// quedaría `PENDING` para siempre y —peor— seguiría contando como «viva» en el
+/// límite de una por usuario, dejando a esa persona sin poder pedir otra nunca.
+///
+/// `EXPIRED` es terminal y NO significa «se me olvidó»: significa que el objeto
+/// ya no está en el bucket. Un ZIP con la vida entera de alguien no se queda para
+/// siempre (§7.3).
+enum DataExportStatus {
+  /// Solicitada y encolada. Todavía no hay fichero.
+  PENDING
+  /// El ZIP está subido y se puede descargar hasta `expiresAt`.
+  READY
+  /// El worker agotó sus reintentos. No hay fichero y se puede volver a pedir.
+  FAILED
+  /// Caducada: el cron borró el objeto de R2. La fila se queda como registro.
+  EXPIRED
+}
+
 /// Ciclo de vida de un anuncio. Modela el flujo de publicación y moderación.
 enum ListingStatus {
   DRAFT // Borrador, aún no enviado
@@ -566,6 +587,12 @@ model User {
   ticketsAssigned Ticket[]        @relation("TicketAssignee")
   ticketsClosed   Ticket[]        @relation("TicketCloser")
   ticketMessages  TicketMessage[] @relation("TicketMessageAuthor")
+
+  // BORRADO DE CUENTAS C6 — dos papeles distintos sobre la misma exportación: de
+  // QUIÉN son los datos y QUIÉN pidió el ZIP. Casi siempre son la misma persona;
+  // cuando el staff exporta a un tercero, no.
+  dataExports          DataExport[] @relation("DataExportSubject")
+  dataExportsRequested DataExport[] @relation("DataExportRequester")
 
   @@index([status])
 }
@@ -3266,4 +3293,70 @@ model HomepageConfig {
   /// Setting.updatedById. Sin relación a User a propósito: si se borrase la
   /// cuenta del admin no debe arrastrar ni bloquear la config de la portada.
   updatedById String?
+}
+
+/// BORRADO DE CUENTAS C6 — UNA SOLICITUD DE EXPORTACIÓN DE DATOS (§7.3).
+///
+/// ── POR QUÉ HAY UNA FILA Y NO SÓLO UN FICHERO ───────────────────────────────
+///
+/// Porque hacen falta tres cosas que un objeto en el bucket no sabe responder:
+/// **si ya está listo** (el trabajo es de cola y tarda), **quién puede bajarlo**
+/// (la descarga revalida propiedad en cada petición, molde `Invoice.pdfKey`) y
+/// **cuándo muere**. La fila es lo que convierte un ZIP suelto en un permiso con
+/// fecha de caducidad.
+///
+/// ── LOS DOS SUJETOS SON COLUMNAS DISTINTAS, Y NO ES SIMETRÍA GRATUITA ────────
+///
+/// `subjectUserId` es de quién son los datos; `requestedById`, quién pulsó. Se
+/// separan porque el ADMIN puede exportar a un tercero (§7.4) y entonces divergen:
+/// la propiedad del ZIP la da el SUJETO —es su vida la que va dentro— mientras que
+/// la trazabilidad de quién lo pidió la da el segundo. Colapsarlas en una sola
+/// haría que el ZIP de un usuario perteneciera al administrador que lo generó.
+///
+/// `requestedById` es `SetNull`: que se vacíe la cuenta del administrador que lo
+/// pidió no puede borrar la exportación de otra persona (molde `Review.retiredById`,
+/// la séptima relación de staff con este valor).
+///
+/// `subjectUserId` es `Cascade`, y ahí sí se quiere el arrastre — pero **no se
+/// confía en él**: `AdminService.deleteAccount` borra estas filas Y sus objetos de
+/// R2 explícitamente. La cascada limpia la fila; el ZIP vive en el bucket, donde
+/// Postgres no llega. Vaciar a una persona y dejarle el ZIP con todo dentro sería
+/// deshacer C5 entero.
+model DataExport {
+  id String @id @default(cuid())
+
+  /// De quién son los datos que van dentro. Es quien puede descargarlo.
+  subjectUserId String
+  subject       User   @relation("DataExportSubject", fields: [subjectUserId], references: [id], onDelete: Cascade)
+
+  /// Quién la pidió. Igual al sujeto cuando se la pide a sí mismo desde `/perfil`.
+  requestedById String?
+  requestedBy   User?   @relation("DataExportRequester", fields: [requestedById], references: [id], onDelete: SetNull)
+
+  status DataExportStatus @default(PENDING)
+
+  /// Clave PRIVADA en R2 (`exportaciones/<id>.zip`) — **nunca una URL pública**,
+  /// exactamente por lo mismo que `Invoice.pdfKey`. Null mientras no hay fichero
+  /// (PENDING, FAILED) y se vacía al caducar, para que no quede apuntando a un
+  /// objeto que ya no existe.
+  key String?
+
+  /// Tamaño del ZIP, para poder enseñarlo antes de descargar.
+  sizeBytes Int?
+
+  /// Cuándo deja de poder descargarse. Lo escribe el worker al terminar, no la
+  /// solicitud: el plazo cuenta desde que el fichero EXISTE, no desde que se pidió.
+  expiresAt DateTime?
+
+  /// El motivo del fallo, para que el staff pueda mirar sin abrir los logs.
+  error String? @db.Text
+
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+  updatedAt   DateTime  @updatedAt
+
+  /// La consulta del límite «una viva por usuario» y la lista de la ficha.
+  @@index([subjectUserId, status])
+  /// La barrida de caducidad: READY con fecha pasada.
+  @@index([status, expiresAt])
 }

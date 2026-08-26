@@ -18,6 +18,7 @@ import { CurrentUser } from '../../common/decorators';
 import { JwtUser } from '../auth/auth.types';
 import { AccountArchiveService } from '../account-archive/account-archive.service';
 import { ArchiveAccountDto } from '../account-archive/dto/archive-account.dto';
+import { DataExportService } from '../data-export/data-export.service';
 import { UsersService } from './users.service';
 import { UpdateMeDto } from './dto/update-me.dto';
 import { UserSearchQueryDto } from './dto/user-search-query.dto';
@@ -39,6 +40,9 @@ export class UsersController {
     private readonly reviewsService: ReviewsService,
     private readonly rateLimit: RateLimitService,
     private readonly accountArchive: AccountArchiveService,
+    // BORRADO DE CUENTAS C6 — el mismo servicio que usa `AdminModule` para
+    // exportar a un tercero. Vive en su propio módulo por eso.
+    private readonly dataExport: DataExportService,
   ) {}
 
   @Get('me')
@@ -75,6 +79,32 @@ export class UsersController {
       actorId: null,
       note: dto.note,
     });
+  }
+
+  /**
+   * BORRADO DE CUENTAS C6 — el usuario pide su exportación (§7.4).
+   *
+   * SIN `:id`, igual que `me/archive`: el sujeto es siempre `user.userId`, así que
+   * no hay propiedad que comprobar porque no hay forma de nombrar a otro. La
+   * exportación de un tercero entra por `POST /admin/users/:id/export`, que es
+   * ADMIN.
+   *
+   * DEVUELVE 202-en-espíritu (200 con la fila `PENDING`): el ZIP no existe todavía
+   * y no puede existir dentro de esta petición. El frontend pinta «preparando» y
+   * el usuario recibe un aviso cuando esté.
+   */
+  @Post('me/export')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard)
+  requestMyExport(@CurrentUser() user: JwtUser) {
+    return this.dataExport.requestForSelf(user.userId);
+  }
+
+  /** Las exportaciones propias, para pintar el estado y el enlace de descarga. */
+  @Get('me/exports')
+  @UseGuards(JwtAuthGuard)
+  getMyExports(@CurrentUser() user: JwtUser) {
+    return this.dataExport.listForSubject(user.userId);
   }
 
   @Get('me/listings')

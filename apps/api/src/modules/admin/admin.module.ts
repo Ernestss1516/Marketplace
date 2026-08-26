@@ -20,6 +20,7 @@ import { ModerationModule } from '../moderation/moderation.module';
 import { ListingEditValidationModule } from '../listings/listing-edit-validation.module';
 import { ListingImagesModule } from '../listings/listing-images.module';
 import { AccountArchiveModule } from '../account-archive/account-archive.module';
+import { DataExportModule } from '../data-export/data-export.module';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { AccountCleanupProcessor } from './account-cleanup.processor';
@@ -54,6 +55,8 @@ import { AdminStatsService } from './admin-stats.service';
     ListingEditValidationModule,
     ListingImagesModule,
     AccountArchiveModule,
+    // BORRADO DE CUENTAS C6 — la exportación de datos de cualquier usuario (ADMIN).
+    DataExportModule,
   ],
   // B1 — `AdminStatsController` NO necesita importar `ListingsModule`: lo único que
   // comparte con él son funciones PURAS (`computeCtr`, `ratioWithMinSample`), que se

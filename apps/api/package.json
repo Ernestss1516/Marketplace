@@ -53,6 +53,7 @@
     "google-auth-library": "^10.9.0",
     "ioredis": "^5.4.2",
     "joi": "^17.13.3",
+    "jszip": "^3.10.1",
     "meilisearch": "^0.47.0",
     "nestjs-pino": "^4.6.1",
     "passport": "^0.7.0",

@@ -39,6 +39,19 @@ export const QUEUE_MEDIA_CLEANUP = 'media-cleanup';
 /// abierta mientras se borran uno a uno — ni dejar la mitad vivos si se corta.
 export const QUEUE_ACCOUNT_CLEANUP = 'account-cleanup';
 
+/// BORRADO DE CUENTAS C6 — armar el ZIP con todo lo que una persona generó.
+///
+/// COLA PROPIA, y no `QUEUE_MEDIA_CLEANUP` aunque las dos hablen con R2: aquélla
+/// BORRA claves sueltas y a nadie le corre prisa; ésta hace una decena larga de
+/// consultas, DESCARGA N ficheros del bucket, los comprime en memoria y sube el
+/// resultado — con alguien esperando a que aparezca el botón de descargar.
+/// Mezclarlas dejaría la exportación de un usuario detrás de un barrido de basura.
+///
+/// Y hay una razón de tamaño: un trabajo de aquí puede durar minutos y ocupar
+/// memoria proporcional a las fotos del vendedor. Aislarlo es lo que impide que un
+/// vendedor con doscientos anuncios frene cualquier otra cosa.
+export const QUEUE_DATA_EXPORT = 'data-export';
+
 // Each module that injects a queue calls its own BullModule.registerQueue({name})
 // — @nestjs/bullmq creates a SEPARATE Queue (producer) instance per module
 // registration of the same name, each with its own client-side defaultJobOptions.

@@ -1,4 +1,5 @@
 import { apiFetch } from './client';
+import type { DataExportDto } from './usuarios';
 import type { AttributeSchema, ListingTypePolicy, ListingViewMode, PriceUnit } from '@/types';
 
 // ─── Stats ────────────────────────────────────────────────────────────────────
@@ -640,6 +641,24 @@ export function deleteUserAccount(
   id: string,
 ): Promise<{ id: string; status: string; postsReasignados: number }> {
   return apiFetch(`/admin/users/${id}`, { method: 'DELETE', token });
+}
+
+/**
+ * BORRADO DE CUENTAS C6 — el staff pide la exportación de un usuario.
+ *
+ * **ADMIN, no MODERATOR**, y el backend lo impone (herencia del `@MinRole(ADMIN)`
+ * de `AdminController`): el ZIP lleva las facturas dentro, y la procedencia
+ * comercial es ADMIN por decisión escrita. Aquí sólo se refleja.
+ *
+ * 409 si ese usuario ya tiene una viva; 400 si la cuenta está eliminada — de una
+ * cuenta vaciada ya no quedan datos que exportar.
+ */
+export function requestUserExport(token: string, id: string): Promise<DataExportDto> {
+  return apiFetch<DataExportDto>(`/admin/users/${id}/export`, { method: 'POST', token });
+}
+
+export function getUserExports(token: string, id: string): Promise<DataExportDto[]> {
+  return apiFetch<DataExportDto[]>(`/admin/users/${id}/exports`, { token });
 }
 
 // H8 Bloque E — "Vendedor de confianza" (ADMIN-only).

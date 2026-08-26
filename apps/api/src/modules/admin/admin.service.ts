@@ -1688,6 +1688,30 @@ export class AdminService {
       select: { key: true },
     });
     claves.push(...adjuntos.map((a) => a.key));
+
+    // 4. BORRADO DE CUENTAS C6 — SUS EXPORTACIONES DE DATOS.
+    //
+    //    ES LO MÁS URGENTE DE TODA ESTA FUNCIÓN, aunque vaya la última: un ZIP de
+    //    exportación lleva dentro el perfil, los hilos enteros, las facturas y el
+    //    monedero de esa persona. Vaciar la cuenta y dejar el ZIP en el bucket
+    //    sería deshacer C5 entero con un solo objeto — la anonimización de la fila
+    //    no alcanza a un fichero que ya se armó con los datos de antes.
+    //
+    //    LA CASCADA DEL SCHEMA NO SIRVE AQUÍ, y por eso esto no es redundante:
+    //    `DataExport.subjectUserId` es `Cascade`, pero C5 **no borra la fila del
+    //    usuario** —la vacía—, así que nada se dispara. Hay que quitarlo a mano.
+    //
+    //    Las filas se borran (no se marcan `EXPIRED`): la exportación de alguien
+    //    que ya no existe no es un registro que conservar, es un cabo suelto.
+    const exportaciones = await this.prisma.dataExport.findMany({
+      where: { subjectUserId: targetId },
+      select: { id: true, key: true },
+    });
+    claves.push(...exportaciones.map((e) => e.key).filter((k): k is string => Boolean(k)));
+    if (exportaciones.length > 0) {
+      await this.prisma.dataExport.deleteMany({ where: { subjectUserId: targetId } });
+    }
+
     if (claves.length > 0) {
       await this.mediaCleanupQueue.add('purge', { keys: claves, origen: `user:${targetId}` });
     }

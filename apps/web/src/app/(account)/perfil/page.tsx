@@ -7,8 +7,9 @@ import { Separator } from '@/components/ui/separator';
 import { PerfilForm } from '@/components/perfil/PerfilForm';
 import { SignOutButton } from '@/components/perfil/SignOutButton';
 import { ArchivarCuentaButton } from '@/components/perfil/ArchivarCuentaButton';
+import { ExportarDatosPanel } from '@/components/perfil/ExportarDatosPanel';
 import { auth } from '@/lib/auth';
-import { getMe } from '@/lib/api/usuarios';
+import { getMe, getMyExports } from '@/lib/api/usuarios';
 import { buildLoginUrl } from '@/lib/auth/callback-url';
 
 export const metadata = { title: 'Mi perfil' };
@@ -18,6 +19,17 @@ export default async function PerfilPage() {
   if (!session?.user.accessToken) redirect(buildLoginUrl('/perfil'));
 
   const user = await getMe(session.user.accessToken);
+
+  /**
+   * BORRADO DE CUENTAS C6 — las exportaciones, con su propio `.catch`.
+   *
+   * NO PUEDE TUMBAR EL PERFIL: es una sección secundaria de una página que la
+   * gente abre para editar su nombre. Si la API de exportaciones falla, lo que
+   * debe pasar es que ese bloque salga vacío —el botón sigue ahí—, no que el
+   * usuario se quede sin perfil. Mismo criterio que las llamadas paralelas de la
+   * ficha de vendedor.
+   */
+  const exportaciones = await getMyExports(session.user.accessToken).catch(() => []);
 
   const location = [user.city, user.province].filter(Boolean).join(', ');
 
@@ -98,6 +110,25 @@ export default async function PerfilPage() {
       <section>
         <h2 className="mb-4 text-lg font-semibold">Sesión</h2>
         <SignOutButton />
+      </section>
+
+      <Separator />
+
+      {/*
+        BORRADO DE CUENTAS C6 — la otra cara del cierre de cuenta.
+
+        JUSTO ANTES de «Cerrar mi cuenta», y el orden es la decisión: quien está
+        pensando en irse tiene delante, primero, la forma de llevarse sus cosas.
+        Ponerlo después sería ofrecer el paracaídas cuando ya se ha saltado.
+      */}
+      <section>
+        <h2 className="mb-2 text-lg font-semibold">Llévate tus datos</h2>
+        <p className="mb-4 max-w-prose text-sm text-muted-foreground">
+          Preparamos un archivo con todo lo que has generado: tu perfil, tus anuncios y sus
+          fotos, tus conversaciones, tus valoraciones y tus facturas en PDF. Tarda un poco y
+          te avisaremos cuando esté listo para descargar.
+        </p>
+        <ExportarDatosPanel token={session.user.accessToken} inicial={exportaciones} />
       </section>
 
       <Separator />

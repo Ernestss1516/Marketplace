@@ -24,6 +24,7 @@ import { ModerationModule } from './modules/moderation/moderation.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { AuditLogModule } from './modules/audit-log/audit-log.module';
 import { ExpirationModule } from './modules/expiration/expiration.module';
+import { DataExportModule } from './modules/data-export/data-export.module';
 import { BlogModule } from './modules/blog/blog.module';
 import { FooterModule } from './modules/footer/footer.module';
 import { NavModule } from './modules/nav/nav.module';
@@ -86,6 +87,10 @@ import { ImpressionsModule } from './modules/impressions/impressions.module';
     AdminModule,
     AuditLogModule,
     ExpirationModule,
+    // BORRADO DE CUENTAS C6 — `UsersModule` y `AdminModule` ya lo importan, pero
+    // se declara aquí también para que su CRON de caducidad y su controlador de
+    // descarga no dependan de que un tercero siga importándolo. Nest deduplica.
+    DataExportModule,
     BlogModule,
     FooterModule,
     NavModule,
