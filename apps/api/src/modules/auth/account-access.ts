@@ -25,14 +25,71 @@ import { UserStatus } from '@prisma/client';
  */
 
 /**
+ * Lo que las puertas necesitan saber de una cuenta.
+ *
+ * ── POR QUÉ ESTO PASÓ DE SER UN `UserStatus` SUELTO A UN OBJETO (C4) ────────
+ *
+ * Porque `SUSPENDED` dejó de ser una respuesta completa: una suspensión con
+ * vencimiento pasado **ya no bloquea**, y para saberlo hace falta la fecha. Se
+ * podría haber añadido un segundo parámetro opcional y dejar que los llamantes
+ * viejos siguieran compilando — y habría sido un error: cada uno de ellos tiene
+ * que **añadir `suspendedUntil` a su `select`**, y un parámetro opcional les
+ * habría dejado seguir preguntando con media pregunta, devolviendo `undefined` y
+ * bloqueando a alguien cuya suspensión ya caducó. Romper la firma obliga a
+ * revisarlos todos, que es exactamente lo que se quiere.
+ */
+export interface EstadoDeCuenta {
+  status: UserStatus;
+  /**
+   * Cuándo termina la suspensión. `null` = INDEFINIDA — que es lo que eran
+   * todas antes de C4, y por eso el valor por defecto no cambia nada.
+   *
+   * Sólo significa algo con `status === SUSPENDED`. Una cuenta ARCHIVED puede
+   * llevar una fecha guardada (C2 no la limpia al archivar, para no devolverle
+   * una suspensión indefinida al desarchivarla) y **aquí no se mira**: el
+   * archivado no caduca solo.
+   */
+  suspendedUntil?: Date | null;
+}
+
+/**
+ * BORRADO DE CUENTAS C4 — ¿esta suspensión ya se ha cumplido?
+ *
+ * EL MECANISMO PEREZOSO, y el que de verdad manda: en cuanto pasa la fecha, la
+ * cuenta entra **sin que nadie haya tocado nada**. El cron de las 07:00 no es la
+ * fuente de verdad —sólo pone la fila al día para que la ficha no mienta—, así
+ * que una suspensión de siete días termina a los siete días aunque el cron falle,
+ * se retrase o no exista.
+ *
+ * Molde EXACTO, y en el mismo fichero de auth: `lockedUntil`, que se evalúa así
+ * —comparando contra `now` en el momento de decidir, sin cron ni escritura— para
+ * el bloqueo por intentos fallidos. Se reusa el patrón entero.
+ *
+ * `suspendedUntil == null` → NO caduca. Es la compatibilidad: las suspensiones
+ * que existían antes de C4 no llevan fecha y siguen siendo indefinidas.
+ */
+export function suspensionYaCumplida(cuenta: EstadoDeCuenta): boolean {
+  return (
+    cuenta.status === UserStatus.SUSPENDED &&
+    cuenta.suspendedUntil != null &&
+    cuenta.suspendedUntil <= new Date()
+  );
+}
+
+/**
  * El motivo por el que esta cuenta no puede usar la plataforma, de cara al usuario.
  * `null` cuando sí puede.
  *
  * Los mensajes de `SUSPENDED` y `BANNED` se mueven aquí **palabra por palabra** desde
- * los tres gates: esta parte no cambia de conducta.
+ * los tres gates: esa parte no cambia de conducta.
  */
-export function motivoDeBloqueoDeCuenta(status: UserStatus): string | null {
-  switch (status) {
+export function motivoDeBloqueoDeCuenta(cuenta: EstadoDeCuenta): string | null {
+  // C4 — va ANTES del `switch` y no dentro del `case SUSPENDED`, para que el
+  // switch siga siendo lo que es: una tabla exhaustiva de estados. La caducidad
+  // no es un estado, es una condición sobre uno.
+  if (suspensionYaCumplida(cuenta)) return null;
+
+  switch (cuenta.status) {
     case UserStatus.ACTIVE:
       return null;
 
@@ -63,7 +120,7 @@ export function motivoDeBloqueoDeCuenta(status: UserStatus): string | null {
       // EL SEGURO. Si `UserStatus` gana un valor y nadie decide aquí qué hace,
       // esto deja de compilar. Es la única forma de que un estado nuevo no se
       // cuele por las cuatro puertas en silencio.
-      const noContemplado: never = status;
+      const noContemplado: never = cuenta.status;
       return noContemplado;
     }
   }
@@ -77,6 +134,6 @@ export function motivoDeBloqueoDeCuenta(status: UserStatus): string | null {
  * estado de una cuenta ajena. **Derivado, no una segunda lista**: si divergieran,
  * uno de los dos dejaría entrar a quien el otro rechaza.
  */
-export function cuentaPuedeAcceder(status: UserStatus): boolean {
-  return motivoDeBloqueoDeCuenta(status) === null;
+export function cuentaPuedeAcceder(cuenta: EstadoDeCuenta): boolean {
+  return motivoDeBloqueoDeCuenta(cuenta) === null;
 }
