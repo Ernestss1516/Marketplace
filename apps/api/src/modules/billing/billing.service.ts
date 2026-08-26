@@ -229,7 +229,7 @@ export class BillingService {
    * quitado nada que hubiera comprado. La cancelación inmediata es de C5, donde ya
    * no hay vuelta.
    */
-  async cancelActiveSubscriptionsFor(userId: string): Promise<number> {
+  async cancelActiveSubscriptionsFor(userId: string, immediate = false): Promise<number> {
     const vivas = await this.prisma.subscription.findMany({
       where: {
         userId,
@@ -241,14 +241,35 @@ export class BillingService {
     for (const sub of vivas) {
       // Si Stripe falla, se propaga: el job lo reintenta. Tragarlo aquí sería
       // exactamente el fallo silencioso que este camino existe para evitar.
-      await this.stripe.subscriptions.update(sub.gatewaySubscriptionId, {
-        cancel_at_period_end: true,
-      });
-      await this.prisma.subscription.update({
-        where: { id: sub.id },
-        data: { cancelAtPeriodEnd: true, status: SubscriptionStatus.CANCELING },
-      });
-      this.logger.log(`Subscription ${sub.id} cancelada por archivado de la cuenta ${userId}`);
+      //
+      // BORRADO DE CUENTAS C5 — `immediate` distingue los dos cierres, y la
+      // diferencia es la reversibilidad. ARCHIVAR es reversible, así que la
+      // suscripción llega al final del periodo YA PAGADO y no renueva: si el
+      // usuario vuelve antes del corte no se le ha quitado nada que comprara.
+      // ELIMINAR no tiene vuelta, así que se corta ahí mismo — mantenerla viva
+      // hasta fin de mes sería cobrarle a una cuenta que ya no existe.
+      if (immediate) {
+        await this.stripe.subscriptions.cancel(sub.gatewaySubscriptionId);
+        await this.prisma.subscription.update({
+          where: { id: sub.id },
+          data: {
+            cancelAtPeriodEnd: false,
+            status: SubscriptionStatus.CANCELED,
+            canceledAt: new Date(),
+          },
+        });
+      } else {
+        await this.stripe.subscriptions.update(sub.gatewaySubscriptionId, {
+          cancel_at_period_end: true,
+        });
+        await this.prisma.subscription.update({
+          where: { id: sub.id },
+          data: { cancelAtPeriodEnd: true, status: SubscriptionStatus.CANCELING },
+        });
+      }
+      this.logger.log(
+        `Subscription ${sub.id} cancelada (${immediate ? 'inmediata' : 'fin de periodo'}) — cuenta ${userId}`,
+      );
     }
 
     return vivas.length;

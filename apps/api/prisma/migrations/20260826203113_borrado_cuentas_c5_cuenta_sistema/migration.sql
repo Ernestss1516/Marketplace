@@ -1,0 +1,22 @@
+-- BORRADO DE CUENTAS C5 — LA MARCA DE CUENTA DE SISTEMA
+--
+-- Una sola columna, aditiva y sin backfill: nace `false` para todas las filas
+-- existentes, así que aplicarla no cambia nada.
+--
+-- PARA QUÉ. La lleva la cuenta **Equipo**, a la que se reasignan los artículos del
+-- blog de un editor que se elimina (decisión P-2). Sin ella, la guarda «sin Post»
+-- de C5 rechazaría para siempre a cualquier editor y no habría salida.
+--
+-- COLUMNA Y NO UN SLUG CONVENIDO: identificar la cuenta por `slug = 'equipo'`
+-- dejaría que una persona registrada con ese slug heredara los artículos de otros.
+-- La marca la pone quien crea la cuenta, no quien acierta con el nombre.
+--
+-- ── OJO: `DROP INDEX "User_lastLoginAt_desc_nulls_last_idx"` NO ESTÁ AQUÍ ──────
+--
+-- `prisma migrate dev --create-only` volvió a escribirlo, como escribe en CADA
+-- migración nueva: es el índice raw de 5b y Prisma no sabe expresar `NULLS LAST`
+-- en un `@@index`, así que lo lee como drift. Se ha BORRADO del SQL generado —la
+-- regla que dejó el incidente de 7b— y la barrera de origen de
+-- `ultima-ip-orden.e2e-spec.ts` lo habría cazado igualmente.
+
+ALTER TABLE "User" ADD COLUMN     "isSystem" BOOLEAN NOT NULL DEFAULT false;

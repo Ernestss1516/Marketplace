@@ -273,6 +273,28 @@ export class AdminController {
     return this.accountArchive.unarchive(id, user.userId, ip);
   }
 
+  /**
+   * BORRADO DE CUENTAS C5 — LA ÚNICA VÍA QUE VACÍA UNA CUENTA. Irreversible.
+   *
+   * ADMIN-only, heredado de la clase, y por el mismo criterio que el borrado de
+   * anuncios: MODERATOR hace lo reversible —archivar, desarchivar, suspender— y
+   * ADMIN lo que no tiene vuelta.
+   *
+   * `DELETE` y no `PATCH` aunque la fila SOBREVIVA: lo que el verbo describe es
+   * lo que pasa con la persona, no con el registro. Llamarlo `PATCH` lo pondría
+   * al lado de suspender o banear, que son reversibles, y es exactamente la
+   * confusión que las guardas existen para evitar.
+   */
+  @Delete('users/:id')
+  @HttpCode(HttpStatus.OK)
+  deleteAccount(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtUser,
+    @Ip() ip: string,
+  ) {
+    return this.adminService.deleteAccount(id, user.userId, ip);
+  }
+
   // Role change — ADMIN-only (inherits class-level @MinRole(ADMIN)). INNEGOCIABLE.
   @Patch('users/:id/role')
   @HttpCode(HttpStatus.OK)

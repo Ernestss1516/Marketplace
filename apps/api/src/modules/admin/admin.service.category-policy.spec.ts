@@ -84,6 +84,11 @@ function buildService(prismaOverrides: Record<string, unknown> = {}) {
     { validarEdicion: jest.fn() } as never,
     // 2b — ídem con las fotos: estos casos no tocan ninguna.
     { sync: jest.fn() } as never,
+    // BORRADO DE CUENTAS C5 — mantenimiento de fixture por cambio de FIRMA, el de
+    // siempre: las dos colas del vaciado de una cuenta. Estos casos son de
+    // política de categorías y no eliminan ninguna, pero el constructor las exige.
+    { add: jest.fn().mockResolvedValue(undefined) } as never,
+    { add: jest.fn().mockResolvedValue(undefined) } as never,
   );
 
   return { service, prisma, auditLog, indexingQueue, categoryTree };

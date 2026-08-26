@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import {
   QUEUE_INDEXING,
+  QUEUE_ACCOUNT_CLEANUP,
+  QUEUE_BILLING,
   QUEUE_MEDIA_CLEANUP,
   QUEUE_REVALIDATION,
   retryQueue,
@@ -20,6 +22,7 @@ import { ListingImagesModule } from '../listings/listing-images.module';
 import { AccountArchiveModule } from '../account-archive/account-archive.module';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
+import { AccountCleanupProcessor } from './account-cleanup.processor';
 import { AdminBillingController } from './admin-billing.controller';
 import { AdminBillingService } from './admin-billing.service';
 import { AdminStatsController } from './admin-stats.controller';
@@ -31,7 +34,14 @@ import { AdminStatsService } from './admin-stats.service';
     // Puerta ráfaga 2 — el marcado tras cambiar el schema de una categoría.
     BullModule.registerQueue(retryQueue(QUEUE_REVALIDATION)),
     // BORRADO B3 — retirar del bucket los ficheros del anuncio eliminado.
-    BullModule.registerQueue(retryQueue(QUEUE_MEDIA_CLEANUP)),
+    BullModule.registerQueue(
+      retryQueue(QUEUE_MEDIA_CLEANUP),
+      // C5 — la cancelación inmediata en la pasarela viaja por la cola de
+      // facturación, la misma que usa el archivado de C2.
+      retryQueue(QUEUE_BILLING),
+      // C5 — un trabajo por anuncio de la cuenta vaciada.
+      retryQueue(QUEUE_ACCOUNT_CLEANUP),
+    ),
     MeilisearchModule,
     AuditLogModule,
     SearchModule,
@@ -49,7 +59,7 @@ import { AdminStatsService } from './admin-stats.service';
   // comparte con él son funciones PURAS (`computeCtr`, `ratioWithMinSample`), que se
   // importan como cualquier utilidad y no arrastran DI ni medio dominio detrás.
   controllers: [AdminController, AdminBillingController, AdminStatsController],
-  providers: [AdminService, AdminBillingService, AdminStatsService],
+  providers: [AdminService, AdminBillingService, AdminStatsService, AccountCleanupProcessor],
   exports: [AdminService],
 })
 export class AdminModule {}

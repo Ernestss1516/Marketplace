@@ -17000,6 +17000,108 @@ Mutaciones, las tres verificadas:
 
 ---
 
+## Borrado de cuentas — C5: eliminar definitivamente
+
+Diseño: `docs/diseno-borrado-cuentas.md` §6. Decisiones cerradas por Ernest: **P-1**
+el saldo se pierde · **P-2** los `Post` van a «Equipo» · **P-3** sin plazo mínimo.
+
+### No es `user.delete()`, y no puede serlo
+
+Doce `RESTRICT`, dos libros mayores y el trigger de inmutabilidad fiscal lo
+bloquean — y **deben** bloquearlo. Eliminar es **vaciar la fila de persona**
+dejando en pie lo fiscal, la auditoría y lo de terceros. `status → DELETED`.
+
+**La idea que lo hace barato:** casi todo lo que enseña un nombre lo pide *por la
+relación* con `User`, con los mismos cuatro campos (`SELECT_USER_STUB` y
+`SELECT_AUTHOR` son idénticos). Sobrescribir `name`, `slug` y `avatarUrl` en UNA
+fila anonimiza la bandeja del comprador, la valoración del tercero y la cola de
+moderación **sin tocar un solo lector**.
+
+Lo que **no** se propaga es lo que no cuelga de `User`: el teléfono publicado del
+anuncio (`Listing.phone`/`phoneNormalized`/`lastOwnerIp`) y los nombres congelados
+en snapshots (`Report.reviewAuthorName`). Se friegan a mano. **Es el hueco fácil de
+olvidar del cuerpo entero.**
+
+### Los anuncios: cero lógica destructiva nueva
+
+Por cola (`QUEUE_ACCOUNT_CLEANUP`), un trabajo por anuncio, y cada uno llama a
+`deleteListing` **tal cual**: de ahí salen gratis la cascada, los `SetNull` con los
+snapshots de B1 —conversaciones, denuncias, tratos, valoraciones y tickets
+sobreviven legibles—, el `AuditLog` por anuncio, Redis, Meilisearch y R2 con
+miniaturas.
+
+**Una línea salta la tabla de transiciones, y está justificada:** `deleteListing`
+sólo acepta `ARCHIVED` —su salvaguarda de los dos pasos, que no se toca—, así que
+se archiva antes; un `DRAFT` no puede llegar ahí por el camino normal. Esa
+prohibición existe porque archivar significa «conservar para siempre» y un
+borrador no tiene nada que conservar; aquí `ARCHIVED` dura milisegundos antes de
+que la fila desaparezca, y el dueño al que la máquina protege ya no existe. La
+alternativa era duplicar la limpieza de `discardDraft` dentro de `AdminService`,
+porque **`AdminModule` no importa `ListingsModule` a propósito**.
+
+El **procesador vive en `AdminModule`**, no en `QueueModule`: necesita
+`AdminService`, y meterlo en `QueueModule` obligaría a importar `AdminModule`
+entero. Precedente: `BumpAutoProcessor` en `BumpScheduleModule`.
+
+### La cuenta «Equipo» (P-2)
+
+`User.isSystem` — columna aditiva, sin backfill. **Columna y no un slug convenido**:
+identificarla por `slug = 'equipo'` dejaría que una persona registrada con ese slug
+heredara los artículos de otros.
+
+Se resuelve **perezosamente** (`upsert` sobre el slug), no sólo por seed: `cleanDb`
+hace `TRUNCATE "User" CASCADE`, así que depender del seed haría que la operación
+funcionara en unas suites y fallara en otras. Sin contraseña y con correo bajo
+`.invalid`: no es la cuenta de nadie, es una firma. **No se archiva ni se elimina** —
+las dos guardas la miran.
+
+### Las guardas, en capas
+
+`@MinRole(ADMIN)` · estado `ARCHIVED` (los dos pasos) · `role === USER` (vaciar a
+un staff convertiría su rastro en «Usuario eliminado aprobó esto») · cuenta de
+sistema · `AlertDialog` · `AuditLog`. **Sin plazo mínimo** (P-3).
+
+### La pasarela
+
+Cancelación **inmediata** al eliminar, frente al `cancelAtPeriodEnd` del archivado:
+archivar es reversible y el periodo está pagado; eliminar no tiene vuelta, y
+mantenerla viva hasta fin de mes sería cobrarle a una cuenta que ya no existe. Por
+cola, con reintentos.
+
+### Verificación
+
+`borrado-cuentas-c5-inventario.e2e-spec.ts` (25) y
+`borrado-cuentas-c5-guardas.e2e-spec.ts` (7).
+
+**EL TEST DE INVENTARIO ES LA BARRERA DEL CUERPO**: crea un usuario con **las 34
+relaciones pobladas**, lo elimina, y afirma una por una qué se anonimizó, qué se
+conservó y qué se liberó. Destacan: el correo real **se puede volver a registrar**;
+la valoración que escribió **sigue contando** para la media del tercero firmada
+«Usuario eliminado»; la denuncia contra él **sigue diciendo contra quién**; la
+factura conserva número, PDF y receptor congelado; el saldo queda a cero **con
+asiento**, verificando `SUM(ledger) == 0`.
+
+**Dos defectos propios que el desarrollo destapó, y conviene que consten:**
+
+1. **Un ciclo de imports** (`admin.service` ↔ `account-cleanup.processor`) que
+   impedía arrancar Nest. Roto extrayendo el contrato a `account-cleanup.types.ts`.
+2. **Una barrera que no caía ante su propia mutación**: la aserción del teléfono
+   estaba bajo un `if (l)` y la cola ya había borrado el anuncio, así que quitar el
+   fregado **no tumbaba el test**. Arreglado pausando la cola antes de la operación
+   (mismo recurso que la barrera 4 de C2). *Una barrera que no cae ante su mutación
+   no es una barrera.*
+
+Mutaciones, las dos verificadas:
+
+| Mutación | Cae |
+|---|---|
+| Olvidar el teléfono publicado del anuncio | El inventario — «el hueco fácil de olvidar» |
+| No liberar el correo real | El inventario — 2 tests, incluido el re-registro |
+
+**Con C5 el encargo queda cerrado salvo C6 (exportación), que es aditiva.**
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.

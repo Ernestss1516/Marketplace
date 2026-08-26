@@ -14,12 +14,23 @@ import {
   reinstateUser,
   archiveUser,
   unarchiveUser,
+  deleteUserAccount,
   setUserTrusted,
   setUserRequiresReview,
   changeUserRole,
   type AdminUser,
   type AdminUserDetail,
 } from '@/lib/api/admin';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 import { ApiError } from '@/lib/api/client';
 import { ESTADO_USUARIO_LABELS } from '../etiquetas';
@@ -330,6 +341,8 @@ export default function AdminUsuariosPage() {
 
   // Action in-flight
   const [pendingId, setPendingId] = useState<string | null>(null);
+  // C5 — la cuenta cuya eliminación está pendiente de confirmar.
+  const [aEliminar, setAEliminar] = useState<AdminUser | null>(null);
 
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -868,6 +881,28 @@ export default function AdminUsuariosPage() {
                                   )}
                                 </Button>
                               )}
+                              {/*
+                                BORRADO DE CUENTAS C5 — vaciar la cuenta. ADMIN-only y
+                                SÓLO sobre una archivada: los dos pasos son la salvaguarda,
+                                igual que en el borrado de anuncios. Es la única acción
+                                irreversible del backoffice sobre una persona, así que va con
+                                `AlertDialog` — la regla escrita en apps/web/CLAUDE.md.
+                              */}
+                              {user.status === 'ARCHIVED' && currentUserIsAdmin && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 px-2 text-xs text-destructive hover:text-destructive"
+                                  disabled={isPending}
+                                  onClick={() => setAEliminar(user)}
+                                >
+                                  {isPending ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    'Eliminar'
+                                  )}
+                                </Button>
+                              )}
                               {/* Desbanear (BANNED → ACTIVE): ADMIN-only */}
                               {user.status === 'BANNED' && currentUserIsAdmin && (
                                 <Button
@@ -932,6 +967,61 @@ export default function AdminUsuariosPage() {
           </Button>
         </div>
       )}
+
+      {/*
+        BORRADO DE CUENTAS C5 — la confirmación de lo irreversible.
+
+        EL TEXTO DICE LAS DOS MITADES, y las dos importan: lo que se destruye
+        (identidad, correo, foto, anuncios) y lo que NO (facturas, y lo que otras
+        personas comparten con ella). Prometer un borrado total sería mentir —los
+        mensajes del comprador y la valoración del tercero se quedan, anonimizados—
+        y no advertir de que es irreversible sería peor.
+      */}
+      <AlertDialog open={aEliminar !== null} onOpenChange={(o) => !o && setAEliminar(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar definitivamente esta cuenta?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm">
+                <p>
+                  Se vaciará la cuenta de <strong>{aEliminar?.name}</strong> ({aEliminar?.email}):
+                  su nombre, correo, teléfono y foto desaparecen, y sus anuncios se eliminan con
+                  sus imágenes.
+                </p>
+                <p>
+                  <strong>No se borra todo.</strong> Sus facturas se conservan por obligación
+                  fiscal, y lo que comparte con otras personas —conversaciones, valoraciones,
+                  denuncias— se queda, firmado como «Usuario eliminado»: es de dos, no suyo.
+                  {aEliminar?.role === 'EDITOR' && ' Sus artículos del blog pasarán a «Equipo».'}
+                </p>
+                <p className="font-medium text-destructive">Esta acción no se puede deshacer.</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                const objetivo = aEliminar;
+                setAEliminar(null);
+                if (objetivo) {
+                  void handleAction(async () => {
+                    const r = await deleteUserAccount(token, objetivo.id);
+                    toast.success(
+                      r.postsReasignados > 0
+                        ? `Cuenta eliminada. ${r.postsReasignados} artículo(s) reasignados a «Equipo».`
+                        : 'Cuenta eliminada.',
+                    );
+                  }, objetivo.id);
+                }
+              }}
+            >
+              Eliminar definitivamente
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

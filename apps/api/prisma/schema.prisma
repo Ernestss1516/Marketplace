@@ -503,6 +503,24 @@ model User {
   /// Cuándo se vació de persona. Sólo con `status = DELETED`, y no se limpia nunca.
   deletedAt DateTime?
 
+  /// BORRADO DE CUENTAS C5 — «esta cuenta NO ES UNA PERSONA».
+  ///
+  /// Hoy la lleva una sola fila: **Equipo**, la cuenta a la que se reasignan los
+  /// artículos del blog de un editor que se elimina (decisión P-2). Sin ella, la
+  /// guarda «sin Post» de C5 rechazaría para siempre a cualquier editor y no
+  /// habría salida; con ella, el blog conserva su contenido firmado por el sitio
+  /// en vez de por un fantasma.
+  ///
+  /// COLUMNA Y NO UN SLUG CONVENIDO, y la diferencia importa: identificarla por
+  /// `slug = 'equipo'` haría que una persona registrada con ese slug pudiera
+  /// heredar los artículos de otros. La marca la pone quien crea la cuenta, no
+  /// quien acierta con el nombre.
+  ///
+  /// LO QUE PROTEGE: una cuenta de sistema **no se archiva** (C2) ni **se elimina**
+  /// (C5). Las dos guardas la miran. Aditiva: nace `false` para todas las filas
+  /// existentes, sin backfill.
+  isSystem Boolean @default(false)
+
   // --- Relaciones ---
   /// Relación inversa de `archivedBy` — las cuentas que este miembro del staff
   /// archivó. Existe porque Prisma exige el lado inverso, no porque nadie la consulte.

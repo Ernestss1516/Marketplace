@@ -32,6 +32,13 @@ export const QUEUE_REVALIDATION = 'revalidation';
 /// anuncio ninguno.
 export const QUEUE_MEDIA_CLEANUP = 'media-cleanup';
 
+/// BORRADO DE CUENTAS C5 — los anuncios de una cuenta que se acaba de vaciar, uno
+/// por trabajo. Cola propia y no `QUEUE_INDEXING`: cada trabajo BORRA una fila y
+/// dispara su propia cascada, mientras que el indexado sólo sincroniza. Y sobre
+/// todo, un vendedor con doscientos anuncios no puede tener la petición del ADMIN
+/// abierta mientras se borran uno a uno — ni dejar la mitad vivos si se corta.
+export const QUEUE_ACCOUNT_CLEANUP = 'account-cleanup';
+
 // Each module that injects a queue calls its own BullModule.registerQueue({name})
 // — @nestjs/bullmq creates a SEPARATE Queue (producer) instance per module
 // registration of the same name, each with its own client-side defaultJobOptions.

@@ -627,6 +627,21 @@ export function unarchiveUser(token: string, id: string): Promise<unknown> {
   return apiFetch(`/admin/users/${id}/unarchive`, { method: 'PATCH', token });
 }
 
+/**
+ * BORRADO DE CUENTAS C5 — vacía la cuenta de persona. **Irreversible**, ADMIN-only
+ * y sólo sobre una cuenta ya archivada (los dos pasos son la salvaguarda).
+ *
+ * `DELETE` aunque la fila SOBREVIVA: el verbo describe lo que pasa con la persona,
+ * no con el registro. La fila tiene que quedarse —la exigen los `RESTRICT`, los
+ * libros mayores y el trigger fiscal— pero vacía.
+ */
+export function deleteUserAccount(
+  token: string,
+  id: string,
+): Promise<{ id: string; status: string; postsReasignados: number }> {
+  return apiFetch(`/admin/users/${id}`, { method: 'DELETE', token });
+}
+
 // H8 Bloque E — "Vendedor de confianza" (ADMIN-only).
 export function setUserTrusted(token: string, id: string, trusted: boolean): Promise<unknown> {
   return apiFetch(`/admin/users/${id}/trusted`, {

@@ -25,6 +25,8 @@ export interface BillingJobData {
  *  tiene se resuelve al ejecutarlo, no al encolarlo. */
 export interface CancelSubscriptionsJobData {
   userId: string;
+  /** C5 — corte inmediato al ELIMINAR; sin él, fin de periodo (archivar). */
+  immediate?: boolean;
 }
 
 /** Lo que puede llegarle al `BillingProcessor`. Unión discriminada por `job.name`,
