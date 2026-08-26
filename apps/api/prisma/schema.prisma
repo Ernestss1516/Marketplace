@@ -43,10 +43,63 @@ enum Role {
 }
 
 /// Estado de la cuenta de usuario.
+///
+/// BORRADO DE CUENTAS C1 — UN SOLO EJE, y es una decisión, no una simplificación.
+/// Una cuenta tiene DOS preguntas («¿está sancionada?» y «¿existe?») y esta columna
+/// responde a las dos, porque lo que el sistema necesita saber en cada puerta es UNA
+/// cosa: qué puede hacer esta cuenta AHORA. Repartirlo en dos ejes obligaría a los
+/// tres gates de entrada y a cada superficie pública a evaluar dos condiciones, y
+/// olvidar una falla EN SILENCIO y hacia el lado peligroso (la cuenta parece viva).
+///
+/// Lo que un eje único cuesta —que ARCHIVED pise a la sanción que hubiera— lo paga
+/// `User.statusBeforeArchive`, que NO es un segundo eje: ver su comentario.
+///
+/// Ver docs/diseno-borrado-cuentas.md §1.
 enum UserStatus {
   ACTIVE
+  /// Sanción TEMPORAL. Reversible por MODERATOR. Con caducidad opcional en
+  /// `User.suspendedUntil` (la usa C4; hasta entonces toda suspensión es indefinida,
+  /// que es exactamente el comportamiento anterior a esta migración).
   SUSPENDED
+  /// Sanción PERMANENTE. Reversible sólo por ADMIN.
   BANNED
+  /// BORRADO DE CUENTAS — la cuenta ya no existe PARA SU DUEÑO: no entra, y su
+  /// contenido sale del escaparate. NO anonimiza nada: la fila queda intacta y
+  /// recuperable. **REVERSIBLE**, a diferencia de `ListingStatus.ARCHIVED` — y la
+  /// divergencia es deliberada: para un anuncio archivado no hay nada a lo que
+  /// volver; una cuenta tiene facturas, reputación e hilos abiertos, y a su dueño le
+  /// cabe cambiar de opinión. El final de una cuenta no es estar archivada: es estar
+  /// vaciada (ver DELETED).
+  ARCHIVED
+  /// BORRADO DE CUENTAS — vaciada de persona. La FILA SOBREVIVE anonimizada, porque
+  /// doce `RESTRICT`, dos libros mayores y el trigger de inmutabilidad fiscal exigen
+  /// que sobreviva — y está bien que lo exijan: el rastro contable y de auditoría no
+  /// es del que se va. **TERMINAL**: ninguna transición sale de aquí.
+  ///
+  /// Existe como valor propio y no como «ARCHIVED con deletedAt» por tres razones:
+  /// el staff tiene que distinguir «archivado, con datos» de «ya vaciado»;
+  /// desarchivar lo rechaza POR CONSTRUCCIÓN (no está en la tabla de transiciones,
+  /// en vez de por un `if` que se puede olvidar); y sin él no habría estado terminal.
+  DELETED
+}
+
+/// BORRADO DE CUENTAS C1 — por qué se archivó una cuenta.
+///
+/// ENUM Y NO TEXTO LIBRE, mismo motivo que `BumpScheduleStatus`: LA RAZÓN DETERMINA
+/// LA SALIDA. De aquí dependerán el plazo antes de poder eliminar y qué se hace con
+/// la última IP (diseño §3.5 D-g). El porqué narrativo va aparte, en
+/// `User.archiveNote`.
+///
+/// SEPARADO DE `User.archivedById` («quién lo ejecutó») a propósito: un usuario
+/// BANNED no puede entrar, así que no puede archivarse solo — pero conserva su
+/// derecho a pedirlo, y el staff lo ejecuta por él. Ese caso es exactamente
+/// `SELF_REQUEST` con `archivedById` poblado, y sin dos columnas no se podría
+/// representar.
+enum ArchiveReason {
+  /// Lo pidió el usuario — lo ejecute él mismo o el staff en su nombre.
+  SELF_REQUEST
+  /// Decisión de la plataforma.
+  STAFF_ACTION
 }
 
 /// Ciclo de vida de un anuncio. Modela el flujo de publicación y moderación.
@@ -327,6 +380,16 @@ model User {
   bio                 String?    @db.Text
   role                Role       @default(USER)
   status              UserStatus @default(ACTIVE)
+  /// BORRADO DE CUENTAS C1 — cuándo termina la suspensión. `null` = INDEFINIDA, que
+  /// es exactamente lo que eran todas las suspensiones antes de esta migración: por
+  /// eso nace `null` y no hay backfill.
+  ///
+  /// La columna entra en C1 (con el resto del modelo, para no partir la migración en
+  /// dos); QUIEN LA LEE llega en C4 — un predicado perezoso en los gates, molde
+  /// `lockedUntil`, más un cron que la materializa, molde `EntitlementExpiration`.
+  /// Sólo tiene sentido con `status = SUSPENDED`, y las transiciones la limpian al
+  /// salir de ese estado.
+  suspendedUntil      DateTime?
   emailVerified       Boolean    @default(false)
   /// Contador de intentos de login fallidos consecutivos; se resetea en login correcto (RÁFAGA 3).
   failedLoginAttempts Int        @default(0)
@@ -394,7 +457,56 @@ model User {
   lastLoginAt DateTime?
   lastLoginIp String?
 
+  // ── BORRADO DE CUENTAS C1 — el archivado y el vaciado ──────────────────────
+  //
+  // METADATOS, NO ESTADO. Quien manda es `status`; esto es el CONTEXTO de cómo llegó
+  // ahí. Cada columna vive con un solo valor de `status` y las transiciones lo
+  // mantienen (ver `user-status.transitions.ts`): las cuatro de archivado se limpian
+  // al desarchivar, y `deletedAt` no se limpia nunca porque DELETED es terminal.
+  //
+  // C1 SÓLO LAS CREA. Quien las escribe es C2 (archivar/desarchivar) y C5 (eliminar).
+  // Ver docs/diseno-borrado-cuentas.md §2.2.
+
+  /// Cuándo se archivó. Molde `Review.retiredAt` / `Ticket.closedAt`.
+  archivedAt    DateTime?
+  /// Por qué (la categoría; el porqué narrativo va en `archiveNote`).
+  archiveReason ArchiveReason?
+  /// El porqué narrativo. Molde `Review.retiredReason`.
+  archiveNote   String?        @db.Text
+
+  /// QUIÉN lo ejecutó. `null` = lo hizo el propio usuario desde su perfil.
+  ///
+  /// `SetNull` y no `Cascade`: molde exacto de `Review.retiredById` y
+  /// `Ticket.closedById` — que se vacíe la cuenta de un moderador no puede
+  /// desarchivar a nadie. Es la sexta relación de staff del schema que toma este
+  /// valor, y por el mismo motivo.
+  archivedById  String?
+  archivedBy    User?          @relation("UserArchivedBy", fields: [archivedById], references: [id], onDelete: SetNull)
+
+  /// EL DESTINO DE RESTAURACIÓN. A dónde vuelve esta cuenta si se desarchiva.
+  ///
+  /// NO ES UN SEGUNDO EJE DE ESTADO, y de eso depende que el diseño de un solo eje se
+  /// sostenga: se escribe UNA vez (al archivar), se lee UNA vez (al desarchivar) y
+  /// **ni los gates ni las superficies públicas la consultan jamás**. No responde
+  /// «¿qué es esta cuenta?» —eso lo responde `status`, siempre— sino «¿a dónde vuelve
+  /// si la desarchivo?». Molde: `BumpRun.slot`, que es el valor que otra columna
+  /// TENÍA en un instante, copiado tal cual y nunca recalculado.
+  ///
+  /// EL DEFECTO QUE CIERRA, y es la razón entera de que exista: sin ella, desarchivar
+  /// devolvería a `ACTIVE` por defecto, y entonces **archivar a un usuario BANNED
+  /// sería la forma de lavarle el ban**. Con ella, un baneado archivado vuelve a
+  /// BANNED. Ver diseño §1.1.
+  ///
+  /// Nunca guarda `ARCHIVED` ni `DELETED`: sólo los tres estados de sanción.
+  statusBeforeArchive UserStatus?
+
+  /// Cuándo se vació de persona. Sólo con `status = DELETED`, y no se limpia nunca.
+  deletedAt DateTime?
+
   // --- Relaciones ---
+  /// Relación inversa de `archivedBy` — las cuentas que este miembro del staff
+  /// archivó. Existe porque Prisma exige el lado inverso, no porque nadie la consulte.
+  usersArchived       User[]               @relation("UserArchivedBy")
   listings            Listing[]
   favorites           Favorite[]
   buyerConvos         Conversation[]       @relation("BuyerConversations")
@@ -750,6 +862,26 @@ model Listing {
   /// Aditivo: nace `false` para todo lo existente, sin backfill. El índice está
   /// para poder listar los marcados sin recorrer la tabla.
   needsRevalidation Boolean @default(false)
+
+  /// BORRADO DE CUENTAS C1 — «a este anuncio lo pausó el archivado de su dueño».
+  ///
+  /// MARCADOR DE ORIGEN, NO COPIA DE ESTADO. Archivar una cuenta lleva sus anuncios
+  /// ACTIVE y RESERVED a `PAUSED` (C2), y desarchivarla tiene que devolver **sólo
+  /// ésos** — no los que el vendedor había pausado por su cuenta, que él decidió
+  /// pausar y nadie le ha pedido reactivar. Como el único destino posible al
+  /// restaurar es `ACTIVE`, un booleano basta: no hace falta guardar de dónde venía.
+  ///
+  /// Molde `Entitlement.origin` / `BumpRun.paidWith`: registrar POR QUÉ pasó algo
+  /// para poder revertirlo de forma selectiva.
+  ///
+  /// POR QUÉ `PAUSED` Y NO `ARCHIVED` para los anuncios de una cuenta archivada: el
+  /// schema ya dice de PAUSED que es «temporal, reactivable, ni cuenta para la cuota
+  /// ni se indexa» — las tres propiedades que hacen falta, ya construidas. `ARCHIVED`
+  /// es terminal en dos capas a propósito, y usarlo obligaría a abrir un agujero en
+  /// una irreversibilidad deliberada. Ver diseño §4.4.
+  ///
+  /// Aditivo: nace `false` para todo lo existente, sin backfill. C1 sólo lo crea.
+  pausedByAccountArchive Boolean @default(false)
 
   publishedAt DateTime?
   expiresAt   DateTime?
@@ -1236,10 +1368,18 @@ model Deal {
   // listing.sellerId y aun así guardado aparte): evita joins para "mis tratos
   // como vendedor" y es el shape que RÁFAGA 3 usa para sustituir la
   // búsqueda por Conversation en reviews.service.ts sin cambiar su forma.
+  // BORRADO DE CUENTAS C1 — de `Cascade` a `Restrict`, mismo criterio y mismo porqué
+  // que `Review.author/target` (ver allí el argumento completo).
+  //
+  // LO ESPECÍFICO DE AQUÍ: un trato tiene DOS partes, así que en `Cascade` la marcha
+  // de cualquiera de las dos destruía la constancia de que ocurrió. Y no es sólo
+  // constancia: **un `Deal` es la evidencia de `Review.verified`** — el campo que
+  // decide si una valoración cuenta para la media. Perder tratos por una baja
+  // degradaba en silencio la reputación de la otra parte.
   sellerId String
-  seller   User   @relation("DealSeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  seller   User   @relation("DealSeller", fields: [sellerId], references: [id], onDelete: Restrict)
   buyerId  String
-  buyer    User   @relation("DealBuyer", fields: [buyerId], references: [id], onDelete: Cascade)
+  buyer    User   @relation("DealBuyer", fields: [buyerId], references: [id], onDelete: Restrict)
 
   /// Enlazada por el SERVIDOR buscando una Conversation real para
   /// (listingId, buyerId) — NUNCA aceptada del cliente. Null si el trato se
@@ -1269,10 +1409,38 @@ model Review {
   rating  Int // 1..5 (validado en el DTO)
   comment String? @db.Text
 
+  // BORRADO DE CUENTAS C1 — LAS DOS PASAN DE `Cascade` A `Restrict`, y ésta es la
+  // arista más grave de las ocho.
+  //
+  // QUÉ DESTRUÍA. `authorId` en `Cascade` significa que borrar una cuenta se lleva
+  // por delante **las valoraciones que esa persona ESCRIBIÓ**, o sea **la reputación
+  // de terceros**. Un vendedor con veinte reseñas perdía las de todos los compradores
+  // que se hubieran ido. Y `targetId` destruía el testimonio de quienes las
+  // escribieron. Es el mismo defecto que B1 arregló en el eje del ANUNCIO —«la
+  // reputación no es borrable por el vendedor»— sin arreglar en el eje de la PERSONA.
+  //
+  // NO ERA UNA DECISIÓN QUE ALGUIEN TOMARA. La migración inicial las creó
+  // `RESTRICT` (`20260620100046_init`) y `20260624130000_add_review_fields` las
+  // cambió a `Cascade` de pasada, sin comentario. Sus hermanas de modelo —
+  // `Conversation.buyerId`, `Message.senderId`, `Report.reporterId`,
+  // `TicketMessage.authorId`— siguen siendo `Restrict`: éstas eran las raras.
+  //
+  // Y «NEUTRALIZADO» NO ES «RESUELTO»: con el borrado de cuentas nadie borra la fila
+  // de `User` (se vacía), así que la cascada no llegaría a dispararse. Ese argumento
+  // exacto ya se probó con `Report.reviewId` y salió mal — ver su comentario, que
+  // predice literalmente «una cascada de usuario». La regla se quita, no se duerme.
+  //
+  // POR QUÉ `Restrict` Y NO `SetNull`: los dos campos son NOT NULL, y hacerlos
+  // nullables obligaría a TODOS sus lectores a tratar un `null` para un caso que ya
+  // no puede ocurrir. `Restrict` declara el invariante correcto —una valoración no
+  // puede quedarse huérfana de persona— y hace que lo garantice Postgres en vez de la
+  // disciplina de quien escriba el próximo servicio.
+  //
+  // Ver docs/diseno-borrado-cuentas.md §2.4.
   authorId     String
-  author       User     @relation("ReviewAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  author       User     @relation("ReviewAuthor", fields: [authorId], references: [id], onDelete: Restrict)
   targetId     String
-  target       User     @relation("ReviewTarget", fields: [targetId], references: [id], onDelete: Cascade)
+  target       User     @relation("ReviewTarget", fields: [targetId], references: [id], onDelete: Restrict)
   // Nullable: la reseña sobrevive al borrado del anuncio (la reputación no es
   // borrable por el vendedor); listingId pasa a NULL, análogo a
   // Entitlement/Transaction. listingTitle conserva el contexto.
@@ -1392,6 +1560,22 @@ model Report {
   listingTitle   String?
   reportedUserId String?
   reportedUser   User?    @relation("ReportedUser", fields: [reportedUserId], references: [id])
+  /// BORRADO DE CUENTAS C1 — snapshot del nombre del usuario denunciado, tomado AL
+  /// CREAR la denuncia. Molde exacto de `listingTitle` (arriba), `reviewAuthorName`
+  /// (abajo), `Review.listingTitle`, `Deal.listingTitle` y `Ticket.linkedLabel`.
+  ///
+  /// SIN ESTO, ELIMINAR UNA CUENTA DEJA LA COLA DE MODERACIÓN SIN SUJETO. La
+  /// eliminación no borra la fila de `User`: la vacía, poniendo `name` a «Usuario
+  /// eliminado». Como la cola lee el nombre POR LA RELACIÓN, todas las denuncias
+  /// contra esa persona pasarían a decir «denuncia contra Usuario eliminado» —
+  /// sobrevivirían sin decir contra quién, que es la mitad de lo que una denuncia es.
+  /// Es el mismo hueco que `Report.listingTitle` cerró para el anuncio.
+  ///
+  /// SE ESCRIBE AL CREAR, NO AL ELIMINAR, y es deliberado (diseño §2.5): rellenarlo
+  /// en la eliminación convertiría esa operación en una escritura de N filas dentro
+  /// de la transacción, y sería un camino que SÓLO se ejecuta ahí — o sea que sólo se
+  /// prueba ahí.
+  reportedUserName String?
 
   // Auditoría de la resolución por parte de un moderador.
   resolvedById String?
@@ -1630,7 +1814,14 @@ model Price {
 model Entitlement {
   id     String @id @default(cuid())
   userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// BORRADO DE CUENTAS C1 — de `Cascade` a `Restrict`. Aquí el cambio RESUELVE UNA
+  /// CONTRADICCIÓN QUE YA ESTABA ESCRITA EN ESTE MISMO MODELO: la cabecera dice
+  /// «Nunca se borra una fila de esta tabla; la revocación es el mecanismo de
+  /// cierre», y la constraint decía lo contrario. Ahora dicen lo mismo. Al eliminar
+  /// una cuenta, sus entitlements se REVOCAN (`revokedAt`), que es lo que el modelo
+  /// mandaba desde el principio. Y sus hermanas de facturación —`Subscription`,
+  /// `Transaction`, `Invoice`— ya eran `Restrict`.
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
 
   type EntitlementType
 
@@ -1875,7 +2066,13 @@ model BumpPack {
 model Wallet {
   id     String @id @default(cuid())
   userId String @unique
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// BORRADO DE CUENTAS C1 — de `Cascade` a `Restrict`. Aquí no cambia NADA en la
+  /// práctica, y ése es justamente el motivo: el borrado ya estaba bloqueado, pero
+  /// **por accidente** — `CreditLedger.walletId` y `BumpLedger.walletId` son
+  /// `Restrict`, así que borrar el Wallet fallaba en el segundo salto. Un invariante
+  /// que se cumple por un efecto colateral de otra tabla no es un invariante: es
+  /// suerte. Se declara donde se lee.
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
 
   /// Saldo en créditos enteros. Fuente de verdad del saldo actual.
   balance Int @default(0)
@@ -2237,7 +2434,13 @@ model CouponRedemption {
   couponId   String
   coupon     Coupon   @relation(fields: [couponId], references: [id])
   userId     String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// BORRADO DE CUENTAS C1 — de `Cascade` a `Restrict`, misma contradicción resuelta
+  /// que en `Entitlement`: la cabecera de este modelo dice «NUNCA se borra ni se
+  /// modifica: historial permanente de canjes» y la constraint decía lo contrario.
+  /// Y hay un motivo de negocio además del documental: borrar el canje liberaría el
+  /// `@@unique([couponId, userId])`, así que **el mismo cupón se podría recanjear**
+  /// con una cuenta nueva del mismo correo.
+  user       User     @relation(fields: [userId], references: [id], onDelete: Restrict)
   redeemedAt DateTime @default(now())
 
   /// Trazabilidad polimórfica de qué se otorgó: 'CreditLedger' + id de la
@@ -2837,8 +3040,17 @@ model Ticket {
 
   /// EL USUARIO del hilo â€” siempre hay exactamente uno, sea quien sea que lo abriÃ³.
   /// Es la clave del owner-scope y el destinatario de las notificaciones (R4).
+  ///
+  /// BORRADO DE CUENTAS C1 — de `Cascade` a `Restrict` (argumento completo en
+  /// `Review.author`). AQUÍ EL `Cascade` SE CONTRADECÍA CON SU PROPIO MODELO: la
+  /// misma migración que lo puso (`20260729084926_add_ticketing`) hizo
+  /// `TicketMessage.authorId` y `Ticket.openedById` **`Restrict`**, con la razón
+  /// escrita al lado —«borrar la cuenta de un admin no puede borrar los hilos que
+  /// abrió»—. Un hilo de atención tiene dos lados por construcción
+  /// (`TicketAuthorSide.USER` / `STAFF`), así que llevárselo entero cuando se va uno
+  /// destruía también los mensajes del staff.
   userId String
-  user   User   @relation("TicketUser", fields: [userId], references: [id], onDelete: Cascade)
+  user   User   @relation("TicketUser", fields: [userId], references: [id], onDelete: Restrict)
 
   /// QuiÃ©n lo abriÃ³: el propio usuario (flujo a) o un miembro del staff (flujos b/c).
   /// Restrict (no Cascade): borrar la cuenta de un admin no puede borrar los hilos

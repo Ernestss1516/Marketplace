@@ -60,12 +60,30 @@ export class ModerationService {
       listingTitle = listing.title;
     }
 
+    // BORRADO DE CUENTAS C1 — la TERCERA arista del mismo snapshot, y por el mismo
+    // motivo que las dos de arriba: se trae también el NOMBRE, no sólo el id.
+    //
+    // QUÉ CIERRA. Eliminar una cuenta no borra su fila: la VACÍA, poniendo `name` a
+    // «Usuario eliminado». Como la cola de moderación lee el nombre POR LA RELACIÓN,
+    // sin este snapshot todas las denuncias contra esa persona pasarían a decir
+    // «denuncia contra Usuario eliminado»: sobrevivirían sin decir CONTRA QUIÉN, que
+    // es la mitad de lo que una denuncia es.
+    //
+    // NO CUESTA UNA CONSULTA: la comprobación de existencia ya estaba aquí y ya
+    // consultaba esta misma fila; sólo se le añade una columna al `select`. Es
+    // literalmente lo que hizo B1 con el título del anuncio.
+    //
+    // Se toma AQUÍ, al crear, y no en la eliminación: rellenarlo allí convertiría esa
+    // operación en una escritura de N filas dentro de la transacción, y sería un
+    // camino que sólo se ejecuta ahí — o sea que sólo se prueba ahí.
+    let reportedUserName: string | undefined;
     if (dto.reportedUserId) {
       const user = await this.prisma.user.findUnique({
         where: { id: dto.reportedUserId },
-        select: { id: true },
+        select: { id: true, name: true },
       });
       if (!user) throw new NotFoundException('Usuario no encontrado');
+      reportedUserName = user.name;
     }
 
     // Mismo molde que el título del anuncio, en la otra arista: se trae también el
@@ -92,6 +110,7 @@ export class ModerationService {
       listingId: dto.listingId,
       listingTitle,
       reportedUserId: dto.reportedUserId,
+      reportedUserName,
       reviewId: dto.reviewId,
       reviewComment,
       reviewAuthorName,

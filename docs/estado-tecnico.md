@@ -16525,6 +16525,155 @@ mirar el estado → caen 4 tests.
 
 ---
 
+## Borrado de cuentas — C1: el modelo y la puerta
+
+Diseño: `docs/diseno-borrado-cuentas.md` §8 (C1). Auditoría previa:
+`docs/auditoria-borrado-cuentas.md`.
+
+**C1 no archiva ni elimina nada.** Deja *representables* los estados nuevos de una
+cuenta y arma las salvaguardas, para que C2 (archivar/desarchivar) y C5 (eliminar) se
+apoyen en algo ya probado. 100 % backend, sin UI.
+
+### El modelo
+
+`UserStatus` pasa de tres valores a **cinco**: `ACTIVE | SUSPENDED | BANNED |
+ARCHIVED | DELETED`. Un solo eje a propósito, aunque la columna responda a dos
+preguntas («¿está sancionada?» y «¿existe?»): lo que cada puerta necesita saber es
+UNA cosa —qué puede hacer esta cuenta ahora—, y repartirlo en dos ejes obligaría a
+los tres gates y a cada superficie pública a evaluar dos condiciones, donde olvidar
+una **falla en silencio y hacia el lado peligroso**.
+
+Lo que el eje único costaría —que `ARCHIVED` pise la sanción que hubiera— lo paga
+**`User.statusBeforeArchive`**, que **no es un segundo eje**: se escribe una vez (al
+archivar), se lee una vez (al desarchivar) y ni el gate ni la visibilidad la
+consultan. Es un *destino de restauración*, molde `BumpRun.slot`. Sin ella,
+desarchivar devolvería a `ACTIVE` por defecto y **archivar a un baneado sería la
+forma de lavarle el ban**.
+
+`ARCHIVED` es **reversible**, a diferencia de `ListingStatus.ARCHIVED`, y la
+divergencia es deliberada: el final de una cuenta no es estar archivada, es estar
+vaciada. El terminal es `DELETED`, que existe como valor propio —y no como «ARCHIVED
+con `deletedAt`»— para que el staff distinga «archivado, con datos» de «ya vaciado» y
+para que desarchivar lo rechace **por construcción** (no está en la tabla de
+transiciones) en vez de por un `if` que se puede olvidar.
+
+Columnas nuevas: `User.suspendedUntil` (la usa C4), `archivedAt`, `archiveReason`
+(enum `ArchiveReason`), `archiveNote`, `archivedById` (→ `User`, `SetNull`, molde
+`Review.retiredById`), `statusBeforeArchive`, `deletedAt`;
+`Listing.pausedByAccountArchive` (marcador de origen para que desarchivar reactive
+sólo lo que pausó el archivado); `Report.reportedUserName` (snapshot **escrito al
+crear**, molde B1 — sin él, vaciar una cuenta dejaría la cola de moderación diciendo
+«denuncia contra Usuario eliminado»). Todas nullable o con default: aditivas, sin
+backfill salvo el del snapshot.
+
+`archiveReason` (**por qué**) y `archivedById` (**quién lo ejecutó**) son columnas
+distintas a propósito: un `BANNED` no puede entrar, así que no puede archivarse solo
+—pero conserva su derecho a pedirlo y el staff lo ejecuta por él—. Ese caso es
+`SELF_REQUEST` con `archivedById` poblado, y con una sola columna no se podría
+representar.
+
+### Los ocho `Cascade` → `Restrict`
+
+`Review.authorId`, `Review.targetId`, `Deal.sellerId`, `Deal.buyerId`,
+`Ticket.userId`, `Entitlement.userId`, `CouponRedemption.userId`, `Wallet.userId`.
+
+Van **antes** que cualquier borrado, mismo orden y mismo motivo que B1 antes que B2.
+La más grave es `Review.authorId`: en `Cascade`, borrar una cuenta se llevaba **las
+valoraciones que esa persona escribió**, o sea **la reputación de terceros**. Y no era
+una decisión que alguien tomara — la migración inicial las creó `RESTRICT` y
+`20260624130000_add_review_fields` las cambió de pasada, sin comentario, mientras sus
+hermanas de modelo (`Conversation.buyerId`, `Message.senderId`, `Report.reporterId`,
+`TicketMessage.authorId`) seguían siendo `Restrict`. `Ticket.userId` era `Cascade` en
+la **misma migración** que hizo `TicketMessage.authorId` `Restrict`.
+
+Dos de ellas resuelven una contradicción que ya estaba escrita: `Entitlement`
+(«Nunca se borra una fila de esta tabla») y `CouponRedemption` («NUNCA se borra ni se
+modifica») decían por escrito lo contrario que su constraint. `Wallet` estaba
+bloqueado **por accidente** —el freno lo ponían los ledgers en el segundo salto—; se
+declara donde se lee.
+
+Contra el argumento de «como la fila de `User` nunca se borra, la cascada no se
+dispara»: ese argumento exacto se probó ya con `Report.reviewId`, cuyo comentario en
+el schema **predice literalmente «una cascada de usuario»**. Neutralizar no es
+resolver.
+
+`Restrict` y no `SetNull` porque las ocho columnas son `NOT NULL`: hacerlas nullables
+obligaría a todos sus lectores a tratar un `null` para un caso que ya no puede
+ocurrir. Y `cleanDb` no se ve afectado: `TRUNCATE ... CASCADE` ignora las acciones
+referenciales.
+
+### La puerta, ahora en un solo sitio
+
+`account-access.ts` (`motivoDeBloqueoDeCuenta` / `cuentaPuedeAcceder`) sustituye al
+**mismo par de `if` copiado en tres gates** —`JwtStrategy.validate`,
+`AuthService.validateCredentials`, `AuthService.loginWithGoogle`— más un cuarto sitio
+que **se había olvidado de mirarlo**: `forgotPassword` enviaba el correo de
+recuperación a suspendidos e inhabilitados (**D-18**, cerrado aquí).
+
+La garantía real no es acordarse de tocar tres ficheros: es el **`switch`
+exhaustivo** con `never`, que **no compila** si `UserStatus` gana un valor y nadie
+decide qué hace. Los mensajes de `SUSPENDED` y `BANNED` se mueven palabra por
+palabra: esa parte no cambia de conducta.
+
+El arreglo de `forgotPassword` **no abre ninguna fuga**: el método ya devolvía
+siempre `{ ok: true }` y sólo encolaba cuando procedía; se le añade una condición a
+la misma guarda. Quien pruebe un correo no distingue «no existe» de «existe pero está
+cerrada» de «existe y ya tiene su correo en camino».
+
+### La máquina de estados
+
+`user-status.transitions.ts`, molde literal de `listing-status.transitions.ts`,
+incluida su frontera: **topología pura**, sin mirar quién actúa. El reparto de roles
+—MODERATOR lo reversible, ADMIN lo irreversible— se documenta en el fichero pero lo
+hacen cumplir los `@MinRole` de C2/C5; una tabla de roles que ningún decorador
+consulta sería una segunda verdad y un ajuste decorativo.
+
+Prohibido: `DELETED` → cualquier cosa (terminal); `ACTIVE`/`SUSPENDED`/`BANNED` →
+`DELETED` directo (**los dos pasos son la salvaguarda**, molde `deleteListing`);
+`BANNED` → `SUSPENDED` (rebajar una sanción son dos decisiones con dos roles).
+
+### El `DROP INDEX` que no está en la migración
+
+`prisma migrate dev --create-only` volvió a escribir
+`DROP INDEX "User_lastLoginAt_desc_nulls_last_idx"`, como escribe en cada migración
+nueva. Se borró del SQL generado siguiendo la regla que dejó el incidente de 7b, y se
+verificó después contra la base: el índice sigue ahí con su forma correcta
+(`DESC NULLS LAST`). `migrate diff` sólo reporta esa diferencia conocida y ninguna
+otra.
+
+### Verificación
+
+`test/borrado-cuentas-c1.e2e-spec.ts` (24) y
+`src/modules/users/user-status.transitions.spec.ts` (25).
+
+| Barrera | Qué fija |
+|---|---|
+| 1 | `ARCHIVED` y `DELETED` → 403 en los **tres** gates (login por correo, guard en cada petición, login con Google). El token emitido antes del cambio deja de valer en la siguiente petición, sin invalidar nada |
+| 2 | Las transiciones legales e ilegales, `DELETED` terminal, los dos pasos hasta `DELETED`, y que el 400 diga **a qué sí** se puede pasar |
+| 3 | `forgotPassword` no crea token para ninguno de los cuatro no-`ACTIVE` —y **sigue devolviendo `{ ok: true }`**—, con una cuenta `ACTIVE` de control que sí lo recibe |
+| 4 | Los ocho `Restrict` bloquean **y el dato del tercero sobrevive**; un usuario sin ninguna de las ocho relaciones sí se borra (el `Restrict` no es un candado general) |
+
+Mutaciones, las tres verificadas:
+
+| Mutación | Cae |
+|---|---|
+| El guard mira sólo `SUSPENDED`/`BANNED` | Barrera 1 — un `ARCHIVED` entra con su token viejo (2 tests) |
+| `forgotPassword` sin el gate | Barrera 3 — se le escribe a los cuatro estados cerrados (4 tests) |
+| `Review_authorId_fkey` de vuelta a `CASCADE` (en la base) | Barrera 4 — el borrado funciona y **la valoración del tercero desaparece** |
+
+**Backend: 43 suites unit (624) y la batería e2e completa en verde.**
+
+### Lo que C1 deja pendiente a propósito
+
+- **`ESTADO_USUARIO_LABELS`** (`apps/web/.../admin/etiquetas.ts`) sigue cubriendo tres
+  valores. No es alcanzable todavía —ninguna ruta escribe los estados nuevos—, pero
+  **C2 tiene que añadir `ARCHIVED` y `DELETED` ahí y en `etiquetas.test.ts`** en el
+  mismo cuerpo que enseñe esos estados en el backoffice, o se pintarán en crudo.
+- `suspendedUntil` existe y **no la lee nadie**: es de C4.
+- `pausedByAccountArchive` existe y **no la escribe nadie**: es de C2.
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.
