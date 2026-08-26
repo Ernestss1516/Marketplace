@@ -6,8 +6,10 @@ import * as bcrypt from 'bcrypt';
 import * as request from 'supertest';
 import { createTestApp } from './helpers/create-app';
 import { cleanDb } from './helpers/db';
+import { ESTADOS_EN_VUELO, getExistingJobs } from './helpers/queue';
 import { QUEUE_BILLING } from 'src/infra/queue/queue.constants';
 import { BILLING_JOB } from 'src/modules/billing/billing.types';
+import { BillingService } from 'src/modules/billing/billing.service';
 import { FREE_ACTIVE_LIMIT_SETTING } from 'src/modules/listing-gate/listing-limits';
 
 /**
@@ -495,30 +497,106 @@ describe('Borrado de cuentas C2 — archivar y desarchivar (e2e)', () => {
      * El efecto externo más peligroso del cuerpo: ninguna clave ajena impide que
      * una cuenta archivada con Pro siga pagando, y ningún cron lo nota.
      *
-     * Se comprueba el ENCOLADO y no la llamada a Stripe: el job es lo que
-     * garantiza que la cancelación ocurre —con `attempts: 3` si Stripe falla—, y
-     * es lo que se rompería si alguien quitara esta línea del archivado. Llamar a
-     * Stripe de verdad en un e2e exigiría una cuenta real.
+     * ── POR QUÉ ESTE TEST PAUSA LA COLA ──────────────────────────────────────
+     *
+     * La primera versión leía la cola sin más y **contaba los jobs**. Pasó en
+     * local y en la rama, y falló en `main`: `Expected: 1, Received: 0`. No fue
+     * mala suerte — era una carrera que este test perdía a veces:
+     *
+     *   1. `archive()` encola el job;
+     *   2. el worker de facturación, que está VIVO en e2e, lo coge y lo completa
+     *      (sin suscripciones no hay nada que cancelar, así que termina enseguida);
+     *   3. `QUEUE_BILLING` se registra con `RETRY_JOB_OPTIONS`, que lleva
+     *      **`removeOnComplete: true`** → el job se BORRA;
+     *   4. el test lee la cola y no encuentra nada.
+     *
+     * Reproducido en local metiendo 2,5 s antes de la lectura: el conteo cae a 0
+     * siempre. Es exactamente el defecto que quedó anotado en `helpers/queue.ts`
+     * al arreglar el `TypeError` de `getJobs` — «contar jobs sigue siendo
+     * intrínsecamente racy»— y este test lo repitió.
+     *
+     * `pause()` lo cierra de raíz: la pausa vive en Redis, así que **ningún**
+     * worker consume mientras dure, y el job se queda en `waiting` esperando a
+     * que se le lea. El `finally` la levanta pase lo que pase; sin él, las suites
+     * siguientes se quedarían con la cola de facturación parada.
      */
     it('archivar encola la cancelación de suscripciones en la cola de facturación', async () => {
-      const antes = await billingQueue.getJobs(['waiting', 'active', 'completed', 'delayed']);
-      const cuenta = (jobs: typeof antes, userId: string) =>
-        jobs.filter(
-          (j) => j?.name === BILLING_JOB.CANCEL_SUBSCRIPTIONS && j?.data?.userId === userId,
-        ).length;
+      await billingQueue.pause();
+      try {
+        const user = await crearUsuario('con-pro');
+        const token = await tokenDe(user.email);
 
-      const user = await crearUsuario('con-pro');
-      expect(cuenta(antes, user.id)).toBe(0);
+        await request(app.getHttpServer())
+          .post('/api/users/me/archive')
+          .set('Authorization', `Bearer ${token}`)
+          .send({})
+          .expect(200);
 
-      const token = await tokenDe(user.email);
-      await request(app.getHttpServer())
-        .post('/api/users/me/archive')
-        .set('Authorization', `Bearer ${token}`)
-        .send({})
-        .expect(200);
+        // `getExistingJobs` y no `getJobs` a pelo: es el helper que existe porque
+        // `getJobs` puede devolver huecos. El test original tampoco lo usaba.
+        const jobs = await getExistingJobs(billingQueue, ESTADOS_EN_VUELO);
+        const mios = jobs.filter(
+          (j) =>
+            j.name === BILLING_JOB.CANCEL_SUBSCRIPTIONS &&
+            (j.data as { userId?: string })?.userId === user.id,
+        );
+        expect(mios).toHaveLength(1);
+      } finally {
+        await billingQueue.resume();
+      }
+    });
 
-      const despues = await billingQueue.getJobs(['waiting', 'active', 'completed', 'delayed']);
-      expect(cuenta(despues, user.id)).toBe(1);
+    /**
+     * Y LO QUE DE VERDAD PROTEGE EL DINERO: que la cancelación **marque las
+     * filas**. Encolar un job que no hiciera nada pasaría el test de arriba y
+     * dejaría al usuario pagando igual.
+     *
+     * Se llama al servicio directamente y se sustituye el cliente de Stripe: la
+     * clave de test es real, así que una llamada de verdad saldría a la red y
+     * fallaría con una suscripción inventada. Es el único punto de caja blanca de
+     * esta suite, y está aquí porque la alternativa —no probarlo— deja sin
+     * barrera justo el paso que evita el cobro.
+     */
+    it('cancelActiveSubscriptionsFor marca las suscripciones vivas como CANCELING, y es idempotente', async () => {
+      const user = await crearUsuario('cancelar');
+      const price = await prisma.price.findFirstOrThrow({
+        where: { product: { type: 'RECURRING' } },
+        select: { id: true },
+      });
+      const sub = await prisma.subscription.create({
+        data: {
+          userId: user.id,
+          priceId: price.id,
+          status: 'ACTIVE',
+          currentPeriodStart: new Date(),
+          currentPeriodEnd: new Date(Date.now() + 30 * 24 * 3_600_000),
+          gatewaySubscriptionId: `sub_c2_${user.id}`,
+        },
+      });
+
+      const billing = app.get(BillingService);
+      const update = jest.fn().mockResolvedValue({});
+      const original = (billing as unknown as { _stripe?: unknown })._stripe;
+      (billing as unknown as { _stripe: unknown })._stripe = { subscriptions: { update } };
+
+      try {
+        expect(await billing.cancelActiveSubscriptionsFor(user.id)).toBe(1);
+
+        const tras = await prisma.subscription.findUniqueOrThrow({ where: { id: sub.id } });
+        expect(tras.status).toBe('CANCELING');
+        expect(tras.cancelAtPeriodEnd).toBe(true);
+        expect(update).toHaveBeenCalledWith(sub.gatewaySubscriptionId, {
+          cancel_at_period_end: true,
+        });
+
+        // IDEMPOTENTE: lo llama un job con reintentos, así que ejecutarlo dos
+        // veces no puede reventar ni volver a tocar la pasarela.
+        update.mockClear();
+        expect(await billing.cancelActiveSubscriptionsFor(user.id)).toBe(0);
+        expect(update).not.toHaveBeenCalled();
+      } finally {
+        (billing as unknown as { _stripe: unknown })._stripe = original;
+      }
     });
   });
 
