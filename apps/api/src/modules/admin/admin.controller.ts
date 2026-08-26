@@ -34,6 +34,7 @@ import { AttributeUsageDto } from './dto/attribute-usage.dto';
 import { UpdateSettingDto } from './dto/update-setting.dto';
 import { AccountArchiveService } from '../account-archive/account-archive.service';
 import { ArchiveAccountDto } from '../account-archive/dto/archive-account.dto';
+import { DataExportService } from '../data-export/data-export.service';
 
 @ApiTags('Admin')
 @ApiBearerAuth('access-token')
@@ -46,6 +47,9 @@ export class AdminController {
     // BORRADO DE CUENTAS C2 — archivar/desarchivar viven en su propio servicio
     // porque los comparte con `UsersController` (el auto-archivado de `/perfil`).
     private readonly accountArchive: AccountArchiveService,
+    // BORRADO DE CUENTAS C6 — mismo reparto: el servicio es compartido con
+    // `UsersController` (el usuario se exporta a sí mismo desde `/perfil`).
+    private readonly dataExport: DataExportService,
   ) {}
 
   // ─── Stats dashboard ──────────────────────────────────────────────────────
@@ -293,6 +297,41 @@ export class AdminController {
     @Ip() ip: string,
   ) {
     return this.adminService.deleteAccount(id, user.userId, ip);
+  }
+
+  /**
+   * BORRADO DE CUENTAS C6 — el staff exporta los datos de cualquiera (§7.4).
+   *
+   * **ADMIN, y NO MODERATOR**, heredado del `@MinRole(ADMIN)` de la clase — la
+   * ausencia de un `@MinRole(Role.MODERATOR)` aquí es la decisión, no un olvido.
+   * El argumento no es de jerarquía sino de contenido: este ZIP lleva **las
+   * facturas dentro**, y el reparto vigente ya dice que la procedencia comercial
+   * es ADMIN («eso describe una relación comercial … el dato no sale por esta
+   * puerta», `admin.service.ts`). Un ZIP con las facturas ES esa puerta, así que
+   * abrirla a MODERATOR sería saltarse el reparto por un atajo.
+   *
+   * Contraste deliberado con archivar/desarchivar, que sí son MODERATOR: aquéllos
+   * son reversibles y no sacan ni un dato del sistema; éste saca todos.
+   */
+  @Post('users/:id/export')
+  @HttpCode(HttpStatus.OK)
+  requestUserExport(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtUser,
+    @Ip() ip: string,
+  ) {
+    return this.dataExport.requestForUser(id, user.userId, ip);
+  }
+
+  /**
+   * Las exportaciones de un usuario, para la ficha. ADMIN por lo mismo.
+   *
+   * `true` = vista de staff: incluye el `error` del último fallo, que la del
+   * usuario no lleva (es el mensaje crudo de la excepción).
+   */
+  @Get('users/:id/exports')
+  getUserExports(@Param('id') id: string) {
+    return this.dataExport.listForSubject(id, true);
   }
 
   // Role change — ADMIN-only (inherits class-level @MinRole(ADMIN)). INNEGOCIABLE.

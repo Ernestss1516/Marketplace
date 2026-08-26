@@ -6,6 +6,7 @@ import { ReviewsModule } from '../reviews/reviews.module';
 import { BillingModule } from '../billing/billing.module';
 import { MediaCleanupModule } from '../media-cleanup/media-cleanup.module';
 import { AccountArchiveModule } from '../account-archive/account-archive.module';
+import { DataExportModule } from '../data-export/data-export.module';
 
 @Module({
   imports: [
@@ -16,6 +17,9 @@ import { AccountArchiveModule } from '../account-archive/account-archive.module'
     // BORRADO DE CUENTAS C2 — el auto-archivado de `/perfil`. El mismo servicio lo
     // importa `AdminModule` para la entrada del staff.
     AccountArchiveModule,
+    // BORRADO DE CUENTAS C6 — «llévate tus datos», desde `/perfil`. Mismo reparto
+    // que el archivado: el usuario por aquí, el staff por `AdminModule`.
+    DataExportModule,
   ],
   controllers: [UsersController],
   providers: [UsersService],

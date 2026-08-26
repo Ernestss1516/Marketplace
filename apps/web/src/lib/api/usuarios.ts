@@ -67,3 +67,42 @@ export function updateMe(
     token,
   });
 }
+
+// ── BORRADO DE CUENTAS C6 — la exportación de datos (§7) ─────────────────────
+
+export type DataExportStatus = 'PENDING' | 'READY' | 'FAILED' | 'EXPIRED';
+
+/**
+ * Una solicitud de exportación. **Sin `key`**: el backend nunca la sirve, porque
+ * es una clave privada de R2 y el ZIP sólo se baja por su endpoint autenticado.
+ */
+export interface DataExportDto {
+  id: string;
+  subjectUserId: string;
+  requestedById: string | null;
+  status: DataExportStatus;
+  sizeBytes: number | null;
+  expiresAt: string | null;
+  /**
+   * El detalle del fallo. **Sólo llega por la puerta del staff**
+   * (`GET /admin/users/:id/exports`): al usuario se le dice que falló y que puede
+   * volver a pedirla —eso es `status`—, no el mensaje crudo de la excepción.
+   */
+  error?: string | null;
+  createdAt: string;
+  completedAt: string | null;
+}
+
+/**
+ * Pide la exportación propia. Devuelve la fila en `PENDING`: el ZIP se arma en
+ * una cola y no puede existir dentro de esta petición.
+ *
+ * 409 si ya hay una viva — una por persona (§7.3).
+ */
+export function requestMyExport(token: string): Promise<DataExportDto> {
+  return apiFetch<DataExportDto>('/users/me/export', { method: 'POST', token });
+}
+
+export function getMyExports(token: string): Promise<DataExportDto[]> {
+  return apiFetch<DataExportDto[]>('/users/me/exports', { token });
+}

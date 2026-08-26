@@ -17102,6 +17102,136 @@ Mutaciones, las dos verificadas:
 
 ---
 
+## Borrado de cuentas — C6: la exportación (D-17)
+
+La otra cara del mismo derecho. C5 respondía «que no quede nada mío»; C6 responde
+«déjame llevármelo». Diseño en `docs/diseno-borrado-cuentas.md` §7. Con esto el
+plan de ráfagas queda **completo (6/6)**.
+
+### ZIP, y no JSON
+
+Porque las facturas son **PDF** —la parte de la exportación con valor práctico— y
+sus claves son privadas (`Invoice.pdfKey`, nunca URL pública). Un JSON con enlaces
+sería un JSON con enlaces que no abren: la peor de las dos opciones, porque parece
+completo y no lo es.
+
+```
+exportacion-<slug>-<fecha>.zip
+├── datos.json     ← 20 secciones, indentado para que lo lea una persona
+├── LEEME.txt      ← qué es cada cosa, y qué NO está y por qué, en español
+└── ficheros/      ← avatar · anuncios/<id>/<n> · facturas/<num>.pdf · tickets/<id>/<nombre>
+```
+
+Librería: **`jszip`** (nueva dependencia de `@marketplace/api`). Se eligió sobre
+`archiver` porque produce y **lee** un `Buffer` con la misma API — y leerlo es lo
+que permite que los tests abran el ZIP real en vez de confiar en el objeto que
+devolvió el colector.
+
+### El alcance es una LISTA BLANCA, no un `include`
+
+Ningún `select` del colector dice «todas las columnas». Enumerarlas es
+deliberadamente verboso: el día que alguien añada una columna con un secreto, la
+exportación **no** se la lleva sola. Con `include` a pelo sí lo haría, y nadie se
+enteraría hasta tenerlo en el ZIP de un usuario.
+
+Las tres exclusiones y su motivo:
+
+| Qué queda fuera | Por qué |
+|---|---|
+| `passwordHash`, `tokenVersion` | No son datos del usuario, son material de autenticación |
+| `TicketMessage.internal` (y sus adjuntos) | Notas del staff. `internal: false` **en el `where`**, copiando `getForUser`: un filtro en la consulta no se olvida aguas abajo. El adjunto cuelga del mensaje ya descartado, así que no hay de dónde sacarlo |
+| La identidad de quien le denunció | Dato de un **tercero**, y revelarla habilita represalias. Va el motivo, la fecha y el estado — **el hecho sin el nombre**. Fuera también la `description` libre: es texto de otra persona y puede identificarla sola |
+| `AuditLog` | Rastro interno de seguridad, con IPs del **staff** |
+
+### La distinción que sostiene C6
+
+**El hilo de mensajes va entero, incluida la parte del otro; la identidad del
+denunciante, no.** No son dos criterios, es el mismo aplicado bien: el solicitante
+**ya lee** esos mensajes en su bandeja, así que exportarlos no divulga nada nuevo;
+al denunciante **no lo ve en ninguna parte**. La pregunta no es «¿de quién es el
+dato?» sino «¿qué puede ver ya esta persona?».
+
+### El flujo, con el molde de fichero privado reutilizado
+
+1. `POST /users/me/export` (el usuario) o `POST /admin/users/:id/export` (ADMIN) →
+   crea `DataExport` en `PENDING` y **encola**. Reunir 20 tablas y bajar N ficheros
+   de R2 no cabe en una petición HTTP.
+2. `DataExportProcessor` (cola propia `QUEUE_DATA_EXPORT`) llama a
+   `DataExportService.buildExport`, que reúne, comprime, sube a
+   `exportaciones/<id>.zip` (**prefijo privado**) y marca `READY` con `expiresAt`.
+3. Aviso in-app por `Notification` (`DATA_EXPORT_READY`), con snapshot autocontenido.
+4. `GET /exports/:id/download` — **molde exacto de `GET /billing/invoices/:id/pdf`**:
+   endpoint autenticado que baja el objeto y lo devuelve como `StreamableFile`.
+   **Cero mecanismo de descarga nuevo**, y ni una URL pública ni prefirmada: el ZIP
+   sólo existe detrás de esta ruta, que revalida en CADA descarga.
+5. `DataExportExpirationService` (`@Cron('0 8 * * *')`) borra el objeto y marca
+   `EXPIRED`. Siete días.
+
+**Quién:** el usuario de sí mismo, y el staff **ADMIN — no MODERATOR**. El
+argumento no es de jerarquía sino de contenido: el ZIP lleva **las facturas
+dentro**, y el reparto vigente ya dice que la procedencia comercial es ADMIN. Un
+ZIP con las facturas *es esa puerta*. Contraste deliberado con archivar/desarchivar,
+que sí son MODERATOR: aquéllos son reversibles y no sacan ni un dato del sistema.
+
+Una cuenta `ARCHIVED` **sí** se exporta (es cuando más falta hace); una `DELETED`,
+no: sería exportar el vacío.
+
+### Tres decisiones que conviene que consten
+
+**El límite «una viva por usuario» se lee de las FILAS, no de Redis.** El diseño
+nombraba `RateLimitService` como molde y **se ha divergido a propósito**: «cuántas
+exportaciones vivas tiene esta persona» ya está escrito en `DataExport`, así que un
+contador aparte sería una segunda fuente de verdad capaz de divergir — un worker que
+muere dejaría a Redis contando una exportación que no existe y a esa persona sin
+poder pedir otra. Y lo que se limita no es el *ritmo* sino el número de ZIP
+simultáneos en el bucket, que es estado, no frecuencia. `FAILED` y `EXPIRED` **no**
+cuentan como vivas: si contaran, un fallo dejaría a alguien sin su derecho para
+siempre. *Queda un hueco conocido:* dos POST simultáneos podrían colarse los dos
+(milisegundos); la consecuencia es un ZIP de más, no una fuga.
+
+**La caducidad se comprueba por los dos lados.** El cron corre una vez al día, así
+que hay hasta 24 h en las que una exportación está caducada por fecha y todavía
+`READY`. `getExportFile` mira **el estado y la fecha**, igual que
+`suspensionYaCumplida` en C4: la verdad se evalúa al decidir, el cron sólo la
+materializa. Diferencia con C4: allí el cron podía no correr sin consecuencias;
+aquí **el cron sí es la fuente de verdad** del borrado del objeto — si no corre, el
+ZIP se queda en el bucket. Por eso borra **primero R2 y después la fila**: al revés,
+un borrado fallido dejaría el objeto huérfano y fuera del alcance de la siguiente
+barrida.
+
+**C6 le abre un cabo suelto a C5, y C5 lo cierra.** Un ZIP lleva dentro el perfil,
+los hilos, las facturas y el monedero *tal y como eran antes de vaciar la cuenta*:
+vaciar a alguien y dejarle el ZIP en el bucket sería deshacer C5 entero con un solo
+objeto. Y la cascada del schema **no sirve** aquí, porque C5 no borra la fila del
+usuario — la vacía, así que nada se dispara. `deleteAccount` borra las filas y
+encola sus claves en la limpieza de R2 que ya existía (B3).
+
+### Verificación
+
+`borrado-cuentas-c6-exportacion.e2e-spec.ts` (12) y
+`borrado-cuentas-c6-puertas.e2e-spec.ts` (17).
+
+La primera es la barrera estrella: construye un usuario con **todo** lo que una
+persona puede generar, exporta de verdad —ZIP subido a R2 y vuelto a bajar— y lo
+abre para afirmar sección por sección qué está y qué no. Mira el **ZIP real** y no
+el objeto del colector, porque lo que le llega al usuario es el fichero. Las dos
+mitades pesan igual y por motivos opuestos: **lo que falta es un derecho
+incumplido; lo que sobra es una fuga que ya no se puede deshacer.**
+
+Mutaciones, las cinco verificadas:
+
+| Mutación | Cae |
+|---|---|
+| Incluir la identidad del denunciante en las denuncias recibidas | Barrera 3 — «el hecho sin el nombre» |
+| Quitar el `internal: false` del `where` de los mensajes | Barrera 2 — la nota del staff y su adjunto aparecen |
+| Quitar la revalidación de propiedad en la descarga | Barrera 4 — 2 tests (otro usuario y MODERATOR bajan la ajena) |
+| Dar `@MinRole(MODERATOR)` al endpoint de exportar | Barrera 4 — el reparto de facturación |
+| Que el cron no borre el objeto de R2 | Barrera 5 — «caducar» sería sólo una etiqueta |
+
+**Con C6 el diseño de borrado de cuentas queda COMPLETO (6/6).**
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.

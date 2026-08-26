@@ -21,6 +21,7 @@ import {
   type AdminUser,
   type AdminUserDetail,
 } from '@/lib/api/admin';
+import { ExportarUsuarioButton } from '@/components/admin/ExportarUsuarioButton';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -920,6 +921,19 @@ export default function AdminUsuariosPage() {
                                     'Desbanear'
                                   )}
                                 </Button>
+                              )}
+                              {/*
+                                BORRADO DE CUENTAS C6 — exportar los datos del usuario.
+                                ADMIN-only, y NO por jerarquía sino por contenido: el ZIP
+                                lleva las facturas dentro, y la procedencia comercial es
+                                ADMIN por decisión escrita. El backend lo impone igualmente.
+
+                                Se ofrece también sobre una cuenta ARCHIVED —es justo cuando
+                                más falta hace, porque es cuando alguien se está yendo— y
+                                nunca sobre una DELETED, de la que ya no quedan datos.
+                              */}
+                              {user.status !== 'DELETED' && currentUserIsAdmin && (
+                                <ExportarUsuarioButton token={token} userId={user.id} />
                               )}
                             </>
                           )}
