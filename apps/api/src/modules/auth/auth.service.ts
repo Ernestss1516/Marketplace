@@ -25,6 +25,7 @@ import {
   SendResetEmailData,
   SendVerificationEmailData,
 } from '../../infra/queue/notification.types';
+import { cuentaPuedeAcceder, motivoDeBloqueoDeCuenta } from './account-access';
 import { JwtPayload } from './auth.types';
 import {
   ADMIN_LOGIN_RATE_LIMIT_IP_PER_WINDOW,
@@ -287,10 +288,11 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    if (user.status === UserStatus.SUSPENDED)
-      throw new ForbiddenException('Tu cuenta está suspendida. Contacta con soporte si crees que es un error.');
-    if (user.status === UserStatus.BANNED)
-      throw new ForbiddenException('Tu cuenta ha sido inhabilitada permanentemente.');
+    // BORRADO DE CUENTAS C1 — la puerta compartida (`account-access.ts`). Sigue
+    // comprobándose DESPUÉS de la contraseña y sigue siendo 403 y no 401: las
+    // credenciales son correctas, lo que falla es el estado de la cuenta.
+    const bloqueo = motivoDeBloqueoDeCuenta(user.status);
+    if (bloqueo) throw new ForbiddenException(bloqueo);
 
     if (user.failedLoginAttempts > 0 || user.lockedUntil) {
       await this.prisma.user.update({
@@ -358,11 +360,24 @@ export class AuthService {
 
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email },
-      select: { id: true, email: true, name: true, passwordHash: true },
+      // BORRADO DE CUENTAS C1 (D-18) — `status` es NUEVO en este `select`, y su
+      // ausencia era el cuarto sitio donde había que mirar el estado y no se miraba.
+      select: { id: true, email: true, name: true, passwordHash: true, status: true },
     });
 
     // Always return ok — never reveal if the email exists or is a Google-only account
-    if (user && user.passwordHash) {
+    //
+    // BORRADO DE CUENTAS C1 (D-18) — Y TAMPOCO SE ESCRIBE A UNA CUENTA CERRADA. Antes
+    // se enviaba a cualquiera: un suspendido, un inhabilitado y —cuando C2 exista— a
+    // quien acabara de pedir que le borraran la cuenta. Escribirle a quien pidió irse
+    // es justo lo contrario de lo que archivar significa.
+    //
+    // EL ARREGLO NO ABRE NINGUNA FUGA, y por eso cabe aquí: este método **ya devolvía
+    // siempre `{ ok: true }`** y sólo encolaba cuando procedía. Se le añade una
+    // condición a la misma guarda; la respuesta, el tiempo y el rate limit son los de
+    // antes. Quien pruebe un correo no puede distinguir «no existe» de «existe pero
+    // está cerrada» de «existe y ya tiene su correo en camino».
+    if (user && user.passwordHash && cuentaPuedeAcceder(user.status)) {
       const token = await this.createResetToken(user.id);
       await this.notificationQueue.add(NOTIFICATION_JOB.SEND_RESET_EMAIL, {
         email: user.email,
@@ -433,10 +448,9 @@ export class AuthService {
       avatarUrl: payload.picture,
     });
 
-    if (user.status === UserStatus.SUSPENDED)
-      throw new ForbiddenException('Tu cuenta está suspendida. Contacta con soporte si crees que es un error.');
-    if (user.status === UserStatus.BANNED)
-      throw new ForbiddenException('Tu cuenta ha sido inhabilitada permanentemente.');
+    // BORRADO DE CUENTAS C1 — la misma puerta compartida que los otros dos gates.
+    const bloqueo = motivoDeBloqueoDeCuenta(user.status);
+    if (bloqueo) throw new ForbiddenException(bloqueo);
 
     // Decisión RÁFAGA 3: ADMIN solo entra con contraseña — la seguridad del
     // panel de admin no debe depender de la cuenta de Google del admin. El

@@ -1,9 +1,9 @@
 import { ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
-import { UserStatus } from '@prisma/client';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
+import { motivoDeBloqueoDeCuenta } from '../account-access';
 import { JwtPayload, JwtUser } from '../auth.types';
 
 @Injectable()
@@ -34,10 +34,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Session invalidated');
     }
 
-    if (dbUser.status === UserStatus.SUSPENDED)
-      throw new ForbiddenException('Tu cuenta está suspendida. Contacta con soporte si crees que es un error.');
-    if (dbUser.status === UserStatus.BANNED)
-      throw new ForbiddenException('Tu cuenta ha sido inhabilitada permanentemente.');
+    // BORRADO DE CUENTAS C1 — la puerta, ahora en un solo sitio (`account-access.ts`).
+    // Eran dos `if` copiados aquí y en los otros dos gates; ARCHIVED y DELETED se
+    // suman sin tocar esta línea, y un `UserStatus` futuro no compilará hasta que
+    // alguien decida qué hace. La conducta de SUSPENDED y BANNED no cambia.
+    const bloqueo = motivoDeBloqueoDeCuenta(dbUser.status);
+    if (bloqueo) throw new ForbiddenException(bloqueo);
 
     return {
       userId: payload.sub,
