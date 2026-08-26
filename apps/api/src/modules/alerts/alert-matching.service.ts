@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import { UserStatus } from '@prisma/client';
+import { CUENTA_EN_ESCAPARATE } from '../users/account-visibility';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { SearchService } from '../search/search.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -54,11 +54,17 @@ export class AlertMatchingService {
          * lados. Aquí no hay estado que restaurar: la cuenta vuelve y sus alertas
          * vuelven con ella, porque nunca se tocaron.
          *
-         * `notIn` y no `equals: ACTIVE` a propósito: a un SUSPENDED se le sigue
-         * guardando su correspondencia —la suspensión es temporal y reversible—,
-         * mientras que ARCHIVED, DELETED y BANNED no van a leerla nunca.
+         * BORRADO DE CUENTAS C3 — ESTA CONDICIÓN NACIÓ AQUÍ EN C2, escrita a mano
+         * como `notIn: [ARCHIVED, DELETED, BANNED]`. Pasa a la constante
+         * compartida, que dice exactamente lo mismo por el otro lado
+         * (`in: [ACTIVE, SUSPENDED]`) — y es el sitio donde más falta hace: era
+         * la única copia suelta del predicado, o sea la que se habría quedado
+         * atrás el día que la lista de estados cambie.
+         *
+         * A un SUSPENDED se le sigue guardando su correspondencia: la suspensión
+         * es temporal y reversible.
          */
-        user: { status: { notIn: [UserStatus.ARCHIVED, UserStatus.DELETED, UserStatus.BANNED] } },
+        user: CUENTA_EN_ESCAPARATE,
         AND: [
           { OR: [{ categorySlug: null }, { categorySlug: listing.category.slug }] },
           { OR: [{ type: null }, { type: listing.type }] },

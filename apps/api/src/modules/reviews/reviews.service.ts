@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
+import { CUENTA_EN_ESCAPARATE } from '../users/account-visibility';
 import { isP2002 } from '../../common/prisma/is-p2002';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { UpdateReviewDto } from './dto/update-review.dto';
@@ -132,8 +133,19 @@ export class ReviewsService {
   }
 
   async listForUser(slug: string, cursor?: string, limit = 10) {
-    const user = await this.prisma.user.findUnique({
-      where: { slug },
+    /**
+     * BORRADO DE CUENTAS C3 — la reputación PÚBLICA de una cuenta oculta deja de
+     * servirse, por el mismo sitio y con el mismo 404 que un slug inexistente.
+     *
+     * OJO CON LO QUE ESTO **NO** HACE, que es la mitad de la decisión: esto cierra
+     * la PÁGINA de valoraciones de alguien —descubrimiento—, no las valoraciones
+     * en sí. Las que esa persona escribió siguen contando para la media de sus
+     * destinatarios, y la que un tercero recibió de ella la sigue viendo en su
+     * propio perfil. Ocultar eso destruiría el lado del otro, que es lo que el
+     * principio rector prohíbe.
+     */
+    const user = await this.prisma.user.findFirst({
+      where: { slug, ...CUENTA_EN_ESCAPARATE },
       select: { id: true },
     });
     if (!user) throw new NotFoundException('Usuario no encontrado');
@@ -141,6 +153,17 @@ export class ReviewsService {
     const targetId = user.id;
     const take = limit + 1;
 
+    /**
+     * BORRADO DE CUENTAS C3 — AQUÍ **NO** VA EL GATE DE VISIBILIDAD, y es una
+     * ausencia deliberada, no un olvido.
+     *
+     * Filtrar por `author: CUENTA_EN_ESCAPARATE` sería pasarse de frenada: la
+     * valoración que este usuario RECIBIÓ es suya tanto como de quien la
+     * escribió, y esconderla porque el autor se fue **destruiría el lado del
+     * otro** — que es lo que el principio rector de todo el cuerpo prohíbe. Lo
+     * que se cierra arriba es la PÁGINA de la cuenta oculta; lo que hay aquí es
+     * el historial de un tercero.
+     */
     let whereWithCursor: Prisma.ReviewWhereInput = { targetId, ...VIGENTES };
     if (cursor) {
       const pivot = await this.prisma.review.findUnique({

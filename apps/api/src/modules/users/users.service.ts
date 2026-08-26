@@ -10,6 +10,7 @@ import { isPendingKey, keyFromPublicUrl, pendingPrefix } from '../../infra/r2/me
 import { EntitlementService } from '../billing/entitlement.service';
 import { AVATAR_KEY_PREFIX } from '../media/media.service';
 import { MediaCleanupService } from '../media-cleanup/media-cleanup.service';
+import { CUENTA_EN_ESCAPARATE } from './account-visibility';
 import { UpdateMeDto } from './dto/update-me.dto';
 
 const PRIVATE_PROFILE_SELECT = {
@@ -175,8 +176,27 @@ export class UsersService {
    * requiere cálculo: independiente de isPro (uno no se deriva del otro).
    */
   async findBySlug(slug: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { slug },
+    /**
+     * BORRADO DE CUENTAS C3 — el gate va DENTRO del `where`, no en un `if`
+     * después.
+     *
+     * ES LA DIFERENCIA ENTRE «no se sirve» Y «no se puede distinguir». Con un
+     * `findUnique` y un `if (oculto) throw 404` el resultado sería el mismo, pero
+     * la propiedad que importa —que una cuenta oculta sea INDISTINGUIBLE de un
+     * slug que no existe— dependería de que nadie tocara ese `if`. Aquí no hay
+     * nada que tocar: la consulta no la encuentra, y el 404 que sale es
+     * literalmente el mismo camino.
+     *
+     * Por eso tampoco se inventa una ficha de «cuenta no disponible»: eso
+     * CONFIRMARÍA que la cuenta existe, que es justo lo que el archivado no debe
+     * hacer.
+     *
+     * `findFirst` y no `findUnique` porque Prisma no admite condiciones extra en
+     * un `findUnique`. El `slug` sigue siendo único, así que sigue resolviéndose
+     * por su índice.
+     */
+    const user = await this.prisma.user.findFirst({
+      where: { slug, ...CUENTA_EN_ESCAPARATE },
       select: {
         id: true,
         name: true,
@@ -205,6 +225,11 @@ export class UsersService {
     return this.prisma.user.findMany({
       where: {
         id: { not: excludeUserId },
+        // BORRADO DE CUENTAS C3 — este buscador es DESCUBRIMIENTO puro: sirve para
+        // elegir comprador al cerrar un trato, o sea para encontrar a alguien con
+        // quien todavía no lo tienes. Una cuenta archivada no puede ser el
+        // comprador de un trato nuevo.
+        ...CUENTA_EN_ESCAPARATE,
         OR: [
           { name: { contains: query, mode: 'insensitive' } },
           { slug: { contains: query, mode: 'insensitive' } },
