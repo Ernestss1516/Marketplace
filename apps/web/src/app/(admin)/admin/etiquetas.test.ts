@@ -53,7 +53,11 @@ const ENUMS: Array<[string, Record<string, string>, string[]]> = [
     ['SPAM', 'FRAUD', 'INAPPROPRIATE', 'PROHIBITED_ITEM', 'WRONG_CATEGORY', 'FAKE_REVIEW', 'OTHER'],
   ],
   ['ReportStatus', ESTADO_REPORTE_LABELS, ['PENDING', 'REVIEWING', 'RESOLVED', 'DISMISSED']],
-  ['UserStatus', ESTADO_USUARIO_LABELS, ['ACTIVE', 'SUSPENDED', 'BANNED']],
+  [
+    'UserStatus',
+    ESTADO_USUARIO_LABELS,
+    ['ACTIVE', 'SUSPENDED', 'BANNED', 'ARCHIVED', 'DELETED'],
+  ],
   ['Role', ROL_LABELS, ['USER', 'MODERATOR', 'EDITOR', 'ADMIN']],
   [
     'BumpScheduleStatus',

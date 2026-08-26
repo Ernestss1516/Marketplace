@@ -1416,6 +1416,19 @@ export class AdminService {
         // del staff y que 5a sacó de esta misma respuesta. Son dos datos con dos sujetos.
         lastLoginAt: true,
         lastLoginIp: true,
+        // BORRADO DE CUENTAS C2 — el contexto del archivado: cuándo, por qué y
+        // quién. Sin esto la ficha diría «Archivada» y nada más, que es
+        // exactamente la mitad de lo que el staff necesita para decidir si
+        // desarchiva o (en C5) vacía.
+        //
+        // `statusBeforeArchive` se sirve a propósito: es lo que le dice al
+        // moderador A DÓNDE volverá la cuenta si la desarchiva. Un botón
+        // «Desarchivar» que no diga que devuelve a BANNED sería una trampa.
+        archivedAt: true,
+        archiveReason: true,
+        archiveNote: true,
+        statusBeforeArchive: true,
+        archivedBy: { select: { id: true, name: true, slug: true } },
         listings: {
           orderBy: { createdAt: 'desc' },
           take: 10,

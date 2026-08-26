@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
+import { UserStatus } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { SearchService } from '../search/search.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -43,6 +44,21 @@ export class AlertMatchingService {
     const candidates = await this.prisma.alert.findMany({
       where: {
         active: true,
+        /**
+         * BORRADO DE CUENTAS C2 (§4.5) — NO se notifica a una cuenta cerrada.
+         *
+         * UNA CONDICIÓN EN LA CONSULTA, Y NO APAGAR LAS ALERTAS UNA A UNA al
+         * archivar. La diferencia no es de esfuerzo: apagarlas obligaría a
+         * recordar CUÁLES estaban activas para poder devolverlas al desarchivar
+         * —otro marcador como `pausedByAccountArchive`—, y a acertar en los dos
+         * lados. Aquí no hay estado que restaurar: la cuenta vuelve y sus alertas
+         * vuelven con ella, porque nunca se tocaron.
+         *
+         * `notIn` y no `equals: ACTIVE` a propósito: a un SUSPENDED se le sigue
+         * guardando su correspondencia —la suspensión es temporal y reversible—,
+         * mientras que ARCHIVED, DELETED y BANNED no van a leerla nunca.
+         */
+        user: { status: { notIn: [UserStatus.ARCHIVED, UserStatus.DELETED, UserStatus.BANNED] } },
         AND: [
           { OR: [{ categorySlug: null }, { categorySlug: listing.category.slug }] },
           { OR: [{ type: null }, { type: listing.type }] },

@@ -13,7 +13,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { Role } from '@prisma/client';
+import { ArchiveReason, Role } from '@prisma/client';
 import { JwtAuthGuard, RolesGuard } from '../../common/guards';
 import { CurrentUser, MinRole } from '../../common/decorators';
 import { JwtUser } from '../auth/auth.types';
@@ -31,6 +31,8 @@ import { UpdateCategoryDto } from './dto/update-category.dto';
 import { ReorderCategoriesDto } from './dto/reorder-categories.dto';
 import { AttributeUsageDto } from './dto/attribute-usage.dto';
 import { UpdateSettingDto } from './dto/update-setting.dto';
+import { AccountArchiveService } from '../account-archive/account-archive.service';
+import { ArchiveAccountDto } from '../account-archive/dto/archive-account.dto';
 
 @ApiTags('Admin')
 @ApiBearerAuth('access-token')
@@ -38,7 +40,12 @@ import { UpdateSettingDto } from './dto/update-setting.dto';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @MinRole(Role.ADMIN)
 export class AdminController {
-  constructor(private readonly adminService: AdminService) {}
+  constructor(
+    private readonly adminService: AdminService,
+    // BORRADO DE CUENTAS C2 — archivar/desarchivar viven en su propio servicio
+    // porque los comparte con `UsersController` (el auto-archivado de `/perfil`).
+    private readonly accountArchive: AccountArchiveService,
+  ) {}
 
   // ─── Stats dashboard ──────────────────────────────────────────────────────
 
@@ -207,6 +214,52 @@ export class AdminController {
     @Ip() ip: string,
   ) {
     return this.adminService.reinstateUser(id, user.userId, ip);
+  }
+
+  /**
+   * BORRADO DE CUENTAS C2 — el staff archiva una cuenta.
+   *
+   * MODERATOR+, y el criterio es el mismo que el resto del backoffice usa:
+   * **MODERATOR hace lo reversible, ADMIN lo irreversible**. Archivar es
+   * reversible —`unarchive` la devuelve al estado que tenía— así que es trabajo de
+   * moderación. Eliminar definitivamente (C5) será ADMIN.
+   *
+   * `STAFF_ACTION` va fijo: por esta puerta sólo se entra archivando a OTRO. Un
+   * archivado a petición del usuario que el staff ejecuta por él —el caso de un
+   * BANNED, que no puede pulsar nada— se distingue por `archiveReason`, y por eso
+   * es una columna aparte de `archivedById`.
+   */
+  @Patch('users/:id/archive')
+  @HttpCode(HttpStatus.OK)
+  @MinRole(Role.MODERATOR)
+  archiveUser(
+    @Param('id') id: string,
+    @Body() dto: ArchiveAccountDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.accountArchive.archive(id, {
+      reason: ArchiveReason.STAFF_ACTION,
+      actorId: user.userId,
+      note: dto.note,
+    });
+  }
+
+  /**
+   * BORRADO DE CUENTAS C2 — el staff desarchiva. MODERATOR+ (reversible).
+   *
+   * NO ACEPTA ESTADO DE DESTINO, y no es una omisión: lo lee de
+   * `statusBeforeArchive`. Si lo aceptara, archivar y desarchivar sería el camino
+   * corto para que un MODERATOR levantara un ban que sólo un ADMIN puede levantar.
+   */
+  @Patch('users/:id/unarchive')
+  @HttpCode(HttpStatus.OK)
+  @MinRole(Role.MODERATOR)
+  unarchiveUser(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtUser,
+    @Ip() ip: string,
+  ) {
+    return this.accountArchive.unarchive(id, user.userId, ip);
   }
 
   // Role change — ADMIN-only (inherits class-level @MinRole(ADMIN)). INNEGOCIABLE.

@@ -17,6 +17,7 @@ import { ListingGateModule } from '../listing-gate/listing-gate.module';
 import { ModerationModule } from '../moderation/moderation.module';
 import { ListingEditValidationModule } from '../listings/listing-edit-validation.module';
 import { ListingImagesModule } from '../listings/listing-images.module';
+import { AccountArchiveModule } from '../account-archive/account-archive.module';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { AdminBillingController } from './admin-billing.controller';
@@ -42,6 +43,7 @@ import { AdminStatsService } from './admin-stats.service';
     // `ListingsModule`, y hacerlo arrastraría medio dominio.
     ListingEditValidationModule,
     ListingImagesModule,
+    AccountArchiveModule,
   ],
   // B1 — `AdminStatsController` NO necesita importar `ListingsModule`: lo único que
   // comparte con él son funciones PURAS (`computeCtr`, `ratioWithMinSample`), que se
