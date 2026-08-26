@@ -37,6 +37,7 @@ import {
 import { ListAdminListingsDto } from './dto/list-admin-listings.dto';
 import { ChangeListingStatusDto } from './dto/change-listing-status.dto';
 import { ListAdminUsersDto } from './dto/list-admin-users.dto';
+import { SuspendUserDto } from './dto/suspend-user.dto';
 import { ChangeUserRoleDto } from './dto/change-user-role.dto';
 import { SetUserTrustedDto } from './dto/set-user-trusted.dto';
 import { SetUserRequiresReviewDto } from './dto/set-user-requires-review.dto';
@@ -44,6 +45,7 @@ import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { ReorderCategoriesDto } from './dto/reorder-categories.dto';
 import { UpdateSettingDto } from './dto/update-setting.dto';
+import { DEFAULT_SUSPENSION_DAYS_SETTING } from '../users/suspension.constants';
 import {
   AttributeField,
   resolveEffectiveSchema,
@@ -1558,8 +1560,44 @@ export class AdminService {
     };
   }
 
-  async suspendUser(targetId: string, actorId: string, ip?: string) {
-    return this.changeUserStatus(targetId, actorId, UserStatus.SUSPENDED, 'USER_SUSPEND', ip);
+  /**
+   * BORRADO DE CUENTAS C4 — suspender, ahora CON PLAZO.
+   *
+   * `suspendedUntil` se calcula aquí y no en el DTO porque «dentro de N días» se
+   * cuenta desde el reloj del SERVIDOR: dejar que el cliente mande una fecha
+   * abriría la puerta a que dos moderadores en husos distintos escribieran la
+   * misma sanción y salieran dos plazos.
+   *
+   * Sin `days` y sin ajuste configurado → `null` = INDEFINIDA, que es lo que era
+   * toda suspensión antes de C4. Por eso esta ráfaga no cambia ninguna conducta
+   * observable al desplegarse.
+   */
+  async suspendUser(targetId: string, actorId: string, dto: SuspendUserDto, ip?: string) {
+    const dias = dto.days ?? (await this.leerDuracionPorDefectoDeSuspension());
+    const suspendedUntil =
+      dias != null ? new Date(Date.now() + dias * 24 * 60 * 60 * 1000) : null;
+
+    return this.changeUserStatus(targetId, actorId, UserStatus.SUSPENDED, 'USER_SUSPEND', ip, {
+      suspendedUntil,
+    });
+  }
+
+  /**
+   * El ajuste `defaultSuspensionDays`. Molde `total-listing-limit.rule.ts`:
+   * `Setting` + valor por defecto en código.
+   *
+   * EL DEFECTO ES `null`, NO UN NÚMERO, y es la decisión que mantiene C4 aditivo:
+   * mientras nadie configure el ajuste, «Suspender» hace exactamente lo de
+   * siempre. Un default de siete días habría cambiado en silencio lo que hace un
+   * botón que ya existe y que los moderadores usan.
+   */
+  private async leerDuracionPorDefectoDeSuspension(): Promise<number | null> {
+    const ajuste = await this.prisma.setting.findUnique({
+      where: { key: DEFAULT_SUSPENSION_DAYS_SETTING },
+      select: { value: true },
+    });
+    const dias = Number(ajuste?.value);
+    return Number.isFinite(dias) && dias > 0 ? dias : null;
   }
 
   // Reverses a suspension (SUSPENDED → ACTIVE). Accessible to MODERATOR+ADMIN.
@@ -2951,16 +2989,42 @@ export class AdminService {
     newStatus: UserStatus,
     action: string,
     ip?: string,
+    extra?: { suspendedUntil: Date | null },
   ) {
     const user = await this.prisma.user.findUnique({ where: { id: targetId } });
     if (!user) throw new NotFoundException('Usuario no encontrado');
 
-    const before = { status: user.status };
+    const before = { status: user.status, suspendedUntil: user.suspendedUntil };
+
+    /**
+     * BORRADO DE CUENTAS C4 — EL INVARIANTE DE `suspendedUntil` (§4.2): vive con
+     * `SUSPENDED` y se limpia al salir.
+     *
+     * Se resuelve AQUÍ, en el único escritor de estado que pasa por esta función,
+     * y no en cada método: `unsuspend`, `ban` y `reinstate` salen de SUSPENDED
+     * por caminos distintos y los tres tienen que dejar la fecha a `null`. Una
+     * cuenta ACTIVE con un vencimiento de suspensión colgando no significa nada,
+     * y el día que alguien vuelva a suspenderla arrastraría el plazo viejo.
+     *
+     * ARCHIVAR NO PASA POR AQUÍ, y es deliberado: `AccountArchiveService` escribe
+     * el estado por su cuenta **y conserva `suspendedUntil` a propósito**, para
+     * que desarchivar a un suspendido le devuelva la sanción que tenía y no una
+     * indefinida. Ver el comentario de `archive()`.
+     */
+    const suspendedUntil = newStatus === UserStatus.SUSPENDED ? (extra?.suspendedUntil ?? null) : null;
 
     const updated = await this.prisma.user.update({
       where: { id: targetId },
-      data: { status: newStatus },
-      select: { id: true, name: true, email: true, slug: true, role: true, status: true },
+      data: { status: newStatus, suspendedUntil },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        slug: true,
+        role: true,
+        status: true,
+        suspendedUntil: true,
+      },
     });
 
     await this.auditLog.log({
@@ -2969,7 +3033,9 @@ export class AdminService {
       resourceType: 'User',
       resourceId: targetId,
       before,
-      after: { status: newStatus },
+      // La fecha entra en el registro: sin ella, «suspendido» no dice hasta
+      // cuándo, y ése es justamente el dato que C4 añade.
+      after: { status: newStatus, suspendedUntil },
       ip,
     });
 

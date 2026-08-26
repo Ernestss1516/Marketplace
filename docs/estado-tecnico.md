@@ -16895,6 +16895,111 @@ Mutaciones, las tres verificadas:
 
 ---
 
+## Borrado de cuentas — C4: la suspensión caduca
+
+Diseño: `docs/diseno-borrado-cuentas.md` §4.6. Depende sólo de C1, que creó
+`User.suspendedUntil` y la dejó sin lectores.
+
+Hasta aquí «suspender» **mentía**: era un ban con otro mensaje y otra autoridad.
+C4 le da el plazo que su nombre promete.
+
+### Dos mecanismos, y sólo uno manda
+
+**1. El perezoso, en el gate compartido.** `suspensionYaCumplida()` en
+`account-access.ts`: una cuenta `SUSPENDED` cuyo `suspendedUntil` ya pasó **entra,
+sin que nadie haya tocado nada**. Molde exacto y en el mismo fichero de auth:
+`lockedUntil`, que se evalúa así —comparando contra `now` al decidir, sin cron ni
+escritura— para el bloqueo por intentos fallidos.
+
+Va **antes** del `switch` de estados y no dentro del `case SUSPENDED`, para que el
+switch siga siendo lo que es: una tabla exhaustiva. La caducidad no es un estado,
+es una condición sobre uno.
+
+**2. El cron de las 07:00** (`SuspensionExpirationService`, molde
+`EntitlementExpirationService`). **No es la fuente de verdad**: el gate ya deja
+entrar sin él, así que puede fallar o retrasarse sin que nadie se quede fuera. Lo
+que aporta es que la fila no mienta — sin él, `/admin/usuarios` seguiría diciendo
+«Suspendido» de alguien que ya entra, que es justo la doble verdad que el cron de
+entitlements existe para evitar. Idempotente por construcción: tras el primer
+`update` las filas dejan de casar el `where`.
+
+Franja 07:00 porque 02:00–06:00 están ocupadas (anuncios, entitlements,
+facturación, tickets, impresiones), el volcado va cada 15 min y los bumps al
+minuto 10.
+
+### La firma del gate se rompió a propósito
+
+`motivoDeBloqueoDeCuenta` pasó de recibir un `UserStatus` a recibir un
+`EstadoDeCuenta` (`{ status, suspendedUntil }`). Se podría haber añadido un
+parámetro opcional y dejar compilando a los llamantes viejos — **y habría sido un
+error**: cada uno tiene que añadir `suspendedUntil` a su `select`, y un opcional
+les habría dejado preguntar con media pregunta, recibir `undefined` y bloquear a
+alguien cuya suspensión ya caducó. Romper la firma obliga a revisar los cuatro
+(los tres gates y `forgotPassword`).
+
+### `null` = indefinida, y por qué C4 no cambia ninguna conducta
+
+`suspendedUntil` nace `null` y `null` **no caduca**: las suspensiones anteriores a
+C4 siguen siendo indefinidas. El cron tampoco las toca — Prisma no casa `null` con
+`lte`, así que quedan fuera del `where` por construcción.
+
+Y el ajuste `defaultSuspensionDays` **no se siembra**. Sin configurarlo, una
+suspensión sin `days` es indefinida: exactamente lo que hace hoy el botón
+«Suspender» del backoffice, que llama sin cuerpo. C4 añade la capacidad y deja la
+decisión de activarla en manos de quien administra — un default de siete días
+habría cambiado en silencio lo que hace un botón que ya se usa.
+
+`SuspendUserDto` acepta **días, no una fecha**: una fecha por JSON arrastra zona
+horaria y la sanción terminaría antes o después de lo que el moderador creía.
+Rango 1–365; por encima de un año lo que se quiere decir es «permanente», y para
+eso está el ban — que además es de ADMIN, la puerta que una suspensión de diez
+años estaría esquivando.
+
+### El invariante, en el único escritor
+
+`changeUserStatus` limpia `suspendedUntil` al salir de `SUSPENDED` — vale para
+`unsuspend`, `ban` y `reinstate` a la vez. Una cuenta `ACTIVE` con un vencimiento
+colgando no significa nada, y al volver a suspenderla arrastraría el plazo viejo.
+
+**Archivar no pasa por ahí, y es deliberado:** `AccountArchiveService` conserva
+`suspendedUntil` para que desarchivar devuelva la sanción que había y no una
+indefinida (decisión de C2). Eso deja filas `ARCHIVED` con fecha guardada, y **ni
+el gate ni el cron las confunden**: los dos miran la fecha sólo con
+`status === SUSPENDED`.
+
+### `USER_SUSPENSION_EXPIRED`, y no `USER_UNSUSPEND`
+
+El nombre importa: `USER_UNSUSPEND` significa «un moderador la levantó», y aquí no
+la levantó nadie. `actorId` es el propio sujeto porque **no existe actor
+sistema** (`AuditLog.actorId` es NOT NULL con FK a `User`, y el schema lo deja
+escrito al explicar por qué la transición automática de triaje no se audita); el
+mismo recurso que el auto-archivado de C2. El nombre de la acción es lo que
+impide que el historial atribuya a una persona algo que hizo el reloj.
+
+### Verificación
+
+`test/borrado-cuentas-c4.e2e-spec.ts` (14).
+
+| Barrera | Qué fija |
+|---|---|
+| 1 | Fecha pasada → **entra sin que el cron haya corrido**, y la fila sigue diciendo `SUSPENDED`; futura → 403; `null` → 403. Vale también para el guard de cada petición y para `forgotPassword` |
+| 2 | El cron pasa a `ACTIVE`, limpia la fecha, audita con `automatico: true`, es idempotente (2.ª pasada = 0) y **no toca vigentes ni indefinidas** |
+| 3 | Un `ARCHIVED` con fecha guardada no entra por el gate ni lo despierta el cron |
+| — | El DTO: `days` fija el plazo; sin `days` y sin ajuste → indefinida; con ajuste → lo usa; salir de `SUSPENDED` limpia la fecha; 0 y 400 días → 400 |
+
+Mutaciones, las tres verificadas:
+
+| Mutación | Cae |
+|---|---|
+| El predicado sin comparar con `now` | Barrera 1 — **una suspensión vigente deja entrar** (2 tests) |
+| El cron sin filtrar por `status` | Barrera 3 — despierta a un archivado |
+| El cron barriendo también las `null` | Barrera 2 — convierte en activas todas las suspensiones indefinidas |
+
+**Con esto ningún estado de cuenta miente.** Quedan C5 (eliminar) y C6
+(exportación).
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.

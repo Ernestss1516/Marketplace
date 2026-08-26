@@ -1644,6 +1644,11 @@ model AuditLog {
   ///   registro porque no lleva ningún dato que el anuncio no tenga ya, y porque
   ///   `actorId` exige una persona)
   /// USER_SUSPEND | USER_UNSUSPEND | USER_BAN | USER_REINSTATE | USER_ROLE_CHANGE
+  /// USER_SUSPENSION_EXPIRED (borrado de cuentas C4 — el plazo se cumplió y el
+  ///   cron de las 07:00 puso la fila al día. NOMBRE PROPIO Y NO `USER_UNSUSPEND`
+  ///   a propósito: ése significa «un moderador la levantó», y aquí no la levantó
+  ///   nadie. `actorId` es el propio sujeto porque no existe actor sistema —el
+  ///   mismo recurso que el auto-archivado— y el `after` lleva `automatico: true`)
   /// USER_ARCHIVE | USER_UNARCHIVE (borrado de cuentas C2 — el `after` de
   ///   USER_ARCHIVE lleva `archiveReason`, `autoArchivado` (si lo pidió el propio
   ///   usuario) y cuántos anuncios se pausaron; el de USER_UNARCHIVE, a qué estado

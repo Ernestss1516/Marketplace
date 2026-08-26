@@ -58,6 +58,7 @@ const SOCIAL_USER_SELECT = {
   slug: true,
   role: true,
   status: true,
+  suspendedUntil: true,
   emailVerified: true,
   tokenVersion: true,
 } as const;
@@ -69,6 +70,7 @@ type SocialUser = {
   slug: string;
   role: Role;
   status: UserStatus;
+  suspendedUntil: Date | null;
   emailVerified: boolean;
   tokenVersion: number;
 };
@@ -265,6 +267,7 @@ export class AuthService {
         slug: true,
         role: true,
         status: true,
+        suspendedUntil: true,
         emailVerified: true,
         passwordHash: true,
         failedLoginAttempts: true,
@@ -291,7 +294,7 @@ export class AuthService {
     // BORRADO DE CUENTAS C1 — la puerta compartida (`account-access.ts`). Sigue
     // comprobándose DESPUÉS de la contraseña y sigue siendo 403 y no 401: las
     // credenciales son correctas, lo que falla es el estado de la cuenta.
-    const bloqueo = motivoDeBloqueoDeCuenta(user.status);
+    const bloqueo = motivoDeBloqueoDeCuenta(user);
     if (bloqueo) throw new ForbiddenException(bloqueo);
 
     if (user.failedLoginAttempts > 0 || user.lockedUntil) {
@@ -362,7 +365,7 @@ export class AuthService {
       where: { email: dto.email },
       // BORRADO DE CUENTAS C1 (D-18) — `status` es NUEVO en este `select`, y su
       // ausencia era el cuarto sitio donde había que mirar el estado y no se miraba.
-      select: { id: true, email: true, name: true, passwordHash: true, status: true },
+      select: { id: true, email: true, name: true, passwordHash: true, status: true, suspendedUntil: true },
     });
 
     // Always return ok — never reveal if the email exists or is a Google-only account
@@ -377,7 +380,7 @@ export class AuthService {
     // condición a la misma guarda; la respuesta, el tiempo y el rate limit son los de
     // antes. Quien pruebe un correo no puede distinguir «no existe» de «existe pero
     // está cerrada» de «existe y ya tiene su correo en camino».
-    if (user && user.passwordHash && cuentaPuedeAcceder(user.status)) {
+    if (user && user.passwordHash && cuentaPuedeAcceder(user)) {
       const token = await this.createResetToken(user.id);
       await this.notificationQueue.add(NOTIFICATION_JOB.SEND_RESET_EMAIL, {
         email: user.email,
@@ -449,7 +452,7 @@ export class AuthService {
     });
 
     // BORRADO DE CUENTAS C1 — la misma puerta compartida que los otros dos gates.
-    const bloqueo = motivoDeBloqueoDeCuenta(user.status);
+    const bloqueo = motivoDeBloqueoDeCuenta(user);
     if (bloqueo) throw new ForbiddenException(bloqueo);
 
     // Decisión RÁFAGA 3: ADMIN solo entra con contraseña — la seguridad del

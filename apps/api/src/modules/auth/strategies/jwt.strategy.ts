@@ -22,7 +22,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   async validate(payload: JwtPayload): Promise<JwtUser> {
     const dbUser = await this.prisma.user.findUnique({
       where: { id: payload.sub },
-      select: { status: true, role: true, emailVerified: true, tokenVersion: true },
+      // C4 — `suspendedUntil` es NUEVO aquí: sin él, el gate no puede saber que una
+      // suspensión ya se cumplió y seguiría bloqueando a quien ya puede entrar.
+      select: { status: true, suspendedUntil: true, role: true, emailVerified: true, tokenVersion: true },
     });
 
     if (!dbUser) throw new UnauthorizedException('User not found');
@@ -38,7 +40,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     // Eran dos `if` copiados aquí y en los otros dos gates; ARCHIVED y DELETED se
     // suman sin tocar esta línea, y un `UserStatus` futuro no compilará hasta que
     // alguien decida qué hace. La conducta de SUSPENDED y BANNED no cambia.
-    const bloqueo = motivoDeBloqueoDeCuenta(dbUser.status);
+    const bloqueo = motivoDeBloqueoDeCuenta(dbUser);
     if (bloqueo) throw new ForbiddenException(bloqueo);
 
     return {

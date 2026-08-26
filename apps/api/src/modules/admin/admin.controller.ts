@@ -23,6 +23,7 @@ import { SetListingTriageDto } from './dto/set-listing-triage.dto';
 import { UpdateAdminListingDto } from './dto/update-admin-listing.dto';
 import { ChangeListingStatusDto } from './dto/change-listing-status.dto';
 import { ListAdminUsersDto } from './dto/list-admin-users.dto';
+import { SuspendUserDto } from './dto/suspend-user.dto';
 import { ChangeUserRoleDto } from './dto/change-user-role.dto';
 import { SetUserTrustedDto } from './dto/set-user-trusted.dto';
 import { SetUserRequiresReviewDto } from './dto/set-user-requires-review.dto';
@@ -170,15 +171,25 @@ export class AdminController {
     return this.adminService.getUserById(id);
   }
 
+  /**
+   * BORRADO DE CUENTAS C4 — el cuerpo es NUEVO y es OPCIONAL.
+   *
+   * Sin él, la llamada se comporta exactamente como antes (el frontend actual la
+   * hace sin cuerpo): la duración sale del ajuste `defaultSuspensionDays`, que
+   * nace sin configurar y produce una suspensión indefinida. Con `days`, el
+   * moderador fija el plazo — y entonces «suspender siete días» significa siete
+   * días, sin que nadie tenga que acordarse de levantarla.
+   */
   @Patch('users/:id/suspend')
   @HttpCode(HttpStatus.OK)
   @MinRole(Role.MODERATOR)
   suspendUser(
     @Param('id') id: string,
+    @Body() dto: SuspendUserDto,
     @CurrentUser() user: JwtUser,
     @Ip() ip: string,
   ) {
-    return this.adminService.suspendUser(id, user.userId, ip);
+    return this.adminService.suspendUser(id, user.userId, dto, ip);
   }
 
   // Reverses a SUSPENSION (SUSPENDED → ACTIVE). MODERATOR+ADMIN.
