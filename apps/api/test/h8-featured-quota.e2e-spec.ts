@@ -35,6 +35,9 @@ import { getQueueToken } from '@nestjs/bullmq';
 import type { Queue } from 'bullmq';
 import { createTestApp } from './helpers/create-app';
 import { cleanDb } from './helpers/db';
+// Mismo motivo que en `rf7-expiration`: `getJobs` puede traer huecos. Aquí no había
+// reventado nunca, pero el defecto es idéntico y estaba armado igual.
+import { ESTADOS_EN_VUELO, getExistingJobs } from './helpers/queue';
 import { EntitlementService } from 'src/modules/billing/entitlement.service';
 import { BillingService } from 'src/modules/billing/billing.service';
 import { QUEUE_INDEXING } from 'src/infra/queue/queue.constants';
@@ -410,7 +413,7 @@ describe('H8.2 — GET /billing/pro-status (cuota mensual de destacados Pro)', (
       );
       const quotaListing = await createActiveListing(user.id, 'unify-quota');
 
-      const jobsBefore = await indexingQueue.getJobs(['waiting', 'active', 'completed', 'delayed']);
+      const jobsBefore = await getExistingJobs(indexingQueue, ESTADOS_EN_VUELO);
       // Los IDs, no el NÚMERO. Ver la aserción de abajo.
       const idsBefore = new Set(jobsBefore.map((j) => j.id));
 
@@ -424,7 +427,7 @@ describe('H8.2 — GET /billing/pro-status (cuota mensual de destacados Pro)', (
           origin: FeaturedOrigin.PRO_QUOTA,
         }),
       );
-      const jobsAfterQuota = await indexingQueue.getJobs(['waiting', 'active', 'completed', 'delayed']);
+      const jobsAfterQuota = await getExistingJobs(indexingQueue, ESTADOS_EN_VUELO);
       expect(jobsAfterQuota.some((j) => j.data?.listingId === quotaListing.id)).toBe(true);
       // «HA APARECIDO UN JOB NUEVO», por IDENTIDAD y no por conteo.
       //
@@ -458,7 +461,7 @@ describe('H8.2 — GET /billing/pro-status (cuota mensual de destacados Pro)', (
           origin: FeaturedOrigin.CREDITS,
         }),
       );
-      const jobsAfterCredits = await indexingQueue.getJobs(['waiting', 'active', 'completed', 'delayed']);
+      const jobsAfterCredits = await getExistingJobs(indexingQueue, ESTADOS_EN_VUELO);
       expect(jobsAfterCredits.some((j) => j.data?.listingId === creditsListing.id)).toBe(true);
 
       grantSpy.mockRestore();

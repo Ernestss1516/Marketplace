@@ -22,6 +22,9 @@ import { Queue } from 'bullmq';
 import { getQueueToken } from '@nestjs/bullmq';
 import { createTestApp } from './helpers/create-app';
 import { cleanDb } from './helpers/db';
+// `getJobs` de BullMQ puede devolver huecos cuando el worker completa un job
+// mientras se lee (`removeOnComplete: true`). Ver `helpers/queue.ts`.
+import { ESTADOS_EN_VUELO, getExistingJobs } from './helpers/queue';
 import { EntitlementExpirationService } from 'src/modules/expiration/entitlement-expiration.service';
 import { QUEUE_INDEXING } from 'src/infra/queue/queue.constants';
 
@@ -131,7 +134,7 @@ describe('RF.7-B — Entitlement expiration cron (e2e)', () => {
       expect(updated.revokedAt).not.toBeNull();
 
       // The BullMQ job must exist for this listing
-      const jobs = await indexingQueue.getJobs(['waiting', 'active', 'completed', 'delayed']);
+      const jobs = await getExistingJobs(indexingQueue, ESTADOS_EN_VUELO);
       const job = jobs.find((j) => j.data?.listingId === listing.id);
       expect(job).toBeDefined();
     });
@@ -141,12 +144,12 @@ describe('RF.7-B — Entitlement expiration cron (e2e)', () => {
       const listing = await createListing(user.id, ListingStatus.SOLD);
       await createExpiredFeaturedEntitlement(user.id, listing.id);
 
-      const jobsBefore = await indexingQueue.getJobs(['waiting', 'active', 'completed', 'delayed']);
+      const jobsBefore = await getExistingJobs(indexingQueue, ESTADOS_EN_VUELO);
       const countBefore = jobsBefore.filter((j) => j.data?.listingId === listing.id).length;
 
       await expirationService.runExpirationSweep();
 
-      const jobsAfter = await indexingQueue.getJobs(['waiting', 'active', 'completed', 'delayed']);
+      const jobsAfter = await getExistingJobs(indexingQueue, ESTADOS_EN_VUELO);
       const countAfter = jobsAfter.filter((j) => j.data?.listingId === listing.id).length;
 
       expect(countAfter).toBe(countBefore); // no new jobs
@@ -160,13 +163,13 @@ describe('RF.7-B — Entitlement expiration cron (e2e)', () => {
       // First sweep
       await expirationService.runExpirationSweep();
 
-      const jobsAfterFirst = await indexingQueue.getJobs(['waiting', 'active', 'completed', 'delayed']);
+      const jobsAfterFirst = await getExistingJobs(indexingQueue, ESTADOS_EN_VUELO);
       const countAfterFirst = jobsAfterFirst.filter((j) => j.data?.listingId === listing.id).length;
 
       // Second sweep — revokedAt is already set, so this entitlement is excluded
       await expirationService.runExpirationSweep();
 
-      const jobsAfterSecond = await indexingQueue.getJobs(['waiting', 'active', 'completed', 'delayed']);
+      const jobsAfterSecond = await getExistingJobs(indexingQueue, ESTADOS_EN_VUELO);
       const countAfterSecond = jobsAfterSecond.filter((j) => j.data?.listingId === listing.id).length;
 
       // BullMQ deduplicates by jobId, so count stays the same
@@ -328,13 +331,13 @@ describe('RF.7-B — Entitlement expiration cron (e2e)', () => {
       }
       await createExpiredProEntitlement(user.id, 10);
 
-      const jobsBefore = await indexingQueue.getJobs(['waiting', 'active', 'completed', 'delayed']);
+      const jobsBefore = await getExistingJobs(indexingQueue, ESTADOS_EN_VUELO);
       const countBefore = jobsBefore.filter((j) => listings.includes(j.data?.listingId as string)).length;
 
       await expirationService.runExpirationSweep();
 
       // The 2 oldest listings are now DRAFT; reindex jobs must exist for them
-      const jobsAfter = await indexingQueue.getJobs(['waiting', 'active', 'completed', 'delayed']);
+      const jobsAfter = await getExistingJobs(indexingQueue, ESTADOS_EN_VUELO);
       const countAfter = jobsAfter.filter((j) => listings.includes(j.data?.listingId as string)).length;
 
       // At least 2 new jobs were enqueued (one per drafted listing)
