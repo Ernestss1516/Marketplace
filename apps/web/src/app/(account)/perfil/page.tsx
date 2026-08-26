@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { PerfilForm } from '@/components/perfil/PerfilForm';
 import { SignOutButton } from '@/components/perfil/SignOutButton';
+import { ArchivarCuentaButton } from '@/components/perfil/ArchivarCuentaButton';
 import { auth } from '@/lib/auth';
 import { getMe } from '@/lib/api/usuarios';
 import { buildLoginUrl } from '@/lib/auth/callback-url';
@@ -97,6 +98,26 @@ export default async function PerfilPage() {
       <section>
         <h2 className="mb-4 text-lg font-semibold">Sesión</h2>
         <SignOutButton />
+      </section>
+
+      <Separator />
+
+      {/*
+        BORRADO DE CUENTAS C2 — el gesto de irse.
+
+        AL FINAL Y EN SU PROPIA SECCIÓN, separado de «Cerrar sesión»: son dos
+        botones que suenan parecido y hacen cosas muy distintas, y el que se pulsa
+        todos los días no debe estar pegado al que se pulsa una vez. El texto de
+        apoyo dice lo que el diálogo desarrolla, para que nadie lo abra sin saber
+        qué hay dentro.
+      */}
+      <section>
+        <h2 className="mb-2 text-lg font-semibold">Cerrar mi cuenta</h2>
+        <p className="mb-4 max-w-prose text-sm text-muted-foreground">
+          Dejarás de tener acceso y tus anuncios se retirarán del buscador. Tu cuenta se
+          guarda, no se destruye: escribe a soporte si quieres recuperarla.
+        </p>
+        <ArchivarCuentaButton token={session.user.accessToken} />
       </section>
     </div>
   );

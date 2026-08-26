@@ -5,9 +5,18 @@ import { ListingsModule } from '../listings/listings.module';
 import { ReviewsModule } from '../reviews/reviews.module';
 import { BillingModule } from '../billing/billing.module';
 import { MediaCleanupModule } from '../media-cleanup/media-cleanup.module';
+import { AccountArchiveModule } from '../account-archive/account-archive.module';
 
 @Module({
-  imports: [ListingsModule, ReviewsModule, BillingModule, MediaCleanupModule],
+  imports: [
+    ListingsModule,
+    ReviewsModule,
+    BillingModule,
+    MediaCleanupModule,
+    // BORRADO DE CUENTAS C2 — el auto-archivado de `/perfil`. El mismo servicio lo
+    // importa `AdminModule` para la entrada del staff.
+    AccountArchiveModule,
+  ],
   controllers: [UsersController],
   providers: [UsersService],
   exports: [UsersService],

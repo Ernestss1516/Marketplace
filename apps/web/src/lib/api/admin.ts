@@ -462,6 +462,14 @@ export interface AdminUserDetail extends Omit<AdminUser, '_count'> {
   bio: string | null;
   postalCode: string | null;
   updatedAt: string;
+  // BORRADO DE CUENTAS C2 — el contexto del archivado. `statusBeforeArchive` es
+  // A DÓNDE volvería la cuenta si se desarchiva: la ficha lo enseña para que
+  // «Desarchivar» no sea un botón que promete algo distinto de lo que hace.
+  archivedAt: string | null;
+  archiveReason: 'SELF_REQUEST' | 'STAFF_ACTION' | null;
+  archiveNote: string | null;
+  statusBeforeArchive: string | null;
+  archivedBy: { id: string; name: string; slug: string } | null;
   listings: Array<{
     id: string;
     title: string;
@@ -595,6 +603,28 @@ export function banUser(token: string, id: string): Promise<unknown> {
 // Reverses a BAN (ADMIN-only).
 export function reinstateUser(token: string, id: string): Promise<unknown> {
   return apiFetch(`/admin/users/${id}/reinstate`, { method: 'PATCH', token });
+}
+
+/**
+ * BORRADO DE CUENTAS C2 — el staff archiva una cuenta. MODERATOR+, reversible.
+ * `archiveReason` NO viaja: lo fija el endpoint (`STAFF_ACTION`), para que nadie
+ * pueda archivar a otro diciendo que se lo pidió.
+ */
+export function archiveUser(token: string, id: string, note?: string): Promise<unknown> {
+  return apiFetch(`/admin/users/${id}/archive`, {
+    method: 'PATCH',
+    body: JSON.stringify(note ? { note } : {}),
+    token,
+  });
+}
+
+/**
+ * Devuelve la cuenta a la vida. NO recibe destino: el backend lo lee de
+ * `statusBeforeArchive`, así que un baneado archivado vuelve a BANNED. Si esta
+ * función aceptara un estado, archivar sería el atajo para levantar un ban.
+ */
+export function unarchiveUser(token: string, id: string): Promise<unknown> {
+  return apiFetch(`/admin/users/${id}/unarchive`, { method: 'PATCH', token });
 }
 
 // H8 Bloque E — "Vendedor de confianza" (ADMIN-only).

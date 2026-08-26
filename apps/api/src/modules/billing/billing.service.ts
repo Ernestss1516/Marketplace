@@ -211,6 +211,49 @@ export class BillingService {
     this.logger.log(`Subscription ${subscriptionId} set to cancel at period end (user ${userId})`);
   }
 
+  /**
+   * BORRADO DE CUENTAS C2 (§6.5) — cancela TODAS las suscripciones vivas de un
+   * usuario cuya cuenta se acaba de archivar.
+   *
+   * NO ES `cancelSubscription` CON OTRO NOMBRE, y las diferencias importan:
+   *
+   *  · **No comprueba propiedad.** Aquí no hay un usuario pidiendo cancelar la
+   *    suya: hay una cuenta que ha dejado de existir. La autorización ya la hizo
+   *    quien archivó (el propio usuario, o un MODERATOR).
+   *  · **Es idempotente y recorre todas.** Lo llama un job con reintentos, así que
+   *    tiene que poder ejecutarse dos veces sin romperse: las que ya están
+   *    `CANCELING`/`CANCELED` se saltan en vez de dar 400.
+   *
+   * `cancel_at_period_end` y no cancelación inmediata: el periodo ya está pagado y
+   * archivar es REVERSIBLE — si el usuario desarchiva antes del corte, no se le ha
+   * quitado nada que hubiera comprado. La cancelación inmediata es de C5, donde ya
+   * no hay vuelta.
+   */
+  async cancelActiveSubscriptionsFor(userId: string): Promise<number> {
+    const vivas = await this.prisma.subscription.findMany({
+      where: {
+        userId,
+        status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.PAST_DUE] },
+      },
+      select: { id: true, gatewaySubscriptionId: true },
+    });
+
+    for (const sub of vivas) {
+      // Si Stripe falla, se propaga: el job lo reintenta. Tragarlo aquí sería
+      // exactamente el fallo silencioso que este camino existe para evitar.
+      await this.stripe.subscriptions.update(sub.gatewaySubscriptionId, {
+        cancel_at_period_end: true,
+      });
+      await this.prisma.subscription.update({
+        where: { id: sub.id },
+        data: { cancelAtPeriodEnd: true, status: SubscriptionStatus.CANCELING },
+      });
+      this.logger.log(`Subscription ${sub.id} cancelada por archivado de la cuenta ${userId}`);
+    }
+
+    return vivas.length;
+  }
+
   async getMySubscriptions(userId: string) {
     return this.prisma.subscription.findMany({
       where: {

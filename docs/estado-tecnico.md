@@ -16674,6 +16674,140 @@ Mutaciones, las tres verificadas:
 
 ---
 
+## Borrado de cuentas — C2: archivar y desarchivar
+
+Diseño: `docs/diseno-borrado-cuentas.md` §4. Se apoya en C1 (los estados, las
+transiciones y las columnas ya existían y nadie las escribía).
+
+### Las dos entradas, un solo método
+
+`AccountArchiveService.archive()` lo llaman `POST /users/me/archive` (el usuario,
+desde `/perfil`) y `PATCH /admin/users/:id/archive` (MODERATOR+). Lo que cambia es
+el par (`archiveReason`, `archivedById`), no el efecto. **Servicio propio y no un
+método de `UsersService` o de `AdminService`** porque los dos llamantes viven en
+módulos que no se importan entre sí.
+
+Que `archiveReason` y `archivedById` sean **dos columnas** es lo que permite
+representar el caso real: `SELF_REQUEST` **con** `archivedById` poblado = «lo pidió
+él, lo ejecutó el staff» — un usuario BANNED no puede entrar a pulsar el botón,
+pero no pierde el derecho. Y `archiveReason` va fijo en cada endpoint, nunca en el
+DTO: si viajara en el cuerpo, cualquiera podría archivar a otro diciendo que se lo
+pidieron.
+
+### `statusBeforeArchive` — la barrera del cuerpo
+
+`unarchive()` **no acepta destino**: lo lee. Un baneado archivado vuelve a
+`BANNED`. Si aceptara un parámetro, archivar sería el atajo para que un MODERATOR
+levantara un ban que sólo un ADMIN puede levantar. Los metadatos de archivado se
+limpian al salir (§4.2).
+
+### Los anuncios: `PAUSED`, no `ARCHIVED`
+
+Los `ACTIVE` y `RESERVED` pasan a `PAUSED` con `pausedByAccountArchive = true`.
+`PAUSED` ya trae las tres propiedades que hacen falta —reversible, fuera del índice,
+libera cuota— así que **no hay código de visibilidad nuevo para los anuncios**.
+`DRAFT` y `PENDING_REVIEW` no se tocan: no son públicos, no hay nada que ocultar —
+**y ahí se disuelve D-13**, el callejón que la auditoría encontró, sin abrir ningún
+agujero en la irreversibilidad de `ListingStatus.ARCHIVED`.
+
+`RESERVED → PAUSED` es una **arista nueva** en `LISTING_STATUS_TRANSITIONS`. Rompe
+un compromiso con otra persona, y se admite porque el vendedor se ha ido: la reserva
+no puede prosperar y dejarla visible sostiene una promesa que ya no existe. Se
+declara en la tabla y no sólo se ejecuta desde el servicio, para que el backoffice y
+el servicio no cuenten cosas distintas del mismo anuncio.
+
+**Al desarchivar, el cupo manda.** Los marcados vuelven **uno a uno**, cada uno
+pasando por `assertCanBecomeActive`; lo que no cabe se queda `PAUSED`. Un
+`updateMany` los activaría todos de golpe y un vendedor que perdió Pro mientras
+estaba archivado se despertaría con veinte anuncios sobre un cupo de cinco.
+
+**`actor: 'seller'` no es cosmético:** `ActiveListingLimitRule.appliesTo` devuelve
+`false` para `staff` («el trabajo de moderación no puede quedar rehén de la cuota de
+un tercero»), así que pasar `'staff'` —aunque quien pulse sea un moderador—
+**desactivaría la cuota entera**. La reactivación es del vendedor; el moderador solo
+la dispara.
+
+La marca se limpia quepan o no: describe un ciclo de archivado que ya terminó. Y es
+la razón entera de que exista — sin ella, desarchivar reactivaría también los
+anuncios que el vendedor había pausado por su cuenta.
+
+### El cobro, cerrado dentro de C2
+
+Una cuenta archivada con Pro **seguía pagando**: ninguna FK lo impide y ningún cron
+lo nota. Archivar encola `BILLING_JOB.CANCEL_SUBSCRIPTIONS` en la cola de
+facturación → `BillingService.cancelActiveSubscriptionsFor` pone
+`cancel_at_period_end` en Stripe y `CANCELING` en la fila.
+
+**Por cola y no en línea**, y no es ceremonia: en línea, un fallo transitorio de
+Stripe se perdería en un `catch` y el usuario seguiría pagando en silencio. La cola
+ya trae `attempts: 3` con backoff. El encolado, a su vez, no puede tumbar el
+archivado: si Redis no responde, la cuenta se archiva igual y queda el log.
+
+`cancel_at_period_end` y no cancelación inmediata porque **archivar es reversible**:
+el periodo está pagado y desarchivar antes del corte no le quita nada que hubiera
+comprado. La cancelación inmediata es de C5.
+
+### Lo que se apaga, y lo que se apaga solo
+
+- **Bumps programados**: solos. Pausar el anuncio dispara
+  `PAUSED_LISTING_INACTIVE`, con reanudación automática al volver a `ACTIVE`. El
+  turno intermedio sale `SKIPPED_LISTING_INACTIVE`, **sin cobro**. Cero código.
+- **Alertas**: una condición de cuenta en la consulta de `alert-matching`
+  (`status notIn [ARCHIVED, DELETED, BANNED]`), **no apagarlas una a una** — así no
+  hay estado que restaurar al desarchivar. A un `SUSPENDED` se le siguen guardando:
+  la suspensión es temporal.
+- **Sesiones y enlaces vivos**: `tokenVersion + 1` y borrado de los tokens de
+  verificación y reseteo pendientes.
+
+**`suspendedUntil` NO se toca al archivar**, aunque la tabla de invariantes del
+diseño diga «se limpia al salir de SUSPENDED». Limpiarlo devolvería al suspendido
+una suspensión **indefinida** en vez de la que tenía — exactamente la alteración de
+la sanción que `statusBeforeArchive` existe para impedir. El vencimiento viaja con
+su estado. (Hoy la columna es siempre null: la escribe C4.)
+
+### La interfaz
+
+`/perfil` gana «Cerrar mi cuenta» en su propia sección, separada de «Cerrar
+sesión»: dos botones que suenan parecido y hacen cosas muy distintas. El
+`AlertDialog` **enumera lo que pasa** en vez de prometer un borrado que no ocurre —
+archivar no anonimiza nada— y dice que se recupera por soporte, que es la verdad.
+Tras archivar hace `signOut`: el backend acaba de invalidar el token, así que sin
+eso el usuario se quedaría en una aplicación que falla a cada clic.
+
+`/admin/usuarios` gana los botones «Archivar» (desde cualquier estado de sanción) y
+«Desarchivar», los filtros «Archivados» / «Eliminados» —que salen gratis: el DTO ya
+es `@IsEnum(UserStatus)`— y un bloque en la ficha con cuándo, quién, por qué y **a
+dónde volvería**. Un botón «Desarchivar» que no dijera que devuelve a `BANNED` sería
+una trampa.
+
+**La deuda que C1 dejó anotada, cerrada:** `ESTADO_USUARIO_LABELS` y
+`etiquetas.test.ts` ganan `ARCHIVED` y `DELETED`. Y `/admin/usuarios`, que tenía
+**su propia copia** de esas etiquetas, pasa a usar el diccionario compartido — que
+es para lo que existe: su test afirma que cubre el enum entero, así que un estado
+nuevo no puede volver a pintarse en crudo ahí sin romper CI.
+
+### Verificación
+
+`test/borrado-cuentas-c2.e2e-spec.ts` (17).
+
+| Barrera | Qué fija |
+|---|---|
+| 1 | Archivar → no entra (401 con el token viejo, 403 al reintentar login); `ACTIVE`/`RESERVED` → `PAUSED` con marca; `DRAFT`/`PENDING_REVIEW`/`SOLD` intactos; no cuenta para la cuota; `AuditLog` con recuento; tokens invalidados |
+| 2 | **Un BANNED archivado vuelve a BANNED, no a ACTIVE** — y sigue sin poder entrar. Ídem SUSPENDED. Un ACTIVE vuelve y entra, con los metadatos limpios |
+| 3 | Con el cupo bajado a 2 y tres anuncios: vuelven 2, uno se queda `PAUSED`, la marca se limpia en los dos casos. Y un anuncio que el **vendedor** había pausado no se reactiva |
+| 4 | Archivar encola `CANCEL_SUBSCRIPTIONS` para ese usuario |
+| 5 | Usuario → `SELF_REQUEST` + `archivedById` null; staff → `STAFF_ACTION` + id del moderador; un usuario normal recibe 403 |
+
+Mutaciones, las tres verificadas:
+
+| Mutación | Cae |
+|---|---|
+| `unarchive` a `ACTIVE` fijo en vez de `statusBeforeArchive` | Barrera 2 — **el ban se lava** (2 tests) |
+| Restaurar sin mirar la cuota | Barrera 3 — vuelven los tres, por encima del cupo |
+| No encolar la cancelación | Barrera 4 — se le sigue cobrando |
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.

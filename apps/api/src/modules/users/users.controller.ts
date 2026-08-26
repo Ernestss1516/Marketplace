@@ -1,8 +1,23 @@
-import { Body, Controller, Get, HttpException, HttpStatus, Param, Patch, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpException,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ArchiveReason } from '@prisma/client';
 import { JwtAuthGuard } from '../../common/guards';
 import { CurrentUser } from '../../common/decorators';
 import { JwtUser } from '../auth/auth.types';
+import { AccountArchiveService } from '../account-archive/account-archive.service';
+import { ArchiveAccountDto } from '../account-archive/dto/archive-account.dto';
 import { UsersService } from './users.service';
 import { UpdateMeDto } from './dto/update-me.dto';
 import { UserSearchQueryDto } from './dto/user-search-query.dto';
@@ -23,6 +38,7 @@ export class UsersController {
     private readonly listingsService: ListingsService,
     private readonly reviewsService: ReviewsService,
     private readonly rateLimit: RateLimitService,
+    private readonly accountArchive: AccountArchiveService,
   ) {}
 
   @Get('me')
@@ -35,6 +51,30 @@ export class UsersController {
   @UseGuards(JwtAuthGuard)
   updateMe(@CurrentUser() user: JwtUser, @Body() dto: UpdateMeDto) {
     return this.usersService.updateMe(user.userId, dto);
+  }
+
+  /**
+   * BORRADO DE CUENTAS C2 — el usuario archiva SU PROPIA cuenta.
+   *
+   * `SELF_REQUEST` y `actorId: null` van FIJOS aquí, no en el DTO: si la categoría
+   * viajara en el cuerpo, cualquiera podría archivar diciendo que se lo pidieron.
+   * El sujeto es siempre `user.userId` — este endpoint no acepta un id ajeno, así
+   * que no hace falta comprobar propiedad.
+   *
+   * DESPUÉS DE ESTO EL TOKEN YA NO VALE: `archive()` incrementa `tokenVersion`, así
+   * que la siguiente petición del cliente será un 401 y la de después un 403 del
+   * gate. La respuesta se devuelve igualmente para que el frontend pueda cerrar
+   * sesión ordenadamente en vez de descubrirlo con un error.
+   */
+  @Post('me/archive')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard)
+  archiveMyAccount(@CurrentUser() user: JwtUser, @Body() dto: ArchiveAccountDto) {
+    return this.accountArchive.archive(user.userId, {
+      reason: ArchiveReason.SELF_REQUEST,
+      actorId: null,
+      note: dto.note,
+    });
   }
 
   @Get('me/listings')

@@ -131,6 +131,12 @@ export const ESTADO_USUARIO_LABELS: Record<string, string> = {
   ACTIVE: 'Activo',
   SUSPENDED: 'Suspendido',
   BANNED: 'Baneado',
+  /** BORRADO DE CUENTAS — los dos estados de EXISTENCIA, frente a los tres de
+   *  sanción de arriba. «Archivado» es reversible; «Eliminado» es terminal y la
+   *  fila ya está vaciada de persona. C1 los añadió al enum del backend y dejó
+   *  anotado que sin estas dos líneas se pintarían en crudo. */
+  ARCHIVED: 'Archivado',
+  DELETED: 'Eliminado',
 };
 
 /** `Role`. Movidas TAL CUAL desde la ficha de usuario, por lo mismo.

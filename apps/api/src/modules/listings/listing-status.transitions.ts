@@ -93,7 +93,23 @@ export const LISTING_STATUS_TRANSITIONS: Readonly<
   // + correctivas: retirar o devolver al vendedor una reserva encallada.
   // NO va a ARCHIVED: archive() excluye RESERVED a propósito («archivar dejaría
   // un trato colgado sin resolver»).
-  RESERVED: ['ACTIVE', 'SOLD', 'REJECTED', 'DRAFT'],
+  //
+  // BORRADO DE CUENTAS C2 — `PAUSED` ES NUEVO AQUÍ, y lo emite el archivado de la
+  // CUENTA del vendedor (`AccountArchiveService.archive`).
+  //
+  // El argumento, dicho entero porque es incómodo: una reserva es un compromiso
+  // con OTRA persona, y esta arista la rompe. Se admite porque el vendedor se ha
+  // ido — la reserva NO PUEDE prosperar, y dejarla visible sostiene una promesa
+  // que ya no existe; que desaparezca es la información verdadera. Y `PAUSED` es
+  // lo menos destructivo que sirve: no cierra el trato (no inventa un `Deal` que
+  // no ocurrió), no rechaza el anuncio (no es una sanción) y es REVERSIBLE — si la
+  // cuenta se desarchiva, el anuncio vuelve a ACTIVE.
+  //
+  // La arista se declara aquí, y no sólo se ejecuta desde el servicio, porque esta
+  // tabla es la que responde «¿es legal ir de X a Y?» para TODO el sistema: si el
+  // archivado hiciera un salto que la tabla niega, el backoffice y el servicio
+  // estarían contando cosas distintas sobre el mismo anuncio.
+  RESERVED: ['ACTIVE', 'SOLD', 'REJECTED', 'DRAFT', 'PAUSED'],
 
   // reactivate() → ACTIVE · archive() → ARCHIVED.
   PAUSED: ['ACTIVE', 'ARCHIVED', 'REJECTED', 'DRAFT'],

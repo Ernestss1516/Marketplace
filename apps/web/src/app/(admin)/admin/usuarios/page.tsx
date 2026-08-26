@@ -12,13 +12,17 @@ import {
   unsuspendUser,
   banUser,
   reinstateUser,
+  archiveUser,
+  unarchiveUser,
   setUserTrusted,
   setUserRequiresReview,
   changeUserRole,
   type AdminUser,
   type AdminUserDetail,
 } from '@/lib/api/admin';
+import { toast } from 'sonner';
 import { ApiError } from '@/lib/api/client';
+import { ESTADO_USUARIO_LABELS } from '../etiquetas';
 import { Badge } from '@/components/ui/badge';
 import { DatoIp } from '@/components/admin/DatoIp';
 import { Button } from '@/components/ui/button';
@@ -30,6 +34,12 @@ const STATUS_FILTERS: { label: string; value: string | undefined }[] = [
   { label: 'Activos', value: 'ACTIVE' },
   { label: 'Suspendidos', value: 'SUSPENDED' },
   { label: 'Baneados', value: 'BANNED' },
+  // BORRADO DE CUENTAS C2 — «enséñame los archivados» es la pantalla del encargo:
+  // la cola que el staff revisa para decidir si desarchiva o (en C5) vacía.
+  // Sale gratis: `ListAdminUsersDto.status` es `@IsEnum(UserStatus)`, así que el
+  // backend acepta los valores nuevos sin tocar nada.
+  { label: 'Archivados', value: 'ARCHIVED' },
+  { label: 'Eliminados', value: 'DELETED' },
 ];
 
 const ROLE_FILTERS: { label: string; value: string | undefined }[] = [
@@ -40,16 +50,24 @@ const ROLE_FILTERS: { label: string; value: string | undefined }[] = [
   { label: 'Admin', value: 'ADMIN' },
 ];
 
-const STATUS_LABELS: Record<string, string> = {
-  ACTIVE: 'Activo',
-  SUSPENDED: 'Suspendido',
-  BANNED: 'Baneado',
-};
+/**
+ * BORRADO DE CUENTAS C2 — esta pantalla tenía SU PROPIA copia de las etiquetas de
+ * `UserStatus`, con los mismos tres textos que el diccionario compartido. Pasa a
+ * usar el compartido, que es para lo que existe: `etiquetas.test.ts` afirma que
+ * cubre el enum ENTERO, así que un estado nuevo no puede volver a pintarse en
+ * crudo aquí sin romper CI. Los textos no cambian.
+ */
+const STATUS_LABELS = ESTADO_USUARIO_LABELS;
 
 const STATUS_VARIANTS: Record<string, 'default' | 'secondary' | 'outline' | 'destructive'> = {
   ACTIVE: 'default',
   SUSPENDED: 'secondary',
   BANNED: 'destructive',
+  // Archivado NO es una sanción, así que no se pinta como tal: es un estado
+  // neutro y reversible. Eliminado sí es terminal, pero tampoco es un castigo —
+  // `outline` para los dos, que es lo que dice «esta cuenta ya no está en juego».
+  ARCHIVED: 'outline',
+  DELETED: 'outline',
 };
 
 const ROLE_LABELS: Record<string, string> = {
@@ -141,6 +159,55 @@ function UserDetailPanel({
 
   return (
     <div className="grid gap-6 md:grid-cols-2">
+      {/*
+        BORRADO DE CUENTAS C2 — el contexto del archivado.
+
+        VA EL PRIMERO Y OCUPA LAS DOS COLUMNAS porque, cuando una cuenta está
+        archivada, es lo que el moderador ha venido a leer: quién la cerró, cuándo,
+        por qué, y —lo que decide el siguiente clic— A DÓNDE volvería. Un botón
+        «Desarchivar» que no dijera que devuelve a BANNED sería una trampa.
+      */}
+      {data.archivedAt && (
+        <div className="md:col-span-2 rounded-lg border bg-muted/40 p-3">
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Cuenta archivada
+          </h3>
+          <dl className="grid gap-x-6 gap-y-1 text-xs sm:grid-cols-2">
+            <div className="flex gap-2">
+              <dt className="text-muted-foreground">Cuándo:</dt>
+              <dd className="font-medium">{formatDateTime(data.archivedAt)}</dd>
+            </div>
+            <div className="flex gap-2">
+              <dt className="text-muted-foreground">Quién:</dt>
+              <dd className="font-medium">
+                {/* `archivedBy` null = lo pidió y lo ejecutó el propio usuario. */}
+                {data.archivedBy ? data.archivedBy.name : 'El propio usuario'}
+              </dd>
+            </div>
+            <div className="flex gap-2">
+              <dt className="text-muted-foreground">Motivo:</dt>
+              <dd className="font-medium">
+                {data.archiveReason === 'SELF_REQUEST'
+                  ? 'A petición del usuario'
+                  : 'Decisión de la plataforma'}
+              </dd>
+            </div>
+            <div className="flex gap-2">
+              <dt className="text-muted-foreground">Al desarchivar volverá a:</dt>
+              <dd className="font-medium">
+                {STATUS_LABELS[data.statusBeforeArchive ?? 'ACTIVE'] ?? data.statusBeforeArchive}
+              </dd>
+            </div>
+            {data.archiveNote && (
+              <div className="flex gap-2 sm:col-span-2">
+                <dt className="shrink-0 text-muted-foreground">Nota:</dt>
+                <dd className="font-medium">{data.archiveNote}</dd>
+              </div>
+            )}
+          </dl>
+        </div>
+      )}
+
       {/* Last listings */}
       <div>
         <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -738,6 +805,66 @@ export default function AdminUsuariosPage() {
                                     <Loader2 className="h-3 w-3 animate-spin" />
                                   ) : (
                                     'Reactivar'
+                                  )}
+                                </Button>
+                              )}
+                              {/*
+                                BORRADO DE CUENTAS C2 — archivar. MODERATOR+, porque es
+                                REVERSIBLE (`Desarchivar` la devuelve al estado que tenía).
+                                Se ofrece desde cualquiera de los tres estados de sanción:
+                                un baneado conserva su derecho a que le cierren la cuenta, y
+                                como no puede entrar, sólo el staff puede ejecutarlo por él.
+                              */}
+                              {user.status !== 'ARCHIVED' && user.status !== 'DELETED' && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 px-2 text-xs"
+                                  disabled={isPending}
+                                  onClick={() =>
+                                    handleAction(() => archiveUser(token, user.id), user.id)
+                                  }
+                                >
+                                  {isPending ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    'Archivar'
+                                  )}
+                                </Button>
+                              )}
+                              {/*
+                                Desarchivar: MODERATOR+. NO elige destino — el backend lo lee
+                                de `statusBeforeArchive`, así que esto NO es un atajo para
+                                levantar un ban sin ser ADMIN. La ficha enseña a dónde volverá.
+                              */}
+                              {user.status === 'ARCHIVED' && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 px-2 text-xs"
+                                  disabled={isPending}
+                                  onClick={() =>
+                                    handleAction(async () => {
+                                      const r = (await unarchiveUser(token, user.id)) as {
+                                        anunciosReactivados: number;
+                                        anunciosSinCupo: number;
+                                      };
+                                      // §4.4 pide avisar de lo que NO cupo. Sin esto, un
+                                      // moderador que desarchiva a alguien con más anuncios
+                                      // que cupo ve volver sólo una parte y concluye que
+                                      // desarchivar está roto.
+                                      if (r?.anunciosSinCupo > 0) {
+                                        toast.info(
+                                          `${r.anunciosReactivados} anuncio(s) reactivados. ${r.anunciosSinCupo} se quedan en pausa: no caben en el cupo de su plan.`,
+                                        );
+                                      }
+                                    }, user.id)
+                                  }
+                                >
+                                  {isPending ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    'Desarchivar'
                                   )}
                                 </Button>
                               )}

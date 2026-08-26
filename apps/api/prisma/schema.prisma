@@ -1643,7 +1643,11 @@ model AuditLog {
   ///   los cambios MANUALES: la transición automática REVIEWED→EDITED no genera
   ///   registro porque no lleva ningún dato que el anuncio no tenga ya, y porque
   ///   `actorId` exige una persona)
-  /// USER_SUSPEND | USER_BAN | USER_REINSTATE | USER_ROLE_CHANGE
+  /// USER_SUSPEND | USER_UNSUSPEND | USER_BAN | USER_REINSTATE | USER_ROLE_CHANGE
+  /// USER_ARCHIVE | USER_UNARCHIVE (borrado de cuentas C2 — el `after` de
+  ///   USER_ARCHIVE lleva `archiveReason`, `autoArchivado` (si lo pidió el propio
+  ///   usuario) y cuántos anuncios se pausaron; el de USER_UNARCHIVE, a qué estado
+  ///   volvió y cuántos anuncios cupieron)
   /// REPORT_RESOLVE | REPORT_DISMISS
   /// CATEGORY_CREATE | CATEGORY_EDIT | CATEGORY_DELETE | CATEGORY_REORDER
   /// SETTING_UPDATE

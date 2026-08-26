@@ -6,7 +6,15 @@ import Stripe = require('stripe');
 import { Prisma, SubscriptionStatus, TransactionStatus, EntitlementType } from '@prisma/client';
 import { QUEUE_BILLING } from '../../infra/queue/queue.constants';
 import { PrismaService } from '../../infra/prisma/prisma.service';
-import { BILLING_JOB, BillingJobData, STRIPE_EVENTS, VAT_RATE } from './billing.types';
+import { BillingService } from './billing.service';
+import {
+  BILLING_JOB,
+  BillingJobData,
+  BillingQueueJobData,
+  CancelSubscriptionsJobData,
+  STRIPE_EVENTS,
+  VAT_RATE,
+} from './billing.types';
 
 // ---------------------------------------------------------------------------
 // Tax helpers (Stripe v22 API)
@@ -95,17 +103,36 @@ interface InvoiceParentV22 {
 export class BillingProcessor extends WorkerHost {
   private readonly logger = new Logger(BillingProcessor.name);
 
-  constructor(private readonly prisma: PrismaService) {
+  constructor(
+    private readonly prisma: PrismaService,
+    // BORRADO DE CUENTAS C2 — para `CANCEL_SUBSCRIPTIONS`. `BillingService` es
+    // quien tiene el cliente de Stripe (un getter perezoso), así que la
+    // cancelación vive allí y aquí sólo se dispara. Los dos son providers del
+    // MISMO módulo: no hay ciclo.
+    private readonly billing: BillingService,
+  ) {
     super();
   }
 
-  async process(job: Job<BillingJobData>): Promise<void> {
+  async process(job: Job<BillingQueueJobData>): Promise<void> {
     try {
+      // BORRADO DE CUENTAS C2 — la cancelación de una cuenta archivada (§6.5).
+      // Entra por la misma cola para heredar sus reintentos, y se distingue por
+      // `job.name`, que es lo que este `process` ya miraba.
+      if (job.name === BILLING_JOB.CANCEL_SUBSCRIPTIONS) {
+        const { userId } = job.data as CancelSubscriptionsJobData;
+        const canceladas = await this.billing.cancelActiveSubscriptionsFor(userId);
+        this.logger.log(
+          `Cuenta archivada ${userId}: ${canceladas} suscripción(es) marcadas para no renovar`,
+        );
+        return;
+      }
+
       if (job.name !== BILLING_JOB.PROCESS_STRIPE_EVENT) {
         this.logger.warn(`Unknown billing job: ${job.name}`);
         return;
       }
-      const { eventType, payload } = job.data;
+      const { eventType, payload } = job.data as BillingJobData;
       switch (eventType) {
         case STRIPE_EVENTS.CHECKOUT_SESSION_COMPLETED:
           return this.handleCheckoutCompleted(payload as Stripe.Checkout.Session);
