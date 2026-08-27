@@ -356,6 +356,13 @@ Dicho explícitamente para que nadie lo rehaga:
   tiempo sino que mataría la fuente 2 de raíz. Hoy no compensa, y la fuente 2 se cierra más barato
   con un helper.)
 
+  > **Dato medido al implementar A1 (2026-08-27), sin propuesta detrás.** Corriendo la batería
+  > entera en local: **159 suites, 2 424 tests, 585 s**. Los «110 s» de `pendientes.md:551` y las
+  > «92 suites» de la línea 305 son de otro momento del proyecto — la batería ha crecido ~73 % en
+  > suites y **5×** en reloj. Eso no reabre la decisión, que es de Ernest: sólo deja constancia de
+  > que su aritmética («ahorraría 60-70 s») descansa en una cifra caducada, para que si alguien la
+  > revisa parta del número real y no del viejo.
+
 **Rojos conocidos que no son de este grupo** (para no mezclarlos en el veredicto):
 
 - `queue-retry › "Retry real"` — flaky por timing de indexación de Meili, preexistente y anotado en
@@ -383,11 +390,27 @@ Un fichero de fuente al repo, dos líneas de layout, un `OFL.txt`. Cierra la ún
 del build sobre la que tenemos control. Va primera porque cuando muerde no tumba un test: tumba el
 job entero, y con él Playwright.
 
-### Ráfaga A1 — la cola deja de ser un dado
+### Ráfaga A1 — la cola deja de ser un dado ✅ HECHA (2026-08-27)
 
 `conColaPausada` en `helpers/queue.ts`; 5 casos reescritos en 2 ficheros; la nota del helper
 corregida (§1.4: los jobId no bastan); c5 pasa a usar el helper. Segunda porque es acotada y el
 diagnóstico está cerrado.
+
+**Lo que las mutaciones enseñaron, y que no estaba en el plan.** Al mutar `conColaPausada` para que
+no pausara (con el retardo de 2,5 s puesto) cayeron **4 de los 5** casos. El quinto —«SOLD no
+encola»— pasó, y **tenía que pasar**: afirma una AUSENCIA, y quitar la pausa sólo puede hacer
+desaparecer jobs, nunca aparecer uno. Que su barrera valga algo hubo que probarlo por el otro lado,
+mutando **producción** (quitarle al barrido el filtro `listing: { status: 'ACTIVE' }`):
+
+| | con pausa | sin pausa (+2,5 s) |
+|---|---|---|
+| producción sana | verde | **4 casos rojos** |
+| producción rota (sin filtro `ACTIVE`) | **rojo — lo caza** | **verde — falso** |
+
+Esa última casilla es el hallazgo: sin la pausa, el caso SOLD pasaba **en verde justo cuando el
+defecto que vigila estaba presente**, porque el worker se llevaba el job mal encolado antes de que
+el test mirara. No era un test racy: era un test **decorativo**. La pausa es lo que lo convierte en
+barrera.
 
 ### Ráfaga A2 — los `Setting` dejan de contaminarse *(la más ancha)*
 

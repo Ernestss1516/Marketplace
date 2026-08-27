@@ -24,7 +24,7 @@ import { createTestApp } from './helpers/create-app';
 import { cleanDb } from './helpers/db';
 // `getJobs` de BullMQ puede devolver huecos cuando el worker completa un job
 // mientras se lee (`removeOnComplete: true`). Ver `helpers/queue.ts`.
-import { ESTADOS_EN_VUELO, getExistingJobs } from './helpers/queue';
+import { ESTADOS_EN_VUELO, conColaPausada, getExistingJobs } from './helpers/queue';
 import { EntitlementExpirationService } from 'src/modules/expiration/entitlement-expiration.service';
 import { QUEUE_INDEXING } from 'src/infra/queue/queue.constants';
 
@@ -117,6 +117,34 @@ describe('RF.7-B — Entitlement expiration cron (e2e)', () => {
     });
   }
 
+  /** La fecha UTC con la que el productor compone el `jobId`. */
+  const fechaUtc = () => new Date().toISOString().slice(0, 10);
+
+  /**
+   * Corre el barrido y devuelve las fechas UTC con las que HA PODIDO componer el
+   * `jobId` (`feat-exp-<entId>-<YYYY-MM-DD>`, servicio línea 85).
+   *
+   * Se anota a los DOS lados de la llamada porque el servicio calcula su `today`
+   * por dentro: si el barrido cruzara la medianoche UTC, reconstruir el id con una
+   * sola fecha fallaría. Pasa una vez cada muchos años y dura milisegundos — que es
+   * exactamente la forma de las carreras que esta ráfaga viene a cerrar, así que no
+   * se cambia una por otra.
+   */
+  async function ejecutarBarridoAnotandoFecha(): Promise<string[]> {
+    const antes = fechaUtc();
+    await expirationService.runExpirationSweep();
+    const despues = fechaUtc();
+    return [...new Set([antes, despues])];
+  }
+
+  /** El job de caducidad de destacado de ese entitlement, si existe. */
+  async function buscarJobFeatExp(entitlementId: string, fechas: string[]) {
+    const encontrados = await Promise.all(
+      fechas.map((f) => indexingQueue.getJob(`feat-exp-${entitlementId}-${f}`)),
+    );
+    return encontrados.find(Boolean);
+  }
+
   // ---------------------------------------------------------------------------
   // B.1 — Featured listing expiration
   // ---------------------------------------------------------------------------
@@ -127,32 +155,50 @@ describe('RF.7-B — Entitlement expiration cron (e2e)', () => {
       const listing = await createListing(user.id, ListingStatus.ACTIVE);
       const entitlement = await createExpiredFeaturedEntitlement(user.id, listing.id);
 
-      await expirationService.runExpirationSweep();
+      // La cola PARADA mientras se barre y se lee: `expireFeaturedListings` encola
+      // con `removeOnComplete: true` y el worker está vivo, así que sin la pausa
+      // este `getJob` es una apuesta a llegar antes que él. Ver `helpers/queue.ts`.
+      const job = await conColaPausada(indexingQueue, async () => {
+        const fechasCandidatas = await ejecutarBarridoAnotandoFecha();
 
-      // revokedAt must be set
-      const updated = await prisma.entitlement.findUniqueOrThrow({ where: { id: entitlement.id } });
-      expect(updated.revokedAt).not.toBeNull();
+        // revokedAt must be set
+        const updated = await prisma.entitlement.findUniqueOrThrow({
+          where: { id: entitlement.id },
+        });
+        expect(updated.revokedAt).not.toBeNull();
 
-      // The BullMQ job must exist for this listing
-      const jobs = await getExistingJobs(indexingQueue, ESTADOS_EN_VUELO);
-      const job = jobs.find((j) => j.data?.listingId === listing.id);
+        // POR jobId, que es DETERMINISTA (`feat-exp-<entId>-<YYYY-MM-DD>`, ver
+        // entitlement-expiration.service.ts:85) y por tanto dice más que «hay un job
+        // para este anuncio»: dice que es EL job de ESTE entitlement, el mismo que
+        // el productor usa para deduplicar.
+        return buscarJobFeatExp(entitlement.id, fechasCandidatas);
+      });
+
       expect(job).toBeDefined();
+      expect(job!.data?.listingId).toBe(listing.id);
     });
 
     it('does NOT enqueue reindex for a non-ACTIVE listing (SOLD)', async () => {
       const user = await createUser(`b1-sold-${Date.now()}`);
       const listing = await createListing(user.id, ListingStatus.SOLD);
-      await createExpiredFeaturedEntitlement(user.id, listing.id);
+      const entitlement = await createExpiredFeaturedEntitlement(user.id, listing.id);
 
-      const jobsBefore = await getExistingJobs(indexingQueue, ESTADOS_EN_VUELO);
-      const countBefore = jobsBefore.filter((j) => j.data?.listingId === listing.id).length;
+      // AUSENCIA POR IDENTIDAD, no por conteo.
+      //
+      // Esto comparaba un `countBefore` con un `countAfter` filtrados por
+      // `listingId`, y el conteo nunca fue lo que se quería afirmar: lo que prueba
+      // este caso es que para ESTE anuncio no aparece NINGÚN job. Con la cola
+      // parada, «ninguno» es una afirmación estable; sin ella, un cero podía venir
+      // de que el worker se hubiera llevado el job que sí se encoló —o sea, el test
+      // pasaba en verde justo cuando el defecto que vigila estaba presente—.
+      await conColaPausada(indexingQueue, async () => {
+        const fechasCandidatas = await ejecutarBarridoAnotandoFecha();
 
-      await expirationService.runExpirationSweep();
+        expect(await buscarJobFeatExp(entitlement.id, fechasCandidatas)).toBeUndefined();
 
-      const jobsAfter = await getExistingJobs(indexingQueue, ESTADOS_EN_VUELO);
-      const countAfter = jobsAfter.filter((j) => j.data?.listingId === listing.id).length;
-
-      expect(countAfter).toBe(countBefore); // no new jobs
+        const jobs = await getExistingJobs(indexingQueue, ESTADOS_EN_VUELO);
+        expect(jobs.filter((j) => j.data?.listingId === listing.id)).toHaveLength(0);
+      });
     });
 
     it('IDEMPOTENCY: second sweep does NOT re-process already-revoked entitlements', async () => {
@@ -160,20 +206,29 @@ describe('RF.7-B — Entitlement expiration cron (e2e)', () => {
       const listing = await createListing(user.id, ListingStatus.ACTIVE);
       const entitlement = await createExpiredFeaturedEntitlement(user.id, listing.id);
 
-      // First sweep
-      await expirationService.runExpirationSweep();
+      await conColaPausada(indexingQueue, async () => {
+        const fechas = await ejecutarBarridoAnotandoFecha();
+        const primero = await buscarJobFeatExp(entitlement.id, fechas);
+        expect(primero).toBeDefined();
 
-      const jobsAfterFirst = await getExistingJobs(indexingQueue, ESTADOS_EN_VUELO);
-      const countAfterFirst = jobsAfterFirst.filter((j) => j.data?.listingId === listing.id).length;
+        // Second sweep — revokedAt is already set, so this entitlement is excluded
+        await ejecutarBarridoAnotandoFecha();
 
-      // Second sweep — revokedAt is already set, so this entitlement is excluded
-      await expirationService.runExpirationSweep();
+        const segundo = await buscarJobFeatExp(entitlement.id, fechas);
+        expect(segundo).toBeDefined();
 
-      const jobsAfterSecond = await getExistingJobs(indexingQueue, ESTADOS_EN_VUELO);
-      const countAfterSecond = jobsAfterSecond.filter((j) => j.data?.listingId === listing.id).length;
-
-      // BullMQ deduplicates by jobId, so count stays the same
-      expect(countAfterSecond).toBe(countAfterFirst);
+        // EL MISMO JOB, no otro con la misma pinta.
+        //
+        // El `timestamp` es la hora de CREACIÓN del job: si el segundo barrido
+        // hubiera encolado de nuevo, habría un job nuevo y el sello cambiaría. Que
+        // no cambie es la garantía de deduplicación que promete el productor
+        // (entitlement-expiration.service.ts:80-81), afirmada directamente.
+        //
+        // Antes esto comparaba dos conteos, que probaban lo mismo de refilón y sólo
+        // mientras nada más tocara la cola.
+        expect(segundo!.id).toBe(primero!.id);
+        expect(segundo!.timestamp).toBe(primero!.timestamp);
+      });
 
       // revokedAt still set (not cleared)
       const ent = await prisma.entitlement.findUniqueOrThrow({ where: { id: entitlement.id } });
@@ -324,24 +379,37 @@ describe('RF.7-B — Entitlement expiration cron (e2e)', () => {
       const user = await createUser(`b2-reindex-${Date.now()}`);
 
       // 7 active listings — 2 will go to DRAFT (excess over free limit of 5)
+      // `offsetMs` se resta de `publishedAt`, así que el i=0 es el MÁS VIEJO: los
+      // dos primeros del array son los que el degradado tiene que bajar a DRAFT.
       const listings: string[] = [];
       for (let i = 0; i < 7; i++) {
         const l = await createListing(user.id, ListingStatus.ACTIVE, (7 - i) * 60 * 1000);
         listings.push(l.id);
       }
+      const esperadosEnDraft = listings.slice(0, 2);
       await createExpiredProEntitlement(user.id, 10);
 
-      const jobsBefore = await getExistingJobs(indexingQueue, ESTADOS_EN_VUELO);
-      const countBefore = jobsBefore.filter((j) => listings.includes(j.data?.listingId as string)).length;
+      // AQUÍ NO HAY jobId QUE MIRAR: el degradado encola con
+      // `indexingQueue.add('index', { listingId })` a secas (servicio línea 182),
+      // sin `jobId`, así que BullMQ le pone uno autoincremental. Reconstruirlo desde
+      // el test es imposible, y añadirle un `jobId` al productor para que un test
+      // pueda afirmar sería tocar producción por comodidad del test.
+      //
+      // La aserción honesta con lo que hay: bajo la cola parada, existe un job para
+      // cada uno de los anuncios que han caído a DRAFT — identidad por DATO, no
+      // conteo. El `countAfter - countBefore >= 2` de antes dependía de que ningún
+      // job ajeno se completara entre las dos lecturas, y además no comprobaba
+      // CUÁLES eran los dos.
+      const degradados = await conColaPausada(indexingQueue, async () => {
+        await expirationService.runExpirationSweep();
 
-      await expirationService.runExpirationSweep();
+        const jobs = await getExistingJobs(indexingQueue, ESTADOS_EN_VUELO);
+        const conJob = new Set(jobs.map((j) => j.data?.listingId as string));
+        return listings.filter((id) => conJob.has(id));
+      });
 
       // The 2 oldest listings are now DRAFT; reindex jobs must exist for them
-      const jobsAfter = await getExistingJobs(indexingQueue, ESTADOS_EN_VUELO);
-      const countAfter = jobsAfter.filter((j) => listings.includes(j.data?.listingId as string)).length;
-
-      // At least 2 new jobs were enqueued (one per drafted listing)
-      expect(countAfter - countBefore).toBeGreaterThanOrEqual(2);
+      expect([...degradados].sort()).toEqual([...esperadosEnDraft].sort());
 
       // Confirm the 2 oldest are DRAFT and the 5 newest are still ACTIVE
       const draftCount = await prisma.listing.count({
