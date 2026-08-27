@@ -438,6 +438,15 @@ anuncio propio y `ACTIVE`.
 - **`DELETE /video/listings/:id`** *(auth)* — Quita el vídeo y **borra los tres objetos**:
   `.mp4`, póster y sprite.
 
+> **Qué sale de todo esto a una TARJETA.** Sólo dos cosas: `hasVideo` (booleano) y
+> **`videoPreviewUrl`** (el sprite). **Nunca `videoUrl` ni `videoPosterUrl`** — la dirección
+> del `.mp4` no viaja a ninguna lista, y ésa es la garantía. La del sprite sí puede: es una
+> imagen fija de 20-45 KB, del orden de la portada, y con ella no se puede montar un
+> `<video>`. Y que la URL viaje no descarga nada: la tarjeta sólo monta el elemento al pasar
+> el ratón. Lo sirven igual los payloads de Postgres (`toSummary`) y los hits de Meilisearch.
+> En la **ficha** es al revés: ahí viaja `videoUrl` (es donde el vídeo se ve) y **no** el
+> sprite.
+
 ---
 
 ## Favorites

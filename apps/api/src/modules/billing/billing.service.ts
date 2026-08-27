@@ -1225,6 +1225,22 @@ export class BillingService {
       beneficios.push(
         `Vídeo en tus anuncios: hasta ${MAX_VIDEO_DURATION_SECONDS} segundos enseñando el artículo`,
       );
+      /**
+       * PÓSTER ANIMADO P2 — LA PREVISUALIZACIÓN, Y CON «EN ORDENADOR» DENTRO.
+       *
+       * BAJO LA MISMA CONDICIÓN que la línea de arriba y no bajo una nueva: la
+       * previsualización es parte del vídeo, así que se concede y se retira con él. Un
+       * ajuste propio serían dos verdades que mantener sincronizadas.
+       *
+       * Y EL «EN ORDENADOR» NO ES UN MATIZ, ES LA HONESTIDAD DE LA LÍNEA. La animación
+       * vive tras `@media (hover: hover)`, así que en móvil **no se ve** — decisión de
+       * producto (b): animar en cada tarjeta de la vista de más tráfico costaría cientos
+       * de KB en la red más cara. Prometérselo a todo el mundo sería exactamente lo que
+       * esta función entera vino a cerrar: anunciar lo que no se concede.
+       */
+      beneficios.push(
+        'Previsualización animada de tu vídeo en los resultados (al pasar el ratón, en ordenador)',
+      );
     }
 
     // Cada uno solo se promete si el ajuste lo concede de verdad: una cuota a 0 no es un

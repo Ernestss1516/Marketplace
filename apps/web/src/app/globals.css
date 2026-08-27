@@ -183,3 +183,75 @@
     animation: none;
   }
 }
+
+/* ==========================================================================
+   PÓSTER ANIMADO P2 — la previsualización del vídeo al pasar el ratón
+   (docs/diseno-poster-animado.md §5)
+
+   QUÉ ES: el sprite es UNA IMAGEN FIJA con los cinco fotogramas del vídeo en
+   una tira horizontal. Aquí no se descarga ningún vídeo ni se monta ningún
+   <video>: lo único que hace este CSS es MOVER LA VENTANA sobre esa imagen.
+   Por eso la vía del póster animado no traiciona el diseño del vídeo — el
+   principio «una tarjeta no descarga vídeo» se respeta por construcción, no
+   por disciplina.
+
+   POR QUÉ VIVE AQUÍ Y NO EN CLASES DE TAILWIND: `steps(5)` y los keyframes de
+   `background-position` no se pueden escribir con utilidades, y el número de
+   fotogramas tiene que casar con PREVIEW_FRAMES (lib/api/video.ts). Está en el
+   mismo sitio y por el mismo motivo que la rotación del hero de arriba.
+   ========================================================================== */
+
+.sprite-hover {
+  /* La imagen la pone el componente en línea (`--sprite`), porque la URL es un
+     dato de cada anuncio. Aquí sólo va la geometría, que es constante. */
+  background-image: var(--sprite);
+  /* CINCO fotogramas de ancho: la ventana muestra 1/5 de la imagen. Si esto
+     dejara de casar con PREVIEW_FRAMES, se vería medio fotograma — por eso ese
+     número es una constante del proyecto y no un dato por fila. */
+  background-size: 500% 100%;
+  background-repeat: no-repeat;
+  background-position: 0 0;
+  opacity: 0;
+  /* Un desvanecido corto para que el cambio no sea un parpadeo seco. */
+  transition: opacity 150ms ease-out;
+}
+
+/* SÓLO DONDE HAY HOVER DE VERDAD.
+
+   El puntero fino y el hover real son de ESCRITORIO. En táctil no existe el
+   hover: un `:hover` a secas se queda "pegado" tras un toque, así que sin esta
+   consulta el móvil vería la animación arrancar al tocar la tarjeta — que es
+   justo lo que la decisión de producto (b) descarta, porque supondría bajar el
+   sprite en CADA tarjeta de la vista de más tráfico.
+
+   El móvil se queda con la foto de portada y su indicador de vídeo, igual que
+   antes de esta ráfaga. Y elegir esto hoy no cierra la puerta a lo contrario
+   mañana: cambiar de idea es cambiar ESTA consulta, no el modelo. */
+@media (hover: hover) and (pointer: fine) {
+  .group:hover .sprite-hover {
+    opacity: 1;
+    animation: sprite-play 1.25s steps(5) infinite;
+  }
+}
+
+/* La tira, un fotograma cada vez. `steps(5)` es lo que hace que salte en seco
+   de uno a otro: sin él, el navegador interpolaría y se vería un BARRIDO
+   lateral en vez de una animación. */
+@keyframes sprite-play {
+  from {
+    background-position-x: 0%;
+  }
+  to {
+    background-position-x: -500%;
+  }
+}
+
+/* Una animación en bucle bajo el cursor es exactamente el caso que esta
+   consulta existe para cubrir. Y apagarla sale gratis: sin animación queda el
+   PRIMER fotograma del sprite, que es una imagen perfectamente válida — no una
+   versión mutilada de nada. Mismo criterio que el hero de arriba. */
+@media (prefers-reduced-motion: reduce) {
+  .sprite-hover {
+    animation: none !important;
+  }
+}

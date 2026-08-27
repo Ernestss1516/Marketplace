@@ -598,7 +598,7 @@ Partir por ahí permite empezar sin esperar.
 | | Qué entra | Por qué aquí | ¿Se ve algo? |
 |---|---|---|---|
 | **P1 · El artefacto y el dato** ✅ **HECHO** | Migración (`videoPreviewUrl`) · `MAX_PREVIEW_BYTES` y el prefijo en `video-limits.ts` · `captureVideoSprite` · `POST /video/preview-url` · `previewKey` en `confirmUpload` · **la limpieza de los tres objetos, con H-2 cerrado** · `StepVideo` captura y sube | Nada existe sin el dato. Y la **limpieza va con el objeto, no después**: un objeto que se crea antes de que exista quien lo borre es basura desde el primer día — el mismo criterio que puso los `Restrict` antes que cualquier borrado en C1 | **No.** El sprite se guarda y no lo pinta nadie |
-| **P2 · El hover** | `videoPreviewUrl` en `SELECT_SUMMARY`/`toSummary` y en el documento de Meilisearch · el componente de hover en `CardPhotoCarousel` (con `isSafeSrc`, `hover:hover`, `prefers-reduced-motion`) · la línea de `/planes` | Se puede desarrollar contra sprites que P1 ya está generando. Y **es la ráfaga que la decisión del móvil condiciona** | **Sí** |
+| **P2 · El hover** ✅ **HECHO** | `videoPreviewUrl` en `SELECT_SUMMARY`/`toSummary` y en el documento de Meilisearch · el componente de hover en `CardPhotoCarousel` (con `isSafeSrc`, `hover:hover`, `prefers-reduced-motion`) · la línea de `/planes` | Se puede desarrollar contra sprites que P1 ya está generando. Y **es la ráfaga que la decisión del móvil condiciona** | **Sí** |
 
 **El orden tiene una propiedad que conviene nombrar:** al acabar P1, cada vídeo nuevo ya trae
 su sprite. Cuando P2 se despliegue, **no estrena con el catálogo vacío** — habrá tantas
@@ -659,7 +659,7 @@ las respuestas**; sólo hay que elegir.
 
 | # | Decisión | Lo que aporta el diseño |
 |---|---|---|
-| **P-1** | **El móvil: (a) anima siempre, (b) póster fijo, (c) un toque lo activa.** §5.4 | El coste medido de cada una (**(a) ≈ 840 KB por pantalla de búsqueda**), la recomendación **(b)** con sus tres razones, y el hecho de que **elegir (b) hoy no cierra (a) ni (c) mañana**: cambia una consulta de medios, no el modelo. **Sólo condiciona P2** |
+| **P-1** ✅ **CERRADA — (b)** | **El móvil: (a) anima siempre, (b) póster fijo, (c) un toque lo activa.** §5.4 | El coste medido de cada una (**(a) ≈ 840 KB por pantalla de búsqueda**), la recomendación **(b)** con sus tres razones, y el hecho de que **elegir (b) hoy no cierra (a) ni (c) mañana**: cambia una consulta de medios, no el modelo. **Implementada en P2** — la animación vive tras `@media (hover: hover) and (pointer: fine)`, y la tarjeta ni siquiera monta el sprite con un puntero táctil |
 | **P-2** | **¿Se ofrece «regenerar previsualización» para los vídeos ya subidos?** §3.4 | Es la **única** vía honesta sin `ffmpeg`, y cuesta **hasta 50 MB de descarga en el dispositivo del vendedor**. Si no se ofrece, el catálogo existente se va poblando solo, a medida que la gente vuelve a subir. Recomendación: **no en P1** — decidirlo cuando se vea cuántos vídeos hay de verdad |
 
 ---

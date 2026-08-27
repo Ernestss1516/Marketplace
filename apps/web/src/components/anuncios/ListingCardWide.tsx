@@ -41,6 +41,7 @@ export function ListingCardWide({
               title={listing.title}
               aspectClassName="aspect-[4/3] sm:aspect-square"
               hasVideo={listing.hasVideo}
+              videoPreviewUrl={listing.videoPreviewUrl}
               sizes="(max-width: 640px) 100vw, 256px"
               priority={priority}
             >

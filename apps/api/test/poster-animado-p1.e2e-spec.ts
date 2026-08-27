@@ -274,22 +274,11 @@ describe('Póster animado P1 — el artefacto y el dato (e2e)', () => {
       expect(await r2.head(claveDe(videoPreviewUrl))).not.toBeNull();
     });
 
-    it('P1 NO PINTA NADA: la tarjeta sigue sirviendo sólo `hasVideo`', async () => {
-      const { listing } = await anuncioConLosTres('sin-pintar');
-
-      const res = await request(app.getHttpServer())
-        .get('/api/users/me/listings')
-        .set('Authorization', `Bearer ${proToken}`)
-        .expect(200);
-
-      const tarjeta = (res.body.items as Record<string, unknown>[]).find(
-        (l) => l.id === listing.id,
-      )!;
-      expect(tarjeta.hasVideo).toBe(true);
-      // La superficie es exactamente la de antes de esta ráfaga. Enseñarlo es P2, y hasta
-      // entonces el dato existe sin que ninguna pantalla dependa de él.
-      expect(tarjeta.videoPreviewUrl).toBeUndefined();
-    });
+    // NOTA — aquí vivía «P1 NO PINTA NADA», que comprobaba que `videoPreviewUrl` NO salía
+    // en la tarjeta. Era cierto mientras P1 fue lo único desplegado y **P2 lo ha invertido
+    // a propósito**: la URL viaja ahora en el payload, y el elemento sólo se monta en hover.
+    // Lo que ocupa su sitio es la barrera B-2, en `poster-animado-p2.e2e-spec.ts`: la
+    // tarjeta trae el sprite **y sigue sin traer** `videoUrl` ni `videoPosterUrl`.
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
