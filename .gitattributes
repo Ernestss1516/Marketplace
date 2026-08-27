@@ -21,3 +21,18 @@
 # una migración aplicada es inmutable; si hay que retocarla, hay que reconciliar
 # también su `checksum` en `_prisma_migrations`.
 apps/api/prisma/migrations/**/*.sql text eol=lf
+
+# FUENTES — binario, y dicho explícitamente.
+#
+# `apps/web/src/app/fonts/*.woff2` es el fichero de Inter que sirve el layout raíz
+# (A3: sacar Google Fonts del build). Git lo detecta hoy como binario él solo y no
+# lo toca, así que esta línea no arregla nada que esté roto — **fija** ese
+# comportamiento. Con `core.autocrlf=true`, que es lo que hay en las máquinas
+# Windows del proyecto, un fichero que se colara como texto saldría del checkout
+# con los 0x0A convertidos a 0x0D0A: la fuente quedaría corrupta, el navegador la
+# descartaría en silencio y el sitio caería al fallback de Arial sin que nada
+# fallara ruidosamente. Barato de prevenir, caro de diagnosticar.
+*.woff2 binary
+*.woff binary
+*.ttf binary
+*.otf binary

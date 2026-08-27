@@ -304,6 +304,25 @@ verificados:
   a fijar explícitamente: `next/font/google` aplica `display: 'swap'` por defecto y
   `next/font/local` **no** — hay que pasarlo a mano o el primer pintado cambia de comportamiento.
   Es el único detalle donde este cambio «mecánico» puede alterar algo perceptible.
+
+> **Corrección tras implementar A3 (2026-08-27).** Dos afirmaciones de esta sección salieron mal, y
+> las dos se descubrieron **construyendo las dos versiones y comparando el CSS emitido** — no
+> leyendo la configuración, que es como se escribieron:
+>
+> 1. **`display: 'swap'` es el valor por defecto de los DOS cargadores** (verificado en
+>    `next/font` 15.5, `validate-local-font-function-call.js`). El aviso de arriba era falso. Se
+>    pasa explícito igual, pero por claridad, no porque hiciera falta.
+> 2. **«Un fichero cubre lo mismo» es falso, y ése sí era el riesgo real.** `subsets: ['latin']`
+>    no pedía un fichero: pedía **precargar** el latin. Google devolvía **siete** `@font-face` con
+>    su `unicode-range` (latin, latin-ext, cyrillic, cyrillic-ext, greek, greek-ext, vietnamese) y
+>    el navegador bajaba los demás bajo demanda. Con un solo fichero, un texto de usuario en
+>    cirílico o con diacríticos de latin-ext cae al fallback de Arial en vez de pintarse en Inter.
+>    Se aceptó a conciencia —lo descargado en una página normal es idéntico, y las alternativas
+>    cuestan más de lo que arreglan— y está razonado entero en
+>    [`apps/web/src/app/fonts/README.md`](../apps/web/src/app/fonts/README.md).
+>
+> La lección es la de la propia auditoría, aplicada a la auditoría: leer la configuración no es
+> verificar. Lo que verifica es construir y mirar la salida.
 - **Licencia:** Inter es **SIL Open Font License 1.1**, redistribuible con el software siempre que
   se incluya el aviso de copyright y la licencia. Se añade el `OFL.txt` junto al fichero de la
   fuente. No hay impedimento.
