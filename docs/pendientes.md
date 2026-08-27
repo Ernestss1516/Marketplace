@@ -1,7 +1,9 @@
 # Pendientes reales del proyecto
 
 > Lo que queda por **CONSTRUIR** (no documentación desfasada). Verificado contra código el
-> 2026-08-09, rama `main`, commit `842ea24`.
+> 2026-08-09, rama `main`, commit `842ea24`; **repasado el 2026-08-27 sobre `42bd104`** para
+> cerrar los bloques terminados y anotar los dos residuos que quedan (§4.2, «Los dos residuos
+> vivos»).
 > Para el estado de lo IMPLEMENTADO, ver `estado-tecnico.md`.
 
 Este documento nació de la auditoría de documentación de 2026-08-04, al separar dos cosas que
@@ -121,6 +123,21 @@ de UI» explícitamente marcado como *«no una brecha funcional»*. Esta fase es
 | La saga del CI | Cerrada y verificada **en el runner**: corrida `30930395538`, SHA `e4df671` |
 | **CI sin unit tests del backend** | [ci.yml](../.github/workflows/ci.yml) — paso `Backend unit — Jest`. Verde en local **antes** de añadirlo (17/17 suites, 164/164 tests) y confirmado **en el runner**: corrida `31028999515`, SHA `b0c5916`, step `success` en 15 s |
 | **`Report.reviewId` en `Cascade`** — 7b lo neutralizó, esto lo **RESUELVE** | [schema.prisma](../apps/api/prisma/schema.prisma) — `SetNull` + snapshot (`reviewComment` / `reviewAuthorName`), tomado **al CREAR** la denuncia (molde B1, `diseno-borrado.md` §2.4/§3.3), con backfill en [`20260822230000_report_sobrevive_borrado_valoracion`](../apps/api/prisma/migrations/20260822230000_report_sobrevive_borrado_valoracion/migration.sql). Barrera en [`borrado-denuncia-valoracion.e2e-spec.ts`](../apps/api/test/borrado-denuncia-valoracion.e2e-spec.ts): borrar la valoración deja la denuncia viva y legible. Cierra el riesgo 5 de B1 |
+
+### 4.1-bis Bloques terminados desde el último repaso (2026-08-27) — **no reabrir**
+
+Ninguno de estos estaba listado como abierto aquí (se llevaban por su propio encargo y su
+propia auditoría), pero conviene que quede el rastro: son cinco cuerpos completos, y sin esta
+tabla la próxima sesión no tiene forma de saber que ya están cerrados. **El detalle vive en
+`estado-tecnico.md`; aquí sólo el qué y el commit.**
+
+| Bloque | Qué cierra | Commits |
+|---|---|---|
+| **Rotación de destacados** (auditoría + diseño + R1–R4, P2B, H9) | El bloque «Promocionados» ya no está congelado: rota por ventana de 15 min y **todos** los destacados tienen turno. La promesa del diálogo es honesta (el turno, con la cifra real `vigentes+1`), el comprador ve «Publicidad», y el mapa deja de pagar una consulta que no usa | `2cfe103` · `99be311` · `4f2dd4d` · `9616d7d` · `9c0e809` · `0563d27` |
+| **Borrado de cuentas** (auditoría + diseño + C1–C6) | Archivar / eliminar / exportar, **6/6**. El usuario se va sin perderlo todo y se lleva sus datos sin llevarse los de otros. De paso cerró tres huecos anteriores: los **8 `Cascade`** peligrosos, el **`BANNED` visible** en el escaparate y `forgotPassword` sin gate | `5c1baef` · `0ea6b7b` · `e17642f` · `b7de4be` · `89a5910` · `5616823`/`f7612ee` |
+| **Deuda de test/CI** (auditoría + A1–A3) | Las tres fuentes de rojos fantasma: Google Fonts fuera del build (A3), la carrera de conteo de jobs de BullMQ (A1) y el aislamiento de `Setting` con helper y barrera de corrida (A2) | `6af69b3` · `459fcc0` · `195e012` |
+| **Residuo `BANNED`** | Banear **pausa** los anuncios igual que el archivado (y reinstaurar **no** los restaura: devuelve el acceso, no la visibilidad). El enum de origen distingue ban de archivado, así que desarchivar no reactiva lo que pausó una sanción | `d422d22` |
+| **Póster animado** (diseño + P1 + P2) | El hover-preview del vídeo, resuelto como **sprite** —una imagen fija, no un `<video>`—, así que no traiciona el diseño del vídeo. Cerró de paso **H-2** (`removeVideo` dejaba el póster huérfano en el bucket) y añadió el barrido de favoritos | `3e93c95` · `42bd104` |
 
 ### 4.2 Abierto
 
@@ -406,6 +423,86 @@ de las dos vale lo que cuesta para eso. Está documentado en
 [`video-limits.ts`](../apps/api/src/modules/video/video-limits.ts), junto a la constante, y no
 enterrado en un commit.
 
+---
+
+### Los dos residuos vivos (2026-08-27)
+
+Lo único que quedó abierto de los cinco bloques de §4.1-bis. **Se anotan con su porqué, no
+sólo con su qué**: los dos se dejaron fuera por una decisión, y sin el razonamiento la próxima
+sesión los redescubre y los vuelve a evaluar desde cero.
+
+#### 1 · El ZIP de exportación se arma **en memoria** `[DEUDA]` — residuo de C6
+
+**Qué es.** [`data-export.zip.ts:44-72`](../apps/api/src/modules/data-export/data-export.zip.ts#L44)
+construye el ZIP entero con `jszip` y lo materializa como **un `Buffer`**
+(`generateAsync({ type: 'nodebuffer' })`) antes de subirlo a R2. Las fotos se descargan de R2
+una a una y se van metiendo dentro. Un vendedor con cientos de fotos más sus PDFs de factura
+produce un `Buffer` que pesa lo que pesa todo eso junto → **riesgo de agotar la memoria del
+worker** en un caso extremo.
+
+**Por qué NO se hizo ahora**, y son dos razones que se sostienen la una a la otra:
+
+1. Es un caso **extremo**: hoy no hay vendedores con catálogos de ese tamaño.
+2. El arreglo **tiene coste real**. Streamear el ZIP a R2 en vez de armarlo en memoria obliga a
+   cambiar de enfoque, y `jszip` se eligió precisamente porque **los tests abren el `Buffer`
+   del ZIP para verificar su contenido** (`JSZip.loadAsync` en
+   [`borrado-cuentas-c6-exportacion.e2e-spec.ts:319`](../apps/api/test/borrado-cuentas-c6-exportacion.e2e-spec.ts#L319)
+   y en `…-c6-puertas.e2e-spec.ts:115`). Con streaming, esas barreras —que son las que prueban
+   que la exportación contiene lo que promete— hay que rehacerlas.
+
+**Cuándo reconsiderarlo.** Cuando haya vendedores reales con catálogos grandes, **o al preparar
+el despliegue** (§1), que es donde el límite de memoria del worker deja de ser hipotético. Hoy
+no es urgente.
+
+**Dónde vive.** El worker de `data-export` (`data-export.processor.ts` → `data-export.zip.ts`).
+Diseño: `diseno-borrado-cuentas.md` §C6.
+
+#### 2 · Patrocinados con vídeo `[DEUDA]` — **feature nueva, no residuo**
+
+**Qué es.** Que un `SponsoredAd` —la publicidad de pago que coloca el admin— pueda llevar
+vídeo, como ya lo llevan los anuncios Pro. Hoy el modelo sólo tiene `imageUrl` y `targetUrl`
+([`schema.prisma`, modelo `SponsoredAd`](../apps/api/prisma/schema.prisma)).
+
+**OJO CON LA CONFUSIÓN DE NOMBRES, que es la razón de que esto esté escrito aquí:**
+`SponsoredAd` **no** son los destacados. Son dos entidades distintas y dos bloques distintos —
+los destacados son anuncios de vendedores que pagan por subir (§4.1-bis, «rotación»), y
+`SponsoredAd` es publicidad del admin. Quien lea «patrocinados» y piense en la rotación de
+destacados se pondrá a tocar el sitio equivocado.
+
+**Por qué NO se hizo ahora.** Porque **no es un residuo, es una feature nueva**. Toca otra
+entidad, con su propio diseño por delante: el flujo de subida (¿se reutiliza el prefirmado del
+vídeo Pro?), el gate (aquí no hay «Pro», lo sube el staff) y **cómo se enseña un vídeo en un
+banner de publicidad** — que es la pregunta de producto de verdad. Merece un encargo propio con
+su diseño, no colarse en un cierre de flecos.
+
+**Cuándo.** Cuando se quiera enriquecer la publicidad de pago del admin. No es urgente y no
+bloquea nada.
+
+**Dónde vive.** `SponsoredAd` y su bloque de portada/búsqueda — **no** el de destacados.
+
+#### 3 · H-1 — el póster fijo del vídeo deja fila huérfana y miniatura inútil `[DEUDA menor]`
+
+**Qué es.** El **póster fijo** de un vídeo (el frame de portada) se sube por
+`POST /media/upload`, que no está pensado para eso: crea una fila en **`ListingImage`** —con
+`listingId` a `null`, porque nadie la enlaza— y encola `sharp`, que le genera un
+**`-thumb.webp` que no usa nadie**. Y `listingMediaKeys` **no deriva esa miniatura** para el
+póster, así que al borrar el anuncio el thumb se queda en el bucket para siempre.
+
+**Lo que NO es.** El **sprite** del póster animado no las produce: va por su propio camino
+prefirmado a `listing-previews/` justo para evitarlo. O sea que la ráfaga que lo introdujo
+**no agrandó** esta fuga — sólo la dejó a la vista.
+
+**Por qué no se cerró.** Arreglarlo bien es **mudar el póster fijo a su propio camino** (como
+se hizo con el sprite), y eso obliga a migrar los pósters que ya están. Es otro cuerpo, y
+mezclarlo con el del hover habría sido hacer dos cosas a la vez.
+
+**Dónde vive.** [`media.service.ts:31-48`](../apps/api/src/modules/media/media.service.ts#L31)
+(el que crea la fila) · [`video.ts` — `uploadPoster`](../apps/web/src/lib/api/video.ts) (quien
+lo manda por ahí) · [`media-keys.ts:70-90`](../apps/api/src/infra/r2/media-keys.ts#L70) (quien
+no borra el thumb). Contexto completo: `diseno-poster-animado.md` §1.1 (H-1) y §3.3.
+
+---
+
 #### Tres rojos de e2e sin evidencia (nota, no deuda)
 
 En la primera tirada de la batería e2e de API de la ráfaga de UI del bump automático salieron **3
@@ -522,6 +619,9 @@ importar datos. La restricción que más duele **no está en el esquema**.
 | 4.2 | Aviso al admin si `proActiveListingLimit <= freeActiveListingLimit` | `[DEUDA]` | — |
 | 4.2 | Camino feliz del vídeo sin cubrir en navegador (falta fixture MP4) | `[DEUDA]` | — |
 | 4.2 | Límite de duración del vídeo blando (sin ffmpeg) | `[DEUDA]` | — |
+| 4.2 | **El ZIP de exportación se arma en memoria** (residuo de C6) — caso extremo hoy; el arreglo obliga a rehacer las barreras que abren el `Buffer` | `[DEUDA]` | conviene antes de §1 |
+| 4.2 | **Patrocinados con vídeo** — feature NUEVA sobre `SponsoredAd` (**no** los destacados), con diseño propio por delante | `[DEUDA]` | — |
+| 4.2 | **H-1** — el póster fijo del vídeo deja fila `ListingImage` huérfana y un `-thumb.webp` que nadie borra | `[DEUDA]` | — |
 | 4.2 | Página de tag del blog (SEO) | `[DEUDA]` | — |
 | 4.2 | Paginación home/categorías | `[DEUDA]` | — |
 | 4.2 | `allowedDevOrigins` | `[DEUDA]` | — |
@@ -548,6 +648,18 @@ Para que este documento signifique algo, conviene decir qué se excluyó deliber
   en su causa raíz con `waitForTask`), el aislamiento de las corridas e2e (candado compartido en
   `apps/api/test/e2e-lock.js`), y la saga del CI.
 - **Decisiones tomadas de no hacer algo.** El aislamiento de la base de test por worker de Jest
-  se evaluó en el Hito 9 y **se decidió no hacerlo**: la suite tarda 110 s en serie y el
-  paralelismo ahorraría ~60-70 s a cambio de una orquestación no trivial. No es deuda; es una
-  decisión.
+  se evaluó en el Hito 9 y **se decidió no hacerlo**, a cambio de una orquestación no trivial.
+  **La decisión sigue en pie; su aritmética no.**
+
+  Aquella cuenta —«la suite tarda 110 s en serie y el paralelismo ahorraría ~60-70 s»— es de
+  cuando la batería eran 33 suites y 564 tests. **Medido el 2026-08-27 sobre `main`:
+  163 suites, 2 476 tests, ~8,5 min en serie** (`--runInBand`; cuatro corridas de esta sesión
+  entre 490 s y 523 s). O sea que lo que se está renunciando a ahorrar es del orden de
+  **minutos, no de segundos**.
+
+  Se actualiza **el número, no la decisión** — que es de Ernest y no se rediscute aquí. Pero
+  quede escrito que el argumento «la suite es corta» ya no se sostiene solo: si algún día se
+  reabre, se reabre con esta cifra, no con la de hace cuatro hitos. Y hay una alternativa a
+  medio camino ya propuesta y no hecha, anotada en [`ci.yml`](../.github/workflows/ci.yml):
+  repartir **Playwright** en shards de matriz, donde cada job trae sus propios contenedores de
+  servicio y el estado compartido deja de obligar a `workers: 1`.
