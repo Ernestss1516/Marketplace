@@ -1,6 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import { getQueueToken } from '@nestjs/bullmq';
-import { ListingStatus, Prisma, PrismaClient, UserStatus } from '@prisma/client';
+import { ListingPauseOrigin, ListingStatus, Prisma, PrismaClient, UserStatus } from '@prisma/client';
 import type { Queue } from 'bullmq';
 import * as bcrypt from 'bcrypt';
 import * as request from 'supertest';
@@ -212,7 +212,9 @@ describe('Borrado de cuentas C2 — archivar y desarchivar (e2e)', () => {
       for (const l of [activo, reservado]) {
         const tras = await leer(l.id);
         expect(tras.status).toBe(ListingStatus.PAUSED);
-        expect(tras.pausedByAccountArchive).toBe(true);
+        // RESIDUO BANNED — la marca dejó de ser un booleano: ahora dice QUIÉN pausó.
+        // `ARCHIVE` es lo que `unarchive` busca; `BAN` es lo que no debe tocar.
+        expect(tras.pausedByAccountReason).toBe(ListingPauseOrigin.ARCHIVE);
       }
 
       // Lo que NO se ve, intacto — aquí se disuelve D-13: no hace falta llevar un
@@ -221,7 +223,7 @@ describe('Borrado de cuentas C2 — archivar y desarchivar (e2e)', () => {
       expect((await leer(enRevision.id)).status).toBe(ListingStatus.PENDING_REVIEW);
       expect((await leer(vendido.id)).status).toBe(ListingStatus.SOLD);
       for (const l of [borrador, enRevision, vendido]) {
-        expect((await leer(l.id)).pausedByAccountArchive).toBe(false);
+        expect((await leer(l.id)).pausedByAccountReason).toBeNull();
       }
     });
 
@@ -418,7 +420,7 @@ describe('Borrado de cuentas C2 — archivar y desarchivar (e2e)', () => {
 
         expect(
           await prisma.listing.count({
-            where: { sellerId: user.id, pausedByAccountArchive: true },
+            where: { sellerId: user.id, pausedByAccountReason: ListingPauseOrigin.ARCHIVE },
           }),
         ).toBe(3);
 
@@ -446,7 +448,7 @@ describe('Borrado de cuentas C2 — archivar y desarchivar (e2e)', () => {
         // salir el propio vendedor cuando haga sitio.
         expect(
           await prisma.listing.count({
-            where: { sellerId: user.id, pausedByAccountArchive: true },
+            where: { sellerId: user.id, pausedByAccountReason: { not: null } },
           }),
         ).toBe(0);
       } finally {

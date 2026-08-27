@@ -20,6 +20,7 @@ import { ModerationModule } from '../moderation/moderation.module';
 import { ListingEditValidationModule } from '../listings/listing-edit-validation.module';
 import { ListingImagesModule } from '../listings/listing-images.module';
 import { AccountArchiveModule } from '../account-archive/account-archive.module';
+import { ListingPauseModule } from '../listing-pause/listing-pause.module';
 import { DataExportModule } from '../data-export/data-export.module';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
@@ -55,6 +56,9 @@ import { AdminStatsService } from './admin-stats.service';
     ListingEditValidationModule,
     ListingImagesModule,
     AccountArchiveModule,
+    // RESIDUO BANNED — banear saca los anuncios del escaparate con el MISMO gesto
+    // que el archivado. Módulo compartido, no una segunda copia dentro de aquí.
+    ListingPauseModule,
     // BORRADO DE CUENTAS C6 — la exportación de datos de cualquier usuario (ADMIN).
     DataExportModule,
   ],
