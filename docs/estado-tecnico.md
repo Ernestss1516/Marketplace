@@ -16470,6 +16470,20 @@ nueva sigue mordiendo: quitando el `indexingQueue.add` de la rama de cuota
 Esta rama no lo causó: lo **destapó**. Añadir una suite corre el reloj y cambia cuándo el
 worker despacha lo que tiene pendiente. La carrera llevaba ahí desde que se escribió.
 
+### Lo único que queda del frente del vídeo: el hover
+
+La auditoría dejó una vía abierta —**la C**, un póster animado capturado en el navegador— y
+sus dos motivos para aplazarla (la feature no se podía encender, no se anunciaba en
+`/planes`) están cerrados por lo de arriba. El **cómo** está diseñado, sin código, en
+[`docs/diseno-poster-animado.md`](./diseno-poster-animado.md): un **sprite** —una imagen
+fija de cinco fotogramas, animada por CSS sólo en hover—, porque el navegador sabe capturar
+fotogramas pero **no sabe empaquetarlos en una animación** sin traer un codificador.
+
+Ese documento aporta además **tres hallazgos verificados sobre el póster fijo de hoy** que
+hay que arreglar al añadir el tercer objeto: se sube por `POST /media/upload`, así que deja
+una fila huérfana en `ListingImage` y un `-thumb.webp` que nadie usa; y **`removeVideo` no
+borra el objeto del póster** — sólo el `.mp4`.
+
 ---
 
 ## #15 — «Soporte prioritario»: de promesa a mecanismo
