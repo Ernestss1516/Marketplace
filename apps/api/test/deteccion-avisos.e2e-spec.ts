@@ -32,11 +32,26 @@ import * as bcrypt from 'bcrypt';
 import * as request from 'supertest';
 import { createTestApp } from './helpers/create-app';
 import { cleanDb } from './helpers/db';
+import { ajustesDeSuite } from './helpers/settings';
 
 const BAD_WORDS = 'badWordList';
 const CUOTA_ACTIVOS = 'freeActiveListingLimit';
 
 describe('Punto 6 ráfaga A — el modo avisar (e2e)', () => {
+  // LOS DOS AJUSTES COMPARTIDOS, fijados para la suite y devueltos a su fila exacta.
+  //
+  //  · `badWordList` a vacío: `cleanDb` no limpia `Setting`, así que una entrada dejada
+  //    por otra suite mandaría estos anuncios a revisión y el fallo parecería de aquí.
+  //  · la CUOTA de activos a 500: el mismo vendedor publica en casi todos los casos y
+  //    toparía con el tope; `publish()` respondería 403 y el rojo no diría nada de la
+  //    detección.
+  //
+  // Esto lo hacía a mano con un `findUnique(...)?.value ?? null` y un bucle de
+  // restauración en el `afterAll`. Funcionaba, pero era uno de los seis dialectos que
+  // convivían en la batería — y el `?? null` confunde «no había fila» con «la fila
+  // valía null», que para una clave `Json` no son lo mismo. Ver `helpers/settings.ts`.
+  ajustesDeSuite({ [BAD_WORDS]: [], [CUOTA_ACTIVOS]: 500 });
+
   let app: INestApplication;
   let prisma: PrismaClient;
 
@@ -44,8 +59,6 @@ describe('Punto 6 ráfaga A — el modo avisar (e2e)', () => {
   let sellerToken: string;
   let adminToken: string;
   let categoryId: string;
-  let badWordsOriginal: unknown;
-  let cuotaOriginal: unknown;
 
   const server = () => app.getHttpServer();
 
@@ -88,23 +101,6 @@ describe('Punto 6 ráfaga A — el modo avisar (e2e)', () => {
     prisma = new PrismaClient();
     await cleanDb(prisma);
 
-    // `badWordList` es dato de sistema compartido y `cleanDb` no lo limpia — molde de
-    // `moderacion-previa.e2e-spec.ts`.
-    badWordsOriginal =
-      (await prisma.setting.findUnique({ where: { key: BAD_WORDS } }))?.value ?? null;
-
-    // El mismo vendedor publica en casi todos los casos de este fichero, así que acaba
-    // topando con la CUOTA DE ACTIVOS y `publish()` responde 403 — un fallo de fixture que
-    // no dice nada de la detección. Se le da sitio y se restaura al final, igual que con
-    // la lista de palabras.
-    cuotaOriginal =
-      (await prisma.setting.findUnique({ where: { key: CUOTA_ACTIVOS } }))?.value ?? null;
-    await prisma.setting.upsert({
-      where: { key: CUOTA_ACTIVOS },
-      create: { key: CUOTA_ACTIVOS, value: 500 as never },
-      update: { value: 500 as never },
-    });
-
     const passwordHash = await bcrypt.hash('Test1234!', 10);
     const [seller] = await Promise.all([
       prisma.user.create({
@@ -141,20 +137,6 @@ describe('Punto 6 ráfaga A — el modo avisar (e2e)', () => {
   }, 60_000);
 
   afterAll(async () => {
-    for (const [key, valor] of [
-      [BAD_WORDS, badWordsOriginal],
-      [CUOTA_ACTIVOS, cuotaOriginal],
-    ] as const) {
-      if (valor === null) {
-        await prisma.setting.deleteMany({ where: { key } });
-      } else {
-        await prisma.setting.upsert({
-          where: { key },
-          create: { key, value: valor as never },
-          update: { value: valor as never },
-        });
-      }
-    }
     await app.close();
     await prisma.$disconnect();
   });

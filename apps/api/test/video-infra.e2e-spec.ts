@@ -17,6 +17,7 @@ import * as bcrypt from 'bcrypt';
 import * as request from 'supertest';
 import { createTestApp } from './helpers/create-app';
 import { cleanDb } from './helpers/db';
+import { ajustesDeSuite } from './helpers/settings';
 import { R2Service } from 'src/infra/r2/r2.service';
 import {
   MAX_VIDEO_BYTES,
@@ -36,6 +37,21 @@ describe('Vídeo Pro — infraestructura (e2e)', () => {
   let proUserId: string;
   let freeUserId: string;
   let categoryId: string;
+
+  // La feature ENCENDIDA para toda la suite, y la fila devuelta a como estaba.
+  //
+  // Esto era `encender(true)` en el `beforeAll` y **`encender(false)` en el
+  // `afterAll`** — o sea, reponer un LITERAL en vez de restaurar. El literal asumía el
+  // valor por defecto de PRODUCCIÓN (sin fila, el vídeo está apagado) cuando
+  // `seed-test.ts` lo siembra ENCENDIDO a propósito, «para que las baterías puedan
+  // ejercitar la feature». Resultado: esta suite dejaba el vídeo apagado para todas
+  // las que vinieran detrás.
+  //
+  // Lo cazó la barrera de fin de corrida de A2, no una suite roja: nadie que dependa
+  // hoy del interruptor lo hereda sin fijarlo. Era una mina sin pisar, como la de
+  // `ajustes-interruptores`, y por la misma razón — reponer un literal no es
+  // restaurar. Ver `helpers/settings.ts`.
+  ajustesDeSuite({ [VIDEO_ENABLED_SETTING]: true });
 
   beforeAll(async () => {
     prisma = new PrismaClient();
@@ -59,12 +75,9 @@ describe('Vídeo Pro — infraestructura (e2e)', () => {
     await hacerPro(proUserId);
     proToken = await login('video-pro@example.com');
     freeToken = await login('video-free@example.com');
-
-    await encender(true);
   });
 
   afterAll(async () => {
-    await encender(false);
     await app.close();
     await prisma.$disconnect();
   });

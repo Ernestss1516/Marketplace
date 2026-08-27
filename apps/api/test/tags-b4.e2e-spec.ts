@@ -19,6 +19,7 @@ import * as request from 'supertest';
 import { createTestApp } from './helpers/create-app';
 import { buildMeiliClient } from './helpers/db';
 import { waitForIndex } from './helpers/meili';
+import { withSetting } from './helpers/settings';
 
 const INDEX = process.env.MEILI_INDEX_NAME ?? 'listings_test';
 
@@ -141,18 +142,17 @@ describe('Sugerencias de etiquetas (B4, e2e)', () => {
       .post('/api/auth/admin-login')
       .send({ email: adminEmail, password: 'Test1234!' })).body.accessToken;
 
-    await prisma.setting.upsert({
-      where: { key: 'freeActiveListingLimit' },
-      create: { key: 'freeActiveListingLimit', value: 500 },
-      update: { value: 500 },
-    });
-
     await asignarTags(hijaId, [tagIds.diesel, tagIds.dieselPremium, tagIds.sinAnuncios]);
     await asignarTags(otraId, [tagIds.deOtra]);
 
-    // `diesel` en 2 anuncios, `dieselPremium` en 1, `sinAnuncios` en NINGUNO.
-    await publicar('B4 Coche diesel uno', [S.diesel]);
-    await publicar('B4 Coche diesel dos', [S.diesel, S.dieselPremium]);
+    // El tope subido SÓLO mientras se publica, y restaurado a la fila exacta — no
+    // borrado, que es lo que hacía el `afterAll` de antes. Ver la nota larga en
+    // `tags-b3.e2e-spec.ts` y `helpers/settings.ts`.
+    await withSetting(prisma, 'freeActiveListingLimit', 500, async () => {
+      // `diesel` en 2 anuncios, `dieselPremium` en 1, `sinAnuncios` en NINGUNO.
+      await publicar('B4 Coche diesel uno', [S.diesel]);
+      await publicar('B4 Coche diesel dos', [S.diesel, S.dieselPremium]);
+    });
   }, 120_000);
 
   // Sin afterEach de limpieza a propósito: tocar el catálogo por la VÍA REAL (los
@@ -168,7 +168,6 @@ describe('Sugerencias de etiquetas (B4, e2e)', () => {
     await prisma.categoryTag.deleteMany({ where: { categoryId: { in: [padreId, hijaId, otraId] } } });
     await prisma.tag.deleteMany({ where: { id: { in: Object.values(tagIds) } } });
     await prisma.category.deleteMany({ where: { id: { in: [hijaId, otraId, padreId] } } });
-    await prisma.setting.deleteMany({ where: { key: 'freeActiveListingLimit' } });
     await app.close();
     await prisma.$disconnect();
   });

@@ -17,6 +17,7 @@ import * as request from 'supertest';
 import { createTestApp } from './helpers/create-app';
 import { buildMeiliClient } from './helpers/db';
 import { waitForIndex } from './helpers/meili';
+import { withSetting } from './helpers/settings';
 
 const INDEX = process.env.MEILI_INDEX_NAME ?? 'listings_test';
 
@@ -141,21 +142,27 @@ describe('Filtro por etiquetas (B3, e2e)', () => {
       .post('/api/auth/admin-login')
       .send({ email: adminEmail, password: 'Test1234!' })).body.accessToken;
 
-    // El spec publica varios anuncios con el mismo vendedor FREE.
-    await prisma.setting.upsert({
-      where: { key: 'freeActiveListingLimit' },
-      create: { key: 'freeActiveListingLimit', value: 500 },
-      update: { value: 500 },
-    });
-
     await asignarTags(hijaId, [tagIds.diesel, tagIds.garantia, tagIds.aDesactivar]);
     await asignarTags(otraId, [tagIds.soloOtra, tagIds.garantia]);
 
-    // El reparto que distingue AND de OR.
-    ids.soloDiesel = await publicar('B3 Solo diesel', [S.diesel]);
-    ids.ambos = await publicar('B3 Diesel con garantia', [S.diesel, S.garantia]);
-    ids.soloGarantia = await publicar('B3 Solo garantia', [S.garantia]);
-    ids.sinTags = await publicar('B3 Sin etiquetas', []);
+    // EL TOPE SUBIDO SÓLO MIENTRAS SE PUBLICA, que es lo único que lo necesita: el
+    // spec publica varios anuncios con el mismo vendedor FREE y toparía con la cuota
+    // de activos. Los `it` de abajo sólo consultan, así que cuando el primero corre
+    // la clave ya está restaurada.
+    //
+    // Antes se subía en el `beforeAll` y el `afterAll` la BORRABA. `Setting` es dato
+    // compartido y `cleanDb` no lo toca, así que borrar no es restaurar: dejaba la
+    // clave sin fila para el resto de la corrida. Que no rompiera nada era una
+    // casualidad —el valor por defecto del código (5) coincide con el del seed (5)—,
+    // no una garantía. `withSetting` devuelve la FILA EXACTA: el valor que hubiera,
+    // o ninguna fila si no había ninguna.
+    await withSetting(prisma, 'freeActiveListingLimit', 500, async () => {
+      // El reparto que distingue AND de OR.
+      ids.soloDiesel = await publicar('B3 Solo diesel', [S.diesel]);
+      ids.ambos = await publicar('B3 Diesel con garantia', [S.diesel, S.garantia]);
+      ids.soloGarantia = await publicar('B3 Solo garantia', [S.garantia]);
+      ids.sinTags = await publicar('B3 Sin etiquetas', []);
+    });
   }, 120_000);
 
   afterAll(async () => {
@@ -165,7 +172,6 @@ describe('Filtro por etiquetas (B3, e2e)', () => {
     await prisma.categoryTag.deleteMany({ where: { categoryId: { in: [padreId, hijaId, otraId] } } });
     await prisma.tag.deleteMany({ where: { id: { in: Object.values(tagIds) } } });
     await prisma.category.deleteMany({ where: { id: { in: [hijaId, otraId, padreId] } } });
-    await prisma.setting.deleteMany({ where: { key: 'freeActiveListingLimit' } });
     await app.close();
     await prisma.$disconnect();
   });

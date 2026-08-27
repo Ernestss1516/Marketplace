@@ -6,8 +6,19 @@ import * as request from 'supertest';
 import { createTestApp } from './helpers/create-app';
 import { buildMeiliClient, cleanDb, resetMeili } from './helpers/db';
 import { waitForIndex, waitForRemoval } from './helpers/meili';
+import { preservarAjustes } from './helpers/settings';
 
 describe('Admin (e2e)', () => {
+  // Las cuatro claves que esta suite fija de entrada y que sus propios tests de
+  // `PATCH /admin/settings` cambian. Se fotografían antes y se devuelven a su fila
+  // exacta al terminar. Ver la nota del `beforeAll`.
+  preservarAjustes([
+    'badWordList',
+    'listingExpiryDays',
+    'contactRequiresVerification',
+    'proMonthlyFeaturedQuota',
+  ]);
+
   let app: INestApplication;
   let prisma: PrismaClient;
   let meili: MeiliSearch;
@@ -53,6 +64,18 @@ describe('Admin (e2e)', () => {
 
     // Upsert settings to always start at known defaults regardless of what a previous
     // run left behind (e.g. badWordList modified to ["spam","fraude"]).
+    //
+    // A2 — Y AL SALIR TAMBIÉN, que es la mitad que faltaba. Este `beforeAll` se
+    // defendía de la contaminación ajena mientras era el mayor contaminador de la
+    // batería: los tests de `PATCH /admin/settings` de más abajo dejan `badWordList`
+    // en `["spam","fraude"]`, `listingExpiryDays` en 90 y `proMonthlyFeaturedQuota`
+    // en 6, y el `afterAll` no devolvía ninguno. Ese `e.g.` del comentario de arriba
+    // describía, sin saberlo, el rastro de esta misma suite en la corrida anterior.
+    //
+    // La red la pone `preservarAjustes` (ver debajo del `describe`): fotografía antes
+    // y restaura la fila exacta después. Estos `upsert` se quedan porque siguen
+    // haciendo falta —fijan el punto de partida conocido que los casos afirman—; lo
+    // que ya no hacen es quedarse puestos.
     await prisma.$transaction([
       prisma.setting.upsert({
         where: { key: 'badWordList' },
