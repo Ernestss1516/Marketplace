@@ -417,6 +417,29 @@ Límites en ambos: 10 MB, solo JPEG/PNG/WebP (`422` con otro tipo), `400` sin fi
 
 ---
 
+## Vídeo Pro
+
+Ninguna de estas rutas recibe el fichero: los bytes van del navegador al almacenamiento por una
+URL prefirmada. **Todas** llevan el mismo gate — feature encendida (`videoEnabled`), usuario Pro,
+anuncio propio y `ACTIVE`.
+
+- **`GET /video/config`** *(auth)* — Si está encendida y con qué límites (50 MB, 60 s, solo MP4).
+- **`POST /video/upload-url`** *(auth)* — Firma un PUT a `listing-videos/tmp/<anuncio>/`. El
+  tamaño declarado viaja **dentro de la firma**: el límite lo aplica el almacenamiento.
+- **`POST /video/preview-url`** *(auth)* — Igual, para el **sprite** del póster animado:
+  `listing-previews/tmp/<anuncio>/`, máximo 512 KB, solo `image/webp` o `image/jpeg`
+  (**ningún formato animado** — el artefacto es una imagen fija que anima el CSS). Prefijo
+  propio: ni el del vídeo ni el de las imágenes de anuncio.
+- **`POST /video/listings/:id/confirm`** *(auth)* — Comprueba contra el almacenamiento lo que
+  aterrizó, lo saca de `tmp/` y lo enlaza. Acepta `posterUrl` (imagen ya subida) y `previewKey`
+  (la clave temporal del sprite) — **los dos opcionales**: si fallaron, el vídeo se confirma
+  igual con esas columnas a `null`. El sprite viaja en **este mismo** confirm porque un sprite
+  sin su vídeo no significa nada; una clave de otro anuncio da `400`.
+- **`DELETE /video/listings/:id`** *(auth)* — Quita el vídeo y **borra los tres objetos**:
+  `.mp4`, póster y sprite.
+
+---
+
 ## Favorites
 
 Todos *(auth)*, todos idempotentes.

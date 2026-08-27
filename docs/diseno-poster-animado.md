@@ -597,7 +597,7 @@ Partir por ahí permite empezar sin esperar.
 
 | | Qué entra | Por qué aquí | ¿Se ve algo? |
 |---|---|---|---|
-| **P1 · El artefacto y el dato** | Migración (`videoPreviewUrl`) · `MAX_PREVIEW_BYTES` y el prefijo en `video-limits.ts` · `captureVideoSprite` · `POST /video/preview-url` · `previewKey` en `confirmUpload` · **la limpieza de los tres objetos, con H-2 cerrado** · `StepVideo` captura y sube | Nada existe sin el dato. Y la **limpieza va con el objeto, no después**: un objeto que se crea antes de que exista quien lo borre es basura desde el primer día — el mismo criterio que puso los `Restrict` antes que cualquier borrado en C1 | **No.** El sprite se guarda y no lo pinta nadie |
+| **P1 · El artefacto y el dato** ✅ **HECHO** | Migración (`videoPreviewUrl`) · `MAX_PREVIEW_BYTES` y el prefijo en `video-limits.ts` · `captureVideoSprite` · `POST /video/preview-url` · `previewKey` en `confirmUpload` · **la limpieza de los tres objetos, con H-2 cerrado** · `StepVideo` captura y sube | Nada existe sin el dato. Y la **limpieza va con el objeto, no después**: un objeto que se crea antes de que exista quien lo borre es basura desde el primer día — el mismo criterio que puso los `Restrict` antes que cualquier borrado en C1 | **No.** El sprite se guarda y no lo pinta nadie |
 | **P2 · El hover** | `videoPreviewUrl` en `SELECT_SUMMARY`/`toSummary` y en el documento de Meilisearch · el componente de hover en `CardPhotoCarousel` (con `isSafeSrc`, `hover:hover`, `prefers-reduced-motion`) · la línea de `/planes` | Se puede desarrollar contra sprites que P1 ya está generando. Y **es la ráfaga que la decisión del móvil condiciona** | **Sí** |
 
 **El orden tiene una propiedad que conviene nombrar:** al acabar P1, cada vídeo nuevo ya trae
@@ -629,7 +629,7 @@ Lo que hay que poder afirmar en un test. Sin esto, el diseño es una intención.
 
 | | Barrera | Qué mata |
 |---|---|---|
-| **B-1** | **El barrido, intacto**: el payload de lista de un anuncio **con** previsualización sigue sin contener `listing-videos/` | Que el sprite se guarde bajo el prefijo de vídeo «porque es del vídeo» |
+| **B-1** | **El barrido, intacto**: el payload de lista de un anuncio **con** previsualización sigue sin contener `listing-videos/`. **Y la frontera comprobada en el origen** — ver la nota de abajo | Que el sprite se guarde bajo el prefijo de vídeo «porque es del vídeo» |
 | **B-2** | **El barrido simétrico**: la tarjeta trae `videoPreviewUrl` y **sigue sin traer** `videoUrl` ni `videoPosterUrl` | Un `select` que se ensancha «ya que estamos» |
 | **B-3** | **La limpieza de los tres**: quitar el vídeo, sustituirlo y borrar el anuncio dejan cero objetos suyos en el bucket — vídeo, póster **y** sprite | H-2, y que el tercer objeto la triplique |
 | **B-4** | **El sprite no puede tumbar el vídeo**: con la captura fallando, con la firma fallando y con el PUT fallando, el vídeo se confirma igual y `videoPreviewUrl` queda `null` | Que una mejora opcional se vuelva un punto de fallo del camino que importa |
@@ -642,6 +642,13 @@ Lo que hay que poder afirmar en un test. Sin esto, el diseño es una intención.
 añadir `videoUrl` al `select` de tarjeta → B-2 · dejar `removeVideo` como está hoy → B-3 ·
 hacer que un fallo de captura aborte la subida → B-4 · omitir `assertPro` en el camino nuevo
 → B-5 · pintar el contenedor de animación sin comprobar la columna → B-6.
+
+> **Corrección a B-1, aprendida ejecutando la mutación en P1.** El barrido de cadena **no
+> caza** que el sprite se mude al prefijo de vídeo mientras la URL no viaje a ninguna lista —
+> y en P1 no viaja: se pondría rojo en P2, cuando el objeto lleve ráfagas guardándose en el
+> sitio equivocado. Así que B-1 tiene **dos mitades**: el barrido del payload (que en P2 es
+> el que manda) y una comprobación sobre **lo que se guarda**, que muerde desde la ráfaga que
+> crea el objeto. Una frontera que sólo se comprueba donde se enseña no es una frontera.
 
 ---
 

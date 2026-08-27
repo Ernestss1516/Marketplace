@@ -1275,6 +1275,7 @@ export class AdminService {
         // no un `listingId` (ver `media-keys.ts`).
         videoUrl: true,
         videoPosterUrl: true,
+        videoPreviewUrl: true,
         images: { select: { url: true } },
         _count: { select: { images: true, conversations: true, reports: true } },
       },
@@ -1329,6 +1330,8 @@ export class AdminService {
         imageUrls: listing.images.map((i) => i.url),
         videoUrl: listing.videoUrl,
         videoPosterUrl: listing.videoPosterUrl,
+        // PÓSTER ANIMADO P1 — el tercer objeto del vídeo.
+        videoPreviewUrl: listing.videoPreviewUrl,
       },
       this.r2.getPublicUrl(''),
     );

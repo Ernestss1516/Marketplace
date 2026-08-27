@@ -20,9 +20,13 @@ import { Queue } from 'bullmq';
 import { QUEUE_INDEXING } from '../../infra/queue/queue.constants';
 import { EntitlementService } from '../billing/entitlement.service';
 import {
+  ALLOWED_PREVIEW_MIME_TYPES,
   ALLOWED_VIDEO_MIME_TYPES,
+  MAX_PREVIEW_BYTES,
   MAX_VIDEO_BYTES,
   MAX_VIDEO_DURATION_SECONDS,
+  PREVIEW_KEY_PREFIX,
+  PREVIEW_MIME_TO_EXT,
   VIDEO_ENABLED_SETTING,
   VIDEO_KEY_PREFIX,
   VIDEO_LIMITS,
@@ -30,6 +34,7 @@ import {
   VIDEO_UPLOAD_URL_TTL_SECONDS,
 } from './video-limits';
 import { PresignVideoDto } from './dto/presign-video.dto';
+import { PresignPreviewDto } from './dto/presign-preview.dto';
 import { ConfirmVideoDto } from './dto/confirm-video.dto';
 
 /**
@@ -129,6 +134,63 @@ export class VideoService {
     };
   }
 
+  /**
+   * PÓSTER ANIMADO P1 — paso 1 del SPRITE. Molde literal de `createUploadUrl`, y la copia es
+   * el objetivo: son el mismo gesto sobre otro artefacto.
+   *
+   * LOS TRES GUARDS, LOS MISMOS. Sin `assertPro` aquí, un no-Pro no podría subir vídeo pero
+   * sí escribir objetos en el bucket por este camino — una puerta trasera abierta por la
+   * puerta nueva, que es exactamente el error que `assertPro` existe para no cometer dos
+   * veces (ver su comentario: esconder el botón no impide un POST directo).
+   *
+   * NO PASA POR `POST /media/upload`, y ésa es la otra mitad de la decisión: ese camino crea
+   * una fila en `ListingImage` y encola `sharp`, que le generaría al sprite una miniatura de
+   * 800 px que no usaría nadie. Ver `PREVIEW_KEY_PREFIX`.
+   *
+   * Ver docs/diseno-poster-animado.md §4.2.
+   */
+  async createPreviewUploadUrl(userId: string, dto: PresignPreviewDto) {
+    await this.assertEnabled();
+    await this.assertPro(userId);
+    await this.assertOwnActiveListing(userId, dto.listingId);
+
+    // Otra vez aquí y no sólo en el DTO, por el mismo motivo que en el vídeo: el DTO valida
+    // la FORMA de la petición; esto es la regla, y tiene que seguir siendo cierta aunque
+    // alguien llame al servicio desde otro sitio.
+    if (!(ALLOWED_PREVIEW_MIME_TYPES as readonly string[]).includes(dto.contentType)) {
+      throw new UnsupportedMediaTypeException(
+        'La previsualización debe ser una imagen WebP o JPEG.',
+      );
+    }
+    if (dto.sizeBytes > MAX_PREVIEW_BYTES) {
+      throw new PayloadTooLargeException(
+        `La previsualización supera el máximo de ${Math.round(MAX_PREVIEW_BYTES / 1024)} KB.`,
+      );
+    }
+
+    // Nace en `listing-previews/tmp/<listingId>/`, igual que el vídeo: lo que se quede ahí
+    // es una subida abandonada y la regla de ciclo de vida lo caduca sin código de
+    // recolección. El `tmp` va ARRIBA para que el filtro sea un prefijo literal.
+    const ext = PREVIEW_MIME_TO_EXT[dto.contentType] ?? '.webp';
+    const key = `${pendingPrefix(PREVIEW_KEY_PREFIX, dto.listingId)}${randomUUID()}${ext}`;
+
+    const uploadUrl = await this.r2.presignUpload({
+      key,
+      contentType: dto.contentType,
+      // El tamaño entra en la firma: a partir de aquí el tope lo aplica el almacenamiento,
+      // no la buena fe del cliente.
+      contentLength: dto.sizeBytes,
+      expiresInSeconds: VIDEO_UPLOAD_URL_TTL_SECONDS,
+    });
+
+    return {
+      uploadUrl,
+      key,
+      expiresInSeconds: VIDEO_UPLOAD_URL_TTL_SECONDS,
+      requiredHeaders: { 'Content-Type': dto.contentType },
+    };
+  }
+
   // ---------------------------------------------------------------------------
   // Paso 2 — confirmar lo que de verdad aterrizó
   // ---------------------------------------------------------------------------
@@ -190,9 +252,30 @@ export class VideoService {
       throw new BadRequestException('La URL del vídeo no pertenece a nuestro almacenamiento.');
     }
 
-    // Un vídeo por anuncio: el anterior se sustituye y se borra del almacenamiento, o
+    /**
+     * PÓSTER ANIMADO P1 — EL SPRITE VIAJA EN ESTE MISMO CONFIRM, y no en uno propio.
+     *
+     * Porque **un sprite no tiene vida sin su vídeo**: confirmarlos por separado haría
+     * representable un anuncio con previsualización y sin vídeo, que no significa nada. Un
+     * solo `confirm` lo hace imposible, igual que el orden firmar→subir→confirmar hace
+     * imposible el anuncio a medias.
+     *
+     * Y ES OPCIONAL DE VERDAD (B-4): si el cliente no manda `previewKey` —porque la captura
+     * devolvió `null`, porque la firma falló o porque el PUT se cayó— el vídeo se confirma
+     * igual y la columna queda `null`. Es la misma asimetría que el póster ya tenía: sin
+     * previsualización se vive, sin vídeo no.
+     */
+    const previewUrl = dto.previewKey
+      ? await this.resolverPreview(listingId, dto.previewKey)
+      : null;
+
+    // Un vídeo por anuncio: lo anterior se sustituye y se borra del almacenamiento, o
     // quedaría pagando sitio sin que nadie pueda verlo nunca más.
-    const anterior = listing.videoUrl;
+    const anteriores = {
+      videoUrl: listing.videoUrl,
+      videoPosterUrl: listing.videoPosterUrl,
+      videoPreviewUrl: listing.videoPreviewUrl,
+    };
 
     let actualizado;
     try {
@@ -201,10 +284,18 @@ export class VideoService {
         data: {
           videoUrl,
           videoPosterUrl: dto.posterUrl ?? null,
+          videoPreviewUrl: previewUrl,
           videoDurationSeconds: dto.durationSeconds,
           videoUploadedAt: new Date(),
         },
-        select: { id: true, slug: true, videoUrl: true, videoPosterUrl: true, videoUploadedAt: true },
+        select: {
+          id: true,
+          slug: true,
+          videoUrl: true,
+          videoPosterUrl: true,
+          videoPreviewUrl: true,
+          videoUploadedAt: true,
+        },
       });
     } catch (err) {
       // COMPENSACIÓN — el único fallo nuevo que introduce la copia. Si la fila no se
@@ -228,10 +319,17 @@ export class VideoService {
       });
     }
 
-    // `anterior !== videoUrl` importa desde H2: en una confirmación repetida la fila ya
-    // apunta al vídeo que se acaba de confirmar, y sin esta comparación se borraría el
-    // objeto recién guardado.
-    if (anterior && anterior !== videoUrl) await this.deleteObjectByUrl(anterior);
+    // LOS TRES OBJETOS QUE SE VAN, no sólo el `.mp4`. Sustituir un vídeo deja atrás también
+    // su póster y su sprite, y hasta P1 el póster se quedaba en el bucket para siempre (H-2).
+    //
+    // La comparación «lo viejo ≠ lo nuevo» importa desde H2 y ahora vale para los tres: en
+    // una confirmación repetida la fila ya apunta a lo que se acaba de confirmar, y sin ella
+    // se borraría el objeto recién guardado.
+    await this.borrarLoQueSeVa(anteriores, {
+      videoUrl,
+      videoPosterUrl: dto.posterUrl ?? null,
+      videoPreviewUrl: previewUrl,
+    });
     await this.refrescarSuperficies(actualizado.slug, listingId);
 
     this.logger.log(`Vídeo confirmado para listing=${listingId} (${objeto.contentLength} B)`);
@@ -242,6 +340,18 @@ export class VideoService {
   // Quitar
   // ---------------------------------------------------------------------------
 
+  /**
+   * PÓSTER ANIMADO P1 — AQUÍ SE CIERRA **H-2**.
+   *
+   * Este método ponía `videoPosterUrl: null` en la fila y **sólo borraba el `.mp4`**: el
+   * objeto del póster se quedaba huérfano en el bucket en cuanto alguien quitaba su vídeo,
+   * pagando sitio sin que nadie pudiera verlo nunca más. No se veía porque la fila quedaba
+   * limpia, que es la clase de fuga que sólo aparece mirando el bucket.
+   *
+   * Añadir el sprite sin arreglarlo habría **triplicado** la fuga, y por eso la limpieza
+   * entra en la MISMA ráfaga que el objeto: un objeto que se crea antes de que exista quien
+   * lo borre es basura desde el primer día.
+   */
   async removeVideo(userId: string, listingId: string) {
     const listing = await this.assertOwnListing(userId, listingId);
     if (!listing.videoUrl) return { hasVideo: false };
@@ -251,11 +361,19 @@ export class VideoService {
       data: {
         videoUrl: null,
         videoPosterUrl: null,
+        videoPreviewUrl: null,
         videoDurationSeconds: null,
         videoUploadedAt: null,
       },
     });
-    await this.deleteObjectByUrl(listing.videoUrl);
+
+    // Los TRES, por el mismo lector que usa la sustitución. Todo a `null`, así que «lo que
+    // se va» es todo lo que había.
+    await this.borrarLoQueSeVa(listing, {
+      videoUrl: null,
+      videoPosterUrl: null,
+      videoPreviewUrl: null,
+    });
     await this.refrescarSuperficies(listing.slug, listingId);
 
     return { hasVideo: false };
@@ -307,7 +425,17 @@ export class VideoService {
   private async assertOwnListing(userId: string, listingId: string) {
     const listing = await this.prisma.listing.findUnique({
       where: { id: listingId },
-      select: { id: true, slug: true, sellerId: true, status: true, videoUrl: true },
+      // Los TRES objetos, no sólo el `.mp4`: quien sustituye o quita un vídeo necesita saber
+      // qué había para poder borrarlo (ver `borrarLoQueSeVa`). Es lo que faltaba en H-2.
+      select: {
+        id: true,
+        slug: true,
+        sellerId: true,
+        status: true,
+        videoUrl: true,
+        videoPosterUrl: true,
+        videoPreviewUrl: true,
+      },
     });
     if (!listing) throw new NotFoundException('Anuncio no encontrado');
     if (listing.sellerId !== userId) throw new ForbiddenException('Ese anuncio no es tuyo');
@@ -321,6 +449,95 @@ export class VideoService {
       throw new BadRequestException('Solo se puede añadir vídeo a anuncios activos.');
     }
     return listing;
+  }
+
+  /**
+   * PÓSTER ANIMADO P1 — el sprite confirmado, del temporal a su sitio. **Mismo cuerpo que el
+   * `.mp4`**, y por eso está escrito con la misma forma: comprobar que la clave es la
+   * temporal de ESTE anuncio, comprobar contra el almacenamiento lo que aterrizó, copiar y
+   * limpiar el temporal.
+   *
+   * LA CLAVE AJENA SE RECHAZA (B-7). Sin esta comprobación, cualquiera podría confirmar en su
+   * anuncio un sprite subido para otro — y el dueño está en la clave precisamente para poder
+   * rechazarlo sin guardar ningún estado entre firmar y confirmar.
+   */
+  private async resolverPreview(listingId: string, previewKey: string): Promise<string | null> {
+    const prefijoTemporal = pendingPrefix(PREVIEW_KEY_PREFIX, listingId);
+    if (!previewKey.startsWith(prefijoTemporal)) {
+      throw new BadRequestException('Esa previsualización no corresponde a este anuncio.');
+    }
+
+    const claveDefinitiva = `${PREVIEW_KEY_PREFIX}/${listingId}/${previewKey.slice(prefijoTemporal.length)}`;
+
+    // Idéntico al vídeo, y por el mismo caso: confirmar dos veces (doble clic, reintento de
+    // red) llega con el temporal ya borrado, y mirar el destino hace la operación idempotente.
+    const enTemporal = await this.r2.head(previewKey);
+    const yaConfirmado = enTemporal === null;
+    const objeto = enTemporal ?? (await this.r2.head(claveDefinitiva));
+
+    /**
+     * Y AQUÍ SE SEPARA DEL VÍDEO, en la única decisión que no se copia: **si el objeto no
+     * está, no se lanza — se devuelve `null`**.
+     *
+     * El vídeo responde «no encontramos el vídeo subido» y aborta, porque sin él no hay nada
+     * que confirmar. La previsualización es una mejora opcional, así que un fallo suyo no
+     * puede costarle al vendedor el vídeo que sí subió (B-4). Se pierde el sprite y se
+     * guarda el vídeo, que es el reparto correcto.
+     */
+    if (!objeto) {
+      this.logger.warn(`Previsualización no encontrada al confirmar (${previewKey}); se sigue sin ella.`);
+      return null;
+    }
+
+    // Los mismos dos topes de la firma, comprobados otra vez contra lo que de verdad
+    // aterrizó: es lo que hace que la garantía no dependa de una sola capa. Un sprite que no
+    // los pase se descarta y se borra — pero tampoco tumba el vídeo.
+    if (
+      objeto.contentLength > MAX_PREVIEW_BYTES ||
+      (objeto.contentType && !(ALLOWED_PREVIEW_MIME_TYPES as readonly string[]).includes(objeto.contentType))
+    ) {
+      await this.r2.delete(yaConfirmado ? claveDefinitiva : previewKey).catch(() => undefined);
+      this.logger.warn(`Previsualización rechazada al confirmar (${previewKey}); se sigue sin ella.`);
+      return null;
+    }
+
+    if (!yaConfirmado) await this.r2.copy(previewKey, claveDefinitiva);
+
+    const url = this.r2.getPublicUrl(claveDefinitiva);
+    if (!isOwnStorageUrl(url)) return null;
+
+    // Cortesía, como en el vídeo: si el temporal no se deja borrar, lo caducará la regla.
+    if (!yaConfirmado) {
+      await this.r2.delete(previewKey).catch((e) => {
+        this.logger.warn(`No se pudo borrar el temporal ${previewKey}: ${String(e)}`);
+      });
+    }
+
+    return url;
+  }
+
+  /**
+   * PÓSTER ANIMADO P1 — LOS TRES OBJETOS DE UN VÍDEO, EN UN SOLO LECTOR.
+   *
+   * Un vídeo arrastra **tres** ficheros: el `.mp4`, el póster fijo y el sprite. Los dos
+   * caminos que sueltan alguno —sustituir el vídeo y quitarlo— tienen que borrar los mismos
+   * tres, y escribir esa lista dos veces es cómo se olvida uno en uno de los dos lados. Que
+   * pasó: `removeVideo` se olvidaba del póster (H-2).
+   *
+   * BORRA SÓLO LO QUE CAMBIA. Si la URL nueva es la misma que la vieja —confirmación
+   * repetida— no se toca: sin esa comparación se borraría el objeto recién guardado.
+   *
+   * SILENCIOSO, como todo lo que limpia en este servicio: «no dejar limpiar no debe romper
+   * nada». Lo hereda de `deleteObjectByUrl`.
+   */
+  private async borrarLoQueSeVa(
+    antes: { videoUrl: string | null; videoPosterUrl: string | null; videoPreviewUrl: string | null },
+    despues: { videoUrl: string | null; videoPosterUrl: string | null; videoPreviewUrl: string | null },
+  ): Promise<void> {
+    for (const campo of ['videoUrl', 'videoPosterUrl', 'videoPreviewUrl'] as const) {
+      const viejo = antes[campo];
+      if (viejo && viejo !== despues[campo]) await this.deleteObjectByUrl(viejo);
+    }
   }
 
   /** Borra el objeto de una URL propia. Silencioso: no dejar limpiar no debe romper nada. */

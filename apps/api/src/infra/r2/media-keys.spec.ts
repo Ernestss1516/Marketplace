@@ -65,29 +65,36 @@ describe('listingMediaKeys', () => {
     expect(keys.sort()).toEqual(['media/a-thumb.webp', 'media/a.jpg']);
   });
 
-  it('incluye el vídeo Y su póster', () => {
-    // El póster es el que se olvida: es un objeto más, con su propia columna.
+  it('incluye el vídeo, su póster Y su sprite — los TRES objetos', () => {
+    // El póster es el que se olvida: es un objeto más, con su propia columna. Y desde el
+    // póster animado son tres: el sprite (`listing-previews/`) es el tercero.
     const keys = listingMediaKeys(
       {
         imageUrls: [],
         videoUrl: 'https://cdn.example.com/video/v.mp4',
         videoPosterUrl: 'https://cdn.example.com/video/v.jpg',
+        videoPreviewUrl: 'https://cdn.example.com/listing-previews/x/s.webp',
       },
       prefijo,
     );
 
-    expect(keys.sort()).toEqual(['video/v.jpg', 'video/v.mp4']);
+    expect(keys.sort()).toEqual(['listing-previews/x/s.webp', 'video/v.jpg', 'video/v.mp4']);
   });
 
-  it('NO deriva miniatura del vídeo ni del póster', () => {
+  it('NO deriva miniatura del vídeo, del póster ni del sprite', () => {
     // Sólo las imágenes de anuncio pasan por `ImageProcessor`. Derivar una
-    // miniatura del vídeo produciría borrados contra claves que no existen.
+    // miniatura del vídeo produciría borrados contra claves que no existen. El
+    // sprite tampoco tiene: no pasa por `POST /media/upload` a propósito.
     const keys = listingMediaKeys(
-      { imageUrls: [], videoUrl: 'https://cdn.example.com/video/v.mp4' },
+      {
+        imageUrls: [],
+        videoUrl: 'https://cdn.example.com/video/v.mp4',
+        videoPreviewUrl: 'https://cdn.example.com/listing-previews/x/s.webp',
+      },
       prefijo,
     );
 
-    expect(keys).toEqual(['video/v.mp4']);
+    expect(keys.sort()).toEqual(['listing-previews/x/s.webp', 'video/v.mp4']);
   });
 
   it('deduplica: la misma URL dos veces no borra dos veces', () => {

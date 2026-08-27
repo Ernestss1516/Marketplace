@@ -16484,6 +16484,104 @@ hay que arreglar al añadir el tercer objeto: se sube por `POST /media/upload`, 
 una fila huérfana en `ListingImage` y un `-thumb.webp` que nadie usa; y **`removeVideo` no
 borra el objeto del póster** — sólo el `.mp4`.
 
+**P1 está hecho** (ver la sección siguiente); **P2 —el hover— es lo que queda.**
+
+---
+
+## Póster animado P1 — el artefacto y el dato
+
+Diseño: `docs/diseno-poster-animado.md` §8 (P1). **P1 no pinta nada**: el sprite se captura,
+se sube y se guarda. Enseñarlo es P2 — y cuando P2 llegue, no estrenará con el catálogo
+vacío, porque cada vídeo subido desde aquí ya trae el suyo.
+
+### El artefacto: un sprite, y lo decide el navegador
+
+`canvas.toBlob()` sólo emite **imágenes fijas**, y no existe ninguna API nativa que
+empaquete un WebP o un GIF animados. Empaquetar la animación exigiría un codificador en el
+cliente —cientos de KB de JavaScript para fabricar decenas de KB de dato—, que es la misma
+dependencia (`ffmpeg`) que este proyecto rechazó por escrito dos veces en el servidor.
+
+Así que el artefacto son **cinco fotogramas en una tira horizontal dentro de una sola imagen
+fija**, capturados con las mismas tres llamadas que `captureVideoPoster` ya hacía para uno
+(`seek` → `drawImage` → `toBlob`), en bucle. `captureVideoSprite`
+([`video.ts`](../apps/web/src/lib/api/video.ts)) recorta a 16:9 al centro —los vídeos
+verticales de móvil son la norma— y toma los instantes en `[10 %, 90 %]` de la duración: los
+extremos son casi siempre negro, y muchos `.mp4` traen un fotograma negro antes del primer
+keyframe.
+
+**El WebP se sondea, no se intenta.** `toBlob(cb, 'image/webp')` **no falla** donde no se
+soporta: la especificación dice que caiga a **PNG**, en silencio — y un PNG de cinco
+fotogramas fotográficos pesa cientos de KB. Se emite un canvas de 1×1, se mira el `type` que
+sale, y si no hay WebP se pide JPEG.
+
+**La geometría vive en el cliente, no en la API**, y está escrito por qué: el servidor no
+captura, no mide y no valida dimensiones (leerlas exigiría descargar el sprite), y los dos
+consumidores —la captura y el CSS de P2— están los dos en el frontend. Publicarla por
+`/video/config` habría sido un lector único de mentira.
+
+### El objeto: prefijo propio, y las dos exclusiones son el diseño
+
+`listing-previews/`, con su `tmp/` que caduca solo (`pendingPrefix`).
+
+- **No `listing-videos/`**: es la cadena literal que el barrido e2e busca para dar por rota
+  la garantía del cero-bytes-en-listas. Meter ahí una imagen que **sí** podrá viajar a las
+  tarjetas pondría ese test en rojo por un motivo falso — y peor, invitaría a relajarlo.
+- **No `media/`**: ése lo puebla `POST /media/upload`, que crea fila en `ListingImage` y
+  encola `sharp` (H-1).
+
+`POST /video/preview-url` firma el PUT con **los tres guards del vídeo** (flag + Pro +
+anuncio propio y activo) y el tamaño **dentro de la firma**, y el sprite viaja en el **mismo
+`confirm`** que el vídeo: un sprite sin su vídeo no significa nada.
+
+### La limpieza de los tres — **H-2, cerrado**
+
+`removeVideo` ponía `videoPosterUrl: null` en la fila y **sólo borraba el `.mp4`**: el objeto
+del póster se quedaba huérfano en el bucket cada vez que alguien quitaba su vídeo. No se veía
+porque la fila quedaba limpia. Añadir el sprite sin arreglarlo habría **triplicado** la fuga,
+y por eso la limpieza entra en la MISMA ráfaga que el objeto: *un objeto que se crea antes de
+que exista quien lo borre es basura desde el primer día* (mismo criterio que puso los
+`Restrict` antes que cualquier borrado en C1).
+
+`borrarLoQueSeVa` es el lector único de «qué se lleva un cambio de vídeo» —los tres, sólo lo
+que de verdad cambia, silencioso— y `listingMediaKeys` gana `videoPreviewUrl` para el borrado
+del anuncio.
+
+### Verificación
+
+`test/poster-animado-p1.e2e-spec.ts` (20) + `apps/web/.../poster-animado.test.ts` (7).
+
+| Barrera | Qué fija |
+|---|---|
+| **B-1** | El barrido **no se toca ni una letra** y sigue verde. Y —porque en P1 la URL aún no viaja, así que el barrido no podría cazarlo— se comprueba **en el origen**: la URL guardada nunca cae bajo el prefijo del vídeo |
+| **B-3** | Quitar, sustituir y borrar el anuncio → **cero objetos** suyos en el bucket, los tres. H-2 cerrado |
+| **B-4** | Sin `previewKey`, con uno que nunca aterrizó y con uno que no pasa los topes → **el vídeo se confirma igual** y la columna queda `null` |
+| **B-5** | `preview-url` rechaza no-Pro, anuncio ajeno, anuncio no activo y flag apagado — los cuatro |
+| **B-7** | Un `previewKey` de otro anuncio → 400, y el vídeo tampoco queda a medias |
+| **B-8** | La tira mide N fotogramas de ancho y uno de alto, el tipo es fijo (webp/jpeg, **nunca** PNG ni animado), N `seek` en `[10 %, 90 %]`, cada fotograma desplazado, y `null` si el vídeo no se deja leer |
+| — | **P1 no pinta nada**: la tarjeta sigue sirviendo sólo `hasVideo`, y `videoPreviewUrl` no asoma ni en la lista ni en la ficha |
+
+Mutaciones, las cuatro verificadas:
+
+| Mutación | Cae |
+|---|---|
+| El sprite bajo `listing-videos/` | La firma **y** la frontera en el origen — 2 tests |
+| Dejar `removeVideo` como estaba (H-2) | B-3 — «quitar borra los tres» |
+| Omitir `assertPro` en `preview-url` | B-5 |
+| Que un sprite ausente tumbe el `confirm` | B-4 |
+
+> **Nota del propio ejercicio de mutación:** el barrido de cadena **no** cazó el sprite bajo
+> el prefijo de vídeo, y no podía — en P1 esa URL no viaja a ninguna lista. Por eso B-1 se
+> reforzó comprobando lo que se **guarda**: la frontera tiene que valer desde la ráfaga que
+> crea el objeto, no desde la que lo enseña.
+
+### Lo que P1 deja anotado y NO cierra
+
+**H-1**, tal como el diseño previó: el **póster fijo** sigue subiéndose por
+`POST /media/upload`, así que sigue dejando una fila huérfana en `ListingImage` y un
+`-thumb.webp` que nadie usa (y que `listingMediaKeys` tampoco borra). El **sprite no las
+produce** —no pasa por ahí—, así que P1 no agranda la deuda; cerrarla es mudar el póster a su
+propio camino, que es otro cuerpo.
+
 ---
 
 ## #15 — «Soporte prioritario»: de promesa a mecanismo

@@ -7,12 +7,14 @@ import { ProGate } from '@/components/pro/ProGate';
 import { useApiAction } from '@/lib/api/use-api-action';
 import {
   captureVideoPoster,
+  captureVideoSprite,
   confirmVideo,
   createVideoUploadUrl,
   putToStorage,
   readVideoFileInfo,
   removeVideo,
   uploadPoster,
+  uploadSprite,
   validateVideoFile,
   type VideoConfig,
 } from '@/lib/api/video';
@@ -108,6 +110,19 @@ export function StepVideo({ listingId, token, config, isPro, video, onChange }: 
     // 2. El póster, antes de subir: si falla, se sigue sin él (la ficha usará la portada).
     const poster = await captureVideoPoster(file);
 
+    /**
+     * 2-bis. EL SPRITE (póster animado P1) — cinco fotogramas en una tira, imagen fija.
+     *
+     * AQUÍ Y NO DESPUÉS DE SUBIR, y no es comodidad: **éste es el único momento en que el
+     * fichero está en memoria del navegador**. Tras subir, el `File` sigue vivo en esta
+     * sesión, pero si el vendedor recarga ya no — y el servidor no puede capturarlo (haría
+     * falta decodificar el vídeo, o sea ffmpeg). Se captura antes de subir o no se captura.
+     *
+     * Va dentro de la fase «leyendo», que ya es una espera sin barra, así que no añade
+     * ninguna pantalla nueva. Y devuelve `null` si tarda o falla.
+     */
+    const sprite = await captureVideoSprite(file, info.durationSeconds);
+
     setFase('subiendo');
     setProgreso(0);
 
@@ -126,12 +141,19 @@ export function StepVideo({ listingId, token, config, isPro, video, onChange }: 
 
         const posterUrl = poster ? await uploadPoster(token, poster) : undefined;
 
-        // 5. CONFIRMAR — solo ahora el anuncio queda marcado con vídeo.
+        // El sprite, por su propio camino prefirmado. `uploadSprite` NUNCA lanza: si la firma
+        // o el PUT fallan devuelve `undefined` y el vídeo se confirma igual, sin
+        // previsualización. Una mejora opcional no puede tumbar el camino que importa.
+        const previewKey = sprite ? await uploadSprite(token, listingId, sprite) : undefined;
+
+        // 5. CONFIRMAR — solo ahora el anuncio queda marcado con vídeo. El sprite viaja en
+        //    ESTE MISMO confirm: un sprite sin su vídeo no significa nada.
         setFase('confirmando');
         return confirmVideo(token, listingId, {
           key: firma.key,
           durationSeconds: info.durationSeconds,
           posterUrl,
+          previewKey,
         });
       },
       {

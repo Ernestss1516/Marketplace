@@ -5,6 +5,7 @@ import { CurrentUser } from '../../common/decorators';
 import { JwtUser } from '../auth/auth.types';
 import { VideoService } from './video.service';
 import { PresignVideoDto } from './dto/presign-video.dto';
+import { PresignPreviewDto } from './dto/presign-preview.dto';
 import { ConfirmVideoDto } from './dto/confirm-video.dto';
 
 /**
@@ -30,6 +31,19 @@ export class VideoController {
   @Post('upload-url')
   createUploadUrl(@CurrentUser() user: JwtUser, @Body() dto: PresignVideoDto) {
     return this.video.createUploadUrl(user.userId, dto);
+  }
+
+  /**
+   * PÓSTER ANIMADO P1 — la firma del SPRITE. Ruta hermana de `upload-url`, y aquí por lo
+   * mismo que aquélla: **tampoco recibe el fichero**. El sprite sube del navegador al
+   * almacenamiento por la URL prefirmada que esto devuelve.
+   *
+   * Vive en `video/` y no en `media/` porque es parte del vídeo y hereda su gate entero
+   * (flag + Pro + anuncio propio y activo), no el de las fotos.
+   */
+  @Post('preview-url')
+  createPreviewUploadUrl(@CurrentUser() user: JwtUser, @Body() dto: PresignPreviewDto) {
+    return this.video.createPreviewUploadUrl(user.userId, dto);
   }
 
   @Post('listings/:listingId/confirm')
