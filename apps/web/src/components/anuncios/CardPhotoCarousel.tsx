@@ -5,6 +5,7 @@ import Image from 'next/image';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { PhotoLightbox } from './PhotoLightbox';
 import { VideoIndicator } from './VideoIndicator';
+import { VideoHoverPreview } from './VideoHoverPreview';
 
 interface CardPhotoCarouselProps {
   images: string[];
@@ -23,6 +24,21 @@ interface CardPhotoCarouselProps {
    * no.
    */
   hasVideo?: boolean;
+  /**
+   * PÓSTER ANIMADO P2 — el SPRITE, y **aquí sí llega una URL**.
+   *
+   * La línea de arriba dice que este componente sólo recibe un booleano del vídeo, y sigue
+   * siendo cierta: lo que llega aquí es la dirección de una **imagen fija** de 20-45 KB —del
+   * orden de la portada que ya baja—, no la del `.mp4`. Con ella no se puede montar un
+   * `<video>`, que es lo que aquella garantía protege.
+   *
+   * Y no descarga nada por llegar: el elemento que la usa **sólo se monta al entrar el
+   * ratón**. Misma pereza que las fotos 2ª a Nª de este mismo carrusel.
+   *
+   * Ausente = este anuncio no tiene previsualización (el caso mayoritario hoy). La tarjeta
+   * se comporta entonces exactamente como siempre.
+   */
+  videoPreviewUrl?: string | null;
   /** Overlay badges (Destacado, favorito) — rendered by the caller, absolutely
    * positioned inside this component's `relative` container. */
   children?: React.ReactNode;
@@ -47,10 +63,24 @@ export function CardPhotoCarousel({
   sizes,
   priority = false,
   hasVideo = false,
+  videoPreviewUrl,
   children,
 }: CardPhotoCarouselProps) {
   const [index, setIndex] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  /**
+   * P2 — EL INTERRUPTOR DE LA PEREZA, y por eso es estado de React y no sólo CSS.
+   *
+   * El `:hover` de CSS podría enseñar y esconder la capa, pero **el elemento tendría que
+   * existir en el DOM desde el primer render** — y entonces el navegador pediría el sprite
+   * de las 24 tarjetas de la página nada más cargarla, que es exactamente el peso que este
+   * diseño evita. Con esto, la imagen se pide la primera vez que el ratón entra y no antes.
+   *
+   * NO SE VUELVE A `false` AL SALIR, a propósito: una vez descargado el sprite está en la
+   * caché del navegador, así que desmontarlo sólo conseguiría un parpadeo al volver a
+   * entrar. Lo que apaga la animación es el CSS.
+   */
+  const [previewActivo, setPreviewActivo] = useState(false);
 
   if (images.length === 0) {
     return (
@@ -76,7 +106,16 @@ export function CardPhotoCarousel({
   }
 
   return (
-    <div className={`relative ${aspectClassName} overflow-hidden bg-muted`}>
+    <div
+      className={`relative ${aspectClassName} overflow-hidden bg-muted`}
+      // P2 — se arma la previsualización al entrar el ratón. `onPointerEnter` y no
+      // `onMouseEnter`: un toque en táctil también dispara `mouseenter` por compatibilidad,
+      // y montar el sprite en móvil sería bajar una imagen que ese dispositivo NUNCA va a
+      // animar (el CSS la esconde tras `hover: hover`). Con `pointerType` se distingue.
+      onPointerEnter={(e) => {
+        if (e.pointerType === 'mouse') setPreviewActivo(true);
+      }}
+    >
       <button
         type="button"
         onClick={openLightbox}
@@ -103,6 +142,16 @@ export function CardPhotoCarousel({
         Lo que NO cambia es la garantía: a este componente solo le llega un booleano, así
         que no hay `<video>` ni dirección que descargar. Ver VideoIndicator.tsx.
       */}
+      {/*
+        P2 — LA PREVISUALIZACIÓN. Va ENTRE la foto y el indicador a propósito: tapa la
+        portada mientras el ratón está encima, pero el indicador de vídeo sigue viéndose
+        por encima de ella — porque lo que anuncia («esto tiene vídeo») sigue siendo cierto
+        mientras se anima, y de hecho es entonces cuando más se entiende.
+
+        Si el anuncio no tiene sprite, esto no pinta nada y la tarjeta es la de siempre.
+      */}
+      <VideoHoverPreview src={videoPreviewUrl} title={title} activo={previewActivo} />
+
       {hasVideo && <VideoIndicator />}
 
       {images.length > 1 && (

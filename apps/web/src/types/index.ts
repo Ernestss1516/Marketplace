@@ -257,6 +257,17 @@ export interface ListingSummary {
    *  tarjeta no pueda descargarlo. Lo sirven tanto Meilisearch como los payloads de
    *  Postgres. */
   hasVideo?: boolean;
+  /** PÓSTER ANIMADO — el SPRITE: los cinco fotogramas del vídeo en una tira, dentro de una
+   *  IMAGEN FIJA (20-45 KB, del orden de la portada). La tarjeta lo anima por CSS al pasar
+   *  el ratón, y sólo lo MONTA en ese momento: que la URL viaje no descarga nada.
+   *
+   *  Ésta sí viaja y la del vídeo no, y la diferencia es de naturaleza: con una imagen no
+   *  se puede montar un `<video>`.
+   *
+   *  `undefined`/`null` = este anuncio no tiene previsualización (todos los vídeos
+   *  anteriores a la ráfaga que la introdujo, y cualquier captura fallida). Es un estado
+   *  NORMAL: la tarjeta se comporta entonces como siempre. */
+  videoPreviewUrl?: string | null;
   /** Bump automático — la programación de este anuncio, si la tiene. Igual que `nextBumpAt`,
    *  SOLO la sirve la vista de propietario (`findMine`): que un vendedor programe bumps es
    *  asunto suyo y no viaja en ningún payload público. `null` = no tiene programación. */

@@ -93,6 +93,24 @@ export const SELECT_SUMMARY = {
   // sale en el resumen de tarjeta. Es lo que garantiza el cero-bytes-de-vídeo en listas por
   // construcción y no por disciplina: sin dirección, no hay nada que descargar.
   videoUrl: true,
+  /**
+   * PÓSTER ANIMADO P2 — el SPRITE, y **éste SÍ sale**. La diferencia con la línea de
+   * arriba es el cuerpo entero de este cuerpo, así que conviene que esté dicha aquí:
+   *
+   *   · `videoUrl` apunta a un `.mp4` de hasta 50 MB. Que viaje sería darle a cada
+   *     tarjeta la capacidad de descargarlo.
+   *   · `videoPreviewUrl` apunta a una IMAGEN FIJA de 20-45 KB — del mismo orden que la
+   *     foto de portada que la tarjeta ya baja. No hay ningún vídeo que montar con ella.
+   *
+   * Y QUE LA URL VIAJE NO DESCARGA NADA: los bytes se piden cuando se monta el elemento
+   * que la referencia, y la tarjeta sólo lo monta al entrar el ratón. Es exactamente el
+   * trato que el documento indexado ya hace con `images[]` —todas las URLs viajan, una
+   * sola imagen se pide— y que este carrusel ya hace con las fotos 2ª a Nª.
+   *
+   * `videoPosterUrl` NO entra, y no es un olvido: el póster fijo es de la FICHA, que es
+   * donde se ve el reproductor. La tarjeta ya tiene su portada.
+   */
+  videoPreviewUrl: true,
   // Escaparate RÁFAGA 4 — necesario para enriquecer la card con la media
   // verificada del vendedor en lote (ver attachSellerRatings), no para
   // mostrarlo tal cual.
@@ -119,6 +137,7 @@ export type SummaryDbRow = {
   category: { slug: string };
   images: { url: string }[];
   videoUrl: string | null;
+  videoPreviewUrl: string | null;
   sellerId: string;
 };
 
@@ -136,6 +155,10 @@ export function toSummary({
     // SOLO EL BOOLEANO. `videoUrl` se desestructura fuera a propósito, para que no pueda
     // colarse en `...rest`: una tarjeta que recibiera la dirección podría descargar el
     // vídeo, y el cero-bytes-en-listas dejaría de ser una garantía estructural.
+    //
+    // `videoPreviewUrl`, en cambio, VA EN `...rest` y sale tal cual. Que uno se
+    // desestructure fuera y el otro no es la línea entera de este diseño: la del vídeo
+    // nunca viaja, la de la imagen sí. Ver el comentario de `SELECT_SUMMARY`.
     hasVideo: videoUrl != null,
     thumbnailUrl: images[0]?.url ?? undefined,
     bumpedAt: bumpedAt?.toISOString() ?? undefined,

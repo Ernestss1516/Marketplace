@@ -38,6 +38,7 @@ export function ListingCard({
           images={photos}
           title={listing.title}
           hasVideo={listing.hasVideo}
+          videoPreviewUrl={listing.videoPreviewUrl}
           sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
           priority={priority}
         >

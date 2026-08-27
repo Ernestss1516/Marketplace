@@ -16484,7 +16484,8 @@ hay que arreglar al añadir el tercer objeto: se sube por `POST /media/upload`, 
 una fila huérfana en `ListingImage` y un `-thumb.webp` que nadie usa; y **`removeVideo` no
 borra el objeto del póster** — sólo el `.mp4`.
 
-**P1 está hecho** (ver la sección siguiente); **P2 —el hover— es lo que queda.**
+**P1 y P2 están hechos** (ver las dos secciones siguientes): el frente del vídeo queda
+completo, con el hover incluido.
 
 ---
 
@@ -16574,13 +16575,121 @@ Mutaciones, las cuatro verificadas:
 > reforzó comprobando lo que se **guarda**: la frontera tiene que valer desde la ráfaga que
 > crea el objeto, no desde la que lo enseña.
 
-### Lo que P1 deja anotado y NO cierra
+### P1 deja anotado y NO cierra (H-1)
 
 **H-1**, tal como el diseño previó: el **póster fijo** sigue subiéndose por
 `POST /media/upload`, así que sigue dejando una fila huérfana en `ListingImage` y un
 `-thumb.webp` que nadie usa (y que `listingMediaKeys` tampoco borra). El **sprite no las
 produce** —no pasa por ahí—, así que P1 no agranda la deuda; cerrarla es mudar el póster a su
 propio camino, que es otro cuerpo.
+
+---
+
+## Póster animado P2 — el hover · **el frente del vídeo, completo**
+
+Diseño: `docs/diseno-poster-animado.md` §5 y §8 (P2). P1 guardó el sprite; **P2 lo enseña**.
+
+### La tensión de la ráfaga, en una frase
+
+Se abre el payload de tarjeta a una URL de vídeo **por primera vez**, y hay que demostrar
+que la que se abre **no es la del vídeo**:
+
+- `videoUrl` apunta a un `.mp4` de hasta 50 MB. Que viajara sería darle a cada tarjeta la
+  capacidad de descargarlo — la garantía entera del diseño de listas.
+- `videoPreviewUrl` apunta a una **imagen fija** de 20-45 KB, del mismo orden que la foto de
+  portada que la tarjeta ya baja. Con ella no se puede montar un `<video>`.
+
+En `toSummary` eso se lee de un vistazo: `videoUrl` **se desestructura fuera** para que no
+pueda colarse en `...rest`, y `videoPreviewUrl` sale por `...rest` tal cual. Uno nunca viaja
+y el otro sí, y la diferencia está escrita justo al lado.
+
+**Y viajar no es descargar.** La URL va en el payload —~100 bytes— pero el elemento que la
+referencia **sólo se monta al entrar el ratón**, así que una parrilla de 24 tarjetas baja
+cero sprites hasta que alguien pasea el cursor. Es el mismo trato, con las mismas palabras,
+que el documento indexado ya hacía con `images[]`.
+
+También entra en el **documento de Meilisearch**: las tarjetas de búsqueda no pasan por
+Postgres, y sin eso la superficie de más tráfico habría sido la única sin previsualización.
+
+### El hover: una imagen, no un vídeo
+
+`VideoHoverPreview` (molde `VideoIndicator`: una pieza, usada donde tiene sentido) pinta una
+capa con `background-image` sobre la portada. La animación es CSS —`steps(5)` sobre
+`background-position`— y vive en `globals.css`, al lado y por el mismo motivo que la rotación
+del hero: `steps()` y los keyframes de posición no se escriben con utilidades de Tailwind.
+
+**No hay `<video>`, ni `preload`, ni un byte de vídeo.** Por eso esta vía no traiciona el
+diseño del vídeo: el principio se respeta *por construcción*, no por disciplina — no hay nada
+que precargar.
+
+Cuatro decisiones que no son adorno:
+
+- **`isSafeSrc`.** Una `url()` de CSS **no pasa por `remotePatterns`** de `next/image` —
+  igual que un `<video src>`—, así que ésta es su única restricción de dominio. Sin ella,
+  cualquier URL guardada en la columna sería una petición del navegador del visitante a un
+  tercero. Es el mismo cuidado que toma `ListingGallery`.
+- **`@media (hover: hover) and (pointer: fine)`.** La decisión (b): en táctil un `:hover` se
+  queda pegado tras un toque, así que sin esto el móvil arrancaría la animación al tocar.
+- **`prefers-reduced-motion`** la apaga. Sale gratis: sin animación queda el primer
+  fotograma, que es una imagen válida.
+- **El montaje se filtra por `pointerType`**, no sólo por CSS: montar la capa en móvil sería
+  **descargar** una imagen que ese dispositivo nunca va a animar.
+
+### `/planes` — la línea derivada, con «en ordenador»
+
+`buildProBenefits` gana una línea, **bajo la misma condición que la del vídeo** y no bajo una
+nueva: la previsualización es parte del vídeo y se concede y se retira con él. Un ajuste
+propio serían dos verdades que mantener sincronizadas.
+
+Y dice **«en ordenador»** porque la animación no existe en móvil. Prometérsela a todo el
+mundo sería exactamente lo que esa función entera vino a cerrar: *anunciar lo que no se
+concede*.
+
+### Verificación
+
+`test/poster-animado-p2.e2e-spec.ts` (9) + `apps/web/.../poster-animado-hover.test.tsx` (14).
+
+| Barrera | Qué fija |
+|---|---|
+| **B-1** | **Ahora sí prueba algo**: con el sprite en el payload, el barrido sigue sin `listing-videos/` — y se comprueba que el barrido *está mirando* (el sprite sí aparece). También en **favoritos**, la lista que en su día se quedó sin barrer |
+| **B-2** | La tarjeta trae `videoPreviewUrl` y **sigue sin traer** `videoUrl` ni `videoPosterUrl` (ausencia campo a campo, no sólo barrido). Y la **ficha** sigue sin servir el sprite: es de las listas, no del reproductor |
+| **B-6** | Sin sprite (`undefined` o `null`) la tarjeta no monta nada ni al pasar el ratón, y conserva portada e indicador. **Es el caso mayoritario** |
+| Pereza | En el render inicial la capa **no existe** aunque haya sprite |
+| Táctil | Un `pointerover` de tipo `touch` no monta nada (decisión (b)) |
+| `isSafeSrc` | Un sprite de dominio ajeno no se pinta; uno propio sí |
+| CSS | Sobre el **fichero**: la animación está dentro de `@media (hover: hover) and (pointer: fine)`, `steps(N)` y `background-size` casan con `PREVIEW_FRAMES`, y `prefers-reduced-motion` la apaga |
+| Ráfaga 3 | **Cero bytes de vídeo**: con la previsualización montada sigue sin haber `<video>`, y el indicador se ve por encima |
+| `/planes` | La línea dice «en ordenador», y **desaparece con el flag del vídeo** |
+
+Mutaciones, las cuatro verificadas:
+
+| Mutación | Cae |
+|---|---|
+| Ensanchar el `select` a `videoPosterUrl` | B-2 |
+| Pintar la capa sin comprobar la columna ni el origen | B-6 (2 tests) + `isSafeSrc` |
+| Sacar la animación de `@media (hover: hover)` | La barrera del CSS |
+| Quitar «en ordenador» de `/planes` | La barrera de la línea |
+
+> **Por qué la barrera del CSS mira el fichero.** jsdom no evalúa consultas de medios, así
+> que **ningún test de render puede probar que la animación sólo existe en escritorio**:
+> quitar `@media (hover: hover)` no rompería ninguno, y el móvil empezaría a bajar un sprite
+> por tarjeta en la vista de más tráfico sin que nada se pusiera rojo. Molde de la barrera de
+> migraciones de `ultima-ip-orden`.
+
+### Un rojo correcto por un motivo equivocado
+
+La batería completa cazó `planes-anuncia-video`: su requisito de oro afirmaba
+`conVideo.length === sinVideo.length + 1`, y la línea nueva lo rompió. **El rojo era
+correcto** —una barrera hizo su trabajo— pero lo que fijaba era el **número** de ventajas,
+no la propiedad que importa: que encender el vídeo **no se lleve ninguna otra por delante**.
+
+Se reescribió para afirmar eso: toda línea previa sobrevive, y lo añadido es **exactamente**
+lo del vídeo. Así la tercera ventaja que se sume no obligará a tocar el test, y la garantía
+real sigue mordiendo igual. De paso, `lineaDeVideo` (un `find`) pasó a `lineasDeVideo` (un
+`filter`): con dos ventajas bajo el mismo ajuste, un `find` vigilaba la primera y dejaba la
+segunda sin mirar.
+
+**Con P2 el póster animado queda completo, y con él el frente del vídeo.**
 
 ---
 

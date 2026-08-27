@@ -65,7 +65,18 @@ describe('/planes — el vídeo se anuncia sólo si la feature está encendida (
     return res.body.proBenefits as string[];
   }
 
-  const lineaDeVideo = (bs: string[]) => bs.find((b) => /vídeo/i.test(b));
+  /**
+   * TODAS las líneas que dependen del interruptor del vídeo — **son dos desde el póster
+   * animado P2**: el vídeo en sí y su previsualización animada en los resultados.
+   *
+   * Era un `find` de una sola línea, y pasa a ser un `filter`, porque la pregunta que estas
+   * pruebas hacen no es «¿está la línea del vídeo?» sino **«¿lo que el interruptor concede
+   * se anuncia, y sólo entonces?»**. Con dos ventajas bajo el mismo ajuste, un `find`
+   * miraría la primera y dejaría la segunda sin vigilar.
+   */
+  const lineasDeVideo = (bs: string[]) => bs.filter((b) => /vídeo/i.test(b));
+
+  const lineaDeVideo = (bs: string[]) => lineasDeVideo(bs)[0];
 
   it('ENCENDIDO: la lista incluye el vídeo, con la duración que el servidor aplica de verdad', async () => {
     await ponerVideo(true);
@@ -83,7 +94,8 @@ describe('/planes — el vídeo se anuncia sólo si la feature está encendida (
     // Pro. Anunciarla sería vender algo que quien pague no va a encontrar.
     await ponerVideo(false);
 
-    expect(lineaDeVideo(await beneficiosPro())).toBeUndefined();
+    // NINGUNA de las dos: ni el vídeo ni su previsualización, que se conceden juntos.
+    expect(lineasDeVideo(await beneficiosPro())).toEqual([]);
   });
 
   it('SIN FILA tampoco: ausente es apagado, igual que para el guard de subida', async () => {
@@ -92,10 +104,26 @@ describe('/planes — el vídeo se anuncia sólo si la feature está encendida (
     // misma ausencia.
     await prisma.setting.deleteMany({ where: { key: VIDEO_ENABLED_SETTING } });
 
-    expect(lineaDeVideo(await beneficiosPro())).toBeUndefined();
+    expect(lineasDeVideo(await beneficiosPro())).toEqual([]);
   });
 
-  it('REQUISITO DE ORO — encenderlo AÑADE la línea y no toca ninguna otra', async () => {
+  /**
+   * PÓSTER ANIMADO P2 — la segunda línea, y **el matiz que la hace honesta**.
+   *
+   * La previsualización animada vive tras `@media (hover: hover)`: en móvil no se ve
+   * (decisión de producto (b), porque animar en cada tarjeta de la vista de más tráfico
+   * costaría cientos de KB en la red más cara). Prometérsela a todo el mundo sería
+   * exactamente lo que esta función entera vino a cerrar — anunciar lo que no se concede.
+   */
+  it('la previsualización se anuncia con su frontera: «en ordenador»', async () => {
+    await ponerVideo(true);
+
+    const linea = (await beneficiosPro()).find((b) => /previsualización/i.test(b));
+    expect(linea).toBeDefined();
+    expect(linea).toContain('en ordenador');
+  });
+
+  it('REQUISITO DE ORO — encenderlo AÑADE sus líneas y no toca ninguna otra', async () => {
     // Que la entrada sea ADITIVA importa: `buildProBenefits` sirve la promesa entera de la
     // página, y una línea nueva que se comiera otra sería una ventaja que deja de venderse.
     await ponerVideo(false);
@@ -104,9 +132,17 @@ describe('/planes — el vídeo se anuncia sólo si la feature está encendida (
     await ponerVideo(true);
     const conVideo = await beneficiosPro();
 
-    expect(conVideo.length).toBe(sinVideo.length + 1);
+    // SE AFIRMA LA PROPIEDAD, NO EL NÚMERO. Decía `sinVideo.length + 1` y P2 lo rompió al
+    // añadir la previsualización — un rojo correcto por un motivo equivocado: lo que hay que
+    // proteger es que encender el vídeo **no se lleve nada por delante**, no cuántas
+    // ventajas concede. Con esta forma, la tercera línea que se sume no obliga a tocar el
+    // test y la garantía real sigue mordiendo igual.
     for (const linea of sinVideo) {
       expect(conVideo).toContain(linea);
     }
+    // Y lo añadido es EXACTAMENTE lo del vídeo: nada más aparece al mover este interruptor.
+    const añadidas = conVideo.filter((b) => !sinVideo.includes(b));
+    expect(añadidas).toEqual(lineasDeVideo(conVideo));
+    expect(añadidas.length).toBeGreaterThan(0);
   });
 });

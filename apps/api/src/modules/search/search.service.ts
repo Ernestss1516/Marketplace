@@ -50,6 +50,23 @@ export interface ListingDocument {
    * listas no se descarga un byte de vídeo, y eso se garantiza no dando la dirección.
    */
   hasVideo: boolean;
+  /**
+   * PÓSTER ANIMADO P2 — el SPRITE: los cinco fotogramas del vídeo en una tira, dentro de
+   * una IMAGEN FIJA. `null` si el vídeo no tiene previsualización (todos los anteriores a
+   * P1, y cualquier captura que fallara).
+   *
+   * AQUÍ SÍ VIAJA LA URL, al contrario que la del vídeo, y la diferencia es de naturaleza y
+   * no de grado: esto apunta a una imagen de 20-45 KB —del orden de la portada que la
+   * tarjeta ya baja—, no a un `.mp4` de hasta 50 MB. Con ella no se puede montar un vídeo.
+   *
+   * Y viajar no es descargar: los bytes se piden al montar el elemento, y la tarjeta sólo
+   * lo monta al entrar el ratón. Mismo trato que `images[]` justo arriba, por el mismo
+   * motivo y con las mismas palabras.
+   *
+   * **De aquí salen las tarjetas de BÚSQUEDA**, que no pasan por Postgres: sin este campo,
+   * la superficie de más tráfico sería la única sin previsualización.
+   */
+  videoPreviewUrl: string | null;
   sellerId: string;
   /** Public seller fields — stored in the index so the map panel avoids a per-selection fetch. */
   sellerName: string;
@@ -788,6 +805,9 @@ export class SearchService implements OnModuleInit {
       // Already ordered by `order asc` via INDEX_INCLUDE.images.orderBy.
       images: listing.images.map((img) => img.url),
       hasVideo: listing.videoUrl != null,
+      // P2 — el sprite. La URL del `.mp4` sigue sin entrar en el documento; ésta es una
+      // imagen, y su prefijo (`listing-previews/`) es distinto a propósito.
+      videoPreviewUrl: listing.videoPreviewUrl,
       sellerId: listing.sellerId,
       sellerName: listing.seller.name,
       sellerSlug: listing.seller.slug,
