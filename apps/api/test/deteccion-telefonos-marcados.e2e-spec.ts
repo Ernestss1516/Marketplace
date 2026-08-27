@@ -28,6 +28,7 @@ import * as bcrypt from 'bcrypt';
 import * as request from 'supertest';
 import { createTestApp } from './helpers/create-app';
 import { cleanDb } from './helpers/db';
+import { ajustesDeSuite, preservarAjustes } from './helpers/settings';
 import { normalizarTelefono } from '../src/modules/moderation/detection/phone-format';
 
 const TELEFONOS = 'flaggedPhones';
@@ -37,6 +38,22 @@ const CUOTA = 'freeActiveListingLimit';
 const MARCADO = '654123456';
 
 describe('A2 — teléfonos marcados (e2e)', () => {
+  // LOS CUATRO AJUSTES COMPARTIDOS QUE ESTA SUITE TOCA, en un solo sitio.
+  //
+  // Dos se fijan de entrada porque el FIXTURE los necesita: `badWordList` a vacío (una
+  // entrada dejada por otra suite mandaría estos anuncios a revisión y el rojo parecería
+  // de A2 — pasó al escribir esto) y la CUOTA de activos a 500 (el mismo vendedor publica
+  // en casi todos los casos y toparía con el tope).
+  //
+  // Los otros dos —`flaggedPhones` y `detectionModes`— son el OBJETO DE ESTUDIO: los
+  // escriben los propios casos. De esos sólo hace falta la red debajo, para que la suite
+  // los devuelva a su fila exacta al terminar.
+  //
+  // `cleanDb` no limpia `Setting` a propósito y el seed sólo corre una vez por corrida,
+  // así que lo que esta suite deje puesto se lo come la siguiente. Ver `helpers/settings.ts`.
+  ajustesDeSuite({ [PALABRAS]: [], [CUOTA]: 500 });
+  preservarAjustes([TELEFONOS, MODOS]);
+
   let app: INestApplication;
   let prisma: PrismaClient;
 
@@ -44,10 +61,6 @@ describe('A2 — teléfonos marcados (e2e)', () => {
   let sellerToken: string;
   let adminToken: string;
   let categoryId: string;
-  let telefonosOriginal: unknown;
-  let modosOriginal: unknown;
-  let palabrasOriginal: unknown;
-  let cuotaOriginal: unknown;
 
   const server = () => app.getHttpServer();
 
@@ -99,21 +112,6 @@ describe('A2 — teléfonos marcados (e2e)', () => {
     prisma = new PrismaClient();
     await cleanDb(prisma);
 
-    telefonosOriginal =
-      (await prisma.setting.findUnique({ where: { key: TELEFONOS } }))?.value ?? null;
-    modosOriginal = (await prisma.setting.findUnique({ where: { key: MODOS } }))?.value ?? null;
-    // Los ajustes de sistema son COMPARTIDOS y `cleanDb` no los limpia. Sin vaciar la lista
-    // de palabras, una entrada dejada por otra suite mandaría estos anuncios a revisión y el
-    // fallo parecería de A2 — que es exactamente lo que pasó al escribir esto.
-    palabrasOriginal =
-      (await prisma.setting.findUnique({ where: { key: PALABRAS } }))?.value ?? null;
-    await fijar(PALABRAS, []);
-    // El mismo vendedor publica en casi todos los casos, así que topa con la CUOTA de
-    // activos y publish() responde 403 — un fallo de fixture que no dice nada de A2. Se le da
-    // sitio y se restaura al final, igual que con la lista de palabras.
-    cuotaOriginal = (await prisma.setting.findUnique({ where: { key: CUOTA } }))?.value ?? null;
-    await fijar(CUOTA, 500);
-
     const passwordHash = await bcrypt.hash('Test1234!', 10);
     const [seller] = await Promise.all([
       prisma.user.create({
@@ -150,18 +148,6 @@ describe('A2 — teléfonos marcados (e2e)', () => {
   }, 60_000);
 
   afterAll(async () => {
-    for (const [key, valor] of [
-      [TELEFONOS, telefonosOriginal],
-      [MODOS, modosOriginal],
-      [PALABRAS, palabrasOriginal],
-      [CUOTA, cuotaOriginal],
-    ] as const) {
-      if (valor === null) {
-        await prisma.setting.deleteMany({ where: { key } });
-      } else {
-        await fijar(key, valor);
-      }
-    }
     await app.close();
     await prisma.$disconnect();
   });

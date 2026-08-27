@@ -23,6 +23,7 @@ import * as bcrypt from 'bcrypt';
 import * as request from 'supertest';
 import { createTestApp } from './helpers/create-app';
 import { cleanDb } from './helpers/db';
+import { preservarAjustes } from './helpers/settings';
 import { pollUntil } from './helpers/poll';
 import {
   MIN_PHOTOS_RULE_ENABLED_SETTING,
@@ -33,6 +34,14 @@ import { EMAIL_VERIFIED_RULE_ENABLED_SETTING } from 'src/modules/listing-gate/ru
 const LIMITE_ACTIVOS = 'freeActiveListingLimit';
 
 describe('Moderación M2 — aprobar pasa la puerta y avisa (e2e)', () => {
+  // El `afterEach` de más abajo repone el tope a 5 entre casos, y eso está bien: es
+  // aislamiento DENTRO de la suite. Lo que no puede hacer es servir de restauración
+  // hacia fuera, porque ese 5 es un LITERAL — vale lo que vale la semilla hoy, y el
+  // día que cambie esta suite dejará el tope equivocado para todas las siguientes sin
+  // que nada lo avise. `preservarAjustes` guarda la fila de verdad. Ver A2 en
+  // `docs/auditoria-deuda-test-ci.md` §2 y `helpers/settings.ts`.
+  preservarAjustes([LIMITE_ACTIVOS]);
+
   let app: INestApplication;
   let prisma: PrismaClient;
   let categoryId: string;

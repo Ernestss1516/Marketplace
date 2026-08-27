@@ -21,6 +21,7 @@ import * as bcrypt from 'bcrypt';
 import * as request from 'supertest';
 import { createTestApp } from './helpers/create-app';
 import { cleanDb } from './helpers/db';
+import { preservarAjustes } from './helpers/settings';
 import {
   EMAIL_NOT_VERIFIED_CODE,
   EMAIL_VERIFIED_RULE_ENABLED_SETTING,
@@ -34,6 +35,13 @@ const LIMITE_ACTIVOS = 'freeActiveListingLimit';
 const TOPE_ACTIVOS = 2;
 
 describe('Puerta — regla #2: correo verificado para publicar (e2e)', () => {
+  // Esta suite es la que lleva escrita la historia del mordisco de H9 (ver la nota
+  // larga dentro del último caso). Su `afterEach` repone el tope a 5 entre casos —
+  // aislamiento interno, correcto— pero ese 5 es un literal: describe lo que siembra
+  // la semilla HOY. `preservarAjustes` restaura la fila que había de verdad, que es lo
+  // único que sigue siendo cierto si la semilla cambia.
+  preservarAjustes([LIMITE_ACTIVOS]);
+
   let app: INestApplication;
   let prisma: PrismaClient;
   let categoryId: string;

@@ -412,12 +412,62 @@ defecto que vigila estaba presente**, porque el worker se llevaba el job mal enc
 el test mirara. No era un test racy: era un test **decorativo**. La pausa es lo que lo convierte en
 barrera.
 
-### Ráfaga A2 — los `Setting` dejan de contaminarse *(la más ancha)*
+### Ráfaga A2 — los `Setting` dejan de contaminarse ✅ HECHA (2026-08-27)
 
 `helpers/settings.ts` nuevo; 3 suites arregladas (`tags-b3`, `tags-b4`, `ajustes-interruptores`); 3
 más blindadas (el 500 pasa de `afterAll` a `try/finally` por caso); opcionalmente 7 migradas. Va
 última porque es la que más ficheros toca y la que más se beneficia de tener el CI ya estable
 mientras se hace.
+
+**Tres cosas salieron distintas del plan, y las tres se dicen enteras.**
+
+**(a) La premisa de «por caso, porque el `afterAll` puede no correr» es más estrecha de lo que
+parecía.** Comprobado con dos specs de juguete: **Jest ejecuta `afterAll` aunque el test falle y
+aunque `beforeAll` lance**. Lo único que se lo salta es que el proceso muera de golpe — y ahí un
+`finally` por caso tampoco corre. Así que el reparto se hizo por dónde hace falta el ajuste, no por
+dogma: `withSetting` por caso donde el ajuste sólo hace falta en un tramo (`tags-b3`/`tags-b4`, que
+sólo lo necesitan mientras el fixture publica: cuando arranca el primer `it` la clave ya está
+restaurada), y una forma de SUITE (`ajustesDeSuite`) donde el fixture lo necesita en los veinte
+casos. Envolver veinte cuerpos de test no compraba nada frente a eso y escondía el ajuste en veinte
+sitios en vez de declararlo en uno.
+
+**(b) Lo que de verdad cierra la clase es una barrera de CORRIDA, no de suite.**
+`test/verificar-aislamiento-settings.ts`, lanzada desde el `globalTeardown`, compara las 17 claves
+sembradas contra `SETTINGS_SEMILLA_TEST` — valor y existencia de fila. Es la única que puede ver el
+defecto, porque el defecto es invisible desde dentro: con `ajustes-interruptores` devuelto a su
+estado anterior, **la suite pasa 8/8 en verde y la corrida cae en el teardown** señalando
+`videoEnabled: true → false` y `bumpAutoEnabled: SIN FILA`. Esa es la forma exacta del rojo que
+mordió en H9, atrapada donde sí se ve.
+
+**(b bis) Y la barrera encontró DOS suites más, que el inventario de §2 no tenía.** En su primera
+corrida completa señaló cuatro claves sucias, y sólo una era de las esperadas:
+
+| Clave | Quedaba en | Culpable | Por qué |
+|---|---|---|---|
+| `badWordList` | `["spam","fraude"]` | `admin` | los casos de `PATCH /admin/settings` la cambian y nadie la devuelve |
+| `listingExpiryDays` | `90` | `admin` | ídem |
+| `proMonthlyFeaturedQuota` | `6` | `admin` | ídem |
+| `videoEnabled` | `false` | `video-infra` | su `afterAll` hacía `encender(false)` — un literal, no lo que encontró |
+
+Las dos son variantes del mismo defecto y ninguna estaba en la lista, **porque §2 barrió
+`freeActiveListingLimit` y no todas las claves**. Ese sesgo es justo lo que una barrera de corrida
+corrige: no depende de que alguien se acuerde de mirar la clave correcta.
+
+`admin` tiene además la ironía útil: su `beforeAll` fija cuatro claves «para empezar en valores
+conocidos **pase lo que pase por lo que dejara una corrida anterior**, p. ej. `badWordList` puesta a
+`["spam","fraude"]`». Se estaba defendiendo de su propio rastro de la corrida anterior sin saberlo.
+Y `video-infra` es la tercera aparición del mismo error que `ajustes-interruptores` y `tags-b3/b4`:
+**reponer un literal no es restaurar** — el `false` que escribía es el valor por defecto de
+producción, mientras que la semilla de test lo pone en `true` a propósito.
+
+**(c) Un defecto propio, encontrado al escribir la barrera.** La primera versión importaba la lista
+de `seed-test.ts` — que es un script con `main()` de nivel superior. Importarlo **sembraba**: la
+barrera reparaba la contaminación justo antes de ir a buscarla, y salía verde siempre. Se vio porque
+el `Test seed: ... OK` aparecía por consola después de «Ran all test suites». La lista se sacó a
+`prisma/settings-test.ts`, que es lo que `seed-settings.ts` ya había hecho por esta misma razón y en
+su día. Segundo defecto del mismo día: `Setting.value` es `Json` NO NULABLE, así que restaurar una
+fila que valía `null` exigía `Prisma.JsonNull` — sin eso el helper reventaba dentro del `finally`,
+o sea limpiando un test que ya estaba fallando.
 
 ---
 

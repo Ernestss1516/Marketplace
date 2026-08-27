@@ -7,6 +7,11 @@
 // Price, Product) to avoid race conditions when Jest workers run suites in parallel.
 
 import { PrismaClient, Prisma, ProductType } from '@prisma/client';
+// La lista vive en su propio módulo para que la barrera de fin de corrida
+// (`test/verificar-aislamiento-settings.ts`) pueda MIRARLA sin ejecutar este script.
+// Ver la nota de `settings-test.ts`: importar `seed-test` para leer la lista volvía a
+// sembrar, y la barrera se arreglaba a sí misma el defecto que venía a medir.
+import { SETTINGS_SEMILLA_TEST } from './settings-test';
 
 const prisma = new PrismaClient();
 
@@ -77,32 +82,12 @@ async function seedSettings() {
   // Playwright, which shares this same DB) survives to contaminate the next
   // run if it's ever left un-restored. Forcing the default here is the fix,
   // independent of --runInBand / worker isolation (see estado-tecnico.md).
-  const settings: { key: string; value: Prisma.InputJsonValue }[] = [
-    { key: 'badWordList', value: [] },
-    { key: 'listingExpiryDays', value: 60 },
-    { key: 'contactRequiresVerification', value: true },
-    { key: 'featuredCreditCost7d', value: 30 },
-    { key: 'featuredCreditCost14d', value: 50 },
-    { key: 'featuredCreditCost30d', value: 100 },
-    { key: 'bumpCreditCost', value: 5 },
-    { key: 'proExtraCreditsPercent', value: 20 },
-    { key: 'bumpAutoEnabled', value: true },
-    // Vídeo Pro — encendido SOLO en la semilla de test, para que las baterías puedan
-    // ejercitar la feature. En producción el ajuste no se siembra: sin fila está APAGADA, y
-    // encenderla debe ser un acto explícito porque cuesta almacenamiento desde el primer
-    // vídeo. Los casos de «apagada» se prueban apagándola dentro del propio test.
-    { key: 'videoEnabled', value: true },
-    { key: 'freeActiveListingLimit', value: 5 },
-    { key: 'proActiveListingLimit', value: 20 },
-    { key: 'proMonthlyFeaturedQuota', value: 4 },
-    { key: 'proQuotaFeaturedDurationDays', value: 7 },
-    // Monetización ráfaga 3.
-    { key: 'proMonthlyBumpQuota', value: 4 },
-    // Monetización ráfaga 4.
-    { key: 'proExtraBumpsPercent', value: 20 },
-  ];
-
-  for (const s of settings) {
+  //
+  // Y desde A2 hay además una barrera al FINAL de la corrida
+  // (`test/verificar-aislamiento-settings.ts`) que comprueba que nadie dejó ninguna
+  // de estas claves cambiada. Forzar el valor aquí impide que la contaminación se
+  // ARRASTRE entre corridas; la barrera impide que pase inadvertida DENTRO de una.
+  for (const s of SETTINGS_SEMILLA_TEST) {
     await prisma.setting.upsert({
       where: { key: s.key },
       create: s,

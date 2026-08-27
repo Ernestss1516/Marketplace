@@ -17,10 +17,22 @@ import * as request from 'supertest';
 import { createTestApp } from './helpers/create-app';
 import { buildMeiliClient } from './helpers/db';
 import { waitForIndex } from './helpers/meili';
+import { ajustesDeSuite } from './helpers/settings';
 
 const INDEX = process.env.MEILI_INDEX_NAME ?? 'listings_test';
 
 describe('Tags en el anuncio (B2, e2e)', () => {
+  // El spec publica una docena de anuncios con el MISMO vendedor FREE, así que choca
+  // con `freeActiveListingLimit` (403) por acumulación, no por nada que tenga que ver
+  // con los tags. Se sube para toda la suite —los `it` publican, no sólo el fixture— y
+  // se devuelve la FILA EXACTA al terminar.
+  //
+  // Esta suite ya lo hacía bien a mano (guardaba el valor previo en vez de asumir el del
+  // seed, y borraba si no había fila): era el molde del que salió `helpers/settings.ts`.
+  // Pasa al helper para que el molde esté en un sitio y no en la memoria de quien lo
+  // copie — que es el defecto que A2 cierra.
+  ajustesDeSuite({ freeActiveListingLimit: 500 });
+
   let app: INestApplication;
   let prisma: PrismaClient;
   let meili: MeiliSearch;
@@ -47,7 +59,7 @@ describe('Tags en el anuncio (B2, e2e)', () => {
 
   let adminToken: string;
   let adminId: string;
-  let limiteFreePrevio: unknown = null;
+
 
   const auth = () => ({ Authorization: `Bearer ${token}` });
   const adminAuth = () => ({ Authorization: `Bearer ${adminToken}` });
@@ -183,17 +195,6 @@ describe('Tags en el anuncio (B2, e2e)', () => {
       .post('/api/auth/admin-login')
       .send({ email: adminEmail, password: 'Test1234!' })).body.accessToken;
 
-    // El spec publica una docena de anuncios con el MISMO vendedor FREE, así que
-    // choca con `freeActiveListingLimit` (403) por acumulación, no por nada que tenga
-    // que ver con los tags. Se sube para la suite y se restaura al terminar; se
-    // guarda el valor previo en vez de asumir el del seed.
-    limiteFreePrevio =
-      (await prisma.setting.findUnique({ where: { key: 'freeActiveListingLimit' } }))?.value ?? null;
-    await prisma.setting.upsert({
-      where: { key: 'freeActiveListingLimit' },
-      create: { key: 'freeActiveListingLimit', value: 500 },
-      update: { value: 500 },
-    });
   }, 60_000);
 
   afterEach(async () => {
@@ -214,14 +215,6 @@ describe('Tags en el anuncio (B2, e2e)', () => {
     await prisma.tag.deleteMany({ where: { id: { in: Object.values(tagIds) } } });
     await prisma.category.deleteMany({ where: { id: { in: [hijaId, otraId, padreId] } } });
     await setTope(null);
-    if (limiteFreePrevio === null) {
-      await prisma.setting.deleteMany({ where: { key: 'freeActiveListingLimit' } });
-    } else {
-      await prisma.setting.update({
-        where: { key: 'freeActiveListingLimit' },
-        data: { value: limiteFreePrevio as never },
-      });
-    }
     await app.close();
     await prisma.$disconnect();
   });
