@@ -16561,7 +16561,8 @@ Columnas nuevas: `User.suspendedUntil` (la usa C4), `archivedAt`, `archiveReason
 (enum `ArchiveReason`), `archiveNote`, `archivedById` (→ `User`, `SetNull`, molde
 `Review.retiredById`), `statusBeforeArchive`, `deletedAt`;
 `Listing.pausedByAccountArchive` (marcador de origen para que desarchivar reactive
-sólo lo que pausó el archivado); `Report.reportedUserName` (snapshot **escrito al
+sólo lo que pausó el archivado; **hoy es `pausedByAccountReason`, un enum** — ver «el
+residuo BANNED, cerrado» más abajo); `Report.reportedUserName` (snapshot **escrito al
 crear**, molde B1 — sin él, vaciar una cuenta dejaría la cola de moderación diciendo
 «denuncia contra Usuario eliminado»). Todas nullable o con default: aditivas, sin
 backfill salvo el del snapshot.
@@ -16703,7 +16704,8 @@ limpian al salir (§4.2).
 
 ### Los anuncios: `PAUSED`, no `ARCHIVED`
 
-Los `ACTIVE` y `RESERVED` pasan a `PAUSED` con `pausedByAccountArchive = true`.
+Los `ACTIVE` y `RESERVED` pasan a `PAUSED` con la marca de origen puesta (era
+`pausedByAccountArchive = true`; hoy `pausedByAccountReason = ARCHIVE`).
 `PAUSED` ya trae las tres propiedades que hacen falta —reversible, fuera del índice,
 libera cuota— así que **no hay código de visibilidad nuevo para los anuncios**.
 `DRAFT` y `PENDING_REVIEW` no se tocan: no son públicos, no hay nada que ocultar —
@@ -16866,13 +16868,16 @@ endpoint con sus dos hermanos, que ya daban 404. Ningún consumidor del web lo u
 llevaba desde siempre con su perfil, sus valoraciones y su presencia en el buscador
 públicos.
 
-### El residuo consciente
+### El residuo consciente — **ya cerrado**
 
-Un `BANNED` con anuncios `ACTIVE` **sigue teniendo ficha de anuncio**: banear no ata
-el ciclo de vida de los anuncios, y `findBySlug` de anuncio sólo exige que el
-anuncio esté `ACTIVE`. Un `ARCHIVED` no tiene el problema porque el archivado los
-pausa (C2). Anotado, no resuelto: atar el ban al ciclo de los anuncios es otra
-decisión (diseño §10).
+Un `BANNED` con anuncios `ACTIVE` **seguía teniendo ficha de anuncio**: banear no
+ataba el ciclo de vida de los anuncios, y `findBySlug` de anuncio sólo exige que el
+anuncio esté `ACTIVE`. Un `ARCHIVED` no tenía el problema porque el archivado los
+pausa (C2).
+
+Se anotó aquí sin resolver porque atar el ban al ciclo de los anuncios era otra
+decisión (diseño §10). **Está tomada y aplicada**: ver «el residuo BANNED, cerrado»
+al final de este capítulo — banear pausa, reinstaurar no restaura.
 
 ### Verificación
 
@@ -17229,6 +17234,113 @@ Mutaciones, las cinco verificadas:
 | Que el cron no borre el objeto de R2 | Barrera 5 — «caducar» sería sólo una etiqueta |
 
 **Con C6 el diseño de borrado de cuentas queda COMPLETO (6/6).**
+
+---
+
+## Borrado de cuentas — el residuo BANNED, cerrado: el ban ata el ciclo de los anuncios
+
+Diseño: `docs/diseno-borrado-cuentas.md` §5 (la nota de la ficha de anuncio) y §10.
+Cierra el **residuo consciente que dejó C3**.
+
+### La incoherencia que se cierra
+
+C3 escondió el perfil, los anuncios y las valoraciones de un `BANNED`, pero banear
+seguía siendo una transición de `User.status` **a secas**: un baneado conservaba sus
+anuncios `ACTIVE`, indexados en Meilisearch y con ficha pública — `findBySlug` de
+anuncio sólo exige que **el anuncio** esté `ACTIVE`, y nunca mira al vendedor. El
+archivado sí los pausa desde C2. Resultado: **la sanción grave ocultaba MENOS que el
+archivado voluntario**. Anotado en su momento, resuelto ahora.
+
+### La decisión (de Ernest), en dos mitades asimétricas
+
+| Gesto | Qué hace con los anuncios |
+|---|---|
+| **Banear** | Los `ACTIVE`/`RESERVED` → `PAUSED`: fuera del índice, sin ficha (404), sin ocupar cuota. **Igual que el archivado** |
+| **Reinstaurar** | **NADA.** Siguen `PAUSED`; el usuario los reactiva él mismo, uno a uno, desde su panel |
+
+La asimetría es la decisión, no un olvido: **levantar un ban devuelve el ACCESO, no la
+visibilidad**. Un archivado es un paréntesis que el usuario pidió y se le devuelve
+entero; una sanción no se deshace sola. Por eso el ban usa la mitad «pausar» del molde
+de C2 y no la mitad «restaurar», y por eso `reinstateUser` **no** es el espejo de
+`unarchive()`.
+
+Lo que sí hace reinstaurar es **limpiar la marca**: la cuenta ya no está sancionada,
+así que «esto lo pausó un ban» dejó de ser cierto. Limpiada, sus anuncios quedan
+indistinguibles de un pausado normal — que es exactamente lo que son a partir de ahí.
+Sin limpiarla quedaría una marca muerta que el siguiente lector tendría que aprender a
+ignorar.
+
+### El origen del pausado: un enum, no dos booleanos
+
+`Listing.pausedByAccountArchive Boolean` → **`Listing.pausedByAccountReason
+ListingPauseOrigin?`** (`ARCHIVE` | `BAN`; `null` = lo pausó su dueño).
+
+Es la pieza que impide que los dos gestos se pisen. Con una segunda marca
+(`pausedByBan`) sería representable «lo pausó el archivado **y** el ban a la vez», que
+no es un estado real: **un anuncio lo pausó UN gesto, el primero que lo encontró
+vivo**. Con un enum ese estado no se puede escribir. Molde `User.statusBeforeArchive`:
+un origen en un campo, no banderas sueltas.
+
+Y el filtro del desarchivado pasa a ser `ARCHIVE`, **no «tiene marca»** — que es donde
+el booleano compartido habría roto en silencio: un usuario baneado y después archivado
+(§1.1: un baneado conserva su derecho al olvido) vuelve a `BANNED` al desarchivarlo, y
+«reactivar todo lo marcado» le habría devuelto los anuncios a un usuario **inhabilitado**.
+
+Migración `20260827090000_residuo_banned_origen_del_pausado`: crea el enum y la
+columna, traduce los `true` a `ARCHIVE` (**el backfill va ANTES del `DROP`**, o se
+perderían las marcas de las cuentas archivadas que esperan su desarchivado) y retira la
+vieja.
+
+**El caso «archivado y luego baneado»** sale gratis y sin ningún `if`: el pausado sólo
+mira `ACTIVE`/`RESERVED`, y esos anuncios ya están `PAUSED`. El origen `ARCHIVE` se
+conserva porque nadie lo toca — y lo mismo protege a los que el propio vendedor pausó.
+
+### El helper compartido: un solo lector
+
+`ListingPauseService` (`src/modules/listing-pause/`), molde de
+`ListingActivationService` y por lo mismo: un gesto con **dos llamantes que no se
+conocen** —`AccountArchiveService` y `AdminService`—, en un módulo ligero que no
+arrastra dominio. `pauseListingsForUser(userId, origin, tx?)` + `reindexPaused()` +
+`clearPauseOrigin()`.
+
+Los dos caminos tienen que coincidir en cuatro cosas —qué estados se pausan, a cuál se
+llevan, qué marca se escribe y qué se hace con el índice—, y coincidir en cuatro cosas
+escritas dos veces es coincidir **hoy**. `PAUSABLES` vive ahí y sólo ahí.
+
+**Lo que NO se extrajo, a propósito: `restaurar`.** No es simétrico entre los dos
+llamantes, así que no hay nada común que sacar. Lo común es pausar; lo distinto se
+queda en quien lo decide.
+
+`archive()` pasa a **transacción interactiva** (era la forma de lista) para poder
+pasarle el `tx` al servicio compartido. La garantía es la de antes, palabra por
+palabra: no existe un instante en el que la cuenta esté archivada y sus anuncios sigan
+en el escaparate. En el ban el orden es **primero la sanción, después los anuncios** —
+misma asimetría que los efectos externos del archivado: si el pausado falla, la cuenta
+ya está baneada y eso es lo correcto; volver a pulsar «Banear» lo reintenta.
+
+### Verificación
+
+`test/residuo-banned-ban-anuncios.e2e-spec.ts` (14).
+
+| Barrera | Qué fija |
+|---|---|
+| 1 | Banear pausa: `PAUSED` con origen `BAN`, **fuera de Meilisearch**, ficha **404** (200 antes del ban, para que el 404 pruebe algo) y sin ocupar cuota. `DRAFT`/`PENDING_REVIEW`/`SOLD` intactos |
+| 2 | Reinstaurar **no** restaura: siguen `PAUSED`, la marca se limpia, y el usuario **sí** puede reactivarlos él (sin esto, «no se restaura» podría esconder un anuncio irrecuperable) |
+| 3 | El origen no se confunde, en las dos direcciones: archivado→baneado conserva `ARCHIVE`; baneado→archivado→desarchivado **no** reactiva lo del ban; y con los dos orígenes conviviendo, el desarchivado reactiva sólo lo suyo |
+| 4 | **Un solo lector**, sobre el código fuente: en todo `src` hay UN fichero que escribe la marca de origen |
+
+Mutaciones, las cuatro verificadas:
+
+| Mutación | Cae |
+|---|---|
+| Banear sin pausar (el residuo, tal como estaba) | 10 de 14 tests |
+| Reinstaurar restaura | Barrera 2 — 3 tests |
+| Un solo origen: desarchivar reactiva «cualquier marca» | Barrera 3 — 2 tests |
+| Una segunda copia del pausado dentro de `admin.service` | **Sólo la barrera 4** — las 11 de conducta siguen verdes, que es exactamente por qué esa barrera mira los ficheros |
+
+Detalle del propio test que costó un rojo: `pausedByAccountReason:\s*(?!null)` **no
+excluye nada** —el motor retrocede el espacio y esquiva el lookahead—, así que el valor
+se captura y se compara en JavaScript.
 
 ---
 

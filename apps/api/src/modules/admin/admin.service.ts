@@ -12,6 +12,7 @@ import {
   ArchiveReason,
   BumpLedgerType,
   CreditLedgerType,
+  ListingPauseOrigin,
   ListingStatus,
   ListingTypePolicy,
   ListingViewMode,
@@ -75,6 +76,7 @@ import { SetListingTriageDto } from './dto/set-listing-triage.dto';
 // P3a — la edición de campos por el staff.
 import { UpdateAdminListingDto } from './dto/update-admin-listing.dto';
 import { ListingEditValidationService } from '../listings/listing-edit-validation.service';
+import { ListingPauseService } from '../listing-pause/listing-pause.service';
 import { PreModerationService } from '../moderation/pre-moderation.service';
 import { DetectionEngine } from '../moderation/detection/detection.engine';
 import { ListingDetectionsService } from '../moderation/detection/listing-detections.service';
@@ -487,6 +489,11 @@ export class AdminService {
     // anuncios, uno por trabajo.
     @InjectQueue(QUEUE_BILLING) private readonly billingQueue: Queue,
     @InjectQueue(QUEUE_ACCOUNT_CLEANUP) private readonly accountCleanupQueue: Queue,
+    // RESIDUO BANNED — sacar del escaparate los anuncios de una cuenta baneada. EL
+    // MISMO servicio que usa el archivado de C2, no una copia: los dos caminos tienen
+    // que coincidir en qué se pausa y qué se hace con el índice. Al final de la
+    // lista, por la nota de `preModeration`.
+    private readonly listingPause: ListingPauseService,
   ) {}
 
   private readonly logger = new Logger(AdminService.name);
@@ -2018,13 +2025,72 @@ export class AdminService {
     return this.changeUserStatus(targetId, actorId, UserStatus.ACTIVE, 'USER_UNSUSPEND', ip);
   }
 
+  /**
+   * RESIDUO BANNED — BANEAR AHORA ATA EL CICLO DE LOS ANUNCIOS.
+   *
+   * Hasta aquí, banear era una transición de `User.status` a secas: un `BANNED`
+   * seguía con sus anuncios `ACTIVE`, indexados y con ficha pública —`findBySlug`
+   * sólo exige que el ANUNCIO esté `ACTIVE`, no mira al vendedor—. C3 escondió el
+   * perfil del baneado y dejó anotado el hueco: **la sanción grave ocultaba MENOS
+   * que el archivado voluntario**, que sí los pausa desde C2. Eso se cierra aquí.
+   *
+   * MISMO GESTO QUE EL ARCHIVADO, no uno parecido: `ListingPauseService`, el mismo
+   * lector, con otra marca de origen. `PAUSED` fuera del índice, sin ficha y sin
+   * ocupar cuota.
+   *
+   * EL ORDEN —primero la sanción, después los anuncios— es deliberado y es la misma
+   * asimetría que usa el archivado con sus efectos externos: si el pausado falla, la
+   * cuenta ya está baneada y eso es lo correcto (el acceso es lo urgente), y volver a
+   * pulsar «Banear» reintenta el pausado sin efectos raros. Al revés, un fallo entre
+   * medias dejaría los anuncios pausados por una sanción que no llegó a escribirse.
+   */
   async banUser(targetId: string, actorId: string, ip?: string) {
-    return this.changeUserStatus(targetId, actorId, UserStatus.BANNED, 'USER_BAN', ip);
+    const actualizado = await this.changeUserStatus(
+      targetId,
+      actorId,
+      UserStatus.BANNED,
+      'USER_BAN',
+      ip,
+    );
+
+    const pausados = await this.listingPause.pauseListingsForUser(
+      targetId,
+      ListingPauseOrigin.BAN,
+    );
+    await this.listingPause.reindexPaused(pausados);
+
+    return { ...actualizado, anunciosPausados: pausados.length };
   }
 
-  // Reverses a ban (BANNED → ACTIVE). ADMIN-only.
+  /**
+   * Reverses a ban (BANNED → ACTIVE). ADMIN-only.
+   *
+   * RESIDUO BANNED — REINSTAURAR **NO** DEVUELVE LOS ANUNCIOS, y no es un olvido: es
+   * la decisión, y es lo que hace que este método no sea el espejo de `unarchive()`.
+   * Levantar un ban devuelve el ACCESO; la visibilidad la devuelve su dueño, anuncio
+   * a anuncio, desde su panel. Un archivado es un paréntesis que el usuario pidió y
+   * se le devuelve entero; una sanción no se deshace sola.
+   *
+   * LO QUE SÍ SE HACE ES LIMPIAR LA MARCA: la cuenta ya no está sancionada, así que
+   * «esto lo pausó un ban» dejó de ser cierto. Sin limpiarla quedaría una marca
+   * muerta que el siguiente lector tendría que aprender a ignorar. Limpiada, sus
+   * anuncios son pausados normales — que es exactamente lo que son.
+   */
   async reinstateUser(targetId: string, actorId: string, ip?: string) {
-    return this.changeUserStatus(targetId, actorId, UserStatus.ACTIVE, 'USER_REINSTATE', ip);
+    const actualizado = await this.changeUserStatus(
+      targetId,
+      actorId,
+      UserStatus.ACTIVE,
+      'USER_REINSTATE',
+      ip,
+    );
+
+    const desmarcados = await this.listingPause.clearPauseOrigin(
+      targetId,
+      ListingPauseOrigin.BAN,
+    );
+
+    return { ...actualizado, anunciosSinReactivar: desmarcados };
   }
 
   async changeUserRole(

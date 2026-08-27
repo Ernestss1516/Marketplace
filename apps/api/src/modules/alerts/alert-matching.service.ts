@@ -50,7 +50,7 @@ export class AlertMatchingService {
          * UNA CONDICIÓN EN LA CONSULTA, Y NO APAGAR LAS ALERTAS UNA A UNA al
          * archivar. La diferencia no es de esfuerzo: apagarlas obligaría a
          * recordar CUÁLES estaban activas para poder devolverlas al desarchivar
-         * —otro marcador como `pausedByAccountArchive`—, y a acertar en los dos
+         * —otro marcador como `pausedByAccountReason`—, y a acertar en los dos
          * lados. Aquí no hay estado que restaurar: la cuenta vuelve y sus alertas
          * vuelven con ella, porque nunca se tocaron.
          *

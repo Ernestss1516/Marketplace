@@ -1,12 +1,13 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import { ArchiveReason, ListingStatus, UserStatus } from '@prisma/client';
+import { ArchiveReason, ListingPauseOrigin, ListingStatus, UserStatus } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { QUEUE_BILLING } from '../../infra/queue/queue.constants';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { BILLING_JOB } from '../billing/billing.types';
 import { ListingActivationService } from '../listing-activation/listing-activation.service';
+import { ListingPauseService } from '../listing-pause/listing-pause.service';
 import { ListingGateService } from '../listing-gate/listing-gate.service';
 import { ExpirationService } from '../expiration/expiration.service';
 import {
@@ -40,25 +41,10 @@ export class AccountArchiveService {
     private readonly prisma: PrismaService,
     private readonly auditLog: AuditLogService,
     private readonly activation: ListingActivationService,
+    private readonly pause: ListingPauseService,
     private readonly gate: ListingGateService,
     @InjectQueue(QUEUE_BILLING) private readonly billingQueue: Queue,
   ) {}
-
-  /**
-   * Los estados de anuncio que el archivado PAUSA.
-   *
-   * Sólo estos dos porque sólo estos dos se ven: un `DRAFT` o un `PENDING_REVIEW`
-   * no está indexado, no es enlazable y no tiene ficha pública, así que no hay
-   * nada que ocultar. **Aquí se disuelve D-13** —el callejón sin salida que la
-   * auditoría encontró— sin necesidad de tocar `ARCHIVABLE_STATUSES`: el problema
-   * sólo existía si había que llevarlos a `ARCHIVED`, y no hay que llevarlos.
-   *
-   * `RESERVED` entra, y es la decisión incómoda: una reserva es un compromiso con
-   * OTRA persona, y el vendedor se acaba de ir — la reserva no puede prosperar, y
-   * dejarla visible sostiene una promesa que ya no existe. Se libera sin avisar al
-   * comprador (decisión de producto ya tomada): lo ve al volver.
-   */
-  private static readonly PAUSABLES: ListingStatus[] = ['ACTIVE', 'RESERVED'];
 
   // ===========================================================================
   //  ARCHIVAR
@@ -99,16 +85,16 @@ export class AccountArchiveService {
       );
     }
 
-    // Se cargan ANTES de tocar nada: después de pausarlos ya no se puede saber
-    // cuáles eran, y hacen falta sus `slug` para invalidar caché e índice. Molde
-    // `deleteListing`, que carga la fila antes de destruirla por el mismo motivo.
-    const aPausar = await this.prisma.listing.findMany({
-      where: { sellerId: targetId, status: { in: AccountArchiveService.PAUSABLES } },
-      select: { id: true, slug: true },
-    });
-
-    const [actualizado] = await this.prisma.$transaction([
-      this.prisma.user.update({
+    /**
+     * TRANSACCIÓN INTERACTIVA y no la forma de lista, desde el residuo BANNED: el
+     * pausado ya no se escribe aquí, lo escribe `ListingPauseService` —el mismo
+     * lector que usa el ban— y necesita el cliente de la transacción para que su
+     * lectura y su escritura caigan juntas con el cambio de `User.status`. La
+     * garantía es la de antes, palabra por palabra: no existe un instante en el que
+     * la cuenta esté archivada y sus anuncios sigan en el escaparate.
+     */
+    const { actualizado, aPausar } = await this.prisma.$transaction(async (tx) => {
+      const usuario = await tx.user.update({
         where: { id: targetId },
         data: {
           status: UserStatus.ARCHIVED,
@@ -140,20 +126,24 @@ export class AccountArchiveService {
           tokenVersion: { increment: 1 },
         },
         select: { id: true, name: true, email: true, slug: true, status: true },
-      }),
+      });
 
       // §4.4 — PAUSED y no ARCHIVED: ya es reversible, ya sale del índice y ya
-      // libera la cuota. La marca es lo que permite que desarchivar devuelva SÓLO
-      // éstos y no los que el vendedor había pausado por su cuenta.
-      this.prisma.listing.updateMany({
-        where: { id: { in: aPausar.map((l) => l.id) } },
-        data: { status: ListingStatus.PAUSED, pausedByAccountArchive: true },
-      }),
+      // libera la cuota. La marca `ARCHIVE` es lo que permite que desarchivar
+      // devuelva SÓLO éstos: ni los que el vendedor pausó por su cuenta, ni —desde
+      // el residuo BANNED— los que pausó una sanción.
+      const pausados = await this.pause.pauseListingsForUser(
+        targetId,
+        ListingPauseOrigin.ARCHIVE,
+        tx,
+      );
 
       // §4.5 — un enlace vivo hacia una cuenta cerrada no debe seguir sirviendo.
-      this.prisma.verificationToken.deleteMany({ where: { userId: targetId } }),
-      this.prisma.passwordResetToken.deleteMany({ where: { userId: targetId } }),
-    ]);
+      await tx.verificationToken.deleteMany({ where: { userId: targetId } });
+      await tx.passwordResetToken.deleteMany({ where: { userId: targetId } });
+
+      return { actualizado: usuario, aPausar: pausados };
+    });
 
     await this.auditLog.log({
       action: 'USER_ARCHIVE',
@@ -175,9 +165,7 @@ export class AccountArchiveService {
     // Efectos externos, FUERA de la transacción y sin poder tumbarla: si algo de
     // aquí falla, la cuenta ya está archivada y eso es lo correcto. Reintentar un
     // reindexado es trivial; deshacer un archivado que el usuario pidió, no.
-    for (const l of aPausar) {
-      await this.activation.reindexListing(l.slug, l.id);
-    }
+    await this.pause.reindexPaused(aPausar);
     await this.cancelarSuscripciones(targetId);
 
     return actualizado;
@@ -266,13 +254,21 @@ export class AccountArchiveService {
    * LA MARCA SE LIMPIA EN LOS DOS CASOS, quepan o no: el ciclo de archivado ha
    * terminado y la marca describe ese ciclo. Lo que no cupo se queda PAUSED, que
    * es un estado del que el propio vendedor puede salir cuando haga sitio.
+   *
+   * RESIDUO BANNED — EL FILTRO ES `ARCHIVE`, NO «TIENE MARCA». Ésa es la barrera
+   * entera del enum de origen: un usuario baneado (anuncios `PAUSED` con origen
+   * `BAN`) al que después se archiva no puede recuperarlos al desarchivarlo, porque
+   * desarchivar levanta el archivado y **no la sanción** — vuelve a `BANNED` por
+   * `statusBeforeArchive`, y unos anuncios `ACTIVE` de un baneado son exactamente el
+   * agujero que este cuerpo cerró. Con el booleano de antes, los dos orígenes eran
+   * el mismo valor y esto habría reactivado lo que pausó el ban.
    */
   private async restaurarAnuncios(userId: string): Promise<{ reactivados: number; sinCupo: number }> {
     const marcados = await this.prisma.listing.findMany({
       where: {
         sellerId: userId,
         status: ListingStatus.PAUSED,
-        pausedByAccountArchive: true,
+        pausedByAccountReason: ListingPauseOrigin.ARCHIVE,
       },
       // El más reciente primero: si no caben todos, los que vuelven son los que
       // estaban vivos hace menos. Determinista, para que dos ejecuciones sobre el
@@ -315,7 +311,7 @@ export class AccountArchiveService {
             // Mismo motivo que `reactivate()`: un pausado «viejo» podría tener un
             // expiresAt ya pasado y el cron lo caducaría en menos de 24 h.
             expiresAt: ExpirationService.expiresAt(new Date()),
-            pausedByAccountArchive: false,
+            pausedByAccountReason: null,
           },
         });
         await this.activation.listingBecameActive(listing.slug, listing.id);
@@ -323,7 +319,7 @@ export class AccountArchiveService {
       } else {
         await this.prisma.listing.update({
           where: { id: listing.id },
-          data: { pausedByAccountArchive: false },
+          data: { pausedByAccountReason: null },
         });
         sinCupo += 1;
       }

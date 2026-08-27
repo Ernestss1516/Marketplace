@@ -237,6 +237,14 @@ Es un **marcador de origen**, no una copia de estado: sólo hay un destino posib
 restaurar (`ACTIVE`), así que un booleano basta. Molde: `Entitlement.origin` y
 `BumpRun.paidWith` — registrar *por qué* pasó algo para poder revertirlo selectivamente.
 
+> **Actualización (residuo BANNED, cerrado).** El booleano **ya no basta**, y la razón
+> es exactamente la nota de §5 de abajo: al cerrar el residuo, banear también pausa, y
+> un booleano compartido haría que el desarchivado reactivara lo que pausó el ban. La
+> columna es hoy **`pausedByAccountReason ListingPauseOrigin?`** (`ARCHIVE` | `BAN`;
+> `null` = lo pausó su dueño). Un enum y no dos booleanos: un anuncio lo pausó **un**
+> gesto, y «pausado por dos cosas a la vez» no debe ser representable. Ver
+> `docs/estado-tecnico.md`, «el residuo BANNED, cerrado».
+
 ### 2.4 Las claves ajenas peligrosas: `Cascade` → `Restrict`
 
 **Ocho relaciones cambian.** Ninguna toca datos: es una migración declarativa.
@@ -627,6 +635,13 @@ y el ban comparten el gate de identidad** — y arreglar el hueco del baneado sa
 ([`listings.service.ts:1186`](../apps/api/src/modules/listings/listings.service.ts#L1186)).
 Un baneado con anuncios activos sí seguiría teniendo ficha — se anota en §10 como el
 residuo consciente de no atar el ban al ciclo de vida de los anuncios.
+
+> **Actualización — residuo CERRADO.** La decisión de producto está tomada: **banear
+> pausa** los `ACTIVE`/`RESERVED` del usuario (igual que el archivado: `PAUSED`, fuera
+> del índice, sin ficha, libera cuota) y **reinstaurar NO los restaura** — levantar el
+> ban devuelve el acceso, no la visibilidad; el usuario los reactiva él mismo. Los dos
+> gestos comparten `ListingPauseService`, y el enum de origen (§2.3) impide que se
+> pisen. Ver `docs/estado-tecnico.md`, «el residuo BANNED, cerrado».
 
 ---
 

@@ -89,6 +89,10 @@ function buildService(prismaOverrides: Record<string, unknown> = {}) {
     // política de categorías y no eliminan ninguna, pero el constructor las exige.
     { add: jest.fn().mockResolvedValue(undefined) } as never,
     { add: jest.fn().mockResolvedValue(undefined) } as never,
+    // RESIDUO BANNED — mantenimiento de fixture por cambio de FIRMA, otra vez el de
+    // siempre: el pausado de los anuncios de una cuenta baneada. Estos casos son de
+    // política de categorías y no banean a nadie, pero el constructor lo exige.
+    { pauseListingsForUser: jest.fn(), reindexPaused: jest.fn(), clearPauseOrigin: jest.fn() } as never,
   );
 
   return { service, prisma, auditLog, indexingQueue, categoryTree };

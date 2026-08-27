@@ -909,6 +909,9 @@ de roles: lo que no lleva anotación propia es ADMIN-only por herencia.
   Suspensión temporal.
 - **`PATCH /admin/users/:id/ban`** *(ADMIN)* · **`.../reinstate`** *(ADMIN)* — Baneo permanente y
   su reverso. **ADMIN-only**, a diferencia de la suspensión.
+  **Banear PAUSA sus anuncios** `ACTIVE`/`RESERVED` (fuera del índice, sin ficha, liberan cuota):
+  devuelve `anunciosPausados`. **Reinstaurar NO los restaura** —levantar el ban devuelve el acceso,
+  no la visibilidad; el usuario los reactiva él mismo— y devuelve `anunciosSinReactivar`.
 - **`PATCH /admin/users/:id/role`** *(ADMIN)* — Cambio de rol.
 - **`PATCH /admin/users/:id/trusted`** *(ADMIN)* — Distintivo «Vendedor de confianza».
 

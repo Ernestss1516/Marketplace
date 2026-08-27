@@ -102,6 +102,33 @@ enum ArchiveReason {
   STAFF_ACTION
 }
 
+/// RESIDUO BANNED — QUÉ OPERACIÓN DE CUENTA pausó un anuncio.
+///
+/// UN ENUM Y NO DOS BOOLEANOS, y ésa es toda la decisión. Nació siendo
+/// `Listing.pausedByAccountArchive Boolean`, cuando el archivado era la única
+/// operación de cuenta que pausaba anuncios. Al hacer que banear también los pause,
+/// una segunda marca (`pausedByBan`) dejaría representable «lo pausó el archivado Y
+/// el ban a la vez», que no es un estado real: un anuncio lo pausó **un** gesto, el
+/// primero que lo encontró vivo. Con un enum ese estado no se puede escribir.
+///
+/// `null` = LO PAUSÓ SU DUEÑO. Es el caso mayoritario y el que hay que no tocar
+/// nunca: desarchivar devuelve a `ACTIVE` sólo los `ARCHIVE`, jamás los que el
+/// vendedor decidió pausar por su cuenta y nadie le ha pedido reactivar.
+///
+/// Molde `User.statusBeforeArchive` y `Entitlement.origin`: registrar POR QUÉ pasó
+/// algo, en un solo campo, para poder revertirlo de forma selectiva.
+enum ListingPauseOrigin {
+  /// Lo pausó el archivado de la cuenta de su dueño (C2). **Desarchivar lo
+  /// reactiva** —si cabe en el cupo—, porque el archivado es reversible por diseño.
+  ARCHIVE
+  /// Lo pausó el ban de su dueño. **Reinstaurar NO lo reactiva**: levantar el ban
+  /// devuelve el acceso, no la visibilidad. El usuario reinstaurado reactiva sus
+  /// anuncios él mismo, uno a uno, como cualquier pausado propio. La marca se limpia
+  /// al reinstaurar para no dejarla colgando sobre una cuenta que ya no está
+  /// sancionada.
+  BAN
+}
+
 /// BORRADO DE CUENTAS C6 — el ciclo de vida de una exportación de datos.
 ///
 /// CUATRO VALORES Y NO TRES: `FAILED` existe porque el trabajo es de cola y puede
@@ -908,25 +935,25 @@ model Listing {
   /// para poder listar los marcados sin recorrer la tabla.
   needsRevalidation Boolean @default(false)
 
-  /// BORRADO DE CUENTAS C1 — «a este anuncio lo pausó el archivado de su dueño».
+  /// «A este anuncio lo pausó una operación sobre la CUENTA de su dueño, y ésta.»
   ///
   /// MARCADOR DE ORIGEN, NO COPIA DE ESTADO. Archivar una cuenta lleva sus anuncios
   /// ACTIVE y RESERVED a `PAUSED` (C2), y desarchivarla tiene que devolver **sólo
   /// ésos** — no los que el vendedor había pausado por su cuenta, que él decidió
-  /// pausar y nadie le ha pedido reactivar. Como el único destino posible al
-  /// restaurar es `ACTIVE`, un booleano basta: no hace falta guardar de dónde venía.
+  /// pausar y nadie le ha pedido reactivar.
   ///
-  /// Molde `Entitlement.origin` / `BumpRun.paidWith`: registrar POR QUÉ pasó algo
-  /// para poder revertirlo de forma selectiva.
+  /// NACIÓ COMO `pausedByAccountArchive Boolean` y es hoy un enum porque el archivado
+  /// dejó de ser la única operación de cuenta que pausa: **banear también pausa**
+  /// (residuo BANNED). Con un booleano compartido, desarchivar habría reactivado lo
+  /// que pausó el ban — el estado inválido que el enum hace irrepresentable. Ver
+  /// `ListingPauseOrigin`.
   ///
-  /// POR QUÉ `PAUSED` Y NO `ARCHIVED` para los anuncios de una cuenta archivada: el
+  /// POR QUÉ `PAUSED` Y NO `ARCHIVED` para los anuncios de una cuenta cerrada: el
   /// schema ya dice de PAUSED que es «temporal, reactivable, ni cuenta para la cuota
   /// ni se indexa» — las tres propiedades que hacen falta, ya construidas. `ARCHIVED`
   /// es terminal en dos capas a propósito, y usarlo obligaría a abrir un agujero en
   /// una irreversibilidad deliberada. Ver diseño §4.4.
-  ///
-  /// Aditivo: nace `false` para todo lo existente, sin backfill. C1 sólo lo crea.
-  pausedByAccountArchive Boolean @default(false)
+  pausedByAccountReason ListingPauseOrigin?
 
   publishedAt DateTime?
   expiresAt   DateTime?
