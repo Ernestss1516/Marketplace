@@ -54,11 +54,18 @@ export interface ListingMediaRefs {
   imageUrls: string[];
   videoUrl?: string | null;
   videoPosterUrl?: string | null;
+  /**
+   * PÓSTER ANIMADO P1 — el SPRITE (`listing-previews/…`), el tercer objeto que deja un
+   * vídeo. Entra aquí y no en una lista aparte porque esto es **el único lector** de «qué
+   * ficheros son de este anuncio»: una segunda lista sería un segundo sitio donde olvidarse
+   * de algo, que es exactamente cómo el póster llevaba sin borrarse desde que existe (H-2).
+   */
+  videoPreviewUrl?: string | null;
 }
 
 /**
  * Todas las claves de R2 que pertenecen a un anuncio: por cada imagen, el
- * original **y su miniatura**; más el vídeo y su póster si los hay.
+ * original **y su miniatura**; más el vídeo, su póster y su sprite si los hay.
  *
  * SE CALCULA ANTES DE BORRAR LA FILA, y ése es el motivo de que la limpieza reciba
  * claves y no un `listingId`: cuando el trabajo de la cola se ejecute, el anuncio
@@ -80,7 +87,14 @@ export function listingMediaKeys(
     keys.add(thumbKeyFor(key));
   }
 
-  for (const url of [refs.videoUrl, refs.videoPosterUrl]) {
+  // Los tres del vídeo. SIN derivar miniatura, al contrario que las fotos: el sprite no pasa
+  // por `POST /media/upload`, así que `ImageProcessor` nunca le hace una.
+  //
+  // (El póster fijo SÍ pasa por ahí y por tanto SÍ tiene un `-thumb.webp` que aquí no se
+  // borra. Es H-1, deuda anotada y fuera de P1: cerrarla bien es mudar el póster a su propio
+  // camino, no derivarle la miniatura desde aquí — porque además deja una fila en
+  // `ListingImage` que tampoco se limpia. Ver docs/diseno-poster-animado.md §1.1 y §3.3.)
+  for (const url of [refs.videoUrl, refs.videoPosterUrl, refs.videoPreviewUrl]) {
     if (!url) continue;
     const key = keyFromPublicUrl(url, publicUrlPrefix);
     if (key) keys.add(key);

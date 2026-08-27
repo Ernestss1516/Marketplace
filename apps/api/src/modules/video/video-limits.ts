@@ -49,6 +49,69 @@ export const VIDEO_ENABLED_SETTING = 'videoEnabled';
 /** Prefijo de las claves de vídeo en el almacenamiento, separado de las imágenes. */
 export const VIDEO_KEY_PREFIX = 'listing-videos';
 
+// ---------------------------------------------------------------------------
+//  PÓSTER ANIMADO P1 — el sprite
+// ---------------------------------------------------------------------------
+
+/**
+ * Prefijo del SPRITE. **Propio, y las dos exclusiones son el diseño.**
+ *
+ * NO `listing-videos/`, aunque el sprite pertenezca al vídeo: ese prefijo es la cadena
+ * literal que el barrido e2e busca para dar por rota la garantía del cero-bytes-en-listas
+ * (`video-visualizacion.e2e-spec.ts`). Meter ahí una imagen que **sí** debe poder viajar a
+ * las tarjetas pondría ese test en rojo por un motivo falso — y peor, invitaría a relajarlo.
+ * **El prefijo es la frontera, y la frontera se respeta.**
+ *
+ * NO `media/`: ése lo puebla `POST /media/upload`, que crea una fila en `ListingImage` y
+ * encola `sharp`. Un sprite no es una foto de anuncio: no tiene por qué existir como fila, y
+ * la miniatura de 800 px que `ImageProcessor` le generaría no la usaría nadie.
+ *
+ * Ver docs/diseno-poster-animado.md §3.2.
+ */
+export const PREVIEW_KEY_PREFIX = 'listing-previews';
+
+/**
+ * 512 KB. **Dos órdenes de magnitud por debajo del vídeo y uno por debajo de las fotos**
+ * (10 MB, `media.service.ts`), y no por prudencia: un sprite de cinco fotogramas de 320×180
+ * pesa entre 20 y 45 KB. Uno que supere el medio mega no es un sprite grande, es un sprite
+ * mal hecho — o algo que no es un sprite.
+ *
+ * Como el del vídeo, viaja DENTRO de la firma: el almacenamiento rechaza un cuerpo de otro
+ * tamaño, así que el límite deja de depender de que el cliente diga la verdad.
+ */
+export const MAX_PREVIEW_BYTES = 512 * 1024;
+
+/**
+ * WebP o JPEG. Los dos salen de `canvas.toBlob`, los dos son **imágenes fijas** y los dos
+ * están ya en el `MIME_TO_EXT` del camino de imágenes.
+ *
+ * NINGÚN FORMATO ANIMADO EN ESTA LISTA, y es deliberado: `image/gif` aquí convertiría el
+ * artefacto en algo que anima solo, siempre y en todas partes — y con eso se perderían de
+ * golpe el control del hover y la decisión del móvil. Ver la barrera B-8.
+ */
+export const ALLOWED_PREVIEW_MIME_TYPES = ['image/webp', 'image/jpeg'] as const;
+
+/** La extensión que le toca a cada tipo. Mismo mapa que el camino de imágenes. */
+export const PREVIEW_MIME_TO_EXT: Record<string, string> = {
+  'image/webp': '.webp',
+  'image/jpeg': '.jpg',
+};
+
+/**
+ * LA GEOMETRÍA DEL SPRITE —cuántos fotogramas, de qué tamaño y en qué instantes— **NO vive
+ * aquí, vive en el cliente** (`apps/web/src/lib/api/video.ts`).
+ *
+ * Y no es un descuido: el servidor **no la usa para nada**. No captura, no valida las
+ * dimensiones (leerlas exigiría descargar el sprite, y los bytes de media no pasan por esta
+ * API) y no la publica. Sus dos únicos consumidores —quien dibuja los fotogramas y el CSS
+ * que los animará en P2— están **los dos** en el frontend. Ponerla aquí y «publicarla» por
+ * `/video/config` sería inventar un lector único de mentira: un dato que viaja de un sitio
+ * que no lo mira a otro que ya lo tenía.
+ *
+ * Lo que sí es del servidor está arriba: el prefijo, el tope de bytes y los tipos admitidos
+ * — que son exactamente las tres cosas que la firma tiene que hacer cumplir.
+ */
+
 /** Lo que la API publica para que el cliente valide ANTES de empezar a subir. */
 export interface VideoLimits {
   maxBytes: number;

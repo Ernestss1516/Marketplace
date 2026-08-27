@@ -1139,6 +1139,7 @@ export class ListingsService implements OnModuleInit {
       select: {
         videoUrl: true,
         videoPosterUrl: true,
+        videoPreviewUrl: true,
         images: { select: { url: true } },
       },
     });
@@ -1155,6 +1156,7 @@ export class ListingsService implements OnModuleInit {
         imageUrls: media?.images.map((i) => i.url) ?? [],
         videoUrl: media?.videoUrl,
         videoPosterUrl: media?.videoPosterUrl,
+        videoPreviewUrl: media?.videoPreviewUrl,
       },
       this.r2.getPublicUrl(''),
     );

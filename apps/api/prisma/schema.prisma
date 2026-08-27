@@ -888,6 +888,22 @@ model Listing {
   /// Frame de portada, capturado por el cliente al subir. Sin él, el reproductor sería un
   /// rectángulo negro; si faltara, la ficha cae a la foto de portada del anuncio.
   videoPosterUrl       String?
+  /// PÓSTER ANIMADO P1 — el SPRITE: cinco fotogramas del vídeo en una tira horizontal,
+  /// dentro de UNA SOLA IMAGEN FIJA, capturada por el cliente al subir.
+  ///
+  /// FIJA, Y ES LA DECISIÓN DEL CUERPO: `canvas.toBlob()` sólo emite imágenes fijas, y no
+  /// hay ninguna API nativa que produzca un WebP o un GIF animados. Empaquetar la animación
+  /// exigiría traer un codificador al navegador —cientos de KB de JavaScript para fabricar
+  /// decenas de KB de dato—, que es la misma dependencia que este proyecto rechazó por
+  /// escrito dos veces en el servidor. La animación la pondrá el CSS (`steps(5)`) en P2.
+  ///
+  /// NULLABLE, Y EL `null` SIGNIFICA ALGO: «este vídeo no tiene previsualización». Es el
+  /// estado de todos los vídeos anteriores a esta migración —no se pueden regenerar sin
+  /// decodificar, y decodificar es ffmpeg— y también el de cualquier captura que falle. Por
+  /// eso «sin sprite» tiene que estar bien pintado: es un estado normal, no una excepción.
+  ///
+  /// P1 LO GUARDA Y NO LO PINTA NADIE. Ver docs/diseno-poster-animado.md §3.1.
+  videoPreviewUrl      String?
   /// Duración DECLARADA por el cliente, en segundos. Ver la frontera anotada en
   /// `video-limits.ts`: el tamaño es infranqueable, la duración es un límite de producto.
   videoDurationSeconds Int?
