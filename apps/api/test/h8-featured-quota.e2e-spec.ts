@@ -37,7 +37,7 @@ import { createTestApp } from './helpers/create-app';
 import { cleanDb } from './helpers/db';
 // Mismo motivo que en `rf7-expiration`: `getJobs` puede traer huecos. Aquí no había
 // reventado nunca, pero el defecto es idéntico y estaba armado igual.
-import { ESTADOS_EN_VUELO, getExistingJobs } from './helpers/queue';
+import { ESTADOS_EN_VUELO, conColaPausada, getExistingJobs } from './helpers/queue';
 import { EntitlementService } from 'src/modules/billing/entitlement.service';
 import { BillingService } from 'src/modules/billing/billing.service';
 import { QUEUE_INDEXING } from 'src/infra/queue/queue.constants';
@@ -413,36 +413,35 @@ describe('H8.2 — GET /billing/pro-status (cuota mensual de destacados Pro)', (
       );
       const quotaListing = await createActiveListing(user.id, 'unify-quota');
 
-      const jobsBefore = await getExistingJobs(indexingQueue, ESTADOS_EN_VUELO);
-      // Los IDs, no el NÚMERO. Ver la aserción de abajo.
-      const idsBefore = new Set(jobsBefore.map((j) => j.id));
-
-      await destacar(token, quotaListing.id, { useQuota: true }).expect(201);
-
-      expect(grantSpy).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({
-          userId: user.id,
-          listingId: quotaListing.id,
-          origin: FeaturedOrigin.PRO_QUOTA,
-        }),
-      );
-      const jobsAfterQuota = await getExistingJobs(indexingQueue, ESTADOS_EN_VUELO);
-      expect(jobsAfterQuota.some((j) => j.data?.listingId === quotaListing.id)).toBe(true);
-      // «HA APARECIDO UN JOB NUEVO», por IDENTIDAD y no por conteo.
+      // LA COLA, PARADA MIENTRAS SE ENCOLA Y SE LEE.
       //
-      // Esto decía `jobsAfterQuota.length > jobsBefore.length`, y era una CARRERA: los
-      // jobs llevan `removeOnComplete: true` (queue.constants.ts), así que el worker puede
-      // completar y BORRAR uno de los viejos entre las dos lecturas. Cuando eso pasa, el
-      // total se queda igual aunque el job nuevo esté ahí —y el fallo era desconcertante:
-      // «esperaba > 1, recibido 1» con la aserción de la línea anterior en verde.
+      // Aquí no hay `jobId` que mirar —`grantFeaturedListingTx` encola sin él—, así que
+      // la aserción buena es por DATO: existe un job para ESTE anuncio. Lo que le
+      // faltaba era que el worker no se lo llevara antes de la lectura: los jobs van
+      // con `removeOnComplete: true` (queue.constants.ts) y en e2e el worker está vivo.
       //
-      // Cazado en CI el 2026-08-25 (rama de los flecos del vídeo, que no toca ni la cola
-      // ni la facturación: lo único que hizo fue añadir una suite y correr el reloj).
-      // El conteo nunca fue lo que se quería afirmar: la rama de créditos, doce líneas más
-      // abajo, ni siquiera lo comprueba. Comparar IDs dice lo mismo sin depender de
-      // cuántos sobrevivan.
-      expect(jobsAfterQuota.some((j) => !idsBefore.has(j.id))).toBe(true);
+      // Historia de esta línea, que conviene no repetir: decía
+      // `jobsAfterQuota.length > jobsBefore.length` y era una carrera por CONTEO —el
+      // worker completaba uno de los viejos y el total no subía aunque el nuevo
+      // estuviera ahí—. Cazada en CI el 2026-08-25 y cambiada a comparar ids, lo que
+      // cerró esa dirección... pero no la otra: si el que desaparecía era el job NUEVO,
+      // `some(...)` seguía dando `false`. Con la cola parada no desaparece ninguno, y
+      // el `idsBefore` deja de hacer falta. Ver `docs/auditoria-deuda-test-ci.md` §1.4.
+      await conColaPausada(indexingQueue, async () => {
+        await destacar(token, quotaListing.id, { useQuota: true }).expect(201);
+
+        expect(grantSpy).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({
+            userId: user.id,
+            listingId: quotaListing.id,
+            origin: FeaturedOrigin.PRO_QUOTA,
+          }),
+        );
+
+        const jobs = await getExistingJobs(indexingQueue, ESTADOS_EN_VUELO);
+        expect(jobs.some((j) => j.data?.listingId === quotaListing.id)).toBe(true);
+      });
 
       // ── Rama créditos ───────────────────────────────────────────────────────
       grantSpy.mockClear();
@@ -450,19 +449,22 @@ describe('H8.2 — GET /billing/pro-status (cuota mensual de destacados Pro)', (
       const creditsListing = await createActiveListing(user.id, 'unify-credits');
       const price7dId = await getFeaturedPriceIdByDuration(7);
 
-      await destacar(token, creditsListing.id, { priceId: price7dId }).expect(201);
+      await conColaPausada(indexingQueue, async () => {
+        await destacar(token, creditsListing.id, { priceId: price7dId }).expect(201);
 
-      expect(grantSpy).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({
-          userId: user.id,
-          listingId: creditsListing.id,
-          priceId: price7dId,
-          origin: FeaturedOrigin.CREDITS,
-        }),
-      );
-      const jobsAfterCredits = await getExistingJobs(indexingQueue, ESTADOS_EN_VUELO);
-      expect(jobsAfterCredits.some((j) => j.data?.listingId === creditsListing.id)).toBe(true);
+        expect(grantSpy).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({
+            userId: user.id,
+            listingId: creditsListing.id,
+            priceId: price7dId,
+            origin: FeaturedOrigin.CREDITS,
+          }),
+        );
+
+        const jobs = await getExistingJobs(indexingQueue, ESTADOS_EN_VUELO);
+        expect(jobs.some((j) => j.data?.listingId === creditsListing.id)).toBe(true);
+      });
 
       grantSpy.mockRestore();
     });

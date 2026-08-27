@@ -4,6 +4,7 @@ import * as bcrypt from 'bcrypt';
 import * as request from 'supertest';
 import { createTestApp } from './helpers/create-app';
 import { cleanDb } from './helpers/db';
+import { getExistingJobs } from './helpers/queue';
 import { getQueueToken } from '@nestjs/bullmq';
 import type { Queue } from 'bullmq';
 import { QUEUE_ACCOUNT_CLEANUP } from 'src/infra/queue/queue.constants';
@@ -502,7 +503,11 @@ describe('Borrado de cuentas C5 — el inventario de las 34 relaciones (e2e)', (
     });
 
     it('2 · sus anuncios se ENCOLAN para borrado — y los AJENOS no se tocan', async () => {
-      const jobs = (await accountCleanupQueue.getJobs(['waiting', 'active', 'delayed'])).filter(Boolean);
+      // `getExistingJobs` y no `getJobs` a pelo: es el helper que existe para que el
+      // filtro de huecos no se escriba once veces (ver `helpers/queue.ts`). Aquí la
+      // cola está parada desde el `beforeAll`, así que huecos no hay — pero la copia
+      // suelta del filtro sí era la undécima.
+      const jobs = await getExistingJobs(accountCleanupQueue, ['waiting', 'active', 'delayed']);
       const suyos = jobs.filter(
         (j) =>
           j.name === ACCOUNT_CLEANUP_JOB.DELETE_LISTING &&
