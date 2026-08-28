@@ -126,9 +126,15 @@ export function getNotificationContent(n: NotificationItem): { text: string; hre
     // las normas» cuando seguía ahí. Cada acción dice ahora lo que de verdad pasó.
     case 'REVIEW_MODERATED': {
       const sobre = `${n.data.rating}★ sobre ${n.data.targetName}${n.data.listingTitle ? ` (${n.data.listingTitle})` : ''}`;
+      // N2 — CON SU MOTIVO. El moderador lo escribe obligatoriamente desde 7b y
+      // hasta ahora se tiraba: se retiraba lo que alguien había escrito y se le
+      // comunicaba sin el porqué. Degradación limpia (molde `LISTING_MODERATED`) y
+      // «Motivo:» como sufijo, igual que el correo, para que la frase se lea bien
+      // con motivo y sin él sin tener que reescribirla dos veces.
+      const motivo = n.data.reason ? ` Motivo: ${n.data.reason}` : '';
       const texto: Record<typeof n.data.action, string> = {
-        RETIRED: `Hemos retirado tu valoración de ${sobre} por incumplir las normas.`,
-        EDITED: `Hemos editado tu valoración de ${sobre} por incumplir las normas. Sigue publicada.`,
+        RETIRED: `Hemos retirado tu valoración de ${sobre} por incumplir las normas.${motivo}`,
+        EDITED: `Hemos editado tu valoración de ${sobre} por incumplir las normas. Sigue publicada.${motivo}`,
       };
       return { text: texto[n.data.action], href: '/notificaciones' };
     }
@@ -162,6 +168,41 @@ export function getNotificationContent(n: NotificationItem): { text: string; hre
       return {
         text: `Tu copia de datos ya está lista para descargar (${megas} MB). Estará disponible hasta el ${caduca}.`,
         href: '/perfil',
+      };
+    }
+    /**
+     * N2 — LAS DECISIONES SOBRE LA CUENTA, que hasta esta ráfaga no avisaban a
+     * nadie: se cerraba la puerta de la cuenta de alguien sin una palabra.
+     *
+     * OJO CON LO QUE ESTE `case` ES Y NO ES. Para `SUSPENDED`, `BANNED` y
+     * `ARCHIVED` la persona **no puede abrir la campana** —el gate la rechaza—, así
+     * que esto no es el aviso: es la CONSTANCIA que se encuentra cuando vuelve. El
+     * canal que le llega en el momento es el correo. Se pinta igual de bien porque
+     * quien vuelve después de una sanción quiere encontrar el porqué.
+     *
+     * `reason` es siempre el motivo VISIBLE; la nota interna del staff no existe en
+     * este tipo. Degradación limpia, molde `LISTING_MODERATED.reason`.
+     */
+    case 'ACCOUNT_MODERATED': {
+      const motivo = n.data.reason ? ` Motivo: ${n.data.reason}` : '';
+      const texto: Record<typeof n.data.action, string> = {
+        SUSPENDED: `Hemos suspendido temporalmente tu cuenta.${motivo}`,
+        UNSUSPENDED: 'Hemos levantado la suspensión de tu cuenta: ya puedes usarla con normalidad.',
+        BANNED: `Hemos inhabilitado tu cuenta de forma permanente.${motivo}`,
+        // La asimetría de `reinstateUser`, dicha también aquí: recuperar el acceso
+        // no reactiva los anuncios, y quien no lo sepa creerá que está roto.
+        REINSTATED:
+          'Tu cuenta vuelve a estar activa. Tus anuncios NO se reactivan solos: los tienes ' +
+          'en pausa esperándote en «Mis anuncios».',
+        ARCHIVED: `Hemos archivado tu cuenta.${motivo}`,
+        ROLE_CHANGED: `Hemos cambiado el rol de tu cuenta${n.data.newRole ? ` a ${n.data.newRole}` : ''}.${motivo}`,
+      };
+      // REINSTATED lleva a los anuncios porque ahí es donde tiene algo que hacer;
+      // el resto, a la propia lista (no hay una página «tu cuenta» que explique una
+      // sanción, y mandarle al perfil sería un callejón).
+      return {
+        text: texto[n.data.action],
+        href: n.data.action === 'REINSTATED' ? '/mis-anuncios' : '/notificaciones',
       };
     }
     default:

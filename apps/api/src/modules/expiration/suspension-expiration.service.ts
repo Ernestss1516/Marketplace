@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { UserStatus } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
+import { AccountModerationNotificationsService } from '../account-moderation-notifications/account-moderation-notifications.service';
 
 /**
  * BORRADO DE CUENTAS C4 — EL CRON QUE PONE LA FILA AL DÍA.
@@ -34,6 +35,8 @@ export class SuspensionExpirationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLog: AuditLogService,
+    // N2 — el aviso de que la suspensión se ha cumplido.
+    private readonly accountNotify: AccountModerationNotificationsService,
   ) {}
 
   @Cron('0 7 * * *')
@@ -75,7 +78,16 @@ export class SuspensionExpirationService {
     for (const user of cumplidas) {
       await this.prisma.user.update({
         where: { id: user.id },
-        data: { status: UserStatus.ACTIVE, suspendedUntil: null },
+        data: {
+          status: UserStatus.ACTIVE,
+          suspendedUntil: null,
+          // N2 — el motivo vive con la sanción y se va con ella, igual que hace
+          // `changeUserStatus` en las transiciones manuales. Una cuenta ACTIVE
+          // arrastrando el motivo de la sanción cumplida se lo enseñaría en el
+          // login a alguien que ya puede entrar.
+          sanctionReason: null,
+          sanctionNote: null,
+        },
       });
 
       /**
@@ -102,6 +114,20 @@ export class SuspensionExpirationService {
         before: { status: UserStatus.SUSPENDED, suspendedUntil: user.suspendedUntil },
         after: { status: UserStatus.ACTIVE, suspendedUntil: null, automatico: true },
       });
+
+      /**
+       * NOTIFICACIONES N2 — TAMBIÉN SE AVISA CUANDO LA LEVANTA EL RELOJ.
+       *
+       * Y es el caso que MÁS falta hacía de los dos: una suspensión con plazo se
+       * cumple sola, así que **la vía normal de recuperar la cuenta pasa por aquí**,
+       * no por un moderador pulsando «reactivar». Avisar sólo del camino manual
+       * habría dejado mudo justamente el mayoritario, y a la persona esperando sin
+       * saber que ya puede entrar.
+       *
+       * Sin motivo: levantar una sanción no es sancionar (el `UNSUSPENDED` de
+       * `changeUserStatus` tampoco lo lleva).
+       */
+      await this.accountNotify.decidido(user.id, 'UNSUSPENDED', null);
     }
 
     if (cumplidas.length > 0) {

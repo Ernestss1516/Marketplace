@@ -245,6 +245,49 @@ de una decisión de producto.
 
 ### A3.2 — USUARIO / CUENTA — **el hueco más grave**
 
+> ### ✅ ESTADO: N2 IMPLEMENTADO (rama `notificaciones-n2-cuenta-motivo`)
+>
+> **Las decisiones sobre la cuenta ya no son mudas, y el motivo se captura.** Las tablas de
+> §A3.2 y §A3.3 se conservan como diagnóstico original; lo que cambió:
+>
+> | Evento | Antes | Ahora |
+> |---|---|---|
+> | Suspender | mudo, sin motivo | in-app + **email**, con motivo visible |
+> | Levantar suspensión (manual **y por cron**) | mudo | in-app + email |
+> | Banear | mudo, sin DTO | in-app + **email**, con motivo visible |
+> | Reinstaurar | mudo | in-app + email, **diciendo que los anuncios no vuelven solos** |
+> | Cambio de rol | mudo | in-app + email (avisa de la caída de sesiones) |
+> | Archivar por staff | mudo | in-app + email (sólo `STAFF_ACTION`) |
+> | Eliminar | mudo | **email only** — el borrado destruye las notificaciones |
+> | Retirar/editar valoración | motivo **descartado** | motivo mostrado |
+>
+> **La migración (`20260828211109_n2_motivo_de_sancion`), aditiva y sin backfill:**
+> `User.sanctionReason` (visible) y `User.sanctionNote` (interna).
+>
+> **Hallazgo que cambió el diseño respecto al diagnóstico.** La auditoría decía que para
+> suspender el email era «el mismo razonamiento, más suave» que para el ban. **Es igual de
+> fuerte:** `motivoDeBloqueoDeCuenta` rechaza a `SUSPENDED`, `BANNED` *y* `ARCHIVED` en las
+> tres puertas, así que **ninguno de los tres puede abrir la campana**. Para los tres el
+> correo es el único canal, y la campana es sólo constancia para cuando vuelvan.
+>
+> De ahí una decisión que el diagnóstico no contemplaba: **el motivo se persiste y se muestra
+> en el mensaje del login**. Es la única superficie contra la que el sancionado choca seguro.
+> Sin eso, el motivo viviría sólo en una notificación que no puede abrir y en un correo que
+> puede perderse — y ésa es la justificación real de la migración.
+>
+> **Segundo añadido sobre el plan:** el cron de expiración de suspensiones también avisa. Es
+> **el camino mayoritario** para recuperar una cuenta (el plazo se cumple solo), así que
+> notificar sólo el levantamiento manual habría dejado mudo justamente el normal.
+>
+> **La frontera visible/interno** está fijada por construcción, no por cuidado: el servicio
+> de avisos recibe `motivoVisible: string | null` y **no tiene parámetro para la nota**;
+> `AccountModeratedData` y `SendAccountModeratedData` tampoco tienen campo donde meterla. Un
+> e2e recorre notificaciones y correos buscando la nota y falla si aparece.
+>
+> **Pendiente que N2 NO cierra:** `unarchive` sigue sin avisar (asimetría con `ARCHIVED`), y
+> las concesiones/débitos de saldo del staff siguen sin notificar pese a tener `reason`
+> obligatorio. Van con N3/N5.
+
 Verificado: `suspendUser`, `unsuspendUser`, `banUser`, `reinstateUser` y `changeUserRole`
 pasan todos por `changeUserStatus` (`admin.service.ts:3460-3515`). Ese método escribe el
 estado y **escribe el `AuditLog`. No hay una sola llamada a `createNotification` en toda

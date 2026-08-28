@@ -438,6 +438,49 @@ model User {
   /// Sólo tiene sentido con `status = SUSPENDED`, y las transiciones la limpian al
   /// salir de ese estado.
   suspendedUntil      DateTime?
+
+  /// NOTIFICACIONES N2 — POR QUÉ ESTÁ SANCIONADA ESTA CUENTA. DOS CAMPOS, Y LA
+  /// FRONTERA ENTRE ELLOS ES EL DISEÑO ENTERO.
+  ///
+  /// ── EL HUECO QUE CIERRAN ────────────────────────────────────────────────────
+  ///
+  /// Hasta N2 el motivo de una suspensión o un baneo **no se perdía al mostrarlo:
+  /// no llegaba a capturarse**. `SuspendUserDto` tenía un solo campo (`days`) y
+  /// `banUser` no recibía cuerpo. La auditoría lo dejó escrito (§A3.3): no era un
+  /// defecto de presentación, era una columna que faltaba.
+  ///
+  /// ── POR QUÉ SE PERSISTEN Y NO BASTA EL SNAPSHOT DE LA NOTIFICACIÓN ─────────
+  ///
+  /// Porque **un sancionado no puede entrar a leer su campana**: `SUSPENDED` y
+  /// `BANNED` los rechaza el gate de `account-access.ts` en las tres puertas. La
+  /// notificación in-app queda como constancia para cuando vuelva; lo que de
+  /// verdad le llega en el momento son el correo y —sobre todo— **el mensaje del
+  /// login**, que es donde va a chocar. Sin persistir el motivo, ese mensaje sólo
+  /// puede decir «tu cuenta está suspendida» y mandarle a soporte a preguntar algo
+  /// que el sistema ya sabe.
+  ///
+  /// Molde `archiveReason`/`archiveNote` y `Review.retiredReason`: el estado lleva
+  /// encima el porqué, y las transiciones que salen de él lo limpian.
+  ///
+  /// Aditivas: nacen `null` para todas las filas, sin backfill. Una sanción
+  /// anterior a N2 simplemente no tiene motivo, y se degrada igual que un
+  /// `ListingModerated.reason` nulo.
+
+  /// EL MOTIVO VISIBLE — **se le muestra al usuario**: viaja al snapshot de la
+  /// notificación, al correo y al mensaje del login. Se escribe sabiendo que lo
+  /// va a leer la persona sancionada.
+  sanctionReason      String?    @db.Text
+
+  /// LA NOTA INTERNA — **el usuario NO la ve, nunca**. Es para el staff: el
+  /// contexto que no se le cuenta al sancionado (el hilo que lo destapó, la
+  /// sospecha que no se afirma, el aviso al siguiente moderador).
+  ///
+  /// NUNCA entra en `Notification.data` ni en un correo. Confundirla con
+  /// `sanctionReason` es filtrarle al sancionado la conversación del equipo, y es
+  /// exactamente el defecto que la separación existe para hacer imposible. Misma
+  /// distinción que `TicketMessage.internal`, que ya la sostiene en tickets.
+  sanctionNote        String?    @db.Text
+
   emailVerified       Boolean    @default(false)
   /// Contador de intentos de login fallidos consecutivos; se resetea en login correcto (RÁFAGA 3).
   failedLoginAttempts Int        @default(0)

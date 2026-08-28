@@ -1,3 +1,5 @@
+import type { AccountModeratedAction } from '../../modules/notifications/notification.types';
+
 export const NOTIFICATION_JOB = {
   SEND_VERIFICATION_EMAIL: 'send-verification-email',
   SEND_RESET_EMAIL: 'send-reset-email',
@@ -13,6 +15,8 @@ export const NOTIFICATION_JOB = {
   SEND_LISTING_MODERATED: 'send-listing-moderated',
   // Bump automático (proyecto 2)
   SEND_BUMP_AUTO_PAUSED: 'send-bump-auto-paused',
+  // Decisiones sobre la cuenta (N2)
+  SEND_ACCOUNT_MODERATED: 'send-account-moderated',
 } as const;
 
 export interface SendVerificationEmailData {
@@ -168,4 +172,44 @@ export interface SendBumpAutoPausedData {
   /** Título congelado, igual que en la notificación in-app. */
   listingTitle: string;
   reason: 'NO_FUNDS' | 'LISTING_INACTIVE';
+}
+
+/**
+ * NOTIFICACIONES N2 — LA DECISIÓN SOBRE LA CUENTA, POR CORREO.
+ *
+ * ── AQUÍ EL CORREO NO ES EL AUXILIAR: ES EL ÚNICO CANAL ─────────────────────
+ *
+ * En el resto del sistema la regla es «la campana informa, el correo reengancha».
+ * Con las sanciones de cuenta se invierte, y no por gusto: `SUSPENDED`, `BANNED` y
+ * `ARCHIVED` **no pueden entrar** —los rechaza el gate de `account-access.ts` en
+ * las tres puertas—, así que no hay campana que puedan abrir. Si este correo no
+ * sale, la persona se entera de que la han sancionado **chocando contra el login**,
+ * sin saber por qué ni durante cuánto.
+ *
+ * Por eso `sancion-email-unico-canal` (e2e) lo fija: banear sin encolar este job
+ * es dejar a alguien sin ningún aviso.
+ *
+ * ── `DELETED` SÓLO EXISTE AQUÍ ──────────────────────────────────────────────
+ *
+ * La unión de esta interfaz tiene una acción más que la del aviso in-app
+ * (`AccountModeratedAction`): eliminar una cuenta **borra todas sus
+ * notificaciones**, así que un aviso in-app de su propia eliminación se destruiría
+ * en la misma transacción. El correo es el único que sobrevive, y se manda con la
+ * dirección leída ANTES de vaciar la fila.
+ *
+ * ── EL MOTIVO QUE VIAJA ES EL VISIBLE ───────────────────────────────────────
+ *
+ * `reason` es `User.sanctionReason`. La nota interna NO tiene campo en esta
+ * interfaz, a propósito: no hay dónde meterla ni por descuido.
+ */
+export interface SendAccountModeratedData {
+  email: string;
+  name: string;
+  action: AccountModeratedAction | 'DELETED';
+  /** El motivo VISIBLE. Nunca la nota interna. `null` = no se indicó. */
+  reason: string | null;
+  /** Sólo en `SUSPENDED`: ISO-8601, o `null` si es indefinida. */
+  suspendedUntil: string | null;
+  /** Sólo en `ROLE_CHANGED`: el rol nuevo ya resuelto. */
+  newRole: string | null;
 }

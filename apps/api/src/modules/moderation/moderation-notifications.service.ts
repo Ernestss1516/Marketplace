@@ -217,11 +217,20 @@ export class ModerationNotificationsService {
    *
    * El parámetro no tiene valor por defecto A PROPÓSITO: un `action` opcional
    * volvería a permitir exactamente la llamada que causó el fallo.
+   *
+   * ── `reason` LLEGA EN N2 ────────────────────────────────────────────────────
+   *
+   * Los dos llamantes YA lo exigían (`@MinLength(5)`, obligatorio en el DTO) y este
+   * método no tenía dónde recibirlo: el motivo que un moderador escribía a mano
+   * terminaba en el `AuditLog` y **no llegaba nunca a la persona a la que se le
+   * retiraba lo que había escrito**. Tampoco lleva valor por defecto, por lo mismo
+   * que `action`.
    */
   async reviewModerated(
     review: Pick<Review, 'id' | 'authorId' | 'targetId' | 'rating' | 'listingTitle'>,
     actorId: string,
     action: 'RETIRED' | 'EDITED',
+    reason: string,
   ) {
     if (this.esSuPropiaAccion(review.authorId, actorId)) return;
 
@@ -236,6 +245,7 @@ export class ModerationNotificationsService {
       listingTitle: review.listingTitle,
       targetName: target?.name ?? 'otro usuario',
       action,
+      reason,
     });
   }
 }

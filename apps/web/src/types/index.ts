@@ -775,6 +775,42 @@ export interface ReviewModeratedData {
    * su autor que se la habían retirado.
    */
   action: 'RETIRED' | 'EDITED';
+  /**
+   * N2 — el motivo que escribió el moderador. Los dos caminos lo exigían desde
+   * siempre y hasta ahora se descartaba: se le retiraba a alguien lo que había
+   * escrito y se le comunicaba sin decirle por qué.
+   */
+  reason: string | null;
+}
+
+/**
+ * Espejo de `AccountModeratedAction` en el backend (N2).
+ *
+ * `DELETED` no está: eliminar una cuenta borra sus notificaciones, así que ese
+ * aviso es sólo correo y nunca llega a esta unión.
+ */
+export type AccountModeratedAction =
+  | 'SUSPENDED'
+  | 'UNSUSPENDED'
+  | 'BANNED'
+  | 'REINSTATED'
+  | 'ARCHIVED'
+  | 'ROLE_CHANGED';
+
+/**
+ * Espejo de AccountModeratedData en el backend (N2) — las decisiones sobre la
+ * cuenta, que hasta esta ráfaga no avisaban a nadie.
+ *
+ * `reason` es SIEMPRE el motivo visible. La nota interna del staff no tiene campo
+ * aquí, y es a propósito: no hay dónde meterla ni por descuido.
+ */
+export interface AccountModeratedData {
+  action: AccountModeratedAction;
+  reason: string | null;
+  /** Sólo en SUSPENDED: ISO-8601, o null si es indefinida. */
+  suspendedUntil: string | null;
+  /** Sólo en ROLE_CHANGED. */
+  newRole: string | null;
 }
 
 /** Espejo de DataExportReadyData en el backend (Borrado de cuentas C6). */
@@ -819,7 +855,11 @@ export type NotificationItem =
   // A1 — el tipo que el backend creaba desde C6 y que nunca llegó a esta unión,
   // porque se escribía con `prisma.notification.create()` directo. Sin miembro
   // aquí no había `case` que exigir, y el aviso salía como «Nueva notificación».
-  | (NotificationBase & { type: 'DATA_EXPORT_READY'; data: DataExportReadyData });
+  | (NotificationBase & { type: 'DATA_EXPORT_READY'; data: DataExportReadyData })
+  // N2 — las decisiones sobre la cuenta. Para un sancionado la campana es
+  // constancia (no puede abrirla hasta que vuelva); el canal que le llega es el
+  // correo. Se pinta igual, porque cuando vuelva querrá encontrar el porqué.
+  | (NotificationBase & { type: 'ACCOUNT_MODERATED'; data: AccountModeratedData });
 
 export interface NotificationsResponse {
   items: NotificationItem[];

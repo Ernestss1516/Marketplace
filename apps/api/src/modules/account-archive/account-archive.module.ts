@@ -6,6 +6,7 @@ import { ListingActivationModule } from '../listing-activation/listing-activatio
 import { ListingPauseModule } from '../listing-pause/listing-pause.module';
 import { ListingGateModule } from '../listing-gate/listing-gate.module';
 import { AccountArchiveService } from './account-archive.service';
+import { AccountModerationNotificationsModule } from '../account-moderation-notifications/account-moderation-notifications.module';
 
 /**
  * BORRADO DE CUENTAS C2 — módulo propio para un gesto con DOS LLAMANTES que no se
@@ -27,6 +28,9 @@ import { AccountArchiveService } from './account-archive.service';
     // lo comparte con el ban, y una sola copia es la única forma de que no diverjan.
     ListingPauseModule,
     ListingGateModule,
+    // N2 — el aviso de «hemos archivado tu cuenta», sólo cuando lo decidió la
+    // plataforma. Módulo neutral compartido con `AdminModule`.
+    AccountModerationNotificationsModule,
     BullModule.registerQueue(retryQueue(QUEUE_BILLING)),
   ],
   providers: [AccountArchiveService],

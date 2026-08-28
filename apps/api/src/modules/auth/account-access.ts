@@ -50,6 +50,21 @@ export interface EstadoDeCuenta {
    * archivado no caduca solo.
    */
   suspendedUntil?: Date | null;
+  /**
+   * NOTIFICACIONES N2 — el motivo VISIBLE de la sanción (`User.sanctionReason`).
+   *
+   * ── POR QUÉ ÉSTE SÍ ES OPCIONAL Y `suspendedUntil` NO ───────────────────────
+   *
+   * Porque las consecuencias de olvidarlo son opuestas, que es el único criterio
+   * que importa aquí. Omitir `suspendedUntil` **bloquea a quien ya podía entrar**:
+   * falla hacia el lado peligroso y por eso rompe la firma. Omitir esto sólo hace
+   * que el mensaje salga sin el motivo — exactamente el mensaje que había antes de
+   * N2. Se degrada, no miente ni deja pasar a nadie.
+   *
+   * `null`/ausente = no se indicó motivo, o la sanción es anterior a N2 (nacieron
+   * todas sin él, sin backfill).
+   */
+  sanctionReason?: string | null;
 }
 
 /**
@@ -93,11 +108,27 @@ export function motivoDeBloqueoDeCuenta(cuenta: EstadoDeCuenta): string | null {
     case UserStatus.ACTIVE:
       return null;
 
+    /**
+     * NOTIFICACIONES N2 — EL MOTIVO, AQUÍ, PORQUE ÉSTE ES EL SITIO DONDE LO LEE.
+     *
+     * Un sancionado **no puede abrir su campana**: lo rechaza este mismo predicado.
+     * Le queda el correo —que puede no llegar, o perderse— y esta pantalla, contra
+     * la que va a chocar seguro en cuanto intente entrar. Decir sólo «tu cuenta
+     * está suspendida» y mandarle a soporte era hacerle preguntar algo que el
+     * sistema ya sabe.
+     *
+     * Sólo el motivo VISIBLE. `User.sanctionNote` no está en `EstadoDeCuenta` y no
+     * puede llegar hasta aquí ni por descuido.
+     */
     case UserStatus.SUSPENDED:
-      return 'Tu cuenta está suspendida. Contacta con soporte si crees que es un error.';
+      return cuenta.sanctionReason
+        ? `Tu cuenta está suspendida. Motivo: ${cuenta.sanctionReason}. Contacta con soporte si crees que es un error.`
+        : 'Tu cuenta está suspendida. Contacta con soporte si crees que es un error.';
 
     case UserStatus.BANNED:
-      return 'Tu cuenta ha sido inhabilitada permanentemente.';
+      return cuenta.sanctionReason
+        ? `Tu cuenta ha sido inhabilitada permanentemente. Motivo: ${cuenta.sanctionReason}.`
+        : 'Tu cuenta ha sido inhabilitada permanentemente.';
 
     /**
      * ARCHIVADA — para su dueño, la cuenta ya no existe. El mensaje **no distingue
