@@ -36,6 +36,12 @@ import { DatoIp } from '@/components/admin/DatoIp';
 import { ActivityPanel } from '@/components/stats/ActivityPanel';
 import { useActividad } from '@/components/stats/useActividad';
 import { getActividadUsuario } from '@/lib/api/admin-stats';
+import {
+  adminListingHref,
+  adminListingsBySellerHref,
+  adminTicketHref,
+} from '@/lib/admin-links';
+import { ReporteFila } from '@/components/admin/ReporteFila';
 // TRADUCCIONES — los cinco campos de esta ficha que pintaban el enum crudo. Sus
 // propios `ESTADO_LABELS` y `ROL_LABELS` estaban aquí inline y han subido a
 // `../../etiquetas` SIN cambiar de texto: lo que gana la ficha es alcanzar el resto
@@ -43,9 +49,7 @@ import { getActividadUsuario } from '@/lib/api/admin-stats';
 // auditoría y los estados de anuncio, que ya tenían dueño en `listing-status.ts`).
 import {
   ACCION_LABELS,
-  ESTADO_REPORTE_LABELS,
   ESTADO_USUARIO_LABELS,
-  MOTIVO_REPORTE_LABELS,
   ROL_LABELS,
   etiqueta,
   etiquetaDeEstado,
@@ -249,7 +253,7 @@ export default function AdminFichaUsuarioPage() {
                   <div className="flex justify-between gap-4">
                     <span className="text-muted-foreground">Su anuncio más visto</span>
                     <Link
-                      href={`/admin/anuncios/${actividad.mostViewed.id}`}
+                      href={adminListingHref(actividad.mostViewed.id)}
                       className="line-clamp-1 text-right font-medium hover:underline"
                       data-testid="usuario-mas-visto"
                     >
@@ -261,7 +265,7 @@ export default function AdminFichaUsuarioPage() {
                   <div className="flex justify-between gap-4">
                     <span className="text-muted-foreground">Su anuncio más listado</span>
                     <Link
-                      href={`/admin/anuncios/${actividad.mostListed.id}`}
+                      href={adminListingHref(actividad.mostListed.id)}
                       className="line-clamp-1 text-right font-medium hover:underline"
                       data-testid="usuario-mas-listado"
                     >
@@ -283,7 +287,7 @@ export default function AdminFichaUsuarioPage() {
                     {/* EL CÍRCULO CON F1: desde el usuario a la ficha de su
                         anuncio, y desde allí de vuelta aquí. */}
                     <Link
-                      href={`/admin/anuncios/${l.id}`}
+                      href={adminListingHref(l.id)}
                       className="line-clamp-1 hover:underline"
                       data-testid={`usuario-anuncio-${l.id}`}
                     >
@@ -301,7 +305,7 @@ export default function AdminFichaUsuarioPage() {
               </ul>
             )}
             <Link
-              href={`/admin/anuncios?sellerId=${data.id}`}
+              href={adminListingsBySellerHref(data.id)}
               className="mt-2 inline-block text-xs text-muted-foreground hover:underline"
               data-testid="usuario-todos-anuncios"
             >
@@ -400,16 +404,9 @@ export default function AdminFichaUsuarioPage() {
               {data.reportsReceived.length === 0 ? (
                 <Vacio>Sin reportes.</Vacio>
               ) : (
-                <ul className="space-y-1">
+                <ul className="space-y-2">
                   {data.reportsReceived.map((r) => (
-                    <li key={r.id} className="flex items-center gap-2 text-sm">
-                      <Badge variant="outline" className="text-[10px]">
-                        {etiqueta(MOTIVO_REPORTE_LABELS, r.reason)}
-                      </Badge>
-                      <span className="text-xs text-muted-foreground">
-                        {etiqueta(ESTADO_REPORTE_LABELS, r.status)}
-                      </span>
-                    </li>
+                    <ReporteFila key={r.id} reporte={r} formatearFecha={formatDateTime} />
                   ))}
                 </ul>
               )}
@@ -425,16 +422,9 @@ export default function AdminFichaUsuarioPage() {
               {data.reportsMade.length === 0 ? (
                 <Vacio>No ha reportado nada.</Vacio>
               ) : (
-                <ul className="space-y-1">
+                <ul className="space-y-2">
                   {data.reportsMade.map((r) => (
-                    <li key={r.id} className="flex items-center gap-2 text-sm">
-                      <Badge variant="outline" className="text-[10px]">
-                        {etiqueta(MOTIVO_REPORTE_LABELS, r.reason)}
-                      </Badge>
-                      <span className="text-xs text-muted-foreground">
-                        {etiqueta(ESTADO_REPORTE_LABELS, r.status)}
-                      </span>
-                    </li>
+                    <ReporteFila key={r.id} reporte={r} formatearFecha={formatDateTime} />
                   ))}
                 </ul>
               )}
@@ -447,7 +437,7 @@ export default function AdminFichaUsuarioPage() {
                 <ul className="space-y-1">
                   {data.tickets.map((t) => (
                     <li key={t.id} className="text-sm">
-                      <Link href={`/admin/tickets/${t.id}`} className="hover:underline">
+                      <Link href={adminTicketHref(t.id)} className="hover:underline">
                         {t.subject}
                       </Link>{' '}
                       <Badge variant="outline" className="text-[10px]">

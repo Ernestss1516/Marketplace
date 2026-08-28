@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
-import { Star } from 'lucide-react';
 import { createTicketFromReport } from '@/lib/api/admin-tickets';
 import {
   getReports,
@@ -11,27 +10,18 @@ import {
   dismissReport,
   deactivateListing,
   retireReview,
+  startReviewReport,
   type Report,
   type ReportStatus,
 } from '@/lib/api/moderacion';
 import { ApiError } from '@/lib/api/client';
-
-const REASON_LABEL: Record<string, string> = {
-  SPAM: 'Spam',
-  FRAUD: 'Fraude',
-  INAPPROPRIATE: 'Inapropiado',
-  PROHIBITED_ITEM: 'Artículo prohibido',
-  WRONG_CATEGORY: 'Categoría incorrecta',
-  FAKE_REVIEW: 'Valoración falsa',
-  OTHER: 'Otro',
-};
-
-const STATUS_LABEL: Record<string, string> = {
-  PENDING: 'Pendiente',
-  REVIEWING: 'En revisión',
-  RESOLVED: 'Resuelto',
-  DISMISSED: 'Desestimado',
-};
+import { ReporteDiana } from '@/components/admin/ReporteDiana';
+import { adminReportHref, adminTicketHref, adminUserHref } from '@/lib/admin-links';
+// Las etiquetas COMPARTIDAS. Esta pantalla llevaba su propio `REASON_LABEL` y su
+// propio `STATUS_LABEL`, idénticos a los de `etiquetas.ts` —que además dice en su
+// comentario que los copió de aquí—. Dos copias del mismo diccionario es como la
+// ficha de ticket acabó pintando el enum en crudo: nadie sabía cuál era la buena.
+import { ESTADO_REPORTE_LABELS, MOTIVO_REPORTE_LABELS, etiqueta } from '../etiquetas';
 
 const STATUS_FILTERS: { label: string; value: ReportStatus | undefined }[] = [
   { label: 'Todos', value: undefined },
@@ -41,31 +31,6 @@ const STATUS_FILTERS: { label: string; value: ReportStatus | undefined }[] = [
   { label: 'Desestimados', value: 'DISMISSED' },
 ];
 
-function ReviewSnippet({ review }: { review: NonNullable<Report['review']> }) {
-  return (
-    <div className="mt-1 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs">
-      <div className="mb-0.5 flex items-center gap-1 font-medium text-amber-900">
-        {Array.from({ length: 5 }, (_, i) => (
-          <Star
-            key={i}
-            className={[
-              'h-3 w-3',
-              i < review.rating ? 'fill-amber-500 text-amber-500' : 'fill-transparent text-amber-300',
-            ].join(' ')}
-            aria-hidden
-          />
-        ))}
-        <span className="ml-1 text-amber-800">
-          de {review.author.name} → {review.target.name}
-        </span>
-      </div>
-      {review.comment && (
-        <p className="line-clamp-2 text-amber-800">{review.comment}</p>
-      )}
-    </div>
-  );
-}
-
 export default function AdminReportesPage() {
   const { data: session } = useSession();
   const token = (session?.user as { accessToken?: string } | undefined)?.accessToken;
@@ -73,19 +38,25 @@ export default function AdminReportesPage() {
   const [reports, setReports] = useState<Report[]>([]);
   const [total, setTotal] = useState(0);
   const [statusFilter, setStatusFilter] = useState<ReportStatus | undefined>(undefined);
+  // El API paginaba de 24 en 24 desde el principio y la interfaz no pasaba `page`
+  // ni pintaba controles: se leía «N total» y sólo se podía trabajar con las 24
+  // primeras. Con 25 denuncias, la 25.ª era inalcanzable.
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(24);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
 
   const fetchReports = useCallback(
-    async (status?: ReportStatus) => {
+    async (status: ReportStatus | undefined, p: number) => {
       if (!token) return;
       setLoading(true);
       setError(null);
       try {
-        const data = await getReports(token, { status });
+        const data = await getReports(token, { status, page: p });
         setReports(data.items);
         setTotal(data.total);
+        setPerPage(data.perPage);
       } catch (err) {
         if (err instanceof ApiError) {
           setError(`Error ${err.statusCode}: ${err.message}`);
@@ -100,14 +71,22 @@ export default function AdminReportesPage() {
   );
 
   useEffect(() => {
-    fetchReports(statusFilter);
-  }, [fetchReports, statusFilter]);
+    fetchReports(statusFilter, page);
+  }, [fetchReports, statusFilter, page]);
+
+  /** Cambiar de filtro vuelve a la página 1: la 3 de «Todos» no es la 3 de «Pendientes». */
+  function cambiarFiltro(value: ReportStatus | undefined) {
+    setStatusFilter(value);
+    setPage(1);
+  }
+
+  const totalPages = Math.max(1, Math.ceil(total / perPage));
 
   async function handleAction(action: () => Promise<unknown>, reportId: string) {
     setPendingId(reportId);
     try {
       await action();
-      await fetchReports(statusFilter);
+      await fetchReports(statusFilter, page);
     } catch (err) {
       const msg =
         err instanceof ApiError
@@ -139,7 +118,7 @@ export default function AdminReportesPage() {
         {STATUS_FILTERS.map((f) => (
           <button
             key={String(f.value)}
-            onClick={() => setStatusFilter(f.value)}
+            onClick={() => cambiarFiltro(f.value)}
             className={[
               'rounded-full px-3 py-1 text-sm font-medium transition-colors',
               statusFilter === f.value
@@ -164,7 +143,8 @@ export default function AdminReportesPage() {
 
       {!loading && !error && reports.length === 0 && (
         <div className="py-12 text-center text-muted-foreground">
-          No hay reportes{statusFilter ? ` en estado "${STATUS_LABEL[statusFilter]}"` : ''}.
+          No hay reportes
+          {statusFilter ? ` en estado "${etiqueta(ESTADO_REPORTE_LABELS, statusFilter)}"` : ''}.
         </div>
       )}
 
@@ -189,50 +169,44 @@ export default function AdminReportesPage() {
                 return (
                   <tr key={r.id} className="hover:bg-muted/30">
                     <td className="p-3">
-                      <span className="font-medium">{REASON_LABEL[r.reason] ?? r.reason}</span>
+                      {/* El motivo abre la FICHA de la denuncia. La tabla enseña lo
+                          justo para triar; el detalle completo —descripción entera,
+                          quién la resolvió, todos los enlaces— vive en su pantalla. */}
+                      <Link
+                        href={adminReportHref(r.id)}
+                        className="font-medium hover:underline"
+                        data-testid="reporte-enlace-ficha"
+                      >
+                        {etiqueta(MOTIVO_REPORTE_LABELS, r.reason)}
+                      </Link>
                       {r.description && (
-                        <p className="mt-0.5 text-xs text-muted-foreground">{r.description}</p>
+                        <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+                          {r.description}
+                        </p>
                       )}
                     </td>
 
+                    {/* Contra qué va, con los snapshots de respaldo si ya no existe.
+                        Ver components/admin/ReporteDiana.tsx. */}
                     <td className="p-3">
-                      {r.listing ? (
-                        <>
-                          {/* FICHA F1 — ANTES APUNTABA A `/anuncio/{slug}`, la
-                              página PÚBLICA, que lanza 404 para todo lo que no
-                              sea ACTIVE. Un anuncio denunciado suele estar ya
-                              desactivado, así que el moderador llegaba a un 404
-                              justo cuando necesitaba ver la prueba. La ficha del
-                              backoffice muestra CUALQUIER estado. */}
-                          <a
-                            href={`/admin/anuncios/${r.listing.id}`}
-                            className="text-blue-600 hover:underline"
-                          >
-                            {r.listing.title}
-                          </a>
-                          <p className="text-xs text-muted-foreground">Anuncio</p>
-                        </>
-                      ) : r.reportedUser ? (
-                        <>
-                          <a
-                            href={`/vendedor/${r.reportedUser.slug}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-blue-600 hover:underline"
-                          >
-                            {r.reportedUser.name}
-                          </a>
-                          <p className="text-xs text-muted-foreground">Usuario</p>
-                        </>
-                      ) : r.review ? (
-                        <ReviewSnippet review={r.review} />
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
+                      <ReporteDiana reporte={r} />
                     </td>
 
                     <td className="p-3 text-muted-foreground">
-                      {r.reporter?.name ?? '—'}
+                      {/* ENLAZADO. Era texto plano, y el backend ya servía su `id`:
+                          un denunciante compulsivo sólo se ve abriendo su ficha, y
+                          desde la cola no se podía llegar a ella. */}
+                      {r.reporter ? (
+                        <Link
+                          href={adminUserHref(r.reporter.id)}
+                          className="hover:underline"
+                          data-testid="reporte-enlace-reportante"
+                        >
+                          {r.reporter.name}
+                        </Link>
+                      ) : (
+                        '—'
+                      )}
                     </td>
 
                     <td className="p-3">
@@ -247,8 +221,19 @@ export default function AdminReportesPage() {
                           .filter(Boolean)
                           .join(' ')}
                       >
-                        {STATUS_LABEL[r.status] ?? r.status}
+                        {etiqueta(ESTADO_REPORTE_LABELS, r.status)}
                       </span>
+                      {/* QUIÉN LA CERRÓ Y CUÁNDO. Los dos campos viajaban en la
+                          respuesta y no se pintaban en ninguna parte: una denuncia
+                          resuelta no decía por quién, que es justo lo que se
+                          pregunta cuando alguien reclama la decisión. */}
+                      {r.resolvedBy && (
+                        <p className="mt-1 text-xs text-muted-foreground" data-testid="reporte-resuelto-por">
+                          por {r.resolvedBy.name}
+                          {r.resolvedAt &&
+                            ` · ${new Date(r.resolvedAt).toLocaleDateString('es-ES')}`}
+                        </p>
+                      )}
                     </td>
 
                     <td className="p-3 text-muted-foreground">
@@ -261,6 +246,23 @@ export default function AdminReportesPage() {
 
                     <td className="p-3">
                       <div className="flex flex-wrap gap-1">
+                        {/* «La estoy mirando yo», sin cerrarla. El endpoint existía
+                            desde el principio y NADIE lo llamaba, así que `REVIEWING`
+                            era un filtro que no podía tener contenido: se ofrecía «En
+                            revisión» en la barra y ninguna denuncia podía llegar
+                            nunca a ese estado. */}
+                        {r.status === 'PENDING' && (
+                          <button
+                            disabled={isPending}
+                            onClick={() =>
+                              handleAction(() => startReviewReport(r.id, token), r.id)
+                            }
+                            className="rounded bg-blue-100 px-2 py-1 text-xs font-medium text-blue-800 hover:bg-blue-200 disabled:opacity-50"
+                            data-testid="reporte-empezar-revision"
+                          >
+                            {isPending ? '…' : 'La reviso yo'}
+                          </button>
+                        )}
                         {isOpen && (
                           <>
                             <button
@@ -344,7 +346,7 @@ export default function AdminReportesPage() {
                             Si ya hay hilo, se enlaza en vez de ofrecer abrir otro. */}
                         {r.tickets && r.tickets.length > 0 ? (
                           <Link
-                            href={`/admin/tickets/${r.tickets[0].id}`}
+                            href={adminTicketHref(r.tickets[0].id)}
                             className="rounded border border-blue-600 px-2 py-1 text-xs text-blue-700 hover:bg-blue-50"
                             data-testid="enlace-hilo-reporte"
                           >
@@ -383,6 +385,30 @@ export default function AdminReportesPage() {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* LA PAGINACIÓN, que el API servía y la interfaz no usaba. */}
+      {!loading && totalPages > 1 && (
+        <div className="mt-4 flex items-center justify-between" data-testid="reportes-paginacion">
+          <button
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={page === 1}
+            className="rounded border px-3 py-1 text-sm disabled:opacity-40"
+          >
+            Anterior
+          </button>
+          <span className="text-sm text-muted-foreground">
+            Página {page} de {totalPages}
+          </span>
+          <button
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            disabled={page >= totalPages}
+            className="rounded border px-3 py-1 text-sm disabled:opacity-40"
+            data-testid="reportes-siguiente"
+          >
+            Siguiente
+          </button>
         </div>
       )}
     </div>

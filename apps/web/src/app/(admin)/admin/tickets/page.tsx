@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { TicketStatusBadge } from '@/components/tickets/TicketStatusBadge';
 import { ApiError } from '@/lib/api/client';
+import { adminTicketHref } from '@/lib/admin-links';
 import {
   ASSIGNED_TO_ME,
   ASSIGNED_TO_NONE,
@@ -252,7 +253,7 @@ export default function AdminTicketsPage() {
               {items.map((t) => (
                 <tr key={t.id} className="border-b last:border-0 hover:bg-muted/30" data-testid="fila-ticket">
                   <td className="px-4 py-2">
-                    <Link href={`/admin/tickets/${t.id}`} className="font-medium hover:underline">
+                    <Link href={adminTicketHref(t.id)} className="font-medium hover:underline">
                       {t.subject}
                     </Link>
                     <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">

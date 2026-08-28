@@ -30,6 +30,7 @@ import { etiquetaDeTriage, varianteDeTriage } from './listing-triage';
 import { ApiError } from '@/lib/api/client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { adminListingHref } from '@/lib/admin-links';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -275,7 +276,7 @@ export default function AdminAnunciosPage() {
                             Archivados, así que el enlace anterior daba 404 en
                             todas esas filas: la pública sólo sirve ACTIVE. */}
                         <Link
-                          href={`/admin/anuncios/${listing.id}`}
+                          href={adminListingHref(listing.id)}
                           className="font-medium hover:underline line-clamp-1"
                           data-testid={`anuncio-enlace-${listing.id}`}
                         >
