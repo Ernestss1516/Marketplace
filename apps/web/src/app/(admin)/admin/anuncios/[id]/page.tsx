@@ -71,6 +71,8 @@ import {
   publicListingHref,
 } from '@/lib/admin-links';
 import { ReporteFila } from '@/components/admin/ReporteFila';
+import { ConversacionesPanel } from '@/components/admin/ConversacionesPanel';
+import { getConversacionesDeAnuncio } from '@/lib/api/admin-mensajeria';
 import { attributeErrors, buildAttributes, filterSchemaByType } from '@/lib/attribute-schema';
 import { StepAtributos } from '@/components/publicar/steps/StepAtributos';
 import { ValoracionFila } from '@/components/admin/ValoracionFila';
@@ -281,6 +283,12 @@ export default function AdminFichaAnuncioPage() {
   useEffect(() => {
     void cargar();
   }, [cargar]);
+
+  /** MENSAJERÍA C1 — memorizada: `ConversacionesPanel` la tiene en sus deps. */
+  const cargarConversaciones = useCallback(
+    (page: number) => getConversacionesDeAnuncio(token!, params.id, { page }),
+    [token, params.id],
+  );
 
   // Los topes, una vez por visita. Endpoint público y sin parámetros: no depende
   // del anuncio ni de la sesión, así que no entra en `cargar()`.
@@ -1202,6 +1210,20 @@ export default function AdminFichaAnuncioPage() {
               )}
             </Seccion>
 
+            {/* MENSAJERÍA C1 — antes esto era `<Dato etiqueta="Conversaciones">`: un
+                número, sin nada detrás. Ahora se ve QUIÉN habló con el vendedor y
+                cuándo. El contenido de los mensajes no se abre desde aquí (es C2). */}
+            <Seccion titulo="Conversaciones" contador={data._count.conversations}>
+              <ConversacionesPanel
+                token={token!}
+                cargar={cargarConversaciones}
+                // El anuncio es siempre éste: repetir su título en cada fila sería ruido.
+                mostrarAnuncio={false}
+                vacio="Nadie ha escrito sobre este anuncio."
+                testId="ficha-conversaciones"
+              />
+            </Seccion>
+
             {/* ESTADÍSTICAS B1 — la sección «Actividad» tenía cuatro cifras sueltas y le
                 faltaba la serie: «días con vistas» era el sustituto pobre de una gráfica.
                 Ahora los cuatro datos se quedan (con «Veces listado» de compañero) y
@@ -1212,7 +1234,10 @@ export default function AdminFichaAnuncioPage() {
                 <Dato etiqueta="Veces listado" valor={actividad?.impressionCount ?? '—'} />
                 <Dato etiqueta="Días con vistas" valor={data._count.viewsDaily} />
                 <Dato etiqueta="Favoritos" valor={data._count.favorites} />
-                <Dato etiqueta="Conversaciones" valor={data._count.conversations} />
+                {/* «Conversaciones» ya NO está aquí como cifra suelta: tiene su
+                    propia sección, con el número en la cabecera y la lista debajo.
+                    Un contador sin nada detrás era lo único que el backoffice sabía
+                    decir de la mensajería. */}
               </div>
               <div className="mt-4">
                 <ActivityPanel
