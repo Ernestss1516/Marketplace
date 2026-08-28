@@ -436,4 +436,157 @@ describe('2b — las imágenes de un anuncio (e2e)', () => {
     const despues = await prisma.listing.findUnique({ where: { id: listing.id } });
     expect(despues?.triage).toBe('REVIEWED');
   });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // EL MÍNIMO — sólo sobre lo que YA ESTÁ EN EL MERCADO
+  //
+  // `MinPhotosRule` es una regla de PUERTA: mira al publicar y al aprobar, y en
+  // ningún momento más. Eso dejaba un hueco que ninguna puerta puede cubrir —a un
+  // ACTIVE se le podían quitar TODAS las fotos editándolo— y que el backoffice
+  // convierte en alcanzable desde que manda `imageIds`.
+  //
+  // Los dos lados se fijan aquí, y el negativo importa tanto como el positivo: un
+  // mínimo incondicional en el camino compartido impediría CREAR un borrador a
+  // todos los vendedores, porque el asistente crea el DRAFT primero y sube las
+  // fotos después.
+  // ───────────────────────────────────────────────────────────────────────────
+
+  /** Enciende o apaga el interruptor del mínimo (`minPhotosRuleEnabled`). */
+  async function exigirMinimo(activo: boolean, min = 1) {
+    await prisma.setting.upsert({
+      where: { key: 'minPhotosRuleEnabled' },
+      create: { key: 'minPhotosRuleEnabled', value: activo },
+      update: { value: activo },
+    });
+    await prisma.setting.upsert({
+      where: { key: 'minPhotosPerListing' },
+      create: { key: 'minPhotosPerListing', value: min },
+      update: { value: min },
+    });
+  }
+
+  afterEach(async () => {
+    // El interruptor vuelve APAGADO, que es como nace: dejarlo encendido cambiaría
+    // el resultado de los tests de arriba, que quitan fotos de anuncios ACTIVE.
+    await exigirMinimo(false);
+  });
+
+  it('LA BARRERA (mínimo): un ACTIVE no se queda por debajo — 422 NOT_ENOUGH_PHOTOS', async () => {
+    await exigirMinimo(true, 1);
+    const { listing, imagenes } = await crearConFotos(1, 'min-activo');
+
+    const res = await request(server())
+      .patch(`/api/admin/listings/${listing.id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ imageIds: [], reason: 'Intento dejarlo sin fotos' })
+      .expect(422);
+
+    // El código es el MISMO que da la puerta al publicar: no hay un cuarto sitio
+    // donde viva el mínimo.
+    expect(res.body.code).toBe('NOT_ENOUGH_PHOTOS');
+
+    // Y se afirma contra el EFECTO, no contra el código de respuesta: la foto sigue
+    // ahí y no se encoló ningún borrado.
+    expect(await prisma.listingImage.findUnique({ where: { id: imagenes[0].id } })).not.toBeNull();
+    expect(clavesEncoladas()).toEqual([]);
+  });
+
+  it('EL NEGATIVO (lo que protege a los vendedores): un DRAFT SÍ puede quedarse sin fotos', async () => {
+    // El asistente crea el borrador y sube las fotos DESPUÉS: un DRAFT con cero es el
+    // estado normal de todo anuncio que empieza. Un mínimo incondicional aquí —que es
+    // el sitio por el que pasan los tres caminos— rompería la creación de borradores
+    // de toda la plataforma. A un DRAFT sin fotos ya lo frena la puerta al publicar.
+    await exigirMinimo(true, 1);
+    const { listing, imagenes } = await crearConFotos(1, 'min-draft');
+    await prisma.listing.update({ where: { id: listing.id }, data: { status: 'DRAFT' } });
+
+    await request(server())
+      .patch(`/api/listings/${listing.id}`)
+      .set('Authorization', `Bearer ${sellerToken}`)
+      .send({ imageIds: [] })
+      .expect(200);
+
+    expect(await prisma.listingImage.findUnique({ where: { id: imagenes[0].id } })).toBeNull();
+  });
+
+  it('con el interruptor APAGADO (como nace) el mínimo no estorba a nadie', async () => {
+    await exigirMinimo(false);
+    const { listing } = await crearConFotos(1, 'min-apagado');
+
+    await request(server())
+      .patch(`/api/admin/listings/${listing.id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ imageIds: [], reason: 'La regla está apagada' })
+      .expect(200);
+  });
+
+  it('el mínimo tampoco frena si quedan SUFICIENTES', async () => {
+    await exigirMinimo(true, 2);
+    const { listing, imagenes } = await crearConFotos(3, 'min-suficientes');
+
+    await request(server())
+      .patch(`/api/admin/listings/${listing.id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ imageIds: [imagenes[0].id, imagenes[1].id], reason: 'Quito la tercera' })
+      .expect(200);
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // LA FUGA DEL FICHERO COMPARTIDO
+  // ───────────────────────────────────────────────────────────────────────────
+
+  it('LA BARRERA (§7.3): quitar una de dos filas con la MISMA url no borra el fichero', async () => {
+    // `listingMediaKeys` deduplica dentro de una llamada, pero eso sólo cubre mandar la
+    // misma URL dos veces en el MISMO borrado. Con dos filas que comparten `url` —el
+    // propio media-keys.ts contempla el caso— quitar una encolaba la clave del fichero
+    // que la SUPERVIVIENTE sigue apuntando: una foto rota en una ficha viva, sin
+    // ninguna forma de recuperarla. Nadie podía provocarlo mientras la interfaz no
+    // mandara `imageIds`; desde esta ráfaga, sí.
+    const { listing, imagenes } = await crearConFotos(1, 'compartida');
+    const gemela = await prisma.listingImage.create({
+      data: {
+        listingId: listing.id,
+        url: imagenes[0].url, // LA MISMA
+        order: 1,
+        uploadedById: sellerId,
+      },
+    });
+
+    await request(server())
+      .patch(`/api/admin/listings/${listing.id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ imageIds: [imagenes[0].id], reason: 'Quito la duplicada' })
+      .expect(200);
+
+    // La fila duplicada se va…
+    expect(await prisma.listingImage.findUnique({ where: { id: gemela.id } })).toBeNull();
+    // …pero el FICHERO no, porque la superviviente lo sigue usando.
+    expect(clavesEncoladas()).toEqual([]);
+    expect(await prisma.listingImage.findUnique({ where: { id: imagenes[0].id } })).not.toBeNull();
+  });
+
+  it('y cuando se van LAS DOS, el fichero sí se borra (una vez, no dos)', async () => {
+    // El otro lado de la misma moneda: sin este caso, «no encolar nunca una url
+    // repetida» también pasaría el test de arriba y dejaría basura para siempre.
+    const { listing, imagenes } = await crearConFotos(1, 'compartida-ambas');
+    await prisma.listingImage.create({
+      data: {
+        listingId: listing.id,
+        url: imagenes[0].url,
+        order: 1,
+        uploadedById: sellerId,
+      },
+    });
+
+    await request(server())
+      .patch(`/api/admin/listings/${listing.id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ imageIds: [], reason: 'Quito las dos' })
+      .expect(200);
+
+    expect(clavesEncoladas()).toEqual([
+      'media/compartida-ambas-0-thumb.webp',
+      'media/compartida-ambas-0.jpg',
+    ]);
+  });
 });

@@ -1,4 +1,4 @@
-import { Injectable, UnprocessableEntityException } from '@nestjs/common';
+import { HttpStatus, Injectable, UnprocessableEntityException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../../infra/prisma/prisma.service';
@@ -6,6 +6,8 @@ import { R2Service } from '../../infra/r2/r2.service';
 import { listingMediaKeys } from '../../infra/r2/media-keys';
 import { QUEUE_MEDIA_CLEANUP } from '../../infra/queue/queue.constants';
 import { PhotoLimitsService } from '../listing-gate/photo-limits.service';
+import { NOT_ENOUGH_PHOTOS_CODE } from '../listing-gate/photo-limits';
+import { ListingGateException } from '../listing-gate/listing-gate.exception';
 
 /** Lo que se llevó por delante una sincronización, para el `AuditLog`. */
 export interface ImagenRetirada {
@@ -101,6 +103,9 @@ export class ListingImagesService {
       );
     }
 
+    // PUERTA regla #3 — LA OTRA MITAD. Ver `comprobarMinimo`.
+    await this.comprobarMinimo(listingId, imageIds.length);
+
     const candidatas = await this.prisma.listingImage.findMany({
       where: { id: { in: imageIds } },
       select: { id: true, uploadedById: true, listingId: true },
@@ -133,8 +138,40 @@ export class ListingImagesService {
       select: { id: true, url: true },
     });
     const retiradas = actuales.filter((img) => !imageIds.includes(img.id));
+
+    /**
+     * NO SE BORRA EL FICHERO DE UNA URL QUE OTRA FILA SIGA USANDO.
+     *
+     * `listingMediaKeys` deduplica dentro de una llamada, pero eso sólo cubre el
+     * caso de mandar la misma URL dos veces en el MISMO borrado. Si dos
+     * `ListingImage` comparten `url` —posible reenlazando una imagen; el propio
+     * `media-keys.ts` lo contempla— y se quita sólo una, encolar su clave
+     * borraría el objeto que la superviviente sigue apuntando: una foto rota en
+     * una ficha viva, y sin ninguna forma de recuperarla.
+     *
+     * El `notIn` excluye justo las filas que están a punto de irse, así que lo
+     * que sale de aquí es «esta URL la usa alguien MÁS». Se pregunta a toda la
+     * tabla y no sólo a este anuncio: dos filas con la misma URL pueden estar en
+     * anuncios distintos, y el fichero es uno solo.
+     *
+     * Va ANTES de la transacción, como el propio cálculo de claves y por lo
+     * mismo: después, las filas retiradas ya no existirían para excluirlas.
+     */
+    const urlsRetiradas = [...new Set(retiradas.map((img) => img.url))];
+    const aunReferenciadas = urlsRetiradas.length
+      ? await this.prisma.listingImage.findMany({
+          where: {
+            url: { in: urlsRetiradas },
+            id: { notIn: retiradas.map((img) => img.id) },
+          },
+          select: { url: true },
+          distinct: ['url'],
+        })
+      : [];
+    const vivas = new Set(aunReferenciadas.map((img) => img.url));
+
     const keys = listingMediaKeys(
-      { imageUrls: retiradas.map((img) => img.url) },
+      { imageUrls: urlsRetiradas.filter((url) => !vivas.has(url)) },
       this.r2.getPublicUrl(''),
     );
 
@@ -179,5 +216,76 @@ export class ListingImagesService {
     }
 
     return { retiradas };
+  }
+
+  /**
+   * EL MÍNIMO DE FOTOS, Y SÓLO SOBRE LO QUE YA ESTÁ EN EL MERCADO.
+   *
+   * ─── POR QUÉ HACE FALTA AQUÍ ─────────────────────────────────────────────────
+   *
+   * `MinPhotosRule` es una regla de PUERTA: mira en los dos momentos en que un
+   * anuncio sale al mercado —el vendedor publica, el staff aprueba— y en ninguno
+   * más (su propio spec fija que no aplica a renovar, reactivar, restaurar ni
+   * `adminStatus`). Eso deja un hueco que la puerta no puede cubrir por
+   * construcción: **a un anuncio que YA está ACTIVE se le pueden quitar todas las
+   * fotos editándolo**, y no vuelve a pasar por ninguna puerta hasta que alguien
+   * lo despublique y lo republique. El dueño podía; el staff, desde que el
+   * backoffice manda `imageIds`, también.
+   *
+   * ─── POR QUÉ SÓLO `ACTIVE`, Y NO SIEMPRE ─────────────────────────────────────
+   *
+   * Ésta es la parte que no se puede tocar sin romper algo grande. El asistente de
+   * publicación **crea el borrador primero y sube las fotos después**: un `DRAFT`
+   * con cero fotos es el estado normal de todo anuncio que empieza. Un mínimo
+   * incondicional aquí —que es el sitio por el que pasan los TRES caminos—
+   * impediría crear un borrador a todos los vendedores de la plataforma.
+   *
+   * Y no haría falta para nada: a un `DRAFT` o un `PENDING_REVIEW` sin fotos ya lo
+   * frena `MinPhotosRule` cuando intente publicarse o aprobarse. La puerta sigue
+   * siendo la puerta; esto sólo tapa el hueco de después.
+   *
+   * ─── SIN NÚMEROS NI CÓDIGOS PROPIOS ──────────────────────────────────────────
+   *
+   * El interruptor (`isMinEnforced`), el número (`getMin`) y el código del motivo
+   * (`NOT_ENOUGH_PHOTOS_CODE`) son los MISMOS que usa la regla de la puerta. Un
+   * cuarto sitio donde vive el mínimo es exactamente lo que `photo-limits.ts` vino
+   * a eliminar, y la interfaz lee ese mismo número por `GET /listings/photo-limits`
+   * — así el botón que se deshabilita y el 422 que lo respalda no pueden discrepar.
+   *
+   * Se lanza `ListingGateException` y no un `UnprocessableEntityException` a secas
+   * porque es LA MISMA NEGATIVA que daría la puerta: mismo `code`, mismos
+   * `reasons`, misma forma de cuerpo. El cliente ya sabe leerla (`toGateMessage`
+   * pinta el mensaje real en vez del genérico), así que no hay nada que enseñarle.
+   *
+   * ─── EL ORDEN DE LAS COMPROBACIONES ES DELIBERADO ────────────────────────────
+   *
+   * Primero el interruptor, luego el número, y el `status` EL ÚLTIMO. Con la regla
+   * apagada —que es como nace y como está hoy— esto cuesta una consulta de ajuste
+   * y ni siquiera toca `Listing`; con fotos de sobra, tampoco. La consulta del
+   * estado sólo se paga cuando de verdad se está a punto de rechazar.
+   */
+  private async comprobarMinimo(listingId: string, cuantasQuedan: number): Promise<void> {
+    if (!(await this.photoLimits.isMinEnforced())) return;
+
+    const min = await this.photoLimits.getMin();
+    if (cuantasQuedan >= min) return;
+
+    const listing = await this.prisma.listing.findUnique({
+      where: { id: listingId },
+      select: { status: true },
+    });
+    if (listing?.status !== 'ACTIVE') return;
+
+    const message =
+      min === 1
+        ? 'Este anuncio está publicado y no puede quedarse sin fotos.'
+        : `Este anuncio está publicado y no puede quedarse con menos de ${min} fotos (quedarían ${cuantasQuedan}).`;
+
+    throw new ListingGateException(
+      [{ code: NOT_ENOUGH_PHOTOS_CODE, message, field: 'imageIds' }],
+      HttpStatus.UNPROCESSABLE_ENTITY,
+      message,
+      NOT_ENOUGH_PHOTOS_CODE,
+    );
   }
 }
