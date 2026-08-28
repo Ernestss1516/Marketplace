@@ -30,6 +30,7 @@ import { AdminBillingService } from './admin-billing.service';
 import { AdminStatsController } from './admin-stats.controller';
 import { AdminStatsService } from './admin-stats.service';
 import { AccountModerationNotificationsModule } from '../account-moderation-notifications/account-moderation-notifications.module';
+import { ListingLifecycleNotificationsModule } from '../listing-lifecycle-notifications/listing-lifecycle-notifications.module';
 
 @Module({
   imports: [
@@ -65,6 +66,8 @@ import { AccountModerationNotificationsModule } from '../account-moderation-noti
     // NOTIFICACIONES N2 — las decisiones sobre la cuenta ya no son mudas. Módulo
     // compartido con `AccountArchiveModule`, no una segunda copia dentro de aquí.
     AccountModerationNotificationsModule,
+    // N3 — editar y eliminar un anuncio desde el backoffice avisan a su dueño.
+    ListingLifecycleNotificationsModule,
   ],
   // B1 — `AdminStatsController` NO necesita importar `ListingsModule`: lo único que
   // comparte con él son funciones PURAS (`computeCtr`, `ratioWithMinSample`), que se

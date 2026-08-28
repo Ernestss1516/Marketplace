@@ -60,6 +60,7 @@ import { PreModerationService } from '../moderation/pre-moderation.service';
 import { ListingActivationService } from '../listing-activation/listing-activation.service';
 import { MessagingService } from '../messaging/messaging.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { ListingLifecycleNotificationsService } from '../listing-lifecycle-notifications/listing-lifecycle-notifications.service';
 import { ReviewsService } from '../reviews/reviews.service';
 import { TagsService } from '../tags/tags.service';
 import {
@@ -184,6 +185,9 @@ export class ListingsService implements OnModuleInit {
     private readonly activation: ListingActivationService,
     private readonly messaging: MessagingService,
     private readonly notifications: NotificationsService,
+    // N3 — el ciclo de vida del anuncio. Aquí sólo el acuse de «está en cola»;
+    // caducar y el preaviso los mandan los crones.
+    private readonly lifecycleNotify: ListingLifecycleNotificationsService,
     private readonly reviews: ReviewsService,
     // B2 — el sistema de tags es HERMANO del de atributos, no parte de él: los
     // atributos se validan en este servicio (viven en un jsonb del propio anuncio),
@@ -691,6 +695,22 @@ export class ListingsService implements OnModuleInit {
 
     if (targetStatus === 'ACTIVE') {
       await this.activation.listingBecameActive(listing.slug, id);
+    } else {
+      /**
+       * NOTIFICACIONES N3 — «LO HEMOS RECIBIDO, ESTÁ EN COLA».
+       *
+       * SÓLO en `PENDING_REVIEW`, y la asimetría es la razón de que este aviso
+       * exista. Si el anuncio sale `ACTIVE`, el vendedor ya lo ve publicado y el
+       * toast se lo confirma: avisarle sería contarle lo que acaba de hacer. Pero
+       * si lo desvía la moderación previa o un detector, **pulsa «publicar» y no
+       * pasa nada visible**: su anuncio no aparece y nadie le ha dicho por qué.
+       * Ahí es donde empezaba el silencio, en el minuto cero.
+       *
+       * Sólo in-app: es un acuse de recibo, no hay nada que hacer con él, y un
+       * correo por cada publicación sería el camino corto al ruido. El desenlace
+       * —aprobado o rechazado— sí lleva correo, y lo manda `LISTING_MODERATED`.
+       */
+      await this.lifecycleNotify.ocurrio(listing, 'RECEIVED');
     }
 
     return listing;

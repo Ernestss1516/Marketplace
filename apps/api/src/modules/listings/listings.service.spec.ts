@@ -10,6 +10,7 @@ import type { EntitlementService } from '../billing/entitlement.service';
 import type { ListingActivationService } from '../listing-activation/listing-activation.service';
 import type { MessagingService } from '../messaging/messaging.service';
 import type { NotificationsService } from '../notifications/notifications.service';
+import type { ListingLifecycleNotificationsService } from '../listing-lifecycle-notifications/listing-lifecycle-notifications.service';
 import type { ReviewsService } from '../reviews/reviews.service';
 import type { TagsService } from '../tags/tags.service';
 import type { CategoryTreeService } from '../categories/category-tree.service';
@@ -77,6 +78,10 @@ describe('ListingsService.create — reintento de slug ante P2002', () => {
       {} as ListingActivationService,
       {} as MessagingService,
       {} as NotificationsService,
+      // N3 — mantenimiento de fixture por cambio de FIRMA. Este spec va del
+      // reintento de slug en create(), que no llega a publish() y por tanto no
+      // emite el acuse de «está en cola».
+      {} as ListingLifecycleNotificationsService,
       {} as ReviewsService,
       // B2 — este spec va del reintento de slug, no de los tags: el dto no los lleva,
       // así que basta con que la resolución devuelva la lista vacía.

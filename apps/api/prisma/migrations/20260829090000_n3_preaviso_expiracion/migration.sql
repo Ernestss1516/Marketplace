@@ -1,0 +1,32 @@
+-- ESCRITA A MANO, Y NO POR `prisma migrate dev`. La razón está anotada en las cuatro
+-- migraciones anteriores: `migrate dev` vuelve a proponer
+--
+--   DROP INDEX "User_lastLoginAt_desc_nulls_last_idx";
+--
+-- porque ese índice es SQL crudo (Prisma no sabe expresar `NULLS LAST` en un `@@index`) y lo
+-- lee como drift en CADA migración nueva. La regla escrita era «generar, LEER el SQL y borrar
+-- ese DROP» — pero generar lo APLICA a la base de desarrollo antes de que nadie lo lea, así
+-- que el índice ya se ha perdido localmente para cuando se edita el fichero. Y editar un
+-- fichero ya aplicado rompe su checksum, que es lo siguiente que bloquea `migrate dev`.
+--
+-- Escribirla a mano y aplicarla con `migrate deploy` no tiene ninguno de los dos problemas.
+--
+-- ─────────────────────────────────────────────────────────────────────────────────────────
+-- NOTIFICACIONES N3 — LA IDEMPOTENCIA DEL PREAVISO DE EXPIRACIÓN.
+--
+-- El preaviso lo manda un cron DIARIO sobre los anuncios que expiran dentro de N días. Sin
+-- marca, el mismo anuncio recibe el mismo aviso N DÍAS SEGUIDOS: el cron no recuerda nada y
+-- la ventana no se cierra sola.
+--
+-- GUARDA EL VENCIMIENTO PREAVISADO, NO UN «YA AVISÉ». Un booleano habría que limpiarlo cada
+-- vez que `expiresAt` se mueve, y `expiresAt` se escribe en CINCO sitios (publicar, renovar,
+-- reactivar y dos caminos de moderación); olvidar uno deja ese anuncio sin preaviso nunca
+-- más, en silencio. Con la fecha, el predicado `expiryWarnedFor <> expiresAt` SE INVALIDA
+-- SOLO: renovar mueve el vencimiento y con eso ya vuelve a ser preavisable, sin que nadie
+-- tenga que acordarse de nada.
+--
+-- ADITIVA Y SIN BACKFILL: nace `NULL` (= nunca preavisado) para todas las filas.
+-- ─────────────────────────────────────────────────────────────────────────────────────────
+
+-- AlterTable
+ALTER TABLE "Listing" ADD COLUMN     "expiryWarnedFor" TIMESTAMP(3);

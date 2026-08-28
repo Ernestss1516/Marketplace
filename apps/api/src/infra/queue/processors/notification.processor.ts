@@ -14,6 +14,7 @@ import {
   SendReviewRequestEmailData,
   SendAccountModeratedData,
   SendBumpAutoPausedData,
+  SendListingLifecycleData,
   SendListingModeratedData,
   SendTicketMessageData,
   SendTicketResolvedData,
@@ -62,6 +63,8 @@ export class NotificationProcessor extends WorkerHost {
           return this.sendBumpAutoPaused(job.data as SendBumpAutoPausedData);
         case NOTIFICATION_JOB.SEND_ACCOUNT_MODERATED:
           return this.sendAccountModerated(job.data as SendAccountModeratedData);
+        case NOTIFICATION_JOB.SEND_LISTING_LIFECYCLE:
+          return this.sendListingLifecycle(job.data as SendListingLifecycleData);
         default:
           this.logger.warn(`Unknown notification job: ${job.name}`);
       }
@@ -380,6 +383,65 @@ export class NotificationProcessor extends WorkerHost {
       text: `Hola ${data.name},\n\n${cuerpo}`,
     });
     this.logger.log(`Account moderated email (${data.action}) sent to ${data.email}`);
+  }
+
+  /**
+   * NOTIFICACIONES N3 — el ciclo de vida del anuncio.
+   *
+   * Mismo registro que `sendListingModerated`, y aquí es todavía más importante:
+   * la mitad de estos avisos **no los provoca nadie** (los manda un cron), así que
+   * el correo tiene que explicar qué ha pasado y ofrecer la salida sin dar a
+   * entender que el vendedor ha hecho algo mal. Ninguno acusa; los dos que sí son
+   * decisiones del staff (`EDITED_BY_STAFF`, `DELETED_BY_STAFF`) dicen qué se hizo
+   * y con qué motivo, y dejan abierta la puerta de soporte.
+   */
+  private async sendListingLifecycle(data: SendListingLifecycleData): Promise<void> {
+    const link = `${this.appUrl}/mis-anuncios`;
+    const motivo = data.reason ? `\n\nMotivo indicado: ${data.reason}` : '';
+    const titulo = data.listingTitle;
+
+    // Record EXHAUSTIVO (la red de A1): una acción sin copy no compila.
+    const copy: Record<SendListingLifecycleData['action'], { subject: string; cuerpo: string }> = {
+      EXPIRING_SOON: {
+        subject: `Tu anuncio "${titulo}" caduca pronto`,
+        cuerpo:
+          `Tu anuncio «${titulo}» caduca ${data.daysLeft === 1 ? 'mañana' : `en ${data.daysLeft} días`} ` +
+          `y dejará de verse en el marketplace.\n\n` +
+          // El PARA QUÉ del preaviso, dicho: renovar antes de caducar conserva la
+          // posición; renovar después es volver a empezar.
+          `Si lo renuevas antes de que caduque, sigue donde está:\n${link}`,
+      },
+      EXPIRED: {
+        subject: `Tu anuncio "${titulo}" ha caducado`,
+        cuerpo:
+          `Tu anuncio «${titulo}» ha caducado y ya no se ve en el marketplace. No lo ha ` +
+          `retirado nadie: los anuncios caducan solos pasado un tiempo.\n\n` +
+          `Puedes volver a publicarlo cuando quieras desde aquí:\n${link}`,
+      },
+      EDITED_BY_STAFF: {
+        subject: `Hemos editado tu anuncio "${titulo}"`,
+        cuerpo:
+          `Hemos hecho cambios en tu anuncio «${titulo}». Sigue publicado.${motivo}\n\n` +
+          `Puedes verlo y volver a editarlo aquí:\n${link}\n\n` +
+          `Si crees que es un error, escríbenos y lo miramos.`,
+      },
+      DELETED_BY_STAFF: {
+        subject: `Hemos eliminado tu anuncio "${titulo}"`,
+        cuerpo:
+          `Hemos eliminado tu anuncio «${titulo}» del marketplace. Esta acción no tiene ` +
+          `vuelta atrás.${motivo}\n\n` +
+          `Si crees que es un error, escríbenos y lo miramos.`,
+      },
+    };
+    const { subject, cuerpo } = copy[data.action];
+
+    await this.resend.emails.send({
+      from: this.from,
+      to: data.email,
+      subject,
+      text: `Hola ${data.name},\n\n${cuerpo}`,
+    });
+    this.logger.log(`Listing lifecycle email (${data.action}) sent to ${data.email}`);
   }
 
   /** Fecha legible para el copy. Molde del front: `es-ES`, día y mes. */
