@@ -15,6 +15,8 @@ import { CrearAlertaButton } from '@/components/busqueda/CrearAlertaButton';
 import MapViewClient from '@/components/busqueda/MapViewClient';
 import { search, type SearchResponse } from '@/lib/api/busqueda';
 import { getCategories } from '@/lib/api/categorias';
+import { getActiveBanners } from '@/lib/api/banners';
+import { BannerList } from '@/components/banners/BannerList';
 import { buildCardAttributeMap, buildFullAttributeMap, buildWideCardAttributeMap } from '@/lib/card-attributes';
 import { filterableFieldsForTree } from '@/lib/filterable-fields';
 import { availableTagsForTree } from '@/lib/available-tags';
@@ -139,7 +141,11 @@ export default async function BusquedaPage({
   // `headers()` no le quita ninguna caché que tuviera.
   const visitor = await visitorHeaders();
 
-  const [categoriesResult, searchResult] = await Promise.allSettled([
+  // El banner entra como un settled más, no con `.catch`: `allSettled` no rechaza
+  // nunca, así que un endpoint de banners caído no puede tumbar la búsqueda —
+  // sale `rejected` y se lee como lista vacía, igual que ya se hace con las
+  // categorías tres líneas más abajo.
+  const [categoriesResult, searchResult, bannersResult] = await Promise.allSettled([
     getCategories(),
     search({
       ...(q && { q }),
@@ -163,9 +169,11 @@ export default async function BusquedaPage({
       hitsPerPage: hitsPerFetch,
       ...attributes,
     }, { headers: visitor }),
+    getActiveBanners('BUSQUEDA'),
   ]);
 
   const categories = categoriesResult.status === 'fulfilled' ? categoriesResult.value : [];
+  const banners = bannersResult.status === 'fulfilled' ? bannersResult.value : [];
   const searchError = searchResult.status === 'rejected';
   const data: SearchResponse | null =
     searchResult.status === 'fulfilled' ? searchResult.value : null;
@@ -264,6 +272,15 @@ export default async function BusquedaPage({
         {' / '}
         <span>{q ? `Búsqueda: "${q}"` : 'Búsqueda'}</span>
       </nav>
+
+      {/* A ANCHO COMPLETO Y FUERA de la fila de dos columnas: metido dentro del
+          <main> quedaría encajonado a la derecha del panel de filtros, en una
+          columna más estrecha que el propio panel. */}
+      {banners.length > 0 && (
+        <div className="mb-6">
+          <BannerList banners={banners} />
+        </div>
+      )}
 
       <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
         {/* Sidebar */}

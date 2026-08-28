@@ -3,6 +3,8 @@ import type { Metadata } from 'next';
 import Image from 'next/image';
 import Link from 'next/link';
 import { getPost } from '@/lib/api/blog';
+import { getActiveBanners } from '@/lib/api/banners';
+import { BannerList } from '@/components/banners/BannerList';
 import { ApiError } from '@/lib/api/client';
 import { SITE_NAME, SITE_URL } from '@/config';
 import { isSafeSrc } from '@/lib/image-domains';
@@ -66,8 +68,13 @@ export default async function BlogPostPage({
   // afecta el revalidate=3600 de esta ruta). Si lo tiene, resuelve en
   // paralelo con Promise.all y su propio TTL corto — esta página deja de ser
   // autocontenida, ver la nota en estado-tecnico.md.
-  const { data: listingsData, categories: blockCategories } =
-    await resolveListingsBlocksData(post.blocks);
+  const [{ data: listingsData, categories: blockCategories }, banners] = await Promise.all([
+    resolveListingsBlocksData(post.blocks),
+    // El banner viaja EN PARALELO con los bloques, no detrás: es un fetch más de
+    // esta página, no una dependencia de aquéllos. Y con su `.catch` — si el
+    // endpoint de banners no responde, el artículo se sirve entero.
+    getActiveBanners('BLOG').catch(() => []),
+  ]);
 
   const jsonLd = {
     '@context': 'https://schema.org',
@@ -98,6 +105,15 @@ export default async function BlogPostPage({
         </nav>
 
         <article className="mx-auto max-w-3xl">
+          {/* DENTRO de la columna de lectura (`max-w-3xl`), no a ancho de
+              contenedor: un bloque a sangre completa rompería la medida
+              tipográfica del artículo, que es lo único que esta página cuida. */}
+          {banners.length > 0 && (
+            <div className="mb-6">
+              <BannerList banners={banners} />
+            </div>
+          )}
+
           {/* Tags */}
           {post.tags.length > 0 && (
             <div className="mb-4 flex flex-wrap gap-2">

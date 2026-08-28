@@ -18,6 +18,8 @@ import { FavoritesGridProvider } from '@/components/anuncios/FavoritesGridContex
 import { CardAttributesProvider } from '@/components/anuncios/CardAttributesContext';
 import { getListing, getListingsByCategory } from '@/lib/api/anuncios';
 import { getCategoryBySlug } from '@/lib/api/categorias';
+import { getActiveBanners } from '@/lib/api/banners';
+import { BannerList } from '@/components/banners/BannerList';
 import { buildCardAttributeMapFromSchema } from '@/lib/card-attributes';
 import { filterSchemaByType } from '@/lib/attribute-schema';
 import { categoryPath } from '@/lib/category-url';
@@ -79,10 +81,13 @@ export default async function AnuncioPage({
     throw err;
   }
 
-  // Category schema and related listings — fail gracefully, non-blocking
-  const [categoryResult, relatedResult] = await Promise.allSettled([
+  // Category schema, related listings and banners — fail gracefully, non-blocking.
+  // El banner es un settled más: en la página que más tráfico recibe del sitio,
+  // un endpoint de avisos caído no puede llevarse por delante la ficha.
+  const [categoryResult, relatedResult, bannersResult] = await Promise.allSettled([
     getCategoryBySlug(listing.category.slug),
     getListingsByCategory(listing.category.slug, { perPage: 5 }),
+    getActiveBanners('ANUNCIO'),
   ]);
 
   const schema =
@@ -91,6 +96,7 @@ export default async function AnuncioPage({
     relatedResult.status === 'fulfilled'
       ? relatedResult.value.items.filter((l) => l.slug !== slug).slice(0, 4)
       : [];
+  const banners = bannersResult.status === 'fulfilled' ? bannersResult.value : [];
 
   // Filtrado por tipo solo para ESTE anuncio — el `schema` sin filtrar se
   // sigue usando más abajo para el mapa de atributos de los relacionados,
@@ -160,6 +166,19 @@ export default async function AnuncioPage({
             </span>
           ))}
         </nav>
+
+        {/* ARRIBA, bajo la miga y a ancho completo — decisión de producto tomada
+            para esta página en concreto (docs/diseno-banners-ubicaciones.md §4.3,
+            opción A1): es la superficie con más tráfico del sitio, así que un
+            aviso de servicio que no se vea aquí no se ve en ninguna parte. El
+            coste asumido es que empuja la galería hacia abajo; la contrapartida
+            es disciplina editorial —avisos, no promociones—, que se ejerce al
+            publicar, no con una regla en el frontend (el negocio vive en Nest). */}
+        {banners.length > 0 && (
+          <div className="mb-4">
+            <BannerList banners={banners} />
+          </div>
+        )}
 
         <div className="grid gap-8 md:grid-cols-[1fr_320px]">
           {/* ── Left column ── */}

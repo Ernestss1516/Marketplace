@@ -21,7 +21,12 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ApiError } from '@/lib/api/client';
-import type { BannerPlacement, BannerVariant } from '@/lib/api/banners';
+import {
+  PLACEMENT_GROUPS,
+  PLACEMENT_LABELS,
+  type BannerPlacement,
+  type BannerVariant,
+} from '@/lib/api/banners';
 import {
   createAdminBanner,
   updateAdminBanner,
@@ -36,11 +41,6 @@ interface Props {
   banner: AdminBanner | null;
   onSuccess: () => void;
 }
-
-const PLACEMENT_OPTIONS: { value: BannerPlacement; label: string }[] = [
-  { value: 'HOME', label: 'Home' },
-  { value: 'MIS_ANUNCIOS', label: 'Mis anuncios' },
-];
 
 /** yyyy-MM-ddThh:mm — formato que espera <input type="datetime-local">. */
 function toLocalInput(iso: string): string {
@@ -102,6 +102,19 @@ export function BannerFormDialog({ token, open, onOpenChange, banner, onSuccess 
     );
   }
 
+  /**
+   * Marca o desmarca un grupo entero. Con ocho casillas en el bloque público, un
+   * aviso de servicio («estamos en obras») las quiere todas, y pedir ocho clics
+   * para lo más frecuente es la clase de fricción que hace que el aviso no se
+   * publique. Sólo toca las de SU grupo: el otro se queda como estuviera.
+   */
+  function toggleGroup(values: readonly BannerPlacement[], marcar: boolean) {
+    setPlacements((prev) => {
+      const otros = prev.filter((p) => !values.includes(p));
+      return marcar ? [...otros, ...values] : otros;
+    });
+  }
+
   async function handleSubmit() {
     setBusy(true);
     setError(null);
@@ -151,7 +164,11 @@ export function BannerFormDialog({ token, open, onOpenChange, banner, onSuccess 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      {/* Con el selector de ubicaciones a catorce, el diálogo pasa de largo el alto
+          de la ventana y el botón «Crear banner» se quedaba fuera de alcance:
+          `DialogContent` no trae `max-height` propia. Mismo remedio y mismos
+          valores que PromocionarDialog.tsx:436, que topó con esto antes. */}
+      <DialogContent className="max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{isEdit ? `Editar banner "${banner!.title}"` : 'Nuevo banner'}</DialogTitle>
         </DialogHeader>
@@ -188,22 +205,56 @@ export function BannerFormDialog({ token, open, onOpenChange, banner, onSuccess 
             </div>
           </div>
 
+          {/*
+            CATORCE casillas, no dos. Lo que había era un `flex gap-4` SIN
+            `flex-wrap`, dimensionado para «Home» y «Mis anuncios»: con catorce
+            etiquetas se salían del ancho del diálogo. Y un `flex-wrap` plano
+            tampoco vale — catorce etiquetas de longitud dispar producen filas
+            irregulares donde encontrar una concreta es un ejercicio de lectura.
+
+            De ahí los DOS GRUPOS en rejilla, que además responden a la primera
+            pregunta de quien crea un banner: ¿esto es para visitantes o para
+            gente con cuenta? Salen de PLACEMENT_GROUPS, así que una ubicación
+            nueva aparece aquí sin tocar este fichero.
+          */}
           <div>
             <Label>Ubicaciones</Label>
-            <div className="mt-1 flex gap-4">
-              {PLACEMENT_OPTIONS.map((opt) => (
-                <div key={opt.value} className="flex items-center gap-2">
-                  <Checkbox
-                    id={`banner-placement-${opt.value}`}
-                    data-testid={`banner-placement-${opt.value}`}
-                    checked={placements.includes(opt.value)}
-                    onCheckedChange={() => togglePlacement(opt.value)}
-                  />
-                  <Label htmlFor={`banner-placement-${opt.value}`} className="cursor-pointer font-normal">
-                    {opt.label}
-                  </Label>
-                </div>
-              ))}
+            <div className="mt-1 space-y-3">
+              {PLACEMENT_GROUPS.map((group) => {
+                const todasMarcadas = group.values.every((v) => placements.includes(v));
+                return (
+                  <div key={group.label} className="rounded-md border p-3">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <p className="text-xs font-medium text-muted-foreground">{group.label}</p>
+                      <button
+                        type="button"
+                        onClick={() => toggleGroup(group.values, !todasMarcadas)}
+                        className="shrink-0 text-xs font-medium underline underline-offset-2 hover:text-foreground"
+                      >
+                        {todasMarcadas ? 'Ninguna' : 'Todas'}
+                      </button>
+                    </div>
+                    <div className="grid gap-x-4 gap-y-2 sm:grid-cols-2">
+                      {group.values.map((value) => (
+                        <div key={value} className="flex items-center gap-2">
+                          <Checkbox
+                            id={`banner-placement-${value}`}
+                            data-testid={`banner-placement-${value}`}
+                            checked={placements.includes(value)}
+                            onCheckedChange={() => togglePlacement(value)}
+                          />
+                          <Label
+                            htmlFor={`banner-placement-${value}`}
+                            className="cursor-pointer font-normal"
+                          >
+                            {PLACEMENT_LABELS[value]}
+                          </Label>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
 

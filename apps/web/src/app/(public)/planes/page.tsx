@@ -10,6 +10,8 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { getCatalog, type CatalogPrice, type CatalogResponse } from '@/lib/api/billing';
+import { getActiveBanners } from '@/lib/api/banners';
+import { BannerList } from '@/components/banners/BannerList';
 import { CheckoutButton } from './_components/CheckoutButton';
 import Link from 'next/link';
 
@@ -61,9 +63,12 @@ function monthlyEquivalent(price: CatalogPrice): string {
 }
 
 export default async function PlanesPage() {
-  const catalog = await getCatalog().catch(
-    (): CatalogResponse => ({ products: [], bumpCreditCost: 5, proExtraBumpsPercent: 20 }),
-  );
+  const [catalog, banners] = await Promise.all([
+    getCatalog().catch(
+      (): CatalogResponse => ({ products: [], bumpCreditCost: 5, proExtraBumpsPercent: 20 }),
+    ),
+    getActiveBanners('PLANES').catch(() => []),
+  ]);
 
   // UXV.6 (M4) — derivados del catálogo; el respaldo solo entra si la API no responde.
   const proFeatures = catalog.proBenefits?.length ? catalog.proBenefits : PRO_FEATURES_FALLBACK;
@@ -81,6 +86,14 @@ export default async function PlanesPage() {
           Empieza gratis. Actualiza cuando lo necesites.
         </p>
       </div>
+
+      {/* Acotado al mismo ancho que la rejilla de planes: a sangre de contenedor
+          quedaría más ancho que todo lo que hay debajo. */}
+      {banners.length > 0 && (
+        <div className="mx-auto mb-8 max-w-4xl">
+          <BannerList banners={banners} />
+        </div>
+      )}
 
       <div className="mx-auto grid max-w-4xl gap-6 md:grid-cols-3">
         {/* ── Free ── */}

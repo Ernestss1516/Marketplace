@@ -2555,9 +2555,38 @@ model CouponRedemption {
 
 /// Ubicación donde puede aparecer un Banner. Array escalar en Banner.placements
 /// (un banner puede vivir en varias a la vez) — mismo patrón que Post.tags.
+///
+/// Nombres en español: nombran RUTAS de cara al usuario, no conceptos de código
+/// (misma convención que NavPageType, y por eso MIS_CREDITOS y no "MI_SALDO":
+/// la ruta es /mis-creditos aunque la pantalla se titule «Mi saldo»). Los ocho
+/// primeros son páginas públicas; los seis últimos, de la zona de cuenta — ese
+/// mismo corte es el que agrupa las casillas del selector del admin.
+///
+/// SE EMPIEZA GRUESO, igual que NavPageType: BLOG cubre el índice y la ficha del
+/// artículo, y CATEGORIA los cuatro niveles de ruta, porque unos y otros
+/// renderizan por el mismo componente. Separarlos después es una migración
+/// aditiva sin backfill (molde ContactReasonScope); fusionar dos valores ya
+/// usados obligaría a reescribir los `placements` guardados.
+///
+/// NOTIFICACIONES NO ESTÁ, y es una decisión, no un olvido: BannerList pinta
+/// tarjetas de color y la bandeja de notificaciones también, así que ahí el
+/// aviso se leería como una notificación propia del usuario. Sin valor en el
+/// enum, el admin no puede siquiera ofrecerlo. Ver docs/diseno-banners-ubicaciones.md §4.3.
 enum BannerPlacement {
   HOME
+  BUSQUEDA
+  CATEGORIA
+  ANUNCIO
+  BLOG
+  VENDEDOR
+  PLANES
+  CONTACTO
   MIS_ANUNCIOS
+  PERFIL
+  PERFIL_FACTURACION
+  PERFIL_SUSCRIPCION
+  MIS_ALERTAS
+  MIS_CREDITOS
 }
 
 /// Estilo visual del banner (puramente presentacional, sin efecto en la lógica).

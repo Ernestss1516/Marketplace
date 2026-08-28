@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import Image from 'next/image';
 import Link from 'next/link';
 import { getPostList } from '@/lib/api/blog';
+import { getActiveBanners } from '@/lib/api/banners';
+import { BannerList } from '@/components/banners/BannerList';
 import type { PostSummary } from '@/types';
 import { SITE_NAME } from '@/config';
 import { isSafeSrc } from '@/lib/image-domains';
@@ -27,11 +29,15 @@ export default async function BlogPage({
   const { page: pageStr, tag } = await searchParams;
   const page = Math.max(1, Number(pageStr ?? 1));
 
-  const { items: posts, total, perPage } = await getPostList({
-    page,
-    perPage: 9,
-    tag,
-  }).catch(() => ({ items: [], total: 0, page: 1, perPage: 9 }));
+  const [{ items: posts, total, perPage }, banners] = await Promise.all([
+    getPostList({ page, perPage: 9, tag }).catch(() => ({
+      items: [],
+      total: 0,
+      page: 1,
+      perPage: 9,
+    })),
+    getActiveBanners('BLOG').catch(() => []),
+  ]);
 
   const totalPages = Math.ceil(total / perPage);
 
@@ -48,6 +54,14 @@ export default async function BlogPage({
           Consejos, novedades y artículos sobre segunda mano.
         </p>
       </header>
+
+      {/* Debajo de la cabecera, no encima: la página dice primero qué es. Misma
+          regla que /mis-anuncios (UXV.6 B6); la portada es la única excepción. */}
+      {banners.length > 0 && (
+        <div className="mb-6">
+          <BannerList banners={banners} />
+        </div>
+      )}
 
       {tag && (
         <div className="mb-6 flex items-center gap-2">

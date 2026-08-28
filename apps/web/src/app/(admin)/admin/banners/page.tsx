@@ -7,6 +7,12 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ApiError } from '@/lib/api/client';
 import { getAdminBanners, updateAdminBanner, type AdminBanner } from '@/lib/api/admin-banners';
+import {
+  ALL_PLACEMENTS,
+  PLACEMENT_GROUPS,
+  PLACEMENT_LABELS,
+  type BannerPlacement,
+} from '@/lib/api/banners';
 import { BannerFormDialog } from './_components/BannerFormDialog';
 
 const PER_PAGE = 20;
@@ -23,10 +29,22 @@ const STATUS_VARIANTS: Record<string, 'default' | 'secondary' | 'outline'> = {
   ended: 'outline',
 };
 
-const PLACEMENT_LABELS: Record<string, string> = {
-  HOME: 'Home',
-  MIS_ANUNCIOS: 'Mis anuncios',
-};
+/**
+ * Resumen de la celda «Ubicaciones».
+ *
+ * Con dos ubicaciones, enumerarlas cabía de sobra. Con catorce, un banner puesto
+ * en todas producía una celda de ~180 caracteres que reventaba el ancho de la
+ * tabla y no se leía igual. Se enumera hasta tres; a partir de ahí se cuenta, y
+ * el detalle completo vive en el `title` (y en el formulario, que es donde se
+ * edita de verdad).
+ */
+function resumirPlacements(placements: BannerPlacement[]): { texto: string; detalle: string } {
+  const nombres = placements.map((p) => PLACEMENT_LABELS[p]);
+  const detalle = nombres.join(', ');
+  if (placements.length === ALL_PLACEMENTS.length) return { texto: 'Todas', detalle };
+  if (placements.length > 3) return { texto: `${placements.length} ubicaciones`, detalle };
+  return { texto: detalle, detalle };
+}
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('es-ES', {
@@ -46,6 +64,11 @@ export default function AdminBannersPage() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [activeFilter, setActiveFilter] = useState<boolean | undefined>(undefined);
+  // '' = todas. El API ya aceptaba este filtro desde el primer día
+  // (ListBannersDto.placement) y la UI nunca lo pintó: con dos ubicaciones no
+  // hacía falta, con catorce «enséñame qué hay publicado en la ficha de anuncio»
+  // es la pregunta natural.
+  const [placementFilter, setPlacementFilter] = useState<BannerPlacement | ''>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -54,12 +77,17 @@ export default function AdminBannersPage() {
   const [editingBanner, setEditingBanner] = useState<AdminBanner | null>(null);
 
   const fetchBanners = useCallback(
-    async (p: number, active?: boolean) => {
+    async (p: number, active?: boolean, placement?: BannerPlacement | '') => {
       if (!token) return;
       setLoading(true);
       setError(null);
       try {
-        const data = await getAdminBanners(token, { active, page: p, perPage: PER_PAGE });
+        const data = await getAdminBanners(token, {
+          active,
+          ...(placement && { placement }),
+          page: p,
+          perPage: PER_PAGE,
+        });
         setBanners(data.items);
         setTotal(data.total);
       } catch (err) {
@@ -76,11 +104,16 @@ export default function AdminBannersPage() {
   );
 
   useEffect(() => {
-    fetchBanners(page, activeFilter);
-  }, [fetchBanners, page, activeFilter]);
+    fetchBanners(page, activeFilter, placementFilter);
+  }, [fetchBanners, page, activeFilter, placementFilter]);
 
   function handleFilter(value: boolean | undefined) {
     setActiveFilter(value);
+    setPage(1);
+  }
+
+  function handlePlacementFilter(value: BannerPlacement | '') {
+    setPlacementFilter(value);
     setPage(1);
   }
 
@@ -99,7 +132,7 @@ export default function AdminBannersPage() {
     setActionLoading(banner.id);
     try {
       await updateAdminBanner(token, banner.id, { active: !banner.active });
-      await fetchBanners(page, activeFilter);
+      await fetchBanners(page, activeFilter, placementFilter);
     } catch (err) {
       alert(err instanceof ApiError ? err.message : 'Error al cambiar el estado');
     } finally {
@@ -130,7 +163,7 @@ export default function AdminBannersPage() {
         </div>
       </div>
 
-      <div className="mb-4 flex flex-wrap gap-2">
+      <div className="mb-4 flex flex-wrap items-center gap-2">
         {[
           { label: 'Todos', value: undefined },
           { label: 'Activos', value: true },
@@ -149,6 +182,27 @@ export default function AdminBannersPage() {
             {f.label}
           </button>
         ))}
+
+        {/* Filtro por ubicación — agrupado igual que el selector del formulario,
+            para que las dos pantallas se lean con el mismo mapa. */}
+        <select
+          value={placementFilter}
+          onChange={(e) => handlePlacementFilter(e.target.value as BannerPlacement | '')}
+          aria-label="Filtrar por ubicación"
+          data-testid="banner-placement-filter"
+          className="ml-auto rounded-md border bg-background px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+        >
+          <option value="">Todas las ubicaciones</option>
+          {PLACEMENT_GROUPS.map((group) => (
+            <optgroup key={group.label} label={group.label}>
+              {group.values.map((value) => (
+                <option key={value} value={value}>
+                  {PLACEMENT_LABELS[value]}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
       </div>
 
       {error && (
@@ -191,7 +245,10 @@ export default function AdminBannersPage() {
                 <tr key={banner.id} className="hover:bg-muted/20">
                   <td className="px-4 py-3 font-medium">{banner.title}</td>
                   <td className="px-4 py-3 text-muted-foreground">
-                    {banner.placements.map((p) => PLACEMENT_LABELS[p] ?? p).join(', ')}
+                    {(() => {
+                      const { texto, detalle } = resumirPlacements(banner.placements);
+                      return <span title={detalle}>{texto}</span>;
+                    })()}
                   </td>
                   <td className="px-4 py-3 text-xs text-muted-foreground">
                     {formatDate(banner.startsAt)} – {formatDate(banner.endsAt)}
@@ -271,7 +328,7 @@ export default function AdminBannersPage() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         banner={editingBanner}
-        onSuccess={() => fetchBanners(page, activeFilter)}
+        onSuccess={() => fetchBanners(page, activeFilter, placementFilter)}
       />
     </div>
   );
