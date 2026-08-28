@@ -24,6 +24,7 @@ import { UpdateAdminListingDto } from './dto/update-admin-listing.dto';
 import { ChangeListingStatusDto } from './dto/change-listing-status.dto';
 import { ListAdminUsersDto } from './dto/list-admin-users.dto';
 import { SuspendUserDto } from './dto/suspend-user.dto';
+import { BanUserDto } from './dto/ban-user.dto';
 import { ChangeUserRoleDto } from './dto/change-user-role.dto';
 import { SetUserTrustedDto } from './dto/set-user-trusted.dto';
 import { SetUserRequiresReviewDto } from './dto/set-user-requires-review.dto';
@@ -210,14 +211,23 @@ export class AdminController {
   }
 
   // Permanent ban — ADMIN-only (inherits class-level @MinRole(ADMIN)).
+  //
+  // N2 — GANA CUERPO. Hasta aquí el endpoint no aceptaba ninguno, y por eso el
+  // motivo de un baneo no se perdía al mostrarlo: no había dónde escribirlo. Es
+  // ADITIVO —los dos campos de `BanUserDto` son opcionales—, así que banear sin
+  // cuerpo sigue funcionando exactamente igual que antes.
+  //
+  // `reason` es el motivo VISIBLE: lo lee el sancionado en su correo y al intentar
+  // entrar. `internalNote` se queda en el registro de auditoría y no sale de ahí.
   @Patch('users/:id/ban')
   @HttpCode(HttpStatus.OK)
   banUser(
     @Param('id') id: string,
+    @Body() dto: BanUserDto,
     @CurrentUser() user: JwtUser,
     @Ip() ip: string,
   ) {
-    return this.adminService.banUser(id, user.userId, ip);
+    return this.adminService.banUser(id, user.userId, dto, ip);
   }
 
   // Reverses a BAN (BANNED → ACTIVE) — ADMIN-only (inherits class-level @MinRole(ADMIN)).

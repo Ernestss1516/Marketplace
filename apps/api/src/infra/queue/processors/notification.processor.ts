@@ -12,6 +12,7 @@ import {
   SendContactReplyData,
   SendResetEmailData,
   SendReviewRequestEmailData,
+  SendAccountModeratedData,
   SendBumpAutoPausedData,
   SendListingModeratedData,
   SendTicketMessageData,
@@ -59,6 +60,8 @@ export class NotificationProcessor extends WorkerHost {
           return this.sendListingModerated(job.data as SendListingModeratedData);
         case NOTIFICATION_JOB.SEND_BUMP_AUTO_PAUSED:
           return this.sendBumpAutoPaused(job.data as SendBumpAutoPausedData);
+        case NOTIFICATION_JOB.SEND_ACCOUNT_MODERATED:
+          return this.sendAccountModerated(job.data as SendAccountModeratedData);
         default:
           this.logger.warn(`Unknown notification job: ${job.name}`);
       }
@@ -278,6 +281,114 @@ export class NotificationProcessor extends WorkerHost {
       text: `Hola ${data.name},\n\n${cuerpo}`,
     });
     this.logger.log(`Listing moderated email (${data.action}) sent to ${data.email}`);
+  }
+
+  /**
+   * NOTIFICACIONES N2 — LA DECISIÓN SOBRE LA CUENTA. **El único canal que le llega.**
+   *
+   * Un `SUSPENDED`, un `BANNED` y un `ARCHIVED` no pueden entrar, así que no hay
+   * campana que puedan abrir: si este correo no sale, se enteran chocando contra el
+   * login. De ahí que en N2 no sea opcional.
+   *
+   * ── EL REGISTRO DEL COPY ────────────────────────────────────────────────────
+   *
+   * El mismo que `sendListingModerated` dejó fijado y por la misma razón: **dice QUÉ
+   * ha pasado y CÓMO seguir, no sentencia sobre la conducta**. La moderación puede
+   * equivocarse —`unsuspend` y `reinstate` existen justo para deshacerla—, y un
+   * correo que acusa convierte un error reversible en una afrenta. Todos ofrecen la
+   * salida real: soporte.
+   *
+   * `motivo` es el VISIBLE. La nota interna no llega hasta aquí:
+   * `SendAccountModeratedData` no tiene campo para ella.
+   *
+   * `text:` plano como todo el processor, y aquí importa especialmente: `reason` lo
+   * escribe un moderador y lo lee el sancionado.
+   */
+  private async sendAccountModerated(data: SendAccountModeratedData): Promise<void> {
+    const soporte = `Si crees que es un error, escríbenos desde ${this.appUrl}/contacto y lo revisamos.`;
+    const motivo = data.reason ? `\n\nMotivo: ${data.reason}` : '';
+
+    // Record EXHAUSTIVO (la red de A1): una acción sin copy no compila.
+    const copy: Record<SendAccountModeratedData['action'], { subject: string; cuerpo: string }> = {
+      SUSPENDED: {
+        subject: 'Hemos suspendido temporalmente tu cuenta',
+        cuerpo:
+          `Hemos suspendido tu cuenta de forma temporal, así que de momento no podrás entrar.${motivo}\n\n` +
+          (data.suspendedUntil
+            ? `La suspensión termina el ${this.fecha(data.suspendedUntil)} y tu cuenta se reactiva sola: no tienes que hacer nada.`
+            : 'La suspensión no tiene fecha de fin por ahora.') +
+          `\n\n${soporte}`,
+      },
+      UNSUSPENDED: {
+        subject: 'Tu cuenta vuelve a estar activa',
+        cuerpo:
+          'Hemos levantado la suspensión de tu cuenta: ya puedes entrar y usarla con normalidad.\n\n' +
+          'Tus anuncios siguen como estaban.',
+      },
+      BANNED: {
+        subject: 'Hemos inhabilitado tu cuenta',
+        cuerpo:
+          `Hemos inhabilitado tu cuenta de forma permanente y ya no podrás entrar.${motivo}\n\n` +
+          `Tus anuncios se han retirado del marketplace.\n\n${soporte}`,
+      },
+      /**
+       * LA ASIMETRÍA DE `reinstateUser`, DICHA EN VOZ ALTA. Es la razón de que este
+       * texto sea distinto del de `UNSUSPENDED`: levantar un ban devuelve el ACCESO,
+       * pero **NO reactiva los anuncios** —los pausó la sanción y los reactiva su
+       * dueño, uno a uno, porque «una sanción no se deshace sola»—. Sin decirlo,
+       * quien vuelve encuentra su escaparate vacío y da por hecho que la plataforma
+       * está rota o que sigue sancionado.
+       */
+      REINSTATED: {
+        subject: 'Tu cuenta vuelve a estar activa',
+        cuerpo:
+          'Hemos revisado tu caso y tu cuenta vuelve a estar activa: ya puedes entrar.\n\n' +
+          'IMPORTANTE: tus anuncios NO se reactivan solos. Se quedaron en pausa y los tienes ' +
+          `esperándote en ${this.appUrl}/mis-anuncios — desde ahí puedes volver a activarlos ` +
+          'cuando quieras.',
+      },
+      ARCHIVED: {
+        subject: 'Hemos archivado tu cuenta',
+        cuerpo:
+          'Hemos archivado tu cuenta, así que ya no podrás entrar y tus anuncios han salido ' +
+          `del marketplace.${motivo}\n\n${soporte}`,
+      },
+      ROLE_CHANGED: {
+        subject: 'Hemos cambiado los permisos de tu cuenta',
+        cuerpo:
+          `Hemos cambiado el rol de tu cuenta${data.newRole ? ` a ${data.newRole}` : ''}.${motivo}\n\n` +
+          // Se avisa del efecto porque, si no, el siguiente clic es un 401 sin
+          // explicación: el cambio de rol invalida todas las sesiones a propósito.
+          'Por seguridad hemos cerrado tus sesiones abiertas: vuelve a iniciar sesión en ' +
+          `${this.appUrl}/login.`,
+      },
+      // Terminal, y el ÚNICO canal posible: eliminar la cuenta borra sus
+      // notificaciones, así que un aviso in-app se destruiría a sí mismo.
+      DELETED: {
+        subject: 'Tu cuenta se ha eliminado definitivamente',
+        cuerpo:
+          'Hemos eliminado tu cuenta y los datos personales asociados. Esta acción no tiene ' +
+          `vuelta atrás y no hace falta que hagas nada más.${motivo}`,
+      },
+    };
+    const { subject, cuerpo } = copy[data.action];
+
+    await this.resend.emails.send({
+      from: this.from,
+      to: data.email,
+      subject,
+      text: `Hola ${data.name},\n\n${cuerpo}`,
+    });
+    this.logger.log(`Account moderated email (${data.action}) sent to ${data.email}`);
+  }
+
+  /** Fecha legible para el copy. Molde del front: `es-ES`, día y mes. */
+  private fecha(iso: string): string {
+    return new Date(iso).toLocaleDateString('es-ES', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    });
   }
 
   /**

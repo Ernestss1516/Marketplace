@@ -528,7 +528,10 @@ export class ModerationService {
 
     // §14.5 — TRAS persistir. El autor se entera, igual que se enteraba con el borrado:
     // que el equipo retire una opinión firmada por alguien sin decírselo no es defendible.
-    await this.notify.reviewModerated(review, actorId, 'RETIRED');
+    // N2 — con su MOTIVO. `reason` es obligatorio en este método desde 7b y hasta
+    // ahora sólo llegaba al `AuditLog`: al autor se le retiraba lo que había
+    // escrito y se le comunicaba sin decirle por qué.
+    await this.notify.reviewModerated(review, actorId, 'RETIRED', reason);
     return updated;
   }
 
@@ -615,7 +618,7 @@ export class ModerationService {
     // retirado «por incumplir las normas» era falso sobre el estado de algo que él
     // firmó. Es el mismo cuidado que este método ya tenía con `editedAt` —no
     // afirmar un hecho que no ocurrió—, que no había llegado al aviso.
-    await this.notify.reviewModerated(review, actorId, 'EDITED');
+    await this.notify.reviewModerated(review, actorId, 'EDITED', input.reason);
     return updated;
   }
 }

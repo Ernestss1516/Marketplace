@@ -29,6 +29,7 @@ import { AdminBillingController } from './admin-billing.controller';
 import { AdminBillingService } from './admin-billing.service';
 import { AdminStatsController } from './admin-stats.controller';
 import { AdminStatsService } from './admin-stats.service';
+import { AccountModerationNotificationsModule } from '../account-moderation-notifications/account-moderation-notifications.module';
 
 @Module({
   imports: [
@@ -61,12 +62,20 @@ import { AdminStatsService } from './admin-stats.service';
     ListingPauseModule,
     // BORRADO DE CUENTAS C6 — la exportación de datos de cualquier usuario (ADMIN).
     DataExportModule,
+    // NOTIFICACIONES N2 — las decisiones sobre la cuenta ya no son mudas. Módulo
+    // compartido con `AccountArchiveModule`, no una segunda copia dentro de aquí.
+    AccountModerationNotificationsModule,
   ],
   // B1 — `AdminStatsController` NO necesita importar `ListingsModule`: lo único que
   // comparte con él son funciones PURAS (`computeCtr`, `ratioWithMinSample`), que se
   // importan como cualquier utilidad y no arrastran DI ni medio dominio detrás.
   controllers: [AdminController, AdminBillingController, AdminStatsController],
-  providers: [AdminService, AdminBillingService, AdminStatsService, AccountCleanupProcessor],
+  providers: [
+    AdminService,
+    AdminBillingService,
+    AdminStatsService,
+    AccountCleanupProcessor,
+  ],
   exports: [AdminService],
 })
 export class AdminModule {}

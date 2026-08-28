@@ -45,6 +45,9 @@ import { ListAdminListingsDto } from './dto/list-admin-listings.dto';
 import { ChangeListingStatusDto } from './dto/change-listing-status.dto';
 import { ListAdminUsersDto } from './dto/list-admin-users.dto';
 import { SuspendUserDto } from './dto/suspend-user.dto';
+import { BanUserDto } from './dto/ban-user.dto';
+import { AccountModerationNotificationsService } from '../account-moderation-notifications/account-moderation-notifications.service';
+import type { AccountModeratedAction } from '../notifications/notification.types';
 import { ChangeUserRoleDto } from './dto/change-user-role.dto';
 import { SetUserTrustedDto } from './dto/set-user-trusted.dto';
 import { SetUserRequiresReviewDto } from './dto/set-user-requires-review.dto';
@@ -455,6 +458,9 @@ export class AdminService {
     private readonly redis: RedisService,
     private readonly meili: MeilisearchService,
     private readonly auditLog: AuditLogService,
+    // N2 — el «a quién se le cuenta qué» de las decisiones sobre la cuenta, fuera
+    // de aquí: mismo reparto que `ModerationNotificationsService`.
+    private readonly accountNotify: AccountModerationNotificationsService,
     private readonly attributesResolver: FilterableAttributesResolver,
     // PROFUNDIDAD N — RÁFAGA 1: el único lector de la jerarquía.
     private readonly categoryTree: CategoryTreeService,
@@ -1381,6 +1387,9 @@ export class AdminService {
         avatarUrl: true,
         lastLoginIp: true,
         archiveReason: true,
+        // N2 — el motivo del cierre, para el correo terminal. Se lee AQUÍ, con el
+        // resto de la identidad, porque después de vaciar la fila no estará.
+        archiveNote: true,
         archivedAt: true,
         _count: {
           select: {
@@ -1585,6 +1594,27 @@ export class AdminService {
     // cuenta YA está vaciada y eso es lo correcto. Reintentar una limpieza es
     // trivial; resucitar a una persona, no.
     await this.efectosExternosDelBorrado(targetId, user.avatarUrl);
+
+    /**
+     * N2 — EL AVISO TERMINAL, **SÓLO POR CORREO**.
+     *
+     * Dos razones, y las dos obligan a que sea así y aquí:
+     *
+     *   · La transacción de arriba hace `notification.deleteMany` sobre este mismo
+     *     usuario, así que un aviso in-app se destruiría a sí mismo.
+     *   · La dirección se toma de `user`, la fila CARGADA EN EL PASO 1, antes de
+     *     vaciarla. Después no habría de dónde sacarla — el mismo motivo por el que
+     *     el registro de auditoría se construye con esa copia.
+     *
+     * El motivo visible sale de `archiveNote` sólo cuando el cierre lo decidió la
+     * plataforma: si la cuenta se archivó a petición del propio usuario, no hay
+     * nada que explicarle sobre una decisión que tomó él.
+     */
+    await this.accountNotify.eliminado(
+      user.email,
+      user.name,
+      user.archiveReason === ArchiveReason.STAFF_ACTION ? (user.archiveNote ?? null) : null,
+    );
 
     return { id: targetId, status: UserStatus.DELETED, postsReasignados: user._count.posts };
   }
@@ -1994,6 +2024,11 @@ export class AdminService {
 
     return this.changeUserStatus(targetId, actorId, UserStatus.SUSPENDED, 'USER_SUSPEND', ip, {
       suspendedUntil,
+      // N2 — los dos motivos entran aquí y se separan dentro: el visible viaja al
+      // aviso, la nota se queda en el `AuditLog`.
+      motivoVisible: dto.reason ?? null,
+      notaInterna: dto.internalNote ?? null,
+      aviso: 'SUSPENDED',
     });
   }
 
@@ -2025,7 +2060,13 @@ export class AdminService {
         'Solo se pueden reactivar usuarios en estado SUSPENDED. Para BANNED, usa desbanear.',
       );
     }
-    return this.changeUserStatus(targetId, actorId, UserStatus.ACTIVE, 'USER_UNSUSPEND', ip);
+    return this.changeUserStatus(targetId, actorId, UserStatus.ACTIVE, 'USER_UNSUSPEND', ip, {
+      suspendedUntil: null,
+      // Levantar una sanción también se avisa: si sólo se avisara de lo malo, el
+      // usuario sabría cuándo le cierran la puerta y no cuándo se la abren. Es el
+      // mismo criterio que hizo que `restoreListing` notifique.
+      aviso: 'UNSUSPENDED',
+    });
   }
 
   /**
@@ -2047,13 +2088,22 @@ export class AdminService {
    * pulsar «Banear» reintenta el pausado sin efectos raros. Al revés, un fallo entre
    * medias dejaría los anuncios pausados por una sanción que no llegó a escribirse.
    */
-  async banUser(targetId: string, actorId: string, ip?: string) {
+  async banUser(targetId: string, actorId: string, dto: BanUserDto = {}, ip?: string) {
     const actualizado = await this.changeUserStatus(
       targetId,
       actorId,
       UserStatus.BANNED,
       'USER_BAN',
       ip,
+      {
+        suspendedUntil: null,
+        // N2 — DONDE MÁS FALTA HACE EL MOTIVO. Un baneado no puede entrar a leer la
+        // campana, así que el correo con el motivo visible es LO ÚNICO que le llega
+        // además del mensaje del login.
+        motivoVisible: dto.reason ?? null,
+        notaInterna: dto.internalNote ?? null,
+        aviso: 'BANNED',
+      },
     );
 
     const pausados = await this.listingPause.pauseListingsForUser(
@@ -2086,6 +2136,18 @@ export class AdminService {
       UserStatus.ACTIVE,
       'USER_REINSTATE',
       ip,
+      {
+        suspendedUntil: null,
+        /**
+         * N2 — Y EL AVISO DICE QUE LOS ANUNCIOS NO VUELVEN SOLOS.
+         *
+         * Es la asimetría documentada aquí arriba, contada al único que la sufre.
+         * Quien recupera el acceso y encuentra su escaparate vacío da por hecho que
+         * la plataforma está rota o que sigue sancionado; el copy de `REINSTATED`
+         * dice explícitamente que están en pausa esperándole en `/mis-anuncios`.
+         */
+        aviso: 'REINSTATED',
+      },
     );
 
     const desmarcados = await this.listingPause.clearPauseOrigin(
@@ -2158,6 +2220,19 @@ export class AdminService {
       before,
       after: { role: dto.role },
       ip,
+    });
+
+    /**
+     * N2 — TRAS PERSISTIR. Aquí el aviso no es cortesía: el cambio de rol **mata
+     * todas sus sesiones** a propósito (el `tokenVersion` de arriba), así que la
+     * siguiente acción de esa persona es un 401 y una vuelta al login. Sin aviso,
+     * se entera de que le han echado antes que de que le han cambiado el rol.
+     *
+     * Éste SÍ puede leer la campana —un cambio de rol no cierra la cuenta—, así que
+     * los dos canales le llegan de verdad.
+     */
+    await this.accountNotify.decidido(targetId, 'ROLE_CHANGED', null, {
+      newRole: dto.role,
     });
 
     return updated;
@@ -3463,7 +3538,20 @@ export class AdminService {
     newStatus: UserStatus,
     action: string,
     ip?: string,
-    extra?: { suspendedUntil: Date | null },
+    extra?: {
+      suspendedUntil: Date | null;
+      /**
+       * NOTIFICACIONES N2 — LA SANCIÓN, EN DOS CAMPOS QUE NO SE MEZCLAN.
+       *
+       * `motivoVisible` se le muestra al usuario (snapshot del aviso, correo y
+       * mensaje del login). `notaInterna` va al `AuditLog` y **no sale de aquí**:
+       * no se pasa al servicio de avisos, cuya firma ni siquiera la admite.
+       */
+      motivoVisible?: string | null;
+      notaInterna?: string | null;
+      /** Qué contarle al usuario. `null` = no se le cuenta nada (hoy nadie lo usa). */
+      aviso: AccountModeratedAction | null;
+    },
   ) {
     const user = await this.prisma.user.findUnique({ where: { id: targetId } });
     if (!user) throw new NotFoundException('Usuario no encontrado');
@@ -3487,9 +3575,26 @@ export class AdminService {
      */
     const suspendedUntil = newStatus === UserStatus.SUSPENDED ? (extra?.suspendedUntil ?? null) : null;
 
+    /**
+     * NOTIFICACIONES N2 — EL MOTIVO VIVE CON LA SANCIÓN Y SE VA CON ELLA.
+     *
+     * Mismo invariante que `suspendedUntil` y por la misma razón, resuelto en el
+     * mismo sitio: entrar en un estado sancionado escribe el motivo; salir de él lo
+     * limpia. Una cuenta `ACTIVE` arrastrando el motivo de la sanción anterior
+     * haría que el mensaje del login mintiera el día que la vuelvan a sancionar sin
+     * indicar motivo — enseñaría el viejo.
+     *
+     * `UNSUSPENDED` y `REINSTATED` no llevan motivo: levantar una sanción no es
+     * sancionar, y el `?? null` de abajo los deja limpios sin caso especial.
+     */
+    const sancionado =
+      newStatus === UserStatus.SUSPENDED || newStatus === UserStatus.BANNED;
+    const sanctionReason = sancionado ? (extra?.motivoVisible ?? null) : null;
+    const sanctionNote = sancionado ? (extra?.notaInterna ?? null) : null;
+
     const updated = await this.prisma.user.update({
       where: { id: targetId },
-      data: { status: newStatus, suspendedUntil },
+      data: { status: newStatus, suspendedUntil, sanctionReason, sanctionNote },
       select: {
         id: true,
         name: true,
@@ -3509,9 +3614,29 @@ export class AdminService {
       before,
       // La fecha entra en el registro: sin ella, «suspendido» no dice hasta
       // cuándo, y ése es justamente el dato que C4 añade.
-      after: { status: newStatus, suspendedUntil },
+      //
+      // N2 — LOS DOS MOTIVOS ENTRAN AQUÍ, Y ÉSTE ES EL ÚNICO SITIO DONDE CONVIVEN.
+      // El registro de auditoría es precisamente para lo que el equipo necesita
+      // reconstruir después, así que lleva las dos caras. Lo que sale hacia el
+      // usuario —la llamada de abajo— lleva sólo `motivoVisible`.
+      after: { status: newStatus, suspendedUntil, motivo: sanctionReason, notaInterna: sanctionNote },
       ip,
     });
+
+    /**
+     * EL AVISO, TRAS PERSISTIR. Hasta N2 esta función terminaba en la línea de
+     * arriba: escribía el estado, escribía el registro, y la persona afectada no
+     * se enteraba de nada.
+     *
+     * SE LE PASA `sanctionReason` Y NUNCA `sanctionNote`. No es una precaución al
+     * escribir esta línea: `decidido()` no tiene parámetro para la nota interna, así
+     * que colarla exigiría pasarla como el motivo visible a propósito.
+     */
+    if (extra?.aviso) {
+      await this.accountNotify.decidido(targetId, extra.aviso, sanctionReason, {
+        suspendedUntil,
+      });
+    }
 
     return updated;
   }

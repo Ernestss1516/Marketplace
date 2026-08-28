@@ -10,6 +10,7 @@ import { ListingActivationService } from '../listing-activation/listing-activati
 import { ListingPauseService } from '../listing-pause/listing-pause.service';
 import { ListingGateService } from '../listing-gate/listing-gate.service';
 import { ExpirationService } from '../expiration/expiration.service';
+import { AccountModerationNotificationsService } from '../account-moderation-notifications/account-moderation-notifications.service';
 import {
   describeIllegalUserStatusTransition,
   isLegalUserStatusTransition,
@@ -43,6 +44,9 @@ export class AccountArchiveService {
     private readonly activation: ListingActivationService,
     private readonly pause: ListingPauseService,
     private readonly gate: ListingGateService,
+    // N2 — archivar desde el backoffice ya no es mudo. Servicio compartido con
+    // `AdminModule`, no una copia.
+    private readonly accountNotify: AccountModerationNotificationsService,
     @InjectQueue(QUEUE_BILLING) private readonly billingQueue: Queue,
   ) {}
 
@@ -167,6 +171,26 @@ export class AccountArchiveService {
     // reindexado es trivial; deshacer un archivado que el usuario pidió, no.
     await this.pause.reindexPaused(aPausar);
     await this.cancelarSuscripciones(targetId);
+
+    /**
+     * NOTIFICACIONES N2 — SÓLO CUANDO LO DECIDIÓ LA PLATAFORMA.
+     *
+     * `STAFF_ACTION` y no `opts.actorId != null`, y la diferencia es exactamente el
+     * caso que obligó a que fueran dos columnas: `SELF_REQUEST` **con** `actorId`
+     * poblado es «lo pidió él, lo ejecutó el staff» —el usuario baneado que ejerce
+     * su derecho al olvido y no puede entrar a pulsar el botón—. Mirar el actor
+     * avisaría a esa persona de una decisión que tomó ella misma.
+     *
+     * Un archivado voluntario no se notifica por el mismo criterio que no se
+     * notifica pausar un anuncio propio: el usuario acaba de hacerlo.
+     *
+     * El motivo visible es `archiveNote`, que es el porqué narrativo — el mismo
+     * texto que el staff escribe para el registro. La categoría (`archiveReason`)
+     * no se le cuenta: es vocabulario interno.
+     */
+    if (opts.reason === ArchiveReason.STAFF_ACTION) {
+      await this.accountNotify.decidido(targetId, 'ARCHIVED', opts.note ?? null);
+    }
 
     return actualizado;
   }

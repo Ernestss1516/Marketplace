@@ -29,7 +29,19 @@ export type NotificationType =
   //
   // Ahora entra por la puerta y `PrismaService` cierra la de atrás: crear una
   // `Notification` fuera del servicio ya no compila (ver `prisma.service.ts`).
-  | 'DATA_EXPORT_READY';
+  | 'DATA_EXPORT_READY'
+  // NOTIFICACIONES N2 — LAS DECISIONES SOBRE LA CUENTA, QUE ERAN MUDAS.
+  //
+  // Suspender, levantar la suspensión, banear, reinstaurar, cambiar el rol y
+  // archivar desde el backoffice escribían el estado y el `AuditLog`, y NO AVISABAN
+  // A NADIE. Era el hueco más grave del inventario (§A3.2): al usuario se le
+  // cerraba la puerta sin una palabra, y encima el motivo ni siquiera se capturaba.
+  //
+  // UN TIPO CON `action`, y no seis tipos: molde exacto de `LISTING_MODERATED`.
+  // Son la misma clase de evento —«el equipo ha decidido algo sobre tu cuenta»—,
+  // con el mismo destinatario, el mismo enlace y el mismo snapshot. Y el mapa
+  // exhaustivo que A1 impuso hace que una acción nueva sin texto no compile.
+  | 'ACCOUNT_MODERATED';
 
 /** Self-contained snapshot stored in Notification.data — see schema.prisma comment. */
 export interface AlertMatchData {
@@ -171,11 +183,13 @@ export interface BumpAutoPausedData {
  * el molde de `ListingModeratedData.action`: son la misma clase de evento —«el
  * equipo ha tocado algo tuyo»— y comparten destinatario, enlace y snapshot.
  *
- * PENDIENTE ANOTADO (siguiente ráfaga, «cuenta+motivo»): las dos acciones exigen
- * un `reason` obligatorio en el servicio (`retireReview` y `editReview` lo piden
- * con `@MinLength(5)`) y ese motivo **hoy se descarta** — sólo llega al
- * `AuditLog`. Traerlo hasta aquí es exactamente el patrón que ya funciona en
- * `ListingModeratedData.reason`, y es el trabajo de la ráfaga que viene, no de A1.
+ * ── `reason` LLEGA EN N2, Y CIERRA EL PENDIENTE QUE A1 DEJÓ ANOTADO ─────────
+ *
+ * `retireReview` y `editReview` **ya exigían el motivo** (obligatorio, `@MinLength(5)`)
+ * y lo tiraban: sólo llegaba al `AuditLog`. O sea que al autor se le retiraba lo
+ * que había escrito, con un motivo escrito a mano por un moderador, y se le
+ * comunicaba sin él. Ahora viaja al snapshot y se le muestra — mismo patrón que
+ * `ListingModeratedData.reason`, con degradación limpia si algún día falta.
  */
 export interface ReviewModeratedData {
   reviewId: string;
@@ -189,6 +203,11 @@ export interface ReviewModeratedData {
    * `EDITED`: sigue publicada, con el texto o las estrellas cambiados.
    */
   action: 'RETIRED' | 'EDITED';
+  /**
+   * N2 — el motivo que escribió el moderador, que hasta ahora se descartaba.
+   * `null` sólo por compatibilidad con los avisos creados antes de N2.
+   */
+  reason: string | null;
 }
 
 /**
@@ -204,4 +223,56 @@ export interface DataExportReadyData {
   /** ISO-8601. Congelado: el aviso sobrevive al borrado de la exportación. */
   expiresAt: string;
   sizeBytes: number;
+}
+
+// ─── Decisiones sobre la cuenta (N2) ─────────────────────────────────────────
+
+/**
+ * Qué se ha decidido sobre la cuenta.
+ *
+ * `DELETED` NO ESTÁ AQUÍ, y no es un olvido: eliminar una cuenta **borra todas sus
+ * notificaciones** (`admin.service.ts`, el paso 3.4 de `deleteAccount`), así que
+ * una `Notification` de «te hemos eliminado» se destruiría a sí misma en la misma
+ * transacción. Ese aviso existe, pero es SÓLO correo — ver `SendAccountModeratedData`,
+ * cuya unión sí lo incluye.
+ */
+export type AccountModeratedAction =
+  | 'SUSPENDED'
+  | 'UNSUSPENDED'
+  | 'BANNED'
+  | 'REINSTATED'
+  | 'ARCHIVED'
+  | 'ROLE_CHANGED';
+
+/**
+ * Al USUARIO: el equipo ha tomado una decisión sobre su cuenta.
+ *
+ * ── LA CAMPANA ES CONSTANCIA; EL CORREO ES LO QUE LLEGA ─────────────────────
+ *
+ * `SUSPENDED`, `BANNED` y `ARCHIVED` **no pueden abrir la campana**: el gate de
+ * `account-access.ts` los rechaza en las tres puertas. La notificación in-app se
+ * crea igualmente —cuando la suspensión se levante o el ban se reinstaure, la
+ * persona entra y encuentra el historial de lo que pasó—, pero **el canal que de
+ * verdad le alcanza en el momento es el correo**, y por eso en N2 no es opcional.
+ *
+ * ── `reason` ES EL VISIBLE, Y SÓLO EL VISIBLE ───────────────────────────────
+ *
+ * Aquí entra `User.sanctionReason`. La nota interna (`User.sanctionNote`) **no
+ * entra nunca**: este tipo no tiene campo donde meterla, y `sancion-nota-interna`
+ * (e2e) recorre las notificaciones y los correos para que siga siendo verdad.
+ *
+ * Degradación limpia con `null`, molde `ListingModeratedData.reason`: las sanciones
+ * anteriores a N2 no llevan motivo y el texto se lee igual de bien sin él.
+ */
+export interface AccountModeratedData {
+  action: AccountModeratedAction;
+  /** El motivo VISIBLE. `null` = no se indicó (o la acción no lleva). NUNCA la nota interna. */
+  reason: string | null;
+  /**
+   * Sólo en `SUSPENDED`: hasta cuándo, en ISO-8601. `null` = INDEFINIDA, que es lo
+   * que era toda suspensión antes de C4. Congelado, como el resto del snapshot.
+   */
+  suspendedUntil: string | null;
+  /** Sólo en `ROLE_CHANGED`: el rol nuevo, ya resuelto. `null` en el resto. */
+  newRole: string | null;
 }

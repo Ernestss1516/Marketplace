@@ -1,5 +1,5 @@
 import { getNotificationContent } from './notification-content';
-import type { NotificationItem } from '@/types';
+import type { AccountModeratedAction, AccountModeratedData, NotificationItem } from '@/types';
 
 /**
  * NOTIFICACIONES A1 — QUE NINGÚN AVISO SALGA VACÍO NI MIENTA.
@@ -103,7 +103,10 @@ describe('getNotificationContent', () => {
   // ===========================================================================
 
   describe('REVIEW_MODERATED', () => {
-    const conAccion = (action: 'RETIRED' | 'EDITED'): NotificationItem => ({
+    const conAccion = (
+      action: 'RETIRED' | 'EDITED',
+      reason: string | null = null,
+    ): NotificationItem => ({
       ...base,
       type: 'REVIEW_MODERATED',
       data: {
@@ -112,6 +115,7 @@ describe('getNotificationContent', () => {
         listingTitle: 'Mesa de roble',
         targetName: 'Ana',
         action,
+        reason,
       },
     });
 
@@ -124,6 +128,98 @@ describe('getNotificationContent', () => {
       expect(text).not.toContain('retirado');
       expect(text).toContain('editado');
       expect(text).toContain('Sigue publicada');
+    });
+
+    // N2 — el motivo que el moderador escribe obligatoriamente y que hasta ahora
+    // se descartaba: se retiraba lo que alguien había escrito sin decirle por qué.
+    it('N2 — muestra el motivo cuando lo hay, en las dos acciones', () => {
+      expect(getNotificationContent(conAccion('RETIRED', 'Insultos')).text).toContain('Insultos');
+      expect(getNotificationContent(conAccion('EDITED', 'Dato personal')).text).toContain(
+        'Dato personal',
+      );
+    });
+
+    it('N2 — sin motivo se lee igual de bien (degradación limpia)', () => {
+      for (const action of ['RETIRED', 'EDITED'] as const) {
+        const { text } = getNotificationContent(conAccion(action));
+        expect(text).not.toContain('undefined');
+        expect(text).not.toContain('null');
+        expect(text).not.toContain('Motivo:');
+      }
+    });
+  });
+
+  // ===========================================================================
+  // N2 — las decisiones sobre la cuenta, que no avisaban a nadie
+  // ===========================================================================
+
+  describe('ACCOUNT_MODERATED (N2)', () => {
+    const conAccion = (
+      action: AccountModeratedAction,
+      extra: Partial<AccountModeratedData> = {},
+    ): NotificationItem => ({
+      ...base,
+      type: 'ACCOUNT_MODERATED',
+      data: { action, reason: null, suspendedUntil: null, newRole: null, ...extra },
+    });
+
+    const TODAS: AccountModeratedAction[] = [
+      'SUSPENDED',
+      'UNSUSPENDED',
+      'BANNED',
+      'REINSTATED',
+      'ARCHIVED',
+      'ROLE_CHANGED',
+    ];
+
+    it('las seis acciones pintan texto, ninguna `undefined`', () => {
+      for (const action of TODAS) {
+        const { text, href } = getNotificationContent(conAccion(action));
+        expect(typeof text).toBe('string');
+        expect(text).not.toContain('undefined');
+        expect(text.length).toBeGreaterThan(0);
+        expect(href.startsWith('/')).toBe(true);
+      }
+    });
+
+    it('el motivo VISIBLE se muestra en las sanciones', () => {
+      expect(getNotificationContent(conAccion('SUSPENDED', { reason: 'Spam' })).text).toContain(
+        'Spam',
+      );
+      expect(getNotificationContent(conAccion('BANNED', { reason: 'Fraude' })).text).toContain(
+        'Fraude',
+      );
+      expect(getNotificationContent(conAccion('ARCHIVED', { reason: 'A petición' })).text).toContain(
+        'A petición',
+      );
+    });
+
+    it('sin motivo se lee igual de bien (degradación limpia, molde LISTING_MODERATED)', () => {
+      for (const action of TODAS) {
+        const { text } = getNotificationContent(conAccion(action));
+        expect(text).not.toContain('null');
+        expect(text).not.toContain('Motivo:');
+      }
+    });
+
+    /**
+     * BARRERA 4 — reinstaurar avisa de los anuncios.
+     *
+     * Levantar un ban devuelve el ACCESO pero NO reactiva los anuncios: los pausó
+     * la sanción y los reactiva su dueño. Quien no lo sepa vuelve, encuentra su
+     * escaparate vacío y da por hecho que la plataforma está rota.
+     */
+    it('REINSTATED dice que los anuncios NO vuelven solos, y lleva a ellos', () => {
+      const { text, href } = getNotificationContent(conAccion('REINSTATED'));
+      expect(text).toContain('NO se reactivan solos');
+      expect(text).toContain('Mis anuncios');
+      expect(href).toBe('/mis-anuncios');
+    });
+
+    it('ROLE_CHANGED nombra el rol nuevo cuando viene', () => {
+      expect(getNotificationContent(conAccion('ROLE_CHANGED', { newRole: 'MODERATOR' })).text).toContain(
+        'MODERATOR',
+      );
     });
   });
 
@@ -144,9 +240,10 @@ describe('getNotificationContent', () => {
       { ...base, type: 'TICKET_STAFF_NEW', data: { ticketId: 't', subject: 'S', extracto: 'E', userName: 'Ana', topic: null } },
       { ...base, type: 'REPORT_RESOLVED', data: { reportId: 'r', outcome: 'RESOLVED', targetType: 'LISTING', targetLabel: 'Un anuncio', listingSlug: 's' } },
       { ...base, type: 'LISTING_MODERATED', data: { listingId: 'l', listingTitle: 'T', action: 'APPROVED', reason: null } },
-      { ...base, type: 'REVIEW_MODERATED', data: { reviewId: 'r', rating: 3, listingTitle: null, targetName: 'Ana', action: 'RETIRED' } },
+      { ...base, type: 'REVIEW_MODERATED', data: { reviewId: 'r', rating: 3, listingTitle: null, targetName: 'Ana', action: 'RETIRED', reason: null } },
       { ...base, type: 'BUMP_AUTO_PAUSED', data: { scheduleId: 'b', listingId: 'l', listingTitle: 'T', reason: 'NO_FUNDS' } },
       { ...base, type: 'DATA_EXPORT_READY', data: { exportId: 'e', expiresAt: '2026-09-04T10:00:00.000Z', sizeBytes: 1024 } },
+      { ...base, type: 'ACCOUNT_MODERATED', data: { action: 'SUSPENDED', reason: null, suspendedUntil: null, newRole: null } },
     ];
 
     for (const n of ejemplares) {

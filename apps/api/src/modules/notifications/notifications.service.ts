@@ -15,6 +15,7 @@ import {
   ReviewModeratedData,
   BumpAutoPausedData,
   DataExportReadyData,
+  AccountModeratedData,
 } from './notification.types';
 
 /**
@@ -45,6 +46,7 @@ type DataByType = Snapshots<{
   REVIEW_MODERATED: ReviewModeratedData;
   BUMP_AUTO_PAUSED: BumpAutoPausedData;
   DATA_EXPORT_READY: DataExportReadyData;
+  ACCOUNT_MODERATED: AccountModeratedData;
 }>;
 
 @Injectable()

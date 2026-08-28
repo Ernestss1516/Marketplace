@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
 import { Type } from 'class-transformer';
 
 /**
@@ -38,4 +38,45 @@ export class SuspendUserDto {
   @Min(1)
   @Max(365)
   days?: number;
+
+  /**
+   * NOTIFICACIONES N2 — EL MOTIVO VISIBLE. Se le MUESTRA al usuario.
+   *
+   * OPCIONAL, replicando `ChangeListingStatusDto.reason` sin variantes: es el
+   * motivo que ya funciona y ya se degrada limpiamente cuando falta. Hacerlo
+   * obligatorio cambiaría en silencio lo que hace un botón que los moderadores ya
+   * usan —y rompería a todo el que suspende sin cuerpo—, que es justo lo que C4
+   * se cuidó de no hacer con `days`.
+   */
+  @ApiPropertyOptional({
+    description:
+      'Motivo VISIBLE para el usuario: viaja a su notificación, a su correo y al mensaje ' +
+      'que ve al intentar entrar. Se escribe sabiendo que lo lee la persona sancionada.',
+    minLength: 5,
+    maxLength: 500,
+  })
+  @IsOptional()
+  @IsString()
+  @MinLength(5)
+  @MaxLength(500)
+  reason?: string;
+
+  /**
+   * LA NOTA INTERNA — el usuario NO la ve. Va al `AuditLog` y a nada más.
+   *
+   * Existe para que el motivo visible no tenga que cargar con el contexto del
+   * equipo: la sospecha que no se afirma, el hilo que lo destapó, el aviso al
+   * siguiente moderador. Sin este campo, ese contexto acabaría metido en `reason`
+   * — y `reason` se le enseña al sancionado.
+   */
+  @ApiPropertyOptional({
+    description:
+      'Nota INTERNA para el staff. Va al registro de auditoría y NUNCA se le muestra al ' +
+      'usuario, ni en la notificación ni en el correo.',
+    maxLength: 2000,
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  internalNote?: string;
 }
