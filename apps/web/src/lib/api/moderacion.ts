@@ -30,10 +30,32 @@ export interface Report {
     comment: string | null;
     /** 7b — `null` = sigue publicada. Con fecha, ya la retiró alguien: no se ofrece retirar otra vez. */
     retiredAt: string | null;
-    author: { name: string; slug: string };
-    target: { name: string; slug: string };
+    /** `id` para poder enlazar a su ficha de staff, que es por id (no por slug). */
+    author: { id: string; name: string; slug: string };
+    target: { id: string; name: string; slug: string };
   } | null;
+  /**
+   * LOS SNAPSHOTS, QUE VIAJABAN SIN QUE NADIE LOS DECLARARA.
+   *
+   * `listReports` usa `include`, y con `include` Prisma devuelve TODOS los
+   * escalares además de las relaciones: estos cuatro campos llevan en la
+   * respuesta HTTP desde que existen. Lo que faltaba era declararlos aquí y
+   * leerlos — mientras tanto, una denuncia cuyo anuncio se había borrado pintaba
+   * un guion en la columna «Recurso».
+   *
+   * Son el RESPALDO de la relación, no su sustituto: si el original existe se
+   * enlaza; si desapareció (los `SetNull` que B1/C1 pusieron para que la denuncia
+   * sobreviva), se pinta el snapshot con una marca de «ya no existe» y SIN enlace.
+   * Ver el porqué de cada uno en schema.prisma, junto a su campo.
+   */
+  listingTitle: string | null;
+  reportedUserName: string | null;
+  reviewComment: string | null;
+  reviewAuthorName: string | null;
+
   resolvedBy: { id: string; name: string } | null;
+  /** Cuándo se cerró. Viajaba igual que los snapshots y tampoco se pintaba. */
+  resolvedAt: string | null;
   /**
    * Atención al usuario R7 — hilos ya abiertos con el usuario reportado desde
    * esta denuncia (flujo c). Solo lectura: el ciclo de vida del Report no cambia.
@@ -64,6 +86,45 @@ export function getReports(
   const qs = new URLSearchParams({ page: String(params?.page ?? 1) });
   if (params?.status) qs.set('status', params.status);
   return apiFetch<PaginatedReports>(`/moderation/reports?${qs}`, { token });
+}
+
+/**
+ * La ficha de una denuncia. `GET /moderation/reports/:id` existía desde el
+ * principio y no lo llamaba nadie: sirve algo MÁS que el listado (el correo del
+ * reportante y el vendedor del anuncio denunciado) y no había pantalla que lo
+ * pidiera.
+ */
+export function getReport(id: string, token: string): Promise<ReportDetail> {
+  return apiFetch<ReportDetail>(`/moderation/reports/${id}`, { token });
+}
+
+/** Lo del listado, más lo que sólo sirve la ficha. */
+export interface ReportDetail extends Omit<Report, 'reporter' | 'listing'> {
+  reporter: { id: string; name: string; slug: string; email: string } | null;
+  listing:
+    | {
+        id: string;
+        title: string;
+        slug: string;
+        status: string;
+        seller: { id: string; name: string; slug: string } | null;
+      }
+    | null;
+}
+
+/**
+ * PENDIENTE → EN REVISIÓN.
+ *
+ * El endpoint existía y la interfaz nunca lo llamaba, así que `REVIEWING` era un
+ * filtro que no podía tener contenido: se ofrecía «En revisión» en la barra y
+ * ninguna denuncia podía llegar a ese estado. Sirve para que un moderador diga
+ * «esto lo estoy mirando yo» sin cerrarlo todavía.
+ */
+export function startReviewReport(id: string, token: string): Promise<Report> {
+  return apiFetch<Report>(`/moderation/reports/${id}/start-review`, {
+    method: 'PATCH',
+    token,
+  });
 }
 
 export function resolveReport(id: string, token: string): Promise<Report> {

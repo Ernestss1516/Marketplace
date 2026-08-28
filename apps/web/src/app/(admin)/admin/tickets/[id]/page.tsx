@@ -3,7 +3,17 @@
 import { use, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
-import { AlertCircle, ChevronLeft, Flag, Link2, Loader2, Lock, Send, User } from 'lucide-react';
+import {
+  AlertCircle,
+  ChevronLeft,
+  Flag,
+  Link2,
+  Loader2,
+  Lock,
+  Send,
+  Star,
+  User,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { TicketStatusBadge } from '@/components/tickets/TicketStatusBadge';
@@ -20,6 +30,16 @@ import {
   takeTicket,
   toStaffTicketMessage,
 } from '@/lib/api/admin-tickets';
+import {
+  adminListingHref,
+  adminReportHref,
+  adminUserHref,
+} from '@/lib/admin-links';
+import {
+  ESTADO_REPORTE_LABELS,
+  MOTIVO_REPORTE_LABELS,
+  etiqueta,
+} from '../../etiquetas';
 import type { AdminTicketDetail, Role } from '@/types';
 
 function formatFechaHora(iso: string) {
@@ -378,11 +398,17 @@ export default function AdminTicketPage({ params }: { params: Promise<{ id: stri
               Usuario
             </p>
             <p>{ticket.user.name}</p>
+            {/* A LA FICHA DE STAFF, no al perfil público. El perfil público no
+                enseña nada de lo que hace falta para atender un hilo —ni sus
+                denuncias, ni sus otros tickets, ni su historial— y además da 404
+                si la cuenta está suspendida, que es un caso muy corriente en
+                soporte. Ver lib/admin-links.ts. */}
             <Link
-              href={`/vendedor/${ticket.user.slug}`}
+              href={adminUserHref(ticket.user.id)}
               className="text-xs text-muted-foreground underline underline-offset-2"
+              data-testid="ticket-enlace-usuario"
             >
-              Ver perfil público
+              Ver ficha del usuario
             </Link>
           </div>
 
@@ -393,14 +419,44 @@ export default function AdminTicketPage({ params }: { params: Promise<{ id: stri
                 Relacionado
               </p>
               <p className="text-muted-foreground">{ticket.linkedLabel}</p>
+              {/* A LA FICHA DEL BACKOFFICE. Esto apuntaba a `/anuncio/{slug}`, que
+                  lanza 404 para todo lo que no esté ACTIVE — y un anuncio del que
+                  se abre un ticket de soporte suele estar retirado, rechazado o en
+                  revisión. El `id` que hace falta para el enlace bueno YA venía en
+                  el payload (`TICKET_INCLUDE` sirve id, title y slug). Es el mismo
+                  defecto que F1 arregló en la cola de moderación. */}
               {ticket.listing && (
                 <Link
-                  href={`/anuncio/${ticket.listing.slug}`}
+                  href={adminListingHref(ticket.listing.id)}
                   className="text-xs underline underline-offset-2"
+                  data-testid="ticket-enlace-anuncio"
                 >
                   Ver anuncio
                 </Link>
               )}
+            </div>
+          )}
+
+          {/* LA VALORACIÓN, que viajaba sin pintarse. `TICKET_INCLUDE` sirve
+              `review: {id, rating}` desde siempre y este panel no existía: un hilo
+              abierto sobre una valoración no decía sobre CUÁL. No hay ficha de
+              valoración a la que enlazar —se moderan desde la ficha de la persona—
+              así que se enseña lo que se sabe y se manda ahí. */}
+          {ticket.review && (
+            <div className="space-y-1 rounded-lg border p-3" data-testid="panel-valoracion">
+              <p className="flex items-center gap-1.5 font-medium">
+                <Star className="h-4 w-4" />
+                Sobre una valoración
+              </p>
+              <p className="text-muted-foreground">
+                {ticket.review.rating} de 5 estrellas
+              </p>
+              <Link
+                href={adminUserHref(ticket.user.id)}
+                className="text-xs underline underline-offset-2"
+              >
+                Ver las valoraciones del usuario
+              </Link>
             </div>
           )}
 
@@ -412,11 +468,22 @@ export default function AdminTicketPage({ params }: { params: Promise<{ id: stri
                 <Flag className="h-4 w-4" />
                 Desde una denuncia
               </p>
+              {/* TRADUCIDO, con las etiquetas que ya existen. Esto pintaba el enum
+                  crudo («SPAM · PENDING») en la única pantalla donde el moderador
+                  ve de qué va la denuncia sin salir del hilo. */}
               <p className="text-muted-foreground">
-                {ticket.report.reason} · {ticket.report.status}
+                {etiqueta(MOTIVO_REPORTE_LABELS, ticket.report.reason)} ·{' '}
+                {etiqueta(ESTADO_REPORTE_LABELS, ticket.report.status)}
               </p>
-              <Link href="/admin/reportes" className="text-xs underline underline-offset-2">
-                Ir a moderación
+              {/* A LA DENUNCIA CONCRETA, no a la lista entera. Mandaba a
+                  /admin/reportes porque no había ficha a la que apuntar; ahora la
+                  hay, y el moderador deja de tener que buscar la suya entre todas. */}
+              <Link
+                href={adminReportHref(ticket.report.id)}
+                className="text-xs underline underline-offset-2"
+                data-testid="ticket-enlace-reporte"
+              >
+                Ver la denuncia
               </Link>
             </div>
           )}

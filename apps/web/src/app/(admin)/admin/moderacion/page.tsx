@@ -9,6 +9,7 @@ import { approveListing, rejectListing } from '@/lib/api/moderacion';
 import { elegirAccionDeEstado } from '../anuncios/moderacion-routing';
 import { ApiError } from '@/lib/api/client';
 import { Button } from '@/components/ui/button';
+import { adminListingHref } from '@/lib/admin-links';
 
 const PER_PAGE = 20;
 
@@ -209,7 +210,7 @@ export default function AdminModeracionPage() {
                         las fotos. Ahora lleva a la ficha del backoffice, que
                         muestra cualquier estado. */}
                     <Link
-                      href={`/admin/anuncios/${listing.id}`}
+                      href={adminListingHref(listing.id)}
                       className="font-medium hover:underline"
                       data-testid={`cola-enlace-${listing.id}`}
                     >

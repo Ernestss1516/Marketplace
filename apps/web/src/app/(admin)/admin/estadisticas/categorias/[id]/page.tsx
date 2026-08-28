@@ -8,6 +8,7 @@ import { ArrowLeft } from 'lucide-react';
 import { ActivityPanel } from '@/components/stats/ActivityPanel';
 import { useActividad } from '@/components/stats/useActividad';
 import { getActividadCategoria, type ActividadCategoria } from '@/lib/api/admin-stats';
+import { adminListingHref } from '@/lib/admin-links';
 
 /**
  * ESTADÍSTICAS B.3 — la actividad de una categoría.
@@ -115,7 +116,7 @@ export default function AdminEstadisticasCategoriaPage() {
             <div className="flex justify-between gap-4">
               <span className="text-muted-foreground">Su anuncio más visto</span>
               <Link
-                href={`/admin/anuncios/${actividad.mostViewed.id}`}
+                href={adminListingHref(actividad.mostViewed.id)}
                 className="line-clamp-1 text-right font-medium hover:underline"
                 data-testid="categoria-mas-visto"
               >
@@ -127,7 +128,7 @@ export default function AdminEstadisticasCategoriaPage() {
             <div className="flex justify-between gap-4">
               <span className="text-muted-foreground">Su anuncio más listado</span>
               <Link
-                href={`/admin/anuncios/${actividad.mostListed.id}`}
+                href={adminListingHref(actividad.mostListed.id)}
                 className="line-clamp-1 text-right font-medium hover:underline"
                 data-testid="categoria-mas-listado"
               >

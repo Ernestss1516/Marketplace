@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { adminUserHref } from '@/lib/admin-links';
 
 /**
  * 7a — UNA VALORACIÓN, COMO LA LEE EL STAFF.
@@ -76,7 +77,7 @@ export function ValoracionFila({
           {relacion === 'recibida' ? 'de' : 'a'}{' '}
           {/* Al backoffice del otro lado, no al perfil público: quien lee esto está
               moderando, y lo siguiente que va a querer es su ficha. */}
-          <Link href={`/admin/usuarios/${persona.id}`} className="hover:underline">
+          <Link href={adminUserHref(persona.id)} className="hover:underline">
             {persona.name ?? '—'}
           </Link>
         </span>

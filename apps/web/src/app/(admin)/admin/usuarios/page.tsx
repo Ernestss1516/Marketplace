@@ -38,6 +38,7 @@ import { ESTADO_USUARIO_LABELS } from '../etiquetas';
 import { Badge } from '@/components/ui/badge';
 import { DatoIp } from '@/components/admin/DatoIp';
 import { Button } from '@/components/ui/button';
+import { adminUserHref } from '@/lib/admin-links';
 
 const PER_PAGE = 20;
 
@@ -605,7 +606,7 @@ export default function AdminUsuariosPage() {
                               El panel desplegable se conserva para el vistazo
                               rápido sin salir de la lista. */}
                           <Link
-                            href={`/admin/usuarios/${user.id}`}
+                            href={adminUserHref(user.id)}
                             className="font-medium hover:underline"
                             data-testid={`usuario-enlace-${user.id}`}
                           >

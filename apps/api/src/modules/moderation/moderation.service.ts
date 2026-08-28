@@ -138,7 +138,20 @@ export class ModerationService {
           // 7b — `retiredAt` viaja porque la cola tiene que distinguir «denuncia sobre una
           // valoración que sigue publicada» de «ya retirada, esto es un duplicado». Sin él,
           // el botón ofrecería retirar algo ya retirado y el servidor devolvería un 409.
-          review: { select: { id: true, rating: true, comment: true, retiredAt: true, author: { select: { name: true, slug: true } }, target: { select: { name: true, slug: true } } } },
+          review: {
+            select: {
+              id: true,
+              rating: true,
+              comment: true,
+              retiredAt: true,
+              // `id` ADEMÁS del nombre: la ficha de usuario del backoffice es por
+              // id, y sin él la cola no podía enlazar ni al autor ni al destinatario
+              // de una valoración denunciada — que son las dos personas que hay que
+              // mirar para juzgar si una reseña es falsa.
+              author: { select: { id: true, name: true, slug: true } },
+              target: { select: { id: true, name: true, slug: true } },
+            },
+          },
           resolvedBy: { select: { id: true, name: true } },
           // Atención al usuario R7 — hilos ya abiertos con el usuario reportado
           // desde esta denuncia (flujo c). SOLO LECTURA y solo dos campos: la
@@ -171,6 +184,22 @@ export class ModerationService {
             seller: { select: { id: true, name: true, slug: true } },
           },
         },
+        // Las dos relaciones que el LISTADO ya servía y la ficha no: sin ellas,
+        // la pantalla de detalle de una denuncia sobre una valoración enseñaría
+        // MENOS que la fila de la que se llega, y no podría decir si ya hay un
+        // hilo abierto con el denunciado. Aditivo: quien sólo leía lo de antes
+        // sigue leyéndolo igual.
+        review: {
+          select: {
+            id: true,
+            rating: true,
+            comment: true,
+            retiredAt: true,
+            author: { select: { id: true, name: true, slug: true } },
+            target: { select: { id: true, name: true, slug: true } },
+          },
+        },
+        tickets: { select: { id: true, status: true }, orderBy: { createdAt: 'desc' } },
         resolvedBy: { select: { id: true, name: true } },
       },
     });

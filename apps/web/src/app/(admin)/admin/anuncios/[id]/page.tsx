@@ -65,6 +65,12 @@ import {
 } from '../listing-status';
 import { getCategoryBySlug } from '@/lib/api/categorias';
 import { getPhotoLimits, type PhotoLimits } from '@/lib/api/anuncios';
+import {
+  adminTicketHref,
+  adminUserHref,
+  publicListingHref,
+} from '@/lib/admin-links';
+import { ReporteFila } from '@/components/admin/ReporteFila';
 import { attributeErrors, buildAttributes, filterSchemaByType } from '@/lib/attribute-schema';
 import { StepAtributos } from '@/components/publicar/steps/StepAtributos';
 import { ValoracionFila } from '@/components/admin/ValoracionFila';
@@ -94,11 +100,9 @@ import {
   ACCION_LABELS,
   CONDICION_LABELS,
   ESTADO_BUMP_LABELS,
-  ESTADO_REPORTE_LABELS,
   DETECTION_FIELD_LABELS,
   DETECTOR_LABELS,
   ESTADO_USUARIO_LABELS,
-  MOTIVO_REPORTE_LABELS,
   ROL_LABELS,
   TIPO_ANUNCIO_LABELS,
   TIPO_PRECIO_LABELS,
@@ -629,7 +633,7 @@ export default function AdminFichaAnuncioPage() {
                 se ofrece SÓLO cuando lleva a alguna parte. */}
             {data.status === 'ACTIVE' && (
               <a
-                href={`/anuncio/${data.slug}`}
+                href={publicListingHref(data.slug)}
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:underline"
@@ -1102,19 +1106,7 @@ export default function AdminFichaAnuncioPage() {
             ) : (
               <ul className="space-y-2" data-testid="ficha-reportes">
                 {data.reports.map((r) => (
-                  <li key={r.id} className="rounded-md border p-2 text-sm">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="font-medium">
-                        {etiqueta(MOTIVO_REPORTE_LABELS, r.reason)}
-                      </span>
-                      <Badge variant="outline">
-                        {etiqueta(ESTADO_REPORTE_LABELS, r.status)}
-                      </Badge>
-                    </div>
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      {r.reporter?.name ?? 'Anónimo'} · {formatDateTime(r.createdAt)}
-                    </p>
-                  </li>
+                  <ReporteFila key={r.id} reporte={r} formatearFecha={formatDateTime} />
                 ))}
               </ul>
             )}
@@ -1165,7 +1157,7 @@ export default function AdminFichaAnuncioPage() {
                 <ul className="space-y-1" data-testid="ficha-tickets">
                   {data.tickets.map((t) => (
                     <li key={t.id} className="text-sm">
-                      <Link href={`/admin/tickets/${t.id}`} className="hover:underline">
+                      <Link href={adminTicketHref(t.id)} className="hover:underline">
                         {t.subject}
                       </Link>{' '}
                       {/* La etiqueta sale del MISMO sitio que la insignia de color de
@@ -1354,7 +1346,7 @@ export default function AdminFichaAnuncioPage() {
                 etiqueta="Nombre"
                 valor={
                   <Link
-                    href={`/admin/usuarios/${data.seller.id}`}
+                    href={adminUserHref(data.seller.id)}
                     className="hover:underline"
                     data-testid="ficha-enlace-vendedor"
                   >
