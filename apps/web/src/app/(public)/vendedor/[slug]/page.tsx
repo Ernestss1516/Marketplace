@@ -13,6 +13,8 @@ import { getSellerProfile } from '@/lib/api/usuarios';
 import { getListingsBySellerSlug } from '@/lib/api/anuncios';
 import { getUserReviews } from '@/lib/api/valoraciones';
 import { getCategories } from '@/lib/api/categorias';
+import { getActiveBanners } from '@/lib/api/banners';
+import { BannerList } from '@/components/banners/BannerList';
 import { buildCardAttributeMap } from '@/lib/card-attributes';
 import { ApiError } from '@/lib/api/client';
 import { ReviewsSection } from '@/components/valoraciones/ReviewsSection';
@@ -62,10 +64,11 @@ export default async function VendedorPage({
     throw err;
   }
 
-  const [{ items, total, perPage }, reviewsData, categories] = await Promise.all([
+  const [{ items, total, perPage }, reviewsData, categories, banners] = await Promise.all([
     getListingsBySellerSlug(slug, { page }).catch(() => ({ items: [], total: 0, page, perPage: 24 })),
     getUserReviews(slug).catch(() => ({ average: null, count: 0, distribution: {}, unverifiedCount: 0, items: [], nextCursor: null })),
     getCategories().catch(() => [] as Awaited<ReturnType<typeof getCategories>>),
+    getActiveBanners('VENDEDOR').catch(() => []),
   ]);
 
   const totalPages = Math.ceil(total / perPage) || 0;
@@ -125,6 +128,14 @@ export default async function VendedorPage({
           )}
         </div>
       </div>
+
+      {/* Debajo de la identidad del vendedor y encima de sus anuncios: la página
+          dice primero de quién es. */}
+      {banners.length > 0 && (
+        <div className="mb-8">
+          <BannerList banners={banners} />
+        </div>
+      )}
 
       {/* Valorar desde notificación — Reputación RÁFAGA 3, único punto de
           entrada para un Deal sin conversación asociada (ver ValorarDesdePerfil) */}

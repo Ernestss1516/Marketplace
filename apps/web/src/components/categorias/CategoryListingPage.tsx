@@ -16,6 +16,8 @@ import { CrearAlertaButton } from '@/components/busqueda/CrearAlertaButton';
 import MapViewClient from '@/components/busqueda/MapViewClient';
 import { getCategoryBySlug, getCategories } from '@/lib/api/categorias';
 import { getListingsByCategory } from '@/lib/api/anuncios';
+import { getActiveBanners } from '@/lib/api/banners';
+import { BannerList } from '@/components/banners/BannerList';
 import { search, type SearchHit } from '@/lib/api/busqueda';
 import { ApiError } from '@/lib/api/client';
 import { buildCardAttributeMap, buildWideCardAttributeMap, buildFullAttributeMap } from '@/lib/card-attributes';
@@ -275,6 +277,15 @@ export async function CategoryListingPage({
   // Meilisearch outage, when the page still renders the Postgres-fallback grid.
   const categoriesPromise = getCategories().catch(() => []);
 
+  // FUERA DEL `try` DE ABAJO, y no es una preferencia de estilo: ese `try` tiene
+  // por `catch` la degradación a Postgres. Un `await getActiveBanners(...)` metido
+  // dentro haría que un endpoint de AVISOS caído disparase el fallback de
+  // BÚSQUEDA — la categoría se pintaría sin facetas, sin filtros de atributo,
+  // forzada a vista LISTA y con el aviso ámbar de "los filtros avanzados no están
+  // disponibles", todo por un banner. El banner es decorativo y jamás puede
+  // degradar la búsqueda. Mismo trato y misma línea que `categoriesPromise`.
+  const bannersPromise = getActiveBanners('CATEGORIA').catch(() => []);
+
   // A1 — la identidad del visitante, para el dedup de «veces listado». Mismo trato que
   // en `/busqueda`: esta superficie SÍ sirve resultados de búsqueda, así que reenvía la
   // cabecera. Ver `lib/visitor.ts`.
@@ -323,6 +334,7 @@ export async function CategoryListingPage({
   }
 
   const categories = await categoriesPromise;
+  const banners = await bannersPromise;
 
   const totalPages = isMapView ? 0 : Math.ceil(total / hitsPerPage) || 0;
   // H6.6 — igual que en /busqueda: el patrocinado (si lo hay) va intercalado en
@@ -480,6 +492,16 @@ export async function CategoryListingPage({
         <div className="mb-4 flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
           <AlertCircle className="h-4 w-4 shrink-0" aria-hidden />
           Los filtros avanzados no están disponibles ahora mismo. Mostrando resultados básicos.
+        </div>
+      )}
+
+      {/* A ancho completo y FUERA de la fila de dos columnas, igual que en
+          /busqueda: dentro del <main> quedaría en la columna estrecha.
+          Va después del aviso de fallback de arriba a propósito: si coinciden, el
+          del sistema —el que explica por qué faltan los filtros— se lee primero. */}
+      {banners.length > 0 && (
+        <div className="mb-6">
+          <BannerList banners={banners} />
         </div>
       )}
 

@@ -456,5 +456,99 @@ describe('H8 Bloque D fase 4 — Banners (e2e)', () => {
     it('placement inválido en query → 400', async () => {
       await request(app.getHttpServer()).get('/api/banners?placement=NOPE').expect(400);
     });
+
+    // ── Ampliación de ubicaciones (B1) ──────────────────────────────────────
+    //
+    // `getActiveBanners` no cambió ni una línea: el filtro siempre fue genérico
+    // sobre el enum. Lo que estos casos verifican no es el método, sino que los
+    // valores NUEVOS llegaron de verdad hasta la base de datos y que con ellos
+    // siguen mandando lo mismo que con los viejos — el `active` y la ventana.
+
+    it('un placement NUEVO (ANUNCIO) filtra igual: solo active + vigente + con esa ubicación', async () => {
+      const live = liveWindow();
+      const [fichaLive, fichaUpcoming, fichaInactive, otro] = await Promise.all([
+        request(app.getHttpServer())
+          .post('/api/admin/banners')
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({ title: 'ficha-live', text: 'x', placements: ['ANUNCIO'], ...live }),
+        request(app.getHttpServer())
+          .post('/api/admin/banners')
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({ title: 'ficha-upcoming', text: 'x', placements: ['ANUNCIO'], ...window(400) }),
+        request(app.getHttpServer())
+          .post('/api/admin/banners')
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({
+            title: 'ficha-inactive',
+            text: 'x',
+            placements: ['ANUNCIO'],
+            active: false,
+            ...live,
+          }),
+        request(app.getHttpServer())
+          .post('/api/admin/banners')
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({ title: 'solo-blog', text: 'x', placements: ['BLOG'], ...live }),
+      ]);
+
+      const res = await request(app.getHttpServer())
+        .get('/api/banners?placement=ANUNCIO')
+        .expect(200);
+
+      const ids = (res.body as Array<{ id: string }>).map((b) => b.id);
+      expect(ids).toContain(fichaLive.body.id);
+      expect(ids).not.toContain(fichaUpcoming.body.id);
+      expect(ids).not.toContain(fichaInactive.body.id);
+      expect(ids).not.toContain(otro.body.id);
+    });
+
+    it('un banner vive a la vez en cuatro ubicaciones de los dos grupos', async () => {
+      const live = liveWindow();
+      const created = await request(app.getHttpServer())
+        .post('/api/admin/banners')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          title: 'cuatro-ubicaciones',
+          text: 'x',
+          placements: ['BUSQUEDA', 'CATEGORIA', 'CONTACTO', 'PERFIL_SUSCRIPCION'],
+          ...live,
+        })
+        .expect(201);
+
+      const respuestas = await Promise.all(
+        ['BUSQUEDA', 'CATEGORIA', 'CONTACTO', 'PERFIL_SUSCRIPCION'].map((p) =>
+          request(app.getHttpServer()).get(`/api/banners?placement=${p}`).expect(200),
+        ),
+      );
+
+      for (const res of respuestas) {
+        expect((res.body as Array<{ id: string }>).map((x) => x.id)).toContain(created.body.id);
+      }
+
+      // Y en una ubicación que NO marcó, no sale: no es que "aparezca en todas".
+      const blog = await request(app.getHttpServer()).get('/api/banners?placement=BLOG');
+      expect((blog.body as Array<{ id: string }>).map((x) => x.id)).not.toContain(created.body.id);
+    });
+
+    // NOTIFICACIONES se dejó FUERA del enum a propósito (decisión de producto:
+    // la bandeja pinta tarjetas y BannerList también, así que el aviso se leería
+    // como una notificación del propio usuario). Que el valor no exista ES la
+    // barrera: sin él, ni el admin puede ofrecerlo ni nadie puede pedirlo.
+    it('NOTIFICACIONES no es una ubicación válida — ni al leer ni al crear', async () => {
+      await request(app.getHttpServer())
+        .get('/api/banners?placement=NOTIFICACIONES')
+        .expect(400);
+
+      await request(app.getHttpServer())
+        .post('/api/admin/banners')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          title: 'no-debe-existir',
+          text: 'x',
+          placements: ['NOTIFICACIONES'],
+          ...liveWindow(),
+        })
+        .expect(400);
+    });
   });
 });
