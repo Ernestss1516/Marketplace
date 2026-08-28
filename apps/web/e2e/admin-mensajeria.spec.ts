@@ -58,7 +58,7 @@ async function escribir(request: APIRequestContext, listingId: string, mensaje: 
 }
 
 test.describe('Mensajería en el backoffice — desde el anuncio', () => {
-  test('la ficha enseña QUIÉN habló y cuándo, y NO ofrece abrir el hilo', async ({
+  test('la ficha enseña QUIÉN habló y cuándo, sin el contenido en la lista', async ({
     request,
     moderatorContext,
   }) => {
@@ -78,9 +78,56 @@ test.describe('Mensajería en el backoffice — desde el anuncio', () => {
     );
     await expect(panel).toContainText('1 mensaje');
 
-    // LO QUE NO ESTÁ, y es el punto de C1: el contenido no se ve ni se puede abrir.
+    // LO QUE NO ESTÁ EN LA LISTA: el contenido. Sigue siendo el punto del corte —
+    // el metadato se ve de un vistazo y sin registrar nada; los mensajes exigen
+    // cruzar «Leer», que es otra cosa y deja constancia (C2).
     await expect(page.getByText('contenido privado')).toHaveCount(0);
-    await expect(panel).toContainText('El contenido de los mensajes no se abre desde aquí');
+    await expect(panel).toContainText('Esta lista no muestra el contenido');
+    await expect(panel).toContainText('queda registrado');
+  });
+});
+
+test.describe('Mensajería en el backoffice — abrir el hilo (C2)', () => {
+  test('desde la lista se abre el hilo ÍNTEGRO, y la pantalla avisa de que consta', async ({
+    request,
+    moderatorContext,
+  }) => {
+    const listingId = await crearAnuncio(request, `Hilo para abrir ${Date.now()}`);
+    await escribir(request, listingId, 'Primer mensaje del comprador');
+
+    const page = await moderatorContext.newPage();
+    await page.goto(`/admin/anuncios/${listingId}`);
+
+    // El aviso está ANTES de pulsar: quien decide abrir debe saber lo que implica
+    // cuando todavía puede no hacerlo.
+    const panel = page.getByTestId('ficha-conversaciones');
+    await expect(panel).toContainText('queda registrado', { timeout: 15_000 });
+
+    await panel.getByTestId('conversacion-abrir').click();
+
+    await expect(page.getByTestId('ficha-conversacion')).toBeVisible({ timeout: 15_000 });
+    // Y aquí el contenido, que en C1 no salía por ninguna parte.
+    await expect(page.getByTestId('mensaje')).toHaveCount(1);
+    await expect(page.getByText('Primer mensaje del comprador')).toBeVisible();
+    // El aviso otra vez, ya dentro: esta apertura consta.
+    await expect(page.getByTestId('aviso-auditoria')).toContainText('queda registrada');
+  });
+
+  test('la vista del hilo es de SOLO LECTURA: no hay dónde escribir', async ({
+    request,
+    moderatorContext,
+  }) => {
+    // El staff no responde en conversaciones ajenas: para hablar con alguien está
+    // el sistema de tickets, que además deja rastro de lo que se dijo.
+    const listingId = await crearAnuncio(request, `Solo lectura ${Date.now()}`);
+    const conv = await escribir(request, listingId, 'No se puede contestar a esto');
+
+    const page = await moderatorContext.newPage();
+    await page.goto(`/admin/anuncios/conversaciones/${conv.id}`);
+
+    await expect(page.getByTestId('ficha-conversacion')).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('textarea')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /enviar|responder/i })).toHaveCount(0);
   });
 });
 

@@ -29,6 +29,7 @@ describe('Mensajería C1 — metadato para el staff (e2e)', () => {
   let vendedorId: string;
   let compradorId: string;
   let eliminadoId: string;
+  let moderatorId: string;
   let categoryId: string;
 
   const server = () => app.getHttpServer();
@@ -84,7 +85,7 @@ describe('Mensajería C1 — metadato para el staff (e2e)', () => {
     await cleanDb(prisma);
 
     const passwordHash = await bcrypt.hash('Test1234!', 10);
-    const [vendedor, comprador, eliminado] = await Promise.all([
+    const [vendedor, comprador, eliminado, moderador] = await Promise.all([
       prisma.user.create({
         data: {
           email: 'msg-vendedor@example.com', name: 'MSG Vendedor', slug: 'msg-vendedor',
@@ -115,6 +116,7 @@ describe('Mensajería C1 — metadato para el staff (e2e)', () => {
     vendedorId = vendedor.id;
     compradorId = comprador.id;
     eliminadoId = eliminado.id;
+    moderatorId = moderador.id;
 
     categoryId = (
       await prisma.category.create({
@@ -335,6 +337,195 @@ describe('Mensajería C1 — metadato para el staff (e2e)', () => {
       .get(`/api/admin/conversations?listingId=x&userId=${compradorId}`)
       .set('Authorization', `Bearer ${moderatorToken}`)
       .expect(400);
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // C2 — EL CONTENIDO, Y LA FILA QUE LO DEJA POR ESCRITO
+  //
+  // La barrera que manda aquí es el `AuditLog`, y conviene decir por qué con
+  // precisión: al decidirse que MODERATOR+ pueda abrir —y no sólo ADMIN—, el rol
+  // dejó de filtrar. Lo único que separa la capacidad del abuso es que quede
+  // constancia. Y leer no deja constancia por sí mismo: no cambia nada. Sin esa
+  // fila, un moderador abriendo el hilo de quien quisiera sería invisible POR
+  // CONSTRUCCIÓN — no «difícil de detectar»: imposible.
+  // ───────────────────────────────────────────────────────────────────────────
+
+  it('C2 LA BARRERA: abrir un hilo DEJA UNA FILA de AuditLog, con actor y recurso', async () => {
+    const anuncio = await crearAnuncio('Se abre y consta');
+    const conv = await crearHilo({
+      listingId: anuncio.id,
+      listingTitle: anuncio.title,
+      buyerId: compradorId,
+      mensajes: 2,
+    });
+
+    const antes = await prisma.auditLog.count({
+      where: { action: 'CONVERSATION_READ', resourceId: conv.id },
+    });
+    expect(antes).toBe(0);
+
+    await request(server())
+      .get(`/api/admin/conversations/${conv.id}`)
+      .set('Authorization', `Bearer ${moderatorToken}`)
+      .expect(200);
+
+    const filas = await prisma.auditLog.findMany({
+      where: { action: 'CONVERSATION_READ', resourceId: conv.id },
+    });
+    expect(filas).toHaveLength(1);
+    expect(filas[0].resourceType).toBe('Conversation');
+    // El actor es QUIÉN miró — es la mitad del valor de la fila.
+    expect(filas[0].actorId).toBe(moderatorId);
+  });
+
+  it('C2: UNA FILA POR APERTURA — tres lecturas son tres filas, no una', async () => {
+    // No se deduplica ni se agrupa por sesión: lo que hay que poder auditar es
+    // CADA acceso, no que alguna vez se accediera.
+    const anuncio = await crearAnuncio('Se abre tres veces');
+    const conv = await crearHilo({
+      listingId: anuncio.id,
+      listingTitle: anuncio.title,
+      buyerId: compradorId,
+    });
+
+    for (let i = 0; i < 3; i += 1) {
+      await request(server())
+        .get(`/api/admin/conversations/${conv.id}`)
+        .set('Authorization', `Bearer ${moderatorToken}`)
+        .expect(200);
+    }
+
+    const filas = await prisma.auditLog.count({
+      where: { action: 'CONVERSATION_READ', resourceId: conv.id },
+    });
+    expect(filas).toBe(3);
+  });
+
+  it('C2: el hilo sale ÍNTEGRO — todos los mensajes, en orden, con emisor y fecha', async () => {
+    const anuncio = await crearAnuncio('Hilo entero');
+    const conv = await prisma.conversation.create({
+      data: {
+        listingId: anuncio.id,
+        listingTitle: anuncio.title,
+        buyerId: compradorId,
+        sellerId: vendedorId,
+      },
+    });
+    // Tres mensajes alternando emisor, con fechas crecientes explícitas.
+    await prisma.message.create({
+      data: {
+        conversationId: conv.id, senderId: compradorId, body: 'Primero',
+        createdAt: new Date('2026-01-01T10:00:00Z'),
+      },
+    });
+    await prisma.message.create({
+      data: {
+        conversationId: conv.id, senderId: vendedorId, body: 'Segundo',
+        createdAt: new Date('2026-01-01T11:00:00Z'),
+      },
+    });
+    await prisma.message.create({
+      data: {
+        conversationId: conv.id, senderId: compradorId, body: 'Tercero',
+        createdAt: new Date('2026-01-01T12:00:00Z'),
+      },
+    });
+
+    const res = await request(server())
+      .get(`/api/admin/conversations/${conv.id}`)
+      .set('Authorization', `Bearer ${moderatorToken}`)
+      .expect(200);
+
+    const cuerpos = (res.body.messages as { body: string }[]).map((m) => m.body);
+    // Los TRES y en orden. Sin recortes ni ventana alrededor de «lo denunciado»:
+    // un hilo con huecos no permite decidir ni a favor ni en contra.
+    expect(cuerpos).toEqual(['Primero', 'Segundo', 'Tercero']);
+    // Con quién y cuándo, que es lo que hace legible una conversación ajena.
+    expect(res.body.messages[0].sender.id).toBe(compradorId);
+    expect(res.body.messages[1].sender.id).toBe(vendedorId);
+    expect(res.body.messages[0].createdAt).toBeDefined();
+  });
+
+  it('C2 LA BARRERA HEREDADA: abrir el contenido TAMPOCO marca como leído', async () => {
+    // La invariante de C1, sostenida donde más fácil habría sido romperla: la
+    // ÚNICA escritura de esta ráfaga es la fila de AuditLog, nunca `readAt`.
+    const anuncio = await crearAnuncio('Abrir sin marcar');
+    const conv = await crearHilo({
+      listingId: anuncio.id,
+      listingTitle: anuncio.title,
+      buyerId: compradorId,
+      mensajes: 3,
+    });
+
+    await request(server())
+      .get(`/api/admin/conversations/${conv.id}`)
+      .set('Authorization', `Bearer ${moderatorToken}`)
+      .expect(200);
+
+    const sinLeer = await prisma.message.count({
+      where: { conversationId: conv.id, readAt: null },
+    });
+    expect(sinLeer).toBe(3);
+  });
+
+  it('C2: MODERATOR abre (200) — la decisión A; un USER no (403)', async () => {
+    const anuncio = await crearAnuncio('Permisos al abrir');
+    const conv = await crearHilo({
+      listingId: anuncio.id,
+      listingTitle: anuncio.title,
+      buyerId: compradorId,
+    });
+
+    // No es 403: Ernest eligió que moderación pueda abrir para resolver disputas
+    // sin escalar. Por eso el registro deja de ser recomendable y es obligatorio.
+    await request(server())
+      .get(`/api/admin/conversations/${conv.id}`)
+      .set('Authorization', `Bearer ${moderatorToken}`)
+      .expect(200);
+
+    await request(server())
+      .get(`/api/admin/conversations/${conv.id}`)
+      .set('Authorization', `Bearer ${userToken}`)
+      .expect(403);
+
+    // Y el 403 NO deja rastro de lectura: no hubo acceso que registrar.
+    const filas = await prisma.auditLog.count({
+      where: { action: 'CONVERSATION_READ', resourceId: conv.id },
+    });
+    expect(filas).toBe(1);
+  });
+
+  it('C2: un hilo con una cuenta eliminada se abre y dice lo que sabe, sin inventar', async () => {
+    // `Conversation` NO guarda snapshot de los interlocutores (residuo anotado en
+    // el diseño §3.2), así que lo único disponible es el nombre vaciado de la
+    // fila. Se sirve tal cual: fingir un nombre sería peor que decir la verdad.
+    const anuncio = await crearAnuncio('Con cuenta eliminada');
+    const conv = await crearHilo({
+      listingId: anuncio.id,
+      listingTitle: anuncio.title,
+      buyerId: eliminadoId,
+    });
+
+    const res = await request(server())
+      .get(`/api/admin/conversations/${conv.id}`)
+      .set('Authorization', `Bearer ${moderatorToken}`)
+      .expect(200);
+
+    expect(res.body.buyer.name).toBe('Usuario eliminado');
+    expect(res.body.messages.length).toBeGreaterThan(0);
+  });
+
+  it('C2: abrir una conversación que no existe → 404, y sin fila de auditoría', async () => {
+    await request(server())
+      .get('/api/admin/conversations/no-existe')
+      .set('Authorization', `Bearer ${moderatorToken}`)
+      .expect(404);
+
+    const filas = await prisma.auditLog.count({
+      where: { action: 'CONVERSATION_READ', resourceId: 'no-existe' },
+    });
+    // No hubo contenido servido, así que no hay acceso que registrar.
+    expect(filas).toBe(0);
   });
 
   it('BARRERA 7: pagina de verdad — la segunda página trae hilos distintos', async () => {

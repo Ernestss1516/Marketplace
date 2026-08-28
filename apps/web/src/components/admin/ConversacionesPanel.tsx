@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { adminListingHref, adminUserHref } from '@/lib/admin-links';
+import { adminConversationHref, adminListingHref, adminUserHref } from '@/lib/admin-links';
 import { ApiError } from '@/lib/api/client';
 import type {
   ConversacionCabecera,
@@ -10,17 +10,18 @@ import type {
 } from '@/lib/api/admin-mensajeria';
 
 /**
- * MENSAJERÍA C1 — LA LISTA DE HILOS, SIN ABRIR NINGUNO.
+ * MENSAJERÍA — LA LISTA DE HILOS.
  *
- * Lo que enseña es deliberadamente lo que se puede saber SIN leer
- * correspondencia ajena: con quién, sobre qué anuncio, cuándo empezó, cuándo se
- * movió por última vez y cuántos mensajes tiene. Con eso un moderador responde
- * «¿hubo contacto? ¿cuánto? ¿cuándo?», que es la mitad del encargo — y la mitad
- * que no invade nada.
+ * Lo que enseña la LISTA es lo que se puede saber sin leer correspondencia ajena:
+ * con quién, sobre qué anuncio, cuándo empezó, cuándo se movió y cuántos mensajes
+ * tiene. Con eso un moderador ya responde «¿hubo contacto? ¿cuánto? ¿cuándo?» sin
+ * abrir nada — y esa consulta no se registra, porque es metadato y se carga en
+ * cada visita a una ficha.
  *
- * **NO HAY ENLACE AL HILO**, y no es que falte: la pantalla que muestra los
- * mensajes es C2, con su registro de acceso. Poner aquí un enlace a algo que aún
- * no existe sería prometer lo que no hay.
+ * C2 AÑADIÓ EL ENLACE «LEER», que en C1 no existía porque no había pantalla al
+ * otro lado. Cruzar ese enlace ya no es lo mismo: sirve el contenido íntegro y
+ * **deja una fila de `AuditLog`**. La distancia entre las dos cosas —mirar la
+ * lista y abrir el hilo— es deliberada, y es donde vive la salvaguarda.
  *
  * COMPARTIDO desde el primer uso por las dos fichas —anuncio y usuario—, que es
  * lo que evita que acaben divergiendo como divergieron las tres versiones de «una
@@ -120,20 +121,58 @@ export function ConversacionesPanel({
     void pedir(page);
   }, [pedir, page]);
 
-  if (loading && !datos) {
-    return <p className="text-xs text-muted-foreground">Cargando conversaciones…</p>;
-  }
-  if (error) {
-    return <p className="text-xs text-destructive">{error}</p>;
-  }
-  if (!datos || datos.items.length === 0) {
-    return <p className="text-xs text-muted-foreground">{vacio}</p>;
-  }
+  const totalPages = datos ? Math.max(1, Math.ceil(datos.total / datos.perPage)) : 1;
 
-  const totalPages = Math.max(1, Math.ceil(datos.total / datos.perPage));
-
+  // EL ENVOLTORIO SE PINTA SIEMPRE, también cargando, vacío o con error.
+  //
+  // Antes cada uno de esos tres estados hacía un `return` temprano con su `<p>` y
+  // SIN el `data-testid`, y eso no era un detalle de test: hacía indistinguibles
+  // «todavía no ha llegado», «no hay ninguna» y «la petición falló». Un caso que
+  // esperase el panel se quedaba mirando quince segundos y decía «element not
+  // found» — señalando a la ausencia del panel en vez de a lo que de verdad
+  // pasaba. Con el envoltorio siempre presente, el estado se lee.
   return (
     <div data-testid={testId}>
+      {loading && !datos && (
+        <p className="text-xs text-muted-foreground">Cargando conversaciones…</p>
+      )}
+      {error && <p className="text-xs text-destructive">{error}</p>}
+      {!loading && !error && datos && datos.items.length === 0 && (
+        <p className="text-xs text-muted-foreground">{vacio}</p>
+      )}
+      {datos && datos.items.length > 0 && (
+        <PanelConLista
+          datos={datos}
+          mostrarAnuncio={mostrarAnuncio}
+          totalPages={totalPages}
+          page={page}
+          loading={loading}
+          setPage={setPage}
+        />
+      )}
+    </div>
+  );
+}
+
+/** La lista propiamente dicha. Separada para que el envoltorio de arriba pueda
+ *  pintarse siempre sin anidar el marcado tres niveles. */
+function PanelConLista({
+  datos,
+  mostrarAnuncio,
+  totalPages,
+  page,
+  loading,
+  setPage,
+}: {
+  datos: ConversacionesPaginadas;
+  mostrarAnuncio: boolean;
+  totalPages: number;
+  page: number;
+  loading: boolean;
+  setPage: (f: (p: number) => number) => void;
+}) {
+  return (
+    <>
       <ul className="space-y-2">
         {datos.items.map((c) => (
           <li key={c.id} className="rounded-md border p-2 text-sm" data-testid="conversacion-fila">
@@ -142,8 +181,21 @@ export function ConversacionesPanel({
                 <Persona p={c.buyer} /> <span className="text-muted-foreground">↔</span>{' '}
                 <Persona p={c.seller} />
               </span>
-              <span className="text-xs text-muted-foreground">
-                {c._count.messages} mensaje{c._count.messages === 1 ? '' : 's'}
+              <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span>
+                  {c._count.messages} mensaje{c._count.messages === 1 ? '' : 's'}
+                </span>
+                {/* C2 — el enlace que en C1 no existía porque no había pantalla.
+                    Dice «Leer» y no «Ver» a propósito: lo que hay al otro lado es
+                    correspondencia privada, y la palabra debe pesar lo que pesa el
+                    acto — que además queda registrado. */}
+                <Link
+                  href={adminConversationHref(c.id)}
+                  className="underline underline-offset-2 hover:text-foreground"
+                  data-testid="conversacion-abrir"
+                >
+                  Leer
+                </Link>
               </span>
             </div>
             {mostrarAnuncio && (
@@ -185,12 +237,13 @@ export function ConversacionesPanel({
         </div>
       )}
 
-      {/* Que se vea POR QUÉ no se puede entrar: si no, la ausencia de enlace se lee
-          como un descuido de la pantalla en vez de como una decisión. */}
+      {/* El aviso va ANTES de pulsar, no dentro del hilo: quien decide abrir debe
+          saber lo que implica cuando todavía puede no hacerlo. Dentro también está,
+          pero entonces ya se ha leído y ya consta. */}
       <p className="mt-2 text-[11px] text-muted-foreground">
-        Sólo se muestra que la conversación existe. El contenido de los mensajes no
-        se abre desde aquí.
+        Esta lista no muestra el contenido. Abrir una conversación con «Leer» da
+        acceso a los mensajes y <strong>queda registrado</strong>.
       </p>
-    </div>
+    </>
   );
 }

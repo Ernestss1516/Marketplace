@@ -1754,6 +1754,24 @@ model AuditLog {
   /// ADMIN_BUMP_GRANT | ADMIN_CREDIT_DEBIT | ADMIN_BUMP_DEBIT (U2 — dar bumps y
   ///   quitar saldo; el `after` lleva lo PEDIDO y lo realmente descontado, para
   ///   que el suelo en cero se vea en vez de esconderse)
+  ///
+  /// CONVERSATION_READ (mensajería C2) — **LA PRIMERA ACCIÓN DE LECTURA DE TODO
+  ///   EL REGISTRO.** Las demás describen un CAMBIO; ésta describe que alguien
+  ///   MIRÓ. Es deliberado y es la contrapartida de una decisión: el contenido de
+  ///   las conversaciones lo abre MODERATOR+, así que el rol ya no filtra y el
+  ///   registro es lo ÚNICO que queda entre la capacidad y el abuso. Leer no
+  ///   cambia nada, o sea que sin esta fila el acceso sería invisible por
+  ///   construcción — un moderador abriendo el hilo de quien quisiera no dejaría
+  ///   ni rastro.
+  ///
+  ///   `before`/`after` van VACÍOS a propósito: no hubo cambio que describir. Lo
+  ///   que esta fila afirma es quién, qué hilo, cuándo y desde dónde. Y por eso
+  ///   se escribe UNA POR APERTURA, no una por conversación: lo que interesa
+  ///   auditar es cada acceso, no que alguna vez se accediera.
+  ///
+  ///   NO se registra LISTAR cabeceras (mensajería C1): eso es metadato y se
+  ///   carga en cada visita a una ficha; auditarlo llenaría esta tabla de ruido
+  ///   justo hasta hacerla inútil para lo que sirve.
   action String
 
   actorId String
