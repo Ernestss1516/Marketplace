@@ -232,7 +232,14 @@ export class NotificationProcessor extends WorkerHost {
     const link = `${this.appUrl}/mis-anuncios`;
     const motivo = data.reason ? `\n\nMotivo indicado: ${data.reason}` : '';
 
-    const copy = {
+    // A1 — `Record<…>` EXPLÍCITO, no un objeto suelto: si a `action` se le añade un
+    // valor y aquí no se le da su copy, esto deja de compilar. Es la misma barrera
+    // que se puso en el front, donde el mapa gemelo se quedó sin la rama `APPROVED`
+    // y el aviso in-app salía vacío mientras este correo sí se mandaba bien.
+    const copy: Record<
+      SendListingModeratedData['action'],
+      { subject: string; cuerpo: string }
+    > = {
       // MODERACIÓN M2 — el aviso que faltaba. Hasta aquí, un anuncio aprobado se
       // publicaba sin que a su dueño le llegara nada: con la moderación previa
       // encendida, pasar por revisión deja de ser la excepción y el silencio se
@@ -261,22 +268,35 @@ export class NotificationProcessor extends WorkerHost {
           `Buenas noticias: hemos revisado tu anuncio «${data.listingTitle}» y vuelve a estar ` +
           `publicado en el marketplace.\n\nPuedes verlo aquí:\n${link}`,
       },
-    }[data.action];
+    };
+    const { subject, cuerpo } = copy[data.action];
 
     await this.resend.emails.send({
       from: this.from,
       to: data.email,
-      subject: copy.subject,
-      text: `Hola ${data.name},\n\n${copy.cuerpo}`,
+      subject,
+      text: `Hola ${data.name},\n\n${cuerpo}`,
     });
     this.logger.log(`Listing moderated email (${data.action}) sent to ${data.email}`);
   }
 
-  /** Reputación RÁFAGA 3 — copy deliberadamente sin presión ni plazo: valorar
-   * es opcional, sin ventana de tiempo. Un job por parte (ver closeDeal en
-   * ListingsService), igual que SEND_CONTACT_NOTIFICATION es un job por admin. */
+  /**
+   * Reputación RÁFAGA 3 — copy deliberadamente sin presión ni plazo: valorar es
+   * opcional, sin ventana de tiempo. Un job por parte (ver closeDeal en
+   * ListingsService), igual que SEND_CONTACT_NOTIFICATION es un job por admin.
+   *
+   * NOTIFICACIONES A1 — EL ENLACE YA NO VA AL ANUNCIO. Iba a `/anuncio/{slug}` y
+   * daba 404 en todos los tratos de producto, porque `closeDeal` deja el anuncio
+   * en `SOLD` y la ficha pública sólo sirve los `ACTIVE`. Ahora va al MISMO sitio
+   * que la notificación in-app —el deep-link de valoración en el perfil del otro,
+   * que no depende del estado del anuncio—, así que además los dos canales dicen
+   * lo mismo. Ver `SendReviewRequestEmailData`.
+   */
   private async sendReviewRequestEmail(data: SendReviewRequestEmailData): Promise<void> {
-    const link = `${this.appUrl}/anuncio/${data.listingSlug}`;
+    const link =
+      `${this.appUrl}/vendedor/${data.otherUserSlug}` +
+      `?valorar=${encodeURIComponent(data.listingId ?? '')}` +
+      `&target=${encodeURIComponent(data.otherUserId)}`;
     await this.resend.emails.send({
       from: this.from,
       to: data.email,

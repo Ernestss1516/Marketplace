@@ -14,9 +14,25 @@ import {
   ListingModeratedData,
   ReviewModeratedData,
   BumpAutoPausedData,
+  DataExportReadyData,
 } from './notification.types';
 
-type DataByType = {
+/**
+ * NOTIFICACIONES A1 — LA BARRERA QUE OBLIGA A REGISTRAR CADA TIPO.
+ *
+ * El único cometido de este alias es imponer la restricción a su argumento: si un
+ * miembro de `NotificationType` no tiene entrada en el objeto de abajo, el
+ * argumento incumple `Record<NotificationType, unknown>` y **el error salta ahí
+ * mismo**, nombrando la clave que falta.
+ *
+ * Antes `DataByType` era un objeto suelto, sin nada que lo atara a
+ * `NotificationType`. Por eso pudo convivir con un tipo —`DATA_EXPORT_READY`— que
+ * no aparecía por aquí: no había nada que el compilador supiera exigir.
+ */
+type Snapshots<T extends Record<NotificationType, unknown>> = T;
+
+/** Cada tipo con la forma EXACTA de su snapshot: es lo que impide que `type` y `data` se desalineen. */
+type DataByType = Snapshots<{
   ALERT_MATCH: AlertMatchData;
   CONTACT_MESSAGE: ContactMessageData;
   REVIEW_REQUEST: ReviewRequestData;
@@ -28,13 +44,42 @@ type DataByType = {
   LISTING_MODERATED: ListingModeratedData;
   REVIEW_MODERATED: ReviewModeratedData;
   BUMP_AUTO_PAUSED: BumpAutoPausedData;
-};
+  DATA_EXPORT_READY: DataExportReadyData;
+}>;
 
 @Injectable()
 export class NotificationsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** No queue, no side effects — B3 calls this directly when an alert matches a new listing. */
+  /**
+   * LA ÚNICA PUERTA POR LA QUE SE CREA UNA `Notification`. Sin cola y sin efectos
+   * colaterales: el llamante decide si además encola un email.
+   *
+   * ── LA BARRERA, Y HASTA DÓNDE LLEGA ─────────────────────────────────────────
+   *
+   * `DataByType[T]` empareja el `type` con su snapshot: un `data` con la forma de
+   * otro tipo no compila, y desde A1 `DataByType` está además obligado a cubrir
+   * `NotificationType` entero (ver `Snapshots`), así que un tipo nuevo tampoco
+   * puede existir sin declarar su forma.
+   *
+   * Lo que esa barrera NO puede hacer por sí sola es impedir que alguien la rodee
+   * con `prisma.notification.create()`, que es lo que pasó dos veces
+   * (`INVOICING_PENDING_FISCAL_DATA` y `DATA_EXPORT_READY`, los dos avisos que
+   * acabaron saliendo como «Nueva notificación»).
+   *
+   * SE INTENTÓ CERRARLO EN EL TIPO Y NO SE PUEDE: `PrismaClient` declara
+   * `notification` como *accessor*, y TypeScript rechaza redeclararlo en una
+   * subclase con cualquier forma de propiedad (TS2610) — comprobado con `declare`,
+   * con `readonly` y por fusión de interfaz. Sustituirlo por un getter tampoco
+   * vale: Prisma crea los delegates como propiedades **de instancia**, así que
+   * `super.notification` sería `undefined` en ejecución.
+   *
+   * La barrera vive por tanto donde sí es efectiva y no se puede ignorar:
+   * `notifications-puerta-unica.spec.ts`, aquí al lado, que recorre el código y
+   * falla si aparece una creación de `Notification` fuera de este método. No es el
+   * compilador, pero cumple la propiedad que importa: **no se puede fusionar el
+   * olvido**.
+   */
   async createNotification<T extends NotificationType>(
     userId: string,
     type: T,

@@ -942,19 +942,27 @@ export class ListingsService implements OnModuleInit {
           otherUserName: seller.name,
           otherUserSlug: seller.slug,
         }),
+        // A1 — el correo lleva al MISMO deep-link que la notificación in-app (el
+        // perfil del otro), no a `/anuncio/{slug}`: el anuncio queda `SOLD` unas
+        // líneas más abajo y su ficha pública sólo sirve los `ACTIVE`, así que el
+        // enlace se rompía justo por cerrar el trato del que hablaba.
         this.notificationQueue.add(NOTIFICATION_JOB.SEND_REVIEW_REQUEST_EMAIL, {
           email: seller.email,
           name: seller.name,
           otherUserName: buyer.name,
           listingTitle: existing.title,
-          listingSlug: existing.slug,
+          otherUserSlug: buyer.slug,
+          otherUserId: buyer.id,
+          listingId: id,
         } satisfies SendReviewRequestEmailData),
         this.notificationQueue.add(NOTIFICATION_JOB.SEND_REVIEW_REQUEST_EMAIL, {
           email: buyer.email,
           name: buyer.name,
           otherUserName: seller.name,
           listingTitle: existing.title,
-          listingSlug: existing.slug,
+          otherUserSlug: seller.slug,
+          otherUserId: sellerId,
+          listingId: id,
         } satisfies SendReviewRequestEmailData),
       ]);
     }

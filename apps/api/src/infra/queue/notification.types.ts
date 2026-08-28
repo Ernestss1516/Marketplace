@@ -57,15 +57,40 @@ export interface SendContactReplyData {
   cuerpo: string;
 }
 
-/** Reputación RÁFAGA 3 — aviso al cerrar un Deal (bidireccional: un job por
- * cada parte que puede valorar). Copy deliberadamente sin presión ni plazo
- * — valorar es opcional, la ventana es indefinida. */
+/**
+ * Reputación RÁFAGA 3 — aviso al cerrar un Deal (bidireccional: un job por cada
+ * parte que puede valorar). Copy deliberadamente sin presión ni plazo — valorar es
+ * opcional, la ventana es indefinida.
+ *
+ * ── NOTIFICACIONES A1: EL ENLACE DEJA DE LLEVAR AL ANUNCIO ──────────────────
+ *
+ * Este correo apuntaba a `/anuncio/{listingSlug}`, y **daba 404 en todos los
+ * tratos de producto**: `closeDeal` deja el anuncio en `SOLD` y la ficha pública
+ * sólo sirve los `ACTIVE`. O sea que el enlace de «valora tu trato» se rompía
+ * justo por cerrar el trato del que hablaba.
+ *
+ * Es el mismo defecto de clase que `lib/admin-links.ts` erradicó en el backoffice
+ * —una ruta que 404 para todo lo que no esté `ACTIVE`—, sobrevivido en el correo
+ * porque aquel helper vive en el front y este processor está en el back.
+ *
+ * Ahora lleva al MISMO destino que la notificación in-app: el perfil del otro con
+ * el deep-link de valoración, que la página documenta como «el único punto de
+ * entrada para valorar un Deal sin conversación» y que no depende del estado del
+ * anuncio. De paso, los dos canales dejan de decir cosas distintas (§A1.3).
+ *
+ * `listingSlug` YA NO VIAJA: sin uso, sería una invitación a volver a enlazarlo.
+ */
 export interface SendReviewRequestEmailData {
   email: string;
   name: string;
   otherUserName: string;
   listingTitle: string;
-  listingSlug: string;
+  /** Slug del OTRO (a cuyo perfil se va a valorar), no del anuncio. */
+  otherUserSlug: string;
+  /** A quién se valora. El perfil público no expone ids, así que viaja en el enlace. */
+  otherUserId: string;
+  /** Sobre qué anuncio fue el trato. `null` si el anuncio ya no existe. */
+  listingId: string | null;
 }
 
 // ─── Atención al usuario R4 ───────────────────────────────────────────────────

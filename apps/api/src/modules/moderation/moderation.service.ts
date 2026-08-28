@@ -528,7 +528,7 @@ export class ModerationService {
 
     // §14.5 — TRAS persistir. El autor se entera, igual que se enteraba con el borrado:
     // que el equipo retire una opinión firmada por alguien sin decírselo no es defendible.
-    await this.notify.reviewModerated(review, actorId);
+    await this.notify.reviewModerated(review, actorId, 'RETIRED');
     return updated;
   }
 
@@ -609,7 +609,13 @@ export class ModerationService {
       ip,
     });
 
-    await this.notify.reviewModerated(review, actorId);
+    // §14.5 — TRAS persistir. NOTIFICACIONES A1: `'EDITED'`, y no el aviso de
+    // retirada que se mandaba hasta aquí. Esto edita el texto o las estrellas de
+    // una valoración que SIGUE PUBLICADA; decirle a su autor que se la habían
+    // retirado «por incumplir las normas» era falso sobre el estado de algo que él
+    // firmó. Es el mismo cuidado que este método ya tenía con `editedAt` —no
+    // afirmar un hecho que no ocurrió—, que no había llegado al aviso.
+    await this.notify.reviewModerated(review, actorId, 'EDITED');
     return updated;
   }
 }

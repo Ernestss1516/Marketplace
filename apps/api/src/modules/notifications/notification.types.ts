@@ -19,7 +19,17 @@ export type NotificationType =
   // SOLO se avisa de INCIDENCIAS (D6): un bump aplicado no notifica, porque es lo que el
   // usuario contrató y avisar de cada uno inundaría la campana. Lo que sí exige enterarse
   // es que la programación DEJÓ de correr, que es lo que este tipo cuenta.
-  | 'BUMP_AUTO_PAUSED';
+  | 'BUMP_AUTO_PAUSED'
+  // NOTIFICACIONES A1 — EL TIPO QUE FALTABA EN SU PROPIO REGISTRO.
+  //
+  // `DATA_EXPORT_READY` se creaba desde C6 con `prisma.notification.create()`
+  // directo, saltándose `createNotification()`. Al no pasar por el servicio tipado
+  // nunca llegó aquí, ni a la unión del front, ni tuvo su `case`: la exportación se
+  // avisaba como «Nueva notificación», sin decir qué era ni llevar a la descarga.
+  //
+  // Ahora entra por la puerta y `PrismaService` cierra la de atrás: crear una
+  // `Notification` fuera del servicio ya no compila (ver `prisma.service.ts`).
+  | 'DATA_EXPORT_READY';
 
 /** Self-contained snapshot stored in Notification.data — see schema.prisma comment. */
 export interface AlertMatchData {
@@ -144,7 +154,29 @@ export interface BumpAutoPausedData {
   reason: 'NO_FUNDS' | 'LISTING_INACTIVE';
 }
 
-/** Al AUTOR de una valoración: se ha retirado. El borrado es físico e irreversible. */
+/**
+ * Al AUTOR de una valoración: el equipo ha intervenido sobre ella.
+ *
+ * ── `action` NACE EN A1, Y NACE PARA QUE EL AVISO DEJE DE MENTIR ─────────────
+ *
+ * Este tipo se escribió para la RETIRADA, y su texto lo decía: «hemos retirado tu
+ * valoración… por incumplir las normas». Pero `editReview` —que NO retira nada,
+ * sólo recorta el texto o corrige las estrellas de una valoración que sigue
+ * publicada— reutilizaba el mismo aviso. El autor recibía una afirmación **falsa
+ * sobre el estado de su propia valoración**, y encima desde el método que más
+ * cuidado pone en no mentir al lector sobre quién escribió qué (por eso `edit()`
+ * de moderación no toca `editedAt`).
+ *
+ * La variante se resuelve con un discriminante y no con un tipo nuevo, siguiendo
+ * el molde de `ListingModeratedData.action`: son la misma clase de evento —«el
+ * equipo ha tocado algo tuyo»— y comparten destinatario, enlace y snapshot.
+ *
+ * PENDIENTE ANOTADO (siguiente ráfaga, «cuenta+motivo»): las dos acciones exigen
+ * un `reason` obligatorio en el servicio (`retireReview` y `editReview` lo piden
+ * con `@MinLength(5)`) y ese motivo **hoy se descarta** — sólo llega al
+ * `AuditLog`. Traerlo hasta aquí es exactamente el patrón que ya funciona en
+ * `ListingModeratedData.reason`, y es el trabajo de la ráfaga que viene, no de A1.
+ */
 export interface ReviewModeratedData {
   reviewId: string;
   rating: number;
@@ -152,4 +184,24 @@ export interface ReviewModeratedData {
   listingTitle: string | null;
   /** Nombre del usuario valorado, resuelto. */
   targetName: string;
+  /**
+   * Qué se le hizo. `RETIRED`: deja de verse (reversible con `restoreReview`).
+   * `EDITED`: sigue publicada, con el texto o las estrellas cambiados.
+   */
+  action: 'RETIRED' | 'EDITED';
+}
+
+/**
+ * BORRADO DE CUENTAS C6 — el ZIP está listo para descargar.
+ *
+ * Snapshot autocontenido como el resto: `expiresAt` y `sizeBytes` van CONGELADOS
+ * porque el aviso tiene que seguir siendo legible cuando la exportación haya
+ * caducado y su fila ya no exista. Y son justo los dos datos que importan: el ZIP
+ * **caduca**, así que un aviso que no diga hasta cuándo sirve la mitad.
+ */
+export interface DataExportReadyData {
+  exportId: string;
+  /** ISO-8601. Congelado: el aviso sobrevive al borrado de la exportación. */
+  expiresAt: string;
+  sizeBytes: number;
 }

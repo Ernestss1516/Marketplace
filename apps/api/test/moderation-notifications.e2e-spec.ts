@@ -320,6 +320,37 @@ describe('Moderación — avisos al denunciante y al vendedor (§14.5) e2e', () 
       const nombreVendedor = (await prisma.user.findUniqueOrThrow({ where: { id: vendedor } })).name;
       expect(data.targetName).toBe(nombreVendedor); // nombre resuelto, no id
       expect(data.targetName).not.toBe(vendedor);
+      // A1 — la retirada se declara como tal; es la que SÍ retira.
+      expect(data.action).toBe('RETIRED');
+    });
+
+    /**
+     * NOTIFICACIONES A1 — EL AVISO QUE MENTÍA.
+     *
+     * `editReview` reutilizaba el aviso de RETIRADA, así que al autor de una
+     * valoración editada —que sigue publicada, con el texto o las estrellas
+     * cambiados— se le decía que se la habían retirado por incumplir las normas.
+     * Era falso sobre el estado de algo que él firmó con su nombre, y venía del
+     * método que más cuidado pone en no mentir sobre quién escribió qué (por eso
+     * no toca `editedAt`).
+     */
+    it('editReview → REVIEW_MODERATED con action EDITED, y la valoración SIGUE VIVA', async () => {
+      const review = await prisma.review.create({
+        data: { rating: 5, authorId: denunciante, targetId: vendedor, listingTitle: 'Silla', comment: 'Texto original' },
+      });
+
+      await moderation.editReview(review.id, moderador, {
+        comment: 'Texto recortado',
+        reason: 'Dato personal en el comentario',
+      });
+
+      // Lo que el aviso afirma tiene que ser verdad: la fila no está retirada.
+      const despues = await prisma.review.findUniqueOrThrow({ where: { id: review.id } });
+      expect(despues.retiredAt).toBeNull();
+      expect(despues.comment).toBe('Texto recortado');
+
+      const [aviso] = await notifs(denunciante, 'REVIEW_MODERATED');
+      expect((aviso.data as Record<string, unknown>).action).toBe('EDITED');
     });
 
     it('sin email: retirar contenido por incumplir normas no se discute por correo', async () => {

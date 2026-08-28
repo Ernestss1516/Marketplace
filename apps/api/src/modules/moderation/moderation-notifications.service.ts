@@ -198,17 +198,30 @@ export class ModerationNotificationsService {
   // ---------------------------------------------------------------------------
 
   /**
-   * `deleteReview`. El borrado es FÍSICO e irreversible, así que el aviso se
-   * construye con la fila que el servicio ya cargó ANTES de borrarla — después
-   * no habría de dónde sacarlo.
+   * `retireReview` / `editReview`. El aviso se construye con la fila que el
+   * servicio cargó ANTES de tocarla — para la retirada es la única forma de tener
+   * el `rating` original, y para la edición es lo correcto: se avisa de lo que
+   * había, no de lo que el moderador acaba de dejar.
    *
-   * Solo in-app, sin email: una valoración se retira por incumplir las normas, y
+   * Solo in-app, sin email: una valoración se modera por incumplir las normas, y
    * un correo de "hemos borrado lo que escribiste" invita a discutir algo que ya
-   * no tiene vuelta atrás. La campana informa sin escalar.
+   * está hecho. La campana informa sin escalar.
+   *
+   * ── `action` ES OBLIGATORIO, Y ESA ES LA CORRECCIÓN DE A1 ───────────────────
+   *
+   * `editReview` llamaba a este método sin distinguirse de `retireReview`, así que
+   * al autor de una valoración EDITADA —que sigue publicada— se le decía que se la
+   * habían RETIRADO por incumplir las normas. Un aviso que miente es peor que
+   * ninguno, y éste mentía sobre el estado de algo que el usuario firmó con su
+   * nombre.
+   *
+   * El parámetro no tiene valor por defecto A PROPÓSITO: un `action` opcional
+   * volvería a permitir exactamente la llamada que causó el fallo.
    */
   async reviewModerated(
     review: Pick<Review, 'id' | 'authorId' | 'targetId' | 'rating' | 'listingTitle'>,
     actorId: string,
+    action: 'RETIRED' | 'EDITED',
   ) {
     if (this.esSuPropiaAccion(review.authorId, actorId)) return;
 
@@ -222,6 +235,7 @@ export class ModerationNotificationsService {
       rating: review.rating,
       listingTitle: review.listingTitle,
       targetName: target?.name ?? 'otro usuario',
+      action,
     });
   }
 }
