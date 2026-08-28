@@ -10,6 +10,8 @@ import { ArchivarCuentaButton } from '@/components/perfil/ArchivarCuentaButton';
 import { ExportarDatosPanel } from '@/components/perfil/ExportarDatosPanel';
 import { auth } from '@/lib/auth';
 import { getMe, getMyExports } from '@/lib/api/usuarios';
+import { getActiveBanners } from '@/lib/api/banners';
+import { BannerList } from '@/components/banners/BannerList';
 import { buildLoginUrl } from '@/lib/auth/callback-url';
 
 export const metadata = { title: 'Mi perfil' };
@@ -18,23 +20,49 @@ export default async function PerfilPage() {
   const session = await auth();
   if (!session?.user.accessToken) redirect(buildLoginUrl('/perfil'));
 
-  const user = await getMe(session.user.accessToken);
-
   /**
-   * BORRADO DE CUENTAS C6 — las exportaciones, con su propio `.catch`.
+   * LOS TRES EN PARALELO, no en fila.
    *
-   * NO PUEDE TUMBAR EL PERFIL: es una sección secundaria de una página que la
-   * gente abre para editar su nombre. Si la API de exportaciones falla, lo que
-   * debe pasar es que ese bloque salga vacío —el botón sigue ahí—, no que el
-   * usuario se quede sin perfil. Mismo criterio que las llamadas paralelas de la
-   * ficha de vendedor.
+   * `getMe` y `getMyExports` eran dos `await` ENCADENADOS, y ninguno de los dos
+   * depende del otro: los dos necesitan solo el token. Colgar el banner detrás
+   * habría hecho TRES viajes en serie para pintar una página que la gente abre
+   * para cambiarse el nombre. Con el `Promise.all` son tres viajes a la vez y la
+   * página queda más rápida que antes de esta ráfaga, no más lenta.
+   *
+   * Los `.catch` reparten quién puede tumbar la página y quién no, y ese reparto
+   * NO cambia respecto a lo que había:
+   *
+   *  - `getMe` sigue SIN red: sin usuario no hay perfil que pintar.
+   *  - BORRADO DE CUENTAS C6 — las exportaciones conservan el suyo. Es una
+   *    sección secundaria: si su API falla, ese bloque sale vacío —el botón sigue
+   *    ahí— y no que el usuario se quede sin perfil. Mismo criterio que las
+   *    llamadas paralelas de la ficha de vendedor.
+   *  - El banner, igual: decorativo, nunca tumba nada.
    */
-  const exportaciones = await getMyExports(session.user.accessToken).catch(() => []);
+  const [user, exportaciones, banners] = await Promise.all([
+    getMe(session.user.accessToken),
+    getMyExports(session.user.accessToken).catch(() => []),
+    getActiveBanners('PERFIL').catch(() => []),
+  ]);
 
   const location = [user.city, user.province].filter(Boolean).join(', ');
 
   return (
     <div className="space-y-8">
+      {/*
+        AQUÍ EL BANNER VA EL PRIMERO, y es la excepción a la regla de «debajo de
+        la cabecera» que siguen las otras cuatro de la zona.
+
+        Esta página no abre con un <h1> de sección sino con una CABECERA DE
+        IDENTIDAD —avatar, nombre, correo— seguida del aviso de correo sin
+        verificar, que es un aviso de verdad y del propio usuario. Meter el banner
+        entre esas dos cosas partiría la identidad de su aviso y pondría un
+        mensaje de la plataforma donde el usuario espera leer algo suyo.
+
+        Hijo directo del `space-y-8`, sin margen propio (§3.3).
+      */}
+      {banners.length > 0 && <BannerList banners={banners} />}
+
       {/* Header */}
       <div className="flex items-center gap-5">
         <Avatar className="h-16 w-16 text-xl">

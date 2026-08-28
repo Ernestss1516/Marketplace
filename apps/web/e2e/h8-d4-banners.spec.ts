@@ -21,9 +21,20 @@ type Placement =
   | 'MIS_ANUNCIOS' | 'PERFIL' | 'PERFIL_FACTURACION' | 'PERFIL_SUSCRIPCION'
   | 'MIS_ALERTAS' | 'MIS_CREDITOS';
 
-/** Las ocho superficies públicas que entrega B1. Las de cuenta van en B2. */
+/** Las ocho superficies públicas (B1). */
 const PUBLICAS: Placement[] = [
   'HOME', 'BUSQUEDA', 'CATEGORIA', 'ANUNCIO', 'BLOG', 'VENDEDOR', 'PLANES', 'CONTACTO',
+];
+
+/**
+ * Las seis de la zona de cuenta (B2 — MIS_ANUNCIOS ya venía de antes).
+ *
+ * PUBLICAS + CUENTA son las catorce del enum: con B2 no queda ni un valor sin
+ * página que lo pinte. NOTIFICACIONES no aparece porque no existe en el enum.
+ */
+const CUENTA: Placement[] = [
+  'MIS_ANUNCIOS', 'PERFIL', 'PERFIL_FACTURACION', 'PERFIL_SUSCRIPCION',
+  'MIS_ALERTAS', 'MIS_CREDITOS',
 ];
 
 function uniqueTitle(prefix: string) {
@@ -498,5 +509,102 @@ test.describe('Ubicaciones públicas (B1)', () => {
       page.getByText('Los filtros avanzados no están disponibles ahora mismo'),
     ).not.toBeVisible();
     await expect(page.locator('aside[aria-label="Filtros"]')).toBeVisible();
+  });
+});
+
+// ── Ubicaciones de cuenta (B2) — las seis de la zona privada ──────────────────
+
+test.describe('Ubicaciones de cuenta (B2)', () => {
+  test('un banner en las seis ubicaciones de cuenta se pinta en las seis páginas', async ({
+    request,
+    sellerContext,
+  }) => {
+    const title = uniqueTitle('E2E Cuenta');
+    const soloAlertas = uniqueTitle('E2E SoloAlertas');
+    await createBannerViaApi(request, {
+      title,
+      text: 'Aviso en toda la zona de cuenta',
+      placements: CUENTA,
+    });
+    // El negativo: una ubicación de cuenta no se derrama sobre las hermanas.
+    await createBannerViaApi(request, {
+      title: soloAlertas,
+      text: 'Solo alertas',
+      placements: ['MIS_ALERTAS'],
+    });
+
+    const page = await sellerContext.newPage();
+
+    const rutas: { placement: Placement; url: string }[] = [
+      { placement: 'MIS_ANUNCIOS', url: '/mis-anuncios' },
+      { placement: 'PERFIL', url: '/perfil' },
+      { placement: 'PERFIL_FACTURACION', url: '/perfil/facturacion' },
+      // La 13.ª ubicación, la que no venía en el encargo original.
+      { placement: 'PERFIL_SUSCRIPCION', url: '/perfil/suscripcion' },
+      { placement: 'MIS_ALERTAS', url: '/mis-alertas' },
+      { placement: 'MIS_CREDITOS', url: '/mis-creditos' },
+    ];
+
+    for (const { placement, url } of rutas) {
+      await page.goto(url);
+      await expect(
+        page.locator('[data-testid="banner"]').filter({ hasText: title }),
+        `el banner de ${placement} debería verse en ${url}`,
+      ).toBeVisible({ timeout: 10_000 });
+
+      if (url !== '/mis-alertas') {
+        await expect(
+          page.locator('[data-testid="banner"]').filter({ hasText: soloAlertas }),
+          `el banner de solo-MIS_ALERTAS NO debería verse en ${url}`,
+        ).not.toBeVisible();
+      }
+    }
+  });
+
+  test('en /perfil el banner va el primero, por delante de la identidad', async ({
+    request,
+    sellerContext,
+  }) => {
+    const title = uniqueTitle('E2E PerfilPrimero');
+    await createBannerViaApi(request, {
+      title,
+      text: 'Aviso en el perfil',
+      placements: ['PERFIL'],
+    });
+
+    const page = await sellerContext.newPage();
+    await page.goto('/perfil');
+
+    const banner = page.locator('[data-testid="banner"]').filter({ hasText: title });
+    await expect(banner).toBeVisible({ timeout: 10_000 });
+
+    // La excepción declarada de esta página: por delante de la cabecera de
+    // identidad, para no partirla de su aviso de correo sin verificar.
+    const cajaBanner = await banner.boundingBox();
+    const cajaNombre = await page.locator('h1').first().boundingBox();
+    expect(cajaBanner).not.toBeNull();
+    expect(cajaNombre).not.toBeNull();
+    expect(cajaBanner!.y).toBeLessThan(cajaNombre!.y);
+  });
+
+  test('NOTIFICACIONES sigue fuera: la bandeja no pinta ningún banner', async ({
+    request,
+    sellerContext,
+  }) => {
+    // Un banner en TODAS las ubicaciones que existen. Si NOTIFICACIONES fuera
+    // una de ellas, este banner saldría en la bandeja.
+    await createBannerViaApi(request, {
+      title: uniqueTitle('E2E TodasLasQueHay'),
+      text: 'En las catorce ubicaciones del enum',
+      placements: [...PUBLICAS, ...CUENTA],
+    });
+
+    const page = await sellerContext.newPage();
+    await page.goto('/notificaciones');
+    await expect(page.getByRole('heading', { name: 'Notificaciones' })).toBeVisible();
+
+    // Ni uno. La decisión de producto no depende de que nadie marque la casilla:
+    // el valor no existe en el enum, así que no hay nada que pintar aquí.
+    await expect(page.locator('[data-testid="banner"]')).toHaveCount(0);
   });
 });

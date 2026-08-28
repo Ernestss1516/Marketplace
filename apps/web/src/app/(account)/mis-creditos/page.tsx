@@ -17,6 +17,8 @@ import { RedeemCouponForm } from './_components/RedeemCouponForm';
 import { HistorialCreditos, HistorialBumps } from './_components/Historiales';
 import { BumpsProgramados } from './_components/BumpsProgramados';
 import { getBumpSchedules } from '@/lib/api/bump-schedules';
+import { getActiveBanners } from '@/lib/api/banners';
+import { BannerList } from '@/components/banners/BannerList';
 import { buildLoginUrl } from '@/lib/auth/callback-url';
 
 /**
@@ -41,7 +43,7 @@ export default async function MisCreditosPage() {
 
   const token = session.user.accessToken;
 
-  const [wallet, catalog, bumpLedger, proStatus, programaciones] = await Promise.all([
+  const [wallet, catalog, bumpLedger, proStatus, programaciones, banners] = await Promise.all([
     getWallet(token).catch(() => ({
       balance: 0,
       bumpBalance: 0,
@@ -77,6 +79,9 @@ export default async function MisCreditosPage() {
     // Bump automático — las programaciones del usuario. Si la API falla, la sección se
     // pinta vacía en vez de tumbar la página: el saldo y los packs siguen siendo útiles.
     getBumpSchedules(token).catch(() => ({ items: [], total: 0 })),
+    // La mejor ubicación del lote: es donde se compra, así que una promo de
+    // cupón o de pack cae en el sitio exacto donde se ejecuta.
+    getActiveBanners('MIS_CREDITOS').catch(() => []),
   ]);
 
   const packProducts = catalog.products.filter(
@@ -96,6 +101,11 @@ export default async function MisCreditosPage() {
           hacer bump; los bumps solo sirven para bumpear, y se gastan primero al hacerlo.
         </p>
       </div>
+
+      {/* Hijo directo del `space-y-10` — sin margen propio (§3.3). Va por delante
+          del canjeo de cupón a propósito: si el aviso ANUNCIA un cupón, se lee
+          antes que la caja donde se escribe. */}
+      {banners.length > 0 && <BannerList banners={banners} />}
 
       {/* Canjear cupón — válido para cualquiera de las dos monedas según el tipo de cupón */}
       <RedeemCouponForm token={token} />

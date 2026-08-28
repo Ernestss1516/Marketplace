@@ -13,6 +13,8 @@ import {
   type InvoiceDto,
   type InvoiceEligibility,
 } from '@/lib/api/facturacion';
+import { getActiveBanners } from '@/lib/api/banners';
+import { BannerList } from '@/components/banners/BannerList';
 import { buildLoginUrl } from '@/lib/auth/callback-url';
 
 export const metadata: Metadata = { title: 'Datos de facturación' };
@@ -30,11 +32,12 @@ export default async function FacturacionPage() {
 
   const token = session.user.accessToken;
 
-  const [user, eligibility, facturables, invoices] = await Promise.all([
+  const [user, eligibility, facturables, invoices, banners] = await Promise.all([
     getMe(token),
     getInvoiceEligibility(token).catch((): InvoiceEligibility => EMPTY_ELIGIBILITY),
     getFacturables(token).catch((): Facturable[] => []),
     getMyInvoices(token).catch((): InvoiceDto[] => []),
+    getActiveBanners('PERFIL_FACTURACION').catch(() => []),
   ]);
 
   return (
@@ -46,6 +49,11 @@ export default async function FacturacionPage() {
           (suscripción Pro, packs de créditos o bumps, y destacados).
         </p>
       </div>
+
+      {/* Hijo directo del `space-y-8`: el espaciado ya lo da el contenedor, así
+          que aquí NO va el `mb-6` de las páginas públicas — pondría un hueco
+          doble. Ver docs/diseno-banners-ubicaciones.md §3.3. */}
+      {banners.length > 0 && <BannerList banners={banners} />}
 
       <FacturacionForm initialUser={user} token={token} />
 

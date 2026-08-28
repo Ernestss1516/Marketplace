@@ -8,6 +8,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Separator } from '@/components/ui/separator';
 import { auth } from '@/lib/auth';
 import { getMySubscriptions, getMyEntitlements, getProStatus, type ProStatus } from '@/lib/api/billing';
+import { getActiveBanners } from '@/lib/api/banners';
+import { BannerList } from '@/components/banners/BannerList';
 import { SuscripcionActions } from './_components/SuscripcionActions';
 import { PlanConcedido } from './_components/PlanConcedido';
 import { resolverPlan } from './_components/plan-actual';
@@ -35,7 +37,7 @@ export default async function SuscripcionPage() {
 
   const token = session.user.accessToken;
 
-  const [subscriptions, entitlements, proStatus] = await Promise.all([
+  const [subscriptions, entitlements, proStatus, banners] = await Promise.all([
     getMySubscriptions(token).catch(() => []),
     getMyEntitlements(token).catch(() => []),
     getProStatus(token).catch(
@@ -47,6 +49,9 @@ export default async function SuscripcionPage() {
         bumpQuota: { limit: 0, used: 0, remaining: 0 },
       }),
     ),
+    // La 13.ª ubicación: no estaba en las doce del encargo original y se añadió
+    // al enum en B1 con las demás, para no partir la migración en dos.
+    getActiveBanners('PERFIL_SUSCRIPCION').catch(() => []),
   ]);
 
   const isPro = entitlements.some((e) => e.type === 'PRO_SUBSCRIPTION' && !e.revokedAt);
@@ -72,6 +77,9 @@ export default async function SuscripcionPage() {
           Gestiona tu plan y estado de facturación.
         </p>
       </div>
+
+      {/* Hijo directo del `space-y-8` — sin margen propio (§3.3). */}
+      {banners.length > 0 && <BannerList banners={banners} />}
 
       {/* Current plan */}
       <Card>
