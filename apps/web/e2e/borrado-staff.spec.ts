@@ -32,14 +32,36 @@ const ARCHIVADO = 'Anuncio Archivado E2E';
  * mismo defecto que se encontró mutando el spec de F2.
  */
 async function filaArchivada(page: import('@playwright/test').Page) {
-  await page.goto('/admin/anuncios', { waitUntil: 'domcontentloaded' });
+  const esListado = (url: string) =>
+    url.includes('/admin/listings') && !/\/admin\/listings\//.test(url);
+
+  // (1) LA CARGA INICIAL, ESPERADA APARTE. El clic anterior salía inmediatamente
+  // después del `goto`, cuando la tabla todavía no había hidratado: se perdía EN
+  // SILENCIO y el filtro no llegaba a aplicarse nunca. Que la lista haya
+  // respondido es la prueba de que el componente cliente está vivo — es él quien
+  // hace ese `fetch`—, así que a partir de aquí el chip responde.
+  await Promise.all([
+    page.waitForResponse((r) => esListado(r.url()), { timeout: 20_000 }),
+    page.goto('/admin/anuncios', { waitUntil: 'domcontentloaded' }),
+  ]);
+
+  // (2) Y SE ESPERA A **LA RESPUESTA FILTRADA**, no a una cualquiera. El predicado
+  // anterior casaba también con la petición inicial SIN filtrar, así que el test
+  // seguía con la lista completa y no se enteraba.
+  //
+  // Eso no era sólo un adorno: la lista sin filtrar pagina de 20 en 20, y en
+  // cuanto la batería acumula más de veinte anuncios el fixture archivado se cae
+  // de la primera página. El test fallaba entonces con «no encuentro la fila» —
+  // señalando al dato, cuando el problema era que el filtro nunca se aplicó.
+  // Y al revés es peor: con pocos anuncios PASABA sin haber filtrado nada.
   await Promise.all([
     page.waitForResponse(
-      (r) => r.url().includes('/admin/listings') && !/\/admin\/listings\//.test(r.url()),
+      (r) => esListado(r.url()) && r.url().includes('statuses=ARCHIVED'),
       { timeout: 20_000 },
     ),
     page.getByTestId('filtro-estado-ARCHIVED').click(),
   ]);
+
   return page.locator('tr', { hasText: ARCHIVADO });
 }
 

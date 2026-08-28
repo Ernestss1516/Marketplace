@@ -31,7 +31,15 @@ import { useParams, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { AlertCircle, ArrowLeft, ExternalLink, Loader2 } from 'lucide-react';
+import {
+  AlertCircle,
+  ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
+  ExternalLink,
+  Loader2,
+  Trash2,
+} from 'lucide-react';
 import {
   changeListingStatus,
   deleteAdminListing,
@@ -56,6 +64,7 @@ import {
   formatPrice,
 } from '../listing-status';
 import { getCategoryBySlug } from '@/lib/api/categorias';
+import { getPhotoLimits, type PhotoLimits } from '@/lib/api/anuncios';
 import { attributeErrors, buildAttributes, filterSchemaByType } from '@/lib/attribute-schema';
 import { StepAtributos } from '@/components/publicar/steps/StepAtributos';
 import { ValoracionFila } from '@/components/admin/ValoracionFila';
@@ -177,6 +186,43 @@ export default function AdminFichaAnuncioPage() {
   const [edAtributos, setEdAtributos] = useState<Record<string, string>>({});
 
   /**
+   * IMÁGENES — el modo edición de la galería, con su propio motivo.
+   *
+   * SECCIÓN PROPIA Y NO DENTRO DEL FORMULARIO DE ARRIBA, siguiendo lo que P3a
+   * estableció: se edita una cosa, se guarda, y el resto de la ficha ni se entera.
+   * Compartir el modo edición con título/descripción obligaría a que mover una foto
+   * arrastrase esos campos en el mismo PATCH y ensuciaría el `before/after` del
+   * AuditLog con cambios que nadie hizo.
+   *
+   * EL ORDEN Y LAS BAJAS SE ACUMULAN EN LOCAL hasta pulsar Guardar. No es una
+   * comodidad: la única puerta es `PATCH /admin/listings/:id`, que en CADA llamada
+   * refresca las detecciones del texto, invalida la ficha en Redis y encola un
+   * reindexado. Un PATCH por clic de flecha serían cuatro reindexados para mover una
+   * foto cuatro puestos — y cuatro motivos escritos, porque `reason` es obligatorio.
+   * Encaja además con lo que el backend espera: `sync` recibe la LISTA FINAL, no un
+   * delta.
+   */
+  const [editandoFotos, setEditandoFotos] = useState(false);
+  const [fotosLocal, setFotosLocal] = useState<AdminListingDetail['images']>([]);
+  const [motivoFotos, setMotivoFotos] = useState('');
+  const [guardandoFotos, setGuardandoFotos] = useState(false);
+  const [confirmarFotos, setConfirmarFotos] = useState(false);
+
+  /**
+   * Los topes de fotos, del ÚNICO sitio que los sabe (`GET /listings/photo-limits`).
+   *
+   * NO SE COPIA EL NÚMERO AQUÍ. El botón que se deshabilita y el 422 que lo respalda
+   * tienen que mirar el mismo mínimo, o la interfaz promete algo que el servidor
+   * desmiente. Es el mismo endpoint que ya consumen el asistente de publicación y el
+   * editor del dueño; es público, así que no necesita el token.
+   *
+   * Si falla, se queda `null` y la interfaz NO deshabilita nada: el backend sigue
+   * siendo la garantía, y bloquear por no haber podido preguntar sería peor que
+   * dejar intentarlo y recibir un 422 claro.
+   */
+  const [photoLimits, setPhotoLimits] = useState<PhotoLimits | null>(null);
+
+  /**
    * 2a — EL SCHEMA EFECTIVO DE LA CATEGORÍA, y no es un detalle de comodidad.
    *
    * `GET /admin/listings/:id` incluye `category: true`, o sea la FILA CRUDA: su
@@ -232,6 +278,14 @@ export default function AdminFichaAnuncioPage() {
     void cargar();
   }, [cargar]);
 
+  // Los topes, una vez por visita. Endpoint público y sin parámetros: no depende
+  // del anuncio ni de la sesión, así que no entra en `cargar()`.
+  useEffect(() => {
+    getPhotoLimits()
+      .then(setPhotoLimits)
+      .catch(() => setPhotoLimits(null));
+  }, []);
+
   /**
    * Los atributos que el staff puede tocar: el efectivo de la cadena, filtrado por el
    * TIPO del anuncio. Mismo par de funciones que el wizard del dueño, y en el mismo
@@ -244,6 +298,28 @@ export default function AdminFichaAnuncioPage() {
   const atributosEditables = data
     ? filterSchemaByType(schemaEfectivo, data.type as ListingType)
     : [];
+
+  /**
+   * EL MÍNIMO DE FOTOS, tal y como lo aplica el servidor — las MISMAS tres
+   * condiciones, en el mismo orden, leyendo el mismo número:
+   *
+   *   1. el interruptor está encendido (`minEnforced`, que nace apagado);
+   *   2. el anuncio está PUBLICADO — a un borrador se le pueden quitar todas,
+   *      porque la puerta de publicar/aprobar todavía tiene la última palabra;
+   *   3. quitar una más dejaría por debajo del mínimo.
+   *
+   * Esto NO es la garantía, es el aviso: la garantía es el 422 de
+   * `ListingImagesService.comprobarMinimo`. Por eso, si `photoLimits` no llegó, no
+   * se bloquea nada — dejar intentarlo y recibir un mensaje claro es mejor que
+   * impedirlo por no haber podido preguntar.
+   */
+  const minAplicaAquí =
+    photoLimits?.minEnforced === true && data?.status === 'ACTIVE';
+  const enElMinimoDeFotos =
+    minAplicaAquí && fotosLocal.length <= (photoLimits?.min ?? 1);
+  const avisoDelMinimo = enElMinimoDeFotos
+    ? `Este anuncio está publicado y no puede quedarse con menos de ${photoLimits?.min ?? 1} foto${(photoLimits?.min ?? 1) === 1 ? '' : 's'}. Para que su dueño las cambie, devuélvelo a borrador.`
+    : null;
 
   /**
    * Los errores de cliente de los atributos — la MISMA función que frena al dueño.
@@ -368,6 +444,74 @@ export default function AdminFichaAnuncioPage() {
     } finally {
       setGuardando(false);
     }
+  }
+
+  // ── Las fotos ───────────────────────────────────────────────────────────────
+
+  function abrirEdicionFotos() {
+    if (!data) return;
+    setFotosLocal([...data.images]);
+    setMotivoFotos('');
+    setEditandoFotos(true);
+  }
+
+  function cancelarEdicionFotos() {
+    setEditandoFotos(false);
+    setFotosLocal([]);
+    setMotivoFotos('');
+  }
+
+  /** Intercambia una foto con su vecina. Mover la 1.ª cambia la PORTADA. */
+  function moverFoto(indice: number, direccion: -1 | 1) {
+    const destino = indice + direccion;
+    if (destino < 0 || destino >= fotosLocal.length) return;
+    setFotosLocal((prev) => {
+      const siguiente = [...prev];
+      [siguiente[indice], siguiente[destino]] = [siguiente[destino], siguiente[indice]];
+      return siguiente;
+    });
+  }
+
+  /** Sólo la quita de la LISTA. El fichero no se toca hasta Guardar. */
+  function quitarFoto(indice: number) {
+    setFotosLocal((prev) => prev.filter((_, i) => i !== indice));
+  }
+
+  async function guardarFotos() {
+    if (!token || !data || guardandoFotos) return;
+    setGuardandoFotos(true);
+    try {
+      await updateAdminListing(token, data.id, {
+        // La lista FINAL y en su orden: `sync` la interpreta como el estado al que
+        // dejar el anuncio, no como un delta. El `order` sale de esta posición.
+        imageIds: fotosLocal.map((img) => img.id),
+        reason: motivoFotos.trim(),
+      });
+      setConfirmarFotos(false);
+      setEditandoFotos(false);
+      setMotivoFotos('');
+      await cargar();
+    } catch (err) {
+      // El 422 del mínimo trae su mensaje escrito para quien lo lee (`NOT_ENOUGH_PHOTOS`),
+      // así que se enseña tal cual en vez del genérico.
+      alert(
+        err instanceof ApiError ? `Error ${err.statusCode}: ${err.message}` : 'Error al guardar',
+      );
+    } finally {
+      setGuardandoFotos(false);
+    }
+  }
+
+  /**
+   * Quitar una foto BORRA SUS FICHEROS de R2 —el original y su miniatura— en cuanto
+   * se guarda, y eso no se deshace. Regla de la casa: acción irreversible ⇒
+   * `AlertDialog` antes. Reordenar no lo es, así que sólo se pregunta si hay bajas.
+   */
+  function pedirGuardarFotos() {
+    if (!data) return;
+    const hayBajas = fotosLocal.length < data.images.length;
+    if (hayBajas) setConfirmarFotos(true);
+    else void guardarFotos();
   }
 
   async function eliminar() {
@@ -590,26 +734,166 @@ export default function AdminFichaAnuncioPage() {
           {/* ── 2. El anuncio tal cual ──────────────────────────────────────
               ESTO es lo que el moderador no podía ver. */}
           <Seccion titulo="El anuncio">
-            {data.images.length > 0 ? (
-              <div className="mb-4 grid grid-cols-3 gap-2 sm:grid-cols-4">
-                {data.images.map((img) => (
-                  <div
-                    key={img.id}
-                    className="relative aspect-square overflow-hidden rounded-md bg-muted"
-                    data-testid="ficha-imagen"
-                  >
-                    <Image
-                      src={img.url}
-                      alt={img.alt ?? data.title}
-                      fill
-                      className="object-cover"
-                      sizes="120px"
-                    />
+            {/* ── Las fotos ──────────────────────────────────────────────────
+                La galería llevaba desde F1 en modo lectura: el moderador veía las
+                fotos y no podía tocarlas. El backend sí sabía —`sync` reordena,
+                borra y limpia R2— pero nadie le mandaba nunca `imageIds`. Esto es
+                lo que conecta las dos mitades. */}
+            {!editandoFotos ? (
+              <>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <span className="text-xs text-muted-foreground">
+                    {data.images.length > 0
+                      ? `${data.images.length} foto${data.images.length === 1 ? '' : 's'}`
+                      : 'Sin fotos.'}
+                  </span>
+                  {data.images.length > 0 && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={abrirEdicionFotos}
+                      data-testid="ficha-editar-fotos"
+                    >
+                      Editar fotos
+                    </Button>
+                  )}
+                </div>
+                {data.images.length > 0 && (
+                  <div className="mb-4 grid grid-cols-3 gap-2 sm:grid-cols-4">
+                    {data.images.map((img) => (
+                      <div
+                        key={img.id}
+                        className="relative aspect-square overflow-hidden rounded-md bg-muted"
+                        data-testid="ficha-imagen"
+                      >
+                        <Image
+                          src={img.url}
+                          alt={img.alt ?? data.title}
+                          fill
+                          className="object-cover"
+                          sizes="120px"
+                        />
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                )}
+              </>
             ) : (
-              <p className="mb-4 text-xs text-muted-foreground">Sin fotos.</p>
+              <div className="mb-4 space-y-3" data-testid="ficha-form-fotos">
+                <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                  {fotosLocal.map((img, i) => (
+                    <div key={img.id} className="space-y-1" data-testid="ficha-imagen-editable">
+                      <div className="relative aspect-square overflow-hidden rounded-md bg-muted">
+                        <Image
+                          src={img.url}
+                          alt={img.alt ?? data.title}
+                          fill
+                          className="object-cover"
+                          sizes="120px"
+                        />
+                        {/* LA PRIMERA ES LA PORTADA, y decirlo es la mitad del valor de
+                            reordenar: la tarjeta de listado toma la foto con `order`
+                            más bajo (`take: 1`), así que mover una al primer puesto ES
+                            cambiar la miniatura del anuncio en toda la web. Sin este
+                            rótulo, reordenar parece una operación sin consecuencia. */}
+                        {i === 0 && (
+                          <span
+                            className="absolute left-1 top-1 rounded bg-primary px-1.5 py-0.5 text-[10px] font-medium text-primary-foreground"
+                            data-testid="ficha-foto-portada"
+                          >
+                            Portada
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-center gap-0.5">
+                        <Button
+                          size="icon"
+                          variant="outline"
+                          className="h-6 w-6"
+                          disabled={i === 0 || guardandoFotos}
+                          onClick={() => moverFoto(i, -1)}
+                          aria-label={`Mover la foto ${i + 1} hacia la izquierda`}
+                          data-testid={`ficha-foto-izquierda-${i}`}
+                        >
+                          <ChevronLeft className="h-3 w-3" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="outline"
+                          className="h-6 w-6"
+                          disabled={i === fotosLocal.length - 1 || guardandoFotos}
+                          onClick={() => moverFoto(i, 1)}
+                          aria-label={`Mover la foto ${i + 1} hacia la derecha`}
+                          data-testid={`ficha-foto-derecha-${i}`}
+                        >
+                          <ChevronRight className="h-3 w-3" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="outline"
+                          className="h-6 w-6 text-destructive"
+                          disabled={enElMinimoDeFotos || guardandoFotos}
+                          onClick={() => quitarFoto(i)}
+                          aria-label={`Quitar la foto ${i + 1}`}
+                          title={
+                            enElMinimoDeFotos
+                              ? avisoDelMinimo ?? undefined
+                              : 'Quitar esta foto'
+                          }
+                          data-testid={`ficha-foto-quitar-${i}`}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* El motivo del bloqueo, escrito. Un botón deshabilitado sin
+                    explicación es una pared; con ella es una regla. */}
+                {avisoDelMinimo && (
+                  <p className="text-xs text-muted-foreground" data-testid="ficha-fotos-minimo">
+                    {avisoDelMinimo}
+                  </p>
+                )}
+
+                <div>
+                  <label
+                    htmlFor="ed-motivo-fotos"
+                    className="mb-1 block text-xs text-muted-foreground"
+                  >
+                    Motivo del cambio
+                  </label>
+                  <input
+                    id="ed-motivo-fotos"
+                    value={motivoFotos}
+                    onChange={(e) => setMotivoFotos(e.target.value)}
+                    placeholder="Por qué se reordenan o se quitan estas fotos"
+                    className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                    data-testid="ficha-fotos-motivo"
+                  />
+                </div>
+
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    onClick={pedirGuardarFotos}
+                    disabled={guardandoFotos || motivoFotos.trim().length < 5}
+                    data-testid="ficha-fotos-guardar"
+                  >
+                    {guardandoFotos ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Guardar fotos'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={cancelarEdicionFotos}
+                    disabled={guardandoFotos}
+                    data-testid="ficha-fotos-cancelar"
+                  >
+                    Cancelar
+                  </Button>
+                </div>
+              </div>
             )}
 
             {/* P3a — EL MODO EDICIÓN, POR SECCIÓN.
@@ -1151,6 +1435,42 @@ export default function AdminFichaAnuncioPage() {
               data-testid="ficha-confirmar-eliminar"
             >
               Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Sólo aparece si hay BAJAS: reordenar no destruye nada y no merece un
+          diálogo. Quitar sí — al guardar se van el original y su miniatura de R2,
+          y no hay vuelta atrás. Dice CUÁNTAS son, que es lo que el moderador
+          necesita confirmar. */}
+      <AlertDialog open={confirmarFotos} onOpenChange={setConfirmarFotos}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              ¿Quitar {data.images.length - fotosLocal.length} foto
+              {data.images.length - fotosLocal.length === 1 ? '' : 's'}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Es irreversible: los ficheros se borran del almacenamiento y no se pueden
+              recuperar. El anuncio se quedará con {fotosLocal.length} foto
+              {fotosLocal.length === 1 ? '' : 's'}. Queda registrado en el historial con tu
+              motivo y la dirección de cada foto retirada.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={guardandoFotos}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                // El diálogo se cierra solo al pulsar; aquí se impide para que no
+                // desaparezca mientras la petición está en vuelo. Lo cierra
+                // `guardarFotos` cuando termina bien.
+                e.preventDefault();
+                void guardarFotos();
+              }}
+              data-testid="ficha-fotos-confirmar"
+            >
+              {guardandoFotos ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Quitar y guardar'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
