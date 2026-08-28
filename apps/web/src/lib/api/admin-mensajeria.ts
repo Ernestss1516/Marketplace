@@ -1,12 +1,17 @@
 import { apiFetch } from './client';
 
 /**
- * MENSAJERÍA C1 — el metadato de las conversaciones, para el staff.
+ * MENSAJERÍA EN EL BACKOFFICE — las dos mitades, y son distintas a propósito.
  *
- * **NO HAY AQUÍ NINGUNA FUNCIÓN QUE TRAIGA MENSAJES**, y no es que falte: el
- * cuerpo de las conversaciones es C2, con su decisión de privacidad y su registro
- * de acceso. Lo que C1 sirve es lo que se puede saber sin leer nada de nadie:
- * quién habló con quién, sobre qué, cuándo y cuánto.
+ * `getConversaciones*` (C1) da METADATO: quién habló con quién, sobre qué, cuándo
+ * y cuántos mensajes. No sale una línea de contenido y no se registra nada — se
+ * carga en cada visita a una ficha.
+ *
+ * `abrirConversacion` (C2) da el CONTENIDO ÍNTEGRO, y **cada llamada deja una
+ * fila de `AuditLog`**. No es un efecto secundario: al abrirse el contenido a
+ * MODERATOR+, el rol dejó de filtrar y el registro es lo único que separa la
+ * capacidad del abuso. Quien llame a esto debe saber que deja rastro, y la
+ * pantalla se lo dice al usuario.
  */
 
 /** Cabecera de una conversación. Sin una sola línea de su contenido. */
@@ -37,6 +42,34 @@ export interface ConversacionesPaginadas {
 
 /** Las dos caras de una persona: lo que preguntó y lo que le preguntaron. */
 export type PapelConversacion = 'comprador' | 'vendedor' | 'ambos';
+
+/** Un mensaje del hilo, tal cual se guardó. */
+export interface MensajeStaff {
+  id: string;
+  body: string;
+  createdAt: string;
+  /** Si el destinatario lo leyó. Abrir desde staff NO lo cambia. */
+  readAt: string | null;
+  sender: { id: string; name: string | null };
+}
+
+export interface ConversacionCompleta extends Omit<ConversacionCabecera, '_count'> {
+  messages: MensajeStaff[];
+}
+
+/**
+ * C2 — abre el hilo entero.
+ *
+ * **DEJA UNA FILA DE `AuditLog` EN EL SERVIDOR** con quién abrió, qué hilo y desde
+ * dónde. Una por llamada: lo que hay que poder auditar es cada acceso, no que
+ * alguna vez se accediera.
+ */
+export function abrirConversacion(
+  token: string,
+  id: string,
+): Promise<ConversacionCompleta> {
+  return apiFetch<ConversacionCompleta>(`/admin/conversations/${id}`, { token });
+}
 
 export function getConversacionesDeAnuncio(
   token: string,

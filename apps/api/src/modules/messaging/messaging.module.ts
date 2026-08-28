@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
+import { AuditLogModule } from '../audit-log/audit-log.module';
 import { MessagingController } from './messaging.controller';
 import { MessagingService } from './messaging.service';
 import { MessagingGateway } from './messaging.gateway';
@@ -7,7 +8,7 @@ import { AdminMessagingController } from './admin-messaging.controller';
 import { AdminMessagingService } from './admin-messaging.service';
 
 @Module({
-  imports: [AuthModule], // provides JwtService (via JwtModule export) and ConfigService (global)
+  imports: [AuthModule, AuditLogModule], // AuthModule: JwtService + ConfigService (global). AuditLogModule: C2 registra cada apertura de hilo.
   // El camino de staff vive en este módulo —es el mismo dominio— pero con
   // controlador y servicio PROPIOS: el lector del usuario marca como leído
   // (`getConversation`) y el del staff no puede escribir nada. Ver la cabecera

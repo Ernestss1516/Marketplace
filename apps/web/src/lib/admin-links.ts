@@ -65,6 +65,19 @@ export function adminReportHref(id: string): string {
   return `/admin/reportes/${id}`;
 }
 
+/**
+ * El hilo de una conversación, visto por el staff.
+ *
+ * CUELGA DE `/admin/anuncios/` A PROPÓSITO, no es un descuido de nomenclatura:
+ * `canAccessAdminPath` es fail-closed ante una ruta sin sección, y una sección
+ * propia obligaría a poner «Conversaciones» en el nav —el mapa prohíbe secciones
+ * accesibles fuera de la barra—, lo que significaría un explorador global de
+ * mensajería que el diseño descartó. Ver la cabecera de la propia página.
+ */
+export function adminConversationHref(id: string): string {
+  return `/admin/anuncios/conversaciones/${id}`;
+}
+
 /** Anuncios del backoffice ya filtrados por vendedor. */
 export function adminListingsBySellerHref(sellerId: string): string {
   return `/admin/anuncios?sellerId=${sellerId}`;

@@ -1,8 +1,17 @@
-import { BadRequestException, Controller, Get, Query, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Controller,
+  Get,
+  Ip,
+  Param,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { JwtAuthGuard, RolesGuard } from '../../common/guards';
-import { MinRole } from '../../common/decorators';
+import { CurrentUser, MinRole } from '../../common/decorators';
+import { JwtUser } from '../auth/auth.types';
 import { AdminMessagingService } from './admin-messaging.service';
 import { ListConversationsDto } from './dto/list-conversations.dto';
 
@@ -68,5 +77,24 @@ export class AdminMessagingController {
     return listingId
       ? this.adminMessaging.listByListing(listingId, query)
       : this.adminMessaging.listByUser(userId!, query);
+  }
+
+  /**
+   * C2 — EL HILO ÍNTEGRO. La capacidad más invasiva del backoffice.
+   *
+   * **CADA LLAMADA A ESTO DEJA UNA FILA DE `AuditLog`**, y no es un extra: es la
+   * única salvaguarda que queda. Al decidirse que MODERATOR+ pueda abrir —y no
+   * sólo ADMIN—, el rol dejó de filtrar, así que lo que separa la capacidad del
+   * abuso es que quede constancia de quién miró qué y cuándo. Ver `openForStaff`.
+   *
+   * La `@Ip()` viaja al registro por el mismo motivo que en el resto de acciones
+   * de staff: el rastro es de quien actúa, no de quien es mirado.
+   *
+   * Sigue sin escribir en los datos de nadie: abrir NO marca los mensajes como
+   * leídos. Es la barrera de C1, sostenida aquí.
+   */
+  @Get(':id')
+  open(@Param('id') id: string, @CurrentUser() user: JwtUser, @Ip() ip: string) {
+    return this.adminMessaging.openForStaff(id, user.userId, ip);
   }
 }
