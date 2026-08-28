@@ -42,6 +42,8 @@ import {
   adminTicketHref,
 } from '@/lib/admin-links';
 import { ReporteFila } from '@/components/admin/ReporteFila';
+import { ConversacionesPanel } from '@/components/admin/ConversacionesPanel';
+import { getConversacionesDeUsuario } from '@/lib/api/admin-mensajeria';
 // TRADUCCIONES — los cinco campos de esta ficha que pintaban el enum crudo. Sus
 // propios `ESTADO_LABELS` y `ROL_LABELS` estaban aquí inline y han subido a
 // `../../etiquetas` SIN cambiar de texto: lo que gana la ficha es alcanzar el resto
@@ -150,6 +152,19 @@ export default function AdminFichaUsuarioPage() {
   useEffect(() => {
     void cargar();
   }, [cargar]);
+
+  // MENSAJERÍA C1 — memorizadas: el panel las tiene en sus deps, y sin `useCallback`
+  // cada render crearía una función nueva y el efecto se repetiría en bucle.
+  const cargarComoComprador = useCallback(
+    (page: number) =>
+      getConversacionesDeUsuario(token!, params.id, { papel: 'comprador', page }),
+    [token, params.id],
+  );
+  const cargarComoVendedor = useCallback(
+    (page: number) =>
+      getConversacionesDeUsuario(token!, params.id, { papel: 'vendedor', page }),
+    [token, params.id],
+  );
 
   if (loading) {
     return (
@@ -428,6 +443,35 @@ export default function AdminFichaUsuarioPage() {
                   ))}
                 </ul>
               )}
+            </Seccion>
+
+            {/*
+              MENSAJERÍA C1 — LAS DOS CARAS, SEPARADAS.
+              Esta ficha no tenía NADA de mensajería: ni una sección, ni el número.
+
+              Y van en dos listas porque son dos cosas distintas: lo que esta
+              persona preguntó por cosas de otros, y lo que le preguntaron por lo
+              suyo. Mezclarlas escondería justo el patrón que se investiga —
+              «escribe a cincuenta vendedores y no compra nunca» no se ve en una
+              lista revuelta—. Mismo reparto que las valoraciones «recibidas» y
+              «dadas», que resolvieron antes esta misma forma.
+
+              El contenido de los mensajes no se abre desde aquí (es C2).
+            */}
+            <Seccion titulo="Conversaciones como comprador" testId="usuario-conversaciones-comprador">
+              <ConversacionesPanel
+                token={token!}
+                cargar={cargarComoComprador}
+                vacio="No ha escrito a ningún vendedor."
+              />
+            </Seccion>
+
+            <Seccion titulo="Conversaciones como vendedor" testId="usuario-conversaciones-vendedor">
+              <ConversacionesPanel
+                token={token!}
+                cargar={cargarComoVendedor}
+                vacio="Nadie le ha escrito por sus anuncios."
+              />
             </Seccion>
 
             <Seccion titulo="Tickets" contador={data._count.tickets} testId="usuario-tickets">
