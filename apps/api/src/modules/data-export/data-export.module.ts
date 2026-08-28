@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { QUEUE_DATA_EXPORT, retryQueue } from '../../infra/queue/queue.constants';
 import { AuditLogModule } from '../audit-log/audit-log.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { DataExportCollector } from './data-export.collector';
 import { DataExportController } from './data-export.controller';
 import { DataExportExpirationService } from './data-export-expiration.service';
@@ -17,7 +18,13 @@ import { DataExportService } from './data-export.service';
  * `R2Service` no se importa: `R2Module` es `@Global`.
  */
 @Module({
-  imports: [AuditLogModule, BullModule.registerQueue(retryQueue(QUEUE_DATA_EXPORT))],
+  imports: [
+    AuditLogModule,
+    // A1 — el aviso de «tu ZIP está listo» pasa por el servicio tipado, no por
+    // `prisma.notification.create()`. Ver `data-export.service.ts`.
+    NotificationsModule,
+    BullModule.registerQueue(retryQueue(QUEUE_DATA_EXPORT)),
+  ],
   controllers: [DataExportController],
   providers: [
     DataExportService,

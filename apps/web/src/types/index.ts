@@ -663,7 +663,15 @@ export interface Post extends PostSummary {
 
 // ── Notifications ────────────────────────────────────────────────────────────
 
-export type NotificationType = 'ALERT_MATCH' | 'CONTACT_MESSAGE' | 'REVIEW_REQUEST';
+/**
+ * NOTIFICACIONES A1 — DERIVADO DE LA UNIÓN, ya no escrito a mano.
+ *
+ * Escrito a mano se quedó en tres valores mientras el backend llegaba a doce: era
+ * una segunda lista de tipos, desactualizada, esperando a que alguien la creyera.
+ * Derivándolo de `NotificationItem` no puede volver a desalinearse — hay UNA
+ * fuente, la unión discriminada, que es además la que impone los `case`.
+ */
+export type NotificationType = NotificationItem['type'];
 
 /** Self-contained snapshot — mirrors AlertMatchData in the backend. */
 export interface AlertMatchData {
@@ -739,7 +747,20 @@ export interface ReportResolvedData {
 export interface ListingModeratedData {
   listingId: string;
   listingTitle: string;
-  action: 'REJECTED' | 'DEACTIVATED' | 'RESTORED';
+  /**
+   * NOTIFICACIONES A1 — `APPROVED` FALTABA AQUÍ, y ésta era la causa real del
+   * defecto. El backend emite los cuatro valores (`approveListing` manda
+   * `'APPROVED'` desde M2, y el email tiene su copy), pero este espejo declaraba
+   * sólo tres. El mapa de `notification-content.ts` era entonces **correcto contra
+   * un tipo equivocado**: tenía las tres claves que este `action` decía tener, así
+   * que el compilador no vio nada raro y el aviso de «tu anuncio ya está
+   * publicado» se pintaba vacío mientras el correo salía bien.
+   *
+   * El espejo se mantiene a mano y se desalineó en silencio. Mientras siga siendo
+   * a mano, el mapa exhaustivo del `case` es lo que convierte un desajuste futuro
+   * en un error de compilación en vez de en una notificación en blanco.
+   */
+  action: 'APPROVED' | 'REJECTED' | 'DEACTIVATED' | 'RESTORED';
   reason: string | null;
 }
 
@@ -748,6 +769,20 @@ export interface ReviewModeratedData {
   rating: number;
   listingTitle: string | null;
   targetName: string;
+  /**
+   * A1 — `RETIRED` deja de verse; `EDITED` sigue publicada con el texto o las
+   * estrellas cambiados. Sin este discriminante, editar una valoración le decía a
+   * su autor que se la habían retirado.
+   */
+  action: 'RETIRED' | 'EDITED';
+}
+
+/** Espejo de DataExportReadyData en el backend (Borrado de cuentas C6). */
+export interface DataExportReadyData {
+  exportId: string;
+  /** ISO-8601. Congelado: el aviso sobrevive a que la exportación caduque. */
+  expiresAt: string;
+  sizeBytes: number;
 }
 
 /** Bump automático — la programación se paró; `reason` decide el texto y la salida. */
@@ -780,7 +815,11 @@ export type NotificationItem =
   | (NotificationBase & { type: 'REPORT_RESOLVED'; data: ReportResolvedData })
   | (NotificationBase & { type: 'LISTING_MODERATED'; data: ListingModeratedData })
   | (NotificationBase & { type: 'REVIEW_MODERATED'; data: ReviewModeratedData })
-  | (NotificationBase & { type: 'BUMP_AUTO_PAUSED'; data: BumpAutoPausedData });
+  | (NotificationBase & { type: 'BUMP_AUTO_PAUSED'; data: BumpAutoPausedData })
+  // A1 — el tipo que el backend creaba desde C6 y que nunca llegó a esta unión,
+  // porque se escribía con `prisma.notification.create()` directo. Sin miembro
+  // aquí no había `case` que exigir, y el aviso salía como «Nueva notificación».
+  | (NotificationBase & { type: 'DATA_EXPORT_READY'; data: DataExportReadyData });
 
 export interface NotificationsResponse {
   items: NotificationItem[];

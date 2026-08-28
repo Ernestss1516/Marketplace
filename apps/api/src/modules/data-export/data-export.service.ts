@@ -13,6 +13,7 @@ import { PrismaService } from '../../infra/prisma/prisma.service';
 import { R2Service } from '../../infra/r2/r2.service';
 import { QUEUE_DATA_EXPORT } from '../../infra/queue/queue.constants';
 import { AuditLogService } from '../audit-log/audit-log.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { DataExportCollector } from './data-export.collector';
 import {
   DATA_EXPORT_TTL_DAYS,
@@ -47,6 +48,7 @@ export class DataExportService {
     private readonly r2: R2Service,
     private readonly collector: DataExportCollector,
     private readonly auditLog: AuditLogService,
+    private readonly notifications: NotificationsService,
     @InjectQueue(QUEUE_DATA_EXPORT) private readonly queue: Queue,
   ) {}
 
@@ -278,18 +280,23 @@ export class DataExportService {
      * el usuario ya cerró la pestaña. Snapshot autocontenido —`Notification.data`
      * lo exige por escrito—: si la exportación caduca y se borra, el aviso sigue
      * pudiendo pintarse sin consultas.
+     *
+     * NOTIFICACIONES A1 — POR EL SERVICIO TIPADO, no con `prisma.notification.create()`.
+     * Escrito así, este aviso nunca llegó a estar en `NotificationType`, ni en la
+     * unión del front, ni tuvo `case`: se pintaba como «Nueva notificación», sin
+     * decir qué era ni llevar a la descarga —y encima de algo que CADUCA—. Pasar
+     * por aquí es lo que obliga a que `DataExportReadyData` exista y case con el
+     * tipo; que la puerta de atrás ya no compile es lo que impide la tercera vez.
      */
-    await this.prisma.notification.create({
-      data: {
-        userId: exportacion.subjectUserId,
-        type: 'DATA_EXPORT_READY',
-        data: {
-          exportId: exportacion.id,
-          expiresAt: expiresAt.toISOString(),
-          sizeBytes: buffer.byteLength,
-        },
+    await this.notifications.createNotification(
+      exportacion.subjectUserId,
+      'DATA_EXPORT_READY',
+      {
+        exportId: exportacion.id,
+        expiresAt: expiresAt.toISOString(),
+        sizeBytes: buffer.byteLength,
       },
-    });
+    );
 
     this.logger.log(
       `Exportación ${exportacion.id} lista para ${sujeto.slug}: ` +
