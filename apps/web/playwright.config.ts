@@ -33,7 +33,22 @@ export default defineConfig({
   globalTeardown: './e2e/global-teardown.ts',
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 1 : 0,
+  // UNO TAMBIÉN EN LOCAL. Era `process.env.CI ? 1 : 0`, y ese `0` borraba
+  // información: sin reintento, un flake ambiental y una regresión real se ven
+  // EXACTAMENTE IGUAL —un rojo duro—, y durante una sesión entera se leyeron como
+  // «ambientales» rojos que no se habían distinguido de nada. Con uno, Playwright
+  // los separa solo: lo que pasa al segundo intento sale como `flaky`; lo que falla
+  // las dos veces es real.
+  //
+  // UNO Y NO DOS, y es una decisión medida, no una cifra por defecto. La causa de
+  // los rojos locales era un `process.exit` del propio servidor de Next (ver
+  // `scripts/e2e-ci.js`): cuando el servidor se reinicia, un tercer intento no
+  // rescata nada que no rescatara el segundo. Y §14 de `docs/ci-playwright-plan.md`
+  // ya midió el caso `@2b` con más reintentos: salió PEOR. Subirlo sería alargar la
+  // corrida a cambio de nada.
+  //
+  // El CI no cambia: ya venía con uno.
+  retries: 1,
   // workers: 1 NO es una palanca de rendimiento pendiente de subir: es un
   // requisito. Las specs comparten UNA sola base (marketplace_test), UN índice
   // de Meili y UNA db de Redis, y globalSetup siembra seis cuentas fijas que

@@ -458,6 +458,48 @@ command: process.env.CI
 > `@nestjs/platform-express` sin estar declarada. Las dos cosas están anotadas como deuda en
 > `estado-tecnico.md`: tocan el arranque de **producción** y no deben colarse en un cambio de CI.
 
+### 9.2b Verificar en LOCAL como verifica el CI — `pnpm test:e2e:ci`
+
+Lo de arriba se arregló **solo para el CI**. El arranque local se quedó en `next dev`, así que
+el *watchdog* de §9.2 sigue vivo ahí: `pnpm test:e2e` a secas produce rojos que **no son del
+producto** y que en CI no existen. Durante una sesión entera se leyeron como «ambientales» y
+se siguió adelante sin más; medido después, el CI iba **24 de 24 en verde** mientras la
+batería local daba 17-25 rojos, y los mismos ficheros pasaban **80 de 80** al arrancar en
+producción. Ver `docs/auditoria-inestabilidad-playwright.md`.
+
+```bash
+pnpm --filter @marketplace/web test:e2e:ci      # equivale al paso que decide el pipeline
+pnpm --filter @marketplace/web test:e2e:ci e2e/tarjeta.spec.ts   # admite argumentos
+```
+
+El script (`apps/web/scripts/e2e-ci.js`) hace tres cosas, y **las tres hacen falta**:
+
+1. **Libera los puertos 3000/3001 preguntando AL PUERTO**, no a una lista de procesos. Cerrar
+   la terminal de `pnpm dev` mata el envoltorio, no el Node: queda un `next dev` escuchando.
+   Con `CI=1` Playwright no lo adopta, pero su servidor choca con `EADDRINUSE` y la corrida
+   muere a los dos minutos con «Timed out waiting 120000ms from config.webServer», un mensaje
+   que ni menciona el puerto.
+2. **Borra `.next` y construye.** `next dev` y `next build` escriben en el mismo sitio:
+   construir con el dev vivo deja un build a medias, y el `next start` resultante revienta con
+   `Cannot find module './vendor-chunks/…'`. El orden —liberar, borrar, construir— es el
+   arreglo.
+3. **Lanza Playwright con `CI=1` y `--grep-invert "@2b"`.** `CI=1` bascula los cinco puntos de
+   la config de una vez (producción, sin watch, servidores frescos, `retries: 1`, 150 s); el
+   `--grep-invert` reproduce exactamente la **señal** de §7.1, que es el listón que el CI
+   aplica.
+
+> **`pnpm dev` no cambia.** Esto es una vía opcional para VERIFICAR; `next dev` con watch
+> sigue siendo lo correcto para desarrollar. Y el CI tampoco cambia: ya estaba bien.
+
+**Lo que se descartó, con la medición al lado**, para no volver a discutirlo:
+
+| Descartado | Por qué |
+|---|---|
+| `retries: 2` | La causa es un `process.exit` del servidor: si se reinicia, el tercer intento no rescata más que el segundo. Y §14 de `ci-playwright-plan.md` midió `@2b` con más reintentos — salió **peor**. |
+| Subir `navigationTimeout` | No es un plazo que se agota, es un servidor que **desaparece**. Un plazo mayor solo tarda más en dar el mismo rojo. |
+| `next start` por defecto en local | Rompería el ciclo de desarrollo. `CI=1` da las dos conductas sin renunciar a ninguna. |
+| `workers > 1` | Prohibido por diseño (§9.1): las specs comparten base, índice y cuentas sembradas. No tiene relación con esto. |
+
 ### 9.3 El patrón de navegación: reintentar el CLIC, no la espera
 
 Bajo `next start`, un clic sobre un `<Link>` a veces no completa la transición: la RSC payload

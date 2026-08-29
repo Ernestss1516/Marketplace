@@ -10,7 +10,8 @@
     "type-check": "tsc --noEmit",
     "test:unit": "jest",
     "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui"
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:ci": "node scripts/e2e-ci.js"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.2.16",
