@@ -784,6 +784,33 @@ export interface ReviewModeratedData {
 }
 
 /**
+ * Espejo de `ListingLifecycleAction` en el backend (N3) — lo que le pasa a un
+ * anuncio SIN que su dueño lo haya pedido.
+ *
+ * Las acciones propias (pausar, renovar, destacar, editar o borrar por su mano) no
+ * están y no deben estar: avisar a alguien de lo que acaba de hacer es ruido.
+ */
+export type ListingLifecycleAction =
+  | 'RECEIVED'
+  | 'EXPIRING_SOON'
+  | 'EXPIRED'
+  | 'EDITED_BY_STAFF'
+  | 'DELETED_BY_STAFF'
+  | 'FEATURED_EXPIRED';
+
+/** Espejo de ListingLifecycleData en el backend (N3). */
+export interface ListingLifecycleData {
+  listingId: string;
+  /** Congelado: el aviso sobrevive al borrado del anuncio. */
+  listingTitle: string;
+  action: ListingLifecycleAction;
+  /** Hoy sólo lo lleva EDITED_BY_STAFF. Degradación limpia si es null. */
+  reason: string | null;
+  /** Sólo en EXPIRING_SOON. */
+  daysLeft: number | null;
+}
+
+/**
  * Espejo de `AccountModeratedAction` en el backend (N2).
  *
  * `DELETED` no está: eliminar una cuenta borra sus notificaciones, así que ese
@@ -859,7 +886,10 @@ export type NotificationItem =
   // N2 — las decisiones sobre la cuenta. Para un sancionado la campana es
   // constancia (no puede abrirla hasta que vuelva); el canal que le llega es el
   // correo. Se pinta igual, porque cuando vuelva querrá encontrar el porqué.
-  | (NotificationBase & { type: 'ACCOUNT_MODERATED'; data: AccountModeratedData });
+  | (NotificationBase & { type: 'ACCOUNT_MODERATED'; data: AccountModeratedData })
+  // N3 — el ciclo de vida del anuncio: lo que le pasa sin que su dueño lo pida.
+  // El caso que más falta hacía es EXPIRED («desapareció y no sé por qué»).
+  | (NotificationBase & { type: 'LISTING_LIFECYCLE'; data: ListingLifecycleData });
 
 export interface NotificationsResponse {
   items: NotificationItem[];

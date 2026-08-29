@@ -8,6 +8,7 @@ import type { RedisService } from '../../infra/redis/redis.service';
 import type { MeilisearchService } from '../../infra/meilisearch/meilisearch.service';
 import type { AuditLogService } from '../audit-log/audit-log.service';
 import type { AccountModerationNotificationsService } from '../account-moderation-notifications/account-moderation-notifications.service';
+import type { ListingLifecycleNotificationsService } from '../listing-lifecycle-notifications/listing-lifecycle-notifications.service';
 import type { FilterableAttributesResolver } from '../search/filterable-attributes.resolver';
 import type { CategoryTreeService } from '../categories/category-tree.service';
 import type { ListingGateService } from '../listing-gate/listing-gate.service';
@@ -55,6 +56,10 @@ function buildService(prismaOverrides: Record<string, unknown> = {}) {
     // casos son de política de categorías y no tocan ninguna cuenta, pero el
     // constructor lo exige desde que las sanciones dejaron de ser mudas.
     { decidido: jest.fn(), eliminado: jest.fn() } as unknown as AccountModerationNotificationsService,
+    // N3 — mismo mantenimiento de fixture: estos casos son de política de
+    // categorías y no tocan ningún anuncio, pero el constructor lo exige desde que
+    // editar y eliminar dejaron de ser mudos.
+    { ocurrio: jest.fn() } as unknown as ListingLifecycleNotificationsService,
     {} as FilterableAttributesResolver,
     categoryTree as unknown as CategoryTreeService,
     // PUERTA — mantenimiento de fixture por cambio de FIRMA. Este spec ejercita

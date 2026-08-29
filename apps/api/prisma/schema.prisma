@@ -969,6 +969,32 @@ model Listing {
   /// NACE `NEW` POR DEFECTO, SIN CÓDIGO. `create()` tampoco escribe `status`: se
   /// apoya en su `@default(DRAFT)`. Y el default da el valor correcto a todas las
   /// filas existentes sin backfill — nadie ha triado nada todavía.
+  /// NOTIFICACIONES N3 — CONTRA QUÉ VENCIMIENTO SE PREAVISÓ. La idempotencia del
+  /// preaviso de expiración, y la razón de que sea una FECHA y no un booleano.
+  ///
+  /// ── EL PROBLEMA ─────────────────────────────────────────────────────────────
+  ///
+  /// El preaviso lo manda un cron DIARIO sobre los anuncios que expiran dentro de
+  /// N días. Sin marca, el mismo anuncio recibe el mismo aviso **N días seguidos**:
+  /// el cron no recuerda nada y la ventana no se cierra sola.
+  ///
+  /// ── POR QUÉ GUARDA EL `expiresAt` Y NO UN `expiryWarnedAt` ─────────────────
+  ///
+  /// Un booleano —o una fecha de «cuándo avisé»— habría que LIMPIARLO cada vez que
+  /// el vencimiento se mueve, y `expiresAt` se escribe en CINCO sitios (publicar,
+  /// renovar, reactivar, y dos caminos de moderación). Olvidar uno significa que
+  /// ese anuncio no vuelve a preavisarse nunca más, en silencio y para siempre.
+  ///
+  /// Guardando el vencimiento AL QUE CORRESPONDE el aviso, la marca **se invalida
+  /// sola**: el predicado es `expiryWarnedFor <> expiresAt`, así que renovar mueve
+  /// `expiresAt` y con eso ya vuelve a ser preavisable, sin que nadie tenga que
+  /// acordarse de limpiar nada en ninguno de los cinco sitios. Es el mismo
+  /// criterio que hace que `AlertMatch` deduplique por el PAR (alerta, anuncio) en
+  /// vez de por un flag en la alerta.
+  ///
+  /// `null` = nunca preavisado. Aditiva y sin backfill.
+  expiryWarnedFor DateTime?
+
   triage ListingTriage @default(NEW)
 
   /// ETIQUETA INTERNA (P1) — «el staff vigila este anuncio».

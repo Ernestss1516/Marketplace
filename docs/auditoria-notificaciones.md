@@ -218,6 +218,56 @@ de una decisión de producto.
 
 ### A3.1 — ANUNCIOS
 
+> ### ✅ ESTADO: N3 IMPLEMENTADO (rama `notificaciones-n3-ciclo-vida`)
+>
+> **El ciclo de vida del anuncio ya no es mudo.** La tabla se conserva como diagnóstico
+> original; lo que cambió:
+>
+> | Evento | Antes | Ahora | Canal |
+> |---|---|---|---|
+> | Publicar → en cola | mudo | ✅ «lo hemos recibido, está en cola» | in-app |
+> | **Expirar** | mudo | ✅ «no lo ha retirado nadie: caducan solos» | in-app + email |
+> | **Preaviso (7 días)** | no existía | ✅ **idempotente** | in-app + email |
+> | Editado por staff | motivo sólo en `AuditLog` | ✅ con su motivo | in-app + email |
+> | Eliminado por staff | mudo | ✅ (sin motivo: no se captura) | in-app + email |
+> | Destacado expirado | mudo | ✅ | in-app |
+>
+> **Un tipo con `action`, molde `LISTING_MODERATED`** — pero **tipo aparte**: aquél es «el
+> equipo ha decidido algo», con su registro de moderación detrás; esto es «a tu anuncio le ha
+> pasado algo», y la mitad no tiene actor humano (lo hace un cron).
+>
+> **N = 7 días**, constante junto a `EXPIRY_DAYS` (que tampoco es configurable). Hacer
+> ajustable el aviso de algo fijo permitiría preavisar de una caducidad que aún no existe.
+>
+> **La idempotencia: `Listing.expiryWarnedFor` guarda EL VENCIMIENTO preavisado, no un «ya
+> avisé».** Un booleano habría que limpiarlo en los **cinco** sitios que escriben `expiresAt`
+> (publicar, renovar, reactivar y dos caminos de moderación), y olvidar uno deja ese anuncio
+> sin preaviso para siempre, en silencio. Con la fecha, el predicado
+> `expiryWarnedFor <> expiresAt` **se invalida solo**: renovar reabre el preaviso sin que
+> nadie tenga que acordarse de nada. Mismo criterio que `AlertMatch`, que deduplica por el
+> par y no por un flag.
+>
+> **El destacado no necesita marca**: la selección exige `revokedAt: null` y el `updateMany`
+> los revoca antes del bucle — la idempotencia la da el modelo.
+>
+> **Cron hermano a las 02:30**, separado del de caducidad (02:00) por el criterio ya
+> establecido: si el preaviso reventara dentro de aquél, se llevaría por delante la
+> caducidad, que es lo que no puede dejar de correr.
+>
+> **Todos enlazan a `/mis-anuncios`, ninguno a `/anuncio/{slug}`** — la ficha pública sirve
+> sólo los `ACTIVE` y aquí casi ninguno lo está. Es la lección de A1.2, aplicada por
+> adelantado: el snapshot ni siquiera lleva `listingSlug`.
+>
+> **Correo sólo donde se pierde algo o hay algo que hacer** (§A4): expirar, preaviso, editado
+> y eliminado por staff. `RECEIVED` y `FEATURED_EXPIRED` se quedan en la campana — un acuse
+> por cada publicación es ruido, y un correo por cada destacado que vence se parecería a una
+> oferta para volver a comprar. La unión de `SendListingLifecycleData` **excluye esas dos por
+> tipo**, así que no pueden colarse por descuido.
+>
+> **Pendiente anotado:** `deleteListing` **no captura motivo** (su firma es
+> `(listingId, actorId, ip)`), a diferencia de editar o rechazar. El aviso degrada limpio y
+> apunta a soporte; capturarlo es una decisión de producto, no de esta ráfaga.
+
 | Evento | ¿Notifica hoy? | in-app | email | ¿Debería? | ¿Motivo? |
 |---|---|---|---|---|---|
 | Publicar (envío a revisión) | ❌ no | — | — | **SÍ** — «lo hemos recibido, está en cola». Sin esto el silencio empieza en el minuto cero | n/a |

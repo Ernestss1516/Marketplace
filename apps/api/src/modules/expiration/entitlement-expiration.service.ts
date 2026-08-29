@@ -6,6 +6,7 @@ import { EntitlementType } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { RedisService } from '../../infra/redis/redis.service';
 import { QUEUE_INDEXING } from '../../infra/queue/queue.constants';
+import { ListingLifecycleNotificationsService } from '../listing-lifecycle-notifications/listing-lifecycle-notifications.service';
 
 const cacheKey = (slug: string) => `listing:${slug}`;
 
@@ -22,6 +23,8 @@ export class EntitlementExpirationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    // N3 — el destacado que se acaba deja de ser mudo.
+    private readonly lifecycleNotify: ListingLifecycleNotificationsService,
     @InjectQueue(QUEUE_INDEXING) private readonly indexingQueue: Queue,
   ) {}
 
@@ -61,7 +64,13 @@ export class EntitlementExpirationService {
         listingId: { not: null },
         listing: { status: 'ACTIVE' },
       },
-      select: { id: true, listingId: true },
+      // N3 — el anuncio viene con lo que hace falta para avisar a su dueño sin una
+      // consulta extra por entitlement.
+      select: {
+        id: true,
+        listingId: true,
+        listing: { select: { id: true, title: true, sellerId: true } },
+      },
     });
 
     if (expired.length === 0) return;
@@ -84,6 +93,23 @@ export class EntitlementExpirationService {
           { listingId: ent.listingId },
           { jobId: `feat-exp-${ent.id}-${today}` },
         );
+
+        /**
+         * NOTIFICACIONES N3 — se acabó el destacado que pagó.
+         *
+         * NO NECESITA MARCA DE IDEMPOTENCIA, a diferencia del preaviso de
+         * caducidad: la selección de arriba exige `revokedAt: null` y el
+         * `updateMany` de antes del bucle ya los ha revocado todos, así que una
+         * segunda pasada no encuentra ninguno. La idempotencia la da el propio
+         * modelo, igual que se la da al reindexado el `jobId` con la fecha.
+         *
+         * Sólo in-app: no se pierde nada que se tuviera, se acaba un plazo que el
+         * vendedor eligió al comprarlo. Por correo se parecería a una oferta para
+         * volver a comprar, que es justo lo que estos avisos no son.
+         */
+        if (ent.listing) {
+          await this.lifecycleNotify.ocurrio(ent.listing, 'FEATURED_EXPIRED');
+        }
         processed++;
       } catch (err) {
         // Log and continue — one failed reindex must not abort the whole sweep.

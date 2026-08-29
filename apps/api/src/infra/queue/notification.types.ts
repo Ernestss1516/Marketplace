@@ -1,4 +1,7 @@
-import type { AccountModeratedAction } from '../../modules/notifications/notification.types';
+import type {
+  AccountModeratedAction,
+  ListingLifecycleAction,
+} from '../../modules/notifications/notification.types';
 
 export const NOTIFICATION_JOB = {
   SEND_VERIFICATION_EMAIL: 'send-verification-email',
@@ -17,6 +20,8 @@ export const NOTIFICATION_JOB = {
   SEND_BUMP_AUTO_PAUSED: 'send-bump-auto-paused',
   // Decisiones sobre la cuenta (N2)
   SEND_ACCOUNT_MODERATED: 'send-account-moderated',
+  // Ciclo de vida del anuncio (N3)
+  SEND_LISTING_LIFECYCLE: 'send-listing-lifecycle',
 } as const;
 
 export interface SendVerificationEmailData {
@@ -202,6 +207,45 @@ export interface SendBumpAutoPausedData {
  * `reason` es `User.sanctionReason`. La nota interna NO tiene campo en esta
  * interfaz, a propósito: no hay dónde meterla ni por descuido.
  */
+/**
+ * NOTIFICACIONES N3 — el ciclo de vida del anuncio, por correo.
+ *
+ * ── QUÉ EVENTOS LLEVAN CORREO Y CUÁLES NO ──────────────────────────────────
+ *
+ * El criterio del proyecto, que ya está escrito en la auditoría (§A4): **correo
+ * cuando el usuario pierde algo o tiene algo que hacer, y puede tardar días en
+ * entrar**. In-app a secas cuando es informativo y no hay nada que hacer.
+ *
+ * LLEVAN CORREO:
+ *   · `EXPIRED` — perdió presencia sin hacer nada, y hay una salida clara: renovar.
+ *   · `EXPIRING_SOON` — todo el sentido del preaviso es alcanzar a quien NO está
+ *     mirando. Un preaviso que sólo vive en la campana avisa exactamente a quien
+ *     se habría enterado igual.
+ *   · `EDITED_BY_STAFF` — le han cambiado el texto o el precio de algo suyo.
+ *   · `DELETED_BY_STAFF` — irreversible, y no lo hizo él.
+ *
+ * NO LLEVAN, y el `action` de esta interfaz no los incluye para que no puedan
+ * colarse por descuido:
+ *   · `RECEIVED` — es un acuse. Acaba de pulsar «publicar» y la pantalla ya se lo
+ *     dijo; un correo por cada publicación es la vía rápida al ruido.
+ *   · `FEATURED_EXPIRED` — se acaba algo contratado por un plazo que él eligió, no
+ *     se pierde nada que tuviera. Por correo se parecería demasiado a una oferta
+ *     para volver a comprar, que es justo lo que estos avisos no son.
+ */
+export interface SendListingLifecycleData {
+  email: string;
+  name: string;
+  /** Congelado, igual que en la notificación in-app. */
+  listingTitle: string;
+  /** Sólo los cuatro que llevan correo. Ver la cabecera. */
+  action: Extract<
+    ListingLifecycleAction,
+    'EXPIRING_SOON' | 'EXPIRED' | 'EDITED_BY_STAFF' | 'DELETED_BY_STAFF'
+  >;
+  reason: string | null;
+  daysLeft: number | null;
+}
+
 export interface SendAccountModeratedData {
   email: string;
   name: string;

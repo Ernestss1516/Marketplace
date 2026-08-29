@@ -11,6 +11,7 @@ import { ModerationModule } from '../moderation/moderation.module';
 import { ListingActivationModule } from '../listing-activation/listing-activation.module';
 import { MessagingModule } from '../messaging/messaging.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { ListingLifecycleNotificationsModule } from '../listing-lifecycle-notifications/listing-lifecycle-notifications.module';
 import { ReviewsModule } from '../reviews/reviews.module';
 import { TagsModule } from '../tags/tags.module';
 import { CategoryTreeModule } from '../categories/category-tree.module';
@@ -36,6 +37,9 @@ import { ListingOwnerActivityService } from './listing-owner-activity.service';
     ListingActivationModule,
     MessagingModule,
     NotificationsModule,
+    // N3 — el acuse de «tu anuncio está en cola de revisión». Servicio compartido
+    // con los crones de expiración y con el backoffice.
+    ListingLifecycleNotificationsModule,
     ReviewsModule,
     TagsModule,
     CategoryTreeModule,

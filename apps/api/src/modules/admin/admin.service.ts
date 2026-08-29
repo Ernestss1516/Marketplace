@@ -47,6 +47,7 @@ import { ListAdminUsersDto } from './dto/list-admin-users.dto';
 import { SuspendUserDto } from './dto/suspend-user.dto';
 import { BanUserDto } from './dto/ban-user.dto';
 import { AccountModerationNotificationsService } from '../account-moderation-notifications/account-moderation-notifications.service';
+import { ListingLifecycleNotificationsService } from '../listing-lifecycle-notifications/listing-lifecycle-notifications.service';
 import type { AccountModeratedAction } from '../notifications/notification.types';
 import { ChangeUserRoleDto } from './dto/change-user-role.dto';
 import { SetUserTrustedDto } from './dto/set-user-trusted.dto';
@@ -461,6 +462,8 @@ export class AdminService {
     // N2 — el «a quién se le cuenta qué» de las decisiones sobre la cuenta, fuera
     // de aquí: mismo reparto que `ModerationNotificationsService`.
     private readonly accountNotify: AccountModerationNotificationsService,
+    // N3 — editar y eliminar un anuncio desde el backoffice dejan de ser mudos.
+    private readonly lifecycleNotify: ListingLifecycleNotificationsService,
     private readonly attributesResolver: FilterableAttributesResolver,
     // PROFUNDIDAD N — RÁFAGA 1: el único lector de la jerarquía.
     private readonly categoryTree: CategoryTreeService,
@@ -1153,6 +1156,21 @@ export class AdminService {
     await this.redis.client.del(cacheKey(existing.slug));
     await this.indexingQueue.add('index', { listingId });
 
+    /**
+     * NOTIFICACIONES N3 — EL MOTIVO QUE YA SE EXIGÍA Y NO SALÍA DE AQUÍ.
+     *
+     * `UpdateAdminListingDto.reason` es obligatorio desde que este camino existe, y
+     * su propio comentario dice para qué: «sin él, una edición de staff sería
+     * indistinguible de una del dueño y el vendedor no tendría forma de saber quién
+     * le cambió el anuncio». Pero el motivo iba al `AuditLog` — que el vendedor no
+     * ve—, así que en la práctica **no tenía forma de saberlo igualmente**: le
+     * cambiaban el título o el precio de su anuncio y no se enteraba ni de eso.
+     *
+     * Se avisa con el título NUEVO (`listing`, la fila ya actualizada): es el que
+     * va a encontrar cuando entre.
+     */
+    await this.lifecycleNotify.ocurrio(listing, 'EDITED_BY_STAFF', { reason });
+
     return listing;
   }
 
@@ -1323,6 +1341,24 @@ export class AdminService {
     // cambien nunca.
     await this.redis.client.del(cacheKey(listing.slug));
     await this.indexingQueue.add('remove', { listingId });
+
+    /**
+     * NOTIFICACIONES N3 — el dueño se entera de que se lo han borrado.
+     *
+     * Es IRREVERSIBLE y no lo hizo él: las dos razones por las que la tabla de
+     * §A3.1 lo marca como avisable, frente a un borrado propio, que no se avisa.
+     *
+     * SE CONSTRUYE CON `listing`, LA FILA CARGADA AL PRINCIPIO — la de verdad ya no
+     * existe. Es el mismo motivo por el que el `AuditLog` de aquí arriba guarda la
+     * identidad de lo que destruyó, y por el que `reviewModerated` recibe la
+     * valoración ya leída.
+     *
+     * SIN MOTIVO, y no es un olvido: `deleteListing` no recibe ninguno (su firma es
+     * `(listingId, actorId, ip)`), a diferencia de editar o de rechazar. Degrada
+     * limpio —molde `ListingModeratedData.reason`— y el correo lo apunta a soporte.
+     * Capturarlo es una decisión de producto, no de esta ráfaga.
+     */
+    await this.lifecycleNotify.ocurrio(listing, 'DELETED_BY_STAFF');
 
     // BORRADO B3 — los ficheros del bucket. Va DESPUÉS del borrado y no puede
     // tumbarlo: si esto falla, sobra un fichero que nadie ve; si el borrado

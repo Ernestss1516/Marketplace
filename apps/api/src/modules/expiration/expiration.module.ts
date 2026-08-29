@@ -6,6 +6,7 @@ import { ExpirationService } from './expiration.service';
 import { EntitlementExpirationService } from './entitlement-expiration.service';
 import { SuspensionExpirationService } from './suspension-expiration.service';
 import { AccountModerationNotificationsModule } from '../account-moderation-notifications/account-moderation-notifications.module';
+import { ListingLifecycleNotificationsModule } from '../listing-lifecycle-notifications/listing-lifecycle-notifications.module';
 
 @Module({
   imports: [
@@ -18,6 +19,9 @@ import { AccountModerationNotificationsModule } from '../account-moderation-noti
     // recuperar una cuenta suspendida (el plazo se cumple solo), así que dejarlo
     // mudo habría sido dejar callado justo el normal.
     AccountModerationNotificationsModule,
+    // N3 — caducar, preavisar y el destacado que se acaba. Los tres crones de este
+    // módulo avisan ahora al dueño; el servicio es compartido con listings y admin.
+    ListingLifecycleNotificationsModule,
   ],
   providers: [ExpirationService, EntitlementExpirationService, SuspensionExpirationService],
   exports: [ExpirationService, EntitlementExpirationService, SuspensionExpirationService],

@@ -1,5 +1,11 @@
 import { getNotificationContent } from './notification-content';
-import type { AccountModeratedAction, AccountModeratedData, NotificationItem } from '@/types';
+import type {
+  AccountModeratedAction,
+  AccountModeratedData,
+  ListingLifecycleAction,
+  ListingLifecycleData,
+  NotificationItem,
+} from '@/types';
 
 /**
  * NOTIFICACIONES A1 — QUE NINGÚN AVISO SALGA VACÍO NI MIENTA.
@@ -224,6 +230,93 @@ describe('getNotificationContent', () => {
   });
 
   // ===========================================================================
+  // N3 — el ciclo de vida del anuncio, que era mudo
+  // ===========================================================================
+
+  describe('LISTING_LIFECYCLE (N3)', () => {
+    const conAccion = (
+      action: ListingLifecycleAction,
+      extra: Partial<ListingLifecycleData> = {},
+    ): NotificationItem => ({
+      ...base,
+      type: 'LISTING_LIFECYCLE',
+      data: {
+        listingId: 'l1',
+        listingTitle: 'Bici de carretera',
+        action,
+        reason: null,
+        daysLeft: null,
+        ...extra,
+      },
+    });
+
+    const TODAS: ListingLifecycleAction[] = [
+      'RECEIVED',
+      'EXPIRING_SOON',
+      'EXPIRED',
+      'EDITED_BY_STAFF',
+      'DELETED_BY_STAFF',
+      'FEATURED_EXPIRED',
+    ];
+
+    it('las seis acciones pintan texto con el título, ninguna `undefined`', () => {
+      for (const action of TODAS) {
+        const { text } = getNotificationContent(conAccion(action, { daysLeft: 3 }));
+        expect(typeof text).toBe('string');
+        expect(text).not.toContain('undefined');
+        expect(text).toContain('Bici de carretera');
+      }
+    });
+
+    /**
+     * Todos a `/mis-anuncios` y ninguno a `/anuncio/{slug}`: la ficha pública
+     * sirve sólo los ACTIVE y aquí casi ninguno lo está. Es la lección de A1.2.
+     */
+    it('ninguno enlaza la ficha pública (que daría 404)', () => {
+      for (const action of TODAS) {
+        const { href } = getNotificationContent(conAccion(action));
+        expect(href).toBe('/mis-anuncios');
+      }
+    });
+
+    it('EXPIRED dice que no lo ha retirado nadie («desapareció y no sé por qué»)', () => {
+      const { text } = getNotificationContent(conAccion('EXPIRED'));
+      expect(text).toContain('No lo ha retirado nadie');
+      expect(text).toContain('volver a publicarlo');
+    });
+
+    it('EXPIRING_SOON dice cuántos días quedan y para qué sirve renovar antes', () => {
+      expect(getNotificationContent(conAccion('EXPIRING_SOON', { daysLeft: 7 })).text).toContain(
+        'en 7 días',
+      );
+      expect(getNotificationContent(conAccion('EXPIRING_SOON', { daysLeft: 7 })).text).toContain(
+        'seguirá donde está',
+      );
+      // Un solo día no se dice «en 1 días».
+      expect(getNotificationContent(conAccion('EXPIRING_SOON', { daysLeft: 1 })).text).toContain(
+        'mañana',
+      );
+    });
+
+    it('EDITED_BY_STAFF muestra el motivo (que hoy sólo iba al AuditLog)', () => {
+      const { text } = getNotificationContent(
+        conAccion('EDITED_BY_STAFF', { reason: 'Precio fuera de rango' }),
+      );
+      expect(text).toContain('Precio fuera de rango');
+      // Y dice que sigue publicado: editar no es retirar.
+      expect(text).toContain('Sigue publicado');
+    });
+
+    it('sin motivo se lee igual de bien (degradación limpia)', () => {
+      for (const action of TODAS) {
+        const { text } = getNotificationContent(conAccion(action, { daysLeft: 2 }));
+        expect(text).not.toContain('Motivo:');
+        expect(text).not.toContain('null');
+      }
+    });
+  });
+
+  // ===========================================================================
   // Ningún tipo conocido cae en el genérico
   // ===========================================================================
 
@@ -244,6 +337,7 @@ describe('getNotificationContent', () => {
       { ...base, type: 'BUMP_AUTO_PAUSED', data: { scheduleId: 'b', listingId: 'l', listingTitle: 'T', reason: 'NO_FUNDS' } },
       { ...base, type: 'DATA_EXPORT_READY', data: { exportId: 'e', expiresAt: '2026-09-04T10:00:00.000Z', sizeBytes: 1024 } },
       { ...base, type: 'ACCOUNT_MODERATED', data: { action: 'SUSPENDED', reason: null, suspendedUntil: null, newRole: null } },
+      { ...base, type: 'LISTING_LIFECYCLE', data: { listingId: 'l', listingTitle: 'T', action: 'EXPIRED', reason: null, daysLeft: null } },
     ];
 
     for (const n of ejemplares) {

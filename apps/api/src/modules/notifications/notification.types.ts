@@ -41,7 +41,22 @@ export type NotificationType =
   // Son la misma clase de evento —«el equipo ha decidido algo sobre tu cuenta»—,
   // con el mismo destinatario, el mismo enlace y el mismo snapshot. Y el mapa
   // exhaustivo que A1 impuso hace que una acción nueva sin texto no compile.
-  | 'ACCOUNT_MODERATED';
+  | 'ACCOUNT_MODERATED'
+  // NOTIFICACIONES N3 — EL CICLO DE VIDA DEL ANUNCIO, QUE ERA MUDO.
+  //
+  // `LISTING_MODERATED` cubría las DECISIONES del staff sobre un anuncio. Lo que no
+  // cubría nadie es lo que le pasa al anuncio por el camino: que entra en cola, que
+  // caduca, que está a punto de caducar, que el staff se lo edita o se lo borra, o
+  // que se acaba el destacado que pagó. El caso que más dolía es el de expirar —
+  // «desapareció y no sé por qué»—, porque el anuncio se va sin que su dueño haya
+  // hecho nada.
+  //
+  // TIPO APARTE Y NO MÁS ACCIONES EN `LISTING_MODERATED`: aquél es «el equipo ha
+  // decidido algo», con su correo y su registro de moderación detrás; esto es «a tu
+  // anuncio le ha pasado algo», y la mitad ni siquiera tiene actor humano (lo hace
+  // un cron). Mezclarlos habría metido un `Record` de diez acciones donde hoy hay
+  // dos de cuatro y seis de seis, cada uno con su criterio de correo.
+  | 'LISTING_LIFECYCLE';
 
 /** Self-contained snapshot stored in Notification.data — see schema.prisma comment. */
 export interface AlertMatchData {
@@ -223,6 +238,68 @@ export interface DataExportReadyData {
   /** ISO-8601. Congelado: el aviso sobrevive al borrado de la exportación. */
   expiresAt: string;
   sizeBytes: number;
+}
+
+// ─── Ciclo de vida del anuncio (N3) ──────────────────────────────────────────
+
+/**
+ * Qué le ha pasado al anuncio.
+ *
+ * NINGUNA ES UNA ACCIÓN DE SU DUEÑO, y ése es el criterio que decide quién entra
+ * aquí: pausar, despausar, renovar, destacar, editar o borrar por propia mano NO
+ * notifican, porque avisar a alguien de lo que acaba de hacer es ruido (y el toast
+ * de la interfaz ya se lo confirmó). Lo que se avisa es lo que le pasa al anuncio
+ * **sin que él lo haya pedido**: lo decide un cron, o el staff.
+ */
+export type ListingLifecycleAction =
+  /** Enviado a revisión al publicar: está en cola, todavía no se ve. */
+  | 'RECEIVED'
+  /** A punto de caducar. Lleva `daysLeft`. */
+  | 'EXPIRING_SOON'
+  /** Ha caducado y ha salido del marketplace. */
+  | 'EXPIRED'
+  /** El staff le ha cambiado el contenido. Lleva `reason` (obligatorio en su DTO). */
+  | 'EDITED_BY_STAFF'
+  /** El staff lo ha eliminado. Irreversible. */
+  | 'DELETED_BY_STAFF'
+  /** Se ha acabado el destacado que compró. */
+  | 'FEATURED_EXPIRED';
+
+/**
+ * Al DUEÑO: algo le ha pasado a su anuncio sin que él lo haya pedido.
+ *
+ * ── SNAPSHOT AUTOCONTENIDO, Y AQUÍ NO ES UN FORMALISMO ─────────────────────
+ *
+ * `DELETED_BY_STAFF` se construye con la fila CARGADA ANTES de borrarla: después
+ * no habría de dónde sacar el título. Es el mismo motivo por el que
+ * `reviewModerated` recibe la valoración ya leída, y por el que el `AuditLog` de
+ * `deleteListing` guarda la identidad de lo que destruyó.
+ *
+ * ── NO LLEVA `listingSlug` A PROPÓSITO ──────────────────────────────────────
+ *
+ * Porque todos estos avisos enlazan a `/mis-anuncios` y ninguno a la ficha
+ * pública. `/anuncio/{slug}` sirve sólo los `ACTIVE`, y aquí **casi ninguno lo
+ * está**: un `EXPIRED` no, un `RECEIVED` (en cola) tampoco, un `DELETED_BY_STAFF`
+ * ya no existe. Llevar el slug sería dejar preparado el enlace roto que A1 tuvo
+ * que arreglar en el correo de valoraciones — mejor que el dato no esté.
+ */
+export interface ListingLifecycleData {
+  listingId: string;
+  /** Título CONGELADO: el aviso sobrevive al borrado del anuncio. */
+  listingTitle: string;
+  action: ListingLifecycleAction;
+  /**
+   * El motivo, cuando la acción lo lleva. Hoy sólo `EDITED_BY_STAFF`, cuyo DTO lo
+   * exige obligatorio y hasta N3 lo dejaba únicamente en el `AuditLog` — o sea que
+   * al vendedor le cambiaban el anuncio y no se enteraba ni de eso ni de por qué.
+   *
+   * `DELETED_BY_STAFF` lo lleva a `null`: `deleteListing` **no recibe motivo** (su
+   * firma es `(listingId, actorId, ip)`). Degradación limpia, molde
+   * `ListingModeratedData.reason`; capturarlo es otra ráfaga.
+   */
+  reason: string | null;
+  /** Sólo en `EXPIRING_SOON`: cuántos días quedan. `null` en el resto. */
+  daysLeft: number | null;
 }
 
 // ─── Decisiones sobre la cuenta (N2) ─────────────────────────────────────────

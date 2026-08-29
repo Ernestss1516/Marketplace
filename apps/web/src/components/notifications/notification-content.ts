@@ -205,6 +205,33 @@ export function getNotificationContent(n: NotificationItem): { text: string; hre
         href: n.data.action === 'REINSTATED' ? '/mis-anuncios' : '/notificaciones',
       };
     }
+    /**
+     * N3 — EL CICLO DE VIDA DEL ANUNCIO, que era mudo.
+     *
+     * TODOS ENLAZAN A `/mis-anuncios` y ninguno a la ficha pública, a propósito:
+     * `/anuncio/{slug}` sirve sólo los `ACTIVE`, y aquí casi ninguno lo está (un
+     * caducado no, uno en cola tampoco, uno borrado ya no existe). Es la lección
+     * de A1.2, donde el correo de valoraciones enlazaba un anuncio `SOLD` y daba
+     * 404 siempre. Además `/mis-anuncios` es donde está la acción —renovar,
+     * republicar—, así que es el destino útil y no sólo el seguro.
+     */
+    case 'LISTING_LIFECYCLE': {
+      const titulo = `«${n.data.listingTitle}»`;
+      const motivo = n.data.reason ? ` Motivo: ${n.data.reason}` : '';
+      const texto: Record<typeof n.data.action, string> = {
+        RECEIVED: `Hemos recibido tu anuncio ${titulo} y está en cola de revisión. Te avisamos en cuanto lo revisemos.`,
+        // El PARA QUÉ del preaviso va en el texto: renovar ANTES conserva la
+        // posición. Sin eso es una cuenta atrás sin salida.
+        EXPIRING_SOON: `Tu anuncio ${titulo} caduca ${n.data.daysLeft === 1 ? 'mañana' : `en ${n.data.daysLeft} días`}. Renuévalo antes y seguirá donde está.`,
+        // «No lo ha retirado nadie» es la frase que cierra el caso «desapareció y
+        // no sé por qué»: lo primero que se piensa es que te lo han quitado.
+        EXPIRED: `Tu anuncio ${titulo} ha caducado y ya no se ve. No lo ha retirado nadie: los anuncios caducan solos. Puedes volver a publicarlo.`,
+        EDITED_BY_STAFF: `Hemos hecho cambios en tu anuncio ${titulo}. Sigue publicado.${motivo}`,
+        DELETED_BY_STAFF: `Hemos eliminado tu anuncio ${titulo}.${motivo}`,
+        FEATURED_EXPIRED: `Se ha acabado el destacado de tu anuncio ${titulo}. Sigue publicado, pero ya no aparece resaltado.`,
+      };
+      return { text: texto[n.data.action], href: '/mis-anuncios' };
+    }
     default:
       // NO ES UN COLCHÓN: `tipoNoContemplado` recibe `never`, así que un tipo de
       // `NotificationItem` sin `case` rompe la compilación aquí mismo. Sólo se
