@@ -10,6 +10,12 @@ interface MessagingSocketContextValue {
   /** Une la conexión compartida a la sala de esa conversación. Llamarlo NO
    * reconecta el socket — ver useMessagingSocket. */
   joinConversation: (conversationId: string) => void;
+  /**
+   * N4b — qué hilo se está MIRANDO ahora (`null` al salir). El servidor lo usa para
+   * no notificar lo que ya se está viendo. NO es lo mismo que `joinConversation`:
+   * las salas se acumulan, esto se sobrescribe.
+   */
+  setActiveConversation: (conversationId: string | null) => void;
 }
 
 const MessagingSocketContext = createContext<MessagingSocketContextValue | null>(null);
@@ -37,13 +43,15 @@ export function MessagingSocketProvider({
 }) {
   const [latestMessage, setLatestMessage] = useState<MessagePayload | null>(null);
 
-  const { joinConversation } = useMessagingSocket({
+  const { joinConversation, setActiveConversation } = useMessagingSocket({
     token,
     onMessage: (payload) => setLatestMessage(payload),
   });
 
   return (
-    <MessagingSocketContext.Provider value={{ latestMessage, joinConversation }}>
+    <MessagingSocketContext.Provider
+      value={{ latestMessage, joinConversation, setActiveConversation }}
+    >
       {children}
     </MessagingSocketContext.Provider>
   );

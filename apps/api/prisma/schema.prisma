@@ -1323,6 +1323,41 @@ model Notification {
   readAt    DateTime?
   createdAt DateTime  @default(now())
 
+  /// NOTIFICACIONES N4b — LA CLAVE QUE CONVIERTE UNA NOTIFICACIÓN EN ESTADO.
+  ///
+  /// ── EL INVARIANTE, EN UNA FRASE ─────────────────────────────────────────────
+  ///
+  /// **Una notificación con `groupKey` es ESTADO (se actualiza mientras dure); una
+  /// con `groupKey NULL` es HISTORIA (nace y no se toca).**
+  ///
+  /// ── POR QUÉ HACÍA FALTA ─────────────────────────────────────────────────────
+  ///
+  /// Este buzón nació append-only: cada evento, una fila inmutable. La mensajería
+  /// necesita lo contrario — UNA notificación por hilo cuyo contador sube 1→2→3—,
+  /// porque una por mensaje convertiría la campana en un chat roto. Son dos
+  /// semánticas distintas y las dos hacen falta.
+  ///
+  /// ── Y POR QUÉ EL `NULL` LAS SEPARA SOLO ─────────────────────────────────────
+  ///
+  /// En PostgreSQL los `NULL` **no colisionan entre sí** en un índice único. Así
+  /// que el `@@unique` de abajo:
+  ///   · NO restringe en nada a las notificaciones de evento (nacen con `NULL`):
+  ///     siguen siendo append-only, tantas filas como eventos, sin un solo cambio
+  ///     de conducta ni backfill;
+  ///   · SÍ hace únicas las de mensajería, que es lo que habilita el `upsert`
+  ///     atómico.
+  /// Una tabla, dos semánticas, sin una bandera que haya que interpretar.
+  ///
+  /// ── GENÉRICA, NO `conversationId` ───────────────────────────────────────────
+  ///
+  /// La regla escrita de `data` es «snapshot autocontenido, NO punteros a otras
+  /// entidades». Una columna `conversationId` sería el primer puntero del modelo, y
+  /// además una FK con su decisión de borrado detrás. `groupKey` es una cadena
+  /// opaca: no es FK, no restringe nada, y sirve igual el día que haya que agrupar
+  /// otra cosa. `Notification` sigue sin conocer una sola entidad del dominio.
+  groupKey String?
+
+  @@unique([userId, type, groupKey])
   @@index([userId, createdAt])
   @@index([userId, read])
 }

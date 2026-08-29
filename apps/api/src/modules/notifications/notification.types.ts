@@ -64,7 +64,16 @@ export type NotificationType =
   // enterabas. El sistema ya avisaba de que PODÍAS valorar (`REVIEW_REQUEST`, al
   // cerrar un trato) pero no de que te habían valorado — o sea, avisaba del lado
   // que no tenía consecuencias.
-  | 'REVIEW_RECEIVED';
+  | 'REVIEW_RECEIVED'
+  // NOTIFICACIONES N4b — MENSAJES SIN LEER DE UNA CONVERSACIÓN.
+  //
+  // EL PRIMER TIPO QUE NO ES UN EVENTO, sino ESTADO: no hay una fila por mensaje,
+  // hay UNA por hilo cuyo contador sube mientras queden sin leer. Una por mensaje
+  // convertiría la campana en un chat roto (§decisión 1 del diseño).
+  //
+  // Va con `groupKey = conversationId` y se escribe con `upsertGrouped`, no con
+  // `createNotification`. Ver `schema.prisma` → `Notification.groupKey`.
+  | 'MESSAGE_UNREAD';
 
 /** Self-contained snapshot stored in Notification.data — see schema.prisma comment. */
 export interface AlertMatchData {
@@ -257,6 +266,41 @@ export interface ReviewModeratedData {
  * el `extracto` de tickets, llevado al extremo porque aquí ni siquiera hace falta
  * un adelanto — la nota basta para decidir si vas a mirar.
  */
+/**
+ * Al DESTINATARIO: tiene mensajes sin leer en una conversación (N4b).
+ *
+ * ── ES ESTADO, NO UN EVENTO, Y ESO CAMBIA DOS COSAS ─────────────────────────
+ *
+ * 1. `unreadCount` se RECALCULA en cada mensaje con el mismo `COUNT` que usa la
+ *    bandeja, nunca se incrementa. Un `increment` acumularía deriva en cuanto
+ *    cualquier camino marcara leído sin pasar por aquí — y `getConversation` lo
+ *    hace. Es el criterio de siempre: no almacenar lo que se puede derivar.
+ * 2. `createdAt` se refresca en cada actualización, para que el hilo suba en la
+ *    campana: la fecha significa «último mensaje», no «primer mensaje».
+ *
+ * ── EL SNAPSHOT SIGUE SIENDO AUTOCONTENIDO ─────────────────────────────────
+ *
+ * Nombres YA RESUELTOS. Si la cuenta del otro se vacía, `deleteAccount` deja su
+ * `name` en «Usuario eliminado» y aquí queda congelado lo que fuera verdad al
+ * avisar. `otherUserSlug` puede ser `null` para no enlazar un perfil que ya no
+ * está — la lección de A1.2.
+ *
+ * `extracto` de ≤140 caracteres, molde de tickets: el aviso reengancha, no
+ * transporta la conversación.
+ */
+export interface MessageUnreadData {
+  conversationId: string;
+  /** Nombre del interlocutor, resuelto. Nunca su id. */
+  otherUserName: string;
+  otherUserSlug: string | null;
+  /** De `Conversation.listingTitle`, que ya es un snapshot (C1). */
+  listingTitle: string | null;
+  /** Recalculado en cada mensaje. Nunca incrementado. */
+  unreadCount: number;
+  /** Del ÚLTIMO mensaje, ≤140 caracteres. */
+  extracto: string;
+}
+
 export interface ReviewReceivedData {
   reviewId: string;
   rating: number;

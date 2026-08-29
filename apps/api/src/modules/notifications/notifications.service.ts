@@ -18,6 +18,7 @@ import {
   AccountModeratedData,
   ListingLifecycleData,
   ReviewReceivedData,
+  MessageUnreadData,
 } from './notification.types';
 
 /**
@@ -51,7 +52,17 @@ type DataByType = Snapshots<{
   ACCOUNT_MODERATED: AccountModeratedData;
   LISTING_LIFECYCLE: ListingLifecycleData;
   REVIEW_RECEIVED: ReviewReceivedData;
+  MESSAGE_UNREAD: MessageUnreadData;
 }>;
+
+/**
+ * Los tipos que son ESTADO y no historia: se escriben con `upsertGrouped` y llevan
+ * `groupKey`. Todos los demás son eventos inmutables y van por `createNotification`.
+ *
+ * Enumerarlos hace que la separación sea del compilador y no de la costumbre:
+ * `upsertGrouped` sólo acepta éstos, y `createNotification` sólo los otros.
+ */
+type TipoAgrupado = 'MESSAGE_UNREAD';
 
 @Injectable()
 export class NotificationsService {
@@ -86,13 +97,65 @@ export class NotificationsService {
    * compilador, pero cumple la propiedad que importa: **no se puede fusionar el
    * olvido**.
    */
-  async createNotification<T extends NotificationType>(
+  async createNotification<T extends Exclude<NotificationType, TipoAgrupado>>(
     userId: string,
     type: T,
     data: DataByType[T],
   ): Promise<void> {
     await this.prisma.notification.create({
       data: { userId, type, data: data as unknown as Prisma.InputJsonValue },
+    });
+  }
+
+  /**
+   * NOTIFICACIONES N4b — LA NOTIFICACIÓN VIVA: una por `(usuario, tipo, grupo)`.
+   *
+   * ── QUÉ HACE DISTINTO ──────────────────────────────────────────────────────
+   *
+   * `createNotification` añade una fila por evento y no la vuelve a tocar. Esto
+   * mantiene UNA fila por grupo y la actualiza mientras el estado dure: es lo que
+   * permite «3 mensajes de Juan» en vez de tres avisos.
+   *
+   * ── POR QUÉ EL `upsert` ES ATÓMICO Y NO UN «busca y si existe actualiza» ────
+   *
+   * Porque dos mensajes casi simultáneos en el mismo hilo entrarían a la vez y
+   * crearían dos filas. El `@@unique([userId, type, groupKey])` lo hace imposible:
+   * el `upsert` de Prisma se apoya en ese índice y la base resuelve la carrera.
+   *
+   * ── REVIVIR ES PARTE DEL CONTRATO ──────────────────────────────────────────
+   *
+   * El `update` pone `read: false` y `readAt: null` A PROPÓSITO. Si el usuario ya
+   * había leído el hilo y llega un mensaje nuevo, la fila **vuelve a estar viva**;
+   * sin esto, el aviso se actualizaría en silencio y no aparecería como pendiente.
+   *
+   * `createdAt` se refresca por lo mismo: la campana ordena por fecha y este aviso
+   * significa «último mensaje», no «primer mensaje».
+   */
+  async upsertGrouped<T extends TipoAgrupado>(
+    userId: string,
+    type: T,
+    groupKey: string,
+    data: DataByType[T],
+  ): Promise<void> {
+    const payload = data as unknown as Prisma.InputJsonValue;
+    await this.prisma.notification.upsert({
+      where: { userId_type_groupKey: { userId, type, groupKey } },
+      create: { userId, type, groupKey, data: payload },
+      update: { data: payload, read: false, readAt: null, createdAt: new Date() },
+    });
+  }
+
+  /**
+   * Resuelve la notificación viva de un grupo: el estado que contaba ya no existe.
+   *
+   * `updateMany` y no `update`: si no hay ninguna (el usuario abre un hilo que
+   * nunca le avisó) no es un error, son cero filas. Idempotente por construcción,
+   * igual que `markRead`.
+   */
+  async resolveGrouped(userId: string, type: TipoAgrupado, groupKey: string): Promise<void> {
+    await this.prisma.notification.updateMany({
+      where: { userId, type, groupKey, read: false },
+      data: { read: true, readAt: new Date() },
     });
   }
 

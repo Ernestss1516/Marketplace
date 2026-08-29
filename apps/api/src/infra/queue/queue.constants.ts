@@ -52,6 +52,21 @@ export const QUEUE_ACCOUNT_CLEANUP = 'account-cleanup';
 /// vendedor con doscientos anuncios frene cualquier otra cosa.
 export const QUEUE_DATA_EXPORT = 'data-export';
 
+/// NOTIFICACIONES N4b — LA VENTANA DE GRACIA del correo de mensajes sin leer.
+///
+/// COLA PROPIA, y no `QUEUE_NOTIFICATIONS`, por dos razones que se refuerzan:
+///
+///  1. **Naturaleza distinta.** `QUEUE_NOTIFICATIONS` MANDA correos: su procesador
+///     sólo conoce Resend y no toca la base. Este trabajo no manda nada por sí
+///     mismo — DECIDE, consultando si el destinatario ya leyó, y sólo entonces
+///     encola el correo en aquélla. Meter Prisma en el procesador de correos para
+///     esto rompería lo único que lo hace fácil de razonar.
+///  2. **Ritmo distinto.** Estos trabajos nacen DIFERIDOS (minutos), mientras que
+///     todo lo de `QUEUE_NOTIFICATIONS` sale ya. Son el primer trabajo con `delay`
+///     del proyecto: mezclarlos dejaría un verificar-y-quizá-encolar durmiendo
+///     delante de correos que sí corren prisa.
+export const QUEUE_MESSAGE_DIGEST = 'message-digest';
+
 // Each module that injects a queue calls its own BullModule.registerQueue({name})
 // — @nestjs/bullmq creates a SEPARATE Queue (producer) instance per module
 // registration of the same name, each with its own client-side defaultJobOptions.

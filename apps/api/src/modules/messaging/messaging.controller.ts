@@ -21,6 +21,7 @@ import { CurrentUser } from '../../common/decorators';
 import { JwtUser } from '../auth/auth.types';
 import { MessagingService } from './messaging.service';
 import { MessagingGateway } from './messaging.gateway';
+import { MessageNotificationsService } from './message-notifications.service';
 import { CreateConversationDto } from './dto/create-conversation.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 import { MessagesQueryDto } from './dto/messages-query.dto';
@@ -33,6 +34,9 @@ export class MessagingController {
   constructor(
     private readonly messagingService: MessagingService,
     private readonly messagingGateway: MessagingGateway,
+    // N4b — el «a quién se le cuenta qué», fuera del servicio que decide qué se
+    // guarda: mismo reparto que en moderación, tickets y cuentas.
+    private readonly messageNotifications: MessageNotificationsService,
   ) {}
 
   @Get()
@@ -72,12 +76,26 @@ export class MessagingController {
   @ApiResponse({ status: 200, description: 'Conversación con mensajes y nextCursor' })
   @ApiResponse({ status: 403, description: 'No participas en esta conversación' })
   @ApiResponse({ status: 404, description: 'Conversación no encontrada' })
-  getOne(
+  async getOne(
     @Param('id') id: string,
     @CurrentUser() user: JwtUser,
     @Query() query: MessagesQueryDto,
   ) {
-    return this.messagingService.getConversation(id, user.userId, query);
+    const conversacion = await this.messagingService.getConversation(id, user.userId, query);
+
+    /**
+     * NOTIFICACIONES N4b — abrir el hilo RESUELVE su notificación viva.
+     *
+     * DESPUÉS de `getConversation`, que es quien marca los mensajes como leídos: el
+     * estado que la notificación contaba deja de existir en la misma petición.
+     *
+     * El correo diferido NO se toca aquí a propósito. Cuando su ventana expire verá
+     * que no quedan mensajes sin leer y no mandará nada — autocancelante, sin que
+     * este camino tenga que acordarse de nada.
+     */
+    await this.messageNotifications.hiloLeido(id, user.userId);
+
+    return conversacion;
   }
 
   @Post(':id/messages')
@@ -98,6 +116,20 @@ export class MessagingController {
       dto,
     );
     this.messagingGateway.emitNewMessage(id, message, buyerId, sellerId);
+
+    /**
+     * NOTIFICACIONES N4b — DESPUÉS de persistir y DESPUÉS de emitir.
+     *
+     * Ese orden es el diseño: primero el tiempo real, que es lo que ve quien tiene
+     * el hilo abierto, y sólo entonces se decide si además hace falta avisar a quien
+     * NO lo está viendo. El servicio comprueba la presencia y, si procede, actualiza
+     * la notificación viva y arma la ventana del correo.
+     */
+    await this.messageNotifications.mensajeEnviado(id, user.userId, dto.body, {
+      buyerId,
+      sellerId,
+    });
+
     return message;
   }
 }

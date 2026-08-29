@@ -6,6 +6,7 @@ import type {
   ListingLifecycleData,
   NotificationItem,
   ReviewReceivedData,
+  MessageUnreadData,
 } from '@/types';
 
 /**
@@ -381,6 +382,62 @@ describe('getNotificationContent', () => {
         expect(text).not.toContain('Motivo:');
         expect(text).not.toContain('null');
       }
+    });
+  });
+
+  // ===========================================================================
+  // N4b — mensajes sin leer: el primer aviso que es ESTADO, no historia
+  // ===========================================================================
+
+  describe('MESSAGE_UNREAD (N4b)', () => {
+    const aviso = (extra: Partial<MessageUnreadData> = {}): NotificationItem => ({
+      ...base,
+      type: 'MESSAGE_UNREAD',
+      data: {
+        conversationId: 'c1',
+        otherUserName: 'Juan',
+        otherUserSlug: 'juan',
+        listingTitle: 'Bici de carretera',
+        unreadCount: 3,
+        extracto: '¿Sigue disponible?',
+        ...extra,
+      },
+    });
+
+    /**
+     * Lo que separa esto de un chat roto: el aviso lleva el NÚMERO. No dice «tienes
+     * un mensaje» tres veces — dice «3 mensajes».
+     */
+    it('lleva el CONTADOR, que es lo que evita una notificación por mensaje', () => {
+      const { text } = getNotificationContent(aviso());
+      expect(text).toContain('3 mensajes nuevos');
+      expect(text).toContain('Juan');
+      expect(text).toContain('Bici de carretera');
+      expect(text).toContain('¿Sigue disponible?');
+    });
+
+    it('uno solo no se dice «1 mensajes»', () => {
+      expect(getNotificationContent(aviso({ unreadCount: 1 })).text).toContain('1 mensaje nuevo');
+      expect(getNotificationContent(aviso({ unreadCount: 1 })).text).not.toContain('1 mensajes');
+    });
+
+    it('sin anuncio se lee igual de bien (degradación limpia)', () => {
+      const { text } = getNotificationContent(aviso({ listingTitle: null }));
+      expect(text).not.toContain('null');
+      expect(text).not.toContain('undefined');
+      expect(text).toContain('Juan');
+    });
+
+    it('lleva al hilo, que es donde está la acción', () => {
+      expect(getNotificationContent(aviso()).href).toBe('/mensajes/c1');
+    });
+
+    /** Si la cuenta del otro se vació, el nombre congelado ya dice «Usuario eliminado». */
+    it('un interlocutor eliminado se pinta con su nombre congelado, sin inventar', () => {
+      const { text } = getNotificationContent(
+        aviso({ otherUserName: 'Usuario eliminado', otherUserSlug: null }),
+      );
+      expect(text).toContain('Usuario eliminado');
     });
   });
 

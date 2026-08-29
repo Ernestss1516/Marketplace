@@ -27,12 +27,28 @@ interface Options {
  */
 export function useMessagingSocket({ token, onMessage }: Options): {
   joinConversation: (conversationId: string) => void;
+  setActiveConversation: (conversationId: string | null) => void;
 } {
   const onMessageRef = useRef(onMessage);
   onMessageRef.current = onMessage;
 
   const socketRef = useRef<Socket | null>(null);
   const joinedRoomsRef = useRef<Set<string>>(new Set());
+
+  /**
+   * NOTIFICACIONES N4b — EL HILO QUE SE ESTÁ MIRANDO AHORA. Uno, no un conjunto.
+   *
+   * Es la diferencia con `joinedRoomsRef`, y es toda la razón de que exista: aquel
+   * `Set` **sólo crece** (guarda cada sala para poder re-unirse tras una
+   * reconexión), así que responde «¿ha abierto este hilo?», no «¿lo está mirando?».
+   * El backend usaba eso para decidir si notificar, y con tres hilos abiertos
+   * habría silenciado los avisos de dos — en silencio.
+   *
+   * Se guarda además del `emit` para poder REENVIARLO al reconectar, igual que las
+   * salas: sin eso, una reconexión dejaría al servidor creyendo que no se está
+   * mirando nada y empezaría a notificar un hilo que está abierto delante.
+   */
+  const activeRef = useRef<string | null>(null);
 
   useEffect(() => {
     const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? 'http://localhost:3001';
@@ -48,6 +64,8 @@ export function useMessagingSocket({ token, onMessage }: Options): {
       for (const conversationId of joinedRoomsRef.current) {
         socket.emit('conversation:join', { conversationId });
       }
+      // Y el hilo activo, que el servidor perdió con la conexión anterior.
+      socket.emit('conversation:active', { conversationId: activeRef.current });
     });
 
     socket.on('message:new', (payload: MessagePayload) => {
@@ -67,5 +85,17 @@ export function useMessagingSocket({ token, onMessage }: Options): {
     socketRef.current?.emit('conversation:join', { conversationId });
   }, []);
 
-  return { joinConversation };
+  /**
+   * Qué hilo se está mirando. `null` al salir de la conversación.
+   *
+   * A diferencia de `joinConversation`, esto SE SOBRESCRIBE: no hay conjunto que
+   * acumular ni un `leave` que se pueda olvidar. Si este emit se pierde, el
+   * servidor cree que no se está mirando nada y notifica de más — el lado seguro.
+   */
+  const setActiveConversation = useCallback((conversationId: string | null) => {
+    activeRef.current = conversationId;
+    socketRef.current?.emit('conversation:active', { conversationId });
+  }, []);
+
+  return { joinConversation, setActiveConversation };
 }

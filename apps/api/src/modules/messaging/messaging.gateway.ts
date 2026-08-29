@@ -176,6 +176,69 @@ export class MessagingGateway implements OnGatewayConnection, OnGatewayDisconnec
     await socket.join(`conv:${payload.conversationId}`);
   }
 
+  /**
+   * NOTIFICACIONES N4b — QUÉ HILO ESTÁ MIRANDO ESTE SOCKET AHORA MISMO.
+   *
+   * ── POR QUÉ NO BASTA CON LA SALA, QUE ES LO QUE PARECÍA ────────────────────
+   *
+   * `conv:<id>` responde «¿ha abierto este hilo en algún momento de la sesión?»,
+   * NO «¿lo está mirando?». No existe `conversation:leave`, y el cliente además
+   * **acumula**: `useMessagingSocket` guarda las salas en un `Set` que sólo crece
+   * para poder re-unirse tras una reconexión. Quien abre los hilos A, B y C está
+   * en las tres salas a la vez aunque sólo esté leyendo C.
+   *
+   * Usar la sala como test de presencia **silenciaría los avisos de A y B**
+   * mientras lee C: mensajes perdidos, en silencio, y hacia el lado peligroso.
+   *
+   * ── UN CAMPO, NO UN PAR join/leave ────────────────────────────────────────
+   *
+   * Un `leave` obligaría a mantener la simetría en el cliente, y olvidarlo falla
+   * hacia el lado peligroso otra vez. Un único campo «qué miro» no tiene simetría
+   * que romper: se sobrescribe, y el peor caso de un fallo es **notificar de más**.
+   *
+   * Las salas no se tocan: siguen entregando el tiempo real. Esto es una señal de
+   * presencia al lado, no un reemplazo.
+   *
+   * NO SE VERIFICA EL ACCESO al hilo, y es deliberado: este campo no da acceso a
+   * nada — sólo puede hacer que su dueño reciba MENOS avisos suyos. Mentir aquí
+   * es perjudicarse. (`conversation:join`, que sí abre una sala con contenido, sigue
+   * comprobando contra la base.)
+   */
+  @SubscribeMessage('conversation:active')
+  handleActive(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() payload: { conversationId: string | null },
+  ) {
+    const userId = socket.data.userId as string | undefined;
+    if (!userId) {
+      socket.disconnect(true);
+      return;
+    }
+    socket.data.activeConversationId = payload?.conversationId ?? null;
+  }
+
+  /**
+   * ¿Tiene este usuario ALGÚN socket mirando esta conversación ahora?
+   *
+   * Se consulta sobre `user:<id>` —la sala personal que crea `handleConnection`—
+   * en vez de barrer todos los sockets del servidor: es la diferencia entre mirar
+   * las pestañas de una persona y las de todo el mundo conectado.
+   *
+   * VARIAS PESTAÑAS: basta con que UNA lo tenga activo. Si está leyendo el hilo en
+   * cualquier ventana, ya lo está viendo.
+   *
+   * LÍMITE CONOCIDO — UNA SOLA INSTANCIA: `fetchSockets()` sólo ve los sockets de
+   * ESTE proceso (no hay adaptador de Redis para socket.io). Si algún día la API
+   * corre en varias instancias, un usuario conectado a otro nodo se verá como
+   * ausente y **se le notificará de más, nunca de menos**. El fallo cae del lado
+   * seguro; el día que se escale, `@socket.io/redis-adapter` lo arregla sin tocar
+   * este diseño.
+   */
+  async estaViendoConversacion(userId: string, conversationId: string): Promise<boolean> {
+    const sockets = await this.server.in(`user:${userId}`).fetchSockets();
+    return sockets.some((s) => s.data.activeConversationId === conversationId);
+  }
+
   // ---------------------------------------------------------------------------
   // R9 PASO 2 — TICKETS (atención al usuario §12)
   //
