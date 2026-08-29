@@ -1147,6 +1147,31 @@ model Listing {
   /// y el índice útil sería el compuesto con el orden de la lista. F2 dejó dicho
   /// —y demostrado con EXPLAIN— que eso se mide antes de añadirlo; se decide en
   /// E2, que es donde la consulta existe.
+  ///
+  /// ── N6 — MEDIDO, Y LA DECISIÓN ES: TODAVÍA NO ─────────────────────────────
+  ///
+  /// Los contadores de la cola de trabajo (`AdminService.getWorkQueue`) son la
+  /// primera consulta que podía justificarlo, así que se midió en vez de añadirlo
+  /// a ciegas. Banco de 200.000 filas, `SELECT count(*) … WHERE triage IN
+  /// ('NEW','EDITED')`:
+  ///
+  ///   · Cola SANA (8 % pendiente):  sin índice 12,2 ms (Parallel Seq Scan)
+  ///                                 con índice   3,4 ms (Bitmap Index Scan)
+  ///   · Cola DEGRADADA (90 %):      sin índice 15,2 ms
+  ///                                 con índice 15,2 ms — **el planner lo IGNORA**,
+  ///                                 y hace bien: a esa selectividad el índice no
+  ///                                 ahorra nada.
+  ///
+  /// O sea que el índice sólo aporta cuando la cola está al día, y aporta ~9 ms.
+  /// Contra eso: escribir en el índice en CADA alta y CADA edición de anuncio, que
+  /// es la tabla más caliente del sistema, para una consulta que corren unos pocos
+  /// agentes unas pocas veces al día. Hoy la tabla tiene cientos de filas y el
+  /// `EXPLAIN` real da `Seq Scan` en 0,03 ms.
+  ///
+  /// SE AÑADE cuando el bloque de contadores del dashboard pase de ~100 ms, o
+  /// cuando `Listing` pase de unos cientos de miles CON la cola al día. Y entonces
+  /// será `@@index([triage])` para el contador — el compuesto con `updatedAt` sigue
+  /// siendo otra consulta (la lista de E2) y otra medición.
   @@index([watched])
 
   /// FICHA F2 (P6) — EL ÍNDICE QUE FALTABA, y faltaba en la consulta más caliente

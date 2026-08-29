@@ -600,6 +600,54 @@ probablemente de cumplimiento**. Ver §Barreras.
 
 # PARTE B — Backoffice: la cola de trabajo
 
+> ### ✅ ESTADO: N6 IMPLEMENTADO — **y con esto el encargo queda completo**
+>
+> `GET /api/admin/work-queue` + la sección «Trabajo pendiente» arriba del dashboard.
+>
+> **`COUNT` on-demand en una `$transaction`**, molde exacto de `getStats()`. Ningún contador
+> almacenado: un e2e cambia la tabla por detrás y el número ya lo refleja.
+>
+> **Sin filtro por rol** (`@MinRole(EDITOR)`, el piso más bajo), y **el invariante que lo hace
+> seguro está vigilado**: un test recorre la respuesta entera y falla si aparece cualquier cosa
+> que no sea número o booleano, además de comprobar que ningún contenido sembrado (títulos,
+> asuntos, correos) aparece en la respuesta.
+>
+> #### El índice de `triage`: MEDIDO, y la decisión es **todavía no**
+>
+> Banco de 200.000 filas, `count(*) WHERE triage IN ('NEW','EDITED')`:
+>
+> | Régimen | Sin índice | Con índice |
+> |---|---|---|
+> | Cola **sana** (8 % pendiente) | 12,2 ms (Parallel Seq Scan) | **3,4 ms** (Bitmap Index Scan) |
+> | Cola **degradada** (90 %) | 15,2 ms | 15,2 ms — **el planner lo ignora**, y hace bien |
+>
+> El índice sólo aporta con la cola al día, y aporta ~9 ms. Contra eso: escribir en él en cada
+> alta y cada edición de anuncio —la tabla más caliente— para una consulta que corren unos
+> pocos agentes unas pocas veces al día. Hoy la tabla tiene 9 filas y el `EXPLAIN` real da
+> `Seq Scan` en 0,03 ms. **No se añade**; el umbral y la medición quedan escritos en
+> `schema.prisma`, donde estaba la nota pendiente.
+>
+> #### Los dos hallazgos, verificados — y uno era falso
+>
+> · **`supportEmail` sin configurar: CONFIRMADO y ya visible.** Es un `Setting` editable que
+>   nace `null`; sin él, `getSupportEmail()` emite un `logger.warn` y **no manda el correo al
+>   buzón de soporte**. Nadie lee ese log. Ahora sale como aviso en rojo en el dashboard.
+>
+> · 🔴 **«Suspensiones vencidas sin levantar»: EL HALLAZGO ERA FALSO.** La auditoría decía que
+>   «no se ha encontrado ningún proceso que reactive al usuario al vencer». Sí existe:
+>   `SuspensionExpirationService`, cron `0 7 * * *` — y N2 le añadió su notificación. **No se
+>   añade el contador**: mediría «el cron aún no ha pasado», que no es trabajo de nadie, y
+>   además el gate ya deja entrar al usuario por el predicado perezoso desde el instante del
+>   vencimiento.
+>
+> #### Un ajuste sobre §B2
+>
+> «Detecciones automáticas sin atender» **no se puede consultar tal cual**: `ListingDetection`
+> no tiene campo de atendido, y el schema explica por qué son tres ejes distintos. Se cuenta
+> componiendo dos que sí existen —el motor encontró algo **y** nadie lo ha mirado
+> (`triage IN (NEW, EDITED)`)—, sin inventar una columna. Un anuncio ya `REVIEWED` con
+> detección no cuenta: un humano lo dio por bueno sabiendo lo que había.
+
 ## B0. El modelo es distinto, y hay que decirlo explícitamente
 
 `Notification` es **estrictamente `userId` 1:1**. No existe un buzón de rol — está
