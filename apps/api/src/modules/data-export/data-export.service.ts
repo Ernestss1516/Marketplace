@@ -11,7 +11,11 @@ import { DataExport, DataExportStatus, Role, UserStatus } from '@prisma/client';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { R2Service } from '../../infra/r2/r2.service';
-import { QUEUE_DATA_EXPORT } from '../../infra/queue/queue.constants';
+import { QUEUE_DATA_EXPORT, QUEUE_NOTIFICATIONS } from '../../infra/queue/queue.constants';
+import {
+  NOTIFICATION_JOB,
+  type SendDataExportReadyData,
+} from '../../infra/queue/notification.types';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { DataExportCollector } from './data-export.collector';
@@ -50,6 +54,8 @@ export class DataExportService {
     private readonly auditLog: AuditLogService,
     private readonly notifications: NotificationsService,
     @InjectQueue(QUEUE_DATA_EXPORT) private readonly queue: Queue,
+    // N5 — el correo de «tu copia está lista», que caduca.
+    @InjectQueue(QUEUE_NOTIFICATIONS) private readonly notificationQueue: Queue,
   ) {}
 
   // ── Solicitar ───────────────────────────────────────────────────────────────
@@ -297,6 +303,29 @@ export class DataExportService {
         sizeBytes: buffer.byteLength,
       },
     );
+
+    /**
+     * N5 — Y TAMBIÉN POR CORREO, porque el ZIP CADUCA.
+     *
+     * A1 hizo visible este aviso en la campana; §A4 pedía además el correo y tenía
+     * razón: es un enlace con plazo, y un aviso que sólo vive en la campana se
+     * pierde por no entrar a tiempo. Lo que se pierde con él es el ejercicio de un
+     * derecho, no una comodidad.
+     *
+     * Es CRÍTICO: no hay preferencia que lo apague (ver `email-categories.ts`).
+     */
+    const sujetoDelAviso = await this.prisma.user.findUnique({
+      where: { id: exportacion.subjectUserId },
+      select: { email: true, name: true },
+    });
+    if (sujetoDelAviso) {
+      await this.notificationQueue.add(NOTIFICATION_JOB.SEND_DATA_EXPORT_READY, {
+        email: sujetoDelAviso.email,
+        name: sujetoDelAviso.name,
+        expiresAt: expiresAt.toISOString(),
+        sizeBytes: buffer.byteLength,
+      } satisfies SendDataExportReadyData);
+    }
 
     this.logger.log(
       `Exportación ${exportacion.id} lista para ${sujeto.slug}: ` +

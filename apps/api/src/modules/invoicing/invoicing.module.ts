@@ -1,7 +1,11 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { BullModule } from '@nestjs/bullmq';
-import { QUEUE_INVOICING, retryQueue } from '../../infra/queue/queue.constants';
+import {
+  QUEUE_INVOICING,
+  QUEUE_NOTIFICATIONS,
+  retryQueue,
+} from '../../infra/queue/queue.constants';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { INVOICING_PROVIDER, InvoicingProvider } from './invoicing.types';
@@ -31,7 +35,12 @@ import { AdminInvoicingService } from './admin-invoicing.service';
     // El cron produce a QUEUE_INVOICING; el InvoiceProcessor la consume. Cada
     // módulo que produce/consume registra la cola con retryQueue (ver
     // queue.constants.ts) — attempts:3 + backoff hacen segura la recuperación.
-    BullModule.registerQueue(retryQueue(QUEUE_INVOICING)),
+    BullModule.registerQueue(
+      retryQueue(QUEUE_INVOICING),
+      // N5 — el correo de «faltan tus datos fiscales» (§A4, el candidato dudoso:
+      // sí lleva correo, porque la ventana se cierra y se pierde la factura).
+      retryQueue(QUEUE_NOTIFICATIONS),
+    ),
     // NotificationsService: aviso in-app a usuarios con facturables sin datos fiscales.
     NotificationsModule,
     // AuditLogService: registrar el cambio del emisor fiscal (dato sensible).

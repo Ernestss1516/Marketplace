@@ -1,6 +1,10 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
-import { QUEUE_DATA_EXPORT, retryQueue } from '../../infra/queue/queue.constants';
+import {
+  QUEUE_DATA_EXPORT,
+  QUEUE_NOTIFICATIONS,
+  retryQueue,
+} from '../../infra/queue/queue.constants';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { DataExportCollector } from './data-export.collector';
@@ -23,7 +27,11 @@ import { DataExportService } from './data-export.service';
     // A1 — el aviso de «tu ZIP está listo» pasa por el servicio tipado, no por
     // `prisma.notification.create()`. Ver `data-export.service.ts`.
     NotificationsModule,
-    BullModule.registerQueue(retryQueue(QUEUE_DATA_EXPORT)),
+    BullModule.registerQueue(
+      retryQueue(QUEUE_DATA_EXPORT),
+      // N5 — el correo del ZIP listo, que caduca.
+      retryQueue(QUEUE_NOTIFICATIONS),
+    ),
   ],
   controllers: [DataExportController],
   providers: [

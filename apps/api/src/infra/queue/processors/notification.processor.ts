@@ -1,3 +1,4 @@
+import { createHmac } from 'crypto';
 import * as Sentry from '@sentry/nestjs';
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
@@ -5,6 +6,8 @@ import { ConfigService } from '@nestjs/config';
 import { Job } from 'bullmq';
 import { Resend } from 'resend';
 import { QUEUE_NOTIFICATIONS } from '../queue.constants';
+import { PrismaService } from '../../prisma/prisma.service';
+import { categoriaDe, COLUMNA_POR_CATEGORIA, type EmailCategory } from '../email-categories';
 import {
   NOTIFICATION_JOB,
   SendAlertEmailData,
@@ -16,6 +19,9 @@ import {
   SendBumpAutoPausedData,
   SendListingLifecycleData,
   SendListingModeratedData,
+  SendBalanceDebitedData,
+  SendDataExportReadyData,
+  SendInvoicingPendingData,
   SendMessageUnreadData,
   SendReviewReceivedData,
   SendTicketMessageData,
@@ -31,14 +37,63 @@ export class NotificationProcessor extends WorkerHost {
   private readonly from: string;
   private readonly appUrl: string;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    // N5 — para leer la preferencia de las INFORMATIVAS. Las críticas no llegan a
+    // usarlo (ver `process`).
+    private readonly prisma: PrismaService,
+  ) {
     super();
     this.resend = new Resend(config.getOrThrow<string>('resend.apiKey'));
     this.from = config.getOrThrow<string>('resend.from');
     this.appUrl = config.get<string>('appUrl', 'http://localhost:3000');
   }
 
+  /**
+   * NOTIFICACIONES N5 — LA VÁLVULA, EN EL ÚNICO EMBUDO QUE HAY.
+   *
+   * ── POR QUÉ AQUÍ Y NO EN CADA EMISOR ───────────────────────────────────────
+   *
+   * Hay DIECISIETE sitios que encolan correo, en doce ficheros. Comprobar la
+   * preferencia en cada uno sería repartir la decisión por todo el dominio y
+   * confiar en que nadie se salte el paso — el mismo error de clase que A1 tuvo
+   * que cerrar con `notification.create`. **Todo correo del sistema pasa por este
+   * `process()`**, así que aquí la comprobación no se puede rodear: no hay que
+   * acordarse de nada ni hace falta un test que vigile a los emisores.
+   *
+   * ── Y POR QUÉ ESTO NO CONTRADICE «EL PROCESSOR NO TOCA LA BASE» ────────────
+   *
+   * En N4b se sacó a una cola aparte una comprobación que era **de negocio**
+   * («¿ha leído ya?»), para que este procesador siguiera siendo sólo un
+   * remitente. Ésta es de otra naturaleza: es **política de entrega** —«¿esta
+   * persona quiere este correo?»—, que es precisamente lo que decide un
+   * remitente. La consulta es una lectura de una bandera, no una regla del
+   * dominio.
+   *
+   * ── LA FRONTERA ────────────────────────────────────────────────────────────
+   *
+   * `categoriaDe()` devuelve `null` para las CRÍTICAS, y el `return` de abajo corta
+   * antes de tocar la base. Una sanción, un baneo o un débito de saldo **no llegan
+   * a consultar ninguna preferencia**: no es que se consulte y se ignore.
+   */
   async process(job: Job): Promise<void> {
+    const categoria = categoriaDe(job.name, job.data as Record<string, unknown>);
+    if (categoria !== null && !(await this.quiereRecibir(job.data, categoria))) {
+      this.logger.debug(`Correo ${job.name} omitido: el destinatario apagó ${categoria}`);
+      return;
+    }
+
+    /**
+     * EL PIE DE BAJA, sólo en las informativas.
+     *
+     * Es lo que los proveedores de correo esperan y lo que separa un aviso
+     * transaccional de algo que parece publicidad. Se calcula aquí, en el mismo
+     * sitio que decide la categoría, para que no haya que acordarse de añadirlo en
+     * cada copy — y para que las críticas NO lo lleven: ofrecer «date de baja» al
+     * pie de un baneo sería ofrecer algo que no se puede hacer.
+     */
+    this.pieDeBaja = categoria ? await this.construirPieDeBaja(job.data, categoria) : '';
+
     try {
       switch (job.name) {
         case NOTIFICATION_JOB.SEND_VERIFICATION_EMAIL:
@@ -71,6 +126,12 @@ export class NotificationProcessor extends WorkerHost {
           return this.sendReviewReceived(job.data as SendReviewReceivedData);
         case NOTIFICATION_JOB.SEND_MESSAGE_UNREAD:
           return this.sendMessageUnread(job.data as SendMessageUnreadData);
+        case NOTIFICATION_JOB.SEND_DATA_EXPORT_READY:
+          return this.sendDataExportReady(job.data as SendDataExportReadyData);
+        case NOTIFICATION_JOB.SEND_INVOICING_PENDING:
+          return this.sendInvoicingPending(job.data as SendInvoicingPendingData);
+        case NOTIFICATION_JOB.SEND_BALANCE_DEBITED:
+          return this.sendBalanceDebited(job.data as SendBalanceDebitedData);
         default:
           this.logger.warn(`Unknown notification job: ${job.name}`);
       }
@@ -80,9 +141,99 @@ export class NotificationProcessor extends WorkerHost {
     }
   }
 
+  /**
+   * ¿Quiere esta persona los correos de esta categoría?
+   *
+   * SÓLO SE LLAMA PARA LAS INFORMATIVAS (ver `process`). Todas ellas llevan el
+   * destinatario en `data.email`, que es único en `User`.
+   *
+   * FALLA HACIA EL LADO SEGURO: si no se encuentra al usuario —un correo a alguien
+   * que no está registrado, una fila borrada entre el encolado y el envío—, se
+   * MANDA. Un correo de más es molesto; uno de menos, por un `null` inesperado, es
+   * un aviso perdido sin que nadie se entere.
+   */
+  /**
+   * El pie que se añade a los correos informativos. Vacío en los críticos.
+   *
+   * Campo de instancia y no un parámetro que haya que enhebrar por los quince
+   * métodos de envío: se fija en `process()` justo antes de despachar, y el worker
+   * atiende un trabajo cada vez (BullMQ no reentra en el mismo `process`), así que
+   * no hay dos correos compartiéndolo.
+   */
+  private pieDeBaja = '';
+
+  /**
+   * EL ÚNICO SITIO QUE MANDA UN CORREO — y por eso el pie de baja no se puede
+   * olvidar en ninguno.
+   *
+   * Los dieciocho envíos del processor pasan por aquí. Añadir el pie en cada copy
+   * habría sido dieciocho ocasiones de olvidarlo una, y el olvido no se ve: el
+   * correo sale perfecto, sólo que sin la salida que la entregabilidad exige. Es
+   * el mismo movimiento que `admin-links.ts` con las URL y que `createNotification`
+   * con el buzón.
+   *
+   * `pieDeBaja` lo fija `process()` según la categoría: **vacío en las críticas**,
+   * porque ofrecer «date de baja» al pie de un baneo sería ofrecer algo que no se
+   * puede hacer.
+   */
+  private async enviar(mensaje: {
+    from?: string;
+    to: string;
+    subject: string;
+    text: string;
+  }): Promise<void> {
+    await this.resend.emails.send({
+      from: this.from,
+      to: mensaje.to,
+      subject: mensaje.subject,
+      text: `${mensaje.text}${this.pieDeBaja}`,
+    });
+  }
+
+  private async construirPieDeBaja(
+    data: unknown,
+    categoria: EmailCategory,
+  ): Promise<string> {
+    const email = (data as { email?: string }).email;
+    if (!email) return '';
+
+    const usuario = await this.prisma.user.findUnique({
+      where: { email },
+      select: { id: true },
+    });
+    if (!usuario) return '';
+
+    const firma = createHmac('sha256', this.config.getOrThrow<string>('jwt.secret'))
+      .update(`${usuario.id}:${categoria}`)
+      .digest('hex');
+
+    return (
+      `\n\n—\nSi no quieres recibir estos avisos, date de baja aquí:\n` +
+      `${this.appUrl}/baja?u=${usuario.id}&c=${categoria}&t=${firma}`
+    );
+  }
+
+  private async quiereRecibir(
+    data: unknown,
+    categoria: EmailCategory,
+  ): Promise<boolean> {
+    const email = (data as { email?: string }).email;
+    if (!email) return true;
+
+    const usuario = await this.prisma.user.findUnique({
+      where: { email },
+      select: { [COLUMNA_POR_CATEGORIA[categoria]]: true },
+    });
+    if (!usuario) return true;
+
+    return (usuario as unknown as Record<string, boolean>)[
+      COLUMNA_POR_CATEGORIA[categoria]
+    ];
+  }
+
   private async sendVerificationEmail(data: SendVerificationEmailData): Promise<void> {
     const link = `${this.appUrl}/verificar-email?token=${data.token}`;
-    await this.resend.emails.send({
+    await this.enviar({
       from: this.from,
       to: data.email,
       subject: 'Confirma tu email',
@@ -93,7 +244,7 @@ export class NotificationProcessor extends WorkerHost {
 
   private async sendResetEmail(data: SendResetEmailData): Promise<void> {
     const link = `${this.appUrl}/restablecer?token=${data.token}`;
-    await this.resend.emails.send({
+    await this.enviar({
       from: this.from,
       to: data.email,
       subject: 'Restablece tu contraseña',
@@ -104,7 +255,7 @@ export class NotificationProcessor extends WorkerHost {
 
   private async sendAlertEmail(data: SendAlertEmailData): Promise<void> {
     const link = `${this.appUrl}/anuncio/${data.listingSlug}`;
-    await this.resend.emails.send({
+    await this.enviar({
       from: this.from,
       to: data.email,
       subject: `Nuevo anuncio para tu alerta "${data.alertName}"`,
@@ -117,7 +268,7 @@ export class NotificationProcessor extends WorkerHost {
    * desconocido y lo lee el admin; nunca se genera HTML a partir de su contenido. */
   private async sendContactNotification(data: SendContactNotificationData): Promise<void> {
     const link = `${this.appUrl}/admin/mensajes-contacto/${data.messageId}`;
-    await this.resend.emails.send({
+    await this.enviar({
       from: this.from,
       to: data.adminEmail,
       subject: `Nuevo mensaje de contacto (${data.motivo})`,
@@ -129,7 +280,7 @@ export class NotificationProcessor extends WorkerHost {
   /** text: plano — asunto/cuerpo los escribe el admin (autor de confianza),
    * pero se mantiene el mismo patrón que el resto de la cola por consistencia. */
   private async sendContactReply(data: SendContactReplyData): Promise<void> {
-    await this.resend.emails.send({
+    await this.enviar({
       from: this.from,
       to: data.to,
       subject: data.asunto,
@@ -158,7 +309,7 @@ export class NotificationProcessor extends WorkerHost {
     const encabezado = data.opened
       ? 'La administración ha abierto un hilo contigo'
       : 'Tienes una respuesta nueva en tu ticket';
-    await this.resend.emails.send({
+    await this.enviar({
       from: this.from,
       to: data.email,
       subject: `${encabezado}: ${data.subject}`,
@@ -177,7 +328,7 @@ export class NotificationProcessor extends WorkerHost {
   private async sendTicketStaffNotification(data: SendTicketStaffNotificationData): Promise<void> {
     const link = `${this.appUrl}/admin/tickets/${data.ticketId}`;
     const encabezado = data.kind === 'new' ? 'Nuevo ticket' : 'Respuesta del usuario';
-    await this.resend.emails.send({
+    await this.enviar({
       from: this.from,
       to: data.to,
       subject: `${encabezado}: ${data.subject}`,
@@ -207,7 +358,7 @@ export class NotificationProcessor extends WorkerHost {
             `Si vuelves a activarlo, la programación se reanuda sola:\n${link}`,
           ];
 
-    await this.resend.emails.send({
+    await this.enviar({
       from: this.from,
       to: data.email,
       subject: `Hemos pausado los bumps programados de «${data.listingTitle}»`,
@@ -220,7 +371,7 @@ export class NotificationProcessor extends WorkerHost {
 
   private async sendTicketResolved(data: SendTicketResolvedData): Promise<void> {
     const link = `${this.appUrl}/mis-tickets/${data.ticketId}`;
-    await this.resend.emails.send({
+    await this.enviar({
       from: this.from,
       to: data.email,
       subject: `Tu ticket se ha resuelto: ${data.subject}`,
@@ -283,7 +434,7 @@ export class NotificationProcessor extends WorkerHost {
     };
     const { subject, cuerpo } = copy[data.action];
 
-    await this.resend.emails.send({
+    await this.enviar({
       from: this.from,
       to: data.email,
       subject,
@@ -382,7 +533,7 @@ export class NotificationProcessor extends WorkerHost {
     };
     const { subject, cuerpo } = copy[data.action];
 
-    await this.resend.emails.send({
+    await this.enviar({
       from: this.from,
       to: data.email,
       subject,
@@ -441,7 +592,7 @@ export class NotificationProcessor extends WorkerHost {
     };
     const { subject, cuerpo } = copy[data.action];
 
-    await this.resend.emails.send({
+    await this.enviar({
       from: this.from,
       to: data.email,
       subject,
@@ -464,7 +615,7 @@ export class NotificationProcessor extends WorkerHost {
     const link = `${this.appUrl}/vendedor/${data.targetSlug}`;
     const sobre = data.listingTitle ? ` sobre «${data.listingTitle}»` : '';
 
-    await this.resend.emails.send({
+    await this.enviar({
       from: this.from,
       to: data.email,
       subject: `${data.authorName} te ha valorado`,
@@ -493,7 +644,7 @@ export class NotificationProcessor extends WorkerHost {
         ? 'un mensaje nuevo'
         : `${data.unreadCount} mensajes nuevos`;
 
-    await this.resend.emails.send({
+    await this.enviar({
       from: this.from,
       to: data.email,
       subject: `Tienes ${cuantos} de ${data.otherUserName}`,
@@ -502,6 +653,75 @@ export class NotificationProcessor extends WorkerHost {
         `"${data.extracto}"\n\nLéelos y responde aquí:\n${link}\n\n${this.noReply}`,
     });
     this.logger.log(`Message unread email sent to ${data.email} (${data.unreadCount})`);
+  }
+
+  /**
+   * N5 — el ZIP está listo y CADUCA. Por eso lleva la fecha en el cuerpo: sin ella
+   * el aviso no dice lo único que le da urgencia.
+   */
+  private async sendDataExportReady(data: SendDataExportReadyData): Promise<void> {
+    const link = `${this.appUrl}/perfil`;
+    const megas = (data.sizeBytes / (1024 * 1024)).toFixed(1);
+
+    await this.enviar({
+      from: this.from,
+      to: data.email,
+      subject: 'Tu copia de datos está lista',
+      text:
+        `Hola ${data.name},\n\nYa puedes descargar tu copia de datos (${megas} MB).\n\n` +
+        `Estará disponible hasta el ${this.fecha(data.expiresAt)}; después se borra y ` +
+        `habría que pedirla otra vez.\n\nDescárgala desde tu perfil:\n${link}`,
+    });
+    this.logger.log(`Data export ready email sent to ${data.email}`);
+  }
+
+  /**
+   * N5 — faltan datos fiscales y hay movimientos facturables.
+   *
+   * Dice QUÉ falta y QUÉ se pierde si no se hace, sin alarmismo: la ventana existe
+   * y el usuario puede no saber que existe.
+   */
+  private async sendInvoicingPending(data: SendInvoicingPendingData): Promise<void> {
+    const link = `${this.appUrl}/perfil/facturacion`;
+    const movs =
+      data.facturableCount === 1 ? 'un movimiento facturable' : `${data.facturableCount} movimientos facturables`;
+
+    await this.enviar({
+      from: this.from,
+      to: data.email,
+      subject: 'Faltan tus datos fiscales para emitir tu factura',
+      text:
+        `Hola ${data.name},\n\nTienes ${movs} del periodo ${data.periodKey}, pero nos faltan ` +
+        `tus datos fiscales para poder emitir la factura.\n\n` +
+        `Complétalos aquí y podrás emitirla tú mismo:\n${link}`,
+    });
+    this.logger.log(`Invoicing pending email sent to ${data.email}`);
+  }
+
+  /**
+   * N5 — el staff ha retirado saldo.
+   *
+   * LLEVA EL MOTIVO, que su DTO exige desde siempre y hasta ahora sólo llegaba al
+   * `AuditLog`: quitarle a alguien algo que vale dinero y no decirle por qué es
+   * justo lo que N2 corrigió para las sanciones.
+   */
+  private async sendBalanceDebited(data: SendBalanceDebitedData): Promise<void> {
+    const link = `${this.appUrl}/mis-creditos`;
+    const partes = [
+      data.credits > 0 ? `${data.credits} crédito${data.credits === 1 ? '' : 's'}` : null,
+      data.bumps > 0 ? `${data.bumps} bump${data.bumps === 1 ? '' : 's'}` : null,
+    ].filter(Boolean);
+
+    await this.enviar({
+      from: this.from,
+      to: data.email,
+      subject: 'Hemos ajustado el saldo de tu cuenta',
+      text:
+        `Hola ${data.name},\n\nHemos retirado ${partes.join(' y ')} de tu saldo.\n\n` +
+        `Motivo: ${data.reason}\n\nPuedes ver tu saldo y su historial aquí:\n${link}\n\n` +
+        `Si crees que es un error, escríbenos y lo revisamos.`,
+    });
+    this.logger.log(`Balance debited email sent to ${data.email}`);
   }
 
   /** Fecha legible para el copy. Molde del front: `es-ES`, día y mes. */
@@ -530,7 +750,7 @@ export class NotificationProcessor extends WorkerHost {
       `${this.appUrl}/vendedor/${data.otherUserSlug}` +
       `?valorar=${encodeURIComponent(data.listingId ?? '')}` +
       `&target=${encodeURIComponent(data.otherUserId)}`;
-    await this.resend.emails.send({
+    await this.enviar({
       from: this.from,
       to: data.email,
       subject: `${data.otherUserName} cerró un trato contigo`,

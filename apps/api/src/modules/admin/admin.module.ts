@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import {
   QUEUE_INDEXING,
+  QUEUE_NOTIFICATIONS,
   QUEUE_ACCOUNT_CLEANUP,
   QUEUE_BILLING,
   QUEUE_MEDIA_CLEANUP,
@@ -35,6 +36,11 @@ import { ListingLifecycleNotificationsModule } from '../listing-lifecycle-notifi
 @Module({
   imports: [
     BullModule.registerQueue(retryQueue(QUEUE_INDEXING)),
+    // N5 — `AdminBillingService` avisa por correo del débito de saldo. Se registra
+    // AQUÍ aunque `AccountModerationNotificationsModule` ya use la misma cola:
+    // `@nestjs/bullmq` crea una instancia productora POR MÓDULO, así que el
+    // registro de otro módulo no llega a este inyector (ver `queue.constants.ts`).
+    BullModule.registerQueue(retryQueue(QUEUE_NOTIFICATIONS)),
     // Puerta ráfaga 2 — el marcado tras cambiar el schema de una categoría.
     BullModule.registerQueue(retryQueue(QUEUE_REVALIDATION)),
     // BORRADO B3 — retirar del bucket los ficheros del anuncio eliminado.

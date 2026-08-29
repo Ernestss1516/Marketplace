@@ -481,6 +481,40 @@ model User {
   /// distinción que `TicketMessage.internal`, que ya la sostiene en tickets.
   sanctionNote        String?    @db.Text
 
+  /// NOTIFICACIONES N5 — LA VÁLVULA DEL CORREO, por categoría.
+  ///
+  /// ── POR QUÉ HACÍA FALTA ─────────────────────────────────────────────────────
+  ///
+  /// El sistema pasó de 8 tipos de correo a bastantes más, y N4b añadió el canal
+  /// MÁS FRECUENTE de todos (mensajería). Sin una forma de darse de baja, ese
+  /// volumen es un problema de entregabilidad —y probablemente de cumplimiento—
+  /// antes que de gusto. La auditoría lo marcó obligatorio EN LA MISMA RÁFAGA que
+  /// la expansión del correo, no después.
+  ///
+  /// ── BOOLEANOS Y NO UN `jsonb` DE AJUSTES ────────────────────────────────────
+  ///
+  /// `User` no tiene ningún `jsonb` de preferencias al que sumarse, así que había
+  /// que elegir. Columnas: el **valor por defecto lo pone la base** (`true`), que es
+  /// exactamente el opt-out que se quiere — con un `jsonb`, «la clave no está»
+  /// tendría que significar «sí» por convenio en código, y ese convenio se olvida.
+  /// Además el proyecto ya modela así las banderas de usuario (`trusted`,
+  /// `requiresReview`, `emailVerified`).
+  ///
+  /// ── SOLO CUBREN LAS INFORMATIVAS ────────────────────────────────────────────
+  ///
+  /// NO existe una bandera para las sanciones, el borrado de la cuenta, el cambio
+  /// de rol, lo que el staff hace con tus anuncios o el dinero. **Esas no se
+  /// pueden silenciar, y su camino de envío ni siquiera mira estas columnas** — ver
+  /// `email-categories.ts`. Que no haya bandera es parte de la garantía: no se
+  /// puede desactivar lo que no tiene interruptor.
+  ///
+  /// Aditivas y sin backfill: nacen `true`, así que nadie deja de recibir nada el
+  /// día del despliegue.
+  emailMessages       Boolean    @default(true)
+  emailListings       Boolean    @default(true)
+  emailReviews        Boolean    @default(true)
+  emailAlerts         Boolean    @default(true)
+
   emailVerified       Boolean    @default(false)
   /// Contador de intentos de login fallidos consecutivos; se resetea en login correcto (RÁFAGA 3).
   failedLoginAttempts Int        @default(0)

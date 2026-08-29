@@ -8,8 +8,9 @@ import { PerfilForm } from '@/components/perfil/PerfilForm';
 import { SignOutButton } from '@/components/perfil/SignOutButton';
 import { ArchivarCuentaButton } from '@/components/perfil/ArchivarCuentaButton';
 import { ExportarDatosPanel } from '@/components/perfil/ExportarDatosPanel';
+import { PreferenciasCorreoPanel } from '@/components/perfil/PreferenciasCorreoPanel';
 import { auth } from '@/lib/auth';
-import { getMe, getMyExports } from '@/lib/api/usuarios';
+import { getMe, getMyExports, getEmailPreferences } from '@/lib/api/usuarios';
 import { getActiveBanners } from '@/lib/api/banners';
 import { BannerList } from '@/components/banners/BannerList';
 import { buildLoginUrl } from '@/lib/auth/callback-url';
@@ -39,10 +40,13 @@ export default async function PerfilPage() {
    *    llamadas paralelas de la ficha de vendedor.
    *  - El banner, igual: decorativo, nunca tumba nada.
    */
-  const [user, exportaciones, banners] = await Promise.all([
+  const [user, exportaciones, banners, preferenciasCorreo] = await Promise.all([
     getMe(session.user.accessToken),
     getMyExports(session.user.accessToken).catch(() => []),
     getActiveBanners('PERFIL').catch(() => []),
+    // N5 — si falla, el panel no se pinta y ya está: unas casillas de correo no
+    // pueden tumbar el perfil entero. Mismo criterio que las exportaciones.
+    getEmailPreferences(session.user.accessToken).catch(() => null),
   ]);
 
   const location = [user.city, user.province].filter(Boolean).join(', ');
@@ -157,6 +161,22 @@ export default async function PerfilPage() {
           te avisaremos cuando esté listo para descargar.
         </p>
         <ExportarDatosPanel token={session.user.accessToken} inicial={exportaciones} />
+      </section>
+
+      <Separator />
+
+      {/*
+        NOTIFICACIONES N5 — LA VÁLVULA DEL CORREO.
+        Sólo lista lo que de verdad se puede apagar; lo crítico ni aparece, y una
+        nota al pie del panel explica por qué.
+      */}
+      <section>
+        {preferenciasCorreo && (
+          <PreferenciasCorreoPanel
+            token={session.user.accessToken}
+            inicial={preferenciasCorreo}
+          />
+        )}
       </section>
 
       <Separator />

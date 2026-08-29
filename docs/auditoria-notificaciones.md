@@ -515,6 +515,49 @@ canal no.
 
 ## A4 — Qué tipos deben ganar email
 
+> ### ✅ ESTADO: N5 IMPLEMENTADO (rama `notificaciones-n5-email-preferencias`)
+>
+> **La válvula existe.** Preferencias por categoría, opt-out, baja de un clic — y una
+> frontera que no es una convención: las críticas **no llegan a consultar** ninguna
+> preferencia.
+>
+> **Los tres correos que faltaban de §A4**, los tres CRÍTICOS:
+>
+> | Tipo | Antes | Por qué crítico |
+> |---|---|---|
+> | `DATA_EXPORT_READY` | solo campana | **caduca**: un aviso perdido es un derecho perdido |
+> | `INVOICING_PENDING_FISCAL_DATA` | solo campana | **el «candidato dudoso», resuelto: SÍ** — hay ventana, y si se cierra los movimientos quedan sin facturar |
+> | **Saldo debitado** | **ni campana ni correo** | le quitan dinero, con un `reason` que sólo iba al `AuditLog` |
+>
+> 🔴 **Corrección a §A3.9 y a esta tabla:** «saldo debitado» no era «le falta el email» —
+> **no tenía aviso ninguno**. `debitBalance` escribía el apunte y el registro y no se lo
+> decía a nadie, pese a exigir `reason` desde siempre. N5 lo crea entero.
+>
+> **Las cuatro categorías silenciables** (columnas booleanas en `User`, `@default(true)`):
+> `MESSAGES`, `LISTINGS`, `REVIEWS`, `ALERTS`. Booleanos y no `jsonb` porque **el defecto lo
+> pone la base**: con un `jsonb`, «la clave no está» tendría que significar «sí» por convenio
+> en código, y ese convenio se olvida.
+>
+> **La frontera, por construcción:** `email-categories.ts` clasifica cada job con un `Record`
+> **exhaustivo** — un correo nuevo no compila hasta que alguien decida si se puede silenciar,
+> y un job desconocido se trata como crítico. Las críticas devuelven `null`, y el `null` corta
+> antes de tocar la base: no es «se consulta y se ignora».
+>
+> **`LISTING_LIFECYCLE` es mixto y se resuelve por acción:** caducar es silenciable,
+> «el staff te lo ha borrado» no. Meter los cuatro en una categoría habría hecho silenciable
+> un borrado irreversible.
+>
+> **El punto único:** la comprobación vive en `NotificationProcessor.process()`, el embudo por
+> el que pasa **todo** correo del sistema — hay 17 sitios que encolan, en 12 ficheros, y
+> comprobar en cada uno habría sido repartir la decisión y confiar en que nadie se la salte.
+> Por lo mismo, los 18 envíos pasan ahora por un solo `enviar()`, así que **el pie de baja no
+> se puede olvidar** en ninguno (y no aparece en las críticas: ofrecer «date de baja» al pie
+> de un baneo sería ofrecer algo imposible).
+>
+> **La baja va por HMAC, sin tabla de tokens:** funciona sin sesión (quien se da de baja no la
+> inicia), no se puede forjar, es idempotente y no caduca — un enlace de baja que caduca es un
+> enlace de baja roto, y lo único que permite es dejar de recibir correo.
+
 **Estado actual: 8 de 12 mandan email.** El criterio implícito del código (y es un buen
 criterio, está bien argumentado en los comentarios) es:
 
