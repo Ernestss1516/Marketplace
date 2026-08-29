@@ -17,6 +17,7 @@ import {
   DataExportReadyData,
   AccountModeratedData,
   ListingLifecycleData,
+  ReviewReceivedData,
 } from './notification.types';
 
 /**
@@ -49,6 +50,7 @@ type DataByType = Snapshots<{
   DATA_EXPORT_READY: DataExportReadyData;
   ACCOUNT_MODERATED: AccountModeratedData;
   LISTING_LIFECYCLE: ListingLifecycleData;
+  REVIEW_RECEIVED: ReviewReceivedData;
 }>;
 
 @Injectable()

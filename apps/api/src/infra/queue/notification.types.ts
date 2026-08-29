@@ -22,6 +22,8 @@ export const NOTIFICATION_JOB = {
   SEND_ACCOUNT_MODERATED: 'send-account-moderated',
   // Ciclo de vida del anuncio (N3)
   SEND_LISTING_LIFECYCLE: 'send-listing-lifecycle',
+  // Reputación (N4a)
+  SEND_REVIEW_RECEIVED: 'send-review-received',
 } as const;
 
 export interface SendVerificationEmailData {
@@ -244,6 +246,36 @@ export interface SendListingLifecycleData {
   >;
   reason: string | null;
   daysLeft: number | null;
+}
+
+/**
+ * NOTIFICACIONES N4a — te han valorado.
+ *
+ * ── POR QUÉ SÍ LLEVA CORREO, PESE AL «con moderación» DE §A4 ────────────────
+ *
+ * La auditoría marcó este aviso para correo pero con reserva, por miedo al
+ * volumen. Ese miedo no aplica aquí, y el modelo lo garantiza: para valorar a
+ * alguien hace falta **un `Deal` cerrado** con él sobre un anuncio concreto, y
+ * `Review` tiene `@@unique([authorId, targetId, listingId])`. O sea que el número
+ * de correos posibles está acotado por el número de tratos reales, y **nadie puede
+ * valorar dos veces el mismo**. No es un canal que se pueda inundar.
+ *
+ * Y el hecho lo merece: queda escrito en público, cuenta para la media y no se
+ * puede responder — enterarse tres semanas tarde, al entrar por casualidad, es
+ * peor que un correo.
+ *
+ * NO LLEVA EL COMENTARIO, sólo las estrellas y el enlace. Igual que el resto del
+ * processor: el correo avisa, no transporta el contenido.
+ */
+export interface SendReviewReceivedData {
+  email: string;
+  name: string;
+  rating: number;
+  /** Nombre del autor, ya resuelto. */
+  authorName: string;
+  /** Perfil del VALORADO (donde se lee la valoración), no del autor. */
+  targetSlug: string;
+  listingTitle: string | null;
 }
 
 export interface SendAccountModeratedData {

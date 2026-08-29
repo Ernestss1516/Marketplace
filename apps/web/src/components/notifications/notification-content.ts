@@ -135,6 +135,9 @@ export function getNotificationContent(n: NotificationItem): { text: string; hre
       const texto: Record<typeof n.data.action, string> = {
         RETIRED: `Hemos retirado tu valoración de ${sobre} por incumplir las normas.${motivo}`,
         EDITED: `Hemos editado tu valoración de ${sobre} por incumplir las normas. Sigue publicada.${motivo}`,
+        // N4a — la otra mitad de la conversación. Sin motivo y sin disculpa: dice
+        // que ha vuelto, que es el hecho que a su autor le faltaba.
+        RESTORED: `Hemos revisado tu valoración de ${sobre} y vuelve a estar publicada.`,
       };
       return { text: texto[n.data.action], href: '/notificaciones' };
     }
@@ -231,6 +234,25 @@ export function getNotificationContent(n: NotificationItem): { text: string; hre
         FEATURED_EXPIRED: `Se ha acabado el destacado de tu anuncio ${titulo}. Sigue publicado, pero ya no aparece resaltado.`,
       };
       return { text: texto[n.data.action], href: '/mis-anuncios' };
+    }
+    /**
+     * N4a — TE HAN VALORADO. El evento más notificable que quedaba sin cubrir:
+     * alguien escribe públicamente sobre ti, queda en tu perfil y cuenta para tu
+     * media, y no te enterabas.
+     *
+     * No lleva el comentario, sólo las estrellas: el texto se lee en el perfil, y
+     * meterlo aquí convertiría el aviso en el contenido.
+     */
+    case 'REVIEW_RECEIVED': {
+      const estrellas = `${n.data.rating} estrella${n.data.rating === 1 ? '' : 's'}`;
+      const sobre = n.data.listingTitle ? ` sobre «${n.data.listingTitle}»` : '';
+      return {
+        text: `${n.data.authorName} te ha valorado con ${estrellas}${sobre}.`,
+        // Al perfil del AUTOR cuando se puede (desde ahí se llega al trato y al
+        // contexto); si su cuenta se vació, `authorSlug` es null y no se inventa un
+        // enlace roto — es la lección de A1.2, aplicada por adelantado.
+        href: n.data.authorSlug ? `/vendedor/${n.data.authorSlug}` : '/notificaciones',
+      };
     }
     default:
       // NO ES UN COLCHÓN: `tipoNoContemplado` recibe `never`, así que un tipo de

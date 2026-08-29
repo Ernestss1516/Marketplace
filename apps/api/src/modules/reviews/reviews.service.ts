@@ -9,6 +9,14 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { CUENTA_EN_ESCAPARATE } from '../users/account-visibility';
 import { isP2002 } from '../../common/prisma/is-p2002';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
+import { NotificationsService } from '../notifications/notifications.service';
+import { QUEUE_NOTIFICATIONS } from '../../infra/queue/queue.constants';
+import {
+  NOTIFICATION_JOB,
+  type SendReviewReceivedData,
+} from '../../infra/queue/notification.types';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { UpdateReviewDto } from './dto/update-review.dto';
 
@@ -42,7 +50,15 @@ const SELECT_AUTHOR = {
 
 @Injectable()
 export class ReviewsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // N4a — el aviso al valorado. Inyección directa y sin servicio propio, molde
+    // de `ListingsService` con `REVIEW_REQUEST`: un solo llamante y un solo
+    // evento no justifican un módulo aparte (los de N2 y N3 lo necesitaban porque
+    // tenían tres y cuatro llamantes que no se conocían).
+    private readonly notifications: NotificationsService,
+    @InjectQueue(QUEUE_NOTIFICATIONS) private readonly notificationQueue: Queue,
+  ) {}
 
   /**
    * Reputación RÁFAGA 3 — elegibilidad ya NO mira Conversation, mira Deal:
@@ -81,8 +97,13 @@ export class ReviewsService {
     }
     const verified = deals.some((d) => d.conversationId != null);
 
+    // El `create` va en su propio `try` y el aviso QUEDA FUERA, a propósito: si el
+    // aviso cayera dentro, un fallo suyo entraría por el `catch` de abajo y —al no
+    // ser un P2002— se relanzaría como si la valoración no se hubiera creado. El
+    // aviso es efecto, nunca causa.
+    let review;
     try {
-      return await this.prisma.review.create({
+      review = await this.prisma.review.create({
         data: {
           rating: dto.rating,
           comment: dto.comment,
@@ -102,6 +123,64 @@ export class ReviewsService {
       }
       throw err;
     }
+
+    /**
+     * NOTIFICACIONES N4a — AL VALORADO, TRAS PERSISTIR.
+     *
+     * Era «el evento más notificable que quedaba sin cubrir» (§A3.6): alguien
+     * escribe públicamente sobre ti, queda en tu perfil y cuenta para tu media, y
+     * no te enterabas. El sistema ya avisaba de que PODÍAS valorar
+     * (`REVIEW_REQUEST`, al cerrar el trato) pero no de que te habían valorado:
+     * avisaba del lado que no tenía consecuencias.
+     *
+     * NO HAY QUE SUPRIMIR LA AUTO-VALORACIÓN: este método la rechaza en su primera
+     * línea (`authorId === dto.targetId`), así que el destinatario nunca puede ser
+     * el autor. Es la misma garantía que `esSuPropiaAccion` da en moderación,
+     * conseguida por la regla de negocio en vez de por un guard del aviso.
+     */
+    await this.avisarAlValorado(review);
+
+    return review;
+  }
+
+  /**
+   * El aviso de «te han valorado», por los dos canales.
+   *
+   * `review` viene con el autor YA INCLUIDO (`SELECT_AUTHOR`), así que el snapshot
+   * se arma sin una consulta extra; sólo hace falta ir a por el correo y el slug
+   * del destinatario, que el `create` no trae.
+   */
+  private async avisarAlValorado(review: {
+    id: string;
+    rating: number;
+    targetId: string;
+    listingTitle: string | null;
+    author: { name: string; slug: string };
+  }): Promise<void> {
+    await this.notifications.createNotification(review.targetId, 'REVIEW_RECEIVED', {
+      reviewId: review.id,
+      rating: review.rating,
+      // Nombres YA RESUELTOS, nunca ids: el aviso se pinta sin consultas.
+      authorName: review.author.name,
+      authorSlug: review.author.slug,
+      listingTitle: review.listingTitle,
+    });
+
+    const target = await this.prisma.user.findUnique({
+      where: { id: review.targetId },
+      select: { email: true, name: true, slug: true },
+    });
+    if (!target) return;
+
+    await this.notificationQueue.add(NOTIFICATION_JOB.SEND_REVIEW_RECEIVED, {
+      email: target.email,
+      name: target.name,
+      rating: review.rating,
+      authorName: review.author.name,
+      // El perfil del VALORADO: es donde se lee la valoración, no el del autor.
+      targetSlug: target.slug,
+      listingTitle: review.listingTitle,
+    } satisfies SendReviewReceivedData);
   }
 
   async getEligibility(authorId: string, listingId: string, targetId: string) {
