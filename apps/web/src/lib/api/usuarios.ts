@@ -106,3 +106,44 @@ export function requestMyExport(token: string): Promise<DataExportDto> {
 export function getMyExports(token: string): Promise<DataExportDto[]> {
   return apiFetch<DataExportDto[]>('/users/me/exports', { token });
 }
+
+// ── NOTIFICACIONES N5 — preferencias de correo ───────────────────────────────
+//
+// SOLO LAS INFORMATIVAS. No hay endpoint ni tipo para las críticas (sanciones,
+// dinero, decisiones del staff sobre tu contenido): no se pueden apagar, y por
+// eso no aparecen aquí ni como opción desactivada. Ver `email-categories.ts` en
+// el backend.
+
+export type EmailCategory = 'MESSAGES' | 'LISTINGS' | 'REVIEWS' | 'ALERTS';
+
+export type EmailPreferences = Record<EmailCategory, boolean>;
+
+export function getEmailPreferences(token: string): Promise<EmailPreferences> {
+  return apiFetch<EmailPreferences>('/users/me/email-preferences', { token });
+}
+
+export function updateEmailPreferences(
+  token: string,
+  cambios: Partial<EmailPreferences>,
+): Promise<EmailPreferences> {
+  return apiFetch<EmailPreferences>('/users/me/email-preferences', {
+    method: 'PATCH',
+    token,
+    body: JSON.stringify(cambios),
+  });
+}
+
+/**
+ * La baja de un clic desde el pie del correo. SIN token: la firma HMAC del enlace
+ * es lo que sustituye a la sesión — quien se da de baja no va a iniciarla.
+ */
+export function unsubscribe(payload: {
+  userId: string;
+  category: EmailCategory;
+  signature: string;
+}): Promise<{ categoria: EmailCategory }> {
+  return apiFetch<{ categoria: EmailCategory }>('/users/unsubscribe', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}

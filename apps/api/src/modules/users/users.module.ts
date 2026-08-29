@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
+import { EmailPreferencesService } from './email-preferences.service';
 import { ListingsModule } from '../listings/listings.module';
 import { ReviewsModule } from '../reviews/reviews.module';
 import { BillingModule } from '../billing/billing.module';
@@ -22,7 +23,7 @@ import { DataExportModule } from '../data-export/data-export.module';
     DataExportModule,
   ],
   controllers: [UsersController],
-  providers: [UsersService],
+  providers: [UsersService, EmailPreferencesService],
   exports: [UsersService],
 })
 export class UsersModule {}

@@ -9,6 +9,13 @@ import { CreditGrantDto } from './dto/credit-grant.dto';
 import { GrantProDto } from './dto/grant-pro.dto';
 import { RevokeProDto } from './dto/revoke-pro.dto';
 import { BumpGrantDto } from './dto/bump-grant.dto';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
+import { QUEUE_NOTIFICATIONS } from '../../infra/queue/queue.constants';
+import {
+  NOTIFICATION_JOB,
+  type SendBalanceDebitedData,
+} from '../../infra/queue/notification.types';
 import { BalanceDebitDto } from './dto/balance-debit.dto';
 import { UpdatePriceDto } from './dto/update-price.dto';
 import { UpdateCreditPackDto } from './dto/update-credit-pack.dto';
@@ -19,6 +26,8 @@ export class AdminBillingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLog: AuditLogService,
+    // N5 — el correo de «hemos ajustado tu saldo», con su motivo.
+    @InjectQueue(QUEUE_NOTIFICATIONS) private readonly notificationQueue: Queue,
   ) {}
 
   async listTransactions(dto: ListAdminTransactionsDto) {
@@ -541,6 +550,36 @@ export class AdminBillingService {
         tx,
       );
     });
+
+    /**
+     * NOTIFICACIONES N5 — Y AHORA SE LE DICE. Tras la transacción, nunca dentro.
+     *
+     * §A4 listaba este correo y resultó que **no existía ni el aviso**: se escribía
+     * el apunte y el `AuditLog` y la persona afectada no se enteraba de nada — pese
+     * a que `BalanceDebitDto` exige `reason` desde siempre. Le quitaban algo que
+     * vale dinero, con un motivo escrito a mano que no le llegaba. Es exactamente
+     * el defecto que N2 corrigió para las sanciones.
+     *
+     * Sólo si de verdad se descontó algo: con el suelo en cero, un débito sobre un
+     * saldo vacío no mueve nada y avisar de ello sería ruido.
+     *
+     * CRÍTICO: no hay preferencia que lo apague (ver `email-categories.ts`).
+     */
+    if (descontado > 0) {
+      const usuario = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { email: true, name: true },
+      });
+      if (usuario) {
+        await this.notificationQueue.add(NOTIFICATION_JOB.SEND_BALANCE_DEBITED, {
+          email: usuario.email,
+          name: usuario.name,
+          credits: esCreditos ? descontado : 0,
+          bumps: esCreditos ? 0 : descontado,
+          reason: dto.reason,
+        } satisfies SendBalanceDebitedData);
+      }
+    }
 
     return { balance: nuevoSaldo, debitedAmount: descontado };
   }

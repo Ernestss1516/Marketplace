@@ -3,7 +3,11 @@ import { Cron } from '@nestjs/schedule';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../../infra/prisma/prisma.service';
-import { QUEUE_INVOICING } from '../../infra/queue/queue.constants';
+import { QUEUE_INVOICING, QUEUE_NOTIFICATIONS } from '../../infra/queue/queue.constants';
+import {
+  NOTIFICATION_JOB,
+  type SendInvoicingPendingData,
+} from '../../infra/queue/notification.types';
 import { NotificationsService } from '../notifications/notifications.service';
 import { hasCompleteFiscalData } from './invoicing.types';
 import { INVOICING_JOB } from './invoice.processor';
@@ -35,6 +39,8 @@ export class InvoicingScheduleService {
   constructor(
     private readonly prisma: PrismaService,
     @InjectQueue(QUEUE_INVOICING) private readonly queue: Queue,
+    // N5 — el correo de «faltan tus datos fiscales», que tiene ventana.
+    @InjectQueue(QUEUE_NOTIFICATIONS) private readonly notificationQueue: Queue,
     private readonly notifications: NotificationsService,
   ) {}
 
@@ -139,6 +145,25 @@ export class InvoicingScheduleService {
         periodKey,
         facturableCount,
       });
+
+      /**
+       * N5 — Y TAMBIÉN POR CORREO. Era «el candidato dudoso» de §A4 y se resuelve
+       * que SÍ: no es informativo, hay una VENTANA que se cierra, y si se cierra
+       * sin que complete sus datos esos movimientos **quedan sin facturar**. Eso no
+       * se recupera, y encima es dinero. Crítico: no hay preferencia que lo apague.
+       */
+      const usuario = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { email: true, name: true },
+      });
+      if (usuario) {
+        await this.notificationQueue.add(NOTIFICATION_JOB.SEND_INVOICING_PENDING, {
+          email: usuario.email,
+          name: usuario.name,
+          periodKey,
+          facturableCount,
+        } satisfies SendInvoicingPendingData);
+      }
     }
 
     this.logger.log(

@@ -26,6 +26,11 @@ export const NOTIFICATION_JOB = {
   SEND_REVIEW_RECEIVED: 'send-review-received',
   // Mensajería (N4b) — el correo AGRUPADO, tras la ventana de gracia.
   SEND_MESSAGE_UNREAD: 'send-message-unread',
+  // N5 — los tres que §A4 marcaba y sólo tenían campana. Los tres CRÍTICOS: el
+  // ZIP caduca, la ventana de facturación se cierra, y el saldo es dinero.
+  SEND_DATA_EXPORT_READY: 'send-data-export-ready',
+  SEND_INVOICING_PENDING: 'send-invoicing-pending',
+  SEND_BALANCE_DEBITED: 'send-balance-debited',
 } as const;
 
 export interface SendVerificationEmailData {
@@ -301,6 +306,63 @@ export interface SendMessageUnreadData {
   otherUserName: string;
   unreadCount: number;
   extracto: string;
+}
+
+/**
+ * N5 — el ZIP de datos está listo, y **CADUCA**.
+ *
+ * A1 lo hizo visible en la campana; §A4 pedía además el correo, y con razón: es un
+ * enlace con plazo. Un aviso que sólo vive en la campana se pierde por no entrar a
+ * tiempo, y lo que se pierde con él es el ejercicio de un derecho.
+ *
+ * CRÍTICO por eso mismo: no hay bandera que lo apague.
+ */
+export interface SendDataExportReadyData {
+  email: string;
+  name: string;
+  /** ISO-8601: hasta cuándo se puede descargar. */
+  expiresAt: string;
+  sizeBytes: number;
+}
+
+/**
+ * N5 — hay movimientos facturables y faltan los datos fiscales.
+ *
+ * ── EL «CANDIDATO DUDOSO» DE §A4, RESUELTO: SÍ LLEVA CORREO ────────────────
+ *
+ * La auditoría lo dejó abierto porque parecía informativo. No lo es: hay una
+ * VENTANA que se cierra, y si se cierra sin que el usuario complete sus datos, esos
+ * movimientos **quedan sin facturar** — y eso no se recupera. Encaja exacto en el
+ * criterio de §A4 («correo cuando pierde algo o tiene algo que hacer»), y encima es
+ * dinero.
+ *
+ * CRÍTICO, por lo mismo.
+ */
+export interface SendInvoicingPendingData {
+  email: string;
+  name: string;
+  periodKey: string;
+  facturableCount: number;
+}
+
+/**
+ * N5 — el staff le ha quitado saldo.
+ *
+ * §A4 lo listaba y no existía NI EL AVISO: `debitBalance` escribía el apunte y el
+ * `AuditLog` y no se lo decía a nadie, pese a que su DTO exige `reason` desde
+ * siempre. Le quitan algo que vale dinero y con un motivo escrito a mano que no
+ * llegaba a la persona afectada.
+ *
+ * CRÍTICO: nadie elige no enterarse de que le han tocado el saldo.
+ */
+export interface SendBalanceDebitedData {
+  email: string;
+  name: string;
+  /** Cuántos créditos y cuántos bumps se han retirado. */
+  credits: number;
+  bumps: number;
+  /** El motivo, obligatorio en `BalanceDebitDto`. */
+  reason: string;
 }
 
 export interface SendAccountModeratedData {
