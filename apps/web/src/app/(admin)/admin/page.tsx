@@ -10,7 +10,8 @@ import {
   Search,
   Users,
 } from 'lucide-react';
-import { getAdminStats, type AdminStats } from '@/lib/api/admin';
+import { getAdminStats, getWorkQueue, type AdminStats, type WorkQueue } from '@/lib/api/admin';
+import { ColaDeTrabajo } from '@/components/admin/ColaDeTrabajo';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 
@@ -44,6 +45,9 @@ export default function AdminDashboardPage() {
   const token = (session?.user as { accessToken?: string } | undefined)?.accessToken;
 
   const [stats, setStats] = useState<AdminStats | null>(null);
+  // N6 — la cola de trabajo. Si falla, el dashboard sigue: son dos lecturas
+  // independientes y las métricas no dependen de los contadores.
+  const [cola, setCola] = useState<WorkQueue | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -51,6 +55,11 @@ export default function AdminDashboardPage() {
     if (!token) return;
     setLoading(true);
     setError(null);
+    // N6 — dos lecturas INDEPENDIENTES: si la cola falla, el dashboard sigue
+    // pintando sus métricas, y al revés. Ninguna de las dos puede tumbar a la otra.
+    void getWorkQueue(token)
+      .then(setCola)
+      .catch(() => setCola(null));
     getAdminStats(token)
       .then(setStats)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Error desconocido'))
@@ -94,6 +103,14 @@ export default function AdminDashboardPage() {
   return (
     <div>
       <h1 className="mb-6 text-2xl font-bold">Dashboard</h1>
+
+      {/*
+        N6 — LA COLA DE TRABAJO, LO PRIMERO. Por encima de las métricas porque no
+        son la misma clase de dato: «usuarios totales» se mira una vez al mes y
+        «3 denuncias abiertas» es trabajo de hoy. Mezcladas —como estaban— lo
+        segundo se pierde entre lo primero.
+      */}
+      {cola && <ColaDeTrabajo cola={cola} />}
 
       {/* Anuncios */}
       <section>

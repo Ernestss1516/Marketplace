@@ -11,17 +11,34 @@ import { Queue } from 'bullmq';
 import {
   ArchiveReason,
   BumpLedgerType,
+  ContactEstado,
   CreditLedgerType,
   ListingPauseOrigin,
   ListingStatus,
+  ListingTriage,
   ListingTypePolicy,
   ListingViewMode,
   PriceUnit,
   Prisma,
   ReportStatus,
   Role,
+  TicketStatus,
+  TransactionStatus,
   UserStatus,
 } from '@prisma/client';
+
+/**
+ * NOTIFICACIONES N6 — a partir de cuántas horas sin respuesta un ticket cuenta
+ * como ESTANCADO en la cola de trabajo.
+ *
+ * Constante y no `Setting`: no es una política de producto que alguien vaya a
+ * querer ajustar en caliente, es el umbral de un indicador. El día que el equipo
+ * fije un SLA de verdad, ese SLA será el ajuste y esto se derivará de él.
+ */
+const TICKET_ESTANCADO_HORAS = 24;
+
+/** La clave del `Setting` con el buzón de soporte (ver `TicketNotificationsService`). */
+const SUPPORT_EMAIL_SETTING = 'supportEmail';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { RedisService } from '../../infra/redis/redis.service';
 import { MeilisearchService } from '../../infra/meilisearch/meilisearch.service';
@@ -3506,6 +3523,169 @@ export class AdminService {
   // ===========================================================================
   // Stats dashboard (R7.5)
   // ===========================================================================
+
+  /**
+   * NOTIFICACIONES N6 — LA COLA DE TRABAJO DEL BACKOFFICE.
+   *
+   * ── OTRO MODELO, Y ÉSA ES LA RAZÓN DE QUE NO SEA UNA `Notification` ────────
+   *
+   * `Notification` es un BUZÓN: userId 1:1, eventos dirigidos, historia. Responde
+   * «¿qué me han contado?». El staff necesita otra cosa: **«¿qué queda por
+   * hacer?»**, que es ESTADO AGREGADO y no historia. Con el buzón:
+   *
+   *   · si dos agentes atienden el mismo ticket, el aviso del otro NO desaparece;
+   *   · una notificación LEÍDA deja de contar aunque el trabajo siga pendiente —
+   *     leer no es hacer;
+   *   · no hay forma de preguntar «¿cuánto queda?», sólo «¿qué me han contado?».
+   *
+   * Por eso esto se DERIVA de las tablas en cada carga, y no hay ninguna
+   * notificación que mantener.
+   *
+   * ── `COUNT` ON-DEMAND, NO UN CONTADOR ALMACENADO ──────────────────────────
+   *
+   * Molde exacto de `getStats()`, aquí abajo: todo en UNA `$transaction`. Un
+   * contador almacenado se desincroniza en cuanto un camino de escritura se olvida
+   * de decrementarlo, y hay decenas. El `COUNT` no puede mentir, y el backoffice lo
+   * abren unos pocos agentes unas pocas veces al día. Mismo criterio que las medias
+   * de valoraciones y la rotación de destacados: **no almacenar lo que se puede
+   * derivar**.
+   *
+   * ── SIN FILTRO POR ROL, Y EL INVARIANTE QUE LO HACE SEGURO ────────────────
+   *
+   * Se sirve a TODO el staff (`@MinRole(EDITOR)`, el piso más bajo): un moderador
+   * sin acceso a facturación VE que hay 4 facturas pendientes. No puede entrar,
+   * pero sabe que existen, y eso mantiene al equipo al día sin ramificar el
+   * endpoint por rol.
+   *
+   * **LO QUE HACE SEGURA ESA DECISIÓN ES QUE AQUÍ SÓLO SALEN NÚMEROS.** «7 tickets
+   * sin asignar» no filtra nada de nadie. El día que alguien quiera añadir «último
+   * ticket: <asunto>» o un nombre, esta decisión deja de ser inocua y habría que
+   * filtrar por rol o quitar el dato. Es un INVARIANTE, no una casualidad de la
+   * implementación actual, y `cola-trabajo.e2e-spec.ts` lo vigila.
+   */
+  async getWorkQueue() {
+    const ahora = new Date();
+    const estancadoDesde = new Date(ahora.getTime() - TICKET_ESTANCADO_HORAS * 3600_000);
+
+    const [
+      pendientesRevision,
+      denunciasAbiertas,
+      valoracionesDenunciadas,
+      sinTriar,
+      editadosTrasRevisar,
+      enObservacion,
+      conDeteccionSinMirar,
+      ticketsSinAsignar,
+      ticketsEsperandoStaff,
+      ticketsEstancados,
+      contactoSinAtender,
+      facturasPendientes,
+      sinDatosFiscales,
+      buzonSoporte,
+    ] = await this.prisma.$transaction([
+      // ── Moderación ────────────────────────────────────────────────────────
+      this.prisma.listing.count({ where: { status: ListingStatus.PENDING_REVIEW } }),
+      this.prisma.report.count({ where: { status: ReportStatus.PENDING } }),
+      this.prisma.report.count({
+        where: { status: ReportStatus.PENDING, reviewId: { not: null } },
+      }),
+      // El «revisado interno» YA EXISTE (`Listing.triage`): esto sólo lo cuenta.
+      this.prisma.listing.count({ where: { triage: ListingTriage.NEW } }),
+      this.prisma.listing.count({ where: { triage: ListingTriage.EDITED } }),
+      this.prisma.listing.count({ where: { watched: true } }),
+      /**
+       * «Detecciones sin atender» NO SE PUEDE CONSULTAR TAL CUAL: `ListingDetection`
+       * no tiene campo de atendido, y el schema explica por qué son tres ejes
+       * distintos (qué encontró el motor / lo mira el staff / lo vigilamos).
+       *
+       * Lo más cercano SIN INVENTAR UN CAMPO es componer dos ejes que sí existen:
+       * el motor encontró algo Y nadie del staff lo ha mirado todavía. Eso sí es
+       * trabajo pendiente; contar todas las detecciones sería contar un historial
+       * que no drena.
+       */
+      this.prisma.listing.count({
+        where: {
+          detections: { some: {} },
+          triage: { in: [ListingTriage.NEW, ListingTriage.EDITED] },
+        },
+      }),
+
+      // ── Atención ──────────────────────────────────────────────────────────
+      this.prisma.ticket.count({
+        where: { status: TicketStatus.OPEN, assignedToId: null },
+      }),
+      // La pelota está en el equipo: abiertos y en curso. `WAITING_USER` no cuenta
+      // — ahí se espera al usuario, y contarlo sería inflar la cola con lo que no
+      // depende de nadie del equipo.
+      this.prisma.ticket.count({
+        where: { status: { in: [TicketStatus.OPEN, TicketStatus.IN_PROGRESS] } },
+      }),
+      // El que de verdad mide el SLA: lleva horas sin que nadie conteste.
+      this.prisma.ticket.count({
+        where: {
+          status: { in: [TicketStatus.OPEN, TicketStatus.IN_PROGRESS] },
+          lastMessageAt: { lt: estancadoDesde },
+        },
+      }),
+      this.prisma.contactMessage.count({ where: { estado: ContactEstado.NUEVO } }),
+
+      // ── Plataforma ────────────────────────────────────────────────────────
+      // Movimientos cobrados que aún no tienen factura emitida.
+      this.prisma.transaction.count({
+        where: {
+          status: TransactionStatus.SUCCEEDED,
+          gateway: { in: ['STRIPE', 'REDSYS'] },
+          invoiceLine: { is: null },
+        },
+      }),
+      // Gente con movimientos facturables a la que NO se le puede emitir factura.
+      // Es el mismo predicado que usa el cron de facturación para avisarles.
+      this.prisma.user.count({
+        where: {
+          fiscalTaxId: null,
+          transactions: {
+            some: {
+              status: TransactionStatus.SUCCEEDED,
+              gateway: { in: ['STRIPE', 'REDSYS'] },
+              invoiceLine: { is: null },
+            },
+          },
+        },
+      }),
+      /**
+       * EL AJUSTE QUE, SIN CONFIGURAR, ROMPE UN CANAL EN SILENCIO.
+       *
+       * `TicketNotificationsService.getSupportEmail()` emite un `logger.warn` y NO
+       * manda el correo al buzón de soporte. Nadie lee ese log, así que el equipo
+       * cree tener un canal que no tiene. Contarlo es lo que lo hace visible.
+       */
+      this.prisma.setting.count({ where: { key: SUPPORT_EMAIL_SETTING } }),
+    ]);
+
+    return {
+      moderacion: {
+        pendientesRevision,
+        denunciasAbiertas,
+        valoracionesDenunciadas,
+        sinTriar,
+        editadosTrasRevisar,
+        enObservacion,
+        conDeteccionSinMirar,
+      },
+      atencion: {
+        ticketsSinAsignar,
+        ticketsEsperandoStaff,
+        ticketsEstancados,
+        contactoSinAtender,
+      },
+      plataforma: {
+        facturasPendientes,
+        sinDatosFiscales,
+        // Bandera, no contenido: dice SI hay que configurarlo, nunca cuál es.
+        buzonSoporteSinConfigurar: buzonSoporte === 0,
+      },
+    };
+  }
 
   async getStats() {
     const today = new Date();

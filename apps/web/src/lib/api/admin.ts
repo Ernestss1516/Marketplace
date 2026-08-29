@@ -859,3 +859,38 @@ export interface DetectionStat {
 export function getDetectionStats(token: string): Promise<DetectionStat[]> {
   return apiFetch<DetectionStat[]>('/admin/detection/stats', { token });
 }
+
+// ── NOTIFICACIONES N6 — la cola de trabajo del backoffice ────────────────────
+//
+// SÓLO NÚMEROS. Es el invariante que hace segura la decisión de servir esto a todo
+// el staff sin filtrar por sección: «7 tickets sin asignar» no filtra nada de
+// nadie. El día que alguien quiera añadir un asunto o un nombre aquí, esa decisión
+// deja de ser inocua. Ver `AdminService.getWorkQueue` en el backend.
+
+export interface WorkQueue {
+  moderacion: {
+    pendientesRevision: number;
+    denunciasAbiertas: number;
+    valoracionesDenunciadas: number;
+    sinTriar: number;
+    editadosTrasRevisar: number;
+    enObservacion: number;
+    conDeteccionSinMirar: number;
+  };
+  atencion: {
+    ticketsSinAsignar: number;
+    ticketsEsperandoStaff: number;
+    ticketsEstancados: number;
+    contactoSinAtender: number;
+  };
+  plataforma: {
+    facturasPendientes: number;
+    sinDatosFiscales: number;
+    /** Bandera, no contenido: dice SI hay que configurarlo, nunca cuál es. */
+    buzonSoporteSinConfigurar: boolean;
+  };
+}
+
+export function getWorkQueue(token: string): Promise<WorkQueue> {
+  return apiFetch<WorkQueue>('/admin/work-queue', { token });
+}

@@ -12,7 +12,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ArchiveReason, Role } from '@prisma/client';
 import { JwtAuthGuard, RolesGuard } from '../../common/guards';
 import { CurrentUser, MinRole } from '../../common/decorators';
@@ -68,6 +68,21 @@ export class AdminController {
   @MinRole(Role.EDITOR)
   getStats() {
     return this.adminService.getStats();
+  }
+
+  /**
+   * NOTIFICACIONES N6 — LA COLA DE TRABAJO: qué queda por hacer, por área.
+   *
+   * `@MinRole(EDITOR)` —el piso más bajo del staff— y NINGUNA ramificación por
+   * sección: un moderador sin acceso a facturación ve que hay facturas pendientes.
+   * Lo que hace segura esa decisión es que aquí **sólo salen números**; ver el
+   * invariante en `AdminService.getWorkQueue`.
+   */
+  @Get('work-queue')
+  @MinRole(Role.EDITOR)
+  @ApiOperation({ summary: 'Contadores de trabajo pendiente por área (sólo números)' })
+  getWorkQueue() {
+    return this.adminService.getWorkQueue();
   }
 
   // ─── Listings ─────────────────────────────────────────────────────────────
