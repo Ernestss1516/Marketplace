@@ -24,6 +24,8 @@ export const NOTIFICATION_JOB = {
   SEND_LISTING_LIFECYCLE: 'send-listing-lifecycle',
   // Reputación (N4a)
   SEND_REVIEW_RECEIVED: 'send-review-received',
+  // Mensajería (N4b) — el correo AGRUPADO, tras la ventana de gracia.
+  SEND_MESSAGE_UNREAD: 'send-message-unread',
 } as const;
 
 export interface SendVerificationEmailData {
@@ -276,6 +278,29 @@ export interface SendReviewReceivedData {
   /** Perfil del VALORADO (donde se lee la valoración), no del autor. */
   targetSlug: string;
   listingTitle: string | null;
+}
+
+/**
+ * NOTIFICACIONES N4b — «tienes N mensajes de Juan», tras la ventana de gracia.
+ *
+ * UNO POR CONVERSACIÓN Y POR VENTANA, nunca uno por mensaje: los N acumulados van
+ * en el mismo correo. Es lo que separa un aviso de una notificación push por cada
+ * frase que el otro escribe.
+ *
+ * Sólo se encola cuando el trabajo diferido ha comprobado que **sigue sin leer**
+ * (ver `MessageDigestProcessor`): cuando llega aquí, ya está decidido.
+ *
+ * Lleva `extracto` (≤140) y el enlace, jamás la conversación — §11, la misma regla
+ * que tickets: para leerla hay que entrar.
+ */
+export interface SendMessageUnreadData {
+  email: string;
+  name: string;
+  conversationId: string;
+  /** Nombre del interlocutor, ya resuelto. */
+  otherUserName: string;
+  unreadCount: number;
+  extracto: string;
 }
 
 export interface SendAccountModeratedData {

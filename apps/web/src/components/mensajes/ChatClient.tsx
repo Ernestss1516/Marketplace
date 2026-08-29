@@ -58,7 +58,8 @@ export function ChatClient({ initialData, token, userId }: Props) {
   const targetId = initialData.otherUser.id;
   const targetName = initialData.otherUser.name;
 
-  const { latestMessage, joinConversation } = useMessagingSocketContext();
+  const { latestMessage, joinConversation, setActiveConversation } =
+    useMessagingSocketContext();
 
   async function fetchEligibility() {
     // BORRADO B1 — sin anuncio no hay nada que valorar. Una valoración se ancla a
@@ -79,6 +80,18 @@ export function ChatClient({ initialData, token, userId }: Props) {
   useEffect(() => {
     void fetchEligibility();
     joinConversation(initialData.id);
+
+    /**
+     * N4b — «estoy mirando ESTE hilo», y al desmontar, «ya no».
+     *
+     * El ciclo de vida de este componente ES la respuesta que el servidor necesita:
+     * `ChatClient` se remonta al navegar entre `/mensajes/[id]`, así que montar
+     * significa abrir el hilo y desmontar significa dejarlo. Con eso, un mensaje que
+     * llegue mientras se mira no notifica, y uno que llegue en cualquier otro hilo
+     * —o con la conversación cerrada— sí.
+     */
+    setActiveConversation(initialData.id);
+    return () => setActiveConversation(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialData.id]);
 

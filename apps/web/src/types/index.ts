@@ -788,6 +788,21 @@ export interface ReviewModeratedData {
   reason: string | null;
 }
 
+/**
+ * Espejo de MessageUnreadData en el backend (N4b) — mensajes sin leer de un hilo.
+ *
+ * `unreadCount` se recalcula en cada mensaje (nunca se incrementa) y `createdAt` se
+ * refresca, para que el hilo suba en la campana: es ESTADO, no un evento.
+ */
+export interface MessageUnreadData {
+  conversationId: string;
+  otherUserName: string;
+  otherUserSlug: string | null;
+  listingTitle: string | null;
+  unreadCount: number;
+  extracto: string;
+}
+
 /** Espejo de ReviewReceivedData en el backend (N4a) — te han valorado. */
 export interface ReviewReceivedData {
   reviewId: string;
@@ -907,7 +922,10 @@ export type NotificationItem =
   | (NotificationBase & { type: 'LISTING_LIFECYCLE'; data: ListingLifecycleData })
   // N4a — «el evento más notificable que quedaba sin cubrir»: alguien escribe
   // públicamente sobre ti, queda en tu perfil y cuenta para tu media.
-  | (NotificationBase & { type: 'REVIEW_RECEIVED'; data: ReviewReceivedData });
+  | (NotificationBase & { type: 'REVIEW_RECEIVED'; data: ReviewReceivedData })
+  // N4b — el primer tipo que es ESTADO y no historia: UNA por conversación, con el
+  // contador al día. Una por mensaje habría convertido la campana en un chat roto.
+  | (NotificationBase & { type: 'MESSAGE_UNREAD'; data: MessageUnreadData });
 
 export interface NotificationsResponse {
   items: NotificationItem[];

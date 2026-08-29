@@ -254,6 +254,25 @@ export function getNotificationContent(n: NotificationItem): { text: string; hre
         href: n.data.authorSlug ? `/vendedor/${n.data.authorSlug}` : '/notificaciones',
       };
     }
+    /**
+     * N4b — MENSAJES SIN LEER. El primer aviso que es ESTADO y no historia: hay UNO
+     * por conversación y su contador sube, en vez de uno por mensaje (que habría
+     * convertido la campana en un chat roto).
+     *
+     * Por eso el texto lleva el NÚMERO: no dice «tienes un mensaje» tres veces,
+     * dice «3 mensajes».
+     */
+    case 'MESSAGE_UNREAD': {
+      const cuantos =
+        n.data.unreadCount === 1
+          ? '1 mensaje nuevo'
+          : `${n.data.unreadCount} mensajes nuevos`;
+      const sobre = n.data.listingTitle ? ` sobre «${n.data.listingTitle}»` : '';
+      return {
+        text: `${cuantos} de ${n.data.otherUserName}${sobre}: ${n.data.extracto}`,
+        href: `/mensajes/${n.data.conversationId}`,
+      };
+    }
     default:
       // NO ES UN COLCHÓN: `tipoNoContemplado` recibe `never`, así que un tipo de
       // `NotificationItem` sin `case` rompe la compilación aquí mismo. Sólo se

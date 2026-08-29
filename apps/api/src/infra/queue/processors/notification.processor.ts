@@ -16,6 +16,7 @@ import {
   SendBumpAutoPausedData,
   SendListingLifecycleData,
   SendListingModeratedData,
+  SendMessageUnreadData,
   SendReviewReceivedData,
   SendTicketMessageData,
   SendTicketResolvedData,
@@ -68,6 +69,8 @@ export class NotificationProcessor extends WorkerHost {
           return this.sendListingLifecycle(job.data as SendListingLifecycleData);
         case NOTIFICATION_JOB.SEND_REVIEW_RECEIVED:
           return this.sendReviewReceived(job.data as SendReviewReceivedData);
+        case NOTIFICATION_JOB.SEND_MESSAGE_UNREAD:
+          return this.sendMessageUnread(job.data as SendMessageUnreadData);
         default:
           this.logger.warn(`Unknown notification job: ${job.name}`);
       }
@@ -471,6 +474,34 @@ export class NotificationProcessor extends WorkerHost {
         `Puedes leerla en tu perfil:\n${link}`,
     });
     this.logger.log(`Review received email sent to ${data.email}`);
+  }
+
+  /**
+   * NOTIFICACIONES N4b — «tienes N mensajes sin leer», tras la ventana de gracia.
+   *
+   * CUANDO LLEGA AQUÍ YA ESTÁ DECIDIDO: el trabajo diferido comprobó que el
+   * destinatario sigue sin leer. Este método sólo redacta y manda — la regla de
+   * este processor.
+   *
+   * `text:` plano, y aquí importa especialmente: el extracto lo escribe un
+   * desconocido y lo lee la otra parte.
+   */
+  private async sendMessageUnread(data: SendMessageUnreadData): Promise<void> {
+    const link = `${this.appUrl}/mensajes/${data.conversationId}`;
+    const cuantos =
+      data.unreadCount === 1
+        ? 'un mensaje nuevo'
+        : `${data.unreadCount} mensajes nuevos`;
+
+    await this.resend.emails.send({
+      from: this.from,
+      to: data.email,
+      subject: `Tienes ${cuantos} de ${data.otherUserName}`,
+      text:
+        `Hola ${data.name},\n\n${data.otherUserName} te ha dejado ${cuantos}:\n\n` +
+        `"${data.extracto}"\n\nLéelos y responde aquí:\n${link}\n\n${this.noReply}`,
+    });
+    this.logger.log(`Message unread email sent to ${data.email} (${data.unreadCount})`);
   }
 
   /** Fecha legible para el copy. Molde del front: `es-ES`, día y mes. */
