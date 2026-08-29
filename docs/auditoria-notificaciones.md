@@ -414,6 +414,36 @@ suprime al actor de su propia acción, no los solapamientos legítimos.
 
 ### A3.6 — VALORACIONES
 
+> ### ✅ ESTADO: N4a IMPLEMENTADO (rama `notificaciones-n4a-reputacion`)
+>
+> | Evento | Antes | Ahora |
+> |---|---|---|
+> | **Recibir una valoración** | mudo | ✅ `REVIEW_RECEIVED`, in-app + email |
+> | **Restaurar una valoración** | mudo (asimetría) | ✅ `REVIEW_MODERATED` + acción `RESTORED`, in-app |
+> | Retirar / editar con motivo | ✅ (A1 + N2) | ✅ sostenido y fijado por e2e |
+> | **Responder a una valoración** | — | ❌ **no se puede: la función no existe** |
+>
+> **🔴 Corrección a esta misma tabla.** La fila «Responder a una valoración» daba por
+> supuesto que responder existe. **No existe**: barrido de `reply|respuesta|respond` en
+> `apps/api/src/modules/reviews/`, en el `model Review` y en el front → **cero resultados**.
+> No hay campo, ni endpoint, ni interfaz. No es un aviso que falte, es una **función de
+> producto** que nunca se construyó; notificar algo que no ocurre es imposible. Queda como
+> decisión de producto, no como deuda de notificaciones.
+>
+> **Sin migración** (`type` es `String`) y **sin servicio ni módulo nuevos**: `REVIEW_RECEIVED`
+> se emite desde `ReviewsService` con inyección directa —molde de `ListingsService` con
+> `REVIEW_REQUEST`—, porque un solo llamante y un solo evento no justifican el módulo neutral
+> que N2 y N3 sí necesitaban (tenían tres y cuatro llamantes que no se conocían).
+>
+> **El correo de `REVIEW_RECEIVED` sí sale, pese al «con moderación» de §A4.** La reserva era
+> por volumen, y el modelo lo acota solo: valorar exige un `Deal` cerrado y `Review` tiene
+> `@@unique([authorId, targetId, listingId])` — nadie puede valorar dos veces lo mismo. No es
+> un canal inundable.
+>
+> **La auto-valoración no necesita guard**: `create()` la rechaza en su primera línea
+> (`authorId === dto.targetId`), así que el destinatario nunca puede ser el autor. Es lo que
+> `esSuPropiaAccion` consigue en moderación, aquí por regla de negocio.
+
 | Evento | ¿Notifica hoy? | ¿Debería? | ¿Motivo? |
 |---|---|---|---|
 | **Recibir una valoración** | ❌ **no** | **SÍ — alto valor.** Alguien ha escrito públicamente sobre ti y no te enteras. Es el evento más «notificable» que existe sin cubrir | n/a |

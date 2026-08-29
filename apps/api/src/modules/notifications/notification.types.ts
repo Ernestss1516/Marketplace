@@ -56,7 +56,15 @@ export type NotificationType =
   // anuncio le ha pasado algo», y la mitad ni siquiera tiene actor humano (lo hace
   // un cron). Mezclarlos habría metido un `Record` de diez acciones donde hoy hay
   // dos de cuatro y seis de seis, cada uno con su criterio de correo.
-  | 'LISTING_LIFECYCLE';
+  | 'LISTING_LIFECYCLE'
+  // NOTIFICACIONES N4a — RECIBIR UNA VALORACIÓN.
+  //
+  // «El evento más notificable que quedaba sin cubrir» (§A3.6): alguien escribe
+  // PÚBLICAMENTE sobre ti, queda en tu perfil y cuenta para tu media, y no te
+  // enterabas. El sistema ya avisaba de que PODÍAS valorar (`REVIEW_REQUEST`, al
+  // cerrar un trato) pero no de que te habían valorado — o sea, avisaba del lado
+  // que no tenía consecuencias.
+  | 'REVIEW_RECEIVED';
 
 /** Self-contained snapshot stored in Notification.data — see schema.prisma comment. */
 export interface AlertMatchData {
@@ -217,12 +225,47 @@ export interface ReviewModeratedData {
    * Qué se le hizo. `RETIRED`: deja de verse (reversible con `restoreReview`).
    * `EDITED`: sigue publicada, con el texto o las estrellas cambiados.
    */
-  action: 'RETIRED' | 'EDITED';
+  /**
+   * `RESTORED` ENTRA EN N4a Y CIERRA UNA ASIMETRÍA, no añade una función.
+   *
+   * Retirar avisaba desde §14.5; devolver la valoración a la media y al perfil no
+   * avisaba de nada. Es exactamente lo que `restoreListing` tuvo que corregir en su
+   * momento, y su comentario sirve igual aquí: **«avisar solo de lo malo sería la
+   * mitad de la conversación»**. Quien vio «hemos retirado tu valoración» tiene que
+   * poder ver también que ha vuelto.
+   */
+  action: 'RETIRED' | 'EDITED' | 'RESTORED';
   /**
    * N2 — el motivo que escribió el moderador, que hasta ahora se descartaba.
-   * `null` sólo por compatibilidad con los avisos creados antes de N2.
+   * `null` sólo por compatibilidad con los avisos creados antes de N2 — y en
+   * `RESTORED`, siempre: `restoreReview` no recibe motivo (deshacer no se justifica
+   * ante quien se beneficia).
    */
   reason: string | null;
+}
+
+/**
+ * Al VALORADO: alguien le ha dejado una valoración (N4a).
+ *
+ * Snapshot autocontenido, con el nombre del autor YA RESUELTO: el aviso debe
+ * pintarse sin consultas y seguir siendo legible si esa cuenta se vacía después
+ * (entonces su `name` ya es «Usuario eliminado» y aquí queda congelado el que
+ * hubiera al avisar, que es lo que era verdad en ese momento).
+ *
+ * NO lleva el comentario, sólo las estrellas: el texto se lee en el perfil, y
+ * meterlo en la campana convertiría el aviso en el contenido. Mismo criterio que
+ * el `extracto` de tickets, llevado al extremo porque aquí ni siquiera hace falta
+ * un adelanto — la nota basta para decidir si vas a mirar.
+ */
+export interface ReviewReceivedData {
+  reviewId: string;
+  rating: number;
+  /** Nombre del autor, resuelto. Nunca su id. */
+  authorName: string;
+  /** Para enlazar a su perfil. `null` si no procede enlazarlo. */
+  authorSlug: string | null;
+  /** Sobre qué anuncio, congelado (`Review.listingTitle` ya es snapshot). */
+  listingTitle: string | null;
 }
 
 /**

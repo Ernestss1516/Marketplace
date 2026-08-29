@@ -5,6 +5,7 @@ import type {
   ListingLifecycleAction,
   ListingLifecycleData,
   NotificationItem,
+  ReviewReceivedData,
 } from '@/types';
 
 /**
@@ -110,7 +111,7 @@ describe('getNotificationContent', () => {
 
   describe('REVIEW_MODERATED', () => {
     const conAccion = (
-      action: 'RETIRED' | 'EDITED',
+      action: 'RETIRED' | 'EDITED' | 'RESTORED',
       reason: string | null = null,
     ): NotificationItem => ({
       ...base,
@@ -152,6 +153,73 @@ describe('getNotificationContent', () => {
         expect(text).not.toContain('null');
         expect(text).not.toContain('Motivo:');
       }
+    });
+
+    /**
+     * N4a — LA ASIMETRÍA, CERRADA. Retirar avisaba; devolver la valoración no.
+     * «Avisar solo de lo malo sería la mitad de la conversación».
+     */
+    it('N4a — RESTORED dice que vuelve a estar publicada, y no acusa', () => {
+      const { text } = getNotificationContent(conAccion('RESTORED'));
+      expect(text).toContain('vuelve a estar publicada');
+      expect(text).not.toContain('retirado');
+      expect(text).not.toContain('incumplir');
+    });
+
+    it('N4a — las TRES acciones pintan texto, ninguna `undefined`', () => {
+      for (const action of ['RETIRED', 'EDITED', 'RESTORED'] as const) {
+        const { text } = getNotificationContent(conAccion(action));
+        expect(typeof text).toBe('string');
+        expect(text).not.toContain('undefined');
+        expect(text.length).toBeGreaterThan(0);
+      }
+    });
+  });
+
+  // ===========================================================================
+  // N4a — te han valorado
+  // ===========================================================================
+
+  describe('REVIEW_RECEIVED (N4a)', () => {
+    const aviso = (extra: Partial<ReviewReceivedData> = {}): NotificationItem => ({
+      ...base,
+      type: 'REVIEW_RECEIVED',
+      data: {
+        reviewId: 'r1',
+        rating: 5,
+        authorName: 'Ana',
+        authorSlug: 'ana',
+        listingTitle: 'Bici de carretera',
+        ...extra,
+      },
+    });
+
+    it('dice quién, cuántas estrellas y sobre qué', () => {
+      const { text } = getNotificationContent(aviso());
+      expect(text).toContain('Ana');
+      expect(text).toContain('5 estrellas');
+      expect(text).toContain('Bici de carretera');
+    });
+
+    it('una estrella no se dice «1 estrellas»', () => {
+      expect(getNotificationContent(aviso({ rating: 1 })).text).toContain('1 estrella');
+      expect(getNotificationContent(aviso({ rating: 1 })).text).not.toContain('1 estrellas');
+    });
+
+    it('sin anuncio se lee igual de bien (degradación limpia)', () => {
+      const { text } = getNotificationContent(aviso({ listingTitle: null }));
+      expect(text).not.toContain('null');
+      expect(text).not.toContain('undefined');
+      expect(text).toContain('Ana');
+    });
+
+    it('lleva al perfil del autor cuando se puede', () => {
+      expect(getNotificationContent(aviso()).href).toBe('/vendedor/ana');
+    });
+
+    /** Si la cuenta del autor se vació, no se inventa un enlace roto (lección A1.2). */
+    it('sin slug del autor NO enlaza un perfil que no existe', () => {
+      expect(getNotificationContent(aviso({ authorSlug: null })).href).toBe('/notificaciones');
     });
   });
 

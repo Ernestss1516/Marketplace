@@ -229,8 +229,12 @@ export class ModerationNotificationsService {
   async reviewModerated(
     review: Pick<Review, 'id' | 'authorId' | 'targetId' | 'rating' | 'listingTitle'>,
     actorId: string,
-    action: 'RETIRED' | 'EDITED',
-    reason: string,
+    action: 'RETIRED' | 'EDITED' | 'RESTORED',
+    // `string | null` desde N4a: `RESTORED` es el ÚNICO que pasa `null`, porque
+    // `restoreReview` no recibe motivo — deshacer una retirada no hay que
+    // justificarlo ante quien se beneficia. Sigue SIN valor por defecto, que es lo
+    // que impide repetir el olvido que A1 tuvo que arreglar.
+    reason: string | null,
   ) {
     if (this.esSuPropiaAccion(review.authorId, actorId)) return;
 

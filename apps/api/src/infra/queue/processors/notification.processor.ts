@@ -16,6 +16,7 @@ import {
   SendBumpAutoPausedData,
   SendListingLifecycleData,
   SendListingModeratedData,
+  SendReviewReceivedData,
   SendTicketMessageData,
   SendTicketResolvedData,
   SendTicketStaffNotificationData,
@@ -65,6 +66,8 @@ export class NotificationProcessor extends WorkerHost {
           return this.sendAccountModerated(job.data as SendAccountModeratedData);
         case NOTIFICATION_JOB.SEND_LISTING_LIFECYCLE:
           return this.sendListingLifecycle(job.data as SendListingLifecycleData);
+        case NOTIFICATION_JOB.SEND_REVIEW_RECEIVED:
+          return this.sendReviewReceived(job.data as SendReviewReceivedData);
         default:
           this.logger.warn(`Unknown notification job: ${job.name}`);
       }
@@ -442,6 +445,32 @@ export class NotificationProcessor extends WorkerHost {
       text: `Hola ${data.name},\n\n${cuerpo}`,
     });
     this.logger.log(`Listing lifecycle email (${data.action}) sent to ${data.email}`);
+  }
+
+  /**
+   * NOTIFICACIONES N4a — te han valorado.
+   *
+   * SIN PEDIR NADA A CAMBIO: no invita a responder (no se puede: el sistema no
+   * tiene respuestas a valoraciones), ni a devolver la valoración, ni sugiere que
+   * haya que hacer algo con una nota baja. Dice qué ha pasado y dónde verlo. Es el
+   * mismo registro que el resto del processor, y aquí importa porque una
+   * valoración es un juicio ajeno: un correo que empujara a reaccionar convertiría
+   * un aviso en una provocación.
+   */
+  private async sendReviewReceived(data: SendReviewReceivedData): Promise<void> {
+    const link = `${this.appUrl}/vendedor/${data.targetSlug}`;
+    const sobre = data.listingTitle ? ` sobre «${data.listingTitle}»` : '';
+
+    await this.resend.emails.send({
+      from: this.from,
+      to: data.email,
+      subject: `${data.authorName} te ha valorado`,
+      text:
+        `Hola ${data.name},\n\n${data.authorName} te ha dejado una valoración de ` +
+        `${data.rating} estrella${data.rating === 1 ? '' : 's'}${sobre}.\n\n` +
+        `Puedes leerla en tu perfil:\n${link}`,
+    });
+    this.logger.log(`Review received email sent to ${data.email}`);
   }
 
   /** Fecha legible para el copy. Molde del front: `es-ES`, día y mes. */

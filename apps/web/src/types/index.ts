@@ -774,13 +774,28 @@ export interface ReviewModeratedData {
    * estrellas cambiados. Sin este discriminante, editar una valoración le decía a
    * su autor que se la habían retirado.
    */
-  action: 'RETIRED' | 'EDITED';
+  /**
+   * `RESTORED` entra en N4a y cierra la asimetría: retirar avisaba, devolver la
+   * valoración no. «Avisar solo de lo malo sería la mitad de la conversación».
+   */
+  action: 'RETIRED' | 'EDITED' | 'RESTORED';
   /**
    * N2 — el motivo que escribió el moderador. Los dos caminos lo exigían desde
    * siempre y hasta ahora se descartaba: se le retiraba a alguien lo que había
-   * escrito y se le comunicaba sin decirle por qué.
+   * escrito y se le comunicaba sin decirle por qué. `RESTORED` va siempre sin
+   * motivo: deshacer no se justifica ante quien se beneficia.
    */
   reason: string | null;
+}
+
+/** Espejo de ReviewReceivedData en el backend (N4a) — te han valorado. */
+export interface ReviewReceivedData {
+  reviewId: string;
+  rating: number;
+  /** Nombre del autor, resuelto y congelado. */
+  authorName: string;
+  authorSlug: string | null;
+  listingTitle: string | null;
 }
 
 /**
@@ -889,7 +904,10 @@ export type NotificationItem =
   | (NotificationBase & { type: 'ACCOUNT_MODERATED'; data: AccountModeratedData })
   // N3 — el ciclo de vida del anuncio: lo que le pasa sin que su dueño lo pida.
   // El caso que más falta hacía es EXPIRED («desapareció y no sé por qué»).
-  | (NotificationBase & { type: 'LISTING_LIFECYCLE'; data: ListingLifecycleData });
+  | (NotificationBase & { type: 'LISTING_LIFECYCLE'; data: ListingLifecycleData })
+  // N4a — «el evento más notificable que quedaba sin cubrir»: alguien escribe
+  // públicamente sobre ti, queda en tu perfil y cuenta para tu media.
+  | (NotificationBase & { type: 'REVIEW_RECEIVED'; data: ReviewReceivedData });
 
 export interface NotificationsResponse {
   items: NotificationItem[];

@@ -558,6 +558,20 @@ export class ModerationService {
       ip,
     });
 
+    /**
+     * NOTIFICACIONES N4a — LA ASIMETRÍA, CERRADA.
+     *
+     * Retirar avisaba al autor desde §14.5; devolverle la valoración a la media y
+     * al perfil no le decía nada. Es exactamente lo que `restoreListing` tuvo que
+     * corregir, y su comentario vale palabra por palabra: **«avisar solo de lo malo
+     * sería la mitad de la conversación»**. Quien recibió «hemos retirado tu
+     * valoración» tiene derecho a saber que ha vuelto.
+     *
+     * SIN MOTIVO (`null`): deshacer una retirada no se justifica ante quien se
+     * beneficia de ella.
+     */
+    await this.notify.reviewModerated(review, actorId, 'RESTORED', null);
+
     return updated;
   }
 
