@@ -32,9 +32,13 @@ import { AdminStatsController } from './admin-stats.controller';
 import { AdminStatsService } from './admin-stats.service';
 import { AccountModerationNotificationsModule } from '../account-moderation-notifications/account-moderation-notifications.module';
 import { ListingLifecycleNotificationsModule } from '../listing-lifecycle-notifications/listing-lifecycle-notifications.module';
+import { ListingExpiryModule } from '../expiration/listing-expiry.module';
 
 @Module({
   imports: [
+    // AJUSTES RÁFAGA A — el lector del plazo de caducidad (`listingExpiryDays`). Módulo HOJA:
+    // sólo depende de Prisma, así que importarlo no abre ningún ciclo.
+    ListingExpiryModule,
     BullModule.registerQueue(retryQueue(QUEUE_INDEXING)),
     // N5 — `AdminBillingService` avisa por correo del débito de saldo. Se registra
     // AQUÍ aunque `AccountModerationNotificationsModule` ya use la misma cola:

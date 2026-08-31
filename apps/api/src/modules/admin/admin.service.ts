@@ -44,7 +44,7 @@ import { RedisService } from '../../infra/redis/redis.service';
 import { MeilisearchService } from '../../infra/meilisearch/meilisearch.service';
 import { isP2002 } from '../../common/prisma/is-p2002';
 import { AuditLogService } from '../audit-log/audit-log.service';
-import { ExpirationService } from '../expiration/expiration.service';
+import { ListingExpiryService } from '../expiration/listing-expiry.service';
 import {
   QUEUE_INDEXING,
   QUEUE_ACCOUNT_CLEANUP,
@@ -74,6 +74,19 @@ import { UpdateCategoryDto } from './dto/update-category.dto';
 import { ReorderCategoriesDto } from './dto/reorder-categories.dto';
 import { UpdateSettingDto } from './dto/update-setting.dto';
 import { DEFAULT_SUSPENSION_DAYS_SETTING } from '../users/suspension.constants';
+// AJUSTES RÁFAGA A — los defectos de los huérfanos, importados de su dueño y nunca copiados:
+// el backoffice tiene que enseñar EXACTAMENTE el valor que su lector aplica sin fila.
+import {
+  DEFAULT_GRACE_MINUTES,
+  MESSAGE_EMAIL_GRACE_SETTING,
+} from '../messaging/message-notifications.service';
+import {
+  DEFAULT_FISCAL_PERIODICITY,
+  DEFAULT_FISCAL_WINDOW_MONTHS,
+  FISCAL_PERIODICITY_SETTING,
+  FISCAL_WINDOW_SETTING,
+} from '../invoicing/invoicing.constants';
+import { DEFAULT_EXPIRY_DAYS, LISTING_EXPIRY_SETTING } from '../expiration/listing-expiry';
 import { EQUIPO_CREATE_DATA, EQUIPO_SLUG } from '../users/system-account';
 import { BILLING_JOB } from '../billing/billing.types';
 import { ACCOUNT_CLEANUP_JOB } from './account-cleanup.types';
@@ -287,6 +300,52 @@ const SETTING_KEYS = [
    * escritas para poder señalarlas en la pantalla.
    */
   'flaggedPhones',
+  /**
+   * ─── AJUSTES RÁFAGA A — LOS CUATRO HUÉRFANOS ────────────────────────────────────────────
+   *
+   * Los cuatro EXISTÍAN Y SE LEÍAN desde hace ráfagas, pero no estaban en este whitelist ni en
+   * ninguna pantalla: la única forma de cambiarlos era escribir en Postgres a mano. No son
+   * ajustes nuevos —cada uno llega con su lector ya en producción, señalado abajo— y por eso
+   * entrar aquí no cambia el comportamiento de nada: cambia quién puede tocarlos.
+   *
+   * Ver docs/auditoria-ajustes-backoffice.md §2.2 y §4.
+   */
+
+  /**
+   * Minutos de gracia antes del correo de «tienes un mensaje sin leer».
+   * LECTOR: `MessageNotificationsService.leerVentanaDeGracia()` — message-notifications.service.ts:163.
+   * Sin fila (o `<= 0`), `DEFAULT_GRACE_MINUTES` (10). Entero positivo — ver POSITIVE_INT.
+   */
+  'messageEmailGraceMinutes',
+  /**
+   * Días que dura una suspensión cuando el moderador no indica duración.
+   * LECTOR: `AdminService.leerDuracionPorDefectoDeSuspension()` — admin.service.ts, más abajo.
+   * Sin fila, `null` = suspensión INDEFINIDA, que es lo que hace el botón desde siempre.
+   *
+   * OJO CON EL «APAGADO»: el lector trata `<= 0` como «no configurado». Este whitelist exige
+   * entero >= 1, así que desde la UI **no se puede volver al estado indefinido guardando un 0**
+   * — hay que borrar la fila. Es la asimetría conocida de esta clave y la descripción del
+   * backoffice lo dice; se prefiere eso a aceptar un 0 que la pantalla enseñaría como «0 días»
+   * mientras el backend aplica «indefinida».
+   */
+  'defaultSuspensionDays',
+  /**
+   * Meses hacia atrás que un usuario puede pedirse una factura por su cuenta.
+   * LECTOR: `InvoicingService.getSelfServiceWindowMonths()` — invoicing.service.ts:332.
+   * Sin fila, `DEFAULT_WINDOW_MONTHS` (6). Entero positivo — ver POSITIVE_INT.
+   */
+  'fiscalSelfServiceWindow',
+  /**
+   * Periodicidad de la facturación automática: `'QUARTERLY'` | `'MONTHLY'`.
+   * LECTOR: `InvoicingScheduleService.getPeriodicity()` — invoicing-schedule.service.ts:177.
+   *
+   * **ES EL ÚNICO ENUM DEL WHITELIST, Y POR ESO TRAE GUARDA PROPIA** (`ENUM_SETTING_VALUES`).
+   * Su lector hace `String(v) === 'MONTHLY' ? 'MONTHLY' : 'QUARTERLY'`: sin guarda, un
+   * `"trimestral"` o un dedazo se guardaría tan feliz y se leería como QUARTERLY **en
+   * silencio**, con la pantalla enseñando una cosa y el cron haciendo otra. Un ajuste fiscal
+   * que miente sobre su propio valor es exactamente lo que esta ráfaga existe para cerrar.
+   */
+  'fiscalInvoicingPeriodicity',
 ] as const;
 type SettingKey = (typeof SETTING_KEYS)[number];
 
@@ -324,6 +383,17 @@ const POSITIVE_INT_SETTING_KEYS: readonly string[] = [
   // de 0 sería no tener mínimo (para eso está el interruptor).
   'maxPhotosPerListing',
   'minPhotosPerListing',
+  // AJUSTES RÁFAGA A — los tres huérfanos numéricos. Los tres tienen lectores que
+  // tratan `<= 0` como «no configurado», así que un 0 guardado desde la UI dejaría
+  // la pantalla enseñando un valor que el backend NO aplica. Ésa es exactamente la
+  // clase de mentira que esta ráfaga cierra, así que se rechaza en el PATCH.
+  'messageEmailGraceMinutes',
+  'defaultSuspensionDays',
+  'fiscalSelfServiceWindow',
+  // AJUSTES RÁFAGA A — el plazo de caducidad, que deja de ser decorativo y pasa a
+  // aplicarse de verdad (`ListingExpiryService`). Un 0 o un negativo caerían al
+  // defecto de 60 en el lector, con la pantalla diciendo otra cosa.
+  'listingExpiryDays',
 ];
 
 /**
@@ -343,6 +413,27 @@ const DEFAULTS_DE_LIMITE: Record<string, number> = {
 // the Pro bonus without removing the key); >100 would gift more credits than
 // the pack costs, which is never intended.
 const PERCENT_SETTING_KEYS: readonly string[] = ['proExtraCreditsPercent', 'proExtraBumpsPercent'];
+
+/**
+ * AJUSTES RÁFAGA A — LAS CLAVES CUYO VALOR ES UN ENUM CERRADO.
+ *
+ * LA GUARDA QUE FALTABA, y no es una formalidad. `fiscalInvoicingPeriodicity` se lee así:
+ *
+ *     String(s?.value ?? 'QUARTERLY') === 'MONTHLY' ? 'MONTHLY' : 'QUARTERLY'
+ *
+ * Es decir: **todo lo que no sea exactamente `'MONTHLY'` se interpreta como `QUARTERLY`**. Sin
+ * esta guarda, guardar `"trimestral"`, `"mensual"` o `"MONHTLY"` devolvía 200, la pantalla
+ * pintaba lo escrito y el cron facturaba por trimestres. Un ajuste que dice una cosa y hace
+ * otra es peor que uno que no existe — y éste decide cuándo se emiten facturas.
+ *
+ * Se compara CONTRA EL VALOR EXACTO (mayúsculas incluidas) porque es lo que el lector compara:
+ * aceptar `'monthly'` aquí y que el lector lo leyera como trimestral sería fabricar la misma
+ * mentira por otro camino. El editor del backoffice es un `<select>`, así que quien escriba
+ * otra cosa lo está haciendo a mano y merece el 400.
+ */
+const ENUM_SETTING_VALUES: Readonly<Record<string, readonly string[]>> = {
+  fiscalInvoicingPeriodicity: ['QUARTERLY', 'MONTHLY'],
+};
 
 // Defaults of the keys that are deliberately NOT seeded: "sin configurar" is a
 // valid state and each reader falls back to its own constant. Listed here so
@@ -391,6 +482,24 @@ const SETTING_DEFAULTS: Readonly<Record<string, unknown>> = {
   // nace apagado, y justo el que el `null` pintaba al revés.
   [BUMP_AUTO_ENABLED_SETTING]: true,
   [MAX_SCHEDULES_SETTING]: DEFAULT_MAX_SCHEDULES_PER_USER,
+  /**
+   * AJUSTES RÁFAGA A — LOS HUÉRFANOS, con el valor que de verdad se aplica sin fila.
+   *
+   * Mismo criterio que arriba y por el mismo motivo: los cuatro nacen sin sembrar, así que sin
+   * esto el backoffice pintaría un hueco donde hay una ventana, un plazo o una periodicidad
+   * aplicándose de verdad. Las constantes se IMPORTAN de su dueño, nunca se copian — un 10 o un
+   * 6 escritos aquí a mano podrían separarse de su lector sin que nada lo notara.
+   *
+   * `defaultSuspensionDays` NO está: su «sin configurar» no es un número sino la suspensión
+   * INDEFINIDA, y cualquier cifra puesta aquí diría que hay un plazo donde no lo hay. Es el
+   * mismo caso que `supportEmail`, que por eso vale `null`.
+   */
+  [MESSAGE_EMAIL_GRACE_SETTING]: DEFAULT_GRACE_MINUTES,
+  [FISCAL_WINDOW_SETTING]: DEFAULT_FISCAL_WINDOW_MONTHS,
+  [FISCAL_PERIODICITY_SETTING]: DEFAULT_FISCAL_PERIODICITY,
+  [DEFAULT_SUSPENSION_DAYS_SETTING]: null,
+  // El plazo de caducidad, que desde esta ráfaga se lee de verdad.
+  [LISTING_EXPIRY_SETTING]: DEFAULT_EXPIRY_DAYS,
 };
 
 // A1 (URLs anidadas) — segmentos de primer nivel que YA ocupan rutas estáticas del
@@ -520,6 +629,9 @@ export class AdminService {
     // que coincidir en qué se pausa y qué se hace con el índice. Al final de la
     // lista, por la nota de `preModeration`.
     private readonly listingPause: ListingPauseService,
+    // AJUSTES RÁFAGA A — el plazo de caducidad, ahora leído del `Setting` `listingExpiryDays`
+    // en vez de una constante. AL FINAL DE LA LISTA, por la nota de los parámetros de arriba.
+    private readonly listingExpiry: ListingExpiryService,
   ) {}
 
   private readonly logger = new Logger(AdminService.name);
@@ -1242,7 +1354,7 @@ export class AdminService {
     if (dto.status === ListingStatus.ACTIVE) {
       const publishedAt = listing.publishedAt ?? new Date();
       updateData.publishedAt = publishedAt;
-      updateData.expiresAt = ExpirationService.expiresAt(publishedAt);
+      updateData.expiresAt = await this.listingExpiry.expiresAt(publishedAt);
     }
 
     const updated = await this.prisma.listing.update({
@@ -3467,6 +3579,18 @@ export class AdminService {
       if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > 100) {
         throw new BadRequestException(
           `'${key}' debe ser un número entero entre 0 y 100.`,
+        );
+      }
+    }
+
+    // AJUSTES RÁFAGA A — el enum. Ver ENUM_SETTING_VALUES: sin esto, cualquier
+    // cadena se guardaba y el lector la interpretaba como QUARTERLY en silencio.
+    const valoresValidos = ENUM_SETTING_VALUES[key];
+    if (valoresValidos) {
+      const value = dto.value;
+      if (typeof value !== 'string' || !valoresValidos.includes(value)) {
+        throw new BadRequestException(
+          `'${key}' sólo admite uno de estos valores: ${valoresValidos.join(', ')}.`,
         );
       }
     }

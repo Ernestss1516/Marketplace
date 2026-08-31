@@ -17,15 +17,11 @@ import {
   InvoicingProvider,
 } from './invoicing.types';
 import { periodKeyContaining, periodRange } from './period';
+import { DEFAULT_FISCAL_WINDOW_MONTHS, FISCAL_WINDOW_SETTING } from './invoicing.constants';
 
-/**
- * Clave `Setting` con la ventana de autoservicio de facturación, en MESES (RF.13).
- * Valor por defecto PROVISIONAL: el plazo fiscalmente correcto (ventana exacta,
- * semestre natural vs. rodante) lo confirma el asesor de Ernest. La ventana se
- * expresa sobre la fecha de OPERACIÓN (Transaction.createdAt).
- */
-const FISCAL_WINDOW_SETTING_KEY = 'fiscalSelfServiceWindow';
-const DEFAULT_WINDOW_MONTHS = 6;
+// AJUSTES RÁFAGA A — la clave y su defecto viven en `invoicing.constants.ts`: desde que el
+// ajuste es editable desde el backoffice, `AdminService` necesita el MISMO defecto para
+// enseñarlo, y una copia en cada sitio es una copia que un día se separa.
 
 /** Clave `Setting` con los datos fiscales del EMISOR (la plataforma). */
 const FISCAL_ISSUER_SETTING_KEY = 'fiscalIssuer';
@@ -329,9 +325,9 @@ export class InvoicingService {
   }
 
   private async getWindowStart(): Promise<Date> {
-    const setting = await this.prisma.setting.findUnique({ where: { key: FISCAL_WINDOW_SETTING_KEY } });
-    const months = setting ? Number(setting.value) : DEFAULT_WINDOW_MONTHS;
-    const safeMonths = Number.isFinite(months) && months > 0 ? months : DEFAULT_WINDOW_MONTHS;
+    const setting = await this.prisma.setting.findUnique({ where: { key: FISCAL_WINDOW_SETTING } });
+    const months = setting ? Number(setting.value) : DEFAULT_FISCAL_WINDOW_MONTHS;
+    const safeMonths = Number.isFinite(months) && months > 0 ? months : DEFAULT_FISCAL_WINDOW_MONTHS;
     const start = new Date();
     start.setMonth(start.getMonth() - safeMonths);
     return start;

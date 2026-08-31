@@ -12,9 +12,11 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { hasCompleteFiscalData } from './invoicing.types';
 import { INVOICING_JOB } from './invoice.processor';
 import { Periodicity, periodRange, periodsToProcess, previousClosedPeriodKey } from './period';
+import { DEFAULT_FISCAL_PERIODICITY, FISCAL_PERIODICITY_SETTING } from './invoicing.constants';
 
-/** Setting: periodicidad de la facturación automática. Default y confirmado por el asesor: QUARTERLY. */
-const PERIODICITY_SETTING_KEY = 'fiscalInvoicingPeriodicity';
+// AJUSTES RÁFAGA A — la clave y su defecto viven en `invoicing.constants.ts` (compartidos con
+// el whitelist del backoffice). La marca del cron, en cambio, se queda AQUÍ y privada.
+
 /** Setting (marca): último periodKey ya despachado por el cron. Da idempotencia + recuperación. */
 const LAST_PERIOD_SETTING_KEY = 'fiscalInvoicingLastPeriod';
 
@@ -173,9 +175,18 @@ export class InvoicingScheduleService {
     return { periodKey, eligible, missingFiscalData };
   }
 
+  /**
+   * AJUSTES RÁFAGA A — el defecto deja de estar escrito a mano aquí.
+   *
+   * La lectura NO cambia y es deliberado: sigue siendo «`'MONTHLY'` o, si no, trimestral». Lo
+   * que ha cambiado es que ahora el PATCH del backoffice rechaza con un 400 cualquier valor que
+   * no sea uno de los dos (`ENUM_SETTING_VALUES`), así que esta tolerancia ya no puede tapar un
+   * valor mal escrito: no hay forma de que llegue aquí. Se conserva como red de seguridad para
+   * las filas escritas a mano antes de que existiera la guarda.
+   */
   private async getPeriodicity(): Promise<Periodicity> {
-    const s = await this.prisma.setting.findUnique({ where: { key: PERIODICITY_SETTING_KEY } });
-    return String(s?.value ?? 'QUARTERLY') === 'MONTHLY' ? 'MONTHLY' : 'QUARTERLY';
+    const s = await this.prisma.setting.findUnique({ where: { key: FISCAL_PERIODICITY_SETTING } });
+    return String(s?.value ?? DEFAULT_FISCAL_PERIODICITY) === 'MONTHLY' ? 'MONTHLY' : 'QUARTERLY';
   }
 
   private async getLastProcessedPeriod(): Promise<string | null> {

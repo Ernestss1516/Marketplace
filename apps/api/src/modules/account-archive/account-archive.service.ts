@@ -9,7 +9,7 @@ import { BILLING_JOB } from '../billing/billing.types';
 import { ListingActivationService } from '../listing-activation/listing-activation.service';
 import { ListingPauseService } from '../listing-pause/listing-pause.service';
 import { ListingGateService } from '../listing-gate/listing-gate.service';
-import { ExpirationService } from '../expiration/expiration.service';
+import { ListingExpiryService } from '../expiration/listing-expiry.service';
 import { AccountModerationNotificationsService } from '../account-moderation-notifications/account-moderation-notifications.service';
 import {
   describeIllegalUserStatusTransition,
@@ -48,6 +48,9 @@ export class AccountArchiveService {
     // `AdminModule`, no una copia.
     private readonly accountNotify: AccountModerationNotificationsService,
     @InjectQueue(QUEUE_BILLING) private readonly billingQueue: Queue,
+    // AJUSTES RÁFAGA A — el plazo de caducidad, ahora leído del `Setting` `listingExpiryDays`
+    // en vez de una constante. AL FINAL DE LA LISTA, por la nota de los parámetros de arriba.
+    private readonly listingExpiry: ListingExpiryService,
   ) {}
 
   // ===========================================================================
@@ -334,7 +337,7 @@ export class AccountArchiveService {
             status: ListingStatus.ACTIVE,
             // Mismo motivo que `reactivate()`: un pausado «viejo» podría tener un
             // expiresAt ya pasado y el cron lo caducaría en menos de 24 h.
-            expiresAt: ExpirationService.expiresAt(new Date()),
+            expiresAt: await this.listingExpiry.expiresAt(new Date()),
             pausedByAccountReason: null,
           },
         });

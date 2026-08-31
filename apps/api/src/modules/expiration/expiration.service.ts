@@ -7,8 +7,6 @@ import { RedisService } from '../../infra/redis/redis.service';
 import { QUEUE_INDEXING } from '../../infra/queue/queue.constants';
 import { ListingLifecycleNotificationsService } from '../listing-lifecycle-notifications/listing-lifecycle-notifications.service';
 
-const EXPIRY_DAYS = 60;
-
 /**
  * NOTIFICACIONES N3 — CUÁNTOS DÍAS ANTES SE PREAVISA.
  *
@@ -17,11 +15,18 @@ const EXPIRY_DAYS = 60;
  * vencimiento que se olvida antes de que sirva de nada. Una semana es el margen en
  * el que «lo renuevo luego» todavía cabe.
  *
- * CONSTANTE Y NO `Setting`, igual que `EXPIRY_DAYS`, que es su pareja: el plazo de
- * caducidad tampoco es configurable, y hacer configurable el aviso de algo fijo
- * sería poder ponerlo por encima de los 60 días y preavisar de una caducidad que
- * aún no existe. Si algún día `EXPIRY_DAYS` se hace ajustable, los dos se mueven
- * juntos y desde el mismo sitio.
+ * SIGUE SIENDO CONSTANTE, y ahora es una asimetría deliberada: su pareja —el plazo
+ * de caducidad— **ya sí es configurable** (`ListingExpiryService`, que lee el
+ * `Setting` `listingExpiryDays`). El preaviso no se ha movido con ella porque no
+ * hace falta y porque tendría filo: es un número que sólo tiene sentido POR DEBAJO
+ * del plazo, y dos ajustes que se pueden cruzar exigen una invariante que
+ * vigilarlos (como la de `total > activos` o la de `min ≤ max` de fotos).
+ *
+ * LO QUE SÍ PASA AL BAJAR MUCHO EL PLAZO: con una caducidad de 7 días o menos, todo
+ * anuncio nace ya dentro de la ventana de preaviso y se le avisa casi al publicarlo.
+ * No rompe nada —la marca `expiryWarnedFor` sigue evitando el aviso repetido— pero
+ * es ruido, y por eso la descripción del ajuste en el backoffice lo dice y recomienda
+ * un rango por encima de la semana.
  */
 const EXPIRY_WARNING_DAYS = 7;
 
@@ -169,7 +174,16 @@ export class ExpirationService {
     }
   }
 
-  static expiresAt(from: Date): Date {
-    return new Date(from.getTime() + EXPIRY_DAYS * 24 * 60 * 60 * 1000);
-  }
+  /**
+   * `static expiresAt(from)` VIVÍA AQUÍ Y SE HA ELIMINADO.
+   *
+   * Calculaba el vencimiento con una constante `EXPIRY_DAYS = 60` clavada, y por eso el
+   * `Setting` `listingExpiryDays` llevaba desde el MVP sembrado, editable y sin efecto: un
+   * método estático no tiene inyección, así que no podía leer nada. Ahora lo hace
+   * `ListingExpiryService.expiresAt()`, que sí lee el ajuste.
+   *
+   * NO SE HA DEJADO COMO ATAJO, a propósito: mientras existiera, cualquiera podría volver a
+   * llamarlo sin darse cuenta y el ajuste volvería a mentir en silencio, sin que ningún test
+   * pudiera notarlo. Quitarlo convierte esa regresión en un error de compilación.
+   */
 }

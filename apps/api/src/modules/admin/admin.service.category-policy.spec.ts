@@ -103,6 +103,10 @@ function buildService(prismaOverrides: Record<string, unknown> = {}) {
     // siempre: el pausado de los anuncios de una cuenta baneada. Estos casos son de
     // política de categorías y no banean a nadie, pero el constructor lo exige.
     { pauseListingsForUser: jest.fn(), reindexPaused: jest.fn(), clearPauseOrigin: jest.fn() } as never,
+    // AJUSTES RÁFAGA A — mantenimiento de fixture por cambio de FIRMA, el de siempre: el
+    // lector del plazo de caducidad. Estos casos son de política de categorías y no publican
+    // ningún anuncio, pero el constructor lo exige.
+    { expiresAt: jest.fn(), getDays: jest.fn() } as never,
   );
 
   return { service, prisma, auditLog, indexingQueue, categoryTree };

@@ -7,6 +7,7 @@ import { ListingPauseModule } from '../listing-pause/listing-pause.module';
 import { ListingGateModule } from '../listing-gate/listing-gate.module';
 import { AccountArchiveService } from './account-archive.service';
 import { AccountModerationNotificationsModule } from '../account-moderation-notifications/account-moderation-notifications.module';
+import { ListingExpiryModule } from '../expiration/listing-expiry.module';
 
 /**
  * BORRADO DE CUENTAS C2 — módulo propio para un gesto con DOS LLAMANTES que no se
@@ -22,6 +23,9 @@ import { AccountModerationNotificationsModule } from '../account-moderation-noti
  */
 @Module({
   imports: [
+    // AJUSTES RÁFAGA A — el lector del plazo de caducidad (`listingExpiryDays`). Módulo HOJA:
+    // sólo depende de Prisma, así que importarlo no abre ningún ciclo.
+    ListingExpiryModule,
     AuditLogModule,
     ListingActivationModule,
     // RESIDUO BANNED — el pausado de los anuncios de una cuenta ya no vive aquí:

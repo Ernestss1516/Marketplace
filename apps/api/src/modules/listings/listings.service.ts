@@ -34,7 +34,7 @@ import { listingMediaKeys } from '../../infra/r2/media-keys';
 import { NOTIFICATION_JOB, SendReviewRequestEmailData } from '../../infra/queue/notification.types';
 import { isP2002 } from '../../common/prisma/is-p2002';
 import { CUENTA_EN_ESCAPARATE } from '../users/account-visibility';
-import { ExpirationService } from '../expiration/expiration.service';
+import { ListingExpiryService } from '../expiration/listing-expiry.service';
 import { EntitlementService } from '../billing/entitlement.service';
 // UXV.1 (A2) — la ventana de cooldown del bump se define en billing (que es quien la
 // aplica) y se sirve YA RESUELTA desde aquí. La dirección del import respeta la
@@ -223,6 +223,9 @@ export class ListingsService implements OnModuleInit {
     private readonly editValidation: ListingEditValidationService,
     // 2b — las FOTOS, también compartidas con el camino del staff. Al final, ídem.
     private readonly listingImages: ListingImagesService,
+    // AJUSTES RÁFAGA A — el plazo de caducidad, ahora leído del `Setting` `listingExpiryDays`
+    // en vez de una constante. AL FINAL DE LA LISTA, por la nota de los parámetros de arriba.
+    private readonly listingExpiry: ListingExpiryService,
   ) {}
 
   async create(sellerId: string, dto: CreateListingDto): Promise<Listing> {
@@ -550,7 +553,7 @@ export class ListingsService implements OnModuleInit {
             publishedAt,
             // Molde de `approveListing`: el plazo se cuenta desde la publicación, no desde
             // ahora, para que pasar por la cola no regale caducidad.
-            expiresAt: ExpirationService.expiresAt(publishedAt),
+            expiresAt: await this.listingExpiry.expiresAt(publishedAt),
           },
         });
         await this.activation.listingBecameActive(liberado.slug, liberado.id);
@@ -688,7 +691,7 @@ export class ListingsService implements OnModuleInit {
         publishedAt,
         // Only ACTIVE listings get an expiry. PENDING_REVIEW gets it on approval.
         ...(targetStatus === 'ACTIVE' && {
-          expiresAt: ExpirationService.expiresAt(publishedAt),
+          expiresAt: await this.listingExpiry.expiresAt(publishedAt),
         }),
       },
     });
@@ -738,7 +741,7 @@ export class ListingsService implements OnModuleInit {
         // Preserve the original publishedAt: resetting it would be a free bump that
         // defeats the paid bump mechanic (RF.6) and gives wrong datePublished for SEO.
         // Only extend the expiry window from now.
-        expiresAt: ExpirationService.expiresAt(now),
+        expiresAt: await this.listingExpiry.expiresAt(now),
       },
     });
 
@@ -812,7 +815,7 @@ export class ListingsService implements OnModuleInit {
       where: { id },
       data: {
         status: 'ACTIVE',
-        expiresAt: ExpirationService.expiresAt(now),
+        expiresAt: await this.listingExpiry.expiresAt(now),
       },
     });
 
