@@ -89,11 +89,25 @@ test.describe('/mis-creditos — con sesión (sellerContext)', () => {
     // MUESTRA hoy, que es lo que le toca.
     await expect(page.getByRole('heading', { name: 'Mi saldo' })).toBeVisible({ timeout: 10_000 });
 
-    // "Saldo disponible" section
-    await expect(page.getByText('Saldo disponible')).toBeVisible();
+    // MIS-CRÉDITOS RÁFAGA B — LA FRANJA DE SALDO, que es lo PRIMERO de la página.
+    //
+    // Antes esto buscaba el rótulo «Saldo disponible» de una tarjeta que vivía dentro de la
+    // sección «Créditos», por debajo del formulario de canjear cupón. La reorganización por
+    // tarea subió las dos monedas —y la cuota Pro— a una franja arriba del todo, así que ese
+    // rótulo ya no existe. Lo que el caso afirma no cambia: que el saldo se ve. Cambia dónde.
+    const resumen = page.getByTestId('resumen-saldo');
+    await expect(resumen).toBeVisible();
+    // seller-e2e no tiene wallet, así que su saldo real es 0 en las dos monedas.
+    await expect(page.getByTestId('saldo-creditos')).toHaveText('0');
+    await expect(page.getByTestId('saldo-bumps')).toHaveText('0');
 
-    // "créditos" label visible in the balance display
-    await expect(page.getByText('créditos', { exact: false }).first()).toBeVisible();
+    // BARRERA 5 — el saldo con SENTIDO: en qué se traduce, con el coste de cada acción.
+    // El número desnudo era exactamente el defecto (§4.2): la página que responde «cuánto
+    // tengo» no respondía «para cuánto me da».
+    await expect(page.getByTestId('saldo-equivalencias')).toContainText('bump');
+
+    // BARRERA 6 — seller-e2e NO es Pro: la tarjeta de plan no está, y no queda hueco roto.
+    await expect(page.getByTestId('resumen-pro')).toHaveCount(0);
 
     // UXV.6 (B5) — el vacío ya no solo constata: dice QUÉ son los créditos y ofrece la
     // salida para conseguirlos. Lo que se afirma sigue siendo «el historial está vacío».
@@ -119,6 +133,56 @@ test.describe('/mis-creditos — con sesión (sellerContext)', () => {
 
     // Price in euros
     await expect(page.getByText('€', { exact: false }).first()).toBeVisible();
+  });
+
+  /**
+   * MIS-CRÉDITOS RÁFAGA B (barreras 1 y 2) — EL ORDEN DE LA PÁGINA.
+   *
+   * Se comprueba AQUÍ y no en un test de componente porque lo que se afirma es el orden
+   * real del documento, y eso sólo existe cuando la página entera se ha renderizado. Un
+   * unitario puede probar que la franja pinta lo que debe; sólo esto puede probar que va
+   * ANTES que el cupón.
+   */
+  test('BARRERA 1 — el saldo va antes que el cupón, que era quien le ocupaba el sitio', async ({
+    sellerContext,
+  }) => {
+    const page = await sellerContext.newPage();
+    await page.goto('/mis-creditos');
+
+    await expect(page.getByTestId('resumen-saldo')).toBeVisible({ timeout: 10_000 });
+    const cupon = page.getByTestId('coupon-code-input');
+    await expect(cupon).toBeVisible();
+
+    // DOCUMENT_POSITION_FOLLOWING (4): el cupón viene DESPUÉS de la franja. Antes de esta
+    // ráfaga esta comprobación habría salido al revés — el formulario de cupón era lo
+    // primero tras el título, y para ver el saldo había que bajar.
+    const saldoVaPrimero = await page.evaluate(() => {
+      const franja = document.querySelector('[data-testid="resumen-saldo"]');
+      const input = document.querySelector('[data-testid="coupon-code-input"]');
+      if (!franja || !input) return null;
+      return (franja.compareDocumentPosition(input) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    });
+    expect(saldoVaPrimero).toBe(true);
+
+    // BARRERA 6 — y el cupón sigue funcionando desde su nueva posición: entero, con su
+    // botón. Bajarlo no era esconderlo.
+    await expect(page.getByRole('button', { name: 'Canjear' })).toBeVisible();
+  });
+
+  test('BARRERA 2 — las secciones agrupan por TAREA, no por moneda', async ({
+    sellerContext,
+  }) => {
+    const page = await sellerContext.newPage();
+    await page.goto('/mis-creditos');
+
+    await expect(page.getByTestId('resumen-saldo')).toBeVisible({ timeout: 10_000 });
+
+    // La página eran dos bloques simétricos por MONEDA («Créditos» y «Bumps»), cada uno con
+    // saldo + compra + historial: había que atravesar el historial de créditos entero para
+    // llegar al saldo de bumps. Ahora los encabezados de sección nombran lo que el usuario
+    // HACE, en el orden en que lo hace.
+    const secciones = await page.getByRole('heading', { level: 2 }).allTextContents();
+    expect(secciones).toEqual(['Conseguir más saldo', 'Gestionar', 'Historial']);
   });
 
   // UXV.2 — el menú de la cuenta rotula esta entrada «Mi saldo», no «Mis créditos»
