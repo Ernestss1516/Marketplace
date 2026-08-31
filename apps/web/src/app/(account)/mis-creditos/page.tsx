@@ -1,7 +1,5 @@
 import { redirect } from 'next/navigation';
 import type { Metadata } from 'next';
-import { Coins, Zap } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { auth } from '@/lib/auth';
 import {
   getWallet,
@@ -11,6 +9,7 @@ import {
   type CatalogResponse,
   type ProStatus,
 } from '@/lib/api/billing';
+import { ResumenSaldo } from './_components/ResumenSaldo';
 import { PackList } from './_components/PackList';
 import { BumpPackList } from './_components/BumpPackList';
 import { CampaignNotice } from './_components/CampaignNotice';
@@ -97,38 +96,49 @@ export default async function MisCreditosPage() {
     <div className="space-y-10">
       <div>
         <h1 className="text-2xl font-bold">Mi saldo</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Créditos y bumps son monedas distintas: los créditos sirven para destacar anuncios o
-          hacer bump; los bumps solo sirven para bumpear, y se gastan primero al hacerlo.
-        </p>
       </div>
 
-      {/* Hijo directo del `space-y-10` — sin margen propio (§3.3). Va por delante
-          del canjeo de cupón a propósito: si el aviso ANUNCIA un cupón, se lee
-          antes que la caja donde se escribe. */}
+      {/*
+        ── 1. CUÁNTO TENGO ────────────────────────────────────────────────────
+        Lo primero, sin encabezado: la franja ES la respuesta a la pregunta con la que se
+        entra, y ponerle un «Saldo» encima repetiría el `<h1>`. Aquí estaba el defecto de
+        orden más claro de la pantalla: el sitio lo ocupaba una caja para escribir un código
+        de cupón, que ahora vive abajo, con lo demás que sirve para CONSEGUIR saldo.
+      */}
+      <ResumenSaldo
+        balance={wallet.balance}
+        bumpBalance={wallet.bumpBalance}
+        proStatus={proStatus}
+        catalog={catalog}
+      />
+
+      <p className="-mt-6 text-sm text-muted-foreground">
+        Créditos y bumps son monedas distintas: los créditos sirven para destacar anuncios o
+        hacer bump; los bumps solo sirven para bumpear, y se gastan primero al hacerlo.
+      </p>
+
+      {/* Hijo directo del `space-y-10` — sin margen propio (§3.3). Baja por debajo de la
+          franja con el mismo criterio que el cupón: promociona, y lo que promociona es
+          conseguir saldo, no mirarlo. */}
       {banners.length > 0 && <BannerList banners={banners} />}
 
-      {/* Canjear cupón — válido para cualquiera de las dos monedas según el tipo de cupón */}
-      <RedeemCouponForm token={token} />
+      {/*
+        ── 2. CONSEGUIR MÁS ───────────────────────────────────────────────────
+        AGRUPADO POR TAREA Y NO POR MONEDA, que es el cambio de fondo de esta ráfaga.
 
-      {/* ── Créditos ────────────────────────────────────────────────────── */}
+        La página eran dos bloques verticales simétricos —Créditos y Bumps—, cada uno con su
+        saldo, su compra y su historial. La simetría es elegante y es justo lo que rompía la
+        jerarquía: obligaba a leer el historial de créditos ENTERO antes de llegar al saldo
+        de bumps, y ponía un historial (detalle que se consulta de vez en cuando) al mismo
+        nivel que un saldo (lo primario). Reagrupar por lo que el usuario HACE —mirar,
+        conseguir, gestionar, consultar— mantiene toda la información y la ordena por
+        importancia. Nada se ha quitado; ha cambiado de vecino.
+
+        El cupón entra AQUÍ y no en su antiguo primer puesto porque canjear un código es otra
+        forma de conseguir saldo, igual que comprar un pack. Es la misma tarea.
+      */}
       <section className="space-y-6">
-        <h2 className="text-xl font-bold">Créditos</h2>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Coins className="h-5 w-5 text-primary" />
-              Saldo disponible
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-4xl font-bold">
-              {wallet.balance}
-              <span className="ml-2 text-lg font-normal text-muted-foreground">créditos</span>
-            </p>
-          </CardContent>
-        </Card>
+        <h2 className="text-xl font-bold">Conseguir más saldo</h2>
 
         {packProducts.length > 0 && (
           <div>
@@ -153,51 +163,6 @@ export default async function MisCreditosPage() {
           </div>
         )}
 
-        <div>
-          <h3 className="mb-4 text-lg font-semibold">Historial de créditos</h3>
-          {/* UXV.6 (M9) — paginado: la API devolvía `totalPages` desde el principio y esta
-              pantalla pintaba solo los veinte primeros, sin decir que había más. */}
-          <HistorialCreditos
-            token={token}
-            inicial={{
-              items: wallet.items,
-              total: wallet.total,
-              page: wallet.page,
-              perPage: wallet.perPage,
-              totalPages: wallet.totalPages,
-            }}
-          />
-        </div>
-      </section>
-
-      {/* ── Bumps ───────────────────────────────────────────────────────── */}
-      <section className="space-y-6">
-        <h2 className="text-xl font-bold">Bumps</h2>
-
-        {/* Monetización ráfaga 2 — saldo de bumps SIEMPRE visible, aunque sea 0:
-            ocultarlo escondería que la función existe a quien nunca compró ni
-            canjeó un cupón de bumps. */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Zap className="h-5 w-5 text-primary" />
-              Saldo de bumps
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-4xl font-bold">
-              {wallet.bumpBalance}
-              <span className="ml-2 text-lg font-normal text-muted-foreground">
-                bump{wallet.bumpBalance === 1 ? '' : 's'} gratis
-              </span>
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              No caducan. Al bumpear se gastan antes que los créditos (y, si eres Pro, después de
-              tu cuota mensual gratis).
-            </p>
-          </CardContent>
-        </Card>
-
         {/* Monetización ráfaga 4 — packs de bumps directos, opción B retirada
             (ya no son créditos con highlightBumps). */}
         {bumpPackProducts.length > 0 && (
@@ -219,28 +184,57 @@ export default async function MisCreditosPage() {
           </div>
         )}
 
-        {/*
-          Historial de bumps, lista separada (decisión de diseño: no fusionar dos ledgers
-          paginados de modelos distintos — ver diseno-facturacion.md §17).
+        {/* Canjear cupón — válido para cualquiera de las dos monedas según el tipo de cupón.
+            Baja del primer puesto de la página a esta sección: sigue estando entero y
+            funcionando igual, sólo que ya no le quita el sitio al saldo. */}
+        <RedeemCouponForm token={token} />
+      </section>
 
-          UXV.6 (B5) — se muestra SIEMPRE, también vacío. Antes la sección entera
-          desaparecía cuando no había movimientos, «para no añadir ruido»: el efecto real
-          era que quien nunca había tenido bumps no llegaba a enterarse de que existían.
-          Y UXV.6 (M9) — paginado, igual que el de créditos.
-        */}
-        {/*
-          Bump automático — la gestión vive junto al saldo de bumps, que es donde el usuario
-          viene cuando la pregunta es de dinero. Se muestra SIEMPRE, también vacía: mismo
-          criterio que el historial de abajo, porque ocultarla dejaría la función invisible
-          para quien no la ha usado nunca.
-        */}
+      {/*
+        ── 3. GESTIONAR ───────────────────────────────────────────────────────
+        Bump automático — no es dinero ni historial: es una configuración que el usuario
+        deja puesta. Vivía enterrada en mitad de la sección de bumps, entre la compra y el
+        historial. Se muestra SIEMPRE, también vacía: ocultarla dejaría la función invisible
+        para quien no la ha usado nunca (mismo criterio que los historiales de abajo).
+      */}
+      <section className="space-y-6">
+        <h2 className="text-xl font-bold">Gestionar</h2>
+
         <div>
           <h3 className="mb-4 text-lg font-semibold">Bumps programados</h3>
           <BumpsProgramados token={token} inicial={programaciones.items} />
         </div>
+      </section>
+
+      {/*
+        ── 4. HISTORIAL ───────────────────────────────────────────────────────
+        Lo último, que es donde le corresponde: es detalle, se consulta a posteriori y casi
+        nunca es el motivo de la visita. Siguen siendo DOS listas separadas (decisión de
+        diseño: no fusionar dos ledgers paginados de modelos distintos — ver
+        diseno-facturacion.md §17), pero ahora vecinas, que es como se comparan.
+
+        UXV.6 (B5) — los dos se muestran SIEMPRE, también vacíos, con un estado vacío que
+        ofrece salida. Y UXV.6 (M9) — paginados.
+      */}
+      <section className="space-y-6">
+        <h2 className="text-xl font-bold">Historial</h2>
 
         <div>
-          <h3 className="mb-4 text-lg font-semibold">Historial de bumps</h3>
+          <h3 className="mb-4 text-lg font-semibold">Créditos</h3>
+          <HistorialCreditos
+            token={token}
+            inicial={{
+              items: wallet.items,
+              total: wallet.total,
+              page: wallet.page,
+              perPage: wallet.perPage,
+              totalPages: wallet.totalPages,
+            }}
+          />
+        </div>
+
+        <div>
+          <h3 className="mb-4 text-lg font-semibold">Bumps</h3>
           <HistorialBumps
             token={token}
             inicial={{

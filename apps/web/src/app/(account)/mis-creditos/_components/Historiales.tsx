@@ -52,11 +52,25 @@ const fecha = (iso: string) =>
     year: 'numeric',
   });
 
-function Fila({ label, createdAt, amount, sufijo }: {
+function Fila({ label, createdAt, amount, sufijo, note }: {
   label: string;
   createdAt: string;
   amount: number;
   sufijo: string;
+  /**
+   * MIS-CRÉDITOS RÁFAGA B — EL PORQUÉ DEL APUNTE, que el servidor escribía y esta fila tiraba.
+   *
+   * El backend guarda una nota explicativa cada vez que una campaña toca el importe:
+   * `Campaña "X" (-N%)` en los débitos abaratados (`BillingService.featuredByCredits`
+   * y `.bump`, desde H8 Bloque D) y `Campaña "X"` en los ingresos de bonus (el processor,
+   * desde la ráfaga A). El campo viajaba en el payload y estaba en el tipo `WalletItem`
+   * desde siempre… y aquí no se pintaba.
+   *
+   * LA CONSECUENCIA ERA CONCRETA: quien bumpeó durante una campaña veía «Bump · −2 cr.»
+   * donde otro día habría visto «−5 cr.», sin ninguna explicación de la diferencia. El
+   * texto que la explicaba estaba guardado en su propia fila, y se descartaba.
+   */
+  note?: string | null;
 }) {
   const esIngreso = amount > 0;
   return (
@@ -69,7 +83,13 @@ function Fila({ label, createdAt, amount, sufijo }: {
         )}
         <div>
           <p className="text-sm font-medium">{label}</p>
-          <p className="text-xs text-muted-foreground">{fecha(createdAt)}</p>
+          {/* En la MISMA línea que la fecha, separado por un punto: es una precisión del
+              apunte, no un segundo apunte. Una línea propia lo ascendería a la categoría
+              de la etiqueta y haría el historial el doble de alto por un matiz. */}
+          <p className="text-xs text-muted-foreground">
+            {fecha(createdAt)}
+            {note ? <span data-testid="ledger-note"> · {note}</span> : null}
+          </p>
         </div>
       </div>
       <span
@@ -131,6 +151,7 @@ export function HistorialCreditos({
           createdAt={i.createdAt}
           amount={i.amount}
           sufijo="cr."
+          note={i.note}
         />
       )}
       vacio={
@@ -171,6 +192,10 @@ export function HistorialBumps({
           createdAt={i.createdAt}
           amount={i.amount}
           sufijo={`bump${Math.abs(i.amount) === 1 ? '' : 's'}`}
+          // Los dos historiales, igual: `BumpLedger` tiene su propia columna `note` y el
+          // processor la escribe desde la ráfaga A. Pintarla en uno y no en el otro sería
+          // reabrir la asimetría entre monedas que este proyecto lleva cerrando.
+          note={i.note}
         />
       )}
       vacio={
