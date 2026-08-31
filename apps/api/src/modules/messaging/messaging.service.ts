@@ -12,6 +12,38 @@ import { MessagesQueryDto } from './dto/messages-query.dto';
 
 const CONTACTABLE_STATUSES: string[] = ['ACTIVE', 'RESERVED'];
 
+/**
+ * AJUSTES RÁFAGA A — EL SEGUNDO AJUSTE MUERTO, Y AQUÍ ESTÁ SU LECTOR.
+ *
+ * `contactRequiresVerification` llevaba desde el MVP sembrado (`value: true`), editable en
+ * `/admin/ajustes` y con una descripción que prometía «los usuarios con email no verificado no
+ * podrán iniciar conversaciones». **No lo leía nadie.** Ver docs/auditoria-ajustes-backoffice.md §3.
+ *
+ * ── POR QUÉ SE CONECTA AQUÍ Y SÓLO AQUÍ ───────────────────────────────────────────────────
+ *
+ * `startConversation` es el ÚNICO punto por el que nace una conversación, así que es el único
+ * sitio donde «iniciar» significa algo. **No se toca `sendMessage`**, y es deliberado: la
+ * descripción que este repo lleva meses enseñando dice *iniciar conversaciones*, no *escribir*.
+ * Frenar también los mensajes de un hilo ya abierto sería hacer más de lo que el ajuste promete
+ * —y dejaría a medias una conversación en la que la otra persona ya está esperando respuesta—.
+ * El código se ha escrito contra la descripción, que es la dirección correcta cuando la
+ * descripción es la que lleva meses a la vista de quien administra.
+ *
+ * ── RECHAZA, NO DEGRADA ───────────────────────────────────────────────────────────────────
+ *
+ * Su hermano `emailVerifiedToPublishEnabled` DEGRADA (deja el anuncio en borrador con un aviso)
+ * porque publicar tiene un estado intermedio donde caer. Contactar no lo tiene: o se crea la
+ * conversación o no. Así que rechaza, con un mensaje que dice la salida —verificar el correo—
+ * en vez de un «no puedes» a secas.
+ *
+ * ── SIN FILA, NO EXIGE NADA ───────────────────────────────────────────────────────────────
+ *
+ * `=== true` y no `!== false`: una instancia sin la fila se comporta como hasta hoy. La fila la
+ * siembra el seed con `true`, así que en las instancias existentes la exigencia SÍ pasa a
+ * aplicarse — es lo que el ajuste dice que hace, y se apaga con un clic en `/admin/ajustes`.
+ */
+export const CONTACT_REQUIRES_VERIFICATION_SETTING = 'contactRequiresVerification';
+
 const SELECT_USER_STUB = {
   id: true,
   name: true,
@@ -147,6 +179,20 @@ export class MessagingService {
     });
     if (existing) return existing;
 
+    /**
+     * AJUSTES RÁFAGA A — la exigencia de correo verificado, si está encendida.
+     *
+     * JUSTO AQUÍ, y la posición es la mitad de la decisión: **después** del atajo de la
+     * conversación ya existente. Así frena únicamente lo que el ajuste dice que frena —abrir
+     * un hilo NUEVO— y no le cierra a nadie el acceso a una conversación que ya tenía. Ponerlo
+     * más arriba habría dejado sin su bandeja a quien contactó antes de que se encendiera el
+     * ajuste, que es un daño que el ajuste nunca prometió.
+     *
+     * Después también de las comprobaciones sobre el anuncio: contactar con el propio anuncio
+     * o con uno no contactable sigue diciendo ese motivo, que es más concreto que éste.
+     */
+    await this.assertPuedeIniciarConversacion(buyerId);
+
     return this.prisma.conversation.create({
       data: {
         listingId: dto.listingId,
@@ -158,6 +204,36 @@ export class MessagingService {
       },
       select: { id: true, listingId: true, createdAt: true },
     });
+  }
+
+  /**
+   * ¿Puede este usuario ABRIR una conversación nueva?
+   *
+   * Dos consultas cortas y sólo cuando hace falta: si el ajuste está apagado —o no tiene fila—
+   * no se pregunta por el usuario siquiera. Mismo criterio que las reglas de la puerta, que no
+   * tocan una tabla mientras su interruptor esté apagado.
+   *
+   * TOLERANTE CON LA CONFIGURACIÓN ROTA en la dirección segura: cualquier valor que no sea
+   * exactamente `true` (un `"sí"`, un `1`, un `null`) se lee como apagado. Un ajuste mal escrito
+   * no puede empezar a frenar gente por su cuenta.
+   */
+  private async assertPuedeIniciarConversacion(buyerId: string): Promise<void> {
+    const ajuste = await this.prisma.setting.findUnique({
+      where: { key: CONTACT_REQUIRES_VERIFICATION_SETTING },
+      select: { value: true },
+    });
+    if (ajuste?.value !== true) return;
+
+    const usuario = await this.prisma.user.findUnique({
+      where: { id: buyerId },
+      select: { emailVerified: true },
+    });
+    if (usuario?.emailVerified) return;
+
+    throw new ForbiddenException(
+      'Verifica tu correo electrónico para poder contactar con los vendedores. ' +
+        'Tienes el enlace de verificación en el correo de bienvenida, y puedes pedir otro desde tu perfil.',
+    );
   }
 
   async getConversation(id: string, userId: string, query: MessagesQueryDto) {

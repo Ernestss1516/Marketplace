@@ -22,9 +22,13 @@ import { PhoneListDetector } from './detection/detectors/phone-list.detector';
 import { WordDetector } from './detection/detectors/word.detector';
 import { PreModerationService } from './pre-moderation.service';
 import { CategoryTreeModule } from '../categories/category-tree.module';
+import { ListingExpiryModule } from '../expiration/listing-expiry.module';
 
 @Module({
   imports: [
+    // AJUSTES RÁFAGA A — el lector del plazo de caducidad (`listingExpiryDays`). Módulo HOJA:
+    // sólo depende de Prisma, así que importarlo no abre ningún ciclo.
+    ListingExpiryModule,
     BullModule.registerQueue(retryQueue(QUEUE_INDEXING)),
     // §14.5 — avisos de moderación. La cola se registra AQUÍ con `retryQueue`,
     // como en ContactModule/TicketsModule: cada módulo que encola crea su propia

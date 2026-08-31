@@ -11,6 +11,8 @@ import {
   type AdminSetting,
   type DetectionStat,
 } from '@/lib/api/admin';
+// AJUSTES RÁFAGA A — el emisor fiscal se MUESTRA aquí y se edita en su página.
+import { getFiscalIssuer, type FiscalIssuerResponse } from '@/lib/api/admin-facturas';
 import { ApiError } from '@/lib/api/client';
 import { Button } from '@/components/ui/button';
 import { PriceListEditor } from './_components/PriceListEditor';
@@ -18,6 +20,15 @@ import { PriceListEditor } from './_components/PriceListEditor';
 // detectores por su cuenta es como acaban divergiendo (lo documenta el punto 4).
 import { DETECTOR_LABELS } from '../etiquetas';
 import { entradasQueEmpiezanAFiltrar, esTelefonoEs } from './entradas-inertes';
+// AJUSTES RÁFAGA A — los títulos, las descripciones y los siete grupos viven en su propio
+// módulo de datos, para que un test pueda comprobarlos sin montar esta página. Molde de
+// `entradas-inertes.ts`.
+import {
+  GRUPOS,
+  PERIODICIDAD_OPCIONES,
+  SETTING_DESCRIPTIONS,
+  SETTING_TITLES,
+} from './ajustes-organizacion';
 
 // ─── Helpers for badWordList ───────────────────────────────────────────────────
 
@@ -439,7 +450,19 @@ function NumberSettingEditor({
   max?: number;
   suffix?: string;
 }) {
-  const [value, setValue] = useState(() => String(setting.value ?? min));
+  /**
+   * AJUSTES RÁFAGA A — UN `null` SE PINTA VACÍO, NO COMO EL MÍNIMO.
+   *
+   * Antes caía a `min`, y con las claves de siempre daba igual: todas llegan con un número
+   * (su fila o el default que el backend añade). `defaultSuspensionDays` es la primera cuyo
+   * «sin configurar» NO es un número, sino la suspensión INDEFINIDA — y pintar un «1» junto
+   * al rótulo «Sin configurar» diría que hay un plazo de un día donde no hay ninguno. Es
+   * exactamente la clase de mentira que esta ráfaga viene a quitar de esta página. Vacío es
+   * lo que significa: no hay valor. Mismo criterio que `supportEmail`.
+   */
+  const [value, setValue] = useState(() =>
+    setting.value === null || setting.value === undefined ? '' : String(setting.value),
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -681,6 +704,89 @@ function BooleanSettingEditor({
   );
 }
 
+/**
+ * AJUSTES RÁFAGA A — EL CONTROL QUE FALTABA: un ajuste de opciones cerradas.
+ *
+ * Hoy sólo lo usa `fiscalInvoicingPeriodicity`, y nace parametrizado porque el motivo por el
+ * que existe es justo ése: su valor NO es texto libre. El `<select>` hace imposible por
+ * construcción el error que la guarda del backend rechaza con un 400 —escribir «trimestral» y
+ * que el cron lo lea como QUARTERLY en silencio—, y las dos capas hacen falta: el select es UX,
+ * la guarda es la que de verdad protege (por la API se puede mandar cualquier cosa).
+ *
+ * `DetectionModesEditor` ya tenía un `<select>` incrustado, pero el suyo edita TRES valores
+ * dentro de un objeto y trae su propia estadística al lado; no había nada que compartir sin
+ * retorcer los dos.
+ */
+function SelectSettingEditor({
+  setting,
+  token,
+  onSaved,
+  settingKey,
+  label,
+  helpText,
+  options,
+}: {
+  setting: AdminSetting;
+  token: string;
+  onSaved: () => void;
+  settingKey: string;
+  label: string;
+  helpText: string;
+  options: readonly { value: string; label: string }[];
+}) {
+  // El valor de la fila si es uno de los válidos; si no (una fila escrita a mano antes de que
+  // existiera la guarda), el primero — que es el default de lectura del backend.
+  const inicial =
+    typeof setting.value === 'string' && options.some((o) => o.value === setting.value)
+      ? setting.value
+      : options[0].value;
+  const [value, setValue] = useState<string>(inicial);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+
+  async function handleSave() {
+    setSaving(true);
+    setError(null);
+    setSuccess(false);
+    try {
+      await updateAdminSetting(token, settingKey, value);
+      setSuccess(true);
+      onSaved();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Error al guardar');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-col gap-1">
+        <label className="text-xs font-medium text-muted-foreground">{label}</label>
+        <select
+          value={value}
+          disabled={saving}
+          onChange={(e) => {
+            setValue(e.target.value);
+            setSuccess(false);
+          }}
+          className="h-9 w-full max-w-xs rounded-md border bg-background px-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          data-testid={`select-${settingKey}`}
+        >
+          {options.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <p className="text-xs text-muted-foreground">{helpText}</p>
+      <SaveRow saving={saving} success={success} error={error} onSave={handleSave} />
+    </div>
+  );
+}
+
 // ─── Shared save row ──────────────────────────────────────────────────────────
 
 function SaveRow({
@@ -728,127 +834,70 @@ function formatDate(iso: string) {
   });
 }
 
-const SETTING_TITLES: Record<string, string> = {
-  badWordList: 'Lista de palabras prohibidas',
-  listingExpiryDays: 'Caducidad de anuncios',
-  contactRequiresVerification: 'Verificación para contacto',
-  freeActiveListingLimit: 'Límite de anuncios activos (Free)',
-  proActiveListingLimit: 'Límite de anuncios activos (Pro)',
-  freeTotalListingLimit: 'Límite TOTAL de anuncios (Free)',
-  proTotalListingLimit: 'Límite TOTAL de anuncios (Pro)',
-  totalListingLimitEnabled: 'Aplicar el límite total de anuncios',
-  emailVerifiedToPublishEnabled: 'Exigir correo verificado para publicar',
-  maxPhotosPerListing: 'Máximo de fotos por anuncio',
-  minPhotosPerListing: 'Mínimo de fotos para publicar',
-  minPhotosRuleEnabled: 'Exigir el mínimo de fotos',
-  preModerationAllListings: 'Revisar TODOS los anuncios antes de publicarlos',
-  preModerationTrustedExempt: 'Los vendedores de confianza se saltan la revisión general',
-  detectionModes: 'Qué hace cada detector de contenido',
-  flaggedIps: 'IPs marcadas para vigilancia',
-  flaggedPhones: 'Teléfonos marcados',
-  proMonthlyFeaturedQuota: 'Cuota mensual de destacados (Pro)',
-  proQuotaFeaturedDurationDays: 'Duración del destacado por cuota (Pro)',
-  proExtraCreditsPercent: 'Bonus de créditos al comprar packs (Pro)',
-  proMonthlyBumpQuota: 'Cuota mensual de bumps (Pro)',
-  proExtraBumpsPercent: 'Bonus de bumps al comprar packs de bumps (Pro)',
-  maxTagsPerListing: 'Máximo de tags por anuncio',
-  // ENCENDER EL VÍDEO — los cuatro interruptores que el backend ya aceptaba y esta página
-  // no pintaba. Ver docs/auditoria-pro-video.md §2.0.
-  videoEnabled: 'Vídeo en los anuncios (ventaja Pro)',
-  attributeRevalidationEnabled: 'Marcar los anuncios que dejan de cumplir su categoría',
-  bumpAutoEnabled: 'Bump automático (programaciones)',
-  maxBumpSchedulesPerUser: 'Máximo de programaciones de bump por usuario',
-  supportEmail: 'Buzón de soporte',
-  ticketAutoCloseWindowDays: 'Ventana de reapertura y cierre de tickets',
-};
 
-const SETTING_DESCRIPTIONS: Record<string, string> = {
-  badWordList:
-    'Palabras o frases que activan la revisión manual de un anuncio. Si alguna aparece en el título o la descripción, el anuncio pasa a "En revisión" en lugar de publicarse directamente — y desde ahora eso vale también cuando su dueño EDITA un anuncio ya publicado, que puede volver a la cola. Se casan palabras enteras: «estafa» no salta con «estafador». Se admiten frases con espacios y entradas con símbolos, y la puntuación no tiene que coincidir: «100%-garantizado» encuentra «100 % garantizado». Ojo: para IPs y teléfonos no hace falta escribir nada aquí — tienen sus propios detectores, más abajo.',
-  listingExpiryDays:
-    'Número de días desde la publicación hasta que un anuncio activo caduca automáticamente.',
-  contactRequiresVerification:
-    'Controla si los usuarios necesitan tener el email verificado para poder contactar con vendedores.',
-  freeActiveListingLimit:
-    'Número máximo de anuncios en estado ACTIVE que puede tener simultáneamente un usuario con plan Free.',
-  proActiveListingLimit:
-    'Número máximo de anuncios en estado ACTIVE que puede tener simultáneamente un usuario con plan Pro.',
-  freeTotalListingLimit:
-    'Cuántos anuncios puede TENER en total un usuario Free, estén publicados o no: cuenta borradores, en revisión, activos, reservados, pausados, caducados y rechazados. NO cuentan los archivados ni los vendidos, así que archivar o marcar como vendido libera hueco. Es distinto del límite de activos: aquel limita el escaparate y este la acumulación. Tiene que ser mayor que el de activos — el backend rechaza el cambio si no lo es.',
-  proTotalListingLimit:
-    'Lo mismo para un usuario Pro. Tiene que ser mayor que el límite de activos de Pro.',
-  maxPhotosPerListing:
-    'Cuántas fotos admite como máximo un anuncio. Antes era un número fijo en el código (15); ahora se puede cambiar sin desplegar. Bajarlo NO toca los anuncios ya publicados con más fotos: sólo impide guardar tantas a partir de ahora.',
-  minPhotosPerListing:
-    'Cuántas fotos hacen falta como mínimo para PUBLICAR. Sólo se aplica si el interruptor de abajo está encendido. No puede superar al máximo — el backend rechaza esa combinación, porque dejaría el sistema pidiendo algo imposible.',
-  minPhotosRuleEnabled:
-    'El asistente de publicación lleva desde siempre diciendo «se necesita al menos 1 foto» y deshabilitando su botón sin ellas, pero el servidor no lo exigía: por «Mis anuncios» o por la API se podía publicar un anuncio sin ninguna. Encender esto alinea el servidor con lo que la interfaz ya promete. Sólo afecta a PUBLICAR: crear y editar borradores sin fotos sigue permitido, y los anuncios ya publicados no se tocan (renovar y reactivar tampoco lo miran).',
-  preModerationTrustedExempt:
-    'Sólo tiene efecto con la revisión de plataforma encendida. Apagado (por defecto), «revisar todos» significa TODOS, incluidos los vendedores con la insignia de confianza. Encendido, esa insignia pasa a eximir de la revisión GENERAL — y ojo: hoy la insignia es puramente decorativa, así que al encender esto los vendedores marcados hace meses quedan exentos sin que nadie lo haya decidido para ellos. NUNCA exime de las marcas específicas: una categoría que exige revisión, o un vendedor marcado para revisión, se revisan igual.',
-  preModerationAllListings:
-    'MODERACIÓN PREVIA, nivel plataforma. Encendido, TODO anuncio nuevo queda «en revisión» al publicarse y no se ve en el marketplace hasta que un moderador lo apruebe. ⚠ Es el más exigente de los tres niveles: a partir del clic, cada anuncio espera a un humano, así que enciéndelo sólo si hay alguien vaciando la cola. Para acotarlo a una parte del catálogo, marca «requiere revisión» en una categoría: se aplica a ella y a TODOS sus descendientes. Los anuncios ya publicados no se tocan.',
-  flaggedPhones:
-    'Teléfonos bajo vigilancia. Cuando un anuncio contiene uno de estos números —en el título, en la descripción O en su campo de teléfono— el equipo lo ve señalado. Da igual el formato: «654 123 456» encuentra al que lo escribió como «+34654123456». ⚠ Hoy sólo MARCA, no despublica; se puede cambiar a «Bloquear» en el ajuste de detectores, más abajo. Ojo con la diferencia entre los dos avisos de teléfono: «Teléfono en el texto» salta con CUALQUIER número escrito fuera de su campo (es evasión, y se equivoca a menudo — cualquier referencia de nueve dígitos lo parece), mientras que éste salta sólo con los que hayas puesto aquí.',
-  flaggedIps:
-    'Direcciones IP bajo vigilancia. Cuando la ÚLTIMA conexión de un usuario, o la última gestión de un anuncio, viene de una de estas IPs, el equipo lo ve señalado en las fichas y puede filtrar por ello en las listas. ⚠ Marcar una IP NO bloquea a nadie: no despublica anuncios ni suspende cuentas, sólo señala para que alguien lo mire. Se decidió así por dos motivos: la IP que se anota puede estar falsificada mientras no se verifique la topología del proxy, y además se anota en CADA gestión del dueño (también al subir un anuncio, que no toca el contenido). Quitar una IP de la lista des-señala al instante todo lo que marcaba, sin dejar rastro que limpiar.',
-  detectionModes:
-    'El motor busca dos cosas en el título y la descripción de cada anuncio: palabras de la lista de arriba y teléfonos escritos en el texto (el detector de direcciones IP en el texto se retiró — las IPs se vigilan por su propia lista, más abajo, y sobre la última conexión en vez del texto). Aquí se decide qué pasa cuando encuentra algo. ⚠ Poner un detector en «Bloquear» tiene consecuencias para los vendedores: el anuncio pasa a «En revisión» al publicarse Y al editarse, así que uno ya publicado puede volver a la cola por una edición. Antes de ascender un detector, mira en cuántos anuncios está disparando y abre unos cuantos: los de IP y teléfono se equivocan (una IP es legítima en un anuncio de router, y cualquier referencia de nueve dígitos parece un teléfono). Ojo también con el teléfono: el anuncio TIENE un campo propio para publicarlo, que sólo se ve tras iniciar sesión — lo que este detector marca es que está escrito fuera de su sitio, no que publicarlo esté prohibido.',
-  emailVerifiedToPublishEnabled:
-    'Mientras esté apagado, un usuario con el correo sin verificar publica como siempre. Al encenderlo, NO se rechaza nada ni se pierde ningún anuncio: quien intente publicar sin haber verificado su correo se encuentra el anuncio guardado como BORRADOR y un aviso con el enlace para verificar. Crear y redactar siguen siendo libres — sólo se frena el paso al mercado, y en cuanto verifique podrá publicarlo. No afecta a los anuncios que ya están publicados.',
-  totalListingLimitEnabled:
-    'Mientras esté apagado, los dos límites totales de arriba NO se aplican: se pueden configurar y dejar preparados sin que nadie se vea frenado. Al encenderlo, un usuario que ya esté por encima de su tope NO pierde ningún anuncio; simplemente no podrá crear otro hasta bajar archivando o vendiendo. El freno actúa al CREAR, no al publicar.',
-  proMonthlyFeaturedQuota:
-    'Destacados gratuitos que un usuario Pro puede usar cada mes. Se renuevan en el aniversario del ciclo de su suscripción; los no usados no se acumulan al mes siguiente.',
-  proQuotaFeaturedDurationDays:
-    'Duración fija (en días) de un destacado pagado con la cuota gratuita de Pro. Al pagar con créditos, el usuario elige la duración (7/14/30 días); la cuota siempre usa esta duración fija.',
-  proExtraCreditsPercent:
-    'Porcentaje de créditos extra que recibe un usuario Pro al comprar un pack de créditos, sobre el mismo precio que paga cualquier usuario (no es un descuento en euros). Se congela en cada compra: cambiar este valor no afecta a compras ya realizadas.',
-  proMonthlyBumpQuota:
-    'Bumps gratuitos que un usuario Pro puede usar cada mes. Mismo periodo que la cuota de destacados (una sola suscripción por usuario); se renuevan en el aniversario del ciclo, los no usados no se acumulan. Se consumen ANTES que el saldo de bumps por cupón y que los créditos.',
-  proExtraBumpsPercent:
-    'Porcentaje de bumps extra que recibe un usuario Pro al comprar un pack de bumps, sobre el mismo precio que paga cualquier usuario. Setting independiente del bonus de créditos (proExtraCreditsPercent) — beneficios distintos, calibrables por separado. Se congela en cada compra: cambiar este valor no afecta a compras ya realizadas.',
-  maxTagsPerListing:
-    'Cuántas etiquetas puede llevar como máximo un anuncio. Los tags se configuran por categoría (catálogo en Tags, asignación en Categorías) y el usuario elige entre los que su categoría ofrece; este número es el tope de cuántos puede marcar. Subirlo no afecta a los anuncios ya publicados con menos.',
-  videoEnabled:
-    'Permite a los vendedores Pro añadir un vídeo corto a sus anuncios (MP4, máximo 60 segundos y 50 MB). ⚠ Nace APAGADO a propósito, y encenderlo es una decisión de coste: desde el primer vídeo la plataforma paga almacenamiento y ancho de banda cada vez que alguien le da al play. Mientras esté apagado, la sección de vídeo no existe para nadie —ni siquiera para un Pro— y el servidor rechaza cualquier subida. Apagarlo después NO borra nada: los vídeos ya subidos dejan de ofrecerse, y vuelven si se reenciende.',
-  attributeRevalidationEnabled:
-    'Cuando un administrador cambia los atributos de una categoría, los anuncios que ya estaban publicados pueden dejar de cumplirla. Encendido, esos anuncios quedan MARCADOS y su dueño ve qué tiene que corregir. ⚠ Es la única regla capaz de señalar anuncios publicados hace años sin que su dueño haya tocado nada, así que antes de encenderla conviene mirar a cuántos afecta con `pnpm gate-impact-report`. Apagada, el mecanismo sigue marcando y avisando por dentro — que es lo que hace que encenderla no sea a ciegas.',
-  bumpAutoEnabled:
-    'Interruptor de emergencia del bump automático. Encendido (por defecto), el cron ejecuta las programaciones de bump que los usuarios hayan dejado puestas. ⚠ Es la única función que gasta dinero de los usuarios de forma DESATENDIDA, así que este interruptor existe para poder pararla sin desplegar. Apagarlo detiene el cron pero NO borra ninguna programación: al reencender, siguen donde estaban.',
-  maxBumpSchedulesPerUser:
-    'Cuántas programaciones de bump ACTIVAS puede tener a la vez un mismo usuario. Bajarlo no cancela las que ya existan: sólo impide crear más a quien esté en su tope.',
-  supportEmail:
-    'Dirección única a la que llegan los avisos por correo de los tickets de soporte. No es un reparto por administrador: es un buzón compartido. Si se deja vacío, el aviso in-app al staff se sigue creando y solo se omite el correo.',
-  ticketAutoCloseWindowDays:
-    'Días que un ticket resuelto admite reapertura por parte del usuario y, pasados los cuales, se cierra automáticamente. Es UN SOLO valor para las dos cosas a propósito: si divergieran habría un limbo entre "ya no puedo reabrir" y "aún no me han cerrado".',
-};
+/**
+ * AJUSTES RÁFAGA A — EL EMISOR FISCAL, DE SOLO LECTURA Y CON SU ENLACE.
+ *
+ * NO se edita aquí, y es una barrera, no una comodidad. Su endpoint valida el NIF, escribe su
+ * propio registro de auditoría y sostiene la no-retroactividad (las facturas ya emitidas llevan
+ * el emisor CONGELADO). Meterlo en el `upsert` genérico de ajustes rompería las tres cosas.
+ *
+ * Lo que sí hacía falta era que desde aquí se VEA si está configurado: sin `taxId` y razón
+ * social no se puede emitir ninguna factura, y hoy eso es un fallo silencioso que nadie
+ * descubre hasta que alguien pide una.
+ */
+function EmisorFiscalCard({ token }: { token: string }) {
+  const [estado, setEstado] = useState<FiscalIssuerResponse | null>(null);
+  const [error, setError] = useState(false);
 
-// ─── Monetización: costes en créditos ──────────────────────────────────────────
+  useEffect(() => {
+    let vivo = true;
+    getFiscalIssuer(token)
+      .then((r) => vivo && setEstado(r))
+      .catch(() => vivo && setError(true));
+    return () => {
+      vivo = false;
+    };
+  }, [token]);
 
-const MONETIZATION_SETTING_KEYS = [
-  'bumpCreditCost',
-  'featuredCreditCost7d',
-  'featuredCreditCost14d',
-  'featuredCreditCost30d',
-] as const;
-
-const MONETIZATION_TITLES: Record<string, string> = {
-  bumpCreditCost: 'Coste de subir un anuncio',
-  featuredCreditCost7d: 'Coste del destacado — 7 días',
-  featuredCreditCost14d: 'Coste del destacado — 14 días',
-  featuredCreditCost30d: 'Coste del destacado — 30 días',
-};
-
-const MONETIZATION_DESCRIPTIONS: Record<string, string> = {
-  bumpCreditCost:
-    'Créditos que se descuentan al usuario cada vez que sube un anuncio a la parte superior del listado.',
-  featuredCreditCost7d:
-    'Créditos que cuesta destacar un anuncio durante 7 días, pagando con el saldo de créditos.',
-  featuredCreditCost14d:
-    'Créditos que cuesta destacar un anuncio durante 14 días, pagando con el saldo de créditos.',
-  featuredCreditCost30d:
-    'Créditos que cuesta destacar un anuncio durante 30 días, pagando con el saldo de créditos.',
-};
+  return (
+    <div className="rounded-md border bg-background p-5">
+      <div className="mb-1 flex items-start justify-between gap-4">
+        <h3 className="text-base font-semibold">Datos fiscales del emisor</h3>
+        <span className="shrink-0 text-xs text-muted-foreground">Solo lectura</span>
+      </div>
+      <p className="mb-4 text-sm text-muted-foreground">
+        El NIF y la razón social con los que se emiten las facturas. Se editan en su propia
+        página porque allí se valida el NIF y queda registrado quién lo cambió; además, las
+        facturas ya emitidas conservan congelados los datos con los que salieron, así que
+        cambiarlos aquí nunca reescribe el pasado.
+      </p>
+      {error && (
+        <p className="text-sm text-muted-foreground">No se ha podido consultar el estado del emisor.</p>
+      )}
+      {!error && estado === null && <p className="text-sm text-muted-foreground">Consultando…</p>}
+      {estado?.configured && estado.issuer && (
+        <p className="text-sm" data-testid="emisor-configurado">
+          Configurado: <strong>{estado.issuer.fiscalName}</strong> ({estado.issuer.taxId})
+        </p>
+      )}
+      {estado && !estado.configured && (
+        <div
+          className="rounded-md border border-amber-400 bg-amber-50 p-3 text-xs text-amber-900"
+          data-testid="emisor-sin-configurar"
+        >
+          <strong>Sin configurar.</strong> Mientras falten el NIF y la razón social no se puede
+          emitir ninguna factura — ni las que pida un usuario ni las del proceso automático.
+        </div>
+      )}
+      <p className="mt-3 text-sm">
+        <Link href="/admin/facturas/emisor" className="text-blue-700 hover:underline">
+          Configurar el emisor fiscal →
+        </Link>
+      </p>
+    </div>
+  );
+}
 
 export default function AdminAjustesPage() {
   const { data: session } = useSession();
@@ -922,83 +971,44 @@ export default function AdminAjustesPage() {
 
   const settingsByKey = Object.fromEntries(settings.map((s) => [s.key, s]));
 
-  // Canonical display order. Las tres últimas se intercalan sin mover ninguna de
-  // las que ya estaban: maxTagsPerListing junto a la otra config de anuncios, y el
-  // par de tickets al final porque se leen juntas.
-  const ORDER = [
-    'badWordList',
-    'listingExpiryDays',
-    'maxTagsPerListing',
-    'contactRequiresVerification',
-    'freeActiveListingLimit',
-    'proActiveListingLimit',
-    // Puerta regla #1 — van JUSTO DEBAJO de los de activos: son su pareja, y hay
-    // una invariante entre ellos (`total > activos`) que el backend comprueba en
-    // las dos direcciones. Separarlos en la página invitaría a editar uno sin
-    // mirar el otro.
-    'freeTotalListingLimit',
-    'proTotalListingLimit',
-    'totalListingLimitEnabled',
-    'emailVerifiedToPublishEnabled',
-    'maxPhotosPerListing',
-    'minPhotosPerListing',
-    'minPhotosRuleEnabled',
-    // ENCENDER EL VÍDEO — cierra el grupo de reglas de la puerta, que es donde se lee:
-    // las otras tres de arriba también deciden qué frena a un anuncio.
-    'attributeRevalidationEnabled',
-    'preModerationAllListings',
-    'preModerationTrustedExempt',
-    // PUNTO 6 · RÁFAGA B — el ascenso, junto a la moderación previa: son la misma clase de
-    // decisión (qué manda un anuncio a la cola) y se leen mejor una detrás de otra.
-    'detectionModes',
-    // A1 — junto a los detectores: es la otra mitad de «qué vigila la plataforma», sólo que
-    // esta mira la última IP en vez del texto.
-    'flaggedIps',
-    // A2 — junto a la de IPs: son las dos listas de vigilancia, y se leen juntas.
-    'flaggedPhones',
-    'proMonthlyFeaturedQuota',
-    'proQuotaFeaturedDurationDays',
-    'proExtraCreditsPercent',
-    'proMonthlyBumpQuota',
-    'proExtraBumpsPercent',
-    // ENCENDER EL VÍDEO — el interruptor de la feature, junto al resto de ventajas de Pro
-    // porque es una de ellas y ahí es donde un administrador va a buscarlo.
-    'videoEnabled',
-    // Y el par del bump automático, que se lee junto: el interruptor y su tope.
-    'bumpAutoEnabled',
-    'maxBumpSchedulesPerUser',
-    'supportEmail',
-    'ticketAutoCloseWindowDays',
-  ] as const;
+  /**
+   * Una tarjeta de ajuste. LAS CLASES DEL CONTENEDOR Y EL TÍTULO NO SE TOCAN: las specs de
+   * Playwright localizan cada ajuste por `div.rounded-md.border.bg-background.p-5` filtrado por
+   * su encabezado, así que reorganizar la página no puede cambiar cómo se encuentra una tarjeta.
+   * Los encabezados de grupo van FUERA de estos divs, por lo mismo.
+   */
+  function renderCard(key: string) {
+    const setting = settingsByKey[key];
+    // El backend devuelve TODA clave del whitelist: las que no tienen fila
+    // llegan con su DEFAULT y `configured: false`. Este guard ya no oculta
+    // esas —antes sí, y por eso tres ajustes eran invisibles—; solo salta una
+    // clave que el backend no conozca, p. ej. si se quita del whitelist y se
+    // olvida aquí.
+    if (!setting) return null;
 
-  return (
-    <div>
-      <h1 className="mb-6 text-2xl font-bold">Ajustes</h1>
+    const updatedAt = lastSaved[key] ?? setting.updatedAt;
 
-      <div className="space-y-6">
-        {ORDER.map((key) => {
-          const setting = settingsByKey[key];
-          // El backend devuelve TODA clave del whitelist: las que no tienen fila
-          // llegan con su DEFAULT y `configured: false`. Este guard ya no oculta
-          // esas —antes sí, y por eso tres ajustes eran invisibles—; solo salta una
-          // clave que el backend no conozca, p. ej. si se quita del whitelist y se
-          // olvida aquí.
-          if (!setting) return null;
+    return (
+      <div key={key} className="rounded-md border bg-background p-5">
+        <div className="mb-1 flex items-start justify-between gap-4">
+          <h3 className="text-base font-semibold">{SETTING_TITLES[key] ?? key}</h3>
+          <span className="shrink-0 text-xs text-muted-foreground">
+            {updatedAt
+              ? `Actualizado: ${formatDate(updatedAt)}`
+              : 'Sin configurar — se usa el valor por defecto'}
+          </span>
+        </div>
+        <p className="mb-4 text-sm text-muted-foreground">{SETTING_DESCRIPTIONS[key]}</p>
 
-          const updatedAt = lastSaved[key] ?? setting.updatedAt;
+        {renderEditor(key, setting)}
+      </div>
+    );
+  }
 
-          return (
-            <div key={key} className="rounded-md border bg-background p-5">
-              <div className="mb-1 flex items-start justify-between gap-4">
-                <h2 className="text-base font-semibold">{SETTING_TITLES[key] ?? key}</h2>
-                <span className="shrink-0 text-xs text-muted-foreground">
-                  {updatedAt
-                    ? `Actualizado: ${formatDate(updatedAt)}`
-                    : 'Sin configurar — se usa el valor por defecto'}
-                </span>
-              </div>
-              <p className="mb-4 text-sm text-muted-foreground">{SETTING_DESCRIPTIONS[key]}</p>
-
+  function renderEditor(key: string, setting: AdminSetting) {
+    if (!token) return null;
+    return (
+      <>
               {key === 'badWordList' && (
                 <BadWordListEditor
                   setting={setting}
@@ -1013,7 +1023,7 @@ export default function AdminAjustesPage() {
                   onSaved={() => handleSaved(key)}
                   settingKey="listingExpiryDays"
                   label="Días hasta que caduca un anuncio"
-                  helpText="Los anuncios en estado ACTIVE que superen este período sin renovarse pasarán a EXPIRED."
+                  helpText="Sólo se aplica a los anuncios que se publiquen, renueven o reactiven a partir de ahora: los que ya están vivos conservan su fecha de caducidad."
                   min={1}
                   max={365}
                 />
@@ -1044,7 +1054,7 @@ export default function AdminAjustesPage() {
                   onSaved={() => handleSaved(key)}
                   settingKey="freeActiveListingLimit"
                   label="Anuncios activos simultáneos (Free)"
-                  helpText="Al superar este límite, los anuncios más antiguos pasan a borrador al publicar uno nuevo."
+                  helpText="Al llegar al tope, publicar o reactivar otro se RECHAZA; no se despublica nada. Cuando caduca una suscripción Pro, este número decide cuántos anuncios conserva activos el ex-Pro."
                   min={1}
                 />
               )}
@@ -1055,7 +1065,7 @@ export default function AdminAjustesPage() {
                   onSaved={() => handleSaved(key)}
                   settingKey="proActiveListingLimit"
                   label="Anuncios activos simultáneos (Pro)"
-                  helpText="Al superar este límite, los anuncios más antiguos pasan a borrador al publicar uno nuevo."
+                  helpText="Al llegar al tope, publicar o reactivar otro se RECHAZA; no se despublica nada. Debe ser mayor que el límite de Free."
                   min={1}
                 />
               )}
@@ -1306,59 +1316,135 @@ export default function AdminAjustesPage() {
                   min={1}
                 />
               )}
+
+              {/* AJUSTES RÁFAGA A — los cuatro costes en créditos. Antes se pintaban en un
+                  bloque aparte con su propio mapa de títulos; ahora son tarjetas como las
+                  demás dentro del grupo «Monetización», que además incluye los precios en
+                  euros. La etiqueta del control sigue diciendo «Créditos». */}
+              {(key === 'bumpCreditCost' ||
+                key === 'featuredCreditCost7d' ||
+                key === 'featuredCreditCost14d' ||
+                key === 'featuredCreditCost30d') && (
+                <NumberSettingEditor
+                  setting={setting}
+                  token={token}
+                  onSaved={() => handleSaved(key)}
+                  settingKey={key}
+                  label="Créditos"
+                  helpText="Debe ser un número entero de al menos 1 crédito."
+                  min={1}
+                />
+              )}
+
+              {/* ─── AJUSTES RÁFAGA A — los cuatro huérfanos ──────────────────────────
+                  Los cuatro se leían ya en producción y no había forma de tocarlos que no
+                  fuera un UPDATE a mano. Cada uno con el control que le corresponde. */}
+              {key === 'messageEmailGraceMinutes' && (
+                <NumberSettingEditor
+                  setting={setting}
+                  token={token}
+                  onSaved={() => handleSaved(key)}
+                  settingKey="messageEmailGraceMinutes"
+                  label="Minutos de espera"
+                  helpText="Si el destinatario abre la conversación antes de que pasen, el correo no llega a enviarse."
+                  min={1}
+                  suffix="minutos"
+                />
+              )}
+              {key === 'defaultSuspensionDays' && (
+                <NumberSettingEditor
+                  setting={setting}
+                  token={token}
+                  onSaved={() => handleSaved(key)}
+                  settingKey="defaultSuspensionDays"
+                  label="Días de suspensión"
+                  helpText="Mientras no se configure, «Suspender» sin duración deja la suspensión indefinida, como hasta ahora."
+                  min={1}
+                  suffix="días"
+                />
+              )}
+              {key === 'fiscalSelfServiceWindow' && (
+                <NumberSettingEditor
+                  setting={setting}
+                  token={token}
+                  onSaved={() => handleSaved(key)}
+                  settingKey="fiscalSelfServiceWindow"
+                  label="Meses hacia atrás"
+                  helpText="Se cuentan sobre la fecha de la operación. Fuera de la ventana, la factura se pide al soporte."
+                  min={1}
+                  suffix="meses"
+                />
+              )}
+              {key === 'fiscalInvoicingPeriodicity' && (
+                <SelectSettingEditor
+                  setting={setting}
+                  token={token}
+                  onSaved={() => handleSaved(key)}
+                  settingKey="fiscalInvoicingPeriodicity"
+                  label="Cada cuánto se factura"
+                  helpText="Sólo admite estas dos opciones: el backend rechaza cualquier otro valor, porque una periodicidad mal escrita se leería como trimestral sin avisar."
+                  options={PERIODICIDAD_OPCIONES}
+                />
+              )}
+      </>
+    );
+  }
+
+  return (
+    <div>
+      <h1 className="mb-2 text-2xl font-bold">Ajustes</h1>
+      <p className="mb-4 text-sm text-muted-foreground">
+        Todo lo que se puede cambiar sin desplegar. Cada cambio queda registrado con quién lo
+        hizo.
+      </p>
+
+      {/* EL ÍNDICE. Con 37 ajustes en la página, la lista plana obligaba a recorrerlos todos
+          para encontrar uno; esto da el salto directo al grupo. */}
+      <nav className="mb-8 flex flex-wrap gap-2" aria-label="Secciones de ajustes">
+        {GRUPOS.map((g) => (
+          <a
+            key={g.id}
+            href={`#${g.id}`}
+            className="rounded-full border bg-background px-3 py-1 text-xs font-medium hover:bg-muted"
+          >
+            {g.titulo}
+          </a>
+        ))}
+      </nav>
+
+      <div className="space-y-12">
+        {GRUPOS.map((grupo) => (
+          <section key={grupo.id} id={grupo.id} className="scroll-mt-6">
+            <h2 className="text-lg font-bold">{grupo.titulo}</h2>
+            <p className="mb-4 mt-1 text-sm text-muted-foreground">{grupo.resumen}</p>
+
+            <div className="space-y-6">
+              {grupo.keys.map((key) => renderCard(key))}
+
+              {/* Los precios en euros cierran Monetización: son la otra moneda de los mismos
+                  productos y se leen junto a los costes en créditos, no en otra pantalla. */}
+              {grupo.id === 'monetizacion' && (
+                <div>
+                  <h3 className="mb-3 text-sm font-semibold text-muted-foreground">
+                    Precios (Redsys)
+                  </h3>
+                  <PriceListEditor
+                    token={token}
+                    creditCosts={{
+                      7: settingsByKey.featuredCreditCost7d?.value as number | undefined,
+                      14: settingsByKey.featuredCreditCost14d?.value as number | undefined,
+                      30: settingsByKey.featuredCreditCost30d?.value as number | undefined,
+                    }}
+                  />
+                </div>
+              )}
+
+              {/* El emisor fiscal: se VE aquí, se EDITA en su página. Ver EmisorFiscalCard. */}
+              {grupo.id === 'facturacion' && <EmisorFiscalCard token={token} />}
             </div>
-          );
-        })}
+          </section>
+        ))}
       </div>
-
-      <h2 className="mb-4 mt-10 text-lg font-bold">Monetización</h2>
-
-      <h3 className="mb-3 text-sm font-semibold text-muted-foreground">
-        Costes en créditos
-      </h3>
-      <div className="space-y-6">
-        {MONETIZATION_SETTING_KEYS.map((key) => {
-          const setting = settingsByKey[key];
-          if (!setting) return null;
-
-          const updatedAt = lastSaved[key] ?? setting.updatedAt;
-
-          return (
-            <div key={key} className="rounded-md border bg-background p-5">
-              <div className="mb-1 flex items-start justify-between gap-4">
-                <h4 className="text-base font-semibold">{MONETIZATION_TITLES[key]}</h4>
-                <span className="shrink-0 text-xs text-muted-foreground">
-                  Actualizado: {formatDate(updatedAt)}
-                </span>
-              </div>
-              <p className="mb-4 text-sm text-muted-foreground">
-                {MONETIZATION_DESCRIPTIONS[key]}
-              </p>
-              <NumberSettingEditor
-                setting={setting}
-                token={token}
-                onSaved={() => handleSaved(key)}
-                settingKey={key}
-                label="Créditos"
-                helpText="Debe ser un número entero de al menos 1 crédito."
-                min={1}
-              />
-            </div>
-          );
-        })}
-      </div>
-
-      <h3 className="mb-3 mt-6 text-sm font-semibold text-muted-foreground">
-        Precios (Redsys)
-      </h3>
-      <PriceListEditor
-        token={token}
-        creditCosts={{
-          7: settingsByKey.featuredCreditCost7d?.value as number | undefined,
-          14: settingsByKey.featuredCreditCost14d?.value as number | undefined,
-          30: settingsByKey.featuredCreditCost30d?.value as number | undefined,
-        }}
-      />
     </div>
   );
 }

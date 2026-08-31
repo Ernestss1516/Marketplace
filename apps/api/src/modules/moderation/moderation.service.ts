@@ -10,7 +10,7 @@ import { ListingStatus, ReportStatus } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { RedisService } from '../../infra/redis/redis.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
-import { ExpirationService } from '../expiration/expiration.service';
+import { ListingExpiryService } from '../expiration/listing-expiry.service';
 import { QUEUE_INDEXING } from '../../infra/queue/queue.constants';
 import { ListingActivationService } from '../listing-activation/listing-activation.service';
 import { ListingGateService } from '../listing-gate/listing-gate.service';
@@ -33,6 +33,9 @@ export class ModerationService {
     // de Report, guards, acciones sobre el anuncio) no cambia; solo gana un
     // efecto posterior, siempre después de que la acción haya persistido.
     private readonly notify: ModerationNotificationsService,
+    // AJUSTES RÁFAGA A — el plazo de caducidad, ahora leído del `Setting` `listingExpiryDays`
+    // en vez de una constante. AL FINAL DE LA LISTA, por la nota de los parámetros de arriba.
+    private readonly listingExpiry: ListingExpiryService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -318,7 +321,7 @@ export class ModerationService {
       data: {
         status: ListingStatus.ACTIVE,
         publishedAt,
-        expiresAt: ExpirationService.expiresAt(publishedAt),
+        expiresAt: await this.listingExpiry.expiresAt(publishedAt),
       },
     });
 
@@ -451,7 +454,7 @@ export class ModerationService {
       data: {
         status: ListingStatus.ACTIVE,
         publishedAt,
-        expiresAt: ExpirationService.expiresAt(publishedAt),
+        expiresAt: await this.listingExpiry.expiresAt(publishedAt),
       },
     });
 

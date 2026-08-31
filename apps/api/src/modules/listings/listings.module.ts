@@ -21,9 +21,13 @@ import { ListingsService } from './listings.service';
 import { ListingEditValidationModule } from './listing-edit-validation.module';
 import { ListingImagesModule } from './listing-images.module';
 import { ListingOwnerActivityService } from './listing-owner-activity.service';
+import { ListingExpiryModule } from '../expiration/listing-expiry.module';
 
 @Module({
   imports: [
+    // AJUSTES RÁFAGA A — el lector del plazo de caducidad (`listingExpiryDays`). Módulo HOJA:
+    // sólo depende de Prisma, así que importarlo no abre ningún ciclo.
+    ListingExpiryModule,
     // P3a — las reglas de los campos, compartidas con AdminModule.
     ListingEditValidationModule,
     ListingImagesModule,

@@ -142,6 +142,10 @@ describe('ListingsService.create — reintento de slug ante P2002', () => {
       // reintento de slug; `create()` sólo sincroniza fotos si vienen `imageIds`,
       // y aquí no vienen.
       { sync: jest.fn() } as never,
+      // AJUSTES RÁFAGA A — mantenimiento de fixture por cambio de FIRMA: el lector del plazo
+      // de caducidad. Este spec va del reintento de slug en create(), que nace en borrador y
+      // por tanto nunca calcula un vencimiento.
+      { expiresAt: jest.fn(), getDays: jest.fn() } as never,
     );
     errorSpy = jest.spyOn((service as unknown as { logger: { error: (...a: unknown[]) => void } }).logger, 'error');
   });
