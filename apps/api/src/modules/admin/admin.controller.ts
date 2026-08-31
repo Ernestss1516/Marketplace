@@ -18,6 +18,7 @@ import { JwtAuthGuard, RolesGuard } from '../../common/guards';
 import { CurrentUser, MinRole } from '../../common/decorators';
 import { JwtUser } from '../auth/auth.types';
 import { AdminService } from './admin.service';
+import { InstanceInfoService } from './instance-info.service';
 import { ListAdminListingsDto } from './dto/list-admin-listings.dto';
 import { SetListingTriageDto } from './dto/set-listing-triage.dto';
 import { UpdateAdminListingDto } from './dto/update-admin-listing.dto';
@@ -51,6 +52,9 @@ export class AdminController {
     // BORRADO DE CUENTAS C6 — mismo reparto: el servicio es compartido con
     // `UsersController` (el usuario se exporta a sí mismo desde `/perfil`).
     private readonly dataExport: DataExportService,
+    // AJUSTES RÁFAGA B — el panel de «cómo está montada esta instancia». Servicio propio:
+    // construye su objeto campo a campo y no comparte nada con AdminService.
+    private readonly instanceInfo: InstanceInfoService,
   ) {}
 
   // ─── Stats dashboard ──────────────────────────────────────────────────────
@@ -519,6 +523,26 @@ export class AdminController {
   @Get('settings')
   getSettings() {
     return this.adminService.getSettings();
+  }
+
+  /**
+   * AJUSTES RÁFAGA B — CÓMO ESTÁ MONTADA ESTA INSTANCIA (solo lectura).
+   *
+   * Vive junto a los ajustes porque es su otra mitad: allí se cambia lo configurable, aquí se
+   * CONFIRMA lo que no lo es (dominio, remitente, qué pasarela cobra y en qué entorno, dónde
+   * están las imágenes). Nace de que estas instancias van a ser varias, una por nicho.
+   *
+   * **ADMIN, y explícito aunque la clase ya lo imponga.** El piso de clase basta y este
+   * decorador es redundante a propósito: es el único endpoint que publica de golpe la
+   * configuración de la máquina, y en un fichero de 40 rutas no quiero que su nivel de acceso
+   * dependa de que nadie mueva el `@MinRole` de arriba. Lo que devuelve no es secreto —el
+   * servicio lo construye campo a campo y de las credenciales sólo dice si están puestas— pero
+   * es información de infraestructura y no tiene por qué verla un moderador.
+   */
+  @Get('instance-info')
+  @MinRole(Role.ADMIN)
+  getInstanceInfo() {
+    return this.instanceInfo.get();
   }
 
   /**

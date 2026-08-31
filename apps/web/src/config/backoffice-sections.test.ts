@@ -73,10 +73,11 @@ const REPARTO_ESPERADO: Record<string, 'EDITOR' | 'MODERATOR' | 'ADMIN'> = {
   patrocinados: 'MODERATOR',
   'mensajes-contacto': 'MODERATOR',
   'motivos-contacto': 'MODERATOR',
-  // ADMIN — el dinero y la configuración de plataforma (3 propias, 23 acumuladas)
+  // ADMIN — el dinero y la configuración de plataforma (4 propias, 24 acumuladas)
   facturacion: 'ADMIN',
   facturas: 'ADMIN',
   ajustes: 'ADMIN',
+  instancia: 'ADMIN',
 };
 
 const ROLES_STAFF = ['EDITOR', 'MODERATOR', 'ADMIN'] as const;
@@ -90,10 +91,10 @@ function seccionesEsperadas(role: 'EDITOR' | 'MODERATOR' | 'ADMIN'): string[] {
 }
 
 describe('EL REPARTO — cada rol ve exactamente lo suyo', () => {
-  it('el mapa declara el piso acordado para las 23 secciones, una por una', () => {
+  it('el mapa declara el piso acordado para las 24 secciones, una por una', () => {
     const real = Object.fromEntries(BACKOFFICE_SECTIONS.map((s) => [s.id, s.minRole]));
     expect(real).toEqual(REPARTO_ESPERADO);
-    expect(BACKOFFICE_SECTIONS).toHaveLength(23);
+    expect(BACKOFFICE_SECTIONS).toHaveLength(24);
   });
 
   it.each(ROLES_STAFF.map((r) => [r]))(
@@ -110,7 +111,7 @@ describe('EL REPARTO — cada rol ve exactamente lo suyo', () => {
     // la telemetría no baja al piso del dashboard (ver `AdminStatsController`).
     expect(navSectionsFor('EDITOR')).toHaveLength(7);
     expect(navSectionsFor('MODERATOR')).toHaveLength(20);
-    expect(navSectionsFor('ADMIN')).toHaveLength(23);
+    expect(navSectionsFor('ADMIN')).toHaveLength(24);
   });
 
   it('USER sigue sin acceso a NADA del backoffice', () => {

@@ -25,6 +25,7 @@ import { ListingPauseModule } from '../listing-pause/listing-pause.module';
 import { DataExportModule } from '../data-export/data-export.module';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
+import { InstanceInfoService } from './instance-info.service';
 import { AccountCleanupProcessor } from './account-cleanup.processor';
 import { AdminBillingController } from './admin-billing.controller';
 import { AdminBillingService } from './admin-billing.service';
@@ -85,6 +86,7 @@ import { ListingExpiryModule } from '../expiration/listing-expiry.module';
   controllers: [AdminController, AdminBillingController, AdminStatsController],
   providers: [
     AdminService,
+    InstanceInfoService,
     AdminBillingService,
     AdminStatsService,
     AccountCleanupProcessor,
