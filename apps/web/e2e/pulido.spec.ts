@@ -108,7 +108,18 @@ test.describe('UXV.6 (M9, B5) — el historial se pasea y los vacíos ofrecen sa
 
     // Y el historial de BUMPS ahora existe aunque esté vacío: antes la sección entera
     // desaparecía y quien nunca había tenido bumps no se enteraba de que existían.
-    await expect(page.getByRole('heading', { name: /historial de bumps/i })).toBeVisible();
+    //
+    // LA ASERCIÓN SE ACTUALIZA, NO LO QUE PROTEGE. Esperaba un encabezado «Historial de
+    // bumps», que es como se llamaba cuando B5 escribió este caso. La ráfaga B de
+    // mis-créditos reorganizó la página («el saldo primero, por tarea») y agrupó los dos
+    // historiales bajo un único «Historial» con un subtítulo por moneda: «Créditos» y
+    // «Bumps». El encabezado cambió de nombre; la sección sigue estando —y sigue estando
+    // AUNQUE ESTÉ VACÍA, que es lo único que este caso vigila—. Se comprueba dentro del
+    // «Historial» para no casar por accidente con la palabra «Bumps» de otra parte de la
+    // página (hay packs de bumps y bumps programados más arriba).
+    const historial = page.getByRole('heading', { name: /^historial$/i });
+    await expect(historial).toBeVisible();
+    await expect(page.getByRole('heading', { name: /^bumps$/i })).toBeVisible();
     await expect(page.getByText(/todavía no tienes movimientos de bumps/i)).toBeVisible();
   });
 });
