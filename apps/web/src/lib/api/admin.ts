@@ -894,3 +894,62 @@ export interface WorkQueue {
 export function getWorkQueue(token: string): Promise<WorkQueue> {
   return apiFetch<WorkQueue>('/admin/work-queue', { token });
 }
+
+// ─── AJUSTES RÁFAGA B — el panel de instancia ─────────────────────────────────
+//
+// «Cómo está montada esta instancia», de solo lectura. El tipo es el reflejo EXACTO de
+// `InstanceInfo` en el backend (apps/api/src/modules/admin/instance-info.types.ts), que es
+// donde vive la explicación de cada campo y, sobre todo, la barrera: de una credencial se
+// publica el HECHO de estar configurada, nunca su valor. Aquí no se añade ni un campo.
+
+/** Una credencial: sólo el hecho. Si algún día esto trae un valor, algo se rompió arriba. */
+export interface CredencialConfigurada {
+  configurado: boolean;
+}
+
+export interface InstanceInfo {
+  identidad: {
+    appUrl: string;
+    entorno: string;
+  };
+  correos: {
+    /** `esPlaceholder`: el defecto de fábrica (`noreply@tudominio.es`) parece un dominio real. */
+    remitente: { direccion: string; esPlaceholder: boolean };
+    buzonSoporte: string | null;
+    proveedor: { nombre: string } & CredencialConfigurada;
+    /** Siempre `null`: no existe un correo de contacto público. Se dice, no se inventa. */
+    contactoPublico: null;
+  };
+  proveedores: {
+    /** `emiteFacturasValidas: false` con el stub → la página pinta su aviso ámbar. */
+    facturacion: { proveedor: string; emiteFacturasValidas: boolean };
+    emisorFiscal: { configurado: boolean; razonSocial: string | null };
+    pagoRecurrente: { nombre: string } & CredencialConfigurada;
+    /** `cobrosReales: false` con el TPV de pruebas → aviso ámbar. */
+    pagoUnico: {
+      nombre: string;
+      comercio: string | null;
+      terminal: string | null;
+      entorno: string;
+      cobrosReales: boolean;
+    } & CredencialConfigurada;
+    almacenamiento: { endpoint: string | null; bucket: string | null; urlPublica: string | null };
+    busqueda: { host: string | null; indice: string };
+    geocodificacion: { proveedor: string };
+    loginGoogle: CredencialConfigurada;
+    observabilidad: CredencialConfigurada;
+  };
+  configuracion: {
+    zonaHoraria: { programaciones: string; servidor: string; coinciden: boolean };
+    iva: { modo: 'por-linea-de-factura' };
+    facturacion: { periodicidad: string; ventanaAutoservicioMeses: number };
+    /** `null` = no disponible. No se finge un número. */
+    versionApi: string | null;
+    /** `null` mientras el despliegue no exporte `GIT_SHA`. El hueco preparado. */
+    commit: string | null;
+  };
+}
+
+export function getInstanceInfo(token: string): Promise<InstanceInfo> {
+  return apiFetch<InstanceInfo>('/admin/instance-info', { token });
+}

@@ -254,6 +254,10 @@ export const BACKOFFICE_SECTIONS: readonly BackofficeSection[] = [
   { id: 'facturacion', route: '/admin/facturacion', label: 'Facturación', minRole: 'ADMIN', group: 'plataforma' },
   { id: 'facturas', route: '/admin/facturas', label: 'Facturas', minRole: 'ADMIN', group: 'plataforma' },
   { id: 'ajustes', route: '/admin/ajustes', label: 'Ajustes', minRole: 'ADMIN', group: 'plataforma' },
+  // AJUSTES RÁFAGA B — «cómo está montada esta instancia», de solo lectura. Va DESPUÉS de
+  // Ajustes y no antes: aquélla es donde se cambia y ésta donde se confirma, y en ese orden
+  // se leen. ADMIN porque publica de golpe la configuración de la máquina.
+  { id: 'instancia', route: '/admin/instancia', label: 'Instancia', minRole: 'ADMIN', group: 'plataforma' },
 ] as const;
 
 /**
