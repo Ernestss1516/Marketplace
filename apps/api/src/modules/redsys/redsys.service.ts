@@ -22,6 +22,14 @@ import { CheckoutFeaturedPayDto } from './dto/checkout-featured-pay.dto';
 import { redsysTaxBreakdown, type RedsysFormData } from './redsys.types';
 import { withReturnTo } from './return-to';
 import { proBonusAmount } from '../billing/pro-bonus';
+// MIS-CRÉDITOS RÁFAGA A — la fórmula del bonus de campaña, extraída. Estaba copiada a mano
+// en los DOS checkouts de este fichero (créditos y bumps); el catálogo habría sido la
+// tercera copia. Alias `computeCampaignBonus` para no chocar con las variables locales
+// `campaignBonusAmount`/`campaignBonusBumpAmount`, y por simetría con `computeProBonus`.
+import {
+  campaignBonusAmount as computeCampaignBonus,
+  type CampaignBonusParams,
+} from '../campaigns/campaign-bonus';
 
 /** Returns true when the error is a Prisma unique constraint violation (P2002). */
 function isP2002(err: unknown): boolean {
@@ -130,8 +138,14 @@ export class RedsysService {
     let campaignBonusAmount: number | null = null;
     let campaignId: string | null = null;
     if (activeCampaign) {
-      const { kind, value } = activeCampaign.params as { kind: 'PERCENT' | 'FIXED'; value: number };
-      campaignBonusAmount = kind === 'PERCENT' ? Math.ceil(pack.creditAmount * value / 100) : value;
+      // MIS-CRÉDITOS RÁFAGA A — la fórmula ya no se escribe aquí. Vive en
+      // campaigns/campaign-bonus.ts y la comparten los dos checkouts y el catálogo, que
+      // desde esta ráfaga la PREVISUALIZA antes de comprar: lo que la lista de packs
+      // enseña es exactamente lo que esta línea congela. Ver el doc de ese fichero.
+      campaignBonusAmount = computeCampaignBonus(
+        pack.creditAmount,
+        activeCampaign.params as CampaignBonusParams,
+      );
       campaignId = activeCampaign.id;
     }
 
@@ -234,8 +248,13 @@ export class RedsysService {
     let campaignBonusBumpAmount: number | null = null;
     let campaignId: string | null = null;
     if (activeCampaign) {
-      const { kind, value } = activeCampaign.params as { kind: 'PERCENT' | 'FIXED'; value: number };
-      campaignBonusBumpAmount = kind === 'PERCENT' ? Math.ceil(pack.bumpAmount * value / 100) : value;
+      // Misma función que la rama de créditos y que el catálogo — la fórmula nunca fue
+      // específica de una moneda, y tenerla escrita dos veces aquí era la duplicación que
+      // la ráfaga A cerró antes de añadir el tercer consumidor.
+      campaignBonusBumpAmount = computeCampaignBonus(
+        pack.bumpAmount,
+        activeCampaign.params as CampaignBonusParams,
+      );
       campaignId = activeCampaign.id;
     }
 

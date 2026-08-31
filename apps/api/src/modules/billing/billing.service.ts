@@ -27,6 +27,10 @@ import { RedisService } from '../../infra/redis/redis.service';
 import { listingCacheKey } from '../../infra/redis/cache-keys';
 import { QUEUE_INDEXING } from '../../infra/queue/queue.constants';
 import { CampaignsService } from '../campaigns/campaigns.service';
+// MIS-CRÉDITOS RÁFAGA A — la MISMA función que congela el checkout. El catálogo es el
+// tercer consumidor de esta fórmula, y por eso se extrajo antes de tocar este fichero:
+// calcularla aquí a mano sería la copia que acaba prometiendo un número y acreditando otro.
+import { campaignBonusAmount, type CampaignBonusParams } from '../campaigns/campaign-bonus';
 import { EntitlementService } from './entitlement.service';
 import { ListingGateService } from '../listing-gate/listing-gate.service';
 import { BUMP_COOLDOWN_SECONDS } from './bump-cooldown';
@@ -1030,10 +1034,27 @@ export class BillingService {
     // uno por acción). El catálogo es público y sin caché por request, así que
     // "en vivo" aquí es simplemente "leído en este momento", igual que el resto
     // del catálogo (Settings también se leen en vivo, sin congelar nada).
-    const [featuredDiscount, bumpDiscount] = await Promise.all([
-      this.campaigns.getActiveActionDiscount('FEATURED'),
-      this.campaigns.getActiveActionDiscount('BUMP'),
-    ]);
+    //
+    // MIS-CRÉDITOS RÁFAGA A — y desde aquí también los BONUS de campaña, que hasta
+    // ahora sólo conocía el checkout.
+    //
+    // EL DEFECTO QUE CIERRA: `getActiveCreditBonusCampaign()` tenía un ÚNICO llamador en
+    // todo el repositorio —`RedsysService.createCreditPackCheckout`, o sea DESPUÉS de que
+    // el usuario pulsara «Comprar»—. La campaña se aplicaba, se congelaba y se acreditaba,
+    // pero el usuario compraba a ciegas: el regalo sólo aparecía luego, en el historial.
+    // Una promoción invisible justo en el instante en que tendría que convencer.
+    //
+    // La asimetría era llamativa porque este mismo método YA consultaba a
+    // `CampaignsService` para los descuentos de arriba: el `ACTION_DISCOUNT` sí se veía
+    // antes de actuar (`/mis-anuncios` y el diálogo de promocionar lo pintan), y el bonus
+    // no. Faltaban literalmente dos llamadas.
+    const [featuredDiscount, bumpDiscount, creditBonusCampaign, bumpBonusCampaign] =
+      await Promise.all([
+        this.campaigns.getActiveActionDiscount('FEATURED'),
+        this.campaigns.getActiveActionDiscount('BUMP'),
+        this.campaigns.getActiveCreditBonusCampaign(),
+        this.campaigns.getActiveBumpBonusCampaign(),
+      ]);
     const featuredDiscountPercent = featuredDiscount
       ? (featuredDiscount.params as { percent: number }).percent
       : null;
@@ -1092,6 +1113,27 @@ export class BillingService {
                     price.creditPack.creditAmount,
                     proExtraCreditsPercent,
                   ),
+                  // MIS-CRÉDITOS RÁFAGA A — EL REGALO DE LA CAMPAÑA, CON ESTE PACK.
+                  //
+                  // Molde literal de `proBonusAmount`, la línea de arriba: se sirve YA
+                  // RESUELTO (no los `params` para que el cliente multiplique) y sale de la
+                  // MISMA función que congela el checkout (`campaignBonusAmount`). Esa es
+                  // toda la garantía: lo que la tarjeta enseña es lo que se va a acreditar.
+                  //
+                  // La diferencia con el bonus Pro es a quién le toca: `proBonusAmount` sólo
+                  // lo cobra un Pro (por eso la lista lo enseña como regalo a unos y como
+                  // pérdida a otros), mientras que éste lo cobra CUALQUIERA que compre
+                  // mientras la campaña esté viva. Los dos son aditivos sobre la base y se
+                  // suman entre sí: un Pro comprando en campaña se lleva ambos.
+                  //
+                  // Sólo presente si hay campaña — sin ella, el payload es idéntico al de
+                  // antes y la interfaz pinta exactamente como pintaba.
+                  ...(creditBonusCampaign && {
+                    campaignBonusAmount: campaignBonusAmount(
+                      price.creditPack.creditAmount,
+                      creditBonusCampaign.params as CampaignBonusParams,
+                    ),
+                  }),
                 }
               : {}),
             // Monetización ráfaga 4 — packs de bumps DIRECTOS (acreditan
@@ -1106,6 +1148,17 @@ export class BillingService {
                   // lista lo calculaba por su cuenta repitiendo la fórmula: una segunda
                   // copia que podía separarse de la que cobra.
                   proBonusAmount: proBonusAmount(price.bumpPack.bumpAmount, proExtraBumpsPercent),
+                  // MIS-CRÉDITOS RÁFAGA A — su gemelo de bumps (campaña BUMP_BONUS). Misma
+                  // función, otra moneda y OTRA campaña: `CREDIT_BONUS` y `BUMP_BONUS` son
+                  // types distintos y pueden estar activas a la vez o por separado, así que
+                  // cada lista mira la suya. Cruzarlas regalaría bumps por una campaña de
+                  // créditos.
+                  ...(bumpBonusCampaign && {
+                    campaignBonusAmount: campaignBonusAmount(
+                      price.bumpPack.bumpAmount,
+                      bumpBonusCampaign.params as CampaignBonusParams,
+                    ),
+                  }),
                 }
               : {}),
           };
@@ -1121,6 +1174,37 @@ export class BillingService {
       // tenía con qué contarle a un no-Pro lo que se pierde. Su hermano de bumps ya salía
       // desde la ráfaga 4; la asimetría era del catálogo, no de la interfaz.
       proExtraCreditsPercent,
+      /**
+       * MIS-CRÉDITOS RÁFAGA A — EL CONTEXTO DE LA CAMPAÑA, que un número por pack no puede
+       * dar: CÓMO SE LLAMA y HASTA CUÁNDO dura.
+       *
+       * Va a nivel de respuesta y no repetido en cada precio porque es lo mismo para todos
+       * los packs — el número que sí cambia pack a pack (`campaignBonusAmount`) viaja
+       * dentro de cada uno. Mismo reparto que `bumpDiscountPercent` (arriba, a nivel de
+       * catálogo) frente a `discountPercent` (dentro de cada precio de destacado).
+       *
+       * SIN ESTO, un «+20» aparecería en la tarjeta sin causa: el usuario vería un regalo y
+       * no sabría de dónde sale ni que se le acaba. El nombre lo explica y la fecha lo hace
+       * urgente, que es para lo que sirve una promoción.
+       *
+       * DOS CAMPOS Y NO UNO: `CREDIT_BONUS` y `BUMP_BONUS` son campañas distintas y pueden
+       * estar activas por separado. Un solo campo obligaría a elegir cuál mostrar cuando
+       * hay dos, o a mentir sobre la moneda.
+       *
+       * Ausentes cuando no hay campaña: el payload vuelve a ser exactamente el de antes.
+       */
+      ...(creditBonusCampaign && {
+        creditBonusCampaign: {
+          name: creditBonusCampaign.name,
+          endsAt: creditBonusCampaign.endsAt,
+        },
+      }),
+      ...(bumpBonusCampaign && {
+        bumpBonusCampaign: {
+          name: bumpBonusCampaign.name,
+          endsAt: bumpBonusCampaign.endsAt,
+        },
+      }),
       /**
        * E-6 — LAS CUOTAS MENSUALES, EN NÚMEROS Y NO SÓLO DENTRO DE UNA FRASE.
        *

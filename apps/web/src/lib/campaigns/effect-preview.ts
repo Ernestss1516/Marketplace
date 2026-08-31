@@ -8,10 +8,22 @@
 // - Descuento (ACTION_DISCOUNT): BillingService.featuredByCredits/.bump —
 //   floor(base * (100-percent) / 100), a favor del usuario.
 // - Bonus (CREDIT_BONUS y BUMP_BONUS — campaña #10, misma fórmula, distinta
-//   moneda): RedsysService.createCreditPackCheckout/createBumpPackCheckout —
+//   moneda): campaigns/campaign-bonus.ts `campaignBonusAmount` —
 //   PERCENT: ceil(packSize * value / 100); FIXED: value tal cual. Aditivo
 //   sobre la base, nunca compuesto con el bonus Pro (cada uno se calcula
 //   independientemente contra la misma base, luego se suman).
+//
+// ESTE ESPEJO SE QUEDA, PERO SU ALCANCE SE ESTRECHÓ (mis-créditos ráfaga A).
+// Antes era la única forma que tenía el frontend de anticipar un bonus. Ahora
+// el catálogo sirve `campaignBonusAmount` YA RESUELTO por pack, así que las
+// listas de packs de `/mis-creditos` NO usan esto: pintan el número del
+// servidor, que es el que el checkout congela.
+//
+// Aquí sigue teniendo sentido y sólo aquí: el formulario de admin previsualiza
+// una campaña que TODAVÍA NO EXISTE en la base de datos, así que no hay
+// catálogo al que preguntarle. Si alguna pantalla de usuario vuelve a importar
+// este fichero para estimar un bonus real, será la segunda fuente que la
+// extracción de `campaign-bonus.ts` vino a cerrar.
 
 export function applyActionDiscount(baseCreditCost: number, percent: number): number {
   return Math.floor((baseCreditCost * (100 - percent)) / 100);

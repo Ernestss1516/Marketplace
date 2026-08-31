@@ -9,27 +9,15 @@ import { UpdateCampaignDto } from './dto/update-campaign.dto';
 import { ListCampaignsDto } from './dto/list-campaigns.dto';
 import { CampaignParamsDto } from './dto/campaign-params.dto';
 import { ActionDiscountParamsDto } from './dto/action-discount-params.dto';
+// Los topes de cordura VIVEN AHORA en campaign-bonus.ts, junto a la fórmula que los
+// acompaña — el mismo fichero que consultan los dos checkouts y el catálogo. Estaban
+// declarados aquí cuando este servicio era el único que sabía algo del bonus; en cuanto
+// el catálogo pasó a enseñarlo antes de comprar (ráfaga A), tener la fórmula en un sitio
+// y su tope en otro era pedir que se separaran.
+import { campaignBonusMax, type CampaignBonusParams } from './campaign-bonus';
 
 type CampaignStatus = 'upcoming' | 'live' | 'ended';
 type ActionDiscountAction = 'BUMP' | 'FEATURED';
-
-/**
- * Topes de cordura para CREDIT_BONUS.value Y BUMP_BONUS.value (campaña #10 —
- * mismo shape, mismo tope, reutilizado, no duplicado) — sin esto, un typo de
- * admin (p. ej. 10000 en vez de 100) regala una cantidad absurda de créditos
- * o bumps a quien compre durante la campaña. A diferencia de
- * ACTION_DISCOUNT.percent (tope 90%, un descuento >100% no tiene sentido:
- * regalarías el producto y encima pagarías), un bonus SÍ puede pasar de 100%
- * de forma legítima ("compra 100 créditos, llévate 200" = 200%), así que el
- * tope va más alto — 500% deja margen a promociones agresivas y sigue
- * atrapando un error de una o más órdenes de magnitud.
- * PERCENT_MAX es relativo (%); FIXED_MAX es absoluto (créditos o bumps,
- * según el type) — mismo valor de cordura que
- * UpdateCreditPackDto.creditAmount (@Max(1000000)), no un límite de negocio
- * real, solo la valla que ningún caso legítimo alcanza.
- */
-const CAMPAIGN_BONUS_PERCENT_MAX = 500;
-const CAMPAIGN_BONUS_FIXED_MAX = 1_000_000;
 
 @Injectable()
 export class CampaignsService {
@@ -324,10 +312,10 @@ export class CampaignsService {
     // motivo por el que el DTO no se elige por reflexión — ver comentario de
     // este método). @Min(1) ya vive en CampaignParamsDto; esto solo añade el
     // techo. Aplica a CREDIT_BONUS y BUMP_BONUS por igual — mismo shape,
-    // mismo tope (campaña #10). Ver constantes CAMPAIGN_BONUS_*_MAX arriba.
+    // mismo tope (campaña #10). Ver campaign-bonus.ts.
     if (type === CampaignType.CREDIT_BONUS || type === CampaignType.BUMP_BONUS) {
-      const { kind, value } = params as { kind: 'PERCENT' | 'FIXED'; value: number };
-      const max = kind === 'PERCENT' ? CAMPAIGN_BONUS_PERCENT_MAX : CAMPAIGN_BONUS_FIXED_MAX;
+      const { kind, value } = params as CampaignBonusParams;
+      const max = campaignBonusMax(kind);
       if (value > max) {
         throw new BadRequestException({
           message: `params inválidos para el type ${type}`,
