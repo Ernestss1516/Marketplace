@@ -13,6 +13,7 @@ import {
 } from '@/lib/api/billing';
 import { PackList } from './_components/PackList';
 import { BumpPackList } from './_components/BumpPackList';
+import { CampaignNotice } from './_components/CampaignNotice';
 import { RedeemCouponForm } from './_components/RedeemCouponForm';
 import { HistorialCreditos, HistorialBumps } from './_components/Historiales';
 import { BumpsProgramados } from './_components/BumpsProgramados';
@@ -132,12 +133,22 @@ export default async function MisCreditosPage() {
         {packProducts.length > 0 && (
           <div>
             <h3 id="comprar" className="mb-4 text-lg font-semibold">Comprar créditos</h3>
+            {/* MIS-CRÉDITOS RÁFAGA A — el aviso va DENTRO del bloque de compra y pegado a
+                los packs, no arriba del todo: es contexto de una decisión concreta
+                («¿compro ahora?»), no un anuncio general de la página. Y sólo aparece si
+                hay campaña — sin ella, este bloque es exactamente el de antes. */}
+            {catalog.creditBonusCampaign && (
+              <div className="mb-4">
+                <CampaignNotice campaign={catalog.creditBonusCampaign} moneda="créditos" />
+              </div>
+            )}
             {/* E-5 — `proStatus` ya se pedía en esta página (lo usaba la lista de bumps);
                 lo que faltaba era pasárselo también a ésta, que no sabía nada de Pro. */}
             <PackList
               packs={packProducts}
               isPro={proStatus.isPro}
               proExtraCreditsPercent={catalog.proExtraCreditsPercent}
+              campaign={catalog.creditBonusCampaign}
             />
           </div>
         )}
@@ -192,10 +203,18 @@ export default async function MisCreditosPage() {
         {bumpPackProducts.length > 0 && (
           <div>
             <h3 className="mb-4 text-lg font-semibold">Comprar bumps</h3>
+            {/* Su propia campaña (BUMP_BONUS), no la de créditos: son types distintos y
+                pueden estar activas por separado. */}
+            {catalog.bumpBonusCampaign && (
+              <div className="mb-4">
+                <CampaignNotice campaign={catalog.bumpBonusCampaign} moneda="bumps" />
+              </div>
+            )}
             <BumpPackList
               packs={bumpPackProducts}
               isPro={proStatus.isPro}
               proExtraBumpsPercent={catalog.proExtraBumpsPercent}
+              campaign={catalog.bumpBonusCampaign}
             />
           </div>
         )}

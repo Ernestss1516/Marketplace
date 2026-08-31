@@ -284,19 +284,37 @@ describe('H8.2 — GET /billing/pro-status (cuota mensual de destacados Pro)', (
     day15.setDate(15);
     day15.setHours(10, 0, 0, 0);
 
+    /**
+     * EL FIN DE PERIODO ES UN MES DESPUÉS DEL ALTA, NO «MÁS 30 × 24 h».
+     *
+     * Con los 30 días fijos, este caso llevaba dentro una BOMBA DE RELOJ: el alta del día 1
+     * más 30 días cae en el DÍA 31, así que en cualquier mes de 31 días la suscripción de
+     * `userDay1` estaba CADUCADA a partir de las 10:00 de ese día. Y una suscripción
+     * caducada no da cuota: `limit` salía 0 y el caso fallaba con «Expected 4, Received 0»,
+     * como si alguien hubiera roto el prorrateo.
+     *
+     * Nunca fue un fallo del producto —el prorrateo que este caso vigila sigue sin existir,
+     * que es justo lo que afirma— sino del montaje: la del día 15 sobrevivía (cae en el 14
+     * del mes siguiente) y la del día 1 no. Se manifestaba unas pocas horas, siete veces al
+     * año, y en cualquier otro momento el caso pasaba: la clase de rojo que se achaca al
+     * cambio que uno acaba de hacer.
+     *
+     * Sumar un MES en vez de 30 días arregla las dos cosas a la vez: es lo que hace de
+     * verdad una suscripción mensual, y el fin de periodo queda siempre por delante del
+     * alta de ESTE mes, sea cual sea el día. Lo que el caso mide —dos altas en días
+     * distintos ven la MISMA cuota completa— no cambia en absoluto.
+     */
+    const unMesDespues = (alta: Date) => {
+      const fin = new Date(alta);
+      fin.setMonth(fin.getMonth() + 1);
+      return fin;
+    };
+
     const { user: userDay1, token: tokenDay1 } = await createUser('signup-day1');
-    await createProSubscription(
-      userDay1.id,
-      day1,
-      new Date(day1.getTime() + 30 * 24 * 60 * 60 * 1000),
-    );
+    await createProSubscription(userDay1.id, day1, unMesDespues(day1));
 
     const { user: userDay15, token: tokenDay15 } = await createUser('signup-day15');
-    await createProSubscription(
-      userDay15.id,
-      day15,
-      new Date(day15.getTime() + 30 * 24 * 60 * 60 * 1000),
-    );
+    await createProSubscription(userDay15.id, day15, unMesDespues(day15));
 
     const statusDay1 = await getProStatus(tokenDay1);
     const statusDay15 = await getProStatus(tokenDay15);

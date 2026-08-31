@@ -254,6 +254,39 @@ describe('Campaña #10 — BUMP_BONUS (e2e)', () => {
       expect(entries.find((e) => e.type === BumpLedgerType.PRO_BONUS)).toBeUndefined();
     });
 
+    /**
+     * MIS-CRÉDITOS RÁFAGA A (barrera 6) — EL HISTORIAL DICE CUÁL CAMPAÑA.
+     *
+     * La fila CAMPAIGN_BONUS se guardaba sin `note`, así que el historial etiquetaba el
+     * ingreso «Bonus campaña» a secas: el usuario veía un regalo sin saber de qué promoción
+     * venía. Los débitos abaratados por una campaña ya guardaban la suya desde H8 Bloque D;
+     * los ingresos, no.
+     *
+     * Va aquí y no en el spec de créditos porque este camino hace un checkout DE VERDAD, así
+     * que `Transaction.campaignId` queda escrito y el processor puede resolver el nombre —
+     * que es exactamente la condición que se está probando.
+     */
+    it('la fila CAMPAIGN_BONUS lleva el NOMBRE de la campaña en `note`', async () => {
+      const { user, token } = await createUser('matrix-note');
+      await createBumpBonusCampaign('BB Rebajas de Enero', 'PERCENT', 25);
+      const { packId } = await createDedicatedBumpPack('matrix-note', 20, '4.49');
+
+      const tx = await checkout(token, packId);
+      await confirm(tx);
+
+      const wallet = await prisma.wallet.findUniqueOrThrow({ where: { userId: user.id } });
+      const entries = await prisma.bumpLedger.findMany({
+        where: { walletId: wallet.id, referenceType: 'Transaction', referenceId: tx.id },
+      });
+
+      const campaignEntry = entries.find((e) => e.type === BumpLedgerType.CAMPAIGN_BONUS);
+      expect(campaignEntry?.note).toBe('Campaña "BB Rebajas de Enero"');
+
+      // Y SÓLO esa fila: la compra base y el bonus Pro no vienen de ninguna campaña, así
+      // que atribuírsela sería mentir sobre su origen.
+      expect(entries.find((e) => e.type === BumpLedgerType.PACK_PURCHASE)?.note).toBeNull();
+    });
+
     it('Pro + SIN campaña → 2 filas (PACK_PURCHASE + PRO_BONUS), comportamiento de hoy intacto', async () => {
       const { user, token } = await createUser('matrix-pro-nocamp');
       await makePro(user.id);

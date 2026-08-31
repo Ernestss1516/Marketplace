@@ -47,6 +47,10 @@ export class RedsysProcessor extends WorkerHost {
         price: {
           include: { creditPack: true, bumpPack: true },
         },
+        // MIS-CRÉDITOS RÁFAGA A — el NOMBRE de la campaña, para poder escribirlo en el
+        // apunte del historial. La Transaction ya guardaba `campaignId` desde el checkout;
+        // lo que faltaba era traerlo resuelto hasta aquí.
+        campaign: { select: { name: true } },
       },
     });
 
@@ -93,6 +97,7 @@ export class RedsysProcessor extends WorkerHost {
         baseCreditAmount,
         transaction.bonusCreditAmount,
         transaction.campaignBonusAmount,
+        transaction.campaign?.name ?? null,
       );
     } else if (bumpPack) {
       // Monetización ráfaga 4 — mismo idempotency layer de arriba (status !==
@@ -105,6 +110,7 @@ export class RedsysProcessor extends WorkerHost {
         baseBumpAmount,
         transaction.bonusBumpAmount,
         transaction.campaignBonusBumpAmount,
+        transaction.campaign?.name ?? null,
       );
     } else {
       // Featured pay via Redsys (RF.6)
@@ -138,6 +144,7 @@ export class RedsysProcessor extends WorkerHost {
     creditAmount: number,
     bonusCreditAmount: number | null,
     campaignBonusAmount: number | null,
+    campaignName: string | null,
   ): Promise<void> {
     const totalCredit = creditAmount + (bonusCreditAmount ?? 0) + (campaignBonusAmount ?? 0);
 
@@ -183,6 +190,24 @@ export class RedsysProcessor extends WorkerHost {
             amount: campaignBonusAmount,
             referenceType: 'Transaction',
             referenceId: transactionId,
+            /**
+             * MIS-CRÉDITOS RÁFAGA A — CUÁL campaña, y no sólo «Bonus campaña».
+             *
+             * El historial etiquetaba estas filas «Bonus campaña» a secas: el usuario veía
+             * un regalo sin saber de qué promoción venía. Los débitos abaratados por una
+             * campaña YA guardaban su nota desde H8 Bloque D (`Campaña "X" (-N%)`, ver
+             * BillingService.featuredByCredits/bump); los ingresos, no. Misma forma de nota
+             * para que el historial se lea igual en los dos sentidos.
+             *
+             * SE GUARDA EL NOMBRE, NO SÓLO LA RELACIÓN, y es deliberado: `campaignId` tiene
+             * `onDelete: SetNull`, así que borrar una campaña dejaría al apunte histórico
+             * sin poder decir de dónde salió. Una nota es una FOTO del momento del cobro —
+             * que es justo lo que un historial debe conservar.
+             *
+             * Condicional: una Transaction anterior a que existiera `campaignId` puede
+             * traer bonus sin campaña resoluble. Sin nombre no se inventa una nota.
+             */
+            ...(campaignName && { note: `Campaña "${campaignName}"` }),
           },
         });
       }
@@ -226,6 +251,7 @@ export class RedsysProcessor extends WorkerHost {
     bumpAmount: number,
     bonusBumpAmount: number | null,
     campaignBonusBumpAmount: number | null,
+    campaignName: string | null,
   ): Promise<void> {
     const totalBumps = bumpAmount + (bonusBumpAmount ?? 0) + (campaignBonusBumpAmount ?? 0);
 
@@ -274,6 +300,10 @@ export class RedsysProcessor extends WorkerHost {
             amount: campaignBonusBumpAmount,
             referenceType: 'Transaction',
             referenceId: transactionId,
+            // MIS-CRÉDITOS RÁFAGA A — misma nota que en créditos, mismo motivo (ver allí).
+            // Los dos historiales dicen CUÁL campaña o ninguno lo dice: la asimetría entre
+            // monedas es exactamente lo que este proyecto lleva cerrando desde la ráfaga 4.
+            ...(campaignName && { note: `Campaña "${campaignName}"` }),
           },
         });
       }

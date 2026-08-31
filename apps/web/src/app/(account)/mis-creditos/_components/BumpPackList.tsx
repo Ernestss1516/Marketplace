@@ -6,7 +6,12 @@ import { useSession } from 'next-auth/react';
 import { Zap, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card';
-import { createBumpPackCheckout, type CatalogProduct, type RedsysFormData } from '@/lib/api/billing';
+import {
+  createBumpPackCheckout,
+  type ActiveBonusCampaign,
+  type CatalogProduct,
+  type RedsysFormData,
+} from '@/lib/api/billing';
 import { toUserMessage } from '@/lib/api/client';
 import { useApiAction } from '@/lib/api/use-api-action';
 import { useRequireAuth } from '@/hooks/use-require-auth';
@@ -19,13 +24,19 @@ interface Props {
    * Solo una vista previa: lo que de verdad se acredita se congela en el checkout. */
   isPro: boolean;
   proExtraBumpsPercent: number;
+  /**
+   * MIS-CRÉDITOS RÁFAGA A — la campaña BUMP_BONUS activa. Es OTRA campaña que la de
+   * créditos (`CREDIT_BONUS`): pueden estar activas por separado, así que cada lista
+   * recibe la suya y ninguna anuncia la de la otra moneda.
+   */
+  campaign?: ActiveBonusCampaign;
 }
 
 function formatPrice(amount: number, currency: string): string {
   return new Intl.NumberFormat('es-ES', { style: 'currency', currency }).format(amount);
 }
 
-export function BumpPackList({ packs, isPro, proExtraBumpsPercent }: Props) {
+export function BumpPackList({ packs, isPro, proExtraBumpsPercent, campaign }: Props) {
   const { data: session, status } = useSession();
   const { run } = useApiAction();
   const { requireAuth, loginUrl } = useRequireAuth();
@@ -38,6 +49,9 @@ export function BumpPackList({ packs, isPro, proExtraBumpsPercent }: Props) {
   const [loadingPackId, setLoadingPackId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [redsysFormData, setRedsysFormData] = useState<RedsysFormData | null>(null);
+
+  // Mismo respaldo que en la lista de créditos: nunca «la campaña «undefined»».
+  const campaignLabel = campaign?.name ? `la campaña «${campaign.name}»` : 'la campaña activa';
 
   // Flatten: one card per individual bump pack price (each has its own bumpPackId)
   const packItems = packs.flatMap((product) =>
@@ -90,6 +104,13 @@ export function BumpPackList({ packs, isPro, proExtraBumpsPercent }: Props) {
           // sitios que pueden separarse y prometer un número distinto del que se acredita.
           // Ahora el número lo da el servidor, y es el mismo para los dos.
           const bonus = price.proBonusAmount ?? 0;
+          // MIS-CRÉDITOS RÁFAGA A — el regalo de la campaña BUMP_BONUS, con el mismo
+          // origen que el de arriba: resuelto por el catálogo con la función que congela
+          // el checkout. Aquí no se calcula nada.
+          const campaignBonus = price.campaignBonusAmount ?? 0;
+          // Suma, no fórmula — espejo de la lista de créditos y de lo que hace el processor
+          // al acreditar (`bumpAmount + bonusBumpAmount + campaignBonusBumpAmount`).
+          const total = bumpAmount + (isPro ? bonus : 0) + campaignBonus;
 
           return (
             <Card key={price.priceId} className="flex flex-col">
@@ -111,19 +132,35 @@ export function BumpPackList({ packs, isPro, proExtraBumpsPercent }: Props) {
                   {formatPrice(price.amount, price.currency)}
                 </p>
                 {/* Simétrico con los packs de créditos: mismo reparto, mismo origen del
-                    número. Antes esta lista lo hacía a medias y la de créditos, nada. */}
-                {bonus > 0 &&
-                  (isPro ? (
-                    <p className="mt-1 text-xs font-medium text-amber-600" data-testid="pack-bonus-pro">
-                      + {bonus} de regalo por ser Pro
-                    </p>
-                  ) : (
-                    <div className="mt-1">
-                      <ProHint testId="pack-bonus-hint">
-                        Con Pro te llevarías {bonus} bumps más (+{proExtraBumpsPercent}%).
-                      </ProHint>
-                    </div>
-                  ))}
+                    número. Antes esta lista lo hacía a medias y la de créditos, nada.
+
+                    MIS-CRÉDITOS RÁFAGA A — y la simetría se mantiene también aquí: mismas
+                    cuatro líneas independientes, mismos `data-testid`, misma condición para
+                    el total. La asimetría entre las dos monedas era del código, no del
+                    producto; que la campaña se viera en una y no en la otra la habría
+                    reabierto. */}
+                {campaignBonus > 0 && (
+                  <p className="mt-2 border-t pt-2 text-sm font-semibold" data-testid="pack-total">
+                    Recibes {total} bumps
+                  </p>
+                )}
+                {bonus > 0 && isPro && (
+                  <p className="mt-1 text-xs font-medium text-amber-600" data-testid="pack-bonus-pro">
+                    + {bonus} de regalo por ser Pro
+                  </p>
+                )}
+                {campaignBonus > 0 && (
+                  <p className="mt-1 text-xs font-medium text-green-600" data-testid="pack-bonus-campana">
+                    + {campaignBonus} por {campaignLabel}
+                  </p>
+                )}
+                {bonus > 0 && !isPro && (
+                  <div className="mt-1">
+                    <ProHint testId="pack-bonus-hint">
+                      Con Pro te llevarías {bonus} bumps más (+{proExtraBumpsPercent}%).
+                    </ProHint>
+                  </div>
+                )}
               </CardContent>
               <CardFooter>
                 <Button

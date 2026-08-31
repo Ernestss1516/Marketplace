@@ -119,6 +119,31 @@ export interface CatalogPrice {
    * lo suyo; a un no-Pro se le enseña como lo que se está perdiendo.
    */
   proBonusAmount?: number;
+  /**
+   * MIS-CRÉDITOS RÁFAGA A — LO QUE LA CAMPAÑA ACTIVA REGALA CON ESTE PACK, ya calculado.
+   *
+   * Hermano de `proBonusAmount`, y con la misma garantía: sale de la misma función que
+   * congela el checkout (`campaignBonusAmount`), así que la tarjeta enseña lo que se va a
+   * acreditar. La lista NO lo recalcula.
+   *
+   * LA DIFERENCIA CON EL DE PRO es a quién le toca: el bonus Pro sólo lo cobra un Pro (por
+   * eso se enseña como regalo a unos y como pérdida a otros), y éste lo cobra CUALQUIERA
+   * que compre mientras la campaña dure. Los dos se SUMAN: un Pro comprando en campaña
+   * recibe ambos, cada uno calculado contra la base, nunca uno sobre el otro.
+   *
+   * Opcional y ausente sin campaña: sin ella la tarjeta pinta exactamente como antes.
+   */
+  campaignBonusAmount?: number;
+}
+
+/**
+ * MIS-CRÉDITOS RÁFAGA A — el contexto que un número por pack no puede dar: cómo se llama la
+ * campaña y hasta cuándo dura. Sin esto, un «+20» aparece en la tarjeta sin causa.
+ */
+export interface ActiveBonusCampaign {
+  name: string;
+  /** ISO. Lo que convierte una promoción en urgente: hasta cuándo. */
+  endsAt: string;
 }
 
 export interface CatalogProduct {
@@ -178,6 +203,19 @@ export interface CatalogResponse {
    * backend anterior a este cambio no lo manda.
    */
   proExtraCreditsPercent?: number;
+  /**
+   * MIS-CRÉDITOS RÁFAGA A — la campaña de bonus activa AHORA MISMO, si la hay.
+   *
+   * Dos campos y no uno porque `CREDIT_BONUS` y `BUMP_BONUS` son campañas distintas y
+   * pueden estar activas por separado: cada lista de packs mira la suya.
+   *
+   * OPCIONALES a propósito, igual que `proExtraCreditsPercent`: un backend anterior a esta
+   * ráfaga no los manda, y la página tiene que seguir pintando —sin aviso y sin línea de
+   * campaña, exactamente como pintaba antes—. La degradación es la de siempre: lo que no
+   * llega, no se promete.
+   */
+  creditBonusCampaign?: ActiveBonusCampaign;
+  bumpBonusCampaign?: ActiveBonusCampaign;
   /**
    * E-6 — las cuotas mensuales en número, para que quien avise a un no-Pro diga la cifra
    * configurada y no una escrita a mano. Opcionales: un backend anterior no las manda.
