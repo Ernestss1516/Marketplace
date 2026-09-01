@@ -6,6 +6,7 @@ import {
   MousePointerClick,
   Quote as QuoteIcon,
   Video as VideoIcon,
+  FileVideo,
   Minus,
   Table2,
   Columns2,
@@ -29,7 +30,12 @@ export const BLOCK_TYPE_META: Record<BlockType, { label: string; description: st
   image: { label: 'Imagen', description: 'Una foto con texto alternativo y pie de foto opcional', icon: ImageIcon },
   cta: { label: 'Botón destacado', description: 'Un botón grande que lleva a otra página', icon: MousePointerClick },
   quote: { label: 'Cita', description: 'Una frase destacada, con autor opcional', icon: QuoteIcon },
-  video: { label: 'Vídeo', description: 'Un vídeo incrustado de YouTube o Vimeo', icon: VideoIcon },
+  // LOS DOS VÍDEOS, y las etiquetas son lo que hace que el admin elija bien: «incrustado»
+  // frente a «subido» dice de dónde sale el vídeo, que es la única decisión real entre ellos.
+  // La etiqueta del embed pasó de «Vídeo» a «Vídeo incrustado» al llegar el segundo — cambio
+  // de TEXTO y nada más: su `type`, su DTO y lo ya guardado están intactos.
+  video: { label: 'Vídeo incrustado', description: 'Un vídeo de YouTube o Vimeo, pegando su enlace', icon: VideoIcon },
+  videoUpload: { label: 'Vídeo subido', description: 'Un vídeo tuyo, alojado en la plataforma (MP4, hasta 50 MB)', icon: FileVideo },
   separator: { label: 'Separador', description: 'Una línea divisoria entre secciones', icon: Minus },
   table: { label: 'Tabla', description: 'Una tabla de filas y columnas', icon: Table2 },
   imageText: { label: 'Imagen y texto', description: 'Una foto junto a un párrafo con formato', icon: Columns2 },
@@ -50,7 +56,9 @@ export const BLOCK_TYPE_ORDER: BlockType[] = [
   'hub',
   'steps',
   'profile',
+  // Contiguos a propósito: la elección entre incrustar y subir se hace mirando los dos.
   'video',
+  'videoUpload',
   'table',
   'listings',
   'separator',
@@ -77,6 +85,11 @@ export function createDefaultBlock(type: BlockType): Block {
       return { id, type, text: '' };
     case 'video':
       return { id, type, provider: 'youtube', videoId: '' };
+    case 'videoUpload':
+      // `url` vacía: no hay vídeo hasta que se sube uno. El backend exige
+      // @IsOwnStorageUrl, así que guardar con la cadena vacía da un 400 — igual que
+      // `image`, que arranca igual y por el mismo motivo.
+      return { id, type, url: '' };
     case 'separator':
       return { id, type };
     case 'table':
@@ -109,6 +122,10 @@ export function blockHasContent(block: Block): boolean {
       return block.text.trim().length > 0;
     case 'video':
       return block.videoId.trim().length > 0;
+    case 'videoUpload':
+      // Sólo el vídeo cuenta: un pie sin vídeo no es contenido que doler perder, y borrar
+      // el bloque sin confirmación cuando aún no se ha subido nada es lo correcto.
+      return block.url.trim().length > 0;
     case 'separator':
       return false;
     case 'table':

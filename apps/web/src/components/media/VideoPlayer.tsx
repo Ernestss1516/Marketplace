@@ -24,8 +24,17 @@ import { isSafeSrc } from '@/lib/image-domains';
  * `<video>`. Es el mismo movimiento que `VideoIndicator` hizo con el indicador.
  *
  * NO ES EL INDICADOR DE LAS LISTAS. Esto monta un elemento de vídeo de verdad y sólo debe
- * usarse donde hay UNO —una ficha—, nunca en una parrilla. El contrato de cero bytes en
- * listas lo mantiene `VideoIndicator`, que no conoce la dirección.
+ * usarse donde hay UNO —una ficha, un bloque de contenido—, nunca en una parrilla. El
+ * contrato de cero bytes en listas lo mantiene `VideoIndicator`, que no conoce la dirección.
+ *
+ * VÍDEO DE BLOQUE V2 — MUDADO AQUÍ DESDE `components/anuncios/`, sin tocar una línea de su
+ * cuerpo. El bloque `videoUpload` del blog, las páginas y la portada monta exactamente este
+ * reproductor, así que vivir en la carpeta de anuncios había pasado a ser una etiqueta
+ * falsa: el componente recibe una dirección y un póster y no pregunta de dónde vienen. Es la
+ * reutilización limpia que `docs/diseno-video-bloque.md` §5.1 identificó —al revés que el
+ * servicio de subida, que sí necesitaba camino propio (§2)—, y por eso se muda en vez de
+ * copiarse: dos `<video>` volverían a divergir en `preload` y en la validación de origen,
+ * que es justo lo que este componente nació para impedir.
  */
 export function VideoPlayer({
   src,

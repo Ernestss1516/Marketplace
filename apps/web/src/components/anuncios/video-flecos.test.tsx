@@ -4,7 +4,7 @@
 
 import { render, screen } from '@testing-library/react';
 import { VideoIndicator } from './VideoIndicator';
-import { VideoPlayer } from './VideoPlayer';
+import { VideoPlayer } from '@/components/media/VideoPlayer';
 import { AvisoVideo } from '../publicar/AvisoVideo';
 
 // `isSafeSrc` mira los dominios configurados; se fija uno para que el test no dependa del

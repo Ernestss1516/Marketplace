@@ -6,11 +6,9 @@ import { Button } from '@/components/ui/button';
 import { ProGate } from '@/components/pro/ProGate';
 import { useApiAction } from '@/lib/api/use-api-action';
 import {
-  captureVideoPoster,
   captureVideoSprite,
   confirmVideo,
   createVideoUploadUrl,
-  putToStorage,
   readVideoFileInfo,
   removeVideo,
   uploadPoster,
@@ -18,6 +16,7 @@ import {
   validateVideoFile,
   type VideoConfig,
 } from '@/lib/api/video';
+import { captureVideoPoster, putToStorage } from '@/lib/media/upload';
 
 /**
  * La sección VÍDEO del editor (vídeo Pro, ráfaga 2).

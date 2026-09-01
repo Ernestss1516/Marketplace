@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Image from 'next/image';
 import { Play } from 'lucide-react';
 import { isSafeSrc } from '@/lib/image-domains';
-import { VideoPlayer } from './VideoPlayer';
+import { VideoPlayer } from '@/components/media/VideoPlayer';
 import type { ListingImage } from '@/types';
 
 interface Props {

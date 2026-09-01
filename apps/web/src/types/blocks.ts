@@ -73,6 +73,23 @@ export interface VideoBlock extends BaseBlock {
   videoId: string;
 }
 
+/**
+ * VÍDEO SUBIDO — un vídeo alojado por nosotros, al contrario que `VideoBlock`, que incrusta
+ * uno de YouTube o Vimeo. Los dos conviven y son tipos distintos, no un tipo con una
+ * bifurcación dentro: no comparten ni un campo.
+ *
+ * `url` es la URL COMPLETA, nunca la clave: la limpieza de huérfanas del backend recorre el
+ * `Json` guardado buscando cadenas que sean direcciones nuestras, así que una clave desnuda
+ * la dejaría ciega **en silencio** (ver el DTO del backend). El editor guarda aquí la URL
+ * TEMPORAL que devuelve el confirm; el backend la promociona al guardar.
+ */
+export interface VideoUploadBlock extends BaseBlock {
+  type: 'videoUpload';
+  url: string;
+  poster?: string;
+  caption?: string;
+}
+
 export interface SeparatorBlock extends BaseBlock {
   type: 'separator';
 }
@@ -160,4 +177,5 @@ export type Block =
   | ImageTextBlock
   | StepsBlock
   | ProfileBlock
-  | ListingsBlock;
+  | ListingsBlock
+  | VideoUploadBlock;

@@ -75,12 +75,20 @@ describe('Vídeo de bloque V1 — el mecanismo (e2e)', () => {
     await cleanDb(prisma);
     r2 = app.get(R2Service);
 
-    const [admin, editor, otro, normal] = await Promise.all([
-      crearStaff('vb-admin@example.com', 'ADMIN'),
-      crearStaff('vb-editor@example.com', 'EDITOR'),
-      crearStaff('vb-otro@example.com', 'EDITOR'),
-      crearStaff('vb-user@example.com', 'USER'),
-    ]);
+    // EN SERIE, Y NO ES ESTILO — es la corrección de un rojo real (CI de `main`, corrida
+    // 33507515406, `connect ECONNRESET`). Estos cuatro logins eran el PRIMER tráfico HTTP
+    // de la suite y salían en un `Promise.all`: supertest, cuando el servidor todavía no
+    // escucha, hace `listen(0)` por su cuenta, así que cuatro peticiones simultáneas contra
+    // un servidor frío compiten por abrir el puerto y alguna se lleva un reset. Es una
+    // carrera, así que verde en una corrida y rojo en la siguiente con el mismo código.
+    //
+    // La primera petición deja el servidor escuchando y las demás ya lo encuentran abierto.
+    // En serie cuestan cuatro viajes en local (~40 ms) y quitan la carrera entera.
+    const admin = await crearStaff('vb-admin@example.com', 'ADMIN');
+    const editor = await crearStaff('vb-editor@example.com', 'EDITOR');
+    const otro = await crearStaff('vb-otro@example.com', 'EDITOR');
+    const normal = await crearStaff('vb-user@example.com', 'USER');
+
     adminToken = admin.token;
     editorToken = editor.token;
     editorId = editor.id;

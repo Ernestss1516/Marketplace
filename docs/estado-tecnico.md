@@ -16117,6 +16117,109 @@ puede crear ninguno**.
 
 ---
 
+## Vídeo de bloque — RÁFAGA V2: el editor y el render
+
+Diseño: `docs/diseno-video-bloque.md` (§5, §6, §9 V2, §10). Cierra el bloque: **la interfaz ya
+crea `videoUpload`**, y V1 lo acepta, lo promociona y lo limpia.
+
+### La red de exhaustividad, disparada a propósito
+
+Añadir el tipo a las dos uniones TS (`VideoUploadBlock`, `HomeVideoUploadBlock`) tumbó el build en
+**exactamente diez sitios**, cinco por motor: el `Record` de `*_TYPE_META`, los dos `switch` de
+`*Defaults` (`createDefault*`, `*HasContent`), el `switch` del renderizador y el del `*EditorRow`.
+Por eso los espejos no entraron en V1: viajan con lo que los satisface. Es la misma red que se ha
+visto disparar en RP.4, RP.5 y RP.6, y sigue midiendo lo mismo — que un tipo no pueda existir sin
+forma de pintarlo ni de configurarlo.
+
+### Dos mudanzas, cero reescrituras
+
+| Qué | De | A | Por qué |
+|---|---|---|---|
+| `VideoPlayer` | `components/anuncios/` | `components/media/` | El bloque monta **este mismo** reproductor. Vivir en la carpeta de anuncios era una etiqueta falsa |
+| `putToStorage`, `captureVideoPoster` | `lib/api/video.ts` | `lib/media/upload.ts` | Operan sobre un `File` y una dirección; no saben de anuncios, ni de Pro, ni de `listingId` |
+
+**Ni una línea de sus cuerpos ha cambiado**, y esa es la decisión: escribir un segundo `<video>`
+en el renderizador del bloque —cuatro líneas— es exactamente lo que había antes de que
+`VideoPlayer` existiera, cuando la ficha pública y el backoffice tenían uno cada uno y **habían
+divergido en `preload` y en la validación de origen**. Un tercero reabre esa puerta.
+
+**El criterio de qué puede cruzar la frontera entre los dos motores ya estaba escrito** (cabecera
+de `types/home-blocks.ts`, `diseno-portada.md` §4.0): *se comparte todo componente cuya firma no
+mencione un tipo de bloque*. `VideoPlayer` y el control de subida la cumplen; los renderizadores y
+los editores no, y por eso siguen siendo dos de cada.
+
+### El control de subida, uno para los dos motores
+
+`components/media/VideoUploadField.tsx` — recibe `{url, poster}` y devuelve `{url, poster}`, así
+que cruza la frontera. Los editores que lo montan sí son dos, cada uno con su `onChange` tipado, y
+son finos: sólo el campo de pie.
+
+**Aquí sí había que compartir, al revés que en el backend.** Allí el *servicio* de subida se
+escribió aparte porque su gate y su clave eran irreductibles (§2 del diseño); esto es la misma
+coreografía exacta contra el mismo endpoint, así que copiarla dos veces habría duplicado el
+mecanismo del presign — el otro error que el diseño nombra, al lado del primero.
+
+La coreografía, y **el paso que deliberadamente no da**: rechazo temprano (tipo y tamaño) → póster
+capturado del fichero antes de subir → firmar → PUT directo con barra de progreso (`XHR`, no
+`fetch`: `fetch` no informa del progreso de subida) → confirmar. Y **no promociona nada**: guarda
+la URL temporal y es el backend quien la saca de `tmp/` al guardar. Si el cliente lo hiciera, la
+regla de qué es definitivo viviría en dos sitios.
+
+### El cliente HTTP: un módulo, no dos
+
+`lib/api/block-media.ts`, neutral, porque V1 dejó **un solo par de rutas** para los tres contextos.
+Las imágenes tienen un cliente por superficie porque allí lo que se clona son seis líneas y cada
+una tiene su prefijo; aquí el endpoint es literalmente el mismo.
+
+Los límites (50 MB, `video/mp4`) se copian del backend **sin pedirlos por HTTP**, al revés que los
+del vídeo Pro: aquel publica `GET /video/config` porque lleva un interruptor de admin que el
+editor tiene que consultar de todas formas. Aquí no hay interruptor —el gate es el rol—, así que
+una petición extra transportaría dos números que no cambian. Sirven sólo para el rechazo temprano:
+quien decide es el servidor al firmar, y el tamaño además viaja dentro de la firma.
+
+### El selector: los dos vídeos, contiguos
+
+`video` → **«Vídeo incrustado»** («Un vídeo de YouTube o Vimeo, pegando su enlace»),
+`videoUpload` → **«Vídeo subido»**. El cambio en el embed es **de texto y nada más**: su `type`, su
+DTO, su editor, su renderizador y lo ya guardado están intactos (barrera B-5). En la portada,
+`video` no existe: allí `videoUpload` entra solo.
+
+### Barreras
+
+`e2e/block-video-subido.spec.ts` (3, Playwright) — la vuelta entera con **subida real contra
+MinIO desde el navegador**: los dos vídeos conviven en el selector, el PUT va al almacenamiento y
+**no a `/api/`**, lo persistido no lleva `tmp/`, y el público lo ve con `preload="none"`, `controls`
+y sin `autoplay`. Más el embed intacto y la portada con su propio motor (restaurando la fila
+singleton con `restaurarPortada`, como el resto de specs de portada).
+
+**Por qué aquí SÍ se puede subir un MP4 de verdad**, cuando `video-editor.spec.ts` dice que no:
+aquel necesita que el navegador **decodifique** el fichero, porque el vídeo Pro mide la duración
+real para su límite de 60 s. Este camino **no tiene límite de duración** (decisión de V1), así que
+nada necesita decodificar y unos bytes con el tipo `video/mp4` ejercitan la coreografía entera. Es
+una ventaja concreta de aquella decisión.
+
+**Lo que esa spec NO cubre, dicho para que nadie lo dé por cubierto:** la captura del póster —el
+fichero sintético no es decodificable, así que `captureVideoPoster` devuelve `null` y el bloque se
+guarda sin póster. De paso queda probado ese respaldo («un póster roto no debe impedir publicar»).
+Que el póster se promociona igual que el vídeo cuando sí existe está probado en
+`video-bloque-v1.e2e-spec.ts`, con un fichero real.
+
+Y los 10 unitarios de `video-flecos.test.tsx` siguen verdes tras la mudanza — son los que fijan
+`preload="none"`, `controls` sin `autoPlay` y que una dirección ajena no monte nada.
+
+Mutaciones comprobadas:
+
+- **`preload="auto"`** en `VideoPlayer` → cae la unitaria que lo fija: el `.mp4` se descargaría en
+  cada apertura sin que nadie pulse play.
+- **`<video>` a mano en el renderizador del bloque** en vez de reutilizar `VideoPlayer` → cae la
+  barrera Playwright. Es la mutación que importa, porque es la tentadora: son cuatro líneas, y se
+  lleva por delante el `preload` y la validación de origen a la vez.
+
+`block-editor-full.spec.ts` se ajustó en una línea (la etiqueta del embed) y su cabecera dice
+ahora 13 de 14, con el porqué: el 14º necesita una subida real y tiene spec propia.
+
+---
+
 ## Estadísticas A1 — la captura de «veces listado» (impresiones de búsqueda)
 
 Primera ráfaga de `docs/diseno-estadisticas.md` (parte A). Captura SOLO: nadie lee todavía lo
