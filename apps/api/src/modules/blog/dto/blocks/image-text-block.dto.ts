@@ -1,5 +1,13 @@
 import { Type } from 'class-transformer';
-import { IsIn, IsNotEmpty, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
+import {
+  IsDefined,
+  IsIn,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MaxLength,
+  ValidateNested,
+} from 'class-validator';
 import { BaseBlockDto } from './base-block.dto';
 import { IsOwnStorageUrl } from '../../../../common/validators/safe-url';
 
@@ -26,6 +34,17 @@ export class ImageTextBlockDto extends BaseBlockDto {
   @IsIn(['imageText'])
   type!: 'imageText';
 
+  /**
+   * `@IsDefined()` añadido al escribir `adBanner` (ajuste 5), donde se comprobó que
+   * **`@ValidateNested()` sobre `undefined` no valida nada y no da error**. Sin él, este
+   * campo estaba declarado obligatorio (`image!`) pero no lo era: un `imageText` sin imagen
+   * se guardaba con 201 — medido — y después `ImageTextBlockRenderer` hacía
+   * `block.image.url` sobre `undefined` y **tumbaba la página pública**.
+   *
+   * Era el único sitio con esa forma: `profile.image` y `grid.media` sí son `@IsOptional()`
+   * a propósito, y sus renderizadores los tratan como tales.
+   */
+  @IsDefined()
   @ValidateNested()
   @Type(() => ImageTextImageDto)
   image!: ImageTextImageDto;
