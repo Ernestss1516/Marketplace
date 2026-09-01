@@ -6,6 +6,8 @@ import { AuditLogService } from '../audit-log/audit-log.service';
 import { RevalidateService } from '../../common/revalidate/revalidate.service';
 import { R2Service } from '../../infra/r2/r2.service';
 import { MediaCleanupService } from '../media-cleanup/media-cleanup.service';
+import { PendingMediaService } from '../media-cleanup/pending-media.service';
+import { BLOCK_MEDIA_KEY_PREFIX } from '../block-media/block-media-limits';
 import { MIME_TO_EXT } from '../media/media.service';
 import { UpdateHomepageDto } from './dto/update-homepage.dto';
 import { HomeBlockDto } from './dto/blocks';
@@ -57,6 +59,7 @@ export class HomepageService {
     private readonly revalidateService: RevalidateService,
     private readonly r2: R2Service,
     private readonly mediaCleanup: MediaCleanupService,
+    private readonly pendingMedia: PendingMediaService,
   ) {}
 
   // ── Lectura ───────────────────────────────────────────────────────────────
@@ -95,6 +98,20 @@ export class HomepageService {
 
     const before = await this.prisma.homepageConfig.findUnique({ where: { id: SINGLETON_ID } });
 
+    // VÍDEO DE BLOQUE V1 — ANTES de escribir: lo subido bajo `blocks-videos/tmp/` pasa a su
+    // clave definitiva, y lo que se persiste ya no lleva ninguna temporal (barrera B-2).
+    // FAIL-CLOSED: si algo no se puede promocionar, esto lanza y la portada no se guarda —
+    // preferible con mucho a dejar en la home un vídeo que la regla de ciclo de vida
+    // borraría en 24 h.
+    //
+    // Sólo `blocks`: los campos del hero son texto (título, opciones rotatorias, subtítulo)
+    // y ninguno es una referencia a un fichero.
+    const promocionado = await this.pendingMedia.promote({
+      value: blocks,
+      ownerId: actorId,
+      root: BLOCK_MEDIA_KEY_PREFIX,
+    });
+
     const data = {
       heroStaticTitle,
       heroRotatingOptions,
@@ -102,15 +119,26 @@ export class HomepageService {
       // Ausente = se borra, no "se conserva": el cuerpo es un reemplazo completo
       // (ver UpdateHomepageDto).
       heroSubtitle: dto.heroSubtitle?.trim() || null,
-      blocks: blocks as unknown as Prisma.InputJsonValue,
+      blocks: promocionado.value as unknown as Prisma.InputJsonValue,
       updatedById: actorId,
     };
 
-    const updated = await this.prisma.homepageConfig.upsert({
-      where: { id: SINGLETON_ID },
-      create: { id: SINGLETON_ID, ...data },
-      update: data,
-    });
+    let updated;
+    try {
+      updated = await this.prisma.homepageConfig.upsert({
+        where: { id: SINGLETON_ID },
+        create: { id: SINGLETON_ID, ...data },
+        update: data,
+      });
+    } catch (err) {
+      // COMPENSACIÓN: la copia ya está fuera de `tmp/`, donde la regla de caducidad no
+      // llega, y sin fila que la referencie sería una huérfana permanente.
+      await this.pendingMedia.rollback(promocionado.copiedKeys);
+      throw err;
+    }
+
+    // CORTESÍA: si falla, la regla caduca los temporales igual.
+    await this.pendingMedia.dropTemporaries(promocionado.temporaryKeys);
 
     await this.auditLog.log({
       action: 'HOMEPAGE_CONFIG_UPDATE',

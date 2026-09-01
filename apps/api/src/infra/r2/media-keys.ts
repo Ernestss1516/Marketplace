@@ -188,6 +188,59 @@ export function ownUrlsDeep(value: unknown, publicUrlPrefix: string): string[] {
 }
 
 /**
+ * VÍDEO DE BLOQUE V1 — el GEMELO de `ownUrlsDeep`: reescribe, mire donde mire.
+ *
+ * MISMO RECORRIDO Y MISMA REGLA, y eso es todo el motivo de que viva aquí pegado a su
+ * gemelo en vez de en quien lo usa. La promoción de un fichero temporal a su clave
+ * definitiva (`docs/diseno-video-bloque.md` §4.2) necesita **cambiar** las URLs que
+ * `ownUrlsDeep` **encuentra**; si los dos recorridos divergieran —otra profundidad
+ * máxima, otro criterio de «propia»— habría URLs que se ven y no se cambian, o al revés.
+ * Un bloque quedaría con la URL temporal dentro **en silencio**, que es exactamente el
+ * fallo que la barrera B-2 existe para impedir.
+ *
+ * SÓLO SUSTITUYE LO QUE ESTÁ EN EL MAPA. Lo demás —cadenas que no son URLs nuestras,
+ * números, booleanos, la estructura entera— se copia tal cual.
+ *
+ * DEVUELVE UN VALOR NUEVO, no muta el que recibe: quien llama todavía necesita el
+ * original para el diff de `releasedUrls` y para compensar si la escritura falla.
+ */
+export function replaceOwnUrlsDeep(
+  value: unknown,
+  publicUrlPrefix: string,
+  mapping: ReadonlyMap<string, string>,
+): unknown {
+  if (mapping.size === 0) return value;
+
+  const recorrer = (nodo: unknown, profundidad: number): unknown => {
+    // El mismo corte que `ownUrlsDeep`, y tiene que ser el mismo: lo que aquel no llega a
+    // mirar tampoco entra nunca en el mapa, así que por debajo de este límite no hay nada
+    // que sustituir.
+    if (profundidad > MAX_PROFUNDIDAD || nodo === null || nodo === undefined) return nodo;
+
+    if (typeof nodo === 'string') {
+      if (!keyFromPublicUrl(nodo, publicUrlPrefix)) return nodo;
+      return mapping.get(nodo) ?? nodo;
+    }
+
+    if (Array.isArray(nodo)) {
+      return nodo.map((item) => recorrer(item, profundidad + 1));
+    }
+
+    if (typeof nodo === 'object') {
+      const salida: Record<string, unknown> = {};
+      for (const [clave, item] of Object.entries(nodo as Record<string, unknown>)) {
+        salida[clave] = recorrer(item, profundidad + 1);
+      }
+      return salida;
+    }
+
+    return nodo;
+  };
+
+  return recorrer(value, 0);
+}
+
+/**
  * Las URLs propias que **estaban y ya no están**: lo que la operación acaba de
  * soltar.
  *

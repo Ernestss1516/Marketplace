@@ -15974,6 +15974,149 @@ confirmación falla sobre un vídeo perfectamente guardado.
 
 ---
 
+## Vídeo de bloque — RÁFAGA V1: el mecanismo y el modelo
+
+Diseño: `docs/diseno-video-bloque.md` (§3, §4, §9 V1, §10). Un tipo de bloque **nuevo**,
+`videoUpload`, que sube el vídeo a nuestro almacenamiento — distinto del bloque `video` de
+**embed** (YouTube/Vimeo), que se queda intacto y **convive** con él. V1 es sólo el backend: el
+editor y el renderizador son V2.
+
+### La decisión central: camino propio sobre lo que YA era común
+
+La pregunta del diseño era si extraer de `VideoService` un «subir vídeo a R2 con límites»
+genérico. Con el código delante, **esa extracción ya estaba hecha y no la hizo este proyecto**:
+lo genérico no vive dentro de `VideoService`, vive un piso más abajo y ya lo comparten los dos
+—`R2Service.presignUpload`/`head`/`copy`/`delete` (`@Global`) y `pendingPrefix`/`isPendingKey`/
+`ownUrlsDeep` en `media-keys.ts` (fichero puro, sin DI)—.
+
+Lo que queda en `VideoService` es justo lo que **no** puede ser común: el interruptor
+`videoEnabled`, el guard de Pro, la propiedad y el estado del anuncio, la escritura de cinco
+columnas de `Listing`, la caché de ficha y el reindexado. Un servicio compartido habría dejado en
+común unas **veinte líneas** a cambio de **siete puntos de configuración** y de atar dos features
+que hoy no se conocen. Y hay un desacople estructural que lo cierra: **en el bloque, el confirm
+no escribe ninguna fila** (ver abajo), así que los dos «confirm» ni siquiera significan lo mismo.
+
+`BlockMediaModule` (`modules/block-media/`) no importa nada —`R2Module` es `@Global`— y **ningún
+módulo depende de él**: por eso puede servir a blog, páginas y portada sin atarlos entre sí.
+
+### El mecanismo, en tres tiempos (y el segundo es el que cambia)
+
+| | Vídeo Pro (anuncios) | Vídeo de bloque |
+|---|---|---|
+| Firmar | `listing-videos/tmp/<listingId>/` | `blocks-videos/tmp/<userId>/` |
+| Confirmar | `head` + **copia fuera de `tmp/`** + escribe la fila | `head` y **nada más**: el objeto SIGUE en `tmp/` |
+| Salir de `tmp/` | En el confirm | **Al guardar el post o la portada** |
+
+**Por qué el confirm NO copia.** Allí confirmar y persistir son el mismo gesto, así que sacar el
+objeto de `tmp/` es correcto: al terminar, una fila lo referencia. Aquí **no hay ninguna fila
+todavía** — la URL viaja al editor, vive en un array en memoria y sólo se persiste cuando alguien
+guarda. Si el confirm copiara, un editor que sube y cierra la pestaña dejaría hasta 50 MB **fuera
+de `tmp/`, donde la regla de ciclo de vida no llega**: una huérfana permanente, y en el caso de
+abandono más común que hay. El confirm sí hace lo único que no se puede delegar: mirar el objeto
+real (tamaño y tipo), porque la firma acota pero no demuestra qué aterrizó.
+
+### El pase de promoción — el patrón del avatar de H2, sobre un `Json`
+
+`PendingMediaService` (`modules/media-cleanup/pending-media.service.ts`), **gemelo de
+`MediaCleanupService` y en su mismo módulo neutral**: uno cierra la fuga de «lo que se suelta»
+(diff + cola, H1) y el otro la de «lo que nunca se guarda» (prefijo temporal + promoción, H2). Los
+llaman los mismos tres servicios en la misma operación, **uno antes de escribir y el otro
+después**, así que comparten módulo en vez de obligar a blog y portada a importar dos.
+
+Es el patrón de `UsersService.confirmarAvatar` tal cual. La única diferencia es la forma del dato:
+el avatar es UN campo y aquí es un `Json` con N ficheros, así que en vez de una copia hay un
+recorrido — y el recorrido ya existía. `replaceOwnUrlsDeep` (nuevo, en `media-keys.ts`) es el
+**gemelo de `ownUrlsDeep`**: mismo recorrido y mismo criterio de «propia», porque uno ENCUENTRA y
+el otro CAMBIA, y si divergieran habría URLs que se ven y no se cambian.
+
+**Las cuatro decisiones de orden**, todas heredadas:
+
+1. **Promocionar ANTES de escribir, purgar DESPUÉS.** La escritura necesita las URLs definitivas;
+   la comprobación de dueño de la limpieza necesita el estado nuevo ya escrito.
+2. **No se pisan**, por el mismo argumento que H2 dio para el avatar: una URL temporal nunca llega
+   a persistirse, así que jamás entra en el diff de `releasedUrls`.
+3. **FAIL-CLOSED.** Si algo no se puede promocionar, el guardado **falla**. Es lo contrario del
+   criterio de la limpieza (donde ante la duda no se borra y nunca se rompe nada) y es
+   deliberado: seguir adelante significaría persistir una URL bajo `tmp/`, y la regla de ciclo de
+   vida borraría en un día un vídeo **publicado y vivo**. Como cinturón, tras el pase se comprueba
+   que en el valor a escribir no queda **ninguna** URL temporal; si queda, se deshace y se lanza.
+4. **Compensación y cortesía.** Si la fila falla tras copiar, las copias se borran (están fuera de
+   `tmp/`, donde la regla no llega). Borrar el temporal tras escribir es cortesía: si falla, lo
+   caduca la regla.
+
+Coste en el caso normal: **cero llamadas a R2**. Un guardado sin media temporal sale por el atajo.
+
+### El modelo
+
+`videoUpload { url, poster?, caption? }` en **los dos motores** (`VideoUploadBlockDto` en
+`ValidBlocksArray()` — 13 tipos → **14**, cubre blog **y páginas**; `VideoUploadHomeBlockDto` en
+`ValidHomeBlocksArray()` — 7 → **8**). Clases separadas a propósito: compartir un subtipo ataría
+los dos motores por el discriminador, que es lo que `diseno-portada.md` §2.4 evita.
+
+- **`url` es la URL COMPLETA, no la clave**, y es una restricción de verdad: la limpieza de H1
+  encuentra qué borrar recorriendo el `Json` y quedándose con las cadenas que son URLs nuestras.
+  Guardar la clave desnuda la dejaría **ciega en silencio**.
+- **`poster` opcional** (la captura del fotograma es del navegador y puede fallar; un póster roto
+  no debe impedir publicar). **No hay `alt`**: `<video>` no tiene ese atributo.
+- **Prefijo `blocks-videos/`**, ni `listing-videos/` (esa cadena literal es lo que busca el
+  barrido de `video-visualizacion.e2e-spec.ts`; meter ahí vídeo editorial lo pondría en rojo por
+  un motivo falso) ni `blocks/` (es de imágenes). **El póster comparte raíz con el vídeo**, así
+  que una sola regla de ciclo de vida recoge los dos abandonos y el mismo pase mueve los dos.
+- **El gate es `@MinRole(Role.EDITOR)`**, el de `upload-image` y el de toda la portada. La
+  documentación que decía ADMIN (`homepage-admin.controller.ts:27-35`, `diseno-portada.md:759`,
+  `contratos-api.md:1146`) está obsoleta respecto al código; no se ha tocado aquí.
+
+### Los límites: los duros iguales, el blando se cae
+
+50 MB (dentro de la firma: lo aplica el almacenamiento, no la buena fe del cliente) y sólo
+`video/mp4` (es lo que hace innecesaria la transcodificación). Póster: 512 KB, WebP o JPEG.
+
+**No hay límite de duración, y la ausencia es la decisión.** El del vídeo Pro existe para acotar
+la subida desde un móvil con datos —un editor en el backoffice no es ese caso— y además **no se
+puede comprobar en el servidor sin ffmpeg**, así que allí se valida la duración *declarada*. Poner
+otro número aquí sería fingir una comprobación: el daño ya lo acota el tamaño. El campo
+directamente no existe en el DTO.
+
+`block-media-limits.ts` **no importa nada de `video-limits.ts`**, aunque dos números coincidan
+hoy: si mañana el vídeo de anuncios sube a 100 MB, el editorial no debe seguirle en silencio.
+
+### Barreras
+
+`test/video-bloque-v1.e2e-spec.ts` (29) contra MinIO de verdad con `r2.head` —molde
+`huerfanas-h2.e2e-spec.ts`: lo que se afirma es **dónde acaba el objeto**—, más
+`src/infra/r2/media-keys.spec.ts` (6 nuevos, el gemelo pinzado con `ownUrlsDeep`) y
+`src/modules/block-media/block-media.controller.spec.ts` (6).
+
+Ese último es una pinza **sobre el código fuente**, y es deliberado: la mutación que mata B-1 es
+añadir un `FileInterceptor` «para simplificar el editor», y si alguien lo hiciera **el e2e
+seguiría en verde** —el camino prefirmado no deja de funcionar porque exista otro—. Lo que hay que
+impedir no es que el camino bueno desaparezca, es que aparezca uno malo al lado. Molde
+`admin-controllers.contract.spec.ts`.
+
+Mutaciones comprobadas:
+
+- **La promoción no hace nada** (se persiste la URL `tmp/`) → **caen 8**, incluidas las dos de
+  fail-closed y la de la portada.
+- **La reescritura profunda no hace nada** (se copia pero la URL no se cambia) → caen 4 unitarias
+  y **11 e2e**, y sobre todo **el cinturón hace su trabajo**: convierte una corrupción silenciosa
+  —una URL temporal persistida que la regla borraría a las 24 h— en un fallo ruidoso, y **no se
+  guardó ni un `tmp/`**.
+
+La regla de ciclo de vida sobre `blocks-videos/tmp/` **sigue sin aplicar**: es configuración del
+despliegue (`pendientes.md` §1, paso 7, donde de paso se corrigió que las reglas **eran dos y son
+cuatro** — faltaba `listing-previews/tmp/` desde el póster animado P1).
+
+### Lo que V1 NO hace
+
+No toca el editor ni el renderizador (es V2), y por tanto **no añade los espejos TS**
+(`types/blocks.ts`, `types/home-blocks.ts`): añadir el tipo a esas uniones rompe el build en los
+dos `switch` exhaustivos (`assertUnreachable`) y en los `Record<BlockType, …>`, así que el espejo
+viaja con el renderizador y el editor que lo satisfacen. Consecuencia asumida y prevista por el
+diseño (§9): tras V1 el backend acepta y limpia bloques `videoUpload`, y **la interfaz todavía no
+puede crear ninguno**.
+
+---
+
 ## Estadísticas A1 — la captura de «veces listado» (impresiones de búsqueda)
 
 Primera ráfaga de `docs/diseno-estadisticas.md` (parte A). Captura SOLO: nadie lee todavía lo

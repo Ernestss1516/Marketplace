@@ -1039,6 +1039,22 @@ los verbos amplían a `EDITOR` y `MODERATOR`**; el borrado permanente se queda e
 Publicar, despublicar, editar o borrar un contenido publicado dispara revalidación ISR
 *fire-and-forget*; que falle **no** bloquea la respuesta al admin.
 
+**Media de bloque** *(EDITOR+)* — el vídeo del bloque `videoUpload`, para blog, páginas **y**
+portada. **Los bytes no pasan por la API**: no hay ninguna ruta de subida, sólo firma.
+
+- **`POST /admin/block-media/video-url`** — Firma un PUT directo a R2. Cuerpo
+  `{contentType, sizeBytes}`; sólo `video/mp4` y ≤ 50 MB, **sin límite de duración** (no se puede
+  comprobar en servidor sin ffmpeg; el tamaño va dentro de la firma y sí es infranqueable).
+  Devuelve `{uploadUrl, key, expiresInSeconds, requiredHeaders}`.
+- **`POST /admin/block-media/poster-url`** — Igual para el póster: WebP/JPEG, ≤ 512 KB.
+- **`POST /admin/block-media/confirm`** — Cuerpo `{key}`. Comprueba con `HEAD` lo que de verdad
+  aterrizó y devuelve `{url}`. **NO mueve el objeto**: sigue bajo `blocks-videos/tmp/<userId>/`.
+
+**El objeto sale de `tmp/` al GUARDAR el post o la portada**, no al confirmar — si saliera antes,
+un editor que sube y no guarda dejaría 50 MB fuera del alcance de la regla de caducidad. Ese pase
+es **fail-closed**: si un fichero ya no está o es de otro usuario, el guardado falla (`400`/`403`)
+en vez de persistir una URL temporal. Ver `docs/diseno-video-bloque.md` §4.
+
 **Footer** *(ADMIN)* — `GET /admin/footer` (estructura completa);
 `POST|PATCH|DELETE /admin/footer/columns[/:id]` y `.../items[/:id]`, más
 `PATCH /admin/footer/columns/reorder` y `PATCH /admin/footer/items/reorder`.
@@ -1141,6 +1157,7 @@ También sin controlador propio, por vivir dentro de otros módulos: los 6 **pro
 | Admin billing | ADMIN | transactions · wallets · detalle de usuario · acreditación manual · prices · credit-packs · bump-packs |
 | Admin invoicing | ADMIN | invoices · detalle · pdf de cualquiera · fiscal-issuer (no retroactivo) |
 | Admin blog | EDITOR+ (delete: ADMIN) | CRUD · publish/unpublish · upload-image |
+| Admin block-media | EDITOR+ | video-url · poster-url · confirm (firma prefirmada; los bytes no pasan por la API) |
 | Admin footer | ADMIN | columns · items · reorder |
 | Admin tags | ADMIN | CRUD · reorder · usage · tags por categoría |
 | Admin sponsored-ads | ADMIN | CRUD · upload-image (sin endpoint público: se inyecta en /search) |

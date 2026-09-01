@@ -11,6 +11,8 @@ import { AuditLogService } from '../audit-log/audit-log.service';
 import { RevalidateService } from '../../common/revalidate/revalidate.service';
 import { R2Service } from '../../infra/r2/r2.service';
 import { MediaCleanupService } from '../media-cleanup/media-cleanup.service';
+import { PendingMediaService } from '../media-cleanup/pending-media.service';
+import { BLOCK_MEDIA_KEY_PREFIX } from '../block-media/block-media-limits';
 import { MIME_TO_EXT } from '../media/media.service';
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
@@ -32,7 +34,23 @@ export class BlogService {
     private readonly revalidateService: RevalidateService,
     private readonly r2: R2Service,
     private readonly mediaCleanup: MediaCleanupService,
+    private readonly pendingMedia: PendingMediaService,
   ) {}
+
+  /**
+   * VÍDEO DE BLOQUE V1 — saca de `tmp/` el media que este guardado acaba de adoptar.
+   *
+   * QUÉ SE LE PASA, Y POR QUÉ NO SÓLO `blocks`: se le da **todo campo del post que pueda
+   * llevar una URL**. `coverUrl` no debería tener nunca media de bloque —viene de otro
+   * endpoint y de otro prefijo—, pero `@IsOwnStorageUrl` valida el dominio, no el prefijo,
+   * así que nada impide hoy pegar ahí una URL temporal. Y persistir una URL bajo `tmp/`
+   * **en cualquier campo** es justo lo que la regla de ciclo de vida convertiría en un
+   * borrado a las 24 h. El pase filtra por raíz (`blocks-videos/`), así que pasarle de más
+   * no toca nada que no sea suyo — y pasarle de menos sí abriría un agujero.
+   */
+  private promoteBlockMedia<T>(value: T, ownerId: string) {
+    return this.pendingMedia.promote({ value, ownerId, root: BLOCK_MEDIA_KEY_PREFIX });
+  }
 
   // Molde sponsored-ads (SponsoredAdsService.uploadImage): sube directo a R2,
   // NO crea ListingImage (una imagen de bloque de contenido no es una imagen
@@ -120,21 +138,41 @@ export class BlogService {
     this.assertTableBlocksValid(dto.blocks);
     await this.assertListingsBlocksValid(dto.blocks);
 
-    const post = await this.prisma.post.create({
-      data: {
-        type: resolvedType,
-        title: dto.title,
-        slug,
-        excerpt: dto.excerpt,
-        blocks: (dto.blocks ?? []) as unknown as Prisma.InputJsonValue,
-        coverUrl: dto.coverUrl,
-        tags: dto.tags ?? [],
-        metaTitle: dto.metaTitle,
-        metaDescription: dto.metaDescription,
-        authorId,
-      },
-      include: { author: AUTHOR_ADMIN },
-    });
+    // VÍDEO DE BLOQUE V1 — ANTES de escribir: lo subido bajo `tmp/` pasa a su clave
+    // definitiva y el `Json` que se persiste ya no contiene ninguna temporal (barrera B-2).
+    // Es FAIL-CLOSED: si algo no se puede promocionar, `promote` lanza y no se crea el post.
+    const promocionado = await this.promoteBlockMedia(
+      { blocks: dto.blocks ?? [], coverUrl: dto.coverUrl },
+      authorId,
+    );
+
+    let post;
+    try {
+      post = await this.prisma.post.create({
+        data: {
+          type: resolvedType,
+          title: dto.title,
+          slug,
+          excerpt: dto.excerpt,
+          blocks: promocionado.value.blocks as unknown as Prisma.InputJsonValue,
+          coverUrl: promocionado.value.coverUrl,
+          tags: dto.tags ?? [],
+          metaTitle: dto.metaTitle,
+          metaDescription: dto.metaDescription,
+          authorId,
+        },
+        include: { author: AUTHOR_ADMIN },
+      });
+    } catch (err) {
+      // COMPENSACIÓN — las copias ya están en el prefijo DEFINITIVO, donde la regla de
+      // caducidad no llega. Si la fila no se escribe nadie las referenciará nunca: se
+      // deshacen. Los originales siguen en `tmp/`, así que reintentar no pierde nada.
+      await this.pendingMedia.rollback(promocionado.copiedKeys);
+      throw err;
+    }
+
+    // CORTESÍA: los temporales ya no hacen falta. Si falla, la regla los caduca.
+    await this.pendingMedia.dropTemporaries(promocionado.temporaryKeys);
 
     await this.auditLog.log({
       action: 'POST_CREATE',
@@ -206,20 +244,41 @@ export class BlogService {
 
     const before = { title: post.title, slug: post.slug, status: post.status };
 
-    const updated = await this.prisma.post.update({
-      where: { id },
-      data: {
-        ...(dto.title !== undefined && { title: dto.title }),
-        ...(dto.slug !== undefined && { slug: dto.slug }),
-        ...(dto.excerpt !== undefined && { excerpt: dto.excerpt }),
-        ...(dto.blocks !== undefined && { blocks: dto.blocks as unknown as Prisma.InputJsonValue }),
-        ...(dto.coverUrl !== undefined && { coverUrl: dto.coverUrl }),
-        ...(dto.tags !== undefined && { tags: dto.tags }),
-        ...(dto.metaTitle !== undefined && { metaTitle: dto.metaTitle }),
-        ...(dto.metaDescription !== undefined && { metaDescription: dto.metaDescription }),
-      },
-      include: { author: AUTHOR_ADMIN },
-    });
+    // VÍDEO DE BLOQUE V1 — la promoción va ANTES del `update` y la limpieza DESPUÉS, y ese
+    // orden es el diseño entero: la escritura necesita las URLs ya definitivas, y el diff de
+    // huérfanas necesita el estado nuevo ya escrito. Los dos pases no se pisan porque una
+    // URL temporal nunca llega a persistirse, así que jamás entra en el diff.
+    const promocionado = await this.promoteBlockMedia(
+      { blocks: dto.blocks, coverUrl: dto.coverUrl },
+      actorId,
+    );
+
+    let updated;
+    try {
+      updated = await this.prisma.post.update({
+        where: { id },
+        data: {
+          ...(dto.title !== undefined && { title: dto.title }),
+          ...(dto.slug !== undefined && { slug: dto.slug }),
+          ...(dto.excerpt !== undefined && { excerpt: dto.excerpt }),
+          ...(dto.blocks !== undefined && {
+            blocks: promocionado.value.blocks as unknown as Prisma.InputJsonValue,
+          }),
+          ...(dto.coverUrl !== undefined && { coverUrl: promocionado.value.coverUrl }),
+          ...(dto.tags !== undefined && { tags: dto.tags }),
+          ...(dto.metaTitle !== undefined && { metaTitle: dto.metaTitle }),
+          ...(dto.metaDescription !== undefined && { metaDescription: dto.metaDescription }),
+        },
+        include: { author: AUTHOR_ADMIN },
+      });
+    } catch (err) {
+      // COMPENSACIÓN — ver `adminCreate`. La copia sin fila que la referencie es una
+      // huérfana que la regla de caducidad NO puede recoger, porque ya está fuera de `tmp/`.
+      await this.pendingMedia.rollback(promocionado.copiedKeys);
+      throw err;
+    }
+
+    await this.pendingMedia.dropTemporaries(promocionado.temporaryKeys);
 
     await this.auditLog.log({
       action: 'POST_UPDATE',
