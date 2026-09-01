@@ -77,7 +77,7 @@ import { attributeErrors, buildAttributes, filterSchemaByType } from '@/lib/attr
 import { StepAtributos } from '@/components/publicar/steps/StepAtributos';
 import { ValoracionFila } from '@/components/admin/ValoracionFila';
 import { DatoIp } from '@/components/admin/DatoIp';
-import { VideoPlayer } from '@/components/anuncios/VideoPlayer';
+import { VideoPlayer } from '@/components/media/VideoPlayer';
 import { ActivityPanel } from '@/components/stats/ActivityPanel';
 import { useActividad } from '@/components/stats/useActividad';
 import { getActividadAnuncio } from '@/lib/api/admin-stats';

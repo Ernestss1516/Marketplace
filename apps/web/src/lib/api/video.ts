@@ -1,4 +1,8 @@
 import { apiFetch } from './client';
+// VÍDEO DE BLOQUE V2 — `putToStorage` y `captureVideoPoster` vivían aquí y se han mudado a
+// `lib/media/upload.ts`: son genéricas (un fichero y una dirección, cero dominio) y ahora las
+// usa también el editor del bloque `videoUpload`. Ni una línea de su cuerpo ha cambiado.
+import { putToStorage } from '@/lib/media/upload';
 
 /**
  * Vídeo Pro — el cliente del flujo de subida PREFIRMADO.
@@ -137,60 +141,6 @@ export function readVideoFileInfo(file: File): Promise<VideoFileInfo> {
       reject(new Error('Ese fichero no parece un vídeo que podamos reproducir.'));
     };
 
-    video.src = url;
-  });
-}
-
-/**
- * Captura un frame como PÓSTER.
- *
- * Sin póster, el reproductor de la ficha sería un rectángulo negro. Se hace AQUÍ y no en el
- * servidor porque extraer un frame exige ffmpeg, y ffmpeg es justo la dependencia que este
- * proyecto evita: si no se trae para transcodificar, no tiene sentido traerla para esto.
- *
- * ES MANIPULABLE —un cliente modificado podría enviar otra imagen—, y se acepta: es la misma
- * capacidad que ya tiene para subir cualquier foto engañosa a su anuncio, y lo cubre la
- * moderación. Si la captura falla, se sigue sin póster y la ficha usará la foto de portada.
- */
-export function captureVideoPoster(file: File, atSecond = 1): Promise<Blob | null> {
-  return new Promise((resolve) => {
-    const url = URL.createObjectURL(file);
-    const video = document.createElement('video');
-    video.preload = 'metadata';
-    video.muted = true;
-
-    const rendirse = () => {
-      URL.revokeObjectURL(url);
-      resolve(null);
-    };
-
-    video.onloadedmetadata = () => {
-      // Un vídeo más corto que el instante pedido: se coge el principio.
-      video.currentTime = Math.min(atSecond, Math.max(0, video.duration - 0.1));
-    };
-
-    video.onseeked = () => {
-      try {
-        const canvas = document.createElement('canvas');
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        const ctx = canvas.getContext('2d');
-        if (!ctx || !canvas.width || !canvas.height) return rendirse();
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        canvas.toBlob(
-          (blob) => {
-            URL.revokeObjectURL(url);
-            resolve(blob);
-          },
-          'image/jpeg',
-          0.8,
-        );
-      } catch {
-        rendirse();
-      }
-    };
-
-    video.onerror = rendirse;
     video.src = url;
   });
 }
@@ -406,42 +356,6 @@ export async function uploadSprite(
   } catch {
     return undefined;
   }
-}
-
-/**
- * El PUT contra el almacenamiento, con progreso.
- *
- * `XMLHttpRequest` y no `fetch` a propósito: `fetch` no informa del progreso de SUBIDA, y en
- * un fichero de decenas de megas desde el móvil una barra que no se mueve es indistinguible
- * de una aplicación colgada.
- */
-export function putToStorage(
-  uploadUrl: string,
-  file: Blob,
-  headers: Record<string, string>,
-  onProgress?: (percent: number) => void,
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open('PUT', uploadUrl);
-    for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v);
-
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable && onProgress) {
-        onProgress(Math.round((e.loaded / e.total) * 100));
-      }
-    };
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) resolve();
-      // El almacenamiento rechaza, entre otras cosas, un cuerpo de tamaño distinto al
-      // firmado. Ese rechazo es una GARANTÍA funcionando, no un fallo de red.
-      else reject(new Error(`La subida falló (${xhr.status}).`));
-    };
-    xhr.onerror = () => reject(new Error('Se ha perdido la conexión durante la subida.'));
-    xhr.onabort = () => reject(new Error('Subida cancelada.'));
-
-    xhr.send(file);
-  });
 }
 
 /** Sube el póster por el camino de IMÁGENES, que ya existe y valida el origen. */

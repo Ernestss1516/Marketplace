@@ -1,4 +1,5 @@
 import {
+  FileVideo,
   GalleryHorizontal,
   LayoutList,
   LayoutGrid,
@@ -61,6 +62,11 @@ export const HOME_BLOCK_TYPE_META: Record<
     description: 'Una fila de categorías con su foto, que se desplaza de lado',
     icon: GalleryHorizontal,
   },
+  videoUpload: {
+    label: 'Vídeo subido',
+    description: 'Un vídeo tuyo, alojado en la plataforma (MP4, hasta 50 MB)',
+    icon: FileVideo,
+  },
 };
 
 /**
@@ -76,6 +82,7 @@ export const HOME_BLOCK_TYPE_ORDER: HomeBlockType[] = [
   'grid',
   'steps',
   'searchTable',
+  'videoUpload',
 ];
 
 /**
@@ -108,6 +115,10 @@ export function createDefaultHomeBlock(type: HomeBlockType): HomeBlock {
       return { id, type, limit: 8, sort: 'recent', showAllLink: true };
     case 'categoryCarousel':
       return { id, type, items: [{ categorySlug: '', imageUrl: '', alt: '' }] };
+    case 'videoUpload':
+      // `url` vacía: no hay vídeo hasta que se sube uno, y el backend exige
+      // @IsOwnStorageUrl — guardar sin subir da un 400, que es lo correcto.
+      return { id, type, url: '' };
     case 'searchTable':
       // Arranca con las dos pestañas que no piden configurar nada (provincias y
       // categorías salen de datos que ya existen): útil desde el primer clic.
@@ -149,6 +160,8 @@ export function homeBlockHasContent(block: HomeBlock): boolean {
       return (block.title ?? '').trim().length > 0;
     case 'categoryCarousel':
       return block.items.some((it) => it.categorySlug.trim() || it.imageUrl.trim());
+    case 'videoUpload':
+      return block.url.trim().length > 0;
     case 'searchTable':
       // Lo único que el admin escribe aquí son los pares de "combinaciones": las
       // otras dos pestañas salen de datos que ya existen y no se pierden.

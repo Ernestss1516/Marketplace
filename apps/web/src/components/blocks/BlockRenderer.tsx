@@ -14,8 +14,9 @@ import { ImageTextBlockRenderer } from './ImageTextBlockRenderer';
 import { StepsBlockRenderer } from './StepsBlockRenderer';
 import { ProfileBlockRenderer } from './ProfileBlockRenderer';
 import { ListingsBlockRenderer } from './ListingsBlockRenderer';
+import { VideoUploadBlockRenderer } from './VideoUploadBlockRenderer';
 
-// Switch exhaustivo: si se añade un 14º tipo de bloque sin su `case` aquí, el
+// Switch exhaustivo: si se añade un 15º tipo de bloque sin su `case` aquí, el
 // `never` de `assertUnreachable` falla en build — el compilador ES la
 // validación de que el esquema y el renderizador nunca divergen.
 function assertUnreachable(block: never): never {
@@ -49,6 +50,8 @@ function renderBlock(
       return <QuoteBlockRenderer block={block} />;
     case 'video':
       return <VideoBlockRenderer block={block} />;
+    case 'videoUpload':
+      return <VideoUploadBlockRenderer block={block} />;
     case 'separator':
       return <SeparatorBlockRenderer />;
     case 'table':

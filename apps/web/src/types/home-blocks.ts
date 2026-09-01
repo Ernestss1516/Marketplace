@@ -181,7 +181,8 @@ export interface HomeSearchTableBlock extends BaseHomeBlock {
  *   RP.1  cta, search
  *   RP.4  grid, steps
  *   RP.5  listings, categoryCarousel
- *   RP.6  searchTable                 ← el último
+ *   RP.6  searchTable
+ *   V2    videoUpload                 ← el último (docs/diseno-video-bloque.md)
  *
  * La garantía sigue viva para cualquier tipo futuro: al añadirlo aquí, los
  * `switch` exhaustivos de `HomeBlockRenderer` y `HomeBlockEditorRow`, el
@@ -189,6 +190,22 @@ export interface HomeSearchTableBlock extends BaseHomeBlock {
  * dejan de compilar hasta que tenga renderizador Y editor. Se ha visto disparar
  * en RP.4, RP.5 y RP.6, y siempre en los mismos cinco sitios.
  */
+/**
+ * VÍDEO SUBIDO en la portada. Mismos campos y mismas reglas que el `VideoUploadBlock` del
+ * blog, tipo propio — la frontera entre los dos motores no se cruza con un tipo de bloque
+ * (ver la cabecera de este fichero). Lo que sí se comparte es lo que no menciona ningún
+ * bloque: `VideoPlayer` al pintarlo y el control de subida al editarlo.
+ *
+ * `url` es la URL COMPLETA, nunca la clave, y el editor guarda aquí la TEMPORAL: el backend
+ * la promociona a definitiva al guardar la portada.
+ */
+export interface HomeVideoUploadBlock extends BaseHomeBlock {
+  type: 'videoUpload';
+  url: string;
+  poster?: string;
+  caption?: string;
+}
+
 export type HomeBlock =
   | HomeCtaBlock
   | HomeSearchBlock
@@ -196,7 +213,8 @@ export type HomeBlock =
   | HomeStepsBlock
   | HomeListingsBlock
   | HomeCategoryCarouselBlock
-  | HomeSearchTableBlock;
+  | HomeSearchTableBlock
+  | HomeVideoUploadBlock;
 
 /**
  * Configuración completa de la portada, tal como la sirve `GET /homepage`.

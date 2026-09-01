@@ -1,6 +1,7 @@
 // SISTEMA DE BLOQUES — prueba de fuego: un admin (simulado) construye una
-// página completa con los 13 tipos de bloque (9 de Ráfaga 2 + 4 de Ráfaga 3)
-// desde /admin/paginas/nueva, la publica, y se verifica que /paginas/[slug]
+// página completa con 13 de los 14 tipos de bloque (9 de Ráfaga 2 + 4 de
+// Ráfaga 3) desde /admin/paginas/nueva, la publica, y se verifica que
+// /paginas/[slug]
 // la renderiza con el MISMO BlockRenderer que usa el preview del editor —
 // "lo que ve el admin es lo que se publica".
 //
@@ -17,7 +18,13 @@
 // que nuestro anuncio es el único candidato posible. Las verificaciones
 // específicas de `listings` (categoría vacía oculta el bloque, TTL de
 // caché) viven en block-listings.spec.ts — aquí solo se prueba que el tipo
-// encaja sin romper el conjunto de los 13.
+// encaja sin romper el conjunto.
+//
+// EL 14º TIPO, `videoUpload`, NO ENTRA AQUÍ y conviene decir por qué: necesita
+// una subida REAL (firmar, PUT contra el almacenamiento, confirmar) y un
+// guardado que la promocione, así que su prueba es de otra naturaleza y de otra
+// duración. Vive entera en `block-video-subido.spec.ts`, que además comprueba
+// que estos dos bloques de vídeo conviven en el selector.
 //
 // Prerequisites: global-setup seeds admin-e2e@example.com (ADMIN).
 
@@ -140,8 +147,10 @@ test.describe('Editor de bloques — construir una página completa con los 13 t
     await profileRow.getByPlaceholder('Etiqueta (p.ej. Experiencia)').fill('Experiencia');
     await profileRow.getByPlaceholder('Valor (p.ej. 10 años)').fill('10 años');
 
-    // 10. video
-    await addBlock(page, 'Vídeo');
+    // 10. video (el INCRUSTADO — su etiqueta ganó el apellido al llegar el vídeo subido,
+    // que es un tipo aparte y tiene su propia spec: `block-video-subido.spec.ts`. Aquí se
+    // sigue probando el embed y, con él, que el nuevo no lo tocó.)
+    await addBlock(page, 'Vídeo incrustado');
     const videoRow = page.getByTestId('block-row-video');
     await videoRow.getByPlaceholder(/youtube\.com/).fill('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
     await expect(videoRow.locator('iframe')).toBeVisible();
