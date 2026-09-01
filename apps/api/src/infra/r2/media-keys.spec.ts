@@ -3,6 +3,7 @@ import {
   listingMediaKeys,
   ownUrlsDeep,
   releasedUrls,
+  replaceOwnUrlsDeep,
   thumbKeyFor,
 } from './media-keys';
 
@@ -198,5 +199,91 @@ describe('releasedUrls', () => {
 
   it('borrar el documento entero suelta todas las suyas', () => {
     expect(releasedUrls([{ url: a }, { url: b }], null, prefijo).sort()).toEqual([a, b]);
+  });
+});
+
+/**
+ * VÍDEO DE BLOQUE V1 — el gemelo de `ownUrlsDeep`, pinzado con él.
+ *
+ * LO QUE ESTO PROTEGE: la promoción de un fichero temporal a su clave definitiva
+ * usa `ownUrlsDeep` para ENCONTRAR y esto para CAMBIAR. Si los dos recorridos
+ * divergieran, habría URLs que se ven y no se cambian — y una URL temporal
+ * persistida es un vídeo que la regla de ciclo de vida borra a las 24 h, ya
+ * publicado. La barrera de arriba de todo (§10, B-2) empieza aquí.
+ */
+describe('replaceOwnUrlsDeep', () => {
+  const prefijo = 'https://cdn.example.com/';
+  const tmp = `${prefijo}blocks-videos/tmp/user-1/v.mp4`;
+  const definitiva = `${prefijo}blocks-videos/v.mp4`;
+
+  it('sustituye la URL esté donde esté, y respeta el resto de la estructura', () => {
+    const bloques = [
+      { id: 'a', type: 'videoUpload', url: tmp, caption: 'Un vídeo' },
+      { id: 'b', type: 'text', html: '<p>nada</p>' },
+    ];
+
+    const salida = replaceOwnUrlsDeep(bloques, prefijo, new Map([[tmp, definitiva]]));
+
+    expect(salida).toEqual([
+      { id: 'a', type: 'videoUpload', url: definitiva, caption: 'Un vídeo' },
+      { id: 'b', type: 'text', html: '<p>nada</p>' },
+    ]);
+  });
+
+  it('cambia TODAS las apariciones — el mismo vídeo en dos bloques', () => {
+    // `ownUrlsDeep` deduplica, así que sólo se copia una vez; pero las dos
+    // referencias tienen que quedar apuntando al sitio nuevo.
+    const salida = replaceOwnUrlsDeep(
+      [{ url: tmp }, { poster: tmp }],
+      prefijo,
+      new Map([[tmp, definitiva]]),
+    );
+    expect(salida).toEqual([{ url: definitiva }, { poster: definitiva }]);
+  });
+
+  it('no toca lo que no está en el mapa, ni lo ajeno', () => {
+    const otra = `${prefijo}blocks/a.jpg`;
+    const google = 'https://lh3.googleusercontent.com/foto';
+    const salida = replaceOwnUrlsDeep(
+      { url: tmp, imagen: otra, avatar: google },
+      prefijo,
+      new Map([[tmp, definitiva]]),
+    );
+    expect(salida).toEqual({ url: definitiva, imagen: otra, avatar: google });
+  });
+
+  it('NO muta el valor original — quien llama todavía lo necesita para el diff', () => {
+    const original = [{ url: tmp }];
+    replaceOwnUrlsDeep(original, prefijo, new Map([[tmp, definitiva]]));
+    expect(original).toEqual([{ url: tmp }]);
+  });
+
+  it('un mapa vacío devuelve el valor tal cual, y tolera null/números', () => {
+    const valor = [{ url: tmp }];
+    expect(replaceOwnUrlsDeep(valor, prefijo, new Map())).toBe(valor);
+    expect(replaceOwnUrlsDeep(null, prefijo, new Map([[tmp, definitiva]]))).toBeNull();
+    expect(
+      replaceOwnUrlsDeep([1, true, null, undefined], prefijo, new Map([[tmp, definitiva]])),
+    ).toEqual([1, true, null, undefined]);
+  });
+
+  it('recorre lo MISMO que ownUrlsDeep: todo lo que aquel ve, éste lo cambia', () => {
+    // La pinza de verdad de este fichero. Se toman las URLs que el buscador
+    // encuentra en una estructura con la forma de los bloques reales y se exige
+    // que, tras sustituirlas todas, no quede ni una del conjunto original.
+    const valor = {
+      blocks: [
+        { id: 'a', type: 'videoUpload', url: tmp, poster: `${prefijo}blocks-videos/tmp/user-1/p.webp` },
+        { id: 'b', type: 'grid', items: [{ media: { url: `${prefijo}blocks-videos/tmp/user-1/z.mp4` } }] },
+      ],
+      coverUrl: `${prefijo}media/portada.jpg`,
+    };
+
+    const encontradas = ownUrlsDeep(valor, prefijo);
+    const mapa = new Map(encontradas.map((u) => [u, u.replace('/tmp/user-1/', '/')]));
+    const salida = replaceOwnUrlsDeep(valor, prefijo, mapa);
+
+    expect(ownUrlsDeep(salida, prefijo).some((u) => u.includes('/tmp/'))).toBe(false);
+    expect(ownUrlsDeep(salida, prefijo).sort()).toEqual([...mapa.values()].sort());
   });
 });

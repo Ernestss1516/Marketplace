@@ -39,6 +39,7 @@ import { ContactModule } from './modules/contact/contact.module';
 import { InvoicingModule } from './modules/invoicing/invoicing.module';
 import { BumpScheduleModule } from './modules/bump-schedule/bump-schedule.module';
 import { VideoModule } from './modules/video/video.module';
+import { BlockMediaModule } from './modules/block-media/block-media.module';
 import { TicketsModule } from './modules/tickets/tickets.module';
 import { TagsModule } from './modules/tags/tags.module';
 import { ImpressionsModule } from './modules/impressions/impressions.module';
@@ -105,6 +106,7 @@ import { ImpressionsModule } from './modules/impressions/impressions.module';
     InvoicingModule,
     BumpScheduleModule,
     VideoModule,
+    BlockMediaModule,
     TicketsModule,
     TagsModule,
     // A1 — SearchModule ya lo importa (es su controlador quien cuenta). Se registra

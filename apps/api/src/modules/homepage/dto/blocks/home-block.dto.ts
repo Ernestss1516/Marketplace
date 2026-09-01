@@ -9,6 +9,7 @@ import { StepsHomeBlockDto } from './steps-block.dto';
 import { ListingsHomeBlockDto } from './listings-block.dto';
 import { CategoryCarouselHomeBlockDto } from './category-carousel-block.dto';
 import { SearchTableHomeBlockDto } from './search-table-block.dto';
+import { VideoUploadHomeBlockDto } from './video-upload-block.dto';
 
 export type HomeBlockDto =
   | CtaHomeBlockDto
@@ -17,17 +18,19 @@ export type HomeBlockDto =
   | StepsHomeBlockDto
   | ListingsHomeBlockDto
   | CategoryCarouselHomeBlockDto
-  | SearchTableHomeBlockDto;
+  | SearchTableHomeBlockDto
+  | VideoUploadHomeBlockDto;
 
 /**
- * Los 7 tipos que tendrá el motor de portada, en el orden en que las ráfagas
- * los incorporan (docs/diseno-portada.md §2.4 y §8). Esta lista es DOCUMENTAL:
- * la fuente de verdad de lo que el backend acepta es `subTypes`, más abajo.
+ * Los tipos del motor de portada, en el orden en que las ráfagas los incorporan
+ * (docs/diseno-portada.md §2.4 y §8). Esta lista es DOCUMENTAL: la fuente de
+ * verdad de lo que el backend acepta es `subTypes`, más abajo.
  *
  *   RP.1  cta, search
  *   RP.4  grid, steps          ← registrados
  *   RP.5  listings, categoryCarousel  ← registrados
  *   RP.6  searchTable              ← registrado (motor COMPLETO)
+ *   V1    videoUpload            ← registrado (docs/diseno-video-bloque.md)
  *
  * Un tipo aún no registrado se rechaza con 400 por el discriminador, que es el
  * comportamiento correcto: nada puede guardarse en `blocks` sin un DTO que lo
@@ -41,6 +44,7 @@ export const PLANNED_HOME_BLOCK_TYPES = [
   'cta',
   'listings',
   'searchTable',
+  'videoUpload',
 ] as const;
 
 // Tope de bloques por portada. El blog usa 100 porque un artículo largo lo
@@ -49,7 +53,7 @@ export const PLANNED_HOME_BLOCK_TYPES = [
 const MAX_BLOCKS = 30;
 
 /**
- * ÚNICO punto donde se declaran los subtipos del motor de portada — un octavo
+ * ÚNICO punto donde se declaran los subtipos del motor de portada — un noveno
  * tipo se registra aquí y en su propio `*-block.dto.ts`, en ningún sitio más.
  * Empaquetado con applyDecorators (@nestjs/common) para no duplicar este bloque
  * en cada DTO que use `blocks`. Molde literal de
@@ -75,6 +79,7 @@ export function ValidHomeBlocksArray(): PropertyDecorator {
           { value: ListingsHomeBlockDto, name: 'listings' },
           { value: CategoryCarouselHomeBlockDto, name: 'categoryCarousel' },
           { value: SearchTableHomeBlockDto, name: 'searchTable' },
+          { value: VideoUploadHomeBlockDto, name: 'videoUpload' },
         ],
       },
       keepDiscriminatorProperty: true,

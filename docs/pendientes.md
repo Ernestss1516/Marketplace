@@ -58,16 +58,31 @@ Es el pendiente más antiguo del proyecto y el único que bloquea a varios de lo
 5. **Workflow de despliegue** en GitHub Actions, encadenado al `ci.yml` que ya existe y funciona.
 6. **Semilla y reindexado inicial.** Tras el primer despliegue: `seed` (árbol de categorías,
    admin, settings) y `pnpm --filter @marketplace/api reindex` para poblar Meilisearch.
-7. **Las dos reglas de ciclo de vida del bucket** (huérfanas H2 — **el código ya está puesto
+7. **Las CUATRO reglas de ciclo de vida del bucket** (huérfanas H2 — **el código ya está puesto
    desde el 2026-08-23**: lo no confirmado vive bajo `tmp/` y lo confirmado sale de ahí; ver
    [`diseno-huerfanas-sin-fila.md`](./diseno-huerfanas-sin-fila.md) §9.5): caducar a **1 día**
-   lo que quede bajo `listing-videos/tmp/` y bajo `avatars/tmp/`. Es lo que recoge las subidas
-   que nunca llegaron a confirmarse —un vídeo abandonado pesa hasta 50 MB—, y es **seguro por
-   construcción**: bajo `tmp/` no vive nada confirmado, porque confirmar copia el objeto fuera.
+   lo que quede bajo `listing-videos/tmp/`, `avatars/tmp/`, `listing-previews/tmp/` y
+   `blocks-videos/tmp/`.
+
+   > **Eran dos y son cuatro**, y las dos que faltaban se descubrieron al diseñar el vídeo de
+   > bloque (`diseno-video-bloque.md` §4.3). `listing-previews/tmp/` lo creó el póster animado
+   > P1 (`video.service.ts`, `createPreviewUploadUrl`) y nunca llegó a esta lista;
+   > `blocks-videos/tmp/` lo añade el vídeo de bloque V1. Es exactamente el modo de fallo de
+   > una lista escrita a mano — **el prefijo temporal lo pone el código y la regla la pone una
+   > persona**, así que cada prefijo nuevo hay que acordarse de anotarlo aquí. La forma vive en
+   > un solo sitio (`pendingPrefix`, `media-keys.ts`); el inventario, sólo aquí.
+
+   Es lo que recoge las subidas
+   que nunca llegaron a completarse —un vídeo abandonado pesa hasta 50 MB—, y es **seguro por
+   construcción**: bajo `tmp/` no vive nada que esté en uso, porque lo que se adopta se copia
+   fuera. Lo que adopta cambia según el prefijo —en el vídeo de anuncio y en el sprite es
+   confirmar; en el avatar, guardar el perfil; en el media de bloque, **guardar el post o la
+   portada** (`diseno-video-bloque.md` §4.2)—, pero la garantía es la misma en los cuatro y está
+   probada en CI: lo que se persiste no lleva `tmp/`.
    Un día es el suelo (la expiración se expresa en días enteros) y sobra: la URL prefirmada dura
    10 minutos. **No se puede probar en CI** —una caducidad se mide en días—, así que depende de
-   que se aplique aquí; hasta entonces la basura se acumula confinada a esos dos prefijos, que
-   se pueden vaciar a mano sin riesgo.
+   que se aplique aquí; hasta entonces la basura se acumula confinada a esos cuatro prefijos,
+   que se pueden vaciar a mano sin riesgo.
 
 **Consecuencia de no tenerlo:** hay comportamiento que solo se puede validar en un entorno real y
 que hoy está sin validar — §4 (preparación de producción), §6 (rate limit por IP) y la

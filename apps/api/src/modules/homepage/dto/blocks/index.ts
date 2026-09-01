@@ -7,4 +7,5 @@ export * from './steps-block.dto';
 export * from './listings-block.dto';
 export * from './category-carousel-block.dto';
 export * from './search-table-block.dto';
+export * from './video-upload-block.dto';
 export * from './home-block.dto';
