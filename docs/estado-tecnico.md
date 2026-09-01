@@ -16220,6 +16220,83 @@ ahora 13 de 14, con el porqué: el 14º necesita una subida real y tiene spec pr
 
 ---
 
+## Bloque de PUBLICIDAD EXTERNA (`adBanner`) — ajuste 5
+
+El 15º tipo del motor de contenido: una pieza publicitaria que el editor coloca dentro de un
+artículo o una página. **Sólo blog y páginas** — la portada no lo registra.
+
+**NO es `SponsoredAd`**, y la distinción es de fondo: aquella es la publicidad **de pago** del
+sistema (fila propia, fechas, categoría, su hueco reservado en `/search`, servida por reglas de
+negocio). Esto es **contenido editorial**: lo coloca una persona, donde quiere, dentro del `Json`
+de bloques. Reutilizar aquella entidad habría mezclado dos ciclos de vida que no se parecen.
+
+### Composición, no validación nueva
+
+| Pieza | De dónde sale |
+|---|---|
+| `image` (obligatoria) | `imageText.image` — sube por `POST /admin/blog/upload-image`, prefijo `blocks/`, `@IsOwnStorageUrl` |
+| `href` (opcional) | `cta.href` — `@IsSafeContentUrl`: interno `/…` o `http(s)://`, nunca `javascript:` |
+| El botón | `Button` + `SmartLink`, los mismos del bloque `cta` |
+| `title`, `description`, `ctaLabel`, `openInNewTab` | Campos planos |
+
+**La imagen es lo único obligatorio** —un banner que es sólo una imagen es la forma más común—,
+y hacerlo de verdad costó un `@IsDefined()`: **`@ValidateNested()` sobre `undefined` no valida
+nada y no da error**, así que sin él un banner sin imagen se guardaba.
+
+`alt` es **opcional aquí y obligatorio en `image`/`imageText`**, a propósito: allí la imagen ES el
+contenido; aquí lleva su mensaje encima y suele venir con `title`. Sin `alt` se cae al título, y
+sin ninguno de los dos se pinta `alt=""` — decorativa, que es el tratamiento correcto.
+
+**Sin regla cruzada `ctaLabel`/`href`**: el botón se pinta sólo con los dos, y un guardado con uno
+solo **no se rechaza**. Rechazarlo tumbaría el guardado del post entero por un bloque a medio
+rellenar, que es un estado de trabajo normal. Quien avisa es el editor, junto al campo.
+
+### El toggle elige dónde se abre; el `rel` no se elige
+
+`target="_blank"` ⇒ `rel="noopener noreferrer"`, **siempre**, y la regla vive donde ya vivía:
+`SmartLink`. Sin `noopener`, la página de destino recibe un `window.opener` con el que puede
+reescribir la nuestra (tabnabbing) — y en un bloque de publicidad el destino es, por definición,
+de un tercero.
+
+Lo que `SmartLink` gana es `newTab?: boolean`. **Omitido = comportamiento de siempre** (externo
+abre fuera, interno no), así que ninguno de sus consumidores previos cambia. La elección es
+ortogonal a interno/externo: un banner puede querer abrir una página propia fuera, o llevar a un
+patrocinador sin sacar al lector del sitio.
+
+**Y se cerró un footgun latente**: el `{...rest}` iba **después** de `rel`, así que un consumidor
+que pasara `rel` —legítimamente— se llevaba por delante la protección sin enterarse. Ahora los
+tokens se **componen** y los de seguridad no se pueden quitar. Es lo que permite que el enlace
+publicitario añada `rel="sponsored"` (para que los buscadores no le pasen autoridad) sin tocar el
+`noopener`.
+
+### Regresión arreglada de paso: `imageText` sin imagen tumbaba la página pública
+
+Al comprobar que `@ValidateNested()` no rechaza `undefined`, se midió el mismo campo en
+`imageText`: estaba declarado obligatorio (`image!`) y **no lo era** — un bloque sin imagen se
+guardaba con **201**, y después `ImageTextBlockRenderer` hacía `block.image.url` sobre `undefined`
+y **tumbaba `/blog/[slug]`**. Cerrado con el mismo `@IsDefined()`, con su test de regresión.
+
+Era el **único** sitio con esa forma: `profile.image` y `grid.media` sí son `@IsOptional()` a
+propósito y sus renderizadores los tratan como tales.
+
+### Barreras
+
+- `test/blocks.e2e-spec.ts` (+7): sólo imagen → 201; sin imagen → 400; imagen ajena → 400;
+  `href: javascript:` → 400; `openInNewTab` no booleano → 400; el post con **los 15 tipos**; y la
+  regresión de `imageText`.
+- `src/components/blocks/AdBannerBlockRenderer.test.tsx` (13): la matriz **destino × interruptor
+  entera** (externo/interno × por defecto/forzado a nueva/forzado a la misma) comprobando `target`
+  y `rel` en las seis; que `sponsored` **se suma** a los de seguridad en vez de desplazarlos; que
+  los opcionales ausentes no dejan ni un hueco; y que una imagen ajena no monta nada.
+- `e2e/block-publicidad.spec.ts` (3, Playwright): una página con el banner completo (con el
+  `rel` comprobado **en el HTML publicado**), un post de blog con **sólo la imagen**, y que la
+  portada **no ofrece** el tipo.
+
+Mutaciones comprobadas: **quitar el `noopener`** → caen 4 unitarias; **quitar el `@IsDefined()`**
+→ un banner sin imagen pasa con 201.
+
+---
+
 ## Estadísticas A1 — la captura de «veces listado» (impresiones de búsqueda)
 
 Primera ráfaga de `docs/diseno-estadisticas.md` (parte A). Captura SOLO: nadie lee todavía lo

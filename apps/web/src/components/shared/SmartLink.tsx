@@ -38,6 +38,17 @@ type SmartLinkProps = Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'href'> & {
   /** Omitido = se deriva del href con `isExternalHref`. */
   external?: boolean;
   /**
+   * ¿Se abre en una pestaña nueva? OMITIDO = como hasta ahora (externo sí, interno no), así
+   * que ningún consumidor previo cambia de comportamiento.
+   *
+   * Existe porque el bloque de publicidad lo deja elegir al editor, y esa elección es
+   * ORTOGONAL a interno/externo: un banner puede querer abrir una página propia fuera, o
+   * llevarse al lector a un patrocinador sin sacarlo del sitio.
+   *
+   * LO QUE NO ELIGE ES EL `rel`: ver abajo.
+   */
+  newTab?: boolean;
+  /**
    * Se reenvía al `<Link>` interno; en la rama externa no aplica (un `<a>` no
    * precarga). Declarado EXPLÍCITAMENTE y no colado por `rest` porque `prefetch`
    * no es un atributo de `<a>`: sin esta línea, TypeScript lo rechaza.
@@ -49,20 +60,48 @@ type SmartLinkProps = Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'href'> & {
   prefetch?: boolean;
 };
 
+/**
+ * `target="_blank"` ⇒ `rel="noopener noreferrer"`, SIEMPRE. **Un solo sitio, y no
+ * negociable.**
+ *
+ * Sin `noopener`, la página de destino recibe un `window.opener` con el que puede reescribir
+ * la nuestra —tabnabbing—, y basta con que se olvide UNA vez en UN `<a>` para abrirlo.
+ *
+ * SE COMPONE CON EL `rel` DEL LLAMANTE en vez de dejar que lo pise, que es lo que pasaba
+ * antes: el `{...rest}` iba DESPUÉS de `rel`, así que un consumidor que pasara `rel`
+ * —legítimamente, p. ej. `sponsored` en un enlace publicitario— se llevaba por delante la
+ * protección sin enterarse. Ahora los tokens se suman y los obligatorios no se pueden quitar.
+ */
+function relSeguro(relDelLlamante: string | undefined, abreEnNueva: boolean): string | undefined {
+  const tokens = new Set((relDelLlamante ?? '').split(/\s+/).filter(Boolean));
+  if (abreEnNueva) {
+    tokens.add('noopener');
+    tokens.add('noreferrer');
+  }
+  return tokens.size > 0 ? [...tokens].join(' ') : undefined;
+}
+
 export const SmartLink = forwardRef<HTMLAnchorElement, SmartLinkProps>(function SmartLink(
-  { href, external, prefetch, children, ...rest },
+  { href, external, newTab, prefetch, children, rel, ...rest },
   ref,
 ) {
-  if (external ?? isExternalHref(href)) {
+  const esExterno = external ?? isExternalHref(href);
+  const abreEnNueva = newTab ?? esExterno;
+  const target = abreEnNueva ? '_blank' : undefined;
+  const relFinal = relSeguro(rel, abreEnNueva);
+
+  if (esExterno) {
     return (
-      <a ref={ref} href={href} target="_blank" rel="noopener noreferrer" {...rest}>
+      <a ref={ref} href={href} target={target} rel={relFinal} {...rest}>
         {children}
       </a>
     );
   }
 
+  // Un interno también puede abrirse fuera si se pide — y entonces necesita el mismo `rel`,
+  // por el mismo motivo: la protección la decide el `target`, no el origen del destino.
   return (
-    <Link ref={ref} href={href} prefetch={prefetch} {...rest}>
+    <Link ref={ref} href={href} prefetch={prefetch} target={target} rel={relFinal} {...rest}>
       {children}
     </Link>
   );

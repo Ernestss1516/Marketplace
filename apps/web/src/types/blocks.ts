@@ -117,6 +117,35 @@ export interface ImageTextBlock extends BaseBlock {
   layout: ImageTextLayout;
 }
 
+/**
+ * PUBLICIDAD EXTERNA — una pieza que el editor coloca dentro de un artículo o página.
+ *
+ * NO es `SponsoredAd` (la publicidad de PAGO del sistema, con fila propia y su hueco en
+ * `/search`): esto es contenido editorial, colocado a mano dentro del `Json` de bloques.
+ *
+ * Sólo la imagen es obligatoria — un banner que es sólo una imagen es la forma más común.
+ */
+export interface AdBannerImage {
+  url: string;
+  /** Opcional: si falta, el renderizador cae al título y, sin él, a `alt=""` (decorativa). */
+  alt?: string;
+}
+
+export interface AdBannerBlock extends BaseBlock {
+  type: 'adBanner';
+  image: AdBannerImage;
+  title?: string;
+  description?: string;
+  /** El texto del botón. Sin `href` no se pinta ningún botón. */
+  ctaLabel?: string;
+  href?: string;
+  /**
+   * Dónde se abre el enlace. NO decide la seguridad: el `rel="noopener noreferrer"` de una
+   * pestaña nueva lo impone `SmartLink` siempre, y no es configurable.
+   */
+  openInNewTab?: boolean;
+}
+
 export interface StepItem {
   title: string;
   description: string;
@@ -178,4 +207,5 @@ export type Block =
   | StepsBlock
   | ProfileBlock
   | ListingsBlock
-  | VideoUploadBlock;
+  | VideoUploadBlock
+  | AdBannerBlock;

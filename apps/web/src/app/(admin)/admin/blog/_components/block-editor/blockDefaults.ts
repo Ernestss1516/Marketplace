@@ -13,6 +13,7 @@ import {
   ListOrdered,
   IdCard,
   ShoppingBag,
+  Megaphone,
   type LucideIcon,
 } from 'lucide-react';
 import { generateId } from '@/lib/utils';
@@ -42,6 +43,9 @@ export const BLOCK_TYPE_META: Record<BlockType, { label: string; description: st
   steps: { label: 'Pasos', description: 'Una secuencia numerada de pasos, cada uno con foto opcional', icon: ListOrdered },
   profile: { label: 'Ficha', description: 'Foto, nombre y una lista de atributos (perfil, ficha técnica)', icon: IdCard },
   listings: { label: 'Anuncios de una categoría', description: 'Muestra automáticamente los anuncios más recientes de una categoría', icon: ShoppingBag },
+  // «Publicidad» y no «Anuncio»: en este proyecto un anuncio es lo que publica un vendedor,
+  // y llamar igual a las dos cosas confundiría al editor en el único sitio donde elige.
+  adBanner: { label: 'Publicidad', description: 'Una imagen publicitaria, con texto y botón opcionales', icon: Megaphone },
 };
 
 // Orden fijo del selector — de más simple/frecuente a más elaborado, no
@@ -61,6 +65,7 @@ export const BLOCK_TYPE_ORDER: BlockType[] = [
   'videoUpload',
   'table',
   'listings',
+  'adBanner',
   'separator',
 ];
 
@@ -102,6 +107,10 @@ export function createDefaultBlock(type: BlockType): Block {
       return { id, type, attributes: [{ label: '', value: '' }] };
     case 'listings':
       return { id, type, categorySlug: '', limit: 8 };
+    case 'adBanner':
+      // Sólo la imagen es obligatoria, y arranca vacía: el backend exige
+      // @IsOwnStorageUrl, así que guardar sin subir da un 400 — igual que `image`.
+      return { id, type, image: { url: '' } };
   }
 }
 
@@ -142,5 +151,9 @@ export function blockHasContent(block: Block): boolean {
       );
     case 'listings':
       return block.categorySlug.trim().length > 0;
+    case 'adBanner':
+      // La imagen es lo único obligatorio, así que es lo único que se puede perder de
+      // verdad: sin ella, quitar el bloque no borra nada que doliera.
+      return block.image.url.trim().length > 0;
   }
 }

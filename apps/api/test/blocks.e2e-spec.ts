@@ -475,8 +475,97 @@ describe('Sistema de bloques — validación (e2e)', () => {
     });
   });
 
-  it('post con los 13 tipos a la vez → 201 (el esquema completo, con los 4 nuevos, es válido combinado)', async () => {
-    const res = await createPost('Post con los 13 bloques', [
+  it('imageText SIN imagen → 400 (el campo era obligatorio de mentira)', async () => {
+    // REGRESIÓN, encontrada al escribir `adBanner`: `@ValidateNested()` sobre `undefined` no
+    // valida nada y NO da error, así que este bloque —con `image!` declarado obligatorio— se
+    // guardaba con 201. El renderizador hace `block.image.url` sin guarda, o sea que un post
+    // así **tumbaba la página pública**. Lo cierra un `@IsDefined()`.
+    await createPost('ImageText sin imagen', [
+      { id: 'b1', type: 'imageText', markdown: 'texto', layout: 'imageLeft' },
+    ]).expect(400);
+  });
+
+  // ── adBanner (publicidad EDITORIAL — ajuste 5) ────────────────────────────
+  //
+  // Composición de piezas ya validadas: la imagen de `imageText` y el enlace de `cta`. Lo
+  // que se prueba aquí es exactamente lo que la composición NO hereda gratis: que la imagen
+  // sea obligatoria y que los demás campos sean opcionales de verdad.
+
+  it('adBanner con SOLO la imagen → 201 (un banner que es una imagen es un banner válido)', async () => {
+    const res = await createPost('Banner mínimo', [
+      { id: 'b1', type: 'adBanner', image: { url: OWN_IMAGE_URL } },
+    ]).expect(201);
+    expect(res.body.blocks[0]).toEqual({
+      id: 'b1',
+      type: 'adBanner',
+      image: { url: OWN_IMAGE_URL },
+    });
+  });
+
+  it('adBanner SIN imagen → 400', async () => {
+    // LA MUTACIÓN QUE ESTO MATA: quitar el `@IsDefined()` del campo `image`.
+    // `@ValidateNested()` sobre `undefined` no valida nada y NO da error, así que sin él un
+    // banner sin imagen se guardaría —un bloque que no puede pintar nada—.
+    await createPost('Banner sin imagen', [{ id: 'b1', type: 'adBanner' }]).expect(400);
+  });
+
+  it('adBanner con imagen de URL externa → 400', async () => {
+    await createPost('Banner con imagen ajena', [
+      { id: 'b1', type: 'adBanner', image: { url: 'https://evil.example.com/x.jpg' } },
+    ]).expect(400);
+  });
+
+  it('adBanner con href javascript: → 400', async () => {
+    // El mismo validador que `cta.href`, no uno nuevo. Si esto pasara, el editor podría
+    // dejar un `javascript:` en un `<a href>` de una página pública.
+    await createPost('Banner con href peligroso', [
+      {
+        id: 'b1',
+        type: 'adBanner',
+        image: { url: OWN_IMAGE_URL },
+        ctaLabel: 'Pulsa',
+        href: 'javascript:alert(1)',
+      },
+    ]).expect(400);
+  });
+
+  it('adBanner completo, con href interno y externo → 201', async () => {
+    const res = await createPost('Banner completo', [
+      {
+        id: 'b1',
+        type: 'adBanner',
+        image: { url: OWN_IMAGE_URL, alt: 'Publicidad' },
+        title: 'Una oferta',
+        description: 'Con su descripción.',
+        ctaLabel: 'Ver oferta',
+        href: '/publicar',
+        openInNewTab: true,
+      },
+      {
+        id: 'b2',
+        type: 'adBanner',
+        image: { url: OWN_IMAGE_URL },
+        ctaLabel: 'Ir fuera',
+        href: 'https://ejemplo.com/oferta',
+      },
+    ]).expect(201);
+    expect(res.body.blocks[0].openInNewTab).toBe(true);
+    expect(res.body.blocks[1].href).toBe('https://ejemplo.com/oferta');
+  });
+
+  it('adBanner con openInNewTab no booleano → 400', async () => {
+    await createPost('Banner con toggle raro', [
+      {
+        id: 'b1',
+        type: 'adBanner',
+        image: { url: OWN_IMAGE_URL },
+        openInNewTab: 'sí',
+      },
+    ]).expect(400);
+  });
+
+  it('post con los 15 tipos a la vez → 201 (el esquema completo es válido combinado)', async () => {
+    const res = await createPost('Post con los 15 bloques', [
       { id: 'b1', type: 'text', markdown: 'texto' },
       { id: 'b2', type: 'faq', items: [{ question: 'q', answer: 'a' }] },
       { id: 'b3', type: 'hub', links: [{ label: 'l', href: '/x' }] },
@@ -490,7 +579,9 @@ describe('Sistema de bloques — validación (e2e)', () => {
       { id: 'b11', type: 'steps', items: [{ title: 't', description: 'd' }] },
       { id: 'b12', type: 'profile', attributes: [{ label: 'l', value: 'v' }] },
       { id: 'b13', type: 'listings', categorySlug: 'electronica', limit: 4 },
+      { id: 'b14', type: 'videoUpload', url: OWN_IMAGE_URL },
+      { id: 'b15', type: 'adBanner', image: { url: OWN_IMAGE_URL } },
     ]).expect(201);
-    expect(res.body.blocks).toHaveLength(13);
+    expect(res.body.blocks).toHaveLength(15);
   });
 });
