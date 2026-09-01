@@ -27,6 +27,14 @@ test.describe('Marcar un vendedor para revisión previa', () => {
     const fila = page.locator('tr', { hasText: TARGET });
     await expect(fila).toBeVisible({ timeout: 10_000 });
 
+    // DOS COLUMNAS, NO UNA DENTRO DE OTRA. La independencia semántica ya la afirma
+    // la batería de la API; lo que sólo se puede ver aquí es que se leen A LA VEZ,
+    // que es lo que evita entender «de confianza» como «exento de revisión». Si
+    // alguien colapsara «Revisión» dentro de «Confianza», el resto del test
+    // seguiría en verde y esta línea no.
+    await expect(page.getByRole('columnheader', { name: 'Confianza' })).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: 'Revisión' })).toBeVisible();
+
     const marca = fila.getByText('En revisión');
     const boton = fila.getByRole('button', { name: /^(No revisar|Revisar)$/ });
 
