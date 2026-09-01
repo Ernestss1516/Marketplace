@@ -276,6 +276,49 @@ test.describe('Backoffice — MODERATOR acceso restringido', () => {
     await expect(page.getByRole('button', { name: 'Banear' })).not.toBeVisible();
   });
 
+  /**
+   * AJUSTE 1 · EL REPARTO DE LA FILA DE USUARIO, POR LOS DOS LADOS.
+   *
+   * Las negativas matan la mutación de siempre: quitarle el gate
+   * `currentUserIsAdmin` a la confianza o a la exportación le pinta a un MODERATOR
+   * un botón que la API le devuelve con un 403. Ni «Marcar»/«Quitar» (confianza) ni
+   * «Exportar datos» aparecían en ningún test hasta aquí.
+   *
+   * La positiva no es adorno y es la mitad que más se olvida: «Archivar» es
+   * `@MinRole(MODERATOR)` en el backend —archivar es REVERSIBLE, y el reparto dice
+   * que lo reversible es moderación—, así que ponerle también el gate de ADMIN
+   * sería el error simétrico: esconderle a un moderador un botón que sí puede
+   * pulsar. Además impide que las negativas pasen en vacío con la tabla vacía.
+   *
+   * Se afirma «Archivar» y no «Suspender» a propósito: aquélla se ofrece en
+   * cualquier estado salvo ARCHIVED/DELETED, así que no depende de en qué estado
+   * dejara el usuario la ejecución anterior.
+   */
+  test('MODERATOR en /admin/usuarios — ve lo reversible y ninguna acción ADMIN-only', async ({
+    moderatorContext,
+  }) => {
+    const page = await moderatorContext.newPage();
+    await page.goto('/admin/usuarios', { waitUntil: 'domcontentloaded' });
+
+    const buscar = page.getByPlaceholder(/buscar por nombre o email/i);
+    await expect(buscar).toBeVisible({ timeout: 15_000 });
+    await buscar.fill('Review Target E2E');
+    await page.getByRole('button', { name: 'Buscar' }).click();
+
+    const fila = page.locator('tr', { hasText: 'Review Target E2E' });
+    await expect(fila).toBeVisible({ timeout: 10_000 });
+
+    // Lo suyo: reversible.
+    await expect(fila.getByRole('button', { name: 'Archivar', exact: true })).toBeVisible();
+
+    // Lo que no. `exact` importa: sin él «Quitar» casaría con el «Quitar IP» de la
+    // cabecera de filtros y la comprobación no estaría mirando la fila.
+    await expect(fila.getByRole('button', { name: 'Marcar', exact: true })).toHaveCount(0);
+    await expect(fila.getByRole('button', { name: 'Quitar', exact: true })).toHaveCount(0);
+    await expect(fila.getByRole('button', { name: 'Exportar datos', exact: true })).toHaveCount(0);
+    await expect(fila.getByRole('button', { name: 'Banear', exact: true })).toHaveCount(0);
+  });
+
   test('MODERATOR en /admin/blog — botón "Eliminar" no visible', async ({ moderatorContext }) => {
     const page = await moderatorContext.newPage();
     await page.goto('/admin/blog');
@@ -762,5 +805,34 @@ test.describe('Asignación de roles desde /admin/usuarios', () => {
     await expect(row).toBeVisible({ timeout: 10_000 });
     await expect(row.locator('select')).toHaveCount(0);
     await expect(row.getByText('Admin', { exact: true })).toBeVisible();
+  });
+
+  /**
+   * AJUSTE 1 · UNA FILA ADMIN NO OFRECE ACCIONES, Y ES OTRA GUARDA QUE LA DE ARRIBA.
+   *
+   * Aquélla cubre el selector de rol (`isAdmin || !currentUserIsAdmin`); ésta cubre
+   * el `{!isAdmin && …}` que envuelve TODAS las de estado, que no tenía ninguna. Lo
+   * que impide es la auto-sanción: un ADMIN mirando la lista se ve a sí mismo, y sin
+   * este gate tendría a un clic de distancia el botón de banearse o archivarse.
+   *
+   * «Ver» sí sigue ahí, y hace de testigo: si la fila no se hubiera pintado, las
+   * cuatro comprobaciones de ausencia pasarían sin haber mirado nada.
+   */
+  test('la fila de un ADMIN no ofrece ninguna acción de estado', async ({ adminContext }) => {
+    const page = await adminContext.newPage();
+    await page.goto('/admin/usuarios', { waitUntil: 'domcontentloaded' });
+
+    const buscar = page.getByPlaceholder(/buscar por nombre o email/i);
+    await expect(buscar).toBeVisible({ timeout: 15_000 });
+    await buscar.fill('Admin E2E');
+    await page.getByRole('button', { name: 'Buscar' }).click();
+
+    const fila = page.locator('tr', { hasText: 'Admin E2E' });
+    await expect(fila).toBeVisible({ timeout: 10_000 });
+    await expect(fila.getByRole('button', { name: 'Ver' })).toBeVisible();
+
+    for (const accion of ['Suspender', 'Banear', 'Archivar', 'Exportar datos']) {
+      await expect(fila.getByRole('button', { name: accion, exact: true })).toHaveCount(0);
+    }
   });
 });

@@ -34,6 +34,7 @@ describe('Borrado de cuentas C6 — las puertas (e2e)', () => {
   let duenyo: { id: string; token: string };
   let ajeno: { id: string; token: string };
   let adminToken: string;
+  let adminId: string;
   let modToken: string;
 
   beforeAll(async () => {
@@ -73,6 +74,7 @@ describe('Borrado de cuentas C6 — las puertas (e2e)', () => {
     ajeno = { id: a.id, token: await login(a.email) };
 
     const admin = await crear('admin', Role.ADMIN);
+    adminId = admin.id;
     adminToken = await login(admin.email, true);
     const mod = await crear('mod', Role.MODERATOR);
     modToken = await login(mod.email, true);
@@ -141,6 +143,57 @@ describe('Borrado de cuentas C6 — las puertas (e2e)', () => {
       .set('Authorization', `Bearer ${modToken}`)
       .expect(403);
   });
+
+  /**
+   * EL CAMINO DEL ADMIN, EN VERDE — y la mitad que el botón del backoffice necesita.
+   *
+   * Las dos pruebas de al lado dicen quién NO puede; ninguna decía que el ADMIN SÍ,
+   * así que `requestForUser` —y con él el rastro `USER_DATA_EXPORT_REQUESTED`, que
+   * es lo que hace rendir cuentas a quien saca los datos de OTRO— no se ejecutaba
+   * nunca en la batería. `requestForSelf` no deja ese rastro porque no hace falta:
+   * ahí el actor y el sujeto son la misma persona.
+   *
+   * Y afirma que **la respuesta vuelve PENDING**: si el endpoint construyera el ZIP
+   * dentro de la petición, aquí llegaría un `READY` — y en producción, una pantalla
+   * colgada mientras se recorren veinte tablas. Se comprueba sobre `res.body` y no
+   * sobre la fila: el worker de esta suite está vivo y podría haberla dejado lista
+   * entre la respuesta y la consulta.
+   */
+  it('BARRERA 4 · un ADMIN sí la pide para otro: 200 PENDING, con rastro y sin esperar al ZIP', async () => {
+    const sujeto = await prisma.user.create({
+      data: {
+        email: 'c6p-exportado@example.com',
+        name: 'C6P exportado',
+        slug: 'c6p-exportado',
+        emailVerified: true,
+      },
+    });
+
+    const res = await request(app.getHttpServer())
+      .post(`/api/admin/users/${sujeto.id}/export`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+
+    expect(res.body.status).toBe(DataExportStatus.PENDING);
+    expect(res.body.key ?? null).toBeNull();
+    expect(res.body.subjectUserId).toBe(sujeto.id);
+    expect(res.body.requestedById).toBe(adminId);
+
+    // Quién sacó los datos de quién, escrito antes de responder.
+    const rastro = await prisma.auditLog.findFirst({
+      where: { action: 'USER_DATA_EXPORT_REQUESTED', resourceId: sujeto.id },
+    });
+    expect(rastro).not.toBeNull();
+    expect(rastro!.actorId).toBe(adminId);
+
+    // Se espera al worker antes de terminar: dejar una exportación en vuelo al
+    // cerrar la suite es un job huérfano, y una viva bloquearía la siguiente (una
+    // por persona). De paso, esto demuestra que lo que se encoló se procesa.
+    await pollUntil(async () => {
+      const fila = await prisma.dataExport.findUnique({ where: { id: res.body.id as string } });
+      return fila?.status === DataExportStatus.READY;
+    }, 60_000);
+  }, 120_000);
 
   it('BARRERA 4 · un MODERATOR tampoco puede DESCARGAR la de otro', async () => {
     const fila = await exportacionLista(duenyo.id);
