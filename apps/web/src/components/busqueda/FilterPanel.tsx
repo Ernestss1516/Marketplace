@@ -7,6 +7,15 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { PROVINCIAS } from '@/lib/provincias';
 import { resolveLinkedOptions } from '@/lib/attribute-schema';
+// I18N T1 — el vocabulario de enums YA ESCRITO, no una copia nueva. Vive bajo
+// `app/(admin)/admin/` por dónde nació (las fichas del backoffice), y de ahí lo
+// importa también esta pantalla pública: hoy es un módulo plano —sin JSX, sin
+// `'use client'`, sin nada de servidor— y traer las tres etiquetas de `PriceType`
+// desde su única fuente es preferible a abrir aquí la copia nº 32. Mudarlo a `lib/`
+// es la ráfaga de consolidación (T3, `docs/auditoria-i18n-espanol.md` §8.2), que
+// además re-exportará desde aquí para no tocar a sus veinte consumidores; hacerlo
+// ahora sería meter ese cuerpo dentro de éste.
+import { TIPO_PRECIO_LABELS, UNIDAD_PRECIO_LABELS } from '@/app/(admin)/admin/etiquetas';
 import type { AttributeFieldView } from '@/lib/filterable-fields';
 import { CategorySelect } from './CategorySelect';
 import type { Category, ListingTypePolicy, TagRef } from '@/types';
@@ -41,29 +50,43 @@ const RADIUS_OPTIONS = [
   { value: '50', label: '50 km' },
 ] as const;
 
-const CONDITION_LABELS: Record<string, string> = {
-  NEW: 'Nuevo',
-  LIKE_NEW: 'Como nuevo',
-  GOOD: 'Buen estado',
-  FAIR: 'Aceptable',
-  FOR_PARTS: 'Para piezas',
-  PRODUCT: 'Productos',
-  SERVICE: 'Servicios',
-  // RP.4 — formatos de precio. Mismas etiquetas que el wizard y el panel de
-  // categorías, para que vendedor, admin y comprador lean lo mismo.
-  ONE_TIME: 'Pago único',
-  PER_MONTH: 'Al mes',
-  PER_WEEK: 'A la semana',
-  PER_DAY: 'Al día',
-  PER_HOUR: 'Por hora',
-  PER_UNIT: 'Por unidad',
-  PER_SESSION: 'Por sesión',
+/**
+ * I18N T1 — EL VOCABULARIO DE LAS FACETAS GENÉRICAS, UNO POR CAMPO.
+ *
+ * AQUÍ ESTUVO `CONDITION_LABELS`, y lo que tenía mal no era el contenido: era ser
+ * **un solo saco para tres enums distintos**. Mezclaba `Condition`, `ListingType` y
+ * `PriceUnit` en un `Record<string,string>` plano y lo aplicaba a CUALQUIER faceta,
+ * así que un valor sin entrada caía al crudo sin que nada lo notara — y `PriceType`
+ * no tenía entrada. Resultado: el público leía chips «FIXED (12)» y «NEGOTIABLE (3)»
+ * en el panel de filtros, el único sitio de la plataforma donde un enum crudo daba la
+ * cara fuera del backoffice.
+ *
+ * Y NO FALTABA LA TRADUCCIÓN: `TIPO_PRECIO_LABELS` existe desde la ráfaga de
+ * traducciones del backoffice, con sus tres valores y con test. Lo que faltaba era la
+ * LLAMADA. Por eso esto no escribe ni una etiqueta nueva — importa las que ya hay.
+ *
+ * Indexado POR FACETA y no en un saco común: es lo que hace que «el diccionario de
+ * `priceType`» sea una pregunta con respuesta, en vez de «a ver si el valor suena».
+ * Dos enums distintos pueden compartir un valor (`FIXED` es `PriceType` aquí y
+ * `BonusKind` en campañas) y en un saco plano el primero que entre gana.
+ *
+ * De momento sólo llegan estas dos: el bloque genérico pinta lo que el backend
+ * facetea (`search.service.ts`) menos lo que ya tiene control propio (`SKIP_FACETS`).
+ * Una faceta nueva sin entrada cae al valor crudo — la regla de `etiquetas.ts`: un
+ * valor sin etiqueta tiene que verse FEO, no desaparecer.
+ */
+const FACET_VALUE_LABELS: Record<string, Record<string, string>> = {
+  priceType: TIPO_PRECIO_LABELS,
+  priceUnit: UNIDAD_PRECIO_LABELS,
 };
 
 /** Títulos legibles de los grupos de facetas. Sin entrada aquí se muestra el
  *  nombre crudo del campo, que es el comportamiento que ya había. */
 const FACET_SECTION_LABELS: Record<string, string> = {
   priceUnit: 'Formato del precio',
+  // I18N T1 — la sección se titulaba «priceType», el nombre del campo de
+  // Meilisearch, a la vista de cualquiera que abriera los filtros.
+  priceType: 'Tipo de precio',
 };
 
 /** Facetas que NO se muestran cuando solo traen un valor: un filtro con una
@@ -76,7 +99,29 @@ const HIDE_IF_SINGLE_VALUE = new Set(['priceUnit']);
 // either selected via the dropdown or locked in the URL path on category pages.
 // B3 — `tags` se excluye porque tiene su PROPIA sección: la genérica de abajo pinta
 // chips excluyentes (toggleFacet) y las etiquetas son multi-selección.
-const SKIP_FACETS = new Set(['type', 'condition', 'category', 'categorySlug', 'tags']);
+//
+// I18N T1 — `province` se excluye por la MISMA razón que `type` y `condition`, no por
+// idioma: **ya tiene su control propio**, el selector «Ubicación» de las 52 provincias
+// (`lib/provincias.ts`), sesenta líneas más arriba. El bloque genérico venía pintando
+// una SEGUNDA sección de provincia —titulada «province», porque ése es el nombre del
+// campo en Meilisearch— y el usuario veía dos sitios para filtrar por lo mismo, uno de
+// ellos limitado a las provincias que hubiera en la página actual.
+//
+// Por eso se ELIMINA en vez de traducirse: ponerle título en español habría dejado dos
+// filtros de provincia bien escritos en la misma columna, que es peor que uno mal
+// escrito. Los VALORES nunca fueron el problema (son nombres de provincia reales, no
+// un enum) y no se tocan: siguen exactamente donde estaban, en el selector.
+//
+// La faceta se sigue PIDIENDO al backend (`search.service.ts`) — pedirla no altera los
+// hits y sus conteos quedan disponibles; lo que cambia es quién la pinta.
+const SKIP_FACETS = new Set([
+  'type',
+  'condition',
+  'category',
+  'categorySlug',
+  'tags',
+  'province',
+]);
 
 /** A3 — etiquetas de los valores booleanos. Antes se pintaba el valor crudo del
  *  documento de Meilisearch ("true"/"false") como si fuera una opción de negocio. */
@@ -826,6 +871,9 @@ export function FilterPanel({
             const entries = Object.entries(facetValues).sort(([, a], [, b]) => b - a);
             if (entries.length === 0) return null;
             if (HIDE_IF_SINGLE_VALUE.has(facetKey) && entries.length < 2) return null;
+            // I18N T1 — el vocabulario DE ESTA faceta, no un saco común. Ausente para
+            // una faceta nueva: sus valores caen al crudo, como antes.
+            const valueLabels = FACET_VALUE_LABELS[facetKey];
             return (
               <div key={facetKey} data-testid={`facet-${facetKey}`}>
                 <SectionLabel>{FACET_SECTION_LABELS[facetKey] ?? facetKey}</SectionLabel>
@@ -843,7 +891,7 @@ export function FilterPanel({
                             : 'border-border hover:border-primary/50 hover:bg-accent',
                         ].join(' ')}
                       >
-                        {CONDITION_LABELS[value] ?? value}
+                        {valueLabels?.[value] ?? value}
                         <span className={isActive ? 'opacity-70' : 'text-muted-foreground'}>
                           ({count})
                         </span>
