@@ -336,10 +336,93 @@ describe('Portada configurable — RP.1 (e2e)', () => {
     ).expect(200);
   });
 
-  it('celda sin media ni enlace → 200 (las señales de confianza no enlazan)', async () => {
+  it('celda sin enlace → 200 (las señales de confianza no enlazan a ningún sitio)', async () => {
+    // Lo que este caso protege es el HREF opcional, no el media. Antes se escribía con una
+    // celda de sólo texto; desde el ajuste 6 eso es justo lo que ya no vale, así que se
+    // escribe con la forma real de una señal de confianza: icono, texto y sin destino.
     await patch(
-      body({ blocks: [{ id: 'g1', type: 'grid', columns: 4, items: [{ title: 'Solo texto' }] }] }),
+      body({ blocks: [{ id: 'g1', type: 'grid', columns: 4, items: [CELDA_ICONO] }] }),
     ).expect(200);
+  });
+
+  // ── AJUSTE 6: la rejilla flexible ──────────────────────────────────────────
+  //
+  // Se invirtió qué es obligatorio en una celda: antes `title` sí y `media` no; ahora al
+  // revés. Los dos cambios NO tienen el mismo riesgo y por eso se prueban aparte.
+
+  it('celda con SOLO imagen, sin texto → 200 (title pasó a opcional: ADITIVO)', async () => {
+    // El cambio aditivo: lo que ya estaba guardado lleva título y sigue valiendo; lo que se
+    // abre es la tarjeta de sólo imagen, que antes no se podía guardar.
+    const res = await patch(
+      body({
+        blocks: [
+          {
+            id: 'g1',
+            type: 'grid',
+            columns: 3,
+            items: [{ media: { kind: 'image', url: OWN_IMAGE_URL, alt: 'Un logo' } }],
+          },
+        ],
+      }),
+    ).expect(200);
+    expect(res.body.blocks[0].items[0].title).toBeUndefined();
+  });
+
+  it('celda con SOLO icono, sin texto → 200', async () => {
+    await patch(
+      body({
+        blocks: [
+          {
+            id: 'g1',
+            type: 'grid',
+            columns: 4,
+            items: [{ media: { kind: 'icon', name: 'star' } }],
+          },
+        ],
+      }),
+    ).expect(200);
+  });
+
+  it('celda CON título sigue siendo válida (el cambio no rompe lo guardado)', async () => {
+    // La mitad que importa de «aditivo»: las cuatro señales de confianza de la semilla
+    // llevan título, y tienen que seguir entrando tal cual.
+    await patch(
+      body({ blocks: [{ id: 'g1', type: 'grid', columns: 4, items: [CELDA_ICONO] }] }),
+    ).expect(200);
+  });
+
+  it('celda SIN media (ni imagen ni icono) → 400', async () => {
+    // EL ENDURECIMIENTO. Una tarjeta necesita algo visual: sin ello la rejilla tiene un
+    // hueco de texto suelto entre tarjetas con imagen, que es el descuadre que este ajuste
+    // viene a quitar.
+    //
+    // LA MUTACIÓN QUE ESTO MATA: devolver `media` a `@IsOptional()` — o quitarle el
+    // `@IsDefined()`, que es lo mismo, porque `@ValidateNested()` sobre `undefined` no
+    // valida nada y no da error.
+    const res = await patch(
+      body({ blocks: [{ id: 'g1', type: 'grid', columns: 4, items: [{ title: 'Solo texto' }] }] }),
+    ).expect(400);
+    // El mensaje nombra el problema: si una portada guardada antes del ajuste llega aquí,
+    // el admin tiene que poder saber qué arreglar sin leer el código.
+    expect(JSON.stringify(res.body)).toMatch(/imagen o un icono/i);
+  });
+
+  it('celda con title vacío → 400 (ausente vale; "" no)', async () => {
+    // `@IsNotEmpty()` sigue puesto debajo del `@IsOptional()`: una cadena vacía guardada
+    // pintaría el hueco que el ajuste quiere quitar, así que se rechaza. El editor manda
+    // `undefined` cuando se borra el campo, no `""`.
+    await patch(
+      body({
+        blocks: [
+          {
+            id: 'g1',
+            type: 'grid',
+            columns: 4,
+            items: [{ media: { kind: 'icon', name: 'star' }, title: '' }],
+          },
+        ],
+      }),
+    ).expect(400);
   });
 
   it('grid con columnas fuera del conjunto {1,2,3,4,6} → 400', async () => {

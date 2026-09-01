@@ -16297,6 +16297,80 @@ Mutaciones comprobadas: **quitar el `noopener`** → caen 4 unitarias; **quitar 
 
 ---
 
+## Rejilla de tarjetas más flexible (`grid`) — ajuste 6
+
+**Se invirtió qué es obligatorio en una celda.** Antes: `title` sí, `media` no —o sea que una
+tarjeta podía ser texto suelto pero no podía ser sólo una imagen, justo al revés de lo que una
+rejilla de tarjetas pide—. Ahora: **`media` obligatorio (imagen o icono), todo lo demás
+opcional**. Sólo el motor de PORTADA; no toca ningún otro bloque.
+
+### Los dos cambios no tienen el mismo riesgo
+
+| | `title` → opcional | `media` → obligatorio |
+|---|---|---|
+| Qué es | **Aditivo** | **Endurecimiento** |
+| Efecto sobre lo guardado | Ninguno: lo que hay lleva título y sigue valiendo | Puede rechazar datos hoy válidos |
+| Cómo se comprobó | — | Semillas (`seed.ts`, `seed-test.ts`, `helpers/portada.ts`) y base de datos de desarrollo: **cero** celdas sin media |
+
+**El riesgo residual está dicho, no tapado:** el editor **sí ofrecía** crear celdas sin media
+(«Sin imagen ni icono»), así que una portada en producción podría tenerlas. Como
+`PATCH /admin/homepage` es un reemplazo completo, ese guardado se rechazaría entero hasta
+arreglar la celda. Mitigado por los dos lados:
+
+- **El editor** ya no ofrece la opción, las tarjetas nuevas nacen con icono, y una tarjeta
+  antigua sin media aparece con el desplegable sin elegir y un aviso en rojo que dice qué hacer.
+  El validador de cliente da el mensaje antes de viajar.
+- **El `@IsDefined()` lleva mensaje propio** («Cada tarjeta de la rejilla necesita una imagen o
+  un icono»), para que un 400 no sea opaco.
+- **El renderizador sigue tratando `media` como si pudiera faltar.** Endurecer el esquema no
+  reescribe lo guardado, y una portada que reventara al pintar sería mucho peor que un guardado
+  que hay que arreglar una vez. Tiene su test.
+
+`title` conserva `@IsNotEmpty()` **debajo** de `@IsOptional()`: ausente vale, `""` no — una
+cadena vacía pintaría justo el hueco que este ajuste quita. El editor manda `undefined` al borrar.
+
+### La adaptación al espacio
+
+- **Imagen**: de `h-16 w-16` (un cuadrado de 64 px que no usaba el ancho) a `aspect-[4/3] w-full
+  object-cover`. Dos imágenes de tamaños distintos ocupan ahora exactamente la misma caja y el
+  recorte lo hace el navegador — es lo que impide el descuadre.
+- **Icono**: NO se estira. Se centra en una caja de la misma altura para que una rejilla mixta no
+  dé saltos, pero conserva su tamaño: estirarlo habría cambiado la pinta de las señales de
+  confianza, que llevan así desde RP.4 y no son lo que este ajuste venía a arreglar.
+- **Filas**: `auto-rows-fr` en la rejilla + `h-full` en la tarjeta — alineadas arriba y abajo
+  aunque una tenga más texto.
+- **Sin título no se reserva sitio**: el `<span>` pasa a ser condicional. Antes se pintaba
+  siempre, así que una tarjeta sin texto dejaba una línea vacía. Al no existir el elemento,
+  tampoco se aplica el `gap` del flex.
+
+Todas las clases **estáticas**, incluida `aspect-[4/3]`: Tailwind purga lo que no ve escrito.
+
+### Barreras
+
+`test/homepage.e2e-spec.ts` (+5) y `src/components/home/blocks/GridHomeBlockRenderer.test.tsx`
+(15, nuevo). Cubren: sólo imagen → 200, sólo icono → 200, con título sigue válido, sin media →
+400 (con el mensaje), `title: ""` → 400; y en el render, la tarjeta sin texto sin hueco, la caja
+compartida de las imágenes, las filas iguales, los iconos intactos, la degradación de `isSafeSrc`
+y una **celda antigua sin media que no revienta la portada**.
+
+Mutaciones comprobadas: **`title` obligatorio otra vez** → caen las dos de sólo-media;
+**`media` opcional otra vez** → una celda sin nada visual pasa.
+
+> **Y una tercera mutación que SOBREVIVIÓ a la primera versión de su barrera**, que es la que
+> merece la pena contar: cambiar el mapa estático por `sm:grid-cols-${n}`. La prueba usaba
+> `toContain`, y para 3, 4 y 6 la cadena interpolada contiene igualmente lo que se buscaba — así
+> que pasaba en verde. Lo que la delata es lo que la interpolación **pierde**: el fallback de
+> móvil (`grid-cols-2` antes del `sm:`), que sólo existe en el mapa escrito a mano. La barrera se
+> reescribió con **igualdad exacta** del `className` completo, y entonces mata la mutación (6
+> tests). Se le sumó una comprobación **sobre el código fuente** —que no se interpola ninguna
+> clase— porque el purgado es de tiempo de compilación: **ningún test de render puede verlo**, en
+> jsdom el `className` sale igual.
+
+Se ajustó también la fixture de `e2e/portada-bloques.spec.ts`, que escribía dos celdas sin media;
+lo que esos casos prueban (el `href` presente o ausente) no cambia.
+
+---
+
 ## Estadísticas A1 — la captura de «veces listado» (impresiones de búsqueda)
 
 Primera ráfaga de `docs/diseno-estadisticas.md` (parte A). Captura SOLO: nadie lee todavía lo

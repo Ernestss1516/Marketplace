@@ -72,7 +72,11 @@ function validate(values: FormState): string | null {
 
     if (block.type === 'grid') {
       for (const cell of block.items) {
-        if (!cell.title.trim()) return 'Hay una tarjeta de la rejilla sin texto.';
+        // AJUSTE 6 — se invirtió qué falta hace: el TEXTO ya no es obligatorio (una tarjeta
+        // puede ser sólo una imagen) y el MEDIA sí lo es. Este aviso se adelanta al 400 del
+        // backend, que es lo único que vería el admin si la comprobación no estuviera aquí —
+        // y le pasaría a una portada guardada ANTES del ajuste, con tarjetas sin media.
+        if (!cell.media) return 'Hay una tarjeta de la rejilla sin imagen ni icono.';
         if (cell.href && !isSafeContentUrl(cell.href)) {
           return 'Hay una tarjeta de la rejilla con un enlace no válido.';
         }

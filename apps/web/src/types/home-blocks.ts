@@ -77,9 +77,19 @@ export type HomeGridMedia =
 export const GRID_COLUMNS = [1, 2, 3, 4, 6] as const;
 export type GridColumns = (typeof GRID_COLUMNS)[number];
 
+/**
+ * Una tarjeta de la rejilla. Desde el ajuste 6, lo único obligatorio es el `media`.
+ *
+ * OJO AL LEER DATOS YA GUARDADOS: el tipo describe lo que el backend **acepta ahora**, no lo
+ * que pueda haber en la fila. `media` fue opcional hasta el ajuste 6 y el editor ofrecía
+ * crear tarjetas sin él, así que una portada antigua puede traer celdas que violan este tipo.
+ * Por eso el renderizador y el editor lo tratan como si pudiera faltar: endurecer el esquema
+ * no reescribe lo guardado.
+ */
 export interface HomeGridCell {
-  media?: HomeGridMedia;
-  title: string;
+  media: HomeGridMedia;
+  /** Opcional desde el ajuste 6: una tarjeta puede ser sólo una imagen. */
+  title?: string;
   description?: string;
   /** Sin href, la celda se pinta como <div>: las señales de confianza no enlazan. */
   href?: string;

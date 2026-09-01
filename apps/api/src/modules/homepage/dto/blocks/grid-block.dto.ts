@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
+  IsDefined,
   IsIn,
   IsInt,
   IsNotEmpty,
@@ -59,9 +60,38 @@ export class GridIconMediaDto extends BaseGridMediaDto {
   name!: HomeIconName;
 }
 
+/**
+ * REJILLA FLEXIBLE (ajuste 6) — se invirtió qué es obligatorio en una celda.
+ *
+ * ANTES: `title` obligatorio, `media` opcional. O sea que una celda podía ser texto suelto
+ * pero no podía ser sólo una imagen — justo al revés de lo que una rejilla de tarjetas pide.
+ * AHORA: **`media` obligatorio, todo lo demás opcional**. Una celda necesita algo visual (una
+ * imagen o un icono) y nada más.
+ *
+ * LOS DOS CAMBIOS NO TIENEN EL MISMO RIESGO, y conviene no tratarlos igual:
+ *
+ *  · `title` obligatorio → opcional es **ADITIVO**: lo que ya está guardado lo tiene, sigue
+ *    siendo válido, y lo único que se abre son formas nuevas. No puede romper nada.
+ *  · `media` opcional → obligatorio es un **ENDURECIMIENTO**, y sí puede rechazar datos que
+ *    hoy son válidos. Comprobado antes de hacerlo: ni las semillas (`seed.ts`,
+ *    `seed-test.ts`, `e2e/helpers/portada.ts` — las cuatro señales de confianza llevan icono)
+ *    ni la base de datos de desarrollo tienen ni una celda sin media. Pero el editor **sí
+ *    ofrecía** crearlas («Sin imagen ni icono»), así que una portada en producción podría
+ *    tenerlas.
+ *
+ * QUÉ PASA SI EXISTE UNA, dicho explícitamente: `PATCH /admin/homepage` es un reemplazo
+ * completo, así que ese guardado se rechaza entero hasta que esa celda tenga imagen o icono.
+ * Se ha mitigado por los dos lados — el editor ya no permite crearlas y marca en rojo la que
+ * encuentre, y el mensaje del 400 nombra la celda—, pero el renderizador **sigue tratando
+ * `media` como si pudiera faltar**: endurecer el DTO no borra lo ya guardado, y una portada
+ * que reventara al pintar sería mucho peor que un guardado que hay que arreglar una vez.
+ */
 export class GridCellDto {
-  // `media` OPCIONAL: una celda puede ser solo texto.
-  @IsOptional()
+  /**
+   * Lo ÚNICO obligatorio de una celda. `@IsDefined()` no sobra:
+   * `@ValidateNested()` sobre `undefined` no valida nada y no da error.
+   */
+  @IsDefined({ message: 'Cada tarjeta de la rejilla necesita una imagen o un icono.' })
   @ValidateNested()
   @Type(() => BaseGridMediaDto, {
     discriminator: {
@@ -73,12 +103,22 @@ export class GridCellDto {
     },
     keepDiscriminatorProperty: true,
   })
-  media?: GridImageMediaDto | GridIconMediaDto;
+  media!: GridImageMediaDto | GridIconMediaDto;
 
+  /**
+   * OPCIONAL desde el ajuste 6. Una tarjeta puede ser sólo una imagen —un logo, una pieza
+   * gráfica que ya lleva su texto dentro— y obligar a ponerle un pie forzaba a inventarlo.
+   *
+   * `@IsNotEmpty()` sigue puesto DEBAJO del `@IsOptional()`, y no es redundante: ausente es
+   * válido, pero `""` no. Sin él, el editor podría guardar una cadena vacía y el
+   * renderizador pintaría un hueco donde iría el texto — que es exactamente lo que este
+   * ajuste quiere quitar.
+   */
+  @IsOptional()
   @IsString()
   @IsNotEmpty()
   @MaxLength(150)
-  title!: string;
+  title?: string;
 
   @IsOptional()
   @IsString()
