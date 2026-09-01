@@ -23,12 +23,23 @@ const COLUMN_LABELS: Record<GridColumns, string> = {
   6: '6 por fila',
 };
 
-/** Qué tipo de imagen/icono lleva la celda. `ninguna` = solo texto. */
-type MediaKind = 'ninguna' | 'icon' | 'image';
+/**
+ * Qué lleva la tarjeta. Desde el ajuste 6 **no hay opción «ninguna»**: `media` es obligatorio
+ * y ofrecerla sería ofrecer un guardado que el backend rechaza.
+ */
+type MediaKind = 'icon' | 'image';
 
-function mediaKindOf(cell: HomeGridCell): MediaKind {
-  if (!cell.media) return 'ninguna';
-  return cell.media.kind;
+/**
+ * `''` para una tarjeta ANTIGUA sin media — el `<select>` se queda sin elegir y, al lado, un
+ * aviso. Es la única forma de que una portada guardada antes del ajuste 6 se pueda arreglar:
+ * si el desplegable se autoseleccionara a «icono», el editor estaría inventando un dato que
+ * nadie eligió, y bastaría con guardar sin mirar para que se colara.
+ *
+ * El tipo dice que `media` existe siempre; esto es justo el caso en que la fila no cumple el
+ * tipo, así que se lee con cuidado y no se confía en el compilador.
+ */
+function mediaKindOf(cell: HomeGridCell): MediaKind | '' {
+  return cell.media?.kind ?? '';
 }
 
 export function GridHomeBlockEditor({
@@ -59,7 +70,6 @@ export function GridHomeBlockEditor({
   }
 
   function setMediaKind(index: number, kind: MediaKind) {
-    if (kind === 'ninguna') return updateCell(index, { media: undefined });
     if (kind === 'icon') return updateCell(index, { media: { kind: 'icon', name: 'star' } });
     // Al pasar a imagen se deja el hueco: la URL la pone el upload, nunca se
     // escribe a mano (@IsOwnStorageUrl la rechazaría).
@@ -151,16 +161,20 @@ export function GridHomeBlockEditor({
 
               <div className="min-w-0 flex-1 space-y-2">
                 <div className="flex flex-col gap-1">
-                  <label className={labelCls}>Texto *</label>
+                  <label className={labelCls}>Texto (opcional)</label>
                   <input
                     type="text"
-                    value={cell.title}
-                    onChange={(e) => updateCell(index, { title: e.target.value })}
+                    value={cell.title ?? ''}
+                    // `|| undefined`: una cadena vacía se guarda como AUSENTE, no como "".
+                    // El DTO rechaza `""` a propósito (@IsNotEmpty bajo @IsOptional), y así
+                    // borrar el texto a mano deja la tarjeta sin título en vez de dar un 400.
+                    onChange={(e) => updateCell(index, { title: e.target.value || undefined })}
                     className={inputCls}
                     disabled={disabled}
                     placeholder="p.ej. Anuncios moderados"
                     data-testid={`grid-cell-title-${index}`}
                   />
+                  <p className={hintCls}>Puedes dejarlo vacío: una tarjeta puede ser sólo la imagen.</p>
                 </div>
 
                 <div className="flex flex-col gap-1">
@@ -196,7 +210,7 @@ export function GridHomeBlockEditor({
                 </div>
 
                 <div className="flex flex-col gap-1">
-                  <label className={labelCls}>Imagen o icono</label>
+                  <label className={labelCls}>Imagen o icono *</label>
                   <select
                     value={kind}
                     onChange={(e) => setMediaKind(index, e.target.value as MediaKind)}
@@ -204,10 +218,23 @@ export function GridHomeBlockEditor({
                     disabled={disabled}
                     data-testid={`grid-cell-media-kind-${index}`}
                   >
-                    <option value="ninguna">Sin imagen ni icono</option>
+                    {/* Sólo para una tarjeta ANTIGUA que se guardó sin media: da la opción
+                        vacía donde pararse. No es elegible — `disabled` — porque guardar así
+                        daría un 400. */}
+                    {kind === '' && (
+                      <option value="" disabled>
+                        — elige imagen o icono —
+                      </option>
+                    )}
                     <option value="icon">Un icono</option>
                     <option value="image">Una imagen</option>
                   </select>
+                  {kind === '' && (
+                    <p className={errorCls} data-testid={`grid-cell-media-falta-${index}`}>
+                      <AlertCircle className="h-3 w-3 shrink-0" />
+                      Esta tarjeta se guardó sin imagen ni icono. Elige una para poder guardar.
+                    </p>
+                  )}
                 </div>
 
                 {cell.media?.kind === 'icon' && (
@@ -316,7 +343,11 @@ export function GridHomeBlockEditor({
         type="button"
         variant="outline"
         size="sm"
-        onClick={() => onChange({ items: [...block.items, { title: '' }] })}
+        // Nace CON icono: desde el ajuste 6 `media` es obligatorio, y una tarjeta que
+        // arranca inválida obligaría a descubrirlo con un 400 al guardar.
+        onClick={() =>
+          onChange({ items: [...block.items, { media: { kind: 'icon', name: 'star' } }] })
+        }
         disabled={disabled}
         data-testid="grid-add-cell"
       >

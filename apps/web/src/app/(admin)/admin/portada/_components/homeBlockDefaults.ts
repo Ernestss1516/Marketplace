@@ -102,7 +102,10 @@ export function createDefaultHomeBlock(type: HomeBlockType): HomeBlock {
       // 4 columnas y una tarjeta: es la forma de las señales de confianza, el
       // caso que más se usa. El backend exige ArrayMinSize(1), así que arranca
       // con la tarjeta ya creada — mejor ver el hueco que recibir un 400.
-      return { id, type, columns: 4, items: [{ title: '' }] };
+      //
+      // AJUSTE 6 — la tarjeta nace CON ICONO, y no es cosmética: desde ese ajuste `media` es
+      // obligatorio, así que una tarjeta sin él daría un 400 al guardar. Arranca válida.
+      return { id, type, columns: 4, items: [{ media: { kind: 'icon', name: 'star' } }] };
     case 'steps':
       return {
         id,
@@ -145,8 +148,10 @@ export function homeBlockHasContent(block: HomeBlock): boolean {
     case 'cta':
       return block.label.trim().length > 0 || block.href.trim().length > 0;
     case 'grid':
+      // Desde el ajuste 6 `title` es opcional, así que ya no se puede dar por hecho que
+      // exista: una tarjeta de sólo imagen es contenido de pleno derecho.
       return block.items.some(
-        (cell) => cell.title.trim() || cell.description?.trim() || cell.href?.trim() || cell.media,
+        (cell) => cell.media || cell.title?.trim() || cell.description?.trim() || cell.href?.trim(),
       );
     case 'steps':
       return block.columns.some(

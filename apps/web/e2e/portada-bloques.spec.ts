@@ -185,10 +185,13 @@ test.describe('Portada — motor de bloques', () => {
           type: 'grid',
           title: 'Por qué fiarte',
           columns: 4,
+          // AJUSTE 6 — las tres llevan media: desde entonces es lo único obligatorio de una
+          // tarjeta, y una celda sin él se rechaza con 400. Lo que estos casos prueban —el
+          // href presente o ausente— no cambia; sólo se completa la forma de la celda.
           items: [
             { media: { kind: 'icon', name: 'shield-check' }, title: 'Celda con icono' },
-            { title: 'Celda sin enlace' },
-            { title: 'Celda con enlace', href: '/busqueda' },
+            { media: { kind: 'icon', name: 'star' }, title: 'Celda sin enlace' },
+            { media: { kind: 'icon', name: 'message-circle' }, title: 'Celda con enlace', href: '/busqueda' },
           ],
         },
       ]);
