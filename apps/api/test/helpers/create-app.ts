@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AppModule } from 'src/app.module';
+import { appOrigin } from 'src/config/app-origin';
 
 /**
  * Creates a configured NestJS application for e2e tests, mirroring main.ts.
@@ -34,7 +35,13 @@ export async function createTestApp(): Promise<INestApplication> {
   app.useGlobalPipes(
     new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
   );
-  app.enableCors();
+  // Mirrors main.ts's bootstrap() — el CORS restringido al origen del frontend.
+  //
+  // NO ES DECORATIVO QUE ESTÉ AQUÍ: si el helper siguiera con `enableCors()` abierto,
+  // los e2e probarían un bootstrap que no es el que corre en producción, y la barrera
+  // de `cors-http.e2e-spec.ts` no podría existir — mediría el helper, no el producto.
+  // Misma función (`appOrigin()`) y misma forma de array de uno que main.ts.
+  app.enableCors({ origin: [appOrigin()] });
   app.setGlobalPrefix('api');
 
   return app;

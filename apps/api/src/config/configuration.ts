@@ -1,4 +1,5 @@
 import { appOrigin } from './app-origin';
+import { REMITENTE_PLACEHOLDER } from './remitente';
 
 export default () => ({
   port: parseInt(process.env.PORT ?? '3000', 10),
@@ -20,7 +21,7 @@ export default () => ({
   },
   resend: {
     apiKey: process.env.RESEND_API_KEY,
-    from: process.env.RESEND_FROM ?? 'noreply@tudominio.es',
+    from: process.env.RESEND_FROM ?? REMITENTE_PLACEHOLDER,
   },
   // R9 — la lectura vive en `app-origin.ts` porque el CORS del gateway de
   // WebSockets la necesita desde un decorador, donde no hay inyección. Mismo

@@ -5,6 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
+import { appOrigin } from './config/app-origin';
 
 // Must be called before NestFactory.create() so Sentry instruments the process
 // from the start. When SENTRY_DSN is empty the SDK disables itself silently.
@@ -37,7 +38,40 @@ async function bootstrap() {
     }),
   );
 
-  app.enableCors();
+  /**
+   * DESPLIEGUE GRUPO A — CORS DE LA API HTTP, restringido al origen del frontend.
+   *
+   * Era `app.enableCors()` SIN ARGUMENTOS: `Access-Control-Allow-Origin` para cualquiera. Es
+   * la otra mitad del problema que R9 cerró en el gateway de WebSockets, y se dejó fuera de
+   * aquella ráfaga a propósito —su radio de explosión es toda la API HTTP, y meter los dos
+   * cambios juntos habría roto la lección de los dos pasos—.
+   *
+   * `[appOrigin()]` — UN ARRAY DE UNO, y no la cadena suelta. Es la forma que descubrió
+   * `messaging-cors.e2e-spec.ts` ejerciéndola: con una CADENA, el paquete `cors` emite
+   * `Access-Control-Allow-Origin: <ese valor>` SIN COMPARAR con el `Origin` de la petición
+   * (protege igual, porque quien compara es el navegador, pero la respuesta es idéntica para
+   * todo el mundo y por tanto no se puede observar en un test). Con un ARRAY compara en el
+   * servidor y OMITE la cabecera cuando no casa, que es lo que sí se puede probar.
+   *
+   * MISMA FUENTE QUE EL GATEWAY, a propósito: `appOrigin()`. Dos listas de orígenes que se
+   * parecen son dos listas que un día divergen. Y con `APP_URL` ya obligatoria en producción
+   * (`env.validation.ts`), aquí llega el dominio real y no el `localhost` de desarrollo —las
+   * dos piezas de este grupo se sostienen la una a la otra: sin la validación, esta línea
+   * habría autorizado a `http://localhost:3000` en producción y no habría entrado nadie.
+   *
+   * MULTI-INSTANCIA: cada despliegue tiene su propio `APP_URL`, así que esto sigue siendo una
+   * lista de uno y no hace falta ninguna variable nueva (docs/auditoria-despliegue.md §6.4).
+   *
+   * SIN `credentials: true`, y es deliberado: esta API se autentica con `Authorization:
+   * Bearer` (ver `apps/web/src/lib/api/client.ts`), nunca con cookies, y el frontend no pone
+   * `credentials` en ningún `fetch`. Activarlo autorizaría el envío de credenciales entre
+   * orígenes sin que nada lo necesite. El gateway tampoco lo hace.
+   *
+   * QUÉ PROTEGE Y QUÉ NO: el control de acceso es el JWT, no el CORS, y el CORS no protege
+   * frente a un cliente que no sea un navegador. Esto es higiene —quitar el comodín del
+   * inventario—, no el cierre de un exploit conocido.
+   */
+  app.enableCors({ origin: [appOrigin()] });
   app.setGlobalPrefix('api');
 
   const swaggerConfig = new DocumentBuilder()
