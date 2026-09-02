@@ -98,7 +98,7 @@ export class ListingEditValidationService {
     const catId = dto.categoryId ?? existing.categoryId;
     // PROFUNDIDAD N — la cadena entera, no sólo el padre.
     const cadena = await this.categoryTree.getAncestorChain(catId);
-    if (cadena.length === 0) throw new NotFoundException('Category not found');
+    if (cadena.length === 0) throw new NotFoundException('Categoría no encontrada');
     const category = cadena[cadena.length - 1];
 
     if (dto.categoryId !== undefined || dto.attributes !== undefined) {

@@ -19,7 +19,7 @@ interface Props {
  * pública: [`busqueda/page.tsx:240`](../../app/(public)/busqueda/page.tsx),
  * [`CategoryListingPage.tsx:384`](../categorias/CategoryListingPage.tsx) y
  * [`anuncio/[slug]/page.tsx:137`](../../app/(public)/anuncio/[slug]/page.tsx). Mismo
- * marcado y mismo aspecto que aquellas tres: `<nav aria-label="Breadcrumb">`, «Inicio»
+ * marcado y mismo aspecto que aquellas tres: `<nav aria-label="Ruta de navegación">`, «Inicio»
  * primero, separador ` / `, último eslabón sin enlace.
  *
  * NO lleva JSON-LD. El helper [`breadcrumb-json-ld.ts`](../../lib/breadcrumb-json-ld.ts)
@@ -37,7 +37,7 @@ export function Breadcrumbs({ items, home = { name: 'Inicio', href: '/' }, class
   return (
     <nav
       className={cn('text-xs text-muted-foreground', className)}
-      aria-label="Breadcrumb"
+      aria-label="Ruta de navegación"
     >
       <Link href={home.href} className="hover:underline">
         {home.name}

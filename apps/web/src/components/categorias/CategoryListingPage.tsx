@@ -450,7 +450,7 @@ export async function CategoryListingPage({
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd(trail)) }}
       />
-      <nav className="mb-4 text-xs text-muted-foreground" aria-label="Breadcrumb">
+      <nav className="mb-4 text-xs text-muted-foreground" aria-label="Ruta de navegación">
         <Link href="/" className="hover:underline">Inicio</Link>
         {trail.map((crumb, i) => (
           <span key={crumb.path}>

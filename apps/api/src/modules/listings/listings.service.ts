@@ -249,7 +249,7 @@ export class ListingsService implements OnModuleInit {
     // set efectivo POR SLUG, así que se reutiliza esa caché en vez de abrir un
     // segundo camino de resolución por id.
     const cadena = await this.categoryTree.getAncestorChain(dto.categoryId);
-    if (cadena.length === 0) throw new NotFoundException('Category not found');
+    if (cadena.length === 0) throw new NotFoundException('Categoría no encontrada');
     const category = cadena[cadena.length - 1];
     // El pliegue de la herencia + el filtro por tipo, en el orden de siempre.
     // required se exige solo entre los campos aplicables al tipo del anuncio —

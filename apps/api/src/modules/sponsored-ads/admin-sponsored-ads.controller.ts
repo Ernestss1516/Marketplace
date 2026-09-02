@@ -25,6 +25,7 @@ import { SponsoredAdsService } from './sponsored-ads.service';
 import { CreateSponsoredAdDto } from './dto/create-sponsored-ad.dto';
 import { UpdateSponsoredAdDto } from './dto/update-sponsored-ad.dto';
 import { ListSponsoredAdsDto } from './dto/list-sponsored-ads.dto';
+import { IMAGEN_TIPO_NO_ADMITIDO, SIN_FICHERO } from '../../common/mensajes-subida';
 
 @ApiTags('Admin — Sponsored Ads')
 @ApiBearerAuth('access-token')
@@ -65,13 +66,13 @@ export class AdminSponsoredAdsController {
         if (ALLOWED_MIME_TYPES.includes(file.mimetype)) {
           cb(null, true);
         } else {
-          cb(new UnprocessableEntityException('File type not allowed. Use JPEG, PNG or WebP.'), false);
+          cb(new UnprocessableEntityException(IMAGEN_TIPO_NO_ADMITIDO), false);
         }
       },
     }),
   )
   uploadImage(@UploadedFile() file: Express.Multer.File) {
-    if (!file) throw new BadRequestException('No file provided');
+    if (!file) throw new BadRequestException(SIN_FICHERO);
     return this.sponsoredAdsService.uploadImage(file);
   }
 }

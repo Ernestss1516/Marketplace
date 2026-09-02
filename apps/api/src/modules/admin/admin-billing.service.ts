@@ -662,7 +662,7 @@ export class AdminBillingService {
 
   async updatePrice(id: string, actorId: string, dto: UpdatePriceDto, ip?: string) {
     const existing = await this.prisma.price.findUnique({ where: { id } });
-    if (!existing) throw new NotFoundException('Price no encontrado');
+    if (!existing) throw new NotFoundException('Precio no encontrado');
     this.assertNotStripePrice(existing);
 
     return this.prisma.$transaction(async (tx) => {
@@ -695,7 +695,7 @@ export class AdminBillingService {
     ip?: string,
   ) {
     const existing = await this.prisma.creditPack.findUnique({ where: { id: creditPackId } });
-    if (!existing) throw new NotFoundException('Credit pack no encontrado');
+    if (!existing) throw new NotFoundException('Pack de créditos no encontrado');
 
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.creditPack.update({
@@ -728,7 +728,7 @@ export class AdminBillingService {
     ip?: string,
   ) {
     const existing = await this.prisma.bumpPack.findUnique({ where: { id: bumpPackId } });
-    if (!existing) throw new NotFoundException('Bump pack no encontrado');
+    if (!existing) throw new NotFoundException('Pack de bumps no encontrado');
 
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.bumpPack.update({

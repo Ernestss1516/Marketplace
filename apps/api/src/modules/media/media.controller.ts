@@ -14,6 +14,7 @@ import { JwtAuthGuard } from '../../common/guards';
 import { CurrentUser } from '../../common/decorators';
 import { JwtUser } from '../auth/auth.types';
 import { MediaService, ALLOWED_MIME_TYPES, MAX_FILE_SIZE } from './media.service';
+import { IMAGEN_TIPO_NO_ADMITIDO, SIN_FICHERO } from '../../common/mensajes-subida';
 
 @ApiTags('Media')
 @ApiBearerAuth('access-token')
@@ -33,7 +34,7 @@ export class MediaController {
         if (ALLOWED_MIME_TYPES.includes(file.mimetype)) {
           cb(null, true);
         } else {
-          cb(new UnprocessableEntityException('File type not allowed. Use JPEG, PNG or WebP.'), false);
+          cb(new UnprocessableEntityException(IMAGEN_TIPO_NO_ADMITIDO), false);
         }
       },
     }),
@@ -42,7 +43,7 @@ export class MediaController {
     @CurrentUser() user: JwtUser,
     @UploadedFile() file: Express.Multer.File,
   ) {
-    if (!file) throw new BadRequestException('No file provided');
+    if (!file) throw new BadRequestException(SIN_FICHERO);
     return this.mediaService.upload(user.userId, file);
   }
 
@@ -57,7 +58,7 @@ export class MediaController {
         if (ALLOWED_MIME_TYPES.includes(file.mimetype)) {
           cb(null, true);
         } else {
-          cb(new UnprocessableEntityException('File type not allowed. Use JPEG, PNG or WebP.'), false);
+          cb(new UnprocessableEntityException(IMAGEN_TIPO_NO_ADMITIDO), false);
         }
       },
     }),
@@ -69,7 +70,7 @@ export class MediaController {
     @CurrentUser() user: JwtUser,
     @UploadedFile() file: Express.Multer.File,
   ) {
-    if (!file) throw new BadRequestException('No file provided');
+    if (!file) throw new BadRequestException(SIN_FICHERO);
     return this.mediaService.uploadAvatar(user.userId, file);
   }
 }

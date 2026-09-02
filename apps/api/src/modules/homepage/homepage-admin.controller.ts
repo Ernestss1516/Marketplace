@@ -23,6 +23,7 @@ import { ALLOWED_MIME_TYPES, MAX_FILE_SIZE } from '../media/media.service';
 import { JwtUser } from '../auth/auth.types';
 import { HomepageService } from './homepage.service';
 import { UpdateHomepageDto } from './dto/update-homepage.dto';
+import { IMAGEN_TIPO_NO_ADMITIDO, SIN_FICHERO } from '../../common/mensajes-subida';
 
 /**
  * CRUD de la configuración de portada. Solo ADMIN, igual que footer y nav
@@ -63,13 +64,13 @@ export class HomepageAdminController {
         if (ALLOWED_MIME_TYPES.includes(file.mimetype)) {
           cb(null, true);
         } else {
-          cb(new UnprocessableEntityException('File type not allowed. Use JPEG, PNG or WebP.'), false);
+          cb(new UnprocessableEntityException(IMAGEN_TIPO_NO_ADMITIDO), false);
         }
       },
     }),
   )
   uploadImage(@UploadedFile() file: Express.Multer.File) {
-    if (!file) throw new BadRequestException('No file provided');
+    if (!file) throw new BadRequestException(SIN_FICHERO);
     return this.homepageService.uploadImage(file);
   }
 

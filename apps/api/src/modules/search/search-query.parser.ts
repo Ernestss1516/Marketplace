@@ -1,6 +1,7 @@
 import { BadRequestException, ValidationPipe } from '@nestjs/common';
 import { SearchQueryDto } from './dto/search-query.dto';
 import type { AttributeField } from '../categories/category.types';
+import { fabricaDeErroresDeValidacion } from '../../common/validacion-mensajes';
 
 // Fixed query params handled by SearchQueryDto. Anything else is either a
 // category-derived variable attribute (validated against the dynamically
@@ -82,7 +83,7 @@ export function coerceAttributeValue(
     case 'number': {
       const n = Number(rawValue as string);
       if (!Number.isFinite(n)) {
-        errors.push(`${key} must be a number`);
+        errors.push(`«${key}» tiene que ser un número`);
         return undefined;
       }
       return n;
@@ -96,7 +97,7 @@ export function coerceAttributeValue(
     case 'select':
     default:
       if (typeof rawValue !== 'string') {
-        errors.push(`${key} must be a string`);
+        errors.push(`«${key}» tiene que ser texto`);
         return undefined;
       }
       return rawValue;
@@ -136,7 +137,20 @@ export async function parseSearchQuery(
   const errors: string[] = [];
   let dto: SearchQueryDto | undefined;
   try {
-    const corePipe = new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true });
+    // i18n T5 — LA MISMA `exceptionFactory` QUE EL PIPE GLOBAL, y no es opcional.
+    //
+    // Este pipe se construye a mano (la query se parte en claves de DTO y claves de
+    // atributo, ver arriba), así que **no hereda nada** del que monta `main.ts`: sin esta
+    // línea, la búsqueda seguiría devolviendo «hitsPerPage must not be greater than 200»
+    // mientras el resto de la API hablaba español. Lo cazó `validacion-espanol.e2e-spec.ts`
+    // atacando la ruta de verdad — la barrera unitaria de la fábrica no podía verlo, porque
+    // el defecto no estaba en la función sino en quién la usa.
+    const corePipe = new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+      exceptionFactory: fabricaDeErroresDeValidacion,
+    });
     dto = (await corePipe.transform(coreRaw, { type: 'query', metatype: SearchQueryDto })) as SearchQueryDto;
   } catch (err) {
     if (err instanceof BadRequestException) {
@@ -188,7 +202,7 @@ export async function parseSearchQuery(
         // Ni el sufijo ni la base existen aquí: mismo 400 que cualquier param
         // desconocido. Es la defensa anti-leak cross-categoría de RÁFAGA 1, que el
         // rango no debe abrir por la puerta de atrás.
-        errors.push(`property ${key} should not exist`);
+        errors.push(`«${key}» no es un campo admitido`);
         continue;
       }
       if (baseKind !== 'number') {
@@ -200,14 +214,14 @@ export async function parseSearchQuery(
       }
       const n = Number(rawValue as string);
       if (!Number.isFinite(n)) {
-        errors.push(`${key} must be a number`);
+        errors.push(`«${key}» tiene que ser un número`);
         continue;
       }
       (attributeRanges[rango.base] ??= {})[rango.bound] = n;
       continue;
     }
 
-    errors.push(`property ${key} should not exist`);
+    errors.push(`«${key}» no es un campo admitido`);
   }
 
   // Un rango invertido es un error del cliente, no una búsqueda sin resultados:

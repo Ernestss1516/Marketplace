@@ -120,7 +120,7 @@ export class BillingService {
       where: { id: dto.priceId },
       include: { product: true },
     });
-    if (!price || !price.active) throw new NotFoundException('Price not found or inactive');
+    if (!price || !price.active) throw new NotFoundException('Precio no encontrado o inactivo');
 
     if (price.product.type === ProductType.ONE_TIME) {
       throw new BadRequestException(
@@ -188,7 +188,7 @@ export class BillingService {
       },
     });
 
-    if (!session.url) throw new BadRequestException('Stripe did not return a checkout URL');
+    if (!session.url) throw new BadRequestException('Stripe no ha devuelto una URL de pago');
     return { checkoutUrl: session.url };
   }
 
@@ -197,10 +197,10 @@ export class BillingService {
       where: { id: subscriptionId },
     });
 
-    if (!subscription) throw new NotFoundException('Subscription not found');
-    if (subscription.userId !== userId) throw new ForbiddenException('Not your subscription');
+    if (!subscription) throw new NotFoundException('Suscripción no encontrada');
+    if (subscription.userId !== userId) throw new ForbiddenException('Esa suscripción no es tuya');
     if (subscription.status === SubscriptionStatus.CANCELED) {
-      throw new BadRequestException('Subscription is already canceled');
+      throw new BadRequestException('La suscripción ya está cancelada');
     }
 
     await this.stripe.subscriptions.update(subscription.gatewaySubscriptionId, {
@@ -406,10 +406,10 @@ export class BillingService {
       select: { id: true, status: true, sellerId: true },
     });
     if (!listing || listing.sellerId !== userId) {
-      throw new ForbiddenException('Listing does not exist or does not belong to you');
+      throw new ForbiddenException('El anuncio no existe o no es tuyo');
     }
     if (listing.status !== ListingStatus.ACTIVE) {
-      throw new BadRequestException('Only ACTIVE listings can be featured');
+      throw new BadRequestException('Solo se pueden destacar anuncios activos');
     }
 
     // Check no active FEATURED_LISTING for this listing
@@ -422,7 +422,7 @@ export class BillingService {
       select: { id: true },
     });
     if (existing) {
-      throw new BadRequestException('Listing already has an active featured period');
+      throw new BadRequestException('El anuncio ya tiene un destacado vigente');
     }
 
     // Create the entitlement
@@ -464,10 +464,10 @@ export class BillingService {
       select: { id: true, status: true, sellerId: true },
     });
     if (!listing || listing.sellerId !== userId) {
-      throw new ForbiddenException('Listing does not exist or does not belong to you');
+      throw new ForbiddenException('El anuncio no existe o no es tuyo');
     }
     if (listing.status !== ListingStatus.ACTIVE) {
-      throw new BadRequestException('Only ACTIVE listings can be featured');
+      throw new BadRequestException('Solo se pueden destacar anuncios activos');
     }
 
     const existing = await tx.entitlement.findFirst({
@@ -480,7 +480,7 @@ export class BillingService {
     });
     if (existing) {
       throw new BadRequestException({
-        message: 'Listing already has an active featured period',
+        message: 'El anuncio ya tiene un destacado vigente',
         code: 'ALREADY_FEATURED',
       });
     }
@@ -568,15 +568,15 @@ export class BillingService {
 
     // Credits path — unchanged behavior, quota is never touched here.
     if (!dto.priceId) {
-      throw new BadRequestException('priceId is required when not using the quota');
+      throw new BadRequestException('Falta priceId cuando no se usa la cuota');
     }
     const price = await this.prisma.price.findUnique({
       where: { id: dto.priceId },
       select: { id: true, active: true, durationDays: true, creditPackId: true },
     });
-    if (!price || !price.active) throw new NotFoundException('Price not found or inactive');
-    if (!price.durationDays) throw new BadRequestException('Not a featured listing price');
-    if (price.creditPackId) throw new BadRequestException('Not a featured listing price');
+    if (!price || !price.active) throw new NotFoundException('Precio no encontrado o inactivo');
+    if (!price.durationDays) throw new BadRequestException('Ese precio no es de un destacado');
+    if (price.creditPackId) throw new BadRequestException('Ese precio no es de un destacado');
 
     const baseCost = await this.getCreditCostForFeatured(price.durationDays);
     // H8 Bloque D fase 2 — descuento de campaña, calculado EN VIVO (no hay
@@ -602,7 +602,7 @@ export class BillingService {
         WHERE "userId" = ${userId} AND balance >= ${cost}
       `;
       if (affected === 0) {
-        throw new HttpException('Insufficient credits', HttpStatus.PAYMENT_REQUIRED);
+        throw new HttpException('Saldo de créditos insuficiente', HttpStatus.PAYMENT_REQUIRED);
       }
 
       // Ledger entry — amount is the cost ALREADY discounted (the real debit).
@@ -692,10 +692,10 @@ export class BillingService {
       // para "adelantar" el rechazo, habrá dos verdades sobre la ventana otra vez.
       select: { id: true, slug: true, status: true, sellerId: true },
     });
-    if (!listing) throw new NotFoundException('Listing not found');
-    if (listing.sellerId !== userId) throw new ForbiddenException('Not your listing');
+    if (!listing) throw new NotFoundException('Anuncio no encontrado');
+    if (listing.sellerId !== userId) throw new ForbiddenException('Ese anuncio no es tuyo');
     if (listing.status !== ListingStatus.ACTIVE) {
-      throw new BadRequestException('Only ACTIVE listings can be bumped');
+      throw new BadRequestException('Solo se pueden reimpulsar anuncios activos');
     }
 
     // PUERTA — RÁFAGA 2. El camino 9 del diseño, y sólo el freno de
@@ -769,7 +769,7 @@ export class BillingService {
           SELECT "bumpedAt" FROM "Listing" WHERE id = ${listingId}
         `;
         // El anuncio existía al entrar; si ya no está, la causa no es el cooldown.
-        if (rows.length === 0) throw new NotFoundException('Listing not found');
+        if (rows.length === 0) throw new NotFoundException('Anuncio no encontrado');
 
         const last = rows[0].bumpedAt;
         const elapsedSeconds = last ? (bumpedAt.getTime() - last.getTime()) / 1000 : 0;
@@ -842,7 +842,7 @@ export class BillingService {
         WHERE "userId" = ${userId} AND balance >= ${creditCost}
       `;
       if (affected === 0) {
-        throw new HttpException('Insufficient credits', HttpStatus.PAYMENT_REQUIRED);
+        throw new HttpException('Saldo de créditos insuficiente', HttpStatus.PAYMENT_REQUIRED);
       }
 
       const wallet = await tx.wallet.findUniqueOrThrow({

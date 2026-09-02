@@ -482,6 +482,66 @@ después de T1/T2 a propósito — así lo visible ya está arreglado antes de m
 
 ---
 
+### ✅ EJECUTADO — las cinco ráfagas, cerradas (2026-09-02)
+
+`T1` (`f8f6b40`), `T2` (`c3b9d8b`), `T3` (`774927c` + `011d1ed`) y ahora **`T4` + `T5`**.
+
+**T4 — los restos de accesibilidad.** L1 (`Cerrar` en `dialog.tsx`, que se oye en todos los
+diálogos del sitio), L2–L7 (las **siete** superficies con migas de pan, todas con el término
+canónico «Ruta de navegación») y D9 (`TIPO_ATRIBUTO_LABELS` y `BANDERA_LABELS` en el editor
+de atributos — y de paso el desplegable de tipo, que pintaba `text`/`number` crudos).
+`StepCategoria.tsx` conserva su «Ruta de categoría»: es el camino de categorías del wizard,
+no unas migas de pan — es el precedente de la fórmula, no un octavo caso.
+
+**T5 — el backend.** Se tradujo **lo que un humano ve**, y se consolidó de paso: las **once**
+copias a mano de `File type not allowed…` y las **seis** de `No file provided` salen ahora de
+`common/mensajes-subida.ts`, con un CONSTRUCTOR (no una constante) porque los logos admiten
+SVG y las imágenes de contenido no — una frase, dos listas. Traducidos también los mensajes
+de negocio de la zona de cuenta, que no se ven hoy pero eran baratos.
+
+**Y `class-validator` se cerró por la vía del `exceptionFactory`, que resultó viable.** La
+auditoría avisaba de que había que verlo antes de prometerlo: se verificó que `constraints`
+llega como `{ nombreDeLaRegla: mensajeInglés }`, así que se traduce **por regla** —estable—
+y no por texto. El precio, dicho donde se lee: los argumentos (el `120`, el `0`) sólo viven
+dentro de la frase inglesa y se extraen con un anclaje específico de cada regla; si algún día
+no casan, el mensaje sale **sin** el número en vez de con uno inventado. Una regla que no esté
+en el diccionario **se deja pasar tal cual**, que es lo que protege a los validadores propios
+del proyecto (`IsSafeContentUrl`, `IsFiscalTaxId`…), que ya escriben en español.
+
+**Lo que NO se tradujo, a propósito** (y no es deuda: es una decisión):
+
+| Familia | Por qué se queda en inglés |
+|---|---|
+| Las firmas de webhook (`Invalid webhook signature`, `Missing stripe-signature or body`, `Invalid Redsys signature`, `Missing required Redsys notification fields`) | **No las lee una persona.** Las leen Stripe y Redsys, en sus paneles, y nosotros en los logs. Traducirlas empeora el diagnóstico sin mejorarle el día a nadie |
+| `auth` y `jwt.strategy` (`Invalid credentials`, `Session invalidated`, `Invalid Google token`…) | **No se ven** — §7.2: las pantallas ramifican por `statusCode` y escriben su propio español. Y `Invalid credentials` está afirmado en **23 sitios** de la batería: cambiarlo es mover código de seguridad y sus tests para que nadie note nada |
+
+Las dos decisiones están fijadas con test (`mensajes-subida.spec.ts`, «BARRERA 5»), así que
+si alguien las traduce por celo se entera de que era deliberado.
+
+**Dos cosas que sólo se vieron ejerciéndolo, y que la auditoría no había previsto:**
+
+1. **La primera versión PISABA los `message:` propios.** Traducía por nombre de regla y nada
+   más, así que «Cada tarjeta de la rejilla necesita una imagen o un icono.»
+   (`grid-block.dto.ts`, un `@IsDefined({ message })`) se convertía en «"blocks.0.items.0.media"
+   es obligatorio» — correcto, genérico y **peor**. Lo cazó `homepage.e2e-spec.ts`. Ahora cada
+   regla tiene que reconocer además el **texto de fábrica**: lo que no lo sea es de alguien y
+   no se toca. Traducir nunca puede empeorar un mensaje ya escrito para quien lo lee.
+2. **La búsqueda no heredaba la fábrica.** `search-query.parser.ts:139` construye **su propio**
+   `ValidationPipe` (parte la query en claves de DTO y claves de atributo), así que seguía
+   devolviendo «hitsPerPage must not be greater than 200» mientras el resto de la API hablaba
+   español. La barrera unitaria no podía verlo —el defecto no estaba en la función sino en
+   quién la usa—; lo cazó el e2e atacando la ruta de verdad. De paso se alinearon los mensajes
+   que ese fichero escribe a mano, que si no habrían salido en inglés **dentro del mismo array**
+   que los traducidos.
+
+**Las barreras.** `accesibilidad-en-espanol.test.ts` barre TODO el frontend buscando palabras
+inglesas en `aria-label` y `sr-only` —persigue la clase, no las ocho ocurrencias, porque
+llegaron copiando—; `mensajes-subida.spec.ts` prohíbe volver a escribir la frase a mano fuera
+de su dueño; `validacion-mensajes.spec.ts` cubre la traducción por regla, los anidados y la
+FORMA (`message` sigue siendo un array, que es de lo que depende el frontend).
+
+---
+
 ## 10. LAS BARRERAS
 
 Sin barrera, esto vuelve. Lo dice el propio repo dos veces: `listing-status.ts` documenta

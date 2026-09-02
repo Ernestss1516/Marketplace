@@ -3,6 +3,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AppModule } from 'src/app.module';
 import { appOrigin } from 'src/config/app-origin';
+import { fabricaDeErroresDeValidacion } from 'src/common/validacion-mensajes';
 
 /**
  * Creates a configured NestJS application for e2e tests, mirroring main.ts.
@@ -32,8 +33,15 @@ export async function createTestApp(): Promise<INestApplication> {
   const trustProxyHops = moduleRef.get(ConfigService).get<number>('trustProxyHops') ?? 1;
   app.getHttpAdapter().getInstance().set('trust proxy', trustProxyHops);
 
+  // Mirrors main.ts's bootstrap() — incluida la `exceptionFactory` de i18n T5. Sin ella,
+  // los e2e verían mensajes de validación distintos de los que devuelve producción.
   app.useGlobalPipes(
-    new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+      exceptionFactory: fabricaDeErroresDeValidacion,
+    }),
   );
   // Mirrors main.ts's bootstrap() — el CORS restringido al origen del frontend.
   //

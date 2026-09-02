@@ -593,10 +593,10 @@ export function AttributeSchemaEditor({
                 <span className="flex-1 min-w-0 truncate">{f.label}</span>
                 <TypeBadge type={f.type} />
                 {f.unit && <span className="text-muted-foreground/70">{f.unit}</span>}
-                <FieldFlag v={f.required} label="req" />
-                <FieldFlag v={f.filterable} label="filt" />
-                <FieldFlag v={Boolean(f.cardAttribute)} label="card" />
-                <FieldFlag v={Boolean(f.wideCardAttribute)} label="wcard" />
+                <FieldFlag v={f.required} label={BANDERA_LABELS.required} />
+                <FieldFlag v={f.filterable} label={BANDERA_LABELS.filterable} />
+                <FieldFlag v={Boolean(f.cardAttribute)} label={BANDERA_LABELS.card} />
+                <FieldFlag v={Boolean(f.wideCardAttribute)} label={BANDERA_LABELS.wideCard} />
                 <span className="rounded border border-muted-foreground/20 bg-background px-1.5 py-0.5 text-[9px] text-muted-foreground">
                   heredado
                 </span>
@@ -684,10 +684,10 @@ export function AttributeSchemaEditor({
                 <span className="flex-1 min-w-0 truncate">{row.label}</span>
                 <TypeBadge type={row.type} />
                 {row.unit && <span className="text-muted-foreground/70">{row.unit}</span>}
-                <FieldFlag v={row.required} label="req" />
-                <FieldFlag v={row.filterable} label="filt" />
-                <FieldFlag v={Boolean(row.cardAttribute)} label="card" />
-                <FieldFlag v={Boolean(row.wideCardAttribute)} label="wcard" />
+                <FieldFlag v={row.required} label={BANDERA_LABELS.required} />
+                <FieldFlag v={row.filterable} label={BANDERA_LABELS.filterable} />
+                <FieldFlag v={Boolean(row.cardAttribute)} label={BANDERA_LABELS.card} />
+                <FieldFlag v={Boolean(row.wideCardAttribute)} label={BANDERA_LABELS.wideCard} />
                 {row.dependsOn && (
                   <span className="text-[10px] text-muted-foreground" title={`Depende de "${row.dependsOn}"`}>
                     ↳ {row.dependsOn}
@@ -880,10 +880,12 @@ function FieldForm({
             disabled={disabled}
             data-testid="attr-type-select"
           >
-            <option value="text">text</option>
-            <option value="number">number</option>
-            <option value="select">select</option>
-            <option value="boolean">boolean</option>
+            {/* i18n T4 (D9) — el VALOR sigue siendo el del tipo (es lo que se persiste);
+                lo que se traduce es lo que se lee. Mismo diccionario que `TypeBadge`, para
+                que el desplegable y la insignia no puedan decir cosas distintas. */}
+            {(Object.keys(TIPO_ATRIBUTO_LABELS) as (keyof typeof TIPO_ATRIBUTO_LABELS)[]).map((t) => (
+              <option key={t} value={t}>{TIPO_ATRIBUTO_LABELS[t]}</option>
+            ))}
           </select>
         </div>
         {/* unit */}
@@ -1296,6 +1298,41 @@ function LinkedOptionsEditor({
 
 // ── Small display helpers ─────────────────────────────────────────────────────
 
+/**
+ * i18n T4 (D9) — LOS DOS ÚLTIMOS SITIOS QUE PINTABAN EL VALOR CRUDO.
+ *
+ * `TypeBadge` enseñaba `text`/`number`/`select`/`boolean` tal cual, y `FieldFlag` cuatro
+ * abreviaturas inglesas (`req`, `filt`, `card`, `wcard`) que no significan nada para quien
+ * no ha leído el código. Es el mismo defecto que T2 cerró en los seis enums del staff, en el
+ * único sitio que se le escapó: aquí el valor no viene de un enum de Prisma sino de un tipo
+ * de TypeScript, así que el barrido de aquella ráfaga no lo vio.
+ *
+ * `Record<AttributeSchema['type'], string>` y no `Record<string, string>`: si mañana se
+ * añade un tipo de atributo, esto **no compila** hasta que tenga etiqueta. Es la barrera B1
+ * del vocabulario (ningún diccionario incompleto) aplicada donde hay tipo que la sostenga.
+ */
+const TIPO_ATRIBUTO_LABELS: Record<AttributeSchema['type'], string> = {
+  text: 'Texto',
+  number: 'Número',
+  select: 'Lista',
+  boolean: 'Sí/No',
+};
+
+/**
+ * Las cuatro banderas, con su nombre entero.
+ *
+ * ERAN ABREVIATURAS Y AHORA NO LO SON, a propósito: `filt`/`wcard` no se acortaron por falta
+ * de sitio sino por comodidad de quien las escribió. Van en una fila de metadatos pequeña y
+ * caben; y si algún día no cupieran, el arreglo sería el diseño de esa fila, no volver a
+ * escribir en clave.
+ */
+const BANDERA_LABELS = {
+  required: 'Obligatorio',
+  filterable: 'Filtrable',
+  card: 'En tarjeta',
+  wideCard: 'En tarjeta ancha',
+} as const;
+
 function TypeBadge({ type }: { type: string }) {
   const cls: Record<string, string> = {
     text:    'bg-blue-50 text-blue-700 border-blue-200',
@@ -1305,7 +1342,9 @@ function TypeBadge({ type }: { type: string }) {
   };
   return (
     <span className={`rounded border px-1.5 py-0.5 text-[10px] font-medium ${cls[type] ?? 'bg-muted'}`}>
-      {type}
+      {/* El `?? type` sostiene el caso imposible: un valor fuera del tipo se pinta crudo en
+          vez de desaparecer, que es lo que hace falta para poder diagnosticarlo. */}
+      {TIPO_ATRIBUTO_LABELS[type as AttributeSchema['type']] ?? type}
     </span>
   );
 }

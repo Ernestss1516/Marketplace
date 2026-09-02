@@ -111,9 +111,9 @@ export class RedsysService {
       where: { id: dto.packId },
       include: { price: true },
     });
-    if (!pack || !pack.active) throw new NotFoundException('Credit pack not found or inactive');
+    if (!pack || !pack.active) throw new NotFoundException('Pack de créditos no encontrado o inactivo');
     if (!pack.price || !pack.price.active) {
-      throw new NotFoundException('Price for this credit pack is not active');
+      throw new NotFoundException('El precio de este pack de créditos no está activo');
     }
 
     const price = pack.price;
@@ -221,9 +221,9 @@ export class RedsysService {
       where: { id: dto.packId },
       include: { price: true },
     });
-    if (!pack || !pack.active) throw new NotFoundException('Bump pack not found or inactive');
+    if (!pack || !pack.active) throw new NotFoundException('Pack de bumps no encontrado o inactivo');
     if (!pack.price || !pack.price.active) {
-      throw new NotFoundException('Price for this bump pack is not active');
+      throw new NotFoundException('El precio de este pack de bumps no está activo');
     }
 
     const price = pack.price;
@@ -345,24 +345,24 @@ export class RedsysService {
       where: { id: dto.priceId },
       include: { product: true },
     });
-    if (!price || !price.active) throw new NotFoundException('Price not found or inactive');
-    if (!price.durationDays) throw new BadRequestException('Price is not a featured listing variant');
+    if (!price || !price.active) throw new NotFoundException('Precio no encontrado o inactivo');
+    if (!price.durationDays) throw new BadRequestException('Ese precio no es una variante de destacado');
 
     const listing = await this.prisma.listing.findUnique({
       where: { id: dto.listingId },
       select: { id: true, status: true, sellerId: true },
     });
     if (!listing || listing.status !== ListingStatus.ACTIVE) {
-      throw new BadRequestException('Only ACTIVE listings can be featured');
+      throw new BadRequestException('Solo se pueden destacar anuncios activos');
     }
     if (listing.sellerId !== userId) {
-      throw new ForbiddenException('Listing does not belong to you');
+      throw new ForbiddenException('El anuncio no es tuyo');
     }
 
     const alreadyFeatured = await this.entitlements.isFeaturedActive(dto.listingId);
     if (alreadyFeatured) {
       throw new BadRequestException({
-        message: 'Listing already has an active featured period',
+        message: 'El anuncio ya tiene un destacado vigente',
         code: 'ALREADY_FEATURED',
       });
     }

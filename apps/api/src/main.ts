@@ -6,6 +6,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 import { appOrigin } from './config/app-origin';
+import { fabricaDeErroresDeValidacion } from './common/validacion-mensajes';
 
 // Must be called before NestFactory.create() so Sentry instruments the process
 // from the start. When SENTRY_DSN is empty the SDK disables itself silently.
@@ -35,6 +36,10 @@ async function bootstrap() {
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
+      // i18n T5 — los rechazos de DTO, en español. Traduce POR REGLA (no por texto) y deja
+      // pasar tal cual lo que no conoce, así que los validadores propios —que ya escriben
+      // en español— no se pisan. Ver `common/validacion-mensajes.ts`.
+      exceptionFactory: fabricaDeErroresDeValidacion,
     }),
   );
 

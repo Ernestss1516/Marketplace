@@ -195,7 +195,7 @@ export class EntitlementService {
       },
     });
     if (!listing || listing.sellerId !== userId) {
-      throw new ForbiddenException('Listing does not exist or does not belong to you');
+      throw new ForbiddenException('El anuncio no existe o no es tuyo');
     }
 
     const vigentes = await this.prisma.listing.count({

@@ -6,6 +6,7 @@ import { PrismaService } from '../../infra/prisma/prisma.service';
 import { R2Service } from '../../infra/r2/r2.service';
 import { QUEUE_IMAGE } from '../../infra/queue/queue.constants';
 import { pendingPrefix } from '../../infra/r2/media-keys';
+import { IMAGEN_TIPO_NO_ADMITIDO, SIN_FICHERO } from '../../common/mensajes-subida';
 
 /** Raíz de las claves de avatar. Compartida con `UsersService`, que es quien las confirma. */
 export const AVATAR_KEY_PREFIX = 'avatars';
@@ -29,10 +30,10 @@ export class MediaService {
   ) {}
 
   async upload(userId: string, file: Express.Multer.File) {
-    if (!file) throw new BadRequestException('No file provided');
+    if (!file) throw new BadRequestException(SIN_FICHERO);
 
     const ext = MIME_TO_EXT[file.mimetype];
-    if (!ext) throw new UnprocessableEntityException('File type not allowed. Use JPEG, PNG or WebP.');
+    if (!ext) throw new UnprocessableEntityException(IMAGEN_TIPO_NO_ADMITIDO);
 
     const key = `media/${randomBytes(16).toString('hex')}${ext}`;
     await this.r2.upload(key, file.buffer, file.mimetype);
@@ -66,10 +67,10 @@ export class MediaService {
    * criterio que el vídeo, que rechaza la clave temporal de otro anuncio.
    */
   async uploadAvatar(userId: string, file: Express.Multer.File): Promise<{ url: string }> {
-    if (!file) throw new BadRequestException('No file provided');
+    if (!file) throw new BadRequestException(SIN_FICHERO);
 
     const ext = MIME_TO_EXT[file.mimetype];
-    if (!ext) throw new UnprocessableEntityException('File type not allowed. Use JPEG, PNG or WebP.');
+    if (!ext) throw new UnprocessableEntityException(IMAGEN_TIPO_NO_ADMITIDO);
 
     const key = `${pendingPrefix(AVATAR_KEY_PREFIX, userId)}${randomBytes(16).toString('hex')}${ext}`;
     await this.r2.upload(key, file.buffer, file.mimetype);
