@@ -21,7 +21,12 @@ import { adminReportHref, adminTicketHref, adminUserHref } from '@/lib/admin-lin
 // propio `STATUS_LABEL`, idénticos a los de `etiquetas.ts` —que además dice en su
 // comentario que los copió de aquí—. Dos copias del mismo diccionario es como la
 // ficha de ticket acabó pintando el enum en crudo: nadie sabía cuál era la buena.
-import { ESTADO_REPORTE_LABELS, MOTIVO_REPORTE_LABELS, etiqueta } from '../etiquetas';
+import {
+  ESTADO_REPORTE_LABELS,
+  MOTIVO_REPORTE_LABELS,
+  etiqueta,
+  ticketStatusLabel,
+} from '../etiquetas';
 
 const STATUS_FILTERS: { label: string; value: ReportStatus | undefined }[] = [
   { label: 'Todos', value: undefined },
@@ -350,7 +355,12 @@ export default function AdminReportesPage() {
                             className="rounded border border-blue-600 px-2 py-1 text-xs text-blue-700 hover:bg-blue-50"
                             data-testid="enlace-hilo-reporte"
                           >
-                            Hilo abierto ({r.tickets[0].status})
+                            {/* I18N T2 (D4) — decía «Hilo abierto (OPEN)». Al traducir
+                                el estado, «abierto» pasaba a sobrar: «Hilo abierto
+                                (Abierto)» se lee mal y «Hilo abierto (Cerrado)» se
+                                contradice. La palabra estaba ahí supliendo a un enum
+                                que no se entendía; ahora el estado lo dice él. */}
+                            Hilo ({ticketStatusLabel(r.tickets[0].status)})
                           </Link>
                         ) : (
                           <button

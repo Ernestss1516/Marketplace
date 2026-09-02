@@ -26,7 +26,13 @@ import { getReport, type ReportDetail } from '@/lib/api/moderacion';
 import { ApiError } from '@/lib/api/client';
 import { ReporteDiana } from '@/components/admin/ReporteDiana';
 import { adminListingHref, adminTicketHref, adminUserHref } from '@/lib/admin-links';
-import { ESTADO_REPORTE_LABELS, MOTIVO_REPORTE_LABELS, etiqueta } from '../../etiquetas';
+import {
+  ESTADO_REPORTE_LABELS,
+  MOTIVO_REPORTE_LABELS,
+  etiqueta,
+  etiquetaDeEstado,
+  ticketStatusLabel,
+} from '../../etiquetas';
 
 function fechaHora(iso: string) {
   return new Date(iso).toLocaleString('es-ES', {
@@ -183,7 +189,8 @@ export default function AdminFichaReportePage({ params }: { params: Promise<{ id
                       className="text-sm hover:underline"
                       data-testid="ficha-reporte-hilo"
                     >
-                      Hilo {t.status}
+                      {/* I18N T2 (D5) — decía «Hilo OPEN». */}
+                      Hilo {ticketStatusLabel(t.status)}
                     </Link>
                   </li>
                 ))}
@@ -234,7 +241,8 @@ export default function AdminFichaReportePage({ params }: { params: Promise<{ id
                 {data.listing.title}
               </Link>
               <p className="mt-1 text-xs text-muted-foreground">
-                Estado: {data.listing.status}
+                {/* I18N T2 (D6) — decía «Estado: ACTIVE». */}
+                Estado: {etiquetaDeEstado(data.listing.status)}
               </p>
             </Bloque>
           )}

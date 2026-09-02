@@ -267,3 +267,125 @@ describe('LA BARRERA — las fichas no vuelven a pintar el enum crudo', () => {
     expect(FICHA_USUARIO).not.toContain('const ROL_LABELS');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. I18N T2 — LAS OTRAS CUATRO PANTALLAS DEL BACKOFFICE
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// El bloque 4 cubría LAS DOS FICHAS. La auditoría (`docs/auditoria-i18n-espanol.md`
+// §4.2) encontró seis crudos MÁS, repartidos por cuatro pantallas que aquel cuerpo no
+// miró: la LISTA de usuarios (no la ficha), la lista y la ficha de denuncias, y el
+// libro mayor del admin.
+//
+// Y el diagnóstico es el mismo que en T1: **la traducción ya existía en los seis
+// casos**. `ESTADO_REPORTE_LABELS`, `ticketStatusLabel` y `etiquetaDeEstado` llevaban
+// escritos y probados desde la ráfaga de traducciones; lo que faltaba era la llamada.
+// La lista de usuarios incluso IMPORTABA ya de `etiquetas.ts` — para otro campo.
+//
+// Se lee el fuente por la misma razón de siempre (son componentes de página con
+// `useSession` + fetch), y cada cadena prohibida es LITERALMENTE cómo estaba escrito
+// ese sitio antes de este cuerpo: revertirlo pone el test en rojo.
+describe('LA BARRERA T2 — las otras cuatro pantallas tampoco pintan el enum crudo', () => {
+  const leer = (...ruta: string[]) => readFileSync(join(__dirname, ...ruta), 'utf8');
+
+  const LISTA_USUARIOS = leer('usuarios', 'page.tsx');
+  const LISTA_REPORTES = leer('reportes', 'page.tsx');
+  const FICHA_REPORTE = leer('reportes', '[id]', 'page.tsx');
+  const LIBRO_MAYOR = leer('facturacion', 'usuarios', '[id]', 'page.tsx');
+
+  it('las cuatro pantallas se leen (red del propio test)', () => {
+    for (const fuente of [LISTA_USUARIOS, LISTA_REPORTES, FICHA_REPORTE, LIBRO_MAYOR]) {
+      expect(fuente.length).toBeGreaterThan(1000);
+    }
+  });
+
+  // ── B1: los seis crudos ────────────────────────────────────────────────────
+
+  it.each([
+    ['D3 — estado de la denuncia', '{r.status}'],
+    ['D7 — estado de cada anuncio', '{l.status}'],
+  ])('LISTA de usuarios — %s ya no se pinta crudo', (_defecto, crudo) => {
+    expect(LISTA_USUARIOS).not.toContain(crudo);
+  });
+
+  it('LISTA de denuncias — D4: el estado del hilo ya no se pinta crudo', () => {
+    expect(LISTA_REPORTES).not.toContain('{r.tickets[0].status}');
+    expect(LISTA_REPORTES).toContain('ticketStatusLabel(r.tickets[0].status)');
+  });
+
+  it.each([
+    ['D5 — estado del hilo', 'Hilo {t.status}'],
+    ['D6 — estado del anuncio denunciado', 'Estado: {data.listing.status}'],
+  ])('FICHA de denuncia — %s ya no se pinta crudo', (_defecto, crudo) => {
+    expect(FICHA_REPORTE).not.toContain(crudo);
+  });
+
+  // ── B2: D7 completo — 9 de 9, no 4 de 9 ────────────────────────────────────
+
+  it('D7 — el ternario incompleto no vuelve', () => {
+    // Cubría ACTIVE, PENDING_REVIEW, REJECTED y DRAFT, y dejaba los otros CINCO
+    // cayendo al `: l.status` final. Un anuncio vendido salía «SOLD».
+    expect(LISTA_USUARIOS).not.toContain(": 'Revisión'");
+    expect(LISTA_USUARIOS).not.toContain(': l.status}');
+    expect(LISTA_USUARIOS).toContain('etiquetaDeEstado(l.status)');
+  });
+
+  it('D7 — y el vocabulario que ahora llama cubre los NUEVE estados', () => {
+    // La otra mitad: llamar a un diccionario incompleto no arreglaría nada. Los cinco
+    // que el ternario NO cubría son los que hay que ver traducidos.
+    for (const estado of ['SOLD', 'RESERVED', 'EXPIRED', 'PAUSED', 'ARCHIVED']) {
+      expect(etiquetaDeEstado(estado)).not.toBe(estado);
+    }
+  });
+
+  // ── B3: D8 — la clave que faltaba, y que no vuelva a faltar ────────────────
+
+  it('D8 — el libro mayor tiene los OCHO movimientos, no siete', () => {
+    expect(LIBRO_MAYOR).toContain("COUPON_REDEEM: 'Cupón canjeado'");
+  });
+
+  it('D8 — y el mapa está tipado, así que el noveno no compilará sin etiqueta', () => {
+    // Es LA diferencia entre arreglar este caso y arreglar la clase: con
+    // `Record<string, string>` la clave se perdió en silencio cuando `COUPON_REDEEM`
+    // entró en el enum. Molde: `PLACEMENT_LABELS`.
+    expect(LIBRO_MAYOR).toContain('LEDGER_TYPE_LABELS: Record<CreditLedgerType, string>');
+  });
+
+  // ── B4: sin copia nueva ────────────────────────────────────────────────────
+
+  it('las cuatro llaman al vocabulario compartido en vez de re-declararlo', () => {
+    expect(LISTA_USUARIOS).toContain("from '../etiquetas'");
+    expect(LISTA_REPORTES).toContain("from '../etiquetas'");
+    expect(FICHA_REPORTE).toContain("from '../../etiquetas'");
+  });
+
+  it('la LISTA de usuarios ya no lleva su copia divergente de `ReportReason`', () => {
+    // Era la tercera copia y la que la cabecera de este fichero señala como ya
+    // divergida: sin `FAKE_REVIEW`, así que una denuncia de valoración se pintaba
+    // «FAKE_REVIEW» aquí y «Valoración falsa» en las otras dos pantallas.
+    expect(LISTA_USUARIOS).not.toContain('const REPORT_REASON_LABELS');
+    expect(LISTA_USUARIOS).toContain('MOTIVO_REPORTE_LABELS');
+    expect(MOTIVO_REPORTE_LABELS.FAKE_REVIEW).toBe('Valoración falsa');
+  });
+
+  it('ninguna de las cuatro re-declara un diccionario que ya existe aquí', () => {
+    // La mutación que ningún test de pantalla puede ver: copiar el diccionario dentro
+    // de la pantalla deja el render IDÉNTICO. Es la lección de T1 (barrera B4).
+    //
+    // Se busca la forma de DECLARACIÓN (`DISMISSED: '…'`), no el texto suelto: las
+    // tres pantallas tienen chips de filtro con textos que coinciden a propósito
+    // («En revisión» es a la vez la etiqueta del estado y la del filtro que lo
+    // selecciona), y prohibir la cadena convertiría un acierto en un rojo.
+    for (const [nombre, fuente] of [
+      ['lista de usuarios', LISTA_USUARIOS],
+      ['lista de denuncias', LISTA_REPORTES],
+      ['ficha de denuncia', FICHA_REPORTE],
+    ] as const) {
+      // Dos claves distintivas por enum, las que no aparecen en ningún otro contexto.
+      for (const clave of ['REVIEWING', 'DISMISSED', 'WAITING_USER', 'PENDING_REVIEW']) {
+        const declara = new RegExp(`\\b${clave}:\\s*'`).test(fuente);
+        expect(`${nombre}/${clave}: ${declara}`).toBe(`${nombre}/${clave}: false`);
+      }
+    }
+  });
+});
