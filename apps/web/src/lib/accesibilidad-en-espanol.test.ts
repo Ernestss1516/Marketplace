@@ -144,6 +144,47 @@ describe('i18n T4 — el término canónico de las migas de pan', () => {
     ]);
   });
 
+  /**
+   * EL HUECO QUE ESTA BARRERA NO VIO, Y QUE COSTÓ UNA CORRIDA DE CI ENTERA.
+   *
+   * El barrido de arriba mira `src/`. Pero un `aria-label` no es sólo texto: es el **nombre
+   * accesible** por el que Playwright localiza el elemento (`getByLabel`,
+   * `getByRole('navigation', { name })`). Al traducir los siete, cinco specs dejaron de
+   * encontrar la miga y el CI se puso en rojo media hora después.
+   *
+   * O sea que los selectores de e2e son parte del contrato de la traducción, y aquí se
+   * comprueban: renombrar el término vuelve a fallar, pero en dos segundos y en local.
+   *
+   * `BreadcrumbList` queda EXPLÍCITAMENTE fuera: es el `@type` de schema.org del JSON-LD, un
+   * identificador del estándar y no texto para nadie. Traducirlo rompería el SEO, que es
+   * justo lo contrario de lo que persigue esto.
+   */
+  it('los specs de Playwright localizan la miga por el término canónico', () => {
+    const E2E = join(SRC, '..', 'e2e');
+    const specs = readdirSync(E2E).filter((f) => f.endsWith('.spec.ts'));
+    expect(specs.length).toBeGreaterThan(40);
+
+    const conSelector = specs
+      .map((f) => [f, readFileSync(join(E2E, f), 'utf8')] as const)
+      .filter(([, c]) => /getByLabel\('Ruta de navegación'\)|name: 'Ruta de navegación'/.test(c))
+      .map(([f]) => f);
+
+    expect(conSelector.sort()).toEqual(['categoria-urls-anidadas.spec.ts', 'shell-cuenta.spec.ts']);
+  });
+
+  it('y ninguno se quedó apuntando al nombre inglés', () => {
+    const E2E = join(SRC, '..', 'e2e');
+    const rezagados = readdirSync(E2E)
+      .filter((f) => f.endsWith('.spec.ts'))
+      // `BreadcrumbList` (schema.org) no cuenta: se descarta antes de mirar.
+      .filter((f) => /(?<!Breadcrumb)\bBreadcrumb\b(?!List)/.test(
+        readFileSync(join(E2E, f), 'utf8').replace(/BreadcrumbList/g, ''),
+      ))
+      .filter((f) => /getByLabel\('Breadcrumb'\)|name: 'Breadcrumb'/.test(readFileSync(join(E2E, f), 'utf8')));
+
+    expect(rezagados).toEqual([]);
+  });
+
   it('«Ruta de categoría» sigue siendo suya y NO se ha unificado', () => {
     // `StepCategoria` no pinta migas de pan: pinta el camino de categorías del wizard. Es
     // el precedente del que sale la fórmula «Ruta de …», no un octavo caso que arreglar.

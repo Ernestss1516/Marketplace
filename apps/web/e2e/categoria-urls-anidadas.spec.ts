@@ -196,7 +196,7 @@ test.describe('A1 — URLs anidadas de categoría', () => {
   test('la miga de una hija refleja el árbol: Inicio > Vehículos > Coches', async ({ page }) => {
     await page.goto('/vehiculos/coches');
 
-    const crumb = page.getByLabel('Breadcrumb');
+    const crumb = page.getByLabel('Ruta de navegación');
     await expect(crumb.getByRole('link', { name: 'Inicio' })).toBeVisible();
     // El padre es un ENLACE navegable (antes ni siquiera aparecía).
     await expect(crumb.getByRole('link', { name: 'Vehículos' })).toHaveAttribute('href', '/vehiculos');
@@ -206,7 +206,7 @@ test.describe('A1 — URLs anidadas de categoría', () => {
 
   test('la miga de una raíz sigue siendo de dos niveles: Inicio > Vehículos', async ({ page }) => {
     await page.goto('/vehiculos');
-    const crumb = page.getByLabel('Breadcrumb');
+    const crumb = page.getByLabel('Ruta de navegación');
     await expect(crumb.getByRole('link', { name: 'Inicio' })).toBeVisible();
     await expect(crumb).toContainText('Vehículos');
     // Sin padre que enlazar: "Vehículos" es la hoja de la miga aquí.
@@ -253,7 +253,7 @@ test.describe('A1 — URLs anidadas de categoría', () => {
 
     await page.goto(`/anuncio/${slugVivo}`);
 
-    const crumb = page.getByLabel('Breadcrumb');
+    const crumb = page.getByLabel('Ruta de navegación');
     await expect(crumb.getByRole('link', { name: 'Vehículos' })).toHaveAttribute('href', '/vehiculos');
     await expect(crumb.getByRole('link', { name: 'Coches' })).toHaveAttribute('href', '/vehiculos/coches');
 

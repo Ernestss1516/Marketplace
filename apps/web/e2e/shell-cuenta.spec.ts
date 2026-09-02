@@ -210,11 +210,11 @@ test.describe('UXV.2 — M1: se ve dónde estás', () => {
     // Raíz de sección: el menú ya lo dice, la miga sería ruido.
     await page.goto('/mis-creditos');
     await expect(page.getByRole('heading', { name: 'Mi saldo' })).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toHaveCount(0);
+    await expect(page.getByRole('navigation', { name: 'Ruta de navegación' })).toHaveCount(0);
 
     // Tercer nivel: dice de qué sección cuelga y deja volver a ella.
     await page.goto('/mis-tickets/nuevo');
-    const migas = page.getByRole('navigation', { name: 'Breadcrumb' });
+    const migas = page.getByRole('navigation', { name: 'Ruta de navegación' });
     await expect(migas).toBeVisible({ timeout: 15_000 });
     await expect(migas.getByRole('link', { name: 'Mis tickets' })).toBeVisible();
     await expect(migas).toContainText('Nuevo ticket');
@@ -272,7 +272,7 @@ test.describe('UXV.2 — M3: cuenta → planes → cuenta, sin quedar varado', (
 
     // Fuera del shell de cuenta, pero con vuelta explícita — y solo para quien tiene
     // sesión (un visitante anónimo no ve "Mi cuenta").
-    const vuelta = page.getByRole('navigation', { name: 'Breadcrumb' }).getByRole('link', {
+    const vuelta = page.getByRole('navigation', { name: 'Ruta de navegación' }).getByRole('link', {
       name: 'Mi cuenta',
     });
     await expect(vuelta).toBeVisible({ timeout: 15_000 });
