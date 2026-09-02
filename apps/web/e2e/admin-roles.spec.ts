@@ -804,7 +804,13 @@ test.describe('Asignación de roles desde /admin/usuarios', () => {
     const row = page.locator('tr', { hasText: 'Admin E2E' });
     await expect(row).toBeVisible({ timeout: 10_000 });
     await expect(row.locator('select')).toHaveCount(0);
-    await expect(row.getByText('Admin', { exact: true })).toBeVisible();
+    // I18N T3-A — decía «Admin». La lista pintaba `ADMIN: 'Admin'` mientras la ficha
+    // del MISMO usuario, un clic más allá, decía «Administrador»; era una divergencia
+    // anotada como deuda en el vocabulario y se ha cerrado hacia el texto de la
+    // fuente. El `exact: true` se conserva: lo que este test defiende es que a un
+    // ADMIN se le pinta el rol y no se le ofrece el selector, y para eso la etiqueta
+    // tiene que casar entera.
+    await expect(row.getByText('Administrador', { exact: true })).toBeVisible();
   });
 
   /**

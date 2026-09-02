@@ -69,7 +69,10 @@ const ROLE_FILTERS: { label: string; value: string | undefined }[] = [
   { label: 'Usuario', value: 'USER' },
   { label: 'Moderador', value: 'MODERATOR' },
   { label: 'Editor', value: 'EDITOR' },
-  { label: 'Admin', value: 'ADMIN' },
+  // I18N T3-A — era el TERCER «Admin» de la pantalla. Los otros tres filtros ya
+  // decían el rol tal cual («Usuario», «Moderador», «Editor»), así que éste no era
+  // una forma corta de filtro: era la misma divergencia otra vez.
+  { label: 'Administrador', value: 'ADMIN' },
 ];
 
 /**
@@ -92,11 +95,19 @@ const STATUS_VARIANTS: Record<string, 'default' | 'secondary' | 'outline' | 'des
   DELETED: 'outline',
 };
 
+// I18N T3-A — `ADMIN` decía «Admin» aquí y «Administrador» en la ficha del mismo
+// usuario, un clic más allá. La divergencia estaba ANOTADA en `etiquetas.ts:144-147`
+// como deuda conocida, a la espera de que alguien decidiera; se cierra hacia
+// «Administrador», que es el texto de la fuente y el que ya se lee en la ficha.
+//
+// La COPIA sigue aquí a propósito: retirarla es consolidar, y eso es la Fase B. Lo
+// que esta fase arregla es que las dos copias digan lo mismo, para que la Fase B sea
+// un borrado y no una decisión de producto disfrazada de refactor.
 const ROLE_LABELS: Record<string, string> = {
   USER: 'Usuario',
   MODERATOR: 'Moderador',
   EDITOR: 'Editor',
-  ADMIN: 'Admin',
+  ADMIN: 'Administrador',
 };
 
 // Roles asignables desde el selector — ADMIN excluido (el DTO/service lo rechazan
