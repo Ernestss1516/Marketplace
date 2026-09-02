@@ -34,7 +34,16 @@ import {
 } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 import { ApiError } from '@/lib/api/client';
-import { ESTADO_USUARIO_LABELS } from '../etiquetas';
+// I18N T2 — el vocabulario COMPARTIDO. Esta pantalla ya importaba de aquí
+// (`ESTADO_USUARIO_LABELS`); lo que sigue son las tres llamadas que le faltaban para
+// dejar de pintar enums crudos, más el motivo de denuncia, que tenía copia propia.
+import {
+  ESTADO_REPORTE_LABELS,
+  ESTADO_USUARIO_LABELS,
+  MOTIVO_REPORTE_LABELS,
+  etiqueta,
+  etiquetaDeEstado,
+} from '../etiquetas';
 import { Badge } from '@/components/ui/badge';
 import { DatoIp } from '@/components/admin/DatoIp';
 import { Button } from '@/components/ui/button';
@@ -94,14 +103,13 @@ const ROLE_LABELS: Record<string, string> = {
 // como valor destino; no se ofrece en la UI tampoco).
 const ASSIGNABLE_ROLES = ['USER', 'MODERATOR', 'EDITOR'];
 
-const REPORT_REASON_LABELS: Record<string, string> = {
-  SPAM: 'Spam',
-  FRAUD: 'Fraude',
-  INAPPROPRIATE: 'Inapropiado',
-  PROHIBITED_ITEM: 'Artículo prohibido',
-  WRONG_CATEGORY: 'Categoría incorrecta',
-  OTHER: 'Otro',
-};
+// I18N T2 — AQUÍ ESTUVO `REPORT_REASON_LABELS`, la tercera copia de `ReportReason`,
+// y la que la cabecera de `etiquetas.ts` señala como YA DIVERGIDA: le faltaba
+// `FAKE_REVIEW`, así que una denuncia de valoración se pintaba «FAKE_REVIEW» en esta
+// lista y «Valoración falsa» en las otras dos pantallas. Se retira y se usa
+// `MOTIVO_REPORTE_LABELS`, que es la copia completa y de la que ésta salió: los seis
+// textos que sí tenía son idénticos, así que lo único que cambia en pantalla es que
+// el séptimo deja de salir en crudo.
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('es-ES', {
@@ -246,15 +254,22 @@ function UserDetailPanel({
                   }
                   className="shrink-0 text-[10px]"
                 >
-                  {l.status === 'ACTIVE'
-                    ? 'Activo'
-                    : l.status === 'PENDING_REVIEW'
-                      ? 'Revisión'
-                      : l.status === 'REJECTED'
-                        ? 'Rechazado'
-                        : l.status === 'DRAFT'
-                          ? 'Borrador'
-                          : l.status}
+                  {/* I18N T2 (D7) — aquí había una cadena de cuatro ternarios, que es
+                      un diccionario a medias con otra forma: cubría 4 de los 9 estados
+                      y los otros cinco —SOLD, RESERVED, EXPIRED, PAUSED, ARCHIVED—
+                      caían al `: l.status` final, en crudo. Un anuncio vendido salía
+                      «SOLD» en la ficha del vendedor.
+
+                      `etiquetaDeEstado` cubre los nueve y conserva el mismo último
+                      recurso visible. El único texto que cambia es PENDING_REVIEW:
+                      «Revisión» → «En revisión», que es como lo llaman la lista de
+                      anuncios y su ficha — la divergencia se cierra hacia el nombre
+                      que el staff ya lee en las dos pantallas donde vive ese estado.
+
+                      La VARIANTE del Badge se queda en ternario a propósito:
+                      `etiquetas.ts` re-exporta las etiquetas pero NO `STATUS_VARIANTS`,
+                      porque el color es de la pantalla de anuncios y no del vocabulario. */}
+                  {etiquetaDeEstado(l.status)}
                 </Badge>
               </div>
             ))}
@@ -274,9 +289,12 @@ function UserDetailPanel({
             {data.reportsReceived.map((r) => (
               <div key={r.id} className="flex items-center gap-2 text-xs">
                 <Badge variant="outline" className="shrink-0 text-[10px]">
-                  {REPORT_REASON_LABELS[r.reason] ?? r.reason}
+                  {etiqueta(MOTIVO_REPORTE_LABELS, r.reason)}
                 </Badge>
-                <span className="text-muted-foreground">{r.status}</span>
+                {/* I18N T2 (D3) — pintaba el `status` crudo: «PENDING», «RESOLVED». El
+                    diccionario existe desde la ráfaga de traducciones y esta misma
+                    pantalla ya importaba de su fichero; sólo faltaba llamarlo. */}
+                <span className="text-muted-foreground">{etiqueta(ESTADO_REPORTE_LABELS, r.status)}</span>
                 <span className="ml-auto shrink-0 text-muted-foreground">{formatDate(r.createdAt)}</span>
               </div>
             ))}

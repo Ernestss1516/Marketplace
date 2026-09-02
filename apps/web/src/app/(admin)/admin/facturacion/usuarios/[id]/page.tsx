@@ -10,6 +10,7 @@ import {
   type AdminUserBillingDetail,
 } from '@/lib/api/admin-billing';
 import { ApiError } from '@/lib/api/client';
+import type { CreditLedgerType } from '@/lib/api/billing';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
@@ -31,7 +32,25 @@ const TX_STATUS_VARIANTS: Record<string, 'default' | 'secondary' | 'outline' | '
   PARTIALLY_REFUNDED: 'outline',
 };
 
-const LEDGER_TYPE_LABELS: Record<string, string> = {
+/**
+ * I18N T2 (D8) — EL LIBRO MAYOR, CON SUS OCHO MOVIMIENTOS.
+ *
+ * Tenía SIETE de los ocho: faltaba `COUPON_REDEEM`, así que un cupón canjeado se
+ * pintaba «COUPON_REDEEM» en el backoffice mientras el MISMO movimiento salía «Cupón
+ * canjeado» en la pantalla de saldo de su dueño. El staff leía peor que el usuario
+ * sobre el dinero del usuario.
+ *
+ * NO SE ARREGLA SÓLO AÑADIENDO LA CLAVE — así es como se perdió: el mapa era
+ * `Record<string, string>` y el valor nuevo entró en `CreditLedgerType` sin que nada
+ * se quejara. Al tiparlo contra la unión, **el próximo miembro del enum no compila**
+ * hasta que alguien le escriba su etiqueta. Es la barrera de `PLACEMENT_LABELS` y la
+ * de `Historiales.tsx`, que es justamente la copia que sí estaba completa.
+ *
+ * Las etiquetas propias se conservan («Subida», «Crédito admin»…): son el registro de
+ * esta pantalla y unificarlas con las de la cuenta es la consolidación (T3), no esto.
+ * Lo único que se escribe nuevo es el octavo texto, y se copia de allí.
+ */
+const LEDGER_TYPE_LABELS: Record<CreditLedgerType, string> = {
   PACK_PURCHASE: 'Compra de pack',
   FEATURED_DEBIT: 'Destacado',
   BUMP_DEBIT: 'Subida',
@@ -39,6 +58,7 @@ const LEDGER_TYPE_LABELS: Record<string, string> = {
   ADMIN_DEBIT: 'Débito admin',
   PRO_BONUS: 'Bonus Pro',
   CAMPAIGN_BONUS: 'Bonus campaña',
+  COUPON_REDEEM: 'Cupón canjeado',
 };
 
 const ENTITLEMENT_TYPE_LABELS: Record<string, string> = {
@@ -335,7 +355,13 @@ export default function AdminUserBillingDetailPage() {
                     {data.wallet.entries.map((entry) => (
                       <tr key={entry.id}>
                         <td className="py-2 pr-4">
-                          {LEDGER_TYPE_LABELS[entry.type] ?? entry.type}
+                          {/* El `as` + el `??` van juntos, y son la pareja de
+                              `ticketStatusLabel`: `entry.type` llega como `string`
+                              desde `lib/api/`, y una fila de un tipo retirado no debe
+                              reventar la tabla — cae al valor crudo, el último recurso
+                              VISIBLE. El tipado de arriba es lo que protege en
+                              compilación; esto, lo que protege en ejecución. */}
+                          {LEDGER_TYPE_LABELS[entry.type as CreditLedgerType] ?? entry.type}
                         </td>
                         <td
                           className={[
