@@ -10,9 +10,11 @@ import {
   FISCAL_WINDOW_SETTING,
 } from '../invoicing/invoicing.constants';
 import type { InstanceInfo } from './instance-info.types';
+import { REMITENTE_PLACEHOLDER } from '../../config/remitente';
 
-/** El defecto de `RESEND_FROM` en `configuration.ts`. Un placeholder con pinta de dominio real. */
-const REMITENTE_PLACEHOLDER = 'noreply@tudominio.es';
+// El placeholder vive en `config/remitente.ts` — tres lectores (el defecto de
+// `configuration.ts`, este aviso y la validación que lo PROHÍBE en producción) y
+// una sola definición. Antes estaba escrito a mano aquí y allí.
 
 /** La clave del buzón de soporte. La misma que lee `TicketNotificationsService`. */
 const SUPPORT_EMAIL_SETTING = 'supportEmail';

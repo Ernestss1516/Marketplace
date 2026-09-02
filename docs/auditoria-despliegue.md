@@ -370,7 +370,7 @@ ella:
 toque Postgres, Redis y Meilisearch. La distinción importa: *liveness* («¿reinicio el proceso?»)
 no debe depender de terceros, o una caída de Meili provoca un bucle de reinicios.
 
-### 3.2 · Joi no exige nada en producción — **DURO** · NUEVO · *corrige a `pendientes.md`*
+### 3.2 · Joi no exige nada en producción — **DURO** · ~~NUEVO~~ **CERRADO (grupo A)** · *corrigió a `pendientes.md`*
 
 Lectura completa de [`env.validation.ts`](../apps/api/src/config/env.validation.ts). El fichero
 usa `Joi.when('NODE_ENV', { is: 'test', … })` **cuatro veces**, con reglas muy exigentes:
@@ -403,7 +403,7 @@ da por hecho el modo `standalone`; hoy **no está**. Sin él, la imagen del fron
 llevar `node_modules` completo (cientos de MB frente a decenas). No impide desplegar; encarece
 cada build y cada arranque en frío. Es una línea.
 
-### 3.4 · `remotePatterns` no cubre el R2 real — **DURO** · NUEVO
+### 3.4 · `remotePatterns` no cubre el R2 real — **DURO** · ~~NUEVO~~ **CERRADO (grupo A)**
 
 [`image-domains.ts`](../apps/web/src/lib/image-domains.ts) declara tres patrones:
 `http://localhost`, `http://127.0.0.1` y `https://*.r2.cloudflarestorage.com`.
@@ -920,7 +920,7 @@ Ninguna la toma este documento. Ordenadas por lo que bloquean.
 
 | # | Qué | Bloqueo | Se cierra… | Ráfaga |
 |---|---|---|---|---|
-| P1 | `enableCors()` sin argumentos | **DURO** | Antes | D2 |
+| ~~P1~~ | ~~`enableCors()` sin argumentos~~ **CERRADO** | — | ✅ | D2 |
 | P2 | Rate limit por IP sin verificar | **DURO** (verificación) | **Durante** | D5 |
 | P3 | El `reindex` no cierra conexiones | **DURO** | Antes | D2 |
 | P4 | ZIP de exportación en memoria | BLANDO **con tope** | Antes (el tope) | D4 |
@@ -929,9 +929,9 @@ Ninguna la toma este documento. Ordenadas por lo que bloquean.
 | P7 | Las 4 reglas `tmp/` | BLANDO | **Durante** | D5 |
 | P8 | Preparación de producción | MIXTO | Antes / durante | D5 |
 | **N1** | **Sin endpoint de salud** | **DURO** | Antes | D1 |
-| **N2** | **Joi no exige en producción** | **DURO** | Antes | D1 |
+| ~~**N2**~~ | ~~Joi no exige en producción~~ **CERRADO** | — | ✅ | D1 |
 | **N3** | Sin `output: 'standalone'` | BLANDO | Antes | D3 |
-| **N4** | **`remotePatterns` sin el R2 real** | **DURO** ⚠ antes de la 1.ª subida | Antes | D3 |
+| ~~**N4**~~ | ~~`remotePatterns` sin el R2 real~~ **CERRADO** — el dominio se deriva de `NEXT_PUBLIC_MEDIA_URL` | — | ✅ | D3 |
 | **N5** | Swagger sin condición | BLANDO | Antes | D1 |
 | **N6** | Sin `GIT_SHA` | BLANDO | Antes | D3 |
 | ~~**N7**~~ | ~~`.gitignore` enumera en vez de cubrir~~ **CERRADO** | — | ✅ | D0 |
