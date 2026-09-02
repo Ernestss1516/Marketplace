@@ -7,6 +7,7 @@ import { AlertCircle, Plus } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { TicketStatusBadge } from '@/components/tickets/TicketStatusBadge';
+import { ORIGEN_TICKET_LABELS } from '@/lib/etiquetas-enums';
 import { ApiError } from '@/lib/api/client';
 import { adminTicketHref } from '@/lib/admin-links';
 import {
@@ -24,12 +25,6 @@ import type {
 
 const PER_PAGE = 25;
 const TODOS = '__all__';
-
-const ORIGIN_LABELS: Record<TicketOrigin, string> = {
-  USER: 'Del usuario',
-  ADMIN: 'Iniciado por admin',
-  REPORT: 'Desde denuncia',
-};
 
 const STATUS_OPTIONS: TicketStatus[] = [
   'OPEN',
@@ -162,9 +157,9 @@ export default function AdminTicketsPage() {
           data-testid="filtro-origen"
         >
           <option value={TODOS}>Todos los orígenes</option>
-          {(Object.keys(ORIGIN_LABELS) as TicketOrigin[]).map((o) => (
+          {(Object.keys(ORIGEN_TICKET_LABELS) as TicketOrigin[]).map((o) => (
             <option key={o} value={o}>
-              {ORIGIN_LABELS[o]}
+              {ORIGEN_TICKET_LABELS[o]}
             </option>
           ))}
         </select>
@@ -289,7 +284,7 @@ export default function AdminTicketsPage() {
                   <td className="px-4 py-2">
                     <TicketStatusBadge status={t.status} />
                   </td>
-                  <td className="px-4 py-2 text-muted-foreground">{ORIGIN_LABELS[t.origin]}</td>
+                  <td className="px-4 py-2 text-muted-foreground">{ORIGEN_TICKET_LABELS[t.origin]}</td>
                   <td className="px-4 py-2 text-muted-foreground">
                     {t.assignedTo?.name ?? <span className="italic">sin asignar</span>}
                   </td>

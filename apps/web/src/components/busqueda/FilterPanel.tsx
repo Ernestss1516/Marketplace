@@ -11,29 +11,44 @@ import { resolveLinkedOptions } from '@/lib/attribute-schema';
 // `app/(admin)/admin/` por dónde nació (las fichas del backoffice), y de ahí lo
 // importa también esta pantalla pública: hoy es un módulo plano —sin JSX, sin
 // `'use client'`, sin nada de servidor— y traer las tres etiquetas de `PriceType`
-// desde su única fuente es preferible a abrir aquí la copia nº 32. Mudarlo a `lib/`
-// es la ráfaga de consolidación (T3, `docs/auditoria-i18n-espanol.md` §8.2), que
-// además re-exportará desde aquí para no tocar a sus veinte consumidores; hacerlo
-// ahora sería meter ese cuerpo dentro de éste.
-import { TIPO_PRECIO_LABELS, UNIDAD_PRECIO_LABELS } from '@/app/(admin)/admin/etiquetas';
+// desde su única fuente es preferible a abrir aquí la copia nº 32.
+//
+// I18N T3-B — DEUDA SALDADA. Ese import apuntaba a `app/(admin)/admin/etiquetas.ts`, y
+// quedó anotado como «feo a propósito y temporal»: un componente público colgando de
+// una carpeta de administración. El vocabulario vive ya en `lib/`, que es la capa que
+// le corresponde, y la dirección de dependencia es la correcta.
+import {
+  CONDICION_LABELS,
+  TIPO_ANUNCIO_PLURAL_LABELS,
+  TIPO_PRECIO_LABELS,
+  UNIDAD_PRECIO_LABELS,
+} from '@/lib/etiquetas-enums';
 import type { AttributeFieldView } from '@/lib/filterable-fields';
 import { CategorySelect } from './CategorySelect';
-import type { Category, ListingTypePolicy, TagRef } from '@/types';
+import type { Category, Condition, ListingType, ListingTypePolicy, TagRef } from '@/types';
 
+// I18N T3-B — QUÉ opciones ofrece el panel lo sigue decidiendo el panel: el «Todos» y
+// el «Cualquiera» de arriba no son valores del enum, son la ausencia de filtro, y por
+// eso se escriben aquí. Lo que ya no decide es cómo se LLAMA cada valor.
+//
+// `TIPO_ANUNCIO_PLURAL_LABELS` y no `TIPO_ANUNCIO_LABELS`: en un filtro se cuentan
+// anuncios («Productos»), en una ficha se describe uno («Producto»). Es una variante
+// declarada del vocabulario, no una copia con otra terminación.
 const TYPE_OPTIONS = [
   { value: '', label: 'Todos' },
-  { value: 'PRODUCT', label: 'Productos' },
-  { value: 'SERVICE', label: 'Servicios' },
-] as const;
+  ...(Object.keys(TIPO_ANUNCIO_PLURAL_LABELS) as ListingType[]).map((value) => ({
+    value,
+    label: TIPO_ANUNCIO_PLURAL_LABELS[value],
+  })),
+];
 
 const CONDITION_OPTIONS = [
   { value: '', label: 'Cualquiera' },
-  { value: 'NEW', label: 'Nuevo' },
-  { value: 'LIKE_NEW', label: 'Como nuevo' },
-  { value: 'GOOD', label: 'Buen estado' },
-  { value: 'FAIR', label: 'Aceptable' },
-  { value: 'FOR_PARTS', label: 'Para piezas' },
-] as const;
+  ...(Object.keys(CONDICION_LABELS) as Condition[]).map((value) => ({
+    value,
+    label: CONDICION_LABELS[value],
+  })),
+];
 
 const BASE_SORT_OPTIONS = [
   { value: 'publishedAt:desc', label: 'Más recientes' },

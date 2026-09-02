@@ -32,7 +32,7 @@ import {
   etiqueta,
   etiquetaDeEstado,
   ticketStatusLabel,
-} from '../../etiquetas';
+} from '@/lib/etiquetas-enums';
 
 function fechaHora(iso: string) {
   return new Date(iso).toLocaleString('es-ES', {

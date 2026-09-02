@@ -18,10 +18,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { PostForm, type PostFormValues } from '../../_components/PostForm';
 
-const STATUS_LABELS: Record<string, string> = {
-  DRAFT: 'Borrador',
-  PUBLISHED: 'Publicado',
-};
+// I18N T3-B — estaba en la lista y en el editor, idéntico. «Publicado» concuerda con
+// «el post»; la variante femenina —para las páginas del CMS— vive declarada aparte.
+import { ESTADO_POST_LABELS as STATUS_LABELS } from '@/lib/etiquetas-enums';
 
 const STATUS_VARIANTS: Record<string, 'default' | 'outline'> = {
   DRAFT: 'outline',

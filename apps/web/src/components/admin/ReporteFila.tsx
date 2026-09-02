@@ -5,7 +5,7 @@ import {
   ESTADO_REPORTE_LABELS,
   MOTIVO_REPORTE_LABELS,
   etiqueta,
-} from '@/app/(admin)/admin/etiquetas';
+} from '@/lib/etiquetas-enums';
 
 /**
  * UNA DENUNCIA RESUMIDA, IGUAL EN TODAS PARTES.

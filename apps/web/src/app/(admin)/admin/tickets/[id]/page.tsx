@@ -39,7 +39,7 @@ import {
   ESTADO_REPORTE_LABELS,
   MOTIVO_REPORTE_LABELS,
   etiqueta,
-} from '../../etiquetas';
+} from '@/lib/etiquetas-enums';
 import type { AdminTicketDetail, Role } from '@/types';
 
 function formatFechaHora(iso: string) {

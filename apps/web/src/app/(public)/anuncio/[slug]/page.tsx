@@ -26,6 +26,9 @@ import { categoryPath } from '@/lib/category-url';
 import { breadcrumbJsonLd } from '@/lib/breadcrumb-json-ld';
 import { ApiError } from '@/lib/api/client';
 import { SITE_NAME, SITE_URL } from '@/config';
+// I18N T3-B — `CONDITION_LABELS` estaba escrito aquí, y era una de las SEIS copias
+// del mismo mapa que había en el repo.
+import { CONDICION_LABELS as CONDITION_LABELS, etiquetaDeEstado } from '@/lib/etiquetas-enums';
 
 type Params = { slug: string };
 
@@ -53,18 +56,11 @@ export async function generateMetadata({
   }
 }
 
-const STATUS_LABELS: Partial<Record<string, string>> = {
-  RESERVED: 'Reservado',
-};
-
-const CONDITION_LABELS: Record<string, string> = {
-  NEW: 'Nuevo',
-  LIKE_NEW: 'Como nuevo',
-  GOOD: 'Buen estado',
-  FAIR: 'Aceptable',
-  FOR_PARTS: 'Para piezas',
-};
-
+// I18N T3-B — igual que en la tarjeta: lo que esto declara NO es cómo se llama
+// «RESERVED», es que en la ficha pública **sólo** ese estado lleva insignia. Un
+// anuncio vendido o caducado ni siquiera llega aquí (la ficha no lo sirve), así que la
+// lista es de uno. El texto sale ya de la fuente.
+const ESTADOS_CON_INSIGNIA = new Set(['RESERVED']);
 
 export default async function AnuncioPage({
   params,
@@ -103,7 +99,9 @@ export default async function AnuncioPage({
   // que pueden ser de un tipo distinto al de este anuncio.
   const visibleSchema = filterSchemaByType(schema, listing.type);
 
-  const statusLabel = STATUS_LABELS[listing.status];
+  const statusLabel = ESTADOS_CON_INSIGNIA.has(listing.status)
+    ? etiquetaDeEstado(listing.status)
+    : undefined;
   const location = [listing.city, listing.province].filter(Boolean).join(', ');
 
   // A1 (URLs anidadas) — los ancestros de la categoría, para la miga completa

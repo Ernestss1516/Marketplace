@@ -5,9 +5,17 @@ import {
   CONDICION_LABELS,
   ESTADO_BUMP_LABELS,
   ESTADO_REPORTE_LABELS,
+  ESTADO_PAGINA_LABELS,
+  ESTADO_POST_LABELS,
   ESTADO_USUARIO_LABELS,
+  MOTIVO_REPORTE_ANUNCIO_LABELS,
   MOTIVO_REPORTE_LABELS,
+  MOTIVO_REPORTE_VALORACION_LABELS,
+  MOVIMIENTO_CREDITO_ADMIN_LABELS,
+  MOVIMIENTO_CREDITO_LABELS,
   ROL_LABELS,
+  SUFIJO_UNIDAD_PRECIO,
+  TIPO_ANUNCIO_PLURAL_LABELS,
   STATUS_LABELS,
   TIPO_ANUNCIO_LABELS,
   TIPO_PRECIO_LABELS,
@@ -15,14 +23,22 @@ import {
   etiqueta,
   etiquetaDeEstado,
   ticketStatusLabel,
-  // T3-A — SE SIGUE IMPORTANDO DEL PUENTE, y es deliberado: mientras los doce
-  // consumidores importen de aquí, el test tiene que ejercer el mismo camino que
-  // ellos. Que las 940 afirmaciones de este fichero pasen a través del re-export es,
-  // por sí solo, la prueba de que el puente no se dejó nada. La Fase B lo reapuntará
-  // a `@/lib/etiquetas-enums` junto con el resto.
-} from './etiquetas';
-import { PRICE_UNIT_LABELS } from '@/components/publicar/steps/StepDatos';
+  // T3-B — ya no hay puente que atravesar: se importa del vecino, que es la fuente.
+} from './etiquetas-enums';
 import { ROLE_ORDER } from '@/config/roles';
+import { existsSync, readdirSync, statSync } from 'node:fs';
+
+/**
+ * I18N T3-B — EL TEST SE MUDÓ CON LO QUE VALIDA.
+ *
+ * Vivía en `app/(admin)/admin/` porque el vocabulario vivía allí. Ya no: valida
+ * `./etiquetas-enums.ts`, su vecino, y a él pertenece. Lo único que la mudanza obliga
+ * a cambiar son las rutas de las barreras que leen el FUENTE de las pantallas, que
+ * antes eran relativas al propio directorio del backoffice. Se nombran una vez aquí
+ * para no repetir la cuenta de `..` en tres bloques.
+ */
+const SRC = join(__dirname, '..');
+const ADMIN = join(SRC, 'app', '(admin)', 'admin');
 
 /**
  * TRADUCCIONES — LA BARRERA.
@@ -156,13 +172,21 @@ describe('el vocabulario cubre cada enum entero', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('las etiquetas son las MISMAS que el resto del sitio ya usa', () => {
-  it('los formatos de precio son literalmente los del wizard de publicar', () => {
-    // El único de los mapas nuevos cuyo original está EXPORTADO, así que se compara
-    // contra él en vez de contra una copia. Si el wizard renombra «Al mes», esta
-    // afirmación obliga a decidir aquí también, en vez de divergir en silencio —
-    // que es exactamente lo que le pasó a `ReportReason` entre `/admin/reportes` y
-    // `/admin/usuarios` (a la segunda le falta `FAKE_REVIEW`).
-    expect(UNIDAD_PRECIO_LABELS).toEqual(PRICE_UNIT_LABELS);
+  it('los formatos de precio ya no tienen con qué divergir', () => {
+    // AQUÍ SE COMPARABA CONTRA `PRICE_UNIT_LABELS` del wizard de publicar, que era la
+    // otra copia: «si el wizard renombra Al mes, esta afirmación obliga a decidir aquí
+    // también, en vez de divergir en silencio». Era lo mejor que se podía hacer
+    // MIENTRAS hubiera dos.
+    //
+    // T3-B quitó la segunda: el wizard importa de aquí. Comparar dos referencias al
+    // mismo objeto sería una afirmación que no puede fallar, así que lo que se vigila
+    // ahora es lo único que aún puede romperse — que nadie vuelva a declararla allí.
+    const wizard = readFileSync(
+      join(SRC, 'components', 'publicar', 'steps', 'StepDatos.tsx'),
+      'utf8',
+    );
+    expect(wizard).not.toMatch(/const PRICE_UNIT_LABELS/);
+    expect(wizard).toContain("from '@/lib/etiquetas-enums'");
   });
 
   it('`FREE` y `NEGOTIABLE` dicen lo mismo que la cabecera de la propia ficha', () => {
@@ -178,7 +202,9 @@ describe('las etiquetas son las MISMAS que el resto del sitio ya usa', () => {
     // ser importarlo, no copiarlo: éste es el test de que se re-exporta el mismo
     // objeto y no una copia con las mismas palabras.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const original = require('./anuncios/listing-status') as { STATUS_LABELS: unknown };
+    const original = require('@/app/(admin)/admin/anuncios/listing-status') as {
+      STATUS_LABELS: unknown;
+    };
     expect(STATUS_LABELS).toBe(original.STATUS_LABELS);
   });
 });
@@ -230,7 +256,7 @@ describe('la caída de `etiqueta()`', () => {
 // test cae. No pretende impedir que alguien invente una forma nueva de pintar el
 // crudo — pretende que la vuelta atrás no sea silenciosa.
 describe('LA BARRERA — las fichas no vuelven a pintar el enum crudo', () => {
-  const leer = (...ruta: string[]) => readFileSync(join(__dirname, ...ruta), 'utf8');
+  const leer = (...ruta: string[]) => readFileSync(join(ADMIN, ...ruta), 'utf8');
 
   const FICHA_ANUNCIO = leer('anuncios', '[id]', 'page.tsx');
   const FICHA_USUARIO = leer('usuarios', '[id]', 'page.tsx');
@@ -265,8 +291,8 @@ describe('LA BARRERA — las fichas no vuelven a pintar el enum crudo', () => {
   });
 
   it('y las dos importan el vocabulario, en vez de re-declararlo', () => {
-    expect(FICHA_ANUNCIO).toContain("from '../../etiquetas'");
-    expect(FICHA_USUARIO).toContain("from '../../etiquetas'");
+    expect(FICHA_ANUNCIO).toContain("from '@/lib/etiquetas-enums'");
+    expect(FICHA_USUARIO).toContain("from '@/lib/etiquetas-enums'");
     // `ACCION_LABELS` vivía dentro de la ficha de anuncio. Que ya no se declare ahí es
     // la mitad del arreglo: mientras fuera local, la ficha de usuario no podía usarlo.
     expect(FICHA_ANUNCIO).not.toContain('const ACCION_LABELS');
@@ -292,7 +318,7 @@ describe('LA BARRERA — las fichas no vuelven a pintar el enum crudo', () => {
 // `useSession` + fetch), y cada cadena prohibida es LITERALMENTE cómo estaba escrito
 // ese sitio antes de este cuerpo: revertirlo pone el test en rojo.
 describe('LA BARRERA T2 — las otras cuatro pantallas tampoco pintan el enum crudo', () => {
-  const leer = (...ruta: string[]) => readFileSync(join(__dirname, ...ruta), 'utf8');
+  const leer = (...ruta: string[]) => readFileSync(join(ADMIN, ...ruta), 'utf8');
 
   const LISTA_USUARIOS = leer('usuarios', 'page.tsx');
   const LISTA_REPORTES = leer('reportes', 'page.tsx');
@@ -347,22 +373,31 @@ describe('LA BARRERA T2 — las otras cuatro pantallas tampoco pintan el enum cr
   // ── B3: D8 — la clave que faltaba, y que no vuelva a faltar ────────────────
 
   it('D8 — el libro mayor tiene los OCHO movimientos, no siete', () => {
-    expect(LIBRO_MAYOR).toContain("COUPON_REDEEM: 'Cupón canjeado'");
+    // T3-B — el mapa dejó de vivir DENTRO de la pantalla, así que ya no se comprueba
+    // ahí: se comprueba en el objeto, que es más fuerte. La pantalla sólo tiene que
+    // llamarlo.
+    expect(Object.keys(MOVIMIENTO_CREDITO_ADMIN_LABELS)).toHaveLength(8);
+    expect(MOVIMIENTO_CREDITO_ADMIN_LABELS.COUPON_REDEEM).toBe('Cupón canjeado');
+    expect(LIBRO_MAYOR).toContain('MOVIMIENTO_CREDITO_ADMIN_LABELS');
+    expect(LIBRO_MAYOR).not.toMatch(/const LEDGER_TYPE_LABELS/);
   });
 
   it('D8 — y el mapa está tipado, así que el noveno no compilará sin etiqueta', () => {
     // Es LA diferencia entre arreglar este caso y arreglar la clase: con
     // `Record<string, string>` la clave se perdió en silencio cuando `COUPON_REDEEM`
-    // entró en el enum. Molde: `PLACEMENT_LABELS`.
-    expect(LIBRO_MAYOR).toContain('LEDGER_TYPE_LABELS: Record<CreditLedgerType, string>');
+    // entró en el enum. Molde: `PLACEMENT_LABELS`. El tipado se mudó con el mapa.
+    const fuente = readFileSync(join(SRC, 'lib', 'etiquetas-enums.ts'), 'utf8');
+    expect(fuente).toContain('MOVIMIENTO_CREDITO_ADMIN_LABELS: Record<CreditLedgerType, string>');
+    // Y su gemelo del lado del usuario, que es la variante declarada.
+    expect(fuente).toContain('MOVIMIENTO_CREDITO_LABELS: Record<CreditLedgerType, string>');
   });
 
   // ── B4: sin copia nueva ────────────────────────────────────────────────────
 
   it('las cuatro llaman al vocabulario compartido en vez de re-declararlo', () => {
-    expect(LISTA_USUARIOS).toContain("from '../etiquetas'");
-    expect(LISTA_REPORTES).toContain("from '../etiquetas'");
-    expect(FICHA_REPORTE).toContain("from '../../etiquetas'");
+    expect(LISTA_USUARIOS).toContain("from '@/lib/etiquetas-enums'");
+    expect(LISTA_REPORTES).toContain("from '@/lib/etiquetas-enums'");
+    expect(FICHA_REPORTE).toContain("from '@/lib/etiquetas-enums'");
   });
 
   it('la LISTA de usuarios ya no lleva su copia divergente de `ReportReason`', () => {
@@ -405,12 +440,11 @@ describe('LA BARRERA T2 — las otras cuatro pantallas tampoco pintan el enum cr
 // vigila aquí es exactamente eso — que los prerrequisitos no se deshagan y que el
 // puente siga siendo un puente y no una segunda copia.
 describe('T3-A — los prerrequisitos de la consolidación', () => {
-  const raiz = (...ruta: string[]) => readFileSync(join(__dirname, '..', '..', '..', ...ruta), 'utf8');
+  const raiz = (...ruta: string[]) => readFileSync(join(SRC, ...ruta), 'utf8');
 
   const TIPOS = raiz('types', 'index.ts');
   const FUENTE = raiz('lib', 'etiquetas-enums.ts');
-  const PUENTE = readFileSync(join(__dirname, 'etiquetas.ts'), 'utf8');
-  const LISTA_USUARIOS = readFileSync(join(__dirname, 'usuarios', 'page.tsx'), 'utf8');
+  const LISTA_USUARIOS = readFileSync(join(ADMIN, 'usuarios', 'page.tsx'), 'utf8');
 
   // ── B1: `Role` completo ────────────────────────────────────────────────────
 
@@ -440,46 +474,180 @@ describe('T3-A — los prerrequisitos de la consolidación', () => {
 
   // ── B2: la divergencia cerrada ─────────────────────────────────────────────
 
-  it('B2 — `ADMIN` se llama igual en la fuente y en la copia que queda', () => {
+  it('B2 — `ADMIN` se llama «Administrador», y ya no hay dónde decir otra cosa', () => {
     expect(ROL_LABELS.ADMIN).toBe('Administrador');
-    // La lista de usuarios llevaba `ADMIN: 'Admin'` en su diccionario Y un tercer
-    // «Admin» en la fila de filtros. Los dos apuntan ya al mismo texto. La COPIA
-    // sigue ahí a propósito: retirarla es Fase B; que diga lo mismo es esta fase.
-    expect(LISTA_USUARIOS).not.toMatch(/ADMIN: 'Admin'/);
+    // La lista de usuarios llevaba `ADMIN: 'Admin'` en su propio diccionario Y un
+    // tercer «Admin» en la fila de filtros. La Fase A los alineó; la B retiró el
+    // diccionario entero, así que lo que se vigila ahora es que no vuelva a haber
+    // una segunda opinión — no el texto de una copia que ya no existe.
+    //
+    // Se mira la DECLARACIÓN y no la cadena: el comentario que cuenta esta historia
+    // nombra el «Admin» viejo a propósito, y esa historia es lo único que evita que
+    // alguien reabra la divergencia creyendo que nunca se decidió.
+    expect(LISTA_USUARIOS).not.toMatch(/const ROLE_LABELS/);
     expect(LISTA_USUARIOS).not.toMatch(/label: 'Admin',\s*value: 'ADMIN'/);
+    expect(LISTA_USUARIOS).toContain('ROL_LABELS');
   });
 
-  // ── B3 / B4: la mudanza, con el puente intacto ─────────────────────────────
+  // ── B3 / B4: la mudanza, ya sin puente (T3-B) ──────────────────────────────
 
-  it('B4 — el contenido vive en `lib/`, y el sitio viejo SÓLO re-exporta', () => {
-    // Que la fuente sea la de verdad: los diccionarios están allí.
+  it('B4 — el contenido vive en `lib/`', () => {
     expect(FUENTE).toContain('export const ROL_LABELS');
     expect(FUENTE).toContain('export const MOTIVO_REPORTE_LABELS');
-    // Y que el puente no se haya quedado ni una etiqueta. Si alguien «arregla» un
-    // conflicto copiando aquí un diccionario, esto lo dice.
-    expect(PUENTE).toContain("export * from '@/lib/etiquetas-enums'");
-    expect(PUENTE).not.toMatch(/export const \w+_LABELS/);
-    expect(PUENTE).not.toMatch(/: '[A-ZÁÉÍÓÚÑ]/);
   });
 
-  it('B3 — el puente sirve TODO lo que la fuente exporta', () => {
-    // La mutación que mata: re-exportar a mano media docena de nombres y olvidar el
-    // resto. `export *` no permite ese olvido, y esto comprueba que sigue siendo
-    // `export *` y no una lista.
+  it('B3 — el puente ya NO existe: la Fase B lo retiró al quedarse sin nadie', () => {
+    // En T3-A esto comprobaba que el puente re-exportaba TODO (`export *`), porque
+    // doce ficheros seguían importando de él. Ya no importa ninguno, así que la
+    // afirmación se invierte: lo que hay que vigilar ahora es que no vuelva.
     //
-    // Se compara contra la fuente en vez de contra una lista escrita aquí, por la
-    // misma razón de siempre: una lista a mano es otra lista que olvidar.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const fuente = require('@/lib/etiquetas-enums') as Record<string, unknown>;
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const puente = require('./etiquetas') as Record<string, unknown>;
-    expect(Object.keys(puente).sort()).toEqual(Object.keys(fuente).sort());
-    expect(Object.keys(puente).length).toBeGreaterThan(10);
+    // Que reaparezca no sería inocente — sería un segundo sitio del que importar el
+    // vocabulario, es decir, el principio de la dispersión otra vez, y esta vez con
+    // dos rutas igual de válidas.
+    expect(existsSync(join(ADMIN, 'etiquetas.ts'))).toBe(false);
+    expect(ROL_LABELS).toBe(
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      (require('@/lib/etiquetas-enums') as { ROL_LABELS: unknown }).ROL_LABELS,
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 7. I18N T3-B — B5: LA CLASE CERRADA. NO HAY COPIA Nº 32.
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// TODO lo anterior vigila defectos CONCRETOS: este campo, aquella pantalla, esta
+// clave. Sirven, pero llegan tarde por definición — hay que saber que el defecto
+// existe para escribir su test, y la auditoría encontró 31 copias precisamente
+// porque nadie las estaba contando.
+//
+// Esto es lo otro: no vigila un defecto, vigila la FORMA. Un diccionario de enum es
+// reconocible —un `const *_LABELS` con claves en SCREAMING_SNAKE— y a partir de ahora
+// sólo puede declararse en el vocabulario o en un puñado de módulos con nombre. Quien
+// abra la copia nº 32 en una pantalla no necesita que nadie recuerde este problema:
+// CI se lo dice.
+//
+// SE LEE EL ÁRBOL DE FICHEROS, no una lista escrita a mano. Mismo criterio que
+// `backoffice-sections.test.ts` con las rutas: una lista aquí sería otra lista que
+// olvidar, y justamente el fallo a evitar es el de un fichero NUEVO.
+describe('B5 — ningún diccionario de enum vive fuera del vocabulario', () => {
+  /**
+   * LOS TRES PERMITIDOS, cada uno con su razón. La lista es corta a propósito: si
+   * crece, es que la regla se está erosionando en vez de aplicándose.
+   *
+   *   · `listing-status.ts` / `listing-triage.ts` — no son diccionarios sueltos: cada
+   *     uno es un módulo con SU máquina de estados alrededor (`STATUS_VARIANTS`,
+   *     `TARGET_STATUSES`, `TRIAGE_VALUES`, sus `etiquetaDe*`). El vocabulario
+   *     RE-EXPORTA sus etiquetas, así que siguen teniendo un solo lector; partirlos
+   *     para mudar cuatro líneas dejaría el resto huérfano.
+   *   · `lib/api/banners.ts` — `PLACEMENT_LABELS` vive con el tipo `BannerPlacement`,
+   *     con `PLACEMENT_GROUPS` y con `ALL_PLACEMENTS`, que son la misma decisión
+   *     editorial. Es además el MOLDE que esta ráfaga ha ido copiando.
+   */
+  const PERMITIDOS = [
+    join('lib', 'etiquetas-enums.ts'),
+    join('app', '(admin)', 'admin', 'anuncios', 'listing-status.ts'),
+    join('app', '(admin)', 'admin', 'anuncios', 'listing-triage.ts'),
+    join('lib', 'api', 'banners.ts'),
+  ];
+
+  /** `const X_LABELS ... = {` seguido de una clave SCREAMING_SNAKE. */
+  const DECLARACION = /const\s+[A-Za-z_]*_LABELS\b[^=]*=\s*\{\s*(?:\/\/[^\n]*\n\s*)*[A-Z][A-Z0-9_]*\s*:/;
+
+  function fuentes(dir: string): string[] {
+    return readdirSync(dir).flatMap((entrada) => {
+      const ruta = join(dir, entrada);
+      if (statSync(ruta).isDirectory()) return fuentes(ruta);
+      return /\.tsx?$/.test(entrada) && !/\.test\.tsx?$/.test(entrada) ? [ruta] : [];
+    });
+  }
+
+  const infractores = fuentes(SRC)
+    .filter((ruta) => !PERMITIDOS.some((p) => ruta.endsWith(p)))
+    .filter((ruta) => DECLARACION.test(readFileSync(ruta, 'utf8')))
+    .map((ruta) => ruta.slice(SRC.length + 1).replace(/\\/g, '/'));
+
+  it('el barrido encuentra ficheros (red del propio test)', () => {
+    // Sin esto, un `readdirSync` que devolviera vacío haría pasar la barrera entera
+    // sin mirar nada — el fallo más silencioso que puede tener un test de barrido.
+    expect(fuentes(SRC).length).toBeGreaterThan(200);
   });
 
-  it('B3 — y sirve el MISMO objeto, no una copia con las mismas palabras', () => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const fuente = require('@/lib/etiquetas-enums') as { ROL_LABELS: unknown };
-    expect(ROL_LABELS).toBe(fuente.ROL_LABELS);
+  it('la propia regla reconoce la forma que persigue', () => {
+    // La segunda red: una expresión regular rota tampoco encontraría nada y también
+    // pasaría en verde. Se le enseña un caso positivo y uno negativo.
+    expect(DECLARACION.test("const ALGO_LABELS: Record<X, string> = {\n  FOO_BAR: 'x',")).toBe(true);
+    expect(DECLARACION.test("const ALGO_LABELS: Record<X, string> = {\n  upcoming: 'x',")).toBe(false);
+  });
+
+  it('nadie declara un diccionario de enum fuera del vocabulario', () => {
+    expect(infractores).toEqual([]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 8. I18N T3-B — LAS VARIANTES SIGUEN SIENDO VARIANTES
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// La consolidación tiene un modo de fallar que no es «quedan copias»: es pasarse. Un
+// par de mapas que dicen cosas distintas A PROPÓSITO se colapsa fácil —parecen dos
+// copias con una divergencia— y el que lo haga tendrá razones y ninguna señal.
+//
+// Esto es esa señal. Cada variante declarada afirma AQUÍ en qué se diferencia de su
+// base, así que unificarla deja de ser un refactor silencioso: hay que venir a borrar
+// una afirmación que dice por qué no se hace.
+describe('las variantes declaradas dicen cosas distintas, que es su motivo', () => {
+  it('el libro mayor del staff no habla como el del dueño', () => {
+    // Al usuario se le vendió un «bump» y ésa es la palabra de su producto; el staff
+    // describe lo que le pasó al anuncio. Y «Ajuste» sería impreciso en una pantalla
+    // donde también hay abonos.
+    expect(MOVIMIENTO_CREDITO_ADMIN_LABELS.BUMP_DEBIT).not.toBe(
+      MOVIMIENTO_CREDITO_LABELS.BUMP_DEBIT,
+    );
+    expect(MOVIMIENTO_CREDITO_ADMIN_LABELS.ADMIN_DEBIT).not.toBe(
+      MOVIMIENTO_CREDITO_LABELS.ADMIN_DEBIT,
+    );
+    // Y las dos siguen cubriendo el enum entero: una variante no es una excusa para
+    // quedarse corta.
+    expect(Object.keys(MOVIMIENTO_CREDITO_ADMIN_LABELS).sort()).toEqual(
+      Object.keys(MOVIMIENTO_CREDITO_LABELS).sort(),
+    );
+  });
+
+  it('el motivo de denuncia se explica en público y se abrevia en el backoffice', () => {
+    // Una insignia le dice «Spam» a un moderador que ya sabe de qué va; a un comprador
+    // al que se le pide clasificar un problema hay que explicárselo.
+    for (const clave of ['SPAM', 'OTHER'] as const) {
+      expect(MOTIVO_REPORTE_ANUNCIO_LABELS[clave].length).toBeGreaterThan(
+        MOTIVO_REPORTE_LABELS[clave].length,
+      );
+    }
+  });
+
+  it('denunciar una VALORACIÓN no se dice igual que denunciar un anuncio', () => {
+    // «u ofensivo» sólo tiene sentido sobre lo que alguien escribió de una persona.
+    // Es la palabra que se habría perdido al colapsar las dos formas largas.
+    expect(MOTIVO_REPORTE_VALORACION_LABELS.INAPPROPRIATE).not.toBe(
+      MOTIVO_REPORTE_ANUNCIO_LABELS.INAPPROPRIATE,
+    );
+    expect(MOTIVO_REPORTE_VALORACION_LABELS.INAPPROPRIATE).toContain('ofensivo');
+  });
+
+  it('un anuncio es «Producto» y un montón de anuncios son «Productos»', () => {
+    expect(TIPO_ANUNCIO_PLURAL_LABELS.PRODUCT).not.toBe(TIPO_ANUNCIO_LABELS.PRODUCT);
+  });
+
+  it('una página se publica en femenino y un post en masculino', () => {
+    expect(ESTADO_PAGINA_LABELS.PUBLISHED).not.toBe(ESTADO_POST_LABELS.PUBLISHED);
+    // El borrador sí coincide: la concordancia sólo afecta al participio.
+    expect(ESTADO_PAGINA_LABELS.DRAFT).toBe(ESTADO_POST_LABELS.DRAFT);
+  });
+
+  it('el sufijo del precio no es el nombre del formato', () => {
+    // «/mes» se pega a la cifra; «Al mes» nombra el formato en un desplegable.
+    expect(SUFIJO_UNIDAD_PRECIO.PER_MONTH).not.toBe(UNIDAD_PRECIO_LABELS.PER_MONTH);
+    // Y el pago único no lleva sufijo: «200 €» a secas. Es la única entrada vacía, y
+    // se afirma porque un `?? ''` descuidado la volvería indistinguible de un hueco.
+    expect(SUFIJO_UNIDAD_PRECIO.ONE_TIME).toBe('');
   });
 });

@@ -18,10 +18,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { PostForm, type PostFormValues } from '../../../blog/_components/PostForm';
 
-const STATUS_LABELS: Record<string, string> = {
-  DRAFT: 'Borrador',
-  PUBLISHED: 'Publicada',
-};
+// I18N T3-B — estaba en la lista y en el editor, idéntico. «Publicada» concuerda con
+// «la página»: es una VARIANTE declarada de la del blog, no una divergencia.
+import { ESTADO_PAGINA_LABELS as STATUS_LABELS } from '@/lib/etiquetas-enums';
 
 const STATUS_VARIANTS: Record<string, 'default' | 'outline'> = {
   DRAFT: 'outline',

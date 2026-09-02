@@ -26,7 +26,7 @@ import {
   MOTIVO_REPORTE_LABELS,
   etiqueta,
   ticketStatusLabel,
-} from '../etiquetas';
+} from '@/lib/etiquetas-enums';
 
 const STATUS_FILTERS: { label: string; value: ReportStatus | undefined }[] = [
   { label: 'Todos', value: undefined },

@@ -1,12 +1,7 @@
 import type { Alert } from '@/types';
 
-const CONDITION_LABELS: Record<string, string> = {
-  NEW: 'Nuevo',
-  LIKE_NEW: 'Como nuevo',
-  GOOD: 'Buen estado',
-  FAIR: 'Aceptable',
-  FOR_PARTS: 'Para piezas',
-};
+// I18N T3-B — era una de las SEIS copias de este mismo mapa.
+import { CONDICION_LABELS as CONDITION_LABELS } from '@/lib/etiquetas-enums';
 
 /** Human-readable one-liner for an alert's criteria, e.g. "moviles · 100€–300€ · Madrid". */
 export function formatAlertCriteria(alert: Alert): string {

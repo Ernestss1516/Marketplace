@@ -25,12 +25,8 @@ import {
   type ContactEstado,
 } from '@/lib/api/admin-contact-messages';
 
-const ESTADO_LABELS: Record<ContactEstado, string> = {
-  NUEVO: 'Nuevo',
-  LEIDO: 'Leído',
-  RESPONDIDO: 'Respondido',
-  CERRADO: 'Cerrado',
-};
+// I18N T3-B — idéntico en la bandeja y en la ficha.
+import { ESTADO_CONTACTO_LABELS as ESTADO_LABELS } from '@/lib/etiquetas-enums';
 
 const ESTADO_VARIANTS: Record<ContactEstado, 'default' | 'secondary' | 'outline'> = {
   NUEVO: 'default',

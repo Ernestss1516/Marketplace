@@ -9,13 +9,16 @@ import { useApiAction } from '@/lib/api/use-api-action';
 import { useRequireAuth } from '@/hooks/use-require-auth';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { MOTIVO_REPORTE_VALORACION_LABELS } from '@/lib/etiquetas-enums';
 
-const REASON_OPTIONS: { value: ReportReason; label: string }[] = [
-  { value: 'FAKE_REVIEW', label: 'Valoración falsa o manipulada' },
-  { value: 'INAPPROPRIATE', label: 'Contenido inapropiado u ofensivo' },
-  { value: 'SPAM', label: 'Spam o contenido repetido' },
-  { value: 'OTHER', label: 'Otro motivo' },
-];
+// I18N T3-B — TERCERA variante declarada de `ReportReason`, y no es la del anuncio con
+// menos entradas: aquí `INAPPROPRIATE` dice «u ofensivo», porque lo que se denuncia es
+// lo que alguien ESCRIBIÓ sobre una persona y no un artículo en venta. Colapsarla
+// contra la otra larga habría perdido esa palabra en silencio, así que vive aparte y
+// con su motivo escrito. La lista y el orden siguen siendo de esta pantalla.
+const REASON_OPTIONS: { value: ReportReason; label: string }[] = (
+  ['FAKE_REVIEW', 'INAPPROPRIATE', 'SPAM', 'OTHER'] as const
+).map((value) => ({ value, label: MOTIVO_REPORTE_VALORACION_LABELS[value] }));
 
 interface Props {
   reviewId: string;

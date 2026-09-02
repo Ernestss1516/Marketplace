@@ -10,24 +10,18 @@ import {
   type AdminInvoiceRow,
 } from '@/lib/api/admin-facturas';
 import { ApiError } from '@/lib/api/client';
+import { ESTADO_FACTURA_LABELS, ORIGEN_FACTURA_LABELS } from '@/lib/etiquetas-enums';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
 const PER_PAGE = 25;
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api';
 
-const STATUS_LABELS: Record<string, string> = { DRAFT: 'Borrador', ISSUED: 'Emitida', FAILED: 'Fallida' };
 const STATUS_VARIANTS: Record<string, 'default' | 'secondary' | 'destructive'> = {
   DRAFT: 'secondary',
   ISSUED: 'default',
   FAILED: 'destructive',
 };
-const ORIGIN_LABELS: Record<string, string> = {
-  USER_REQUESTED: 'Manual',
-  AUTO_PERIODIC: 'Automática',
-  ADMIN: 'Admin',
-};
-
 function formatDate(iso: string | null) {
   if (!iso) return '—';
   return new Date(iso).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -157,10 +151,10 @@ function FacturasTable({ token }: { token: string }) {
                     <div>{inv.receiverName ?? inv.user.name}</div>
                     <div className="text-xs text-muted-foreground">{inv.receiverTaxId ?? inv.user.email}</div>
                   </td>
-                  <td className="px-4 py-2">{ORIGIN_LABELS[inv.origin] ?? inv.origin}</td>
+                  <td className="px-4 py-2">{ORIGEN_FACTURA_LABELS[inv.origin] ?? inv.origin}</td>
                   <td className="px-4 py-2">
                     <Badge variant={STATUS_VARIANTS[inv.status] ?? 'secondary'}>
-                      {STATUS_LABELS[inv.status] ?? inv.status}
+                      {ESTADO_FACTURA_LABELS[inv.status] ?? inv.status}
                     </Badge>
                   </td>
                   <td className="px-4 py-2 text-right">{formatAmount(inv.totalGross, inv.currency)}</td>

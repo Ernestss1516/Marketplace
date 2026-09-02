@@ -17,12 +17,7 @@ import { buildLoginUrl } from '@/lib/auth/callback-url';
 
 export const metadata: Metadata = { title: 'Mi suscripción' };
 
-const STATUS_LABELS: Record<string, string> = {
-  ACTIVE: 'Activa',
-  CANCELING: 'Cancelándose',
-  CANCELED: 'Cancelada',
-  PAST_DUE: 'Pago pendiente',
-};
+import { ESTADO_SUSCRIPCION_LABELS as STATUS_LABELS } from '@/lib/etiquetas-enums';
 
 const STATUS_VARIANTS: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   ACTIVE: 'default',
