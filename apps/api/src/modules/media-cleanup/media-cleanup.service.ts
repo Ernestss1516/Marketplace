@@ -1,22 +1,28 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { R2Service } from '../../infra/r2/r2.service';
 import { QUEUE_MEDIA_CLEANUP } from '../../infra/queue/queue.constants';
 import { keyFromPublicUrl, releasedUrls } from '../../infra/r2/media-keys';
+// TRES LOGOS L1 — un fichero PURO de constantes, sin DI: esta clase no depende de
+// `BrandingModule`, sólo necesita saber en qué tres claves vive un logo activo. Ver
+// abajo, en `laReferenciaAlguienMas`.
+import { LOGO_SETTING_KEY_LIST } from '../branding/branding.constants';
 
 /**
  * HUÉRFANAS SIN FILA — RÁFAGA H1: «lo que se suelta».
  *
- * EL PATRÓN, UNA SOLA VEZ. Cuatro operaciones sueltan ficheros de R2 que **no tienen
+ * EL PATRÓN, UNA SOLA VEZ. Cinco operaciones sueltan ficheros de R2 que **no tienen
  * fila propia** que los referencie: sustituir el avatar (`User.avatarUrl`), editar o
  * borrar un post (imágenes dentro de `Post.blocks`), guardar la portada
- * (`HomepageConfig.blocks`) y cambiar la imagen de un patrocinado
- * (`SponsoredAd.imageUrl`). Las cuatro hacen lo mismo —comparar lo que había con lo
- * que queda y limpiar la diferencia—, así que la regla vive **aquí** y no copiada
- * cuatro veces. Mismo criterio que `media-keys.ts` con la clave de la miniatura y
- * que `cache-keys.ts` con la de la ficha: una copia, o divergen.
+ * (`HomepageConfig.blocks`), cambiar la imagen de un patrocinado
+ * (`SponsoredAd.imageUrl`) y cambiar o quitar un logo de marca (los tres `Setting` de
+ * `branding`, L1). Las cinco hacen lo mismo —comparar lo que había con lo que queda y
+ * limpiar la diferencia—, así que la regla vive **aquí** y no copiada cinco veces.
+ * Mismo criterio que `media-keys.ts` con la clave de la miniatura y que `cache-keys.ts`
+ * con la de la ficha: una copia, o divergen.
  *
  * SE LLAMA DESPUÉS DE ESCRIBIR, Y NO ES UN DETALLE. Dos motivos:
  *
@@ -115,11 +121,31 @@ export class MediaCleanupService {
    * borrar el objeto dejando la fila produciría algo peor que una huérfana, una fila
    * apuntando a un fichero que no existe. Esa clase es otra deuda, y sigue fuera.
    *
+   * ── TRES LOGOS L1 — Y SE MIRAN LOS TRES `Setting` DE LOGO (la fuga INVERSA) ──
+   *
+   * Es el caso más grave que esta comprobación cubre, y no es hipotético. Un logo vive
+   * en `Setting`, que hasta aquí **no lo miraba nadie**; y los validadores de bloque
+   * exigen «URL de nuestro almacenamiento», **no un prefijo concreto** (está dicho tres
+   * párrafos más arriba). Con esas dos cosas juntas:
+   *
+   *   pegar la URL del logo en un bloque de la portada o de un post → quitar ese bloque
+   *   → `purgeReleased` calcula el diff, no encuentra a nadie que la referencie
+   *   → **se borra el logo que las cabeceras están sirviendo**.
+   *
+   * Y no se rompe una imagen de una página: se rompen las tres zonas a la vez, con los
+   * tres `Setting` apuntando a objetos que ya no existen. Es exactamente el fallo que
+   * la regla de oro existe para impedir, y por eso la consulta entra en el primer lote.
+   *
+   * `strpos` sobre el texto del `Json`, como los dos cruces de abajo, y no una igualdad
+   * exacta: es más generoso —también reconoce una URL de logo dentro de un valor más
+   * estructurado, si algún día lo hubiera— y de más sólo se peca no borrando. Acotado a
+   * las tres claves de logo, que son las únicas cuyo valor ES un fichero nuestro.
+   *
    * Ante un error de consulta devuelve `true` — no borrar. Regla de oro.
    */
   private async laReferenciaAlguienMas(url: string, key: string): Promise<boolean> {
     try {
-      const [conFila, avatar, patrocinado, factura, adjunto, enJson] = await Promise.all([
+      const [conFila, avatar, patrocinado, factura, adjunto, enJson, enMarca] = await Promise.all([
         this.prisma.listingImage.count({ where: { url } }),
         this.prisma.user.count({ where: { avatarUrl: url } }),
         this.prisma.sponsoredAd.count({ where: { imageUrl: url } }),
@@ -133,12 +159,19 @@ export class MediaCleanupService {
            WHERE "coverUrl" = ${url} OR strpos("blocks"::text, ${url}) > 0
            LIMIT 1
         `,
+        // TRES LOGOS L1 — ¿esta URL es un logo ACTIVO? Ver el bloque de la cabecera.
+        this.prisma.$queryRaw<{ existe: number }[]>`
+          SELECT 1 AS existe FROM "Setting"
+           WHERE "key" IN (${Prisma.join(LOGO_SETTING_KEY_LIST)})
+             AND strpos("value"::text, ${url}) > 0
+           LIMIT 1
+        `,
       ]);
 
       if (conFila > 0 || avatar > 0 || patrocinado > 0 || factura > 0 || adjunto > 0) {
         return true;
       }
-      if (enJson.length > 0) return true;
+      if (enJson.length > 0 || enMarca.length > 0) return true;
 
       const enPortada = await this.prisma.$queryRaw<{ existe: number }[]>`
         SELECT 1 AS existe FROM "HomepageConfig"
