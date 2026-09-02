@@ -1,5 +1,11 @@
 export const remotePatterns = [
   { protocol: 'http' as const, hostname: 'localhost' },
+  // Desarrollo local en Windows: S3_PUBLIC_URL apunta a 127.0.0.1, no a
+  // localhost, porque Node resuelve localhost a ::1 y el reenvío IPv6 de Docker
+  // Desktop corta la conexión al primer byte (ECONNRESET) — el fetch de
+  // /_next/image contra MinIO fallaba con 500. Ver CLAUDE.md. Sin esta entrada
+  // next/image rechazaría el dominio de las imágenes servidas por MinIO.
+  { protocol: 'http' as const, hostname: '127.0.0.1' },
   { protocol: 'https' as const, hostname: '*.r2.cloudflarestorage.com' },
 ];
 
