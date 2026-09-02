@@ -9,10 +9,13 @@ import {
   getBumpLedger,
   type WalletItem,
   type BumpLedgerItem,
-  type CreditLedgerType,
-  type BumpLedgerType,
 } from '@/lib/api/billing';
 import { HistorialPaginado } from './HistorialPaginado';
+// I18N T3-B — el historial de saldo tal y como lo lee SU DUEÑO. Su registro («Bump»,
+// «Crédito manual», «Ajuste») es una VARIANTE declarada del que lee el staff en el
+// libro mayor del backoffice («Subida», «Crédito admin», «Débito admin»): las dos son
+// correctas y las dos viven ya en la fuente, con la diferencia explicada allí.
+import { MOVIMIENTO_BUMP_LABELS, MOVIMIENTO_CREDITO_LABELS } from '@/lib/etiquetas-enums';
 
 /**
  * UXV.6 (M9 + B5) — los dos historiales de la cartera, paginados y con estados vacíos que
@@ -23,28 +26,7 @@ import { HistorialPaginado } from './HistorialPaginado';
  * las siguientes cuestan una petición.
  */
 
-const LEDGER_LABELS: Record<CreditLedgerType, string> = {
-  PACK_PURCHASE: 'Compra de pack',
-  FEATURED_DEBIT: 'Destacado',
-  BUMP_DEBIT: 'Bump',
-  ADMIN_CREDIT: 'Crédito manual',
-  ADMIN_DEBIT: 'Ajuste',
-  PRO_BONUS: 'Bonus Pro',
-  CAMPAIGN_BONUS: 'Bonus campaña',
-  COUPON_REDEEM: 'Cupón canjeado',
-};
-
 /** Monetización ráfaga 2/4 — etiquetas del historial de bumps (moneda separada). */
-const BUMP_LEDGER_LABELS: Record<BumpLedgerType, string> = {
-  COUPON_REDEEM: 'Cupón canjeado',
-  BUMP_DEBIT: 'Bump',
-  ADMIN_CREDIT: 'Crédito manual',
-  ADMIN_DEBIT: 'Ajuste',
-  PACK_PURCHASE: 'Compra de pack',
-  PRO_BONUS: 'Bonus Pro',
-  CAMPAIGN_BONUS: 'Bonus campaña',
-};
-
 const fecha = (iso: string) =>
   new Date(iso).toLocaleDateString('es-ES', {
     day: '2-digit',
@@ -147,7 +129,7 @@ export function HistorialCreditos({
       clave={(i) => i.id}
       fila={(i) => (
         <Fila
-          label={LEDGER_LABELS[i.type] ?? i.type}
+          label={MOVIMIENTO_CREDITO_LABELS[i.type] ?? i.type}
           createdAt={i.createdAt}
           amount={i.amount}
           sufijo="cr."
@@ -188,7 +170,7 @@ export function HistorialBumps({
       clave={(i) => i.id}
       fila={(i) => (
         <Fila
-          label={BUMP_LEDGER_LABELS[i.type] ?? i.type}
+          label={MOVIMIENTO_BUMP_LABELS[i.type] ?? i.type}
           createdAt={i.createdAt}
           amount={i.amount}
           sufijo={`bump${Math.abs(i.amount) === 1 ? '' : 's'}`}

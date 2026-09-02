@@ -41,9 +41,11 @@ import {
   ESTADO_REPORTE_LABELS,
   ESTADO_USUARIO_LABELS,
   MOTIVO_REPORTE_LABELS,
+  ROL_LABELS,
   etiqueta,
   etiquetaDeEstado,
-} from '../etiquetas';
+} from '@/lib/etiquetas-enums';
+import type { Role } from '@/config/roles';
 import { Badge } from '@/components/ui/badge';
 import { DatoIp } from '@/components/admin/DatoIp';
 import { Button } from '@/components/ui/button';
@@ -95,20 +97,12 @@ const STATUS_VARIANTS: Record<string, 'default' | 'secondary' | 'outline' | 'des
   DELETED: 'outline',
 };
 
-// I18N T3-A — `ADMIN` decía «Admin» aquí y «Administrador» en la ficha del mismo
-// usuario, un clic más allá. La divergencia estaba ANOTADA en `etiquetas.ts:144-147`
-// como deuda conocida, a la espera de que alguien decidiera; se cierra hacia
-// «Administrador», que es el texto de la fuente y el que ya se lee en la ficha.
-//
-// La COPIA sigue aquí a propósito: retirarla es consolidar, y eso es la Fase B. Lo
-// que esta fase arregla es que las dos copias digan lo mismo, para que la Fase B sea
-// un borrado y no una decisión de producto disfrazada de refactor.
-const ROLE_LABELS: Record<string, string> = {
-  USER: 'Usuario',
-  MODERATOR: 'Moderador',
-  EDITOR: 'Editor',
-  ADMIN: 'Administrador',
-};
+// I18N T3-B — AQUÍ ESTUVO `ROLE_LABELS`, la copia de los cuatro roles. Decía
+// `ADMIN: 'Admin'` mientras la ficha del mismo usuario, un clic más allá, decía
+// «Administrador»; la divergencia estaba anotada como deuda desde que se escribió el
+// vocabulario. La Fase A la cerró —dejando las dos copias diciendo lo mismo— justo
+// para que este borrado fuera un BORRADO y no una decisión de producto disfrazada de
+// refactor. Ni un texto cambia hoy: cambió entonces, a la vista.
 
 // Roles asignables desde el selector — ADMIN excluido (el DTO/service lo rechazan
 // como valor destino; no se ofrece en la UI tampoco).
@@ -650,7 +644,7 @@ export default function AdminUsuariosPage() {
                             un ADMIN se degrade a sí mismo desde su propia fila). */}
                         {isAdmin || !currentUserIsAdmin ? (
                           <Badge variant={isAdmin ? 'destructive' : 'outline'}>
-                            {ROLE_LABELS[user.role] ?? user.role}
+                            {ROL_LABELS[user.role as Role] ?? user.role}
                           </Badge>
                         ) : (
                           <select
@@ -663,7 +657,7 @@ export default function AdminUsuariosPage() {
                           >
                             {ASSIGNABLE_ROLES.map((r) => (
                               <option key={r} value={r}>
-                                {ROLE_LABELS[r]}
+                                {ROL_LABELS[r as Role]}
                               </option>
                             ))}
                           </select>

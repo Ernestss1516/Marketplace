@@ -9,15 +9,19 @@ import { useApiAction } from '@/lib/api/use-api-action';
 import { useRequireAuth } from '@/hooks/use-require-auth';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { MOTIVO_REPORTE_ANUNCIO_LABELS } from '@/lib/etiquetas-enums';
 
-const REASON_OPTIONS: { value: ReportReason; label: string }[] = [
-  { value: 'SPAM', label: 'Spam o contenido repetido' },
-  { value: 'FRAUD', label: 'Fraude o estafa' },
-  { value: 'INAPPROPRIATE', label: 'Contenido inapropiado' },
-  { value: 'PROHIBITED_ITEM', label: 'Artículo prohibido' },
-  { value: 'WRONG_CATEGORY', label: 'Categoría incorrecta' },
-  { value: 'OTHER', label: 'Otro motivo' },
-];
+// I18N T3-B — los textos LARGOS de este desplegable viven ya en el vocabulario, como
+// variante declarada de los cortos del backoffice: una insignia le dice «Spam» a un
+// moderador que ya sabe de qué va; a un comprador al que se le pide que clasifique un
+// problema hay que explicárselo.
+//
+// La LISTA y su orden se quedan aquí, que es donde se deciden: `FAKE_REVIEW` no está
+// porque no se puede denunciar un anuncio por valoración falsa. Qué se ofrece es de la
+// pantalla; cómo se llama, del vocabulario.
+const REASON_OPTIONS: { value: ReportReason; label: string }[] = (
+  ['SPAM', 'FRAUD', 'INAPPROPRIATE', 'PROHIBITED_ITEM', 'WRONG_CATEGORY', 'OTHER'] as const
+).map((value) => ({ value, label: MOTIVO_REPORTE_ANUNCIO_LABELS[value] }));
 
 interface Props {
   listingId: string;

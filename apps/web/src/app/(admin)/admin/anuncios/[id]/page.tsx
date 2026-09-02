@@ -111,7 +111,7 @@ import {
   UNIDAD_PRECIO_LABELS,
   etiqueta,
   ticketStatusLabel,
-} from '../../etiquetas';
+} from '@/lib/etiquetas-enums';
 
 function Seccion({
   titulo,

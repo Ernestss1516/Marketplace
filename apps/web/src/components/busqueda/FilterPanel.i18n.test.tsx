@@ -21,7 +21,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { render, screen, within } from '@testing-library/react';
 import { FilterPanel } from './FilterPanel';
-import { TIPO_PRECIO_LABELS, UNIDAD_PRECIO_LABELS } from '@/app/(admin)/admin/etiquetas';
+import { TIPO_PRECIO_LABELS, UNIDAD_PRECIO_LABELS } from '@/lib/etiquetas-enums';
 
 const mockPush = jest.fn();
 let mockSearchParams = new URLSearchParams();
@@ -174,7 +174,11 @@ describe('B4 — el panel NO declara su propio vocabulario de enums', () => {
   const fuente = readFileSync(join(__dirname, 'FilterPanel.tsx'), 'utf8');
 
   it('importa las etiquetas de `PriceType` de su única fuente', () => {
-    expect(fuente).toMatch(/import \{[^}]*TIPO_PRECIO_LABELS[^}]*\} from '@\/app\/\(admin\)\/admin\/etiquetas'/);
+    // T3-B — la ruta cambió y con ella se saldó la deuda que T1 dejó anotada: este
+    // componente PÚBLICO importaba de una carpeta de administración porque era el
+    // único sitio donde vivía el vocabulario. Ya vive en `lib/`, que es su capa.
+    expect(fuente).toMatch(/import \{[^}]*TIPO_PRECIO_LABELS[^}]*\} from '@\/lib\/etiquetas-enums'/);
+    expect(fuente).not.toContain('@/app/(admin)/admin/etiquetas');
   });
 
   it('no escribe a mano ninguna etiqueta de `PriceType`', () => {

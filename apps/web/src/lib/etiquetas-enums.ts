@@ -61,6 +61,11 @@
 // excepciones. Sólo el par de etiquetas: `STATUS_VARIANTS`, `TARGET_STATUSES` y los
 // `format*` son de la pantalla de anuncios y se quedan allí.
 import type { Role } from '@/config/roles';
+import type { Condition, ListingType, PriceType, PriceUnit } from '@/types';
+import type { ReportReason, ReportStatus } from '@/lib/api/moderacion';
+import type { ContactEstado } from '@/lib/api/admin-contact-messages';
+import type { TicketOrigin } from '@/types';
+import type { BumpLedgerType, CreditLedgerType } from '@/lib/api/billing';
 
 // T3-A — la ruta pasa de relativa a absoluta con la mudanza; el módulo destino no se
 // mueve. `listing-status.ts` se queda en la pantalla de anuncios porque además de las
@@ -103,7 +108,7 @@ export function etiqueta<K extends string>(
 /** `ListingType`. Copiadas de `publicar/steps/StepDatos.tsx` (`TYPE_LABELS`), que es
  *  donde el vendedor las elige. En SINGULAR: el plural («Productos») es de las facetas
  *  de búsqueda y aquí se describe UN anuncio. */
-export const TIPO_ANUNCIO_LABELS: Record<string, string> = {
+export const TIPO_ANUNCIO_LABELS: Record<ListingType, string> = {
   PRODUCT: 'Producto',
   SERVICE: 'Servicio',
 };
@@ -111,7 +116,7 @@ export const TIPO_ANUNCIO_LABELS: Record<string, string> = {
 /** `Condition`. Copiadas de `(public)/anuncio/[slug]/page.tsx`, y son las mismas que
  *  usan el panel de filtros y el wizard de publicar — comprador, vendedor y moderador
  *  leen ya lo mismo. */
-export const CONDICION_LABELS: Record<string, string> = {
+export const CONDICION_LABELS: Record<Condition, string> = {
   NEW: 'Nuevo',
   LIKE_NEW: 'Como nuevo',
   GOOD: 'Buen estado',
@@ -122,7 +127,7 @@ export const CONDICION_LABELS: Record<string, string> = {
 /** `PriceType`. Las dos que ya tienen texto lo toman de `formatPrice`
  *  (`listing-status.ts`), que pinta «Gratis» y «A convenir» en la cabecera de esta
  *  misma ficha. `FIXED` no tenía etiqueta porque ahí se sustituye por el importe. */
-export const TIPO_PRECIO_LABELS: Record<string, string> = {
+export const TIPO_PRECIO_LABELS: Record<PriceType, string> = {
   FIXED: 'Precio fijo',
   FREE: 'Gratis',
   NEGOTIABLE: 'A convenir',
@@ -130,7 +135,7 @@ export const TIPO_PRECIO_LABELS: Record<string, string> = {
 
 /** `PriceUnit`. Copiadas de `PRICE_UNIT_LABELS` (`publicar/steps/StepDatos.tsx`), que
  *  a su vez ya declara ser las mismas del panel de categorías (RP.2). */
-export const UNIDAD_PRECIO_LABELS: Record<string, string> = {
+export const UNIDAD_PRECIO_LABELS: Record<PriceUnit, string> = {
   ONE_TIME: 'Pago único',
   PER_MONTH: 'Al mes',
   PER_WEEK: 'A la semana',
@@ -142,7 +147,7 @@ export const UNIDAD_PRECIO_LABELS: Record<string, string> = {
 
 /** `ReportReason`. Copiadas de `/admin/reportes` — la copia COMPLETA, la que sí tiene
  *  `FAKE_REVIEW`. Es la divergencia descrita en la cabecera. */
-export const MOTIVO_REPORTE_LABELS: Record<string, string> = {
+export const MOTIVO_REPORTE_LABELS: Record<ReportReason, string> = {
   SPAM: 'Spam',
   FRAUD: 'Fraude',
   INAPPROPRIATE: 'Inapropiado',
@@ -154,7 +159,7 @@ export const MOTIVO_REPORTE_LABELS: Record<string, string> = {
 
 /** `ReportStatus`. Copiadas de `/admin/reportes`, donde además son las mismas que las
  *  de sus filtros («Pendientes», «Resueltos»…). */
-export const ESTADO_REPORTE_LABELS: Record<string, string> = {
+export const ESTADO_REPORTE_LABELS: Record<ReportStatus, string> = {
   PENDING: 'Pendiente',
   REVIEWING: 'En revisión',
   RESOLVED: 'Resuelto',
@@ -290,4 +295,227 @@ export const DETECTION_FIELD_LABELS: Record<string, string> = {
   // A2 — el campo propio del teléfono. Se dice «campo de teléfono» y no sólo «teléfono»
   // para que se lea distinto del detector: uno es DÓNDE apareció, el otro QUÉ es.
   PHONE: 'campo de teléfono',
+};
+
+// ═════════════════════════════════════════════════════════════════════════════
+// I18N T3-B — LO QUE ESTABA REPARTIDO, RECOGIDO
+// ═════════════════════════════════════════════════════════════════════════════
+//
+// Todo lo que sigue YA EXISTÍA, escrito a mano dentro de la pantalla que lo pintaba
+// —a veces dentro de dos o de cuatro—. Ni un texto se ha inventado: cada mapa dice de
+// qué pantalla viene, y cuando había varias copias dice si coincidían (borrado puro)
+// o en qué diferían y hacia cuál se cerró.
+//
+// ─── SOBRE LAS VARIANTES ─────────────────────────────────────────────────────
+//
+// Algunas parejas NO son duplicados y no se colapsan: el mismo enum se lee distinto
+// según a quién y sobre qué. «Bump» para el dueño de su saldo y «Subida» para el
+// staff en el libro mayor son las dos correctas; «Publicado» un post y «Publicada»
+// una página es concordancia, no descuido. Ésas viven aquí como EXPORTACIONES
+// NOMBRADAS DISTINTAS — para que sean intención declarada y no dos copias que
+// alguien un día «unificará» sin saber que se decidió.
+
+/** `ListingType` en PLURAL, para las facetas de búsqueda («Productos (12)»). Variante
+ *  declarada de `TIPO_ANUNCIO_LABELS`: allí se describe UN anuncio, aquí se cuenta un
+ *  montón. Viene de `FilterPanel` (`TYPE_OPTIONS`). */
+export const TIPO_ANUNCIO_PLURAL_LABELS: Record<ListingType, string> = {
+  PRODUCT: 'Productos',
+  SERVICE: 'Servicios',
+};
+
+/** `PriceUnit` como SUFIJO del importe («200 €/mes»). Variante declarada de
+ *  `UNIDAD_PRECIO_LABELS`: no es el nombre del formato, es cómo se pega a la cifra.
+ *  `ONE_TIME` es cadena vacía a propósito — un pago único se pinta «200 €» a secas.
+ *  Viene de `listing-card-shared.tsx` (RP.4b). */
+export const SUFIJO_UNIDAD_PRECIO: Record<PriceUnit, string> = {
+  ONE_TIME: '',
+  PER_MONTH: '/mes',
+  PER_WEEK: '/semana',
+  PER_DAY: '/día',
+  PER_HOUR: '/hora',
+  PER_UNIT: '/ud.',
+  PER_SESSION: '/sesión',
+};
+
+/**
+ * `ReportReason` en la forma LARGA, la del formulario público de denuncia de un
+ * ANUNCIO. Variante declarada de `MOTIVO_REPORTE_LABELS`: una insignia del backoffice
+ * dice «Spam» porque el moderador ya sabe de qué va; un desplegable que le pide a un
+ * comprador que clasifique un problema tiene que explicarse.
+ *
+ * NO lleva `FAKE_REVIEW`: no se puede denunciar un anuncio por valoración falsa, y el
+ * orden es el del formulario. Qué claves ofrece cada pantalla es decisión de la
+ * pantalla; lo que vive aquí es CÓMO SE LLAMA cada una. Viene de `ReportButton.tsx`.
+ */
+export const MOTIVO_REPORTE_ANUNCIO_LABELS: Record<string, string> = {
+  SPAM: 'Spam o contenido repetido',
+  FRAUD: 'Fraude o estafa',
+  INAPPROPRIATE: 'Contenido inapropiado',
+  PROHIBITED_ITEM: 'Artículo prohibido',
+  WRONG_CATEGORY: 'Categoría incorrecta',
+  OTHER: 'Otro motivo',
+};
+
+/**
+ * `ReportReason` largo, pero para denunciar una VALORACIÓN. Tercera variante, y
+ * también declarada: no es la del anuncio con menos entradas — `INAPPROPRIATE` dice
+ * «u ofensivo» porque lo que se denuncia es lo que alguien ESCRIBIÓ sobre una persona,
+ * no un artículo en venta. Colapsarla contra la de arriba habría perdido esa palabra
+ * en silencio. Viene de `ReviewReportButton.tsx`.
+ */
+export const MOTIVO_REPORTE_VALORACION_LABELS: Record<string, string> = {
+  FAKE_REVIEW: 'Valoración falsa o manipulada',
+  INAPPROPRIATE: 'Contenido inapropiado u ofensivo',
+  SPAM: 'Spam o contenido repetido',
+  OTHER: 'Otro motivo',
+};
+
+/** `PostStatus` de un POST del blog. De `admin/blog/page.tsx` y su editor, idénticas
+ *  las dos (borrado puro). */
+export const ESTADO_POST_LABELS: Record<string, string> = {
+  DRAFT: 'Borrador',
+  PUBLISHED: 'Publicado',
+};
+
+/** `PostStatus` de una PÁGINA del CMS. Variante declarada de la de arriba, y la única
+ *  diferencia es el género: una página está «Publicada». De `admin/paginas/page.tsx` y
+ *  su editor, idénticas las dos. */
+export const ESTADO_PAGINA_LABELS: Record<string, string> = {
+  DRAFT: 'Borrador',
+  PUBLISHED: 'Publicada',
+};
+
+/** `TransactionStatus`. De `admin/facturacion/page.tsx` y de la ficha de facturación
+ *  de un usuario — idénticas las dos (borrado puro). */
+export const ESTADO_TRANSACCION_LABELS: Record<string, string> = {
+  PENDING: 'Pendiente',
+  SUCCEEDED: 'Cobrada',
+  FAILED: 'Fallida',
+  REFUNDED: 'Devuelta',
+  PARTIALLY_REFUNDED: 'Dev. parcial',
+};
+
+/** `SubscriptionStatus`. De `perfil/suscripcion`. En FEMENINO: concuerdan con «la
+ *  suscripción», que es de lo único que se predican. */
+export const ESTADO_SUSCRIPCION_LABELS: Record<string, string> = {
+  ACTIVE: 'Activa',
+  CANCELING: 'Cancelándose',
+  CANCELED: 'Cancelada',
+  PAST_DUE: 'Pago pendiente',
+};
+
+/** `InvoiceStatus`. De `admin/facturas`. */
+export const ESTADO_FACTURA_LABELS: Record<string, string> = {
+  DRAFT: 'Borrador',
+  ISSUED: 'Emitida',
+  FAILED: 'Fallida',
+};
+
+/** `InvoiceOrigin`. De `admin/facturas`. Nombran QUIÉN la pidió, no el valor del
+ *  enum: `USER_REQUESTED` es «Manual» porque desde el punto de vista de quien mira la
+ *  lista, lo que la distingue es que alguien la pidió a mano. */
+export const ORIGEN_FACTURA_LABELS: Record<string, string> = {
+  USER_REQUESTED: 'Manual',
+  AUTO_PERIODIC: 'Automática',
+  ADMIN: 'Admin',
+};
+
+/** `EntitlementType`. De la ficha de facturación de un usuario. */
+export const TIPO_DERECHO_LABELS: Record<string, string> = {
+  PRO_SUBSCRIPTION: 'Plan Pro',
+  FEATURED_LISTING: 'Anuncio destacado',
+};
+
+/**
+ * `CreditLedgerType` — el libro mayor TAL Y COMO LO LEE SU DUEÑO, en `/mis-creditos`.
+ *
+ * Tipado contra la unión (molde `PLACEMENT_LABELS`): un movimiento nuevo no compila
+ * sin nombre. Esta copia era la que ya estaba completa cuando T2 encontró que a la del
+ * backoffice le faltaba `COUPON_REDEEM`.
+ */
+export const MOVIMIENTO_CREDITO_LABELS: Record<CreditLedgerType, string> = {
+  PACK_PURCHASE: 'Compra de pack',
+  FEATURED_DEBIT: 'Destacado',
+  BUMP_DEBIT: 'Bump',
+  ADMIN_CREDIT: 'Crédito manual',
+  ADMIN_DEBIT: 'Ajuste',
+  PRO_BONUS: 'Bonus Pro',
+  CAMPAIGN_BONUS: 'Bonus campaña',
+  COUPON_REDEEM: 'Cupón canjeado',
+};
+
+/**
+ * El MISMO libro mayor, como lo lee el STAFF. Variante declarada, no copia: tres de
+ * los ocho cambian a propósito.
+ *
+ *   · `BUMP_DEBIT` — «Subida» y no «Bump»: al usuario se le vendió un «bump» y ésa es
+ *     la palabra de su producto; el staff describe lo que le pasó al anuncio.
+ *   · `ADMIN_CREDIT` / `ADMIN_DEBIT` — «Crédito admin» / «Débito admin» y no «Crédito
+ *     manual» / «Ajuste»: al dueño se le dice que fue a mano, al staff QUIÉN lo hizo.
+ *     Y «Ajuste» sería impreciso en una pantalla donde también hay abonos.
+ *
+ * Unificarlas es una decisión de producto, no un refactor, y hasta que alguien la tome
+ * las dos son correctas. Viene de `admin/facturacion/usuarios/[id]`.
+ */
+export const MOVIMIENTO_CREDITO_ADMIN_LABELS: Record<CreditLedgerType, string> = {
+  PACK_PURCHASE: 'Compra de pack',
+  FEATURED_DEBIT: 'Destacado',
+  BUMP_DEBIT: 'Subida',
+  ADMIN_CREDIT: 'Crédito admin',
+  ADMIN_DEBIT: 'Débito admin',
+  PRO_BONUS: 'Bonus Pro',
+  CAMPAIGN_BONUS: 'Bonus campaña',
+  COUPON_REDEEM: 'Cupón canjeado',
+};
+
+/** `BumpLedgerType` — la otra moneda, en `/mis-creditos`. Tipado por lo mismo. */
+export const MOVIMIENTO_BUMP_LABELS: Record<BumpLedgerType, string> = {
+  COUPON_REDEEM: 'Cupón canjeado',
+  BUMP_DEBIT: 'Bump',
+  ADMIN_CREDIT: 'Crédito manual',
+  ADMIN_DEBIT: 'Ajuste',
+  PACK_PURCHASE: 'Compra de pack',
+  PRO_BONUS: 'Bonus Pro',
+  CAMPAIGN_BONUS: 'Bonus campaña',
+};
+
+/** `ContactEstado`. De la bandeja de mensajes de contacto y de su ficha — idénticas
+ *  las dos (borrado puro). Tipado: el enum ya tenía unión. */
+export const ESTADO_CONTACTO_LABELS: Record<ContactEstado, string> = {
+  NUEVO: 'Nuevo',
+  LEIDO: 'Leído',
+  RESPONDIDO: 'Respondido',
+  CERRADO: 'Cerrado',
+};
+
+/**
+ * VIGENCIA — «¿esto está corriendo ahora?».
+ *
+ * NO ES UN ENUM DE PRISMA: es un estado DERIVADO de dos fechas que calcula
+ * `lib/api/`, y por eso sus claves van en minúscula. Está aquí de todas formas porque
+ * el defecto era el mismo y peor de grado: **cuatro copias idénticas** —banners,
+ * campañas, cupones y publicidad patrocinada—, que es el récord del repo. Cuatro
+ * pantallas que responden la misma pregunta tienen que responderla con las mismas
+ * palabras.
+ */
+export const ESTADO_VIGENCIA_LABELS: Record<string, string> = {
+  upcoming: 'Próximamente',
+  live: 'Vigente',
+  ended: 'Terminado',
+};
+
+/** `Transaction.gateway`. De las dos pantallas de facturación — idénticas las dos.
+ *  Los tres son nombres propios y por eso «traducirlos» es sólo escribirlos bien. */
+export const PASARELA_LABELS: Record<string, string> = {
+  REDSYS: 'Redsys',
+  STRIPE: 'Stripe',
+  ADMIN: 'Admin',
+};
+
+/** `TicketOrigin`. De la bandeja de atención al usuario. Nombran QUIÉN abrió el hilo,
+ *  que es lo que el agente necesita saber de un vistazo. */
+export const ORIGEN_TICKET_LABELS: Record<TicketOrigin, string> = {
+  USER: 'Del usuario',
+  ADMIN: 'Iniciado por admin',
+  REPORT: 'Desde denuncia',
 };

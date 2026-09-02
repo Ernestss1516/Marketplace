@@ -16,11 +16,11 @@ import { SponsoredAdFormDialog } from './_components/SponsoredAdFormDialog';
 
 const PER_PAGE = 20;
 
-const STATUS_LABELS: Record<string, string> = {
-  upcoming: 'Próximamente',
-  live: 'Vigente',
-  ended: 'Terminado',
-};
+// I18N T3-B — este mapa estaba escrito a mano en CUATRO pantallas (banners,
+// campañas, cupones y publicidad patrocinada), idéntico en las cuatro: el récord de
+// copias del repo. Cuatro sitios que responden la misma pregunta la responden ya con
+// las mismas palabras, y desde un solo sitio.
+import { ESTADO_VIGENCIA_LABELS as STATUS_LABELS } from '@/lib/etiquetas-enums';
 
 const STATUS_VARIANTS: Record<string, 'default' | 'secondary' | 'outline'> = {
   upcoming: 'secondary',

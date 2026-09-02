@@ -16,13 +16,12 @@ import { Button } from '@/components/ui/button';
 
 // ─── Labels ───────────────────────────────────────────────────────────────────
 
-const TX_STATUS_LABELS: Record<string, string> = {
-  PENDING: 'Pendiente',
-  SUCCEEDED: 'Cobrada',
-  FAILED: 'Fallida',
-  REFUNDED: 'Devuelta',
-  PARTIALLY_REFUNDED: 'Dev. parcial',
-};
+// I18N T3-B — idéntico en las dos pantallas de facturación.
+import { ESTADO_TRANSACCION_LABELS as TX_STATUS_LABELS, PASARELA_LABELS } from '@/lib/etiquetas-enums';
+import {
+  MOVIMIENTO_CREDITO_ADMIN_LABELS,
+  TIPO_DERECHO_LABELS,
+} from '@/lib/etiquetas-enums';
 
 const TX_STATUS_VARIANTS: Record<string, 'default' | 'secondary' | 'outline' | 'destructive'> = {
   PENDING: 'secondary',
@@ -50,28 +49,6 @@ const TX_STATUS_VARIANTS: Record<string, 'default' | 'secondary' | 'outline' | '
  * esta pantalla y unificarlas con las de la cuenta es la consolidación (T3), no esto.
  * Lo único que se escribe nuevo es el octavo texto, y se copia de allí.
  */
-const LEDGER_TYPE_LABELS: Record<CreditLedgerType, string> = {
-  PACK_PURCHASE: 'Compra de pack',
-  FEATURED_DEBIT: 'Destacado',
-  BUMP_DEBIT: 'Subida',
-  ADMIN_CREDIT: 'Crédito admin',
-  ADMIN_DEBIT: 'Débito admin',
-  PRO_BONUS: 'Bonus Pro',
-  CAMPAIGN_BONUS: 'Bonus campaña',
-  COUPON_REDEEM: 'Cupón canjeado',
-};
-
-const ENTITLEMENT_TYPE_LABELS: Record<string, string> = {
-  PRO_SUBSCRIPTION: 'Plan Pro',
-  FEATURED_LISTING: 'Anuncio destacado',
-};
-
-const GATEWAY_LABELS: Record<string, string> = {
-  REDSYS: 'Redsys',
-  STRIPE: 'Stripe',
-  ADMIN: 'Admin',
-};
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatDate(iso: string | null) {
@@ -361,7 +338,7 @@ export default function AdminUserBillingDetailPage() {
                               reventar la tabla — cae al valor crudo, el último recurso
                               VISIBLE. El tipado de arriba es lo que protege en
                               compilación; esto, lo que protege en ejecución. */}
-                          {LEDGER_TYPE_LABELS[entry.type as CreditLedgerType] ?? entry.type}
+                          {MOVIMIENTO_CREDITO_ADMIN_LABELS[entry.type as CreditLedgerType] ?? entry.type}
                         </td>
                         <td
                           className={[
@@ -402,7 +379,7 @@ export default function AdminUserBillingDetailPage() {
                 className="flex flex-wrap items-center gap-3 rounded-md border px-3 py-2 text-sm"
               >
                 <Badge variant="default">
-                  {ENTITLEMENT_TYPE_LABELS[e.type] ?? e.type}
+                  {TIPO_DERECHO_LABELS[e.type] ?? e.type}
                 </Badge>
                 <span className="text-muted-foreground">
                   Desde {formatDate(e.startsAt)}
@@ -442,7 +419,7 @@ export default function AdminUserBillingDetailPage() {
                 {data.transactions.map((tx) => (
                   <tr key={tx.id}>
                     <td className="py-2 pr-4">
-                      <Badge variant="outline">{GATEWAY_LABELS[tx.gateway] ?? tx.gateway}</Badge>
+                      <Badge variant="outline">{PASARELA_LABELS[tx.gateway] ?? tx.gateway}</Badge>
                     </td>
                     <td className="py-2 pr-4">
                       <Badge variant={TX_STATUS_VARIANTS[tx.status] ?? 'outline'}>

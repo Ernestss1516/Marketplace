@@ -26,6 +26,7 @@ import {
 } from '@/components/admin/AttributeSchemaEditor';
 import { TagsEditorPanel } from '@/components/admin/TagsEditorPanel';
 import type { AttributeSchema, ListingTypePolicy, ListingViewMode, PriceUnit } from '@/types';
+import { UNIDAD_PRECIO_LABELS } from '@/lib/etiquetas-enums';
 
 /**
  * PROFUNDIDAD N — RÁFAGA 2. Espejo de `CATEGORY_MAX_DEPTH` (api,
@@ -85,15 +86,10 @@ const VIEW_OPTIONS: { value: ListingViewMode; label: string }[] = [
   { value: 'MAPA', label: 'Mapa' },
 ];
 
-const PRICE_UNIT_OPTIONS: { value: PriceUnit; label: string }[] = [
-  { value: 'ONE_TIME', label: 'Pago único' },
-  { value: 'PER_MONTH', label: 'Al mes' },
-  { value: 'PER_WEEK', label: 'A la semana' },
-  { value: 'PER_DAY', label: 'Al día' },
-  { value: 'PER_HOUR', label: 'Por hora' },
-  { value: 'PER_UNIT', label: 'Por unidad' },
-  { value: 'PER_SESSION', label: 'Por sesión' },
-];
+// I18N T3-B — las siete se derivan del vocabulario en vez de repetirlo.
+const PRICE_UNIT_OPTIONS: { value: PriceUnit; label: string }[] = (
+  Object.keys(UNIDAD_PRECIO_LABELS) as PriceUnit[]
+).map((value) => ({ value, label: UNIDAD_PRECIO_LABELS[value] }));
 
 // ─── PROFUNDIDAD N — RÁFAGA 2: recorridos del árbol ───────────────────────────
 //

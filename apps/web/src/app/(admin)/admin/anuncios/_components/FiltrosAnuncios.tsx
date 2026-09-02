@@ -28,7 +28,7 @@ import { Button } from '@/components/ui/button';
 import { STATUS_LABELS } from '../listing-status';
 import { TRIAGE_LABELS, TRIAGE_VALUES, type Triage } from '../listing-triage';
 import { ORDENES, hayFiltros } from '../filtros-url';
-import { DETECTOR_LABELS } from '../../etiquetas';
+import { DETECTOR_LABELS } from '@/lib/etiquetas-enums';
 
 /** Los nueve estados, en el orden en que un moderador los piensa. */
 const ESTADOS = [

@@ -18,7 +18,7 @@ import { Button } from '@/components/ui/button';
 import { PriceListEditor } from './_components/PriceListEditor';
 // PUNTO 6 — el MISMO vocabulario que la ficha y los filtros. Tres pantallas nombrando los
 // detectores por su cuenta es como acaban divergiendo (lo documenta el punto 4).
-import { DETECTOR_LABELS } from '../etiquetas';
+import { DETECTOR_LABELS } from '@/lib/etiquetas-enums';
 import { entradasQueEmpiezanAFiltrar, esTelefonoEs } from './entradas-inertes';
 // AJUSTES RÁFAGA A — los títulos, las descripciones y los siete grupos viven en su propio
 // módulo de datos, para que un test pueda comprobarlos sin montar esta página. Molde de

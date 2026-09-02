@@ -1,35 +1,26 @@
 import { Star } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import type { ListingSummary, ListingStatus, PriceType, PriceUnit } from '@/types';
+import { SUFIJO_UNIDAD_PRECIO, etiquetaDeEstado } from '@/lib/etiquetas-enums';
 
 const RATING_FORMAT = new Intl.NumberFormat('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 
 // Shared by ListingCard (estándar) and ListingCardWide (ampliada, RÁFAGA 2) —
 // extraído para no duplicar precio/estado/resolución de fotos entre las dos.
 
-const STATUS_LABELS: Partial<Record<string, string>> = {
-  RESERVED: 'Reservado',
-  SOLD: 'Vendido',
-  EXPIRED: 'Caducado',
-};
-
+// I18N T3-B — aquí había un mapa de TRES estados con sus tres textos, y hacía dos
+// trabajos a la vez: decir CUÁLES llevan insignia en una tarjeta pública y CÓMO se
+// llaman. Sólo el segundo es vocabulario.
+//
+// Se queda el primero, que es una decisión de esta tarjeta —un anuncio en borrador o
+// pausado no se le enseña a nadie, así que la lista no es «todos menos ACTIVE»—, y el
+// texto sale de la fuente. `STATUS_VARIANTS` pasa a ser también la pertenencia: tenía
+// exactamente las mismas tres claves, así que no había dos listas, había una escrita
+// dos veces.
 const STATUS_VARIANTS: Partial<Record<string, 'secondary' | 'outline'>> = {
   RESERVED: 'secondary',
   SOLD: 'outline',
   EXPIRED: 'outline',
-};
-
-/** Sufijo que se añade al precio según su formato (RP.4b). ONE_TIME es cadena
- *  vacía: un pago único se sigue mostrando "200 €" a secas, exactamente como
- *  antes de esta ráfaga. */
-const UNIT_SUFFIX: Record<PriceUnit, string> = {
-  ONE_TIME: '',
-  PER_MONTH: '/mes',
-  PER_WEEK: '/semana',
-  PER_DAY: '/día',
-  PER_HOUR: '/hora',
-  PER_UNIT: '/ud.',
-  PER_SESSION: '/sesión',
 };
 
 /**
@@ -51,17 +42,21 @@ export function formatListingPrice(
   priceUnit: PriceUnit = 'ONE_TIME',
 ): string {
   if (priceType === 'FREE') return 'Gratis';
-  const suffix = UNIT_SUFFIX[priceUnit] ?? '';
+  const suffix = SUFIJO_UNIDAD_PRECIO[priceUnit] ?? '';
   if (priceType === 'NEGOTIABLE') return `A convenir${suffix}`;
   const amount = new Intl.NumberFormat('es-ES', { style: 'currency', currency }).format(price);
   return `${amount}${suffix}`;
 }
 
 export function ListingStatusBadge({ status, className }: { status: ListingStatus; className?: string }) {
-  if (status === 'ACTIVE' || !STATUS_LABELS[status]) return null;
+  // La pertenencia la decide `STATUS_VARIANTS`, que ya era la misma lista. `ACTIVE`
+  // sigue comprobándose aparte aunque no esté en el mapa: es explícito a propósito —
+  // un anuncio publicado NO lleva insignia, y eso no debe depender de que a nadie se
+  // le ocurra darle color algún día.
+  if (status === 'ACTIVE' || !STATUS_VARIANTS[status]) return null;
   return (
     <Badge variant={STATUS_VARIANTS[status] ?? 'outline'} className={className ?? 'mt-2 text-xs'}>
-      {STATUS_LABELS[status]}
+      {etiquetaDeEstado(status)}
     </Badge>
   );
 }

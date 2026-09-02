@@ -20,13 +20,8 @@ type Tab = 'transacciones' | 'wallets';
 
 // ─── Labels ───────────────────────────────────────────────────────────────────
 
-const TX_STATUS_LABELS: Record<string, string> = {
-  PENDING: 'Pendiente',
-  SUCCEEDED: 'Cobrada',
-  FAILED: 'Fallida',
-  REFUNDED: 'Devuelta',
-  PARTIALLY_REFUNDED: 'Dev. parcial',
-};
+// I18N T3-B — idéntico en las dos pantallas de facturación.
+import { ESTADO_TRANSACCION_LABELS as TX_STATUS_LABELS, PASARELA_LABELS } from '@/lib/etiquetas-enums';
 
 const TX_STATUS_VARIANTS: Record<string, 'default' | 'secondary' | 'outline' | 'destructive'> = {
   PENDING: 'secondary',
@@ -34,12 +29,6 @@ const TX_STATUS_VARIANTS: Record<string, 'default' | 'secondary' | 'outline' | '
   FAILED: 'destructive',
   REFUNDED: 'outline',
   PARTIALLY_REFUNDED: 'outline',
-};
-
-const GATEWAY_LABELS: Record<string, string> = {
-  REDSYS: 'Redsys',
-  STRIPE: 'Stripe',
-  ADMIN: 'Admin',
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -225,7 +214,7 @@ function TransaccionesTab({ token }: { token: string }) {
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    <Badge variant="outline">{GATEWAY_LABELS[tx.gateway] ?? tx.gateway}</Badge>
+                    <Badge variant="outline">{PASARELA_LABELS[tx.gateway] ?? tx.gateway}</Badge>
                   </td>
                   <td className="px-4 py-3">
                     <Badge variant={TX_STATUS_VARIANTS[tx.status] ?? 'outline'}>

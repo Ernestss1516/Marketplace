@@ -18,17 +18,11 @@ import { canPromote } from './owner/promocion';
 import { CloseDealDialog } from './CloseDealDialog';
 import type { BumpPricing, ListingSummary } from '@/types';
 
-const STATUS_LABELS: Record<string, string> = {
-  DRAFT: 'Borrador',
-  ACTIVE: 'Activo',
-  RESERVED: 'Reservado',
-  SOLD: 'Vendido',
-  EXPIRED: 'Caducado',
-  PENDING_REVIEW: 'En revisión',
-  REJECTED: 'Rechazado',
-  PAUSED: 'Pausado',
-  ARCHIVED: 'Archivado',
-};
+// I18N T3-B — los nueve estados estaban copiados aquí, idénticos a los de la fuente.
+// Es la copia que MÁS caro salía si divergía: el vendedor lee el estado de su anuncio
+// en esta tarjeta y el staff lo lee en el backoffice, y tienen que estar hablando de
+// lo mismo cuando uno escribe al otro.
+import { STATUS_LABELS } from '@/lib/etiquetas-enums';
 
 const STATUS_VARIANTS: Record<string, 'default' | 'secondary' | 'outline' | 'destructive'> = {
   DRAFT: 'secondary',

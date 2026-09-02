@@ -13,6 +13,16 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import type { ListingType, Condition, PriceType, PriceUnit } from '@/types';
+// I18N T3-B — el wizard era la FUENTE ORIGINAL de tres de estos mapas: `etiquetas.ts`
+// dice, en su comentario de cada uno, que los copió de aquí. Ahora los toma de allí, y
+// con eso las copias de este enum bajan de cinco a una. El wizard no pierde nada —
+// sigue eligiendo QUÉ opciones ofrece y en qué orden; lo que deja de decidir por su
+// cuenta es cómo se LLAMA cada una.
+import {
+  CONDICION_LABELS,
+  TIPO_ANUNCIO_LABELS,
+  UNIDAD_PRECIO_LABELS,
+} from '@/lib/etiquetas-enums';
 
 export type PriceMode = 'fixed' | 'free' | 'negotiable';
 
@@ -41,18 +51,13 @@ interface StepDatosProps {
   allowedPriceUnits?: PriceUnit[];
 }
 
-const TYPE_LABELS: Record<ListingType, string> = {
-  PRODUCT: 'Producto',
-  SERVICE: 'Servicio',
-};
 
-const CONDITION_OPTIONS: { value: Condition; label: string }[] = [
-  { value: 'NEW', label: 'Nuevo' },
-  { value: 'LIKE_NEW', label: 'Como nuevo' },
-  { value: 'GOOD', label: 'Buen estado' },
-  { value: 'FAIR', label: 'Aceptable' },
-  { value: 'FOR_PARTS', label: 'Para piezas' },
-];
+// I18N T3-B — las cinco opciones se DERIVAN del vocabulario en vez de repetirlo. El
+// orden es el de `CONDICION_LABELS`, que ya iba de mejor a peor estado.
+const CONDITION_OPTIONS = (Object.keys(CONDICION_LABELS) as Condition[]).map((value) => ({
+  value,
+  label: CONDICION_LABELS[value],
+}));
 
 function FieldError({ message }: { message?: string }) {
   if (!message) return null;
@@ -72,15 +77,6 @@ export function priceTypeFromMode(mode: PriceMode): PriceType {
 
 /** Etiquetas ES de los formatos — las mismas que PRICE_UNIT_OPTIONS del panel
  *  de categorías (RP.2), para que admin y vendedor lean lo mismo. */
-export const PRICE_UNIT_LABELS: Record<PriceUnit, string> = {
-  ONE_TIME: 'Pago único',
-  PER_MONTH: 'Al mes',
-  PER_WEEK: 'A la semana',
-  PER_DAY: 'Al día',
-  PER_HOUR: 'Por hora',
-  PER_UNIT: 'Por unidad',
-  PER_SESSION: 'Por sesión',
-};
 
 // `resolvePriceUnitSelection` vivía aquí y se movió a `@/lib/price-unit`.
 // Es lógica PURA, pero este módulo lleva 'use client' (pinta el formulario), así
@@ -109,7 +105,7 @@ function PriceUnitSelect({
       <SelectContent>
         {units.map((unit) => (
           <SelectItem key={unit} value={unit}>
-            {PRICE_UNIT_LABELS[unit]}
+            {UNIDAD_PRECIO_LABELS[unit]}
           </SelectItem>
         ))}
       </SelectContent>
@@ -180,7 +176,7 @@ export function StepDatos({
         {readOnlyType ? (
           <div>
             <p className="text-sm font-medium">
-              {data.type ? TYPE_LABELS[data.type] : '—'}
+              {data.type ? TIPO_ANUNCIO_LABELS[data.type] : '—'}
             </p>
             <p className="text-xs text-muted-foreground">
               El tipo no se puede cambiar tras crear el anuncio.

@@ -56,7 +56,7 @@ import {
   etiqueta,
   etiquetaDeEstado,
   ticketStatusLabel,
-} from '../../etiquetas';
+} from '@/lib/etiquetas-enums';
 
 const ESTADO_VARIANTS: Record<string, 'default' | 'secondary' | 'destructive'> = {
   ACTIVE: 'default',
