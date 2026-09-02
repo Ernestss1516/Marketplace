@@ -6,6 +6,10 @@ import { useSession } from 'next-auth/react';
 import { AlertCircle, AlertTriangle, Check, X } from 'lucide-react';
 import { getInstanceInfo, type InstanceInfo } from '@/lib/api/admin';
 import { ApiError } from '@/lib/api/client';
+import type { BrandingLogos } from '@/lib/api/branding';
+import { getBrandingLive } from '@/lib/api/branding-admin';
+import { BrandLogo } from '@/components/layout/BrandLogo';
+import { resolveBrand } from '@/lib/brand';
 // Las cuatro constantes de BUILD del frontend. No vienen del backend a propósito: son de
 // este lado y copiarlas allí crearía dos fuentes para el mismo valor. Ver la cabecera de
 // `instance-info.types.ts` en la API.
@@ -87,6 +91,50 @@ function Configurado({ ok }: { ok: boolean }) {
     <span className="inline-flex items-center gap-1 text-muted-foreground">
       <X className="h-3.5 w-3.5" /> Sin configurar
     </span>
+  );
+}
+
+/**
+ * LOGOS L2 (§8) — los tres logos de esta instancia, tal como se ven.
+ *
+ * Se pinta con `resolveBrand` + `BrandLogo`, los MISMOS que las cabeceras de verdad: lo
+ * que se ve aquí es lo que ve la gente, respaldo incluido. Si esta zona está cayendo al
+ * logo público o al texto, aquí se ve caer.
+ *
+ * Su propio fetch, sin token —el endpoint es público— y sin bloquear la página: si
+ * falla, el bloque no se pinta y el resto del panel sigue entero. Ninguna alarma de
+ * infraestructura depende de esto.
+ */
+function LogosDeInstancia() {
+  const [logos, setLogos] = useState<BrandingLogos | null>(null);
+
+  useEffect(() => {
+    let vivo = true;
+    getBrandingLive()
+      .then((r) => vivo && setLogos(r))
+      .catch(() => undefined);
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  if (!logos) return <span className="text-muted-foreground">—</span>;
+
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-3" data-testid="instancia-logos">
+      {(['public', 'backoffice', 'blog'] as const).map((zone) => (
+        <span key={zone} className="flex items-center gap-1.5 rounded border px-2 py-1">
+          <BrandLogo
+            mark={resolveBrand(zone, logos)}
+            className="text-[11px] font-semibold"
+            imgClassName="h-5 w-auto max-w-[90px] object-contain"
+          />
+        </span>
+      ))}
+      <Link href="/admin/marca" className="text-xs text-blue-700 hover:underline">
+        Cambiar
+      </Link>
+    </div>
   );
 }
 
@@ -247,6 +295,15 @@ export default function AdminInstanciaPage() {
           </Dato>
           <Dato label="Descripción" nota="Sale en los metadatos SEO de todas las páginas.">
             <span className="font-normal">{SITE_DESCRIPTION}</span>
+          </Dato>
+          {/* LOGOS L2 (§8) — LA SEÑAL VISUAL DE INSTANCIA, en la pantalla que existe para
+              contestar «¿cuál es ésta?». El nombre de arriba es una constante de código,
+              igual en todos los despliegues; los logos SÍ se configuran por instancia, y
+              el del backoffice es el que se ve en la cabecera de este panel. Va aquí en
+              SOLO LECTURA y se edita en /admin/marca — el reparto que esta página ya
+              declara para el buzón de soporte y la periodicidad fiscal. */}
+          <Dato label="Logos" nota="El del backoffice es el que identifica esta instancia en la cabecera.">
+            <LogosDeInstancia />
           </Dato>
           <Dato
             label="Dominio público"

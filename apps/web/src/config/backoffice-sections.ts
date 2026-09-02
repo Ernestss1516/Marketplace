@@ -254,6 +254,13 @@ export const BACKOFFICE_SECTIONS: readonly BackofficeSection[] = [
   { id: 'facturacion', route: '/admin/facturacion', label: 'Facturación', minRole: 'ADMIN', group: 'plataforma' },
   { id: 'facturas', route: '/admin/facturas', label: 'Facturas', minRole: 'ADMIN', group: 'plataforma' },
   { id: 'ajustes', route: '/admin/ajustes', label: 'Ajustes', minRole: 'ADMIN', group: 'plataforma' },
+  // LOGOS L2 — los tres logos de la instancia. ADMIN y en «Plataforma», junto a Ajustes
+  // e Instancia y no en «Contenido» con Portada/Footer/Nav: aquéllas son la superficie
+  // EDITORIAL del sitio público —qué se enseña y cómo se navega—, y ésta es la
+  // identidad de la instalación. El logo del backoffice, además, es lo que distingue un
+  // despliegue de otro (docs/diseno-logos.md §8), que es literalmente la pregunta que
+  // contesta su vecina «Instancia».
+  { id: 'marca', route: '/admin/marca', label: 'Marca', minRole: 'ADMIN', group: 'plataforma' },
   // AJUSTES RÁFAGA B — «cómo está montada esta instancia», de solo lectura. Va DESPUÉS de
   // Ajustes y no antes: aquélla es donde se cambia y ésta donde se confirma, y en ese orden
   // se leen. ADMIN porque publica de golpe la configuración de la máquina.

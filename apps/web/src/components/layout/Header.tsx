@@ -1,9 +1,10 @@
 import Link from 'next/link';
-import { SITE_NAME } from '@/config';
 import { auth } from '@/lib/auth';
+import { getCachedBranding } from '@/lib/api/branding';
 import { getUnreadNotificationsCount } from '@/lib/api/notificaciones';
 import { getMe } from '@/lib/api/usuarios';
 import { HeaderAuthNav } from './HeaderAuthNav';
+import { SiteBrand } from './SiteBrand';
 
 export default async function Header() {
   const session = await auth();
@@ -19,6 +20,13 @@ export default async function Header() {
       ])
     : [0, undefined];
 
+  // LOGOS L2 — la marca configurable. Cacheado por tag (`branding`) y compartido por
+  // todas las páginas, así que esto no es una consulta por request; el backend tumba
+  // la entrada al cambiar un logo. `.catch(() => null)` es la misma red que el footer
+  // y el nav: un backend caído deja la cabecera con el nombre del sitio, que es
+  // exactamente lo que se pintaba antes de esta ráfaga.
+  const logos = await getCachedBranding().catch(() => null);
+
   return (
     <header className="sticky top-0 z-50 border-b bg-background">
       {/* UXV.2 — los `shrink-0`, el `gap` escalonado y el rótulo corto de «Publicar» son
@@ -27,8 +35,10 @@ export default async function Header() {
           notaba poco mientras la cabecera solo existía en la zona pública; al montarla
           también en la de cuenta (A1) pasaba a verse en veinte pantallas más. */}
       <div className="container mx-auto flex h-16 items-center justify-between gap-3 px-4">
-        <Link href="/" className="shrink-0 text-xl font-bold tracking-tight">
-          {SITE_NAME}
+        {/* El destino no cambia en el blog: el logo de la cabecera lleva a la portada
+            desde cualquier página pública. Lo único que cambia es la imagen. */}
+        <Link href="/" className="flex shrink-0 items-center">
+          <SiteBrand logos={logos} />
         </Link>
         <nav className="flex items-center gap-3 text-sm sm:gap-6">
           <Link
