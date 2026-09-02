@@ -131,6 +131,12 @@ jobs:
       # ── NestJS auth ────────────────────────────────────────────────────────────
       JWT_SECRET: ci_jwt_secret
 
+      # ── Redsys — código de comercio de PRUEBAS (público, no es un secreto) ─────
+      # redsys.e2e-spec.ts comprueba DS_MERCHANT_MERCHANTCODE === '999008881'.
+      # configuration.ts lo deja en '' si falta, así que sin esta línea ese test
+      # falla con Expected "999008881" / Received "" — ocurrió de verdad en CI.
+      REDSYS_MERCHANT_CODE: "999008881"
+
       # ── Redsys — clave FICTICIA de CI, no la del TPV ───────────────────────────
       # El schema de Joi la exige con NODE_ENV=test (un vacío silencioso causó un
       # incidente, ver env.validation.ts). Hasta ahora se heredaba de .env.test, el
