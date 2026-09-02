@@ -349,6 +349,27 @@ const SETTING_KEYS = [
 ] as const;
 type SettingKey = (typeof SETTING_KEYS)[number];
 
+/**
+ * ─── LO QUE NO ESTÁ AQUÍ, Y ES UNA DECISIÓN: LOS TRES LOGOS ────────────────────────────
+ *
+ * `logoPublicUrl`, `logoBackofficeUrl` y `logoBlogUrl` son `Setting` de pleno derecho y
+ * **NO entran en este whitelist**. Su único escritor es `BrandingService`
+ * (`POST/DELETE /admin/branding/logos/:zone`), y el `PATCH` genérico les responde 400.
+ *
+ * No es celo: guardar un logo son CUATRO pasos de una misma operación —subir el objeto,
+ * escribir el ajuste, limpiar el anterior y revalidar la caché del frontend— y este
+ * `updateSetting` sólo sabe hacer el segundo. Si entraran aquí:
+ *
+ *  · el valor sería una cadena arbitraria (no hay validación de URL propia), así que un
+ *    dedazo dejaría la cabecera de TODAS las páginas cargando una imagen de otro dominio;
+ *  · cada cambio dejaría el logo anterior huérfano en el bucket para siempre — la fuga
+ *    que `users.service.ts:104` cerró para el avatar;
+ *  · el cambio no se propagaría: aquí no se llama a `RevalidateService`, y el logo viejo
+ *    seguiría servido hasta que caducara la entrada de caché.
+ *
+ * Ver `docs/diseno-logos.md` §2.2 y `branding/branding.constants.ts`.
+ */
+
 // Keys whose value must be a positive integer (>= 1) — credit costs, and (as
 // of ráfaga 3) the two Pro monthly quotas. proMonthlyFeaturedQuota was
 // whitelisted (SETTING_KEYS) without ever landing here — the backend accepted

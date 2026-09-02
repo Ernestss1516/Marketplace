@@ -29,6 +29,7 @@ import { BlogModule } from './modules/blog/blog.module';
 import { FooterModule } from './modules/footer/footer.module';
 import { NavModule } from './modules/nav/nav.module';
 import { HomepageModule } from './modules/homepage/homepage.module';
+import { BrandingModule } from './modules/branding/branding.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { RedsysModule } from './modules/redsys/redsys.module';
 import { CampaignsModule } from './modules/campaigns/campaigns.module';
@@ -96,6 +97,7 @@ import { ImpressionsModule } from './modules/impressions/impressions.module';
     FooterModule,
     NavModule,
     HomepageModule,
+    BrandingModule,
     BillingModule,
     RedsysModule,
     CampaignsModule,
