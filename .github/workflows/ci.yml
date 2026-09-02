@@ -149,6 +149,21 @@ jobs:
       # falta que sea estable dentro del job, no secreto.
       CONTACT_FORM_SECRET: ci_contact_form_secret_32_chars_x
 
+      # ── Stripe — claves FICTICIAS de CI ────────────────────────────────────────
+      # El schema de Joi las deja opcionales, pero
+      # stripe-subscription-renewal-e2e.e2e-spec.ts hace `new Stripe(process.env
+      # .STRIPE_SECRET_KEY!)` en su beforeAll, y el constructor LANZA con undefined
+      # ("Neither apiKey nor config.authenticator provided") — toda la suite caería.
+      # Antes se heredaban de .env.test; hay que definirlas aquí ahora que ese
+      # fichero ya no se versiona.
+      #
+      # Ningún test llama a la API de Stripe: los eventos de webhook se firman en
+      # local con stripe.webhooks.generateTestHeaderString() y los verifica el
+      # backend con este mismo secreto, así que basta con que ambos lados coincidan.
+      # Verificado sin .env.test: 62 tests de redsys/stripe/instance-info en verde.
+      STRIPE_SECRET_KEY: sk_test_ci_dummy_not_a_real_key
+      STRIPE_WEBHOOK_SECRET: whsec_ci_dummy_webhook_secret
+
       # ── Email — Resend not called in tests; value satisfies Joi validation ─────
       RESEND_API_KEY: ci_dummy_resend
       RESEND_FROM: noreply@example.com
