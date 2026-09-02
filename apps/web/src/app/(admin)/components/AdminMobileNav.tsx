@@ -5,7 +5,9 @@ import { usePathname } from 'next/navigation';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { Menu, X } from 'lucide-react';
 import { AdminNav } from './AdminNav';
+import { BrandLogo } from '@/components/layout/BrandLogo';
 import { sectionForPath } from '@/config/backoffice-sections';
+import type { BrandMark } from '@/lib/brand';
 
 /**
  * PUNTO 3 (A3) — EL MENÚ DEL BACKOFFICE EN MÓVIL.
@@ -31,7 +33,7 @@ import { sectionForPath } from '@/config/backoffice-sections';
  * El backoffice **sí la tiene** (`layout.tsx`), así que el botón va ahí, donde el
  * usuario ya mira para orientarse.
  */
-export function AdminMobileNav() {
+export function AdminMobileNav({ marca }: { marca: BrandMark }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
   const section = sectionForPath(pathname);
@@ -61,8 +63,14 @@ export function AdminMobileNav() {
           aria-label="Menú del backoffice"
         >
           <div className="mb-4 flex items-center justify-between">
+            {/* LOGOS L2 — el SEGUNDO sitio de la marca del backoffice, y cambia con el
+                primero: la cabecera de escritorio está oculta por debajo de `md`, así
+                que en móvil éste es el ÚNICO sitio donde se ve de qué instancia es el
+                panel. Radix exige un `Title` para nombrar el diálogo; con logo, ese
+                nombre lo da el `alt` de la imagen, que es la misma cadena que el texto
+                de respaldo (ver `BrandMark.text`). */}
             <DialogPrimitive.Title className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Backoffice
+              <BrandLogo mark={marca} imgClassName="h-7 w-auto max-w-[150px] object-contain" />
             </DialogPrimitive.Title>
             <DialogPrimitive.Close
               className="rounded-sm opacity-70 transition-opacity hover:opacity-100"

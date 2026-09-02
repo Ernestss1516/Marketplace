@@ -7,7 +7,7 @@
 //   MODERATOR (19)  lo de EDITOR + anuncios, cola de revisión, usuarios, reportes,
 //                   tickets, categorías, tags, campañas, cupones, patrocinados,
 //                   mensajes de contacto, motivos de contacto.
-//   ADMIN (22)      todo + facturación, facturas, ajustes.
+//   ADMIN (25)      todo + facturación, facturas, ajustes, instancia y marca.
 //   USER            nada.
 //
 // LA FUENTE DE VERDAD ES `src/config/backoffice-sections.ts`, un solo fichero del
@@ -60,7 +60,7 @@ async function loginAs(browser: Browser, email: string) {
 }
 
 test.describe('Backoffice — ADMIN acceso total', () => {
-  test('ADMIN carga /admin y el nav muestra las 24 secciones', async ({ adminContext }) => {
+  test('ADMIN carga /admin y el nav muestra las 25 secciones', async ({ adminContext }) => {
     const page = await adminContext.newPage();
 
     await page.goto('/admin');
@@ -70,14 +70,15 @@ test.describe('Backoffice — ADMIN acceso total', () => {
     expect(page.url()).toContain('/admin');
     expect(page.url()).not.toContain('/login');
 
-    // 22 = todas las filas de BACKOFFICE_SECTIONS. Eran 21 hasta R2, y la que
+    // 25 = todas las filas de BACKOFFICE_SECTIONS. Eran 21 hasta R2, y la que
     // faltaba no es nueva: `/admin/motivos-contacto` existía y era alcanzable,
     // pero nadie le había puesto entrada en `NAV_ITEMS` (hallazgo R3 de la
     // auditoría). Con el nav derivado del mapa, tener fila ES tener ítem.
+    // La última en entrar es «Marca» (los tres logos, LOGOS L2).
     const nav = page.getByTestId('admin-nav');
     await expect(nav).toBeVisible();
     const links = nav.getByRole('link');
-    await expect(links).toHaveCount(24);
+    await expect(links).toHaveCount(25);
 
     // Un ADMIN ve lo suyo Y lo de los otros dos pisos.
     await expect(nav.getByRole('link', { name: 'Ajustes' })).toBeVisible();
@@ -628,14 +629,14 @@ test.describe('La puerta /admin/login', () => {
     await page.close();
   });
 
-  test('un ADMIN sigue entrando por su puerta de siempre, con las 24', async ({ browser }) => {
+  test('un ADMIN sigue entrando por su puerta de siempre, con las 25', async ({ browser }) => {
     const page = await loginPorLaPuertaDelPanel(browser, 'admin-e2e@example.com');
     await page.waitForURL((url) => url.pathname.startsWith('/admin') && url.pathname !== '/admin/login', {
       timeout: 15_000,
     });
     await page.waitForLoadState('networkidle');
 
-    await expect(page.getByTestId('admin-nav').getByRole('link')).toHaveCount(24);
+    await expect(page.getByTestId('admin-nav').getByRole('link')).toHaveCount(25);
     await page.close();
   });
 

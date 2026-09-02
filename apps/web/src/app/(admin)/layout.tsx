@@ -1,3 +1,6 @@
+import { getCachedBranding } from '@/lib/api/branding';
+import { resolveBrand } from '@/lib/brand';
+import { BrandLogo } from '@/components/layout/BrandLogo';
 import { AdminNav } from './components/AdminNav';
 import { AdminMobileNav } from './components/AdminMobileNav';
 import { AdminUserBar } from './components/AdminUserBar';
@@ -28,7 +31,16 @@ import { AdminSessionGuard } from './components/AdminSessionGuard';
  * El `<aside>` es sticky con scroll propio porque ahora son 22 secciones repartidas en
  * 6 grupos: sin eso, en una pantalla baja el final del menú queda fuera de alcance.
  */
-export default function AdminLayout({ children }: { children: React.ReactNode }) {
+export default async function AdminLayout({ children }: { children: React.ReactNode }) {
+  // LOGOS L2 — LA SEÑAL DE INSTANCIA (§8). El backoffice es cliente, pero ESTE layout
+  // es un componente de servidor, así que la marca se resuelve aquí y baja ya hecha:
+  // sin petición desde el navegador, sin estado «cargando» y sin un instante en que la
+  // cabecera esté vacía. Se resuelve UNA vez y sirve a los dos sitios donde la marca
+  // aparece —la cabecera de escritorio y el título del drawer de móvil—, que es lo que
+  // impide que uno se quede con el texto viejo cuando el otro cambia.
+  const logos = await getCachedBranding().catch(() => null);
+  const marca = resolveBrand('backoffice', logos);
+
   return (
     <div className="flex min-h-screen flex-col">
       {/* ROLES R3 — no pinta nada: escucha el 401 de cualquier sección y lo
@@ -40,12 +52,16 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         <div className="flex min-w-0 items-center gap-3">
           {/* El disparador del drawer, sólo por debajo de `md`. Va en la cabecera y no
               dentro del `<main>` como en la zona de cuenta: aquí SÍ hay cabecera. */}
-          <AdminMobileNav />
-          {/* En móvil el sitio de este texto lo ocupa la sección actual, que orienta
-              más: el drawer ya se titula «Backoffice». */}
-          <span className="hidden text-xs font-semibold uppercase tracking-wider text-muted-foreground md:inline">
-            Backoffice
-          </span>
+          <AdminMobileNav marca={marca} />
+          {/* En móvil el sitio de esta marca lo ocupa la sección actual, que orienta
+              más: el drawer lleva la marca en su título. */}
+          <div className="hidden md:block">
+            <BrandLogo
+              mark={marca}
+              className="text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+              imgClassName="h-7 w-auto max-w-[160px] object-contain"
+            />
+          </div>
         </div>
         <AdminUserBar />
       </header>

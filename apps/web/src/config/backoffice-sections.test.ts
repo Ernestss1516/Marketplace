@@ -45,7 +45,7 @@ import { ROLE_ORDER } from './roles';
 // eso es exactamente lo que se quiere de un cambio de política de acceso.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** id → piso mínimo acordado. 23 secciones: 7 EDITOR, 13 MODERATOR, 3 ADMIN. */
+/** id → piso mínimo acordado. 25 secciones: 7 EDITOR, 13 MODERATOR, 5 ADMIN. */
 const REPARTO_ESPERADO: Record<string, 'EDITOR' | 'MODERATOR' | 'ADMIN'> = {
   // EDITOR — contenido y presentación del sitio público (7 en total)
   dashboard: 'EDITOR',
@@ -73,11 +73,13 @@ const REPARTO_ESPERADO: Record<string, 'EDITOR' | 'MODERATOR' | 'ADMIN'> = {
   patrocinados: 'MODERATOR',
   'mensajes-contacto': 'MODERATOR',
   'motivos-contacto': 'MODERATOR',
-  // ADMIN — el dinero y la configuración de plataforma (4 propias, 24 acumuladas)
+  // ADMIN — el dinero y la configuración de plataforma (5 propias, 25 acumuladas)
   facturacion: 'ADMIN',
   facturas: 'ADMIN',
   ajustes: 'ADMIN',
   instancia: 'ADMIN',
+  // LOGOS L2 — la identidad de la instancia (los tres logos). ADMIN, como sus vecinas.
+  marca: 'ADMIN',
 };
 
 const ROLES_STAFF = ['EDITOR', 'MODERATOR', 'ADMIN'] as const;
@@ -91,10 +93,10 @@ function seccionesEsperadas(role: 'EDITOR' | 'MODERATOR' | 'ADMIN'): string[] {
 }
 
 describe('EL REPARTO — cada rol ve exactamente lo suyo', () => {
-  it('el mapa declara el piso acordado para las 24 secciones, una por una', () => {
+  it('el mapa declara el piso acordado para las 25 secciones, una por una', () => {
     const real = Object.fromEntries(BACKOFFICE_SECTIONS.map((s) => [s.id, s.minRole]));
     expect(real).toEqual(REPARTO_ESPERADO);
-    expect(BACKOFFICE_SECTIONS).toHaveLength(24);
+    expect(BACKOFFICE_SECTIONS).toHaveLength(25);
   });
 
   it.each(ROLES_STAFF.map((r) => [r]))(
@@ -104,14 +106,15 @@ describe('EL REPARTO — cada rol ve exactamente lo suyo', () => {
     },
   );
 
-  it('las cuentas resultantes son EDITOR 7 / MODERATOR 20 / ADMIN 23', () => {
-    // Son las que pinzan los tres e2e de admin-roles.spec.ts. Antes de esta ráfaga
-    // eran 2 / 7 / 21; el cambio es el objeto de la ráfaga, no un efecto lateral.
-    // ESTADÍSTICAS B1 suma UNA a MODERATOR y ADMIN (19→20, 22→23) y ninguna a EDITOR:
-    // la telemetría no baja al piso del dashboard (ver `AdminStatsController`).
+  it('las cuentas resultantes son EDITOR 7 / MODERATOR 20 / ADMIN 25', () => {
+    // Son las que pinzan los tres e2e de admin-roles.spec.ts. Antes de la ráfaga de
+    // roles eran 2 / 7 / 21; el cambio es el objeto de aquella ráfaga, no un efecto
+    // lateral. ESTADÍSTICAS B1 sumó UNA a MODERATOR y ADMIN (19→20, 22→23) y ninguna a
+    // EDITOR: la telemetría no baja al piso del dashboard (ver `AdminStatsController`).
+    // LOGOS L2 suma «Marca» SÓLO a ADMIN (24→25): la identidad de la instancia no baja.
     expect(navSectionsFor('EDITOR')).toHaveLength(7);
     expect(navSectionsFor('MODERATOR')).toHaveLength(20);
-    expect(navSectionsFor('ADMIN')).toHaveLength(24);
+    expect(navSectionsFor('ADMIN')).toHaveLength(25);
   });
 
   it('USER sigue sin acceso a NADA del backoffice', () => {
