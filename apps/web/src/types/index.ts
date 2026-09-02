@@ -35,7 +35,31 @@ export type PriceUnit =
 
 export type Condition = 'NEW' | 'LIKE_NEW' | 'GOOD' | 'FAIR' | 'FOR_PARTS';
 
-export type Role = 'USER' | 'MODERATOR' | 'ADMIN';
+/**
+ * I18N T3-A — `Role` NO SE DECLARA AQUÍ: se re-exporta del espejo vigilado.
+ *
+ * Aquí ponía `'USER' | 'MODERATOR' | 'ADMIN'`, **sin `EDITOR`**, y llevaba así desde
+ * que el rol se añadió al backend. No es que estuviera desactualizado por descuido:
+ * es que ESTA declaración no tenía nada que la atara al enum real, así que no había
+ * forma de que se enterara.
+ *
+ * Y el repo ya tiene la versión buena. `config/roles.ts` declara la escalera
+ * —`['USER', 'EDITOR', 'MODERATOR', 'ADMIN']`— como ESPEJO de
+ * `apps/api/src/common/roles/role-hierarchy.ts`, y `roles.mirror.test.ts` lee el
+ * fichero del api y **rompe CI si los dos órdenes divergen**. Había dos verdades
+ * sobre cuántos roles hay, y la que estaba mal era justo la que nadie vigilaba.
+ *
+ * Re-exportar en vez de copiar el valor que falta es lo que impide que vuelva a
+ * pasar: ahora sólo hay una declaración, y tiene barrera.
+ *
+ * IMPORTA PARA LA CONSOLIDACIÓN (T3): un `Record<Role, string>` exhaustivo sobre el
+ * tipo viejo no habría exigido la etiqueta de `EDITOR` — habría sido una barrera que
+ * da luz verde a lo que tiene que parar.
+ */
+// Se IMPORTA además de re-exportarse porque este mismo fichero lo usa (`User.role`);
+// un `export type { … } from` solo no lo trae al ámbito local.
+import type { Role } from '@/config/roles';
+export type { Role };
 
 /** RF.13 — tipo fiscal del receptor de facturas. Mirror del enum de Prisma. */
 export type FiscalEntityType = 'INDIVIDUAL' | 'SELF_EMPLOYED' | 'COMPANY';

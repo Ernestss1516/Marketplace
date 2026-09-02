@@ -15,8 +15,14 @@ import {
   etiqueta,
   etiquetaDeEstado,
   ticketStatusLabel,
+  // T3-A — SE SIGUE IMPORTANDO DEL PUENTE, y es deliberado: mientras los doce
+  // consumidores importen de aquí, el test tiene que ejercer el mismo camino que
+  // ellos. Que las 940 afirmaciones de este fichero pasen a través del re-export es,
+  // por sí solo, la prueba de que el puente no se dejó nada. La Fase B lo reapuntará
+  // a `@/lib/etiquetas-enums` junto con el resto.
 } from './etiquetas';
 import { PRICE_UNIT_LABELS } from '@/components/publicar/steps/StepDatos';
+import { ROLE_ORDER } from '@/config/roles';
 
 /**
  * TRADUCCIONES — LA BARRERA.
@@ -387,5 +393,93 @@ describe('LA BARRERA T2 — las otras cuatro pantallas tampoco pintan el enum cr
         expect(`${nombre}/${clave}: ${declara}`).toBe(`${nombre}/${clave}: false`);
       }
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 6. I18N T3-A — LOS PRERREQUISITOS Y LA MUDANZA
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Esta fase no consolida nada: arregla las dos cosas que había que arreglar ANTES de
+// poder consolidar, y cambia el vocabulario de sitio dejando un puente. Lo que se
+// vigila aquí es exactamente eso — que los prerrequisitos no se deshagan y que el
+// puente siga siendo un puente y no una segunda copia.
+describe('T3-A — los prerrequisitos de la consolidación', () => {
+  const raiz = (...ruta: string[]) => readFileSync(join(__dirname, '..', '..', '..', ...ruta), 'utf8');
+
+  const TIPOS = raiz('types', 'index.ts');
+  const FUENTE = raiz('lib', 'etiquetas-enums.ts');
+  const PUENTE = readFileSync(join(__dirname, 'etiquetas.ts'), 'utf8');
+  const LISTA_USUARIOS = readFileSync(join(__dirname, 'usuarios', 'page.tsx'), 'utf8');
+
+  // ── B1: `Role` completo ────────────────────────────────────────────────────
+
+  it('B1 — `Role` incluye EDITOR', () => {
+    // Faltaba en `types/index.ts` desde que el rol entró en el backend. Un
+    // `Record<Role, string>` sobre aquel tipo no habría exigido su etiqueta.
+    expect(ROLE_ORDER).toContain('EDITOR');
+  });
+
+  it('B1 — y `types/index.ts` ya no declara su propio `Role`', () => {
+    // La mitad que importa: el tipo viejo no estaba desactualizado por descuido, sino
+    // porque NADA lo ataba al enum real. Ahora sale de `config/roles.ts`, que es
+    // espejo del backend y tiene su test de CI (`roles.mirror.test.ts`).
+    expect(TIPOS).not.toMatch(/export type Role\s*=\s*'/);
+    expect(TIPOS).toContain("from '@/config/roles'");
+  });
+
+  it('B1 — el diccionario de `Role` cubre la escalera entera, y está TIPADO', () => {
+    for (const rol of ROLE_ORDER) {
+      expect(ROL_LABELS[rol]).toBeDefined();
+      expect(ROL_LABELS[rol]).not.toBe(rol);
+    }
+    // El tipado es lo que convierte «hoy están los cuatro» en «el quinto no compila».
+    // Es el molde de `PLACEMENT_LABELS`, y el primero del vocabulario en llevarlo.
+    expect(FUENTE).toContain('ROL_LABELS: Record<Role, string>');
+  });
+
+  // ── B2: la divergencia cerrada ─────────────────────────────────────────────
+
+  it('B2 — `ADMIN` se llama igual en la fuente y en la copia que queda', () => {
+    expect(ROL_LABELS.ADMIN).toBe('Administrador');
+    // La lista de usuarios llevaba `ADMIN: 'Admin'` en su diccionario Y un tercer
+    // «Admin» en la fila de filtros. Los dos apuntan ya al mismo texto. La COPIA
+    // sigue ahí a propósito: retirarla es Fase B; que diga lo mismo es esta fase.
+    expect(LISTA_USUARIOS).not.toMatch(/ADMIN: 'Admin'/);
+    expect(LISTA_USUARIOS).not.toMatch(/label: 'Admin',\s*value: 'ADMIN'/);
+  });
+
+  // ── B3 / B4: la mudanza, con el puente intacto ─────────────────────────────
+
+  it('B4 — el contenido vive en `lib/`, y el sitio viejo SÓLO re-exporta', () => {
+    // Que la fuente sea la de verdad: los diccionarios están allí.
+    expect(FUENTE).toContain('export const ROL_LABELS');
+    expect(FUENTE).toContain('export const MOTIVO_REPORTE_LABELS');
+    // Y que el puente no se haya quedado ni una etiqueta. Si alguien «arregla» un
+    // conflicto copiando aquí un diccionario, esto lo dice.
+    expect(PUENTE).toContain("export * from '@/lib/etiquetas-enums'");
+    expect(PUENTE).not.toMatch(/export const \w+_LABELS/);
+    expect(PUENTE).not.toMatch(/: '[A-ZÁÉÍÓÚÑ]/);
+  });
+
+  it('B3 — el puente sirve TODO lo que la fuente exporta', () => {
+    // La mutación que mata: re-exportar a mano media docena de nombres y olvidar el
+    // resto. `export *` no permite ese olvido, y esto comprueba que sigue siendo
+    // `export *` y no una lista.
+    //
+    // Se compara contra la fuente en vez de contra una lista escrita aquí, por la
+    // misma razón de siempre: una lista a mano es otra lista que olvidar.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fuente = require('@/lib/etiquetas-enums') as Record<string, unknown>;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const puente = require('./etiquetas') as Record<string, unknown>;
+    expect(Object.keys(puente).sort()).toEqual(Object.keys(fuente).sort());
+    expect(Object.keys(puente).length).toBeGreaterThan(10);
+  });
+
+  it('B3 — y sirve el MISMO objeto, no una copia con las mismas palabras', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fuente = require('@/lib/etiquetas-enums') as { ROL_LABELS: unknown };
+    expect(ROL_LABELS).toBe(fuente.ROL_LABELS);
   });
 });
