@@ -9,9 +9,25 @@ out/
 *.tsbuildinfo
 
 # Secretos y entorno (NUNCA al repo)
-.env
-.env*.local
-.env.test
+#
+# SE CUBRE LA CLASE, NO LOS NOMBRES. Esto era una enumeración —`.env`,
+# `.env*.local`, `.env.test`— y por eso `.env.production`, `.env.dev` y
+# `.env.staging` NO estaban ignorados: cada nombre nuevo era un hueco que
+# alguien tenía que acordarse de tapar. Ya falló dos veces por ese mismo motivo
+# (`.env.test` y `.env.dev.bak` llegaron a versionarse antes de que existiera su
+# regla), y el siguiente hueco era el peor: un `.env.production` con secretos de
+# verdad. Ver docs/auditoria-despliegue.md §3.7.
+#
+# `.env*` captura cualquier fichero que empiece por `.env`, a cualquier
+# profundidad (un patrón sin `/` casa en todos los directorios). Las dos
+# excepciones devuelven las PLANTILLAS, que sí se versionan y que por eso nunca
+# pueden llevar un valor real dentro.
+#
+# Verificado con `git check-ignore`, no supuesto, y con barrera para que siga
+# siéndolo: apps/api/src/config/secretos-versionados.spec.ts.
+.env*
+!.env.example
+!.env.*.example
 # Copias de seguridad de ficheros de entorno: un .bak conserva los valores
 # reales del .env del que se copió, así que nunca debe versionarse.
 *.bak

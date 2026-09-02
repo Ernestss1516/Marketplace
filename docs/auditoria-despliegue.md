@@ -447,7 +447,7 @@ inyección de `GIT_SHA` todavía)»*.
 varias instancias (§6) y despliegues independientes, la pregunta pasa de incómoda a diaria. Es un
 `ARG`/`ENV` en el `Dockerfile` y un campo más en el panel, que **ya tiene el hueco pensado**.
 
-### 3.7 · `.gitignore` no cubre `.env.production` ni `.env.dev` — **DURO** · NUEVO
+### 3.7 · `.gitignore` no cubre `.env.production` ni `.env.dev` — **DURO** · ~~NUEVO~~ **CERRADO (D0)**
 
 Verificado con `git check-ignore`:
 
@@ -461,7 +461,7 @@ El `.gitignore` lista `.env`, `.env*.local`, `.env.test` y `*.bak` — una **enu
 clase. Cualquier fichero de entorno con otro nombre entra al repo sin resistencia. Ver §5.1: es
 la misma lección del episodio reciente, sin aplicar del todo.
 
-### 3.8 · `.env.example` contiene claves con pinta de reales — **DURO** · NUEVO
+### 3.8 · `.env.example` contiene claves con pinta de reales — **DURO** · ~~NUEVO~~ **CERRADO (D0)**
 
 `apps/api/.env.example` **está versionado** (`git ls-files`) y contiene, en texto plano:
 
@@ -885,7 +885,7 @@ lección de los dos pasos.
 
 | # | Ráfaga | Contenido | Verificación |
 |---|---|---|---|
-| **D0** | **Higiene de secretos** | Rotar las claves de `.env.example` → placeholders; `.gitignore` a `.env*` + `!.env*.example` | `git check-ignore` sobre los cuatro nombres; el fichero sin `sk_`/`whsec_` |
+| ~~**D0**~~ **HECHA** | **Higiene de secretos** | `.gitignore` a `.env*` + `!.env.example` / `!.env.*.example`; las dos claves de `.env.example` → placeholders; **barrera** en `apps/api/src/config/secretos-versionados.spec.ts` | ✅ Hecho. Las tres barreras miden con `git check-ignore` y `git ls-files`, no leyendo el `.gitignore`. Las dos mutaciones verificadas: reenumerar nombres → caen 6 casos; devolver la `sk_test_` → cae 1 |
 | **D1** | **El arranque dice la verdad** | Joi exigente en `production` (las 7 de §3.2, incluida la condicional MapTiler↔provider); `GET /api/health` + `/api/ready`; Swagger condicionado | Arrancar con `NODE_ENV=production` y variables incompletas → **falla con el nombre de la que falta**. `/api/health` responde 200 |
 | **D2** | **CORS y el `reindex`** | `enableCors` con lista (y `create-app.ts` igual); cerrar las colas del `reindex`. **Los dos juntos porque los dos son «cerrar lo que quedó abierto» y ninguno toca al otro** | Petición desde un origen ajeno → sin cabecera CORS; suite e2e verde. `pnpm reindex` **termina y el proceso sale con 0** |
 | **D3** | **Empaquetado** | `Dockerfile` API + web; `output: 'standalone'`; `GIT_SHA` inyectado y en el panel; resolver `ts-node` en la imagen | `docker run` local levanta los dos contra el `docker-compose` de siempre. El panel muestra el commit |
@@ -934,8 +934,8 @@ Ninguna la toma este documento. Ordenadas por lo que bloquean.
 | **N4** | **`remotePatterns` sin el R2 real** | **DURO** ⚠ antes de la 1.ª subida | Antes | D3 |
 | **N5** | Swagger sin condición | BLANDO | Antes | D1 |
 | **N6** | Sin `GIT_SHA` | BLANDO | Antes | D3 |
-| **N7** | **`.gitignore` enumera en vez de cubrir** | **DURO** | Antes | D0 |
-| **N8** | **`.env.example` con claves reales** | **DURO** | Antes | D0 |
+| ~~**N7**~~ | ~~`.gitignore` enumera en vez de cubrir~~ **CERRADO** | — | ✅ | D0 |
+| ~~**N8**~~ | ~~`.env.example` con claves reales~~ **CERRADO** | — | ✅ | D0 |
 | **N9** | Topología de procesos sin decidir | **DURO** (la decisión) | Antes | Decisión 4 |
 | **N10** | `SITE_NAME` no configurable | DURO **para la 2.ª instancia** | Después | — |
 
