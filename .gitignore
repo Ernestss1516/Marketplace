@@ -12,6 +12,9 @@ out/
 .env
 .env*.local
 .env.test
+# Copias de seguridad de ficheros de entorno: un .bak conserva los valores
+# reales del .env del que se copió, así que nunca debe versionarse.
+*.bak
 
 # Playwright — sesiones autenticadas (generadas por global-setup, contienen cookies)
 apps/web/e2e/fixtures/*.storageState.json
