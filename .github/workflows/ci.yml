@@ -131,6 +131,24 @@ jobs:
       # ── NestJS auth ────────────────────────────────────────────────────────────
       JWT_SECRET: ci_jwt_secret
 
+      # ── Redsys — clave FICTICIA de CI, no la del TPV ───────────────────────────
+      # El schema de Joi la exige con NODE_ENV=test (un vacío silencioso causó un
+      # incidente, ver env.validation.ts). Hasta ahora se heredaba de .env.test, el
+      # fichero versionado; definirla aquí es lo que permite dejar de rastrearlo.
+      #
+      # EL VALOR NO ES ARBITRARIO. redsys.e2e-spec.ts firma DE VERDAD (sin mocks) y
+      # comprueba que Ds_Signature mide 44 caracteres. redsys-easy decodifica esta
+      # clave como base64 y la usa con 3DES (des-ede3-cbc), que exige EXACTAMENTE
+      # 24 bytes: un valor suelto tipo "ci_redsys_secret" decodifica a 12 y revienta
+      # con "Invalid key length". Éste es base64 de "ci_redsys_dummy_key_2026",
+      # 24 bytes justos. Si se cambia, que siga siendo base64 de 24 bytes.
+      REDSYS_SECRET_KEY: Y2lfcmVkc3lzX2R1bW15X2tleV8yMDI2
+
+      # ── Formulario de contacto (RC.1) — valor ficticio de CI ───────────────────
+      # Joi exige min(16). Firma el token del time-trap anti-bot; en CI solo hace
+      # falta que sea estable dentro del job, no secreto.
+      CONTACT_FORM_SECRET: ci_contact_form_secret_32_chars_x
+
       # ── Email — Resend not called in tests; value satisfies Joi validation ─────
       RESEND_API_KEY: ci_dummy_resend
       RESEND_FROM: noreply@example.com
