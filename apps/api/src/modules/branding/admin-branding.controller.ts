@@ -20,6 +20,7 @@ import { JwtAuthGuard, RolesGuard } from '../../common/guards';
 import { CurrentUser, MinRole } from '../../common/decorators';
 import { JwtUser } from '../auth/auth.types';
 import { BrandingService } from './branding.service';
+import { SIN_FICHERO } from '../../common/mensajes-subida';
 import {
   LOGO_ALLOWED_MIME_TYPES,
   LOGO_MAX_BYTES,
@@ -84,7 +85,7 @@ export class AdminBrandingController {
     @CurrentUser() user: JwtUser,
     @Ip() ip: string,
   ) {
-    if (!file) throw new BadRequestException('No file provided');
+    if (!file) throw new BadRequestException(SIN_FICHERO);
     return this.brandingService.setLogo(zone, file, user.userId, ip);
   }
 

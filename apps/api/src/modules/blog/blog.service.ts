@@ -20,6 +20,7 @@ import { ListPublicPostsDto } from './dto/list-public-posts.dto';
 import { ListAdminPostsDto } from './dto/list-admin-posts.dto';
 import { BlockDto } from './dto/blocks/block.dto';
 import { ListingsBlockDto } from './dto/blocks/listings-block.dto';
+import { IMAGEN_TIPO_NO_ADMITIDO } from '../../common/mensajes-subida';
 
 const MAX_LISTINGS_BLOCKS_PER_PAGE = 4;
 
@@ -57,7 +58,7 @@ export class BlogService {
   // de anuncio). Prefijo propio `blocks/` para distinguirla en el bucket.
   async uploadBlockImage(file: Express.Multer.File): Promise<{ url: string }> {
     const ext = MIME_TO_EXT[file.mimetype];
-    if (!ext) throw new UnprocessableEntityException('File type not allowed. Use JPEG, PNG or WebP.');
+    if (!ext) throw new UnprocessableEntityException(IMAGEN_TIPO_NO_ADMITIDO);
 
     const key = `blocks/${randomBytes(16).toString('hex')}${ext}`;
     await this.r2.upload(key, file.buffer, file.mimetype);
@@ -126,7 +127,7 @@ export class BlogService {
       where: { slug, type, status: PostStatus.PUBLISHED },
       include: { author: AUTHOR_PUBLIC },
     });
-    if (!post) throw new NotFoundException('Post not found');
+    if (!post) throw new NotFoundException('Artículo no encontrado');
     return post;
   }
 
@@ -214,7 +215,7 @@ export class BlogService {
       where: { id },
       include: { author: AUTHOR_ADMIN },
     });
-    if (!post) throw new NotFoundException('Post not found');
+    if (!post) throw new NotFoundException('Artículo no encontrado');
     return post;
   }
 
@@ -334,7 +335,7 @@ export class BlogService {
   async adminPublish(id: string, actorId: string, ip?: string) {
     const post = await this.adminFindById(id);
     if (post.status === PostStatus.PUBLISHED) {
-      throw new BadRequestException('Post is already published');
+      throw new BadRequestException('El artículo ya está publicado');
     }
 
     const before = { status: post.status };
@@ -367,7 +368,7 @@ export class BlogService {
   async adminUnpublish(id: string, actorId: string, ip?: string) {
     const post = await this.adminFindById(id);
     if (post.status !== PostStatus.PUBLISHED) {
-      throw new BadRequestException('Post is not published');
+      throw new BadRequestException('El artículo no está publicado');
     }
 
     const before = { status: post.status };

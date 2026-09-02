@@ -88,7 +88,7 @@ export class TagsService {
 
     // PROFUNDIDAD N — RÁFAGA 1: la cadena completa, no `[propia, padre]`.
     const cadena = await this.tree.getAncestorChainBySlug(categorySlug);
-    if (cadena.length === 0) throw new NotFoundException('Category not found');
+    if (cadena.length === 0) throw new NotFoundException('Categoría no encontrada');
 
     const ids = cadena.map((n) => n.id);
     const filas = await this.prisma.categoryTag.findMany({

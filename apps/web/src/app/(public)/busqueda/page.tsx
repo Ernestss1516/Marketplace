@@ -267,7 +267,7 @@ export default async function BusquedaPage({
 
   return (
     <div className="container mx-auto px-4 pb-16 pt-8">
-      <nav className="mb-6 text-xs text-muted-foreground" aria-label="Breadcrumb">
+      <nav className="mb-6 text-xs text-muted-foreground" aria-label="Ruta de navegación">
         <Link href="/" className="hover:underline">Inicio</Link>
         {' / '}
         <span>{q ? `Búsqueda: "${q}"` : 'Búsqueda'}</span>

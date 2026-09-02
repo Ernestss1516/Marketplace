@@ -259,7 +259,7 @@ test.describe('Bump — desde /mis-anuncios', () => {
       await route.fulfill({
         status: 402,
         contentType: 'application/json',
-        body: JSON.stringify({ statusCode: 402, message: 'Insufficient credits' }),
+        body: JSON.stringify({ statusCode: 402, message: 'Saldo de créditos insuficiente' }),
       });
     });
 

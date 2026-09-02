@@ -44,7 +44,7 @@ export default async function BlogPage({
   return (
     <div className="container mx-auto px-4 py-10">
       <header className="mb-8">
-        <nav className="mb-3 text-xs text-muted-foreground" aria-label="Breadcrumb">
+        <nav className="mb-3 text-xs text-muted-foreground" aria-label="Ruta de navegación">
           <Link href="/" className="hover:underline">Inicio</Link>
           {' / '}
           <span>Blog</span>

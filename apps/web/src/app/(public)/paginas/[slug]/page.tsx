@@ -73,7 +73,7 @@ export default async function InfoPagePage({
       />
 
       <div className="container mx-auto px-4 py-10">
-        <nav className="mb-6 text-xs text-muted-foreground" aria-label="Breadcrumb">
+        <nav className="mb-6 text-xs text-muted-foreground" aria-label="Ruta de navegación">
           <Link href="/" className="hover:underline">Inicio</Link>
           {' / '}
           <span className="line-clamp-1">{page.title}</span>

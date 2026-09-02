@@ -252,7 +252,7 @@ export class CategoriesService {
         },
       },
     });
-    if (!category) throw new NotFoundException('Category not found');
+    if (!category) throw new NotFoundException('Categoría no encontrada');
 
     // PROFUNDIDAD N — RÁFAGA 1. Los cuatro efectivos salen del PLIEGUE de la
     // cadena completa. Antes eran: schema fusionado con el del padre, y

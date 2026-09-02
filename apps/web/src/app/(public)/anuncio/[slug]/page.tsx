@@ -151,7 +151,7 @@ export default async function AnuncioPage({
       <div className="container mx-auto px-4 py-6">
         {/* Breadcrumb — refleja el árbol de categorías (A1). El JSON-LD de arriba
             se genera de la MISMA lista, no de una copia paralela. */}
-        <nav className="mb-4 text-xs text-muted-foreground" aria-label="Breadcrumb">
+        <nav className="mb-4 text-xs text-muted-foreground" aria-label="Ruta de navegación">
           <Link href="/" className="hover:underline">Inicio</Link>
           {breadcrumbTrail.map((crumb, i) => (
             <span key={crumb.path}>

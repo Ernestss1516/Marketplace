@@ -11,6 +11,7 @@ import { BLOCK_MEDIA_KEY_PREFIX } from '../block-media/block-media-limits';
 import { MIME_TO_EXT } from '../media/media.service';
 import { UpdateHomepageDto } from './dto/update-homepage.dto';
 import { HomeBlockDto } from './dto/blocks';
+import { IMAGEN_TIPO_NO_ADMITIDO } from '../../common/mensajes-subida';
 
 /**
  * Tag de caché de la portada en el frontend (unstable_cache). UNA sola entrada
@@ -194,7 +195,7 @@ export class HomepageService {
   // el rol de subir coincida con el rol de poder usar lo subido.
   async uploadImage(file: Express.Multer.File): Promise<{ url: string }> {
     const ext = MIME_TO_EXT[file.mimetype];
-    if (!ext) throw new UnprocessableEntityException('File type not allowed. Use JPEG, PNG or WebP.');
+    if (!ext) throw new UnprocessableEntityException(IMAGEN_TIPO_NO_ADMITIDO);
 
     const key = `homepage/${randomBytes(16).toString('hex')}${ext}`;
     await this.r2.upload(key, file.buffer, file.mimetype);

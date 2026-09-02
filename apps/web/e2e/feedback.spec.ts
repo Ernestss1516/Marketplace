@@ -100,7 +100,7 @@ test.describe('UXV.3 (M5) — destacar deja de completarse en silencio', () => {
       route.fulfill({
         status: 402,
         contentType: 'application/json',
-        body: JSON.stringify({ statusCode: 402, message: 'Insufficient credits' }),
+        body: JSON.stringify({ statusCode: 402, message: 'Saldo de créditos insuficiente' }),
       }),
     );
 
@@ -123,7 +123,7 @@ test.describe('UXV.3 (A7-flujo) — quien sale a comprar puede volver a lo que i
       route.fulfill({
         status: 402,
         contentType: 'application/json',
-        body: JSON.stringify({ statusCode: 402, message: 'Insufficient credits' }),
+        body: JSON.stringify({ statusCode: 402, message: 'Saldo de créditos insuficiente' }),
       }),
     );
 

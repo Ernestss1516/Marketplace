@@ -12,6 +12,7 @@
  *
  * Ver `docs/diseno-logos.md` §2, §3 y §6.
  */
+import { tipoDeFicheroNoAdmitido } from '../../common/mensajes-subida';
 
 /** Las tres zonas de marca. El orden es el del documento: público, backoffice, blog. */
 export const LOGO_ZONES = ['public', 'backoffice', 'blog'] as const;
@@ -71,8 +72,15 @@ export const LOGO_MIME_TO_EXT: Readonly<Record<string, string>> = {
 
 export const LOGO_ALLOWED_MIME_TYPES: readonly string[] = Object.keys(LOGO_MIME_TO_EXT);
 
-/** Mensaje único de tipo no admitido: el `fileFilter` y el servicio dicen lo mismo. */
-export const LOGO_MIME_ERROR = 'File type not allowed. Use PNG, WebP, SVG or JPEG.';
+/**
+ * Mensaje único de tipo no admitido: el `fileFilter` y el servicio dicen lo mismo.
+ *
+ * i18n T5 — sigue siendo suyo (los logos admiten SVG y las imágenes de contenido no), pero
+ * la FRASE ya no se escribe aquí: sale del mismo constructor que las otras diez copias, así
+ * que «formato no admitido» se redacta en un solo sitio y sólo cambia la lista. Ver
+ * `common/mensajes-subida.ts`.
+ */
+export const LOGO_MIME_ERROR = tipoDeFicheroNoAdmitido('PNG, WebP, SVG o JPEG');
 
 /**
  * 1 MB, y NO los 10 MB de `MAX_FILE_SIZE`.

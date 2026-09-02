@@ -11,6 +11,7 @@ import { CreateSponsoredAdDto } from './dto/create-sponsored-ad.dto';
 import { UpdateSponsoredAdDto } from './dto/update-sponsored-ad.dto';
 import { ListSponsoredAdsDto } from './dto/list-sponsored-ads.dto';
 import { CategoryTreeService, descendantIdsIn } from '../categories/category-tree.service';
+import { IMAGEN_TIPO_NO_ADMITIDO } from '../../common/mensajes-subida';
 
 type SponsoredAdStatus = 'upcoming' | 'live' | 'ended';
 
@@ -132,7 +133,7 @@ export class SponsoredAdsService {
 
   async uploadImage(file: Express.Multer.File): Promise<{ url: string }> {
     const ext = MIME_TO_EXT[file.mimetype];
-    if (!ext) throw new UnprocessableEntityException('File type not allowed. Use JPEG, PNG or WebP.');
+    if (!ext) throw new UnprocessableEntityException(IMAGEN_TIPO_NO_ADMITIDO);
 
     const key = `sponsored/${randomBytes(16).toString('hex')}${ext}`;
     await this.r2.upload(key, file.buffer, file.mimetype);

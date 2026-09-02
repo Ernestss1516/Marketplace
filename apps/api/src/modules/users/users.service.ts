@@ -51,7 +51,7 @@ export class UsersService {
       where: { id },
       select: PRIVATE_PROFILE_SELECT,
     });
-    if (!user) throw new NotFoundException('User not found');
+    if (!user) throw new NotFoundException('Usuario no encontrado');
     return user;
   }
 
@@ -209,7 +209,7 @@ export class UsersService {
         trusted: true,
       },
     });
-    if (!user) throw new NotFoundException('User not found');
+    if (!user) throw new NotFoundException('Usuario no encontrado');
     const { id, createdAt, ...rest } = user;
     const isPro = await this.entitlements.isProActive(id);
     return { ...rest, memberSince: createdAt, isPro };
