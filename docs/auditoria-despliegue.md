@@ -144,7 +144,7 @@ que exista el entorno.
 
 ---
 
-### P3 · El `reindex` no cierra sus conexiones — `[DEUDA]` · **DURO**
+### P3 · El `reindex` no cierra sus conexiones — ~~`[DEUDA]` · **DURO**~~ **CERRADO (2026-09-03)**
 
 **El diagnóstico está cerrado** (`pendientes.md` §4.2) y se reverifica aquí en su detalle
 operativo.
@@ -922,7 +922,7 @@ Ninguna la toma este documento. Ordenadas por lo que bloquean.
 |---|---|---|---|---|
 | ~~P1~~ | ~~`enableCors()` sin argumentos~~ **CERRADO** | — | ✅ | D2 |
 | P2 | Rate limit por IP sin verificar | **DURO** (verificación) | **Durante** | D5 |
-| P3 | El `reindex` no cierra conexiones | **DURO** | Antes | D2 |
+| ~~P3~~ | ~~El `reindex` no cierra conexiones~~ **CERRADO** | — | ✅ | D2 |
 | P4 | ZIP de exportación en memoria | BLANDO **con tope** | Antes (el tope) | D4 |
 | P5 | Stripe sin verificar de verdad | **DURO** (verificación) | **Durante** | D5 |
 | P6 | El despliegue | **DURO** | Antes | D3 + D5 |
