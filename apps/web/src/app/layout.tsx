@@ -40,6 +40,28 @@ const inter = localFont({
   weight: '100 900',
   style: 'normal',
   display: 'swap',
+  /**
+   * E3 — INTER DEJA DE APLICARSE A MANO Y PASA A SER UN TOKEN.
+   *
+   * `variable` hace que `next/font` emita una clase que declara
+   * `--font-inter: '__inter_xxxx', '__inter_Fallback_xxxx'` en vez de una clase que
+   * fija `font-family` directamente. El fichero, los pesos, el `display: 'swap'` y
+   * las métricas del respaldo no cambian: cambia CÓMO llega el nombre de la familia
+   * al CSS.
+   *
+   * De ahí sale, en `globals.css`, `--font-sans: var(--font-inter)`, y de ahí
+   * `fontFamily.sans` en la configuración de Tailwind. Lo aplica el PREFLIGHT de
+   * Tailwind, que ya pone `font-family: theme('fontFamily.sans')` en el `<html>` —
+   * por eso el `<body>` deja de llevar clase de fuente y NO gana ninguna otra: no
+   * hace falta.
+   *
+   * POR QUÉ DOS VARIABLES Y NO UNA. `--font-inter` la declara `next/font` dentro de
+   * una CLASE, y una clase gana a `:root` en especificidad: un modelo que quisiera
+   * otra tipografía no podría sobreescribirla desde su bloque de `:root`.
+   * `--font-sans` sí vive en `:root`, así que un modelo la redefine y manda. La
+   * indirección es justo lo que hace el eje tipográfico themeable.
+   */
+  variable: '--font-inter',
 });
 
 export const metadata: Metadata = {
@@ -52,9 +74,13 @@ export const metadata: Metadata = {
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
+  // La clase de `next/font` va en el <html> y no en el <body>: `:root` ES el <html>,
+  // así que es donde `--font-inter` tiene que estar declarada para que `--font-sans`
+  // (que vive en `:root`, en globals.css) pueda referenciarla. El <body> ya no lleva
+  // clase de fuente: la aplica el preflight de Tailwind desde `fontFamily.sans`.
   return (
-    <html lang="es">
-      <body className={inter.className}>
+    <html lang="es" className={inter.variable}>
+      <body>
         <AuthProvider session={session}>{children}</AuthProvider>
         {/* UXV.3 (M6) — UNA sola vez y en la raíz: así cualquier pantalla de cualquier
             zona puede avisar de algo con `toast(...)` sin montar nada propio. Va FUERA

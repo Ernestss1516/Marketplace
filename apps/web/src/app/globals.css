@@ -104,6 +104,85 @@
     --warning-strong: #fef9c3;
     --neutral-surface: #f3f4f6;
     --neutral-foreground: #4b5563;
+
+    /* ══ E3 · LA CAPA T3: LOS EJES QUE TRAE EL MODELO ═════════════════════════
+       Hasta aquí, todo lo de arriba es COLOR. Lo que sigue son los otros cuatro
+       ejes de una personalidad visual —tipografía, elevación, movimiento y
+       trazo del icono—, y hasta E3 no eran token: estaban repartidos entre una
+       clase de `next/font`, los valores por defecto de Tailwind y el atributo
+       que pinta lucide en cada SVG.
+
+       DÓNDE ENCAJAN EN LA FRONTERA (§3.2 del diseño):
+
+         T1 · CONFIGURABLE — los cuatro colores que elige el admin. Llegan en E4.
+         T2 · DERIVADO ————— superficies y semánticos que el modelo calcula.
+         T3 · DEL MODELO ——— ESTO. El modelo los fija; el admin no los toca.
+         ——— INVIOLABLE ———— espaciado, breakpoints, escala tipográfica, densidad.
+                             NO son token y no deben serlo: son estructura, y un
+                             modelo que los moviera estaría reorganizando en vez
+                             de revistiendo.
+
+       TODOS VALEN HOY EXACTAMENTE LO QUE VALÍAN ANTES. E3 no decide nada de
+       aspecto: sólo le pone nombre a lo que ya había, para que E4 tenga dónde
+       escribir. `tokens.test.ts` fija cada valor contra su origen. */
+
+    /* ── Tipografía ────────────────────────────────────────────────────────────
+       `--font-inter` la declara `next/font` en una clase sobre el <html> (ver
+       layout.tsx). Aquí se recoge en `:root` para que un modelo pueda sustituirla:
+       una clase gana a `:root`, así que sin esta indirección el eje no sería
+       themeable.
+
+       `--font-heading` existe aunque hoy valga lo mismo, y NO es un token muerto:
+       la regla de más abajo se lo aplica a los seis niveles de encabezado, así que
+       el día que un modelo le dé otra familia, funciona sin tocar un componente.
+       Va en la capa `base`, por debajo de las utilidades: un `font-mono` puesto a
+       mano en un <h2> sigue ganando. */
+    --font-sans: var(--font-inter);
+    --font-heading: var(--font-sans);
+
+    /* ── Elevación ─────────────────────────────────────────────────────────────
+       Los cuatro valores por defecto de Tailwind, copiados literalmente. En el
+       repo se usan `shadow-sm` (22), `shadow-lg` (8), `shadow-md` (6) y
+       `shadow-xl` (2), y ni una sombra arbitraria. */
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+    --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+    --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+
+    /* ── Movimiento ────────────────────────────────────────────────────────────
+       `--motion-duration` y `--motion-ease` son los valores POR DEFECTO de
+       Tailwind, que es lo que usan las cien transiciones del repo cuando no piden
+       otra cosa (77 `transition-colors`, 8 `transition-transform`…). Tocarlos
+       cambia el tempo del sitio entero, que es justo la palanca que un modelo
+       quiere.
+
+       Los `duration-200`/`duration-300` sueltos NO se tokenizan: son la escala
+       numérica de Tailwind, del mismo orden que `p-4`, y eso es estructura.
+
+       Los otros dos son de las dos únicas animaciones escritas a mano del repo.
+       E3 les pone nombre y NADA MÁS: no añade ni una animación. Las de las capas
+       flotantes, que E0 dejó apagadas al quitar las clases de un plugin ausente,
+       vuelven en E6 y no aquí. */
+    --motion-duration: 150ms;
+    --motion-ease: cubic-bezier(0.4, 0, 0.2, 1);
+    --motion-ease-emphasis: ease-in-out;
+    --motion-sprite-duration: 1.25s;
+
+    /* ── Icono ─────────────────────────────────────────────────────────────────
+       SÓLO EL TRAZO, y la ausencia del tamaño es una decisión, no un olvido.
+
+       Los 185 ficheros que importan lucide dimensionan sus iconos con `h-4 w-4`
+       (344 veces), `h-3 w-3` (149)… es decir, con la ESCALA DE ESPACIADO, que es
+       inviolable: un `--icon-size` obligaría a reescribir esas 600 utilidades y
+       además metería en el modelo una decisión que es de maquetación.
+
+       El grosor sí es personalidad pura y se puede cambiar sin tocar un fichero:
+       lucide marca todos sus SVG con la clase `lucide`, y la regla de abajo les
+       fija el trazo desde una variable. Vale 2, que es exactamente el atributo que
+       lucide pinta hoy, y en el repo no hay ni un `strokeWidth` propio que esta
+       regla pudiera pisar (verificado: cero). */
+    --icon-stroke: 2;
   }
 
   .dark {
@@ -135,6 +214,26 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+
+  /* E3 — los encabezados usan el eje de titulares. Hoy `--font-heading` vale lo
+     mismo que `--font-sans`, así que no cambia un píxel; lo que cambia es que el
+     eje EXISTE y tiene consumidores, en vez de ser un token que nadie lee. En la
+     capa `base` a propósito: cualquier utilidad de fuente puesta a mano sigue
+     ganando. */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-heading);
+  }
+
+  /* E3 — el trazo del icono, temable sin tocar ninguno de los 185 ficheros que
+     importan lucide. La clase `lucide` la pone la propia librería en cada SVG. */
+  svg.lucide {
+    stroke-width: var(--icon-stroke);
   }
 }
 
@@ -205,7 +304,8 @@
   animation-delay: calc(var(--rot-ms) * var(--i) * 1ms);
   animation-iteration-count: infinite;
   animation-fill-mode: backwards;
-  animation-timing-function: ease-in-out;
+  /* E3 — el easing del hero, ahora token (mismo valor). */
+  animation-timing-function: var(--motion-ease-emphasis);
 }
 
 .hero-rot-2 .hero-rot-item { animation-name: hero-rot-2; }
@@ -310,7 +410,8 @@
 @media (hover: hover) and (pointer: fine) {
   .group:hover .sprite-hover {
     opacity: 1;
-    animation: sprite-play 1.25s steps(5) infinite;
+    /* E3 — la duración del ciclo, ahora token (mismo valor). */
+    animation: sprite-play var(--motion-sprite-duration) steps(5) infinite;
   }
 }
 

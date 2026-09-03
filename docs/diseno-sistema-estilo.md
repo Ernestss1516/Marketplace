@@ -276,6 +276,31 @@ variantes como props.** Es una de las dos únicas excepciones a «E0 no cambia n
 (`admin/reportes` 14, `admin/login` 10, `ReporteDiana` 8, `admin/ajustes` 8,
 `MyListingCard` 5) se hacen uno a uno con su snapshot delante.
 
+> ⚠ **CORRECCIÓN TRAS EJECUTAR E2 — esta tabla daba por consolidable algo que no lo es.**
+>
+> «`green` → token `success`, `blue` → token `info`, `red` → `destructive`» sólo funciona
+> si cada familia se usa con UN valor. Medido: no es el caso. Tras E0 y E2 quedan
+> **274 usos repartidos en 58 pares (familia, tono) distintos, con una repetición máxima
+> de 4**. Esto no es el banner ×29: es variedad real.
+>
+> Y `red → destructive` es directamente imposible sin cambiar píxeles: `--destructive`
+> resuelve a `red-500`, mientras los usos son `red-50/300/400/600/700/800/900/950`.
+>
+> **Lo que E2 sí migró** (30 usos, cambio nulo verificado a tolerancia cero) fue lo que
+> era semántico Y de valor único: las convenciones (`--rating`, `--featured`,
+> `--favorite`), el badge de estado —el único idioma repetido con valores consistentes,
+> en tres ficheros— y el enlace de `ReporteDiana`, que divergía de un `text-primary` que
+> ya era el idioma en otros ocho sitios.
+>
+> **LOS 274 RESTANTES SON TRABAJO DE E4, Y NO POR PEREZA DE E2.** Reducir 58 valores a
+> los tokens de un modelo exige decidir que «superficie de aviso» es UN color y no
+> `amber-50` **y** `yellow-50` a la vez. Eso cambia píxeles, o sea que es una decisión de
+> ASPECTO — exactamente lo que un modelo hace y lo que una ráfaga de «nada cambia» tiene
+> prohibido. E4 los absorbe al definir la semántica del Modelo 0: **fijar esos valores es
+> parte de escribir el modelo, no un residuo pendiente de limpiar antes de empezar.**
+>
+> Quien llegue a E4 no debe dar la dispersión por cerrada. Está inventariada, no resuelta.
+
 ### 4.3 Lo que NO se toca en E0
 
 Los **9 ficheros con `style={{…}}`** se quedan como están, y hay que declararlo para que
@@ -874,7 +899,7 @@ irrevisable, porque cualquier diferencia se puede justificar como «será el tem
 | **E2** | **LA COLA LARGA.** Los ~280 usos restantes → tokens semánticos, empezando por los 5 ficheros con más carga. Mecánico, snapshot delante | ❌ | L |
 | **E3** | **LOS EJES NUEVOS.** `--font-sans`/`--font-heading` (Inter a variable), `--shadow-*`, `--motion-*`, `--icon-*`. **Capa T3 nombrada.** Valores idénticos a los actuales | ❌ | M |
 | | **━━ BARRERA: MODELO 0 IDÉNTICO. Escritorio y móvil. ━━** | | |
-| **E4** | **EL SISTEMA.** Registro de modelos+versiones (solo Modelo 0), `Setting` propio fuera del PATCH genérico, servicio con `AuditLog` + `revalidateTag`, DTO con validación AA, resolución en el layout raíz | ❌ | L |
+| **E4** | **EL SISTEMA.** Registro de modelos+versiones (solo Modelo 0), `Setting` propio fuera del PATCH genérico, servicio con `AuditLog` + `revalidateTag`, DTO con validación AA, resolución en el layout raíz. **+ ABSORBE LOS 274 USOS DE ESCALA QUE QUEDAN** (58 valores distintos): reducirlos a los tokens del Modelo 0 cambia píxeles, así que es trabajo de modelo y no de refactor — ver el aviso del §4.2 | ❌ | XL |
 | **E5** | **ZONAS Y ADMIN.** Ámbitos por zona sobre los layouts de grupo, `/admin/estilo` (§11), zona de `/admin/login` (§5.3), decisión sobre OG y `global-error` (§4.3) | ❌ | L |
 | | **━━ BARRERA: el sistema funciona y NADA cambia visualmente ━━** | | |
 | **E6** | **VERIFICACIÓN + MODELO DE PRUEBA.** Test de invariancia del HTML (§10.5), test de contraste en CI, modelo extremo de prueba. **Vuelve la animación de overlays**, ya como vocabulario del modelo | ❌ | M |
