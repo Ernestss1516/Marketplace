@@ -1008,16 +1008,44 @@ si el usuario abandona el proceso (ver §3).
 ### Script reindex: `ReindexModule` mínimo y cierre limpio sin `process.exit()`
 
 El script `apps/api/src/commands/reindex.ts` arranca un contexto NestJS con un
-módulo propio (`ReindexModule`) que solo importa `PrismaModule` y `SearchModule`,
-sin BullMQ ni Redis. Al no haber workers con handles persistentes en libuv,
-`app.close()` cierra todo limpiamente. No se llama a `process.exit()` en el
-camino feliz porque en Windows + Prisma 6.x el query-engine thread puede seguir
-vivo y llamar a `uv_async_send()` sobre un handle ya cerrado (`UV_HANDLE_CLOSING`),
-produciendo un volcado de memoria aunque el trabajo haya terminado correctamente.
-En su lugar se llama a `prisma.$disconnect()` y se deja drenar el event loop.
+módulo propio (`ReindexModule`) que solo importa `PrismaModule` y
+**`SearchCoreModule`** — el núcleo de la búsqueda, **sin su controlador**—, así
+que no hay Redis ni BullMQ en el contexto. Al no haber workers con handles
+persistentes en libuv, el proceso drena y sale con código 0. No se llama a
+`process.exit()` en el camino feliz porque en Windows + Prisma 6.x el
+query-engine thread puede seguir vivo y llamar a `uv_async_send()` sobre un
+handle ya cerrado (`UV_HANDLE_CLOSING`), produciendo un volcado de memoria aunque
+el trabajo haya terminado correctamente. En su lugar se llama a
+`prisma.$disconnect()` y se deja drenar el event loop.
 El tsconfig dedicado (`tsconfig.scripts.json`) fuerza `"module": "CommonJS"` e
 `"incremental": false` para que `ts-node` compile el script de forma portátil.
 El script `geocode-backfill` sigue el mismo patrón (ver §Geocoding backfill).
+
+> **ESTE PÁRRAFO DESCRIBÍA EL DISEÑO Y DEJÓ DE SER VERDAD DURANTE MESES.** Decía
+> «`PrismaModule` y `SearchModule`, sin BullMQ ni Redis» — pero `SearchModule`
+> declara el `SearchController`, y Nest instancia un controlador aunque el script
+> no lo use. Cada módulo que se colgó de `SearchModule` se lo llevaron los
+> comandos, y rompió los dos **tres veces**: H6.6 (patrocinados) dejó `reindex`
+> sin arrancar; **N4a (`bcf4064`)** metió una cola de BullMQ en `ReviewsModule` y
+> dejó `reindex` sin TERMINAR —medido el 2026-09-03: 517 MB y 2 conexiones a
+> Redis dos minutos después de acabar su trabajo, el origen de los `node`
+> huérfanos que ensuciaron varias sesiones—; y A1 (impresiones) dejó
+> `geocode-backfill` **sin arrancar**, cosa que nadie notó porque casi no se
+> ejecuta.
+>
+> Resuelto el 2026-09-03 extrayendo `SearchCoreModule` (módulo HOJA:
+> `MeilisearchModule` + `CategoryTreeModule`, que es todo lo que `SearchService`
+> necesita). `SearchModule` lo importa y lo re-exporta, así que sus consumidores
+> de siempre no cambian. Se quitaron los dos parches que había acumulado el
+> comando: `RedisModule`/`R2Module` y el `RedisService.client.quit()` —que además
+> **nunca fue la solución**, porque cerraba una conexión distinta de la que
+> colgaba el proceso—.
+>
+> Que la afirmación vuelva a ser cierta **y siga siéndolo** no depende de este
+> párrafo: `src/modules/search/search-core.module.spec.ts` afirma el conjunto
+> exacto de módulos que alcanza el núcleo (falla en segundos, nombrando el que
+> sobra) y `test/comandos-standalone.e2e-spec.ts` levanta los dos contextos de
+> verdad y comprueba que no hay ni una cola ni `RedisService` dentro.
 
 ### Gateway WebSocket y modelo de rooms (Fase 5)
 

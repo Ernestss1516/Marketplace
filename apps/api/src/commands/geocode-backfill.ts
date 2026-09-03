@@ -22,7 +22,7 @@ import configuration from '../config/configuration';
 import { envValidationSchema } from '../config/env.validation';
 import { PrismaModule } from '../infra/prisma/prisma.module';
 import { PrismaService } from '../infra/prisma/prisma.service';
-import { SearchModule } from '../modules/search/search.module';
+import { SearchCoreModule } from '../modules/search/search-core.module';
 import { SearchService, INDEX_INCLUDE } from '../modules/search/search.service';
 import { GeocodingModule } from '../modules/geocoding/geocoding.module';
 import { GeocodingService, TransientGeocodingError } from '../modules/geocoding/geocoding.service';
@@ -30,6 +30,19 @@ import { GeocodingService, TransientGeocodingError } from '../modules/geocoding/
 // ---------------------------------------------------------------------------
 // Minimal module: Postgres + Meilisearch + Geocoding only, no BullMQ/Redis
 // workers, so app.close() shuts down cleanly (no dangling libuv handles).
+//
+// ESO ERA MENTIRA HASTA HOY, y este comando estaba ROTO. Importaba
+// `SearchModule`, que declara el `SearchController`, y Nest instancia el
+// controlador aunque el script sólo use `SearchService`: con él venían
+// patrocinados e impresiones, los dos dependientes de `RedisService`. Medido el
+// 2026-09-03, `pnpm geocode-backfill` ni arrancaba — moría con «Nest can't
+// resolve dependencies of the ImpressionsService». Nadie lo notó porque es un
+// comando que se ejecuta muy de vez en cuando.
+//
+// Es el MISMO defecto que dejaba `pnpm reindex` colgado, sólo que este comando
+// nunca recibió el parche que aquél sí recibió, así que se manifestó antes y
+// peor. Con `SearchCoreModule` el comentario de arriba vuelve a ser cierto.
+// Ver `modules/search/search-core.module.ts`.
 // ---------------------------------------------------------------------------
 @Module({
   imports: [
@@ -39,11 +52,11 @@ import { GeocodingService, TransientGeocodingError } from '../modules/geocoding/
       validationSchema: envValidationSchema,
     }),
     PrismaModule,
-    SearchModule,
+    SearchCoreModule,
     GeocodingModule,
   ],
 })
-class GeocodingBackfillModule {}
+export class GeocodingBackfillModule {}
 
 // ---------------------------------------------------------------------------
 // Script

@@ -8,23 +8,30 @@
  * Usage (from apps/api/):
  *   pnpm reindex
  *
- * Uses its own minimal NestJS module (no BullMQ workers) so that all
- * connections close cleanly and the process exits with code 0.
+ * Uses its own minimal NestJS module — Postgres y Meilisearch, NADA MÁS: ni
+ * Redis, ni BullMQ, ni el controlador de búsqueda — so that all connections
+ * close cleanly and the process exits with code 0.
  *
- * RÁFAGA 2 (bug pre-existente encontrado y arreglado): SearchModule importa
- * SponsoredAdsModule desde H6.6 (SearchController inyecta SponsoredAdsService
- * para el hueco patrocinado), y SponsoredAdsService depende de RedisService
- * (caché por categoría) y R2Service (subida del banner). Ambos módulos son
- * @Global() pero ninguno se importaba aquí — createApplicationContext
- * instancia igualmente el SearchController declarado por SearchModule (aunque
- * el script solo use SearchService), así que sin ellos esto fallaba con
- * "Nest can't resolve dependencies of SponsoredAdsService". Fix: importar
- * RedisModule + R2Module. R2Service usa un cliente S3 sobre HTTP (sin socket
- * persistente, no necesita cierre explícito); RedisService sí mantiene una
- * conexión ioredis abierta, y el script NUNCA llama a app.close() (ver
- * comentario en $disconnect() más abajo) — así que su hook
- * OnApplicationShutdown no se dispara solo, y hace falta un quit() explícito
- * al final (ver bootstrap) o el proceso se queda colgado.
+ * ── POR QUÉ IMPORTA `SearchCoreModule` Y NO `SearchModule` ──────────────────
+ *
+ * Ésta es la línea que hace que el comando termine, y la historia de por qué
+ * hizo falta vive entera en `modules/search/search-core.module.ts`. En corto:
+ * `SearchModule` declara el `SearchController`, Nest instancia un controlador
+ * aunque nadie lo use, y con él venían patrocinados, valoraciones e
+ * impresiones — o sea Redis y una cola de BullMQ.
+ *
+ * Ese arrastre rompió este comando dos veces. La primera (H6.6) lo dejó sin
+ * arrancar y se parcheó importando `RedisModule` + `R2Module` aquí. La segunda
+ * (N4a, `bcf4064`) metió una `Queue` de BullMQ en la cadena, que abre **su
+ * propia** conexión ioredis: la que aquel `RedisService.client.quit()` no
+ * podía cerrar porque no era suya. Medido el 2026-09-03: el proceso seguía
+ * vivo con **517 MB y 2 conexiones a Redis** dos minutos después de imprimir
+ * «Reindex complete».
+ *
+ * Con el núcleo aislado no hay nada que cerrar a mano: este contexto **no abre
+ * ninguna conexión a Redis**, así que los dos parches (los módulos de más y el
+ * `quit()`) sobran y se han quitado. Barrera:
+ * `test/comandos-standalone.e2e-spec.ts`.
  * ---------------------------------------------------------------------------
  */
 
@@ -37,10 +44,7 @@ import configuration from '../config/configuration';
 import { envValidationSchema } from '../config/env.validation';
 import { PrismaModule } from '../infra/prisma/prisma.module';
 import { PrismaService } from '../infra/prisma/prisma.service';
-import { RedisModule } from '../infra/redis/redis.module';
-import { RedisService } from '../infra/redis/redis.service';
-import { R2Module } from '../infra/r2/r2.module';
-import { SearchModule } from '../modules/search/search.module';
+import { SearchCoreModule } from '../modules/search/search-core.module';
 import { SearchService, INDEX_INCLUDE } from '../modules/search/search.service';
 
 @Module({
@@ -51,12 +55,10 @@ import { SearchService, INDEX_INCLUDE } from '../modules/search/search.service';
       validationSchema: envValidationSchema,
     }),
     PrismaModule,
-    RedisModule,
-    R2Module,
-    SearchModule,
+    SearchCoreModule,
   ],
 })
-class ReindexModule {}
+export class ReindexModule {}
 
 // ---------------------------------------------------------------------------
 // Script
@@ -102,10 +104,15 @@ async function bootstrap(): Promise<void> {
 
   logger.log(`Reindex complete. Total indexed: ${total} listings.`);
 
-  // Explicit quit — no app.close() is called here (see below), so RedisService's
-  // OnApplicationShutdown hook never fires on its own; without this the ioredis
-  // TCP connection stays open and the process hangs instead of exiting.
-  await app.get(RedisService).client.quit();
+  // EL `RedisService.client.quit()` QUE HABÍA AQUÍ SE HA QUITADO, y no por limpieza: es que
+  // ya no hay nada que cerrar. Este contexto no importa `RedisModule`, así que no existe
+  // ningún cliente ioredis que apagar (ver la cabecera). Dejarlo habría sido peor que
+  // inútil — un `app.get(RedisService)` sobre un proveedor que no está en el contexto
+  // lanza, y el comando moriría justo después de haber hecho bien su trabajo.
+  //
+  // Y sobre todo: aquel `quit()` **nunca fue la solución**. Cerraba la conexión de
+  // `RedisService` mientras la que colgaba el proceso era la de la `Queue` de BullMQ, que
+  // es otra. Un parche que apunta a la conexión equivocada se lee como si funcionara.
 
   // Prisma recommended pattern for CLI scripts: call $disconnect() and do NOT
   // call process.exit() on the happy path.

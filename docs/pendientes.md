@@ -104,8 +104,8 @@ Es el pendiente más antiguo del proyecto y el único que bloquea a varios de lo
 5. **Workflow de despliegue** en GitHub Actions, encadenado al `ci.yml` que ya existe y funciona.
 6. **Semilla y reindexado inicial.** Tras el primer despliegue: `seed` (árbol de categorías,
    admin, settings) y `pnpm --filter @marketplace/api reindex` para poblar Meilisearch.
-   **Antes de correr eso en producción, ver §4.2 «El `reindex` no cierra sus conexiones»** — hoy
-   el comando termina su trabajo pero **el proceso no muere**.
+   ~~**Antes de correr eso en producción, ver §4.2 «El `reindex` no cierra sus conexiones»**~~
+   **CERRADO (2026-09-03)**: el comando termina y sale con 0, sin dejar conexiones abiertas.
 7. **Las CUATRO reglas de ciclo de vida del bucket** (huérfanas H2 — **el código ya está puesto
    desde el 2026-08-23**: lo no confirmado vive bajo `tmp/` y lo confirmado sale de ahí; ver
    [`diseno-huerfanas-sin-fila.md`](./diseno-huerfanas-sin-fila.md) §9.5): caducar a **1 día**
@@ -219,9 +219,28 @@ dos por llevar la palabra «origins», que no es una razón.
 
 ### 4.2 Residuos de código
 
-#### El `reindex` no cierra sus conexiones — el origen de los `node` huérfanos `[DEUDA]` ⛔ PRERREQ
+#### ~~El `reindex` no cierra sus conexiones~~ — **CERRADO (2026-09-03)** ✅
 
-**Hallazgo de las sesiones del 2026-08-29 / 09-02, verificado en código el 2026-09-02.**
+**Medido antes de arreglarlo, no supuesto:** con el trabajo ya terminado («Reindex complete»)
+el proceso seguía vivo **dos minutos después, con 517 MB y 2 conexiones ioredis abiertas** —
+la cifra del episodio de despliegue, reproducida. Las dos conexiones eran de **BullMQ**
+(`cmd=hset`, los metadatos que la cola escribe al crearse), no de `RedisService`: por eso el
+`RedisService.client.quit()` que había en el script no las cerraba nunca. **Aquel parche
+apuntaba a la conexión equivocada y se leía como si funcionara.**
+
+**La causa no era la conexión: era que el comando no tenía por qué abrirla.** `SearchModule`
+declara el `SearchController`, y Nest instancia un controlador aunque el script sólo use
+`SearchService`; con él venían patrocinados, valoraciones e impresiones — o sea Redis y una
+cola. El mismo arrastre había roto estos comandos **tres veces** (H6.6, N4a `bcf4064`, A1), y
+de paso dejó **`geocode-backfill` sin arrancar siquiera**, cosa que nadie había notado.
+
+**El arreglo es la cura, no el parche:** `SearchCoreModule`, un módulo HOJA con lo único que
+`SearchService` necesita (`MeilisearchModule` + `CategoryTreeModule`). Los dos comandos lo
+importan y ya no alcanzan Redis ni BullMQ; se quitaron los dos parches acumulados. Sin
+`process.exit()`. Verificado: `EXIT=0`, cero conexiones, cero procesos huérfanos, el índice
+reconstruido, y las claves `bull:notifications:*` **ya no se crean**. Barreras en
+`search-core.module.spec.ts` (rápida, afirma el conjunto exacto de módulos) y
+`test/comandos-standalone.e2e-spec.ts` (levanta los dos contextos de verdad).
 
 [`commands/reindex.ts:105-107`](../apps/api/src/commands/reindex.ts#L105) hace lo que su
 comentario promete —cerrar la conexión de `RedisService`, que sin `app.close()` no se cierra
@@ -786,7 +805,7 @@ la columna que alimenta la auditoría del despliegue.
 |---|---|---|---|
 | 4.1 | **`app.enableCors()` sin argumentos** (`main.ts:40` **y** `test/helpers/create-app.ts:37`) | `[SEGURIDAD]` | El comodín sólo importa cuando hay orígenes que no controlas |
 | 6 | **Rate limit por IP sin verificar contra el proxy real** | `[SEGURIDAD]` | La plataforma que se elija decide `TRUST_PROXY_HOPS`; no se puede cerrar sin §1 |
-| 4.2 | **El `reindex` no cierra sus conexiones** (la `Queue` de BullMQ que entra por `ReviewsModule`) | `[DEUDA]` | El paso 6 de §1 corre `reindex` en el despliegue, y hoy el proceso no muere |
+| ~~4.2~~ | ~~El `reindex` no cierra sus conexiones~~ **CERRADO** — `SearchCoreModule` restaura el aislamiento; de paso arregla `geocode-backfill`, que ni arrancaba | — | ✅ |
 | 4.2 | **El ZIP de exportación se arma en memoria** | `[DEUDA]` | En el worker de producción el límite de memoria deja de ser hipotético |
 | 4.3 | **Los tests de Stripe pasan con clave inválida** — verde no dice nada de la integración real | `[COBERTURA]` | El fallo aparece la primera vez que alguien paga de verdad |
 | 1 | **Despliegue** (contenerizar, plataforma, migraciones, workflow, seed+reindex) | `[DEUDA]` | Es el despliegue |
