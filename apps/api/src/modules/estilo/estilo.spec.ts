@@ -45,7 +45,8 @@ const GLOBALS_CSS_HOY: Readonly<Record<string, string>> = {
   destructive: '0 84.2% 60.2%',
   'destructive-foreground': '210 40% 98%',
   border: '214.3 31.8% 91.4%',
-  input: '214.3 31.8% 91.4%',
+  // Cambiado por la ráfaga del trazo: 1,23:1 no cumplía 1.4.11 en un borde de campo.
+  input: '214.3 31.8% 60%',
   ring: '221.2 83.2% 53.3%',
   radius: '0.5rem',
 };
@@ -112,6 +113,50 @@ describe('El admin no elige el color de la letra: lo elige el contraste', () => 
       primary: '60 90% 90%',
     });
     expect(t['primary-foreground']).toBe(oscuro);
+  });
+});
+
+/**
+ * WCAG 1.4.11 — EL BORDE DE UN CAMPO ES INFORMACIÓN, NO ADORNO.
+ *
+ * En un formulario cuyo fondo y cuyo campo son el mismo blanco, el contorno es lo
+ * ÚNICO que dice dónde se escribe. La norma pide 3:1 para eso, y el valor de fábrica
+ * de shadcn daba 1,23:1 — un contorno que quien tiene poca visión sencillamente no ve.
+ *
+ * Esta pareja nació como aviso en E4a (arreglarla cambiaba píxeles, y aquella ráfaga
+ * lo tenía prohibido) y aquí pasa a exigirse. Los tests fijan las dos mitades: que el
+ * campo cumple y que el trazo DECORATIVO no está obligado a cumplir.
+ */
+describe('El borde de campo cumple 1.4.11', () => {
+  const t = resolverTokens(MODELO_0, MODELO_0.coloresPorDefecto);
+
+  it('el borde de campo llega a 3:1 sobre el fondo', () => {
+    expect(contraste(t.background, t.input)).toBeGreaterThanOrEqual(3);
+  });
+
+  it('y no se pasa de oscuro: Modelo 0 es sobrio', () => {
+    // Si alguien lo bajara «por si acaso», esto lo diría. El mínimo redondo que
+    // cumple da 3,11:1; cualquier cosa por encima de 4 ya es otra decisión de diseño.
+    expect(contraste(t.background, t.input)).toBeLessThan(4);
+  });
+
+  it('el trazo DECORATIVO no se toca: la norma no lo exige', () => {
+    // La tarjeta se identifica por su contenido, no por su contorno. Subir esto a 3:1
+    // sería rediseñar el peso visual de la plataforma entera en nombre de una
+    // exigencia que no existe.
+    expect(t.border).toBe('214.3 31.8% 91.4%');
+    expect(contraste(t.background, t.border)).toBeLessThan(3);
+  });
+
+  it('un modelo que deje el campo sin contorno visible YA no se puede guardar', () => {
+    // La mutación que mata: devolver el borde de campo a su valor de antes.
+    const conCampoInvisible = resolverTokens(
+      { ...MODELO_0, rampa: { ...MODELO_0.rampa, input: { dh: 4.3, ds: -8.2, l: 91.4 } } },
+      MODELO_0.coloresPorDefecto,
+    );
+    expect(validarContraste(conCampoInvisible).map((f) => f.pareja)).toContain(
+      'borde de campo sobre el fondo',
+    );
   });
 });
 
