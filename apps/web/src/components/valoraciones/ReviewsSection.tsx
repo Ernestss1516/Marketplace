@@ -16,7 +16,7 @@ function Stars({ value, size = 'md' }: { value: number; size?: 'sm' | 'md' | 'lg
           key={i}
           className={
             i < Math.round(value)
-              ? `${cls} fill-amber-400 text-amber-400`
+              ? `${cls} fill-rating text-rating`
               : `${cls} fill-transparent text-muted-foreground/30`
           }
           aria-hidden
@@ -31,7 +31,7 @@ function DistributionBar({ label, count, total }: { label: string; count: number
   return (
     <div className="flex items-center gap-2 text-sm">
       <span className="w-4 text-right text-muted-foreground">{label}</span>
-      <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" aria-hidden />
+      <Star className="h-3.5 w-3.5 fill-rating text-rating" aria-hidden />
       <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
         <div
           className="h-full rounded-full bg-amber-400 transition-all"

@@ -60,7 +60,7 @@ function StarSelector({ value, onChange }: { value: number; onChange: (v: number
               className={[
                 'h-8 w-8 transition-colors',
                 n <= active
-                  ? 'fill-amber-400 text-amber-400'
+                  ? 'fill-rating text-rating'
                   : 'fill-transparent text-muted-foreground/30',
               ].join(' ')}
               aria-hidden
@@ -178,7 +178,7 @@ export function ReviewModal({
         {done ? (
           <div className="flex flex-col items-center gap-3 py-6 text-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-green-100">
-              <Star className="h-6 w-6 fill-amber-400 text-amber-400" aria-hidden />
+              <Star className="h-6 w-6 fill-rating text-rating" aria-hidden />
             </div>
             <p className="font-medium">
               {isEdit ? '¡Valoración actualizada!' : '¡Gracias por tu valoración!'}

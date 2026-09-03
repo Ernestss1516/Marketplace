@@ -50,8 +50,27 @@ const config: Config = {
   			warning: {
   				DEFAULT: 'var(--warning)',
   				border: 'var(--warning-border)',
+  				strong: 'var(--warning-strong)',
   				foreground: 'var(--warning-foreground)'
-  			}
+  			},
+  			/* E2 — los otros tres estados del badge. `warning` ya existía desde E0
+  			   y sólo gana su superficie fuerte; el texto lo comparte. */
+  			success: {
+  				surface: 'var(--success-surface)',
+  				foreground: 'var(--success-foreground)'
+  			},
+  			info: {
+  				surface: 'var(--info-surface)',
+  				foreground: 'var(--info-foreground)'
+  			},
+  			neutral: {
+  				surface: 'var(--neutral-surface)',
+  				foreground: 'var(--neutral-foreground)'
+  			},
+  			/* E2 — las convenciones. No son estados: ver el porqué en globals.css. */
+  			rating: 'var(--rating)',
+  			featured: 'var(--featured)',
+  			favorite: 'var(--favorite)'
   		},
   		borderRadius: {
   			lg: 'var(--radius)',

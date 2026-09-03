@@ -1,9 +1,4 @@
-import * as fs from 'fs';
-import * as path from 'path';
 import { render, screen } from '@testing-library/react';
-import colors from 'tailwindcss/colors';
-import resolveConfig from 'tailwindcss/resolveConfig';
-import tailwindConfig from '../../../tailwind.config';
 import { Aviso } from './Aviso';
 import { SesionNoDisponible } from '@/app/(admin)/components/SesionNoDisponible';
 
@@ -69,45 +64,10 @@ describe('SesionNoDisponible — el texto, también una sola vez', () => {
     ).toBeInTheDocument();
   });
 });
+/**
+ * LAS COMPROBACIONES DE VALOR DE LOS TOKENS SE MUDARON A `app/tokens.test.ts` en E2.
+ * Allí están TODOS los tokens semánticos —los tres del aviso incluidos— fijados contra
+ * `tailwindcss/colors`, en vez de repartidos por los componentes que los consumen.
+ * Este fichero se queda con lo que sí es suyo: qué pinta el componente.
+ */
 
-describe('Tailwind conecta las clases del aviso con sus variables', () => {
-  /**
-   * El eslabón que las otras pruebas no cubren. Que el componente escriba
-   * `bg-warning` y que `--warning` valga el amarillo correcto no sirve de nada si la
-   * configuración de Tailwind no une las dos cosas: la clase no existiría, el fondo
-   * saldría transparente y las 29 pantallas cambiarían de aspecto **sin que ningún
-   * test se pusiera rojo**. Aquí se comprueba el puente.
-   */
-  const colores = resolveConfig(tailwindConfig).theme.colors as unknown as Record<
-    string,
-    unknown
-  >;
-
-  it.each([
-    ['DEFAULT', '--warning'],
-    ['border', '--warning-border'],
-    ['foreground', '--warning-foreground'],
-  ])('warning.%s apunta a var(%s)', (clave, variable) => {
-    expect((colores.warning as Record<string, string>)[clave]).toBe(`var(${variable})`);
-  });
-});
-
-describe('Los tokens de aviso valen lo mismo que las clases que sustituyen', () => {
-  const globals = fs.readFileSync(
-    path.join(__dirname, '..', '..', 'app', 'globals.css'),
-    'utf8',
-  );
-
-  const valorDe = (token: string): string | null => {
-    const m = globals.match(new RegExp(`--${token}:\\s*([^;]+);`));
-    return m ? m[1].trim() : null;
-  };
-
-  it.each([
-    ['warning', colors.yellow[50], 'bg-yellow-50'],
-    ['warning-border', colors.yellow[300], 'border-yellow-300'],
-    ['warning-foreground', colors.yellow[800], 'text-yellow-800'],
-  ])('--%s es exactamente %s, el color que daba %s', (token, esperado, _clase) => {
-    expect(valorDe(token)).toBe(esperado);
-  });
-});

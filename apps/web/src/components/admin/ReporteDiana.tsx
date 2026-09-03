@@ -55,7 +55,7 @@ export function ReporteDiana({ reporte }: { reporte: Report }) {
   if (r.listing) {
     return (
       <span data-testid="reporte-diana">
-        <Link href={adminListingHref(r.listing.id)} className="text-blue-600 hover:underline">
+        <Link href={adminListingHref(r.listing.id)} className="text-primary hover:underline">
           {r.listing.title}
         </Link>
         <span className="block text-xs text-muted-foreground">Anuncio</span>
@@ -80,7 +80,7 @@ export function ReporteDiana({ reporte }: { reporte: Report }) {
       <span data-testid="reporte-diana">
         {/* A la ficha de STAFF, no al perfil público: éste puede estar suspendido
             —que es el caso típico de un denunciado— y allí no hay nada que moderar. */}
-        <Link href={adminUserHref(r.reportedUser.id)} className="text-blue-600 hover:underline">
+        <Link href={adminUserHref(r.reportedUser.id)} className="text-primary hover:underline">
           {nombre}
         </Link>
         <span className="block text-xs text-muted-foreground">Usuario</span>

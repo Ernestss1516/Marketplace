@@ -105,13 +105,30 @@ export default defineConfig({
        */
       scale: 'css',
       /**
-       * Tolerancia PEQUEÑA PERO NO CERO. El antialiasing del texto varía lo justo entre
-       * ejecuciones como para que un cero absoluto produzca rojos que no significan nada.
-       * 0,2 % de los píxeles es holgado para eso y sigue siendo mucho más estrecho que
-       * cualquier cambio real de color, espaciado o tipografía, que mueven porcentajes
-       * enteros.
+       * ⚠ `threshold: 0` — LA LÍNEA QUE HACE QUE ESTA BATERÍA SIRVA PARA LO QUE EXISTE.
+       *
+       * Playwright compara píxel a píxel en espacio YIQ y, POR DEFECTO, considera
+       * iguales dos píxeles que difieran menos de un 20 % (`threshold: 0.2`). E0 no
+       * fijó este valor, y esa omisión dejó la barrera casi ciega justo para lo que
+       * tiene que vigilar: los cambios de color suaves.
+       *
+       * Se descubrió con una mutación en E2 y el resultado fue vergonzoso: pintar el
+       * fondo de TODA la página de blanco a gris 96 % **pasaba en verde**, porque la
+       * diferencia por píxel (~4 %) quedaba por debajo del umbral. Un `text-amber-800`
+       * convertido en `text-amber-900` habría pasado igual de desapercibido — es decir,
+       * exactamente el error que E2 puede cometer 300 veces.
+       *
+       * Con `0` cuenta cualquier diferencia, por pequeña que sea. Y se puede exigir eso
+       * porque las capturas son deterministas: mismo build de producción, misma máquina,
+       * movimiento congelado y fuente local. Verificado antes de fijarlo — la batería
+       * entera pasa dos veces seguidas con cero píxeles de margen.
+       *
+       * `maxDiffPixelRatio` se deja en 0: no hay ruido que absorber, y cualquier margen
+       * aquí volvería a esconder cambios pequeños en pantallas grandes (un 0,2 % de una
+       * captura de 3.500 px son miles de píxeles, de sobra para un badge entero).
        */
-      maxDiffPixelRatio: 0.002,
+      threshold: 0,
+      maxDiffPixelRatio: 0,
     },
   },
 

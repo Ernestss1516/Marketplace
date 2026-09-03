@@ -59,7 +59,7 @@ export function FavoriteButton({ listingId }: Props) {
     >
       <Heart
         className={`h-4 w-4 transition-colors ${
-          favorited ? 'fill-red-500 stroke-red-500' : 'stroke-muted-foreground'
+          favorited ? 'fill-favorite stroke-favorite' : 'stroke-muted-foreground'
         }`}
       />
       <span>{favorited ? 'Guardado' : 'Guardar'}</span>

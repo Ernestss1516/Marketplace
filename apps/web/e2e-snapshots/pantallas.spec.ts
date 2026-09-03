@@ -105,7 +105,7 @@ test.describe('Login del backoffice', () => {
 // estilo va a extender (marca e instancia). Aquí es donde vive el grueso de la dispersión
 // que E0 consolida: 30 de los 33 ficheros del banner amarillo son de esta zona.
 test.describe('Backoffice', () => {
-  const RUTAS: readonly [nombre: string, ruta: string][] = [
+  const RUTAS: readonly [nombre: string, ruta: string, tapar?: string][] = [
     ['resumen', '/admin'],
     ['anuncios-tabla', '/admin/anuncios'],
     // EL FORMULARIO ES `facturas/emisor` Y NO `/admin/ajustes`, que es donde primero se
@@ -125,7 +125,24 @@ test.describe('Backoffice', () => {
     // maquetado, así que tapa el texto variable pero no el desplazamiento que provoca.
     ['formulario', '/admin/facturas/emisor'],
     ['moderacion-cola', '/admin/moderacion'],
-    ['usuarios', '/admin/usuarios'],
+    // AQUÍ ESTUVO `/admin/usuarios`, y se retira en E2 con dos motivos medidos.
+    //
+    // Al bajar la tolerancia a cero (ver `threshold` en la config) aparecieron dos
+    // fuentes de ruido que el umbral por defecto tapaba:
+    //
+    //  1. la columna «Última conexión» lleva la HORA del último acceso, y
+    //     `global-setup` entra con las seis cuentas en cada corrida para guardar su
+    //     sesión: cambia siempre. Esto sí se podía tapar —el texto mide igual,
+    //     `dd/mm/aa, hh:mm`, así que no arrastra el maquetado— y se probó;
+    //  2. pero debajo apareció lo que no tiene arreglo desde aquí: **las dos últimas
+    //     filas intercambian su orden entre corridas**. Las dos cuentas no han
+    //     entrado nunca, así que empatan en la columna por la que se ordena y el
+    //     desempate no es estable.
+    //
+    // El idioma visual «tabla del backoffice» ya lo cubre `anuncios-tabla`, así que
+    // esta pantalla no aportaba cobertura nueva: aportaba un rojo intermitente. Y una
+    // captura que sólo coincide a veces enseña a ignorar el rojo, que es justo lo que
+    // esta batería no se puede permitir ahora que BLOQUEA el CI.
     ['reportes', '/admin/reportes'],
     ['blog', '/admin/blog'],
     ['facturas', '/admin/facturas'],
@@ -133,11 +150,14 @@ test.describe('Backoffice', () => {
     ['instancia', '/admin/instancia'],
   ];
 
-  for (const [nombre, ruta] of RUTAS) {
+  for (const [nombre, ruta, tapar] of RUTAS) {
     test(nombre, async ({ adminContext }) => {
       const page = await adminContext.newPage();
       await preparar(page, ruta);
-      await expect(page).toHaveScreenshot(`backoffice-${nombre}.png`, { fullPage: true });
+      await expect(page).toHaveScreenshot(`backoffice-${nombre}.png`, {
+        fullPage: true,
+        mask: tapar ? [page.locator(tapar)] : [],
+      });
     });
   }
 });

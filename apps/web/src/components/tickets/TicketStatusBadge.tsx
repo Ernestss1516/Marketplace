@@ -7,13 +7,13 @@ import type { TicketStatus } from '@/types';
  * hilo pintan el mismo estado, y tenerlo duplicado es como acaban divergiendo.
  */
 const STATUS_META: Record<TicketStatus, { label: string; className: string }> = {
-  OPEN: { label: 'Abierto', className: 'bg-blue-100 text-blue-800 hover:bg-blue-100' },
+  OPEN: { label: 'Abierto', className: 'bg-info-surface text-info-foreground hover:bg-info-surface' },
   IN_PROGRESS: { label: 'En curso', className: 'bg-amber-100 text-amber-900 hover:bg-amber-100' },
   WAITING_USER: {
     label: 'Esperando tu respuesta',
     className: 'bg-purple-100 text-purple-900 hover:bg-purple-100',
   },
-  RESOLVED: { label: 'Resuelto', className: 'bg-green-100 text-green-800 hover:bg-green-100' },
+  RESOLVED: { label: 'Resuelto', className: 'bg-success-surface text-success-foreground hover:bg-success-surface' },
   CLOSED: { label: 'Cerrado', className: 'bg-muted text-muted-foreground hover:bg-muted' },
 };
 
