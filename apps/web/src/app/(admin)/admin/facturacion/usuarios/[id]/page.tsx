@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button';
 
 // I18N T3-B — idéntico en las dos pantallas de facturación.
 import { ESTADO_TRANSACCION_LABELS as TX_STATUS_LABELS, PASARELA_LABELS } from '@/lib/etiquetas-enums';
+import { SesionNoDisponible } from '@/app/(admin)/components/SesionNoDisponible';
 import {
   MOVIMIENTO_CREDITO_ADMIN_LABELS,
   TIPO_DERECHO_LABELS,
@@ -238,9 +239,7 @@ export default function AdminUserBillingDetailPage() {
 
   if (!token) {
     return (
-      <div className="rounded border border-yellow-300 bg-yellow-50 p-4 text-yellow-800">
-        Sesión no disponible. Recarga la página o inicia sesión de nuevo.
-      </div>
+      <SesionNoDisponible />
     );
   }
 

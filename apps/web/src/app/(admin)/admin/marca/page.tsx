@@ -9,6 +9,7 @@ import { ApiError } from '@/lib/api/client';
 import type { BrandingLogos } from '@/lib/api/branding';
 import { getBrandingLive } from '@/lib/api/branding-admin';
 import { ZonaDeMarca, type ZonaInfo } from './_components/ZonaDeMarca';
+import { SesionNoDisponible } from '@/app/(admin)/components/SesionNoDisponible';
 
 /**
  * LA MARCA — `/admin/marca`. Solo ADMIN.
@@ -76,9 +77,7 @@ export default function AdminMarcaPage() {
 
   if (!token) {
     return (
-      <div className="rounded border border-yellow-300 bg-yellow-50 p-4 text-yellow-800">
-        Sesión no disponible. Recarga la página o inicia sesión de nuevo.
-      </div>
+      <SesionNoDisponible />
     );
   }
 

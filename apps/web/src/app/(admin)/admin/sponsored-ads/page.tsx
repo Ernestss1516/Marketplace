@@ -21,6 +21,7 @@ const PER_PAGE = 20;
 // copias del repo. Cuatro sitios que responden la misma pregunta la responden ya con
 // las mismas palabras, y desde un solo sitio.
 import { ESTADO_VIGENCIA_LABELS as STATUS_LABELS } from '@/lib/etiquetas-enums';
+import { SesionNoDisponible } from '@/app/(admin)/components/SesionNoDisponible';
 
 const STATUS_VARIANTS: Record<string, 'default' | 'secondary' | 'outline'> = {
   upcoming: 'secondary',
@@ -114,9 +115,7 @@ export default function AdminSponsoredAdsPage() {
 
   if (!token) {
     return (
-      <div className="rounded border border-yellow-300 bg-yellow-50 p-4 text-yellow-800">
-        Sesión no disponible. Recarga la página o inicia sesión de nuevo.
-      </div>
+      <SesionNoDisponible />
     );
   }
 

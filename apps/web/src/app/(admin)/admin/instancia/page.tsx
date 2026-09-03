@@ -14,6 +14,7 @@ import { resolveBrand } from '@/lib/brand';
 // este lado y copiarlas allí crearía dos fuentes para el mismo valor. Ver la cabecera de
 // `instance-info.types.ts` en la API.
 import { SITE_NAME, SITE_DESCRIPTION, API_URL, DEFAULT_CURRENCY } from '@/config';
+import { SesionNoDisponible } from '@/app/(admin)/components/SesionNoDisponible';
 
 /**
  * AJUSTES RÁFAGA B — CÓMO ESTÁ MONTADA ESTA INSTANCIA.
@@ -196,9 +197,7 @@ export default function AdminInstanciaPage() {
 
   if (!token) {
     return (
-      <div className="rounded border border-yellow-300 bg-yellow-50 p-4 text-yellow-800">
-        Sesión no disponible. Recarga la página o inicia sesión de nuevo.
-      </div>
+      <SesionNoDisponible />
     );
   }
 

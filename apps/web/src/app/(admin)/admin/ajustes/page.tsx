@@ -20,6 +20,7 @@ import { PriceListEditor } from './_components/PriceListEditor';
 // detectores por su cuenta es como acaban divergiendo (lo documenta el punto 4).
 import { DETECTOR_LABELS } from '@/lib/etiquetas-enums';
 import { entradasQueEmpiezanAFiltrar, esTelefonoEs } from './entradas-inertes';
+import { SesionNoDisponible } from '@/app/(admin)/components/SesionNoDisponible';
 // AJUSTES RÁFAGA A — los títulos, las descripciones y los siete grupos viven en su propio
 // módulo de datos, para que un test pueda comprobarlos sin montar esta página. Molde de
 // `entradas-inertes.ts`.
@@ -938,9 +939,7 @@ export default function AdminAjustesPage() {
 
   if (!token) {
     return (
-      <div className="rounded border border-yellow-300 bg-yellow-50 p-4 text-yellow-800">
-        Sesión no disponible. Recarga la página o inicia sesión de nuevo.
-      </div>
+      <SesionNoDisponible />
     );
   }
 

@@ -5,6 +5,122 @@ on:
   pull_request:
     branches: [main]
 
+# ──────────────────────────────────────────────────────────────────────────────
+# ENTORNO COMPARTIDO POR LOS JOBS QUE LEVANTAN LA PILA.
+#
+# Estaba dentro del job `e2e`, que era su único consumidor. Con la llegada del job
+# `snapshots` (E0 del sistema de estilo) pasó a haber dos, y copiarlo habría creado
+# cien líneas duplicadas cuya forma de fallar es la peor: el día que el backend exija
+# una variable nueva, un job la tendría y el otro reventaría al arrancar Nest, lejos
+# de la causa. A nivel de workflow hay UNA definición y los dos la heredan.
+#
+# El job `lint` también la hereda. No usa ninguna —no levanta nada— y ninguna cambia
+# lo que hace: `NODE_ENV: test` no es `production`, así que pnpm sigue instalando las
+# dependencias de desarrollo que tsc y eslint necesitan.
+# ──────────────────────────────────────────────────────────────────────────────
+env:
+  # ── PostgreSQL ─────────────────────────────────────────────────────────────
+  DATABASE_URL: postgresql://marketplace:marketplace_dev@localhost:5432/marketplace_test
+
+  # ── Redis (DB 1 for test isolation; dev uses DB 0) ─────────────────────────
+  REDIS_URL: redis://localhost:6379/1
+
+  # ── Meilisearch ────────────────────────────────────────────────────────────
+  MEILI_HOST: http://localhost:7700
+  MEILI_MASTER_KEY: masterKey_ci
+  MEILI_INDEX_NAME: listings_test
+
+  # ── NestJS auth ────────────────────────────────────────────────────────────
+  JWT_SECRET: ci_jwt_secret
+
+  # ── Redsys — código de comercio de PRUEBAS (público, no es un secreto) ─────
+  # redsys.e2e-spec.ts comprueba DS_MERCHANT_MERCHANTCODE === '999008881'.
+  # configuration.ts lo deja en '' si falta, así que sin esta línea ese test
+  # falla con Expected "999008881" / Received "" — ocurrió de verdad en CI.
+  REDSYS_MERCHANT_CODE: "999008881"
+
+  # ── Redsys — clave FICTICIA de CI, no la del TPV ───────────────────────────
+  # El schema de Joi la exige con NODE_ENV=test (un vacío silencioso causó un
+  # incidente, ver env.validation.ts). Hasta ahora se heredaba de .env.test, el
+  # fichero versionado; definirla aquí es lo que permite dejar de rastrearlo.
+  #
+  # EL VALOR NO ES ARBITRARIO. redsys.e2e-spec.ts firma DE VERDAD (sin mocks) y
+  # comprueba que Ds_Signature mide 44 caracteres. redsys-easy decodifica esta
+  # clave como base64 y la usa con 3DES (des-ede3-cbc), que exige EXACTAMENTE
+  # 24 bytes: un valor suelto tipo "ci_redsys_secret" decodifica a 12 y revienta
+  # con "Invalid key length". Éste es base64 de "ci_redsys_dummy_key_2026",
+  # 24 bytes justos. Si se cambia, que siga siendo base64 de 24 bytes.
+  REDSYS_SECRET_KEY: Y2lfcmVkc3lzX2R1bW15X2tleV8yMDI2
+
+  # ── Formulario de contacto (RC.1) — valor ficticio de CI ───────────────────
+  # Joi exige min(16). Firma el token del time-trap anti-bot; en CI solo hace
+  # falta que sea estable dentro del job, no secreto.
+  CONTACT_FORM_SECRET: ci_contact_form_secret_32_chars_x
+
+  # ── Stripe — claves FICTICIAS de CI ────────────────────────────────────────
+  # El schema de Joi las deja opcionales, pero
+  # stripe-subscription-renewal-e2e.e2e-spec.ts hace `new Stripe(process.env
+  # .STRIPE_SECRET_KEY!)` en su beforeAll, y el constructor LANZA con undefined
+  # ("Neither apiKey nor config.authenticator provided") — toda la suite caería.
+  # Antes se heredaban de .env.test; hay que definirlas aquí ahora que ese
+  # fichero ya no se versiona.
+  #
+  # Ningún test llama a la API de Stripe: los eventos de webhook se firman en
+  # local con stripe.webhooks.generateTestHeaderString() y los verifica el
+  # backend con este mismo secreto, así que basta con que ambos lados coincidan.
+  # Verificado sin .env.test: 62 tests de redsys/stripe/instance-info en verde.
+  STRIPE_SECRET_KEY: sk_test_ci_dummy_not_a_real_key
+  STRIPE_WEBHOOK_SECRET: whsec_ci_dummy_webhook_secret
+
+  # ── Email — Resend not called in tests; value satisfies Joi validation ─────
+  RESEND_API_KEY: ci_dummy_resend
+  RESEND_FROM: noreply@example.com
+  # Frontend URL — BlogService.callRevalidateEndpoint() lo usa para llamar a
+  # POST /api/revalidate (Next.js Route Handler, puerto 3000), NUNCA el del
+  # propio backend (3001). El valor equivocado (3001) hacía que la petición
+  # se golpeara a sí misma (Nest 404, "Cannot POST /api/revalidate") y el
+  # fetch().catch(() => {}) fire-and-forget lo tragaba en silencio —
+  # revalidateTag('footer-pages') nunca se ejecutaba en CI. Confirmado con
+  # curl (404 en :3001 vs 200 en :3000) y repro end-to-end aislando esta
+  # única variable. Ver docs/estado-tecnico.md.
+  APP_URL: http://localhost:3000
+
+  # ── S3 / MinIO — must match the credentials used in the "Start MinIO" step ─
+  S3_ENDPOINT: http://localhost:9000
+  S3_BUCKET: marketplace-test
+  S3_ACCESS_KEY_ID: minioadmin
+  S3_SECRET_ACCESS_KEY: minioadmin
+  S3_PUBLIC_URL: http://localhost:9000/marketplace-test
+  # El espejo de la anterior en el frontend: de aquí sale el dominio que
+  # `next/image` autoriza. Se declara aunque `localhost` ya esté en la lista
+  # de desarrollo, para que el build de CI tenga la MISMA forma que el de
+  # producción —donde esta variable es la única que autoriza el dominio— y no
+  # dependa de una entrada que producción no usa.
+  NEXT_PUBLIC_MEDIA_URL: http://localhost:9000/marketplace-test
+
+  # ── Next.js / next-auth v5 (AUTH_* not NEXTAUTH_*) ────────────────────────
+  # next.config.ts already allows { hostname: 'localhost' } for Next Image,
+  # so MinIO URLs (http://localhost:9000/...) render without domain errors.
+  NEXT_PUBLIC_API_URL: http://localhost:3001/api
+  NEXT_PUBLIC_WS_URL: http://localhost:3001
+  AUTH_SECRET: ci_auth_secret
+  AUTH_URL: http://localhost:3000
+
+  # ── ISR revalidación on-demand (blog, páginas, footer) ─────────────────────
+  # Debe coincidir en el backend (firma la petición a /api/revalidate) y en
+  # next start (la verifica) — un único env: de job ya garantiza esto. Valor
+  # de test (no un secreto real), igual que JWT_SECRET arriba: directo aquí,
+  # sin necesidad de GitHub Secrets. Sin esta variable, BlogService nunca
+  # llega a llamar a /api/revalidate (corta antes por "if (!secret) return"),
+  # así que el footer/blog/páginas solo se actualizan al expirar el TTL de
+  # cada caché (hasta 1h), no al instante — rompía footer-paginas.spec.ts
+  # de forma consistente en CI.
+  REVALIDATE_SECRET: change_me_same_as_web
+
+  # ── Process ────────────────────────────────────────────────────────────────
+  NODE_ENV: test
+  PORT: "3001"
+
 jobs:
   # ──────────────────────────────────────────────────────────────────────────────
   # Job 1: Static checks — no service containers needed
@@ -115,109 +231,6 @@ jobs:
           - 7700:7700
         # No health-cmd: the container binds port 7700 after a short init window that
         # exhausted the retry budget in CI. A polling step below waits instead.
-
-    env:
-      # ── PostgreSQL ─────────────────────────────────────────────────────────────
-      DATABASE_URL: postgresql://marketplace:marketplace_dev@localhost:5432/marketplace_test
-
-      # ── Redis (DB 1 for test isolation; dev uses DB 0) ─────────────────────────
-      REDIS_URL: redis://localhost:6379/1
-
-      # ── Meilisearch ────────────────────────────────────────────────────────────
-      MEILI_HOST: http://localhost:7700
-      MEILI_MASTER_KEY: masterKey_ci
-      MEILI_INDEX_NAME: listings_test
-
-      # ── NestJS auth ────────────────────────────────────────────────────────────
-      JWT_SECRET: ci_jwt_secret
-
-      # ── Redsys — código de comercio de PRUEBAS (público, no es un secreto) ─────
-      # redsys.e2e-spec.ts comprueba DS_MERCHANT_MERCHANTCODE === '999008881'.
-      # configuration.ts lo deja en '' si falta, así que sin esta línea ese test
-      # falla con Expected "999008881" / Received "" — ocurrió de verdad en CI.
-      REDSYS_MERCHANT_CODE: "999008881"
-
-      # ── Redsys — clave FICTICIA de CI, no la del TPV ───────────────────────────
-      # El schema de Joi la exige con NODE_ENV=test (un vacío silencioso causó un
-      # incidente, ver env.validation.ts). Hasta ahora se heredaba de .env.test, el
-      # fichero versionado; definirla aquí es lo que permite dejar de rastrearlo.
-      #
-      # EL VALOR NO ES ARBITRARIO. redsys.e2e-spec.ts firma DE VERDAD (sin mocks) y
-      # comprueba que Ds_Signature mide 44 caracteres. redsys-easy decodifica esta
-      # clave como base64 y la usa con 3DES (des-ede3-cbc), que exige EXACTAMENTE
-      # 24 bytes: un valor suelto tipo "ci_redsys_secret" decodifica a 12 y revienta
-      # con "Invalid key length". Éste es base64 de "ci_redsys_dummy_key_2026",
-      # 24 bytes justos. Si se cambia, que siga siendo base64 de 24 bytes.
-      REDSYS_SECRET_KEY: Y2lfcmVkc3lzX2R1bW15X2tleV8yMDI2
-
-      # ── Formulario de contacto (RC.1) — valor ficticio de CI ───────────────────
-      # Joi exige min(16). Firma el token del time-trap anti-bot; en CI solo hace
-      # falta que sea estable dentro del job, no secreto.
-      CONTACT_FORM_SECRET: ci_contact_form_secret_32_chars_x
-
-      # ── Stripe — claves FICTICIAS de CI ────────────────────────────────────────
-      # El schema de Joi las deja opcionales, pero
-      # stripe-subscription-renewal-e2e.e2e-spec.ts hace `new Stripe(process.env
-      # .STRIPE_SECRET_KEY!)` en su beforeAll, y el constructor LANZA con undefined
-      # ("Neither apiKey nor config.authenticator provided") — toda la suite caería.
-      # Antes se heredaban de .env.test; hay que definirlas aquí ahora que ese
-      # fichero ya no se versiona.
-      #
-      # Ningún test llama a la API de Stripe: los eventos de webhook se firman en
-      # local con stripe.webhooks.generateTestHeaderString() y los verifica el
-      # backend con este mismo secreto, así que basta con que ambos lados coincidan.
-      # Verificado sin .env.test: 62 tests de redsys/stripe/instance-info en verde.
-      STRIPE_SECRET_KEY: sk_test_ci_dummy_not_a_real_key
-      STRIPE_WEBHOOK_SECRET: whsec_ci_dummy_webhook_secret
-
-      # ── Email — Resend not called in tests; value satisfies Joi validation ─────
-      RESEND_API_KEY: ci_dummy_resend
-      RESEND_FROM: noreply@example.com
-      # Frontend URL — BlogService.callRevalidateEndpoint() lo usa para llamar a
-      # POST /api/revalidate (Next.js Route Handler, puerto 3000), NUNCA el del
-      # propio backend (3001). El valor equivocado (3001) hacía que la petición
-      # se golpeara a sí misma (Nest 404, "Cannot POST /api/revalidate") y el
-      # fetch().catch(() => {}) fire-and-forget lo tragaba en silencio —
-      # revalidateTag('footer-pages') nunca se ejecutaba en CI. Confirmado con
-      # curl (404 en :3001 vs 200 en :3000) y repro end-to-end aislando esta
-      # única variable. Ver docs/estado-tecnico.md.
-      APP_URL: http://localhost:3000
-
-      # ── S3 / MinIO — must match the credentials used in the "Start MinIO" step ─
-      S3_ENDPOINT: http://localhost:9000
-      S3_BUCKET: marketplace-test
-      S3_ACCESS_KEY_ID: minioadmin
-      S3_SECRET_ACCESS_KEY: minioadmin
-      S3_PUBLIC_URL: http://localhost:9000/marketplace-test
-      # El espejo de la anterior en el frontend: de aquí sale el dominio que
-      # `next/image` autoriza. Se declara aunque `localhost` ya esté en la lista
-      # de desarrollo, para que el build de CI tenga la MISMA forma que el de
-      # producción —donde esta variable es la única que autoriza el dominio— y no
-      # dependa de una entrada que producción no usa.
-      NEXT_PUBLIC_MEDIA_URL: http://localhost:9000/marketplace-test
-
-      # ── Next.js / next-auth v5 (AUTH_* not NEXTAUTH_*) ────────────────────────
-      # next.config.ts already allows { hostname: 'localhost' } for Next Image,
-      # so MinIO URLs (http://localhost:9000/...) render without domain errors.
-      NEXT_PUBLIC_API_URL: http://localhost:3001/api
-      NEXT_PUBLIC_WS_URL: http://localhost:3001
-      AUTH_SECRET: ci_auth_secret
-      AUTH_URL: http://localhost:3000
-
-      # ── ISR revalidación on-demand (blog, páginas, footer) ─────────────────────
-      # Debe coincidir en el backend (firma la petición a /api/revalidate) y en
-      # next start (la verifica) — un único env: de job ya garantiza esto. Valor
-      # de test (no un secreto real), igual que JWT_SECRET arriba: directo aquí,
-      # sin necesidad de GitHub Secrets. Sin esta variable, BlogService nunca
-      # llega a llamar a /api/revalidate (corta antes por "if (!secret) return"),
-      # así que el footer/blog/páginas solo se actualizan al expirar el TTL de
-      # cada caché (hasta 1h), no al instante — rompía footer-paginas.spec.ts
-      # de forma consistente en CI.
-      REVALIDATE_SECRET: change_me_same_as_web
-
-      # ── Process ────────────────────────────────────────────────────────────────
-      NODE_ENV: test
-      PORT: "3001"
 
     steps:
       - uses: actions/checkout@v7
@@ -419,4 +432,158 @@ jobs:
         with:
           name: playwright-report-2b
           path: apps/web/playwright-report-2b/
+          retention-days: 7
+
+  # ──────────────────────────────────────────────────────────────────────────────
+  # Job 3: Snapshots — la barrera visual del sistema de estilo (E0).
+  #
+  # ── POR QUÉ UN JOB Y NO UNOS PASOS MÁS EN `e2e` ───────────────────────────────
+  #
+  # Por presupuesto, medido y no supuesto (ver el comentario de `timeout-minutes`
+  # del job de arriba): el job `e2e` tiene 60 minutos y ya consume del orden de 50
+  # —~45 de Playwright a 1 worker, ~4,5 de la batería de backend, ~1 del build—.
+  # Colgar aquí ~55 capturas es volver exactamente a la situación que ya canceló
+  # ese job sin veredicto una vez.
+  #
+  # Es además la vía que aquel comentario dejaba propuesta para bajar el reloj:
+  # «cada job trae sus propios contenedores de servicio, así que cada shard
+  # tendría SU base/Redis/Meili y el estado compartido que hoy obliga a
+  # `workers: 1` dejaría de ser un problema». El de snapshots es el caso más fácil
+  # de esa idea: no muta nada —sólo navega y fotografía— y no espera a que
+  # Meilisearch indexe, que es de donde salen los ~10 s/test de la batería
+  # funcional.
+  #
+  # NO lleva `needs: lint`, al revés que `e2e`: corre EN PARALELO con los otros
+  # dos. No alarga el reloj de la señal, que es el punto entero de separarlo.
+  #
+  # ── POR QUÉ HOY NO BLOQUEA ────────────────────────────────────────────────────
+  #
+  # `continue-on-error: true`, y es lo que E0 planificó: una batería visual recién
+  # nacida todavía no ha demostrado que su rojo signifique siempre algo. Además,
+  # los baselines versionados en esta ráfaga son los de `win32` (la máquina donde
+  # se hizo la migración y donde se comprobó el antes/después); los de `linux` los
+  # escribe este job en su primera vuelta y salen como artefacto. Se versionan
+  # después, y ENTONCES se le quita el `continue-on-error` y pasa a ser una puerta
+  # de verdad. Prometer una barrera que aún no lo es sería peor que no tenerla.
+  # ──────────────────────────────────────────────────────────────────────────────
+  snapshots:
+    name: Snapshots visuales (Modelo 0)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgis/postgis:16-3.5
+        env:
+          POSTGRES_USER: marketplace
+          POSTGRES_PASSWORD: marketplace_dev
+          POSTGRES_DB: marketplace_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U marketplace -d marketplace_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      meilisearch:
+        image: getmeili/meilisearch:v1.10
+        env:
+          MEILI_MASTER_KEY: masterKey_ci
+          MEILI_ENV: development
+        ports:
+          - 7700:7700
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.8.0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma Client
+        run: pnpm --filter @marketplace/api prisma:generate
+
+      # Mismo motivo que en `e2e`: /health responde en cuanto el puerto está
+      # abierto, pero la gestión de claves puede tardar un instante más.
+      - name: Wait for Meilisearch
+        run: >-
+          timeout 30 bash -c
+          'until curl -sf -H "Authorization: Bearer masterKey_ci"
+          http://localhost:7700/keys; do sleep 1; done'
+
+      # MinIO no puede ser un service container (necesita `server /data` como CMD).
+      # Copiado del job `e2e`: aquí hace falta igual, porque sin él las imágenes de
+      # las pantallas fotografiadas saldrían como huecos.
+      - name: Start MinIO
+        run: |
+          docker run -d \
+            --name minio \
+            -p 9000:9000 \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio:RELEASE.2025-06-13T11-33-47Z \
+            server /data
+
+          timeout 30 bash -c \
+            'until curl -sf http://localhost:9000/minio/health/live; do sleep 1; done'
+
+          AWS_ACCESS_KEY_ID=minioadmin \
+          AWS_SECRET_ACCESS_KEY=minioadmin \
+          aws s3 mb s3://marketplace-test \
+            --endpoint-url http://localhost:9000 \
+            --region us-east-1
+
+          AWS_ACCESS_KEY_ID=minioadmin \
+          AWS_SECRET_ACCESS_KEY=minioadmin \
+          aws s3api put-bucket-policy \
+            --bucket marketplace-test \
+            --endpoint-url http://localhost:9000 \
+            --region us-east-1 \
+            --policy '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":["*"]},"Action":["s3:GetObject"],"Resource":["arn:aws:s3:::marketplace-test/*"]}]}'
+
+      - name: Install Playwright browsers
+        run: pnpm --filter @marketplace/web exec playwright install --with-deps chromium
+
+      # `next start` y no `next dev`, por lo mismo que en `e2e`: el vigilante de
+      # memoria de `next dev` se reinicia solo bajo presión y mataría la captura
+      # que estuviera en curso. Y los `NEXT_PUBLIC_*` se hornean aquí.
+      - name: Build frontend
+        run: pnpm --filter @marketplace/web build
+
+      - name: Capturas — Modelo 0
+        run: pnpm --filter @marketplace/web exec playwright test --config=playwright.snapshots.config.ts
+
+      # El informe lleva, para cada captura que no coincide, las tres imágenes:
+      # esperada, obtenida y el diff. Es lo único que permite decidir si un rojo es
+      # un bug de migración o ruido. `always()` porque es justo cuando falla cuando
+      # hace falta leerlo — y porque en la primera vuelta este artefacto ES el
+      # entregable: contiene los baselines de linux recién escritos.
+      - name: Upload informe de capturas
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: snapshots-report
+          path: |
+            apps/web/playwright-report/
+            apps/web/e2e-snapshots/__capturas__/
           retention-days: 7

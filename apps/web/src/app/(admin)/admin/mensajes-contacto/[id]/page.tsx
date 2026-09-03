@@ -27,6 +27,7 @@ import {
 
 // I18N T3-B — idéntico en la bandeja y en la ficha.
 import { ESTADO_CONTACTO_LABELS as ESTADO_LABELS } from '@/lib/etiquetas-enums';
+import { SesionNoDisponible } from '@/app/(admin)/components/SesionNoDisponible';
 
 const ESTADO_VARIANTS: Record<ContactEstado, 'default' | 'secondary' | 'outline'> = {
   NUEVO: 'default',
@@ -173,9 +174,7 @@ export default function AdminContactMessageDetailPage() {
 
   if (!token) {
     return (
-      <div className="rounded border border-yellow-300 bg-yellow-50 p-4 text-yellow-800">
-        Sesión no disponible. Recarga la página o inicia sesión de nuevo.
-      </div>
+      <SesionNoDisponible />
     );
   }
 

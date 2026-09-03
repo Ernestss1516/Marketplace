@@ -43,7 +43,15 @@ const config: Config = {
   			},
   			border: 'hsl(var(--border))',
   			input: 'hsl(var(--input))',
-  			ring: 'hsl(var(--ring))'
+  			ring: 'hsl(var(--ring))',
+  			/* E0 — el token semántico de aviso. Sin `hsl(...)` alrededor porque su
+  			   variable ya es un color completo, no un triplete: ver el porqué en
+  			   globals.css, junto a la declaración. */
+  			warning: {
+  				DEFAULT: 'var(--warning)',
+  				border: 'var(--warning-border)',
+  				foreground: 'var(--warning-foreground)'
+  			}
   		},
   		borderRadius: {
   			lg: 'var(--radius)',

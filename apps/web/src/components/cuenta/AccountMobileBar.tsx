@@ -7,6 +7,25 @@ import { Menu, X } from 'lucide-react';
 import { AccountNav } from './AccountNav';
 import { findAccountNavItem } from '@/config/account-nav';
 
+/*
+ * E0 · SIN CLASES DE `tailwindcss-animate`, Y NO ES UN OLVIDO.
+ *
+ * Este componente traía de shadcn el bloque `animate-in` / `fade-in-0` /
+ * `zoom-in-95` / `slide-in-from-*`. Ese plugin NUNCA ha estado instalado en este
+ * repo —ni en package.json, ni en los plugins de tailwind.config.ts, ni en
+ * node_modules—, así que aquellas clases no generaban una sola línea de CSS: la
+ * capa aparecía y desaparecía en seco, y el build y los 518 casos de la batería
+ * funcional lo daban por bueno porque una clase que no existe no rompe nada.
+ *
+ * Se quitaron en vez de instalar el plugin porque instalarlo AÑADIRÍA animación
+ * donde hoy no la hay, y E0 es la ráfaga que demuestra que nada cambió. La
+ * animación de capas vuelve en E6, ya como parte del vocabulario del modelo
+ * (con su duración y su curva en tokens, y reducida en el backoffice).
+ *
+ * SI VUELVES A PEGAR ESAS CLASES DESDE LA DOCUMENTACIÓN DE SHADCN, seguirán sin
+ * hacer nada mientras el plugin no esté. Ver docs/diseno-sistema-estilo.md §6.3.
+ */
+
 /**
  * UXV.2 (A3) — el menú de la cuenta en móvil.
  *
@@ -48,9 +67,9 @@ export function AccountMobileBar() {
       </div>
 
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/80 data-[state=closed]:animate-out data-[state=open]:animate-in data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/80" />
         <DialogPrimitive.Content
-          className="fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] overflow-y-auto border-r bg-background p-4 shadow-lg duration-200 data-[state=closed]:animate-out data-[state=open]:animate-in data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left"
+          className="fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] overflow-y-auto border-r bg-background p-4 shadow-lg duration-200"
           aria-label="Menú de mi cuenta"
         >
           <div className="mb-4 flex items-center justify-between">
