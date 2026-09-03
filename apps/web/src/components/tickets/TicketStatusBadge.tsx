@@ -8,10 +8,10 @@ import type { TicketStatus } from '@/types';
  */
 const STATUS_META: Record<TicketStatus, { label: string; className: string }> = {
   OPEN: { label: 'Abierto', className: 'bg-info-surface text-info-foreground hover:bg-info-surface' },
-  IN_PROGRESS: { label: 'En curso', className: 'bg-amber-100 text-amber-900 hover:bg-amber-100' },
+  IN_PROGRESS: { label: 'En curso', className: 'bg-warning-surface text-warning-foreground hover:bg-warning-surface' },
   WAITING_USER: {
     label: 'Esperando tu respuesta',
-    className: 'bg-purple-100 text-purple-900 hover:bg-purple-100',
+    className: 'bg-pending-surface text-pending-foreground hover:bg-pending-surface',
   },
   RESOLVED: { label: 'Resuelto', className: 'bg-success-surface text-success-foreground hover:bg-success-surface' },
   CLOSED: { label: 'Cerrado', className: 'bg-muted text-muted-foreground hover:bg-muted' },

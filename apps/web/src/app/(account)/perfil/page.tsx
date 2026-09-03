@@ -85,7 +85,7 @@ export default async function PerfilPage() {
 
       {/* Email verification notice */}
       {!user.emailVerified && (
-        <div className="flex items-start gap-3 rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
+        <div className="flex items-start gap-3 rounded-lg border border-warning-border bg-warning px-4 py-3 text-sm text-warning-foreground">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
           <span>
             Tu correo electrónico <strong>{user.email}</strong> no está verificado.

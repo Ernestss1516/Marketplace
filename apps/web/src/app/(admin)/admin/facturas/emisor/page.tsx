@@ -99,7 +99,7 @@ export default function EmisorFiscalPage() {
       </p>
 
       {/* Aviso de NO retroactividad — inmutabilidad fiscal */}
-      <div className="mb-6 flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+      <div className="mb-6 flex items-start gap-3 rounded-lg border border-warning-border bg-warning px-4 py-3 text-sm text-warning-foreground">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
         <span>
           Este emisor se aplica <strong>solo a las facturas que se emitan a partir de ahora</strong>. Las
@@ -148,7 +148,7 @@ export default function EmisorFiscalPage() {
               {status === 'saving' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Guardar emisor
             </Button>
-            {status === 'success' && <p className="text-sm text-green-600">Emisor fiscal guardado.</p>}
+            {status === 'success' && <p className="text-sm text-success-foreground">Emisor fiscal guardado.</p>}
             {status === 'error' && <p className="text-sm text-destructive">{errorMsg}</p>}
           </div>
         </form>

@@ -213,7 +213,7 @@ export function StepFotos({ images, token, onChange, errors, maxPhotos, minPhoto
               {/* Overlay: error */}
               {img.error && !img.uploading && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 rounded-lg bg-black/50 p-1">
-                  <AlertCircle className="h-5 w-5 text-red-400" />
+                  <AlertCircle className="h-5 w-5 text-destructive" />
                   <button
                     type="button"
                     onClick={() => retry(img.localId, img.previewUrl)}

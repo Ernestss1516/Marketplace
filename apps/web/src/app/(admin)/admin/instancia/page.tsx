@@ -85,7 +85,7 @@ function Valor({ v, ausente = 'Sin configurar' }: { v: string | null | undefined
  */
 function Configurado({ ok }: { ok: boolean }) {
   return ok ? (
-    <span className="inline-flex items-center gap-1 text-green-700">
+    <span className="inline-flex items-center gap-1 text-success-foreground">
       <Check className="h-3.5 w-3.5" /> Configurado
     </span>
   ) : (
@@ -132,7 +132,7 @@ function LogosDeInstancia() {
           />
         </span>
       ))}
-      <Link href="/admin/marca" className="text-xs text-blue-700 hover:underline">
+      <Link href="/admin/marca" className="text-xs text-primary hover:underline">
         Cambiar
       </Link>
     </div>
@@ -143,7 +143,7 @@ function LogosDeInstancia() {
 function Aviso({ children }: { children: React.ReactNode }) {
   return (
     <div
-      className="flex gap-2 rounded-md border border-amber-400 bg-amber-50 p-3 text-sm text-amber-900"
+      className="flex gap-2 rounded-md border border-warning-border bg-warning p-3 text-sm text-warning-foreground"
       data-testid="aviso-instancia"
     >
       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -234,7 +234,7 @@ export default function AdminInstanciaPage() {
       <p className="mb-6 text-sm text-muted-foreground">
         Cómo está montada esta instalación. Es una pantalla de <strong>consulta</strong>: aquí
         no se cambia nada. Lo que sí es configurable se edita en{' '}
-        <Link href="/admin/ajustes" className="text-blue-700 hover:underline">
+        <Link href="/admin/ajustes" className="text-primary hover:underline">
           Ajustes
         </Link>
         .

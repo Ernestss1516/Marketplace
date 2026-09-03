@@ -45,7 +45,7 @@ export function ReportButton({ listingId }: Props) {
 
   if (submitted) {
     return (
-      <div className="rounded-md bg-green-50 px-4 py-3 text-sm text-green-800">
+      <div className="rounded-md bg-success px-4 py-3 text-sm text-success-foreground">
         Denuncia enviada. Gracias por ayudarnos a mantener la comunidad segura.
       </div>
     );

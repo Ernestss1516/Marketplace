@@ -118,7 +118,7 @@ export function FacturasPanel({ token, eligibility, facturables, invoices }: Pro
         {/* UXV.6 (B5) — «(arriba)» no es una salida: el usuario tenía que buscar el
             formulario por su cuenta. Ahora es un enlace que lleva a él. */}
         {!eligibility.hasFiscalData ? (
-          <div className="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
+          <div className="rounded-lg border border-warning-border bg-warning px-4 py-3 text-sm text-warning-foreground">
             Para poder solicitar facturas necesitas tus datos fiscales completos.{' '}
             <a href="#datos-fiscales" className="font-medium underline">
               Completarlos ahora

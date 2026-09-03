@@ -132,7 +132,7 @@ export default function AdminFichaReportePage({ params }: { params: Promise<{ id
         <span
           className={[
             'rounded-full px-2 py-0.5 text-xs font-medium',
-            data.status === 'PENDING' && 'bg-warning-strong text-warning-foreground',
+            data.status === 'PENDING' && 'bg-warning-surface text-warning-foreground',
             data.status === 'REVIEWING' && 'bg-info-surface text-info-foreground',
             data.status === 'RESOLVED' && 'bg-success-surface text-success-foreground',
             data.status === 'DISMISSED' && 'bg-neutral-surface text-neutral-foreground',

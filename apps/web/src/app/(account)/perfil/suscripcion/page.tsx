@@ -129,7 +129,7 @@ export default async function SuscripcionPage() {
                 <Separator />
                 <div className="flex flex-wrap items-center gap-4 text-sm">
                   <div className="flex items-center gap-2">
-                    <Star className="h-4 w-4 text-amber-500" />
+                    <Star className="h-4 w-4 text-featured" />
                     <span className="text-muted-foreground">Destacados gratis: </span>
                     <span className="font-medium">
                       {proStatus.remaining} de {proStatus.limit} restantes este mes
@@ -139,7 +139,7 @@ export default async function SuscripcionPage() {
                       destacados, y aquí no aparecía: el único sitio donde se veía era
                       incrustada en el texto del botón de la tarjeta. */}
                   <div className="flex items-center gap-2">
-                    <TrendingUp className="h-4 w-4 text-amber-500" />
+                    <TrendingUp className="h-4 w-4 text-featured" />
                     <span className="text-muted-foreground">Bumps gratis: </span>
                     <span className="font-medium">
                       {proStatus.bumpQuota.remaining} de {proStatus.bumpQuota.limit} restantes

@@ -41,7 +41,7 @@ export function FeaturedBlock({ listings }: { listings: ListingSummary[] }) {
     // informaba a los demás.
     <section className="mb-6" aria-label="Publicidad — anuncios promocionados">
       <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-        <span className="flex items-center gap-1.5 text-sm font-semibold text-amber-700">
+        <span className="flex items-center gap-1.5 text-sm font-semibold text-warning-foreground">
           <Sparkles className="h-4 w-4" aria-hidden />
           Promocionados
         </span>

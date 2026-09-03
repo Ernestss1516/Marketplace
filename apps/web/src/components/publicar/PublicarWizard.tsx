@@ -476,8 +476,8 @@ export function PublicarWizard({ token, categories, initialLocation, initialPhon
             className="flex flex-col items-center gap-4 py-8 text-center"
             data-testid="publicar-bloqueado"
           >
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-amber-100">
-              <MailWarning className="h-8 w-8 text-amber-600" />
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-warning-surface">
+              <MailWarning className="h-8 w-8 text-warning-foreground" />
             </div>
             <div className="space-y-1">
               <h2 className="text-lg font-semibold">Guardado como borrador</h2>
@@ -506,8 +506,8 @@ export function PublicarWizard({ token, categories, initialLocation, initialPhon
 
         {currentStepId === 'previsualizacion' && pendingReview && (
           <div className="flex flex-col items-center gap-4 py-8 text-center">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-amber-100">
-              <Clock className="h-8 w-8 text-amber-600" />
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-warning-surface">
+              <Clock className="h-8 w-8 text-warning-foreground" />
             </div>
             <div className="space-y-1">
               <h2 className="text-lg font-semibold">Anuncio enviado a revisión</h2>

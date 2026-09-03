@@ -145,12 +145,12 @@ export function BumpPackList({ packs, isPro, proExtraBumpsPercent, campaign }: P
                   </p>
                 )}
                 {bonus > 0 && isPro && (
-                  <p className="mt-1 text-xs font-medium text-amber-600" data-testid="pack-bonus-pro">
+                  <p className="mt-1 text-xs font-medium text-warning-foreground" data-testid="pack-bonus-pro">
                     + {bonus} de regalo por ser Pro
                   </p>
                 )}
                 {campaignBonus > 0 && (
-                  <p className="mt-1 text-xs font-medium text-green-600" data-testid="pack-bonus-campana">
+                  <p className="mt-1 text-xs font-medium text-success-foreground" data-testid="pack-bonus-campana">
                     + {campaignBonus} por {campaignLabel}
                   </p>
                 )}

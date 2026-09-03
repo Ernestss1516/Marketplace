@@ -227,7 +227,7 @@ export default function AdminFacturasPage() {
       </div>
 
       {issuerConfigured === false && (
-        <div className="mb-4 rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
+        <div className="mb-4 rounded-lg border border-warning-border bg-warning px-4 py-3 text-sm text-warning-foreground">
           El emisor fiscal aún no está configurado. Configúralo antes de que se emitan facturas — sin él, la
           emisión (manual y automática) falla.{' '}
           <Link href="/admin/facturas/emisor" className="font-medium underline">

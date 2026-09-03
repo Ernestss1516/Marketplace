@@ -62,7 +62,7 @@ export function ValoracionFila({
   return (
     <li
       className={`space-y-0.5 border-l-2 py-1 pl-3 text-sm ${
-        retirada ? 'border-amber-400 opacity-60' : ''
+        retirada ? 'border-warning-border opacity-60' : ''
       }`}
       data-testid={retirada ? 'valoracion-retirada' : 'valoracion-vigente'}
     >
@@ -70,7 +70,7 @@ export function ValoracionFila({
         {/* Las cinco SIEMPRE, en claro y en oscuro: `'★'.repeat(rating)` a secas obliga a
             contar puntas para saber si son tres de cinco o tres de tres. */}
         <span className="font-medium tabular-nums" title={`${rating} de 5`}>
-          <span className="text-amber-500">{'★'.repeat(rating)}</span>
+          <span className="text-rating">{'★'.repeat(rating)}</span>
           <span className="text-muted-foreground">{'☆'.repeat(5 - rating)}</span>
         </span>
         <span className="text-xs text-muted-foreground">
@@ -93,7 +93,7 @@ export function ValoracionFila({
         )}
         {retirada && (
           <span
-            className="rounded bg-amber-100 px-1.5 text-xs text-amber-800"
+            className="rounded bg-warning-surface px-1.5 text-xs text-warning-foreground"
             title={retiredReason ?? undefined}
           >
             Retirada
@@ -112,7 +112,7 @@ export function ValoracionFila({
       {/* El motivo, en claro y no sólo en el `title` del distintivo: es el registro de por
           qué alguien del equipo la retiró, y quien la va a restaurar tiene que leerlo. */}
       {retirada && retiredReason && (
-        <p className="text-xs text-amber-700">Motivo: {retiredReason}</p>
+        <p className="text-xs text-warning-foreground">Motivo: {retiredReason}</p>
       )}
       {acciones && <div className="flex flex-wrap gap-2 pt-1">{acciones}</div>}
     </li>

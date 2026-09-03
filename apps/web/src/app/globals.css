@@ -81,29 +81,82 @@
     --featured: #fbbf24;
     --favorite: #ef4444;
 
-    /* ── E2 · EL BADGE DE ESTADO ───────────────────────────────────────────────
-       El único idioma de la cola larga que se repite con valores CONSISTENTES:
-       `bg-{color}-100 text-{color}-800` para pintar el estado de un reporte o de
-       un ticket, en tres ficheros. Cuatro estados, cuatro parejas.
+    /* ══ E4b · LAS ESCALAS SEMÁNTICAS DEL MODELO 0 ════════════════════════════
+       (E2 abrió esta sección con las cuatro parejas del badge de estado. E4b la
+       absorbe y la completa: lo que allí eran cuatro superficies sueltas es ahora
+       una escala por intención, y las declaraciones viven todas aquí abajo.)
 
-       `--warning-strong` completa la familia que abrió E0: aquélla trajo la
-       superficie suave del aviso (`yellow-50`), el trazo y el texto; ésta es la
-       superficie del badge (`yellow-100`), más saturada porque va sobre fondo
-       claro y sin borde. El texto lo COMPARTE con E0 —`--warning-foreground` ya
-       valía `yellow-800`, que es justo lo que el badge usa—, y ahí sí hay
-       consolidación de verdad y no un token nuevo por inercia.
+       Aquí SÍ cambian píxeles, y es la primera vez en toda la migración. E0-E4a
+       movieron colores a tokens sin tocar uno; esto UNIFICA, y unificar es
+       decidir aspecto.
 
-       `--neutral-*` es el estado «ni bien ni mal» (un reporte descartado, un
-       ticket cerrado). No es `--muted`: aquél es una superficie de la interfaz,
-       éste comunica un estado. Comparten familia de grises y hoy ni siquiera el
-       mismo valor. */
+       QUÉ SE UNIFICA. La plataforma pintaba «aviso» con dos paletas a la vez
+       —`amber-50` y `yellow-50`— y sus textos con tres tonos (`amber-600`,
+       `amber-800`, `amber-900`). No era una decisión: era el sedimento de años.
+       Cada intención pasa a tener UN color por rol.
+
+       LOS SEIS ROLES, que salieron de mirar cómo se usaban de verdad los 58
+       tonos y no de inventar una escala:
+
+         X                   superficie suave — el fondo de un panel     (era -50)
+         X-surface           superficie — el fondo de un badge          (era -100)
+         X-border            trazo                              (era -200/-300/-400)
+         X-foreground        texto sobre esas superficies       (era -700/-800/-900)
+         X-solid             relleno macizo — un botón                  (era -500/-600)
+         X-solid-hover       su hover                                   (era -600/-700)
+
+       MODELO 0 ES SOBRIO, así que cada rol toma el tono que YA era mayoritario
+       en ese papel. No es un rediseño: es quedarse con uno de los que había.
+
+       DÓNDE SE NOTARÁ MÁS: los textos de aviso que eran `amber-600` (3,2:1 sobre
+       blanco, por debajo de AA) pasan a `--warning-foreground` (6,4:1). Se ven
+       más oscuros, y además legibles. */
+
+    /* Aviso — base amarilla, absorbiendo el ámbar. */
+    --warning-surface: #fef9c3;
+    --warning-solid: #eab308;
+    --warning-solid-hover: #ca8a04;
+
+    /* Éxito. */
+    --success: #f0fdf4;
     --success-surface: #dcfce7;
+    --success-border: #86efac;
     --success-foreground: #166534;
+    --success-solid: #16a34a;
+    --success-solid-hover: #15803d;
+
+    /* Información. NO tiene `-solid`: el relleno macizo azul de una acción
+       principal es `--primary`, que ya vale exactamente `blue-600`. Inventar un
+       `--info-solid` con el mismo valor sería dos nombres para un color. */
+    --info: #eff6ff;
     --info-surface: #dbeafe;
+    --info-border: #bfdbfe;
     --info-foreground: #1e40af;
-    --warning-strong: #fef9c3;
+
+    /* Destructivo — EL ÚNICO ASIMÉTRICO, y no por gusto: `--destructive` y
+       `--destructive-foreground` los define shadcn y los consume `Button`, donde
+       significan «el relleno macizo» y «la letra encima». Renombrarlos para
+       encajar en el esquema de arriba habría tocado el componente más usado del
+       repo a cambio de coherencia nominal. Así que el destructivo tiene su
+       superficie suave con nombre propio. */
+    --destructive-subtle: #fef2f2;
+    --destructive-border: #fecaca;
+    --destructive-strong: #b91c1c;
+
+    /* Esperando — el QUINTO estado, y existe porque hace falta. Un ticket puede
+       estar abierto, en curso, esperando al usuario, resuelto o cerrado: son
+       cinco, y cuatro semánticos sólo dan cuatro colores. Colapsarlo en otro
+       dejaría dos estados distintos pintados igual, que es perder información en
+       la pantalla donde el agente decide qué hacer. */
+    --pending-surface: #f3e8ff;
+    --pending-foreground: #581c87;
+
+    /* Neutro de estado — «ni bien ni mal»: un reporte descartado, un ticket
+       cerrado. Distinto de `--muted`, que es una superficie de interfaz. */
     --neutral-surface: #f3f4f6;
     --neutral-foreground: #4b5563;
+    --neutral-solid: #6b7280;
+    --neutral-solid-hover: #4b5563;
 
     /* ══ E3 · LA CAPA T3: LOS EJES QUE TRAE EL MODELO ═════════════════════════
        Hasta aquí, todo lo de arriba es COLOR. Lo que sigue son los otros cuatro

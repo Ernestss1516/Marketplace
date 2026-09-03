@@ -61,10 +61,17 @@ test.describe('Panel de instancia — /admin/instancia', () => {
     ).toBeVisible();
     await expect(page.getByText(/van al TPV de PRUEBAS/i)).toBeVisible();
 
-    // ÁMBAR DE VERDAD, no un texto gris: el aviso lleva su fondo y su borde. Es la
-    // diferencia entre una alarma y una nota al pie.
-    await expect(avisos.first()).toHaveClass(/border-amber-400/);
-    await expect(avisos.first()).toHaveClass(/bg-amber-50/);
+    // PINTADO DE AVISO DE VERDAD, no un texto gris: lleva su fondo y su borde. Es la
+    // diferencia entre una alarma y una nota al pie, y es lo que este test protege.
+    //
+    // Las clases eran `border-amber-400` / `bg-amber-50` hasta E4b, que unificó las dos
+    // paletas de aviso que convivían en el repo. La INTENCIÓN no cambia —sigue siendo
+    // «esto se ve como una alarma»—, así que la aserción se muda al token en vez de
+    // borrarse: fijar el tono concreto era lo accidental, fijar que hay pintado de aviso
+    // es lo que importa. Y ahora, además, un modelo puede cambiar ese color sin que este
+    // test se caiga.
+    await expect(avisos.first()).toHaveClass(/border-warning-border/);
+    await expect(avisos.first()).toHaveClass(/bg-warning/);
   });
 
   test('es de CONSULTA: no hay ni un control editable', async ({ adminContext }) => {

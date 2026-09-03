@@ -342,7 +342,7 @@ export default function AdminUserBillingDetailPage() {
                         <td
                           className={[
                             'py-2 pr-4 tabular-nums font-medium',
-                            entry.amount > 0 ? 'text-green-600' : 'text-destructive',
+                            entry.amount > 0 ? 'text-success-foreground' : 'text-destructive',
                           ].join(' ')}
                         >
                           {entry.amount > 0 ? '+' : ''}

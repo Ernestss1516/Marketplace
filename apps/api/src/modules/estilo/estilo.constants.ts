@@ -198,19 +198,47 @@ export const MODELO_0: Modelo = {
     destructive: '0 84.2% 60.2%',
     'destructive-foreground': '210 40% 98%',
 
-    // Aviso (E0) y badge de estado (E2). Hexadecimales literales, por lo mismo que
-    // allí: son valores exactos de la paleta de Tailwind y una conversión podría
-    // moverlos.
+    // ── E4b · LAS ESCALAS SEMÁNTICAS ─────────────────────────────────────────
+    // Seis roles por intención (superficie suave, superficie, trazo, texto,
+    // relleno macizo y su hover), con UN color por rol. Antes había dos paletas
+    // para «aviso» y tres tonos para su texto. El porqué de cada elección está
+    // en `apps/web/src/app/globals.css`, junto a las mismas declaraciones — y
+    // `globals-espejo.spec.ts` comprueba que los dos ficheros no divergen.
     warning: '#fefce8',
+    'warning-surface': '#fef9c3',
     'warning-border': '#fde047',
-    'warning-strong': '#fef9c3',
     'warning-foreground': '#854d0e',
+    'warning-solid': '#eab308',
+    'warning-solid-hover': '#ca8a04',
+
+    success: '#f0fdf4',
     'success-surface': '#dcfce7',
+    'success-border': '#86efac',
     'success-foreground': '#166534',
+    'success-solid': '#16a34a',
+    'success-solid-hover': '#15803d',
+
+    // Sin `-solid`: el azul macizo de una acción principal es `--primary`.
+    info: '#eff6ff',
     'info-surface': '#dbeafe',
+    'info-border': '#bfdbfe',
     'info-foreground': '#1e40af',
+
+    // Asimétrico a propósito: `destructive` y `destructive-foreground` los define
+    // shadcn y los consume `Button`.
+    'destructive-subtle': '#fef2f2',
+    'destructive-border': '#fecaca',
+    'destructive-strong': '#b91c1c',
+
+    // El quinto estado: «esperando al usuario». Cuatro semánticos no dan cinco
+    // colores, y dos estados pintados igual es perder información.
+    'pending-surface': '#f3e8ff',
+    'pending-foreground': '#581c87',
+
     'neutral-surface': '#f3f4f6',
     'neutral-foreground': '#4b5563',
+    'neutral-solid': '#6b7280',
+    'neutral-solid-hover': '#4b5563',
 
     // Convenciones (E2). No son estados; ver `globals.css`.
     rating: '#fbbf24',

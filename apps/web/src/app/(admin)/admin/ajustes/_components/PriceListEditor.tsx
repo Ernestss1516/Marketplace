@@ -150,7 +150,7 @@ function PriceRow({
           Guardar
         </Button>
         {success && (
-          <span className="flex items-center gap-1 text-xs text-green-700">
+          <span className="flex items-center gap-1 text-xs text-success-foreground">
             <Check className="h-3 w-3" />
             Guardado
           </span>

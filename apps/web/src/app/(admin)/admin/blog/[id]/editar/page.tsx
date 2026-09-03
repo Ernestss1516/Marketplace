@@ -248,7 +248,7 @@ export default function EditarBlogPage() {
       </div>
 
       {saveSuccess && (
-        <div className="mb-4 rounded-md border border-green-300 bg-green-50 p-3 text-sm text-green-800">
+        <div className="mb-4 rounded-md border border-success-border bg-success p-3 text-sm text-success-foreground">
           Cambios guardados correctamente.
         </div>
       )}

@@ -50,9 +50,9 @@ function utilidad(nombre: string, clave?: string): unknown {
  */
 const TOKENS: readonly [string, string, string, string, string?][] = [
   // ── E0 · el aviso de sesión (29 copias) ──────────────────────────────────────
-  ['warning', colors.yellow[50], 'bg-yellow-50', 'warning', 'DEFAULT'],
-  ['warning-border', colors.yellow[300], 'border-yellow-300', 'warning', 'border'],
-  ['warning-foreground', colors.yellow[800], 'text-yellow-800', 'warning', 'foreground'],
+  ['warning', colors.yellow[50], 'bg-warning', 'warning', 'DEFAULT'],
+  ['warning-border', colors.yellow[300], 'border-warning-border', 'warning', 'border'],
+  ['warning-foreground', colors.yellow[800], 'text-warning-foreground', 'warning', 'foreground'],
 
   // ── E2 · las convenciones ────────────────────────────────────────────────────
   // No son estados: una estrella dorada y un corazón rojo significan lo que
@@ -61,14 +61,36 @@ const TOKENS: readonly [string, string, string, string, string?][] = [
   ['featured', colors.amber[400], 'fill-amber-400 (estrella de destacado)', 'featured'],
   ['favorite', colors.red[500], 'fill-red-500 (corazón de favorito)', 'favorite'],
 
-  // ── E2 · el badge de estado ──────────────────────────────────────────────────
-  ['warning-strong', colors.yellow[100], 'bg-yellow-100', 'warning', 'strong'],
+  // ── E4b · las escalas semánticas ─────────────────────────────────────────────
+  // Seis roles por intención. Cada valor sigue trazando a un tono concreto de la
+  // paleta de Tailwind: E4b decide CUÁL se usa en cada papel, no inventa colores.
+  ['warning-surface', colors.yellow[100], 'bg-yellow-100', 'warning', 'surface'],
+  ['warning-solid', colors.yellow[500], 'bg-amber-500 (punto de estado)', 'warning', 'solid'],
+  ['warning-solid-hover', colors.yellow[600], 'su hover', 'warning', 'solid-hover'],
+
+  ['success', colors.green[50], 'bg-green-50', 'success', 'DEFAULT'],
   ['success-surface', colors.green[100], 'bg-green-100', 'success', 'surface'],
+  ['success-border', colors.green[300], 'border-green-300', 'success', 'border'],
   ['success-foreground', colors.green[800], 'text-green-800', 'success', 'foreground'],
+  ['success-solid', colors.green[600], 'bg-green-600', 'success', 'solid'],
+  ['success-solid-hover', colors.green[700], 'hover:bg-green-700', 'success', 'solid-hover'],
+
+  ['info', colors.blue[50], 'bg-blue-50', 'info', 'DEFAULT'],
   ['info-surface', colors.blue[100], 'bg-blue-100', 'info', 'surface'],
+  ['info-border', colors.blue[200], 'border-blue-200', 'info', 'border'],
   ['info-foreground', colors.blue[800], 'text-blue-800', 'info', 'foreground'],
+
+  ['destructive-subtle', colors.red[50], 'bg-red-50', 'destructive-subtle'],
+  ['destructive-border', colors.red[200], 'border-red-200', 'destructive-border'],
+  ['destructive-strong', colors.red[700], 'text-red-700', 'destructive-strong'],
+
+  ['pending-surface', colors.purple[100], 'bg-purple-100', 'pending', 'surface'],
+  ['pending-foreground', colors.purple[900], 'text-purple-900', 'pending', 'foreground'],
+
   ['neutral-surface', colors.gray[100], 'bg-gray-100', 'neutral', 'surface'],
   ['neutral-foreground', colors.gray[600], 'text-gray-600', 'neutral', 'foreground'],
+  ['neutral-solid', colors.gray[500], 'bg-gray-500', 'neutral', 'solid'],
+  ['neutral-solid-hover', colors.gray[600], 'hover:bg-gray-600', 'neutral', 'solid-hover'],
 ];
 
 // Bucle explícito y no `it.each`: las filas tienen 4 o 5 columnas según el token lleve

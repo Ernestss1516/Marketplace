@@ -47,25 +47,44 @@ const config: Config = {
   			/* E0 — el token semántico de aviso. Sin `hsl(...)` alrededor porque su
   			   variable ya es un color completo, no un triplete: ver el porqué en
   			   globals.css, junto a la declaración. */
+  			/* ── E4b · LAS ESCALAS SEMÁNTICAS ────────────────────────────────────
+  			   Seis roles por intención. Ver el porqué en globals.css. */
   			warning: {
   				DEFAULT: 'var(--warning)',
+  				surface: 'var(--warning-surface)',
   				border: 'var(--warning-border)',
-  				strong: 'var(--warning-strong)',
-  				foreground: 'var(--warning-foreground)'
+  				foreground: 'var(--warning-foreground)',
+  				solid: 'var(--warning-solid)',
+  				'solid-hover': 'var(--warning-solid-hover)'
   			},
-  			/* E2 — los otros tres estados del badge. `warning` ya existía desde E0
-  			   y sólo gana su superficie fuerte; el texto lo comparte. */
   			success: {
+  				DEFAULT: 'var(--success)',
   				surface: 'var(--success-surface)',
-  				foreground: 'var(--success-foreground)'
+  				border: 'var(--success-border)',
+  				foreground: 'var(--success-foreground)',
+  				solid: 'var(--success-solid)',
+  				'solid-hover': 'var(--success-solid-hover)'
   			},
   			info: {
+  				DEFAULT: 'var(--info)',
   				surface: 'var(--info-surface)',
+  				border: 'var(--info-border)',
   				foreground: 'var(--info-foreground)'
+  			},
+  			/* `destructive` ya existía (shadcn): es el relleno macizo. Gana su
+  			   superficie suave con nombre propio — ver globals.css. */
+  			'destructive-subtle': 'var(--destructive-subtle)',
+  			'destructive-border': 'var(--destructive-border)',
+  			'destructive-strong': 'var(--destructive-strong)',
+  			pending: {
+  				surface: 'var(--pending-surface)',
+  				foreground: 'var(--pending-foreground)'
   			},
   			neutral: {
   				surface: 'var(--neutral-surface)',
-  				foreground: 'var(--neutral-foreground)'
+  				foreground: 'var(--neutral-foreground)',
+  				solid: 'var(--neutral-solid)',
+  				'solid-hover': 'var(--neutral-solid-hover)'
   			},
   			/* E2 — las convenciones. No son estados: ver el porqué en globals.css. */
   			rating: 'var(--rating)',

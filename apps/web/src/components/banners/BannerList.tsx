@@ -10,9 +10,9 @@ import type { Banner, BannerVariant } from '@/lib/api/banners';
 const DISMISSED_KEY = 'dismissed-banners';
 
 const VARIANT_STYLES: Record<BannerVariant, string> = {
-  INFO: 'border-blue-200 bg-blue-50 text-blue-900',
-  PROMO: 'border-emerald-200 bg-emerald-50 text-emerald-900',
-  WARNING: 'border-amber-200 bg-amber-50 text-amber-900',
+  INFO: 'border-info-border bg-info text-info-foreground',
+  PROMO: 'border-success-border bg-success text-success-foreground',
+  WARNING: 'border-warning-border bg-warning text-warning-foreground',
 };
 
 function readDismissedIds(): Set<string> {

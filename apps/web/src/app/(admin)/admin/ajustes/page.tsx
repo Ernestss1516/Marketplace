@@ -129,7 +129,7 @@ function DetectionModesEditor({
               </select>
               <Link
                 href={`/admin/anuncios?detector=${s.detector}`}
-                className="text-xs text-blue-700 hover:underline"
+                className="text-xs text-primary hover:underline"
               >
                 Ver cuáles
               </Link>
@@ -204,7 +204,7 @@ function FlaggedIpsEditor({
     <div className="space-y-3">
       {invalidas.length > 0 && (
         <div
-          className="rounded-md border border-amber-400 bg-amber-50 p-3 text-xs text-amber-900"
+          className="rounded-md border border-warning-border bg-warning p-3 text-xs text-warning-foreground"
           data-testid="aviso-ips-invalidas"
         >
           <p className="font-medium">
@@ -293,7 +293,7 @@ function FlaggedPhonesEditor({
     <div className="space-y-3">
       {invalidas.length > 0 && (
         <div
-          className="rounded-md border border-amber-400 bg-amber-50 p-3 text-xs text-amber-900"
+          className="rounded-md border border-warning-border bg-warning p-3 text-xs text-warning-foreground"
           data-testid="aviso-telefonos-invalidos"
         >
           <p className="font-medium">
@@ -385,7 +385,7 @@ function BadWordListEditor({
           efecto. Ver docs/diseno-listas-bloqueo.md §5.4. */}
       {empiezanAFiltrar.length > 0 && (
         <div
-          className="rounded-md border border-amber-400 bg-amber-50 p-3 text-xs text-amber-900"
+          className="rounded-md border border-warning-border bg-warning p-3 text-xs text-warning-foreground"
           data-testid="aviso-entradas-inertes"
         >
           <p className="font-medium">
@@ -808,7 +808,7 @@ function SaveRow({
         Guardar
       </Button>
       {success && (
-        <span className="flex items-center gap-1 text-xs text-green-700">
+        <span className="flex items-center gap-1 text-xs text-success-foreground">
           <Check className="h-3 w-3" />
           Guardado
         </span>
@@ -884,7 +884,7 @@ function EmisorFiscalCard({ token }: { token: string }) {
       )}
       {estado && !estado.configured && (
         <div
-          className="rounded-md border border-amber-400 bg-amber-50 p-3 text-xs text-amber-900"
+          className="rounded-md border border-warning-border bg-warning p-3 text-xs text-warning-foreground"
           data-testid="emisor-sin-configurar"
         >
           <strong>Sin configurar.</strong> Mientras falten el NIF y la razón social no se puede
@@ -892,7 +892,7 @@ function EmisorFiscalCard({ token }: { token: string }) {
         </div>
       )}
       <p className="mt-3 text-sm">
-        <Link href="/admin/facturas/emisor" className="text-blue-700 hover:underline">
+        <Link href="/admin/facturas/emisor" className="text-primary hover:underline">
           Configurar el emisor fiscal →
         </Link>
       </p>

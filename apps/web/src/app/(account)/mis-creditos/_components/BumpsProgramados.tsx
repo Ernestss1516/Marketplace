@@ -97,7 +97,7 @@ export function BumpsProgramados({ token, inicial }: Props) {
                 </p>
                 <p
                   className={`mt-0.5 flex flex-wrap items-center gap-1 ${
-                    estado.activa ? 'text-muted-foreground' : 'font-medium text-amber-600'
+                    estado.activa ? 'text-muted-foreground' : 'font-medium text-warning-foreground'
                   }`}
                   data-testid="estado-programacion"
                 >

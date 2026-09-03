@@ -239,7 +239,7 @@ export default function AdminModeracionPage() {
 
                 {rechazos[listing.id] && (
                   <p
-                    className="mt-2 flex items-start gap-1.5 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-200"
+                    className="mt-2 flex items-start gap-1.5 rounded-md bg-warning px-3 py-2 text-xs text-warning-foreground"
                     data-testid={`cola-bloqueo-${listing.id}`}
                   >
                     <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />

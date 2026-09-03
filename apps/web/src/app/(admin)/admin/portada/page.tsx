@@ -302,7 +302,7 @@ export default function AdminPortadaPage() {
           <span className="text-sm text-muted-foreground">Sin cambios sin guardar.</span>
         )}
         {saved && (
-          <span className="flex items-center gap-1 text-sm text-emerald-600" data-testid="portada-guardada">
+          <span className="flex items-center gap-1 text-sm text-success-foreground" data-testid="portada-guardada">
             <CheckCircle2 className="h-4 w-4" /> Guardado. La portada ya lo muestra.
           </span>
         )}

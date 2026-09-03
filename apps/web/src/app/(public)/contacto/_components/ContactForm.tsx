@@ -98,13 +98,13 @@ export function ContactForm() {
   return (
     <form onSubmit={handleSubmit} className="space-y-4" noValidate>
       {error && (
-        <p className="rounded bg-red-50 p-3 text-sm text-red-700" role="alert">
+        <p className="rounded bg-destructive-subtle p-3 text-sm text-destructive-strong" role="alert">
           {error}
         </p>
       )}
 
       {motivos !== null && motivos.length === 0 ? (
-        <p className="rounded bg-yellow-50 p-3 text-sm text-yellow-800" role="alert">
+        <p className="rounded bg-warning p-3 text-sm text-warning-foreground" role="alert">
           El formulario no está disponible en este momento. Inténtalo más tarde.
         </p>
       ) : (

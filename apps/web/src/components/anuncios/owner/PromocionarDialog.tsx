@@ -652,7 +652,7 @@ export function PromocionarDialog({
                         </RadioGroup>
 
                         {featureMethod === 'quota' && proStatus?.remaining === 1 && (
-                          <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                          <p className="mt-3 rounded-md border border-warning-border bg-warning px-3 py-2 text-sm text-warning-foreground">
                             Este es tu último destacado gratis de este mes.
                           </p>
                         )}
@@ -715,7 +715,7 @@ export function PromocionarDialog({
                                         )}
                                         {pr.creditCost ?? '—'} cr.
                                         {pr.discountPercent != null && (
-                                          <span className="font-medium text-amber-600">
+                                          <span className="font-medium text-warning-foreground">
                                             -{pr.discountPercent}%
                                           </span>
                                         )}

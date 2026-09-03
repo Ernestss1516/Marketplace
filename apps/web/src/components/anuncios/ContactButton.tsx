@@ -54,7 +54,7 @@ export function ContactButton({ listingId }: Props) {
 
   // Shown when email is not verified
   const unverifiedNotice = (
-    <div className="rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-800">
+    <div className="rounded-md bg-warning px-4 py-3 text-sm text-warning-foreground">
       <p>Verifica tu email antes de enviar mensajes.</p>
       <Link href="/verificar-email" className="mt-1 inline-block font-medium underline">
         Verificar ahora

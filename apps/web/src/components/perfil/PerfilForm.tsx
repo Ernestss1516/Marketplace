@@ -220,7 +220,7 @@ export function PerfilForm({ initialUser, token }: Props) {
         </Button>
 
         {status === 'success' && (
-          <p className="text-sm text-green-600">Perfil actualizado correctamente.</p>
+          <p className="text-sm text-success-foreground">Perfil actualizado correctamente.</p>
         )}
         {status === 'error' && (
           <p className="text-sm text-destructive">Error al guardar. Inténtalo de nuevo.</p>

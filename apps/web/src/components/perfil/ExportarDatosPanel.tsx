@@ -109,7 +109,7 @@ export function ExportarDatosPanel({
       )}
 
       {actual?.status === 'READY' && (
-        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-900">
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-success-border bg-success px-4 py-3 text-sm text-success-foreground">
           <Package className="h-4 w-4" />
           <span>
             Tu archivo está listo
@@ -128,7 +128,7 @@ export function ExportarDatosPanel({
       )}
 
       {actual?.status === 'FAILED' && (
-        <div className="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-900">
+        <div className="rounded-lg border border-warning-border bg-warning px-4 py-3 text-sm text-warning-foreground">
           La última exportación no se pudo completar. Puedes volver a solicitarla.
         </div>
       )}

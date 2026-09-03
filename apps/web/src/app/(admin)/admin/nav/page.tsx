@@ -377,14 +377,14 @@ function NodeRow({
             </Badge>
           )}
           {item.type === 'PAGE' && item.page?.status === 'DRAFT' && (
-            <Badge variant="outline" className="ml-2 border-amber-300 text-[10px] text-amber-600">
+            <Badge variant="outline" className="ml-2 border-warning-border text-[10px] text-warning-foreground">
               en borrador — no se muestra
             </Badge>
           )}
           {invalido && (
             <Badge
               variant="outline"
-              className="ml-2 border-amber-300 text-[10px] text-amber-600"
+              className="ml-2 border-warning-border text-[10px] text-warning-foreground"
               data-testid="badge-sin-destino"
             >
               sin destino y sin submenús — no se muestra

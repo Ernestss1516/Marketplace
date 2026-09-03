@@ -230,7 +230,7 @@ export default function MapView({ hits, totalHits, listUrl, attributeMap }: Prop
       {showCapWarning && (
         <div
           role="status"
-          className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800"
+          className="mt-2 rounded-md border border-warning-border bg-warning px-3 py-2 text-sm text-warning-foreground"
           data-testid="map-cap-warning"
         >
           Mostrando {hits.length} de {totalHits.toLocaleString('es-ES')} anuncios en el mapa.{' '}

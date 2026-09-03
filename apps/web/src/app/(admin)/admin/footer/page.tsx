@@ -281,7 +281,7 @@ function ItemRow({
           <span className="text-sm font-medium">{item.label}</span>
           <span className="ml-2 text-xs text-muted-foreground">{destinationSummary(item)}</span>
           {item.type === 'PAGE' && item.page?.status === 'DRAFT' && (
-            <Badge variant="outline" className="ml-2 text-[10px] text-amber-600 border-amber-300">
+            <Badge variant="outline" className="ml-2 text-[10px] text-warning-foreground border-warning-border">
               en borrador — no se muestra
             </Badge>
           )}

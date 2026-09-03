@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
  * La misma cadena de clases estaba escrita **29 veces, byte a byte**, en 29 pantallas del
  * backoffice:
  *
- *     rounded border border-yellow-300 bg-yellow-50 p-4 text-yellow-800
+ *     rounded border border-warning-border bg-warning p-4 text-warning-foreground
  *
  * No eran 29 decisiones de diseño: era una copia. Y con ella iba copiado el color, que es
  * lo que convierte «cambiar el amarillo de aviso» en 29 ediciones y 29 ocasiones de
@@ -17,7 +17,7 @@ import { cn } from '@/lib/utils';
  * ── POR QUÉ TOKENS Y NO LAS CLASES DE SIEMPRE ─────────────────────────────────────────
  *
  * Porque es el punto entero de E0: dejar el sistema listo para que un MODELO decida los
- * colores sin tocar un solo `.tsx` (la regla de oro de la frontera). Un `bg-yellow-50`
+ * colores sin tocar un solo `.tsx` (la regla de oro de la frontera). Un `bg-warning`
  * escrito en un componente es una decisión de aspecto viviendo en la capa que no puede
  * tenerlas. `bg-warning` es la misma decisión, movida a donde el modelo puede cambiarla.
  *

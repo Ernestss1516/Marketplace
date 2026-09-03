@@ -106,7 +106,7 @@ export function RedeemCouponForm({ token }: Props) {
           equivoca al teclear el primero y acierta al segundo— es un caso normal.
         */}
         {success && (
-          <p className="text-sm font-medium text-green-600" data-testid="coupon-success">
+          <p className="text-sm font-medium text-success-foreground" data-testid="coupon-success">
             {success}
           </p>
         )}

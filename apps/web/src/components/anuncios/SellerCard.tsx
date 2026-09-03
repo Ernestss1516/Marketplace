@@ -48,7 +48,7 @@ export function SellerCard({ seller, publishedAt }: SellerCardProps) {
       {seller.trusted && (
         <Badge
           variant="outline"
-          className="mt-3 gap-1 border-green-300 bg-green-50 text-green-700 hover:bg-green-50"
+          className="mt-3 gap-1 border-success-border bg-success text-success-foreground hover:bg-success"
           data-testid="seller-trusted-badge"
         >
           <BadgeCheck className="h-3 w-3" aria-hidden />

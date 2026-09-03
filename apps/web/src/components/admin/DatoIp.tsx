@@ -56,7 +56,7 @@ export function DatoIp({
             'Esta IP está en la lista de vigilancia. Es una señal para el equipo: no ' +
             'despublica el anuncio ni suspende la cuenta.'
           }
-          className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-900"
+          className="rounded bg-warning-surface px-1.5 py-0.5 text-xs font-medium text-warning-foreground"
           data-testid="ip-marcada"
         >
           IP marcada
@@ -72,7 +72,7 @@ export function DatoIp({
         }
         className="inline-flex items-center"
       >
-        <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden />
+        <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-warning-foreground" aria-hidden />
         <span className="sr-only">
           IP sin verificar: podría estar falsificada mientras no se confirme la
           configuración del proxy.
