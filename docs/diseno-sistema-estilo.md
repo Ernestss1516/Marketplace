@@ -229,6 +229,31 @@ Tres notas de implementación que hay que respetar:
    ([image-domains.ts](../apps/web/src/lib/image-domains.ts)), y el norte es
    multi-instancia: el tema tiene que venir de la base, no del bundle.
 
+> ⚠ **CORRECCIÓN TRAS EJECUTAR E4a — la nota 1 estaba al revés, y hay una cuarta.**
+>
+> **La nota 1 se corrige.** Entre custom properties de igual especificidad **gana la
+> última declarada**, así que un `<style>` colocado ANTES de `globals.css` perdería
+> siempre — justo lo contrario de lo que decía. Y depender del orden sería frágil de
+> todos modos, porque Next decide dónde coloca el CSS y los `<style>` de un Server
+> Component. Se resuelve por **especificidad**: el bloque usa `html:root` (0,1,1), que
+> gana a `:root` (0,1,0) esté donde esté.
+>
+> Efecto secundario y muy conveniente: con el bloque ganando por especificidad,
+> `globals.css` puede seguir declarando el Modelo 0 completo y **ser el respaldo**. Si el
+> backend no responde no se emite bloque y la plataforma se ve exactamente como antes de
+> que el sistema existiera — sin duplicar la paleta en el frontend, que es lo que la
+> alternativa de la nota original («los valores por defecto dejan de estar en
+> globals.css») habría obligado a hacer.
+>
+> **La nota 4, que faltaba: `next build` CONSERVA `.next/cache`.** Es su caché
+> incremental, y con ella sobrevive la entrada de `unstable_cache` del tema
+> (`revalidate: 3600`). En producción no molesta —`EstiloService` tumba el tag al
+> guardar—, pero **al verificar engaña**: durante E4a se cambió el azul del Modelo 0 por
+> un rojo, se reconstruyó, y las 47 capturas siguieron en verde. Parecía que el tema no
+> llegaba a las pantallas; lo que llegaba era el tema anterior, servido de disco. Con
+> `rm -rf .next` delante, **45 de las 47 capturas se movieron**. Cualquier prueba que
+> cambie el tema tiene que borrar `.next` antes, o mide la corrida anterior.
+
 ---
 
 ## 4. La consolidación de la dispersión (el corazón de E0)

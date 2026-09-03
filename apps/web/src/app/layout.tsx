@@ -3,6 +3,7 @@ import localFont from 'next/font/local';
 import { auth } from '@/lib/auth';
 import { AuthProvider } from '@/components/auth-provider';
 import { Toaster } from '@/components/ui/sonner';
+import { bloqueDeEstilo, getCachedEstilo } from '@/lib/api/estilo';
 import './globals.css';
 
 /**
@@ -74,12 +75,51 @@ export const metadata: Metadata = {
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
+
+  /**
+   * E4a — EL TEMA, EN EL HTML DE LA PRIMERA RESPUESTA.
+   *
+   * Se resuelve AQUÍ, en el layout de servidor, y no en el navegador. Es un requisito
+   * duro de la frontera, no una preferencia: si el tema llegara por JavaScript de
+   * cliente habría un instante con los colores por defecto y después un repintado —
+   * un salto visible, y probablemente CLS, que §6 prohíbe.
+   *
+   * El molde está probado en este repo: `(admin)/layout.tsx` ya resuelve los logos
+   * así, «sin petición desde el navegador, sin estado cargando y sin un instante en
+   * que la cabecera esté vacía».
+   *
+   * ── EL RESPALDO NO ES UNA COPIA DE VALORES, ES `globals.css` ────────────────────
+   *
+   * `.catch(() => null)` y, si no hay tema, NO SE EMITE NADA. No hace falta un mapa
+   * de reserva en el frontend: `globals.css` sigue declarando el Modelo 0 completo
+   * (E0-E3 lo dejaron ahí). Un backend caído deja la plataforma exactamente como
+   * estaba antes de que existiera el sistema — degrada, nunca rompe, y sin duplicar
+   * la paleta en dos sitios que podrían divergir.
+   *
+   * ── DOS NOTAS DE DESPLIEGUE ────────────────────────────────────────────────────
+   *
+   *  · **HOY NO HAY CSP** (verificado: ni en `next.config.ts` ni en `middleware.ts`).
+   *    Si algún día se añade una, este `<style>` necesitará un `nonce` en
+   *    `style-src`, o el tema desaparecerá en silencio y toda la plataforma se verá
+   *    con el Modelo 0 sin que nada dé error. Queda dicho para que no sorprenda.
+   *  · **LAS `NEXT_PUBLIC_*` NO SIRVEN PARA ESTO.** Se incrustan al CONSTRUIR, y el
+   *    norte es multi-instancia: el tema tiene que venir de la base de datos de cada
+   *    instancia, no del bundle. Es la misma lección que `image-domains.ts` dejó
+   *    escrita.
+   */
+  const estilo = await getCachedEstilo().catch(() => null);
+  const css = estilo ? bloqueDeEstilo(estilo.tokens) : '';
   // La clase de `next/font` va en el <html> y no en el <body>: `:root` ES el <html>,
   // así que es donde `--font-inter` tiene que estar declarada para que `--font-sans`
   // (que vive en `:root`, en globals.css) pueda referenciarla. El <body> ya no lleva
   // clase de fuente: la aplica el preflight de Tailwind desde `fontFamily.sans`.
   return (
     <html lang="es" className={inter.variable}>
+      <head>
+        {/* El selector es `html:root`, que gana a `:root` por especificidad y no por
+            orden — ver `bloqueDeEstilo`. Con `css` vacío no se emite la etiqueta. */}
+        {css ? <style data-estilo="modelo">{css}</style> : null}
+      </head>
       <body>
         <AuthProvider session={session}>{children}</AuthProvider>
         {/* UXV.3 (M6) — UNA sola vez y en la raíz: así cualquier pantalla de cualquier

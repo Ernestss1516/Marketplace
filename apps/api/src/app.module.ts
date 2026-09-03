@@ -30,6 +30,7 @@ import { FooterModule } from './modules/footer/footer.module';
 import { NavModule } from './modules/nav/nav.module';
 import { HomepageModule } from './modules/homepage/homepage.module';
 import { BrandingModule } from './modules/branding/branding.module';
+import { EstiloModule } from './modules/estilo/estilo.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { RedsysModule } from './modules/redsys/redsys.module';
 import { CampaignsModule } from './modules/campaigns/campaigns.module';
@@ -98,6 +99,8 @@ import { ImpressionsModule } from './modules/impressions/impressions.module';
     NavModule,
     HomepageModule,
     BrandingModule,
+
+    EstiloModule,
     BillingModule,
     RedsysModule,
     CampaignsModule,
