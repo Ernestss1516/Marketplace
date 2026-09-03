@@ -157,16 +157,58 @@ export default defineConfig({
         : 'pnpm --filter @marketplace/api dev',
       url: 'http://localhost:3001/api/categories',
       reuseExistingServer: !process.env.CI,
-      timeout: 120_000,
+      /**
+       * 300 s Y NO LOS 120 DE `playwright.config.ts`, con la cicatriz medida detrás:
+       * la primera vuelta de este job en CI murió con
+       * `Timed out waiting 120000ms from config.webServer` — sin una sola captura
+       * tomada, que es lo que despistó al principio (parecía un problema de imágenes
+       * y era de arranque).
+       *
+       * `nest start` COMPILA la API entera antes de servir. En el job `e2e` eso cabe
+       * en 120 s porque llega con el runner caliente: antes de Playwright ya han
+       * corrido dos baterías de Jest sobre el mismo árbol. Aquí Playwright es lo
+       * primero que toca TypeScript, y en frío no llega.
+       *
+       * Se sube el plazo en vez de añadir un paso de compilación al job porque
+       * `pnpm --filter @marketplace/api start` está roto por otros motivos ya
+       * documentados (el entry real queda en `dist/src/main.js` y multer es una
+       * dependencia fantasma que sólo `nest start` resuelve). Sigue siendo un límite
+       * finito: si un día el arranque tarda cinco minutos, eso es un problema y este
+       * job debe decirlo.
+       */
+      timeout: 300_000,
       env: { ...testEnv, ...process.env, PORT: '3001' },
     },
     {
+      /**
+       * SIEMPRE PRODUCCIÓN, TAMBIÉN EN LOCAL — y aquí esta batería SÍ se desvía de
+       * `playwright.config.ts`, que en local usa `next dev`.
+       *
+       * El motivo es una cicatriz: los primeros baselines se tomaron con `next dev` y
+       * en CI fallaron 21 capturas. La causa no era ningún cambio de estilo, era que
+       * **`next dev` pinta el indicador de desarrollo de Next y `next start` no**. Un
+       * círculo flotante de unos 900 píxeles que existe en un modo y no en el otro
+       * convierte cualquier baseline de desarrollo en incomparable con producción.
+       *
+       * Se resuelve fotografiando SIEMPRE lo mismo que se despliega, en vez de apagar
+       * el indicador: la batería visual existe para vigilar lo que ve la gente, y lo
+       * que ve la gente es el build de producción. La otra vía —`devIndicators: false`
+       * en next.config— tocaría la configuración de la aplicación para acomodar a una
+       * herramienta de pruebas, y dejaría la puerta abierta a la siguiente diferencia
+       * entre modos que aparezca.
+       *
+       * El precio es el `build` de abajo: en local esta batería tarda un par de minutos
+       * más en arrancar. Es un coste que se paga a propósito y una sola vez por corrida.
+       * En CI el build ya lo hace un paso propio del job —hace falta que los
+       * `NEXT_PUBLIC_*` se horneen con el entorno del job—, así que aquí sólo se arranca.
+       */
       command: process.env.CI
         ? 'pnpm --filter @marketplace/web start'
-        : 'pnpm --filter @marketplace/web dev',
+        : 'pnpm --filter @marketplace/web build && pnpm --filter @marketplace/web start',
       url: 'http://localhost:3000',
       reuseExistingServer: !process.env.CI,
-      timeout: 120_000,
+      // El build cabe dentro: 120 s no bastaban con él delante.
+      timeout: 300_000,
     },
   ],
 });
