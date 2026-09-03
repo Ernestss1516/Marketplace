@@ -523,6 +523,21 @@ jobs:
       - name: Generate Prisma Client
         run: pnpm --filter @marketplace/api prisma:generate
 
+      # ⚠ ESTE PASO NO ES OPCIONAL, Y SU AUSENCIA TUMBÓ EL JOB DOS VECES.
+      #
+      # Playwright espera un 200 de `/api/categories` para dar el backend por listo
+      # (playwright.snapshots.config.ts). Ese endpoint consulta la base: **sin tablas
+      # devuelve 500 para siempre**, así que el sondeo no termina nunca y el job muere
+      # con `Timed out waiting …ms from config.webServer` y CERO tests ejecutados.
+      #
+      # El job `e2e` no lo nota porque antes de Playwright corre la batería de Jest del
+      # backend, cuyo globalSetup ya migra (apps/api/test/setup-e2e.js). Aquí no hay
+      # Jest, así que la migración tiene que ser explícita. El `global-setup.ts` de
+      # Playwright vuelve a hacerla después: `migrate deploy` es idempotente y repetirla
+      # no cuesta nada frente a la clase de fallo que evita.
+      - name: Migrar la base de test
+        run: pnpm --filter @marketplace/api exec prisma migrate deploy
+
       # Mismo motivo que en `e2e`: /health responde en cuanto el puerto está
       # abierto, pero la gestión de claves puede tardar un instante más.
       - name: Wait for Meilisearch

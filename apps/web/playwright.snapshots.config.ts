@@ -158,25 +158,32 @@ export default defineConfig({
       url: 'http://localhost:3001/api/categories',
       reuseExistingServer: !process.env.CI,
       /**
-       * 300 s Y NO LOS 120 DE `playwright.config.ts`, con la cicatriz medida detrás:
-       * la primera vuelta de este job en CI murió con
-       * `Timed out waiting 120000ms from config.webServer` — sin una sola captura
-       * tomada, que es lo que despistó al principio (parecía un problema de imágenes
-       * y era de arranque).
+       * ⚠ EL SONDEO DE ARRANQUE CONSULTA LA BASE, ASÍ QUE LA BASE TIENE QUE ESTAR
+       * MIGRADA ANTES DE LLEGAR AQUÍ.
        *
-       * `nest start` COMPILA la API entera antes de servir. En el job `e2e` eso cabe
-       * en 120 s porque llega con el runner caliente: antes de Playwright ya han
-       * corrido dos baterías de Jest sobre el mismo árbol. Aquí Playwright es lo
-       * primero que toca TypeScript, y en frío no llega.
+       * `/api/categories` se eligió como señal de «listo» porque devuelve 200 sólo
+       * cuando Nest Y Prisma están en pie — pero eso significa que **sin tablas
+       * devuelve 500 para siempre**, y Playwright espera un 2xx que no llega nunca.
        *
-       * Se sube el plazo en vez de añadir un paso de compilación al job porque
-       * `pnpm --filter @marketplace/api start` está roto por otros motivos ya
-       * documentados (el entry real queda en `dist/src/main.js` y multer es una
-       * dependencia fantasma que sólo `nest start` resuelve). Sigue siendo un límite
-       * finito: si un día el arranque tarda cinco minutos, eso es un problema y este
-       * job debe decirlo.
+       * Este job murió dos veces por ahí: `Timed out waiting …ms from
+       * config.webServer`, con CERO tests ejecutados. Despistó dos veces seguidas —
+       * primero pareció un problema de capturas (no lo era: no se tomó ninguna) y
+       * luego lentitud de arranque (tampoco: subir el plazo de 120 s a 300 s no
+       * cambió nada, sólo tardó más en rendirse).
+       *
+       * El job `e2e` no lo sufre porque ANTES de Playwright corre la batería de Jest
+       * del backend, cuyo `globalSetup` hace `prisma migrate deploy`
+       * (apps/api/test/setup-e2e.js). Este job no corre Jest, así que llega con la
+       * base vacía. La migración es ahora un paso propio del job, y el
+       * `global-setup.ts` de Playwright la repite de forma idempotente después.
+       *
+       * El plazo se deja en 180 s —más que los 120 del hermano y menos que los 300
+       * con los que se diagnosticó—: `nest start` compila la API entera antes de
+       * servir y aquí llega en frío, sin ninguna batería previa que caliente el
+       * runner. Sigue siendo finito a propósito: si el arranque se va a tres minutos,
+       * eso es un problema y este job tiene que decirlo.
        */
-      timeout: 300_000,
+      timeout: 180_000,
       env: { ...testEnv, ...process.env, PORT: '3001' },
     },
     {
