@@ -130,10 +130,32 @@ const RAMPA_MODELO_0: Readonly<Record<string, FranjaRampa>> = {
   muted: { dh: 0, ds: 0, l: 96.1 },
   // 215.4 16.3% 46.9% — el texto atenuado.
   'muted-foreground': { dh: 5.4, ds: -23.7, l: 46.9 },
-  // 214.3 31.8% 91.4% — trazo y campo. `input` es hoy el mismo valor que `border` y
-  // también se declara aparte, por lo mismo que la tarjeta.
+  // 214.3 31.8% 91.4% — el TRAZO DECORATIVO: el contorno de una tarjeta, el separador
+  // de una tabla, la línea bajo una cabecera. Da 1,23:1 sobre el fondo y se queda así
+  // A PROPÓSITO — ver el comentario de `parejasDeAviso`.
   border: { dh: 4.3, ds: -8.2, l: 91.4 },
-  input: { dh: 4.3, ds: -8.2, l: 91.4 },
+
+  /**
+   * 214.3 31.8% 60% — EL BORDE DE UN CAMPO, y ya no vale lo mismo que el decorativo.
+   *
+   * Los dos slots nacieron con el mismo valor y declarados aparte «por si acaso»; éste
+   * es el día en que esa separación sirve para algo.
+   *
+   * WCAG 1.4.11 exige 3:1 a «la información visual necesaria para identificar un
+   * componente». En un campo de formulario **el borde es esa información**: sin él no
+   * hay nada que diga dónde se escribe, porque el fondo del campo y el de la página
+   * son el mismo blanco. A 1,23:1 ese contorno es prácticamente invisible para quien
+   * tiene poca visión, y el formulario deja de tener forma.
+   *
+   * 60 % DE LUZ Y NO MENOS: es el mínimo redondo que cumple con margen (3,11:1; el
+   * mínimo absoluto está en 60,8 % y deja sólo un 1 % de holgura, demasiado fino para
+   * sostener una afirmación de conformidad). Modelo 0 es sobrio: se oscurece lo justo
+   * para cumplir, no hasta donde quedaría «más marcado».
+   *
+   * El tono y la saturación NO se tocan — sigue siendo la misma familia que el resto
+   * de la rampa, sólo que legible.
+   */
+  input: { dh: 4.3, ds: -8.2, l: 60 },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────────────
@@ -351,37 +373,41 @@ function parejasBloqueantes(t: Tokens): readonly [string, string, string, number
     ['letra sobre el secundario', t.secondary, t['secondary-foreground'], AA_TEXTO],
     ['letra sobre el de resalte', t.accent, t['accent-foreground'], AA_TEXTO],
     ['anillo de foco sobre el fondo', t.background, t.ring, AA_INTERFAZ],
+    /**
+     * EL BORDE DE UN CAMPO, AHORA BLOQUEANTE. Nació como aviso porque el valor de
+     * fábrica no cumplía (1,23:1) y arreglarlo cambiaba píxeles, cosa que E4a tenía
+     * prohibida. Con el trazo del campo ya a 3:1, la pareja pasa a exigirse: un modelo
+     * futuro no podrá volver a dejar los formularios sin contorno visible.
+     */
+    ['borde de campo sobre el fondo', t.background, t.input, AA_INTERFAZ],
   ];
 }
 
 /**
- * ⚠ EL TRAZO NO BLOQUEA, Y HAY QUE EXPLICAR POR QUÉ CON CUIDADO.
+ * ⚠ EL TRAZO DECORATIVO SE MIDE PERO NO BLOQUEA, Y EL MATIZ ES NORMATIVO.
  *
- * La primera versión de esta validación metía «trazo sobre el fondo» entre las
- * bloqueantes con el 3:1 del criterio WCAG 1.4.11, y el resultado fue que **el propio
- * Modelo 0 quedaba rechazado**: el borde de hoy (`214.3 31.8% 91.4%`, el
- * `slate-200` que shadcn trae de fábrica) da **1,23:1** sobre blanco.
+ * Este aviso nació en E4a midiendo `--border` Y `--input` a la vez, porque valían lo
+ * mismo. La ráfaga del trazo los ha separado: el borde de campo ya cumple 3:1 y pasó a
+ * la lista bloqueante. Aquí queda sólo el decorativo, y queda a propósito.
  *
- * Ante eso había tres salidas y sólo una es honesta:
+ * WCAG 1.4.11 exige 3:1 a «la información visual necesaria para IDENTIFICAR un
+ * componente y su estado». Un contorno de tarjeta no identifica nada: la tarjeta se
+ * identifica por su contenido, y el separador de una tabla por las filas que separa.
+ * Ahí la norma no pide nada, y subirlo a 3:1 convertiría cada línea de la interfaz en
+ * un trazo marcado — un rediseño completo del peso visual de la plataforma, hecho en
+ * nombre de una exigencia que no existe.
  *
- *  · aclarar el borde hasta que cumpla → cambia píxeles en toda la interfaz, o sea
- *    que es una decisión de ASPECTO, y E4a no toma ninguna;
- *  · quitar la pareja y no decir nada → dejar una deuda de accesibilidad tapada;
- *  · **dejarla como AVISO**: no impide guardar, pero se mide y se informa.
- *
- * El matiz normativo que lo permite: 1.4.11 exige 3:1 a «la información visual
- * necesaria para identificar un componente y su estado». El trazo de una tarjeta es
- * decorativo —la tarjeta se identifica por su contenido—, así que ahí no aplica. Donde
- * sí aplica de verdad es en el borde de un CAMPO, que a veces es lo único que dice
- * dónde escribir; y ése es el caso que este aviso deja señalado, con su número, para
- * quien decida la paleta del primer modelo con personalidad.
+ * Así que se mide y se informa —el número sigue a la vista para quien diseñe un modelo
+ * con personalidad— pero no se impone. Decidir que los contornos decorativos sean más
+ * presentes es una decisión de aspecto legítima; lo que no es legítimo es disfrazarla
+ * de obligación normativa.
  *
  * Se separa en dos funciones y no en un `nivel: 'error' | 'aviso'` porque quien llama
  * hace cosas distintas con cada una: una produce un 422 y la otra, información.
  */
 function parejasDeAviso(t: Tokens): readonly [string, string, string, number][] {
   return [
-    ['trazo y borde de campo sobre el fondo', t.background, t.border, AA_INTERFAZ],
+    ['trazo decorativo sobre el fondo (no exigido por 1.4.11)', t.background, t.border, AA_INTERFAZ],
   ];
 }
 

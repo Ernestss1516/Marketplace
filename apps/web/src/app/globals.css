@@ -21,7 +21,11 @@
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
     --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
+    /* El borde de un CAMPO. Ya no vale lo mismo que `--border`: WCAG 1.4.11 exige
+       3:1 a lo que identifica un componente, y en un campo de formulario el borde ES
+       esa información. 60 % de luz da 3,11:1 — el mínimo redondo que cumple con
+       margen. Ver la rampa del Modelo 0 en el backend. */
+    --input: 214.3 31.8% 60%;
     --ring: 221.2 83.2% 53.3%;
     --radius: 0.5rem;
 
