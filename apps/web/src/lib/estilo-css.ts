@@ -35,10 +35,43 @@ const NOMBRE_SEGURO = /^[a-z0-9-]+$/;
  * `globals.css` sigue declarando el Modelo 0 completo. El respaldo no es una copia de
  * los valores en el frontend — es el CSS que ya estaba.
  */
-export function bloqueDeEstilo(tokens: Record<string, string>): string {
-  const decls = Object.entries(tokens)
+function declaraciones(tokens: Record<string, string>): string {
+  return Object.entries(tokens)
     .filter(([n, v]) => NOMBRE_SEGURO.test(n) && typeof v === 'string' && VALOR_SEGURO.test(v))
     .map(([n, v]) => `--${n}:${v}`)
     .join(';');
-  return decls ? `html:root{${decls}}` : '';
+}
+
+/**
+ * E5 — LAS ZONAS, Y POR QUÉ SUS BLOQUES NO NECESITAN GANAR NINGUNA GUERRA DE
+ * ESPECIFICIDAD.
+ *
+ * El bloque base va en `html:root` porque compite con `globals.css`, que declara lo
+ * mismo en el mismo elemento; ahí la especificidad decide. Los de zona no compiten con
+ * nadie: se aplican a un `<div>` DESCENDIENTE, y una custom property declarada en un
+ * descendiente manda en su subárbol sin más — la especificidad sólo compara reglas que
+ * apuntan al MISMO elemento. Por eso basta con `[data-zona="x"]`, sin artificios.
+ *
+ * De ahí sale también que las zonas ANIDEN solas: el blog vive dentro del público, así
+ * que hereda todo lo del público y sólo cambia lo suyo. No hay que declarar la herencia
+ * en ninguna parte; es cómo funciona la cascada.
+ *
+ * Se emite SÓLO lo que cada zona ajusta —el backend ya devuelve únicamente eso—, así
+ * que una zona sin diferenciar no produce ni una regla. Es lo que permite montar el
+ * mecanismo entero sin mover un píxel.
+ */
+export function bloqueDeEstilo(
+  tokens: Record<string, string>,
+  zonas?: Record<string, Record<string, string>>,
+): string {
+  const base = declaraciones(tokens);
+  let css = base ? `html:root{${base}}` : '';
+
+  for (const [zona, ajustes] of Object.entries(zonas ?? {})) {
+    if (!NOMBRE_SEGURO.test(zona) || !ajustes) continue;
+    const d = declaraciones(ajustes);
+    if (d) css += `[data-zona="${zona}"]{${d}}`;
+  }
+
+  return css;
 }

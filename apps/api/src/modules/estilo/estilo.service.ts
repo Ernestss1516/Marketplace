@@ -12,6 +12,7 @@ import {
   MODELO_POR_DEFECTO,
   MODELOS,
   resolverTokens,
+  resolverZona,
   validarContraste,
   VERSION_POR_DEFECTO,
   type ColoresConfigurables,
@@ -111,8 +112,11 @@ export class EstiloService {
     const modelo = buscarModelo(config.modelo) ?? MODELO_POR_DEFECTO;
     const tokens = resolverTokens(modelo, config.colores);
 
+    // E5 — cada zona con lo que AJUSTA sobre la base, y sólo eso. En el Modelo 0 sin
+    // diferenciación las cinco salen vacías, que es lo que hace que montar el
+    // mecanismo no cambie un píxel.
     const zonas = Object.fromEntries(
-      ESTILO_ZONES.map((z) => [z, {} as Tokens]),
+      ESTILO_ZONES.map((z) => [z, resolverZona(modelo, config.colores, z)]),
     ) as Record<EstiloZone, Tokens>;
 
     return {

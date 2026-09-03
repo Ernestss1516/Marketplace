@@ -42,7 +42,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const marca = resolveBrand('backoffice', logos);
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-screen flex-col" data-zona="backoffice">
       {/* ROLES R3 — no pinta nada: escucha el 401 de cualquier sección y lo
           convierte en re-login. Va en el shell para cubrir las 22 secciones —y
           las que vengan— sin tocar ninguna. Ver AdminSessionGuard. */}

@@ -33,7 +33,7 @@ import { AccountBreadcrumbs } from '@/components/cuenta/AccountBreadcrumbs';
  */
 export default function AccountLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-screen flex-col" data-zona="cuenta">
       <Header />
 
       <div className="container mx-auto flex flex-1 gap-8 px-4 py-6 md:py-8">
