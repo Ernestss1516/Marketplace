@@ -1,6 +1,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { createElement } from 'react';
+import { render } from '@testing-library/react';
+import { Star } from 'lucide-react';
 import colors from 'tailwindcss/colors';
+import defaultConfig from 'tailwindcss/defaultConfig';
 import resolveConfig from 'tailwindcss/resolveConfig';
 import tailwindConfig from '../../tailwind.config';
 
@@ -96,5 +100,97 @@ describe('Las dos estrellas', () => {
   it('hoy comparten color, pero son tokens distintos', () => {
     expect(valorDe('rating')).toBe(valorDe('featured'));
     expect(utilidad('rating')).not.toBe(utilidad('featured'));
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────
+// E3 · LA CAPA T3 — los ejes que no son color
+//
+// Mismo criterio que arriba: cada eje se compara CONTRA SU ORIGEN, no contra un
+// valor copiado a mano. Las sombras y el tempo, contra la configuración por defecto
+// de Tailwind, que es de donde salían; el trazo del icono, contra lo que la propia
+// lucide pinta. Así, si una subida de cualquiera de las dos cambiara el valor de
+// partida, esto lo dice en vez de dejar la equivalencia podrirse.
+// ─────────────────────────────────────────────────────────────────────────────────
+
+describe('T3 · Elevación: las sombras valen lo que valían', () => {
+  const porDefecto = defaultConfig.theme!.boxShadow as unknown as Record<string, string>;
+
+  for (const [token, clave] of [
+    ['shadow-sm', 'sm'],
+    ['shadow', 'DEFAULT'],
+    ['shadow-md', 'md'],
+    ['shadow-lg', 'lg'],
+    ['shadow-xl', 'xl'],
+  ] as const) {
+    it(`--${token} === boxShadow.${clave} de Tailwind`, () => {
+      expect(valorDe(token)).toBe(porDefecto[clave]);
+    });
+  }
+});
+
+describe('T3 · Movimiento: el tempo por defecto, ahora con nombre', () => {
+  it('--motion-duration es la duración por defecto de Tailwind', () => {
+    const d = defaultConfig.theme!.transitionDuration as unknown as Record<string, string>;
+    expect(valorDe('motion-duration')).toBe(d.DEFAULT);
+  });
+
+  it('--motion-ease es la curva por defecto de Tailwind', () => {
+    const e = defaultConfig.theme!.transitionTimingFunction as unknown as Record<string, string>;
+    expect(valorDe('motion-ease')).toBe(e.DEFAULT);
+  });
+
+  /**
+   * E3 NO AÑADE MOVIMIENTO, y esto lo fija. Las dos animaciones escritas a mano del
+   * repo —la rotación del titular y el sprite del póster— conservan exactamente su
+   * temporización; lo único que cambia es que ahora la leen de un token. Las
+   * animaciones de las capas flotantes siguen apagadas desde E0 y vuelven en E6.
+   */
+  it('las dos animaciones propias conservan su temporización', () => {
+    expect(valorDe('motion-ease-emphasis')).toBe('ease-in-out');
+    expect(valorDe('motion-sprite-duration')).toBe('1.25s');
+  });
+});
+
+describe('T3 · Tipografía: la cadena llega hasta Inter', () => {
+  /**
+   * Se comprueba la CADENA, no un nombre de familia: `next/font` genera el nombre
+   * real (`__inter_a1b2c3`) en tiempo de build y no es estable entre compilaciones,
+   * así que afirmarlo sería fijar ruido. Lo que sí importa —y lo que se rompería si
+   * alguien deshiciera la indirección— es que `--font-sans` apunte a la variable de
+   * `next/font` y que los titulares cuelguen de `--font-sans`.
+   */
+  it('--font-sans toma la familia que declara next/font', () => {
+    expect(valorDe('font-sans')).toBe('var(--font-inter)');
+  });
+
+  it('--font-heading hereda de --font-sans mientras no haya fuente propia', () => {
+    expect(valorDe('font-heading')).toBe('var(--font-sans)');
+  });
+
+  it('Tailwind sirve las dos familias', () => {
+    const f = resolveConfig(tailwindConfig).theme.fontFamily as unknown as Record<
+      string,
+      string[]
+    >;
+    expect(f.sans).toEqual(['var(--font-sans)']);
+    expect(f.heading).toEqual(['var(--font-heading)']);
+  });
+});
+
+describe('T3 · Icono: el trazo es el que lucide pinta', () => {
+  /**
+   * La comprobación que de verdad vale: se renderiza un icono y se lee el
+   * `stroke-width` que lucide le pone. Si `--icon-stroke` dejara de coincidir, los
+   * iconos cambiarían de grosor en las 185 pantallas que los usan — y ninguna
+   * captura lo detectaría con seguridad, porque un trazo es un puñado de píxeles.
+   *
+   * El TAMAÑO no está aquí y no es un olvido: los iconos se dimensionan con la
+   * escala de espaciado (`h-4 w-4`, 344 veces), que es estructura inviolable.
+   */
+  it('--icon-stroke coincide con el atributo por defecto de lucide', () => {
+    const { container } = render(createElement(Star));
+    const svg = container.querySelector('svg');
+    expect(svg?.getAttribute('stroke-width')).toBe(valorDe('icon-stroke'));
   });
 });

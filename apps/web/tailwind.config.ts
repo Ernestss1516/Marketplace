@@ -77,6 +77,37 @@ const config: Config = {
   			md: 'calc(var(--radius) - 2px)',
   			sm: 'calc(var(--radius) - 4px)'
   		},
+  		/* ── E3 · LOS EJES NO-COLOR (capa T3) ─────────────────────────────────
+  		   Cada uno apunta a su variable de globals.css, y cada variable vale hoy
+  		   exactamente lo que valía antes de existir. Ver el bloque T3 allí. */
+  		fontFamily: {
+  			/* El preflight de Tailwind ya pone `font-family: theme('fontFamily.sans')`
+  			   en el <html>, así que con declararlo aquí la fuente llega a todo el
+  			   documento: por eso el <body> pudo soltar la clase de `next/font`. */
+  			sans: ['var(--font-sans)'],
+  			heading: ['var(--font-heading)']
+  		},
+  		/* Al escribir la sombra como una variable, Tailwind ya no puede generar su
+  		   variante «coloreada» (la que sustituye el color por `--tw-shadow-color`
+  		   para `shadow-blue-500/50` y compañía). No afecta: en el repo no hay ni una
+  		   sombra de color, verificado. Si algún día hiciera falta, el arreglo es
+  		   declarar aparte los valores con el hueco del color, no volver atrás. */
+  		boxShadow: {
+  			sm: 'var(--shadow-sm)',
+  			DEFAULT: 'var(--shadow)',
+  			md: 'var(--shadow-md)',
+  			lg: 'var(--shadow-lg)',
+  			xl: 'var(--shadow-xl)'
+  		},
+  		transitionDuration: {
+  			/* Sólo el DEFAULT: es el que usan las ~100 transiciones que no piden
+  			   duración. Los `duration-200`/`duration-300` explícitos se quedan en la
+  			   escala numérica, que es estructura y no personalidad. */
+  			DEFAULT: 'var(--motion-duration)'
+  		},
+  		transitionTimingFunction: {
+  			DEFAULT: 'var(--motion-ease)'
+  		},
   		keyframes: {
   			'accordion-down': {
   				from: {
