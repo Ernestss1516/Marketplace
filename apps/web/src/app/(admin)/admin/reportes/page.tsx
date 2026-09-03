@@ -217,10 +217,10 @@ export default function AdminReportesPage() {
                       <span
                         className={[
                           'rounded-full px-2 py-0.5 text-xs font-medium',
-                          r.status === 'PENDING' && 'bg-yellow-100 text-yellow-800',
-                          r.status === 'REVIEWING' && 'bg-blue-100 text-blue-800',
-                          r.status === 'RESOLVED' && 'bg-green-100 text-green-800',
-                          r.status === 'DISMISSED' && 'bg-gray-100 text-gray-600',
+                          r.status === 'PENDING' && 'bg-warning-strong text-warning-foreground',
+                          r.status === 'REVIEWING' && 'bg-info-surface text-info-foreground',
+                          r.status === 'RESOLVED' && 'bg-success-surface text-success-foreground',
+                          r.status === 'DISMISSED' && 'bg-neutral-surface text-neutral-foreground',
                         ]
                           .filter(Boolean)
                           .join(' ')}

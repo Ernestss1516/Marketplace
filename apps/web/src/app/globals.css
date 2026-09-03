@@ -54,6 +54,56 @@
     --warning: #fefce8;
     --warning-border: #fde047;
     --warning-foreground: #854d0e;
+
+    /* ── E2 · LAS CONVENCIONES ─────────────────────────────────────────────────
+       Tres colores que NO son estados y por eso no comparten token con ninguno.
+
+       La distinción es la que ordena toda esta capa: un ESTADO dice cómo está
+       algo (esto va mal, esto se guardó, esto avisa) y su color es una decisión
+       de diseño que un modelo puede cambiar entera. Una CONVENCIÓN dice qué es
+       algo, y su color es parte del significado: una estrella de valoración es
+       dorada y un corazón de favorito es rojo en todas partes desde antes de que
+       existiera esta plataforma.
+
+       Meter la estrella en `--warning` porque las dos son ámbar sería el error
+       clásico: el día que un modelo pinte los avisos de naranja, las
+       valoraciones se irían con ellos sin que nadie lo hubiera decidido. Y el
+       corazón está a un paso de `--destructive` —vale EXACTAMENTE `red-500`, que
+       es lo que ese token resuelve— pero un favorito no es un borrado.
+
+       Hexadecimal literal y no triplete HSL, por lo mismo que `--warning`: E2
+       exige cambio nulo y una conversión de ida y vuelta puede mover un canal.
+
+       `--rating` y `--featured` valen HOY lo mismo (`amber-400`) y aun así son
+       dos: una valora, la otra vende. Un modelo puede querer separarlas, y con
+       un solo token no podría. */
+    --rating: #fbbf24;
+    --featured: #fbbf24;
+    --favorite: #ef4444;
+
+    /* ── E2 · EL BADGE DE ESTADO ───────────────────────────────────────────────
+       El único idioma de la cola larga que se repite con valores CONSISTENTES:
+       `bg-{color}-100 text-{color}-800` para pintar el estado de un reporte o de
+       un ticket, en tres ficheros. Cuatro estados, cuatro parejas.
+
+       `--warning-strong` completa la familia que abrió E0: aquélla trajo la
+       superficie suave del aviso (`yellow-50`), el trazo y el texto; ésta es la
+       superficie del badge (`yellow-100`), más saturada porque va sobre fondo
+       claro y sin borde. El texto lo COMPARTE con E0 —`--warning-foreground` ya
+       valía `yellow-800`, que es justo lo que el badge usa—, y ahí sí hay
+       consolidación de verdad y no un token nuevo por inercia.
+
+       `--neutral-*` es el estado «ni bien ni mal» (un reporte descartado, un
+       ticket cerrado). No es `--muted`: aquél es una superficie de la interfaz,
+       éste comunica un estado. Comparten familia de grises y hoy ni siquiera el
+       mismo valor. */
+    --success-surface: #dcfce7;
+    --success-foreground: #166534;
+    --info-surface: #dbeafe;
+    --info-foreground: #1e40af;
+    --warning-strong: #fef9c3;
+    --neutral-surface: #f3f4f6;
+    --neutral-foreground: #4b5563;
   }
 
   .dark {

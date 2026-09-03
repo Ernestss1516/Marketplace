@@ -456,20 +456,30 @@ jobs:
   # NO lleva `needs: lint`, al revés que `e2e`: corre EN PARALELO con los otros
   # dos. No alarga el reloj de la señal, que es el punto entero de separarlo.
   #
-  # ── POR QUÉ HOY NO BLOQUEA ────────────────────────────────────────────────────
+  # ── POR QUÉ AHORA BLOQUEA (E2) ────────────────────────────────────────────────
   #
-  # `continue-on-error: true`, y es lo que E0 planificó: una batería visual recién
-  # nacida todavía no ha demostrado que su rojo signifique siempre algo. Además,
-  # los baselines versionados en esta ráfaga son los de `win32` (la máquina donde
-  # se hizo la migración y donde se comprobó el antes/después); los de `linux` los
-  # escribe este job en su primera vuelta y salen como artefacto. Se versionan
-  # después, y ENTONCES se le quita el `continue-on-error` y pasa a ser una puerta
-  # de verdad. Prometer una barrera que aún no lo es sería peor que no tenerla.
+  # Nació con `continue-on-error: true`, y era lo que E0 planificó: una batería
+  # visual recién hecha todavía no ha demostrado que su rojo signifique siempre
+  # algo, y en aquella ráfaga los baselines de `linux` ni siquiera existían — los
+  # escribió este job en su primera vuelta.
+  #
+  # Las dos condiciones ya se cumplen: los baselines de linux están versionados
+  # desde E0, y el job ha cerrado en verde comparándolos de verdad (la rama de E0 y
+  # su merge en main). Así que se le quita la red.
+  #
+  # SE QUITA JUSTO AHORA, Y NO MÁS TARDE, POR EL MOTIVO QUE HACE ÚTIL LA PUERTA:
+  # E2 es la primera ráfaga que MUEVE COLORES. Una barrera que avisa pero no corta
+  # es exactamente igual de útil que ninguna el día que alguien no lea el aviso.
+  # Dejarla informativa mientras se tocan 300 utilidades de color sería tener el
+  # detector de humos desconectado durante la soldadura.
+  #
+  # A partir de aquí, un solo píxel de diferencia en cualquiera de las 49 capturas
+  # tumba el CI. Cuando eso pase, la instrucción es la misma que en E0: revertir el
+  # cambio que la movió, no actualizar el baseline.
   # ──────────────────────────────────────────────────────────────────────────────
   snapshots:
     name: Snapshots visuales (Modelo 0)
     runs-on: ubuntu-latest
-    continue-on-error: true
     timeout-minutes: 30
 
     services:

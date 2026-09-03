@@ -99,7 +99,7 @@ export function SellerRatingInline({
   }
   return (
     <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-      <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" aria-hidden />
+      <Star className="h-3.5 w-3.5 fill-rating text-rating" aria-hidden />
       <span className="font-medium text-foreground">{RATING_FORMAT.format(average ?? 0)}</span>
       {detailed && (
         <span>

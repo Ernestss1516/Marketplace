@@ -47,7 +47,7 @@ export function PromotionStatus({ featuredUntil, nextBumpAt, bumpSchedule, class
     <div className={`space-y-0.5 ${className ?? ''}`} data-testid="estado-promocion">
       {featuredUntil && (
         <p className="flex items-center gap-1 text-xs font-medium text-amber-600">
-          <Star className="h-3 w-3 shrink-0 fill-amber-400 text-amber-400" aria-hidden />
+          <Star className="h-3 w-3 shrink-0 fill-featured text-featured" aria-hidden />
           Destacado hasta {fecha(featuredUntil)}
         </p>
       )}
