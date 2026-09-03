@@ -94,7 +94,7 @@ export function FloatingCard({ listing, pos, containerW, onClose }: FloatingCard
     >
       <Link
         href={`/anuncio/${listing.slug}`}
-        className="flex items-center gap-3 p-2.5 hover:bg-gray-50"
+        className="flex items-center gap-3 p-2.5 hover:bg-neutral-surface"
         data-testid="map-float-link"
       >
         {listing.thumbnailUrl && (

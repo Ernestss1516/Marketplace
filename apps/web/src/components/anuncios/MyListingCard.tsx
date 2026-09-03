@@ -159,21 +159,21 @@ export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) 
           */}
           {listing.needsRevalidation && (
             <div
-              className="mt-1 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs dark:border-amber-800 dark:bg-amber-950"
+              className="mt-1 rounded-md border border-warning-border bg-warning p-2 text-xs"
               data-testid={`revalidation-notice-${listing.id}`}
             >
-              <p className="flex items-center gap-1 font-medium text-amber-900 dark:text-amber-200">
+              <p className="flex items-center gap-1 font-medium text-warning-foreground">
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                 Este anuncio necesita una actualización
               </p>
               {listing.revalidationReasons && listing.revalidationReasons.length > 0 && (
-                <ul className="mt-1 list-disc pl-5 text-amber-800 dark:text-amber-300">
+                <ul className="mt-1 list-disc pl-5 text-warning-foreground">
                   {listing.revalidationReasons.map((r) => (
                     <li key={`${r.code}-${r.field}`}>{r.message}</li>
                   ))}
                 </ul>
               )}
-              <p className="mt-1 text-amber-800 dark:text-amber-300">
+              <p className="mt-1 text-warning-foreground">
                 Sigue publicado y visible. Edítalo para corregirlo.
               </p>
             </div>
@@ -247,7 +247,7 @@ export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) 
         */}
         {aviso && (
           <div
-            className="mb-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-200"
+            className="mb-2 rounded-md bg-warning px-3 py-2 text-xs text-warning-foreground"
             data-testid={`publish-blocked-${listing.id}`}
           >
             <p>{aviso}</p>

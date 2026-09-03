@@ -34,7 +34,7 @@ function DistributionBar({ label, count, total }: { label: string; count: number
       <Star className="h-3.5 w-3.5 fill-rating text-rating" aria-hidden />
       <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
         <div
-          className="h-full rounded-full bg-amber-400 transition-all"
+          className="h-full rounded-full bg-rating transition-all"
           style={{ width: `${pct}%` }}
         />
       </div>

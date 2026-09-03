@@ -350,7 +350,7 @@ function CategoryForm({
             Revisar los anuncios de esta categoría antes de publicarlos
           </label>
           {revisionHeredada ? (
-            <p className="text-xs text-amber-600" data-testid="requires-review-inherited">
+            <p className="text-xs text-warning-foreground" data-testid="requires-review-inherited">
               Heredado de <strong>{inheritedReviewFrom}</strong> — no se puede desactivar aquí.
               Para dejar de revisar esta rama, quita la marca en{' '}
               <strong>{inheritedReviewFrom}</strong>.
@@ -429,8 +429,8 @@ function SchemaEditorPanel({
       <div className="mb-3 flex items-center gap-2">
         <p className="text-sm font-medium">Atributos</p>
         {modified && (
-          <span className="flex items-center gap-1 text-[11px] font-medium text-amber-600">
-            <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500" />
+          <span className="flex items-center gap-1 text-[11px] font-medium text-warning-foreground">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-warning-solid" />
             Sin guardar
           </span>
         )}

@@ -922,7 +922,7 @@ function FieldForm({
             )}
           </select>
           {isDependsOnBroken && (
-            <p className="text-[11px] text-amber-600">
+            <p className="text-[11px] text-warning-foreground">
               El atributo del que depende ya no está disponible — se guardará como select plano.
             </p>
           )}
@@ -1333,6 +1333,25 @@ const BANDERA_LABELS = {
   wideCard: 'En tarjeta ancha',
 } as const;
 
+/**
+ * ⚠ ESTOS CUATRO COLORES NO SON SEMÁNTICOS, Y POR ESO NO USAN LOS TOKENS.
+ *
+ * Es una paleta TAXONÓMICA: distingue cuatro tipos de campo entre sí, y el color no
+ * significa «va bien» ni «ojo». Un campo de texto no es una información y uno booleano
+ * no es un éxito.
+ *
+ * E4b llevó los 274 usos de escala a las escalas semánticas del Modelo 0, y su primer
+ * pase se comió la mitad de esta paleta: `text` acabó en `bg-info` y `boolean` en
+ * `bg-success`, mientras `number` y `select` seguían en naranja y morado. El resultado
+ * era peor que el punto de partida — media paleta prometiendo significados falsos, y
+ * dos tipos que cambiarían de color el día que un modelo tocara «información» sin
+ * tener nada que ver. Se restauró entera.
+ *
+ * Tampoco se le dan cuatro tokens propios: serían doce declaraciones en el modelo para
+ * los badges de un editor del backoffice, y un modelo no tiene nada que decir sobre
+ * qué color distingue un `select` de un `number`. Si algún día hicieran falta, el sitio
+ * es una paleta categórica declarada, no los semánticos.
+ */
 function TypeBadge({ type }: { type: string }) {
   const cls: Record<string, string> = {
     text:    'bg-blue-50 text-blue-700 border-blue-200',

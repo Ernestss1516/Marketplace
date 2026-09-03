@@ -113,10 +113,10 @@ export function ResumenSaldo({
         pack, que ya lo hacen con el bonus concreto de cada pack (E-5).
       */}
       {proStatus.isPro && (
-        <Card className="border-amber-500/40" data-testid="resumen-pro">
+        <Card className="border-warning-surface" data-testid="resumen-pro">
           <CardContent className="space-y-1 pt-6">
             <p className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Crown className="h-4 w-4 text-amber-500" aria-hidden />
+              <Crown className="h-4 w-4 text-featured" aria-hidden />
               Plan Pro
             </p>
             {tieneCuota ? (

@@ -66,12 +66,12 @@ export default function LoginPage() {
     <div className="rounded-lg border bg-card p-8 shadow-sm">
       <h1 className="mb-6 text-2xl font-bold">Iniciar sesión</h1>
       {verified && (
-        <p className="mb-4 rounded bg-green-50 p-3 text-sm text-green-700">
+        <p className="mb-4 rounded bg-success p-3 text-sm text-success-foreground">
           Email verificado correctamente. Ya puedes iniciar sesión.
         </p>
       )}
       {error && (
-        <p className="mb-4 rounded bg-red-50 p-3 text-sm text-red-700">{error}</p>
+        <p className="mb-4 rounded bg-destructive-subtle p-3 text-sm text-destructive-strong">{error}</p>
       )}
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>

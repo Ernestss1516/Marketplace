@@ -1333,7 +1333,7 @@ export default function AdminFichaAnuncioPage() {
             ) : (
               <ul className="space-y-2" data-testid="ficha-detecciones">
                 {data.detections.map((d) => (
-                  <li key={d.id} className="border-l-2 border-amber-400 pl-3 text-sm">
+                  <li key={d.id} className="border-l-2 border-warning-border pl-3 text-sm">
                     <div className="flex flex-wrap items-baseline gap-x-2">
                       <span className="font-medium">
                         {etiqueta(DETECTOR_LABELS, d.detector)}

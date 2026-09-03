@@ -59,7 +59,7 @@ function Fila({ label, createdAt, amount, sufijo, note }: {
     <div className="flex items-center justify-between py-3">
       <div className="flex items-center gap-3">
         {esIngreso ? (
-          <TrendingUp className="h-4 w-4 shrink-0 text-green-600" aria-hidden />
+          <TrendingUp className="h-4 w-4 shrink-0 text-success-foreground" aria-hidden />
         ) : (
           <TrendingDown className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
         )}
@@ -75,7 +75,7 @@ function Fila({ label, createdAt, amount, sufijo, note }: {
         </div>
       </div>
       <span
-        className={`text-sm font-semibold tabular-nums ${esIngreso ? 'text-green-600' : 'text-foreground'}`}
+        className={`text-sm font-semibold tabular-nums ${esIngreso ? 'text-success-foreground' : 'text-foreground'}`}
       >
         {esIngreso ? '+' : ''}
         {amount} {sufijo}

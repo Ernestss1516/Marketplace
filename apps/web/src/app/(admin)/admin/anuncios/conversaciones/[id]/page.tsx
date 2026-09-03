@@ -135,7 +135,7 @@ export default function AdminConversacionPage({ params }: { params: Promise<{ id
           correspondencia privada de dos personas; que sepa que consta es parte de
           la salvaguarda, no un detalle de cortesía. */}
       <div
-        className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+        className="flex items-start gap-2 rounded-md border border-warning-border bg-warning px-3 py-2 text-xs text-warning-foreground"
         data-testid="aviso-auditoria"
       >
         <Eye className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />

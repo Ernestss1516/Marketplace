@@ -46,7 +46,7 @@ export function PromotionStatus({ featuredUntil, nextBumpAt, bumpSchedule, class
   return (
     <div className={`space-y-0.5 ${className ?? ''}`} data-testid="estado-promocion">
       {featuredUntil && (
-        <p className="flex items-center gap-1 text-xs font-medium text-amber-600">
+        <p className="flex items-center gap-1 text-xs font-medium text-warning-foreground">
           <Star className="h-3 w-3 shrink-0 fill-featured text-featured" aria-hidden />
           Destacado hasta {fecha(featuredUntil)}
         </p>
@@ -69,7 +69,7 @@ export function PromotionStatus({ featuredUntil, nextBumpAt, bumpSchedule, class
       {programacion && (
         <p
           className={`flex flex-wrap items-center gap-1 text-xs ${
-            programacion.activa ? 'text-muted-foreground' : 'font-medium text-amber-600'
+            programacion.activa ? 'text-muted-foreground' : 'font-medium text-warning-foreground'
           }`}
           data-testid="estado-bump-programado"
         >

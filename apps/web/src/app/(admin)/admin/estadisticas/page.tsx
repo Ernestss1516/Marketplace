@@ -75,7 +75,7 @@ function Ctr({ fila }: { fila: FilaPulso }) {
 
 function Delta({ valor }: { valor: number | null }) {
   if (valor === null) return <span className="text-muted-foreground">—</span>;
-  const color = valor > 0 ? 'text-emerald-600' : valor < 0 ? 'text-destructive' : '';
+  const color = valor > 0 ? 'text-success-foreground' : valor < 0 ? 'text-destructive' : '';
   return <span className={color}>{DELTA.format(valor)}</span>;
 }
 

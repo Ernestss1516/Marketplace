@@ -489,7 +489,7 @@ export async function CategoryListingPage({
 
       {/* Fallback banner — shown when Meilisearch is unavailable */}
       {fallbackMode && (
-        <div className="mb-4 flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+        <div className="mb-4 flex items-center gap-2 rounded-md border border-warning-border bg-warning px-4 py-2 text-sm text-warning-foreground">
           <AlertCircle className="h-4 w-4 shrink-0" aria-hidden />
           Los filtros avanzados no están disponibles ahora mismo. Mostrando resultados básicos.
         </div>

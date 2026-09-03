@@ -100,16 +100,16 @@ export function ReporteDiana({ reporte }: { reporte: Report }) {
   if (r.review) {
     return (
       <span className="block" data-testid="reporte-diana">
-        <span className="block rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs">
-          <span className="mb-0.5 flex items-center gap-1 font-medium text-amber-900">
+        <span className="block rounded border border-warning-border bg-warning px-2 py-1.5 text-xs">
+          <span className="mb-0.5 flex items-center gap-1 font-medium text-warning-foreground">
             {Array.from({ length: 5 }, (_, i) => (
               <Star
                 key={i}
                 className={[
                   'h-3 w-3',
                   i < r.review!.rating
-                    ? 'fill-amber-500 text-amber-500'
-                    : 'fill-transparent text-amber-300',
+                    ? 'fill-rating text-rating'
+                    : 'fill-transparent text-muted-foreground',
                 ].join(' ')}
                 aria-hidden
               />
@@ -120,7 +120,7 @@ export function ReporteDiana({ reporte }: { reporte: Report }) {
                 El `id` que hace falta se añadió al `select` del backend en esta
                 misma ráfaga: sólo venían `name` y `slug`, y la ficha de staff es
                 por id. */}
-            <span className="ml-1 text-amber-800">
+            <span className="ml-1 text-warning-foreground">
               de{' '}
               <Link
                 href={adminUserHref(r.review.author.id)}
@@ -139,7 +139,7 @@ export function ReporteDiana({ reporte }: { reporte: Report }) {
               </Link>
             </span>
           </span>
-          {r.review.comment && <span className="block text-amber-800">{r.review.comment}</span>}
+          {r.review.comment && <span className="block text-warning-foreground">{r.review.comment}</span>}
         </span>
         <span className="block text-xs text-muted-foreground">Valoración</span>
       </span>

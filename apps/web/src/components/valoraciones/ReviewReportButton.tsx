@@ -42,7 +42,7 @@ export function ReviewReportButton({ reviewId }: Props) {
 
   if (submitted) {
     return (
-      <p className="text-xs text-green-700">
+      <p className="text-xs text-success-foreground">
         Denuncia enviada. Gracias por ayudarnos.
       </p>
     );

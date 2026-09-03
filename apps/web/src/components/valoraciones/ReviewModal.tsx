@@ -177,7 +177,7 @@ export function ReviewModal({
 
         {done ? (
           <div className="flex flex-col items-center gap-3 py-6 text-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-green-100">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-success-surface">
               <Star className="h-6 w-6 fill-rating text-rating" aria-hidden />
             </div>
             <p className="font-medium">

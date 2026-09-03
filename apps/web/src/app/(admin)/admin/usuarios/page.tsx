@@ -672,7 +672,7 @@ export default function AdminUsuariosPage() {
                           {user.trusted ? (
                             <Badge
                               variant="outline"
-                              className="gap-1 border-green-300 bg-green-50 text-green-700"
+                              className="gap-1 border-success-border bg-success text-success-foreground"
                             >
                               <BadgeCheck className="h-3 w-3" />
                               De confianza
@@ -712,7 +712,7 @@ export default function AdminUsuariosPage() {
                           {user.requiresReview ? (
                             <Badge
                               variant="outline"
-                              className="gap-1 border-amber-300 bg-amber-50 text-amber-800"
+                              className="gap-1 border-warning-border bg-warning text-warning-foreground"
                               data-testid={`user-requires-review-${user.id}`}
                             >
                               <ShieldAlert className="h-3 w-3" />

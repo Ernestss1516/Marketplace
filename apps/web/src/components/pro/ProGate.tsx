@@ -72,7 +72,7 @@ export function ProHint({
       className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground"
       data-testid={testId}
     >
-      <Sparkles className="h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden />
+      <Sparkles className="h-3.5 w-3.5 shrink-0 text-featured" aria-hidden />
       <span>{children}</span>
       <Link href="/planes" className="font-medium text-primary underline hover:no-underline">
         {cta}

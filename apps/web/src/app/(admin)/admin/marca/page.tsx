@@ -117,7 +117,7 @@ export default function AdminMarcaPage() {
         tiene el suyo se muestra el público, y si tampoco hay público, el nombre del
         sitio. Lo que se ve aquí es lo que está viendo la gente. Para confirmar cómo está
         montada esta instalación,{' '}
-        <Link href="/admin/instancia" className="text-blue-700 hover:underline">
+        <Link href="/admin/instancia" className="text-primary hover:underline">
           Instancia
         </Link>
         .

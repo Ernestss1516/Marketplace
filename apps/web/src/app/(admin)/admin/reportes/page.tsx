@@ -136,7 +136,7 @@ export default function AdminReportesPage() {
       </div>
 
       {error && (
-        <div className="mb-4 rounded border border-red-300 bg-red-50 p-4 font-mono text-sm text-red-800">
+        <div className="mb-4 rounded border border-destructive-border bg-destructive-subtle p-4 font-mono text-sm text-destructive-strong">
           {error}
         </div>
       )}
@@ -217,7 +217,7 @@ export default function AdminReportesPage() {
                       <span
                         className={[
                           'rounded-full px-2 py-0.5 text-xs font-medium',
-                          r.status === 'PENDING' && 'bg-warning-strong text-warning-foreground',
+                          r.status === 'PENDING' && 'bg-warning-surface text-warning-foreground',
                           r.status === 'REVIEWING' && 'bg-info-surface text-info-foreground',
                           r.status === 'RESOLVED' && 'bg-success-surface text-success-foreground',
                           r.status === 'DISMISSED' && 'bg-neutral-surface text-neutral-foreground',
@@ -261,7 +261,7 @@ export default function AdminReportesPage() {
                             onClick={() =>
                               handleAction(() => startReviewReport(r.id, token), r.id)
                             }
-                            className="rounded bg-blue-100 px-2 py-1 text-xs font-medium text-blue-800 hover:bg-blue-200 disabled:opacity-50"
+                            className="rounded bg-info-surface px-2 py-1 text-xs font-medium text-info-foreground hover:bg-info-surface disabled:opacity-50"
                             data-testid="reporte-empezar-revision"
                           >
                             {isPending ? '…' : 'La reviso yo'}
@@ -274,7 +274,7 @@ export default function AdminReportesPage() {
                               onClick={() =>
                                 handleAction(() => resolveReport(r.id, token), r.id)
                               }
-                              className="rounded bg-green-600 px-2 py-1 text-xs text-white hover:bg-green-700 disabled:opacity-50"
+                              className="rounded bg-success-solid px-2 py-1 text-xs text-white hover:bg-success-solid-hover disabled:opacity-50"
                             >
                               {isPending ? '…' : 'Resolver'}
                             </button>
@@ -283,7 +283,7 @@ export default function AdminReportesPage() {
                               onClick={() =>
                                 handleAction(() => dismissReport(r.id, token), r.id)
                               }
-                              className="rounded bg-gray-500 px-2 py-1 text-xs text-white hover:bg-gray-600 disabled:opacity-50"
+                              className="rounded bg-neutral-solid px-2 py-1 text-xs text-white hover:bg-neutral-solid-hover disabled:opacity-50"
                             >
                               {isPending ? '…' : 'Desestimar'}
                             </button>
@@ -303,7 +303,7 @@ export default function AdminReportesPage() {
                                 r.id,
                               )
                             }
-                            className="rounded bg-red-600 px-2 py-1 text-xs text-white hover:bg-red-700 disabled:opacity-50"
+                            className="rounded bg-destructive px-2 py-1 text-xs text-white hover:bg-destructive/90 disabled:opacity-50"
                           >
                             {isPending ? '…' : 'Retirar anuncio'}
                           </button>
@@ -331,13 +331,13 @@ export default function AdminReportesPage() {
                                 r.id,
                               )
                             }
-                            className="rounded bg-red-600 px-2 py-1 text-xs text-white hover:bg-red-700 disabled:opacity-50"
+                            className="rounded bg-destructive px-2 py-1 text-xs text-white hover:bg-destructive/90 disabled:opacity-50"
                           >
                             {isPending ? '…' : 'Retirar valoración'}
                           </button>
                         )}
                         {r.review?.retiredAt && (
-                          <span className="rounded bg-amber-100 px-2 py-1 text-xs text-amber-800">
+                          <span className="rounded bg-warning-surface px-2 py-1 text-xs text-warning-foreground">
                             Valoración retirada
                           </span>
                         )}
@@ -351,7 +351,7 @@ export default function AdminReportesPage() {
                         {r.tickets && r.tickets.length > 0 ? (
                           <Link
                             href={adminTicketHref(r.tickets[0].id)}
-                            className="rounded border border-blue-600 px-2 py-1 text-xs text-blue-700 hover:bg-blue-50"
+                            className="rounded border border-primary px-2 py-1 text-xs text-primary hover:bg-info"
                             data-testid="enlace-hilo-reporte"
                           >
                             {/* I18N T2 (D4) — decía «Hilo abierto (OPEN)». Al traducir
@@ -381,7 +381,7 @@ export default function AdminReportesPage() {
                                 r.id,
                               )
                             }
-                            className="rounded bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-700 disabled:opacity-50"
+                            className="rounded bg-primary px-2 py-1 text-xs text-white hover:bg-primary/90 disabled:opacity-50"
                             data-testid="contactar-reportado"
                           >
                             {isPending ? '…' : 'Contactar al reportado'}

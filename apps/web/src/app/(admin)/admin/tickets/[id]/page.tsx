@@ -279,7 +279,7 @@ export default function AdminTicketPage({ params }: { params: Promise<{ id: stri
                   className={cn(
                     'max-w-[80%] rounded-lg px-3 py-2 text-sm',
                     m.internal
-                      ? 'border border-amber-300 bg-amber-50 text-amber-950'
+                      ? 'border border-warning-border bg-warning text-warning-foreground'
                       : m.side === 'STAFF'
                         ? 'bg-primary text-primary-foreground'
                         : 'border bg-muted',
@@ -331,7 +331,7 @@ export default function AdminTicketPage({ params }: { params: Promise<{ id: stri
                     : 'Escribe la respuesta al usuario…'
                 }
                 data-testid="input-respuesta-staff"
-                className={esNotaInterna ? 'border-amber-400 bg-amber-50/50' : undefined}
+                className={esNotaInterna ? 'border-warning-border bg-warning' : undefined}
               />
 
               {/* El toggle cambia el DESTINO del mensaje, así que se avisa en

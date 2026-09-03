@@ -154,7 +154,7 @@ export function StepPrevisualizacion({
 
       {/* Publish warning if no photos */}
       {validImages.length < fotosNecesarias && (
-        <p className="flex items-center gap-1.5 text-sm text-amber-600">
+        <p className="flex items-center gap-1.5 text-sm text-warning-foreground">
           <AlertCircle className="h-4 w-4 shrink-0" />
           {fotosNecesarias === 1
             ? 'Para publicar necesitas al menos 1 foto.'

@@ -29,10 +29,10 @@ export function CampaignNotice({
 }) {
   return (
     <div
-      className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-green-600/30 bg-green-50 px-4 py-3 text-sm dark:bg-green-950/30"
+      className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-success-border bg-success px-4 py-3 text-sm"
       data-testid={`campaign-notice-${moneda === 'créditos' ? 'creditos' : 'bumps'}`}
     >
-      <Sparkles className="h-4 w-4 shrink-0 text-green-600" aria-hidden />
+      <Sparkles className="h-4 w-4 shrink-0 text-success-foreground" aria-hidden />
       <span className="font-medium">Campaña «{campaign.name}»</span>
       <span className="text-muted-foreground">
         Recibes {moneda} extra en cualquier pack{formatEnd(campaign.endsAt)}.

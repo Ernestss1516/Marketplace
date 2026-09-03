@@ -36,7 +36,7 @@ export function FeaturedBadge({
 }) {
   return (
     <Badge
-      className={`pointer-events-none absolute bg-amber-500 text-white hover:bg-amber-500 ${
+      className={`pointer-events-none absolute bg-featured text-white hover:bg-featured ${
         compact ? 'px-1 py-0.5' : ''
       } ${className}`}
       data-testid="card-destacado"

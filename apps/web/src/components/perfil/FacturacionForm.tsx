@@ -212,7 +212,7 @@ export function FacturacionForm({ initialUser, token }: Props) {
         </Button>
 
         {status === 'success' && (
-          <p className="text-sm text-green-600">Datos de facturación guardados.</p>
+          <p className="text-sm text-success-foreground">Datos de facturación guardados.</p>
         )}
         {status === 'error' && (
           <p className="text-sm text-destructive">Error al guardar. Inténtalo de nuevo.</p>
