@@ -46,6 +46,7 @@ import { AlertCircle, ChevronLeft, Eye } from 'lucide-react';
 import { abrirConversacion, type ConversacionCompleta } from '@/lib/api/admin-mensajeria';
 import { ApiError } from '@/lib/api/client';
 import { adminListingHref, adminUserHref } from '@/lib/admin-links';
+import { SesionNoDisponible } from '@/app/(admin)/components/SesionNoDisponible';
 
 function fechaHora(iso: string) {
   return new Date(iso).toLocaleString('es-ES', {
@@ -99,9 +100,7 @@ export default function AdminConversacionPage({ params }: { params: Promise<{ id
 
   if (!token) {
     return (
-      <div className="rounded border border-yellow-300 bg-yellow-50 p-4 text-yellow-800">
-        Sesión no disponible. Recarga la página o inicia sesión de nuevo.
-      </div>
+      <SesionNoDisponible />
     );
   }
 

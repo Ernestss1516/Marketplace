@@ -17,6 +17,7 @@ import {
 import { ApiError } from '@/lib/api/client';
 import { ReporteDiana } from '@/components/admin/ReporteDiana';
 import { adminReportHref, adminTicketHref, adminUserHref } from '@/lib/admin-links';
+import { SesionNoDisponible } from '@/app/(admin)/components/SesionNoDisponible';
 // Las etiquetas COMPARTIDAS. Esta pantalla llevaba su propio `REASON_LABEL` y su
 // propio `STATUS_LABEL`, idénticos a los de `etiquetas.ts` —que además dice en su
 // comentario que los copió de aquí—. Dos copias del mismo diccionario es como la
@@ -105,9 +106,7 @@ export default function AdminReportesPage() {
 
   if (!token) {
     return (
-      <div className="rounded border border-yellow-300 bg-yellow-50 p-4 text-yellow-800">
-        Sesión no disponible. Recarga la página o inicia sesión de nuevo.
-      </div>
+      <SesionNoDisponible />
     );
   }
 

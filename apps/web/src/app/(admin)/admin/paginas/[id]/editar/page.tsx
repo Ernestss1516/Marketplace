@@ -21,6 +21,7 @@ import { PostForm, type PostFormValues } from '../../../blog/_components/PostFor
 // I18N T3-B — estaba en la lista y en el editor, idéntico. «Publicada» concuerda con
 // «la página»: es una VARIANTE declarada de la del blog, no una divergencia.
 import { ESTADO_PAGINA_LABELS as STATUS_LABELS } from '@/lib/etiquetas-enums';
+import { SesionNoDisponible } from '@/app/(admin)/components/SesionNoDisponible';
 
 const STATUS_VARIANTS: Record<string, 'default' | 'outline'> = {
   DRAFT: 'outline',
@@ -163,9 +164,7 @@ export default function EditarPaginaPage() {
 
   if (!token) {
     return (
-      <div className="rounded border border-yellow-300 bg-yellow-50 p-4 text-yellow-800">
-        Sesión no disponible. Recarga la página o inicia sesión de nuevo.
-      </div>
+      <SesionNoDisponible />
     );
   }
 

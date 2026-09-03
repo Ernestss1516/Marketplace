@@ -26,6 +26,7 @@ const STATUS_FILTERS: { label: string; value: string | undefined }[] = [
 // I18N T3-B — estaba en la lista y en el editor, idéntico. «Publicado» concuerda con
 // «el post»; la variante femenina —para las páginas del CMS— vive declarada aparte.
 import { ESTADO_POST_LABELS as STATUS_LABELS } from '@/lib/etiquetas-enums';
+import { SesionNoDisponible } from '@/app/(admin)/components/SesionNoDisponible';
 
 const STATUS_VARIANTS: Record<string, 'default' | 'outline'> = {
   DRAFT: 'outline',
@@ -132,9 +133,7 @@ export default function AdminBlogPage() {
 
   if (!token) {
     return (
-      <div className="rounded border border-yellow-300 bg-yellow-50 p-4 text-yellow-800">
-        Sesión no disponible. Recarga la página o inicia sesión de nuevo.
-      </div>
+      <SesionNoDisponible />
     );
   }
 

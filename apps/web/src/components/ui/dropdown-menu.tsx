@@ -6,6 +6,25 @@ import { Check, ChevronRight, Circle } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
+/*
+ * E0 · SIN CLASES DE `tailwindcss-animate`, Y NO ES UN OLVIDO.
+ *
+ * Este componente traía de shadcn el bloque `animate-in` / `fade-in-0` /
+ * `zoom-in-95` / `slide-in-from-*`. Ese plugin NUNCA ha estado instalado en este
+ * repo —ni en package.json, ni en los plugins de tailwind.config.ts, ni en
+ * node_modules—, así que aquellas clases no generaban una sola línea de CSS: la
+ * capa aparecía y desaparecía en seco, y el build y los 518 casos de la batería
+ * funcional lo daban por bueno porque una clase que no existe no rompe nada.
+ *
+ * Se quitaron en vez de instalar el plugin porque instalarlo AÑADIRÍA animación
+ * donde hoy no la hay, y E0 es la ráfaga que demuestra que nada cambió. La
+ * animación de capas vuelve en E6, ya como parte del vocabulario del modelo
+ * (con su duración y su curva en tokens, y reducida en el backoffice).
+ *
+ * SI VUELVES A PEGAR ESAS CLASES DESDE LA DOCUMENTACIÓN DE SHADCN, seguirán sin
+ * hacer nada mientras el plugin no esté. Ver docs/diseno-sistema-estilo.md §6.3.
+ */
+
 const DropdownMenu = DropdownMenuPrimitive.Root
 
 const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger
@@ -46,7 +65,7 @@ const DropdownMenuSubContent = React.forwardRef<
   <DropdownMenuPrimitive.SubContent
     ref={ref}
     className={cn(
-      "z-50 min-w-[8rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
+      "z-50 min-w-[8rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-lg",
       className
     )}
     {...props}
@@ -63,7 +82,7 @@ const DropdownMenuContent = React.forwardRef<
       ref={ref}
       sideOffset={sideOffset}
       className={cn(
-        "z-50 min-w-[8rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
+        "z-50 min-w-[8rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md",
         className
       )}
       {...props}

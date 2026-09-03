@@ -17,6 +17,7 @@ import { getAdminPosts, type AdminPostSummary } from '@/lib/api/blog-admin';
 import { ApiError } from '@/lib/api/client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { SesionNoDisponible } from '@/app/(admin)/components/SesionNoDisponible';
 
 // Los 9 tipos de página de (public). Espejo del enum NavPageType del backend
 // (el frontend no tiene Prisma), igual que BannerPlacement en lib/api/banners.ts.
@@ -649,9 +650,7 @@ export default function AdminNavPage() {
 
   if (!token) {
     return (
-      <div className="rounded border border-yellow-300 bg-yellow-50 p-4 text-yellow-800">
-        Sesión no disponible. Recarga la página o inicia sesión de nuevo.
-      </div>
+      <SesionNoDisponible />
     );
   }
 

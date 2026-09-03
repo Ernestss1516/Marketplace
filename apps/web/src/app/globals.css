@@ -24,6 +24,36 @@
     --input: 214.3 31.8% 91.4%;
     --ring: 221.2 83.2% 53.3%;
     --radius: 0.5rem;
+
+    /* ── E0 · EL PRIMER TOKEN SEMÁNTICO ────────────────────────────────────────
+       El aviso. Sustituye a `bg-yellow-50` / `border-yellow-300` /
+       `text-yellow-800`, que estaban escritos a mano 29 veces (ver
+       `components/shared/Aviso.tsx`).
+
+       HEXADECIMAL LITERAL, Y NO EL TRIPLETE HSL DE LOS DE ARRIBA. La diferencia
+       es deliberada y el motivo es el criterio de aceptación de toda la fase
+       segura: Modelo 0 tiene que verse IDÉNTICO al estado actual. Escribir estos
+       colores en HSL obligaría a convertirlos, y una conversión de ida y vuelta
+       puede mover un canal un valor por redondeo — un píxel distinto en 34
+       pantallas a cambio de nada. Con el hexadecimal de Tailwind copiado tal cual
+       no hay conversión que pueda fallar.
+
+       Lo que se pierde es el modificador de opacidad (`bg-warning/50`), que
+       necesita el triplete suelto. No hace falta en ninguno de los 34 sitios, y
+       estos tres son tokens del MODELO (T2), no de los cuatro que el admin
+       configura: cuando E4 traiga los configurables, aquéllos sí irán en HSL
+       porque el `bg-primary/90` de los botones lo exige.
+
+       `Aviso.test.tsx` compara estos tres valores contra `tailwindcss/colors`,
+       así que la equivalencia está fijada por una prueba y no por este comentario.
+
+       NO HAY PAREJA EN `.dark`, a propósito: ese bloque está muerto —nadie pone
+       nunca la clase, no hay `next-themes` ni conmutador— y el modo oscuro quedó
+       explícitamente fuera de v1. Inventar aquí un amarillo oscuro sería tomar una
+       decisión de diseño que a E0 no le toca. */
+    --warning: #fefce8;
+    --warning-border: #fde047;
+    --warning-foreground: #854d0e;
   }
 
   .dark {

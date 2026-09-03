@@ -13,6 +13,7 @@ import { ApiError } from '@/lib/api/client';
 import { ESTADO_FACTURA_LABELS, ORIGEN_FACTURA_LABELS } from '@/lib/etiquetas-enums';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { SesionNoDisponible } from '@/app/(admin)/components/SesionNoDisponible';
 
 const PER_PAGE = 25;
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api';
@@ -209,9 +210,7 @@ export default function AdminFacturasPage() {
 
   if (!token) {
     return (
-      <div className="rounded border border-yellow-300 bg-yellow-50 p-4 text-yellow-800">
-        Sesión no disponible. Recarga la página o inicia sesión de nuevo.
-      </div>
+      <SesionNoDisponible />
     );
   }
 
