@@ -56,20 +56,20 @@ export default function AdminLoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-950 px-4">
-      <div className="w-full max-w-sm rounded-lg border border-slate-800 bg-slate-900 p-8 shadow-xl">
-        <h1 className="mb-1 text-lg font-semibold text-slate-100">Administración</h1>
-        <p className="mb-6 text-sm text-slate-400">Acceso restringido al panel.</p>
+    <div className="flex min-h-screen items-center justify-center bg-background px-4" data-zona="login">
+      <div className="w-full max-w-sm rounded-lg border bg-card p-8 shadow-xl">
+        <h1 className="mb-1 text-lg font-semibold text-card-foreground">Administración</h1>
+        <p className="mb-6 text-sm text-muted-foreground">Acceso restringido al panel.</p>
 
         {error && (
-          <p className="mb-4 rounded-md border border-red-900 bg-red-950/60 p-3 text-sm text-red-300">
+          <p className="mb-4 rounded-md border border-destructive-border bg-destructive-subtle p-3 text-sm text-destructive-strong">
             {error}
           </p>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-300" htmlFor="email">
+            <label className="mb-1 block text-sm font-medium text-foreground" htmlFor="email">
               Email
             </label>
             <input
@@ -78,11 +78,11 @@ export default function AdminLoginPage() {
               type="email"
               required
               autoComplete="email"
-              className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-500"
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-300" htmlFor="password">
+            <label className="mb-1 block text-sm font-medium text-foreground" htmlFor="password">
               Contraseña
             </label>
             <input
@@ -91,13 +91,13 @@ export default function AdminLoginPage() {
               type="password"
               required
               autoComplete="current-password"
-              className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-500"
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-md bg-slate-100 px-4 py-2 text-sm font-medium text-slate-900 transition-colors hover:bg-white disabled:opacity-50"
+            className="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
           >
             {loading ? 'Entrando…' : 'Entrar'}
           </button>

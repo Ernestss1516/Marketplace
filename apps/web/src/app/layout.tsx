@@ -108,7 +108,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
    *    escrita.
    */
   const estilo = await getCachedEstilo().catch(() => null);
-  const css = estilo ? bloqueDeEstilo(estilo.tokens) : '';
+  const css = estilo ? bloqueDeEstilo(estilo.tokens, estilo.zonas) : "";
   // La clase de `next/font` va en el <html> y no en el <body>: `:root` ES el <html>,
   // así que es donde `--font-inter` tiene que estar declarada para que `--font-sans`
   // (que vive en `:root`, en globals.css) pueda referenciarla. El <body> ya no lleva

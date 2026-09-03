@@ -1,8 +1,11 @@
 import {
+  ESTILO_ZONES,
   MODELO_0,
   MODELOS,
   resolverTokens,
+  resolverZona,
   validarContraste,
+  zonaSoloAjusta,
   type ColoresConfigurables,
 } from './estilo.constants';
 import { contraste, hexATriplete, parsearTriplete } from './color';
@@ -156,6 +159,179 @@ describe('El borde de campo cumple 1.4.11', () => {
     );
     expect(validarContraste(conCampoInvisible).map((f) => f.pareja)).toContain(
       'borde de campo sobre el fondo',
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────
+// E5 · LAS ZONAS
+// ─────────────────────────────────────────────────────────────────────────────────────
+
+describe('LA REGLA DURA: una zona ajusta, nunca añade', () => {
+  /**
+   * Es la barrera que impide que crezca un segundo sistema de estilo. Si el backoffice
+   * pudiera declarar `--backoffice-algo`, un modelo tendría que definir dos juegos de
+   * valores y media plataforma dejaría de responder a la mitad de los tokens.
+   *
+   * Un comentario no impide nada; esto sí.
+   */
+  it('ninguna zona del Modelo 0 inventa un token', () => {
+    expect(zonaSoloAjusta(MODELO_0, MODELO_0.coloresPorDefecto)).toEqual([]);
+  });
+
+  it('y la comprobación DETECTA al que lo intente', () => {
+    const conInvento = {
+      ...MODELO_0,
+      ajustesPorZona: { backoffice: { 'backoffice-especial': '0 0% 50%' } },
+    };
+    expect(zonaSoloAjusta(conInvento, MODELO_0.coloresPorDefecto)).toEqual([
+      'backoffice:backoffice-especial',
+    ]);
+  });
+
+  it('el registro público no lleva ajustes: la base ES el público', () => {
+    expect(MODELO_0.ajustesPorZona.public).toBeUndefined();
+  });
+
+  it('un ajuste que coincide con la base no se emite: sería una regla que no hace nada', () => {
+    const igualQueLaBase = {
+      ...MODELO_0,
+      ajustesPorZona: { cuenta: { background: '0 0% 100%' } },
+    };
+    expect(resolverZona(igualQueLaBase, MODELO_0.coloresPorDefecto, 'cuenta')).toEqual({});
+  });
+});
+
+describe('Cada zona sigue siendo accesible después de ajustar', () => {
+  /**
+   * Una zona puede romper el contraste tan bien como la base: si el backoffice
+   * desatura el trazo del campo hasta hacerlo invisible, el formulario deja de tener
+   * forma AUNQUE la base cumpla. Así que se valida la paleta EFECTIVA de cada zona,
+   * no sólo la de `:root`.
+   */
+  for (const zona of ESTILO_ZONES) {
+    it(`la zona ${zona} cumple AA con los colores de fábrica`, () => {
+      const base = resolverTokens(MODELO_0, MODELO_0.coloresPorDefecto);
+      const efectiva = { ...base, ...resolverZona(MODELO_0, MODELO_0.coloresPorDefecto, zona) };
+      expect(validarContraste(efectiva)).toEqual([]);
+    });
+  }
+});
+
+describe('La zona login conserva el oscuro que ya tenía', () => {
+  const login = resolverZona(MODELO_0, MODELO_0.coloresPorDefecto, 'login');
+
+  /**
+   * Los valores son los mismos `slate` que la pantalla llevaba escritos a mano,
+   * convertidos a triplete. El viaje hexadecimal → HSL → rgb se comprobó exacto en los
+   * ocho tonos ANTES de escribir la zona, así que la pantalla se ve igual: lo que
+   * cambia es que ahora responde a un modelo.
+   */
+  it.each([
+    ['background', '#020617', 'slate-950'],
+    ['foreground', '#f1f5f9', 'slate-100'],
+    ['card', '#0f172a', 'slate-900'],
+    ['border', '#1e293b', 'slate-800'],
+    ['muted-foreground', '#94a3b8', 'slate-400'],
+  ])('--%s sigue siendo %s (%s)', (token, hex) => {
+    expect(login[token]).toBe(hexATriplete(hex));
+  });
+
+  /**
+   * LAS DOS EXCEPCIONES, Y NO SON DESCUIDOS: tematizar esta pantalla destapó que su
+   * borde de campo NUNCA cumplió 1.4.11.
+   *
+   * El `slate-700` que llevaba escrito a mano daba **1,95:1** sobre este lienzo — un
+   * contorno que quien tiene poca visión no ve, en la pantalla donde hay que escribir
+   * una contraseña. Nadie lo sabía porque nadie lo medía: la validación de contraste
+   * sólo miraba la base, y esta pantalla vivía fuera del sistema.
+   *
+   * Al entrar en él, la regla que la ráfaga del trazo hizo bloqueante se le aplica
+   * también. De ahí las dos correcciones:
+   *
+   *  · el borde de campo sube a `slate-500` (4,24:1);
+   *  · el anillo de foco sube a `slate-300`, porque con el borde ya en `slate-500` un
+   *    foco del mismo tono no indicaría nada: un indicador que se parece al estado
+   *    normal no es un indicador.
+   */
+  it('el borde de campo YA cumple: subió de slate-700 (1,95:1) a slate-500', () => {
+    expect(login.input).toBe(hexATriplete('#64748b'));
+    expect(contraste(login.background, login.input)).toBeGreaterThanOrEqual(3);
+  });
+
+  it('el foco se distingue del borde en reposo', () => {
+    expect(login.ring).toBe(hexATriplete('#cbd5e1'));
+    expect(login.ring).not.toBe(login.input);
+  });
+
+  it('sigue siendo oscuro: el lienzo es más oscuro que el texto', () => {
+    const fondo = parsearTriplete(login.background)!;
+    const texto = parsearTriplete(login.foreground)!;
+    expect(fondo.l).toBeLessThan(10);
+    expect(texto.l).toBeGreaterThan(90);
+  });
+});
+
+describe('El blog tiñe el lienzo y NADA MÁS', () => {
+  const blog = MODELO_0.ajustesPorZona.blog!;
+
+  it('sólo toca superficie y tempo', () => {
+    // Si algún día apareciera aquí un token de tipografía o de espaciado, sería una
+    // zona reorganizando en vez de revistiendo. La escala tipográfica y la medida de
+    // línea son estructura (`prose` fija la segunda), y una zona no las toca.
+    expect(Object.keys(blog).sort()).toEqual(
+      ['background', 'card', 'motion-duration', 'muted'].sort(),
+    );
+  });
+
+  it('el lienzo se calienta pero sigue siendo casi blanco: se viene a leer', () => {
+    const fondo = parsearTriplete(blog.background)!;
+    expect(fondo.l).toBeGreaterThanOrEqual(98);
+    expect(fondo.s).toBeGreaterThan(0); // ya no es blanco puro
+  });
+});
+
+describe('El backoffice RESTA, no añade', () => {
+  const base = resolverTokens(MODELO_0, MODELO_0.coloresPorDefecto);
+  const bo = MODELO_0.ajustesPorZona.backoffice!;
+
+  it('baja la saturación de los grises sin tocarles el tono ni la luz', () => {
+    for (const slot of ['secondary', 'muted', 'accent', 'border']) {
+      const antes = parsearTriplete(base[slot])!;
+      const ahora = parsearTriplete(bo[slot])!;
+      expect(ahora.s).toBeLessThan(antes.s);
+      expect(ahora.h).toBe(antes.h);
+      expect(ahora.l).toBe(antes.l);
+    }
+  });
+
+  /**
+   * EL BORDE DE CAMPO ES LA EXCEPCIÓN, y la excepción la impuso la aritmética: quitar
+   * saturación quita contraste, y con la desaturación del backoffice el trazo se
+   * quedaba en 2,96:1 — a cuatro centésimas de incumplir.
+   *
+   * Así que aquí la resta se compensa oscureciendo dos puntos. No es una licencia: es
+   * que la accesibilidad manda sobre la sobriedad cuando chocan, y la validación por
+   * zona fue la que lo dijo antes de que llegara a ninguna pantalla.
+   */
+  it('el borde de campo compensa con luz lo que pierde en saturación', () => {
+    const antes = parsearTriplete(base.input)!;
+    const ahora = parsearTriplete(bo.input)!;
+    expect(ahora.s).toBeLessThan(antes.s);
+    expect(ahora.l).toBeLessThan(antes.l);
+    expect(contraste(base.background, bo.input)).toBeGreaterThanOrEqual(3);
+  });
+
+  it('sube el contraste del texto secundario, que es el que se lee mil veces', () => {
+    const efectiva = { ...base, ...bo };
+    expect(contraste(efectiva.background, efectiva['muted-foreground'])).toBeGreaterThan(
+      contraste(base.background, base['muted-foreground']),
+    );
+  });
+
+  it('y responde más rápido: una herramienta no se luce', () => {
+    expect(parseInt(bo['motion-duration'], 10)).toBeLessThan(
+      parseInt(MODELO_0.ejes['motion-duration'], 10),
     );
   });
 });

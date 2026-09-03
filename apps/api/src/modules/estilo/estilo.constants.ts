@@ -48,9 +48,26 @@ import {
   type TripleteHsl,
 } from './color';
 
-/** Las tres zonas. ESPEJO EXACTO de `LOGO_ZONES` — la marca y el estilo se configuran
- *  por las mismas zonas, y tener dos listas sería tener dos que divergen. */
-export const ESTILO_ZONES = ['public', 'backoffice', 'blog'] as const;
+/**
+ * LAS ZONAS DE ESTILO. **Ya no son el espejo de `LOGO_ZONES`, y conviene explicar por
+ * qué dejaron de serlo**, porque E4a las declaró como espejo exacto.
+ *
+ * Una zona de MARCA es «dónde va un logo»: público, backoffice y blog, tres imágenes
+ * independientes. Una zona de ESTILO es «un registro visual propio»: un sitio de la
+ * plataforma que se lee distinto. Coincidían en tres porque hasta ahora no había
+ * ninguna diferenciación; al montarla aparecen dos más que no tienen logo propio:
+ *
+ *  · `cuenta` — el área privada. Es el público, un punto más sobria.
+ *  · `login` — la puerta del backoffice, la única pantalla oscura de la plataforma.
+ *
+ * No son dos listas que divergen: son dos conceptos que se parecían.
+ *
+ * `public` ESTÁ EN LA LISTA PERO NO LLEVA AJUSTES NI ATRIBUTO EN EL DOM, y es
+ * deliberado: el registro público **es** la base, o sea `:root`. Darle un ajuste sería
+ * declarar dos veces lo mismo, y darle un atributo, envolver media plataforma en un
+ * `<div>` para no cambiar nada.
+ */
+export const ESTILO_ZONES = ['public', 'backoffice', 'blog', 'cuenta', 'login'] as const;
 export type EstiloZone = (typeof ESTILO_ZONES)[number];
 
 /**
@@ -183,6 +200,20 @@ export interface Modelo {
   semanticos: Readonly<Record<string, string>>;
   /** La capa T3 que nombró E3. */
   ejes: Readonly<Record<string, string>>;
+  /**
+   * LO QUE CADA ZONA AJUSTA. **Sólo puede REDEFINIR tokens que ya existen; nunca
+   * añadir los suyos** (§5.2 del diseño), y `zonaSoloAjusta` lo comprueba en CI.
+   *
+   * La regla no es burocracia: si el backoffice necesitara un token que el resto no
+   * tiene, eso sería un SEGUNDO SISTEMA DE ESTILO conviviendo con el primero — y lo
+   * mejor del punto de partida era justamente que no existía ninguno. Un modelo
+   * tendría que definir dos juegos de valores, y la mitad de la plataforma dejaría de
+   * responder a la mitad de los tokens.
+   *
+   * Una zona ausente o vacía significa «igual que la base», que es lo que debe
+   * significar: `public` está vacía a propósito porque el registro público ES la base.
+   */
+  ajustesPorZona: Readonly<Partial<Record<EstiloZone, Readonly<Record<string, string>>>>>;
 }
 
 /**
@@ -290,6 +321,118 @@ export const MODELO_0: Modelo = {
 
     'icon-stroke': '2',
   },
+
+  /**
+   * ══ E5 · LAS ZONAS DEL MODELO 0 ═══════════════════════════════════════════════
+   *
+   * Cada zona AJUSTA tokens que ya existen. Ninguna añade uno propio — eso sería un
+   * segundo sistema de estilo, y `zonaSoloAjusta` lo comprueba en CI.
+   *
+   * `public` NO APARECE: el registro público es la base. Un ajuste suyo sería declarar
+   * dos veces lo mismo.
+   *
+   * Que el Modelo 0 sea sobrio no significa que las zonas sean invisibles: significa
+   * que se diferencian por lo que QUITAN, no por lo que añaden.
+   */
+  ajustesPorZona: {
+    /**
+     * BACKOFFICE — RESTA (decisión #4). Es una herramienta de trabajo: quien pasa el
+     * día aquí no necesita que la interfaz le hable, necesita leer tablas.
+     *
+     * Se le quita SATURACIÓN a los grises —el azulado de shadcn se atenúa— y se le
+     * sube el CONTRASTE del texto secundario, que es el que se lee mil veces al día.
+     * La densidad no se toca: es estructura, y moverla sería reorganizar.
+     *
+     * El tempo baja de 150 a 100 ms. Una herramienta responde; no se luce.
+     */
+    backoffice: {
+      secondary: '210 16% 96.1%',
+      muted: '210 16% 96.1%',
+      accent: '210 16% 96.1%',
+      border: '214.3 13% 91.4%',
+      input: '214.3 13% 58%',
+      'muted-foreground': '215.4 10% 41%',
+      'motion-duration': '100ms',
+    },
+
+    /**
+     * BLOG — TIÑE. Es el único sitio de la plataforma donde se viene a LEER seguido,
+     * y un blanco puro a pantalla completa cansa la vista en un texto largo.
+     *
+     * El lienzo se calienta un punto —de blanco puro a un hueso casi imperceptible— y
+     * la superficie atenuada le acompaña. Nada más: la tipografía de cuerpo y la
+     * medida de línea son ESTRUCTURA (la escala tipográfica es inviolable y la medida
+     * la fija `prose`), así que una zona no las toca.
+     *
+     * ⚠ TIÑE `prose`, NUNCA EL MARKDOWN. El contenido lo escribe un editor y sale de
+     * la base; lo que cambia aquí es el color del lienzo sobre el que se pinta. Un
+     * modelo que quisiera reescribir el texto no estaría revistiendo, estaría
+     * editando — y eso la frontera lo prohíbe.
+     */
+    blog: {
+      background: '40 33% 99%',
+      card: '40 33% 99%',
+      muted: '40 25% 96.1%',
+      'motion-duration': '120ms',
+    },
+
+    /**
+     * CUENTA — el público, un punto más sobria. Aquí se gestiona lo propio (anuncios,
+     * mensajes, facturas), así que se parece más al trabajo que al escaparate: la
+     * mitad de la resta del backoffice, sin llegar a su austeridad.
+     */
+    cuenta: {
+      secondary: '210 28% 96.1%',
+      muted: '210 28% 96.1%',
+      accent: '210 28% 96.1%',
+      'motion-duration': '120ms',
+    },
+
+    /**
+     * LOGIN DEL BACKOFFICE — EL OSCURO, POR FIN TEMATIZADO.
+     *
+     * Esta pantalla llevaba su oscuro escrito a mano en veintidós utilidades `slate-*`
+     * desde siempre: era la única del proyecto que no respondía a ningún token, así
+     * que ningún modelo podía tocarla. Ahora el oscuro ES la zona, y las clases de la
+     * pantalla pasan a ser las de siempre (`bg-background`, `text-foreground`…).
+     *
+     * LOS VALORES SON LOS MISMOS `slate` QUE YA HABÍA, convertidos a triplete. La
+     * conversión se comprobó antes de escribir nada: los ocho tonos hacen el viaje
+     * hexadecimal → HSL → rgb sin mover un solo canal (`_rt`), así que la pantalla se
+     * ve exactamente igual que antes. Cambia quién manda sobre ella, no cómo se ve.
+     *
+     * ⚠ SÓLO LA DEL BACKOFFICE, Y ESTO HAY QUE DECIRLO CLARO. El diseño (§5.3)
+     * proponía una zona `login` compartida por los dos accesos. Compartir el REGISTRO
+     * DE IMPACTO —las animaciones de §6— tiene sentido y llega en E6; compartir esta
+     * PALETA no: volvería oscuro el login de usuario, que hoy es claro y que nadie ha
+     * pedido cambiar. Un cambio así se aprueba mirándolo, no se cuela dentro del
+     * mecanismo de zonas.
+     */
+    login: {
+      background: '228.6 84% 4.9%', // slate-950
+      foreground: '210 40% 96.1%', // slate-100
+      card: '222.2 47.4% 11.2%', // slate-900
+      'card-foreground': '210 40% 96.1%', // slate-100
+      popover: '222.2 47.4% 11.2%',
+      'popover-foreground': '210 40% 96.1%',
+      border: '217.2 32.6% 17.5%', // slate-800
+      // slate-500 y no el slate-700 que había: sobre este fondo, aquél daba 1,95:1.
+      // Tematizar la zona destapó que el borde de campo de esta pantalla NUNCA cumplió
+      // 1.4.11 — nadie lo medía. Ahora la validación lo exige también por zona.
+      input: '215.4 16.3% 46.9%', // slate-500 — 4,24:1 sobre el lienzo
+      'muted-foreground': '215 20.2% 65.1%', // slate-400
+      // El foco sube a slate-300 para no confundirse con el borde en reposo, que ahora
+      // es slate-500. Un indicador de foco que se parece al estado normal no indica.
+      ring: '212.7 26.8% 83.9%', // slate-300
+      // El botón: claro sobre oscuro, que es como estaba.
+      primary: '210 40% 96.1%', // slate-100
+      'primary-foreground': '222.2 47.4% 11.2%', // slate-900
+      // El aviso de error, en su versión oscura.
+      'destructive-subtle': '#450a0a', // red-950
+      'destructive-border': '#7f1d1d', // red-900
+      'destructive-strong': '#fca5a5', // red-300
+    },
+  },
 };
 
 /** El catálogo. Se añaden modelos AQUÍ, por código — «los iremos añadiendo». */
@@ -339,6 +482,45 @@ export function resolverTokens(modelo: Modelo, colores: ColoresConfigurables): T
   Object.assign(tokens, modelo.semanticos, modelo.ejes);
 
   return tokens;
+}
+
+/**
+ * Los ajustes de una zona, ya resueltos. Devuelve SÓLO lo que difiere de la base: un
+ * bloque por zona con dos declaraciones pesa dos declaraciones, no cuarenta.
+ */
+export function resolverZona(
+  modelo: Modelo,
+  colores: ColoresConfigurables,
+  zona: EstiloZone,
+): Tokens {
+  const ajustes = modelo.ajustesPorZona[zona];
+  if (!ajustes) return {};
+  const base = resolverTokens(modelo, colores);
+  const salida: Tokens = {};
+  for (const [nombre, valor] of Object.entries(ajustes)) {
+    // Un ajuste que coincide con la base no se emite: sería una regla que no hace nada.
+    if (base[nombre] !== valor) salida[nombre] = valor;
+  }
+  return salida;
+}
+
+/**
+ * LA REGLA DURA, COMPROBABLE: los nombres que una zona ajusta tienen que existir ya en
+ * la base. Devuelve los que no — vacío significa que la zona ajusta y no inventa.
+ *
+ * Se expone como función y no como comentario porque un comentario no impide nada. El
+ * día que alguien añada `--backoffice-algo` a una zona, esto lo dice en CI en vez de
+ * dejar crecer un segundo sistema de estilo a espaldas del modelo.
+ */
+export function zonaSoloAjusta(modelo: Modelo, colores: ColoresConfigurables): string[] {
+  const base = resolverTokens(modelo, colores);
+  const inventados: string[] = [];
+  for (const [zona, ajustes] of Object.entries(modelo.ajustesPorZona)) {
+    for (const nombre of Object.keys(ajustes ?? {})) {
+      if (!(nombre in base)) inventados.push(`${zona}:${nombre}`);
+    }
+  }
+  return inventados;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────
