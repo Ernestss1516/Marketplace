@@ -1,5 +1,6 @@
 import type { Config } from 'tailwindcss';
 import typography from '@tailwindcss/typography';
+import animate from 'tailwindcss-animate';
 
 const config: Config = {
   darkMode: ['class'],
@@ -151,7 +152,24 @@ const config: Config = {
   		}
   	}
   },
-  plugins: [typography],
+  /**
+   * E6 — VUELVE `tailwindcss-animate`, Y VUELVE ATADO AL SISTEMA.
+   *
+   * E0 quitó sus clases en vez de instalarlo, porque instalarlo habría añadido animación
+   * donde no la había justo en la ráfaga que existía para demostrar que nada cambiaba
+   * (§6.3 del diseño). Ahora entra como VOCABULARIO DEL MODELO.
+   *
+   * NO TRAE SUS PROPIOS TIEMPOS, y esto es lo que hace que sea del sistema y no un
+   * cuerpo extraño: el plugin deriva su `animationDuration` de `transitionDuration`
+   * (index.js:129-132, verificado en el paquete instalado), y ese DEFAULT lo fijó E3 a
+   * `var(--motion-duration)`. Así que `animate-in` dura lo que dure el tempo del modelo
+   * —y lo que cada ZONA ajuste: 150 ms en público, 120 en cuenta y blog, 100 en el
+   * backoffice— sin una línea de pegamento.
+   *
+   * La curva sí hay que ponerla a mano: `.animate-in` no declara
+   * `animation-timing-function`. Se declara en `globals.css`, con `var(--motion-ease)`.
+   */
+  plugins: [typography, animate],
 };
 
 export default config;

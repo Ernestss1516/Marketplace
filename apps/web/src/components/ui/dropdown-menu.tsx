@@ -7,22 +7,18 @@ import { Check, ChevronRight, Circle } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 /*
- * E0 · SIN CLASES DE `tailwindcss-animate`, Y NO ES UN OLVIDO.
+ * E6 · LA CAPA VUELVE A ANIMARSE, Y AHORA ES DEL MODELO.
  *
- * Este componente traía de shadcn el bloque `animate-in` / `fade-in-0` /
- * `zoom-in-95` / `slide-in-from-*`. Ese plugin NUNCA ha estado instalado en este
- * repo —ni en package.json, ni en los plugins de tailwind.config.ts, ni en
- * node_modules—, así que aquellas clases no generaban una sola línea de CSS: la
- * capa aparecía y desaparecía en seco, y el build y los 518 casos de la batería
- * funcional lo daban por bueno porque una clase que no existe no rompe nada.
+ * E0 quitó de aquí el bloque que traía shadcn porque `tailwindcss-animate` no estaba
+ * instalado: aquellas clases no generaban una línea de CSS y la capa aparecía en seco.
+ * El plugin ya está, y la animación vuelve ATADA AL SISTEMA — dura
+ * `var(--motion-duration)` y usa `var(--motion-ease)`, así que el tempo lo decide el
+ * modelo y cada zona lo ajusta (100 ms en el backoffice, 150 en el público).
  *
- * Se quitaron en vez de instalar el plugin porque instalarlo AÑADIRÍA animación
- * donde hoy no la hay, y E0 es la ráfaga que demuestra que nada cambió. La
- * animación de capas vuelve en E6, ya como parte del vocabulario del modelo
- * (con su duración y su curva en tokens, y reducida en el backoffice).
- *
- * SI VUELVES A PEGAR ESAS CLASES DESDE LA DOCUMENTACIÓN DE SHADCN, seguirán sin
- * hacer nada mientras el plugin no esté. Ver docs/diseno-sistema-estilo.md §6.3.
+ * Ver el comentario largo de `dialog.tsx` para las dos ausencias deliberadas —el
+ * `duration-200`, que con el plugin puesto sacaría esta capa del sistema de tokens, y
+ * el `slide-in-from-top-[48%]`, cuyo `transform` pisa el centrado— y
+ * docs/diseno-sistema-estilo.md §6.3.
  */
 
 const DropdownMenu = DropdownMenuPrimitive.Root
@@ -83,6 +79,11 @@ const DropdownMenuContent = React.forwardRef<
       sideOffset={sideOffset}
       className={cn(
         "z-50 min-w-[8rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md",
+        // Un menú SÍ puede deslizarse: al revés que el diálogo, no lleva `translate`
+        // propio, así que el `transform` del fotograma de entrada no pisa nada. Se
+        // desliza desde el lado por el que Radix lo ha colocado.
+        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0 data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95",
+        "data-[side=bottom]:slide-in-from-top-2 data-[side=top]:slide-in-from-bottom-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2",
         className
       )}
       {...props}

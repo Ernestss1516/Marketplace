@@ -18,7 +18,13 @@
     --muted-foreground: 215.4 16.3% 46.9%;
     --accent: 210 40% 96.1%;
     --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
+    /* ⚠ E6 — 47 % Y NO EL 60,2 % DE SHADCN. Es un arreglo de 1.4.3, medido: con el
+       valor de fábrica, la letra blanca sobre el botón «Eliminar» daba 3,60:1 y el
+       mismo rojo usado como texto (`text-destructive`) daba 3,76:1 sobre el lienzo —
+       las dos por debajo del 4,5:1 que la norma exige a TEXTO. A 47 % dan 4,81:1 y
+       5,03:1. Sólo baja la luz: mismo tono y misma saturación, igual que hizo la
+       ráfaga del trazo con `--input`. El porqué entero, en `estilo.constants.ts`. */
+    --destructive: 0 84.2% 47%;
     --destructive-foreground: 210 40% 98%;
     --border: 214.3 31.8% 91.4%;
     /* El borde de un CAMPO. Ya no vale lo mismo que `--border`: WCAG 1.4.11 exige
@@ -291,6 +297,108 @@
      importan lucide. La clase `lucide` la pone la propia librería en cada SVG. */
   svg.lucide {
     stroke-width: var(--icon-stroke);
+  }
+}
+
+/* ==========================================================================
+   E6 — LA CURVA DE LAS CAPAS, QUE EL PLUGIN NO PONE
+
+   `tailwindcss-animate` hereda la DURACIÓN del sistema solo (deriva su
+   `animationDuration` de `transitionDuration`, cuyo DEFAULT fijó E3 a
+   `var(--motion-duration)`), pero `.animate-in` / `.animate-out` no declaran
+   `animation-timing-function`: sin esto caerían al `ease` del navegador, que es
+   precisamente «el valor por defecto del plugin» que este sistema no quiere.
+
+   FUERA DE @layer A PROPÓSITO, y por el mismo motivo que las reglas del hero: una
+   regla sin capa gana a la misma regla dentro de una capa, así que esto manda sobre
+   las utilidades que emite el plugin sin depender del orden en que Tailwind las
+   coloque.
+
+   La INTENSIDAD por zona no necesita nada más: el tempo ES la intensidad, y cada
+   zona ya lo ajusta en el modelo (150 ms en público, 120 en cuenta y blog, 100 en el
+   backoffice — «una herramienta responde, no se luce»).
+   ========================================================================== */
+/* ⚠ EL SELECTOR ES POR SUBCADENA, Y NO ES PEREZA — es que la clase que llevan estos
+   elementos NO es `animate-in`, sino `data-[state=open]:animate-in`. Un `.animate-in`
+   a secas no casa con ninguna de las capas del repo: todas usan la variante de estado
+   de Radix, que Tailwind compila a un nombre de clase distinto. Se probó con la clase
+   escueta y las capas seguían animándose con el `ease` del navegador — el test de
+   `estilo-animaciones.spec.ts` lo cazó midiendo la curva, no leyendo el CSS.
+
+   No hay conflicto de especificidad con las utilidades del plugin: aquéllas declaran
+   `animation-name` y `animation-duration`, y ésta es la ÚNICA que declara la curva. */
+[class~='animate-in'],
+[class~='animate-out'],
+[class*=':animate-in'],
+[class*=':animate-out'] {
+  animation-timing-function: var(--motion-ease);
+}
+
+/* ==========================================================================
+   E6 — LA ZONA DE IMPACTO (§6.1): LA ENTRADA ESCALONADA
+
+   Dónde se usa: el subtítulo del hero y las tarjetas de los dos accesos. Son
+   superficies de ENTRADA y no transaccionales — el hero se ve una vez por sesión,
+   un listado se recorre cien veces—, que es justo el reparto del §6.1.
+
+   ── LAS CINCO REGLAS, APLICADAS ────────────────────────────────────────────
+
+   (1) CSS ANTES QUE JS. Son `@keyframes` que arrancan al pintarse el elemento: cero
+       KB de bundle, funciona sin hidratar y con el JS caído. Ninguna de estas
+       piezas necesita `'use client'` por esto.
+
+   (2) NADA DE CLS. Sólo `opacity` y `transform` — ni una propiedad que reflowee.
+
+   (3) EL COSTE SE PAGA DONDE SE DISFRUTA. Son dos reglas de CSS en la hoja que ya
+       se sirve; no hay asset ni script que cargar en ninguna ruta.
+
+   (4) ⚠ EL LCP NO SE ANIMA, Y POR ESO EL `<h1>` DEL HERO NO ENTRA EN ESTA LISTA.
+       El titular es el texto más grande sobre el pliegue de la ruta más visitada,
+       o sea el candidato natural a Largest Contentful Paint. Un elemento que
+       empieza en `opacity: 0` no cuenta como pintado hasta que la animación
+       avanza: animarlo sería RETRASAR la métrica que más pesa en la portada. Se
+       anima lo que hay ALREDEDOR —el subtítulo—, que es literalmente lo que dice
+       la regla: «la animación entra después o afecta a otros elementos».
+
+   (5) `prefers-reduced-motion` DEGRADA A UN ESTADO COMPLETO. Sin animación se ve
+       el estado FINAL (opaco y en su sitio), no el inicial: quien pide movimiento
+       reducido recibe la misma página, no una a medio construir. Es el mismo
+       criterio del hero y del sprite, y por eso la regla base ya es el final.
+   ========================================================================== */
+.entra-escalonado {
+  animation: entrada-suave var(--motion-duration) var(--motion-ease-emphasis) both;
+  /* El escalonado: cada pieza espera su turno. `--paso` lo pone quien la usa. */
+  animation-delay: calc(var(--paso, 0) * var(--motion-duration));
+}
+
+@keyframes entrada-suave {
+  from {
+    opacity: 0;
+    transform: translateY(0.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .entra-escalonado {
+    animation: none;
+  }
+  /* Y las capas de `tailwindcss-animate`, con ellas. `animation: none` es además lo
+     que Radix necesita para desmontar en el acto: su `Presence` espera al
+     `animationend` salvo que el nombre de animación sea `none`, así que apagarlas
+     así cierra los diálogos igual de bien, no los deja colgados.
+
+     Mismo selector por subcadena que arriba, y aquí el `!important` sí hace falta:
+     la utilidad de la variante (`[data-state=open]`, especificidad 0-2-0) gana a
+     cualquier selector de atributo (0-1-0). */
+  [class~='animate-in'],
+  [class~='animate-out'],
+  [class*=':animate-in'],
+  [class*=':animate-out'] {
+    animation: none !important;
   }
 }
 

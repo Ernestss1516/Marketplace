@@ -244,11 +244,31 @@ export const MODELO_0: Modelo = {
   rampa: RAMPA_MODELO_0,
 
   semanticos: {
-    // Error. Su color de letra NO se elige por contraste y es deliberado: sobre este
-    // rojo gana el texto oscuro (4.69 contra 3.14), pero hoy el botón destructivo
-    // lleva letra clara. Cambiarlo sería una decisión de aspecto, y E4a no toma
-    // ninguna — así que se declara fijo, como el resto de semánticos.
-    destructive: '0 84.2% 60.2%',
+    /**
+     * ⚠ EL ROJO BAJA DE 60,2 % A 47 % DE LUZ, Y ES UN ARREGLO DE ACCESIBILIDAD (E6).
+     *
+     * El comentario que había aquí decía que sobre este rojo «gana el texto oscuro
+     * (4.69 contra 3.14), pero hoy el botón destructivo lleva letra clara», y dejaba la
+     * decisión aparcada porque E4a tenía prohibido mover un píxel. La barrera de
+     * contraste de E6 (`contraste-modelos.spec.ts`) la desaparcó midiendo:
+     *
+     *   · letra blanca sobre el rojo de antes ....... 3,60:1  ← 1.4.3 pide 4,5:1
+     *   · `text-destructive` sobre el lienzo ......... 3,76:1  ← también texto
+     *
+     * O sea que el botón «Eliminar» y todos los mensajes de error en rojo llevan desde
+     * siempre por debajo del mínimo para texto. No es el caso gris del trazo decorativo:
+     * aquí se está leyendo, y 1.4.3 no admite matices.
+     *
+     * SE CORRIGE BAJANDO LA LUZ Y NADA MÁS — mismo tono, misma saturación, misma familia:
+     * es exactamente el remedio que la ráfaga del trazo aplicó a `--input`. A 47 % la
+     * letra blanca da 4,81:1 y el rojo como texto sobre el lienzo, 5,03:1; las dos
+     * lecturas quedan con holgura en vez de rozar el mínimo (48,8 % era el límite exacto).
+     *
+     * La alternativa era conservar el rojo y poner letra OSCURA encima (4,74:1). Se
+     * descartó: un botón destructivo con letra casi negra no se lee como destructivo, y
+     * además dejaba sin arreglar el rojo como texto, que es el otro fallo.
+     */
+    destructive: '0 84.2% 47%',
     'destructive-foreground': '210 40% 98%',
 
     // ── E4b · LAS ESCALAS SEMÁNTICAS ─────────────────────────────────────────
@@ -435,14 +455,205 @@ export const MODELO_0: Modelo = {
   },
 };
 
-/** El catálogo. Se añaden modelos AQUÍ, por código — «los iremos añadiendo». */
+/**
+ * ══ E6 · LA RAMPA DEL MODELO DE PRUEBA ════════════════════════════════════════════
+ *
+ * Invertida respecto a la del Modelo 0: lienzo oscuro, letra clara. Es el eje en el que
+ * más se puede diferir sin salirse de lo que un modelo puede hacer, y por eso es el que
+ * se elige — un modelo sutil no probaría nada (§10.5).
+ *
+ * Las luces son absolutas, igual que en el Modelo 0, y por la misma razón de seguridad:
+ * ningún neutro elegido por un admin puede volver el texto ilegible.
+ */
+const RAMPA_PRUEBA: Readonly<Record<string, FranjaRampa>> = {
+  background: { dh: 0, ds: -4, l: 8 },
+  foreground: { dh: 0, ds: -14, l: 96 },
+  // La tarjeta SÍ se separa del fondo, al revés que en el Modelo 0: en un tema oscuro
+  // la elevación no se puede insinuar con una sombra, así que la da la luz.
+  card: { dh: 0, ds: -2, l: 13 },
+  'card-foreground': { dh: 0, ds: -14, l: 96 },
+  popover: { dh: 0, ds: -2, l: 16 },
+  'popover-foreground': { dh: 0, ds: -14, l: 96 },
+  muted: { dh: 0, ds: 0, l: 20 },
+  'muted-foreground': { dh: 0, ds: -8, l: 74 },
+  border: { dh: 0, ds: -4, l: 30 },
+  input: { dh: 0, ds: -4, l: 55 },
+};
+
+/**
+ * ══ E6 · EL MODELO DE PRUEBA — «Contraluz» ════════════════════════════════════════
+ *
+ * ── PARA QUÉ EXISTE ──────────────────────────────────────────────────────────────
+ *
+ * Para que el TEST DE INVARIANCIA DEL HTML (§10.5 del diseño) tenga con qué comparar.
+ * Ese test carga la misma ruta con dos modelos distintos y exige que el árbol DOM sea
+ * idéntico: si difiere, un modelo REORGANIZÓ en vez de revestir y la frontera —la
+ * decisión #1 de todo el sistema— se rompió. Sin un segundo modelo, ese test no puede
+ * existir; con un segundo modelo PARECIDO, pasaría por casualidad.
+ *
+ * De ahí que sea deliberadamente extremo: lienzo oscuro contra el blanco del Modelo 0,
+ * naranja contra azul, serif contra Inter, esquinas de 1,25 rem contra 0,5, tempo de
+ * 320 ms contra 150 y trazo de icono de 1 contra 2. **Si una reorganización se le
+ * escapa a este modelo, no la iba a cazar ninguno.**
+ *
+ * ── POR QUÉ NO ESTÁ EN EL CATÁLOGO ───────────────────────────────────────────────
+ *
+ * No es un modelo de producto: nadie lo ha diseñado para que alguien lo use. `catalogo()`
+ * sirve `MODELOS`, así que la pantalla de admin no lo ofrece nunca. Sí lo encuentra
+ * `buscarModelo`, y eso es a propósito: el test de invariancia lo activa por la VÍA
+ * REAL —el endpoint de admin, con su validación AA y su `revalidateTag`—, no escribiendo
+ * la fila a mano. Un test que se salta el camino de producción prueba otra cosa.
+ *
+ * ── TIENE QUE CUMPLIR AA, Y NO ES UN CAPRICHO ────────────────────────────────────
+ *
+ * `contraste-modelos.spec.ts` lo mide como a cualquier otro. Un modelo de prueba
+ * inaccesible enseñaría que la validación se puede esquivar «porque es sólo un test», y
+ * la primera excepción a una regla es la que la deroga. Los valores de aquí abajo se
+ * ajustaron contra esa medición, no a ojo.
+ */
+export const MODELO_PRUEBA: Modelo = {
+  id: 'modelo-prueba-contraluz',
+  nombre: 'Contraluz (prueba)',
+  descripcion:
+    'Modelo deliberadamente extremo. Existe para que el test de invariancia del HTML tenga contra qué comparar; no se ofrece en el catálogo.',
+  versiones: ['1'],
+
+  coloresPorDefecto: {
+    primary: '28 96% 54%',
+    secondary: '168 62% 30%',
+    accent: '318 62% 42%',
+    // Un neutro cálido y saturado: mueve la rampa entera lejos del gris azulado.
+    neutral: '30 22% 20%',
+  },
+
+  // Blanco casi puro y un marrón muy oscuro. La máquina elige por contraste, igual que
+  // en el Modelo 0 — un modelo no decide la letra, la decide la medición.
+  textoSobre: ['30 30% 98%', '30 50% 8%'],
+
+  rampa: RAMPA_PRUEBA,
+
+  /**
+   * Los MISMOS NOMBRES que el Modelo 0, con valores de tema oscuro. Que el juego de
+   * nombres coincida no es cosmético: si un modelo declarara menos tokens, las pantallas
+   * caerían a `globals.css` para los que faltan y el tema quedaría mezclado. Hay un test
+   * que compara los dos juegos de claves.
+   */
+  semanticos: {
+    /**
+     * EN UN TEMA OSCURO EL ROJO SE INVIERTE, y lo dijo la barrera. Con el rojo medio del
+     * primer intento (`0 72% 51%`) la letra blanca encima cumplía, pero el mismo token
+     * usado como TEXTO sobre el lienzo oscuro se quedaba en 3,82:1: en un tema claro el
+     * rojo tiene que ser oscuro para leerse, y en uno oscuro tiene que ser claro. No se
+     * puede tener las dos con letra blanca encima, así que aquí el rojo es claro y su
+     * letra, oscura. Es la misma pareja de siempre, dada la vuelta.
+     */
+    destructive: '0 85% 68%',
+    'destructive-foreground': '30 50% 8%',
+
+    warning: '#2a1f04',
+    'warning-surface': '#3d2d05',
+    'warning-border': '#a16207',
+    'warning-foreground': '#fde68a',
+    'warning-solid': '#f59e0b',
+    'warning-solid-hover': '#fbbf24',
+
+    success: '#052e16',
+    'success-surface': '#064e3b',
+    'success-border': '#15803d',
+    'success-foreground': '#a7f3d0',
+    'success-solid': '#10b981',
+    'success-solid-hover': '#34d399',
+
+    info: '#0b1e3a',
+    'info-surface': '#12305c',
+    'info-border': '#1d4ed8',
+    'info-foreground': '#bfdbfe',
+
+    'destructive-subtle': '#3f0a0a',
+    'destructive-border': '#991b1b',
+    'destructive-strong': '#fca5a5',
+
+    'pending-surface': '#3b0764',
+    'pending-foreground': '#e9d5ff',
+
+    'neutral-surface': '#292524',
+    'neutral-foreground': '#d6d3d1',
+    'neutral-solid': '#a8a29e',
+    'neutral-solid-hover': '#d6d3d1',
+
+    rating: '#fbbf24',
+    featured: '#fb923c',
+    favorite: '#fb7185',
+  },
+
+  ejes: {
+    // Serif contra la Inter del Modelo 0. No trae fichero propio: apunta a la pila del
+    // sistema, que es lo que puede hacer un modelo que no viene con su tipografía.
+    'font-sans': 'Georgia, "Times New Roman", serif',
+    'font-heading': 'var(--font-sans)',
+
+    radius: '1.25rem',
+
+    // Sombras duras y desplazadas, lo contrario de las difusas del Modelo 0.
+    'shadow-sm': '2px 2px 0 0 rgb(0 0 0 / 0.6)',
+    shadow: '3px 3px 0 0 rgb(0 0 0 / 0.6)',
+    'shadow-md': '5px 5px 0 0 rgb(0 0 0 / 0.6)',
+    'shadow-lg': '8px 8px 0 0 rgb(0 0 0 / 0.6)',
+    'shadow-xl': '12px 12px 0 0 rgb(0 0 0 / 0.6)',
+
+    'motion-duration': '320ms',
+    'motion-ease': 'cubic-bezier(0.34, 1.56, 0.64, 1)',
+    'motion-ease-emphasis': 'cubic-bezier(0.16, 1, 0.3, 1)',
+    'motion-sprite-duration': '2.5s',
+
+    'icon-stroke': '1',
+  },
+
+  /**
+   * Zonas: AJUSTA, no inventa — la misma regla dura que el Modelo 0, y comprobada por
+   * el mismo test. Se declaran pocas y muy visibles, para que el modelo de prueba
+   * también ejercite el mecanismo de zonas.
+   */
+  ajustesPorZona: {
+    backoffice: {
+      // La herramienta resta también aquí: menos color y más tempo corto.
+      muted: '30 10% 20%',
+      accent: '30 10% 26%',
+      'motion-duration': '140ms',
+    },
+    blog: {
+      background: '30 22% 11%',
+      card: '30 22% 11%',
+    },
+    login: {
+      // Ya es oscuro de fábrica: la zona sube el contraste del lienzo, no lo invierte.
+      background: '30 30% 4%',
+      card: '30 22% 10%',
+    },
+  },
+};
+
+/**
+ * El catálogo PÚBLICO. Se añaden modelos AQUÍ, por código — «los iremos añadiendo».
+ * `MODELO_PRUEBA` no está, y no es un olvido: ver su comentario.
+ */
 export const MODELOS: readonly Modelo[] = [MODELO_0];
+
+/**
+ * Los que EXISTEN pero no se ofrecen. Hoy sólo el de prueba. Se mantiene aparte de
+ * `MODELOS` para que la separación «lo que se puede elegir» / «lo que se puede resolver»
+ * sea un dato del código y no una convención que alguien recuerde.
+ */
+export const MODELOS_DE_PRUEBA: readonly Modelo[] = [MODELO_PRUEBA];
+
+/** Todos los que `buscarModelo` puede resolver. El orden pone el catálogo primero. */
+export const TODOS_LOS_MODELOS: readonly Modelo[] = [...MODELOS, ...MODELOS_DE_PRUEBA];
 
 export const MODELO_POR_DEFECTO = MODELO_0;
 export const VERSION_POR_DEFECTO = MODELO_0.versiones[0];
 
 export function buscarModelo(id: string): Modelo | undefined {
-  return MODELOS.find((m) => m.id === id);
+  return TODOS_LOS_MODELOS.find((m) => m.id === id);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────

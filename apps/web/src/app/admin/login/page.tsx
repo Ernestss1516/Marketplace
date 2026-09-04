@@ -57,7 +57,11 @@ export default function AdminLoginPage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4" data-zona="login">
-      <div className="w-full max-w-sm rounded-lg border bg-card p-8 shadow-xl">
+      {/* E6 — la misma entrada que el acceso de usuario. Los dos logins comparten el
+          REGISTRO DE IMPACTO, que es lo que el §5.3 proponía compartir; lo que no
+          comparten es la PALETA (éste es oscuro y aquél claro), y esa distinción se
+          decidió en E5 mirándola, no dentro del mecanismo. */}
+      <div className="entra-escalonado w-full max-w-sm rounded-lg border bg-card p-8 shadow-xl">
         <h1 className="mb-1 text-lg font-semibold text-card-foreground">Administración</h1>
         <p className="mb-6 text-sm text-muted-foreground">Acceso restringido al panel.</p>
 

@@ -102,10 +102,38 @@ export function luminancia({ r, g, b }: Rgb): number {
   return 0.2126 * canal(r) + 0.7152 * canal(g) + 0.0722 * canal(b);
 }
 
+/**
+ * Un color, venga como venga: triplete HSL o hexadecimal.
+ *
+ * ── POR QUÉ HIZO FALTA (E6) ──────────────────────────────────────────────────────────
+ *
+ * Los tokens del sistema conviven en dos notaciones y siempre lo han hecho: la rampa y
+ * los colores de marca son TRIPLETES —porque `hsl(var(--x) / 0.5)` necesita las tres
+ * componentes sueltas para poder llevar opacidad—, mientras que los SEMÁNTICOS son
+ * HEXADECIMALES, copiados tal cual de las utilidades de Tailwind que sustituyeron.
+ *
+ * `contraste()` sólo sabía leer lo primero y devolvía **0** para lo segundo. Eso no
+ * rompía nada visible, porque las parejas bloqueantes son todas de la rampa… y explica
+ * por qué los semánticos NUNCA se habían medido: la herramienta no podía leerlos. Se vio
+ * al escribir `contraste-modelos.spec.ts`, cuando las diez parejas de aviso, éxito, error
+ * y pendiente salieron con ratio 0 — no ilegibles: **inmedibles**.
+ *
+ * Aceptar las dos notaciones es estrictamente más capaz y no puede cambiar ningún
+ * veredicto anterior: donde antes salía 0 (y por tanto «no cumple»), ahora sale el número
+ * real.
+ */
+export function aTriplete(v: string): TripleteHsl | null {
+  const directo = parsearTriplete(v);
+  if (directo) return v;
+  return hexATriplete(v);
+}
+
 /** Ratio de contraste WCAG entre dos colores. Va de 1 (idénticos) a 21 (blanco/negro). */
 export function contraste(a: TripleteHsl, b: TripleteHsl): number {
-  const pa = parsearTriplete(a);
-  const pb = parsearTriplete(b);
+  const ta = aTriplete(a);
+  const tb = aTriplete(b);
+  const pa = ta ? parsearTriplete(ta) : null;
+  const pb = tb ? parsearTriplete(tb) : null;
   if (!pa || !pb) return 0;
   const la = luminancia(hslARgb(pa.h, pa.s, pa.l));
   const lb = luminancia(hslARgb(pb.h, pb.s, pb.l));

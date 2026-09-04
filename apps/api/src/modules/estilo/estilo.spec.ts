@@ -45,7 +45,11 @@ const GLOBALS_CSS_HOY: Readonly<Record<string, string>> = {
   'muted-foreground': '215.4 16.3% 46.9%',
   accent: '210 40% 96.1%',
   'accent-foreground': '222.2 47.4% 11.2%',
-  destructive: '0 84.2% 60.2%',
+  // Cambiado por E6: con el 60,2 % de fábrica, la letra blanca del botón «Eliminar»
+  // daba 3,60:1 y el rojo como texto 3,76:1 — los dos por debajo del 4,5:1 que 1.4.3
+  // exige a texto. Lo destapó `contraste-modelos.spec.ts`, la barrera que el propio
+  // comentario de `parejasBloqueantes` prometía y que no existía.
+  destructive: '0 84.2% 47%',
   'destructive-foreground': '210 40% 98%',
   border: '214.3 31.8% 91.4%',
   // Cambiado por la ráfaga del trazo: 1,23:1 no cumplía 1.4.11 en un borde de campo.

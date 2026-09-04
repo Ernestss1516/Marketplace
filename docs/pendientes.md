@@ -47,6 +47,7 @@ el commit, y —cuando el punto estaba listado como abierto más abajo— de dó
 | **Ficha de usuario — ajuste 1** | Las acciones de la ficha quedan con red de tests donde no la había | `91897e9` |
 | **Mis-créditos — ráfagas A y B** | La campaña de bonus visible ANTES de comprar; la página organizada por tarea, con el saldo primero | `5ee9cb9` · `1079c9b` · `8bc984a` |
 | **El entorno de desarrollo** | El rodeo del IPv6 de Docker Desktop fijado a `127.0.0.1` **también en `apps/web`** (`/_next/image` sufría el mismo `ECONNRESET` y devolvía 500) y documentado en `CLAUDE.md`; los `.env` fuera del repo (`.env.test` y `.env.dev.bak` dejan de rastrearse); las claves que vivían en `.env.test` movidas a `ci.yml` como valores ficticios de CI | `583140d` · `d29a639` · `4929c21` · `081a8bf` · `aca6b21` |
+| **Sistema de estilo — E6** (2026-09-04) | La frontera del sistema («un modelo reviste, no reorganiza») deja de ser disciplina y pasa a ser un rojo de CI: un modelo de prueba deliberadamente extremo y un test que exige el MISMO árbol DOM en seis rutas. Más la capa de contraste que el código prometía desde E4a y no existía — que en su primera ejecución encontró que el rojo destructivo llevaba desde siempre sin cumplir 1.4.3. Y vuelven las animaciones de capa, atadas a `--motion-*`. Detalle en [`diseno-sistema-estilo.md`](./diseno-sistema-estilo.md) §6.3, §10.5 y la fila E6 | (esta ráfaga) |
 | **Las capturas dejan de caducar** (2026-09-04) | Cuatro capturas pintaban la fecha de hoy y la puerta visual se ponía roja **por el calendario**, no por el producto. Se ENMASCARA la fecha y no se retira ninguna captura (retirar `anuncios-tabla` habría invalidado el razonamiento con el que se retiró `/admin/usuarios`). El hallazgo que obligó a rehacer el plan: la máscara se dibuja sobre la CAJA del elemento, así que una caja que se encoge con el texto no tapa nada — de ahí que el ancla sea la caja estable (celda / párrafo) y que las celdas lleven `tabular-nums`. Detalle y anchos medidos en §4.3 | (esta ráfaga) |
 | **Estabilización de la batería de backend** (2026-09-04) | Los tres rojos que se venían relanzando, cerrados **de raíz y con dos raíces distintas**, no una: `alert-matching` era el matching corriendo dos veces a la vez (worker + test) con el aviso perdido en el P2002 del que pierde; `comandos-standalone` era una `Queue` cerrada mientras su conexión todavía se abría. `queue-retry` resultó **no ser un flake vivo**. Barrera nueva de corrida: ninguna suite deja una conexión a Redis abierta, sin `--forceExit`. Detalle en [`auditoria-deuda-test-ci.md` §7](./auditoria-deuda-test-ci.md) | (esta ráfaga) |
 
@@ -573,6 +574,24 @@ Huecos concretos, reverificados:
   `anuncios-tabla`»). Se eligió enmascarar.
 
   </details>
+- **Las capas GENÉRICAS no reciben los tokens de su zona** `[DEUDA menor]` — **medido en E6
+  (2026-09-04).** Los tokens de zona se heredan de un `[data-zona="…"]` que envuelve el árbol de
+  la zona, y **los portales de Radix se montan en `<body>`**, fuera de ese envoltorio: reciben los
+  de la base. Se vio con una sonda en el navegador — el cajón del backoffice devolvía
+  `--motion-duration: 150ms` estando en la zona que lo baja a 100.
+
+  **Cerrado donde la superficie pertenece a una zona por construcción:** los dos cajones
+  (`AdminMobileNav`, `AccountMobileBar`) declaran su propia `data-zona` en el contenido
+  portalado, y con eso reciben también sus colores — lo que E5 les había aprobado y no les
+  llegaba.
+
+  **Abierto para `dialog`, `alert-dialog`, `dropdown-menu` y `select`**, que se usan en todas las
+  zonas y no saben en cuál están. Hay una vía: emitir cada bloque de zona también como
+  `:root:has([data-zona="x"])`, aprovechando que una página está siempre en UNA zona. Pero eso
+  cambia la semántica del mecanismo de «subárbol» a «documento» —y con ella el caso del blog, que
+  vive dentro del público—, así que es una decisión sobre lo que E5 aprobó, no un fleco. El
+  impacto hoy es pequeño: un diálogo del backoffice se anima 50 ms más lento de lo que su zona
+  pide, y usa los grises de la base en vez de los desaturados.
 - **`admin-roles.spec.ts` afirma el número exacto de ítems del nav** — frágil por diseño, y **ya
   está desincronizado otra vez**: `9890e82` movió el nav a **24 secciones**, pero
   [admin-roles.spec.ts:215-226](../apps/web/e2e/admin-roles.spec.ts#L215) titula el test «las 19
