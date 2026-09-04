@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
+import { Ilustracion } from '@/components/shared/Ilustracion';
 import Link from 'next/link';
-import { LifeBuoy, Plus } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { auth } from '@/lib/auth';
 import { buildLoginUrl } from '@/lib/auth/callback-url';
@@ -41,7 +42,9 @@ export default async function MisTicketsPage({
 
       {data.total === 0 ? (
         <div className="flex flex-col items-center gap-4 py-16 text-center text-muted-foreground">
-          <LifeBuoy className="h-12 w-12 opacity-30" />
+          {/* E7 — la ilustración ocupa el hueco del icono. El hueco es ESTRUCTURA
+              (§8.1); la imagen es el asset. Ver components/shared/Ilustracion.tsx. */}
+          <Ilustracion slot="empty-tickets" />
           <p className="text-base">Aún no has abierto ningún ticket.</p>
           <p className="max-w-md text-sm">
             Si tienes una duda o un problema con un anuncio, una valoración o una factura,

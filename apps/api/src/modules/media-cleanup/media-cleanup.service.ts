@@ -10,6 +10,9 @@ import { keyFromPublicUrl, releasedUrls } from '../../infra/r2/media-keys';
 // `BrandingModule`, sólo necesita saber en qué tres claves vive un logo activo. Ver
 // abajo, en `laReferenciaAlguienMas`.
 import { LOGO_SETTING_KEY_LIST } from '../branding/branding.constants';
+// E7 — mismo motivo, misma forma: las claves de ilustración son las OTRAS cuyo valor ES
+// un fichero nuestro, así que la limpieza tiene que reconocerlas para no borrar una viva.
+import { ILUSTRACION_SETTING_KEY_LIST } from '../ilustraciones/ilustraciones.constants';
 
 /**
  * HUÉRFANAS SIN FILA — RÁFAGA H1: «lo que se suelta».
@@ -138,8 +141,16 @@ export class MediaCleanupService {
    *
    * `strpos` sobre el texto del `Json`, como los dos cruces de abajo, y no una igualdad
    * exacta: es más generoso —también reconoce una URL de logo dentro de un valor más
-   * estructurado, si algún día lo hubiera— y de más sólo se peca no borrando. Acotado a
-   * las tres claves de logo, que son las únicas cuyo valor ES un fichero nuestro.
+   * estructurado, si algún día lo hubiera— y de más sólo se peca no borrando.
+   *
+   * ── E7 — Y LAS DIEZ CLAVES DE ILUSTRACIÓN, POR LO MISMO ──
+   *
+   * Desde E7 hay una segunda familia de `Setting` cuyo valor ES un fichero nuestro: las
+   * ilustraciones sustituidas por el admin. Entran en la MISMA consulta y por el mismo
+   * razonamiento entero — con la diferencia de que aquí el daño sería menor (una pantalla
+   * vacía con la imagen rota, no las tres cabeceras del sitio), lo cual no lo hace
+   * aceptable. La condición para entrar en esta lista es «el valor de la clave es una URL
+   * de nuestro bucket», y estas diez la cumplen.
    *
    * Ante un error de consulta devuelve `true` — no borrar. Regla de oro.
    */
@@ -159,10 +170,17 @@ export class MediaCleanupService {
            WHERE "coverUrl" = ${url} OR strpos("blocks"::text, ${url}) > 0
            LIMIT 1
         `,
-        // TRES LOGOS L1 — ¿esta URL es un logo ACTIVO? Ver el bloque de la cabecera.
+        // TRES LOGOS L1 + E7 — ¿esta URL es un logo o una ilustración ACTIVOS? Ver el
+        // bloque de la cabecera. Las dos familias van en la MISMA consulta porque la
+        // pregunta es idéntica —«¿algún Setting cuyo valor sea un fichero nuestro apunta
+        // aquí?»— y separarlas sería una consulta de más por un `IN` de trece elementos
+        // en vez de tres.
         this.prisma.$queryRaw<{ existe: number }[]>`
           SELECT 1 AS existe FROM "Setting"
-           WHERE "key" IN (${Prisma.join(LOGO_SETTING_KEY_LIST)})
+           WHERE "key" IN (${Prisma.join([
+             ...LOGO_SETTING_KEY_LIST,
+             ...ILUSTRACION_SETTING_KEY_LIST,
+           ])})
              AND strpos("value"::text, ${url}) > 0
            LIMIT 1
         `,

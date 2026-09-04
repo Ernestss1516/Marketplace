@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Heart } from 'lucide-react';
+import { IlustracionImagen } from '@/components/shared/IlustracionImagen';
+import type { IlustracionResuelta } from '@/lib/ilustraciones';
 import { Button } from '@/components/ui/button';
 import { ListingCard } from '@/components/anuncios/ListingCard';
 import { FavoritesGridProvider } from '@/components/anuncios/FavoritesGridContext';
@@ -15,7 +16,13 @@ interface Props {
   pages: number;
 }
 
-export function FavoritosClient({ initialListings, totalInitial, page, pages }: Props) {
+export function FavoritosClient({
+  initialListings,
+  totalInitial,
+  page,
+  pages,
+  ilustracionVacio,
+}: Props & { ilustracionVacio: IlustracionResuelta | null }) {
   // Track removed IDs separately so rollback is a simple Set.delete().
   // Visible listings = initialListings filtered by removedIds.
   const [removedIds, setRemovedIds] = useState<Set<string>>(new Set());
@@ -38,7 +45,11 @@ export function FavoritosClient({ initialListings, totalInitial, page, pages }: 
   if (visibleListings.length === 0) {
     return (
       <div className="flex flex-col items-center gap-4 py-16 text-center text-muted-foreground">
-        <Heart className="h-12 w-12 opacity-30" />
+        {/* E7 — la MISMA ilustración que pinta el servidor cuando la lista llega
+            vacía. Aquí llega por prop porque este componente es de cliente y
+            `Ilustracion` es un Server Component: quitar el último favorito sin
+            recargar no puede dejar un hueco distinto del que se ve al entrar. */}
+        <IlustracionImagen ilustracion={ilustracionVacio} />
         <p className="text-base">Aún no tienes anuncios guardados.</p>
         <Button variant="outline" asChild>
           <Link href="/busqueda">Explorar anuncios</Link>

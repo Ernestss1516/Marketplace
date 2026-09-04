@@ -201,6 +201,19 @@ export interface Modelo {
   /** La capa T3 que nombró E3. */
   ejes: Readonly<Record<string, string>>;
   /**
+   * E7 — LAS ILUSTRACIONES QUE ESTE MODELO TRAE, por identificador de slot.
+   *
+   * **Parcial a propósito.** Un modelo declara las que tiene; para las que no,
+   * `IlustracionesService` cae al default del REGISTRO, que siempre existe. Esa cadena
+   * —admin → modelo → registro— es lo que hace que «nunca un hueco» (§8.2) sea una
+   * propiedad estructural y no una disciplina: un modelo nuevo puede olvidarse de
+   * declarar las diez y aun así ninguna pantalla se queda sin imagen.
+   *
+   * El registro (`ilustraciones.constants.ts`) es quien decide QUÉ slots existen; esto
+   * sólo dice con qué fichero los sirve este modelo.
+   */
+  ilustraciones: Readonly<Record<string, string>>;
+  /**
    * LO QUE CADA ZONA AJUSTA. **Sólo puede REDEFINIR tokens que ya existen; nunca
    * añadir los suyos** (§5.2 del diseño), y `zonaSoloAjusta` lo comprueba en CI.
    *
@@ -340,6 +353,26 @@ export const MODELO_0: Modelo = {
     'motion-sprite-duration': '1.25s',
 
     'icon-stroke': '2',
+  },
+
+  /**
+   * E7 — las diez del Modelo 0. Son línea monocroma en un gris medio, y eso es una
+   * decisión y no una falta de tiempo: un `<img>` no hereda `currentColor`, así que el
+   * color va DENTRO del fichero — y una ilustración por defecto que llevara el azul de
+   * marca pelearía con la primera instancia que eligiera un primario rojo. Sobrio, que es
+   * lo que este modelo es.
+   */
+  ilustraciones: {
+    'empty-favorites': '/ilustraciones/empty-favorites.svg',
+    'empty-my-listings': '/ilustraciones/empty-my-listings.svg',
+    'empty-search': '/ilustraciones/empty-search.svg',
+    'empty-messages': '/ilustraciones/empty-messages.svg',
+    'empty-tickets': '/ilustraciones/empty-tickets.svg',
+    'empty-notifications': '/ilustraciones/empty-notifications.svg',
+    'success-payment': '/ilustraciones/success-payment.svg',
+    'success-review': '/ilustraciones/success-review.svg',
+    'success-listing-published': '/ilustraciones/success-listing-published.svg',
+    'success-ticket-sent': '/ilustraciones/success-ticket-sent.svg',
   },
 
   /**
@@ -607,6 +640,26 @@ export const MODELO_PRUEBA: Modelo = {
     'motion-sprite-duration': '2.5s',
 
     'icon-stroke': '1',
+  },
+
+  /**
+   * E7 — el modelo de prueba REUSA las del Modelo 0 a propósito. No tiene arte propio y
+   * no debe tenerlo: lo que este modelo existe para probar es la FRONTERA (que dos
+   * modelos produzcan el mismo HTML), y para eso las imágenes dan igual. Declararlas de
+   * todos modos, en vez de dejar el mapa vacío, ejercita el camino «el modelo trae la
+   * suya» en vez de dejarlo sin recorrer en ninguna prueba.
+   */
+  ilustraciones: {
+    'empty-favorites': '/ilustraciones/empty-favorites.svg',
+    'empty-my-listings': '/ilustraciones/empty-my-listings.svg',
+    'empty-search': '/ilustraciones/empty-search.svg',
+    'empty-messages': '/ilustraciones/empty-messages.svg',
+    'empty-tickets': '/ilustraciones/empty-tickets.svg',
+    'empty-notifications': '/ilustraciones/empty-notifications.svg',
+    'success-payment': '/ilustraciones/success-payment.svg',
+    'success-review': '/ilustraciones/success-review.svg',
+    'success-listing-published': '/ilustraciones/success-listing-published.svg',
+    'success-ticket-sent': '/ilustraciones/success-ticket-sent.svg',
   },
 
   /**

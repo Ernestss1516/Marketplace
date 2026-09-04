@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { BellOff } from 'lucide-react';
+import { Ilustracion } from '@/components/shared/Ilustracion';
 import { auth } from '@/lib/auth';
 import { getMyNotifications } from '@/lib/api/notificaciones';
 import { NotificacionesClient } from './NotificacionesClient';
@@ -28,7 +28,9 @@ export default async function NotificacionesPage({
 
       {data.total === 0 ? (
         <div className="flex flex-col items-center gap-4 py-16 text-center text-muted-foreground">
-          <BellOff className="h-12 w-12 opacity-30" />
+          {/* E7 — la ilustración ocupa el hueco del icono. El hueco es ESTRUCTURA
+              (§8.1); la imagen es el asset. Ver components/shared/Ilustracion.tsx. */}
+          <Ilustracion slot="empty-notifications" />
           <p className="text-base">Aún no tienes notificaciones.</p>
         </div>
       ) : (

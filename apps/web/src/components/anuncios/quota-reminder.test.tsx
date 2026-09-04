@@ -43,6 +43,9 @@ const PRICING: BumpPricing = {
 function renderCon(proStatus: ProStatus) {
   render(
     <MisAnunciosClient
+      // E7 — `null` es el caso que este test quiere: sin ilustración no se pinta nada y
+      // el estado vacío queda como estaba, que es lo que estas aserciones miran.
+      ilustracionVacio={null}
       initialListings={[]}
       initialProStatus={proStatus}
       token="t"

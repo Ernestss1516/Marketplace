@@ -13,6 +13,7 @@ import {
 } from '@/lib/api/billing';
 import { getActiveBanners } from '@/lib/api/banners';
 import { MisAnunciosClient } from '@/components/anuncios/MisAnunciosClient';
+import { getIlustracion } from '@/lib/api/ilustraciones';
 import { BannerList } from '@/components/banners/BannerList';
 import { buildLoginUrl } from '@/lib/auth/callback-url';
 
@@ -93,6 +94,7 @@ export default async function MisAnunciosPage() {
       )}
 
       <MisAnunciosClient
+        ilustracionVacio={await getIlustracion('empty-my-listings')}
         initialListings={items}
         initialProStatus={proStatus}
         initialCounts={counts}

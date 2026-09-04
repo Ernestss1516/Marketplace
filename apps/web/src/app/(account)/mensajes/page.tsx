@@ -1,4 +1,4 @@
-import { MessageCircle } from 'lucide-react';
+import { Ilustracion } from '@/components/shared/Ilustracion';
 
 /**
  * Estado vacío del panel de chat cuando no hay conversación seleccionada.
@@ -10,7 +10,8 @@ import { MessageCircle } from 'lucide-react';
 export default function MensajesPage() {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center text-muted-foreground">
-      <MessageCircle className="h-10 w-10" />
+      {/* E7 — la ilustración ocupa el hueco del icono (§8.1). */}
+      <Ilustracion slot="empty-messages" className="h-auto w-full max-w-[180px]" />
       <p>Selecciona una conversación para ver los mensajes.</p>
     </div>
   );
