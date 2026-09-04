@@ -224,6 +224,17 @@ describe('Retry de colas BullMQ (e2e)', () => {
       } finally {
         spy.mockRestore();
       }
-    }, 20_000);
+      // SIN PLAZO PROPIO, a propósito. Este caso llevaba `}, 20_000)`, y eso era
+      // una INVERSIÓN de plazos: `waitForIndex` espera hasta `DEFAULT_TIMEOUT_MS`
+      // —60 s en CI (helpers/async-state.ts)—, así que en un runner lento Jest
+      // mataba el test a los 20 s ANTES de que la espera pudiera agotarse y contar
+      // qué había visto. El rojo salía como «Exceeded timeout of 20000 ms», que no
+      // dice nada, en vez del mensaje del poll, que dice el último valor observado.
+      //
+      // Quitarlo no alarga ninguna espera: el presupuesto sigue siendo el de
+      // `waitForIndex`. Sólo deja que sea ÉL quien declare el fallo, bajo el
+      // `testTimeout: 120000` de `jest-e2e.json` — que es justamente para lo que
+      // ese número está puesto ahí.
+    });
   });
 });

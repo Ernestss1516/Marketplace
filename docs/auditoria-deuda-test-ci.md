@@ -369,6 +369,10 @@ Dicho explícitamente para que nadie lo rehaga:
   `pendientes.md:309`. Es un flake real pero de otra familia (espera de Meili, no conteo de cola).
   No entra en el Grupo A porque su arreglo es el de los otros dos hermanos sin `waitForTask`
   (`removeListing`, `reindexAll`), que ya está señalado en su sitio.
+
+  > **CADUCADO (2026-09-04).** Medido de nuevo: **pasa, y pasa siempre**. Ni el diagnóstico de
+  > «espera de Meili» ni el posterior de `attempts = 0` describen lo que hace hoy. Detalle y la
+  > explicación más probable —los procesos huérfanos del `reindex`, ya cerrados— en §7.3.
 - Familia `@2b` de Playwright — bug de producto conocido, aislado del veredicto con
   `continue-on-error`. **Tolerado, no resuelto**, y así consta.
 - `admin-roles.spec.ts` afirma el número exacto de ítems del nav — frágil por diseño, pero
@@ -497,3 +501,186 @@ el acceso a `fonts.googleapis.com` / `fonts.gstatic.com` cortado (`/etc/hosts` a
 runner sin salida) y que termine verde. Antes del arreglo, ese mismo build debe caer con
 `ETIMEDOUT`. Y una barrera visual mínima en Playwright: que el `font-family` computado del `<body>`
 siga empezando por `Inter`, para que «servida distinto» no acabe siendo «no servida».
+
+---
+
+# 7. Grupo B — los tres rojos de la migración de estilo (2026-09-04)
+
+Tres ráfagas seguidas (trazo, E5, E5 sobre `main`) terminaron con un rojo de CI que se pasó
+relanzando. Los tres tenían la misma **forma** —cero aserciones de producto rotas, algo que falla
+alrededor del test— y de ahí la sospecha de una raíz común: colas de BullMQ que no cierran.
+
+**La sospecha era falsa, y las raíces son dos.** Y ninguna de las dos es «una cola que no cierra».
+
+## 7.0 Veredicto en una tabla
+
+| Rojo | Dónde se midió | Raíz medida | ¿Cura o etiqueta? |
+|---|---|---|---|
+| `alert-matching › Fase 1 › cada match confirmado crea una Notification` | Run 33792790284, intento 1 (`1 failed, 2696 passed`) | **Dos ejecuciones concurrentes de `matchListing`** — la del worker y la del propio test — y la deduplicación por P2002 hace que la perdedora se salte el aviso | **Curado**: la cola parada durante el fixture |
+| `comandos-standalone › Test suite failed to run` | Run 33806309062 (`2697 passed, 2697 total` **y la suite en rojo**) | **Una `Queue` cerrada mientras su conexión todavía se abría**; BullMQ emite el fallo como evento `'error'` sobre un `EventEmitter` sin oyente | **Curado**: `waitUntilReady()` antes de cerrar |
+| `queue-retry › Retry real` | Medido hoy, 10+ corridas | **No es un flake vivo.** La nota de §4 está caducada | Sin etiqueta; se corrige una **inversión de plazos** que sí existía |
+
+Nada quedó marcado `@2b`: no hizo falta, porque nada resultó irreducible.
+
+## 7.1 `alert-matching` — dos pasadas de matching a la vez
+
+### El mecanismo, confirmado
+
+`publish()` no es inerte: `IndexingProcessor` encola un trabajo de `alert-matching` en cuanto el
+documento es consultable en Meilisearch. Cinco tramos de la suite hacían, además, un
+`matching.matchListing()` **a mano** para no depender de tiempos. Resultado: el mismo trabajo
+corriendo dos veces en paralelo.
+
+Las dos pasadas **no son intercambiables**. La deduplicación vive en el `alertMatch.create`
+([alert-matching.service.ts](../apps/api/src/modules/alerts/alert-matching.service.ts)): quien
+pierde la carrera recibe un P2002 y hace `continue`, **saltándose la creación del aviso**. Así que
+si el worker ganaba el `create` y todavía estaba escribiendo el aviso, la pasada del test no
+escribía ninguno y el test leía cero. Es exactamente el rojo de CI:
+`expect(match).toBeDefined() → Received: undefined`, con los cuatro `hasMatch` de al lado en verde.
+
+### Reproducido, no supuesto
+
+Copia de la Fase 1 con **una** diferencia: `createNotification` retrasado 2 s, para ensanchar una
+ventana que en CI dura lo que dura un `INSERT`. Resultado con el escenario de hoy: **rojo
+siempre**, con la firma idéntica a la del CI (y «el match existe» en verde al lado, como en CI).
+
+### La cura
+
+`conColaPausada(colaDeMatching, …)` alrededor del tramo del fixture — el molde de A1, aplicado por
+TRAMO y con `finally`. Con la cola parada, la pasada del test es la única, y las cinco aserciones
+—presencia, ausencia y aviso— dicen lo que parecen decir. Con el mismo ensanchado de 2 s: **verde**.
+
+Dos añadidos que salieron de escribirlo:
+
+- Se **espera a ver el trabajo** en la cola parada antes de seguir. `waitForIndex` mira
+  Meilisearch, y el encolado ocurre después de que el documento sea consultable: sin esa espera el
+  test podía adelantarse al encolado. De regalo, afirma que la tubería real sigue encolándolo.
+- Se **descarta** (`drain`) el trabajo duplicado. Dejarlo suelto para que se procese al soltar la
+  pausa lo pondría a correr sobre un escenario que para entonces ya es otro — sembrando la
+  siguiente carrera en vez de cerrar ésta. Dos casos lo necesitan de verdad: los de `renew()` y
+  `reserve()/closeDeal()` crean una alerta **después** y afirman que nada la empareja.
+
+**Por qué pausar y no esperar.** Un `pollUntil` al aviso también quitaba el rojo — es lo que se
+hizo en el bloque de deduplicación cuando esto mordió por primera vez. Pero deja viva la
+concurrencia: las aserciones de AUSENCIA siguen midiendo un escenario a medio hacer. La pausa quita
+la causa; el poll, el síntoma.
+
+## 7.2 `comandos-standalone` — cerrar una conexión que todavía se abría
+
+### El mecanismo, confirmado línea a línea
+
+El rastro de CI señala dos sitios y los dos son exactos:
+
+```
+Unhandled error. (Error: Connection is closed.
+  at close (ioredis/built/redis/event_handler.js:214:25)      <- quien CREA el error
+  ...
+  at bullmq/dist/cjs/classes/redis-connection.js:87:45)       <- quien lo DEJA SUELTO
+```
+
+La línea 87 es, literalmente, `this.initializing.catch(err => this.emit('error', err))`, enganchada
+**en el constructor** de `RedisConnection`. Una `Queue` recién creada abre su conexión en segundo
+plano; si se la cierra mientras ese `init()` tiene un comando en vuelo, ioredis rompe la promesa con
+«Connection is closed.» y BullMQ la emite como evento `'error'` sobre una `Queue` que nadie escucha.
+Un `EventEmitter` sin oyente de `'error'` **lanza**, y Jest lo cuenta como fallo de la suite entera
+— de ahí el «2697 passed, 2697 total» con la suite en rojo.
+
+Nótese que la dirección es la **contraria** a la hipótesis: no es una conexión que no se cierra, es
+una que se cierra **demasiado pronto**.
+
+### Reproducido de forma determinista
+
+Un proxy TCP que retrasa los bytes hacia Redis convierte una ventana de microsegundos en algo
+medible. Barriendo el instante del cierre, con 200 ms por salto:
+
+| Cierre a los… | Sin cura | Con `waitUntilReady()` |
+|---|---|---|
+| 0-800 ms | verde | verde |
+| **900 ms** | **ROJO — Connection is closed.** | verde |
+| **1000 ms** | **ROJO** | verde |
+| 1200 ms | **ROJO** | verde |
+| 1400 ms | verde (el `init()` ya había terminado) | verde |
+
+Y en el spec real, sin proxy y en una máquina ociosa, `waitUntilReady()` **todavía tardaba 1-3 ms
+en 4 de 5 corridas**: la ventana está abierta también aquí, sólo que es diminuta. En un runner
+cargado se ensancha hasta que el cierre cae dentro.
+
+### La cura
+
+`await cola.waitUntilReady()` antes de cerrar el contexto. No esconde nada: el `init()` termina y ya
+no queda promesa que romper. Silenciarlo con un `on('error')` de adorno sí habría sido taparlo.
+
+### Un defecto vecino, encontrado por el camino
+
+`ReviewsModule` levantado a pelo se queda **sin configuración de conexión**, y BullMQ cae a su
+defecto: `localhost:6379`, **db 0** — la Redis de DESARROLLO. Visto en un `CLIENT LIST`: la
+conexión de ese contexto aparecía en `db=0` haciendo `hset`, que es BullMQ escribiendo
+`bull:<cola>:meta` al inicializarse. La batería de test escribía en la Redis de quien la ejecuta.
+Cerrado dándole al contexto su propio `BullModule.forRoot` con la conexión de test — que además lo
+acerca a producción, donde ese módulo siempre cuelga de `AppModule`.
+
+## 7.3 `queue-retry` — la nota de §4 está caducada
+
+§4 lo listaba como «flaky por timing de indexación de Meili», y
+[estado-tecnico.md](estado-tecnico.md) lo daba por **determinista en rojo** con un diagnóstico
+concreto: `waitForIndex` volvía en ~80 ms con `attempts = 0`, o sea que el trabajo lo procesaba algo
+que no era el `IndexingProcessor` espiado.
+
+**Medido hoy: pasa, y pasa siempre.** El caso «Retry real» tarda ~2,3 s —justo el backoff
+exponencial de 2 s más el indexado—, que es la firma de un reintento que ocurre de verdad. La
+explicación más probable de que ya no falle es la ráfaga `reindex-aislamiento` (2026-09-03): los
+procesos huérfanos de `pnpm reindex` que seguían **consumiendo de las mismas colas** eran el
+sospechoso anotado en [pendientes.md](pendientes.md) §4.3, y ese comando ya termina y cierra.
+
+Lo que sí tenía, y se corrige, es una **inversión de plazos**: el caso llevaba `}, 20_000)` mientras
+la espera de dentro (`waitForIndex`) tiene un presupuesto de **60 s en CI**
+(`DEFAULT_TIMEOUT_MS`). En un runner lento, Jest mataba el test antes de que la espera pudiera
+agotarse y contar lo que había visto: el rojo salía como «Exceeded timeout of 20000 ms», que no dice
+nada. Quitar el plazo local **no alarga ninguna espera** —el presupuesto sigue siendo el de
+`waitForIndex`— y deja que sea él quien declare el fallo, bajo el `testTimeout: 120000` de
+`jest-e2e.json`, que está puesto exactamente para eso.
+
+## 7.4 La hipótesis de raíz común: refutada
+
+La sospecha era «cada `registerQueue` crea su propia `Queue`, y esas conexiones se quedan colgando
+en el teardown». Medido:
+
+- **La batería no deja ninguna conexión colgando.** La barrera nueva (§7.5) lo comprueba en cada
+  corrida y sale verde con la batería entera.
+- **Ninguno de los tres rojos era eso.** Uno era concurrencia de dominio (dos pasadas de matching),
+  otro era el cierre demasiado **pronto** de una conexión, y el tercero no era un flake.
+- Lo único que la hipótesis acertó es el **hecho** de partida —cada `registerQueue` tiene su propia
+  `Queue`, con su propia conexión—, que es justo lo que hace que el caso de §7.2 exista.
+
+## 7.5 La barrera — ninguna suite deja una conexión abierta
+
+`test/verificar-conexiones-redis.ts`, lanzada desde el `globalTeardown` junto a la de aislamiento de
+`Setting`. Mismo razonamiento que aquélla: el defecto es **invisible desde dentro**, así que la
+comprobación tiene que ser de CORRIDA.
+
+- Pregunta al **servidor** (`CLIENT LIST`), no al proceso: así ve la `db`, el último comando y la
+  edad de cada conexión — lo que hace falta para culpar a alguien sin reproducir.
+- Discrimina por **marca de agua**, no por `db`. El `globalSetup` deja escrito el id que Redis dio a
+  su propia conexión (`marca-conexiones-redis.js`); los ids son crecientes, así que `id > marca` es
+  «se abrió durante la batería». La primera versión filtraba por la db de test **y era ciega justo
+  donde hacía falta**: la conexión colgada de §7.2 estaba en la db 0. La marca no tiene que adivinar
+  la db.
+- **Punto ciego declarado:** si el backend de desarrollo de la máquina reconecta mientras corre la
+  batería, aparecerá señalado. Por eso el informe imprime `db`, `name`, `cmd` y `age` de cada uno.
+  En CI no hay nadie más conectado.
+
+**Mutación.** Quitándole el `await app.close()` al contexto con cola de `comandos-standalone`: la
+suite sigue diciendo **`Tests: 8 passed`** y la corrida cae en el teardown con
+`· id=6807 172.18.0.1:54168 db=1 name="" cmd=hset age=8s`. Esa es la forma exacta del defecto que
+vigila, atrapada donde sí se ve.
+
+**Y las dos barreras corren SIEMPRE las dos.** Si la de `Setting` cortara a la de conexiones,
+arreglar la primera destaparía la segunda en la corrida siguiente — un rojo por vuelta en vez de la
+foto entera. Se acumulan los fallos y se informa de todo.
+
+**Sin `--forceExit`.** La batería no lo usa ni lo usará: un exit forzado hace que una corrida con
+conexiones colgando sea indistinguible de una limpia — la lección del `reindex`, donde una `Queue`
+siguió viva y con 517 MB dos minutos después de acabar el trabajo. Jest ya avisa («Jest did not exit
+one second after the test run has completed») pero lo dice sin nombrar al culpable y **no pone la
+corrida en rojo**. La barrera es lo que convierte «la batería termina» en «la batería termina PORQUE
+todo está cerrado».

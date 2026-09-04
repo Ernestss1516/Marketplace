@@ -76,4 +76,9 @@ module.exports = async function globalSetup() {
   // ver redis-connection.ts), no solo `auth:*`. Compartido con el globalSetup
   // de Playwright — ver flush-redis-test-db.js.
   await flushRedisTestDb();
+
+  // BARRERA DE CONEXIONES — la marca de agua. Va LA ÚLTIMA del globalSetup, para
+  // que todo lo que abra la batería quede por encima de ella. Ver
+  // `marca-conexiones-redis.js` y `verificar-conexiones-redis.ts`.
+  await require('./marca-conexiones-redis').marcar();
 };

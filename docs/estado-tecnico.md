@@ -11851,6 +11851,51 @@ Falla **de forma determinista y también contra HEAD limpio** (verificado con `g
 mismo `Expected >= 2 / Received 0`), así que es **preexistente** y ajeno al saneamiento de
 esperas. Arreglarlo es aislar quién consume la cola en los tests, no esperar mejor.
 
+> **CERRADO (2026-09-04) — y el diagnóstico de arriba apuntaba al sitio correcto.** «El job
+> lo procesa algo que no es el `IndexingProcessor` de esta app» tenía un nombre: los procesos
+> `node` huérfanos que dejaba `pnpm reindex`, que seguían **consumiendo de las mismas colas**.
+> El comando ya termina y cierra (ráfaga `reindex-aislamiento`, 2026-09-03), y con eso este
+> caso pasa a ser determinista: medido en 10+ corridas, verde siempre, y tarda ~2,3 s — el
+> backoff exponencial de 2 s más el indexado, que es la firma de un reintento real. Lo único
+> que se tocó del test fue quitarle un `}, 20_000)` que quedaba **por debajo** del presupuesto
+> de la espera de dentro (60 s en CI), y que convertía cualquier fallo real en un «Exceeded
+> timeout» sin información. Detalle en `docs/auditoria-deuda-test-ci.md` §7.3.
+
+---
+
+## La batería de backend termina PORQUE todo está cerrado (barrera de conexiones)
+
+**Regla, en una línea: ninguna suite deja una conexión a Redis abierta, y la batería corre
+SIN `--forceExit` para que eso se pueda afirmar.**
+
+Tres ráfagas seguidas de la migración de estilo terminaron con un rojo de CI que se pasó
+relanzando, los tres con la misma forma —cero aserciones de producto rotas—. Se
+caracterizaron los tres y **las raíces son dos, no una**; la sospecha de partida (colas de
+BullMQ que no cierran en el teardown) quedó **refutada**. El detalle completo, con los
+repros y las mutaciones, está en `docs/auditoria-deuda-test-ci.md` §7. En resumen:
+
+| Rojo | Raíz medida | Cura |
+|---|---|---|
+| `alert-matching › Fase 1` | `publish()` encola `alert-matching` por su cuenta y el test llamaba ADEMÁS a `matchListing()`: dos pasadas a la vez, y la deduplicación por P2002 hace que la perdedora **se salte el aviso** | `conColaPausada` por tramo — la pasada del test es la única |
+| `comandos-standalone` | Una `Queue` cerrada **mientras su conexión todavía se abría**: BullMQ emite el fallo del `init()` como evento `'error'` sobre un `EventEmitter` sin oyente, que lanza | `await cola.waitUntilReady()` antes de cerrar |
+| `queue-retry › Retry real` | **No era un flake vivo** ya: lo cerró la ráfaga del `reindex` | Sólo se quitó una inversión de plazos |
+
+**La barrera**, `test/verificar-conexiones-redis.ts`, sigue el molde de la de aislamiento de
+`Setting`: corre en el `globalTeardown` porque el defecto es invisible desde dentro (la
+suite que fuga termina en verde). Pregunta al **servidor** con `CLIENT LIST` desde un proceso
+aparte —así ve `db`, `cmd` y `age` de cada conexión— y discrimina por **marca de agua**: el
+`globalSetup` deja escrito el id que Redis dio a su propia conexión, y los ids son
+crecientes, así que `id > marca` es «se abrió durante la batería». No filtra por `db` a
+propósito: la primera versión lo hacía y era ciega justo donde hacía falta.
+
+Las dos barreras de corrida se ejecutan **siempre las dos**; si una cortara a la otra,
+arreglar la primera destaparía la segunda una corrida después.
+
+**Y nunca `--forceExit`.** Un exit forzado hace indistinguible una corrida con conexiones
+colgando de una limpia — la lección del `reindex`. Jest ya avisa («Jest did not exit one
+second after the test run has completed»), pero lo dice sin nombrar al culpable y sin poner
+la corrida en rojo.
+
 ---
 
 ## El webServer de Playwright va en modo PRODUCCIÓN, nunca `--watch`

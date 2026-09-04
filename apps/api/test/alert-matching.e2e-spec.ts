@@ -9,6 +9,7 @@ import { createTestApp } from './helpers/create-app';
 import { buildMeiliClient, cleanDb, resetMeili } from './helpers/db';
 import { waitForIndex } from './helpers/meili';
 import { pollUntil } from './helpers/poll';
+import { conColaPausada, getExistingJobs } from './helpers/queue';
 import { AlertMatchingService } from '../src/modules/alerts/alert-matching.service';
 import { NotificationsService } from '../src/modules/notifications/notifications.service';
 import { QUEUE_ALERT_MATCHING, QUEUE_NOTIFICATIONS } from '../src/infra/queue/queue.constants';
@@ -23,8 +24,73 @@ describe('Alert matching (e2e) — B3', () => {
   let matching: AlertMatchingService;
   let notifications: NotificationsService;
   let notificationQueue: Queue;
+  let matchingQueue: Queue;
   let categoryId: string;
   let sellerToken: string;
+
+  /**
+   * EL FIXTURE QUE CONDUCE EL MATCHING A MANO, CON EL WORKER PARADO.
+   *
+   * ── La carrera que cierra, medida ──────────────────────────────────────────
+   *
+   * Cinco tramos de esta suite montan su escenario igual: publican, esperan al
+   * índice y llaman a `matching.matchListing()` a mano para que sus aserciones no
+   * dependan de tiempos. Pero `publish()` YA dispara ese mismo trabajo por su
+   * cuenta —`IndexingProcessor` encola `alert-matching` en cuanto el documento es
+   * consultable—, así que `matchListing` se ejecutaba DOS VECES a la vez: una en
+   * el worker y otra en el test.
+   *
+   * Y las dos pasadas no son intercambiables, porque la deduplicación vive en el
+   * `alertMatch.create`: quien pierde la carrera recibe un P2002 y hace `continue`,
+   * SALTÁNDOSE la creación del aviso (alert-matching.service.ts). O sea que si el
+   * worker ganaba el `create` y todavía estaba escribiendo el aviso, la pasada del
+   * test no escribía ninguno y el test leía cero. Es exactamente el rojo del CI
+   * (33792790284, intento 1): `expect(match).toBeDefined() → undefined`, con los
+   * cuatro casos de `hasMatch` de al lado en verde.
+   *
+   * Reproducido de forma determinista alargando `createNotification` a 2 s: el caso
+   * cae siempre. Con la cola parada, verde con ese mismo ensanchado.
+   *
+   * ── Por qué PAUSAR y no ESPERAR ────────────────────────────────────────────
+   *
+   * Un `pollUntil` al aviso también quitaría el rojo, y es lo que se hizo en su día
+   * en el bloque de deduplicación (líneas ~271) cuando esto mordió por primera vez.
+   * Pero deja viva la concurrencia: las aserciones de AUSENCIA («esta alerta NO
+   * matchea») siguen midiendo un escenario a medio hacer. Con la cola parada, la
+   * pasada del test es la ÚNICA, y las cinco aserciones —presencia, ausencia y
+   * aviso— dicen lo que parece que dicen.
+   *
+   * Mismo molde que `rf7`/`h8` (ver `helpers/queue.ts`): la pausa por TRAMO, con
+   * `finally`, nunca de suite — los bloques de `renew()`, moderación y flujo
+   * completo ejercitan la tubería A PROPÓSITO y siguen con sus esperas.
+   */
+  async function publicarYEmparejarSinWorker(listingId: string): Promise<void> {
+    await conColaPausada(matchingQueue, async () => {
+      await publish(listingId);
+      await waitForIndex(meili, process.env.MEILI_INDEX_NAME!, listingId);
+
+      // Se espera a VER el trabajo en la cola parada antes de seguir. No es
+      // decoración: `waitForIndex` mira Meilisearch, y el `IndexingProcessor`
+      // encola `alert-matching` DESPUÉS de que el documento sea consultable, así
+      // que el test puede llegar aquí antes que el encolado. Además afirma, de
+      // paso, que la tubería real sigue encolándolo.
+      await pollUntil(
+        async () =>
+          (await getExistingJobs(matchingQueue, ['waiting', 'delayed'])).some(
+            (j) => (j.data as { listingId?: string })?.listingId === listingId,
+          ),
+        15_000,
+      );
+
+      await matching.matchListing(listingId);
+
+      // Y se DESCARTA. Lo encolado es ya un duplicado exacto de lo que el test
+      // acaba de ejecutar (todo P2002), y dejarlo suelto para que se procese al
+      // soltar la pausa lo pondría a correr sobre un escenario que para entonces
+      // ya es otro — sembrando la siguiente carrera en vez de cerrar ésta.
+      await matchingQueue.drain();
+    });
+  }
 
   async function createUser(email: string, slug: string, role: 'USER' | 'ADMIN' = 'USER') {
     const user = await prisma.user.create({
@@ -103,6 +169,7 @@ describe('Alert matching (e2e) — B3', () => {
     matching = app.get(AlertMatchingService);
     notifications = app.get(NotificationsService);
     notificationQueue = app.get<Queue>(getQueueToken(QUEUE_NOTIFICATIONS));
+    matchingQueue = app.get<Queue>(getQueueToken(QUEUE_ALERT_MATCHING));
 
     const category = await prisma.category.findUniqueOrThrow({ where: { slug: 'moviles' } });
     categoryId = category.id;
@@ -136,10 +203,7 @@ describe('Alert matching (e2e) — B3', () => {
       alertPriceTooLow = await createAlert(buyer.token, { name: 'Precio bajo', maxPrice: 50 });
 
       listingId = await createListing({ title: 'iPhone Fase 1' });
-      await publish(listingId);
-      await waitForIndex(meili, process.env.MEILI_INDEX_NAME!, listingId);
-
-      await matching.matchListing(listingId);
+      await publicarYEmparejarSinWorker(listingId);
     });
 
     it('alerta sin categoría (null) matchea cualquier anuncio activo', async () => {
@@ -213,10 +277,7 @@ describe('Alert matching (e2e) — B3', () => {
         title: 'iPhone Fase 2',
         attributes: { brand: 'Apple', ram: 8 },
       });
-      await publish(listingId);
-      await waitForIndex(meili, process.env.MEILI_INDEX_NAME!, listingId);
-
-      await matching.matchListing(listingId);
+      await publicarYEmparejarSinWorker(listingId);
     });
 
     it('candidata de Fase 1 cuyo atributo NO coincide se descarta por Meili (sin notificar)', async () => {
@@ -249,10 +310,7 @@ describe('Alert matching (e2e) — B3', () => {
       alertId = await createAlert(buyer.token, { name: 'Dedup', categorySlug: 'moviles' });
 
       listingId = await createListing({ title: 'iPhone Dedup' });
-      await publish(listingId);
-      await waitForIndex(meili, process.env.MEILI_INDEX_NAME!, listingId);
-
-      await matching.matchListing(listingId);
+      await publicarYEmparejarSinWorker(listingId);
     });
 
     it('primera pasada notifica', async () => {
@@ -311,9 +369,11 @@ describe('Alert matching (e2e) — B3', () => {
       alertOldId = await createAlert(alertOld.token, { name: 'Antes de publicar', categorySlug: 'moviles' });
 
       listingId = await createListing({ title: 'iPhone Renew' });
-      await publish(listingId);
-      await waitForIndex(meili, process.env.MEILI_INDEX_NAME!, listingId);
-      await matching.matchListing(listingId);
+      // Drenar aquí no es cosmético: la alerta `alertNew` se crea DOS LÍNEAS más
+      // abajo y este bloque afirma que todavía no tiene match. Un trabajo de la
+      // publicación que siguiera pendiente podría procesarse justo después de
+      // crearla y emparejarla — un rojo por la ausencia que se acaba de afirmar.
+      await publicarYEmparejarSinWorker(listingId);
       expect(await hasMatch(alertOldId, listingId)).toBe(true);
 
       // Alert created AFTER the original publish — must NOT have a match yet.
@@ -343,9 +403,10 @@ describe('Alert matching (e2e) — B3', () => {
 
     it('reserve() y closeDeal() NO disparan matching (ninguna alerta nueva se notifica)', async () => {
       const listing2Id = await createListing({ title: 'iPhone Reserve Sold' });
-      await publish(listing2Id);
-      await waitForIndex(meili, process.env.MEILI_INDEX_NAME!, listing2Id);
-      await matching.matchListing(listing2Id); // settle the initial publish match round
+      // Misma razón que en el bloque de arriba: `lateAlert` nace después y este
+      // caso afirma que NADA la empareja. El fixture deja la ronda de la
+      // publicación cerrada y sin trabajo suelto que pueda hacerlo por detrás.
+      await publicarYEmparejarSinWorker(listing2Id);
 
       const lateAlert = await createUser('am-buyer-reserve@example.com', 'am-buyer-reserve');
       const lateAlertId = await createAlert(lateAlert.token, { name: 'Tarde', categorySlug: 'moviles' });

@@ -1,6 +1,9 @@
-import { INestApplicationContext } from '@nestjs/common';
+import { INestApplicationContext, Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import { getQueueToken } from '@nestjs/bullmq';
+import { BullModule, getQueueToken } from '@nestjs/bullmq';
+import type { Queue } from 'bullmq';
+import { ReviewsModule } from 'src/modules/reviews/reviews.module';
+import { parseRedisConnection } from 'src/infra/redis/redis-connection';
 import { ReindexModule } from 'src/commands/reindex';
 import { GeocodingBackfillModule } from 'src/commands/geocode-backfill';
 import { RedisService } from 'src/infra/redis/redis.service';
@@ -51,6 +54,34 @@ import {
  * arranca**. Un `createApplicationContext` que resuelve es exactamente lo que H6.6 y A1
  * rompieron.
  */
+/**
+ * EL CONTROL POSITIVO: un contexto que SÍ trae cola.
+ *
+ * ── Por qué lleva su propio `forRoot`, y por qué es un módulo DECORADO ──────────────
+ *
+ * `ReviewsModule` levantado a pelo se queda sin configuración de conexión, y BullMQ cae
+ * a su defecto: `localhost:6379`, **db 0** — la Redis de DESARROLLO. Medido en esta
+ * ráfaga con `CLIENT LIST`: la conexión de este contexto aparecía en `db=0` haciendo
+ * `hset`, que es BullMQ escribiendo `bull:<cola>:meta` al inicializarse. O sea que la
+ * batería de test escribía en la Redis de quien la ejecuta — el mismo pecado que la
+ * barrera de aislamiento de `Setting` persigue en Postgres, y por la misma razón.
+ *
+ * Con el `forRoot` la cola va a la db de test, y además el contexto se parece MÁS a
+ * producción, donde `ReviewsModule` siempre cuelga de `AppModule` (que trae
+ * `QueueModule`, que trae el `forRoot`). El contexto pelado era el artificio.
+ *
+ * Va como clase con `@Module()` —la forma normal— y no como un objeto `DynamicModule`
+ * suelto, para que los ganchos de cierre de `@nestjs/bullmq`
+ * (`queue.onApplicationShutdown → queue.close()`) corran por la vía de siempre.
+ */
+@Module({
+  imports: [
+    BullModule.forRoot({ connection: parseRedisConnection(process.env.REDIS_URL as string) }),
+    ReviewsModule,
+  ],
+})
+class ContextoConCola {}
+
 describe('Comandos standalone — aislados de Redis y de BullMQ (e2e)', () => {
   /** Las trece colas del proyecto. Si aparece una catorceava, este test no la conocerá:
    *  por eso hay más abajo una comprobación que no depende de la lista. */
@@ -124,10 +155,35 @@ describe('Comandos standalone — aislados de Redis y de BullMQ (e2e)', () => {
     //
     // Se comprueba sobre `ReviewsModule`, que es quien la registra, para no tener que
     // levantar toda la cadena del controlador.
-    const { ReviewsModule } = await import('src/modules/reviews/reviews.module');
-    const app = await NestFactory.createApplicationContext(ReviewsModule, { logger: false });
+    const app = await NestFactory.createApplicationContext(ContextoConCola, { logger: false });
     try {
       expect(tiene(app, getQueueToken(QUEUE_NOTIFICATIONS))).toBe(true);
+
+      // ── NO SE CIERRA UNA CONEXIÓN QUE TODAVÍA SE ESTÁ ABRIENDO ────────────────
+      //
+      // Este es el único contexto de la suite que trae una `Queue`, y es el que
+      // ponía la suite en rojo en CI con «Unhandled error. (Error: Connection is
+      // closed.)» — 2697/2697 tests en verde y la suite marcada como fallida.
+      //
+      // El mecanismo, medido (ver docs/auditoria-deuda-test-ci.md §7): una `Queue`
+      // recién creada abre su conexión en SEGUNDO PLANO, y su constructor deja
+      // enganchado `this.initializing.catch(err => this.emit('error', err))`
+      // (bullmq/redis-connection.js:87 — el marco exacto del rastro de CI). Si el
+      // contexto se cierra mientras ese `init()` tiene un comando en vuelo, ioredis
+      // rompe la promesa con «Connection is closed.» y BullMQ la emite como evento
+      // `'error'` sobre una `Queue` que nadie escucha: un `EventEmitter` sin
+      // oyente de `'error'` LANZA, y Jest lo cuenta como fallo de la suite entera.
+      //
+      // Medido aquí mismo: en esta máquina, ociosa, `waitUntilReady()` todavía
+      // tardaba 1-3 ms en 4 de 5 corridas. Esa es la ventana; en un runner cargado
+      // se ensancha hasta que el cierre cae dentro. Reproducido de forma
+      // determinista retrasando los bytes hacia Redis con un proxy TCP: sin esta
+      // línea, rojo con la firma exacta; con ella, verde.
+      //
+      // Esperar aquí no esconde nada — el `init()` termina y ya no hay promesa que
+      // romper. Silenciarlo con un `on('error')` de adorno sí habría sido taparlo.
+      const cola = app.get<Queue>(getQueueToken(QUEUE_NOTIFICATIONS) as never, { strict: false });
+      await cola.waitUntilReady();
     } finally {
       await app.close();
     }
