@@ -17,5 +17,8 @@ import { AdminBrandingController } from './admin-branding.controller';
   imports: [PrismaModule, R2Module, AuditLogModule, RevalidateModule, MediaCleanupModule],
   controllers: [BrandingController, AdminBrandingController],
   providers: [BrandingService],
+  // E8 — lo consume el `NotificationProcessor`: el logo público es la cabecera del
+  // correo. Se exporta el servicio y no se duplica la lectura de las tres claves.
+  exports: [BrandingService],
 })
 export class BrandingModule {}

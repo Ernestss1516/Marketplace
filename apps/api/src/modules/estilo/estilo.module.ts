@@ -14,5 +14,9 @@ import { AdminEstiloController } from './admin-estilo.controller';
   imports: [PrismaModule, AuditLogModule, RevalidateModule],
   controllers: [EstiloController, AdminEstiloController],
   providers: [EstiloService],
+  // E8 — lo consume el `NotificationProcessor` para resolver el tema del correo. Es la
+  // MISMA resolución que pinta la web (`GET /estilo`), no una copia: lo único que cambia
+  // es que el correo la convierte a hexadecimal inline, porque no hay variables CSS.
+  exports: [EstiloService],
 })
 export class EstiloModule {}

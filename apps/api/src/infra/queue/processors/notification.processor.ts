@@ -29,6 +29,11 @@ import {
   SendTicketStaffNotificationData,
   SendVerificationEmailData,
 } from '../notification.types';
+import type { CorreoEstructurado, PiezaCorreo } from '../email/email-piezas';
+import { renderCorreo, type PieDeBaja } from '../email/email-render';
+import { temaCorreo, TEMA_CORREO_DE_FABRICA, type TemaCorreo } from '../email/email-tema';
+import { EstiloService } from '../../../modules/estilo/estilo.service';
+import { BrandingService } from '../../../modules/branding/branding.service';
 
 @Processor(QUEUE_NOTIFICATIONS)
 export class NotificationProcessor extends WorkerHost {
@@ -42,6 +47,11 @@ export class NotificationProcessor extends WorkerHost {
     // N5 — para leer la preferencia de las INFORMATIVAS. Las críticas no llegan a
     // usarlo (ver `process`).
     private readonly prisma: PrismaService,
+    // E8 — el tema y el logo del correo. Los dos son LECTURA de configuración de la
+    // instancia, que es lo que un remitente puede consultar sin dejar de ser un
+    // remitente: ninguna regla de negocio entra aquí (misma frontera que `quiereRecibir`).
+    private readonly estilo: EstiloService,
+    private readonly branding: BrandingService,
   ) {
     super();
     this.resend = new Resend(config.getOrThrow<string>('resend.apiKey'));
@@ -92,7 +102,7 @@ export class NotificationProcessor extends WorkerHost {
      * cada copy — y para que las críticas NO lo lleven: ofrecer «date de baja» al
      * pie de un baneo sería ofrecer algo que no se puede hacer.
      */
-    this.pieDeBaja = categoria ? await this.construirPieDeBaja(job.data, categoria) : '';
+    this.pieDeBaja = categoria ? await this.construirPieDeBaja(job.data, categoria) : null;
 
     try {
       switch (job.name) {
@@ -153,64 +163,105 @@ export class NotificationProcessor extends WorkerHost {
    * un aviso perdido sin que nadie se entere.
    */
   /**
-   * El pie que se añade a los correos informativos. Vacío en los críticos.
+   * El pie que se añade a los correos informativos. `null` en los críticos.
    *
-   * Campo de instancia y no un parámetro que haya que enhebrar por los quince
+   * Campo de instancia y no un parámetro que haya que enhebrar por los dieciocho
    * métodos de envío: se fija en `process()` justo antes de despachar, y el worker
    * atiende un trabajo cada vez (BullMQ no reentra en el mismo `process`), así que
    * no hay dos correos compartiéndolo.
+   *
+   * E8 — YA NO ES LA CADENA MONTADA, SINO LA URL. Quien la pinta es el serializador,
+   * que la necesita entera para el `href` del enlace además de para el texto. Guardar
+   * aquí el párrafo ya compuesto habría obligado a que el HTML lo troceara para volver
+   * a sacar la URL — el clásico dato que se compone demasiado pronto.
    */
-  private pieDeBaja = '';
+  private pieDeBaja: PieDeBaja = null;
 
   /**
-   * EL ÚNICO SITIO QUE MANDA UN CORREO — y por eso el pie de baja no se puede
-   * olvidar en ninguno.
+   * EL ÚNICO SITIO QUE MANDA UN CORREO — y desde E8, también **EL ÚNICO QUE LO
+   * COMPONE**.
    *
-   * Los dieciocho envíos del processor pasan por aquí. Añadir el pie en cada copy
-   * habría sido dieciocho ocasiones de olvidarlo una, y el olvido no se ve: el
-   * correo sale perfecto, sólo que sin la salida que la entregabilidad exige. Es
-   * el mismo movimiento que `admin-links.ts` con las URL y que `createNotification`
-   * con el buzón.
+   * ── LO QUE YA ERA ──────────────────────────────────────────────────────────
    *
-   * `pieDeBaja` lo fija `process()` según la categoría: **vacío en las críticas**,
+   * Los dieciocho envíos del processor pasan por aquí, y por eso el pie de baja no
+   * se puede olvidar en ninguno. Añadirlo en cada copy habría sido dieciocho
+   * ocasiones de olvidarlo una, y el olvido no se ve: el correo sale perfecto, sólo
+   * que sin la salida que la entregabilidad exige. Es el mismo movimiento que
+   * `admin-links.ts` con las URL y que `createNotification` con el buzón.
+   *
+   * `pieDeBaja` lo fija `process()` según la categoría: **`null` en las críticas**,
    * porque ofrecer «date de baja» al pie de un baneo sería ofrecer algo que no se
    * puede hacer.
+   *
+   * ── LO QUE E8 AÑADIÓ, Y ES LA MISMA IDEA ───────────────────────────────────
+   *
+   * Los dieciocho ya no componen ninguna cadena: entregan **piezas tipadas** y aquí
+   * se construyen las dos partes del correo. Meter un campo `html` en esta firma y
+   * que cada método compusiera su marcado habría sido, otra vez, dieciocho
+   * ocasiones de olvidar el escapado — y el olvido tampoco se ve.
+   *
+   * **Ninguna pieza acepta HTML** (`email-piezas.ts`: el tipo no lo admite) y el
+   * serializador escapa todos los campos, siempre, sin distinguir «confiables» de
+   * «no confiables». Lo que escribe un admin se escapa igual que lo que escribe un
+   * desconocido: la amenaza no es el admin, es una cuenta de admin comprometida, y
+   * el escapado cuesta cero.
+   *
+   * LAS DOS PARTES VAN JUNTAS Y NO HAY FORMA DE MANDAR UNA SOLA: `renderCorreo`
+   * devuelve las dos. La de texto no es un respaldo — es la mitad del correo (§7.4.1).
    */
-  private async enviar(mensaje: {
-    from?: string;
-    to: string;
-    subject: string;
-    text: string;
-  }): Promise<void> {
+  private async enviar(correo: CorreoEstructurado): Promise<void> {
+    const { texto, html } = renderCorreo(correo, await this.tema(), this.pieDeBaja);
+
     await this.resend.emails.send({
       from: this.from,
-      to: mensaje.to,
-      subject: mensaje.subject,
-      text: `${mensaje.text}${this.pieDeBaja}`,
+      to: correo.to,
+      subject: correo.subject,
+      text: texto,
+      html,
     });
+  }
+
+  /**
+   * El tema de la instancia, resuelto a valores literales para el correo.
+   *
+   * SE CONSULTA POR ENVÍO Y NO SE CACHEA. Son dos lecturas de una fila cada una en un
+   * trabajo que a continuación abre una conexión HTTPS contra Resend: el coste es
+   * ruido. Y una caché con caducidad significaría que, tras cambiar el tema, durante un
+   * rato salen correos con el anterior — un estado intermedio invisible que costaría
+   * más explicar que las dos consultas que ahorra.
+   *
+   * DEGRADA, NUNCA ROMPE: si la consulta falla, sale el tema de fábrica. Un correo
+   * puede ser el único aviso de una sanción (N2); dejarlo sin mandar porque la base
+   * tardó en responder al leer un color sería cambiar un problema estético por uno real.
+   */
+  private async tema(): Promise<TemaCorreo> {
+    try {
+      const [estilo, logos] = await Promise.all([this.estilo.get(), this.branding.get()]);
+      return temaCorreo(estilo.tokens, logos.public);
+    } catch (err) {
+      this.logger.warn(`No se pudo resolver el tema del correo: ${String(err)}`);
+      return TEMA_CORREO_DE_FABRICA;
+    }
   }
 
   private async construirPieDeBaja(
     data: unknown,
     categoria: EmailCategory,
-  ): Promise<string> {
+  ): Promise<PieDeBaja> {
     const email = (data as { email?: string }).email;
-    if (!email) return '';
+    if (!email) return null;
 
     const usuario = await this.prisma.user.findUnique({
       where: { email },
       select: { id: true },
     });
-    if (!usuario) return '';
+    if (!usuario) return null;
 
     const firma = createHmac('sha256', this.config.getOrThrow<string>('jwt.secret'))
       .update(`${usuario.id}:${categoria}`)
       .digest('hex');
 
-    return (
-      `\n\n—\nSi no quieres recibir estos avisos, date de baja aquí:\n` +
-      `${this.appUrl}/baja?u=${usuario.id}&c=${categoria}&t=${firma}`
-    );
+    return { url: `${this.appUrl}/baja?u=${usuario.id}&c=${categoria}&t=${firma}` };
   }
 
   private async quiereRecibir(
@@ -231,69 +282,127 @@ export class NotificationProcessor extends WorkerHost {
     ];
   }
 
+  /**
+   * SOBRIO (§7.4.2): un correo de verificación muy adornado se parece a una
+   * suplantación. Sin logo y con el enlace escrito entero y a la vista.
+   */
   private async sendVerificationEmail(data: SendVerificationEmailData): Promise<void> {
-    const link = `${this.appUrl}/verificar-email?token=${data.token}`;
     await this.enviar({
-      from: this.from,
       to: data.email,
       subject: 'Confirma tu email',
-      text: `Hola ${data.name},\n\nConfirma tu cuenta haciendo clic en este enlace (válido 24h):\n${link}\n\nSi no has creado una cuenta, ignora este email.`,
+      sobrio: true,
+      piezas: [
+        { tipo: 'saludo', nombre: data.name },
+        { tipo: 'parrafo', texto: 'Confirma tu cuenta con este enlace. Es válido 24 horas.' },
+        {
+          tipo: 'boton',
+          etiqueta: 'Confirmar mi cuenta',
+          url: `${this.appUrl}/verificar-email?token=${data.token}`,
+        },
+        { tipo: 'cierre', texto: 'Si no has creado una cuenta, ignora este email.' },
+      ],
     });
     this.logger.log(`Verification email sent to ${data.email}`);
   }
 
+  /** SOBRIO, y aquí es donde más importa: ver `sendVerificationEmail`. */
   private async sendResetEmail(data: SendResetEmailData): Promise<void> {
-    const link = `${this.appUrl}/restablecer?token=${data.token}`;
     await this.enviar({
-      from: this.from,
       to: data.email,
       subject: 'Restablece tu contraseña',
-      text: `Hola ${data.name},\n\nRestablece tu contraseña haciendo clic en este enlace (válido 1h):\n${link}\n\nSi no solicitaste esto, ignora este email.`,
+      sobrio: true,
+      piezas: [
+        { tipo: 'saludo', nombre: data.name },
+        { tipo: 'parrafo', texto: 'Restablece tu contraseña con este enlace. Es válido 1 hora.' },
+        {
+          tipo: 'boton',
+          etiqueta: 'Restablecer mi contraseña',
+          url: `${this.appUrl}/restablecer?token=${data.token}`,
+        },
+        { tipo: 'cierre', texto: 'Si no solicitaste esto, ignora este email.' },
+      ],
     });
     this.logger.log(`Reset email sent to ${data.email}`);
   }
 
   private async sendAlertEmail(data: SendAlertEmailData): Promise<void> {
-    const link = `${this.appUrl}/anuncio/${data.listingSlug}`;
     await this.enviar({
-      from: this.from,
       to: data.email,
       subject: `Nuevo anuncio para tu alerta "${data.alertName}"`,
-      text: `Hola ${data.name},\n\nHay un nuevo anuncio que coincide con tu alerta "${data.alertName}":\n${data.listingTitle}\n\nVerlo aquí:\n${link}`,
+      piezas: [
+        { tipo: 'saludo', nombre: data.name },
+        {
+          tipo: 'parrafo',
+          texto: `Hay un nuevo anuncio que coincide con tu alerta «${data.alertName}»:`,
+        },
+        // CITA y no párrafo: el título lo escribe otro usuario. La pieza es lo que hace
+        // que se lea como voz ajena y no como voz de la plataforma.
+        { tipo: 'cita', texto: data.listingTitle },
+        { tipo: 'boton', etiqueta: 'Ver el anuncio', url: `${this.appUrl}/anuncio/${data.listingSlug}` },
+      ],
     });
     this.logger.log(`Alert email sent to ${data.email}`);
   }
 
-  /** text: plano SIEMPRE (RC.1, defensa XSS) — el mensaje lo escribe un
-   * desconocido y lo lee el admin; nunca se genera HTML a partir de su contenido. */
+  /** El mensaje lo escribe un desconocido y lo lee el admin: va en `cita`, escapada
+   * como todo lo demás por el serializador (E8). */
   private async sendContactNotification(data: SendContactNotificationData): Promise<void> {
-    const link = `${this.appUrl}/admin/mensajes-contacto/${data.messageId}`;
     await this.enviar({
-      from: this.from,
       to: data.adminEmail,
       subject: `Nuevo mensaje de contacto (${data.motivo})`,
-      text: `Hola ${data.adminName},\n\nHa llegado un nuevo mensaje de contacto de ${data.remitenteEmail}:\n\n"${data.extracto}"\n\nVerlo y responder aquí:\n${link}`,
+      piezas: [
+        { tipo: 'saludo', nombre: data.adminName },
+        {
+          tipo: 'parrafo',
+          texto: `Ha llegado un nuevo mensaje de contacto de ${data.remitenteEmail}:`,
+        },
+        { tipo: 'cita', texto: data.extracto },
+        {
+          tipo: 'boton',
+          etiqueta: 'Verlo y responder',
+          url: `${this.appUrl}/admin/mensajes-contacto/${data.messageId}`,
+        },
+      ],
     });
     this.logger.log(`Contact notification email sent to ${data.adminEmail}`);
   }
 
-  /** text: plano — asunto/cuerpo los escribe el admin (autor de confianza),
-   * pero se mantiene el mismo patrón que el resto de la cola por consistencia. */
+  /**
+   * El cuerpo lo escribe un admin — y se escapa exactamente igual que el resto (E8).
+   * No porque el admin sea la amenaza, sino porque una cuenta de admin comprometida sí
+   * lo es. Los saltos de línea del admin se respetan; su marcado, no: no hay ninguna
+   * pieza donde ponerlo.
+   */
   private async sendContactReply(data: SendContactReplyData): Promise<void> {
     await this.enviar({
-      from: this.from,
       to: data.to,
       subject: data.asunto,
-      text: data.cuerpo,
+      piezas: [{ tipo: 'parrafo', texto: data.cuerpo }],
     });
     this.logger.log(`Contact reply email sent to ${data.to}`);
   }
 
   // ─── Atención al usuario R4 ─────────────────────────────────────────────────
-  // `text:` plano, nunca `html:` — la regla invariante de este processor. Aquí
-  // importa especialmente: el asunto y el extracto de un ticket los escribe un
-  // usuario cualquiera, y los lee un agente con sesión. Nunca se genera HTML a
-  // partir de contenido no confiable, así que no hace falta sanitizado.
+  //
+  // ⚠ AQUÍ ESTABA LA REGLA INVARIANTE DEL PROCESSOR, Y E8 LA TRASLADÓ.
+  //
+  // Decía: «`text:` plano, nunca `html:`. El asunto y el extracto de un ticket los
+  // escribe un usuario cualquiera y los lee un agente con sesión; nunca se genera
+  // HTML a partir de contenido no confiable, así que no hace falta sanitizado».
+  //
+  // Desde E8 los correos SÍ llevan HTML, y la regla no se ha eliminado: se ha
+  // trasladado, de «nunca hay HTML» a «el HTML se compone en un solo sitio y todo
+  // dato entra escapado, siempre». Lo que la sostiene sigue sin ser la disciplina de
+  // quien escribe estos métodos:
+  //
+  //   · ninguna pieza de `email-piezas.ts` acepta marcado — el tipo no lo admite, así
+  //     que un método que quisiera inyectarlo NO TIENE DÓNDE PONERLO;
+  //   · el serializador (`email-render.ts`) es el único que convierte texto en HTML, y
+  //     lo hace con una plantilla que escapa todo lo que se interpole y no ofrece
+  //     ninguna puerta para no hacerlo.
+  //
+  // El extracto de un ticket sigue siendo el campo más expuesto del sistema, y sigue
+  // sin poder cerrar una etiqueta. Barreras: `correo.spec.ts` y `correos-e8.e2e-spec.ts`.
 
   /** Cierre común: el email avisa, no es el canal. Ver §11 del diseño. */
   private readonly noReply =
@@ -305,17 +414,23 @@ export class NotificationProcessor extends WorkerHost {
    * SEND_CONTACT_NOTIFICATION, que ya hacía esto.
    */
   private async sendTicketMessage(data: SendTicketMessageData): Promise<void> {
-    const link = `${this.appUrl}/mis-tickets/${data.ticketId}`;
     const encabezado = data.opened
       ? 'La administración ha abierto un hilo contigo'
       : 'Tienes una respuesta nueva en tu ticket';
     await this.enviar({
-      from: this.from,
       to: data.email,
       subject: `${encabezado}: ${data.subject}`,
-      text:
-        `Hola ${data.name},\n\n${encabezado} «${data.subject}»:\n\n"${data.extracto}"\n\n` +
-        `Léelo y responde aquí:\n${link}\n\n${this.noReply}`,
+      piezas: [
+        { tipo: 'saludo', nombre: data.name },
+        { tipo: 'parrafo', texto: `${encabezado} «${data.subject}»:` },
+        { tipo: 'cita', texto: data.extracto },
+        {
+          tipo: 'boton',
+          etiqueta: 'Leer y responder',
+          url: `${this.appUrl}/mis-tickets/${data.ticketId}`,
+        },
+        { tipo: 'cierre', texto: this.noReply },
+      ],
     });
     this.logger.log(`Ticket message email sent to ${data.email}`);
   }
@@ -326,15 +441,19 @@ export class NotificationProcessor extends WorkerHost {
    * tickets que se espera.
    */
   private async sendTicketStaffNotification(data: SendTicketStaffNotificationData): Promise<void> {
-    const link = `${this.appUrl}/admin/tickets/${data.ticketId}`;
     const encabezado = data.kind === 'new' ? 'Nuevo ticket' : 'Respuesta del usuario';
     await this.enviar({
-      from: this.from,
       to: data.to,
       subject: `${encabezado}: ${data.subject}`,
-      text:
-        `${encabezado} de ${data.userName} — «${data.subject}»:\n\n"${data.extracto}"\n\n` +
-        `Atenderlo aquí:\n${link}`,
+      piezas: [
+        { tipo: 'parrafo', texto: `${encabezado} de ${data.userName} — «${data.subject}»:` },
+        { tipo: 'cita', texto: data.extracto },
+        {
+          tipo: 'boton',
+          etiqueta: 'Atender el ticket',
+          url: `${this.appUrl}/admin/tickets/${data.ticketId}`,
+        },
+      ],
     });
     this.logger.log(`Ticket staff notification email sent to ${data.to}`);
   }
@@ -346,46 +465,67 @@ export class NotificationProcessor extends WorkerHost {
    * justamente lo que había contratado.
    */
   private async sendBumpAutoPaused(data: SendBumpAutoPausedData): Promise<void> {
-    const link = `${this.appUrl}/mis-anuncios`;
-    const [motivo, salida] =
+    const { motivo, salida, etiqueta, url } =
       data.reason === 'NO_FUNDS'
-        ? [
-            'te has quedado sin saldo para seguir subiéndolo',
-            `Recarga créditos o bumps y vuelve a activarla cuando quieras:\n${this.appUrl}/mis-creditos`,
-          ]
-        : [
-            'el anuncio ya no está activo',
-            `Si vuelves a activarlo, la programación se reanuda sola:\n${link}`,
-          ];
+        ? {
+            motivo: 'te has quedado sin saldo para seguir subiéndolo',
+            salida: 'Recarga créditos o bumps y vuelve a activarla cuando quieras.',
+            etiqueta: 'Recargar saldo',
+            url: `${this.appUrl}/mis-creditos`,
+          }
+        : {
+            motivo: 'el anuncio ya no está activo',
+            salida: 'Si vuelves a activarlo, la programación se reanuda sola.',
+            etiqueta: 'Ir a mis anuncios',
+            url: `${this.appUrl}/mis-anuncios`,
+          };
 
     await this.enviar({
-      from: this.from,
       to: data.email,
       subject: `Hemos pausado los bumps programados de «${data.listingTitle}»`,
-      text:
-        `Hola ${data.name},\n\nHemos pausado la subida automática de «${data.listingTitle}» porque ${motivo}.\n\n` +
-        `No se te ha cobrado nada por este intento.\n\n${salida}\n\n${this.noReply}`,
+      piezas: [
+        { tipo: 'saludo', nombre: data.name },
+        {
+          tipo: 'parrafo',
+          texto: `Hemos pausado la subida automática de «${data.listingTitle}» porque ${motivo}.`,
+        },
+        { tipo: 'aviso', texto: 'No se te ha cobrado nada por este intento.' },
+        { tipo: 'parrafo', texto: salida },
+        { tipo: 'boton', etiqueta, url },
+        { tipo: 'cierre', texto: this.noReply },
+      ],
     });
     this.logger.log(`Bump auto paused email sent to ${data.email} (${data.reason})`);
   }
 
   private async sendTicketResolved(data: SendTicketResolvedData): Promise<void> {
-    const link = `${this.appUrl}/mis-tickets/${data.ticketId}`;
     await this.enviar({
-      from: this.from,
       to: data.email,
       subject: `Tu ticket se ha resuelto: ${data.subject}`,
-      text:
-        `Hola ${data.name},\n\nHemos marcado como resuelto tu ticket «${data.subject}».\n\n` +
-        `Si el problema sigue, tienes ${data.reopenWindowDays} días para reabrirlo respondiendo ` +
-        `en el hilo:\n${link}\n\nPasado ese plazo tendrás que abrir uno nuevo.\n\n${this.noReply}`,
+      piezas: [
+        { tipo: 'saludo', nombre: data.name },
+        { tipo: 'parrafo', texto: `Hemos marcado como resuelto tu ticket «${data.subject}».` },
+        {
+          tipo: 'parrafo',
+          texto:
+            `Si el problema sigue, tienes ${data.reopenWindowDays} días para reabrirlo ` +
+            `respondiendo en el hilo.`,
+        },
+        {
+          tipo: 'boton',
+          etiqueta: 'Ir a mi ticket',
+          url: `${this.appUrl}/mis-tickets/${data.ticketId}`,
+        },
+        { tipo: 'parrafo', texto: 'Pasado ese plazo tendrás que abrir uno nuevo.' },
+        { tipo: 'cierre', texto: this.noReply },
+      ],
     });
     this.logger.log(`Ticket resolved email sent to ${data.email}`);
   }
 
   /**
-   * Moderación (§14.5) — al vendedor. `text:` plano como todos: el `reason` lo
-   * escribe un moderador, pero se mantiene la regla invariante del processor.
+   * Moderación (§14.5) — al vendedor. El `reason` lo escribe un moderador y se escapa
+   * como todo lo demás (E8): la amenaza no es el moderador, es su cuenta comprometida.
    *
    * Copy sin acusación: la moderación puede equivocarse (de hecho `restoreListing`
    * existe justo para deshacerla), así que el correo dice QUÉ ha pasado y CÓMO
@@ -393,7 +533,6 @@ export class NotificationProcessor extends WorkerHost {
    */
   private async sendListingModerated(data: SendListingModeratedData): Promise<void> {
     const link = `${this.appUrl}/mis-anuncios`;
-    const motivo = data.reason ? `\n\nMotivo indicado: ${data.reason}` : '';
 
     // A1 — `Record<…>` EXPLÍCITO, no un objeto suelto: si a `action` se le añade un
     // valor y aquí no se le da su copy, esto deja de compilar. Es la misma barrera
@@ -401,7 +540,7 @@ export class NotificationProcessor extends WorkerHost {
     // y el aviso in-app salía vacío mientras este correo sí se mandaba bien.
     const copy: Record<
       SendListingModeratedData['action'],
-      { subject: string; cuerpo: string }
+      { subject: string; cuerpo: string; etiqueta: string; cierre?: string }
     > = {
       // MODERACIÓN M2 — el aviso que faltaba. Hasta aquí, un anuncio aprobado se
       // publicaba sin que a su dueño le llegara nada: con la moderación previa
@@ -411,36 +550,53 @@ export class NotificationProcessor extends WorkerHost {
         subject: `Tu anuncio "${data.listingTitle}" ya está publicado`,
         cuerpo:
           `Hemos revisado tu anuncio «${data.listingTitle}» y ya está publicado en el ` +
-          `marketplace.\n\nPuedes verlo aquí:\n${link}`,
+          `marketplace.`,
+        etiqueta: 'Ver mi anuncio',
       },
       REJECTED: {
         subject: `Tu anuncio "${data.listingTitle}" no ha pasado la revisión`,
-        cuerpo:
-          `Hemos revisado tu anuncio «${data.listingTitle}» y de momento no podemos publicarlo.${motivo}\n\n` +
-          `Puedes editarlo y volver a enviarlo desde aquí:\n${link}`,
+        cuerpo: `Hemos revisado tu anuncio «${data.listingTitle}» y de momento no podemos publicarlo.`,
+        etiqueta: 'Editarlo y volver a enviarlo',
       },
       DEACTIVATED: {
         subject: `Hemos retirado tu anuncio "${data.listingTitle}"`,
-        cuerpo:
-          `Hemos retirado del marketplace tu anuncio «${data.listingTitle}».${motivo}\n\n` +
-          `Puedes revisarlo desde aquí:\n${link}\n\nSi crees que es un error, escríbenos y lo miramos.`,
+        cuerpo: `Hemos retirado del marketplace tu anuncio «${data.listingTitle}».`,
+        etiqueta: 'Revisar mi anuncio',
+        cierre: 'Si crees que es un error, escríbenos y lo miramos.',
       },
       RESTORED: {
         subject: `Tu anuncio "${data.listingTitle}" vuelve a estar publicado`,
         cuerpo:
           `Buenas noticias: hemos revisado tu anuncio «${data.listingTitle}» y vuelve a estar ` +
-          `publicado en el marketplace.\n\nPuedes verlo aquí:\n${link}`,
+          `publicado en el marketplace.`,
+        etiqueta: 'Ver mi anuncio',
       },
     };
-    const { subject, cuerpo } = copy[data.action];
+    const { subject, cuerpo, etiqueta, cierre } = copy[data.action];
 
     await this.enviar({
-      from: this.from,
       to: data.email,
       subject,
-      text: `Hola ${data.name},\n\n${cuerpo}`,
+      piezas: [
+        { tipo: 'saludo', nombre: data.name },
+        { tipo: 'parrafo', texto: cuerpo },
+        ...this.piezaMotivo('Motivo indicado', data.reason),
+        { tipo: 'boton', etiqueta, url: link },
+        ...(cierre ? [{ tipo: 'cierre' as const, texto: cierre }] : []),
+      ],
     });
     this.logger.log(`Listing moderated email (${data.action}) sent to ${data.email}`);
+  }
+
+  /**
+   * EL MOTIVO, EN SU PROPIA CAJA — o ninguna pieza si no lo hay.
+   *
+   * Devuelve una lista y no una pieza opcional porque así se esparce en el `piezas: [...]`
+   * sin un `filter(Boolean)` que TypeScript no sabe estrechar. Lo escribe un admin y se
+   * escapa igual que todo (E8).
+   */
+  private piezaMotivo(etiqueta: string, motivo: string | null): PiezaCorreo[] {
+    return motivo ? [{ tipo: 'aviso', texto: `${etiqueta}: ${motivo}` }] : [];
   }
 
   /**
@@ -461,35 +617,52 @@ export class NotificationProcessor extends WorkerHost {
    * `motivo` es el VISIBLE. La nota interna no llega hasta aquí:
    * `SendAccountModeratedData` no tiene campo para ella.
    *
-   * `text:` plano como todo el processor, y aquí importa especialmente: `reason` lo
-   * escribe un moderador y lo lee el sancionado.
+   * `reason` lo escribe un moderador y lo lee el sancionado; se escapa como todo (E8).
+   *
+   * SOBRIO (§7.4.2): una sanción no se anuncia con el logo grande y un botón de marca.
    */
   private async sendAccountModerated(data: SendAccountModeratedData): Promise<void> {
-    const soporte = `Si crees que es un error, escríbenos desde ${this.appUrl}/contacto y lo revisamos.`;
-    const motivo = data.reason ? `\n\nMotivo: ${data.reason}` : '';
+    const soporte = {
+      parrafo: 'Si crees que es un error, escríbenos y lo revisamos.',
+      accion: { etiqueta: 'Escribir a soporte', url: `${this.appUrl}/contacto` },
+    };
 
     // Record EXHAUSTIVO (la red de A1): una acción sin copy no compila.
-    const copy: Record<SendAccountModeratedData['action'], { subject: string; cuerpo: string }> = {
+    const copy: Record<
+      SendAccountModeratedData['action'],
+      {
+        subject: string;
+        parrafos: string[];
+        accion: { etiqueta: string; url: string } | null;
+      }
+    > = {
       SUSPENDED: {
         subject: 'Hemos suspendido temporalmente tu cuenta',
-        cuerpo:
-          `Hemos suspendido tu cuenta de forma temporal, así que de momento no podrás entrar.${motivo}\n\n` +
-          (data.suspendedUntil
+        parrafos: [
+          'Hemos suspendido tu cuenta de forma temporal, así que de momento no podrás entrar.',
+          data.suspendedUntil
             ? `La suspensión termina el ${this.fecha(data.suspendedUntil)} y tu cuenta se reactiva sola: no tienes que hacer nada.`
-            : 'La suspensión no tiene fecha de fin por ahora.') +
-          `\n\n${soporte}`,
+            : 'La suspensión no tiene fecha de fin por ahora.',
+          soporte.parrafo,
+        ],
+        accion: soporte.accion,
       },
       UNSUSPENDED: {
         subject: 'Tu cuenta vuelve a estar activa',
-        cuerpo:
-          'Hemos levantado la suspensión de tu cuenta: ya puedes entrar y usarla con normalidad.\n\n' +
+        parrafos: [
+          'Hemos levantado la suspensión de tu cuenta: ya puedes entrar y usarla con normalidad.',
           'Tus anuncios siguen como estaban.',
+        ],
+        accion: null,
       },
       BANNED: {
         subject: 'Hemos inhabilitado tu cuenta',
-        cuerpo:
-          `Hemos inhabilitado tu cuenta de forma permanente y ya no podrás entrar.${motivo}\n\n` +
-          `Tus anuncios se han retirado del marketplace.\n\n${soporte}`,
+        parrafos: [
+          'Hemos inhabilitado tu cuenta de forma permanente y ya no podrás entrar.',
+          'Tus anuncios se han retirado del marketplace.',
+          soporte.parrafo,
+        ],
+        accion: soporte.accion,
       },
       /**
        * LA ASIMETRÍA DE `reinstateUser`, DICHA EN VOZ ALTA. Es la razón de que este
@@ -501,43 +674,59 @@ export class NotificationProcessor extends WorkerHost {
        */
       REINSTATED: {
         subject: 'Tu cuenta vuelve a estar activa',
-        cuerpo:
-          'Hemos revisado tu caso y tu cuenta vuelve a estar activa: ya puedes entrar.\n\n' +
+        parrafos: [
+          'Hemos revisado tu caso y tu cuenta vuelve a estar activa: ya puedes entrar.',
           'IMPORTANTE: tus anuncios NO se reactivan solos. Se quedaron en pausa y los tienes ' +
-          `esperándote en ${this.appUrl}/mis-anuncios — desde ahí puedes volver a activarlos ` +
-          'cuando quieras.',
+            'esperándote en tus anuncios — desde ahí puedes volver a activarlos cuando quieras.',
+        ],
+        accion: { etiqueta: 'Ir a mis anuncios', url: `${this.appUrl}/mis-anuncios` },
       },
       ARCHIVED: {
         subject: 'Hemos archivado tu cuenta',
-        cuerpo:
+        parrafos: [
           'Hemos archivado tu cuenta, así que ya no podrás entrar y tus anuncios han salido ' +
-          `del marketplace.${motivo}\n\n${soporte}`,
+            'del marketplace.',
+          soporte.parrafo,
+        ],
+        accion: soporte.accion,
       },
       ROLE_CHANGED: {
         subject: 'Hemos cambiado los permisos de tu cuenta',
-        cuerpo:
-          `Hemos cambiado el rol de tu cuenta${data.newRole ? ` a ${data.newRole}` : ''}.${motivo}\n\n` +
+        parrafos: [
+          `Hemos cambiado el rol de tu cuenta${data.newRole ? ` a ${data.newRole}` : ''}.`,
           // Se avisa del efecto porque, si no, el siguiente clic es un 401 sin
           // explicación: el cambio de rol invalida todas las sesiones a propósito.
-          'Por seguridad hemos cerrado tus sesiones abiertas: vuelve a iniciar sesión en ' +
-          `${this.appUrl}/login.`,
+          'Por seguridad hemos cerrado tus sesiones abiertas: vuelve a iniciar sesión.',
+        ],
+        accion: { etiqueta: 'Iniciar sesión', url: `${this.appUrl}/login` },
       },
       // Terminal, y el ÚNICO canal posible: eliminar la cuenta borra sus
       // notificaciones, así que un aviso in-app se destruiría a sí mismo.
       DELETED: {
         subject: 'Tu cuenta se ha eliminado definitivamente',
-        cuerpo:
+        parrafos: [
           'Hemos eliminado tu cuenta y los datos personales asociados. Esta acción no tiene ' +
-          `vuelta atrás y no hace falta que hagas nada más.${motivo}`,
+            'vuelta atrás y no hace falta que hagas nada más.',
+        ],
+        accion: null,
       },
     };
-    const { subject, cuerpo } = copy[data.action];
+    const { subject, parrafos, accion } = copy[data.action];
+    const [primero, ...resto] = parrafos;
 
     await this.enviar({
-      from: this.from,
       to: data.email,
       subject,
-      text: `Hola ${data.name},\n\n${cuerpo}`,
+      sobrio: true,
+      piezas: [
+        { tipo: 'saludo', nombre: data.name },
+        { tipo: 'parrafo', texto: primero },
+        // El motivo va justo detrás de QUÉ ha pasado, antes de las explicaciones: es lo
+        // primero que busca quien lo lee.
+        ...this.piezaMotivo('Motivo', data.reason),
+        ...resto.map((texto): PiezaCorreo => ({ tipo: 'parrafo', texto })),
+        ...(accion ? [{ tipo: 'boton' as const, ...accion }] : []),
+      ],
     });
     this.logger.log(`Account moderated email (${data.action}) sent to ${data.email}`);
   }
@@ -554,49 +743,64 @@ export class NotificationProcessor extends WorkerHost {
    */
   private async sendListingLifecycle(data: SendListingLifecycleData): Promise<void> {
     const link = `${this.appUrl}/mis-anuncios`;
-    const motivo = data.reason ? `\n\nMotivo indicado: ${data.reason}` : '';
     const titulo = data.listingTitle;
 
     // Record EXHAUSTIVO (la red de A1): una acción sin copy no compila.
-    const copy: Record<SendListingLifecycleData['action'], { subject: string; cuerpo: string }> = {
+    const copy: Record<
+      SendListingLifecycleData['action'],
+      {
+        subject: string;
+        cuerpo: string;
+        accion: { etiqueta: string; url: string } | null;
+        cierre?: string;
+      }
+    > = {
       EXPIRING_SOON: {
         subject: `Tu anuncio "${titulo}" caduca pronto`,
         cuerpo:
           `Tu anuncio «${titulo}» caduca ${data.daysLeft === 1 ? 'mañana' : `en ${data.daysLeft} días`} ` +
-          `y dejará de verse en el marketplace.\n\n` +
+          `y dejará de verse en el marketplace.\n` +
           // El PARA QUÉ del preaviso, dicho: renovar antes de caducar conserva la
           // posición; renovar después es volver a empezar.
-          `Si lo renuevas antes de que caduque, sigue donde está:\n${link}`,
+          `Si lo renuevas antes de que caduque, sigue donde está.`,
+        accion: { etiqueta: 'Renovar mi anuncio', url: link },
       },
       EXPIRED: {
         subject: `Tu anuncio "${titulo}" ha caducado`,
         cuerpo:
           `Tu anuncio «${titulo}» ha caducado y ya no se ve en el marketplace. No lo ha ` +
-          `retirado nadie: los anuncios caducan solos pasado un tiempo.\n\n` +
-          `Puedes volver a publicarlo cuando quieras desde aquí:\n${link}`,
+          `retirado nadie: los anuncios caducan solos pasado un tiempo.`,
+        accion: { etiqueta: 'Volver a publicarlo', url: link },
       },
       EDITED_BY_STAFF: {
         subject: `Hemos editado tu anuncio "${titulo}"`,
-        cuerpo:
-          `Hemos hecho cambios en tu anuncio «${titulo}». Sigue publicado.${motivo}\n\n` +
-          `Puedes verlo y volver a editarlo aquí:\n${link}\n\n` +
-          `Si crees que es un error, escríbenos y lo miramos.`,
+        cuerpo: `Hemos hecho cambios en tu anuncio «${titulo}». Sigue publicado.`,
+        accion: { etiqueta: 'Verlo y volver a editarlo', url: link },
+        cierre: 'Si crees que es un error, escríbenos y lo miramos.',
       },
       DELETED_BY_STAFF: {
         subject: `Hemos eliminado tu anuncio "${titulo}"`,
         cuerpo:
           `Hemos eliminado tu anuncio «${titulo}» del marketplace. Esta acción no tiene ` +
-          `vuelta atrás.${motivo}\n\n` +
-          `Si crees que es un error, escríbenos y lo miramos.`,
+          `vuelta atrás.`,
+        // Sin acción: no hay nada que hacer con un anuncio que ya no existe, y mandar a
+        // «mis anuncios» sería mandar a un sitio donde no está.
+        accion: null,
+        cierre: 'Si crees que es un error, escríbenos y lo miramos.',
       },
     };
-    const { subject, cuerpo } = copy[data.action];
+    const { subject, cuerpo, accion, cierre } = copy[data.action];
 
     await this.enviar({
-      from: this.from,
       to: data.email,
       subject,
-      text: `Hola ${data.name},\n\n${cuerpo}`,
+      piezas: [
+        { tipo: 'saludo', nombre: data.name },
+        { tipo: 'parrafo', texto: cuerpo },
+        ...this.piezaMotivo('Motivo indicado', data.reason),
+        ...(accion ? [{ tipo: 'boton' as const, ...accion }] : []),
+        ...(cierre ? [{ tipo: 'cierre' as const, texto: cierre }] : []),
+      ],
     });
     this.logger.log(`Listing lifecycle email (${data.action}) sent to ${data.email}`);
   }
@@ -612,17 +816,25 @@ export class NotificationProcessor extends WorkerHost {
    * un aviso en una provocación.
    */
   private async sendReviewReceived(data: SendReviewReceivedData): Promise<void> {
-    const link = `${this.appUrl}/vendedor/${data.targetSlug}`;
     const sobre = data.listingTitle ? ` sobre «${data.listingTitle}»` : '';
 
     await this.enviar({
-      from: this.from,
       to: data.email,
       subject: `${data.authorName} te ha valorado`,
-      text:
-        `Hola ${data.name},\n\n${data.authorName} te ha dejado una valoración de ` +
-        `${data.rating} estrella${data.rating === 1 ? '' : 's'}${sobre}.\n\n` +
-        `Puedes leerla en tu perfil:\n${link}`,
+      piezas: [
+        { tipo: 'saludo', nombre: data.name },
+        {
+          tipo: 'parrafo',
+          texto:
+            `${data.authorName} te ha dejado una valoración de ` +
+            `${data.rating} estrella${data.rating === 1 ? '' : 's'}${sobre}.`,
+        },
+        {
+          tipo: 'boton',
+          etiqueta: 'Leerla en mi perfil',
+          url: `${this.appUrl}/vendedor/${data.targetSlug}`,
+        },
+      ],
     });
     this.logger.log(`Review received email sent to ${data.email}`);
   }
@@ -634,23 +846,29 @@ export class NotificationProcessor extends WorkerHost {
    * destinatario sigue sin leer. Este método sólo redacta y manda — la regla de
    * este processor.
    *
-   * `text:` plano, y aquí importa especialmente: el extracto lo escribe un
-   * desconocido y lo lee la otra parte.
+   * El extracto lo escribe un desconocido y lo lee la otra parte: va en `cita`, y lo
+   * escapa el serializador como todo lo demás (E8).
    */
   private async sendMessageUnread(data: SendMessageUnreadData): Promise<void> {
-    const link = `${this.appUrl}/mensajes/${data.conversationId}`;
     const cuantos =
       data.unreadCount === 1
         ? 'un mensaje nuevo'
         : `${data.unreadCount} mensajes nuevos`;
 
     await this.enviar({
-      from: this.from,
       to: data.email,
       subject: `Tienes ${cuantos} de ${data.otherUserName}`,
-      text:
-        `Hola ${data.name},\n\n${data.otherUserName} te ha dejado ${cuantos}:\n\n` +
-        `"${data.extracto}"\n\nLéelos y responde aquí:\n${link}\n\n${this.noReply}`,
+      piezas: [
+        { tipo: 'saludo', nombre: data.name },
+        { tipo: 'parrafo', texto: `${data.otherUserName} te ha dejado ${cuantos}:` },
+        { tipo: 'cita', texto: data.extracto },
+        {
+          tipo: 'boton',
+          etiqueta: 'Leerlos y responder',
+          url: `${this.appUrl}/mensajes/${data.conversationId}`,
+        },
+        { tipo: 'cierre', texto: this.noReply },
+      ],
     });
     this.logger.log(`Message unread email sent to ${data.email} (${data.unreadCount})`);
   }
@@ -660,17 +878,24 @@ export class NotificationProcessor extends WorkerHost {
    * el aviso no dice lo único que le da urgencia.
    */
   private async sendDataExportReady(data: SendDataExportReadyData): Promise<void> {
-    const link = `${this.appUrl}/perfil`;
     const megas = (data.sizeBytes / (1024 * 1024)).toFixed(1);
 
     await this.enviar({
-      from: this.from,
       to: data.email,
       subject: 'Tu copia de datos está lista',
-      text:
-        `Hola ${data.name},\n\nYa puedes descargar tu copia de datos (${megas} MB).\n\n` +
-        `Estará disponible hasta el ${this.fecha(data.expiresAt)}; después se borra y ` +
-        `habría que pedirla otra vez.\n\nDescárgala desde tu perfil:\n${link}`,
+      piezas: [
+        { tipo: 'saludo', nombre: data.name },
+        { tipo: 'parrafo', texto: `Ya puedes descargar tu copia de datos (${megas} MB).` },
+        // AVISO y no párrafo: el plazo es lo único que le da urgencia a este correo, y
+        // en un párrafo más se pierde entre los demás.
+        {
+          tipo: 'aviso',
+          texto:
+            `Estará disponible hasta el ${this.fecha(data.expiresAt)}; después se borra y ` +
+            `habría que pedirla otra vez.`,
+        },
+        { tipo: 'boton', etiqueta: 'Descargarla desde mi perfil', url: `${this.appUrl}/perfil` },
+      ],
     });
     this.logger.log(`Data export ready email sent to ${data.email}`);
   }
@@ -682,18 +907,27 @@ export class NotificationProcessor extends WorkerHost {
    * y el usuario puede no saber que existe.
    */
   private async sendInvoicingPending(data: SendInvoicingPendingData): Promise<void> {
-    const link = `${this.appUrl}/perfil/facturacion`;
     const movs =
       data.facturableCount === 1 ? 'un movimiento facturable' : `${data.facturableCount} movimientos facturables`;
 
     await this.enviar({
-      from: this.from,
       to: data.email,
       subject: 'Faltan tus datos fiscales para emitir tu factura',
-      text:
-        `Hola ${data.name},\n\nTienes ${movs} del periodo ${data.periodKey}, pero nos faltan ` +
-        `tus datos fiscales para poder emitir la factura.\n\n` +
-        `Complétalos aquí y podrás emitirla tú mismo:\n${link}`,
+      piezas: [
+        { tipo: 'saludo', nombre: data.name },
+        {
+          tipo: 'parrafo',
+          texto:
+            `Tienes ${movs} del periodo ${data.periodKey}, pero nos faltan ` +
+            `tus datos fiscales para poder emitir la factura.`,
+        },
+        { tipo: 'parrafo', texto: 'Complétalos y podrás emitirla tú mismo.' },
+        {
+          tipo: 'boton',
+          etiqueta: 'Completar mis datos fiscales',
+          url: `${this.appUrl}/perfil/facturacion`,
+        },
+      ],
     });
     this.logger.log(`Invoicing pending email sent to ${data.email}`);
   }
@@ -706,20 +940,22 @@ export class NotificationProcessor extends WorkerHost {
    * justo lo que N2 corrigió para las sanciones.
    */
   private async sendBalanceDebited(data: SendBalanceDebitedData): Promise<void> {
-    const link = `${this.appUrl}/mis-creditos`;
     const partes = [
       data.credits > 0 ? `${data.credits} crédito${data.credits === 1 ? '' : 's'}` : null,
       data.bumps > 0 ? `${data.bumps} bump${data.bumps === 1 ? '' : 's'}` : null,
     ].filter(Boolean);
 
     await this.enviar({
-      from: this.from,
       to: data.email,
       subject: 'Hemos ajustado el saldo de tu cuenta',
-      text:
-        `Hola ${data.name},\n\nHemos retirado ${partes.join(' y ')} de tu saldo.\n\n` +
-        `Motivo: ${data.reason}\n\nPuedes ver tu saldo y su historial aquí:\n${link}\n\n` +
-        `Si crees que es un error, escríbenos y lo revisamos.`,
+      piezas: [
+        { tipo: 'saludo', nombre: data.name },
+        { tipo: 'parrafo', texto: `Hemos retirado ${partes.join(' y ')} de tu saldo.` },
+        // El motivo es obligatorio en `BalanceDebitDto`, así que aquí siempre hay caja.
+        ...this.piezaMotivo('Motivo', data.reason),
+        { tipo: 'boton', etiqueta: 'Ver mi saldo y su historial', url: `${this.appUrl}/mis-creditos` },
+        { tipo: 'cierre', texto: 'Si crees que es un error, escríbenos y lo revisamos.' },
+      ],
     });
     this.logger.log(`Balance debited email sent to ${data.email}`);
   }
@@ -751,10 +987,19 @@ export class NotificationProcessor extends WorkerHost {
       `?valorar=${encodeURIComponent(data.listingId ?? '')}` +
       `&target=${encodeURIComponent(data.otherUserId)}`;
     await this.enviar({
-      from: this.from,
       to: data.email,
       subject: `${data.otherUserName} cerró un trato contigo`,
-      text: `Hola ${data.name},\n\n${data.otherUserName} cerró un trato contigo sobre "${data.listingTitle}". Si quieres, puedes dejar tu valoración:\n${link}\n\nEs totalmente opcional.`,
+      piezas: [
+        { tipo: 'saludo', nombre: data.name },
+        {
+          tipo: 'parrafo',
+          texto:
+            `${data.otherUserName} cerró un trato contigo sobre «${data.listingTitle}». ` +
+            `Si quieres, puedes dejar tu valoración.`,
+        },
+        { tipo: 'boton', etiqueta: 'Dejar mi valoración', url: link },
+        { tipo: 'cierre', texto: 'Es totalmente opcional.' },
+      ],
     });
     this.logger.log(`Review request email sent to ${data.email}`);
   }
