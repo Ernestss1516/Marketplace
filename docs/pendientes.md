@@ -47,6 +47,7 @@ el commit, y —cuando el punto estaba listado como abierto más abajo— de dó
 | **Ficha de usuario — ajuste 1** | Las acciones de la ficha quedan con red de tests donde no la había | `91897e9` |
 | **Mis-créditos — ráfagas A y B** | La campaña de bonus visible ANTES de comprar; la página organizada por tarea, con el saldo primero | `5ee9cb9` · `1079c9b` · `8bc984a` |
 | **El entorno de desarrollo** | El rodeo del IPv6 de Docker Desktop fijado a `127.0.0.1` **también en `apps/web`** (`/_next/image` sufría el mismo `ECONNRESET` y devolvía 500) y documentado en `CLAUDE.md`; los `.env` fuera del repo (`.env.test` y `.env.dev.bak` dejan de rastrearse); las claves que vivían en `.env.test` movidas a `ci.yml` como valores ficticios de CI | `583140d` · `d29a639` · `4929c21` · `081a8bf` · `aca6b21` |
+| **Estabilización de la batería de backend** (2026-09-04) | Los tres rojos que se venían relanzando, cerrados **de raíz y con dos raíces distintas**, no una: `alert-matching` era el matching corriendo dos veces a la vez (worker + test) con el aviso perdido en el P2002 del que pierde; `comandos-standalone` era una `Queue` cerrada mientras su conexión todavía se abría. `queue-retry` resultó **no ser un flake vivo**. Barrera nueva de corrida: ninguna suite deja una conexión a Redis abierta, sin `--forceExit`. Detalle en [`auditoria-deuda-test-ci.md` §7](./auditoria-deuda-test-ci.md) | (esta ráfaga) |
 
 ### 0-bis. Cerrado en repasos anteriores — la tabla que ya estaba
 
@@ -515,10 +516,14 @@ no como barrido.
 
 Huecos concretos, reverificados:
 
-- **`queue-retry › "Retry real"` es flaky** por timing de indexación de Meilisearch (los 14
-  estructurales de esa suite sí son fiables). Preexistente. **Y ahora tiene un sospechoso
-  concreto:** los procesos `node` huérfanos del `reindex` (§4.2) consumen de las mismas colas.
-  Conviene cerrar aquello **antes** de volver a diagnosticar éste.
+- ~~**`queue-retry › "Retry real"` es flaky**~~ → **CERRADO (2026-09-04), y el sospechoso era el
+  correcto.** El `reindex` ya termina y cierra (ráfaga `reindex-aislamiento`, 2026-09-03), así que
+  dejó de haber procesos huérfanos consumiendo de las mismas colas. Medido de nuevo tras eso: pasa
+  siempre, y el caso tarda ~2,3 s — el backoff exponencial de 2 s más el indexado, que es la firma
+  de un reintento que ocurre de verdad. Lo único que se tocó fue una **inversión de plazos**
+  (`}, 20_000)` por fuera de una espera con presupuesto de 60 s en CI), que convertía cualquier
+  fallo real en un «Exceeded timeout» sin información. Detalle en
+  [`auditoria-deuda-test-ci.md` §7.3](./auditoria-deuda-test-ci.md).
 - **`admin-roles.spec.ts` afirma el número exacto de ítems del nav** — frágil por diseño, y **ya
   está desincronizado otra vez**: `9890e82` movió el nav a **24 secciones**, pero
   [admin-roles.spec.ts:215-226](../apps/web/e2e/admin-roles.spec.ts#L215) titula el test «las 19
@@ -829,7 +834,7 @@ la columna que alimenta la auditoría del despliegue.
 | # | Pendiente | Etiqueta |
 |---|---|---|
 | 4.3 | Camino feliz del **vídeo Pro** en navegador (falta fixture MP4 decodificable) — V2 cubrió el del **bloque**, no éste | `[COBERTURA]` |
-| 4.3 | Cierre de huecos e2e: flake de `queue-retry`, conteo de nav en `admin-roles`, tests que publican por el wizard, familia `@2b` tolerada | `[COBERTURA]` |
+| 4.3 | Cierre de huecos e2e: conteo de nav en `admin-roles`, tests que publican por el wizard, familia `@2b` tolerada (el flake de `queue-retry` se cerró el 2026-09-04) | `[COBERTURA]` |
 
 ### Residuos de producto — independientes del despliegue
 
