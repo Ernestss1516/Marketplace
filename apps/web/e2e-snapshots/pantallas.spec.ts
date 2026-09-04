@@ -107,7 +107,8 @@ test.describe('Login del backoffice', () => {
 test.describe('Backoffice', () => {
   const RUTAS: readonly [nombre: string, ruta: string, tapar?: string][] = [
     ['resumen', '/admin'],
-    ['anuncios-tabla', '/admin/anuncios'],
+    // `tapar` = la fecha. Ver el bloque FECHAS al final del fichero.
+    ['anuncios-tabla', '/admin/anuncios', '[data-testid="anuncio-fecha-publicacion"]'],
     // EL FORMULARIO ES `facturas/emisor` Y NO `/admin/ajustes`, que es donde primero se
     // puso. Ajustes pinta **49 marcas «Actualizado: …»**, una por ajuste, y su texto
     // cambia cada vez que se escribe uno. A 1280 px eso sólo cambia unos dígitos; a
@@ -143,7 +144,13 @@ test.describe('Backoffice', () => {
     // esta pantalla no aportaba cobertura nueva: aportaba un rojo intermitente. Y una
     // captura que sólo coincide a veces enseña a ignorar el rojo, que es justo lo que
     // esta batería no se puede permitir ahora que BLOQUEA el CI.
-    ['reportes', '/admin/reportes'],
+    // `tapar` = la fecha del reporte. La OTRA fecha de esta pantalla —el
+    // `resolvedAt` que acompaña a «por {moderador}»— no se enmascara porque no se
+    // pinta: la denuncia sembrada está PENDIENTE, así que ese párrafo no existe en
+    // la captura. Si algún día la siembra resolviera una, volvería la caducidad por
+    // ahí y habría que envolver esa fecha en su propio ancla (tapar el párrafo
+    // entero taparía además el nombre del moderador, que es enmascarar de más).
+    ['reportes', '/admin/reportes', '[data-testid="reporte-fecha"]'],
     ['blog', '/admin/blog'],
     ['facturas', '/admin/facturas'],
     ['marca', '/admin/marca'],
@@ -168,20 +175,83 @@ test.describe('Backoffice', () => {
 // mensajes y notificaciones de una cuenta recién sembrada están vacíos, que es
 // precisamente donde E7 pondrá las ilustraciones. Su «antes» es el hueco que hay hoy.
 test.describe('Cuenta', () => {
-  const RUTAS: readonly [nombre: string, ruta: string][] = [
+  const RUTAS: readonly [nombre: string, ruta: string, tapar?: string][] = [
     ['perfil', '/perfil'],
-    ['mis-anuncios', '/mis-anuncios'],
+    // Las DOS líneas de fecha de la tarjeta (publicación y caducidad). La de caducidad
+    // no se pinta hoy —el anuncio sembrado no llega a ACTIVE con `expiresAt`—, y su
+    // ancla se enmascara igual: un selector que no encuentra nada no tapa nada, y el
+    // día que la siembra cambie no vuelve la caducidad por la puerta de atrás.
+    ['mis-anuncios', '/mis-anuncios', '[data-testid="mi-anuncio-publicado"], [data-testid="mi-anuncio-caduca"]'],
     ['favoritos', '/favoritos'],
     ['mensajes', '/mensajes'],
     ['notificaciones', '/notificaciones'],
     ['mis-creditos', '/mis-creditos'],
   ];
 
-  for (const [nombre, ruta] of RUTAS) {
+  for (const [nombre, ruta, tapar] of RUTAS) {
     test(nombre, async ({ sellerContext }) => {
       const page = await sellerContext.newPage();
       await preparar(page, ruta);
-      await expect(page).toHaveScreenshot(`cuenta-${nombre}.png`, { fullPage: true });
+      await expect(page).toHaveScreenshot(`cuenta-${nombre}.png`, {
+        fullPage: true,
+        mask: tapar ? [page.locator(tapar)] : [],
+      });
     });
   }
 });
+
+/**
+ * ── FECHAS: POR QUÉ TRES CAPTURAS LLEVAN MÁSCARA ──────────────────────────────────────
+ *
+ * El 4 de septiembre de 2026, a las 00:19 UTC, la puerta de capturas se puso roja sin que
+ * nadie hubiera tocado una línea de `apps/web`. Fallaban cuatro capturas —`anuncios-tabla`,
+ * `reportes` y `mis-anuncios` en sus dos viewports— y **sólo** esas cuatro: exactamente las
+ * que pintan la fecha de HOY (`04/09/26`, `04/09/2026`, `4 sept 2026`). Los baselines se
+ * habían generado el día 3, y toda la migración de estilo ocurrió ese mismo día, así que la
+ * bomba nunca había llegado a sonar.
+ *
+ * Lo que la siembra publica lo publica AHORA, así que esas pantallas llevan dentro el
+ * calendario. Sin arreglarlo, cualquier ráfaga —aunque no toque el frontend— necesitaría un
+ * commit de baselines sólo por el cambio de día, y una puerta que se pone roja por el
+ * calendario es una puerta que se aprende a ignorar. Es la misma lección que cerró la
+ * estabilización de la batería de backend, aplicada a la red visual.
+ *
+ * ── ENMASCARAR NO BASTA SI LA CAJA SE MUEVE (lo que la mutación enseñó) ───────────────
+ *
+ * La máscara se pinta DESPUÉS del maquetado y SOBRE LA CAJA DEL ELEMENTO. De ahí salen dos
+ * condiciones, y la segunda no estaba en el plan:
+ *
+ *   1. el texto no puede DESPLAZAR nada (es lo que hundió a `/admin/ajustes`, donde un
+ *      carácter de más movía la página entera 24 px);
+ *   2. la CAJA del elemento enmascarado no puede cambiar de tamaño — porque el rectángulo
+ *      lo sigue, y una máscara que se encoge con el texto deja de tapar lo mismo.
+ *
+ * La segunda se descubrió mutando: se reescribió la fecha en el DOM antes de disparar,
+ * contra los mismos baselines. `anuncios-tabla` pasó; `reportes` cayó con 3.183 píxeles
+ * —la tabla entera desplazada— y `mis-anuncios` con 75. Midiendo la caja con varias fechas:
+ *
+ *   · `/admin/anuncios`  → 107,20 px con TODAS. La columna la fija la cabecera
+ *     («Publicado» es más ancha que `dd/mm/aa`), no el dato.
+ *   · `/admin/reportes`  → 104,08 / 103,34 / 91,47 / 97,55 / 102,50 px. Aquí la cabecera
+ *     («Fecha») es más corta que el dato, así que manda la fecha.
+ *   · `mis-anuncios`     → el `<span>` 68,77 vs 73,02 px; el `<p>` que lo contiene, 342 px
+ *     con las dos.
+ *
+ * Por eso el anclaje NO es «la fecha» en los tres sitios, sino la caja estable más pequeña
+ * que la contiene: la CELDA en el backoffice y el PÁRRAFO en `mis-anuncios`. Y por eso las
+ * dos celdas llevan `tabular-nums` (ver sus comentarios): con cifras tabulares `dd/mm/aa` y
+ * `dd/mm/aaaa` miden siempre lo mismo, así que la estabilidad deja de depender de que la
+ * cabecera resulte ser más ancha que el dato.
+ *
+ * El precio, dicho entero: en `mis-anuncios` la máscara tapa también la palabra
+ * «Publicado». Es el mínimo que se puede tapar sin que la máscara se mueva, y lo que se
+ * pierde está cubierto al lado — la línea de la ubicación, justo encima, lleva exactamente
+ * la misma tipografía (`text-xs text-muted-foreground`) y sigue vigilada.
+ *
+ * ── POR QUÉ NO SE RETIRAN, QUE ERA LA OTRA SALIDA ─────────────────────────────────────
+ *
+ * Porque `anuncios-tabla` no puede salir de la red: es el que sostiene el razonamiento con
+ * el que se retiró `/admin/usuarios` («el idioma visual *tabla del backoffice* ya lo cubre
+ * `anuncios-tabla`»). Retirarlo dejaría sin cobertura el idioma que aquél le delegó —una
+ * retirada que arrastra otra—. Enmascarar las mantiene a las tres vigilando todo lo demás.
+ */

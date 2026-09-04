@@ -240,7 +240,22 @@ export default function AdminReportesPage() {
                       )}
                     </td>
 
-                    <td className="p-3 text-muted-foreground">
+                    {/* Ancla de la máscara de la barrera visual — misma razón que en la
+                        tabla de anuncios: la celda lleva la fecha del reporte, que para lo
+                        que siembra la batería es HOY, y caducaba la captura cada
+                        medianoche. La celda no contiene nada más que la fecha.
+
+                        `tabular-nums` NO ES COSMÉTICO Y LLEGÓ MEDIDO: aquí la cabecera
+                        («Fecha») es más corta que el dato, así que la anchura de la columna
+                        la fija la FECHA, y con cifras proporcionales cambiaba con ella
+                        —104,08 px con `04/09/2026`, 91,47 px con `11/11/2026`—. Eso movía
+                        la columna entera Y encogía la máscara con ella, o sea que
+                        enmascarar por sí solo no bastaba: la mutación caía con 3.183
+                        píxeles. Con cifras tabulares todas las cifras miden lo mismo y
+                        `dd/mm/aaaa` mide siempre igual. Es además el idioma que esta base
+                        ya usa para números en tabla (la columna de precio de
+                        `/admin/anuncios`), y de paso alinea la columna. */}
+                    <td className="p-3 text-muted-foreground tabular-nums" data-testid="reporte-fecha">
                       {new Date(r.createdAt).toLocaleDateString('es-ES', {
                         day: '2-digit',
                         month: '2-digit',

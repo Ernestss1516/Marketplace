@@ -131,8 +131,21 @@ export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) 
 
           {location && <p className="text-xs text-muted-foreground">{location}</p>}
 
+          {/* EL ANCLA DE LA MÁSCARA de la barrera visual va en el PÁRRAFO, y no en un
+              `<span>` que envuelva sólo la fecha. Se intentó lo segundo —enmascarar
+              estrictamente la fecha— y está MEDIDO que no vale: la máscara se dibuja sobre
+              la CAJA del elemento, así que si la caja se encoge con el texto, la máscara se
+              encoge con ella y la captura vuelve a depender del día. El `<span>` medía
+              68,77 px con «4 sept 2026» y 73,02 px con «15 sept 2026»; el párrafo mide
+              342 px con las dos, porque es de bloque y ocupa su columna.
+
+              El precio, dicho entero: así se tapa también la palabra «Publicado»/«Caduca».
+              Es el mínimo que se puede tapar sin que la máscara se mueva, y lo que se
+              pierde está cubierto al lado — la línea de la ubicación, justo encima, lleva
+              exactamente la misma tipografía (`text-xs text-muted-foreground`) y sigue
+              vigilada. Ver `FECHAS` en `e2e-snapshots/pantallas.spec.ts`. */}
           {listing.publishedAt && (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground" data-testid="mi-anuncio-publicado">
               Publicado{' '}
               {new Intl.DateTimeFormat('es-ES', { dateStyle: 'medium' }).format(
                 new Date(listing.publishedAt),
@@ -140,7 +153,7 @@ export function MyListingCard({ listing, token, onAction, bumpPricing }: Props) 
             </p>
           )}
           {listing.expiresAt && listing.status === 'ACTIVE' && (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground" data-testid="mi-anuncio-caduca">
               Caduca{' '}
               {new Intl.DateTimeFormat('es-ES', { dateStyle: 'medium' }).format(
                 new Date(listing.expiresAt),

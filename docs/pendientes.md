@@ -47,6 +47,7 @@ el commit, y —cuando el punto estaba listado como abierto más abajo— de dó
 | **Ficha de usuario — ajuste 1** | Las acciones de la ficha quedan con red de tests donde no la había | `91897e9` |
 | **Mis-créditos — ráfagas A y B** | La campaña de bonus visible ANTES de comprar; la página organizada por tarea, con el saldo primero | `5ee9cb9` · `1079c9b` · `8bc984a` |
 | **El entorno de desarrollo** | El rodeo del IPv6 de Docker Desktop fijado a `127.0.0.1` **también en `apps/web`** (`/_next/image` sufría el mismo `ECONNRESET` y devolvía 500) y documentado en `CLAUDE.md`; los `.env` fuera del repo (`.env.test` y `.env.dev.bak` dejan de rastrearse); las claves que vivían en `.env.test` movidas a `ci.yml` como valores ficticios de CI | `583140d` · `d29a639` · `4929c21` · `081a8bf` · `aca6b21` |
+| **Las capturas dejan de caducar** (2026-09-04) | Cuatro capturas pintaban la fecha de hoy y la puerta visual se ponía roja **por el calendario**, no por el producto. Se ENMASCARA la fecha y no se retira ninguna captura (retirar `anuncios-tabla` habría invalidado el razonamiento con el que se retiró `/admin/usuarios`). El hallazgo que obligó a rehacer el plan: la máscara se dibuja sobre la CAJA del elemento, así que una caja que se encoge con el texto no tapa nada — de ahí que el ancla sea la caja estable (celda / párrafo) y que las celdas lleven `tabular-nums`. Detalle y anchos medidos en §4.3 | (esta ráfaga) |
 | **Estabilización de la batería de backend** (2026-09-04) | Los tres rojos que se venían relanzando, cerrados **de raíz y con dos raíces distintas**, no una: `alert-matching` era el matching corriendo dos veces a la vez (worker + test) con el aviso perdido en el P2002 del que pierde; `comandos-standalone` era una `Queue` cerrada mientras su conexión todavía se abría. `queue-retry` resultó **no ser un flake vivo**. Barrera nueva de corrida: ninguna suite deja una conexión a Redis abierta, sin `--forceExit`. Detalle en [`auditoria-deuda-test-ci.md` §7](./auditoria-deuda-test-ci.md) | (esta ráfaga) |
 
 ### 0-bis. Cerrado en repasos anteriores — la tabla que ya estaba
@@ -524,8 +525,38 @@ Huecos concretos, reverificados:
   (`}, 20_000)` por fuera de una espera con presupuesto de 60 s en CI), que convertía cualquier
   fallo real en un «Exceeded timeout» sin información. Detalle en
   [`auditoria-deuda-test-ci.md` §7.3](./auditoria-deuda-test-ci.md).
-- **Los baselines de cuatro capturas CADUCAN cada día** `[COBERTURA]` — **medido el 2026-09-04, y
-  es un rojo que ya está puesto.** La barrera visual falla en `backoffice-anuncios-tabla`,
+- ~~**Los baselines de cuatro capturas CADUCAN cada día**~~ → **CERRADO (2026-09-04), enmascarando
+  la fecha.** No se retiró ninguna captura: `anuncios-tabla` sigue en la red, y con ella el idioma
+  visual que `/admin/usuarios` le delegó al retirarse.
+
+  **Lo que la mutación enseñó, y no estaba en el plan.** Enmascarar exige DOS condiciones, no una.
+  La primera se sabía: el texto no puede desplazar nada (es lo que hundió a `/admin/ajustes`). La
+  segunda salió midiendo: **la máscara se dibuja sobre la CAJA del elemento**, así que si la caja
+  se encoge con el texto, la máscara se encoge con ella y la captura vuelve a depender del día.
+  Reescribiendo la fecha en el DOM contra los mismos baselines, `anuncios-tabla` pasaba pero
+  `reportes` caía con 3.183 píxeles —la tabla entera desplazada— y `mis-anuncios` con 75.
+
+  Anchos medidos de la caja con varias fechas: `/admin/anuncios` **107,20 px con todas** (la
+  columna la fija la cabecera «Publicado», más ancha que el dato); `/admin/reportes` **104,08 /
+  91,47 / 102,50 px** (la cabecera «Fecha» es más corta que el dato, así que manda la fecha);
+  `mis-anuncios` el `<span>` **68,77 vs 73,02 px** pero el `<p>` que lo contiene **342 px con las
+  dos**.
+
+  **La cura, por tanto:** el ancla no es «la fecha» sino la caja estable más pequeña que la
+  contiene —la celda en el backoffice, el párrafo en `mis-anuncios`— y las dos celdas llevan
+  `tabular-nums`, que hace que `dd/mm/aa` y `dd/mm/aaaa` midan siempre lo mismo en vez de depender
+  de que la cabecera resulte ser más ancha que el dato. Es el idioma que la base ya usa para
+  números en tabla (la columna de precio) y de paso alinea la columna. El precio: en
+  `mis-anuncios` la máscara tapa también la palabra «Publicado» — lo mínimo que se puede tapar sin
+  que se mueva, y esa misma tipografía sigue vigilada en la línea de la ubicación, justo encima.
+
+  **Barreras.** Reescribiendo la fecha (incluidas las de máxima variación de ancho, `11/11/…` y
+  «30 nov 2026»): 6/6 verdes con tolerancia cero. Cambiando un color FUERA de la máscara en las
+  tres pantallas: 6/6 rojas. La red sigue viendo, y ya no ve el calendario.
+
+  <details><summary>El diagnóstico original, para quien venga a por el precedente</summary>
+
+  La barrera visual falla en `backoffice-anuncios-tabla`,
   `backoffice-reportes` y `cuenta-mis-anuncios` (escritorio y móvil) — y **sólo** en ésas, que son
   exactamente las cuatro que pintan la fecha de hoy: `04/09/26`, `04/09/2026`, `4 sept 2026`. Los
   baselines se generaron el 3 de septiembre (`9f34e14`) y toda la migración de estilo ocurrió ese
@@ -536,12 +567,12 @@ Huecos concretos, reverificados:
   `apps/web`— necesita un commit de baselines sólo por el cambio de día. Es decir, la puerta pasa a
   dar rojo por algo que no es el producto, que es justo lo que la vuelve invisible.
 
-  **Lo que hay sobre la mesa, sin decidir:** enmascarar las fechas (mantiene la cobertura; la
-  máscara sirve aquí porque la diferencia es de glifo, no de maquetado, y ese era el motivo por el
-  que enmascarar no valió en `/admin/ajustes`) o retirar las cuatro (el molde de `/admin/usuarios`,
-  pero **ojo**: retirar `anuncios-tabla` invalida el razonamiento con el que se retiró
-  `/admin/usuarios` — «ese idioma visual ya lo cubre `anuncios-tabla`»). Va en ráfaga propia, antes
-  de E6.
+  Las dos salidas que había sobre la mesa: enmascarar las fechas (mantiene la cobertura) o retirar
+  las cuatro (el molde de `/admin/usuarios`, pero **ojo**: retirar `anuncios-tabla` invalida el
+  razonamiento con el que se retiró `/admin/usuarios` — «ese idioma visual ya lo cubre
+  `anuncios-tabla`»). Se eligió enmascarar.
+
+  </details>
 - **`admin-roles.spec.ts` afirma el número exacto de ítems del nav** — frágil por diseño, y **ya
   está desincronizado otra vez**: `9890e82` movió el nav a **24 secciones**, pero
   [admin-roles.spec.ts:215-226](../apps/web/e2e/admin-roles.spec.ts#L215) titula el test «las 19
