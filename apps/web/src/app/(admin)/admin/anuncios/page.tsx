@@ -337,7 +337,25 @@ export default function AdminAnunciosPage() {
                     <td className="px-4 py-3 text-right tabular-nums">
                       {formatPrice(listing.price, listing.currency, listing.priceType)}
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">
+                    {/* El `data-testid` es la ANCLA DE LA MÁSCARA de la barrera visual, no
+                        un selector de un test funcional. La celda pinta la fecha de
+                        publicación —o sea, el día de HOY para lo que siembra la batería—, y
+                        eso caducaba la captura cada medianoche. Ver el bloque `FECHAS` de
+                        `e2e-snapshots/pantallas.spec.ts`. Va en el `<td>` y no en un
+                        `<span>` interior porque la celda NO contiene nada más que la fecha:
+                        tapar la celda es tapar exactamente la fecha.
+
+                        `tabular-nums` hace EXPLÍCITO lo que hoy es una casualidad: la
+                        columna mide 107,20 px con cualquier fecha porque la fija la
+                        cabecera («Publicado», más ancha que `dd/mm/aa`), no el dato —
+                        medido. El día que esa cabecera se acorte, la anchura pasaría a
+                        depender de la fecha y la máscara se movería con ella, que es
+                        exactamente lo que sí ocurría en `/admin/reportes`. Con cifras
+                        tabulares la propiedad deja de depender del texto de la cabecera. */}
+                    <td
+                      className="px-4 py-3 text-muted-foreground tabular-nums"
+                      data-testid="anuncio-fecha-publicacion"
+                    >
                       {formatDate(listing.publishedAt)}
                     </td>
                     <td className="px-4 py-3 text-right">
