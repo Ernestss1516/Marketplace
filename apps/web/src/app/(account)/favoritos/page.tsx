@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
-import { Heart } from 'lucide-react';
+import { Ilustracion } from '@/components/shared/Ilustracion';
+import { getIlustracion } from '@/lib/api/ilustraciones';
 import { Button } from '@/components/ui/button';
 import { FavoritosClient } from './FavoritosClient';
 import { CardAttributesProvider } from '@/components/anuncios/CardAttributesContext';
@@ -38,7 +39,11 @@ export default async function FavoritosPage({
 
       {data.total === 0 ? (
         <div className="flex flex-col items-center gap-4 py-16 text-center text-muted-foreground">
-          <Heart className="h-12 w-12 opacity-30" />
+          {/* E7 — LA ILUSTRACIÓN OCUPA EL HUECO QUE YA HABÍA, el del icono. El hueco es
+              ESTRUCTURA (§8.1): esta pantalla decide que aquí va una imagen, de qué
+              tamaño y con qué texto debajo. Qué imagen es lo único que un modelo o un
+              admin cambian. */}
+          <Ilustracion slot="empty-favorites" />
           <p className="text-base">Aún no tienes anuncios guardados.</p>
           <Button variant="outline" asChild>
             <Link href="/busqueda">Explorar anuncios</Link>
@@ -47,6 +52,7 @@ export default async function FavoritosPage({
       ) : (
         <CardAttributesProvider cardAttributeMap={cardAttributeMap}>
           <FavoritosClient
+            ilustracionVacio={await getIlustracion('empty-favorites')}
             initialListings={data.items}
             totalInitial={data.total}
             page={page}

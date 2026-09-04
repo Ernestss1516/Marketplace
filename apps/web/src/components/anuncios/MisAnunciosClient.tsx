@@ -3,6 +3,8 @@
 import { useState, useCallback, useTransition } from 'react';
 import Link from 'next/link';
 import { Loader2, PlusCircle, Star, TrendingUp } from 'lucide-react';
+import { IlustracionImagen } from '@/components/shared/IlustracionImagen';
+import type { IlustracionResuelta } from '@/lib/ilustraciones';
 import { Button } from '@/components/ui/button';
 import { MyListingCard } from './MyListingCard';
 import { ProHint } from '@/components/pro/ProGate';
@@ -26,6 +28,13 @@ const FILTERS: { label: string; value: string | null }[] = [
 ];
 
 interface Props {
+  /**
+   * E7 — la ilustración del estado vacío, resuelta por el servidor. Llega por prop y no
+   * se resuelve aquí porque este componente es de cliente: `Ilustracion` va a buscar el
+   * dato y eso sólo puede hacerlo el servidor. `null` = el backend no respondió, y
+   * entonces no se pinta nada (el estado vacío se ve como antes de E7).
+   */
+  ilustracionVacio: IlustracionResuelta | null;
   initialListings: ListingSummary[];
   initialProStatus: ProStatus;
   token: string;
@@ -42,6 +51,7 @@ interface Props {
 }
 
 export function MisAnunciosClient({
+  ilustracionVacio,
   initialListings,
   initialProStatus,
   token,
@@ -197,6 +207,11 @@ export function MisAnunciosClient({
       {/* Listing grid */}
       {visibleListings.length === 0 ? (
         <div className="flex flex-col items-center gap-4 py-16 text-center">
+          {/* E7 — este estado vacío NO tenía icono, así que aquí el hueco es NUEVO.
+              Se añade la ilustración encima del texto que ya había, que es lo que el
+              encargo pide: si hoy hay un estado vacío con texto, se le añade la
+              ilustración. */}
+          <IlustracionImagen ilustracion={ilustracionVacio} />
           <p className="text-muted-foreground">
             {activeFilter
               ? 'No tienes anuncios con este estado.'

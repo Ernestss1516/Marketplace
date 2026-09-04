@@ -47,6 +47,7 @@ el commit, y —cuando el punto estaba listado como abierto más abajo— de dó
 | **Ficha de usuario — ajuste 1** | Las acciones de la ficha quedan con red de tests donde no la había | `91897e9` |
 | **Mis-créditos — ráfagas A y B** | La campaña de bonus visible ANTES de comprar; la página organizada por tarea, con el saldo primero | `5ee9cb9` · `1079c9b` · `8bc984a` |
 | **El entorno de desarrollo** | El rodeo del IPv6 de Docker Desktop fijado a `127.0.0.1` **también en `apps/web`** (`/_next/image` sufría el mismo `ECONNRESET` y devolvía 500) y documentado en `CLAUDE.md`; los `.env` fuera del repo (`.env.test` y `.env.dev.bak` dejan de rastrearse); las claves que vivían en `.env.test` movidas a `ci.yml` como valores ficticios de CI | `583140d` · `d29a639` · `4929c21` · `081a8bf` · `aca6b21` |
+| **Sistema de estilo — E7: las ilustraciones** (2026-09-04) | El subsistema de assets: registro CERRADO de diez slots (con `alt`, descripción, proporción y default), R2 calcado de `BrandingService` —clave aleatoria, subida=guardado, transacción con compensación, limpieza ENCOLADA, `revalidateTag`—, `/admin/ilustraciones` para sustituirlas por instancia, y siete slots pintados. La propiedad que lo sostiene: **cada slot tiene siempre valor**, por una cadena de tres eslabones (admin → modelo → registro) con test en cada uno. Detalle en [`diseno-sistema-estilo.md`](./diseno-sistema-estilo.md) §8 | (esta ráfaga) |
 | **Sistema de estilo — E6** (2026-09-04) | La frontera del sistema («un modelo reviste, no reorganiza») deja de ser disciplina y pasa a ser un rojo de CI: un modelo de prueba deliberadamente extremo y un test que exige el MISMO árbol DOM en seis rutas. Más la capa de contraste que el código prometía desde E4a y no existía — que en su primera ejecución encontró que el rojo destructivo llevaba desde siempre sin cumplir 1.4.3. Y vuelven las animaciones de capa, atadas a `--motion-*`. Detalle en [`diseno-sistema-estilo.md`](./diseno-sistema-estilo.md) §6.3, §10.5 y la fila E6 | (esta ráfaga) |
 | **Las capturas dejan de caducar** (2026-09-04) | Cuatro capturas pintaban la fecha de hoy y la puerta visual se ponía roja **por el calendario**, no por el producto. Se ENMASCARA la fecha y no se retira ninguna captura (retirar `anuncios-tabla` habría invalidado el razonamiento con el que se retiró `/admin/usuarios`). El hallazgo que obligó a rehacer el plan: la máscara se dibuja sobre la CAJA del elemento, así que una caja que se encoge con el texto no tapa nada — de ahí que el ancla sea la caja estable (celda / párrafo) y que las celdas lleven `tabular-nums`. Detalle y anchos medidos en §4.3 | (esta ráfaga) |
 | **Estabilización de la batería de backend** (2026-09-04) | Los tres rojos que se venían relanzando, cerrados **de raíz y con dos raíces distintas**, no una: `alert-matching` era el matching corriendo dos veces a la vez (worker + test) con el aviso perdido en el P2002 del que pierde; `comandos-standalone` era una `Queue` cerrada mientras su conexión todavía se abría. `queue-retry` resultó **no ser un flake vivo**. Barrera nueva de corrida: ninguna suite deja una conexión a Redis abierta, sin `--forceExit`. Detalle en [`auditoria-deuda-test-ci.md` §7](./auditoria-deuda-test-ci.md) | (esta ráfaga) |
@@ -574,6 +575,19 @@ Huecos concretos, reverificados:
   `anuncios-tabla`»). Se eligió enmascarar.
 
   </details>
+- **Tres slots de ilustración declarados y sin pintar** `[PRODUCTO]` — **decisión de
+  Ernest, no trabajo pendiente.** `success-review`, `success-listing-published` y
+  `success-ticket-sent` existen en el registro de E7 (tienen default, se sirven por la API y
+  el admin puede sustituirlos), pero **no hay dónde pintarlos**: publicar un anuncio, enviar
+  una valoración y abrir un ticket no tienen pantalla de confirmación en este producto, y
+  crearla contradiría la regla que ya está escrita en `apps/web/CLAUDE.md` («hay UN canal, no
+  se improvisa otro»; éxito de una acción puntual → toast).
+
+  Pintarlos exigiría **inventar tres pantallas de éxito**, o sea inventar estructura — que es
+  justo lo que el §8.1 le prohíbe al asset. La pregunta abierta no es técnica: ¿merece alguna
+  de esas tres una pantalla propia en vez de un aviso? Si la respuesta es no, los tres slots
+  se retiran del registro en la 2ª pasada; si es sí, la pantalla es una ráfaga de producto y
+  la ilustración ya está esperando.
 - **Las capas GENÉRICAS no reciben los tokens de su zona** `[DEUDA menor]` — **medido en E6
   (2026-09-04).** Los tokens de zona se heredan de un `[data-zona="…"]` que envuelve el árbol de
   la zona, y **los portales de Radix se montan en `<body>`**, fuera de ese envoltorio: reciben los

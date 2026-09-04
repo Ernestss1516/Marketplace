@@ -717,6 +717,55 @@ y por los mismos motivos ya escritos allí:
   [`branding.constants.ts:44-65`](../apps/api/src/modules/branding/branding.constants.ts#L44-L65)
   se hereda entero.
 
+> **HECHO (E7, 2026-09-04), con cuatro cosas que este apartado no anticipaba.**
+>
+> **(a) LA CADENA TIENE TRES ESLABONES, no dos.** El §8.2 dice «el default del modelo
+> activo», y así está: `sustitución del admin → la del MODELO → la del REGISTRO`. El
+> tercero no es redundancia — es lo que convierte «nunca un hueco» en propiedad
+> estructural en vez de disciplina. Un modelo declara sus diez a mano y puede olvidarse de
+> una; con el registro cerrando la cadena, esa pantalla sigue teniendo imagen. Hay dos
+> tests: uno exige que todo modelo declare los diez, y otro que el fichero de cada default
+> del registro **exista de verdad en el repo** — porque comprobar que la ruta está bien
+> escrita no es comprobar que hay algo al otro lado.
+>
+> **(b) `unoptimized` en `next/image`, y hay que decir por qué.** Los diez defaults son SVG
+> servidos desde `/public`, y el optimizador de Next no procesa SVG: los rechaza salvo que
+> se active `dangerouslyAllowSVG`, que abriría el optimizador a SVG remotos de cualquier
+> origen permitido. Un SVG de 500 bytes no tiene nada que optimizar, así que se prefiere no
+> encender una opción global por una superficie que no la necesita. Las dimensiones
+> explícitas —y con ellas el cero CLS— siguen igual.
+>
+> **(c) LOS DEFAULTS SON MONOCROMOS, y es una decisión forzada por el §8.4.** Un `<img>` no
+> hereda `currentColor`: el color de la ilustración va DENTRO del fichero. Así que una
+> ilustración por defecto con el azul de marca pelearía con la primera instancia que
+> eligiera un primario rojo. Se sirven en un gris medio que se lee sobre el lienzo claro del
+> Modelo 0 y sobre el oscuro del modelo de prueba.
+>
+> **(d) DOS PANTALLAS TUVIERON QUE PARTIRSE EN DOS.** `mis-creditos/exito` y `planes/exito`
+> eran componentes de cliente sin envoltura de servidor, y `Ilustracion` es un Server
+> Component `async` (va a buscar el dato). Se aplicó el patrón que el repo ya usa en media
+> docena de pantallas: página de servidor que resuelve, componente de cliente que recibe por
+> prop. El cuerpo no se tocó —se renombró el fichero y se le añadió una prop—, para que la
+> diferencia sea legible en el diff.
+
+### 8.5 Los tres slots que quedan declarados y sin pintar
+
+**`success-review`, `success-listing-published` y `success-ticket-sent` NO tienen dónde
+ir**, y no por falta de tiempo: **esas tres acciones no tienen pantalla de confirmación en
+este producto**, y crearla contradiría una regla que ya estaba escrita. `apps/web/CLAUDE.md`
+dice, sobre el feedback de acciones: *«hay UN canal, no se improvisa otro»* y *«éxito de una
+acción puntual → toast»*. Publicar un anuncio, enviar una valoración y abrir un ticket son
+exactamente eso.
+
+Poner una ilustración ahí exigiría inventar tres pantallas de éxito — o sea, **inventar
+estructura**, que es justo lo que el §8.1 prohíbe al asset: la ilustración no decide si una
+pantalla tiene hueco.
+
+Los tres **quedan en el registro**: tienen default, se sirven por la API y el admin puede
+sustituirlos. Lo que falta es la decisión de producto —¿alguna de esas tres merece una
+pantalla de confirmación en vez de un aviso?—, y esa es de Ernest. Anotado en
+`pendientes.md`.
+
 ⚠ **Tres avisos que ya han mordido en este proyecto** y que aplican igual:
 
 1. **`S3_PUBLIC_URL` y `NEXT_PUBLIC_MEDIA_URL` deben apuntar al mismo sitio y fijarse
@@ -1040,6 +1089,12 @@ irrevisable, porque cualquier diferencia se puede justificar como «será el tem
 > porque verificar es descubrir.** Prever «invisible» está bien; sostenerlo cuando la
 > medición dice otra cosa sería elegir la predicción sobre el dato.
 | **E7** | **ILUSTRACIONES.** Registro cerrado, subsistema R2, slots de v1, admin | ✅ | L |
+
+> **E7 HECHA (2026-09-04).** Los diez slots registrados con default, `alt` y proporción; el
+> subsistema R2 calcado de `BrandingService`; `/admin/ilustraciones` para sustituirlas por
+> instancia; y **siete de los diez pintados** — los seis estados vacíos y la confirmación de
+> pago. Los otros tres no tienen pantalla donde ir y crearla contradiría la doctrina de
+> feedback del producto: ver §8.5.
 | **E8** | **CORREOS.** ⚠ **Solo si Ernest aprueba el §7.** Si no, esta ráfaga no existe | ✅ | L |
 | **E9+** | **MODELOS CON PERSONALIDAD.** Uno por ráfaga | ✅ | M c/u |
 

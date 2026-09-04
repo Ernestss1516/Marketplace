@@ -18069,6 +18069,27 @@ a 47 %.
   diálogo NO hereda los tokens de la zona en la que está la página. Cerrado para los dos
   cajones (declaran su `data-zona`); abierto para las capas genéricas — ver `pendientes.md`.
 
+**Las ilustraciones son un subsistema de assets, con el molde de la marca.** El registro
+CERRADO de diez slots vive en `apps/api/src/modules/ilustraciones/ilustraciones.constants.ts`
+(identificador, descripción, proporción, `alt` y default por slot); el servicio es
+`BrandingService` calcado —clave aleatoria en R2, subida = guardado, ajuste y `AuditLog` en
+una transacción con compensación, limpieza del anterior **encolada** y `revalidateTag`—, con
+límite propio de **2 MB** (el doble que un logo, que se sirve en todas las páginas; una
+quinta parte de una foto de anuncio, que es contenido). Se sustituyen en
+`/admin/ilustraciones`.
+
+**Tres cosas de este subsistema que conviene no romper:**
+
+- **Cada slot tiene SIEMPRE valor**, por una cadena de tres eslabones: sustitución del admin
+  → la del modelo activo → la del registro. El tercero es el que hace que un modelo
+  olvidadizo no pueda producir un hueco. Hay test en cada eslabón, incluido uno que
+  comprueba que **el fichero de cada default existe en el repo**.
+- **El `alt` sale del registro, nunca del admin.** No hay campo que rellenar: la
+  accesibilidad no puede depender de que alguien lo haga.
+- **El espejo del frontend** (`apps/web/src/lib/ilustraciones.ts`) sólo copia los
+  identificadores, y `ilustraciones.spec.ts` lee ese fichero desde la batería del backend
+  para que las dos listas no se separen — el mismo remedio que `globals-espejo.spec.ts`.
+
 **Las animaciones son vocabulario del modelo, no del plugin.** `tailwindcss-animate` está
 instalado desde E6 y hereda su duración de la escala de transición, que apunta a
 `--motion-duration`; la curva se declara aparte en `globals.css`. **Ninguna capa lleva

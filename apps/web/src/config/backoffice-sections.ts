@@ -261,6 +261,17 @@ export const BACKOFFICE_SECTIONS: readonly BackofficeSection[] = [
   // despliegue de otro (docs/diseno-logos.md §8), que es literalmente la pregunta que
   // contesta su vecina «Instancia».
   { id: 'marca', route: '/admin/marca', label: 'Marca', minRole: 'ADMIN', group: 'plataforma' },
+  // E7 — al lado de Marca y por lo mismo: las dos son «el aspecto de ESTA instancia», y
+  // las dos funcionan igual (el código trae un valor por defecto, el admin lo sustituye).
+  // Pantalla propia y no una pestaña de Marca: aquélla son tres logos y ésta diez slots
+  // con previsualización doble; juntas no se recorren.
+  {
+    id: 'ilustraciones',
+    route: '/admin/ilustraciones',
+    label: 'Ilustraciones',
+    minRole: 'ADMIN',
+    group: 'plataforma',
+  },
   // AJUSTES RÁFAGA B — «cómo está montada esta instancia», de solo lectura. Va DESPUÉS de
   // Ajustes y no antes: aquélla es donde se cambia y ésta donde se confirma, y en ese orden
   // se leen. ADMIN porque publica de golpe la configuración de la máquina.

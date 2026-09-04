@@ -1,7 +1,8 @@
 import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { AlertCircle, Package } from 'lucide-react';
+import { Ilustracion } from '@/components/shared/Ilustracion';
+import { AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ListingCard } from '@/components/anuncios/ListingCard';
 import { ListingCardWide } from '@/components/anuncios/ListingCardWide';
@@ -349,7 +350,8 @@ export default async function BusquedaPage({
           {/* Empty state: list/ampliada modes only — map handles zero hits by centering on Spain */}
           {!searchError && totalHits === 0 && !isMapView && (
             <div className="flex flex-col items-center py-24 text-center">
-              <Package className="mb-4 h-12 w-12 text-muted-foreground/40" aria-hidden />
+              {/* E7 — la ilustración ocupa el hueco del icono (§8.1). */}
+              <Ilustracion slot="empty-search" className="mb-4 h-auto w-full max-w-[200px]" />
               <h2 className="mb-1 text-lg font-semibold">
                 {q ? `Sin resultados para "${q}"` : 'Sin resultados'}
               </h2>
