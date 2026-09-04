@@ -63,7 +63,11 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="rounded-lg border bg-card p-8 shadow-sm">
+    // E6 — LOS DOS ACCESOS SON ZONA DE IMPACTO (§6.1): superficies de entrada, poco
+    // numerosas y donde el usuario está decidiendo, no operando. La tarjeta entra con
+    // el escalonado del sistema; el estado final es EXACTAMENTE el de antes, así que
+    // la captura no se mueve y lo que cambia es cómo se llega a ella.
+    <div className="entra-escalonado rounded-lg border bg-card p-8 shadow-sm">
       <h1 className="mb-6 text-2xl font-bold">Iniciar sesión</h1>
       {verified && (
         <p className="mb-4 rounded bg-success p-3 text-sm text-success-foreground">

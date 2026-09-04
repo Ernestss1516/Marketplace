@@ -94,7 +94,15 @@ export function HomeHero({ config }: { config: HomepageConfig }) {
       {config.heroSubtitle && (
         // Texto PLANO, no markdown: no se abre la tubería de sanitización para
         // un párrafo bajo un titular (§2.2).
-        <p className="-mt-4 mb-8 text-base text-muted-foreground last:mb-0 md:text-lg">
+        //
+        // E6 — LA ENTRADA DEL HERO ES ÉSTA Y NO EL TITULAR, y la diferencia es la
+        // regla 4 del §6.2: el `<h1>` es el texto más grande sobre el pliegue de la
+        // ruta más visitada, o sea el candidato a LCP, y un elemento que empieza
+        // en `opacity: 0` no cuenta como pintado. Animarlo sería retrasar la
+        // métrica que más pesa en la portada. Se anima lo de al lado, que es
+        // exactamente lo que la regla permite. Ver `entra-escalonado` en
+        // `globals.css`.
+        <p className="entra-escalonado -mt-4 mb-8 text-base text-muted-foreground last:mb-0 md:text-lg">
           {config.heroSubtitle}
         </p>
       )}

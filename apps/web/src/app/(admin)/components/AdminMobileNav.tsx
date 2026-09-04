@@ -10,22 +10,18 @@ import { sectionForPath } from '@/config/backoffice-sections';
 import type { BrandMark } from '@/lib/brand';
 
 /*
- * E0 · SIN CLASES DE `tailwindcss-animate`, Y NO ES UN OLVIDO.
+ * E6 · LA CAPA VUELVE A ANIMARSE, Y AHORA ES DEL MODELO.
  *
- * Este componente traía de shadcn el bloque `animate-in` / `fade-in-0` /
- * `zoom-in-95` / `slide-in-from-*`. Ese plugin NUNCA ha estado instalado en este
- * repo —ni en package.json, ni en los plugins de tailwind.config.ts, ni en
- * node_modules—, así que aquellas clases no generaban una sola línea de CSS: la
- * capa aparecía y desaparecía en seco, y el build y los 518 casos de la batería
- * funcional lo daban por bueno porque una clase que no existe no rompe nada.
+ * E0 quitó de aquí el bloque que traía shadcn porque `tailwindcss-animate` no estaba
+ * instalado: aquellas clases no generaban una línea de CSS y la capa aparecía en seco.
+ * El plugin ya está, y la animación vuelve ATADA AL SISTEMA — dura
+ * `var(--motion-duration)` y usa `var(--motion-ease)`, así que el tempo lo decide el
+ * modelo y cada zona lo ajusta (100 ms en el backoffice, 150 en el público).
  *
- * Se quitaron en vez de instalar el plugin porque instalarlo AÑADIRÍA animación
- * donde hoy no la hay, y E0 es la ráfaga que demuestra que nada cambió. La
- * animación de capas vuelve en E6, ya como parte del vocabulario del modelo
- * (con su duración y su curva en tokens, y reducida en el backoffice).
- *
- * SI VUELVES A PEGAR ESAS CLASES DESDE LA DOCUMENTACIÓN DE SHADCN, seguirán sin
- * hacer nada mientras el plugin no esté. Ver docs/diseno-sistema-estilo.md §6.3.
+ * Ver el comentario largo de `dialog.tsx` para las dos ausencias deliberadas —el
+ * `duration-200`, que con el plugin puesto sacaría esta capa del sistema de tokens, y
+ * el `slide-in-from-top-[48%]`, cuyo `transform` pisa el centrado— y
+ * docs/diseno-sistema-estilo.md §6.3.
  */
 
 /**
@@ -76,9 +72,30 @@ export function AdminMobileNav({ marca }: { marca: BrandMark }) {
       </div>
 
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/80" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/80 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0" />
+        {/* EL CAJÓN DEL BACKOFFICE ES EL MÁS SOBRIO DE LOS DOS, y es donde se ve la
+            doctrina de la zona: «una herramienta responde, no se luce» (§6.1). Entra
+            deslizándose 2 unidades, no el ancho entero del panel, y sobre el tempo de
+            100 ms que la zona `backoffice` fija en el modelo. El de la cuenta, que es
+            la misma pieza en una zona menos austera, entra desde el borde. */}
         <DialogPrimitive.Content
-          className="fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] overflow-y-auto border-r bg-background p-4 shadow-lg duration-200"
+          /**
+           * ⚠ `data-zona` AQUÍ, Y NO ES REDUNDANTE — llegó midiendo.
+           *
+           * Los tokens de zona se declaran en un `[data-zona="backoffice"]` que envuelve
+           * el árbol del backoffice, y funcionan por herencia de custom properties. Pero
+           * este cajón NO es descendiente de ese div: Radix lo cuelga de `<body>` por un
+           * portal, o sea FUERA de la zona. Medido con una sonda: el cajón heredaba
+           * `--motion-duration: 150ms` (la base) mientras la página estaba en una zona
+           * que lo baja a 100.
+           *
+           * Marcar el propio contenido con la zona lo arregla sin inventar nada: el
+           * bloque `[data-zona="backoffice"]` pasa a casar con este elemento, y las
+           * custom properties mandan en su subárbol. Es el mecanismo de E5 aplicado
+           * donde el portal lo había roto, no un mecanismo nuevo.
+           */
+          data-zona="backoffice"
+          className="fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] overflow-y-auto border-r bg-background p-4 shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0 data-[state=open]:slide-in-from-left-2 data-[state=closed]:slide-out-to-left-2"
           aria-label="Menú del backoffice"
         >
           <div className="mb-4 flex items-center justify-between">

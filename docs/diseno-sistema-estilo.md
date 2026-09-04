@@ -385,6 +385,28 @@ sistema de estilo — y lo mejor del estado actual es que **hoy no existe**: el 
 **La sobriedad del backoffice se consigue restando, no con un tema paralelo.** Es
 literalmente lo que la decisión #4 aprobó y lo que el estado actual permite.
 
+> **⚠ LO QUE SE ESCAPA DEL SUBÁRBOL: LOS PORTALES (hallazgo de E6, 2026-09-04).**
+>
+> La zona funciona por herencia: sus tokens se declaran en un `[data-zona="…"]` que envuelve
+> el árbol de la zona, y todo lo que cuelga debajo los hereda. **Un portal rompe eso.** Los
+> diálogos, menús y desplegables de Radix se montan en `<body>`, o sea FUERA de ese
+> envoltorio, así que reciben los tokens de la BASE aunque la página esté en una zona que
+> los ajusta.
+>
+> Medido, no supuesto: una sonda dentro del navegador devolvió `--motion-duration: 150ms` en
+> el cajón del backoffice, estando la página en la zona que lo baja a 100.
+>
+> **Cerrado para las dos superficies que pertenecen a una zona por construcción** — el cajón
+> del backoffice y el de la cuenta —: su contenido portalado declara su propia `data-zona`.
+> No es mecanismo nuevo; es el de siempre, aplicado donde el portal lo había roto.
+>
+> **QUEDA ABIERTO para los componentes genéricos** (`dialog`, `alert-dialog`,
+> `dropdown-menu`, `select`), que se usan en todas las zonas y no saben en cuál están: siguen
+> con los tokens de la base. Hay una vía —emitir los bloques de zona también como
+> `:root:has([data-zona="x"])`, ya que una página está en UNA zona— pero cambia la semántica
+> de «subárbol» a «documento», y eso es una decisión sobre el mecanismo de E5, no un fleco de
+> E6. Anotado en `pendientes.md`.
+
 ### 5.3 `/admin/login` — la decisión pendiente de la #4
 
 [`app/admin/login/page.tsx`](../apps/web/src/app/admin/login/page.tsx) está **fuera del
@@ -474,6 +496,33 @@ Los motivos, en orden:
 **La animación de overlays vuelve en E6, como parte del vocabulario del modelo**, con su
 duración y su curva salidas de `--motion-*` y su intensidad ajustada por zona (mínima en
 backoffice). Queda registrado como deuda con destino, no como deuda a secas.
+
+> **HECHO (E6, 2026-09-04), y con tres cosas que este apartado no anticipaba.**
+>
+> **(a) La duración se hereda sola; la curva no.** El plugin deriva su `animationDuration`
+> de `theme('transitionDuration')`, cuyo DEFAULT fijó E3 a `var(--motion-duration)`
+> (verificado en el paquete instalado y en el CSS emitido, no en la documentación). Así que
+> `animate-in` dura lo que dure el tempo del modelo sin una línea de pegamento. Pero
+> `.animate-in` **no declara `animation-timing-function`**: sin una regla propia, las capas
+> se animaban con el `ease` del navegador — o sea con «el valor por defecto del plugin»,
+> que es justo lo que este apartado quería evitar. Se declara en `globals.css`.
+>
+> **(b) El selector de esa regla NO es `.animate-in`.** Ninguna capa del repo lleva esa
+> clase: todas usan la variante de estado de Radix (`data-[state=open]:animate-in`), que
+> Tailwind compila a otro nombre. La primera versión de la regla no casaba con nada y las
+> capas seguían con el `ease` del navegador. Lo cazó el test midiendo la curva en el
+> navegador, no la lectura del CSS.
+>
+> **(c) `duration-200` era una trampa que sólo se arma al instalar el plugin.** Estaba en
+> cuatro de los seis ficheros desde shadcn y era inofensivo mientras el plugin no existía
+> (sólo fijaba `transition-duration`, y ahí no hay transiciones). Con el plugin instalado
+> pasa a fijar **también** `animation-duration: 200ms`, sacando esas capas del sistema de
+> tokens. Se quita de los cuatro.
+>
+> **La intensidad por zona no necesitó mecanismo nuevo:** el tempo ES la intensidad, y las
+> zonas ya lo ajustaban desde E5 (150 ms en público, 120 en cuenta y blog, 100 en el
+> backoffice). Lo que sí hizo falta fue arreglar que **los portales no reciben los tokens
+> de su zona** — ver §5.2.
 
 ---
 
@@ -845,6 +894,22 @@ mismo cálculo vive en el DTO del backend: un guardado que no cumple **se rechaz
 (§3.3). Es barato —aritmética de color, sin navegador— y cierra la puerta a que una
 instancia se vuelva ilegible.
 
+> **HECHO (E6), y lo que encontró al primer intento.** `contraste-modelos.spec.ts` mide los
+> dos modelos, sus cinco zonas y —por primera vez— **los semánticos**, que el guardado se
+> salta a propósito porque son fijos del modelo.
+>
+> Ese fichero **lo prometía un comentario del código desde E4a** («su contraste se comprueba
+> una vez por modelo, en CI, `contraste-modelos.spec.ts`») **y no existía**. Una promesa de
+> barrera sin barrera es peor que no prometer: quien añade un modelo lee eso y da por hecho
+> que alguien le mide los avisos.
+>
+> Al escribirlo, los diez pares semánticos salieron con **ratio 0**. No ilegibles:
+> **inmedibles**. `contraste()` sólo sabía leer tripletes HSL, y los semánticos son
+> hexadecimales — llevaban desde siempre sin medirse porque la herramienta no podía leerlos.
+> Con `contraste()` entendiendo las dos notaciones, la primera medición real destapó que el
+> rojo destructivo del Modelo 0 no cumple 1.4.3 (3,60:1 con letra blanca, 3,76:1 como
+> texto). Se corrige bajando su luz; el diff se aprobó aparte.
+
 **Capa de invariancia del HTML — la que convierte la decisión #1 en un test.**
 
 > Se carga la **misma ruta** con **dos modelos distintos** y se compara el **árbol DOM**,
@@ -858,6 +923,35 @@ estructura, sin captura de imagen.
 Requiere que exista un **segundo modelo de prueba** — no uno de producto, sino uno
 deliberadamente extremo (colores opuestos, otra tipografía, otro radius) cuyo único
 propósito es que este test tenga con qué comparar. Se crea en E6.
+
+> **HECHO (E6, 2026-09-04).** `MODELO_PRUEBA` («Contraluz») invierte el lienzo, cambia la
+> familia tipográfica, multiplica el radio por 2,5, dobla el tempo y adelgaza el trazo del
+> icono. `estilo-invariancia.spec.ts` compara seis rutas —cinco públicas y una del
+> backoffice— entre él y el Modelo 0. **Mutación:** un modelo que añade un `<div>` al
+> layout pone el test en rojo nombrando la ruta.
+>
+> **Tres decisiones de implementación que este apartado dejaba abiertas:**
+>
+> · **Se compara `<body>`, no el documento entero.** El bloque del tema vive en `<head>`
+>   por diseño, así que incluirlo sería comparar justo lo que tiene que cambiar.
+>
+> · **Se ignoran los identificadores generados** (`id`, `for`, `aria-controls`…) además de
+>   `class` y `style`: Radix los numera por orden de montaje y dos cargas pueden
+>   repartirlos distinto sin que nadie haya tocado nada. Se compara todo lo demás —
+>   etiquetas, anidamiento, TEXTO, `href`, `src`, `alt`, `role`—, así que un modelo tampoco
+>   puede cambiar el contenido ni a dónde lleva un enlace.
+>
+> · **El test lleva su propia red, y va ANTES de la comparación.** Si el modelo extremo no
+>   llegara a la página —la caché sin tumbar, el guardado sin efecto—, los dos árboles
+>   serían del mismo tema y coincidirían por el motivo equivocado. Se afirma primero que el
+>   tema CAMBIÓ. Un verde sin esa comprobación afirmaría que la frontera se respeta cuando
+>   lo que ocurre es que no se ha probado.
+>
+> **Y el modelo de prueba se activa por la VÍA REAL**, con el mismo `PUT /api/admin/estilo`
+> que usaría un admin: así el test recorre la validación AA, el `AuditLog` y el
+> `revalidateTag` que tumba la caché del frontend. Por eso el DTO lo admite aunque
+> `catalogo()` no lo ofrezca — un test que se salta el camino de producción prueba otra
+> cosa.
 
 ### 10.6 Riesgos residuales
 
@@ -927,7 +1021,24 @@ irrevisable, porque cualquier diferencia se puede justificar como «será el tem
 | **E4** | **EL SISTEMA.** Registro de modelos+versiones (solo Modelo 0), `Setting` propio fuera del PATCH genérico, servicio con `AuditLog` + `revalidateTag`, DTO con validación AA, resolución en el layout raíz. **+ ABSORBE LOS 274 USOS DE ESCALA QUE QUEDAN** (58 valores distintos): reducirlos a los tokens del Modelo 0 cambia píxeles, así que es trabajo de modelo y no de refactor — ver el aviso del §4.2 | ❌ | XL |
 | **E5** | **ZONAS Y ADMIN.** Ámbitos por zona sobre los layouts de grupo, `/admin/estilo` (§11), zona de `/admin/login` (§5.3), decisión sobre OG y `global-error` (§4.3) | ❌ | L |
 | | **━━ BARRERA: el sistema funciona y NADA cambia visualmente ━━** | | |
-| **E6** | **VERIFICACIÓN + MODELO DE PRUEBA.** Test de invariancia del HTML (§10.5), test de contraste en CI, modelo extremo de prueba. **Vuelve la animación de overlays**, ya como vocabulario del modelo | ❌ | M |
+| **E6** | **VERIFICACIÓN + MODELO DE PRUEBA.** Test de invariancia del HTML (§10.5), test de contraste en CI, modelo extremo de prueba. **Vuelve la animación de overlays**, ya como vocabulario del modelo | ~~❌~~ **✅** | M |
+
+> **CORRECCIÓN A LA FILA DE E6 (2026-09-04).** Esta tabla la daba por invisible, y salió
+> **visible por dos sitios**, ninguno previsto:
+>
+> 1. **La barrera de contraste encontró un fallo real de 1.4.3 en el Modelo 0.** El rojo
+>    destructivo daba 3,60:1 con letra blanca y 3,76:1 usado como texto — los dos por
+>    debajo del mínimo para TEXTO. Arreglarlo baja su luz de 60,2 % a 47 % y eso repinta
+>    cuatro pantallas. No es un cambio de aspecto disfrazado de accesibilidad: es el mismo
+>    caso que `--input` en la ráfaga del trazo, y se aprobó igual, mirándolo.
+> 2. **Los portales de Radix se cuelgan de `<body>`, fuera del subárbol de la zona.** El
+>    cajón del backoffice heredaba los tokens de la base estando en una zona que los
+>    ajusta. Marcar el contenido portalado con su zona lo corrige — y le cambia los
+>    colores, que es justo lo que debía haber tenido desde E5.
+>
+> La lección para las ráfagas que quedan: **una ráfaga de verificación puede ser visible,
+> porque verificar es descubrir.** Prever «invisible» está bien; sostenerlo cuando la
+> medición dice otra cosa sería elegir la predicción sobre el dato.
 | **E7** | **ILUSTRACIONES.** Registro cerrado, subsistema R2, slots de v1, admin | ✅ | L |
 | **E8** | **CORREOS.** ⚠ **Solo si Ernest aprueba el §7.** Si no, esta ráfaga no existe | ✅ | L |
 | **E9+** | **MODELOS CON PERSONALIDAD.** Uno por ráfaga | ✅ | M c/u |

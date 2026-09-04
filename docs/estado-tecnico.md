@@ -18035,6 +18035,48 @@ se captura y se compara en JavaScript.
 
 ---
 
+## Sistema de estilo — dónde está la verdad, y las dos barreras que lo cierran
+
+**El detalle vive en `docs/diseno-sistema-estilo.md`**, que se corrige ráfaga a ráfaga con lo
+que la ejecución desmiente. Aquí sólo lo que hace falta saber para no romperlo.
+
+**Lo implementado (E0–E6).** Registro de modelos en `apps/api/src/modules/estilo`
+(`estilo.constants.ts` es la fuente: rampa, semánticos, ejes T3 y ajustes por zona), un
+`Setting` propio fuera del `PATCH` genérico, `PUT /api/admin/estilo` con validación AA
+bloqueante y `revalidateTag`, y resolución en el layout raíz — el tema viaja en la **primera
+respuesta HTML**, no por JavaScript. Cinco zonas (`public`, `backoffice`, `blog`, `cuenta`,
+`login`), cada una **ajustando** tokens que ya existen.
+
+**LAS DOS REGLAS QUE NO SE NEGOCIAN, y las dos son ya un rojo de CI:**
+
+| Regla | Quién la hace cumplir |
+|---|---|
+| Un modelo **reviste, no reorganiza** | `apps/web/e2e/estilo-invariancia.spec.ts` — carga seis rutas con el Modelo 0 y con un modelo deliberadamente extremo y exige el MISMO árbol DOM (ignorando estilos, clases e identificadores generados). Si un modelo cambia la estructura, el texto o un `href`, sale rojo |
+| Una zona **ajusta, nunca añade** un token propio | `zonaSoloAjusta`, comprobada para todos los modelos en `contraste-modelos.spec.ts` |
+
+**Y la accesibilidad se mide, no se supone:** `contraste-modelos.spec.ts` recorre cada modelo,
+cada zona y —desde E6— **los semánticos**, que el guardado se salta por ser fijos del modelo.
+En su primera ejecución encontró que el rojo destructivo llevaba desde siempre por debajo del
+mínimo de 1.4.3 (3,60:1 con letra blanca; 3,76:1 usado como texto). Se corrigió bajando su luz
+a 47 %.
+
+**Dos trampas medidas que conviene no repisar:**
+
+- **`contraste()` sólo leía tripletes HSL.** Los semánticos son hexadecimales, así que devolvía
+  0 para todos ellos — inmedibles, no ilegibles. Por eso nunca se habían validado. Ya entiende
+  las dos notaciones.
+- **Los portales de Radix se montan en `<body>`**, fuera del subárbol de la zona, así que un
+  diálogo NO hereda los tokens de la zona en la que está la página. Cerrado para los dos
+  cajones (declaran su `data-zona`); abierto para las capas genéricas — ver `pendientes.md`.
+
+**Las animaciones son vocabulario del modelo, no del plugin.** `tailwindcss-animate` está
+instalado desde E6 y hereda su duración de la escala de transición, que apunta a
+`--motion-duration`; la curva se declara aparte en `globals.css`. **Ninguna capa lleva
+`duration-*` propio**: con el plugin puesto, esa clase fija también `animation-duration` y la
+sacaría del sistema.
+
+---
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.

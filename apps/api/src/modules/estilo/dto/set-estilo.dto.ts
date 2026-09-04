@@ -1,7 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsIn, IsObject, IsString, Matches, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
-import { MODELOS } from '../estilo.constants';
+import { TODOS_LOS_MODELOS } from '../estilo.constants';
 
 /**
  * Un color, en cualquiera de las dos formas que el sistema entiende: el triplete de
@@ -54,9 +54,25 @@ export class ColoresDto {
  * tipo no admite.
  */
 export class SetEstiloDto {
-  @ApiProperty({ enum: MODELOS.map((m) => m.id), example: 'modelo-0' })
+  /**
+   * ⚠ SE VALIDA CONTRA `TODOS_LOS_MODELOS` Y NO CONTRA EL CATÁLOGO, y la diferencia es
+   * de una sola entrada: el modelo de prueba de E6 (`modelo-prueba-contraluz`).
+   *
+   * `catalogo()` sigue sirviendo sólo `MODELOS`, así que la pantalla de admin no lo
+   * ofrece en ninguna parte — no es «un modelo escondido a medias», es uno que existe y
+   * no se propone. Lo que esta línea permite es que el TEST DE INVARIANCIA DEL HTML
+   * (§10.5) lo active por la VÍA REAL: el mismo PUT que usaría un admin, con su
+   * validación AA, su `AuditLog` y su `revalidateTag`. La alternativa era escribir la
+   * fila a mano desde el test, y entonces el test probaría un camino que producción no
+   * usa — justo lo que hace que un verde no signifique nada.
+   *
+   * No abre ningún riesgo: el modelo de prueba pasa la misma validación de contraste que
+   * los demás (`contraste-modelos.spec.ts` lo mide igual), sólo un ADMIN puede llegar
+   * aquí, y se deshace con el `DELETE` de al lado.
+   */
+  @ApiProperty({ enum: TODOS_LOS_MODELOS.map((m) => m.id), example: 'modelo-0' })
   @IsString()
-  @IsIn(MODELOS.map((m) => m.id), { message: 'modelo no reconocido' })
+  @IsIn(TODOS_LOS_MODELOS.map((m) => m.id), { message: 'modelo no reconocido' })
   modelo!: string;
 
   @ApiProperty({ example: '1' })
