@@ -524,6 +524,24 @@ Huecos concretos, reverificados:
   (`}, 20_000)` por fuera de una espera con presupuesto de 60 s en CI), que convertía cualquier
   fallo real en un «Exceeded timeout» sin información. Detalle en
   [`auditoria-deuda-test-ci.md` §7.3](./auditoria-deuda-test-ci.md).
+- **Los baselines de cuatro capturas CADUCAN cada día** `[COBERTURA]` — **medido el 2026-09-04, y
+  es un rojo que ya está puesto.** La barrera visual falla en `backoffice-anuncios-tabla`,
+  `backoffice-reportes` y `cuenta-mis-anuncios` (escritorio y móvil) — y **sólo** en ésas, que son
+  exactamente las cuatro que pintan la fecha de hoy: `04/09/26`, `04/09/2026`, `4 sept 2026`. Los
+  baselines se generaron el 3 de septiembre (`9f34e14`) y toda la migración de estilo ocurrió ese
+  mismo día, así que la bomba nunca había llegado a sonar. Diferencias de 106-304 píxeles: un par
+  de glifos, sin desplazamiento.
+
+  **Consecuencia si no se cierra:** desde hoy, cualquier ráfaga —aunque no toque una línea de
+  `apps/web`— necesita un commit de baselines sólo por el cambio de día. Es decir, la puerta pasa a
+  dar rojo por algo que no es el producto, que es justo lo que la vuelve invisible.
+
+  **Lo que hay sobre la mesa, sin decidir:** enmascarar las fechas (mantiene la cobertura; la
+  máscara sirve aquí porque la diferencia es de glifo, no de maquetado, y ese era el motivo por el
+  que enmascarar no valió en `/admin/ajustes`) o retirar las cuatro (el molde de `/admin/usuarios`,
+  pero **ojo**: retirar `anuncios-tabla` invalida el razonamiento con el que se retiró
+  `/admin/usuarios` — «ese idioma visual ya lo cubre `anuncios-tabla`»). Va en ráfaga propia, antes
+  de E6.
 - **`admin-roles.spec.ts` afirma el número exacto de ítems del nav** — frágil por diseño, y **ya
   está desincronizado otra vez**: `9890e82` movió el nav a **24 secciones**, pero
   [admin-roles.spec.ts:215-226](../apps/web/e2e/admin-roles.spec.ts#L215) titula el test «las 19
