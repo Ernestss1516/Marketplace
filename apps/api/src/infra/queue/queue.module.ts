@@ -19,6 +19,8 @@ import { GeocodingModule } from '../../modules/geocoding/geocoding.module';
 import { SearchModule } from '../../modules/search/search.module';
 import { AlertsModule } from '../../modules/alerts/alerts.module';
 import { CategoryTreeModule } from '../../modules/categories/category-tree.module';
+import { EstiloModule } from '../../modules/estilo/estilo.module';
+import { BrandingModule } from '../../modules/branding/branding.module';
 import { parseRedisConnection } from '../redis/redis-connection';
 
 // PrismaModule is @Global(), so PrismaService is available without importing PrismaModule here.
@@ -59,6 +61,11 @@ import { parseRedisConnection } from '../redis/redis-connection';
     // PROFUNDIDAD N — RÁFAGA 2: IndexingProcessor resuelve la subcadena a
     // reindexar (`reindex-category-subtree`) con el único lector de la jerarquía.
     CategoryTreeModule,
+    // E8 — el tema y el logo del correo. Ninguno de los dos módulos importa éste
+    // (sus dependencias son Prisma, R2, auditoría, revalidación y la cola propia de
+    // limpieza de medios), así que no se cierra ningún ciclo.
+    EstiloModule,
+    BrandingModule,
   ],
   providers: [
     ImageProcessor,

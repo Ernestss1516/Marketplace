@@ -5624,9 +5624,11 @@ defensas, todas en `ContactService.submit()` (`modules/contact/contact.service.t
    admin con sesión lo lee) — el mensaje se guarda y se sirve como texto plano; el panel admin
    (`/admin/mensajes-contacto`) lo interpola directamente en JSX (React escapa por defecto),
    **`dangerouslySetInnerHTML` prohibido** en esa vista. Los emails de aviso (`SEND_CONTACT_NOTIFICATION`)
-   y de respuesta (`SEND_CONTACT_REPLY`) usan `text:` en Resend, nunca `html:` — mismo patrón que
-   ya seguía `NotificationProcessor` para verificación/reset/alertas, sin necesidad de sanitizado
-   nuevo porque nunca se genera HTML a partir de contenido no confiable.
+   y de respuesta (`SEND_CONTACT_REPLY`) usaban `text:` en Resend y nunca `html:`. **Desde E8
+   llevan las dos partes**, y el vector sigue cerrado por otra vía: el extracto entra al correo
+   como una **pieza tipada de texto** —no hay campo donde meter marcado— y el único serializador
+   escapa todo lo que interpola, sin excepciones ni para el cuerpo que escribe el admin. Ver
+   «Los correos llevan HTML desde E8» al final de este documento.
 5. **Email header injection** — `@IsEmail()` estricto en el DTO de entrada; la respuesta del
    admin (`POST /admin/contact-messages/:id/responder`) envía siempre a `ContactMessage.email`
    (inmutable, leído del propio registro), nunca a un campo del body — `whitelist:true` del
@@ -5959,7 +5961,10 @@ configurado se omite SOLO el correo** (con warning); la notificación in-app se 
 que no se pierde ningún aviso.
 
 Tres jobs de Resend (`SEND_TICKET_MESSAGE`, `SEND_TICKET_STAFF_NOTIFICATION`,
-`SEND_TICKET_RESOLVED`), todos `text:` plano, nunca `html:`.
+`SEND_TICKET_RESOLVED`). Eran `text:` plano y nunca `html:`; **desde E8 llevan las dos
+partes**, con el extracto entrando como pieza tipada y escapado en el único serializador —
+la garantía es de tipos, no de que estos tres métodos se acuerden. Ver «Los correos llevan
+HTML desde E8» al final de este documento.
 
 ### Frontend
 
@@ -18095,6 +18100,58 @@ instalado desde E6 y hereda su duración de la escala de transición, que apunta
 `--motion-duration`; la curva se declara aparte en `globals.css`. **Ninguna capa lleva
 `duration-*` propio**: con el plugin puesto, esa clase fija también `animation-duration` y la
 sacaría del sistema.
+
+### Los correos llevan HTML desde E8, y la invariante NO se eliminó: se trasladó
+
+Hasta E8, `NotificationProcessor` mandaba `text:` y **nunca** `html:`, y estaba declarado
+como regla del fichero. Cruzarla fue una decisión de Ernest (§7.6 del diseño, aprobada el
+2026-09-05). La regla nueva es **«el HTML se compone en un solo sitio y todo dato entra
+escapado, siempre»**, y lo que la sostiene no es la disciplina de quien escribe un envío:
+
+- **Los dieciocho métodos ya no componen nada.** Entregan **piezas tipadas**
+  (`apps/api/src/infra/queue/email/email-piezas.ts`: saludo, párrafo, cita, botón, aviso,
+  cierre) y `enviar()` es el único que construye el correo. Añadir un campo `html` a
+  `enviar()` habría sido dieciocho ocasiones de olvidar el escapado — el mismo defecto de
+  clase que el pie de baja lleva evitando desde N5.
+- **Ninguna pieza acepta marcado.** Un método que quisiera inyectarlo **no tiene dónde
+  ponerlo**: el tipo no lo admite.
+- **El escapado no se llama, se hereda del tipo.** `email-escapar.ts` expone una plantilla
+  etiquetada (`html\`\``) cuyo resultado es un tipo marcado, y **no exporta ninguna vía para
+  marcar una cadena como segura**. Dentro del propio serializador tampoco se puede expresar
+  HTML sin escapar.
+- **No hay campo privilegiado.** El `cuerpo` y el `motivo` que escribe un admin se escapan
+  igual que el extracto de un desconocido. La amenaza no es el admin: es una cuenta de
+  admin comprometida, y el escapado cuesta cero.
+
+**Las dos partes van siempre juntas.** `renderCorreo` devuelve texto y HTML: no existe la
+forma de pedir uno solo, así que no se puede mandar un correo sólo-HTML. La parte de texto
+no es un respaldo — es entregabilidad, accesibilidad y los clientes que no pintan HTML.
+
+**El tema llega al correo por una SEGUNDA VÍA DE RENDER, y es inevitable.** Los clientes de
+correo no soportan variables CSS y Outlook de escritorio pinta con el motor de Word, así que
+el mismo tema se resuelve a **hexadecimal literal inline** (`email-tema.ts`, con
+`tripleteAHex`): principal, su letra, la rampa neutra y el **logo público** que ya sirve
+`BrandingService`. **La tipografía no viaja** — no hay fuentes fiables en correo—, así que la
+personalidad del modelo en el correo es **parcial, siempre**, y está aceptado por escrito.
+Estructura en tablas, estilos inline, sin `<style>` ni clases, sin SVG.
+
+**Tres cosas que conviene no romper:**
+
+- **`sobrio` no es decoración.** Verificación, restablecimiento y decisiones sobre la cuenta
+  salen sin logo y sin botón de color, con el enlace escrito entero: un correo de
+  restablecimiento muy adornado se parece a una suplantación.
+- **El botón escribe siempre su URL debajo**, en los dos modos. Un correo cuyo destino no se
+  puede leer enseña a hacer clic a ciegas.
+- **`QueueModule` importa `EstiloModule` y `BrandingModule`** (que ahora exportan sus
+  servicios). Ninguno de los dos importa `QueueModule`, así que no hay ciclo — si algún día
+  alguno lo necesitara, habría que romperlo por otro lado, no aquí.
+
+**Barreras:** `src/infra/queue/email/correo.spec.ts` (26 tests: el `@ts-expect-error` que
+deja de compilar si aparece un campo `html`, la lista blanca de etiquetas, el barrido que
+comprueba que **sólo el serializador importa la máquina de escapar**) y
+`test/correos-e8.e2e-spec.ts` (35 tests: la carga en cada campo de usuario de **los 18
+tipos y sus 15 acciones**, con la tabla comparada contra `NOTIFICATION_JOB` para que un
+correo nuevo sin caso ponga el CI en rojo).
 
 ---
 

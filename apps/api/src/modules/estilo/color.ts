@@ -89,6 +89,34 @@ export function hexATriplete(hex: string): TripleteHsl | null {
 }
 
 /**
+ * Triplete HSL → `#rrggbb`. El inverso exacto de `hexATriplete`.
+ *
+ * ── POR QUÉ HIZO FALTA (E8, LOS CORREOS) ─────────────────────────────────────────────
+ *
+ * Dentro del navegador el triplete es el formato bueno: `hsl(var(--primary) / 0.9)` es lo
+ * que permite el modificador de opacidad de Tailwind. **En un correo no hay navegador.**
+ * Outlook de escritorio pinta con el motor de Word, que no entiende `hsl()` ni variables
+ * CSS, así que el tema tiene que llegar como valores literales de la notación más antigua
+ * y más soportada que existe: hexadecimal.
+ *
+ * Es la «segunda vía de renderizado del mismo tema» que el §7.3 del diseño da por
+ * inevitable, y esta función es su única conversión. No hay pérdida visible: el redondeo a
+ * enteros de 0-255 es el mismo que hace el navegador al pintar el triplete.
+ *
+ * Devuelve `null` —y no un color de emergencia— si la entrada no es legible: quien llama
+ * ya tiene su propio valor de fábrica y sabe cuál es; inventar aquí un gris sería sustituir
+ * el tema del modelo por uno de esta función sin que nadie se entere.
+ */
+export function tripleteAHex(v: string): string | null {
+  const t = aTriplete(v);
+  const p = t ? parsearTriplete(t) : null;
+  if (!p) return null;
+  const { r, g, b } = hslARgb(p.h, p.s, p.l);
+  const dos = (n: number) => Math.max(0, Math.min(255, n)).toString(16).padStart(2, '0');
+  return `#${dos(r)}${dos(g)}${dos(b)}`;
+}
+
+/**
  * Luminancia relativa según WCAG 2.1 (§ definición de «relative luminance»).
  * Se implementa a mano y no con una dependencia porque son ocho líneas de aritmética
  * y añadir un paquete para esto sería añadir una superficie de actualización a cambio

@@ -6,9 +6,10 @@
 > código. No implementa nada.**
 >
 > **Las 7 decisiones son el marco: este diseño las desarrolla, no las reabre.**
-> **La excepción es la #3 (correos)**: el §7 desarrolla el mecanismo y **vuelve a
-> Ernest** para que apruebe cruzar la invariante de seguridad. Hasta que la apruebe, los
-> correos siguen en texto plano y la ráfaga E8 no existe.
+> **La excepción era la #3 (correos)**: el §7 desarrolló el mecanismo y volvió a Ernest
+> para que aprobara cruzar la invariante de seguridad. **Ernest la aprobó (2026-09-05) y
+> E8 está hecha**: los correos llevan HTML temado y la invariante se trasladó, de «nunca
+> hay HTML» a «el HTML se compone en un solo sitio y todo dato entra escapado, siempre».
 >
 > Todo dato del estado actual está verificado contra los ficheros en esta sesión.
 
@@ -526,11 +527,18 @@ backoffice). Queda registrado como deuda con destino, no como deuda a secas.
 
 ---
 
-## 7. ⚠ LOS CORREOS — la sub-pregunta que vuelve a Ernest
+## 7. LOS CORREOS — la sub-pregunta que volvió a Ernest, y su respuesta
 
-> **Esto NO está aprobado.** La decisión #3 encargó desarrollar el mecanismo **para que
-> Ernest decida**. Hasta que lo apruebe, los correos siguen en texto plano y la ráfaga E8
-> no se planifica.
+> **APROBADO (2026-09-05) e IMPLEMENTADO (E8).** La decisión #3 encargó desarrollar el
+> mecanismo para que Ernest decidiera; Ernest aprobó cruzar la invariante **con este
+> mecanismo**, aceptando expresamente las dos contrapartidas: la garantía pasa de
+> «absoluta» a «fuerte y verificada», y la personalidad del modelo llega al correo
+> **parcial**, siempre.
+>
+> Lo que sigue se conserva **tal y como se propuso**, porque es el razonamiento sobre el
+> que Ernest decidió y reescribirlo a posteriori sería borrar la pregunta. Lo que E8
+> construyó de verdad —y las tres cosas en las que se apartó de esta propuesta— está en
+> el **§7.7**.
 
 ### 7.1 La invariante que hay que cruzar
 
@@ -648,6 +656,70 @@ plataforma y no de un servidor cualquiera.
 
 **Si Ernest dice que no**, este §7 se archiva, la ráfaga E8 desaparece del plan y **no
 pasa nada más**: el resto del sistema no depende de esta decisión en ningún punto.
+
+### 7.7 Lo que E8 construyó — y dónde se apartó de la propuesta
+
+**Ficheros.** El mecanismo vive en `apps/api/src/infra/queue/email/`, cuatro piezas:
+
+| Fichero | Qué es |
+|---|---|
+| `email-piezas.ts` | **Sólo tipos, cero lógica.** La unión `PiezaCorreo` (saludo, párrafo, cita, botón, aviso, cierre) y `CorreoEstructurado`. Ningún campo admite marcado |
+| `email-escapar.ts` | `escaparHtml` y la plantilla `html\`\`` — la máquina que **no deja saltarse el escapado** |
+| `email-tema.ts` | El tema resuelto a hexadecimal inline + `TEMA_CORREO_DE_FABRICA` |
+| `email-render.ts` | **El único serializador**: `renderCorreo` devuelve texto y HTML juntos |
+
+Los dieciocho métodos del processor ya no componen ninguna cadena: entregan piezas.
+`enviar()` resuelve el tema, llama a `renderCorreo` y manda `text:` **y** `html:`.
+
+**LAS TRES COSAS EN LAS QUE ESTO ES MÁS FUERTE QUE LO PROPUESTO.** No son adornos: las
+tres salieron de intentar escribir la propuesta tal cual y ver dónde quedaba un hueco.
+
+1. **El escapado no se «llama», se hereda del tipo.** La propuesta decía «en el
+   serializador se escapa cada campo, siempre» — que sigue siendo una regla que alguien
+   escribe a mano en cada interpolación. Lo que hay es una plantilla etiquetada con un
+   tipo marcado (`HtmlSeguro`): `html\`<p>${texto}</p>\`` escapa lo interpolado y **no se
+   exporta ninguna vía para marcar una cadena como segura**. No hay `crudo()`, no hay
+   `noEscapar()`. O sea que no es «acuérdate de escapar» ni siquiera dentro del
+   serializador: **es que no se puede expresar HTML sin escapar**, ni queriendo.
+2. **Ninguna URL llega a un `href` sin ser `http(s)`.** El escapado impide inyectar una
+   etiqueta pero no impide que un enlace apunte a `javascript:`. Hoy todas las URL las
+   compone el processor a partir de `appUrl`, así que ninguna podría serlo; `urlSegura`
+   es la red por si mañana una llega de otro sitio, y degrada a texto legible en vez de
+   tumbar el correo.
+3. **La lista blanca de etiquetas, en vez de una lista de venenos.** El §7.5 pedía «no
+   aparece ninguna etiqueta nueva». La barrera no busca `<script>`: recoge **todas** las
+   etiquetas del documento, comprueba que están en una lista cerrada de trece, y además
+   que **el número de `<` del documento es exactamente el número de etiquetas** — así no
+   hay ningún `<` que no sea uno de los nuestros.
+
+**LAS TRES PRUEBAS DEL §7.5, Y DÓNDE ESTÁN.**
+
+| Prueba del §7.5 | Dónde | Cómo se comprueba |
+|---|---|---|
+| 1 · Escapado exhaustivo sobre los 18 | `test/correos-e8.e2e-spec.ts` | La carga (`<script>`, `<`, `>`, `&`, `"`, `'`, un `<img onerror>`) en **cada campo de usuario** de los 18 tipos y de sus 15 acciones. La tabla se compara contra `NOTIFICATION_JOB`: **un correo nuevo sin caso pone el CI en rojo** |
+| 2 · Ausencia de vía de escape | `src/infra/queue/email/correo.spec.ts` | Un `@ts-expect-error` que **deja de compilar** si alguien añade un campo `html` a una pieza; una lectura del fichero de tipos por si el hueco llega con otro nombre; y un barrido de `src/` que comprueba que **sólo el serializador importa la máquina de escapar** |
+| 3 · Doble parte | los dos | `renderCorreo` devuelve las dos juntas: no existe la forma de pedir una sola |
+
+**LA MUTACIÓN, porque una barrera que no se ha visto saltar no protege.** Quitar la regla
+de `<` del escapado deja **6 tests en rojo**; añadir un campo `html?: string` a la pieza
+`parrafo` deja **`tsc` en rojo** con `TS2578: Unused '@ts-expect-error' directive` — que
+es la barrera saltando en el sentido difícil: no cuando se borra el test, sino cuando se
+abre el hueco.
+
+**DOS DECISIONES DE PRODUCTO QUE LA PROPUESTA NO FIJABA.**
+
+- **El botón escribe siempre la URL debajo**, en los dos modos. Un correo cuyo destino no
+  se puede leer es un correo que enseña a hacer clic a ciegas, que es exactamente lo que
+  explota el phishing.
+- **`sobrio` es un campo del correo, no una lista de excepciones en el serializador.** Lo
+  llevan los tres que el §7.4.2 nombra —verificación, restablecimiento y decisiones sobre
+  la cuenta— y significa: sin logo y sin botón de color, con el enlace desnudo y entero.
+
+**LO QUE NO CAMBIÓ, y conviene decirlo:** el pie de baja sigue calculándose donde se
+decide la categoría, sigue siendo `null` en las críticas, y ahora sale en **las dos
+partes** del correo. Y la parte de texto conserva la forma que estos correos ya tenían
+—bloques separados por una línea en blanco, la cita entrecomillada, el enlace bajo su
+etiqueta—: la inversión cambió quién compone, no lo que lee quien lee en texto.
 
 ---
 
@@ -1095,7 +1167,13 @@ irrevisable, porque cualquier diferencia se puede justificar como «será el tem
 > instancia; y **siete de los diez pintados** — los seis estados vacíos y la confirmación de
 > pago. Los otros tres no tienen pantalla donde ir y crearla contradiría la doctrina de
 > feedback del producto: ver §8.5.
-| **E8** | **CORREOS.** ⚠ **Solo si Ernest aprueba el §7.** Si no, esta ráfaga no existe | ✅ | L |
+| **E8** | **CORREOS.** Inversión por tipos, escapado sin excepciones, HTML de correo real | ✅ | L |
+
+> **E8 HECHA (2026-09-05), y con ella el alcance total.** Ernest aprobó la decisión #3. Los
+> dieciocho envíos dejaron de componer cadenas y entregan piezas tipadas; `enviar()` es el
+> único que serializa, y lo hace con una plantilla que **no permite expresar HTML sin
+> escapar**. El tema llega al correo en hexadecimal inline (principal, rampa neutra y logo);
+> la tipografía no, y eso es la personalidad parcial que Ernest aceptó. Detalle en §7.7.
 | **E9+** | **MODELOS CON PERSONALIDAD.** Uno por ráfaga | ✅ | M c/u |
 
 **E0-E3 es la fase segura.** Nada cambia visualmente y todo es verificable contra la red
@@ -1113,7 +1191,10 @@ funciona.** Se puede parar ahí indefinidamente sin haber roto nada.
 
 ## 13. Lo que vuelve a Ernest
 
-### 13.1 ⚠ La aprobación pendiente — correos (decisión #3)
+### 13.1 ✅ La aprobación que ya llegó — correos (decisión #3)
+
+> **APROBADA el 2026-09-05 e implementada en E8.** Se conserva la pregunta tal cual porque
+> es sobre esto sobre lo que Ernest decidió. Lo construido, en §7.7.
 
 **¿Se cruza la invariante de texto plano, con el mecanismo del §7 y sus tres pruebas?**
 
@@ -1128,6 +1209,11 @@ funciona.** Se puede parar ahí indefinidamente sin haber roto nada.
   correo, siempre.
 
 **Si la respuesta es no, se archiva el §7, desaparece E8 y no cambia nada más del plan.**
+
+> **La respuesta fue sí**, con las dos contrapartidas aceptadas por escrito. Y el
+> mecanismo salió más fuerte de lo prometido en un punto: el escapado no depende de que el
+> serializador se acuerde de llamarlo, sino de que **no existe forma de fabricar HTML sin
+> pasar por él** (§7.7).
 
 ### 13.2 Las dos decisiones menores que este diseño propone
 
