@@ -456,6 +456,56 @@ hacerlo visible en el momento de decidirlo.
 
 ### 4.3 Residuos de cobertura
 
+#### La barrera visual no ve la mitad de abajo del nav del backoffice `[COBERTURA]`
+
+**Hallazgo de E9 (2026-09-05), medido y no supuesto.**
+
+E9 añade una sección al backoffice (`Estilo`, en el grupo «Plataforma»). Se dio por hecho —está
+escrito en el encargo— que las capturas del backoffice se moverían y habría que regenerar el
+baseline. **No se movió ni una:** las 46 capturas pasaron en linux (CI) y las 9 del backoffice
+pasaron también en win32, contra baselines de E5.
+
+La causa está en [`(admin)/layout.tsx:72`](../apps/web/src/app/(admin)/layout.tsx#L72): el sidebar
+es `sticky top-14 max-h-[calc(100vh-3.5rem)] overflow-y-auto`, es decir, **se recorta a la altura
+del viewport y hace scroll por dentro**. Con 27 secciones repartidas en 6 grupos, la lista es más
+alta que los 664 px que quedan bajo la cabecera a 720 px de alto, así que **los grupos de abajo
+—«Plataforma» entero: Ajustes, Marca, Ilustraciones, Estilo, Instancia— caen fuera del recorte y
+no aparecen en ninguna captura**. `fullPage: true` no ayuda: el sidebar es `sticky` y su altura no
+crece con la página.
+
+**Qué significa y qué no.** No es un defecto del layout —un menú largo que hace scroll está bien— ni
+invalida la barrera: lo que fotografía, lo fotografía a `threshold: 0`. Lo que hay que saber es que
+**para las secciones de los grupos bajos la barrera visual no es una red**, y que una regresión de
+maquetación ahí (un ítem que desaparece, un grupo que se descuadra) no la caza esta batería. Hoy lo
+cubre el conteo de enlaces de [`admin-roles.spec.ts`](../apps/web/e2e/admin-roles.spec.ts) y
+[`nav-backoffice.spec.ts`](../apps/web/e2e/nav-backoffice.spec.ts), que es cobertura funcional y no
+visual.
+
+**Coste de cerrarlo, si se quiere:** una captura del sidebar desplazado al final, o una del backoffice
+a un viewport más alto. Es una captura, no un rediseño. No se hace en E9 porque añadir capturas es
+presupuesto de CI y la decisión no es de esta ráfaga.
+
+#### Los baselines de win32 llevan tres ráfagas sin regenerar `[COBERTURA]`
+
+**Hallazgo de E9 (2026-09-05).** Corriendo la batería visual en local (Windows) sobre la rama de E9:
+**41 pasan, 6 fallan** — `publico-planes`, `publico-contacto` y `backoffice-instancia`, en escritorio
+y en móvil. Ninguna tiene que ver con E9, y en linux las 46 pasan.
+
+El motivo es el reparto de trabajo entre plataformas: los baselines de **win32 se escriben en el
+commit de la feature**, desde la máquina de quien la hace, y los de **linux en un commit posterior,
+desde el artefacto de CI**. Los de win32 no se han vuelto a escribir desde `d45a3dc` (E5); E6, E7 y
+E8 sólo regeneraron los de linux. Así que las tres capturas que
+E6/E7/E8 movieron —o que dependen de configuración local, que es el caso probable de
+`backoffice-instancia`, una pantalla que pinta el entorno de la máquina— arrastran una diferencia
+que nadie ha mirado.
+
+**No se regeneran en E9 a propósito**, y es la regla de la casa: absorber en este commit tres
+ráfagas de deriva visual que nadie ha revisado es exactamente «actualizar el baseline en vez de
+mirar qué lo movió». Se anota para que se haga en su propia vuelta, con las diferencias delante.
+
+**Consecuencia práctica mientras tanto:** en local esas 6 salen en rojo y **no significan nada**;
+la puerta de verdad es el job de linux.
+
 #### Los tests de Stripe pasan con una clave inválida `[COBERTURA]` ⛔ PRERREQ
 
 **Hallazgo del episodio de despliegue, verificado en código el 2026-09-02.**

@@ -53,9 +53,11 @@ test.describe('Sistema de estilo — /admin/estilo', () => {
 
     // Y el nav no es la puerta: la ruta escrita a mano tampoco entra. El piso real lo
     // ponen el middleware (derivado del mismo mapa) y el `@MinRole(ADMIN)` del controlador.
+    // Mismo molde de aserción que las tres de `admin-roles.spec.ts` para las rutas de
+    // ADMIN: se espera a salir de `/admin`, en vez de mirar la URL una sola vez.
     await page.goto('/admin/estilo');
-    await page.waitForLoadState('networkidle');
-    expect(page.url()).not.toContain('/admin/estilo');
+    await page.waitForURL((url) => !url.pathname.startsWith('/admin'), { timeout: 8_000 });
+    expect(page.url()).not.toContain('/admin');
   });
 
   test('B2 — el catálogo, la versión y los cuatro colores se pintan desde el GET', async ({
@@ -104,29 +106,42 @@ test.describe('Sistema de estilo — /admin/estilo', () => {
     const page = await adminContext.newPage();
     await page.goto('/admin/estilo');
 
-    // Un gris medio como principal: `mejorTextoSobre` elige entre una letra clara y una
-    // oscura, y contra el 50 % de luminosidad NINGUNA de las dos llega a 4,5:1. Es la
-    // forma más limpia de provocar el 422 sin depender de un modelo concreto.
-    await page.getByTestId('valor-primary').fill('#808080');
+    // UN PRINCIPAL DEMASIADO CLARO (slate-200). Medido con el motor de verdad antes de
+    // escribir el test, porque la primera elección —un gris medio— NO servía: contra el
+    // 50 % de luminosidad `mejorTextoSobre` encuentra una letra oscura que da 5,3:1, así
+    // que el guardado pasaba y no había 422 que enseñar. Ésa es justamente la decisión #2
+    // funcionando: la letra la elige la máquina y casi siempre acierta.
+    //
+    // Lo que NO puede arreglar sola es el anillo de foco, que es el principal literal
+    // sobre el lienzo: a 1,23:1 contra el blanco no llega a los 3:1 de interfaz.
+    await page.getByTestId('valor-primary').fill('#e2e8f0');
     await page.getByTestId('guardar-estilo').click();
 
     // AQUÍ ESTÁ LA BARRERA: el aviso cuelga del campo `primary`, no de un toast suelto.
+    //
+    // Y es el caso que hace falta pinzar, no uno cualquiera: la frase del backend dice
+    // «sobre el fondo», así que un mapeo escrito a ojo lo habría mandado al campo del
+    // NEUTRO —donde el admin podría tocar el gris eternamente sin arreglar nada—. El
+    // color que mueve este ratio es el principal, porque `tokens.ring = colores.primary`.
     const error = page.getByTestId('error-contraste-primary');
     await expect(error).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('error-contraste-neutral')).toHaveCount(0);
 
     // Y lleva el número medido dentro, que es lo que convierte «no cumple» en algo
     // accionable: el admin ve cuánto le falta y hacia dónde mover el color.
-    await expect(error).toContainText('letra sobre el color principal');
+    await expect(error).toContainText('anillo de foco sobre el fondo');
     await expect(error).toContainText(/\d+,\d+:1/);
-    await expect(error).toContainText('necesita 4,5:1');
+    await expect(error).toContainText('necesita 3:1');
 
     // El campo queda marcado como inválido para quien navega con lector de pantalla.
     await expect(page.getByTestId('valor-primary')).toHaveAttribute('aria-invalid', 'true');
 
     // Y NADA se guardó: el servidor valida ANTES de escribir, así que la plataforma sigue
-    // con su tema. Se comprueba recargando, que es lo que ve el siguiente que entre.
+    // con su tema. Se comprueba recargando, que es lo que ve el siguiente que entre — y
+    // contra el valor de fábrica, no contra «distinto de lo que escribí»: así el test
+    // falla también si se guardara cualquier OTRA cosa.
     await page.reload();
-    await expect(page.getByTestId('valor-primary')).not.toHaveValue('#808080');
+    await expect(page.getByTestId('valor-primary')).toHaveValue('221.2 83.2% 53.3%');
   });
 
   test('B3 — guardar aplica el tema, y «volver a fábrica» lo deshace', async ({
@@ -150,8 +165,11 @@ test.describe('Sistema de estilo — /admin/estilo', () => {
       await expect(page.getByTestId('error-contraste-primary')).toHaveCount(0);
 
       // Y persiste: lo que se ve al recargar es lo que el servidor tiene, no estado local.
+      // El valor exacto —no un «distinto del anterior»— porque de paso pinza la
+      // NORMALIZACIÓN: el hexadecimal que manda el selector se guarda como triplete, y esa
+      // conversión ocurre una sola vez, en el servidor.
       await page.reload();
-      await expect(page.getByTestId('valor-primary')).not.toHaveValue('221.2 83.2% 53.3%');
+      await expect(page.getByTestId('valor-primary')).toHaveValue('224.3 76.3% 48%');
     } finally {
       // VOLVER A FÁBRICA — y va en `finally` a propósito: si una aserción de arriba falla,
       // la instancia NO se queda con un tema puesto que teñiría la batería de capturas.

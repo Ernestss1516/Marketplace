@@ -638,14 +638,14 @@ test.describe('La puerta /admin/login', () => {
     await page.close();
   });
 
-  test('un ADMIN sigue entrando por su puerta de siempre, con las 26', async ({ browser }) => {
+  test('un ADMIN sigue entrando por su puerta de siempre, con las 27', async ({ browser }) => {
     const page = await loginPorLaPuertaDelPanel(browser, 'admin-e2e@example.com');
     await page.waitForURL((url) => url.pathname.startsWith('/admin') && url.pathname !== '/admin/login', {
       timeout: 15_000,
     });
     await page.waitForLoadState('networkidle');
 
-    await expect(page.getByTestId('admin-nav').getByRole('link')).toHaveCount(26);
+    await expect(page.getByTestId('admin-nav').getByRole('link')).toHaveCount(27);
     await page.close();
   });
 
