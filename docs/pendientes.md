@@ -836,6 +836,52 @@ si vuelven a aparecer tres rojos en esa batería, exista el precedente y no se d
 `reindex` que deja procesos huérfanos son dos explicaciones plausibles de rojos locales no
 reproducibles. Ninguna está confirmada para este caso.)*
 
+### Nota, con evidencia esta vez — `re_` apareció en el cuerpo de `/admin/instancia` `[SEGURIDAD?]`
+
+**Observado en E9 (2026-09-05). No se atribuye a E9 — no toca esa pantalla ni su endpoint — pero
+se anota con los números delante porque no es un rojo cualquiera.**
+
+[`admin-instancia.spec.ts:114`](../apps/web/e2e/admin-instancia.spec.ts#L114) recorre
+`body.textContent` buscando prefijos de secreto (`sk_test_`, `sk_live_`, `whsec_`, `re_`) y
+comprueba que la pantalla dice **si** una credencial está puesta y nunca **cuánto vale**. En la
+segunda vuelta de CI de la rama de E9 (run `33957764924`) ese test falló: encontró **`re_`** —el
+prefijo de una clave de Resend—.
+
+**Lo que hace el hallazgo raro, y por lo que no se cierra como flake sin más:**
+
+- **Pasó en la vuelta anterior de la MISMA rama** (run `33956099366`), con el código de esa
+  pantalla sin tocar entre una y otra, y volvió a pasar al reejecutar (mismo run, segunda
+  tentativa). Es decir: **intermitente**, no determinista.
+- **No se reproduce en local.** Se corrió el mismo escaneo contra `/admin/instancia` en un entorno
+  local completo: los cuatro prefijos **ausentes**.
+- El texto capturado que quedó en el log **no contiene `re_` a la vista**: lo que se ve es el HTML
+  de la pantalla más el script de reintento de React. O el volcado del log está recortado, o el
+  prefijo llegó por una vía que no está en esa captura.
+
+**La hipótesis, con la mitad ya comprobada en código:** la pantalla es cliente y pide los datos a
+la API, y su rama de error pinta **el mensaje del servidor entero**:
+
+```tsx
+// (admin)/admin/instancia/page.tsx:190
+err instanceof ApiError ? `Error ${err.statusCode}: ${err.message}` : 'Error al cargar'
+```
+
+Eso explicaría las tres cosas a la vez: que sea intermitente (depende de que la API falle o
+tarde), que no salga en local (allí la API responde bien) y que el prefijo no aparezca en el HTML
+normal. **Lo que falta por confirmar** es el otro extremo: que algún error del backend lleve un
+valor de configuración dentro del `message`. Sin eso, esto es una vía abierta y no un escape
+demostrado.
+
+**⚠ Y NO ES SÓLO ESA PANTALLA.** Ese mismo `Error ${statusCode}: ${message}` es el molde que
+comparten `/admin/marca`, `/admin/ilustraciones` y `/admin/estilo` (E9 lo calca, como se le pidió).
+O sea que si la vía se confirma, el arreglo **no es de una pantalla**: es que el molde de error
+del backoffice pasa el texto del servidor tal cual, justo lo que `toUserMessage` existe para
+impedir en el resto de la aplicación —«Never exposes raw backend text».
+
+**Qué haría falta para cerrarlo:** capturar el `body` entero cuando el test falla (hoy sólo
+afirma, no guarda) y revisar qué mensajes puede devolver la API de instancia. El arreglo, si
+procede, es una tanda propia sobre el molde de error del backoffice.
+
 ---
 
 ## 5. RX.2 — Facturación fiscal real `[BLOQUEADO-EXTERNO]`
