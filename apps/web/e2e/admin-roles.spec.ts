@@ -7,7 +7,8 @@
 //   MODERATOR (19)  lo de EDITOR + anuncios, cola de revisión, usuarios, reportes,
 //                   tickets, categorías, tags, campañas, cupones, patrocinados,
 //                   mensajes de contacto, motivos de contacto.
-//   ADMIN (25)      todo + facturación, facturas, ajustes, instancia y marca.
+//   ADMIN (27)      todo + facturación, facturas, ajustes, instancia, marca,
+//                   ilustraciones y estilo.
 //   USER            nada.
 //
 // LA FUENTE DE VERDAD ES `src/config/backoffice-sections.ts`, un solo fichero del
@@ -60,7 +61,7 @@ async function loginAs(browser: Browser, email: string) {
 }
 
 test.describe('Backoffice — ADMIN acceso total', () => {
-  test('ADMIN carga /admin y el nav muestra las 26 secciones', async ({ adminContext }) => {
+  test('ADMIN carga /admin y el nav muestra las 27 secciones', async ({ adminContext }) => {
     const page = await adminContext.newPage();
 
     await page.goto('/admin');
@@ -70,11 +71,11 @@ test.describe('Backoffice — ADMIN acceso total', () => {
     expect(page.url()).toContain('/admin');
     expect(page.url()).not.toContain('/login');
 
-    // 26 = todas las filas de BACKOFFICE_SECTIONS. Eran 21 hasta R2, y la que
+    // 27 = todas las filas de BACKOFFICE_SECTIONS. Eran 21 hasta R2, y la que
     // faltaba no es nueva: `/admin/motivos-contacto` existía y era alcanzable,
     // pero nadie le había puesto entrada en `NAV_ITEMS` (hallazgo R3 de la
     // auditoría). Con el nav derivado del mapa, tener fila ES tener ítem.
-    // La última en entrar es «Ilustraciones» (E7), junto a «Marca».
+    // La última en entrar es «Estilo» (E9), junto a «Marca» e «Ilustraciones».
     //
     // ⚠ ESTE CONTEO ES FRÁGIL POR DISEÑO y está anotado como tal en pendientes.md:
     // añadir una sección lo mueve. Se mantiene porque una sección que se cae del nav
@@ -84,7 +85,7 @@ test.describe('Backoffice — ADMIN acceso total', () => {
     const nav = page.getByTestId('admin-nav');
     await expect(nav).toBeVisible();
     const links = nav.getByRole('link');
-    await expect(links).toHaveCount(26);
+    await expect(links).toHaveCount(27);
 
     // Un ADMIN ve lo suyo Y lo de los otros dos pisos.
     await expect(nav.getByRole('link', { name: 'Ajustes' })).toBeVisible();
@@ -226,10 +227,10 @@ test.describe('Backoffice — MODERATOR acceso restringido', () => {
     const nav = page.getByTestId('admin-nav');
     await expect(nav).toBeVisible();
 
-    // 20 = 26 totales − las 6 que no ve un MODERATOR. El conteo NO se mueve con E7:
-    // «Ilustraciones» es de ADMIN, así que suma en el total y no aquí. (La aritmética
-    // que había escrita —«23 totales − las 3 de ADMIN»— llevaba tiempo sin cuadrar;
-    // se corrige de paso.)
+    // 20 = 27 totales − las 7 que no ve un MODERATOR. El conteo NO se mueve con E9, por
+    // lo mismo que no se movió con E7: «Estilo» es de ADMIN, así que suma en el total y
+    // no aquí. (La aritmética que había escrita —«23 totales − las 3 de ADMIN»— llevaba
+    // tiempo sin cuadrar; se corrigió en E7.)
     const links = nav.getByRole('link');
     await expect(links).toHaveCount(20);
 
@@ -637,14 +638,14 @@ test.describe('La puerta /admin/login', () => {
     await page.close();
   });
 
-  test('un ADMIN sigue entrando por su puerta de siempre, con las 26', async ({ browser }) => {
+  test('un ADMIN sigue entrando por su puerta de siempre, con las 27', async ({ browser }) => {
     const page = await loginPorLaPuertaDelPanel(browser, 'admin-e2e@example.com');
     await page.waitForURL((url) => url.pathname.startsWith('/admin') && url.pathname !== '/admin/login', {
       timeout: 15_000,
     });
     await page.waitForLoadState('networkidle');
 
-    await expect(page.getByTestId('admin-nav').getByRole('link')).toHaveCount(26);
+    await expect(page.getByTestId('admin-nav').getByRole('link')).toHaveCount(27);
     await page.close();
   });
 

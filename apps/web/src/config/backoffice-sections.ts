@@ -272,6 +272,12 @@ export const BACKOFFICE_SECTIONS: readonly BackofficeSection[] = [
     minRole: 'ADMIN',
     group: 'plataforma',
   },
+  // E9 — el tercer lado del aspecto de la instancia, junto a Marca (los logos) e
+  // Ilustraciones (las imágenes): aquí van el modelo y los cuatro colores de los que sale
+  // la paleta. ADMIN por lo mismo que sus dos vecinas y que su controlador
+  // (`AdminEstiloController`): lo que se guarda aquí repinta las 81 pantallas, así que es
+  // configuración de instalación y no contenido.
+  { id: 'estilo', route: '/admin/estilo', label: 'Estilo', minRole: 'ADMIN', group: 'plataforma' },
   // AJUSTES RÁFAGA B — «cómo está montada esta instancia», de solo lectura. Va DESPUÉS de
   // Ajustes y no antes: aquélla es donde se cambia y ésta donde se confirma, y en ese orden
   // se leen. ADMIN porque publica de golpe la configuración de la máquina.
