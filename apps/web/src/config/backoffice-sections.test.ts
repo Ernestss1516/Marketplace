@@ -83,6 +83,8 @@ const REPARTO_ESPERADO: Record<string, 'EDITOR' | 'MODERATOR' | 'ADMIN'> = {
   // E7 — las ilustraciones de la instancia. ADMIN por lo mismo que Marca: es el aspecto
   // de la plataforma entera, no contenido.
   ilustraciones: 'ADMIN',
+  // E9 — el modelo y los cuatro colores. ADMIN, como sus dos vecinas de aspecto.
+  estilo: 'ADMIN',
 };
 
 const ROLES_STAFF = ['EDITOR', 'MODERATOR', 'ADMIN'] as const;
@@ -96,10 +98,10 @@ function seccionesEsperadas(role: 'EDITOR' | 'MODERATOR' | 'ADMIN'): string[] {
 }
 
 describe('EL REPARTO — cada rol ve exactamente lo suyo', () => {
-  it('el mapa declara el piso acordado para las 26 secciones, una por una', () => {
+  it('el mapa declara el piso acordado para las 27 secciones, una por una', () => {
     const real = Object.fromEntries(BACKOFFICE_SECTIONS.map((s) => [s.id, s.minRole]));
     expect(real).toEqual(REPARTO_ESPERADO);
-    expect(BACKOFFICE_SECTIONS).toHaveLength(26);
+    expect(BACKOFFICE_SECTIONS).toHaveLength(27);
   });
 
   it.each(ROLES_STAFF.map((r) => [r]))(
@@ -109,16 +111,17 @@ describe('EL REPARTO — cada rol ve exactamente lo suyo', () => {
     },
   );
 
-  it('las cuentas resultantes son EDITOR 7 / MODERATOR 20 / ADMIN 26', () => {
+  it('las cuentas resultantes son EDITOR 7 / MODERATOR 20 / ADMIN 27', () => {
     // Son las que pinzan los tres e2e de admin-roles.spec.ts. Antes de la ráfaga de
     // roles eran 2 / 7 / 21; el cambio es el objeto de aquella ráfaga, no un efecto
     // lateral. ESTADÍSTICAS B1 sumó UNA a MODERATOR y ADMIN (19→20, 22→23) y ninguna a
     // EDITOR: la telemetría no baja al piso del dashboard (ver `AdminStatsController`).
     // LOGOS L2 suma «Marca» SÓLO a ADMIN (24→25): la identidad de la instancia no baja.
     // E7 suma «Ilustraciones», también sólo a ADMIN (25→26), y por el mismo motivo.
+    // E9 suma «Estilo» (26→27): tercera de aspecto, tercera vez que sólo sube ADMIN.
     expect(navSectionsFor('EDITOR')).toHaveLength(7);
     expect(navSectionsFor('MODERATOR')).toHaveLength(20);
-    expect(navSectionsFor('ADMIN')).toHaveLength(26);
+    expect(navSectionsFor('ADMIN')).toHaveLength(27);
   });
 
   it('USER sigue sin acceso a NADA del backoffice', () => {

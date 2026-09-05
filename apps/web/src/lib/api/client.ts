@@ -28,6 +28,24 @@ export interface ApiErrorReason {
   field?: string;
 }
 
+/**
+ * E9 — UNA PAREJA DE COLORES QUE NO LLEGA AL CONTRASTE MÍNIMO (AA).
+ *
+ * La trae el 422 de `PUT /admin/estilo` y **sólo ése**. Espejo exacto de `FalloContraste`
+ * en `apps/api/src/modules/estilo/estilo.constants.ts`, con los nombres que el servicio
+ * ya emite (`contrasteActual` / `contrasteMinimo`, no `ratio` / `minimo`).
+ *
+ * `pareja` es la frase que escribió el backend («letra sobre el color principal»), no un
+ * código: describe la MEDICIÓN, que es entre dos tokens derivados, y no el color
+ * configurable que hay que corregir. Traducir de una a otro es trabajo de la pantalla —
+ * ver `COLOR_CULPABLE` en `estilo-admin.ts`.
+ */
+export interface ApiErrorContrastFailure {
+  pareja: string;
+  contrasteActual: number;
+  contrasteMinimo: number;
+}
+
 export class ApiError extends Error {
   constructor(
     public readonly statusCode: number,
@@ -41,6 +59,18 @@ export class ApiError extends Error {
      * anterior a la puerta— sigue funcionando exactamente igual.
      */
     public readonly reasons: ApiErrorReason[] = [],
+    /**
+     * E9 — ADITIVO, y por el MISMO motivo que `reasons` un año antes: el cuerpo del
+     * 422 de contraste lleva dentro las parejas medidas con su ratio, y sin esta línea
+     * `apiFetch` las tiraba al suelo. La pantalla de estilo sólo podía enseñar «no
+     * cumple AA» —el mensaje suelto— y el admin se quedaba probando combinaciones a
+     * ciegas entre cuatro colores, que es literalmente lo que el backend se molestó en
+     * evitar cuando decidió mandar la lista.
+     *
+     * Se rellena SÓLO cuando el cuerpo trae `fallos`; para todo lo demás queda `[]` y
+     * nadie nota nada.
+     */
+    public readonly fallos: ApiErrorContrastFailure[] = [],
   ) {
     super(message);
     this.name = 'ApiError';
@@ -237,6 +267,8 @@ export async function apiFetch<T>(path: string, options: FetchOptions = {}): Pro
       typeof body.code === 'string' ? body.code : undefined,
       // PUERTA — aditivo: si el backend no manda `reasons`, queda [] y nada cambia.
       Array.isArray(body.reasons) ? (body.reasons as ApiErrorReason[]) : [],
+      // E9 — ídem con las parejas de contraste del 422 de estilo.
+      Array.isArray(body.fallos) ? (body.fallos as ApiErrorContrastFailure[]) : [],
     );
   }
 
