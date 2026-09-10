@@ -27,7 +27,7 @@ import {
   formatPrice,
 } from './listing-status';
 import { etiquetaDeTriage, varianteDeTriage } from './listing-triage';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { adminListingHref } from '@/lib/admin-links';
@@ -103,11 +103,7 @@ export default function AdminAnunciosPage() {
         setListings(data.items);
         setTotal(data.total);
       } catch (err) {
-        setError(
-          err instanceof ApiError
-            ? `Error ${err.statusCode}: ${err.message}`
-            : 'Error inesperado al cargar anuncios',
-        );
+        setError(mensajeDeErrorAdmin(err, 'Error inesperado al cargar anuncios'));
       } finally {
         setLoading(false);
       }
@@ -169,9 +165,7 @@ export default function AdminAnunciosPage() {
       await fetchListings(filtros);
     } catch (err) {
       const msg =
-        err instanceof ApiError
-          ? `Error ${err.statusCode}: ${err.message}`
-          : 'Error al cambiar el estado';
+        mensajeDeErrorAdmin(err, 'Error al cambiar el estado');
       alert(msg);
     } finally {
       setSaving(false);
@@ -193,9 +187,7 @@ export default function AdminAnunciosPage() {
       await fetchListings(filtros);
     } catch (err) {
       const msg =
-        err instanceof ApiError
-          ? `Error ${err.statusCode}: ${err.message}`
-          : 'Error al eliminar el anuncio';
+        mensajeDeErrorAdmin(err, 'Error al eliminar el anuncio');
       alert(msg);
     } finally {
       setSaving(false);

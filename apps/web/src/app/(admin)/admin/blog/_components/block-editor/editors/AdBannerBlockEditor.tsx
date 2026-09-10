@@ -4,7 +4,7 @@ import { useRef, useState } from 'react';
 import { AlertCircle, Loader2, Upload } from 'lucide-react';
 import type { AdBannerBlock } from '@/types/blocks';
 import { uploadBlockImage } from '@/lib/api/blog-admin';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import { isSafeContentUrl, SAFE_URL_HINT } from '@/lib/blocks/validation';
 import { Button } from '@/components/ui/button';
 import { inputCls, labelCls, errorCls, textareaCls } from './shared';
@@ -48,7 +48,7 @@ export function AdBannerBlockEditor({
       const { url } = await uploadBlockImage(file, token);
       onChange({ image: { ...block.image, url } });
     } catch (err) {
-      setUploadError(err instanceof ApiError ? err.message : 'Error al subir la imagen');
+      setUploadError(mensajeDeErrorAdmin(err, 'Error al subir la imagen'));
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = '';

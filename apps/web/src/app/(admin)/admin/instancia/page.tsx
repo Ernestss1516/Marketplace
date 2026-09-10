@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { AlertCircle, AlertTriangle, Check, X } from 'lucide-react';
 import { getInstanceInfo, type InstanceInfo } from '@/lib/api/admin';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import type { BrandingLogos } from '@/lib/api/branding';
 import { getBrandingLive } from '@/lib/api/branding-admin';
 import { BrandLogo } from '@/components/layout/BrandLogo';
@@ -186,9 +186,7 @@ export default function AdminInstanciaPage() {
       .then((r) => vivo && setInfo(r))
       .catch((err) => {
         if (!vivo) return;
-        setError(
-          err instanceof ApiError ? `Error ${err.statusCode}: ${err.message}` : 'Error al cargar',
-        );
+        setError(mensajeDeErrorAdmin(err, 'Error al cargar'));
       });
     return () => {
       vivo = false;

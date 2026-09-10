@@ -7,7 +7,7 @@ import { AlertCircle, CheckCircle2, Loader2, Undo2, XCircle } from 'lucide-react
 import { getAdminListings, changeListingStatus, type AdminListing } from '@/lib/api/admin';
 import { approveListing, rejectListing } from '@/lib/api/moderacion';
 import { elegirAccionDeEstado } from '../anuncios/moderacion-routing';
-import { ApiError } from '@/lib/api/client';
+import { ApiError, mensajeDeErrorAdmin } from '@/lib/api/client';
 import { Button } from '@/components/ui/button';
 import { adminListingHref } from '@/lib/admin-links';
 import { SesionNoDisponible } from '@/app/(admin)/components/SesionNoDisponible';
@@ -97,11 +97,7 @@ export default function AdminModeracionPage() {
         setItems(data.items);
         setTotal(data.total);
       } catch (err) {
-        setError(
-          err instanceof ApiError
-            ? `Error ${err.statusCode}: ${err.message}`
-            : 'Error inesperado al cargar la cola',
-        );
+        setError(mensajeDeErrorAdmin(err, 'Error inesperado al cargar la cola'));
       } finally {
         setLoading(false);
       }

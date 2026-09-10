@@ -7,7 +7,7 @@ import { AlertCircle, ArrowLeft, ChevronDown, ChevronUp, Loader2, Plus, Search }
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import {
   createAdminTag,
   getAdminTagUsage,
@@ -58,7 +58,7 @@ function TagRow({
       await onSave(name.trim());
       setEditing(false);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Error al guardar');
+      setError(mensajeDeErrorAdmin(err, 'Error al guardar'));
     } finally {
       setSaving(false);
     }
@@ -170,7 +170,7 @@ export default function AdminTagsPage() {
       const res = await getAdminTags(token, { q: busqueda || undefined, perPage: 200 });
       setTags(res.items);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'No se pudieron cargar los tags');
+      setError(mensajeDeErrorAdmin(err, 'No se pudieron cargar los tags'));
     } finally {
       setLoading(false);
     }
@@ -197,7 +197,7 @@ export default function AdminTagsPage() {
     } catch (err) {
       // El 409 de slug duplicado llega con su mensaje: se muestra tal cual, que ya
       // dice qué slug choca.
-      setCreateError(err instanceof ApiError ? err.message : 'No se pudo crear');
+      setCreateError(mensajeDeErrorAdmin(err, 'No se pudo crear'));
     } finally {
       setBusy(false);
     }

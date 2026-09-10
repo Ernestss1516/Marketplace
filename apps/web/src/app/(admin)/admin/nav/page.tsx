@@ -14,7 +14,7 @@ import {
 } from '@/lib/api/nav-admin';
 import type { NavPageType } from '@/lib/api/nav';
 import { getAdminPosts, type AdminPostSummary } from '@/lib/api/blog-admin';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { SesionNoDisponible } from '@/app/(admin)/components/SesionNoDisponible';
@@ -456,9 +456,7 @@ export default function AdminNavPage() {
       const data = await getAdminNav(token);
       setRoots(data.sort((a, b) => a.order - b.order));
     } catch (err) {
-      setError(
-        err instanceof ApiError ? `Error ${err.statusCode}: ${err.message}` : 'Error al cargar el nav',
-      );
+      setError(mensajeDeErrorAdmin(err, 'Error al cargar el nav'));
     } finally {
       setLoading(false);
     }
@@ -476,9 +474,7 @@ export default function AdminNavPage() {
       .catch((err) => {
         console.error('[admin/nav] no se pudieron cargar las páginas del CMS', err);
         setPagesError(
-          `No se pudieron cargar las páginas: ${
-            err instanceof Error ? err.message : String(err)
-          }. Recarga la página; si persiste, revisa la API.`,
+          `${mensajeDeErrorAdmin(err, 'No se pudieron cargar las páginas')}. Recarga la página; si persiste, revisa la API.`,
         );
       })
       .finally(() => setPagesLoading(false));
@@ -568,7 +564,7 @@ export default function AdminNavPage() {
     } catch (err) {
       // El rechazo del backend (profundidad, ciclo, destino incoherente) llega
       // aquí con su mensaje legible y se pinta tal cual — nunca un error crudo.
-      setFormError(err instanceof ApiError ? err.message : 'Error al guardar el menú');
+      setFormError(mensajeDeErrorAdmin(err, 'Error al guardar el menú'));
     } finally {
       setSaving(false);
     }
@@ -597,7 +593,7 @@ export default function AdminNavPage() {
     } catch (err) {
       setDeleteErrors((prev) => ({
         ...prev,
-        [item.id]: err instanceof ApiError ? err.message : 'Error al eliminar',
+        [item.id]: mensajeDeErrorAdmin(err, 'Error al eliminar'),
       }));
     } finally {
       setDeletingId(null);

@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import {
   PLACEMENT_GROUPS,
   PLACEMENT_LABELS,
@@ -156,7 +156,7 @@ export function BannerFormDialog({ token, open, onOpenChange, banner, onSuccess 
       onOpenChange(false);
       onSuccess();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Error al guardar el banner.');
+      setError(mensajeDeErrorAdmin(err, 'Error al guardar el banner.'));
     } finally {
       setBusy(false);
     }

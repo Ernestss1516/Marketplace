@@ -5,7 +5,7 @@ import { useSession } from 'next-auth/react';
 import { AlertCircle, CheckCircle2, ExternalLink, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import { getAdminHomepage, updateHomepage } from '@/lib/api/homepage-admin';
 import { isSafeContentUrl } from '@/lib/blocks/validation';
 import type { HomeBlock } from '@/types/home-blocks';
@@ -149,11 +149,7 @@ export default function AdminPortadaPage() {
       });
       setDirty(false);
     } catch (err) {
-      setLoadError(
-        err instanceof ApiError
-          ? `Error ${err.statusCode}: ${err.message}`
-          : 'Error al cargar la portada',
-      );
+      setLoadError(mensajeDeErrorAdmin(err, 'Error al cargar la portada'));
     } finally {
       setLoading(false);
     }
@@ -197,11 +193,7 @@ export default function AdminPortadaPage() {
       setDirty(false);
       setSaved(true);
     } catch (err) {
-      setSaveError(
-        err instanceof ApiError
-          ? `Error ${err.statusCode}: ${err.message}`
-          : 'Error al guardar la portada',
-      );
+      setSaveError(mensajeDeErrorAdmin(err, 'Error al guardar la portada'));
     } finally {
       setSaving(false);
     }

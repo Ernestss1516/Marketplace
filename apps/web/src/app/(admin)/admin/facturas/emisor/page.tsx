@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { AlertTriangle, ArrowLeft, Loader2 } from 'lucide-react';
 import { getFiscalIssuer, updateFiscalIssuer, type FiscalIssuer } from '@/lib/api/admin-facturas';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import { isValidFiscalTaxId } from '@/lib/fiscal';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -76,7 +76,7 @@ export default function EmisorFiscalPage() {
       setStatus('success');
     } catch (err) {
       setStatus('error');
-      setErrorMsg(err instanceof ApiError ? err.message : 'Error al guardar el emisor fiscal.');
+      setErrorMsg(mensajeDeErrorAdmin(err, 'Error al guardar el emisor fiscal.'));
     }
   }
 

@@ -9,7 +9,7 @@ import {
   grantAdminCredits,
   type AdminUserBillingDetail,
 } from '@/lib/api/admin-billing';
-import { ApiError } from '@/lib/api/client';
+import { ApiError, mensajeDeErrorAdmin } from '@/lib/api/client';
 import type { CreditLedgerType } from '@/lib/api/billing';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -110,11 +110,7 @@ function CreditGrantForm({
       onSuccess(result.balance);
       reset();
     } catch (err) {
-      setFormError(
-        err instanceof ApiError
-          ? `Error ${err.statusCode}: ${err.message}`
-          : 'Error al acreditar los créditos',
-      );
+      setFormError(mensajeDeErrorAdmin(err, 'Error al acreditar los créditos'));
     } finally {
       setSubmitting(false);
     }
@@ -227,11 +223,7 @@ export default function AdminUserBillingDetailPage() {
         if (err instanceof ApiError && err.statusCode === 404) {
           setError('Usuario no encontrado.');
         } else {
-          setError(
-            err instanceof ApiError
-              ? `Error ${err.statusCode}: ${err.message}`
-              : 'Error al cargar el detalle de facturación',
-          );
+          setError(mensajeDeErrorAdmin(err, 'Error al cargar el detalle de facturación'));
         }
       })
       .finally(() => setLoading(false));

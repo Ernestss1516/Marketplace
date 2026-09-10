@@ -23,7 +23,7 @@ import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { AlertCircle, ChevronLeft } from 'lucide-react';
 import { getReport, type ReportDetail } from '@/lib/api/moderacion';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import { ReporteDiana } from '@/components/admin/ReporteDiana';
 import { adminListingHref, adminTicketHref, adminUserHref } from '@/lib/admin-links';
 import { SesionNoDisponible } from '@/app/(admin)/components/SesionNoDisponible';
@@ -72,9 +72,7 @@ export default function AdminFichaReportePage({ params }: { params: Promise<{ id
     try {
       setData(await getReport(id, token));
     } catch (err) {
-      setError(
-        err instanceof ApiError ? `Error ${err.statusCode}: ${err.message}` : 'Error al cargar',
-      );
+      setError(mensajeDeErrorAdmin(err, 'Error al cargar'));
     } finally {
       setLoading(false);
     }

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AlertCircle, ChevronDown, ChevronUp, Loader2, Plus, Trash2, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import { uploadHomepageImage } from '@/lib/api/homepage-admin';
 import { getCategories } from '@/lib/api/categorias';
 import type { Category } from '@/types';
@@ -65,7 +65,7 @@ export function CategoryCarouselHomeBlockEditor({
       const { url } = await uploadHomepageImage(file, token);
       updateItem(index, { imageUrl: url });
     } catch (err) {
-      setUploadError(err instanceof ApiError ? err.message : 'Error al subir la imagen');
+      setUploadError(mensajeDeErrorAdmin(err, 'Error al subir la imagen'));
     } finally {
       setUploadingIdx(null);
       const input = fileRefs.current[index];

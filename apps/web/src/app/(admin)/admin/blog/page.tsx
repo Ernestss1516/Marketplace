@@ -11,7 +11,7 @@ import {
   deleteAdminPost,
   type AdminPostSummary,
 } from '@/lib/api/blog-admin';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
@@ -65,11 +65,7 @@ export default function AdminBlogPage() {
         setPosts(data.items);
         setTotal(data.total);
       } catch (err) {
-        setError(
-          err instanceof ApiError
-            ? `Error ${err.statusCode}: ${err.message}`
-            : 'Error al cargar posts',
-        );
+        setError(mensajeDeErrorAdmin(err, 'Error al cargar posts'));
       } finally {
         setLoading(false);
       }
@@ -93,7 +89,7 @@ export default function AdminBlogPage() {
       await publishAdminPost(token, post.id);
       await fetchPosts(page, statusFilter);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : 'Error al publicar');
+      alert(mensajeDeErrorAdmin(err, 'Error al publicar'));
     } finally {
       setActionLoading(null);
     }
@@ -106,7 +102,7 @@ export default function AdminBlogPage() {
       await unpublishAdminPost(token, post.id);
       await fetchPosts(page, statusFilter);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : 'Error al despublicar');
+      alert(mensajeDeErrorAdmin(err, 'Error al despublicar'));
     } finally {
       setActionLoading(null);
     }
@@ -123,7 +119,7 @@ export default function AdminBlogPage() {
       await deleteAdminPost(token, post.id);
       await fetchPosts(page, statusFilter);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : 'Error al eliminar');
+      alert(mensajeDeErrorAdmin(err, 'Error al eliminar'));
     } finally {
       setActionLoading(null);
     }

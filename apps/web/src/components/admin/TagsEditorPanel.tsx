@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Check, Loader2, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import {
   getAdminTags,
   getCategoryTags,
@@ -58,7 +58,7 @@ export function TagsEditorPanel({
       setHeredados(asignados.inherited);
       setSeleccion(new Set(asignados.own.map((t) => t.id)));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'No se pudieron cargar los tags');
+      setError(mensajeDeErrorAdmin(err, 'No se pudieron cargar los tags'));
     } finally {
       setLoading(false);
     }
@@ -100,7 +100,7 @@ export function TagsEditorPanel({
       setSeleccion(new Set(res.own.map((t) => t.id)));
       setGuardado(true);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'No se pudieron guardar los tags');
+      setError(mensajeDeErrorAdmin(err, 'No se pudieron guardar los tags'));
     } finally {
       setSaving(false);
     }

@@ -18,7 +18,7 @@ import {
   type FooterItemType,
 } from '@/lib/api/footer-admin';
 import { getAdminPosts, type AdminPostSummary } from '@/lib/api/blog-admin';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { SesionNoDisponible } from '@/app/(admin)/components/SesionNoDisponible';
@@ -362,9 +362,7 @@ export default function AdminFooterPage() {
       const data = await getAdminFooter(token);
       setColumns(data.sort((a, b) => a.order - b.order));
     } catch (err) {
-      setError(
-        err instanceof ApiError ? `Error ${err.statusCode}: ${err.message}` : 'Error al cargar el footer',
-      );
+      setError(mensajeDeErrorAdmin(err, 'Error al cargar el footer'));
     } finally {
       setLoading(false);
     }
@@ -386,9 +384,7 @@ export default function AdminFooterPage() {
         // página ni enterarse de por qué.
         console.error('[admin/footer] no se pudieron cargar las páginas del CMS', err);
         setPagesError(
-          `No se pudieron cargar las páginas: ${
-            err instanceof Error ? err.message : String(err)
-          }. Recarga la página; si persiste, revisa la API.`,
+          `${mensajeDeErrorAdmin(err, 'No se pudieron cargar las páginas')}. Recarga la página; si persiste, revisa la API.`,
         );
       })
       .finally(() => setPagesLoading(false));
@@ -411,7 +407,7 @@ export default function AdminFooterPage() {
       setRenamingId(null);
       await fetchColumns();
     } catch (err) {
-      setRenameError(err instanceof ApiError ? err.message : 'Error al guardar');
+      setRenameError(mensajeDeErrorAdmin(err, 'Error al guardar'));
     } finally {
       setRenameSaving(false);
     }
@@ -430,7 +426,7 @@ export default function AdminFooterPage() {
       setNewColumnName('');
       await fetchColumns();
     } catch (err) {
-      setNewColumnError(err instanceof ApiError ? err.message : 'Error al crear la columna');
+      setNewColumnError(mensajeDeErrorAdmin(err, 'Error al crear la columna'));
     } finally {
       setNewColumnSaving(false);
     }
@@ -453,7 +449,7 @@ export default function AdminFooterPage() {
       await deleteFooterColumn(token, col.id);
       await fetchColumns();
     } catch (err) {
-      const message = err instanceof ApiError ? err.message : 'Error al eliminar la columna';
+      const message = mensajeDeErrorAdmin(err, 'Error al eliminar la columna');
       setColumnDeleteErrors((prev) => ({ ...prev, [col.id]: message }));
     } finally {
       setDeletingColumnId(null);
@@ -571,7 +567,7 @@ export default function AdminFooterPage() {
       closeItemForm();
       await fetchColumns();
     } catch (err) {
-      setItemError(err instanceof ApiError ? err.message : 'Error al guardar el ítem');
+      setItemError(mensajeDeErrorAdmin(err, 'Error al guardar el ítem'));
     } finally {
       setItemSaving(false);
     }
@@ -585,7 +581,7 @@ export default function AdminFooterPage() {
       await deleteFooterItem(token, item.id);
       await fetchColumns();
     } catch (err) {
-      const message = err instanceof ApiError ? err.message : 'Error al eliminar el ítem';
+      const message = mensajeDeErrorAdmin(err, 'Error al eliminar el ítem');
       setItemDeleteErrors((prev) => ({ ...prev, [item.id]: message }));
     } finally {
       setDeletingItemId(null);

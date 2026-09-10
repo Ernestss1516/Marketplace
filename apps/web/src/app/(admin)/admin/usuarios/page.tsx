@@ -33,7 +33,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 // I18N T2 — el vocabulario COMPARTIDO. Esta pantalla ya importaba de aquí
 // (`ESTADO_USUARIO_LABELS`); lo que sigue son las tres llamadas que le faltaban para
 // dejar de pintar enums crudos, más el motivo de denuncia, que tenía copia propia.
@@ -159,7 +159,7 @@ function UserDetailPanel({
     getAdminUser(token, userId)
       .then(setData)
       .catch((e: unknown) =>
-        setError(e instanceof ApiError ? `Error ${e.statusCode}: ${e.message}` : 'Error al cargar'),
+        setError(mensajeDeErrorAdmin(e, 'Error al cargar')),
       )
       .finally(() => setLoading(false));
   }, [token, userId]);
@@ -390,11 +390,7 @@ export default function AdminUsuariosPage() {
         setUsers(data.items);
         setTotal(data.total);
       } catch (err) {
-        setError(
-          err instanceof ApiError
-            ? `Error ${err.statusCode}: ${err.message}`
-            : 'Error inesperado al cargar usuarios',
-        );
+        setError(mensajeDeErrorAdmin(err, 'Error inesperado al cargar usuarios'));
       } finally {
         setLoading(false);
       }
@@ -431,9 +427,7 @@ export default function AdminUsuariosPage() {
       if (detailId === userId) setDetailId(null);
     } catch (err) {
       const msg =
-        err instanceof ApiError
-          ? `Error ${err.statusCode}: ${err.message}`
-          : 'Error al ejecutar la acción';
+        mensajeDeErrorAdmin(err, 'Error al ejecutar la acción');
       alert(msg);
     } finally {
       setPendingId(null);

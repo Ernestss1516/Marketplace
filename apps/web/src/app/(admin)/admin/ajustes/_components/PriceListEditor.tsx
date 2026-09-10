@@ -9,7 +9,7 @@ import {
   updateAdminBumpPackAmount,
   type AdminPrice,
 } from '@/lib/api/admin-prices';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import { Button } from '@/components/ui/button';
 
 function formatEur(amount: number, currency: string) {
@@ -83,7 +83,7 @@ function PriceRow({
       setSuccess(true);
       onSaved(updated);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Error al guardar');
+      setError(mensajeDeErrorAdmin(err, 'Error al guardar'));
     } finally {
       setSaving(false);
     }
@@ -184,7 +184,7 @@ export function PriceListEditor({
       .then((data) => { if (!cancelled) setPrices(data); })
       .catch((err) => {
         if (!cancelled) {
-          setError(err instanceof ApiError ? err.message : 'Error al cargar precios');
+          setError(mensajeDeErrorAdmin(err, 'Error al cargar precios'));
         }
       })
       .finally(() => { if (!cancelled) setLoading(false); });

@@ -27,7 +27,7 @@ import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import { AlertCircle, ArrowLeft, Loader2 } from 'lucide-react';
 import { getAdminUser, type AdminUserDetail } from '@/lib/api/admin';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import { Badge } from '@/components/ui/badge';
 import { BloqueDinero } from './_components/BloqueDinero';
 import { ValoracionFila } from '@/components/admin/ValoracionFila';
@@ -141,9 +141,7 @@ export default function AdminFichaUsuarioPage() {
     try {
       setData(await getAdminUser(token, params.id));
     } catch (err) {
-      setError(
-        err instanceof ApiError ? `Error ${err.statusCode}: ${err.message}` : 'Error al cargar',
-      );
+      setError(mensajeDeErrorAdmin(err, 'Error al cargar'));
     } finally {
       setLoading(false);
     }

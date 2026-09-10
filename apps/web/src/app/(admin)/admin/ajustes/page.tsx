@@ -13,7 +13,7 @@ import {
 } from '@/lib/api/admin';
 // AJUSTES RÁFAGA A — el emisor fiscal se MUESTRA aquí y se edita en su página.
 import { getFiscalIssuer, type FiscalIssuerResponse } from '@/lib/api/admin-facturas';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import { Button } from '@/components/ui/button';
 import { PriceListEditor } from './_components/PriceListEditor';
 // PUNTO 6 — el MISMO vocabulario que la ficha y los filtros. Tres pantallas nombrando los
@@ -96,7 +96,7 @@ function DetectionModesEditor({
       onSaved();
       await cargar();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se ha podido guardar');
+      setError(mensajeDeErrorAdmin(err, 'No se ha podido guardar'));
     } finally {
       setSaving(null);
     }
@@ -194,7 +194,7 @@ function FlaggedIpsEditor({
       setSuccess(true);
       onSaved();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Error al guardar');
+      setError(mensajeDeErrorAdmin(err, 'Error al guardar'));
     } finally {
       setSaving(false);
     }
@@ -283,7 +283,7 @@ function FlaggedPhonesEditor({
       setSuccess(true);
       onSaved();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Error al guardar');
+      setError(mensajeDeErrorAdmin(err, 'Error al guardar'));
     } finally {
       setSaving(false);
     }
@@ -363,7 +363,7 @@ function BadWordListEditor({
       setSuccess(true);
       onSaved();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Error al guardar');
+      setError(mensajeDeErrorAdmin(err, 'Error al guardar'));
     } finally {
       setSaving(false);
     }
@@ -486,7 +486,7 @@ function NumberSettingEditor({
       setSuccess(true);
       onSaved();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Error al guardar');
+      setError(mensajeDeErrorAdmin(err, 'Error al guardar'));
     } finally {
       setSaving(false);
     }
@@ -568,7 +568,7 @@ function TextSettingEditor({
       setSuccess(true);
       onSaved();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Error al guardar');
+      setError(mensajeDeErrorAdmin(err, 'Error al guardar'));
     } finally {
       setSaving(false);
     }
@@ -616,7 +616,7 @@ function ContactVerificationEditor({
       setSuccess(true);
       onSaved();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Error al guardar');
+      setError(mensajeDeErrorAdmin(err, 'Error al guardar'));
     } finally {
       setSaving(false);
     }
@@ -681,7 +681,7 @@ function BooleanSettingEditor({
       setSuccess(true);
       onSaved();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Error al guardar');
+      setError(mensajeDeErrorAdmin(err, 'Error al guardar'));
     } finally {
       setSaving(false);
     }
@@ -755,7 +755,7 @@ function SelectSettingEditor({
       setSuccess(true);
       onSaved();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Error al guardar');
+      setError(mensajeDeErrorAdmin(err, 'Error al guardar'));
     } finally {
       setSaving(false);
     }
@@ -918,11 +918,7 @@ export default function AdminAjustesPage() {
       const data = await getAdminSettings(token);
       setSettings(data);
     } catch (err) {
-      setError(
-        err instanceof ApiError
-          ? `Error ${err.statusCode}: ${err.message}`
-          : 'Error al cargar ajustes',
-      );
+      setError(mensajeDeErrorAdmin(err, 'Error al cargar ajustes'));
     } finally {
       setLoading(false);
     }

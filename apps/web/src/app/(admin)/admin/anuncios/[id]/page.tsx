@@ -82,7 +82,7 @@ import { ActivityPanel } from '@/components/stats/ActivityPanel';
 import { useActividad } from '@/components/stats/useActividad';
 import { getActividadAnuncio } from '@/lib/api/admin-stats';
 import type { AttributeSchema, ListingType } from '@/types';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -272,9 +272,7 @@ export default function AdminFichaAnuncioPage() {
         setSchemaEfectivo([]);
       }
     } catch (err) {
-      setError(
-        err instanceof ApiError ? `Error ${err.statusCode}: ${err.message}` : 'Error al cargar',
-      );
+      setError(mensajeDeErrorAdmin(err, 'Error al cargar'));
     } finally {
       setLoading(false);
     }
@@ -372,11 +370,7 @@ export default function AdminFichaAnuncioPage() {
       setMotivo('');
       await cargar();
     } catch (err) {
-      alert(
-        err instanceof ApiError
-          ? `Error ${err.statusCode}: ${err.message}`
-          : 'Error al cambiar el estado',
-      );
+      alert(mensajeDeErrorAdmin(err, 'Error al cambiar el estado'));
     } finally {
       setGuardando(false);
     }
@@ -396,11 +390,7 @@ export default function AdminFichaAnuncioPage() {
       await setListingTriage(token, data.id, cambio);
       await cargar();
     } catch (err) {
-      alert(
-        err instanceof ApiError
-          ? `Error ${err.statusCode}: ${err.message}`
-          : 'Error al cambiar la etiqueta interna',
-      );
+      alert(mensajeDeErrorAdmin(err, 'Error al cambiar la etiqueta interna'));
     } finally {
       setGuardando(false);
     }
@@ -450,9 +440,7 @@ export default function AdminFichaAnuncioPage() {
       setEditando(false);
       await cargar();
     } catch (err) {
-      alert(
-        err instanceof ApiError ? `Error ${err.statusCode}: ${err.message}` : 'Error al guardar',
-      );
+      alert(mensajeDeErrorAdmin(err, 'Error al guardar'));
     } finally {
       setGuardando(false);
     }
@@ -506,9 +494,7 @@ export default function AdminFichaAnuncioPage() {
     } catch (err) {
       // El 422 del mínimo trae su mensaje escrito para quien lo lee (`NOT_ENOUGH_PHOTOS`),
       // así que se enseña tal cual en vez del genérico.
-      alert(
-        err instanceof ApiError ? `Error ${err.statusCode}: ${err.message}` : 'Error al guardar',
-      );
+      alert(mensajeDeErrorAdmin(err, 'Error al guardar'));
     } finally {
       setGuardandoFotos(false);
     }
@@ -534,9 +520,7 @@ export default function AdminFichaAnuncioPage() {
       setConfirmarBorrado(false);
       router.push('/admin/anuncios');
     } catch (err) {
-      alert(
-        err instanceof ApiError ? `Error ${err.statusCode}: ${err.message}` : 'Error al eliminar',
-      );
+      alert(mensajeDeErrorAdmin(err, 'Error al eliminar'));
       setGuardando(false);
     }
   }

@@ -10,6 +10,7 @@ import {
   uploadBlockMedia,
   validateBlockVideoFile,
 } from '@/lib/api/block-media';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 
 /** Lo que el control devuelve al bloque que lo monta. */
 export interface VideoUploadValue {
@@ -97,7 +98,7 @@ export function VideoUploadField({
 
       onChange({ url, poster: posterUrl });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo subir el vídeo.');
+      setError(mensajeDeErrorAdmin(err, 'No se pudo subir el vídeo.'));
     } finally {
       setFase('idle');
       setProgreso(0);

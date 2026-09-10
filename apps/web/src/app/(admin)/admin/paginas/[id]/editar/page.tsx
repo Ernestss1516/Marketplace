@@ -13,7 +13,7 @@ import {
   deleteAdminPost,
   type AdminPost,
 } from '@/lib/api/blog-admin';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { PostForm, type PostFormValues } from '../../../blog/_components/PostForm';
@@ -73,11 +73,7 @@ export default function EditarPaginaPage() {
       setPost(data);
       setValues(toFormValues(data));
     } catch (err) {
-      setLoadError(
-        err instanceof ApiError
-          ? `Error ${err.statusCode}: ${err.message}`
-          : 'Error al cargar la página',
-      );
+      setLoadError(mensajeDeErrorAdmin(err, 'Error al cargar la página'));
     }
   }, [token, id]);
 
@@ -105,11 +101,7 @@ export default function EditarPaginaPage() {
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err) {
-      setSaveError(
-        err instanceof ApiError
-          ? `Error ${err.statusCode}: ${err.message}`
-          : 'Error al guardar',
-      );
+      setSaveError(mensajeDeErrorAdmin(err, 'Error al guardar'));
     } finally {
       setSaving(false);
     }
@@ -124,7 +116,7 @@ export default function EditarPaginaPage() {
       setPost(updated);
       setValues(toFormValues(updated));
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : 'Error al publicar');
+      alert(mensajeDeErrorAdmin(err, 'Error al publicar'));
     } finally {
       setActionLoading(null);
     }
@@ -139,7 +131,7 @@ export default function EditarPaginaPage() {
       setPost(updated);
       setValues(toFormValues(updated));
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : 'Error al despublicar');
+      alert(mensajeDeErrorAdmin(err, 'Error al despublicar'));
     } finally {
       setActionLoading(null);
     }
@@ -157,7 +149,7 @@ export default function EditarPaginaPage() {
       await deleteAdminPost(token, post.id);
       router.push('/admin/paginas');
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : 'Error al eliminar');
+      alert(mensajeDeErrorAdmin(err, 'Error al eliminar'));
       setActionLoading(null);
     }
   }

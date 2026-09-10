@@ -836,51 +836,63 @@ si vuelven a aparecer tres rojos en esa batería, exista el precedente y no se d
 `reindex` que deja procesos huérfanos son dos explicaciones plausibles de rojos locales no
 reproducibles. Ninguna está confirmada para este caso.)*
 
-### Nota, con evidencia esta vez — `re_` apareció en el cuerpo de `/admin/instancia` `[SEGURIDAD?]`
+### ~~`re_` apareció en el cuerpo de `/admin/instancia`~~ → **CERRADO (E10): era el propio test**
 
-**Observado en E9 (2026-09-05). No se atribuye a E9 — no toca esa pantalla ni su endpoint — pero
-se anota con los números delante porque no es un rojo cualquiera.**
+**La sospecha se investigó entera y NO había fuga.** Se deja escrito con los datos porque la
+conclusión —y sobre todo el motivo de que costara tanto— vale más que el caso.
 
-[`admin-instancia.spec.ts:114`](../apps/web/e2e/admin-instancia.spec.ts#L114) recorre
-`body.textContent` buscando prefijos de secreto (`sk_test_`, `sk_live_`, `whsec_`, `re_`) y
-comprueba que la pantalla dice **si** una credencial está puesta y nunca **cuánto vale**. En la
-segunda vuelta de CI de la rama de E9 (run `33957764924`) ese test falló: encontró **`re_`** —el
-prefijo de una clave de Resend—.
+**Lo que se creyó.** En una vuelta de CI de la rama de E9 (run `33957764924`),
+`admin-instancia.spec.ts` encontró `re_` —prefijo de clave de Resend— escaneando
+`body.textContent`. Como la pantalla es cliente y su rama de error pintaba el mensaje del
+servidor entero, se anotó como vía plausible de escape, pendiente de confirmar el otro
+extremo: que algún error del backend llevara configuración dentro del `message`.
 
-**Lo que hace el hallazgo raro, y por lo que no se cierra como flake sin más:**
+**Lo que se midió en E10, y lo cierra:**
 
-- **Pasó en la vuelta anterior de la MISMA rama** (run `33956099366`), con el código de esa
-  pantalla sin tocar entre una y otra, y volvió a pasar al reejecutar (mismo run, segunda
-  tentativa). Es decir: **intermitente**, no determinista.
-- **No se reproduce en local.** Se corrió el mismo escaneo contra `/admin/instancia` en un entorno
-  local completo: los cuatro prefijos **ausentes**.
-- El texto capturado que quedó en el log **no contiene `re_` a la vista**: lo que se ve es el HTML
-  de la pantalla más el script de reintento de React. O el volcado del log está recortado, o el
-  prefijo llegó por una vía que no está en esa captura.
+1. **En CI no existe ningún secreto que empiece por `re_`.**
+   [`ci.yml:76`](../.github/workflows/ci.yml#L76) pone `RESEND_API_KEY: ci_dummy_resend`. Sin un
+   valor con ese prefijo en el entorno, lo que el test encontró no podía ser la clave.
+2. **`__webpack_require__` lleva `re_` dentro** (`…require__`), y `body.textContent` **incluye el
+   texto de los `<script>`**. El identificador aparece en el runtime que Next inlinea, y de forma
+   no siempre igual entre corridas — que es exactamente la intermitencia observada.
+3. **Nest no propaga el mensaje de un error inesperado.** No hay filtro de excepciones propio
+   ([`common/filters/index.ts`](../apps/api/src/common/filters/index.ts) es un TODO), así que el
+   filtro por defecto convierte cualquier `throw` no controlado en
+   `{"statusCode":500,"message":"Internal server error"}`. El mensaje de una librería externa —el
+   candidato que se sospechaba, con la clave dentro— **no sale de la API**.
+4. **Ninguna excepción HTTP interpola configuración.** Se buscaron los `throw new …Exception`
+   que metan `process.env`, `configService`, o algo llamado key/secret/token/password en el
+   mensaje: **cero**.
 
-**La hipótesis, con la mitad ya comprobada en código:** la pantalla es cliente y pide los datos a
-la API, y su rama de error pinta **el mensaje del servidor entero**:
+**El defecto real, y es de la barrera.** `re_` son tres caracteres buscados dentro de un texto que
+incluye scripts: un detector así **iba a dar rojo tarde o temprano sin motivo**. Y eso es peor que
+no tenerlo, porque enseña a ignorarlo: la siguiente vez que hubiera saltado —de verdad— alguien
+habría dicho «bah, el falso positivo de siempre». Costó una ráfaga entera de investigación.
 
-```tsx
-// (admin)/admin/instancia/page.tsx:190
-err instanceof ApiError ? `Error ${err.statusCode}: ${err.message}` : 'Error al cargar'
-```
+Arreglado en `e2e/helpers/secretos.ts`: se busca la **forma** de un secreto (frontera de palabra
+delante, cuerpo largo detrás), no su primera sílaba; se comprobó contra los falsos positivos reales
+(`__webpack_require__`, `ci_dummy_resend`) y contra claves de verdad. Y **se guarda el cuerpo
+entero cuando salta**, que es lo que faltaba: del rojo original sólo quedó un `expect` y un log
+recortado, y de ahí salió toda la investigación.
 
-Eso explicaría las tres cosas a la vez: que sea intermitente (depende de que la API falle o
-tarde), que no salga en local (allí la API responde bien) y que el prefijo no aparezca en el HTML
-normal. **Lo que falta por confirmar** es el otro extremo: que algún error del backend lleve un
-valor de configuración dentro del `message`. Sin eso, esto es una vía abierta y no un escape
-demostrado.
+### El molde de error del backoffice, cerrado igualmente `[SEGURIDAD]` — E10
 
-**⚠ Y NO ES SÓLO ESA PANTALLA.** Ese mismo `Error ${statusCode}: ${message}` es el molde que
-comparten `/admin/marca`, `/admin/ilustraciones` y `/admin/estilo` (E9 lo calca, como se le pidió).
-O sea que si la vía se confirma, el arreglo **no es de una pantalla**: es que el molde de error
-del backoffice pasa el texto del servidor tal cual, justo lo que `toUserMessage` existe para
-impedir en el resto de la aplicación —«Never exposes raw backend text».
+**No había fuga, y la vía se cerró de todos modos.** El motivo no es celo: los 122 sitios del
+backoffice pintaban `Error <código>: <mensaje del servidor>` en el DOM, y que eso fuera inocuo
+dependía de que nadie interpolara nunca un valor de configuración en un `throw`. Es una propiedad
+de quien escribe los mensajes, no del canal — y el resto de la aplicación ya no confía en eso
+(`toUserMessage`: «Never exposes raw backend text»).
 
-**Qué haría falta para cerrarlo:** capturar el `body` entero cuando el test falla (hoy sólo
-afirma, no guarda) y revisar qué mensajes puede devolver la API de instancia. El arreglo, si
-procede, es una tanda propia sobre el molde de error del backoffice.
+Ahora todo pasa por `mensajeDeErrorAdmin` ([`lib/api/client.ts`](../apps/web/src/lib/api/client.ts)),
+que da contexto + código + motivo derivado del código, manda el error entero a `console.error` —el
+diagnóstico se conserva, fuera del DOM— y **nunca** el texto del servidor. La excepción declarada
+son los rechazos de la puerta (`reasons`), que el backend marca explícitamente como legibles.
+
+**Lo que queda abierto, y es pequeño:** el escaneo en pantalla cubre las cuatro de configuración de
+instancia (`instancia`, `marca`, `ilustraciones`, `estilo`) —las únicas cuyos endpoints tocan
+credenciales—, en carga normal y en rama de error. Las otras 32 pantallas están cubiertas por el
+test unitario de la función por la que ahora pasan todas, no por una captura propia. Ampliarlo
+sería presupuesto de CI a cambio de repetir la misma afirmación.
 
 ---
 

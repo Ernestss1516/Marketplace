@@ -11,6 +11,7 @@ import {
   Users,
 } from 'lucide-react';
 import { getAdminStats, getWorkQueue, type AdminStats, type WorkQueue } from '@/lib/api/admin';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import { ColaDeTrabajo } from '@/components/admin/ColaDeTrabajo';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -62,7 +63,7 @@ export default function AdminDashboardPage() {
       .catch(() => setCola(null));
     getAdminStats(token)
       .then(setStats)
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Error desconocido'))
+      .catch((e: unknown) => setError(mensajeDeErrorAdmin(e, 'Error desconocido')))
       .finally(() => setLoading(false));
   }, [token]);
 

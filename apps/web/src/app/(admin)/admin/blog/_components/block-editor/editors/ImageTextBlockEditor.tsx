@@ -4,7 +4,7 @@ import { useRef, useState } from 'react';
 import { AlertCircle, Loader2, Upload } from 'lucide-react';
 import type { ImageTextBlock, ImageTextLayout } from '@/types/blocks';
 import { uploadBlockImage } from '@/lib/api/blog-admin';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import { Button } from '@/components/ui/button';
 import MarkdownEditorClient from '../../MarkdownEditorClient';
 import { inputCls, labelCls, errorCls } from './shared';
@@ -42,7 +42,7 @@ export function ImageTextBlockEditor({
       const { url } = await uploadBlockImage(file, token);
       onChange({ image: { ...block.image, url } });
     } catch (err) {
-      setUploadError(err instanceof ApiError ? err.message : 'Error al subir la imagen');
+      setUploadError(mensajeDeErrorAdmin(err, 'Error al subir la imagen'));
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = '';
