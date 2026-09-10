@@ -167,6 +167,165 @@ test.describe('Backoffice', () => {
       });
     });
   }
+
+  /**
+   * E11 — EL NAV ENTERO, Y ES EL ÚNICO SITIO DONDE SE LE VE LA CARA.
+   *
+   * ── EL PUNTO CIEGO QUE CIERRA ───────────────────────────────────────────────────────
+   *
+   * Las nueve capturas de arriba llevan el sidebar dentro y aun así **no vigilan la mitad
+   * de abajo del menú**. La causa está en [`(admin)/layout.tsx`](../src/app/(admin)/layout.tsx):
+   * el aside es `sticky top-14 max-h-[calc(100vh-3.5rem)] overflow-y-auto`, o sea que se
+   * recorta a la altura de la ventana y hace scroll por dentro. Con 27 secciones en 6
+   * grupos la lista pasa de los 664 px que quedan bajo la cabecera a 720 de alto, así que
+   * el grupo «Plataforma» entero —Ajustes, Marca, Ilustraciones, Estilo, Instancia— cae
+   * fuera de todas las fotos. `fullPage: true` no ayuda: el aside es `sticky` y su altura
+   * no crece con la página.
+   *
+   * Se descubrió en E9 por la vía tonta: se añadió una sección al nav dando por hecho que
+   * las capturas del backoffice se moverían, y **no se movió ni una**. Una barrera que no
+   * se inmuta cuando cambias justo lo que vigila no está vigilando eso.
+   *
+   * ── POR QUÉ ASÍ Y NO DE OTRAS DOS MANERAS QUE SE CONSIDERARON ──────────────────────
+   *
+   *  · **No se desplaza el sidebar hasta abajo** para fotografiar el final: eso cambiaría
+   *    un punto ciego por otro —el principio de la lista— y además el desplazamiento
+   *    interno es una posición más que tendría que salir idéntica en cada corrida.
+   *  · **No se fotografía la página entera a una ventana alta**: haría una captura enorme
+   *    de una pantalla que ya está cubierta, para vigilar una franja estrecha. Se paga
+   *    ancho de banda de CI por píxeles que no aportan.
+   *
+   * Lo que se hace es fotografiar **el elemento del nav**, con la ventana lo bastante alta
+   * para que no lo recorte nadie. La captura es estrecha (el ancho del aside) y lleva las
+   * 27 secciones con sus 6 cabeceras de grupo.
+   *
+   * ── LA ASERCIÓN DE ANTES DEL DISPARO NO ES DECORACIÓN ──────────────────────────────
+   *
+   * `toBeInViewport()` sobre la última sección es lo que impide que esta captura vuelva a
+   * mentir como mentían las otras nueve: si algún día el nav crece y vuelve a recortarse,
+   * el test **falla ahí**, con un mensaje que se entiende, en vez de seguir fotografiando
+   * felizmente media lista y jurando que la cubre entera.
+   *
+   * SÓLO EN ESCRITORIO: el aside es `hidden md:block`. La versión móvil del mismo
+   * componente ya tiene su foto en `overlays.spec.ts` (`admin-drawer`).
+   */
+  test('nav-completo', async ({ adminContext }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'escritorio',
+      'El aside es `hidden md:block`; en móvil el menú es el cajón, que ya tiene captura propia.',
+    );
+
+    const page = await adminContext.newPage();
+    // Alta a propósito: es lo que quita el recorte del aside. El ancho no se toca — la
+    // captura es del elemento, así que sólo mide lo que ocupa el nav.
+    await page.setViewportSize({ width: 1280, height: 1400 });
+    await preparar(page, '/admin');
+
+    const nav = page.getByTestId('admin-nav');
+    await expect(nav).toBeVisible();
+
+    // Las 27 de `BACKOFFICE_SECTIONS` para un ADMIN. El número lo pinzan también
+    // `admin-roles.spec.ts` y `nav-backoffice.spec.ts`; aquí se repite porque una captura
+    // que dice «el nav entero» tiene que comprobar que lo es antes de disparar.
+    await expect(nav.getByRole('link')).toHaveCount(27);
+    // Y la última de todas, DENTRO del recorte: sin esto volveríamos al punto ciego.
+    await expect(nav.getByRole('link', { name: 'Instancia' })).toBeInViewport();
+
+    await expect(nav).toHaveScreenshot('backoffice-nav-completo.png');
+  });
+});
+
+/**
+ * E11 — LA GRÁFICA. El único idioma visual del backoffice que no cubría ninguna captura.
+ *
+ * ── CÓMO SE SUPO QUE FALTABA, Y CÓMO SE SUPO QUE ERA EL ÚNICO ─────────────────────────
+ *
+ * Inventariando las 41 rutas de `(admin)` por las primitivas que pintan —tabla, tarjetas,
+ * formulario, diálogo, lista ordenable, editor de bloques, subida, badge, previa,
+ * conversación— y cruzándolo con lo que ya fotografían las nueve capturas de arriba. De
+ * los diez idiomas, nueve ya estaban cubiertos: las 32 rutas sin foto propia son variantes
+ * de algo ya vigilado, que es exactamente lo que el §10.3 del diseño planificó («cobertura
+ * por IDIOMA VISUAL, no por ruta»).
+ *
+ * El que se escapaba es éste: `StatsChart` (Recharts) pinta ejes, rejilla, leyenda y
+ * líneas, y **nada de eso se parece a ninguna otra pantalla**. Un cambio de tokens que
+ * dejara la rejilla invisible o los ejes ilegibles no lo cazaba nadie.
+ *
+ * Vale la pena decir que la primera medición dijo «no falta ninguno» y se equivocaba: el
+ * clasificador sólo miraba los ficheros dentro del directorio de cada ruta, y la gráfica
+ * vive en `components/stats/`. Ante un inventario que sale redondo, la pregunta es si la
+ * medición mira donde tiene que mirar.
+ *
+ * ── POR QUÉ ESTA CAPTURA SIRVE DATOS FIJOS, CUANDO NINGUNA OTRA LO HACE ──────────────
+ *
+ * Porque la pantalla de verdad es **inestable por dos ejes a la vez**, y las dos ya han
+ * mordido a esta batería antes (§10.3): las fechas del eje X se mueven cada día, y los
+ * recuentos dependen de lo que hayan hecho las otras specs de la corrida. Fotografiarla en
+ * vivo sería repetir el caso de `/admin/ajustes` —la que hubo que sacar del catálogo—
+ * sabiéndolo de antemano.
+ *
+ * Enmascarar no vale, y ésa es la lección que el §10.3 dejó escrita con sangre: la máscara
+ * se pinta DESPUÉS del maquetado, así que tapa el texto que cambia pero no el
+ * desplazamiento que ese texto provoca. En una gráfica, además, el dato ES la forma.
+ *
+ * Y la alternativa que el diseño recomienda para una pantalla movediza —«fotografiar otra
+ * del mismo idioma visual»— aquí no existe: las otras tres pantallas con gráfica
+ * (`/admin/estadisticas/categorias/[id]`, `/admin/anuncios/[id]`, `/admin/usuarios/[id]`)
+ * montan el MISMO componente con los MISMOS dos ejes de variabilidad.
+ *
+ * Así que se fija la respuesta de la API. Lo que se fotografía sigue siendo el build de
+ * producción pintando con los tokens de verdad; lo único que deja de ser real es el dato,
+ * que es justo lo que no se quiere vigilar aquí.
+ *
+ * ── LA COMPROBACIÓN QUE IMPIDE QUE ESTA CAPTURA SE PUDRA EN SILENCIO ────────────────
+ *
+ * Servir un cuerpo fijo acopla el test a la forma de `PulsoPlataforma`. Si esa forma
+ * cambiara, la pantalla caería a su estado vacío —«Sin actividad registrada en esta
+ * ventana»— y la captura seguiría pasando, fotografiando un hueco y jurando que vigila una
+ * gráfica. Por eso antes de disparar se exige que el mensaje de vacío NO esté: el día que
+ * el contrato cambie, esto se pone rojo en vez de degradarse sin avisar.
+ */
+test.describe('Gráfica del backoffice', () => {
+  /** Catorce días con forma reconocible: una subida, un valle y un repunte. */
+  const DIAS = Array.from({ length: 14 }, (_, i) => {
+    const dia = String(i + 1).padStart(2, '0');
+    return `2026-03-${dia}`;
+  });
+  const VISTAS = [12, 18, 25, 31, 28, 22, 15, 11, 14, 21, 34, 41, 38, 30];
+  const APARICIONES = [120, 168, 210, 265, 240, 190, 140, 105, 132, 198, 300, 355, 322, 268];
+
+  const PULSO = {
+    days: 7,
+    totals: { views: 340, impressions: 3013, activeListings: 42, ctr: 11.3, ctrMinImpressions: 100 },
+    dailyViews: DIAS.map((date, i) => ({ date, count: VISTAS[i] })),
+    dailyImpressions: DIAS.map((date, i) => ({ date, count: APARICIONES[i] })),
+    categories: [],
+  };
+
+  test('estadisticas-grafica', async ({ adminContext }) => {
+    const page = await adminContext.newPage();
+
+    // `**/api/…` y no `**/admin/stats/**` a secas: sin el `/api/` delante, el patrón casa
+    // también con rutas del navegador y Playwright acabaría sirviendo JSON como si fuera
+    // una página. Es un error que ya se cometió en `admin-fuga-secretos.spec.ts`.
+    await page.route('**/api/admin/stats/platform**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(PULSO),
+      }),
+    );
+
+    await preparar(page, '/admin/estadisticas');
+
+    const grafica = page.getByTestId('pulso-chart');
+    await expect(grafica).toBeVisible();
+    // ⚠ La comprobación que hace honesta a esta captura: si el contrato cambiara, aquí
+    // habría un estado vacío en vez de una gráfica, y la foto no vigilaría nada.
+    await expect(grafica).not.toContainText('Sin actividad registrada');
+
+    await expect(grafica).toHaveScreenshot('backoffice-estadisticas-grafica.png');
+  });
 });
 
 // ── Zona de cuenta (vendedor) ───────────────────────────────────────────────────────────

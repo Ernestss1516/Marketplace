@@ -456,34 +456,72 @@ hacerlo visible en el momento de decidirlo.
 
 ### 4.3 Residuos de cobertura
 
-#### La barrera visual no ve la mitad de abajo del nav del backoffice `[COBERTURA]`
+#### ~~La barrera visual no ve la mitad de abajo del nav del backoffice~~ → **CERRADO (E11)**
 
-**Hallazgo de E9 (2026-09-05), medido y no supuesto.**
+**El hallazgo era correcto y está medido de nuevo al cerrarlo.** El aside del backoffice es
+`sticky top-14 max-h-[calc(100vh-3.5rem)] overflow-y-auto`
+([`(admin)/layout.tsx:72`](../apps/web/src/app/(admin)/layout.tsx#L72)): se recorta a la altura de
+la ventana. Con 27 secciones en 6 grupos, «Plataforma» entero caía fuera de las nueve capturas del
+backoffice, y `fullPage: true` no ayudaba porque el aside es `sticky`.
 
-E9 añade una sección al backoffice (`Estilo`, en el grupo «Plataforma»). Se dio por hecho —está
-escrito en el encargo— que las capturas del backoffice se moverían y habría que regenerar el
-baseline. **No se movió ni una:** las 46 capturas pasaron en linux (CI) y las 9 del backoffice
-pasaron también en win32, contra baselines de E5.
+**Lo cierra UNA captura**, `backoffice-nav-completo` en
+[`pantallas.spec.ts`](../apps/web/e2e-snapshots/pantallas.spec.ts): el elemento del nav, a una
+ventana de 1400 px de alto para que nadie lo recorte. Es una tira de 191×1280 px y 38 KB — más
+barata que cualquiera de las de página completa.
 
-La causa está en [`(admin)/layout.tsx:72`](../apps/web/src/app/(admin)/layout.tsx#L72): el sidebar
-es `sticky top-14 max-h-[calc(100vh-3.5rem)] overflow-y-auto`, es decir, **se recorta a la altura
-del viewport y hace scroll por dentro**. Con 27 secciones repartidas en 6 grupos, la lista es más
-alta que los 664 px que quedan bajo la cabecera a 720 px de alto, así que **los grupos de abajo
-—«Plataforma» entero: Ajustes, Marca, Ilustraciones, Estilo, Instancia— caen fuera del recorte y
-no aparecen en ninguna captura**. `fullPage: true` no ayuda: el sidebar es `sticky` y su altura no
-crece con la página.
+**Verificado con la mutación, y el resultado merece quedar escrito.** Se renombró «Ilustraciones»
+—una sección del grupo de abajo, sin captura propia— y se corrió la batería entera:
 
-**Qué significa y qué no.** No es un defecto del layout —un menú largo que hace scroll está bien— ni
-invalida la barrera: lo que fotografía, lo fotografía a `threshold: 0`. Lo que hay que saber es que
-**para las secciones de los grupos bajos la barrera visual no es una red**, y que una regresión de
-maquetación ahí (un ítem que desaparece, un grupo que se descuadra) no la caza esta batería. Hoy lo
-cubre el conteo de enlaces de [`admin-roles.spec.ts`](../apps/web/e2e/admin-roles.spec.ts) y
-[`nav-backoffice.spec.ts`](../apps/web/e2e/nav-backoffice.spec.ts), que es cobertura funcional y no
-visual.
+| | |
+|---|---|
+| `backoffice-nav-completo` | **cae** (373 px de diferencia) |
+| Las otras 8 capturas del backoffice | **pasan las 8**: ninguna ve el cambio |
 
-**Coste de cerrarlo, si se quiere:** una captura del sidebar desplazado al final, o una del backoffice
-a un viewport más alto. Es una captura, no un rediseño. No se hace en E9 porque añadir capturas es
-presupuesto de CI y la decisión no es de esta ráfaga.
+Es decir: el punto ciego era real y ahora está cubierto por exactamente una foto.
+
+La captura lleva además dos aserciones antes de disparar —27 enlaces y la última sección
+`toBeInViewport()`— para que el día que el nav vuelva a crecer y a recortarse **el test falle ahí**,
+en vez de seguir fotografiando media lista y jurando que la cubre entera. Que es lo que hacían las
+otras nueve.
+
+#### La cobertura de la red visual, medida y por escrito `[REFERENCIA]` — E11
+
+**Para que no vuelva a darse por supuesto lo que cubre.** La red **no cubre las 81 pantallas ni
+pretende hacerlo**: cubre IDIOMAS VISUALES, que es la decisión de presupuesto del
+[§10.3 del diseño](diseno-sistema-estilo.md). Lo que sigue es el inventario real, medido cruzando
+las 41 rutas de `(admin)` con lo que fotografía cada captura.
+
+| Idioma visual | Quién lo cubre |
+|---|---|
+| tabla | `backoffice-anuncios-tabla`, `reportes`, `facturas`, `blog` |
+| tarjetas | `backoffice-resumen` |
+| formulario | `backoffice-formulario` (facturas/emisor), `moderacion-cola`, `marca` |
+| diálogo | `backoffice-anuncios-tabla`, `marca` |
+| lista ordenable | `backoffice-blog`, `marca` |
+| editor de bloques | `backoffice-blog` |
+| subida de fichero | `backoffice-blog`, `marca` |
+| badge de estado | `backoffice-anuncios-tabla`, `resumen`, `blog`, `facturas` |
+| previsualización | `backoffice-blog`, `marca` |
+| conversación | `backoffice-resumen` |
+| **gráfica** | **`backoffice-estadisticas-grafica`** (nuevo en E11) |
+| capa flotante / cajón | `overlay-admin-select`, `overlay-admin-drawer` |
+| **el nav entero** | **`backoffice-nav-completo`** (nuevo en E11) |
+
+**Las 32 rutas de `(admin)` sin captura propia son variantes de un idioma ya vigilado**, y eso se
+midió: de los diez idiomas que pintan, nueve ya estaban cubiertos. El único que se escapaba era la
+gráfica de Recharts (`StatsChart`), que no se parece a ninguna otra pantalla y que ahora tiene la
+suya.
+
+**Aviso de método, porque la primera medición se equivocó:** el clasificador inicial dijo «no falta
+ningún idioma» porque sólo miraba los ficheros dentro del directorio de cada ruta, y `StatsChart`
+vive en `components/stats/`. Ante un inventario que sale redondo, la pregunta no es «¿qué falta?»
+sino «¿está mirando la medición donde tiene que mirar?».
+
+**Lo que esta red sigue SIN cubrir, dicho a las claras:** las variantes de una misma pantalla (una
+tabla vacía frente a una llena), los estados intermedios (cargando, error) del backoffice, y las
+pantallas cuyo dato cambia el maquetado —`/admin/ajustes` está fuera del catálogo por eso mismo, y
+está explicado en el §10.3—. Ampliar por ahí es presupuesto de CI, y la regla sigue siendo la del
+diseño: se añade una captura cuando aparece un IDIOMA nuevo, no cuando aparece una ruta nueva.
 
 #### Los baselines de win32 llevan tres ráfagas sin regenerar `[COBERTURA]`
 
