@@ -89,24 +89,46 @@ function parejasSemanticasDeTrazo(t: Tokens): readonly [string, string, string][
 describe('Contraste en CI — todos los modelos, catálogo y prueba', () => {
   for (const m of TODOS_LOS_MODELOS) {
     describe(`${m.id} (${m.nombre})`, () => {
-      const base = resolverTokens(m, m.coloresPorDefecto);
-
-      it('la paleta de fábrica cumple las parejas bloqueantes', () => {
-        expect(validarContraste(base)).toEqual([]);
-      });
-
       /**
-       * POR ZONA, y no sólo la base. Una zona puede romper el contraste tan bien como
-       * la base: el backoffice del Modelo 0 desatura los grises, y eso bajó el borde de
-       * campo a 2,96:1 cuando se escribió — el rojo de esta comprobación fue lo que
-       * obligó a compensarlo con luz. Ver `estilo.spec.ts`.
+       * ⚠ POR VERSIÓN, Y NO SÓLO POR MODELO (E13).
+       *
+       * Hasta que hubo un modelo con dos versiones, esto medía `resolverTokens(m, …)` sin
+       * versión y era suficiente: la versión no entraba en la resolución, así que todas
+       * daban el mismo tema. Ahora una versión REDEFINE la rampa —`calido-editorial@tarde`
+       * baja el lienzo de 97,5 % a 94 % de luz— y eso mueve TODAS las parejas que se miden
+       * contra el fondo. Medir sólo la primera dejaría la segunda sin barrera, que es
+       * justo el modo de fallo que esta suite existe para impedir.
+       *
+       * Con `MODELO_0` y `MODELO_PRUEBA` —una versión cada uno, sin `porVersion`— esto
+       * mide exactamente lo que medía antes.
        */
-      for (const zona of ESTILO_ZONES) {
-        it(`la zona ${zona} sigue cumpliendo tras sus ajustes`, () => {
-          const efectiva = { ...base, ...resolverZona(m, m.coloresPorDefecto, zona) };
-          expect(validarContraste(efectiva)).toEqual([]);
+      for (const version of m.versiones) {
+        describe(`versión ${version}`, () => {
+          const base = resolverTokens(m, m.coloresPorDefecto, version);
+
+          it('la paleta de fábrica cumple las parejas bloqueantes', () => {
+            expect(validarContraste(base)).toEqual([]);
+          });
+
+          /**
+           * POR ZONA, y no sólo la base. Una zona puede romper el contraste tan bien como
+           * la base: el backoffice del Modelo 0 desatura los grises, y eso bajó el borde de
+           * campo a 2,96:1 cuando se escribió — el rojo de esta comprobación fue lo que
+           * obligó a compensarlo con luz. Ver `estilo.spec.ts`.
+           */
+          for (const zona of ESTILO_ZONES) {
+            it(`la zona ${zona} sigue cumpliendo tras sus ajustes`, () => {
+              const efectiva = {
+                ...base,
+                ...resolverZona(m, m.coloresPorDefecto, zona, version),
+              };
+              expect(validarContraste(efectiva)).toEqual([]);
+            });
+          }
         });
       }
+
+      const base = resolverTokens(m, m.coloresPorDefecto);
 
       /** La regla dura del §5.2, para TODO modelo y no sólo para el 0. */
       it('ninguna de sus zonas inventa un token', () => {

@@ -747,6 +747,37 @@ Huecos concretos, reverificados:
 
 ### 4.4 Residuos de producto
 
+#### El eje de «versión» quedó ocupado por el ambiente, no por la revisión `[DEUDA]` — E13
+
+**Se hace con los ojos abiertos y conviene que quede escrito, porque el precio se paga
+después.**
+
+El [§2.1 del diseño](diseno-sistema-estilo.md) define versión como **«una revisión del
+mismo modelo… para corregir o evolucionarlo sin cambiar bajo los pies de las instancias
+que ya lo usan»**: es un eje TEMPORAL, y existe por el mismo motivo que las claves de logo
+llevan nombre aleatorio — que mejorar un modelo no repinte en silencio a quien lo usa.
+
+`calido-editorial` estrena ese eje para otra cosa: ofrece **dos ambientes a la vez**, `dia`
+y `tarde`. No son revisiones una de otra; son hermanas. El mecanismo lo soporta sin
+forzarlo (una instancia sigue fijada a `modelo@versión` y sigue protegida), pero el eje ya
+no significa una sola cosa.
+
+**Lo que costará:** el día que Cálido/Editorial necesite una revisión de verdad —corregir
+un color, afinar la rampa— las versiones se llamarán `dia-2` y `tarde-2`, y habrá que
+duplicar cada corrección en las dos. Con tres ambientes, en tres.
+
+**Las salidas, si algún día molesta:**
+
+1. **Dos modelos** (`calido-editorial-dia`, `calido-editorial-tarde`), cada uno con su eje
+   de versiones limpio. Es lo que el diseño diría si se le preguntase: un modelo es «una
+   personalidad completa», y dos ambientes lo son. Cuesta duplicar el registro.
+2. **Un eje propio de ambiente**, separado de la versión (`modelo@versión#ambiente`). Es lo
+   correcto conceptualmente y lo más caro: toca el `Setting`, el DTO, la pantalla y la
+   caché.
+
+**No se hace ninguna ahora**, y es deliberado: con un modelo de dos ambientes el coste es
+cero y las dos salidas siguen abiertas. Se anota para que, cuando aparezca el tercero, la
+decisión se tome mirando esto y no descubriendo el problema a mitad.
 #### Página de tag del blog con URL propia `[DEUDA]` — SEO
 
 **Reverificado 2026-09-02:** `apps/web/src/app/(public)/blog/` contiene solo `[slug]/`,
