@@ -5,7 +5,7 @@ import { useSession } from 'next-auth/react';
 import { Loader2, Plus, AlertCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import { getAdminBanners, updateAdminBanner, type AdminBanner } from '@/lib/api/admin-banners';
 import {
   ALL_PLACEMENTS,
@@ -92,11 +92,7 @@ export default function AdminBannersPage() {
         setBanners(data.items);
         setTotal(data.total);
       } catch (err) {
-        setError(
-          err instanceof ApiError
-            ? `Error ${err.statusCode}: ${err.message}`
-            : 'Error al cargar banners',
-        );
+        setError(mensajeDeErrorAdmin(err, 'Error al cargar banners'));
       } finally {
         setLoading(false);
       }
@@ -135,7 +131,7 @@ export default function AdminBannersPage() {
       await updateAdminBanner(token, banner.id, { active: !banner.active });
       await fetchBanners(page, activeFilter, placementFilter);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : 'Error al cambiar el estado');
+      alert(mensajeDeErrorAdmin(err, 'Error al cambiar el estado'));
     } finally {
       setActionLoading(null);
     }

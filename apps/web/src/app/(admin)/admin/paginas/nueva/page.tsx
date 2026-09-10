@@ -5,7 +5,7 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createAdminPost } from '@/lib/api/blog-admin';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import { PostForm, EMPTY_POST_FORM, type PostFormValues } from '../../blog/_components/PostForm';
 import { SesionNoDisponible } from '@/app/(admin)/components/SesionNoDisponible';
 
@@ -35,11 +35,7 @@ export default function NuevaPaginaPage() {
       });
       router.push(`/admin/paginas/${page.id}/editar`);
     } catch (err) {
-      setSubmitError(
-        err instanceof ApiError
-          ? `Error ${err.statusCode}: ${err.message}`
-          : 'Error inesperado al crear la página',
-      );
+      setSubmitError(mensajeDeErrorAdmin(err, 'Error inesperado al crear la página'));
       setIsSubmitting(false);
     }
   }

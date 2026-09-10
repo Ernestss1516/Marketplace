@@ -16,6 +16,7 @@
  *    que se lee como un dato que no se cargó.
  */
 import { test, expect } from './fixtures/auth';
+import { exigirQueNoHayaSecretos } from './helpers/secretos';
 
 test.describe('Panel de instancia — /admin/instancia', () => {
   test('los cuatro bloques están, con los datos que difieren entre despliegues', async ({
@@ -107,12 +108,16 @@ test.describe('Panel de instancia — /admin/instancia', () => {
     await page.goto('/admin/instancia');
     await expect(page.getByRole('heading', { name: 'Proveedores' })).toBeVisible();
 
-    // «Configurado» / «Sin configurar» y nada más. El texto de la página no puede contener
-    // nada con forma de secreto — los prefijos de clave de las pasarelas y de Resend.
-    const texto = (await page.locator('body').textContent()) ?? '';
-    for (const prefijo of ['sk_test_', 'sk_live_', 'whsec_', 're_']) {
-      expect(texto).not.toContain(prefijo);
-    }
+    // «Configurado» / «Sin configurar» y nada más: nada con FORMA de secreto.
+    //
+    // ⚠ ANTES ESTE BUCLE BUSCABA LOS PREFIJOS PELADOS, y era un detector que mentía. `re_`
+    // son tres caracteres, y `body.textContent` incluye el texto de los `<script>`: en CI
+    // saltó por `__webpack_require__`, que lleva `re_` dentro. Costó una investigación
+    // entera y una sospecha de fuga que no existía. El escaneo con la aguja bien formada
+    // —frontera de palabra y cuerpo largo— vive ahora en `helpers/secretos.ts`, se usa
+    // igual en las otras tres pantallas de configuración, y guarda el cuerpo cuando falla
+    // para que el siguiente rojo se pueda leer en vez de reconstruir.
+    await exigirQueNoHayaSecretos(page, 'instancia');
     await expect(page.getByText('Configurado').first()).toBeVisible();
   });
 

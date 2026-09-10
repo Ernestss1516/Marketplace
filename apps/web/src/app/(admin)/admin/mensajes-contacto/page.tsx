@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import {
   getAdminContactMessages,
   type AdminContactMessage,
@@ -76,11 +76,7 @@ export default function AdminContactMessagesPage() {
         setMessages(data.items);
         setTotal(data.total);
       } catch (err) {
-        setError(
-          err instanceof ApiError
-            ? `Error ${err.statusCode}: ${err.message}`
-            : 'Error al cargar los mensajes',
-        );
+        setError(mensajeDeErrorAdmin(err, 'Error al cargar los mensajes'));
       } finally {
         setLoading(false);
       }

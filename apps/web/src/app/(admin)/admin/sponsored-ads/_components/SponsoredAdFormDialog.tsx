@@ -24,7 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import { getCategories } from '@/lib/api/categorias';
 import {
   createAdminSponsoredAd,
@@ -108,7 +108,7 @@ export function SponsoredAdFormDialog({ token, open, onOpenChange, ad, onSuccess
       const result = await uploadSponsoredAdImage(token, file);
       setImageUrl(result.url);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Error al subir la imagen.');
+      setError(mensajeDeErrorAdmin(err, 'Error al subir la imagen.'));
     } finally {
       setUploading(false);
       e.target.value = '';
@@ -150,7 +150,7 @@ export function SponsoredAdFormDialog({ token, open, onOpenChange, ad, onSuccess
       onOpenChange(false);
       onSuccess();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Error al guardar el patrocinado.');
+      setError(mensajeDeErrorAdmin(err, 'Error al guardar el patrocinado.'));
     } finally {
       setBusy(false);
     }

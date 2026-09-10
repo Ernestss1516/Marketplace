@@ -32,7 +32,7 @@ import {
   revokeAdminPro,
   type AdminUserBillingDetail,
 } from '@/lib/api/admin-billing';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
@@ -137,9 +137,7 @@ export function BloqueDinero({ userId, token }: { userId: string; token: string 
     try {
       setDetalle(await getAdminUserBillingDetail(token, userId));
     } catch (err) {
-      setError(
-        err instanceof ApiError ? `Error ${err.statusCode}: ${err.message}` : 'Error al cargar',
-      );
+      setError(mensajeDeErrorAdmin(err, 'Error al cargar'));
     } finally {
       setCargando(false);
     }
@@ -158,9 +156,7 @@ export function BloqueDinero({ userId, token }: { userId: string; token: string 
       if (mensaje) setAviso(mensaje(r));
       await cargar();
     } catch (err) {
-      alert(
-        err instanceof ApiError ? `Error ${err.statusCode}: ${err.message}` : 'Error en la acción',
-      );
+      alert(mensajeDeErrorAdmin(err, 'Error en la acción'));
     } finally {
       setGuardando(false);
     }

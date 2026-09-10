@@ -5,7 +5,7 @@ import { useSession } from 'next-auth/react';
 import { Loader2, Plus, AlertCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import { getAdminCoupons, updateAdminCoupon, type AdminCoupon } from '@/lib/api/admin-coupons';
 import { CouponFormDialog } from './_components/CouponFormDialog';
 
@@ -59,11 +59,7 @@ export default function AdminCuponesPage() {
         setCoupons(data.items);
         setTotal(data.total);
       } catch (err) {
-        setError(
-          err instanceof ApiError
-            ? `Error ${err.statusCode}: ${err.message}`
-            : 'Error al cargar cupones',
-        );
+        setError(mensajeDeErrorAdmin(err, 'Error al cargar cupones'));
       } finally {
         setLoading(false);
       }
@@ -97,7 +93,7 @@ export default function AdminCuponesPage() {
       await updateAdminCoupon(token, coupon.id, { active: !coupon.active });
       await fetchCoupons(page, activeFilter);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : 'Error al cambiar el estado');
+      alert(mensajeDeErrorAdmin(err, 'Error al cambiar el estado'));
     } finally {
       setActionLoading(null);
     }

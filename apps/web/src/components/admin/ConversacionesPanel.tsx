@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { adminConversationHref, adminListingHref, adminUserHref } from '@/lib/admin-links';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import type {
   ConversacionCabecera,
   ConversacionesPaginadas,
@@ -106,9 +106,7 @@ export function ConversacionesPanel({
       try {
         setDatos(await cargar(p));
       } catch (err) {
-        setError(
-          err instanceof ApiError ? `Error ${err.statusCode}: ${err.message}` : 'Error al cargar',
-        );
+        setError(mensajeDeErrorAdmin(err, 'Error al cargar'));
       } finally {
         setLoading(false);
       }

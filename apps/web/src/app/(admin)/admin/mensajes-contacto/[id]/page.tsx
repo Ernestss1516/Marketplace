@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ApiError } from '@/lib/api/client';
+import { ApiError, mensajeDeErrorAdmin } from '@/lib/api/client';
 import {
   getAdminContactMessage,
   replyAdminContactMessage,
@@ -85,9 +85,7 @@ function ReplyForm({
       setAsunto('');
       setCuerpo('');
     } catch (err) {
-      setFormError(
-        err instanceof ApiError ? `Error ${err.statusCode}: ${err.message}` : 'Error al enviar la respuesta',
-      );
+      setFormError(mensajeDeErrorAdmin(err, 'Error al enviar la respuesta'));
     } finally {
       setSubmitting(false);
     }

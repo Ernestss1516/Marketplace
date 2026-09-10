@@ -14,7 +14,7 @@ import {
   type Report,
   type ReportStatus,
 } from '@/lib/api/moderacion';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import { ReporteDiana } from '@/components/admin/ReporteDiana';
 import { adminReportHref, adminTicketHref, adminUserHref } from '@/lib/admin-links';
 import { SesionNoDisponible } from '@/app/(admin)/components/SesionNoDisponible';
@@ -64,11 +64,7 @@ export default function AdminReportesPage() {
         setTotal(data.total);
         setPerPage(data.perPage);
       } catch (err) {
-        if (err instanceof ApiError) {
-          setError(`Error ${err.statusCode}: ${err.message}`);
-        } else {
-          setError('Error inesperado al cargar los reportes');
-        }
+        setError(mensajeDeErrorAdmin(err, 'Error inesperado al cargar los reportes'));
       } finally {
         setLoading(false);
       }
@@ -95,9 +91,7 @@ export default function AdminReportesPage() {
       await fetchReports(statusFilter, page);
     } catch (err) {
       const msg =
-        err instanceof ApiError
-          ? `Error ${err.statusCode}: ${err.message}`
-          : 'Error al ejecutar la acción';
+        mensajeDeErrorAdmin(err, 'Error al ejecutar la acción');
       alert(msg);
     } finally {
       setPendingId(null);

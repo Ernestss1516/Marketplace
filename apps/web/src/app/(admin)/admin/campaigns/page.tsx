@@ -5,7 +5,7 @@ import { useSession } from 'next-auth/react';
 import { Loader2, Plus, AlertCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ApiError } from '@/lib/api/client';
+import { ApiError, mensajeDeErrorAdmin } from '@/lib/api/client';
 import {
   getAdminCampaigns,
   updateAdminCampaign,
@@ -73,11 +73,7 @@ export default function AdminCampaignsPage() {
         setCampaigns(data.items);
         setTotal(data.total);
       } catch (err) {
-        setError(
-          err instanceof ApiError
-            ? `Error ${err.statusCode}: ${err.message}`
-            : 'Error al cargar campañas',
-        );
+        setError(mensajeDeErrorAdmin(err, 'Error al cargar campañas'));
       } finally {
         setLoading(false);
       }
@@ -117,7 +113,7 @@ export default function AdminCampaignsPage() {
           'Desactívala o ajusta las fechas antes de reactivar esta.',
         );
       } else {
-        alert(err instanceof ApiError ? err.message : 'Error al cambiar el estado');
+        alert(mensajeDeErrorAdmin(err, 'Error al cambiar el estado'));
       }
     } finally {
       setActionLoading(null);

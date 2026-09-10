@@ -7,7 +7,7 @@ import { AlertCircle, ArrowLeft, ChevronDown, ChevronUp, Loader2, Plus } from 'l
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import { SesionNoDisponible } from '@/app/(admin)/components/SesionNoDisponible';
 import {
   createAdminContactReason,
@@ -50,7 +50,7 @@ function ReasonRow({
       await onSave(nombre.trim());
       setEditing(false);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Error al guardar');
+      setError(mensajeDeErrorAdmin(err, 'Error al guardar'));
     } finally {
       setSaving(false);
     }
@@ -156,7 +156,7 @@ export default function AdminContactReasonsPage() {
       const data = await getAdminContactReasons(token);
       setReasons(data.sort((a, b) => a.orden - b.orden));
     } catch (err) {
-      setError(err instanceof ApiError ? `Error ${err.statusCode}: ${err.message}` : 'Error al cargar los motivos');
+      setError(mensajeDeErrorAdmin(err, 'Error al cargar los motivos'));
     } finally {
       setLoading(false);
     }
@@ -179,7 +179,7 @@ export default function AdminContactReasonsPage() {
       setNewNombre('');
       await fetchReasons();
     } catch (err) {
-      setCreateError(err instanceof ApiError ? err.message : 'Error al crear el motivo');
+      setCreateError(mensajeDeErrorAdmin(err, 'Error al crear el motivo'));
     } finally {
       setCreating(false);
     }
@@ -199,11 +199,7 @@ export default function AdminContactReasonsPage() {
       await updateAdminContactReason(token, reason.id, { activo: !reason.activo });
       await fetchReasons();
     } catch (err) {
-      setError(
-        err instanceof ApiError
-          ? err.message
-          : 'Error al cambiar el estado del motivo',
-      );
+      setError(mensajeDeErrorAdmin(err, 'Error al cambiar el estado del motivo'));
     } finally {
       setBusyId(null);
     }

@@ -16,7 +16,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { ApiError } from '@/lib/api/client';
+import { ApiError, mensajeDeErrorAdmin } from '@/lib/api/client';
 import { useApiAction } from '@/lib/api/use-api-action';
 import type { EstiloResuelto } from '@/lib/api/estilo';
 import {
@@ -129,11 +129,7 @@ export default function AdminEstiloPage() {
       setEstado(nuevo);
       aplicarConfig(nuevo.config);
     } catch (err) {
-      setError(
-        err instanceof ApiError
-          ? `Error ${err.statusCode}: ${err.message}`
-          : 'Error al cargar el estilo',
-      );
+      setError(mensajeDeErrorAdmin(err, 'Error al cargar el estilo'));
     }
   }, [token, aplicarConfig]);
 
@@ -210,11 +206,7 @@ export default function AdminEstiloPage() {
           setFallos(fallosPorRanura(err.fallos));
           return;
         }
-        setError(
-          err instanceof ApiError
-            ? `Error ${err.statusCode}: ${err.message}`
-            : 'No se ha podido guardar el estilo.',
-        );
+        setError(mensajeDeErrorAdmin(err, 'No se ha podido guardar el estilo.'));
       },
     }).finally(() => setOcupado(false));
   }
@@ -233,11 +225,7 @@ export default function AdminEstiloPage() {
         void cargar();
       },
       onError: (err) =>
-        setError(
-          err instanceof ApiError
-            ? `Error ${err.statusCode}: ${err.message}`
-            : 'No se ha podido restaurar el estilo.',
-        ),
+        setError(mensajeDeErrorAdmin(err, 'No se ha podido restaurar el estilo.')),
     }).finally(() => setOcupado(false));
   }
 

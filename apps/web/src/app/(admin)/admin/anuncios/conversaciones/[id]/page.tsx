@@ -44,7 +44,7 @@ import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { AlertCircle, ChevronLeft, Eye } from 'lucide-react';
 import { abrirConversacion, type ConversacionCompleta } from '@/lib/api/admin-mensajeria';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import { adminListingHref, adminUserHref } from '@/lib/admin-links';
 import { SesionNoDisponible } from '@/app/(admin)/components/SesionNoDisponible';
 
@@ -86,9 +86,7 @@ export default function AdminConversacionPage({ params }: { params: Promise<{ id
     try {
       setData(await abrirConversacion(token, id));
     } catch (err) {
-      setError(
-        err instanceof ApiError ? `Error ${err.statusCode}: ${err.message}` : 'Error al cargar',
-      );
+      setError(mensajeDeErrorAdmin(err, 'Error al cargar'));
     } finally {
       setLoading(false);
     }

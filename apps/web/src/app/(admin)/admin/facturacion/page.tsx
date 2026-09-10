@@ -10,7 +10,7 @@ import {
   type AdminTransaction,
   type AdminWallet,
 } from '@/lib/api/admin-billing';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
@@ -84,11 +84,7 @@ function TransaccionesTab({ token }: { token: string }) {
         setItems(data.items);
         setTotal(data.total);
       } catch (err) {
-        setError(
-          err instanceof ApiError
-            ? `Error ${err.statusCode}: ${err.message}`
-            : 'Error al cargar las transacciones',
-        );
+        setError(mensajeDeErrorAdmin(err, 'Error al cargar las transacciones'));
       } finally {
         setLoading(false);
       }
@@ -293,11 +289,7 @@ function WalletsTab({ token }: { token: string }) {
         setItems(data.items);
         setTotal(data.total);
       } catch (err) {
-        setError(
-          err instanceof ApiError
-            ? `Error ${err.statusCode}: ${err.message}`
-            : 'Error al cargar los saldos',
-        );
+        setError(mensajeDeErrorAdmin(err, 'Error al cargar los saldos'));
       } finally {
         setLoading(false);
       }

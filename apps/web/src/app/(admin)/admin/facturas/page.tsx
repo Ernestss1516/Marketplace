@@ -9,7 +9,7 @@ import {
   getFiscalIssuer,
   type AdminInvoiceRow,
 } from '@/lib/api/admin-facturas';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import { ESTADO_FACTURA_LABELS, ORIGEN_FACTURA_LABELS } from '@/lib/etiquetas-enums';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -64,7 +64,7 @@ function FacturasTable({ token }: { token: string }) {
         setItems(data.items);
         setTotal(data.total);
       } catch (err) {
-        setError(err instanceof ApiError ? `Error ${err.statusCode}: ${err.message}` : 'Error al cargar las facturas');
+        setError(mensajeDeErrorAdmin(err, 'Error al cargar las facturas'));
       } finally {
         setLoading(false);
       }

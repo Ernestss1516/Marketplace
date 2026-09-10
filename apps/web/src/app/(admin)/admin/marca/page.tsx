@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import type { BrandingLogos } from '@/lib/api/branding';
 import { getBrandingLive } from '@/lib/api/branding-admin';
 import { ZonaDeMarca, type ZonaInfo } from './_components/ZonaDeMarca';
@@ -63,11 +63,7 @@ export default function AdminMarcaPage() {
     try {
       setLogos(await getBrandingLive());
     } catch (err) {
-      setError(
-        err instanceof ApiError
-          ? `Error ${err.statusCode}: ${err.message}`
-          : 'Error al cargar la marca',
-      );
+      setError(mensajeDeErrorAdmin(err, 'Error al cargar la marca'));
     }
   }, []);
 

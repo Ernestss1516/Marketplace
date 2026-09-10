@@ -4,7 +4,7 @@ import { useRef, useState } from 'react';
 import { AlertCircle, Loader2, Upload } from 'lucide-react';
 import type { StepsBlock, StepItem } from '@/types/blocks';
 import { uploadBlockImage } from '@/lib/api/blog-admin';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import { Button } from '@/components/ui/button';
 import { SubItemList } from '../SubItemList';
 import { inputCls, textareaCls, labelCls, errorCls } from './shared';
@@ -36,7 +36,7 @@ function StepItemFields({
       const { url } = await uploadBlockImage(file, token);
       onItemChange({ image: url });
     } catch (err) {
-      setUploadError(err instanceof ApiError ? err.message : 'Error al subir la imagen');
+      setUploadError(mensajeDeErrorAdmin(err, 'Error al subir la imagen'));
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = '';

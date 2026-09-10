@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { moderateReview, restoreReview, retireReview } from '@/lib/api/moderacion';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 
 /**
  * 7b — RETIRAR / RESTAURAR / EDITAR una valoración desde el backoffice.
@@ -55,9 +55,7 @@ export function AccionesValoracion({
       setMotivo('');
       await onHecho();
     } catch (err) {
-      setError(
-        err instanceof ApiError ? `Error ${err.statusCode}: ${err.message}` : 'Error al guardar',
-      );
+      setError(mensajeDeErrorAdmin(err, 'Error al guardar'));
     } finally {
       setEnviando(false);
     }

@@ -6,7 +6,7 @@ import { useSession } from 'next-auth/react';
 import { Loader2, Plus, AlertCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import {
   getAdminSponsoredAds,
   updateAdminSponsoredAd,
@@ -67,11 +67,7 @@ export default function AdminSponsoredAdsPage() {
         setAds(data.items);
         setTotal(data.total);
       } catch (err) {
-        setError(
-          err instanceof ApiError
-            ? `Error ${err.statusCode}: ${err.message}`
-            : 'Error al cargar patrocinados',
-        );
+        setError(mensajeDeErrorAdmin(err, 'Error al cargar patrocinados'));
       } finally {
         setLoading(false);
       }
@@ -105,7 +101,7 @@ export default function AdminSponsoredAdsPage() {
       await updateAdminSponsoredAd(token, ad.id, { active: !ad.active });
       await fetchAds(page, activeFilter);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : 'Error al cambiar el estado');
+      alert(mensajeDeErrorAdmin(err, 'Error al cambiar el estado'));
     } finally {
       setActionLoading(null);
     }

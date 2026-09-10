@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { AlertCircle } from 'lucide-react';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import { getIlustracionesAdmin, type EstadoIlustraciones } from '@/lib/api/ilustraciones-admin';
 import type { IlustracionesResueltas } from '@/lib/ilustraciones';
 import { SlotDeIlustracion } from './_components/SlotDeIlustracion';
@@ -45,11 +45,7 @@ export default function AdminIlustracionesPage() {
     try {
       setEstado(await getIlustracionesAdmin(token));
     } catch (err) {
-      setError(
-        err instanceof ApiError
-          ? `Error ${err.statusCode}: ${err.message}`
-          : 'Error al cargar las ilustraciones',
-      );
+      setError(mensajeDeErrorAdmin(err, 'Error al cargar las ilustraciones'));
     }
   }, [token]);
 

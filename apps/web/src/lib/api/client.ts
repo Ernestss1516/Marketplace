@@ -220,6 +220,97 @@ export function toCouponMessage(err: unknown): string {
   return toUserMessage(err);
 }
 
+/**
+ * E10 — EL MENSAJE DE ERROR DEL BACKOFFICE. **La única vía por la que un fallo llega a
+ * una pantalla de staff.**
+ *
+ * ── QUÉ SUSTITUYE, Y POR QUÉ ERA UN DEFECTO ─────────────────────────────────────────
+ *
+ * El backoffice repetía este molde en 53 sitios de 36 ficheros:
+ *
+ *     err instanceof ApiError ? «Error <statusCode>: <message>» : 'Error al…'
+ *
+ * (se escribe con paréntesis angulares y no como plantilla de verdad para que el
+ * codemod que hizo esta migración no vuelva a reescribir su propio ejemplo)
+ *
+ * Es decir: **el texto del servidor, crudo, dentro del DOM**. Justo lo que
+ * `toUserMessage` existe para impedir en el resto de la aplicación —«Never exposes raw
+ * backend text»—, saltado por copia y pega hasta convertirse en la costumbre de la casa.
+ *
+ * Nadie demostró nunca un escape por esta vía, y la sospecha que la destapó resultó ser
+ * un falso positivo (ver `admin-instancia.spec.ts`). Se cierra igual, y el motivo es que
+ * **una vía de secreto no se deja abierta a la espera de que alguien la use**: hoy los
+ * mensajes de `HttpException` los escribe gente de casa y son inocuos, pero eso es una
+ * propiedad de quien los escribe, no del canal. El día que alguien interpole un valor de
+ * configuración en un `throw`, 53 pantallas lo pintarían sin que nada avisara.
+ *
+ * ── QUÉ CONSERVA, QUE NO ES POCO ────────────────────────────────────────────────────
+ *
+ * Un panel de staff que sólo dijera «ha habido un error» sería peor herramienta. Así que
+ * se conservan las tres cosas que hacían útil al molde viejo, ninguna de las cuales
+ * necesita el texto del servidor:
+ *
+ *  · **EL CONTEXTO** — qué se estaba haciendo. Lo pone quien llama (`respaldo`), que es
+ *    quien lo sabe: «Error al cargar la marca».
+ *  · **EL CÓDIGO** — un número, no texto libre. 403 y 500 piden reacciones distintas y
+ *    el operador necesita distinguirlas.
+ *  · **EL DETALLE, FUERA DEL DOM** — el error entero va a `console.error`. Quien depura
+ *    lo tiene en la consola, que es donde se depura; lo que no puede es acabar en una
+ *    página, en una captura de pantalla o en el `textContent` que lee un test.
+ *
+ * ── Y LO QUE SIGUE PASANDO TAL CUAL, A PROPÓSITO ────────────────────────────────────
+ *
+ * Los rechazos de la PUERTA (`reasons`). No es una excepción a la regla: es el canal que
+ * el backend marca EXPLÍCITAMENTE como escrito para leerse, y ya se pinta así en toda la
+ * aplicación (ver `toGateMessage`). La diferencia con `message` es exactamente la que
+ * importa: `reasons` sólo lo rellena `construirRechazo`, mientras que `message` lo llena
+ * cualquier `throw` de cualquier módulo.
+ */
+export function mensajeDeErrorAdmin(err: unknown, respaldo: string): string {
+  // La puerta primero: si el backend marcó el rechazo como legible, ése es el mensaje.
+  const puerta = toGateMessage(err);
+  if (puerta) return puerta;
+
+  // El detalle completo, a la consola y NO al DOM. Es lo que el molde viejo daba y lo
+  // único suyo que merecía la pena conservar.
+  if (typeof console !== 'undefined') console.error('[backoffice]', respaldo, err);
+
+  if (err instanceof ApiError) return `${respaldo} — ${motivoPorEstado(err.statusCode)} (${err.statusCode})`;
+  return respaldo;
+}
+
+/**
+ * El porqué del fallo DERIVADO DEL CÓDIGO, nunca del texto del servidor.
+ *
+ * Un código es un número: no puede llevar dentro una clave, una ruta de fichero ni el
+ * nombre de una tabla. Ésa es toda la idea.
+ */
+function motivoPorEstado(statusCode: number): string {
+  switch (statusCode) {
+    case 400:
+      return 'los datos enviados no son válidos';
+    case 401:
+      return 'tu sesión ya no vale';
+    case 403:
+      return 'no tienes permiso';
+    case 404:
+      return 'no se ha encontrado';
+    case 409:
+      return 'choca con el estado actual, recarga y repite';
+    case 413:
+      return 'el archivo es demasiado grande';
+    case 422:
+      return 'la operación no se puede completar con esos datos';
+    case 429:
+      return 'demasiadas peticiones seguidas, espera un momento';
+    default:
+      // 5xx y cualquier cosa que no esperábamos van juntas a propósito: para el operador
+      // son lo mismo —no es culpa suya y reintentar es lo único que puede hacer— y
+      // distinguirlas exigiría mirar el texto, que es de lo que se trata no depender.
+      return statusCode >= 500 ? 'ha fallado el servidor' : 'no se ha podido completar';
+  }
+}
+
 interface FetchOptions extends RequestInit {
   token?: string;
 }

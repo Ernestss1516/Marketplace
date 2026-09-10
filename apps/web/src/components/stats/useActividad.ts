@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import type { RangoEstadisticas } from '@/lib/api/admin-stats';
 
 /**
@@ -57,7 +58,7 @@ export function useActividad<T>(
         if (vigente) setActividad(datos);
       })
       .catch((e: unknown) => {
-        if (vigente) setError(e instanceof Error ? e.message : 'Error desconocido');
+        if (vigente) setError(mensajeDeErrorAdmin(e, 'Error desconocido'));
       })
       .finally(() => {
         if (vigente) setLoading(false);

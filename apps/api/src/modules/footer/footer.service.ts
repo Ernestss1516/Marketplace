@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { RechazoLegible } from '../../common/rechazo-legible';
 import { FooterItemType, Prisma, PostStatus, PostType } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
@@ -294,25 +295,28 @@ export class FooterService {
   // obligatorio como URL absoluta + pageId ausente. Vive en el servicio, no en
   // el DTO — mismo estilo que Post.assertFooterFieldsAllowed.
   private assertItemDestination(type: FooterItemType, pageId?: string, url?: string): void {
+    // E10 — `RechazoLegible`, por lo mismo que su gemela en `NavService`: son los textos
+    // que le dicen al admin QUÉ campo del formulario está mal, y el backoffice ya no pinta
+    // el `message` del servidor si nadie lo marca como legible. Ver `common/rechazo-legible.ts`.
     if (type === FooterItemType.PAGE) {
-      if (!pageId) throw new BadRequestException('pageId es obligatorio cuando type=PAGE');
-      if (url) throw new BadRequestException('url debe ir vacío cuando type=PAGE');
+      if (!pageId) throw new RechazoLegible('pageId es obligatorio cuando type=PAGE');
+      if (url) throw new RechazoLegible('url debe ir vacío cuando type=PAGE');
       return;
     }
 
     if (type === FooterItemType.INTERNAL) {
-      if (!url) throw new BadRequestException('url es obligatorio cuando type=INTERNAL');
-      if (!url.startsWith('/')) throw new BadRequestException('Una ruta interna debe empezar por "/"');
-      if (pageId) throw new BadRequestException('pageId debe ir vacío cuando type=INTERNAL');
+      if (!url) throw new RechazoLegible('url es obligatorio cuando type=INTERNAL');
+      if (!url.startsWith('/')) throw new RechazoLegible('Una ruta interna debe empezar por "/"');
+      if (pageId) throw new RechazoLegible('pageId debe ir vacío cuando type=INTERNAL');
       return;
     }
 
     // EXTERNAL
-    if (!url) throw new BadRequestException('url es obligatorio cuando type=EXTERNAL');
+    if (!url) throw new RechazoLegible('url es obligatorio cuando type=EXTERNAL');
     if (!isAbsoluteHttpUrl(url)) {
-      throw new BadRequestException('url debe ser una URL absoluta (http/https) cuando type=EXTERNAL');
+      throw new RechazoLegible('url debe ser una URL absoluta (http/https) cuando type=EXTERNAL');
     }
-    if (pageId) throw new BadRequestException('pageId debe ir vacío cuando type=EXTERNAL');
+    if (pageId) throw new RechazoLegible('pageId debe ir vacío cuando type=EXTERNAL');
   }
 
   // El destino PAGE debe apuntar a un Post real de type=PAGE — nunca a un

@@ -3,7 +3,7 @@
 import { useRef, useState } from 'react';
 import { Loader2, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import { useApiAction } from '@/lib/api/use-api-action';
 import type { IlustracionResuelta, IlustracionesResueltas } from '@/lib/ilustraciones';
 import {
@@ -61,9 +61,7 @@ export function SlotDeIlustracion({
       successMessage: 'Ilustración sustituida.',
       onSuccess: (nuevas) => onChange(nuevas),
       onError: (err) =>
-        setError(
-          err instanceof ApiError ? err.message : 'No se ha podido subir la ilustración.',
-        ),
+        setError(mensajeDeErrorAdmin(err, 'No se ha podido subir la ilustración.')),
     }).finally(() => {
       setOcupado(false);
       // Sin esto, elegir DOS VECES el mismo fichero no dispara `change` y el segundo
@@ -79,9 +77,7 @@ export function SlotDeIlustracion({
       successMessage: 'Ilustración restaurada a la del modelo.',
       onSuccess: (nuevas) => onChange(nuevas),
       onError: (err) =>
-        setError(
-          err instanceof ApiError ? err.message : 'No se ha podido restaurar la ilustración.',
-        ),
+        setError(mensajeDeErrorAdmin(err, 'No se ha podido restaurar la ilustración.')),
     }).finally(() => setOcupado(false));
   }
 

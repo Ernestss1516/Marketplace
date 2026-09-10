@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { BrandLogo } from '@/components/layout/BrandLogo';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import type { BrandingLogos } from '@/lib/api/branding';
 import { clearBrandingLogo, uploadBrandingLogo, type LogoZone } from '@/lib/api/branding-admin';
 import { resolveBrand } from '@/lib/brand';
@@ -78,7 +78,7 @@ export function ZonaDeMarca({
       successMessage: `Logo de ${info.titulo.toLowerCase()} actualizado.`,
       onSuccess: (nuevos) => onChange(nuevos),
       onError: (err) =>
-        setError(err instanceof ApiError ? err.message : 'No se ha podido subir el logo.'),
+        setError(mensajeDeErrorAdmin(err, 'No se ha podido subir el logo.')),
     }).finally(() => {
       setOcupado(false);
       // Sin esto, elegir DOS VECES el mismo fichero no dispara `change` y el segundo
@@ -94,7 +94,7 @@ export function ZonaDeMarca({
       successMessage: `Logo de ${info.titulo.toLowerCase()} quitado.`,
       onSuccess: (nuevos) => onChange(nuevos),
       onError: (err) =>
-        setError(err instanceof ApiError ? err.message : 'No se ha podido quitar el logo.'),
+        setError(mensajeDeErrorAdmin(err, 'No se ha podido quitar el logo.')),
     }).finally(() => setOcupado(false));
   }
 

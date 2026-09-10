@@ -15,7 +15,7 @@ import {
   type AdminCategoryChild,
 } from '@/lib/api/admin';
 import { getCategoryBySlug } from '@/lib/api/categorias';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -675,11 +675,7 @@ export default function AdminCategoriasPage() {
       const data = await getAdminCategories(token);
       setCategories(data.sort((a, b) => a.order - b.order));
     } catch (err) {
-      setError(
-        err instanceof ApiError
-          ? `Error ${err.statusCode}: ${err.message}`
-          : 'Error al cargar categorías',
-      );
+      setError(mensajeDeErrorAdmin(err, 'Error al cargar categorías'));
     } finally {
       setLoading(false);
     }
@@ -758,7 +754,7 @@ export default function AdminCategoriasPage() {
       setEditingId(null);
       await fetchCategories();
     } catch (err) {
-      setEditError(err instanceof ApiError ? err.message : 'Error al guardar');
+      setEditError(mensajeDeErrorAdmin(err, 'Error al guardar'));
     } finally {
       setEditSaving(false);
     }
@@ -774,7 +770,7 @@ export default function AdminCategoriasPage() {
       setSchemaModified(false);
       await fetchCategories();
     } catch (err) {
-      setSchemaError(err instanceof ApiError ? err.message : 'Error al guardar atributos');
+      setSchemaError(mensajeDeErrorAdmin(err, 'Error al guardar atributos'));
     } finally {
       setSchemaSaving(false);
     }
@@ -843,7 +839,7 @@ export default function AdminCategoriasPage() {
       setCreateOwnSchema([]);
       await fetchCategories();
     } catch (err) {
-      setCreateError(err instanceof ApiError ? err.message : 'Error al crear');
+      setCreateError(mensajeDeErrorAdmin(err, 'Error al crear'));
     } finally {
       setCreateSaving(false);
     }
@@ -859,7 +855,7 @@ export default function AdminCategoriasPage() {
       await deleteAdminCategory(token, id);
       await fetchCategories();
     } catch (err) {
-      const msg = err instanceof ApiError ? err.message : 'Error al eliminar la categoría';
+      const msg = mensajeDeErrorAdmin(err, 'Error al eliminar la categoría');
       setDeleteErrors((prev) => ({ ...prev, [id]: msg }));
     } finally {
       setDeletingId(null);

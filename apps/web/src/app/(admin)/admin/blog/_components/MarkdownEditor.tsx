@@ -5,7 +5,7 @@ import MDEditor, { type ICommand, type TextAreaTextApi } from '@uiw/react-md-edi
 import '@uiw/react-md-editor/markdown-editor.css';
 import { AlertCircle } from 'lucide-react';
 import { uploadMedia } from '@/lib/api/media';
-import { ApiError } from '@/lib/api/client';
+import { mensajeDeErrorAdmin } from '@/lib/api/client';
 
 export interface MarkdownEditorProps {
   value: string;
@@ -52,7 +52,7 @@ export default function MarkdownEditor({ value, onChange, token, disabled }: Mar
         const { url } = await uploadMedia(file, token);
         api.replaceSelection(`![${file.name}](${url})`);
       } catch (err) {
-        setUploadError(err instanceof ApiError ? err.message : 'Error al subir la imagen');
+        setUploadError(mensajeDeErrorAdmin(err, 'Error al subir la imagen'));
       } finally {
         if (fileRef.current) fileRef.current.value = '';
       }
