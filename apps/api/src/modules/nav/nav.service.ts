@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { RechazoLegible } from '../../common/rechazo-legible';
 import { NavItemType, NavPageType, Prisma, PostType } from '@prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
@@ -255,34 +256,45 @@ export class NavService {
    *    Ver diseño §2.3.
    */
   assertItemDestination(type: NavItemType | null | undefined, pageId?: string, url?: string): void {
+    // E10 — `RechazoLegible` Y NO `BadRequestException`, y no es cosmética.
+    //
+    // Estos ocho textos están escritos para la persona que tiene el formulario del menú
+    // delante, y son lo único que le dice CUÁL de los campos está mal. Desde E10 el
+    // backoffice no pinta el `message` del servidor —cerró la vía por la que un valor de
+    // configuración interpolado en un `throw` acabaría en pantalla—, así que un mensaje
+    // que se quiera enseñar tiene que decir que se puede enseñar. Eso es exactamente lo
+    // que hace esta clase: el mismo `message` de siempre más la marca `reasons`.
+    //
+    // Sin esto, el admin que escribe «busqueda» en vez de «/busqueda» leería «los datos
+    // enviados no son válidos (400)» y tendría que adivinar entre seis campos.
     if (type === null || type === undefined) {
       // Nodo sin destino: ni pageId ni url tienen dónde aplicarse. Aceptar
       // basura ahí dejaría un destino fantasma que reaparecería al asignarle un
       // type más tarde.
-      if (pageId) throw new BadRequestException('pageId debe ir vacío en un nodo sin destino');
-      if (url) throw new BadRequestException('url debe ir vacío en un nodo sin destino');
+      if (pageId) throw new RechazoLegible('pageId debe ir vacío en un nodo sin destino');
+      if (url) throw new RechazoLegible('url debe ir vacío en un nodo sin destino');
       return;
     }
 
     if (type === NavItemType.PAGE) {
-      if (!pageId) throw new BadRequestException('pageId es obligatorio cuando type=PAGE');
-      if (url) throw new BadRequestException('url debe ir vacío cuando type=PAGE');
+      if (!pageId) throw new RechazoLegible('pageId es obligatorio cuando type=PAGE');
+      if (url) throw new RechazoLegible('url debe ir vacío cuando type=PAGE');
       return;
     }
 
     if (type === NavItemType.INTERNAL) {
-      if (!url) throw new BadRequestException('url es obligatorio cuando type=INTERNAL');
-      if (!url.startsWith('/')) throw new BadRequestException('Una ruta interna debe empezar por "/"');
-      if (pageId) throw new BadRequestException('pageId debe ir vacío cuando type=INTERNAL');
+      if (!url) throw new RechazoLegible('url es obligatorio cuando type=INTERNAL');
+      if (!url.startsWith('/')) throw new RechazoLegible('Una ruta interna debe empezar por "/"');
+      if (pageId) throw new RechazoLegible('pageId debe ir vacío cuando type=INTERNAL');
       return;
     }
 
     // EXTERNAL
-    if (!url) throw new BadRequestException('url es obligatorio cuando type=EXTERNAL');
+    if (!url) throw new RechazoLegible('url es obligatorio cuando type=EXTERNAL');
     if (!isAbsoluteHttpUrl(url)) {
-      throw new BadRequestException('url debe ser una URL absoluta (http/https) cuando type=EXTERNAL');
+      throw new RechazoLegible('url debe ser una URL absoluta (http/https) cuando type=EXTERNAL');
     }
-    if (pageId) throw new BadRequestException('pageId debe ir vacío cuando type=EXTERNAL');
+    if (pageId) throw new RechazoLegible('pageId debe ir vacío cuando type=EXTERNAL');
   }
 
   /**
