@@ -53,13 +53,38 @@ function Dato({
   label,
   children,
   nota,
+  testId,
 }: {
   label: string;
   children: React.ReactNode;
   nota?: string;
+  /**
+   * E12 — sólo para las filas cuyo VALOR depende de la máquina, no del código.
+   *
+   * Esta pantalla es la única de la batería visual que pinta el entorno del despliegue, y
+   * dos de sus filas cambian sin que nadie toque una línea: la versión de la API sale de
+   * `npm_package_version` —o sea, de cómo se lanzó el proceso— y el commit saldrá de
+   * `GIT_SHA` el día que el despliegue lo exporte. Una captura que las fotografíe está
+   * fotografiando la máquina, y su baseline sólo vale en esa máquina.
+   *
+   * El identificador existe para poder taparlas en `pantallas.spec.ts`, y va en la FILA
+   * ENTERA, no en el `<dd>` del valor. La primera versión lo puso en el `<dd>` —para no
+   * perder de vista la etiqueta, que sí es del código— y **la mutación demostró que no
+   * servía**: Playwright dibuja la máscara sobre la caja del elemento, y la caja de un
+   * valor alineado a la derecha **cambia de ancho con el texto**. Con una versión más
+   * larga, el rectángulo tapado era otro y la captura seguía difiriendo (1.720 píxeles) —
+   * pasaba en móvil, donde el `<dd>` ocupa el ancho completo, y fallaba en escritorio.
+   *
+   * La fila sí tiene ancho estable (es un bloque con `border-b`), así que tapándola el
+   * valor deja de influir. Se paga con las dos etiquetas, que dejan de estar vigiladas.
+   */
+  testId?: string;
 }) {
   return (
-    <div className="flex flex-col gap-0.5 border-b py-2.5 last:border-b-0 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4">
+    <div
+      className="flex flex-col gap-0.5 border-b py-2.5 last:border-b-0 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4"
+      data-testid={testId}
+    >
       <dt className="text-sm text-muted-foreground">{label}</dt>
       <dd className="text-sm font-medium sm:text-right">
         {children}
@@ -465,13 +490,14 @@ export default function AdminInstanciaPage() {
           <Dato label="Ventana de autoservicio de facturas" nota="Editable en Ajustes → Facturación.">
             {configuracion.facturacion.ventanaAutoservicioMeses} meses
           </Dato>
-          <Dato label="Versión de la API">
+          <Dato label="Versión de la API" testId="dato-version-api">
             <Valor v={configuracion.versionApi} ausente="No disponible" />
           </Dato>
           {/* EL HUECO PREPARADO. Hoy nadie exporta GIT_SHA en el despliegue, así que dice «no
               disponible»; el día que se exporte, esta fila se llena sola. */}
           <Dato
             label="Commit desplegado"
+            testId="dato-commit"
             nota={
               configuracion.commit
                 ? undefined

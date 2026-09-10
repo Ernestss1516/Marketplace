@@ -523,26 +523,62 @@ pantallas cuyo dato cambia el maquetado —`/admin/ajustes` está fuera del cat�
 está explicado en el §10.3—. Ampliar por ahí es presupuesto de CI, y la regla sigue siendo la del
 diseño: se añade una captura cuando aparece un IDIOMA nuevo, no cuando aparece una ruta nueva.
 
-#### Los baselines de win32 llevan tres ráfagas sin regenerar `[COBERTURA]`
+#### ~~Los baselines de win32 llevan tres ráfagas sin regenerar~~ → **CERRADO (E12), y no era lo que parecía**
 
-**Hallazgo de E9 (2026-09-05).** Corriendo la batería visual en local (Windows) sobre la rama de E9:
-**41 pasan, 6 fallan** — `publico-planes`, `publico-contacto` y `backoffice-instancia`, en escritorio
-y en móvil. Ninguna tiene que ver con E9, y en linux las 46 pasan.
+**El diagnóstico de E9 era razonable y resultó equivocado en los tres casos.** Se anotó como «deriva
+de E6/E7/E8 que nadie ha mirado»; mirándola, ninguno de los seis rojos venía de un cambio de código.
 
-El motivo es el reparto de trabajo entre plataformas: los baselines de **win32 se escriben en el
-commit de la feature**, desde la máquina de quien la hace, y los de **linux en un commit posterior,
-desde el artefacto de CI**. Los de win32 no se han vuelto a escribir desde `d45a3dc` (E5); E6, E7 y
-E8 sólo regeneraron los de linux. Así que las tres capturas que
-E6/E7/E8 movieron —o que dependen de configuración local, que es el caso probable de
-`backoffice-instancia`, una pantalla que pinta el entorno de la máquina— arrastran una diferencia
-que nadie ha mirado.
+**`publico-planes` y `publico-contacto`: el baseline de win32 se hizo con la base sucia.** El
+baseline de E5 lleva un pie de página con filas que ningún seed pone —`Legal 1788468651276`,
+`Pagina Footer Admin 1788468651276`, `ColB 1788468663167`…—: son ítems que crean las specs del
+footer con `Date.now()` en el nombre. La captura de linux del mismo día NO las tiene, y la corrida
+limpia de hoy tampoco. O sea que **el baseline estaba mal desde que se escribió**, y las otras dos
+plataformas coinciden entre sí. Los 145 px de diferencia de alto eran esas columnas de más.
 
-**No se regeneran en E9 a propósito**, y es la regla de la casa: absorber en este commit tres
-ráfagas de deriva visual que nadie ha revisado es exactamente «actualizar el baseline en vez de
-mirar qué lo movió». Se anota para que se haga en su propia vuelta, con las diferencias delante.
+Regenerados. Ahora win32 y linux enseñan lo mismo.
 
-**Consecuencia práctica mientras tanto:** en local esas 6 salen en rojo y **no significan nada**;
-la puerta de verdad es el job de linux.
+**`backoffice-instancia`: la captura fotografiaba la máquina.** Sus 363 píxeles eran una sola fila,
+«Versión de la API», que sale de `process.env.npm_package_version` — es decir, de **cómo se lanzó el
+proceso**, no de qué versión es el código. Y «Commit desplegado» hará lo mismo en cuanto el
+despliegue exporte `GIT_SHA`. Un baseline con eso dentro sólo vale en la máquina que lo escribió.
+
+Arreglado tapando las dos filas ([`pantallas.spec.ts`](../apps/web/e2e-snapshots/pantallas.spec.ts)).
+**Verificado con la mutación**: se cambió la versión de la API a `9.9.9-otra-maquina` —que es lo que
+vería otra máquina— y la captura pasa en las dos plataformas. Antes de taparlas, fallaba.
+
+**Y la mutación enseñó algo que no estaba previsto**, que es la razón de contarlo aquí: la primera
+versión tapaba sólo el `<dd>` del valor y **no bastaba**. Playwright dibuja la máscara sobre la CAJA
+del elemento, y la caja de un valor alineado a la derecha cambia de ancho con el texto: el
+rectángulo tapado era otro y quedaban 1.720 píxeles de diferencia. Falló en escritorio y pasó en
+móvil —donde el `<dd>` ocupa el ancho completo—, así que un solo proyecto habría dado el visto bueno
+a un arreglo que no arreglaba. **Para tapar un dato variable hay que tapar un elemento cuya caja no
+dependa de ese dato.**
+
+#### El reparto de plataformas de los baselines `[REFERENCIA]` — E12
+
+**Cómo funciona hoy, para que win32 no se vuelva a quedar atrás:**
+
+| | Quién lo escribe | Cuándo |
+|---|---|---|
+| `*-linux.png` | El runner de CI | Se escriben solos cuando faltan; el artefacto `snapshots-report` los trae y se commitean aparte |
+| `*-win32.png` | La máquina de quien hace la ráfaga | En el commit de la propia ráfaga |
+
+**La puerta de verdad es linux**: es el único que corre en CI y el único que bloquea. Los de win32
+son para que la verificación local sirva de algo — y cuando se quedan atrás dejan de servir, que es
+exactamente lo que pasó durante tres ráfagas.
+
+**La regla, ahora que se ha pagado el precio de no tenerla:**
+
+1. **Si una ráfaga mueve una captura a propósito, regenera LAS DOS plataformas.** Las de win32 en el
+   mismo commit; las de linux, del artefacto de la primera vuelta de CI.
+2. **Regenera SIEMPRE con la batería de capturas corriendo sola** (`--config=playwright.snapshots.config.ts`),
+   nunca después de la batería funcional. Su `globalSetup` trunca y siembra, así que sola da una base
+   limpia; encadenada detrás de la funcional puede fotografiar lo que aquélla dejó. **Así se coló el
+   pie de página con basura de tests en el baseline de E5.**
+3. **Antes de regenerar, mira el diff.** Los seis rojos de esta ráfaga parecían deriva de código y
+   ninguno lo era. `test-results/<test>/*-diff.png` lo enseña en un vistazo.
+4. **Si la diferencia es un dato del entorno, no regeneres: tápalo.** Un baseline que guarda la
+   versión de la API, una fecha o un identificador de la máquina volverá a fallar en la siguiente.
 
 #### Los tests de Stripe pasan con una clave inválida `[COBERTURA]` ⛔ PRERREQ
 
