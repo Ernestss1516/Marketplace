@@ -227,6 +227,43 @@ export interface Modelo {
    * significar: `public` está vacía a propósito porque el registro público ES la base.
    */
   ajustesPorZona: Readonly<Partial<Record<EstiloZone, Readonly<Record<string, string>>>>>;
+  /**
+   * E13 — LO QUE CADA VERSIÓN CAMBIA SOBRE EL MODELO. Opcional: sin esto, todas las
+   * versiones de un modelo resuelven igual, que es lo que pasaba hasta ahora.
+   *
+   * ── EL AGUJERO QUE ESTO TAPA ────────────────────────────────────────────────────
+   *
+   * `versiones` existía desde E4a y era **una etiqueta y nada más**: el servicio la
+   * validaba al guardar y la devolvía al leer, pero `resolverTokens` nunca la veía. Con
+   * un solo modelo de una sola versión no se notaba; en cuanto un modelo ofrece dos, dos
+   * versiones que se ven idénticas son una promesa incumplida en la propia pantalla.
+   *
+   * ── QUÉ PUEDE CAMBIAR UNA VERSIÓN, Y QUÉ NO ─────────────────────────────────────
+   *
+   * Puede cambiar **cómo se deriva** (`rampa`) y **los ejes T2** (sombras, tempo, trazo).
+   * NO puede cambiar los cuatro colores configurables ni la estructura: son del modelo, y
+   * la decisión #2 dice que el juego de atributos es el mismo para todas. Una versión
+   * afina el ambiente; si necesitara otros atributos, sería otro modelo.
+   *
+   * ── UNA ADVERTENCIA SOBRE EL SIGNIFICADO DE «VERSIÓN» ───────────────────────────
+   *
+   * El §2.1 del diseño define versión como «una revisión del mismo modelo… para
+   * evolucionarlo sin cambiar bajo los pies de las instancias que ya lo usan» — es decir,
+   * un eje TEMPORAL. `calido-editorial` lo usa para ofrecer dos AMBIENTES a la vez (Día y
+   * Tarde), que no es lo mismo. Se hace así porque es lo que se pidió y porque el
+   * mecanismo lo soporta sin forzarlo, pero conviene saber el precio: el día que ese
+   * modelo necesite una revisión de verdad, el eje ya está ocupado y las versiones se
+   * llamarán `dia-2` / `tarde-2`. Ver la nota en `docs/pendientes.md`.
+   */
+  porVersion?: Readonly<Record<string, AjustesDeVersion>>;
+}
+
+/** Lo que una versión redefine sobre su modelo. Todo opcional: lo que no diga, lo hereda. */
+export interface AjustesDeVersion {
+  /** Franjas de la rampa que esta versión sustituye. Las que no nombre, se heredan. */
+  rampa?: Readonly<Record<string, FranjaRampa>>;
+  /** Ejes T2 que esta versión sustituye (sombras, tempo, radio, trazo de icono). */
+  ejes?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -363,15 +400,15 @@ export const MODELO_0: Modelo = {
    * lo que este modelo es.
    */
   ilustraciones: {
-    'empty-favorites': '/ilustraciones/empty-favorites.svg',
-    'empty-my-listings': '/ilustraciones/empty-my-listings.svg',
-    'empty-search': '/ilustraciones/empty-search.svg',
-    'empty-messages': '/ilustraciones/empty-messages.svg',
-    'empty-tickets': '/ilustraciones/empty-tickets.svg',
-    'empty-notifications': '/ilustraciones/empty-notifications.svg',
-    'success-payment': '/ilustraciones/success-payment.svg',
-    'success-review': '/ilustraciones/success-review.svg',
-    'success-listing-published': '/ilustraciones/success-listing-published.svg',
+    'empty-favorites': '/ilustraciones/empty-favorites.svg',
+    'empty-my-listings': '/ilustraciones/empty-my-listings.svg',
+    'empty-search': '/ilustraciones/empty-search.svg',
+    'empty-messages': '/ilustraciones/empty-messages.svg',
+    'empty-tickets': '/ilustraciones/empty-tickets.svg',
+    'empty-notifications': '/ilustraciones/empty-notifications.svg',
+    'success-payment': '/ilustraciones/success-payment.svg',
+    'success-review': '/ilustraciones/success-review.svg',
+    'success-listing-published': '/ilustraciones/success-listing-published.svg',
     'success-ticket-sent': '/ilustraciones/success-ticket-sent.svg',
   },
 
@@ -650,15 +687,15 @@ export const MODELO_PRUEBA: Modelo = {
    * suya» en vez de dejarlo sin recorrer en ninguna prueba.
    */
   ilustraciones: {
-    'empty-favorites': '/ilustraciones/empty-favorites.svg',
-    'empty-my-listings': '/ilustraciones/empty-my-listings.svg',
-    'empty-search': '/ilustraciones/empty-search.svg',
-    'empty-messages': '/ilustraciones/empty-messages.svg',
-    'empty-tickets': '/ilustraciones/empty-tickets.svg',
-    'empty-notifications': '/ilustraciones/empty-notifications.svg',
-    'success-payment': '/ilustraciones/success-payment.svg',
-    'success-review': '/ilustraciones/success-review.svg',
-    'success-listing-published': '/ilustraciones/success-listing-published.svg',
+    'empty-favorites': '/ilustraciones/empty-favorites.svg',
+    'empty-my-listings': '/ilustraciones/empty-my-listings.svg',
+    'empty-search': '/ilustraciones/empty-search.svg',
+    'empty-messages': '/ilustraciones/empty-messages.svg',
+    'empty-tickets': '/ilustraciones/empty-tickets.svg',
+    'empty-notifications': '/ilustraciones/empty-notifications.svg',
+    'success-payment': '/ilustraciones/success-payment.svg',
+    'success-review': '/ilustraciones/success-review.svg',
+    'success-listing-published': '/ilustraciones/success-listing-published.svg',
     'success-ticket-sent': '/ilustraciones/success-ticket-sent.svg',
   },
 
@@ -686,11 +723,316 @@ export const MODELO_PRUEBA: Modelo = {
   },
 };
 
+// ─────────────────────────────────────────────────────────────────────────────────────
+// E13 · CÁLIDO / EDITORIAL — el segundo modelo del catálogo
+// ─────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * LA RAMPA DE «DÍA» — hueso y crema, nunca blanco puro.
+ *
+ * Es la diferencia de carácter más barata y más eficaz que puede hacer un modelo: el
+ * Modelo 0 pinta el lienzo en `0 0% 100%` porque es la plataforma de hoy, y un blanco
+ * puro a pantalla completa es lo que hace que una interfaz se lea como una herramienta.
+ * Bajar a un hueso cálido la lee como una página impresa, y no cuesta ni un componente.
+ *
+ * Los desplazamientos se miden sobre el neutro de fábrica de este modelo
+ * (`30 12% 92%`, un gris cálido). Como en el Modelo 0, **la luz es absoluta**: el admin
+ * puede girar el neutro hacia donde quiera y el lienzo seguirá siendo claro y el texto
+ * oscuro. Lo que gira con él es el tono y la saturación — o sea, la familia.
+ */
+const RAMPA_CALIDO_DIA: Readonly<Record<string, FranjaRampa>> = {
+  // 38 44% 97.5% — hueso. Cálido y clarísimo, pero NO blanco.
+  background: { dh: 8, ds: 32, l: 97.5 },
+  // 25 30% 14% — el texto: un marrón muy oscuro, no negro. Sobre hueso da 15,6:1.
+  foreground: { dh: -5, ds: 18, l: 14 },
+  // La tarjeta SÍ se despega del lienzo, al revés que en el Modelo 0: sobre un fondo
+  // crema, una tarjeta casi blanca es lo que le da relieve a la página sin una sombra.
+  card: { dh: 10, ds: 38, l: 99 },
+  'card-foreground': { dh: -5, ds: 18, l: 14 },
+  popover: { dh: 10, ds: 38, l: 99 },
+  'popover-foreground': { dh: -5, ds: 18, l: 14 },
+  // 35 30% 94% — la superficie atenuada, un escalón por debajo del lienzo.
+  muted: { dh: 5, ds: 18, l: 94 },
+  // 25 14% 36% — el texto atenuado. Bajo a propósito: sobre hueso, un gris medio se
+  // desvanece antes que sobre blanco.
+  'muted-foreground': { dh: -5, ds: 2, l: 36 },
+  // 32 24% 86% — el trazo decorativo.
+  border: { dh: 2, ds: 12, l: 86 },
+  // 28 18% 55% — el borde de campo. Igual que en el Modelo 0, se oscurece lo justo para
+  // cumplir 1.4.11 (3:1) y ni un punto más.
+  input: { dh: -2, ds: 6, l: 55 },
+};
+
+/**
+ * «TARDE» — la misma personalidad con la luz de media tarde: el papel se tuesta, el
+ * contraste sube y las sombras pesan un poco más.
+ *
+ * SÓLO REDEFINE FRANJAS Y EJES. No toca los cuatro colores ni la estructura, que son del
+ * modelo (decisión #2): quien elige Tarde elige otro AMBIENTE, no otra plataforma.
+ */
+const RAMPA_CALIDO_TARDE: Readonly<Record<string, FranjaRampa>> = {
+  // 32 38% 94% — el papel, tostado. Tres puntos y medio de luz menos que en Día.
+  background: { dh: 2, ds: 26, l: 94 },
+  // 22 34% 10% — el texto, más profundo: si el lienzo baja, el texto baja con él o el
+  // contraste se queda igual y el ambiente no cambia.
+  foreground: { dh: -8, ds: 22, l: 10 },
+  card: { dh: 6, ds: 32, l: 97 },
+  'card-foreground': { dh: -8, ds: 22, l: 10 },
+  popover: { dh: 6, ds: 32, l: 97 },
+  'popover-foreground': { dh: -8, ds: 22, l: 10 },
+  muted: { dh: 0, ds: 18, l: 90 },
+  'muted-foreground': { dh: -6, ds: 4, l: 32 },
+  border: { dh: -2, ds: 14, l: 82 },
+  input: { dh: -4, ds: 8, l: 50 },
+};
+
+/**
+ * ══ CÁLIDO / EDITORIAL ═══════════════════════════════════════════════════════════════
+ *
+ * El segundo modelo del catálogo, y el primero que existe para tener CARÁCTER en vez de
+ * para no tenerlo. Terracota y crema, titulares con serifa, sombras tibias: una revista,
+ * no un panel de control.
+ *
+ * ── ESTÁ EN SECO, Y ESO ES LA MITAD DEL PUNTO ───────────────────────────────────────
+ *
+ * `MODELO_POR_DEFECTO` sigue siendo el Modelo 0. Este modelo es ELEGIBLE en
+ * `/admin/estilo` y no está activo en ninguna parte, así que las 52 capturas de la
+ * batería visual tienen que salir idénticas. Si alguna se mueve, es que se coló en el
+ * defecto — y eso es un bug, no un cambio de aspecto.
+ *
+ * ── LA TIPOGRAFÍA ES DEL SISTEMA, Y ES UNA DECISIÓN DE v1 ───────────────────────────
+ *
+ * `font-heading` apunta a una pila de serifas del sistema y NO a un fichero propio. El
+ * §3.1 del diseño es tajante con las fuentes —se sirven del repo con `next/font/local`,
+ * nunca de Google, porque un runner que no alcance `fonts.gstatic.com` tumba el build—, y
+ * servir una desde el repo obliga a declararla en `layout.tsx`. Esta ráfaga es **puro
+ * registro**: no toca un solo `.tsx`, que es lo que garantiza que un modelo reviste y no
+ * reorganiza.
+ *
+ * Georgia e Iowan Old Style están en Windows y en macOS respectivamente desde hace
+ * décadas, así que el carácter editorial llega igual. El día que Ernest apruebe la
+ * dirección, cambiar la pila por una serifa propia es una ráfaga aparte —añadir el
+ * `.woff2`, declararlo en el layout y cambiar esta línea— y entonces sí toca un `.tsx`.
+ *
+ * ── LOS VALORES SON DE PARTIDA ──────────────────────────────────────────────────────
+ *
+ * Los cuatro colores y las dos rampas están medidos contra AA (`contraste-modelos.spec.ts`
+ * los valida en CI, las dos versiones y las cinco zonas), pero el ASPECTO es de Ernest:
+ * están puestos para que se vean y se ajusten, no para quedarse.
+ */
+export const MODELO_CALIDO_EDITORIAL: Modelo = {
+  id: 'calido-editorial',
+  nombre: 'Cálido / Editorial',
+  descripcion:
+    'Terracota y papel, titulares con serifa. Para que la plataforma se lea como una revista y no como un panel de control.',
+  versiones: ['dia', 'tarde'],
+
+  /**
+   * LOS CUATRO DE FÁBRICA. Los cálidos son traicioneros con el contraste —un naranja
+   * bonito casi nunca aguanta letra blanca— así que estos están elegidos midiendo:
+   *
+   *  · `primary` es una terracota QUEMADA, no un naranja. La luz al 42 % es lo que
+   *    permite las dos cosas que tiene que hacer: llevar letra clara encima (4,5:1) y
+   *    servir de anillo de foco sobre el hueso (3:1). Un terracota alegre al 55 % falla
+   *    las dos.
+   *  · `secondary` es un oliva PROFUNDO, y la profundidad no es gusto: el primer intento
+   *    fue `88 20% 44%`, un oliva de media luz que parecía el complemento natural del
+   *    terracota — y cayó en la zona muerta donde NINGUNA de las dos letras llega a
+   *    4,5:1 (se quedaba en 4,16). Es el defecto clásico de los tonos medios, y en un
+   *    modelo cálido es fácil caer en él sin darse cuenta. A 34 % la letra clara da de
+   *    sobra.
+   *  · `accent` es el coral, que es donde este modelo se permite ser vivo — sólo pinta
+   *    fondos de resalte, no texto.
+   *  · `neutral` NO es gris puro: lleva tinte cálido, y de él sale la rampa entera. Es el
+   *    color que menos se nota y el que más cambia la sensación de la página.
+   */
+  coloresPorDefecto: {
+    primary: '18 68% 42%',
+    secondary: '88 22% 34%',
+    accent: '8 66% 58%',
+    neutral: '30 12% 92%',
+  },
+
+  /**
+   * Los dos candidatos a letra. Ninguno es blanco ni negro puros: sobre un tema cálido
+   * cantan, y el marfil/marrón mantienen la familia. `mejorTextoSobre` elige entre ellos
+   * midiendo, así que basta con que los dos sean legibles en su extremo.
+   */
+  textoSobre: ['40 44% 97%', '25 34% 12%'],
+
+  rampa: RAMPA_CALIDO_DIA,
+
+  porVersion: {
+    // «Día» es la versión base: la rampa del modelo tal cual, sin redefinir nada.
+    dia: {},
+    tarde: {
+      rampa: RAMPA_CALIDO_TARDE,
+      ejes: {
+        // La tarde pesa más: sombras algo más densas y un tempo un punto más lento, que
+        // es lo que separa «ágil» de «calmado» sin tocar una sola estructura.
+        shadow: '0 1px 3px 0 rgb(60 30 10 / 0.14), 0 1px 2px -1px rgb(60 30 10 / 0.12)',
+        'shadow-md':
+          '0 4px 8px -1px rgb(60 30 10 / 0.16), 0 2px 5px -2px rgb(60 30 10 / 0.12)',
+        'shadow-lg':
+          '0 12px 18px -3px rgb(60 30 10 / 0.18), 0 5px 8px -4px rgb(60 30 10 / 0.14)',
+        'motion-duration': '200ms',
+      },
+    },
+  },
+
+  /**
+   * SE HEREDAN LOS SEMÁNTICOS DEL MODELO 0, Y ES DELIBERADO EN v1.
+   *
+   * Rojo de error, verde de éxito y ámbar de aviso son convenciones que el usuario trae
+   * puestas de fuera; teñirlas de terracota para que «peguen» con el modelo es
+   * exactamente el cambio que hace que un error deje de leerse como un error. Además,
+   * estos valores están medidos contra AA desde E4b, y reinventarlos en un modelo nuevo
+   * sería volver a hacer ese trabajo para ganar coherencia decorativa.
+   *
+   * Se mantienen a la vista —copiados, no importados— porque un modelo declara TODO lo
+   * suyo: el día que este modelo quiera su propio rojo, se cambia aquí y no en dos sitios.
+   */
+  semanticos: { ...MODELO_0.semanticos },
+
+  ejes: {
+    // El cuerpo sigue en Inter: es legible, está en el repo y la escala tipográfica es
+    // estructura (T3), no del modelo. Lo que cambia es el TITULAR.
+    'font-sans': 'var(--font-inter)',
+    /**
+     * ⚠ SIN COMILLAS, Y NO ES UN DESCUIDO DE ESTILO: es lo único que hace que este valor
+     * LLEGUE.
+     *
+     * La primera versión era `Georgia, 'Iowan Old Style', 'Times New Roman', serif` y la
+     * previa salió con los titulares en sans. El token no estaba muerto —`globals.css`
+     * pone `font-family: var(--font-heading)` en los encabezados— ni lo pisaba la
+     * cascada: lo descartaba el filtro de inyección de `lib/estilo-css.ts`, cuyo
+     * `VALOR_SEGURO` no admite comillas a propósito («un valor que no reconocemos es un
+     * valor en el que no se confía»). Se caía en silencio, que es como se caen estas
+     * cosas.
+     *
+     * CSS admite familias de varias palabras SIN comillas mientras cada palabra sea un
+     * identificador válido, así que `Times New Roman` a pelo es correcto y además pasa el
+     * filtro. Georgia está en Windows y en macOS desde hace décadas; Cambria cubre el
+     * Windows sin Georgia; `serif` cierra.
+     */
+    'font-heading': 'Georgia, Cambria, Times New Roman, serif',
+
+    // Menos redondeado que el Modelo 0: lo editorial es más recto.
+    radius: '0.375rem',
+
+    // Sombras TIBIAS: el negro puro sobre un lienzo crema hace una sombra gris que se ve
+    // sucia. Estas llevan tinte marrón, así que el papel parece papel.
+    'shadow-sm': '0 1px 2px 0 rgb(60 30 10 / 0.06)',
+    shadow: '0 1px 3px 0 rgb(60 30 10 / 0.10), 0 1px 2px -1px rgb(60 30 10 / 0.09)',
+    'shadow-md': '0 4px 6px -1px rgb(60 30 10 / 0.12), 0 2px 4px -2px rgb(60 30 10 / 0.09)',
+    'shadow-lg': '0 10px 15px -3px rgb(60 30 10 / 0.13), 0 4px 6px -4px rgb(60 30 10 / 0.10)',
+    'shadow-xl': '0 20px 25px -5px rgb(60 30 10 / 0.14), 0 8px 10px -6px rgb(60 30 10 / 0.10)',
+
+    // Un pelo más presente que el Modelo 0 (150ms): editorial no es lento, es tranquilo.
+    'motion-duration': '180ms',
+    'motion-ease': 'cubic-bezier(0.32, 0.72, 0, 1)',
+    'motion-ease-emphasis': 'cubic-bezier(0.4, 0, 0.2, 1)',
+    'motion-sprite-duration': '1.4s',
+
+    // Trazo de icono más fino: acompaña a la serifa. El Modelo 0 usa 2.
+    'icon-stroke': '1.75',
+  },
+
+  /**
+   * LAS DIEZ, APUNTANDO A LAS DE SIEMPRE — y declaradas una por una a propósito.
+   *
+   * El primer intento las dejó vacías, razonando que el registro cierra la cadena de
+   * respaldo (admin → modelo → registro) y ninguna pantalla se quedaría sin imagen. Es
+   * cierto y **aun así estaba mal**: `ilustraciones.spec.ts` exige que TODO modelo declare
+   * los diez slots, y la cabecera de ese test explica por qué el respaldo no basta —está
+   * ahí para que un olvido no rompa nada, no para que un modelo delegue en él—. Un modelo
+   * que no declara no dice «sirvo las de siempre», dice «no lo he pensado».
+   *
+   * Este sí lo ha pensado: las del Modelo 0 son línea monocroma en gris medio —neutras a
+   * propósito— y no pelean con el terracota. Un juego propio y cálido es trabajo de
+   * ilustración, no de registro, y llega cuando Ernest apruebe la dirección: entonces se
+   * cambian estas diez líneas y nada más.
+   */
+  ilustraciones: { ...MODELO_0.ilustraciones },
+
+  /**
+   * LAS ZONAS, con la misma INTENCIÓN que en el Modelo 0 y el vocabulario de éste.
+   *
+   * Es lo que hace que esto sea un modelo y no una paleta: las cinco decisiones de E5
+   * —el backoffice resta, el blog tiñe, la cuenta va a medio camino, el login es oscuro—
+   * son del SISTEMA, y un modelo las expresa en sus propios colores en vez de heredarlas
+   * literales. `public` no aparece: el registro público es la base.
+   */
+  ajustesPorZona: {
+    /**
+     * BACKOFFICE — resta. Se le quita el tueste al lienzo (queda casi blanco, que es lo
+     * que una tabla necesita) y se sube el contraste del texto atenuado. El tempo baja:
+     * una herramienta responde.
+     */
+    backoffice: {
+      background: '38 20% 98.5%',
+      card: '38 20% 99.5%',
+      muted: '35 14% 95%',
+      accent: '35 14% 95%',
+      border: '32 12% 88%',
+      input: '28 10% 52%',
+      'muted-foreground': '25 8% 32%',
+      'motion-duration': '120ms',
+    },
+
+    /**
+     * BLOG — tiñe, y aquí el modelo por fin no tiene que contenerse: es donde se viene a
+     * leer seguido y donde el papel cálido está en su sitio. Un punto MÁS tostado que el
+     * lienzo base, no menos.
+     */
+    blog: {
+      background: '36 46% 96.5%',
+      card: '36 46% 96.5%',
+      muted: '34 34% 93%',
+      'motion-duration': '160ms',
+    },
+
+    /** CUENTA — a medio camino entre el escaparate y la herramienta, como en el Modelo 0. */
+    cuenta: {
+      background: '37 32% 98%',
+      muted: '35 22% 94.5%',
+      accent: '35 22% 94.5%',
+      'motion-duration': '150ms',
+    },
+
+    /**
+     * LOGIN DEL BACKOFFICE — el oscuro, en cálido. Mismo papel que en el Modelo 0: la
+     * puerta de servicio se distingue de un vistazo.
+     *
+     * Los valores están medidos, no elegidos a ojo: sobre este lienzo, el borde de campo
+     * y el anillo de foco tienen que cumplir 1.4.11 igual que en cualquier otra zona, y
+     * `contraste-modelos.spec.ts` lo exige zona por zona.
+     */
+    login: {
+      background: '24 28% 8%',
+      foreground: '38 30% 94%',
+      card: '24 24% 13%',
+      'card-foreground': '38 30% 94%',
+      popover: '24 24% 13%',
+      'popover-foreground': '38 30% 94%',
+      border: '24 18% 22%',
+      input: '28 14% 52%',
+      'muted-foreground': '32 16% 68%',
+      ring: '30 45% 72%',
+      primary: '38 30% 94%',
+      'primary-foreground': '24 24% 13%',
+      'destructive-subtle': '#3d0d0d',
+      'destructive-border': '#7f1d1d',
+      'destructive-strong': '#fca5a5',
+    },
+  },
+};
+
 /**
  * El catálogo PÚBLICO. Se añaden modelos AQUÍ, por código — «los iremos añadiendo».
  * `MODELO_PRUEBA` no está, y no es un olvido: ver su comentario.
  */
-export const MODELOS: readonly Modelo[] = [MODELO_0];
+export const MODELOS: readonly Modelo[] = [MODELO_0, MODELO_CALIDO_EDITORIAL];
 
 /**
  * Los que EXISTEN pero no se ofrecen. Hoy sólo el de prueba. Se mantiene aparte de
@@ -723,13 +1065,29 @@ function aplicarFranja(base: { h: number; s: number; l: number }, f: FranjaRampa
 /**
  * De cuatro colores a la paleta entera. **Función pura**: mismo dato, mismo resultado,
  * sin base ni red de por medio, así que se puede probar valor a valor.
+ *
+ * `version` es OPCIONAL y no por comodidad: sin ella, esta función devuelve exactamente
+ * lo que devolvía antes de que las versiones existieran. Es lo que garantiza que el
+ * Modelo 0 —que no declara `porVersion`— resuelva byte a byte igual, y con él las 52
+ * capturas de la batería visual.
  */
-export function resolverTokens(modelo: Modelo, colores: ColoresConfigurables): Tokens {
+export function resolverTokens(
+  modelo: Modelo,
+  colores: ColoresConfigurables,
+  version?: string,
+): Tokens {
   const neutro = parsearTriplete(colores.neutral) ?? parsearTriplete('210 40% 96.1%')!;
   const tokens: Tokens = {};
 
+  // 0 · Lo que la versión redefine. Se mezcla ANTES de derivar, no después: una versión
+  // cambia la REGLA (la franja), no el color ya calculado — si parcheara el resultado,
+  // dejaría de girar con el neutro que elija el admin, que es todo el sentido de la rampa.
+  const deVersion = version ? modelo.porVersion?.[version] : undefined;
+  const rampa = deVersion?.rampa ? { ...modelo.rampa, ...deVersion.rampa } : modelo.rampa;
+  const ejes = deVersion?.ejes ? { ...modelo.ejes, ...deVersion.ejes } : modelo.ejes;
+
   // 1 · La rampa neutra: lienzo, superficies, trazo y texto base.
-  for (const [nombre, franja] of Object.entries(modelo.rampa)) {
+  for (const [nombre, franja] of Object.entries(rampa)) {
     tokens[nombre] = aplicarFranja(neutro, franja);
   }
 
@@ -742,8 +1100,8 @@ export function resolverTokens(modelo: Modelo, colores: ColoresConfigurables): T
   // 3 · El anillo de foco sigue al color principal, como hasta ahora.
   tokens.ring = colores.primary;
 
-  // 4 · Semánticos y ejes: fijos del modelo.
-  Object.assign(tokens, modelo.semanticos, modelo.ejes);
+  // 4 · Semánticos y ejes: fijos del modelo (los ejes, afinables por la versión).
+  Object.assign(tokens, modelo.semanticos, ejes);
 
   return tokens;
 }
@@ -756,10 +1114,13 @@ export function resolverZona(
   modelo: Modelo,
   colores: ColoresConfigurables,
   zona: EstiloZone,
+  version?: string,
 ): Tokens {
   const ajustes = modelo.ajustesPorZona[zona];
   if (!ajustes) return {};
-  const base = resolverTokens(modelo, colores);
+  // La base tiene que resolverse CON LA MISMA VERSIÓN, o el filtro de «ajuste que no
+  // ajusta» compararía contra otro tema y emitiría —o se callaría— lo que no toca.
+  const base = resolverTokens(modelo, colores, version);
   const salida: Tokens = {};
   for (const [nombre, valor] of Object.entries(ajustes)) {
     // Un ajuste que coincide con la base no se emite: sería una regla que no hace nada.

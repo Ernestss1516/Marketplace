@@ -110,13 +110,16 @@ export class EstiloService {
   async get(): Promise<EstiloResuelto> {
     const config = await this.getConfig();
     const modelo = buscarModelo(config.modelo) ?? MODELO_POR_DEFECTO;
-    const tokens = resolverTokens(modelo, config.colores);
+    // E13 — la versión ENTRA en la resolución. Hasta ahora se validaba al guardar, se
+    // devolvía al leer y no afectaba a un solo píxel: dos versiones de un modelo se veían
+    // idénticas. El Modelo 0 no declara `porVersion`, así que para él esto no cambia nada.
+    const tokens = resolverTokens(modelo, config.colores, config.version);
 
     // E5 — cada zona con lo que AJUSTA sobre la base, y sólo eso. En el Modelo 0 sin
     // diferenciación las cinco salen vacías, que es lo que hace que montar el
     // mecanismo no cambie un píxel.
     const zonas = Object.fromEntries(
-      ESTILO_ZONES.map((z) => [z, resolverZona(modelo, config.colores, z)]),
+      ESTILO_ZONES.map((z) => [z, resolverZona(modelo, config.colores, z, config.version)]),
     ) as Record<EstiloZone, Tokens>;
 
     return {
@@ -158,7 +161,10 @@ export class EstiloService {
     }
 
     const colores = this.normalizarColores(entrada.colores, modelo.coloresPorDefecto);
-    const tokens = resolverTokens(modelo, colores);
+    // CON LA VERSIÓN, o se estaría midiendo el contraste de un tema distinto del que se va
+    // a guardar: dos versiones del mismo modelo derivan lienzos distintos, y una podría
+    // cumplir AA donde la otra no.
+    const tokens = resolverTokens(modelo, colores, entrada.version);
 
     const fallos = validarContraste(tokens);
     if (fallos.length > 0) {
