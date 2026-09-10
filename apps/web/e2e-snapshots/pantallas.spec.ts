@@ -154,7 +154,41 @@ test.describe('Backoffice', () => {
     ['blog', '/admin/blog'],
     ['facturas', '/admin/facturas'],
     ['marca', '/admin/marca'],
-    ['instancia', '/admin/instancia'],
+    /**
+     * E12 — `tapar` = LAS DOS FILAS QUE PINTAN LA MÁQUINA, no el código.
+     *
+     * Ésta es la única pantalla de la batería que muestra el entorno del despliegue, y dos
+     * de sus filas cambian sin que nadie toque nada: «Versión de la API» sale de
+     * `npm_package_version` —o sea, de CÓMO se lanzó el proceso, no de qué versión es— y
+     * «Commit desplegado» saldrá de `GIT_SHA` en cuanto el despliegue lo exporte.
+     *
+     * Sin la máscara, el baseline de cada plataforma guarda el entorno de la máquina que lo
+     * escribió, y la captura falla en la siguiente sin que nada esté roto. Se descubrió así:
+     * el baseline de win32 llevaba una versión de API y el runner de linux otra, y esos 363
+     * píxeles llevaban tres ráfagas apuntados como «deriva pendiente de revisar».
+     *
+     * ENMASCARAR AQUÍ SÍ VALE, y conviene decir por qué, porque el §10.3 del diseño advierte
+     * justo de lo contrario: la máscara se pinta DESPUÉS del maquetado, así que tapa el texto
+     * pero no el desplazamiento que ese texto provoca. Ahí está la diferencia con
+     * `/admin/ajustes`, que se sacó del catálogo: allí el texto variable reajustaba el salto
+     * de línea y movía la página entera 24 px. Aquí el valor es corto y va en una fila propia;
+     * **medido**: con la versión cambiada las dos imágenes siguen teniendo el mismo alto.
+     *
+     * ⚠ SE TAPA LA FILA ENTERA Y NO SÓLO EL VALOR, y esto costó una mutación descubrirlo. La
+     * primera versión tapaba el `<dd>`, para no perder de vista la etiqueta. No servía:
+     * Playwright dibuja la máscara sobre la CAJA del elemento, y la caja de un valor alineado
+     * a la derecha cambia de ancho con el texto — así que con una versión más larga el
+     * rectángulo tapado era otro y la captura seguía difiriendo en 1.720 píxeles. Curiosamente
+     * pasaba en móvil, donde el `<dd>` ocupa el ancho completo y la caja no se mueve: un
+     * recordatorio de que dos proyectos no son dos corridas del mismo test.
+     *
+     * Lo que queda sin vigilar son las dos etiquetas. Es el precio, y es barato.
+     */
+    [
+      'instancia',
+      '/admin/instancia',
+      '[data-testid="dato-version-api"], [data-testid="dato-commit"]',
+    ],
   ];
 
   for (const [nombre, ruta, tapar] of RUTAS) {
