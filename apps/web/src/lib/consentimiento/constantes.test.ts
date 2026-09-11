@@ -16,7 +16,7 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { CATEGORIAS, NOMBRE_COOKIE, MAX_AGE_SEGUNDOS, VERSION_TEXTO } from './constantes';
+import { CATEGORIAS, NOMBRE_COOKIE, MAX_AGE_SEGUNDOS, VERSION_TEXTO_FALLBACK } from './constantes';
 
 const FUENTE_BACKEND = join(
   __dirname,
@@ -43,7 +43,7 @@ describe('las constantes del consentimiento coinciden con las del backend', () =
   });
 
   it('la versión del texto es la misma a los dos lados', () => {
-    expect(leerBackend()).toContain(`CONSENT_POLICY_VERSION = '${VERSION_TEXTO}'`);
+    expect(leerBackend()).toContain(`CONSENT_POLICY_VERSION = '${VERSION_TEXTO_FALLBACK}'`);
   });
 
   it('el nombre de la cookie es el mismo a los dos lados', () => {

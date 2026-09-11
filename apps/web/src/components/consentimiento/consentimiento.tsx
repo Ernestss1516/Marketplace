@@ -1,8 +1,8 @@
 'use client';
 
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { registrarConsentimiento } from '@/lib/api/consentimiento';
-import { VERSION_TEXTO, type Categoria } from '@/lib/consentimiento/constantes';
+import { registrarConsentimiento, type AccionConsentimiento } from '@/lib/api/consentimiento';
+import { versionVigente, type Categoria } from '@/lib/consentimiento/constantes';
 import {
   escribirConsentimiento,
   leerConsentimiento,
@@ -69,13 +69,39 @@ export const CONSENT_CHANGED_EVENT = 'marketplace:consent-changed';
  */
 const TodoConcedidoContext = createContext(false);
 
+/**
+ * RÁFAGA 2 — el evento con el que el footer pide reabrir el panel de preferencias.
+ *
+ * El botón del footer y el banner viven en sitios distintos del árbol y no comparten
+ * proveedor (a propósito, ver arriba), así que se hablan como el resto de piezas sueltas
+ * de este repo: por el bus del navegador.
+ */
+export const CONSENT_REOPEN_EVENT = 'marketplace:consent-reopen';
+
 export interface EstadoConsentimiento {
   /** ¿Ya se leyó la cookie? Antes de esto no se sabe nada, y no saber es no consentir. */
   cargado: boolean;
+  /**
+   * ¿Hay una decisión VÁLIDA para la versión vigente del texto?
+   *
+   * `false` cubre tres casos que para el banner son el mismo: no hay cookie, la cookie es
+   * ilegible, o la cookie es de una versión anterior del texto (D5 — el admin la subió y
+   * hay que volver a preguntar). Es lo que decide si el banner aparece.
+   */
+  decidido: boolean;
   /** ¿Está consentida esta categoría? */
   permite: (categoria: Categoria) => boolean;
   /** Concede una categoría: escribe la cookie, avisa a los demás gates y registra la prueba. */
   conceder: (categoria: Categoria) => void;
+  /**
+   * Rechaza todo lo no esencial. **Escribe cookie igual que aceptar**, y eso es lo que
+   * hace que el banner no vuelva a salir: sin fila, «rechazó» sería indistinguible de «no
+   * ha decidido» y se le preguntaría en cada visita — que es otra forma de presionar para
+   * aceptar, y de las más comunes.
+   */
+  rechazar: () => void;
+  /** Retira un consentimiento anterior. Escribe `WITHDRAWN` y deja la cookie sin categorías. */
+  revocar: () => void;
 }
 
 /**
@@ -115,60 +141,84 @@ export function useConsent(): EstadoConsentimiento {
     return () => window.removeEventListener(CONSENT_CHANGED_EVENT, releer);
   }, [todoConcedido]);
 
-  const conceder = useCallback(
-    (categoria: Categoria) => {
-      const previas = leerConsentimiento();
-      if (previas?.categorias.includes(categoria)) return;
+  /**
+   * El camino único de toda decisión: escribe la cookie, avisa al resto de la página y
+   * registra la prueba.
+   *
+   * UNO Y NO TRES, aunque aceptar, rechazar y revocar suenen a cosas distintas: la
+   * mecánica es idéntica —la misma cookie, el mismo evento, la misma fila— y lo único
+   * que cambia es qué categorías quedan y cómo se llama la acción en el registro. Tres
+   * copias de esto serían tres sitios donde olvidarse del evento.
+   */
+  const decidir = useCallback((categorias: Categoria[], action: AccionConsentimiento) => {
+    const version = versionVigente();
+    const previas = leerConsentimiento();
 
-      const categorias = [...(previas?.categorias ?? []), categoria];
-      // Una concesión sobre una decisión anterior es un cambio, no una primera vez: la
-      // prueba tiene que distinguirlos.
-      const action = previas ? 'UPDATED' : 'GRANTED';
+    // SE ESCRIBE LA COOKIE PRIMERO Y SIN ESPERAR AL SERVIDOR: la voluntad del usuario se
+    // respeta ya, en este frame. El registro va detrás y puede fallar sin que nada se
+    // rompa — el `id` queda en `null` y la cookie sigue siendo válida.
+    const base: Consentimiento = {
+      version,
+      categorias,
+      fecha: Math.floor(Date.now() / 1000),
+      id: previas?.id ?? null,
+    };
+    escribirConsentimiento(base);
+    setConsentimiento(base);
+    window.dispatchEvent(new Event(CONSENT_CHANGED_EVENT));
 
-      // SE ESCRIBE LA COOKIE PRIMERO Y SIN ESPERAR AL SERVIDOR: la voluntad del usuario
-      // se respeta ya, en este frame. El registro va detrás y puede fallar sin que nada
-      // se rompa — el `id` queda en `null` y la cookie sigue siendo válida.
-      const base: Consentimiento = {
-        version: VERSION_TEXTO,
-        categorias,
-        fecha: Math.floor(Date.now() / 1000),
-        id: previas?.id ?? null,
-      };
-      escribirConsentimiento(base);
-      setConsentimiento(base);
-      window.dispatchEvent(new Event(CONSENT_CHANGED_EVENT));
-
-      /**
-       * SIN TOKEN, Y LA FILA QUEDA SIN `userId` — que es el caso NORMAL: el
-       * consentimiento se da casi siempre antes de iniciar sesión, en la primera visita.
-       *
-       * Atarlo al usuario exigiría la sesión aquí, y traerla significaba `useSession()`
-       * (ESM que jest no transforma, y que obligaría a mockear next-auth en cada test
-       * que monte un vídeo) o un proveedor en el layout raíz — que es exactamente lo que
-       * rompía la hidratación. El enlace anónimo → logueado llega en la ráfaga 2 a
-       * través del `id` de la cookie, que es justamente para lo que ese campo existe.
-       */
-      void registrarConsentimiento({
-        action,
-        categories: categorias,
-        policyVersion: VERSION_TEXTO,
-      }).then((id) => {
+    /**
+     * SIN TOKEN, Y LA FILA NACE SIN `userId` — que es el caso NORMAL: el consentimiento
+     * se da casi siempre antes de iniciar sesión, en la primera visita.
+     *
+     * Traer la sesión aquí exigiría `useSession()` (ESM que jest no transforma) o un
+     * proveedor en el layout raíz, que es exactamente lo que rompía la hidratación en la
+     * ráfaga 1. El enlace con la cuenta lo hace `VincularConsentimiento` al entrar,
+     * usando el `id` que esta cookie guarda — que es justamente para lo que existe.
+     */
+    void registrarConsentimiento({ action, categories: categorias, policyVersion: version }).then(
+      (id) => {
         if (!id) return;
         const conId = { ...base, id };
         escribirConsentimiento(conId);
         setConsentimiento(conId);
-      });
+      },
+    );
+  }, []);
+
+  const conceder = useCallback(
+    (categoria: Categoria) => {
+      const previas = leerConsentimiento();
+      if (previas?.categorias.includes(categoria)) return;
+      // Una concesión sobre una decisión anterior es un cambio, no una primera vez: la
+      // prueba tiene que distinguirlos.
+      decidir([...(previas?.categorias ?? []), categoria], previas ? 'UPDATED' : 'GRANTED');
     },
-    [],
+    [decidir],
   );
 
+  const rechazar = useCallback(() => decidir([], 'REJECTED'), [decidir]);
+  const revocar = useCallback(() => decidir([], 'WITHDRAWN'), [decidir]);
+
   if (todoConcedido) {
-    return { cargado: true, permite: () => true, conceder: () => undefined };
+    return {
+      cargado: true,
+      decidido: true,
+      permite: () => true,
+      conceder: () => undefined,
+      rechazar: () => undefined,
+      revocar: () => undefined,
+    };
   }
 
   return {
     cargado,
+    // `leerConsentimiento` ya descarta las cookies de otra versión, así que «hay
+    // consentimiento» y «es de la versión vigente» son la misma comprobación.
+    decidido: consentimiento !== null,
     permite: (categoria) => consentimiento?.categorias.includes(categoria) ?? false,
     conceder,
+    rechazar,
+    revocar,
   };
 }

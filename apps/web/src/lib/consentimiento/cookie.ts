@@ -1,4 +1,10 @@
-import { CATEGORIAS, MAX_AGE_SEGUNDOS, NOMBRE_COOKIE, VERSION_TEXTO, type Categoria } from './constantes';
+import {
+  CATEGORIAS,
+  MAX_AGE_SEGUNDOS,
+  NOMBRE_COOKIE,
+  versionVigente,
+  type Categoria,
+} from './constantes';
 
 /**
  * COOKIES RÁFAGA 1 — LA COOKIE DE CONSENTIMIENTO.
@@ -60,7 +66,10 @@ function categoriasValidas(valor: unknown): Categoria[] {
  * (D5) — si el admin sube la versión, la cookie vieja deja de valer y se vuelve a
  * preguntar.
  */
-export function parsearConsentimiento(valor: string | undefined | null): Consentimiento | null {
+export function parsearConsentimiento(
+  valor: string | undefined | null,
+  version: string = versionVigente(),
+): Consentimiento | null {
   if (!valor) return null;
 
   let crudo: CookieCruda;
@@ -71,7 +80,7 @@ export function parsearConsentimiento(valor: string | undefined | null): Consent
   }
 
   if (!crudo || typeof crudo !== 'object') return null;
-  if (typeof crudo.v !== 'string' || crudo.v !== VERSION_TEXTO) return null;
+  if (typeof crudo.v !== 'string' || crudo.v !== version) return null;
   if (typeof crudo.t !== 'number' || !Number.isFinite(crudo.t)) return null;
 
   return {

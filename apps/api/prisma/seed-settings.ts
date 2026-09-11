@@ -68,4 +68,35 @@ export const SEED_SETTINGS: { key: string; value: Prisma.InputJsonValue }[] = [
   // D3 — tope de programaciones de bump activas por usuario. Mismo número que
   // DEFAULT_MAX_SCHEDULES_PER_USER, que es el que se aplicaba sin fila.
   { key: 'maxBumpSchedulesPerUser', value: 10 },
+
+  // ── COOKIES RÁFAGA 2 — el texto del banner, por instancia ───────────────
+  //
+  // Se siembran con EXACTAMENTE los mismos valores que `COOKIE_TEXT_DEFAULTS`
+  // (consent.constants.ts), que es el respaldo en código. La duplicación es
+  // deliberada y está cubierta por un test que falla si divergen: sembrarlos los
+  // hace VISIBLES y editables desde /admin/cookies, y el respaldo en código
+  // garantiza que el banner salga igual si a una instancia le falta una fila.
+  //
+  // Es la lección de `videoEnabled` aplicada donde más duele: un interruptor que
+  // vive en el whitelist y no en la semilla es inalcanzable en producción, y aquí
+  // lo inalcanzable sería el texto de un banner legal.
+  { key: 'cookieBannerTitle', value: 'Cookies y contenido de terceros' },
+  {
+    key: 'cookieBannerBody',
+    value:
+      'Usamos cookies propias imprescindibles para que la plataforma funcione (tu sesión y ' +
+      'poco más). Algunas páginas incluyen vídeos y mapas servidos por terceros, que ' +
+      'reciben tu dirección IP: no se cargan hasta que tú lo aceptes.',
+  },
+  { key: 'cookieBannerAcceptLabel', value: 'Aceptar' },
+  { key: 'cookieBannerRejectLabel', value: 'Rechazar' },
+  { key: 'cookieBannerMoreLabel', value: 'Más información' },
+  // VACÍO HASTA LA RÁFAGA 3: la página de cookies todavía no existe, y enlazar a una
+  // ruta inexistente desde el banner legal sería peor que no enlazar. Mientras esté
+  // vacío, «Más información» despliega el detalle en el propio banner.
+  { key: 'cookiePolicyUrl', value: '' },
+  // LA VERSIÓN DEL TEXTO CONSENTIDO (D5). La sube el ADMIN A MANO desde
+  // /admin/cookies, con aviso: subirla vuelve a preguntar a TODA la base de usuarios.
+  // No se deriva del texto a propósito — una errata corregida no debe re-preguntar.
+  { key: 'cookiePolicyVersion', value: '1' },
 ];

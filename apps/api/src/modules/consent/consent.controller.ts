@@ -1,11 +1,12 @@
 import { Body, Controller, HttpCode, HttpStatus, Ip, Post, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { OptionalJwtAuthGuard } from '../../common/guards';
+import { JwtAuthGuard, OptionalJwtAuthGuard } from '../../common/guards';
 import { CurrentUser } from '../../common/decorators';
 import { JwtUser } from '../auth/auth.types';
 import { RateLimitService } from '../../infra/redis/rate-limit.service';
 import { ConsentService } from './consent.service';
 import { RecordConsentDto } from './dto/record-consent.dto';
+import { LinkConsentDto } from './dto/link-consent.dto';
 import {
   CONSENT_RATE_LIMIT,
   CONSENT_RATE_LIMIT_WINDOW_SECONDS,
@@ -72,6 +73,34 @@ export class ConsentController {
       categories: dto.categories,
       policyVersion: dto.policyVersion,
       userId: user?.userId ?? null,
+      ip,
+    });
+  }
+
+  /**
+   * RÁFAGA 2 — ata la decisión que se tomó estando anónimo a la cuenta que acaba de
+   * entrar. Ver `ConsentService.vincularConUsuario`.
+   *
+   * AQUÍ SÍ HACE FALTA SESIÓN (`JwtAuthGuard`, no el opcional): el único efecto de esta
+   * llamada es escribir a QUIÉN pertenece una decisión, así que sin cuenta no hay nada
+   * que hacer. Y el `userId` sale del token, nunca del cuerpo — si viniera del cliente,
+   * cualquiera podría atribuirle un consentimiento a otra persona.
+   *
+   * Devuelve `{id: null}` cuando no hacía falta vincular nada (ya estaba, o el id no
+   * existe). No es un error: el navegador lo llama en cada carga con sesión y la mayoría
+   * de las veces no hay trabajo.
+   */
+  @Post('vincular')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  vincular(
+    @Body() dto: LinkConsentDto,
+    @CurrentUser() user: JwtUser,
+    @Ip() ip: string,
+  ): Promise<{ id: string | null }> {
+    return this.consentService.vincularConUsuario({
+      consentRecordId: dto.consentRecordId,
+      userId: user.userId,
       ip,
     });
   }

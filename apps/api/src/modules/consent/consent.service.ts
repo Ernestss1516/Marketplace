@@ -68,6 +68,70 @@ export class ConsentService {
   }
 
   /**
+   * RÁFAGA 2 — ATA UNA DECISIÓN ANÓNIMA A LA CUENTA QUE ACABA DE ENTRAR.
+   *
+   * El consentimiento se da casi siempre ANTES de iniciar sesión, así que su fila nace
+   * sin `userId`. Cuando esa misma persona entra, la cookie sigue llevando el `id` de
+   * aquella fila: eso es lo único que hace falta para unir las dos mitades, y es
+   * exactamente para lo que ese campo existe.
+   *
+   * ─── SE ESCRIBE UNA FILA NUEVA, LA VIEJA NO SE TOCA ─────────────────────────────
+   *
+   * Podría parecer más limpio poner el `userId` en la fila original. Sería falsear la
+   * prueba: en aquel momento no había ninguna cuenta detrás, y el registro tiene que
+   * decir lo que pasó, no lo que se supo después. Se añade una fila `UPDATED` que dice
+   * «esta cuenta hace suya aquella decisión», y el historial queda completo.
+   *
+   * ─── IDEMPOTENTE SIN ESTADO EN EL CLIENTE ───────────────────────────────────────
+   *
+   * El navegador llama a esto en cada carga con sesión, así que sin un corte se
+   * escribiría una fila por visita. El corte vive AQUÍ y no en el cliente (una marca en
+   * `sessionStorage` se pierde al cambiar de pestaña y volvería a duplicar): si esta
+   * cuenta ya tiene una decisión registrada para esta versión del texto, no hay nada que
+   * vincular.
+   *
+   * Devuelve el id de la fila nueva, o `null` si no hizo falta ninguna.
+   */
+  async vincularConUsuario(input: {
+    consentRecordId: string;
+    userId: string;
+    ip?: string;
+  }): Promise<{ id: string | null }> {
+    const origen = await this.prisma.consentRecord.findUnique({
+      where: { id: input.consentRecordId },
+      select: { id: true, categories: true, policyVersion: true, userId: true },
+    });
+
+    // Un id que no existe (cookie vieja, base reseteada, alguien probando) no es un
+    // error del usuario: no hay nada que unir y no pasa nada.
+    if (!origen) return { id: null };
+    // Ya era de esta cuenta: nada que hacer.
+    if (origen.userId === input.userId) return { id: null };
+
+    const yaVinculado = await this.prisma.consentRecord.findFirst({
+      where: { userId: input.userId, policyVersion: origen.policyVersion },
+      select: { id: true },
+    });
+    if (yaVinculado) return { id: null };
+
+    const row = await this.prisma.consentRecord.create({
+      data: {
+        action: ConsentAction.UPDATED,
+        categories: origen.categories,
+        policyVersion: origen.policyVersion,
+        userId: input.userId,
+        ipHash: ConsentService.hashIp(input.ip),
+      },
+      select: { id: true },
+    });
+
+    this.logger.log(
+      `Consentimiento ${origen.id} vinculado a la cuenta ${input.userId} (fila ${row.id})`,
+    );
+    return { id: row.id };
+  }
+
+  /**
    * `sha256(ip)`, o `null` si no hay IP.
    *
    * NO lleva sal ni pimienta, y es una decisión con su motivo: el espacio de las IPv4 es

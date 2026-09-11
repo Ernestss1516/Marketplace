@@ -2,8 +2,11 @@ import type { Metadata } from 'next';
 import localFont from 'next/font/local';
 import { auth } from '@/lib/auth';
 import { AuthProvider } from '@/components/auth-provider';
+import { BannerCookies } from '@/components/consentimiento/BannerCookies';
+import { VincularConsentimiento } from '@/components/consentimiento/VincularConsentimiento';
 import { Toaster } from '@/components/ui/sonner';
 import { bloqueDeEstilo, getCachedEstilo } from '@/lib/api/estilo';
+import { COOKIE_TEXT_FALLBACK, getCachedCookiesConfig } from '@/lib/api/cookies-config';
 import './globals.css';
 
 /**
@@ -109,6 +112,16 @@ export default async function RootLayout({ children }: { children: React.ReactNo
    */
   const estilo = await getCachedEstilo().catch(() => null);
   const css = estilo ? bloqueDeEstilo(estilo.tokens, estilo.zonas) : "";
+
+  /**
+   * COOKIES RÁFAGA 2 — EL TEXTO DEL BANNER, resuelto aquí y bajado ya hecho.
+   *
+   * `.catch()` al respaldo en código Y NO A `null`, al revés que el tema: un tema que no
+   * llega deja la plataforma con el Modelo 0, que es una degradación estética. Un banner
+   * que no llega deja la plataforma SIN BANNER, que es un incumplimiento — y encima
+   * causado por una incidencia pasajera del backend. El texto tiene que salir siempre.
+   */
+  const cookies = await getCachedCookiesConfig().catch(() => COOKIE_TEXT_FALLBACK);
   // La clase de `next/font` va en el <html> y no en el <body>: `:root` ES el <html>,
   // así que es donde `--font-inter` tiene que estar declarada para que `--font-sans`
   // (que vive en `:root`, en globals.css) pueda referenciarla. El <body> ya no lleva
@@ -120,22 +133,42 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             orden — ver `bloqueDeEstilo`. Con `css` vacío no se emite la etiqueta. */}
         {css ? <style data-estilo="modelo">{css}</style> : null}
       </head>
-      <body>
-        {/* COOKIES RÁFAGA 1 — AQUÍ NO HAY NADA, Y ESO ES LA DECISIÓN.
+      {/* COOKIES — LA VERSIÓN DEL TEXTO, PUBLICADA EN EL HTML.
 
-            Hubo un `<ConsentProvider>` envolviendo estos children, y ROMPÍA LA
-            HIDRATACIÓN EN PRODUCCIÓN: anidar un segundo Client Component alrededor del
-            slot, dentro del SessionProvider, hacía que React montara una segunda copia
-            del árbol entero al hidratar —dos cabeceras, dos de cada botón—. Lo cazó
-            `auth-friction` («resolved to 2 elements») y sólo en `next start`: en
-            `next dev` React se recupera y no se ve.
+          El banner y los gates son piezas sueltas, sin proveedor común (ver abajo), y las
+          tres necesitan saber contra qué versión comparar la cookie: si el admin la sube,
+          el consentimiento anterior deja de valer (D5). Viaja aquí porque es igual para
+          todos, así que cabe en el HTML cacheado sin romper el ISR ni filtrar nada.
 
-            El gate no lo necesitaba: cada uno lee la cookie por su cuenta y se avisan
-            entre ellos por un evento (ver `components/consentimiento/consentimiento.tsx`).
-            La lección, para cuando llegue el banner en la ráfaga 2: **el layout raíz es
-            la superficie más delicada de la app**, y algo que sólo leen dos componentes
-            no tiene por qué pasar por ella. */}
+          Un atributo que escribe el servidor y que el cliente sólo lee: nada que
+          reconciliar, nada que hidratar mal. */}
+      <body data-cookie-version={cookies.version}>
+        {/* COOKIES — NADA ENVUELVE A `{children}`, Y ESO ES LA DECISIÓN.
+
+            Hubo un `<ConsentProvider>` aquí, y ROMPÍA LA HIDRATACIÓN EN PRODUCCIÓN:
+            anidar un segundo Client Component alrededor del slot, dentro del
+            SessionProvider, hacía que React montara una segunda copia del árbol entero al
+            hidratar —dos cabeceras, dos de cada botón—. Lo cazó `auth-friction`
+            («resolved to 2 elements») y sólo en `next start`: en `next dev` React se
+            recupera y no se ve.
+
+            LA RÁFAGA 2 NO LO REINTRODUJO. El banner y el vinculador van ahí abajo, como
+            HERMANOS de `{children}` y fuera de AuthProvider — exactamente donde vive el
+            `<Toaster/>`, que lleva desde UXV.3 demostrando que esa posición es segura. */}
         <AuthProvider session={session}>{children}</AuthProvider>
+        {/* COOKIES RÁFAGA 2 — el banner y el enlace con la cuenta.
+
+            HERMANOS, no envoltorios: ninguno de los dos toca `{children}`. Es la
+            condición que dejó escrita la ráfaga 1, y la posición que el `<Toaster/>` ya
+            valida desde UXV.3 («fuera de AuthProvider: no depende de la sesión y tiene
+            que poder salir también en las pantallas anónimas»).
+
+            El TEXTO baja resuelto del servidor, así que el banner ya está en la respuesta
+            —sin fetch de cliente, sin flash y sin CLS— y lo único que decide el navegador
+            es si se muestra. El TOKEN baja igual, para que el vinculador no tenga que
+            llamar a `useSession()`. */}
+        <BannerCookies config={cookies} />
+        <VincularConsentimiento token={session?.user?.accessToken} />
         {/* UXV.3 (M6) — UNA sola vez y en la raíz: así cualquier pantalla de cualquier
             zona puede avisar de algo con `toast(...)` sin montar nada propio. Va FUERA
             de AuthProvider a propósito: no depende de la sesión, y un toast tiene que

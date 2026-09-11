@@ -66,15 +66,35 @@ no cargar el tercero**, nunca cargarlo de más.
 
 ## 1.2 Las piezas
 
-Tres, y ninguna más:
+> ⚠ **CORREGIDO TRAS LA RÁFAGA 1 — esta tabla decía otra cosa.**
+>
+> El diseño original ponía aquí un **`ConsentProvider` central**, montado en
+> `app/layout.tsx` junto a `AuthProvider`, que notificaba a todo el árbol. **Se
+> implementó y rompía la hidratación en producción**: anidar un segundo Client Component
+> alrededor de `{children}` dentro del `SessionProvider` hacía que React montara una
+> **segunda copia del árbol entero** al hidratar —dos cabeceras, dos de cada botón—, y
+> con ella se cayeron `auth-friction`, `avatar-upload` y `bump-programado`, specs que el
+> consentimiento no toca. Sólo ocurre con `next start`: en `next dev` React se recupera
+> y no se ve nada, así que la batería local en verde no significaba nada. Lo cazó el CI.
+>
+> **El patrón real es autónomo**: cada pieza lee la cookie por su cuenta y se avisan por
+> un evento de navegador (`marketplace:consent-changed`), el molde que el repo ya usa
+> para hablar entre piezas sueltas (`AUTH_EXPIRED_EVENT`, `lib/api/client.ts:12`).
+>
+> **La regla que queda, y que vale para cualquier ráfaga futura:** *el layout raíz es la
+> superficie más delicada de la aplicación. Nada que sólo lean unos pocos componentes
+> debe envolver `{children}`.* Lo que sí es seguro ahí es montar **hermanos** de
+> `{children}`, fuera de `AuthProvider` — la posición del `<Toaster/>`, que lleva desde
+> UXV.3 demostrándolo, y donde vive el banner de la ráfaga 2.
 
 | Pieza | Qué es | Dónde vive |
 |---|---|---|
-| **`ConsentProvider`** | Contexto de cliente. Lee la cookie al montar, expone `{estado, categorías, conceder(), revocar(), versión}` y notifica a todo el árbol cuando cambia | Montado en `app/layout.tsx`, junto a `AuthProvider` (`layout.tsx:124`) |
-| **`useConsent()`** | El lector. Devuelve si una categoría está consentida | — |
+| **`useConsent()`** | Hook autónomo. Lee la cookie al montar, escucha el evento de cambio, y expone `{cargado, decidido, permite(), conceder(), rechazar(), revocar()}` | Sin proveedor: lo llama quien lo necesita |
+| **`<ConsentTodoConcedido>`** | Override **por zona**, opt-in. Lo enciende sólo el backoffice (D-nueva-3). Quien no dice nada, retiene | `app/(admin)/layout.tsx` |
 | **`<GateTerceros>`** | El componente que envuelve. Con consentimiento pinta a sus hijos; sin él, el marcador que se le pase | Envuelve **solo** los dos puntos de §1.3 |
+| **`<BannerCookies>`** | La UI global de decisión (ráfaga 2). No envuelve nada | `app/layout.tsx`, **hermano** de `{children}` y fuera de `AuthProvider` |
 
-**Estado inicial y el parpadeo.** El provider arranca en `desconocido`, no en
+**Estado inicial y el parpadeo.** El hook arranca en `desconocido`, no en
 `rechazado`, y **`<GateTerceros>` pinta el marcador en `desconocido` igual que en
 `rechazado`**: el efecto visible es idéntico, así que no hay salto cuando la cookie se
 lee (un tick después de montar). La distinción existe solo para el banner, que no debe
@@ -217,7 +237,7 @@ Tres salidas, y la recomendada es la tercera:
 |---|---|
 | *Prop* `sinGate` en el renderer | Alguien lo olvidará, o lo copiará a una superficie pública |
 | Gate en el `case` de `BlockRenderer` en vez de en el renderer | Arregla el editor de vídeo suelto pero **no** el preview completo, que sí pasa por `BlockRenderer` |
-| **El layout del backoffice monta el `ConsentProvider` con «contenido de terceros» concedido** | Ninguna pieza nueva; una sola línea, en un sitio donde se ve |
+| **El layout del backoffice declara la zona como concedida** (`<ConsentTodoConcedido>`) | Ninguna pieza nueva; una sola línea, en un sitio donde se ve |
 
 La tercera es también la defendible: el backoffice **no es una superficie publicada**, no
 se cachea, y quien está ahí ha solicitado expresamente ese contenido al pegarlo. Encaja
@@ -675,7 +695,7 @@ sentido de retenerlo.
 **Backend:** `ConsentRecord` + enum + migración (§2.3) · `POST /consent` con
 `OptionalJwtAuthGuard` y rate limit (§2.4).
 
-**Frontend:** `ConsentProvider` + `useConsent` + `<GateTerceros>` (§1.2) · el marcador
+**Frontend:** `useConsent` (autónomo, ver el aviso de §1.2) + `<GateTerceros>` · el marcador
 (§1.6) · gate en `VideoBlockRenderer` (§1.4) · gate en `MapViewClient` con el *prop* de
 vista explícita para D3 (§1.5) · el aviso permanente bajo el mapa (§1.5) · provider
 concedido en el layout del backoffice (§1.7) · la cookie `mp_consent` (§2.2).

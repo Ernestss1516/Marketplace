@@ -85,6 +85,10 @@ const REPARTO_ESPERADO: Record<string, 'EDITOR' | 'MODERATOR' | 'ADMIN'> = {
   ilustraciones: 'ADMIN',
   // E9 — el modelo y los cuatro colores. ADMIN, como sus dos vecinas de aspecto.
   estilo: 'ADMIN',
+  // COOKIES RÁFAGA 2 — el texto del banner de consentimiento. ADMIN y no EDITOR pese a
+  // ser texto: no es contenido editorial, es un aviso legal que sale en todas las
+  // páginas de la instancia.
+  cookies: 'ADMIN',
 };
 
 const ROLES_STAFF = ['EDITOR', 'MODERATOR', 'ADMIN'] as const;
@@ -98,10 +102,10 @@ function seccionesEsperadas(role: 'EDITOR' | 'MODERATOR' | 'ADMIN'): string[] {
 }
 
 describe('EL REPARTO — cada rol ve exactamente lo suyo', () => {
-  it('el mapa declara el piso acordado para las 27 secciones, una por una', () => {
+  it('el mapa declara el piso acordado para las 28 secciones, una por una', () => {
     const real = Object.fromEntries(BACKOFFICE_SECTIONS.map((s) => [s.id, s.minRole]));
     expect(real).toEqual(REPARTO_ESPERADO);
-    expect(BACKOFFICE_SECTIONS).toHaveLength(27);
+    expect(BACKOFFICE_SECTIONS).toHaveLength(28);
   });
 
   it.each(ROLES_STAFF.map((r) => [r]))(
@@ -111,7 +115,7 @@ describe('EL REPARTO — cada rol ve exactamente lo suyo', () => {
     },
   );
 
-  it('las cuentas resultantes son EDITOR 7 / MODERATOR 20 / ADMIN 27', () => {
+  it('las cuentas resultantes son EDITOR 7 / MODERATOR 20 / ADMIN 28', () => {
     // Son las que pinzan los tres e2e de admin-roles.spec.ts. Antes de la ráfaga de
     // roles eran 2 / 7 / 21; el cambio es el objeto de aquella ráfaga, no un efecto
     // lateral. ESTADÍSTICAS B1 sumó UNA a MODERATOR y ADMIN (19→20, 22→23) y ninguna a
@@ -119,9 +123,11 @@ describe('EL REPARTO — cada rol ve exactamente lo suyo', () => {
     // LOGOS L2 suma «Marca» SÓLO a ADMIN (24→25): la identidad de la instancia no baja.
     // E7 suma «Ilustraciones», también sólo a ADMIN (25→26), y por el mismo motivo.
     // E9 suma «Estilo» (26→27): tercera de aspecto, tercera vez que sólo sube ADMIN.
+    // COOKIES R2 suma «Cookies» (27→28), otra vez sólo a ADMIN: el texto del banner es
+    // un aviso legal de la plataforma, no contenido editorial.
     expect(navSectionsFor('EDITOR')).toHaveLength(7);
     expect(navSectionsFor('MODERATOR')).toHaveLength(20);
-    expect(navSectionsFor('ADMIN')).toHaveLength(27);
+    expect(navSectionsFor('ADMIN')).toHaveLength(28);
   });
 
   it('USER sigue sin acceso a NADA del backoffice', () => {

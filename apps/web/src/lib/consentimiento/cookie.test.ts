@@ -12,10 +12,10 @@ import {
   serializarConsentimiento,
   type Consentimiento,
 } from './cookie';
-import { VERSION_TEXTO } from './constantes';
+import { VERSION_TEXTO_FALLBACK } from './constantes';
 
 const VALIDO: Consentimiento = {
-  version: VERSION_TEXTO,
+  version: VERSION_TEXTO_FALLBACK,
   categorias: ['terceros'],
   fecha: 1_757_548_800,
   id: 'clx123',
@@ -44,8 +44,8 @@ describe('parsearConsentimiento', () => {
       ['JSON que no es objeto', encodeURIComponent('"hola"')],
       ['sin versión', encodeURIComponent(JSON.stringify({ c: ['terceros'], t: 1 }))],
       ['versión no textual', encodeURIComponent(JSON.stringify({ v: 9, c: [], t: 1 }))],
-      ['sin fecha', encodeURIComponent(JSON.stringify({ v: VERSION_TEXTO, c: [] }))],
-      ['fecha no numérica', encodeURIComponent(JSON.stringify({ v: VERSION_TEXTO, c: [], t: 'ayer' }))],
+      ['sin fecha', encodeURIComponent(JSON.stringify({ v: VERSION_TEXTO_FALLBACK, c: [] }))],
+      ['fecha no numérica', encodeURIComponent(JSON.stringify({ v: VERSION_TEXTO_FALLBACK, c: [], t: 'ayer' }))],
     ])('%s', (_caso, valor) => {
       expect(parsearConsentimiento(valor as string | undefined)).toBeNull();
     });
@@ -53,7 +53,7 @@ describe('parsearConsentimiento', () => {
 
   it('una versión distinta se descarta — ES el mecanismo de re-consentimiento (D5)', () => {
     const vieja = encodeURIComponent(
-      JSON.stringify({ v: `${VERSION_TEXTO}-anterior`, c: ['terceros'], t: 1 }),
+      JSON.stringify({ v: `${VERSION_TEXTO_FALLBACK}-anterior`, c: ['terceros'], t: 1 }),
     );
     // Si el admin sube la versión del texto, la cookie vieja deja de valer y se vuelve a
     // preguntar. Sin esto, un cambio de texto no re-preguntaría a nadie.
@@ -62,7 +62,7 @@ describe('parsearConsentimiento', () => {
 
   it('descarta categorías desconocidas en vez de arrastrarlas', () => {
     const conBasura = encodeURIComponent(
-      JSON.stringify({ v: VERSION_TEXTO, c: ['terceros', 'marketing', 42], t: 1 }),
+      JSON.stringify({ v: VERSION_TEXTO_FALLBACK, c: ['terceros', 'marketing', 42], t: 1 }),
     );
     const leido = parsearConsentimiento(conBasura);
     // `marketing` no existe en este producto (no hay un solo tercero publicitario). Si
@@ -71,7 +71,7 @@ describe('parsearConsentimiento', () => {
   });
 
   it('sin `id` sigue siendo válida: la prueba pudo no registrarse (fail-open)', () => {
-    const sinId = encodeURIComponent(JSON.stringify({ v: VERSION_TEXTO, c: ['terceros'], t: 1 }));
+    const sinId = encodeURIComponent(JSON.stringify({ v: VERSION_TEXTO_FALLBACK, c: ['terceros'], t: 1 }));
     const leido = parsearConsentimiento(sinId);
     // El backend puede estar caído cuando el usuario decide. Su voluntad se respeta
     // igual; lo que falta es la prueba, no la decisión.

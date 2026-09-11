@@ -28,6 +28,18 @@ import { adminApiToken, authedPost } from './helpers/api';
 const TERCEROS = ['player.vimeo.com', 'youtube-nocookie.com', 'api.maptiler.com'];
 
 /**
+ * ESTE FICHERO PARTE DE «TODAVÍA NO HA DECIDIDO», y por eso se limpia la cookie.
+ *
+ * El fixture de auth siembra una decisión (un rechazo) para las ~300 specs que no van de
+ * cookies — ver `fixtures/auth.ts`. Aquí eso falsearía lo que se quiere probar: el
+ * comportamiento del gate ANTES de que nadie haya decidido nada, que es el estado en el
+ * que llega un visitante por primera vez y el que de verdad tiene que cumplir.
+ */
+test.beforeEach(async ({ page }) => {
+  await page.context().clearCookies({ name: 'mp_consent' });
+});
+
+/**
  * Registra TODA petición de red hacia los terceros retenidos.
  *
  * Se engancha a `request` y no a `response`: lo que hay que cazar es que el navegador lo
