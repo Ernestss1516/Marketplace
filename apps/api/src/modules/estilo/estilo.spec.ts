@@ -414,6 +414,69 @@ describe('Todo modelo del catálogo es accesible de fábrica', () => {
   }
 });
 
+/**
+ * ══ UNA VERSIÓN NO PUEDE SER UNA ETIQUETA ════════════════════════════════════════════
+ *
+ * EL DEFECTO QUE ESTO IMPIDE YA OCURRIÓ. `versiones` existía desde E4a y era sólo una
+ * cadena: el servicio la validaba al guardar y la devolvía al leer, pero `resolverTokens`
+ * **nunca la miraba**. Con un modelo de una sola versión no se notaba; en cuanto
+ * `calido-editorial` ofreció Día y Tarde, el desplegable prometía dos ambientes y los dos
+ * se veían idénticos. E13 lo arregló añadiendo `porVersion`, y aquí queda la barrera que
+ * impide que vuelva a pasar — porque el arreglo de E13 es OPCIONAL por diseño (un modelo
+ * sin `porVersion` resuelve igual que antes, que es lo que protege al Modelo 0), y algo
+ * opcional es algo que el siguiente modelo puede olvidar.
+ *
+ * La regla se comprueba sobre el CATÁLOGO, no sobre un modelo concreto: el día que se
+ * añada el cuarto con tres versiones, tendrá que demostrar aquí que las tres son distintas
+ * antes de poder ofrecerse.
+ */
+describe('Un modelo que ofrece varias versiones las hace DISTINTAS de verdad', () => {
+  const conVarias = MODELOS.filter((m) => m.versiones.length > 1);
+
+  /**
+   * EL CONTROL NEGATIVO DEL PROPIO FICHERO. Todo lo de abajo se genera en un bucle sobre
+   * `conVarias`; si esa lista se quedara vacía —porque alguien retirase los modelos de dos
+   * versiones—, el `describe` pasaría en verde sin comprobar absolutamente nada.
+   */
+  it('hay al menos un modelo con más de una versión, o esto no mide nada', () => {
+    expect(conVarias.length).toBeGreaterThan(0);
+  });
+
+  for (const m of conVarias) {
+    it(`${m.id}: no hay dos versiones que resuelvan al MISMO tema`, () => {
+      const huellas = m.versiones.map((v) =>
+        JSON.stringify(resolverTokens(m, m.coloresPorDefecto, v)),
+      );
+      // Un `Set` con menos elementos que versiones significa que al menos dos son la
+      // misma paleta con dos nombres — exactamente el defecto de antes de E13.
+      expect(new Set(huellas).size).toBe(m.versiones.length);
+    });
+  }
+
+  /**
+   * Y ADEMÁS, QUE LA DIFERENCIA SE VEA. Lo de arriba se contentaría con que dos versiones
+   * difirieran en una sombra; eso es cierto y no es lo que el desplegable promete. Estos
+   * dos modelos anuncian AMBIENTES —«Día/Tarde», «Claro/Nítido»—, y un ambiente se nota en
+   * el lienzo, en el texto y en el trazo o no se nota en absoluto.
+   *
+   * Se escribe por modelo y no en el bucle a propósito: es una promesa de ESTOS dos, no
+   * una regla del sistema. Un modelo futuro puede ofrecer versiones que sólo cambien el
+   * tempo, y eso sería legítimo — lo que no es legítimo es llamarlas como éstas.
+   */
+  it.each([
+    ['calido-editorial', 'dia', 'tarde'],
+    ['fresco-confianza', 'claro', 'nitido'],
+  ])('%s: entre «%s» y «%s» cambian lienzo, texto y trazo', (id, a, b) => {
+    const m = MODELOS.find((x) => x.id === id)!;
+    const uno = resolverTokens(m, m.coloresPorDefecto, a);
+    const otro = resolverTokens(m, m.coloresPorDefecto, b);
+
+    expect(uno.background).not.toBe(otro.background);
+    expect(uno.foreground).not.toBe(otro.foreground);
+    expect(uno.border).not.toBe(otro.border);
+  });
+});
+
 describe('La conversión de lo que el admin escribe', () => {
   it('un hexadecimal se normaliza al triplete de globals.css', () => {
     // #2563eb es el azul de hoy: la ida y vuelta tiene que caer donde estaba.
