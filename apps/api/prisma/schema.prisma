@@ -698,6 +698,11 @@ model User {
   dataExports          DataExport[] @relation("DataExportSubject")
   dataExportsRequested DataExport[] @relation("DataExportRequester")
 
+  /// COOKIES RÁFAGA 1 — el historial de decisiones de consentimiento de este
+  /// usuario. `onDelete: SetNull` en el otro lado: al borrar la cuenta las
+  /// filas sobreviven anonimizadas (D7). Ver `ConsentRecord`.
+  consentRecords ConsentRecord[]
+
   @@index([status])
 }
 
@@ -1521,6 +1526,79 @@ model ListingImpressionDaily {
   @@unique([listingId, date])
   @@index([listingId])
   @@index([date])
+}
+
+// ============================================================================
+//  CONSENTIMIENTO DE COOKIES (RGPD art. 7.1 — la prueba)
+//  Ver docs/diseno-consentimiento-cookies.md §2.3
+// ============================================================================
+
+/// Qué hizo el usuario. Se guarda explícito y no se deriva de `categories`:
+/// un GRANTED con la lista vacía y un REJECTED serían indistinguibles, y son
+/// dos hechos jurídicos distintos.
+enum ConsentAction {
+  GRANTED
+  REJECTED
+  /// Cambió una decisión previa (incluye el enlace anónimo → logueado).
+  UPDATED
+  /// Retiró el consentimiento por completo.
+  WITHDRAWN
+}
+
+/// UNA FILA POR DECISIÓN. Nunca se actualiza: el historial ES la prueba.
+///
+/// LA COOKIE DECIDE, ESTA TABLA DEMUESTRA — son dos mitades con funciones
+/// distintas y confundirlas es el error clásico. El gate del navegador nunca
+/// consulta esta tabla (sería latencia en el camino caliente de una plataforma
+/// read-heavy); esta tabla existe para el art. 7.1 del RGPD, que exige poder
+/// demostrar el consentimiento. Una cookie no demuestra nada: la escribe el
+/// propio sitio y el usuario puede borrarla.
+model ConsentRecord {
+  /// El MISMO valor viaja en el campo `id` de la cookie `mp_consent`: es lo
+  /// que une las dos mitades sin necesidad de ningún identificador nuevo.
+  id     String        @id @default(cuid())
+  action ConsentAction
+
+  /// Las categorías aceptadas. `[]` en REJECTED y en WITHDRAWN. Hoy la única
+  /// gestionable es `terceros` (las esenciales no se consienten, se informan).
+  categories String[]
+
+  /// La versión del texto consentido. Si el texto cambia y el admin sube la
+  /// versión (D5), el banner vuelve a preguntar — la comparación es contra
+  /// este valor. Sin él, «consintió» no diría a QUÉ consintió.
+  policyVersion String
+
+  createdAt DateTime @default(now())
+
+  /// D7 — `SetNull`, Y ESTO ES LO IMPORTANTE: al borrar la cuenta el `userId`
+  /// se anula SOLO y la fila —la prueba— sobrevive anonimizada. No hace falta
+  /// que el futuro borrado de cuentas se acuerde de esta tabla.
+  ///
+  /// Importa porque hoy NO EXISTE ninguna vía que borre un `User`
+  /// (docs/auditoria-borrado-cuentas.md §0.1): sin `SetNull` esto sería una
+  /// nota que alguien tendría que recordar dentro de meses. Es el mismo molde
+  /// que `ListingImage.uploadedById`, que «ya anonimiza por construcción»
+  /// (ídem §3.2, fila 2).
+  ///
+  /// En la clasificación de esa auditoría esta tabla es CONSERVAR, y la prueba
+  /// del algodón se responde sola: ¿lo echaría en falta alguien que no sea el
+  /// propio usuario? Sí — el operador, que necesita demostrar que obtuvo el
+  /// consentimiento precisamente frente a una reclamación de esa persona.
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  /// `sha256(ip)`, NUNCA la IP en claro — molde del proyecto
+  /// (`visitor.ts:53`, `listings.controller.ts:314`). Da contexto probatorio
+  /// sin guardar un dato personal directo.
+  ///
+  /// NO HAY COLUMNA `userAgent` (D-nueva-5, decidida): aporta poco a la prueba
+  /// y es material de huella. Si la asesoría legal la pidiera, se añade
+  /// entonces — no se guarda «por si acaso».
+  ipHash String?
+
+  /// El vigente de un usuario es su fila más reciente.
+  @@index([userId, createdAt])
+  @@index([createdAt])
 }
 
 // ============================================================================

@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import localFont from 'next/font/local';
 import { auth } from '@/lib/auth';
 import { AuthProvider } from '@/components/auth-provider';
+import { ConsentProvider } from '@/components/consentimiento/ConsentProvider';
 import { Toaster } from '@/components/ui/sonner';
 import { bloqueDeEstilo, getCachedEstilo } from '@/lib/api/estilo';
 import './globals.css';
@@ -121,7 +122,21 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         {css ? <style data-estilo="modelo">{css}</style> : null}
       </head>
       <body>
-        <AuthProvider session={session}>{children}</AuthProvider>
+        {/* COOKIES RÁFAGA 1 — EL ESTADO DEL CONSENTIMIENTO, EN LA RAÍZ.
+
+            AQUÍ Y NO EN `(public)/layout.tsx`, porque ese grupo no cubre `(auth)` ni
+            `(account)`: un usuario puede aterrizar directamente en /login o en
+            /mis-anuncios desde un marcador, y el gate tiene que estar en pie en la
+            primera visita sea cual sea la puerta.
+
+            DENTRO de AuthProvider, al revés que el <Toaster/>: el proveedor lee la
+            sesión para atar la prueba al usuario cuando lo hay (useSession).
+
+            No pinta NADA. El banner llega en la ráfaga 2; esto sólo sostiene el estado
+            que el gate consulta. Ver docs/diseno-consentimiento-cookies.md §1.2. */}
+        <AuthProvider session={session}>
+          <ConsentProvider token={session?.user?.accessToken}>{children}</ConsentProvider>
+        </AuthProvider>
         {/* UXV.3 (M6) — UNA sola vez y en la raíz: así cualquier pantalla de cualquier
             zona puede avisar de algo con `toast(...)` sin montar nada propio. Va FUERA
             de AuthProvider a propósito: no depende de la sesión, y un toast tiene que

@@ -5,6 +5,7 @@ import { AdminNav } from './components/AdminNav';
 import { AdminMobileNav } from './components/AdminMobileNav';
 import { AdminUserBar } from './components/AdminUserBar';
 import { AdminSessionGuard } from './components/AdminSessionGuard';
+import { ConsentProvider } from '@/components/consentimiento/ConsentProvider';
 
 /**
  * EL SHELL DEL BACKOFFICE.
@@ -42,6 +43,19 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const marca = resolveBrand('backoffice', logos);
 
   return (
+    /* COOKIES RÁFAGA 1 (D-nueva-3) — EL BACKOFFICE VE LOS TERCEROS SIN MARCADOR.
+
+       El editor de bloques previsualiza con el MISMO `VideoBlockRenderer` que el sitio
+       público (`VideoBlockEditor.tsx:72`). Sin esto, un editor que acaba de pegar una URL
+       de Vimeo vería un marcador en vez de su vídeo — absurdo: acaba de pedir ese vídeo,
+       explícitamente, escribiendo su dirección.
+
+       Va AQUÍ, en el shell, y no como `prop` del renderizador: un `prop` es algo que
+       alguien olvida o copia a una superficie pública; esto es una línea en un sitio
+       donde se ve. Y se sostiene legalmente porque el backoffice no es una superficie
+       publicada, no se cachea, y quien está dentro ha solicitado expresamente ese
+       contenido. Ver docs/diseno-consentimiento-cookies.md §1.7. */
+    <ConsentProvider concedidoSiempre>
     <div className="flex min-h-screen flex-col" data-zona="backoffice">
       {/* ROLES R3 — no pinta nada: escucha el 401 de cualquier sección y lo
           convierte en re-login. Va en el shell para cubrir las 22 secciones —y
@@ -78,5 +92,6 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         <main className="min-w-0 flex-1 p-4 md:p-8">{children}</main>
       </div>
     </div>
+    </ConsentProvider>
   );
 }

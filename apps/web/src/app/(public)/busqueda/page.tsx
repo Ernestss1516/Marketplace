@@ -21,7 +21,7 @@ import { BannerList } from '@/components/banners/BannerList';
 import { buildCardAttributeMap, buildFullAttributeMap, buildWideCardAttributeMap } from '@/lib/card-attributes';
 import { filterableFieldsForTree } from '@/lib/filterable-fields';
 import { availableTagsForTree } from '@/lib/available-tags';
-import { resolveCurrentView, VIEW_PARAM } from '@/lib/view-mode';
+import { resolveCurrentView, usuarioPidioVista, VIEW_PARAM } from '@/lib/view-mode';
 import { visitorHeaders } from '@/lib/visitor';
 import type { AlertCriteria, ListingSummary, ListingViewMode } from '@/types';
 
@@ -372,6 +372,11 @@ export default async function BusquedaPage({
               totalHits={totalHits}
               listUrl={viewUrl('LISTA')}
               attributeMap={buildFullAttributeMap(categories)}
+              // COOKIES RÁFAGA 1 (D3) — en /busqueda la vista MAPA sólo se alcanza con
+              // `?view=mapa` explícito (el default es LISTA), así que esto es siempre
+              // cierto aquí. Se pasa calculado igual, y no `true` a pelo, para que siga
+              // diciendo la verdad si algún día esta ruta gana un default distinto.
+              solicitadoPorUsuario={usuarioPidioVista(viewRaw, ALL_VIEWS, 'MAPA')}
             />
           )}
 

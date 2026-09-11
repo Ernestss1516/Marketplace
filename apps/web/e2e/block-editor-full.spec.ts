@@ -215,7 +215,14 @@ test.describe('Editor de bloques — construir una página completa con los 13 t
     await expect(popup.getByText('Descripción del paso uno E2E.')).toBeVisible(); // steps
     await expect(popup.getByText('Ana E2E')).toBeVisible(); // profile
     await expect(popup.getByText('10 años')).toBeVisible(); // profile
-    await expect(popup.locator('iframe[src*="youtube-nocookie.com/embed/dQw4w9WgXcQ"]')).toBeVisible(); // video
+    // COOKIES RÁFAGA 1 — ESTA LÍNEA CAMBIÓ DE SIGNO, Y EL CAMBIO ES LA BARRERA.
+    // Antes afirmaba que el público ve el iframe de YouTube. Ahora el público, sin haber
+    // consentido, ve el MARCADOR: el iframe no se monta, así que el tercero no recibe su
+    // IP. Que este caso se moviera al implementar el gate es exactamente lo que tenía que
+    // pasar. El iframe con su `src` sigue cubierto —en el editor, donde el admin lo pide
+    // expresamente (línea 156), y con consentimiento en `consentimiento-gate.spec.ts`.
+    await expect(popup.getByTestId('gate-video')).toBeVisible(); // video (retenido)
+    await expect(popup.locator('iframe[src*="youtube-nocookie.com"]')).toHaveCount(0);
     await expect(popup.getByText('Cabecera E2E')).toBeVisible(); // table
     await expect(popup.getByText('celda-1-1')).toBeVisible(); // table
     await expect(popup.getByText('Anuncios destacados E2E')).toBeVisible(); // listings (título)

@@ -14,6 +14,7 @@
 
 import { render, screen } from '@testing-library/react';
 import { BlockRenderer } from './BlockRenderer';
+import { ConsentProvider } from '@/components/consentimiento/ConsentProvider';
 import type { Block } from '@/types/blocks';
 import type { ListingSummary } from '@/types';
 import type { SearchResponse } from '@/lib/api/busqueda';
@@ -139,8 +140,33 @@ describe('BlockRenderer — los 9 tipos se renderizan', () => {
     expect(screen.getByText(/Autor Ejemplo/)).toBeInTheDocument();
   });
 
-  it('video: construye un iframe controlado hacia youtube-nocookie con el videoId', () => {
+  /**
+   * COOKIES RÁFAGA 1 — ESTE CASO CAMBIÓ DE SIGNO, Y EL CAMBIO ES LA BARRERA.
+   *
+   * Antes afirmaba que el bloque `video` monta un iframe. Ahora afirma lo contrario
+   * SIN CONSENTIMIENTO, que es lo que exige el consentimiento previo: el iframe no se
+   * pide, no se monta oculto, no se monta y se descarta. No se monta.
+   *
+   * `render` sin `ConsentProvider` es exactamente el peor caso —un componente montado
+   * fuera del proveedor— y por eso este test vale doble: comprueba que ese olvido
+   * degrada hacia «no se carga el tercero» (fail-closed) y no hacia lo contrario.
+   *
+   * El iframe con su `src` controlado sigue cubierto abajo, con consentimiento.
+   */
+  it('video: SIN consentimiento no monta el iframe — pinta el marcador del tercero', () => {
     const { container } = render(<BlockRenderer blocks={[ALL_BLOCKS[6]]} />);
+    expect(container.querySelector('iframe')).toBeNull();
+    expect(screen.getByTestId('gate-video')).toBeInTheDocument();
+    // El nombre del tercero, visible: sin nombre no hay consentimiento informado.
+    expect(screen.getByText(/se carga desde YouTube/)).toBeInTheDocument();
+  });
+
+  it('video: CON consentimiento construye el iframe hacia youtube-nocookie con el videoId', () => {
+    const { container } = render(
+      <ConsentProvider concedidoSiempre>
+        <BlockRenderer blocks={[ALL_BLOCKS[6]]} />
+      </ConsentProvider>,
+    );
     const iframe = container.querySelector('iframe');
     expect(iframe).not.toBeNull();
     expect(iframe!.src).toBe('https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ');
