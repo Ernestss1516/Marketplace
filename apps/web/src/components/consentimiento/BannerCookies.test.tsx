@@ -161,6 +161,19 @@ describe('«más información»', () => {
     fireEvent.click(boton);
     expect(boton).toHaveAttribute('aria-expanded', 'true');
   });
+
+  it('su `aria-controls` apunta a un elemento QUE EXISTE', () => {
+    // No es quisquillosería: `aria-controls` sólo entiende de `id`. Apuntando a un
+    // `data-testid` —que es lo que hacía— el atributo parecía puesto y no servía para
+    // nada: el lector de pantalla no encuentra el panel y la relación entre el botón y
+    // lo que despliega se pierde. Un fallo así no se ve mirando la pantalla.
+    render(<BannerCookies config={CONFIG} />);
+    fireEvent.click(screen.getByTestId('banner-cookies-mas'));
+
+    const destino = screen.getByTestId('banner-cookies-mas').getAttribute('aria-controls');
+    expect(destino).toBeTruthy();
+    expect(document.getElementById(destino!)).not.toBeNull();
+  });
 });
 
 describe('accesibilidad', () => {

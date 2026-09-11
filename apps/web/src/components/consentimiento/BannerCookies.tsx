@@ -133,6 +133,12 @@ export function BannerCookies({ config }: { config: CookieTextConfig }) {
 
         {detalle && (
           <div
+            // `id` DE VERDAD, no sólo `data-testid`: el botón de «más información» lo
+            // referencia con `aria-controls`, y `aria-controls` sólo entiende de `id`.
+            // Apuntando a un testid, un lector de pantalla no encuentra el panel y la
+            // relación entre el botón y lo que despliega se pierde — el atributo parecía
+            // puesto y no servía para nada.
+            id="banner-cookies-detalle"
             data-testid="banner-cookies-detalle"
             className="space-y-3 rounded-md border border-border bg-muted/40 p-3 text-sm"
           >
