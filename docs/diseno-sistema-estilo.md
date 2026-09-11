@@ -401,12 +401,38 @@ literalmente lo que la decisión #4 aprobó y lo que el estado actual permite.
 > del backoffice y el de la cuenta —: su contenido portalado declara su propia `data-zona`.
 > No es mecanismo nuevo; es el de siempre, aplicado donde el portal lo había roto.
 >
-> **QUEDA ABIERTO para los componentes genéricos** (`dialog`, `alert-dialog`,
-> `dropdown-menu`, `select`), que se usan en todas las zonas y no saben en cuál están: siguen
-> con los tokens de la base. Hay una vía —emitir los bloques de zona también como
-> `:root:has([data-zona="x"])`, ya que una página está en UNA zona— pero cambia la semántica
-> de «subárbol» a «documento», y eso es una decisión sobre el mecanismo de E5, no un fleco de
-> E6. Anotado en `pendientes.md`.
+> **CERRADO TAMBIÉN PARA LOS GENÉRICOS (2026-09-11).** `dialog`, `alert-dialog`,
+> `dropdown-menu` y `select` se usan en todas las zonas y no saben en cuál están, así que lo
+> único que les faltaba era **de dónde sacar la zona**. Se la da un contexto que declara la
+> misma `<Zona>` que pinta el `[data-zona]` del subárbol
+> ([`components/estilo/zona.tsx`](../apps/web/src/components/estilo/zona.tsx)): **un portal
+> mueve el árbol del DOM, no el de React**, así que un `DialogContent` escrito dentro del
+> backoffice sigue siendo, en React, descendiente de su layout aunque su nodo acabe colgando
+> de `<body>`. El contexto entrega la zona DESDE LA QUE SE ABRIÓ, que es exactamente lo que
+> la cascada habría entregado sin el portal.
+>
+> El atributo y el contexto salen de **una sola declaración** —`<Zona nombre="…">`— porque en
+> dos sitios acabarían diciendo cosas distintas: el subárbol en una zona y sus diálogos en
+> otra, sin que nada se pusiera rojo.
+>
+> **LA VÍA QUE ESTE PÁRRAFO PROPONÍA SE DESCARTÓ, y conviene dejar escrito por qué.** Emitir
+> los bloques también como `:root:has([data-zona="x"])` habría funcionado, pero (a) cambia la
+> semántica de «subárbol» a «documento» —y con ella el caso del blog, que vive dentro del
+> público y hereda de él por cascada—, o sea que es una decisión sobre el mecanismo de E5; y
+> (b) no sabría distinguir dos zonas en la misma página, mientras que el contexto sí: cada
+> capa se lleva la suya. Se eligió no tocar E5.
+>
+> **El inventario que se cubrió** es todo lo que portalea en `apps/web`: los cuatro genéricos
+> —en los dos diálogos, **velo y contenido**: Radix da a cada hijo del portal su propio
+> envoltorio en `<body>`, así que el velo no cuelga del contenido ni hereda de él—, los dos
+> cajones que ya lo llevaban a mano, y `PhotoLightbox`, el
+> único portal que no es de Radix, que se marca aunque hoy no consuma un solo token para que
+> la regla no tenga excepciones que recordar. `DropdownMenuSubContent` queda fuera porque **no
+> se portalea**: cuelga del contenido que ya declara la zona.
+>
+> **La regla dura del §5.2 sigue intacta**: el overlay HEREDA los tokens de su zona, no añade
+> ninguno propio. Y la invariancia de E6 también: esto cambia de qué zona hereda una capa, no
+> el árbol que se pinta.
 
 ### 5.3 `/admin/login` — la decisión pendiente de la #4
 

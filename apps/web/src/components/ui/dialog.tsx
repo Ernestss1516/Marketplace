@@ -5,6 +5,28 @@ import * as DialogPrimitive from "@radix-ui/react-dialog"
 import { X } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { useZona } from "@/components/estilo/zona"
+
+/*
+ * RESIDUO 1 · LA ZONA LLEGA AL PORTAL.
+ *
+ * Este contenido se monta en `<body>`, o sea FUERA del `[data-zona="…"]` que envuelve
+ * el árbol de la zona, así que la herencia de custom properties no le llegaba: un
+ * diálogo del backoffice usaba los grises y el tempo de la BASE, no los de su zona.
+ *
+ * `useZona()` devuelve la zona desde la que se abrió —el portal mueve el DOM, no el
+ * árbol de React— y el contenido la declara. Es el mecanismo de E5 aplicado donde el
+ * portal lo había roto, no uno nuevo. El porqué completo, en components/estilo/zona.tsx.
+ *
+ * VA EN LOS DOS NODOS PORTALADOS, no sólo en el contenido: Radix da a cada hijo del
+ * portal su propio envoltorio en `<body>`, así que el velo NO cuelga del contenido y no
+ * heredaría nada de él. Marcar sólo el contenido dejaría el velo animándose a un tempo
+ * distinto del de la capa que cubre.
+ *
+ * `data-zona` ANTES de `{...props}` a propósito: quien necesite fijar otra zona a mano
+ * puede. (En `<Zona>` es al revés, y por un motivo que allí sí existe: el atributo y el
+ * contexto salen de la misma prop y no pueden desincronizarse.)
+ */
 
 /*
  * E6 · LA CAPA VUELVE A ANIMARSE, Y AHORA ES DEL MODELO.
@@ -49,6 +71,7 @@ const DialogOverlay = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Overlay
     ref={ref}
+    data-zona={useZona()}
     className={cn(
       "fixed inset-0 z-50 bg-black/80",
       "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
@@ -67,6 +90,7 @@ const DialogContent = React.forwardRef<
     <DialogOverlay />
     <DialogPrimitive.Content
       ref={ref}
+      data-zona={useZona()}
       className={cn(
         "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg sm:rounded-lg",
         "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0 data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95",

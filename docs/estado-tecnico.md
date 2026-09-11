@@ -18071,8 +18071,16 @@ a 47 %.
   0 para todos ellos — inmedibles, no ilegibles. Por eso nunca se habían validado. Ya entiende
   las dos notaciones.
 - **Los portales de Radix se montan en `<body>`**, fuera del subárbol de la zona, así que un
-  diálogo NO hereda los tokens de la zona en la que está la página. Cerrado para los dos
-  cajones (declaran su `data-zona`); abierto para las capas genéricas — ver `pendientes.md`.
+  diálogo NO heredaba los tokens de la zona en la que está la página. **Cerrado del todo
+  (2026-09-11)**: lo que se portalea declara su propia `data-zona`. Los dos cajones la llevan
+  escrita a mano —sólo pueden ser de su zona—; los cuatro genéricos (`dialog`, `alert-dialog`,
+  `dropdown-menu`, `select`) la leen de `useZona()`
+  (`apps/web/src/components/estilo/zona.tsx`), un contexto que declara la misma `<Zona>` que
+  pinta el `[data-zona]` del subárbol. Funciona porque **un portal mueve el árbol del DOM, no
+  el de React**: la capa sigue siendo descendiente, en React, de la zona desde la que se abrió.
+  Si se añade un componente que portalee, declara la zona o se queda con los tokens de la base
+  — lo comprueba `src/components/estilo/zona.test.tsx`, y que de verdad los HEREDE,
+  `e2e/estilo-zona-overlays.spec.ts`.
 
 **Las ilustraciones son un subsistema de assets, con el molde de la marca.** El registro
 CERRADO de diez slots vive en `apps/api/src/modules/ilustraciones/ilustraciones.constants.ts`

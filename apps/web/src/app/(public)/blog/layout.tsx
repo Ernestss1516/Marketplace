@@ -1,4 +1,5 @@
 import MainNav from '@/components/layout/MainNav';
+import { Zona } from '@/components/estilo/zona';
 
 // Declara el tipo de página de esta rama del árbol. Va en un LAYOUT y no en la
 // página para que toda ruta que cuelgue de aquí herede la barra sin que nadie
@@ -25,10 +26,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
      * y se pinta igual en todas las rutas—. Aquí no hay nada que adivinar: el propio
      * árbol de rutas dice dónde estamos, y ninguna ruta hermana como `/blogueros`
      * puede colarse en este layout ni por accidente.
+     *
+     * `<Zona>` en vez del `<div data-zona>` que había: emite EXACTAMENTE el mismo div
+     * —sin una sola clase, el maquetado no se entera— y además publica la zona para lo
+     * que se portalee desde dentro, que es lo que el portal se saltaba. Ver
+     * components/estilo/zona.tsx.
      */
-    <div data-zona="blog">
+    <Zona nombre="blog">
       <MainNav pageType="BLOG" />
       {children}
-    </div>
+    </Zona>
   );
 }

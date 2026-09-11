@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { signIn } from 'next-auth/react';
 import { resolveCallbackUrl } from '@/lib/auth/callback-url';
+import { Zona } from '@/components/estilo/zona';
 
 // Deliberadamente fuera de (admin) y (public): no hereda el chrome del
 // backoffice (AdminNav/AdminUserBar, exige rol de staff) ni el del sitio
@@ -56,7 +57,11 @@ export default function AdminLoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4" data-zona="login">
+    /* `<Zona>` y no un `<div data-zona>`, como las otras tres: el mismo div, más la zona
+       publicada para lo que se portalee. Esta pantalla no abre ninguna capa hoy, y por eso
+       mismo se convierte igual — la regla es «toda zona se declara de una sola forma», no
+       «se declara donde hoy hace falta». Ver components/estilo/zona.tsx. */
+    <Zona nombre="login" className="flex min-h-screen items-center justify-center bg-background px-4">
       {/* E6 — la misma entrada que el acceso de usuario. Los dos logins comparten el
           REGISTRO DE IMPACTO, que es lo que el §5.3 proponía compartir; lo que no
           comparten es la PALETA (éste es oscuro y aquél claro), y esa distinción se
@@ -107,6 +112,6 @@ export default function AdminLoginPage() {
           </button>
         </form>
       </div>
-    </div>
+    </Zona>
   );
 }

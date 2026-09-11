@@ -6,6 +6,7 @@ import { AdminMobileNav } from './components/AdminMobileNav';
 import { AdminUserBar } from './components/AdminUserBar';
 import { AdminSessionGuard } from './components/AdminSessionGuard';
 import { ConsentTodoConcedido } from '@/components/consentimiento/consentimiento';
+import { Zona } from '@/components/estilo/zona';
 
 /**
  * EL SHELL DEL BACKOFFICE.
@@ -56,7 +57,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
        publicada, no se cachea, y quien está dentro ha solicitado expresamente ese
        contenido. Ver docs/diseno-consentimiento-cookies.md §1.7. */
     <ConsentTodoConcedido>
-    <div className="flex min-h-screen flex-col" data-zona="backoffice">
+    {/* `<Zona>` y no un `<div data-zona>`: pinta el mismo div de siempre y además
+        publica la zona para lo que se portalee desde aquí dentro —diálogos, menús y
+        selectores se montan en `<body>`, fuera de este subárbol, y sin esto heredarían
+        los tokens de la base en vez de los del backoffice. Ver components/estilo/zona.tsx. */}
+    <Zona nombre="backoffice" className="flex min-h-screen flex-col">
       {/* ROLES R3 — no pinta nada: escucha el 401 de cualquier sección y lo
           convierte en re-login. Va en el shell para cubrir las 22 secciones —y
           las que vengan— sin tocar ninguna. Ver AdminSessionGuard. */}
@@ -91,7 +96,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         {/* `min-w-0` es la otra mitad de A3 — ver la cabecera. */}
         <main className="min-w-0 flex-1 p-4 md:p-8">{children}</main>
       </div>
-    </div>
+    </Zona>
     </ConsentTodoConcedido>
   );
 }

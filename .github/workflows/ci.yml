@@ -166,6 +166,28 @@ jobs:
   # with `docker run -d` instead (see "Start MinIO" below).
   # bitnami/minio was the previous workaround but its Docker Hub repo now has
   # zero tags (confirmed 2025-06-23).
+  #
+  # ⚠ Y EL SUCESOR SE CAYÓ IGUAL: LA IMAGEN VIENE DE `quay.io`, NO DE DOCKER HUB
+  # (2026-09-11). `minio/minio` en Docker Hub pasó a denegar el acceso anónimo —y no
+  # sólo el tag fijado: también `:latest`—, con
+  #
+  #     pull access denied for minio/minio, repository does not exist or may
+  #     require 'docker login': denied
+  #
+  # Los dos jobs que arrancan MinIO murieron ahí SIN EJECUTAR UN SOLO TEST, y el
+  # error no menciona a MinIO hasta que se abre el log del paso: por fuera parece
+  # un job roto sin más.
+  #
+  # NO ES UN LÍMITE DE DESCARGAS (eso da `toomanyrequests`) ni un problema del
+  # runner. Comprobado con control: `postgis/postgis` y `redis`, las otras dos
+  # imágenes de este mismo fichero, siguen respondiendo anónimamente; `minio/minio`
+  # no. Y `main` estaba verde una hora antes.
+  #
+  # Se cambia de REGISTRO, no de versión: `quay.io/minio/minio` es el registro
+  # propio de MinIO y sirve EXACTAMENTE el mismo tag. Es la misma maniobra que el
+  # párrafo de arriba, un proveedor más allá — por eso conviene que quede escrito
+  # que ya van dos. `docker-compose.yml` apunta al mismo sitio por lo mismo: sin
+  # ello, un entorno de desarrollo montado desde cero tampoco levanta.
   # ──────────────────────────────────────────────────────────────────────────────
   e2e:
     name: E2E Tests
@@ -288,7 +310,7 @@ jobs:
             -p 9000:9000 \
             -e MINIO_ROOT_USER=minioadmin \
             -e MINIO_ROOT_PASSWORD=minioadmin \
-            minio/minio:RELEASE.2025-06-13T11-33-47Z \
+            quay.io/minio/minio:RELEASE.2025-06-13T11-33-47Z \
             server /data
 
           # Poll /minio/health/live — proceed only when MinIO is ready.
@@ -566,7 +588,7 @@ jobs:
             -p 9000:9000 \
             -e MINIO_ROOT_USER=minioadmin \
             -e MINIO_ROOT_PASSWORD=minioadmin \
-            minio/minio:RELEASE.2025-06-13T11-33-47Z \
+            quay.io/minio/minio:RELEASE.2025-06-13T11-33-47Z \
             server /data
 
           timeout 30 bash -c \

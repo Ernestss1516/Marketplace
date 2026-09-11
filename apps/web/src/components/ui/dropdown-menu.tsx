@@ -5,6 +5,17 @@ import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu"
 import { Check, ChevronRight, Circle } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { useZona } from "@/components/estilo/zona"
+
+/*
+ * RESIDUO 1 · LA ZONA LLEGA AL PORTAL. Mismo caso y mismo arreglo que `dialog.tsx` (el
+ * porqué completo, ahí y en components/estilo/zona.tsx).
+ *
+ * AQUÍ SÓLO HAY UN NODO QUE MARCAR, y conviene dejar escrito por qué: `SubContent` NO se
+ * portalea —Radix lo renderiza en su sitio del árbol, colgando del `Content` padre—, así
+ * que hereda la zona del contenido que ya la declara. Marcarlo también sería repetir lo
+ * que la cascada ya hace.
+ */
 
 /*
  * E6 · LA CAPA VUELVE A ANIMARSE, Y AHORA ES DEL MODELO.
@@ -77,6 +88,7 @@ const DropdownMenuContent = React.forwardRef<
     <DropdownMenuPrimitive.Content
       ref={ref}
       sideOffset={sideOffset}
+      data-zona={useZona()}
       className={cn(
         "z-50 min-w-[8rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md",
         // Un menú SÍ puede deslizarse: al revés que el diálogo, no lleva `translate`

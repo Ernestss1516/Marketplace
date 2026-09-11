@@ -5,6 +5,14 @@ import * as SelectPrimitive from "@radix-ui/react-select"
 import { Check, ChevronDown, ChevronUp } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { useZona } from "@/components/estilo/zona"
+
+/*
+ * RESIDUO 1 · LA ZONA LLEGA AL PORTAL. Mismo caso y mismo arreglo que `dialog.tsx` (el
+ * porqué completo, ahí y en components/estilo/zona.tsx). El disparador NO lo necesita:
+ * ése sí vive dentro del subárbol de la zona y siempre heredó bien — lo que se escapaba
+ * era la capa de opciones.
+ */
 
 /*
  * E6 · LA CAPA VUELVE A ANIMARSE, Y AHORA ES DEL MODELO.
@@ -89,6 +97,7 @@ const SelectContent = React.forwardRef<
   <SelectPrimitive.Portal>
     <SelectPrimitive.Content
       ref={ref}
+      data-zona={useZona()}
       className={cn(
         "relative z-50 max-h-[--radix-select-content-available-height] min-w-[8rem] overflow-y-auto overflow-x-hidden rounded-md border bg-popover text-popover-foreground shadow-md origin-[--radix-select-content-transform-origin]",
         // Sólo opacidad y escala, SIN deslizamiento: en modo `popper` este contenido ya

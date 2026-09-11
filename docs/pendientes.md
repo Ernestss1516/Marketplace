@@ -700,37 +700,63 @@ Huecos concretos, reverificados:
   `anuncios-tabla`»). Se eligió enmascarar.
 
   </details>
-- **Tres slots de ilustración declarados y sin pintar** `[PRODUCTO]` — **decisión de
-  Ernest, no trabajo pendiente.** `success-review`, `success-listing-published` y
-  `success-ticket-sent` existen en el registro de E7 (tienen default, se sirven por la API y
-  el admin puede sustituirlos), pero **no hay dónde pintarlos**: publicar un anuncio, enviar
-  una valoración y abrir un ticket no tienen pantalla de confirmación en este producto, y
-  crearla contradiría la regla que ya está escrita en `apps/web/CLAUDE.md` («hay UN canal, no
-  se improvisa otro»; éxito de una acción puntual → toast).
+- ~~**Tres slots de ilustración declarados y sin pintar**~~ → **DECISIÓN TOMADA (2026-09-11):
+  no se crean las tres pantallas. Cerrado, y sin trabajo detrás.**
 
-  Pintarlos exigiría **inventar tres pantallas de éxito**, o sea inventar estructura — que es
-  justo lo que el §8.1 le prohíbe al asset. La pregunta abierta no es técnica: ¿merece alguna
-  de esas tres una pantalla propia en vez de un aviso? Si la respuesta es no, los tres slots
-  se retiran del registro en la 2ª pasada; si es sí, la pantalla es una ráfaga de producto y
-  la ilustración ya está esperando.
-- **Las capas GENÉRICAS no reciben los tokens de su zona** `[DEUDA menor]` — **medido en E6
-  (2026-09-04).** Los tokens de zona se heredan de un `[data-zona="…"]` que envuelve el árbol de
-  la zona, y **los portales de Radix se montan en `<body>`**, fuera de ese envoltorio: reciben los
-  de la base. Se vio con una sonda en el navegador — el cajón del backoffice devolvía
-  `--motion-duration: 150ms` estando en la zona que lo baja a 100.
+  `success-review`, `success-listing-published` y `success-ticket-sent` existen en el registro
+  de E7 (tienen default, se sirven por la API y el admin puede sustituirlos), pero **no hay
+  dónde pintarlos**: publicar un anuncio, enviar una valoración y abrir un ticket no tienen
+  pantalla de confirmación en este producto.
 
-  **Cerrado donde la superficie pertenece a una zona por construcción:** los dos cajones
-  (`AdminMobileNav`, `AccountMobileBar`) declaran su propia `data-zona` en el contenido
-  portalado, y con eso reciben también sus colores — lo que E5 les había aprobado y no les
-  llegaba.
+  La pregunta abierta nunca fue técnica —¿merece alguna de las tres una pantalla propia en vez
+  de un aviso?— y la respuesta es **no**: crearla contradiría la regla que ya está escrita en
+  `apps/web/CLAUDE.md` («hay UN canal, no se improvisa otro»; éxito de una acción puntual →
+  toast), y pintar los slots exigiría **inventar tres pantallas de éxito**, o sea inventar
+  estructura — justo lo que el §8.1 le prohíbe al asset. El éxito de una acción puntual se
+  avisa; no se celebra en pantalla completa.
 
-  **Abierto para `dialog`, `alert-dialog`, `dropdown-menu` y `select`**, que se usan en todas las
-  zonas y no saben en cuál están. Hay una vía: emitir cada bloque de zona también como
-  `:root:has([data-zona="x"])`, aprovechando que una página está siempre en UNA zona. Pero eso
-  cambia la semántica del mecanismo de «subárbol» a «documento» —y con ella el caso del blog, que
-  vive dentro del público—, así que es una decisión sobre lo que E5 aprobó, no un fleco. El
-  impacto hoy es pequeño: un diálogo del backoffice se anima 50 ms más lento de lo que su zona
-  pide, y usa los grises de la base en vez de los desaturados.
+  **Los tres slots SE QUEDAN en el registro**, no se retiran. Cuestan una entrada de
+  diccionario y un default, y el día que alguna de esas tres acciones gane una pantalla de
+  verdad —por producto, no por acomodar a una ilustración— el asset ya está esperando con su
+  `alt`, su proporción y su sustituible por instancia. Retirarlos ahorraría tres líneas y
+  cerraría esa puerta.
+- ~~**Las capas GENÉRICAS no reciben los tokens de su zona**~~ → **CERRADO (2026-09-11).** Con
+  esto quedan cerrados los dos residuos del sistema de estilo.
+
+  El diagnóstico de E6 (2026-09-04) era el correcto: los tokens de zona se heredan de un
+  `[data-zona="…"]` que envuelve el árbol de la zona, y **los portales de Radix se montan en
+  `<body>`**, fuera de ese envoltorio, así que recibían los de la base. Un diálogo del backoffice
+  se animaba 50 ms más lento de lo que su zona pide y usaba los grises saturados en vez de los
+  desaturados.
+
+  **El arreglo es el mecanismo de siempre, aplicado donde el portal lo había roto** (§5.2 del
+  diseño): el contenido portalado declara su propia `data-zona`. Lo único que faltaba era **de
+  dónde sacarla**, porque un genérico no sabe en qué zona está: lo da un contexto que declara la
+  misma `<Zona>` que pinta el `[data-zona]` del subárbol
+  ([`components/estilo/zona.tsx`](../apps/web/src/components/estilo/zona.tsx)). Un portal mueve
+  el árbol del DOM, **no el de React**, así que el contexto entrega exactamente la zona DESDE LA
+  QUE SE ABRIÓ.
+
+  **La vía que estaba anotada aquí se descartó a propósito.** Emitir cada bloque también como
+  `:root:has([data-zona="x"])` habría funcionado, pero cambia la semántica de «subárbol» a
+  «documento» —y con ella el caso del blog, que vive dentro del público y hereda de él por
+  cascada—, y además no sabría distinguir dos zonas en la misma página. Era una decisión sobre
+  lo que E5 aprobó; ésta no lo es.
+
+  **Inventario cubierto** (todo lo que portalea en `apps/web`): los cuatro genéricos
+  (`dialog` y `alert-dialog`, velo **y** contenido — Radix da a cada uno su propio envoltorio en
+  `<body>`, así que el velo no cuelga del contenido ni hereda de él; `dropdown-menu`;
+  `select`), los dos cajones que ya lo tenían escrito a mano, y `PhotoLightbox` —el único portal
+  que no es de Radix—, que se marca aunque hoy no consuma un solo token, para que la regla no
+  tenga excepciones que recordar. `DropdownMenuSubContent` no se marca porque **no se portalea**:
+  cuelga del contenido que ya declara la zona.
+
+  **Barreras.** En navegador ([`estilo-zona-overlays.spec.ts`](../apps/web/e2e/estilo-zona-overlays.spec.ts)),
+  midiendo `getComputedStyle` DENTRO de la capa y contrastándolo contra el `<html>` — que es lo que
+  separa «hereda de su zona» de «coincide por casualidad». En jsdom
+  ([`zona.test.tsx`](../apps/web/src/components/estilo/zona.test.tsx)), que los cuatro genéricos la
+  declaran **se usen donde se usen**: hacía falta porque el backoffice no monta hoy ni un
+  `dropdown-menu`, así que el navegador sólo puede medir tres de los cuatro allí.
 - **`admin-roles.spec.ts` afirma el número exacto de ítems del nav** — frágil por diseño, y **ya
   está desincronizado otra vez**: `9890e82` movió el nav a **24 secciones**, pero
   [admin-roles.spec.ts:215-226](../apps/web/e2e/admin-roles.spec.ts#L215) titula el test «las 19

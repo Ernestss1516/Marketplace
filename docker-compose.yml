@@ -48,7 +48,7 @@ services:
       - meili_data:/meili_data
 
   minio:
-    image: minio/minio:latest
+    image: quay.io/minio/minio:latest
     container_name: marketplace-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Image from 'next/image';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { useZona } from '@/components/estilo/zona';
 
 interface PhotoLightboxProps {
   images: string[];
@@ -39,6 +40,18 @@ interface PhotoLightboxProps {
  */
 export function PhotoLightbox({ images, startIndex, title, onClose }: PhotoLightboxProps) {
   const [index, setIndex] = useState(startIndex);
+  /**
+   * RESIDUO 1 — el quinto portal del repo, y el único que no es de Radix. Va con los
+   * otros cuatro aunque HOY NO CAMBIE NADA: este visor está pintado a mano en negro y
+   * blanco (`bg-black/90`, `bg-white/10`, `text-white`) y no consume un solo token, así
+   * que no tiene nada que heredar.
+   *
+   * Se marca igualmente para que la regla no tenga excepciones que recordar —«lo que se
+   * portalea declara su zona»— y para que el día que este visor use un token lo reciba
+   * de la zona desde la que se abrió (las tarjetas viven en el público y en la cuenta),
+   * en vez de descubrirlo entonces.
+   */
+  const zona = useZona();
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -57,6 +70,7 @@ export function PhotoLightbox({ images, startIndex, title, onClose }: PhotoLight
 
   return createPortal(
     <div
+      data-zona={zona}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
       role="dialog"
       aria-modal="true"
