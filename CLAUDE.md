@@ -126,4 +126,7 @@ Get-NetTCPConnection -LocalPort 3001 -ErrorAction SilentlyContinue |
 ## Documentación de referencia
 - `docs/estado-tecnico.md` — estado real implementado: módulos, decisiones técnicas, deuda pendiente.
 - `docs/contratos-api.md` — resumen de alto nivel de la API; detalle en Swagger (`/api/docs`).
+- `docs/cookies-que-falta.md` — **el consentimiento está completo en código; faltan
+  cuatro datos que se miden en un navegador y el texto de asesoría legal.** Ahí está qué,
+  cómo y en qué orden. Hasta entonces la página de cookies sigue en borrador, a propósito.
 - El resto de `docs/` contiene documentos de diseño y planificación del MVP (históricos).
