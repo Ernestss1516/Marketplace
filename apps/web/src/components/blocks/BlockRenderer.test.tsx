@@ -14,7 +14,7 @@
 
 import { render, screen } from '@testing-library/react';
 import { BlockRenderer } from './BlockRenderer';
-import { ConsentProvider } from '@/components/consentimiento/ConsentProvider';
+import { ConsentTodoConcedido } from '@/components/consentimiento/consentimiento';
 import type { Block } from '@/types/blocks';
 import type { ListingSummary } from '@/types';
 import type { SearchResponse } from '@/lib/api/busqueda';
@@ -163,9 +163,9 @@ describe('BlockRenderer — los 9 tipos se renderizan', () => {
 
   it('video: CON consentimiento construye el iframe hacia youtube-nocookie con el videoId', () => {
     const { container } = render(
-      <ConsentProvider concedidoSiempre>
+      <ConsentTodoConcedido>
         <BlockRenderer blocks={[ALL_BLOCKS[6]]} />
-      </ConsentProvider>,
+      </ConsentTodoConcedido>,
     );
     const iframe = container.querySelector('iframe');
     expect(iframe).not.toBeNull();

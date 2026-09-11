@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useConsent } from './ConsentProvider';
+import { useConsent } from './consentimiento';
 import { AvisoTerceroCargado, MarcadorTercero } from './MarcadorTercero';
 
 /**

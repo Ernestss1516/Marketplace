@@ -6,12 +6,14 @@
  * componente que GRITA al montarse (`onMount`): si el gate lo renderizara oculto, o lo
  * montara para descartarlo después, este espía lo cazaría. Un iframe montado ya ha
  * hablado con el tercero, aunque nadie lo vea.
+ *
+ * Los gates son AUTÓNOMOS —leen la cookie por su cuenta—, así que aquí se montan sin
+ * envoltorio ninguno: es exactamente como viven en las páginas.
  */
 
 import { fireEvent, render, screen } from '@testing-library/react';
-
 import { GateTerceros } from './GateTerceros';
-import { ConsentProvider } from './ConsentProvider';
+import { ConsentTodoConcedido } from './consentimiento';
 import { NOMBRE_COOKIE } from '@/lib/consentimiento/constantes';
 
 jest.mock('@/lib/api/consentimiento', () => ({
@@ -24,12 +26,8 @@ function TerceroEspia({ onMount }: { onMount: () => void }) {
   return <div data-testid="tercero-montado">contenido del tercero</div>;
 }
 
-function limpiarCookie() {
-  document.cookie = `${NOMBRE_COOKIE}=; Max-Age=0; Path=/`;
-}
-
 beforeEach(() => {
-  limpiarCookie();
+  document.cookie = `${NOMBRE_COOKIE}=; Max-Age=0; Path=/`;
   jest.clearAllMocks();
 });
 
@@ -37,11 +35,9 @@ describe('sin consentimiento', () => {
   it('NO monta al tercero y pinta el marcador con su nombre', () => {
     const montado = jest.fn();
     render(
-      <ConsentProvider>
-        <GateTerceros proveedor="Vimeo" descripcion="Este vídeo" testId="gate">
-          <TerceroEspia onMount={montado} />
-        </GateTerceros>
-      </ConsentProvider>,
+      <GateTerceros proveedor="Vimeo" descripcion="Este vídeo" testId="gate">
+        <TerceroEspia onMount={montado} />
+      </GateTerceros>,
     );
 
     // LA BARRERA: el tercero no se monta. No «se monta y se oculta».
@@ -56,11 +52,9 @@ describe('sin consentimiento', () => {
 
   it('el marcador es operable con teclado: dos botones reales', () => {
     render(
-      <ConsentProvider>
-        <GateTerceros proveedor="MapTiler" descripcion="El mapa">
-          <TerceroEspia onMount={jest.fn()} />
-        </GateTerceros>
-      </ConsentProvider>,
+      <GateTerceros proveedor="MapTiler" descripcion="El mapa">
+        <TerceroEspia onMount={jest.fn()} />
+      </GateTerceros>,
     );
 
     // `getByRole('button')` sólo los encuentra si son botones de verdad — un `<div>` con
@@ -68,29 +62,15 @@ describe('sin consentimiento', () => {
     expect(screen.getByRole('button', { name: /Cargar solo esta vez/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Permitir contenido de terceros/ })).toBeInTheDocument();
   });
-
-  it('FUERA del proveedor degrada a «no cargar» (fail-closed)', () => {
-    const montado = jest.fn();
-    // El peor caso: alguien monta un componente de terceros donde no hay proveedor. El
-    // fallo tiene que caer del lado seguro —un marcador de más— y nunca del otro.
-    render(
-      <GateTerceros proveedor="Vimeo" descripcion="Este vídeo">
-        <TerceroEspia onMount={montado} />
-      </GateTerceros>,
-    );
-    expect(montado).not.toHaveBeenCalled();
-  });
 });
 
 describe('«cargar solo esta vez»', () => {
-  it('monta el tercero, avisa de quién es, y NO escribe cookie', async () => {
+  it('monta el tercero, avisa de quién es, y NO escribe cookie', () => {
     const montado = jest.fn();
     render(
-      <ConsentProvider>
-        <GateTerceros proveedor="Vimeo" descripcion="Este vídeo" testId="gate">
-          <TerceroEspia onMount={montado} />
-        </GateTerceros>
-      </ConsentProvider>,
+      <GateTerceros proveedor="Vimeo" descripcion="Este vídeo" testId="gate">
+        <TerceroEspia onMount={montado} />
+      </GateTerceros>,
     );
 
     fireEvent.click(screen.getByRole('button', { name: /Cargar solo esta vez/ }));
@@ -107,14 +87,12 @@ describe('«cargar solo esta vez»', () => {
 });
 
 describe('«permitir contenido de terceros»', () => {
-  it('monta el tercero y escribe la cookie', async () => {
+  it('monta el tercero y escribe la cookie', () => {
     const montado = jest.fn();
     render(
-      <ConsentProvider>
-        <GateTerceros proveedor="Vimeo" descripcion="Este vídeo">
-          <TerceroEspia onMount={montado} />
-        </GateTerceros>
-      </ConsentProvider>,
+      <GateTerceros proveedor="Vimeo" descripcion="Este vídeo">
+        <TerceroEspia onMount={montado} />
+      </GateTerceros>,
     );
 
     fireEvent.click(screen.getByRole('button', { name: /Permitir contenido de terceros/ }));
@@ -124,17 +102,15 @@ describe('«permitir contenido de terceros»', () => {
     expect(decodeURIComponent(document.cookie)).toContain('terceros');
   });
 
-  it('registra la decisión en el servidor (la prueba del art. 7.1)', async () => {
+  it('registra la decisión en el servidor (la prueba del art. 7.1)', () => {
     const { registrarConsentimiento } = jest.requireMock('@/lib/api/consentimiento') as {
       registrarConsentimiento: jest.Mock;
     };
 
     render(
-      <ConsentProvider>
-        <GateTerceros proveedor="Vimeo" descripcion="Este vídeo">
-          <TerceroEspia onMount={jest.fn()} />
-        </GateTerceros>
-      </ConsentProvider>,
+      <GateTerceros proveedor="Vimeo" descripcion="Este vídeo">
+        <TerceroEspia onMount={jest.fn()} />
+      </GateTerceros>,
     );
 
     fireEvent.click(screen.getByRole('button', { name: /Permitir contenido de terceros/ }));
@@ -143,17 +119,40 @@ describe('«permitir contenido de terceros»', () => {
       expect.objectContaining({ action: 'GRANTED', categories: ['terceros'] }),
     );
   });
+
+  it('ABRE LOS DEMÁS GATES DE LA PÁGINA sin recargar', () => {
+    // Dos gates independientes (un vídeo y un mapa, o dos vídeos). Sin el evento, el
+    // segundo seguiría con su marcador hasta que alguien recargara — y el usuario ya
+    // había dicho que sí. Es lo que sustituye al proveedor global que rompía la
+    // hidratación.
+    const segundo = jest.fn();
+    render(
+      <>
+        <GateTerceros proveedor="Vimeo" descripcion="Este vídeo">
+          <TerceroEspia onMount={jest.fn()} />
+        </GateTerceros>
+        <GateTerceros proveedor="MapTiler" descripcion="El mapa" testId="gate-2">
+          <TerceroEspia onMount={segundo} />
+        </GateTerceros>
+      </>,
+    );
+
+    expect(segundo).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getAllByRole('button', { name: /Permitir contenido de terceros/ })[0]);
+
+    expect(segundo).toHaveBeenCalled();
+    expect(screen.queryByTestId('gate-2')).not.toBeInTheDocument();
+  });
 });
 
 describe('D3 — el contenido solicitado expresamente por el usuario', () => {
   it('carga sin consentimiento previo, PERO con el aviso permanente', () => {
     const montado = jest.fn();
     render(
-      <ConsentProvider>
-        <GateTerceros proveedor="MapTiler" descripcion="El mapa" solicitadoPorUsuario testId="gate">
-          <TerceroEspia onMount={montado} />
-        </GateTerceros>
-      </ConsentProvider>,
+      <GateTerceros proveedor="MapTiler" descripcion="El mapa" solicitadoPorUsuario testId="gate">
+        <TerceroEspia onMount={montado} />
+      </GateTerceros>,
     );
 
     expect(montado).toHaveBeenCalled();
@@ -165,30 +164,40 @@ describe('D3 — el contenido solicitado expresamente por el usuario', () => {
 
   it('no escribe cookie: pedir un mapa no consiente todos los terceros del sitio', () => {
     render(
-      <ConsentProvider>
-        <GateTerceros proveedor="MapTiler" descripcion="El mapa" solicitadoPorUsuario>
-          <TerceroEspia onMount={jest.fn()} />
-        </GateTerceros>
-      </ConsentProvider>,
+      <GateTerceros proveedor="MapTiler" descripcion="El mapa" solicitadoPorUsuario>
+        <TerceroEspia onMount={jest.fn()} />
+      </GateTerceros>,
     );
     expect(document.cookie).not.toContain(NOMBRE_COOKIE);
   });
 });
 
-describe('con el proveedor en modo backoffice (D-nueva-3)', () => {
+describe('en el backoffice (D-nueva-3)', () => {
   it('carga sin marcador — el editor ve el vídeo que acaba de pegar', () => {
     const montado = jest.fn();
     render(
-      <ConsentProvider concedidoSiempre>
+      <ConsentTodoConcedido>
         <GateTerceros proveedor="Vimeo" descripcion="Este vídeo" testId="gate">
           <TerceroEspia onMount={montado} />
         </GateTerceros>
-      </ConsentProvider>,
+      </ConsentTodoConcedido>,
     );
 
     expect(montado).toHaveBeenCalled();
     expect(screen.queryByTestId('gate')).not.toBeInTheDocument();
     // Y sin aviso: el backoffice no es una superficie publicada.
     expect(screen.queryByTestId('gate-aviso')).not.toBeInTheDocument();
+  });
+
+  it('fuera del backoffice, por defecto, RETIENE (fail-closed)', () => {
+    // El override es opt-in por zona: una zona que no dice nada retiene. El fallo tiene
+    // que caer del lado seguro sin que nadie tenga que acordarse.
+    const montado = jest.fn();
+    render(
+      <GateTerceros proveedor="Vimeo" descripcion="Este vídeo">
+        <TerceroEspia onMount={montado} />
+      </GateTerceros>,
+    );
+    expect(montado).not.toHaveBeenCalled();
   });
 });

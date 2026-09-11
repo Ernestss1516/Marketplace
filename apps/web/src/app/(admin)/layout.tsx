@@ -5,7 +5,7 @@ import { AdminNav } from './components/AdminNav';
 import { AdminMobileNav } from './components/AdminMobileNav';
 import { AdminUserBar } from './components/AdminUserBar';
 import { AdminSessionGuard } from './components/AdminSessionGuard';
-import { ConsentProvider } from '@/components/consentimiento/ConsentProvider';
+import { ConsentTodoConcedido } from '@/components/consentimiento/consentimiento';
 
 /**
  * EL SHELL DEL BACKOFFICE.
@@ -55,7 +55,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
        donde se ve. Y se sostiene legalmente porque el backoffice no es una superficie
        publicada, no se cachea, y quien está dentro ha solicitado expresamente ese
        contenido. Ver docs/diseno-consentimiento-cookies.md §1.7. */
-    <ConsentProvider concedidoSiempre>
+    <ConsentTodoConcedido>
     <div className="flex min-h-screen flex-col" data-zona="backoffice">
       {/* ROLES R3 — no pinta nada: escucha el 401 de cualquier sección y lo
           convierte en re-login. Va en el shell para cubrir las 22 secciones —y
@@ -92,6 +92,6 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         <main className="min-w-0 flex-1 p-4 md:p-8">{children}</main>
       </div>
     </div>
-    </ConsentProvider>
+    </ConsentTodoConcedido>
   );
 }

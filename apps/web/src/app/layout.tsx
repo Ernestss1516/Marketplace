@@ -2,7 +2,6 @@ import type { Metadata } from 'next';
 import localFont from 'next/font/local';
 import { auth } from '@/lib/auth';
 import { AuthProvider } from '@/components/auth-provider';
-import { ConsentProvider } from '@/components/consentimiento/ConsentProvider';
 import { Toaster } from '@/components/ui/sonner';
 import { bloqueDeEstilo, getCachedEstilo } from '@/lib/api/estilo';
 import './globals.css';
@@ -122,21 +121,21 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         {css ? <style data-estilo="modelo">{css}</style> : null}
       </head>
       <body>
-        {/* COOKIES RÁFAGA 1 — EL ESTADO DEL CONSENTIMIENTO, EN LA RAÍZ.
+        {/* COOKIES RÁFAGA 1 — AQUÍ NO HAY NADA, Y ESO ES LA DECISIÓN.
 
-            AQUÍ Y NO EN `(public)/layout.tsx`, porque ese grupo no cubre `(auth)` ni
-            `(account)`: un usuario puede aterrizar directamente en /login o en
-            /mis-anuncios desde un marcador, y el gate tiene que estar en pie en la
-            primera visita sea cual sea la puerta.
+            Hubo un `<ConsentProvider>` envolviendo estos children, y ROMPÍA LA
+            HIDRATACIÓN EN PRODUCCIÓN: anidar un segundo Client Component alrededor del
+            slot, dentro del SessionProvider, hacía que React montara una segunda copia
+            del árbol entero al hidratar —dos cabeceras, dos de cada botón—. Lo cazó
+            `auth-friction` («resolved to 2 elements») y sólo en `next start`: en
+            `next dev` React se recupera y no se ve.
 
-            DENTRO de AuthProvider, al revés que el <Toaster/>: el proveedor lee la
-            sesión para atar la prueba al usuario cuando lo hay (useSession).
-
-            No pinta NADA. El banner llega en la ráfaga 2; esto sólo sostiene el estado
-            que el gate consulta. Ver docs/diseno-consentimiento-cookies.md §1.2. */}
-        <AuthProvider session={session}>
-          <ConsentProvider token={session?.user?.accessToken}>{children}</ConsentProvider>
-        </AuthProvider>
+            El gate no lo necesitaba: cada uno lee la cookie por su cuenta y se avisan
+            entre ellos por un evento (ver `components/consentimiento/consentimiento.tsx`).
+            La lección, para cuando llegue el banner en la ráfaga 2: **el layout raíz es
+            la superficie más delicada de la app**, y algo que sólo leen dos componentes
+            no tiene por qué pasar por ella. */}
+        <AuthProvider session={session}>{children}</AuthProvider>
         {/* UXV.3 (M6) — UNA sola vez y en la raíz: así cualquier pantalla de cualquier
             zona puede avisar de algo con `toast(...)` sin montar nada propio. Va FUERA
             de AuthProvider a propósito: no depende de la sesión, y un toast tiene que
