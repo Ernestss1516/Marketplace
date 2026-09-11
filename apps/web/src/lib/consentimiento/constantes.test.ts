@@ -17,22 +17,24 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CATEGORIAS, NOMBRE_COOKIE, MAX_AGE_SEGUNDOS, VERSION_TEXTO_FALLBACK } from './constantes';
+import { COOKIE_TEXT_FALLBACK } from './texto-defecto';
 
-const FUENTE_BACKEND = join(
-  __dirname,
-  '..',
-  '..',
-  '..',
-  '..',
-  'api',
-  'src',
-  'modules',
-  'consent',
-  'consent.constants.ts',
-);
+const RAIZ_API = join(__dirname, '..', '..', '..', '..', 'api');
+
+const FUENTE_BACKEND = join(RAIZ_API, 'src', 'modules', 'consent', 'consent.constants.ts');
+const FUENTE_SEED = join(RAIZ_API, 'prisma', 'seed-settings.ts');
 
 function leerBackend(): string {
   return readFileSync(FUENTE_BACKEND, 'utf8');
+}
+
+function leerSeed(): string {
+  return readFileSync(FUENTE_SEED, 'utf8');
+}
+
+/** Las comillas y los saltos de línea estorban al comparar textos partidos en varias líneas. */
+function normalizar(texto: string): string {
+  return texto.replace(/\s+/g, ' ').trim();
 }
 
 describe('las constantes del consentimiento coinciden con las del backend', () => {
@@ -74,5 +76,64 @@ describe('las categorías son sólo las que corresponden a cookies reales', () =
     // ofrezca apagar algo que no existe. La telemetría propia no toca el terminal (D1);
     // no hay un solo tercero publicitario; no hay cookie de tema ni de idioma.
     expect([...CATEGORIAS]).toEqual(['terceros']);
+  });
+});
+
+/**
+ * RÁFAGA 2 — EL TEXTO POR DEFECTO DEL BANNER VIVE EN TRES SITIOS.
+ *
+ * `COOKIE_TEXT_DEFAULTS` (el respaldo del backend), `SEED_SETTINGS` (lo que se siembra) y
+ * `COOKIE_TEXT_FALLBACK` (el respaldo del frontend, para cuando la API no responde). Los
+ * tres tienen razón de ser y ninguno sobra:
+ *
+ *  · sin el del backend, a una instancia sin filas se le queda el banner vacío;
+ *  · sin la semilla, el texto no es editable desde el backoffice (la lección de
+ *    `videoEnabled`: lo que no está sembrado no existe en producción);
+ *  · sin el del frontend, un backend caído deja la plataforma SIN banner legal.
+ *
+ * Lo que no puede pasar es que digan cosas distintas: el usuario vería un texto, la
+ * semilla otro y el respaldo un tercero, según qué se hubiera caído ese día. Estos casos
+ * son la red — y se escribieron porque los comentarios de los tres ficheros ya afirmaban
+ * que existía.
+ */
+describe('el texto por defecto del banner es el MISMO en los tres sitios', () => {
+  const CAMPOS = [
+    ['title', 'cookieBannerTitle'],
+    ['acceptLabel', 'cookieBannerAcceptLabel'],
+    ['rejectLabel', 'cookieBannerRejectLabel'],
+    ['moreLabel', 'cookieBannerMoreLabel'],
+  ] as const;
+
+  it.each(CAMPOS)('«%s» coincide con el respaldo del backend', (campo) => {
+    const valor = COOKIE_TEXT_FALLBACK[campo];
+    expect(normalizar(leerBackend())).toContain(`${campo}: '${valor}'`);
+  });
+
+  it.each(CAMPOS)('«%s» coincide con lo que siembra la semilla (%s)', (campo, clave) => {
+    const valor = COOKIE_TEXT_FALLBACK[campo];
+    expect(normalizar(leerSeed())).toContain(`key: '${clave}', value: '${valor}'`);
+  });
+
+  it('el cuerpo del mensaje es el mismo en los tres', () => {
+    // Va aparte porque está partido en varias líneas en los tres ficheros: se compara
+    // sobre el texto normalizado, sin los cortes ni las comillas de concatenación.
+    const cuerpo = COOKIE_TEXT_FALLBACK.body;
+    const trozo = cuerpo.slice(0, 60);
+    const sinComillas = (s: string) => normalizar(s).replace(/' \+ '/g, '');
+
+    expect(sinComillas(leerBackend())).toContain(trozo);
+    expect(sinComillas(leerSeed())).toContain(trozo);
+    // Y el final, para que no valga con que coincida el principio.
+    expect(sinComillas(leerBackend())).toContain(cuerpo.slice(-50));
+    expect(sinComillas(leerSeed())).toContain(cuerpo.slice(-50));
+  });
+
+  it('la versión del respaldo del frontend es la que siembra la semilla', () => {
+    // Si divergieran, el banner compararía contra una versión que nadie publicó y
+    // volvería a preguntar a todo el mundo sin que nadie hubiera cambiado el texto.
+    expect(normalizar(leerSeed())).toContain(
+      `key: 'cookiePolicyVersion', value: '${COOKIE_TEXT_FALLBACK.version}'`,
+    );
+    expect(COOKIE_TEXT_FALLBACK.version).toBe(VERSION_TEXTO_FALLBACK);
   });
 });

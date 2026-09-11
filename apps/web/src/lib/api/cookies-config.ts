@@ -1,5 +1,6 @@
 import { unstable_cache } from 'next/cache';
 import { apiFetch } from './client';
+import type { CookieTextConfig } from '@/lib/consentimiento/texto-defecto';
 
 /**
  * COOKIES RÁFAGA 2 — EL TEXTO DEL BANNER, leído por el sitio público.
@@ -15,45 +16,17 @@ import { apiFetch } from './client';
  * Resultado: **sin fetch de cliente, sin flash y sin CLS**. El banner ya está en la
  * respuesta; lo que ocurre en el navegador es sólo decidir si se muestra.
  *
- * SEPARADO de un cliente de admin por el motivo de siempre: este módulo importa
- * `unstable_cache`, que es sólo de servidor, y la pantalla de `/admin/cookies` es
- * cliente — importarlo allí rompería el build.
- */
-export interface CookieTextConfig {
-  title: string;
-  body: string;
-  acceptLabel: string;
-  rejectLabel: string;
-  moreLabel: string;
-  /** Vacío mientras no exista la página de cookies (ráfaga 3). */
-  policyUrl: string;
-  /** La versión del texto. Si no coincide con la de la cookie, se vuelve a preguntar (D5). */
-  version: string;
-}
-
-/**
- * El respaldo del respaldo.
+ * ─── EL VALOR POR DEFECTO NO ESTÁ AQUÍ, Y ES A PROPÓSITO ────────────────────────
  *
- * El backend ya devuelve defectos cuando no hay filas, así que esto sólo entra en juego
- * si la API **no responde**. Y tiene que existir: un backend caído no puede hacer
- * desaparecer el banner legal de todas las páginas. Mismo criterio que el tema, que cae a
- * `globals.css` cuando `/estilo` falla (`layout.tsx:91-97`).
- *
- * Los valores son los mismos que `COOKIE_TEXT_DEFAULTS` en el backend
- * (`consent.constants.ts`), y hay un test que falla si divergen.
+ * Vive en `lib/consentimiento/texto-defecto.ts`, sin `next/cache`. Este módulo arrastra
+ * internals de servidor de Next, y un test en jsdom que lo importara se caería con
+ * `TextEncoder is not defined` antes de ejecutar una aserción — es la cicatriz que
+ * `estilo.ts:59-67` ya dejó escrita, y la volvió a morder el test que compara este texto
+ * con el del backend. Se reexporta para que quien pedía las dos cosas aquí las siga
+ * teniendo.
  */
-export const COOKIE_TEXT_FALLBACK: CookieTextConfig = {
-  title: 'Cookies y contenido de terceros',
-  body:
-    'Usamos cookies propias imprescindibles para que la plataforma funcione (tu sesión y ' +
-    'poco más). Algunas páginas incluyen vídeos y mapas servidos por terceros, que ' +
-    'reciben tu dirección IP: no se cargan hasta que tú lo aceptes.',
-  acceptLabel: 'Aceptar',
-  rejectLabel: 'Rechazar',
-  moreLabel: 'Más información',
-  policyUrl: '',
-  version: '1',
-};
+export type { CookieTextConfig };
+export { COOKIE_TEXT_FALLBACK } from '@/lib/consentimiento/texto-defecto';
 
 function getCookiesConfig(): Promise<CookieTextConfig> {
   return apiFetch<CookieTextConfig>('/cookies/config');
