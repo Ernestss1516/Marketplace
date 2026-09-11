@@ -17,6 +17,7 @@ import { ProfileBlockDto } from './profile-block.dto';
 import { ListingsBlockDto } from './listings-block.dto';
 import { VideoUploadBlockDto } from './video-upload-block.dto';
 import { AdBannerBlockDto } from './ad-banner-block.dto';
+import { CookiePreferencesBlockDto } from './cookie-preferences-block.dto';
 
 export type BlockDto =
   | TextBlockDto
@@ -33,14 +34,15 @@ export type BlockDto =
   | ProfileBlockDto
   | ListingsBlockDto
   | VideoUploadBlockDto
-  | AdBannerBlockDto;
+  | AdBannerBlockDto
+  | CookiePreferencesBlockDto;
 
 // Máximo de bloques por post — guardarraíl contra payloads abusivos, no una
 // limitación de producto (100 bloques es muchísimo más de lo que cualquier
 // artículo/página real necesitaría).
 const MAX_BLOCKS = 100;
 
-// Único punto donde se declaran los 15 subtipos — si se añade un 16º bloque,
+// Único punto donde se declaran los 16 subtipos — si se añade un 17º bloque,
 // solo hace falta tocar aquí (y su propio *-block.dto.ts), no en cada DTO que
 // use `blocks`. Empaquetado con applyDecorators (@nestjs/common) para no
 // duplicar este bloque de ~20 líneas en CreatePostDto Y UpdatePostDto.
@@ -72,6 +74,7 @@ export function ValidBlocksArray(): PropertyDecorator {
           // Publicidad EDITORIAL (la coloca una persona dentro del post). No confundir con
           // `SponsoredAd`, que es la publicidad de pago del sistema y tiene fila propia.
           { value: AdBannerBlockDto, name: 'adBanner' },
+          { value: CookiePreferencesBlockDto, name: 'cookiePreferences' },
         ],
       },
       keepDiscriminatorProperty: true,

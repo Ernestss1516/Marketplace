@@ -3,6 +3,14 @@ import * as bcrypt from 'bcrypt';
 // ENCENDER EL VÍDEO — la lista de ajustes vive aparte para que un test pueda mirarla sin
 // ejecutar la semilla entera (este fichero tiene un `main()` en la raíz).
 import { SEED_SETTINGS } from './seed-settings';
+// COOKIES RÁFAGA 3 — el contenido de la política vive aparte por el mismo motivo: para
+// que un test pueda comprobar que los huecos siguen marcados sin ejecutar la semilla.
+import {
+  PAGINA_COOKIES_BLOQUES,
+  PAGINA_COOKIES_RUTA,
+  PAGINA_COOKIES_SLUG,
+  PAGINA_COOKIES_TITULO,
+} from './seed-pagina-cookies';
 
 const prisma = new PrismaClient();
 
@@ -751,11 +759,71 @@ async function seedHomepageConfig() {
   console.log('  ✓ homepage config editada por un admin, intacta');
 }
 
+/**
+ * COOKIES RÁFAGA 3 — LA PÁGINA DE COOKIES, EN BORRADOR Y ESPERANDO SU TEXTO.
+ *
+ * Ver `seed-pagina-cookies.ts` para el contenido y el porqué de sembrarla.
+ *
+ * ─── SÓLO SE CREA SI NO EXISTE, Y NUNCA SE PISA ─────────────────────────────────
+ *
+ * Es el mismo criterio que `seedSettings` («un valor que un administrador ya haya
+ * cambiado NUNCA se pisa») y que `seedHomepageConfig`. Aquí pesa más que en ningún otro
+ * sitio: lo que puede haber encima es el texto que escribió la asesoría legal, y
+ * machacarlo en un despliegue sería destruir trabajo que nadie más tiene.
+ *
+ * Por eso ni siquiera se comprueba si está publicada o en borrador: si la fila existe,
+ * este código no la toca.
+ */
+async function seedPaginaCookies() {
+  console.log('Seeding cookie policy page...');
+
+  const existente = await prisma.post.findUnique({
+    where: { slug: PAGINA_COOKIES_SLUG },
+    select: { id: true, status: true },
+  });
+  if (existente) {
+    console.log(`  ✓ página de cookies ya presente (${existente.status}), intacta`);
+    return;
+  }
+
+  // El autor es el admin de la semilla: `Post.authorId` es obligatorio, y esta página es
+  // configuración de la instancia, no contenido editorial de nadie.
+  const admin = await prisma.user.findUnique({
+    where: { email: 'admin@marketplace.es' },
+    select: { id: true },
+  });
+  if (!admin) {
+    console.log('  ⚠ no hay admin sembrado: la página de cookies se creará en el próximo seed');
+    return;
+  }
+
+  await prisma.post.create({
+    data: {
+      type: 'PAGE',
+      title: PAGINA_COOKIES_TITULO,
+      slug: PAGINA_COOKIES_SLUG,
+      excerpt: 'Qué cookies usamos, para qué, y cómo cambiar tu decisión.',
+      blocks: PAGINA_COOKIES_BLOQUES,
+      // DRAFT, Y ES EL MECANISMO ENTERO: el público no la ve, no entra en el sitemap, y
+      // el banner sigue con su detalle inline en vez de enlazar a un 404. Publicar es el
+      // acto que dice «el texto legal ya está».
+      status: 'DRAFT',
+      publishedAt: null,
+      authorId: admin.id,
+    },
+  });
+
+  console.log(`  ✓ página de cookies creada en BORRADOR (${PAGINA_COOKIES_RUTA})`);
+  console.log('    Le faltan el texto de asesoría y 4 datos que hay que medir en navegador.');
+  console.log('    Está marcado dentro de la propia página.');
+}
+
 async function main() {
   await seedCategories();
   await seedAdmin();
   await seedSettings();
   await seedHomepageConfig();
+  await seedPaginaCookies();
   await seedBillingCatalog();
   await seedCreditPacks();
   await seedBumpPacks();

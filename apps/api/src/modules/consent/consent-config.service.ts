@@ -66,7 +66,44 @@ export class ConsentConfigService {
         COOKIE_TEXT_DEFAULTS[campo],
       );
     }
+
+    salida.policyUrl = await this.policyUrlServible(salida.policyUrl);
     return salida;
+  }
+
+  /**
+   * RÁFAGA 3 — EL BANNER LEGAL NUNCA ENLAZA A UN 404.
+   *
+   * La política de cookies vive en el CMS y nace EN BORRADOR, esperando el texto de
+   * asesoría. Entre que el admin apunta aquí su ruta y el día que la publica pueden pasar
+   * semanas, y durante todas ellas el botón «Más información» del banner llevaría a una
+   * página que no existe — desde el aviso legal, que es el peor sitio posible para un
+   * enlace roto.
+   *
+   * Así que la URL sólo se sirve si apunta a una página del CMS **publicada**. Si no,
+   * vuelve vacía y el banner despliega su detalle en línea (el respaldo de la ráfaga 2):
+   * el visitante siempre ve información, nunca un error.
+   *
+   * ─── POR QUÉ ESTO NO ES ACOPLAR DE MÁS ──────────────────────────────────────────
+   *
+   * Se comprueba **sólo** si la ruta tiene la forma `/paginas/<slug>`, que es la única
+   * que este servidor puede verificar. Una URL externa (la política alojada en otro
+   * sitio) o cualquier otra ruta interna se sirven tal cual, sin preguntar nada: no es un
+   * validador de enlaces, es el cierre de un caso concreto y conocido.
+   *
+   * Publicar o despublicar la página cambia el comportamiento del banner sin que nadie
+   * toque un ajuste — que es exactamente lo que se quiere: el botón funciona cuando hay
+   * algo que leer.
+   */
+  private async policyUrlServible(url: string): Promise<string> {
+    const slug = /^\/paginas\/([A-Za-z0-9-]+)$/.exec(url.trim())?.[1];
+    if (!slug) return url;
+
+    const pagina = await this.prisma.post.findFirst({
+      where: { slug, type: 'PAGE', status: 'PUBLISHED' },
+      select: { id: true },
+    });
+    return pagina ? url : '';
   }
 
   /**

@@ -16,8 +16,10 @@ import { ProfileBlockRenderer } from './ProfileBlockRenderer';
 import { ListingsBlockRenderer } from './ListingsBlockRenderer';
 import { VideoUploadBlockRenderer } from './VideoUploadBlockRenderer';
 import { AdBannerBlockRenderer } from './AdBannerBlockRenderer';
+import { CookiePreferencesBlockRenderer } from './CookiePreferencesBlockRenderer';
 
-// Switch exhaustivo: si se añade un 16º tipo de bloque sin su `case` aquí, el
+
+// Switch exhaustivo: si se añade un 17º tipo de bloque sin su `case` aquí, el
 // `never` de `assertUnreachable` falla en build — el compilador ES la
 // validación de que el esquema y el renderizador nunca divergen.
 function assertUnreachable(block: never): never {
@@ -57,6 +59,8 @@ function renderBlock(
       return <AdBannerBlockRenderer block={block} />;
     case 'separator':
       return <SeparatorBlockRenderer />;
+    case 'cookiePreferences':
+      return <CookiePreferencesBlockRenderer />;
     case 'table':
       return <TableBlockRenderer block={block} />;
     case 'imageText':

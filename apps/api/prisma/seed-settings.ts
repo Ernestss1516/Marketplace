@@ -91,10 +91,17 @@ export const SEED_SETTINGS: { key: string; value: Prisma.InputJsonValue }[] = [
   { key: 'cookieBannerAcceptLabel', value: 'Aceptar' },
   { key: 'cookieBannerRejectLabel', value: 'Rechazar' },
   { key: 'cookieBannerMoreLabel', value: 'Más información' },
-  // VACÍO HASTA LA RÁFAGA 3: la página de cookies todavía no existe, y enlazar a una
-  // ruta inexistente desde el banner legal sería peor que no enlazar. Mientras esté
-  // vacío, «Más información» despliega el detalle en el propio banner.
-  { key: 'cookiePolicyUrl', value: '' },
+  // RÁFAGA 3 — APUNTA YA A LA PÁGINA, aunque la página nazca en BORRADOR.
+  //
+  // No hay riesgo de 404 y no hace falta acordarse de rellenarlo después: el backend
+  // sólo sirve esta URL si la página del CMS está PUBLICADA
+  // (`ConsentConfigService.policyUrlServible`). Mientras siga en borrador vuelve vacía y
+  // el banner despliega su detalle en línea, igual que antes de existir la página.
+  //
+  // Así, PUBLICAR la página es el único acto necesario: en el momento en que el texto
+  // legal esté y alguien le dé a publicar, el «Más información» del banner empieza a
+  // llevar aquí. Un paso manual menos que olvidar.
+  { key: 'cookiePolicyUrl', value: '/paginas/cookies' },
   // LA VERSIÓN DEL TEXTO CONSENTIDO (D5). La sube el ADMIN A MANO desde
   // /admin/cookies, con aviso: subirla vuelve a preguntar a TODA la base de usuarios.
   // No se deriva del texto a propósito — una errata corregida no debe re-preguntar.

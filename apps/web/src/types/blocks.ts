@@ -94,6 +94,18 @@ export interface SeparatorBlock extends BaseBlock {
   type: 'separator';
 }
 
+/**
+ * COOKIES RÁFAGA 3 — el panel para cambiar o retirar el consentimiento.
+ *
+ * Sin datos propios, como `separator`: lo que enseña —las categorías que existen de
+ * verdad y el estado del visitante— lo decide el código, no el editor, porque es la
+ * mecánica del consentimiento y ésa es fija por ley. Lo único que se elige aquí es DÓNDE
+ * ponerlo dentro de la página.
+ */
+export interface CookiePreferencesBlock extends BaseBlock {
+  type: 'cookiePreferences';
+}
+
 export interface TableBlock extends BaseBlock {
   type: 'table';
   headers: string[];
@@ -208,4 +220,5 @@ export type Block =
   | ProfileBlock
   | ListingsBlock
   | VideoUploadBlock
-  | AdBannerBlock;
+  | AdBannerBlock
+  | CookiePreferencesBlock;
