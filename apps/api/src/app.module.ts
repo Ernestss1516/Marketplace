@@ -46,6 +46,7 @@ import { BlockMediaModule } from './modules/block-media/block-media.module';
 import { TicketsModule } from './modules/tickets/tickets.module';
 import { TagsModule } from './modules/tags/tags.module';
 import { ImpressionsModule } from './modules/impressions/impressions.module';
+import { ConsentModule } from './modules/consent/consent.module';
 
 @Module({
   imports: [
@@ -120,6 +121,9 @@ import { ImpressionsModule } from './modules/impressions/impressions.module';
     // también aquí para que el `@Cron` del volcado exista aunque un día la búsqueda
     // deje de ser su único productor.
     ImpressionsModule,
+    // COOKIES RÁFAGA 1 — el registro del consentimiento (la prueba del art. 7.1).
+    // Ver docs/diseno-consentimiento-cookies.md §2.
+    ConsentModule,
   ],
 })
 export class AppModule {}

@@ -121,6 +121,20 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         {css ? <style data-estilo="modelo">{css}</style> : null}
       </head>
       <body>
+        {/* COOKIES RÁFAGA 1 — AQUÍ NO HAY NADA, Y ESO ES LA DECISIÓN.
+
+            Hubo un `<ConsentProvider>` envolviendo estos children, y ROMPÍA LA
+            HIDRATACIÓN EN PRODUCCIÓN: anidar un segundo Client Component alrededor del
+            slot, dentro del SessionProvider, hacía que React montara una segunda copia
+            del árbol entero al hidratar —dos cabeceras, dos de cada botón—. Lo cazó
+            `auth-friction` («resolved to 2 elements») y sólo en `next start`: en
+            `next dev` React se recupera y no se ve.
+
+            El gate no lo necesitaba: cada uno lee la cookie por su cuenta y se avisan
+            entre ellos por un evento (ver `components/consentimiento/consentimiento.tsx`).
+            La lección, para cuando llegue el banner en la ráfaga 2: **el layout raíz es
+            la superficie más delicada de la app**, y algo que sólo leen dos componentes
+            no tiene por qué pasar por ella. */}
         <AuthProvider session={session}>{children}</AuthProvider>
         {/* UXV.3 (M6) — UNA sola vez y en la raíz: así cualquier pantalla de cualquier
             zona puede avisar de algo con `toast(...)` sin montar nada propio. Va FUERA

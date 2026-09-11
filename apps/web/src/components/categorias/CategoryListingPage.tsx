@@ -25,7 +25,7 @@ import { categoryPath, categoryPathWithQuery } from '@/lib/category-url';
 import { filterableFieldsForCategory } from '@/lib/filterable-fields';
 import { availableTagsForCategory } from '@/lib/available-tags';
 import { breadcrumbJsonLd } from '@/lib/breadcrumb-json-ld';
-import { resolveCurrentView, VIEW_PARAM } from '@/lib/view-mode';
+import { resolveCurrentView, usuarioPidioVista, VIEW_PARAM } from '@/lib/view-mode';
 import { visitorHeaders } from '@/lib/visitor';
 import { SITE_URL } from '@/config';
 import type { AlertCriteria, CategoryWithSchema, ListingSummary, ListingViewMode } from '@/types';
@@ -551,6 +551,11 @@ export async function CategoryListingPage({
                   totalHits={total}
                   listUrl={viewUrl('LISTA')}
                   attributeMap={buildFullAttributeMap(categories)}
+                  // COOKIES RÁFAGA 1 (D3) — AQUÍ ESTÁ EL CASO QUE JUSTIFICA TODO ESTO:
+                  // esta ruta SÍ puede llegar a MAPA sin que nadie lo pida, porque la
+                  // categoría tiene `defaultView` (schema.prisma:773). Si el usuario no
+                  // escribió `?view=mapa`, MapTiler no carga: marcador.
+                  solicitadoPorUsuario={usuarioPidioVista(viewRaw, category.allowedViews, 'MAPA')}
                 />
               ) : (
                 <CardAttributesProvider cardAttributeMap={buildCardAttributeMap(categories)}>
