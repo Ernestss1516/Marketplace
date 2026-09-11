@@ -5,6 +5,15 @@ import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog"
 
 import { cn } from "@/lib/utils"
 import { buttonVariants } from "@/components/ui/button"
+import { useZona } from "@/components/estilo/zona"
+
+/*
+ * RESIDUO 1 · LA ZONA LLEGA AL PORTAL. Mismo caso y mismo arreglo que `dialog.tsx`, y el
+ * porqué completo está ahí y en components/estilo/zona.tsx: este contenido se monta en
+ * `<body>`, fuera del `[data-zona="…"]` de la zona, así que sin declararla se queda con
+ * los tokens de la base. Va en el velo Y en el contenido: cada uno tiene su propio
+ * envoltorio en `<body>`, así que el velo no cuelga del contenido ni hereda de él.
+ */
 
 /*
  * E6 · LA CAPA VUELVE A ANIMARSE, Y AHORA ES DEL MODELO.
@@ -32,6 +41,7 @@ const AlertDialogOverlay = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Overlay>
 >(({ className, ...props }, ref) => (
   <AlertDialogPrimitive.Overlay
+    data-zona={useZona()}
     className={cn(
       "fixed inset-0 z-50 bg-black/80",
       "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
@@ -51,6 +61,7 @@ const AlertDialogContent = React.forwardRef<
     <AlertDialogOverlay />
     <AlertDialogPrimitive.Content
       ref={ref}
+      data-zona={useZona()}
       className={cn(
         "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg sm:rounded-lg",
         "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0 data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95",

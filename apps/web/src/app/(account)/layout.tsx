@@ -2,6 +2,7 @@ import Header from '@/components/layout/Header';
 import { AccountNav } from '@/components/cuenta/AccountNav';
 import { AccountMobileBar } from '@/components/cuenta/AccountMobileBar';
 import { AccountBreadcrumbs } from '@/components/cuenta/AccountBreadcrumbs';
+import { Zona } from '@/components/estilo/zona';
 
 /**
  * UXV.2 — el SHELL de la zona de cuenta.
@@ -33,7 +34,10 @@ import { AccountBreadcrumbs } from '@/components/cuenta/AccountBreadcrumbs';
  */
 export default function AccountLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-screen flex-col" data-zona="cuenta">
+    /* `<Zona>` y no un `<div data-zona>`: el mismo div de siempre, y además la zona
+       publicada para lo que se portalea desde dentro (los diálogos y menús de esta zona
+       se montan en `<body>`). Ver components/estilo/zona.tsx. */
+    <Zona nombre="cuenta" className="flex min-h-screen flex-col">
       <Header />
 
       <div className="container mx-auto flex flex-1 gap-8 px-4 py-6 md:py-8">
@@ -61,6 +65,6 @@ export default function AccountLayout({ children }: { children: React.ReactNode 
           {children}
         </main>
       </div>
-    </div>
+    </Zona>
   );
 }

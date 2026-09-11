@@ -93,6 +93,12 @@ export function AdminMobileNav({ marca }: { marca: BrandMark }) {
            * bloque `[data-zona="backoffice"]` pasa a casar con este elemento, y las
            * custom properties mandan en su subárbol. Es el mecanismo de E5 aplicado
            * donde el portal lo había roto, no un mecanismo nuevo.
+           *
+           * SIGUE ESCRITO A MANO, y no con `useZona()` como los overlays genéricos: este
+           * cajón es el del backoffice y sólo puede serlo —vive en su layout—, así que
+           * leer la zona de un contexto sería preguntar algo cuya respuesta está en el
+           * nombre del fichero. Es el mismo atributo; lo que cambia es de dónde sale el
+           * valor. Ver components/estilo/zona.tsx.
            */
           data-zona="backoffice"
           className="fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] overflow-y-auto border-r bg-background p-4 shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0 data-[state=open]:slide-in-from-left-2 data-[state=closed]:slide-out-to-left-2"
