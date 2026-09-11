@@ -198,6 +198,98 @@ describe('Cookies — config del banner y vinculación (e2e)', () => {
     });
   });
 
+  describe('BARRERA — el banner legal nunca enlaza a un 404', () => {
+    /**
+     * La política de cookies vive en el CMS y nace EN BORRADOR, esperando el texto de
+     * asesoría. Entre que alguien apunta su ruta en los ajustes y el día que la publica
+     * pueden pasar semanas — y durante todas ellas el «Más información» del banner
+     * llevaría a una página inexistente, desde el aviso legal, que es el peor sitio
+     * posible para un enlace roto.
+     *
+     * Por eso la URL sólo se sirve si la página está PUBLICADA. Publicar es el único acto
+     * necesario: nadie tiene que acordarse de volver a los ajustes.
+     */
+    async function crearPagina(status: 'DRAFT' | 'PUBLISHED') {
+      const autor = await prisma.user.findUniqueOrThrow({
+        where: { email: 'cookies-admin@example.com' },
+      });
+      return prisma.post.create({
+        data: {
+          type: 'PAGE',
+          title: 'Política de cookies',
+          slug: 'cookies',
+          blocks: [],
+          status,
+          publishedAt: status === 'PUBLISHED' ? new Date() : null,
+          authorId: autor.id,
+        },
+      });
+    }
+
+    beforeEach(async () => {
+      await prisma.post.deleteMany({ where: { slug: 'cookies' } });
+      await request(app.getHttpServer())
+        .put('/api/admin/cookies-config')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ policyUrl: '/paginas/cookies' })
+        .expect(200);
+    });
+
+    afterAll(async () => {
+      await prisma.post.deleteMany({ where: { slug: 'cookies' } });
+    });
+
+    it('con la página en BORRADOR, la URL vuelve VACÍA (el banner usa su detalle inline)', async () => {
+      await crearPagina('DRAFT');
+
+      const res = await request(app.getHttpServer()).get('/api/cookies/config').expect(200);
+
+      // Vacía, no la ruta: el visitante ve información en el propio banner en vez de un
+      // 404. Es el respaldo que dejó montado la ráfaga 2.
+      expect(res.body.policyUrl).toBe('');
+    });
+
+    it('sin página ninguna, también vuelve vacía', async () => {
+      const res = await request(app.getHttpServer()).get('/api/cookies/config').expect(200);
+      expect(res.body.policyUrl).toBe('');
+    });
+
+    it('al PUBLICARLA, la URL se sirve y el «ver más» pasa a navegar', async () => {
+      await crearPagina('PUBLISHED');
+
+      const res = await request(app.getHttpServer()).get('/api/cookies/config').expect(200);
+      expect(res.body.policyUrl).toBe('/paginas/cookies');
+    });
+
+    it('el ajuste guardado NO cambia: lo que cambia es lo que se SIRVE', async () => {
+      await crearPagina('DRAFT');
+
+      // Quien administra sigue viendo la ruta que escribió —no se la borramos por la
+      // espalda—; es el endpoint público el que la retiene mientras no haya nada que leer.
+      const admin = await request(app.getHttpServer())
+        .get('/api/admin/cookies-config')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+      expect(admin.body.policyUrl).toBe('');
+
+      const fila = await prisma.setting.findUniqueOrThrow({ where: { key: 'cookiePolicyUrl' } });
+      expect(fila.value).toBe('/paginas/cookies');
+    });
+
+    it('una URL externa se sirve tal cual: no somos un validador de enlaces', async () => {
+      // Si la política se aloja fuera, no hay nada que comprobar aquí. La regla cubre un
+      // caso concreto y conocido —nuestra propia página del CMS—, no todos los enlaces.
+      await request(app.getHttpServer())
+        .put('/api/admin/cookies-config')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ policyUrl: 'https://ejemplo.es/cookies' })
+        .expect(200);
+
+      const res = await request(app.getHttpServer()).get('/api/cookies/config').expect(200);
+      expect(res.body.policyUrl).toBe('https://ejemplo.es/cookies');
+    });
+  });
+
   describe('POST /consent/vincular — anónimo → logueado', () => {
     it('ata la decisión anónima a la cuenta con una fila NUEVA', async () => {
       const anonima = await prisma.consentRecord.create({

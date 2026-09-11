@@ -14,6 +14,7 @@ import {
   IdCard,
   ShoppingBag,
   Megaphone,
+  Cookie,
   type LucideIcon,
 } from 'lucide-react';
 import { generateId } from '@/lib/utils';
@@ -46,6 +47,9 @@ export const BLOCK_TYPE_META: Record<BlockType, { label: string; description: st
   // «Publicidad» y no «Anuncio»: en este proyecto un anuncio es lo que publica un vendedor,
   // y llamar igual a las dos cosas confundiría al editor en el único sitio donde elige.
   adBanner: { label: 'Publicidad', description: 'Una imagen publicitaria, con texto y botón opcionales', icon: Megaphone },
+  // COOKIES RÁFAGA 3 — el panel de preferencias de la política de cookies. No se
+  // configura nada: lo que enseña es la mecánica del consentimiento, que es fija.
+  cookiePreferences: { label: 'Preferencias de cookies', description: 'El panel para cambiar o retirar el consentimiento (para la política de cookies)', icon: Cookie },
 };
 
 // Orden fijo del selector — de más simple/frecuente a más elaborado, no
@@ -67,6 +71,9 @@ export const BLOCK_TYPE_ORDER: BlockType[] = [
   'listings',
   'adBanner',
   'separator',
+  // COOKIES RÁFAGA 3 — el último del menú: sólo tiene sentido en la política de
+  // cookies, no en un artículo cualquiera.
+  'cookiePreferences',
 ];
 
 // Valores por defecto al añadir un bloque nuevo — id fresco vía generateId()
@@ -96,6 +103,7 @@ export function createDefaultBlock(type: BlockType): Block {
       // `image`, que arranca igual y por el mismo motivo.
       return { id, type, url: '' };
     case 'separator':
+    case 'cookiePreferences':
       return { id, type };
     case 'table':
       return { id, type, headers: ['Columna 1'], rows: [['']] };
@@ -136,6 +144,7 @@ export function blockHasContent(block: Block): boolean {
       // el bloque sin confirmación cuando aún no se ha subido nada es lo correcto.
       return block.url.trim().length > 0;
     case 'separator':
+    case 'cookiePreferences':
       return false;
     case 'table':
       return block.rows.some((row) => row.some((cell) => cell.trim().length > 0));

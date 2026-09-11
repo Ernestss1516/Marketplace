@@ -5,6 +5,7 @@ import { ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
 import type { Block } from '@/types/blocks';
 import { BLOCK_TYPE_META, blockHasContent } from './blockDefaults';
 import { SeparatorBlockEditor } from './editors/SeparatorBlockEditor';
+import { CookiePreferencesBlockEditor } from './editors/CookiePreferencesBlockEditor';
 import { QuoteBlockEditor } from './editors/QuoteBlockEditor';
 import { CtaBlockEditor } from './editors/CtaBlockEditor';
 import { TextBlockEditor } from './editors/TextBlockEditor';
@@ -35,6 +36,8 @@ function renderEditor(
   switch (block.type) {
     case 'separator':
       return <SeparatorBlockEditor />;
+    case 'cookiePreferences':
+      return <CookiePreferencesBlockEditor />;
     case 'quote':
       return <QuoteBlockEditor block={block} onChange={(patch) => onChange({ ...block, ...patch })} disabled={disabled} />;
     case 'cta':

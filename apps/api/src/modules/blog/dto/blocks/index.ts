@@ -8,4 +8,5 @@ export * from './quote-block.dto';
 export * from './video-block.dto';
 export * from './separator-block.dto';
 export * from './table-block.dto';
+export * from './cookie-preferences-block.dto';
 export * from './block.dto';
