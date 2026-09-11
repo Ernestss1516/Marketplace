@@ -56,6 +56,13 @@ const COLORES_PRUEBA = {
   accent: '318 62% 42%',
   neutral: '30 22% 20%',
 };
+/** Los de fábrica de `fresco-confianza`. Ver `estilo.constants.ts`. */
+const COLORES_FRESCO = {
+  primary: '222 76% 50%',
+  secondary: '188 62% 46%',
+  accent: '262 65% 55%',
+  neutral: '214 14% 93%',
+};
 
 const API = 'http://localhost:3001';
 
@@ -63,10 +70,14 @@ async function ponerModelo(
   request: APIRequestContext,
   modelo: string,
   colores: Record<string, string>,
+  // La versión por defecto es la del Modelo 0 y la del de prueba. Se parametriza desde
+  // que el catálogo tiene modelos cuyas versiones no se llaman «1»: mandar una que no
+  // existe da 400 y el test moriría en el setup, no en lo que prueba.
+  version = '1',
 ): Promise<void> {
   const res = await request.put(`${API}/api/admin/estilo`, {
     headers: { Authorization: `Bearer ${adminApiToken()}` },
-    data: { modelo, version: '1', colores },
+    data: { modelo, version, colores },
   });
   if (!res.ok()) {
     throw new Error(`[invariancia] no se pudo activar ${modelo}: ${res.status()} ${await res.text()}`);
@@ -185,6 +196,51 @@ test.describe('Invariancia del HTML entre modelos', () => {
         cero[ruta],
       );
     }
+
+    await paginaAdmin.close();
+  });
+
+  /**
+   * EL MISMO CONTRATO, PARA UN MODELO DEL CATÁLOGO DE VERDAD.
+   *
+   * El de arriba usa `modelo-prueba-contraluz`, que es extremo A PROPÓSITO: si una
+   * reorganización se le escapa a ése, no la caza ninguno. Pero un modelo de prueba no lo
+   * elige nadie, y la frontera importa sobre todo en los que SÍ se pueden elegir.
+   *
+   * `fresco-confianza` entra aquí el día que entra al catálogo, y no como un extra: es la
+   * barrera 3 de su ráfaga —«Fresco/Confianza y Modelo 0 → HTML idéntico»— escrita donde
+   * se comprueba. Se mide una sola ruta pública y la del backoffice en vez de las seis:
+   * lo que esta prueba añade sobre la de arriba no es cobertura de rutas, es que el
+   * catálogo real también respeta la frontera, y el presupuesto de este job es finito.
+   */
+  test('un modelo DEL CATÁLOGO tampoco reorganiza: fresco-confianza = Modelo 0', async ({
+    page,
+    adminContext,
+    request,
+  }) => {
+    const paginaAdmin = await adminContext.newPage();
+
+    await ponerModelo(request, 'modelo-0', COLORES_0);
+    const temaCero = await temaDe(await abrir(page, '/planes'));
+    const cero = await arbolDe(page, '/planes');
+    const ceroAdmin = await arbolDe(paginaAdmin, RUTA_BACKOFFICE);
+
+    await ponerModelo(request, 'fresco-confianza', COLORES_FRESCO, 'claro');
+    const temaFresco = await temaDe(await abrir(page, '/planes'));
+    const fresco = await arbolDe(page, '/planes');
+    const frescoAdmin = await arbolDe(paginaAdmin, RUTA_BACKOFFICE);
+
+    // La misma red que arriba, y aquí importa más: si el modelo no llegara, los dos
+    // árboles serían del Modelo 0 y el verde no diría nada.
+    expect(
+      temaFresco,
+      'fresco-confianza no llegó a la página: la comparación no probaría nada',
+    ).not.toBe(temaCero);
+
+    expect(fresco, '«/planes» cambió de estructura con fresco-confianza').toBe(cero);
+    expect(frescoAdmin, `«${RUTA_BACKOFFICE}» cambió de estructura con fresco-confianza`).toBe(
+      ceroAdmin,
+    );
 
     await paginaAdmin.close();
   });

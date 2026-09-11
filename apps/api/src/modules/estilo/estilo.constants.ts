@@ -1029,10 +1029,361 @@ export const MODELO_CALIDO_EDITORIAL: Modelo = {
 };
 
 /**
+ * LA RAMPA DE «CLARO» — blanco dominante con el aire frío dentro.
+ *
+ * El Modelo 0 pinta el lienzo en blanco PURO (`0 0% 100%`) y el Cálido/Editorial en
+ * hueso. Éste hace la tercera cosa posible: un blanco que sigue siendo blanco pero lleva
+ * una gota de azul, de modo que el ojo lo lee como aire y no como papel. La diferencia
+ * con el Modelo 0 son cinco décimas de luz y un tinte; suena a nada y es justo lo que
+ * separa «herramienta» de «producto que respira».
+ *
+ * Los desplazamientos se miden sobre el neutro de fábrica de este modelo
+ * (`214 14% 93%`, un gris FRÍO). Como en los otros dos, **la luz es absoluta**: el admin
+ * puede girar el neutro hacia donde quiera y el lienzo seguirá siendo claro y el texto
+ * oscuro. Lo que gira con él es la familia.
+ */
+const RAMPA_FRESCO_CLARO: Readonly<Record<string, FranjaRampa>> = {
+  // 208 36% 99.5% — blanco con una gota de azul. NO es hueso y NO es blanco puro.
+  background: { dh: -6, ds: 22, l: 99.5 },
+  // 218 42% 12% — el texto: un azul marino casi negro. Sobre el lienzo da 17,6:1.
+  foreground: { dh: 4, ds: 28, l: 12 },
+  // La tarjeta va POR ENCIMA del lienzo (blanco pleno), al revés que en el Modelo 0
+  // —donde valen lo mismo— y como en el Cálido. Es lo que da relieve sin gastar sombra:
+  // en un modelo aireado, el relieve lo hace la luz, no el contorno.
+  card: { dh: -6, ds: 22, l: 100 },
+  'card-foreground': { dh: 4, ds: 28, l: 12 },
+  popover: { dh: -6, ds: 22, l: 100 },
+  'popover-foreground': { dh: 4, ds: 28, l: 12 },
+  // 212 30% 96% — la superficie atenuada, un escalón por debajo del lienzo.
+  muted: { dh: -2, ds: 16, l: 96 },
+  // 215 18% 40% — el texto atenuado. 4,82:1 sobre el lienzo: cumple con holgura corta y
+  // a propósito, porque es un gris que tiene que leerse ATENUADO, no gritar.
+  'muted-foreground': { dh: 1, ds: 4, l: 40 },
+  // 214 24% 89% — el trazo decorativo, frío y limpio.
+  border: { dh: 0, ds: 10, l: 89 },
+  /**
+   * 214 20% 53% — EL BORDE DE CAMPO, y el 53 no es redondo por gusto.
+   *
+   * A 56 % de luz daba 2,94:1 sobre este lienzo: falla 1.4.11 por seis centésimas. Es
+   * exactamente la trampa que documenta el Modelo 0 —un valor que «parece» bastante
+   * oscuro y no lo es— y aquí muerde antes, porque el lienzo de este modelo es más claro
+   * que el suyo. A 53 % da 3,22:1.
+   */
+  input: { dh: 0, ds: 6, l: 53 },
+};
+
+/**
+ * «NÍTIDO» — la misma personalidad, subida de definición: el tinte frío se nota más, el
+ * texto es más profundo y **los trazos pesan de verdad**.
+ *
+ * ⚠ LO QUE ESTA VERSIÓN NO PUEDE HACER, Y CONVIENE QUE ESTÉ ESCRITO. El encargo pedía
+ * «primary más saturado» para Nítido, y eso **el mecanismo no lo permite**: una versión
+ * redefine `rampa` y `ejes`, nunca los cuatro colores configurables —son del modelo, y la
+ * decisión #2 dice que el juego de atributos es el mismo para todas—. Ampliarlo sería
+ * cambiar el mecanismo de E13, no afinar un ambiente.
+ *
+ * Así que la «más presencia» se consigue con lo que sí es de la versión, y se consigue de
+ * verdad: el lienzo baja medio punto y sube su tinte (de 36 % a 45 % de saturación), el
+ * texto baja de 12 % a 9 % de luz, el trazo decorativo pasa de 89 % a 82 % —siete puntos,
+ * que en un borde es la diferencia entre insinuado y dibujado— y el de campo de 53 % a
+ * 46 %. Medido, no afirmado: `estilo.spec.ts` exige que las dos versiones difieran en
+ * lienzo, texto y trazo.
+ */
+const RAMPA_FRESCO_NITIDO: Readonly<Record<string, FranjaRampa>> = {
+  // 210 45% 99% — medio punto menos de luz y nueve más de tinte: se nota que es frío.
+  background: { dh: -4, ds: 31, l: 99 },
+  // 220 55% 9% — el texto, más profundo. Si el lienzo baja, el texto baja con él o el
+  // contraste se queda igual y el ambiente no cambia (la lección de «Tarde»).
+  foreground: { dh: 6, ds: 41, l: 9 },
+  card: { dh: -6, ds: 26, l: 100 },
+  'card-foreground': { dh: 6, ds: 41, l: 9 },
+  popover: { dh: -6, ds: 26, l: 100 },
+  'popover-foreground': { dh: 6, ds: 41, l: 9 },
+  muted: { dh: -2, ds: 24, l: 94.5 },
+  // 216 26% 34% — el atenuado deja de ser tímido: 7,75:1 en vez de 4,82:1.
+  'muted-foreground': { dh: 2, ds: 12, l: 34 },
+  // 214 32% 82% — EL TRAZO, que es donde más se ve la palabra «nítido».
+  border: { dh: 0, ds: 18, l: 82 },
+  // 214 28% 46% — el borde de campo, muy por encima del mínimo (4,96:1).
+  input: { dh: 0, ds: 14, l: 46 },
+};
+
+/**
+ * ══ FRESCO / CONFIANZA ═══════════════════════════════════════════════════════════════
+ *
+ * El tercer modelo del catálogo, y el opuesto exacto del Cálido/Editorial: frío, aireado,
+ * nítido. Azul vivo, turquesa y violeta sobre grises azulados; titulares en una sans
+ * geométrica; sombras frías y ágiles. Donde aquél quiere leerse como una revista, éste
+ * quiere leerse como una herramienta en la que se confía: rápida, limpia, sin adornos.
+ *
+ * ── ESTÁ EN SECO, Y ESO ES LA MITAD DEL PUNTO ───────────────────────────────────────
+ *
+ * `MODELO_POR_DEFECTO` sigue siendo el Modelo 0. Este modelo es ELEGIBLE en
+ * `/admin/estilo` y no está activo en ninguna parte, así que las 52 capturas de la
+ * batería visual tienen que salir IDÉNTICAS. Si alguna se mueve, es que se coló en el
+ * defecto — y eso es un bug de registro, no un cambio de aspecto.
+ *
+ * ── PURO REGISTRO: CERO `.tsx` ──────────────────────────────────────────────────────
+ *
+ * No se toca un solo componente, y no es una casualidad de esta ráfaga: es la decisión #1
+ * («un modelo reviste, no reorganiza») hecha práctica. El catálogo lo sirve el backend y
+ * `/admin/estilo` lo pinta desde ahí, así que un modelo nuevo llega a la pantalla sin que
+ * el frontend se entere de que existe.
+ *
+ * ── LOS COLORES ESTÁN MEDIDOS, NO ELEGIDOS A OJO ────────────────────────────────────
+ *
+ * La lección del oliva del Cálido/Editorial se repite aquí con otro color y la misma
+ * forma: los tonos de LUZ MEDIA caen en una zona muerta donde NINGUNA de las dos letras
+ * llega a 4,5:1. Le pasó al violeta al 62 % (4,36:1 con letra clara, 3,93:1 con oscura) y
+ * al turquesa profundo al 36 % (4,47:1, a tres centésimas). Los dos se movieron hasta que
+ * la medición pasó. `contraste-modelos.spec.ts` valida las DOS versiones por las CINCO
+ * zonas en CI.
+ *
+ * ── LOS VALORES SON DE PARTIDA ──────────────────────────────────────────────────────
+ *
+ * Cumplen AA y están puestos para verse y ajustarse, no para quedarse: el ASPECTO es de
+ * Ernest.
+ */
+export const MODELO_FRESCO_CONFIANZA: Modelo = {
+  id: 'fresco-confianza',
+  nombre: 'Fresco / Confianza',
+  descripcion:
+    'Azul vivo, turquesa y grises fríos, titulares en sans geométrica. Para que la plataforma se lea como una herramienta rápida y limpia en la que se confía.',
+  versiones: ['claro', 'nitido'],
+
+  /**
+   * LOS CUATRO DE FÁBRICA. Los fríos engañan al revés que los cálidos: parecen seguros
+   * porque son oscuros, y luego el que falla es el vivo del medio.
+   *
+   *  · `primary` es un AZUL CON ENERGÍA, no el azul corporativo apagado de siempre. Al
+   *    50 % de luz hace las dos cosas que tiene que hacer: llevar letra clara encima
+   *    (5,90:1) y servir de anillo de foco sobre un lienzo casi blanco (5,62:1). Subirlo
+   *    a 60 % lo haría más alegre y rompería la primera.
+   *  · `secondary` es un TURQUESA VIVO, y es el único de los tres que lleva letra OSCURA
+   *    — `mejorTextoSobre` lo elige midiendo, no hay que decírselo—. Ese es justamente el
+   *    motivo de que pueda ser vivo: a 46 % con letra clara daría 2,7:1, pero con letra
+   *    oscura da 6,4:1. El turquesa PROFUNDO que probé primero (34-36 % de luz) llevaba
+   *    letra clara y se quedaba en 4,47:1: la zona muerta, otra vez.
+   *  · `accent` es el VIOLETA, el contraste frío. Al 62 % —que es lo que pedía el ojo—
+   *    caía en la zona muerta por las dos caras; a 55 % lleva letra clara con 5,90:1.
+   *  · `neutral` NO es gris puro: lleva tinte AZULADO, y de él sale la rampa entera. Es lo
+   *    que hace que los grises de este modelo se lean como aire y no como polvo.
+   */
+  coloresPorDefecto: {
+    primary: '222 76% 50%',
+    secondary: '188 62% 46%',
+    accent: '262 65% 55%',
+    neutral: '214 14% 93%',
+  },
+
+  /**
+   * Los dos candidatos a letra. Ninguno es blanco ni negro puros: sobre un tema frío el
+   * negro puro hace un agujero y el blanco puro deslumbra. El casi-blanco azulado y el
+   * azul marino mantienen la familia, y `mejorTextoSobre` elige entre ellos midiendo.
+   */
+  textoSobre: ['210 40% 98%', '215 45% 12%'],
+
+  rampa: RAMPA_FRESCO_CLARO,
+
+  porVersion: {
+    // «Claro» es la versión base: la rampa del modelo tal cual, sin redefinir nada.
+    claro: {},
+    nitido: {
+      rampa: RAMPA_FRESCO_NITIDO,
+      ejes: {
+        // Nítido define: sombras con más presencia y un tempo aún más corto. El radio
+        // baja a la mitad — una esquina más recta es la forma más barata de decir
+        // «preciso» sin tocar una estructura.
+        radius: '0.125rem',
+        shadow: '0 1px 3px 0 rgb(15 30 60 / 0.16), 0 1px 2px -1px rgb(15 30 60 / 0.14)',
+        'shadow-md': '0 4px 8px -2px rgb(15 30 60 / 0.18), 0 2px 4px -2px rgb(15 30 60 / 0.14)',
+        'shadow-lg': '0 10px 18px -4px rgb(15 30 60 / 0.20), 0 4px 7px -4px rgb(15 30 60 / 0.16)',
+        'motion-duration': '110ms',
+      },
+    },
+  },
+
+  /**
+   * SE HEREDAN LOS SEMÁNTICOS DEL MODELO 0, por la misma razón que el Cálido/Editorial:
+   * rojo de error, verde de éxito y ámbar de aviso son convenciones que el usuario trae
+   * puestas de fuera, y enfriarlas para que «peguen» con el azul es exactamente el cambio
+   * que hace que un error deje de leerse como un error. Además están medidos contra AA
+   * desde E4b.
+   *
+   * Copiados y no importados, como allí: un modelo declara TODO lo suyo, y el día que éste
+   * quiera su propio rojo se cambia aquí y no en dos sitios.
+   */
+  semanticos: { ...MODELO_0.semanticos },
+
+  ejes: {
+    // El cuerpo sigue en Inter: es legible, está en el repo y la escala tipográfica es
+    // estructura (T3), no del modelo. Lo que cambia es el TITULAR.
+    'font-sans': 'var(--font-inter)',
+    /**
+     * ⚠ SIN COMILLAS. Es la cicatriz del Cálido/Editorial y se repite aquí porque el
+     * filtro es el mismo: `VALOR_SEGURO` de `lib/estilo-css.ts` no admite comillas a
+     * propósito, y un `font-heading` con ellas se DESCARTA EN SILENCIO — el token no
+     * llega, los titulares salen en sans y nadie ve un error por ninguna parte.
+     *
+     * CSS admite familias de varias palabras sin comillas mientras cada palabra sea un
+     * identificador válido, así que `Avenir Next` y `Segoe UI` a pelo son correctos y
+     * además pasan el filtro.
+     *
+     * LA PILA, y por qué ésta: el frío pide una sans NÍTIDA, no una serifa —eso es lo que
+     * hace el otro modelo—. Avenir Next es la geométrica de macOS; Segoe UI cubre Windows;
+     * Helvetica Neue y Arial cierran; `sans-serif` es el último recurso. Igual que allí,
+     * se usa la pila del SISTEMA y no un fichero propio porque esta ráfaga es puro
+     * registro: servir una fuente del repo obliga a declararla en `layout.tsx`, y eso es
+     * tocar un `.tsx`. Cuando Ernest apruebe la dirección, traer una geométrica propia es
+     * una ráfaga aparte y entonces sí.
+     */
+    'font-heading': 'Avenir Next, Segoe UI, Helvetica Neue, Arial, sans-serif',
+
+    // Más recto que los otros dos (0.5 el Modelo 0, 0.375 el editorial): lo preciso no se
+    // redondea.
+    radius: '0.25rem',
+
+    // Sombras FRÍAS y CORTAS. El negro puro sobre un lienzo azulado hace una sombra gris
+    // que ensucia; éstas llevan tinte marino. Y son de poco radio a propósito: una sombra
+    // difusa es acogedora —que es lo que quiere el editorial— y una corta es definida.
+    'shadow-sm': '0 1px 2px 0 rgb(15 30 60 / 0.07)',
+    shadow: '0 1px 2px 0 rgb(15 30 60 / 0.12), 0 1px 1px -1px rgb(15 30 60 / 0.10)',
+    'shadow-md': '0 3px 5px -1px rgb(15 30 60 / 0.13), 0 1px 3px -2px rgb(15 30 60 / 0.10)',
+    'shadow-lg': '0 8px 12px -3px rgb(15 30 60 / 0.14), 0 3px 5px -4px rgb(15 30 60 / 0.11)',
+    'shadow-xl': '0 16px 20px -5px rgb(15 30 60 / 0.15), 0 6px 8px -6px rgb(15 30 60 / 0.11)',
+
+    // ÁGIL: 120 ms contra los 150 del Modelo 0 y los 180 del editorial. Este modelo
+    // promete rapidez; el tempo es donde esa promesa se cumple o se rompe.
+    'motion-duration': '120ms',
+    'motion-ease': 'cubic-bezier(0.2, 0, 0, 1)',
+    'motion-ease-emphasis': 'cubic-bezier(0.3, 0, 0.1, 1)',
+    'motion-sprite-duration': '1.1s',
+
+    // Trazo de icono FINO: acompaña a la geométrica. El Modelo 0 usa 2, el editorial 1.75.
+    'icon-stroke': '1.5',
+  },
+
+  /**
+   * LAS DIEZ, DECLARADAS UNA POR UNA — no vacías.
+   *
+   * `ilustraciones.spec.ts` exige que TODO modelo declare los diez slots, y la cabecera de
+   * ese test explica por qué el respaldo del registro no basta: está ahí para que un
+   * olvido no rompa nada, no para que un modelo delegue en él. Un modelo que no declara no
+   * dice «sirvo las de siempre», dice «no lo he pensado».
+   *
+   * Éste sí: las del Modelo 0 son línea monocroma en gris medio, y un gris neutro sobre un
+   * modelo frío pega mejor que sobre uno cálido — no hay nada que corregir todavía. Un
+   * juego propio y frío es trabajo de ilustración, no de registro.
+   */
+  ilustraciones: { ...MODELO_0.ilustraciones },
+
+  /**
+   * LAS ZONAS, con la misma INTENCIÓN que en los otros dos modelos y el vocabulario de
+   * éste. Las cinco decisiones de E5 son del SISTEMA; un modelo las expresa en sus colores
+   * en vez de heredarlas literales. `public` no aparece: el registro público es la base.
+   */
+  ajustesPorZona: {
+    /**
+     * BACKOFFICE — resta. Aquí el modelo se quita el tinte: el lienzo va a blanco casi
+     * puro, que es lo que una tabla de doscientas filas necesita, y el texto atenuado sube
+     * de contraste. El tempo baja a 90 ms: si el modelo base ya promete agilidad, la
+     * herramienta la cumple del todo.
+     *
+     * ⚠ `accent-foreground` VA CON `accent`, Y ESO NO ESTABA EN LOS OTROS DOS MODELOS.
+     *
+     * Las zonas sobrias repintan `accent` —la superficie de resalte— con el mismo gris
+     * casi blanco que `muted`: es lo que hacen el Modelo 0 y el Cálido/Editorial, y es
+     * correcto, porque en una herramienta el resalte no debe gritar. Pero `accent`
+     * **viene emparejado con su letra**, que `resolverTokens` elige midiendo sobre el
+     * color del MODELO, no sobre el de la zona.
+     *
+     * Aquí eso rompía: el violeta de fábrica es oscuro, así que su letra es clara — y
+     * letra clara sobre un gris del 96 % da **1,05:1**. Lo cazó `contraste-modelos.spec.ts`
+     * por zona, que es exactamente para lo que existe.
+     *
+     * El Cálido/Editorial no lo sufre por CASUALIDAD, no por diseño: su coral al 58 %
+     * lleva letra oscura, así que al repintar la superficie la pareja seguía funcionando.
+     * O sea que la regla general es ésta y nadie la había tenido que escribir todavía:
+     * **una zona que repinta una superficie repinta también su letra**, o hereda la del
+     * color que ya no está ahí. La zona `login` ya lo hacía con `primary`/
+     * `primary-foreground`; esto es lo mismo un token más allá.
+     */
+    backoffice: {
+      background: '210 20% 99.5%',
+      card: '0 0% 100%',
+      muted: '212 16% 96%',
+      accent: '212 16% 96%',
+      'accent-foreground': '218 42% 12%',
+      border: '214 14% 90%',
+      input: '214 12% 52%',
+      'muted-foreground': '215 12% 34%',
+      'motion-duration': '90ms',
+    },
+
+    /**
+     * BLOG — tiñe, y en un modelo frío teñir significa BAJAR EL BLANCO, no calentarlo.
+     * Leer seguido sobre blanco puro cansa; un azul grisáceo clarísimo da el mismo
+     * descanso que el hueso del editorial sin traicionar el carácter del modelo.
+     */
+    blog: {
+      background: '208 34% 97.5%',
+      card: '208 34% 97.5%',
+      muted: '210 26% 94.5%',
+      'motion-duration': '140ms',
+    },
+
+    /**
+     * CUENTA — a medio camino entre el escaparate y la herramienta, como en los otros dos.
+     * Repinta `accent` igual que el backoffice, así que se lleva su letra con él — ver el
+     * aviso de arriba.
+     */
+    cuenta: {
+      background: '209 28% 99%',
+      muted: '212 22% 95.5%',
+      accent: '212 22% 95.5%',
+      'accent-foreground': '218 42% 12%',
+      'motion-duration': '110ms',
+    },
+
+    /**
+     * LOGIN DEL BACKOFFICE — el oscuro, en frío. Mismo papel que en los otros dos modelos:
+     * la puerta de servicio se distingue de un vistazo.
+     *
+     * Los valores están medidos, no elegidos: sobre este lienzo el borde de campo y el
+     * anillo de foco tienen que cumplir 1.4.11 igual que en cualquier otra zona, y el azul
+     * de marca —que es el anillo por defecto— es demasiado oscuro para verse sobre un
+     * marino, así que la zona lo sustituye por un azul claro. Es exactamente lo que hace
+     * el Cálido/Editorial con el suyo.
+     */
+    login: {
+      background: '220 45% 7%',
+      foreground: '210 30% 95%',
+      card: '219 38% 12%',
+      'card-foreground': '210 30% 95%',
+      popover: '219 38% 12%',
+      'popover-foreground': '210 30% 95%',
+      border: '216 26% 22%',
+      input: '214 20% 52%',
+      'muted-foreground': '212 20% 70%',
+      ring: '210 85% 68%',
+      primary: '210 30% 95%',
+      'primary-foreground': '219 38% 12%',
+      'destructive-subtle': '#3d0d0d',
+      'destructive-border': '#7f1d1d',
+      'destructive-strong': '#fca5a5',
+    },
+  },
+};
+
+/**
  * El catálogo PÚBLICO. Se añaden modelos AQUÍ, por código — «los iremos añadiendo».
  * `MODELO_PRUEBA` no está, y no es un olvido: ver su comentario.
  */
-export const MODELOS: readonly Modelo[] = [MODELO_0, MODELO_CALIDO_EDITORIAL];
+export const MODELOS: readonly Modelo[] = [
+  MODELO_0,
+  MODELO_CALIDO_EDITORIAL,
+  MODELO_FRESCO_CONFIANZA,
+];
 
 /**
  * Los que EXISTEN pero no se ofrecen. Hoy sólo el de prueba. Se mantiene aparte de
