@@ -27,6 +27,21 @@ lógica se consume desde la API de NestJS a través de `lib/api/`.
 - Mantener `sitemap.ts`, `robots.ts` y los metadatos de las fichas al día (SEO).
 - No usar localStorage/sessionStorage para estado crítico; preferir estado de
   servidor o de React.
+- **Terceros: NADA se carga sin pasar por el gate de consentimiento.** Todo
+  recurso servido desde un dominio ajeno que el navegador pida (iframe, script,
+  tiles, fuente, píxel) va envuelto en `<GateTerceros>`
+  (`components/consentimiento/`). **Nunca en `app/layout.tsx` directamente, nunca
+  con `<Script>` fuera del gate.** Sin consentimiento el recurso no se pide — no
+  se carga oculto ni se descarta después: un iframe montado ya le ha dado la IP
+  del visitante al tercero. Hoy el gate cubre Vimeo/YouTube
+  (`VideoBlockRenderer`) y MapTiler (`MapViewClient`).
+  - Si el tercero nuevo **no encaja en «contenido de terceros»** (una analítica,
+    por ejemplo), se añade su categoría **en la misma ráfaga que lo introduce**:
+    nunca antes «para dejarlo preparado» —una categoría vacía miente al usuario—
+    ni después, que sería el incumplimiento. Hay que actualizar también la página
+    de cookies y subir `cookiePolicyVersion`.
+  - La barrera que lo vigila mide la RED, no el DOM:
+    `e2e/consentimiento-gate.spec.ts`. Ver `docs/diseno-consentimiento-cookies.md`.
 - **Feedback de acciones (UXV.3): hay UN canal, no se improvisa otro.** El
   `<Toaster/>` (sonner) se monta una vez en el layout raíz. Para avisar del éxito de
   una acción se pasa `successMessage` a `run()` de `useApiAction`, que emite el toast
