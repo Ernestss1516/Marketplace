@@ -61,7 +61,7 @@ async function loginAs(browser: Browser, email: string) {
 }
 
 test.describe('Backoffice — ADMIN acceso total', () => {
-  test('ADMIN carga /admin y el nav muestra las 27 secciones', async ({ adminContext }) => {
+  test('ADMIN carga /admin y el nav muestra las 28 secciones', async ({ adminContext }) => {
     const page = await adminContext.newPage();
 
     await page.goto('/admin');
@@ -85,7 +85,7 @@ test.describe('Backoffice — ADMIN acceso total', () => {
     const nav = page.getByTestId('admin-nav');
     await expect(nav).toBeVisible();
     const links = nav.getByRole('link');
-    await expect(links).toHaveCount(27);
+    await expect(links).toHaveCount(28);
 
     // Un ADMIN ve lo suyo Y lo de los otros dos pisos.
     await expect(nav.getByRole('link', { name: 'Ajustes' })).toBeVisible();
@@ -638,14 +638,14 @@ test.describe('La puerta /admin/login', () => {
     await page.close();
   });
 
-  test('un ADMIN sigue entrando por su puerta de siempre, con las 27', async ({ browser }) => {
+  test('un ADMIN sigue entrando por su puerta de siempre, con las 28', async ({ browser }) => {
     const page = await loginPorLaPuertaDelPanel(browser, 'admin-e2e@example.com');
     await page.waitForURL((url) => url.pathname.startsWith('/admin') && url.pathname !== '/admin/login', {
       timeout: 15_000,
     });
     await page.waitForLoadState('networkidle');
 
-    await expect(page.getByTestId('admin-nav').getByRole('link')).toHaveCount(27);
+    await expect(page.getByTestId('admin-nav').getByRole('link')).toHaveCount(28);
     await page.close();
   });
 

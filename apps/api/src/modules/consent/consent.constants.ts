@@ -52,3 +52,90 @@ export const CONSENT_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 180;
  */
 export const CONSENT_RATE_LIMIT = 20;
 export const CONSENT_RATE_LIMIT_WINDOW_SECONDS = 60;
+
+// ---------------------------------------------------------------------------
+// RÁFAGA 2 — EL TEXTO DEL BANNER, CONFIGURABLE POR INSTANCIA
+// ---------------------------------------------------------------------------
+
+/**
+ * LAS CLAVES QUE EL ADMIN PUEDE TOCAR, Y NINGUNA MÁS.
+ *
+ * **LA FRONTERA, ESCRITA COMO CÓDIGO**: aquí sólo hay TEXTO y un enlace. No existe —ni
+ * debe existir— una clave para «qué se bloquea», «cuántos botones tiene el banner», «si
+ * el banner aparece» o «qué categorías hay». Eso es la mecánica del consentimiento, es
+ * legal, y es fija. Un ajuste capaz de apagar el banner convertiría el cumplimiento en
+ * una preferencia.
+ *
+ * Molde de `LOGO_SETTING_KEYS` (branding): un `Setting` por clave, escritos por UN solo
+ * servicio, y fuera del whitelist genérico de `PATCH /admin/settings/:key`.
+ */
+export const COOKIE_TEXT_SETTING_KEYS = {
+  title: 'cookieBannerTitle',
+  body: 'cookieBannerBody',
+  acceptLabel: 'cookieBannerAcceptLabel',
+  rejectLabel: 'cookieBannerRejectLabel',
+  moreLabel: 'cookieBannerMoreLabel',
+  policyUrl: 'cookiePolicyUrl',
+  version: 'cookiePolicyVersion',
+} as const;
+
+export type CookieTextField = keyof typeof COOKIE_TEXT_SETTING_KEYS;
+
+/**
+ * LOS TEXTOS POR DEFECTO — y el banner tiene que funcionar con ellos SIN que nadie los
+ * toque.
+ *
+ * La lección ya está pagada en este repo: `videoEnabled` estaba en el whitelist del
+ * backend pero NO en la semilla, así que en producción la fila no existía y la
+ * funcionalidad era inalcanzable (docs/auditoria-pro-video.md §2.0). Aquí eso sería
+ * peor: un banner que no aparece porque falta una fila es un incumplimiento causado por
+ * un descuido de despliegue.
+ *
+ * Por eso estos valores son el RESPALDO EN CÓDIGO, no sólo la semilla: sin filas, el
+ * banner sale igual y dice lo correcto. Mismo criterio que el tema, que cae a
+ * `globals.css` cuando el backend no responde.
+ */
+export const COOKIE_TEXT_DEFAULTS = {
+  title: 'Cookies y contenido de terceros',
+  body:
+    'Usamos cookies propias imprescindibles para que la plataforma funcione (tu sesión y ' +
+    'poco más). Algunas páginas incluyen vídeos y mapas servidos por terceros, que ' +
+    'reciben tu dirección IP: no se cargan hasta que tú lo aceptes.',
+  acceptLabel: 'Aceptar',
+  rejectLabel: 'Rechazar',
+  moreLabel: 'Más información',
+  /**
+   * VACÍO A PROPÓSITO: la página de cookies llega en la RÁFAGA 3. Enlazar ahora a una
+   * ruta que no existe sería servir un 404 desde el banner legal, que es peor que no
+   * enlazar. Mientras esté vacío, «Más información» despliega el detalle en el propio
+   * banner —que es donde vive la información que el RGPD exige ANTES de consentir— y no
+   * navega a ninguna parte.
+   */
+  policyUrl: '',
+  version: CONSENT_POLICY_VERSION,
+} as const satisfies Record<CookieTextField, string>;
+
+/** Tope de longitud por campo. El cuerpo admite más; las etiquetas de botón, poco. */
+export const COOKIE_TEXT_MAX_LENGTH: Record<CookieTextField, number> = {
+  title: 120,
+  body: 1000,
+  acceptLabel: 40,
+  rejectLabel: 40,
+  moreLabel: 40,
+  policyUrl: 300,
+  version: 32,
+};
+
+/**
+ * Palabras que NO puede contener la etiqueta de RECHAZAR.
+ *
+ * El texto libre puede romper la legalidad por la puerta de atrás: poner «Aceptar» en
+ * los dos botones deja el sistema no conforme aunque la mecánica sea impecable, y nadie
+ * se daría cuenta mirando el código. Es la única validación de CONTENIDO que hay aquí, y
+ * existe porque es la única que protege una obligación legal —que rechazar sea tan fácil
+ * como aceptar— y no un gusto.
+ */
+export const REJECT_LABEL_FORBIDDEN = ['acept', 'permit', 'vale', 'de acuerdo', 'ok', 'sí'];
+
+/** El tag de caché del frontend que se tumba al guardar. Molde de `BRANDING_CACHE_TAG`. */
+export const COOKIES_CONFIG_CACHE_TAG = 'cookies-config';

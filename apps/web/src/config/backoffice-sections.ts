@@ -282,6 +282,15 @@ export const BACKOFFICE_SECTIONS: readonly BackofficeSection[] = [
   // Ajustes y no antes: aquélla es donde se cambia y ésta donde se confirma, y en ese orden
   // se leen. ADMIN porque publica de golpe la configuración de la máquina.
   { id: 'instancia', route: '/admin/instancia', label: 'Instancia', minRole: 'ADMIN', group: 'plataforma' },
+  // COOKIES RÁFAGA 2 — el texto del banner de consentimiento. En «Plataforma» y junto a
+  // Marca y Estilo porque es lo mismo que ellas: lo que distingue a ESTA instancia, y lo
+  // que sale en todas sus páginas. ADMIN y no EDITOR pese a ser texto, por el mismo
+  // argumento que la marca: no es contenido, es un aviso legal de la plataforma.
+  //
+  // Lo que se edita ahí es el TEXTO. La mecánica del consentimiento —qué se bloquea, que
+  // haya tres opciones, que rechazar sea tan fácil como aceptar— no es configurable desde
+  // ninguna pantalla, y esa frontera la sostiene el backend (`UpdateCookieConfigDto`).
+  { id: 'cookies', route: '/admin/cookies', label: 'Cookies', minRole: 'ADMIN', group: 'plataforma' },
 ] as const;
 
 /**

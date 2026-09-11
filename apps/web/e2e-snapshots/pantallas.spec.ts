@@ -258,12 +258,15 @@ test.describe('Backoffice', () => {
     const nav = page.getByTestId('admin-nav');
     await expect(nav).toBeVisible();
 
-    // Las 27 de `BACKOFFICE_SECTIONS` para un ADMIN. El número lo pinzan también
-    // `admin-roles.spec.ts` y `nav-backoffice.spec.ts`; aquí se repite porque una captura
-    // que dice «el nav entero» tiene que comprobar que lo es antes de disparar.
-    await expect(nav.getByRole('link')).toHaveCount(27);
+    // Las 28 de `BACKOFFICE_SECTIONS` para un ADMIN (27 + «Cookies», que añadió la
+    // ráfaga 2 del consentimiento). El número lo pinzan también `admin-roles.spec.ts` y
+    // `nav-backoffice.spec.ts`; aquí se repite porque una captura que dice «el nav
+    // entero» tiene que comprobar que lo es antes de disparar.
+    await expect(nav.getByRole('link')).toHaveCount(28);
     // Y la última de todas, DENTRO del recorte: sin esto volveríamos al punto ciego.
-    await expect(nav.getByRole('link', { name: 'Instancia' })).toBeInViewport();
+    // Era «Instancia» hasta que «Cookies» pasó a ir detrás — el punto ciego se tapa
+    // mirando la ÚLTIMA, así que el nombre tiene que moverse con ella.
+    await expect(nav.getByRole('link', { name: 'Cookies' })).toBeInViewport();
 
     await expect(nav).toHaveScreenshot('backoffice-nav-completo.png');
   });

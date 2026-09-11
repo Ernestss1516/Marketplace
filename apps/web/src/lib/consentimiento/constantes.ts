@@ -28,12 +28,43 @@ export const CATEGORIAS = ['terceros'] as const;
 export type Categoria = (typeof CATEGORIAS)[number];
 
 /**
- * La versión del texto consentido. Constante en RÁFAGA 1 —el texto configurable y su
- * `Setting` llegan en la ráfaga 2, donde el admin la sube a mano (D5)—, pero ya se
- * registra desde hoy: un consentimiento que no dice a QUÉ versión se dio no sirve como
- * prueba, y rellenarlo después sería inventar el dato de las filas viejas.
+ * La versión del texto consentido, cuando no hay ninguna publicada en el HTML.
+ *
+ * RÁFAGA 2 — LA VERSIÓN YA NO ES UNA CONSTANTE: la fija el admin (D5) y viaja desde el
+ * servidor. Este valor es sólo el respaldo para los contextos donde no hay documento
+ * (tests unitarios) o donde el HTML es anterior a esta ráfaga.
  */
-export const VERSION_TEXTO = '1';
+export const VERSION_TEXTO_FALLBACK = '1';
+
+/**
+ * EL ATRIBUTO POR EL QUE LA VERSIÓN VIAJA DEL SERVIDOR AL CLIENTE.
+ *
+ * El layout raíz lo escribe en el `<body>` con el valor que el admin configuró. Cualquier
+ * pieza de cliente —el banner y los gates, que son autónomos y no comparten proveedor—
+ * lo lee de ahí.
+ *
+ * POR QUÉ UN ATRIBUTO Y NO UNA PROP: los gates viven en sitios dispersos (bloques del
+ * CMS, el mapa) y no tienen un ancestro común que les pase nada; pasarles la versión de
+ * uno en uno sería enhebrarla por media aplicación. Y por qué no un fetch de cliente:
+ * porque el texto es igual para todos y ya está en el HTML cacheado, así que pedirlo otra
+ * vez sería latencia por nada.
+ *
+ * NO ROMPE LA HIDRATACIÓN —que es la lección que dejó la ráfaga 1—: es un atributo que
+ * escribe el servidor y que el cliente sólo lee, así que no hay nada que reconciliar.
+ */
+export const ATRIBUTO_VERSION = 'data-cookie-version';
+
+/**
+ * La versión vigente según el HTML servido. Cae al respaldo fuera del navegador.
+ *
+ * SI LA VERSIÓN CAMBIA, LA COOKIE VIEJA DEJA DE VALER — y eso vale para el banner (que
+ * vuelve a preguntar) **y para el gate** (que vuelve a retener). Tiene que ser así: un
+ * consentimiento dado sobre un texto anterior no cubre lo que dice el texto nuevo.
+ */
+export function versionVigente(): string {
+  if (typeof document === 'undefined') return VERSION_TEXTO_FALLBACK;
+  return document.body?.getAttribute(ATRIBUTO_VERSION) || VERSION_TEXTO_FALLBACK;
+}
 
 export const NOMBRE_COOKIE = 'mp_consent';
 

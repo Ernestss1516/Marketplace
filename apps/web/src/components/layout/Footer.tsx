@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { SITE_NAME } from '@/config';
 import { SmartLink } from '@/components/shared/SmartLink';
 import { getCachedFooterNav } from '@/lib/api/footer';
+import { PreferenciasCookiesLink } from '@/components/consentimiento/PreferenciasCookiesLink';
 
 export default async function Footer() {
   // Fuente única: la BD, vía un cache dedicado (nunca una query por request —
@@ -53,6 +54,12 @@ export default async function Footer() {
           <Link href="/busqueda" className="hover:text-foreground">Buscar</Link>
           <Link href="/publicar" className="hover:text-foreground">Publicar</Link>
           <Link href="/login" className="hover:text-foreground">Acceder</Link>
+          {/* COOKIES RÁFAGA 2 — la vía permanente para cambiar o retirar el
+              consentimiento. Va aquí, con los enlaces fijos, y NO como `FooterItem`
+              configurable: el RGPD exige que retirar sea tan fácil como dar, así que no
+              puede depender de que alguien no lo borre por descuido desde el backoffice.
+              Ver PreferenciasCookiesLink. */}
+          <PreferenciasCookiesLink />
         </nav>
       </div>
     </footer>

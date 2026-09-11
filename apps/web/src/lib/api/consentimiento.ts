@@ -25,6 +25,29 @@ export type AccionConsentimiento = 'GRANTED' | 'REJECTED' | 'UPDATED' | 'WITHDRA
  * justamente en el caso que el sistema existe para cubrir. **[legal]** en el diseño,
  * pendiente de confirmar con asesoría que el riesgo probatorio es aceptable.
  */
+/**
+ * RÁFAGA 2 — ata una decisión anónima a la cuenta que acaba de entrar.
+ *
+ * NUNCA LANZA, por el mismo motivo que `registrarConsentimiento`: si falla, lo que se
+ * pierde es un detalle de la prueba, no la decisión del usuario — que sigue guardada en
+ * su cookie y sigue respetándose. No hay nada que el usuario pueda hacer con ese error,
+ * así que no se le enseña.
+ */
+export async function vincularConsentimiento(
+  consentRecordId: string,
+  token: string,
+): Promise<void> {
+  try {
+    await apiFetch<{ id: string | null }>('/consent/vincular', {
+      method: 'POST',
+      body: JSON.stringify({ consentRecordId }),
+      token,
+    });
+  } catch {
+    // Silencio deliberado — ver arriba.
+  }
+}
+
 export async function registrarConsentimiento(input: {
   action: AccionConsentimiento;
   categories: Categoria[];

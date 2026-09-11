@@ -45,7 +45,7 @@ test.describe('3a + 3b — la barra agrupada, en escritorio', () => {
     // Y con todo abierto siguen estando todas —27 desde que «Estilo» (E9) entró en el
     // grupo «Plataforma», junto a «Marca» e «Ilustraciones»—, que es lo que mantiene
     // coherentes los cuatro conteos de `admin-roles.spec.ts`.
-    await expect(nav.getByRole('link')).toHaveCount(27);
+    await expect(nav.getByRole('link')).toHaveCount(28);
 
     // 3a — la raíz, fuera de todo grupo y con su nombre nuevo.
     await expect(nav.getByRole('link', { name: 'Resumen' })).toBeVisible();
@@ -176,7 +176,7 @@ test.describe('3b (A3) — en móvil el backoffice se puede usar', () => {
     for (const grupo of GRUPOS) {
       await expect(panel.getByRole('button', { name: grupo })).toBeVisible();
     }
-    await expect(panel.getByRole('link')).toHaveCount(27);
+    await expect(panel.getByRole('link')).toHaveCount(28);
     await expect(panel.getByRole('link', { name: 'Motivos de contacto' })).toBeVisible();
 
     await panel.getByRole('link', { name: 'Reportes' }).click();
