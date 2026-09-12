@@ -2197,6 +2197,386 @@ export const MODELO_PREMIUM: Modelo = {
 };
 
 /**
+ * LA RAMPA DE «POP» — blanco con una gota de rosa, para que el color no compita con nada.
+ *
+ * Los otros cuatro modelos tiñen su rampa hacia donde apunta su carácter: el Cálido la
+ * calienta, el Fresco la enfría, el Premium la desatura. Éste hace algo distinto y es la
+ * decisión que más define al modelo: **la rampa se aparta**. Con un fucsia, un cian y un
+ * lima en la paleta, cualquier gris con opinión propia sería un cuarto color peleando; el
+ * lienzo tiene que ser un fondo de estudio.
+ *
+ * Que sea CÁLIDO y no gris puro es lo único que se permite: un blanco frío junto a un
+ * fucsia lo vuelve chillón, y un punto de rosa en el papel hace que el mismo color se lea
+ * alegre en vez de estridente. Es la diferencia entre una tienda de ropa y un formulario.
+ *
+ * Los desplazamientos se miden sobre el neutro de fábrica (`30 24% 92%`). Como en los
+ * otros cuatro, **la luz es absoluta**: el admin puede girar el neutro hacia donde quiera
+ * y el lienzo seguirá claro y el texto oscuro.
+ */
+const RAMPA_VIBRANTE_POP: Readonly<Record<string, FranjaRampa>> = {
+  // 36 50% 99% — blanco con una gota de rosa. No es hueso (el Cálido) ni aire (el Fresco).
+  background: { dh: 6, ds: 26, l: 99 },
+  /**
+   * 320 35% 12% — EL TEXTO ES UN CIRUELA MUY OSCURO, NO NEGRO, y no es un capricho.
+   *
+   * Un negro puro junto a colores muy saturados hace un agujero: el ojo salta del fucsia al
+   * negro como si fueran dos materiales distintos. Un casi-negro que comparte familia con
+   * el primario mantiene la página cosida. Sobre el lienzo da 16,3:1, así que la elegancia
+   * no cuesta legibilidad.
+   */
+  foreground: { dh: -70, ds: 11, l: 12 },
+  // La tarjeta es BLANCO PLENO, por encima del lienzo: sobre un fondo teñido, una tarjeta
+  // neutra es la que hace que el color de dentro se vea como es.
+  card: { dh: -30, ds: -24, l: 100 },
+  'card-foreground': { dh: -70, ds: 11, l: 12 },
+  popover: { dh: -30, ds: -24, l: 100 },
+  'popover-foreground': { dh: -70, ds: 11, l: 12 },
+  muted: { dh: 4, ds: 18, l: 96 },
+  // 320 12% 38% — el atenuado, de la familia del texto. 8,8:1 sobre el lienzo.
+  'muted-foreground': { dh: -70, ds: -12, l: 38 },
+  border: { dh: 2, ds: 10, l: 88 },
+  // 28 22% 52% — el borde de campo. 3,7:1 sobre el lienzo: cumple 1.4.11 con holgura y no
+  // se convierte en una línea dura, que en un modelo alegre pesaría demasiado.
+  input: { dh: -2, ds: -2, l: 52 },
+};
+
+/**
+ * ⚠ «SUAVE» — LA MISMA ENERGÍA SIN ESTRIDENCIA, Y HAY QUE DECIR QUÉ NO PUEDE HACER.
+ *
+ * ── LO QUE EL ENCARGO PEDÍA Y EL MECANISMO NO DA ──────────────────────────────────
+ *
+ * Se pidió «los mismos tonos REBAJADOS: menos saturación, más luz». **Una versión no puede
+ * rebajar los tres colores de marca.** `resolverTokens` los copia del admin tal cual y E14
+ * dejó la marca fuera de lo que una versión deriva (§12 de la auditoría). Así que el
+ * fucsia, el cian y el lima de «Suave» son EXACTAMENTE los de «Pop»: lo que cambia es todo
+ * lo demás.
+ *
+ * Es la misma pared contra la que chocó «primary más saturado» en Fresco/Nítido, y la
+ * consecuencia aquí es la misma: si lo que se quiere de verdad es una paleta apagada,
+ * **eso es otro MODELO**, no otra versión. Queda anotado para que la decisión se tome
+ * mirando esto y no descubriéndolo a mitad.
+ *
+ * ── LO QUE SÍ HACE, Y POR QUÉ BASTA PARA UN AMBIENTE ──────────────────────────────
+ *
+ * Casi todo lo que rodea al color, que es lo que decide cómo se lee:
+ *
+ *  · el lienzo pasa de blanco-rosa a una CREMA de verdad (99 % → 97,5 % de luz y seis
+ *    puntos más de tinte): el mismo fucsia sobre crema se lee cálido, sobre blanco grita;
+ *  · el texto sube de 12 % a 18 % de luz — sigue muy por encima de AA (10,8:1) y deja de
+ *    ser un contraste de cartel;
+ *  · el trazo se ablanda (88 % → 84 %) y el borde de campo también;
+ *  · **el anillo de foco SÍ se rebaja**, y eso es derivación legítima: `foco` desatura 26
+ *    puntos y sube 6 de luz sobre el primario del admin. Es el único token de familia
+ *    cromática que una versión puede calmar — y sigue girando con lo que el admin elija.
+ */
+const RAMPA_VIBRANTE_SUAVE: Readonly<Record<string, FranjaRampa>> = {
+  // 38 56% 97.5% — crema. Punto y medio de luz menos que «Pop» y seis de tinte más.
+  background: { dh: 8, ds: 32, l: 97.5 },
+  // 324 28% 18% — el mismo ciruela, seis puntos más alto: el contraste baja de 16,3 a 10,8.
+  foreground: { dh: -66, ds: 4, l: 18 },
+  // La tarjeta deja de ser blanco pleno: en un ambiente calmado nada está del todo frío.
+  card: { dh: 6, ds: 30, l: 99.5 },
+  'card-foreground': { dh: -66, ds: 4, l: 18 },
+  popover: { dh: 6, ds: 30, l: 99.5 },
+  'popover-foreground': { dh: -66, ds: 4, l: 18 },
+  muted: { dh: 6, ds: 22, l: 94 },
+  'muted-foreground': { dh: -66, ds: -14, l: 42 },
+  border: { dh: 4, ds: 14, l: 84 },
+  input: { dh: 0, ds: 0, l: 49 },
+};
+
+/**
+ * ══ VIBRANTE ═════════════════════════════════════════════════════════════════════════
+ *
+ * El quinto modelo, y el que ocupa el territorio que faltaba: **el color como argumento**.
+ * Fucsia, cian y lima sobre un papel casi blanco, titulares en una geométrica redonda,
+ * esquinas muy blandas y un movimiento con rebote. Para nichos donde la interfaz tiene que
+ * transmitir energía —moda, deporte, ocio— y donde la sobriedad se lee como desinterés.
+ *
+ * Con él, el catálogo cubre cinco territorios: sobrio, cálido, frío, elegante y vibrante.
+ *
+ * ── ⚠ LOS COLORES MUY SATURADOS SON LOS PEORES CON AA, Y AQUÍ SE MIDIÓ ANTES ───────
+ *
+ * La lección lleva tres modelos repitiéndose: el oliva de Cálido/Editorial y el violeta y
+ * el turquesa de Fresco cayeron en la ZONA MUERTA —la franja de luz donde NINGUNA de las
+ * dos letras llega a 4,5:1— y hubo que moverlos después de verlos fallar. Los de este
+ * modelo son mucho más saturados, así que esta vez **la zona muerta se barrió primero**,
+ * tono por tono, antes de elegir un solo valor. Lo que ese barrido dijo:
+ *
+ *   · FUCSIA `330 75%` ....... zona muerta en **49-57 %** de luz
+ *   · CORAL `12 80%` ......... zona muerta en 47-52 %
+ *   · VIOLETA `272 72%` ...... zona muerta en 59-63 %
+ *   · ÁMBAR `42 95%` ......... zona muerta en 31-34 %
+ *   · LIMA `85 70%` .......... zona muerta en 30-33 %, y como PRIMARIO sólo sirve entre
+ *     34 y 37 % — cuatro puntos— porque más claro deja de valer como anillo de foco
+ *
+ * **El fucsia del encargo era `330 75% 52%`: justo en mitad de su zona muerta.** Está a 45,
+ * que es el valor vivo más cercano con holgura (5,09:1 con letra clara, contra el 4,5 de la
+ * norma; a 48 daría 4,6 y sería sentarse en el borde).
+ *
+ * ── POR QUÉ EL ACENTO NO ES UN ÁMBAR, QUE ERA LO NATURAL ──────────────────────────
+ *
+ * Un fucsia con un cian pide un amarillo: es la tríada de libro. Se midió y se descartó por
+ * una razón que no es de contraste: **`featured` y `rating` son ámbar** (`#fbbf24`, la
+ * convención de E2 para «destacado» y «valoración»), y un acento ámbar da **1,11:1** contra
+ * ellos — indistinguibles. La superficie de resalte se leería como la insignia de pago.
+ * El lima está a 49° de tono de la estrella y resuelve la tríada igual de bien.
+ *
+ * ── ESTÁ EN SECO ───────────────────────────────────────────────────────────────────
+ *
+ * `MODELO_POR_DEFECTO` sigue siendo el Modelo 0. Es ELEGIBLE y no está activo en ninguna
+ * parte, así que las 50 capturas tienen que salir idénticas.
+ *
+ * ── PURO REGISTRO: CERO `.tsx` ─────────────────────────────────────────────────────
+ *
+ * Quinta vez, y el molde ya no se discute: el backend sirve el catálogo y `/admin/estilo`
+ * lo pinta desde ahí, así que un modelo nuevo llega a la pantalla sin que el frontend se
+ * entere de que existe. Es la decisión #1 hecha práctica.
+ *
+ * ── LOS VALORES SON DE PARTIDA ──────────────────────────────────────────────────────
+ *
+ * Cumplen AA y están puestos para verse y ajustarse: el ASPECTO es de Ernest.
+ */
+export const MODELO_VIBRANTE: Modelo = {
+  id: 'vibrante',
+  nombre: 'Vibrante',
+  descripcion:
+    'Fucsia, cian y lima sobre papel casi blanco, titulares en geométrica redonda. Para que la plataforma transmita energía: nichos jóvenes y desenfadados donde la sobriedad se lee como desinterés.',
+  versiones: [
+    { id: 'pop', nombre: 'Pop' },
+    { id: 'suave', nombre: 'Suave' },
+  ],
+
+  /**
+   * LOS CUATRO DE FÁBRICA, TODOS MEDIDOS CONTRA LA ZONA MUERTA (ver la cabecera).
+   *
+   *  · `primary` es un FUCSIA al 45 % de luz. Es el único de los tres que además tiene que
+   *    valer de ANILLO DE FOCO, y ésa es la restricción que manda: da 9,33:1 sobre el
+   *    lienzo, de sobra. Con letra clara, 5,09:1. Tres puntos más arriba entraría en la
+   *    zona muerta.
+   *  · `secondary` es un CIAN PROFUNDO, y lleva letra OSCURA — `mejorTextoSobre` lo elige
+   *    midiendo—. Ése es justamente el motivo de que pueda ser tan vivo: con letra clara al
+   *    42 % daría 2,7:1, con oscura da 6,66:1. Es la misma lección del turquesa de Fresco.
+   *  · `accent` es el LIMA, el tercer vivo. También con letra oscura, 7,62:1. Ver arriba
+   *    por qué no es un ámbar.
+   *  · `neutral` es un gris CÁLIDO y poco saturado: es el que se aparta para que los otros
+   *    tres se vean. En los demás modelos el neutro define el carácter; aquí su trabajo es
+   *    no tener ninguno.
+   */
+  coloresPorDefecto: {
+    primary: '330 78% 45%',
+    secondary: '186 82% 42%',
+    accent: '92 72% 44%',
+    neutral: '30 24% 92%',
+  },
+
+  /**
+   * Los dos candidatos a letra. Ni blanco ni negro puros, por lo mismo que el texto base es
+   * ciruela: junto a un color muy saturado, el blanco puro vibra y el negro puro agujerea.
+   * Un marfil cálido y un ciruela casi negro mantienen la familia, y la máquina elige entre
+   * ellos midiendo — que es lo que hace que el cian y el lima acaben con letra oscura sin
+   * que nadie se lo diga.
+   */
+  textoSobre: ['30 30% 98%', '320 35% 12%'],
+
+  rampa: RAMPA_VIBRANTE_POP,
+
+  porVersion: {
+    // «Pop» es la versión base: la rampa del modelo tal cual, el color al máximo.
+    pop: {},
+    suave: {
+      rampa: RAMPA_VIBRANTE_SUAVE,
+      /**
+       * EL ANILLO, REBAJADO POR DERIVACIÓN. Es lo único de familia cromática que una
+       * versión puede calmar (la marca es del modelo), y se nota: el fucsia del foco pasa
+       * de `330 78% 45%` a `330 52% 51%`. Sigue saliendo del primario del admin, así que si
+       * mañana elige un verde, el anillo de «Suave» será ese verde rebajado.
+       */
+      foco: { ds: -26, dl: 6 },
+      ejes: {
+        // Un punto menos de prisa y sin rebote: el rebote es de «Pop».
+        'motion-duration': '180ms',
+        'motion-ease': 'cubic-bezier(0.25, 0.8, 0.3, 1)',
+        'motion-sprite-duration': '1.5s',
+        // Y las sombras pierden el color: en «Pop» llevan tinte fucsia, aquí son tibias.
+        'shadow-sm': '0 1px 2px 0 rgb(80 40 60 / 0.06)',
+        shadow: '0 2px 5px -1px rgb(80 40 60 / 0.10), 0 1px 3px -2px rgb(80 40 60 / 0.08)',
+        'shadow-md': '0 5px 10px -2px rgb(80 40 60 / 0.11), 0 2px 5px -3px rgb(80 40 60 / 0.09)',
+        'shadow-lg': '0 12px 20px -4px rgb(80 40 60 / 0.12), 0 5px 9px -6px rgb(80 40 60 / 0.10)',
+        'shadow-xl': '0 24px 36px -8px rgb(80 40 60 / 0.14), 0 9px 14px -10px rgb(80 40 60 / 0.10)',
+      },
+    },
+  },
+
+  /**
+   * SE HEREDAN LOS SEMÁNTICOS DEL MODELO 0, por la misma razón que en los otros tres
+   * modelos claros: rojo de error, verde de éxito y ámbar de aviso son convenciones que el
+   * usuario trae puestas de fuera.
+   *
+   * Y en ESTE modelo la tentación es la contraria que en Premium: con una paleta tan viva,
+   * un rojo de error «apagado» al lado del fucsia parece un color de segunda. Se mantiene
+   * igual a propósito — **el error no compite con la marca, informa**— y además está medido:
+   * el rojo como TEXTO sobre el lienzo de «Pop» da 4,95:1 y sobre el de «Suave», 4,82:1.
+   * Las dos por encima del 4,5 que exige 1.4.3, que es lo que destapó la versión «Tarde»
+   * del Cálido/Editorial cuando su papel tostado bajó ese mismo número a 4,446.
+   */
+  semanticos: { ...MODELO_0.semanticos },
+
+  ejes: {
+    // El cuerpo sigue en Inter: la escala tipográfica es estructura (T3), no del modelo.
+    'font-sans': 'var(--font-inter)',
+    /**
+     * ⚠ SIN COMILLAS — la cicatriz que ya lleva tres modelos. El filtro `VALOR_SEGURO` de
+     * `lib/estilo-css.ts` las descarta EN SILENCIO: el token no llega, los titulares salen
+     * en sans y no hay error por ninguna parte. `Century Gothic` y `Trebuchet MS` a pelo son
+     * identificadores válidos en CSS y además pasan el filtro.
+     *
+     * LA PILA, Y POR QUÉ ÉSTA: el frío pedía una geométrica NÍTIDA (Avenir Next, la de
+     * Fresco) y lo editorial una serifa. Esto pide una geométrica REDONDA — círculos casi
+     * perfectos, formas anchas, cero severidad—, que es lo que el ojo lee como juvenil.
+     * Futura la trae macOS; Century Gothic, Windows; Trebuchet MS cierra en todas partes
+     * con algo todavía redondo. Del SISTEMA y no un fichero propio, como en los otros tres:
+     * servir una fuente del repo obliga a declararla en `layout.tsx`, y esto es puro
+     * registro.
+     */
+    'font-heading': 'Futura, Century Gothic, Trebuchet MS, Verdana, sans-serif',
+
+    // EL MÁS BLANDO DE LOS CINCO (0.5 el Modelo 0, 0.375 el editorial, 0.25 el fresco,
+    // 0.125 el premium). Una esquina muy redondeada es la forma más barata de decir
+    // «amable» sin tocar una estructura, y es lo contrario exacto de lo que dice Premium.
+    radius: '0.875rem',
+
+    // Sombras CON COLOR, que es donde este modelo se separa de todos los demás. Una sombra
+    // gris sobre un lienzo rosado ensucia; éstas llevan tinte fucsia, así que la elevación
+    // pertenece a la paleta en vez de ser un gris pegado encima.
+    'shadow-sm': '0 1px 2px 0 rgb(160 20 90 / 0.08)',
+    shadow: '0 2px 6px -1px rgb(160 20 90 / 0.14), 0 1px 3px -2px rgb(160 20 90 / 0.10)',
+    'shadow-md': '0 6px 12px -2px rgb(160 20 90 / 0.16), 0 3px 6px -3px rgb(160 20 90 / 0.11)',
+    'shadow-lg': '0 14px 24px -4px rgb(160 20 90 / 0.18), 0 6px 10px -6px rgb(160 20 90 / 0.12)',
+    'shadow-xl': '0 28px 44px -8px rgb(160 20 90 / 0.20), 0 10px 16px -10px rgb(160 20 90 / 0.13)',
+
+    /**
+     * ÁGIL Y CON REBOTE. 140 ms contra los 150 del Modelo 0 y los 220 del Premium — y una
+     * curva que **se pasa de largo y vuelve**, que es lo que el ojo lee como vida.
+     *
+     * El rebote está contenido a propósito (1,30 de sobreimpulso, no el 1,56 del modelo de
+     * prueba): en una plataforma donde se publican y se buscan anuncios, un movimiento que
+     * bota demasiado pasa de alegre a poco serio en dos interacciones. El vocabulario de
+     * movimiento lo respeta `prefers-reduced-motion`, que ya es estructura desde E6.
+     */
+    'motion-duration': '140ms',
+    'motion-ease': 'cubic-bezier(0.34, 1.3, 0.64, 1)',
+    'motion-ease-emphasis': 'cubic-bezier(0.22, 1, 0.36, 1)',
+    'motion-sprite-duration': '1.1s',
+
+    /**
+     * TRAZO NORMAL, y es una decisión y no una omisión. Los otros modelos lo adelgazan según
+     * bajan de volumen (1,75 el editorial, 1,5 el fresco, 1,25 el premium); aquí adelgazarlo
+     * haría que los iconos se rindieran al lado de una paleta que grita. Un trazo pleno
+     * acompaña a la geométrica redonda; es el mismo 2 del Modelo 0 por motivos opuestos.
+     */
+    'icon-stroke': '2',
+  },
+
+  /**
+   * LAS DIEZ, DECLARADAS UNA POR UNA. `ilustraciones.spec.ts` lo exige a TODO modelo, y el
+   * respaldo del registro está para que un olvido no rompa nada, no para que un modelo
+   * delegue en él.
+   *
+   * Se sirven las de siempre —línea monocroma en gris medio— y **en este modelo es donde
+   * peor encajan de los cinco**: un gris neutro junto a un fucsia y un lima se lee apagado.
+   * Se declaran igual porque un juego propio es trabajo de ilustración, no de registro, y
+   * porque la alternativa —teñirlas de fucsia— es justo lo que E7 prohíbe hacer desde el
+   * registro (el color va DENTRO del fichero). Es el primer sitio donde este modelo pedirá
+   * arte propio cuando Ernest apruebe la dirección.
+   */
+  ilustraciones: { ...MODELO_0.ilustraciones },
+
+  /**
+   * LAS ZONAS, con la misma INTENCIÓN que en los otros cuatro y el vocabulario de éste. Las
+   * cinco decisiones de E5 son del SISTEMA; un modelo las expresa en sus colores. `public`
+   * no aparece: el registro público es la base.
+   */
+  ajustesPorZona: {
+    /**
+     * BACKOFFICE — resta, y en el modelo más colorido del catálogo restar significa **quitar
+     * el color del papel**: el lienzo y la tarjeta van a blanco puro, que es lo que una
+     * tabla de doscientas filas necesita. El tinte rosado es del escaparate, no de la
+     * herramienta. El tempo baja a 100 ms y el texto atenuado sube de contraste.
+     *
+     * `accent-foreground` va con `accent`, por la regla que destapó Fresco/Confianza: una
+     * zona que repinta una superficie repinta también su letra. Aquí el lima lleva letra
+     * oscura y el gris de repuesto también, así que sobreviviría por casualidad — se declara
+     * igual, porque depender de la casualidad es exactamente cómo se rompió aquello.
+     */
+    backoffice: {
+      background: '0 0% 100%',
+      card: '0 0% 100%',
+      muted: '30 12% 96%',
+      accent: '30 12% 96%',
+      'accent-foreground': '320 35% 12%',
+      border: '30 10% 88%',
+      input: '28 10% 48%',
+      'muted-foreground': '320 8% 32%',
+      'motion-duration': '100ms',
+    },
+
+    /**
+     * BLOG — tiñe. Es el único sitio donde se viene a leer seguido, y aquí teñir es subir el
+     * papel del blanco-rosa a una crema de verdad: el mismo movimiento que hace «Suave» en
+     * toda la plataforma, aplicado a una sola zona. El tempo sube: leer no es trabajar.
+     */
+    blog: {
+      background: '34 55% 97%',
+      card: '34 55% 97%',
+      muted: '32 40% 94%',
+      'motion-duration': '160ms',
+    },
+
+    /** CUENTA — a medio camino entre el escaparate y la herramienta, como en los otros. */
+    cuenta: {
+      background: '35 40% 98.5%',
+      muted: '32 28% 95%',
+      accent: '32 28% 95%',
+      'accent-foreground': '320 35% 12%',
+      'motion-duration': '120ms',
+    },
+
+    /**
+     * LOGIN DEL BACKOFFICE — el oscuro, en ciruela. Mismo papel que en los otros cuatro: la
+     * puerta de servicio se distingue de un vistazo. El anillo pasa al lima (el fucsia de
+     * marca sobre este ciruela sería otro morado sobre morado) y el trío del error, a su
+     * forma oscura.
+     *
+     * ⚠ Y DECLARA SU `muted`, QUE LOS OTROS CUATRO NO. No es un extra: es que la barrera de
+     * completitud de superficies de E14 congeló un inventario de siete huecos —las cuatro
+     * zonas `login` del catálogo dejan `muted` en su valor CLARO dentro de un lienzo
+     * oscuro— y un modelo nuevo que repitiera la omisión lo pondría en nueve. La barrera
+     * hace exactamente lo que se construyó para hacer: **impedir que la deuda crezca**.
+     * Cuesta dos líneas hacerlo bien de nacimiento.
+     */
+    login: {
+      background: '320 40% 7%',
+      foreground: '30 30% 96%',
+      card: '320 28% 12%',
+      'card-foreground': '30 30% 96%',
+      popover: '320 28% 12%',
+      'popover-foreground': '30 30% 96%',
+      muted: '320 20% 18%',
+      'muted-foreground': '320 14% 72%',
+      border: '320 18% 22%',
+      input: '320 12% 52%',
+      ring: '92 72% 62%',
+      primary: '30 30% 96%',
+      'primary-foreground': '320 28% 12%',
+      'destructive-subtle': '#3d0d0d',
+      'destructive-border': '#7f1d1d',
+      'destructive-strong': '#fca5a5',
+    },
+  },
+};
+
+/**
  * El catálogo PÚBLICO. Se añaden modelos AQUÍ, por código — «los iremos añadiendo».
  * `MODELO_PRUEBA` no está, y no es un olvido: ver su comentario.
  */
@@ -2205,6 +2585,7 @@ export const MODELOS: readonly Modelo[] = [
   MODELO_CALIDO_EDITORIAL,
   MODELO_FRESCO_CONFIANZA,
   MODELO_PREMIUM,
+  MODELO_VIBRANTE,
 ];
 
 /**
