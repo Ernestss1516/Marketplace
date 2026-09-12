@@ -63,6 +63,13 @@ const COLORES_FRESCO = {
   accent: '262 65% 55%',
   neutral: '214 14% 93%',
 };
+/** Los de fábrica de `premium`. */
+const COLORES_PREMIUM = {
+  primary: '220 45% 30%',
+  secondary: '220 30% 45%',
+  accent: '42 58% 48%',
+  neutral: '220 6% 92%',
+};
 
 const API = 'http://localhost:3001';
 
@@ -207,13 +214,22 @@ test.describe('Invariancia del HTML entre modelos', () => {
    * reorganización se le escapa a ése, no la caza ninguno. Pero un modelo de prueba no lo
    * elige nadie, y la frontera importa sobre todo en los que SÍ se pueden elegir.
    *
-   * `fresco-confianza` entra aquí el día que entra al catálogo, y no como un extra: es la
-   * barrera 3 de su ráfaga —«Fresco/Confianza y Modelo 0 → HTML idéntico»— escrita donde
-   * se comprueba. Se mide una sola ruta pública y la del backoffice en vez de las seis:
-   * lo que esta prueba añade sobre la de arriba no es cobertura de rutas, es que el
-   * catálogo real también respeta la frontera, y el presupuesto de este job es finito.
+   * Entra CADA modelo que llega al catálogo, y no como un extra: es la barrera «X y
+   * Modelo 0 → HTML idéntico» de su ráfaga, escrita donde se comprueba. Se mide una sola
+   * ruta pública y la del backoffice en vez de las seis: lo que esto añade sobre la prueba
+   * de arriba no es cobertura de rutas, es que el catálogo REAL respeta la frontera, y el
+   * presupuesto de este job es finito.
+   *
+   * Se compara contra UNA sola lectura del Modelo 0, tomada una vez: el árbol del Modelo 0
+   * no depende de qué modelo se mida después, y volver a leerlo por cada uno sería pagar
+   * dos navegaciones por nada.
    */
-  test('un modelo DEL CATÁLOGO tampoco reorganiza: fresco-confianza = Modelo 0', async ({
+  const DEL_CATALOGO: readonly [string, string, Record<string, string>][] = [
+    ['fresco-confianza', 'claro', COLORES_FRESCO],
+    ['premium', 'claro', COLORES_PREMIUM],
+  ];
+
+  test('ningún modelo DEL CATÁLOGO reorganiza: todos dan el árbol del Modelo 0', async ({
     page,
     adminContext,
     request,
@@ -225,22 +241,24 @@ test.describe('Invariancia del HTML entre modelos', () => {
     const cero = await arbolDe(page, '/planes');
     const ceroAdmin = await arbolDe(paginaAdmin, RUTA_BACKOFFICE);
 
-    await ponerModelo(request, 'fresco-confianza', COLORES_FRESCO, 'claro');
-    const temaFresco = await temaDe(await abrir(page, '/planes'));
-    const fresco = await arbolDe(page, '/planes');
-    const frescoAdmin = await arbolDe(paginaAdmin, RUTA_BACKOFFICE);
+    for (const [modelo, version, colores] of DEL_CATALOGO) {
+      await ponerModelo(request, modelo, colores, version);
+      const suTema = await temaDe(await abrir(page, '/planes'));
+      const suyo = await arbolDe(page, '/planes');
+      const suyoAdmin = await arbolDe(paginaAdmin, RUTA_BACKOFFICE);
 
-    // La misma red que arriba, y aquí importa más: si el modelo no llegara, los dos
-    // árboles serían del Modelo 0 y el verde no diría nada.
-    expect(
-      temaFresco,
-      'fresco-confianza no llegó a la página: la comparación no probaría nada',
-    ).not.toBe(temaCero);
+      // La misma red que arriba, y aquí importa más: si el modelo no llegara, los dos
+      // árboles serían del Modelo 0 y el verde no diría nada.
+      expect(
+        suTema,
+        `${modelo} no llegó a la página: la comparación no probaría nada`,
+      ).not.toBe(temaCero);
 
-    expect(fresco, '«/planes» cambió de estructura con fresco-confianza').toBe(cero);
-    expect(frescoAdmin, `«${RUTA_BACKOFFICE}» cambió de estructura con fresco-confianza`).toBe(
-      ceroAdmin,
-    );
+      expect(suyo, `«/planes» cambió de estructura con ${modelo}`).toBe(cero);
+      expect(suyoAdmin, `«${RUTA_BACKOFFICE}» cambió de estructura con ${modelo}`).toBe(
+        ceroAdmin,
+      );
+    }
 
     await paginaAdmin.close();
   });
