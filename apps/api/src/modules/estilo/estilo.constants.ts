@@ -1692,9 +1692,10 @@ const RAMPA_PREMIUM_CLARO: Readonly<Record<string, FranjaRampa>> = {
  * trazo pasa de 86 % a 78 % — ocho puntos, que en un monocromo es toda la diferencia
  * entre «sobrio» y «rotundo», porque no hay color que distraiga de la línea.
  *
- * ⚠ ESTA VERSIÓN NO ES LA QUE EL ENCARGO PEDÍA, y el porqué está en el comentario del
- * modelo: «Oscuro contenido» NO SE PUEDE HACER como versión. No es una renuncia estética,
- * es un límite del mecanismo, medido.
+ * (El comentario que había aquí decía que «Oscuro contenido» no se podía hacer como
+ * versión. Era cierto **con el mecanismo de entonces**; E14 lo amplió y la versión existe
+ * ahí abajo. La historia de por qué no se podía sigue en el comentario del modelo, porque
+ * es lo que explica qué hacía falta.)
  */
 const RAMPA_PREMIUM_INTENSO: Readonly<Record<string, FranjaRampa>> = {
   background: { dh: 0, ds: 8, l: 100 },
@@ -1710,25 +1711,182 @@ const RAMPA_PREMIUM_INTENSO: Readonly<Record<string, FranjaRampa>> = {
 };
 
 /**
+ * ══ E14-B2 · LA RAMPA DE «OSCURO» — la primera versión de lienzo invertido ═══════════
+ *
+ * ── ESTO ES LO QUE E14 EXISTÍA PARA PERMITIR ───────────────────────────────────────
+ *
+ * La rampa por sí sola **ya podía** invertir la luz antes de E14: las luces son absolutas
+ * por franja desde E4a. Lo que no podía la versión era que **la siguiera lo que depende de
+ * ella** — el anillo de foco, los treinta semánticos y los cinco bloques de zona. Esas tres
+ * cosas las abrió la ráfaga A, y esta versión es su primer consumidor real.
+ *
+ * ── LOS VALORES SALEN DE UN SITIO QUE YA CUMPLÍA ───────────────────────────────────
+ *
+ * Están moldeados sobre la zona `login` de este mismo modelo, que es un lienzo carbón que
+ * pasa AA entera desde E5. No es una paleta nueva: es la que el modelo ya tenía escrita
+ * para su puerta de servicio, ascendida a tema completo. De ahí que el lienzo coincida
+ * exactamente con el de aquella zona — y ése es, de paso, el mecanismo por el que la zona
+ * `login` se funde con el resto en esta versión (ver D4, más abajo).
+ *
+ * La tarjeta se despega del lienzo y la capa flotante de la tarjeta: en un tema oscuro la
+ * elevación **no se puede insinuar con una sombra**, así que la da la luz. Es la misma
+ * lección que `MODELO_PRUEBA` dejó escrita en E6.
+ */
+const RAMPA_PREMIUM_OSCURO: Readonly<Record<string, FranjaRampa>> = {
+  // 220 24% 8% — el carbón. Idéntico al lienzo del `login` del modelo, a propósito.
+  background: { dh: 0, ds: 18, l: 8 },
+  // 220 16% 95% — el texto. 15,9:1 sobre el lienzo.
+  foreground: { dh: 0, ds: 10, l: 95 },
+  card: { dh: 0, ds: 14, l: 13 },
+  'card-foreground': { dh: 0, ds: 10, l: 95 },
+  // La capa flotante, un escalón POR ENCIMA de la tarjeta: en oscuro, más luz es más cerca.
+  popover: { dh: 0, ds: 14, l: 16 },
+  'popover-foreground': { dh: 0, ds: 10, l: 95 },
+  muted: { dh: 0, ds: 12, l: 20 },
+  // 220 12% 70% — el atenuado. 6,02:1 sobre la superficie atenuada, que es donde más se usa.
+  'muted-foreground': { dh: 0, ds: 6, l: 70 },
+  border: { dh: 0, ds: 8, l: 24 },
+  // 220 10% 52% — el borde de campo. En oscuro la superficie difícil es la TARJETA, no el
+  // lienzo (es más clara), y ahí da 4,20:1 — por encima del 3:1 de 1.4.11 con holgura.
+  input: { dh: 0, ds: 4, l: 52 },
+};
+
+/**
+ * ⚠ E14-B2 · LO QUE UNA VERSIÓN **CLARA** TIENE QUE INVERTIR EN SU `login`.
+ *
+ * ── POR QUÉ ESTO SE MUDÓ DEL MODELO A SUS VERSIONES ────────────────────────────────
+ *
+ * La zona `login` del modelo declaraba quince tokens: nueve que dicen «esta pantalla es
+ * oscura» (el lienzo, las superficies, el trazo, el texto atenuado) y seis que dicen «y por
+ * eso hay que dar la vuelta a lo que venía pensado para un lienzo claro» — el anillo, el
+ * botón principal con su letra y el trío del error.
+ *
+ * **Los nueve primeros son del MODELO**: la puerta de servicio es oscura en Premium,
+ * pásele lo que le pase a la versión. **Los seis segundos son de la VERSIÓN**, porque sólo
+ * existen si el lienzo base es claro. En «Oscuro» no hay nada que invertir: el botón ya
+ * está sobre carbón y el anillo ya viene aclarado por `foco`.
+ *
+ * Si se hubieran quedado en el modelo, «Oscuro» heredaría un anillo de bronce y un botón
+ * claro **sólo en el login**, y eso es exactamente «distinguirse por tono» — lo que la
+ * decisión D4 dice que no haga. Y una versión puede sobrescribir un token de zona, pero no
+ * puede QUITARLO: la única forma de no heredarlos era que no estuvieran ahí.
+ *
+ * `claro` y `claro-intenso` resuelven **byte a byte igual que antes** de la mudanza, y hay
+ * un test que lo exige valor a valor.
+ */
+const PREMIUM_LOGIN_INVERTIDO: Readonly<Record<string, string>> = {
+  // El marino de marca sería invisible sobre este carbón (1,85:1): el anillo pasa al bronce.
+  ring: '42 62% 62%',
+  // El botón: claro sobre oscuro, al revés que en el resto de una versión clara.
+  primary: '220 16% 95%',
+  'primary-foreground': '220 20% 13%',
+  // El aviso de error, en su forma oscura.
+  'destructive-subtle': '#3d0d0d',
+  'destructive-border': '#7f1d1d',
+  'destructive-strong': '#fca5a5',
+};
+
+/**
+ * ══ E14-B2 · LAS ZONAS DE «OSCURO» ═══════════════════════════════════════════════════
+ *
+ * Las cinco decisiones de E5 dichas en carbón. **Los bloques se declaran COMPLETOS** —y no
+ * sólo los tokens que cambian— porque la mezcla es por token sobre el bloque del modelo, y
+ * el del modelo es claro: dejar uno fuera sería una losa blanca dentro de un tema oscuro.
+ * Es la decisión D2 del diseño, y la razón de que sea disciplina y no mecanismo está en el
+ * comentario de `AjustesDeVersion.ajustesPorZona` (restar es aritmética distinta en cada
+ * polaridad, así que no hay desplazamiento que gire solo).
+ */
+const ZONAS_PREMIUM_OSCURO: Readonly<
+  Partial<Record<EstiloZone, Readonly<Record<string, string>>>>
+> = {
+  /**
+   * BACKOFFICE — resta. En claro, restar aquí era igualar lienzo y tarjeta en BLANCO; en
+   * oscuro es lo mismo por el otro lado: **aplanar el relieve** acercando la tarjeta al
+   * lienzo, en vez de separarla. Lo que sube es lo que una tabla necesita — el trazo y el
+   * texto atenuado— y el tempo baja: una herramienta responde.
+   */
+  backoffice: {
+    background: '220 24% 8%',
+    card: '220 20% 10%',
+    muted: '220 12% 17%',
+    accent: '220 12% 17%',
+    // Va con `accent`, por la regla que destapó Fresco/Confianza: una zona que repinta una
+    // superficie repinta también su letra, o hereda la del color que ya no está ahí.
+    'accent-foreground': '220 20% 98%',
+    border: '220 10% 27%',
+    input: '220 8% 55%',
+    'muted-foreground': '220 10% 76%',
+    'motion-duration': '140ms',
+  },
+
+  /**
+   * BLOG — tiñe. En un tema claro teñir era BAJAR el blanco; en uno oscuro es SUBIR el
+   * negro. Un carbón tres puntos más alto descansa la vista en un texto largo por el mismo
+   * motivo que allí el gris clarísimo: leer seguido contra el extremo de la escala cansa.
+   */
+  blog: {
+    background: '220 14% 11%',
+    card: '220 14% 11%',
+    muted: '220 12% 17%',
+    'motion-duration': '240ms',
+  },
+
+  /** CUENTA — a medio camino entre el escaparate y la herramienta, como en las otras. */
+  cuenta: {
+    background: '220 22% 9%',
+    muted: '220 14% 18%',
+    accent: '220 14% 18%',
+    'accent-foreground': '220 20% 98%',
+    'motion-duration': '180ms',
+  },
+
+  /**
+   * ⚠ LOGIN — LA DECISIÓN D4, Y SE VE MEJOR EN LO QUE **NO** DECLARA.
+   *
+   * En los cuatro modelos claros, la zona `login` existe para que la puerta de servicio se
+   * distinga de un vistazo: es la única pantalla oscura. **En una plataforma que ya es
+   * oscura entera, esa distinción no tiene con qué hacerse**, y forzarla —un carbón más
+   * profundo, otro matiz— sería inventar una diferencia que no significa nada. El
+   * backoffice ya se distingue por lo que es: su estructura.
+   *
+   * Así que «Oscuro» acepta que el login **se funda con el resto**. El lienzo del modelo
+   * para esa zona ya coincide con el de esta versión —la rampa se moldeó sobre él—, así que
+   * `resolverZona` descarta esos nueve tokens solo: un ajuste que coincide con la base no se
+   * emite. La única línea de aquí abajo alinea el décimo, y con ella **la zona entera emite
+   * CERO declaraciones**. Hay un test que lo afirma, porque es la forma de que D4 sea
+   * comprobable en vez de una intención escrita en un comentario.
+   */
+  login: { popover: '220 20% 16%' },
+};
+
+/**
  * ══ PREMIUM ══════════════════════════════════════════════════════════════════════════
  *
  * El cuarto modelo. Monocromo de grises verdaderos con UN acento de bronce, titulares con
  * serifa humanista, esquinas casi rectas, sombras difusas y un tempo lento. Refinado y
  * discreto: la calidad se nota en el contraste y en el detalle, no en el color.
  *
- * ── EL ENCARGO PEDÍA UNA VERSIÓN OSCURA. NO SE PUEDE, Y NO POR EL OSCURO ────────────
+ * ── TRES VERSIONES, Y LA TERCERA TARDÓ DOS RÁFAGAS EN PODER EXISTIR ────────────────
  *
- * La pregunta era si el mecanismo soporta «Oscuro contenido» como VERSIÓN. La respuesta
+ * «Claro», «Claro intenso» y —desde E14-B2— **«Oscuro»**, la primera versión de lienzo
+ * invertido del catálogo. Lo que sigue es la historia de por qué no se pudo hacer cuando
+ * se pidió, y se deja escrita entera porque **es lo que explica qué hizo falta construir**:
+ * quien lea el mecanismo de E14 sin esto verá tres campos opcionales sin saber qué los
+ * justificó.
+ *
+ * ── EL ENCARGO PEDÍA UNA VERSIÓN OSCURA. NO SE PUDO, Y NO POR EL OSCURO ─────────────
+ *
+ * La pregunta era si el mecanismo soportaba «Oscuro contenido» como VERSIÓN. La respuesta
  * se midió antes de construir nada —se escribió la rampa oscura y se le pasó la barrera—
- * y es NO, con dos motivos que conviene separar del que parecía obvio:
+ * y fue NO, con dos motivos que conviene separar del que parecía obvio:
  *
  * **El oscuro NO es el problema.** Este sistema ya pinta superficies oscuras y las pinta
  * bien: `MODELO_PRUEBA` es un modelo de lienzo carbón que cumple AA entero, y los TRES
  * modelos del catálogo tienen una zona `login` oscura. La rampa admite luz baja sin
  * pestañear, porque la luz de cada franja es absoluta.
  *
- * Lo que no se puede es hacerlo **desde una versión**, porque `AjustesDeVersion` sólo
- * redefine `rampa` y `ejes`, y un lienzo oscuro necesita tocar dos cosas más:
+ * Lo que no se podía era hacerlo **desde una versión**, porque `AjustesDeVersion` sólo
+ * redefinía `rampa` y `ejes`, y un lienzo oscuro necesita tocar dos cosas más:
  *
  *  1. **EL ANILLO DE FOCO.** `resolverTokens` lo deriva de `primary`, que es uno de los
  *     cuatro colores configurables y por tanto del MODELO (decisión #2). El azul marino
@@ -1736,33 +1894,47 @@ const RAMPA_PREMIUM_INTENSO: Readonly<Record<string, FranjaRampa>> = {
  *     1.4.11 — lo cazó `contraste-modelos.spec.ts` en la base y en las cinco zonas.
  *  2. **LOS SEMÁNTICOS.** También son del modelo. `MODELO_PRUEBA` lo explica en su propio
  *     comentario: «en un tema claro el rojo tiene que ser oscuro para leerse, y en uno
- *     oscuro tiene que ser claro». Una versión oscura heredaría los catorce semánticos
- *     claros de su modelo y no hay forma de cambiarlos.
+ *     oscuro tiene que ser claro». Una versión oscura heredaría los treinta semánticos
+ *     claros de su modelo y no había forma de cambiarlos.
  *
- * **LA ASIMETRÍA QUE ESTO DESTAPA, y que no estaba escrita en ninguna parte:** una ZONA
- * puede redefinir CUALQUIER token —por eso el `login` oscuro funciona: redefine `ring`,
- * `primary` y el trío destructivo—; una VERSIÓN sólo puede redefinir dos cosas. El eje de
- * zona tiene escapes que el eje de versión no tiene.
+ * **LA ASIMETRÍA QUE ESTO DESTAPÓ, y que no estaba escrita en ninguna parte:** una ZONA
+ * podía redefinir CUALQUIER token —por eso el `login` oscuro funcionaba: redefine `ring`,
+ * `primary` y el trío destructivo—; una VERSIÓN sólo podía redefinir dos cosas. El eje de
+ * zona tenía escapes que el eje de versión no tenía.
  *
- * **LAS SALIDAS, para cuando Ernest quiera el oscuro** (ninguna es esta ráfaga):
+ * ── LO QUE SE HIZO: E14, Y NO NINGUNA DE LAS TRES SALIDAS QUE SE ANOTARON ──────────
  *
- *  · **«Premium Oscuro» como MODELO propio.** Es la barata y la que el mecanismo ya
- *    soporta hoy sin tocar una línea de infraestructura: un modelo declara sus cuatro
- *    colores y sus catorce semánticos, así que puede ser oscuro entero. Cuesta duplicar
- *    el registro, que es exactamente el precio que `pendientes.md` ya anotó para el eje
- *    de «ambiente» de Cálido/Editorial;
- *  · **ampliar `AjustesDeVersion`** con `semanticos` y una forma de fijar `ring`. Es más
- *    limpio conceptualmente y toca el mecanismo de E13 — decisión, no fleco;
- *  · **el modo oscuro de verdad** (el que la decisión #1 dejó fuera de v1): un eje
- *    paralelo con `prefers-color-scheme`. Es otra cosa y mucho más cara.
+ * Aquel comentario dejó tres salidas: duplicar el modelo, ampliar `AjustesDeVersion`, o el
+ * modo oscuro de verdad. **Se eligió la segunda**, y la auditoría del eje
+ * (`docs/auditoria-eje-version.md`) explica por qué: el eje se había quedado corto ya
+ * TRES veces —Día/Tarde, «primary más saturado» en Nítido, y esto—, siempre por el mismo
+ * borde, así que arreglar sólo el oscuro habría dejado el patrón abierto.
  *
- * Así que Premium entra con DOS VERSIONES CLARAS y distintas — «Claro» y «Claro
- * intenso»—, y el oscuro queda anotado arriba en vez de forzado.
+ * E14 amplió la versión de dos campos a cinco: `foco` (una DERIVACIÓN sobre `primary`, no
+ * un literal, para que el anillo siga girando con el color del admin), `semanticos` y
+ * `ajustesPorZona`. Con eso, «Oscuro» es puro registro.
+ *
+ * **La tercera salida sigue fuera**, y conviene no confundirlas: el modo oscuro de la
+ * decisión #1 es una preferencia del USUARIO, un eje paralelo con `prefers-color-scheme` y
+ * dos paletas por modelo para siempre. Esto es un punto del eje que ya existía, **lo elige
+ * el ADMIN**, y es el tema de la instancia entera. El bloque `.dark` de `globals.css` sigue
+ * tan muerto como antes.
+ *
+ * ── LO QUE «OSCURO» SIGUE SIN PODER, Y ES EL ALCANCE DE E14 ────────────────────────
+ *
+ * **La MARCA no se deriva.** Los cuatro colores son del modelo y una versión los hereda
+ * tal cual, así que el botón principal de «Oscuro» es el mismo marino del 30 % de luz —
+ * que sobre el carbón da **1,85:1**. Su LETRA cumple de sobra (9,64:1, que es lo que AA
+ * exige), pero la pastilla del botón apenas se despega del fondo. Es deliberado y está
+ * medido: que una versión pueda derivar un primario más vivo es el §12 de la auditoría y
+ * una decisión aparte. Quien mire esta versión y eche en falta un botón con más presencia
+ * está mirando exactamente ese pendiente.
  *
  * ── ESTÁ EN SECO ───────────────────────────────────────────────────────────────────
  *
  * `MODELO_POR_DEFECTO` sigue siendo el Modelo 0. Es ELEGIBLE y no está activo en ninguna
- * parte, así que las 52 capturas tienen que salir idénticas.
+ * parte, así que las 50 capturas tienen que salir idénticas — también con la versión
+ * oscura dentro del catálogo.
  *
  * ── PURO REGISTRO: CERO `.tsx` ─────────────────────────────────────────────────────
  *
@@ -1778,6 +1950,8 @@ export const MODELO_PREMIUM: Modelo = {
     { id: 'claro', nombre: 'Claro' },
     // El guion del identificador no se pinta: el admin lee «Claro intenso».
     { id: 'claro-intenso', nombre: 'Claro intenso' },
+    // E14-B2 — la primera versión de lienzo invertido del catálogo.
+    { id: 'oscuro', nombre: 'Oscuro' },
   ],
 
   /**
@@ -1821,9 +1995,11 @@ export const MODELO_PREMIUM: Modelo = {
   rampa: RAMPA_PREMIUM_CLARO,
 
   porVersion: {
-    // «Claro» es la versión base: la rampa del modelo tal cual.
-    claro: {},
+    // «Claro» es la versión base: la rampa del modelo tal cual. Lo único que declara es lo
+    // que su login tiene que INVERTIR por ser una versión clara — ver `PREMIUM_LOGIN_INVERTIDO`.
+    claro: { ajustesPorZona: { login: PREMIUM_LOGIN_INVERTIDO } },
     'claro-intenso': {
+      ajustesPorZona: { login: PREMIUM_LOGIN_INVERTIDO },
       rampa: RAMPA_PREMIUM_INTENSO,
       ejes: {
         // Si el contraste sube, el movimiento acompaña: 40 ms menos y una curva con más
@@ -1834,6 +2010,45 @@ export const MODELO_PREMIUM: Modelo = {
         shadow: '0 1px 3px 0 rgb(10 15 30 / 0.10), 0 1px 2px -1px rgb(10 15 30 / 0.08)',
         'shadow-md': '0 4px 8px -2px rgb(10 15 30 / 0.12), 0 2px 4px -3px rgb(10 15 30 / 0.09)',
         'shadow-lg': '0 10px 18px -4px rgb(10 15 30 / 0.14), 0 4px 7px -6px rgb(10 15 30 / 0.10)',
+      },
+    },
+
+    /**
+     * ══ «OSCURO» — EL PRIMER CONSUMIDOR REAL DEL MECANISMO DE E14 ═══════════════════
+     *
+     * Usa **los cinco campos**, que es exactamente lo que ninguna versión podía hacer antes:
+     *
+     *  · `rampa` — el lienzo carbón. Esto ya se podía desde E4a;
+     *  · `foco` — el anillo, DERIVADO del primario del admin y aclarado 40 puntos. Sin esto
+     *    el marino daba 1,85:1 sobre el carbón, y era el bloqueo que descartó esta versión
+     *    cuando se pidió. No es un color fijo: si el admin cambia su primario, el anillo se
+     *    va con él;
+     *  · `semanticos` — el molde oscuro, esparcido. Los 27 de estado se dan la vuelta y las
+     *    3 convenciones se heredan: una estrella de valoración es dorada también de noche;
+     *  · `ajustesPorZona` — las cinco zonas dichas en carbón (ver `ZONAS_PREMIUM_OSCURO`);
+     *  · `ejes` — el tempo se acorta un punto. Un tema oscuro pesa más de por sí, y los
+     *    220 ms del modelo sobre un lienzo que ya es denso se leen como lentitud en vez de
+     *    como calma. Es el único ajuste de ambiente que esta versión se permite: lo demás
+     *    de Premium —la serifa, el radio recto, las sombras difusas— sigue siendo suyo.
+     */
+    oscuro: {
+      rampa: RAMPA_PREMIUM_OSCURO,
+      foco: { dl: 40 },
+      semanticos: { ...SEMANTICOS_OSCUROS },
+      ajustesPorZona: ZONAS_PREMIUM_OSCURO,
+      ejes: {
+        'motion-duration': '200ms',
+        /**
+         * Y LAS SOMBRAS SE RECOGEN CASI DEL TODO, que no es gusto: **una sombra negra sobre
+         * un lienzo carbón no se ve**. En un tema oscuro la elevación la da la luz —por eso
+         * la tarjeta sube a 13 % y la capa flotante a 16 %— y dejar las sombras difusas del
+         * modelo sería pagar el coste de pintarlas sin obtener el relieve.
+         */
+        'shadow-sm': '0 1px 2px 0 rgb(0 0 0 / 0.30)',
+        shadow: '0 2px 6px -1px rgb(0 0 0 / 0.40), 0 1px 3px -2px rgb(0 0 0 / 0.30)',
+        'shadow-md': '0 6px 14px -3px rgb(0 0 0 / 0.45), 0 3px 6px -4px rgb(0 0 0 / 0.32)',
+        'shadow-lg': '0 14px 28px -6px rgb(0 0 0 / 0.50), 0 6px 10px -8px rgb(0 0 0 / 0.35)',
+        'shadow-xl': '0 28px 48px -12px rgb(0 0 0 / 0.55), 0 10px 16px -10px rgb(0 0 0 / 0.38)',
       },
     },
   },
@@ -1955,14 +2170,17 @@ export const MODELO_PREMIUM: Modelo = {
     },
 
     /**
-     * LOGIN DEL BACKOFFICE — el oscuro, en monocromo. Y es, de paso, LA DEMOSTRACIÓN DE
-     * LO QUE EL COMENTARIO DEL MODELO EXPLICA: aquí sí hay lienzo carbón, y funciona
-     * porque una ZONA puede redefinir lo que una versión no — el anillo de foco pasa a un
-     * azul claro (el marino de marca sería invisible sobre este fondo) y el trío
-     * destructivo se sustituye por su forma oscura.
+     * LOGIN DEL BACKOFFICE — el oscuro, en monocromo. Es, de paso, LO QUE EL COMENTARIO DEL
+     * MODELO CUENTA: aquí sí había lienzo carbón antes de E14, y funcionaba porque una ZONA
+     * podía redefinir lo que una versión no.
      *
-     * Esos dos escapes son exactamente los que le faltan al eje de versión, y es lo que
-     * dejó «Oscuro contenido» fuera de esta ráfaga.
+     * ⚠ E14-B2 — AQUÍ SÓLO QUEDA EL LIENZO. Los seis tokens que INVERTÍAN —el anillo, el
+     * botón con su letra y el trío del error— se mudaron a las versiones claras
+     * (`PREMIUM_LOGIN_INVERTIDO`), porque sólo hacen falta cuando el tema base es claro. En
+     * «Oscuro» no hay nada que invertir, y si se hubieran quedado aquí esa versión heredaría
+     * un anillo de bronce y un botón claro **sólo en el login** — que es justo la distinción
+     * por tono que la decisión D4 descarta. Una versión puede sobrescribir un token de zona,
+     * pero no puede quitarlo.
      */
     login: {
       background: '220 24% 8%',
@@ -1974,12 +2192,6 @@ export const MODELO_PREMIUM: Modelo = {
       border: '220 14% 24%',
       input: '220 10% 52%',
       'muted-foreground': '220 12% 70%',
-      ring: '42 62% 62%',
-      primary: '220 16% 95%',
-      'primary-foreground': '220 20% 13%',
-      'destructive-subtle': '#3d0d0d',
-      'destructive-border': '#7f1d1d',
-      'destructive-strong': '#fca5a5',
     },
   },
 };

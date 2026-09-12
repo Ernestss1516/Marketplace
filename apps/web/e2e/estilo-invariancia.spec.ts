@@ -227,6 +227,20 @@ test.describe('Invariancia del HTML entre modelos', () => {
   const DEL_CATALOGO: readonly [string, string, Record<string, string>][] = [
     ['fresco-confianza', 'claro', COLORES_FRESCO],
     ['premium', 'claro', COLORES_PREMIUM],
+    /**
+     * E14-B2 — `premium@oscuro`, Y ES LA ENTRADA QUE MÁS DICE DE ESTA LISTA.
+     *
+     * Es la primera versión del catálogo que INVIERTE LA LUZ: lienzo carbón, texto claro,
+     * el anillo aclarado, los treinta semánticos girados y cuatro de las cinco zonas
+     * repintadas. O sea, el cambio de aspecto más grande que un admin puede provocar sin
+     * cambiar de modelo — y aun así el árbol tiene que ser el del Modelo 0.
+     *
+     * Hasta ahora la frontera se probaba contra otro MODELO (`modelo-prueba-contraluz`, que
+     * también es oscuro). Esto la prueba contra otra VERSIÓN del mismo modelo, que es el eje
+     * que E14 acaba de ampliar: si ampliar el eje hubiera abierto una vía para reorganizar,
+     * es aquí donde se vería.
+     */
+    ['premium', 'oscuro', COLORES_PREMIUM],
   ];
 
   test('ningún modelo DEL CATÁLOGO reorganiza: todos dan el árbol del Modelo 0', async ({
