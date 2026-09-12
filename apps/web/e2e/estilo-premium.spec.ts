@@ -98,6 +98,18 @@ test.describe('Premium — el cuarto modelo', () => {
     await expect(selectorVersion.locator('option')).toHaveCount(2);
     await expect(selectorVersion.locator('option[value="claro-intenso"]')).toHaveCount(1);
 
+    /**
+     * E14-B1 — EL VALOR ES EL IDENTIFICADOR Y EL TEXTO ES EL NOMBRE, y las dos mitades
+     * hacen falta. Los tres asertos de arriba fijan el identificador, que es lo que viaja
+     * en el PUT; éste fija que **lo que el admin LEE no es ese identificador**. Antes ponía
+     * «claro-intenso», con su guion, en una pantalla donde el modelo de al lado ya decía
+     * «Premium».
+     *
+     * Es además la prueba de que el nombre llega del CATÁLOGO y no de un literal de esta
+     * pantalla: el frontend no conoce a Premium ni a ninguno de los otros tres.
+     */
+    await expect(selectorVersion.locator('option')).toHaveText(['Claro', 'Claro intenso']);
+
     // Sus colores de fábrica, no los del modelo anterior.
     await expect(admin.getByTestId('valor-primary')).toHaveValue('220 45% 30%');
     await expect(admin.getByTestId('valor-accent')).toHaveValue('42 58% 48%');

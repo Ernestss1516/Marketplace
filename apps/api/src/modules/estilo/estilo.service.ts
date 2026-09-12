@@ -9,10 +9,12 @@ import {
   ESTILO_CACHE_TAG,
   ESTILO_SETTING_KEY,
   ESTILO_ZONES,
+  idsDeVersion,
   MODELO_POR_DEFECTO,
   MODELOS,
   resolverTokens,
   resolverZona,
+  tieneVersion,
   validarContraste,
   VERSION_POR_DEFECTO,
   type ColoresConfigurables,
@@ -154,9 +156,10 @@ export class EstiloService {
         `El modelo '${entrada.modelo}' no existe. Disponibles: ${MODELOS.map((m) => m.id).join(', ')}.`,
       );
     }
-    if (!modelo.versiones.includes(entrada.version)) {
+    // POR IDENTIFICADOR, nunca por nombre: `nombre` es presentación y no viaja en el PUT.
+    if (!tieneVersion(modelo, entrada.version)) {
       throw new UnprocessableEntityException(
-        `La versión '${entrada.version}' no existe en '${modelo.id}'. Disponibles: ${modelo.versiones.join(', ')}.`,
+        `La versión '${entrada.version}' no existe en '${modelo.id}'. Disponibles: ${idsDeVersion(modelo).join(', ')}.`,
       );
     }
 
@@ -261,9 +264,9 @@ export class EstiloService {
     if (!modelo) return porDefecto;
 
     const version =
-      typeof v.version === 'string' && modelo.versiones.includes(v.version)
+      typeof v.version === 'string' && tieneVersion(modelo, v.version)
         ? v.version
-        : modelo.versiones[0];
+        : modelo.versiones[0].id;
 
     const colores = this.normalizarColores(
       (v.colores ?? {}) as Record<string, string>,

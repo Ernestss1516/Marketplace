@@ -1,10 +1,14 @@
 import {
   ESTILO_ZONES,
   MODELO_0,
+  MODELO_CALIDO_EDITORIAL,
   MODELO_PRUEBA,
   MODELOS,
   SEMANTICOS_OSCUROS,
+  TODOS_LOS_MODELOS,
   derivarColor,
+  idsDeVersion,
+  tieneVersion,
   resolverTokens,
   resolverZona,
   validarContraste,
@@ -448,7 +452,7 @@ describe('Un modelo que ofrece varias versiones las hace DISTINTAS de verdad', (
 
   for (const m of conVarias) {
     it(`${m.id}: no hay dos versiones que resuelvan al MISMO tema`, () => {
-      const huellas = m.versiones.map((v) =>
+      const huellas = m.versiones.map(({ id: v }) =>
         JSON.stringify(resolverTokens(m, m.coloresPorDefecto, v)),
       );
       // Un `Set` con menos elementos que versiones significa que al menos dos son la
@@ -507,7 +511,10 @@ describe('La conversión de lo que el admin escribe', () => {
 function conVersion(ajustes: Record<string, unknown>): Modelo {
   return {
     ...MODELO_0,
-    versiones: ['1', 'lab'],
+    versiones: [
+      { id: '1', nombre: 'Original' },
+      { id: 'lab', nombre: 'Laboratorio' },
+    ],
     porVersion: { '1': {}, lab: ajustes },
   } as Modelo;
 }
@@ -543,7 +550,7 @@ describe('E14 · CAMBIO NULO: los campos nuevos existen y nadie los usa todavía
    * puede derivarse) y los semánticos (que ahora pueden mezclarse). Si el mecanismo
    * hubiera dejado de respetar el camino corto, se vería aquí antes que en una captura.
    */
-  it.each(MODELOS.flatMap((m) => m.versiones.map((v) => [m.id, v] as const)))(
+  it.each(MODELOS.flatMap((m) => m.versiones.map((v) => [m.id, v.id] as const)))(
     '%s@%s: el anillo sigue siendo el primario LITERAL y los semánticos, los del modelo',
     (id, version) => {
       const m = MODELOS.find((x) => x.id === id)!;
@@ -745,5 +752,97 @@ describe('E14 · SEMANTICOS_OSCUROS', () => {
   it('sobre un lienzo carbón ajeno, el rojo sigue legible como texto', () => {
     expect(contraste('220 24% 8%', SEMANTICOS_OSCUROS.destructive)).toBeGreaterThanOrEqual(4.5);
     expect(contraste('220 24% 8%', MODELO_0.semanticos.destructive)).toBeLessThan(4.5);
+  });
+});
+
+/**
+ * ══ E14-B1 · CADA VERSIÓN TIENE NOMBRE, Y EL NOMBRE NO ES EL DATO ════════════════════
+ *
+ * El desplegable de `/admin/estilo` pintaba el identificador: «dia», «nitido»,
+ * «claro-intenso». Ahora pinta el nombre. Lo que hay que sostener son dos cosas que se
+ * rompen de formas distintas: que **ninguna versión se quede sin nombre** (y entonces
+ * alguien escribiría el identificador otra vez, esta vez a mano) y que **el nombre no
+ * llegue nunca al tema ni a la base**.
+ */
+describe('E14-B1 · los nombres visibles de las versiones', () => {
+  const todas = TODOS_LOS_MODELOS.flatMap((m) =>
+    m.versiones.map((v) => ({ modelo: m.id, ...v })),
+  );
+
+  it('hay versiones que mirar (red del propio test)', () => {
+    expect(todas.length).toBeGreaterThanOrEqual(8);
+  });
+
+  /**
+   * ⚠ QUE EL NOMBRE SEA UN NOMBRE, Y NO EL IDENTIFICADOR DISFRAZADO.
+   *
+   * El tipo ya obliga a declarar `nombre` —una versión sin él no compila—, así que la
+   * mitad de esta barrera es estructural. Lo que el tipo NO puede impedir es
+   * `{ id: 'claro-intenso', nombre: 'claro-intenso' }`, que compila, se pinta igual de
+   * feo y deja el defecto exactamente donde estaba.
+   *
+   * Un identificador de este registro es kebab-case y en minúscula; un nombre en español
+   * empieza por mayúscula y no lleva guiones. Afirmarlo es lo que convierte «se le puso
+   * nombre» en algo comprobable.
+   */
+  it.each(todas.map((v) => [`${v.modelo}@${v.id}`, v.id, v.nombre]))(
+    '%s — su nombre es un nombre, no el identificador',
+    (_etiqueta, id, nombre) => {
+      expect(nombre).not.toBe(id);
+      expect(nombre.trim()).toBe(nombre);
+      expect(nombre.length).toBeGreaterThan(0);
+      // Mayúscula inicial y sin la puntuación de un identificador.
+      expect(nombre[0]).toBe(nombre[0].toUpperCase());
+      expect(nombre).not.toMatch(/[-_]/);
+    },
+  );
+
+  /** Dentro de un modelo, dos versiones no pueden llamarse igual: el admin elige a ciegas. */
+  it.each(TODOS_LOS_MODELOS.map((m) => [m.id, m] as const))(
+    '%s — sus versiones tienen identificadores y nombres únicos',
+    (_id, m) => {
+      expect(new Set(idsDeVersion(m)).size).toBe(m.versiones.length);
+      expect(new Set(m.versiones.map((v) => v.nombre)).size).toBe(m.versiones.length);
+    },
+  );
+
+  /**
+   * ⚠ EL NOMBRE ES PRESENTACIÓN: NO PUEDE TOCAR UN SOLO TOKEN.
+   *
+   * Es la barrera del cambio nulo de esta ráfaga, y se afirma en vez de suponerse porque
+   * la forma de `versiones` cambió: si alguien conectara el nombre a la resolución —un
+   * `porVersion[nombre]` en vez de `porVersion[id]`, que es el error natural— el tema de
+   * los siete pares del catálogo se movería y las capturas lo dirían tarde.
+   *
+   * MUTACIÓN: resolver por nombre en vez de por identificador pone esto rojo al instante.
+   */
+  it('renombrar una versión no mueve ni un token', () => {
+    const renombrado: Modelo = {
+      ...MODELO_CALIDO_EDITORIAL,
+      versiones: MODELO_CALIDO_EDITORIAL.versiones.map((v) => ({
+        ...v,
+        nombre: `${v.nombre} (otro nombre)`,
+      })),
+    };
+    for (const { id } of MODELO_CALIDO_EDITORIAL.versiones) {
+      expect(resolverTokens(renombrado, MODELO_CALIDO_EDITORIAL.coloresPorDefecto, id)).toEqual(
+        resolverTokens(
+          MODELO_CALIDO_EDITORIAL,
+          MODELO_CALIDO_EDITORIAL.coloresPorDefecto,
+          id,
+        ),
+      );
+    }
+  });
+
+  /**
+   * Y QUE LO QUE SE GUARDA SIGA SIENDO EL IDENTIFICADOR. `tieneVersion` es la puerta por
+   * la que pasa el PUT antes de escribir en `Setting`; si aceptara el nombre, una
+   * configuración guardada dejaría de resolver el día que alguien corrigiera una tilde.
+   */
+  it('una versión se reconoce por su identificador, nunca por su nombre', () => {
+    expect(tieneVersion(MODELO_CALIDO_EDITORIAL, 'dia')).toBe(true);
+    expect(tieneVersion(MODELO_CALIDO_EDITORIAL, 'Día')).toBe(false);
+    expect(idsDeVersion(MODELO_CALIDO_EDITORIAL)).toEqual(['dia', 'tarde']);
   });
 });

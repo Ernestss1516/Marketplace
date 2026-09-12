@@ -104,7 +104,7 @@ describe('Contraste en CI — todos los modelos, catálogo y prueba', () => {
        * Con `MODELO_0` y `MODELO_PRUEBA` —una versión cada uno, sin `porVersion`— esto
        * mide exactamente lo que medía antes.
        */
-      for (const version of m.versiones) {
+      for (const { id: version } of m.versiones) {
         describe(`versión ${version}`, () => {
           const base = resolverTokens(m, m.coloresPorDefecto, version);
 
@@ -310,7 +310,7 @@ describe('El modelo de prueba existe, resuelve y NO se ofrece', () => {
   it('cada VERSIÓN declara exactamente los mismos tokens que su modelo', () => {
     const referencia = Object.keys(resolverTokens(MODELO_0, MODELO_0.coloresPorDefecto)).sort();
     for (const m of TODOS_LOS_MODELOS) {
-      for (const version of m.versiones) {
+      for (const { id: version } of m.versiones) {
         const suyos = Object.keys(resolverTokens(m, m.coloresPorDefecto, version)).sort();
         const etiqueta = `${m.id}@${version}`;
         expect({ etiqueta, tokens: suyos }).toEqual({ etiqueta, tokens: referencia });
@@ -351,7 +351,7 @@ describe('E14 · completitud de superficies POR ZONA: la deuda, congelada', () =
 
   const huecos: Hueco[] = [];
   for (const m of TODOS_LOS_MODELOS) {
-    for (const version of m.versiones) {
+    for (const { id: version } of m.versiones) {
       const base = resolverTokens(m, m.coloresPorDefecto, version);
       for (const zona of ESTILO_ZONES) {
         const efectiva = { ...base, ...resolverZona(m, m.coloresPorDefecto, zona, version) };

@@ -174,7 +174,7 @@ export default function AdminEstiloPage() {
     // cuatro valores sólo significan algo dentro de la rampa del modelo que los deriva, y
     // arrastrarlos daría una combinación que nadie ha elegido. La versión, por lo mismo,
     // vuelve a la primera del modelo nuevo — la que tenía puede no existir aquí.
-    setVersion(nuevo.versiones[0] ?? '');
+    setVersion(nuevo.versiones[0]?.id ?? '');
     setColores({ ...nuevo.coloresPorDefecto });
   }
 
@@ -300,9 +300,15 @@ export default function AdminEstiloPage() {
                   className="h-9 rounded-md border bg-background px-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
                   data-testid="selector-version"
                 >
+                  {/* E14-B1 — el VALOR es el identificador (es lo que viaja en el PUT) y
+                      el TEXTO es el nombre. Antes se pintaba el identificador en las dos
+                      posiciones, así que el admin elegía entre «dia» y «claro-intenso» en
+                      una pantalla donde el modelo de al lado sí decía «Cálido / Editorial».
+                      Ningún literal aquí: el nombre lo trae el catálogo, como el del
+                      modelo. */}
                   {(modeloElegido?.versiones ?? []).map((v) => (
-                    <option key={v} value={v}>
-                      {v}
+                    <option key={v.id} value={v.id}>
+                      {v.nombre}
                     </option>
                   ))}
                 </select>

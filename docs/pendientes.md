@@ -770,6 +770,15 @@ Huecos concretos, reverificados:
 - **Familia `@2b`** (carrera de navegación del App Router): bug de producto conocido y
   caracterizado, hoy aislado del veredicto del CI con `continue-on-error`
   ([ci.yml:393](../.github/workflows/ci.yml#L393)). Está **tolerado, no resuelto**.
+- **El test de invariancia del estilo pierde el nav dinámico de vez en cuando**
+  `[OBSERVADO 2026-09-12, E14-B1]`. `estilo-invariancia.spec.ts` falló una vez con
+  «`/contacto` cambió de estructura al cambiar de modelo», y el diff era el **bloque
+  `<nav aria-label="Navegación principal">` entero ausente** en la segunda captura — no un
+  cambio de estructura, una ausencia. El nav público es dinámico (`nav.service`), así que
+  lo que se pierde es su respuesta, no la frontera. Pasó al reintento y **tres vueltas
+  seguidas con `--retries=0` salieron limpias**. Se anota para que el siguiente que lo vea
+  no lo lea como una violación de la decisión #1: si vuelve, lo que hay que mirar es la
+  caché del nav tras el `revalidateTag('estilo')`, no el modelo.
 
 ### 4.4 Residuos de producto
 
