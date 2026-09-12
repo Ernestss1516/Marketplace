@@ -841,6 +841,19 @@ ASPECTO y se aprueba mirándolo; la ráfaga A tenía por criterio no mover un p�
 que lo que en una pantalla de servicio es invisible, en una versión oscura —que aplica a
 las cinco zonas— se vería en todas.
 
+> **Y tiene una hermana, medida al añadir el quinto modelo (2026-09-12):** las mismas zonas
+> `login` dejan también **las ocho superficies semánticas en claro** dentro de su lienzo
+> oscuro — hasta **19,50:1** contra el fondo en el Modelo 0. Es el defecto que la barrera de
+> *coherencia de polaridad* de E14 existe para cazar, y no lo caza porque esa barrera mide la
+> BASE de cada versión, no sus zonas. Está en los **siete pares claros** del catálogo
+> (`premium@oscuro` no, porque su base ya es oscura y sus semánticos están girados).
+>
+> Es latente por el mismo motivo que el `muted`: la pantalla de login no pinta un aviso, un
+> éxito ni una información. Y se arregla por el mismo sitio: o la zona declara
+> `SEMANTICOS_OSCUROS` —una zona puede, `zonaSoloAjusta` sólo exige que el nombre exista— o
+> se acepta que un aviso en esa pantalla saldría en claro. **Las dos deudas convienen
+> juntas**: son el mismo bloque, la misma causa y el mismo día de trabajo.
+
 **Está VIGILADO, no tolerado.** `contraste-modelos.spec.ts` congela la forma de la deuda:
 afirma que **todo hueco es el mismo hueco** (la superficie atenuada, dentro del `login`) y
 que son **exactamente siete** (los siete pares modelo×versión del catálogo; `MODELO_PRUEBA`

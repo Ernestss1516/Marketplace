@@ -70,6 +70,13 @@ const COLORES_PREMIUM = {
   accent: '42 58% 48%',
   neutral: '220 6% 92%',
 };
+/** Los de fábrica de `vibrante`. */
+const COLORES_VIBRANTE = {
+  primary: '330 78% 45%',
+  secondary: '186 82% 42%',
+  accent: '92 72% 44%',
+  neutral: '30 24% 92%',
+};
 
 const API = 'http://localhost:3001';
 
@@ -241,6 +248,9 @@ test.describe('Invariancia del HTML entre modelos', () => {
      * es aquí donde se vería.
      */
     ['premium', 'oscuro', COLORES_PREMIUM],
+    // El quinto modelo. Entra por lo mismo que los otros: la frontera importa sobre todo en
+    // los modelos que SÍ se pueden elegir.
+    ['vibrante', 'pop', COLORES_VIBRANTE],
   ];
 
   test('ningún modelo DEL CATÁLOGO reorganiza: todos dan el árbol del Modelo 0', async ({

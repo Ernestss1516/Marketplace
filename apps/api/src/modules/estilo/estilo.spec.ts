@@ -475,6 +475,12 @@ describe('Un modelo que ofrece varias versiones las hace DISTINTAS de verdad', (
     ['calido-editorial', 'dia', 'tarde'],
     ['fresco-confianza', 'claro', 'nitido'],
     ['premium', 'claro', 'claro-intenso'],
+    // «Pop» y «Suave» anuncian un ambiente igual que los otros tres, así que se les exige lo
+    // mismo. Y hace falta decirlo aquí porque en este par la diferencia NO puede estar donde
+    // el nombre sugiere: «Suave» no rebaja los tres colores de marca —una versión no los
+    // toca— sino el papel, el texto, el trazo y el anillo. Si el lienzo dejara de cambiar,
+    // las dos versiones serían la misma con dos sombras distintas.
+    ['vibrante', 'pop', 'suave'],
   ])('%s: entre «%s» y «%s» cambian lienzo, texto y trazo', (id, a, b) => {
     const m = MODELOS.find((x) => x.id === id)!;
     const uno = resolverTokens(m, m.coloresPorDefecto, a);
@@ -557,6 +563,11 @@ describe('E14 · QUIÉN USA LOS CAMPOS NUEVOS, Y QUÉ LES PASA A LOS DEMÁS', ()
       'premium@oscuro.ajustesPorZona',
       'premium@oscuro.foco',
       'premium@oscuro.semanticos',
+      // `vibrante@suave` usa `foco` y sólo `foco`: rebaja el anillo 26 puntos de saturación
+      // sobre el primario del admin. Es lo ÚNICO de familia cromática que una versión puede
+      // calmar —la marca es del modelo— y por eso el fucsia de «Suave» es el mismo que el de
+      // «Pop». Ver el comentario de `RAMPA_VIBRANTE_SUAVE`.
+      'vibrante@suave.foco',
     ]);
   });
 
