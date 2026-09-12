@@ -170,8 +170,9 @@ test.describe('Premium — el cuarto modelo', () => {
     expect(claro.duracion).toBe('220ms');
 
     // LO QUE NO PUEDE CAMBIAR: los cuatro colores son del MODELO (decisión #2). Que esto
-    // se mantenga es tan parte del contrato como que lo de arriba cambie — y es
-    // exactamente el límite que dejó «Oscuro contenido» fuera de esta ráfaga.
+    // se mantenga es tan parte del contrato como que lo de arriba cambie — y sigue siéndolo
+    // después de E14: la versión amplió lo que DERIVA, no lo que elige. Es el límite que
+    // «Oscuro» también respeta, y por el que su botón principal es el mismo marino.
     expect(intenso.primary).toBe(claro.primary);
     expect(intenso.accent).toBe(claro.accent);
   });
