@@ -804,6 +804,40 @@ duplicar cada corrección en las dos. Con tres ambientes, en tres.
 **No se hace ninguna ahora**, y es deliberado: con un modelo de dos ambientes el coste es
 cero y las dos salidas siguen abiertas. Se anota para que, cuando aparezca el tercero, la
 decisión se tome mirando esto y no descubriendo el problema a mitad.
+
+> ⚠ **E14 ENCARECIÓ LAS DOS SALIDAS** (2026-09-12). Desde que una versión puede declarar
+> sus treinta semánticos y sus cinco bloques de zona, el día de la duplicación hay mucho
+> más que duplicar: antes eran una rampa y unos ejes por versión, ahora puede ser un tema
+> casi entero. No cambia cuál es la salida correcta; sí cambia que **conviene decidirla
+> antes del tercer ambiente, no después**.
+
+#### Las cuatro zonas `login` dejan `muted` en claro dentro de un lienzo oscuro `[DEUDA menor]` — E14
+
+**Latente, no vivo, y descubierto por una barrera nueva.**
+
+La zona `login` de los cuatro modelos del catálogo redefine **quince tokens** —lienzo,
+tarjeta, capa flotante, trazo, borde de campo, anillo, primario y el trío destructivo— y
+**deja `muted`, `secondary` y `accent` en sus valores CLAROS**. Sobre un lienzo carbón eso
+significa que `bg-muted` sería una losa casi blanca.
+
+**Hoy no se ve, y por eso nadie lo había mirado:** `/admin/login` pinta sólo
+`bg-background` y `bg-card` (verificado). Lo destapó la barrera de completitud de
+superficies de E14 al medir el anillo contra `muted`: **1,36:1 en el Modelo 0**, 1,51 –
+2,17 en los otros tres.
+
+**Por qué no se arregló en E14-A:** tocar el `muted` de cuatro modelos es un retoque de
+ASPECTO y se aprueba mirándolo; la ráfaga A tenía por criterio no mover un píxel.
+
+**Por qué no se deja y ya:** porque `bg-muted` aparece **225 veces en 116 ficheros**, así
+que lo que en una pantalla de servicio es invisible, en una versión oscura —que aplica a
+las cinco zonas— se vería en todas.
+
+**Está VIGILADO, no tolerado.** `contraste-modelos.spec.ts` congela la forma de la deuda:
+afirma que **todo hueco es el mismo hueco** (la superficie atenuada, dentro del `login`) y
+que son **exactamente siete** (los siete pares modelo×versión del catálogo; `MODELO_PRUEBA`
+no aparece, y ése es el control negativo). No puede crecer en silencio: un hueco en otra
+zona, en otra superficie, o un modelo nuevo que repita la omisión, ponen el test rojo.
+Pagarlo obliga a acortar esa lista.
 #### Página de tag del blog con URL propia `[DEUDA]` — SEO
 
 **Reverificado 2026-09-02:** `apps/web/src/app/(public)/blog/` contiene solo `[slug]/`,

@@ -238,12 +238,10 @@ export interface Modelo {
    * un solo modelo de una sola versión no se notaba; en cuanto un modelo ofrece dos, dos
    * versiones que se ven idénticas son una promesa incumplida en la propia pantalla.
    *
-   * ── QUÉ PUEDE CAMBIAR UNA VERSIÓN, Y QUÉ NO ─────────────────────────────────────
+   * ── QUÉ PUEDE CAMBIAR UNA VERSIÓN, Y QUÉ NO (ampliado en E14) ───────────────────
    *
-   * Puede cambiar **cómo se deriva** (`rampa`) y **los ejes T2** (sombras, tempo, trazo).
-   * NO puede cambiar los cuatro colores configurables ni la estructura: son del modelo, y
-   * la decisión #2 dice que el juego de atributos es el mismo para todas. Una versión
-   * afina el ambiente; si necesitara otros atributos, sería otro modelo.
+   * Ver la cabecera de `AjustesDeVersion`, que es donde vive la frontera completa. En
+   * corto: **el modelo ELIGE, la versión DERIVA**.
    *
    * ── UNA ADVERTENCIA SOBRE EL SIGNIFICADO DE «VERSIÓN» ───────────────────────────
    *
@@ -254,16 +252,161 @@ export interface Modelo {
    * mecanismo lo soporta sin forzarlo, pero conviene saber el precio: el día que ese
    * modelo necesite una revisión de verdad, el eje ya está ocupado y las versiones se
    * llamarán `dia-2` / `tarde-2`. Ver la nota en `docs/pendientes.md`.
+   *
+   * ⚠ **E14 ENCARECIÓ ESA DEUDA**: ahora una versión puede llevar treinta semánticos y
+   * cinco bloques de zona propios, así que el día de la duplicación hay mucho más que
+   * duplicar. No es motivo para no ampliarla; es motivo para decidir el eje de ambiente
+   * **antes** del tercer ambiente, no después.
    */
   porVersion?: Readonly<Record<string, AjustesDeVersion>>;
 }
 
-/** Lo que una versión redefine sobre su modelo. Todo opcional: lo que no diga, lo hereda. */
+/**
+ * Un color DERIVADO de otro: desplazamientos de tono y saturación, y de luz.
+ *
+ * ⚠ LOS TRES SON DESPLAZAMIENTOS, INCLUIDA LA LUZ — y ahí se separa de `FranjaRampa`,
+ * donde la luz es absoluta. La diferencia no es un descuido:
+ *
+ *  · la RAMPA deriva del `neutral`, que **no se pinta en ninguna parte**: es sólo una
+ *    base. Fijar su luz es lo que garantiza que un lienzo sea claro y un texto oscuro
+ *    pase lo que pase con el gris que elija el admin;
+ *  · esto deriva del `primary`, que **sí se pinta**: es el color de marca del admin. Una
+ *    luz absoluta lo borraría — el anillo dejaría de ser «su azul, aclarado» para ser
+ *    «este azul», y entonces ya no sería una derivación sino un literal con otro nombre.
+ */
+export interface DerivacionDeColor {
+  /** Desplazamiento de tono, en grados. */
+  dh?: number;
+  /** Desplazamiento de saturación, en puntos. */
+  ds?: number;
+  /** Desplazamiento de LUZ, en puntos. NO es absoluto — ver arriba. */
+  dl?: number;
+}
+
+/**
+ * ══ E14 · LO QUE UNA VERSIÓN REDEFINE SOBRE SU MODELO ════════════════════════════════
+ *
+ * **Todo opcional: lo que no diga, lo hereda.** Y que los cinco campos sean opcionales no
+ * es comodidad — es la garantía de que ampliar este tipo no movió un píxel: una versión
+ * que no declara ninguno resuelve exactamente lo que resolvía antes de E14, y ninguna de
+ * las siete del catálogo declara los tres nuevos.
+ *
+ * ── LA FRONTERA: EL MODELO ELIGE, LA VERSIÓN DERIVA ─────────────────────────────────
+ *
+ * Nació con dos campos (E13) y se quedó corta tres veces —Día/Tarde, «primary más
+ * saturado» en Nítido, el oscuro de Premium—, siempre por el mismo borde: **la versión
+ * manda sobre la luz del lienzo y no mandaba sobre nada de lo que la luz determina**.
+ * `docs/auditoria-eje-version.md` lo mide; `docs/diseno-eje-version.md` traza la línea:
+ *
+ *   · **el MODELO elige** los cuatro colores de fábrica, los dos candidatos a letra
+ *     (`textoSobre`) y la identidad (nombre, ilustraciones, qué versiones existen);
+ *   · **la VERSIÓN deriva**: qué sale de esos cuatro — la luz del lienzo, la familia de
+ *     grises, el anillo de foco, el ambiente, la polaridad de los avisos y el registro de
+ *     cada zona.
+ *
+ * Son 54 de los 60 tokens. **Los 6 de MARCA quedan fuera** (`primary`, `secondary`,
+ * `accent` y sus tres letras): una versión los hereda tal cual. Ampliarlo es el §12 de la
+ * auditoría y no es esta ráfaga — hasta entonces, «primary más saturado» sigue sin poder
+ * hacerse, y está escrito donde se pidió (ver `RAMPA_FRESCO_NITIDO`).
+ *
+ * ── POR QUÉ ESTO NO ROMPE LA DECISIÓN #2 ────────────────────────────────────────────
+ *
+ * Porque **#2 reparte entre el ADMIN y el CÓDIGO**, no entre el modelo y su versión: el
+ * admin aporta cuatro valores y ningún `-foreground`, antes y después. Que un literal lo
+ * escriba `MODELO_PREMIUM` o `MODELO_PREMIUM.porVersion.oscuro` es una diferencia dentro
+ * del código, y las dos pasan por la misma barrera de CI.
+ *
+ * ── Y POR QUÉ NO ES EL MODO OSCURO DE LA DECISIÓN #1 ────────────────────────────────
+ *
+ * Aquél es una preferencia del USUARIO (`prefers-color-scheme`, un conmutador, la clase
+ * `.dark` que sigue muerta en `globals.css`), un eje paralelo que obliga a dos paletas por
+ * modelo para siempre. Esto es **un punto del eje que ya existe**, que elige el ADMIN y
+ * que es el tema de la instancia entera. Sale por el mismo `<style>` de siempre.
+ */
 export interface AjustesDeVersion {
   /** Franjas de la rampa que esta versión sustituye. Las que no nombre, se heredan. */
   rampa?: Readonly<Record<string, FranjaRampa>>;
   /** Ejes T2 que esta versión sustituye (sombras, tempo, radio, trazo de icono). */
   ejes?: Readonly<Record<string, string>>;
+
+  /**
+   * E14 — EL ANILLO DE FOCO, DERIVADO DEL `primary` DEL ADMIN. **Nunca un color.**
+   *
+   * Una zona `login` sí puede fijar `ring` a un literal, y las cuatro del catálogo lo
+   * hacen: afecta a UNA pantalla de servicio. Una versión afecta a la plataforma entera,
+   * y ahí un literal rompe la promesa del sistema en silencio — el admin cambiaría su
+   * primario y **el foco se quedaría donde estaba, en las 81 pantallas**.
+   *
+   * Es el mismo argumento que el paso 0 de `resolverTokens` escribió para la rampa: una
+   * versión cambia la REGLA, no el color ya calculado, o deja de girar con lo que el admin
+   * elija.
+   *
+   * El caso que lo pide: sobre un lienzo carbón, el marino de Premium da 1,85:1 contra los
+   * 3:1 de 1.4.11. Con `{ dl: 40 }` da 7,68 sobre el lienzo y 6,81 sobre la tarjeta.
+   */
+  foco?: DerivacionDeColor;
+
+  /**
+   * E14 — LOS SEMÁNTICOS DE ESTA VERSIÓN. Mezcla PARCIAL: lo que no nombre, lo hereda.
+   *
+   * ── POR QUÉ UNA VERSIÓN NECESITA PODER ─────────────────────────────────────────────
+   *
+   * Porque los avisos dependen de la polaridad del lienzo, y el lienzo es de la versión.
+   * `MODELO_PRUEBA` lo dejó escrito antes de que hiciera falta: «en un tema claro el rojo
+   * tiene que ser oscuro para leerse, y en uno oscuro tiene que ser claro».
+   *
+   * Ya mordió una vez, suavemente: el rojo del Modelo 0 (47 % de luz) da **4,446:1** sobre
+   * el lienzo de «Tarde» —falla 1.4.3 por cinco centésimas— y como una versión no podía
+   * redefinirlo, la corrección se aplicó AL MODELO (46 %) y se la comió «Día», que no la
+   * necesitaba. Justo lo que el eje de versión existe para impedir.
+   *
+   * ── ES LA ÚNICA PIEZA DE E14 QUE NO ES UNA DERIVACIÓN, Y SE DICE ───────────────────
+   *
+   * Treinta literales no se derivan de nada, se escriben. Lo que la hace legítima: #2
+   * sigue intacta (el admin no toca ni uno), el precedente está ejercido cuatro veces —las
+   * cuatro zonas `login` redefinen el trío destructivo por esta misma causa—, y la
+   * alternativa (duplicar el modelo entero) cuesta más y pierde el parentesco.
+   *
+   * ── QUÉ DECLARA UNA VERSIÓN, EN LA PRÁCTICA ───────────────────────────────────────
+   *
+   * Los **27 de ESTADO**, que es lo que `SEMANTICOS_OSCUROS` trae ya medido. Los **3 de
+   * CONVENCIÓN** (`rating`, `featured`, `favorite`) se heredan: una estrella de valoración
+   * es dorada y un corazón es rojo en todas partes, y su color es parte del SIGNIFICADO,
+   * no del ambiente. La separación es de E2 y el mecanismo no la impone — la impone el
+   * criterio de quien escribe el modelo.
+   */
+  semanticos?: Readonly<Record<string, string>>;
+
+  /**
+   * E14 — LOS AJUSTES DE ZONA DE ESTA VERSIÓN. Mezcla PARCIAL **por token** dentro de cada
+   * zona: lo que no nombre, lo hereda del modelo.
+   *
+   * ── EL AGUJERO QUE TAPA ────────────────────────────────────────────────────────────
+   *
+   * `ajustesPorZona` es del MODELO, así que una versión que invirtiera la luz heredaba los
+   * cinco bloques claros. Medido sobre una versión oscura de Premium: el backoffice
+   * pintaría lienzo `0 0% 100%` con el texto claro de la versión (**1,12:1**), el blog
+   * 1,06 y la cuenta 1,11. Tres de las cinco zonas, ilegibles.
+   *
+   * ── ⚠ NO GIRAN SOLAS, Y CONVIENE SABER POR QUÉ ────────────────────────────────────
+   *
+   * La forma tentadora sería expresar los ajustes como desplazamientos sobre la base, para
+   * que rotaran con la luz. **No funciona**, y el registro lo demuestra: «el backoffice
+   * RESTA» es aritmética distinta en cada polaridad — `premium` (claro) SUBE la luz del
+   * lienzo hasta el blanco, y `MODELO_PRUEBA` (oscuro) deja la luz quieta y sólo desatura.
+   * Un solo juego de desplazamientos no da las dos, y con luz absoluta no gira nada.
+   *
+   * Así que **girar con la luz lo hace el autor de la versión, y la barrera comprueba que
+   * lo hizo**: `contraste-modelos.spec.ts` mide las cinco zonas de cada versión. Prometerlo
+   * automático produciría zonas medio claras sin que nada avisara.
+   *
+   * ── LA INTENCIÓN SIGUE SIENDO DEL MODELO ──────────────────────────────────────────
+   *
+   * Que el backoffice reste, el blog tiña y la cuenta vaya a medio camino son las cinco
+   * decisiones de E5, del SISTEMA. Lo que una versión cambia son los VALORES con que esa
+   * intención se dice en su propia luz.
+   */
+  ajustesPorZona?: Readonly<Partial<Record<EstiloZone, Readonly<Record<string, string>>>>>;
 }
 
 /**
@@ -551,6 +694,84 @@ const RAMPA_PRUEBA: Readonly<Record<string, FranjaRampa>> = {
 };
 
 /**
+ * ══ E14 · LOS SEMÁNTICOS EN SU FORMA OSCURA — EL MOLDE COMPARTIDO ══════════════════
+ *
+ * Los **27 de ESTADO** dados la vuelta, para que cualquier modelo o VERSIÓN de lienzo
+ * oscuro los esparza como los tres modelos claros esparcen los del Modelo 0.
+ *
+ * ── NO ES UNA PALETA NUEVA: ES LA DE `MODELO_PRUEBA`, EXTRAÍDA ────────────────────
+ *
+ * Contraluz los tiene desde E6 y `contraste-modelos.spec.ts` los mide como a los de
+ * cualquier otro modelo, así que **ya estaban probados**. Inventar un segundo juego
+ * oscuro habría sido rehacer ese trabajo para tener dos listas que mantener.
+ *
+ * Y funcionan fuera de su casa, que es la condición para que esto sea un molde y no una
+ * copia: pasados por encima del lienzo carbón de una versión oscura de Premium, las diez
+ * parejas de texto cumplen (6,01 – 13,01) y el rojo como TEXTO sobre el lienzo sube de
+ * **3,70 a 6,19**. Las nueve superficies quedan entre 1,10 y 1,88 del lienzo, contra los
+ * 15,76 – 17,98 que daban los claros heredados.
+ *
+ * ── LOS 27, Y NO LOS 30 ──────────────────────────────────────────────────────────
+ *
+ * Faltan `rating`, `featured` y `favorite` a propósito. No son estados: son CONVENCIONES,
+ * y su color es parte del significado —una estrella de valoración es dorada y un corazón
+ * es rojo en todas partes, de noche y de día—. La separación es de E2 y este molde la
+ * hereda por omisión, que es la forma más barata de que se respete: una versión que
+ * esparza esto se queda con las tres del modelo sin tener que acordarse.
+ *
+ * ── `destructive-foreground` SE NEUTRALIZA AL EXTRAER ────────────────────────────
+ *
+ * En Contraluz vale `30 50% 8%`, un casi-negro CÁLIDO que pertenece a esa paleta. Aquí va
+ * un casi-negro sin tono: el molde tiene que servir a un monocromo frío igual que a un
+ * modelo terracota, y cada uno lo afina si quiere. Contraluz mantiene el suyo, que es la
+ * razón de que siga resolviendo byte a byte igual que antes de la extracción — y hay un
+ * test que lo exige, porque es el modelo contra el que compara la invariancia.
+ */
+export const SEMANTICOS_OSCUROS: Readonly<Record<string, string>> = {
+  /**
+   * EN UN TEMA OSCURO EL ROJO SE INVIERTE, y lo dijo la barrera. Con el rojo medio del
+   * primer intento (`0 72% 51%`) la letra blanca encima cumplía, pero el mismo token usado
+   * como TEXTO sobre el lienzo oscuro se quedaba en 3,82:1: en un tema claro el rojo tiene
+   * que ser oscuro para leerse, y en uno oscuro tiene que ser claro. No se puede tener las
+   * dos con letra blanca encima, así que aquí el rojo es claro y su letra, oscura. Es la
+   * misma pareja de siempre, dada la vuelta.
+   */
+  destructive: '0 85% 68%',
+  'destructive-foreground': '0 0% 10%',
+
+  warning: '#2a1f04',
+  'warning-surface': '#3d2d05',
+  'warning-border': '#a16207',
+  'warning-foreground': '#fde68a',
+  'warning-solid': '#f59e0b',
+  'warning-solid-hover': '#fbbf24',
+
+  success: '#052e16',
+  'success-surface': '#064e3b',
+  'success-border': '#15803d',
+  'success-foreground': '#a7f3d0',
+  'success-solid': '#10b981',
+  'success-solid-hover': '#34d399',
+
+  info: '#0b1e3a',
+  'info-surface': '#12305c',
+  'info-border': '#1d4ed8',
+  'info-foreground': '#bfdbfe',
+
+  'destructive-subtle': '#3f0a0a',
+  'destructive-border': '#991b1b',
+  'destructive-strong': '#fca5a5',
+
+  'pending-surface': '#3b0764',
+  'pending-foreground': '#e9d5ff',
+
+  'neutral-surface': '#292524',
+  'neutral-foreground': '#d6d3d1',
+  'neutral-solid': '#a8a29e',
+  'neutral-solid-hover': '#d6d3d1',
+};
+
+/**
  * ══ E6 · EL MODELO DE PRUEBA — «Contraluz» ════════════════════════════════════════
  *
  * ── PARA QUÉ EXISTE ──────────────────────────────────────────────────────────────
@@ -607,50 +828,22 @@ export const MODELO_PRUEBA: Modelo = {
    * nombres coincida no es cosmético: si un modelo declarara menos tokens, las pantallas
    * caerían a `globals.css` para los que faltan y el tema quedaría mezclado. Hay un test
    * que compara los dos juegos de claves.
+   *
+   * E14 — LOS 27 DE ESTADO SE EXTRAJERON A `SEMANTICOS_OSCUROS` para que una versión
+   * oscura pueda esparcirlos. **Este modelo tiene que resolver byte a byte igual que antes
+   * de la extracción**, y no por pulcritud: es el modelo contra el que compara el test de
+   * invariancia del HTML, así que moverlo invalidaría esa comparación sin que nada lo
+   * dijera. De ahí las cuatro líneas de abajo, y de ahí que haya un test que lo exige.
    */
   semanticos: {
-    /**
-     * EN UN TEMA OSCURO EL ROJO SE INVIERTE, y lo dijo la barrera. Con el rojo medio del
-     * primer intento (`0 72% 51%`) la letra blanca encima cumplía, pero el mismo token
-     * usado como TEXTO sobre el lienzo oscuro se quedaba en 3,82:1: en un tema claro el
-     * rojo tiene que ser oscuro para leerse, y en uno oscuro tiene que ser claro. No se
-     * puede tener las dos con letra blanca encima, así que aquí el rojo es claro y su
-     * letra, oscura. Es la misma pareja de siempre, dada la vuelta.
-     */
-    destructive: '0 85% 68%',
+    ...SEMANTICOS_OSCUROS,
+
+    // El casi-negro CÁLIDO de esta paleta, que el molde compartido neutraliza a propósito:
+    // la letra sobre el rojo, aquí, es de la familia del modelo.
     'destructive-foreground': '30 50% 8%',
 
-    warning: '#2a1f04',
-    'warning-surface': '#3d2d05',
-    'warning-border': '#a16207',
-    'warning-foreground': '#fde68a',
-    'warning-solid': '#f59e0b',
-    'warning-solid-hover': '#fbbf24',
-
-    success: '#052e16',
-    'success-surface': '#064e3b',
-    'success-border': '#15803d',
-    'success-foreground': '#a7f3d0',
-    'success-solid': '#10b981',
-    'success-solid-hover': '#34d399',
-
-    info: '#0b1e3a',
-    'info-surface': '#12305c',
-    'info-border': '#1d4ed8',
-    'info-foreground': '#bfdbfe',
-
-    'destructive-subtle': '#3f0a0a',
-    'destructive-border': '#991b1b',
-    'destructive-strong': '#fca5a5',
-
-    'pending-surface': '#3b0764',
-    'pending-foreground': '#e9d5ff',
-
-    'neutral-surface': '#292524',
-    'neutral-foreground': '#d6d3d1',
-    'neutral-solid': '#a8a29e',
-    'neutral-solid-hover': '#d6d3d1',
-
+    // Las tres CONVENCIONES, que el molde no trae porque no son estados. Contraluz sí las
+    // tiñe, y puede: es un modelo entero, no una versión.
     rating: '#fbbf24',
     featured: '#fb923c',
     favorite: '#fb7185',
@@ -1784,9 +1977,17 @@ export function resolverTokens(
   // 0 · Lo que la versión redefine. Se mezcla ANTES de derivar, no después: una versión
   // cambia la REGLA (la franja), no el color ya calculado — si parcheara el resultado,
   // dejaría de girar con el neutro que elija el admin, que es todo el sentido de la rampa.
+  //
+  // E14 — la mezcla crece de dos a cuatro cosas, con la MISMA forma parcial: lo que la
+  // versión no nombre, lo hereda. Y con el mismo `? … : …`, que no es un remilgo de
+  // rendimiento: sin versión —o con una versión que no declara nada— se devuelve el objeto
+  // del modelo TAL CUAL, y es lo que garantiza byte a byte que nada se movió.
   const deVersion = version ? modelo.porVersion?.[version] : undefined;
   const rampa = deVersion?.rampa ? { ...modelo.rampa, ...deVersion.rampa } : modelo.rampa;
   const ejes = deVersion?.ejes ? { ...modelo.ejes, ...deVersion.ejes } : modelo.ejes;
+  const semanticos = deVersion?.semanticos
+    ? { ...modelo.semanticos, ...deVersion.semanticos }
+    : modelo.semanticos;
 
   // 1 · La rampa neutra: lienzo, superficies, trazo y texto base.
   for (const [nombre, franja] of Object.entries(rampa)) {
@@ -1794,18 +1995,42 @@ export function resolverTokens(
   }
 
   // 2 · Los tres colores de marca, cada uno con su letra elegida por contraste.
+  //
+  // E14 NO los toca, y es el límite del alcance: los seis tokens de marca son del MODELO
+  // y una versión los hereda tal cual. Ampliarlo —que una versión pudiera derivar un
+  // primario más saturado, que es lo que Nítido pidió— es el §12 de la auditoría.
   for (const slot of ['primary', 'secondary', 'accent'] as const) {
     tokens[slot] = colores[slot];
     tokens[`${slot}-foreground`] = mejorTextoSobre(colores[slot], modelo.textoSobre);
   }
 
-  // 3 · El anillo de foco sigue al color principal, como hasta ahora.
-  tokens.ring = colores.primary;
+  // 3 · El anillo de foco sigue al color principal — y ahora puede seguirlo DESPLAZADO.
+  //
+  // Sin `foco`, la asignación es la copia literal de siempre y no pasa por ninguna
+  // aritmética: `derivarColor` podría devolver el mismo triplete, pero «podría» no es
+  // «hace», y el criterio de esta ráfaga es que el camino de los modelos actuales no
+  // cambie ni de forma.
+  tokens.ring = deVersion?.foco ? derivarColor(colores.primary, deVersion.foco) : colores.primary;
 
-  // 4 · Semánticos y ejes: fijos del modelo (los ejes, afinables por la versión).
-  Object.assign(tokens, modelo.semanticos, ejes);
+  // 4 · Semánticos y ejes: del modelo, los dos afinables por la versión (E14).
+  Object.assign(tokens, semanticos, ejes);
 
   return tokens;
+}
+
+/**
+ * Un color desplazado respecto a otro. El inverso de fijar un literal: lo que sale SIGUE
+ * girando con lo que el admin elija.
+ *
+ * Si la entrada no se puede leer se devuelve TAL CUAL, sin inventar nada: quien llama ya
+ * tiene un color válido —el del admin, normalizado al guardar— y sustituirlo aquí por un
+ * gris de emergencia sería cambiar el tema sin que nadie se entere. Es la misma regla que
+ * `tripleteAHex`, que devuelve `null` en vez de un color de consuelo.
+ */
+export function derivarColor(base: TripleteHsl, d: DerivacionDeColor): TripleteHsl {
+  const p = parsearTriplete(base);
+  if (!p) return base;
+  return formatearTriplete(p.h + (d.dh ?? 0), p.s + (d.ds ?? 0), p.l + (d.dl ?? 0));
 }
 
 /**
@@ -1818,7 +2043,7 @@ export function resolverZona(
   zona: EstiloZone,
   version?: string,
 ): Tokens {
-  const ajustes = modelo.ajustesPorZona[zona];
+  const ajustes = ajustesDeZona(modelo, zona, version);
   if (!ajustes) return {};
   // La base tiene que resolverse CON LA MISMA VERSIÓN, o el filtro de «ajuste que no
   // ajusta» compararía contra otro tema y emitiría —o se callaría— lo que no toca.
@@ -1832,21 +2057,54 @@ export function resolverZona(
 }
 
 /**
+ * E14 — LOS AJUSTES EFECTIVOS DE UNA ZONA: los del modelo, con los de la versión mezclados
+ * POR TOKEN encima.
+ *
+ * Devuelve `undefined` —y no `{}`— cuando no hay ni unos ni otros, porque quien llama
+ * distingue las dos cosas: «esta zona no ajusta nada» no emite ni una regla, y eso es lo
+ * que hace que `public` no envuelva media plataforma en un `<div>` para nada.
+ */
+function ajustesDeZona(
+  modelo: Modelo,
+  zona: EstiloZone,
+  version?: string,
+): Readonly<Record<string, string>> | undefined {
+  const delModelo = modelo.ajustesPorZona[zona];
+  const deVersion = version ? modelo.porVersion?.[version]?.ajustesPorZona?.[zona] : undefined;
+  if (!deVersion) return delModelo;
+  return { ...delModelo, ...deVersion };
+}
+
+/**
  * LA REGLA DURA, COMPROBABLE: los nombres que una zona ajusta tienen que existir ya en
  * la base. Devuelve los que no — vacío significa que la zona ajusta y no inventa.
  *
  * Se expone como función y no como comentario porque un comentario no impide nada. El
  * día que alguien añada `--backoffice-algo` a una zona, esto lo dice en CI en vez de
  * dejar crecer un segundo sistema de estilo a espaldas del modelo.
+ *
+ * E14 — RECORRE TAMBIÉN LAS ZONAS DE CADA VERSIÓN. Sin esto, el escape que la ráfaga
+ * acaba de abrir sería precisamente el único sitio del sistema donde sí se podría
+ * inventar un token, que es como se cuela un segundo sistema de estilo: por la puerta
+ * nueva, mientras todo el mundo vigila la vieja.
  */
 export function zonaSoloAjusta(modelo: Modelo, colores: ColoresConfigurables): string[] {
   const base = resolverTokens(modelo, colores);
   const inventados: string[] = [];
-  for (const [zona, ajustes] of Object.entries(modelo.ajustesPorZona)) {
+
+  const revisar = (etiqueta: string, ajustes?: Readonly<Record<string, string>>) => {
     for (const nombre of Object.keys(ajustes ?? {})) {
-      if (!(nombre in base)) inventados.push(`${zona}:${nombre}`);
+      if (!(nombre in base)) inventados.push(`${etiqueta}:${nombre}`);
+    }
+  };
+
+  for (const [zona, ajustes] of Object.entries(modelo.ajustesPorZona)) revisar(zona, ajustes);
+  for (const [version, dev] of Object.entries(modelo.porVersion ?? {})) {
+    for (const [zona, ajustes] of Object.entries(dev.ajustesPorZona ?? {})) {
+      revisar(`${version}/${zona}`, ajustes);
     }
   }
+
   return inventados;
 }
 
@@ -1883,6 +2141,37 @@ function parejasBloqueantes(t: Tokens): readonly [string, string, string, number
     ['letra sobre el de resalte', t.accent, t['accent-foreground'], AA_TEXTO],
     ['anillo de foco sobre el fondo', t.background, t.ring, AA_INTERFAZ],
     /**
+     * ══ E14 · EL ANILLO SOBRE LAS SUPERFICIES ELEVADAS ═══════════════════════════════
+     *
+     * ── EL HUECO NO ERA EL QUE PARECÍA, Y CONVIENE QUE ESTÉ ESCRITO ────────────────
+     *
+     * La primera hipótesis fue que el anillo se dibuja contra lo que hay debajo, así que
+     * medirlo sólo contra el lienzo dejaba sin mirar la tarjeta. **En nueve de los diez
+     * componentes de `ui/`, falso**: llevan `ring-offset-background` + `ring-offset-2`, o
+     * sea una banda de 2 px de `--background` entre el elemento y el anillo. Para ésos el
+     * vecino inmediato YA es el lienzo y la pareja de arriba mide exactamente bien.
+     *
+     * **El hueco son los otros 71.** En `apps/web/src` hay 71 usos de
+     * `focus:ring-2 focus:ring-ring` **sin banda ninguna** —los campos a medida del
+     * backoffice, los cuatro formularios de auth, `/admin/login`, `FilterPanel`,
+     * `SearchBar`—, y ahí el anillo toca la superficie de verdad, que casi siempre es una
+     * `Card`.
+     *
+     * ── POR QUÉ NO MORDÍA HASTA AHORA ──────────────────────────────────────────────
+     *
+     * Porque en un tema claro la tarjeta y el lienzo casi coinciden —y cuando difieren, la
+     * tarjeta es MÁS clara, así que un anillo oscuro contrasta MÁS contra ella: en Premium
+     * son 10,08 contra 9,83—. **En un tema oscuro la polaridad se invierte** y la
+     * superficie elevada pasa a ser la difícil: el anillo de una versión oscura puede
+     * cumplir contra el lienzo y no contra la tarjeta.
+     *
+     * Se añaden ahora, con el catálogo claro, porque entonces el coste es cero y la
+     * barrera está puesta ANTES de que exista la versión que la necesita. Medido sobre las
+     * 40 combinaciones (8 modelo×versión × 5 zonas): el peor caso es 4,85 y 4,89.
+     */
+    ['anillo de foco sobre la tarjeta', t.card, t.ring, AA_INTERFAZ],
+    ['anillo de foco sobre la capa flotante', t.popover, t.ring, AA_INTERFAZ],
+    /**
      * EL BORDE DE UN CAMPO, AHORA BLOQUEANTE. Nació como aviso porque el valor de
      * fábrica no cumplía (1,23:1) y arreglarlo cambiaba píxeles, cosa que E4a tenía
      * prohibida. Con el trazo del campo ya a 3:1, la pareja pasa a exigirse: un modelo
@@ -1917,6 +2206,27 @@ function parejasBloqueantes(t: Tokens): readonly [string, string, string, number
 function parejasDeAviso(t: Tokens): readonly [string, string, string, number][] {
   return [
     ['trazo decorativo sobre el fondo (no exigido por 1.4.11)', t.background, t.border, AA_INTERFAZ],
+    /**
+     * ⚠ E14 · EL BORDE DE CAMPO SOBRE LAS SUPERFICIES ELEVADAS — AVISO, Y NO POR DUDA
+     * NORMATIVA SINO POR MARGEN.
+     *
+     * La norma sí lo pide: un campo dentro de una tarjeta se identifica por su contorno
+     * igual que uno sobre el lienzo, así que 1.4.11 aplica de lleno. Lo que impide
+     * bloquearlo hoy es el número: el peor caso del catálogo está en **3,03:1**
+     * (`calido-editorial@dia`, zona `blog`), tres centésimas de margen.
+     *
+     * Y `input` deriva del NEUTRO, que es uno de los cuatro que el admin elige. Con ese
+     * margen, cualquier retoque razonable de su gris convertiría un guardado legítimo en
+     * un 422 — la clase de barrera que enseña a la gente a rodearla. El propio Modelo 0
+     * dejó escrito que un 1 % de holgura es «demasiado fino para sostener una afirmación
+     * de conformidad»; usarlo de umbral duro es peor todavía.
+     *
+     * Así que se MIDE y se informa, y el día que el `blog` del editorial suba un par de
+     * puntos su borde de campo —un cambio de aspecto, de los que se aprueban mirándolos—
+     * esta pareja se sube a la lista de arriba.
+     */
+    ['borde de campo sobre la tarjeta', t.card, t.input, AA_INTERFAZ],
+    ['borde de campo sobre la capa flotante', t.popover, t.input, AA_INTERFAZ],
   ];
 }
 
@@ -1948,4 +2258,130 @@ function medir(
     }
   }
   return fallos;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────
+// E14 · LAS DOS BARRERAS QUE AA NO PUEDE DAR
+// ─────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * ══ POR QUÉ HACEN FALTA DOS BARRERAS MÁS, Y POR QUÉ NO SON «AA» ═══════════════════════
+ *
+ * Hasta E14 todo lo que se medía era ACCESIBILIDAD: parejas que tienen que alcanzar un
+ * mínimo. En cuanto una versión puede invertir la luz aparecen dos defectos que **pasan
+ * AA con nota y aun así dejan el tema roto**, y llamarlos AA sería inventarse una
+ * obligación normativa — justo lo que el comentario de `parejasDeAviso` prohíbe hacer.
+ *
+ * Las dos viven en CI y **nunca producen un 422**: vigilan lo que escribe quien define un
+ * modelo o una versión, no lo que elige un admin. Un admin no puede provocarlas.
+ */
+
+/** Una superficie que se despegó del lienzo más de lo que el lienzo admite. */
+export interface FalloDePolaridad {
+  superficie: string;
+  ratio: number;
+  techo: number;
+}
+
+/**
+ * LAS NUEVE SUPERFICIES SEMÁNTICAS: los fondos sobre los que se pinta un aviso. No entran
+ * ni sus letras ni sus trazos —ésos se miden CONTRA la superficie, y de eso ya se ocupa
+ * `parejasSemanticasDeTexto`— sino los fondos mismos, que es lo que el ojo lee como «este
+ * panel pertenece a esta página» o no.
+ */
+const SUPERFICIES_SEMANTICAS = [
+  'warning',
+  'warning-surface',
+  'success',
+  'success-surface',
+  'info',
+  'info-surface',
+  'destructive-subtle',
+  'pending-surface',
+  'neutral-surface',
+] as const;
+
+/**
+ * ══ BARRERA 1 · COHERENCIA DE POLARIDAD ══════════════════════════════════════════════
+ *
+ * **Ninguna superficie semántica puede despegarse del lienzo más de 3:1.**
+ *
+ * ── EL DEFECTO QUE CAZA ────────────────────────────────────────────────────────────
+ *
+ * Una versión oscura que heredara los semánticos claros de su modelo pasaría TODAS las
+ * parejas de accesibilidad —los avisos se miden entre ellos, y entre ellos siguen
+ * cumpliendo— y pintaría seis paneles casi blancos sobre un lienzo carbón. Medido: 15,76 a
+ * **17,98:1** contra el lienzo. Diecisiete a uno es contraste de sobra; es justamente el
+ * problema.
+ *
+ * ── POR QUÉ UN TECHO DE 3:1, Y NO OTRO ────────────────────────────────────────────
+ *
+ * Porque es el que separa lo que existe de lo que está roto por un orden de magnitud, sin
+ * apretar a nadie:
+ *
+ *   · los siete pares del catálogo (claros) ....... 1,00 – 1,22
+ *   · `MODELO_PRUEBA` (oscuro entero, a mano) ..... 1,10 – 1,88
+ *   · una versión oscura con semánticos claros .... 15,76 – 17,98   ← lo que hay que cazar
+ *
+ * El 3 no sale de la norma —ahí significa otra cosa— sino de que es el único número
+ * redondo que deja pasar holgadamente el peor caso legítimo (1,88) y rechaza el ilegítimo
+ * cinco veces. Un modelo con un aviso deliberadamente contrastado tiene margen de sobra;
+ * uno que se olvidó de girar los avisos, no.
+ */
+export function coherenciaDePolaridad(tokens: Tokens, techo = AA_INTERFAZ): FalloDePolaridad[] {
+  const fallos: FalloDePolaridad[] = [];
+  for (const superficie of SUPERFICIES_SEMANTICAS) {
+    const ratio = contraste(tokens.background, tokens[superficie]);
+    if (ratio > techo) {
+      fallos.push({ superficie, ratio: Math.round(ratio * 100) / 100, techo });
+    }
+  }
+  return fallos;
+}
+
+/**
+ * ══ BARRERA 2 · COMPLETITUD DE SUPERFICIES ═══════════════════════════════════════════
+ *
+ * **El anillo de foco contra TODA superficie sobre la que puede aparecer**, y no sólo
+ * contra el lienzo.
+ *
+ * ── DE DÓNDE SALE ──────────────────────────────────────────────────────────────────
+ *
+ * De medir el anillo contra la superficie atenuada y encontrar **1,36:1 en la zona `login`
+ * del Modelo 0, hoy**. No es un fallo vivo —esa pantalla no pinta un solo `bg-muted`,
+ * verificado— sino algo peor de encontrar: una zona que redefine quince tokens y **deja
+ * `muted` en su valor CLARO dentro de un lienzo oscuro**. Ahí no se ve; en una versión
+ * oscura, donde `bg-muted` aparece 225 veces en 116 ficheros, se vería en todas.
+ *
+ * Tres de las cuatro superficies (`background`, `card`, `popover`) ya son parejas
+ * bloqueantes. Lo que esta función añade es **medirlas juntas y añadir `muted`**, que es la
+ * que ninguna lista miraba.
+ *
+ * ── CÓMO SE USA, Y POR QUÉ NO ES BLOQUEANTE EN TODAS PARTES ───────────────────────
+ *
+ * En la BASE de cada modelo×versión se exige vacía: ahí las cuatro superficies salen de la
+ * rampa, así que una versión que invierta la luz las invierte todas y no puede quedarse a
+ * medias. En las ZONAS se congela un inventario de los huecos heredados que YA existen —los
+ * siete `login` del catálogo— para que no puedan crecer: un hueco nuevo pone el test rojo,
+ * y pagar uno viejo obliga a acortar la lista. Es deuda vigilada, no deuda tolerada.
+ */
+export function completitudDeSuperficies(tokens: Tokens): FalloContraste[] {
+  const superficies: readonly [string, string][] = [
+    ['el fondo', tokens.background],
+    ['la tarjeta', tokens.card],
+    ['la capa flotante', tokens.popover],
+    ['la superficie atenuada', tokens.muted],
+  ];
+  return medir(
+    tokens,
+    superficies.map(
+      ([nombre, valor]) =>
+        [`anillo de foco sobre ${nombre}`, valor, tokens.ring, AA_INTERFAZ] as [
+          string,
+          string,
+          string,
+          number,
+        ],
+    ),
+  );
 }

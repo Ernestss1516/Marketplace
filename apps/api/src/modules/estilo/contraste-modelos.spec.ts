@@ -6,6 +6,8 @@ import {
   MODELOS_DE_PRUEBA,
   TODOS_LOS_MODELOS,
   buscarModelo,
+  coherenciaDePolaridad,
+  completitudDeSuperficies,
   resolverTokens,
   resolverZona,
   validarContraste,
@@ -155,6 +157,39 @@ describe('Contraste en CI — todos los modelos, catálogo y prueba', () => {
               AA_TEXTO,
             );
           });
+
+          /**
+           * ══ E14 · BARRERA 1 · COHERENCIA DE POLARIDAD ══════════════════════════════
+           *
+           * Que ninguna superficie de aviso se despegue del lienzo. **No es accesibilidad
+           * y por eso está aparte**: una versión oscura que heredara los semánticos claros
+           * de su modelo pasaría todas las parejas AA —los avisos se miden entre ellos— y
+           * pintaría seis paneles casi blancos sobre un lienzo carbón, a 17,98:1. La norma
+           * exige un mínimo, no un máximo; llamar AA a esto sería inventarse una
+           * obligación.
+           *
+           * Hoy no cambia nada: el catálogo va de 1,00 a 1,22 y Contraluz de 1,10 a 1,88.
+           * Está puesta ANTES de que exista la versión que la necesita, que es cuando una
+           * barrera cuesta cero.
+           */
+          it('ninguna superficie semántica se despega del lienzo de esta versión', () => {
+            expect(coherenciaDePolaridad(base)).toEqual([]);
+          });
+
+          /**
+           * ══ E14 · BARRERA 2 · COMPLETITUD DE SUPERFICIES (en la base) ══════════════
+           *
+           * El anillo contra las CUATRO superficies sobre las que puede aparecer, no sólo
+           * contra el lienzo. En la base se exige entera y sin excusa: las cuatro salen de
+           * la rampa, así que una versión que invierta la luz las invierte todas y no
+           * puede quedarse a medias.
+           *
+           * La que ninguna lista miraba es `muted`. Ver el inventario de más abajo para lo
+           * que eso destapó en las zonas.
+           */
+          it('el anillo cumple 1.4.11 contra las cuatro superficies de la base', () => {
+            expect(completitudDeSuperficies(base)).toEqual([]);
+          });
         });
       }
 
@@ -258,5 +293,136 @@ describe('El modelo de prueba existe, resuelve y NO se ofrece', () => {
       const suyos = Object.keys(resolverTokens(m, m.coloresPorDefecto)).sort();
       expect({ modelo: m.id, tokens: suyos }).toEqual({ modelo: m.id, tokens: referencia });
     }
+  });
+
+  /**
+   * E14 — Y AHORA TAMBIÉN POR VERSIÓN, porque el juego de nombres dejó de depender sólo
+   * del modelo.
+   *
+   * Desde que una versión puede declarar semánticos, una clave mal escrita —`warning-bordre`
+   * por `warning-border`— añadiría un token 61 que ningún componente consume, y el
+   * verdadero, el que sí se consume, se quedaría con el valor claro heredado. El tema
+   * saldría medio girado y nada lo diría: el token sobrante no rompe nada y el que falta
+   * tiene un valor perfectamente válido.
+   *
+   * Es el gemelo exacto de `zonaSoloAjusta` en el otro eje.
+   */
+  it('cada VERSIÓN declara exactamente los mismos tokens que su modelo', () => {
+    const referencia = Object.keys(resolverTokens(MODELO_0, MODELO_0.coloresPorDefecto)).sort();
+    for (const m of TODOS_LOS_MODELOS) {
+      for (const version of m.versiones) {
+        const suyos = Object.keys(resolverTokens(m, m.coloresPorDefecto, version)).sort();
+        const etiqueta = `${m.id}@${version}`;
+        expect({ etiqueta, tokens: suyos }).toEqual({ etiqueta, tokens: referencia });
+      }
+    }
+  });
+});
+
+/**
+ * ══ E14 · EL INVENTARIO DE LA DEUDA: `muted` DENTRO DE UNA ZONA OSCURA ════════════════
+ *
+ * ── QUÉ SE ENCONTRÓ ────────────────────────────────────────────────────────────────
+ *
+ * Al medir el anillo contra TODAS las superficies apareció **1,36:1 en la zona `login` del
+ * Modelo 0, hoy**. No es un fallo vivo —esa pantalla no pinta un solo `bg-muted`,
+ * verificado, sólo `bg-background` y `bg-card`— sino algo peor de encontrar: las cuatro
+ * zonas `login` del catálogo redefinen quince tokens y **dejan `muted` en su valor CLARO
+ * dentro de un lienzo oscuro**. Ahí no se ve. En una versión oscura, donde `bg-muted`
+ * aparece 225 veces en 116 ficheros, se vería en todas.
+ *
+ * ── POR QUÉ SE INVENTARÍA EN VEZ DE EXIGIRSE ──────────────────────────────────────
+ *
+ * Porque arreglarlo es tocar el `muted` de cuatro modelos, y eso es un retoque de ASPECTO
+ * que se aprueba mirándolo — no cabe en una ráfaga cuyo criterio es no mover un píxel. Y
+ * porque tolerarlo en silencio sería peor: mañana nadie recordaría que está.
+ *
+ * Así que se congela la FORMA de la deuda. Puede pagarse (y entonces hay que acortar esta
+ * lista) pero **no puede crecer**: un hueco en otra zona, en otra superficie, o un modelo
+ * nuevo que repita la omisión, ponen esto rojo.
+ */
+describe('E14 · completitud de superficies POR ZONA: la deuda, congelada', () => {
+  interface Hueco {
+    modelo: string;
+    version: string;
+    zona: string;
+    pareja: string;
+  }
+
+  const huecos: Hueco[] = [];
+  for (const m of TODOS_LOS_MODELOS) {
+    for (const version of m.versiones) {
+      const base = resolverTokens(m, m.coloresPorDefecto, version);
+      for (const zona of ESTILO_ZONES) {
+        const efectiva = { ...base, ...resolverZona(m, m.coloresPorDefecto, zona, version) };
+        for (const f of completitudDeSuperficies(efectiva)) {
+          huecos.push({ modelo: m.id, version, zona, pareja: f.pareja });
+        }
+      }
+    }
+  }
+
+  /**
+   * LA FORMA DE LA DEUDA, y no una lista de siete cadenas: lo que hay que poder afirmar es
+   * que **todos los huecos son el mismo hueco** —la superficie atenuada, dentro del login—
+   * y no una colección de casos sueltos que nadie ha mirado.
+   */
+  it('todo hueco es el MISMO hueco: la superficie atenuada dentro de la zona login', () => {
+    const distintos = [...new Set(huecos.map((h) => `${h.zona} · ${h.pareja}`))];
+    expect(distintos).toEqual(['login · anillo de foco sobre la superficie atenuada']);
+  });
+
+  /**
+   * Y CUÁNTOS SON. Siete: los siete pares modelo×versión del catálogo, porque los cuatro
+   * modelos heredaron la misma omisión de la zona `login` de E5. `MODELO_PRUEBA` no está
+   * —es oscuro de fábrica, así que su `muted` ya lo es— y ése es el control negativo del
+   * inventario: si esto fuera un artefacto de la medición, Contraluz también aparecería.
+   */
+  it('son exactamente los siete del catálogo, y Contraluz no está', () => {
+    expect(huecos).toHaveLength(7);
+    expect(huecos.map((h) => `${h.modelo}@${h.version}`).sort()).toEqual([
+      'calido-editorial@dia',
+      'calido-editorial@tarde',
+      'fresco-confianza@claro',
+      'fresco-confianza@nitido',
+      'modelo-0@1',
+      'premium@claro',
+      'premium@claro-intenso',
+    ]);
+  });
+});
+
+/**
+ * LA RED DE LAS DOS BARRERAS NUEVAS. Sin esto, las dos pasarían igual de verdes con una
+ * lista de superficies vacía o con un umbral que no rechaza nada — que es exactamente cómo
+ * una barrera deja de proteger sin que nadie se entere.
+ */
+describe('E14 · las dos barreras nuevas distinguen lo roto', () => {
+  const claro = resolverTokens(MODELO_0, MODELO_0.coloresPorDefecto);
+
+  it('la coherencia de polaridad caza un semántico claro sobre un lienzo oscuro', () => {
+    // Exactamente el defecto: un lienzo carbón con los avisos del Modelo 0 sin girar.
+    const mezclado: Tokens = { ...claro, background: '220 24% 8%' };
+    const fallos = coherenciaDePolaridad(mezclado);
+    expect(fallos.length).toBeGreaterThanOrEqual(6);
+    expect(fallos.every((f) => f.ratio > AA_INTERFAZ)).toBe(true);
+  });
+
+  it('la completitud caza un anillo que cumple contra el lienzo y no contra la tarjeta', () => {
+    // Lienzo oscuro, tarjeta clara y un anillo a medio camino: pasa la pareja de siempre
+    // y falla la que E14 añadió. Es la polaridad invertida en miniatura.
+    const trampa: Tokens = {
+      ...claro,
+      background: '0 0% 10%',
+      card: '0 0% 90%',
+      popover: '0 0% 10%',
+      muted: '0 0% 10%',
+      ring: '0 0% 65%',
+    };
+    const fallos = completitudDeSuperficies(trampa);
+    // 7,20:1 contra el lienzo —la pareja que ya existía, en verde— y 1,92:1 contra la
+    // tarjeta, que es la que sólo E14 mira.
+    expect(fallos.map((f) => f.pareja)).toEqual(['anillo de foco sobre la tarjeta']);
+    expect(contraste(trampa.background, trampa.ring)).toBeGreaterThan(AA_INTERFAZ);
   });
 });

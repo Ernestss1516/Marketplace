@@ -1,12 +1,16 @@
 import {
   ESTILO_ZONES,
   MODELO_0,
+  MODELO_PRUEBA,
   MODELOS,
+  SEMANTICOS_OSCUROS,
+  derivarColor,
   resolverTokens,
   resolverZona,
   validarContraste,
   zonaSoloAjusta,
   type ColoresConfigurables,
+  type Modelo,
 } from './estilo.constants';
 import { contraste, hexATriplete, parsearTriplete } from './color';
 
@@ -488,5 +492,258 @@ describe('La conversión de lo que el admin escribe', () => {
     expect(hexATriplete('azul')).toBeNull();
     expect(parsearTriplete('221.2 83.2 53.3')).toBeNull();
     expect(parsearTriplete('221.2 300% 53.3%')).toBeNull();
+  });
+});
+
+/**
+ * ══ E14 · LA VERSIÓN DERIVA ══════════════════════════════════════════════════════════
+ *
+ * `AjustesDeVersion` pasó de dos campos a cinco: `foco`, `semanticos` y `ajustesPorZona`
+ * se suman a la rampa y a los ejes. Lo que se prueba aquí es la frontera hecha código
+ * —**el modelo ELIGE, la versión DERIVA**— y, antes que nada, que ampliarla no movió nada.
+ */
+
+/** Un modelo de laboratorio: el Modelo 0 con una versión que sí usa los campos nuevos. */
+function conVersion(ajustes: Record<string, unknown>): Modelo {
+  return {
+    ...MODELO_0,
+    versiones: ['1', 'lab'],
+    porVersion: { '1': {}, lab: ajustes },
+  } as Modelo;
+}
+
+describe('E14 · CAMBIO NULO: los campos nuevos existen y nadie los usa todavía', () => {
+  /**
+   * ⚠ LA BARRERA DE LA RÁFAGA, Y ES LA PRIMERA QUE HAY QUE MIRAR SI ALGO SE MUEVE.
+   *
+   * Todo el criterio de aceptación de E14-A —las 50 capturas idénticas, los siete pares
+   * del catálogo byte a byte— descansa en un solo hecho: **ninguna versión del catálogo
+   * declara ninguno de los tres campos nuevos**. Mientras eso sea cierto, el mecanismo
+   * ampliado resuelve por el mismo camino que antes.
+   *
+   * Y cuando deje de serlo —la ráfaga B, con `premium@oscuro`— este test se pondrá rojo
+   * **a propósito**: es la señal de que la ráfaga dejó de ser en seco y que las capturas
+   * hay que mirarlas, no regenerarlas a ciegas.
+   */
+  it('ninguna versión del catálogo declara foco, semánticos ni zonas', () => {
+    const usan: string[] = [];
+    for (const m of MODELOS) {
+      for (const [version, ajustes] of Object.entries(m.porVersion ?? {})) {
+        for (const campo of ['foco', 'semanticos', 'ajustesPorZona'] as const) {
+          if (ajustes[campo] !== undefined) usan.push(`${m.id}@${version}.${campo}`);
+        }
+      }
+    }
+    expect(usan).toEqual([]);
+  });
+
+  /**
+   * Y que la ausencia se traduzca en lo que tiene que traducirse. Éstas son las DOS
+   * superficies que E14 podría haber movido en el catálogo actual: el anillo (que ahora
+   * puede derivarse) y los semánticos (que ahora pueden mezclarse). Si el mecanismo
+   * hubiera dejado de respetar el camino corto, se vería aquí antes que en una captura.
+   */
+  it.each(MODELOS.flatMap((m) => m.versiones.map((v) => [m.id, v] as const)))(
+    '%s@%s: el anillo sigue siendo el primario LITERAL y los semánticos, los del modelo',
+    (id, version) => {
+      const m = MODELOS.find((x) => x.id === id)!;
+      const t = resolverTokens(m, m.coloresPorDefecto, version);
+
+      expect(t.ring).toBe(m.coloresPorDefecto.primary);
+      for (const [nombre, valor] of Object.entries(m.semanticos)) {
+        expect({ nombre, valor: t[nombre] }).toEqual({ nombre, valor });
+      }
+    },
+  );
+});
+
+describe('E14 · EL FOCO SE DERIVA, y por eso sigue girando con el primario', () => {
+  const OSCURO = conVersion({ foco: { dl: 40 } });
+
+  it('sin `foco`, el anillo es la copia literal de siempre', () => {
+    const t = resolverTokens(OSCURO, MODELO_0.coloresPorDefecto, '1');
+    expect(t.ring).toBe(MODELO_0.coloresPorDefecto.primary);
+  });
+
+  it('con `foco`, el anillo es el primario desplazado', () => {
+    const t = resolverTokens(OSCURO, MODELO_0.coloresPorDefecto, 'lab');
+    // 221.2 83.2% 53.3% + 40 puntos de luz.
+    expect(t.ring).toBe('221.2 83.2% 93.3%');
+  });
+
+  /**
+   * ⚠ LA PROPIEDAD QUE JUSTIFICA QUE SEA UNA DERIVACIÓN Y NO UN LITERAL.
+   *
+   * Una zona `login` sí puede fijar `ring` a un color: afecta a UNA pantalla. Una versión
+   * afecta a las 81, y ahí un literal rompería la promesa del sistema en silencio — el
+   * admin cambiaría su primario y el foco se quedaría donde estaba.
+   *
+   * MUTACIÓN: sustituir la derivación por un literal deja verde el test de arriba y pone
+   * ROJO éste, que es exactamente el reparto que se buscaba.
+   */
+  it('si el admin cambia su primario, el anillo se va con él', () => {
+    const otros: ColoresConfigurables = { ...MODELO_0.coloresPorDefecto, primary: '10 70% 40%' };
+    const t = resolverTokens(OSCURO, otros, 'lab');
+
+    expect(t.ring).toBe('10 70% 80%');
+    expect(t.ring).not.toBe(resolverTokens(OSCURO, MODELO_0.coloresPorDefecto, 'lab').ring);
+  });
+
+  it('un color ilegible se devuelve tal cual en vez de inventarse uno', () => {
+    expect(derivarColor('morado', { dl: 40 })).toBe('morado');
+  });
+});
+
+describe('E14 · LOS SEMÁNTICOS DE UNA VERSIÓN se mezclan PARCIALMENTE', () => {
+  const TARDE = conVersion({ semanticos: { destructive: '0 84.2% 46%' } });
+
+  it('lo que la versión nombra, cambia', () => {
+    const t = resolverTokens(TARDE, MODELO_0.coloresPorDefecto, 'lab');
+    expect(t.destructive).toBe('0 84.2% 46%');
+  });
+
+  it('lo que no nombra —los otros 29— lo hereda del modelo', () => {
+    const t = resolverTokens(TARDE, MODELO_0.coloresPorDefecto, 'lab');
+    const heredados = Object.entries(MODELO_0.semanticos).filter(([n]) => n !== 'destructive');
+    expect(heredados).toHaveLength(29);
+    for (const [nombre, valor] of heredados) {
+      expect({ nombre, valor: t[nombre] }).toEqual({ nombre, valor });
+    }
+  });
+
+  /**
+   * EL CASO REAL QUE ESTO DESBLOQUEA, dejado escrito porque es la razón de que el campo
+   * exista: el rojo del Modelo 0 (47 % de luz) da 4,446:1 sobre el lienzo de «Tarde» y
+   * falla 1.4.3 por cinco centésimas. Sin este campo la corrección tuvo que aplicarse AL
+   * MODELO —y se la comió «Día», que no la necesitaba—. Con él, cada versión lleva el suyo.
+   */
+  it('un lienzo más oscuro puede llevar su propio rojo sin arrastrar a su hermana', () => {
+    const claro = resolverTokens(TARDE, MODELO_0.coloresPorDefecto, '1');
+    const tarde = resolverTokens(TARDE, MODELO_0.coloresPorDefecto, 'lab');
+    expect(claro.destructive).toBe('0 84.2% 47%');
+    expect(tarde.destructive).toBe('0 84.2% 46%');
+  });
+});
+
+describe('E14 · LAS ZONAS DE UNA VERSIÓN se mezclan POR TOKEN', () => {
+  const OSCURA = conVersion({
+    ajustesPorZona: { backoffice: { background: '222.2 84% 6%' } },
+  });
+
+  it('el token que la versión nombra sustituye al del modelo', () => {
+    const z = resolverZona(OSCURA, MODELO_0.coloresPorDefecto, 'backoffice', 'lab');
+    expect(z.background).toBe('222.2 84% 6%');
+  });
+
+  it('los demás tokens de esa zona siguen siendo los del modelo', () => {
+    const z = resolverZona(OSCURA, MODELO_0.coloresPorDefecto, 'backoffice', 'lab');
+    // El backoffice del Modelo 0 resta saturación y baja el tempo; eso no lo toca la versión.
+    expect(z.muted).toBe(MODELO_0.ajustesPorZona.backoffice?.muted);
+    expect(z['motion-duration']).toBe('100ms');
+  });
+
+  it('las zonas que la versión no nombra quedan intactas', () => {
+    const blog = resolverZona(OSCURA, MODELO_0.coloresPorDefecto, 'blog', 'lab');
+    expect(blog).toEqual(resolverZona(MODELO_0, MODELO_0.coloresPorDefecto, 'blog'));
+  });
+
+  /**
+   * LA REGLA DURA LLEGA TAMBIÉN AL ESCAPE NUEVO. Sin esto, las zonas de una versión serían
+   * el único sitio del sistema donde se puede inventar un token — y así es como se cuela un
+   * segundo sistema de estilo: por la puerta recién abierta, mientras todo el mundo vigila
+   * la vieja.
+   */
+  it('una zona de versión tampoco puede inventar un token', () => {
+    const inventora = conVersion({
+      ajustesPorZona: { backoffice: { 'backoffice-algo': '0 0% 50%' } },
+    });
+    expect(zonaSoloAjusta(inventora, MODELO_0.coloresPorDefecto)).toEqual([
+      'lab/backoffice:backoffice-algo',
+    ]);
+  });
+});
+
+/**
+ * ══ E14 · EL MOLDE OSCURO, EXTRAÍDO Y NO INVENTADO ═══════════════════════════════════
+ *
+ * `SEMANTICOS_OSCUROS` son los de `MODELO_PRUEBA` sacados a una constante para que una
+ * versión oscura los esparza. De una extracción hay que demostrar dos cosas: que no cambió
+ * lo que había, y que lo que salió tiene la forma que se prometió.
+ */
+describe('E14 · SEMANTICOS_OSCUROS', () => {
+  /**
+   * LOS 30 DE CONTRALUZ, TRANSCRITOS DE ANTES DE LA EXTRACCIÓN.
+   *
+   * Es una copia deliberada, igual que `GLOBALS_CSS_HOY` de arriba y por el mismo motivo:
+   * convierte «no cambió nada» en algo que se puede AFIRMAR. Y aquí importa más que en
+   * ningún otro modelo — `MODELO_PRUEBA` es contra el que compara el test de invariancia
+   * del HTML, así que moverlo invalidaría esa comparación sin que nada lo dijera.
+   */
+  const CONTRALUZ_ANTES: Readonly<Record<string, string>> = {
+    destructive: '0 85% 68%',
+    'destructive-foreground': '30 50% 8%',
+    warning: '#2a1f04',
+    'warning-surface': '#3d2d05',
+    'warning-border': '#a16207',
+    'warning-foreground': '#fde68a',
+    'warning-solid': '#f59e0b',
+    'warning-solid-hover': '#fbbf24',
+    success: '#052e16',
+    'success-surface': '#064e3b',
+    'success-border': '#15803d',
+    'success-foreground': '#a7f3d0',
+    'success-solid': '#10b981',
+    'success-solid-hover': '#34d399',
+    info: '#0b1e3a',
+    'info-surface': '#12305c',
+    'info-border': '#1d4ed8',
+    'info-foreground': '#bfdbfe',
+    'destructive-subtle': '#3f0a0a',
+    'destructive-border': '#991b1b',
+    'destructive-strong': '#fca5a5',
+    'pending-surface': '#3b0764',
+    'pending-foreground': '#e9d5ff',
+    'neutral-surface': '#292524',
+    'neutral-foreground': '#d6d3d1',
+    'neutral-solid': '#a8a29e',
+    'neutral-solid-hover': '#d6d3d1',
+    rating: '#fbbf24',
+    featured: '#fb923c',
+    favorite: '#fb7185',
+  };
+
+  it('Contraluz resuelve EXACTAMENTE lo que resolvía antes de extraer el molde', () => {
+    expect({ ...MODELO_PRUEBA.semanticos }).toEqual(CONTRALUZ_ANTES);
+  });
+
+  /**
+   * LA DECISIÓN D1, HECHA ESTRUCTURA. Un molde que trajera las tres convenciones haría que
+   * toda versión oscura las tiñese sin querer — y el color de una estrella de valoración o
+   * de un corazón de favorito es parte del SIGNIFICADO, no del ambiente (la distinción es
+   * de E2). Que no estén es lo que hace que una versión que esparza esto se quede con las
+   * del modelo **sin tener que acordarse**.
+   */
+  it('trae los 27 de ESTADO y ninguna de las 3 convenciones', () => {
+    expect(Object.keys(SEMANTICOS_OSCUROS)).toHaveLength(27);
+    for (const convencion of ['rating', 'featured', 'favorite']) {
+      expect(SEMANTICOS_OSCUROS).not.toHaveProperty(convencion);
+    }
+  });
+
+  it('cubre exactamente los mismos nombres de estado que el Modelo 0', () => {
+    const estadosDelModelo0 = Object.keys(MODELO_0.semanticos)
+      .filter((n) => !['rating', 'featured', 'favorite'].includes(n))
+      .sort();
+    expect(Object.keys(SEMANTICOS_OSCUROS).sort()).toEqual(estadosDelModelo0);
+  });
+
+  /**
+   * QUE EL MOLDE FUNCIONE FUERA DE SU CASA, que es lo que separa un molde de una copia.
+   * Sobre un lienzo carbón cualquiera el rojo tiene que leerse como TEXTO — la pareja que
+   * se queda en 3,70:1 cuando una versión oscura hereda los semánticos claros de su modelo.
+   */
+  it('sobre un lienzo carbón ajeno, el rojo sigue legible como texto', () => {
+    expect(contraste('220 24% 8%', SEMANTICOS_OSCUROS.destructive)).toBeGreaterThanOrEqual(4.5);
+    expect(contraste('220 24% 8%', MODELO_0.semanticos.destructive)).toBeLessThan(4.5);
   });
 });

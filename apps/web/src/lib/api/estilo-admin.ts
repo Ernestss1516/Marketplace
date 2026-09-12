@@ -121,6 +121,13 @@ export const COLOR_CULPABLE: Readonly<Record<string, RanuraDeColor>> = {
   'letra sobre el secundario': 'secondary',
   'letra sobre el de resalte': 'accent',
   'anillo de foco sobre el fondo': 'primary',
+  // E14 — el anillo sobre las superficies elevadas. Van al MISMO campo que la de arriba
+  // porque el anillo sale del primario: si falla contra la tarjeta, lo que el admin tiene
+  // que mover es su color principal, no otra cosa. Sin estas dos líneas el 422 seguiría
+  // llegando, pero el aviso caería al bloque de «sin ubicar» y dejaría de estar junto al
+  // selector que lo arregla — que es todo lo que hace útil a ese bloque.
+  'anillo de foco sobre la tarjeta': 'primary',
+  'anillo de foco sobre la capa flotante': 'primary',
   'texto base sobre el fondo': 'neutral',
   'texto atenuado sobre el fondo': 'neutral',
   'texto de la tarjeta': 'neutral',
