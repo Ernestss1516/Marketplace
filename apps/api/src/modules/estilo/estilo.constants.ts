@@ -891,8 +891,31 @@ export const MODELO_CALIDO_EDITORIAL: Modelo = {
    *
    * Se mantienen a la vista —copiados, no importados— porque un modelo declara TODO lo
    * suyo: el día que este modelo quiera su propio rojo, se cambia aquí y no en dos sitios.
+   *
+   * ── Y ESE DÍA LLEGÓ, POR UNA RAZÓN QUE NO ES DE GUSTO ──────────────────────────────
+   *
+   * `destructive` NO se hereda: baja de 47 % a 46 % de luz. Es un arreglo de
+   * accesibilidad, medido, y la historia merece quedar escrita porque es la MISMA de E6
+   * un escalón más allá.
+   *
+   * E6 bajó este rojo de 60,2 % a 47 % porque como TEXTO sobre el blanco del Modelo 0 daba
+   * 3,76:1. Con 47 % cumplía — sobre BLANCO. Pero el lienzo de «Tarde» es papel tostado
+   * (`32 38% 94%`, tres puntos y medio de luz menos que el de «Día»), y sobre él el mismo
+   * rojo se queda en **4,446:1**: falla 1.4.3 por cinco centésimas. A 46 % da 4,62:1 y
+   * cumple en las dos versiones.
+   *
+   * ── POR QUÉ NADIE LO HABÍA VISTO ───────────────────────────────────────────────────
+   *
+   * Porque la barrera no miraba. `contraste-modelos.spec.ts` medía los semánticos UNA VEZ
+   * POR MODELO, sin versión, y sin versión este modelo resuelve a «Día» — el lienzo claro,
+   * donde el rojo pasa. La pareja «el rojo como texto sobre el lienzo» es la única de las
+   * semánticas que se compara contra algo QUE LA VERSIÓN CAMBIA, así que era la única que
+   * necesitaba medirse por versión. Ahora se mide.
+   *
+   * El agujero se destapó construyendo el modelo Premium, al intentar una versión oscura:
+   * ver el comentario de `MODELO_PREMIUM`.
    */
-  semanticos: { ...MODELO_0.semanticos },
+  semanticos: { ...MODELO_0.semanticos, destructive: '0 84.2% 46%' },
 
   ejes: {
     // El cuerpo sigue en Inter: es legible, está en el repo y la escala tipográfica es
@@ -1376,6 +1399,333 @@ export const MODELO_FRESCO_CONFIANZA: Modelo = {
 };
 
 /**
+ * LA RAMPA DE «CLARO» — blanco, grises VERDADEROS y el contraste subido.
+ *
+ * Los otros tres modelos tiñen su rampa: el Modelo 0 la deja azulada de fábrica, el
+ * Cálido la calienta y el Fresco la enfría. Éste hace lo contrario de todos: la
+ * desatura casi del todo. El neutro de fábrica es `220 6% 92%` —seis puntos de
+ * saturación, prácticamente gris puro— y de ahí sale una escala que no tiene color,
+ * sólo luz.
+ *
+ * ESO ES LO QUE HACE QUE UN MONOCROMO SE LEA COMO CALIDAD Y NO COMO UN BORRADOR: si no
+ * hay color que mirar, lo único que queda es la separación entre superficies, y ahí no
+ * se puede disimular. Por eso el contraste va alto y no medio — el texto atenuado da
+ * 6,37:1 contra los 4,5 que exige la norma, y el trazo está en 86 % de luz cuando el
+ * Modelo 0 lo deja en 91,4.
+ *
+ * Como en los otros tres, **la luz es absoluta**: el admin puede girar el neutro hacia
+ * donde quiera y el lienzo seguirá claro y el texto oscuro.
+ */
+const RAMPA_PREMIUM_CLARO: Readonly<Record<string, FranjaRampa>> = {
+  background: { dh: 0, ds: 8, l: 99 },
+  foreground: { dh: 0, ds: 29, l: 9 },
+  card: { dh: 0, ds: 8, l: 100 },
+  'card-foreground': { dh: 0, ds: 29, l: 9 },
+  popover: { dh: 0, ds: 8, l: 100 },
+  'popover-foreground': { dh: 0, ds: 29, l: 9 },
+  muted: { dh: 0, ds: 6, l: 95.5 },
+  'muted-foreground': { dh: 0, ds: 4, l: 38 },
+  border: { dh: 0, ds: 4, l: 86 },
+  input: { dh: 0, ds: 6, l: 48 },
+};
+
+/**
+ * «CLARO INTENSO» — la misma personalidad, con el contraste llevado al tope.
+ *
+ * El lienzo sube a blanco PURO (la máxima separación posible con las superficies), el
+ * texto baja a 5 % de luz, la superficie atenuada se despega dos puntos y medio más y el
+ * trazo pasa de 86 % a 78 % — ocho puntos, que en un monocromo es toda la diferencia
+ * entre «sobrio» y «rotundo», porque no hay color que distraiga de la línea.
+ *
+ * ⚠ ESTA VERSIÓN NO ES LA QUE EL ENCARGO PEDÍA, y el porqué está en el comentario del
+ * modelo: «Oscuro contenido» NO SE PUEDE HACER como versión. No es una renuncia estética,
+ * es un límite del mecanismo, medido.
+ */
+const RAMPA_PREMIUM_INTENSO: Readonly<Record<string, FranjaRampa>> = {
+  background: { dh: 0, ds: 8, l: 100 },
+  foreground: { dh: 0, ds: 34, l: 5 },
+  card: { dh: 0, ds: 8, l: 100 },
+  'card-foreground': { dh: 0, ds: 34, l: 5 },
+  popover: { dh: 0, ds: 8, l: 100 },
+  'popover-foreground': { dh: 0, ds: 34, l: 5 },
+  muted: { dh: 0, ds: 8, l: 93 },
+  'muted-foreground': { dh: 0, ds: 6, l: 30 },
+  border: { dh: 0, ds: 6, l: 78 },
+  input: { dh: 0, ds: 8, l: 40 },
+};
+
+/**
+ * ══ PREMIUM ══════════════════════════════════════════════════════════════════════════
+ *
+ * El cuarto modelo. Monocromo de grises verdaderos con UN acento de bronce, titulares con
+ * serifa humanista, esquinas casi rectas, sombras difusas y un tempo lento. Refinado y
+ * discreto: la calidad se nota en el contraste y en el detalle, no en el color.
+ *
+ * ── EL ENCARGO PEDÍA UNA VERSIÓN OSCURA. NO SE PUEDE, Y NO POR EL OSCURO ────────────
+ *
+ * La pregunta era si el mecanismo soporta «Oscuro contenido» como VERSIÓN. La respuesta
+ * se midió antes de construir nada —se escribió la rampa oscura y se le pasó la barrera—
+ * y es NO, con dos motivos que conviene separar del que parecía obvio:
+ *
+ * **El oscuro NO es el problema.** Este sistema ya pinta superficies oscuras y las pinta
+ * bien: `MODELO_PRUEBA` es un modelo de lienzo carbón que cumple AA entero, y los TRES
+ * modelos del catálogo tienen una zona `login` oscura. La rampa admite luz baja sin
+ * pestañear, porque la luz de cada franja es absoluta.
+ *
+ * Lo que no se puede es hacerlo **desde una versión**, porque `AjustesDeVersion` sólo
+ * redefine `rampa` y `ejes`, y un lienzo oscuro necesita tocar dos cosas más:
+ *
+ *  1. **EL ANILLO DE FOCO.** `resolverTokens` lo deriva de `primary`, que es uno de los
+ *     cuatro colores configurables y por tanto del MODELO (decisión #2). El azul marino
+ *     de este modelo sobre un carbón del 11 % da **1,71:1** contra los 3:1 que exige
+ *     1.4.11 — lo cazó `contraste-modelos.spec.ts` en la base y en las cinco zonas.
+ *  2. **LOS SEMÁNTICOS.** También son del modelo. `MODELO_PRUEBA` lo explica en su propio
+ *     comentario: «en un tema claro el rojo tiene que ser oscuro para leerse, y en uno
+ *     oscuro tiene que ser claro». Una versión oscura heredaría los catorce semánticos
+ *     claros de su modelo y no hay forma de cambiarlos.
+ *
+ * **LA ASIMETRÍA QUE ESTO DESTAPA, y que no estaba escrita en ninguna parte:** una ZONA
+ * puede redefinir CUALQUIER token —por eso el `login` oscuro funciona: redefine `ring`,
+ * `primary` y el trío destructivo—; una VERSIÓN sólo puede redefinir dos cosas. El eje de
+ * zona tiene escapes que el eje de versión no tiene.
+ *
+ * **LAS SALIDAS, para cuando Ernest quiera el oscuro** (ninguna es esta ráfaga):
+ *
+ *  · **«Premium Oscuro» como MODELO propio.** Es la barata y la que el mecanismo ya
+ *    soporta hoy sin tocar una línea de infraestructura: un modelo declara sus cuatro
+ *    colores y sus catorce semánticos, así que puede ser oscuro entero. Cuesta duplicar
+ *    el registro, que es exactamente el precio que `pendientes.md` ya anotó para el eje
+ *    de «ambiente» de Cálido/Editorial;
+ *  · **ampliar `AjustesDeVersion`** con `semanticos` y una forma de fijar `ring`. Es más
+ *    limpio conceptualmente y toca el mecanismo de E13 — decisión, no fleco;
+ *  · **el modo oscuro de verdad** (el que la decisión #1 dejó fuera de v1): un eje
+ *    paralelo con `prefers-color-scheme`. Es otra cosa y mucho más cara.
+ *
+ * Así que Premium entra con DOS VERSIONES CLARAS y distintas — «Claro» y «Claro
+ * intenso»—, y el oscuro queda anotado arriba en vez de forzado.
+ *
+ * ── ESTÁ EN SECO ───────────────────────────────────────────────────────────────────
+ *
+ * `MODELO_POR_DEFECTO` sigue siendo el Modelo 0. Es ELEGIBLE y no está activo en ninguna
+ * parte, así que las 52 capturas tienen que salir idénticas.
+ *
+ * ── PURO REGISTRO: CERO `.tsx` ─────────────────────────────────────────────────────
+ *
+ * El molde de los otros dos modelos de catálogo. El backend sirve el catálogo y
+ * `/admin/estilo` lo pinta desde ahí.
+ */
+export const MODELO_PREMIUM: Modelo = {
+  id: 'premium',
+  nombre: 'Premium',
+  descripcion:
+    'Monocromo de grises verdaderos con un acento de bronce, titulares con serifa. Refinado y discreto: la calidad se nota en el contraste y en el detalle, no en el color.',
+  versiones: ['claro', 'claro-intenso'],
+
+  /**
+   * LOS CUATRO DE FÁBRICA. Aquí la dificultad es la contraria que en los otros dos: los
+   * tonos OSCUROS y saturados contrastan solos, así que `primary` y `secondary` salieron
+   * a la primera. El que costó fue el acento.
+   *
+   *  · `primary` es un AZUL MARINO, no un azul. Al 30 % de luz lleva letra clara con
+   *    **10,08:1** —el doble de lo que la norma pide— y sirve de anillo de foco con
+   *    9,79:1. Se eligió el marino entre los tres candidatos elegantes (marino, verde
+   *    bosque, burdeos) por versatilidad: es el único que no arrastra una connotación
+   *    (el verde dice «ecológico», el burdeos dice «vino») en una plataforma donde se
+   *    vende de todo.
+   *  · `secondary` NO es otro color: es el MISMO tono con otra luz (30 % → 45 %) y menos
+   *    saturación. Eso es lo que hace monocromo a un monocromo — dos colores de marca que
+   *    son el mismo color a dos distancias.
+   *  · `accent` es el BRONCE, y es el único riesgo real de esta paleta. Al 48 % de luz da
+   *    2,71:1 con letra clara y **6,67:1 con letra oscura**, así que `mejorTextoSobre`
+   *    elige la oscura y el acento puede ser dorado de verdad en vez de un mostaza
+   *    apagado. Subirlo de luz lo volvería ilegible por arriba; bajarlo lo convertiría en
+   *    marrón. El sitio es éste.
+   *  · `neutral` es un GRIS VERDADERO — seis puntos de saturación, apenas un recuerdo de
+   *    azul. Es la decisión que más define al modelo: sin color en la rampa, lo único que
+   *    queda es el contraste, y ahí es donde se nota si algo está bien hecho.
+   */
+  coloresPorDefecto: {
+    primary: '220 45% 30%',
+    secondary: '220 30% 45%',
+    accent: '42 58% 48%',
+    neutral: '220 6% 92%',
+  },
+
+  /**
+   * Los dos candidatos a letra. Ni blanco ni negro puros: sobre un monocromo de grises
+   * finos, el negro puro hace un agujero y el blanco puro vibra. Un casi-blanco y un
+   * casi-negro, los dos con el mismo recuerdo de azul que el neutro — la familia entera
+   * comparte tono.
+   */
+  textoSobre: ['220 20% 98%', '220 40% 10%'],
+
+  rampa: RAMPA_PREMIUM_CLARO,
+
+  porVersion: {
+    // «Claro» es la versión base: la rampa del modelo tal cual.
+    claro: {},
+    'claro-intenso': {
+      rampa: RAMPA_PREMIUM_INTENSO,
+      ejes: {
+        // Si el contraste sube, el movimiento acompaña: 40 ms menos y una curva con más
+        // salida. Sigue siendo lento comparado con los otros modelos — premium no corre.
+        'motion-duration': '180ms',
+        'motion-ease': 'cubic-bezier(0.2, 0.8, 0.2, 1)',
+        // Y las sombras se recogen: con un trazo tan marcado, la sombra difusa sobra.
+        shadow: '0 1px 3px 0 rgb(10 15 30 / 0.10), 0 1px 2px -1px rgb(10 15 30 / 0.08)',
+        'shadow-md': '0 4px 8px -2px rgb(10 15 30 / 0.12), 0 2px 4px -3px rgb(10 15 30 / 0.09)',
+        'shadow-lg': '0 10px 18px -4px rgb(10 15 30 / 0.14), 0 4px 7px -6px rgb(10 15 30 / 0.10)',
+      },
+    },
+  },
+
+  /**
+   * SE HEREDAN LOS SEMÁNTICOS DEL MODELO 0, por la misma razón que en los otros dos
+   * modelos: rojo de error, verde de éxito y ámbar de aviso son convenciones que el
+   * usuario trae de fuera, y monocromarlas para que «peguen» sería exactamente el cambio
+   * que hace que un error deje de leerse como un error.
+   *
+   * En este modelo la tentación es mayor que en ninguno —un monocromo pide que TODO sea
+   * gris— y por eso conviene decirlo: el acento de bronce es el único color que este
+   * modelo se permite por gusto. Los otros cinco son información.
+   */
+  semanticos: { ...MODELO_0.semanticos },
+
+  ejes: {
+    // El cuerpo sigue en Inter: la escala tipográfica es estructura (T3), no del modelo.
+    'font-sans': 'var(--font-inter)',
+    /**
+     * ⚠ SIN COMILLAS — la cicatriz de Cálido/Editorial, que el filtro `VALOR_SEGURO` de
+     * `lib/estilo-css.ts` descarta EN SILENCIO. `Palatino Linotype` y `Book Antiqua` a
+     * pelo son identificadores válidos en CSS y además pasan el filtro.
+     *
+     * LA PILA, Y POR QUÉ NO ES LA DEL EDITORIAL: aquélla es Georgia, una serifa de
+     * PANTALLA —robusta, ancha, hecha para leerse pequeña—. Ésta empieza por Optima y
+     * Palatino, que son humanistas de libro: trazo modulado, más contraste entre grueso y
+     * fino, y el aire que se asocia a lo caro. Georgia queda de respaldo porque está en
+     * todas partes. Es la misma familia de decisión que el editorial y un escalón más
+     * arriba de refinamiento.
+     *
+     * Pila del SISTEMA y no fichero propio, como en los otros dos: servir una fuente del
+     * repo obliga a declararla en `layout.tsx`, y esta ráfaga es puro registro.
+     */
+    'font-heading': 'Optima, Palatino Linotype, Book Antiqua, Georgia, serif',
+
+    // CASI RECTO. El más recto de los cuatro modelos (0.5 el Modelo 0, 0.375 el editorial,
+    // 0.25 el fresco). Una esquina redondeada es amable; lo premium no quiere ser amable,
+    // quiere ser exacto.
+    radius: '0.125rem',
+
+    // Sombras DIFUSAS Y LARGAS, lo contrario de las cortas del Fresco: poca opacidad y
+    // mucho radio, que es como cae la luz en un sitio grande. Tinte azul muy oscuro para
+    // que no ensucien el gris.
+    'shadow-sm': '0 1px 2px 0 rgb(10 15 30 / 0.05)',
+    shadow: '0 2px 6px -1px rgb(10 15 30 / 0.08), 0 1px 3px -2px rgb(10 15 30 / 0.06)',
+    'shadow-md': '0 6px 14px -3px rgb(10 15 30 / 0.10), 0 3px 6px -4px rgb(10 15 30 / 0.07)',
+    'shadow-lg': '0 14px 28px -6px rgb(10 15 30 / 0.12), 0 6px 10px -8px rgb(10 15 30 / 0.08)',
+    'shadow-xl': '0 28px 48px -12px rgb(10 15 30 / 0.14), 0 10px 16px -10px rgb(10 15 30 / 0.09)',
+
+    // EL MÁS LENTO DE LOS CUATRO: 220 ms contra los 150 del Modelo 0 y los 120 del Fresco.
+    // Y la curva es casi simétrica, sin rebote: lo premium no tiene prisa ni hace gracias.
+    'motion-duration': '220ms',
+    'motion-ease': 'cubic-bezier(0.25, 0.1, 0.25, 1)',
+    'motion-ease-emphasis': 'cubic-bezier(0.2, 0.6, 0.2, 1)',
+    'motion-sprite-duration': '1.6s',
+
+    // El trazo más fino de los cuatro. Acompaña a la serifa humanista y al radio recto.
+    'icon-stroke': '1.25',
+  },
+
+  /**
+   * LAS DIEZ, DECLARADAS — `ilustraciones.spec.ts` lo exige a TODO modelo, y el respaldo
+   * del registro está para que un olvido no rompa nada, no para que un modelo delegue.
+   *
+   * Las del Modelo 0 son línea monocroma en gris medio, que en un modelo monocromo es
+   * literalmente lo que corresponde: es el único de los cuatro donde las de fábrica no
+   * son un apaño sino la elección correcta.
+   */
+  ilustraciones: { ...MODELO_0.ilustraciones },
+
+  /**
+   * LAS ZONAS, con las cinco decisiones de E5 dichas en monocromo. `public` no aparece:
+   * el registro público es la base.
+   */
+  ajustesPorZona: {
+    /**
+     * BACKOFFICE — resta. En un modelo que ya es gris, restar no puede ser «quitar
+     * color»: es APLANAR EL RELIEVE. El lienzo y la tarjeta se igualan en blanco, las
+     * superficies se acercan y el tempo baja a 140 ms. Una herramienta no necesita
+     * profundidad, necesita filas.
+     *
+     * `accent-foreground` va con `accent`, por la regla que destapó Fresco/Confianza: el
+     * bronce de fábrica lleva letra OSCURA, así que aquí el emparejamiento sobreviviría
+     * por casualidad — se declara igual, porque depender de la casualidad es cómo se
+     * rompió aquello.
+     */
+    backoffice: {
+      background: '0 0% 100%',
+      card: '0 0% 100%',
+      muted: '220 8% 96.5%',
+      accent: '220 8% 96.5%',
+      'accent-foreground': '220 40% 10%',
+      border: '220 8% 89%',
+      input: '220 8% 46%',
+      'muted-foreground': '220 8% 32%',
+      'motion-duration': '140ms',
+    },
+
+    /**
+     * BLOG — tiñe, y en un monocromo teñir es BAJAR EL BLANCO sin meter color: un gris
+     * clarísimo que descansa la vista en un texto largo y no traiciona la paleta. El
+     * tempo sube: leer no es trabajar.
+     */
+    blog: {
+      background: '220 10% 97.5%',
+      card: '220 10% 97.5%',
+      muted: '220 10% 94.5%',
+      'motion-duration': '240ms',
+    },
+
+    /** CUENTA — a medio camino entre el escaparate y la herramienta, como en los otros. */
+    cuenta: {
+      background: '220 8% 99.5%',
+      muted: '220 8% 96%',
+      accent: '220 8% 96%',
+      'accent-foreground': '220 40% 10%',
+      'motion-duration': '180ms',
+    },
+
+    /**
+     * LOGIN DEL BACKOFFICE — el oscuro, en monocromo. Y es, de paso, LA DEMOSTRACIÓN DE
+     * LO QUE EL COMENTARIO DEL MODELO EXPLICA: aquí sí hay lienzo carbón, y funciona
+     * porque una ZONA puede redefinir lo que una versión no — el anillo de foco pasa a un
+     * azul claro (el marino de marca sería invisible sobre este fondo) y el trío
+     * destructivo se sustituye por su forma oscura.
+     *
+     * Esos dos escapes son exactamente los que le faltan al eje de versión, y es lo que
+     * dejó «Oscuro contenido» fuera de esta ráfaga.
+     */
+    login: {
+      background: '220 24% 8%',
+      foreground: '220 16% 95%',
+      card: '220 20% 13%',
+      'card-foreground': '220 16% 95%',
+      popover: '220 20% 13%',
+      'popover-foreground': '220 16% 95%',
+      border: '220 14% 24%',
+      input: '220 10% 52%',
+      'muted-foreground': '220 12% 70%',
+      ring: '42 62% 62%',
+      primary: '220 16% 95%',
+      'primary-foreground': '220 20% 13%',
+      'destructive-subtle': '#3d0d0d',
+      'destructive-border': '#7f1d1d',
+      'destructive-strong': '#fca5a5',
+    },
+  },
+};
+
+/**
  * El catálogo PÚBLICO. Se añaden modelos AQUÍ, por código — «los iremos añadiendo».
  * `MODELO_PRUEBA` no está, y no es un olvido: ver su comentario.
  */
@@ -1383,6 +1733,7 @@ export const MODELOS: readonly Modelo[] = [
   MODELO_0,
   MODELO_CALIDO_EDITORIAL,
   MODELO_FRESCO_CONFIANZA,
+  MODELO_PREMIUM,
 ];
 
 /**

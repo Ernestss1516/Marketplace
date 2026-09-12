@@ -125,6 +125,36 @@ describe('Contraste en CI — todos los modelos, catálogo y prueba', () => {
               expect(validarContraste(efectiva)).toEqual([]);
             });
           }
+
+          /**
+           * ⚠ EL ROJO SOBRE EL LIENZO, MEDIDO POR VERSIÓN — Y ES UN AGUJERO QUE ESTUVO
+           * ABIERTO HASTA QUE ALGUIEN INTENTÓ UNA VERSIÓN OSCURA.
+           *
+           * Los semánticos se miden más abajo UNA VEZ POR MODELO, sin versión, y para
+           * casi todas las parejas eso es correcto: son valores fijos que se comparan
+           * entre sí (`warning` contra `warning-foreground`) y la versión no los toca.
+           *
+           * PERO UNA DE ELLAS NO SE COMPARA CONTRA OTRO SEMÁNTICO: `destructive` se usa
+           * también como TEXTO sobre el lienzo, y el lienzo SÍ es de la versión. Medirla
+           * sin versión es medirla contra un fondo que puede no existir en la mitad de
+           * las versiones del modelo.
+           *
+           * Se destapó construyendo «Premium Oscuro contenido»: los semánticos son del
+           * MODELO y una versión no puede redefinirlos, así que una versión de lienzo
+           * carbón heredaría el rojo medio pensado para blanco — que es exactamente el
+           * fallo que `MODELO_PRUEBA` documenta en su propio comentario («en un tema claro
+           * el rojo tiene que ser oscuro para leerse, y en uno oscuro tiene que ser
+           * claro»). Aquella versión se descartó por otro motivo —el anillo de foco—, pero
+           * ESTE segundo bloqueo la barrera ni lo miraba.
+           *
+           * Hoy no cambia nada: los siete pares modelo×versión del catálogo son de lienzo
+           * claro y pasan. Está aquí para el día que alguien vuelva a intentarlo.
+           */
+          it('el rojo como TEXTO sigue legible sobre el lienzo de esta versión', () => {
+            expect(contraste(base.background, base.destructive)).toBeGreaterThanOrEqual(
+              AA_TEXTO,
+            );
+          });
         });
       }
 

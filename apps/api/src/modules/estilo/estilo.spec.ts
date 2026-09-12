@@ -466,6 +466,7 @@ describe('Un modelo que ofrece varias versiones las hace DISTINTAS de verdad', (
   it.each([
     ['calido-editorial', 'dia', 'tarde'],
     ['fresco-confianza', 'claro', 'nitido'],
+    ['premium', 'claro', 'claro-intenso'],
   ])('%s: entre «%s» y «%s» cambian lienzo, texto y trazo', (id, a, b) => {
     const m = MODELOS.find((x) => x.id === id)!;
     const uno = resolverTokens(m, m.coloresPorDefecto, a);
