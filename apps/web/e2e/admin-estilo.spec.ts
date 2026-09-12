@@ -69,6 +69,9 @@ test.describe('Sistema de estilo — /admin/estilo', () => {
     // El modelo de fábrica del catálogo, con su descripción.
     await expect(page.getByTestId('selector-modelo')).toHaveValue('modelo-0');
     await expect(page.getByTestId('selector-version')).toHaveValue('1');
+    // E14-B1 — y lo que se LEE es el nombre, no ese «1»: el identificador viaja en el PUT,
+    // el nombre sólo se pinta.
+    await expect(page.getByTestId('selector-version').locator('option')).toHaveText(['Original']);
     await expect(page.getByTestId('descripcion-modelo')).toBeVisible();
 
     // Los CUATRO, y con el valor guardado dentro — no vacíos.

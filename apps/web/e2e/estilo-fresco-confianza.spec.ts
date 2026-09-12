@@ -105,6 +105,10 @@ test.describe('Fresco / Confianza — el tercer modelo', () => {
     await expect(selectorVersion.locator('option')).toHaveCount(2);
     await expect(selectorVersion.locator('option[value="nitido"]')).toHaveCount(1);
 
+    // E14-B1 — el identificador viaja, el nombre se lee. Aquí la diferencia es una tilde
+    // que el identificador no puede llevar: «nitido» se pinta «Nítido».
+    await expect(selectorVersion.locator('option')).toHaveText(['Claro', 'Nítido']);
+
     // Y trae SUS colores de fábrica, no los del modelo anterior.
     await expect(admin.getByTestId('valor-primary')).toHaveValue('222 76% 50%');
 

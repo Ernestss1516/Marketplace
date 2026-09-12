@@ -23,12 +23,30 @@ export interface ColoresConfigurables {
   neutral: string;
 }
 
+/**
+ * Una versión de un modelo, tal y como la sirve el catálogo.
+ *
+ * ⚠ **`id` es lo que se manda en el PUT; `nombre` es lo que se pinta.** No son
+ * intercambiables y por eso llegan separados en vez de como una cadena que la pantalla
+ * tendría que interpretar: el identificador viaja y se guarda, el nombre sólo se lee.
+ *
+ * El nombre lo trae el BACKEND, junto al del modelo, y no un diccionario del frontend. El
+ * porqué está escrito donde vive la decisión (`VersionDeModelo`, en `estilo.constants.ts`):
+ * en corto, un modelo nuevo tiene que llegar a esta pantalla sin tocar `apps/web`, y los
+ * identificadores de versión son por modelo —`claro` existe en dos— así que un diccionario
+ * plano no podría nombrarlos.
+ */
+export interface VersionDelCatalogo {
+  id: string;
+  nombre: string;
+}
+
 /** Un modelo del catálogo, tal y como lo sirve `EstiloService.catalogo()`. */
 export interface ModeloDelCatalogo {
   id: string;
   nombre: string;
   descripcion: string;
-  versiones: string[];
+  versiones: VersionDelCatalogo[];
   coloresPorDefecto: ColoresConfigurables;
 }
 

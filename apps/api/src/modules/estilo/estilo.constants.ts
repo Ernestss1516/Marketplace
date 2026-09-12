@@ -186,11 +186,60 @@ export interface ColoresConfigurables {
   neutral: TripleteHsl;
 }
 
+/**
+ * ══ E14-B1 · UNA VERSIÓN DEL CATÁLOGO: SU IDENTIFICADOR Y SU NOMBRE ══════════════════
+ *
+ * ── EL DEFECTO QUE CIERRA ─────────────────────────────────────────────────────────
+ *
+ * `versiones` era una lista de cadenas, y el desplegable de `/admin/estilo` pintaba esa
+ * cadena tal cual. O sea que el admin elegía entre «dia» y «tarde», entre «nitido» y
+ * «claro-intenso»: identificadores, sin tildes y con guiones, en una pantalla donde todo
+ * lo demás está escrito en español. El nombre del MODELO se pintaba bien —`Modelo.nombre`
+ * existe desde E4a— y el de la versión, al lado, en crudo.
+ *
+ * ── POR QUÉ EL NOMBRE VIVE AQUÍ Y NO EN EL VOCABULARIO DE ENUMS DEL FRONTEND ──────
+ *
+ * `lib/etiquetas-enums.ts` es donde vive el texto de los enums que llegan de la API como
+ * códigos (`PROHIBITED_ITEM`, `LIKE_NEW`), y la lección de T1-T5 es dura: **una sola
+ * fuente, ninguna copia**. Esto la respeta, y aun así no va allí, por tres razones
+ * medidas:
+ *
+ *  1. **`Modelo.nombre` y `Modelo.descripcion` ya vienen de aquí** y los pinta el mismo
+ *     par de desplegables. Partir el nombre del modelo (backend) del de su versión
+ *     (diccionario del frontend) sería decir dos cosas distintas en el mismo `<select>`.
+ *  2. **Rompería una propiedad que el sistema tiene ganada.** Los tres modelos del
+ *     catálogo llevan escrito «PURO REGISTRO: CERO `.tsx`»: un modelo nuevo llega a la
+ *     pantalla sin que el frontend se entere de que existe. Con los nombres en un
+ *     diccionario del frontend, añadir un modelo exigiría tocar `apps/web` — o su versión
+ *     saldría con el identificador crudo, que es justo el defecto que esto cierra.
+ *  3. **Los identificadores de versión son POR MODELO**: `claro` existe en
+ *     `fresco-confianza` y en `premium`, y significan cosas distintas. Un diccionario
+ *     plano por identificador no puede expresarlos sin una clave compuesta.
+ *
+ * Lo que la lección de T1-T5 exige —que no haya literales repartidos por las pantallas—
+ * se cumple igual: el desplegable **pinta un dato, no un texto**, y este fichero es la
+ * única fuente.
+ *
+ * ── EL IDENTIFICADOR SIGUE SIENDO LO QUE SE GUARDA ───────────────────────────────
+ *
+ * `id` es lo que viaja por la API, lo que valida el servicio y lo que se escribe en
+ * `Setting.estiloConfig`. `nombre` **no se guarda en ninguna parte**: es presentación, y
+ * cambiarlo mañana no repinta ninguna instancia ni invalida ninguna configuración
+ * guardada. Es exactamente el reparto de `etiquetas-enums.ts` —«cambia la ETIQUETA
+ * visible, nunca el dato»—, dicho un piso más abajo.
+ */
+export interface VersionDeModelo {
+  /** Lo que se guarda y viaja por la API. **Nunca se pinta.** */
+  id: string;
+  /** Lo que ve el admin, en español. **Nunca se guarda.** */
+  nombre: string;
+}
+
 export interface Modelo {
   id: string;
   nombre: string;
   descripcion: string;
-  versiones: readonly string[];
+  versiones: readonly VersionDeModelo[];
   /** Los cuatro que el admin puede cambiar; éstos son los de fábrica. */
   coloresPorDefecto: ColoresConfigurables;
   /** Los dos colores de letra entre los que la máquina elige por contraste. */
@@ -418,7 +467,14 @@ export const MODELO_0: Modelo = {
   nombre: 'Sobrio',
   descripcion:
     'El punto de partida: casi sin estilo propio, para que la interfaz no compita con el contenido.',
-  versiones: ['1'],
+  /**
+   * «Original» y no «1», que es el identificador. El eje de versión es TEMPORAL por
+   * diseño (§2.1: «una revisión del mismo modelo»), así que la primera de un modelo es su
+   * original y una futura sería «Revisión 2». Los dos modelos que usan el eje para ofrecer
+   * AMBIENTES —Cálido/Editorial y los otros dos— nombran el ambiente, que es lo que el
+   * admin está eligiendo de verdad ahí.
+   */
+  versiones: [{ id: '1', nombre: 'Original' }],
 
   coloresPorDefecto: {
     primary: '221.2 83.2% 53.3%',
@@ -807,7 +863,7 @@ export const MODELO_PRUEBA: Modelo = {
   nombre: 'Contraluz (prueba)',
   descripcion:
     'Modelo deliberadamente extremo. Existe para que el test de invariancia del HTML tenga contra qué comparar; no se ofrece en el catálogo.',
-  versiones: ['1'],
+  versiones: [{ id: '1', nombre: 'Original' }],
 
   coloresPorDefecto: {
     primary: '28 96% 54%',
@@ -1018,7 +1074,10 @@ export const MODELO_CALIDO_EDITORIAL: Modelo = {
   nombre: 'Cálido / Editorial',
   descripcion:
     'Terracota y papel, titulares con serifa. Para que la plataforma se lea como una revista y no como un panel de control.',
-  versiones: ['dia', 'tarde'],
+  versiones: [
+    { id: 'dia', nombre: 'Día' },
+    { id: 'tarde', nombre: 'Tarde' },
+  ],
 
   /**
    * LOS CUATRO DE FÁBRICA. Los cálidos son traicioneros con el contraste —un naranja
@@ -1365,7 +1424,10 @@ export const MODELO_FRESCO_CONFIANZA: Modelo = {
   nombre: 'Fresco / Confianza',
   descripcion:
     'Azul vivo, turquesa y grises fríos, titulares en sans geométrica. Para que la plataforma se lea como una herramienta rápida y limpia en la que se confía.',
-  versiones: ['claro', 'nitido'],
+  versiones: [
+    { id: 'claro', nombre: 'Claro' },
+    { id: 'nitido', nombre: 'Nítido' },
+  ],
 
   /**
    * LOS CUATRO DE FÁBRICA. Los fríos engañan al revés que los cálidos: parecen seguros
@@ -1712,7 +1774,11 @@ export const MODELO_PREMIUM: Modelo = {
   nombre: 'Premium',
   descripcion:
     'Monocromo de grises verdaderos con un acento de bronce, titulares con serifa. Refinado y discreto: la calidad se nota en el contraste y en el detalle, no en el color.',
-  versiones: ['claro', 'claro-intenso'],
+  versiones: [
+    { id: 'claro', nombre: 'Claro' },
+    // El guion del identificador no se pinta: el admin lee «Claro intenso».
+    { id: 'claro-intenso', nombre: 'Claro intenso' },
+  ],
 
   /**
    * LOS CUATRO DE FÁBRICA. Aquí la dificultad es la contraria que en los otros dos: los
@@ -1940,10 +2006,26 @@ export const MODELOS_DE_PRUEBA: readonly Modelo[] = [MODELO_PRUEBA];
 export const TODOS_LOS_MODELOS: readonly Modelo[] = [...MODELOS, ...MODELOS_DE_PRUEBA];
 
 export const MODELO_POR_DEFECTO = MODELO_0;
-export const VERSION_POR_DEFECTO = MODELO_0.versiones[0];
+export const VERSION_POR_DEFECTO = MODELO_0.versiones[0].id;
 
 export function buscarModelo(id: string): Modelo | undefined {
   return TODOS_LOS_MODELOS.find((m) => m.id === id);
+}
+
+/**
+ * ¿Ofrece este modelo esa versión? Por IDENTIFICADOR, nunca por nombre.
+ *
+ * Se expone en vez de dejar el `.some(...)` repetido en el servicio porque es la frontera
+ * entre lo que se guarda y lo que se pinta, y tenerla con nombre hace más difícil que
+ * alguien compare con `nombre` el día que añada la tercera comprobación.
+ */
+export function tieneVersion(modelo: Modelo, id: string): boolean {
+  return modelo.versiones.some((v) => v.id === id);
+}
+
+/** Los identificadores, para mensajes de error y para recorrer las versiones. */
+export function idsDeVersion(modelo: Modelo): string[] {
+  return modelo.versiones.map((v) => v.id);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────
