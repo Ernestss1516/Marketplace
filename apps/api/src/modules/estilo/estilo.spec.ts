@@ -519,20 +519,30 @@ function conVersion(ajustes: Record<string, unknown>): Modelo {
   } as Modelo;
 }
 
-describe('E14 · CAMBIO NULO: los campos nuevos existen y nadie los usa todavía', () => {
+describe('E14 · QUIÉN USA LOS CAMPOS NUEVOS, Y QUÉ LES PASA A LOS DEMÁS', () => {
   /**
-   * ⚠ LA BARRERA DE LA RÁFAGA, Y ES LA PRIMERA QUE HAY QUE MIRAR SI ALGO SE MUEVE.
+   * ⚠ EL INVENTARIO DE CONSUMIDORES. ES LA PRIMERA BARRERA QUE HAY QUE MIRAR SI ALGO SE
+   * MUEVE EN LAS CAPTURAS.
    *
-   * Todo el criterio de aceptación de E14-A —las 50 capturas idénticas, los siete pares
-   * del catálogo byte a byte— descansa en un solo hecho: **ninguna versión del catálogo
-   * declara ninguno de los tres campos nuevos**. Mientras eso sea cierto, el mecanismo
-   * ampliado resuelve por el mismo camino que antes.
+   * En E14-A este test decía «nadie los usa», y su comentario anunciaba que la ráfaga B lo
+   * pondría rojo a propósito. **Ése era el punto**: usar un campo nuevo cambia cómo se ve
+   * una versión, así que no puede ocurrir de refilón dentro de una ráfaga que fuera a
+   * regenerar capturas sin mirarlas.
    *
-   * Y cuando deje de serlo —la ráfaga B, con `premium@oscuro`— este test se pondrá rojo
-   * **a propósito**: es la señal de que la ráfaga dejó de ser en seco y que las capturas
-   * hay que mirarlas, no regenerarlas a ciegas.
+   * Ahora que hay consumidores, la barrera cambia de forma pero no de propósito: se congela
+   * **quién usa qué**. Estrenar un campo en una versión más sigue siendo un acto
+   * deliberado, con su rojo y su línea que actualizar.
+   *
+   * Las tres entradas de Premium, y por qué cada una:
+   *
+   *  · `claro` y `claro-intenso` declaran `ajustesPorZona` para UNA zona, el `login`: son
+   *    versiones claras, así que su puerta de servicio oscura tiene que invertir el anillo,
+   *    el botón y el trío del error. Esos seis tokens vivían en el modelo y se mudaron aquí
+   *    en B2 — ver `PREMIUM_LOGIN_INVERTIDO`. **No cambian ni un valor resuelto**, y el test
+   *    de más abajo lo exige;
+   *  · `oscuro` usa los cinco campos. Es la versión que motivó E14 entero.
    */
-  it('ninguna versión del catálogo declara foco, semánticos ni zonas', () => {
+  it('sólo las versiones del inventario usan los campos nuevos', () => {
     const usan: string[] = [];
     for (const m of MODELOS) {
       for (const [version, ajustes] of Object.entries(m.porVersion ?? {})) {
@@ -541,16 +551,38 @@ describe('E14 · CAMBIO NULO: los campos nuevos existen y nadie los usa todavía
         }
       }
     }
-    expect(usan).toEqual([]);
+    expect(usan.sort()).toEqual([
+      'premium@claro-intenso.ajustesPorZona',
+      'premium@claro.ajustesPorZona',
+      'premium@oscuro.ajustesPorZona',
+      'premium@oscuro.foco',
+      'premium@oscuro.semanticos',
+    ]);
   });
 
   /**
-   * Y que la ausencia se traduzca en lo que tiene que traducirse. Éstas son las DOS
-   * superficies que E14 podría haber movido en el catálogo actual: el anillo (que ahora
-   * puede derivarse) y los semánticos (que ahora pueden mezclarse). Si el mecanismo
-   * hubiera dejado de respetar el camino corto, se vería aquí antes que en una captura.
+   * Y QUE A QUIEN NO LOS USA NO LE PASE NADA. Éstas son las dos superficies que E14 puede
+   * mover: el anillo (que ahora puede derivarse) y los semánticos (que ahora pueden
+   * mezclarse). Para una versión que no declara `foco` ni `semanticos`, el resultado tiene
+   * que ser el de antes de E14 — byte a byte, por el camino corto.
+   *
+   * Se calcula quién entra en vez de escribirlo: el día que otra versión estrene un campo,
+   * sale sola de esta lista y entra en la de arriba, que es donde se mira.
    */
-  it.each(MODELOS.flatMap((m) => m.versiones.map((v) => [m.id, v.id] as const)))(
+  const sinDerivar = MODELOS.flatMap((m) =>
+    m.versiones
+      .filter((v) => {
+        const a = m.porVersion?.[v.id];
+        return a?.foco === undefined && a?.semanticos === undefined;
+      })
+      .map((v) => [m.id, v.id] as const),
+  );
+
+  it('hay versiones que no derivan, o lo de abajo no mide nada', () => {
+    expect(sinDerivar.length).toBeGreaterThanOrEqual(7);
+  });
+
+  it.each(sinDerivar)(
     '%s@%s: el anillo sigue siendo el primario LITERAL y los semánticos, los del modelo',
     (id, version) => {
       const m = MODELOS.find((x) => x.id === id)!;
@@ -560,6 +592,135 @@ describe('E14 · CAMBIO NULO: los campos nuevos existen y nadie los usa todavía
       for (const [nombre, valor] of Object.entries(m.semanticos)) {
         expect({ nombre, valor: t[nombre] }).toEqual({ nombre, valor });
       }
+    },
+  );
+});
+
+/**
+ * ══ E14-B2 · «OSCURO», LA PRIMERA VERSIÓN DE LIENZO INVERTIDO ════════════════════════
+ *
+ * Lo que AA y las dos barreras de E14-A miden ya está cubierto en
+ * `contraste-modelos.spec.ts`, que recorre las tres versiones de Premium por las cinco
+ * zonas. Aquí van las afirmaciones que ninguna medición de contraste puede hacer: que la
+ * mudanza del `login` no movió a las versiones claras, y que la decisión D4 se cumple.
+ */
+describe('E14-B2 · premium@oscuro', () => {
+  const PREMIUM = MODELOS.find((m) => m.id === 'premium')!;
+  const COLORES = PREMIUM.coloresPorDefecto;
+
+  /** El tema completo de una versión: la base y sus cinco zonas. */
+  const temaDe = (version: string) => ({
+    base: resolverTokens(PREMIUM, COLORES, version),
+    zonas: Object.fromEntries(
+      ESTILO_ZONES.map((z) => [z, resolverZona(PREMIUM, COLORES, z, version)]),
+    ),
+  });
+
+  it('el catálogo la ofrece, y con su nombre', () => {
+    expect(PREMIUM.versiones.map((v) => v.id)).toEqual(['claro', 'claro-intenso', 'oscuro']);
+    expect(PREMIUM.versiones.find((v) => v.id === 'oscuro')?.nombre).toBe('Oscuro');
+  });
+
+  it('invierte la luz de verdad: lienzo oscuro, texto claro', () => {
+    const { base } = temaDe('oscuro');
+    const claro = resolverTokens(PREMIUM, COLORES, 'claro');
+    // El lienzo de una y el de la otra están en mitades opuestas de la escala.
+    expect(contraste(claro.background, base.background)).toBeGreaterThanOrEqual(10);
+    expect(contraste(claro.foreground, base.foreground)).toBeGreaterThanOrEqual(10);
+  });
+
+  /**
+   * ⚠ EL ANILLO ES DERIVADO, NO UN LITERAL — y es el bloqueo que descartó esta versión
+   * cuando se pidió: el marino de marca sobre el carbón daba 1,85:1.
+   *
+   * Lo que se afirma no es el valor (eso lo mide la barrera de contraste) sino que **sigue
+   * girando con el color del admin**. Un literal pasaría la primera mitad y no la segunda.
+   */
+  it('el anillo se deriva del primario del admin, y le sigue', () => {
+    const { base } = temaDe('oscuro');
+    expect(base.ring).toBe('220 45% 70%');
+
+    const otroPrimario = { ...COLORES, primary: '10 70% 40%' };
+    expect(resolverTokens(PREMIUM, otroPrimario, 'oscuro').ring).toBe('10 70% 80%');
+  });
+
+  it('los semánticos están girados: el rojo es claro y se lee sobre el carbón', () => {
+    const { base } = temaDe('oscuro');
+    expect(base.destructive).toBe(SEMANTICOS_OSCUROS.destructive);
+    expect(contraste(base.background, base.destructive)).toBeGreaterThanOrEqual(4.5);
+    // Y las tres convenciones NO se giran: siguen siendo las del modelo.
+    for (const convencion of ['rating', 'featured', 'favorite']) {
+      expect(base[convencion]).toBe(PREMIUM.semanticos[convencion]);
+    }
+  });
+
+  /**
+   * ⚠ LA DECISIÓN D4, HECHA AFIRMACIÓN.
+   *
+   * En los modelos claros la zona `login` existe para que la puerta de servicio se distinga
+   * de un vistazo: es la única pantalla oscura. En una plataforma ya oscura esa distinción
+   * no tiene con qué hacerse, y forzarla sería inventar una diferencia sin significado.
+   *
+   * «Oscuro» acepta que el login se funda con el resto, y eso se ve en que **la zona no
+   * emite ni una declaración**. No es casualidad ni omisión: la rampa se moldeó sobre el
+   * lienzo de esa zona, así que los nueve tokens del modelo coinciden con la base y
+   * `resolverZona` los descarta; el décimo lo alinea la versión a mano.
+   *
+   * MUTACIÓN: devolver los seis escapes al bloque del modelo deja esto rojo al instante —
+   * el login volvería a tener anillo de bronce y botón claro él solo.
+   */
+  it('D4 — la zona login no se distingue por color: no emite NADA', () => {
+    expect(resolverZona(PREMIUM, COLORES, 'login', 'oscuro')).toEqual({});
+  });
+
+  /**
+   * ⚠ Y LAS TRES ZONAS QUE SÍ INVIERTE DECLARAN EL BLOQUE COMPLETO (decisión D2).
+   *
+   * La mezcla es por token sobre el bloque del modelo, y el del modelo es CLARO. Dejar un
+   * token fuera sería una losa blanca dentro de un tema oscuro — el modo de fallo que la
+   * auditoría midió en 1,06:1. La barrera de contraste lo cazaría; esto lo dice antes y con
+   * el nombre del token delante.
+   */
+  it.each(['backoffice', 'blog', 'cuenta'] as const)(
+    'D2 — la zona %s declara todos los tokens que el modelo declara para ella',
+    (zona) => {
+      const delModelo = Object.keys(PREMIUM.ajustesPorZona[zona] ?? {}).sort();
+      const deLaVersion = Object.keys(
+        PREMIUM.porVersion?.oscuro?.ajustesPorZona?.[zona] ?? {},
+      ).sort();
+      expect(deLaVersion).toEqual(delModelo);
+    },
+  );
+
+  /**
+   * ⚠ LA MUDANZA DEL `login` NO MOVIÓ A LAS VERSIONES CLARAS.
+   *
+   * B2 sacó seis tokens del bloque `login` del modelo y los puso en las dos versiones
+   * claras, porque sólo hacen falta cuando el tema base es claro. La mezcla por token
+   * produce el mismo resultado — y «produce el mismo resultado» es exactamente la clase de
+   * afirmación que hay que medir en vez de razonar, porque si fallara se vería en una
+   * captura del login y no en el sitio donde se cambió.
+   */
+  it.each(['claro', 'claro-intenso'] as const)(
+    '%s resuelve la zona login con los mismos quince tokens de siempre',
+    (version) => {
+      expect(resolverZona(PREMIUM, COLORES, 'login', version)).toEqual({
+        background: '220 24% 8%',
+        foreground: '220 16% 95%',
+        card: '220 20% 13%',
+        'card-foreground': '220 16% 95%',
+        popover: '220 20% 13%',
+        'popover-foreground': '220 16% 95%',
+        border: '220 14% 24%',
+        input: '220 10% 52%',
+        'muted-foreground': '220 12% 70%',
+        ring: '42 62% 62%',
+        primary: '220 16% 95%',
+        'primary-foreground': '220 20% 13%',
+        'destructive-subtle': '#3d0d0d',
+        'destructive-border': '#7f1d1d',
+        'destructive-strong': '#fca5a5',
+      });
     },
   );
 });

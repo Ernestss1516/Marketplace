@@ -81,7 +81,7 @@ test.describe('Premium — el cuarto modelo', () => {
     await ponerModelo(request, 'modelo-0', '1', COLORES_0);
   });
 
-  test('B2 — el catálogo lo ofrece con sus dos versiones, y elegirlo lo aplica', async ({
+  test('B2 — el catálogo lo ofrece con sus TRES versiones, y elegirlo lo aplica', async ({
     adminContext,
     page,
   }) => {
@@ -95,8 +95,10 @@ test.describe('Premium — el cuarto modelo', () => {
 
     const selectorVersion = admin.getByTestId('selector-version');
     await expect(selectorVersion).toHaveValue('claro');
-    await expect(selectorVersion.locator('option')).toHaveCount(2);
+    // E14-B2 — TRES desde que «Oscuro» existe.
+    await expect(selectorVersion.locator('option')).toHaveCount(3);
     await expect(selectorVersion.locator('option[value="claro-intenso"]')).toHaveCount(1);
+    await expect(selectorVersion.locator('option[value="oscuro"]')).toHaveCount(1);
 
     /**
      * E14-B1 — EL VALOR ES EL IDENTIFICADOR Y EL TEXTO ES EL NOMBRE, y las dos mitades
@@ -108,7 +110,11 @@ test.describe('Premium — el cuarto modelo', () => {
      * Es además la prueba de que el nombre llega del CATÁLOGO y no de un literal de esta
      * pantalla: el frontend no conoce a Premium ni a ninguno de los otros tres.
      */
-    await expect(selectorVersion.locator('option')).toHaveText(['Claro', 'Claro intenso']);
+    await expect(selectorVersion.locator('option')).toHaveText([
+      'Claro',
+      'Claro intenso',
+      'Oscuro',
+    ]);
 
     // Sus colores de fábrica, no los del modelo anterior.
     await expect(admin.getByTestId('valor-primary')).toHaveValue('220 45% 30%');
@@ -164,8 +170,9 @@ test.describe('Premium — el cuarto modelo', () => {
     expect(claro.duracion).toBe('220ms');
 
     // LO QUE NO PUEDE CAMBIAR: los cuatro colores son del MODELO (decisión #2). Que esto
-    // se mantenga es tan parte del contrato como que lo de arriba cambie — y es
-    // exactamente el límite que dejó «Oscuro contenido» fuera de esta ráfaga.
+    // se mantenga es tan parte del contrato como que lo de arriba cambie — y sigue siéndolo
+    // después de E14: la versión amplió lo que DERIVA, no lo que elige. Es el límite que
+    // «Oscuro» también respeta, y por el que su botón principal es el mismo marino.
     expect(intenso.primary).toBe(claro.primary);
     expect(intenso.accent).toBe(claro.accent);
   });
@@ -191,5 +198,63 @@ test.describe('Premium — el cuarto modelo', () => {
       .first()
       .evaluate((el) => getComputedStyle(el).fontFamily);
     expect(familiaDelTitular).toContain('Optima');
+  });
+
+  /**
+   * ══ E14-B2 · «OSCURO» LLEGA A LA PÁGINA, Y LLEGA ENTERO ════════════════════════════
+   *
+   * El backend ya tiene medido todo lo que se puede medir sin navegador: AA por zona, la
+   * coherencia de polaridad, la completitud de superficies. Lo que sólo se puede comprobar
+   * aquí es que **el lienzo invertido atraviesa las tres piezas del camino** —el
+   * `<style>` del layout, el filtro de `estilo-css.ts` y la cascada— y que no se queda a
+   * medias por el camino, que es como se cayó el `font-heading` con comillas: en silencio.
+   *
+   * Se mide lo que la ráfaga A abrió, una cosa por campo:
+   *
+   *  · la RAMPA → el lienzo es oscuro y el texto claro;
+   *  · el FOCO → el anillo NO es el primario, es su derivado aclarado;
+   *  · los SEMÁNTICOS → el rojo es el claro del molde oscuro, no el del modelo;
+   *  · las ZONAS → el backoffice repinta en carbón, no en blanco.
+   */
+  test('B7 — la versión «Oscuro» invierte el lienzo, y el foco, los avisos y las zonas la siguen', async ({
+    request,
+    page,
+    adminContext,
+  }) => {
+    await ponerModelo(request, 'premium', 'oscuro', COLORES_PREMIUM);
+
+    const claro = { background: '220 14% 99%' };
+    const t = await tema(page, '/planes');
+
+    // La rampa: lienzo carbón y texto casi blanco. El de «Claro» es 220 14% 99%.
+    expect(t.background).toBe('220 24% 8%');
+    expect(t.foreground).toBe('220 16% 95%');
+    expect(t.background).not.toBe(claro.background);
+
+    // El foco: derivado del primario, no el primario. Éste es el token que descartó la
+    // versión cuando se pidió (1,85:1 sobre el carbón).
+    const anillo = await page.evaluate(() =>
+      getComputedStyle(document.documentElement).getPropertyValue('--ring').trim(),
+    );
+    expect(anillo).toBe('220 45% 70%');
+    expect(anillo).not.toBe(t.primary);
+
+    // Los semánticos, girados: el rojo de un tema oscuro es CLARO.
+    const rojo = await page.evaluate(() =>
+      getComputedStyle(document.documentElement).getPropertyValue('--destructive').trim(),
+    );
+    expect(rojo).toBe('0 85% 68%');
+
+    // Y las zonas: el backoffice resta EN OSCURO. Sin `ajustesPorZona` por versión, aquí
+    // saldría el blanco del bloque del modelo sobre el texto claro de la versión — 1,12:1.
+    const admin = await adminContext.newPage();
+    await admin.goto('/admin/anuncios');
+    await admin.waitForLoadState('domcontentloaded');
+    const lienzoDelBackoffice = await admin
+      .locator('[data-zona="backoffice"]')
+      .first()
+      .evaluate((el) => getComputedStyle(el).getPropertyValue('--background').trim());
+    expect(lienzoDelBackoffice).toBe('220 24% 8%');
+    await admin.close();
   });
 });
