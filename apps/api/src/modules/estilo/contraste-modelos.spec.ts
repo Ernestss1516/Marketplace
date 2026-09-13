@@ -320,75 +320,80 @@ describe('El modelo de prueba existe, resuelve y NO se ofrece', () => {
 });
 
 /**
- * ══ E14 · EL INVENTARIO DE LA DEUDA: `muted` DENTRO DE UNA ZONA OSCURA ════════════════
+ * ══ UNA ZONA QUE INVIERTE SU LIENZO LO INVIERTE ENTERO ═══════════════════════════════
  *
- * ── QUÉ SE ENCONTRÓ ────────────────────────────────────────────────────────────────
+ * ── LO QUE ESTO ERA, Y POR QUÉ IMPORTA QUE YA NO LO SEA ───────────────────────────
  *
- * Al medir el anillo contra TODAS las superficies apareció **1,36:1 en la zona `login` del
- * Modelo 0, hoy**. No es un fallo vivo —esa pantalla no pinta un solo `bg-muted`,
- * verificado, sólo `bg-background` y `bg-card`— sino algo peor de encontrar: las cuatro
- * zonas `login` del catálogo redefinen quince tokens y **dejan `muted` en su valor CLARO
- * dentro de un lienzo oscuro**. Ahí no se ve. En una versión oscura, donde `bg-muted`
- * aparece 225 veces en 116 ficheros, se vería en todas.
+ * Nació como un INVENTARIO DE DEUDA. Al medir el anillo contra todas las superficies
+ * apareció **1,36:1 en la zona `login` del Modelo 0**: las cuatro zonas `login` del
+ * catálogo redefinían quince tokens y **dejaban `muted` en su valor CLARO dentro de un
+ * lienzo oscuro**. Y tenía una hermana, medida al añadir el quinto modelo: las mismas
+ * zonas dejaban también **las ocho superficies semánticas en claro**, hasta 19,50:1.
  *
- * ── POR QUÉ SE INVENTARÍA EN VEZ DE EXIGIRSE ──────────────────────────────────────
+ * Las dos eran latentes —esa pantalla sólo pinta `bg-background` y `bg-card`— así que el
+ * test congelaba la forma de la deuda: siete pares, un solo tipo de hueco, y la promesa de
+ * que **pagarla obligaría a acortar la lista**.
  *
- * Porque arreglarlo es tocar el `muted` de cuatro modelos, y eso es un retoque de ASPECTO
- * que se aprueba mirándolo — no cabe en una ráfaga cuyo criterio es no mover un píxel. Y
- * porque tolerarlo en silencio sería peor: mañana nadie recordaría que está.
+ * ── SE PAGÓ, Y LA LISTA SE ACORTÓ HASTA CERO ─────────────────────────────────────
  *
- * Así que se congela la FORMA de la deuda. Puede pagarse (y entonces hay que acortar esta
- * lista) pero **no puede crecer**: un hueco en otra zona, en otra superficie, o un modelo
- * nuevo que repita la omisión, ponen esto rojo.
+ * Las cinco zonas `login` declaran ahora su `muted` oscuro y esparcen `SEMANTICOS_OSCUROS`
+ * —las dos deudas juntas, porque eran el mismo bloque y la misma causa—. El anillo contra
+ * la atenuada pasó de 1,36-2,17 a **6,07-9,85**.
+ *
+ * Así que esto deja de ser un inventario y pasa a ser **una regla dura**: ninguna zona,
+ * de ningún modelo, en ninguna versión, puede dejar una superficie descolgada de su
+ * lienzo. Es el final que un inventario de deuda debería tener siempre — o se paga y se
+ * convierte en regla, o se queda ahí hasta que alguien lo normaliza.
  */
-describe('E14 · completitud de superficies POR ZONA: la deuda, congelada', () => {
+describe('Ninguna zona deja una superficie descolgada de su lienzo', () => {
   interface Hueco {
-    modelo: string;
-    version: string;
-    zona: string;
+    donde: string;
     pareja: string;
+    ratio: number;
   }
 
   const huecos: Hueco[] = [];
+  /** Las superficies semánticas que se despegan del lienzo de una zona (la deuda hermana). */
+  const descolgadas: Hueco[] = [];
+
   for (const m of TODOS_LOS_MODELOS) {
     for (const { id: version } of m.versiones) {
       const base = resolverTokens(m, m.coloresPorDefecto, version);
       for (const zona of ESTILO_ZONES) {
         const efectiva = { ...base, ...resolverZona(m, m.coloresPorDefecto, zona, version) };
+        const donde = `${m.id}@${version}/${zona}`;
         for (const f of completitudDeSuperficies(efectiva)) {
-          huecos.push({ modelo: m.id, version, zona, pareja: f.pareja });
+          huecos.push({ donde, pareja: f.pareja, ratio: f.ratio });
+        }
+        for (const f of coherenciaDePolaridad(efectiva)) {
+          descolgadas.push({ donde, pareja: f.superficie, ratio: f.ratio });
         }
       }
     }
   }
 
-  /**
-   * LA FORMA DE LA DEUDA, y no una lista de siete cadenas: lo que hay que poder afirmar es
-   * que **todos los huecos son el mismo hueco** —la superficie atenuada, dentro del login—
-   * y no una colección de casos sueltos que nadie ha mirado.
-   */
-  it('todo hueco es el MISMO hueco: la superficie atenuada dentro de la zona login', () => {
-    const distintos = [...new Set(huecos.map((h) => `${h.zona} · ${h.pareja}`))];
-    expect(distintos).toEqual(['login · anillo de foco sobre la superficie atenuada']);
+  it('hay zonas que medir (red del propio test)', () => {
+    // Sin esto, un bucle que no recorriera nada dejaría las dos afirmaciones de abajo en
+    // verde sin haber mirado una sola zona.
+    expect(TODOS_LOS_MODELOS.flatMap((m) => m.versiones).length * ESTILO_ZONES.length)
+      .toBeGreaterThanOrEqual(50);
   });
 
   /**
-   * Y CUÁNTOS SON. Siete: los siete pares modelo×versión del catálogo, porque los cuatro
-   * modelos heredaron la misma omisión de la zona `login` de E5. `MODELO_PRUEBA` no está
-   * —es oscuro de fábrica, así que su `muted` ya lo es— y ése es el control negativo del
-   * inventario: si esto fuera un artefacto de la medición, Contraluz también aparecería.
+   * LA PRIMERA DEUDA: el anillo contra las cuatro superficies, **también dentro de cada
+   * zona** y no sólo en la base. Era siete; es cero.
    */
-  it('son exactamente los siete del catálogo, y Contraluz no está', () => {
-    expect(huecos).toHaveLength(7);
-    expect(huecos.map((h) => `${h.modelo}@${h.version}`).sort()).toEqual([
-      'calido-editorial@dia',
-      'calido-editorial@tarde',
-      'fresco-confianza@claro',
-      'fresco-confianza@nitido',
-      'modelo-0@1',
-      'premium@claro',
-      'premium@claro-intenso',
-    ]);
+  it('el anillo cumple 1.4.11 contra las cuatro superficies de TODA zona', () => {
+    expect(huecos).toEqual([]);
+  });
+
+  /**
+   * LA SEGUNDA: la coherencia de polaridad, que hasta ahora sólo medía la BASE de cada
+   * versión — y por eso no veía que un `login` oscuro llevara ocho superficies de aviso en
+   * claro. Medirla por zona es lo que convierte el arreglo en algo que no puede volver.
+   */
+  it('ninguna superficie semántica se despega del lienzo de TODA zona', () => {
+    expect(descolgadas).toEqual([]);
   });
 });
 

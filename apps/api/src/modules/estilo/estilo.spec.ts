@@ -713,9 +713,13 @@ describe('E14-B2 · premium@oscuro', () => {
    * captura del login y no en el sitio donde se cambió.
    */
   it.each(['claro', 'claro-intenso'] as const)(
-    '%s resuelve la zona login con los mismos quince tokens de siempre',
+    '%s resuelve la zona login con el lienzo del modelo y sus tres inversiones',
     (version) => {
-      expect(resolverZona(PREMIUM, COLORES, 'login', version)).toEqual({
+      const z = resolverZona(PREMIUM, COLORES, 'login', version);
+
+      // EL LIENZO, que se quedó en el bloque del modelo porque «la puerta de servicio es
+      // oscura» es verdad para las tres versiones.
+      expect(z).toMatchObject({
         background: '220 24% 8%',
         foreground: '220 16% 95%',
         card: '220 20% 13%',
@@ -725,13 +729,19 @@ describe('E14-B2 · premium@oscuro', () => {
         border: '220 14% 24%',
         input: '220 10% 52%',
         'muted-foreground': '220 12% 70%',
+      });
+
+      // LAS INVERSIONES, que son de la VERSIÓN porque sólo existen si el tema base es
+      // claro. Son las que «Oscuro» no hereda, y por eso su login se funde con el resto.
+      expect(z).toMatchObject({
         ring: '42 62% 62%',
         primary: '220 16% 95%',
         'primary-foreground': '220 20% 13%',
-        'destructive-subtle': '#3d0d0d',
-        'destructive-border': '#7f1d1d',
-        'destructive-strong': '#fca5a5',
+        muted: '220 18% 20%',
       });
+
+      // Y EL MOLDE OSCURO ENTERO, que cerró la deuda de las ocho superficies en claro.
+      expect(z).toMatchObject({ ...SEMANTICOS_OSCUROS });
     },
   );
 });

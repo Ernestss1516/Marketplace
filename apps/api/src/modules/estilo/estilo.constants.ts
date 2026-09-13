@@ -459,6 +459,84 @@ export interface AjustesDeVersion {
 }
 
 /**
+ * ══ E14 · LOS SEMÁNTICOS EN SU FORMA OSCURA — EL MOLDE COMPARTIDO ══════════════════
+ *
+ * Los **27 de ESTADO** dados la vuelta, para que cualquier modelo o VERSIÓN de lienzo
+ * oscuro los esparza como los tres modelos claros esparcen los del Modelo 0.
+ *
+ * ── NO ES UNA PALETA NUEVA: ES LA DE `MODELO_PRUEBA`, EXTRAÍDA ────────────────────
+ *
+ * Contraluz los tiene desde E6 y `contraste-modelos.spec.ts` los mide como a los de
+ * cualquier otro modelo, así que **ya estaban probados**. Inventar un segundo juego
+ * oscuro habría sido rehacer ese trabajo para tener dos listas que mantener.
+ *
+ * Y funcionan fuera de su casa, que es la condición para que esto sea un molde y no una
+ * copia: pasados por encima del lienzo carbón de una versión oscura de Premium, las diez
+ * parejas de texto cumplen (6,01 – 13,01) y el rojo como TEXTO sobre el lienzo sube de
+ * **3,70 a 6,19**. Las nueve superficies quedan entre 1,10 y 1,88 del lienzo, contra los
+ * 15,76 – 17,98 que daban los claros heredados.
+ *
+ * ── LOS 27, Y NO LOS 30 ──────────────────────────────────────────────────────────
+ *
+ * Faltan `rating`, `featured` y `favorite` a propósito. No son estados: son CONVENCIONES,
+ * y su color es parte del significado —una estrella de valoración es dorada y un corazón
+ * es rojo en todas partes, de noche y de día—. La separación es de E2 y este molde la
+ * hereda por omisión, que es la forma más barata de que se respete: una versión que
+ * esparza esto se queda con las tres del modelo sin tener que acordarse.
+ *
+ * ── `destructive-foreground` SE NEUTRALIZA AL EXTRAER ────────────────────────────
+ *
+ * En Contraluz vale `30 50% 8%`, un casi-negro CÁLIDO que pertenece a esa paleta. Aquí va
+ * un casi-negro sin tono: el molde tiene que servir a un monocromo frío igual que a un
+ * modelo terracota, y cada uno lo afina si quiere. Contraluz mantiene el suyo, que es la
+ * razón de que siga resolviendo byte a byte igual que antes de la extracción — y hay un
+ * test que lo exige, porque es el modelo contra el que compara la invariancia.
+ */
+export const SEMANTICOS_OSCUROS: Readonly<Record<string, string>> = {
+  /**
+   * EN UN TEMA OSCURO EL ROJO SE INVIERTE, y lo dijo la barrera. Con el rojo medio del
+   * primer intento (`0 72% 51%`) la letra blanca encima cumplía, pero el mismo token usado
+   * como TEXTO sobre el lienzo oscuro se quedaba en 3,82:1: en un tema claro el rojo tiene
+   * que ser oscuro para leerse, y en uno oscuro tiene que ser claro. No se puede tener las
+   * dos con letra blanca encima, así que aquí el rojo es claro y su letra, oscura. Es la
+   * misma pareja de siempre, dada la vuelta.
+   */
+  destructive: '0 85% 68%',
+  'destructive-foreground': '0 0% 10%',
+
+  warning: '#2a1f04',
+  'warning-surface': '#3d2d05',
+  'warning-border': '#a16207',
+  'warning-foreground': '#fde68a',
+  'warning-solid': '#f59e0b',
+  'warning-solid-hover': '#fbbf24',
+
+  success: '#052e16',
+  'success-surface': '#064e3b',
+  'success-border': '#15803d',
+  'success-foreground': '#a7f3d0',
+  'success-solid': '#10b981',
+  'success-solid-hover': '#34d399',
+
+  info: '#0b1e3a',
+  'info-surface': '#12305c',
+  'info-border': '#1d4ed8',
+  'info-foreground': '#bfdbfe',
+
+  'destructive-subtle': '#3f0a0a',
+  'destructive-border': '#991b1b',
+  'destructive-strong': '#fca5a5',
+
+  'pending-surface': '#3b0764',
+  'pending-foreground': '#e9d5ff',
+
+  'neutral-surface': '#292524',
+  'neutral-foreground': '#d6d3d1',
+  'neutral-solid': '#a8a29e',
+  'neutral-solid-hover': '#d6d3d1',
+};
+
+/**
  * MODELO 0 — «Sobrio». Una versión. Es el estado actual de la plataforma, no una
  * versión parecida de él: todos los valores están copiados de `globals.css`.
  */
@@ -704,6 +782,31 @@ export const MODELO_0: Modelo = {
       'card-foreground': '210 40% 96.1%', // slate-100
       popover: '222.2 47.4% 11.2%',
       'popover-foreground': '210 40% 96.1%',
+      /**
+       * ⚠ LAS TRES SUPERFICIES NEUTRAS, QUE ESTA ZONA LLEVABA DESDE SIEMPRE EN CLARO.
+       *
+       * En el Modelo 0 `muted`, `secondary` y `accent` valen **el mismo gris**
+       * (`210 40% 96.1%`): son las tres superficies neutras que shadcn declara, no colores
+       * de marca. Dentro de un lienzo `slate-950` eso son tres losas casi blancas a
+       * **18,41:1** del fondo. Era latente —esta pantalla sólo pinta `bg-background` y
+       * `bg-card`— y lo destapó la barrera de completitud de E14 midiendo el anillo contra
+       * `muted`: 1,36:1.
+       *
+       * Los valores NO se inventan: son los que `globals.css` ya tiene escritos en su
+       * bloque `.dark`, el que lleva muerto desde shadcn porque nadie pone nunca esa clase.
+       * Es la primera vez que sirven para algo.
+       *
+       * ⚠ Y SUS LETRAS VAN CON ELLAS, por la regla que destapó Fresco/Confianza: una zona
+       * que repinta una superficie repinta también su letra, o hereda la del color que ya no
+       * está ahí. `secondary-foreground` y `accent-foreground` los elige `mejorTextoSobre`
+       * sobre el color del MODELO —oscuros, porque el gris claro los pedía— y sobre estos
+       * grises oscuros darían 1,3:1.
+       */
+      muted: '217.2 32.6% 17.5%', // slate-800, el `.dark` de globals.css
+      secondary: '217.2 32.6% 17.5%',
+      'secondary-foreground': '210 40% 96.1%',
+      accent: '217.2 32.6% 17.5%',
+      'accent-foreground': '210 40% 96.1%',
       border: '217.2 32.6% 17.5%', // slate-800
       // slate-500 y no el slate-700 que había: sobre este fondo, aquél daba 1,95:1.
       // Tematizar la zona destapó que el borde de campo de esta pantalla NUNCA cumplió
@@ -716,10 +819,20 @@ export const MODELO_0: Modelo = {
       // El botón: claro sobre oscuro, que es como estaba.
       primary: '210 40% 96.1%', // slate-100
       'primary-foreground': '222.2 47.4% 11.2%', // slate-900
-      // El aviso de error, en su versión oscura.
-      'destructive-subtle': '#450a0a', // red-950
-      'destructive-border': '#7f1d1d', // red-900
-      'destructive-strong': '#fca5a5', // red-300
+      /**
+       * ⚠ LOS SEMÁNTICOS, GIRADOS — la deuda hermana de las tres superficies de arriba.
+       *
+       * Esta zona redefinía el trío del error y dejaba **las otras ocho superficies de aviso
+       * en claro**: sobre este lienzo, un panel de éxito o de advertencia sería una losa
+       * casi blanca a 15–19,5:1 del fondo. Pasaba AA con nota —los avisos se miden entre
+       * ellos, y entre ellos cumplían— y aun así el tema estaba roto; es exactamente el
+       * defecto que la barrera de coherencia de polaridad de E14 existe para cazar, y no lo
+       * cazaba porque medía la BASE de cada versión y no sus zonas.
+       *
+       * Se esparce el molde ENTERO y no sólo las ocho superficies: una superficie girada con
+       * su letra clara heredada sería ilegible. Los 27 de estado van juntos o no van.
+       */
+      ...SEMANTICOS_OSCUROS,
     },
   },
 };
@@ -747,84 +860,6 @@ const RAMPA_PRUEBA: Readonly<Record<string, FranjaRampa>> = {
   'muted-foreground': { dh: 0, ds: -8, l: 74 },
   border: { dh: 0, ds: -4, l: 30 },
   input: { dh: 0, ds: -4, l: 55 },
-};
-
-/**
- * ══ E14 · LOS SEMÁNTICOS EN SU FORMA OSCURA — EL MOLDE COMPARTIDO ══════════════════
- *
- * Los **27 de ESTADO** dados la vuelta, para que cualquier modelo o VERSIÓN de lienzo
- * oscuro los esparza como los tres modelos claros esparcen los del Modelo 0.
- *
- * ── NO ES UNA PALETA NUEVA: ES LA DE `MODELO_PRUEBA`, EXTRAÍDA ────────────────────
- *
- * Contraluz los tiene desde E6 y `contraste-modelos.spec.ts` los mide como a los de
- * cualquier otro modelo, así que **ya estaban probados**. Inventar un segundo juego
- * oscuro habría sido rehacer ese trabajo para tener dos listas que mantener.
- *
- * Y funcionan fuera de su casa, que es la condición para que esto sea un molde y no una
- * copia: pasados por encima del lienzo carbón de una versión oscura de Premium, las diez
- * parejas de texto cumplen (6,01 – 13,01) y el rojo como TEXTO sobre el lienzo sube de
- * **3,70 a 6,19**. Las nueve superficies quedan entre 1,10 y 1,88 del lienzo, contra los
- * 15,76 – 17,98 que daban los claros heredados.
- *
- * ── LOS 27, Y NO LOS 30 ──────────────────────────────────────────────────────────
- *
- * Faltan `rating`, `featured` y `favorite` a propósito. No son estados: son CONVENCIONES,
- * y su color es parte del significado —una estrella de valoración es dorada y un corazón
- * es rojo en todas partes, de noche y de día—. La separación es de E2 y este molde la
- * hereda por omisión, que es la forma más barata de que se respete: una versión que
- * esparza esto se queda con las tres del modelo sin tener que acordarse.
- *
- * ── `destructive-foreground` SE NEUTRALIZA AL EXTRAER ────────────────────────────
- *
- * En Contraluz vale `30 50% 8%`, un casi-negro CÁLIDO que pertenece a esa paleta. Aquí va
- * un casi-negro sin tono: el molde tiene que servir a un monocromo frío igual que a un
- * modelo terracota, y cada uno lo afina si quiere. Contraluz mantiene el suyo, que es la
- * razón de que siga resolviendo byte a byte igual que antes de la extracción — y hay un
- * test que lo exige, porque es el modelo contra el que compara la invariancia.
- */
-export const SEMANTICOS_OSCUROS: Readonly<Record<string, string>> = {
-  /**
-   * EN UN TEMA OSCURO EL ROJO SE INVIERTE, y lo dijo la barrera. Con el rojo medio del
-   * primer intento (`0 72% 51%`) la letra blanca encima cumplía, pero el mismo token usado
-   * como TEXTO sobre el lienzo oscuro se quedaba en 3,82:1: en un tema claro el rojo tiene
-   * que ser oscuro para leerse, y en uno oscuro tiene que ser claro. No se puede tener las
-   * dos con letra blanca encima, así que aquí el rojo es claro y su letra, oscura. Es la
-   * misma pareja de siempre, dada la vuelta.
-   */
-  destructive: '0 85% 68%',
-  'destructive-foreground': '0 0% 10%',
-
-  warning: '#2a1f04',
-  'warning-surface': '#3d2d05',
-  'warning-border': '#a16207',
-  'warning-foreground': '#fde68a',
-  'warning-solid': '#f59e0b',
-  'warning-solid-hover': '#fbbf24',
-
-  success: '#052e16',
-  'success-surface': '#064e3b',
-  'success-border': '#15803d',
-  'success-foreground': '#a7f3d0',
-  'success-solid': '#10b981',
-  'success-solid-hover': '#34d399',
-
-  info: '#0b1e3a',
-  'info-surface': '#12305c',
-  'info-border': '#1d4ed8',
-  'info-foreground': '#bfdbfe',
-
-  'destructive-subtle': '#3f0a0a',
-  'destructive-border': '#991b1b',
-  'destructive-strong': '#fca5a5',
-
-  'pending-surface': '#3b0764',
-  'pending-foreground': '#e9d5ff',
-
-  'neutral-surface': '#292524',
-  'neutral-foreground': '#d6d3d1',
-  'neutral-solid': '#a8a29e',
-  'neutral-solid-hover': '#d6d3d1',
 };
 
 /**
@@ -1292,13 +1327,31 @@ export const MODELO_CALIDO_EDITORIAL: Modelo = {
       'popover-foreground': '38 30% 94%',
       border: '24 18% 22%',
       input: '28 14% 52%',
+      // La superficie atenuada, en la familia de este lienzo. Se quedaba en su valor CLARO
+      // (`35 30% 94%`, 16,18:1 contra el fondo): una losa de papel dentro de la puerta de
+      // servicio. `secondary` y `accent` NO se tocan y es a propósito — aquí son colores de
+      // MARCA (oliva y coral), y sobre este carbón dan 3,11 y 5,06, que es lo mismo que dan
+      // los dos modelos oscuros de referencia. Un color de marca sobre oscuro tiene que
+      // verse; una superficie neutra, no.
+      muted: '24 20% 18%',
       'muted-foreground': '32 16% 68%',
       ring: '30 45% 72%',
       primary: '38 30% 94%',
       'primary-foreground': '24 24% 13%',
-      'destructive-subtle': '#3d0d0d',
-      'destructive-border': '#7f1d1d',
-      'destructive-strong': '#fca5a5',
+      /**
+       * ⚠ LOS SEMÁNTICOS, GIRADOS — la deuda hermana de las tres superficies de arriba.
+       *
+       * Esta zona redefinía el trío del error y dejaba **las otras ocho superficies de aviso
+       * en claro**: sobre este lienzo, un panel de éxito o de advertencia sería una losa
+       * casi blanca a 15–19,5:1 del fondo. Pasaba AA con nota —los avisos se miden entre
+       * ellos, y entre ellos cumplían— y aun así el tema estaba roto; es exactamente el
+       * defecto que la barrera de coherencia de polaridad de E14 existe para cazar, y no lo
+       * cazaba porque medía la BASE de cada versión y no sus zonas.
+       *
+       * Se esparce el molde ENTERO y no sólo las ocho superficies: una superficie girada con
+       * su letra clara heredada sería ilegible. Los 27 de estado van juntos o no van.
+       */
+      ...SEMANTICOS_OSCUROS,
     },
   },
 };
@@ -1642,13 +1695,27 @@ export const MODELO_FRESCO_CONFIANZA: Modelo = {
       'popover-foreground': '210 30% 95%',
       border: '216 26% 22%',
       input: '214 20% 52%',
+      // Igual que en los otros: la atenuada se quedaba en claro (`212 30% 96%`, 17,51:1).
+      // `secondary` y `accent` se dejan — turquesa y violeta son marca, y dan 7,01 y 3,25.
+      muted: '218 28% 18%',
       'muted-foreground': '212 20% 70%',
       ring: '210 85% 68%',
       primary: '210 30% 95%',
       'primary-foreground': '219 38% 12%',
-      'destructive-subtle': '#3d0d0d',
-      'destructive-border': '#7f1d1d',
-      'destructive-strong': '#fca5a5',
+      /**
+       * ⚠ LOS SEMÁNTICOS, GIRADOS — la deuda hermana de las tres superficies de arriba.
+       *
+       * Esta zona redefinía el trío del error y dejaba **las otras ocho superficies de aviso
+       * en claro**: sobre este lienzo, un panel de éxito o de advertencia sería una losa
+       * casi blanca a 15–19,5:1 del fondo. Pasaba AA con nota —los avisos se miden entre
+       * ellos, y entre ellos cumplían— y aun así el tema estaba roto; es exactamente el
+       * defecto que la barrera de coherencia de polaridad de E14 existe para cazar, y no lo
+       * cazaba porque medía la BASE de cada versión y no sus zonas.
+       *
+       * Se esparce el molde ENTERO y no sólo las ocho superficies: una superficie girada con
+       * su letra clara heredada sería ilegible. Los 27 de estado van juntos o no van.
+       */
+      ...SEMANTICOS_OSCUROS,
     },
   },
 };
@@ -1780,10 +1847,28 @@ const PREMIUM_LOGIN_INVERTIDO: Readonly<Record<string, string>> = {
   // El botón: claro sobre oscuro, al revés que en el resto de una versión clara.
   primary: '220 16% 95%',
   'primary-foreground': '220 20% 13%',
-  // El aviso de error, en su forma oscura.
-  'destructive-subtle': '#3d0d0d',
-  'destructive-border': '#7f1d1d',
-  'destructive-strong': '#fca5a5',
+  /**
+   * La superficie atenuada, que se quedaba en claro (`220 12% 95.5%`, 16,75:1 contra el
+   * lienzo del login). Va AQUÍ y no en el bloque del modelo por la misma razón que todo lo
+   * demás de este objeto: en «Oscuro» la atenuada de la base YA es oscura, así que
+   * declararla arriba haría que esa versión emitiera un ajuste donde hoy no emite ninguno —
+   * y la zona vacía es lo que hace visible la decisión D4.
+   */
+  muted: '220 18% 20%',
+  /**
+   * ⚠ LOS SEMÁNTICOS, GIRADOS — la deuda hermana de la superficie de arriba.
+   *
+   * Esta zona redefinía el trío del error y dejaba **las otras ocho superficies de aviso
+   * en claro**: sobre este lienzo, un panel de éxito o de advertencia sería una losa
+   * casi blanca a 15–19,5:1 del fondo. Pasaba AA con nota —los avisos se miden entre
+   * ellos, y entre ellos cumplían— y aun así el tema estaba roto; es exactamente el
+   * defecto que la barrera de coherencia de polaridad de E14 existe para cazar, y no lo
+   * cazaba porque medía la BASE de cada versión y no sus zonas.
+   *
+   * Se esparce el molde ENTERO y no sólo las ocho superficies: una superficie girada con
+   * su letra clara heredada sería ilegible. Los 27 de estado van juntos o no van.
+   */
+  ...SEMANTICOS_OSCUROS,
 };
 
 /**
@@ -2569,9 +2654,20 @@ export const MODELO_VIBRANTE: Modelo = {
       ring: '92 72% 62%',
       primary: '30 30% 96%',
       'primary-foreground': '320 28% 12%',
-      'destructive-subtle': '#3d0d0d',
-      'destructive-border': '#7f1d1d',
-      'destructive-strong': '#fca5a5',
+      /**
+       * ⚠ LOS SEMÁNTICOS, GIRADOS — la deuda hermana de las tres superficies de arriba.
+       *
+       * Esta zona redefinía el trío del error y dejaba **las otras ocho superficies de aviso
+       * en claro**: sobre este lienzo, un panel de éxito o de advertencia sería una losa
+       * casi blanca a 15–19,5:1 del fondo. Pasaba AA con nota —los avisos se miden entre
+       * ellos, y entre ellos cumplían— y aun así el tema estaba roto; es exactamente el
+       * defecto que la barrera de coherencia de polaridad de E14 existe para cazar, y no lo
+       * cazaba porque medía la BASE de cada versión y no sus zonas.
+       *
+       * Se esparce el molde ENTERO y no sólo las ocho superficies: una superficie girada con
+       * su letra clara heredada sería ilegible. Los 27 de estado van juntos o no van.
+       */
+      ...SEMANTICOS_OSCUROS,
     },
   },
 };
