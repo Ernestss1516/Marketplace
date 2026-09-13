@@ -1,4 +1,10 @@
 import { test, expect } from '../e2e/fixtures/auth';
+import {
+  esperarPortadaEscaparate,
+  ponerPortadaEscaparate,
+  restaurarPortada,
+} from '../e2e/helpers/portada';
+import { RUTA_BLOG, RUTA_PAGINA } from '../e2e/helpers/contenido-editorial';
 import { preparar } from './preparar';
 
 /**
@@ -37,31 +43,32 @@ import { preparar } from './preparar';
 //
 // Formularios de auth, formulario público, catálogo de planes y el 404.
 //
-// ── LAS TRES QUE NO ESTÁN: PORTADA, BÚSQUEDA Y LISTADO DE BLOG ──────────────────────────
+// ── LA QUE SIGUE SIN ESTAR: BÚSQUEDA (y el LISTADO de blog) ─────────────────────────────
 //
-// Estaban aquí, y se sacaron con la medición delante. Sus capturas no fallaban por un
-// cambio de estilo: fallaban porque **su contenido no es determinista en esta batería**.
+// Aquí hubo tres ausencias —portada, búsqueda y listado de blog—, sacadas con la medición
+// delante. Sus capturas no fallaban por un cambio de estilo: fallaban porque **su contenido
+// no era determinista en esta batería**.
 //
 //   · portada  — esperado 4311 px de alto, recibido 1339 px, dos corridas seguidas;
 //   · búsqueda — recibido 1027 px en una corrida y 990 px en la siguiente, con el MISMO
 //     árbol de fuentes. Dos alturas distintas del mismo código es no-determinismo, y ahí
 //     no hay nada que interpretar.
 //
-// La causa es estructural y no se arregla con una tolerancia más ancha: esas tres páginas
-// pintan ESTADO GLOBAL MUTABLE que otras specs modifican. La portada monta
+// La causa era estructural: esas páginas pintan ESTADO GLOBAL MUTABLE. La portada monta
 // `HomeBlockRenderer` con los bloques de `HomepageConfig`, que las specs de
-// `/admin/portada` reescriben; los listados salen del índice de Meilisearch, que unas
-// specs llenan y el teardown vacía; y los artículos del blog los crean las specs de blog.
-// El baseline se tomó con los restos de sesiones anteriores dentro.
+// `/admin/portada` reescriben; los listados salen del índice de Meilisearch, que unas specs
+// llenan y el teardown vacía; y los artículos del blog los crean las specs de blog.
 //
-// Se sacan en vez de taparse porque una captura que sólo coincide a veces enseña a
-// ignorar el rojo — es el mismo motivo por el que esta batería corre con `retries: 0`
-// (ver playwright.snapshots.config.ts). Una red en la que no se confía no es una red.
+// Y quedó escrito qué haría falta para que volvieran: «escribir un `HomepageConfig` conocido
+// y sembrar un conjunto fijo de anuncios ya indexados».
 //
-// VUELVEN cuando la batería FIJE ese estado antes de disparar: escribir un
-// `HomepageConfig` conocido y sembrar un conjunto fijo de anuncios ya indexados. Es una
-// tarea con forma concreta, no un pendiente vago; no entra en E0 porque E0 no puede
-// comprometer infraestructura pesada sin medirla (§10.2 del diseño).
+// ── LA PORTADA HA VUELTO (escaparate, ráfaga B) ─────────────────────────────────────────
+//
+// La primera mitad de esa tarea está hecha, y por eso vuelve — ver el describe
+// «Escaparate» de más abajo. La segunda mitad (los anuncios indexados) NO hace falta,
+// porque la portada medible se configura SIN bloque `listings`: en vez de fijar el índice,
+// se mide una portada que no lo consulta. Búsqueda y el LISTADO de blog siguen fuera, que
+// es donde el índice manda de verdad.
 //
 // LO QUE ESTA AUSENCIA **NO** DEJA SIN VIGILAR: nada de lo que E0 cambió. Los 29 avisos
 // consolidados viven todos en el backoffice, que sí está cubierto entero, y las clases
@@ -76,6 +83,72 @@ test.describe('Público', () => {
     // El 404: una ruta que con seguridad no existe. Es una de las pantallas donde irán
     // las ilustraciones (E7), así que conviene tener su antes.
     ['no-encontrado', '/esta-ruta-no-existe-e0'],
+  ];
+
+  for (const [nombre, ruta] of RUTAS) {
+    test(nombre, async ({ page }) => {
+      await preparar(page, ruta);
+      await expect(page).toHaveScreenshot(`publico-${nombre}.png`, { fullPage: true });
+    });
+  }
+});
+
+/**
+ * ══ ESCAPARATE · RÁFAGA B — LAS TRES SUPERFICIES QUE VA A REPINTAR LA C ══════════════
+ *
+ * Ver `docs/diseno-escaparate.md` §3.4 y §3.5.
+ *
+ * ── POR QUÉ ENTRAN AHORA Y NO CON EL CAMBIO ─────────────────────────────────────────
+ *
+ * Porque el escaparate va a repintar la portada, el blog y las páginas de arriba abajo, y
+ * **hoy ninguna red las mira**. Una barrera que se escribe DESPUÉS del cambio no vigila
+ * nada: sólo certifica lo que ya hay. Así que el baseline se toma aquí, con el aspecto de
+ * HOY, y la ráfaga C se mide contra él.
+ *
+ * De ahí una propiedad que conviene usar: **cuando C repinte, estas tres capturas se
+ * pondrán rojas, y ése es el entregable**. El artefacto de CI trae antes/después/diff, y
+ * eso es lo que se mira para aprobar el escaparate. Regenerar el baseline es el acto que
+ * dice «aprobado», no un trámite para volver a verde.
+ *
+ * ── TRES, Y NO TREINTA ──────────────────────────────────────────────────────────────
+ *
+ * Mismo criterio que el resto del fichero: por idioma visual. La portada es el motor de
+ * bloques de portada con seis piezas montadas; el artículo es el motor del blog **dentro
+ * de la zona `blog`** (la única zona pública que ajusta tokens); la página es la misma
+ * maquinaria **fuera** de esa zona, o sea la base — y es donde vive el CTA que en la
+ * ráfaga C se convierte en banda. El LISTADO de blog no entra: su tarjeta es una variante
+ * del mismo idioma que ya cubre el artículo, y depende de qué posts hayan creado otras
+ * specs.
+ *
+ * ── ⚠ ESTE DESCRIBE MUTA, Y ES EL ÚNICO DEL FICHERO ─────────────────────────────────
+ *
+ * `playwright.snapshots.config.ts` dice de esta batería que «no muta nada (sólo navega y
+ * fotografía)». Deja de ser literal aquí: la portada se configura antes de disparar y se
+ * restaura después. No hay alternativa — la portada por defecto lleva un bloque `listings`
+ * cuyo orden depende de una ventana de rotación de 15 minutos, y con eso no se puede tomar
+ * un baseline estable. Se mide una portada que no consulta el índice, en vez de fijar el
+ * índice entero. El contrato de restaurar es el mismo que cumplen las specs de portada de
+ * la batería funcional.
+ */
+test.describe('Escaparate', () => {
+  test.beforeAll(async ({ browser, request }) => {
+    await ponerPortadaEscaparate(request);
+    // Sin esperar, la captura puede fotografiar la portada ANTERIOR: el 200 del PATCH no
+    // garantiza que el frontend haya invalidado su caché. Un baseline tomado así estaría
+    // mal tomado y nadie lo notaría. Ver `esperarPortadaEscaparate`.
+    const calentamiento = await browser.newPage();
+    await esperarPortadaEscaparate(calentamiento);
+    await calentamiento.close();
+  });
+
+  test.afterAll(async ({ request }) => {
+    await restaurarPortada(request);
+  });
+
+  const RUTAS: readonly [nombre: string, ruta: string][] = [
+    ['portada', '/'],
+    ['blog-articulo', RUTA_BLOG],
+    ['pagina', RUTA_PAGINA],
   ];
 
   for (const [nombre, ruta] of RUTAS) {

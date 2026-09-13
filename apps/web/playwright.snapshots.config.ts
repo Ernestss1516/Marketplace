@@ -37,10 +37,17 @@ import * as path from 'path';
  * contenedores de servicio, así que cada shard tendría SU base/Redis/Meili y el estado
  * compartido que hoy obliga a `workers: 1` dejaría de ser un problema».
  *
- * Y el de snapshots es el caso más fácil de esa idea: **no muta nada** (sólo navega y
- * fotografía) y no necesita el wizard de publicar ni esperar a que Meilisearch indexe,
- * que es de donde salen los ~10 s/test de la batería funcional. Aquí una captura son
- * segundos.
+ * Y el de snapshots es el caso más fácil de esa idea: **casi no muta nada** y no necesita
+ * el wizard de publicar ni esperar a que Meilisearch indexe, que es de donde salen los
+ * ~10 s/test de la batería funcional. Aquí una captura son segundos.
+ *
+ * ⚠ «CASI», DESDE EL ESCAPARATE (ráfaga B). Decía «no muta nada» y hay una excepción, una
+ * sola: el describe «Escaparate» de `pantallas.spec.ts` configura la portada antes de
+ * disparar y la restaura después. La portada por defecto lleva un bloque `listings` cuyo
+ * orden sale de una ventana de rotación de 15 minutos, así que con ella no hay baseline
+ * estable posible — y la portada es una de las tres superficies que la ráfaga C va a
+ * repintar. Se mide una portada que no consulta el índice; el resto del fichero sigue sólo
+ * navegando y fotografiando.
  *
  * ── LO QUE SE REUSA TAL CUAL ──────────────────────────────────────────────────────────
  *
