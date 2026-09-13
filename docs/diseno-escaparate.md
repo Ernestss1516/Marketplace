@@ -1,7 +1,9 @@
 # Diseño — El escaparate (dirección A), sobre las 6 decisiones aprobadas
 
 > **Qué es esto.** La auditoría ([`docs/auditoria-escaparate.md`](auditoria-escaparate.md))
-> midió el hueco. Esto lo convierte en **arquitectura y plan de ráfagas**: qué token se
+> midió el hueco entre lo que hay y el boceto
+> ([`docs/mejoras-estilos-plataforma/propuestas-de-estilo.dc.html`](mejoras-estilos-plataforma/propuestas-de-estilo.dc.html),
+> dirección A). Esto lo convierte en **arquitectura y plan de ráfagas**: qué token se
 > declara dónde, qué barrera se extiende antes de tocar nada, qué cambia cada bloque y en
 > qué orden entra todo.
 >

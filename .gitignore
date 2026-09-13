@@ -70,3 +70,6 @@ Thumbs.db
 
 # Temporales
 *.tmp
+# Miniatura que genera el editor del lienzo de diseño junto al `.dc.html`.
+# Es un binario regenerable y cambia cada vez que se abre el boceto.
+docs/**/.thumbnail

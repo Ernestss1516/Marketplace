@@ -1,0 +1,979 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  body { margin: 0; font-family: Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  h1,h2,h3,h4 { font-family: var(--font-heading, Inter), serif; margin: 0; }
+  p, ul, ol { margin: 0; }
+  a { color: inherit; text-decoration: none; }
+  a:hover { color: inherit; }
+  select { font-family: inherit; }
+  ::selection { background: var(--primary); color: var(--primary-fg); }
+  :root {
+    --bg:#fbf8f3; --fg:#2e2419; --card:#fefdfb; --muted:#f2ece3; --muted-fg:#69605a;
+    --border:#e5ddd1; --input:#a1917f; --primary:#b4531f; --primary-fg:#faf5ec;
+    --secondary:#4c6a35; --secondary-fg:#faf5ec; --accent:#e07a5f; --accent-fg:#2e2419;
+    --radius:.375rem; --font-heading:Georgia, serif; --shadow-md:0 4px 6px -1px rgb(60 30 10/.12);
+    --motion-duration:180ms; --motion-ease:cubic-bezier(.32,.72,0,1);
+  }
+  @keyframes sube { from { opacity:0; transform: translateY(16px); } to { opacity:1; transform:none; } }
+  @keyframes entraIzq { from { opacity:0; transform: translateX(-14px); } to { opacity:1; transform:none; } }
+  @keyframes reglaCrece { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+  @keyframes rotDesliza {
+    0%   { opacity:0; transform: translateY(60%); }
+    4%   { opacity:1; transform: translateY(0); }
+    30%  { opacity:1; transform: translateY(0); }
+    36%  { opacity:0; transform: translateY(-60%); }
+    100% { opacity:0; transform: translateY(-60%); }
+  }
+  @keyframes brillo { 0% { transform: translateX(-120%); } 60%,100% { transform: translateX(220%); } }
+  @keyframes flota { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+  @keyframes aparece { from { opacity:0; } to { opacity:1; } }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+</helmet>
+
+<div>
+ <div style="--bg:{{ cBg }}; --fg:{{ cFg }}; --card:{{ cCard }}; --muted:{{ cMuted }}; --muted-fg:{{ cMutedFg }}; --border:{{ cBorder }}; --input:{{ cInput }}; --primary:{{ cPrimary }}; --primary-fg:{{ cPrimaryFg }}; --secondary:{{ cSecondary }}; --secondary-fg:{{ cSecondaryFg }}; --accent:{{ cAccent }}; --accent-fg:{{ cAccentFg }}; --radius:{{ cRadius }}; --font-heading:{{ cHeading }}; --shadow-sm:{{ cShadowSm }}; --shadow:{{ cShadow }}; --shadow-md:{{ cShadowMd }}; --shadow-lg:{{ cShadowLg }}; --motion-duration:{{ cDur }}; --motion-ease:{{ cEase }};">
+
+  <!-- ══ BARRA DE CONTROL (no es parte de la propuesta: es el conmutador) ══ -->
+  <div style="position:sticky; top:0; z-index:80; height:49px; display:flex; flex-wrap:nowrap; overflow-x:auto; align-items:center; gap:12px; padding:0 12px; background:#14161a; color:#e8eaed; font-size:12px; border-bottom:1px solid #2a2e35;">
+    <span style="flex-shrink:0; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.12em; text-transform:uppercase; font-size:9px; color:#8a919c;">Propuestas</span>
+
+    <label style="display:flex; align-items:center; gap:7px;">
+      <span style="color:#8a919c;">Modelo</span>
+      <select onChange="{{ setModelo }}" style="background:#20242b; color:#e8eaed; border:1px solid #343a44; border-radius:5px; padding:5px 9px; font-size:12px;">
+        <sc-for list="{{ modelos }}" as="m" hint-placeholder-count="4">
+          <option value="{{ m.id }}">{{ m.nombre }}</option>
+        </sc-for>
+      </select>
+    </label>
+
+    <label style="display:flex; align-items:center; gap:7px;">
+      <span style="color:#8a919c;">Versión</span>
+      <select onChange="{{ setVersion }}" style="background:#20242b; color:#e8eaed; border:1px solid #343a44; border-radius:5px; padding:5px 9px; font-size:12px;">
+        <sc-for list="{{ versiones }}" as="v" hint-placeholder-count="2">
+          <option value="{{ v.id }}">{{ v.nombre }}</option>
+        </sc-for>
+      </select>
+    </label>
+
+    <label style="display:flex; align-items:center; gap:7px;">
+      <span style="color:#8a919c;">Superficie</span>
+      <select onChange="{{ setSuperficie }}" style="background:#20242b; color:#e8eaed; border:1px solid #343a44; border-radius:5px; padding:5px 9px; font-size:12px;">
+        <option value="portada">Portada</option>
+        <option value="pagina">Página informativa</option>
+        <option value="blog">Blog</option>
+      </select>
+    </label>
+
+    <div style="display:flex; align-items:center; gap:9px; margin-left:auto; flex-shrink:0;">
+      <span style="color:#8a919c;">Dirección</span>
+      <div style="display:flex; gap:0; flex-shrink:0; border:1px solid #343a44; border-radius:6px; overflow:hidden;">
+      <button onClick="{{ dirA }}" style="{{ btnA }}">A</button>
+      <button onClick="{{ dirB }}" style="{{ btnB }}">B</button>
+      </div>
+      <span style="color:#8a919c; white-space:nowrap;">{{ nombreDireccion }}</span>
+    </div>
+  </div>
+
+  <!-- ══ EL LIENZO DE LA PROPUESTA ══ -->
+  <div style="background:var(--bg); color:var(--fg); min-height:100vh;">
+
+    <!-- Cabecera de la plataforma (recreada: sticky h-16, logo, Buscar, Publicar) -->
+    <header style="position:sticky; top:49px; z-index:60; border-bottom:1px solid var(--border); background:var(--bg);">
+      <div style="max-width:1180px; margin:0 auto; display:flex; height:64px; align-items:center; justify-content:space-between; gap:12px; padding:0 16px;">
+        <div style="display:flex; align-items:center; gap:9px; flex-shrink:0;">
+          <span style="display:inline-flex; width:26px; height:26px; align-items:center; justify-content:center; border-radius:calc(var(--radius) * 1.4); background:var(--primary); color:var(--primary-fg); font-size:13px; font-weight:700;">M</span>
+          <span style="font-family:var(--font-heading); font-size:17px; font-weight:700; letter-spacing:-.01em;">Mercadillo</span>
+        </div>
+        <nav style="display:flex; align-items:center; gap:24px; font-size:14px;">
+          <a href="#" style="color:var(--muted-fg); transition:color var(--motion-duration) var(--motion-ease);" style-hover="color:var(--fg);">Buscar</a>
+          <a href="#" style="color:var(--primary); font-weight:500;">Publicar anuncio</a>
+          <a href="#" style="color:var(--muted-fg);">Entrar</a>
+          <span style="width:30px; height:30px; border-radius:999px; background:var(--muted); border:1px solid var(--border);"></span>
+        </nav>
+      </div>
+    </header>
+
+    <!-- ═══════════════════ PORTADA · DIRECCIÓN A ═══════════════════ -->
+    <sc-if value="{{ portadaA }}" hint-placeholder-val="{{ true }}">
+      <main>
+        <!-- HERO a sangre: la banda deja de ser `bg-primary/5` y pasa a ser un ambiente del modelo -->
+        <section style="position:relative; overflow:hidden; border-bottom:1px solid var(--border); background:{{ heroFondo }};">
+          <div style="position:absolute; inset:0; background:{{ heroPatron }}; opacity:.5; pointer-events:none;"></div>
+          <div style="position:relative; max-width:1180px; margin:0 auto; padding:84px 16px 118px; text-align:center;">
+            <p style="animation:sube var(--motion-duration) var(--motion-ease) both; margin-bottom:20px; font-size:11px; font-weight:600; letter-spacing:.24em; text-transform:uppercase; color:var(--primary);">Miles de anuncios cerca de ti</p>
+
+            <h1 style="font-size:clamp(38px,6vw,72px); line-height:1.02; font-weight:800; letter-spacing:-.03em; margin-bottom:22px;">
+              Compra y vende
+              <span style="display:inline-grid; justify-items:start; overflow:hidden; vertical-align:bottom; padding-bottom:.08em;">
+                <span style="grid-area:1/1; color:var(--primary); animation:rotDesliza 9s var(--motion-ease) infinite backwards; animation-delay:0s;">coches</span>
+                <span style="grid-area:1/1; color:var(--primary); animation:rotDesliza 9s var(--motion-ease) infinite backwards; animation-delay:3s;" aria-hidden="true">bicicletas</span>
+                <span style="grid-area:1/1; color:var(--primary); animation:rotDesliza 9s var(--motion-ease) infinite backwards; animation-delay:6s;" aria-hidden="true">muebles</span>
+              </span>
+            </h1>
+
+            <p style="animation:sube var(--motion-duration) var(--motion-ease) both; animation-delay:calc(var(--motion-duration) * 1); max-width:620px; margin:0 auto; font-size:18px; line-height:1.55; color:var(--muted-fg);">
+              Publicar es gratis y lleva menos de un minuto. Lo que buscas probablemente esté a diez kilómetros.
+            </p>
+
+            <div style="animation:sube var(--motion-duration) var(--motion-ease) both; animation-delay:calc(var(--motion-duration) * 2); display:flex; justify-content:center; gap:34px; margin-top:34px; font-size:13px; color:var(--muted-fg);">
+              <span><strong style="color:var(--fg); font-size:17px; font-family:var(--font-heading);">128.400</strong> anuncios activos</span>
+              <span style="width:1px; background:var(--border);"></span>
+              <span><strong style="color:var(--fg); font-size:17px; font-family:var(--font-heading);">52</strong> provincias</span>
+              <span style="width:1px; background:var(--border);"></span>
+              <span><strong style="color:var(--fg); font-size:17px; font-family:var(--font-heading);">4,8</strong> valoración media</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- BLOQUE search: el buscador sube y monta sobre la banda -->
+        <div style="max-width:1180px; margin:0 auto; padding:0 16px;">
+          <div style="animation:sube var(--motion-duration) var(--motion-ease) both; animation-delay:calc(var(--motion-duration) * 2.5); margin-top:-46px; position:relative; z-index:5;">
+            <form style="display:flex; align-items:stretch; gap:0; border:1px solid var(--border); background:var(--card); border-radius:calc(var(--radius) * 3); padding:8px; box-shadow:var(--shadow-lg);">
+              <div style="width:190px; flex-shrink:0; border-right:1px solid var(--border); display:flex; align-items:center; padding:0 18px; font-size:15px; color:var(--muted-fg);">Categoría</div>
+              <div style="width:170px; flex-shrink:0; border-right:1px solid var(--border); display:flex; align-items:center; padding:0 18px; font-size:15px; color:var(--muted-fg);">Toda España</div>
+              <div style="flex:1; display:flex; align-items:center; gap:12px; padding:0 18px; height:64px;">
+                <span style="width:20px; height:20px; border:2px solid var(--muted-fg); border-radius:999px; flex-shrink:0; opacity:.6;"></span>
+                <span style="font-size:20px; color:var(--muted-fg); opacity:.75;">¿Qué estás buscando?</span>
+              </div>
+              <button style="position:relative; overflow:hidden; height:64px; padding:0 40px; border:0; border-radius:calc(var(--radius) * 2.4); background:var(--primary); color:var(--primary-fg); font-family:inherit; font-size:17px; font-weight:600; cursor:pointer; transition:transform var(--motion-duration) var(--motion-ease);" style-hover="transform:translateY(-2px) scale(1.02);" style-active="transform:none;">
+                Buscar
+                <span style="position:absolute; top:0; bottom:0; width:42px; background:linear-gradient(90deg, transparent, rgb(255 255 255 / .34), transparent); animation:brillo 3.4s var(--motion-ease) infinite;"></span>
+              </button>
+            </form>
+
+            <div style="display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:8px; margin-top:22px;">
+              <span style="font-size:12px; color:var(--muted-fg);">Populares:</span>
+              <sc-for list="{{ populares }}" as="c" hint-placeholder-count="6">
+                <a href="#" style="border:1px solid var(--border); background:var(--card); border-radius:999px; padding:7px 15px; font-size:13px; font-weight:500; transition:all var(--motion-duration) var(--motion-ease);" style-hover="border-color:var(--primary); color:var(--primary); transform:translateY(-2px);">{{ c }}</a>
+              </sc-for>
+            </div>
+          </div>
+
+          <!-- BLOQUE categoryCarousel: tarjetas altas con foto, en carril -->
+          <section style="margin-top:{{ ritmo }};">
+            <div style="display:flex; align-items:end; justify-content:space-between; margin-bottom:20px;">
+              <h2 style="font-size:28px; font-weight:700; letter-spacing:-.02em;">Explora por categoría</h2>
+              <a href="#" style="font-size:14px; font-weight:500; color:var(--primary);">Ver todas →</a>
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(6, minmax(0,1fr)); gap:14px;">
+              <sc-for list="{{ categorias }}" as="c" hint-placeholder-count="6">
+                <a href="#" style="display:block; overflow:hidden; border:1px solid var(--border); border-radius:calc(var(--radius) * 2.2); background:var(--card); transition:transform var(--motion-duration) var(--motion-ease), box-shadow var(--motion-duration) var(--motion-ease);" style-hover="transform:translateY(-4px); box-shadow:var(--shadow-lg);">
+                  <span style="display:block; aspect-ratio:4/5; background-image:repeating-linear-gradient(135deg, var(--muted) 0 9px, var(--card) 9px 18px); position:relative;">
+                    <span style="position:absolute; left:10px; bottom:10px; font-family:ui-monospace,Menlo,monospace; font-size:9px; letter-spacing:.05em; color:var(--muted-fg); background:var(--card); padding:2px 6px; border-radius:3px;">foto {{ c.slug }}</span>
+                  </span>
+                  <span style="display:block; padding:12px 13px 14px;">
+                    <span style="display:block; font-size:14px; font-weight:600;">{{ c.nombre }}</span>
+                    <span style="display:block; margin-top:3px; font-size:12px; color:var(--muted-fg);">{{ c.total }} anuncios</span>
+                  </span>
+                </a>
+              </sc-for>
+            </div>
+          </section>
+
+          <!-- BLOQUE listings -->
+          <section style="margin-top:{{ ritmo }};">
+            <div style="display:flex; align-items:end; justify-content:space-between; margin-bottom:20px;">
+              <h2 style="font-size:28px; font-weight:700; letter-spacing:-.02em;">Recién publicados</h2>
+              <a href="#" style="font-size:14px; font-weight:500; color:var(--primary);">Ver todos →</a>
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:16px;">
+              <sc-for list="{{ anuncios }}" as="a" hint-placeholder-count="4">
+                <article style="display:flex; flex-direction:column; overflow:hidden; border:1px solid var(--border); border-radius:calc(var(--radius) * 2); background:var(--card); box-shadow:var(--shadow-sm); transition:transform var(--motion-duration) var(--motion-ease), box-shadow var(--motion-duration) var(--motion-ease);" style-hover="transform:translateY(-4px); box-shadow:var(--shadow-lg);">
+                  <span style="position:relative; display:block; aspect-ratio:4/3; background-image:repeating-linear-gradient(135deg, var(--muted) 0 9px, var(--card) 9px 18px);">
+                    <sc-if value="{{ a.destacado }}" hint-placeholder-val="{{ true }}">
+                      <span style="position:absolute; top:9px; left:9px; background:#fbbf24; color:#3a2a00; font-size:10px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; padding:3px 8px; border-radius:999px;">Destacado</span>
+                    </sc-if>
+                    <span style="position:absolute; top:8px; right:8px; width:28px; height:28px; border-radius:999px; background:var(--card); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; font-size:13px; color:#ef4444;">♥</span>
+                  </span>
+                  <span style="display:block; padding:13px 14px 15px;">
+                    <span style="display:block; font-size:14px; font-weight:500; line-height:1.35; margin-bottom:6px;">{{ a.titulo }}</span>
+                    <span style="display:block; font-family:var(--font-heading); font-size:21px; font-weight:700; letter-spacing:-.01em;">{{ a.precio }}</span>
+                    <span style="display:block; margin-top:6px; font-size:12px; color:var(--muted-fg);">{{ a.atributos }}</span>
+                    <span style="display:flex; align-items:center; gap:7px; margin-top:8px; font-size:12px; color:var(--muted-fg);">{{ a.lugar }} <span style="color:#fbbf24;">★</span> {{ a.nota }}</span>
+                  </span>
+                </article>
+              </sc-for>
+            </div>
+          </section>
+
+          <!-- BLOQUE steps: dos audiencias, numeración grande, línea conectora -->
+          <section style="margin-top:{{ ritmo }};">
+            <h2 style="text-align:center; font-size:28px; font-weight:700; letter-spacing:-.02em; margin-bottom:38px;">Cómo funciona</h2>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:56px;">
+              <sc-for list="{{ pasos }}" as="col" hint-placeholder-count="2">
+                <div style="border:1px solid var(--border); border-radius:calc(var(--radius) * 2.4); background:var(--card); padding:30px 30px 26px; box-shadow:var(--shadow-sm);">
+                  <h3 style="font-size:12px; font-weight:700; letter-spacing:.16em; text-transform:uppercase; color:var(--primary); margin-bottom:22px;">{{ col.audiencia }}</h3>
+                  <ol style="list-style:none; padding:0; display:flex; flex-direction:column; gap:20px;">
+                    <sc-for list="{{ col.items }}" as="p" hint-placeholder-count="3">
+                      <li style="display:flex; gap:16px; align-items:flex-start;">
+                        <span style="flex-shrink:0; width:34px; height:34px; border-radius:999px; background:var(--primary); color:var(--primary-fg); display:flex; align-items:center; justify-content:center; font-family:var(--font-heading); font-size:15px; font-weight:700;">{{ p.n }}</span>
+                        <span style="display:block;">
+                          <span style="display:block; font-size:15px; font-weight:600; line-height:1.35;">{{ p.titulo }}</span>
+                          <span style="display:block; margin-top:3px; font-size:13.5px; color:var(--muted-fg); line-height:1.5;">{{ p.desc }}</span>
+                        </span>
+                      </li>
+                    </sc-for>
+                  </ol>
+                  <a href="#" style="display:inline-block; margin-top:22px; font-size:14px; font-weight:600; color:var(--primary);">{{ col.cta }} →</a>
+                </div>
+              </sc-for>
+            </div>
+          </section>
+
+          <!-- BLOQUE grid: señales de confianza -->
+          <section style="margin-top:{{ ritmo }};">
+            <div style="display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:16px;">
+              <sc-for list="{{ confianza }}" as="s" hint-placeholder-count="4">
+                <div style="text-align:center; padding:26px 18px; border:1px solid var(--border); border-radius:calc(var(--radius) * 2); background:var(--card);">
+                  <span style="display:inline-flex; width:46px; height:46px; align-items:center; justify-content:center; border-radius:999px; background:var(--muted); color:var(--primary); font-size:19px; margin-bottom:12px;">{{ s.icono }}</span>
+                  <span style="display:block; font-size:14px; font-weight:600;">{{ s.titulo }}</span>
+                  <span style="display:block; margin-top:4px; font-size:12.5px; color:var(--muted-fg); line-height:1.5;">{{ s.desc }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </section>
+        </div>
+
+        <!-- BLOQUE cta: banda a sangre en color de marca (hoy es un botón suelto centrado) -->
+        <section style="margin-top:{{ ritmo }}; background:var(--primary); color:var(--primary-fg);">
+          <div style="max-width:1180px; margin:0 auto; padding:56px 16px; display:flex; align-items:center; justify-content:space-between; gap:30px;">
+            <div>
+              <h2 style="font-size:31px; font-weight:700; letter-spacing:-.02em; line-height:1.15;">¿Tienes algo que vender?</h2>
+              <p style="margin-top:8px; font-size:16px; opacity:.85;">Publicar es gratis. Sin comisiones, sin intermediarios.</p>
+            </div>
+            <a href="#" style="position:relative; overflow:hidden; flex-shrink:0; display:inline-flex; align-items:center; padding:17px 38px; border-radius:calc(var(--radius) * 2.4); background:var(--bg); color:var(--primary); font-size:17px; font-weight:700; transition:transform var(--motion-duration) var(--motion-ease);" style-hover="transform:translateY(-2px) scale(1.02);" style-active="transform:none;">
+              Publicar anuncio
+              <span style="position:absolute; top:0; bottom:0; width:40px; background:linear-gradient(90deg, transparent, rgb(255 255 255 / .5), transparent); animation:brillo 4s var(--motion-ease) infinite;"></span>
+            </a>
+          </div>
+        </section>
+
+        <!-- BLOQUE searchTable -->
+        <div style="max-width:1180px; margin:0 auto; padding:0 16px;">
+          <section style="margin-top:{{ ritmo }}; padding-bottom:20px;">
+            <h2 style="font-size:28px; font-weight:700; letter-spacing:-.02em; margin-bottom:18px;">Búsquedas frecuentes</h2>
+            <div style="display:flex; gap:6px; border-bottom:1px solid var(--border); margin-bottom:22px;">
+              <span style="padding:11px 18px; font-size:14px; font-weight:600; color:var(--primary); border-bottom:2px solid var(--primary); margin-bottom:-1px;">Por provincia</span>
+              <span style="padding:11px 18px; font-size:14px; color:var(--muted-fg);">Por categoría</span>
+              <span style="padding:11px 18px; font-size:14px; color:var(--muted-fg);">Combinaciones</span>
+            </div>
+            <div style="columns:4; column-gap:26px; font-size:13.5px; line-height:2.05; color:var(--muted-fg);">
+              <sc-for list="{{ provincias }}" as="p" hint-placeholder-count="20">
+                <a href="#" style="display:block; transition:color var(--motion-duration) var(--motion-ease);" style-hover="color:var(--primary);">Segunda mano en {{ p }}</a>
+              </sc-for>
+            </div>
+          </section>
+        </div>
+      </main>
+    </sc-if>
+
+    <!-- ═══════════════════ PORTADA · DIRECCIÓN B ═══════════════════ -->
+    <sc-if value="{{ portadaB }}" hint-placeholder-val="{{ false }}">
+      <main style="max-width:1180px; margin:0 auto; padding:0 16px;">
+        <!-- HERO editorial: sin banda de color, retícula asimétrica, el titular ES la portada -->
+        <section style="display:grid; grid-template-columns:minmax(0,1.35fr) minmax(0,1fr); gap:60px; align-items:end; padding:78px 0 44px; border-bottom:1px solid var(--fg);">
+          <div>
+            <p style="animation:entraIzq var(--motion-duration) var(--motion-ease) both; font-family:ui-monospace,Menlo,monospace; font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--muted-fg); margin-bottom:26px;">Segunda mano · 52 provincias</p>
+            <h1 style="font-size:clamp(40px,5.6vw,68px); line-height:.98; font-weight:700; letter-spacing:-.035em;">
+              Compra y vende<br>
+              <span style="display:inline-grid; justify-items:start; overflow:hidden; vertical-align:bottom; padding-bottom:.06em;">
+                <span style="grid-area:1/1; font-style:italic; color:var(--primary); animation:rotDesliza 9s var(--motion-ease) infinite backwards;">coches</span>
+                <span style="grid-area:1/1; font-style:italic; color:var(--primary); animation:rotDesliza 9s var(--motion-ease) infinite backwards; animation-delay:3s;" aria-hidden="true">bicicletas</span>
+                <span style="grid-area:1/1; font-style:italic; color:var(--primary); animation:rotDesliza 9s var(--motion-ease) infinite backwards; animation-delay:6s;" aria-hidden="true">muebles</span>
+              </span>
+            </h1>
+          </div>
+          <p style="animation:sube var(--motion-duration) var(--motion-ease) both; animation-delay:var(--motion-duration); font-size:16px; line-height:1.65; color:var(--muted-fg); padding-bottom:10px; border-left:2px solid var(--accent); padding-left:20px;">
+            Publicar es gratis y lleva menos de un minuto. Lo que buscas probablemente esté a diez kilómetros de aquí.
+          </p>
+        </section>
+
+        <!-- Buscador: una sola línea, sin caja ni sombra -->
+        <section style="padding:30px 0 6px; border-bottom:1px solid var(--border);">
+          <form style="display:flex; align-items:center; gap:26px;">
+            <span style="font-size:13.5px; color:var(--muted-fg); border-bottom:1px solid var(--input); padding-bottom:7px; min-width:130px;">Categoría ▾</span>
+            <span style="font-size:13.5px; color:var(--muted-fg); border-bottom:1px solid var(--input); padding-bottom:7px; min-width:130px;">Toda España ▾</span>
+            <span style="flex:1; font-size:24px; color:var(--muted-fg); opacity:.6; border-bottom:2px solid var(--fg); padding-bottom:5px; font-family:var(--font-heading);">¿Qué estás buscando?</span>
+            <button style="border:0; background:none; font-family:var(--font-heading); font-size:19px; font-weight:700; color:var(--primary); cursor:pointer; padding:0 0 6px; border-bottom:2px solid var(--primary); transition:letter-spacing var(--motion-duration) var(--motion-ease);" style-hover="letter-spacing:.04em;">Buscar →</button>
+          </form>
+          <div style="display:flex; flex-wrap:wrap; gap:20px; margin-top:22px; padding-bottom:18px; font-size:13px; color:var(--muted-fg);">
+            <sc-for list="{{ populares }}" as="c" hint-placeholder-count="6">
+              <a href="#" style="border-bottom:1px solid transparent; transition:border-color var(--motion-duration) var(--motion-ease), color var(--motion-duration) var(--motion-ease);" style-hover="color:var(--fg); border-color:var(--fg);">{{ c }}</a>
+            </sc-for>
+          </div>
+        </section>
+
+        <!-- Categorías como índice tipográfico, no como tarjetas -->
+        <section style="padding:{{ ritmo }} 0 0;">
+          <div style="display:flex; align-items:baseline; gap:16px; margin-bottom:24px;">
+            <span style="font-family:ui-monospace,Menlo,monospace; font-size:11px; color:var(--muted-fg);">01</span>
+            <h2 style="font-size:22px; font-weight:700; letter-spacing:-.01em;">Categorías</h2>
+            <span style="flex:1; height:1px; background:var(--border);"></span>
+          </div>
+          <div style="display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); column-gap:48px;">
+            <sc-for list="{{ categorias }}" as="c" hint-placeholder-count="6">
+              <a href="#" style="display:flex; align-items:baseline; justify-content:space-between; gap:14px; padding:15px 0; border-bottom:1px solid var(--border); transition:padding-left var(--motion-duration) var(--motion-ease);" style-hover="padding-left:9px;">
+                <span style="font-family:var(--font-heading); font-size:19px; font-weight:600; letter-spacing:-.01em;">{{ c.nombre }}</span>
+                <span style="font-family:ui-monospace,Menlo,monospace; font-size:11.5px; color:var(--muted-fg);">{{ c.total }}</span>
+              </a>
+            </sc-for>
+          </div>
+        </section>
+
+        <!-- Anuncios: rejilla densa sin tarjeta -->
+        <section style="padding:{{ ritmo }} 0 0;">
+          <div style="display:flex; align-items:baseline; gap:16px; margin-bottom:24px;">
+            <span style="font-family:ui-monospace,Menlo,monospace; font-size:11px; color:var(--muted-fg);">02</span>
+            <h2 style="font-size:22px; font-weight:700; letter-spacing:-.01em;">Recién publicados</h2>
+            <span style="flex:1; height:1px; background:var(--border);"></span>
+            <a href="#" style="font-size:13px; color:var(--muted-fg); border-bottom:1px solid var(--border);">Ver todos</a>
+          </div>
+          <div style="display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:34px 22px;">
+            <sc-for list="{{ anuncios }}" as="a" hint-placeholder-count="4">
+              <article style="display:block;">
+                <span style="position:relative; display:block; aspect-ratio:1/1; background-image:repeating-linear-gradient(135deg, var(--muted) 0 9px, var(--bg) 9px 18px); border-radius:var(--radius); overflow:hidden;">
+                  <sc-if value="{{ a.destacado }}" hint-placeholder-val="{{ true }}">
+                    <span style="position:absolute; top:0; left:0; background:var(--fg); color:var(--bg); font-family:ui-monospace,Menlo,monospace; font-size:9px; letter-spacing:.1em; text-transform:uppercase; padding:4px 9px;">Destacado</span>
+                  </sc-if>
+                </span>
+                <span style="display:flex; align-items:baseline; justify-content:space-between; gap:10px; margin-top:12px; padding-bottom:8px; border-bottom:1px solid var(--border);">
+                  <span style="font-family:var(--font-heading); font-size:19px; font-weight:700;">{{ a.precio }}</span>
+                  <span style="font-family:ui-monospace,Menlo,monospace; font-size:10.5px; color:var(--muted-fg);">{{ a.lugar }}</span>
+                </span>
+                <span style="display:block; margin-top:9px; font-size:13.5px; line-height:1.4;">{{ a.titulo }}</span>
+                <span style="display:block; margin-top:4px; font-size:12px; color:var(--muted-fg);">{{ a.atributos }}</span>
+              </article>
+            </sc-for>
+          </div>
+        </section>
+
+        <!-- Cómo funciona: cifras enormes, sin caja -->
+        <section style="padding:{{ ritmo }} 0 0;">
+          <div style="display:flex; align-items:baseline; gap:16px; margin-bottom:30px;">
+            <span style="font-family:ui-monospace,Menlo,monospace; font-size:11px; color:var(--muted-fg);">03</span>
+            <h2 style="font-size:22px; font-weight:700; letter-spacing:-.01em;">Cómo funciona</h2>
+            <span style="flex:1; height:1px; background:var(--border);"></span>
+          </div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:64px;">
+            <sc-for list="{{ pasos }}" as="col" hint-placeholder-count="2">
+              <div>
+                <h3 style="font-family:ui-monospace,Menlo,monospace; font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--muted-fg); padding-bottom:12px; border-bottom:1px solid var(--fg); margin-bottom:4px;">{{ col.audiencia }}</h3>
+                <ol style="list-style:none; padding:0;">
+                  <sc-for list="{{ col.items }}" as="p" hint-placeholder-count="3">
+                    <li style="display:flex; gap:22px; align-items:baseline; padding:20px 0; border-bottom:1px solid var(--border);">
+                      <span style="font-family:var(--font-heading); font-size:40px; font-weight:700; line-height:1; color:var(--accent); min-width:44px;">{{ p.n }}</span>
+                      <span style="display:block;">
+                        <span style="display:block; font-size:16px; font-weight:600;">{{ p.titulo }}</span>
+                        <span style="display:block; margin-top:4px; font-size:13.5px; color:var(--muted-fg); line-height:1.55;">{{ p.desc }}</span>
+                      </span>
+                    </li>
+                  </sc-for>
+                </ol>
+                <a href="#" style="display:inline-block; margin-top:16px; font-size:14px; font-weight:600; border-bottom:2px solid var(--primary); color:var(--primary);">{{ col.cta }}</a>
+              </div>
+            </sc-for>
+          </div>
+        </section>
+
+        <!-- CTA: regla arriba y abajo, sin relleno de color -->
+        <section style="margin:{{ ritmo }} 0 0; padding:46px 0; border-top:2px solid var(--fg); border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; gap:30px;">
+          <h2 style="font-size:clamp(26px,3.2vw,40px); font-weight:700; letter-spacing:-.03em; line-height:1.05;">¿Tienes algo que vender?<br><span style="color:var(--muted-fg); font-weight:400;">Publicar es gratis.</span></h2>
+          <a href="#" style="flex-shrink:0; display:inline-flex; align-items:center; gap:12px; font-family:var(--font-heading); font-size:21px; font-weight:700; color:var(--primary); padding-bottom:6px; border-bottom:2px solid var(--primary); transition:gap var(--motion-duration) var(--motion-ease);" style-hover="gap:22px;">Publicar anuncio →</a>
+        </section>
+
+        <!-- Búsquedas frecuentes -->
+        <section style="padding:{{ ritmo }} 0 30px;">
+          <div style="display:flex; align-items:baseline; gap:16px; margin-bottom:20px;">
+            <span style="font-family:ui-monospace,Menlo,monospace; font-size:11px; color:var(--muted-fg);">04</span>
+            <h2 style="font-size:22px; font-weight:700;">Búsquedas frecuentes</h2>
+            <span style="flex:1; height:1px; background:var(--border);"></span>
+          </div>
+          <div style="columns:5; column-gap:24px; font-size:12.5px; line-height:2.1; color:var(--muted-fg);">
+            <sc-for list="{{ provincias }}" as="p" hint-placeholder-count="20">
+              <a href="#" style="display:block;" style-hover="color:var(--fg);">{{ p }}</a>
+            </sc-for>
+          </div>
+        </section>
+      </main>
+    </sc-if>
+
+    <!-- ═══════════════════ PÁGINA INFORMATIVA · A ═══════════════════ -->
+    <sc-if value="{{ paginaA }}" hint-placeholder-val="{{ false }}">
+      <main>
+        <section style="border-bottom:1px solid var(--border); background:{{ heroFondo }};">
+          <div style="max-width:820px; margin:0 auto; padding:64px 16px 52px;">
+            <nav style="font-size:12px; color:var(--muted-fg); margin-bottom:20px;">Inicio / Cómo comprar con seguridad</nav>
+            <h1 style="animation:sube var(--motion-duration) var(--motion-ease) both; font-size:clamp(34px,4.4vw,52px); font-weight:800; letter-spacing:-.03em; line-height:1.05;">Cómo comprar con seguridad</h1>
+            <p style="animation:sube var(--motion-duration) var(--motion-ease) both; animation-delay:var(--motion-duration); margin-top:16px; font-size:18px; line-height:1.6; color:var(--muted-fg);">Seis hábitos que evitan el 90 % de los problemas en una compraventa entre particulares.</p>
+          </div>
+        </section>
+
+        <div style="max-width:820px; margin:0 auto; padding:48px 16px 70px; display:flex; flex-direction:column; gap:44px;">
+          <div style="font-size:17px; line-height:1.72; color:var(--fg);">
+            <p>Comprar de segunda mano es, casi siempre, una transacción sin sobresaltos. Los problemas se concentran en un puñado de patrones repetidos, y todos ellos se detectan antes de pagar.</p>
+            <p style="margin-top:18px;">Esta guía recoge lo que funciona: comprobaciones rápidas, señales de alarma y qué hacer cuando algo no encaja.</p>
+          </div>
+
+          <!-- Bloque quote: deja de ser un filete gris y pasa a ser pieza -->
+          <blockquote style="margin:0; padding:30px 34px; border-left:4px solid var(--primary); background:var(--muted); border-radius:0 calc(var(--radius) * 2) calc(var(--radius) * 2) 0;">
+            <p style="font-family:var(--font-heading); font-size:22px; line-height:1.45; font-style:italic;">“Si el precio es la mitad de lo que vale y el vendedor tiene prisa, el problema no es el precio.”</p>
+            <footer style="margin-top:12px; font-size:13px; color:var(--muted-fg);">— Equipo de confianza y seguridad</footer>
+          </blockquote>
+
+          <!-- Bloque imageText -->
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:28px; align-items:center;">
+            <span style="display:block; aspect-ratio:4/3; border-radius:calc(var(--radius) * 2); background-image:repeating-linear-gradient(135deg, var(--muted) 0 9px, var(--card) 9px 18px); position:relative;">
+              <span style="position:absolute; left:12px; bottom:12px; font-family:ui-monospace,Menlo,monospace; font-size:10px; color:var(--muted-fg); background:var(--card); padding:3px 7px; border-radius:3px;">imagen del bloque</span>
+            </span>
+            <div style="font-size:15.5px; line-height:1.65;">
+              <h2 style="font-size:22px; font-weight:700; margin-bottom:10px; letter-spacing:-.01em;">Queda siempre en un sitio público</h2>
+              <p style="color:var(--muted-fg);">Una cafetería, una gasolinera, la puerta de una comisaría. Un vendedor honesto no pondrá ninguna pega; uno que insista en tu portal te está diciendo algo.</p>
+            </div>
+          </div>
+
+          <!-- Bloque steps -->
+          <div>
+            <h2 style="font-size:24px; font-weight:700; letter-spacing:-.02em; margin-bottom:22px;">Antes de pagar</h2>
+            <ol style="list-style:none; padding:0; display:grid; gap:12px;">
+              <sc-for list="{{ pasosPagina }}" as="p" hint-placeholder-count="3">
+                <li style="display:flex; gap:16px; align-items:flex-start; padding:20px 22px; border:1px solid var(--border); border-radius:calc(var(--radius) * 2); background:var(--card); box-shadow:var(--shadow-sm);">
+                  <span style="flex-shrink:0; width:30px; height:30px; border-radius:999px; background:var(--primary); color:var(--primary-fg); display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:700;">{{ p.n }}</span>
+                  <span>
+                    <span style="display:block; font-size:15.5px; font-weight:600;">{{ p.titulo }}</span>
+                    <span style="display:block; margin-top:3px; font-size:14px; color:var(--muted-fg); line-height:1.55;">{{ p.desc }}</span>
+                  </span>
+                </li>
+              </sc-for>
+            </ol>
+          </div>
+
+          <!-- Bloque faq -->
+          <div>
+            <h2 style="font-size:24px; font-weight:700; letter-spacing:-.02em; margin-bottom:16px;">Preguntas frecuentes</h2>
+            <div style="border:1px solid var(--border); border-radius:calc(var(--radius) * 2); overflow:hidden; background:var(--card);">
+              <sc-for list="{{ faq }}" as="f" hint-placeholder-count="3">
+                <div style="border-bottom:1px solid var(--border); padding:18px 22px;">
+                  <div style="display:flex; align-items:center; justify-content:space-between; gap:14px; font-size:15.5px; font-weight:600;">{{ f.q }} <span style="color:var(--muted-fg); font-size:13px;">＋</span></div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+
+          <!-- Bloque cta -->
+          <div style="text-align:center; padding:40px 30px; border-radius:calc(var(--radius) * 3); background:var(--primary); color:var(--primary-fg);">
+            <h2 style="font-size:26px; font-weight:700; letter-spacing:-.02em;">¿Algo no encaja en un anuncio?</h2>
+            <p style="margin-top:8px; font-size:15.5px; opacity:.85;">Denunciarlo lleva veinte segundos y lo revisa una persona.</p>
+            <a href="#" style="position:relative; overflow:hidden; display:inline-flex; margin-top:22px; padding:15px 34px; border-radius:calc(var(--radius) * 2.4); background:var(--bg); color:var(--primary); font-size:16px; font-weight:700; transition:transform var(--motion-duration) var(--motion-ease);" style-hover="transform:translateY(-2px) scale(1.02);">
+              Denunciar un anuncio
+              <span style="position:absolute; top:0; bottom:0; width:36px; background:linear-gradient(90deg, transparent, rgb(255 255 255 / .5), transparent); animation:brillo 4.2s var(--motion-ease) infinite;"></span>
+            </a>
+          </div>
+        </div>
+      </main>
+    </sc-if>
+
+    <!-- ═══════════════════ PÁGINA INFORMATIVA · B ═══════════════════ -->
+    <sc-if value="{{ paginaB }}" hint-placeholder-val="{{ false }}">
+      <main style="max-width:1180px; margin:0 auto; padding:0 16px;">
+        <nav style="font-size:12px; color:var(--muted-fg); padding:30px 0 0;">Inicio / Cómo comprar con seguridad</nav>
+        <header style="display:grid; grid-template-columns:minmax(0,1.4fr) minmax(0,1fr); gap:60px; align-items:end; padding:26px 0 34px; border-bottom:2px solid var(--fg);">
+          <h1 style="animation:entraIzq var(--motion-duration) var(--motion-ease) both; font-size:clamp(36px,5vw,60px); font-weight:700; letter-spacing:-.035em; line-height:.98;">Cómo comprar<br>con seguridad</h1>
+          <p style="font-size:15.5px; line-height:1.65; color:var(--muted-fg); padding-bottom:8px;">Seis hábitos que evitan el 90 % de los problemas en una compraventa entre particulares.</p>
+        </header>
+
+        <div style="display:grid; grid-template-columns:190px minmax(0,1fr); gap:56px; padding:40px 0 70px;">
+          <!-- Sumario lateral: bloque NUEVO propuesto (`toc`) -->
+          <aside style="position:sticky; top:120px; align-self:start; font-size:13px;">
+            <p style="font-family:ui-monospace,Menlo,monospace; font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:var(--muted-fg); padding-bottom:10px; border-bottom:1px solid var(--border); margin-bottom:12px;">En esta página</p>
+            <a href="#" style="display:block; padding:6px 0; color:var(--primary); border-left:2px solid var(--primary); padding-left:12px; margin-left:-14px;">Antes de pagar</a>
+            <a href="#" style="display:block; padding:6px 0 6px 12px; color:var(--muted-fg); margin-left:-14px; border-left:2px solid transparent;" style-hover="color:var(--fg);">Señales de alarma</a>
+            <a href="#" style="display:block; padding:6px 0 6px 12px; color:var(--muted-fg); margin-left:-14px; border-left:2px solid transparent;" style-hover="color:var(--fg);">Preguntas frecuentes</a>
+          </aside>
+
+          <div style="max-width:660px; display:flex; flex-direction:column; gap:38px;">
+            <div style="font-size:17.5px; line-height:1.75;">
+              <p style="font-size:20px; line-height:1.6;">Comprar de segunda mano es, casi siempre, una transacción sin sobresaltos. Los problemas se concentran en un puñado de patrones repetidos.</p>
+              <p style="margin-top:18px; color:var(--muted-fg);">Esta guía recoge lo que funciona: comprobaciones rápidas, señales de alarma y qué hacer cuando algo no encaja.</p>
+            </div>
+
+            <blockquote style="margin:0; padding:6px 0 6px 0; border:0;">
+              <p style="font-family:var(--font-heading); font-size:27px; line-height:1.35; letter-spacing:-.02em;">“Si el precio es la mitad de lo que vale y el vendedor tiene prisa, el problema no es el precio.”</p>
+              <footer style="margin-top:14px; font-family:ui-monospace,Menlo,monospace; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted-fg);">Equipo de confianza y seguridad</footer>
+            </blockquote>
+
+            <div>
+              <h2 style="font-family:ui-monospace,Menlo,monospace; font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--muted-fg); padding-bottom:10px; border-bottom:1px solid var(--fg); margin-bottom:0;">Antes de pagar</h2>
+              <ol style="list-style:none; padding:0; margin:0;">
+                <sc-for list="{{ pasosPagina }}" as="p" hint-placeholder-count="3">
+                  <li style="display:flex; gap:24px; align-items:baseline; padding:20px 0; border-bottom:1px solid var(--border);">
+                    <span style="font-family:var(--font-heading); font-size:34px; font-weight:700; color:var(--accent); line-height:1; min-width:38px;">{{ p.n }}</span>
+                    <span>
+                      <span style="display:block; font-size:16.5px; font-weight:600;">{{ p.titulo }}</span>
+                      <span style="display:block; margin-top:4px; font-size:14.5px; color:var(--muted-fg); line-height:1.6;">{{ p.desc }}</span>
+                    </span>
+                  </li>
+                </sc-for>
+              </ol>
+            </div>
+
+            <figure style="margin:0;">
+              <span style="display:block; aspect-ratio:16/9; background-image:repeating-linear-gradient(135deg, var(--muted) 0 9px, var(--bg) 9px 18px);"></span>
+              <figcaption style="margin-top:10px; font-family:ui-monospace,Menlo,monospace; font-size:10.5px; color:var(--muted-fg);">Imagen del bloque · a sangre de la columna, sin marco</figcaption>
+            </figure>
+
+            <div>
+              <h2 style="font-family:ui-monospace,Menlo,monospace; font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--muted-fg); padding-bottom:10px; border-bottom:1px solid var(--fg);">Preguntas frecuentes</h2>
+              <sc-for list="{{ faq }}" as="f" hint-placeholder-count="3">
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:14px; padding:18px 0; border-bottom:1px solid var(--border); font-size:16px; font-weight:500; transition:padding-left var(--motion-duration) var(--motion-ease);" style-hover="padding-left:8px;">{{ f.q }} <span style="color:var(--muted-fg);">＋</span></div>
+              </sc-for>
+            </div>
+
+            <div style="padding:34px 0; border-top:2px solid var(--fg); display:flex; align-items:center; justify-content:space-between; gap:24px;">
+              <p style="font-family:var(--font-heading); font-size:24px; font-weight:700; letter-spacing:-.02em;">¿Algo no encaja en un anuncio?</p>
+              <a href="#" style="flex-shrink:0; display:inline-flex; gap:10px; font-size:16px; font-weight:700; color:var(--primary); border-bottom:2px solid var(--primary); padding-bottom:5px; transition:gap var(--motion-duration) var(--motion-ease);" style-hover="gap:20px;">Denunciar →</a>
+            </div>
+          </div>
+        </div>
+      </main>
+    </sc-if>
+
+    <!-- ═══════════════════ BLOG · A ═══════════════════ -->
+    <sc-if value="{{ blogA }}" hint-placeholder-val="{{ false }}">
+      <main>
+        <section style="border-bottom:1px solid var(--border); background:{{ heroFondo }};">
+          <div style="max-width:1180px; margin:0 auto; padding:58px 16px 48px;">
+            <p style="font-size:11px; font-weight:600; letter-spacing:.24em; text-transform:uppercase; color:var(--primary); margin-bottom:14px;">Revista</p>
+            <h1 style="font-size:clamp(34px,4.6vw,54px); font-weight:800; letter-spacing:-.03em;">Blog</h1>
+            <p style="margin-top:12px; font-size:17px; color:var(--muted-fg);">Consejos, novedades y artículos sobre segunda mano.</p>
+          </div>
+        </section>
+
+        <div style="max-width:1180px; margin:0 auto; padding:44px 16px 70px;">
+          <!-- Destacado: bloque NUEVO propuesto (`featuredPost`) -->
+          <article style="display:grid; grid-template-columns:1.15fr 1fr; gap:34px; align-items:center; border:1px solid var(--border); border-radius:calc(var(--radius) * 2.6); overflow:hidden; background:var(--card); box-shadow:var(--shadow-md); margin-bottom:40px;">
+            <span style="display:block; aspect-ratio:16/10; background-image:repeating-linear-gradient(135deg, var(--muted) 0 9px, var(--card) 9px 18px);"></span>
+            <div style="padding:12px 40px 12px 0;">
+              <span style="display:inline-block; background:color-mix(in srgb, var(--primary) 12%, transparent); color:var(--primary); border-radius:999px; padding:5px 12px; font-size:11.5px; font-weight:600;">guías</span>
+              <h2 style="margin-top:14px; font-size:31px; font-weight:700; line-height:1.15; letter-spacing:-.02em;">Qué mirar antes de comprar una bici de segunda mano</h2>
+              <p style="margin-top:12px; font-size:15.5px; line-height:1.6; color:var(--muted-fg);">Cuadro, transmisión y frenos cuentan la vida entera de una bicicleta. Aprende a leerlos en cinco minutos.</p>
+              <div style="display:flex; align-items:center; gap:10px; margin-top:18px; font-size:12.5px; color:var(--muted-fg);">Marta Ruiz · 12 de marzo de 2026</div>
+            </div>
+          </article>
+
+          <div style="display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:24px;">
+            <sc-for list="{{ posts }}" as="p" hint-placeholder-count="6">
+              <article style="display:flex; flex-direction:column; overflow:hidden; border:1px solid var(--border); border-radius:calc(var(--radius) * 2.2); background:var(--card); box-shadow:var(--shadow-sm); transition:transform var(--motion-duration) var(--motion-ease), box-shadow var(--motion-duration) var(--motion-ease);" style-hover="transform:translateY(-4px); box-shadow:var(--shadow-lg);">
+                <span style="display:block; height:172px; background-image:repeating-linear-gradient(135deg, var(--muted) 0 9px, var(--card) 9px 18px);"></span>
+                <span style="display:flex; flex-direction:column; gap:10px; padding:20px;">
+                  <span><span style="display:inline-block; background:color-mix(in srgb, var(--primary) 12%, transparent); color:var(--primary); border-radius:999px; padding:3px 10px; font-size:11px; font-weight:600;">{{ p.tag }}</span></span>
+                  <span style="font-family:var(--font-heading); font-size:19px; font-weight:700; line-height:1.25; letter-spacing:-.01em;">{{ p.titulo }}</span>
+                  <span style="font-size:13.5px; line-height:1.55; color:var(--muted-fg);">{{ p.extracto }}</span>
+                  <span style="display:flex; justify-content:space-between; margin-top:6px; padding-top:12px; border-top:1px solid var(--border); font-size:11.5px; color:var(--muted-fg);">{{ p.autor }} <span>{{ p.fecha }}</span></span>
+                </span>
+              </article>
+            </sc-for>
+          </div>
+        </div>
+      </main>
+    </sc-if>
+
+    <!-- ═══════════════════ BLOG · B ═══════════════════ -->
+    <sc-if value="{{ blogB }}" hint-placeholder-val="{{ false }}">
+      <main style="max-width:1180px; margin:0 auto; padding:0 16px;">
+        <header style="display:flex; align-items:end; justify-content:space-between; gap:30px; padding:60px 0 26px; border-bottom:2px solid var(--fg);">
+          <h1 style="font-size:clamp(40px,6vw,74px); font-weight:700; letter-spacing:-.04em; line-height:.9;">Blog</h1>
+          <p style="font-size:14.5px; color:var(--muted-fg); max-width:330px; padding-bottom:10px; text-align:right;">Consejos, novedades y artículos sobre segunda mano.</p>
+        </header>
+
+        <div style="display:flex; gap:22px; padding:18px 0; border-bottom:1px solid var(--border); font-family:ui-monospace,Menlo,monospace; font-size:11px; letter-spacing:.1em; text-transform:uppercase;">
+          <span style="color:var(--primary); border-bottom:1px solid var(--primary); padding-bottom:4px;">Todo</span>
+          <span style="color:var(--muted-fg);">Guías</span>
+          <span style="color:var(--muted-fg);">Seguridad</span>
+          <span style="color:var(--muted-fg);">Precios</span>
+          <span style="color:var(--muted-fg);">Novedades</span>
+        </div>
+
+        <!-- Apertura: un solo artículo a dos columnas, sin tarjeta -->
+        <article style="display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:48px; align-items:center; padding:40px 0; border-bottom:1px solid var(--border);">
+          <div>
+            <p style="font-family:ui-monospace,Menlo,monospace; font-size:10.5px; letter-spacing:.14em; text-transform:uppercase; color:var(--accent); margin-bottom:16px;">Guías · lectura de 6 min</p>
+            <h2 style="font-size:clamp(28px,3.6vw,44px); font-weight:700; line-height:1.05; letter-spacing:-.03em;">Qué mirar antes de comprar una bici de segunda mano</h2>
+            <p style="margin-top:16px; font-size:16px; line-height:1.65; color:var(--muted-fg); max-width:460px;">Cuadro, transmisión y frenos cuentan la vida entera de una bicicleta. Aprende a leerlos en cinco minutos.</p>
+            <p style="margin-top:20px; font-family:ui-monospace,Menlo,monospace; font-size:11px; color:var(--muted-fg);">Marta Ruiz — 12.03.2026</p>
+          </div>
+          <span style="display:block; aspect-ratio:5/4; background-image:repeating-linear-gradient(135deg, var(--muted) 0 9px, var(--bg) 9px 18px);"></span>
+        </article>
+
+        <!-- El resto: lista editorial, dos columnas -->
+        <div style="display:grid; grid-template-columns:1fr 1fr; column-gap:56px; padding-bottom:70px;">
+          <sc-for list="{{ posts }}" as="p" hint-placeholder-count="6">
+            <article style="display:grid; grid-template-columns:96px minmax(0,1fr); gap:20px; align-items:start; padding:24px 0; border-bottom:1px solid var(--border); transition:padding-left var(--motion-duration) var(--motion-ease);" style-hover="padding-left:8px;">
+              <span style="display:block; aspect-ratio:1/1; background-image:repeating-linear-gradient(135deg, var(--muted) 0 9px, var(--bg) 9px 18px); border-radius:var(--radius);"></span>
+              <span>
+                <span style="display:block; font-family:ui-monospace,Menlo,monospace; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--accent); margin-bottom:7px;">{{ p.tag }}</span>
+                <span style="display:block; font-family:var(--font-heading); font-size:19px; font-weight:700; line-height:1.25; letter-spacing:-.015em;">{{ p.titulo }}</span>
+                <span style="display:block; margin-top:6px; font-size:13.5px; line-height:1.55; color:var(--muted-fg);">{{ p.extracto }}</span>
+                <span style="display:block; margin-top:9px; font-family:ui-monospace,Menlo,monospace; font-size:10.5px; color:var(--muted-fg);">{{ p.autor }} — {{ p.fecha }}</span>
+              </span>
+            </article>
+          </sc-for>
+        </div>
+      </main>
+    </sc-if>
+
+    <!-- Pie de la plataforma (recreado: 4 columnas + barra) -->
+    <footer style="border-top:1px solid var(--border); padding:44px 0 34px; background:var(--bg);">
+      <div style="max-width:1180px; margin:0 auto; padding:0 16px 30px; display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:32px;">
+        <sc-for list="{{ pie }}" as="col" hint-placeholder-count="4">
+          <div>
+            <h3 style="font-size:13px; font-weight:600; margin-bottom:12px;">{{ col.titulo }}</h3>
+            <ul style="list-style:none; padding:0; display:flex; flex-direction:column; gap:8px;">
+              <sc-for list="{{ col.items }}" as="i" hint-placeholder-count="4">
+                <li><a href="#" style="font-size:13.5px; color:var(--muted-fg);" style-hover="color:var(--fg);">{{ i }}</a></li>
+              </sc-for>
+            </ul>
+          </div>
+        </sc-for>
+      </div>
+      <div style="max-width:1180px; margin:0 auto; padding:22px 16px 0; border-top:1px solid var(--border); display:flex; justify-content:space-between; gap:16px; font-size:13px; color:var(--muted-fg);">
+        <span>© 2026 Mercadillo. Todos los derechos reservados.</span>
+        <nav style="display:flex; gap:16px;"><a href="#">Buscar</a><a href="#">Publicar</a><a href="#">Acceder</a><a href="#">Preferencias de cookies</a></nav>
+      </div>
+    </footer>
+  </div>
+ </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;modeloInicial&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;calido-editorial&quot;,&quot;fresco-confianza&quot;,&quot;premium&quot;,&quot;vibrante&quot;],&quot;default&quot;:&quot;calido-editorial&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Arranque&quot;},&quot;direccionInicial&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;A&quot;,&quot;B&quot;],&quot;default&quot;:&quot;A&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Arranque&quot;}}">
+/* Resolutor de tokens fiel a apps/api/src/modules/estilo:
+   neutral + franja {dh,ds,l} -> token; letra elegida por contraste (mejorTextoSobre). */
+
+function parseHsl(s) { const m = s.match(/([\d.-]+)\s+([\d.-]+)%\s+([\d.-]+)%/); return [ +m[1], +m[2], +m[3] ]; }
+function hslToRgb(h, s, l) {
+  s /= 100; l /= 100;
+  const k = (n) => (n + h / 30) % 12;
+  const a = s * Math.min(l, 1 - l);
+  const f = (n) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  return [f(0), f(8), f(4)];
+}
+function lum(hsl) {
+  const [r, g, b] = hslToRgb(hsl[0], hsl[1], hsl[2]);
+  const c = (v) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
+  return 0.2126 * c(r) + 0.7152 * c(g) + 0.0722 * c(b);
+}
+function contraste(a, b) {
+  const L1 = lum(a), L2 = lum(b);
+  return (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05);
+}
+function css(hsl, alpha) {
+  const base = `${hsl[0]} ${hsl[1]}% ${hsl[2]}%`;
+  return alpha === undefined ? `hsl(${base})` : `hsl(${base} / ${alpha})`;
+}
+function derivar(neutral, franja) {
+  return [ (neutral[0] + franja.dh + 360) % 360, Math.max(0, Math.min(100, neutral[1] + franja.ds)), franja.l ];
+}
+function mejorTexto(color, candidatos) {
+  const c = candidatos.map(parseHsl);
+  return contraste(color, c[0]) >= contraste(color, c[1]) ? c[0] : c[1];
+}
+
+const SOMBRAS_0 = {
+  'shadow-sm': '0 1px 2px 0 rgb(0 0 0 / 0.05)',
+  shadow: '0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)',
+  'shadow-md': '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)',
+  'shadow-lg': '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)',
+};
+
+const MODELOS = [
+  {
+    id: 'calido-editorial', nombre: 'Cálido / Editorial',
+    colores: { primary: '18 68% 42%', secondary: '88 22% 34%', accent: '8 66% 58%', neutral: '30 12% 92%' },
+    textoSobre: ['40 44% 97%', '25 34% 12%'],
+    ejes: {
+      'font-heading': 'Georgia, Cambria, Times New Roman, serif', radius: '0.375rem',
+      'motion-duration': '180ms', 'motion-ease': 'cubic-bezier(0.32, 0.72, 0, 1)',
+      'shadow-sm': '0 1px 2px 0 rgb(60 30 10 / 0.06)',
+      shadow: '0 1px 3px 0 rgb(60 30 10 / 0.10), 0 1px 2px -1px rgb(60 30 10 / 0.09)',
+      'shadow-md': '0 4px 6px -1px rgb(60 30 10 / 0.12), 0 2px 4px -2px rgb(60 30 10 / 0.09)',
+      'shadow-lg': '0 10px 15px -3px rgb(60 30 10 / 0.13), 0 4px 6px -4px rgb(60 30 10 / 0.10)',
+    },
+    // Propuesta: el modelo declara también su TRATAMIENTO de ambiente (ver notas).
+    ambiente: { alfaPrimario: 0.20, alfaAcento: 0.16, patron: 'papel' },
+    versiones: [
+      { id: 'dia', nombre: 'Día', rampa: {
+        background: { dh: 8, ds: 32, l: 97.5 }, foreground: { dh: -5, ds: 18, l: 14 },
+        card: { dh: 10, ds: 38, l: 99 }, muted: { dh: 5, ds: 18, l: 94 },
+        'muted-foreground': { dh: -5, ds: 2, l: 36 }, border: { dh: 2, ds: 12, l: 86 }, input: { dh: -2, ds: 6, l: 55 } } },
+      { id: 'tarde', nombre: 'Tarde', ejes: {
+        'motion-duration': '200ms',
+        shadow: '0 1px 3px 0 rgb(60 30 10 / 0.14), 0 1px 2px -1px rgb(60 30 10 / 0.12)',
+        'shadow-md': '0 4px 8px -1px rgb(60 30 10 / 0.16), 0 2px 5px -2px rgb(60 30 10 / 0.12)',
+        'shadow-lg': '0 12px 18px -3px rgb(60 30 10 / 0.18), 0 5px 8px -4px rgb(60 30 10 / 0.14)' }, rampa: {
+        background: { dh: 2, ds: 26, l: 94 }, foreground: { dh: -8, ds: 22, l: 10 },
+        card: { dh: 6, ds: 32, l: 97 }, muted: { dh: 0, ds: 18, l: 90 },
+        'muted-foreground': { dh: -6, ds: 4, l: 32 }, border: { dh: -2, ds: 14, l: 82 }, input: { dh: -4, ds: 8, l: 50 } } },
+    ],
+  },
+  {
+    id: 'fresco-confianza', nombre: 'Fresco / Confianza',
+    colores: { primary: '222 76% 50%', secondary: '188 62% 46%', accent: '262 65% 55%', neutral: '214 14% 93%' },
+    textoSobre: ['210 40% 98%', '215 45% 12%'],
+    ejes: {
+      'font-heading': 'Avenir Next, Segoe UI, Helvetica Neue, Arial, sans-serif', radius: '0.25rem',
+      'motion-duration': '120ms', 'motion-ease': 'cubic-bezier(0.2, 0, 0, 1)',
+      'shadow-sm': '0 1px 2px 0 rgb(15 30 60 / 0.07)',
+      shadow: '0 1px 2px 0 rgb(15 30 60 / 0.12), 0 1px 1px -1px rgb(15 30 60 / 0.10)',
+      'shadow-md': '0 3px 5px -1px rgb(15 30 60 / 0.13), 0 1px 3px -2px rgb(15 30 60 / 0.10)',
+      'shadow-lg': '0 8px 12px -3px rgb(15 30 60 / 0.14), 0 3px 5px -4px rgb(15 30 60 / 0.11)',
+    },
+    ambiente: { alfaPrimario: 0.14, alfaAcento: 0.12, patron: 'malla' },
+    versiones: [
+      { id: 'claro', nombre: 'Claro', rampa: {
+        background: { dh: -6, ds: 22, l: 99.5 }, foreground: { dh: 4, ds: 28, l: 12 },
+        card: { dh: -6, ds: 22, l: 100 }, muted: { dh: -2, ds: 16, l: 96 },
+        'muted-foreground': { dh: 1, ds: 4, l: 40 }, border: { dh: 0, ds: 10, l: 89 }, input: { dh: 0, ds: 6, l: 53 } } },
+      { id: 'nitido', nombre: 'Nítido', rampa: {
+        background: { dh: -4, ds: 31, l: 99 }, foreground: { dh: 6, ds: 41, l: 9 },
+        card: { dh: -6, ds: 26, l: 100 }, muted: { dh: -2, ds: 24, l: 94.5 },
+        'muted-foreground': { dh: 2, ds: 12, l: 34 }, border: { dh: 0, ds: 18, l: 82 }, input: { dh: 0, ds: 14, l: 46 } } },
+    ],
+  },
+  {
+    id: 'premium', nombre: 'Premium',
+    colores: { primary: '220 45% 30%', secondary: '220 30% 45%', accent: '42 58% 48%', neutral: '220 6% 92%' },
+    textoSobre: ['220 20% 98%', '220 40% 10%'],
+    ejes: {
+      'font-heading': 'Optima, Palatino Linotype, Book Antiqua, Georgia, serif', radius: '0.125rem',
+      'motion-duration': '220ms', 'motion-ease': 'cubic-bezier(0.25, 0.1, 0.25, 1)',
+      'shadow-sm': '0 1px 2px 0 rgb(10 15 30 / 0.05)',
+      shadow: '0 2px 6px -1px rgb(10 15 30 / 0.08), 0 1px 3px -2px rgb(10 15 30 / 0.06)',
+      'shadow-md': '0 6px 14px -3px rgb(10 15 30 / 0.10), 0 3px 6px -4px rgb(10 15 30 / 0.07)',
+      'shadow-lg': '0 14px 28px -6px rgb(10 15 30 / 0.12), 0 6px 10px -8px rgb(10 15 30 / 0.08)',
+    },
+    ambiente: { alfaPrimario: 0.10, alfaAcento: 0.10, patron: 'filete' },
+    versiones: [
+      { id: 'claro', nombre: 'Claro', rampa: {
+        background: { dh: 0, ds: 8, l: 99 }, foreground: { dh: 0, ds: 29, l: 9 },
+        card: { dh: 0, ds: 8, l: 100 }, muted: { dh: 0, ds: 6, l: 95.5 },
+        'muted-foreground': { dh: 0, ds: 4, l: 38 }, border: { dh: 0, ds: 4, l: 86 }, input: { dh: 0, ds: 6, l: 48 } } },
+      { id: 'claro-intenso', nombre: 'Claro intenso', ejes: {
+        'motion-duration': '180ms', 'motion-ease': 'cubic-bezier(0.2, 0.8, 0.2, 1)' }, rampa: {
+        background: { dh: 0, ds: 8, l: 100 }, foreground: { dh: 0, ds: 34, l: 5 },
+        card: { dh: 0, ds: 8, l: 100 }, muted: { dh: 0, ds: 8, l: 93 },
+        'muted-foreground': { dh: 0, ds: 6, l: 30 }, border: { dh: 0, ds: 6, l: 78 }, input: { dh: 0, ds: 8, l: 40 } } },
+      { id: 'oscuro', nombre: 'Oscuro', ejes: {
+        'motion-duration': '200ms',
+        'shadow-sm': '0 1px 2px 0 rgb(0 0 0 / 0.30)',
+        shadow: '0 2px 6px -1px rgb(0 0 0 / 0.40), 0 1px 3px -2px rgb(0 0 0 / 0.30)',
+        'shadow-md': '0 6px 14px -3px rgb(0 0 0 / 0.45), 0 3px 6px -4px rgb(0 0 0 / 0.32)',
+        'shadow-lg': '0 14px 28px -6px rgb(0 0 0 / 0.50), 0 6px 10px -8px rgb(0 0 0 / 0.35)' },
+        foco: { dl: 40 },
+        rampa: {
+        background: { dh: 0, ds: 18, l: 8 }, foreground: { dh: 0, ds: 10, l: 95 },
+        card: { dh: 0, ds: 14, l: 13 }, muted: { dh: 0, ds: 14, l: 18 },
+        'muted-foreground': { dh: 0, ds: 10, l: 68 }, border: { dh: 0, ds: 14, l: 22 }, input: { dh: 0, ds: 10, l: 52 } } },
+    ],
+  },
+  {
+    id: 'vibrante', nombre: 'Vibrante',
+    colores: { primary: '330 78% 45%', secondary: '186 82% 42%', accent: '92 72% 44%', neutral: '30 24% 92%' },
+    textoSobre: ['30 30% 98%', '320 35% 12%'],
+    ejes: {
+      'font-heading': 'Futura, Century Gothic, Trebuchet MS, Verdana, sans-serif', radius: '0.875rem',
+      'motion-duration': '140ms', 'motion-ease': 'cubic-bezier(0.34, 1.3, 0.64, 1)',
+      'shadow-sm': '0 1px 2px 0 rgb(160 20 90 / 0.08)',
+      shadow: '0 2px 6px -1px rgb(160 20 90 / 0.14), 0 1px 3px -2px rgb(160 20 90 / 0.10)',
+      'shadow-md': '0 6px 12px -2px rgb(160 20 90 / 0.16), 0 3px 6px -3px rgb(160 20 90 / 0.11)',
+      'shadow-lg': '0 14px 24px -4px rgb(160 20 90 / 0.18), 0 6px 10px -6px rgb(160 20 90 / 0.12)',
+    },
+    ambiente: { alfaPrimario: 0.26, alfaAcento: 0.24, patron: 'bloques' },
+    versiones: [
+      { id: 'pop', nombre: 'Pop', rampa: {
+        background: { dh: 6, ds: 26, l: 99 }, foreground: { dh: -70, ds: 11, l: 12 },
+        card: { dh: -30, ds: -24, l: 100 }, muted: { dh: 4, ds: 18, l: 96 },
+        'muted-foreground': { dh: -70, ds: -12, l: 38 }, border: { dh: 2, ds: 10, l: 88 }, input: { dh: -2, ds: -2, l: 52 } } },
+      { id: 'suave', nombre: 'Suave', ejes: {
+        'motion-duration': '180ms', 'motion-ease': 'cubic-bezier(0.25, 0.8, 0.3, 1)',
+        'shadow-sm': '0 1px 2px 0 rgb(80 40 60 / 0.06)',
+        shadow: '0 2px 5px -1px rgb(80 40 60 / 0.10), 0 1px 3px -2px rgb(80 40 60 / 0.08)',
+        'shadow-md': '0 5px 10px -2px rgb(80 40 60 / 0.11), 0 2px 5px -3px rgb(80 40 60 / 0.09)',
+        'shadow-lg': '0 12px 20px -4px rgb(80 40 60 / 0.12), 0 5px 9px -6px rgb(80 40 60 / 0.10)' }, rampa: {
+        background: { dh: 8, ds: 32, l: 97.5 }, foreground: { dh: -66, ds: 4, l: 18 },
+        card: { dh: 6, ds: 30, l: 99.5 }, muted: { dh: 6, ds: 22, l: 94 },
+        'muted-foreground': { dh: -66, ds: -14, l: 42 }, border: { dh: 4, ds: 14, l: 84 }, input: { dh: 0, ds: 0, l: 49 } } },
+    ],
+  },
+];
+
+const DATOS = {
+  populares: ['Coches', 'Móviles', 'Muebles', 'Bicicletas', 'Consolas', 'Herramientas'],
+  categorias: [
+    { nombre: 'Vehículos', slug: 'vehiculos', total: '38.204' },
+    { nombre: 'Inmuebles', slug: 'inmuebles', total: '12.870' },
+    { nombre: 'Tecnología', slug: 'tecnologia', total: '24.113' },
+    { nombre: 'Hogar', slug: 'hogar', total: '19.560' },
+    { nombre: 'Deporte', slug: 'deporte', total: '9.402' },
+    { nombre: 'Empleo', slug: 'empleo', total: '4.118' },
+  ],
+  anuncios: [
+    { titulo: 'Volkswagen Golf 1.6 TDI Advance', precio: '8.900 €', atributos: '2015 · 142.000 km · Diésel', lugar: 'Valencia', nota: '4,9', destacado: true },
+    { titulo: 'iPhone 13 128 GB, batería al 91 %', precio: '389 €', atributos: 'Buen estado · Libre', lugar: 'Madrid', nota: '4,7', destacado: false },
+    { titulo: 'Sofá chaise longue 3 plazas, tela gris', precio: '250 €', atributos: 'Como nuevo · 240 cm', lugar: 'Sevilla', nota: '5,0', destacado: false },
+    { titulo: 'Bicicleta gravel talla M, grupo GRX', precio: '1.150 €', atributos: 'Carbono · 2023', lugar: 'Bilbao', nota: '4,8', destacado: false },
+  ],
+  pasos: [
+    { audiencia: 'Para compradores', cta: 'Buscar ahora', items: [
+      { n: 1, titulo: 'Busca y filtra', desc: 'Por categoría, provincia y etiquetas. Guarda la búsqueda y te avisamos.' },
+      { n: 2, titulo: 'Contacta sin dar tu teléfono', desc: 'La mensajería interna mantiene tus datos fuera del anuncio.' },
+      { n: 3, titulo: 'Queda y comprueba', desc: 'Sitio público, revisión en mano y valoración al terminar.' } ] },
+    { audiencia: 'Para vendedores', cta: 'Publicar gratis', items: [
+      { n: 1, titulo: 'Publica en un minuto', desc: 'Fotos, precio y categoría. Sin comisiones ni suscripción.' },
+      { n: 2, titulo: 'Destaca cuando interese', desc: 'Sube tu anuncio a lo alto de la lista los días de más tráfico.' },
+      { n: 3, titulo: 'Cierra el trato', desc: 'Marca el anuncio como vendido y recibe la valoración del comprador.' } ] },
+  ],
+  confianza: [
+    { icono: '◈', titulo: 'Perfiles verificados', desc: 'Correo y teléfono comprobados antes de publicar.' },
+    { icono: '✉', titulo: 'Mensajería interna', desc: 'Tu número no aparece en ningún anuncio.' },
+    { icono: '★', titulo: 'Valoraciones reales', desc: 'Solo valora quien ha cerrado una operación.' },
+    { icono: '⚑', titulo: 'Moderación humana', desc: 'Cada denuncia la revisa una persona, no un filtro.' },
+  ],
+  provincias: ['Madrid', 'Barcelona', 'Valencia', 'Sevilla', 'Zaragoza', 'Málaga', 'Murcia', 'Alicante', 'Bilbao', 'Córdoba', 'Valladolid', 'Vigo', 'Gijón', 'Granada', 'Coruña', 'Pamplona', 'Almería', 'San Sebastián', 'Santander', 'Toledo'],
+  pasosPagina: [
+    { n: 1, titulo: 'Comprueba el perfil', desc: 'Antigüedad de la cuenta, valoraciones y otros anuncios publicados.' },
+    { n: 2, titulo: 'Pide fotos nuevas', desc: 'Con un detalle concreto: la matrícula tapada, el número de serie, la fecha de hoy.' },
+    { n: 3, titulo: 'Paga al recibir', desc: 'Nunca por adelantado, nunca por un medio que no puedas revertir.' },
+  ],
+  faq: [
+    { q: '¿Puedo denunciar un anuncio sin tener cuenta?' },
+    { q: '¿Qué pasa si el vendedor no aparece?' },
+    { q: '¿Se puede pagar dentro de la plataforma?' },
+  ],
+  posts: [
+    { tag: 'precios', titulo: 'Cuánto vale de verdad tu móvil usado', extracto: 'Modelo, estado de batería y accesorios: el peso real de cada factor en el precio final.', autor: 'Javier Soto', fecha: '9 mar 2026' },
+    { tag: 'seguridad', titulo: 'Seis señales de que un anuncio no es lo que parece', extracto: 'Prisa, precio imposible y una historia demasiado buena. Cómo se detectan en treinta segundos.', autor: 'Marta Ruiz', fecha: '2 mar 2026' },
+    { tag: 'guías', titulo: 'Fotografiar para vender: luz, fondo y orden', extracto: 'Las fotos venden antes que el texto. Tres reglas que se aplican con el móvil que ya tienes.', autor: 'Lucía Bernal', fecha: '24 feb 2026' },
+    { tag: 'novedades', titulo: 'Ya puedes subir vídeo a tus anuncios', extracto: 'Quince segundos bastan para enseñar lo que veinte fotos no cuentan.', autor: 'Equipo', fecha: '18 feb 2026' },
+    { tag: 'guías', titulo: 'Vender muebles grandes sin morir en el intento', extracto: 'Medidas, transporte y cómo redactar el anuncio para no perder tiempo.', autor: 'Marta Ruiz', fecha: '11 feb 2026' },
+    { tag: 'precios', titulo: 'El mejor momento del año para vender una bici', extracto: 'La demanda no es plana: hay dos picos claros y un valle que conviene evitar.', autor: 'Javier Soto', fecha: '3 feb 2026' },
+  ],
+  pie: [
+    { titulo: 'Comprar', items: ['Buscar anuncios', 'Categorías', 'Cómo comprar', 'Denunciar'] },
+    { titulo: 'Vender', items: ['Publicar anuncio', 'Destacar', 'Planes', 'Consejos'] },
+    { titulo: 'Plataforma', items: ['Sobre nosotros', 'Blog', 'Contacto', 'Empleo'] },
+    { titulo: 'Legal', items: ['Aviso legal', 'Privacidad', 'Cookies', 'Condiciones'] },
+  ],
+};
+
+class Component extends DCLogic {
+  state = {
+    modelo: this.props.modeloInicial || 'calido-editorial',
+    version: null,
+    direccion: this.props.direccionInicial || 'A',
+    superficie: 'portada',
+  };
+
+  modeloActual() { return MODELOS.find((m) => m.id === this.state.modelo) || MODELOS[0]; }
+  versionActual() {
+    const m = this.modeloActual();
+    return m.versiones.find((v) => v.id === this.state.version) || m.versiones[0];
+  }
+
+  resolver() {
+    const m = this.modeloActual();
+    const v = this.versionActual();
+    const neutral = parseHsl(m.colores.neutral);
+    const ejes = Object.assign({}, SOMBRAS_0, m.ejes, v.ejes || {});
+    const t = {};
+    for (const k of Object.keys(v.rampa)) t[k] = derivar(neutral, v.rampa[k]);
+    const primary = parseHsl(m.colores.primary);
+    const secondary = parseHsl(m.colores.secondary);
+    const accent = parseHsl(m.colores.accent);
+    return {
+      ejes, ambiente: m.ambiente,
+      bg: t.background, fg: t.foreground, card: t.card, muted: t.muted,
+      mutedFg: t['muted-foreground'], border: t.border, input: t.input,
+      primary, primaryFg: mejorTexto(primary, m.textoSobre),
+      secondary, secondaryFg: mejorTexto(secondary, m.textoSobre),
+      accent, accentFg: mejorTexto(accent, m.textoSobre),
+    };
+  }
+
+  renderVals() {
+    const r = this.resolver();
+    const dir = this.state.direccion;
+    const sup = this.state.superficie;
+
+    // Los tokens viajan SUELTOS y se interpolan en el atributo: un hole que ocupa el
+    // atributo `style` entero se resuelve una sola vez y no seguiría al conmutador.
+    const tok = {
+      cBg: css(r.bg), cFg: css(r.fg), cCard: css(r.card), cMuted: css(r.muted),
+      cMutedFg: css(r.mutedFg), cBorder: css(r.border), cInput: css(r.input),
+      cPrimary: css(r.primary), cPrimaryFg: css(r.primaryFg),
+      cSecondary: css(r.secondary), cSecondaryFg: css(r.secondaryFg),
+      cAccent: css(r.accent), cAccentFg: css(r.accentFg),
+      cRadius: r.ejes.radius, cHeading: r.ejes['font-heading'],
+      cShadowSm: r.ejes['shadow-sm'], cShadow: r.ejes.shadow,
+      cShadowMd: r.ejes['shadow-md'], cShadowLg: r.ejes['shadow-lg'],
+      cDur: r.ejes['motion-duration'], cEase: r.ejes['motion-ease'],
+    };
+
+    // El AMBIENTE del hero: capas derivadas de los tokens del modelo, no un color fijo.
+    const a = r.ambiente;
+    const heroFondo = dir === 'A'
+      ? `radial-gradient(120% 92% at 10% -12%, ${css(r.primary, a.alfaPrimario)}, transparent 62%),` +
+        `radial-gradient(96% 74% at 94% -4%, ${css(r.accent, a.alfaAcento)}, transparent 58%),` +
+        `linear-gradient(180deg, ${css(r.muted)} 0%, ${css(r.bg)} 100%)`
+      : css(r.bg);
+
+    const patrones = {
+      papel: `repeating-linear-gradient(58deg, ${css(r.fg, 0.035)} 0 1px, transparent 1px 7px)`,
+      malla: `linear-gradient(${css(r.fg, 0.05)} 1px, transparent 1px) 0 0/34px 34px, linear-gradient(90deg, ${css(r.fg, 0.05)} 1px, transparent 1px) 0 0/34px 34px`,
+      filete: `linear-gradient(180deg, transparent calc(100% - 3px), ${css(r.accent, 0.85)} calc(100% - 3px))`,
+      bloques: `radial-gradient(circle at 82% 88%, ${css(r.secondary, 0.3)} 0 90px, transparent 92px), radial-gradient(circle at 16% 96%, ${css(r.accent, 0.26)} 0 70px, transparent 72px)`,
+    };
+
+    const set = (k) => (e) => this.setState(k === 'modelo' ? { modelo: e.target.value, version: null } : { [k]: e.target.value });
+    const btn = (activo) => `padding:6px 14px; border:0; cursor:pointer; white-space:nowrap; font-family:inherit; font-size:12px; font-weight:600;` +
+      (activo ? 'background:#e8eaed; color:#14161a;' : 'background:transparent; color:#8a919c;');
+
+    return Object.assign(tok, {
+      modelos: MODELOS.map((m) => ({ id: m.id, nombre: m.nombre })),
+      versiones: this.modeloActual().versiones.map((v) => ({ id: v.id, nombre: v.nombre })),
+      modelo: this.state.modelo, version: this.versionActual().id, superficie: sup,
+      setModelo: set('modelo'), setVersion: set('version'), setSuperficie: set('superficie'),
+      dirA: () => this.setState({ direccion: 'A' }),
+      dirB: () => this.setState({ direccion: 'B' }),
+      btnA: btn(dir === 'A'), btnB: btn(dir === 'B'),
+      nombreDireccion: dir === 'A' ? 'Escaparate' : 'Índice',
+      portadaA: sup === 'portada' && dir === 'A', portadaB: sup === 'portada' && dir === 'B',
+      paginaA: sup === 'pagina' && dir === 'A', paginaB: sup === 'pagina' && dir === 'B',
+      blogA: sup === 'blog' && dir === 'A', blogB: sup === 'blog' && dir === 'B',
+      heroFondo, heroPatron: patrones[a.patron],
+      ritmo: dir === 'A' ? '86px' : '64px',
+      populares: DATOS.populares, categorias: DATOS.categorias, anuncios: DATOS.anuncios,
+      pasos: DATOS.pasos, confianza: DATOS.confianza, provincias: DATOS.provincias,
+      pasosPagina: DATOS.pasosPagina, faq: DATOS.faq, posts: DATOS.posts, pie: DATOS.pie,
+    });
+  }
+}
+
+</script>
+</body>
+</html>

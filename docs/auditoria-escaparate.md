@@ -1,7 +1,7 @@
 # Auditoría — El escaparate: los bloques, los CTAs y el hero contra la dirección A
 
 > **Qué es esto.** El mapa del hueco entre la **dirección A («Escaparate»)** de
-> [`docs/Mejoras de estilos de plataforma/Propuestas de estilo.dc.html`](Mejoras%20de%20estilos%20de%20plataforma/Propuestas%20de%20estilo.dc.html)
+> [`docs/mejoras-estilos-plataforma/propuestas-de-estilo.dc.html`](mejoras-estilos-plataforma/propuestas-de-estilo.dc.html)
 > y **lo que hay hoy en el código**. Bloque a bloque, token a token. **Cero código**: esto
 > se escribe para poder diseñar después con las medidas delante.
 >
@@ -47,7 +47,7 @@
 
 La propuesta **no inventa un sistema de estilo**: consume el nuestro. Su `<style>` de
 cabecera declara un `:root` con nuestros nombres y su script
-([líneas 665-696](Mejoras%20de%20estilos%20de%20plataforma/Propuestas%20de%20estilo.dc.html))
+([líneas 665-696](mejoras-estilos-plataforma/propuestas-de-estilo.dc.html))
 dice literalmente «*Resolutor de tokens fiel a `apps/api/src/modules/estilo`*» y reimplementa
 `derivar` (rampa sobre el neutral) y `mejorTexto` (letra por contraste), que es exactamente
 lo que hacen [`resolverTokens`](../apps/api/src/modules/estilo/estilo.constants.ts#L2740-L2790)
@@ -111,7 +111,7 @@ Registro real:
 
 | Bloque | Hoy | La propuesta (dirección A) | Hueco |
 |---|---|---|---|
-| **`cta`** | Un botón suelto centrado: `<div class="flex justify-center">` + `<Button size="lg">` ([`CtaHomeBlockRenderer.tsx`](../apps/web/src/components/home/blocks/CtaHomeBlockRenderer.tsx), [`CtaButton.tsx:52-62`](../apps/web/src/components/shared/CtaButton.tsx#L52-L62)) | **Banda a sangre** en `--primary`: titular + frase + botón inverso a la derecha ([líneas 253-265](Mejoras%20de%20estilos%20de%20plataforma/Propuestas%20de%20estilo.dc.html)) | **E** — ver §2.4 |
+| **`cta`** | Un botón suelto centrado: `<div class="flex justify-center">` + `<Button size="lg">` ([`CtaHomeBlockRenderer.tsx`](../apps/web/src/components/home/blocks/CtaHomeBlockRenderer.tsx), [`CtaButton.tsx:52-62`](../apps/web/src/components/shared/CtaButton.tsx#L52-L62)) | **Banda a sangre** en `--primary`: titular + frase + botón inverso a la derecha ([líneas 253-265](mejoras-estilos-plataforma/propuestas-de-estilo.dc.html)) | **E** — ver §2.4 |
 | **`search`** | `SearchBar` + eyebrow + chips ([`SearchHomeBlockRenderer.tsx`](../apps/web/src/components/home/blocks/SearchHomeBlockRenderer.tsx)) | Mismo contenido, caja `radius*3`, `shadow-lg`, botón de 64 px con brillo, chips que levantan · **y montado −46 px sobre la banda del hero** | **R** en todo, salvo el solapamiento: **E** — ver §2.6 |
 | **`grid`** | Tarjetas `rounded-lg border p-4`, hover `bg-muted/50` ([`GridHomeBlockRenderer.tsx:106-119`](../apps/web/src/components/home/blocks/GridHomeBlockRenderer.tsx#L106-L119)) | Tarjetas centradas con icono en círculo `--muted`, texto atenuado | **R** |
 | **`steps`** | Dos columnas, número en círculo `bg-primary`, CTA `variant="link"` ([`StepsHomeBlockRenderer.tsx`](../apps/web/src/components/home/blocks/StepsHomeBlockRenderer.tsx)) | Cada columna dentro de **tarjeta** (`border`, `radius*2.4`, `shadow-sm`), audiencia en versalitas `--primary` | **R** (la tarjeta es un `className` en el `<div>` que ya existe) |
@@ -240,7 +240,7 @@ cinco un incumplimiento de la regla 5.
 ### 2.6 El solapamiento del buscador — el único sitio donde la propuesta choca con el motor
 
 La propuesta monta el bloque `search` **−46 px sobre la banda del hero** ([línea
-146](Mejoras%20de%20estilos%20de%20plataforma/Propuestas%20de%20estilo.dc.html)). Eso exige
+146](mejoras-estilos-plataforma/propuestas-de-estilo.dc.html)). Eso exige
 que el bloque **sepa que va justo detrás del hero**, y el motor de portada tiene escrita la
 regla contraria: *«Ningún bloque conoce su índice, y por eso el hero NO pasa por aquí»*
 ([`HomeBlockRenderer.tsx:35-36`](../apps/web/src/components/home/HomeBlockRenderer.tsx#L35-L36)).
@@ -872,7 +872,7 @@ el que puede necesitar su propio ambiente.
 
 | Fichero | Qué se comprobó |
 |---|---|
-| `docs/Mejoras de estilos de plataforma/Propuestas de estilo.dc.html` | Dirección A completa (portada 115-283, página 416-489, blog 556-594) y el resolutor (664-975): tokens usados, `heroFondo`/`heroPatron`/`ritmo`, los 4 `ambiente` |
+| `docs/mejoras-estilos-plataforma/propuestas-de-estilo.dc.html` | Dirección A completa (portada 115-283, página 416-489, blog 556-594) y el resolutor (664-975): tokens usados, `heroFondo`/`heroPatron`/`ritmo`, los 4 `ambiente` |
 | `components/home/HomeBlockRenderer.tsx` | **8** tipos de bloque, `space-y-12`, ningún bloque conoce su índice |
 | `components/blocks/BlockRenderer.tsx` | **16** tipos, `space-y-8` |
 | Los 8 renderizadores de portada y los 16 del blog | Clases, hover, radios y estructura de cada uno |
