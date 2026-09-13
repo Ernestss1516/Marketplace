@@ -1,6 +1,12 @@
 import type { APIRequestContext, Page } from '@playwright/test';
 import { test, expect } from './fixtures/auth';
 import { adminApiToken } from './helpers/api';
+import {
+  esperarPortadaEscaparate,
+  ponerPortadaEscaparate,
+  restaurarPortada,
+} from './helpers/portada';
+import { RUTA_BLOG, RUTA_PAGINA } from './helpers/contenido-editorial';
 
 /**
  * ══ E6 · LA FRONTERA, HECHA TEST ═════════════════════════════════════════════════════
@@ -41,7 +47,39 @@ import { adminApiToken } from './helpers/api';
  * lo que oye un lector de pantalla.
  */
 
-const RUTAS_PUBLICAS = ['/planes', '/login', '/registro', '/contacto', '/admin/login'];
+/**
+ * ══ ESCAPARATE · RÁFAGA B — LAS TRES SUPERFICIES QUE FALTABAN ════════════════════════
+ *
+ * Hasta aquí esta lista eran cinco pantallas de formulario y una tabla del backoffice:
+ * sitios donde un modelo tiene poco que reorganizar porque hay poco montado. **Faltaban
+ * justo las tres que más estructura tienen** — la portada y los dos motores de bloques —,
+ * que son las que el escaparate (ráfaga C) va a repintar enteras.
+ *
+ * O sea: la barrera que existe para hacer cumplir «un modelo reviste, no reorganiza» no
+ * miraba el sitio donde más fácil es reorganizar. Entran ahora, ANTES de repintar, porque
+ * una red puesta después del cambio sólo certifica lo que ya hay
+ * (`docs/diseno-escaparate.md` §0.2).
+ *
+ * ── LAS DOS CONDICIONES QUE HUBO QUE CONSTRUIR PARA PODER MEDIRLAS ─────────────────
+ *
+ *  1. **Contenido.** `/blog/[slug]` y `/paginas/[slug]` no tenían nada publicado que
+ *     enseñar: ningún seed creaba un `Post`. Lo siembra ahora `seed-playwright.ts`.
+ *  2. **Una portada medible.** La sembrada lleva un bloque `listings`, y su orden depende
+ *     de la ventana de rotación de 15 minutos — dos lecturas separadas por esa ventana
+ *     darían árboles distintos sin que ningún modelo hubiera hecho nada. Este spec pone la
+ *     suya (`PORTADA_ESCAPARATE`) y la restaura al terminar, que es el contrato que el
+ *     resto de specs de portada ya cumple.
+ */
+const RUTAS_PUBLICAS = [
+  '/',
+  RUTA_BLOG,
+  RUTA_PAGINA,
+  '/planes',
+  '/login',
+  '/registro',
+  '/contacto',
+  '/admin/login',
+];
 const RUTA_BACKOFFICE = '/admin/anuncios';
 
 const COLORES_0 = {
@@ -164,6 +202,23 @@ async function temaDe(page: Page): Promise<string> {
 }
 
 test.describe('Invariancia del HTML entre modelos', () => {
+  // La portada medible, UNA vez para los dos tests (ver `PORTADA_ESCAPARATE`). La espera
+  // NO es cosmética: sin ella la primera lectura de `/` puede salir de la caché anterior y
+  // el rojo diría «un modelo reorganizó» cuando lo que pasó es que el tag aún no se había
+  // invalidado. Medido — ver `esperarPortadaEscaparate`.
+  test.beforeAll(async ({ browser, request }) => {
+    await ponerPortadaEscaparate(request);
+    const calentamiento = await browser.newPage();
+    await esperarPortadaEscaparate(calentamiento);
+    await calentamiento.close();
+  });
+
+  test.afterAll(async ({ request }) => {
+    // Mismo contrato que el resto de specs de portada: se deja como se encontró, o la
+    // corrida siguiente mide una página que el seed no prometió.
+    await restaurarPortada(request);
+  });
+
   test.afterEach(async ({ request }) => {
     // Pase lo que pase, la instancia vuelve al Modelo 0: esto corre dentro de la batería
     // compartida y un tema de prueba fugado repintaría todas las specs siguientes.
@@ -204,6 +259,35 @@ test.describe('Invariancia del HTML entre modelos', () => {
       'el modelo extremo no llegó a la página: la comparación de abajo no probaría nada',
     ).not.toBe(temaCero);
 
+    /**
+     * ⚠ LA SEGUNDA RED, Y NACE CON LAS TRES SUPERFICIES NUEVAS (escaparate, ráfaga B).
+     *
+     * La de arriba comprueba que el TEMA llegó. Ésta comprueba que la PÁGINA es la que se
+     * cree, y hace falta por un modo de fallo que las cinco rutas viejas no tenían:
+     *
+     *   si `/blog/<slug>` diera 404 —el seed cambió el slug, el post nació en borrador,
+     *   el contenido editorial no se sembró— los DOS modelos verían el mismo 404, los dos
+     *   árboles coincidirían y **el test pasaría en verde sin haber medido nada**.
+     *
+     * Es exactamente la clase de verde que esta spec existe para no dar. Así que cada
+     * superficie nueva declara algo que TIENE que estar en su árbol: si no está, no se
+     * está midiendo lo que se cree, y eso es un rojo antes de comparar nada.
+     *
+     * Las cinco rutas viejas no lo necesitan: son rutas estáticas de la aplicación, no
+     * dependen de una fila sembrada. Lo que puede desaparecer sin avisar es el contenido.
+     */
+    const MARCADORES: readonly [ruta: string, marcador: string][] = [
+      ['/', 'Búsquedas frecuentes'],
+      [RUTA_BLOG, 'Qué mirar antes de comprar una bici de segunda mano'],
+      [RUTA_PAGINA, 'Cómo comprar con seguridad'],
+    ];
+    for (const [ruta, marcador] of MARCADORES) {
+      expect(
+        cero[ruta],
+        `«${ruta}» no trae «${marcador}»: o el contenido no está sembrado o no es la página que se cree, y comparar dos árboles vacíos no prueba nada`,
+      ).toContain(marcador);
+    }
+
     // ── 3 · La frontera ───────────────────────────────────────────────────────────
     for (const ruta of [...RUTAS_PUBLICAS, RUTA_BACKOFFICE]) {
       expect(extremo[ruta], `«${ruta}» cambió de estructura al cambiar de modelo`).toBe(
@@ -223,9 +307,15 @@ test.describe('Invariancia del HTML entre modelos', () => {
    *
    * Entra CADA modelo que llega al catálogo, y no como un extra: es la barrera «X y
    * Modelo 0 → HTML idéntico» de su ráfaga, escrita donde se comprueba. Se mide una sola
-   * ruta pública y la del backoffice en vez de las seis: lo que esto añade sobre la prueba
+   * ruta pública y la del backoffice en vez de las ocho: lo que esto añade sobre la prueba
    * de arriba no es cobertura de rutas, es que el catálogo REAL respeta la frontera, y el
    * presupuesto de este job es finito.
+   *
+   * ⚠ ESA RUTA ES AHORA LA PORTADA, Y ANTES ERA `/planes` (ráfaga B del escaparate). Si
+   * sólo se puede pagar una, que sea la que más estructura tiene: la portada monta seis
+   * bloques de un motor configurable, y `/planes` es una tabla de precios. Donde hay más
+   * que reorganizar es donde conviene mirar. `/planes` sigue cubierta por la prueba de
+   * arriba, que recorre las ocho.
    *
    * Se compara contra UNA sola lectura del Modelo 0, tomada una vez: el árbol del Modelo 0
    * no depende de qué modelo se mida después, y volver a leerlo por cada uno sería pagar
@@ -260,15 +350,17 @@ test.describe('Invariancia del HTML entre modelos', () => {
   }) => {
     const paginaAdmin = await adminContext.newPage();
 
+    const RUTA_MEDIDA = '/';
+
     await ponerModelo(request, 'modelo-0', COLORES_0);
-    const temaCero = await temaDe(await abrir(page, '/planes'));
-    const cero = await arbolDe(page, '/planes');
+    const temaCero = await temaDe(await abrir(page, RUTA_MEDIDA));
+    const cero = await arbolDe(page, RUTA_MEDIDA);
     const ceroAdmin = await arbolDe(paginaAdmin, RUTA_BACKOFFICE);
 
     for (const [modelo, version, colores] of DEL_CATALOGO) {
       await ponerModelo(request, modelo, colores, version);
-      const suTema = await temaDe(await abrir(page, '/planes'));
-      const suyo = await arbolDe(page, '/planes');
+      const suTema = await temaDe(await abrir(page, RUTA_MEDIDA));
+      const suyo = await arbolDe(page, RUTA_MEDIDA);
       const suyoAdmin = await arbolDe(paginaAdmin, RUTA_BACKOFFICE);
 
       // La misma red que arriba, y aquí importa más: si el modelo no llegara, los dos
@@ -278,7 +370,7 @@ test.describe('Invariancia del HTML entre modelos', () => {
         `${modelo} no llegó a la página: la comparación no probaría nada`,
       ).not.toBe(temaCero);
 
-      expect(suyo, `«/planes» cambió de estructura con ${modelo}`).toBe(cero);
+      expect(suyo, `«${RUTA_MEDIDA}» cambió de estructura con ${modelo}`).toBe(cero);
       expect(suyoAdmin, `«${RUTA_BACKOFFICE}» cambió de estructura con ${modelo}`).toBe(
         ceroAdmin,
       );

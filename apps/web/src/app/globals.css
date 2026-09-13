@@ -491,13 +491,14 @@
 
      · `brillo` — SÍ. Es la pieza del encargo: el destello que cruza el CTA
        canónico y el botón «Buscar». Es el único KEYFRAME NUEVO con consumidor
-       decidido; los otros tres nacen sin él y conviene no olvidarlo.
+       decidido, y por eso es el único que se queda aquí en bucle.
      · `sube` — SÍ, y no está aquí abajo porque no hace falta: es
        `entrada-suave` con `--entrada-y: 1rem`. Ver el keyframe, más arriba.
-     · `flota` — quizá. La propuesta la DECLARA y no la aplica en la dirección A.
-     · `entra-izq` y `regla-crece` — son de la dirección **B** («Índice»), que no
-       se ha elegido. Entran porque el encargo las nombra; si B nunca llega,
-       sobran y se quitan.
+     · `entra-izq`, `regla-crece` y `flota` — ESTUVIERON AQUÍ Y SE FUERON, en la
+       limpieza que abre la ráfaga B. Las dos primeras son de la dirección **B**
+       («Índice»), que no se eligió; la tercera la propuesta la declara y no la
+       aplica en la A. Nacieron sin consumidor y no se les encontró ninguno, que
+       es la definición de deuda. Vuelven el día que algo las pida.
      · `rot-desliza` — ⚠ NO SE PUEDE APLICAR TAL CUAL, y es importante saberlo
        antes de contar con ella. Nuestra rotación de titular reparte el ciclo
        entre N opciones con CINCO keyframes escritos a mano (`hero-rot-2`…`-6`),
@@ -508,17 +509,16 @@
        enchufable.
    ========================================================================== */
 
-/* CADA UNA ENTRA CON SU CLASE, no suelta. Un @keyframes a pelo obliga a quien lo
-   use a escribir la duración y la curva a mano, y ahí es donde se cuela un
+/* ENTRA CON SU CLASE, no suelta. Un @keyframes a pelo obliga a quien lo use a
+   escribir la duración y la curva a mano, y ahí es donde se cuela un
    `300ms ease-out` que ya no responde al modelo. Con la clase, el tempo sale de
    --motion-* una sola vez y en un sitio.
 
-   Las duraciones propias (3.4s del brillo, 4s de la flotación) NO salen de
-   --motion-duration a propósito: aquél es el tempo de una RESPUESTA —lo que
-   tarda un hover en contestar— y esto son ciclos de ambiente. Meterlos en la
-   misma variable ataría dos cosas que no quieren moverse juntas: 150 ms de
-   brillo sería un parpadeo. Lo que sí sale del modelo es la CURVA, que es donde
-   se nota el carácter. */
+   La duración propia (3.4s) NO sale de --motion-duration a propósito: aquél es el
+   tempo de una RESPUESTA —lo que tarda un hover en contestar— y esto es un ciclo
+   de ambiente. Meterlos en la misma variable ataría dos cosas que no quieren
+   moverse juntas: 150 ms de brillo sería un parpadeo. Lo que sí sale del modelo
+   es la CURVA, que es donde se nota el carácter. */
 
 /* El destello que cruza un botón. Un <span> absoluto y estrecho que recorre la
    caja de izquierda a derecha y espera fuera el resto del ciclo.
@@ -538,58 +538,6 @@
   60%,
   100% {
     transform: translateX(220%);
-  }
-}
-
-/* Entrada lateral. Pareja de `entrada-suave` para maquetas alineadas a la
-   izquierda (dirección B). Mismo escalonado por `--paso` que aquélla, para que
-   las dos se mezclen sin aprender dos vocabularios. */
-.anima-entra-izq {
-  animation: entra-izq var(--motion-duration) var(--motion-ease-emphasis) both;
-  animation-delay: calc(var(--paso, 0) * var(--motion-duration));
-}
-
-@keyframes entra-izq {
-  from {
-    opacity: 0;
-    transform: translateX(-0.875rem);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-/* Una regla que se dibuja sola de izquierda a derecha. El `transform-origin` va
-   en la clase y no en quien la use: sin él la regla crece desde el centro hacia
-   los dos lados, que es otra animación distinta y el fallo fácil de cometer. */
-.anima-regla-crece {
-  transform-origin: left;
-  animation: regla-crece var(--motion-duration) var(--motion-ease-emphasis) both;
-}
-
-@keyframes regla-crece {
-  from {
-    transform: scaleX(0);
-  }
-  to {
-    transform: scaleX(1);
-  }
-}
-
-/* Flotación lenta y corta, para un adorno que no es contenido. 8px de recorrido
-   es el límite de lo que se lee como «respira» y no como «se mueve». */
-.anima-flota {
-  animation: flota var(--flota-duracion, 4s) var(--motion-ease) infinite;
-}
-
-@keyframes flota {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-0.5rem);
   }
 }
 
@@ -621,32 +569,21 @@
   }
 }
 
-/* LA REGLA 5, PAGADA POR ADELANTADO. Ninguna de las cuatro clases tiene
-   consumidor todavía, así que hoy esto no apaga nada — y entra igual, con ellas
-   y no después. El motivo es el de siempre en este fichero: una animación que
-   llega sin su apagado es una que alguien usará antes de que nadie se acuerde.
+/* LA REGLA 5, PAGADA POR ADELANTADO. `.anima-brillo` no tiene consumidor todavía,
+   así que hoy esto no apaga nada — y entra igual, con ella y no después. El
+   motivo es el de siempre en este fichero: una animación que llega sin su apagado
+   es una que alguien usará antes de que nadie se acuerde.
 
-   Degradan a un estado COMPLETO, no mutilado, y eso hay que comprobarlo animación
-   por animación, no darlo por hecho:
+   Degrada a un estado COMPLETO, no mutilado, y eso no es una esperanza: el
+   destello vive en un <span> APARTE, así que apagarlo deja el botón entero. Nada
+   de lo que se lee estaba dentro de la animación.
 
-     · `anima-brillo` — el destello vive en un <span> aparte, así que apagarlo
-       deja el botón ENTERO. Nada de lo que se lee estaba dentro de la animación.
-     · `anima-flota` — el adorno se queda en su sitio (el 0% del ciclo).
-     · `anima-entra-izq` y `anima-regla-crece` — llevan `both`, así que sin
-       animación manda el estado FINAL: el bloque puesto y la regla dibujada. Es
-       la misma razón por la que `.entra-escalonado` puede apagarse de un
-       `animation: none` sin dejar nada en opacidad 0.
-
-   `!important` no hace falta aquí —no compiten con ninguna utilidad de variante,
-   al contrario que las capas de Radix de más arriba— pero se pone igual: estas
-   clases van a acabar en elementos que además llevan utilidades de Tailwind, y
-   un apagado que se pueda perder en una guerra de especificidad no es un
-   apagado. */
+   `!important` no hace falta hoy —no compite con ninguna utilidad de variante, al
+   contrario que las capas de Radix de más arriba— pero se pone igual: esta clase
+   va a acabar en un elemento que además lleva utilidades de Tailwind, y un apagado
+   que se pueda perder en una guerra de especificidad no es un apagado. */
 @media (prefers-reduced-motion: reduce) {
-  .anima-brillo,
-  .anima-entra-izq,
-  .anima-regla-crece,
-  .anima-flota {
+  .anima-brillo {
     animation: none !important;
   }
 }

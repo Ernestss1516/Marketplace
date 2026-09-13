@@ -15,6 +15,7 @@
 
 import {
   PrismaClient,
+  Prisma,
   ProductType,
   SubscriptionStatus,
   EntitlementType,
@@ -458,6 +459,256 @@ async function main() {
   }
 
   console.log('Playwright seed: seller-e2e + buyer-e2e + pro-e2e OK');
+
+  await seedContenidoEditorial();
+}
+
+/**
+ * ══ ESCAPARATE · RÁFAGA B — UN ARTÍCULO Y UNA PÁGINA, DETERMINISTAS ══════════════════
+ *
+ * Ver `docs/diseno-escaparate.md` §3.2.
+ *
+ * ── EL HUECO QUE ESTO TAPA ──────────────────────────────────────────────────────────
+ *
+ * Ni `seed-test.ts` ni este fichero creaban un solo `Post`. Consecuencia: **`/blog/[slug]`
+ * y `/paginas/[slug]` no tenían nada que enseñar**, así que no se les podía extender ni la
+ * invariancia ni la batería visual — y son dos de las tres superficies que el escaparate
+ * va a repintar enteras. Sin contenido no hay red, y sin red no se toca.
+ *
+ * (La única `PAGE` que existe en algún seed es la política de cookies, y nace en `DRAFT`
+ * a propósito: el público no la ve. No sirve para esto.)
+ *
+ * ── POR QUÉ AQUÍ Y NO EN `seed-test.ts` ─────────────────────────────────────────────
+ *
+ * Porque `Post.authorId` es obligatorio y `seed-test.ts` **no crea usuarios** — corre
+ * ANTES que este fichero, precisamente para sembrar lo estático antes que las cuentas.
+ * El autor tiene que existir, así que el contenido editorial vive donde viven sus autores.
+ *
+ * ── QUÉ LOS HACE DETERMINISTAS, QUE ES TODO EL PUNTO ────────────────────────────────
+ *
+ * Una captura que cambia sola no es una red: es ruido con coste de CI. Así que:
+ *
+ *  · **`publishedAt` FIJO**, y a las 12:00 UTC. La ficha lo pinta con
+ *    `toLocaleDateString('es-ES')`, así que una fecha «ahora» daría una captura distinta
+ *    cada día. Las 12:00 y no las 00:00 porque el servidor formatea en SU huso: a
+ *    medianoche, cualquier huso al oeste retrocede el día y la captura cambia de texto
+ *    sin que nadie haya tocado nada.
+ *  · **Ni una imagen.** Sin `coverUrl` y sin bloques `image`/`imageText`. Una imagen
+ *    obliga a que exista el objeto en MinIO y a que cargue a tiempo; si falta, la captura
+ *    fotografía un roto. Los idiomas visuales que el escaparate repinta —tarjeta, caja,
+ *    filete, acordeón, botón— no necesitan ninguna.
+ *  · **Ni un bloque que consulte fuera.** Nada de `listings`: su contenido sale de
+ *    Meilisearch y su orden, de la ventana de rotación de 15 minutos
+ *    (`docs/diseno-rotacion-destacados.md`). Dos capturas a distinto lado de una ventana
+ *    saldrían distintas — un rojo que no significa nada.
+ *
+ * ── LA MUESTRA ES POR IDIOMA VISUAL, NO POR TIPO DE BLOQUE ──────────────────────────
+ *
+ * No están los 16 tipos, y no es pereza: es el mismo criterio con el que la batería visual
+ * eligió sus pantallas («por COBERTURA DE IDIOMA VISUAL, no de rutas»). Están los gestos
+ * que la ráfaga C va a cambiar: el párrafo, la cita, los pasos numerados, el acordeón, la
+ * tabla, las tarjetas de enlace y el CTA — que es el que se convierte en banda.
+ *
+ * ⚠ SI SE TOCA ESTO, CAMBIAN LAS CAPTURAS. Es contenido de una barrera visual, no datos
+ * de relleno: añadir un bloque o cambiar una palabra pone en rojo `publico-blog-articulo`
+ * y `publico-pagina`, y hay que regenerar los baselines a propósito.
+ */
+const BLOG_SLUG = 'guia-comprar-bici-segunda-mano';
+const PAGINA_SLUG = 'como-comprar-con-seguridad';
+const PUBLICADO_EL = new Date('2026-01-15T12:00:00.000Z');
+
+async function seedContenidoEditorial() {
+  const autor = await prisma.user.findUnique({
+    where: { email: 'editor-e2e@example.com' },
+    select: { id: true },
+  });
+  if (!autor) {
+    throw new Error('Playwright seed: falta editor-e2e — el contenido editorial no tiene autor');
+  }
+
+  const articulo = {
+    type: 'POST' as const,
+    title: 'Qué mirar antes de comprar una bici de segunda mano',
+    excerpt:
+      'Cuadro, transmisión y frenos cuentan la vida entera de una bicicleta. Aprende a leerlos en cinco minutos.',
+    tags: ['guias', 'bicicletas'],
+    status: 'PUBLISHED' as const,
+    publishedAt: PUBLICADO_EL,
+    authorId: autor.id,
+    blocks: [
+      {
+        id: 'art-intro',
+        type: 'text',
+        markdown:
+          'Una bicicleta usada cuenta su vida en tres sitios: el **cuadro**, la ' +
+          'transmisión y los frenos. Mirarlos lleva cinco minutos y evita casi todos los ' +
+          'disgustos.\n\nNo hace falta ser mecánico. Hace falta saber dónde mirar.',
+      },
+      {
+        id: 'art-cita',
+        type: 'quote',
+        text: 'Si el precio es la mitad de lo que vale y el vendedor tiene prisa, el problema no es el precio.',
+        author: 'Equipo de confianza y seguridad',
+      },
+      {
+        id: 'art-pasos',
+        type: 'steps',
+        title: 'La revisión de cinco minutos',
+        items: [
+          {
+            title: 'El cuadro, a contraluz',
+            description:
+              'Busca grietas en las uniones y bultos en la pintura. Una soldadura repasada se ve.',
+          },
+          {
+            title: 'La transmisión, girando',
+            description:
+              'Los dientes gastados tienen forma de ola. Si la cadena salta al pedalear fuerte, hay que cambiarla entera.',
+          },
+          {
+            title: 'Los frenos, apretando',
+            description:
+              'La maneta no debe tocar el manillar. En disco, mira el grosor de la pastilla.',
+          },
+        ],
+      },
+      {
+        id: 'art-faq',
+        type: 'faq',
+        title: 'Preguntas frecuentes',
+        items: [
+          {
+            question: '¿Merece la pena una bici sin factura?',
+            answer:
+              'Sí, siempre que el número de cuadro no esté borrado. Un número limado es motivo para irse.',
+          },
+          {
+            question: '¿Cuánto se puede regatear?',
+            answer: 'Lo que cueste reparar lo que has encontrado, ni un euro más.',
+          },
+        ],
+      },
+      {
+        id: 'art-cta',
+        type: 'cta',
+        label: 'Ver bicicletas cerca de ti',
+        href: '/busqueda',
+        style: 'primary',
+      },
+    ] as unknown as Prisma.InputJsonValue,
+  };
+
+  const pagina = {
+    type: 'PAGE' as const,
+    title: 'Cómo comprar con seguridad',
+    excerpt: 'Seis hábitos que evitan casi todos los problemas en una compraventa entre particulares.',
+    tags: [],
+    status: 'PUBLISHED' as const,
+    publishedAt: PUBLICADO_EL,
+    authorId: autor.id,
+    blocks: [
+      {
+        id: 'pag-intro',
+        type: 'text',
+        markdown:
+          'Comprar de segunda mano es, casi siempre, una transacción sin sobresaltos. Los ' +
+          'problemas se concentran en un puñado de patrones repetidos, y todos ellos se ' +
+          'detectan **antes de pagar**.',
+      },
+      {
+        id: 'pag-cita',
+        type: 'quote',
+        text: 'Un vendedor honesto no pondrá ninguna pega en quedar en un sitio público.',
+        author: 'Equipo de confianza y seguridad',
+      },
+      {
+        id: 'pag-pasos',
+        type: 'steps',
+        title: 'Antes de pagar',
+        items: [
+          {
+            title: 'Queda en un sitio público',
+            description: 'Una cafetería, una gasolinera, la puerta de una comisaría.',
+          },
+          {
+            title: 'Comprueba el artículo encendido',
+            description: 'Si lleva batería o pantalla, que funcione delante de ti.',
+          },
+          {
+            title: 'Paga cuando lo tengas en la mano',
+            description: 'Nunca por adelantado, y nunca por un medio que no se pueda reclamar.',
+          },
+        ],
+      },
+      { id: 'pag-sep', type: 'separator' },
+      {
+        id: 'pag-tabla',
+        type: 'table',
+        headers: ['Señal', 'Qué suele significar'],
+        rows: [
+          ['Precio muy por debajo del mercado', 'El artículo no existe o no es lo que dice'],
+          ['Prisa por cerrar', 'No quiere que lo mires con calma'],
+          ['Solo acepta pago por adelantado', 'No hay artículo que entregar'],
+        ],
+      },
+      {
+        id: 'pag-faq',
+        type: 'faq',
+        title: 'Preguntas frecuentes',
+        items: [
+          {
+            question: '¿Puedo pedir el número de serie antes de quedar?',
+            answer: 'Sí, y una negativa sin explicación es una respuesta en sí misma.',
+          },
+          {
+            question: '¿Qué hago si algo no encaja?',
+            answer: 'Denunciar el anuncio lleva veinte segundos y lo revisa una persona.',
+          },
+        ],
+      },
+      {
+        id: 'pag-hub',
+        type: 'hub',
+        title: 'Sigue leyendo',
+        links: [
+          {
+            label: 'Cómo publicar un anuncio',
+            href: '/publicar',
+            description: 'Fotos, descripción y precio en un par de minutos.',
+          },
+          {
+            label: 'Buscar por categoría',
+            href: '/busqueda',
+            description: 'Filtra por provincia, precio y estado.',
+          },
+        ],
+      },
+      {
+        id: 'pag-cta',
+        type: 'cta',
+        label: 'Denunciar un anuncio',
+        href: '/contacto',
+        style: 'primary',
+      },
+    ] as unknown as Prisma.InputJsonValue,
+  };
+
+  for (const [slug, datos] of [
+    [BLOG_SLUG, articulo],
+    [PAGINA_SLUG, pagina],
+  ] as const) {
+    // `update` COMPLETO y no un `create`-si-no-existe: es una fila estática compartida
+    // por toda la corrida y un spec podría haberla editado. Mismo criterio que
+    // `seedHomepageConfig` en seed-test.ts — «un PATCH de un spec sobreviviría para
+    // contaminar la corrida siguiente».
+    await prisma.post.upsert({
+      where: { slug },
+      create: { slug, ...datos },
+      update: datos,
+    });
+  }
+
+  console.log(`Playwright seed: contenido editorial OK (/blog/${BLOG_SLUG}, /paginas/${PAGINA_SLUG})`);
 }
 
 main()
