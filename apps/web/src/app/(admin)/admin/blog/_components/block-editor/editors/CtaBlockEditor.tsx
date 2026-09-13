@@ -1,7 +1,7 @@
 import { AlertCircle } from 'lucide-react';
 import type { CtaBlock } from '@/types/blocks';
 import { isSafeContentUrl, SAFE_URL_HINT } from '@/lib/blocks/validation';
-import { inputCls, labelCls, errorCls } from './shared';
+import { inputCls, labelCls, hintCls, errorCls } from './shared';
 
 const STYLE_OPTIONS: { value: NonNullable<CtaBlock['style']>; label: string }[] = [
   { value: 'primary', label: 'Destacado (relleno)' },
@@ -22,6 +22,38 @@ export function CtaBlockEditor({
 
   return (
     <div className="space-y-3">
+      {/* ── ESCAPARATE C · LA CAJA ────────────────────────────────────────────────
+          Gemelo del editor del bloque `cta` de portada. Con titular, el bloque deja de
+          ser un botón suelto y pasa a ser una caja con el color de la marca. */}
+      <div className="flex flex-col gap-1">
+        <label className={labelCls}>Titular (opcional)</label>
+        <input
+          type="text"
+          value={block.title ?? ''}
+          onChange={(e) => onChange({ title: e.target.value })}
+          className={inputCls}
+          disabled={disabled}
+          placeholder="p.ej. ¿Algo no encaja en un anuncio?"
+          data-testid="cta-title"
+        />
+        <p className={hintCls}>
+          Con titular, el bloque se pinta como una caja destacada con el color de la marca.
+          Sin él, como un botón centrado.
+        </p>
+      </div>
+      <div className="flex flex-col gap-1">
+        <label className={labelCls}>Frase de apoyo (opcional)</label>
+        <input
+          type="text"
+          value={block.description ?? ''}
+          onChange={(e) => onChange({ description: e.target.value })}
+          className={inputCls}
+          disabled={disabled}
+          placeholder="p.ej. Denunciarlo lleva veinte segundos."
+          data-testid="cta-description"
+        />
+        <p className={hintCls}>Solo se muestra si hay titular.</p>
+      </div>
       <div className="flex flex-col gap-1">
         <label className={labelCls}>Texto del botón *</label>
         <input

@@ -7,5 +7,13 @@ import { CtaButton } from '@/components/shared/CtaButton';
 // nunca el tipo `CtaBlock` (docs/diseno-portada.md §4.0) — por eso este fichero
 // sigue existiendo: es quien traduce el bloque del blog a esas props.
 export function CtaBlockRenderer({ block }: { block: CtaBlock }) {
-  return <CtaButton label={block.label} href={block.href} style={block.style ?? 'primary'} />;
+  return (
+    <CtaButton
+      label={block.label}
+      href={block.href}
+      style={block.style ?? 'primary'}
+      title={block.title}
+      description={block.description}
+    />
+  );
 }

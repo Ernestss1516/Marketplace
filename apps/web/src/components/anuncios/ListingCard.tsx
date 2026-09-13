@@ -33,7 +33,10 @@ export function ListingCard({
     // prefetch-on-viewport rinde poco de todos modos (se prefetchean destinos que
     // el usuario no visita), así que el coste de desactivarlo es mínimo.
     <Link href={`/anuncio/${listing.slug}`} className="group block h-full" prefetch={false}>
-      <Card className="h-full overflow-hidden transition-shadow group-hover:shadow-md">
+      {/* ESCAPARATE C — el gesto compartido (`.tarjeta-levanta`, globals.css). Antes era
+          `transition-shadow group-hover:shadow-md`: sombreaba pero no levantaba, y no
+          declaraba `motion-reduce`. */}
+      <Card className="tarjeta-levanta h-full overflow-hidden">
         <CardPhotoCarousel
           images={photos}
           title={listing.title}

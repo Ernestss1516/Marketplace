@@ -219,8 +219,26 @@ export function SearchBar({ defaultValue = '', categories = [] }: SearchBarProps
         )}
       </div>
 
-      <Button type="submit" size="lg" className="h-14 rounded-xl px-6 text-base md:h-16 md:px-8 md:text-lg">
+      {/* ESCAPARATE C — el otro CTA de impacto. La zona de impacto son cuatro sitios
+          (§6.1) y éste es uno: el botón que cierra el buscador de la portada. Lleva el
+          mismo destello que el CTA canónico, con su clase y su `prefers-reduced-motion`
+          (`.anima-brillo`, globals.css).
+
+          El `<span>` del brillo va en un nodo APARTE del texto y con `aria-hidden`, así
+          que apagarlo deja el botón entero. El `currentColor` del degradado hace que el
+          destello sea del color de la letra: contrasta con el relleno sin un color
+          escrito a mano. Ver `CtaButton`, donde está el porqué completo. */}
+      <Button
+        type="submit"
+        size="lg"
+        className="relative h-14 overflow-hidden rounded-xl px-6 text-base md:h-16 md:px-8 md:text-lg"
+      >
         Buscar
+        <span
+          aria-hidden="true"
+          className="anima-brillo pointer-events-none absolute inset-y-0 left-0 w-1/2 opacity-25"
+          style={{ background: 'linear-gradient(90deg, transparent, currentColor, transparent)' }}
+        />
       </Button>
 
       {/* B4 — DESPLEGABLE. Las etiquetas ARRIBA y destacadas; el texto libre al final,

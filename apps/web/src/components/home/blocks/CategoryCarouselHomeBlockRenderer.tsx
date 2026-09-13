@@ -58,7 +58,8 @@ export function CategoryCarouselHomeBlockRenderer({
           <Link
             key={item.categorySlug}
             href={item.href}
-            className="flex w-32 shrink-0 snap-start flex-col items-center gap-2 rounded-xl border p-3 text-center transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-sm"
+            // ESCAPARATE C — el gesto compartido (`.tarjeta-levanta`, globals.css).
+            className="tarjeta-levanta flex w-32 shrink-0 snap-start flex-col items-center gap-2 rounded-xl border bg-card p-3 text-center hover:border-primary/40"
           >
             {isSafeSrc(item.imageUrl) ? (
               // <img> plano y no next/image: el bloque no guarda dimensiones.

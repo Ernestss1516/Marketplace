@@ -142,9 +142,15 @@ export const PORTADA_ESCAPARATE = {
       popularCount: 6,
     },
     {
+      // ESCAPARATE C — CON titular, así que este bloque se pinta como BANDA. Es el
+      // camino nuevo y el que más cambia de aspecto, de modo que la captura tiene que
+      // enseñarlo. El camino sin titular —el botón centrado de siempre, que es lo que
+      // sigue viendo toda portada ya guardada— lo cubre el artículo de blog sembrado.
       id: 'esc-cta',
       type: 'cta',
-      label: '¿Tienes algo que vender? Publica gratis',
+      title: '¿Tienes algo que vender?',
+      description: 'Publicar es gratis. Sin comisiones y sin intermediarios.',
+      label: 'Publicar anuncio',
       href: '/publicar',
       style: 'primary',
     },

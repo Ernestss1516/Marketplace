@@ -106,7 +106,11 @@ export function GridHomeBlockRenderer({ block }: { block: HomeGridBlock }) {
             <SmartLink
               key={idx}
               href={cell.href}
-              className={`${cellCls} rounded-lg border p-4 transition-colors hover:bg-muted/50`}
+              // ESCAPARATE C — el gesto compartido. La celda ENLAZADA se levanta; la
+              // que no enlaza (más abajo) no, porque no se puede tocar: las señales de
+              // confianza son texto, y un texto que reacciona al ratón promete una
+              // navegación que no existe.
+              className={`${cellCls} tarjeta-levanta rounded-lg border bg-card p-4`}
             >
               <CellBody cell={cell} />
             </SmartLink>

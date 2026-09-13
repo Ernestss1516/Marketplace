@@ -12,5 +12,13 @@ import { CtaButton } from '@/components/shared/CtaButton';
  * frontera.
  */
 export function CtaHomeBlockRenderer({ block }: { block: HomeCtaBlock }) {
-  return <CtaButton label={block.label} href={block.href} style={block.style ?? 'primary'} />;
+  return (
+    <CtaButton
+      label={block.label}
+      href={block.href}
+      style={block.style ?? 'primary'}
+      title={block.title}
+      description={block.description}
+    />
+  );
 }

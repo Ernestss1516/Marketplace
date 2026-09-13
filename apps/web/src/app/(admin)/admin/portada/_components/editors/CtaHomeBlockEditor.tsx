@@ -7,7 +7,7 @@ import type { HomeCtaBlock } from '@/types/home-blocks';
 // acoplar nada (docs/diseno-portada.md §4.0). El backend sigue siendo la fuente
 // de verdad; esto solo pone el error junto al campo sin esperar el round-trip.
 import { isSafeContentUrl, SAFE_URL_HINT } from '@/lib/blocks/validation';
-import { inputCls, labelCls, errorCls } from './shared';
+import { inputCls, labelCls, hintCls, errorCls } from './shared';
 
 const STYLE_OPTIONS: { value: NonNullable<HomeCtaBlock['style']>; label: string }[] = [
   { value: 'primary', label: 'Destacado (relleno)' },
@@ -28,6 +28,41 @@ export function CtaHomeBlockEditor({
 
   return (
     <div className="space-y-3">
+      {/* ── ESCAPARATE C · LA BANDA ────────────────────────────────────────────────
+          Con titular, el bloque deja de ser un botón suelto y pasa a ser una banda a
+          color de marca. Los dos campos van PRIMERO porque son los que deciden la
+          forma del bloque: el texto del botón es el detalle, no la cabecera. */}
+      <div className="flex flex-col gap-1">
+        <label className={labelCls}>Titular (opcional)</label>
+        <input
+          type="text"
+          value={block.title ?? ''}
+          onChange={(e) => onChange({ title: e.target.value })}
+          className={inputCls}
+          disabled={disabled}
+          placeholder="p.ej. ¿Tienes algo que vender?"
+          data-testid="cta-title"
+        />
+        <p className={hintCls}>
+          Con titular, el bloque se pinta como una banda destacada con el color de la marca.
+          Sin él, como un botón centrado.
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <label className={labelCls}>Frase de apoyo (opcional)</label>
+        <input
+          type="text"
+          value={block.description ?? ''}
+          onChange={(e) => onChange({ description: e.target.value })}
+          className={inputCls}
+          disabled={disabled}
+          placeholder="p.ej. Publicar es gratis. Sin comisiones."
+          data-testid="cta-description"
+        />
+        <p className={hintCls}>Solo se muestra si hay titular.</p>
+      </div>
+
       <div className="flex flex-col gap-1">
         <label className={labelCls}>Texto del botón *</label>
         <input
@@ -74,6 +109,16 @@ export function CtaHomeBlockEditor({
             </option>
           ))}
         </select>
+        {/* ESCAPARATE C — decirlo aquí evita que alguien cambie el estilo tres veces sin
+            ver nada. La banda tiene UN reparto de color, el que garantiza que su botón se
+            lea sobre ella en los cinco modelos; tres variantes más serían dos repartos
+            sin garantía. Ver `CtaButton`. */}
+        {block.title ? (
+          <p className={hintCls}>
+            Con titular, el bloque se pinta como banda y usa el color de la marca: este
+            estilo solo se aplica al botón centrado (sin titular).
+          </p>
+        ) : null}
       </div>
     </div>
   );

@@ -589,6 +589,70 @@
 }
 
 /* ==========================================================================
+   ESCAPARATE · RÁFAGA C — EL LEVANTAMIENTO DE UNA TARJETA
+
+   ── POR QUÉ UNA CLASE Y NO SEIS RISTRAS DE UTILIDADES ──────────────────────
+
+   Porque había SEIS dialectos distintos para el mismo gesto, y ése es el
+   sedimento que este proyecto ya limpió una vez (los 29 avisos de E0):
+
+     · `ListingCard`            → `transition-shadow group-hover:shadow-md`
+     · `CategoryGrid`           → `-translate-y-0.5 + border-primary/40 + shadow-sm`
+     · `categoryCarousel`       → igual que el anterior
+     · `grid` y `hub`           → `transition-colors hover:bg-muted/50`
+     · tarjeta de post del blog → `hover:shadow-md` + `scale-105` en la foto
+
+   Cinco maneras de decir «esto se puede tocar», y **ninguna** declaraba
+   `motion-reduce`. Unificarlas en utilidades sueltas habría multiplicado por
+   seis esa omisión; con una clase, el apagado va pegado al gesto y no se puede
+   olvidar.
+
+   ── LO QUE HACE, Y POR QUÉ CUMPLE LAS REGLAS DE E6 ─────────────────────────
+
+   `transform` y `box-shadow`, nada más: ninguna reflowea, así que el gesto no
+   puede causar CLS (regla 2). El tempo y la curva salen de `--motion-*`, y la
+   sombra de `--shadow-lg`, así que **el sabor es del modelo sin una sola
+   condición**: Cálido levanta con sombra tibia y 180 ms de salida larga;
+   Premium, con una sombra fría de 28 px y 220 ms casi simétricos. Es el mismo
+   efecto y no se parecen.
+
+   ── EL `:hover` ES PLANO, SIN `@media (hover: hover)` ──────────────────────
+
+   A diferencia del sprite del póster, que sí se encierra ahí porque descargaría
+   una imagen en móvil. Aquí no hay nada que descargar: el coste de un hover
+   pegado tras un toque es que la tarjeta se queda 4 px arriba hasta el
+   siguiente toque. Es lo que ya hacían `CategoryGrid` y el carrusel, así que
+   esto no estrena comportamiento — lo unifica.
+   ========================================================================== */
+.tarjeta-levanta {
+  transition:
+    transform var(--motion-duration) var(--motion-ease),
+    box-shadow var(--motion-duration) var(--motion-ease);
+}
+
+.tarjeta-levanta:hover,
+/* La variante de GRUPO: la tarjeta se levanta cuando el ratón está sobre su
+   enlace envolvente, no sólo sobre ella. `ListingCard` la necesita — es un
+   <a class="group"> con la <Card> dentro. */
+.group:hover .tarjeta-levanta {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-lg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tarjeta-levanta {
+    transition: none;
+  }
+  .tarjeta-levanta:hover,
+  .group:hover .tarjeta-levanta {
+    /* El estado degradado es la tarjeta EN SU SITIO, no a medio camino: se apaga
+       el desplazamiento y se deja la sombra, que es información de elevación y
+       no movimiento. */
+    transform: none;
+  }
+}
+
+/* ==========================================================================
    HERO DE PORTADA — título rotativo (RP.1, docs/diseno-portada.md §3)
 
    CSS PURO, sin JavaScript: el <h1> servido lleva la parte fija más las N
