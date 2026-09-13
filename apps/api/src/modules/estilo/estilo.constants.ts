@@ -537,6 +537,92 @@ export const SEMANTICOS_OSCUROS: Readonly<Record<string, string>> = {
 };
 
 /**
+ * ══ ESCAPARATE · RÁFAGA A — EL AMBIENTE DEL HERO, COMO DOS EJES MÁS ══════════════════
+ *
+ * Ver `docs/diseno-escaparate.md` §2.1. Aquí sólo se DECLARA el vocabulario: en esta
+ * ráfaga **no hay una sola pantalla que lo consuma**, y es deliberado (el criterio es el
+ * de E0 — se añade el idioma, no se repinta nada). Lo aplica la ráfaga C, después de que
+ * la B extienda las redes a portada, blog y páginas.
+ *
+ * ── POR QUÉ SON `ejes` Y NO UN CAMPO `ambiente` NUEVO EN `Modelo` ─────────────────
+ *
+ * Porque `ejes` ya tiene hecha toda la fontanería, y un campo nuevo obligaría a
+ * rehacerla cuatro veces:
+ *
+ *  · **Llegan al navegador solos** — `resolverTokens` termina con
+ *    `Object.assign(tokens, semanticos, ejes)`;
+ *  · **Son afinables POR VERSIÓN sin tocar nada** — E14 mezcla los `ejes` de la versión
+ *    sobre los del modelo, que es justo lo que `premium@oscuro` necesita;
+ *  · **Una zona puede ajustarlos y `zonaSoloAjusta` lo vigila** — si mañana el blog
+ *    quiere otro ambiente, el mecanismo está;
+ *  · **`globals-espejo.spec.ts` obliga a declararlos también en `globals.css`** el mismo
+ *    día. La barrera es gratis: sale de meterlos aquí.
+ *
+ * ── LOS DOS SE CONSUMEN COMO `background`, NO COMO `background-image` ─────────────
+ *
+ * `malla` lleva posición y tamaño (`0 0/34px 34px`), que es sintaxis del atajo
+ * `background` y no de `background-image`. Los dos tokens son, por tanto, valores de
+ * `background` completos. Quien los pinte (ráfaga C) pondrá `background: var(--hero-…)`.
+ *
+ * ── SE ESCRIBEN CON `var()`, NO CON EL COLOR YA RESUELTO ─────────────────────────
+ *
+ * `hsl(var(--primary) / 0.2)` y no `hsl(18 68% 42% / 0.2)`. Así el ambiente **sigue al
+ * color que elija el admin** sin que nada tenga que recalcularse: el alfa es del modelo,
+ * el color es de quien configura la instancia. Es la misma idea que `derivarColor` —
+ * derivar, no fijar un literal con otro nombre.
+ *
+ * ── ⚠ NI UNA COMILLA, Y NO ES UN REMILGO DE ESTILO ───────────────────────────────
+ *
+ * `bloqueDeEstilo` (apps/web/src/lib/estilo-css.ts) descarta **en silencio** todo valor
+ * que no case con `/^[\w\s.,%#()\/-]+$/`. Estos valores usan sólo letras, dígitos,
+ * espacios, comas, paréntesis, `%`, `.`, `/` y guiones: pasan tal cual, verificado uno a
+ * uno. Una comilla los haría desaparecer sin error — que es exactamente cómo se cayeron
+ * los titulares serif de Cálido hasta que alguien lo miró (ver `font-heading`, más abajo).
+ */
+export const PATRONES_DE_HERO = {
+  /** Sin patrón. El Modelo 0 es sobrio por definición, y el de prueba no quiere ruido. */
+  ninguno: 'none',
+  /** CÁLIDO — trama diagonal finísima: el grano del papel de una revista. */
+  papel:
+    'repeating-linear-gradient(58deg, hsl(var(--foreground) / 0.035) 0 1px, transparent 1px 7px)',
+  /** FRESCO — retícula de 34 px: el papel milimetrado de algo que se ha medido. */
+  malla:
+    'linear-gradient(hsl(var(--foreground) / 0.05) 1px, transparent 1px) 0 0/34px 34px, ' +
+    'linear-gradient(90deg, hsl(var(--foreground) / 0.05) 1px, transparent 1px) 0 0/34px 34px',
+  /** PREMIUM — ni trama ni textura: UNA línea de acento al pie de la banda. */
+  filete:
+    'linear-gradient(180deg, transparent calc(100% - 3px), hsl(var(--accent) / 0.85) calc(100% - 3px))',
+  /** VIBRANTE — dos manchas grandes que se salen por abajo. */
+  bloques:
+    'radial-gradient(circle at 82% 88%, hsl(var(--secondary) / 0.3) 0 90px, transparent 92px), ' +
+    'radial-gradient(circle at 16% 96%, hsl(var(--accent) / 0.26) 0 70px, transparent 72px)',
+} as const;
+
+/**
+ * El ambiente de un lienzo CLARO: dos manchas de luz de la marca cayendo desde arriba
+ * sobre un degradado vertical de la superficie atenuada al lienzo.
+ *
+ * Los dos alfas son **la personalidad del modelo**: Cálido se permite 0.20 y Premium se
+ * queda en 0.10, y esa diferencia es la distancia entre «editorial con carácter» y
+ * «discreto». Es el único parámetro; la geometría es común, porque la geometría es
+ * estructura y un modelo que la moviera estaría reorganizando.
+ */
+export function ambienteClaroDeHero(alfaPrimario: number, alfaAcento: number): string {
+  return (
+    `radial-gradient(120% 92% at 10% -12%, hsl(var(--primary) / ${alfaPrimario}), transparent 62%), ` +
+    `radial-gradient(96% 74% at 94% -4%, hsl(var(--accent) / ${alfaAcento}), transparent 58%), ` +
+    'linear-gradient(180deg, hsl(var(--muted)) 0%, hsl(var(--background)) 100%)'
+  );
+}
+
+/**
+ * El ambiente PLANO: exactamente el `bg-primary/5` que la banda del hero lleva hoy
+ * ((home)/page.tsx). Lo usan el Modelo 0 y el de prueba, y es lo que hace que la ráfaga C
+ * **tampoco** mueva el hero del Modelo 0 cuando la banda pase a leer este token.
+ */
+export const AMBIENTE_PLANO_DE_HERO = 'hsl(var(--primary) / 0.05)';
+
+/**
  * MODELO 0 — «Sobrio». Una versión. Es el estado actual de la plataforma, no una
  * versión parecida de él: todos los valores están copiados de `globals.css`.
  */
@@ -667,6 +753,11 @@ export const MODELO_0: Modelo = {
     'motion-sprite-duration': '1.25s',
 
     'icon-stroke': '2',
+
+    // ESCAPARATE A — el ambiente del hero. El Modelo 0 es sobrio: el mismo `primary/5`
+    // plano que la banda lleva hoy, y sin patrón. Ver `PATRONES_DE_HERO`.
+    'hero-ambiente': AMBIENTE_PLANO_DE_HERO,
+    'hero-patron': PATRONES_DE_HERO.ninguno,
   },
 
   /**
@@ -961,6 +1052,12 @@ export const MODELO_PRUEBA: Modelo = {
     'motion-sprite-duration': '2.5s',
 
     'icon-stroke': '1',
+
+    // ESCAPARATE A — PLANO Y SIN PATRÓN, y no por falta de imaginación: éste es el modelo
+    // con el que corre el test de invariancia, y su trabajo es ser extremo en los ejes que
+    // el test IGNORA (color, tipografía, radio, tempo), no meter ruido en el que compara.
+    'hero-ambiente': AMBIENTE_PLANO_DE_HERO,
+    'hero-patron': PATRONES_DE_HERO.ninguno,
   },
 
   /**
@@ -1246,6 +1343,12 @@ export const MODELO_CALIDO_EDITORIAL: Modelo = {
 
     // Trazo de icono más fino: acompaña a la serifa. El Modelo 0 usa 2.
     'icon-stroke': '1.75',
+
+    // ESCAPARATE A — el ambiente MÁS presente del catálogo (0.20 / 0.16). Es el modelo con
+    // más carácter declarado y el que mejor aguanta una banda teñida; el papel le pone el
+    // grano que le falta a un degradado limpio.
+    'hero-ambiente': ambienteClaroDeHero(0.2, 0.16),
+    'hero-patron': PATRONES_DE_HERO.papel,
   },
 
   /**
@@ -1592,6 +1695,12 @@ export const MODELO_FRESCO_CONFIANZA: Modelo = {
 
     // Trazo de icono FINO: acompaña a la geométrica. El Modelo 0 usa 2, el editorial 1.75.
     'icon-stroke': '1.5',
+
+    // ESCAPARATE A — ambiente CONTENIDO (0.14 / 0.12) y malla. Es el modelo de la
+    // precisión: una retícula dice «esto está medido» donde el papel diría «esto está
+    // impreso». Mismo gesto que sus sombras cortas.
+    'hero-ambiente': ambienteClaroDeHero(0.14, 0.12),
+    'hero-patron': PATRONES_DE_HERO.malla,
   },
 
   /**
@@ -2134,6 +2243,36 @@ export const MODELO_PREMIUM: Modelo = {
         'shadow-md': '0 6px 14px -3px rgb(0 0 0 / 0.45), 0 3px 6px -4px rgb(0 0 0 / 0.32)',
         'shadow-lg': '0 14px 28px -6px rgb(0 0 0 / 0.50), 0 6px 10px -8px rgb(0 0 0 / 0.35)',
         'shadow-xl': '0 28px 48px -12px rgb(0 0 0 / 0.55), 0 10px 16px -10px rgb(0 0 0 / 0.38)',
+
+        /**
+         * ══ ESCAPARATE A · EL AMBIENTE DEL HERO, DICHO EN CARBÓN ═══════════════════════
+         *
+         * **La única versión del catálogo que necesita ambiente propio**, y por la misma
+         * razón por la que necesitó `foco` y `SEMANTICOS_OSCUROS`: el molde claro no gira
+         * solo. `ambienteClaroDeHero` va de `muted` a `background` —dos claros— con dos
+         * manchas de marca encima; sobre este carbón sería un degradado de gris oscuro a
+         * gris oscuro con una mancha de **marino sobre negro**, que no es profundidad: es
+         * suciedad. El marino de marca da **1,85:1** contra este lienzo (medido; es el
+         * mismo número que obligó a aclarar el anillo unas líneas más arriba).
+         *
+         * ── QUÉ SE HACE EN SU LUGAR: LA LUZ VIENE DE ARRIBA ──────────────────────────
+         *
+         * Una sola mancha, muy tenue, del color del TEXTO (que en esta versión es claro)
+         * cayendo desde el borde superior sobre el lienzo plano. Es como se da relieve en
+         * un tema oscuro y es coherente con lo que esta misma versión ya decidió dos
+         * líneas más arriba: «en un tema oscuro la elevación la da la luz», que es por lo
+         * que su tarjeta sube a 13 % y su capa flotante a 16 %.
+         *
+         * 5 % es deliberadamente poco. Sobre carbón, un velo de luz se nota mucho antes
+         * que sobre papel; pasarse convierte la banda en una nube gris. **El oscuro pide
+         * sutileza** — es la decisión (b) de `docs/diseno-escaparate.md` §9.
+         *
+         * EL PATRÓN NO SE TOCA: hereda el `filete` del modelo, y ahí el bronce del acento
+         * sobre carbón funciona mejor todavía que sobre el lienzo claro.
+         */
+        'hero-ambiente':
+          'radial-gradient(140% 100% at 50% -20%, hsl(var(--foreground) / 0.05), transparent 60%), ' +
+          'hsl(var(--background))',
       },
     },
   },
@@ -2193,6 +2332,13 @@ export const MODELO_PREMIUM: Modelo = {
 
     // El trazo más fino de los cuatro. Acompaña a la serifa humanista y al radio recto.
     'icon-stroke': '1.25',
+
+    // ESCAPARATE A — el ambiente MÁS discreto del catálogo (0.10 / 0.10) y, en vez de una
+    // trama, UNA línea de bronce al pie de la banda. Es el mismo criterio que su acento:
+    // «el bronce es el único color que este modelo se permite por gusto», así que se gasta
+    // en un filete y no en un fondo.
+    'hero-ambiente': ambienteClaroDeHero(0.1, 0.1),
+    'hero-patron': PATRONES_DE_HERO.filete,
   },
 
   /**
@@ -2561,6 +2707,13 @@ export const MODELO_VIBRANTE: Modelo = {
      * acompaña a la geométrica redonda; es el mismo 2 del Modelo 0 por motivos opuestos.
      */
     'icon-stroke': '2',
+
+    // ESCAPARATE A — el ambiente MÁS cargado del catálogo (0.26 / 0.24) y dos manchas
+    // grandes que se salen por abajo. Es el único modelo cuyo patrón usa el SECUNDARIO: con
+    // un fucsia, un cian y un lima, el patrón puede ser color en vez de textura. Los otros
+    // tres lo dicen en gris o en una línea.
+    'hero-ambiente': ambienteClaroDeHero(0.26, 0.24),
+    'hero-patron': PATRONES_DE_HERO.bloques,
   },
 
   /**
@@ -2998,6 +3151,45 @@ function parejasDeAviso(t: Tokens): readonly [string, string, string, number][] 
      */
     ['borde de campo sobre la tarjeta', t.card, t.input, AA_INTERFAZ],
     ['borde de campo sobre la capa flotante', t.popover, t.input, AA_INTERFAZ],
+    /**
+     * ══ ESCAPARATE A · EL COLOR DE MARCA USADO COMO TEXTO ════════════════════════════
+     *
+     * ── EL HUECO, Y NO LO ABRE EL ESCAPARATE: LO DESTAPA ──────────────────────────
+     *
+     * `text-primary` se usa HOY en el «Publicar anuncio» de la cabecera, en los «Ver
+     * todos» de los bloques de anuncios, en el rótulo del buscador de la portada y en los
+     * enlaces de la tabla de búsquedas. Y **ninguna pareja lo medía**: la lista de arriba
+     * mide la letra que va ENCIMA del primario (`primary-foreground`), nunca el primario
+     * como letra. Son cosas distintas y sólo una estaba vigilada.
+     *
+     * ── MEDIDO EN LAS ONCE COMBINACIONES DEL CATÁLOGO ─────────────────────────────
+     *
+     * Diez cumplen, con el editorial «Tarde» como peor caso claro (4,58). Y una falla:
+     * **`premium@oscuro`, 1,85:1** — el marino de marca sobre el carbón, exactamente el
+     * mismo número que ya obligó a aclarar su anillo con `foco`. Aquel arreglo curó el
+     * anillo y dejó el texto donde estaba, porque nadie lo estaba mirando.
+     *
+     * ── POR QUÉ AVISO Y NO BLOQUEO ────────────────────────────────────────────────
+     *
+     * Porque bloquear aquí **retiraría del catálogo una versión que ya está publicada y
+     * elegida**, sin arreglar nada: `premium@oscuro` no podría guardarse ni con sus
+     * propios colores de fábrica. Y el arreglo de verdad no cabe en esta ráfaga — pasa
+     * por que una versión pueda derivar su primario, que es el §12 de
+     * `docs/auditoria-eje-version.md` y hoy no se puede: los seis tokens de marca los
+     * hereda la versión tal cual.
+     *
+     * Así que se MIDE y se informa. El número sale por `GET /estilo` y lo pinta
+     * `/admin/estilo`, o sea que está delante de quien elija esa versión y delante de
+     * quien escriba la siguiente. Es el mismo criterio, y el mismo párrafo, que el borde
+     * de campo sobre la tarjeta: se sube a la lista de arriba el día que el catálogo
+     * pueda cumplirlo.
+     *
+     * ⚠ **La banda de CTA de la ráfaga C no depende de esto.** Su botón interior va en
+     * `--primary-foreground` sobre `--primary` justamente para apoyarse en una pareja que
+     * YA bloquea; si fuera en `--background` como proponía el boceto, esta medición sería
+     * su barrera y `premium@oscuro` lo pintaría invisible. Ver `diseno-escaparate.md` §4.4.
+     */
+    ['el color principal usado como TEXTO sobre el fondo', t.background, t.primary, AA_TEXTO],
   ];
 }
 
