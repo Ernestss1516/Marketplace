@@ -820,46 +820,37 @@ decisión se tome mirando esto y no descubriendo el problema a mitad.
 > casi entero. No cambia cuál es la salida correcta; sí cambia que **conviene decidirla
 > antes del tercer ambiente, no después**.
 
-#### Las cuatro zonas `login` dejan `muted` en claro dentro de un lienzo oscuro `[DEUDA menor]` — E14
+#### ~~Las zonas `login` dejan superficies en claro dentro de su lienzo oscuro~~ → **CERRADO**
 
-**Latente, no vivo, y descubierto por una barrera nueva.**
+**Eran dos deudas hermanas y se pagaron juntas, porque eran el mismo bloque y la misma causa.**
 
-La zona `login` de los cuatro modelos del catálogo redefine **quince tokens** —lienzo,
-tarjeta, capa flotante, trazo, borde de campo, anillo, primario y el trío destructivo— y
-**deja `muted`, `secondary` y `accent` en sus valores CLAROS**. Sobre un lienzo carbón eso
-significa que `bg-muted` sería una losa casi blanca.
+La zona `login` de los modelos se oscurecía redefiniendo quince tokens y dejaba en CLARO la
+superficie atenuada (`muted`) y las ocho superficies semánticas. Sobre un lienzo carbón eso
+era una losa casi blanca a 18,41:1 y ocho paneles de aviso a 15–19,50:1. **Latente** —
+`/admin/login` sólo pinta `bg-background` y `bg-card`— pero `bg-muted` aparece 225 veces en
+116 ficheros, y la primera versión oscura del catálogo lo habría hecho vivo.
 
-**Hoy no se ve, y por eso nadie lo había mirado:** `/admin/login` pinta sólo
-`bg-background` y `bg-card` (verificado). Lo destapó la barrera de completitud de
-superficies de E14 al medir el anillo contra `muted`: **1,36:1 en el Modelo 0**, 1,51 –
-2,17 en los otros tres.
+**Lo destapó la barrera de completitud de superficies de E14** midiendo el anillo contra
+`muted` (1,36:1 en el Modelo 0), y la hermana apareció al medir la polaridad por zona al
+añadir el quinto modelo.
 
-**Por qué no se arregló en E14-A:** tocar el `muted` de cuatro modelos es un retoque de
-ASPECTO y se aprueba mirándolo; la ráfaga A tenía por criterio no mover un píxel.
+**El arreglo:** cada zona `login` declara su `muted` oscuro y esparce `SEMANTICOS_OSCUROS` —
+el molde que ya usaba `premium@oscuro`—. El anillo contra la atenuada pasó de **1,36–2,17 a
+6,07–9,85**. Las capturas no se movieron ni un píxel, que es la prueba de que la deuda era
+latente.
 
-**Por qué no se deja y ya:** porque `bg-muted` aparece **225 veces en 116 ficheros**, así
-que lo que en una pantalla de servicio es invisible, en una versión oscura —que aplica a
-las cinco zonas— se vería en todas.
+**`secondary` y `accent` se dejaron como estaban en cuatro de los cinco modelos**, y conviene
+que conste: allí son colores de MARCA y dan 3,11–8,44:1 sobre el lienzo del login — el mismo
+rango que dan los dos modelos oscuros de referencia (`premium@oscuro`, Contraluz). Un color de
+marca sobre oscuro tiene que verse. Sólo en el Modelo 0 se cambiaron, porque ahí valen el
+mismo gris que `muted` (son las superficies neutras de shadcn, no marca) y arreglar una sí y
+las otras dos no habría sido arbitrario.
 
-> **Y tiene una hermana, medida al añadir el quinto modelo (2026-09-12):** las mismas zonas
-> `login` dejan también **las ocho superficies semánticas en claro** dentro de su lienzo
-> oscuro — hasta **19,50:1** contra el fondo en el Modelo 0. Es el defecto que la barrera de
-> *coherencia de polaridad* de E14 existe para cazar, y no lo caza porque esa barrera mide la
-> BASE de cada versión, no sus zonas. Está en los **siete pares claros** del catálogo
-> (`premium@oscuro` no, porque su base ya es oscura y sus semánticos están girados).
->
-> Es latente por el mismo motivo que el `muted`: la pantalla de login no pinta un aviso, un
-> éxito ni una información. Y se arregla por el mismo sitio: o la zona declara
-> `SEMANTICOS_OSCUROS` —una zona puede, `zonaSoloAjusta` sólo exige que el nombre exista— o
-> se acepta que un aviso en esa pantalla saldría en claro. **Las dos deudas convienen
-> juntas**: son el mismo bloque, la misma causa y el mismo día de trabajo.
+**El inventario congelado dejó de ser deuda y pasó a regla dura:** `contraste-modelos.spec.ts`
+ya no lista siete huecos tolerados, exige CERO en toda zona de todo modelo y versión. Y la
+coherencia de polaridad, que sólo medía la base, se extendió a las zonas — que es lo que
+impide que esto vuelva.
 
-**Está VIGILADO, no tolerado.** `contraste-modelos.spec.ts` congela la forma de la deuda:
-afirma que **todo hueco es el mismo hueco** (la superficie atenuada, dentro del `login`) y
-que son **exactamente siete** (los siete pares modelo×versión del catálogo; `MODELO_PRUEBA`
-no aparece, y ése es el control negativo). No puede crecer en silencio: un hueco en otra
-zona, en otra superficie, o un modelo nuevo que repita la omisión, ponen el test rojo.
-Pagarlo obliga a acortar esa lista.
 #### Página de tag del blog con URL propia `[DEUDA]` — SEO
 
 **Reverificado 2026-09-02:** `apps/web/src/app/(public)/blog/` contiene solo `[slug]/`,
