@@ -35,8 +35,30 @@ export function SearchHomeBlockRenderer({
     ? categories.slice(0, block.popularCount ?? DEFAULT_POPULAR_COUNT)
     : [];
 
+  /**
+   * ESCAPARATE D — EL BUSCADOR MONTADO SOBRE LA BANDA.
+   *
+   * Con la casilla, el bloque sube y se solapa con el hero; sin ella, se queda donde
+   * estaba. Tres detalles que hacen que funcione y no rompa nada:
+   *
+   *  · `-mt-[5.5rem]` = los 48 px de `py-12` del contenedor de bloques MÁS unos 40 de
+   *    solape real. Es una clase LITERAL porque Tailwind purga lo que no ve escrito.
+   *  · `relative` para pintar POR ENCIMA del fondo de la banda. No hace falta z-index:
+   *    dos elementos posicionados se apilan en orden de documento y éste va después.
+   *  · La banda tiene `overflow-hidden` (por el patrón), pero eso NO recorta esto: el
+   *    buscador es hermano suyo, no descendiente.
+   *
+   * ⚠ SI EL BUSCADOR NO ES EL PRIMER BLOQUE, el margen negativo se come al anterior. El
+   * bloque no puede saberlo —no conoce su índice— así que el aviso vive en el editor,
+   * junto a la casilla. Es feo, no roto, y es la consecuencia aceptada de no dejar que
+   * un bloque deduzca dónde está.
+   */
+  const montado = block.overlapHero
+    ? 'relative -mt-[5.5rem] md:-mt-[6.5rem]'
+    : '';
+
   return (
-    <div>
+    <div className={montado}>
       {block.eyebrow && (
         <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-primary">
           {block.eyebrow}

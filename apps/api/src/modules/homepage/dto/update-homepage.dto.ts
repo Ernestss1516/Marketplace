@@ -1,6 +1,7 @@
 import {
   ArrayMaxSize,
   IsArray,
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -10,6 +11,21 @@ import {
   Min,
 } from 'class-validator';
 import { ValidHomeBlocksArray, type HomeBlockDto } from './blocks';
+
+/**
+ * ESCAPARATE D — LAS TRES ALTURAS DE LA BANDA DEL HERO.
+ *
+ * `normal` es la de siempre; `alto` da más presencia sin comprometerse con el
+ * viewport; `pantalla` ocupa el alto visible y deja ASOMAR el primer bloque por
+ * abajo (decisión 1a: el hero llena la pantalla, no reorganiza la portada en
+ * pantallas sucesivas).
+ *
+ * La lista se exporta porque la consume también el frontend por espejo — y el
+ * espejo es a mano y no un import, por lo mismo que el resto de la frontera
+ * entre apps: `apps/web` no importa de `apps/api`.
+ */
+export const HERO_HEIGHTS = ['normal', 'alto', 'pantalla'] as const;
+export type HeroHeight = (typeof HERO_HEIGHTS)[number];
 
 /**
  * TOPE DE OPCIONES ROTATIVAS DEL HERO = 6.
@@ -72,6 +88,31 @@ export class UpdateHomepageDto {
   @IsString()
   @MaxLength(300)
   heroSubtitle?: string;
+
+  /**
+   * ESCAPARATE D — el rótulo sobre el titular. 80 y no 120 a propósito: es un
+   * ANTEPUESTO, va en versalitas con mucho espaciado entre letras y una línea
+   * larga ahí se lee mal antes de desbordar. El tope es la forma de decirlo.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  heroEyebrow?: string;
+
+  /**
+   * ESCAPARATE D — cuánto ocupa la banda.
+   *
+   * `@IsIn` y no un enum de TypeScript porque el valor viaja como texto y lo que
+   * hace falta es rechazar lo que no esté en la lista: las tres alturas tienen
+   * cada una su clase LITERAL en el frontend (Tailwind purga lo que no ve
+   * escrito), así que una cuarta no «casi funciona» — no existiría.
+   *
+   * Ausente = 'normal', que es la altura de siempre. Es lo que hace que esta
+   * ráfaga no cambie ninguna portada hasta que alguien elija otra cosa.
+   */
+  @IsOptional()
+  @IsIn(HERO_HEIGHTS)
+  heroHeight?: HeroHeight;
 
   // ── Bloques ───────────────────────────────────────────────────────────────
 

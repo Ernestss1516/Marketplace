@@ -90,11 +90,15 @@ test.describe('Editor de portada — hero', () => {
      * (opcional)» para pintarse como banda, así que la palabra aparece ahí por un motivo
      * legítimo y la comprobación se ponía roja sin que el hero se hubiera movido.
      *
-     * Era un INDICIO, no la propiedad. Se sustituye por la propiedad: los cuatro campos
+     * Era un INDICIO, no la propiedad. Se sustituye por la propiedad: TODOS los campos
      * del hero se buscan POR SU `data-testid` dentro de la zona de bloques. Un testid no
      * colisiona con la etiqueta de nadie, así que esto no puede volver a romperse porque
      * un bloque estrene un campo — y de paso comprueba más que antes, que era una sola
      * palabra.
+     *
+     * LA LISTA CRECE CON EL HERO: la ráfaga D le añadió el rótulo y la altura, y entran
+     * aquí el mismo día. Un campo del hero que no esté en esta lista es un campo que
+     * podría mudarse a la zona de bloques sin que nada se pusiera rojo.
      */
     const zonaBloques = page.getByTestId('zona-bloques');
     for (const campoDelHero of [
@@ -102,6 +106,8 @@ test.describe('Editor de portada — hero', () => {
       'hero-rotating-list',
       'hero-rotation-ms',
       'hero-subtitle',
+      'hero-eyebrow',
+      'hero-height',
     ]) {
       await expect(
         zonaBloques.getByTestId(campoDelHero),

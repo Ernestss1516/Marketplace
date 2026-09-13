@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { Category } from '@/types';
-import type { HomeBlock } from '@/types/home-blocks';
+import type { HeroHeight, HomeBlock } from '@/types/home-blocks';
 import { HomeHero } from '@/components/home/HomeHero';
 import { HomeHeroBanda } from '@/components/home/HomeHeroBanda';
 import { HomeBlockRenderer } from '@/components/home/HomeBlockRenderer';
@@ -31,12 +31,16 @@ export function PortadaPreview({
   heroRotatingOptions,
   heroRotationMs,
   heroSubtitle,
+  heroEyebrow,
+  heroHeight,
   blocks,
 }: {
   heroStaticTitle: string;
   heroRotatingOptions: string[];
   heroRotationMs: number;
   heroSubtitle: string;
+  heroEyebrow: string;
+  heroHeight: HeroHeight;
   blocks: HomeBlock[];
 }) {
   const [categories, setCategories] = useState<Category[]>([]);
@@ -73,7 +77,12 @@ export function PortadaPreview({
 
           Los bloques se quedan FUERA de la banda, igual que en la página: allí el hero
           es lo único que va dentro (§3.5 del diseño de portada). */}
-      <HomeHeroBanda>
+      {/* ESCAPARATE D — EL PREVIEW ENSEÑA LA ALTURA ELEGIDA, TAMBIÉN «PANTALLA».
+          Y sí, eso hace que el preview ocupe una pantalla entera dentro del editor. Es
+          deliberado: lo que el admin necesita decidir es precisamente si su hero aguanta
+          ese tamaño, y una versión encogida no responde a esa pregunta. El preview existe
+          para no tener que publicar para verlo. */}
+      <HomeHeroBanda altura={heroHeight}>
         <HomeHero
           key={animKey}
           config={{
@@ -81,6 +90,8 @@ export function PortadaPreview({
             heroRotatingOptions: opciones,
             heroRotationMs,
             heroSubtitle: heroSubtitle.trim() || null,
+            heroEyebrow: heroEyebrow.trim() || null,
+            heroHeight,
             blocks: [],
           }}
         />

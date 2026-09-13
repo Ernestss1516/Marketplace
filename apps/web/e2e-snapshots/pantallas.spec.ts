@@ -1,7 +1,9 @@
 import { test, expect } from '../e2e/fixtures/auth';
 import {
   esperarPortadaEscaparate,
+  esperarPortadaPantalla,
   ponerPortadaEscaparate,
+  ponerPortadaPantalla,
   restaurarPortada,
 } from '../e2e/helpers/portada';
 import { RUTA_BLOG, RUTA_PAGINA } from '../e2e/helpers/contenido-editorial';
@@ -157,6 +159,47 @@ test.describe('Escaparate', () => {
       await expect(page).toHaveScreenshot(`publico-${nombre}.png`, { fullPage: true });
     });
   }
+});
+
+/**
+ * ══ ESCAPARATE · RÁFAGA D — EL HERO A PANTALLA COMPLETA ══════════════════════════════
+ *
+ * La misma portada del describe de arriba, con las tres piezas de la ráfaga puestas:
+ * altura `pantalla`, rótulo y el buscador montado sobre la banda. Ver
+ * `PORTADA_ESCAPARATE_PANTALLA`.
+ *
+ * ── LO QUE ESTA CAPTURA PRUEBA, Y LO QUE PRUEBA LA DE AL LADO ───────────────────────
+ *
+ * Van juntas y dicen cosas distintas:
+ *
+ *   · `publico-portada` sigue en altura `normal` y tiene que quedar **idéntica** tras la
+ *     ráfaga D. Ésa es la prueba de que la migración no cambia ninguna portada existente:
+ *     la pantalla completa no se enciende al desplegar, se enciende cuando un admin la
+ *     elige;
+ *   · `publico-portada-pantalla` enseña qué pasa cuando la elige.
+ *
+ * Se captura a PÁGINA COMPLETA, no sólo el viewport, y es a propósito: lo que hay que
+ * poder mirar no es sólo que el hero llene la pantalla, sino que **el primer bloque asoma
+ * por abajo** y que la portada sigue fluyendo detrás. Un hero a pantalla completa que
+ * reorganizara la página en pantallas sucesivas se vería aquí, y es justo lo que la
+ * decisión 1a descarta.
+ */
+test.describe('Escaparate — hero a pantalla completa', () => {
+  test.beforeAll(async ({ browser, request }) => {
+    await ponerPortadaPantalla(request);
+    const calentamiento = await browser.newPage();
+    await esperarPortadaPantalla(calentamiento);
+    await calentamiento.close();
+  });
+
+  test.afterAll(async ({ request }) => {
+    await restaurarPortada(request);
+  });
+
+  test('portada-pantalla', async ({ page }) => {
+    await preparar(page, '/');
+    await expect(page).toHaveScreenshot('publico-portada-pantalla.png', { fullPage: true });
+  });
 });
 
 // ── Login del backoffice (sin sesión) ───────────────────────────────────────────────────

@@ -159,7 +159,41 @@ async function arbolDe(page: Page, ruta: string): Promise<string> {
       'aria-owns',
       'aria-activedescendant',
     ]);
-    const SALTAR = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT']);
+    /**
+     * ⚠ LO QUE NO SE MIRA, Y LOS CUATRO ÚLTIMOS SE GANARON A PULSO.
+     *
+     * `SCRIPT`, `STYLE` y `NOSCRIPT` estaban desde el principio: el primero lleva la
+     * carga de React y el segundo ES el tema.
+     *
+     * Los otros cuatro entran tras un rojo de CI que costó entender, y conviene que
+     * quede escrito porque el mensaje despistaba: decía «/blog/… cambió de estructura al
+     * cambiar de modelo» y **ningún modelo había cambiado nada**. Lo que difería era:
+     *
+     *  · `<next-route-announcer>` — el elemento que el router de Next inyecta al
+     *    hidratar para anunciar los cambios de ruta. En una captura salía antes del
+     *    `<title>` y en la otra después de los `<meta>`;
+     *  · `<title>`, `<meta>` y `<link>` — metadatos que React coloca y luego IZA al
+     *    `<head>`. Mientras ese viaje está a medias, se ven dentro del `<body>`.
+     *
+     * O sea: nodos de FONTANERÍA cuyo sitio depende del instante en que se serialice,
+     * no de la página. Comparar eso es medir el reloj. Es la misma razón por la que ya
+     * se ignoran los identificadores que Radix numera por orden de montaje — ruido, no
+     * señal — y no debilita la barrera: lo que esta spec vigila es la estructura
+     * visible, y `<title>` y `<meta>` pertenecen al `<head>`, que este recorrido (que
+     * arranca en `document.body`) no lee ni cuando están en su sitio.
+     *
+     * Apareció al ampliar la lista de rutas al blog y a las páginas (ráfaga B) y tardó
+     * tres corridas en manifestarse, que es lo que hacen los flakes.
+     */
+    const SALTAR = new Set([
+      'SCRIPT',
+      'STYLE',
+      'NOSCRIPT',
+      'NEXT-ROUTE-ANNOUNCER',
+      'TITLE',
+      'META',
+      'LINK',
+    ]);
     const salida: string[] = [];
 
     const recorrer = (nodo: Node): void => {

@@ -77,6 +77,31 @@ export function SearchHomeBlockEditor({
           </p>
         </div>
       )}
+
+      {/* ── ESCAPARATE D · MONTAR EL BUSCADOR SOBRE EL HERO ──────────────────────── */}
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={block.overlapHero ?? false}
+          onChange={(e) => onChange({ overlapHero: e.target.checked })}
+          disabled={disabled}
+          data-testid="search-overlap-hero"
+        />
+        Montar el buscador sobre la banda del hero
+      </label>
+
+      {block.overlapHero && (
+        // EL AVISO, Y NO UNA BARRERA. El bloque no puede saber si es el primero —ningún
+        // bloque conoce su índice, y ésa es la regla que la casilla existe para
+        // respetar—, así que la comprobación no puede vivir en el código: vive aquí,
+        // donde alguien acaba de marcarla. Con el buscador en tercer puesto el resultado
+        // es feo, no roto.
+        <p className={hintCls} data-testid="search-overlap-hint">
+          El buscador sube y se solapa con el hero. Sólo queda bien si el buscador es el
+          PRIMER bloque de la lista; si va más abajo, se montará sobre el bloque anterior.
+          Es lo que llena el hero cuando su altura es «pantalla completa».
+        </p>
+      )}
     </div>
   );
 }

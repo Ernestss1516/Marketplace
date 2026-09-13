@@ -207,6 +207,63 @@ export async function ponerPortadaEscaparate(request: APIRequestContext): Promis
 }
 
 /**
+ * ══ ESCAPARATE · RÁFAGA D — LA MISMA PORTADA, CON EL HERO A PANTALLA COMPLETA ════════
+ *
+ * Las tres piezas de la decisión 1a y la 2, juntas y en una sola captura:
+ *
+ *   · `heroHeight: 'pantalla'` — la banda ocupa el alto visible menos la cabecera y el
+ *     asomo, para que el primer bloque se vea por abajo;
+ *   · `heroEyebrow` — el rótulo que llena la parte de arriba;
+ *   · `overlapHero` en el buscador — que sube y se monta sobre la banda, y que es LO QUE
+ *     ASOMA. Sin él, un hero de pantalla completa con un titular solo dentro se lee como
+ *     una página a medio hacer, que es justo lo que la decisión 2 descarta.
+ *
+ * ── POR QUÉ ESTO ES UNA CAPTURA APARTE Y NO SE CAMBIA `PORTADA_ESCAPARATE` ─────────
+ *
+ * Porque las dos cosas que hay que demostrar son distintas y se demuestran mejor por
+ * separado:
+ *
+ *   1. que la ráfaga D **no cambia ninguna portada existente** — y eso se ve en que la
+ *      captura `publico-portada`, que sigue en `normal`, queda IDÉNTICA. Si se hubiera
+ *      cambiado esa config, esa prueba se habría perdido;
+ *   2. que la pantalla completa hace lo que promete — y eso se ve aquí.
+ *
+ * Cuesta dos capturas más (escritorio y móvil) y compra las dos pruebas.
+ */
+export const PORTADA_ESCAPARATE_PANTALLA = {
+  ...PORTADA_ESCAPARATE,
+  heroEyebrow: 'Miles de anuncios cerca de ti',
+  heroHeight: 'pantalla',
+  blocks: PORTADA_ESCAPARATE.blocks.map((b) =>
+    (b as { type?: string }).type === 'search' ? { ...(b as object), overlapHero: true } : b,
+  ),
+};
+
+/** Pone la portada con el hero a pantalla completa. Quien la llame DEBE restaurar. */
+export async function ponerPortadaPantalla(request: APIRequestContext): Promise<void> {
+  const res = await authedPatch(
+    request,
+    '/admin/homepage',
+    adminApiToken(),
+    PORTADA_ESCAPARATE_PANTALLA,
+  );
+  expect(res.status(), await res.text()).toBe(200);
+}
+
+/**
+ * Espera a que la portada refleje la variante de pantalla completa. Mismo mecanismo y
+ * mismos dos cuidados que `esperarPortadaEscaparate`; lo que cambia es el marcador: aquí
+ * es el RÓTULO, que la otra portada no tiene.
+ */
+export async function esperarPortadaPantalla(page: Page): Promise<void> {
+  await expect(async () => {
+    await page.goto('/', { waitUntil: 'load' });
+    const visto = await page.getByText('Miles de anuncios cerca de ti').count();
+    if (visto === 0) throw new Error('la portada aún no refleja PORTADA_ESCAPARATE_PANTALLA');
+  }).toPass({ timeout: 30_000 });
+}
+
+/**
  * ⚠ ESPERA A QUE LA PORTADA REFLEJE LA CONFIG, Y NO ES OPCIONAL.
  *
  * `PATCH /admin/homepage` responde 200 en cuanto guarda; la invalidación del tag

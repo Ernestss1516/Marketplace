@@ -81,7 +81,7 @@ export default async function HomePage() {
           comparten esta página y el preview del editor. Era la misma maquetación
           copiada en dos sitios, y con el ambiente del modelo dentro las dos habrían
           divergido. Ver el porqué en ese componente. */}
-      <HomeHeroBanda>
+      <HomeHeroBanda altura={homepage.heroHeight}>
         <HomeHero config={homepage} />
       </HomeHeroBanda>
 

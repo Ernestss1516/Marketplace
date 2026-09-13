@@ -43,6 +43,8 @@ const EMPTY: FormState = {
   heroRotatingOptions: [],
   heroRotationMs: 3000,
   heroSubtitle: '',
+  heroEyebrow: '',
+  heroHeight: 'normal',
   blocks: [],
 };
 
@@ -145,6 +147,8 @@ export default function AdminPortadaPage() {
         heroRotatingOptions: config.heroRotatingOptions,
         heroRotationMs: config.heroRotationMs,
         heroSubtitle: config.heroSubtitle ?? '',
+        heroEyebrow: config.heroEyebrow ?? '',
+        heroHeight: config.heroHeight ?? 'normal',
         blocks: config.blocks,
       });
       setDirty(false);
@@ -178,6 +182,10 @@ export default function AdminPortadaPage() {
         heroRotationMs: values.heroRotationMs,
         // Vacío = se borra: el cuerpo es un reemplazo completo, no un parche.
         heroSubtitle: values.heroSubtitle.trim() || undefined,
+        // Vacío = se borra, igual que el subtítulo. La altura siempre viaja: no tiene
+        // estado «sin elegir» —siempre hay una— y omitirla la devolvería a «normal».
+        heroEyebrow: values.heroEyebrow.trim() || undefined,
+        heroHeight: values.heroHeight,
         blocks: values.blocks,
       });
       // Se repuebla con lo que devolvió el servidor, no con lo que se mandó: si
@@ -188,6 +196,8 @@ export default function AdminPortadaPage() {
         heroRotatingOptions: config.heroRotatingOptions,
         heroRotationMs: config.heroRotationMs,
         heroSubtitle: config.heroSubtitle ?? '',
+        heroEyebrow: config.heroEyebrow ?? '',
+        heroHeight: config.heroHeight ?? 'normal',
         blocks: config.blocks,
       });
       setDirty(false);
@@ -238,6 +248,8 @@ export default function AdminPortadaPage() {
         heroRotatingOptions={values.heroRotatingOptions}
         heroRotationMs={values.heroRotationMs}
         heroSubtitle={values.heroSubtitle}
+        heroEyebrow={values.heroEyebrow}
+        heroHeight={values.heroHeight}
         blocks={values.blocks}
       />
 

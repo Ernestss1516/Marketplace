@@ -1,4 +1,4 @@
-import type { HomeBlock, HomepageConfig } from '@/types/home-blocks';
+import type { HeroHeight, HomeBlock, HomepageConfig } from '@/types/home-blocks';
 import { apiFetch } from './client';
 
 /**
@@ -15,6 +15,10 @@ export interface UpdateHomepagePayload {
   heroRotatingOptions?: string[];
   heroRotationMs?: number;
   heroSubtitle?: string;
+  /** ESCAPARATE D — vacío se manda como ausente: el cuerpo es un reemplazo completo. */
+  heroEyebrow?: string;
+  /** ESCAPARATE D — ausente = 'normal'. Siempre se manda: no hay estado «sin elegir». */
+  heroHeight?: HeroHeight;
   blocks: HomeBlock[];
 }
 
