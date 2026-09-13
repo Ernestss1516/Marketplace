@@ -246,6 +246,58 @@
        lucide pinta hoy, y en el repo no hay ni un `strokeWidth` propio que esta
        regla pudiera pisar (verificado: cero). */
     --icon-stroke: 2;
+
+    /* ── ESCAPARATE · RÁFAGA A · EL AMBIENTE DEL HERO ──────────────────────────
+       Espejo de `MODELO_0.ejes` (estilo.constants.ts), y no una copia por
+       comodidad: `globals-espejo.spec.ts` compara los dos ficheros token a token
+       y se pone rojo si divergen. El respaldo tiene que decir lo mismo que el
+       modelo, o la plataforma se vería de una manera con el backend en pie y de
+       otra sin él.
+
+       EL MODELO 0 ES SOBRIO: el ambiente es el `bg-primary/5` PLANO que la banda
+       del hero lleva escrito hoy en (home)/page.tsx, y no hay patrón. Eso es lo
+       que hace que la ráfaga C —cuando la banda pase a leer estos tokens— no
+       mueva un píxel del Modelo 0 y las capturas sigan verdes.
+
+       ⚠ NADIE LOS CONSUME TODAVÍA, y es el criterio entero de esta ráfaga: se
+       añade el vocabulario, no se repinta nada. El primer consumidor será
+       `HomeHeroBanda` en la ráfaga C, después de que la B extienda las redes a
+       portada, blog y páginas. Ver docs/diseno-escaparate.md §2.1. */
+    --hero-ambiente: hsl(var(--primary) / 0.05);
+    --hero-patron: none;
+
+    /* ══ ESCAPARATE · RÁFAGA A · LA CAPA INVIOLABLE, POR FIN CON NOMBRE ═════════
+       Estos tres NO son del modelo, y la diferencia con los dos de arriba es la
+       frontera entera del sistema (§3.2 del diseño y el bloque T3 de más arriba):
+       **espaciado, alturas y anchos no son personalidad, son estructura**. Un
+       modelo que los moviera estaría reorganizando en vez de revistiendo.
+
+       ── CÓMO SE HACE CUMPLIR ESO, QUE ES LO BUENO ──────────────────────────────
+       No con este comentario: con el mecanismo que ya existe. Los tokens llegan
+       al navegador desde `resolverTokens`, que sólo emite rampa + marca +
+       semánticos + `ejes`. Un token que NO está en `ejes` sencillamente no existe
+       para ningún modelo — y tampoco para ninguna zona: `zonaSoloAjusta` recorre
+       las zonas de cada modelo y de cada versión y pone CI en rojo si una nombra
+       algo que no esté en la base. Así que declararlos SÓLO aquí es lo que los
+       vuelve intocables, y está verificado que la comprobación inversa de
+       `globals-espejo.spec.ts` no los delata: sólo persigue nombres semánticos.
+
+       ── QUÉ SON ────────────────────────────────────────────────────────────────
+       `--ritmo-bloques` es el aire entre bloques del escaparate. Hoy ese valor
+       está escrito como `space-y-12` en HomeBlockRenderer y `space-y-8` en
+       BlockRenderer; la ráfaga C los unifica aquí. Vale 3rem = los 48px de
+       `space-y-12` de hoy: el valor definitivo del escaparate lo fija C, cuando
+       se pueda mirar.
+
+       `--altura-cabecera` y `--asomo-hero` son las dos restas del hero a pantalla
+       completa (ráfaga D): `min-height: calc(100svh - cabecera - asomo)`. La
+       primera es la `h-16` del <header> sticky; la segunda, lo que se deja ver
+       del primer bloque para invitar a bajar — la decisión 1a.
+
+       ⚠ NADIE LOS CONSUME TODAVÍA. Igual que los dos de arriba. */
+    --ritmo-bloques: 3rem;
+    --altura-cabecera: 4rem;
+    --asomo-hero: 3rem;
   }
 
   .dark {
@@ -371,10 +423,20 @@
   animation-delay: calc(var(--paso, 0) * var(--motion-duration));
 }
 
+/* ESCAPARATE A — EL RECORRIDO, AHORA PARAMETRIZADO, Y ES LO QUE EVITA UN SEGUNDO
+   KEYFRAME. La dirección A de la propuesta pide una entrada con más viaje para el hero
+   (la llama `sube`: 1rem en vez de 0,5). Eso NO es otra animación — es ésta con otro
+   desplazamiento—, así que en vez de duplicar el keyframe se abre una variable.
+
+   ⚠ EL VALOR POR DEFECTO ES EL DE SIEMPRE. Sin `--entrada-y`, `var()` cae a `0.5rem` y
+   las dos piezas que hoy usan `.entra-escalonado` —el subtítulo del hero y las tarjetas
+   de los accesos— se mueven exactamente lo que se movían. Cambio nulo, que es el
+   criterio de esta ráfaga. Quien quiera el recorrido largo lo pide con
+   `--entrada-y: 1rem` en su elemento, y eso ocurre en la ráfaga C. */
 @keyframes entrada-suave {
   from {
     opacity: 0;
-    transform: translateY(0.5rem);
+    transform: translateY(var(--entrada-y, 0.5rem));
   }
   to {
     opacity: 1;
@@ -398,6 +460,193 @@
   [class~='animate-out'],
   [class*=':animate-in'],
   [class*=':animate-out'] {
+    animation: none !important;
+  }
+}
+
+/* ==========================================================================
+   ESCAPARATE · RÁFAGA A — EL VOCABULARIO DE MOVIMIENTO
+
+   Las animaciones de la dirección A de la propuesta (docs/diseno-escaparate.md
+   §2.3), DECLARADAS Y SIN UN SOLO CONSUMIDOR. Ese «sin consumidor» es el
+   criterio de la ráfaga, no un descuido: se añade el idioma; repintar es la C,
+   y la C va detrás de la B, que es la que extiende las redes a portada, blog y
+   páginas. Un `@keyframes` que nadie referencia no pinta nada — por eso este
+   bloque entero puede entrar con las 50 capturas intactas.
+
+   ── POR QUÉ AQUÍ Y FUERA DE @layer ────────────────────────────────────────
+   Mismo motivo que la rotación del hero y que la curva de las capas, dos veces
+   escrito ya en este fichero: Tailwind purga el contenido de @layer según lo
+   que encuentra ESCRITO en el código, y estas reglas no se van a escribir hasta
+   la ráfaga C. Dentro de una capa, el purge se las llevaría por delante.
+
+   ── LOS NOMBRES ───────────────────────────────────────────────────────────
+   Kebab-case, como el resto del fichero (`entrada-suave`, `sprite-play`), no el
+   camelCase del boceto. La correspondencia, para quien venga del documento:
+   brillo→brillo · sube→`entrada-suave` con `--entrada-y` · entraIzq→entra-izq ·
+   reglaCrece→regla-crece · rotDesliza→rot-desliza · flota→flota.
+
+   ── QUÉ VA A USAR LA RÁFAGA C, Y QUÉ NO ───────────────────────────────────
+   Conviene que esté escrito, porque vocabulario que nadie reclama es deuda:
+
+     · `brillo` — SÍ. Es la pieza del encargo: el destello que cruza el CTA
+       canónico y el botón «Buscar». Es el único de los seis con consumidor
+       decidido.
+     · `sube` — SÍ, y no está aquí abajo porque no hace falta: es
+       `entrada-suave` con `--entrada-y: 1rem`. Ver el keyframe, más arriba.
+     · `flota` — quizá. La propuesta la DECLARA y no la aplica en la dirección A.
+     · `entra-izq` y `regla-crece` — son de la dirección **B** («Índice»), que no
+       se ha elegido. Entran porque el encargo las nombra; si B nunca llega,
+       sobran y se quitan.
+     · `rot-desliza` — ⚠ NO SE PUEDE APLICAR TAL CUAL, y es importante saberlo
+       antes de contar con ella. Nuestra rotación de titular reparte el ciclo
+       entre N opciones con CINCO keyframes escritos a mano (`hero-rot-2`…`-6`),
+       porque los porcentajes de un @keyframes no admiten calc(). Esto es la
+       forma del boceto para TRES opciones; llevarla al sistema es reescribir
+       esas cinco reglas con su transform, sobre los hijos del elemento
+       candidato a LCP. Queda como referencia de la FORMA, no como pieza
+       enchufable.
+   ========================================================================== */
+
+/* CADA UNA ENTRA CON SU CLASE, no suelta. Un @keyframes a pelo obliga a quien lo
+   use a escribir la duración y la curva a mano, y ahí es donde se cuela un
+   `300ms ease-out` que ya no responde al modelo. Con la clase, el tempo sale de
+   --motion-* una sola vez y en un sitio.
+
+   Las duraciones propias (3.4s del brillo, 4s de la flotación) NO salen de
+   --motion-duration a propósito: aquél es el tempo de una RESPUESTA —lo que
+   tarda un hover en contestar— y esto son ciclos de ambiente. Meterlos en la
+   misma variable ataría dos cosas que no quieren moverse juntas: 150 ms de
+   brillo sería un parpadeo. Lo que sí sale del modelo es la CURVA, que es donde
+   se nota el carácter. */
+
+/* El destello que cruza un botón. Un <span> absoluto y estrecho que recorre la
+   caja de izquierda a derecha y espera fuera el resto del ciclo.
+
+   SÓLO `transform` (regla 2 del §6.2): no reflowea, no repinta el botón, compone
+   en GPU. El 60%→100% es la pausa: el destello cruza rápido y luego no vuelve a
+   aparecer hasta que el ciclo cierra, que es lo que lo hace un brillo y no un
+   limpiaparabrisas. */
+.anima-brillo {
+  animation: brillo var(--brillo-duracion, 3.4s) var(--motion-ease) infinite;
+}
+
+@keyframes brillo {
+  0% {
+    transform: translateX(-120%);
+  }
+  60%,
+  100% {
+    transform: translateX(220%);
+  }
+}
+
+/* Entrada lateral. Pareja de `entrada-suave` para maquetas alineadas a la
+   izquierda (dirección B). Mismo escalonado por `--paso` que aquélla, para que
+   las dos se mezclen sin aprender dos vocabularios. */
+.anima-entra-izq {
+  animation: entra-izq var(--motion-duration) var(--motion-ease-emphasis) both;
+  animation-delay: calc(var(--paso, 0) * var(--motion-duration));
+}
+
+@keyframes entra-izq {
+  from {
+    opacity: 0;
+    transform: translateX(-0.875rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Una regla que se dibuja sola de izquierda a derecha. El `transform-origin` va
+   en la clase y no en quien la use: sin él la regla crece desde el centro hacia
+   los dos lados, que es otra animación distinta y el fallo fácil de cometer. */
+.anima-regla-crece {
+  transform-origin: left;
+  animation: regla-crece var(--motion-duration) var(--motion-ease-emphasis) both;
+}
+
+@keyframes regla-crece {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* Flotación lenta y corta, para un adorno que no es contenido. 8px de recorrido
+   es el límite de lo que se lee como «respira» y no como «se mueve». */
+.anima-flota {
+  animation: flota var(--flota-duracion, 4s) var(--motion-ease) infinite;
+}
+
+@keyframes flota {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-0.5rem);
+  }
+}
+
+/* La forma del titular rotativo del boceto: la palabra entra desde abajo y sale
+   por arriba en vez de fundirse. ⚠ Los porcentajes son los de un ciclo de TRES
+   opciones — ver la advertencia de la cabecera de este bloque. NO lleva clase, y
+   es a propósito: una clase invitaría a enchufarla al hero, que es justo lo que
+   no se puede hacer sin reescribir las cinco reglas `hero-rot-N`. */
+@keyframes rot-desliza {
+  0% {
+    opacity: 0;
+    transform: translateY(60%);
+  }
+  4% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  36% {
+    opacity: 0;
+    transform: translateY(-60%);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-60%);
+  }
+}
+
+/* LA REGLA 5, PAGADA POR ADELANTADO. Ninguna de las cuatro clases tiene
+   consumidor todavía, así que hoy esto no apaga nada — y entra igual, con ellas
+   y no después. El motivo es el de siempre en este fichero: una animación que
+   llega sin su apagado es una que alguien usará antes de que nadie se acuerde.
+
+   Degradan a un estado COMPLETO, no mutilado, y eso hay que comprobarlo animación
+   por animación, no darlo por hecho:
+
+     · `anima-brillo` — el destello vive en un <span> aparte, así que apagarlo
+       deja el botón ENTERO. Nada de lo que se lee estaba dentro de la animación.
+     · `anima-flota` — el adorno se queda en su sitio (el 0% del ciclo).
+     · `anima-entra-izq` y `anima-regla-crece` — llevan `both`, así que sin
+       animación manda el estado FINAL: el bloque puesto y la regla dibujada. Es
+       la misma razón por la que `.entra-escalonado` puede apagarse de un
+       `animation: none` sin dejar nada en opacidad 0.
+
+   `!important` no hace falta aquí —no compiten con ninguna utilidad de variante,
+   al contrario que las capas de Radix de más arriba— pero se pone igual: estas
+   clases van a acabar en elementos que además llevan utilidades de Tailwind, y
+   un apagado que se pueda perder en una guerra de especificidad no es un
+   apagado. */
+@media (prefers-reduced-motion: reduce) {
+  .anima-brillo,
+  .anima-entra-izq,
+  .anima-regla-crece,
+  .anima-flota {
     animation: none !important;
   }
 }

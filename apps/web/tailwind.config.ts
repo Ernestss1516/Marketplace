@@ -92,10 +92,42 @@ const config: Config = {
   			featured: 'var(--featured)',
   			favorite: 'var(--favorite)'
   		},
+  		/**
+  		 * ── ESCAPARATE · RÁFAGA A — LA ESCALA DE RADIO, ENTERA ──────────────────
+  		 *
+  		 * `lg`/`md`/`sm` venían de shadcn y ya seguían al modelo. `xl`, `2xl` y
+  		 * `3xl` NO: se quedaron con los valores de fábrica de Tailwind (12/16/24 px)
+  		 * y por tanto **no respondían a ningún modelo**. No es teórico y se ve hoy:
+  		 * las tarjetas del carrusel de categorías, la rejilla de categorías y las
+  		 * del blog llevan `rounded-xl`, así que Premium —que pide `radius: 0.125rem`
+  		 * porque lo suyo es recto— las pintaba tan redondeadas como el Modelo 0.
+  		 *
+  		 * Un agujero anterior al escaparate; lo destapa la dirección A, que pide
+  		 * radios grandes por todas partes, y se cierra aquí.
+  		 *
+  		 * ⚠ LOS FACTORES SON 1.5 / 2 / 3 Y ESO NO ES ESTÉTICA: ES LA CALIBRACIÓN.
+  		 * Con el `--radius: 0.5rem` del Modelo 0 dan 12, 16 y 24 px — **exactamente
+  		 * los tres valores de fábrica que sustituyen**, sin un redondeo de por medio
+  		 * (8 × 1.5 = 12 exacto). O sea que la escala se tokeniza sin mover un píxel
+  		 * del Modelo 0, y las 50 capturas —que llevan `rounded-xl` en pantallas de
+  		 * cuenta y de backoffice, y comparan con `threshold: 0`— siguen verdes.
+  		 *
+  		 * Es también el motivo de que NO sean los 2.2/2.4/2.6 del boceto: aquéllos
+  		 * son un continuo de diseñador y aquí mueven el Modelo 0. Lo que el boceto
+  		 * pinta a ×2.4 se pinta a `rounded-2xl`. Ver docs/diseno-escaparate.md §2.2.
+  		 *
+  		 * Los otros cuatro modelos SÍ cambian, y ése es el arreglo: un `rounded-xl`
+  		 * en Premium pasa de 12 px a 3 px, que es lo que ese modelo venía pidiendo.
+  		 *
+  		 * `full` se queda fuera: 9999px no es un radio, es «píldora».
+  		 */
   		borderRadius: {
   			lg: 'var(--radius)',
   			md: 'calc(var(--radius) - 2px)',
-  			sm: 'calc(var(--radius) - 4px)'
+  			sm: 'calc(var(--radius) - 4px)',
+  			xl: 'calc(var(--radius) * 1.5)',
+  			'2xl': 'calc(var(--radius) * 2)',
+  			'3xl': 'calc(var(--radius) * 3)'
   		},
   		/* ── E3 · LOS EJES NO-COLOR (capa T3) ─────────────────────────────────
   		   Cada uno apunta a su variable de globals.css, y cada variable vale hoy
