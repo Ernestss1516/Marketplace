@@ -81,9 +81,33 @@ test.describe('Editor de portada — hero', () => {
     await expect(preview).toBeVisible();
     await expect(preview.locator('h1')).toContainText(TITULO_SEMILLA);
 
-    // El hero no es un bloque: no aparece en la lista de bloques ni tiene
-    // flechas ni botón de quitar.
-    await expect(page.getByTestId('zona-bloques')).not.toContainText('Titular');
+    /**
+     * El hero no es un bloque: sus campos no están en la lista de bloques, y por eso no
+     * tiene flechas ni botón de quitar (docs/diseno-portada.md §2.3).
+     *
+     * ⚠ ANTES ESTO SE COMPROBABA BUSCANDO LA PALABRA «Titular» EN LA ZONA DE BLOQUES, y
+     * el escaparate (ráfaga C) lo dejó obsoleto: el bloque `cta` ganó un campo «Titular
+     * (opcional)» para pintarse como banda, así que la palabra aparece ahí por un motivo
+     * legítimo y la comprobación se ponía roja sin que el hero se hubiera movido.
+     *
+     * Era un INDICIO, no la propiedad. Se sustituye por la propiedad: los cuatro campos
+     * del hero se buscan POR SU `data-testid` dentro de la zona de bloques. Un testid no
+     * colisiona con la etiqueta de nadie, así que esto no puede volver a romperse porque
+     * un bloque estrene un campo — y de paso comprueba más que antes, que era una sola
+     * palabra.
+     */
+    const zonaBloques = page.getByTestId('zona-bloques');
+    for (const campoDelHero of [
+      'hero-static-title',
+      'hero-rotating-list',
+      'hero-rotation-ms',
+      'hero-subtitle',
+    ]) {
+      await expect(
+        zonaBloques.getByTestId(campoDelHero),
+        `«${campoDelHero}» está dentro de la lista de bloques: el hero habría dejado de ser campo propio`,
+      ).toHaveCount(0);
+    }
     await page.close();
   });
 

@@ -684,8 +684,13 @@ async function seedContenidoEditorial() {
         ],
       },
       {
+        // ESCAPARATE C — CON titular: la página enseña el bloque `cta` en su forma de
+        // CAJA. El artículo de blog lo lleva sin titular a propósito, para que entre las
+        // dos capturas queden fotografiados los dos caminos del mismo bloque.
         id: 'pag-cta',
         type: 'cta',
+        title: '¿Algo no encaja en un anuncio?',
+        description: 'Denunciarlo lleva veinte segundos y lo revisa una persona.',
         label: 'Denunciar un anuncio',
         href: '/contacto',
         style: 'primary',

@@ -1,6 +1,7 @@
 import { CategoryGrid } from '@/components/categorias/CategoryGrid';
 import { BannerList } from '@/components/banners/BannerList';
 import { HomeHero } from '@/components/home/HomeHero';
+import { HomeHeroBanda } from '@/components/home/HomeHeroBanda';
 import { HomeBlockRenderer } from '@/components/home/HomeBlockRenderer';
 import { getCategories } from '@/lib/api/categorias';
 import { getActiveBanners } from '@/lib/api/banners';
@@ -74,18 +75,15 @@ export default async function HomePage() {
 
       {/* Banda del hero, a sangre y con su propio fondo. Contiene el hero y NADA
           MÁS: el buscador, su eyebrow y el botón de publicar eran andamio y ahora
-          son bloques, en su posición del array (§3.5 y §5.1 del diseño). */}
-      {/* El padding es `py-10 md:py-14`, no el `py-14 md:py-20` de antes: aquel
-          estaba dimensionado para una banda que además llevaba el buscador y un
-          botón. Con solo el titular dentro, el mismo aire dejaba un hueco que se
-          leía como un fallo de maquetación. */}
-      <section className="border-b bg-primary/5">
-        <div className="container mx-auto px-4 py-10 md:py-14">
-          <div className="mx-auto max-w-4xl text-center">
-            <HomeHero config={homepage} />
-          </div>
-        </div>
-      </section>
+          son bloques, en su posición del array (§3.5 y §5.1 del diseño).
+
+          ESCAPARATE C — la banda ya no se escribe aquí: la pinta `HomeHeroBanda`, que
+          comparten esta página y el preview del editor. Era la misma maquetación
+          copiada en dos sitios, y con el ambiente del modelo dentro las dos habrían
+          divergido. Ver el porqué en ese componente. */}
+      <HomeHeroBanda>
+        <HomeHero config={homepage} />
+      </HomeHeroBanda>
 
       <div className="container mx-auto space-y-12 px-4 py-12">
         <HomeBlockRenderer blocks={bloquesAntes} {...rendererProps} />

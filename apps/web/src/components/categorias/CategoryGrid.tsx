@@ -10,7 +10,11 @@ export function CategoryGrid({ categories }: { categories: Category[] }) {
         <Link
           key={cat.id}
           href={categoryPath(cat)}
-          className="flex w-24 shrink-0 snap-start flex-col items-center gap-2 rounded-xl border p-4 text-center transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-sm sm:w-auto"
+          // ESCAPARATE C — el gesto compartido. Antes: `transition-all` con medio píxel
+          // de levantamiento y `shadow-sm`. `transition-all` además animaba el color del
+          // borde y cualquier otra propiedad que cambiara, que es más de lo que hace
+          // falta y más de lo que conviene pintar.
+          className="tarjeta-levanta flex w-24 shrink-0 snap-start flex-col items-center gap-2 rounded-xl border p-4 text-center hover:border-primary/40 sm:w-auto"
         >
           {cat.iconUrl ? (
             <div className="relative h-12 w-12">

@@ -52,11 +52,21 @@ export interface ImageBlock extends BaseBlock {
 
 export type CtaStyle = 'primary' | 'secondary' | 'outline';
 
+/**
+ * ── ESCAPARATE C · `title` y `description` ──────────────────────────────────
+ * Con `title` el bloque se pinta como CAJA a color de marca; sin él, como el
+ * botón centrado de siempre. Gemelo del `cta` de portada, y por separado a
+ * propósito: los dos motores comparten el componente, nunca el tipo
+ * (docs/diseno-portada.md §4.0). Opcionales para que todo artículo ya guardado
+ * siga validando y pintándose igual.
+ */
 export interface CtaBlock extends BaseBlock {
   type: 'cta';
   label: string;
   href: string;
   style?: CtaStyle;
+  title?: string;
+  description?: string;
 }
 
 export interface QuoteBlock extends BaseBlock {

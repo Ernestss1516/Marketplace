@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import type { Category } from '@/types';
 import type { HomeBlock } from '@/types/home-blocks';
 import { HomeHero } from '@/components/home/HomeHero';
+import { HomeHeroBanda } from '@/components/home/HomeHeroBanda';
 import { HomeBlockRenderer } from '@/components/home/HomeBlockRenderer';
 import { getCategories } from '@/lib/api/categorias';
 
@@ -63,24 +64,30 @@ export function PortadaPreview({
         Vista previa — así se ve la portada publicada
       </p>
 
-      {/* Mismo envoltorio que (public)/(home)/page.tsx: banda a ancho completo,
-          contenido centrado. Sin él el preview no diría nada del resultado. */}
-      <div className="border-b bg-primary/5">
-        <div className="px-4 py-10">
-          <div className="mx-auto max-w-4xl text-center">
-            <HomeHero
-              key={animKey}
-              config={{
-                heroStaticTitle: heroStaticTitle.trim() || 'Sin título',
-                heroRotatingOptions: opciones,
-                heroRotationMs,
-                heroSubtitle: heroSubtitle.trim() || null,
-                blocks: [],
-              }}
-            />
-            <HomeBlockRenderer blocks={blocks} categories={categories} />
-          </div>
-        </div>
+      {/* ESCAPARATE C — EL MISMO COMPONENTE QUE LA PÁGINA, NO UNA COPIA DE SU MARCADO.
+          Aquí había una reproducción a mano de la banda (`border-b bg-primary/5`,
+          `py-10`, `max-w-4xl text-center`) con un comentario que decía «mismo envoltorio
+          que (home)/page.tsx». Funcionó mientras la banda fue un fondo plano; con el
+          ambiente y el patrón del modelo dentro, la copia habría enseñado una portada
+          que no existe. Y este preview es obligatorio porque guardar ES publicar.
+
+          Los bloques se quedan FUERA de la banda, igual que en la página: allí el hero
+          es lo único que va dentro (§3.5 del diseño de portada). */}
+      <HomeHeroBanda>
+        <HomeHero
+          key={animKey}
+          config={{
+            heroStaticTitle: heroStaticTitle.trim() || 'Sin título',
+            heroRotatingOptions: opciones,
+            heroRotationMs,
+            heroSubtitle: heroSubtitle.trim() || null,
+            blocks: [],
+          }}
+        />
+      </HomeHeroBanda>
+
+      <div className="px-4 py-10">
+        <HomeBlockRenderer blocks={blocks} categories={categories} />
       </div>
     </div>
   );

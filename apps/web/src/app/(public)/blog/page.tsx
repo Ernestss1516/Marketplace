@@ -135,7 +135,10 @@ function PostCard({ post }: { post: PostSummary }) {
   });
 
   return (
-    <article className="group flex flex-col overflow-hidden rounded-xl border bg-card shadow-sm transition-shadow hover:shadow-md">
+    // ESCAPARATE C — el gesto compartido (`.tarjeta-levanta`, globals.css). La foto
+    // conserva su `scale-105` propio: es un gesto DE LA IMAGEN dentro de su marco, no
+    // de la tarjeta, y los dos se leen bien a la vez.
+    <article className="tarjeta-levanta group flex flex-col overflow-hidden rounded-xl border bg-card shadow-sm">
       {post.coverUrl && isSafeSrc(post.coverUrl) ? (
         <div className="relative h-48 overflow-hidden bg-muted">
           <Image

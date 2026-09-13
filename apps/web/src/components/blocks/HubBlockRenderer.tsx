@@ -15,7 +15,8 @@ export function HubBlockRenderer({ block }: { block: HubBlock }) {
           <SmartLink
             key={idx}
             href={link.href}
-            className="block rounded-lg border p-4 transition-colors hover:bg-muted/50"
+            // ESCAPARATE C — el gesto compartido (`.tarjeta-levanta`, globals.css).
+            className="tarjeta-levanta block rounded-lg border bg-card p-4"
           >
             <span className="font-medium">{link.label}</span>
             {link.description && (

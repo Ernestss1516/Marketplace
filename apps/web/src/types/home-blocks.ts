@@ -19,12 +19,27 @@ export interface BaseHomeBlock {
 
 export type HomeCtaStyle = 'primary' | 'secondary' | 'outline';
 
-/** Botón destacado. Cubre el "Publica gratis" que la home pinta hoy a mano. */
+/**
+ * Botón destacado. Cubre el "Publica gratis" que la home pinta hoy a mano.
+ *
+ * ── ESCAPARATE C · `title` Y `description`, LOS DOS OPCIONALES ──────────────
+ *
+ * Con `title`, el bloque se pinta como BANDA (titular + frase + botón inverso);
+ * sin él, como el botón centrado de siempre. Y esa opcionalidad no es comodidad:
+ * es lo que hace que toda portada ya guardada siga validando y siga pintándose
+ * igual que ayer. Endurecer un esquema no reescribe lo que hay en la fila —
+ * misma lección que las celdas sin `media` de la rejilla.
+ *
+ * `description` sin `title` no pinta banda: la frase es el acompañamiento del
+ * titular, no un bloque de texto suelto.
+ */
 export interface HomeCtaBlock extends BaseHomeBlock {
   type: 'cta';
   label: string;
   href: string;
   style?: HomeCtaStyle;
+  title?: string;
+  description?: string;
 }
 
 /**

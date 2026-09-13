@@ -6,3 +6,10 @@ export const textareaCls =
   'w-full resize-y rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50';
 export const labelCls = 'text-xs font-medium text-muted-foreground';
 export const errorCls = 'mt-1 flex items-center gap-1 text-xs text-destructive';
+/**
+ * La pista bajo un campo. Mismo valor que el `hintCls` de los editores de PORTADA
+ * (`admin/portada/_components/editors/shared.ts`): los dos motores tienen su propio
+ * módulo de clases a propósito —nada cruza la frontera entre ellos—, pero lo que ve
+ * el admin es la misma pantalla y tiene que verse igual.
+ */
+export const hintCls = 'mt-1 text-xs text-muted-foreground';

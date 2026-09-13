@@ -51,7 +51,23 @@ export function HomeHero({ config }: { config: HomepageConfig }) {
           dentro del mismo contenedor, el h1 no es el último hijo y el margen
           sigue aplicándose: la variante hace lo correcto en los dos sitios sin
           que ninguno tenga que saber del otro. */}
-      <h1 className="mb-8 text-2xl font-bold tracking-tight last:mb-0 md:text-3xl">
+      {/* ESCAPARATE C — EL TITULAR CRECE, Y SIGUE SIN ANIMARSE.
+          De `text-2xl md:text-3xl` (24/30 px) a un `clamp` que va de 38 a 72 px, que es
+          lo que pide la dirección A. Tres cosas que conviene tener escritas:
+
+          · UN `clamp` NO CAUSA CLS. Se resuelve en el primer cálculo de maquetación y no
+            depende de la red, al contrario que una fuente o una imagen que llegan tarde.
+          · LA CAJA DEL ROTATIVO SIGUE SIN SALTAR. Lo garantiza el `inline-grid` de
+            `.hero-rot` (globals.css), que apila las opciones en la misma celda: la caja
+            mide lo que la más ancha, la tipografía no cambia eso.
+          · Y SIGUE SIN ANIMARSE, que es la regla 4 del §6.2. Es el candidato a LCP de la
+            ruta más visitada; ahora que es tres veces más grande, lo es todavía más. La
+            entrada se la queda el subtítulo, que es lo de al lado.
+
+          La clase va escrita LITERAL, con su valor arbitrario dentro: Tailwind purga lo
+          que no ve escrito, así que un `text-[clamp(${a},${b})]` compuesto no existiría
+          en el CSS final. */}
+      <h1 className="mb-8 text-[clamp(2.375rem,6vw,4.5rem)] font-extrabold leading-[1.05] tracking-[-0.03em] last:mb-0">
         {config.heroStaticTitle}
         {options.length > 0 && (
           <>
@@ -102,7 +118,14 @@ export function HomeHero({ config }: { config: HomepageConfig }) {
         // métrica que más pesa en la portada. Se anima lo de al lado, que es
         // exactamente lo que la regla permite. Ver `entra-escalonado` en
         // `globals.css`.
-        <p className="entra-escalonado -mt-4 mb-8 text-base text-muted-foreground last:mb-0 md:text-lg">
+        // ESCAPARATE C — el `sube` de la dirección A es ESTA MISMA entrada con más
+        // recorrido: `--entrada-y` lo parametrizó la ráfaga A con el valor de siempre
+        // por defecto, así que pedir 1rem aquí no toca a nadie más (las tarjetas de los
+        // accesos siguen entrando 0,5rem). Un keyframe menos que mantener.
+        <p
+          className="entra-escalonado -mt-2 mb-8 text-lg text-muted-foreground last:mb-0 md:text-xl"
+          style={{ '--entrada-y': '1rem' } as React.CSSProperties}
+        >
           {config.heroSubtitle}
         </p>
       )}
