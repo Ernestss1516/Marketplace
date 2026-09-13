@@ -9,7 +9,7 @@ import { MediaCleanupService } from '../media-cleanup/media-cleanup.service';
 import { PendingMediaService } from '../media-cleanup/pending-media.service';
 import { BLOCK_MEDIA_KEY_PREFIX } from '../block-media/block-media-limits';
 import { MIME_TO_EXT } from '../media/media.service';
-import { UpdateHomepageDto } from './dto/update-homepage.dto';
+import { UpdateHomepageDto, type HeroHeight } from './dto/update-homepage.dto';
 import { HomeBlockDto } from './dto/blocks';
 import { IMAGEN_TIPO_NO_ADMITIDO } from '../../common/mensajes-subida';
 
@@ -47,6 +47,11 @@ export const DEFAULT_HOMEPAGE_CONFIG = {
   heroRotatingOptions: [] as string[],
   heroRotationMs: 3000,
   heroSubtitle: null as string | null,
+  // ESCAPARATE D — los dos del hero configurable. `normal` es la altura de siempre y
+  // `null` es «sin rótulo»: el defecto reproduce la portada tal cual estaba, que es
+  // toda la promesa de esta ráfaga.
+  heroEyebrow: null as string | null,
+  heroHeight: 'normal' as HeroHeight,
   blocks: [] as unknown[],
 } as const;
 
@@ -120,6 +125,11 @@ export class HomepageService {
       // Ausente = se borra, no "se conserva": el cuerpo es un reemplazo completo
       // (ver UpdateHomepageDto).
       heroSubtitle: dto.heroSubtitle?.trim() || null,
+      // ESCAPARATE D — misma regla de reemplazo que el subtítulo: ausente es
+      // «quítalo», no «déjalo como estaba». La altura no puede quedarse vacía, así
+      // que ausente cae al defecto, que es la de siempre.
+      heroEyebrow: dto.heroEyebrow?.trim() || null,
+      heroHeight: dto.heroHeight ?? DEFAULT_HOMEPAGE_CONFIG.heroHeight,
       blocks: promocionado.value as unknown as Prisma.InputJsonValue,
       updatedById: actorId,
     };

@@ -589,6 +589,46 @@
 }
 
 /* ==========================================================================
+   ESCAPARATE · RÁFAGA D — EL HERO A PANTALLA COMPLETA
+
+   La altura de `heroHeight: 'pantalla'`. Cuatro decisiones, y ninguna es de
+   gusto:
+
+   ── `svh`, NI `vh` NI `dvh` ───────────────────────────────────────────────
+   `vh` cuenta la barra del navegador móvil que luego se retrae, así que un hero
+   de `100vh` se sale de pantalla justo al cargar — el defecto opuesto al que
+   esto viene a arreglar. `dvh` cambia DURANTE el scroll, o sea que sería una
+   fuente de CLS creada a mano. `svh` es el alto visible más PEQUEÑO y no se
+   mueve nunca: es el único de los tres con el que este hero tiene CLS cero.
+
+   ── `min-height`, NO `height` ─────────────────────────────────────────────
+   Si el contenido crece —un móvil estrecho, un titular de tres líneas, el
+   buscador montado— la banda CRECE. Con `height` se recortaría, y contenido
+   cortado es peor que un hero corto.
+
+   ── MENOS LA CABECERA ─────────────────────────────────────────────────────
+   `<header>` es `sticky top-0` con `h-16`: al ser sticky y no fixed OCUPA
+   FLUJO, así que un `100svh` a secas empujaría el pie del hero fuera de la
+   pantalla y no se vería entero ni al cargar.
+
+   ── Y MENOS EL ASOMO, QUE ES LA DECISIÓN 1a ───────────────────────────────
+   El hero ocupa el viewport VISIBLE y deja ver el borde de lo que viene, que
+   es lo que invita a bajar. «Pantalla completa» aquí NO significa «una pantalla
+   por bloque»: la portada sigue fluyendo detrás, con su tabla de búsquedas y
+   sus cientos de enlaces internos intactos.
+
+   Las dos restas son constantes ESTRUCTURALES declaradas en `:root` (ráfaga A)
+   y por tanto fuera del alcance de cualquier modelo: un modelo que moviera la
+   altura del hero estaría reorganizando.
+
+   DEGRADACIÓN: un navegador sin `svh` ignora la declaración entera y la banda
+   se queda con su altura natural. Un hero normal, no uno roto.
+   ========================================================================== */
+.hero-pantalla {
+  min-height: calc(100svh - var(--altura-cabecera) - var(--asomo-hero));
+}
+
+/* ==========================================================================
    ESCAPARATE · RÁFAGA C — EL LEVANTAMIENTO DE UNA TARJETA
 
    ── POR QUÉ UNA CLASE Y NO SEIS RISTRAS DE UTILIDADES ──────────────────────

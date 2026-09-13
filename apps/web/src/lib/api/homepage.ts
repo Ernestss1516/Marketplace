@@ -23,6 +23,12 @@ export const FALLBACK_HOMEPAGE_CONFIG: HomepageConfig = {
   heroRotatingOptions: [],
   heroRotationMs: 3000,
   heroSubtitle: null,
+  // ESCAPARATE D — sin rótulo y a la altura de siempre. El respaldo tiene que ser la
+  // portada MÍNIMA, no la última que se configuró: si la API no responde, un hero a
+  // pantalla completa con un titular genérico dentro y ningún bloque debajo sería una
+  // pantalla en blanco de dos metros.
+  heroEyebrow: null,
+  heroHeight: 'normal',
   blocks: [],
 };
 

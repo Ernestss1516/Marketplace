@@ -52,6 +52,20 @@ export interface HomeSearchBlock extends BaseHomeBlock {
   eyebrow?: string;
   showPopularCategories?: boolean;
   popularCount?: number;
+  /**
+   * ESCAPARATE D — monta el buscador SOBRE la banda del hero, solapándolo.
+   *
+   * ⚠ VIVE EN EL BLOQUE, Y NO EN LA CONFIG DEL HERO, POR UNA RAZÓN DE FONDO.
+   * El motor tiene escrito que «ningún bloque conoce su índice» (§2.3 del diseño
+   * de portada), y un solapamiento automático —«si el buscador va primero, que
+   * suba»— sería justo eso: el bloque deduciendo dónde está. Con una casilla, el
+   * bloque no deduce nada: EJECUTA UNA INTENCIÓN DECLARADA, igual que ya hace con
+   * `showPopularCategories`.
+   *
+   * Y tampoco va en el hero: el hero tendría que saber qué bloque viene detrás,
+   * que es el mismo acoplamiento por la puerta de al lado.
+   */
+  overlapHero?: boolean;
 }
 
 /**
@@ -248,6 +262,15 @@ export type HomeBlock =
  * comportamiento depende de su posición, y sacarlo del array es lo que permite
  * que ningún bloque conozca su índice (docs/diseno-portada.md §2.3).
  */
+/**
+ * ESCAPARATE D — las tres alturas de la banda del hero. Espejo a mano de
+ * `HERO_HEIGHTS` en `apps/api/.../update-homepage.dto.ts`: `apps/web` no importa
+ * de `apps/api`, así que la lista se repite y se mantiene a la vez en los dos
+ * sitios, igual que `HOME_ICON_NAMES` con su gemelo del backend.
+ */
+export const HERO_HEIGHTS = ['normal', 'alto', 'pantalla'] as const;
+export type HeroHeight = (typeof HERO_HEIGHTS)[number];
+
 export interface HomepageConfig {
   /** Parte fija del <h1>. Nunca vacía: la portada siempre tiene un <h1> real. */
   heroStaticTitle: string;
@@ -256,5 +279,9 @@ export interface HomepageConfig {
   /** Milisegundos que cada opción permanece visible. */
   heroRotationMs: number;
   heroSubtitle: string | null;
+  /** ESCAPARATE D — rótulo corto SOBRE el titular, en el color de marca. */
+  heroEyebrow: string | null;
+  /** ESCAPARATE D — cuánto ocupa la banda. `normal` es la de siempre. */
+  heroHeight: HeroHeight;
   blocks: HomeBlock[];
 }

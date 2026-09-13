@@ -3606,6 +3606,39 @@ model HomepageConfig {
   /// rehype-sanitize), y no abrirla es una superficie de seguridad menos.
   heroSubtitle String?
 
+  /// ESCAPARATE D — Rótulo corto SOBRE el <h1>, en el color de marca. Texto
+  /// plano y opcional; tope 80 en el DTO.
+  ///
+  /// ⚠ HAY OTRO `eyebrow` EN EL BLOQUE `search`, y los dos se conservan: son
+  /// dos sitios distintos —uno acompaña al titular, el otro al buscador— y
+  /// migrar el del bloque habría exigido reescribir portadas guardadas para
+  /// resolver un problema que un aviso en el editor resuelve. Ver la pista del
+  /// HeroEditor.
+  heroEyebrow String?
+
+  /// ESCAPARATE D — Cuánto ocupa la banda del hero: `normal` (lo de siempre),
+  /// `alto` (más presencia) o `pantalla` (el viewport visible, con el primer
+  /// bloque asomando por abajo).
+  ///
+  /// ── POR QUÉ `String` Y NO UN ENUM DE PRISMA ─────────────────────────────
+  ///
+  /// Los enums de este esquema —`PostStatus`, `Role`, `UserStatus`— son
+  /// ESTADOS DE DOMINIO: cambian qué puede hacer el sistema y merecen
+  /// integridad a nivel de base. Esto es una preferencia de PRESENTACIÓN cuyo
+  /// juego de valores vive de verdad en un mapa de clases del frontend
+  /// (`ALTURA_CLASS`, que necesita clases literales porque Tailwind purga lo
+  /// que no ve escrito). Un tipo enum en la base obligaría a una migración
+  /// cada vez que se quiera una altura más, para garantizar algo que el DTO ya
+  /// garantiza con `@IsIn`.
+  ///
+  /// La red por si algo llegara por otra vía (una fila editada a mano): el
+  /// renderizador busca en el mapa y CAE A `normal` si no encuentra la clave —
+  /// mismo criterio defensivo que `ROTATION_CLASS` con un N fuera de rango.
+  ///
+  /// `@default("normal")` es lo que hace que esta migración no cambie ni un
+  /// píxel de ninguna portada ya existente.
+  heroHeight String @default("normal")
+
   // ── BLOQUES ──────────────────────────────────────────────────────────────
 
   /// Array ORDENADO (la posición ES el orden, no hay campo `order` por bloque,

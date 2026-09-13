@@ -2,6 +2,7 @@
 
 import { AlertCircle, ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import type { HeroHeight } from '@/types/home-blocks';
 import { inputCls, labelCls, hintCls, errorCls } from './editors/shared';
 
 /**
@@ -18,6 +19,9 @@ import { inputCls, labelCls, hintCls, errorCls } from './editors/shared';
  */
 export const MAX_ROTATING = 6;
 
+/** Espejo del `@MaxLength(80)` del DTO. Un rótulo largo en versalitas se lee mal antes de desbordar. */
+const MAX_EYEBROW = 80;
+
 /** Espejo de MIN/MAX_HERO_ROTATION_MS del backend. */
 const MIN_MS = 1500;
 const MAX_MS = 10000;
@@ -27,7 +31,29 @@ export interface HeroValues {
   heroRotatingOptions: string[];
   heroRotationMs: number;
   heroSubtitle: string;
+  /** ESCAPARATE D — rótulo sobre el titular. */
+  heroEyebrow: string;
+  /** ESCAPARATE D — cuánto ocupa la banda. */
+  heroHeight: HeroHeight;
 }
+
+/**
+ * ESCAPARATE D — las tres alturas, con el texto que ve el admin.
+ *
+ * El identificador es lo que se guarda y la etiqueta lo que se pinta, igual que el
+ * desplegable de versiones de `/admin/estilo`. Y la etiqueta dice lo que PASA, no cómo se
+ * llama: «ocupa toda la pantalla» se entiende sin haber leído ningún diseño.
+ */
+const ALTURAS: { value: HeroHeight; label: string; pista: string }[] = [
+  { value: 'normal', label: 'Normal', pista: 'La de siempre: el titular y poco más.' },
+  { value: 'alto', label: 'Alto', pista: 'Más aire alrededor del titular.' },
+  {
+    value: 'pantalla',
+    label: 'Pantalla completa',
+    pista:
+      'El hero ocupa toda la pantalla al cargar y deja asomar el bloque siguiente. Conviene llenarlo: pon un rótulo y marca «montar el buscador» en el bloque del buscador.',
+  },
+];
 
 export function HeroEditor({
   values,
@@ -66,6 +92,30 @@ export function HeroEditor({
 
   return (
     <div className="space-y-4">
+      {/* ── ESCAPARATE D · EL RÓTULO ────────────────────────────────────────────── */}
+      <div className="flex flex-col gap-1">
+        <label className={labelCls}>Rótulo sobre el título (opcional)</label>
+        <input
+          type="text"
+          value={values.heroEyebrow}
+          onChange={(e) => onChange({ heroEyebrow: e.target.value })}
+          className={inputCls}
+          disabled={disabled}
+          placeholder="p.ej. Miles de anuncios cerca de ti"
+          maxLength={MAX_EYEBROW}
+          data-testid="hero-eyebrow"
+        />
+        {/* EL AVISO DE LOS DOS RÓTULOS. El bloque `search` tiene su propio «texto
+            pequeño encima del buscador», y con el buscador montado bajo el hero los dos
+            quedarían a cuatro dedos uno de otro. Se conservan los dos campos —migrar el
+            del bloque habría exigido reescribir portadas guardadas— y se avisa aquí, que
+            es donde alguien está a punto de escribir el segundo. */}
+        <p className={hintCls}>
+          Se muestra en pequeño y en el color de la marca, encima del título. Si el bloque
+          del buscador ya tiene su propio texto pequeño, no pongas los dos.
+        </p>
+      </div>
+
       <div className="flex flex-col gap-1">
         <label className={labelCls}>Título fijo *</label>
         <input
@@ -221,6 +271,27 @@ export function HeroEditor({
           />
           <p className={hintCls}>Texto sencillo, sin formato.</p>
         </div>
+      </div>
+
+      {/* ── ESCAPARATE D · LA ALTURA ────────────────────────────────────────────── */}
+      <div className="flex flex-col gap-1">
+        <label className={labelCls}>Altura del hero</label>
+        <select
+          value={values.heroHeight}
+          onChange={(e) => onChange({ heroHeight: e.target.value as HeroHeight })}
+          className={inputCls}
+          disabled={disabled}
+          data-testid="hero-height"
+        >
+          {ALTURAS.map((a) => (
+            <option key={a.value} value={a.value}>
+              {a.label}
+            </option>
+          ))}
+        </select>
+        <p className={hintCls} data-testid="hero-height-hint">
+          {ALTURAS.find((a) => a.value === values.heroHeight)?.pista}
+        </p>
       </div>
     </div>
   );

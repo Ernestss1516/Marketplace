@@ -43,6 +43,17 @@ export function HomeHero({ config }: { config: HomepageConfig }) {
 
   return (
     <>
+      {/* ESCAPARATE D — EL RÓTULO, SOBRE EL TITULAR.
+          Va en `--primary` y en versalitas muy espaciadas: es un antepuesto, no un
+          titular. Se anima —al contrario que el `<h1>`— porque no es el LCP: es texto
+          de 12 px, y la regla 4 del §6.2 protege al elemento más grande, no a todo lo
+          que haya cerca. Entra el PRIMERO (`--paso: 0`) y el subtítulo detrás. */}
+      {config.heroEyebrow && (
+        <p className="entra-escalonado mb-5 text-xs font-semibold uppercase tracking-[0.24em] text-primary">
+          {config.heroEyebrow}
+        </p>
+      )}
+
       {/* `last:mb-0` — el margen inferior existe para separar el hero de LO QUE
           VENGA DEBAJO, y desde la limpieza de RP.6 en la portada no viene nada:
           el hero es lo único dentro de su banda. Sin esto la banda queda
@@ -124,7 +135,10 @@ export function HomeHero({ config }: { config: HomepageConfig }) {
         // accesos siguen entrando 0,5rem). Un keyframe menos que mantener.
         <p
           className="entra-escalonado -mt-2 mb-8 text-lg text-muted-foreground last:mb-0 md:text-xl"
-          style={{ '--entrada-y': '1rem' } as React.CSSProperties}
+          // `--paso: 1` — entra DESPUÉS del rótulo, escalonado por el propio tempo del
+          // modelo (el retardo es `--paso × --motion-duration`). Es el mecanismo que ya
+          // usaban las tarjetas de los accesos; aquí sólo se ordenan dos piezas.
+          style={{ '--entrada-y': '1rem', '--paso': 1 } as React.CSSProperties}
         >
           {config.heroSubtitle}
         </p>

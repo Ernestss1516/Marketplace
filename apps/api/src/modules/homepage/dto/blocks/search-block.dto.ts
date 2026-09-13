@@ -34,4 +34,21 @@ export class SearchHomeBlockDto extends BaseHomeBlockDto {
   @Min(1)
   @Max(MAX_POPULAR_CATEGORIES)
   popularCount?: number;
+
+  /**
+   * ESCAPARATE D — monta el buscador SOBRE la banda del hero, solapándolo.
+   *
+   * Es lo que llena el hero a pantalla completa junto con el rótulo (decisión 2:
+   * ni cifras escritas a mano, que envejecen, ni imagen de fondo, que mueve el
+   * LCP). Y es una CASILLA y no una regla automática por una razón de fondo: el
+   * motor tiene escrito que ningún bloque conoce su índice, así que «si el
+   * buscador va primero, que suba» sería el bloque deduciendo su posición. Con
+   * la casilla ejecuta una intención declarada, como ya hace con
+   * `showPopularCategories`.
+   *
+   * Ausente = false = el buscador va en su sitio, debajo de la banda.
+   */
+  @IsOptional()
+  @IsBoolean()
+  overlapHero?: boolean;
 }
