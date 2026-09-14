@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 
 /**
  * ══ BUSCADOR · BQ-A — LOS DOS GESTOS DEL BUSCADOR DE PORTADA, EN UN SOLO SITIO ═══════
@@ -15,9 +15,9 @@ import type { Page } from '@playwright/test';
  * tripas a estas dos funciones** y ni una spec se toca. Es la regla de orden del
  * escaparate (§0.2) aplicada a un asidero de test: la barrera antes de repintar.
  *
- * **HOY NO HACE NADA NUEVO.** Por dentro es `selectOption`, o sea exactamente lo que las
- * specs hacían. BQ-A es de cambio visual nulo también aquí: si esto alterara el
- * comportamiento, no sería un envoltorio, sería el cambio adelantado.
+ * ⚠ **BQ-B YA PASÓ, Y SE LE CAMBIARON LAS TRIPAS A ESTAS DOS FUNCIONES — A NADA MÁS.**
+ * Donde había un `selectOption` hay ahora tres gestos: abrir, filtrar, elegir. Ni una spec
+ * se tocó, que era exactamente para lo que este fichero entró una ráfaga antes.
  *
  * ── SE ELIGE POR EL NOMBRE VISIBLE, NO POR EL SLUG ──────────────────────────────────
  *
@@ -26,12 +26,10 @@ import type { Page } from '@playwright/test';
  * a BQ-B es el nombre que el usuario lee. Las specs pasan a decir «Coches» en vez de
  * «coches», que además es lo que describe lo que hace un usuario.
  *
- * ⚠ UNA ARRUGA QUE BQ-B QUITA: para una categoría PADRE, el `<option>` de hoy se llama
- * «Todo en Vehículos» ([`SearchBar.tsx:175`](../../src/components/busqueda/SearchBar.tsx#L175)),
- * no «Vehículos», así que hoy habría que pasar ese literal entero. Ninguna spec elige un
- * padre todavía. En BQ-B el literal desaparece —la lista aplanada dice «Vehículos» y una
- * coletilla aparte dice cuántas subcategorías cuelgan (decisión 6 del diseño)— y la arruga
- * se va con él.
+ * La arruga que BQ-A dejó anotada —que una categoría PADRE se llamaba «Todo en Vehículos»
+ * y no «Vehículos»— **se fue con el `<select>`**: la lista aplanada dice «Vehículos» y la
+ * cuenta de subcategorías va en una nota aparte (decisión 6 del diseño). Un padre se elige
+ * ahora por su nombre, igual que una hoja.
  *
  * ── EL `aria-label` ES EL CONTRATO, Y NO CAMBIA ─────────────────────────────────────
  *
@@ -42,6 +40,28 @@ import type { Page } from '@playwright/test';
  */
 
 /**
+ * Los tres gestos del diálogo: abrir, filtrar, elegir.
+ *
+ * **Se teclea el nombre antes de elegir en vez de buscar la fila en la lista entera**, y no
+ * es para ir más rápido: es lo que prueba que el FILTRO funciona. Una versión que abriera
+ * y pinchara sin escribir daría verde con el campo de texto roto.
+ *
+ * `first()` porque el filtro deja la coincidencia más ajustada arriba (startsWith primero,
+ * desempate por longitud): tecleado el nombre completo, la primera fila ES la buscada.
+ *
+ * Se espera a que la capa se cierre antes de devolver el control. Sin eso, la acción
+ * siguiente de la spec puede caer sobre el velo —que todavía intercepta clics— y fallar
+ * con un timeout que no dice nada de lo que se estaba probando.
+ */
+async function elegirEnDialogo(page: Page, campo: string, nombre: string): Promise<void> {
+  await page.getByLabel(campo, { exact: false }).first().click();
+  const dialogo = page.getByRole('dialog');
+  await dialogo.getByRole('combobox').fill(nombre);
+  await dialogo.getByRole('option', { name: nombre }).first().click();
+  await expect(dialogo).toBeHidden();
+}
+
+/**
  * Elige una categoría en el buscador de la PORTADA (no el de `/busqueda`, que es
  * `CategorySelect` y además navega al cambiar).
  *
@@ -49,7 +69,7 @@ import type { Page } from '@playwright/test';
  * estado**; quien navega es el submit o la elección de una etiqueta.
  */
 export async function elegirCategoria(page: Page, nombre: string): Promise<void> {
-  await page.getByLabel('Categoría').selectOption({ label: nombre });
+  await elegirEnDialogo(page, 'Categoría', nombre);
 }
 
 /**
@@ -58,9 +78,9 @@ export async function elegirCategoria(page: Page, nombre: string): Promise<void>
  * El nombre es el EXACTO de `lib/provincias.ts`, grafía cooficial incluida
  * (`Alicante/Alacant`, `Valencia/València`…): es el mismo string que viaja en
  * `?province=` y contra el que el backend filtra con un `=` exacto
- * (`search.service.ts`). Pasar aquí un nombre aproximado es el defecto que el diálogo de
- * BQ-B existe para hacer imposible, así que tampoco se le consiente al test.
+ * (`search.service.ts`). Pasar aquí un nombre aproximado es el defecto que el diálogo
+ * existe para hacer imposible, así que tampoco se le consiente al test.
  */
 export async function elegirProvincia(page: Page, nombre: string): Promise<void> {
-  await page.getByLabel('Provincia').selectOption({ label: nombre });
+  await elegirEnDialogo(page, 'Provincia', nombre);
 }

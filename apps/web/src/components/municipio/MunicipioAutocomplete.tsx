@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useId } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { filtrarPorTexto, normalizarParaFiltrar } from '@/lib/filtro-texto';
 
 interface Municipio {
   name: string;
@@ -24,11 +25,14 @@ export interface MunicipioAutocompleteProps {
   'data-testid'?: string;
 }
 
-/** Elimina acentos y convierte a minúsculas para comparación tolerante. */
-function normalize(str: string): string {
-  // NFD splits accented chars (é → e + U+0301); then remove combining diacritical marks U+0300-U+036F.
-  return str.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-}
+/**
+ * BUSCADOR · BQ-B — EL FILTRO YA NO VIVE AQUÍ. La normalización NFD y el orden
+ * «startsWith primero, desempate por longitud» eran dos funciones privadas de este
+ * fichero; ahora son `lib/filtro-texto.ts`, porque el `DialogoFiltrable` del buscador de
+ * portada las necesita idénticas. Dos copias de una regla de ORDENACIÓN no fallan cuando
+ * divergen: devuelven dos listas distintas para la misma búsqueda. Comportamiento
+ * inalterado — es literalmente el mismo código, mudado.
+ */
 
 const MAX_RESULTS = 8;
 // Only start filtering when the user has typed at least 2 characters.
@@ -58,22 +62,10 @@ export function MunicipioAutocomplete({
     setInputVal(value);
   }, [value]);
 
-  const q = normalize(inputVal);
+  const q = normalizarParaFiltrar(inputVal);
   const suggestions =
     q.length >= MIN_QUERY_LENGTH && municipios !== null
-      ? municipios
-          .filter((m) => normalize(m.name).includes(q))
-          .sort((a, b) => {
-            const na = normalize(a.name);
-            const nb = normalize(b.name);
-            const aStarts = na.startsWith(q);
-            const bStarts = nb.startsWith(q);
-            // 1st: startsWith before includes-only.
-            if (aStarts !== bStarts) return aStarts ? -1 : 1;
-            // 2nd (tie-break within same group): shorter name = tighter match first.
-            return na.length - nb.length;
-          })
-          .slice(0, MAX_RESULTS)
+      ? filtrarPorTexto(municipios, q, (m) => m.name).slice(0, MAX_RESULTS)
       : [];
 
   async function loadDataset() {
