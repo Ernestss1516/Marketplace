@@ -17,8 +17,9 @@
 // globalSetup una vez para toda la corrida).
 
 import { test, expect } from './fixtures/auth';
-import type { Page } from '@playwright/test';
+import type { APIRequestContext, Page } from '@playwright/test';
 import { PORTADA_SEMILLA, restaurarPortada } from './helpers/portada';
+import { adminApiToken, authedPatch } from './helpers/api';
 
 const TITULO_SEMILLA = PORTADA_SEMILLA.heroStaticTitle;
 
@@ -42,6 +43,21 @@ test.beforeEach(async ({ request }) => {
 test.afterAll(async ({ request }) => {
   await restaurarPortada(request);
 });
+
+/**
+ * Escribe una config concreta por la vía real (el mismo PATCH que usa el editor).
+ *
+ * CERO logins: el token lo obtiene `globalSetup` una vez para toda la corrida. Y no se
+ * restaura aquí porque el `beforeEach` de arriba ya deja `PORTADA_SEMILLA` antes de cada
+ * test — que es lo que evita que uno herede lo que dejó el anterior.
+ */
+async function setConfig(
+  request: APIRequestContext,
+  data: Record<string, unknown>,
+): Promise<void> {
+  const res = await authedPatch(request, '/admin/homepage', adminApiToken(), data);
+  expect(res.status(), await res.text()).toBe(200);
+}
 
 /** Abre el editor y espera a que cargue la config. */
 async function abrirEditor(page: Page) {
@@ -114,6 +130,77 @@ test.describe('Editor de portada — hero', () => {
         `«${campoDelHero}» está dentro de la lista de bloques: el hero habría dejado de ser campo propio`,
       ).toHaveCount(0);
     }
+    await page.close();
+  });
+
+  /**
+   * ══ EL EDITOR CARGA CON LAS DOS FORMAS DE CONFIG QUE EXISTEN ═══════════════════════
+   *
+   * Barrera del arreglo del 500 de `/admin/portada`. Conviene decir qué vigila y qué NO,
+   * porque lo segundo es lo que más despistó al diagnosticar.
+   *
+   * ── LO QUE PASÓ, MEDIDO ────────────────────────────────────────────────────────────
+   *
+   * La pantalla daba 500 en una máquina de desarrollo, y la causa no estaba en el render
+   * ni en un campo sin valor por defecto: era `P2022` de Prisma —«the column
+   * `HomepageConfig.heroEyebrow` does not exist in the current database»— porque la
+   * migración de la ráfaga D no se había aplicado en esa base. El código estaba bien y
+   * CI estaba verde, y seguirá estándolo: CI construye la base desde cero en cada
+   * corrida, así que ese desfase le es invisible POR DEFINICIÓN. Ningún test puede
+   * cubrirlo; lo cubre el aviso al arrancar (`scripts/avisar-migraciones-pendientes.js`).
+   *
+   * ── LO QUE SÍ SE PUEDE VIGILAR, Y ES ESTO ──────────────────────────────────────────
+   *
+   * Que el editor cargue con las dos formas que una fila puede tener:
+   *
+   *  · la VIEJA — la de cualquier portada creada antes de la ráfaga D. Tras migrar no le
+   *    faltan columnas: Postgres rellena las filas existentes con el `DEFAULT 'normal'`,
+   *    así que queda `heroHeight: 'normal'` y `heroEyebrow: null`. Es exactamente lo que
+   *    deja `PORTADA_SEMILLA`, que no manda ninguno de los dos campos;
+   *  · la NUEVA — con los dos campos puestos, que hasta ahora no cargaba nadie en el
+   *    editor. Ésa es la cobertura que faltaba de verdad.
+   *
+   * O sea: «una config sin los campos nuevos» no es un estado alcanzable después de
+   * migrar, y un test que lo simulara estaría probando algo que no puede ocurrir. Lo que
+   * se prueba es lo que sí existe.
+   */
+  test('el editor carga con la config VIEJA (rótulo vacío y altura por defecto)', async ({
+    adminContext,
+  }) => {
+    const page = await adminContext.newPage();
+    await abrirEditor(page);
+
+    // `beforeEach` ha restaurado PORTADA_SEMILLA, que no manda ninguno de los dos
+    // campos: el servicio los deja como los deja una fila migrada de antes de D.
+    await expect(page.getByTestId('hero-eyebrow')).toHaveValue('');
+    await expect(page.getByTestId('hero-height')).toHaveValue('normal');
+    // Y la pantalla está entera: si la carga hubiera fallado, no habría ni preview.
+    await expect(page.getByTestId('portada-preview')).toBeVisible();
+    await expect(page.getByTestId('zona-bloques')).toBeVisible();
+
+    await page.close();
+  });
+
+  test('el editor carga con la config NUEVA (rótulo y altura «pantalla»)', async ({
+    adminContext,
+    request,
+  }) => {
+    await setConfig(request, {
+      ...PORTADA_SEMILLA,
+      heroEyebrow: 'Miles de anuncios cerca de ti',
+      heroHeight: 'pantalla',
+    });
+
+    const page = await adminContext.newPage();
+    await abrirEditor(page);
+
+    await expect(page.getByTestId('hero-eyebrow')).toHaveValue('Miles de anuncios cerca de ti');
+    await expect(page.getByTestId('hero-height')).toHaveValue('pantalla');
+    // La pista del desplegable cambia con la altura elegida: es lo que le dice al admin
+    // que tiene que llenar el hero, y sin ella «pantalla completa» se elige a ciegas.
+    await expect(page.getByTestId('hero-height-hint')).toContainText('toda la pantalla');
+    await expect(page.getByTestId('portada-preview')).toBeVisible();
+
     await page.close();
   });
 
