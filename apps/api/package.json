@@ -6,10 +6,10 @@
     "seed": "ts-node --compiler-options {\"module\":\"CommonJS\"} prisma/seed.ts"
   },
   "scripts": {
-    "dev": "nest start --watch",
+    "dev": "node scripts/avisar-migraciones-pendientes.js && nest start --watch",
     "build": "nest build",
     "start": "node dist/main",
-    "start:dev": "nest start --watch",
+    "start:dev": "node scripts/avisar-migraciones-pendientes.js && nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
     "test": "jest",
