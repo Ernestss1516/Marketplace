@@ -1,4 +1,9 @@
 import { test, expect } from '../e2e/fixtures/auth';
+import {
+  esperarPortadaEscaparate,
+  ponerPortadaEscaparate,
+  restaurarPortada,
+} from '../e2e/helpers/portada';
 import { preparar } from './preparar';
 
 /**
@@ -76,5 +81,75 @@ test.describe('Cajón del backoffice abierto', () => {
     await expect(page.getByLabel('Menú del backoffice')).toBeVisible();
 
     await expect(page).toHaveScreenshot('overlay-admin-drawer.png');
+  });
+});
+
+/**
+ * ══ BUSCADOR · BQ-C — EL DIÁLOGO FILTRABLE, ABIERTO ══════════════════════════════════
+ *
+ * **Es la única captura del catálogo que enseña el punto 1 del encargo.** Las cuatro de
+ * portada fotografían el buscador con los diálogos CERRADOS: ahí sólo se ve un disparador
+ * que se parece mucho al `<select>` que sustituyó. Lo que la ráfaga construyó —el campo de
+ * texto que filtra, la lista, la ruta de ancestros, la cuenta de subcategorías— no aparece
+ * en ninguna hasta ésta.
+ *
+ * ── Y ES LA ÚNICA QUE PUEDE ENSEÑAR LAS DOS GEOMETRÍAS ─────────────────────────────
+ *
+ * La decisión 2 del diseño (§6.2) es que en móvil el diálogo sea una HOJA A PANTALLA
+ * COMPLETA y en escritorio un cuadro centrado. Eso se consigue con clases `md:` sobre un
+ * solo árbol de React —nunca con un `useMediaQuery`, que sería estructura y pondría roja la
+ * invariancia—, así que **la única forma de comprobar que las dos geometrías existen de
+ * verdad es fotografiarlas**. Se toma en los dos proyectos por eso, y no por simetría.
+ *
+ * ── SE ELIGE EL DE CATEGORÍA, NO EL DE PROVINCIA ───────────────────────────────────
+ *
+ * Porque es el que tiene más idioma visual que enseñar: el de provincia son 52 filas de una
+ * palabra, y el de categoría trae además la ruta de ancestros atenuada a la derecha y la
+ * nota de «y N subcategorías» — las dos ranuras que un `<option>` no podía tener. El
+ * criterio para ampliar el catálogo de capturas es «un idioma visual nuevo», no «una
+ * superficie más», y el de provincia no añade ninguno.
+ *
+ * ── LA PORTADA MEDIBLE, POR EL MISMO CONTRATO QUE EL RESTO ─────────────────────────
+ *
+ * La portada sembrada monta un bloque `listings` cuyo orden depende de la ventana de
+ * rotación de 15 minutos: dos lecturas separadas por esa ventana darían capturas distintas
+ * sin que nadie hubiera tocado nada. Se pone `PORTADA_ESCAPARATE` —que no lo lleva— y se
+ * restaura al terminar, que es lo que ya hacen `pantallas.spec.ts` y la invariancia.
+ *
+ * ⚠ SE ABRE CON TECLADO Y NO CON RATÓN, y no es un capricho: al hacer clic, el puntero
+ * queda sobre la fila que hay debajo y `onMouseEnter` la resalta — así que la captura
+ * saldría con DOS filas marcadas (la activa por teclado y la que esté bajo el cursor) o con
+ * una distinta según dónde caiga el ratón. `Enter` sobre el disparador enfocado abre la
+ * capa sin mover el puntero, y el resaltado es entonces el que el componente decide.
+ */
+test.describe('Diálogo filtrable del buscador abierto', () => {
+  test.beforeAll(async ({ browser, request }) => {
+    await ponerPortadaEscaparate(request);
+    // El calentamiento va en una página APARTE y aquí, no dentro del test: el 200 del PATCH
+    // no garantiza que el frontend haya invalidado su caché, y un baseline tomado de la
+    // portada anterior estaría mal tomado sin que nadie lo notara. Mismo contrato que
+    // `pantallas.spec.ts`.
+    const calentamiento = await browser.newPage();
+    await esperarPortadaEscaparate(calentamiento);
+    await calentamiento.close();
+  });
+
+  test.afterAll(async ({ request }) => {
+    await restaurarPortada(request);
+  });
+
+  test('buscador-dialogo-categoria', async ({ page }) => {
+    await preparar(page, '/');
+
+    await page.getByLabel('Categoría').focus();
+    await page.keyboard.press('Enter');
+
+    const dialogo = page.getByRole('dialog');
+    await expect(dialogo).toBeVisible();
+    // Esperar a una FILA y no sólo a la capa: el contenido llega por `next/dynamic`, y sin
+    // esto la foto podría salir con el diálogo montado y la lista todavía vacía.
+    await expect(dialogo.getByRole('option').first()).toBeVisible();
+
+    await expect(page).toHaveScreenshot('buscador-dialogo-categoria.png');
   });
 });

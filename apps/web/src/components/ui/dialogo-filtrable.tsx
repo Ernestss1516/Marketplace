@@ -84,7 +84,18 @@ export interface DialogoFiltrableProps {
   marcadorFiltro: string;
   /** El nombre del campo. Es el asidero de los tests y la etiqueta accesible. */
   etiquetaDisparador: string;
-  /** Geometría de la celda del disparador dentro de su fila. */
+  /**
+   * La geometría del disparador dentro de su fila — alto, ancho, tipografía.
+   *
+   * ⚠ **EL ALTO LO DECIDE QUIEN MONTA EL COMPONENTE, NO EL COMPONENTE.** El defecto es
+   * `h-10`, que es el de `ui/input.tsx` y el de cualquier control de formulario de la casa;
+   * el buscador de portada pasa `h-14 md:h-16` porque allí los cuatro controles forman una
+   * pieza y tienen que medir lo mismo (BQ-C). Si el alto viviera aquí, el día que este
+   * molde entre en `FilterPanel` —donde los controles son de 40 px— habría que negociarlo
+   * dentro de un componente que no sabe dónde se está pintando.
+   *
+   * `cn()` es `twMerge`, así que lo que llegue por aquí GANA a lo de abajo.
+   */
   className?: string;
 }
 
@@ -100,6 +111,30 @@ export function DialogoFiltrable({
   className,
 }: DialogoFiltrableProps) {
   const [abierto, setAbierto] = React.useState(false);
+  const disparadorRef = React.useRef<HTMLButtonElement>(null);
+
+  /**
+   * ⚠ EL FOCO VUELVE AL DISPARADOR, Y LO DEVOLVEMOS NOSOTROS. MEDIDO EN BQ-C.
+   *
+   * Radix restaura el foco al cerrar una capa: su `FocusScope` guarda quién lo tenía al
+   * montarse y se lo devuelve al desmontarse. **Aquí no llegaba a hacerlo**, y la causa es
+   * el reparto que BQ-B introdujo por peso: la capa no se «cierra», se DESMONTA entera de
+   * golpe (`{abierto && <CapaFiltrable/>}`), así que Radix nunca ve su `open` pasar a
+   * `false` y su secuencia de cierre no se ejecuta como cuando controla el estado él.
+   *
+   * El síntoma era exactamente el que un teclado nota: pulsas `Esc`, la capa se va y el
+   * foco se queda en el `<body>` — «inactive», decía el test—. Quien navega sin ratón se
+   * quedaba en el limbo, en medio de un formulario.
+   *
+   * El `requestAnimationFrame` no es decorativo: en el mismo fotograma todavía se están
+   * ejecutando las limpiezas de `react-remove-scroll` y `aria-hidden`, y un `focus()`
+   * lanzado ahí se lo puede llevar por delante. Al fotograma siguiente el documento ya está
+   * entero.
+   */
+  const cerrar = React.useCallback(() => {
+    setAbierto(false);
+    requestAnimationFrame(() => disparadorRef.current?.focus());
+  }, []);
 
   const elegida = opciones.find((o) => o.valor === valor);
 
@@ -122,16 +157,21 @@ export function DialogoFiltrable({
         refactorización si no queda escrito.
       */}
       <button
+        ref={disparadorRef}
         type="button"
         aria-haspopup="dialog"
         aria-expanded={abierto}
         aria-label={elegida ? `${etiquetaDisparador}: ${elegida.etiqueta}` : etiquetaDisparador}
         onClick={() => setAbierto(true)}
         className={cn(
-          'flex h-12 w-full items-center justify-between gap-2 rounded-xl bg-transparent px-4',
-          'text-left text-sm text-foreground',
+          'flex h-10 w-full items-center justify-between gap-2 rounded-xl bg-transparent px-4',
+          // ⚠ `md:text-base` NO ES EL ALTO Y NO SE VA CON ÉL. BQ-C quitó de aquí el
+          // `md:h-full` —el que disimulaba la incoherencia de alturas— y se llevó por
+          // delante esta línea; la captura de escritorio lo cazó en la misma corrida,
+          // porque el texto del disparador había encogido de 16 a 14 px sin que el alto
+          // cambiara. Es la escala del `<select>` al que sustituye, y se queda.
+          'text-left text-sm text-foreground md:text-base',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-          'md:h-full md:text-base',
           className,
         )}
       >
@@ -152,7 +192,7 @@ export function DialogoFiltrable({
           opciones={opciones}
           valor={valor}
           onElegir={onElegir}
-          onCerrar={() => setAbierto(false)}
+          onCerrar={cerrar}
           opcionLimpiar={opcionLimpiar}
           titulo={titulo}
           marcadorFiltro={marcadorFiltro}
