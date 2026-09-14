@@ -160,6 +160,62 @@ const config: Config = {
   		transitionTimingFunction: {
   			DEFAULT: 'var(--motion-ease)'
   		},
+  		/**
+  		 * ── ESCAPARATE · EL CUERPO DE LOS ARTÍCULOS, A 17 px ────────────────────
+  		 *
+  		 * El último cabo del escaparate, y el que se dejó para el final a propósito:
+  		 * §4.5 del diseño lo sacó de C-bis porque **esto no es revestir**. Es la
+  		 * ESCALA TIPOGRÁFICA, que la frontera del sistema de estilo clasifica como
+  		 * capa INVIOLABLE —«espaciado, breakpoints, escala tipográfica, densidad:
+  		 * cambia con… nunca»—, así que no la decide un modelo: la decide el
+  		 * producto, una vez, para los cinco.
+  		 *
+  		 * Y por eso vive AQUÍ y no en los `ejes` de ningún modelo. Un valor escrito
+  		 * en esta configuración se hornea en el CSS y **ningún modelo puede
+  		 * alcanzarlo**: no hay token que redefinir. El cuerpo de un artículo se lee
+  		 * igual en Vibrante que en Premium, que es como tiene que ser — lo que
+  		 * cambia entre modelos es la VOZ (la familia de los titulares, el color, el
+  		 * tempo), no cuánto mide la letra que uno lee durante cinco minutos.
+  		 *
+  		 * ── QUÉ HACÍA ANTES, MEDIDO ────────────────────────────────────────────
+  		 *
+  		 * `.prose` no declaraba tamaño ninguno: el cuerpo heredaba los 16 px del
+  		 * documento y las medidas internas del plugin iban en `em` sobre eso. O sea
+  		 * que el artículo se leía al mismo tamaño que un botón de la interfaz.
+  		 *
+  		 * ── POR QUÉ 17 Y POR QUÉ 1.72 ──────────────────────────────────────────
+  		 *
+  		 * Son los del boceto de la dirección A. 17 px es el escalón que se nota en
+  		 * un texto largo sin que la página se hinche —un punto, no tres—, y 1.72 es
+  		 * el interlineado que lo acompaña: a más cuerpo, la proporción baja un poco,
+  		 * o las líneas se separan más de lo que la vista necesita para volver.
+  		 *
+  		 * ── ⚠ LOS TITULARES DEL MARKDOWN ESCALAN CON ÉL, Y ES LO CORRECTO ──────
+  		 *
+  		 * El plugin define `h1`…`h6` en `em`, así que al mover la base se mueven con
+  		 * ella (un `h2` pasa de 24 a 25,5 px). NO se fijan a mano para dejarlos
+  		 * quietos: eso comprimiría la jerarquía —un cuerpo más grande contra unos
+  		 * titulares iguales— que es justo lo que la escala de un plugin
+  		 * tipográfico existe para mantener. Lo que no se toca es su ESCALA; la base
+  		 * contra la que se mide, sí.
+  		 *
+  		 * ── ALCANCE: SÓLO EL CUERPO DE UN ARTÍCULO ─────────────────────────────
+  		 *
+  		 * `.prose` sin modificador lo usan exactamente dos renderizadores —`text` e
+  		 * `imageText`, vía `MarkdownBody` sin `className`— y los dos sólo se pintan
+  		 * dentro de `BlockRenderer`, o sea en `/blog/[slug]`, `/paginas/[slug]` y el
+  		 * preview del editor (que enseña lo mismo, y debe). El `faq` pasa su propio
+  		 * `text-sm` y se queda donde estaba; la PORTADA no usa `prose` para nada; y
+  		 * el resto de la interfaz tampoco.
+  		 */
+  		typography: {
+  			DEFAULT: {
+  				css: {
+  					fontSize: '17px',
+  					lineHeight: '1.72'
+  				}
+  			}
+  		},
   		keyframes: {
   			'accordion-down': {
   				from: {
