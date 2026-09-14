@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2, Search, Tag as TagIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { PROVINCIAS } from '@/lib/provincias';
+import { CategoriaDialogo } from '@/components/busqueda/CategoriaDialogo';
+import { ProvinciaDialogo } from '@/components/busqueda/ProvinciaDialogo';
 import { categoryPathWithQuery, findCategoryUrlParts } from '@/lib/category-url';
 import { suggestTags } from '@/lib/api/categorias';
 import type { Category, TagSuggestion } from '@/types';
@@ -20,8 +21,35 @@ const MIN_CHARS = 2;
 /** Espera tras la última tecla. Suficiente para no disparar por letra, corto para no notarse. */
 const DEBOUNCE_MS = 250;
 
+/**
+ * ══ BUSCADOR · BQ-B — LOS DOS FILTROS SON DIÁLOGOS, Y NADA MÁS CAMBIÓ ════════════════
+ *
+ * Los dos `<select>` nativos de categoría y provincia pasan a ser diálogos filtrables
+ * (`ui/dialogo-filtrable.tsx` + sus dos adaptadores). **Lo que esos diálogos hacen es
+ * escribir `category` y `province`. Punto.**
+ *
+ * `navegar()`, `paramsBase()`, `elegirTag()`, `buscarTextoLibre()` y `handleSubmit()` NO
+ * SE TOCAN, y eso es lo que conserva sin negociar las dos decisiones que se ganaron antes:
+ * A1 —con categoría elegida se va a su ruta CANÓNICA (`/vehiculos/coches?…`), no a
+ * `?category=`— y B4 —elegir una sugerencia emite `?tags=<slug>` sobre ese mismo destino—.
+ *
+ * ⚠ TRES COSAS QUE PASAN AL METER UN DIÁLOGO DENTRO DE UN `<form>`, y ninguna es un
+ * defecto:
+ *
+ *  1. El disparador es `type="button"` (lo pone Radix). Sin eso, abrirlo enviaría la
+ *     búsqueda: un `<button>` dentro de un `<form>` es `submit` por defecto.
+ *  2. **Abrir un diálogo cierra el desplegable de etiquetas.** El cierre por clic fuera
+ *     (abajo) escucha en `document`, y el velo del diálogo se monta en `<body>`, o sea
+ *     FUERA de este `<form>`. Es lo correcto —dos capas no deben convivir— y queda escrito
+ *     para que nadie lo «arregle».
+ *  3. `Esc` tiene dos dueños: sobre el campo de texto cierra las sugerencias; con un
+ *     diálogo abierto lo atrapa Radix y cierra el diálogo. No chocan: son estados
+ *     excluyentes.
+ */
 export function SearchBar({ defaultValue = '', categories = [] }: SearchBarProps) {
   const [query, setQuery] = useState(defaultValue);
+  // BQ-B — los dos únicos estados que los diálogos escriben. Lo que se hace con ellos
+  // (componer la query, elegir el destino) sigue viviendo más abajo, sin cambios.
   const [category, setCategory] = useState('');
   const [province, setProvince] = useState('');
   const router = useRouter();
@@ -39,6 +67,12 @@ export function SearchBar({ defaultValue = '', categories = [] }: SearchBarProps
    * Pide sugerencias con debounce. El `AbortController` cancela la petición anterior:
    * sin él, teclear rápido puede hacer que una respuesta vieja llegue después de una
    * nueva y pinte una lista que ya no corresponde a lo escrito.
+   *
+   * ⚠ `category` ES DEPENDENCIA, Y CON EL DIÁLOGO ESO SE NOTA MÁS (BQ-B). Elegir una
+   * categoría vuelve a pedir las sugerencias, ya acotadas a ella — que es el
+   * comportamiento correcto y sale gratis. La consecuencia visible: **cerrar el diálogo de
+   * categoría puede repintar el desplegable de etiquetas que hay debajo**. No es un
+   * defecto; es este efecto haciendo su trabajo.
    */
   useEffect(() => {
     const texto = query.trim();
@@ -160,43 +194,19 @@ export function SearchBar({ defaultValue = '', categories = [] }: SearchBarProps
       onSubmit={handleSubmit}
       className="relative flex flex-col gap-2 rounded-2xl border bg-background p-2 shadow-lg md:flex-row md:items-stretch md:gap-0"
     >
+      {/* BQ-B — EL GUARD SE MANTIENE, Y AQUÍ PESA MÁS QUE CON UN `<select>`. Sin
+          categorías (la API caída: `getCategories().catch(() => [])` en la portada) el
+          control entero no se pinta. Un `<select>` vacío se ve vacío desde fuera; un
+          diálogo vacío hay que ABRIRLO para descubrir que no hay nada, y un disparador
+          que promete una lista y enseña un hueco es peor que un control ausente. */}
       {categories.length > 0 && (
         <div className="border-b md:w-48 md:shrink-0 md:border-b-0 md:border-r">
-          <select
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            aria-label="Categoría"
-            className="h-12 w-full rounded-xl bg-transparent px-4 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:h-full md:text-base"
-          >
-            <option value="">Categoría</option>
-            {categories.map((cat) =>
-              cat.children && cat.children.length > 0 ? (
-                <optgroup key={cat.slug} label={cat.name}>
-                  <option value={cat.slug}>Todo en {cat.name}</option>
-                  {cat.children.map((child) => (
-                    <option key={child.slug} value={child.slug}>{child.name}</option>
-                  ))}
-                </optgroup>
-              ) : (
-                <option key={cat.slug} value={cat.slug}>{cat.name}</option>
-              ),
-            )}
-          </select>
+          <CategoriaDialogo categories={categories} valor={category} onElegir={setCategory} />
         </div>
       )}
 
       <div className="border-b md:w-44 md:shrink-0 md:border-b-0 md:border-r">
-        <select
-          value={province}
-          onChange={(e) => setProvince(e.target.value)}
-          aria-label="Provincia"
-          className="h-12 w-full rounded-xl bg-transparent px-4 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:h-full md:text-base"
-        >
-          <option value="">Toda España</option>
-          {PROVINCIAS.map((p) => (
-            <option key={p} value={p}>{p}</option>
-          ))}
-        </select>
+        <ProvinciaDialogo valor={province} onElegir={setProvince} />
       </div>
 
       <div className="relative flex-1">
