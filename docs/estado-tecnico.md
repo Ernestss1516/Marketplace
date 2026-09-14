@@ -306,16 +306,27 @@ función `getListingsByCategory` (frontend) se conservan como fallback.
 
 ### `categoryPath` jerárquico y sintaxis de filtro de array en Meilisearch
 
-El campo `categoryPath` en el documento indexado es un array de slugs: `[slugHoja,
-slugPadre]`. Esto permite filtrar tanto por categoría hoja como por categoría padre
-con una sola expresión. La sintaxis de filtro de Meilisearch para comprobar si un
-valor pertenece a un array es **`campo = valor`** (no `IN`); se usa
-`categoryPath = "slug"` y Meilisearch lo evalúa como "¿contiene el array este valor?".
+El campo `categoryPath` en el documento indexado es un array de slugs: **la cadena de
+ancestros completa, de la hoja a la raíz**. Esto permite filtrar tanto por categoría
+hoja como por cualquier antepasado suyo con una sola expresión. La sintaxis de filtro
+de Meilisearch para comprobar si un valor pertenece a un array es **`campo = valor`**
+(no `IN`); se usa `categoryPath = "slug"` y Meilisearch lo evalúa como "¿contiene el
+array este valor?".
 
-Limitación actual: `INDEX_INCLUDE` en `search.service.ts` solo incluye un nivel de
-padre (`category.parent`), por lo que `categoryPath` soporta como máximo 2 niveles
-(hoja → padre). Un árbol de 3+ niveles requeriría recorrer `parent.parent…` en el
-include y adaptar `toDocument`.
+**Soporta los `CATEGORY_MAX_DEPTH` (= 4) niveles del árbol**, no dos. Esta sección
+decía lo contrario —«`INDEX_INCLUDE` solo incluye un nivel de padre, por lo que
+`categoryPath` soporta como máximo 2 niveles»— y quedó desactualizada en PROFUNDIDAD N
+· RÁFAGA 2: `categoryPath` **ya no se construye desde `category.parent`**, sino desde
+una foto del árbol que resuelve `CategoryTreeService` y que `toDocument` recorre con
+`ancestorChainIn()` (una sola foto por lote, no una por documento). **`INDEX_INCLUDE` ya
+no carga `parent`, y su ausencia es la señal**: su propio comentario dice que la nota
+vieja *«había pasado de aviso útil a afirmación falsa»*.
+
+⚠ Se corrige aquí porque es la nota que hacía dudar de si una categoría de nivel 3 o 4
+es un filtro legítimo. **Lo es.** Lo que hasta BQ-B no podía ofrecerlas era el
+`<select>` del buscador de portada —el estándar HTML no permite anidar `<optgroup>`, así
+que un `<select>` nativo expresa dos niveles de agrupación como mucho—, y eso era una
+limitación del CONTROL, nunca del dato (`docs/diseno-buscador.md` §3).
 
 ### Orden del spread en `toDocument` para no pisar campos core
 

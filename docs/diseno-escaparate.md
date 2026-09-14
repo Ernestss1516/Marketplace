@@ -576,9 +576,24 @@ bien si el buscador es el primer bloque») es honesto; una barrera sería el mot
 posiciones por la puerta de atrás.
 
 **Y el LCP se mueve, a un sitio que también es seguro.** Con el buscador montado, el candidato
-a LCP pasa a ser el `<h1>` **o** la caja del buscador. Los dos son HTML servido: `SearchBar` es
-`'use client'` pero su marcado es un `<form>` nativo que viaja entero en la respuesta y
-funciona sin JS. **Ninguno de los dos se anima.** Regla 4 intacta.
+a LCP pasa a ser el `<h1>` **o** la caja del buscador. Los dos **están en el HTML servido**:
+`SearchBar` es `'use client'`, pero React lo renderiza en el servidor y su marcado —el `<form>`,
+el campo de texto, el botón y los selectores de categoría y provincia— viaja entero en la
+respuesta. **Ninguno de los dos se anima.** Regla 4 intacta.
+
+⚠ **LO QUE SOSTIENE ESTA CONCLUSIÓN ES «ESTÁ EN EL HTML SERVIDO», NO «FUNCIONA SIN JS», Y
+CONVIENE NO CONFUNDIRLAS.** Son dos propiedades distintas: la primera es que el navegador puede
+**pintarlo** antes de ejecutar nada; la segunda, que se puede **interactuar** con ello antes de
+hidratar. **El LCP es un evento de PINTURA**, así que depende de la primera y no de la segunda:
+un elemento que todavía no responde pinta igual de rápido que uno que sí.
+
+Este párrafo decía además que el buscador *«funciona sin JS»*, y **desde la ráfaga BQ-B del
+buscador filtrable eso ya no es cierto**: los selectores de categoría y provincia son diálogos
+y requieren JS (decisión 1 de [`diseno-buscador.md §8`](diseno-buscador.md)). **El LCP no se
+movió por ello**, porque los disparadores de esos diálogos siguen viajando en el HTML servido y
+el contenido del diálogo no se pinta hasta que alguien lo abre. La degradación sin JS, además,
+**ya era parcial antes de aquella ráfaga**: sin JS, el `<select>` de categoría tampoco llevaba
+a `/vehiculos/coches`, porque `navegar()` no corría.
 
 ### 5.3 `heroEyebrow` (decisiones 2 y 5)
 

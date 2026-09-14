@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from 'next/navigation';
 import { categoryPathWithQuery } from '@/lib/category-url';
-import { cadenaHasta } from '@/lib/category-tree';
+import { aplanarArbol, cadenaHasta } from '@/lib/category-tree';
 import { carryFilters, effectiveTagSlugsFor, filterableAttributeNamesFor } from '@/lib/filter-carry';
 import type { Category } from '@/types';
 
@@ -60,20 +60,17 @@ export function CategorySelect({
       aria-label="Categoría"
     >
       <option value="">Todas las categorías</option>
-      {aplanar(categories).map(({ slug, etiqueta }) => (
+      {aplanarArbol(categories).map(({ slug, nombre, ancestros }) => (
         <option key={slug} value={slug}>
-          {etiqueta}
+          {[...ancestros, nombre].join(SEPARADOR)}
         </option>
       ))}
     </select>
   );
 }
 
-/** Separador del path aplanado. Contenido de cara al usuario. */
-const SEPARADOR = ' › ';
-
 /**
- * PROFUNDIDAD N — RÁFAGA 2. Aplana el árbol a una lista de opciones con el PATH
+ * PROFUNDIDAD N — RÁFAGA 2. El árbol se pinta como una lista PLANA con el PATH
  * completo como etiqueta: «Vehículos › Coches › Deportivos».
  *
  * POR QUÉ ASÍ Y NO CON `<optgroup>` ANIDADOS: el estándar HTML **no permite
@@ -89,19 +86,18 @@ const SEPARADOR = ' › ';
  *
  * El orden es el del árbol (cada rama entera antes de la siguiente), así que las
  * categorías de 2 niveles se siguen leyendo exactamente igual que antes.
+ *
+ * ⚠ BUSCADOR · BQ-A — EL RECORRIDO YA NO VIVE AQUÍ. Era una función privada de
+ * este fichero; ahora es `aplanarArbol` en `lib/category-tree.ts`, junto a los
+ * otros cuatro recorridos del árbol. Sube porque BQ-B le trae un segundo
+ * consumidor (el diálogo de categoría del buscador de portada) y dos recorridos
+ * parecidos acaban diciendo cosas distintas. **La etiqueta que se compone aquí
+ * es carácter por carácter la de antes**: la función devuelve nombre y ancestros
+ * por separado porque un diálogo los pinta en columnas y filtra sólo por el
+ * nombre, y componerlos es esta línea.
  */
-function aplanar(
-  nodos: Category[],
-  prefijo: string[] = [],
-): Array<{ slug: string; etiqueta: string }> {
-  return nodos.flatMap((cat) => {
-    const ruta = [...prefijo, cat.name];
-    return [
-      { slug: cat.slug, etiqueta: ruta.join(SEPARADOR) },
-      ...aplanar(cat.children ?? [], ruta),
-    ];
-  });
-}
+/** Separador del path aplanado. Contenido de cara al usuario. */
+const SEPARADOR = ' › ';
 
 /** Localiza la categoría destino en el árbol y devuelve lo que necesita el carry:
  *  su slug, el del padre (para la URL canónica) y su política de tipo (para `condition`).

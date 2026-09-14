@@ -61,3 +61,75 @@ export function conDescendientes<T extends CategoryTreeNode>(nodos: T[], slug: s
   const nodo = buscarEnArbol(nodos, slug);
   return nodo ? recorrerArbol([nodo]) : [];
 }
+
+/** Lo que hace falta para aplanar: además del recorrido, el nombre que se lee. */
+export interface CategoryNamedNode extends CategoryTreeNode {
+  name: string;
+  children?: CategoryNamedNode[] | undefined;
+}
+
+/**
+ * Una fila del árbol aplanado: el nodo, su sitio en la jerarquía y cuánto cuelga
+ * de él. Las tres cosas SEPARADAS a propósito — ver `aplanarArbol`.
+ */
+export interface FilaDeArbol {
+  slug: string;
+  /** El nombre propio del nodo: «Coches». */
+  nombre: string;
+  /** Nombres de los ancestros, de la RAÍZ al padre inmediato. `[]` en las raíces. */
+  ancestros: string[];
+  /** Cuántos nodos cuelgan de éste, a cualquier profundidad. `0` en las hojas. */
+  nDescendientes: number;
+}
+
+/**
+ * ══ EL ÁRBOL, EN UNA LISTA PLANA CON SU RUTA ═════════════════════════════════════
+ *
+ * De `[{Vehículos, children:[{Coches, children:[{Deportivos}]}]}]` sale
+ *
+ *   [ {nombre:'Vehículos',  ancestros:[],                     nDescendientes:2},
+ *     {nombre:'Coches',     ancestros:['Vehículos'],          nDescendientes:1},
+ *     {nombre:'Deportivos', ancestros:['Vehículos','Coches'], nDescendientes:0} ]
+ *
+ * ── DE DÓNDE VIENE ────────────────────────────────────────────────────────────────
+ *
+ * Era una función privada de `CategorySelect` (PROFUNDIDAD N · RÁFAGA 2), y sube aquí
+ * por lo mismo que subieron las otras cuatro: **que subir o bajar por la jerarquía
+ * tenga UN solo sitio donde vivir**. Con un segundo consumidor a punto de llegar —el
+ * diálogo de categoría del buscador de portada, BQ-B— la alternativa era tener dos
+ * recorridos parecidos y la certeza de que un día dirían cosas distintas.
+ *
+ * ── POR QUÉ DEVUELVE TRES CAMPOS Y NO LA ETIQUETA YA COMPUESTA ───────────────────
+ *
+ * La versión de `CategorySelect` devolvía `{slug, etiqueta:'Vehículos › Coches'}`, y
+ * hacía bien: **un `<option>` sólo tiene texto**, así que no había nada que separar.
+ *
+ * Un diálogo sí: pinta el nombre y la ruta en columnas distintas, y —lo que de verdad
+ * obliga a separarlos— **filtra sobre el NOMBRE y no sobre la ruta**. Buscando en la
+ * ruta, teclear «veh» devuelve la rama entera de Vehículos (todos sus descendientes la
+ * llevan en el path) y el filtro deja de filtrar justo en el caso más común
+ * (`docs/diseno-buscador.md` §3.3). Componer es trivial y descomponer no lo es, así que
+ * la función devuelve las piezas y cada consumidor arma lo suyo.
+ *
+ * `nDescendientes` viene del mismo recorrido —no de un `conDescendientes` por fila, que
+ * sería cuadrático— y existe para poder decir «y sus 6 subcategorías» donde el `<select>`
+ * decía «Todo en Vehículos» (decisión 6 del diseño).
+ *
+ * ── EL ORDEN ES EL DEL ÁRBOL ─────────────────────────────────────────────────────
+ *
+ * Cada rama entera antes de la siguiente, padres antes que hijos — el mismo de
+ * `recorrerArbol`. Así una lista de 2 niveles se sigue leyendo exactamente igual que
+ * antes de que el árbol admitiera cuatro.
+ */
+export function aplanarArbol<T extends CategoryNamedNode>(
+  nodos: T[],
+  ancestros: string[] = [],
+): FilaDeArbol[] {
+  return nodos.flatMap((nodo) => {
+    const hijos = aplanarArbol((nodo.children ?? []) as T[], [...ancestros, nodo.name]);
+    return [
+      { slug: nodo.slug, nombre: nodo.name, ancestros, nDescendientes: hijos.length },
+      ...hijos,
+    ];
+  });
+}
