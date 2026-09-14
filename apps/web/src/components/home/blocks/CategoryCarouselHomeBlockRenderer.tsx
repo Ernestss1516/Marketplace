@@ -58,8 +58,21 @@ export function CategoryCarouselHomeBlockRenderer({
           <Link
             key={item.categorySlug}
             href={item.href}
-            // ESCAPARATE C — el gesto compartido (`.tarjeta-levanta`, globals.css).
-            className="tarjeta-levanta flex w-32 shrink-0 snap-start flex-col items-center gap-2 rounded-xl border bg-card p-3 text-center hover:border-primary/40"
+            /* ESCAPARATE C-bis — TARJETA ALTA, CON LA FOTO A SANGRE.
+               Era una tarjeta ancha de 128 px con la foto acolchada dentro y recortada a
+               80 px de alto. Ahora la foto llega a los bordes y manda la proporción
+               (`aspect-[4/5]`), con el texto debajo en su propia franja.
+
+               Todo son clases, ni un nodo nuevo: el `<a>` suelta su `p-3` y su `gap` y
+               gana `overflow-hidden` —lo que hace que la foto respete la curva—, la
+               imagen cambia de alto fijo a proporción fija, y el texto recupera el
+               padding que antes ponía el padre.
+
+               `aspect-[4/5]` literal, como el `aspect-[4/3]` de la rejilla: una
+               proporción interpolada no existiría en el CSS final.
+
+               ESCAPARATE C — el gesto compartido (`.tarjeta-levanta`, globals.css). */
+            className="tarjeta-levanta flex w-36 shrink-0 snap-start flex-col overflow-hidden rounded-2xl border bg-card text-center hover:border-primary/40"
           >
             {isSafeSrc(item.imageUrl) ? (
               // <img> plano y no next/image: el bloque no guarda dimensiones.
@@ -68,7 +81,7 @@ export function CategoryCarouselHomeBlockRenderer({
               <img
                 src={item.imageUrl}
                 alt={item.alt}
-                className="h-20 w-full rounded-lg object-cover"
+                className="aspect-[4/5] w-full object-cover"
               />
             ) : (
               // La imagen no pasa el guard de dominio (ver §7 del diseño: las dos
@@ -76,11 +89,14 @@ export function CategoryCarouselHomeBlockRenderer({
               // círculo —lo mismo que hace CategoryGrid sin iconUrl— en vez de
               // dejar un hueco: en una fila de tarjetas, un hueco rompe la
               // maquetación. Mismo criterio que la rejilla de RP.4.
-              <div className="flex h-20 w-full items-center justify-center rounded-lg bg-primary/10 text-2xl font-bold text-primary">
+              //
+              // C-bis: la misma proporción que la foto, o una categoría sin imagen
+              // rompería la altura de la fila entera.
+              <div className="flex aspect-[4/5] w-full items-center justify-center bg-primary/10 text-3xl font-bold text-primary">
                 {item.texto[0]}
               </div>
             )}
-            <span className="text-xs font-medium leading-tight">{item.texto}</span>
+            <span className="px-3 py-3 text-xs font-medium leading-tight">{item.texto}</span>
           </Link>
         ))}
       </CarouselScroller>

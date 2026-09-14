@@ -62,7 +62,7 @@ function nombreProveedor(block: VideoBlock): string {
  */
 export function VideoBlockRenderer({ block }: { block: VideoBlock }) {
   return (
-    <div className="aspect-video w-full overflow-hidden rounded-lg bg-muted">
+    <div className="aspect-video w-full overflow-hidden rounded-2xl bg-muted">
       <GateTerceros
         proveedor={nombreProveedor(block)}
         descripcion="Este vídeo"

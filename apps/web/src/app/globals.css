@@ -295,7 +295,17 @@
        del primer bloque para invitar a bajar — la decisión 1a.
 
        ⚠ NADIE LOS CONSUME TODAVÍA. Igual que los dos de arriba. */
-    --ritmo-bloques: 3rem;
+    /* C-bis le pone su valor de escaparate. Era 3rem —los 48 px de `space-y-12`, o sea
+       lo que había— porque la ráfaga A declaraba el vocabulario sin usarlo; ahora lo
+       consumen los dos motores de bloques.
+
+       4rem Y NO LOS 86 px DEL BOCETO, y el motivo es que este token gobierna DOS sitios
+       con necesidades distintas: las secciones de la portada, que piden mucho aire, y la
+       columna de lectura de un artículo, donde 86 px entre un párrafo y el siguiente
+       bloque desmigaría el texto. 4rem sube el aire en los dos (48→64 en portada, 32→64
+       en el artículo) sin romper ninguno. Si algún día la columna de lectura pide su
+       propio ritmo, es una segunda constante aquí al lado — no un token de modelo. */
+    --ritmo-bloques: 4rem;
     --altura-cabecera: 4rem;
     --asomo-hero: 3rem;
   }

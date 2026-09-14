@@ -5,9 +5,17 @@ export function StepsBlockRenderer({ block }: { block: StepsBlock }) {
   return (
     <div>
       {block.title && <h2 className="mb-4 text-xl font-semibold">{block.title}</h2>}
-      <ol className="space-y-6">
+      {/* ESCAPARATE C-bis — CADA PASO, EN SU TARJETA. Antes era una lista con un círculo
+          numerado y nada más; en una columna de lectura, rodeado de una cita y un
+          acordeón que sí tienen caja, los pasos se quedaban descolgados. La clase va
+          sobre el `<li>` que ya existía: ni un nodo nuevo.
+
+          Y el hueco entre pasos BAJA de 6 a 3: cada tarjeta trae ya su propio aire
+          dentro (`p-5`), así que mantener la separación de cuando eran filas sueltas
+          dejaría la lista desmigada. */}
+      <ol className="space-y-3">
         {block.items.map((item, idx) => (
-          <li key={idx} className="flex gap-4">
+          <li key={idx} className="flex gap-4 rounded-2xl border bg-card p-5 shadow-sm">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
               {idx + 1}
             </span>

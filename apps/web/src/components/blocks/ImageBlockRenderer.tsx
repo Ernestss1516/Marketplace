@@ -22,7 +22,7 @@ export function ImageBlockRenderer({ block }: { block: ImageBlock }) {
   return (
     <figure className={POSITION_CLS[position]} style={block.width ? { width: `${block.width}%` } : undefined}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={block.url} alt={block.alt} className="w-full rounded-lg" />
+      <img src={block.url} alt={block.alt} className="w-full rounded-2xl" />
       {block.caption && (
         <figcaption className="mt-2 text-center text-sm text-muted-foreground">{block.caption}</figcaption>
       )}

@@ -63,7 +63,7 @@ function CellMedia({ media }: { media: HomeGridCell['media'] }) {
     <img
       src={media.url}
       alt={media.alt}
-      className="aspect-[4/3] w-full rounded-lg object-cover"
+      className="aspect-[4/3] w-full rounded-xl object-cover"
     />
   );
 }
@@ -110,7 +110,7 @@ export function GridHomeBlockRenderer({ block }: { block: HomeGridBlock }) {
               // que no enlaza (más abajo) no, porque no se puede tocar: las señales de
               // confianza son texto, y un texto que reacciona al ratón promete una
               // navegación que no existe.
-              className={`${cellCls} tarjeta-levanta rounded-lg border bg-card p-4`}
+              className={`${cellCls} tarjeta-levanta rounded-2xl border bg-card p-4`}
             >
               <CellBody cell={cell} />
             </SmartLink>

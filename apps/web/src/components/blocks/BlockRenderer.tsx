@@ -96,7 +96,7 @@ export function BlockRenderer({
   categories?: Category[];
 }) {
   return (
-    <div className="space-y-8">
+    <div className="space-y-[var(--ritmo-bloques)]">
       {blocks.map((block) => (
         <div key={block.id}>{renderBlock(block, listingsData, categories)}</div>
       ))}

@@ -33,7 +33,15 @@ export function StepsHomeBlockRenderer({ block }: { block: HomeStepsBlock }) {
         {block.columns.map((column, colIdx) => {
           const Icon = column.icon ? HOME_ICONS[column.icon] : null;
           return (
-            <div key={colIdx}>
+            // ESCAPARATE C-bis — CADA COLUMNA, EN SU TARJETA. Antes eran dos listas
+            // sueltas separadas por un `gap`, y a dos públicos a la vez («compradores» /
+            // «vendedores») les faltaba justamente el marco que dice dónde acaba uno y
+            // empieza el otro. Es una clase sobre el `<div>` que YA envolvía la columna:
+            // ni un nodo nuevo. El radio, el borde y la sombra los pone el modelo.
+            <div
+              key={colIdx}
+              className="rounded-2xl border bg-card p-6 shadow-sm md:p-8"
+            >
               <h3 className="mb-5 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
                 {Icon && <Icon className="h-4 w-4" aria-hidden="true" />}
                 {column.audienceTitle}

@@ -37,7 +37,7 @@ export function CookiePreferencesBlockRenderer() {
     <section
       data-testid="panel-preferencias-cookies"
       aria-label="Tus preferencias de cookies"
-      className="rounded-lg border border-border bg-muted/30 p-5"
+      className="rounded-2xl border border-border bg-muted/30 p-5"
     >
       <h2 className="text-base font-semibold text-foreground">Tus preferencias</h2>
 

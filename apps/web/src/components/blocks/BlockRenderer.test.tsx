@@ -274,17 +274,31 @@ describe('BlockRenderer — Ráfaga 3 (4 tipos nuevos)', () => {
     expect(screen.getByText('Destacado')).toBeInTheDocument();
   });
 
+  /**
+   * ⚠ ESTOS DOS SE AGARRABAN A `.space-y-8`, Y ESO SE ROMPIÓ SOLO.
+   *
+   * El escaparate (C-bis) sustituyó ese espaciado por `space-y-[var(--ritmo-bloques)]`,
+   * así que el selector dejó de encontrar nada y `?.textContent` devolvía `undefined`.
+   * El bloque seguía ocultándose perfectamente: lo que falló fue el ASIDERO, no la
+   * propiedad — la misma lección que la comprobación de `/admin/portada` que buscaba la
+   * palabra «Titular».
+   *
+   * Ahora se mira `container.textContent` directamente, que es lo que estos tests
+   * quieren decir de verdad: «no se pinta NADA, ni un hueco». Sin selector de por medio,
+   * ningún cambio de clase puede volver a romperlos — y de paso cubren más, porque
+   * miran todo lo renderizado y no sólo lo que hubiera dentro de un contenedor concreto.
+   */
   it('listings: sin datos resueltos (aún no llegó SSR) → no renderiza nada (no deja un hueco)', () => {
     const block: Block = { id: 'b1', type: 'listings', categorySlug: 'electronica', limit: 8 };
     const { container } = render(<BlockRenderer blocks={[block]} />);
-    expect(container.querySelector('.space-y-8')?.textContent).toBe('');
+    expect(container.textContent).toBe('');
   });
 
   it('listings: categoría vacía (totalHits=0) → oculta el bloque, no deja un hueco', () => {
     const block: Block = { id: 'b1', type: 'listings', categorySlug: 'electronica', limit: 8 };
     const data: SearchResponse = { hits: [], totalHits: 0, page: 1, hitsPerPage: 8 };
     const { container } = render(<BlockRenderer blocks={[block]} listingsData={{ b1: data }} />);
-    expect(container.querySelector('.space-y-8')?.textContent).toBe('');
+    expect(container.textContent).toBe('');
   });
 
   it('listings: patrocinados excluidos, solo se pintan anuncios reales', () => {

@@ -12,7 +12,7 @@ export function ImageTextBlockRenderer({ block }: { block: ImageTextBlock }) {
   const imageEl = safeSrc && (
     <figure>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={block.image.url} alt={block.image.alt} className="w-full rounded-lg" />
+      <img src={block.image.url} alt={block.image.alt} className="w-full rounded-2xl" />
       {block.image.caption && (
         <figcaption className="mt-2 text-center text-sm text-muted-foreground">{block.image.caption}</figcaption>
       )}

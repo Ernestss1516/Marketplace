@@ -16,7 +16,7 @@ export function HubBlockRenderer({ block }: { block: HubBlock }) {
             key={idx}
             href={link.href}
             // ESCAPARATE C — el gesto compartido (`.tarjeta-levanta`, globals.css).
-            className="tarjeta-levanta block rounded-lg border bg-card p-4"
+            className="tarjeta-levanta block rounded-2xl border bg-card p-4"
           >
             <span className="font-medium">{link.label}</span>
             {link.description && (
