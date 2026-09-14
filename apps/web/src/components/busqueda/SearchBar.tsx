@@ -16,6 +16,42 @@ interface SearchBarProps {
   categories?: Category[];
 }
 
+/**
+ * ══ BUSCADOR · BQ-C — LA ESCALA DE ALTO, UNA Y ESCRITA EN UN SOLO SITIO ══════════════
+ *
+ * **Los CUATRO controles del buscador miden lo mismo**: los dos disparadores, el campo de
+ * texto y el botón. Es el punto 2 del encargo —que el buscador se lea como UNA pieza y no
+ * como cuatro cajas— y hasta BQ-C no se cumplía.
+ *
+ * ── LO QUE HABÍA, MEDIDO ───────────────────────────────────────────────────────────
+ *
+ * En móvil, 48 / 48 / 56 / 56. En escritorio la incoherencia **estaba disimulada**: los dos
+ * selectores llevaban `md:h-full`, o sea que se estiraban hasta el alto de la fila — que lo
+ * fijaba el campo de texto con su `md:h-16`. Había un control que mandaba y tres que
+ * obedecían, y sólo se notaba en móvil.
+ *
+ * Y no es una lectura del código: lo midió la MUTACIÓN de BQ-A. Bajar los dos `<select>` de
+ * 48 a 44 px puso rojas las capturas de móvil y **dejó verdes las de escritorio**, porque
+ * ahí el `md:h-full` se comía el cambio. Ese verde era el síntoma.
+ *
+ * ── POR QUÉ SE SUBE Y NO SE BAJA ───────────────────────────────────────────────────
+ *
+ * El campo de texto no puede encoger: es candidato a LCP con el buscador montado sobre la
+ * banda del hero (`diseno-escaparate.md` §5.2) y es lo que da al buscador su peso visual.
+ * La coherencia se consigue subiendo los otros tres hasta él.
+ *
+ * ── Y POR QUÉ EL VALOR VIVE AQUÍ Y NO EN EL MOLDE ──────────────────────────────────
+ *
+ * Porque `DialogoFiltrable` es genérico y su defecto es `h-10`, el de cualquier control de
+ * formulario de la casa. Quien sabe que aquí hay cuatro controles que deben medir igual es
+ * esta pantalla, no el componente. El día que el molde entre en `FilterPanel` —donde los
+ * controles son de 40 px— no habrá nada que negociar dentro de él.
+ *
+ * ⚠ CLASES ESTÁTICAS, NUNCA INTERPOLADAS: Tailwind purga lo que no encuentra escrito. Es la
+ * misma regla de `ALTURA_CLASS` en `HomeHeroBanda` y de `ROTATION_CLASS` en `HomeHero`.
+ */
+const ALTO_CONTROL = 'h-14 md:h-16';
+
 /** B4 — a partir de aquí se piden sugerencias. Por debajo, casi todo casa con casi todo. */
 const MIN_CHARS = 2;
 /** Espera tras la última tecla. Suficiente para no disparar por letra, corto para no notarse. */
@@ -201,12 +237,17 @@ export function SearchBar({ defaultValue = '', categories = [] }: SearchBarProps
           que promete una lista y enseña un hueco es peor que un control ausente. */}
       {categories.length > 0 && (
         <div className="border-b md:w-48 md:shrink-0 md:border-b-0 md:border-r">
-          <CategoriaDialogo categories={categories} valor={category} onElegir={setCategory} />
+          <CategoriaDialogo
+            categories={categories}
+            valor={category}
+            onElegir={setCategory}
+            className={ALTO_CONTROL}
+          />
         </div>
       )}
 
       <div className="border-b md:w-44 md:shrink-0 md:border-b-0 md:border-r">
-        <ProvinciaDialogo valor={province} onElegir={setProvince} />
+        <ProvinciaDialogo valor={province} onElegir={setProvince} className={ALTO_CONTROL} />
       </div>
 
       <div className="relative flex-1">
@@ -222,7 +263,7 @@ export function SearchBar({ defaultValue = '', categories = [] }: SearchBarProps
           aria-expanded={hayDesplegable}
           aria-controls="sugerencias-etiquetas"
           aria-autocomplete="list"
-          className="h-14 w-full rounded-xl border-0 bg-transparent pl-12 pr-10 text-lg ring-offset-background placeholder:text-muted-foreground/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:h-16 md:text-xl"
+          className={`${ALTO_CONTROL} w-full rounded-xl border-0 bg-transparent pl-12 pr-10 text-lg ring-offset-background placeholder:text-muted-foreground/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:text-xl`}
         />
         {cargando && (
           <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
@@ -241,7 +282,7 @@ export function SearchBar({ defaultValue = '', categories = [] }: SearchBarProps
       <Button
         type="submit"
         size="lg"
-        className="relative h-14 overflow-hidden rounded-xl px-6 text-base md:h-16 md:px-8 md:text-lg"
+        className={`${ALTO_CONTROL} relative overflow-hidden rounded-xl px-6 text-base md:px-8 md:text-lg`}
       >
         Buscar
         <span

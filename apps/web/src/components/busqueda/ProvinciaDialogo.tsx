@@ -55,10 +55,13 @@ const OPCIONES: OpcionFiltrable[] = PROVINCIAS.map((p) => ({
 export function ProvinciaDialogo({
   valor,
   onElegir,
+  className,
 }: {
   valor: string;
   /** Escribe la provincia elegida en el estado del buscador. Nada más. */
   onElegir: (provincia: string) => void;
+  /** Geometría del disparador. La decide quien lo monta — ver `DialogoFiltrable`. */
+  className?: string;
 }) {
   return (
     <DialogoFiltrable
@@ -70,6 +73,7 @@ export function ProvinciaDialogo({
       titulo="Elige una provincia"
       marcadorFiltro="Filtrar provincias…"
       etiquetaDisparador="Provincia"
+      className={className}
     />
   );
 }

@@ -493,16 +493,35 @@ Ninguno es un riesgo abierto: los cuatro tienen respuesta y los cuatro hay que
    por defecto: abrir el diálogo lanzaría la búsqueda. **Radix ya lo pone**
    (verificado en `@radix-ui/react-dialog/dist/index.mjs:67`). Sigue siendo del autor si
    el disparador se escribe con `asChild`.
-2. **El velo cierra el desplegable de etiquetas.** `SearchBar` cierra sus sugerencias con
-   un `mousedown` fuera del `<form>`
-   ([líneas 69-75](../apps/web/src/components/busqueda/SearchBar.tsx#L69-L75)); el velo se
-   monta en `<body>`, **fuera**. Abrir un diálogo cerrará el desplegable si estaba abierto.
-   **Es lo correcto** —dos capas no deben convivir— y conviene dejarlo escrito para que
-   nadie lo «arregle».
+2. ~~**El velo cierra el desplegable de etiquetas.**~~ **FALSO — corregido en BQ-C.** El
+   razonamiento era: `SearchBar` cierra sus sugerencias con un `mousedown` fuera del
+   `<form>`, el velo se monta en `<body>`, luego abrir un diálogo las cierra. **Tiene un
+   agujero de cronología**: cuando se pulsa el disparador el velo TODAVÍA NO EXISTE, y el
+   `mousedown` cae sobre un botón que está DENTRO del formulario. El desplegable **se queda
+   abierto, debajo**.
+   <br><br>
+   Y está bien que se quede, por algo que este apartado no miró: la preocupación de fondo
+   era «dos capas VIVAS», y no hay dos capas vivas. Radix marca `aria-hidden` todo lo que
+   queda fuera del diálogo y le corta los eventos de puntero, así que el desplegable es
+   **inerte** — no se anuncia, no se pulsa, y está bajo un velo al 80 %. Conservarlo tiene
+   además una ventaja: elegir una categoría vuelve a pedir las sugerencias acotadas a ella,
+   así que al cerrar están ahí ya filtradas. Cerrarlo obligaría a teclear otra vez.
+   <br><br>
+   Lo que se fija en e2e es la propiedad que importa —**inerte mientras el diálogo está
+   abierto, viva al cerrarlo**—, no la que este apartado supuso.
 3. **`Esc` tiene dos dueños.** Hoy `Esc` sobre el input cierra las sugerencias
    ([línea 137](../apps/web/src/components/busqueda/SearchBar.tsx#L137)); con el diálogo
-   abierto lo atrapa Radix y cierra el diálogo. **No chocan** (son estados excluyentes),
-   pero es lo primero que prueba alguien con teclado.
+   abierto lo atrapa Radix y cierra el diálogo. **No chocan**, pero no por lo que este
+   apartado decía: los dos estados **sí coexisten** (punto 2). Lo que decide es dónde está
+   el foco — dentro del diálogo, sólo hay un destino posible.
+   <br><br>
+   ⚠ **Y aquí apareció un defecto de verdad, que sólo se ve con teclado.** Al pulsar `Esc`
+   el foco se quedaba en el `<body>`: la capa no se «cierra», se DESMONTA (el reparto por
+   peso de BQ-B), así que Radix nunca ve su `open` pasar a `false` y su `FocusScope` no
+   llegaba a devolverlo. Quien navega sin ratón se quedaba en el limbo en medio de un
+   formulario. Lo devuelve ahora `DialogoFiltrable` a mano, en el fotograma siguiente —para
+   no pelearse con las limpiezas de `react-remove-scroll` y `aria-hidden`—. **Es el coste
+   escondido del reparto del §7.2, y lo encontró esta lista.**
 4. ⚠ **El bloqueo de scroll y el salto horizontal.** `@radix-ui/react-dialog` depende de
    `react-remove-scroll` y `aria-hidden` (verificado en su `package.json`). Al abrir, el
    documento se bloquea y —si el navegador pinta barra de scroll con ancho— **la página se
@@ -510,6 +529,34 @@ Ninguno es un riesgo abierto: los cuatro tienen respuesta y los cuatro hay que
    compensa con padding; **en la portada montada ese salto se vería en el hero a sangre**,
    que es lo más ancho de la página. **Se verifica en BQ-C**, en escritorio, con barra de
    scroll clásica.
+
+> ✅ **LOS CUATRO ESTÁN VERIFICADOS DESDE BQ-C**, y no en prosa:
+> [`e2e/buscador-dialogos.spec.ts`](../apps/web/e2e/buscador-dialogos.spec.ts) los mide en
+> un navegador de verdad, que es el único sitio donde el `<form>`, el portal a `<body>`, el
+> foco y el bloqueo de scroll existen.
+>
+> El cuarto necesitó **tres** decisiones, y las tres nacen de lo mismo: un instrumento que
+> no mide da un verde peor que un rojo.
+>
+> 1. **El medidor no filtra `hadRecentInput`.** El CLS «oficial» descarta los
+>    desplazamientos ocurridos en los 500 ms siguientes a una interacción, y aquí lo que se
+>    mide ocurre EXACTAMENTE al pulsar: con el filtro puesto habría dado 0 siempre.
+> 2. **Se valida reproduciendo el modo de fallo exacto** —bloquear el scroll sin compensar
+>    el ancho de la barra—, no un movimiento cualquiera. Y la validación va **en la misma
+>    prueba que la medida**, para que las dos se comparen entre sí en vez de contra un
+>    umbral escrito a ojo: la primera versión exigía `> 0.01` al salto inyectado y falló con
+>    **0,00418**. El instrumento sí lo veía; 15 px de desplazamiento horizontal en 1280 de
+>    ancho simplemente puntúan poco. Lo que hay que afirmar no es «el fallo da más de X»,
+>    sino **«el fallo se distingue del no-fallo»**.
+> 3. ⚠ **Y las dos pruebas se lanzan su propio navegador.** En el Chromium de la batería,
+>    `innerWidth - clientWidth` vale **0**: Playwright arranca headless con
+>    `--hide-scrollbars`, que gana a cualquier CSS (la primera explicación —barras
+>    superpuestas— llevó a forzar una clásica con `::-webkit-scrollbar`, y siguió valiendo
+>    0). O sea que el defecto **es invisible en el runner por construcción**. Quitar esa
+>    bandera del proyecto `chromium` metería 15 px de barra en los 271 casos de la batería,
+>    así que se lanza un navegador aparte **sólo para estas dos pruebas**. El guard que
+>    exige `ancho > 0` se negó a dar el verde dos corridas seguidas antes de llegar aquí, y
+>    esa terquedad es el motivo de que ahora se mida algo.
 
 ---
 
@@ -641,17 +688,42 @@ verificación.
 ráfaga y hay que **declarar los KB en el commit**. Es un dato, no un riesgo: se mide con el
 analizador de bundle en BQ-B, antes de dar la ráfaga por cerrada.
 
-### 7.2 El diálogo no está en el render inicial
+### 7.2 El diálogo no se paga en la carga de la portada — y el porqué no es el que este apartado decía
 
-**Radix no monta el portal mientras el diálogo está cerrado.** El contenido del diálogo —el
-campo de filtro, la lista, las filas— **no existe en el DOM hasta el primer clic**. Es el
-mismo patrón de coste bajo demanda que `MunicipioAutocomplete` aplica a su dataset
-([`loadDataset`, líneas 79-89](../apps/web/src/components/municipio/MunicipioAutocomplete.tsx#L79-L89)),
-y aquí sale gratis porque los datos ya están en memoria: lo que se difiere es **el
-renderizado**, no una petición.
+**El molde está partido en dos ficheros, y ésa es la razón:**
+[`ui/dialogo-filtrable.tsx`](../apps/web/src/components/ui/dialogo-filtrable.tsx) lleva
+**sólo el disparador** —un `<button>`, que viaja en el HTML servido como viajaba el
+`<select>`— y toda la capa (Radix Dialog, el filtro, la lista) vive en
+[`ui/dialogo-filtrable-capa.tsx`](../apps/web/src/components/ui/dialogo-filtrable-capa.tsx),
+que llega por `next/dynamic`. **La descarga se dispara al abrir**, porque `dynamic()` sólo
+la dispara cuando el componente se RENDERIZA — el mismo argumento con el que
+[`MapViewClient`](../apps/web/src/components/busqueda/MapViewClient.tsx) deja MapLibre fuera
+de `/busqueda` hasta que alguien pide el mapa.
 
-**Consecuencia directa:** el trabajo de pintar 52 filas (o N categorías) **no ocurre en la
-carga de la portada**. Ocurre cuando el usuario decide que quiere filtrar.
+**Medido con `next build`, que es lo que este apartado pedía hacer antes de afirmar nada:**
+
+| | Ruta `/` | First Load JS |
+|---|---|---|
+| Antes de BQ-B | 6.29 kB | 228 kB |
+| Con la capa importada a secas | 6.88 kB | **242 kB** |
+| Con el reparto disparador + capa diferida | 6.67 kB | **230 kB** |
+
+⚠ **LO QUE ESTE APARTADO DECÍA ANTES ERA FALSO, Y CONVIENE QUE QUEDE ESCRITO POR QUÉ.**
+Decía que el diálogo no se pagaba en el render inicial *«porque Radix no monta el portal
+mientras está cerrado»*. Eso es cierto y no demuestra nada: **«no se renderiza» no es «no
+se descarga»**. El CONTENIDO no se pintaba, en efecto — pero el CÓDIGO viajaba entero en la
+primera carga, y eran **14 kB en la página de más tráfico del sitio**. El diseño dio por
+hecho además que `@radix-ui/react-dialog` ya estaba en ese chunk; la medición dijo que no.
+
+Es exactamente el mismo error de razonamiento que BQ-A corrigió en
+[`diseno-escaparate.md §5.2`](diseno-escaparate.md), donde «está en el HTML servido» y
+«funciona sin JS» se trataban como una sola propiedad. Aquí eran «no se monta» y «no se
+descarga». **Dos veces la misma trampa en dos capas distintas**, y las dos veces la
+destapó medir en vez de razonar.
+
+**Lo que sigue siendo cierto de la versión anterior:** el trabajo de PINTAR 52 filas (o N
+categorías) no ocurre en la carga de la portada, sino cuando el usuario decide filtrar. Sólo
+que eso es la consecuencia pequeña; la grande es el peso, y el peso necesitaba el reparto.
 
 ### 7.3 Lo que sí sale del HTML inicial, dicho sin adornos
 
@@ -883,9 +955,30 @@ Cuatro. El orden lo manda la regla de la casa: **las barreras antes de repintar*
    que la portada funcionaba así. **La decisión 1 los retira** (§8.5), así que la deuda
    deja de ser «una afirmación sin vigilar» y pasa a ser «una propiedad que ya no se
    afirma». Es la forma barata de cerrarla.
-3. **`FilterPanel:800-808` tiene el mismo `<select>` de provincia** y el mismo problema.
+3. ⚠ **UN RESIDUO DE 8 PX AL ABRIR CUALQUIER DIÁLOGO, Y NO ES DEL BUSCADOR.** Medido en
+   BQ-C con barra de scroll real (`e2e/buscador-dialogos.spec.ts`):
+
+   | | Desplazamiento | Qué se mueve |
+   |---|---|---|
+   | Abrir el diálogo | **0,0010** | UN nodo: un `.container mx-auto`, 8 px |
+   | El mismo bloqueo **sin compensar** | **0,0049** | CINCO: la nav de la cabecera y sus botones (15 px), el contenedor del hero y los chips (8 px) |
+
+   O sea: `react-remove-scroll` hace su trabajo —**el hero NO se mueve**, que era la
+   preocupación del §5.3— pero queda un contenedor centrado que se descoloca 8 px. Sale de
+   la cabecera `sticky` que comparte **todo el sitio público**, así que afecta por igual a
+   los ~25 diálogos anteriores al buscador: **no lo introdujo esta ráfaga y arreglarlo aquí
+   sería cambiar la cabecera de todas las páginas desde la ráfaga del buscador**. Mismo
+   criterio que el velo del punto 1. El mecanismo exacto no está cerrado —la compensación
+   por `padding-right` del `body` y un elemento `sticky` interactúan de una forma que
+   conviene medir antes de tocar nada—, y ésa es la primera tarea de esa ráfaga.
+
+   Para que el residuo no crezca sin que nadie lo note, la prueba exige que lo que se mueve
+   al abrir sea **menos de un tercio** de lo que se mueve sin compensación, y que el hero no
+   figure entre las fuentes.
+
+4. **`FilterPanel:800-808` tiene el mismo `<select>` de provincia** y el mismo problema.
    **Es el primer cliente del molde** en la ráfaga de unificación de `/busqueda`.
-4. **El buscador de `/busqueda` sigue con `CategorySelect`**, que además **navega** al
+5. **El buscador de `/busqueda` sigue con `CategorySelect`**, que además **navega** al
    cambiar (`goTo` → `router.push`) en vez de escribir un valor. Unificar los dos no es
    sólo cambiar el control: es decidir si el de `/busqueda` deja de navegar o si el molde
    admite un modo que navegue. **No se decide aquí.**

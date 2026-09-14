@@ -78,6 +78,7 @@ export function CategoriaDialogo({
   categories,
   valor,
   onElegir,
+  className,
 }: {
   /** Árbol completo, tal como lo sirve `GET /categories`. Ya viaja con la página. */
   categories: Category[];
@@ -87,6 +88,8 @@ export function CategoriaDialogo({
    * ruta canónica de A1, con el `?tags=` de B4— sigue siendo `SearchBar.navegar()`.
    */
   onElegir: (slug: string) => void;
+  /** Geometría del disparador. La decide quien lo monta — ver `DialogoFiltrable`. */
+  className?: string;
 }) {
   // El árbol es estable durante toda la vida de la página (baja por props desde el Server
   // Component), pero el aplanado recorre N nodos y se pinta en cada render del buscador —
@@ -103,6 +106,7 @@ export function CategoriaDialogo({
       titulo="Elige una categoría"
       marcadorFiltro="Filtrar categorías…"
       etiquetaDisparador="Categoría"
+      className={className}
     />
   );
 }
