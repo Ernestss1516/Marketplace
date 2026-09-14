@@ -28,7 +28,7 @@ export function AdBannerBlockRenderer({ block }: { block: AdBannerBlock }) {
   return (
     <aside
       // `aside` y no `div`: es contenido tangencial al artículo, no parte de su hilo.
-      className="overflow-hidden rounded-lg border bg-muted/20"
+      className="overflow-hidden rounded-2xl border bg-muted/20"
       data-testid="bloque-publicidad"
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}

@@ -3,7 +3,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 
 export function TableBlockRenderer({ block }: { block: TableBlock }) {
   return (
-    <div className="rounded-lg border">
+    <div className="overflow-hidden rounded-2xl border">
       <Table>
         <TableHeader>
           <TableRow>

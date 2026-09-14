@@ -85,7 +85,12 @@ export default async function HomePage() {
         <HomeHero config={homepage} />
       </HomeHeroBanda>
 
-      <div className="container mx-auto space-y-12 px-4 py-12">
+      {/* ESCAPARATE C-bis — el mismo ritmo que usa el motor de bloques. Este contenedor
+          separa los TRES grupos que la página monta (los bloques de antes, la rejilla de
+          categorías de respaldo y los de después); si mantuviera su propio `space-y-12`,
+          el hueco entre grupos sería distinto del hueco entre bloques del mismo grupo, y
+          la costura se vería. */}
+      <div className="container mx-auto space-y-[var(--ritmo-bloques)] px-4 py-12">
         <HomeBlockRenderer blocks={bloquesAntes} {...rendererProps} />
 
         {/* Fallback, NO andamio: §8 daba por retirada esta rejilla en RP.5 y esa

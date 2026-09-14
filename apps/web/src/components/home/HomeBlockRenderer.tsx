@@ -90,7 +90,7 @@ export function HomeBlockRenderer({ blocks, ...props }: HomeBlockRendererProps) 
   // Espaciado vertical uniforme: los renderizadores individuales no se ocupan
   // del ritmo entre bloques. Mismo contenedor que BlockRenderer.tsx:89-93.
   return (
-    <div className="space-y-12">
+    <div className="space-y-[var(--ritmo-bloques)]">
       {blocks.map((block) => (
         <div key={block.id}>{renderBlock(block, props)}</div>
       ))}

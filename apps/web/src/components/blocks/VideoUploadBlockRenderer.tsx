@@ -21,7 +21,7 @@ export function VideoUploadBlockRenderer({ block }: { block: VideoUploadBlock })
       <VideoPlayer
         src={block.url}
         poster={block.poster}
-        className="w-full rounded-lg"
+        className="w-full rounded-2xl"
         testId="bloque-video-subido"
       />
       {block.caption && (
