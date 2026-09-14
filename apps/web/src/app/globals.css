@@ -35,6 +35,24 @@
     --ring: 221.2 83.2% 53.3%;
     --radius: 0.5rem;
 
+    /* ── BUSCADOR · BQ-D · EL VELO DE LAS CAPAS MODALES ────────────────────────
+       El fondo oscurecido que se pinta detrás de un diálogo. Era un `bg-black/80`
+       ESCRITO A MANO en `ui/dialog.tsx` y en `ui/alert-dialog.tsx`: el único color
+       de esos dos componentes que no pasaba por el sistema, así que ningún modelo
+       podía ajustarlo por mucho que ajustara todo lo demás.
+
+       COLOR COMPLETO Y NO UN TRIPLETE, a diferencia de los de arriba: la opacidad
+       es parte de la decisión —un velo es color Y densidad— y separarla en dos
+       tokens obligaría a declarar los dos a la vez para cambiar uno. `estilo-css`
+       admite este valor tal cual (su filtro deja pasar `/` y `%`), así que un
+       modelo o una versión puede sobrescribirlo desde sus `ejes` sin tocar ningún
+       DTO.
+
+       ESTE VALOR ES EXACTAMENTE EL `bg-black/80` QUE SUSTITUYE, para que la
+       tokenización no mueva un píxel de las capturas. Lo que cambia no es el
+       aspecto: es que ahora se PUEDE cambiar. */
+    --velo: 0 0% 0% / 0.8;
+
     /* ── E0 · EL PRIMER TOKEN SEMÁNTICO ────────────────────────────────────────
        El aviso. Sustituye a `bg-yellow-50` / `border-yellow-300` /
        `text-yellow-800`, que estaban escritos a mano 29 veces (ver

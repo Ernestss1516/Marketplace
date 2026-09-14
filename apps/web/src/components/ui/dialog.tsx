@@ -73,7 +73,11 @@ const DialogOverlay = React.forwardRef<
     ref={ref}
     data-zona={useZona()}
     className={cn(
-      "fixed inset-0 z-50 bg-black/80",
+      // BQ-D — el velo, por token. Era `bg-black/80`: el único color de este fichero
+      // que no pasaba por el sistema de estilo, así que ningún modelo podía ajustarlo
+      // por mucho que ajustara el resto. El valor por defecto (`globals.css`) es
+      // exactamente ese negro al 80 %, así que tokenizarlo no mueve un píxel.
+      "fixed inset-0 z-50 bg-[hsl(var(--velo))]",
       "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
       className
     )}
@@ -92,7 +96,26 @@ const DialogContent = React.forwardRef<
       ref={ref}
       data-zona={useZona()}
       className={cn(
-        "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg sm:rounded-lg",
+        /*
+         * ⚠ BQ-D · `bg-popover`, NO `bg-background`. UN DIÁLOGO ES UNA CAPA FLOTANTE.
+         *
+         * Lo traía shadcn así y era el ÚNICO overlay del repo pintado con el token del
+         * LIENZO: `SelectContent` y `DropdownMenuContent` usan `bg-popover`, como debe ser.
+         * Con los cuatro modelos claros da igual —`--popover` y `--background` valen lo
+         * mismo—, y por eso llevaba aquí desde el principio sin que nadie lo notara.
+         *
+         * En `premium@oscuro` NO da igual, y es justo el caso para el que el sistema tiene
+         * la respuesta escrita: su rampa pone el lienzo al 8 % de luz, la tarjeta al 13 y
+         * **la capa flotante al 16**, porque «en un tema oscuro la elevación la da la luz»
+         * (la sombra negra sobre carbón no se ve). Con `bg-background` el diálogo se pintaba
+         * del mismo carbón que la página y se quedaba plano; con `bg-popover` sube el
+         * escalón que ese modelo ya había declarado para él.
+         *
+         * O sea que esto no inventa un token: **usa el que ya existía para esto**. En Modelo
+         * 0 los dos valen `0 0% 100%`, así que el cambio es de cero píxeles en las 60
+         * capturas del catálogo — misma calibración que la escala de radio de la ráfaga A.
+         */
+        "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-popover text-popover-foreground p-6 shadow-lg sm:rounded-lg",
         "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0 data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95",
         className
       )}
