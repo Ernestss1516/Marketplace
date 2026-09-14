@@ -10,11 +10,24 @@ const DEFAULT_POPULAR_COUNT = 6;
 
 /**
  * Bloque `search` de portada. **Server Component** — el `SearchBar` que monta sí
- * es `'use client'`, pero su markup es un `<form>` nativo con dos `<select>` y un
- * `<input type="search">`: **está entero en el HTML servido y funciona sin JS**.
- * El JS solo añade las sugerencias de etiquetas y la navegación con flechas. Es
- * el patrón de isla sobre contenido ya presente que exige el diseño (§3 de las
- * decisiones de partida).
+ * es `'use client'`, pero React lo renderiza en el servidor: su markup **está
+ * entero en el HTML servido**, así que se pinta antes de que se ejecute una sola
+ * línea de JS. Es el patrón de isla sobre contenido ya presente que exige el
+ * diseño (§3 de las decisiones de partida).
+ *
+ * ⚠ «ESTÁ EN EL HTML SERVIDO» Y «FUNCIONA SIN JS» SON DOS COSAS DISTINTAS, y este
+ * comentario las daba por la misma. La primera es que el navegador puede PINTARLO
+ * sin ejecutar nada; la segunda, que se puede INTERACTUAR con ello antes de
+ * hidratar. Lo que sostiene el LCP —que es un evento de pintura— es la primera:
+ * un elemento que todavía no responde pinta igual de rápido que uno que sí.
+ *
+ * La distinción importa porque la segunda mitad **deja de ser cierta en BQ-B**:
+ * los dos `<select>` de categoría y provincia pasan a ser diálogos filtrables y
+ * requieren JS (`docs/diseno-buscador.md` §8, decisión 1). El LCP no se mueve por
+ * ello —los disparadores siguen viajando en el HTML y el contenido del diálogo no
+ * se pinta hasta abrirlo—, y la degradación sin JS **ya era parcial**: sin JS, el
+ * `<select>` de categoría tampoco llevaba a `/vehiculos/coches`, porque
+ * `SearchBar.navegar()` no corría.
  *
  * El árbol de categorías NO se consulta aquí: lo carga una sola vez el Server
  * Component de la página y baja por props, igual que `SearchBar` ya lo recibía

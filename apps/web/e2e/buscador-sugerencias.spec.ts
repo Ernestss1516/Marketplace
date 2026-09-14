@@ -12,6 +12,10 @@
 
 import { test, expect } from './fixtures/auth';
 import type { Page } from '@playwright/test';
+// BUSCADOR · BQ-A — los dos filtros se eligen por helper y no con `selectOption` a pelo:
+// en BQ-B pasan a ser diálogos y el gesto cambia. El envoltorio entra ANTES para que
+// aquella ráfaga no tenga que tocar esta spec. Ver `helpers/buscador.ts`.
+import { elegirCategoria, elegirProvincia } from './helpers/buscador';
 
 /** Escribe en el buscador de la home y espera al desplegable. */
 async function teclear(page: Page, texto: string) {
@@ -55,7 +59,7 @@ test.describe('B4 — sugerencias del buscador de portada', () => {
   }) => {
     // Donde A y B se tocan: /vehiculos/coches?tags=..., no /busqueda?category=coches.
     await page.goto('/');
-    await page.getByLabel('Categoría').selectOption('coches');
+    await elegirCategoria(page, 'Coches');
     await teclear(page, 'único');
 
     await desplegable(page).getByRole('option', { name: /Único dueño/ }).click();
@@ -81,7 +85,7 @@ test.describe('B4 — sugerencias del buscador de portada', () => {
 
   test('la provincia elegida viaja con la etiqueta', { tag: '@2b' }, async ({ page }) => {
     await page.goto('/');
-    await page.getByLabel('Provincia').selectOption('Madrid');
+    await elegirProvincia(page, 'Madrid');
     await teclear(page, 'garant');
 
     await desplegable(page).getByRole('option', { name: /Con garantía/ }).click();
