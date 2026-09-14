@@ -946,11 +946,32 @@ Cuatro. El orden lo manda la regla de la casa: **las barreras antes de repintar*
 
 ## 12. LAS DEUDAS QUE ESTE DISEÑO NO ARREGLA
 
-1. **El velo `bg-black/80` no sigue al modelo** ([`dialog.tsx:76`](../apps/web/src/components/ui/dialog.tsx#L76)).
-   Es un literal en el componente compartido por los ~25 diálogos del sitio. Sobre la
-   portada de `premium@oscuro` es negro sobre carbón. **Arreglarlo aquí sería cambiar 25
-   pantallas en la ráfaga del buscador**, y ninguna de sus capturas está tomada. Va a su
-   propia ráfaga; se verá en BQ-D.
+1. ✅ ~~**El velo `bg-black/80` no sigue al modelo.**~~ **CERRADA EN BQ-D — y el defecto de
+   verdad era otro.**
+
+   El velo sí se tokeniza (`--velo`, con el valor por defecto exactamente igual al
+   `bg-black/80` que sustituye, así que tokenizarlo no mueve un píxel; un modelo o una
+   versión puede sobrescribirlo desde sus `ejes` sin tocar ningún DTO). Pero al mirar la
+   captura de `premium@oscuro` se vio que **el problema no era el velo**:
+
+   > `DialogContent` se pintaba con **`bg-background`** — el token del LIENZO. Era el
+   > único overlay del repo que lo hacía: `SelectContent` y `DropdownMenuContent` usan
+   > `bg-popover`, que es el token de la capa flotante.
+
+   Con los cuatro modelos claros da igual (`--popover` y `--background` valen lo mismo), y
+   por eso el defecto llevaba ahí desde que shadcn generó el componente sin que nadie lo
+   notara. En `premium@oscuro` no da igual: su rampa pone el lienzo al **8 %** de luz, la
+   tarjeta al **13** y la capa flotante al **16**, porque —lo dice el propio modelo— *«en
+   un tema oscuro la elevación la da la luz: una sombra negra sobre un lienzo carbón no se
+   ve»*. El diálogo se pintaba del mismo carbón que la página y se quedaba plano.
+
+   **El arreglo no inventa un token: usa el que el sistema ya había declarado para esto.**
+   Y hereda su calibración: en Modelo 0 los dos valen `0 0% 100%`, así que el cambio es de
+   cero píxeles en las capturas del catálogo — la misma propiedad que tuvo la escala de
+   radio en la ráfaga A.
+
+   `alert-dialog.tsx` arrastraba los dos defectos idénticos y se corrige con él: dejarlo
+   fuera habría sido conservar la misma deuda bajo otro nombre de fichero.
 2. **Ninguna spec corre sin JS**, y hasta esta ráfaga había dos comentarios que afirmaban
    que la portada funcionaba así. **La decisión 1 los retira** (§8.5), así que la deuda
    deja de ser «una afirmación sin vigilar» y pasa a ser «una propiedad que ya no se

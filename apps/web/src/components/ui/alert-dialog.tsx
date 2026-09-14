@@ -43,7 +43,9 @@ const AlertDialogOverlay = React.forwardRef<
   <AlertDialogPrimitive.Overlay
     data-zona={useZona()}
     className={cn(
-      "fixed inset-0 z-50 bg-black/80",
+      // BQ-D — el mismo velo por token que `ui/dialog.tsx`, y por el mismo motivo: era
+      // el único color de este fichero fuera del sistema de estilo.
+      "fixed inset-0 z-50 bg-[hsl(var(--velo))]",
       "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
       className
     )}
@@ -63,7 +65,9 @@ const AlertDialogContent = React.forwardRef<
       ref={ref}
       data-zona={useZona()}
       className={cn(
-        "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg sm:rounded-lg",
+        // BQ-D — `bg-popover`, no `bg-background`: un alert-dialog es una capa flotante, y
+        // arrastraba el mismo defecto que su hermano. Ver el porqué largo en `ui/dialog.tsx`.
+        "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-popover text-popover-foreground p-6 shadow-lg sm:rounded-lg",
         "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0 data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95",
         className
       )}
