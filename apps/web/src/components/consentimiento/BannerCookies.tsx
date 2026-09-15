@@ -124,6 +124,51 @@ export function BannerCookies({ config }: { config: CookieTextConfig }) {
       // un aviso legal la legibilidad manda sobre el efecto, y además el contraste medido
       // deja de ser el del token en cuanto el fondo depende de lo que haya detrás.
       className="fixed inset-x-0 bottom-0 z-50 border-t border-border bg-background shadow-lg"
+      /**
+       * ⚠ LA COMPENSACIÓN DE LA BARRA DE SCROLL, PORQUE ESTO ES `fixed`.
+       *
+       * Cuando se abre cualquier overlay del sitio, `react-remove-scroll` (vía Radix)
+       * bloquea el scroll del documento: la barra desaparece y **el viewport crece su
+       * ancho** —15 px en un escritorio con barra clásica—. Para que el contenido no dé un
+       * tirón, la librería compensa el `body` con un `margin-right` del mismo ancho, y por
+       * eso nada de lo que está en el flujo se mueve: ni el hero, ni la cabecera `sticky`
+       * —que no sale del flujo y recibe la compensación como cualquier otro elemento—.
+       *
+       * **Este banner sí se sale.** Siendo `fixed`, su bloque contenedor es el VIEWPORT, no
+       * el `body`, así que `inset-x-0` lo estira de 1265 a 1280 y la compensación del
+       * `body` no le llega ni puede llegarle. El `container mx-auto max-w-5xl` de dentro
+       * mide 1024 px y está centrado con márgenes automáticos, así que se re-centra
+       * **media barra: 7,5 px**. Ése era el residuo que `docs/diagnostico-residuo-8px.md`
+       * midió, y que el §12.3 del buscador atribuía por error a la cabecera.
+       *
+       * `--removed-body-scroll-bar-size` **la publica `react-remove-scroll`** en su hoja
+       * inyectada (`body[data-scroll-locked]`), junto a `.width-before-scroll-bar` y
+       * `.right-scroll-bar-position`. Es su gancho para exactamente este caso: lo que no
+       * puede alcanzar desde el `body`, lo deja anunciado para que lo compense quien sabe
+       * dónde están sus elementos fijos.
+       *
+       * ── POR QUÉ EL `padding-right` Y NO LA CLASE QUE LA LIBRERÍA TRAE ────────────────
+       *
+       * `.width-before-scroll-bar` cierra el desplazamiento igual —medido: las dos dejan el
+       * contenedor en 120,5 px exactos—, pero lo hace con `margin-right`, o sea **encogiendo
+       * el banner a 1265**: su fondo y su borde superior dejarían de llegar al borde de la
+       * pantalla. Hoy no se notaría porque debajo de un diálogo hay un velo al 80 %, pero se
+       * notaría el día que se abra un overlay que no lo tape. Con `padding-right` el banner
+       * sigue a sangre (1280) y lo único que se mueve es su contenido, que es lo que había
+       * que mover.
+       *
+       * ── EL RESPALDO `0px` NO ES DEFENSIVO: ES EL ESTADO NORMAL ───────────────────────
+       *
+       * Sin ningún overlay abierto la hoja de `react-remove-scroll` no existe, la variable
+       * no está definida y esto vale `0px`. El banner de siempre, sin una diferencia de un
+       * píxel — que es la condición para que un arreglo así no tenga que pasar por el
+       * catálogo de capturas.
+       *
+       * Va en `style` y no en una utilidad `pr-[…]` a propósito: el valor no es un token del
+       * sistema de estilo, es el nombre de una variable que publica una dependencia, y
+       * escribirlo entero se lee mejor que escondido en una clase arbitraria.
+       */
+      style={{ paddingRight: 'var(--removed-body-scroll-bar-size, 0px)' }}
     >
       <div className="container mx-auto flex max-w-5xl flex-col gap-4 px-4 py-4 sm:py-5">
         <div className="space-y-1">
