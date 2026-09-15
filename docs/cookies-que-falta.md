@@ -9,37 +9,71 @@
 
 ---
 
-## 1. Los cuatro datos que hay que MEDIR en un navegador
+## 1. Los cuatro datos — MEDIDOS el 15/09/2026, a falta de confirmar
 
-No se pueden leer del repositorio, y por eso no los pone el código: los deciden librerías
-de terceros (Auth.js) o pasan dentro del marco incrustado de otro (Vimeo, YouTube,
-MapTiler). Inventarlos sería declarar en un documento legal algo que nadie ha comprobado.
+Ya no hay que medirlos: **están medidos**, en runtime real, y las tablas de la página los
+llevan. Lo que queda es **confirmarlos en un navegador de verdad**, porque la medición se
+hizo contra una copia local por HTTP y con Chromium automatizado, y eso no es lo que ve un
+usuario. Van marcados en la página con `⚠️ SIN CONFIRMAR`, una marca distinta de
+`⚠️ PENDIENTE`: aquí hay dato, le falta una mirada.
 
-| # | Qué medir | Dónde aparece el hueco |
+### Lo medido (datos 1, 2 y 3 — cookies propias)
+
+Nombres tal como salieron en **HTTP local**; en producción (HTTPS) la biblioteca les
+antepone `__Secure-`, y `__Host-` a la de CSRF. La tabla de la página declara los de HTTPS.
+
+| Cookie (local / producción) | Cuándo se escribe | Duración medida |
 |---|---|---|
-| 1 | Nombre y duración reales de la cookie **de sesión** de Auth.js | Tabla «Cookies propias» |
-| 2 | Nombre y duración reales de la cookie **CSRF** | Tabla «Cookies propias» |
-| 3 | Nombres y duraciones de las cookies **del flujo de Google** (state, PKCE, nonce) | Tabla «Cookies propias» |
-| 4 | Qué escriben exactamente **Vimeo, YouTube y MapTiler** | Tabla «Contenido de terceros» |
+| `authjs.session-token` / `__Secure-…` | al iniciar sesión | **7 días** exactos (604.800 s) ✔ confirma `auth.config.ts:18-20` |
+| `authjs.csrf-token` / `__Host-…` | al abrir `/login` | **de sesión** (sin caducidad) |
+| `authjs.callback-url` / `__Secure-…` | al abrir `/login` | **de sesión** — *no estaba en la tabla; la medición la encontró* |
+| `authjs.pkce.code_verifier` / `__Secure-…` | al pulsar «Continuar con Google» | **15 minutos** |
+| `mp_consent` | al decidir en el banner | **180 días** ✔ confirma los 6 meses declarados |
 
-**Cómo se miden** (una sola vez, ~20 minutos):
+**El dato 3 salió más corto de lo esperado.** Se buscaban *state, PKCE y nonce*; sólo se
+escribe **PKCE**. La URL de autorización que genera Auth.js no lleva `state` ni `nonce`:
+con Google usa únicamente la comprobación PKCE. No hay tres cookies de OAuth, hay una.
 
-1. Abre la plataforma en una ventana privada.
+### Lo medido (dato 4 — terceros)
+
+El gate se comprobó de paso: **con el consentimiento sin dar, cero iframes y cero
+peticiones** a los tres dominios. Sólo cargan tras aceptar.
+
+| Proveedor | Al cargar | Al pulsar reproducir |
+|---|---|---|
+| **Vimeo** (`.vimeo.com`) | `__cf_bm` (30 min, antirrobots de Cloudflare) · `vuid` (**400 días**, identificador de visitante) | añade `player` (**365 días**, preferencias del reproductor) |
+| **YouTube** (`www.youtube-nocookie.com`) | **ninguna** | **ninguna**; sí contacta `googlevideo.com` e `i.ytimg.com` (reciben la IP) |
+| **MapTiler** (`api.maptiler.com`) | **ninguna almacenada**: responde con `Set-Cookie: _cfuvid` (Cloudflare, de sesión) pero el navegador no llega a guardarla | — |
+
+> **Ojo con YouTube: el dato cambió de signo.** La tabla afirmaba que al reproducir
+> escribía cookies propias. Medido, no escribió ninguna. Es lo primero que hay que volver
+> a mirar antes de firmar nada: una política que declara «no escribe» cuando sí escribe es
+> peor que una que se calla.
+
+### Cómo se confirma (10 minutos)
+
+1. Abre la plataforma **publicada** (HTTPS, no la copia local) en una ventana privada.
 2. Herramientas de desarrollo → pestaña **Aplicación** (o *Almacenamiento*) → **Cookies**.
-3. Inicia sesión con correo y contraseña: apunta nombre exacto y caducidad de cada cookie
-   nueva.
-4. Repite entrando **con Google**: aparecen otras, temporales, del proceso OAuth.
+3. Inicia sesión con correo y contraseña: compara nombre exacto y caducidad con la tabla.
+4. Repite entrando **con Google** y compara la cookie del proceso OAuth.
 5. Abre una página con vídeo y **acepta el contenido de terceros**. Mira las cookies de
    `vimeo.com` y `youtube-nocookie.com`. Con YouTube, apunta por separado **lo que
    aparece al cargar** y **lo que aparece al pulsar reproducir**: no es lo mismo, y la
    diferencia es justo lo que decidió retenerlo igual que a Vimeo.
 6. Haz lo mismo con `/busqueda?view=mapa` para `api.maptiler.com`.
-
-Lo único que ya se sabe del código: **la sesión dura 7 días**, alineada a mano con la
-validez del token del servidor (`auth.config.ts:18-20`).
+7. Si coincide, borra las marcas `⚠️ SIN CONFIRMAR` y los dos recuadros. Si no coincide,
+   **manda lo observado**: lo medido cede.
 
 Las instrucciones están también **dentro de la propia página**, en dos recuadros, para
 que quien la edite las tenga delante sin buscar este fichero.
+
+### Dónde viven ahora esos datos
+
+En `apps/api/prisma/seed-pagina-cookies.ts`, que es la fuente. **Una instancia que ya
+tenga la página creada NO se actualiza sola**: `seedPaginaCookies` nunca pisa una fila
+existente, a propósito (encima puede haber texto de asesoría). En una instancia ya
+sembrada hay que pasar las tablas a mano desde `/admin/paginas`, o borrar la página y
+volver a sembrar si no tenía nada escrito encima.
 
 ---
 
@@ -70,8 +104,9 @@ no es trabajo de estas ráfagas.
 
 ## 3. Cómo se cierra
 
-1. Mide los cuatro datos y sustituye cada `⚠️ PENDIENTE` de las tablas.
-2. Pega el texto de asesoría en los cuatro apartados marcados.
+1. ~~Mide los cuatro datos~~ → **hecho**. Confirma las tablas en un navegador de verdad y
+   borra cada `⚠️ SIN CONFIRMAR` (§1).
+2. Pega el texto de asesoría en los cuatro apartados marcados `⚠️ PENDIENTE`.
 3. Borra el recuadro de aviso del principio y los dos de instrucciones.
 4. **Publica la página** desde `/admin/paginas`.
 

@@ -26,6 +26,8 @@ const BLOQUES = PAGINA_COOKIES_BLOQUES as unknown as Bloque[];
 const TEXTO_COMPLETO = JSON.stringify(BLOQUES);
 
 const MARCA = '⚠️ PENDIENTE';
+/** «Aquí hay un dato real, medido, que nadie ha confirmado todavía en un navegador.» */
+const SIN_CONFIRMAR = '⚠️ SIN CONFIRMAR';
 
 describe('la página de cookies — estructura', () => {
   it('vive en /paginas/cookies', () => {
@@ -77,41 +79,74 @@ describe('la página de cookies — estructura', () => {
 });
 
 describe('LA BARRERA — los huecos se ven como huecos', () => {
-  it('los cuatro datos que hay que medir están marcados, no inventados', () => {
-    const tablaPropias = BLOQUES.find((b) => b.id === 'tabla-propias-datos');
-    const filas = tablaPropias?.rows ?? [];
+  it('ya no queda ningún hueco PENDIENTE en las tablas: los cuatro datos están medidos', () => {
+    /**
+     * La ráfaga de medición cerró los cuatro huecos con datos de runtime real. Este caso
+     * es el que impide que vuelvan a abrirse sin querer — y, sobre todo, el que impide
+     * que alguien «resuelva» un fallo de los de abajo borrando la fila en vez de midiendo.
+     */
+    const propias = BLOQUES.find((b) => b.id === 'tabla-propias-datos')?.rows ?? [];
+    const terceros = BLOQUES.find((b) => b.id === 'tabla-terceros-datos')?.rows ?? [];
 
-    // Tres cookies de Auth.js sin nombre ni duración conocidos: sesión, CSRF y OAuth.
-    const sinMedir = filas.filter((f) => f[0].includes(MARCA));
-    expect(sinMedir).toHaveLength(3);
-    // Y su duración tampoco puede estar inventada.
-    for (const fila of sinMedir) expect(fila[3]).toContain(MARCA);
-
-    // El cuarto: lo que escriben los terceros.
-    const tablaTerceros = BLOQUES.find((b) => b.id === 'tabla-terceros-datos');
-    for (const fila of tablaTerceros?.rows ?? []) {
-      expect(fila[2]).toContain(MARCA);
+    for (const fila of [...propias, ...terceros]) {
+      for (const celda of fila) expect(celda).not.toContain(MARCA);
     }
+
+    // Y las cookies de Auth.js que la medición encontró siguen ahí, con nombre real.
+    const nombres = propias.map((f) => f[0]).join(' ');
+    expect(nombres).toContain('authjs.session-token');
+    expect(nombres).toContain('authjs.csrf-token');
+    expect(nombres).toContain('authjs.pkce.code_verifier');
   });
 
-  it('ningún hueco lleva un valor que PAREZCA medido', () => {
+  it('TODO dato medido va marcado como SIN CONFIRMAR mientras nadie lo haya comprobado', () => {
     /**
-     * LA MUTACIÓN QUE ESTE CASO EXISTE PARA CAZAR: que alguien rellene un hueco con algo
-     * verosímil —`authjs.session-token`, `30 días`— para «dejarlo bonito» mientras llega
-     * la medición de verdad. Eso es exactamente lo peligroso: se publica y nadie vuelve.
+     * LA MUTACIÓN QUE ESTE CASO EXISTE PARA CAZAR, y es la misma de siempre con otra
+     * ropa: antes el peligro era rellenar un hueco con algo verosímil; ahora es dar por
+     * bueno un dato medido en local —sin HTTPS, con un navegador automatizado— como si
+     * fuera lo que ve un usuario. Se publica, nadie vuelve, y la política declara un
+     * nombre de cookie que en producción es otro (allí lleva `__Secure-`/`__Host-`).
      *
-     * Se comprueba al revés de lo habitual: donde falta el dato, NO puede haber nada que
-     * se le parezca.
+     * Por eso cada celda medida arrastra su marca. Quitarla es un acto deliberado que
+     * sólo puede hacer quien haya mirado el navegador de verdad, y que rompe este caso
+     * si lo hace a medias.
      */
-    const filas = BLOQUES.find((b) => b.id === 'tabla-propias-datos')?.rows ?? [];
-    for (const fila of filas) {
-      const [nombre, , , duracion] = fila;
-      if (!nombre.includes(MARCA)) continue;
-      // Ni un nombre de cookie plausible colado en la celda del hueco…
-      expect(nombre).not.toMatch(/authjs|next-auth|__Secure|__Host/i);
-      // …ni una duración inventada en la suya.
-      expect(duracion).not.toMatch(/\b\d+\s*(día|días|mes|meses|hora|horas|año|años)\b/i);
+    const propias = BLOQUES.find((b) => b.id === 'tabla-propias-datos')?.rows ?? [];
+
+    for (const [nombre, , , duracion] of propias) {
+      // `mp_consent` es NUESTRA: su nombre y sus 6 meses salen de nuestro propio código
+      // (una constante), no de una biblioteca ajena. No hay nada que confirmar ahí.
+      if (nombre === 'mp_consent') continue;
+      expect(nombre).toContain(SIN_CONFIRMAR);
+      expect(duracion).toContain(SIN_CONFIRMAR);
     }
+
+    // Los tres terceros, igual: lo que escriben se midió una vez, en una máquina.
+    const terceros = BLOQUES.find((b) => b.id === 'tabla-terceros-datos')?.rows ?? [];
+    expect(terceros).toHaveLength(3);
+    for (const fila of terceros) expect(fila[2]).toContain(SIN_CONFIRMAR);
+  });
+
+  it('los nombres declarados son los de HTTPS, que es como los ve un usuario', () => {
+    /**
+     * La medición se hizo en local por HTTP, donde Auth.js escribe los nombres SIN
+     * prefijo. Declarar esos sería declarar el entorno de desarrollo en un documento
+     * legal. La tabla lleva los de producción, y la página explica el porqué del prefijo
+     * para que no parezca un error de copia.
+     */
+    const propias = BLOQUES.find((b) => b.id === 'tabla-propias-datos')?.rows ?? [];
+    const deAuthjs = propias.filter((f) => f[0].includes('authjs.'));
+    expect(deAuthjs.length).toBeGreaterThanOrEqual(4);
+    for (const [nombre] of deAuthjs) expect(nombre).toMatch(/^__(Secure|Host)-authjs\./);
+
+    // La cookie CSRF es la única con `__Host-`: es el prefijo más estricto, y es el que
+    // la biblioteca le pone a ésa en concreto. Si alguien lo «uniformara» a `__Secure-`
+    // estaría declarando algo falso.
+    const csrf = deAuthjs.find((f) => f[0].includes('csrf-token'));
+    expect(csrf?.[0]).toContain('__Host-authjs.csrf-token');
+
+    expect(TEXTO_COMPLETO).toContain('__Secure-');
+    expect(TEXTO_COMPLETO).toContain('__Host-');
   });
 
   it('el texto legal pendiente está marcado, y dice quién lo escribe', () => {
@@ -133,8 +168,10 @@ describe('LA BARRERA — los huecos se ven como huecos', () => {
     // Un «PENDIENTE» sin instrucciones traslada el problema en vez de resolverlo: quien
     // lo lea dentro de tres meses no sabrá que esos datos se miden en el navegador y no
     // se leen del código.
-    expect(TEXTO_COMPLETO).toContain('herramientas de desarrollo');
-    expect(TEXTO_COMPLETO).toContain('ventana privada');
+    // Sin distinguir mayúsculas: lo que se comprueba es que la instrucción esté, no
+    // cómo quedó capitalizada al reescribir el recuadro.
+    expect(TEXTO_COMPLETO).toMatch(/herramientas de desarrollo/i);
+    expect(TEXTO_COMPLETO).toMatch(/ventana privada/i);
     // Y el enganche con el ajuste que hace que el banner enlace aquí.
     expect(TEXTO_COMPLETO).toContain('Administración → Cookies');
   });

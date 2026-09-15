@@ -122,7 +122,7 @@ test.describe('BARRERA — publicarla es el único acto necesario', () => {
 });
 
 test.describe('BARRERA — los huecos se ven en la página servida', () => {
-  test('el aviso de «no terminada» y los PENDIENTE llegan al HTML', async ({ page, request }) => {
+  test('el aviso de «no terminada» y las marcas SIN CONFIRMAR llegan al HTML', async ({ page, request }) => {
     const slug = `cookies-huecos-${Date.now()}`;
     const { id } = await crearPaginaCookies(request, slug);
     await authedPost(request, `/admin/blog/${id}/publish`, adminApiToken(), {});
@@ -134,8 +134,19 @@ test.describe('BARRERA — los huecos se ven en la página servida', () => {
     // que se pierde por el camino es peor que no tenerlo, porque nadie lo echa de menos.
     await expect(page.getByText(/ESTA PÁGINA NO ESTÁ TERMINADA/)).toBeVisible();
     await expect(page.getByText(/No la publiques todavía/)).toBeVisible();
-    expect(await page.locator('body').innerText()).toContain('PENDIENTE: nombre real');
-    expect(await page.locator('body').innerText()).toContain('PENDIENTE: duración real');
+
+    // Los cuatro datos ya están MEDIDOS, así que aquí ya no hay huecos que enseñar. Lo
+    // que tiene que seguir viéndose es el segundo grado: un dato real que nadie ha
+    // comprobado todavía en un navegador de verdad. Si esa marca se perdiera al
+    // renderizar, la tabla se leería como definitiva — que es justo el fallo que la
+    // barrera existe para impedir.
+    const texto = await page.locator('body').innerText();
+    expect(texto).toContain('SIN CONFIRMAR');
+    expect(texto).toContain('__Secure-authjs.session-token');
+    expect(texto).toContain('__Host-authjs.csrf-token');
+    // Y ningún hueco resucitado.
+    expect(texto).not.toContain('PENDIENTE: nombre real');
+    expect(texto).not.toContain('PENDIENTE: duración real');
   });
 
   test('declara la cookie propia y los tres terceros', async ({ page, request }) => {
