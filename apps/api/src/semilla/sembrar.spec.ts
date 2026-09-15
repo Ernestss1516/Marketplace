@@ -244,10 +244,36 @@ describe('BARRERA 1 (comportamiento) — sin credencial no nace ningún administ
     // Fail-safe, no fail-stop: el resto de la semilla es válido y se aplica.
     expect(base.category.count()).toBe(24);
     expect(base.contactReason.count()).toBe(MOTIVOS_CONTACTO.length);
-    // La página de cookies necesita un autor, así que se queda para el próximo seed —
-    // y el pie se siembra sin su enlace en vez de tumbar el despliegue.
+    // La página de cookies necesita un autor, así que se queda para el próximo seed.
     expect(base.post.count()).toBe(0);
+  });
+
+  /**
+   * EL DESPLIEGUE DE DOS PASOS — lo encontró la base de verdad, no el doble.
+   *
+   * Primera pasada sin credencial (no hay admin → no hay página de cookies), se
+   * configura la credencial, segunda pasada. Es el camino NORMAL de un primer
+   * despliegue, y era el que se quedaba roto: el pie nacía con la columna «Legal»
+   * vacía y la guarda por recuento impedía que la segunda pasada la completara, así
+   * que el enlace a la política no aparecía nunca.
+   */
+  it('lo que quedó pendiente en la primera pasada se completa en la segunda', async () => {
+    const base = nuevaBase();
+    await sembrar(comoPrisma(base), { NODE_ENV: 'production' });
+
+    // Nada de pie a medias: o entero o se aplaza.
+    expect(base.footerColumn.count()).toBe(0);
+
+    await sembrar(comoPrisma(base), ENV_CON_CREDENCIAL);
+
+    const pagina = base.post.findUnique({ where: { slug: PAGINA_COOKIES_SLUG } });
+    expect(pagina).toBeTruthy();
     expect(base.footerColumn.count()).toBe(COLUMNAS_PIE.length);
+    expect(base.footerItem.findUnique({ where: { type: 'PAGE' } })?.pageId).toBe(pagina?.id);
+    // Y ninguna columna se queda sin enlaces.
+    for (const columna of base.footerColumn.filas) {
+      expect(base.footerItem.count({ where: { columnId: columna.id } })).toBeGreaterThan(0);
+    }
   });
 });
 

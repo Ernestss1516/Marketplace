@@ -954,11 +954,24 @@ async function seedMotivosContacto(prisma: ClienteSemilla) {
  * el mismo criterio de fondo: en cuanto alguien ha tocado el pie desde `/admin/footer`,
  * la semilla no vuelve a opinar.
  *
- * El ítem `PAGE` se resuelve por slug y **se salta en silencio si la página no está**:
- * `FooterItem.pageId` tiene `onDelete: Restrict` y apuntar a una fila inexistente sería
- * un error de clave ajena a mitad de la semilla. Si la página de cookies no se creó
- * (porque no había administrador que la firmara), el pie se siembra sin ella en vez de
- * tumbar el despliegue entero.
+ * ─── O ENTERO O NADA, Y ESTO LO ENSEÑÓ LA BASE DE VERDAD ────────────────────────
+ *
+ * Los ítems `PAGE` se declaran por slug, así que hay que resolverlos contra páginas que
+ * existan (`FooterItem.pageId` es `onDelete: Restrict`: apuntar a una fila inexistente
+ * sería un error de clave ajena a mitad de la semilla).
+ *
+ * La primera versión se saltaba el ítem que no pudiera resolver y seguía. Parecía la
+ * opción prudente y era la peor, como se vio al sembrar una base recién migrada SIN
+ * credencial de administrador: sin admin no hay quien firme la página de cookies, así
+ * que la página no se creaba, el pie nacía con una columna «Legal» **vacía**, y la
+ * guarda por recuento de la pasada siguiente —la que ya sí creaba la página— veía un
+ * pie existente y no la tocaba. Resultado: el enlace a la política no aparecía nunca,
+ * y justo en el caso en el que más importa, que es el despliegue de dos pasos.
+ *
+ * Así que si falta algún destino, **no se siembra nada** y se aplaza a la siguiente
+ * ejecución, igual que hace la propia página de cookies cuando no encuentra autor. Una
+ * semilla a medias es peor que una semilla pendiente: la pendiente se arregla sola en
+ * la pasada siguiente, la que quedó a medias no se arregla nunca.
  */
 async function seedPie(prisma: ClienteSemilla) {
   console.log('Seeding footer columns...');
@@ -968,29 +981,42 @@ async function seedPie(prisma: ClienteSemilla) {
     return;
   }
 
+  // Todos los destinos ANTES de escribir nada.
+  const paginaPorSlug = new Map<string, string>();
+  for (const columna of COLUMNAS_PIE) {
+    for (const item of columna.items) {
+      if (item.tipo !== 'PAGE' || paginaPorSlug.has(item.slugPagina)) continue;
+      const pagina = await prisma.post.findUnique({
+        where: { slug: item.slugPagina },
+        select: { id: true },
+      });
+      if (!pagina) {
+        console.log(
+          `  ⚠ todavía no existe /paginas/${item.slugPagina}: el pie se sembrará en el próximo seed`,
+        );
+        return;
+      }
+      paginaPorSlug.set(item.slugPagina, pagina.id);
+    }
+  }
+
   for (const [indice, columna] of COLUMNAS_PIE.entries()) {
     const creada = await prisma.footerColumn.create({
       data: { name: columna.name, order: indice },
     });
 
     for (const [orden, item] of columna.items.entries()) {
-      if (item.tipo === 'PAGE') {
-        const pagina = await prisma.post.findUnique({
-          where: { slug: item.slugPagina },
-          select: { id: true },
-        });
-        if (!pagina) {
-          console.log(`  ⚠ «${item.label}»: no existe /paginas/${item.slugPagina}, se omite`);
-          continue;
-        }
-        await prisma.footerItem.create({
-          data: { columnId: creada.id, label: item.label, order: orden, type: 'PAGE', pageId: pagina.id },
-        });
-        continue;
-      }
-
       await prisma.footerItem.create({
-        data: { columnId: creada.id, label: item.label, order: orden, type: 'INTERNAL', url: item.url },
+        data:
+          item.tipo === 'PAGE'
+            ? {
+                columnId: creada.id,
+                label: item.label,
+                order: orden,
+                type: 'PAGE',
+                pageId: paginaPorSlug.get(item.slugPagina)!,
+              }
+            : { columnId: creada.id, label: item.label, order: orden, type: 'INTERNAL', url: item.url },
       });
     }
 
