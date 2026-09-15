@@ -25,7 +25,9 @@ import { PROVINCIAS } from '@/lib/provincias';
  * (`filters.push(`province = "…"`)`), que es el mismo string guardado en
  * `Listing.province` y el mismo que sale de `/data/municipios.json`. Una errata o una
  * variación de mayúsculas o tildes da **cero resultados en silencio** — es el defecto que
- * `FilterPanel` ya cerró cambiando su campo de texto libre por un `<select>`.
+ * `FilterPanel` ya había cerrado cambiando su campo de texto libre por un `<select>`, y
+ * que desde BQ-E cierra montando este mismo diálogo (su `<select>` era el segundo control
+ * de provincia del sitio; ahora sólo hay uno).
  *
  * Aquí lo cierra la forma del molde, no la disciplina: `DialogoFiltrable` llama a
  * `onElegir` **sólo desde el manejador de una fila**, y el valor de esa fila es la entrada
@@ -58,7 +60,16 @@ export function ProvinciaDialogo({
   className,
 }: {
   valor: string;
-  /** Escribe la provincia elegida en el estado del buscador. Nada más. */
+  /**
+   * Qué pasa al elegir; lo decide quien monta el diálogo, no este fichero.
+   *
+   *   · `SearchBar` (portada)   → escribe la provincia en el estado del buscador;
+   *   · `FilterPanel` (/busqueda y /[categoria]) → NAVEGA, escribiendo `?province=` en
+   *     la URL con el mismo `update()` que los demás filtros del panel (BQ-E).
+   *
+   * En los dos casos el string que sale de aquí es la entrada exacta de `PROVINCIAS`, que
+   * es lo único que este adaptador garantiza — y lo único que el backend acepta.
+   */
   onElegir: (provincia: string) => void;
   /** Geometría del disparador. La decide quien lo monta — ver `DialogoFiltrable`. */
   className?: string;

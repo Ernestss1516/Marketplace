@@ -997,12 +997,15 @@ Cuatro. El orden lo manda la regla de la casa: **las barreras antes de repintar*
    al abrir sea **menos de un tercio** de lo que se mueve sin compensación, y que el hero no
    figure entre las fuentes.
 
-4. **`FilterPanel:800-808` tiene el mismo `<select>` de provincia** y el mismo problema.
-   **Es el primer cliente del molde** en la ráfaga de unificación de `/busqueda`.
-5. **El buscador de `/busqueda` sigue con `CategorySelect`**, que además **navega** al
+4. ~~**`FilterPanel:800-808` tiene el mismo `<select>` de provincia** y el mismo problema.
+   **Es el primer cliente del molde** en la ráfaga de unificación de `/busqueda`.~~
+   → **CERRADO en BQ-E.** Ver §15.
+5. ~~**El buscador de `/busqueda` sigue con `CategorySelect`**, que además **navega** al
    cambiar (`goTo` → `router.push`) en vez de escribir un valor. Unificar los dos no es
    sólo cambiar el control: es decidir si el de `/busqueda` deja de navegar o si el molde
-   admite un modo que navegue. **No se decide aquí.**
+   admite un modo que navegue. **No se decide aquí.**~~
+   → **CERRADO en BQ-E, y por una tercera vía que esta lista no contemplaba: ninguna de
+   las dos hacía falta.** Ver §15.
 
 ---
 
@@ -1067,3 +1070,98 @@ de `MunicipioAutocomplete`, la lista es la de `aplanar()` y el sabor llega solo 
 portada es la base del modelo. **Lo único verdaderamente nuevo es lo que se retira** — el
 techo de dos niveles que el `<optgroup>` imponía, y una frase del escaparate que confundía
 «está en el HTML» con «funciona sin JS».
+
+---
+
+## 15. BQ-E — LA PRUEBA DE REUTILIZACIÓN: `/busqueda` CON EL MISMO MOLDE
+
+El §12 dejó dos deudas abiertas (puntos 4 y 5) y una pregunta de diseño sin decidir. Esta
+ráfaga las cierra montando el molde en su **segundo cliente**: el `FilterPanel` de
+`/busqueda` y `/[categoria]`.
+
+### 15.1 · El veredicto: el molde no se tocó
+
+**Cero cambios en `ui/dialogo-filtrable.tsx` y `ui/dialogo-filtrable-capa.tsx`.** Ni una
+línea, ni una prop nueva, ni un `if`. La reutilización queda probada, y con ella la
+afirmación de la cabecera del molde —«no sabe de dominio»— deja de ser una intención para
+pasar a ser un hecho medido contra un caso de uso que no existía cuando se escribió.
+
+Los dos adaptadores de dominio (`CategoriaDialogo`, `ProvinciaDialogo`) tampoco cambiaron
+de comportamiento: sólo se les corrigió la documentación, que decía «escribe el valor en el
+estado del buscador» cuando ahora tienen dos clientes que hacen cosas distintas con él.
+
+### 15.2 · La pregunta del §12.5, contestada por un tercer camino
+
+El §12 la planteó como un dilema: *«decidir si el de `/busqueda` deja de navegar o si el
+molde admite un modo que navegue»*. **No hacía falta ninguna de las dos.**
+
+El molde recibe `onElegir` y lo llama. Qué hace esa función —escribir estado en la portada,
+`router.push` en el panel— nunca fue asunto suyo. La navegación estaba ya donde tenía que
+estar:
+
+| | Qué hace `onElegir` | Quién lo pone |
+|---|---|---|
+| Portada | `setCategory(slug)` · `setProvince(p)` | `SearchBar` |
+| `/busqueda` y `/[categoria]` | `goTo(slug)` → `router.push` | `CategorySelect` |
+| | `update({ province })` → `router.push` | `FilterPanel` |
+
+`goTo` —con el carry de filtros de A2, la ruta canónica de A1 y el descarte de `page`— **no
+se tocó una línea al cambiar el control**. Ése es el detalle que convierte la prueba en
+prueba: si el molde hubiera llevado dominio escondido, cambiar el `<select>` por el diálogo
+habría obligado a mover algo de ahí dentro.
+
+Lo vigila `ui/dialogo-filtrable.molde.test.ts`, que lee el fuente del molde y exige que no
+nombre `next/navigation`, `router.`, `window.location`, `lib/provincias`,
+`lib/category-tree`, `@/types` ni `fetch`. La mutación que mata: meter un `useRouter` en la
+capa funcionaría en `/busqueda` y rompería la portada sólo cuando alguien mirase.
+
+### 15.3 · Un hallazgo: el guard no significaba lo que parecía
+
+El encargo daba por supuesto que `/[categoria]` monta el panel con `categories={[]}` y que
+por eso el diálogo de categoría no aparece allí. **No es así, y el guard sigue donde
+estaba pero cubre otra cosa.**
+
+Las dos rutas pasan el ÁRBOL COMPLETO
+([`CategoryListingPage.tsx:522`](../apps/web/src/components/categorias/CategoryListingPage.tsx#L522),
+[`busqueda/page.tsx:296`](../apps/web/src/app/(public)/busqueda/page.tsx#L296)) y el
+selector de categoría se pinta en las dos — que es literalmente lo que A2 construyó: desde
+`/vehiculos/coches` se puede saltar a Móviles o volver a la búsqueda global, y hay siete
+casos de `e2e/busqueda-unificada.spec.ts` que lo ejercen. Un guard que lo escondiera en
+`/[categoria]` desharía esa ráfaga.
+
+Lo que `{categories.length > 0}` cubre es que **`getCategories()` haya fallado**: las dos
+páginas lo piden con `.catch(() => [])` para no tumbar los resultados por culpa de un
+selector, y sin árbol no hay lista que ofrecer. Se mantiene, con el porqué escrito al lado.
+
+### 15.4 · La geometría, otra vez decidida por quien monta
+
+El molde trae `h-10` (40 px, el alto de `ui/input.tsx`) y `md:text-base`. Los controles de
+este panel miden **38 px** —`py-2` sobre una línea de 20 más el borde— y no suben de
+`text-sm`, así que el disparador recibe por `className` la cadena EXACTA que llevan el
+`<select>` de «Ordenar por», el de «Condición» y el campo «Ciudad», con `h-auto` para
+devolverle el alto al contenido.
+
+Se ve de un vistazo en «Ubicación», donde el disparador de provincia va pegado al campo
+«Ciudad» en el mismo `flex-col`: dos píxeles de diferencia ahí se notan. Es el mismo
+argumento del §2 del molde —el alto lo decide quien lo monta— ejercido por segunda vez y en
+la dirección contraria a la portada, que pide `h-14 md:h-16`.
+
+### 15.5 · Lo que `/busqueda` gana, más allá de la unificación
+
+- **La provincia**: 52 entradas se recorren tecleando tres letras en vez de desplegando, y
+  las grafías cooficiales (`Alicante/Alacant`, `Valencia/València`) se encuentran por
+  cualquiera de sus dos mitades. El valor exacto lo garantiza ahora la FORMA del molde
+  —`onElegir` sólo se llama desde el manejador de una fila— y no la disciplina de un
+  `<select>`.
+- **La categoría**: el `<select>` pintaba una `<option>` por nodo con su ruta entera
+  dentro («Vehículos › Coches › Deportivos»); con cuatro niveles y un árbol real eso sólo
+  se recorre a ojo. El diálogo filtra por el NOMBRE y enseña la ruta al lado.
+- **Un control menos que mantener**: `CategorySelect` ya no compone etiquetas ni conoce el
+  separador ` › `; las dos constantes que decían lo mismo han pasado a ser una.
+
+### 15.6 · Lo que quedó fuera
+
+El residuo de 8 px de la cabecera `sticky` al abrir cualquier overlay (§12.3). Sigue siendo
+de la cabecera compartida por todo el sitio y afecta por igual a los ~25 diálogos
+anteriores al buscador; montar dos diálogos más en `/busqueda` no lo empeora ni lo mejora.
+Es la ráfaga siguiente, y empieza por el diagnóstico.

@@ -64,10 +64,22 @@ test.describe('A3 — panel de filtros dictado por la configuración', () => {
     }
   });
 
-  /** Abre la categoría (sin anuncios) y espera al panel. */
+  /**
+   * Abre la categoría (sin anuncios) y espera al panel.
+   *
+   * ⚠ `exact: true` DESDE BQ-E, y el motivo está justo aquí arriba: **esta categoría se
+   * llama «A3 Filtros»**. `getByLabel` casa por SUBCADENA, y desde que el selector de
+   * categoría es un diálogo, su disparador anuncia el valor elegido dentro del nombre
+   * accesible (`aria-label="Categoría: A3 Filtros"`) — un `aria-label` pisa el contenido
+   * del botón, así que sin eso un lector de pantalla no diría nunca qué categoría hay
+   * puesta, que es lo que un `<select>` sí decía.
+   *
+   * Resultado sin el `exact`: dos elementos y fallo por modo estricto en los trece casos
+   * de este fichero. Lo que se busca es el `<aside aria-label="Filtros">` y sólo él.
+   */
   async function abrirPanel(page: Page) {
     await page.goto(`/${catSlug}`);
-    await expect(page.getByLabel('Filtros')).toBeVisible();
+    await expect(page.getByLabel('Filtros', { exact: true })).toBeVisible();
   }
 
   // ── F6 — EL HUECO DEL AJUSTE 3 ────────────────────────────────────────────
@@ -93,7 +105,7 @@ test.describe('A3 — panel de filtros dictado por la configuración', () => {
   test('un atributo NO filtrable no se ofrece como filtro', async ({ page }) => {
     await abrirPanel(page);
     await expect(page.locator(SECCION('a3Interno'))).toHaveCount(0);
-    await expect(page.getByLabel('Filtros').getByText('Uso interno')).toHaveCount(0);
+    await expect(page.getByLabel('Filtros', { exact: true }).getByText('Uso interno')).toHaveCount(0);
   });
 
   // ── F1 y F2 ───────────────────────────────────────────────────────────────
@@ -103,7 +115,7 @@ test.describe('A3 — panel de filtros dictado por la configuración', () => {
     const seccion = page.locator(SECCION('a3Metros')).first();
     await expect(seccion).toContainText('Metros cuadrados');
     // Y la clave cruda no se ve por ninguna parte del panel.
-    await expect(page.getByLabel('Filtros').getByText('a3Metros')).toHaveCount(0);
+    await expect(page.getByLabel('Filtros', { exact: true }).getByText('a3Metros')).toHaveCount(0);
   });
 
   test('F2: la unidad se muestra junto al label', async ({ page }) => {
@@ -132,7 +144,7 @@ test.describe('A3 — panel de filtros dictado por la configuración', () => {
 
   test('F5: con la marca elegida, solo se ofrecen SUS modelos', async ({ page }) => {
     await page.goto(`/${catSlug}?a3Marca=Seat`);
-    await expect(page.getByLabel('Filtros')).toBeVisible();
+    await expect(page.getByLabel('Filtros', { exact: true })).toBeVisible();
 
     const modelo = page.locator(SECCION('a3Modelo')).first();
     await expect(modelo.getByRole('button', { name: /Ibiza/ })).toBeVisible();
@@ -143,7 +155,7 @@ test.describe('A3 — panel de filtros dictado por la configuración', () => {
 
   test('F5: al cambiar de marca cambian los modelos ofrecidos', async ({ page }) => {
     await page.goto(`/${catSlug}?a3Marca=Renault`);
-    await expect(page.getByLabel('Filtros')).toBeVisible();
+    await expect(page.getByLabel('Filtros', { exact: true })).toBeVisible();
 
     const modelo = page.locator(SECCION('a3Modelo')).first();
     await expect(modelo.getByRole('button', { name: /Clio/ })).toBeVisible();
@@ -179,12 +191,12 @@ test.describe('A3 — panel de filtros dictado por la configuración', () => {
 
     // Y el backend lo acepta: sin 400, la página sigue viva.
     await expect(page.getByRole('heading', { name: 'Algo salió mal' })).toHaveCount(0);
-    await expect(page.getByLabel('Filtros')).toBeVisible();
+    await expect(page.getByLabel('Filtros', { exact: true })).toBeVisible();
   });
 
   test('A4: los extremos vuelven precargados al recargar la URL', async ({ page }) => {
     await page.goto(`/${catSlug}?a3Metros_min=50&a3Metros_max=150`);
-    await expect(page.getByLabel('Filtros')).toBeVisible();
+    await expect(page.getByLabel('Filtros', { exact: true })).toBeVisible();
 
     const metros = page.locator(SECCION('a3Metros')).first();
     await expect(metros.getByLabel('Metros cuadrados mínimo')).toHaveValue('50');
@@ -198,7 +210,7 @@ test.describe('A3 — panel de filtros dictado por la configuración', () => {
     // anti-leak sigue en pie y este atributo pertenece a esta categoría.
     await page.goto(`/${catSlug}?a3Cambio=Manual`);
     await expect(page.getByRole('heading', { name: 'Algo salió mal' })).toHaveCount(0);
-    await expect(page.getByLabel('Filtros')).toBeVisible();
+    await expect(page.getByLabel('Filtros', { exact: true })).toBeVisible();
   });
 });
 

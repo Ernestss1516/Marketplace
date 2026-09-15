@@ -1,8 +1,9 @@
 'use client';
 
 import { useRouter, useSearchParams } from 'next/navigation';
+import { CategoriaDialogo } from './CategoriaDialogo';
 import { categoryPathWithQuery } from '@/lib/category-url';
-import { aplanarArbol, cadenaHasta } from '@/lib/category-tree';
+import { cadenaHasta } from '@/lib/category-tree';
 import { carryFilters, effectiveTagSlugsFor, filterableAttributeNamesFor } from '@/lib/filter-carry';
 import type { Category } from '@/types';
 
@@ -24,15 +25,41 @@ import type { Category } from '@/types';
  * Los filtros se arrastran, pero SOLO los que valen en el destino: ver lib/filter-carry.ts
  * (el backend responde 400 a un atributo ajeno, así que el filtrado ocurre antes de
  * navegar, no después de romperse).
+ *
+ * ══ BUSCADOR · BQ-E — Y AHORA ES EL ADAPTADOR QUE NAVEGA ═════════════════════════════
+ *
+ * El `<select>` se fue; el control es el mismo `CategoriaDialogo` que monta el buscador
+ * de la portada, con el MISMO molde (`ui/dialogo-filtrable`) debajo. Lo único distinto
+ * entre los dos clientes es lo que hace `onElegir`:
+ *
+ *   · en la portada     → `setCategory(slug)`; navega después, al enviar el formulario;
+ *   · aquí              → `goTo(slug)`, o sea `router.push` en el acto.
+ *
+ * ⚠ **Y ESA DIFERENCIA VIVE ENTERA EN ESTE FICHERO.** El §12.5 del diseño dejó la
+ * pregunta abierta —«decidir si el de /busqueda deja de navegar o si el molde admite un
+ * modo que navegue»— y la respuesta es que no hacía falta ninguna de las dos: el molde
+ * recibe una función y la llama; qué hace esa función no es asunto suyo. `goTo` no se ha
+ * tocado una línea al cambiar el control, que es exactamente la prueba de que el molde no
+ * llevaba dominio escondido dentro.
+ *
+ * ── LO QUE EL CAMBIO DE CONTROL SE LLEVA POR DELANTE, Y ES LA GANANCIA ─────────────
+ *
+ * El `<select>` pintaba una `<option>` por categoría con su ruta entera como etiqueta
+ * («Vehículos › Coches › Deportivos»), y con cuatro niveles y un árbol real eso es una
+ * lista larga que sólo se recorre a ojo. El diálogo la filtra por el NOMBRE y enseña la
+ * ruta al lado (`CategoriaDialogo`), que es el mismo reparto que ya resolvió la portada.
  */
 export function CategorySelect({
   categories,
   currentSlug,
+  className,
 }: {
   /** Árbol completo (`GET /categories`). */
   categories: Category[];
   /** Categoría en la que está el usuario ahora, o null en /busqueda global. */
   currentSlug: string | null;
+  /** Geometría del disparador. La decide quien lo monta — ver `DialogoFiltrable`. */
+  className?: string;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -52,26 +79,33 @@ export function CategorySelect({
     router.push(categoryPathWithQuery(target, next));
   }
 
+  /**
+   * ⚠ NI UNA LÍNEA DE DOMINIO AQUÍ. El aplanado del árbol, el filtro por nombre, la ruta
+   * de ancestros y la cuenta de subcategorías los sabe `CategoriaDialogo`, que es el
+   * MISMO adaptador que usa la portada. Este fichero aporta una sola cosa: que elegir
+   * navegue.
+   *
+   * `valor` es el slug actual y `''` significa «todas», exactamente como significaba en
+   * el `<option value="">` de antes — de ahí que `goTo('')` siga llevando a /busqueda sin
+   * un caso especial nuevo.
+   */
   return (
-    <select
-      value={currentSlug ?? ''}
-      onChange={(e) => goTo(e.target.value)}
-      className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-      aria-label="Categoría"
-    >
-      <option value="">Todas las categorías</option>
-      {aplanarArbol(categories).map(({ slug, nombre, ancestros }) => (
-        <option key={slug} value={slug}>
-          {[...ancestros, nombre].join(SEPARADOR)}
-        </option>
-      ))}
-    </select>
+    <CategoriaDialogo
+      categories={categories}
+      valor={currentSlug ?? ''}
+      onElegir={goTo}
+      // Lo que decía la primera `<option>` del `<select>` al que sustituye, palabra por
+      // palabra: bajo una sección ya titulada «CATEGORÍA», «Categoría» no informaría de
+      // nada y «Todas las categorías» sigue diciendo que ahora mismo no hay filtro.
+      etiquetaVacio="Todas las categorías"
+      className={className}
+    />
   );
 }
 
 /**
- * PROFUNDIDAD N — RÁFAGA 2. El árbol se pinta como una lista PLANA con el PATH
- * completo como etiqueta: «Vehículos › Coches › Deportivos».
+ * PROFUNDIDAD N — RÁFAGA 2. El árbol se ofrece como una lista PLANA con el PATH
+ * completo a la vista: «Vehículos › Coches › Deportivos».
  *
  * POR QUÉ ASÍ Y NO CON `<optgroup>` ANIDADOS: el estándar HTML **no permite
  * anidar optgroup**, así que un `<select>` nativo expresa como mucho DOS niveles
@@ -81,23 +115,21 @@ export function CategorySelect({
  * Y por qué path aplanado y no un navegador por niveles (como `StepCategoria`
  * del wizard, que sí lo es): son casos de uso distintos. Publicar es ELEGIR una
  * categoría explorando; filtrar aquí es SALTAR a una que ya conoces, y para eso
- * una lista plana —buscable con el teclado del navegador, con toda la
- * profundidad visible de un vistazo— gana a navegar tres niveles.
- *
- * El orden es el del árbol (cada rama entera antes de la siguiente), así que las
- * categorías de 2 niveles se siguen leyendo exactamente igual que antes.
+ * una lista plana —con toda la profundidad visible de un vistazo— gana a navegar
+ * tres niveles.
  *
  * ⚠ BUSCADOR · BQ-A — EL RECORRIDO YA NO VIVE AQUÍ. Era una función privada de
  * este fichero; ahora es `aplanarArbol` en `lib/category-tree.ts`, junto a los
- * otros cuatro recorridos del árbol. Sube porque BQ-B le trae un segundo
+ * otros cuatro recorridos del árbol. Subió porque BQ-B le trajo un segundo
  * consumidor (el diálogo de categoría del buscador de portada) y dos recorridos
- * parecidos acaban diciendo cosas distintas. **La etiqueta que se compone aquí
- * es carácter por carácter la de antes**: la función devuelve nombre y ancestros
- * por separado porque un diálogo los pinta en columnas y filtra sólo por el
- * nombre, y componerlos es esta línea.
+ * parecidos acaban diciendo cosas distintas.
+ *
+ * ⚠ BUSCADOR · BQ-E — Y LA COMPOSICIÓN DE LA ETIQUETA TAMPOCO. Este fichero unía
+ * `[...ancestros, nombre]` con ' › ' para escribir cada `<option>`; ahora la ruta
+ * la pinta el diálogo en su propia columna —atenuada, al lado del nombre— y el
+ * separador es el de `CategoriaDialogo`, que ya era el mismo carácter. Dos
+ * constantes que decían lo mismo han pasado a ser una.
  */
-/** Separador del path aplanado. Contenido de cara al usuario. */
-const SEPARADOR = ' › ';
 
 /** Localiza la categoría destino en el árbol y devuelve lo que necesita el carry:
  *  su slug, el del padre (para la URL canónica) y su política de tipo (para `condition`).

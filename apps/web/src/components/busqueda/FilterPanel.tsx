@@ -5,7 +5,6 @@ import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { ChevronDown, MapPin, Play, SlidersHorizontal, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { PROVINCIAS } from '@/lib/provincias';
 import { resolveLinkedOptions } from '@/lib/attribute-schema';
 // I18N T1 — el vocabulario de enums YA ESCRITO, no una copia nueva. Vive bajo
 // `app/(admin)/admin/` por dónde nació (las fichas del backoffice), y de ahí lo
@@ -25,7 +24,42 @@ import {
 } from '@/lib/etiquetas-enums';
 import type { AttributeFieldView } from '@/lib/filterable-fields';
 import { CategorySelect } from './CategorySelect';
+import { ProvinciaDialogo } from './ProvinciaDialogo';
 import type { Category, Condition, ListingType, ListingTypePolicy, TagRef } from '@/types';
+
+/**
+ * ══ BUSCADOR · BQ-E — LA GEOMETRÍA DE LOS DOS DISPARADORES ═══════════════════════════
+ *
+ * Los `<select>` de categoría y provincia son ahora los diálogos filtrables del molde de
+ * BQ (`ui/dialogo-filtrable`), y el molde **no decide su propio alto**: lo decide quien lo
+ * monta, a propósito (ver el `className` de `DialogoFiltrableProps`). La portada le pasa
+ * `h-14 md:h-16` porque allí los cuatro controles forman una pieza; aquí los controles son
+ * los de un formulario de la casa, y esta cadena es **carácter por carácter la que llevan
+ * el `<select>` de «Ordenar por», el de «Condición» y el campo «Ciudad»** — que son los
+ * vecinos con los que el disparador tiene que medir igual.
+ *
+ * ⚠ `h-auto` NO ES DECORATIVO: el molde trae `h-10` por defecto (40 px, el alto de
+ * `ui/input.tsx`) y los controles de este panel miden 38 —`py-2` sobre una línea de 20 px
+ * más el borde—. Dos píxeles de más en el disparador de provincia se verían justo encima
+ * del campo «Ciudad», que va pegado a él en el mismo `flex-col`. Con `h-auto` el alto lo
+ * vuelve a dictar el contenido, o sea la misma receta que el control al que sustituye.
+ *
+ * **Medido, y con una sorpresa que conviene dejar escrita**: con esta misma cadena, los
+ * `<button>` y los `<input>` del panel miden 38,00 px y los `<select>` miden **37,00** —
+ * Chrome no compone la caja interna de un `<select>` con la `line-height` del CSS—. Así
+ * que los dos disparadores no quedan a la altura del `<select>` al que sustituyen: quedan
+ * a la de «Ciudad», «Mín», «Máx» y «Usar mi ubicación», que son los otros seis controles
+ * de la columna. El panel es **un píxel más coherente** que antes, no menos; y los dos
+ * píxeles que crece la captura son justamente eso.
+ *
+ * `md:text-sm` por lo mismo: el molde sube a `md:text-base` en escritorio porque el
+ * buscador de portada es una pieza grande. Un panel de filtros no.
+ *
+ * `cn()` es `twMerge`, así que lo que va aquí GANA a los defectos del molde sin que el
+ * molde tenga que enterarse de que existe este segundo cliente.
+ */
+const DISPARADOR =
+  'h-auto rounded-md border bg-background px-3 py-2 text-sm md:text-sm';
 
 // I18N T3-B — QUÉ opciones ofrece el panel lo sigue decidiendo el panel: el «Todos» y
 // el «Cualquiera» de arriba no son valores del enum, son la ausencia de filtro, y por
@@ -681,10 +715,20 @@ export function FilterPanel({
           (que navegaba, pero solo hacia abajo). Ahora cualquier destino del árbol —y
           "Todas las categorías"— es alcanzable desde ambas, siempre a la ruta canónica
           y arrastrando solo los filtros que valen en el destino. */}
+      {/* ⚠ EL GUARD NO ES «ESTAMOS EN /[categoria]», Y CONVIENE NO CONFUNDIRLO: el árbol
+          llega COMPLETO en las dos rutas —es lo que A2 construyó, y por eso desde
+          /vehiculos/coches se puede saltar a Móviles o volver a la búsqueda global—. Lo
+          que este `length > 0` cubre es que `getCategories()` haya fallado: las dos
+          páginas lo piden con `.catch(() => [])` para no tumbar los resultados por un
+          selector, y sin árbol no hay nada que ofrecer. */}
       {categories.length > 0 && (
         <div>
           <SectionLabel>Categoría</SectionLabel>
-          <CategorySelect categories={categories} currentSlug={currentCategorySlug ?? null} />
+          <CategorySelect
+            categories={categories}
+            currentSlug={currentCategorySlug ?? null}
+            className={DISPARADOR}
+          />
         </div>
       )}
 
@@ -793,20 +837,33 @@ export function FilterPanel({
       <div>
         <SectionLabel>Ubicación</SectionLabel>
         <div className="flex flex-col gap-2">
-          {/* Select cerrado (mismo lib/provincias.ts que la portada) — antes era texto libre
-              y una errata o variación de mayúsculas/tildes daba 0 resultados en silencio,
-              porque el filtro es un `=` exacto contra el campo `province` del documento. */}
-          <select
-            value={currentFilters.province ?? ''}
-            onChange={(e) => update({ province: e.target.value || undefined })}
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-            aria-label="Provincia"
-          >
-            <option value="">Toda España</option>
-            {PROVINCIAS.map((p) => (
-              <option key={p} value={p}>{p}</option>
-            ))}
-          </select>
+          {/*
+            BUSCADOR · BQ-E — EL MISMO `ProvinciaDialogo` QUE MONTA LA PORTADA, sin una
+            línea propia: las 52 provincias de `lib/provincias.ts`, el filtro por texto y
+            —lo que de verdad importa— el valor EXACTO.
+
+            Aquí ya había un `<select>` cerrado, y no por gusto: antes de él esto era un
+            campo de texto libre, y una errata o una variación de mayúsculas o tildes daba
+            0 resultados en silencio, porque el backend filtra con un `=` exacto contra el
+            campo `province` del documento (`search.service.ts`). El diálogo conserva esa
+            garantía por CONSTRUCCIÓN y no por disciplina: `DialogoFiltrable` llama a
+            `onElegir` sólo desde el manejador de una fila, y el valor de esa fila es la
+            entrada de la constante. **No hay ningún camino desde el texto tecleado hasta
+            la URL.** El campo de texto filtra; no es el campo del valor.
+
+            Lo que se gana sobre el `<select>`: 52 entradas se recorren tecleando tres
+            letras en vez de desplegando, y las grafías cooficiales
+            (`Alicante/Alacant`, `Valencia/València`) se encuentran por cualquiera de sus
+            dos mitades — la normalización NFD del filtro las cubre sin una línea propia.
+
+            Y la navegación la pone ESTA llamada, no el molde: `update()` es el mismo
+            `router.push` que usan los demás filtros del panel.
+          */}
+          <ProvinciaDialogo
+            valor={currentFilters.province ?? ''}
+            onElegir={(province) => update({ province: province || undefined })}
+            className={DISPARADOR}
+          />
           <input
             type="text"
             placeholder="Ciudad"
@@ -943,13 +1000,17 @@ export function FilterPanel({
             className={`h-4 w-4 transition-transform ${open ? 'rotate-180' : ''}`}
           />
         </Button>
+        {/* BQ-E — el ancla de la captura móvil. Las dos geometrías del panel son dos
+            ramas del árbol (no un `useMediaQuery`), así que fotografiarlas exige poder
+            apuntar a cada una: la de escritorio está `hidden` a 375 px y ésta no existe
+            hasta que se abre. Mismo argumento que el diálogo de `overlays.spec.ts`. */}
         {open && (
-          <div className="rounded-lg border p-4">{panelContent}</div>
+          <div data-testid="filtros-movil" className="rounded-lg border p-4">{panelContent}</div>
         )}
       </div>
 
       {/* Desktop sidebar */}
-      <div className="hidden rounded-lg border p-4 lg:block">
+      <div data-testid="filtros-escritorio" className="hidden rounded-lg border p-4 lg:block">
         <h2 className="mb-4 font-semibold">Filtros</h2>
         {panelContent}
       </div>
