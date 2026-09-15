@@ -11,10 +11,29 @@ import {
   PAGINA_COOKIES_SLUG,
   PAGINA_COOKIES_TITULO,
 } from './seed-pagina-cookies';
-
-const prisma = new PrismaClient();
+// SEED SEGURO — la credencial del administrador NO vive en este fichero (ni en ninguno).
+// La resolución del entorno vive aparte para que la barrera pueda probar sus cuatro
+// caminos sin base de datos. Ver docs/auditoria-seed.md §4.2.
+import { resolverCredencialAdmin, VAR_PASSWORD_ADMIN } from './seed-admin';
+// SEED COMPLETO — lo que una base recién migrada necesita y ningún script podía ya crear.
+import { COLUMNAS_PIE, MOTIVOS_CONTACTO, NAV_INICIAL } from './seed-datos-iniciales';
 
 const BCRYPT_ROUNDS = 12;
+
+/**
+ * EL CLIENTE SE PASA, NO SE CIERRA SOBRE ÉL — y no es ceremonia.
+ *
+ * Antes había un `new PrismaClient()` en el módulo y un `main()` en la raíz, así que
+ * este fichero no se podía ni importar: mirarlo lo ejecutaba. Es la misma pared con la
+ * que ya chocaron `SEED_SETTINGS` y los bloques de la página de cookies, que acabaron
+ * en módulos aparte para poder mirarse.
+ *
+ * Aquí lo que hay que poder mirar no son datos, es el COMPORTAMIENTO: que el rol no se
+ * re-fuerce, que las categorías no se reviertan, que re-ejecutar no duplique. Con el
+ * cliente como parámetro y la llamada de abajo bajo `require.main`, la barrera ejecuta
+ * la semilla ENTERA —dos veces— contra un doble en memoria, sin Postgres y sin red.
+ */
+type ClienteSemilla = PrismaClient;
 
 interface AttributeField {
   name: string;
@@ -401,12 +420,39 @@ const CATEGORIES: CategorySeed[] = [
   },
 ];
 
-async function seedCategories() {
+/**
+ * LAS CATEGORÍAS SE CREAN, PERO NO SE REVIERTEN — `update: {}`, y es el cambio entero.
+ *
+ * Ver docs/auditoria-seed.md §5.1.
+ *
+ * Esto era `update: { name, order, attributeSchema, parentId }`, es decir: **cada
+ * `db seed` devolvía el árbol a lo que dijera este fichero**. Y `/admin/categorias`
+ * deja renombrar, reordenar, reparentar y editar el `attributeSchema`, así que un
+ * administrador que ajustara «Coches» perdía el ajuste en el siguiente despliegue, sin
+ * aviso y sin rastro. El `attributeSchema` es el más caro de perder: arrastra consigo
+ * los `filterableAttributes` del índice de Meilisearch.
+ *
+ * Era, además, la ÚNICA parte de esta semilla que pisaba trabajo de un administrador.
+ * Todo lo demás ya respetaba la misma doctrina, escrita tres veces en este fichero: los
+ * ajustes con `skipDuplicates`, la portada con su guarda de `updatedById`, y la página
+ * de cookies, que si existe ni se mira.
+ *
+ * LO QUE SE PIERDE, dicho claro: cambiar `CATEGORIES` aquí ya no refresca las
+ * categorías de una base que ya las tiene. Es la mitad buena del trato — «refrescar el
+ * árbol canónico» es una decisión consciente, no un efecto lateral de desplegar —, pero
+ * conviene saberlo: para propagar un cambio del árbol a una base ya sembrada hay que
+ * hacerlo desde el backoffice o con una migración de datos.
+ *
+ * El `upsert` se mantiene (en vez de un «buscar y crear si falta») porque su `where`
+ * único sobre el `slug` hace imposible crear dos: dos ejecuciones simultáneas no pueden
+ * duplicar una categoría.
+ */
+async function seedCategories(prisma: ClienteSemilla) {
   console.log('Seeding categories...');
   for (const cat of CATEGORIES) {
     const parent = await prisma.category.upsert({
       where: { slug: cat.slug },
-      update: { name: cat.name, order: cat.order, attributeSchema: cat.attributeSchema as unknown as Prisma.InputJsonValue },
+      update: {},
       create: { name: cat.name, slug: cat.slug, order: cat.order, attributeSchema: cat.attributeSchema as unknown as Prisma.InputJsonValue },
     });
 
@@ -414,12 +460,7 @@ async function seedCategories() {
       for (const child of cat.children) {
         await prisma.category.upsert({
           where: { slug: child.slug },
-          update: {
-            name: child.name,
-            order: child.order,
-            attributeSchema: child.attributeSchema as unknown as Prisma.InputJsonValue,
-            parentId: parent.id,
-          },
+          update: {},
           create: {
             name: child.name,
             slug: child.slug,
@@ -436,25 +477,81 @@ async function seedCategories() {
   }
 }
 
-async function seedAdmin() {
+/**
+ * EL ADMINISTRADOR — SIN NINGUNA CREDENCIAL EN EL CÓDIGO, Y SIN INVENTARSE NINGUNA.
+ *
+ * Ver `seed-admin.ts` para el porqué y docs/auditoria-seed.md §4.2 para el defecto que
+ * cierra (`Admin1234!` escrito aquí, en un repositorio que alguien puede leer).
+ *
+ * ─── DOS REGLAS, Y LAS DOS SE VEN EN ESTAS LÍNEAS ───────────────────────────────
+ *
+ * 1. **Sin credencial configurada no se crea nada.** No hay defecto de desarrollo, no se
+ *    genera una cuenta «provisional»: se avisa de qué falta, con qué poner y dónde, y la
+ *    semilla SIGUE. El resto (categorías, ajustes, catálogo) es válido y no tiene por qué
+ *    caerse con esto; fallar entero dejaría media base sembrada por un dato que se
+ *    arregla en diez segundos.
+ *
+ * 2. **`update: {}` — el rol NO se re-fuerza.** Antes era
+ *    `update: { role: ADMIN, emailVerified: true }`, así que si alguien degradaba esa
+ *    cuenta a propósito, el siguiente despliegue la volvía a hacer administradora en
+ *    silencio. Una semilla no revoca decisiones de seguridad de un operador. Si la fila
+ *    existe, no se toca: ni el rol, ni la verificación, ni —como ya ocurría— la
+ *    contraseña.
+ */
+async function seedAdmin(prisma: ClienteSemilla, env: NodeJS.ProcessEnv) {
   console.log('Seeding admin user...');
-  const passwordHash = await bcrypt.hash('Admin1234!', BCRYPT_ROUNDS);
+
+  const credencial = resolverCredencialAdmin(env);
+  if (credencial.estado !== 'ok') {
+    console.warn(`  ⚠ ${credencial.aviso}`);
+    return;
+  }
+
+  const existente = await prisma.user.findUnique({
+    where: { email: credencial.email },
+    select: { id: true },
+  });
+  if (existente) {
+    // Ni rol ni contraseña ni verificación: lo que haya encima manda.
+    console.log(`  ✓ ${credencial.email} ya existe, intacto (rol y contraseña sin tocar)`);
+    return;
+  }
+
+  const passwordHash = await bcrypt.hash(credencial.password, BCRYPT_ROUNDS);
   await prisma.user.upsert({
-    where: { email: 'admin@marketplace.es' },
-    update: { role: Role.ADMIN, emailVerified: true },
+    where: { email: credencial.email },
+    update: {},
     create: {
-      email: 'admin@marketplace.es',
+      email: credencial.email,
       name: 'Admin',
-      slug: 'admin',
+      // El slug sale del correo y no es 'admin' fijo: dos instancias con correos
+      // distintos no deben pelearse por el mismo slug, que es único.
+      slug: slugDesdeEmail(credencial.email),
       passwordHash,
       role: Role.ADMIN,
       emailVerified: true,
     },
   });
-  console.log('  ✓ admin@marketplace.es (role: ADMIN)');
+  console.log(`  ✓ ${credencial.email} creado (role: ADMIN), contraseña de ${VAR_PASSWORD_ADMIN}`);
 }
 
-async function seedSettings() {
+/**
+ * Un slug a partir del correo: la parte local, sin nada que no sea letra, número o guion.
+ * `admin@marketplace.local` → `admin`. Con un respaldo por si la parte local fuera toda
+ * símbolos, porque `User.slug` es obligatorio y único.
+ */
+function slugDesdeEmail(email: string): string {
+  const base = email
+    .split('@')[0]
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return base || 'admin';
+}
+
+async function seedSettings(prisma: ClienteSemilla) {
   console.log('Seeding settings...');
   // createMany + skipDuplicates: only inserts keys that don't exist yet.
   // Values that an admin has already changed via the backoffice are NEVER overwritten.
@@ -469,7 +566,7 @@ async function seedSettings() {
   }
 }
 
-async function seedBillingCatalog() {
+async function seedBillingCatalog(prisma: ClienteSemilla) {
   console.log('Seeding billing catalog...');
   const existing = await prisma.product.count();
   if (existing > 0) {
@@ -511,7 +608,7 @@ async function seedBillingCatalog() {
   console.log('  ✓ Product: Plan Pro (mensual/anual)');
 }
 
-async function seedCreditPacks() {
+async function seedCreditPacks(prisma: ClienteSemilla) {
   console.log('Seeding credit packs...');
   const existing = await prisma.creditPack.count();
   if (existing > 0) {
@@ -563,7 +660,7 @@ async function seedCreditPacks() {
   }
 }
 
-async function seedBumpPacks() {
+async function seedBumpPacks(prisma: ClienteSemilla) {
   console.log('Seeding bump packs...');
   const existing = await prisma.bumpPack.count();
   if (existing > 0) {
@@ -714,7 +811,7 @@ const HOMEPAGE_SEED_BLOCKS = [
   },
 ];
 
-async function seedHomepageConfig() {
+async function seedHomepageConfig(prisma: ClienteSemilla) {
   console.log('Seeding homepage config...');
   const existing = await prisma.homepageConfig.findUnique({ where: { id: 'singleton' } });
 
@@ -774,7 +871,7 @@ async function seedHomepageConfig() {
  * Por eso ni siquiera se comprueba si está publicada o en borrador: si la fila existe,
  * este código no la toca.
  */
-async function seedPaginaCookies() {
+async function seedPaginaCookies(prisma: ClienteSemilla) {
   console.log('Seeding cookie policy page...');
 
   const existente = await prisma.post.findUnique({
@@ -786,14 +883,21 @@ async function seedPaginaCookies() {
     return;
   }
 
-  // El autor es el admin de la semilla: `Post.authorId` es obligatorio, y esta página es
-  // configuración de la instancia, no contenido editorial de nadie.
-  const admin = await prisma.user.findUnique({
-    where: { email: 'admin@marketplace.es' },
+  // El autor es un administrador de la instancia: `Post.authorId` es obligatorio, y esta
+  // página es configuración de la instancia, no contenido editorial de nadie.
+  //
+  // SE BUSCA POR ROL, no por un correo fijo. Antes era `admin@marketplace.es`, el correo
+  // que esta misma semilla clavaba en el código; ahora el correo del administrador lo
+  // decide el entorno (ver `seedAdmin`), así que preguntar por uno concreto no
+  // encontraría nada. `orderBy: createdAt` para que la elección sea estable entre
+  // ejecuciones y no dependa del orden que devuelva Postgres.
+  const admin = await prisma.user.findFirst({
+    where: { role: Role.ADMIN },
+    orderBy: { createdAt: 'asc' },
     select: { id: true },
   });
   if (!admin) {
-    console.log('  ⚠ no hay admin sembrado: la página de cookies se creará en el próximo seed');
+    console.log('  ⚠ no hay ningún administrador: la página de cookies se creará en el próximo seed');
     return;
   }
 
@@ -818,23 +922,156 @@ async function seedPaginaCookies() {
   console.log('    Está marcado dentro de la propia página.');
 }
 
-async function main() {
-  await seedCategories();
-  await seedAdmin();
-  await seedSettings();
-  await seedHomepageConfig();
-  await seedPaginaCookies();
-  await seedBillingCatalog();
-  await seedCreditPacks();
-  await seedBumpPacks();
+/**
+ * LOS MOTIVOS DE CONTACTO — sin ellos el formulario público se apaga solo.
+ *
+ * Ver `seed-datos-iniciales.ts` y docs/auditoria-seed.md §3.1. Los creaba
+ * `contact-reason-backfill`, que ya NO puede correr en una base nueva: lee una columna
+ * que su propia migración de retirada borró.
+ *
+ * GUARDA POR RECUENTO y no `upsert`: `ContactReason.nombre` no es único (dos motivos
+ * pueden llamarse igual si al admin le conviene), así que no hay clave natural sobre la
+ * que hacer `upsert`. Mismo idioma que `seedCreditPacks`: si ya hay alguno, esto no es
+ * asunto de la semilla — el admin ya los gestiona desde el backoffice, y crear «los seis
+ * de fábrica» junto a los suyos sería justo lo que nadie quiere.
+ */
+async function seedMotivosContacto(prisma: ClienteSemilla) {
+  console.log('Seeding contact reasons...');
+  const existentes = await prisma.contactReason.count();
+  if (existentes > 0) {
+    console.log('  ✓ contact reasons already present, skipped');
+    return;
+  }
+
+  await prisma.contactReason.createMany({ data: MOTIVOS_CONTACTO });
+  console.log(`  ✓ ${MOTIVOS_CONTACTO.length} motivo(s) de contacto`);
+}
+
+/**
+ * EL PIE DE PÁGINA — las columnas configurables.
+ *
+ * Misma guarda por recuento y mismo motivo (no hay clave natural en `FooterColumn`), y
+ * el mismo criterio de fondo: en cuanto alguien ha tocado el pie desde `/admin/footer`,
+ * la semilla no vuelve a opinar.
+ *
+ * El ítem `PAGE` se resuelve por slug y **se salta en silencio si la página no está**:
+ * `FooterItem.pageId` tiene `onDelete: Restrict` y apuntar a una fila inexistente sería
+ * un error de clave ajena a mitad de la semilla. Si la página de cookies no se creó
+ * (porque no había administrador que la firmara), el pie se siembra sin ella en vez de
+ * tumbar el despliegue entero.
+ */
+async function seedPie(prisma: ClienteSemilla) {
+  console.log('Seeding footer columns...');
+  const existentes = await prisma.footerColumn.count();
+  if (existentes > 0) {
+    console.log('  ✓ footer already present, skipped');
+    return;
+  }
+
+  for (const [indice, columna] of COLUMNAS_PIE.entries()) {
+    const creada = await prisma.footerColumn.create({
+      data: { name: columna.name, order: indice },
+    });
+
+    for (const [orden, item] of columna.items.entries()) {
+      if (item.tipo === 'PAGE') {
+        const pagina = await prisma.post.findUnique({
+          where: { slug: item.slugPagina },
+          select: { id: true },
+        });
+        if (!pagina) {
+          console.log(`  ⚠ «${item.label}»: no existe /paginas/${item.slugPagina}, se omite`);
+          continue;
+        }
+        await prisma.footerItem.create({
+          data: { columnId: creada.id, label: item.label, order: orden, type: 'PAGE', pageId: pagina.id },
+        });
+        continue;
+      }
+
+      await prisma.footerItem.create({
+        data: { columnId: creada.id, label: item.label, order: orden, type: 'INTERNAL', url: item.url },
+      });
+    }
+
+    console.log(`  ✓ columna «${columna.name}» (${columna.items.length} enlace(s))`);
+  }
+}
+
+/**
+ * LA BARRA DE NAVEGACIÓN.
+ *
+ * Sin filas no se pinta NADA: `MainNav` devuelve `null` con el árbol vacío («GATE
+ * TOTAL», MainNav.tsx:73), así que una instancia nueva arrancaba sin barra. No es un
+ * error —es una degradación limpia y deliberada— pero tampoco es el estado en el que
+ * debe nacer una plataforma.
+ *
+ * Misma guarda por recuento: en cuanto hay un `NavItem`, la barra es del admin.
+ */
+async function seedNav(prisma: ClienteSemilla) {
+  console.log('Seeding main nav...');
+  const existentes = await prisma.navItem.count();
+  if (existentes > 0) {
+    console.log('  ✓ nav already present, skipped');
+    return;
+  }
+
+  await prisma.navItem.createMany({
+    data: NAV_INICIAL.map((n) => ({
+      label: n.label,
+      order: n.order,
+      type: 'INTERNAL' as const,
+      url: n.url,
+      // `visibleOn: []` = en todas las páginas. Es el defecto del modelo; va explícito
+      // para que se lea aquí y no haya que ir al schema a saberlo.
+      visibleOn: [],
+    })),
+  });
+  console.log(`  ✓ ${NAV_INICIAL.length} entrada(s) de navegación`);
+}
+
+/**
+ * EL ORDEN IMPORTA EN DOS SITIOS, y sólo en dos:
+ *
+ *  · `seedPaginaCookies` va después de `seedAdmin` porque `Post.authorId` es
+ *    obligatorio y esa página la firma el administrador de la instancia.
+ *  · `seedPie` va después de `seedPaginaCookies` porque una de sus columnas enlaza esa
+ *    página por su `slug`, y hay que poder encontrarla.
+ *
+ * El resto es independiente entre sí.
+ */
+export async function sembrar(prisma: ClienteSemilla, env: NodeJS.ProcessEnv = process.env) {
+  await seedCategories(prisma);
+  await seedAdmin(prisma, env);
+  await seedSettings(prisma);
+  await seedHomepageConfig(prisma);
+  await seedPaginaCookies(prisma);
+  await seedMotivosContacto(prisma);
+  await seedPie(prisma);
+  await seedNav(prisma);
+  await seedBillingCatalog(prisma);
+  await seedCreditPacks(prisma);
+  await seedBumpPacks(prisma);
   console.log('Seed completed.');
 }
 
-main()
-  .catch((e) => {
+async function main() {
+  // El cliente se construye AQUÍ y no en el módulo: así importar este fichero no abre
+  // nada ni exige un `DATABASE_URL`, que es lo que permite que la barrera lo ejecute
+  // contra un doble en memoria. Ver la nota de `ClienteSemilla`.
+  const prisma = new PrismaClient();
+  try {
+    await sembrar(prisma);
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+// `require.main === module`: la semilla se ejecuta cuando alguien la EJECUTA
+// (`prisma db seed` → `ts-node prisma/seed.ts`), no cuando alguien la importa.
+if (require.main === module) {
+  main().catch((e) => {
     console.error(e);
     process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
   });
+}
