@@ -1,8 +1,16 @@
 # Cookies — lo que falta, y no es código
 
-> El sistema de consentimiento está **completo en código** (ráfagas 1, 2 y 3, en `main`).
-> Quedan dos cosas, y ninguna se resuelve programando. Este documento existe para que no
-> dependan de que alguien recuerde una conversación.
+> El sistema de consentimiento está **completo en código** (ráfagas 1, 2 y 3, en `main`),
+> y **los cuatro datos que había que medir ya están medidos** (15/09/2026, §1).
+>
+> Quedan dos cosas, y ninguna se resuelve programando:
+>
+> 1. **Confirmar lo medido** en un navegador de verdad, sobre la web publicada. Se midió
+>    en local por HTTP con un navegador automatizado, y eso no es lo que ve un usuario.
+>    Diez minutos (§1).
+> 2. **El texto legal**, que redacta asesoría (§2).
+>
+> Este documento existe para que no dependan de que alguien recuerde una conversación.
 >
 > Mientras falten, **la página de cookies sigue en BORRADOR** y el banner despliega su
 > información en línea en vez de enlazar a ella. Nada está roto: está esperando.
