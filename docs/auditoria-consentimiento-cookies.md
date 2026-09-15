@@ -6,6 +6,17 @@
 > comportamiento de una librería o de un tercero en el navegador), se marca como
 > **[medir en navegador]** y no se presenta como hecho.
 >
+> **ACTUALIZACIÓN 2026-09-15 — esas mediciones ya están hechas.** Los `[medir]` de §1.2
+> y §1.5 se cerraron con una medición de runtime real (sitio levantado, Playwright sobre
+> Chromium). Cada uno lleva ahora **[MEDIDO 15/09/2026]** con el dato, y el que sigue
+> sin comprobarse en HTTPS de producción lo dice. **Tres salieron distintos de lo que
+> este documento afirmaba** — están señalados en su fila y recogidos juntos en **§1.8**.
+>
+> Los datos viven, ya redactados de cara al usuario, en la página de cookies
+> (`apps/api/prisma/seed-pagina-cookies.ts`); el resumen y la receta de confirmación, en
+> `docs/cookies-que-falta.md` §1. **Esta auditoría no es la fuente de esos datos: es su
+> diagnóstico.** Si los tres documentos discrepasen, manda lo medido.
+>
 > **No soy abogado.** La arquitectura que se propone sigue el patrón estándar del
 > RGPD y de la Guía de cookies de la AEPD. Las decisiones propiamente jurídicas
 > —qué es «estrictamente necesario», qué base legitima la telemetría propia, cuánto
@@ -90,19 +101,26 @@ permiso y tener que documentarlo.
 
 | # | Qué | Quién lo escribe | Verificado en | Tipo | Categoría | ¿Consentimiento? |
 |---|---|---|---|---|---|---|
-| 1 | `authjs.session-token` | Auth.js v5 (`next-auth@beta`) | `auth.config.ts:18-20` (`maxAge: 7d`); `package.json` | Cookie `httpOnly` | **Esencial** | **No** — autenticación solicitada por el usuario |
-| 2 | `authjs.csrf-token` | Auth.js, en cada flujo de login | Default de la librería, no configurado en el repo **[medir en navegador]** | Cookie `httpOnly` | **Esencial** | **No** — seguridad (CSRF) |
-| 3 | `authjs.callback-url` | Auth.js, durante el login | Default de la librería **[medir]** | Cookie | **Esencial** | **No** — mecánica del login |
-| 4 | `authjs.state`, `authjs.pkce.code_verifier`, `authjs.nonce` | Auth.js, **solo** en el flujo Google | `lib/auth/index.ts:39` (provider Google) — nombres por default **[medir]** | Cookies transitorias | **Esencial** | **No** — seguridad de OAuth, y solo si el usuario pulsa «entrar con Google» |
+| 1 | `authjs.session-token` | Auth.js v5 (`next-auth@beta`) | `auth.config.ts:18-20` (`maxAge: 7d`); `package.json` — **[MEDIDO 15/09/2026]** dura **7 días exactos** (604.800 s): el código y la medición coinciden | Cookie `httpOnly` | **Esencial** | **No** — autenticación solicitada por el usuario |
+| 2 | `authjs.csrf-token` | Auth.js, en cada flujo de login | Default de la librería, no configurado en el repo — **[MEDIDO 15/09/2026]** es **cookie de sesión** (sin caducidad) y se escribe **al abrir `/login`**, antes de teclear nada | Cookie `httpOnly` | **Esencial** | **No** — seguridad (CSRF) |
+| 3 | `authjs.callback-url` | Auth.js, durante el login | Default de la librería — **[MEDIDO 15/09/2026]** es **cookie de sesión**, escrita también al abrir `/login` | Cookie `httpOnly` | **Esencial** | **No** — mecánica del login |
+| 4 | ~~`authjs.state`~~, `authjs.pkce.code_verifier`, ~~`authjs.nonce`~~ | Auth.js, **solo** en el flujo Google | `lib/auth/index.ts:39` (provider Google) — **[MEDIDO 15/09/2026] CORRIGE ESTA FILA:** sólo se escribe **`authjs.pkce.code_verifier`**, con **15 minutos**. Ni `state` ni `nonce`: la URL de autorización que genera Auth.js no lleva esos parámetros, porque con Google usa únicamente la comprobación PKCE | Cookie transitoria | **Esencial** | **No** — seguridad de OAuth, y solo si el usuario pulsa «entrar con Google» |
 | 5 | `localStorage['dismissed-banners']` | Código propio | `BannerList.tsx:10,20,29` | `localStorage` | **Esencial / preferencia** **[legal]** | **No** *(ver abajo)* |
 
 **Sobre la cookie de sesión (1).** El único parámetro fijado en el repo es la duración:
 7 días, alineada a mano con el TTL del `accessToken` del backend, con el motivo escrito
 en `auth.config.ts:12-17`. El resto —`httpOnly`, `sameSite: lax`, `path: /`, `secure` en
 HTTPS, cookie *host-only*— son los defaults de Auth.js v5; **no hay bloque `cookies:` en
-la configuración**, así que no se han verificado leyendo este repo. **Hay que
-confirmarlos en el navegador al documentar la política**, porque la lista de cookies de
-la página de información tiene que decir la verdad sobre nombres y duraciones.
+la configuración**, así que no se podían verificar leyendo este repo.
+
+**[MEDIDO 15/09/2026]** Ya están verificados en runtime: `httpOnly`, `sameSite: Lax`,
+`path: /`, y la duración de 7 días clavada. Falta **un** matiz, y no es menor para la
+política: **la medición se hizo en local por HTTP**, y ahí Auth.js escribe los nombres
+*sin prefijo*. En HTTPS —lo que ve un usuario— la librería antepone `__Secure-` a las
+tres, y `__Host-` a la de CSRF, que es el prefijo más estricto
+(`@auth/core@0.41.3`, `lib/utils/cookie.js:44-75`). **La página de cookies declara los
+nombres de HTTPS**, marcados «sin confirmar» hasta que alguien los vea en producción.
+Es lo único que queda de esta tabla.
 
 > **Nota fina, sin consecuencia hoy:** la cookie lleva dentro el `accessToken` del
 > backend (`auth.config.ts:65`). Eso no cambia su clasificación —sigue siendo esencial—
@@ -182,9 +200,9 @@ oposición por el canal ordinario.
 
 | # | Tercero | Dónde | Cuándo carga hoy | Qué pasa | Categoría |
 |---|---|---|---|---|---|
-| 1 | **Vimeo** (`player.vimeo.com`) | `VideoBlockRenderer.tsx:10` | **Al pintar la página**, sin barrera | El iframe contacta a Vimeo y **pone cookies propias de Vimeo** desde la carga **[medir]** | **Contenido de terceros** → **SÍ requiere consentimiento** |
-| 2 | **YouTube** (`youtube-nocookie.com`) | `VideoBlockRenderer.tsx:8` | **Al pintar la página**, sin barrera | El dominio *nocookie* no escribe cookies de seguimiento al cargar, **pero sí al pulsar play**, y en ambos casos recibe IP, referer y user-agent **[medir]** | **Contenido de terceros** → **SÍ** |
-| 3 | **MapTiler** (`api.maptiler.com`) | `MapView.tsx:71` | Solo en vista `MAPA`; el bundle es `dynamic()` (`MapViewClient.tsx:10`) | Descarga el JSON de estilo y las tiles: transfiere **IP + referer** a un tercero (Suiza, con decisión de adecuación). Cookies: probablemente ninguna **[medir]** | **Contenido de terceros** → **SÍ** *(matizado, ver abajo)* |
+| 1 | **Vimeo** (`player.vimeo.com`) | `VideoBlockRenderer.tsx:10` | **Al pintar la página**, sin barrera | El iframe contacta a Vimeo y **pone cookies propias de Vimeo** desde la carga. **[MEDIDO 15/09/2026]** Confirmado, y son éstas: al cargar, `__cf_bm` (30 min, antirrobots de Cloudflare) y **`vuid` (400 días, identificador de visitante)**; al pulsar reproducir añade `player` (365 días). Dominio `.vimeo.com` | **Contenido de terceros** → **SÍ requiere consentimiento** |
+| 2 | **YouTube** (`youtube-nocookie.com`) | `VideoBlockRenderer.tsx:8` | **Al pintar la página**, sin barrera | ~~El dominio *nocookie* no escribe cookies al cargar, **pero sí al pulsar play**~~ → **[MEDIDO 15/09/2026] ESTO CAMBIÓ DE SIGNO: no escribió NINGUNA cookie**, ni al cargar ni al pulsar reproducir. Lo que sí hace al reproducir es contactar con `googlevideo.com` e `i.ytimg.com`; en ambos casos recibe IP, referer y user-agent. **Sin confirmar en producción** | **Contenido de terceros** → **SÍ** |
+| 3 | **MapTiler** (`api.maptiler.com`) | `MapView.tsx:71` | Solo en vista `MAPA`; el bundle es `dynamic()` (`MapViewClient.tsx:10`) | Descarga el JSON de estilo y las tiles: transfiere **IP + referer** a un tercero (Suiza, con decisión de adecuación). Cookies: ~~probablemente ninguna~~ → **[MEDIDO 15/09/2026]** ninguna **almacenada**: responde con `Set-Cookie: _cfuvid` (Cloudflare, de sesión), pero el navegador no llega a guardarla | **Contenido de terceros** → **SÍ** *(matizado, ver abajo)* |
 
 **Los tres puntos que hay que ver de esta tabla:**
 
@@ -232,6 +250,37 @@ estructurados, no peticiones; el resto son literales de test.
 | **MinIO / R2** (imágenes, vídeos) | `image-domains.ts`, `R2Service` | Almacenamiento de objetos propio. Sirve bytes, no escribe cookies |
 | **Fuente Inter** | `layout.tsx:39-43` (`next/font/local`) | **Servida desde el repo.** Fue Google Fonts y se sacó a propósito (CI); hoy no hay ninguna petición a `fonts.gstatic.com` en runtime |
 | **`SponsoredAd`** | `schema.prisma:2819-2848` | Publicidad **propia**: imagen del bucket propio, servida desde la BD, enlace externo que solo se abre al clic. **No hay contador de impresiones ni de clics** — el modelo no tiene esos campos, y las impresiones de búsqueda excluyen explícitamente el patrocinado (`impressions.service.ts:122`). **No genera categoría «marketing»** |
+
+## 1.8 Lo que la medición corrigió — **[MEDIDO 15/09/2026]**
+
+Los `[medir]` de §1.2 y §1.5 se cerraron midiendo el sistema en marcha. **Tres cosas
+salieron distintas de lo que este documento afirmaba**, y las tres están corregidas
+arriba, en su fila. Se recogen aquí juntas porque una auditoría que se corrige a sí
+misma en silencio no sirve de aviso a nadie:
+
+| | Lo que decía | Lo medido |
+|---|---|---|
+| **A** | El flujo de Google escribe `state`, `pkce.code_verifier` y `nonce` (§1.2, fila 4) | **Sólo `pkce.code_verifier`**, 15 minutos. La URL de autorización no lleva `state` ni `nonce`: con Google, Auth.js usa únicamente PKCE. Era una cookie, no tres |
+| **B** | YouTube en modo *nocookie* no escribe al cargar **pero sí al pulsar play** (§1.5, fila 2) | **No escribió ninguna**, ni al cargar ni al reproducir. **Cambió de signo**, y es el hallazgo que más pesa: declarar «no escribe» cuando sí escribe es peor que callarse. **Sin confirmar en producción** |
+| **C** | MapTiler: «cookies, probablemente ninguna» (§1.5, fila 3) | Confirmado **ninguna almacenada**, con un matiz que la suposición no anticipaba: sus respuestas **sí traen** `Set-Cookie: _cfuvid` (Cloudflare), pero el navegador no llega a guardarla |
+
+**Lo que el hallazgo B NO cambia: la decisión de retener YouTube igual que Vimeo.** Esa
+decisión estaba marcada `[legal-a-confirmar]` (§1.4 del diseño) y se tomó porque la
+diferencia entre cargar y reproducir era difícil de explicar a un usuario. Que además no
+escriba cookies **no la debilita**: al reproducir sigue transfiriendo la IP a servidores
+de Google (`googlevideo.com`, `i.ytimg.com`), y ePrivacy no habla sólo de cookies. El
+gate se queda donde está.
+
+**Una observación sobre §1.7, para que no se lea como una contradicción.** Durante la
+medición aparecieron peticiones a `fonts.gstatic.com`. **No vienen de nuestras páginas**
+—la fuente sigue servida desde el repo, como dice §1.7— sino de dentro del iframe de
+YouTube, que carga sus propias fuentes. Sólo ocurre tras aceptar el contenido de
+terceros, y es un motivo más para que el gate exista.
+
+**Lo que sigue sin cerrarse**, y no es obsoleto: la medición se hizo **en local por HTTP
+y con un navegador automatizado**. Faltan los nombres con prefijo `__Secure-`/`__Host-`
+vistos en producción, y una comprobación en un navegador de verdad (los terceros varían
+por país y por ajustes del navegador). La receta está en `docs/cookies-que-falta.md` §1.
 
 ---
 
@@ -588,7 +637,9 @@ tocar un documento largo por cada cambio técnico pequeño.
 1. Qué es una cookie, y la aclaración de que también se cubre `localStorage`.
 2. **La tabla del inventario**: nombre, quién la pone, para qué, duración, categoría.
    Con los nombres reales y las duraciones reales — de ahí que los **[medir]** de §1.2
-   haya que cerrarlos antes de publicar.
+   hubiera que cerrarlos antes de publicar. **[MEDIDO 15/09/2026]** Ya están cerrados y
+   la tabla de la página los lleva; lo que queda antes de publicar es confirmarlos en
+   producción (§1.8) y el texto de asesoría.
 3. Las categorías y qué implica rechazar cada una.
 4. Los terceros, con nombre, país y enlace a su propia política: Vimeo, YouTube/Google,
    MapTiler.
@@ -640,6 +691,12 @@ La página en el CMS con el inventario cerrado (los **[medir]** de §1.2 resuelt
 navegador), el panel de configuración incrustado, el `FooterItem`, y el enlace desde el
 banner. **Aquí se cierra el sistema.**
 
+> **[MEDIDO 15/09/2026] Estado real.** La página existe, sembrada **en borrador**, con
+> el panel, el `FooterItem` y el enlace del banner ya resueltos. Los `[medir]` están
+> cerrados y sus datos en las tablas. Lo que impide publicarla, y por tanto cerrar el
+> sistema, son dos cosas que no son código: **el texto de asesoría** (D8) y **confirmar
+> lo medido en producción** (§1.8). Ver `docs/cookies-que-falta.md`.
+
 ### Fuera de ráfaga, pero bloqueante para producción
 La **política de privacidad** (§7). No es trabajo de cookies, es redacción legal, y
 puede ir en paralelo desde el primer día.
@@ -670,18 +727,31 @@ Dos que no pueden faltar y que el repo ya sabe hacer:
 | **D7** | ¿Se conserva el `ConsentRecord` al borrar una cuenta? | **Anonimizar el `userId`, conservar la fila** (§3.2) | Es la prueba que protege al operador. Requiere justificación escrita y encaja con `docs/auditoria-borrado-cuentas.md` |
 | **D8** | ¿Quién redacta la política de privacidad y la de cookies? | Asesoría legal; el inventario de §1 es el insumo técnico | El sistema no se puede entregar apuntando a una página que no existe |
 
-### Lo que hay que medir en navegador antes de publicar la política
+### Lo que había que medir en navegador — **MEDIDO el 15/09/2026**
 
-Cuatro cosas que **no se pueden verificar leyendo este repo** y que la página de
-cookies tiene que decir con exactitud:
+Eran cuatro cosas que **no se podían verificar leyendo este repo** y que la página de
+cookies tiene que decir con exactitud. **Ya están medidas**, con el sitio levantado y un
+navegador conducido por Playwright:
 
-1. Los nombres y duraciones reales de las cookies de Auth.js v5 en producción (§1.2).
-2. Qué escribe `player.vimeo.com` exactamente al cargar el iframe.
-3. Qué escribe `youtube-nocookie.com` al cargar, y qué añade al pulsar play.
-4. Si `api.maptiler.com` escribe algo, o solo recibe la IP.
+| | Qué había que medir | Resultado |
+|---|---|---|
+| 1 | Nombres y duraciones reales de las cookies de Auth.js v5 (§1.2) | `session-token` **7 días** · `csrf-token` y `callback-url` **de sesión** · `pkce.code_verifier` **15 min** — y **sólo PKCE** en el flujo de Google, no tres cookies (§1.8 A) |
+| 2 | Qué escribe `player.vimeo.com` al cargar el iframe | `__cf_bm` (30 min) y **`vuid` (400 días)**; al reproducir, `player` (365 días) |
+| 3 | Qué escribe `youtube-nocookie.com` al cargar y al pulsar play | **Ninguna, en ninguno de los dos momentos** — cambió de signo (§1.8 B) |
+| 4 | Si `api.maptiler.com` escribe algo o sólo recibe la IP | **Ninguna almacenada**; envía `_cfuvid` pero el navegador no la guarda (§1.8 C) |
 
-Se resuelven en una sesión con las herramientas de desarrollo, y son el último requisito
-de la ráfaga 5.
+De paso quedó comprobado el gate: **sin consentimiento, cero iframes y cero peticiones**
+a los tres dominios.
+
+**Dónde están los datos, ya redactados de cara al usuario:** en las tablas de la página
+de cookies (`apps/api/prisma/seed-pagina-cookies.ts`), marcados **`⚠️ SIN CONFIRMAR`**.
+El resumen y la receta de confirmación, en `docs/cookies-que-falta.md` §1.
+
+**Lo que sigue siendo requisito de la ráfaga 5**, y no está cerrado:
+
+1. **Confirmar lo medido en producción.** Se midió en local por HTTP: allí los nombres
+   salen sin `__Secure-`/`__Host-`, y la página declara los de HTTPS. Diez minutos.
+2. **El texto de asesoría legal** (D8), que nunca fue una medición.
 
 ---
 
