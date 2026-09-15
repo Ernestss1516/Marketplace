@@ -53,10 +53,23 @@ async function categoriaMarcada(page: Page): Promise<string> {
   return etiqueta === CATEGORIA ? '' : (etiqueta ?? '').replace(`${CATEGORIA}: `, '');
 }
 
-/** La página ha renderizado resultados de verdad (ni error ni 400). */
+/**
+ * La página ha renderizado resultados de verdad (ni error ni 400).
+ *
+ * ⚠ `exact: true` DESDE BQ-E, y lo descubrió un rojo con una causa que merece quedar
+ * escrita: `getByLabel` casa por SUBCADENA y sin distinguir mayúsculas, y el disparador
+ * del diálogo lleva ahora el valor elegido dentro de su nombre accesible
+ * (`aria-label="Categoría: A3 Filtros"`) — porque un `aria-label` PISA el contenido del
+ * botón, así que sin eso un lector de pantalla nunca diría qué categoría hay puesta.
+ *
+ * Basta con que una categoría se llame «… Filtros» —y hay una en la batería, la que crea
+ * `filtros-schema-driven`— para que el localizador flojo devuelva DOS elementos y falle
+ * por modo estricto. Lo que aquí se busca es el `<aside aria-label="Filtros">`, y eso es
+ * exactamente lo que dice `exact: true`.
+ */
 async function esperarPaginaSana(page: Page) {
   await expect(page.getByRole('heading', { name: 'Algo salió mal' })).toHaveCount(0);
-  await expect(page.getByLabel('Filtros')).toBeVisible();
+  await expect(page.getByLabel('Filtros', { exact: true })).toBeVisible();
 }
 
 test.describe('A2 — unificación de búsqueda', () => {
@@ -188,8 +201,17 @@ test.describe('A2 — unificación de búsqueda', () => {
     await expect(dialogo.getByRole('option', { name: 'Todas las categorías' })).toHaveCount(1);
     // Otra rama del árbol: inalcanzable con el viejo selector de "Subcategoría".
     await expect(dialogo.getByRole('option', { name: 'Móviles', exact: false })).toHaveCount(1);
-    // Y el viejo control ya no existe.
-    await expect(page.getByText('Subcategoría')).toHaveCount(0);
+    /**
+     * Y el viejo control de «Subcategoría» ya no existe.
+     *
+     * ⚠ `exact: true` DESDE BQ-E. `getByText` casa por subcadena y sin distinguir
+     * mayúsculas, y las filas del diálogo llevan la nota «y N subcategorías» (decisión 6
+     * del diseño: lo que sustituyó al literal «Todo en Vehículos»). Con el localizador
+     * flojo, abrir la lista bastaba para que esta línea contara dos notas y las llamara
+     * control. Lo que se afirma sigue siendo lo mismo: no hay ninguna ETIQUETA que diga
+     * «Subcategoría».
+     */
+    await expect(page.getByText('Subcategoría', { exact: true })).toHaveCount(0);
   });
 
   /**
