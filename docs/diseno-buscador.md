@@ -1005,9 +1005,17 @@ Cuatro. El orden lo manda la regla de la casa: **las barreras antes de repintar*
    > El diagnóstico entero, con los números, el censo de elementos fijos y las opciones de
    > arreglo: [`docs/diagnostico-residuo-8px.md`](./diagnostico-residuo-8px.md).
 
-   Para que el residuo no crezca sin que nadie lo note, la prueba exige que lo que se mueve
-   al abrir sea **menos de un tercio** de lo que se mueve sin compensación, y que el hero no
-   figure entre las fuentes.
+   Para que el residuo no crezca sin que nadie lo note, la prueba exigía que lo que se mueve
+   al abrir fuera **menos de un tercio** de lo que se mueve sin compensación, y que el hero
+   no figurara entre las fuentes.
+
+   > **YA NO: LA PRUEBA EXIGE CERO.** Cerrado el residuo del banner —`padding-right:
+   > var(--removed-body-scroll-bar-size, 0px)` en su envoltorio `fixed`—, la tolerancia
+   > sobraba, y una tolerancia que sobra es sitio donde cabe el siguiente defecto: un
+   > segundo elemento fijo mal compensado pasaría por debajo de «un tercio» sin que nadie lo
+   > notara. Ahora se afirma `total === 0` **y** `fuentes === []`, con el instrumento
+   > validado por el mismo fallo que vigila. Medido con el banner en pantalla, que es la
+   > única situación en la que había algo que medir.
 
 4. ~~**`FilterPanel:800-808` tiene el mismo `<select>` de provincia** y el mismo problema.
    **Es el primer cliente del molde** en la ráfaga de unificación de `/busqueda`.~~

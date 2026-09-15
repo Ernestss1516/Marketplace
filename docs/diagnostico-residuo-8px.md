@@ -1,7 +1,21 @@
 # DIAGNÓSTICO — EL RESIDUO DE 8 px AL ABRIR UN OVERLAY
 
-> **Estado: diagnóstico cerrado, sin arreglo aplicado.** Cero cambios de producción. Las
-> opciones están al final, con su alcance y su riesgo, para decidir.
+> **Estado: diagnóstico cerrado y ARREGLADO con la opción A.** El documento se conserva
+> entero —el mecanismo, el censo y las opciones descartadas— porque es lo que explica por
+> qué el arreglo está donde está y no en la cabecera.
+>
+> Lo aplicado, en dos sitios:
+>
+> - `BannerCookies.tsx` — `padding-right: var(--removed-body-scroll-bar-size, 0px)` en su
+>   envoltorio `fixed`. **Medido después del arreglo**: el contenedor se queda en 120,5 px
+>   con el diálogo abierto y con él cerrado, el banner sigue a sangre (1280) y el
+>   `padding-right` computado pasa de `0px` a `15px` sólo mientras hay un overlay montado.
+> - `e2e/buscador-dialogos.spec.ts` — la barrera de CLS, **apretada de «menos de un tercio»
+>   a CERO**: `total === 0` y `fuentes === []`. Ése es el valor de la ráfaga; el arreglo es
+>   una línea.
+>
+> El CLS de abrir un diálogo con el banner en pantalla es ahora **0,000 con cero fuentes**,
+> el mismo número que antes sólo se conseguía con el consentimiento ya decidido.
 
 ---
 

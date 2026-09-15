@@ -16,6 +16,20 @@ import { elegirCategoria } from './helpers/buscador';
  * dependía de nosotros sino de una librería, y por eso es el que más falta hacía medir.
  */
 
+/**
+ * ⚠ EL DISPARADOR SE PIDE POR ROL, NO CON `getByLabel('Categoría')`.
+ *
+ * `getByLabel` casa por SUBCADENA, y en una portada que monte el bloque de búsqueda con
+ * pestañas hay un `<div role="tabpanel" aria-labelledby="tab-categories">` cuyo nombre
+ * accesible es «Categorías» — que contiene «Categoría». Dos elementos, modo estricto, y el
+ * fallo no tiene nada que ver con lo que estas pruebas miden.
+ *
+ * Hoy no muerde porque la portada sembrada no lleva ese bloque, y ésa es justamente la
+ * razón para quitarlo de en medio: la configuración de portada la escriben otras specs y
+ * la del despliegue la escribe un admin. Una barrera que exige CERO (§5.3·4) no puede
+ * depender de qué bloques haya puestos ese día.
+ */
+
 /** El buscador de la portada, con las sugerencias de etiqueta ya desplegadas (B4). */
 async function conSugerenciasAbiertas(page: Page) {
   await page.getByPlaceholder('¿Qué estás buscando?').fill('garant');
@@ -31,7 +45,7 @@ test.describe('§5.3 · 1 — abrir un diálogo NO envía el formulario', () => 
    */
   test('la URL no se mueve y el diálogo se abre', { tag: '@2b' }, async ({ page }) => {
     await page.goto('/');
-    await page.getByLabel('Categoría').click();
+    await page.getByRole('button', { name: 'Categoría' }).click();
 
     await expect(page.getByRole('dialog')).toBeVisible();
     expect(new URL(page.url()).pathname).toBe('/');
@@ -69,7 +83,7 @@ test.describe('§5.3 · 2 — el desplegable de etiquetas queda INERTE bajo el d
     await page.goto('/');
     await conSugerenciasAbiertas(page);
 
-    await page.getByLabel('Categoría').click();
+    await page.getByRole('button', { name: 'Categoría' }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
 
     const inerte = await page.getByTestId('sugerencias-etiquetas').evaluate((el) => ({
@@ -85,7 +99,7 @@ test.describe('§5.3 · 2 — el desplegable de etiquetas queda INERTE bajo el d
   test('vuelve a ser alcanzable al cerrar el diálogo', { tag: '@2b' }, async ({ page }) => {
     await page.goto('/');
     await conSugerenciasAbiertas(page);
-    await page.getByLabel('Categoría').click();
+    await page.getByRole('button', { name: 'Categoría' }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
 
     await page.keyboard.press('Escape');
@@ -122,7 +136,7 @@ test.describe('§5.3 · 3 — Esc tiene dos dueños, y no chocan', () => {
     page,
   }) => {
     await page.goto('/');
-    const disparador = page.getByLabel('Categoría');
+    const disparador = page.getByRole('button', { name: 'Categoría' });
     await disparador.click();
     await expect(page.getByRole('dialog')).toBeVisible();
 
@@ -301,7 +315,7 @@ test.describe('§5.3 · 4 — el bloqueo de scroll no descoloca la página', () 
     await conBarraDeScroll(baseURL!, async (page) => {
       // ── 1 · Lo real: abrir el diálogo ───────────────────────────────────────────
       await armar(page);
-      await page.getByLabel('Categoría').click();
+      await page.getByRole('button', { name: 'Categoría' }).click();
       await expect(page.getByRole('dialog')).toBeVisible();
       const alAbrir = await leer(page);
 
@@ -328,49 +342,112 @@ test.describe('§5.3 · 4 — el bloqueo de scroll no descoloca la página', () 
       });
 
       /**
-       * ── LO QUE SE AFIRMA, Y POR QUÉ NO ES «CLS = 0» ───────────────────────────────
+       * ══ LO QUE SE AFIRMA: CERO. NI UN PÍXEL, NI UNA FUENTE ═══════════════════════
        *
-       * Medido: al abrir se mueve **un** nodo —un `.container mx-auto`, 8 px— y el total es
-       * 0,001. Sin compensar se mueven **cinco** —la nav de la cabecera y sus botones 15 px,
-       * el contenedor del hero y los chips 8— y el total es 0,005.
+       * ── AQUÍ HUBO UNA TOLERANCIA, Y CONVIENE SABER POR QUÉ SE FUE ────────────────
        *
-       * O sea que la diferencia no es de grado sino de naturaleza: con compensación se
-       * descoloca un contenedor centrado; sin ella, se descoloca la página. Exigir un cero
-       * redondo obligaría a arreglar en esta ráfaga un residuo que afecta por igual a los
-       * ~25 diálogos que ya existían antes del buscador. Eso es otra ráfaga (queda anotado
-       * en el §12 del diseño); lo que aquí se vigila es que la compensación siga puesta.
+       * Esta prueba exigía «menos de un tercio de lo que se mueve sin compensar» en vez de
+       * un cero redondo, y no por prudencia: es que **quedaba un residuo real** de 0,001 —un
+       * nodo desplazado 7,5 px— que esta ráfaga no podía arreglar. El comentario de
+       * entonces decía además que venía «de la cabecera `sticky` COMPARTIDA POR TODO EL
+       * SITIO», y era falso: la cabecera no se mueve, porque `sticky` NO sale del flujo y
+       * recibe la compensación del `body` como cualquier otro elemento.
        *
-       * ⚠ **DE DÓNDE SALE EL RESIDUO — MEDIDO DESPUÉS, Y NO ERA LO QUE SE CREÍA.** Este
-       * comentario decía «viene de la cabecera `sticky` COMPARTIDA POR TODO EL SITIO».
-       * Falso: la cabecera no se mueve, porque `sticky` no sale del flujo y recibe la
-       * compensación del `body` como cualquier otro elemento. El nodo que se descoloca es
-       * el `.container mx-auto max-w-5xl` del **banner de cookies**, que es `fixed` y por
-       * tanto se mide contra el viewport, adonde la compensación del `body` no llega. Son
-       * 7,5 px: media barra de scroll re-centrando 1024 px dentro de un padre que pasa de
-       * 1265 a 1280.
+       * El nodo era el `container mx-auto max-w-5xl` del **banner de cookies**, que es
+       * `fixed` y por tanto se mide contra el VIEWPORT, adonde la compensación del `body` no
+       * llega ni puede llegar. Media barra de scroll re-centrando 1024 px dentro de un padre
+       * que pasa de 1265 a 1280. Está diagnosticado en `docs/diagnostico-residuo-8px.md` y
+       * cerrado en `BannerCookies.tsx`, con el gancho que la propia librería publica
+       * (`--removed-body-scroll-bar-size`).
        *
-       * De ahí una propiedad que conviene saber al leer estos números: **esta prueba mide
-       * con el banner en pantalla**, porque lanza su propio navegador sin la cookie de
-       * consentimiento que el fixture siembra. Con el consentimiento dado, el CLS de abrir
-       * el mismo diálogo es 0,000. Ver `docs/diagnostico-residuo-8px.md`.
+       * ── Y POR ESO EL CERO ES EL VALOR, NO EL ARREGLO ─────────────────────────────
+       *
+       * Un umbral de «un tercio» tolera por construcción que mañana aparezca un SEGUNDO
+       * elemento fijo mal compensado: cabría de sobra por debajo y nadie se enteraría hasta
+       * que alguien volviera a mirar, meses después. Exigiendo cero, el próximo `fixed` sin
+       * compensar pone esto rojo el primer día, con el nodo culpable escrito en el informe.
+       *
+       * ⚠ **Y SE MIDE CON EL BANNER EN PANTALLA**, que es la única situación en que había
+       * algo que medir: esta prueba lanza su propio navegador, sin la cookie de
+       * consentimiento que el fixture siembra. Si alguien la moviera al `page` de la batería
+       * el banner no existiría, el cero saldría solo y la barrera dejaría de vigilar.
        */
 
-      // 1 · EL INSTRUMENTO VE. Sin esto, los números de abajo no probarían nada.
+      // 1 · EL INSTRUMENTO VE. Sin esto, el cero de abajo no distinguiría «no hay salto» de
+      //     «el observador no mira», que es la forma en que una barrera así se muere.
       expect(sinCompensar.total).toBeGreaterThan(0);
 
-      // 2 · La compensación se lleva la mayor parte del salto.
-      expect(alAbrir.total).toBeLessThan(sinCompensar.total / 3);
+      // 2 · NADA SE MUEVE. El total Y la lista de culpables: el número solo podría quedarse
+      //     en cero por redondeo, y las fuentes no redondean.
+      expect(alAbrir.total).toBe(0);
+      expect(alAbrir.fuentes).toEqual([]);
 
       /**
-       * 3 · Y EL HERO NO SE MUEVE, que era LA preocupación del §5.3: «en la portada montada
-       * ese salto se vería en el hero a sangre, que es lo más ancho de la página». Sin
-       * compensar sí se mueve (`max-w-4xl`, 8 px); con ella, no aparece entre las fuentes.
-       * Es la afirmación más fiel al miedo original, y la que se pondría roja si alguien
+       * 3 · Y EL HERO SIGUE SIENDO EL TESTIGO, que era LA preocupación del §5.3: «en la
+       * portada montada ese salto se vería en el hero a sangre, que es lo más ancho de la
+       * página». Que se mueva SIN compensar es lo que prueba que el instrumento sabe verlo
+       * precisamente ahí; que no aparezca con ella ya lo cubre el `toEqual([])` de arriba,
+       * y se deja escrito igual porque es la afirmación que se pondría roja si alguien
        * quitara `react-remove-scroll` de en medio.
        */
       const heroSeMueve = (m: Medida) => m.fuentes.some((f) => f.includes('max-w-4xl'));
       expect(heroSeMueve(sinCompensar)).toBe(true);
       expect(heroSeMueve(alAbrir)).toBe(false);
+    });
+  });
+
+  /**
+   * ══ EL ARREGLO, POR LAS DOS PUNTAS ═══════════════════════════════════════════════
+   *
+   * El cero de arriba es el EFECTO; esto es el MECANISMO, y hacen falta los dos. Un cero
+   * puede volverse cierto por el motivo equivocado —que el banner desaparezca, que la
+   * librería deje de bloquear el scroll— y entonces la barrera seguiría verde sin vigilar
+   * nada.
+   *
+   * Las dos mitades del arreglo, cada una con su número:
+   *
+   *  · **SIN overlay el banner está intacto.** `--removed-body-scroll-bar-size` no existe
+   *    fuera del bloqueo, así que el `padding-right` cae al respaldo `0px`. Es la condición
+   *    que permitió meter esto sin pasar por el catálogo de capturas: el banner de siempre,
+   *    sin una diferencia de un píxel.
+   *  · **CON overlay compensa, y sólo el contenido.** El `padding-right` pasa a valer la
+   *    barra entera, el contenedor centrado se queda donde estaba —**el mismo x, al
+   *    decimal**— y el banner sigue a sangre. Ese último detalle es lo que distingue este
+   *    arreglo de `.width-before-scroll-bar`, que lo habría encogido (ver
+   *    `docs/diagnostico-residuo-8px.md` §2).
+   */
+  test('el banner se compensa SÓLO mientras hay un overlay abierto', { tag: '@2b' }, async ({ baseURL }) => {
+    await conBarraDeScroll(baseURL!, async (page) => {
+      const leer = () =>
+        page.evaluate(() => {
+          const banner = document.querySelector('.fixed.inset-x-0.bottom-0') as HTMLElement;
+          const dentro = banner.querySelector('.container') as HTMLElement;
+          return {
+            padding: getComputedStyle(banner).paddingRight,
+            anchoBanner: Math.round(banner.getBoundingClientRect().width),
+            xContenedor: Math.round(dentro.getBoundingClientRect().x * 100) / 100,
+          };
+        });
+
+      /**
+       * Este navegador se lanza SIN la cookie de consentimiento que siembra el fixture, así
+       * que el banner está en pantalla — que es la única situación en la que había algo que
+       * compensar. Si algún día dejara de estarlo, esto muere ruidosamente en vez de dar un
+       * verde vacío.
+       */
+      const cerrado = await leer();
+      expect(cerrado.padding, 'sin overlay la variable no existe: el banner, intacto').toBe('0px');
+
+      await page.getByRole('button', { name: 'Categoría' }).click();
+      await expect(page.getByRole('dialog')).toBeVisible();
+      const abierto = await leer();
+
+      // La barra que el bloqueo acaba de liberar, ahora en el padding del banner.
+      expect(parseFloat(abierto.padding)).toBeGreaterThan(0);
+      // El banner sigue llegando a los dos bordes: se compensa el contenido, no la caja.
+      expect(abierto.anchoBanner).toBeGreaterThan(cerrado.anchoBanner);
+      // Y lo que se quería: el contenedor centrado no se ha movido ni un decimal.
+      expect(abierto.xContenedor).toBe(cerrado.xContenedor);
     });
   });
 });
