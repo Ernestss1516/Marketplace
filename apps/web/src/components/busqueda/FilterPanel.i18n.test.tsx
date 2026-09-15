@@ -19,9 +19,10 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { FilterPanel } from './FilterPanel';
 import { TIPO_PRECIO_LABELS, UNIDAD_PRECIO_LABELS } from '@/lib/etiquetas-enums';
+import { PROVINCIAS } from '@/lib/provincias';
 
 const mockPush = jest.fn();
 let mockSearchParams = new URLSearchParams();
@@ -138,25 +139,51 @@ describe('B3 — hay UN solo filtro de provincia, y es el selector «Ubicación�
     expect(screen.queryByText('province')).not.toBeInTheDocument();
   });
 
-  it('el selector «Ubicación» sigue intacto, con sus provincias', () => {
+  /**
+   * BQ-E — EL CONTROL ES AHORA EL DIÁLOGO FILTRABLE, y lo que este caso protege no cambia:
+   * que el único filtro de provincia del panel ofrezca la lista CERRADA de
+   * `lib/provincias.ts` y no lo que traigan las facetas del resultado. Cambia dónde está
+   * la lista: dentro de la capa, que sólo existe tras un clic.
+   */
+  it('el control «Ubicación» sigue intacto, con sus provincias', async () => {
     render(<FilterPanel {...BASE} facets={FACETAS_REALES} />);
     expect(screen.getByText('Ubicación')).toBeInTheDocument();
-    const selector = screen.getByLabelText('Provincia');
-    expect(selector).toBeInTheDocument();
+
+    const disparador = screen.getByRole('button', { name: /^Provincia/ });
+    fireEvent.click(disparador);
+    // La capa llega por `next/dynamic`: aparece un tick después del clic.
+    const dialogo = await screen.findByRole('dialog');
+
     // Los VALORES nunca fueron el defecto: son nombres de provincia reales y salen
     // de `lib/provincias.ts`, no de las facetas del resultado.
-    expect(within(selector).getByRole('option', { name: 'Madrid' })).toBeInTheDocument();
-    expect(within(selector).getByRole('option', { name: 'Toledo' })).toBeInTheDocument();
-    expect(within(selector).getByRole('option', { name: 'Toda España' })).toBeInTheDocument();
+    expect(within(dialogo).getByRole('option', { name: 'Madrid' })).toBeInTheDocument();
+    expect(within(dialogo).getByRole('option', { name: 'Toledo' })).toBeInTheDocument();
+    expect(within(dialogo).getByRole('option', { name: 'Toda España' })).toBeInTheDocument();
+    // Y son las 52 + la fila de limpiar: la lista es la constante entera, no un extracto.
+    expect(within(dialogo).getAllByRole('option')).toHaveLength(PROVINCIAS.length + 1);
   });
 
-  it('el selector sigue marcando la provincia activa', () => {
+  it('el control sigue marcando la provincia activa', () => {
     render(<FilterPanel {...BASE} currentFilters={{ province: 'Madrid' }} facets={FACETAS_REALES} />);
-    expect(screen.getByLabelText('Provincia')).toHaveValue('Madrid');
+    expect(screen.getByRole('button', { name: 'Provincia: Madrid' })).toHaveTextContent('Madrid');
   });
 
-  it('«Madrid» aparece UNA vez, no dos (era el síntoma de la duplicación)', () => {
+  /**
+   * «Madrid» aparecía DOS veces —una en el selector, otra como chip de la faceta
+   * genérica—, y ése era el síntoma de la duplicación que B3 cerró.
+   *
+   * BQ-E lo aprieta un poco más: con el diálogo cerrado no aparece NINGUNA vez, porque la
+   * lista de provincias ya no viaja en el HTML del panel. Así que un cero aquí afirma lo
+   * mismo que afirmaba el uno —la sección genérica no ha vuelto— y además que la única
+   * provincia que este panel escribe es la elegida.
+   */
+  it('con nada elegido, ninguna provincia se pinta en el panel', () => {
     render(<FilterPanel {...BASE} facets={FACETAS_REALES} />);
+    expect(screen.queryByText('Madrid')).not.toBeInTheDocument();
+  });
+
+  it('con una elegida, aparece UNA vez: en su disparador', () => {
+    render(<FilterPanel {...BASE} currentFilters={{ province: 'Madrid' }} facets={FACETAS_REALES} />);
     expect(screen.getAllByText('Madrid')).toHaveLength(1);
   });
 });

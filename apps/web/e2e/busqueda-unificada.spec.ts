@@ -15,11 +15,21 @@
 
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
 import { adminApiToken, authedPost } from './helpers/api';
+import { elegirEnDialogo, elegirProvincia } from './helpers/buscador';
 
 const CATEGORIA = 'Categoría';
 
 /**
  * Elige una categoría en el selector y espera a que la navegación aterrice.
+ *
+ * ⚠ BUSCADOR · BQ-E — EL GESTO CAMBIÓ, LO QUE SE PRUEBA NO. Donde había un
+ * `selectOption(slug)` hay ahora los tres gestos del diálogo filtrable (abrir, filtrar,
+ * elegir), que es el MISMO molde que el buscador de la portada estrenó en BQ-B y el mismo
+ * helper. Dos consecuencias para quien lea los casos de abajo:
+ *
+ *  · se elige por el NOMBRE VISIBLE y no por el slug —un diálogo no tiene `value`—, así
+ *    que «Coches» donde antes decía `coches`;
+ *  · y «Todas las categorías» donde antes decía `''`, que además se lee mejor.
  *
  * Se espera a que cambie el PATH, no a `networkidle`: el push del router puede no haber
  * aterrizado cuando la red se calma, y entonces `page.url()` devuelve la de antes
@@ -30,11 +40,17 @@ const CATEGORIA = 'Categoría';
  * evento `load`, que una navegación de cliente del App Router no dispara — la URL casa
  * y el wait se queda colgado hasta el timeout.
  */
-async function elegirCategoria(page: Page, valor: string) {
+async function elegirCategoria(page: Page, nombre: string) {
   const origen = new URL(page.url()).pathname;
-  await page.getByLabel(CATEGORIA).selectOption(valor);
+  await elegirEnDialogo(page, CATEGORIA, nombre);
   await page.waitForURL((url) => url.pathname !== origen, { waitUntil: 'commit' });
   await page.waitForLoadState('networkidle');
+}
+
+/** La categoría que el disparador declara ahora mismo, o `''` si no hay ninguna. */
+async function categoriaMarcada(page: Page): Promise<string> {
+  const etiqueta = await page.getByLabel(CATEGORIA, { exact: false }).first().getAttribute('aria-label');
+  return etiqueta === CATEGORIA ? '' : (etiqueta ?? '').replace(`${CATEGORIA}: `, '');
 }
 
 /** La página ha renderizado resultados de verdad (ni error ni 400). */
@@ -51,7 +67,7 @@ test.describe('A2 — unificación de búsqueda', () => {
     await page.goto('/busqueda?q=golf&ram=8&province=Madrid');
     await esperarPaginaSana(page);
 
-    await elegirCategoria(page, 'coches');
+    await elegirCategoria(page, 'Coches');
 
     const url = new URL(page.url());
     expect(url.pathname).toBe('/vehiculos/coches');
@@ -70,7 +86,7 @@ test.describe('A2 — unificación de búsqueda', () => {
     await page.goto('/vehiculos/coches?km=100000&q=golf');
     await esperarPaginaSana(page);
 
-    await elegirCategoria(page, 'moviles');
+    await elegirCategoria(page, 'Móviles');
 
     const url = new URL(page.url());
     expect(url.pathname).toBe('/electronica/moviles');
@@ -84,7 +100,7 @@ test.describe('A2 — unificación de búsqueda', () => {
     await page.goto('/vehiculos?km=100000');
     await esperarPaginaSana(page);
 
-    await elegirCategoria(page, 'coches');
+    await elegirCategoria(page, 'Coches');
 
     const url = new URL(page.url());
     expect(url.pathname).toBe('/vehiculos/coches');
@@ -98,7 +114,7 @@ test.describe('A2 — unificación de búsqueda', () => {
     await page.goto('/vehiculos/coches?brand=Seat');
     await esperarPaginaSana(page);
 
-    await elegirCategoria(page, 'vehiculos');
+    await elegirCategoria(page, 'Vehículos');
 
     const url = new URL(page.url());
     expect(url.pathname).toBe('/vehiculos');
@@ -114,7 +130,7 @@ test.describe('A2 — unificación de búsqueda', () => {
     await page.goto('/vehiculos/coches?km_min=50000&km_max=150000');
     await esperarPaginaSana(page);
 
-    await elegirCategoria(page, 'vehiculos');
+    await elegirCategoria(page, 'Vehículos');
 
     const url = new URL(page.url());
     expect(url.pathname).toBe('/vehiculos');
@@ -127,7 +143,7 @@ test.describe('A2 — unificación de búsqueda', () => {
     await page.goto('/vehiculos/coches?km_min=50000&q=golf');
     await esperarPaginaSana(page);
 
-    await elegirCategoria(page, 'moviles');
+    await elegirCategoria(page, 'Móviles');
 
     const url = new URL(page.url());
     expect(url.pathname).toBe('/electronica/moviles');
@@ -141,7 +157,7 @@ test.describe('A2 — unificación de búsqueda', () => {
     await page.goto('/vehiculos/coches?q=golf&province=Madrid');
     await esperarPaginaSana(page);
 
-    await elegirCategoria(page, '');
+    await elegirCategoria(page, 'Todas las categorías');
 
     const url = new URL(page.url());
     expect(url.pathname).toBe('/busqueda');
@@ -150,30 +166,63 @@ test.describe('A2 — unificación de búsqueda', () => {
     await esperarPaginaSana(page);
   });
 
+  /**
+   * BQ-E — dónde estás lo dice el DISPARADOR, no un `value`. Y lo dice en el nombre
+   * accesible además de en el texto: un `aria-label` pisa el contenido del botón, así que
+   * sin eso un lector de pantalla anunciaría «Categoría» y nunca «Coches» — que es justo
+   * lo que el `<select>` sí decía.
+   */
   test('el selector marca la categoría en la que estás', async ({ page }) => {
     await page.goto('/vehiculos/coches');
-    await expect(page.getByLabel(CATEGORIA)).toHaveValue('coches');
+    expect(await categoriaMarcada(page)).toBe('Coches');
 
     await page.goto('/busqueda');
-    await expect(page.getByLabel(CATEGORIA)).toHaveValue('');
+    expect(await categoriaMarcada(page)).toBe('');
   });
 
   test('el selector ofrece TODO el árbol desde la ruta de categoría (antes solo bajaba un nivel)', async ({ page }) => {
     await page.goto('/vehiculos/coches');
-    const select = page.getByLabel(CATEGORIA);
+    await page.getByLabel(CATEGORIA, { exact: false }).first().click();
+    const dialogo = page.getByRole('dialog');
 
-    await expect(select.locator('option', { hasText: 'Todas las categorías' })).toHaveCount(1);
+    await expect(dialogo.getByRole('option', { name: 'Todas las categorías' })).toHaveCount(1);
     // Otra rama del árbol: inalcanzable con el viejo selector de "Subcategoría".
-    await expect(select.locator('option', { hasText: 'Móviles' })).toHaveCount(1);
+    await expect(dialogo.getByRole('option', { name: 'Móviles', exact: false })).toHaveCount(1);
     // Y el viejo control ya no existe.
     await expect(page.getByText('Subcategoría')).toHaveCount(0);
+  });
+
+  /**
+   * BQ-E — LO QUE EL DIÁLOGO TRAE Y EL `<select>` NO PODÍA: filtrar la lista.
+   *
+   * Con un árbol real, el `<select>` obligaba a recorrer a ojo una `<option>` por
+   * categoría con su ruta entera dentro. Aquí se teclean tres letras. Y el filtro busca en
+   * el NOMBRE, no en la ruta, que es lo que evita que «veh» devuelva la rama entera de
+   * Vehículos (§3.3 del diseño).
+   *
+   * No se cuenta el total de filas a propósito: la base de esta batería es compartida y
+   * otras specs crean categorías. Lo que se afirma es que la lista SE RECORTA —queda la
+   * buscada y se va una que estaba—, que es la propiedad, no el número.
+   */
+  test('el diálogo filtra por el nombre, no por la ruta', async ({ page }) => {
+    await page.goto('/busqueda');
+    await page.getByLabel(CATEGORIA, { exact: false }).first().click();
+    const dialogo = page.getByRole('dialog');
+    await expect(dialogo.getByRole('option', { name: 'Móviles', exact: false })).toHaveCount(1);
+
+    await dialogo.getByRole('combobox').fill('coch');
+
+    await expect(dialogo.getByRole('option', { name: 'Coches', exact: false })).toHaveCount(1);
+    await expect(dialogo.getByRole('option', { name: 'Móviles', exact: false })).toHaveCount(0);
+    // La fila de limpiar NO se va al teclear: es una acción, no un resultado (decisión B).
+    await expect(dialogo.getByRole('option', { name: 'Todas las categorías' })).toHaveCount(1);
   });
 
   test('`page` se descarta al cambiar de categoría', { tag: '@2b' }, async ({ page }) => {
     await page.goto('/busqueda?page=3&q=golf');
     await esperarPaginaSana(page);
 
-    await elegirCategoria(page, 'coches');
+    await elegirCategoria(page, 'Coches');
 
     expect(new URL(page.url()).searchParams.has('page')).toBe(false);
   });
@@ -231,9 +280,68 @@ test.describe('A2 — unificación de búsqueda', () => {
     await page.goto('/vehiculos/coches?q=golf');
     await esperarPaginaSana(page);
 
-    await elegirCategoria(page, 'moviles');
+    await elegirCategoria(page, 'Móviles');
 
     expect(new URL(page.url()).searchParams.get('q')).toBe('golf');
+  });
+});
+
+/**
+ * ══ BUSCADOR · BQ-E — EL OTRO DIÁLOGO DEL PANEL: LA PROVINCIA ════════════════════════
+ *
+ * El `<select>` de provincia de `FilterPanel` era el segundo control de provincia del
+ * sitio y el §12.4 del diseño lo dejó anotado como «el mismo `<select>` y el mismo
+ * problema». Ahora es el MISMO `ProvinciaDialogo` que monta la portada, con el mismo
+ * helper de test — lo único distinto es que aquí elegir navega.
+ *
+ * ── SE ELIGE UNA GRAFÍA COOFICIAL A PROPÓSITO ──────────────────────────────────────
+ *
+ * `Alicante/Alacant` es la entrada literal de `lib/provincias.ts`, barra incluida, y es
+ * el string contra el que el backend filtra con un `=` EXACTO (`search.service.ts`). Si
+ * algún día alguien dejara que el texto TECLEADO llegara a la URL —el defecto que el
+ * molde hace imposible por construcción—, este caso sería el primero en caer: nadie
+ * teclea la barra.
+ */
+test.describe('BQ-E — la provincia del panel', () => {
+  const PROVINCIA = 'Alicante/Alacant';
+
+  test('elegir una provincia NAVEGA, con el valor exacto y sin perder la consulta', { tag: '@2b' }, async ({ page }) => {
+    await page.goto('/busqueda?q=golf');
+    await esperarPaginaSana(page);
+
+    await elegirProvincia(page, PROVINCIA);
+    await page.waitForURL((url) => url.searchParams.has('province'), { waitUntil: 'commit' });
+
+    const url = new URL(page.url());
+    expect(url.pathname).toBe('/busqueda');
+    expect(url.searchParams.get('province')).toBe(PROVINCIA);
+    expect(url.searchParams.get('q')).toBe('golf');
+    await esperarPaginaSana(page);
+  });
+
+  test('«Toda España» retira el filtro', { tag: '@2b' }, async ({ page }) => {
+    await page.goto(`/busqueda?q=golf&province=${encodeURIComponent(PROVINCIA)}`);
+    await esperarPaginaSana(page);
+    // La provincia activa se lee en el disparador, como la categoría.
+    await expect(page.getByLabel('Provincia', { exact: false }).first()).toHaveText(PROVINCIA);
+
+    await elegirProvincia(page, 'Toda España');
+    await page.waitForURL((url) => !url.searchParams.has('province'), { waitUntil: 'commit' });
+
+    expect(new URL(page.url()).searchParams.get('q')).toBe('golf');
+  });
+
+  /** Y el mismo control, con el mismo molde, en la otra ruta que monta el panel. */
+  test('en /[categoria] hace lo mismo, sin salirse de la categoría', { tag: '@2b' }, async ({ page }) => {
+    await page.goto('/vehiculos/coches');
+    await esperarPaginaSana(page);
+
+    await elegirProvincia(page, 'Madrid');
+    await page.waitForURL((url) => url.searchParams.has('province'), { waitUntil: 'commit' });
+
+    const url = new URL(page.url());
+    expect(url.pathname).toBe('/vehiculos/coches');
+    expect(url.searchParams.get('province')).toBe('Madrid');
   });
 });
 
@@ -246,11 +354,14 @@ test.describe('A2 — condition no viaja a una categoría de servicios', () => {
   let svcId: string;
   let svcSlug: string;
 
+  /** BQ-E — el diálogo se elige por el NOMBRE visible, así que éste deja de ser decorativo. */
+  const SVC_NOMBRE = 'A2 Solo Servicios';
+
   test.beforeAll(async ({ request }) => {
     adminToken = adminApiToken();
     svcSlug = `a2-svc-${Date.now()}`;
     const res = await authedPost(request, '/admin/categories', adminToken, {
-      name: 'A2 Solo Servicios',
+      name: SVC_NOMBRE,
       slug: svcSlug,
       allowedListingType: 'SERVICE_ONLY',
       attributeSchema: [],
@@ -276,7 +387,7 @@ test.describe('A2 — condition no viaja a una categoría de servicios', () => {
     await page.goto('/vehiculos/coches?condition=NEW&q=golf&province=Madrid');
     await esperarPaginaSana(page);
 
-    await elegirCategoria(page, svcSlug);
+    await elegirCategoria(page, SVC_NOMBRE);
 
     const url = new URL(page.url());
     expect(url.pathname).toBe(`/${svcSlug}`);
@@ -290,7 +401,7 @@ test.describe('A2 — condition no viaja a una categoría de servicios', () => {
     await page.goto('/electronica/moviles?condition=NEW');
     await esperarPaginaSana(page);
 
-    await elegirCategoria(page, 'coches');
+    await elegirCategoria(page, 'Coches');
 
     expect(new URL(page.url()).searchParams.get('condition')).toBe('NEW');
   });

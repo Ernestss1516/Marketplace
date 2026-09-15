@@ -53,7 +53,7 @@ import { expect, type Page } from '@playwright/test';
  * siguiente de la spec puede caer sobre el velo —que todavía intercepta clics— y fallar
  * con un timeout que no dice nada de lo que se estaba probando.
  */
-async function elegirEnDialogo(page: Page, campo: string, nombre: string): Promise<void> {
+export async function elegirEnDialogo(page: Page, campo: string, nombre: string): Promise<void> {
   await page.getByLabel(campo, { exact: false }).first().click();
   const dialogo = page.getByRole('dialog');
   await dialogo.getByRole('combobox').fill(nombre);
@@ -62,8 +62,18 @@ async function elegirEnDialogo(page: Page, campo: string, nombre: string): Promi
 }
 
 /**
- * Elige una categoría en el buscador de la PORTADA (no el de `/busqueda`, que es
- * `CategorySelect` y además navega al cambiar).
+ * ⚠ BUSCADOR · BQ-E — Y AHORA HAY UN SEGUNDO CLIENTE, por eso esta función se exporta.
+ *
+ * Los tres gestos son LOS MISMOS en el panel de filtros de `/busqueda` y `/[categoria]`,
+ * porque debajo hay el mismo molde. Lo único distinto es lo que pasa DESPUÉS de elegir:
+ * allí se navega, así que quien llame desde esas rutas tiene que esperar a la URL. Eso se
+ * queda fuera de aquí a propósito —a qué URL se llega depende de la spec—, y es la misma
+ * frontera que el código respeta: el molde elige, el adaptador navega.
+ */
+
+/**
+ * Elige una categoría en el buscador de la PORTADA (no el del panel de `/busqueda`, que
+ * comparte molde pero navega al elegir).
  *
  * No espera a ninguna navegación a propósito: el buscador de portada **sólo escribe
  * estado**; quien navega es el submit o la elección de una etiqueta.
@@ -73,7 +83,10 @@ export async function elegirCategoria(page: Page, nombre: string): Promise<void>
 }
 
 /**
- * Elige una provincia en el buscador de la portada.
+ * Elige una provincia. Sirve para el buscador de la portada Y para el panel de filtros de
+ * `/busqueda` y `/[categoria]` (BQ-E): es el mismo `ProvinciaDialogo` y el mismo
+ * `aria-label`, así que el gesto no se duplica. Quien llame desde el panel espera después
+ * a la URL — allí elegir navega.
  *
  * El nombre es el EXACTO de `lib/provincias.ts`, grafía cooficial incluida
  * (`Alicante/Alacant`, `Valencia/València`…): es el mismo string que viaja en

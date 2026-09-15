@@ -78,16 +78,38 @@ export function CategoriaDialogo({
   categories,
   valor,
   onElegir,
+  etiquetaVacio = 'Categoría',
   className,
 }: {
   /** Árbol completo, tal como lo sirve `GET /categories`. Ya viaja con la página. */
   categories: Category[];
   valor: string;
   /**
-   * Escribe el slug elegido en el estado del buscador. **Nada más**: quién navega —y a la
-   * ruta canónica de A1, con el `?tags=` de B4— sigue siendo `SearchBar.navegar()`.
+   * Qué pasa al elegir. **Este adaptador no lo decide, y ahí está su reutilización**: BQ-E
+   * le trajo un segundo cliente que hace algo distinto con el mismo slug.
+   *
+   *   · `SearchBar` (portada)      → escribe el slug en el estado del buscador; quien
+   *     navega —a la ruta canónica de A1, con el `?tags=` de B4— es `navegar()` al enviar;
+   *   · `CategorySelect` (/busqueda y /[categoria]) → NAVEGA en el acto, con el carry de
+   *     filtros de A2 (`lib/filter-carry.ts`).
+   *
+   * Lo que este fichero sabe —aplanar el árbol, filtrar por el nombre y enseñar la ruta—
+   * es idéntico para los dos.
    */
   onElegir: (slug: string) => void;
+  /**
+   * Lo que muestra el disparador cuando no hay ninguna elegida.
+   *
+   * En la portada es «Categoría» —el control va suelto entre otros tres y tiene que
+   * decir qué es—. En el panel de filtros de `/busqueda` la sección ya se titula
+   * «CATEGORÍA» dos líneas más arriba, así que repetirlo no informa de nada y además
+   * PERDERÍA lo que el `<select>` sí decía: «Todas las categorías», o sea que ahora
+   * mismo no hay filtro. Por eso es un parámetro y no una constante.
+   *
+   * ⚠ NO es el nombre accesible: ése lo pone `etiquetaDisparador` y sigue siendo
+   * «Categoría» en los dos sitios, que es el contrato de los tests (§10.2 del diseño).
+   */
+  etiquetaVacio?: string;
   /** Geometría del disparador. La decide quien lo monta — ver `DialogoFiltrable`. */
   className?: string;
 }) {
@@ -101,7 +123,7 @@ export function CategoriaDialogo({
       opciones={opciones}
       valor={valor}
       onElegir={onElegir}
-      etiquetaVacio="Categoría"
+      etiquetaVacio={etiquetaVacio}
       opcionLimpiar="Todas las categorías"
       titulo="Elige una categoría"
       marcadorFiltro="Filtrar categorías…"
