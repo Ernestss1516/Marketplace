@@ -336,10 +336,23 @@ test.describe('§5.3 · 4 — el bloqueo de scroll no descoloca la página', () 
        *
        * O sea que la diferencia no es de grado sino de naturaleza: con compensación se
        * descoloca un contenedor centrado; sin ella, se descoloca la página. Exigir un cero
-       * redondo obligaría a arreglar en esta ráfaga un residuo que viene de la cabecera
-       * `sticky` COMPARTIDA POR TODO EL SITIO y que afecta por igual a los ~25 diálogos que
-       * ya existían antes del buscador. Eso es otra ráfaga (queda anotado en el §12 del
-       * diseño); lo que aquí se vigila es que la compensación siga puesta.
+       * redondo obligaría a arreglar en esta ráfaga un residuo que afecta por igual a los
+       * ~25 diálogos que ya existían antes del buscador. Eso es otra ráfaga (queda anotado
+       * en el §12 del diseño); lo que aquí se vigila es que la compensación siga puesta.
+       *
+       * ⚠ **DE DÓNDE SALE EL RESIDUO — MEDIDO DESPUÉS, Y NO ERA LO QUE SE CREÍA.** Este
+       * comentario decía «viene de la cabecera `sticky` COMPARTIDA POR TODO EL SITIO».
+       * Falso: la cabecera no se mueve, porque `sticky` no sale del flujo y recibe la
+       * compensación del `body` como cualquier otro elemento. El nodo que se descoloca es
+       * el `.container mx-auto max-w-5xl` del **banner de cookies**, que es `fixed` y por
+       * tanto se mide contra el viewport, adonde la compensación del `body` no llega. Son
+       * 7,5 px: media barra de scroll re-centrando 1024 px dentro de un padre que pasa de
+       * 1265 a 1280.
+       *
+       * De ahí una propiedad que conviene saber al leer estos números: **esta prueba mide
+       * con el banner en pantalla**, porque lanza su propio navegador sin la cookie de
+       * consentimiento que el fixture siembra. Con el consentimiento dado, el CLS de abrir
+       * el mismo diálogo es 0,000. Ver `docs/diagnostico-residuo-8px.md`.
        */
 
       // 1 · EL INSTRUMENTO VE. Sin esto, los números de abajo no probarían nada.

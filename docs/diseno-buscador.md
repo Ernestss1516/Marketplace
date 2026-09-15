@@ -985,13 +985,25 @@ Cuatro. El orden lo manda la regla de la casa: **las barreras antes de repintar*
    | El mismo bloqueo **sin compensar** | **0,0049** | CINCO: la nav de la cabecera y sus botones (15 px), el contenedor del hero y los chips (8 px) |
 
    O sea: `react-remove-scroll` hace su trabajo —**el hero NO se mueve**, que era la
-   preocupación del §5.3— pero queda un contenedor centrado que se descoloca 8 px. Sale de
-   la cabecera `sticky` que comparte **todo el sitio público**, así que afecta por igual a
-   los ~25 diálogos anteriores al buscador: **no lo introdujo esta ráfaga y arreglarlo aquí
-   sería cambiar la cabecera de todas las páginas desde la ráfaga del buscador**. Mismo
-   criterio que el velo del punto 1. El mecanismo exacto no está cerrado —la compensación
-   por `padding-right` del `body` y un elemento `sticky` interactúan de una forma que
-   conviene medir antes de tocar nada—, y ésa es la primera tarea de esa ráfaga.
+   preocupación del §5.3— pero queda un contenedor centrado que se descoloca 8 px. No lo
+   introdujo esta ráfaga: afecta por igual a los ~25 diálogos anteriores al buscador.
+
+   > ⚠ **LO QUE SEGUÍA AQUÍ ERA FALSO, Y LA RÁFAGA SIGUIENTE LO MIDIÓ.** Este párrafo decía
+   > que el residuo «sale de la cabecera `sticky` que comparte todo el sitio público» y que
+   > arreglarlo «sería cambiar la cabecera de todas las páginas». **La cabecera no se mueve
+   > ni una centésima**: `position: sticky` no sale del flujo, así que recibe la
+   > compensación del `body` como cualquier otro elemento. El que se descoloca es el
+   > `.container mx-auto max-w-5xl` del **banner de cookies**, que es `position: fixed` y
+   > por tanto se mide contra el viewport, donde la compensación del `body` no llega.
+   >
+   > Los 8 px son 7,5: la mitad exacta de la barra de scroll, re-centrando un contenedor de
+   > 1024 px dentro de un padre que pasa de 1265 a 1280.
+   >
+   > Y como el banner sólo existe hasta que el visitante decide, **con el consentimiento ya
+   > dado el CLS de abrir un diálogo es 0,000 y no hay ni una fuente**.
+   >
+   > El diagnóstico entero, con los números, el censo de elementos fijos y las opciones de
+   > arreglo: [`docs/diagnostico-residuo-8px.md`](./diagnostico-residuo-8px.md).
 
    Para que el residuo no crezca sin que nadie lo note, la prueba exige que lo que se mueve
    al abrir sea **menos de un tercio** de lo que se mueve sin compensación, y que el hero no
@@ -1161,7 +1173,10 @@ la dirección contraria a la portada, que pide `h-14 md:h-16`.
 
 ### 15.6 · Lo que quedó fuera
 
-El residuo de 8 px de la cabecera `sticky` al abrir cualquier overlay (§12.3). Sigue siendo
-de la cabecera compartida por todo el sitio y afecta por igual a los ~25 diálogos
+El residuo de 8 px al abrir cualquier overlay (§12.3). Afecta por igual a los ~25 diálogos
 anteriores al buscador; montar dos diálogos más en `/busqueda` no lo empeora ni lo mejora.
 Es la ráfaga siguiente, y empieza por el diagnóstico.
+
+> **El diagnóstico ya está hecho, y corrige a este párrafo y al §12.3.** No es «de la
+> cabecera `sticky`»: es del banner de cookies, que es `position: fixed`. La cabecera no se
+> mueve. Ver [`docs/diagnostico-residuo-8px.md`](./diagnostico-residuo-8px.md).
