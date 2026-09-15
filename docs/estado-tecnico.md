@@ -18174,6 +18174,64 @@ correo nuevo sin caso ponga el CI en rojo).
 
 ---
 
+## La semilla de producción — la credencial fuera del código, y lo que una base nueva necesita
+
+Auditoría completa: `docs/auditoria-seed.md`. Resumen de lo que cambió y lo que hay que
+saber para desplegar.
+
+**El punto de partida.** `pnpm prisma db seed` ejecuta **sólo** `prisma/seed.ts`.
+`seed-test.ts` y `seed-playwright.ts` los invocan los `globalSetup` de las dos baterías,
+por su ruta: la separación dev/prod ya existía y sigue intacta — **`db seed` nunca ha
+sembrado datos de prueba**. Lo que le faltaba era completitud y quitarle una credencial.
+
+**1 · La credencial (era crítica).** `seedAdmin()` creaba `admin@marketplace.es` con la
+contraseña escrita en el fichero: toda instancia nueva nacía con una cuenta de
+administrador, con el correo ya verificado, cuya contraseña es pública para quien pueda
+leer el repositorio.
+
+- Ahora sale de **`SEED_ADMIN_EMAIL` + `SEED_ADMIN_PASSWORD`** (mínimo 12 caracteres).
+- **Sin ellas no se crea ningún administrador**, en ningún entorno. No hay defecto «de
+  desarrollo»: un defecto cómodo es exactamente lo que acaba desplegado.
+- **Fail-safe, no fail-stop**: el resto de la semilla se aplica igual.
+- En desarrollo el aviso imprime la línea lista para pegar en `.env`, con una contraseña
+  fuerte recién generada. En producción **no imprime ninguna contraseña**.
+- **El rol ya no se re-fuerza.** Era `update: { role: ADMIN, emailVerified: true }`, así
+  que una cuenta que el operador degradara volvía a ser administradora en el siguiente
+  despliegue. Si la fila existe, no se toca: ni rol, ni verificación, ni contraseña.
+
+**2 · La completitud (era alta).** `ContactReason`, `FooterColumn`/`FooterItem` y
+`NavItem` no los creaba nadie en una base nueva: sus backfills leen columnas que sus
+propias migraciones borraron, así que el dato existía en las máquinas que venían de antes
+y faltaba en toda instalación nueva. Sin `ContactReason` **el formulario público de
+contacto se apaga solo** y no hay forma de enviar un mensaje. Los tres los siembra ahora
+`db seed` (`prisma/seed-datos-iniciales.ts`). Los dos backfills quedan marcados como
+CADUCADOS en su cabecera.
+
+**3 · Las categorías (era media).** `upsert` con `update: {}`: se crean si faltan, **no se
+reescriben** si están. Era la única parte de la semilla que pisaba trabajo de un
+administrador — quien renombrara o reordenara desde `/admin/categorias` lo perdía en el
+siguiente despliegue. Contrapartida a saber: **cambiar `CATEGORIES` ya no propaga el
+cambio** a una base sembrada; eso se hace desde el backoffice o con una migración de datos.
+
+**El pie es «o entero o aplazado».** Lo destapó sembrar contra Postgres de verdad, no el
+doble: en el despliegue de dos pasos (primera pasada sin credencial → se configura → segunda
+pasada) el pie nacía con la columna «Legal» vacía, porque sin administrador no hay quien
+firme la página de cookies; y la guarda por recuento impedía completarla después, así que
+el enlace a la política **no aparecía nunca**. Ahora, si falta algún destino, no se siembra
+nada y se aplaza — como ya hacía la propia página de cookies cuando no encuentra autor.
+
+**Las barreras** (`apps/api/src/semilla/`, 28 casos) ejecutan la semilla **entera y dos
+veces** contra un doble en memoria: cero credenciales en el código, fail-safe, rol no
+re-forzado, base nueva completa, categorías no revertidas, idempotencia. Para que eso fuera
+posible, `seed.ts` dejó de ejecutarse al importarlo — el cliente es un parámetro y la
+llamada vive bajo `require.main`. Es la doctrina de `SEED_SETTINGS` («sacarlo para poder
+mirarlo sin ejecutarlo») llevada del dato al comportamiento.
+
+**Lo que sigue siendo manual en un despliegue nuevo** (no puede sembrarse): `fiscalIssuer`
+—sin él `POST /billing/facturas` responde 400 `ISSUER_NOT_CONFIGURED`—, los logos de marca,
+y `pnpm sync-stripe-catalog`, sin el cual el checkout del Plan Pro no funciona porque el
+catálogo sembrado no existe todavía en Stripe.
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.
@@ -18207,8 +18265,16 @@ pnpm --filter @marketplace/api reindex
 # Geocodificar anuncios sin coordenadas
 pnpm --filter @marketplace/api geocode-backfill
 
-# Backfill de navegación del footer (solo one-off, ver migración en dos pasos en §3)
-pnpm --filter @marketplace/api footer-backfill
+# Sembrar una base recién migrada (categorías, ajustes, portada, motivos de contacto,
+# pie, navegación, catálogo). Idempotente: re-ejecutarla no duplica ni pisa nada.
+#
+# EXIGE SEED_ADMIN_EMAIL + SEED_ADMIN_PASSWORD para crear el administrador. Sin ellas
+# no crea ninguno —nunca inventa una contraseña— y te dice qué poner y dónde. Ver
+# apps/api/prisma/seed-admin.ts.
+pnpm --filter @marketplace/api prisma:seed
+
+# ⚠ CADUCADO: footer-backfill y contact-reason-backfill fallan en una base nueva (leen
+# columnas que sus migraciones borraron). Lo que creaban lo siembra ahora `prisma:seed`.
 
 # Sembrar contenido de ejemplo con los 9 tipos de bloque, para QA visual
 pnpm --filter @marketplace/api seed-blocks-demo

@@ -1,4 +1,21 @@
 /**
+ * ⚠ CADUCADO — NO SIRVE EN UNA BASE NUEVA, Y NO HACE FALTA.
+ *
+ * Lee las columnas heredadas `Post.showInFooter` / `footerOrder` / `footerGroup`, que la
+ * migración `20260711082727_drop_post_footer_fields` ya borró: en una base recién
+ * migrada este script FALLA. Sólo tenía sentido en la ventana entre las dos migraciones.
+ *
+ * El pie de una instalación nueva lo siembra ahora `prisma db seed`
+ * (`prisma/seed-datos-iniciales.ts`). Ojo a la diferencia: este script DERIVABA las
+ * columnas de páginas existentes, mientras que la semilla trae un conjunto mínimo
+ * decidido —sólo rutas que existen y nada que el pie fijo ya pinte—. Ver
+ * docs/auditoria-seed.md §3.2.
+ *
+ * Se conserva sin tocar porque es el registro de cómo llegó este dato a las bases que
+ * venían de antes.
+ *
+ * ── Documentación original ──────────────────────────────────────────────────
+ *
  * Footer navigation backfill command.
  *
  * One-off migration for the footer-nav mini-hito: reads the legacy

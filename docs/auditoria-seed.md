@@ -1,5 +1,31 @@
 # AUDITORÍA — QUÉ SIEMBRA `pnpm prisma db seed`
 
+> ## ✅ LOS TRES HALLAZGOS ESTÁN RESUELTOS (rama `seed-produccion-seguro-y-completo`)
+>
+> Este documento se escribió como diagnóstico y **se ha quedado como historia**: las
+> secciones de abajo describen el estado ANTERIOR, que es el que explica por qué el
+> código es hoy como es. Lo que cambió, y dónde comprobarlo:
+>
+> | Hallazgo | Estado | Dónde |
+> |---|---|---|
+> | 1 · Credencial de administrador pública | **Resuelto.** Sale de `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD`; sin ellas **no se crea ningún administrador**. El rol ya no se re-fuerza. | [seed-admin.ts](apps/api/prisma/seed-admin.ts), `seedAdmin()` |
+> | 2 · Faltaban `ContactReason`, footer y nav | **Resuelto.** Los siembra `db seed`. Los seis motivos son los del backfill, tal cual. | [seed-datos-iniciales.ts](apps/api/prisma/seed-datos-iniciales.ts) |
+> | 3 · Las categorías revertían el trabajo del admin | **Resuelto.** `update: {}` — se crean, no se reescriben. | `seedCategories()` |
+>
+> **Las barreras** viven en [apps/api/src/semilla/](apps/api/src/semilla/) y ejecutan la
+> semilla entera —dos veces— contra un doble en memoria. Para que eso fuera posible,
+> `seed.ts` dejó de ejecutarse al importarlo: el cliente es un parámetro y la llamada
+> vive bajo `require.main`.
+>
+> **Un defecto más, que sólo apareció al sembrar contra Postgres de verdad:** en el
+> despliegue de dos pasos (primera pasada sin credencial → se configura → segunda
+> pasada) el pie nacía con la columna «Legal» vacía y la guarda por recuento impedía
+> completarla después, así que el enlace a la política de cookies no aparecía nunca.
+> Ahora el pie es «o entero o aplazado». Ver §3.2.
+>
+> Lo que **no** cambió y sigue vigente: §4.1 (`db seed` no siembra datos de prueba),
+> §2 (el inventario) y las recomendaciones 4 a 6 de §6, que son de proceso, no de código.
+
 **Fecha:** 15 de septiembre de 2026
 **Alcance:** diagnóstico. Cero cambios de código. Todo verificado contra el repo.
 **Pregunta que responde:** qué corre `db seed`, qué crea, qué falta para arrancar una
@@ -27,6 +53,9 @@ Lo que sí hay son **tres hallazgos de otro tipo**:
 Y una conclusión de diseño: **no hace falta separar «seed de dev» y «seed de prod»**. Ya
 están separados —el de test vive en otros ficheros que `db seed` no toca—. Lo que le falta
 al de producción no es un filtro, es completitud, y quitarle la credencial.
+
+> *(Los tres se arreglaron después; ver el recuadro del encabezado. La conclusión de
+> diseño se mantuvo: no se separó nada, se completó y se aseguró el seed que ya había.)*
 
 ---
 
@@ -286,17 +315,32 @@ evita; no es un defecto activo, es un guard que mira lo que no debe.
 
 ---
 
-## 6. RECOMENDACIONES (sin implementar — la decisión es tuya)
+## 6. RECOMENDACIONES (1 a 3: ✅ implementadas; 4 a 6: siguen pendientes, son de proceso)
 
 Por orden de lo que cuesta si no se hace:
 
-1. **Quitar la credencial fija del seed.** Leer `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD`
+1. ✅ **Quitar la credencial fija del seed.** Leer `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD`
    del entorno y **negarse a crear el administrador si no están y `NODE_ENV=production`**
    (fallando ruidosamente, no saltándoselo en silencio: una instancia sin admin es igual de
    inservible). En desarrollo, que siga el valor de hoy. Alternativa complementaria: marcar la
    cuenta como «contraseña por cambiar» y forzar el cambio al primer acceso.
 
-2. **Completar el seed con lo mínimo de una instancia viva.** Los **6 motivos de contacto**
+   > **Lo implementado fue MÁS ESTRICTO que esta recomendación, a propósito.** No hay
+   > ningún entorno —tampoco desarrollo— en el que la semilla cree una cuenta con una
+   > contraseña que venga del código: un defecto cómodo es exactamente lo que acaba
+   > desplegado. La comodidad de dev se resolvió por otro lado: el aviso imprime la línea
+   > ya escrita, con una contraseña fuerte recién generada, lista para pegar en `.env`
+   > (distinta en cada máquina y fuera de Git). En producción el aviso no imprime ninguna
+   > contraseña — un despliegue no deja secretos en sus registros.
+   >
+   > Y es **fail-safe, no fail-stop**: el resto de la semilla se aplica igual. Caerse
+   > entero dejaría media base sembrada por un dato que se arregla en diez segundos.
+   >
+   > El «contraseña por cambiar» no se implementó: con la contraseña viniendo ya del
+   > gestor de secretos del operador, forzar un cambio al primer acceso protege bastante
+   > menos y añade una pantalla. Queda anotado, no descartado.
+
+2. ✅ **Completar el seed con lo mínimo de una instancia viva.** Los **6 motivos de contacto**
    ya están escritos en `contact-reason-backfill.ts:44-51` y sólo hay que moverlos a la
    semilla con `skipDuplicates` — es el hueco más barato de cerrar y el que más se nota
    (formulario de contacto apagado). Para footer y navegación hay que **decidir** si existe un
@@ -306,10 +350,31 @@ Por orden de lo que cuesta si no se hace:
    `contact-reason-backfill`: hoy aparecen en `package.json` como si fueran utilidades vivas,
    y no lo son.
 
-3. **Decidir si las categorías deben seguir pisándose.** Lo coherente con el resto del
+   > **Hecho.** Los seis motivos se movieron tal cual (mismos nombres, mismo orden, mismo
+   > `scope` por defecto): aquí no se inventa producto.
+   >
+   > El pie y la barra **sí hubo que decidirlos**, porque el backfill no traía datos
+   > propios —los derivaba de páginas que en una instalación nueva no existen—. Criterios:
+   > sólo rutas que existen en `(public)`; nada que la cabecera (`/busqueda`, `/publicar`)
+   > o el pie fijo («Buscar», «Publicar», «Acceder», «Preferencias de cookies») ya pinten;
+   > y cuatro columnas, que es lo que pinta la rejilla. La política de cookies se enlaza
+   > desde el pie **aunque nazca en borrador**: el pie público filtra los `PAGE` no
+   > publicados, así que publicarla hace aparecer su enlace sin que nadie tenga que
+   > acordarse de añadirlo.
+   >
+   > Los dos backfills se marcaron como **CADUCADOS** en su cabecera, con el porqué y
+   > adónde mirar. No se borraron: son el registro de cómo llegó su dato a las bases que
+   > venían de antes.
+
+3. ✅ **Decidir si las categorías deben seguir pisándose.** Lo coherente con el resto del
    fichero es un `update` mínimo (o ninguno) para no revertir ediciones del backoffice. Si se
    quiere conservar la capacidad de «refrescar el árbol canónico», que sea un comando aparte
    y explícito, no un efecto lateral del despliegue.
+
+   > **Hecho: `update: {}`.** El comando aparte para refrescar el árbol canónico NO se
+   > hizo — no hay nadie pidiéndolo todavía, y el camino existe (backoffice o migración de
+   > datos). Queda dicho en el propio `seedCategories()` para que quien lo necesite sepa
+   > que el cambio ya no se propaga solo.
 
 4. **`fiscalIssuer` como paso de despliegue documentado**, no como sorpresa. No puede
    sembrarse (son datos reales de la empresa), así que su sitio es la lista de arranque.

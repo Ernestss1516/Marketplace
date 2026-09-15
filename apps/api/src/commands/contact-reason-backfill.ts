@@ -1,4 +1,21 @@
 /**
+ * ⚠ CADUCADO — NO SIRVE EN UNA BASE NUEVA, Y NO HACE FALTA.
+ *
+ * Lee la columna heredada `ContactMessage.motivo`, que la migración
+ * `20260712123500_drop_contact_motivo_enum` ya borró: en una base recién migrada este
+ * script FALLA. Sólo tenía sentido en la ventana entre las dos migraciones, y esa
+ * ventana se cerró.
+ *
+ * Los seis motivos que creaba los siembra ahora `prisma db seed`
+ * (`prisma/seed-datos-iniciales.ts`), que es donde debieron estar siempre: mientras
+ * vivieron sólo aquí, **toda instalación nueva nacía sin ellos** y el formulario público
+ * de contacto se apagaba solo. Ver docs/auditoria-seed.md §3.1.
+ *
+ * Se conserva sin tocar porque es el registro de cómo llegó este dato a las bases que
+ * venían de antes.
+ *
+ * ── Documentación original ──────────────────────────────────────────────────
+ *
  * Contact reason backfill command (RC.2).
  *
  * One-off migration: ContactMotivo (enum) → ContactReason (datos, gestionable

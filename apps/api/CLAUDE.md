@@ -44,7 +44,10 @@ frontend. Aquí viven las reglas, la persistencia, la caché, las colas y la bú
 - `build` / `start` — producción
 - `test` / `test:e2e` — pruebas
 - `npx prisma migrate dev` — aplicar migraciones
-- `npx prisma db seed` — sembrar datos iniciales
+- `npx prisma db seed` — sembrar datos iniciales. **Exige `SEED_ADMIN_EMAIL` y
+  `SEED_ADMIN_PASSWORD` para crear el administrador**: sin ellas no crea ninguno (nunca
+  inventa una contraseña) y dice qué poner y dónde. Idempotente y no pisa lo que un
+  administrador haya cambiado. Ver `prisma/seed-admin.ts` y `docs/auditoria-seed.md`.
 - `npx prisma studio` — inspeccionar la base de datos
 - `pnpm reindex` — reconstruye el índice Meilisearch desde Postgres
 - `pnpm geocode-backfill` — asigna coordenadas a anuncios sin `latitude` (1 req/s Nominatim)
