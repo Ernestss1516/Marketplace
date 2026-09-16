@@ -61,7 +61,11 @@ export default function AdminBlogPage() {
       setLoading(true);
       setError(null);
       try {
-        const data = await getAdminPosts(token, { status, page: p, perPage: PER_PAGE });
+        // `type` EXPLÍCITO, como en /admin/paginas (que pasa 'PAGE'). Omitirlo era
+        // el bug: esta lista traía también las páginas informativas. El backend ya
+        // asume POST por omisión, pero la sección dice en voz alta qué contenido
+        // gestiona en vez de depender de un default que no se ve desde aquí.
+        const data = await getAdminPosts(token, { status, type: 'POST', page: p, perPage: PER_PAGE });
         setPosts(data.items);
         setTotal(data.total);
       } catch (err) {

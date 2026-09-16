@@ -191,9 +191,19 @@ export class BlogService {
     const page = dto.page ?? 1;
     const perPage = dto.perPage ?? 10;
     const skip = (page - 1) * perPage;
+    // `type` AUSENTE ⇒ POST, nunca "todos". El filtro era opcional y sin default,
+    // así que el listado de /admin/blog —el único llamante que no lo pasaba—
+    // mezclaba las páginas informativas con las entradas del blog. El resto de
+    // llamantes (selector de páginas del footer y del nav, /admin/paginas) sí
+    // mandaban type=PAGE, de modo que la fuga era solo en una dirección y pasó
+    // desapercibida. El default cierra la puerta en el servidor: este endpoint
+    // vive en `admin/blog` y su contenido por omisión son las entradas, igual
+    // que en los wrappers type-locked de la parte pública. Ningún llamante
+    // necesita hoy la lista mezclada; si alguna vez hiciera falta, tendrá que
+    // pedirla con un valor explícito y nuevo, no por olvido.
     const where = {
       ...(dto.status && { status: dto.status }),
-      ...(dto.type && { type: dto.type }),
+      type: dto.type ?? PostType.POST,
     };
 
     const [items, total] = await Promise.all([

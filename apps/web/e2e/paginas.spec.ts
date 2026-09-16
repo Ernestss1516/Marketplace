@@ -106,6 +106,47 @@ test.describe('Páginas informativas — /admin/paginas y /paginas/[slug]', () =
     await popup.close();
   });
 
+  // ── BARRERA: las dos secciones del backoffice no se mezclan ─────────────────
+  // /admin/blog pedía su lista SIN `type` (el backend lo trataba como «todos») y
+  // enseñaba las páginas informativas entre las entradas. El baseline visual de
+  // `backoffice-blog` llegó a fotografiar el bug: «2 posts», y uno era una página.
+  // Se comprueba en las DOS direcciones, porque el arreglo es simétrico: cada
+  // sección pasa su `type` y el backend asume POST cuando falta.
+  test('/admin/blog lista solo entradas y /admin/paginas solo páginas — ninguna enseña la otra', async ({
+    adminContext,
+    request,
+  }) => {
+    const token = adminApiToken();
+    const marca = Date.now();
+    const tituloEntrada = `Entrada de blog ${marca}`;
+    const tituloPagina = `Pagina informativa ${marca}`;
+
+    // Las dos se crean juntas y son las más recientes: el listado ordena por
+    // `createdAt` desc, así que ambas caen en la primera página de las dos
+    // secciones. Lo que se mide es el filtro, no la paginación.
+    for (const [type, title] of [
+      ['POST', tituloEntrada],
+      ['PAGE', tituloPagina],
+    ] as const) {
+      const res = await authedPost(request, '/admin/blog', token, { type, title });
+      expect(res.ok()).toBe(true);
+    }
+
+    const page = await adminContext.newPage();
+
+    await page.goto('/admin/blog');
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByText(tituloEntrada)).toBeVisible();
+    await expect(page.getByText(tituloPagina)).toHaveCount(0);
+
+    await page.goto('/admin/paginas');
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByText(tituloPagina)).toBeVisible();
+    await expect(page.getByText(tituloEntrada)).toHaveCount(0);
+
+    await page.close();
+  });
+
   test('EDITOR ve "Páginas" en el nav, puede crear una página, y no ve el botón "Eliminar" en /admin/paginas', async ({
     editorContext,
   }) => {
