@@ -6,7 +6,7 @@ import {
   ponerPortadaEscaparate,
   restaurarPortada,
 } from './helpers/portada';
-import { RUTA_BLOG, RUTA_PAGINA } from './helpers/contenido-editorial';
+import { NOMBRE_FICHA, RUTA_BLOG, RUTA_PAGINA } from './helpers/contenido-editorial';
 
 /**
  * ══ E6 · LA FRONTERA, HECHA TEST ═════════════════════════════════════════════════════
@@ -313,6 +313,11 @@ test.describe('Invariancia del HTML entre modelos', () => {
     const MARCADORES: readonly [ruta: string, marcador: string][] = [
       ['/', 'Búsquedas frecuentes'],
       [RUTA_BLOG, 'Qué mirar antes de comprar una bici de segunda mano'],
+      // La FICHA del artículo, y merece marcador propio: el título de arriba sale del
+      // encabezado de la página, así que estaría igual de presente con el artículo vacío
+      // de bloques. Este nombre sólo puede venir del bloque `profile`, que es lo que la
+      // ráfaga de la tarjeta de contacto acaba de meter bajo esta barrera.
+      [RUTA_BLOG, NOMBRE_FICHA],
       [RUTA_PAGINA, 'Cómo comprar con seguridad'],
     ];
     for (const [ruta, marcador] of MARCADORES) {
