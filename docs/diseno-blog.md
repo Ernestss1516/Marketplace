@@ -543,8 +543,11 @@ Variables de entorno requeridas en el backend (nuevas respecto a la Fase 7):
 > **2. Hay dos endpoints públicos más, para las páginas informativas:**
 > `GET /paginas` y `GET /paginas/:slug` — mismo contrato, filtrando `type = PAGE`. Los de
 > `/blog` filtran `type = POST`. En el lado admin, `GET /admin/blog?type=POST|PAGE` sirve a
-> ambos; **sin `type` devuelve posts y páginas mezclados**, así que el frontend siempre lo
-> envía explícito.
+> ambos; **sin `type` devuelve SOLO entradas (`POST`)**, igual que los wrappers type-locked
+> del lado público. Nació devolviéndolos mezclados, confiando en que el frontend enviara
+> siempre un `type` explícito — y el listado de `/admin/blog`, que era el único que no lo
+> enviaba, enseñó las páginas entre las entradas hasta que la barrera de `pages.e2e-spec`
+> («BARRERA 1/2/3») lo cerró en las dos direcciones.
 >
 > **Los roles de §4.2 también cambiaron:** el CRUD no es ADMIN-only. `EDITOR`, `MODERATOR` y
 > `ADMIN` crean, editan, publican y despublican; **solo ADMIN borra permanentemente**. Es la
