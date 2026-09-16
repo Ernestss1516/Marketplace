@@ -1026,8 +1026,10 @@ Claves en la whitelist: `badWordList`, `listingExpiryDays`, `contactRequiresVeri
 los verbos amplían a `EDITOR` y `MODERATOR`**; el borrado permanente se queda en ADMIN-only.
 
 - **`GET /admin/blog`** *(EDITOR+)* — Listado de todos los estados. `?type=POST|PAGE` filtra;
-  **sin `type` devuelve posts y páginas mezclados**, así que el frontend siempre lo envía
-  explícito.
+  **sin `type` devuelve SOLO entradas (`POST`)**. Antes «sin `type`» significaba «mezclados»
+  y se confiaba en que el frontend lo enviara siempre: el listado de `/admin/blog` no lo
+  hacía y enseñaba las páginas informativas entre las entradas. No hay ningún valor que
+  devuelva los dos tipos a la vez.
 - **`GET /admin/blog/:id`** *(EDITOR+)* · **`POST /admin/blog`** *(EDITOR+)* ·
   **`PATCH /admin/blog/:id`** *(EDITOR+)* — CRUD.
 - **`POST /admin/blog/:id/publish`** *(EDITOR+)* · **`POST /admin/blog/:id/unpublish`**

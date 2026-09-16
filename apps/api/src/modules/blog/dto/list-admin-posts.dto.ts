@@ -27,9 +27,12 @@ export class ListAdminPostsDto {
   @IsEnum(PostStatus)
   status?: PostStatus;
 
-  // /admin/blog?type=PAGE filtra a solo páginas informativas; sin type, incluye
-  // todo (posts y páginas mezclados) — el frontend siempre pasa un type explícito
-  // según qué sección admin está mostrando.
+  // /admin/blog?type=PAGE filtra a solo páginas informativas; SIN type se asume
+  // POST (ver BlogService.adminFindAll). Antes «sin type» significaba «todo
+  // mezclado», confiando en que el frontend pasara siempre un valor explícito:
+  // el listado de /admin/blog no lo hacía y enseñaba las páginas entre las
+  // entradas. No hay valor que signifique «los dos tipos»; ninguna pantalla lo
+  // necesita y su ausencia es justamente lo que impide que la fuga vuelva.
   @IsOptional()
   @IsEnum(PostType)
   type?: PostType;

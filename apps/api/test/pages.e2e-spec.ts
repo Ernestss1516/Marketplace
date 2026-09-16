@@ -212,6 +212,60 @@ describe('Páginas informativas — Post.type (e2e)', () => {
     expect(ids).not.toContain(publishedPostId);
   });
 
+  // ── BARRERA: el backoffice separa entradas y páginas en LAS DOS direcciones ──
+  // El listado de /admin/blog pedía la lista SIN `type` y el servicio lo trataba
+  // como «todos»: la sección del blog enseñaba las páginas informativas entre las
+  // entradas. Estos tres tests vigilan el filtro en las dos direcciones y el
+  // contador que se pinta junto a la lista.
+
+  it('BARRERA 1 — GET /api/admin/blog SIN type → solo entradas (la PAGE publicada NO aparece)', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/admin/blog?perPage=500')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+
+    const ids = res.body.items.map((p: { id: string }) => p.id);
+    expect(ids).toContain(publishedPostId);
+    expect(ids).not.toContain(publishedPageId);
+    // Y no es que falte solo esa: NINGÚN item es una página.
+    expect(res.body.items.every((p: { type: string }) => p.type === 'POST')).toBe(true);
+  });
+
+  it('BARRERA 2 — GET /api/admin/blog?type=PAGE → solo páginas (ningún POST se cuela)', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/admin/blog?type=PAGE&perPage=500')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+
+    const ids = res.body.items.map((p: { id: string }) => p.id);
+    expect(ids).toContain(publishedPageId);
+    expect(ids).not.toContain(publishedPostId);
+    expect(res.body.items.every((p: { type: string }) => p.type === 'PAGE')).toBe(true);
+  });
+
+  it('BARRERA 3 — el `total` de cada lista cuadra con su filtro (el contador del backoffice no miente)', async () => {
+    const [entradas, paginas] = await Promise.all([
+      request(app.getHttpServer())
+        .get('/api/admin/blog?perPage=500')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200),
+      request(app.getHttpServer())
+        .get('/api/admin/blog?type=PAGE&perPage=500')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200),
+    ]);
+
+    // `total` es el count de la MISMA where que trae los items — si uno filtrara
+    // y el otro no, la paginación pediría páginas que no existen.
+    expect(entradas.body.total).toBe(entradas.body.items.length);
+    expect(paginas.body.total).toBe(paginas.body.items.length);
+
+    // Y entre las dos listas está todo, sin solaparse: son una partición de Post.
+    const filas = await prisma.post.count();
+    expect(entradas.body.total + paginas.body.total).toBe(filas);
+    expect(paginas.body.total).toBeGreaterThan(0);
+  });
+
   it('EDITOR → PATCH /api/admin/blog/:id (editar página) → 200', async () => {
     const res = await request(app.getHttpServer())
       .patch(`/api/admin/blog/${editorPageId}`)
