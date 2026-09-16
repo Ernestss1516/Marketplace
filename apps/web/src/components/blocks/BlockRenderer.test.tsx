@@ -250,7 +250,12 @@ describe('BlockRenderer — Ráfaga 3 (4 tipos nuevos)', () => {
     render(<BlockRenderer blocks={[block]} />);
     expect(screen.getByText('Ana')).toBeInTheDocument();
     expect(screen.getByAltText('Ana')).toHaveAttribute('src', OWN_IMAGE_URL);
-    expect(screen.getByText('Experiencia:')).toBeInTheDocument();
+    // Sin los dos puntos desde que la ficha es una tarjeta de contacto: la etiqueta ya no
+    // precede al valor en la misma línea, va ENCIMA de él. Lo que este test vigila es el
+    // enrutado (que `profile` llegue a su renderizador con sus datos), no la maquetación
+    // —de eso se ocupa `ProfileBlockRenderer.test.tsx`—, así que basta con que la etiqueta
+    // esté pintada.
+    expect(screen.getByText('Experiencia')).toBeInTheDocument();
     expect(screen.getByText('10 años')).toBeInTheDocument();
   });
 

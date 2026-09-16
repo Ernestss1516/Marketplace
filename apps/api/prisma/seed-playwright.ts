@@ -507,7 +507,10 @@ async function main() {
  * No están los 16 tipos, y no es pereza: es el mismo criterio con el que la batería visual
  * eligió sus pantallas («por COBERTURA DE IDIOMA VISUAL, no de rutas»). Están los gestos
  * que la ráfaga C va a cambiar: el párrafo, la cita, los pasos numerados, el acordeón, la
- * tabla, las tarjetas de enlace y el CTA — que es el que se convierte en banda.
+ * tabla, las tarjetas de enlace y el CTA — que es el que se convierte en banda. Y desde la
+ * ráfaga de la ficha, también la TARJETA DE CONTACTO, que es un idioma propio: una caja
+ * centrada con foto, nombre y una rejilla de datos, que no se parece a ninguno de los
+ * otros siete.
  *
  * ⚠ SI SE TOCA ESTO, CAMBIAN LAS CAPTURAS. Es contenido de una barrera visual, no datos
  * de relleno: añadir un bloque o cambiar una palabra pone en rojo `publico-blog-articulo`
@@ -586,6 +589,34 @@ async function seedContenidoEditorial() {
             question: '¿Cuánto se puede regatear?',
             answer: 'Lo que cueste reparar lo que has encontrado, ni un euro más.',
           },
+        ],
+      },
+      {
+        // LA FICHA, Y ENTRA CON LA RÁFAGA QUE LE DA ASPECTO DE TARJETA DE CONTACTO.
+        //
+        // Era el único bloque de la columna de lectura que no estaba sembrado en ninguna
+        // parte, así que no lo vigilaba NADA: ni la invariancia (que recorre esta ruta),
+        // ni la batería visual, ni las capturas por modelo. Revestirlo sin sembrarlo
+        // habría sido repintar a ciegas.
+        //
+        // ⚠ SIN FOTO, Y NO ES UN OLVIDO. Es la regla de §3.2 de este mismo fichero —«ni
+        // una imagen»—: una foto obliga a que el objeto exista en MinIO y a que cargue a
+        // tiempo, y si falta, la captura fotografía un roto. Lo que la cámara no puede
+        // ver de la ficha (el alt de la foto, su caja reservada, su forma) lo vigila
+        // `ProfileBlockRenderer.test.tsx`, que no necesita que exista ningún objeto.
+        //
+        // Cuatro atributos y no dos: a dos columnas, cuatro llenan las dos filas y
+        // enseñan la rejilla de datos completa. El nombre vive en
+        // `e2e/helpers/contenido-editorial.ts` (NOMBRE_FICHA) porque lo comparten la
+        // invariancia y las capturas por modelo — una fuente, ninguna copia.
+        id: 'art-ficha',
+        type: 'profile',
+        name: 'Marta Ruiz',
+        attributes: [
+          { label: 'Especialidad', value: 'Mecánica de bicicleta' },
+          { label: 'Experiencia', value: '12 años en taller' },
+          { label: 'Zona', value: 'Valencia' },
+          { label: 'Contacto', value: 'taller.marta@ejemplo.com' },
         ],
       },
       {

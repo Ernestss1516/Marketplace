@@ -25,3 +25,13 @@ export const PAGINA_SLUG = 'como-comprar-con-seguridad';
 
 export const RUTA_BLOG = `/blog/${BLOG_SLUG}`;
 export const RUTA_PAGINA = `/paginas/${PAGINA_SLUG}`;
+
+/**
+ * El nombre de la FICHA que el artículo lleva al final (bloque `profile`, `art-ficha`).
+ *
+ * Vive aquí por el mismo motivo que los slugs: lo comparten la invariancia —que lo usa
+ * como marcador para no comparar dos árboles que no traen la ficha— y las capturas por
+ * modelo, que esperan a que esté pintada antes de disparar. Si cambia en el seed, cambia
+ * aquí y los dos se enteran.
+ */
+export const NOMBRE_FICHA = 'Marta Ruiz';
