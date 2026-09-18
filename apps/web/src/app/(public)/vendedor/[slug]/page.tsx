@@ -131,11 +131,7 @@ export default async function VendedorPage({
 
       {/* Debajo de la identidad del vendedor y encima de sus anuncios: la página
           dice primero de quién es. */}
-      {banners.length > 0 && (
-        <div className="mb-8">
-          <BannerList banners={banners} />
-        </div>
-      )}
+      <BannerList banners={banners} className="mb-8" />
 
       {/* Valorar desde notificación — Reputación RÁFAGA 3, único punto de
           entrada para un Deal sin conversación asociada (ver ValorarDesdePerfil) */}

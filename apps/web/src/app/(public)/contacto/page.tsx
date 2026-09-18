@@ -30,11 +30,7 @@ export default async function ContactoPage() {
         ¿Tienes alguna duda o quieres reportar algo? Escríbenos y te responderemos por email.
       </p>
 
-      {banners.length > 0 && (
-        <div className="mb-6">
-          <BannerList banners={banners} />
-        </div>
-      )}
+      <BannerList banners={banners} className="mb-6" />
 
       <ContactForm />
     </div>

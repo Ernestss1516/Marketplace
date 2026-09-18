@@ -38,7 +38,7 @@ export default async function MisAlertasPage({
       <h1 className="text-2xl font-bold">Mis alertas</h1>
 
       {/* Debajo del <h1> y hermano suyo dentro del `space-y-6`: sin margen propio (§3.3). */}
-      {banners.length > 0 && <BannerList banners={banners} />}
+      <BannerList banners={banners} />
 
       {data.total === 0 ? (
         <div className="flex flex-col items-center gap-4 py-16 text-center text-muted-foreground">

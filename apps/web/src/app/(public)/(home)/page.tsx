@@ -67,11 +67,10 @@ export default async function HomePage() {
 
   return (
     <>
-      {banners.length > 0 && (
-        <div className="container mx-auto px-4 pt-4">
-          <BannerList banners={banners} />
-        </div>
-      )}
+      {/* La caja y el `pt-4` van EN la lista, no en un envoltorio: si el visitante
+          ya descartó el banner, `BannerList` devuelve null y no queda un `pt-4`
+          suelto ocupando 16 px sobre el hero. Ver el bloque de BannerList.tsx. */}
+      <BannerList banners={banners} className="container mx-auto px-4 pt-4" />
 
       {/* Banda del hero, a sangre y con su propio fondo. Contiene el hero y NADA
           MÁS: el buscador, su eyebrow y el botón de publicar eran andamio y ahora

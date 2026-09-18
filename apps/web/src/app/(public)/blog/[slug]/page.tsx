@@ -108,11 +108,7 @@ export default async function BlogPostPage({
           {/* DENTRO de la columna de lectura (`max-w-3xl`), no a ancho de
               contenedor: un bloque a sangre completa rompería la medida
               tipográfica del artículo, que es lo único que esta página cuida. */}
-          {banners.length > 0 && (
-            <div className="mb-6">
-              <BannerList banners={banners} />
-            </div>
-          )}
+          <BannerList banners={banners} className="mb-6" />
 
           {/* Tags */}
           {post.tags.length > 0 && (

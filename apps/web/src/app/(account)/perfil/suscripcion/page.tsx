@@ -74,7 +74,7 @@ export default async function SuscripcionPage() {
       </div>
 
       {/* Hijo directo del `space-y-8` — sin margen propio (§3.3). */}
-      {banners.length > 0 && <BannerList banners={banners} />}
+      <BannerList banners={banners} />
 
       {/* Current plan */}
       <Card>

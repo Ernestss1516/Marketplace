@@ -57,11 +57,7 @@ export default async function BlogPage({
 
       {/* Debajo de la cabecera, no encima: la página dice primero qué es. Misma
           regla que /mis-anuncios (UXV.6 B6); la portada es la única excepción. */}
-      {banners.length > 0 && (
-        <div className="mb-6">
-          <BannerList banners={banners} />
-        </div>
-      )}
+      <BannerList banners={banners} className="mb-6" />
 
       {tag && (
         <div className="mb-6 flex items-center gap-2">

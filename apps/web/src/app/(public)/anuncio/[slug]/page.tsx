@@ -172,11 +172,7 @@ export default async function AnuncioPage({
             coste asumido es que empuja la galería hacia abajo; la contrapartida
             es disciplina editorial —avisos, no promociones—, que se ejerce al
             publicar, no con una regla en el frontend (el negocio vive en Nest). */}
-        {banners.length > 0 && (
-          <div className="mb-4">
-            <BannerList banners={banners} />
-          </div>
-        )}
+        <BannerList banners={banners} className="mb-4" />
 
         <div className="grid gap-8 md:grid-cols-[1fr_320px]">
           {/* ── Left column ── */}
