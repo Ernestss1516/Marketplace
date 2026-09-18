@@ -18232,6 +18232,101 @@ mirarlo sin ejecutarlo») llevada del dato al comportamiento.
 y `pnpm sync-stripe-catalog`, sin el cual el checkout del Plan Pro no funciona porque el
 catálogo sembrado no existe todavía en Stripe.
 
+## Cuotas Pro — PIEZA 1: la cuota se cuenta por MES NATURAL, y el Pro anual deja de recibir 1/12
+
+Diseño completo: `docs/auditoria-y-diseno-cuotas-pro.md`. Esta sección recoge lo implementado.
+
+### El bug, con números
+
+La cuota mensual de Pro se contaba con un `COUNT` desde `Subscription.currentPeriodStart`, es
+decir, **desde el ciclo de COBRO**. Para un Pro mensual eso coincide con «al mes» y funcionaba.
+Para un Pro **ANUAL** el ciclo dura un año, así que su cuota «mensual» se contaba sobre 365 días:
+
+| | mensual (9,99 €/mes) | anual (89,99 €/año) |
+|---|---|---|
+| Destacados gratis al mes | 4 | **0,33** |
+| Destacados gratis al año | **48** | **4** |
+| Bumps gratis al año | **48** | **4** |
+| Valor en destacados al año (2,99 € el de 7 días) | 143,52 € | 11,96 € |
+
+**Y no era sólo interno.** `/planes` pinta en la tarjeta anual la MISMA lista que en la mensual
+—«4 destacados gratis al mes, de 7 días cada uno»— porque `proBenefits` se deriva de los
+`Setting` y **no mira el intervalo** (`billing.service.ts`, `buildProBenefits`). Y el bloque de
+cuota de `/perfil/suscripcion` se contradecía en dos líneas contiguas: «4 de 4 restantes **este
+mes**» junto a «Se renueva: *(dentro de un año)*». **Las dos frases pasan a ser ciertas sin
+tocar su texto**: lo que se arregló es el motor que las desmentía.
+
+**Alcance en el momento del arreglo: LATENTE.** Cero filas en `Subscription` (ni mensuales ni
+anuales). Que no mordiera a nadie es lo que hizo barato arreglarlo: sin clientes a los que
+compensar, sin decidir qué se le debe a quien llevaba meses recibiendo 1/12, y sin comunicación.
+
+### El mecanismo: `billing/mes-natural.ts`
+
+Función **pura**, sin Nest y sin reloj interno, en el molde de `bump-schedule/next-run.ts`:
+
+- `inicioDelMesNatural(ahora)` — día 1 a las 00:00, borde **inclusivo** del `COUNT`.
+- `finDelMesNatural(ahora)` — día 1 del mes siguiente, borde **exclusivo**: el instante en que
+  lo no gastado se pierde (mismo criterio que tenía `currentPeriodEnd`, que era la fecha de
+  renovación, no el último segundo).
+
+**Mes natural de CALENDARIO, no 30 días rodantes desde el alta** (D-2): el calendario es el
+único que **no necesita un ancla por usuario**, y ése es justo el punto — una ventana rodante
+tiene que preguntar «¿desde cuándo?» a una fila distinta según el tipo de Pro (`Subscription`
+para quien paga, `Entitlement` para un Pro concedido a mano), que es volver a tener una regla
+por tipo. Coste aceptado (D-10): **el primer mes es parcial en días y completo en cuota** —
+acotado a una cuota extra por usuario, una sola vez.
+
+**Zona `Europe/Madrid` declarada, no heredada del proceso** (D-3). Con el servidor en UTC y
+España en horario de verano, el mes cambiaría a las **02:00 peninsulares**: quien gastara su
+última cuota a la 01:00 del día 1 la vería contar contra el mes anterior. El offset se le
+pregunta a `Intl` en la fecha concreta (dos pasadas, por el cambio de hora que puede caer entre
+la referencia y el borde del mes), no a una tabla propia que se quedaría vieja.
+
+### El cerrojo se muda de `Subscription` a `Entitlement` (D-7)
+
+La reserva atómica bloqueaba la fila `Subscription` (`SELECT … FOR UPDATE`) por dos motivos:
+serializar dos peticiones concurrentes, y frenar una renovación de Stripe que avanzara
+`currentPeriodStart` a mitad de la operación. **El segundo desapareció** con este cambio: la
+ventana ya no depende de `currentPeriodStart`. Y `Subscription` es la única de las dos filas que
+**un Pro concedido a mano no tiene**, así que en cuanto la pieza 2 le dé cuota, no habría nada
+que bloquear. Se mudó ahora, con los dos tests de carrera existentes vigilando la serialización,
+en vez de descubrirlo sin red en la pieza siguiente.
+
+### El contrato: `periodStart` / `periodEnd` cambian de SIGNIFICADO, no de nombre (D-4)
+
+Pasan a ser **la ventana de la cuota**. Sus dos únicos lectores están dentro del bloque de
+cuota (`cuota-caducidad.ts` y el «Se renueva» de `/perfil/suscripcion`), y para los dos el
+significado nuevo es el correcto. **La fecha de renovación del cobro no se pierde**: se pinta
+desde `activeSubscription.currentPeriodEnd`, que es otro campo y otro origen.
+
+Efecto heredado sin tocar código: **el aviso de caducidad llega ahora al anual cada mes**. Esa
+función nunca supo si el usuario paga mensual o anual —lee `periodEnd` y compara—; lo que
+cambió es lo que el campo contiene. Antes, con la fecha a un año, la ventana de 3 días no se
+abría en 362. Lo mismo con las **3 bolsas en cascada** y el **bump automático**, que llaman a
+`BillingService.bump` y heredan la ventana nueva sin cambios.
+
+### Lo que NO entra aquí
+
+**La pieza 2 —cuota propia y configurable para el Pro manual, `quotaSource: 'MANUAL'`— va
+aparte** (`auditoria-y-diseno-cuotas-pro.md` §9). El filtro sigue exigiendo
+`subscriptionId: { not: null }` a propósito: hoy el Pro concedido a mano sigue sin cuota,
+exactamente como antes.
+
+### Verificación
+
+- `mes-natural.spec.ts` — 16 casos puros: los dos cambios de hora, el año bisiesto, el salto de
+  diciembre, los bordes inclusivo/exclusivo y el caso que justifica la zona declarada (la 01:00
+  peninsular del día 1, que en UTC todavía sería el mes anterior).
+- `cuota-paridad-anual.e2e-spec.ts` — 10 casos: el anual recibe su cuota cada mes natural, el
+  mensual no cambia, los dos ven **la misma cuota y la misma ventana** incluso con ciclos de
+  cobro desalineados, y las **tres** funciones cuentan igual (la reserva de destacado y la de
+  bump, no sólo la lectura).
+- **Mutación comprobada:** devolver el `COUNT` a `currentPeriodStart` → caen 5 casos, entre
+  ellos «un anual que gastó su cuota en meses anteriores del mismo año de facturación la tiene
+  entera hoy», que pasa de `remaining: 4` a `0` — el 1/12 reapareciendo.
+- **Mutación del cerrojo comprobada:** quitar el `FOR UPDATE` → los dos tests de carrera
+  conceden `[201, 201]` con cupo para uno. El cerrojo nuevo es real, no decorativo.
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.

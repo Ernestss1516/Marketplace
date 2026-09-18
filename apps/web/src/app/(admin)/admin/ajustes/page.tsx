@@ -1188,7 +1188,7 @@ export default function AdminAjustesPage() {
                   onSaved={() => handleSaved(key)}
                   settingKey="proMonthlyFeaturedQuota"
                   label="Destacados gratis por mes"
-                  helpText="Cantidad de destacados que la cuota mensual de Pro concede gratis. No se acumulan de un mes a otro."
+                  helpText="Cantidad de destacados que la cuota mensual de Pro concede gratis. Se renuevan el día 1 de cada mes —igual pague mensual o anualmente— y no se acumulan de un mes a otro."
                   min={1}
                 />
               )}
@@ -1224,7 +1224,7 @@ export default function AdminAjustesPage() {
                   onSaved={() => handleSaved(key)}
                   settingKey="proMonthlyBumpQuota"
                   label="Bumps gratis por mes"
-                  helpText="Cantidad de bumps que la cuota mensual de Pro concede gratis, antes que el saldo de bumps por cupón y que los créditos. No se acumulan de un mes a otro."
+                  helpText="Cantidad de bumps que la cuota mensual de Pro concede gratis, antes que el saldo de bumps por cupón y que los créditos. Se renuevan el día 1 de cada mes y no se acumulan de un mes a otro."
                   min={1}
                 />
               )}

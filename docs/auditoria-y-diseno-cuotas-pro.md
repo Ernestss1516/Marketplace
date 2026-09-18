@@ -1,8 +1,23 @@
 # Auditoría y diseño — Cuotas mensuales del Pro anual y del Pro manual
 
 **Fecha:** 2026-09-19 · **Alcance:** FACTURACIÓN / CUOTAS · **Estado:** documento de decisión.
-**Cero cambios de código.** Todo lo que sigue está verificado contra el código y, donde se
-indica, medido contra la base de datos de desarrollo.
+Todo lo que sigue está verificado contra el código y, donde se indica, medido contra la base de
+datos de desarrollo.
+
+> ### ✅ PIEZA 1 IMPLEMENTADA (mes natural + paridad anual + cerrojo por `Entitlement`)
+>
+> Rama `cuotas-pro-mes-natural`. Lo implementado se resume en la sección **«Cuotas Pro — PIEZA 1»**
+> de `estado-tecnico.md`; el mecanismo vive en `apps/api/src/modules/billing/mes-natural.ts`.
+> Decisiones aplicadas: **D-2** (calendario), **D-3** (`Europe/Madrid`), **D-4** (los campos
+> cambian de significado, no de nombre), **D-7** (cerrojo por `Entitlement`), **D-10** (primer mes
+> completo, sin prorrateo).
+>
+> **⚠ DESPLEGAR EL DÍA 1** — ver [§11.2](#112-la-transición--el-único-riesgo-de-despliegue).
+>
+> **PENDIENTE: la pieza 2** (cuota propia y configurable para el Pro manual, `quotaSource:
+> 'MANUAL'`) — [§9](#9--pieza-2-la-cuota-del-pro-manual-configurable). Sigue abierta la decisión
+> **D-6**: cuánto vale esa cuota. El resto de la pieza 1 no la bloquea; al revés, le dejó el
+> mecanismo hecho.
 
 ---
 
