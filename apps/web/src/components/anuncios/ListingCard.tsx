@@ -1,8 +1,8 @@
 import Link from 'next/link';
-import { Card, CardContent } from '@/components/ui/card';
 import { FeaturedBadge } from './FeaturedBadge';
 import { FavoriteCardButton } from './FavoriteCardButton';
 import { CardPhotoCarousel } from './CardPhotoCarousel';
+import { GridCardShell, GRID_MEDIA_SIZES } from './card-shells';
 import { CardAttrsDisplay } from './CardAttributesContext';
 import {
   formatListingPrice,
@@ -33,38 +33,40 @@ export function ListingCard({
     // prefetch-on-viewport rinde poco de todos modos (se prefetchean destinos que
     // el usuario no visita), así que el coste de desactivarlo es mínimo.
     <Link href={`/anuncio/${listing.slug}`} className="group block h-full" prefetch={false}>
-      {/* ESCAPARATE C — el gesto compartido (`.tarjeta-levanta`, globals.css). Antes era
-          `transition-shadow group-hover:shadow-md`: sombreaba pero no levantaba, y no
-          declaraba `motion-reduce`. */}
-      <Card className="tarjeta-levanta h-full overflow-hidden">
-        <CardPhotoCarousel
-          images={photos}
-          title={listing.title}
-          hasVideo={listing.hasVideo}
-          videoPreviewUrl={listing.videoPreviewUrl}
-          sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
-          priority={priority}
-        >
-          {listing.boostScore === 1 && <FeaturedBadge />}
-          <FavoriteCardButton listingId={listing.id} />
-        </CardPhotoCarousel>
-        <CardContent className="p-3">
-          <p className="mb-1 line-clamp-2 text-sm font-medium leading-snug">{listing.title}</p>
-          <p className="text-base font-bold">{formatListingPrice(listing.price, listing.currency, listing.priceType, listing.priceUnit)}</p>
-          <CardAttrsDisplay
-            categorySlug={listing.categorySlug}
-            attributes={listing.attributes as Record<string, unknown> | undefined}
-            listingType={listing.type}
-          />
-          <div className="mt-1 flex items-center gap-2">
-            {location && (
-              <p className="truncate text-xs text-muted-foreground">{location}</p>
-            )}
-            <SellerRatingInline average={listing.sellerRatingAverage} count={listing.sellerRatingCount} />
-          </div>
-          <ListingStatusBadge status={listing.status} />
-        </CardContent>
-      </Card>
+      {/* El molde (caja, gesto `.tarjeta-levanta` del ESCAPARATE C, columna de contenido)
+          vive en `card-shells.tsx` desde que el patrocinado intercalado tuvo que usar
+          EXACTAMENTE el mismo — antes lo escribía cada tarjeta a mano y el patrocinado se
+          quedó con otro. Aquí sólo va lo que es de un anuncio. */}
+      <GridCardShell
+        media={
+          <CardPhotoCarousel
+            images={photos}
+            title={listing.title}
+            hasVideo={listing.hasVideo}
+            videoPreviewUrl={listing.videoPreviewUrl}
+            sizes={GRID_MEDIA_SIZES}
+            priority={priority}
+          >
+            {listing.boostScore === 1 && <FeaturedBadge />}
+            <FavoriteCardButton listingId={listing.id} />
+          </CardPhotoCarousel>
+        }
+      >
+        <p className="mb-1 line-clamp-2 text-sm font-medium leading-snug">{listing.title}</p>
+        <p className="text-base font-bold">{formatListingPrice(listing.price, listing.currency, listing.priceType, listing.priceUnit)}</p>
+        <CardAttrsDisplay
+          categorySlug={listing.categorySlug}
+          attributes={listing.attributes as Record<string, unknown> | undefined}
+          listingType={listing.type}
+        />
+        <div className="mt-1 flex items-center gap-2">
+          {location && (
+            <p className="truncate text-xs text-muted-foreground">{location}</p>
+          )}
+          <SellerRatingInline average={listing.sellerRatingAverage} count={listing.sellerRatingCount} />
+        </div>
+        <ListingStatusBadge status={listing.status} />
+      </GridCardShell>
     </Link>
   );
 }
