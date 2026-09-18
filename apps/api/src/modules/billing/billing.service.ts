@@ -1310,20 +1310,25 @@ export class BillingService {
         `Vídeo en tus anuncios: hasta ${MAX_VIDEO_DURATION_SECONDS} segundos enseñando el artículo`,
       );
       /**
-       * PÓSTER ANIMADO P2 — LA PREVISUALIZACIÓN, Y CON «EN ORDENADOR» DENTRO.
+       * PÓSTER ANIMADO P2 — LA PREVISUALIZACIÓN, Y EL GESTO DE CADA PLATAFORMA DENTRO.
        *
        * BAJO LA MISMA CONDICIÓN que la línea de arriba y no bajo una nueva: la
        * previsualización es parte del vídeo, así que se concede y se retira con él. Un
        * ajuste propio serían dos verdades que mantener sincronizadas.
        *
-       * Y EL «EN ORDENADOR» NO ES UN MATIZ, ES LA HONESTIDAD DE LA LÍNEA. La animación
-       * vive tras `@media (hover: hover)`, así que en móvil **no se ve** — decisión de
-       * producto (b): animar en cada tarjeta de la vista de más tráfico costaría cientos
-       * de KB en la red más cara. Prometérselo a todo el mundo sería exactamente lo que
-       * esta función entera vino a cerrar: anunciar lo que no se concede.
+       * DECÍA «EN ORDENADOR», Y ERA CIERTO HASTA HOY. La animación vivía sólo tras
+       * `@media (hover: hover)`, así que media plataforma no la veía y prometerla entera
+       * habría sido anunciar lo que no se concede — que es lo que esta función vino a
+       * cerrar. La previa en móvil (tap sobre el indicador de vídeo) la concede también
+       * ahí, así que el matiz que la línea tenía que llevar **ya no es la plataforma, es
+       * el gesto**: con el ratón se pasa por encima, con el dedo se toca.
+       *
+       * Y SE NOMBRAN LOS DOS, en vez de quitar el paréntesis: quien lee esto está
+       * decidiendo si paga, y «previsualización animada» a secas no dice qué tiene que
+       * hacer para verla. Ver docs/diagnostico-previa-video-movil.md §4.
        */
       beneficios.push(
-        'Previsualización animada de tu vídeo en los resultados (al pasar el ratón, en ordenador)',
+        'Previsualización animada de tu vídeo en los resultados (al pasar el ratón, o al tocarla en el móvil)',
       );
     }
 
