@@ -54,13 +54,22 @@ function renderCon(proStatus: ProStatus) {
   );
 }
 
-const pro = (destacados: number, bumps: number): ProStatus => ({
+const pro = (destacados: number, bumps: number, periodEnd?: string): ProStatus => ({
   isPro: true,
   limit: 4,
   used: 4 - destacados,
   remaining: destacados,
   bumpQuota: { limit: 5, used: 5 - bumps, remaining: bumps },
+  quotaSource: 'SUBSCRIPTION',
+  periodEnd,
 });
+
+/** Una fecha a `n` días de hoy, en ISO — el formato en que viaja `periodEnd`. */
+const enDias = (n: number) => {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  return d.toISOString();
+};
 
 afterEach(cleanup);
 
@@ -108,5 +117,63 @@ describe('UXV.6 (M12) — recordatorio de cuota Pro', () => {
     const aviso = screen.getByTestId('quota-reminder');
     expect(aviso).toHaveTextContent(/te quedan 1 destacado gratis/i);
     expect(aviso).toHaveTextContent(/y 1 bump gratis/i);
+  });
+});
+
+/**
+ * LA CADUCIDAD — la parte que el recordatorio de arriba nunca dijo.
+ *
+ * Contaba CUÁNTA cuota queda y callaba lo único que la hace urgente: que no se acumula. La
+ * regla de cuándo avisar vive en `cuota-caducidad.ts` y se prueba entera allí; aquí se fija lo
+ * que le toca a la pantalla — que se pinte donde se ve, que diga lo que hay que hacer, y que
+ * **no salga** cuando la regla dice que no.
+ */
+describe('Aviso de caducidad de la cuota — en la pantalla', () => {
+  it('con el ciclo a dos días y cuota sin gastar, lo dice y ofrece dónde gastarla', () => {
+    renderCon(pro(2, 1, enDias(2)));
+
+    const caducidad = screen.getByTestId('quota-caducidad');
+    expect(caducidad).toHaveTextContent(/no se acumulan/i);
+    expect(caducidad).toHaveTextContent(/usa 2 destacados y 1 bump antes de perderlos/i);
+
+    // B-4 — ACCIONABLE. Un aviso que dice «date prisa» y no dice dónde es sólo una prisa.
+    // Lleva a los ACTIVOS, que son los únicos que se pueden promocionar (`canPromote`).
+    expect(screen.getByTestId('quota-caducidad-accion')).toBeInTheDocument();
+  });
+
+  it('el último día se dice «hoy», no una fecha que hay que interpretar', () => {
+    renderCon(pro(1, 0, enDias(0)));
+    expect(screen.getByTestId('quota-caducidad')).toHaveTextContent(/se renuevan hoy/i);
+  });
+
+  it('con el ciclo LEJOS no se pinta: el recordatorio sigue, la prisa no', () => {
+    renderCon(pro(3, 2, enDias(20)));
+
+    // Las dos cosas a la vez, porque es la diferencia entre «informar» y «meter prisa todo el
+    // mes»: el saldo se ve siempre; la urgencia, sólo cuando lo es.
+    expect(screen.getByTestId('quota-reminder')).toBeInTheDocument();
+    expect(screen.queryByTestId('quota-caducidad')).not.toBeInTheDocument();
+  });
+
+  it('con la cuota AGOTADA no se pinta, aunque el ciclo esté a un día', () => {
+    renderCon(pro(0, 0, enDias(1)));
+
+    expect(screen.getByTestId('quota-reminder')).toHaveTextContent(/has usado tus destacados/i);
+    expect(screen.queryByTestId('quota-caducidad')).not.toBeInTheDocument();
+  });
+
+  it('sin `periodEnd` —el Pro MANUAL— no se pinta nada de caducidad', () => {
+    renderCon({
+      isPro: true,
+      quotaSource: 'NONE',
+      limit: 0,
+      used: 0,
+      remaining: 0,
+      bumpQuota: { limit: 0, used: 0, remaining: 0 },
+    });
+
+    // Y tampoco el recordatorio: no tiene cuota mensual que contar (UXV.6 / D-1).
+    expect(screen.queryByTestId('quota-reminder')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('quota-caducidad')).not.toBeInTheDocument();
   });
 });
