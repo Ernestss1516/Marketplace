@@ -10,9 +10,30 @@ import type { Banner, BannerVariant } from '@/lib/api/banners';
 
 const DISMISSED_KEY = 'dismissed-banners';
 
+/**
+ * LOS TRES ESTILOS — sólo color, y cada uno con el token de SU intención.
+ *
+ * La forma no está aquí: la cadena de maquetado (`flex … rounded-md border px-4 py-3`) es
+ * una sola, común a los tres, y vive en el `className` del banner. Eso es la frontera del
+ * sistema de estilo puesta en una tabla: un modelo reviste los tres, no reorganiza ninguno.
+ *
+ * ── PROMO YA NO VA CON `--success`, Y ERA UN COLOR QUE MENTÍA ───────────────────────
+ *
+ * Decía `border-success-border bg-success text-success-foreground`, prestado, porque no
+ * había otra cosa. Pero `--success` no está libre: significa «ha ido bien» y se usa así en
+ * doce sitios —reporte resuelto, cambios guardados, reporte enviado, vendedor verificado—,
+ * así que un «20 % de descuento esta semana» salía pintado exactamente igual que un «se ha
+ * guardado». No es que quedara feo: el color estaba diciendo otra cosa.
+ *
+ * Ahora tiene el suyo, `--promo`, que además es el ÚNICO de los tres que cambia de un
+ * modelo a otro — y no por capricho. Info (azul) y aviso (amarillo) son convenciones que
+ * el usuario trae puestas de fuera de esta plataforma, y el registro las fija a propósito
+ * (decisión #2). De qué color es una oferta no lo trae nadie: eso es la casa hablando, y
+ * ahí sí manda el modelo. Ver docs/diagnostico-estilos-banner-por-modelo.md §2.
+ */
 const VARIANT_STYLES: Record<BannerVariant, string> = {
   INFO: 'border-info-border bg-info text-info-foreground',
-  PROMO: 'border-success-border bg-success text-success-foreground',
+  PROMO: 'border-promo-border bg-promo text-promo-foreground',
   WARNING: 'border-warning-border bg-warning text-warning-foreground',
 };
 

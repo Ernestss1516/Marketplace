@@ -791,10 +791,13 @@ describe('E14 · LOS SEMÁNTICOS DE UNA VERSIÓN se mezclan PARCIALMENTE', () =>
     expect(t.destructive).toBe('0 84.2% 46%');
   });
 
-  it('lo que no nombra —los otros 29— lo hereda del modelo', () => {
+  // 33 y no 29 desde que existe `--promo` (cuatro roles: suave, plena, trazo y letra).
+  // El número está escrito a mano a propósito: si alguien añade un semántico y no pasa por
+  // aquí, este test le dice que la cuenta se movió en vez de adaptarse en silencio.
+  it('lo que no nombra —los otros 33— lo hereda del modelo', () => {
     const t = resolverTokens(TARDE, MODELO_0.coloresPorDefecto, 'lab');
     const heredados = Object.entries(MODELO_0.semanticos).filter(([n]) => n !== 'destructive');
-    expect(heredados).toHaveLength(29);
+    expect(heredados).toHaveLength(33);
     for (const [nombre, valor] of heredados) {
       expect({ nombre, valor: t[nombre] }).toEqual({ nombre, valor });
     }
@@ -887,6 +890,13 @@ describe('E14 · SEMANTICOS_OSCUROS', () => {
     'info-surface': '#12305c',
     'info-border': '#1d4ed8',
     'info-foreground': '#bfdbfe',
+    // Promo llega a Contraluz por el molde, sin que el modelo lo nombre: es exactamente
+    // lo que este test defiende —que esparcir `SEMANTICOS_OSCUROS` siga siendo suficiente—,
+    // sólo que ahora con un semántico más que cuando se extrajo.
+    promo: '#2b0b33',
+    'promo-surface': '#4a1259',
+    'promo-border': '#a21caf',
+    'promo-foreground': '#f5d0fe',
     'destructive-subtle': '#3f0a0a',
     'destructive-border': '#991b1b',
     'destructive-strong': '#fca5a5',
@@ -912,8 +922,11 @@ describe('E14 · SEMANTICOS_OSCUROS', () => {
    * de E2). Que no estén es lo que hace que una versión que esparza esto se quede con las
    * del modelo **sin tener que acordarse**.
    */
-  it('trae los 27 de ESTADO y ninguna de las 3 convenciones', () => {
-    expect(Object.keys(SEMANTICOS_OSCUROS)).toHaveLength(27);
+  // 31 desde `--promo`: los 27 de siempre más sus cuatro roles. Promo ES de estado a
+  // efectos del molde —una oferta se lee distinta de noche que de día, igual que un
+  // aviso—, al contrario que las tres convenciones de abajo, cuyo color es significado.
+  it('trae los 31 de ESTADO y ninguna de las 3 convenciones', () => {
+    expect(Object.keys(SEMANTICOS_OSCUROS)).toHaveLength(31);
     for (const convencion of ['rating', 'featured', 'favorite']) {
       expect(SEMANTICOS_OSCUROS).not.toHaveProperty(convencion);
     }

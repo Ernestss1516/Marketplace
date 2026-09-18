@@ -523,6 +523,15 @@ export const SEMANTICOS_OSCUROS: Readonly<Record<string, string>> = {
   'info-border': '#1d4ed8',
   'info-foreground': '#bfdbfe',
 
+  // Promo, dado la vuelta con el mismo criterio que info: el magenta pálido pasa a
+  // ser el TEXTO y el magenta profundo, la superficie. Medido sobre el lienzo
+  // carbón: 12,80:1 sobre la suave y 10,08:1 sobre la plena (info oscuro da 11,72
+  // y 9,22, así que queda en su rango y no de milagro).
+  promo: '#2b0b33',
+  'promo-surface': '#4a1259',
+  'promo-border': '#a21caf',
+  'promo-foreground': '#f5d0fe',
+
   'destructive-subtle': '#3f0a0a',
   'destructive-border': '#991b1b',
   'destructive-strong': '#fca5a5',
@@ -709,6 +718,49 @@ export const MODELO_0: Modelo = {
     'info-surface': '#dbeafe',
     'info-border': '#bfdbfe',
     'info-foreground': '#1e40af',
+
+    /**
+     * PROMO — «te ofrecemos algo». EL ÚNICO DE LOS SEMÁNTICOS QUE NO ES UN ESTADO,
+     * y por eso es el único que cada modelo afina (ver los cinco de abajo).
+     *
+     * ── POR QUÉ NACE ──────────────────────────────────────────────────────────
+     *
+     * El banner de promoción se pintaba con `--success`, que no estaba libre: dice
+     * «ha ido bien» en doce sitios (reporte resuelto, guardado, enviado, vendedor
+     * verificado…). O sea que «20 % esta semana» salía con el mismo color que un
+     * «se ha guardado». Es el argumento con el que existe `--pending` cuatro
+     * líneas más abajo —dos cosas distintas pintadas igual es perder información—,
+     * sin aplicar. Diagnóstico: docs/diagnostico-estilos-banner-por-modelo.md §2.
+     *
+     * ── POR QUÉ MAGENTA, Y NO EL PRIMARIO DEL ADMIN ───────────────────────────
+     *
+     * Derivarlo del primario era lo obvio —promo es la marca hablando— y lo tumba
+     * un dato: el primario por defecto del Modelo 0 es AZUL, e `--info` es azul.
+     * Promo habría salido azul pálido al lado del info azul pálido, o sea los dos
+     * estilos que el usuario tiene que distinguir, casi iguales, y justo con la
+     * paleta de fábrica.
+     *
+     * Magenta queda libre entre los tomados: azul (info), amarillo (aviso), verde
+     * (éxito), rojo (error) y morado (`pending`). De `pending` lo separan 21° de
+     * tono, que es poco sobre el papel y no importa aquí: `pending` es una insignia
+     * de estado de ticket en el backoffice y promo es una superficie de banner del
+     * sitio público. No comparten pantalla.
+     *
+     * ── LA FORMA ES LA DE `info`, NO LA DE `warning` ──────────────────────────
+     *
+     * Cuatro roles y no seis: sin `-solid` ni `-solid-hover`, porque no hay ningún
+     * relleno macizo de promo —no existe el «botón promo»—. Inventar los dos por
+     * simetría sería dejar dos tokens que nadie consume, que es lo que la barrera
+     * de paridad de tokens vigila en el otro sentido.
+     *
+     * Medido: la letra da 7,67:1 sobre la superficie suave y 7,08:1 sobre la
+     * plena, por encima de lo que dan hoy info (8,01 / 7,15) y aviso (6,62 / 6,38).
+     * `contraste-modelos.spec.ts` lo mide en cada modelo y cada versión.
+     */
+    promo: '#fdf4ff',
+    'promo-surface': '#fae8ff',
+    'promo-border': '#f5d0fe',
+    'promo-foreground': '#86198f',
 
     // Asimétrico a propósito: `destructive` y `destructive-foreground` los define
     // shadcn y los consume `Button`.
@@ -1299,7 +1351,25 @@ export const MODELO_CALIDO_EDITORIAL: Modelo = {
    * El agujero se destapó construyendo el modelo Premium, al intentar una versión oscura:
    * ver el comentario de `MODELO_PREMIUM`.
    */
-  semanticos: { ...MODELO_0.semanticos, destructive: '0 84.2% 46%' },
+  /**
+   * Y el PROMO, que es el otro que este modelo afina — por el motivo contrario al del rojo.
+   *
+   * El rojo se toca porque una convención tiene que seguir cumpliendo sobre ESTE lienzo.
+   * El promo se toca porque **no es una convención**: es la plataforma ofreciendo algo, o
+   * sea la marca hablando, y en un modelo terracota el magenta frío del Modelo 0 suena a
+   * otra casa. Se calienta hacia el rosa-magenta, que convive con el barro del primario
+   * (18°) sin confundirse con el rojo de error.
+   *
+   * Medido: 7,22:1 la letra sobre la superficie suave y 6,71:1 sobre la plena.
+   */
+  semanticos: {
+    ...MODELO_0.semanticos,
+    destructive: '0 84.2% 46%',
+    promo: '#fdf2f8',
+    'promo-surface': '#fce7f3',
+    'promo-border': '#fbcfe8',
+    'promo-foreground': '#9d174d',
+  },
 
   ejes: {
     // El cuerpo sigue en Inter: es legible, está en el repo y la escala tipográfica es
@@ -1646,8 +1716,25 @@ export const MODELO_FRESCO_CONFIANZA: Modelo = {
    *
    * Copiados y no importados, como allí: un modelo declara TODO lo suyo, y el día que éste
    * quiera su propio rojo se cambia aquí y no en dos sitios.
+   *
+   * ── LA EXCEPCIÓN: `promo` ────────────────────────────────────────────────────────
+   *
+   * El párrafo de arriba vale para error, éxito, aviso e info, y NO vale para promo, que
+   * no es un estado ni una convención: es la plataforma ofreciendo algo. No hay nada que
+   * el usuario «traiga puesto de fuera» sobre de qué color es una oferta, así que aquí sí
+   * manda el modelo. Éste lo lleva a la orquídea, un magenta con algo de azul que pega con
+   * el primario frío (222°) sin acercarse al violeta del resalte.
+   *
+   * Medido: 7,74:1 sobre la superficie suave y 6,85:1 sobre la plena. Su letra cae en 284°,
+   * el más frío de los cinco promos.
    */
-  semanticos: { ...MODELO_0.semanticos },
+  semanticos: {
+    ...MODELO_0.semanticos,
+    promo: '#fbf3fe',
+    'promo-surface': '#f4e2fd',
+    'promo-border': '#e6bcfa',
+    'promo-foreground': '#7b1c9e',
+  },
 
   ejes: {
     // El cuerpo sigue en Inter: es legible, está en el repo y la escala tipográfica es
@@ -2286,8 +2373,28 @@ export const MODELO_PREMIUM: Modelo = {
    * En este modelo la tentación es mayor que en ninguno —un monocromo pide que TODO sea
    * gris— y por eso conviene decirlo: el acento de bronce es el único color que este
    * modelo se permite por gusto. Los otros cinco son información.
+   *
+   * ── EL SEGUNDO QUE SE PERMITE POR GUSTO: `promo` ─────────────────────────────────
+   *
+   * Y con eso la frase de arriba pasa a ser «el acento de bronce y el promo». No es una
+   * grieta en el monocromo: promo no es información, es la casa ofreciendo algo, y un
+   * modelo que se llama Premium no puede anunciar una oferta con el mismo magenta alegre
+   * que Vibrante. Aquí es una CIRUELA desaturada —300° pero con la mitad de saturación—,
+   * que al lado del bronce se lee como sobria en vez de como una pegatina.
+   *
+   * Medido: 8,82:1 sobre la superficie suave y 7,87:1 sobre la plena — el más alto de los
+   * cinco, que es lo que se espera del modelo más contrastado.
+   *
+   * En `oscuro` no se hereda esto: manda el promo del molde (`SEMANTICOS_OSCUROS`), igual
+   * que con los otros semánticos.
    */
-  semanticos: { ...MODELO_0.semanticos },
+  semanticos: {
+    ...MODELO_0.semanticos,
+    promo: '#faf5fb',
+    'promo-surface': '#f2e6f5',
+    'promo-border': '#ddc3e4',
+    'promo-foreground': '#6b2d6b',
+  },
 
   ejes: {
     // El cuerpo sigue en Inter: la escala tipográfica es estructura (T3), no del modelo.
@@ -2650,8 +2757,27 @@ export const MODELO_VIBRANTE: Modelo = {
    * el rojo como TEXTO sobre el lienzo de «Pop» da 4,95:1 y sobre el de «Suave», 4,82:1.
    * Las dos por encima del 4,5 que exige 1.4.3, que es lo que destapó la versión «Tarde»
    * del Cálido/Editorial cuando su papel tostado bajó ese mismo número a 4,446.
+   *
+   * ── `promo`, EN CAMBIO, SÍ COMPITE CON LA MARCA — Y AQUÍ ES LA MARCA ─────────────
+   *
+   * La frase de arriba («el error no compite con la marca, informa») es justo lo que
+   * separa a los otros semánticos de promo: **promo no informa, ofrece**. Y en este modelo
+   * pasa algo que en ningún otro: el primario ya es magenta (330°), así que el promo de
+   * casa no es un color prestado sino el de la propia marca, un punto más encendido que el
+   * del Modelo 0 —el trazo sube a fucsia vivo— para que una oferta no se apague al lado de
+   * una paleta que grita.
+   *
+   * Medido: 8,27:1 sobre la superficie suave y 6,87:1 sobre la plena. El trazo da 2,38:1,
+   * casi el doble que el del Modelo 0 (1,28), que es exactamente lo que se le pide a este
+   * modelo: aquí un contorno tímido se lee como un descuido.
    */
-  semanticos: { ...MODELO_0.semanticos },
+  semanticos: {
+    ...MODELO_0.semanticos,
+    promo: '#fff0fc',
+    'promo-surface': '#fbd5f1',
+    'promo-border': '#f472c4',
+    'promo-foreground': '#8a1259',
+  },
 
   ejes: {
     // El cuerpo sigue en Inter: la escala tipográfica es estructura (T3), no del modelo.

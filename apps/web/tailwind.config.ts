@@ -72,6 +72,15 @@ const config: Config = {
   				border: 'var(--info-border)',
   				foreground: 'var(--info-foreground)'
   			},
+  			/* Promo — cuatro roles como `info` (sin `-solid`: no hay «botón promo»).
+  			   El único semántico que no es un estado, y el único que cada modelo
+  			   afina — ver globals.css. */
+  			promo: {
+  				DEFAULT: 'var(--promo)',
+  				surface: 'var(--promo-surface)',
+  				border: 'var(--promo-border)',
+  				foreground: 'var(--promo-foreground)'
+  			},
   			/* `destructive` ya existía (shadcn): es el relleno macizo. Gana su
   			   superficie suave con nombre propio — ver globals.css. */
   			'destructive-subtle': 'var(--destructive-subtle)',
