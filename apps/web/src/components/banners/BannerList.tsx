@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Share2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { isSafeContentUrl } from '@/lib/blocks/validation';
 import type { Banner, BannerVariant } from '@/lib/api/banners';
 
@@ -59,6 +60,12 @@ async function shareBanner(banner: Banner): Promise<'shared' | 'copied' | 'faile
 interface Props {
   /** Banners ya resueltos por SSR — se renderizan de inmediato (SEO, sin esperar al cliente). */
   banners: Banner[];
+  /**
+   * El espaciado (y la caja) que esta lista ocupa en SU página, en la raíz del
+   * propio componente. Ver el bloque de abajo: es lo que hace que «no hay banner»
+   * y «no hay espacio» sean la misma cosa.
+   */
+  className?: string;
 }
 
 /**
@@ -67,8 +74,38 @@ interface Props {
  * no romper la hidratación; el filtro real corre en un efecto tras montar. Eso
  * acepta un flash breve para banners YA descartados en visitas anteriores — el
  * propio mini-diseño autoriza este trade-off si evitarlo del todo complica de más.
+ *
+ * ── EL ESPACIADO ES SUYO, Y ESO ARREGLA UN HUECO ────────────────────────────
+ *
+ * Hasta aquí, cada página envolvía la lista en un `<div className="mb-6">` (o
+ * `pt-4`, o `mb-8`) y la protegía con `banners.length > 0`. Las dos cosas fallan
+ * a la vez en el único camino que decide de CLIENTE: el servidor manda banners
+ * —activos, en fecha, en esa ubicación—, así que el guard pasa y el envoltorio se
+ * monta; después el efecto de abajo ve que el visitante ya los descartó y esto
+ * devuelve `null`. El envoltorio se queda vacío **con su margen**.
+ *
+ * MEDIDO PÁGINA A PÁGINA (docs/diagnostico-hueco-banner-invisible.md §2.1), y el
+ * resultado no es el que parece: **16 px en la portada y 0 px en las otras
+ * nueve**. La portada usa PADDING (`pt-4`), que no colapsa con nada; las demás
+ * usan margen, y el elemento que va justo encima del banner ya trae el suyo
+ * (`mb-6`, `mb-10`…), que se funde con el del envoltorio y lo absorbe.
+ *
+ * Esos nueve ceros no son «no hay defecto»: son un envoltorio LATENTE. No cuesta
+ * píxeles mientras el vecino de arriba conserve su margen, y los cuesta el día que
+ * alguien se lo quite, en una página que nadie estaba tocando. El arreglo quita la
+ * trampa; que además quite 16 px visibles es el caso de hoy, no la razón.
+ *
+ * Con la clase EN LA RAÍZ, ese estado no existe: `null` se lleva el margen con
+ * él, igual que hace `FeaturedBlock` con su `mb-6`. Y el guard del punto de
+ * llamada sobra —era la segunda copia de la decisión que se toma diez líneas más
+ * abajo—, que es justamente cómo se llegó a que una de las dos se quedara atrás.
+ *
+ * El espaciado sigue decidiéndolo la página, que es quien conoce su ritmo: las
+ * seis de cuenta no pasan nada (su `space-y-*` ya lo da) y las diez públicas
+ * pasan la misma clase que antes llevaba el envoltorio. Ni un píxel de cambio
+ * cuando el banner SÍ se pinta.
  */
-export function BannerList({ banners }: Props) {
+export function BannerList({ banners, className }: Props) {
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
@@ -96,7 +133,7 @@ export function BannerList({ banners }: Props) {
   if (visible.length === 0) return null;
 
   return (
-    <div className="space-y-3">
+    <div className={cn('space-y-3', className)} data-testid="banner-list">
       {visible.map((banner) => (
         <div
           key={banner.id}

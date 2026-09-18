@@ -86,6 +86,31 @@ function renderBlock(
 // /paginas/[slug]. Cada bloque se envuelve en su propio contenedor con
 // espaciado vertical consistente — los renderizadores individuales no se
 // preocupan del ritmo entre bloques.
+//
+// ── `empty:hidden`: EL BLOQUE QUE NO SE PINTA TAMPOCO OCUPA ──────────────────
+//
+// Cuatro renderizadores pueden devolver `null` —publicidad con imagen de dominio
+// no permitido, imagen igual, `listings` sin datos o con categoría vacía—, y el
+// envoltorio de su bloque se montaba igual: un `<div>` vacío dentro del
+// `space-y-[var(--ritmo-bloques)]`.
+//
+// EN MEDIO ESO NO SE NOTA, y merece decirse porque invita a «arreglar» de más: el
+// `<div>` vacío se auto-colapsa y su margen se funde con el del hermano
+// siguiente, así que 64 y 64 dan 64. Donde no hay hermano con quien fundirse es
+// AL FINAL: ahí el margen se escapa del contenedor y separa los bloques de lo que
+// venga detrás. Inyectado en las páginas reales: **+64 px** en la portada y en
+// /paginas/[slug], **+16 px** en un post del blog (ahí lo que sigue tiene margen
+// propio y absorbe el resto), y **+0 px** en medio en las tres.
+// docs/diagnostico-hueco-banner-invisible.md §2.2.
+//
+// EL ENVOLTORIO NO SE PUEDE QUITAR (que sería lo obvio): `TextBlockRenderer`
+// devuelve `<MarkdownBody>`, que rinde VARIOS hermanos. Sin el `<div>`, el
+// `space-y-*` metería 64 px entre cada párrafo del artículo.
+//
+// Y no puede decidirlo React: el padre no sabe si el hijo devolverá `null` sin
+// renderizarlo —`renderBlock` devuelve `<AdBannerBlockRenderer/>`, no su
+// resultado—. `:empty` lo pregunta DESPUÉS, en el mismo pintado y no en un
+// efecto, así que no hay salto que reservar ni que quitar.
 export function BlockRenderer({
   blocks,
   listingsData,
@@ -98,7 +123,9 @@ export function BlockRenderer({
   return (
     <div className="space-y-[var(--ritmo-bloques)]">
       {blocks.map((block) => (
-        <div key={block.id}>{renderBlock(block, listingsData, categories)}</div>
+        <div key={block.id} className="empty:hidden">
+          {renderBlock(block, listingsData, categories)}
+        </div>
       ))}
     </div>
   );

@@ -87,11 +87,7 @@ export default async function MisAnunciosPage() {
         abajo. Sigue estando —es un slot de negocio—, pero después de que la página diga
         qué es y ofrezca sus acciones.
       */}
-      {banners.length > 0 && (
-        <div className="mb-6">
-          <BannerList banners={banners} />
-        </div>
-      )}
+      <BannerList banners={banners} className="mb-6" />
 
       <MisAnunciosClient
         ilustracionVacio={await getIlustracion('empty-my-listings')}

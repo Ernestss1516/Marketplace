@@ -88,11 +88,20 @@ function renderBlock(block: HomeBlock, props: Omit<HomeBlockRendererProps, 'bloc
 
 export function HomeBlockRenderer({ blocks, ...props }: HomeBlockRendererProps) {
   // Espaciado vertical uniforme: los renderizadores individuales no se ocupan
-  // del ritmo entre bloques. Mismo contenedor que BlockRenderer.tsx:89-93.
+  // del ritmo entre bloques. Mismo contenedor que BlockRenderer.tsx.
+  //
+  // `empty:hidden` por el mismo motivo y con la misma medición que allí (ver su
+  // bloque, y docs/diagnostico-hueco-banner-invisible.md §2.2): aquí también hay
+  // bloques que se esconden solos —el carrusel sin categorías válidas, la rejilla
+  // con imagen de dominio no permitido, `listings` sin anuncios, la tabla de
+  // búsquedas sin enlaces—, y un bloque escondido EL ÚLTIMO dejaba 64 px entre la
+  // portada y el pie.
   return (
     <div className="space-y-[var(--ritmo-bloques)]">
       {blocks.map((block) => (
-        <div key={block.id}>{renderBlock(block, props)}</div>
+        <div key={block.id} className="empty:hidden">
+          {renderBlock(block, props)}
+        </div>
       ))}
     </div>
   );

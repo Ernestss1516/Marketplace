@@ -65,7 +65,7 @@ export default async function PerfilPage() {
 
         Hijo directo del `space-y-8`, sin margen propio (§3.3).
       */}
-      {banners.length > 0 && <BannerList banners={banners} />}
+      <BannerList banners={banners} />
 
       {/* Header */}
       <div className="flex items-center gap-5">

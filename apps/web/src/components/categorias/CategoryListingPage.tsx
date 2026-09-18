@@ -498,11 +498,7 @@ export async function CategoryListingPage({
           /busqueda: dentro del <main> quedaría en la columna estrecha.
           Va después del aviso de fallback de arriba a propósito: si coinciden, el
           del sistema —el que explica por qué faltan los filtros— se lee primero. */}
-      {banners.length > 0 && (
-        <div className="mb-6">
-          <BannerList banners={banners} />
-        </div>
-      )}
+      <BannerList banners={banners} className="mb-6" />
 
       <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
         {/* Filter sidebar — hidden in fallback mode (no facets available) */}

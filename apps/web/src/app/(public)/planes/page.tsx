@@ -89,11 +89,7 @@ export default async function PlanesPage() {
 
       {/* Acotado al mismo ancho que la rejilla de planes: a sangre de contenedor
           quedaría más ancho que todo lo que hay debajo. */}
-      {banners.length > 0 && (
-        <div className="mx-auto mb-8 max-w-4xl">
-          <BannerList banners={banners} />
-        </div>
-      )}
+      <BannerList banners={banners} className="mx-auto mb-8 max-w-4xl" />
 
       <div className="mx-auto grid max-w-4xl gap-6 md:grid-cols-3">
         {/* ── Free ── */}

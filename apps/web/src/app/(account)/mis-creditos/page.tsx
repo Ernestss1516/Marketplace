@@ -120,7 +120,7 @@ export default async function MisCreditosPage() {
       {/* Hijo directo del `space-y-10` — sin margen propio (§3.3). Baja por debajo de la
           franja con el mismo criterio que el cupón: promociona, y lo que promociona es
           conseguir saldo, no mirarlo. */}
-      {banners.length > 0 && <BannerList banners={banners} />}
+      <BannerList banners={banners} />
 
       {/*
         ── 2. CONSEGUIR MÁS ───────────────────────────────────────────────────

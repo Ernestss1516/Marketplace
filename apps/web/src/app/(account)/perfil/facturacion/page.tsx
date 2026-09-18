@@ -53,7 +53,7 @@ export default async function FacturacionPage() {
       {/* Hijo directo del `space-y-8`: el espaciado ya lo da el contenedor, así
           que aquí NO va el `mb-6` de las páginas públicas — pondría un hueco
           doble. Ver docs/diseno-banners-ubicaciones.md §3.3. */}
-      {banners.length > 0 && <BannerList banners={banners} />}
+      <BannerList banners={banners} />
 
       <FacturacionForm initialUser={user} token={token} />
 

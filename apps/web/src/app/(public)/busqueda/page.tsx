@@ -276,11 +276,7 @@ export default async function BusquedaPage({
       {/* A ANCHO COMPLETO Y FUERA de la fila de dos columnas: metido dentro del
           <main> quedaría encajonado a la derecha del panel de filtros, en una
           columna más estrecha que el propio panel. */}
-      {banners.length > 0 && (
-        <div className="mb-6">
-          <BannerList banners={banners} />
-        </div>
-      )}
+      <BannerList banners={banners} className="mb-6" />
 
       <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
         {/* Sidebar */}
