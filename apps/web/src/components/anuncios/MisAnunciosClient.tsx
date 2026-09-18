@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useTransition } from 'react';
 import Link from 'next/link';
-import { Loader2, PlusCircle, Star, TrendingUp } from 'lucide-react';
+import { Clock, Loader2, PlusCircle, Star, TrendingUp } from 'lucide-react';
 import { IlustracionImagen } from '@/components/shared/IlustracionImagen';
 import type { IlustracionResuelta } from '@/lib/ilustraciones';
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,7 @@ import { MyListingCard } from './MyListingCard';
 import { ProHint } from '@/components/pro/ProGate';
 import { getMyListings } from '@/lib/api/anuncios';
 import { getProStatus, getWallet, type ProStatus } from '@/lib/api/billing';
+import { cuandoCaduca, loQueSePierde, resolverAvisoCaducidad } from './cuota-caducidad';
 import type { BumpPricing, ListingSummary } from '@/types';
 
 // "Todos" (value: null) es "sin filtro explícito" — el backend (findMine) ya
@@ -75,6 +76,19 @@ export function MisAnunciosClient({
    * destacados gratis de este mes» sobre unos destacados que nunca tuvo.
    */
   const tieneCuota = proStatus.isPro && proStatus.quotaSource !== 'NONE';
+
+  /**
+   * «SE VA A PERDER LO QUE NO USES» — la parte que el recordatorio de arriba nunca dijo.
+   *
+   * Contaba CUÁNTA cuota queda y callaba lo único que la hace urgente: que **no se acumula**.
+   * El dato para decirlo (`periodEnd`) ya llegaba en la misma respuesta y no lo leía nadie.
+   *
+   * Se recalcula en cada render a propósito, no se memoiza: depende del reloj, y `handleAction`
+   * ya refresca `proStatus` tras cada bump o destacado — así que en cuanto el vendedor gasta lo
+   * que le quedaba, el aviso se va solo sin recargar la página. Memoizarlo por `proStatus`
+   * congelaría el reloj hasta la siguiente acción.
+   */
+  const avisoCaducidad = resolverAvisoCaducidad(proStatus);
 
   const refetch = useCallback(
     (status: string | null) => {
@@ -146,6 +160,47 @@ export function MisAnunciosClient({
               ? `Y ${proStatus.bumpQuota.remaining} bump${proStatus.bumpQuota.remaining === 1 ? '' : 's'} gratis.`
               : 'Y ningún bump gratis disponible.'}
           </span>
+
+          {/*
+            LA CADUCIDAD, DENTRO DEL MISMO AVISO Y NO EN UNA CAJA APARTE.
+
+            Es la misma cosa —la cuota de este mes—, y partirla en dos recuadros habría puesto
+            el saldo en uno y su fecha límite en otro, que es la forma de que se lea uno y no el
+            otro. Aquí ocupa su propia línea (`basis-full`) porque es lo que cambia la decisión:
+            lo de arriba informa, esto pide actuar.
+
+            Y SÓLO APARECE CUANDO TOCA. `resolverAvisoCaducidad` devuelve `null` en los cuatro
+            casos en que no hay nada que decir: no es Pro, es Pro sin ciclo (concedido a mano),
+            ya gastó la cuota, o el ciclo aún queda lejos. Un aviso de urgencia permanente deja
+            de leerse justo el día que importa.
+          */}
+          {avisoCaducidad && (
+            <span
+              className="flex basis-full items-center gap-2 font-medium"
+              data-testid="quota-caducidad"
+            >
+              <Clock className="h-4 w-4 shrink-0" aria-hidden />
+              <span>
+                Se renuevan {cuandoCaduca(avisoCaducidad)} y no se acumulan: usa{' '}
+                {loQueSePierde(avisoCaducidad)} antes de perderlos.
+              </span>
+              {/*
+                ACCIONABLE, Y POR ESO EL AVISO VIVE AQUÍ Y NO EN `/mis-creditos`. La cuota se
+                gasta desde el botón «Promocionar» de cada anuncio, y sólo los ACTIVOS pueden
+                promocionarse (`canPromote`). Esto filtra a esa pestaña, que es literalmente la
+                lista de anuncios donde el vendedor puede gastar lo que está a punto de perder.
+                Un enlace a la pantalla de saldo le habría enseñado la misma cifra otra vez.
+              */}
+              <button
+                type="button"
+                onClick={() => handleFilterChange('ACTIVE')}
+                className="underline underline-offset-2 hover:no-underline"
+                data-testid="quota-caducidad-accion"
+              >
+                Ver mis anuncios activos
+              </button>
+            </span>
+          )}
         </div>
       )}
 
