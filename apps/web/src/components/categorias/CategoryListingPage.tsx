@@ -4,12 +4,11 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { AlertCircle, Package } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { ListingCard } from '@/components/anuncios/ListingCard';
-import { ListingCardWide } from '@/components/anuncios/ListingCardWide';
-import { SponsoredCard, isSponsoredAdHit } from '@/components/anuncios/SponsoredCard';
+import { isSponsoredAdHit } from '@/components/anuncios/SponsoredCard';
 import { FavoritesGridProvider } from '@/components/anuncios/FavoritesGridContext';
 import { CardAttributesProvider, WideCardAttributesProvider } from '@/components/anuncios/CardAttributesContext';
 import { FilterPanel } from '@/components/busqueda/FilterPanel';
+import { ResultsList } from '@/components/busqueda/ResultsList';
 import { FeaturedBlock } from '@/components/busqueda/FeaturedBlock';
 import { ViewSwitcher } from '@/components/busqueda/ViewSwitcher';
 import { CrearAlertaButton } from '@/components/busqueda/CrearAlertaButton';
@@ -564,27 +563,12 @@ export async function CategoryListingPage({
                       listingIds={[...new Set([...featured.map((l) => l.id), ...listingHits.map((l) => l.id)])]}
                     >
                       <FeaturedBlock listings={featured} />
-                      {effectiveView === 'AMPLIADA' ? (
-                        <div className="flex flex-col gap-3">
-                          {hits.map((hit, i) =>
-                            isSponsoredAdHit(hit) ? (
-                              <SponsoredCard key={`sponsored-${hit.id}`} ad={hit} />
-                            ) : (
-                              <ListingCardWide key={hit.id} listing={hit} priority={i < 4} />
-                            ),
-                          )}
-                        </div>
-                      ) : (
-                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-                          {hits.map((hit, i) =>
-                            isSponsoredAdHit(hit) ? (
-                              <SponsoredCard key={`sponsored-${hit.id}`} ad={hit} />
-                            ) : (
-                              <ListingCard key={hit.id} listing={hit} priority={i < 4} />
-                            ),
-                          )}
-                        </div>
-                      )}
+                      {/* El reparto modo ↔ formato (y la variante que recibe el patrocinado
+                          intercalado) vive en `ResultsList`, compartido con /busqueda. */}
+                      <ResultsList
+                        hits={hits}
+                        view={effectiveView === 'AMPLIADA' ? 'AMPLIADA' : 'LISTA'}
+                      />
                     </FavoritesGridProvider>
                   </WideCardAttributesProvider>
                 </CardAttributesProvider>

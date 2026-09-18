@@ -85,11 +85,13 @@ test.describe('Patrocinados en la búsqueda', () => {
     // test no tiene salida a redes externas (example.com resuelve a un error
     // de red), así que en vez de comprobar que la navegación externa
     // TERMINA con éxito, comprobamos el mecanismo que la garantiza — href,
-    // target=_blank y rel=noopener noreferrer (protección tabnabbing) — y que
-    // el click efectivamente abre una pestaña nueva (no navega la actual).
+    // target=_blank y rel (tabnabbing + publicidad) — y que el click
+    // efectivamente abre una pestaña nueva (no navega la actual).
     await expect(card).toHaveAttribute('href', targetUrl);
     await expect(card).toHaveAttribute('target', '_blank');
-    await expect(card).toHaveAttribute('rel', 'noopener noreferrer');
+    // `sponsored` se suma a los dos de seguridad, no los desplaza: el buscador tiene que
+    // saber que es un enlace pagado y el navegador que no puede tocar esta pestaña.
+    await expect(card).toHaveAttribute('rel', 'sponsored noopener noreferrer');
 
     const [newPage] = await Promise.all([
       page.context().waitForEvent('page'),
