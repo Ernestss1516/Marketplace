@@ -13,9 +13,15 @@
  *           única restricción de dominio. Un origen ajeno no se pinta.
  *   · SIGUE SIN HABER `<video>` — el sprite es una imagen; la garantía de la ráfaga 3 no se
  *           toca, y aquí se vuelve a comprobar con la previsualización montada.
- *   · TÁCTIL — un toque no arma la previsualización. El CSS ya la esconde tras
- *           `@media (hover: hover)`, pero montarla igualmente sería descargar en móvil una
- *           imagen que ese dispositivo nunca va a animar (decisión de producto (b)).
+ *   · TÁCTIL — **pasar el dedo por encima no arma nada**. Sigue siendo cierto con la previa
+ *           en móvil, y ahora es la barrera que la protege: lo que enciende la previsualización
+ *           en táctil es un toque DELIBERADO sobre el botón de vídeo, nunca el roce de un dedo
+ *           que pasa haciendo scroll. Ese camino se prueba en `previa-video-tap.test.tsx`.
+ *
+ * ESTE FICHERO CUBRE EL CAMINO DEL RATÓN. El del toque vive aparte a propósito: son dos
+ * disparadores con reglas distintas (uno es exclusivo por naturaleza, el otro hay que
+ * coordinarlo; uno no se apaga, el otro alterna), y mezclarlos habría dado un fichero donde
+ * no se ve cuál de los dos protege cada garantía.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -104,8 +110,22 @@ describe('La pereza — la imagen se pide al entrar el ratón, no antes', () => 
     // La geometría (`background-size: 500% 100%`), el `steps(5)`, el `@media (hover: hover)`
     // y el `prefers-reduced-motion` viven en `globals.css`: aquí sólo entra la URL, que es
     // lo único que cambia por anuncio.
-    expect(capa.className).toContain('sprite-hover');
+    expect(capa.className).toContain('sprite-previa');
     expect(capa.getAttribute('style')).toContain(SPRITE);
+  });
+
+  it('y NO lleva `data-tap`: la anima el `:hover` del CSS, no la regla del toque', () => {
+    const { container } = render(
+      <CardPhotoCarousel {...base} hasVideo videoPreviewUrl={SPRITE} />,
+    );
+
+    entrarConRaton(contenedor(container));
+
+    // LOS DOS CAMINOS TIENEN QUE SEGUIR SIENDO DISTINGUIBLES. Si el hover marcara también
+    // `data-tap`, la animación de escritorio dejaría de depender de `@media (hover: hover)` y
+    // pasaría a estar encendida por una regla que vive fuera de esa consulta — o sea, la
+    // decisión de producto (b) se habría desactivado sin que nadie tocara la consulta.
+    expect(screen.getByTestId('card-video-preview')).not.toHaveAttribute('data-tap');
   });
 
   it('y no roba el clic: la tarjeta entera sigue siendo un enlace al anuncio', () => {
@@ -118,7 +138,7 @@ describe('La pereza — la imagen se pide al entrar el ratón, no antes', () => 
   });
 });
 
-describe('Táctil — un toque no arma la previsualización (decisión (b))', () => {
+describe('Táctil — un dedo que pasa por encima no arma la previsualización', () => {
   it('un `pointerenter` de tipo `touch` no monta nada', () => {
     const { container } = render(
       <CardPhotoCarousel {...base} hasVideo videoPreviewUrl={SPRITE} />,
@@ -126,10 +146,18 @@ describe('Táctil — un toque no arma la previsualización (decisión (b))', ()
 
     entrar(contenedor(container), 'touch');
 
-    // El CSS ya escondería la capa en táctil (`@media (hover: hover) and (pointer: fine)`),
-    // pero montarla igualmente costaría la DESCARGA de una imagen que ese dispositivo nunca
-    // va a animar — en la vista de más tráfico y en la red más cara. Por eso se filtra
-    // también aquí, y no sólo en la hoja de estilos.
+    /**
+     * ESTA BARRERA NO SE RELAJA CON LA PREVIA EN MÓVIL: SE VUELVE SU CIMIENTO.
+     *
+     * Un toque en táctil dispara `mouseenter`/`pointerover` por compatibilidad, así que sin
+     * este filtro **rozar una tarjeta al hacer scroll** bajaría su sprite. En una parrilla de
+     * 24, recorrer la página con el dedo las armaría casi todas — los 888 KB que el
+     * diagnóstico midió para la opción A (§2), pagados sin que nadie haya pedido nada.
+     *
+     * Lo que la ráfaga del tap añade NO pasa por aquí: es un `onClick` sobre el BOTÓN de
+     * vídeo, un objetivo acotado y un gesto deliberado. Los dos hechos conviven: el roce no
+     * arma, el toque sí.
+     */
     expect(screen.queryByTestId('card-video-preview')).not.toBeInTheDocument();
   });
 });
@@ -184,16 +212,56 @@ describe('El CSS — la decisión (b) y la accesibilidad, sobre el fichero', () 
   // Red del propio test: si el fichero se moviera, esto no puede pasar en verde afirmando
   // que ha revisado unas reglas que no ha leído.
   it('la hoja de estilos contiene las reglas del sprite', () => {
-    expect(css).toContain('.sprite-hover');
+    expect(css).toContain('.sprite-previa');
     expect(css).toContain('@keyframes sprite-play');
   });
 
-  it('la animación vive tras `hover: hover` y `pointer: fine` — NO existe en táctil', () => {
-    const bloque = css.slice(css.indexOf('.sprite-hover'));
+  /**
+   * A QUÉ PROFUNDIDAD ESTÁ UN SELECTOR: 0 = nivel superior, 1 = dentro de una consulta.
+   *
+   * SE CUENTAN LLAVES Y NO SE BUSCAN CADENAS, y eso costó un rojo que no llegó a existir: la
+   * primera versión de estas dos barreras comprobaba que la regla del toque apareciera
+   * *después* del bloque del hover, y **la mutación de meterla dentro de la consulta pasó en
+   * verde** — porque «después de la llave que cierra el selector interno» lo cumplen las dos
+   * posiciones. Lo que distingue dentro de fuera no es el orden, es el anidamiento.
+   *
+   * Los comentarios se quitan antes: este fichero está lleno de prosa con llaves dentro
+   * (`${...}`, ejemplos de código), y cualquiera de ellas descuadraría la cuenta.
+   */
+  const profundidadDe = (selector: string) => {
+    const limpio = css.replace(/\/\*[\s\S]*?\*\//g, '');
+    const hasta = limpio.slice(0, limpio.indexOf(selector));
+    expect(hasta.length).toBeGreaterThan(0); // el selector existe de verdad
+    return (hasta.match(/\{/g) ?? []).length - (hasta.match(/\}/g) ?? []).length;
+  };
+
+  it('la animación DEL RATÓN sigue DENTRO de `hover: hover` y `pointer: fine`', () => {
+    const bloque = css.slice(css.indexOf('.sprite-previa'));
     expect(bloque).toMatch(/@media\s*\(hover:\s*hover\)\s*and\s*\(pointer:\s*fine\)/);
     // Y la regla que anima está DENTRO de esa consulta, no suelta al lado.
     const dentro = bloque.slice(bloque.search(/@media\s*\(hover:\s*hover\)/));
     expect(dentro.slice(0, 400)).toContain('animation: sprite-play');
+    // Anidada: es lo que mantiene el camino de escritorio exactamente donde estaba.
+    expect(profundidadDe('.group:hover .sprite-previa')).toBe(1);
+  });
+
+  /**
+   * LA REGLA DEL TOQUE, Y POR QUÉ SE COMPRUEBA QUE ESTÁ **FUERA** DE LA CONSULTA.
+   *
+   * Es el único sitio donde la previa en móvil puede vivir: dentro de `@media (hover: hover)`
+   * no se aplicaría nunca en un teléfono, que es el dispositivo entero para el que se hizo.
+   * Si alguien la metiera ahí «por simetría», todo seguiría verde en los tests de render —la
+   * capa se monta igual, el atributo se pone igual—, el sprite se descargaría… y se quedaría
+   * invisible con `opacity: 0`. El peor de los dos mundos, y sin un solo rojo.
+   *
+   * jsdom no evalúa consultas de medios, así que este fichero es el único que puede cazarlo.
+   */
+  it('la animación DEL TOQUE existe y vive FUERA de la consulta de hover', () => {
+    const regla = css.slice(css.indexOf(".sprite-previa[data-tap='true']"));
+    expect(regla).toContain('animation: sprite-play');
+
+    // Profundidad 0 — nivel superior. Si estuviera dentro de cualquier `@media`, sería 1.
+    expect(profundidadDe(".sprite-previa[data-tap='true']")).toBe(0);
   });
 
   it('`steps(N)` casa con el número de fotogramas que la captura dibuja', () => {
@@ -207,7 +275,9 @@ describe('El CSS — la decisión (b) y la accesibilidad, sobre el fichero', () 
     // Una animación en bucle bajo el cursor es exactamente el caso que esa consulta cubre.
     // Apagarla deja el primer fotograma, que es una imagen válida — no algo mutilado.
     const reduccion = css.slice(css.lastIndexOf('prefers-reduced-motion'));
-    expect(reduccion).toContain('.sprite-hover');
+    // Por la clase BASE, así que apaga los dos gestos con una sola regla: el camino del
+    // toque nació respetando la preferencia sin que hubiera que acordarse de él.
+    expect(reduccion).toContain('.sprite-previa');
     expect(reduccion).toContain('animation: none');
   });
 });

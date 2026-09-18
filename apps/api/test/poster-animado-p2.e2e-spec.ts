@@ -261,20 +261,29 @@ describe('Póster animado P2 — el hover: qué recibe la tarjeta (e2e)', () => 
   //  /planes — la línea derivada, con «en ordenador»
   // ═══════════════════════════════════════════════════════════════════════════
 
-  describe('`/planes` anuncia la previsualización sin prometerla en móvil', () => {
+  describe('`/planes` anuncia la previsualización con el gesto de cada plataforma', () => {
     const beneficios = async (): Promise<string[]> => {
       const res = await request(app.getHttpServer()).get('/api/billing/catalog').expect(200);
       return res.body.proBenefits as string[];
     };
 
-    it('la línea existe y dice «en ordenador» — el hover no existe en táctil', async () => {
+    it('la línea existe y nombra LOS DOS gestos — ya se concede en las dos plataformas', async () => {
       const linea = (await beneficios()).find((b) => b.toLowerCase().includes('previsualización'));
 
       expect(linea).toBeDefined();
-      // LA HONESTIDAD DE LA LÍNEA. La animación vive tras `@media (hover: hover)`, así que
-      // media plataforma no la ve. Prometérsela a todo el mundo sería anunciar lo que no se
-      // concede — justo lo que `buildProBenefits` vino a cerrar.
-      expect(linea).toContain('en ordenador');
+      /**
+       * DECÍA «EN ORDENADOR», Y ERA CIERTO: la animación vivía sólo tras
+       * `@media (hover: hover)`, así que media plataforma no la veía y prometerla entera habría
+       * sido anunciar lo que no se concede — justo lo que `buildProBenefits` vino a cerrar.
+       *
+       * La previa en móvil (toque sobre el indicador de vídeo) la concede también ahí, así que
+       * **la línea tenía que cambiar con ella**: mantener el «en ordenador» habría sido el
+       * defecto simétrico —seguir excluyendo a quien ya sí lo tiene—, y en la pantalla donde se
+       * decide si se paga. Lo que el paréntesis dice ahora no es la plataforma, es el GESTO.
+       */
+      expect(linea).not.toContain('en ordenador');
+      expect(linea).toContain('ratón');
+      expect(linea).toContain('tocarla en el móvil');
     });
 
     it('y desaparece con el vídeo: si el flag se apaga, no se promete ninguna de las dos', async () => {

@@ -864,7 +864,7 @@
    mismo sitio y por el mismo motivo que la rotación del hero de arriba.
    ========================================================================== */
 
-.sprite-hover {
+.sprite-previa {
   /* La imagen la pone el componente en línea (`--sprite`), porque la URL es un
      dato de cada anuncio. Aquí sólo va la geometría, que es constante. */
   background-image: var(--sprite);
@@ -879,23 +879,42 @@
   transition: opacity 150ms ease-out;
 }
 
-/* SÓLO DONDE HAY HOVER DE VERDAD.
+/* EL RATÓN — SÓLO DONDE HAY HOVER DE VERDAD. **Esta consulta no se ha tocado**:
+   el camino de escritorio es exactamente el de antes.
 
    El puntero fino y el hover real son de ESCRITORIO. En táctil no existe el
    hover: un `:hover` a secas se queda "pegado" tras un toque, así que sin esta
-   consulta el móvil vería la animación arrancar al tocar la tarjeta — que es
-   justo lo que la decisión de producto (b) descarta, porque supondría bajar el
-   sprite en CADA tarjeta de la vista de más tráfico.
-
-   El móvil se queda con la foto de portada y su indicador de vídeo, igual que
-   antes de esta ráfaga. Y elegir esto hoy no cierra la puerta a lo contrario
-   mañana: cambiar de idea es cambiar ESTA consulta, no el modelo. */
+   consulta el móvil vería la animación arrancar al tocar CUALQUIER PARTE de
+   CUALQUIER tarjeta — y eso supondría bajar el sprite en cada una de las 24 de
+   la vista de más tráfico (888 KB medidos: docs/diagnostico-previa-video-movil.md
+   §2, opción A). Por eso sigue aquí dentro. */
 @media (hover: hover) and (pointer: fine) {
-  .group:hover .sprite-hover {
+  .group:hover .sprite-previa {
     opacity: 1;
     /* E3 — la duración del ciclo, ahora token (mismo valor). */
     animation: sprite-play var(--motion-sprite-duration) steps(5) infinite;
   }
+}
+
+/* EL TOQUE — Y POR QUÉ ESTA REGLA SÍ PUEDE VIVIR FUERA DE LA CONSULTA.
+
+   Lo que el comentario de arriba descarta es el `:hover` PEGAJOSO, que se
+   dispara al tocar cualquier sitio y por tanto en cualquier tarjeta. Esto es lo
+   contrario: un atributo que sólo aparece cuando el usuario ha pulsado EL BOTÓN
+   de vídeo de UNA tarjeta concreta (`VideoIndicator` → `sprite-activo.ts`), y
+   que el coordinador retira de las demás. Un gesto deliberado sobre un objetivo
+   acotado no tiene el problema que la consulta existe para evitar — y sin esta
+   regla el móvil seguiría sin poder ver nunca la previsualización, que es el
+   hueco que la ráfaga cierra.
+
+   EL COSTE, DICHO EN NÚMEROS: cero bytes hasta el toque, un sprite (~37 KB) al
+   tocar, y nunca más de uno animando a la vez.
+
+   `opacity: 1` sin transición propia: hereda el desvanecido de 150 ms de la
+   clase base, igual que el camino del ratón. */
+.sprite-previa[data-tap='true'] {
+  opacity: 1;
+  animation: sprite-play var(--motion-sprite-duration) steps(5) infinite;
 }
 
 /* La tira, un fotograma cada vez. `steps(5)` es lo que hace que salte en seco
@@ -913,9 +932,15 @@
 /* Una animación en bucle bajo el cursor es exactamente el caso que esta
    consulta existe para cubrir. Y apagarla sale gratis: sin animación queda el
    PRIMER fotograma del sprite, que es una imagen perfectamente válida — no una
-   versión mutilada de nada. Mismo criterio que el hero de arriba. */
+   versión mutilada de nada. Mismo criterio que el hero de arriba.
+
+   CUBRE LOS DOS GESTOS SIN TOCARLA, y ésa es la ventaja de que apague por la
+   clase base en vez de por cada disparador: el camino del toque nació ya
+   respetando la preferencia, sin que hubiera que acordarse de él. Quien toque
+   con la reducción puesta ve el primer fotograma, quieto — que sigue siendo la
+   respuesta correcta al gesto: «esto es lo que hay en el vídeo». */
 @media (prefers-reduced-motion: reduce) {
-  .sprite-hover {
+  .sprite-previa {
     animation: none !important;
   }
 }

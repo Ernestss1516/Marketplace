@@ -110,17 +110,26 @@ describe('/planes — el vídeo se anuncia sólo si la feature está encendida (
   /**
    * PÓSTER ANIMADO P2 — la segunda línea, y **el matiz que la hace honesta**.
    *
-   * La previsualización animada vive tras `@media (hover: hover)`: en móvil no se ve
-   * (decisión de producto (b), porque animar en cada tarjeta de la vista de más tráfico
-   * costaría cientos de KB en la red más cara). Prometérsela a todo el mundo sería
-   * exactamente lo que esta función entera vino a cerrar — anunciar lo que no se concede.
+   * DECÍA «EN ORDENADOR», y era exacto: la previsualización animada vivía sólo tras
+   * `@media (hover: hover)`, así que en móvil no se veía, y prometérsela a todo el mundo
+   * habría sido lo que esta función entera vino a cerrar — anunciar lo que no se concede.
+   *
+   * LA PREVIA EN MÓVIL LA CONCEDE TAMBIÉN ALLÍ (un toque sobre el indicador de vídeo), así
+   * que el matiz tenía que moverse con ella: **mantener «en ordenador» sería el mismo defecto
+   * al revés**, seguir excluyendo a quien ya lo tiene, y encima en la pantalla donde se decide
+   * si se paga. Lo que el paréntesis dice ahora no es la plataforma, es el GESTO.
+   *
+   * Y SE NOMBRAN LOS DOS: «previsualización animada» a secas no le diría al lector qué tiene
+   * que hacer para verla. Ver docs/diagnostico-previa-video-movil.md §4.
    */
-  it('la previsualización se anuncia con su frontera: «en ordenador»', async () => {
+  it('la previsualización se anuncia con SU GESTO en cada plataforma', async () => {
     await ponerVideo(true);
 
     const linea = (await beneficiosPro()).find((b) => /previsualización/i.test(b));
     expect(linea).toBeDefined();
-    expect(linea).toContain('en ordenador');
+    expect(linea).not.toContain('en ordenador');
+    expect(linea).toContain('ratón');
+    expect(linea).toContain('tocarla en el móvil');
   });
 
   it('REQUISITO DE ORO — encenderlo AÑADE sus líneas y no toca ninguna otra', async () => {

@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import Image from 'next/image';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { PhotoLightbox } from './PhotoLightbox';
 import { VideoIndicator } from './VideoIndicator';
-import { VideoHoverPreview } from './VideoHoverPreview';
+import { VideoSpritePreview, spriteUtilizable } from './VideoSpritePreview';
+import { alternarSpriteActivo, soltarSpriteActivo, useSpriteActivo } from './sprite-activo';
 
 interface CardPhotoCarouselProps {
   images: string[];
@@ -82,6 +83,40 @@ export function CardPhotoCarousel({
    */
   const [previewActivo, setPreviewActivo] = useState(false);
 
+  /**
+   * PREVIA EN MÓVIL — EL SEGUNDO CAMINO, y es un camino APARTE del de arriba.
+   *
+   * No se toca `previewActivo` desde el toque, y ésa es la decisión: ese estado es del ratón
+   * —nace en `onPointerEnter`, no se apaga nunca y no lo coordina nadie porque el ratón ya es
+   * exclusivo—, mientras que el toque necesita exactamente lo contrario: apagarse (toggle) y
+   * ser exclusivo entre tarjetas. Fundirlos en un booleano habría dejado un estado que
+   * significa dos cosas distintas según quién lo encendió.
+   *
+   * `useId` da la identidad que el coordinador necesita: estable durante toda la vida de la
+   * tarjeta y distinta por instancia, sin obligar a que quien monte el carrusel invente un
+   * identificador ni a que esta capa conozca el `id` del anuncio (que no recibe, ni debe).
+   */
+  const idTarjeta = useId();
+  const activoPorTap = useSpriteActivo(idTarjeta);
+
+  /**
+   * Si esta tarjeta desaparece mientras es la que anima (cambio de página, filtro nuevo),
+   * suelta el turno. Y NO ES HIGIENE, ES LA BARRERA B-1 OTRA VEZ: `useId` es **posicional**,
+   * así que la tarjeta que se monte en este mismo lugar del árbol recibirá el MISMO
+   * identificador. Sin soltarlo, el coordinador seguiría apuntando aquí y esa tarjeta nueva
+   * nacería con la capa puesta — animando el sprite de un anuncio que nadie ha tocado y
+   * gastando sus bytes. Está comprobado en `previa-video-tap.test.tsx`.
+   */
+  useEffect(() => () => soltarSpriteActivo(idTarjeta), [idTarjeta]);
+
+  /**
+   * EL TOQUE SÓLO SE OFRECE SI HAY ALGO QUE ENSEÑAR. `spriteUtilizable` es la misma pregunta
+   * que responde la capa antes de pintarse (origen válido incluido), y por eso se importa en
+   * vez de reescribirse: con dos copias, un sprite de dominio ajeno daría un botón que al
+   * tocarlo no hace nada — un gesto fallido que el usuario no puede diagnosticar.
+   */
+  const hayPrevia = spriteUtilizable(videoPreviewUrl);
+
   if (images.length === 0) {
     return (
       <div className={`relative ${aspectClassName} overflow-hidden bg-muted`}>
@@ -150,9 +185,29 @@ export function CardPhotoCarousel({
 
         Si el anuncio no tiene sprite, esto no pinta nada y la tarjeta es la de siempre.
       */}
-      <VideoHoverPreview src={videoPreviewUrl} title={title} activo={previewActivo} />
+      <VideoSpritePreview
+        src={videoPreviewUrl}
+        title={title}
+        // Cualquiera de los dos gestos la monta. Lo que cambia entre ellos es quién la anima
+        // —el `:hover` del CSS o la regla del `data-tap`—, no si existe.
+        activo={previewActivo || activoPorTap}
+        porTap={activoPorTap}
+      />
 
-      {hasVideo && <VideoIndicator />}
+      {/*
+        EL INDICADOR, Y DESDE LA PREVIA EN MÓVIL TAMBIÉN EL BOTÓN. Se le pasa el manejador
+        SÓLO si hay un sprite que enseñar: sin él sigue siendo la píldora inerte de siempre,
+        que es lo correcto para los vídeos anteriores al sprite (el caso mayoritario).
+
+        Cero coste hasta el toque: mientras nadie lo pulse, `activoPorTap` es `false`, la capa
+        no se monta y el navegador no pide la imagen.
+      */}
+      {hasVideo && (
+        <VideoIndicator
+          onActivar={hayPrevia ? () => alternarSpriteActivo(idTarjeta) : undefined}
+          activa={activoPorTap}
+        />
+      )}
 
       {images.length > 1 && (
         <>
