@@ -62,6 +62,12 @@ function parejasSemanticasDeTexto(t: Tokens): readonly [string, string, string][
     ['éxito: letra sobre la superficie plena', t['success-surface'], t['success-foreground']],
     ['info: letra sobre la superficie suave', t.info, t['info-foreground']],
     ['info: letra sobre la superficie plena', t['info-surface'], t['info-foreground']],
+    // Promo entra con las mismas dos parejas que los demás, y eso es lo que convierte
+    // «cada modelo elige su magenta» en algo comprobado y no en una esperanza: los cinco
+    // tonos de promo se miden aquí, modelo a modelo y versión a versión, incluida la
+    // oscura. Un modelo que afine su promo y se pase de claro, no compila el CI.
+    ['promo: letra sobre la superficie suave', t.promo, t['promo-foreground']],
+    ['promo: letra sobre la superficie plena', t['promo-surface'], t['promo-foreground']],
     ['error: letra sobre la superficie suave', t['destructive-subtle'], t['destructive-strong']],
     ['error: letra sobre el rojo macizo', t.destructive, t['destructive-foreground']],
     // El rojo TAMBIÉN se usa como texto (`text-destructive`), no sólo como relleno. Es
@@ -84,6 +90,7 @@ function parejasSemanticasDeTrazo(t: Tokens): readonly [string, string, string][
     ['aviso: trazo sobre su superficie', t.warning, t['warning-border']],
     ['éxito: trazo sobre su superficie', t.success, t['success-border']],
     ['info: trazo sobre su superficie', t.info, t['info-border']],
+    ['promo: trazo sobre su superficie', t.promo, t['promo-border']],
     ['error: trazo sobre su superficie', t['destructive-subtle'], t['destructive-border']],
   ];
 }

@@ -161,6 +161,31 @@
     --info-border: #bfdbfe;
     --info-foreground: #1e40af;
 
+    /* Promo — «te ofrecemos algo». EL ÚNICO SEMÁNTICO QUE NO ES UN ESTADO, y el
+       único que cada modelo afina: un error rojo es una convención que el usuario
+       trae de fuera, pero de qué color es una oferta no lo trae nadie, así que ahí
+       sí manda el modelo.
+
+       NACE PORQUE EL BANNER DE PROMOCIÓN IBA CON `--success`, que no estaba libre:
+       dice «ha ido bien» en doce sitios. «20 % esta semana» salía pintado igual que
+       un «se ha guardado». Es el mismo argumento con el que existe `--pending` aquí
+       abajo —dos cosas distintas pintadas igual es perder información—, sin aplicar.
+
+       MAGENTA Y NO EL PRIMARIO DEL ADMIN, aunque promo sea lo más cercano a marca de
+       los tres estilos de banner: el primario por defecto es AZUL y `--info` es azul,
+       así que derivarlo habría dejado info y promo casi iguales justo con la paleta
+       de fábrica. Magenta queda libre entre azul, amarillo, verde, rojo y morado.
+
+       CUATRO ROLES, no seis: sin `-solid` ni `-solid-hover` porque no existe el
+       «botón promo», y dos tokens que nadie consume son lo que la barrera de
+       paridad vigila. Misma forma que `--info`, por lo mismo.
+
+       Ver docs/diagnostico-estilos-banner-por-modelo.md. */
+    --promo: #fdf4ff;
+    --promo-surface: #fae8ff;
+    --promo-border: #f5d0fe;
+    --promo-foreground: #86198f;
+
     /* Destructivo — EL ÚNICO ASIMÉTRICO, y no por gusto: `--destructive` y
        `--destructive-foreground` los define shadcn y los consume `Button`, donde
        significan «el relleno macizo» y «la letra encima». Renombrarlos para

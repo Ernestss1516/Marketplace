@@ -18,6 +18,12 @@ import type { ActiveBonusCampaign } from '@/lib/api/billing';
  * redacta y coloca por ubicación; esto es la lectura directa del motor de campañas, que ya
  * está regalando dinero ahora mismo. Si un día se apaga la campaña, esta pieza desaparece
  * sola — nadie tiene que acordarse de retirarla.
+ *
+ * PERO SÍ ES UNA PROMOCIÓN, y por eso cambia de color: iba con `--success`, prestado, y
+ * `--success` significa «ha ido bien» en otros doce sitios. Una campaña de bonificación no
+ * es que algo haya salido bien: es una oferta. Pasa a `--promo`, el token que nació en
+ * `BannerList` para exactamente esto — misma intención, mismo color, aunque las dos piezas
+ * no compartan componente.
  */
 export function CampaignNotice({
   campaign,
@@ -29,10 +35,10 @@ export function CampaignNotice({
 }) {
   return (
     <div
-      className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-success-border bg-success px-4 py-3 text-sm"
+      className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-promo-border bg-promo px-4 py-3 text-sm text-promo-foreground"
       data-testid={`campaign-notice-${moneda === 'créditos' ? 'creditos' : 'bumps'}`}
     >
-      <Sparkles className="h-4 w-4 shrink-0 text-success-foreground" aria-hidden />
+      <Sparkles className="h-4 w-4 shrink-0 text-promo-foreground" aria-hidden />
       <span className="font-medium">Campaña «{campaign.name}»</span>
       <span className="text-muted-foreground">
         Recibes {moneda} extra en cualquier pack{formatEnd(campaign.endsAt)}.

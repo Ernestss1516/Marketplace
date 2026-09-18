@@ -1,6 +1,6 @@
 'use client';
 
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Info, Sparkles } from 'lucide-react';
 import type { EstiloResuelto } from '@/lib/api/estilo';
 import { textoDeFallo } from '@/lib/api/estilo-admin';
 
@@ -102,9 +102,48 @@ export function PreviaDelTema({
           </p>
         </div>
 
-        <div className="flex items-start gap-2 rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-          <span>Un banner de aviso, el que aparece 29 veces en el backoffice.</span>
+        {/*
+          LOS TRES ESTILOS DE BANNER, Y ANTES AQUÍ HABÍA UN COLOR FIJO.
+
+          Esto era un solo banner pintado con `border-amber-500/50 bg-amber-500/10
+          text-amber-600`: ámbar de Tailwind, escrito a mano, **dentro del panel cuyo
+          trabajo entero es enseñar cómo queda el modelo elegido**. Los botones de arriba
+          giran con el tema, la tarjeta gira, el campo con error gira; el banner se quedaba
+          ámbar en los cinco modelos y en oscuro. Y encima mentía sobre el componente que
+          decía representar: el aviso real del backoffice (`Aviso.tsx`, las 29 copias) usa
+          `--warning` desde E0.
+
+          Ahora son los TRES —la misma terna que puede publicar un administrador— con sus
+          tokens. Son tres porque es lo que hay que poder juzgar antes de guardar un modelo:
+          que se distingan ENTRE SÍ y que peguen con el resto del tema. Con uno solo no se
+          puede ver ni lo uno ni lo otro.
+
+          La cadena de forma es LA MISMA para los tres y la misma que la de `BannerList`
+          (`rounded-md border px-…`): si algún día un modelo pudiera cambiarla, esta previa
+          lo enseñaría. Lo único que varía entre las tres líneas es el color.
+        */}
+        <div className="space-y-2" data-testid="previa-banners">
+          <div
+            className="flex items-start gap-2 rounded-md border border-info-border bg-info px-3 py-2 text-sm text-info-foreground"
+            data-testid="previa-banner-info"
+          >
+            <Info className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>Un banner de información.</span>
+          </div>
+          <div
+            className="flex items-start gap-2 rounded-md border border-promo-border bg-promo px-3 py-2 text-sm text-promo-foreground"
+            data-testid="previa-banner-promo"
+          >
+            <Sparkles className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>Un banner de promoción — el único de los tres que cambia con el modelo.</span>
+          </div>
+          <div
+            className="flex items-start gap-2 rounded-md border border-warning-border bg-warning px-3 py-2 text-sm text-warning-foreground"
+            data-testid="previa-banner-aviso"
+          >
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>Un banner de aviso, el que aparece 29 veces en el backoffice.</span>
+          </div>
         </div>
 
         <div className="space-y-1">
