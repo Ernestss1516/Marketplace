@@ -18232,6 +18232,89 @@ mirarlo sin ejecutarlo») llevada del dato al comportamiento.
 y `pnpm sync-stripe-catalog`, sin el cual el checkout del Plan Pro no funciona porque el
 catálogo sembrado no existe todavía en Stripe.
 
+## Destacados — RÁFAGA 2: el bloque pasa a dos filas
+
+Diseño: `docs/auditoria-destacados-2filas.md` §14 (ráfaga 2) y decisiones D-1, D-2, D-3, D-5, D-7.
+
+### Cuántos se ven, y de dónde salen los números
+
+| Ancho | Columnas | Dos filas |
+|---|---|---|
+| < 640 | 2 | **4** |
+| 640–767 | 3 | **6** |
+| ≥ 768 | 4 | **8** |
+
+Los números son las columnas de la rejilla (`grid-cols-2 sm:grid-cols-3 md:grid-cols-4`) por dos,
+y viven en `destacados-dos-filas.ts`. Tailwind necesita las clases escritas literalmente, así
+que el número vive en dos sitios; **hay un test que los compara** para que cambiar las columnas
+sin tocar la tabla salga en rojo.
+
+**Verificado en navegador real** (jsdom no evalúa media queries): 375 → 4 visibles, 700 → 6,
+1024 → 8, 1280 → 8, **con las ocho siempre en el HTML**.
+
+### El recorte es CSS, no JavaScript (D-2)
+
+Las dos páginas que pintan el bloque son de servidor y **el servidor no conoce el viewport**.
+De las tres salidas —que el cliente mida (salto visible justo en la pantalla de resultados), no
+tocar nada (el escritorio se queda igual) o mandar hasta ocho y que el CSS enseñe los que
+caben—, se eligió la tercera: **el HTML nace correcto, cero JavaScript, cero CLS**.
+
+El recorte va **por índice**, no con `nth-child`: con variantes arbitrarias, qué tarjeta se ve
+dependería de en qué orden emite Tailwind sus reglas (varias casan sobre la misma tarjeta y gana
+la última). El componente ya recorre la lista, así que cada tarjeta recibe su clase.
+
+### Dos grupos de cuatro, y no un grupo de ocho (D-3)
+
+**La decisión que evita el daño.** Doblar el tamaño del grupo a ocho habría dejado las
+**posiciones 5 a 8 invisibles para todo el tráfico móvil**, porque esa posición la fija el orden
+del anillo y no el azar: la mitad de los huecos de pago no los vería casi nadie, y quien cayera
+en esa mitad pagaría lo mismo por mucho menos.
+
+Con grupos de cuatro y el escritorio pintando **el turno y el siguiente**, cada destacado pasa
+por las primeras posiciones en su propio turno. Hay un caso que recorre el ciclo entero, para
+todo N ≤ 60, comprobando que **nadie queda fuera de lo que ve un móvil**.
+
+> **El envoltorio no puede repetir a nadie.** El «siguiente» da la vuelta al anillo, así que con
+> UN solo grupo el siguiente sería él mismo y el bloque enseñaría las mismas tarjetas dos veces
+> — en el caso mayoritario del sitio (N ≤ 4) y en todas las búsquedas a la vez. Con `grupos <= 1`
+> se sirve un tramo y punto; no un `dedupe` después, que sería tapar el caso en vez de no
+> producirlo.
+
+### La promesa al vendedor NO cambia (D-5), y conviene saber por qué
+
+El bloque enseña hasta ocho, así que lo natural es suponer que `cuotaDeVitrina` se ha quedado
+corta. **No**: lo que se sirve son dos grupos de cuatro, y el tamaño del grupo es lo que divide
+el anillo. Los turnos siguen siendo `ceil(N / 4)` y cada destacado sigue saliendo en uno.
+
+Lo que la cifra promete es, a propósito, **lo que ve un móvil**: un grupo por ciclo. Cualquier
+pantalla más ancha da MÁS. Un caso fija que la promesa es un **suelo** y nunca una igualdad —
+cuando los grupos son de menos de cuatro (N=5 → [3, 2]) la ventana de cuatro del móvil desborda
+al grupo siguiente y algunos salen en dos turnos, que es dar más de lo prometido.
+
+### Nunca rellena — la sección ocupa lo justo
+
+El número que se ve es `min(destacados que existen, lo que cabe)`: **0 → sin sección · 3 → tres
+tarjetas · 5 → cinco** (una fila llena y una con uno, D-1: dos filas es el TOPE, no la obligación
+de llenarlas; recortar a cuatro escondería a alguien que ha pagado). `onlyBoosted` y
+`boostedActiveAt` intactos: lo servido son destacados de verdad, no los ocho primeros resultados.
+
+El tope de 8 se escribe aunque hoy sea redundante (D-7): la rejilla no pasa de cuatro columnas,
+así que dos filas ya son ocho. Es la red para el día que alguien añada una quinta columna.
+
+### El coste
+
+Con N ≤ 4 sigue siendo **una** consulta. Con N > 4 son **tres** llamadas (la lista, el conteo y
+el tramo) en cualquier turno — y no cuatro: los tramos de dos turnos consecutivos son contiguos
+y se piden juntos, y el turno que da la vuelta al anillo aprovecha que su continuación empieza
+por el principio, que es lo que ya trajo el conteo.
+
+### Lo que queda para la ráfaga 3
+
+Las **impresiones** («veces listado») siguen contándose sobre lo servido, así que en móvil y
+tableta se cuentan tarjetas que el visitante no ve; medir el **LCP** con ocho tarjetas; afinar
+`GRID_MEDIA_SIZES`; añadir `/busqueda` a las rutas de invariancia; y **regenerar los baselines de
+capturas** que el bloque más grande mueva.
+
 ## Destacados — RÁFAGA 1: el reparto justo de los turnos
 
 Diseño: `docs/auditoria-destacados-2filas.md` §9.3 y §14. **Precondición de las 2 filas**, y a la

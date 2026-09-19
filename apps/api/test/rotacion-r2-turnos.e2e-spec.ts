@@ -267,25 +267,49 @@ describe('ROTACIÓN R2 — el bloque «Promocionados» se turna (e2e)', () => {
       expect(grupos).toBe(Math.ceil(N / TAM_BLOQUE)); // 3
     });
 
-    it('CADA VENTANA DEVUELVE SU GRUPO — y el bloque coincide con el oráculo', async () => {
+    it('CADA VENTANA DEVUELVE SU TURNO Y EL SIGUIENTE — y coincide con el oráculo', async () => {
+      // LAS DOS FILAS: el bloque sirve hasta ocho, que son el grupo del turno y el que viene
+      // detrás. El móvil verá los cuatro primeros —o sea, el grupo del turno— y el escritorio
+      // los ocho. El oráculo sigue resolviendo UN grupo; aquí se encadenan los dos.
       for (let v = 0; v < 3; v++) {
         const instante = instanteDeVentana(v);
         const turno = grupoDeLaVentana(instante, 3);
-        const esperado = await grupoDelAnillo(Q, turno, Math.floor(instante / 1000));
+        const siguiente = (turno % 3) + 1;
+        const ahoraSeg = Math.floor(instante / 1000);
+        const esperado = [
+          ...(await grupoDelAnillo(Q, turno, ahoraSeg)).ids,
+          ...(await grupoDelAnillo(Q, siguiente, ahoraSeg)).ids,
+        ];
 
         const servido = await conRelojEn(instante, () => bloque(Q));
 
-        expect(servido).toEqual(esperado.ids);
+        expect(servido).toEqual(esperado);
       }
     }, 60_000);
 
-    it('VENTANAS CONSECUTIVAS DEVUELVEN GRUPOS DISTINTOS Y DISJUNTOS', async () => {
-      // El corazón de la ráfaga: antes, dos peticiones cualesquiera devolvían los MISMOS 4.
+    it('VENTANAS CONSECUTIVAS CAMBIAN, y lo que ve el MÓVIL es disjunto', async () => {
+      // El corazón de la rotación: antes, dos peticiones cualesquiera devolvían los MISMOS 4.
+      //
+      // CON DOS FILAS YA NO SON DISJUNTAS ENTERAS, y es por construcción: la ventana 1 sirve
+      // los grupos 1 y 2, y la 2 sirve el 2 y el 3 — comparten el grupo 2 a propósito, que es
+      // lo que hace que el escritorio adelante el turno siguiente. Lo que sigue siendo
+      // disjunto es lo que ve un móvil: las cuatro primeras, o sea el grupo del turno.
       const primera = await conRelojEn(instanteDeVentana(0), () => bloque(Q));
       const segunda = await conRelojEn(instanteDeVentana(1), () => bloque(Q));
 
       expect(segunda).not.toEqual(primera);
-      expect(primera.filter((id) => segunda.includes(id))).toEqual([]);
+
+      // EL GRUPO DEL TURNO va delante, y ésos sí son disjuntos entre ventanas consecutivas.
+      // Se pide al oráculo en vez de recortar por `TAM_BLOQUE`: con nueve destacados los
+      // grupos son de TRES, así que «los cuatro primeros» desbordarían al grupo siguiente y
+      // el caso mediría otra cosa.
+      const ahoraSeg = (v: number) => Math.floor(instanteDeVentana(v) / 1000);
+      const g1 = (await grupoDelAnillo(Q, grupoDeLaVentana(instanteDeVentana(0), 3), ahoraSeg(0))).ids;
+      const g2 = (await grupoDelAnillo(Q, grupoDeLaVentana(instanteDeVentana(1), 3), ahoraSeg(1))).ids;
+
+      expect(primera.slice(0, g1.length)).toEqual(g1);
+      expect(segunda.slice(0, g2.length)).toEqual(g2);
+      expect(g1.filter((id) => g2.includes(id))).toEqual([]);
     }, 60_000);
 
     it('UN CICLO COMPLETO SACA A LOS NUEVE: nadie se queda sin vitrina', async () => {
@@ -314,10 +338,20 @@ describe('ROTACIÓN R2 — el bloque «Promocionados» se turna (e2e)', () => {
        * ningún turno vaya corto — y que si alguien vuelve a la paginación con avidez, se note.
        */
       const tamaños: number[] = [];
+      const grupoDelTurno: number[] = [];
       for (let v = 0; v < 3; v++) {
-        tamaños.push((await conRelojEn(instanteDeVentana(v), () => bloque(Q))).length);
+        const instante = instanteDeVentana(v);
+        const servido = await conRelojEn(instante, () => bloque(Q));
+        tamaños.push(servido.length);
+        grupoDelTurno.push(
+          (await grupoDelAnillo(Q, grupoDeLaVentana(instante, 3), Math.floor(instante / 1000)))
+            .ids.length,
+        );
       }
-      expect(tamaños).toEqual([3, 3, 3]);
+      // Servido: dos grupos en cada ventana, que son las dos filas del escritorio.
+      expect(tamaños).toEqual([6, 6, 6]);
+      // Y el reparto, que es lo que este caso vino a fijar: tres y tres y tres, nunca uno.
+      expect(grupoDelTurno).toEqual([3, 3, 3]);
     }, 90_000);
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -444,10 +478,16 @@ describe('ROTACIÓN R2 — el bloque «Promocionados» se turna (e2e)', () => {
       expect(llamadas).toBe(2);
     }, 60_000);
 
-    it('con N > 4 la segunda consulta se paga SÓLO cuando el turno no es el primer grupo', async () => {
-      // La otra mitad del coste: con 9 destacados y 3 grupos, la ventana cuyo turno es el
-      // grupo 1 se sirve con la consulta que ya se hizo (2 llamadas); las otras dos pagan la
-      // consulta B (3 llamadas).
+    it('con N > 4 el bloque cuesta UNA consulta más, la misma en todos los turnos', async () => {
+      // La otra mitad del coste, y lo que las dos filas le añaden: con 9 destacados y 3
+      // grupos hay que traer dos grupos en vez de uno, así que la consulta de conteo ya no
+      // alcanza para servirlos y se paga una más — TRES llamadas (la lista, el conteo y el
+      // tramo), en cualquier turno.
+      //
+      // Y NO CUATRO, que es lo que costaría pedir cada grupo por su lado: los tramos de dos
+      // turnos consecutivos son contiguos, así que se piden juntos. Ni siquiera el turno que
+      // da la vuelta al anillo paga de más: su continuación empieza en el principio y ésa sí
+      // la trajo el conteo.
       const porTurno = new Map<number, number>();
       for (let v = 0; v < 3; v++) {
         const instante = instanteDeVentana(v);
@@ -458,9 +498,7 @@ describe('ROTACIÓN R2 — el bloque «Promocionados» se turna (e2e)', () => {
         );
       }
 
-      expect(porTurno.get(1)).toBe(2); // el turno 1 reaprovecha la consulta A
-      expect(porTurno.get(2)).toBe(3);
-      expect(porTurno.get(3)).toBe(3);
+      expect([...porTurno.values()]).toEqual([3, 3, 3]);
     }, 90_000);
   });
 
@@ -496,11 +534,20 @@ describe('ROTACIÓN R2 — el bloque «Promocionados» se turna (e2e)', () => {
     const { grupos } = await grupoDelAnillo(Q, 1, Math.floor(Date.now() / 1000));
     expect(grupos).toBe(2); // 6 destacados → 4 + 2
 
+    // LAS DOS FILAS: se mide sobre lo que ve un MÓVIL (las cuatro primeras), que es donde la
+    // promesa «un turno por ciclo» se cumple exactamente. En el servido entero un destacado
+    // sale dos veces por ciclo a propósito —una por grupo—, que es el turno adelantado del
+    // escritorio, no una repetición dentro de la misma respuesta.
     const apariciones = new Map<string, number>();
     for (let v = 0; v < grupos; v++) {
-      for (const id of await conRelojEn(instanteDeVentana(v), () => bloque(Q))) {
-        apariciones.set(id, (apariciones.get(id) ?? 0) + 1);
-      }
+      const instante = instanteDeVentana(v);
+      const servido = await conRelojEn(instante, () => bloque(Q));
+      // Ninguna respuesta repite a nadie dentro de sí misma: es una de las tres prohibiciones.
+      expect(new Set(servido).size).toBe(servido.length);
+      const suGrupo = (
+        await grupoDelAnillo(Q, grupoDeLaVentana(instante, grupos), Math.floor(instante / 1000))
+      ).ids;
+      for (const id of suGrupo) apariciones.set(id, (apariciones.get(id) ?? 0) + 1);
     }
 
     expect([...apariciones.keys()].sort()).toEqual([...creados].sort()); // ninguno ausente
