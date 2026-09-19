@@ -214,15 +214,62 @@ describe('Última IP 5b — orden, filtros e índice (e2e)', () => {
     expect(filas[0].indexdef).toContain('DESC NULLS LAST');
   });
 
+  /**
+   * EL PLAN, PREGUNTADO DE FORMA QUE LA RESPUESTA NO DEPENDA DE CUÁNTA GENTE HAYA.
+   *
+   * ─── ESTE CASO DECÍA QUE ERA ESTRUCTURAL Y NO LO ERA ────────────────────────────
+   *
+   * Su comentario afirmaba que la forma del plan «no depende del volumen». **Depende.** Un
+   * `EXPLAIN` a secas devuelve lo que el planificador ELEGIRÍA, y con cuatro usuarios en la
+   * tabla elige recorrerla entera y ordenar en memoria — y acierta: leer cuatro filas es más
+   * barato que abrir un índice. El caso sólo pasaba cuando las suites anteriores habían
+   * dejado bastantes usuarios detrás, y como el orden de las suites lo decide una caché de
+   * tiempos, **el mismo código salía verde o rojo según la corrida**. Se cazó en `main`
+   * (`rows=4`, `Seq Scan`) después de pasar en la rama.
+   *
+   * ─── LA PREGUNTA CORRECTA ───────────────────────────────────────────────────────
+   *
+   * Lo que este caso existe para vigilar es que **el índice siga siendo USABLE para este
+   * orden** — que nadie lo borre en un `migrate dev` ni le cambie la forma—. Eso sí es
+   * estructural, y se pregunta apagando el recorrido secuencial: con `enable_seqscan = off`
+   * el planificador usa el índice **si puede**, y si no puede, recorre igual y añade el
+   * `Sort` que delata el problema. La barrera sigue cazando exactamente lo que cazaba, y deja
+   * de depender del censo.
+   *
+   * `SET LOCAL` exige transacción: a secas viajaría por una conexión del pool y el `EXPLAIN`
+   * podría salir por otra.
+   */
+  async function planDe(orden: string): Promise<string> {
+    const plan = await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL enable_seqscan = off`);
+      return tx.$queryRawUnsafe<{ 'QUERY PLAN': string }[]>(
+        `EXPLAIN SELECT id FROM "User" ORDER BY "lastLoginAt" ${orden} LIMIT 24`,
+      );
+    });
+    return plan.map((f) => f['QUERY PLAN']).join('\n');
+  }
+
   it('y el plan del orden por defecto NO lleva un Sort', async () => {
-    // El molde de F2: lo que se fija es la FORMA del plan —qué índice es utilizable y si
-    // aparece un `Sort`—, que es estructural y no depende del volumen.
-    const plan = await prisma.$queryRawUnsafe<{ 'QUERY PLAN': string }[]>(
-      `EXPLAIN SELECT id FROM "User" ORDER BY "lastLoginAt" DESC NULLS LAST LIMIT 24`,
-    );
-    const texto = plan.map((f) => f['QUERY PLAN']).join('\n');
+    const texto = await planDe('DESC NULLS LAST');
+
     expect(texto).toContain('User_lastLoginAt_desc_nulls_last_idx');
     expect(texto).not.toContain('Sort');
+  });
+
+  it('y el instrumento está vivo: un orden que el índice NO puede servir SÍ lleva Sort', async () => {
+    /**
+     * LA VALIDACIÓN DEL INSTRUMENTO, y hace falta justo ahora: apagar el recorrido secuencial
+     * empuja al planificador hacia los índices, así que conviene demostrar que el caso de
+     * arriba no pasa por eso sino porque el índice sirve de verdad.
+     *
+     * `NULLS FIRST` es el mismo orden con los nulos al otro lado, y un índice
+     * `DESC NULLS LAST` no puede servirlo: hay que ordenar. Si este caso dejara de ver el
+     * `Sort`, sería que el de arriba ya no demuestra nada — y de paso vigila la FORMA del
+     * índice desde el plan, no sólo desde `pg_indexes`.
+     */
+    const texto = await planDe('DESC NULLS FIRST');
+
+    expect(texto).toContain('Sort');
   });
 
   /**
