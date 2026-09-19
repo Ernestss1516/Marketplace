@@ -18319,9 +18319,18 @@ veces. Lo que no existe es alguien que consuma ese rojo:
 | Hooks locales (`.husky`, `core.hooksPath`) | **ninguno** |
 
 El flujo es `git merge` en local + `git push` a `main`, sin PR. **Ningún resultado de CI puede
-bloquear un merge que ya ocurrió**: el rojo llega después de los hechos. Cerrar eso significa
-protección de rama con checks obligatorios, y eso **obliga a pasar por PR** — un cambio de
-cómo se trabaja, no un ajuste de CI. Queda planteado, sin decidir.
+bloquear un merge que ya ocurrió**: el rojo llega después de los hechos.
+
+**DECIDIDO (Ernest, 2026-09-19): se queda así.** Cerrarlo significaría protección de rama con
+checks obligatorios, y eso obliga a pasar por PR para cada cambio —GitHub rechaza el push
+directo porque el commit todavía no tiene checks—: es un cambio de cómo se trabaja, no un
+ajuste de CI, y no compensa para un repositorio de un solo autor.
+
+Lo que sí se hace en su lugar es **acercar el rojo al sitio donde se comete el error**, que es
+lo que resolvió este caso: un unitario local de un segundo en vez de un job de dos minutos en
+otra máquina. El riesgo que queda asumido, y conviene tenerlo presente: un rojo de CI de otra
+clase puede volver a pasar desapercibido, porque sigue sin haber nada que lo frene. La
+costumbre que lo compensa es mirar el run después de empujar a `main`.
 
 ## Cuotas Pro — PIEZA 1: la cuota se cuenta por MES NATURAL, y el Pro anual deja de recibir 1/12
 
