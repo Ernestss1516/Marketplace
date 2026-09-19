@@ -49,11 +49,10 @@ function activeFilter() {
  * y es justo el que hacía parecer natural que un Pro anual recibiera su cuota
  * «mensual» una vez al año.
  *
- * **La condición `subscriptionId: { not: null }` SE QUEDA a propósito**: es lo que
- * mantiene al Pro concedido a mano sin cuota, que es el comportamiento de hoy y
- * sigue siéndolo tras esta pieza. Darle cuota propia y configurable es la pieza 2
- * (`docs/auditoria-y-diseno-cuotas-pro.md` §9), y entrará ensanchando ESTE filtro
- * —no duplicándolo.
+ * **La condición `subscriptionId: { not: null }` SE QUEDA**: separa al cliente de
+ * pago del Pro concedido a mano, y desde la PIEZA 2 esa separación ya no decide
+ * «cuota sí / cuota no» sino **de qué ajustes sale la cuota** (ver
+ * `resolverConcesionDeCuota`).
  */
 function proDePagoFilter(userId: string): Prisma.EntitlementWhereInput {
   return {
@@ -64,10 +63,62 @@ function proDePagoFilter(userId: string): Prisma.EntitlementWhereInput {
   };
 }
 
+/**
+ * CUOTAS PRO PIEZA 2 — EL PRO CONCEDIDO A MANO.
+ *
+ * `subscriptionId: null` es LA MARCA, y no hay otra: `AdminBillingService.grantPro`
+ * crea el entitlement así y su propio comentario lo dice —«no hay columna `source`:
+ * esto ES la procedencia»—. `revokePro` usa el mismo predicado para no poder
+ * quitarle nunca el Pro a alguien que está pagando.
+ */
+function proManualFilter(userId: string): Prisma.EntitlementWhereInput {
+  return {
+    userId,
+    type: EntitlementType.PRO_SUBSCRIPTION,
+    subscriptionId: null,
+    ...activeFilter(),
+  };
+}
+
 const DEFAULT_PRO_MONTHLY_FEATURED_QUOTA = 4;
 const DEFAULT_PRO_QUOTA_FEATURED_DURATION_DAYS = 7;
 /** Monetización ráfaga 3 — mismo default que la cuota de destacados. */
 const DEFAULT_PRO_MONTHLY_BUMP_QUOTA = 4;
+
+/**
+ * CUOTAS PRO PIEZA 2 — LAS DOS DEL PRO MANUAL NACEN EN **CERO**, y el cero es la
+ * decisión (D-6), no un hueco a rellenar.
+ *
+ * Es lo que hace el cambio retrocompatible: sin tocar nada, un Pro concedido a mano
+ * sigue exactamente como hoy —sin cuota—, y empieza a tenerla el día que Ernest pone
+ * un número en `/admin/ajustes`. Lo contrario —un default generoso— repartiría valor
+ * a todas las concesiones ya existentes el día del despliegue sin que nadie lo
+ * hubiera decidido.
+ */
+const DEFAULT_PRO_MANUAL_MONTHLY_FEATURED_QUOTA = 0;
+const DEFAULT_PRO_MANUAL_MONTHLY_BUMP_QUOTA = 0;
+
+/** De dónde sale la cuota de este usuario: del plan que paga, o de una concesión a mano. */
+type FuenteDeCuota = 'SUBSCRIPTION' | 'MANUAL';
+
+/** Las claves de `Setting` y los respaldos de cada fuente. Un solo sitio, dos juegos. */
+const CLAVES_DE_CUOTA: Record<
+  FuenteDeCuota,
+  { featured: string; bump: string; featuredPorDefecto: number; bumpPorDefecto: number }
+> = {
+  SUBSCRIPTION: {
+    featured: 'proMonthlyFeaturedQuota',
+    bump: 'proMonthlyBumpQuota',
+    featuredPorDefecto: DEFAULT_PRO_MONTHLY_FEATURED_QUOTA,
+    bumpPorDefecto: DEFAULT_PRO_MONTHLY_BUMP_QUOTA,
+  },
+  MANUAL: {
+    featured: 'proManualMonthlyFeaturedQuota',
+    bump: 'proManualMonthlyBumpQuota',
+    featuredPorDefecto: DEFAULT_PRO_MANUAL_MONTHLY_FEATURED_QUOTA,
+    bumpPorDefecto: DEFAULT_PRO_MANUAL_MONTHLY_BUMP_QUOTA,
+  },
+};
 
 /** Monetización ráfaga 3 — cuota mensual de bumps gratis de Pro, campo hermano
  * de la cuota de destacados en GET /billing/pro-status (una sola petición para
@@ -130,12 +181,21 @@ export interface FeaturedQuotaStatus {
    * gratuidades mensuales, porque nadie está pagando un plan que las conceda.
    *
    * Es un campo ADITIVO: para un cliente de pago vale siempre `SUBSCRIPTION` y
-   * nada de lo que ya leía el frontend cambia. Y deja sitio a un tercer valor
-   * —`MANUAL`— para cuando una concesión a mano traiga su propia cuota
-   * configurable: es la PIEZA 2, aparte de ésta
-   * (docs/auditoria-y-diseno-cuotas-pro.md §9).
+   * nada de lo que ya leía el frontend cambia.
+   *
+   * ─── `MANUAL` — EL TERCER VALOR (PIEZA 2) ────────────────────────────────────
+   *
+   * El hueco estaba dejado a propósito desde U1, y ya está ocupado: una concesión a
+   * mano puede traer **su propia cuota**, con cantidades configurables en
+   * `/admin/ajustes` e independientes del plan de pago (decisión D-6).
+   *
+   * ⚠ `MANUAL` significa «tiene cuota concedida a mano», **no** «es un Pro manual».
+   * Un Pro concedido a mano cuyas dos cantidades valgan 0 —que es el estado por
+   * defecto— devuelve `NONE`, igual que antes de esta pieza. El motivo está en el
+   * cuerpo de `getFeaturedQuotaStatus`, y no es cosmético: con `MANUAL` y ceros,
+   * `/mis-anuncios` le diría que gastó unos destacados que nunca tuvo.
    */
-  quotaSource: 'SUBSCRIPTION' | 'NONE';
+  quotaSource: 'SUBSCRIPTION' | 'MANUAL' | 'NONE';
   /**
    * PARIDAD DEL PRO MANUAL — EL SEGUNDO EJE, que la interfaz no tenía.
    *
@@ -158,6 +218,55 @@ export interface FeaturedQuotaStatus {
    * distintas a la misma pregunta.
    */
   hasActiveSubscription: boolean;
+}
+
+/**
+ * CUOTAS PRO PIEZA 2 — «¿QUIÉN LE CONCEDE LA CUOTA A ESTE USUARIO?», EN UN SOLO SITIO.
+ *
+ * Las tres funciones de cuota —la que se PINTA y las dos que RESERVAN— tienen que responder
+ * lo mismo a esta pregunta, y la pieza 1 ya dejó escrito lo que pasa si no: la pantalla dice
+ * «te quedan 3» y el botón responde «no tienes cuota». Con dos fuentes en vez de una, el
+ * riesgo se dobla, así que el desempate vive aquí y las tres tiran de él.
+ *
+ * ─── EL ORDEN, Y POR QUÉ GANA EL DE PAGO ────────────────────────────────────────
+ *
+ * 1. El entitlement CON suscripción (el más reciente si hay varios) → `SUBSCRIPTION`.
+ * 2. Si no hay ninguno de pago, el manual más reciente → `MANUAL`.
+ * 3. Ninguno vigente → `null`, que no es Pro.
+ *
+ * El paso 1 va primero **conservando la corrección de U1**, que es la razón de que esta
+ * función exista con este orden y no con un `orderBy` a secas: a un cliente que YA PAGA se le
+ * puede conceder un Pro a mano (soporte, una compensación), y ese entitlement es más nuevo.
+ * Con «el más reciente gana», la concesión de cortesía TAPARÍA la cuota que ese cliente está
+ * pagando — y ahora, además, se la cambiaría por la del manual, que por defecto es cero. Sería
+ * quitarle a un cliente de pago lo que compró, por hacerle un favor.
+ *
+ * **Consecuencia deliberada: quien paga Y tiene una concesión manual cobra la del PLAN, no la
+ * suma.** Una cortesía no es un acumulable. Ver docs/auditoria-y-diseno-cuotas-pro.md §8.3
+ * (decisión D-8).
+ *
+ * Recibe el cliente (`PrismaService` o el `tx` de una transacción) para que las reservas la
+ * usen DENTRO de su transacción, que es donde se coge el cerrojo.
+ */
+async function resolverConcesionDeCuota(
+  client: PrismaService | Prisma.TransactionClient,
+  userId: string,
+): Promise<{ entitlementId: string; fuente: FuenteDeCuota } | null> {
+  const dePago = await client.entitlement.findFirst({
+    where: proDePagoFilter(userId),
+    select: { id: true },
+    orderBy: { createdAt: 'desc' },
+  });
+  if (dePago) return { entitlementId: dePago.id, fuente: 'SUBSCRIPTION' };
+
+  const manual = await client.entitlement.findFirst({
+    where: proManualFilter(userId),
+    select: { id: true },
+    orderBy: { createdAt: 'desc' },
+  });
+  if (manual) return { entitlementId: manual.id, fuente: 'MANUAL' };
+
+  return null;
 }
 
 @Injectable()
@@ -289,15 +398,10 @@ export class EntitlementService {
    * a la suscripción. Ver docs/auditoria-y-diseno-cuotas-pro.md §2 y §7.
    */
   async getFeaturedQuotaStatus(userId: string): Promise<FeaturedQuotaStatus> {
-    const [proEntitlement, suscripcionVigente] = await Promise.all([
-      this.prisma.entitlement.findFirst({
-        // U1 — se pide directamente el de PAGO. Antes se cogía el más reciente y
-        // se comprobaba después si tenía suscripción, que es lo que dejaba a un
-        // Pro manual tapar la cuota de un cliente de pago.
-        where: proDePagoFilter(userId),
-        select: { id: true },
-        orderBy: { createdAt: 'desc' },
-      }),
+    const [concesion, suscripcionVigente] = await Promise.all([
+      // PIEZA 2 — quién concede la cuota: el plan de pago si lo hay, si no la
+      // concesión a mano. El desempate entero vive en `resolverConcesionDeCuota`.
+      resolverConcesionDeCuota(this.prisma, userId),
       // PARIDAD DEL PRO MANUAL — el segundo eje, con el MISMO predicado que el guard del
       // checkout. En paralelo con la de arriba: no dependen la una de la otra, así que
       // añadir el eje no añade latencia (`Subscription` tiene índice por `userId`).
@@ -308,27 +412,21 @@ export class EntitlementService {
     ]);
     const hasActiveSubscription = suscripcionVigente !== null;
 
-    // SIN PLAN DE PAGO NO HAY CUOTA. Aquí estaba el defecto que cerró U1: se
-    // devolvía `isPro: false`, es decir, se decía «no es Pro» cuando lo que pasa
-    // es «nadie le concede cuota». Ahora se pregunta por el HECHO a su dueño único
-    // y se responde cada cosa por su nombre. El coste de esa consulta sólo lo paga
-    // este camino: un cliente de pago sale arriba y no llega hasta aquí.
-    //
-    // ES TAMBIÉN LA PUERTA DE LA PIEZA 2: el Pro concedido a mano cae justo aquí,
-    // y darle cuota propia es sustituir este `return` por la lectura de sus dos
-    // ajustes (§9 del diseño). Esta pieza no lo hace: hoy sigue sin cuota.
-    if (!proEntitlement) {
-      const esPro = await this.proStatus.isProActive(userId);
-      return {
-        isPro: esPro,
-        quotaSource: 'NONE',
-        hasActiveSubscription,
-        limit: 0,
-        used: 0,
-        remaining: 0,
-        bumpQuota: { limit: 0, used: 0, remaining: 0 },
-      };
-    }
+    /** La respuesta de «es Pro pero nadie le concede cuota». Se usa en dos sitios. */
+    const sinCuota = async (): Promise<FeaturedQuotaStatus> => ({
+      // Se pregunta por el HECHO a su dueño único (U1): «no tiene cuota» NO es «no
+      // es Pro», y decir lo segundo es lo que le mentía a un Pro concedido a mano.
+      isPro: await this.proStatus.isProActive(userId),
+      quotaSource: 'NONE',
+      hasActiveSubscription,
+      limit: 0,
+      used: 0,
+      remaining: 0,
+      bumpQuota: { limit: 0, used: 0, remaining: 0 },
+    });
+
+    // Ni plan de pago ni concesión a mano vigentes: no es Pro, y no hay cuota.
+    if (!concesion) return sinCuota();
 
     /**
      * LA VENTANA, CALCULADA UNA VEZ Y USADA POR LOS DOS CONTADORES.
@@ -337,24 +435,44 @@ export class EntitlementService {
      * entre una y otra puede caer justo el cambio de mes, y entonces la respuesta
      * diría que los destacados son de octubre y los bumps de septiembre. Es un
      * hueco de milisegundos, pero es facturación.
+     *
+     * PIEZA 2 — es la MISMA ventana para el manual, y ésa es la conexión entre las
+     * dos piezas: el mes natural no necesita ciclo de facturación, así que sirve
+     * igual para quien no tiene ninguno.
      */
     const ahora = new Date();
     const periodStart = inicioDelMesNatural(ahora);
     const periodEnd = finDelMesNatural(ahora);
 
+    const claves = CLAVES_DE_CUOTA[concesion.fuente];
     const settings = await this.prisma.setting.findMany({
-      where: {
-        key: {
-          in: ['proMonthlyFeaturedQuota', 'proQuotaFeaturedDurationDays', 'proMonthlyBumpQuota'],
-        },
-      },
+      where: { key: { in: [claves.featured, claves.bump, 'proQuotaFeaturedDurationDays'] } },
       select: { key: true, value: true },
     });
     const settingMap = Object.fromEntries(settings.map((s) => [s.key, Number(s.value)]));
-    const limit = settingMap['proMonthlyFeaturedQuota'] ?? DEFAULT_PRO_MONTHLY_FEATURED_QUOTA;
+    const limit = settingMap[claves.featured] ?? claves.featuredPorDefecto;
+    const bumpLimit = settingMap[claves.bump] ?? claves.bumpPorDefecto;
     const quotaDurationDays =
       settingMap['proQuotaFeaturedDurationDays'] ?? DEFAULT_PRO_QUOTA_FEATURED_DURATION_DAYS;
-    const bumpLimit = settingMap['proMonthlyBumpQuota'] ?? DEFAULT_PRO_MONTHLY_BUMP_QUOTA;
+
+    /**
+     * PIEZA 2 — UN MANUAL SIN CUOTA CONFIGURADA RESPONDE `NONE`, NO `MANUAL` CON CEROS.
+     *
+     * Y la diferencia no es cosmética. `/mis-anuncios` decide pintar el recuadro de cuota con
+     * `isPro && quotaSource !== 'NONE'` y, con `remaining` a cero, escribe **«Has usado tus
+     * destacados gratis de este mes»**. Decirle eso a un Pro concedido a mano que no tiene
+     * cuota es contarle que gastó algo que nunca tuvo — **exactamente el defecto que UXV.6
+     * arregló**, reintroducido por la puerta de atrás.
+     *
+     * Así que el contrato lo hace imposible: mientras las dos cantidades sean 0 —que es el
+     * estado por defecto—, la respuesta es la de siempre, byte a byte. Es lo que hace esta
+     * pieza retrocompatible de verdad y no «retrocompatible si nadie mira».
+     *
+     * Sólo aplica al manual: un plan de pago con las dos cuotas a 0 no es alcanzable (su
+     * validación exige `>= 1`) y, si lo fuera, `SUBSCRIPTION` seguiría siendo la verdad sobre
+     * de dónde cuelga su cuota.
+     */
+    if (concesion.fuente === 'MANUAL' && limit <= 0 && bumpLimit <= 0) return sinCuota();
 
     const [used, bumpUsed] = await Promise.all([
       this.prisma.entitlement.count({
@@ -380,7 +498,7 @@ export class EntitlementService {
 
     return {
       isPro: true,
-      quotaSource: 'SUBSCRIPTION',
+      quotaSource: concesion.fuente,
       hasActiveSubscription,
       limit,
       used,
@@ -433,28 +551,28 @@ export class EntitlementService {
    * método devuelve `true` — el lock se mantiene hasta que esa `tx` confirme.
    */
   async hasAvailableFeaturedQuota(tx: Prisma.TransactionClient, userId: string): Promise<boolean> {
-    const proEntitlement = await tx.entitlement.findFirst({
-      // U1 — el de PAGO, no el más reciente (ver `proDePagoFilter`).
-      where: proDePagoFilter(userId),
-      select: { id: true },
-      orderBy: { createdAt: 'desc' },
-    });
-    // Sin plan de pago NO HAY CUOTA MENSUAL, y aquí ese `false` es la respuesta
+    // PIEZA 2 — el MISMO desempate que usa la lectura, no una copia: si divergieran, la
+    // pantalla y el botón dirían cosas distintas sobre la misma cuota.
+    const concesion = await resolverConcesionDeCuota(tx, userId);
+    // Sin concesión vigente NO HAY CUOTA MENSUAL, y aquí ese `false` es la respuesta
     // correcta y completa: esta función responde «¿queda cuota?», no «¿es Pro?».
-    // Lo que cambia con U1 es que ahora nunca se llega aquí por haber elegido el
-    // entitlement equivocado.
-    if (!proEntitlement) return false;
+    if (!concesion) return false;
 
+    // PIEZA 1 — el cerrojo cuelga del `Entitlement`, y ÉSA es la razón de que la pieza 2
+    // no tenga que tocarlo: el Pro concedido a mano no tiene fila `Subscription`, pero
+    // entitlement tiene siempre. Se mudó antes de necesitarlo, con los tests de carrera
+    // vigilando, en vez de descubrir aquí que la reserva del manual no era atómica.
     const rows = await tx.$queryRaw<{ id: string }[]>`
-      SELECT id FROM "Entitlement" WHERE id = ${proEntitlement.id} FOR UPDATE
+      SELECT id FROM "Entitlement" WHERE id = ${concesion.entitlementId} FOR UPDATE
     `;
     if (rows.length === 0) return false; // defensive — la fila se esfumó a mitad de vuelo
 
+    const claves = CLAVES_DE_CUOTA[concesion.fuente];
     const setting = await tx.setting.findUnique({
-      where: { key: 'proMonthlyFeaturedQuota' },
+      where: { key: claves.featured },
       select: { value: true },
     });
-    const limit = setting ? Number(setting.value) : DEFAULT_PRO_MONTHLY_FEATURED_QUOTA;
+    const limit = setting ? Number(setting.value) : claves.featuredPorDefecto;
 
     const used = await tx.entitlement.count({
       where: {
@@ -490,24 +608,21 @@ export class EntitlementService {
    * método devuelve `true` — el lock se mantiene hasta que esa `tx` confirme.
    */
   async hasAvailableBumpQuota(tx: Prisma.TransactionClient, userId: string): Promise<boolean> {
-    const proEntitlement = await tx.entitlement.findFirst({
-      // U1 — el de PAGO, igual que su hermana de destacados.
-      where: proDePagoFilter(userId),
-      select: { id: true },
-      orderBy: { createdAt: 'desc' },
-    });
-    if (!proEntitlement) return false;
+    // PIEZA 2 — el mismo desempate y el mismo cerrojo que su hermana de destacados.
+    const concesion = await resolverConcesionDeCuota(tx, userId);
+    if (!concesion) return false;
 
     const rows = await tx.$queryRaw<{ id: string }[]>`
-      SELECT id FROM "Entitlement" WHERE id = ${proEntitlement.id} FOR UPDATE
+      SELECT id FROM "Entitlement" WHERE id = ${concesion.entitlementId} FOR UPDATE
     `;
     if (rows.length === 0) return false; // defensive — la fila se esfumó a mitad de vuelo
 
+    const claves = CLAVES_DE_CUOTA[concesion.fuente];
     const setting = await tx.setting.findUnique({
-      where: { key: 'proMonthlyBumpQuota' },
+      where: { key: claves.bump },
       select: { value: true },
     });
-    const limit = setting ? Number(setting.value) : DEFAULT_PRO_MONTHLY_BUMP_QUOTA;
+    const limit = setting ? Number(setting.value) : claves.bumpPorDefecto;
 
     const used = await tx.bumpLedger.count({
       where: {

@@ -263,7 +263,12 @@ export interface ProStatus {
    * necesita todavía. Se declara para que exista el concepto en este lado y para
    * que quien pinte la cuota pueda distinguir «cero de cuatro» de «no aplica».
    */
-  quotaSource?: 'SUBSCRIPTION' | 'NONE';
+  /**
+   * CUOTAS PRO PIEZA 2 — `MANUAL` es el tercer valor, y significa «tiene cuota
+   * concedida a mano», NO «es un Pro manual». Un Pro concedido por el equipo sin
+   * cuota configurada sigue llegando aquí como `NONE`, igual que siempre.
+   */
+  quotaSource?: 'SUBSCRIPTION' | 'MANUAL' | 'NONE';
   /**
    * PARIDAD DEL PRO MANUAL — EL EJE QUE ESTE LADO NO TENÍA.
    *

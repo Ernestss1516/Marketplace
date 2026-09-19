@@ -35,6 +35,8 @@ export const SETTING_TITLES: Record<string, string> = {
   proQuotaFeaturedDurationDays: 'Duración del destacado por cuota (Pro)',
   proExtraCreditsPercent: 'Bonus de créditos al comprar packs (Pro)',
   proMonthlyBumpQuota: 'Cuota mensual de bumps (Pro)',
+  proManualMonthlyFeaturedQuota: 'Cuota mensual de destacados (Pro concedido a mano)',
+  proManualMonthlyBumpQuota: 'Cuota mensual de bumps (Pro concedido a mano)',
   proExtraBumpsPercent: 'Bonus de bumps al comprar packs de bumps (Pro)',
   maxTagsPerListing: 'Máximo de tags por anuncio',
   // ENCENDER EL VÍDEO — los cuatro interruptores que el backend ya aceptaba y esta página
@@ -120,6 +122,10 @@ export const SETTING_DESCRIPTIONS: Record<string, string> = {
     'Porcentaje de créditos extra que recibe un usuario Pro al comprar un pack de créditos, sobre el mismo precio que paga cualquier usuario (no es un descuento en euros). Se congela en cada compra: cambiar este valor no afecta a compras ya realizadas.',
   proMonthlyBumpQuota:
     'Bumps gratuitos que un usuario Pro puede usar cada mes. Misma ventana que la cuota de destacados —el mes natural, del día 1 a fin de mes—, los no usados no se acumulan. Se consumen ANTES que el saldo de bumps por cupón y que los créditos.',
+  proManualMonthlyFeaturedQuota:
+    'Destacados gratuitos al mes para un Pro CONCEDIDO A MANO desde el backoffice, que no paga ninguna suscripción. Es un número PROPIO, independiente del que reciben los que pagan: subir uno no toca el otro. ⚠ Nace en 0, y el 0 significa «sin cuota» — que es lo que estas concesiones han tenido siempre. Ponerlo por encima de 0 se lo concede a TODOS los Pro concedidos a mano, incluidos los que se concedieron hace meses, desde el mes natural en curso. Se renueva el día 1 como las demás y no se acumula.',
+  proManualMonthlyBumpQuota:
+    'Bumps gratuitos al mes para un Pro CONCEDIDO A MANO, con el mismo criterio que su hermano de destacados: número propio, 0 = sin cuota, se aplica a todas las concesiones vivas en cuanto lo subes. Se consumen ANTES que el saldo de bumps por cupón y que los créditos, igual que la cuota de quien paga. Si sólo quieres compensar a UNA persona, la vía sigue siendo darle bumps desde su ficha — esto es una política, no un regalo individual.',
   proExtraBumpsPercent:
     'Porcentaje de bumps extra que recibe un usuario Pro al comprar un pack de bumps, sobre el mismo precio que paga cualquier usuario. Setting independiente del bonus de créditos (proExtraCreditsPercent) — beneficios distintos, calibrables por separado. Se congela en cada compra: cambiar este valor no afecta a compras ya realizadas.',
   maxTagsPerListing:
@@ -260,6 +266,13 @@ export const GRUPOS: readonly GrupoDeAjustes[] = [
       'proMonthlyFeaturedQuota',
       'proQuotaFeaturedDurationDays',
       'proMonthlyBumpQuota',
+      // CUOTAS PRO PIEZA 2 — las dos del Pro concedido a mano van JUSTO DEBAJO de sus
+      // equivalentes de pago, y no en un grupo aparte: la pregunta que se hace quien
+      // llega aquí es «cuánta cuota doy», y la respuesta tiene dos columnas —quien paga
+      // y quien no—. Separarlas obligaría a recordar que la otra existe, que es como se
+      // acaba subiendo una y dejando la otra a cero sin querer.
+      'proManualMonthlyFeaturedQuota',
+      'proManualMonthlyBumpQuota',
       'proExtraCreditsPercent',
       'proExtraBumpsPercent',
       'videoEnabled',

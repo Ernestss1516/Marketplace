@@ -1228,6 +1228,31 @@ export default function AdminAjustesPage() {
                   min={1}
                 />
               )}
+              {/* CUOTAS PRO PIEZA 2 — `min={0}` y no `min={1}` como sus hermanos de pago:
+                  aquí el 0 es el valor por defecto y el que deja las concesiones a mano
+                  como han estado siempre. El backend valida lo mismo (>= 0). */}
+              {key === 'proManualMonthlyFeaturedQuota' && (
+                <NumberSettingEditor
+                  setting={setting}
+                  token={token}
+                  onSaved={() => handleSaved(key)}
+                  settingKey="proManualMonthlyFeaturedQuota"
+                  label="Destacados gratis por mes (concedido a mano)"
+                  helpText="Para los Pro que concede el equipo sin cobrar. 0 = sin cuota, como hasta ahora. Se renueva el día 1 y no se acumula."
+                  min={0}
+                />
+              )}
+              {key === 'proManualMonthlyBumpQuota' && (
+                <NumberSettingEditor
+                  setting={setting}
+                  token={token}
+                  onSaved={() => handleSaved(key)}
+                  settingKey="proManualMonthlyBumpQuota"
+                  label="Bumps gratis por mes (concedido a mano)"
+                  helpText="Para los Pro que concede el equipo sin cobrar. 0 = sin cuota, como hasta ahora. Se consumen antes que el saldo de bumps y que los créditos."
+                  min={0}
+                />
+              )}
               {key === 'proExtraBumpsPercent' && (
                 <NumberSettingEditor
                   setting={setting}
