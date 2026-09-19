@@ -7,7 +7,12 @@ import { SponsoredAdsService } from '../sponsored-ads/sponsored-ads.service';
 import { ReviewsService } from '../reviews/reviews.service';
 import { TagsService } from '../tags/tags.service';
 import { ImpressionsService } from '../impressions/impressions.service';
-import { FEATURED_BLOCK_SIZE, grupoDeLaVentana } from './featured-rotation';
+import {
+  FEATURED_BLOCK_SIZE,
+  grupoDeLaVentana,
+  repartoDelAnillo,
+  tramoDelGrupo,
+} from './featured-rotation';
 
 // Posición fija de inserción entre los hits, convención documentada en H6.1.
 const SPONSORED_AD_POSITION = 3;
@@ -191,9 +196,9 @@ export class SearchController {
     // 50 destacados en una categoría, 46 no veían la vitrina nunca (auditoría, hallazgo H5).
     //
     // Ahora el conjunto se recorre por TURNOS: se ordena por el anillo (FEATURED_RING_SORT),
-    // se parte en grupos de 4, y la ventana del reloj dice qué grupo sale. Cada destacado sale
-    // un grupo por ciclo, sin excepción; su cuota es 4/N del tiempo, que es toda la que puede
-    // haber cuando hay 4 huecos y N candidatos.
+    // se parte en `ceil(N / 4)` grupos A PARTES IGUALES, y la ventana del reloj dice cuál
+    // sale. Cada destacado sale un grupo por ciclo, sin excepción; su cuota es 4/N del
+    // tiempo, que es toda la que puede haber cuando hay 4 huecos y N candidatos.
     //
     // EL COSTE: DOS consultas como mucho, y la segunda SÓLO cuando hay más de 4 destacados
     // compitiendo —es decir, sólo donde el problema existe—. Con N ≤ 4 (el caso mayoritario
@@ -218,17 +223,48 @@ export class SearchController {
         hitsPerPage: FEATURED_BLOCK_SIZE,
       };
 
-      // Consulta A: el primer grupo y, de paso, cuántos grupos tiene el ciclo. `totalPages`
-      // viene del conteo exhaustivo que Meilisearch hace en modo `page`/`hitsPerPage`.
+      // Consulta A: CUÁNTOS destacados compiten. Va en modo `page`/`hitsPerPage` porque es
+      // el único que da un `totalHits` exhaustivo (ver MAX_TOTAL_HITS), y de paso trae ya
+      // los primeros por si resulta que no hace falta pedir nada más.
       const grupoInicial = await this.searchService.search({ ...anillo, page: 1 });
-      const grupos = grupoInicial.totalPages ?? 1;
+      const candidatos = grupoInicial.totalHits ?? grupoInicial.hits.length;
+
+      // ── EL REPARTO JUSTO ────────────────────────────────────────────────────────
+      //
+      // Antes el turno se pedía como PÁGINA, y por eso los grupos salían llenos hasta
+      // agotar: con cinco destacados, [4, 1] — quince minutos de bloque lleno y quince
+      // de bloque con una sola tarjeta. Ahora los grupos se reparten a partes iguales
+      // ([3, 2]) y el turno se pide como TRAMO, que es lo único capaz de expresar que
+      // los primeros grupos llevan uno más. La aritmética entera, con su porqué, está
+      // en `repartoDelAnillo`.
+      //
+      // EL NÚMERO DE GRUPOS NO CAMBIA —sigue siendo `ceil(N / tamaño)`—, así que la
+      // cuota de vitrina que se le promete al vendedor (`cuotaDeVitrina`) sigue valiendo
+      // exactamente lo mismo. Lo que cambia es que su turno ya no puede tocarle vacío.
+      const { grupos } = repartoDelAnillo(candidatos, FEATURED_BLOCK_SIZE);
       const turno = grupoDeLaVentana(ahoraMs, grupos);
+      const tramo = tramoDelGrupo(candidatos, turno, FEATURED_BLOCK_SIZE);
 
-      // Consulta B: sólo si el turno NO es el grupo que ya tenemos en la mano.
-      const grupoDelTurno =
-        turno === 1 ? grupoInicial : await this.searchService.search({ ...anillo, page: turno });
+      // Consulta B: SÓLO cuando el turno no empieza por el principio del anillo.
+      //
+      // El primer grupo siempre cabe dentro de la consulta A: ésta trae los `tamaño`
+      // primeros en orden de anillo y el grupo 1 son los `limit` primeros de ésos
+      // (`limit ≤ tamaño`, garantizado por el reparto). Recortar es lo que mantiene el
+      // coste donde estaba: con N ≤ 4 —el caso mayoritario del sitio— y en el turno 1 de
+      // cualquier N, esto sigue costando UNA consulta. Sin el recorte, el reparto justo
+      // habría cobrado una consulta de más en cada turno 1 con N no múltiplo del bloque.
+      const hitsDelTurno =
+        tramo.offset === 0
+          ? grupoInicial.hits.slice(0, tramo.limit)
+          : (
+              await this.searchService.search({
+                ...anillo,
+                offset: tramo.offset,
+                limit: tramo.limit,
+              })
+            ).hits;
 
-      featured = grupoDelTurno.hits.map((hit) => this.normalizeHit(hit, allAttributeNames));
+      featured = hitsDelTurno.map((hit) => this.normalizeHit(hit, allAttributeNames));
     }
 
     // Escaparate RÁFAGA 4 — media VERIFICADA del vendedor, en una sola consulta

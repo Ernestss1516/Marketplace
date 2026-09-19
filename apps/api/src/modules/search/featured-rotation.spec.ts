@@ -21,6 +21,8 @@
 import {
   grupoDeLaVentana,
   cuotaDeVitrina,
+  repartoDelAnillo,
+  tramoDelGrupo,
   FEATURED_BLOCK_SIZE,
   FEATURED_ROTATION_WINDOW_MINUTES,
   FEATURED_ROTATION_WINDOW_SECONDS,
@@ -174,5 +176,115 @@ describe('cuotaDeVitrina — lo que le toca a cada uno, calculado y no copiado',
     expect(cuotaDeVitrina(0).siempre).toBe(true);
     expect(cuotaDeVitrina(-3).siempre).toBe(true);
     expect(cuotaDeVitrina(1.7).grupos).toBe(1);
+  });
+});
+
+/**
+ * EL REPARTO JUSTO — que ningún turno toque casi vacío.
+ *
+ * LO QUE SE FIJA AQUÍ, y por qué merece su propia batería: la rotación promete que cada
+ * destacado sale un turno por ciclo, y esa promesa se cumplía… enseñando a veces un bloque de
+ * UNA tarjeta. Con cinco destacados y cuatro huecos, la paginación con avidez daba [4, 1]:
+ * quince minutos de vitrina llena y quince de vitrina casi vacía, y al del grupo corto le
+ * tocaba siempre la mala. Estos casos fijan las dos mitades del arreglo —los grupos se
+ * equilibran, y siguen siendo una partición— con la aritmética entera y no con ejemplos
+ * sueltos.
+ */
+describe('repartoDelAnillo — los turnos, a partes iguales', () => {
+  /** Los tamaños de los `grupos` turnos, en orden. */
+  const tamaños = (n: number, tamaño = FEATURED_BLOCK_SIZE): number[] => {
+    const { grupos } = repartoDelAnillo(n, tamaño);
+    return Array.from({ length: grupos }, (_, i) => tramoDelGrupo(n, i + 1, tamaño).limit);
+  };
+
+  it('EL CASO QUE LO MOTIVA — cinco destacados y cuatro huecos: [3, 2], no [4, 1]', () => {
+    expect(tamaños(5)).toEqual([3, 2]);
+  });
+
+  it('y el caso que `ceil(N / grupos)` NO habría arreglado: trece → [4, 3, 3, 3]', () => {
+    // Con N=13 y bloque 4, `grupos = 4` y `ceil(13/4) = 4`: una página de tamaño fijo vuelve
+    // a dar [4, 4, 4, 1]. Es la razón de que el tramo se pida por offset/limit y no por
+    // número de página — si alguien lo revirtiera a páginas, este caso lo cazaría.
+    expect(tamaños(13)).toEqual([4, 3, 3, 3]);
+  });
+
+  it('con bloques más grandes, que es para lo que esto es precondición', () => {
+    // Nueve destacados en un bloque de ocho: con avidez sería [8, 1], el mismo defecto
+    // multiplicado. Este es el motivo de que el reparto vaya ANTES de agrandar el bloque.
+    expect(tamaños(9, 8)).toEqual([5, 4]);
+    expect(tamaños(17, 8)).toEqual([6, 6, 5]);
+  });
+
+  it('LA INVARIANTE — ningún grupo difiere de otro en más de UNO, para todo N', () => {
+    for (let tamaño = 1; tamaño <= 8; tamaño++) {
+      for (let n = 1; n <= 120; n++) {
+        const t = tamaños(n, tamaño);
+        expect(Math.max(...t) - Math.min(...t)).toBeLessThanOrEqual(1);
+        // Y lo que dice el reparto de sí mismo coincide con lo que reparte de verdad.
+        const { mayor, menor } = repartoDelAnillo(n, tamaño);
+        expect(Math.max(...t)).toBe(mayor);
+        expect(Math.min(...t)).toBe(menor);
+      }
+    }
+  });
+
+  it('LA INVARIANTE 2 — los grupos son una PARTICIÓN: ni se pierde ni se repite ninguno', () => {
+    // Es la promesa que sostiene toda la rotación: quien paga sale una vez por ciclo. Se
+    // comprueba recorriendo los tramos y viendo que cubren [0, N) exactamente una vez.
+    for (let tamaño = 1; tamaño <= 8; tamaño++) {
+      for (let n = 0; n <= 120; n++) {
+        const { grupos } = repartoDelAnillo(n, tamaño);
+        const cubiertos: number[] = [];
+        for (let turno = 1; turno <= grupos; turno++) {
+          const { offset, limit } = tramoDelGrupo(n, turno, tamaño);
+          for (let i = 0; i < limit; i++) cubiertos.push(offset + i);
+        }
+        expect(cubiertos).toEqual(Array.from({ length: n }, (_, i) => i));
+      }
+    }
+  });
+
+  it('NINGÚN GRUPO PASA DEL TAMAÑO DEL BLOQUE — el bloque nunca recibe lo que no puede pintar', () => {
+    for (let tamaño = 1; tamaño <= 8; tamaño++) {
+      for (let n = 1; n <= 120; n++) {
+        expect(repartoDelAnillo(n, tamaño).mayor).toBeLessThanOrEqual(tamaño);
+      }
+    }
+  });
+
+  it('EL NÚMERO DE GRUPOS NO CAMBIA — y por eso la promesa de vitrina sigue valiendo', () => {
+    // `cuotaDeVitrina` calcula los minutos como 1440/grupos. Si el reparto hubiera tocado el
+    // número de grupos, la cifra que se le enseña al vendedor antes de cobrarle habría
+    // cambiado en silencio. No los toca: se reparte DENTRO de los mismos turnos.
+    for (let n = 1; n <= 120; n++) {
+      expect(repartoDelAnillo(n).grupos).toBe(cuotaDeVitrina(n).grupos);
+    }
+  });
+
+  it('caben todos → un solo turno con todo dentro, que es el caso mayoritario del sitio', () => {
+    for (let n = 1; n <= FEATURED_BLOCK_SIZE; n++) {
+      expect(repartoDelAnillo(n).grupos).toBe(1);
+      expect(tramoDelGrupo(n, 1)).toEqual({ offset: 0, limit: n });
+    }
+  });
+
+  it('sin destacados no hay tramo que pedir', () => {
+    expect(repartoDelAnillo(0)).toEqual({ candidatos: 0, grupos: 1, mayor: 0, menor: 0 });
+    expect(tramoDelGrupo(0, 1)).toEqual({ offset: 0, limit: 0 });
+  });
+
+  it('un turno fuera de rango se acota en vez de devolver un tramo imposible', () => {
+    // `grupoDeLaVentana` no puede devolverlos, pero un `offset` negativo o más allá del final
+    // vaciaría el bloque en TODO el sitio, y eso no puede depender de que nadie se equivoque
+    // aguas arriba.
+    expect(tramoDelGrupo(5, 0)).toEqual(tramoDelGrupo(5, 1));
+    expect(tramoDelGrupo(5, 99)).toEqual(tramoDelGrupo(5, 2));
+    expect(tramoDelGrupo(5, -7)).toEqual(tramoDelGrupo(5, 1));
+  });
+
+  it('números absurdos no rompen la cuenta', () => {
+    expect(repartoDelAnillo(-3).grupos).toBe(1);
+    expect(repartoDelAnillo(7.9).candidatos).toBe(7);
+    expect(repartoDelAnillo(10, 0).mayor).toBeLessThanOrEqual(10);
   });
 });

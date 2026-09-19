@@ -68,6 +68,110 @@ export function grupoDeLaVentana(
   return (ventana % grupos) + 1;
 }
 
+/**
+ * CÓMO SE PARTE EL ANILLO EN TURNOS — A PARTES IGUALES, y no llenando hasta agotar.
+ *
+ * ─── EL DEFECTO QUE ESTO CIERRA ──────────────────────────────────────────────────
+ *
+ * El anillo se recorría con la paginación de Meilisearch, que llena las páginas CON
+ * AVIDEZ: `hitsPerPage` fijo y el resto para la última. Con cinco destacados y cuatro
+ * huecos, los grupos salían **[4, 1]**: durante quince minutos el bloque enseña cuatro
+ * anuncios y durante los quince siguientes enseña **uno**. El de ese grupo paga lo mismo
+ * y comparte vitrina con nadie… porque no hay nadie con quien compartirla: su turno es
+ * un bloque de una sola tarjeta, y el visitante ve una sección casi vacía.
+ *
+ * No es un caso raro: pasa siempre que el número de destacados no es múltiplo del bloque
+ * y el resto es pequeño. Con trece destacados, **[4, 4, 4, 1]**.
+ *
+ * ─── POR QUÉ `ceil(N / grupos)` NO BASTA, aunque lo parezca ──────────────────────
+ *
+ * La salida evidente —subir el tamaño de página a `ceil(N / grupos)`— arregla unos casos
+ * y deja otros intactos, porque **sigue siendo una página de tamaño fijo**. Con N=13 y
+ * bloque 4: `grupos = 4`, `ceil(13/4) = 4`, y los grupos vuelven a ser **[4, 4, 4, 1]**.
+ * No cambia nada justo en el caso peor.
+ *
+ * El reparto de verdad necesita que los grupos tengan **tamaños distintos entre sí**: los
+ * primeros `resto` llevan uno más que los demás. Eso no se puede expresar con un número
+ * de página, y por eso el anillo pasa a pedirse por `offset`/`limit`.
+ *
+ * ─── LA ARITMÉTICA ───────────────────────────────────────────────────────────────
+ *
+ *     grupos = ceil(N / tamaño)          ← no cambia: es el nº de turnos del ciclo
+ *     base   = floor(N / grupos)
+ *     resto  = N % grupos                ← cuántos grupos llevan uno de más
+ *
+ * Con N=5 y tamaño 4: `grupos=2`, `base=2`, `resto=1` → **[3, 2]**.
+ * Con N=13 y tamaño 4: `grupos=4`, `base=3`, `resto=1` → **[4, 3, 3, 3]**.
+ *
+ * DOS PROPIEDADES, y las dos importan:
+ *
+ *   · **Ningún grupo pasa de `tamaño`.** El mayor es `ceil(N/grupos)`, y como
+ *     `grupos ≥ N/tamaño`, eso es `≤ tamaño`. El bloque nunca recibe más de lo que
+ *     puede pintar — que es lo que hace de este cambio una precondición segura para
+ *     agrandarlo después.
+ *   · **Cada destacado sale exactamente una vez por ciclo.** Los grupos son una
+ *     PARTICIÓN de los N: los tramos son contiguos, no se solapan y cubren el total.
+ *     Ni se pierde ni se repite ninguno, que es la promesa que sostiene la rotación.
+ *
+ * EL NÚMERO DE GRUPOS NO CAMBIA, y por eso `cuotaDeVitrina` —la cifra que se le enseña
+ * al vendedor antes de cobrarle— sigue siendo exactamente la misma: cada anuncio sigue
+ * saliendo un turno de cada `grupos`, o sea `1440 / grupos` minutos al día. Lo que cambia
+ * es que ese turno ya no puede tocarle casi vacío.
+ */
+export interface RepartoDelAnillo {
+  /** Cuántos destacados se reparten el anillo. */
+  candidatos: number;
+  /** En cuántos turnos se parte el ciclo. `ceil(N / tamaño)`, como siempre. */
+  grupos: number;
+  /** El grupo más grande. Los demás llevan esto o uno menos. */
+  mayor: number;
+  /** El grupo más pequeño. `mayor - menor` es 0 o 1, nunca más. */
+  menor: number;
+}
+
+export function repartoDelAnillo(
+  candidatos: number,
+  tamañoDelBloque: number = FEATURED_BLOCK_SIZE,
+): RepartoDelAnillo {
+  const n = Math.max(0, Math.floor(candidatos));
+  const tamaño = Math.max(1, Math.floor(tamañoDelBloque));
+  // Sin candidatos no hay anillo. Se devuelve `grupos: 1` —y no 0— porque quien llama lo
+  // usa como divisor y como argumento de `grupoDeLaVentana`; el bloque vacío lo resuelve
+  // el `limit: 0` del tramo, no un caso especial repartido por el controlador.
+  if (n === 0) return { candidatos: 0, grupos: 1, mayor: 0, menor: 0 };
+
+  const grupos = Math.ceil(n / tamaño);
+  const base = Math.floor(n / grupos);
+  const resto = n % grupos;
+  return { candidatos: n, grupos, mayor: resto > 0 ? base + 1 : base, menor: base };
+}
+
+/**
+ * El tramo del conjunto ordenado que le toca a un turno: `[offset, offset + limit)`.
+ *
+ * LOS `resto` PRIMEROS GRUPOS LLEVAN UNO MÁS, y por eso el desplazamiento no es un
+ * múltiplo: hasta `resto` hay que contar los de más que ya han pasado por delante, y a
+ * partir de ahí ese extra deja de crecer (`min(i, resto)`).
+ *
+ * `turno` es 1-indexado, como lo devuelve `grupoDeLaVentana`. Un turno fuera de rango se
+ * acota en vez de devolver un tramo imposible: un `offset` negativo o más allá del final
+ * vaciaría el bloque en todo el sitio, y eso no puede depender de una aritmética que
+ * alguien toque más adelante.
+ */
+export function tramoDelGrupo(
+  candidatos: number,
+  turno: number,
+  tamañoDelBloque: number = FEATURED_BLOCK_SIZE,
+): { offset: number; limit: number } {
+  const { candidatos: n, grupos } = repartoDelAnillo(candidatos, tamañoDelBloque);
+  if (n === 0) return { offset: 0, limit: 0 };
+
+  const i = Math.min(Math.max(Math.floor(turno), 1), grupos) - 1;
+  const base = Math.floor(n / grupos);
+  const resto = n % grupos;
+  return { offset: i * base + Math.min(i, resto), limit: base + (i < resto ? 1 : 0) };
+}
+
 /** Lo que le toca a UN anuncio cuando `candidatos` se reparten el bloque. */
 export interface CuotaDeVitrina {
   /** Cuántos anuncios se reparten los huecos (el que pregunta, incluido). */
