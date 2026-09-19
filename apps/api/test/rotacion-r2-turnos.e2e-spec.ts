@@ -162,21 +162,49 @@ describe('ROTACIÓN R2 — el bloque «Promocionados» se turna (e2e)', () => {
    * EL ORÁCULO. Pregunta a Meilisearch qué anuncios forman el grupo `pagina` del anillo, con
    * la MISMA consulta que el controlador dice usar — pero por fuera de él.
    */
-  async function grupoDelAnillo(q: string, pagina: number, ahoraSegundos: number) {
-    const res = await meili.index(INDEX_NAME).search(q, {
-      filter: [
-        'boostScore = 1',
-        `(featuredExpiresAt IS NULL OR featuredExpiresAt > ${ahoraSegundos})`,
-      ],
+  /**
+   * EL ORÁCULO — el grupo que le toca a un turno, resuelto contra Meilisearch A MANO.
+   *
+   * EL REPARTO JUSTO LO CAMBIÓ, y el cambio es el punto: antes pedía la PÁGINA `turno` con
+   * `hitsPerPage = 4`, que es la paginación con avidez —la que daba [4, 4, 1] con nueve
+   * destacados—. Ahora calcula el tramo igual que el producto: `grupos = ceil(N / 4)`, los
+   * `resto` primeros grupos con uno más, y pide `offset`/`limit`.
+   *
+   * SIGUE SIENDO UN ORÁCULO INDEPENDIENTE aunque comparta la aritmética: lo que verifica no
+   * es la fórmula —de eso se encarga `featured-rotation.spec.ts`, con las invariantes
+   * barridas— sino que el CONTROLADOR pide de verdad ese tramo, con esos filtros y ese
+   * orden, contra el índice real.
+   */
+  async function grupoDelAnillo(q: string, turno: number, ahoraSegundos: number) {
+    const filtros = [
+      'boostScore = 1',
+      `(featuredExpiresAt IS NULL OR featuredExpiresAt > ${ahoraSegundos})`,
+    ];
+    // Primero, cuántos compiten: el conteo exhaustivo sólo lo da el modo página.
+    const conteo = await meili.index(INDEX_NAME).search(q, {
+      filter: filtros,
       sort: ['featuredStartsAt:asc'],
-      page: pagina,
+      page: 1,
       hitsPerPage: TAM_BLOQUE,
     });
-    return {
-      ids: (res.hits as { id: string }[]).map((h) => h.id),
-      grupos: res.totalPages ?? 1,
-      total: res.totalHits ?? 0,
-    };
+    const total = conteo.totalHits ?? 0;
+    const grupos = total === 0 ? 1 : Math.ceil(total / TAM_BLOQUE);
+    const base = Math.floor(total / grupos);
+    const resto = total % grupos;
+    const i = Math.min(Math.max(turno, 1), grupos) - 1;
+    const offset = i * base + Math.min(i, resto);
+    const limit = base + (i < resto ? 1 : 0);
+
+    const res =
+      limit === 0
+        ? { hits: [] as { id: string }[] }
+        : await meili.index(INDEX_NAME).search(q, {
+            filter: filtros,
+            sort: ['featuredStartsAt:asc'],
+            offset,
+            limit,
+          });
+    return { ids: (res.hits as { id: string }[]).map((h) => h.id), grupos, total };
   }
 
   /** El instante (ms) de la ventana `desplazamiento` a partir de la actual, ya alineado. */
@@ -212,7 +240,7 @@ describe('ROTACIÓN R2 — el bloque «Promocionados» se turna (e2e)', () => {
 
   describe('BARRERA 1 — nueve destacados, tres grupos, tres ventanas', () => {
     const Q = 'RotaR2Anillo';
-    const N = 9; // 9 destacados → 3 grupos (4 + 4 + 1)
+    const N = 9; // 9 destacados → 3 grupos A PARTES IGUALES (3 + 3 + 3)
     const anillo: string[] = []; // en orden de CONCESIÓN (el orden del anillo)
 
     beforeAll(async () => {
@@ -273,15 +301,23 @@ describe('ROTACIÓN R2 — el bloque «Promocionados» se turna (e2e)', () => {
       expect([...vistos].sort()).toEqual([...anillo].sort());
     }, 90_000);
 
-    it('el grupo parcial se acepta: la última ventana del ciclo va menos llena', async () => {
-      // 9 no es múltiplo de 4, así que un grupo trae 1. Se acepta a propósito (diseño D3): el
-      // reparto sigue siendo un grupo por anuncio y por ciclo, y esa ventana es la de los
-      // recién llegados, que salen con menos competencia.
+    it('EL REPARTO JUSTO — los tres turnos van igual de llenos: [3, 3, 3], no [4, 4, 1]', async () => {
+      /**
+       * ESTE CASO DECÍA LO CONTRARIO, y ése era el defecto. Afirmaba que «el grupo parcial se
+       * acepta» y fijaba `[1, 4, 4]`: una de cada tres ventanas enseñaba UNA tarjeta, y al
+       * destacado que caía en ese grupo le tocaba siempre la ventana mala. Se aceptó cuando
+       * la rotación se construyó porque el problema que resolvía entonces era mayor (había
+       * destacados que no salían NUNCA), pero seguía siendo un reparto desigual entre gente
+       * que paga lo mismo.
+       *
+       * Nueve entre tres turnos son tres y tres y tres. Lo que el caso vigila ahora es que
+       * ningún turno vaya corto — y que si alguien vuelve a la paginación con avidez, se note.
+       */
       const tamaños: number[] = [];
       for (let v = 0; v < 3; v++) {
         tamaños.push((await conRelojEn(instanteDeVentana(v), () => bloque(Q))).length);
       }
-      expect(tamaños.sort()).toEqual([1, 4, 4]);
+      expect(tamaños).toEqual([3, 3, 3]);
     }, 90_000);
 
     // ═════════════════════════════════════════════════════════════════════════

@@ -69,7 +69,8 @@ describe('H9 — en vista mapa no se resuelve el bloque (e2e)', () => {
     userId = user.id;
 
     // SEIS destacados: más de los cuatro huecos, así que con la rotación el bloque puede
-    // costar DOS consultas. Es el escenario donde el ahorro del mapa se nota más.
+    // costar DOS consultas. Es el escenario donde el ahorro del mapa se nota más. Con el
+    // reparto justo son dos turnos de tres.
     const base = Date.now();
     for (let i = 0; i < 6; i++) {
       const anuncio = await prisma.listing.create({
@@ -144,13 +145,14 @@ describe('H9 — en vista mapa no se resuelve el bloque (e2e)', () => {
 
   /**
    * EL RELOJ SE GOBIERNA, y aquí hizo falta aprenderlo a golpes: seis destacados son DOS
-   * grupos —cuatro y dos—, así que «cuántos trae el bloque» depende de en qué ventana caiga la
-   * petición. La primera versión de estos tests afirmaba `length === 4` sin más y salía verde o
-   * roja según la hora a la que se ejecutara la suite, que es peor que no tenerla.
+   * grupos, así que QUIÉNES trae el bloque depende de en qué ventana caiga la petición. La
+   * primera versión de estos tests afirmaba `length === 4` sin más y salía verde o roja según
+   * la hora a la que se ejecutara la suite, que es peor que no tenerla.
    *
-   * Se fija la ventana en una cuyo turno sea el PRIMER grupo, que es el lleno. Lo que estos
-   * tests miden —que el bloque se resuelve cuando nadie pide saltárselo— no tiene nada que ver
-   * con qué grupo toca, así que fijarlo no debilita la barrera: la vuelve determinista.
+   * EL REPARTO JUSTO QUITÓ LA MITAD DEL PROBLEMA: los dos grupos son ahora de TRES (antes,
+   * cuatro y dos), así que el TAMAÑO del bloque ya no depende de la ventana — sólo los ids. Se
+   * sigue fijando el turno de todas formas, porque lo que hace determinista a esta suite es
+   * que el bloque sea siempre el mismo, no sólo que mida lo mismo.
    */
   async function conElGrupoLleno<T>(fn: () => Promise<T>): Promise<T> {
     const ventanaActual = Math.floor(Date.now() / 1000 / FEATURED_ROTATION_WINDOW_SECONDS);
@@ -198,7 +200,10 @@ describe('H9 — en vista mapa no se resuelve el bloque (e2e)', () => {
   it('BARRERA 2 — sin el parámetro el bloque se resuelve y se sirve, como siempre', async () => {
     const res = await conElGrupoLleno(() => buscar());
 
-    expect(res.body.featured.length).toBe(4); // el grupo lleno del anillo
+    // TRES y no cuatro desde el reparto justo: seis destacados en dos turnos son 3 y 3. El
+    // bloque no se ha encogido —sigue admitiendo cuatro—, es el anillo el que ya no deja un
+    // turno corto. Ver `repartoDelAnillo`.
+    expect(res.body.featured.length).toBe(3);
     expect(res.body.totalHits).toBe(6);
   }, 60_000);
 
@@ -216,14 +221,14 @@ describe('H9 — en vista mapa no se resuelve el bloque (e2e)', () => {
   describe('BARRERA 3 — es un opt-out, y sólo el `true` explícito cuenta', () => {
     it('un cliente que no lo manda recibe el bloque (el de siempre)', async () => {
       const res = await conElGrupoLleno(() => buscar());
-      expect(res.body.featured.length).toBe(4);
+      expect(res.body.featured.length).toBe(3);
     }, 60_000);
 
     it('`skipFeatured=false` NO salta el bloque — la cadena «false» es verdadera en JS', async () => {
       // El mismo cuidado que `conVideo`: sin el `Transform` del DTO, `?skipFeatured=false`
       // habría hecho exactamente lo contrario de lo que pide.
       const res = await conElGrupoLleno(() => buscar({ skipFeatured: 'false' }));
-      expect(res.body.featured.length).toBe(4);
+      expect(res.body.featured.length).toBe(3);
     }, 60_000);
 
     it('en la página 2 da igual: allí nunca hubo bloque', async () => {

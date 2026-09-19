@@ -18232,6 +18232,84 @@ mirarlo sin ejecutarlo») llevada del dato al comportamiento.
 y `pnpm sync-stripe-catalog`, sin el cual el checkout del Plan Pro no funciona porque el
 catálogo sembrado no existe todavía en Stripe.
 
+## Destacados — RÁFAGA 1: el reparto justo de los turnos
+
+Diseño: `docs/auditoria-destacados-2filas.md` §9.3 y §14. **Precondición de las 2 filas**, y a la
+vez el arreglo de un defecto vivo.
+
+### El defecto
+
+El anillo se recorría con la paginación de Meilisearch, que llena las páginas **con avidez**:
+`hitsPerPage` fijo y el resto para la última. Con cinco destacados y cuatro huecos, los grupos
+salían **[4, 1]**: quince minutos de bloque lleno y quince con **una sola tarjeta**. Al destacado
+de ese grupo le tocaba siempre la ventana mala, pagando lo mismo. Con trece, **[4, 4, 4, 1]**.
+
+**Es precondición de la ráfaga 2**: con bloques de ocho, N=9 habría dado **[8, 1]** — el mismo
+defecto multiplicado por dos.
+
+### Por qué `ceil(N / grupos)` no bastaba
+
+La auditoría proponía subir el tamaño de página a `ceil(N / grupos)`. **Se descartó al
+implementar**: sigue siendo una página de tamaño fijo, y con N=13 y bloque 4 da `grupos = 4` y
+`ceil(13/4) = 4` → **[4, 4, 4, 1]** otra vez. No cambia nada justo en el caso peor.
+
+El reparto de verdad exige que **los grupos midan distinto entre sí** —los `resto` primeros
+llevan uno más—, y eso **no se puede expresar con un número de página**. De ahí que el anillo
+pase a pedirse por tramo.
+
+```
+grupos = ceil(N / tamaño)     ← NO cambia: sigue siendo el nº de turnos del ciclo
+base   = floor(N / grupos)
+resto  = N % grupos           ← cuántos grupos llevan uno de más
+```
+
+| N (bloque 4) | Antes | Ahora |
+|---|---|---|
+| 5 | [4, 1] | **[3, 2]** |
+| 9 | [4, 4, 1] | **[3, 3, 3]** |
+| 10 | [4, 4, 2] | **[4, 3, 3]** |
+| 13 | [4, 4, 4, 1] | **[4, 3, 3, 3]** |
+| 9 con bloque 8 | [8, 1] | **[5, 4]** |
+
+### Lo que NO cambia, y es lo que hace el cambio seguro
+
+- **El número de grupos.** Sigue siendo `ceil(N / tamaño)`, así que **`cuotaDeVitrina` —la cifra
+  que se le enseña al vendedor antes de cobrarle— vale exactamente lo mismo**: cada anuncio sigue
+  saliendo un turno de cada `grupos`. Lo único que cambia es que ese turno ya no puede tocarle
+  casi vacío. Hay un test que ata las dos funciones para que no puedan divergir.
+- **El tamaño del bloque sigue en 4.** Esta ráfaga **no agranda nada** — eso es la ráfaga 2.
+- **La honestidad.** `onlyBoosted` + `boostedActiveAt` intactos, y ningún grupo pasa de `tamaño`:
+  el bloque nunca recibe más de lo que puede pintar, ni se rellena con nada.
+- **El coste.** El turno 1 se sirve **recortando la consulta de conteo** (el grupo 1 son los
+  primeros `limit` de los `tamaño` que ésa ya trajo), así que sigue costando **una** consulta.
+  Sin ese recorte, el reparto justo habría cobrado una consulta de más en cada turno 1 con N no
+  múltiplo del bloque.
+
+### El segundo modo de paginar
+
+`SearchParams` admite ahora `offset`/`limit` además de `page`/`hitsPerPage`. **Son excluyentes**
+—Meilisearch rechaza los cuatro juntos— y el `limit` manda. Consecuencia que queda escrita en el
+tipo: **en modo tramo no vienen `totalHits` ni `totalPages`**, por eso son opcionales y por eso
+el controlador resuelve primero el total con una consulta en modo página. El retorno de
+`search()` pasó a declararse en vez de inferirse: con dos modos, el SDK tipaba la respuesta como
+una unión y `totalHits` dejaba de existir para todos los llamantes de siempre.
+
+### Verificación
+
+`featured-rotation.spec.ts` — 24 casos, con **dos invariantes barridas para todo N ≤ 120 y todo
+tamaño ≤ 8**: (1) ningún grupo difiere de otro en más de uno, y (2) los grupos son una
+**partición** —los tramos cubren `[0, N)` exactamente una vez, así que ni se pierde ni se repite
+ningún destacado—. Más el caso que lo motiva (N=5 → [3,2]) y el que `ceil(N/grupos)` no habría
+arreglado (N=13).
+
+En e2e, el **oráculo de `rotacion-r2-turnos` se reescribió** para calcular el tramo igual que el
+producto y pedirlo por `offset`/`limit`: sigue siendo independiente —verifica que el controlador
+pide ese tramo contra el índice real, con esos filtros y ese orden—, mientras la fórmula la
+prueban las invariantes de arriba.
+
+**Mutación comprobada:** volver a la paginación con avidez → caen 4 casos, entre ellos el
+`[3, 2]` y la invariante barrida.
+
 ## Cuotas Pro — PIEZA 2: el Pro concedido a mano, con cuota propia y configurable
 
 Diseño: `docs/auditoria-y-diseno-cuotas-pro.md` §9. Cierra el encargo de cuotas.

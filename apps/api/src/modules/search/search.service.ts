@@ -412,6 +412,25 @@ export interface SearchParams {
   sort?: 'price:asc' | 'price:desc' | 'publishedAt:desc' | 'sortDate:desc' | 'featuredStartsAt:asc';
   page?: number;
   hitsPerPage?: number;
+  /**
+   * ROTACIÓN — EL REPARTO JUSTO. Ventana explícita del conjunto ordenado, alternativa a
+   * `page`/`hitsPerPage` y **sólo** para el anillo de destacados.
+   *
+   * POR QUÉ HACE FALTA UN SEGUNDO MODO DE PAGINAR. Los turnos del anillo se reparten a
+   * partes iguales, y eso significa que **los primeros grupos llevan un anuncio más que
+   * los últimos** (con 5 destacados y 4 huecos: 3 y 2). Una página de tamaño fijo no
+   * puede expresar eso — sólo sabe cortar cada `hitsPerPage`—, y ahí estaba el defecto
+   * que la rotación arrastraba: los grupos salían [4, 1] en vez de [3, 2]. Ver
+   * `repartoDelAnillo` en `featured-rotation.ts`.
+   *
+   * SON EXCLUYENTES, y Meilisearch lo exige: o `page`/`hitsPerPage` o `offset`/`limit`.
+   * Cuando llega `limit`, manda este modo. La diferencia práctica es que **este modo no
+   * devuelve `totalHits` ni `totalPages` exhaustivos** (Meilisearch da un estimado), y por
+   * eso el controlador resuelve primero el total con una consulta en modo página y sólo
+   * después pide el tramo: el conteo exacto y el tramo son dos preguntas distintas.
+   */
+  offset?: number;
+  limit?: number;
   /** Confirms "is this specific listing in these results?" (B3 alert-matching Fase 2)
    * with the exact same filtering semantics as a real search — not a separate JS check. */
   listingId?: string;
@@ -634,7 +653,25 @@ export class SearchService implements OnModuleInit {
    * Full-text search with filters, facets, geo, and sorting.
    * Returns the raw Meilisearch response; the controller maps it to the API contract.
    */
-  async search(params: SearchParams) {
+  /**
+   * ROTACIÓN — EL REPARTO JUSTO: EL RETORNO SE DECLARA, y antes se infería.
+   *
+   * Al admitir los dos modos de paginar, el objeto de parámetros pasó a ser una UNIÓN, y
+   * el SDK de Meilisearch tipa su respuesta a partir de él: `totalHits`, `page` y
+   * `hitsPerPage` dejaron de existir estáticamente para todos los llamantes, que llevan
+   * usándolos desde siempre. El tipo declarado los devuelve a su sitio y deja escrito lo
+   * único que cambia de verdad: **en modo `offset`/`limit` esos tres NO vienen**, y por
+   * eso son opcionales. Quien pida un tramo tiene que haber resuelto el total aparte —es
+   * lo que hace el controlador con su consulta de conteo.
+   */
+  async search(params: SearchParams): Promise<{
+    hits: ListingDocument[];
+    totalHits?: number;
+    totalPages?: number;
+    page?: number;
+    hitsPerPage?: number;
+    facetDistribution?: Record<string, Record<string, number>>;
+  }> {
     const filters: string[] = [];
 
     if (params.categorySlug) filters.push(`categoryPath = "${this.escape(params.categorySlug)}"`);
@@ -723,12 +760,19 @@ export class SearchService implements OnModuleInit {
       : (params.attributeFacetNames ?? []).filter((f) => this.filterableAttributeNames.has(f));
     const facets = [...nativeFacets, ...attributeFacets];
 
+    // ROTACIÓN — EL REPARTO JUSTO. Los dos modos de paginar son EXCLUYENTES para
+    // Meilisearch: mandar los cuatro campos a la vez es un error de la API, no una
+    // preferencia. `limit` presente ⇒ ventana explícita (el anillo); si no, página.
+    const paginacion =
+      params.limit === undefined
+        ? { page: params.page ?? 1, hitsPerPage: params.hitsPerPage ?? 24 }
+        : { offset: params.offset ?? 0, limit: params.limit };
+
     return this.index.search(params.q ?? '', {
       filter: filters.length ? filters : undefined,
       sort: sort.length ? sort : undefined,
       facets,
-      page: params.page ?? 1,
-      hitsPerPage: params.hitsPerPage ?? 24,
+      ...paginacion,
     });
   }
 
