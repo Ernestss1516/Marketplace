@@ -18232,6 +18232,89 @@ mirarlo sin ejecutarlo») llevada del dato al comportamiento.
 y `pnpm sync-stripe-catalog`, sin el cual el checkout del Plan Pro no funciona porque el
 catálogo sembrado no existe todavía en Stripe.
 
+## Destacados — RÁFAGA 3: lo que las dos filas destaparon
+
+Diseño: `docs/auditoria-destacados-2filas.md` §11, §6 y §14 (ráfaga 3). Cierra el encargo.
+
+### «Veces listado» cuenta lo que se VE, no lo que se manda
+
+El contador de impresiones se alimentaba de lo servido, y **servido y visto dejaron de ser lo
+mismo** con las dos filas: en un móvil se mandan ocho tarjetas y se ven cuatro. Como «veces
+listado» es el dato con el que un vendedor Pro decide si el destacado le sale a cuenta,
+contarle ocho le hace repetir una compra que no le rentó.
+
+Del bloque sólo cuentan las **`FEATURED_BLOCK_MIN_VISIBLE`** primeras — las que ve cualquier
+pantalla. La cifra queda corta en escritorio, y ésa es la asimetría aceptable: **un suelo en una
+métrica de rentabilidad se puede interpretar; un techo inflado, no.**
+
+> **La lista NO se recorta**, y no es un olvido: se pinta entera, sin recorte por viewport. Y
+> como los destacados se repiten dentro de ella en su posición natural, un destacado que además
+> salga en la página servida se cuenta igual — por la lista. El `Set` impide que sume dos veces.
+>
+> **Por eso el inflado sólo existía para el destacado que NO cabe en la página servida**, que es
+> justo el caso que el bloque está para arreglar. La barrera lo provoca con `hitsPerPage=1`: sin
+> eso, un test ingenuo pasaría igual con el defecto puesto.
+
+⚠ El `4` está en dos paquetes (`FEATURED_BLOCK_MIN_VISIBLE` en la API, `VISIBLES_POR_TRAMO.base`
+en el frontend) y **no hay import que los ate**. Cada lado tiene un caso que fija el número.
+
+### `GRID_MEDIA_SIZES`: un defecto preexistente, arreglado ahora que duele el doble
+
+Declaraba `33vw` hasta 1024 px cuando **las dos rejillas ya están a 4 columnas desde 768**. Entre
+768 y 1024 el navegador pedía una imagen un tercio más grande de la necesaria. No lo trajo el
+bloque de dos filas — pero éste es el momento: lo que antes se pagaba cuatro veces ahora se paga
+ocho, y todo por encima del pliegue.
+
+```
+antes:  (max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw
+ahora:  (max-width: 639.98px) 50vw, (max-width: 767.98px) 33vw,
+        (max-width: 1023.98px) 25vw, calc(25vw - 78px)
+```
+
+Los decimales no son un tic: `sm:` es `min-width: 640px`, así que a 640 exactos ya hay tres
+columnas y un `max-width: 640px` pediría el doble justo en el salto. Y los 78 px son la barra de
+filtros (`lg:w-64` + `gap-6`), que desde 1024 hace que la tarjeta mida ~169 px cuando `25vw`
+prometía 256.
+
+### CLS: cero, medido y con el instrumento validado
+
+Con **ocho tarjetas**, en escritorio y en móvil: **CLS 0,0000**. Es lo esperado —el recorte es
+CSS y el hueco de la foto está reservado con `aspect-square`— pero se midió en vez de suponerlo,
+con el instrumento de `hueco-banner-invisible.spec.ts` (`addInitScript` + `buffered: true`).
+
+**El instrumento se validó**: inyectando un desplazamiento de 220 px, la misma medición da CLS
+**0,16 (escritorio) y 0,23 (móvil)**. El cero no es un observador muerto.
+
+> **⚠ EL LCP NO SE MIDIÓ DE VERDAD, y conviene que conste.** La semilla de pruebas **no trae
+> imágenes**, así que el bloque pinta ocho marcos vacíos y el elemento LCP resultó ser un `<p>`
+> de texto. La medición no tocó el camino de las imágenes, que es justo el que las dos filas
+> duplican. Para medirlo haría falta una semilla con fotos reales; queda pendiente y **no está
+> cubierto por ninguna barrera**.
+>
+> Tampoco se commiteó un umbral de tiempo: un LCP con tope en un runner de CI es un generador de
+> rojos ambientales, y este repositorio ya decidió que un rojo que a veces sale enseña a ignorar
+> los rojos (ver `playwright.snapshots.config.ts`, `retries: 0`).
+
+### `/busqueda` entra en la invariancia entre modelos
+
+`docs/auditoria-destacados-2filas.md` §6 afirma que **el número de tarjetas por fila no varía
+entre modelos** —los ejes de un modelo son tipografía, radio y sombras—, y de ahí sale todo el
+cálculo de «dos filas». Lo garantizaba el mecanismo, pero **no lo medía nadie**: la lista de
+`estilo-invariancia.spec.ts` cubría ocho superficies y la búsqueda no era una.
+
+Ahora sí. Y la rejilla de resultados es **la misma** que la del bloque (mismas clases, misma
+`ListingCard`), así que medir ésta mide las dos — sin sembrar destacados, que además meterían en
+el baseline un elemento que **rota cada quince minutos**.
+
+**Instrumento validado**: inyectando un cambio estructural en la búsqueda bajo el modelo extremo,
+la barrera lo canta («/busqueda cambió de estructura al cambiar de modelo»).
+
+### Los baselines de capturas: ninguno
+
+Se comprobó en vez de suponerse. `/busqueda` no está en el catálogo de capturas, y el cambio de
+`sizes` —que sí toca pantallas que sí lo están— **no movió un píxel**: 82 pasadas, 0 fallos, con
+`.next` borrado antes (la lección recurrente).
+
 ## Destacados — RÁFAGA 2: el bloque pasa a dos filas
 
 Diseño: `docs/auditoria-destacados-2filas.md` §14 (ráfaga 2) y decisiones D-1, D-2, D-3, D-5, D-7.

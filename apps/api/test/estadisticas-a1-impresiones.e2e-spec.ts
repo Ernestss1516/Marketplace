@@ -374,6 +374,66 @@ describe('Estadísticas A1 — captura de impresiones (e2e)', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // BARRERA 3bis — DEL BLOQUE SÓLO CUENTA LO QUE SE VE
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe('BARRERA 3bis — el bloque de destacados sólo cuenta lo que ve TODO el mundo', () => {
+    /**
+     * EL DEFECTO QUE ESTO CIERRA, y por qué apareció ahora.
+     *
+     * El bloque «Promocionados» pasó de cuatro tarjetas a DOS FILAS: el servidor manda hasta
+     * ocho y el CSS enseña las que caben —cuatro en el tramo más estrecho, ocho en
+     * escritorio—. Servido y VISTO dejaron de ser lo mismo, y el contador se alimentaba de lo
+     * servido: en un móvil contaba ocho impresiones de las que el visitante veía cuatro.
+     *
+     * No es un decimal: «veces listado» es **el dato con el que un vendedor Pro decide si el
+     * destacado le sale a cuenta**. Contarle el doble le hace repetir una compra que no le
+     * rentó.
+     *
+     * ─── POR QUÉ HACE FALTA `hitsPerPage=1` PARA VERLO ──────────────────────────
+     *
+     * Los destacados SE REPITEN en la lista, en su posición natural. Mientras entren en la
+     * página servida se cuentan por la lista y el recorte del bloque no cambia nada — o sea
+     * que un test ingenuo pasaría igual con el defecto puesto. El inflado sólo existe para el
+     * destacado que NO cabe en la página, que es justo el caso que el bloque está para
+     * arreglar. Se provoca sirviendo una lista de UNO.
+     */
+    it('con ocho destacados servidos, sólo los cuatro primeros cuentan impresión', async () => {
+      const MARCA_BLOQUE = 'ImpresionVitrina';
+      const ids: string[] = [];
+      for (let i = 0; i < 8; i++) {
+        ids.push(await crearAnuncio(`${MARCA_BLOQUE} Telefono`, `bloque-${i}`, { destacado: true }));
+      }
+
+      // `hitsPerPage=1`: la lista sirve UNO, así que los otros siete sólo pueden contar si
+      // los cuenta el bloque.
+      const res = await buscar(`q=${MARCA_BLOQUE}&hitsPerPage=1`, 'visitante-vitrina');
+      const servidosEnLaLista = (res.body.hits as { id: string }[]).map((h) => h.id);
+      const servidosEnElBloque = (res.body.featured as { id: string }[]).map((h) => h.id);
+
+      // El bloque sirve los ocho —las dos filas—, que es lo que hace posible el inflado.
+      expect(servidosEnElBloque).toHaveLength(8);
+
+      // Lo que DEBE contar: la lista más las cuatro primeras del bloque. Ni una más.
+      const debenContar = new Set([...servidosEnLaLista, ...servidosEnElBloque.slice(0, 4)]);
+      const noDebenContar = ids.filter((id) => !debenContar.has(id));
+      expect(noDebenContar.length).toBeGreaterThan(0); // si no, el caso no probaría nada
+
+      await acumularYVolcar([...debenContar]);
+      await barreraDeOrden();
+
+      for (const id of debenContar) {
+        expect(await totalDe(id)).toBe(1);
+      }
+      // LA AFIRMACIÓN NEGATIVA, que es la del defecto: las que el visitante no vio no
+      // sumaron. El centinela de arriba garantiza que la decisión ya está tomada.
+      for (const id of noDebenContar) {
+        expect(await totalDe(id)).toBe(0);
+      }
+    }, 120_000);
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // BARRERA 4 — las alertas NO cuentan
   // ═══════════════════════════════════════════════════════════════════════════
 
