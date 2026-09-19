@@ -9,6 +9,7 @@ import { TagsService } from '../tags/tags.service';
 import { ImpressionsService } from '../impressions/impressions.service';
 import {
   FEATURED_BLOCK_MAX_VISIBLE,
+  FEATURED_BLOCK_MIN_VISIBLE,
   FEATURED_BLOCK_SIZE,
   grupoDeLaVentana,
   repartoDelAnillo,
@@ -313,9 +314,26 @@ export class SearchController {
     // `hits`. El filtro de `__sponsored` es el segundo cinturón, por si un día se
     // reordena este bloque. (Y hay un tercero, en el volcado: `SponsoredAd` no es un
     // `Listing`, así que su id no casaría con el `JOIN "Listing"`.)
+    //
+    // ── DEL BLOQUE SÓLO CUENTAN LAS QUE VE TODO EL MUNDO ────────────────────────
+    //
+    // Servido y VISTO dejaron de ser lo mismo cuando el bloque pasó a dos filas: se mandan
+    // hasta ocho y el CSS enseña las que caben —cuatro en el tramo más estrecho—. Contar las
+    // ocho le diría a un vendedor de móvil que su anuncio se vio el doble de lo que se vio,
+    // y «veces listado» es justo el dato con el que decide si el destacado le sale a cuenta.
+    //
+    // Se cuentan las `FEATURED_BLOCK_MIN_VISIBLE` primeras, que son las que ve CUALQUIER
+    // pantalla. La cifra queda corta en escritorio —allí se ven ocho— y ésa es la asimetría
+    // aceptable: un suelo en una métrica de rentabilidad se puede interpretar, un techo
+    // inflado no.
+    //
+    // NO HACE FALTA RECORTAR `hits`: la lista se pinta entera, sin recorte por viewport, y
+    // además los destacados se repiten dentro de ella en su posición natural — así que un
+    // destacado que además salga en la página 1 se cuenta igual, por la lista. El `Set` de
+    // abajo impide que eso sume dos veces.
     const servedListingIds = [
       ...new Set(
-        [...hits, ...featured]
+        [...hits, ...featured.slice(0, FEATURED_BLOCK_MIN_VISIBLE)]
           .filter((hit) => hit.__sponsored !== true)
           .map((hit) => hit.id)
           .filter((id): id is string => typeof id === 'string'),

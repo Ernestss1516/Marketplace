@@ -79,6 +79,26 @@ const RUTAS_PUBLICAS = [
   '/registro',
   '/contacto',
   '/admin/login',
+  /**
+   * LA BÚSQUEDA — la superficie que faltaba, y la que sostiene una afirmación concreta.
+   *
+   * `docs/auditoria-destacados-2filas.md` §6 afirma que **el número de tarjetas por fila no
+   * varía entre modelos**: los ejes de un modelo son tipografía, radio y sombras, y ninguno
+   * toca columnas. De ahí sale todo el cálculo de «dos filas» — si un modelo pudiera cambiar
+   * las columnas, «dos filas» sería un número distinto por modelo y la tabla de
+   * `destacados-dos-filas.ts` sería mentira.
+   *
+   * Eso lo garantizaba el MECANISMO (no hay eje que pueda tocarlo) pero no lo medía nadie:
+   * esta lista cubría ocho superficies y la búsqueda no era una de ellas. Añadirla convierte
+   * el argumento en comprobación.
+   *
+   * Y LA REJILLA DE RESULTADOS ES LA MISMA QUE LA DEL BLOQUE DE DESTACADOS
+   * —`grid-cols-2 sm:grid-cols-3 md:grid-cols-4`, la misma `ListingCard`—, así que medir
+   * ésta mide las dos. No hace falta sembrar destacados para cubrir el bloque, y no sembrarlos
+   * evita además meter aquí un elemento que ROTA cada quince minutos: la vitrina cambia sola
+   * de contenido, y un árbol que cambia solo no puede ser un baseline.
+   */
+  '/busqueda',
 ];
 const RUTA_BACKOFFICE = '/admin/anuncios';
 

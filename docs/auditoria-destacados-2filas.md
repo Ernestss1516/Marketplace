@@ -394,7 +394,9 @@ Se aplicaron D-1, D-2, D-3, D-5 y D-7. **D-8 se aceptó tras ver la previa a 102
 4. Barreras: 0 → sin sección; 3 → tres tarjetas; 5 → cinco; **jamás un no-destacado** (que
    `onlyBoosted` y `boostedActiveAt` sigan ahí).
 
-**RÁFAGA 3 — Lo que el cambio destapa**
+**RÁFAGA 3 — Lo que el cambio destapa** — **✅ HECHA** (ver «Destacados — RÁFAGA 3» en
+`estado-tecnico.md`). D-4 resuelta contando el peor caso. **Salvedad: el LCP no llegó a medirse
+de verdad** —la semilla no trae imágenes, así que el elemento LCP fue texto— y queda sin barrera.
 1. Decidir las impresiones ([§11](#11--las-impresiones-veces-listado-se-inflarían)).
 2. Medir LCP con 8 tarjetas y afinar `sizes`.
 3. Añadir `/busqueda` a las rutas de `estilo-invariancia.spec.ts`

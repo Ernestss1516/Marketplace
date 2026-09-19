@@ -29,8 +29,39 @@ import { Card, CardContent } from '@/components/ui/card';
  * la caja; cada tarjeta pone su contenido y su marca.
  */
 
-/** `sizes` de la foto en REJILLA: 2 columnas en móvil, 3 en tablet, 4 en escritorio. */
-export const GRID_MEDIA_SIZES = '(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw';
+/**
+ * `sizes` de la foto en REJILLA: 2 columnas en móvil, 3 en tableta, 4 desde 768 px.
+ *
+ * ─── DECÍA 33vw HASTA 1024 px, Y LA REJILLA YA ESTÁ A 4 COLUMNAS DESDE 768 ──────────────
+ *
+ * Las dos rejillas que usan esta tarjeta —la lista de resultados y el bloque de
+ * destacados— son `grid-cols-2 sm:grid-cols-3 md:grid-cols-4`, o sea que los saltos están
+ * en **640 y 768**, no en 640 y 1024. Entre 768 y 1024 el navegador pedía la imagen de una
+ * columna de 33vw para pintarla en una de 25vw: **una imagen un tercio más grande de la
+ * necesaria**, descargada y decodificada para nada, en el tramo de tabletas apaisadas y
+ * portátiles pequeños.
+ *
+ * Era un defecto PREEXISTENTE —no lo trajo el bloque de dos filas—, pero éste es el momento
+ * de arreglarlo: el bloque pasó de cuatro imágenes a ocho, así que lo que antes se pagaba
+ * cuatro veces ahora se paga ocho, y todas por encima del pliegue.
+ *
+ * ─── LOS DECIMALES NO SON UN TIC ────────────────────────────────────────────────────────
+ *
+ * `sm:` de Tailwind es `min-width: 640px`, así que a 640 exactos ya hay 3 columnas. Un
+ * `max-width: 640px` incluiría ese ancho en el tramo de 2 columnas y pediría el doble justo
+ * en el salto. `639.98px` es la forma canónica de decir «hasta justo antes de 640».
+ *
+ * ─── Y DESDE 1024 SE DESCUENTA LA BARRA DE FILTROS ──────────────────────────────────────
+ *
+ * Ahí entra la barra lateral (`lg:w-64` = 256 px, más `gap-6` = 24 px), así que la columna
+ * de resultados no es el ancho de la ventana: una tarjeta mide ~169 px a 1024 px y ~233 a
+ * 1280, cuando `25vw` prometía 256 y 320. Descontarlos acerca la petición a lo que de
+ * verdad se pinta. Por encima de 1536 el contenedor deja de crecer y `25vw` vuelve a
+ * pasarse — hacia arriba, que es el lado seguro: una imagen de más resolución se ve bien,
+ * una de menos se ve borrosa.
+ */
+export const GRID_MEDIA_SIZES =
+  '(max-width: 639.98px) 50vw, (max-width: 767.98px) 33vw, (max-width: 1023.98px) 25vw, calc(25vw - 78px)';
 
 /** `sizes` de la foto en AMPLIADA: ancho completo en móvil, la columna fija de 256 px arriba. */
 export const WIDE_MEDIA_SIZES = '(max-width: 640px) 100vw, 256px';

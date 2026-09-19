@@ -183,6 +183,32 @@ export function tramoDelGrupo(
 export const FEATURED_BLOCK_MAX_VISIBLE = 2 * FEATURED_BLOCK_SIZE;
 
 /**
+ * CUÁNTAS TARJETAS DEL BLOQUE VE **TODO EL MUNDO**, sea cual sea su pantalla.
+ *
+ * El bloque se sirve entero (hasta ocho) y el CSS enseña las que caben: cuatro en móvil, seis
+ * en tableta, ocho en escritorio. **Cuatro es el suelo** — dos columnas por dos filas, el tramo
+ * más estrecho—, así que ésas las ve cualquiera.
+ *
+ * ─── PARA QUÉ SIRVE ESTE NÚMERO: PARA NO INFLAR «VECES LISTADO» ─────────────────
+ *
+ * El contador de impresiones se alimentaba de lo SERVIDO, y servido y visto dejaron de ser lo
+ * mismo en cuanto el bloque pasó a dos filas: en un móvil se mandan ocho y se ven cuatro. Como
+ * «veces listado» es **un dato que el vendedor Pro usa para decidir si el destacado le sale a
+ * cuenta**, contar las ocho le diría que su anuncio se vio el doble de lo que se vio.
+ *
+ * Contando sólo estas cuatro, la cifra es un **suelo**: nunca promete impresiones que no
+ * ocurrieron. En un escritorio se ven ocho y se cuentan cuatro, o sea que el dato se queda
+ * corto — y quedarse corto en una métrica de rentabilidad es lo aceptable; inflarla no.
+ *
+ * ⚠ ESTE 4 ES EL MISMO QUE `VISIBLES_POR_TRAMO.base` DEL FRONTEND
+ * (`apps/web/src/components/busqueda/destacados-dos-filas.ts`), y son dos paquetes distintos,
+ * así que no hay import que los ate: **si allí cambian las columnas del tramo más estrecho,
+ * hay que cambiar esto**. Cada lado tiene un caso que fija el número para que el desajuste
+ * salga en rojo en vez de en silencio.
+ */
+export const FEATURED_BLOCK_MIN_VISIBLE = FEATURED_BLOCK_SIZE;
+
+/**
  * QUÉ TRAMOS DEL ANILLO SE SIRVEN AL BLOQUE: el turno de esta ventana **y el siguiente**.
  *
  * ─── POR QUÉ DOS GRUPOS DE CUATRO Y NO UN GRUPO DE OCHO (decisión D-3) ──────────
