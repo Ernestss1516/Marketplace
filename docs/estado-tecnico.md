@@ -18232,6 +18232,106 @@ mirarlo sin ejecutarlo») llevada del dato al comportamiento.
 y `pnpm sync-stripe-catalog`, sin el cual el checkout del Plan Pro no funciona porque el
 catálogo sembrado no existe todavía en Stripe.
 
+## El rojo crónico de capturas — por qué duró cinco merges, y qué lo impide ahora
+
+### El diagnóstico: deriva legítima, no un bug congelado
+
+`Público › planes` (escritorio y móvil) llevaba en rojo desde el merge `54954911` —la previa
+de vídeo en móvil—, con los otros 80 en verde. La causa es **una línea de texto**:
+
+```
+«…(al pasar el ratón, en ordenador)»  →  «…(al pasar el ratón, o al tocarla en el móvil)»
+```
+
+`buildProBenefits` compone los beneficios que pinta `/planes`, y esa cadena creció: envuelve
+a una línea más y **la página gana 20 px de alto** (1280×1154 → 1280×1174). Las capturas
+dejaron de coincidir y nadie regeneró el baseline.
+
+**Confirmado por tres vías independientes**, porque la diferencia entre «deriva» y «bug
+congelado» decide si regenerar es correcto o es tapar algo:
+
+1. `git diff fa632b52..54954911 -- billing.service.ts` enseña exactamente ese cambio de cadena.
+2. El árbol accesible que CI adjunta al fallo trae el texto NUEVO; el baseline versionado
+   enseña el VIEJO. Todo lo demás de la página coincide palabra por palabra.
+3. El diff de píxeles: **los únicos píxeles rojos son la cola de esa frase**, en la tarjeta
+   Pro mensual y en la anual. Ni un píxel más en toda la página.
+
+**Y el texto nuevo es cierto**, que es lo que autoriza a regenerar: la previa al tocar existe
+(`VideoIndicator.tsx`, `previa-video-tap.test.tsx`, `previa-video-movil.spec.ts`). Decir «en
+ordenador» prometía de menos. Lo viejo era el baseline, no la semilla.
+
+**Descartado que fuera no determinista:** `apps/web/e2e/global-setup.ts` siembra siempre en el
+mismo orden (`reset-test-db` → `seed-test` → `seed-playwright`), y `seed-playwright` pisa
+`freeActiveListingLimit` a 100 al final, siempre.
+
+> **Por qué la tarjeta Pro del baseline NO lleva línea de «anuncios activos».** Es lo primero
+> que alguien va a querer «arreglar» al mirar la captura. Con el tope libre de la semilla de
+> capturas (100) por encima del de Pro (20), `buildProBenefits` **no la promete**: anunciar
+> «Hasta 20» como ventaja de pagar sería vender como mejora algo que el plan gratuito ya da
+> mejor. Es la regla funcionando. El 100 tampoco es un descuido: las specs de Playwright
+> publican decenas de anuncios y con 5 se quedarían sin cupo.
+
+### El arreglo, y lo que lo hace fiable
+
+- **Los `*-linux.png` se regeneraron en el Linux de CI**, que es el único que hay: los
+  baselines se nombran por plataforma porque Windows y Linux rasterizan las fuentes distinto.
+  Para eso el workflow tiene ahora un `workflow_dispatch` con la entrada
+  `actualizar_capturas`, que corre el job con `--update-snapshots` y las sube en el artefacto
+  que ya existía. **No se commitean solas a propósito**: una barrera visual que se
+  auto-actualizara al primer rojo sería un sello de goma.
+- **De los 82 baselines de linux regenerados, sólo difieren esos dos.** Los otros 80 salen
+  byte a byte iguales, así que regenerar no aceptó en silencio ninguna otra deriva. Esa
+  comprobación es parte del procedimiento, no un extra.
+- **Los `*-win32.png` estaban igual de viejos** y se regeneraron en local. ⚠ **A la primera
+  salieron 12 ficheros, no 2**: la batería funcional deja ítems de nav y enlaces de pie
+  borrados en la base, y ésos se sirven con `unstable_cache`, que persiste en `.next/cache`
+  **en disco** y sobrevive al rebuild. Con la caché sucia, regenerar habría congelado diez
+  capturas contaminadas como si fueran el estado bueno. **Antes de regenerar en local:
+  `rm -rf apps/web/.next`.**
+
+### La barrera que faltaba: el texto atado a su captura
+
+`catalog-beneficios-texto.spec.ts` clava las **doce cadenas** —las ocho de la tarjeta Pro y
+las cuatro de Gratis, en orden y completas— con la configuración de la semilla de capturas.
+
+El defecto no era que faltara vigilancia visual: la había, y era afilada (`threshold: 0`,
+`retries: 0`, sin `continue-on-error` desde E2). El defecto era que **el que cambia el texto
+está en `apps/api` y el que se rompe es un PNG de `apps/web`, y entre los dos no había ningún
+hilo**. El único aviso llegaba dos minutos después, en otro job, como una diferencia de
+píxeles que hay que descargar para entender.
+
+Ahora un cambio de dos palabras en esa cadena tumba un test unitario **local, en un segundo**,
+cuyo comentario dice qué hacer. No impide cambiar el texto —no es su trabajo—: impide
+cambiarlo en silencio. Comprobado con una mutación: reescribir «al tocarla» como «tocándola»
+lo pone en rojo con las dos cadenas enfrentadas.
+
+### Lo que NO se arregló aquí, y es una decisión de Ernest
+
+**La puerta de capturas no se había aflojado: nunca estuvo conectada a nada.** E2 le quitó el
+`continue-on-error` y desde entonces el job tumba el run de CI de verdad — lo hizo cinco
+veces. Lo que no existe es alguien que consuma ese rojo:
+
+| | Estado |
+|---|---|
+| `continue-on-error` en el job | **no** (E2 se lo quitó) |
+| Protección de rama en `main` | **ninguna** (`Branch not protected`) |
+| Rulesets | **ninguno** (`[]`) |
+| Hooks locales (`.husky`, `core.hooksPath`) | **ninguno** |
+
+El flujo es `git merge` en local + `git push` a `main`, sin PR. **Ningún resultado de CI puede
+bloquear un merge que ya ocurrió**: el rojo llega después de los hechos.
+
+**DECIDIDO (Ernest, 2026-09-19): se queda así.** Cerrarlo significaría protección de rama con
+checks obligatorios, y eso obliga a pasar por PR para cada cambio —GitHub rechaza el push
+directo porque el commit todavía no tiene checks—: es un cambio de cómo se trabaja, no un
+ajuste de CI, y no compensa para un repositorio de un solo autor.
+
+Lo que sí se hace en su lugar es **acercar el rojo al sitio donde se comete el error**, que es
+lo que resolvió este caso: un unitario local de un segundo en vez de un job de dos minutos en
+otra máquina. El riesgo que queda asumido, y conviene tenerlo presente: un rojo de CI de otra
+clase puede volver a pasar desapercibido, porque sigue sin haber nada que lo frene. La
+costumbre que lo compensa es mirar el run después de empujar a `main`.
+
 ## Cuotas Pro — PIEZA 1: la cuota se cuenta por MES NATURAL, y el Pro anual deja de recibir 1/12
 
 Diseño completo: `docs/auditoria-y-diseno-cuotas-pro.md`. Esta sección recoge lo implementado.

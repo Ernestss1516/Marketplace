@@ -4,6 +4,27 @@ on:
   push:
   pull_request:
     branches: [main]
+  # REGENERAR LOS BASELINES DE CAPTURAS, desde la pestaña Actions y a mano.
+  #
+  # POR QUÉ HACE FALTA UN DISPARADOR Y NO VALE `--update-snapshots` EN LOCAL: los
+  # baselines se nombran por plataforma (`{arg}-{platform}.png`, ver
+  # playwright.snapshots.config.ts) porque Windows y Linux rasterizan las fuentes
+  # distinto y mezclarlos da rojos permanentes e inexplicables. CI corre en Linux, así
+  # que los `*-linux.png` SÓLO se pueden regenerar en Linux — y este job es el único
+  # Linux que hay. Sin esto, la única vía era montar un contenedor a mano con la pila
+  # entera, que es justo la clase de fricción por la que un baseline se queda viejo
+  # cinco merges seguidos.
+  #
+  # Lo que produce NO se commitea solo: queda en el artefacto `snapshots-report`, que
+  # ya subía las capturas. Se descarga, se MIRA (el punto entero de una barrera visual
+  # es que alguien apruebe el cambio) y se commitea. Ver
+  # docs/estado-tecnico.md, «El rojo crónico de capturas».
+  workflow_dispatch:
+    inputs:
+      actualizar_capturas:
+        description: 'Regenerar los baselines de capturas (--update-snapshots) y subirlos como artefacto'
+        type: boolean
+        default: false
 
 # ──────────────────────────────────────────────────────────────────────────────
 # ENTORNO COMPARTIDO POR LOS JOBS QUE LEVANTAN LA PILA.
@@ -617,8 +638,15 @@ jobs:
       - name: Build frontend
         run: pnpm --filter @marketplace/web build
 
+      # EN MODO NORMAL COMPARA; en modo actualización REESCRIBE los baselines y sale en
+      # verde sin comparar nada. Son dos cosas distintas a propósito y por eso el modo
+      # entra por un `workflow_dispatch` explícito: una barrera visual que se
+      # auto-actualizara al primer rojo no sería una barrera, sería un sello de goma.
       - name: Capturas — Modelo 0
-        run: pnpm --filter @marketplace/web exec playwright test --config=playwright.snapshots.config.ts
+        run: >-
+          pnpm --filter @marketplace/web exec playwright test
+          --config=playwright.snapshots.config.ts
+          ${{ inputs.actualizar_capturas && '--update-snapshots' || '' }}
 
       # El informe lleva, para cada captura que no coincide, las tres imágenes:
       # esperada, obtenida y el diff. Es lo único que permite decidir si un rojo es
