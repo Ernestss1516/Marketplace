@@ -159,9 +159,9 @@ describe('Ficha de usuario U1 — Pro sin periodo de facturación (e2e)', () => 
 
     it('y su cuota YA CONSUMIDA se sigue contando bien', async () => {
       // No basta con que el límite aparezca: el COUNT tiene que seguir
-      // haciéndose sobre el periodo del de pago.
+      // haciéndose sobre la cuota del de pago.
       const { user, token } = await crearUsuario('pago-consumido');
-      const { periodStart } = await proDePago(user.id);
+      await proDePago(user.id);
       await proSinPeriodo(user.id);
 
       const categoria = await prisma.category.findFirst();
@@ -178,7 +178,11 @@ describe('Ficha de usuario U1 — Pro sin periodo de facturación (e2e)', () => 
           type: EntitlementType.FEATURED_LISTING,
           listingId: anuncio.id,
           origin: FeaturedOrigin.PRO_QUOTA,
-          createdAt: new Date(periodStart.getTime() + 60_000),
+          // AHORA, no «el inicio del periodo + 1 minuto» como estaba: con la ventana en el
+          // mes natural (pieza 1), el alta de este montaje cae el día ANTERIOR, que el día 1
+          // de cada mes pertenece al mes pasado y no contaría. Lo que el caso mide —que el
+          // gasto del cliente de pago se cuenta— no depende de esa fecha.
+          createdAt: new Date(),
           expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         },
       });
@@ -281,17 +285,29 @@ describe('Ficha de usuario U1 — Pro sin periodo de facturación (e2e)', () => 
   describe('el pago puro no cambia (requisito de oro)', () => {
     it('un cliente de pago sin nada más ve exactamente lo de siempre', async () => {
       const { user, token } = await crearUsuario('pago-puro');
-      const { periodStart, periodEnd } = await proDePago(user.id);
+      await proDePago(user.id);
 
       const estado = await estadoPro(token);
 
       expect(estado.isPro).toBe(true);
       expect(estado.quotaSource).toBe('SUBSCRIPTION');
       expect(estado.remaining).toBe(estado.limit);
-      expect(new Date(estado.periodStart!).getTime()).toBe(periodStart.getTime());
-      expect(new Date((estado as { periodEnd?: string }).periodEnd!).getTime()).toBe(
-        periodEnd.getTime(),
-      );
+
+      /**
+       * CUOTAS PRO PIEZA 1 — ESTE CASO COMPARABA `periodStart/End` CON LOS DE LA
+       * SUSCRIPCIÓN, y esa es exactamente la afirmación que la pieza 1 retira: la ventana
+       * de la cuota pasó a ser el MES NATURAL, porque atarla al ciclo de cobro le daba a un
+       * Pro ANUAL su cuota «mensual» una vez al año.
+       *
+       * LO QUE EL CASO VIGILA NO CAMBIA —«el cliente de pago sigue viendo una ventana de
+       * cuota, no `undefined`»—, que es lo que U1 vino a garantizar frente al Pro manual.
+       * El borde exacto lo prueban `mes-natural.spec.ts` (con otra aritmética) y
+       * `h8-featured-quota.e2e-spec.ts`; aquí basta con que exista y contenga al presente.
+       */
+      const inicio = new Date(estado.periodStart!).getTime();
+      const fin = new Date((estado as { periodEnd?: string }).periodEnd!).getTime();
+      expect(inicio).toBeLessThanOrEqual(Date.now());
+      expect(fin).toBeGreaterThan(Date.now());
     });
 
     it('un NO-Pro sigue viendo `isPro: false` y sin cuota', async () => {

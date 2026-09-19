@@ -113,13 +113,13 @@ export const SETTING_DESCRIPTIONS: Record<string, string> = {
   totalListingLimitEnabled:
     'Mientras esté apagado, los dos límites totales de arriba NO se aplican: se pueden configurar y dejar preparados sin que nadie se vea frenado. Al encenderlo, un usuario que ya esté por encima de su tope NO pierde ningún anuncio; simplemente no podrá crear otro hasta bajar archivando o vendiendo. El freno actúa al CREAR, no al publicar.',
   proMonthlyFeaturedQuota:
-    'Destacados gratuitos que un usuario Pro puede usar cada mes. Se renuevan en el aniversario del ciclo de su suscripción; los no usados no se acumulan al mes siguiente.',
+    'Destacados gratuitos que un usuario Pro puede usar cada mes. Se renuevan el DÍA 1 de cada mes, no en el aniversario de su suscripción: la cuota es la misma pague mensual o anualmente, y los no usados no se acumulan al mes siguiente. Un usuario que se hace Pro a finales de mes recibe la cuota completa de ese mes y otra el día 1.',
   proQuotaFeaturedDurationDays:
     'Duración fija (en días) de un destacado pagado con la cuota gratuita de Pro. Al pagar con créditos, el usuario elige la duración (7/14/30 días); la cuota siempre usa esta duración fija.',
   proExtraCreditsPercent:
     'Porcentaje de créditos extra que recibe un usuario Pro al comprar un pack de créditos, sobre el mismo precio que paga cualquier usuario (no es un descuento en euros). Se congela en cada compra: cambiar este valor no afecta a compras ya realizadas.',
   proMonthlyBumpQuota:
-    'Bumps gratuitos que un usuario Pro puede usar cada mes. Mismo periodo que la cuota de destacados (una sola suscripción por usuario); se renuevan en el aniversario del ciclo, los no usados no se acumulan. Se consumen ANTES que el saldo de bumps por cupón y que los créditos.',
+    'Bumps gratuitos que un usuario Pro puede usar cada mes. Misma ventana que la cuota de destacados —el mes natural, del día 1 a fin de mes—, los no usados no se acumulan. Se consumen ANTES que el saldo de bumps por cupón y que los créditos.',
   proExtraBumpsPercent:
     'Porcentaje de bumps extra que recibe un usuario Pro al comprar un pack de bumps, sobre el mismo precio que paga cualquier usuario. Setting independiente del bonus de créditos (proExtraCreditsPercent) — beneficios distintos, calibrables por separado. Se congela en cada compra: cambiar este valor no afecta a compras ya realizadas.',
   maxTagsPerListing:

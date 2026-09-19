@@ -5,9 +5,10 @@
  * encima de la lista de anuncios se gana el derecho a estar ahí saliendo sólo el día que
  * cambia una decisión; el resto del mes, su ausencia es la funcionalidad.
  *
- *   · B-1 — aparece cuando toca: Pro con cuota sin gastar y el ciclo a punto de renovar.
- *   · B-2 — no aparece cuando no toca: cuota agotada, o ciclo lejos. No es ruido permanente.
+ *   · B-1 — aparece cuando toca: Pro con cuota sin gastar y el mes a punto de acabarse.
+ *   · B-2 — no aparece cuando no toca: cuota agotada, o el fin de mes lejos. No es ruido permanente.
  *   · B-3 — el Pro MANUAL no lo ve: no tiene cuota mensual que perder (D-1).
+ *   · B-4 — el Pro ANUAL SÍ lo ve, y cada mes (cuotas Pro, pieza 1).
  *   · B-5 — el dato es el del backend: `periodEnd` y los dos `remaining`, sin recalcular nada.
  */
 import {
@@ -155,6 +156,39 @@ describe('B-3 — quién NO lo ve', () => {
       AHORA,
     );
     expect(aviso).toBeNull();
+  });
+});
+
+/**
+ * B-4 — EL PRO ANUAL, QUE ANTES SE QUEDABA CALLADO ONCE MESES Y MEDIO.
+ *
+ * Esta función nunca supo si el usuario paga mensual o anual, y sigue sin saberlo: lee
+ * `periodEnd` y compara. **Lo que cambió es lo que ese campo contiene.**
+ *
+ *   · ANTES (`Subscription.currentPeriodEnd`): para un anual, la fecha estaba a un año, así
+ *     que la ventana de 3 días no se abría en 362 días — y cuando por fin se abría, avisaba
+ *     de perder «la cuota» de un año entero.
+ *   · AHORA (fin del MES NATURAL, cuotas Pro pieza 1): la fecha es el día 1 del mes que
+ *     viene, para el anual igual que para el mensual. El aviso sale **cada mes, a los dos
+ *     que tienen cuota**.
+ *
+ * Los dos casos de abajo son el mismo `proStatus` con los dos `periodEnd` posibles: fijan
+ * que el arreglo llega hasta aquí y que el silencio anterior tenía causa, no mala suerte.
+ */
+describe('B-4 — el Pro ANUAL recibe el aviso, y cada mes', () => {
+  it('con el fin de MES a dos días, avisa igual que un mensual', () => {
+    const anual = resolverAvisoCaducidad(proStatus({ periodEnd: enDias(2) }), AHORA);
+    const mensual = resolverAvisoCaducidad(proStatus({ periodEnd: enDias(2) }), AHORA);
+
+    expect(anual).not.toBeNull();
+    expect(anual!.dias).toBe(2);
+    expect(anual).toEqual(mensual);
+  });
+
+  it('y con el fin de CICLO a un año —lo que se le servía antes— se quedaba mudo', () => {
+    const comoAntes = resolverAvisoCaducidad(proStatus({ periodEnd: enDias(365) }), AHORA);
+
+    expect(comoAntes).toBeNull();
   });
 });
 

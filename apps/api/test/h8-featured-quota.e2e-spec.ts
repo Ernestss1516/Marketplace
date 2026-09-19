@@ -4,9 +4,14 @@
  * Verifica EntitlementService.getFeaturedQuotaStatus (vía GET /billing/pro-status):
  *   - No-Pro → isPro:false, sin cuota.
  *   - Pro con 0 usados → remaining = limit.
- *   - Pro con algunos PRO_QUOTA en el periodo vigente → used correcto.
- *   - CLAVE: PRO_QUOTA de un periodo ANTERIOR (createdAt < currentPeriodStart) no cuenta —
+ *   - Pro con algunos PRO_QUOTA en el mes en curso → used correcto.
+ *   - CLAVE: PRO_QUOTA del MES ANTERIOR (createdAt < inicio del mes natural) no cuenta —
  *     prueba que el reseteo derivado funciona sin cron.
+ *
+ * CUOTAS PRO PIEZA 1 — la ventana dejó de ser `Subscription.currentPeriodStart` y pasó a ser
+ * el MES NATURAL peninsular. Mientras fuera el ciclo de cobro, un Pro ANUAL recibía su cuota
+ * «mensual» una vez al año. Ver `src/modules/billing/mes-natural.ts` y la paridad
+ * anual = mensual en `cuota-paridad-anual.e2e-spec.ts`.
  *
  * El origin propagado en featuredByCredits (CREDITS) y en el flujo Redsys (REDSYS) se
  * verifica en billing-rf6.e2e-spec.ts, describe('grantFeaturedListing unified (§3.1)').
@@ -44,6 +49,32 @@ import { QUEUE_INDEXING } from 'src/infra/queue/queue.constants';
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Un instante escrito como lo vería un reloj PENINSULAR: «2026-09-01 00:00:00».
+ *
+ * CUOTAS PRO PIEZA 1 — es la forma de comprobar el borde del mes natural **sin copiar la
+ * implementación**. `mes-natural.ts` calcula el borde con desplazamientos de offset; esto lo
+ * lee con `Intl`, que es otra aritmética, así que un error en una no se cancela con el otro.
+ * `hourCycle: 'h23'` para que la medianoche salga como `00` y no como `24`.
+ */
+function civilEnMadrid(instante: Date): string {
+  const partes = Object.fromEntries(
+    new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Europe/Madrid',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hourCycle: 'h23',
+    })
+      .formatToParts(instante)
+      .map((p) => [p.type, p.value]),
+  );
+  return `${partes.year}-${partes.month}-${partes.day} ${partes.hour}:${partes.minute}:${partes.second}`;
 }
 
 async function loginUser(app: INestApplication, email: string, password: string): Promise<string> {
@@ -214,7 +245,7 @@ describe('H8.2 — GET /billing/pro-status (cuota mensual de destacados Pro)', (
     });
   });
 
-  it('Pro con 0 usados este periodo → remaining = limit', async () => {
+  it('Pro con 0 usados este mes → remaining = limit', async () => {
     const { user, token } = await createUser('zero-used');
     const periodStart = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000);
     const periodEnd = new Date(Date.now() + 20 * 24 * 60 * 60 * 1000);
@@ -225,12 +256,43 @@ describe('H8.2 — GET /billing/pro-status (cuota mensual de destacados Pro)', (
     expect(status.limit).toBe(4);
     expect(status.used).toBe(0);
     expect(status.remaining).toBe(4);
-    expect(new Date(status.periodStart!).getTime()).toBe(periodStart.getTime());
-    expect(new Date(status.periodEnd!).getTime()).toBe(periodEnd.getTime());
     expect(status.quotaDurationDays).toBe(7); // H8.5b: default proQuotaFeaturedDurationDays
+
+    /**
+     * CUOTAS PRO PIEZA 1 — LA VENTANA ES EL MES NATURAL, NO EL CICLO DE COBRO.
+     *
+     * Este caso asertaba `periodStart === Subscription.currentPeriodStart`, y ESA era la
+     * afirmación que había que retirar: mientras la ventana fuera el ciclo, un Pro anual
+     * recibía su cuota «mensual» una vez al año (ver `mes-natural.ts`). La suscripción se
+     * sigue creando con un periodo cualquiera —arriba, de −10 a +20 días— justo para que
+     * se vea que la cuota **ya no lo mira**.
+     *
+     * Y NO SE COMPARA CONTRA `inicioDelMesNatural()`: importar la función de producción
+     * convertiría el caso en «esto hace lo que hace». Se comprueba la PROPIEDAD —el día 1
+     * a las 00:00 peninsulares— leyendo el instante con `Intl`, que es otra aritmética.
+     */
+    expect(civilEnMadrid(new Date(status.periodStart!))).toMatch(/^\d{4}-\d{2}-01 00:00:00$/);
+    expect(civilEnMadrid(new Date(status.periodEnd!))).toMatch(/^\d{4}-\d{2}-01 00:00:00$/);
+
+    /**
+     * Y la ventana dura UN mes, ni cero ni dos. Se mide en días en vez de comparar nombres
+     * de mes porque así el caso vale también en el salto de diciembre a enero. El rango va
+     * de 28 a 31 días (febrero y los meses largos) con holgura de una hora en los extremos:
+     * los meses que contienen un cambio de hora duran 27,96 o 31,04 días de reloj, y ésa
+     * es la respuesta CORRECTA — un mes natural son los días del calendario, no 30×24 h.
+     */
+    const diasDeVentana =
+      (new Date(status.periodEnd!).getTime() - new Date(status.periodStart!).getTime()) /
+      86_400_000;
+    expect(diasDeVentana).toBeGreaterThan(27.9);
+    expect(diasDeVentana).toBeLessThan(31.1);
+
+    // Y contiene al presente: la cuota que se está enseñando es la de AHORA.
+    expect(new Date(status.periodStart!).getTime()).toBeLessThanOrEqual(Date.now());
+    expect(new Date(status.periodEnd!).getTime()).toBeGreaterThan(Date.now());
   });
 
-  it('Pro con algunos PRO_QUOTA usados en el periodo vigente → used correcto', async () => {
+  it('Pro con algunos PRO_QUOTA usados este mes → used correcto', async () => {
     const { user, token } = await createUser('some-used');
     const periodStart = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000);
     const periodEnd = new Date(Date.now() + 20 * 24 * 60 * 60 * 1000);
@@ -238,30 +300,44 @@ describe('H8.2 — GET /billing/pro-status (cuota mensual de destacados Pro)', (
 
     const listing1 = await createActiveListing(user.id, 'some-used-1');
     const listing2 = await createActiveListing(user.id, 'some-used-2');
-    await createProQuotaGrant(user.id, listing1.id, new Date(Date.now() - 5 * 24 * 60 * 60 * 1000));
-    await createProQuotaGrant(user.id, listing2.id, new Date(Date.now() - 1 * 24 * 60 * 60 * 1000));
+    // LOS DOS GASTOS SON DE AHORA, no «hace 5 días» y «hace 1 día» como estaban. Con la
+    // ventana en el mes natural, «hace 5 días» cae en el mes ANTERIOR durante los cinco
+    // primeros días de cada mes — el caso habría pasado 25 días al mes y fallado los otros
+    // 5, que es la peor clase de rojo: el que se achaca al cambio que uno acaba de hacer.
+    // Lo que este caso mide —que dos gastos del mes en curso suman 2— no cambia.
+    await createProQuotaGrant(user.id, listing1.id, new Date());
+    await createProQuotaGrant(user.id, listing2.id, new Date());
 
     const status = await getProStatus(token);
     expect(status.used).toBe(2);
     expect(status.remaining).toBe(2);
   });
 
-  it('CLAVE — PRO_QUOTA de un periodo ANTERIOR no cuenta (reseteo derivado, sin cron)', async () => {
+  it('CLAVE — PRO_QUOTA del MES ANTERIOR no cuenta (reseteo derivado, sin cron)', async () => {
     const { user, token } = await createUser('reset-derived');
-    // El periodo "acaba de empezar" (simula una renovación de Stripe que acaba de avanzar
-    // currentPeriodStart) — cualquier PRO_QUOTA anterior a este instante pertenece al ciclo
-    // ya cerrado y no debe contar, aunque nadie haya "reseteado" nada explícitamente.
-    const periodStart = new Date();
-    const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-    await createProSubscription(user.id, periodStart, periodEnd);
+    // El ciclo de cobro se pone DELIBERADAMENTE desalineado del mes natural (empezó hace
+    // 40 días) para que el caso no pueda pasar por casualidad: lo que decide qué cuenta es
+    // el día 1, no la suscripción.
+    await createProSubscription(
+      user.id,
+      new Date(Date.now() - 40 * 24 * 60 * 60 * 1000),
+      new Date(Date.now() + 20 * 24 * 60 * 60 * 1000),
+    );
+
+    // EL BORDE SALE DE LA PROPIA RESPUESTA, no se recalcula aquí: el caso de arriba ya ha
+    // comprobado —con otra aritmética— que ese instante ES el día 1 a las 00:00 peninsulares.
+    // Así este caso mide lo suyo, que es qué cae dentro y qué cae fuera, con precisión de
+    // un segundo a cada lado del corte.
+    const { periodStart } = await getProStatus(token);
+    const inicioDelMes = new Date(periodStart!).getTime();
 
     const oldListing = await createActiveListing(user.id, 'reset-old');
     const newListing = await createActiveListing(user.id, 'reset-new');
 
-    // Grant del periodo ANTERIOR (antes de currentPeriodStart) — no debe contar.
-    await createProQuotaGrant(user.id, oldListing.id, new Date(periodStart.getTime() - 24 * 60 * 60 * 1000));
-    // Grant del periodo VIGENTE (después de currentPeriodStart) — sí debe contar.
-    await createProQuotaGrant(user.id, newListing.id, new Date(periodStart.getTime() + 60 * 60 * 1000));
+    // Un segundo ANTES del día 1 — es del mes pasado, ya no cuenta.
+    await createProQuotaGrant(user.id, oldListing.id, new Date(inicioDelMes - 1_000));
+    // Un segundo DESPUÉS — es de este mes, cuenta.
+    await createProQuotaGrant(user.id, newListing.id, new Date(inicioDelMes + 1_000));
 
     const status = await getProStatus(token);
     expect(status.used).toBe(1);
@@ -269,14 +345,16 @@ describe('H8.2 — GET /billing/pro-status (cuota mensual de destacados Pro)', (
   });
 
   it('CARACTERIZACIÓN — alta día 1 vs alta día 15 del mismo mes calendario: ambas ven la cuota COMPLETA, sin prorrateo (Monetización ráfaga 1)', async () => {
-    // getFeaturedQuotaStatus deriva el periodo de Subscription.currentPeriodStart, que es
-    // el instante de ALTA (billing.processor.ts fija currentPeriodStart = now() al crear
-    // la suscripción), no el día del mes calendario. Este test blinda ese comportamiento
-    // documentado (diseno-facturacion.md §15, "Reseteo de la cuota DERIVADO"): un alta a
-    // mitad de mes no reduce la cuota — el "periodo" de un Pro siempre dura 30 días
-    // completos desde SU alta, no desde el día 1 del calendario. Si alguien introdujera
-    // prorrateo por accidente (p. ej. calculando remaining en función del día del mes),
-    // este test lo detectaría.
+    // EL CASO SOBREVIVE A LA PIEZA 1 SIN TOCAR UNA ASERCIÓN, y el motivo cambió: antes la
+    // cuota no se prorrateaba porque el "periodo" era el ciclo de cobro, que empieza el día
+    // del alta; ahora no se prorratea porque la ventana es el MES NATURAL y quien entra el
+    // día 28 recibe la cuota entera de ese mes (decisión D-10 del diseño: el primer mes es
+    // parcial en días y completo en cuota, y se acepta a propósito — el coste está acotado
+    // a una cuota extra por usuario, una sola vez).
+    //
+    // Que la aserción no se mueva es la información útil: el cambio de ventana NO introdujo
+    // prorrateo por la puerta de atrás. Si alguien lo introdujera —calculando `remaining`
+    // en función del día del mes—, este caso lo cazaría igual que antes.
     const day1 = new Date();
     day1.setDate(1);
     day1.setHours(10, 0, 0, 0);

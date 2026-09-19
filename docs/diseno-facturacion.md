@@ -137,6 +137,15 @@ campo en el `Entitlement` ya existente (RF.2), no un modelo nuevo — evaluado y
 `FeaturedAllowance` separado porque hubiera introducido un segundo lugar donde el estado del
 destacado pudiera desincronizarse.
 
+> ⚠ **SUPERADO EN PARTE — la ventana ya no es el ciclo de cobro.** Todo lo que este apartado dice
+> del reseteo derivado sigue vigente; lo que cambió es **desde cuándo se cuenta**. Atar la ventana
+> a `currentPeriodStart` le daba a un Pro **ANUAL** su cuota «mensual» una vez al año (1/12).
+> Desde la pieza 1 de cuotas Pro se cuenta desde el inicio del **MES NATURAL** peninsular
+> (`billing/mes-natural.ts`), y el cerrojo de la reserva atómica cuelga de la fila `Entitlement`,
+> no de `Subscription`. Ver `docs/auditoria-y-diseno-cuotas-pro.md` y la sección «Cuotas Pro —
+> PIEZA 1» de `estado-tecnico.md`. Lee `currentPeriodStart` más abajo como «el inicio de la
+> ventana de la cuota», que es lo que este apartado quería decir.
+
 **Reseteo DERIVADO — sin cron, sin contador que resetear.** "Usado este periodo" se calcula
 contando cuántos `Entitlement` con `origin = PRO_QUOTA` tiene el usuario con `createdAt >=
 subscription.currentPeriodStart`. `currentPeriodStart` es el mismo campo que Stripe avanza en cada

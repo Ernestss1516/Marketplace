@@ -796,7 +796,11 @@ Todas *(auth)*. Canal in-app genérico.
 - **`GET /billing/my-entitlements`** *(auth)* — Mis permisos vigentes.
 - **`GET /billing/my-transactions`** *(auth)* — Mis transacciones, paginadas.
 - **`GET /billing/pro-status`** *(auth)* — Estado Pro, incluida la **cuota mensual de destacados**
-  (`limit` / `used` / `remaining`).
+  (`limit` / `used` / `remaining`) y la de bumps (`bumpQuota.*`).
+  `periodStart` / `periodEnd` son **la ventana de la CUOTA, no el ciclo de facturación**: el mes
+  natural en curso en hora peninsular, del día 1 a las 00:00 (`periodStart`, inclusivo) al día 1
+  del mes siguiente (`periodEnd`, exclusivo). La fecha de renovación del COBRO viaja aparte, en
+  `GET /billing/my-subscriptions` (`currentPeriodEnd`). Ver `auditoria-y-diseno-cuotas-pro.md` §7.2.
 - **`POST /billing/featured-by-credits`** *(auth)* — Destaca un anuncio pagando con créditos.
   Débito atómico (`UPDATE Wallet WHERE balance >= cost`; si no afecta filas → `402`) +
   `CreditLedger` + concesión del entitlement, todo en una `$transaction` con rollback automático.
