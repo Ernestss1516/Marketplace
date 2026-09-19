@@ -18748,6 +18748,83 @@ exactamente como antes.
 - **Mutación del cerrojo comprobada:** quitar el `FOR UPDATE` → los dos tests de carrera
   conceden `[201, 201]` con cupo para uno. El cerrojo nuevo es real, no decorativo.
 
+## Specs de seguridad — la regla: afirmar la AUSENCIA, no la presencia de un substring
+
+### El defecto
+
+`apps/web/e2e/admin-fuga-secretos.spec.ts` vigila que una pantalla de staff no pinte el mensaje
+de error del servidor (donde puede venir una credencial dentro). Sus comprobaciones de fondo son
+negativas —el secreto no está, el texto del servidor no está—, y la que garantizaba que había
+algo que escanear era:
+
+```ts
+expect(cuerpo).toContain('500');   // sobre el textContent de la página ENTERA
+```
+
+La satisface cualquier `500` del documento: un precio de 500 €, un identificador, un contador.
+Con ella verde, las tres negativas podían estar mirando una página a medio cargar —donde,
+naturalmente, tampoco hay ningún secreto—. **Un verde que no significaba «no hay fuga» sino «el
+observador no miraba».** En seguridad eso es peor que un rojo falso: el rojo molesta hasta que
+alguien lo arregla; el verde falso se queda callado.
+
+### El barrido encontró la misma enfermedad con el signo cambiado
+
+`sinErrorDeAutorizacion` en `apps/web/e2e/admin-roles.spec.ts` buscaba `error 403`, `forbidden`
+y `unauthorized`: las palabras del molde de error VIEJO (`Error ${statusCode}: ${message}`, que
+pintaba el `Forbidden resource` de Nest). Ese molde ya no existe — hoy todo pasa por
+`mensajeDeErrorAdmin`, que escribe el motivo derivado del código:
+
+```
+Error al cargar las métricas — no tienes permiso (403)
+```
+
+Ninguna de las cuatro agujas aparece ahí. Las doce rutas de INV-1 llevaban un tiempo vigiladas
+por un helper que no podía encontrar nada. **Medido**: reinyectando el defecto histórico
+(`GET /admin/stats` con `@MinRole(ADMIN)` mientras el dashboard es EDITOR) el helper viejo
+pasaba y el nuevo cae con el texto de arriba delante.
+
+### La regla
+
+En una spec de seguridad, una aserción **positiva** por substring con una aguja corta y sin
+estructura (`'500'`, `'403'`, `'admin'`) está prohibida. Se afirma la propiedad:
+
+- la **ausencia real** del secreto (`exigirQueNoHayaSecretos`, con la forma completa de la clave);
+- el **estado exacto** de la respuesta (`res.status()`), no lo que la interfaz escriba;
+- el **texto entero** que sólo el producto puede generar (`ha fallado el servidor (500)`,
+  `no tienes permiso (403)` — con los paréntesis, que son lo que ancla la aguja: `'403'` a pelo
+  lo escribe cualquier marca de tiempo, y de hecho lo hizo, `PAG-1789844822403`).
+
+Y en la dirección contraria: una aguja negativa tiene que describir **lo que el producto pinta
+hoy**, no lo que pintaba cuando se escribió el test.
+
+### La barrera
+
+`apps/api/src/config/aserciones-de-seguridad.spec.ts` (batería unitaria del backend, sin
+infraestructura) lleva la lista de las 17 specs de seguridad y prohíbe la forma:
+`toContain`/`toContainText`/`toHaveText` positivo con una aguja que case `^[A-Za-z0-9]{0,7}$`.
+Los caracteres estructurales (`/`, `_`, `(`, `-`, espacio) están permitidos porque son
+precisamente lo que ancla una aguja a su sitio.
+
+- Exige que las specs de la lista **existan**: un renombrado que vaciara el barrido en silencio
+  sería otro verde sin significado.
+- Excepción a mano y con motivo escrito en la línea: `// aguja-segura: <por qué>`.
+- **Se valida a sí misma**: un caso de prueba le da de comer las formas prohibidas, las
+  negativas y la excepción, y exige que las distinga.
+- Las specs de cumplimiento por PRESENCIA (la página de cookies tiene que **decir** que usa
+  Vimeo) no entran: allí el substring positivo es la propiedad, no un atajo.
+
+### Verificación (mutación)
+
+- **Molde revertido** (`Error ${statusCode}: ${message}`) → los 4 casos de rama de error caen, y
+  los 13 del unitario de `mensajeDeErrorAdmin` con ellos.
+- **Fuga con el molde intacto** (se añade `: ${err.message}` al final) → el escáner caza la clave
+  de Resend en las 4 pantallas y guarda el volcado. Es la mutación que importa: demuestra que el
+  verde significa «no hay fuga» y no «el observador no mira».
+- **`GET /admin/stats` de vuelta a ADMIN** → `sinErrorDeAutorizacion` cae en `/admin` con EDITOR
+  y con MODERATOR. Con las agujas viejas, pasaba.
+- **La forma prohibida reintroducida** (`toContain('500')`) → la barrera la señala con fichero y
+  línea.
+
 ## 4. Documentación de la API y el diseño
 
 - **Swagger**: `http://localhost:3001/api/docs` cuando el backend está corriendo.

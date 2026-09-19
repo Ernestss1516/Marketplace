@@ -57,6 +57,39 @@ const PANTALLAS: readonly {
   { nombre: 'estilo', ruta: '/admin/estilo', peticion: '**/api/admin/estilo**', titulo: 'Estilo' },
 ];
 
+/**
+ * LO QUE LA PANTALLA TIENE QUE DECIR CUANDO EL SERVIDOR DEVUELVE UN 500.
+ *
+ * ── POR QUÉ NO ES `toContain('500')`, QUE ES LO QUE PONÍA AQUÍ ──────────────────────
+ *
+ * La línea anterior era `expect(cuerpo).toContain('500')` sobre el `textContent` de toda
+ * la página. Una aserción POSITIVA por substring sobre un pajar: la satisface **cualquier**
+ * `500` del documento —un precio de 500 €, un id, un contador, una marca de tiempo— sin que
+ * la rama de error haya pintado nada. Es la misma forma que ya tumbó `admin-roles` desde el
+ * otro lado (allí un `not.toContain('403')` cazaba los tres dígitos dentro de
+ * `PAG-1789844822403`), y aquí hacía algo peor que un rojo falso: **un verde falso**.
+ *
+ * Y el verde falso importa por lo que esta aserción es: no es decoración, es la
+ * **validación del instrumento**. Las tres comprobaciones que van justo antes son negativas
+ * —el secreto no está, el texto del servidor no está— y una afirmación negativa sobre una
+ * página en blanco se cumple sola. Ésta es la que dice «la rama de error se ha pintado, así
+ * que lo que acabamos de escanear es la pantalla fallando de verdad». Satisfecha por un
+ * precio, el escáner podía estar mirando una página a medio cargar y el test seguiría verde.
+ *
+ * ── LA FORMA CORRECTA: LA PROPIEDAD, NO EL SUBSTRING ───────────────────────────────
+ *
+ * La propiedad es «el operador ve el motivo DERIVADO DEL CÓDIGO». Eso lo produce
+ * `motivoPorEstado(500)` en `apps/web/src/lib/api/client.ts` y no lo produce nada más:
+ * la frase completa no puede salir de un precio ni de un identificador, y tampoco del
+ * `message` del servidor, porque el molde nuevo no lo pinta. El `respaldo` cambia en cada
+ * pantalla («Error al cargar», «Error al cargar la marca»…), así que se fija la cola, que
+ * es la parte que el molde garantiza igual en las cuatro.
+ *
+ * Si alguien cambia esa frase, este test se pone rojo y le obliga a venir aquí. Es
+ * deliberado: el texto es el contrato con el operador.
+ */
+const MOLDE_DEL_500 = /ha fallado el servidor \(500\)/;
+
 test.describe('Fuga de secretos — las pantallas de configuración de la instancia', () => {
   for (const { nombre, ruta, titulo } of PANTALLAS) {
     test(`${nombre}: cargando bien, no hay nada con forma de secreto`, async ({ adminContext }) => {
@@ -104,8 +137,9 @@ test.describe('Fuga de secretos — las pantallas de configuración de la instan
       });
 
       // Y que la pantalla haya REACCIONADO al error: si no, mediríamos una página a medio
-      // cargar en vez de su rama de error.
-      await expect(page.getByText(/Error|error/).first()).toBeVisible({ timeout: 15_000 });
+      // cargar en vez de su rama de error. Se exige EL TEXTO DEL MOLDE, no un «error»
+      // cualquiera — ver la nota de abajo sobre por qué el aviso genérico tampoco valía.
+      await expect(page.getByText(MOLDE_DEL_500).first()).toBeVisible({ timeout: 15_000 });
 
       // LA BARRERA: el secreto NO está en ninguna parte del cuerpo.
       await exigirQueNoHayaSecretos(page, `${nombre} (rama de error)`);
@@ -117,8 +151,11 @@ test.describe('Fuga de secretos — las pantallas de configuración de la instan
       expect(cuerpo).not.toContain('Fallo al hablar con el proveedor');
       expect(cuerpo).not.toContain('Internal Server Error');
 
-      // Lo que SÍ tiene que ver el operador: que ha fallado el servidor, y el código.
-      expect(cuerpo).toContain('500');
+      // Lo que SÍ tiene que ver el operador: la frase que `motivoPorEstado` deriva del
+      // código, con el código detrás. Es la MISMA afirmación que la de arriba, hecha ahora
+      // sobre el cuerpo entero: sirve de confirmación de que lo visible y lo escaneado son
+      // el mismo documento.
+      expect(cuerpo).toMatch(MOLDE_DEL_500);
 
       await page.close();
     });
