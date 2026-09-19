@@ -4,6 +4,16 @@
 Todo lo que sigue está verificado contra el código y, donde se indica, medido contra la base de
 datos de desarrollo.
 
+> ### ✅ LAS DOS PIEZAS IMPLEMENTADAS — el encargo de cuotas, cerrado
+>
+> **PIEZA 2** (rama `cuota-pro-manual`): el Pro concedido a mano tiene **cuota propia y
+> configurable**, `quotaSource: 'MANUAL'`, contada por mes natural y con el cerrojo de la
+> pieza 1. Dos `Setting` propios —`proManualMonthlyFeaturedQuota` y
+> `proManualMonthlyBumpQuota`—, **por defecto 0 y sin fila**: sin tocar nada, un Pro
+> concedido a mano sigue exactamente como estaba (D-6). **D-6 queda cerrada en su parte
+> técnica; el NÚMERO sigue siendo decisión de Ernest** — mientras los ajustes estén en 0,
+> nadie recibe nada.
+>
 > ### ✅ PIEZA 1 IMPLEMENTADA (mes natural + paridad anual + cerrojo por `Entitlement`)
 >
 > Rama `cuotas-pro-mes-natural`. Lo implementado se resume en la sección **«Cuotas Pro — PIEZA 1»**
@@ -13,11 +23,7 @@ datos de desarrollo.
 > completo, sin prorrateo).
 >
 > **⚠ DESPLEGAR EL DÍA 1** — ver [§11.2](#112-la-transición--el-único-riesgo-de-despliegue).
->
-> **PENDIENTE: la pieza 2** (cuota propia y configurable para el Pro manual, `quotaSource:
-> 'MANUAL'`) — [§9](#9--pieza-2-la-cuota-del-pro-manual-configurable). Sigue abierta la decisión
-> **D-6**: cuánto vale esa cuota. El resto de la pieza 1 no la bloquea; al revés, le dejó el
-> mecanismo hecho.
+> Aplica sólo a la pieza 1: la pieza 2 no mueve la ventana de nadie y puede ir cualquier día.
 
 ---
 

@@ -148,18 +148,36 @@ export function MisAnunciosClient({
           className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border border-warning-border bg-warning px-4 py-2 text-sm text-warning-foreground"
           data-testid="quota-reminder"
         >
-          <span className="flex items-center gap-2">
-            <Star className="h-4 w-4 shrink-0" aria-hidden />
-            {proStatus.remaining > 0
-              ? `Te quedan ${proStatus.remaining} destacado${proStatus.remaining === 1 ? '' : 's'} gratis este mes.`
-              : 'Has usado tus destacados gratis de este mes.'}
-          </span>
-          <span className="flex items-center gap-2">
-            <TrendingUp className="h-4 w-4 shrink-0" aria-hidden />
-            {proStatus.bumpQuota.remaining > 0
-              ? `Y ${proStatus.bumpQuota.remaining} bump${proStatus.bumpQuota.remaining === 1 ? '' : 's'} gratis.`
-              : 'Y ningún bump gratis disponible.'}
-          </span>
+          {/*
+            CUOTAS PRO PIEZA 2 — CADA FRASE MIRA **SU** LÍMITE, no `quotaSource`.
+
+            Hasta ahora las dos cuotas iban siempre juntas: quien tenía una tenía la otra,
+            porque las dos venían del mismo plan de pago y su validación exige al menos 1 de
+            cada. Con la cuota del Pro concedido a mano eso deja de ser cierto —son dos
+            ajustes independientes y cualquiera de los dos puede valer 0—, así que «3 bumps y
+            0 destacados» pasa a ser un estado normal y alcanzable.
+
+            Con la condición vieja, a ese usuario se le escribía «Has usado tus destacados
+            gratis de este mes» sobre un límite de cero: **exactamente el defecto que UXV.6
+            arregló**, contarle a alguien que gastó lo que nunca tuvo. La bolsa que no
+            existe no se nombra.
+          */}
+          {proStatus.limit > 0 && (
+            <span className="flex items-center gap-2">
+              <Star className="h-4 w-4 shrink-0" aria-hidden />
+              {proStatus.remaining > 0
+                ? `Te quedan ${proStatus.remaining} destacado${proStatus.remaining === 1 ? '' : 's'} gratis este mes.`
+                : 'Has usado tus destacados gratis de este mes.'}
+            </span>
+          )}
+          {proStatus.bumpQuota.limit > 0 && (
+            <span className="flex items-center gap-2">
+              <TrendingUp className="h-4 w-4 shrink-0" aria-hidden />
+              {proStatus.bumpQuota.remaining > 0
+                ? `Y ${proStatus.bumpQuota.remaining} bump${proStatus.bumpQuota.remaining === 1 ? '' : 's'} gratis.`
+                : 'Y ningún bump gratis disponible.'}
+            </span>
+          )}
 
           {/*
             LA CADUCIDAD, DENTRO DEL MISMO AVISO Y NO EN UNA CAJA APARTE.

@@ -78,14 +78,19 @@ export function resolverAvisoCaducidad(
   if (!proStatus.isPro) return null;
 
   /**
-   * 2 — EL PRO MANUAL NO VE ESTE AVISO, y queda fuera por DOS puertas independientes.
+   * 2 — QUIEN NO TIENE CUOTA NO VE ESTE AVISO, y queda fuera por DOS puertas independientes.
    *
-   * `quotaSource: 'NONE'` es la respuesta explícita del backend: es Pro, pero su cuota mensual
-   * no cuelga de ningún ciclo porque nadie está pagando uno (decisión D-1). Y aunque ese campo
-   * faltara —es opcional en este lado—, tampoco tiene `periodEnd`, así que la línea de abajo
-   * lo pararía igual. Dos puertas para lo mismo porque **avisarle sería contarle que pierde
-   * algo que nunca tuvo**, que es exactamente el defecto que UXV.6 arregló en el recordatorio
-   * de al lado.
+   * `quotaSource: 'NONE'` es la respuesta explícita del backend: es Pro, pero nadie le concede
+   * cuota mensual. Y aunque ese campo faltara —es opcional en este lado—, tampoco tiene
+   * `periodEnd`, así que la línea de abajo lo pararía igual. Dos puertas para lo mismo porque
+   * **avisarle sería contarle que pierde algo que nunca tuvo**, que es exactamente el defecto
+   * que UXV.6 arregló en el recordatorio de al lado.
+   *
+   * CUOTAS PRO PIEZA 2 — ESTA CONDICIÓN NO CAMBIÓ, Y ES LA GRACIA. Un Pro concedido a mano
+   * pasó de no tener cuota nunca a poder tenerla (sus dos ajustes propios en /admin/ajustes).
+   * Esta función no se enteró: pregunta «¿hay cuota?», no «¿de dónde sale?», así que el
+   * manual CON cuota entra por su propio pie —`quotaSource: 'MANUAL'`— y el manual SIN cuota
+   * sigue llegando como `NONE` y sigue fuera. Lo que decide es el hecho, no el tipo de Pro.
    */
   if (proStatus.quotaSource === 'NONE') return null;
   if (!proStatus.periodEnd) return null;

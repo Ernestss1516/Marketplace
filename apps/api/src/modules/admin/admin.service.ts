@@ -216,6 +216,13 @@ const SETTING_KEYS = [
   'proExtraCreditsPercent',
   // Monetización ráfaga 3: monthly free-bump quota granted to Pro subscribers
   'proMonthlyBumpQuota',
+  // CUOTAS PRO PIEZA 2 — la cuota mensual del Pro CONCEDIDO A MANO, y son claves
+  // PROPIAS a propósito: lo que recibe una cortesía del equipo es una decisión de
+  // negocio distinta de lo que recibe quien paga, y atarlas obligaría a mover las
+  // dos a la vez. Nacen en 0 (ver SETTING_DEFAULTS) y admiten 0
+  // (NON_NEGATIVE_INT_SETTING_KEYS), que es lo que las hace retrocompatibles.
+  'proManualMonthlyFeaturedQuota',
+  'proManualMonthlyBumpQuota',
   // Monetización ráfaga 4: Pro bonus percentage on bump-pack purchases — a
   // Setting OF ITS OWN, not reused from proExtraCreditsPercent (distinct,
   // separately calibrated Pro perks).
@@ -418,6 +425,29 @@ const POSITIVE_INT_SETTING_KEYS: readonly string[] = [
 ];
 
 /**
+ * CUOTAS PRO PIEZA 2 — ENTEROS QUE SÍ ADMITEN CERO, y por qué hace falta una lista aparte.
+ *
+ * Las dos cuotas del plano PAGADO exigen `>= 1`, con un argumento escrito en su sitio: «un
+ * plan Pro siempre concede al menos uno de cada». Para la cuota del Pro CONCEDIDO A MANO ese
+ * argumento se da la vuelta: **el 0 no es un valor degenerado, es el valor por defecto y el
+ * único que preserva el comportamiento de hoy** (decisión D-6). Un Pro concedido por el
+ * equipo no tiene cuota hasta que alguien decide dársela.
+ *
+ * Meterlas en `POSITIVE_INT_SETTING_KEYS` habría tenido una consecuencia concreta y mala:
+ * con mínimo 1, el estado «el manual no tiene cuota» dejaría de ser configurable y **todos
+ * los Pro concedidos a mano que ya existen empezarían a recibir cuota el día del despliegue**,
+ * sin que nadie lo hubiera decidido.
+ *
+ * Lo que sí se comparte con aquella lista es el rigor: entero, y nada de negativos — un
+ * `-1` se leería como «menos que cero» en el `used < limit` de la reserva y concedería cuota
+ * infinita al revés.
+ */
+const NON_NEGATIVE_INT_SETTING_KEYS: readonly string[] = [
+  'proManualMonthlyFeaturedQuota',
+  'proManualMonthlyBumpQuota',
+];
+
+/**
  * PUERTA regla #1 — los defaults de las cuatro claves de límite, para poder
  * comparar contra el valor EFECTIVO del otro cuando no tiene fila. Salen de
  * `listing-gate/listing-limits.ts`, que es donde los leen las reglas: si se
@@ -465,6 +495,18 @@ const ENUM_SETTING_VALUES: Readonly<Record<string, readonly string[]>> = {
 // `supportEmail` has no constant on purpose: unset means "no hay buzón", and
 // TicketNotificationsService logs a warning and skips only the email.
 const SETTING_DEFAULTS: Readonly<Record<string, unknown>> = {
+  /**
+   * CUOTAS PRO PIEZA 2 — LAS DOS DEL PRO MANUAL NACEN EN 0, y nacen SIN FILA.
+   *
+   * No se siembran a propósito: el backoffice devuelve toda clave del whitelist aunque no
+   * tenga fila, con su default y `configured: false`, y la pinta con el rótulo «Sin
+   * configurar — se usa el valor por defecto». Eso dice exactamente la verdad —nadie ha
+   * decidido todavía cuánto vale una concesión de cortesía— en vez de fingir una decisión
+   * sembrando un cero. Mismo criterio con el que nacieron `totalListingLimitEnabled` y
+   * `emailVerifiedToPublishEnabled`.
+   */
+  proManualMonthlyFeaturedQuota: 0,
+  proManualMonthlyBumpQuota: 0,
   maxTagsPerListing: DEFAULT_MAX_TAGS_PER_LISTING,
   ticketAutoCloseWindowDays: TICKET_REOPEN_WINDOW_DAYS,
   supportEmail: null,
@@ -3588,6 +3630,17 @@ export class AdminService {
       if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
         throw new BadRequestException(
           `'${key}' debe ser un número entero mayor o igual a 1.`,
+        );
+      }
+    }
+
+    // CUOTAS PRO PIEZA 2 — las del Pro manual, donde el 0 es un valor legítimo y además el
+    // de partida (ver NON_NEGATIVE_INT_SETTING_KEYS).
+    if (NON_NEGATIVE_INT_SETTING_KEYS.includes(key)) {
+      const value = dto.value;
+      if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+        throw new BadRequestException(
+          `'${key}' debe ser un número entero mayor o igual a 0.`,
         );
       }
     }
