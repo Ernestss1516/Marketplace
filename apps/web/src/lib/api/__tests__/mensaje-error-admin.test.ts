@@ -40,9 +40,16 @@ describe('mensajeDeErrorAdmin — el texto del servidor no sale de aquí', () =>
 
   it('lo que SÍ aparece: el contexto de quien llama y el código', () => {
     // Las dos cosas que hacían útil al molde viejo y que no necesitan texto del servidor.
+    //
+    // SE AFIRMA LA SALIDA ENTERA, no `toContain('403')`. Aquí la entrada la controla el
+    // test y el pajar es una línea, así que el substring no llegaba a esconder nada — pero
+    // es la misma forma que sí escondía en `admin-fuga-secretos` (allí, sobre el texto de
+    // toda la página, un precio de 500 € lo satisfacía). Cuando la salida es determinista,
+    // afirmarla entera cuesta lo mismo y además fija el molde: este `toBe` es lo que hace
+    // que `sinErrorDeAutorizacion` en `e2e/admin-roles.spec.ts` —que busca justo esta frase
+    // para saber que NO está— no se quede ciega si alguien reescribe `motivoPorEstado`.
     const salida = mensajeDeErrorAdmin(errorConSecreto(403), 'Error al cargar la marca');
-    expect(salida).toContain('Error al cargar la marca');
-    expect(salida).toContain('403');
+    expect(salida).toBe('Error al cargar la marca — no tienes permiso (403)');
   });
 
   it('el motivo se deriva del CÓDIGO, y cada familia dice lo suyo', () => {
@@ -54,6 +61,13 @@ describe('mensajeDeErrorAdmin — el texto del servidor no sale de aquí', () =>
     expect(m(500)).toContain('ha fallado el servidor');
     // Un 5xx que no sea 500 va por el mismo sitio: para el operador son lo mismo.
     expect(m(503)).toContain('ha fallado el servidor');
+
+    // La cola del 500, entera y con el código entre paréntesis: es LA aguja de
+    // `e2e/admin-fuga-secretos.spec.ts`, que la usa para saber que la rama de error se ha
+    // pintado de verdad antes de escanear la página en busca del secreto. Si cambia aquí,
+    // aquel test se queda escaneando páginas a medio cargar — y fijarla aquí es lo que
+    // impide que eso pase en silencio.
+    expect(m(500)).toBe('X — ha fallado el servidor (500)');
   });
 
   it('lo que no es un ApiError se queda en el respaldo, sin inventar nada', () => {

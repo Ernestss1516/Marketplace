@@ -519,9 +519,50 @@ test.describe('Backoffice — EDITOR: contenido y presentación del sitio', () =
 // heredaba ADMIN mientras el dashboard bajaba a EDITOR.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Un error de autorización visible en la pantalla, venga como venga pintado. */
+/**
+ * Un error de autorización visible en la pantalla, venga como venga pintado.
+ *
+ * ── ESTAS AGUJAS SE QUEDARON CIEGAS, Y HAY QUE CONTARLO ────────────────────────────────
+ *
+ * Las cuatro de abajo (`error 403`, `forbidden`…) se escribieron contra el molde VIEJO del
+ * backoffice, que pintaba `Error ${statusCode}: ${message}` — de ahí «error 403» y de ahí
+ * «Forbidden resource», que es el `message` que Nest pone cuando `RolesGuard` devuelve
+ * `false`. Ese molde ya no existe: hoy las 54 llamadas pasan por `mensajeDeErrorAdmin`, que
+ * NO pinta el texto del servidor y escribe el motivo derivado del código:
+ *
+ *     Error al cargar el footer — no tienes permiso (403)
+ *
+ * Ese texto no contiene «error 403», ni «forbidden», ni «unauthorized». O sea que durante un
+ * tiempo este helper fue **un verde que sólo significaba que el observador no miraba**: un
+ * 403 en cualquiera de las doce rutas de abajo pasaba por delante sin que nadie protestara,
+ * y este bloque existe precisamente para cazar ése (el caso `GET /admin/stats`).
+ *
+ * Es la misma lección que el `re_` de `helpers/secretos.ts`, con el signo cambiado: allí la
+ * aguja era demasiado corta y gritaba de más; aquí era demasiado específica y callaba. En
+ * las dos, la aguja tiene que describir LO QUE EL PRODUCTO HACE HOY, no lo que hacía cuando
+ * se escribió el test.
+ *
+ * ── LO QUE SE AFIRMA AHORA ────────────────────────────────────────────────────────────
+ *
+ * Las frases del molde vivo, que son las únicas que una pantalla puede pintar hoy ante un
+ * 401/403, y los códigos ENTRE PARÉNTESIS. Los paréntesis no son cosmética: `not.toContain('403')`
+ * a pelo es justo lo que tumbaba este fichero cuando un id de la tabla —`PAG-1789844822403`—
+ * llevaba los tres dígitos dentro. `(403)` sólo lo escribe el molde.
+ *
+ * Las frases están fijadas por `apps/web/src/lib/api/__tests__/mensaje-error-admin.test.ts`:
+ * si alguien cambia `motivoPorEstado`, aquel test cae y trae a quien lo cambie hasta aquí.
+ * Las cuatro viejas se conservan por si alguna pantalla se saltara el molde.
+ */
 async function sinErrorDeAutorizacion(page: import('@playwright/test').Page) {
   const texto = (await page.locator('body').innerText()).toLowerCase();
+
+  // El molde vivo — `motivoPorEstado(401)` y `motivoPorEstado(403)`.
+  expect(texto).not.toContain('no tienes permiso');
+  expect(texto).not.toContain('tu sesión ya no vale');
+  expect(texto).not.toContain('(401)');
+  expect(texto).not.toContain('(403)');
+
+  // El molde viejo y las respuestas crudas de Nest, por si algo se saltara el helper.
   expect(texto).not.toContain('error 403');
   expect(texto).not.toContain('error 401');
   expect(texto).not.toContain('forbidden');
