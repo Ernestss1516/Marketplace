@@ -357,12 +357,34 @@ test.describe('Backoffice — MODERATOR acceso restringido', () => {
     const dismissBtn = page.getByRole('button', { name: 'Desestimar' }).first();
 
     if (await dismissBtn.isVisible()) {
+      /**
+       * SE MIRA LA RESPUESTA, NO EL TEXTO DE LA PÁGINA — y este caso se ganó el cambio a
+       * pulso: fallaba en `main` con el código que había pasado en la rama, y el «403» que
+       * cazaba no era un error, era **parte de un identificador de la tabla**:
+       *
+       *     PAG-1789844822403 numero 25
+       *
+       * Una marca de tiempo en milisegundos que llevaba esos tres dígitos dentro. El
+       * `not.toContain('403')` miraba el texto de TODA la pantalla, así que cualquier número
+       * con ese trío —un id, un precio, una fecha— la tumbaba. Con trece dígitos aleatorios,
+       * eso pasa alrededor de una vez de cada cien: un rojo que aparece solo, en cualquier
+       * rama, sin que nadie haya roto nada. De los peores que hay, porque se achaca al último
+       * cambio.
+       *
+       * Lo que el caso quiere saber es si el servidor le NIEGA la acción a un moderador, y eso
+       * lo dice el código de estado de SU petición. Se escucha `PATCH …/dismiss`, que además
+       * hace la comprobación exacta en vez de aproximada: un 403 se detecta aunque la interfaz
+       * no lo escriba en ninguna parte, que es el caso que de verdad daría miedo.
+       */
+      const respuesta = page.waitForResponse(
+        (r) => r.url().includes('/moderation/reports/') && r.url().endsWith('/dismiss'),
+        { timeout: 15_000 },
+      );
       await dismissBtn.click();
-      await page.waitForTimeout(1_200);
+      const res = await respuesta;
 
-      const pageText = await page.locator('body').innerText();
-      expect(pageText).not.toContain('403');
-      expect(pageText).not.toContain('Forbidden');
+      expect(res.status()).not.toBe(403);
+      expect(res.ok()).toBeTruthy();
     } else {
       test.skip(true, 'No PENDING reports found — seed report already consumed');
     }
