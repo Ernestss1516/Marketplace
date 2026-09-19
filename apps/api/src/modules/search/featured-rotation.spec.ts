@@ -23,7 +23,9 @@ import {
   cuotaDeVitrina,
   repartoDelAnillo,
   tramoDelGrupo,
+  tramosDelBloque,
   FEATURED_BLOCK_SIZE,
+  FEATURED_BLOCK_MAX_VISIBLE,
   FEATURED_ROTATION_WINDOW_MINUTES,
   FEATURED_ROTATION_WINDOW_SECONDS,
 } from './featured-rotation';
@@ -286,5 +288,134 @@ describe('repartoDelAnillo — los turnos, a partes iguales', () => {
     expect(repartoDelAnillo(-3).grupos).toBe(1);
     expect(repartoDelAnillo(7.9).candidatos).toBe(7);
     expect(repartoDelAnillo(10, 0).mayor).toBeLessThanOrEqual(10);
+  });
+});
+
+/**
+ * LAS DOS FILAS — qué se sirve al bloque, y las tres cosas que no puede hacer.
+ *
+ * El bloque pasa de cuatro tarjetas fijas a dos filas llenas según el ancho. El servidor no
+ * conoce el viewport, así que manda hasta ocho y el CSS enseña los que caben; lo que se decide
+ * AQUÍ es qué ocho.
+ *
+ * LO QUE SE VIGILA NO ES EL NÚMERO, SON LAS PROHIBICIONES. Un bloque de pago tiene tres:
+ * no inventar, no repetir y no colar un no-destacado. La tercera la sostiene la consulta
+ * (`onlyBoosted`); las dos primeras, esta aritmética — y la de repetir es la fácil de romper,
+ * porque el «turno siguiente» da la vuelta al anillo.
+ */
+describe('tramosDelBloque — el turno de esta ventana y el siguiente', () => {
+  /** Los índices del conjunto ordenado que el bloque serviría en ese turno. */
+  const servidos = (n: number, turno: number, tamaño = FEATURED_BLOCK_SIZE): number[] =>
+    tramosDelBloque(n, turno, tamaño).flatMap(({ offset, limit }) =>
+      Array.from({ length: limit }, (_, i) => offset + i),
+    );
+
+  it('con más de un grupo sirve DOS: el de esta ventana y el de la siguiente', () => {
+    // Doce destacados → tres grupos de cuatro. El turno 1 sirve los grupos 1 y 2.
+    expect(servidos(12, 1)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+    expect(servidos(12, 2)).toEqual([4, 5, 6, 7, 8, 9, 10, 11]);
+  });
+
+  it('el último turno DA LA VUELTA — y por eso necesita dos consultas, no una', () => {
+    // El grupo 3 se continúa con el 1, que está al principio: los tramos no son contiguos.
+    expect(tramosDelBloque(12, 3)).toEqual([
+      { offset: 8, limit: 4 },
+      { offset: 0, limit: 4 },
+    ]);
+    expect(servidos(12, 3)).toEqual([8, 9, 10, 11, 0, 1, 2, 3]);
+  });
+
+  it('y cuando SON contiguos se piden en UNA consulta — el caso normal', () => {
+    expect(tramosDelBloque(12, 1)).toEqual([{ offset: 0, limit: 8 }]);
+    expect(tramosDelBloque(12, 2)).toEqual([{ offset: 4, limit: 8 }]);
+  });
+
+  it('LA PROHIBICIÓN QUE MÁS FÁCIL SE ROMPE — con un solo grupo NO se sirve dos veces', () => {
+    // El «siguiente» de un anillo de un grupo es él mismo. Sin la guarda, el bloque enseñaría
+    // las mismas tarjetas duplicadas: el caso mayoritario del sitio (N ≤ 4), roto en todas
+    // las búsquedas a la vez.
+    for (let n = 1; n <= FEATURED_BLOCK_SIZE; n++) {
+      expect(tramosDelBloque(n, 1)).toEqual([{ offset: 0, limit: n }]);
+      expect(servidos(n, 1)).toHaveLength(n);
+    }
+  });
+
+  it('NUNCA REPITE, para todo N y todo turno', () => {
+    for (let tamaño = 1; tamaño <= 4; tamaño++) {
+      for (let n = 1; n <= 60; n++) {
+        const { grupos } = repartoDelAnillo(n, tamaño);
+        for (let turno = 1; turno <= grupos; turno++) {
+          const ids = servidos(n, turno, tamaño);
+          expect(new Set(ids).size).toBe(ids.length);
+        }
+      }
+    }
+  });
+
+  it('NUNCA SIRVE MÁS DE DOS FILAS ni más de lo que hay', () => {
+    for (let n = 1; n <= 60; n++) {
+      const { grupos } = repartoDelAnillo(n);
+      for (let turno = 1; turno <= grupos; turno++) {
+        const ids = servidos(n, turno);
+        expect(ids.length).toBeLessThanOrEqual(FEATURED_BLOCK_MAX_VISIBLE);
+        // Y nunca más de los que existen: con tres destacados se sirven tres, no ocho. El
+        // bloque no se rellena — ocupa lo justo.
+        expect(ids.length).toBeLessThanOrEqual(n);
+        expect(Math.max(...ids)).toBeLessThan(n);
+      }
+    }
+  });
+
+  it('sin destacados no se sirve nada — la sección no se pinta', () => {
+    expect(tramosDelBloque(0, 1)).toEqual([]);
+  });
+
+  it('NADIE QUEDA EN UNA POSICIÓN QUE EL MÓVIL NO VE (D-3)', () => {
+    /**
+     * LA BARRERA DE LA DECISIÓN D-3, y la razón de que los grupos sigan siendo de cuatro.
+     *
+     * El móvil enseña las CUATRO PRIMERAS tarjetas de lo servido. Con grupos de ocho, las
+     * posiciones 5 a 8 las fijaría el orden del anillo y no las vería nunca ningún visitante
+     * de móvil. Con dos grupos de cuatro, cada destacado ocupa las cuatro primeras en su
+     * propio turno: este caso recorre el ciclo entero y comprueba que todos pasan por ahí.
+     */
+    for (let n = 1; n <= 60; n++) {
+      const { grupos } = repartoDelAnillo(n);
+      const vistosEnMovil = new Set<number>();
+      for (let turno = 1; turno <= grupos; turno++) {
+        servidos(n, turno).slice(0, FEATURED_BLOCK_SIZE).forEach((i) => vistosEnMovil.add(i));
+      }
+      expect(vistosEnMovil.size).toBe(n);
+    }
+  });
+
+  it('LA PROMESA AL VENDEDOR NUNCA PROMETE DE MÁS (D-5), ni en el móvil', () => {
+    /**
+     * `cuotaDeVitrina` promete `1440 / grupos` minutos al día, o sea **un turno de cada
+     * `grupos`**. Lo que este caso fija es que esa cifra es un SUELO: en el peor de los
+     * visitantes —el móvil, que sólo ve las cuatro primeras tarjetas— cada destacado sale al
+     * menos en un turno. Cualquier pantalla más ancha le da más, y un escritorio le da el
+     * doble. Prometer poco y dar más es la única asimetría aceptable en una pantalla de cobro.
+     *
+     * NO SE EXIGE IGUALDAD, y el primer intento de este caso sí lo hacía — mal. Cuando los
+     * grupos son de menos de cuatro (N=5 → [3, 2]), la ventana de cuatro del móvil **desborda
+     * al grupo siguiente**, así que algunos destacados salen en DOS turnos. Eso es dar más de
+     * lo prometido, que es precisamente lo que la decisión persigue: fijar la igualdad habría
+     * convertido una ventaja en un rojo.
+     */
+    for (let n = 1; n <= 60; n++) {
+      const { grupos } = repartoDelAnillo(n);
+      expect(cuotaDeVitrina(n).grupos).toBe(grupos);
+
+      const turnos = Array.from({ length: grupos }, (_, i) => i + 1);
+      for (let destacado = 0; destacado < n; destacado++) {
+        const enMovil = turnos.filter((turno) =>
+          servidos(n, turno).slice(0, FEATURED_BLOCK_SIZE).includes(destacado),
+        ).length;
+        // El suelo: al menos el turno que promete la cuota. Nunca cero — eso sería un
+        // destacado invisible en móvil, que es lo que D-3 viene a impedir.
+        expect(enMovil).toBeGreaterThanOrEqual(1);
+      }
+    }
   });
 });

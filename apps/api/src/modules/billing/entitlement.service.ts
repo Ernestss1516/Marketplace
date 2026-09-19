@@ -364,6 +364,22 @@ export class EntitlementService {
       // que ya hay le prometería una cuota que deja de ser cierta en el mismo instante en que
       // pague. Con cuatro destacados en su categoría, la cuenta ingenua diría «saldrás siempre»
       // y la verdad es que pasarían a ser cinco y saldría media jornada.
+      //
+      // ─── LAS DOS FILAS NO CAMBIAN ESTA CIFRA, y conviene saber por qué ──────────
+      //
+      // El bloque pasó a enseñar hasta OCHO tarjetas, así que lo natural es suponer que esta
+      // promesa se ha quedado corta. No: lo que se sirve son **dos grupos de cuatro**, no un
+      // grupo de ocho (decisión D-3), y el tamaño del grupo es lo que divide el anillo. Los
+      // turnos siguen siendo `ceil(N / 4)` y cada destacado sigue saliendo en UNO de ellos.
+      //
+      // Lo que esta cifra promete es, a propósito, **lo que ve un móvil** (decisión D-5): un
+      // grupo por ciclo. Un visitante de escritorio ve además el turno siguiente, así que
+      // cualquiera con pantalla ancha le da MÁS vitrina de la prometida. Prometer poco y dar
+      // más es la única asimetría aceptable en una pantalla de cobro — y la contraria
+      // (prometer la del escritorio) dejaría corta la promesa para la mayoría del tráfico.
+      //
+      // `featured-rotation.spec.ts` ata esta cifra al reparto real para que no puedan
+      // separarse en silencio.
       cuota: cuotaDeVitrina(vigentes + 1),
     };
   }

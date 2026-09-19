@@ -2,6 +2,7 @@ import { Sparkles } from 'lucide-react';
 import { ListingCard } from '@/components/anuncios/ListingCard';
 import { PublicidadBadge } from '@/components/anuncios/PublicidadBadge';
 import type { ListingSummary } from '@/types';
+import { claseDeRevelado } from './destacados-dos-filas';
 
 /**
  * Bloque "Promocionados" (política de ordenación C, RÁFAGA 1): destacados que cumplen los
@@ -50,10 +51,27 @@ export function FeaturedBlock({ listings }: { listings: ListingSummary[] }) {
       <p className="mb-3 text-xs text-muted-foreground" data-testid="aviso-publicidad">
         Estos vendedores han pagado por aparecer aquí. No es un orden por relevancia.
       </p>
+      {/*
+        LAS COLUMNAS Y LA TABLA DE `destacados-dos-filas.ts` SON LO MISMO, dicho dos veces
+        porque Tailwind necesita las clases escritas literalmente. `COLUMNAS_POR_TRAMO` es el
+        espejo de este `2 / sm:3 / md:4`, y hay un test que los compara: si alguien cambia las
+        columnas de aquí sin tocar la tabla, el bloque dejaría de enseñar dos filas y nadie se
+        enteraría.
+      */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-        {listings.map((listing) => (
-          <ListingCard key={`featured-${listing.id}`} listing={listing} />
-        ))}
+        {listings.map((listing, indice) => {
+          const revelado = claseDeRevelado(indice);
+          // Sin envoltorio cuando la tarjeta se ve siempre — que es el caso de las cuatro
+          // primeras, o sea de TODAS en el móvil y en el bloque corto. Un div de más por
+          // tarjeta no rompe nada, pero tampoco hace falta pagarlo donde no aporta.
+          return revelado ? (
+            <div key={`featured-${listing.id}`} className={revelado}>
+              <ListingCard listing={listing} />
+            </div>
+          ) : (
+            <ListingCard key={`featured-${listing.id}`} listing={listing} />
+          );
+        })}
       </div>
     </section>
   );

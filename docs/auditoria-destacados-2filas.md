@@ -384,7 +384,8 @@ cantidades, éste es el cambio que movió el valor de cada unidad.
 2. ~~Tests de la rotación~~ → **hecho**: las dos invariantes —grupos que no difieren en más de
    uno, y partición exacta— barridas para todo N ≤ 120 y todo tamaño ≤ 8.
 
-**RÁFAGA 2 — Las 2 filas**
+**RÁFAGA 2 — Las 2 filas** — **✅ HECHA** (ver «Destacados — RÁFAGA 2» en `estado-tecnico.md`).
+Se aplicaron D-1, D-2, D-3, D-5 y D-7. **D-8 se aceptó tras ver la previa a 1024 px.**
 1. El tamaño deja de ser una constante suelta y pasa a ser «columnas × 2», con la tabla de
    tres tramos en **un solo sitio compartido** por el CSS y por quien calcule la promesa.
 2. El servidor sirve hasta 8 (o dos grupos de 4, según A1/A2) y el CSS recorta por breakpoint.

@@ -200,10 +200,10 @@ describe('H9 — en vista mapa no se resuelve el bloque (e2e)', () => {
   it('BARRERA 2 — sin el parámetro el bloque se resuelve y se sirve, como siempre', async () => {
     const res = await conElGrupoLleno(() => buscar());
 
-    // TRES y no cuatro desde el reparto justo: seis destacados en dos turnos son 3 y 3. El
-    // bloque no se ha encogido —sigue admitiendo cuatro—, es el anillo el que ya no deja un
-    // turno corto. Ver `repartoDelAnillo`.
-    expect(res.body.featured.length).toBe(3);
+    // SEIS: con las dos filas el bloque sirve el turno Y EL SIGUIENTE, y aquí los dos turnos
+    // son todo el anillo. No es que se haya rellenado —no hay nada que rellenar—: es que con
+    // seis destacados y dos grupos de tres, dos grupos son los seis. Ver `tramosDelBloque`.
+    expect(res.body.featured.length).toBe(6);
     expect(res.body.totalHits).toBe(6);
   }, 60_000);
 
@@ -221,14 +221,14 @@ describe('H9 — en vista mapa no se resuelve el bloque (e2e)', () => {
   describe('BARRERA 3 — es un opt-out, y sólo el `true` explícito cuenta', () => {
     it('un cliente que no lo manda recibe el bloque (el de siempre)', async () => {
       const res = await conElGrupoLleno(() => buscar());
-      expect(res.body.featured.length).toBe(3);
+      expect(res.body.featured.length).toBe(6);
     }, 60_000);
 
     it('`skipFeatured=false` NO salta el bloque — la cadena «false» es verdadera en JS', async () => {
       // El mismo cuidado que `conVideo`: sin el `Transform` del DTO, `?skipFeatured=false`
       // habría hecho exactamente lo contrario de lo que pide.
       const res = await conElGrupoLleno(() => buscar({ skipFeatured: 'false' }));
-      expect(res.body.featured.length).toBe(3);
+      expect(res.body.featured.length).toBe(6);
     }, 60_000);
 
     it('en la página 2 da igual: allí nunca hubo bloque', async () => {

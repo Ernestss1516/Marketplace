@@ -8,10 +8,11 @@ import { ReviewsService } from '../reviews/reviews.service';
 import { TagsService } from '../tags/tags.service';
 import { ImpressionsService } from '../impressions/impressions.service';
 import {
+  FEATURED_BLOCK_MAX_VISIBLE,
   FEATURED_BLOCK_SIZE,
   grupoDeLaVentana,
   repartoDelAnillo,
-  tramoDelGrupo,
+  tramosDelBloque,
 } from './featured-rotation';
 
 // Posición fija de inserción entre los hits, convención documentada en H6.1.
@@ -243,28 +244,49 @@ export class SearchController {
       // exactamente lo mismo. Lo que cambia es que su turno ya no puede tocarle vacío.
       const { grupos } = repartoDelAnillo(candidatos, FEATURED_BLOCK_SIZE);
       const turno = grupoDeLaVentana(ahoraMs, grupos);
-      const tramo = tramoDelGrupo(candidatos, turno, FEATURED_BLOCK_SIZE);
 
-      // Consulta B: SÓLO cuando el turno no empieza por el principio del anillo.
+      // ── LAS DOS FILAS ───────────────────────────────────────────────────────────
       //
-      // El primer grupo siempre cabe dentro de la consulta A: ésta trae los `tamaño`
-      // primeros en orden de anillo y el grupo 1 son los `limit` primeros de ésos
-      // (`limit ≤ tamaño`, garantizado por el reparto). Recortar es lo que mantiene el
-      // coste donde estaba: con N ≤ 4 —el caso mayoritario del sitio— y en el turno 1 de
-      // cualquier N, esto sigue costando UNA consulta. Sin el recorte, el reparto justo
-      // habría cobrado una consulta de más en cada turno 1 con N no múltiplo del bloque.
-      const hitsDelTurno =
-        tramo.offset === 0
-          ? grupoInicial.hits.slice(0, tramo.limit)
-          : (
-              await this.searchService.search({
-                ...anillo,
-                offset: tramo.offset,
-                limit: tramo.limit,
-              })
-            ).hits;
+      // Se sirve el turno de esta ventana Y EL SIGUIENTE: hasta ocho, que es lo que caben
+      // en dos filas de la rejilla más ancha. Quién los ve es cosa del CSS, que recorta por
+      // breakpoint (cuatro en móvil, seis en tableta, ocho en escritorio) — el servidor no
+      // conoce el viewport, y decidirlo en el cliente costaría un salto justo en la pantalla
+      // de resultados.
+      //
+      // DOS GRUPOS DE CUATRO, Y NO UN GRUPO DE OCHO: con grupos de ocho, las posiciones 5 a 8
+      // no las vería ningún visitante de móvil NUNCA, porque esa posición la fija el orden
+      // del anillo y no el azar. El porqué entero está en `tramosDelBloque`.
+      //
+      // NUNCA REPITE: los dos tramos son grupos distintos de una partición, y con un solo
+      // grupo se sirve uno y ya. La honestidad del bloque —ni inventar, ni repetir, ni colar
+      // un no-destacado— no depende de que nadie se despiste aquí.
+      const tramos = tramosDelBloque(candidatos, turno, FEATURED_BLOCK_SIZE);
 
-      featured = hitsDelTurno.map((hit) => this.normalizeHit(hit, allAttributeNames));
+      // El tramo que empieza por el principio del anillo ya viene dentro de la consulta A
+      // cuando cabe entero en ella, así que no se vuelve a pedir. Es lo que mantiene el caso
+      // mayoritario del sitio (N ≤ 4) en UNA sola consulta, como siempre.
+      const hitsDelBloque: Array<Record<string, unknown>> = [];
+      for (const tramo of tramos) {
+        const yaLoTenemos = tramo.offset === 0 && tramo.limit <= grupoInicial.hits.length;
+        hitsDelBloque.push(
+          ...(yaLoTenemos
+            ? grupoInicial.hits.slice(0, tramo.limit)
+            : (
+                await this.searchService.search({
+                  ...anillo,
+                  offset: tramo.offset,
+                  limit: tramo.limit,
+                })
+              ).hits),
+        );
+      }
+
+      featured = hitsDelBloque
+        // El tope, escrito aunque hoy sea redundante (D-7): la rejilla no pasa de cuatro
+        // columnas, así que dos filas ya son ocho. Es la red para el día que alguien añada
+        // una quinta columna y el servidor empiece a mandar diez sin que nadie lo decida.
+        .slice(0, FEATURED_BLOCK_MAX_VISIBLE)
+        .map((hit) => this.normalizeHit(hit, allAttributeNames));
     }
 
     // Escaparate RÁFAGA 4 — media VERIFICADA del vendedor, en una sola consulta

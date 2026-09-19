@@ -172,6 +172,67 @@ export function tramoDelGrupo(
   return { offset: i * base + Math.min(i, resto), limit: base + (i < resto ? 1 : 0) };
 }
 
+/**
+ * EL TOPE DE LO QUE SE SIRVE AL BLOQUE — dos filas de cuatro (decisión D-7).
+ *
+ * ES REDUNDANTE HOY Y SE ESCRIBE IGUAL. La rejilla del bloque no pasa de cuatro columnas
+ * (`md:grid-cols-4`), así que «dos filas» ya son ocho por construcción y este tope no muerde
+ * en ningún viewport. Está aquí como red: el día que alguien añada un `xl:grid-cols-5`, lo
+ * que impide que el servidor empiece a mandar diez es esta línea, no que se acuerde.
+ */
+export const FEATURED_BLOCK_MAX_VISIBLE = 2 * FEATURED_BLOCK_SIZE;
+
+/**
+ * QUÉ TRAMOS DEL ANILLO SE SIRVEN AL BLOQUE: el turno de esta ventana **y el siguiente**.
+ *
+ * ─── POR QUÉ DOS GRUPOS DE CUATRO Y NO UN GRUPO DE OCHO (decisión D-3) ──────────
+ *
+ * El bloque pasa a enseñar dos filas en pantallas anchas, y la salida evidente —doblar el
+ * tamaño del grupo a ocho— tiene un defecto que no se ve desde un escritorio: el recorte por
+ * viewport deja fuera **las posiciones 5 a 8**, y la posición dentro del grupo la fija el
+ * orden del anillo, no el azar. O sea que los cuatro últimos de cada grupo **no los vería
+ * ningún visitante de móvil, nunca**. En un marketplace C2C el móvil suele ser la mayoría del
+ * tráfico: la mitad de los huecos de pago serían invisibles para casi todo el mundo, y quien
+ * cayera en esa mitad pagaría lo mismo por mucho menos.
+ *
+ * Con grupos de CUATRO y el escritorio pintando dos, cada destacado pasa por las cuatro
+ * primeras posiciones en su propio turno. **Nadie queda en un sitio que el móvil no mira**, y
+ * el escritorio simplemente adelanta el turno siguiente.
+ *
+ * ─── EL ENVOLTORIO NO PUEDE REPETIR A NADIE ─────────────────────────────────────
+ *
+ * El «siguiente» da la vuelta al anillo, así que con UN SOLO grupo el siguiente sería él
+ * mismo y el bloque enseñaría dos veces las mismas tarjetas. Eso no es un detalle estético:
+ * repetir es una de las tres cosas que el bloque tiene prohibidas (no inventar, no repetir,
+ * no colar un no-destacado). Por eso con `grupos <= 1` se devuelve UN tramo y punto — no un
+ * `dedupe` después, que sería tapar el caso en vez de no producirlo.
+ *
+ * ─── SE FUSIONAN CUANDO SON CONTIGUOS, que es casi siempre ──────────────────────
+ *
+ * Los tramos de dos turnos consecutivos son adyacentes en el conjunto ordenado, así que se
+ * piden en UNA consulta. Sólo el último turno del ciclo —el que da la vuelta— necesita dos,
+ * porque su continuación está al principio. Es una de cada `grupos` ventanas.
+ */
+export function tramosDelBloque(
+  candidatos: number,
+  turno: number,
+  tamañoDelBloque: number = FEATURED_BLOCK_SIZE,
+): { offset: number; limit: number }[] {
+  const { candidatos: n, grupos } = repartoDelAnillo(candidatos, tamañoDelBloque);
+  if (n === 0) return [];
+
+  const actual = tramoDelGrupo(n, turno, tamañoDelBloque);
+  // Un solo grupo: todos los destacados caben en él, no hay «siguiente» que no sea él mismo.
+  if (grupos <= 1) return [actual];
+
+  const enRango = Math.min(Math.max(Math.floor(turno), 1), grupos);
+  const siguiente = tramoDelGrupo(n, (enRango % grupos) + 1, tamañoDelBloque);
+
+  return actual.offset + actual.limit === siguiente.offset
+    ? [{ offset: actual.offset, limit: actual.limit + siguiente.limit }]
+    : [actual, siguiente];
+}
+
 /** Lo que le toca a UN anuncio cuando `candidatos` se reparten el bloque. */
 export interface CuotaDeVitrina {
   /** Cuántos anuncios se reparten los huecos (el que pregunta, incluido). */
