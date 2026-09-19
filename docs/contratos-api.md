@@ -801,6 +801,10 @@ Todas *(auth)*. Canal in-app genérico.
   natural en curso en hora peninsular, del día 1 a las 00:00 (`periodStart`, inclusivo) al día 1
   del mes siguiente (`periodEnd`, exclusivo). La fecha de renovación del COBRO viaja aparte, en
   `GET /billing/my-subscriptions` (`currentPeriodEnd`). Ver `auditoria-y-diseno-cuotas-pro.md` §7.2.
+  `quotaSource` vale `SUBSCRIPTION` (plan de pago), `MANUAL` (concesión desde el backoffice con
+  cuota configurada) o `NONE` (nadie le concede cuota — lo que **no** significa que no sea Pro:
+  eso lo dice `isPro`). Un Pro concedido a mano con sus dos ajustes en 0 —el valor por defecto—
+  devuelve `NONE`.
 - **`POST /billing/featured-by-credits`** *(auth)* — Destaca un anuncio pagando con créditos.
   Débito atómico (`UPDATE Wallet WHERE balance >= cost`; si no afecta filas → `402`) +
   `CreditLedger` + concesión del entitlement, todo en una `$transaction` con rollback automático.

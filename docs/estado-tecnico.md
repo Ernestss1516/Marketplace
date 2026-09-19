@@ -18232,6 +18232,83 @@ mirarlo sin ejecutarlo») llevada del dato al comportamiento.
 y `pnpm sync-stripe-catalog`, sin el cual el checkout del Plan Pro no funciona porque el
 catálogo sembrado no existe todavía en Stripe.
 
+## Cuotas Pro — PIEZA 2: el Pro concedido a mano, con cuota propia y configurable
+
+Diseño: `docs/auditoria-y-diseno-cuotas-pro.md` §9. Cierra el encargo de cuotas.
+
+### Qué abre, y sobre qué se apoya
+
+Un Pro concedido desde el backoffice (`grantPro` → `Entitlement` con `subscriptionId: null`,
+que **es la marca**: no hay columna `source`) tenía todas las capacidades de Pro y ninguna de
+las gratuidades mensuales, porque la cuota colgaba de un ciclo de facturación que él no tiene.
+**La pieza 1 quitó esa dependencia** —la ventana pasó a ser el mes natural, que no necesita
+ciclo— y esta pieza se apoya entera en ese mecanismo: la misma ventana, el mismo `COUNT`
+derivado y **el mismo cerrojo, sin tocarlo**. Que el `FOR UPDATE` se mudara a la fila
+`Entitlement` en la pieza 1 es lo que hace que la reserva del manual sea atómica de nacimiento:
+se mudó antes de necesitarlo, con los tests de carrera del plan de pago vigilando.
+
+| | Plan de pago | Concedido a mano |
+|---|---|---|
+| `Setting` de destacados | `proMonthlyFeaturedQuota` (4) | `proManualMonthlyFeaturedQuota` (**0**) |
+| `Setting` de bumps | `proMonthlyBumpQuota` (4) | `proManualMonthlyBumpQuota` (**0**) |
+| Validación | entero `>= 1` | entero **`>= 0`** |
+| `quotaSource` | `SUBSCRIPTION` | `MANUAL`, o `NONE` si ambas son 0 |
+| Ventana | mes natural | **el mismo** mes natural |
+
+### El cero es la decisión (D-6), no un hueco
+
+Las dos claves nacen en 0 **y sin fila**, para que `/admin/ajustes` diga «Sin configurar — se
+usa el valor por defecto», que es la verdad —nadie ha decidido todavía cuánto vale una
+concesión de cortesía—, en vez de fingir una decisión sembrando un cero.
+
+**Por eso necesitan su propia lista de validación (`NON_NEGATIVE_INT_SETTING_KEYS`, `>= 0`) y
+no la de las cuotas de pago (`>= 1`).** Con mínimo 1, el estado «el manual no tiene cuota»
+dejaría de ser configurable y **todos los Pro concedidos a mano que ya existen empezarían a
+recibir cuota el día del despliegue**, sin que nadie lo hubiera decidido.
+
+### `MANUAL` significa «tiene cuota concedida a mano», NO «es un Pro manual»
+
+Con las dos cantidades a 0 —el estado por defecto— la respuesta sigue siendo `NONE`, byte a
+byte como antes. **No es cosmético:** `/mis-anuncios` pinta el recuadro con
+`isPro && quotaSource !== 'NONE'` y, con `remaining` a cero, escribe «Has usado tus destacados
+gratis de este mes». Decirle eso a quien no tiene cuota es contarle que gastó algo que nunca
+tuvo — el defecto que UXV.6 arregló, reintroducido por la puerta de atrás. El contrato lo hace
+imposible.
+
+Y **`/mis-anuncios` pasa a condicionar cada frase por SU límite**, no por `quotaSource`: hasta
+ahora las dos cuotas iban siempre juntas (mismo plan, validación `>= 1` en las dos), y con dos
+ajustes independientes «3 bumps y 0 destacados» pasa a ser un estado normal y alcanzable.
+
+### El desempate, en un solo sitio (D-8)
+
+`resolverConcesionDeCuota` responde «¿quién le concede la cuota a este usuario?» y **las tres
+funciones tiran de ella** —la que se pinta y las dos que reservan—, porque con dos fuentes el
+riesgo de que divergieran se dobla. Orden: **gana el de pago**, y eso conserva la corrección de
+U1, que esta pieza ponía en peligro de una forma nueva: si ganara el manual (es más reciente),
+al cliente de pago le cambiarían su cuota por la del manual, que por defecto es **cero**.
+Hacerle un favor le quitaría lo que compró. Tampoco se suman: una cortesía no es un acumulable.
+
+### Lo que hereda sin tocar nada
+
+El **aviso de caducidad** pregunta «¿hay cuota?», no «¿de dónde sale?», así que el manual CON
+cuota entra por su propio pie y el manual SIN cuota sigue fuera por las dos puertas de siempre.
+Las **3 bolsas en cascada** y el **bump automático** llaman a `BillingService.bump`, que resuelve
+la fuente por dentro: el manual con cuota la gasta en el nivel 1, antes que su saldo de bumps y
+que sus créditos.
+
+### Verificación
+
+`cuota-pro-manual.e2e-spec.ts` — 19 casos, y **los que más importan son de NO-CAMBIO**: el
+manual sin configurar y con ceros explícitos sigue en `NONE`; un no-Pro no recibe nada aunque la
+cuota manual esté encendida; y el cliente de pago con una concesión encima cobra la del plan.
+Más: el conteo por mes natural, las dos bolsas independientes, el gasto real por los endpoints
+de destacar y bumpear, el rechazo al agotarse, la carrera (best-effort y con solape forzado) y
+los cuatro casos de configuración contra el endpoint real de admin.
+
+**Mutaciones comprobadas:** que el manual deje de leer sus `Setting` → caen 10 casos; meter las
+claves nuevas en la validación `>= 1` → el `0` deja de aceptarse y caen 2, que es exactamente la
+retrocompatibilidad rompiéndose.
+
 ## El rojo crónico de capturas — por qué duró cinco merges, y qué lo impide ahora
 
 ### El diagnóstico: deriva legítima, no un bug congelado
