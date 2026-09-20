@@ -18294,6 +18294,11 @@ con el instrumento de `hueco-banner-invisible.spec.ts` (`addInitScript` + `buffe
 > Tampoco se commiteó un umbral de tiempo: un LCP con tope en un runner de CI es un generador de
 > rojos ambientales, y este repositorio ya decidió que un rojo que a veces sale enseña a ignorar
 > los rojos (ver `playwright.snapshots.config.ts`, `retries: 0`).
+>
+> **✅ CERRADO** — ver «El LCP de `/busqueda`, medido sobre una imagen» más abajo. La semilla
+> con fotos deterministas existe y el LCP ya se mide sobre la primera foto del bloque. Lo del
+> umbral sigue en pie, y ahora con datos: se midió la dispersión y sigue sin commitearse un
+> tope.
 
 ### `/busqueda` entra en la invariancia entre modelos
 
@@ -18824,6 +18829,139 @@ precisamente lo que ancla una aguja a su sitio.
   y con MODERATOR. Con las agujas viejas, pasaba.
 - **La forma prohibida reintroducida** (`toContain('500')`) → la barrera la señala con fichero y
   línea.
+
+## El LCP de `/busqueda`, medido sobre una imagen
+
+Cierra el pendiente que la RÁFAGA 3 de destacados dejó escrito: «el LCP no se midió de verdad
+[…] y no está cubierto por ninguna barrera». El fichero es
+`apps/web/e2e/lcp-busqueda-destacados.spec.ts`, con la foto en
+`e2e/helpers/foto-determinista.ts` y la siembra en `e2e/helpers/seed-fotos-lcp.ts`.
+
+### El diagnóstico corrigió la premisa: no era que faltaran fotos
+
+La nota decía que la semilla no trae imágenes. La batería **sí sube fotos** —diecisiete specs lo
+hacen— pero todas suben la misma, `e2e/fixtures/test-image.png`, que es **un PNG de 1×1 y 70
+bytes**. Y el tamaño que el estándar de LCP le atribuye a una imagen es `min(área intrínseca,
+área pintada)`: la tarjeta la estira a 231×231 CSS, pero su área cuenta **1**. Cualquier párrafo
+la gana.
+
+O sea que el texto no ganaba por falta de fotos: **ganaba aunque hubiera fotos**, y sembrar
+anuncios con la fixture de siempre habría dado el mismo resultado con más pasos. Por eso la foto
+del LCP es un fichero aparte y `test-image.png` no se toca: para lo que hacen los otros specs
+—subir algo válido, rápido y barato— es la correcta, y engordarla les costaría tiempo a cambio
+de nada.
+
+### La viabilidad: MinIO no era un punto de fallo nuevo
+
+Se compararon tres formas de sembrar la foto:
+
+| | Determinista | ¿Mide el camino real? | Modo de fallo que añade |
+|---|---|---|---|
+| **(a) Subirla a MinIO por el pipeline real** | Sí (bytes fijos) | **Sí** | **Ninguno nuevo** |
+| (b) Un fichero estático del repo | Sí | **No** | Ninguno |
+| (c) `data:` embebida | Sí | No (ni `next/image` la acepta) | Ninguno |
+
+El riesgo que se temía en (a) —MinIO como punto de flake— **no existe como riesgo nuevo**: MinIO
+ya es dependencia dura de esta batería (diecisiete specs suben por él) y el CI ya lo arranca y
+espera su `/minio/health/live` antes de correr nada. Y (b) deja de medir justo el tramo que
+importa: la foto de un anuncio no la sirve Next desde disco, la pide `/_next/image` con un
+`fetch` **de servidor** contra MinIO, la redimensiona y la cachea — el tramo que se ha roto tres
+veces en esta máquina (ver `CLAUDE.md`) y el que las dos filas duplican. Se eligió (a).
+
+La siembra va **por HTTP y no por Prisma** porque un anuncio no está en `/busqueda` por estar en
+Postgres: está cuando Meilisearch lo tiene, y `boostScore` no es un campo que se pueda escribir
+—sale de que exista un `Entitlement` de destacado vigente al indexar—. Así que se siembra como
+lo haría un vendedor: `POST /media/upload` → `POST /listings` → `/publish` →
+`POST /billing/featured-by-credits`, con el saldo que concede antes un administrador por
+`POST /admin/billing/users/:id/credits`. **Ninguna otra spec destaca de verdad** (todas mockean
+catálogo y cartera), así que ese camino no estaba ejercitado en Playwright hasta ahora.
+
+La foto se **genera** (1800×1800, degradado + ruido por bloques, congruencial con semilla fija)
+en vez de commitear un binario de 3 MB: así el patrón se lee y se discute. Y la promesa de
+determinismo es una **barrera**, no una promesa: se firma el sha-256 de los píxeles. Se firman
+los píxeles y no el fichero PNG porque el contenedor lo cierra `zlib` y su salida exacta podría
+moverse entre versiones de Node sin cambiar un solo píxel — firmarlo habría metido un rojo
+ambiental que salta al actualizar Node y no señala nada.
+
+### Dos hallazgos que cambiaron la medición, los dos encontrados midiendo
+
+**1 · La caché del navegador hacía que la foto no participara.** La primera versión calentaba
+con una carga y medía la siguiente. Resultado: la carga medida descargaba **0 bytes de imagen**
+—todas salían de la caché— y el LCP se quedaba clavado en ~420 ms, el suelo del render de
+servidor. Se estaba llamando «el LCP de la foto» a un número en el que la foto no entraba.
+Y `Network.setCacheDisabled` **solo no basta**: Chromium lo implementa como «revalida siempre»,
+así que las ocho fotos seguían respondiendo `304` y el cuerpo salía igual del disco. Hace falta
+además vaciarla (`Network.clearBrowserCache`) justo antes de la carga que se mide. El visitante
+al que este número le importa llega con la caché vacía; lo que sí tiene caliente es el
+**servidor**, y eso lo sigue dando la carga de calentamiento.
+
+**2 · En `localhost` el ancho de banda es infinito, y eso vuelve ciega la mutación.** Sirviendo
+las ocho fotos **sin optimizar** —de ~62 KB a 3,3 MB cada una, **×155 en bytes**— el LCP pasaba
+de 444 ms a 448 ms. Un ×1,01. No era que el instrumento no viera: es que con la red gratis los
+bytes de la imagen no son el cuello de botella de nada y el LCP lo fija el SSR. Es el mismo
+defecto de la ráfaga 3 una capa más abajo: antes se medía el texto en vez de la imagen, y
+después se medía la imagen por una tubería donde el tamaño de la imagen no cuenta. La medición
+de tiempos se hace ahora con **40 Mbit/s emulados** (CDP `Network.emulateNetworkConditions`),
+una conexión doméstica corriente; y de paso la medida deja de depender de lo rápido que esté
+hoy el disco del runner.
+
+### Lo medido
+
+- **El elemento LCP es una `<img>` del bloque de destacados**, con área 53.361 (231×231 CSS) y
+  la foto que se descarga es la de una de las ocho sembradas, vía `/_next/image`.
+- **LCP** ≈ **390–460 ms** sin acotar la red. A 40 Mbit/s y con la caché del navegador vacía:
+  **≈ 520–710 ms en local** (`next dev`) y **≈ 410–425 ms en el runner de CI**, que corre la
+  build de producción (`next start`) — o sea, la cifra que se parece a lo que se despliega es
+  la del CI, y sale **mejor** que la de la máquina de desarrollo.
+- **El instrumento está validado**: con las fotos sin optimizar el LCP sube a **≈ 4–5 s**, un
+  **×7,7 – ×9,9** (×9,46 en CI). La barrera pide un ×2, que queda muy por encima de la
+  dispersión medida y muy por debajo del margen real.
+- **`GRID_MEDIA_SIZES` pide el tamaño justo**: a 1280 px el navegador descarga `w=256` para una
+  caja de 231, siendo los candidatos `[256, 384, 640, …]`. La barrera no compara contra 256 —eso
+  ataría la prueba a tres cosas a la vez— sino contra **el menor candidato del `srcset` que
+  cubre la caja pintada**, que es la afirmación que el `33vw` de antes de la ráfaga 3 rompía.
+
+### El umbral de tiempo sigue sin committearse, y ahora con datos
+
+La dispersión de tres medidas seguidas es de ×1,02 a ×1,22 en local y de **×1,03 (12 ms sobre
+~420)** en el runner de CI. Ese dato sorprende en la dirección buena —la red emulada reparte un
+presupuesto fijo de bytes por segundo, así que no depende de lo cargado que esté el runner— y
+deja la puerta abierta a poner un tope algún día. Hoy no se pone: **una corrida no es una serie**,
+y un tope que a veces salta enseña a ignorar los rojos. Lo que hay es una
+**comparación dentro de la misma corrida** —el molde del CLS de `hueco-banner-invisible.spec.ts`:
+dos medidas de la misma página con lo mismo alrededor— y la dispersión **impresa en el informe**
+de cada corrida, para que el día que se quiera poner un tope el dato esté ahí en vez de tener
+que suponerlo.
+
+### Quién paga los destacados: dos rojos y una cuenta reutilizada
+
+Destacar de verdad se paga, así que la spec pide saldo al administrador y lo gasta. Dónde cae
+ese saldo costó dos intentos, y los dos los cazó el CI en vez de una suposición.
+
+**Con `seller-e2e` caían dos specs posteriores.** `mis-creditos` («renderiza la página con saldo
+0 e historial vacío») y `pulido` («sin movimientos, el vacío dice qué son») afirman que ese
+vendedor **no tiene cartera** — es el estado que necesitan para probar el vacío. Y no se puede
+devolver: retirar el saldo deja los apuntes, y los apuntes son lo que miran.
+
+**Con una cuenta nueva en la semilla caía el job de capturas.** `/admin` pinta «Usuarios
+totales», el job de capturas usa el MISMO `seed-playwright.ts`, y un séptimo usuario mueve esa
+cifra. Regenerar los baselines para acomodar una cuenta de pruebas habría sido exactamente el
+rojo crónico de capturas que este documento describe unas secciones más arriba.
+
+**La salida fue reutilizar `buyer-e2e`**: es la única cuenta a la que la batería **ya le da
+créditos** (`h8-d3-coupons` le canjea cupones de 25 y 5) y de la que, por eso mismo, nadie
+afirma que tenga la cartera vacía. Ese spec corre antes en el orden alfabético, así que tampoco
+se le estropea lo suyo. Que el «comprador» publique suena raro; aquí los ocho anuncios son un
+soporte para ocho fotos y se borran al terminar.
+
+### Lo que la spec recoge al terminar
+
+Los ocho anuncios quedan ACTIVE **y destacados siete días** en el índice, y va media batería por
+detrás en el orden alfabético: sin limpiar, cualquier spec posterior que mirase una lista de
+resultados se encontraría un bloque «Promocionados» que no sembró. El `afterAll` los borra **por
+la API** (`DELETE /listings/:id`), que es lo que encola la retirada del índice — un borrado por
+Prisma dejaría el documento huérfano en Meilisearch, o sea el mismo filtrado pero sin fila a la
+que echarle la culpa.
 
 ## 4. Documentación de la API y el diseño
 

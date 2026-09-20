@@ -365,6 +365,10 @@ cantidades, éste es el cambio que movió el valor de cada unidad.
 - **LCP: vigilar.** Pasar de 4 a 8 tarjetas **dobla las imágenes por encima del pliegue** en
   escritorio. Ninguna del bloque lleva `priority`, así que son `lazy` por defecto y el navegador
   las prioriza solo — pero conviene **medirlo** en la ráfaga, no suponerlo.
+  **Medido** (`apps/web/e2e/lcp-busqueda-destacados.spec.ts`): el elemento LCP es la foto de la
+  primera tarjeta del bloque; ≈ 390–460 ms sin acotar la red, y ≈ 410–425 ms a 40 Mbit/s
+  emulados en el runner de CI con la build de producción. Sin `priority` y con `lazy`, el
+  navegador la prioriza solo y la del LCP llega primero.
 - **`sizes` se queda corto, y ya pasaba antes.** `GRID_MEDIA_SIZES` declara `33vw` hasta 1024 px
   ([card-shells.tsx:33](../apps/web/src/components/anuncios/card-shells.tsx#L33)) mientras que el
   grid ya está a 4 columnas desde 768. El navegador descarga algo más grande de lo necesario en
@@ -395,8 +399,12 @@ Se aplicaron D-1, D-2, D-3, D-5 y D-7. **D-8 se aceptó tras ver la previa a 102
    `onlyBoosted` y `boostedActiveAt` sigan ahí).
 
 **RÁFAGA 3 — Lo que el cambio destapa** — **✅ HECHA** (ver «Destacados — RÁFAGA 3» en
-`estado-tecnico.md`). D-4 resuelta contando el peor caso. **Salvedad: el LCP no llegó a medirse
-de verdad** —la semilla no trae imágenes, así que el elemento LCP fue texto— y queda sin barrera.
+`estado-tecnico.md`). D-4 resuelta contando el peor caso. ~~**Salvedad: el LCP no llegó a medirse
+de verdad** —la semilla no trae imágenes, así que el elemento LCP fue texto— y queda sin
+barrera.~~ **La salvedad está cerrada**: ver «El LCP de `/busqueda`, medido sobre una imagen» en
+`estado-tecnico.md` y `apps/web/e2e/lcp-busqueda-destacados.spec.ts`. El elemento LCP es ahora la
+foto de la primera tarjeta del bloque, la semilla trae fotos deterministas y el instrumento está
+validado con una degradación real. Sin umbral de tiempo, a propósito y con la dispersión medida.
 1. Decidir las impresiones ([§11](#11--las-impresiones-veces-listado-se-inflarían)).
 2. Medir LCP con 8 tarjetas y afinar `sizes`.
 3. Añadir `/busqueda` a las rutas de `estilo-invariancia.spec.ts`
